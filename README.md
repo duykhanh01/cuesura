@@ -2,7 +2,9 @@
 
 > Giữ nhịp bằng code. Để AI chơi phần chuyên môn.
 
-Metronome là một AI coding orchestrator cá nhân, tất định và hướng sự kiện. Tên dự án nói lên cách nó vận hành: máy đếm nhịp giữ tempo chính xác và không bao giờ tự ứng tác, còn nhạc công (các coding agent) chỉ việc chơi phần của mình.
+Metronome là một **workflow engine tất định, hướng sự kiện, dành cho AI agent**. Tên dự án nói lên cách nó vận hành: máy đếm nhịp giữ tempo chính xác và không bao giờ tự ứng tác, còn nhạc công (các agent) chỉ việc chơi phần của mình.
+
+Use case đầu tiên là quy trình phát triển phần mềm: code → review → PR → CI → merge. Mục tiêu dài hạn là một nền tảng workflow tổng quát. Workflow, role, nguồn task và kênh liên lạc đều là dữ liệu và plugin, không gắn cứng vào việc viết code.
 
 - **Không có Primary AI chạy liên tục.** Một state machine thuần quyết định mọi bước, nên việc điều phối tốn 0 token.
 - **Agent là các lần gọi headless một lần cho mỗi bước:** Claude Code, Codex CLI, sau này có Pi.

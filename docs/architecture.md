@@ -1,4 +1,4 @@
-# Personal AI Coding Orchestrator — Đánh giá kiến trúc và khuyến nghị
+# Metronome — Đánh giá kiến trúc và khuyến nghị (use case đầu tiên: workflow phát triển phần mềm)
 
 *Ngày: 2026-10-26. Vai trò: Principal Software Architect review.*
 
