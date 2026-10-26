@@ -7,5 +7,5 @@ coverage/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
-.metro/
+.cusr/
 .DS_Store
