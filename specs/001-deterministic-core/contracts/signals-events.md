@@ -117,16 +117,22 @@ Luật:
 
 | Kind | `logical_id` trong `idem_key` | Ghi chú |
 |---|---|---|
-| `prepare` | `revision` | Snapshot, tạo worktree/branch, chạy setup theo hợp đồng retry của project |
+| `prepare` | `step` + `visit` (revision đã nằm trong khoá) | Snapshot, tạo worktree/branch, chạy setup theo hợp đồng retry của project; revision sau dùng lại worktree nên bỏ bước |
 | `start_agent` | attempt ID | Mang role, binding, rung, `reservation_id` |
 | `stop_attempt` | attempt ID | Được phép khi đang hủy |
 | `run_gates` | `step` + `visit` | Danh sách gate đã đóng băng |
 | `rerun_ci` | `head_sha` + `visit` | Chạy lại check lỗi hạ tầng/flaky, giới hạn bởi `max_visits` của bước |
-| `publish` | `revision` + checkpoint | Gộp checkpoint/commit/push ở mức quyết định |
-| `create_pr` | `task_id` | Một PR mỗi task |
-| `await_ci` | `head_sha` | Chờ required checks của đúng head |
-| `merge` | `head_sha` | Chỉ khi merge guard đạt (R-10) |
+| `publish` | `step` + `visit` (checkpoint = lượt vào bước) | Gộp checkpoint/commit/push ở mức quyết định |
+| `create_pr` | `task_id` + `visit` | Một PR mỗi task: PR đã có thì bước được bỏ |
+| `await_ci` | `head_sha` + `visit` + lần hỏi | Chờ required checks của đúng head; mỗi lần hỏi lại sau timer `ci_poll` là một thao tác mới |
+| `merge` | `head_sha` + `visit` | Chỉ khi merge guard đạt (R-10) |
 | `reconcile` | effect ID gốc | Probe; được phép khi đang hủy |
+
+`visit` là số lần vào bước (`step_visits`). Thử lại *cùng* thao tác (executor gửi lại, đối chiếu
+`not_executed` đưa effect về hàng đợi) giữ nguyên khoá. Lõi chỉ chạy lại một bước không phải agent sau
+khi effect trước đã có kết quả `failed`, bằng cách vào lại bước; lượt vào mới cho khoá mới và bị giới hạn
+bởi `max_visits`. Kho có unique constraint trên `idem_key`, nên khoá chỉ theo `head_sha` sẽ không cho thử
+lại merge sau một lần thất bại đã xác định.
 
 ## Mã từ chối của `decide`
 

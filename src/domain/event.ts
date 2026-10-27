@@ -3,6 +3,7 @@ import type { CanonicalTask } from './task.ts';
 import type { EffectKind } from './effect.ts';
 import type { FrozenExecutionContext, FrozenPolicy, Level } from './policy.ts';
 import type { AttemptKind, ResumeAction, TimerKind, Wait } from './state.ts';
+import type { StepKind } from './workflow.ts';
 import type { BaseRelation, Check, FailureClass, RequiredSet, Usage } from './trigger.ts';
 
 export const EVENT_SCHEMA_VERSION = 1;
@@ -29,7 +30,12 @@ export type EventPayloads = {
   AmendmentRejected: { code: string; by: string };
   // Bước
   StepEntered: { step: string; visit: number; from: { step: string; outcome: string } | null };
-  StepSkipped: { step: string; reason: 'when' | 'skip_when' | 'no_gates' | 'pr_exists'; outcome: string };
+  StepSkipped: {
+    step: string;
+    kind: StepKind;
+    reason: 'when' | 'skip_when' | 'no_gates' | 'pr_exists' | 'prepared';
+    outcome: string;
+  };
   StepExhausted: { step: string; visits: number; target: string };
   // Attempt
   AttemptRequested: {
@@ -131,11 +137,11 @@ export type EventPayloads = {
   ApprovalGranted: { approval_id: string; by: string; head_sha: string | null };
   ApprovalRejected: { approval_id: string; by: string };
   // Revision
-  SourceDriftDetected: { pending_revision: number; task: CanonicalTask };
+  SourceDriftDetected: { pending_revision: number; task: CanonicalTask; at: number };
   SafeBoundaryReached: { deferred: ResumeAction | null; prior_wait: Wait | null };
   RevisionApplied: { revision: number; task: CanonicalTask };
   // Hủy
-  CancelRequested: { by: string; reason: string };
+  CancelRequested: { by: string; reason: string; at: number };
   CancelRecordedLate: { merge_effect_id: string | null };
   // Kết thúc
   TaskCompleted: { reason: string };

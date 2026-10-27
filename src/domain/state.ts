@@ -69,6 +69,8 @@ export type DetailCode = (typeof DETAIL_CODES)[number];
 export type ResumeAction =
   | { kind: 'start_attempt'; step: string; attempt_kind: AttemptKind }
   | { kind: 'enter_step'; step: string }
+  /** Chạy lại bước mà không tính lượt vào bước (sau khi người trả lời hoặc duyệt). */
+  | { kind: 'run_step'; step: string }
   | { kind: 'route'; step: string; outcome: string }
   | { kind: 'retry_effect'; step: string }
   | { kind: 'poll_ci'; step: string }
@@ -98,6 +100,8 @@ export type Attempt = {
   effect_id: string;
   reservation_id: string;
   status: 'running' | 'finished';
+  /** Người đã yêu cầu dừng attempt; kết quả về sau không làm qua bước. */
+  stop_requested: boolean;
   outcome: { class: FailureClass | null; status: string | null; signature: string | null } | null;
   usage: Usage | null;
 };

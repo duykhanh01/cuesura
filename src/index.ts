@@ -1,4 +1,4 @@
-// API công khai (contracts/core-api.md). Lõi quyết định, kho và giải thích được export ở các story sau.
+// API công khai (contracts/core-api.md). Kho và giải thích được export ở các story sau.
 export type { Result } from './shared/result.ts';
 export type { Uuid, EpochMs, Hash } from './shared/brand.ts';
 
@@ -16,3 +16,9 @@ export type { Diagnostic, DiagnosticCode, ValidatedConfig } from './domain/confi
 export type { CanonicalTask } from './domain/task.ts';
 export type { AuthzContext, FrozenPolicy, FrozenExecutionContext } from './domain/policy.ts';
 
+export { decide, type DecideInput, type Decision, type RejectCode } from './engine/decide.ts';
+export { evolve, replay } from './engine/evolve.ts';
+export { claimable, type Claimability, type ClaimBlockReason } from './engine/claim.ts';
+export type { TaskState, TaskStatus, Wait, WaitReason } from './domain/state.ts';
+export type { DomainEvent, DomainEventDraft } from './domain/event.ts';
+export type { TriggerEnvelope, Trigger, RelatedFacts } from './domain/trigger.ts';
