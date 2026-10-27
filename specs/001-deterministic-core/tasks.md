@@ -173,28 +173,28 @@ không ghi một nửa, không sự kiện trùng, projection dựng lại khớ
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T077 [US3] Tạo `test/support/temp-db.ts` (thư mục tạm trên filesystem Linux, dọn sau test) và `test/support/crash-child.ts` (tiến trình con mở kho với `CUSR_CRASH_AT` và seed, áp danh sách phong bì từ file JSON)
-- [ ] T078 [P] [US3] Viết `test/integration/store/accept.test.ts`: chấp nhận nguyên tử; trùng khoá trả kết quả lần đầu (FR-026); `request_hash` gồm `task_id`, `expected_version`, `actor` mà không gồm `now`/`ids` (R-19); `stale_version` → `conflict`; `Decision.rejected` được lưu mà không append sự kiện; `seq`/`global_seq` theo đúng thứ tự `accept`, không phụ thuộc thứ tự ID hay `now` của phong bì (FR-027)
-- [ ] T079 [P] [US3] Viết `test/integration/store/projection.test.ts`: `verifyProjections` khớp sau nhật ký nhiều task; phát hiện dòng projection bị sửa tay
-- [ ] T080 [P] [US3] Viết `test/integration/store/effects.test.ts`: unique `idem_key`; claim `pending → started`; `effect_invalidated`; `claim_blocked` với từng `reason` (US2 scenario 13 ở mức kho); `stop_attempt`/`reconcile` không bị chặn
-- [ ] T081 [P] [US3] Viết `test/integration/store/timers.test.ts`: `fireDueTimers` tạo đúng một tín hiệu logic; chạy lại sau crash ở `after_commit` không tạo tín hiệu thứ hai; gọi với `now` lùi so với lần trước không làm timer nào đến hạn sớm và không lỗi
-- [ ] T082 [P] [US3] Viết `test/integration/store/single-writer.test.ts`: tiến trình thứ hai nhận `store_locked`; khoá được nhả sau khi tiến trình đầu bị `SIGKILL` (R-06)
-- [ ] T083 [P] [US3] Viết `test/integration/store/write-failure.test.ts`: ép `SQLITE_FULL` bằng `PRAGMA max_page_count` và ép busy → `write_failed`, trạng thái không đổi (FR-033)
-- [ ] T084 [P] [US3] Viết `test/integration/crash/crash-points.test.ts`: ngắt một lần ở mỗi điểm `after_dedup`, `after_events`, `after_projection`, `after_effects`, `after_timers`, `before_commit`, `after_commit`; sau đó `integrity_check = ok`, hoặc đủ hoặc không có gì, `verifyProjections` khớp
-- [ ] T085 [US3] Viết `test/integration/store/us3-scenarios.test.ts`: 8 acceptance scenario của US3 đánh số như spec (scenario 7 phục hồi publish, create PR, start agent với dữ liệu đối chiếu đủ và thiếu)
+- [X] T077 [US3] Tạo `test/support/temp-db.ts` (thư mục tạm trên filesystem Linux, dọn sau test) và `test/support/crash-child.ts` (tiến trình con mở kho với `CUSR_CRASH_AT` và seed, áp danh sách phong bì từ file JSON)
+- [X] T078 [P] [US3] Viết `test/integration/store/accept.test.ts`: chấp nhận nguyên tử; trùng khoá trả kết quả lần đầu (FR-026); `request_hash` gồm `task_id`, `expected_version`, `actor` mà không gồm `now`/`ids` (R-19); `stale_version` → `conflict`; `Decision.rejected` được lưu mà không append sự kiện; `seq`/`global_seq` theo đúng thứ tự `accept`, không phụ thuộc thứ tự ID hay `now` của phong bì (FR-027)
+- [X] T079 [P] [US3] Viết `test/integration/store/projection.test.ts`: `verifyProjections` khớp sau nhật ký nhiều task; phát hiện dòng projection bị sửa tay
+- [X] T080 [P] [US3] Viết `test/integration/store/effects.test.ts`: unique `idem_key`; claim `pending → started`; `effect_invalidated`; `claim_blocked` với từng `reason` (US2 scenario 13 ở mức kho); `stop_attempt`/`reconcile` không bị chặn
+- [X] T081 [P] [US3] Viết `test/integration/store/timers.test.ts`: `fireDueTimers` tạo đúng một tín hiệu logic; chạy lại sau crash ở `after_commit` không tạo tín hiệu thứ hai; gọi với `now` lùi so với lần trước không làm timer nào đến hạn sớm và không lỗi
+- [X] T082 [P] [US3] Viết `test/integration/store/single-writer.test.ts`: tiến trình thứ hai nhận `store_locked`; khoá được nhả sau khi tiến trình đầu bị `SIGKILL` (R-06)
+- [X] T083 [P] [US3] Viết `test/integration/store/write-failure.test.ts`: ép `SQLITE_FULL` bằng `PRAGMA max_page_count` và ép busy → `write_failed`, trạng thái không đổi (FR-033)
+- [X] T084 [P] [US3] Viết `test/integration/crash/crash-points.test.ts`: ngắt một lần ở mỗi điểm `after_dedup`, `after_events`, `after_projection`, `after_effects`, `after_timers`, `before_commit`, `after_commit`; sau đó `integrity_check = ok`, hoặc đủ hoặc không có gì, `verifyProjections` khớp
+- [X] T085 [US3] Viết `test/integration/store/us3-scenarios.test.ts`: 8 acceptance scenario của US3 đánh số như spec (scenario 7 phục hồi publish, create PR, start agent với dữ liệu đối chiếu đủ và thiếu)
 
 ### Implementation for User Story 3
 
-- [ ] T086 [US3] Viết `src/store/migrations/001_init.sql` theo bảng "Lưu trữ SQLite" của data-model.md, giữ nguyên ràng buộc: `UNIQUE(task_id, seq)`, `UNIQUE(idem_key)`, `UNIQUE(project, source_key)`, `PRIMARY KEY(task_id, revision, policy_version)`, `PRIMARY KEY(task_id, revision)`, `CHECK(status IN (...))`, index `(status, due_at)`
-- [ ] T087 [US3] Triển khai `src/store/migrate.ts`: bảng `schema_meta`, áp migration theo phiên bản, `schema_incompatible` khi DB mới hơn code
-- [ ] T088 [US3] Triển khai `src/store/open.ts`: `journal_mode=WAL`, `synchronous=FULL`, `foreign_keys=ON`, `busy_timeout` hữu hạn, `locking_mode=EXCLUSIVE` + `BEGIN IMMEDIATE; COMMIT`, `integrity_check`; lỗi `store_locked`, `schema_incompatible`, `integrity_failed`, `io_error` (R-06)
-- [ ] T089 [P] [US3] Triển khai `src/store/crash.ts`: đọc `CUSR_CRASH_AT` một lần lúc mở, `process.kill(process.pid, 'SIGKILL')` tại 7 điểm của R-08, không làm gì khi biến không đặt
-- [ ] T090 [US3] Triển khai `src/store/projector.ts`: áp sự kiện vào `tasks`, `effects`, `timers`, `frozen_policies`, `frozen_contexts`; dùng chung cho `accept` và `verifyProjections`
-- [ ] T091 [US3] Triển khai `src/store/accept.ts`: transaction `BEGIN IMMEDIATE` dedup → đọc state, policy, `RelatedFacts` → `decide` → append (gán `seq`, `global_seq`) → projection → commit; không `await`; ánh xạ lỗi SQLite sang `write_failed` (phụ thuộc T088–T090)
-- [ ] T092 [US3] Triển khai `src/store/claim.ts`: đọc projection, gọi `claimable`, append `EffectStarted` trong cùng transaction
-- [ ] T093 [P] [US3] Triển khai `src/store/timers.ts`: `dueTimers`, `fireDueTimers` (mỗi timer một transaction, khoá `timer:<id>`, `TimerFired` cùng transaction)
-- [ ] T094 [P] [US3] Triển khai `src/store/read.ts` (`readTask`, `readEvents`, `readPolicy`, `readContext`, `pendingEffects`) và `src/store/verify.ts` (`verifyProjections` dựng lại từ nhật ký và so JSON chuẩn hoá)
-- [ ] T095 [US3] Tạo `src/store/index.ts` (`openStore`, interface `Store`) và `src/store/testing.ts` (`openMemoryStore` cùng schema theo R-09, hook crash); export `openStore` từ `src/index.ts`; điền suite US3 cho I02, I03, I04, I08, I10, I12 trong `test/invariants.map.ts`
+- [X] T086 [US3] Viết `src/store/migrations/001_init.sql` theo bảng "Lưu trữ SQLite" của data-model.md, giữ nguyên ràng buộc: `UNIQUE(task_id, seq)`, `UNIQUE(idem_key)`, `UNIQUE(project, source_key)`, `PRIMARY KEY(task_id, revision, policy_version)`, `PRIMARY KEY(task_id, revision)`, `CHECK(status IN (...))`, index `(status, due_at)`
+- [X] T087 [US3] Triển khai `src/store/migrate.ts`: bảng `schema_meta`, áp migration theo phiên bản, `schema_incompatible` khi DB mới hơn code
+- [X] T088 [US3] Triển khai `src/store/open.ts`: `journal_mode=WAL`, `synchronous=FULL`, `foreign_keys=ON`, `busy_timeout` hữu hạn, `locking_mode=EXCLUSIVE` + `BEGIN IMMEDIATE; COMMIT`, `integrity_check`; lỗi `store_locked`, `schema_incompatible`, `integrity_failed`, `io_error` (R-06)
+- [X] T089 [P] [US3] Triển khai `src/store/crash.ts`: đọc `CUSR_CRASH_AT` một lần lúc mở, `process.kill(process.pid, 'SIGKILL')` tại 7 điểm của R-08, không làm gì khi biến không đặt
+- [X] T090 [US3] Triển khai `src/store/projector.ts`: áp sự kiện vào `tasks`, `effects`, `timers`, `frozen_policies`, `frozen_contexts`; dùng chung cho `accept` và `verifyProjections`
+- [X] T091 [US3] Triển khai `src/store/accept.ts`: transaction `BEGIN IMMEDIATE` dedup → đọc state, policy, `RelatedFacts` → `decide` → append (gán `seq`, `global_seq`) → projection → commit; không `await`; ánh xạ lỗi SQLite sang `write_failed` (phụ thuộc T088–T090)
+- [X] T092 [US3] Triển khai `src/store/claim.ts`: đọc projection, gọi `claimable`, append `EffectStarted` trong cùng transaction
+- [X] T093 [P] [US3] Triển khai `src/store/timers.ts`: `dueTimers`, `fireDueTimers` (mỗi timer một transaction, khoá `timer:<id>`, `TimerFired` cùng transaction)
+- [X] T094 [P] [US3] Triển khai `src/store/read.ts` (`readTask`, `readEvents`, `readPolicy`, `readContext`, `pendingEffects`) và `src/store/verify.ts` (`verifyProjections` dựng lại từ nhật ký và so JSON chuẩn hoá)
+- [X] T095 [US3] Tạo `src/store/index.ts` (`openStore`, interface `Store`) và `src/store/testing.ts` (`openMemoryStore` cùng schema theo R-09, hook crash); export `openStore` từ `src/index.ts`; điền suite US3 cho I02, I03, I04, I08, I10, I12 trong `test/invariants.map.ts`
 
 **Checkpoint**: US3 xanh trên file SQLite thật trong WSL2.
 

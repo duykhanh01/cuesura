@@ -111,7 +111,7 @@ công nghệ. Các mục dưới giải quyết những lựa chọn thiết k�
 ## R-08 Crash injection
 
 - **Decision:** test cha `fork` một tiến trình con chạy `test/support/crash-child.ts` với
-  `CUSR_CRASH_AT=<point>` và seed. Kho đọc biến này một lần khi mở và gọi
+  `CUSR_CRASH_AT=<point>` và seed; `CUSR_CRASH_AFTER=<n>` (mặc định 1) chọn lần thứ n đi qua điểm đó để ngắt giữa một chuỗi tín hiệu. Kho đọc biến này một lần khi mở và gọi
   `process.kill(process.pid, 'SIGKILL')` tại điểm tương ứng. Các điểm: `after_dedup`, `after_events`,
   `after_projection`, `after_effects`, `after_timers`, `before_commit`, `after_commit`. Sau mỗi lần ngắt,
   cha mở lại kho, chạy `PRAGMA integrity_check`, kiểm tín hiệu đã commit còn đủ và `verifyProjections`

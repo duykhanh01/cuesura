@@ -119,7 +119,8 @@ type AcceptOutcome = {
 
 type ClaimError =
   | { code: 'effect_invalidated' | 'not_pending' | 'not_found' }
-  | { code: 'claim_blocked'; reason: 'stale_revision' | 'source_drift' | 'cancelling' | 'terminal' | 'deadline' | 'task_waiting' };
+  | { code: 'claim_blocked'; reason: 'stale_revision' | 'source_drift' | 'cancelling' | 'terminal' | 'deadline' | 'task_waiting' }
+  | { code: 'write_failed'; cause: 'disk_full' | 'busy' | 'io_error' };   // như AcceptError: transaction đã rollback
 // claim_blocked: effect vẫn pending; điều kiện do hàm thuần claimable(state, effect, now) quyết (R-16).
 
 type AcceptError =

@@ -15,7 +15,7 @@
     "lint": "eslint .",
     "test": "vitest run --project default",
     "test:reliability": "vitest run --project reliability",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node -e \"require('node:fs').cpSync('src/store/migrations', 'dist/store/migrations', { recursive: true })\"",
     "report:invariants": "node scripts/report-invariants.ts"
   },
   "dependencies": {
