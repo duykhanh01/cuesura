@@ -8,17 +8,9 @@ function selectedProject(argv: readonly string[]): string {
   return eq ? eq.slice('--project='.length) : 'all';
 }
 
-// `pnpm test:reliability --seed <seed>` → CUSR_SEED cho fast-check và bộ crash (T110).
-function seedFromArgv(argv: readonly string[]): string | undefined {
-  const i = argv.indexOf('--seed');
-  if (i >= 0) return argv[i + 1];
-  const eq = argv.find((a) => a.startsWith('--seed='));
-  return eq?.slice('--seed='.length);
-}
-
 const project = selectedProject(process.argv);
-const seed = process.env['CUSR_SEED'] ?? seedFromArgv(process.argv);
-if (seed !== undefined) process.env['CUSR_SEED'] = seed;
+// `pnpm test:reliability --seed <seed>` đặt CUSR_SEED (scripts/test-reliability.ts); worker kế thừa biến
+// này, và fast-check lẫn bộ ngắt tiến trình đọc nó để tái hiện một lần chạy (T110).
 
 export default defineConfig({
   test: {

@@ -252,14 +252,14 @@ chờ với bảng mong đợi (`pnpm test test/scenarios/us4-escalation.test.ts
 
 **Purpose**: Bộ reliability, báo cáo bất biến, kiểm tra ranh giới tĩnh và nghiệm thu.
 
-- [ ] T108 [P] Viết `test/reliability/r4-sequences.test.ts`: 10.000 chuỗi tín hiệu sinh ngẫu nhiên qua `openMemoryStore`, kiểm mọi bất biến trong phạm vi sau mỗi `accept`; gửi lại mỗi tín hiệu 2–5 lần và so số sự kiện, effect, timer (SC-003, SC-007); in `seed` và `path` khi fail
-- [ ] T109 [P] Viết `test/reliability/r1-crash.test.ts`: 200 lần `SIGKILL` có seed tại điểm ngẫu nhiên trên file SQLite WAL + `synchronous=FULL`; sau mỗi lần kiểm `integrity_check`, tín hiệu đã commit còn đủ, `verifyProjections` khớp 100% (SC-005)
-- [ ] T110 Cho `pnpm test:reliability --seed <seed>` hoạt động: đọc seed qua biến `CUSR_SEED` trong `vitest.config.ts` và truyền vào fast-check và bộ crash ở T108, T109
-- [ ] T111 [P] Viết `test/unit/lint/boundaries.test.ts`: chạy ESLint API trên `test/fixtures/lint/engine-violation.ts` (import `node:fs`, dùng `Date.now()`, `Math.random()`) với cấu hình như `src/engine/**`, khẳng định có đủ lỗi tương ứng (bằng chứng tĩnh cho I01)
-- [ ] T112 Triển khai `scripts/report-invariants.ts` theo R-14: đọc `reports/vitest-default.json`, `reports/vitest-reliability.json` và `test/invariants.map.ts`, in bảng I01–I12, thoát lỗi khi bất biến trong phạm vi có suite thiếu, skip hoặc fail
-- [ ] T113 Hoàn tất `test/invariants.map.ts` với suite của T108, T109, T111 và kiểm không bất biến nào có `suites` rỗng ngoài I05
-- [ ] T114 [P] Thêm mục "Phát triển" vào `README.md`: điều kiện môi trường và các lệnh ở quickstart.md, liên kết tới `specs/001-deterministic-core/quickstart.md`
-- [ ] T115 Chạy toàn bộ quickstart.md trong WSL2 (`pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build`, `pnpm test:reliability`, `pnpm report:invariants`) và ghi kết quả thật, kể cả mục chưa đạt, vào `specs/001-deterministic-core/acceptance-report.md`, cùng mục "Hành trình liên quan" nêu S01–S10 nào được feature này phục vụ một phần và phần nào còn thuộc feature sau
+- [X] T108 [P] Viết `test/reliability/r4-sequences.test.ts`: 10.000 chuỗi tín hiệu sinh ngẫu nhiên qua `openMemoryStore`, kiểm mọi bất biến trong phạm vi sau mỗi `accept`; gửi lại mỗi tín hiệu 2–5 lần và so số sự kiện, effect, timer (SC-003, SC-007); in `seed` và `path` khi fail
+- [X] T109 [P] Viết `test/reliability/r1-crash.test.ts`: 200 lần `SIGKILL` có seed tại điểm ngẫu nhiên trên file SQLite WAL + `synchronous=FULL`; sau mỗi lần kiểm `integrity_check`, tín hiệu đã commit còn đủ, `verifyProjections` khớp 100% (SC-005)
+- [X] T110 Cho `pnpm test:reliability --seed <seed>` hoạt động: đọc seed qua biến `CUSR_SEED` trong `vitest.config.ts` và truyền vào fast-check và bộ crash ở T108, T109
+- [X] T111 [P] Viết `test/unit/lint/boundaries.test.ts`: chạy ESLint API trên `test/fixtures/lint/engine-violation.ts` (import `node:fs`, dùng `Date.now()`, `Math.random()`) với cấu hình như `src/engine/**`, khẳng định có đủ lỗi tương ứng (bằng chứng tĩnh cho I01)
+- [X] T112 Triển khai `scripts/report-invariants.ts` theo R-14: đọc `reports/vitest-default.json`, `reports/vitest-reliability.json` và `test/invariants.map.ts`, in bảng I01–I12, thoát lỗi khi bất biến trong phạm vi có suite thiếu, skip hoặc fail
+- [X] T113 Hoàn tất `test/invariants.map.ts` với suite của T108, T109, T111 và kiểm không bất biến nào có `suites` rỗng ngoài I05
+- [X] T114 [P] Thêm mục "Phát triển" vào `README.md`: điều kiện môi trường và các lệnh ở quickstart.md, liên kết tới `specs/001-deterministic-core/quickstart.md`
+- [X] T115 Chạy toàn bộ quickstart.md trong WSL2 (`pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build`, `pnpm test:reliability`, `pnpm report:invariants`) và ghi kết quả thật, kể cả mục chưa đạt, vào `specs/001-deterministic-core/acceptance-report.md`, cùng mục "Hành trình liên quan" nêu S01–S10 nào được feature này phục vụ một phần và phần nào còn thuộc feature sau
 
 ---
 

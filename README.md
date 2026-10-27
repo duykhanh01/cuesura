@@ -35,3 +35,40 @@ Use case đầu tiên là quy trình phát triển phần mềm: code → review
 Đang ở giai đoạn thiết kế. [SPEC.md](SPEC.md) là đặc tả tổng quan của dự án: phạm vi v1, mô hình miền, workflow, hợp đồng vận hành và tiêu chí nghiệm thu. [docs/architecture.md](docs/architecture.md) lưu đánh giá Build vs Buy, lập luận kiến trúc và kế hoạch ban đầu.
 
 Baseline: Node 24 LTS, TypeScript strict, SQLite (`better-sqlite3`), Zod 4, Commander, `yaml`, Vitest và fast-check. Build bằng `tsc`, quản lý package bằng pnpm, lint/format bằng ESLint + typescript-eslint + Prettier. Chạy trên Ubuntu/WSL2; xem [quyết định kỹ thuật](SPEC.md#17-baseline-kỹ-thuật).
+
+## Phát triển
+
+Feature đang làm là lõi điều phối tất định ([specs/001-deterministic-core](specs/001-deterministic-core/spec.md)). Hướng dẫn kiểm chứng đầy đủ, kèm kết quả mong đợi của từng lệnh, ở [quickstart.md](specs/001-deterministic-core/quickstart.md).
+
+Điều kiện môi trường:
+
+- Linux hoặc WSL2/Ubuntu, repo nằm trên filesystem Linux (không phải `/mnt/c`): crash test dựa vào `SIGKILL` và khoá file của Linux.
+- Node đúng bản pin trong `.nvmrc` (24.22.1), pnpm qua Corepack.
+- `build-essential` và `python3` để build `better-sqlite3` khi không có prebuilt.
+
+```bash
+corepack enable
+pnpm install --frozen-lockfile
+```
+
+Cổng chất lượng, mỗi lệnh là một kiểm tra riêng:
+
+```bash
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm build
+```
+
+Nhóm reliability chạy riêng vì tốn thời gian (10.000 chuỗi tín hiệu qua kho in-memory, 200 lần `SIGKILL` trên file SQLite thật). Khi fail, output in `seed`; truyền lại để tái hiện:
+
+```bash
+pnpm test:reliability
+pnpm test:reliability --seed <seed>
+```
+
+Báo cáo bất biến I01–I12 dựng từ kết quả của lần `pnpm test` và `pnpm test:reliability` gần nhất; thoát lỗi khi thiếu kết quả hoặc có bộ bị skip/fail:
+
+```bash
+pnpm report:invariants
+```
