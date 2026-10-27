@@ -16,7 +16,7 @@ của lõi 001; drain, slot và observation là dữ liệu/chi tiết chờ, kh
 | OperationReceipt | operation_id, effect_id, attempt_id hoặc null, revision, binding_hash, launch_nonce, supervisor/unit identity, process identities, started/finished_at, outcome, artifact refs | Agent/setup/gate/publish đều có receipt; một process identity không chỉ là PID |
 | IngestCursor | operation_id, generation, segment, byte_offset, last_record_seq, acked_at | Chỉ nhảy sau record đầy đủ; thay đổi cùng transaction với event suy ra |
 | Artifact | artifact_id, operation_id, kind, relative_path, digest, bytes, redaction_version, finalized, acked | Runtime root riêng; không tin path từ agent; không expose secret hoặc file chưa finalize |
-| CapabilityManifest | binary realpath/version/digest, vendor, role schemas, permission/auth/cost/resume support, fixture refs, checked_at, manifest_hash | Kết quả help khác kết quả fixture thực nghiệm; binary/hash đổi thì chặn trước attempt mới |
+| CapabilityManifest | binary realpath/version/digest, vendor, role schemas, permission/auth/cost/resume support, native_result, selected_inner_mode, outer_proof_hash, permission_policy_hash, environment/settings hashes, fixture refs, checked_at, manifest_hash | Help khác fixture thực nghiệm; mode external_verified chỉ sau outer/permission proof và owner cho phép; hash/version/layout đổi chặn trước attempt mới |
 
 `FrozenRuntimeContext` chứa tất cả trần nghiên cứu R-04/R-11; runtime capabilities là bằng chứng
 môi trường, không quyền cho agent tự đổi model/permission. Project path và credential reference chỉ

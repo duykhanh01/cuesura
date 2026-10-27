@@ -93,7 +93,9 @@ khai; đọc help/tài liệu không được tính là smoke đã đạt. Các 
 - **Decision:** Provision profile riêng gắn `/usr/bin/bwrap` theo
   [runbook](../../deploy/README.md), giữ `kernel.apparmor_restrict_unprivileged_userns=1`.
   Cài profile là thao tác admin tách biệt; doctor chỉ kiểm/chẩn đoán, không tự sudo hoặc sửa sysctl.
-  Mount/PID/capability policy outer bwrap vẫn bắt buộc, sandbox nội bộ Claude/Codex vẫn bật.
+  Outer mount/PID/capability policy vẫn bắt buộc. S0.1 luôn thử native sandbox bật trước; nếu nesting
+  fail, ngoại lệ external_verified chỉ được chọn sau outer proof + permission evidence và owner config
+  theo ADR-0003. Không tự downgrade hoặc bỏ permission/approval/deny rules.
 - **Evidence:** Đã tái hiện host bwrap 0.9.0 fail `setting up uid map: Permission denied`; chủ dự án
   xác nhận không có AppArmor profile bwrap. Ubuntu 24.04 nêu restriction và quyền userns trong
   [release notes](https://documentation.ubuntu.com/release-notes/24.04/); không còn coi lỗi là riêng
@@ -115,8 +117,9 @@ khai; đọc help/tài liệu không được tính là smoke đã đạt. Các 
   user riêng chỉ được xét lại nếu lát 0 fail, không là backend thứ hai tự động. Tool denylist hoặc
   worktree đơn thuần không thay OS boundary.
 - **Verification status:** Host hiện **blocked**, profile chưa cài. Lát 0 trước A kiểm host profile,
-  nesting của từng harness với sandbox nội bộ còn bật, auth private home, mạng và quyền thực tế.
-  Fail là no-go trước tasks/A, không dời thử nghiệm này sau fake/recovery.
+  native result của từng harness, auth private home/mạng và mode được chọn. Outer/permission chưa
+  proven thì no-go; native fail riêng có thể qua nhánh external_verified có điều kiện. Không dời
+  thử nghiệm trước tasks/A này tới sau fake/recovery; hiện chưa có proof để kích hoạt ngoại lệ.
 
 ## R-07 — Harness là build-command/parse-output
 

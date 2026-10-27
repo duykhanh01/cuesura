@@ -89,7 +89,8 @@ NormalizedUser để runtime còn biết allowlisted remote.
 | --- | --- |
 | User `projects.<id>.path` | Absolute realpath local repo; kiểm git common dir; bắt buộc cho runtime |
 | User `projects.<id>.repo` | `owner/repo` GitHub slug, immutable repo ID lấy ở preflight; khớp remote allowlist |
-| User `runtime` | Object closed: data_dir, limits, tool_paths, credential_refs và access_tokens; chỉ owner sửa |
+| User `runtime` | Object closed: data_dir, limits, tool_paths, credential_refs, access_tokens và harness_isolation; chỉ owner sửa |
+| User `runtime.harness_isolation.<harness>` | internal_required mặc định hoặc allow_external_verified; mode sau chỉ được chọn khi S0.1 proof còn hợp lệ, không nhận từ cusr.yaml/task/agent |
 | User `runtime.limits` | Các trần có default ở research R-04/R-11; số nguyên dương, hữu hạn; task mới chụp snapshot/hash |
 | User `runtime.tool_paths` | git/gh/systemd-run/bwrap/flock absolute executable; hash/version được doctor ghi |
 | User `runtime.credential_refs` | File reference cho GitHub/harness, không copy secret vào snapshot |
@@ -111,7 +112,8 @@ initial ≤ max, segment ≤ spool, TERM+KILL ≤ drain/recheck. Trần CI thờ
 
 Doctor chạy probe không tốn model: version/schema availability, Git paths/permissions, cgroup/systemd,
 sandbox mount/proc/socket/secret access, storage writability, credential availability (không in secret).
-Lát 0 trước tasks/A kiểm host AppArmor, nested sandbox, auth home và ba role × hai vendor. Doctor
+Lát 0 trước tasks/A kiểm host AppArmor, native sandbox bật trước, nhánh external_verified chỉ
+sau outer-proof/permission fixtures và owner config theo ADR-0003, auth home và ba role × hai vendor. Doctor
 trên WSL2 kiểm systemd=true cùng user-manager unit probe, không chỉ PID1. Schema output thật/cost/auth
 capability chỉ được đánh dấu proven khi có fixture thực nghiệm; chưa
 có thì chặn binding cần khả năng đó. Mỗi lần attempt kiểm lại binary hash và manifest còn phù hợp.

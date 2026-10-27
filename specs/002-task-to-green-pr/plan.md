@@ -21,7 +21,7 @@ Nối lõi 001 vào một daemon ghi SQLite, runner độc lập, Git/worktree v
 | Target Platform | Ubuntu/WSL2 có systemd user manager, bubblewrap/namespaces đã kiểm chứng; Git và util-linux flock |
 | Project Type | Một package CLI/daemon/runner; Unix socket cục bộ |
 | Performance Goals | Một slot thực thi; observation không giữ slot; giới hạn I/O/poll/spool/drain tại research R-04/R-11 |
-| Constraints | Snapshot trước RUNNING; không merge/yolo/amend/retry terminal; AppArmor profile riêng, nested sandbox phải đạt; Internet outbound đã chốt, không egress allowlist |
+| Constraints | Snapshot trước RUNNING; không merge/yolo/amend/retry terminal; AppArmor profile riêng, outer boundary/permission phải đạt; native thử trước, external_verified có điều kiện; Internet outbound đã chốt, không egress allowlist |
 | Scale/Scope | Một người dùng; nhiều task queued/chờ, một task thực thi; một worktree/branch/PR mỗi task |
 
 ## Constitution Check
@@ -103,7 +103,7 @@ Entity ở [data-model](data-model.md), giới hạn/lựa chọn ở [research]
 
 | Lát | Nội dung | Điều kiện sang lát tiếp |
 | --- | --- | --- |
-| 0 — Spike ngày 1 | Host AppArmor/bwrap, nested sandbox hai harness còn bật sandbox nội bộ; private-home auth/network; 3 role × 2 vendor; systemd lifetime và gh head-at-merge | [S0.1–S0.3](spike-0.md) có fixture thật đạt; trước tasks/A. Hiện BLOCKED, chưa cài profile/chạy các lượt model/GitHub |
+| 0 — Spike ngày 1 | Host AppArmor/bwrap, native sandbox hai harness bật trước và nhánh external_verified có điều kiện; private-home auth/network; 3 role × 2 vendor; systemd lifetime và gh head-at-merge | [S0.1–S0.3](spike-0.md) có fixture thật đạt; trước tasks/A. Hiện BLOCKED, chưa cài profile/chạy các lượt model/GitHub |
 | A — Luồng fake | Domain/store, admission/snapshot, runtime đã chứng minh ở 0, worktree/gates, fake harness/GitHub, vòng sửa/chờ merge; CLI nhỏ đủ thử | US1/2/4 qua fake; gate go/no-go dưới đây; không dùng A/B để thay feasibility spike |
 | B — Recovery/tương tác | Re-adopt/spool/probe, inbox/answer/cancel/recheck, health/explain, queue/dependency; Git/process thật | US3/5/6; ≥200 daemon kills quanh spawn/commit/push/PR/drain; replay 100%, không duplicate effects |
 | C — Smoke xuyên suốt thật | Adapter đã có fixture từ 0; hai chiều coder/reviewer trên Node/Python, restart/manual merge | SC-001/002/005/008 đạt thật; SC còn lại có matrix/report; mọi FR có evidence hoặc ghi chưa đạt |
@@ -120,8 +120,10 @@ gia hạn một mốc review v1 sớm hơn nếu đã được ghi nhận. B ch�
 
 Điều kiện kỹ thuật để đề nghị **go**:
 
-1. S0.1–S0.3 đạt trên host triển khai với manifest/version/auth/boundary thực, không tắt sandbox
-   nội bộ hoặc nới sysctl để né lỗi; prototype/schema/gh proof đã dùng được trong adapter A.
+1. S0.1–S0.3 đạt trên host triển khai với manifest/version/auth/boundary thực. Có native result
+   từng vendor; native pass hoặc external_verified đáp ứng ADR-0003 sau outer/permission proof,
+   owner config tường minh. Không bypass permission, mở capability hoặc nới sysctl; prototype/schema/
+   gh proof dùng được trong adapter A. Native fail không bị ghi lại thành native pass.
 2. US1/2/4 luồng fake và vòng sửa pass; chạy lại ít nhất 20 lần theo seeds ghi nhận, mỗi task đúng
    một worktree/branch/PR, zero merge requests và zero logical publish duplicate; DONE đợi drain.
 3. Permission/secret negative fixtures đều chặn đúng; không token điều phối lọt log/prompt/sandbox,
@@ -146,7 +148,7 @@ crash, smoke thật, quyền hoặc idempotency để làm cho cột go thành x
 
 | Rủi ro | Cổng / kết quả khi chưa đạt |
 | --- | --- |
-| Host bwrap đang fail/nesting chưa kiểm | Provision profile theo deploy runbook, S0.1/S0.2 phải đạt trước tasks/A; doctor không tự sudo hoặc fallback |
+| Host bwrap đang fail/nesting chưa kiểm | Provision profile, S0.1/S0.2 trước tasks/A; doctor không tự sudo/đổi mode, external_verified chỉ sau outer/permission proof và owner config |
 | Head-at-merge qua squash/rebase/push sau merge chưa chứng minh | Fixture GitHub bắt buộc; thiếu bằng chứng trả unknown, không DONE phỏng đoán |
 | Không đọc đủ classic protection/rules/app identity | unknown/policy, không PR xanh |
 | Spawn/spool crash, ENOSPC, PID reuse | Operation lock/marker, atomic receipt, backpressure/reconcile; giữ claim |
@@ -159,9 +161,10 @@ crash, smoke thật, quyền hoặc idempotency để làm cho cột go thành x
 | Runner transient systemd service kể cả foreground | Điều chỉnh baseline process, đã sửa SPEC §§12.1/17.2 và ghi ADR-0002; spawn vẫn là primitive để gọi systemd-run, không gọi là baseline chưa đổi |
 | GitHub qua gh port | Giữ §17.2; bỏ fetch backend khỏi thiết kế, gh version/argv/deadline có fixture |
 | Files agent tại runs/<attempt_id> | Giữ §12.1 và các file invocation/pid/events/stderr/liveness/progress/exit/out/result; supplementary file không thay protocol |
-| AppArmor bwrap profile | Theo ADR-0003 hướng (a), child stack deny capability kể cả re-exec/copy; enforcement và nested compatibility phải đạt S0.1; admin provisioning, không nới sysctl; gate 0 BLOCKED |
+| AppArmor bwrap profile | Theo ADR-0003, child stack deny capability kể cả re-exec/copy; outer enforcement và mode thực tế giữ permission phải đạt S0.1 theo ngoại lệ có điều kiện; admin provisioning, không nới sysctl; gate 0 BLOCKED |
 | Policy/event version | Giữ v1 và snapshot check strings; không upcaster/dual decoder vì app_id. DB migration riêng cho durable runtime vẫn cần |
 
-Không có waiver hiến chương. Một package, Commander theo baseline, Node/Git/gh/systemd/bwrap/flock;
+Ngoại lệ ADR-0003 chỉ thay lớp OS sandbox nội bộ khi outer boundary đã proven, không miễn quyền/
+approval/secret của hiến chương. Một package, Commander theo baseline, Node/Git/gh/systemd/bwrap/flock;
 không thêm durable framework, ORM, DB server, broker, DI container hoặc backend supervision thứ hai.
 Owner token/assistant operate token cấu hình riêng, không thêm bộ lệnh quản trị token vượt phạm vi.

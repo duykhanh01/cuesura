@@ -20,13 +20,23 @@ có bằng chứng hoặc chủ dự án review thiết kế thay thế; không 
    với thời điểm/nhãn probe, kiểm thao tác mount namespace cần CAP_SYS_ADMIN bị EPERM. Userns có
    thể vẫn được tạo vì mẫu upstream allow userns; không lấy CapEff=0 hoặc chỉ một exit lỗi làm
    bằng chứng. Fixture chạy ngoài đúng stack phải fail trước probe, không ghi nhầm thành pass.
-3. Trong outer sandbox đó, chạy **harness với sandbox nội bộ còn bật**, cho cả Claude và Codex:
-   một lần read-only, một lần workspace-write theo role. Kiểm đọc/ghi thực qua tool, không chỉ
-   process start. Cấm coi `--dangerously-*` hoặc tắt sandbox nội bộ là biện pháp để pass.
-4. Nếu nested userns/landlock fail, ghi error/argv/mounts/kernel audit đã redact, **dừng trước A**.
-   Chỉ thay backend sau review ADR/plan mới; không chuyển việc này thành test để làm sau implement.
-   Không bỏ capability denial, thêm priority CAP_SYS_ADMIN override hoặc quay về unconfined để
-   ép nested harness chạy. Cả confinement và compatibility phải đạt, không chọn pass một phía.
+3. Trong outer sandbox đó, **vẫn thử harness với sandbox nội bộ bật** trên từng vendor/version,
+   read-only và workspace-write theo role. Đo đọc/ghi thực qua tool, không chỉ startup. Ghi native
+   result/argv/settings/audit thật; nesting fail vẫn ghi failed, không đổi nó thành pass khi dùng mode khác.
+   Xác nhận tool thực sự chạy trong lớp nội bộ, không chỉ config enabled: với Claude, pin các
+   settings được version hỗ trợ để fail khi sandbox unavailable và cấm unsandboxed retry; không
+   để fallback mặc định âm thầm biến native probe thành chạy chỉ với outer rồi báo native pass.
+4. Nếu native fail vì nesting, chỉ thử `external_verified` theo [ADR-0003](../../docs/adr/0003-bwrap-child-capabilities.md)
+   sau khi outer layout ở bước 2 đã chứng minh boundary và owner cho phép trong trusted config.
+   Chỉ tắt lớp OS sandbox qua settings/sandbox mode; giữ nguyên permission/deny/approval policy,
+   không `--dangerously-*`, bỏ rule/permission hoặc thêm CAP_SYS_ADMIN override. Managed policy
+   bắt buộc native thì không override. Native pass ưu tiên giữ native, không mặc định downgrade.
+   Negative fixtures ở mode được chọn phải kiểm tool bị deny trên **đường dẫn/command mà outer
+   sandbox cho phép**: canary trong scratch rw hoặc lệnh vô hại bị rule deny không được thực thi.
+   Ghi quyết định permission trước side effect; lỗi EROFS/auth/network từ outer không thay bằng
+   chứng tool rule giữ nguyên. So effective permission/approval settings và hash với baseline.
+   Nếu outer proof hoặc permission fixtures chưa đạt/mode không tách được hai lớp, gate vẫn đóng
+   để review cách ly khác. Không tự fallback theo từng tool call, không đổi mode do agent yêu cầu.
 5. Prototype runner qua `spawn(systemd-run --user ...)`: daemon foreground chết và daemon unit
    stop/restart đều không dừng runner unit riêng. Dừng runner unit phải dừng toàn descendants.
    Doctor kiểm user manager truy cập được; WSL phải bật systemd và restart distro theo runbook.
@@ -40,7 +50,8 @@ có bằng chứng hoặc chủ dự án review thiết kế thay thế; không 
   root object/required/null. Chạy **6 invocation trả phí**: coder, fixer, reviewer trên mỗi vendor.
   Giới hạn 5 phút/invocation, một bước sửa rất nhỏ trong fixture; không chạy luồng task-to-PR.
   Nếu cần thêm lượt để sửa cờ/config, dừng và báo kết quả trước khi vượt 6 lượt, không retry không trần.
-- Các lượt này đồng thời kiểm sandbox nội bộ còn bật, auth home riêng, output parse/semantic/schema,
+- Các lượt này kiểm mode thực tế đã chọn/proven ở S0.1 (native hoặc external_verified có điều kiện),
+  quyền tool không bị bypass, auth home riêng, output parse/semantic/schema,
   model/effort/quyền thực tế, usage reported/unavailable, giới hạn wall/cost được yêu cầu và phản hồi
   khi tool bị từ chối. Không suy rằng một role chấp nhận schema chứng minh hai role còn lại.
 - Setup/gate prototype thử tải package nhỏ bằng pnpm và pip trong isolated scratch; agent gọi vendor
@@ -52,6 +63,8 @@ có bằng chứng hoặc chủ dự án review thiết kế thay thế; không 
 
 Giới hạn 6 lượt ở đây là kế hoạch thử nghiệm, **không** xác nhận đã tiêu usage hoặc có credential.
 Khi chạy phải có tài khoản/model và sự cho phép dùng usage cho spike; không dùng token từ log.
+Các lần thử native/fallback có gọi model đều tính chung trần 6 lượt, kể cả startup/tool failure;
+không tự tăng budget để đủ sáu output thành công, hết lượt phải báo và xin quyết định trước thử thêm.
 
 ## S0.3 — GitHub head-at-merge qua port gh
 
@@ -73,9 +86,14 @@ thay FrozenPolicy/event schema để chạy probe. Ghi gh version/API version/re
 
 | Mục | Bằng chứng bắt buộc | Trạng thái hiện tại |
 | --- | --- | --- |
-| S0.1 | Profile đã provisioning; child enforce/capability denial kể cả re-exec/copy; nested harness sandbox, lifetime/cgroup | Fail host / profile mới chỉ compile, enforcement/nesting chưa chạy |
+| S0.1 | Outer layout/canary/capability/lifetime đạt; mỗi vendor có native result thật và native pass hoặc external_verified pass với permission evidence/owner config | Fail host / chưa có outer proof hoặc mode proven |
 | S0.2 | 6 role/vendor outputs, auth home, quyền/network, version/schema digests và usage | Chưa chạy |
 | S0.3 | 3 merge modes, source push/delete, head proof và gh-port evidence | Chưa chạy |
+
+Điều kiện pass S0.1 cho **mỗi** vendor: outer boundary + lifetime đạt, và một trong hai nhánh:
+native đạt, hoặc native đã thử/ghi thất bại + owner cho phép external_verified + mode đó giữ
+permission/approval qua negative fixtures và chạy được role/schema/auth. Report giữ hai kết quả
+native/fallback riêng; exception chỉ hợp lệ cho đúng hashes/version/layout đã kiểm, đổi thì kiểm lại.
 
 Kết quả ghi vào `spike-0-report.md` khi chạy thật, gồm lệnh/exit code, fixtures và hạn chế từng mục.
 Chưa tạo báo cáo pass hoặc capability manifest proven khi chưa có kết quả. Gate đạt khi cả ba mục

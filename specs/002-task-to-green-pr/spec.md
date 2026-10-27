@@ -68,6 +68,9 @@ quản trị viên theo [runbook](../../deploy/README.md), giữ sysctl toàn m�
 prerequisite runner, gồm kiểm WSL2 thực sự bật systemd. Mặc định setup/gate/autofix/agent được dùng
 Internet ra ngoài; không có egress allowlist và không hứa chặn LAN/loopback, nhưng filesystem/PID và
 credential điều phối vẫn cách ly. Lát 0 kiểm cấu hình này trước triển khai.
+Lát 0 vẫn thử sandbox nội bộ bật; nếu nesting fail, chỉ cho mode `external_verified` theo ngoại lệ
+có điều kiện [ADR-0003](../../docs/adr/0003-bwrap-child-capabilities.md) sau khi outer boundary và
+permission/approval được kiểm chứng, owner cho phép tường minh; không `--dangerously-*` hoặc bypass quyền.
 
 ## Clarifications
 

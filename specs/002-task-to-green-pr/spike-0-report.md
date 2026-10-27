@@ -18,7 +18,7 @@ quản trị review được tại [deploy](../../deploy/README.md).
 
 | Gate | Trạng thái / việc còn lại |
 | --- | --- |
-| S0.1 | Host fail; profile mới hai lớp chỉ compile; cần provisioning, child enforcement/audit/re-exec/copy và nested harness/lifetime |
+| S0.1 | Host fail; profile mới hai lớp chỉ compile; cần outer proof/lifetime, native result và permission evidence cho mode được chọn |
 | S0.2 | Chưa chạy 6 role/vendor outputs, auth home riêng, quyền và registry/vendor network |
 | S0.3 | Chưa có repo sandbox/fixture merge/squash/rebase + push/delete source; không dùng repo sản phẩm để thử |
 
@@ -43,3 +43,10 @@ audit capability denial, re-exec/copy hoặc nested harness evidence; S0.1 vẫn
 
 Sau bản sửa capability, đã chạy lại typecheck/lint/test/build: tất cả exit 0, 40 file/324 test
 đạt trong 33,55 giây. Đây là hồi quy của codebase, không thay bằng chứng S0.1 còn thiếu.
+
+## Điều kiện pass được điều chỉnh sau review nesting
+
+ADR-0003 cho phép external_verified có điều kiện sau khi outer boundary được chứng minh và tool
++permission/approval vẫn được kiểm độc lập; S0.1 vẫn phải thử native sandbox đang bật và giữ kết
++quả native riêng. Hiện **chưa có outer proof hoặc mode fallback proven**, nên ngoại lệ chưa được
++kích hoạt, native/fallback đều chưa được báo pass; trạng thái BLOCKED giữ nguyên.

@@ -11,7 +11,9 @@ full workflow smoke vẫn sau A/B. Host bwrap đang fail, không coi việc sử
 Sau đó chạy S0.1–S0.3: outer+inner sandbox hai vendor, auth home riêng, 6 role/vendor schemas,
 registry/vendor network, systemd lifetime và gh head-at-merge qua ba kiểu merge. Lưu spike report
 có exit code/fixture/digest; chưa pass cả ba thì không sinh tasks/A. Không cần daemon hoàn chỉnh
-để làm prototype; không bỏ sandbox nội bộ hoặc dùng production repo để chạy spike.
+để làm prototype; luôn thử native sandbox bật. Nếu nesting fail, chỉ xét mode external_verified
+theo ADR-0003 khi outer proof/permission fixture/owner config đạt; không bypass permission hoặc
+dùng production repo để chạy spike.
 
 ## 1. Chuẩn bị môi trường
 

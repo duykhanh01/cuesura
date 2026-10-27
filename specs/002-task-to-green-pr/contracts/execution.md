@@ -2,8 +2,9 @@
 
 Nguồn: [SPEC §§12–14](../../../SPEC.md), [research R-05–R-08/R-11](../research.md).
 Giá trị giới hạn ở research được chụp vào snapshot runtime; không nâng ngầm khi restart.
-Host prerequisite AppArmor và nested sandbox phải đạt [lát 0](../spike-0.md) trước A theo
-[runbook](../../../deploy/README.md), không bỏ sandbox nội bộ harness khi nesting fail.
+Host prerequisite AppArmor, outer boundary và mode harness được chọn phải đạt [lát 0](../spike-0.md) trước A theo
+[runbook](../../../deploy/README.md). Luôn thử native bật trước; external_verified chỉ hợp lệ theo
+ngoại lệ có điều kiện ở ADR-0003, không bỏ permission/approval hoặc capability denial.
 
 ## Operation và runner ownership
 
@@ -68,20 +69,38 @@ worktree có diff/commit chưa bảo toàn theo retention log.
   cần đạt; fallback file chỉ có khi capability manifest khai báo và path mới riêng operation.
 - Codex build argv `exec --json --output-schema ... --output-last-message ... --sandbox ...`, cwd
   worktree; Claude print/structured-schema/settings tương ứng manifest. Không hardcode model ID từ
-  ví dụ docs, không bypass sandbox. Auth/session home riêng, không load tùy ý toàn config user.
+  ví dụ docs, không bypass permission. Internal OS sandbox có thể off duy nhất trong mode
+  external_verified đã kiểm; outer vẫn bắt buộc. Auth/session home riêng, không load tùy ý config user.
 - Resume chỉ cùng harness/session, đúng policy; nếu không còn dùng được thì attempt mới mang Q&A
   có ngân sách. Adapter không quyết định tạo attempt. Refusal không bị retry để vượt quyền.
 - Context tối đa 128 KiB, reviewer diff 64 KiB; kèm diff digest/path list, phần cắt phải ghi rõ.
   Không đủ acceptance/diff bắt buộc thì needs_context/chờ, không cắt thông tin rồi approve. Reviewer
   khác vendor với coder/fixer thực tạo diff; vendor được xác định từ manifest, không chỉ tên model.
 
+## Mode isolation và capability manifest
+
+`internal_required` là mặc định. Trusted owner config có thể cho phép `allow_external_verified`
+cho từng harness; preflight chỉ chọn mode thực tế `external_verified` nếu native đã thử và outer
+proof/permission fixtures còn khớp. Repo/task/worker không được cấp quyền chọn hoặc đổi mode.
+Manifest/invocation ghi native_result, selected_inner_mode, outer_proof_hash, permission_policy_hash,
+kernel/profile/bwrap/harness/settings/layout hashes; snapshot pin manifest reference này.
+
+Claude candidate là `sandbox.enabled=false` với permission rules/mode không đổi; Codex dùng sandbox
+mode hỗ trợ bởi binary pinned. Không suy từ tên mode rằng permission còn giữ: S0.1 kiểm negative
+tool denial độc lập OS boundary. Không dùng --dangerously-*, ignore-rules/bypass/accept-all hay đổi
+approval policy để pass. Không có cấu hình version đó giữ hai lớp độc lập thì capability_missing.
+Settings do runner cấp read-only, validate effective config; managed sandbox requirement không bị
+ghi đè. Thay proof/config/version/layout thì manifest mất hiệu lực và chặn attempt mới tới khi kiểm
+lại; process đang chạy xử lý theo policy hiện hành, không đổi mode giữa attempt.
+
 ## Sandbox và Git boundary
 
 Mount tối thiểu bằng bubblewrap, proc/PID namespace riêng, no-new-privileges và bỏ capabilities.
 Profile AppArmor host theo hướng (a): namespace setup của bwrap được cấp, descendants mang
 child stack deny capability kể cả gọi lại/copy bwrap. Điều này không có nghĩa mọi userns creation
-bị cấm; S0.1 dùng capability-operation/audit fixture và phải kiểm hai nested harness vẫn hoạt động.
-Nếu denial chặn harness sandbox, gate fail; không bỏ deny hoặc đổi sang unconfined để tiếp tục.
+bị cấm; S0.1 dùng capability-operation/audit fixture và vẫn ghi native sandbox result từng harness.
+Nếu native bị chặn bởi nesting, chỉ chọn external_verified khi outer boundary + permission evidence
+đạt và owner đã cho phép; giữ deny, không đổi sang unconfined hoặc tự retry ngoài sandbox.
 Coder/fixer rw worktree + scratch; reviewer ro worktree và rw scratch riêng; prompt/schema ro.
 Git common directory và per-worktree admin metadata ro với agent. Không mount runtime DB/socket,
 systemd bus, home chủ dự án, SSH agent socket, GitHub credential, docker socket hoặc host `/proc`.

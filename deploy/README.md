@@ -60,11 +60,44 @@ denial probe; nếu setup bị từ chối, ghi errno/output để đối chiế
 sổ probe, profile name và capability denial; một exit khác 0 hoặc userns không tạo được một mình
 không đủ chứng minh policy đúng. Fixture tự chạy ngoài child profile phải fail trước mọi probe.
 
-Lệnh `ro-bind / /` chỉ phục vụ probe, không là sandbox task. S0.1 còn kiểm layout thực, quyền và
-**harness nested sandbox còn bật** cho cả Claude/Codex. Capability denial có thể làm nesting fail;
-đó là no-go phải ghi thật, không xóa deny, thêm priority capability override, dùng unconfined hoặc
-`--dangerously-*` để cho pass. OS user riêng cần thiết kế/review lại nếu không tương thích. Không
-nới sysctl toàn máy và không nạp profile chỉ dựa trên parser exit 0.
+Lệnh `ro-bind / /` chỉ phục vụ probe, không là sandbox task. S0.1 kiểm layout thật rồi **vẫn thử
+sandbox nội bộ đang bật** trên từng Claude/Codex đã pin. Nếu capability denial làm nesting fail,
+ghi failure thật; xét ngoại lệ lớp nội bộ theo điều kiện dưới đây, không xóa deny, thêm priority
+CAP_SYS_ADMIN override hoặc quay về unconfined. Không nới sysctl và không nạp profile chỉ dựa parser.
+
+### Ngoại lệ có điều kiện cho sandbox nội bộ harness
+
+Theo [ADR-0003](../docs/adr/0003-bwrap-child-capabilities.md), chỉ được chọn mode
+`external_verified` khi **tất cả** điều kiện sau đã có evidence:
+
+- Outer sandbox của đúng profile/kernel/bwrap/harness binary và mount layout triển khai đã qua
+  canary filesystem/PID/secret/socket, reviewer read-only, vùng ghi coder/fixer, capability denial
+  và re-exec/copy fixtures. Đây là layout thật; probe `ro-bind / /` không đáp ứng điều kiện này.
+- Đã thử native sandbox bật cho vendor/version đó và ghi kết quả; native đạt thì ưu tiên giữ bật.
+  Nếu native fail vì nesting, chỉ tắt lớp OS sandbox bằng cấu hình được version đó hỗ trợ tường minh.
+- Quyền tool, deny rules và approval policy của harness vẫn giữ nguyên, được negative fixture
+  xác nhận. Cấm `--dangerously-*`, bypass permission, bỏ rule hoặc đổi thành accept-all để chạy.
+  Managed policy buộc sandbox bật thì không được override, phải chờ capability_missing.
+- Owner cho phép mode này trong cấu hình trusted ngoài repo; mode thực tế, outer-proof hash,
+  permission-rules hash và binary/settings hashes được chụp trong manifest/snapshot/invocation.
+  Worker/task/repo không được chọn mode, không có retry tự đổi mode sau lỗi tool.
+
+Claude có cấu hình `sandbox.enabled`; sandbox và permission rules là hai lớp riêng theo
+[tài liệu Claude](https://code.claude.com/docs/en/sandboxing#how-sandboxing-relates-to-permissions-and-permission-modes).
+Native probe phải xác nhận sandbox thật sự được dùng, pin fail-if-unavailable/no-unsandboxed-retry
+settings của version đó khi hỗ trợ; fallback mặc định do thiếu dependency không được báo native pass.
+Candidate `sandbox.enabled=false` vẫn phải giữ permission rules/permission mode, kiểm effective
+settings và deny fixture. Với Codex, chọn sandbox mode được binary đã pin hỗ trợ qua manifest;
+không suy từ tên mode rằng approval/execpolicy còn giữ. Mode chỉ hợp lệ nếu S0.1/S0.2 chứng minh
+tách OS isolation khỏi permission; nếu không thì vendor đó vẫn blocked, không dùng flag bypass.
+
+Khi kernel/profile/binary/mount layout/settings đổi, outer proof/permission evidence liên quan
+hết hiệu lực và phải kiểm lại trước attempt mới. Nếu không đủ điều kiện ngoại lệ, gate vẫn no-go
+và cần review cách ly khác như OS user riêng. Đây không phải miễn trust boundary của hiến chương.
+
+**Ảnh hưởng toàn host:** attachment `/usr/bin/bwrap` áp dụng cả Flatpak và sandbox của Claude Code
+tương tác, không chỉ Cuesura; nested namespace của các ứng dụng đó có thể EPERM do child capability
+denial. Kiểm audit/profile stack trước khi quy lỗi cho ứng dụng; không tự thêm capability override.
 
 Rollback khi không còn runner sử dụng profile: quản trị viên unload profile trước, rồi xóa đúng file
 đã cài; không xóa profile khác hoặc sửa `kernel.apparmor_restrict_unprivileged_userns`:
