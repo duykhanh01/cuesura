@@ -2,10 +2,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { Uuid } from '../../src/shared/brand.ts';
 import type { DomainEventDraft } from '../../src/domain/event.ts';
 import type { Attempt } from '../../src/domain/state.ts';
+import { FrozenPolicySchema, MAX_QUALITY_TRIES_PER_RUNG } from '../../src/domain/policy.ts';
 import { UsageSchema, type FailureClass } from '../../src/domain/trigger.ts';
 import { available } from '../../src/engine/budget.ts';
-import { buildTask, type PolicyOptions } from '../support/builders.ts';
-import { agentData, gatesData, reviewData, Sim, started, toCode, USAGE } from '../support/scenario.ts';
+import { buildPolicy, buildTask, type PolicyOptions } from '../support/builders.ts';
+import { agentData, gatesData, PREPARE_DATA, reviewData, Sim, started, toCode, USAGE } from '../support/scenario.ts';
 
 const TASK = buildTask();
 const XS_TASK = buildTask({ size: 'XS' });
@@ -254,6 +255,26 @@ describe('US4 - Model escalation and budget under the approved policy', () => {
     notRun.reconciled(b.id, 'not_executed');
     expect(notRun.s.budget.reservations[b.reservation_id as string]?.status).toBe('released');
     expect(notRun.s.budget.agent_runs.used).toBe(0);
+  });
+
+  it('FR-019 infra: a failed prepare setup is retried and no agent starts until setup passes', () => {
+    const sim = run();
+    sim.complete(sim.pendingOne('prepare').id, 'succeeded', { ...PREPARE_DATA, setup: { ran: true, passed: false } });
+    expect(sim.s.base_sha).toBeNull();
+    expect(sim.s.wait).toMatchObject({ reason: 'infra', detail: { code: 'infra_backoff', step: 'prepare' } });
+    sim.advance(10_000).fireDue();
+    expect(sim.effects('start_agent')).toEqual([]);
+    sim.complete(sim.pendingOne('prepare').id, 'succeeded', PREPARE_DATA);
+    expect(sim.s.base_sha).toBe(PREPARE_DATA.base_sha);
+    expect(sim.effects('start_agent', 'pending')).toHaveLength(1);
+  });
+
+  it('FR-020: quality tries per rung never exceed 3, whatever the configured value', () => {
+    expect(FrozenPolicySchema.safeParse(buildPolicy({ limits: { classes: { quality_tries_per_rung: 5 } } })).success).toBe(false);
+    const sim = run({ limits: { classes: { quality_tries_per_rung: 5 } } });
+    toCode(sim);
+    for (let i = 0; i < MAX_QUALITY_TRIES_PER_RUNG; i++) fail(sim, sim.pendingOne('start_agent').id, 'quality', { signature: `Q${i}` });
+    expect(attemptsOf(sim, 'code').map((a) => a.rung)).toEqual([0, 0, 0, 1]);
   });
 
   describe('Scenario 13: the task floor maps onto the reviewer ladder and still passes every check', () => {

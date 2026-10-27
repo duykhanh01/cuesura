@@ -1,4 +1,4 @@
-import type { Backoff, Limits } from '../domain/policy.ts';
+import { MAX_QUALITY_TRIES_PER_RUNG, type Backoff, type Limits } from '../domain/policy.ts';
 import { counterKey, streakKey, type AttemptKind, type DetailCode, type EffectMirror, type ResumeAction } from '../domain/state.ts';
 import type { FailureClass, FailureData } from '../domain/trigger.ts';
 import { hashCanonical } from '../shared/hash.ts';
@@ -42,7 +42,7 @@ export function recordFailure(
     const tries = (prev?.quality_tries ?? 0) + 1;
     escalate =
       prev?.escalate === true ||
-      tries >= c.quality_tries_per_rung ||
+      tries >= Math.min(c.quality_tries_per_rung, MAX_QUALITY_TRIES_PER_RUNG) ||
       (o.class === 'quality' && consecutive >= 2) ||
       (o.class === 'invalid_output' && count > c.invalid_output_repairs + c.invalid_output_fresh);
   }
@@ -66,7 +66,8 @@ export function recordCheckFailure(ctx: Ctx, signature: string | null): void {
 
 export function reviewSignature(findings: readonly { severity: string; file?: string | undefined; msg: string }[]): string | null {
   if (findings.length === 0) return null;
-  const key = findings.map((f) => [f.severity, f.file ?? '', f.msg]).sort((a, b) => a.join('\0').localeCompare(b.join('\0')));
+  // Code-unit order, independent of the host locale, so replay yields the same signature.
+  const key = findings.map((f) => [f.severity, f.file ?? '', f.msg].join('\0')).sort();
   return `review:${hashCanonical(key).slice('sha256:'.length, 'sha256:'.length + 16)}`;
 }
 

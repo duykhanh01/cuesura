@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { parseDuration } from '../shared/duration.ts';
-import { EFFORTS } from '../domain/policy.ts';
+import { EFFORTS, MAX_QUALITY_TRIES_PER_RUNG } from '../domain/policy.ts';
 import { ACTIONS, DECISION_MODES, DECISION_POINTS, STEP_KINDS, WAIT_FOR } from '../domain/workflow.ts';
 import { SOFTWARE_DEV_NAME } from '../engine/workflows/software-dev.ts';
 
@@ -162,7 +162,7 @@ export const ProfileSchema = z
             timeout_retries: z.number().int().nonnegative().optional(),
             invalid_output_repairs: z.number().int().nonnegative().optional(),
             invalid_output_fresh: z.number().int().nonnegative().optional(),
-            quality_tries_per_rung: z.number().int().positive().optional(),
+            quality_tries_per_rung: z.number().int().positive().max(MAX_QUALITY_TRIES_PER_RUNG).optional(),
           })
           .strict()
           .optional(),

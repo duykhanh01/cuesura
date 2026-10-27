@@ -507,7 +507,9 @@ function resetStreak(s: TaskState, step: string | null): void {
 
 function applySuccessFacts(s: TaskState, kind: string, result: unknown): void {
   const r = (result ?? {}) as Record<string, unknown>;
-  if (kind === 'prepare' && typeof r['base_sha'] === 'string') s.base_sha = r['base_sha'];
+  // `base_sha` marks a usable worktree; a failed setup leaves prepare to be retried.
+  const setup = r['setup'] as { passed?: unknown } | undefined;
+  if (kind === 'prepare' && typeof r['base_sha'] === 'string' && setup?.passed === true) s.base_sha = r['base_sha'];
   if (kind === 'create_pr' && typeof r['pr_ref'] === 'string') s.pr_ref = r['pr_ref'];
   if (kind === 'merge' && r['merged'] === true) s.merged = true;
 }
