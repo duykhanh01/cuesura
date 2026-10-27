@@ -11,10 +11,10 @@ import { claimEffect, type ClaimError } from './claim.ts';
 import { crashHookFromEnv, type CrashHook } from './crash.ts';
 import { openDatabase, type StoreOpenError } from './open.ts';
 import * as read from './read.ts';
-import { dueTimers, fireDueTimers } from './timers.ts';
+import { dueTimers, fireDueTimers, type FireError } from './timers.ts';
 import { verifyProjections, type VerifyReport } from './verify.ts';
 
-export type { AcceptError, AcceptOutcome, ClaimError, StoreOpenError, VerifyReport };
+export type { AcceptError, AcceptOutcome, ClaimError, FireError, StoreOpenError, VerifyReport };
 export type { Timer } from './read.ts';
 
 /** Kho trạng thái một bên ghi, đồng bộ (contracts/core-api.md "Kho trạng thái"). */
@@ -22,7 +22,11 @@ export interface Store {
   accept(envelope: TriggerEnvelope): Result<AcceptOutcome, AcceptError>;
   claimEffect(effectId: Uuid, now: EpochMs): Result<Effect, ClaimError>;
   dueTimers(now: EpochMs, limit: number): read.Timer[];
-  fireDueTimers(now: EpochMs, limit: number, ids: (timerId: Uuid) => Uuid[]): AcceptOutcome[];
+  fireDueTimers(
+    now: EpochMs,
+    limit: number,
+    ids: (timerId: Uuid) => Uuid[],
+  ): Result<AcceptOutcome[], FireError>;
   pendingEffects(limit: number): Effect[];
   readTask(taskId: Uuid): TaskState | null;
   readEvents(taskId: Uuid, fromSeq?: number): DomainEvent[];
@@ -50,7 +54,11 @@ export class SqliteStore implements Store {
   dueTimers(now: EpochMs, limit: number): read.Timer[] {
     return dueTimers(this.db, now, limit);
   }
-  fireDueTimers(now: EpochMs, limit: number, ids: (timerId: Uuid) => Uuid[]): AcceptOutcome[] {
+  fireDueTimers(
+    now: EpochMs,
+    limit: number,
+    ids: (timerId: Uuid) => Uuid[],
+  ): Result<AcceptOutcome[], FireError> {
     return fireDueTimers(this.db, now, limit, ids, this.crash);
   }
   pendingEffects(limit: number): Effect[] {

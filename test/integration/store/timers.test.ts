@@ -1,8 +1,11 @@
+import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 import type { EpochMs } from '../../../src/shared/brand.ts';
-import { openFileStoreForTest, openMemoryStore, storeDb } from '../../../src/store/testing.ts';
+import { openFileStoreForTest, openMemoryStore, storeDb, type CrashPoint } from '../../../src/store/testing.ts';
 import { buildTask, freezeOk } from '../../support/builders.ts';
+import { ciData, publishData } from '../../support/scenario.ts';
 import { StoreDriver, timerIds } from '../../support/store-driver.ts';
+import { toPublish } from '../../support/store-flows.ts';
 import { dbPath, useTempDir } from '../../support/temp-db.ts';
 import { runChild } from '../../support/child.ts';
 import { writeFileSync } from 'node:fs';
@@ -91,5 +94,68 @@ describe('Timer trong kho (T081)', () => {
     expect(timerSignals(d2)).toBe(1);
     expect(again.verifyProjections().ok).toBe(true);
     again.close();
+  });
+
+  it('thiếu ID khi bắn ci_poll: không ghi dedup, timer vẫn đến hạn và bắn được khi đủ ID (FR-030)', () => {
+    const d = new StoreDriver(openMemoryStore());
+    d.must(TASK.id, { kind: 'create_task', task: TASK });
+    d.must(TASK.id, {
+      kind: 'start',
+      freeze: freezeOk(TASK, { limits: { max_wall_ms: 100 * WALL }, required_checks: ['A', 'B'] }),
+    });
+    toPublish(d, TASK, 'H');
+    d.complete(TASK.id, d.pendingOne(TASK.id, 'publish').id, 'succeeded', publishData('H'));
+    d.complete(TASK.id, d.pendingOne(TASK.id, 'create_pr').id, 'succeeded', {
+      pr_ref: 'acme#1',
+      head_sha: 'H',
+    });
+    d.complete(
+      TASK.id,
+      d.pendingOne(TASK.id, 'await_ci').id,
+      'succeeded',
+      ciData('H', { A: 'success' }, { names: ['A'] }),
+    );
+    const poll = Object.values(d.task(TASK.id).timers).find((t) => t.kind === 'ci_poll');
+    if (poll === undefined) throw new Error('thiếu timer ci_poll');
+    d.now = poll.due_at;
+
+    const r = d.store.fireDueTimers(d.now as EpochMs, 10, () => []);
+    expect(r).toMatchObject({
+      ok: true,
+      value: [{ decision: { kind: 'rejected', code: 'id_pool_exhausted' } }],
+    });
+    expect(timerSignals(d)).toBe(0);
+    expect(d.store.dueTimers(d.now as EpochMs, 10).map((t) => t.id)).toEqual([poll.id]);
+
+    expect(d.fire()).toMatchObject([{ decision: { kind: 'accepted' } }]);
+    expect(timerSignals(d)).toBe(1);
+    expect(d.task(TASK.id).timers[poll.id]?.status).toBe('fired');
+    expect(d.pending(TASK.id, 'await_ci')).toHaveLength(1);
+    expect(d.store.verifyProjections().ok).toBe(true);
+  });
+
+  it('lỗi ghi khi bắn timer → trả write_failed, rollback, timer vẫn đến hạn (FR-033)', () => {
+    let armed = false;
+    const store = openFileStoreForTest(dbPath(tmp()), {
+      crash: (p: CrashPoint) => {
+        if (armed && p === 'before_commit')
+          throw new Database.SqliteError('database is locked', 'SQLITE_BUSY');
+      },
+    });
+    const d = new StoreDriver(store);
+    started(d);
+    d.now += WALL;
+    armed = true;
+    expect(d.store.fireDueTimers(d.now as EpochMs, 10, timerIds)).toEqual({
+      ok: false,
+      error: { code: 'write_failed', cause: 'busy', fired: [] },
+    });
+    expect(timerSignals(d)).toBe(0);
+    expect(d.store.dueTimers(d.now as EpochMs, 10)).toHaveLength(1);
+
+    armed = false;
+    expect(d.fire()).toHaveLength(1);
+    expect(store.verifyProjections().ok).toBe(true);
+    store.close();
   });
 });

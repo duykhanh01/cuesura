@@ -48,9 +48,14 @@ export function verifyProjections(db: Database): VerifyReport {
       continue;
     }
     if (state === null) continue;
-    projectTask(sink, events, state);
-    projectEffects(sink, events, state);
-    projectTimers(sink, events, state);
+    try {
+      projectTask(sink, events, state);
+      projectEffects(sink, events, state);
+      projectTimers(sink, events, state);
+    } catch (e) {
+      // Ví dụ hai task cùng tạo một effect/timer ID: nhật ký không dựng lại được projection hiện có.
+      mismatches.push({ table: 'events', key: taskId, expected: 'projection ok', actual: String(e) });
+    }
   }
 
   compare(mismatches, 'tasks', sink.tasks, db.prepare('SELECT * FROM tasks').all(), (r) => r['id']);

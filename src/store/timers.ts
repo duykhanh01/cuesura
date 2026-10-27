@@ -1,11 +1,12 @@
 import type { Database } from 'better-sqlite3';
 import type { Uuid } from '../shared/brand.ts';
+import { err, ok, type Result } from '../shared/result.ts';
 import {
   computeRequestHash,
   TRIGGER_SCHEMA_VERSION,
   type TriggerEnvelope,
 } from '../domain/trigger.ts';
-import { accept, type AcceptOutcome } from './accept.ts';
+import { accept, type AcceptError, type AcceptOutcome } from './accept.ts';
 import type { CrashHook } from './crash.ts';
 import type { TimerRow } from './projector.ts';
 import { toTimer, type Timer } from './read.ts';
@@ -26,10 +27,14 @@ export function dueTimers(db: Database, now: number, limit: number): Timer[] {
   return rows.map(toTimer);
 }
 
+/** Lỗi khi bắn timer: lỗi của timer gặp lỗi cùng các tín hiệu đã commit trước đó trong lượt này. */
+export type FireError = AcceptError & { fired: AcceptOutcome[] };
+
 /**
  * Bắn các timer đến hạn, mỗi timer một transaction `accept` với khoá `timer:<id>`; `TimerFired` nằm
- * trong cùng transaction đó. Chạy lại sau crash không tạo tín hiệu thứ hai nhờ dedup. Dừng ở lỗi ghi
- * đầu tiên; timer chưa xử lý giữ `armed` cho lần sau.
+ * trong cùng transaction đó. Chạy lại sau crash không tạo tín hiệu thứ hai nhờ dedup. Dừng ở lỗi đầu
+ * tiên và trả lỗi đó (FR-033); timer chưa xử lý giữ `armed` cho lần sau. Thiếu ID (`id_pool_exhausted`)
+ * không ghi dedup nên timer vẫn đến hạn ở lần gọi sau.
  */
 export function fireDueTimers(
   db: Database,
@@ -37,7 +42,7 @@ export function fireDueTimers(
   limit: number,
   ids: (timerId: Uuid) => Uuid[],
   crash: CrashHook,
-): AcceptOutcome[] {
+): Result<AcceptOutcome[], FireError> {
   const out: AcceptOutcome[] = [];
   for (const t of dueTimers(db, now, limit)) {
     const base = {
@@ -53,8 +58,8 @@ export function fireDueTimers(
       ids: ids(t.id as Uuid),
     } as TriggerEnvelope;
     const r = accept(db, env, crash);
-    if (!r.ok) break;
+    if (!r.ok) return err({ ...r.error, fired: out });
     out.push(r.value);
   }
-  return out;
+  return ok(out);
 }

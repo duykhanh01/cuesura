@@ -14,7 +14,13 @@ import { decide, type Decision } from '../engine/decide.ts';
 import { applyInPlace } from '../engine/evolve.ts';
 import { sameContent } from '../engine/revision.ts';
 import type { CrashHook } from './crash.ts';
-import { projectEffects, projectTask, projectTimers, sqliteSink } from './projector.ts';
+import {
+  IdCollision,
+  projectEffects,
+  projectTask,
+  projectTimers,
+  sqliteSink,
+} from './projector.ts';
 import { readPolicy, readTask, readTaskStatus } from './read.ts';
 
 export type AcceptOutcome = {
@@ -29,7 +35,8 @@ export type AcceptOutcome = {
 export type WriteFailure = { code: 'write_failed'; cause: 'disk_full' | 'busy' | 'io_error' };
 
 export type AcceptError =
-  { code: 'conflict'; reason: 'request_hash_mismatch' | 'stale_version' } | WriteFailure;
+  | { code: 'conflict'; reason: 'request_hash_mismatch' | 'stale_version' | 'id_collision' }
+  | WriteFailure;
 
 /** Lỗi SQLite của thao tác ghi → `write_failed` (FR-033); lỗi khác là lỗi lập trình và được ném lại. */
 export function writeFailure(e: unknown): WriteFailure | null {
@@ -171,7 +178,8 @@ function reachesTask(db: Database, target: string, from: readonly string[]): boo
 /**
  * Chấp nhận một tín hiệu trong một transaction `BEGIN IMMEDIATE` (contracts/core-api.md): dedup → đọc
  * state, policy, `RelatedFacts` → `decide` → append → projection → commit. Đồng bộ hoàn toàn, không
- * `await` (FR-025). Mọi lỗi ghi làm rollback toàn bộ.
+ * `await` (FR-025). Mọi lỗi ghi làm rollback toàn bộ. ID trong `ids` trùng effect/timer đã có →
+ * `conflict id_collision`; thiếu ID → `id_pool_exhausted` không được ghi dedup.
  */
 export function accept(
   db: Database,
@@ -233,6 +241,19 @@ export function accept(
       decision = decide({ state, policy, envelope: env, related: relatedFacts(db, env, state) });
     }
 
+    // Thiếu ID là lỗi của `ids`, mà `ids` không thuộc request hash: không ghi dedup, để lần gửi lại
+    // cùng khoá với đủ ID được xử lý thật (FR-030 với timer).
+    if (decision.kind === 'rejected' && decision.code === 'id_pool_exhausted') {
+      rollback(db);
+      return ok({
+        dedup_key: env.dedup_key,
+        duplicate: false,
+        decision,
+        task_version: state?.version ?? null,
+        global_seq_range: null,
+      });
+    }
+
     const drafts = decision.kind === 'accepted' ? decision.events : [];
     const { state: next, events } = appendEvents(db, env.task_id, state, drafts, {
       dedup_key: env.dedup_key,
@@ -266,6 +287,7 @@ export function accept(
     db.exec('COMMIT');
   } catch (e) {
     rollback(db);
+    if (e instanceof IdCollision) return err({ code: 'conflict', reason: 'id_collision' });
     const wf = writeFailure(e);
     if (wf !== null) return err(wf);
     throw e;

@@ -99,7 +99,7 @@ interface Store {
   accept(envelope: TriggerEnvelope): Result<AcceptOutcome, AcceptError>;
   claimEffect(effectId: Uuid, now: EpochMs): Result<Effect, ClaimError>;
   dueTimers(now: EpochMs, limit: number): Timer[];
-  fireDueTimers(now: EpochMs, limit: number, ids: (timerId: Uuid) => Uuid[]): AcceptOutcome[];
+  fireDueTimers(now: EpochMs, limit: number, ids: (timerId: Uuid) => Uuid[]): Result<AcceptOutcome[], FireError>;
   pendingEffects(limit: number): Effect[];
   readTask(taskId: Uuid): TaskState | null;
   readEvents(taskId: Uuid, fromSeq?: number): DomainEvent[];
@@ -124,8 +124,10 @@ type ClaimError =
 // claim_blocked: effect vẫn pending; điều kiện do hàm thuần claimable(state, effect, now) quyết (R-16).
 
 type AcceptError =
-  | { code: 'conflict'; reason: 'request_hash_mismatch' | 'stale_version' }
+  | { code: 'conflict'; reason: 'request_hash_mismatch' | 'stale_version' | 'id_collision' }
   | { code: 'write_failed'; cause: 'disk_full' | 'busy' | 'io_error' };   // FR-033
+
+type FireError = AcceptError & { fired: AcceptOutcome[] };   // fired: tín hiệu đã commit trước lỗi
 ```
 
 - `accept` chạy trong một transaction `BEGIN IMMEDIATE`: dedup → đọc state + policy → `decide` → append
@@ -135,9 +137,14 @@ type AcceptError =
 - `claimEffect` đọc projection của task, gọi `claimable`, rồi append `EffectStarted` trong cùng một
   transaction. Effect `stop_attempt` và `reconcile` không bị chặn bởi source drift hay hủy.
 - `Decision.rejected` vẫn được ghi vào `accepted_triggers` để lần gửi lại trả cùng kết quả; không có sự
-  kiện nào được append.
+  kiện nào được append. Ngoại lệ: `id_pool_exhausted` không được ghi, vì nó phụ thuộc `ids` mà `ids`
+  không thuộc request hash; gửi lại cùng khoá với đủ ID sẽ được xử lý thật.
+- `conflict id_collision`: một ID trong `ids` được dùng để tạo effect/timer nhưng đã thuộc về một dòng
+  có sẵn (caller cấp lại pool cũ). Transaction rollback, không ghi dedup; gửi lại với ID mới.
 - `write_failed` nghĩa là transaction đã rollback; caller không được coi trạng thái mới là đã lưu.
 - `fireDueTimers` xử lý từng timer trong transaction riêng; tham số `ids` cấp ID cho phong bì (R-04).
+  Dừng ở lỗi đầu tiên và trả `FireError` (FR-033); timer chưa xử lý giữ `armed`. Timer bị từ chối vì
+  `id_pool_exhausted` vẫn đến hạn ở lần gọi sau (FR-030).
 
 ## Giải thích (thuần)
 

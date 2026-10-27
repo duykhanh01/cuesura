@@ -160,4 +160,50 @@ describe('Store.accept (T078)', () => {
     expect(evA.map((e) => e.seq)).toEqual(evA.map((_, i) => i + 1));
     expect(store.readEvents(B.id)[0]?.seq).toBe(1);
   });
+
+  it('thiếu ID → id_pool_exhausted không ghi dedup; gửi lại cùng khoá với đủ ID được xử lý', () => {
+    const d = new StoreDriver(openMemoryStore());
+    d.must(TASK.id, { kind: 'create_task', task: TASK });
+    const before = counts(d);
+    const env = d.envelope(TASK.id, { kind: 'start', freeze: freezeOk(TASK) });
+
+    expect(d.deliver({ ...env, ids: [] })).toMatchObject({
+      ok: true,
+      value: { duplicate: false, decision: { kind: 'rejected', code: 'id_pool_exhausted' } },
+    });
+    expect(counts(d)).toEqual(before);
+    expect(d.deliver(env)).toMatchObject({
+      ok: true,
+      value: { duplicate: false, decision: { kind: 'accepted' } },
+    });
+  });
+
+  it('ID của task khác bị cấp lại → conflict id_collision, rollback; projection vẫn khớp (FR-029)', () => {
+    const A = buildTask({ id: uuidOf(11) });
+    const B = buildTask({ id: uuidOf(12) });
+    const d = new StoreDriver(openMemoryStore());
+    d.must(A.id, { kind: 'create_task', task: A });
+    d.must(B.id, { kind: 'create_task', task: B });
+    const startA = d.envelope(A.id, { kind: 'start', freeze: freezeOk(A) });
+    expect(d.deliver(startA)).toMatchObject({ ok: true, value: { decision: { kind: 'accepted' } } });
+    const before = counts(d);
+
+    const startB = d.envelope(B.id, { kind: 'start', freeze: freezeOk(B) });
+    expect(d.deliver({ ...startB, ids: startA.ids })).toEqual({
+      ok: false,
+      error: { code: 'conflict', reason: 'id_collision' },
+    });
+    expect(counts(d)).toEqual(before);
+    expect(d.task(B.id).status).toBe('READY');
+    expect(d.store.verifyProjections().ok).toBe(true);
+
+    // Lần trước không để lại dedup: cùng khoá với ID mới chạy được.
+    expect(d.deliver(startB)).toMatchObject({ ok: true, value: { decision: { kind: 'accepted' } } });
+    const db = storeDb(d.store);
+    for (const t of ['effects', 'timers']) {
+      const rows = db.prepare(`SELECT task_id, count(*) AS n FROM ${t} GROUP BY task_id`).all();
+      expect(rows, t).toHaveLength(2);
+    }
+    expect(d.store.verifyProjections().ok).toBe(true);
+  });
 });

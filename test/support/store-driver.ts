@@ -102,9 +102,12 @@ export class StoreDriver {
     return this.store.claimEffect(effectId as Uuid, this.now as EpochMs);
   }
 
+  /** Bắn timer đến hạn và đòi không lỗi. */
   fire(): AcceptOutcome[] {
     this.ops.push({ op: 'fire', now: this.now });
-    return this.store.fireDueTimers(this.now as EpochMs, 100, timerIds);
+    const r = this.store.fireDueTimers(this.now as EpochMs, 100, timerIds);
+    if (!r.ok) throw new Error(`fireDueTimers lỗi: ${JSON.stringify(r.error)}`);
+    return r.value;
   }
 
   pending(taskId: string, kind?: EffectKind): Effect[] {

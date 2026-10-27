@@ -53,6 +53,20 @@ export type ContextRow = {
   context_json: string;
 };
 
+/**
+ * ID cấp cho effect/timer mới đã thuộc về một dòng khác (caller cấp lại pool cũ). Tạo mới không được
+ * ghi đè vòng đời của entity cũ; `accept` rollback và trả `conflict` (FR-029).
+ */
+export class IdCollision extends Error {
+  readonly table: 'effects' | 'timers';
+  readonly id: string;
+  constructor(table: 'effects' | 'timers', id: string) {
+    super(`projection: ${table} đã có id ${id}`);
+    this.table = table;
+    this.id = id;
+  }
+}
+
 /** Nơi ghi projection: SQLite khi `accept`, bộ nhớ khi `verifyProjections` dựng lại. */
 export interface ProjectionSink {
   putTask(row: TaskRow): void;
@@ -116,7 +130,10 @@ function policyRow(policy: {
   };
 }
 
-/** Bảng `effects`: request từ `EffectRequested`, kết quả từ sự kiện cuối, status theo gương trong state. */
+/**
+ * Bảng `effects`: request từ `EffectRequested` (ID phải mới, nếu không ném `IdCollision`), kết quả từ
+ * sự kiện cuối, status theo gương trong state.
+ */
 export function projectEffects(
   sink: ProjectionSink,
   events: readonly DomainEvent[],
@@ -133,6 +150,8 @@ export function projectEffects(
     switch (e.type) {
       case 'EffectRequested': {
         const p = e.payload;
+        if (touched.has(p.effect_id) || sink.getEffect(p.effect_id) !== undefined)
+          throw new IdCollision('effects', p.effect_id);
         touched.set(p.effect_id, {
           id: p.effect_id,
           task_id: e.task_id,
@@ -167,7 +186,7 @@ export function projectEffects(
   }
 }
 
-/** Bảng `timers`: dòng tạo từ `TimerArmed`, status theo gương trong state. */
+/** Bảng `timers`: dòng tạo từ `TimerArmed` (ID phải mới), status theo gương trong state. */
 export function projectTimers(
   sink: ProjectionSink,
   events: readonly DomainEvent[],
@@ -177,6 +196,8 @@ export function projectTimers(
   for (const e of events) {
     if (e.type === 'TimerArmed') {
       const p = e.payload;
+      if (touched.has(p.timer_id) || sink.getTimer(p.timer_id) !== undefined)
+        throw new IdCollision('timers', p.timer_id);
       touched.set(p.timer_id, {
         id: p.timer_id,
         task_id: e.task_id,
