@@ -13,8 +13,9 @@ không thay chúng bằng kiểm tra mô phỏng (nguyên tắc VII).
 | Node | 24.22.1 (khớp `.nvmrc`) |
 | pnpm | 12.15.0 |
 
-T115 yêu cầu chạy trong WSL2. Lần chạy này dùng Linux gốc; quickstart.md và research R-15 chấp nhận
-Linux, vì thứ cần kiểm là `SIGKILL` và khoá file của Linux. **Chưa có lần chạy nào trong WSL2.**
+T115 ghi chạy trong WSL2; lần chạy này dùng Ubuntu trên Linux gốc. **Đã chốt (2026-10-27, chủ dự án):**
+Ubuntu gốc được chấp nhận thay WSL2. Thứ cần kiểm là hành vi `SIGKILL` và khoá file của kernel Linux trên
+filesystem Linux, và quickstart.md cùng research R-15 đều nêu "WSL2/Ubuntu hoặc Linux".
 
 ## Cổng chất lượng
 
@@ -91,7 +92,6 @@ chạy script. Đã kiểm rằng script thoát mã 1 khi thiếu `reports/vites
 
 ## Chưa đạt hoặc chưa kiểm
 
-- Chưa chạy trong WSL2 (xem Môi trường).
 - US5 "không có lời gọi mạng" chỉ có bằng chứng tĩnh.
 - I05 ngoài phạm vi feature này.
 
