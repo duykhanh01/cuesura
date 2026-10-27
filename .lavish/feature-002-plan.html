@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="vi" data-theme="light">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Cuesura · Feature 002 implementation plan</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5.5.19/daisyui.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5.5.19/themes.css">
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.2.4/dist/index.global.js"></script>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:var(--color-base-200,#f3f4f6);color:var(--color-base-content,#18222e);font-family:system-ui,sans-serif}
+    main{max-width:1120px;margin:auto;padding:28px}p,li,h1,h2,h3,summary{overflow-wrap:anywhere}svg{width:100%;height:auto}
+    .grid>*{min-width:0}.grid{grid-template-columns:repeat(3,minmax(0,1fr))}.section{margin-top:32px}.diagram{color:var(--color-primary,#345cbb)}
+    .diagram rect{fill:var(--color-base-100,#fff);stroke:currentColor;stroke-width:2}.diagram text{fill:var(--color-base-content,#18222e);font-family:system-ui,sans-serif}
+    summary{cursor:pointer}details p{margin:12px 0}code{overflow-wrap:anywhere;white-space:normal}@media(max-width:680px){main{padding:18px}.grid{grid-template-columns:minmax(0,1fr)}}
+  </style>
+</head>
+<body>
+<main>
+  <nav class="flex justify-between items-center gap-4"><span class="font-bold tracking-widest">CUESURA / 002</span><button class="btn btn-sm btn-outline" id="theme" type="button" aria-label="Đổi giao diện sáng tối">Sáng / tối</button></nav>
+  <header class="section" id="goal">
+    <div class="badge badge-warning badge-outline">BLOCKED trước tasks/A · 28/10/2026</div>
+    <h1 class="text-4xl font-bold mt-5 mb-4">Từ task tới PR xanh.<br>Hoàn tất sau khi xác nhận merge.</h1>
+    <p class="text-lg max-w-3xl">Một daemon, một slot thực thi, runner độc lập. Merge thủ công được ghi nhận ngay; DONE chờ process dừng và effect đã gửi có kết quả rõ ràng.</p>
+  </header>
+  <section class="grid gap-4 section" aria-label="Phạm vi">
+    <article class="card bg-base-100 card-border"><div class="card-body"><div class="text-3xl font-bold">117</div><p>Mục nghiệm thu được truy vết riêng trong 46 nhóm FR.</p></div></article>
+    <article class="card bg-base-100 card-border"><div class="card-body"><div class="text-3xl font-bold">12</div><p>Tiêu chí thành công; fake, I/O và smoke thật có bằng chứng riêng.</p></div></article>
+    <article class="card bg-base-100 card-border"><div class="card-body"><div class="text-3xl font-bold">≥200</div><p>Lần ngắt daemon mới, quanh spawn, ingest, publish và drain.</p></div></article>
+  </section>
+  <section class="section card bg-base-100 card-border" id="architecture">
+    <div class="card-body"><h2 class="card-title text-2xl">Ai giữ trạng thái, ai thực thi?</h2>
+    <figure class="diagram" aria-label="CLI gọi daemon, daemon là bên duy nhất ghi SQLite và gửi việc cho runner và adapter GitHub">
+      <svg viewBox="0 0 940 320" role="img" aria-labelledby="diagram-title diagram-desc">
+        <title id="diagram-title">Ranh giới của runtime Cuesura</title><desc id="diagram-desc">CLI gọi daemon qua Unix socket. Daemon ghi SQLite nguyên tử, runner dùng unit riêng và sandbox; adapter gửi facts PR và CI về daemon.</desc>
+        <defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="currentColor"/></marker></defs>
+        <g id="cli-node"><title>CLI và application service kiểm quyền, version và request dedup</title><rect x="16" y="30" width="170" height="70" rx="12"/><text x="101" y="60" text-anchor="middle" font-size="22">CLI</text><text x="101" y="84" text-anchor="middle" font-size="14">read / operate / admin</text></g>
+        <path id="socket-edge" d="M188 65H310" stroke="currentColor" stroke-width="2" marker-end="url(#arrow)"/><text x="248" y="48" text-anchor="middle" font-size="13">Unix socket</text>
+        <g id="daemon-node"><title>Daemon một writer; lõi decide/evolve tất định</title><rect x="320" y="30" width="230" height="70" rx="12"/><text x="435" y="60" text-anchor="middle" font-size="22">Daemon + core</text><text x="435" y="84" text-anchor="middle" font-size="14">decide / evolve / accept</text></g>
+        <path id="transaction-edge" d="M552 65H704" stroke="currentColor" stroke-width="2" marker-end="url(#arrow)"/><text x="629" y="48" text-anchor="middle" font-size="13">Một transaction</text>
+        <g id="store-node"><title>Event, projection, outbox và timer commit cùng nhau</title><rect x="714" y="30" width="210" height="70" rx="12"/><text x="819" y="61" text-anchor="middle" font-size="22">SQLite</text><text x="819" y="84" text-anchor="middle" font-size="14">event + projection</text></g>
+        <path id="runner-edge" d="M382 102V164H244V202" stroke="currentColor" fill="none" stroke-width="2" marker-end="url(#arrow)"/>
+        <text x="239" y="151" font-size="13">Sau commit · một slot</text>
+        <g id="runner-node"><title>Unit systemd riêng, operation lock, bubblewrap, không ghi DB</title><rect x="65" y="214" width="350" height="82" rx="12"/><text x="240" y="245" text-anchor="middle" font-size="22">Runner độc lập</text><text x="240" y="272" text-anchor="middle" font-size="14">Harness / gates / Git · sandbox</text></g>
+        <path id="github-edge" d="M493 102V164H704V202" stroke="currentColor" fill="none" stroke-width="2" marker-end="url(#arrow)"/>
+        <text x="612" y="151" font-size="13">Facts có giới hạn</text>
+        <g id="github-node"><title>Quan sát PR và checks, publish có probe; không phương thức merge</title><rect x="531" y="214" width="350" height="82" rx="12"/><text x="706" y="245" text-anchor="middle" font-size="22">GitHub adapter</text><text x="706" y="272" text-anchor="middle" font-size="14">PR / CI / merge proof</text></g>
+      </svg>
+    </figure><p>Runner và adapter trả bằng chứng. Lõi quyết định retry, chờ hoặc hoàn tất; CLI và runner không ghi SQLite.</p>
+    </div>
+  </section>
+  <section class="section card bg-base-100 card-border" id="spike-zero"><div class="card-body"><h2 class="card-title text-2xl">0 · Feasibility trước khi xây</h2><p>Admin provisioning profile riêng cho bwrap, giữ sysctl toàn máy. Kiểm host + nested sandbox, private-home auth, schema ba role × hai vendor, pnpm/pip/vendor network và gh head-at-merge. Kết quả hiện tại: host namespace fail; profile chỉ mới kiểm cú pháp.</p><p class="font-semibold">Không tắt sandbox nội bộ để pass. Không viết A/B dựa trên giả định chưa kiểm.</p></div></section>
+  <section class="section" id="delivery"><h2 class="text-2xl font-bold mb-4">Lát 0 trước tasks, rồi A → go/no-go → B → C</h2><div class="grid gap-4">
+    <details open class="card bg-base-100 card-border p-5" id="slice-a"><summary class="font-bold text-xl">A · Fake tới PR xanh</summary><p>Snapshot → worktree → code → gates → review → publish → CI, với harness và GitHub giả lập.</p><p class="font-semibold">Cổng: US1/2/4, quyền OS, binding/usage/head đúng và không có request merge.</p></details>
+    <details open class="card bg-base-100 card-border p-5" id="slice-b"><summary class="font-bold text-xl">B · Recovery và tương tác</summary><p>Nhận lại runner, probe publish, inbox/cancel/recheck, queue và explain.</p><p class="font-semibold">Cổng: ≥200 crash, replay 100%, không trùng effect và runner sống qua service restart.</p></details>
+    <details open class="card bg-base-100 card-border p-5" id="slice-c"><summary class="font-bold text-xl">C · Smoke thật</summary><p>Hai chiều Claude/Codex, Node và Python; restart và manual merge. Tái dùng fixture lát 0.</p><p class="font-semibold">Cổng: full workflow thật và đủ SC. Chạy sau A/B; spike schema/auth đã có từ lát 0.</p></details>
+  </div></section>
+  <section class="section card bg-base-100 card-border" id="review-checkpoint"><div class="card-body"><h2 class="card-title">Dừng đánh giá sau A hoặc ngày 10</h2><p>Chậm nhất 06/11/2026: chủ dự án xem 20 fake seeds, quyền/secret, idempotency, trần và effort/budget B/C. Chưa đạt hoặc chưa có kết quả go thì không mở B.</p><p>Giữ baseline gh port và runs/&lt;attempt_id&gt;. Policy/event v1, checks string[]; GitHub ghim app cụ thể là mismatch. Internet outbound mặc định đã chốt; không egress allowlist. Assistant dùng token read/operate riêng theo project, không được approve escalation.</p></div></section>
+  <section class="section grid gap-4" aria-label="Các giới hạn quan trọng">
+    <article class="card bg-base-100 card-border p-5" id="observation-budget"><h2 class="font-bold text-xl">Quan sát PR</h2><p class="mt-3">30 ngày từ lúc nhận diện PR, tối đa 2.000 lượt. Poll 60 giây → 1 giờ. Hết hạn chỉ recheck một lần, không tự bật lại.</p></article>
+    <article class="card bg-base-100 card-border p-5" id="drain-budget"><h2 class="font-bold text-xl">Merge và drain</h2><p class="mt-3">Ghi merge + chặn nghiệp vụ → dừng/đối chiếu → DONE. Drain tối đa 5 phút/3 lượt; unknown giữ claim và có recheck hữu hạn.</p></article>
+    <article class="card bg-base-100 card-border p-5" id="quality-evidence"><h2 class="font-bold text-xl">Bằng chứng chất lượng</h2><p class="mt-3">GitHub requirements nằm trong snapshot. Head merge chưa kiểm vẫn DONE sau drain, có dấu chưa chứng nhận; dependency được giải phóng sau DONE.</p></article>
+  </section>
+  <section class="section card bg-base-100 card-border" id="verification"><div class="card-body"><h2 class="card-title text-2xl">Thiết kế đã có; khả năng thực tế còn phải kiểm chứng</h2><p>Host bwrap đã fail với userns restriction=1. Có profile AppArmor trong deploy, cú pháp đạt nhưng chưa cài. Lát 0 phải chứng minh nesting khi sandbox nội bộ hai harness còn bật, auth home riêng, 6 role/vendor outputs và head-at-merge trước A. Gate chưa đạt thì chưa mở tasks.</p><p class="font-mono text-sm mt-2">plan.md · spike-0.md · spike-0-report.md · deploy/ · contracts/ · quickstart.md</p></div></section>
+  <footer class="section text-sm opacity-70">Nguồn giao diện: DaisyUI + Tailwind theo fallback Lavish; dự án CLI chưa có design system. Trang này tóm tắt plan, không điều khiển runtime hoặc tạo phê duyệt.</footer>
+</main>
+<script>document.getElementById('theme').addEventListener('click',()=>{document.documentElement.dataset.theme=document.documentElement.dataset.theme==='light'?'night':'light'});</script>
+</body>
+</html>

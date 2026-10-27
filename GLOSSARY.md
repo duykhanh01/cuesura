@@ -27,3 +27,19 @@ _Avoid_: Tạo task mới, tiếp tục revision cũ, reset task
 **Yêu cầu hủy đến quá muộn**:
 Yêu cầu hủy mà việc đối chiếu xác nhận merge của task đã thành công; task được ghi nhận DONE cùng lịch sử yêu cầu hủy. Yêu cầu này không hoàn tác merge; đảo thay đổi là một quy trình revert riêng.
 _Avoid_: Task đã hủy nhưng vẫn merge, hủy đồng nghĩa revert
+
+**PR xanh**:
+PR có gate, review và các kiểm tra CI bắt buộc đã đạt cho một head SHA cụ thể, với danh sách kiểm tra đã được đối chiếu đầy đủ. Đây là bằng chứng cho head đó, không phải quyền merge, trạng thái DONE hay bảo đảm branch đã cập nhật theo base mới nhất.
+_Avoid_: Task đã xong, được phép tự merge, xanh vĩnh viễn cho mọi thay đổi của PR
+
+**Slot thực thi**:
+Quyền chiếm một suất để task chạy attempt agent hoặc bước chuẩn bị, setup, gate hay publish; khác với việc task còn chưa kết thúc. Task chỉ chờ người, CI, merge hoặc cooldown nhả slot khi công việc đang chạy đã kết thúc và được đối chiếu rõ, nhưng vẫn giữ worktree.
+_Avoid_: Một task chưa kết thúc, giữ slot suốt vòng đời task, nhả slot đồng nghĩa xóa worktree
+
+**Head đã kiểm**:
+Head SHA của PR mà Cuesura đã có đủ gate, review và CI bắt buộc cho revision hiện tại. Head này không tự đổi theo push bên ngoài.
+_Avoid_: Head hiện tại của PR, head mới nhất trên remote
+
+**Merge chưa chứng nhận**:
+Merge thủ công được xác nhận ở một head khác head đã kiểm, hoặc khi chưa có head đã kiểm. Task vẫn DONE vì merge đã xảy ra, nhưng Cuesura không chứng nhận chất lượng của head đã merge.
+_Avoid_: Merge lỗi, task thất bại, PR xanh

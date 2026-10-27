@@ -1,0 +1,9 @@
+# Provisioned by the host administrator; does not change the global userns sysctl.
+# This profile grants user namespaces to the system bubblewrap executable.
+# It is not the filesystem/network policy: Cuesura's bwrap arguments enforce those.
+abi <abi/4.0>,
+include <tunables/global>
+
+profile cusr-bwrap /usr/bin/bwrap flags=(unconfined) {
+  userns,
+}

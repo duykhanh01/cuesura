@@ -156,7 +156,7 @@ Một lần hủy chưa thành CANCELLED khi process hoặc merge request vẫn 
 
 ### 6.2 Scheduler
 
-- Chọn task đủ điều kiện theo priority rồi thứ tự vào hàng đợi; chỉ chạy khi đủ mọi slot mà bước yêu cầu.
+- Chọn task đủ điều kiện theo priority số lớn trước (mặc định `0`), rồi thứ tự vào hàng đợi; chỉ chạy khi đủ mọi slot mà bước yêu cầu. Với một slot của feature 002, cùng priority ưu tiên task đã bắt đầu đang xin lại slot trước task READY; cùng nhóm theo thời điểm xin slot hiện tại, hòa thì thứ tự event đã commit.
 - Giữ khóa worktree và resource slot qua thời gian attempt thật sự còn chạy, kể cả khi daemon restart. Khôi phục các claim trước khi cấp việc mới.
 - Pool là tên và sức chứa; engine không biết `build`, `browser`, `emulator` hay `test_db` làm gì. Hotspot hint cho phép tuần tự hóa các vùng file dễ xung đột.
 - Rate limit khóa pool/harness liên quan tới `reset_at`; nếu chưa biết reset time, dùng backoff hữu hạn và báo rõ. Không tự chuyển sang model ngoài policy.
@@ -291,7 +291,7 @@ Engine nhận state, trigger, workflow/policy và dữ liệu phụ thuộc môi
 
 ### 12.1 Process và file
 
-Daemon dùng `child_process.spawn` tạo runner độc lập, chuyển stdio sang file và tách lifetime khỏi daemon. Runner spawn harness trong nhóm process được quản lý; không vô tình detach harness ra khỏi nhóm cần hủy. Khả năng sống qua daemon restart phải được kiểm chứng cả khi chạy dưới systemd; `detached` riêng lẻ không được coi là bằng chứng.
+Daemon dùng `node:child_process.spawn` để khởi chạy runner độc lập, chuyển stdio sang file và tách lifetime khỏi daemon. Feature 002 gọi `systemd-run --user` qua `spawn`, đặt runner trong transient service riêng không gắn vòng đời vào daemon và không tự restart agent; systemd user manager là prerequisite kể cả daemon foreground. Runner spawn harness trong nhóm process được quản lý; không vô tình detach harness ra khỏi nhóm cần hủy. Doctor kiểm user manager và WSL2 đã bật systemd thực sự; khả năng sống qua daemon service stop/restart phải đạt spike trước triển khai. Xem [ADR-0002](docs/adr/0002-systemd-runner-lifetime.md); `detached` riêng lẻ không được coi là bằng chứng.
 
 Mỗi attempt có thư mục riêng `~/.cusr/runs/<attempt_id>/`:
 
@@ -498,7 +498,7 @@ Chỉ số gồm token và agent runs/task được chấp nhận, wasted runs, 
 | Schema | Zod 4; JSON Schema sinh từ cùng định nghĩa và kiểm chứng trên harness thật |
 | CLI và IPC | Commander; Unix domain socket qua thư viện chuẩn Node |
 | Cấu hình | `yaml` của eemeli, core schema, diagnostics có vị trí dòng/cột |
-| Process | `node:child_process.spawn` cho runner; `execa` cho gate/git/gh khi cần tiện ích chạy lệnh |
+| Process | `node:child_process.spawn`; feature 002 gọi `systemd-run --user` qua spawn để runner có unit riêng; gate/git/gh cũng qua port process có timeout, chỉ thêm execa khi có nhu cầu đã chứng minh |
 | ID | UUIDv7 qua package `uuid`; ID/clock được cung cấp từ ngoài engine |
 | Kiểm thử | Vitest + fast-check; Clock inject ở tầng có I/O, fake ports/harness, fixture và crash injection |
 | Package manager | pnpm, pin phiên bản trong metadata project, commit lockfile, CI cài bằng frozen lockfile |
@@ -506,6 +506,11 @@ Chỉ số gồm token và agent runs/task được chấp nhận, wasted runs, 
 | GitHub | `gh` qua port mỏng có timeout, phân loại lỗi và fake phục vụ kiểm thử |
 
 Typecheck, lint, test và build là các kiểm tra riêng; Vitest chạy xanh không thay thế typecheck. Không thêm framework workflow, ORM hoặc DI container chỉ để chuẩn bị cho khả năng mở rộng chưa cần.
+
+**Điều chỉnh baseline 2026-10-28:** feature 002 chốt supervision bằng systemd user service tại
+[ADR-0002](docs/adr/0002-systemd-runner-lifetime.md), bổ sung prerequisite/probe trong
+[runbook triển khai](deploy/README.md). GitHub giữ `gh` qua port; file attempt giữ §12.1. Thay đổi
+này không sửa hiến chương hoặc miễn yêu cầu quyền, giới hạn, single-writer hay idempotency.
 
 ## 18. Nghiệm thu
 
