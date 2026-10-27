@@ -1,0 +1,175 @@
+import type { Backoff, Limits } from '../domain/policy.ts';
+import { counterKey, streakKey, type AttemptKind, type DetailCode, type EffectMirror, type ResumeAction } from '../domain/state.ts';
+import type { FailureClass, FailureData } from '../domain/trigger.ts';
+import { hashCanonical } from '../shared/hash.ts';
+import { assertNever } from '../shared/assert-never.ts';
+import { planBackoff } from './backoff.ts';
+import { available } from './budget.ts';
+import type { Ctx } from './context.ts';
+import { pastDeadline, proceed } from './interpreter.ts';
+import { askHuman } from './questions.ts';
+import { mkWait, waitPolicy, waitTask } from './waits.ts';
+
+/** Only these classes feed quality escalation (FR-019). */
+export const QUALITY_CLASSES: readonly FailureClass[] = ['quality', 'invalid_output'];
+
+export function countsTowardQuality(c: FailureClass): boolean {
+  return QUALITY_CLASSES.includes(c);
+}
+
+type Recorded = { count: number; escalate: boolean };
+
+/**
+ * Emits `FailureClassified`. `class_counters` are keyed by `(step, class)`, and additionally by rung for
+ * `invalid_output` whose repair allowance is per rung. Quality classes also update the streak of
+ * `(step, rung)`; the streak asks for escalation after two consecutive quality failures with the same
+ * signature, after `quality_tries_per_rung` tries, or once invalid output has used its repair and fresh
+ * session (FR-019, FR-020).
+ */
+export function recordFailure(
+  ctx: Ctx,
+  o: { step: string; attempt_id: string | null; class: FailureClass; signature: string | null; rung: number | null },
+): Recorded {
+  const s = ctx.state;
+  const c = ctx.frozen.limits.classes;
+  const key = o.class === 'invalid_output' && o.rung !== null ? counterKey(o.step, o.class, o.rung) : counterKey(o.step, o.class);
+  const count = (s.class_counters[key] ?? 0) + 1;
+  let consecutive = count;
+  let escalate = false;
+  if (countsTowardQuality(o.class) && o.rung !== null) {
+    const prev = s.failure_streaks[streakKey(o.step, o.rung)];
+    consecutive = o.signature !== null && prev?.signature === o.signature ? prev.consecutive + 1 : 1;
+    const tries = (prev?.quality_tries ?? 0) + 1;
+    escalate =
+      prev?.escalate === true ||
+      tries >= c.quality_tries_per_rung ||
+      (o.class === 'quality' && consecutive >= 2) ||
+      (o.class === 'invalid_output' && count > c.invalid_output_repairs + c.invalid_output_fresh);
+  }
+  ctx.emit('FailureClassified', { ...o, counter_key: key, count, consecutive, escalate });
+  return { count, escalate };
+}
+
+/**
+ * Gate failures, review rejections and CI code failures count as quality failures of the most recent
+ * agent step that changed the code (SPEC.md §9.3).
+ */
+export function recordCheckFailure(ctx: Ctx, signature: string | null): void {
+  const s = ctx.state;
+  const step = s.last_fix_step;
+  if (step === null) return;
+  const attemptId = s.current_attempt[step] ?? null;
+  const attempt = attemptId === null ? undefined : s.attempts[attemptId];
+  const rung = attempt?.rung ?? s.rungs.by_step[step] ?? 0;
+  recordFailure(ctx, { step, attempt_id: attemptId, class: 'quality', signature, rung });
+}
+
+export function reviewSignature(findings: readonly { severity: string; file?: string | undefined; msg: string }[]): string | null {
+  if (findings.length === 0) return null;
+  const key = findings.map((f) => [f.severity, f.file ?? '', f.msg]).sort((a, b) => a.join('\0').localeCompare(b.join('\0')));
+  return `review:${hashCanonical(key).slice('sha256:'.length, 'sha256:'.length + 16)}`;
+}
+
+function invalidOutputKind(c: Limits['classes'], count: number): AttemptKind {
+  if (count <= c.invalid_output_repairs) return 'repair';
+  if (count <= c.invalid_output_repairs + c.invalid_output_fresh) return 'fresh_session';
+  return 'retry';
+}
+
+/**
+ * Applies the FR-019 table to a failed effect whose budget and attempt have already been settled. Class
+ * limits apply together with the agent run cap and the task deadline; whichever is hit first stops.
+ */
+export function handleFailure(ctx: Ctx, e: EffectMirror, f: FailureData): void {
+  const step = e.step as string;
+  const agent = e.kind === 'start_agent';
+  const attempt = agent && e.attempt_id !== null ? ctx.state.attempts[e.attempt_id] : undefined;
+  const cls = f.failure_class;
+  const r = recordFailure(ctx, { step, attempt_id: e.attempt_id, class: cls, signature: f.signature ?? null, rung: attempt?.rung ?? null });
+  const limits = ctx.frozen.limits;
+  const retry = (kind: AttemptKind = 'retry'): ResumeAction =>
+    agent ? { kind: 'start_attempt', step, attempt_kind: kind } : { kind: 'retry_effect', step };
+  switch (cls) {
+    case 'rate_limit':
+      scheduleRetry(ctx, e, cls, limits.backoff.rate_limit, r.count, retry(), f.reset_at);
+      return;
+    case 'infra':
+      if (r.count > limits.classes.infra_retries) {
+        waitPolicy(ctx, 'backoff_exhausted', retry(), { step, class: cls, count: r.count });
+        return;
+      }
+      scheduleRetry(ctx, e, cls, limits.backoff.infra, r.count, retry());
+      return;
+    case 'timeout':
+      if (r.count <= limits.classes.timeout_retries) {
+        proceed(ctx, retry(), 'timeout_retry');
+        return;
+      }
+      askAbout(ctx, e, f, 'timeout', retry());
+      return;
+    case 'auth_config':
+    case 'refused':
+      askAbout(ctx, e, f, cls, retry());
+      return;
+    case 'invalid_output':
+    case 'quality':
+      if (!agent) {
+        askAbout(ctx, e, f, 'effect_failed', retry());
+        return;
+      }
+      proceed(ctx, retry(cls === 'invalid_output' ? invalidOutputKind(limits.classes, r.count) : 'retry'), cls);
+      return;
+    case 'unknown':
+      // No blind replay: a person decides after looking at the effect.
+      askAbout(ctx, e, f, 'effect_failed', retry());
+      return;
+    default:
+      assertNever(cls);
+  }
+}
+
+function scheduleRetry(
+  ctx: Ctx,
+  e: EffectMirror,
+  cls: 'rate_limit' | 'infra',
+  cfg: Backoff,
+  count: number,
+  resume: ResumeAction,
+  resetAt?: number,
+): void {
+  const step = e.step as string;
+  if (e.kind === 'start_agent' && available(ctx.state.budget) < 1) {
+    waitPolicy(ctx, 'agent_runs_exhausted', resume, { step, class: cls });
+    return;
+  }
+  if (pastDeadline(ctx)) {
+    waitPolicy(ctx, 'deadline', resume, { deadline_at: ctx.state.deadline_at });
+    return;
+  }
+  const plan = planBackoff(cfg, count, e.idem_key, ctx.now, resetAt);
+  if (plan.kind === 'exhausted') {
+    waitPolicy(ctx, 'backoff_exhausted', resume, { step, class: cls, count, reason: plan.reason });
+    return;
+  }
+  const timerId = ctx.nextId();
+  ctx.emit('TimerArmed', { timer_id: timerId, kind: 'backoff', due_at: plan.due_at, payload: { step, resume } });
+  waitTask(
+    ctx,
+    mkWait(cls === 'rate_limit' ? 'rate_limit' : 'infra', cls === 'rate_limit' ? 'rate_limited' : 'infra_backoff', {
+      resume,
+      resume_when: [`timer(${timerId})`],
+      detail: { step, class: cls, count, timer_id: timerId, due_at: plan.due_at },
+    }),
+  );
+}
+
+function askAbout(ctx: Ctx, e: EffectMirror, f: FailureData, code: DetailCode, resume: ResumeAction): void {
+  const step = e.step as string;
+  askHuman(ctx, code, {
+    step,
+    attempt_id: e.attempt_id,
+    body: `${e.kind} của bước '${step}' thất bại: ${f.failure_class}${f.message ? ` (${f.message})` : ''}`,
+    resume,
+    detail: { effect_id_failed: e.id, class: f.failure_class },
+  });
+}

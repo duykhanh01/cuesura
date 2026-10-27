@@ -25,11 +25,13 @@ import {
   type StepDef,
   type StepKind,
 } from '../domain/workflow.ts';
-import { available, consume, release, reserve } from './budget.ts';
+import { available, consume, release, reserve, usageOf } from './budget.ts';
 import { maybeFinishCancel, requestCancel } from './cancel.ts';
 import { classifyFailures } from './classify.ts';
 import { reject, type Ctx } from './context.ts';
 import { requestEffect, requestReconcile } from './effects.ts';
+import { applyRaise, chooseRung } from './escalation.ts';
+import { handleFailure, recordCheckFailure, reviewSignature } from './failure.ts';
 import { ciVerdict, latestCi, mergeGuard, type GuardFailure } from './merge-guard.ts';
 import { askHuman, requestApproval } from './questions.ts';
 import { deferForDrift } from './revision.ts';
@@ -280,6 +282,10 @@ export function runStep(ctx: Ctx, step: string, attemptKind: AttemptKind = 'init
       const ci = s.head_sha === null ? undefined : latestCi(s, s.head_sha);
       const c = classifyFailures(p.ci.rules, ci?.checks ?? []);
       if (c.kind === 'class') {
+        if (c.class === 'code') {
+          const failing = c.by_check.filter((x) => x.class === 'code').map((x) => x.check).sort();
+          recordCheckFailure(ctx, `ci:${failing.join(',')}`);
+        }
         route(ctx, step, c.class);
         return;
       }
@@ -433,8 +439,9 @@ function agentRunsAhead(ctx: Ctx, from: string): number {
 // ---------- Attempt ----------
 
 /**
- * Khởi chạy attempt: chọn nấc hiện tại của bước, kiểm tra `denied`/approval (FR-021) và ngân sách
- * (khả dụng ≥ 1), rồi giữ chỗ trước khi phát `start_agent` (FR-022).
+ * Starts an attempt: picks the rung (escalation and task floor, then `denied`/approval/escalation limit,
+ * FR-020, FR-021), checks deadline and budget (available ≥ 1), and reserves budget before requesting
+ * `start_agent` (FR-022).
  */
 export function startAttempt(ctx: Ctx, step: string, kind: AttemptKind): void {
   const s = ctx.state;
@@ -447,16 +454,13 @@ export function startAttempt(ctx: Ctx, step: string, kind: AttemptKind): void {
     enterStep(ctx, step, { step, outcome: 'resume' }, kind);
     return;
   }
-  const rungIndex = s.rungs.by_step[step] ?? 0;
-  const rung = sp.ladder[rungIndex];
-  if (rung === undefined) return waitPolicy(ctx, 'ladder_exhausted', again, { step, rung: rungIndex });
-  if (rung.state === 'denied') return waitPolicy(ctx, 'rung_denied', again, { step, rung: rungIndex });
-  if (rung.state === 'needs_approval' && !hasEscalationApproval(ctx, step, rungIndex)) {
-    requestApproval(ctx, { kind: 'escalation', step, rung: rungIndex, head_sha: null, resume: again });
-    return;
-  }
+  const choice = chooseRung(ctx, step, sp, again);
+  if (choice === null) return;
   if (pastDeadline(ctx)) return waitPolicy(ctx, 'deadline', again, { deadline_at: s.deadline_at });
   if (available(s.budget) < 1) return waitPolicy(ctx, 'agent_runs_exhausted', again, { step });
+  applyRaise(ctx, step, sp, choice);
+  const rungIndex = choice.rung;
+  const rung = sp.ladder[rungIndex] as (typeof sp.ladder)[number];
 
   const attemptId = ctx.nextId();
   const effectId = ctx.nextId();
@@ -493,20 +497,6 @@ export function startAttempt(ctx: Ctx, step: string, kind: AttemptKind): void {
       answers,
     },
   });
-}
-
-function hasEscalationApproval(ctx: Ctx, step: string, rung: number): boolean {
-  const s = ctx.state;
-  return Object.values(s.approvals).some(
-    (a) =>
-      a.kind === 'escalation' &&
-      a.status === 'granted' &&
-      !a.revoked &&
-      a.revision === s.revision &&
-      a.step === step &&
-      a.rung === rung &&
-      a.policy_hash === s.policy_ref?.hash,
-  );
 }
 
 // ---------- CI ----------
@@ -646,15 +636,17 @@ export function onEffectSucceeded(ctx: Ctx, e: EffectMirror, data: unknown): voi
       const required = sg !== undefined && sg.required.length > 0 ? sg.required : (sg?.run ?? d.results.map((r) => r.gate));
       const passed = required.length > 0 && required.every((g) => d.results.some((r) => r.gate === g && r.passed));
       const failing = d.results.find((r) => !r.passed && required.includes(r.gate)) ?? d.results.find((r) => !r.passed);
+      const signature = failing?.signature ?? null;
       ctx.emit('GateResultRecorded', {
         step: step as string,
         visit: visitOf(ctx, step as string),
         effect_id: e.id,
         results: d.results,
         passed,
-        signature: failing?.signature ?? null,
-        resets_streak_of: null,
+        signature,
+        resets_streak_of: passed ? ctx.state.last_fix_step : null,
       });
+      if (!passed) recordCheckFailure(ctx, signature);
       proceed(ctx, { kind: 'route', step: step as string, outcome: passed ? 'pass' : 'fail' });
       return;
     }
@@ -680,7 +672,13 @@ export function onEffectSucceeded(ctx: Ctx, e: EffectMirror, data: unknown): voi
       return;
     case 'await_ci': {
       const d = AwaitCiDataSchema.parse(data);
-      ctx.emit('CiResultRecorded', { head_sha: d.head_sha, required_set: d.required_set, checks: d.checks, resets_streak_of: null });
+      const green = d.head_sha === ctx.state.head_sha && ciVerdict(ctx.frozen, d.required_set, d.checks).kind === 'pass';
+      ctx.emit('CiResultRecorded', {
+        head_sha: d.head_sha,
+        required_set: d.required_set,
+        checks: d.checks,
+        resets_streak_of: green ? ctx.state.last_fix_step : null,
+      });
       if (d.base_relation !== undefined) ctx.emit('BaseRelationRecorded', { relation: d.base_relation });
       onCiRecorded(ctx, step as string);
       return;
@@ -744,11 +742,21 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
   const d = parsed.data;
   const status = 'verdict' in d ? d.verdict : d.status;
   if (e.attempt_id !== null) {
-    ctx.emit('AttemptFinished', { attempt_id: e.attempt_id, step, status, class: null, signature: null, usage: d.usage });
+    ctx.emit('AttemptFinished', { attempt_id: e.attempt_id, step, status, class: null, signature: null, usage: usageOf(d.usage) });
   }
   if (afterAttempt(ctx, e)) return;
   if ('verdict' in d) {
-    ctx.emit('ReviewVerdictRecorded', { step, attempt_id: e.attempt_id as string, verdict: d.verdict, head_sha: d.head_sha, signature: null, resets_streak_of: null });
+    const approved = d.verdict === 'approve';
+    const signature = approved ? null : reviewSignature(d.findings);
+    ctx.emit('ReviewVerdictRecorded', {
+      step,
+      attempt_id: e.attempt_id as string,
+      verdict: d.verdict,
+      head_sha: d.head_sha,
+      signature,
+      resets_streak_of: approved ? ctx.state.last_fix_step : null,
+    });
+    if (!approved) recordCheckFailure(ctx, signature);
     proceed(ctx, { kind: 'route', step, outcome: d.verdict });
     return;
   }
@@ -783,12 +791,8 @@ function afterAttempt(ctx: Ctx, e: EffectMirror): boolean {
   return false;
 }
 
-/** Lớp thất bại chờ người theo bảng R-13; lớp còn lại dùng `effect_failed` cho tới khi có FR-019 đầy đủ. */
-const HUMAN_CLASS_CODES = { auth_config: 'auth_config', refused: 'refused', timeout: 'timeout' } as const;
-
 /**
- * Effect thất bại: chốt ngân sách và attempt, ghi lớp thất bại, rồi chờ người với một lần thử lại có giới
- * hạn bởi `max_visits` của bước hoặc ngân sách.
+ * Failed effect: settles the reservation and the attempt, then applies the per-class handling of FR-019.
  */
 export function onEffectFailed(ctx: Ctx, e: EffectMirror, f: FailureData, budgetSettled = false): void {
   resumeIfWaitingOn(ctx, e);
@@ -806,7 +810,7 @@ export function onEffectFailed(ctx: Ctx, e: EffectMirror, f: FailureData, budget
       status: null,
       class: f.failure_class,
       signature: f.signature ?? null,
-      usage: f.usage ?? null,
+      usage: usageOf(f.usage),
     });
     if (afterAttempt(ctx, e)) return;
   }
@@ -814,27 +818,5 @@ export function onEffectFailed(ctx: Ctx, e: EffectMirror, f: FailureData, budget
     proceed(ctx, { kind: 'none' });
     return;
   }
-  const key = `${step}#${f.failure_class}`;
-  const count = (s.class_counters[key] ?? 0) + 1;
-  const rung = agent ? (s.rungs.by_step[step] ?? 0) : null;
-  ctx.emit('FailureClassified', {
-    step,
-    attempt_id: e.attempt_id,
-    class: f.failure_class,
-    signature: f.signature ?? null,
-    rung,
-    counter_key: key,
-    count,
-    consecutive: count,
-    escalate: false,
-  });
-  const code = f.failure_class in HUMAN_CLASS_CODES ? HUMAN_CLASS_CODES[f.failure_class as keyof typeof HUMAN_CLASS_CODES] : 'effect_failed';
-  const resume: ResumeAction = agent ? { kind: 'start_attempt', step, attempt_kind: 'retry' } : { kind: 'retry_effect', step };
-  askHuman(ctx, code, {
-    step,
-    attempt_id: e.attempt_id,
-    body: `${e.kind} của bước '${step}' thất bại: ${f.failure_class}${f.message ? ` (${f.message})` : ''}`,
-    resume,
-    detail: { effect_id_failed: e.id, class: f.failure_class },
-  });
+  handleFailure(ctx, e, f);
 }

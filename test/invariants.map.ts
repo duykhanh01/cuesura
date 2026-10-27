@@ -23,7 +23,17 @@ export const INVARIANTS: Record<string, InvariantEntry> = {
   I04: { title: 'Khoá idempotency', scope: 'partial', layer: 'Thuộc tính + tích hợp kho', suites: ['test/property/invariants/idempotency.test.ts', 'test/integration/store/effects.test.ts', 'test/integration/store/accept.test.ts', 'test/integration/store/us3-scenarios.test.ts'] },
   I05: { title: 'Worktree riêng, tuần tự', scope: 'out_of_scope', layer: 'Chưa có bằng chứng' },
   I06: { title: 'Bằng chứng, không phải lời agent', scope: 'partial', layer: 'Thuộc tính', suites: ['test/property/invariants/evidence.test.ts'] },
-  I07: { title: 'Mọi thứ có giới hạn', scope: 'partial', layer: 'Thuộc tính', suites: ['test/property/invariants/bounds.test.ts'] },
+  I07: {
+    title: 'Mọi thứ có giới hạn',
+    scope: 'partial',
+    layer: 'Thuộc tính',
+    suites: [
+      'test/property/invariants/bounds.test.ts',
+      'test/property/invariants/budget.test.ts',
+      'test/scenarios/us4-escalation.test.ts',
+      'test/unit/engine/backoff.test.ts',
+    ],
+  },
   I08: {
     title: 'Bất biến theo revision',
     scope: 'partial',
@@ -37,7 +47,17 @@ export const INVARIANTS: Record<string, InvariantEntry> = {
       'test/integration/store/effects.test.ts',
     ],
   },
-  I09: { title: 'Role, binding, approval, ngân sách', scope: 'partial', layer: 'Thuộc tính', suites: [] },
+  I09: {
+    title: 'Role, binding, approval, ngân sách',
+    scope: 'partial',
+    layer: 'Thuộc tính',
+    suites: [
+      'test/property/invariants/escalation.test.ts',
+      'test/property/invariants/budget.test.ts',
+      'test/property/invariants/usage.test.ts',
+      'test/scenarios/us4-escalation.test.ts',
+    ],
+  },
   I10: {
     title: 'Thứ tự sự kiện, trigger lặp',
     scope: 'full',

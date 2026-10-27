@@ -1,6 +1,6 @@
 import { isBusinessEffect } from '../domain/effect.ts';
 import { isTerminal, type EffectMirror } from '../domain/state.ts';
-import { release } from './budget.ts';
+import { release, usageOf } from './budget.ts';
 import type { Ctx } from './context.ts';
 import { inFlight, requestEffect, requestReconcile } from './effects.ts';
 import { closeOut } from './interpreter.ts';
@@ -41,7 +41,7 @@ export function invalidatePending(ctx: Ctx, reason: string, filter: (e: EffectMi
     ctx.emit('EffectInvalidated', { effect_id: e.id, reason });
     release(ctx, e.reservation_id);
     if (e.kind === 'start_agent' && e.attempt_id !== null && ctx.state.attempts[e.attempt_id]?.status === 'running') {
-      ctx.emit('AttemptFinished', { attempt_id: e.attempt_id, step: e.step as string, status: 'not_started', class: null, signature: null, usage: null });
+      ctx.emit('AttemptFinished', { attempt_id: e.attempt_id, step: e.step as string, status: 'not_started', class: null, signature: null, usage: usageOf(null) });
     }
   }
 }

@@ -97,7 +97,8 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
   });
 
   it('Scenario 3: agent báo done nhưng gate bắt buộc fail → không qua bước, sửa trong giới hạn lượt', () => {
-    const sim = run();
+    // Every rung is `auto` so quality escalation does not stop the loop before `max_visits` does.
+    const sim = run(TASK, { escalation: { auto_up_to_tier: 3 } });
     sim.complete(toCode(sim).id, 'succeeded', agentData('done'));
     const evs = expectAccepted(sim.complete(sim.pendingOne('run_gates').id, 'succeeded', gatesData({ build: true, unit: false, lint: true })));
     expect(evs.find((e) => e.type === 'GateResultRecorded')?.payload).toMatchObject({ passed: false, signature: 'unit:E1' });
@@ -106,12 +107,11 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
     expect(sim.s.step_visits['review']).toBeUndefined();
 
     // Lỗi lặp lại: tối đa 7 lượt fix_gates rồi chờ người, không lặp vô hạn.
-    for (let i = 0; i < 6; i++) {
+    const unitFails = (i: number) => ({ results: [{ gate: 'build', passed: true }, { gate: 'unit', passed: false, signature: `unit:E${i}` }] });
+    for (let i = 0; i < 7; i++) {
       sim.complete(sim.pendingOne('start_agent').id, 'succeeded', agentData('done'));
-      sim.complete(sim.pendingOne('run_gates').id, 'succeeded', gatesData({ build: true, unit: false }));
+      sim.complete(sim.pendingOne('run_gates').id, 'succeeded', unitFails(i));
     }
-    sim.complete(sim.pendingOne('start_agent').id, 'succeeded', agentData('done'));
-    sim.complete(sim.pendingOne('run_gates').id, 'succeeded', gatesData({ build: true, unit: false }));
     expect(sim.s.step_visits['fix_gates']).toBe(7);
     expect(sim.eventTypes()).toContain('StepExhausted');
     expect(sim.s.status).toBe('WAITING');

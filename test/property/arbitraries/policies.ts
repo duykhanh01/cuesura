@@ -31,6 +31,30 @@ export const policyArb: fc.Arbitrary<PolicyOptions> = fc.record({
   }),
 });
 
+const scopedRoleArb = (model: string, permissions: 'write' | 'read_only'): fc.Arbitrary<RoleSpec> =>
+  fc.tuple(roleArb(model, permissions), fc.constantFrom('step' as const, 'task' as const)).map(([r, scope]) => ({ ...r, scope }));
+
+/**
+ * Policies that stress escalation: denied or approval-gated upper rungs, small escalation limits and roles
+ * whose raises lift the task floor.
+ */
+export const escalationPolicyArb: fc.Arbitrary<PolicyOptions> = fc.record({
+  limits: fc.record({
+    max_agent_runs: fc.integer({ min: 4, max: 24 }),
+    max_escalations: fc.integer({ min: 0, max: 4 }),
+    classes: fc.record({ quality_tries_per_rung: fc.integer({ min: 1, max: 3 }) }),
+  }),
+  escalation: fc.record({
+    auto_up_to_tier: fc.constantFrom(1, 2, 2, 3),
+    above: fc.constantFrom('ask_human' as const, 'ask_human' as const, 'deny' as const),
+  }),
+  roles: fc.record({
+    coder: scopedRoleArb('sonnet', 'write'),
+    fixer: scopedRoleArb('haiku', 'write'),
+    reviewer: scopedRoleArb('sol', 'read_only'),
+  }),
+});
+
 /** Biến thể task ảnh hưởng tới predicate: bỏ review (XS), có scout, nhánh đích tự duyệt merge. */
 export const taskOverArb: fc.Arbitrary<Partial<CanonicalTask>> = fc.record({
   size: fc.constantFrom('XS' as const, 'M' as const, 'L' as const),

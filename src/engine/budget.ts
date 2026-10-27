@@ -1,4 +1,5 @@
 import type { Budget } from '../domain/state.ts';
+import type { Usage } from '../domain/trigger.ts';
 import type { Ctx } from './context.ts';
 
 /** "Khả dụng = `limit − used − reserved`" (data-model.md "Ngân sách"). */
@@ -23,4 +24,9 @@ export function consume(ctx: Ctx, reservation_id: string | null): void {
 /** `held → released`: chắc chắn agent chưa chạy. Kết quả `unknown` không đi qua đây (FR-022). */
 export function release(ctx: Ctx, reservation_id: string | null): void {
   if (held(ctx, reservation_id)) ctx.emit('BudgetReleased', { reservation_id });
+}
+
+/** Usage recorded for an attempt; missing data is `unavailable`, never zero (FR-024). */
+export function usageOf(u: Usage | null | undefined): Usage {
+  return u ?? { basis: 'unavailable' };
 }

@@ -54,7 +54,7 @@ export type EventPayloads = {
     status: string | null;
     class: FailureClass | null;
     signature: string | null;
-    usage: Usage | null;
+    usage: Usage;
   };
   FailureClassified: {
     step: string;

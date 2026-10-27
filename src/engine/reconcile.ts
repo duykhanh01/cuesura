@@ -1,7 +1,7 @@
 import { isRequeueSafe } from '../domain/effect.ts';
 import type { EffectMirror } from '../domain/state.ts';
 import { AgentDataSchema, FailureDataSchema, ReviewDataSchema, type Trigger } from '../domain/trigger.ts';
-import { release } from './budget.ts';
+import { release, usageOf } from './budget.ts';
 import { reject, type Ctx } from './context.ts';
 import { onEffectFailed, onEffectSucceeded, parseSuccess, proceed } from './interpreter.ts';
 
@@ -79,7 +79,7 @@ export function onReconciled(ctx: Ctx, t: Reconciled): void {
         proceed(ctx, { kind: 'none' });
         return;
       }
-      ctx.emit('AttemptFinished', { attempt_id: e.attempt_id, step: e.step as string, status: 'not_executed', class: null, signature: null, usage: null });
+      ctx.emit('AttemptFinished', { attempt_id: e.attempt_id, step: e.step as string, status: 'not_executed', class: null, signature: null, usage: usageOf(null) });
       const attempt = ctx.state.attempts[e.attempt_id];
       if (ctx.state.cancellation !== null || attempt === undefined || attempt.stop_requested || ctx.state.current_attempt[attempt.step] !== attempt.id) {
         proceed(ctx, { kind: 'none' });

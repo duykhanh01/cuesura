@@ -211,18 +211,18 @@ chờ với bảng mong đợi (`pnpm test test/scenarios/us4-escalation.test.ts
 
 ### Tests for User Story 4 ⚠️
 
-- [ ] T096 [US4] Viết `test/scenarios/us4-escalation.test.ts`: 13 acceptance scenario của US4 đánh số như spec
-- [ ] T097 [P] [US4] Viết `test/property/invariants/escalation.test.ts` (I09): nấc không giảm; luôn nằm trong thang của role với thang khác độ dài và khác binding; không bao giờ `denied`; không `needs_approval` khi chưa có approval khớp; không nâng vì `rate_limit`, `infra`, `auth_config`, `timeout`, `refused`, `unknown`; tối đa 3 lần thử chất lượng mỗi nấc; số lần nâng ≤ `max_escalations`
-- [ ] T098 [P] [US4] Viết `test/property/invariants/budget.test.ts` (I09, FR-022): `used + reserved` ≤ `limit`; `unknown` giữ chỗ; vô hiệu hoá trả chỗ; mọi lượt `invoked`, kể cả bị rate limit, được tính
-- [ ] T099 [P] [US4] Viết `test/property/invariants/usage.test.ts` (FR-024): usage luôn có `basis`; `unavailable` không bao giờ mang số 0
+- [X] T096 [US4] Viết `test/scenarios/us4-escalation.test.ts`: 13 acceptance scenario của US4 đánh số như spec
+- [X] T097 [P] [US4] Viết `test/property/invariants/escalation.test.ts` (I09): nấc không giảm; luôn nằm trong thang của role với thang khác độ dài và khác binding; không bao giờ `denied`; không `needs_approval` khi chưa có approval khớp; không nâng vì `rate_limit`, `infra`, `auth_config`, `timeout`, `refused`, `unknown`; tối đa 3 lần thử chất lượng mỗi nấc; số lần nâng ≤ `max_escalations`
+- [X] T098 [P] [US4] Viết `test/property/invariants/budget.test.ts` (I09, FR-022): `used + reserved` ≤ `limit`; `unknown` giữ chỗ; vô hiệu hoá trả chỗ; mọi lượt `invoked`, kể cả bị rate limit, được tính
+- [X] T099 [P] [US4] Viết `test/property/invariants/usage.test.ts` (FR-024): usage luôn có `basis`; `unavailable` không bao giờ mang số 0
 
 ### Implementation for User Story 4
 
-- [ ] T100 [US4] Triển khai `src/engine/failure.ts`: bảng xử lý tám lớp của FR-019, `class_counters` theo `(step, lớp)`, dừng theo giới hạn nào chạm trước giữa giới hạn lớp, trần lượt agent và `deadline_at`
-- [ ] T101 [P] [US4] Triển khai `src/engine/backoff.ts`: rate limit hẹn timer tới `reset_at`, không có thì backoff theo `limits.backoff.rate_limit`; lớp `infra` theo `limits.backoff.infra`; hết `max_attempts` thì WAITING `policy` (R-22); jitter suy tất định từ hash của `idem_key`, không dùng `Math.random` (FR-012)
-- [ ] T102 [US4] Triển khai `src/engine/escalation.ts`: `failure_streaks` theo `(step, rung)`, nấc mục tiêu = `max(rung[step], floor_map[step][floor_level], nấc_đề_xuất)` rồi kiểm theo thứ tự của R-18, `RungRaised`/`TaskFloorRaised`, approval theo FR-021 (phụ thuộc T100)
-- [ ] T103 [US4] Nối `failure.ts`, `backoff.ts`, `escalation.ts` vào `src/engine/interpreter.ts` và cập nhật `src/engine/budget.ts` để ghi usage có nhãn `reported`/`estimated`/`unavailable`
-- [ ] T104 [US4] Điền suite US4 cho I07, I09 trong `test/invariants.map.ts`
+- [X] T100 [US4] Triển khai `src/engine/failure.ts`: bảng xử lý tám lớp của FR-019, `class_counters` theo `(step, lớp)`, dừng theo giới hạn nào chạm trước giữa giới hạn lớp, trần lượt agent và `deadline_at`
+- [X] T101 [P] [US4] Triển khai `src/engine/backoff.ts`: rate limit hẹn timer tới `reset_at`, không có thì backoff theo `limits.backoff.rate_limit`; lớp `infra` theo `limits.backoff.infra`; hết `max_attempts` thì WAITING `policy` (R-22); jitter suy tất định từ hash của `idem_key`, không dùng `Math.random` (FR-012)
+- [X] T102 [US4] Triển khai `src/engine/escalation.ts`: `failure_streaks` theo `(step, rung)`, nấc mục tiêu = `max(rung[step], floor_map[step][floor_level], nấc_đề_xuất)` rồi kiểm theo thứ tự của R-18, `RungRaised`/`TaskFloorRaised`, approval theo FR-021 (phụ thuộc T100)
+- [X] T103 [US4] Nối `failure.ts`, `backoff.ts`, `escalation.ts` vào `src/engine/interpreter.ts` và cập nhật `src/engine/budget.ts` để ghi usage có nhãn `reported`/`estimated`/`unavailable`
+- [X] T104 [US4] Điền suite US4 cho I07, I09 trong `test/invariants.map.ts`
 
 **Checkpoint**: US4 xanh; property test của US2 vẫn xanh sau khi nối.
 

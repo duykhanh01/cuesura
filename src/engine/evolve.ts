@@ -198,18 +198,20 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
         a.outcome = { class: event.payload.class, status: event.payload.status, signature: event.payload.signature };
         a.usage = event.payload.usage;
       }
+      if (event.payload.status === 'done') s.last_fix_step = event.payload.step;
       break;
     }
     case 'FailureClassified': {
       const p = event.payload;
       s.class_counters[p.counter_key] = p.count;
-      if (p.rung !== null) {
+      // Only quality classes touch the escalation streak (FR-019).
+      if (p.rung !== null && (p.class === 'quality' || p.class === 'invalid_output')) {
         const k = streakKey(p.step, p.rung);
         const prev = s.failure_streaks[k];
         s.failure_streaks[k] = {
           signature: p.signature,
           consecutive: p.consecutive,
-          quality_tries: (prev?.quality_tries ?? 0) + (p.class === 'quality' || p.class === 'invalid_output' ? 1 : 0),
+          quality_tries: (prev?.quality_tries ?? 0) + 1,
           escalate: p.escalate,
         };
       }
@@ -258,6 +260,7 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
         signature: event.payload.signature,
         valid: true,
       });
+      resetStreak(s, event.payload.resets_streak_of);
       break;
     case 'ReviewVerdictRecorded':
       s.evidence.reviews.push({
@@ -266,6 +269,7 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
         verdict: event.payload.verdict,
         valid: true,
       });
+      resetStreak(s, event.payload.resets_streak_of);
       break;
     case 'PublishRecorded':
       s.evidence.publishes.push({ revision: s.revision, head_sha: event.payload.head_sha, valid: true });
@@ -279,6 +283,7 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
         checks: event.payload.checks,
         valid: true,
       });
+      resetStreak(s, event.payload.resets_streak_of);
       break;
     case 'BaseRelationRecorded':
       s.evidence.base_relations.push({ ...event.payload.relation, revision: s.revision, valid: true });
@@ -491,6 +496,15 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
 }
 
 /** Dữ kiện mà kết quả thành công của effect để lại trên task (worktree, PR, merge). */
+/** A passing check clears the consecutive count at the step's current rung; rung and tries stay (SPEC.md §9.3). */
+function resetStreak(s: TaskState, step: string | null): void {
+  if (step === null) return;
+  const streak = s.failure_streaks[streakKey(step, s.rungs.by_step[step] ?? 0)];
+  if (streak === undefined) return;
+  streak.consecutive = 0;
+  streak.signature = null;
+}
+
 function applySuccessFacts(s: TaskState, kind: string, result: unknown): void {
   const r = (result ?? {}) as Record<string, unknown>;
   if (kind === 'prepare' && typeof r['base_sha'] === 'string') s.base_sha = r['base_sha'];

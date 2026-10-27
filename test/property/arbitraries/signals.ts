@@ -13,8 +13,8 @@ import { agentData, ciData, gatesData, PREPARE_DATA, publishData, reviewData, Si
 /** Một lựa chọn trừu tượng; driver diễn giải theo trạng thái hiện tại để tín hiệu luôn có nghĩa. */
 export type Choice = { pick: number; variant: number; flag: number };
 
-export const choicesArb = (maxLength = 120): fc.Arbitrary<Choice[]> =>
-  fc.array(fc.record({ pick: fc.nat(10_000), variant: fc.nat(10_000), flag: fc.nat(10_000) }), { minLength: 1, maxLength });
+export const choicesArb = (maxLength = 120, minLength = 1): fc.Arbitrary<Choice[]> =>
+  fc.array(fc.record({ pick: fc.nat(10_000), variant: fc.nat(10_000), flag: fc.nat(10_000) }), { minLength, maxLength });
 
 export type TraceEntry = {
   kind: 'decide' | 'claim';
@@ -34,7 +34,7 @@ export type TraceEntry = {
  * `driftEvery`: cứ chừng ấy lựa chọn thì có một lần sửa yêu cầu (mặc định 17). `driftFocus`: tại ranh giới
  * an toàn chỉ đưa ra lựa chọn revision, để test về revision luôn gặp đủ ca.
  */
-export type DriveOptions = { driftEvery?: number; driftFocus?: boolean };
+export type DriveOptions = { driftEvery?: number; driftFocus?: boolean; failureFocus?: boolean };
 
 export type Run = { sim: Sim; trace: TraceEntry[]; policy: PolicyOptions; task: CanonicalTask; opts: DriveOptions };
 
@@ -83,9 +83,15 @@ function successData(sim: Sim, e: EffectMirror, c: Choice): unknown {
   }
 }
 
-function failureData(c: Choice): Record<string, unknown> {
-  const cls = FAILURE_CLASSES[c.variant % FAILURE_CLASSES.length];
-  return { failure_class: cls, signature: `sig${c.flag % 3}`, invoked: c.flag % 4 !== 0, usage: { basis: 'unavailable' } };
+/** Failure mix used with `failureFocus`: mostly quality classes, so streaks build up and escalate. */
+const FOCUS_CLASSES: FailureClass[] = ['quality', 'quality', 'quality', 'invalid_output', 'invalid_output', 'rate_limit', 'infra', 'timeout'];
+
+function failureData(c: Choice, focus = false): Record<string, unknown> {
+  // Independent of the bits that pick the outcome (variant), invocation (flag % 4) and signature (flag % 3).
+  const classes = focus ? FOCUS_CLASSES : FAILURE_CLASSES;
+  const cls = classes[Math.floor(c.flag / 60) % classes.length];
+  const usage = c.flag % 5 === 0 ? {} : { usage: c.flag % 2 === 0 ? { basis: 'unavailable' } : { basis: 'reported', tokens: 10 } };
+  return { failure_class: cls, signature: `sig${c.flag % 3}`, invoked: c.flag % 4 !== 0, ...usage };
 }
 
 function actions(sim: Sim, run: Run, c: Choice): Action[] {
@@ -96,11 +102,12 @@ function actions(sim: Sim, run: Run, c: Choice): Action[] {
   for (const e of effects) {
     if (e.status === 'pending') {
       // Tiến trình chính: claim rồi trả kết quả ngay; claim riêng lẻ ít hơn để có effect `started` treo.
-      const outcome = c.variant % 20 < 17 ? 'succeeded' : c.variant % 20 < 19 ? 'failed' : 'unknown';
+      const okBelow = run.opts.failureFocus === true ? 10 : 17;
+      const outcome = c.variant % 20 < okBelow ? 'succeeded' : c.variant % 20 < 19 ? 'failed' : 'unknown';
       const step = (): { decision?: Decision; claim: ClaimResult } => {
         const claim = sim.claim(e.id);
         if (!claim.ok) return { claim };
-        const data = outcome === 'succeeded' ? successData(sim, e, c) : outcome === 'failed' ? failureData(c) : undefined;
+        const data = outcome === 'succeeded' ? successData(sim, e, c) : outcome === 'failed' ? failureData(c, run.opts.failureFocus) : undefined;
         return { claim, decision: sim.result(e.id, outcome, data) };
       };
       out.push({ label: `run:${e.kind}`, run: step }, { label: `run:${e.kind}`, run: step }, { label: `run:${e.kind}`, run: step });
@@ -109,7 +116,7 @@ function actions(sim: Sim, run: Run, c: Choice): Action[] {
     if (e.status === 'started') {
       out.push({ label: `ok:${e.kind}`, run: () => ({ decision: sim.result(e.id, 'succeeded', successData(sim, e, c)) }) });
       out.push({ label: `ok:${e.kind}`, run: () => ({ decision: sim.result(e.id, 'succeeded', successData(sim, e, c)) }) });
-      out.push({ label: `fail:${e.kind}`, run: () => ({ decision: sim.result(e.id, 'failed', failureData(c)) }) });
+      out.push({ label: `fail:${e.kind}`, run: () => ({ decision: sim.result(e.id, 'failed', failureData(c, run.opts.failureFocus)) }) });
       if (c.flag % 2 === 0) out.push({ label: `unknown:${e.kind}`, run: () => ({ decision: sim.result(e.id, 'unknown') }) });
     }
     if (e.status === 'unknown' || (e.status === 'started' && c.flag % 7 === 0)) {
