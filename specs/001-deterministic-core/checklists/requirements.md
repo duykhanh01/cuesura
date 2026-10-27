@@ -43,4 +43,9 @@
   amendment (FR-036), hợp đồng ngữ cảnh thực thi đóng băng (FR-037, FR-038), hai quy tắc hợp nhất cấu
   hình (FR-001) và bảng xử lý theo lớp thất bại (FR-019), kèm acceptance scenario. FR mới đánh số tiếp
   (036–038) để giữ ổn định các ID cũ. Kiểm lại cả 16 mục: vẫn đạt.
+- Vòng 3 (sau review plan): làm rõ claim bị chặn khi có source drift (FR-011), bằng chứng merge gồm tập
+  required checks đầy đủ và quan hệ head/base (FR-015), dữ liệu bắt buộc khi đối chiếu (FR-017), ánh xạ
+  sàn task theo từng thang role (FR-020), danh tính request gồm task đích (FR-026), và "chưa hỗ trợ"
+  không phải lỗi cấu hình (FR-039, FR-041). Thêm scenario US1 #11, US2 #13–14, US3 #7–8, US4 #13. Không
+  thêm FR mới. Kiểm lại cả 16 mục: vẫn đạt.
 - Items marked incomplete require spec updates before `/speckit-clarify` or `/speckit-plan`

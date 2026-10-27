@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-27
 
-**Status**: Draft
+**Status**: Planned
 
 **Input**: User description: "Lõi điều phối tất định của Cuesura (mốc "Lõi" trong SPEC.md §19): schema miền
 và task chuẩn, loader cusr.yaml thành snapshot/revision bất biến, decide/evolve thuần, store với event
@@ -44,6 +44,13 @@ hiệu đã ghi sẵn (fixture) để kiểm chứng hành vi của lõi.
 - Q: Feature 001 có thực thi các chế độ decider không? → A: Không. Feature 001 chỉ thực thi chế độ
   `human`; các chế độ `agent`, `agent_if_confident`, `agent_review` bị từ chối rõ ràng khi chốt chính
   sách. Decider là một feature riêng (FR-039).
+- Q: Người dùng chọn áp revision mới khi task đang chờ merge thì task quay lại bước nào? → A: Bảo toàn
+  diff hiện có, triage lại, rồi đi lại Code → Gates → Review → CI trước khi merge. Giữ nguyên ngân sách đã
+  dùng, nấc model và thời hạn task; hết giới hạn thì chờ người. Không dùng bằng chứng của revision cũ để
+  duyệt revision mới (FR-040).
+- Q: Workflow hợp lệ nhưng không phải workflow phát triển phần mềm mặc định thì xử lý thế nào? → A: Cho
+  phép kiểm tra cấu hình, nhưng từ chối chốt chính sách để chạy với lỗi `unsupported_workflow` và giữ
+  task ở PENDING; không chạy workflow mặc định thay thế (FR-041).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -92,6 +99,13 @@ trả về với lỗi mong đợi và so sánh hash của các cấu hình tư�
    tra cấu hình, **Then** hệ thống báo chế độ này chưa được hỗ trợ; **When** chốt chính sách cho task dùng
    workflow đó, **Then** task ở PENDING kèm lý do và không có điểm quyết định nào được chuyển sang
    `human`.
+10. **Given** cấu hình khai báo thêm một workflow hợp lệ khác workflow phát triển phần mềm mặc định,
+    **When** kiểm tra cấu hình, **Then** workflow đó được chấp nhận; **When** chốt chính sách cho task dùng
+    workflow đó, **Then** hệ thống trả lỗi `unsupported_workflow`, task ở PENDING và không có bước nào
+    của workflow mặc định được chạy.
+11. **Given** cấu hình có workflow A chỉ dùng chế độ `human` và workflow B dùng chế độ `agent`, **When**
+    kiểm tra cấu hình, **Then** cấu hình hợp lệ, kèm thông tin B chưa được hỗ trợ; **When** chốt chính
+    sách cho task dùng A, **Then** thành công; task dùng B ở PENDING kèm lý do.
 
 ---
 
@@ -136,6 +150,20 @@ và trạng thái cuối khớp kết quả mong đợi, và phát lại lần h
 10. **Given** coder đang chạy theo revision 1, **When** người dùng sửa yêu cầu, **Then** source drift được
     ghi ngay; attempt hiện tại được kết thúc; sau khi effect liên quan rõ kết quả, task chờ người dùng
     chọn, và không có attempt, publish hay merge nào dựa trên revision 1 được bắt đầu trong lúc đó.
+11. **Given** task đang chờ merge với review approve và CI xanh của revision 1, **When** người dùng đổi
+    acceptance và chọn áp revision 2, **Then** diff hiện có được giữ, task đi lại Triage → Code → Gates →
+    Review → CI; approve và CI của revision 1 không được dùng để merge revision 2; số lượt đã dùng, nấc
+    model và thời hạn task không đổi.
+12. **Given** task ở scenario 11 chỉ còn một lượt agent, **When** cần thêm lượt để đi hết Code → Review,
+    **Then** task chờ người quyết định thay vì tự gia hạn hay bỏ bước.
+13. **Given** effect publish của revision 1 đã nằm trong outbox nhưng chưa dispatch, **When** source drift
+    được ghi rồi có yêu cầu claim effect đó, **Then** claim bị từ chối và effect vẫn chờ dispatch; nếu
+    người dùng chọn tiếp tục revision 1 thì effect claim được; nếu chọn áp revision 2 thì effect bị vô
+    hiệu hoá và giữ chỗ được trả lại.
+14. **Given** review approve và CI cho head H, tập required checks kỳ vọng là A và B, **When** tín hiệu CI
+    chỉ có A = success, **Then** lõi không yêu cầu merge và task chờ CI. **Given** đủ A và B thành công
+    nhưng bằng chứng cho thấy H chưa chứa base tip hiện tại, **When** xét merge, **Then** lõi không yêu
+    cầu merge và task chờ.
 
 ---
 
@@ -166,6 +194,12 @@ và trạng thái dựng lại từ nhật ký khớp trạng thái đã lưu.
    **Then** effect dùng lại cùng khoá idempotency và không tạo effect thứ hai.
 6. **Given** timer đến hạn, **When** timer được tiêu thụ, **Then** nó chỉ tạo một tín hiệu về mặt logic,
    kể cả khi bị xử lý lại sau khi tiến trình chết.
+7. **Given** publish, create PR hoặc khởi chạy agent đã thành công bên ngoài nhưng tiến trình chết trước
+   khi ghi kết quả, **When** đối chiếu trả kết quả chuẩn đầy đủ, **Then** bằng chứng được ghi và workflow
+   đi tiếp đúng bước; **When** đối chiếu báo thành công nhưng thiếu dữ liệu bắt buộc, **Then** effect vẫn
+   `unknown` và task chờ đối chiếu.
+8. **Given** tín hiệu có khoá K cho task A đã được chấp nhận, **When** cùng khoá K và cùng nội dung tín
+   hiệu được gửi cho task B, **Then** hệ thống trả conflict và không trả kết quả của task A.
 
 ---
 
@@ -209,6 +243,10 @@ kiểm tra nấc được chọn, số lượt đã dùng và lý do chờ khớ
 12. **Given** effect khởi chạy agent có kết quả `unknown` sau crash, **When** tính ngân sách còn lại,
     **Then** lượt đó vẫn ở trạng thái giữ chỗ, không khả dụng cho attempt khác, cho tới khi đối chiếu
     xác nhận đã chạy (thành đã dùng) hoặc chưa chạy (được trả lại).
+13. **Given** thang coder có ba nấc, thang reviewer có hai nấc với model khác, và sàn task đã được nâng
+    theo nấc thứ ba của coder, **When** reviewer chạy, **Then** nấc reviewer là nấc ánh xạ từ sàn trên
+    thang của reviewer, không vượt nấc cuối của reviewer, và vẫn qua kiểm tra `denied`, approval và ngân
+    sách.
 
 ---
 
@@ -249,9 +287,9 @@ liệu đúng đã có.
   qua bước.
 - Kho không ghi được (đầy đĩa, bận quá thời gian chờ): tín hiệu bị từ chối rõ ràng; hệ thống không báo đã
   lưu khi thực tế chưa lưu.
-- Kết quả effect là `unknown`: không được coi là "chưa xảy ra"; task chờ đối chiếu.
+- Kết quả effect là `unknown`: không được coi là "chưa xảy ra"; task chờ đối chiếu (FR-017).
 - Yêu cầu hủy task khi còn effect chưa rõ kết quả: task chưa thành CANCELLED cho tới khi effect được đối
-  chiếu.
+  chiếu (FR-018).
 
 ## Requirements *(mandatory)*
 
@@ -295,7 +333,13 @@ liệu đúng đã có.
 - **FR-039**: Feature này chỉ thực thi chế độ quyết định `human`. Bộ kiểm tra cấu hình MUST chấp nhận cú
   pháp của `agent`, `agent_if_confident` và `agent_review` nhưng báo rõ là chưa được hỗ trợ; khi chốt
   chính sách cho một task dùng các chế độ này, hệ thống MUST từ chối, giữ task ở PENDING kèm lý do, và
-  MUST NOT âm thầm chuyển sang `human`.
+  MUST NOT âm thầm chuyển sang `human`. "Chưa hỗ trợ" là thông tin về khả năng thực thi, không phải lỗi
+  cấu hình: nó không làm cấu hình bị từ chối và không chặn task dùng workflow khác hợp lệ. Chế độ bị cấm
+  theo FR-006 vẫn là lỗi cấu hình.
+- **FR-041**: Bộ kiểm tra cấu hình MUST kiểm tra mọi workflow được khai báo. Khi chốt chính sách cho task
+  dùng workflow khác workflow phát triển phần mềm mặc định, hệ thống MUST từ chối với lỗi
+  `unsupported_workflow`, giữ task ở PENDING kèm lý do, và MUST NOT chạy workflow mặc định thay thế.
+  Như FR-039, workflow chưa hỗ trợ được báo như thông tin khả năng thực thi, không phải lỗi cấu hình.
 - **FR-006**: Hệ thống MUST từ chối chế độ quyết định tự động (decider) cho các loại quyết định bị cấm ở
   SPEC.md §10: sửa policy/thang, tăng ngân sách, xử lý secret, xoá dữ liệu và merge vào protected branch.
 
@@ -317,6 +361,22 @@ liệu đúng đã có.
   Đổi revision MUST vô hiệu hoá kết quả và approval không còn phù hợp, nhưng không reset ngân sách, số
   lượt đã dùng hay lịch sử.
 
+  Trong lúc source drift chưa được giải quyết, effect nghiệp vụ đã nằm trong outbox nhưng chưa dispatch
+  MUST NOT được chuyển sang đã bắt đầu; điều kiện này được kiểm tra trong cùng lần ghi với việc claim.
+  Chỉ effect dừng attempt và đối chiếu được claim. Khi người dùng chọn tiếp tục revision cũ, các effect
+  này được claim lại bình thường. Khi chọn áp revision mới hoặc tạo task mới, chúng MUST bị vô hiệu hoá
+  và giữ chỗ ngân sách tương ứng được trả lại; chọn tạo task mới thì task cũ đi theo quy trình hủy của
+  FR-018.
+- **FR-040**: Khi người dùng chọn áp revision mới cho task đã chạy (cùng repo và workflow), lõi MUST:
+  - bảo toàn diff và checkpoint hiện có, không yêu cầu reset;
+  - chốt ngữ cảnh thực thi mới cho revision mới (FR-037);
+  - chạy lại Triage, rồi đi lại Code → Gates → Review → CI trước khi xét Merge; bước Code nhận diff hiện
+    có làm điểm xuất phát;
+  - coi mọi kết quả gate, review approve, CI và approval merge gắn với revision cũ là không còn hiệu lực
+    cho revision mới;
+  - giữ nguyên ngân sách và số lượt đã dùng, nấc model theo bước (chỉ tăng hoặc giữ) và thời hạn task;
+    nếu không còn đủ giới hạn để đi hết các bước trên, task chờ người quyết định.
+
 **Lõi quyết định**
 
 - **FR-012**: Lõi quyết định MUST là hàm của (trạng thái, chính sách đóng băng, tín hiệu đã ghi nhận) và
@@ -329,12 +389,21 @@ liệu đúng đã có.
   đánh dấu đã kiểm tra schema, khớp attempt hiện hành và mọi gate bắt buộc đạt.
 - **FR-015**: Lõi MUST NOT yêu cầu effect merge trừ khi các điều kiện của SPEC.md §14.2 đã được ghi nhận
   là đạt cho đúng head/base; check ở trạng thái pending, cancelled, missing hoặc unknown không tính là
-  đạt. Decider không bao giờ là bên quyết định merge.
+  đạt. Decider không bao giờ là bên quyết định merge. Bằng chứng đã ghi MUST gồm:
+  - tập required checks kỳ vọng, kèm nguồn và cờ xác nhận danh sách đã đầy đủ;
+  - kết quả của từng check trong tập đó cho đúng head SHA;
+  - bằng chứng head chứa base tip, gắn với đúng cặp head SHA và base SHA.
+
+  Thiếu một required check, danh sách chưa được xác nhận đầy đủ, hoặc head chưa chứa base thì task chờ
+  và lõi không yêu cầu merge.
 - **FR-016**: Mỗi yêu cầu effect MUST có khoá idempotency ổn định suy ra từ danh tính thao tác logic
   (namespace theo project/task/revision khi phù hợp); thử lại cùng thao tác dùng lại cùng khoá, attempt
   nghiệp vụ mới có khoá mới.
 - **FR-017**: Lõi MUST xử lý kết quả effect `unknown` như chưa rõ: chờ đối chiếu, không phát lại thao tác
-  nguy hiểm theo phỏng đoán.
+  nguy hiểm theo phỏng đoán. Đối chiếu chỉ được ghi là "đã thực hiện thành công" khi mang đủ kết quả
+  chuẩn mà loại effect đó yêu cầu (ví dụ head SHA của publish, tham chiếu PR, kết quả agent đã kiểm tra
+  schema kèm usage); thiếu dữ liệu bắt buộc thì effect vẫn `unknown`. Đối chiếu "đã thực hiện nhưng thất
+  bại" MUST mang lớp thất bại để áp FR-019.
 - **FR-018**: Trong cùng lần ghi xử lý yêu cầu hủy, hệ thống MUST:
   - chặn mọi effect nghiệp vụ mới của task;
   - vô hiệu hoá mọi effect nghiệp vụ đã nằm trong outbox nhưng chưa được nhận để thực thi (chưa
@@ -356,7 +425,7 @@ liệu đúng đã có.
 
   | Lớp | Hành động bắt buộc | Giới hạn riêng | Escalation chất lượng |
   |---|---|---|---|
-  | Rate limit | Cooldown đến `reset_at` qua timer; không biết reset thì backoff hữu hạn | Theo backoff đã khai báo | Không |
+  | Rate limit | Cooldown đến `reset_at` qua timer; không biết reset thì backoff hữu hạn | Theo backoff đã khai báo, có số lần và thời gian chờ tối đa | Không |
   | Infra/transient | Retry cùng nấc có backoff | Tối đa 3 lần retry | Không |
   | Auth/config | Chờ người (WAITING), không retry tự động | 0 lần retry | Không |
   | Timeout/stall | Retry một lần; còn lỗi thì chờ người về phạm vi/thời gian | Tối đa 1 lần retry | Không |
@@ -366,7 +435,9 @@ liệu đúng đã có.
   | Unknown | Chờ đối chiếu; không phát lại effect nguy hiểm theo phỏng đoán | 0 lần phát lại mù | Không |
 - **FR-020**: Hệ thống MUST áp dụng thang nâng cấp của SPEC.md §9.3: xét nâng sau hai thất bại liên tiếp
   cùng chữ ký ở cùng nấc; tối đa 3 lần thử chất lượng mỗi nấc; nấc theo (task, step) chỉ tăng hoặc giữ;
-  sàn task chỉ tăng và không vượt nấc cuối của role.
+  sàn task chỉ tăng. Sàn task MUST được ánh xạ riêng sang thang của từng step/role (cùng số thứ tự nấc ở
+  hai role không có nghĩa là cùng model) và không vượt nấc cuối của role đó. Nấc được chọn sau khi áp
+  sàn vẫn MUST qua kiểm tra `denied`, approval, giới hạn escalation và ngân sách.
 - **FR-021**: Attempt MUST NOT bắt đầu khi không đủ ngân sách. Ở nấc `needs_approval`, attempt MUST NOT bắt
   đầu khi chưa có approval hợp lệ gắn đúng task/revision, step, nấc và policy hash; nấc `auto` không chờ
   duyệt; nấc `denied` không dùng được kể cả khi có approval thường.
@@ -389,7 +460,9 @@ liệu đúng đã có.
 - **FR-025**: Mỗi tín hiệu MUST được chấp nhận trong một lần ghi nguyên tử gồm kiểm tra trùng, sự kiện,
   trạng thái dẫn xuất, effect và timer; lần ghi không chứa thao tác chờ I/O bên ngoài.
 - **FR-026**: Tín hiệu trùng (cùng khoá dedup hoặc cùng request ID và cùng nội dung) MUST NOT tạo thêm hiệu
-  ứng logic; cùng request ID với nội dung khác MUST bị từ chối như conflict.
+  ứng logic; cùng request ID với nội dung khác MUST bị từ chối như conflict. "Nội dung" gồm task đích,
+  tín hiệu, actor và tiền điều kiện như phiên bản kỳ vọng; không gồm thời điểm và ID được cấp khi xử
+  lý. Cùng khoá mà khác task đích là conflict.
 - **FR-027**: Thứ tự sự kiện MUST lấy từ thứ tự ghi nhận đã commit (tăng theo task và có thứ tự toàn cục),
   không suy ra từ ID hay đồng hồ.
 - **FR-028**: Lệnh dựa trên phiên bản trạng thái cũ MUST bị từ chối như conflict.
@@ -475,8 +548,8 @@ liệu đúng đã có.
   kiểm tra schema thật của output agent và probe hệ thống bên ngoài thuộc feature runner và recovery.
 - Decider (các chế độ `agent`, `agent_if_confident`, `agent_review`: khi nào gọi, khi nào chấp nhận,
   khi nào chờ người, cách lật lại quyết định) là một feature riêng có kịch bản nghiệm thu đầy đủ.
-- Chỉ có workflow phát triển phần mềm mặc định được mô hình hoá; workflow khác có thể khai báo nhưng chỉ
-  được kiểm chứng qua bộ kiểm tra cấu hình.
+- Chỉ có workflow phát triển phần mềm mặc định được mô hình hoá; workflow khác có thể khai báo và được
+  kiểm tra, nhưng chốt chính sách để chạy bị từ chối với `unsupported_workflow` (FR-041).
 - Nhóm task/epic, task tích hợp, scheduler với resource pool và hàng đợi merge được ghi nhận ở mức dữ liệu
   khi cần cho quyết định, nhưng lập lịch thực tế thuộc feature sau.
 - Môi trường là một người dùng trên Linux/Ubuntu hoặc WSL2 với dữ liệu trên filesystem Linux cục bộ, như
