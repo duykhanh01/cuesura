@@ -77,7 +77,7 @@ describe('US5 - Giải thích trạng thái từ dữ liệu đã ghi', () => {
     });
     // Binding đã dùng khớp các AttemptRequested trong nhật ký.
     const requested = sim.events.flatMap((e) => (e.type === 'AttemptRequested' ? [e.payload] : []));
-    expect(x.bindings_used).toEqual(requested.map((p) => ({ step: p.step, rung: p.rung, binding: p.binding, attempts: 1 })));
+    expect(x.bindings_used).toEqual(requested.map((p) => ({ step: p.step, rung: p.rung, binding: p.binding, requested: 1, invoked: 1 })));
     // Lượt đã dùng cộng lượt còn lại bằng trần của chính sách.
     expect(sim.s.budget.agent_runs.used + x.remaining.agent_runs).toBe(sim.policy?.limits.max_agent_runs);
 
@@ -142,9 +142,34 @@ describe('US5 - Giải thích trạng thái từ dữ liệu đã ghi', () => {
     }
     expect(x.remaining.escalations).toBe(sim.s.budget.escalations.limit - raised.length);
     expect(x.bindings_used.filter((b) => b.step === 'code')).toEqual([
-      { step: 'code', rung: 0, binding: expect.any(String) as string, attempts: 2 },
-      { step: 'code', rung: 1, binding: 'sonnet/high', attempts: 1 },
+      { step: 'code', rung: 0, binding: expect.any(String) as string, requested: 2, invoked: 2 },
+      { step: 'code', rung: 1, binding: 'sonnet/high', requested: 1, invoked: 1 },
     ]);
+  });
+
+  it('attempt hủy trước dispatch hoặc còn unknown không được tính là đã chạy', () => {
+    const cancelled = run();
+    toCode(cancelled);
+    expectAccepted(cancelled.when({ kind: 'cancel', reason: 'không cần nữa' }));
+    expect(cancelled.s.budget.agent_runs.used).toBe(0);
+    expect(explainOf(cancelled).bindings_used).toEqual([{ step: 'code', rung: 0, binding: expect.any(String) as string, requested: 1, invoked: 0 }]);
+
+    const unknown = run();
+    unknown.complete(toCode(unknown).id, 'unknown');
+    expect(explainOf(unknown).bindings_used).toMatchObject([{ step: 'code', requested: 1, invoked: 0 }]);
+  });
+
+  it('thứ tự bindings_used theo nhật ký, không theo thứ tự key của projection', () => {
+    const sim = run({ escalation: { auto_up_to_tier: 3 } });
+    toCode(sim);
+    fail(sim, sim.pendingOne('start_agent').id, 'quality', { signature: 'C1' });
+    fail(sim, sim.pendingOne('start_agent').id, 'quality', { signature: 'C1' });
+    const x = explainOf(sim);
+    expect(x.bindings_used.map((b) => b.rung)).toEqual([0, 1]);
+    // Kho lưu projection dạng JSON chuẩn hoá (key sắp theo ID); đảo thứ tự key không đổi câu trả lời.
+    const reordered = structuredClone(sim.s);
+    reordered.attempts = Object.fromEntries(Object.entries(reordered.attempts).reverse());
+    expect(explain(reordered, sim.events, sim.policy)).toEqual(x);
   });
 
   it('hủy được ghi trong giải thích kèm thời điểm yêu cầu', () => {

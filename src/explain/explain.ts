@@ -8,7 +8,8 @@ export type Explanation = {
   status: TaskStatus;
   step: string | null;
   wait: { reason: WaitReason; detail: unknown; resume_when: string[]; exit_paths: string[] } | null;
-  bindings_used: { step: string; rung: number; binding: string; attempts: number }[];
+  /** `requested`: attempt được yêu cầu; `invoked`: lượt agent đã xác nhận chạy (giữ chỗ đã `consumed`). */
+  bindings_used: { step: string; rung: number; binding: string; requested: number; invoked: number }[];
   remaining: { agent_runs: number; reserved: number; wall_ms: number | null; escalations: number };
   /**
    * Mỗi lần nâng nấc theo thứ tự nhật ký. `event_seq` là `seq` của `RungRaised`; `trigger_seq` là sự kiện đã
@@ -37,7 +38,7 @@ export function explain(state: TaskState, events: readonly DomainEvent[], policy
             resume_when: [...state.wait.resume_when],
             exit_paths: [...state.wait.exit_paths],
           },
-    bindings_used: bindingsUsed(state),
+    bindings_used: bindingsUsed(state, events),
     remaining: {
       agent_runs: available(state.budget),
       reserved: state.budget.agent_runs.reserved,
@@ -52,14 +53,26 @@ export function explain(state: TaskState, events: readonly DomainEvent[], policy
   };
 }
 
-/** Gom attempt theo `(step, rung, binding)`, theo thứ tự attempt đầu tiên của mỗi nhóm. */function bindingsUsed(state: TaskState): Explanation['bindings_used'] {
+/**
+ * Gom attempt theo `(step, rung, binding)`, theo thứ tự `AttemptRequested` trong nhật ký: thứ tự key của
+ * `state.attempts` không đáng tin vì kho lưu projection dạng JSON chuẩn hoá (key sắp theo ID).
+ * `requested` đếm mọi attempt được yêu cầu; `invoked` chỉ đếm lượt đã xác nhận agent thật sự chạy, tức
+ * giữ chỗ ngân sách đã chuyển sang `consumed` (FR-022).
+ */
+function bindingsUsed(state: TaskState, events: readonly DomainEvent[]): Explanation['bindings_used'] {
   const groups = new Map<string, Explanation['bindings_used'][number]>();
-  // `attempts` giữ thứ tự chèn, tức thứ tự `AttemptRequested` trong nhật ký.
-  for (const a of Object.values(state.attempts)) {
-    const key = `${a.step}#${a.rung}#${a.binding}`;
+  for (const e of events) {
+    if (e.type !== 'AttemptRequested') continue;
+    const p = e.payload;
+    const reservation = state.attempts[p.attempt_id]?.reservation_id ?? p.reservation_id;
+    const invoked = state.budget.reservations[reservation]?.status === 'consumed' ? 1 : 0;
+    const key = `${p.step}#${p.rung}#${p.binding}`;
     const g = groups.get(key);
-    if (g === undefined) groups.set(key, { step: a.step, rung: a.rung, binding: a.binding, attempts: 1 });
-    else g.attempts += 1;
+    if (g === undefined) groups.set(key, { step: p.step, rung: p.rung, binding: p.binding, requested: 1, invoked });
+    else {
+      g.requested += 1;
+      g.invoked += invoked;
+    }
   }
   return [...groups.values()];
 }

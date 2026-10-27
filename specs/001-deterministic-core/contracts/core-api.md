@@ -155,7 +155,7 @@ type Explanation = {
   status: TaskStatus;
   step: string | null;
   wait: { reason: WaitReason; detail: unknown; resume_when: string[]; exit_paths: string[] } | null;
-  bindings_used: { step: string; rung: number; binding: string; attempts: number }[];
+  bindings_used: { step: string; rung: number; binding: string; requested: number; invoked: number }[];
   remaining: { agent_runs: number; reserved: number; wall_ms: number | null; escalations: number };
   escalations: {
     step: string;
@@ -174,6 +174,9 @@ type Explanation = {
 Mọi trường được tính từ dữ liệu vào; không có lời gọi LLM hay I/O (FR-034).
 
 - `policy` là `null` khi task chưa chốt chính sách (PENDING trước `start`).
+- `bindings_used` theo thứ tự `AttemptRequested` trong nhật ký. `requested` đếm attempt được yêu cầu;
+  `invoked` chỉ đếm lượt có giữ chỗ ngân sách đã `consumed`, nên attempt bị hủy trước dispatch hoặc còn
+  `unknown` không được tính là đã chạy.
 - `remaining.wall_ms`: `0` khi hạn đã qua; `limits.max_wall_ms` khi `deadline_at` chưa đặt; `deadline_at − now`
   khi người gọi truyền `now`; còn lại `null`, vì lõi không đọc đồng hồ.
 - `escalations[].event_seq` là `seq` của `RungRaised`; `trigger_seq` là sự kiện đã kích hoạt lần nâng:
