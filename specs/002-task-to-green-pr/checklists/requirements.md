@@ -74,6 +74,9 @@
 - Review 2026-10-28: Internet outbound mặc định (Q19), snapshot checks giữ string[]/policy+event v1;
   GitHub ghim app cụ thể là mismatch. Giữ gh port và file attempt chuẩn; systemd supervision được
   ghi ADR-0002 và sửa SPEC. Có go/no-go sau A/ngày 10 và token operate riêng cho assistant.
+- Profile host sửa theo hướng (a)/ADR-0003: child stack deny capability, không unconfined; S0.1
+  kiểm enforce/audit, re-exec/copy bwrap và compatibility của hai nested harness còn bật sandbox.
+  Mẫu vẫn allow userns, không tuyên bố chặn mọi namespace hoặc đã pass enforcement khi chưa nạp.
 - Q15 yêu cầu ghi bền merge và chặn nghiệp vụ, dừng process/đối chiếu effect rồi mới DONE; push đã
   gửi có thể thành công muộn, không hứa thu hồi request. Giữ diff/commit local, claim và bằng chứng
   qua restart; dừng/đối chiếu có giới hạn riêng do plan chốt, hết hạn chờ merge_cleanup_pending và

@@ -159,7 +159,7 @@ crash, smoke thật, quyền hoặc idempotency để làm cho cột go thành x
 | Runner transient systemd service kể cả foreground | Điều chỉnh baseline process, đã sửa SPEC §§12.1/17.2 và ghi ADR-0002; spawn vẫn là primitive để gọi systemd-run, không gọi là baseline chưa đổi |
 | GitHub qua gh port | Giữ §17.2; bỏ fetch backend khỏi thiết kế, gh version/argv/deadline có fixture |
 | Files agent tại runs/<attempt_id> | Giữ §12.1 và các file invocation/pid/events/stderr/liveness/progress/exit/out/result; supplementary file không thay protocol |
-| AppArmor bwrap profile | Provision prerequisite có quyền admin trong deploy; không nới sysctl toàn host, không miễn trust boundary; gate 0 còn BLOCKED |
+| AppArmor bwrap profile | Theo ADR-0003 hướng (a), child stack deny capability kể cả re-exec/copy; enforcement và nested compatibility phải đạt S0.1; admin provisioning, không nới sysctl; gate 0 BLOCKED |
 | Policy/event version | Giữ v1 và snapshot check strings; không upcaster/dual decoder vì app_id. DB migration riêng cho durable runtime vẫn cần |
 
 Không có waiver hiến chương. Một package, Commander theo baseline, Node/Git/gh/systemd/bwrap/flock;

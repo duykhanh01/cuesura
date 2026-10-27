@@ -18,7 +18,7 @@ quản trị review được tại [deploy](../../deploy/README.md).
 
 | Gate | Trạng thái / việc còn lại |
 | --- | --- |
-| S0.1 | Host fail; cần admin provisioning, rồi probe unprivileged + layout/nested sandbox hai harness và systemd lifetime |
+| S0.1 | Host fail; profile mới hai lớp chỉ compile; cần provisioning, child enforcement/audit/re-exec/copy và nested harness/lifetime |
 | S0.2 | Chưa chạy 6 role/vendor outputs, auth home riêng, quyền và registry/vendor network |
 | S0.3 | Chưa có repo sandbox/fixture merge/squash/rebase + push/delete source; không dùng repo sản phẩm để thử |
 
@@ -31,3 +31,15 @@ Kiểm tra hồi quy sau khi sửa docs và thêm profile: `pnpm typecheck`, `pn
 `pnpm build` đều exit 0; default tests có 40 file/324 test đạt (33,12 giây). Kiểm tài liệu đủ
 117 mục FR truy vết/12 SC, liên kết nội bộ và ADR một đoạn đạt. Các kết quả này không kiểm việc
 nạp AppArmor, nested sandbox hoặc schema/auth/output model thật của S0.1–S0.3.
+
+## Sửa profile sau review capability
+
+Profile unconfined trong commit `113faef` đã bị thay bằng hướng (a), theo mẫu AppArmor v4.0.2 ABI
+4.0 và [ADR-0003](../../docs/adr/0003-bwrap-child-capabilities.md). Không ghi nhận hướng (b) là
+rủi ro đã chấp nhận. Parser 4.0.1 compile profile mới exit 0 và liệt kê hai profile `cusr-bwrap`,
+`cusr-bwrap-child`; không nạp vào kernel. Fixture Python parse đạt và khi chạy ngoài child stack
+enforce đã exit 1 trước probe, đúng yêu cầu guard. Chưa chạy fixture dưới policy đã nạp, chưa có
+audit capability denial, re-exec/copy hoặc nested harness evidence; S0.1 vẫn **BLOCKED**.
+
+Sau bản sửa capability, đã chạy lại typecheck/lint/test/build: tất cả exit 0, 40 file/324 test
+đạt trong 33,55 giây. Đây là hồi quy của codebase, không thay bằng chứng S0.1 còn thiếu.

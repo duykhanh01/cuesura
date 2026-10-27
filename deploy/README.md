@@ -11,11 +11,20 @@ Host đã xác nhận `kernel.apparmor_restrict_unprivileged_userns=1`; `bwrap -
 lỗi phiên agent. Ubuntu mô tả restriction và permission `userns` trong
 [release notes 24.04](https://documentation.ubuntu.com/release-notes/24.04/).
 
-Chọn profile riêng gắn **đúng `/usr/bin/bwrap`**, giữ sysctl=1. File
-[cusr-bwrap](apparmor/cusr-bwrap) dùng chế độ AppArmor unconfined để cấp userns cho executable này;
-nó không tự hạn chế filesystem/network và mọi người có thể thực thi binary đó đều được hưởng
-quyền này. Cách ly runtime vẫn do mount/PID/capability arguments của bwrap; không gọi đây là profile
-confinement hoàn chỉnh. Đánh đổi được ghi rõ thay vì tắt restriction cho mọi executable bằng sysctl.
+Chọn **hướng (a)**: profile gắn đúng `/usr/bin/bwrap`, giữ sysctl=1, theo cơ chế của
+[AppArmor v4.0.2 bwrap-userns-restrict](https://gitlab.com/apparmor/apparmor/-/raw/v4.0.2/profiles/apparmor/profiles/extras/bwrap-userns-restrict).
+[cusr-bwrap](apparmor/cusr-bwrap) cho bwrap dùng capability để dựng namespace, rồi exec process con
+với stack chứa `cusr-bwrap-child`, có `audit deny capability,`. Các lần exec kế tiếp giữ stack
+deny đó, kể cả gọi `/usr/bin/bwrap` lần nữa hoặc chạy một bản copy trong scratch. Không dùng
+`flags=(unconfined)` hoặc local override trả CAP_SYS_ADMIN cho descendants.
+
+Quyền gọi bwrap có cả trong agent sandbox vì `/usr` mount ro vẫn cho exec; profile cũ cấp userns
+không hạn chế process con vì vậy đã bị thay, **không phải rủi ro đã được chủ dự án chấp nhận**.
+Profile mới vẫn cho phép `userns` như mẫu upstream; không hứa chặn mọi lần tạo userns hoặc loại bỏ
+mọi bề mặt kernel. Cơ chế là AppArmor chặn sử dụng capability trong descendants, không xóa bit
+CapEff ở `/proc/self/status`. Mount/PID/filesystem policy của bwrap vẫn cần, profile này không
+thay filesystem confinement. Mẫu nguồn dùng ABI 4.0, đã đổi tên và bỏ local override; license
+GPL-2.0-only của profile nằm ở [COPYING](apparmor/COPYING), không thay license file khác của repo.
 
 Trước cài, quản trị viên kiểm `readlink -f /usr/bin/bwrap` đúng executable package root-owned, không
 setuid; kiểm không có profile attachment khác cùng binary bằng AppArmor tools. Nếu đường dẫn khác,
@@ -37,11 +46,25 @@ sysctl kernel.apparmor_restrict_unprivileged_userns
 bwrap --unshare-user --ro-bind / / /usr/bin/true
 ```
 
-Lệnh `ro-bind / /` ở đây chỉ probe kernel, không là sandbox thực thi task. Lát 0 còn phải kiểm mount
-allowlist thực, PID/proc, Internet, quyền của hai harness và sandbox lồng nhau. Profile này không
-hứa sửa mọi lỗi nesting/landlock; nếu kiểm lồng thất bại thì gate vẫn fail, không bỏ sandbox trong
-harness hay dùng `--dangerously-*`. OS user riêng là hướng thiết kế lại cần review nếu lát 0 thất
-bại; không âm thầm chuyển backend. Không chọn nới sysctl toàn máy.
+Kiểm hai profile names với `apparmor_parser --names`, rồi dùng
+[fixture capability](apparmor/probe-child.py) **sau khi** admin provisioning, từ root repo:
+
+```sh
+bwrap --unshare-user --unshare-pid --ro-bind / / --proc /proc --tmpfs /tmp --dev /dev /usr/bin/python3 deploy/apparmor/probe-child.py
+```
+
+Fixture yêu cầu nhãn process có child stack ở enforce mode; thử thao tác mount namespace cần
+CAP_SYS_ADMIN phải EPERM, cả trước/sau thử tạo userns trong process con. Nó kiểm descendant,
+re-exec `/usr/bin/bwrap` và bản copy: nếu nested setup thành công, command bên trong vẫn phải qua
+denial probe; nếu setup bị từ chối, ghi errno/output để đối chiếu audit. Thu audit host đúng cửa
+sổ probe, profile name và capability denial; một exit khác 0 hoặc userns không tạo được một mình
+không đủ chứng minh policy đúng. Fixture tự chạy ngoài child profile phải fail trước mọi probe.
+
+Lệnh `ro-bind / /` chỉ phục vụ probe, không là sandbox task. S0.1 còn kiểm layout thực, quyền và
+**harness nested sandbox còn bật** cho cả Claude/Codex. Capability denial có thể làm nesting fail;
+đó là no-go phải ghi thật, không xóa deny, thêm priority capability override, dùng unconfined hoặc
+`--dangerously-*` để cho pass. OS user riêng cần thiết kế/review lại nếu không tương thích. Không
+nới sysctl toàn máy và không nạp profile chỉ dựa trên parser exit 0.
 
 Rollback khi không còn runner sử dụng profile: quản trị viên unload profile trước, rồi xóa đúng file
 đã cài; không xóa profile khác hoặc sửa `kernel.apparmor_restrict_unprivileged_userns`:

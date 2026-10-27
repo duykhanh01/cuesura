@@ -99,8 +99,12 @@ khai; đọc help/tài liệu không được tính là smoke đã đạt. Các 
   [release notes](https://documentation.ubuntu.com/release-notes/24.04/); không còn coi lỗi là riêng
   phiên agent. [Bubblewrap](https://github.com/containers/bubblewrap) chỉ là primitive, policy phải
   do caller dựng đúng; profile cấp userns không tự chứng minh confinement/nesting.
-- **Rationale:** Chọn AppArmor profile thay vì nới sysctl toàn máy; profile dùng unconfined+userns
-  cho đúng executable, ảnh hưởng mọi người có thể chạy executable đó và phải được admin review.
+- **Rationale:** Chọn hướng (a) theo profile AppArmor v4.0.2 bwrap-userns-restrict, ABI 4.0:
+  bwrap setup được namespace, exec descendants vào child stack có audit deny capability; stack
+  giữ qua re-exec/copy bwrap. Bỏ profile unconfined+userns cũ vì agent cũng gọi được bwrap;
+  không coi đó là rủi ro đã được chấp nhận. Xem [ADR-0003](../../docs/adr/0003-bwrap-child-capabilities.md).
+  Mẫu vẫn allow userns, không bảo đảm chặn mọi namespace; AppArmor chặn capability use thay vì
+  xóa CapEff bits. S0.1 phải đo enforcement/audit và compatibility, không chỉ compile/start process.
   Sandbox không mount DB/socket/admin/GitHub/SSH credential/home host/systemd bus; reviewer ro repo,
   coder/fixer rw worktree/scratch, metadata Git ro. Selected model auth ở home riêng theo attempt.
 - **Network decision (chủ dự án chấp nhận 2026-10-28):** Setup/gate/autofix/agent mặc định

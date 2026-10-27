@@ -14,11 +14,19 @@ có bằng chứng hoặc chủ dự án review thiết kế thay thế; không 
    [execution contract](contracts/execution.md), chưa cần daemon/store hoàn chỉnh. Canary ngoài
    mount, socket admin, home host và git metadata phải không truy cập/ghi được; reviewer không ghi
    repo; coder/fixer chỉ ghi worktree/scratch. Kiểm process con không thoát ownership/cgroup.
+   Profile theo [ADR-0003](../../docs/adr/0003-bwrap-child-capabilities.md): descendants luôn có
+   child stack enforce và capability denial. Chạy [fixture](../../deploy/apparmor/probe-child.py)
+   cho process con, re-exec `/usr/bin/bwrap` và bản copy trong scratch; đối chiếu audit capability
+   với thời điểm/nhãn probe, kiểm thao tác mount namespace cần CAP_SYS_ADMIN bị EPERM. Userns có
+   thể vẫn được tạo vì mẫu upstream allow userns; không lấy CapEff=0 hoặc chỉ một exit lỗi làm
+   bằng chứng. Fixture chạy ngoài đúng stack phải fail trước probe, không ghi nhầm thành pass.
 3. Trong outer sandbox đó, chạy **harness với sandbox nội bộ còn bật**, cho cả Claude và Codex:
    một lần read-only, một lần workspace-write theo role. Kiểm đọc/ghi thực qua tool, không chỉ
    process start. Cấm coi `--dangerously-*` hoặc tắt sandbox nội bộ là biện pháp để pass.
 4. Nếu nested userns/landlock fail, ghi error/argv/mounts/kernel audit đã redact, **dừng trước A**.
    Chỉ thay backend sau review ADR/plan mới; không chuyển việc này thành test để làm sau implement.
+   Không bỏ capability denial, thêm priority CAP_SYS_ADMIN override hoặc quay về unconfined để
+   ép nested harness chạy. Cả confinement và compatibility phải đạt, không chọn pass một phía.
 5. Prototype runner qua `spawn(systemd-run --user ...)`: daemon foreground chết và daemon unit
    stop/restart đều không dừng runner unit riêng. Dừng runner unit phải dừng toàn descendants.
    Doctor kiểm user manager truy cập được; WSL phải bật systemd và restart distro theo runbook.
@@ -65,7 +73,7 @@ thay FrozenPolicy/event schema để chạy probe. Ghi gh version/API version/re
 
 | Mục | Bằng chứng bắt buộc | Trạng thái hiện tại |
 | --- | --- | --- |
-| S0.1 | Profile đã provisioning; host/nested permission probes, lifetime/cgroup fixtures | Fail host / phần còn lại chưa chạy |
+| S0.1 | Profile đã provisioning; child enforce/capability denial kể cả re-exec/copy; nested harness sandbox, lifetime/cgroup | Fail host / profile mới chỉ compile, enforcement/nesting chưa chạy |
 | S0.2 | 6 role/vendor outputs, auth home, quyền/network, version/schema digests và usage | Chưa chạy |
 | S0.3 | 3 merge modes, source push/delete, head proof và gh-port evidence | Chưa chạy |
 

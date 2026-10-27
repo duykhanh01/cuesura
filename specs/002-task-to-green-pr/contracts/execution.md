@@ -78,6 +78,10 @@ worktree có diff/commit chưa bảo toàn theo retention log.
 ## Sandbox và Git boundary
 
 Mount tối thiểu bằng bubblewrap, proc/PID namespace riêng, no-new-privileges và bỏ capabilities.
+Profile AppArmor host theo hướng (a): namespace setup của bwrap được cấp, descendants mang
+child stack deny capability kể cả gọi lại/copy bwrap. Điều này không có nghĩa mọi userns creation
+bị cấm; S0.1 dùng capability-operation/audit fixture và phải kiểm hai nested harness vẫn hoạt động.
+Nếu denial chặn harness sandbox, gate fail; không bỏ deny hoặc đổi sang unconfined để tiếp tục.
 Coder/fixer rw worktree + scratch; reviewer ro worktree và rw scratch riêng; prompt/schema ro.
 Git common directory và per-worktree admin metadata ro với agent. Không mount runtime DB/socket,
 systemd bus, home chủ dự án, SSH agent socket, GitHub credential, docker socket hoặc host `/proc`.
