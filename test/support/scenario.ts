@@ -21,6 +21,8 @@ import { decide, type Decision } from '../../src/engine/decide.ts';
 import { applyInPlace, replay } from '../../src/engine/evolve.ts';
 import { claimable, type ClaimBlockReason } from '../../src/engine/claim.ts';
 import { authz, envelope, freezeOk, IdSource, T0, type PolicyOptions } from './builders.ts';
+import { checkWaitExplained } from './explain-check.ts';
+import type { Explanation } from '../../src/explain/explain.ts';
 
 function deepFreeze<T>(v: T): T {
   if (v !== null && typeof v === 'object' && !Object.isFrozen(v)) {
@@ -55,6 +57,7 @@ export type SendOptions = {
  * - Sự kiện được gán `seq`/`global_seq` theo thứ tự chấp nhận, như kho.
  * - `claim` gọi `claimable` rồi áp `EffectStarted`, trả `claim_blocked` như `Store.claimEffect`.
  * - `replayCheck` phát lại toàn bộ nhật ký đầu vào trên harness mới và so sự kiện, trạng thái cuối.
+ * - Sau mỗi lần ghi, task đang chờ phải giải thích được (SC-006); câu trả lời lưu ở `waits`.
  */
 export class Sim {
   state: TaskState | null = null;
@@ -62,6 +65,8 @@ export class Sim {
   readonly events: DomainEvent[] = [];
   readonly decisions: Decision[] = [];
   readonly log: LogEntry[] = [];
+  /** Giải thích của mọi trạng thái chờ đã đi qua, theo thứ tự ghi (SC-006). */
+  readonly waits: Explanation[] = [];
   related: RelatedFacts = EMPTY_RELATED;
   now: number = T0;
   readonly taskId: Uuid;
@@ -140,6 +145,9 @@ export class Sim {
       if (ev.type === 'PolicyFrozen') this.policy = ev.payload.policy;
       if (ev.type === 'PolicyAmended') this.policy = ev.payload.policy;
     }
+    if (this.state === null || drafts.length === 0) return;
+    const x = checkWaitExplained(this.state, this.events, this.policy);
+    if (x !== null) this.waits.push(x);
   }
 
   /** Như `Store.claimEffect`: `pending → started` khi `claimable` cho phép (R-16). */

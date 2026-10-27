@@ -1,4 +1,4 @@
-// API công khai (contracts/core-api.md). Giải thích được export ở story sau.
+// API công khai (contracts/core-api.md).
 export type { Result } from './shared/result.ts';
 export type { Uuid, EpochMs, Hash } from './shared/brand.ts';
 
@@ -25,3 +25,5 @@ export type { TriggerEnvelope, Trigger, RelatedFacts } from './domain/trigger.ts
 
 export { openStore, type Store, type AcceptOutcome, type AcceptError, type ClaimError, type StoreOpenError, type VerifyReport, type Timer } from './store/index.ts';
 export type { Effect } from './domain/effect.ts';
+
+export { explain, type Explanation } from './explain/explain.ts';

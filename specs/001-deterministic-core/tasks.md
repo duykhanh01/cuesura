@@ -237,12 +237,12 @@ chờ với bảng mong đợi (`pnpm test test/scenarios/us4-escalation.test.ts
 
 ### Tests for User Story 5 ⚠️
 
-- [ ] T105 [US5] Viết `test/scenarios/us5-explain.test.ts`: 2 acceptance scenario của US5, cộng kiểm tra mọi task đang chờ trong kịch bản US2 và US4 có `wait.resume_when` và `wait.exit_paths` không rỗng (SC-006)
+- [X] T105 [US5] Viết `test/scenarios/us5-explain.test.ts`: 2 acceptance scenario của US5, cộng kiểm tra mọi task đang chờ trong kịch bản US2 và US4 có `wait.resume_when` và `wait.exit_paths` không rỗng (SC-006)
 
 ### Implementation for User Story 5
 
-- [ ] T106 [US5] Triển khai `src/explain/explain.ts` theo kiểu `Explanation` của contracts/core-api.md (vị trí, lý do chờ, binding đã dùng, giới hạn còn lại, lịch sử nâng nấc kèm `event_seq`, effect đang chờ, hủy)
-- [ ] T107 [US5] Export `explain` từ `src/index.ts`
+- [X] T106 [US5] Triển khai `src/explain/explain.ts` theo kiểu `Explanation` của contracts/core-api.md (vị trí, lý do chờ, binding đã dùng, giới hạn còn lại, lịch sử nâng nấc kèm `event_seq`, effect đang chờ, hủy)
+- [X] T107 [US5] Export `explain` từ `src/index.ts`
 
 **Checkpoint**: Cả năm story xanh độc lập.
 

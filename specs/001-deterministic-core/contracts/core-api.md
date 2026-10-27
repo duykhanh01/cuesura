@@ -149,7 +149,7 @@ type FireError = AcceptError & { fired: AcceptOutcome[] };   // fired: tín hi�
 ## Giải thích (thuần)
 
 ```ts
-function explain(state: TaskState, events: DomainEvent[], policy: FrozenPolicy): Explanation;
+function explain(state: TaskState, events: DomainEvent[], policy: FrozenPolicy | null, now?: EpochMs): Explanation;
 
 type Explanation = {
   status: TaskStatus;
@@ -157,13 +157,29 @@ type Explanation = {
   wait: { reason: WaitReason; detail: unknown; resume_when: string[]; exit_paths: string[] } | null;
   bindings_used: { step: string; rung: number; binding: string; attempts: number }[];
   remaining: { agent_runs: number; reserved: number; wall_ms: number | null; escalations: number };
-  escalations: { step: string; from: number; to: number; signature: string; event_seq: number }[];
-  pending_effects: { id: Uuid; kind: string; status: 'started' | 'unknown' }[];
+  escalations: {
+    step: string;
+    from: number;
+    to: number;
+    reason: string;
+    signature: string | null;
+    event_seq: number;
+    trigger_seq: number | null;
+  }[];
+  pending_effects: { id: Uuid; kind: string; status: 'pending' | 'started' | 'unknown' }[];
   cancellation: { requested_at: EpochMs; late: boolean } | null;
 };
 ```
 
 Mọi trường được tính từ dữ liệu vào; không có lời gọi LLM hay I/O (FR-034).
+
+- `policy` là `null` khi task chưa chốt chính sách (PENDING trước `start`).
+- `remaining.wall_ms`: `0` khi hạn đã qua; `limits.max_wall_ms` khi `deadline_at` chưa đặt; `deadline_at − now`
+  khi người gọi truyền `now`; còn lại `null`, vì lõi không đọc đồng hồ.
+- `escalations[].event_seq` là `seq` của `RungRaised`; `trigger_seq` là sự kiện đã kích hoạt lần nâng:
+  `FailureClassified` có `escalate: true` ở `(step, from)` với lý do `quality`, hoặc `TaskFloorRaised` gần
+  nhất với lý do `floor`. `signature` là `null` với lần nâng theo sàn.
+- `pending_effects` gồm mọi effect chưa kết thúc: `pending`, `started`, `unknown`.
 
 ## Entry chỉ dành cho kiểm thử
 
