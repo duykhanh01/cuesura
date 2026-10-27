@@ -1,0 +1,5 @@
+# expect: forbidden_key 4 1
+# role: pack
+setup: make deps
+roles:
+  coder: { binding: [{ model: opus }] }

@@ -42,7 +42,11 @@ function freeze(input: {
   caller: AuthzContext;
   base_sha: string;
   attachments: { name: string; media_type: string; content: string }[];
+  prompts?: { name: string; content: string }[];      // theo `roles.<r>.prompt` của các role được dùng
+  conventions?: { name: string; content: string }[];  // theo `conventions` của cusr.yaml
 }): Result<{ policy: FrozenPolicy; context: FrozenExecutionContext }, FreezeError>;
+// Prompt, conventions và attachment được chụp kèm `content_hash` vào ngữ cảnh (FR-037); thiếu nội dung
+// của một tài liệu được tham chiếu thì trả `config_invalid` và không chốt snapshot nào (FR-038).
 
 type FreezeError =
   | { code: 'config_invalid'; diagnostics: Diagnostic[] }
@@ -115,8 +119,8 @@ type AcceptOutcome = {
 
 type ClaimError =
   | { code: 'effect_invalidated' | 'not_pending' | 'not_found' }
-  | { code: 'claim_blocked'; reason: 'stale_revision' | 'source_drift' | 'cancelling' | 'terminal' | 'task_waiting' };
-// claim_blocked: effect vẫn pending; điều kiện do hàm thuần claimable(state, effect) quyết (R-16).
+  | { code: 'claim_blocked'; reason: 'stale_revision' | 'source_drift' | 'cancelling' | 'terminal' | 'deadline' | 'task_waiting' };
+// claim_blocked: effect vẫn pending; điều kiện do hàm thuần claimable(state, effect, now) quyết (R-16).
 
 type AcceptError =
   | { code: 'conflict'; reason: 'request_hash_mismatch' | 'stale_version' }

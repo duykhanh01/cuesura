@@ -1,0 +1,6 @@
+# expect: unknown_pack 4 17
+# role: project
+version: 1
+extends: [node, python]
+gates: { build: make, unit: make test }
+profile: standard

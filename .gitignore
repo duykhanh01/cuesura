@@ -9,3 +9,4 @@ coverage/
 *.sqlite-shm
 .cusr/
 .DS_Store
+reports/

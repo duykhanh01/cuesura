@@ -1,0 +1,120 @@
+import { WorkflowSchema, type Workflow } from '../../domain/workflow.ts';
+
+export const SOFTWARE_DEV_NAME = 'software_dev@1';
+
+/**
+ * Workflow phát triển phần mềm mặc định (SPEC.md §7, docs/architecture.md §5.2):
+ * Triage → Prepare → Scout tuỳ chọn → Code → Gates → Review → Publish → CI → Merge → Complete,
+ * cùng các vòng `fix_gates`, `fix_review`, `ci_triage`, `rerun_ci`, `ci_autofix`, `ci_fix`.
+ * Thời lượng tính bằng ms (đã chuẩn hoá).
+ */
+const RAW = {
+  start: 'triage',
+  steps: {
+    triage: { kind: 'triage', next: { ok: 'prepare' } },
+    prepare: { kind: 'prepare', next: { ok: 'scout' } },
+    scout: {
+      kind: 'agent',
+      role: 'scout',
+      when: { flag: 'needs_scout' },
+      max_visits: 1,
+      // Scout tối đa một lượt; hết lượt thì code chạy tiếp mà không có báo cáo scout (§5.4.1).
+      on_exhausted: 'code',
+      next: { done: 'code', needs_input: 'ask', needs_context: 'code', blocked: 'code' },
+    },
+    code: {
+      kind: 'agent',
+      role: 'coder',
+      max_visits: 12,
+      on_exhausted: 'escalate',
+      next: { done: 'gates', needs_input: 'ask', needs_context: 'retry', blocked: 'escalate' },
+    },
+    gates: {
+      kind: 'gate',
+      run: ['build', 'unit', 'lint'],
+      required: ['build', 'unit'],
+      max_visits: 20,
+      on_exhausted: 'escalate',
+      next: { pass: 'review', fail: 'fix_gates' },
+    },
+    fix_gates: {
+      kind: 'agent',
+      role: 'fixer',
+      max_visits: 7,
+      on_exhausted: 'escalate',
+      next: { done: 'gates', needs_input: 'ask', needs_context: 'retry', blocked: 'escalate' },
+    },
+    review: {
+      kind: 'review',
+      role: 'reviewer',
+      skip_when: { size: ['XS'] },
+      max_visits: 6,
+      on_exhausted: 'escalate',
+      next: { approve: 'publish', request_changes: 'fix_review' },
+    },
+    fix_review: {
+      kind: 'agent',
+      role: 'fixer',
+      max_visits: 7,
+      on_exhausted: 'escalate',
+      next: { done: 'gates', needs_input: 'ask', needs_context: 'retry', blocked: 'escalate' },
+    },
+    publish: { kind: 'action', action: 'git.publish', max_visits: 10, on_exhausted: 'escalate', next: { ok: 'pr' } },
+    pr: { kind: 'action', action: 'github.create_pr', next: { ok: 'ci' } },
+    ci: {
+      kind: 'wait',
+      for: 'github.checks',
+      poll: 60_000,
+      timeout: 3_600_000,
+      max_visits: 10,
+      on_exhausted: 'escalate',
+      next: { pass: 'merge_gate', fail: 'ci_triage', timeout: 'escalate' },
+    },
+    ci_triage: {
+      kind: 'classify',
+      rules: 'ci_rules',
+      max_visits: 10,
+      on_exhausted: 'escalate',
+      next: { flaky_or_infra: 'rerun_ci', autofix: 'ci_autofix', code: 'ci_fix' },
+    },
+    rerun_ci: {
+      kind: 'action',
+      action: 'github.rerun_failed',
+      max_visits: 2,
+      on_exhausted: 'escalate',
+      next: { ok: 'ci' },
+    },
+    ci_autofix: {
+      kind: 'gate',
+      run: ['format_fix'],
+      max_visits: 2,
+      on_exhausted: 'escalate',
+      next: { pass: 'publish', fail: 'ci_fix' },
+    },
+    ci_fix: {
+      kind: 'agent',
+      role: 'coder',
+      max_visits: 7,
+      on_exhausted: 'escalate',
+      next: { done: 'gates', needs_input: 'ask', needs_context: 'retry', blocked: 'escalate' },
+    },
+    merge_gate: {
+      kind: 'approval',
+      auto_when: { target_branch: ['feature/*', 'group/*'] },
+      next: { approved: 'merge', rejected: 'cancel' },
+    },
+    merge: { kind: 'action', action: 'github.merge', max_visits: 5, on_exhausted: 'escalate', next: { ok: 'complete' } },
+    complete: { kind: 'complete', next: {} },
+  },
+  decisions: {
+    agent_question: 'human',
+    missing_acceptance: 'human',
+    source_drift: 'human',
+    escalation_approval: 'human',
+    loop_exhausted: 'human',
+    merge_to_main: 'human',
+  },
+};
+
+/** Được kiểm bằng schema khi load module; sai cấu trúc thì ném lỗi ngay lúc import. */
+export const SOFTWARE_DEV: Workflow = WorkflowSchema.parse(RAW);

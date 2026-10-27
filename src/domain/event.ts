@@ -1,0 +1,240 @@
+import { z } from 'zod';
+import type { CanonicalTask } from './task.ts';
+import type { EffectKind } from './effect.ts';
+import type { FrozenExecutionContext, FrozenPolicy, Level } from './policy.ts';
+import type { AttemptKind, ResumeAction, TimerKind, Wait } from './state.ts';
+import type { BaseRelation, Check, FailureClass, RequiredSet, Usage } from './trigger.ts';
+
+export const EVENT_SCHEMA_VERSION = 1;
+
+/** Payload theo loại sự kiện (contracts/signals-events.md "Sự kiện"). */
+export type EventPayloads = {
+  // Task
+  TaskCreated: { task: CanonicalTask; needs_confirmation: boolean };
+  TaskRevised: { task: CanonicalTask };
+  TaskConfirmed: { by: string };
+  TaskReady: Record<string, never>;
+  TaskPending: { wait: Wait };
+  TaskWaiting: { wait: Wait };
+  TaskResumed: { reason: string };
+  // Chính sách
+  PolicyFrozen: {
+    policy: FrozenPolicy;
+    context: FrozenExecutionContext;
+    policy_hash: string;
+    context_hash: string;
+    structure_hash: string;
+  };
+  PolicyAmended: { policy: FrozenPolicy; diff: unknown; reason: string; by: string; policy_hash: string; policy_version: number };
+  AmendmentRejected: { code: string; by: string };
+  // Bước
+  StepEntered: { step: string; visit: number; from: { step: string; outcome: string } | null };
+  StepSkipped: { step: string; reason: 'when' | 'skip_when' | 'no_gates' | 'pr_exists'; outcome: string };
+  StepExhausted: { step: string; visits: number; target: string };
+  // Attempt
+  AttemptRequested: {
+    attempt_id: string;
+    step: string;
+    n: number;
+    kind: AttemptKind;
+    rung: number;
+    binding: string;
+    effect_id: string;
+    reservation_id: string;
+  };
+  AttemptFinished: {
+    attempt_id: string;
+    step: string;
+    status: string | null;
+    class: FailureClass | null;
+    signature: string | null;
+    usage: Usage | null;
+  };
+  FailureClassified: {
+    step: string;
+    attempt_id: string | null;
+    class: FailureClass;
+    signature: string | null;
+    rung: number | null;
+    counter_key: string;
+    count: number;
+    consecutive: number;
+    escalate: boolean;
+  };
+  // Ngân sách
+  BudgetReserved: { reservation_id: string; effect_id: string; units: number };
+  BudgetConsumed: { reservation_id: string };
+  BudgetReleased: { reservation_id: string };
+  // Escalation
+  RungRaised: { step: string; from: number; to: number; reason: string; signature: string | null };
+  TaskFloorRaised: { step: string; level: Level; reason: 'scope_task' | 'hard' };
+  // Bằng chứng
+  GateResultRecorded: {
+    step: string;
+    visit: number;
+    effect_id: string;
+    results: { gate: string; passed: boolean; signature?: string | undefined }[];
+    passed: boolean;
+    signature: string | null;
+    resets_streak_of: string | null;
+  };
+  ReviewVerdictRecorded: {
+    step: string;
+    attempt_id: string;
+    verdict: 'approve' | 'request_changes';
+    head_sha: string;
+    signature: string | null;
+    resets_streak_of: string | null;
+  };
+  PublishRecorded: { head_sha: string };
+  CiResultRecorded: { head_sha: string; required_set: RequiredSet; checks: Check[]; resets_streak_of: string | null };
+  BaseRelationRecorded: { relation: BaseRelation };
+  EvidenceInvalidated: { revision: number; approvals: string[] };
+  // Effect
+  EffectRequested: {
+    effect_id: string;
+    kind: EffectKind;
+    idem_key: string;
+    logical_id: string;
+    step: string | null;
+    attempt_id: string | null;
+    reservation_id: string | null;
+    target_effect_id: string | null;
+    request: Record<string, unknown>;
+  };
+  EffectStarted: { effect_id: string; at: number };
+  EffectCompleted: { effect_id: string; status: 'succeeded' | 'failed' | 'unknown'; result: unknown };
+  EffectInvalidated: { effect_id: string; reason: string };
+  EffectReconciled: {
+    effect_id: string;
+    finding: 'executed_succeeded' | 'executed_failed' | 'not_executed' | 'still_unknown';
+    status: 'succeeded' | 'failed' | 'unknown' | 'pending';
+    result: unknown;
+  };
+  ReconcileIncomplete: { effect_id: string; issues: string[] };
+  // Timer
+  TimerArmed: { timer_id: string; kind: TimerKind; due_at: number; payload: { step?: string; resume?: ResumeAction } };
+  TimerCancelled: { timer_id: string };
+  TimerFired: { timer_id: string };
+  // Hỏi đáp
+  QuestionAsked: { question_id: string; step: string | null; attempt_id: string | null; body: string; resume: ResumeAction };
+  QuestionAnswered: { question_id: string; answer: string; by: string };
+  AnswerRejected: { question_id: string; by: string; reason: string };
+  ApprovalRequested: {
+    approval_id: string;
+    kind: 'escalation' | 'merge';
+    step: string | null;
+    rung: number | null;
+    head_sha: string | null;
+    policy_hash: string;
+  };
+  ApprovalGranted: { approval_id: string; by: string; head_sha: string | null };
+  ApprovalRejected: { approval_id: string; by: string };
+  // Revision
+  SourceDriftDetected: { pending_revision: number; task: CanonicalTask };
+  SafeBoundaryReached: { deferred: ResumeAction | null; prior_wait: Wait | null };
+  RevisionApplied: { revision: number; task: CanonicalTask };
+  // Hủy
+  CancelRequested: { by: string; reason: string };
+  CancelRecordedLate: { merge_effect_id: string | null };
+  // Kết thúc
+  TaskCompleted: { reason: string };
+  TaskFailed: { reason: string };
+  TaskCancelled: { reason: string };
+  // Khác
+  SignalIgnored: { reason: string; trigger_kind: string; detail?: unknown };
+};
+
+export type EventType = keyof EventPayloads;
+
+export const EVENT_TYPES = [
+  'TaskCreated',
+  'TaskRevised',
+  'TaskConfirmed',
+  'TaskReady',
+  'TaskPending',
+  'TaskWaiting',
+  'TaskResumed',
+  'PolicyFrozen',
+  'PolicyAmended',
+  'AmendmentRejected',
+  'StepEntered',
+  'StepSkipped',
+  'StepExhausted',
+  'AttemptRequested',
+  'AttemptFinished',
+  'FailureClassified',
+  'BudgetReserved',
+  'BudgetConsumed',
+  'BudgetReleased',
+  'RungRaised',
+  'TaskFloorRaised',
+  'GateResultRecorded',
+  'ReviewVerdictRecorded',
+  'PublishRecorded',
+  'CiResultRecorded',
+  'BaseRelationRecorded',
+  'EvidenceInvalidated',
+  'EffectRequested',
+  'EffectStarted',
+  'EffectCompleted',
+  'EffectInvalidated',
+  'EffectReconciled',
+  'ReconcileIncomplete',
+  'TimerArmed',
+  'TimerCancelled',
+  'TimerFired',
+  'QuestionAsked',
+  'QuestionAnswered',
+  'AnswerRejected',
+  'ApprovalRequested',
+  'ApprovalGranted',
+  'ApprovalRejected',
+  'SourceDriftDetected',
+  'SafeBoundaryReached',
+  'RevisionApplied',
+  'CancelRequested',
+  'CancelRecordedLate',
+  'TaskCompleted',
+  'TaskFailed',
+  'TaskCancelled',
+  'SignalIgnored',
+] as const satisfies readonly EventType[];
+
+// Bảo đảm EVENT_TYPES liệt kê đủ mọi khoá của EventPayloads.
+type _MissingEventTypes = Exclude<EventType, (typeof EVENT_TYPES)[number]>;
+const _allEventTypesListed: _MissingEventTypes extends never ? true : never = true;
+void _allEventTypesListed;
+
+type DraftOf<T extends EventType> = { type: T; revision: number; actor: string; payload: EventPayloads[T] };
+
+/** Sự kiện chưa có `seq`/`global_seq`; kho gán khi append. */
+export type DomainEventDraft = { [T in EventType]: DraftOf<T> }[EventType];
+
+type EventOf<T extends EventType> = DraftOf<T> & {
+  schema_version: number;
+  task_id: string;
+  seq: number;
+  global_seq: number;
+  causation: { dedup_key: string | null; claim?: string };
+};
+
+export type DomainEvent = { [T in EventType]: EventOf<T> }[EventType];
+
+export const DomainEventSchema = z
+  .object({
+    schema_version: z.number().int().positive(),
+    task_id: z.string(),
+    seq: z.number().int().nonnegative(),
+    global_seq: z.number().int().nonnegative(),
+    type: z.enum(EVENT_TYPES),
+    revision: z.number().int().positive(),
+    actor: z.string(),
+    causation: z.object({ dedup_key: z.string().nullable(), claim: z.string().optional() }).strict(),
+    payload: z.record(z.string(), z.unknown()),
+  })
+  .strict();
+
+export function draft<T extends EventType>(type: T, revision: number, actor: string, payload: EventPayloads[T]): DomainEventDraft {
+  return { type, revision, actor, payload } as DomainEventDraft;
+}

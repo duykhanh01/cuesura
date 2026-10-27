@@ -28,6 +28,9 @@ Tín hiệu đánh dấu "người" bắt buộc có `authz` và `expected_versi
 `DecideInput` có thêm `related` do kho đọc trong cùng transaction:
 `{ deps: Record<Uuid, TaskStatus | 'missing'>, dependency_cycle: boolean, retry_of?: TaskStatus | 'missing' }`.
 Nhờ vậy `decide` kiểm tra dependency và retry mà vẫn thuần.
+Với `drift_choice`, `deps` phải gồm cả dependency của revision đang chờ áp (`source_drift.task.depends_on`):
+`apply_new` chạy lại Triage trên revision mới và bị từ chối `dependency_invalid` khi dependency không tồn
+tại, tạo chu trình hoặc chưa DONE (FR-008, FR-040).
 
 ### Kết quả effect
 

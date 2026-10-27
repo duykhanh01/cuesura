@@ -1,0 +1,5 @@
+# cusr.yaml tối thiểu, không chỉ định profile; dùng với user-workflows.yaml.
+version: 1
+gates:
+  build: "make"
+  unit: "make test"

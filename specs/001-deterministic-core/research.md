@@ -18,6 +18,13 @@ công nghệ. Các mục dưới giải quyết những lựa chọn thiết k�
 - **Decision:** dùng các major line sau, pin bản chính xác trong `package.json` và commit
   `pnpm-lock.yaml`: `zod` 4, `yaml` 2, `better-sqlite3` 13, `uuid` 14, `fast-check` 4, `vitest` 5.
   Đây là bản mới nhất trên npm registry ngày 2026-10-27; task bootstrap ghi lại bản patch đã cài.
+- **Bản đã cài (T002, 2026-10-27):** Node `24.22.1` (`.nvmrc`, `engines.node`), pnpm `12.15.0`
+  (`packageManager`); runtime `zod 4.6.7`, `yaml 2.9.1`, `better-sqlite3 13.0.3` (SQLite 3.53.4),
+  `uuid 14.0.3`; dev `typescript 6.0.3`, `vitest 5.0.5`, `fast-check 4.10.2`, `eslint 10.13.0`,
+  `typescript-eslint 8.72.0`, `@eslint/js 10.0.1`, `prettier 3.9.10`, `@types/better-sqlite3 9.6.0`,
+  `@types/node 24.19.2`, `globals 17.13.0`. TypeScript 7 có trên registry nhưng `typescript-eslint` 8
+  chỉ hỗ trợ `<6.1`, nên pin 6.0.3. `typescript-eslint 8.72.1` mới phát hành dưới một ngày, bị chặn bởi
+  `minimumReleaseAge` của pnpm; dùng 8.72.0 thay vì nới chặn.
 - **Rationale:** SPEC.md §17.2 chọn thư viện, không chọn bản. Pin chính xác cùng frozen lockfile cho
   build tái hiện được.
 - **Alternatives considered:** `node:sqlite` thay `better-sqlite3`: SPEC.md §13.1 chỉ cho phép sau khi qua
@@ -64,6 +71,11 @@ công nghệ. Các mục dưới giải quyết những lựa chọn thiết k�
   giúp tag lạ không âm thầm thành chuỗi.
 - **Cần kiểm chứng khi triển khai:** hành vi chính xác của `yaml` 2 với tag lạ, key trùng và vượt
   `maxAliasCount` được chốt bằng unit test trên fixture, không giả định từ tài liệu.
+- **Đã kiểm chứng (T025, `yaml` 2.9.1, 2026-10-27; test/unit/config/loader.test.ts):** key trùng là
+  `doc.errors` mã `DUPLICATE_KEY`; tag lạ (`!foo`) chỉ là `doc.warnings` mã `TAG_RESOLVE_FAILED`;
+  `!!binary` vẫn được resolve dù dùng core schema nên loader tự lọc tag ngoài core; alias chưa có anchor
+  và alias vượt `maxAliasCount` chỉ ném lỗi ở `toJS`, nên loader tự đếm node alias (lỗi tại alias thứ 51)
+  và giữ `maxAliasCount` của `toJS` làm chốt chặn cho alias lồng nhau.
 - **Alternatives considered:** `js-yaml`: không giữ vị trí node đủ tốt và không phải lựa chọn của SPEC.
 
 ## R-06 Một bên ghi ở mức kho
@@ -239,6 +251,7 @@ công nghệ. Các mục dưới giải quyết những lựa chọn thiết k�
   |---|---|
   | `effect.revision ≠ state.revision` | `stale_revision` |
   | Source drift chưa có lựa chọn của người dùng | `source_drift` |
+  | `now` của lần claim đã tới `deadline_at`, kể cả khi timer `deadline` chưa được xử lý (FR-023) | `deadline` |
   | Task đang hủy | `cancelling` |
   | Task đã kết thúc | `terminal` |
   | Task đang WAITING mà effect không phải effect mà lý do chờ đang đợi | `task_waiting` |

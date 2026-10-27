@@ -70,7 +70,7 @@ Trường theo SPEC.md §5.2: `schema_version`, `id`, `title`, `type`, `project`
 | `ci.required_checks` | Tên required checks khai báo trong `cusr.yaml`, có thể rỗng (R-10) |
 | `ci.rules` | Rule phân loại lỗi CI có thứ tự `{ match: { job?, check?, log_pattern? }, class }` (R-21) |
 | `gates` | Gate thực tế; gate optional bị bỏ được ghi rõ (SPEC.md §8) |
-| `limits` | `max_agent_runs`, `max_decider_calls`, `max_wall_ms`, `max_escalations`, giới hạn từng lớp, `backoff.{rate_limit,infra}` = `{ base_ms, factor, max_ms, max_attempts }` (R-22) |
+| `limits` | `max_agent_runs`, `max_decider_calls`, `max_wall_ms`, `max_escalations`, giới hạn từng lớp, `backoff.{rate_limit,infra}` = `{ base_ms, factor, max_ms, max_attempts }` (R-22), `extra_visits[step]` (lượt cộng vào `max_visits`, chỉ đặt qua amendment) |
 | `decision_modes` | Chỉ `human` được chốt ở feature này (FR-039) |
 | `permissions` | Quyền ghi/đọc theo role |
 | `config_hashes` | Hash của cấu hình người dùng, project, pack và cấu hình hiệu lực |

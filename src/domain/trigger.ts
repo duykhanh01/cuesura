@@ -1,0 +1,291 @@
+import { z } from 'zod';
+import { EpochMsSchema, HashSchema, UuidSchema, type Hash } from '../shared/brand.ts';
+import { hashCanonical } from '../shared/hash.ts';
+import { CanonicalTaskSchema } from './task.ts';
+import { AuthzContextSchema, FrozenExecutionContextSchema, FrozenPolicySchema } from './policy.ts';
+import type { TaskStatus } from './state.ts';
+
+export const TRIGGER_SCHEMA_VERSION = 1;
+export const MAX_ENVELOPE_IDS = 8;
+
+export const FAILURE_CLASSES = [
+  'rate_limit',
+  'infra',
+  'auth_config',
+  'timeout',
+  'invalid_output',
+  'refused',
+  'quality',
+  'unknown',
+] as const;
+export type FailureClass = (typeof FAILURE_CLASSES)[number];
+
+/** Usage có nhãn; `unavailable` không bao giờ mang số (FR-024). */
+export const UsageSchema = z
+  .object({
+    basis: z.enum(['reported', 'estimated', 'unavailable']),
+    tokens: z.number().int().nonnegative().optional(),
+    cost: z.number().nonnegative().optional(),
+  })
+  .strict()
+  .refine((u) => u.basis !== 'unavailable' || (u.tokens === undefined && u.cost === undefined), {
+    message: 'usage unavailable không được mang số liệu',
+  });
+export type Usage = z.infer<typeof UsageSchema>;
+
+export const BaseRelationSchema = z
+  .object({
+    head_sha: z.string().min(1),
+    base_ref: z.string().min(1),
+    base_sha: z.string().min(1),
+    head_contains_base: z.boolean(),
+  })
+  .strict();
+export type BaseRelation = z.infer<typeof BaseRelationSchema>;
+
+export const RequiredSetSchema = z
+  .object({
+    names: z.array(z.string()),
+    source: z.enum(['branch_protection', 'policy']),
+    complete: z.boolean(),
+  })
+  .strict();
+export type RequiredSet = z.infer<typeof RequiredSetSchema>;
+
+export const CHECK_STATES = ['success', 'failure', 'pending', 'cancelled', 'skipped', 'unknown'] as const;
+export type CheckState = (typeof CHECK_STATES)[number];
+
+export const CheckSchema = z
+  .object({
+    name: z.string().min(1),
+    state: z.enum(CHECK_STATES),
+    job: z.string().optional(),
+    log_excerpt: z.string().max(65_536).optional(),
+  })
+  .strict();
+export type Check = z.infer<typeof CheckSchema>;
+
+// ---- Dữ liệu thành công theo loại effect (contracts/signals-events.md "Kết quả effect") ----
+
+export const AgentDataSchema = z
+  .object({
+    schema_checked: z.boolean(),
+    status: z.enum(['done', 'needs_input', 'needs_context', 'blocked']),
+    summary: z.string(),
+    questions: z.array(z.string()).optional(),
+    usage: UsageSchema,
+    invoked: z.boolean().optional(),
+  })
+  .strict();
+
+export const ReviewDataSchema = z
+  .object({
+    schema_checked: z.boolean(),
+    verdict: z.enum(['approve', 'request_changes']),
+    findings: z.array(
+      z
+        .object({ severity: z.string(), file: z.string().optional(), line: z.number().int().optional(), msg: z.string() })
+        .strict(),
+    ),
+    head_sha: z.string().min(1),
+    usage: UsageSchema,
+    invoked: z.boolean().optional(),
+  })
+  .strict();
+
+export const GateDataSchema = z
+  .object({
+    results: z.array(
+      z.object({ gate: z.string(), passed: z.boolean(), signature: z.string().optional() }).strict(),
+    ),
+  })
+  .strict();
+
+export const PrepareDataSchema = z
+  .object({
+    base_sha: z.string().min(1),
+    worktree_ref: z.string().min(1),
+    branch: z.string().min(1),
+    setup: z.object({ ran: z.boolean(), passed: z.boolean() }).strict(),
+  })
+  .strict();
+
+export const PublishDataSchema = z
+  .object({ head_sha: z.string().min(1), base_relation: BaseRelationSchema })
+  .strict();
+
+export const RerunDataSchema = z
+  .object({ head_sha: z.string().min(1), rerun_checks: z.array(z.string()) })
+  .strict();
+
+export const CreatePrDataSchema = z.object({ pr_ref: z.string().min(1), head_sha: z.string().min(1) }).strict();
+
+export const AwaitCiDataSchema = z
+  .object({
+    head_sha: z.string().min(1),
+    required_set: RequiredSetSchema,
+    checks: z.array(CheckSchema),
+    base_relation: BaseRelationSchema.optional(),
+  })
+  .strict();
+
+export const MergeDataSchema = z.object({ merged: z.boolean(), merge_sha: z.string().optional() }).strict();
+
+export const StopDataSchema = z.object({ stopped: z.boolean() }).strict();
+
+export const FailureDataSchema = z
+  .object({
+    failure_class: z.enum(FAILURE_CLASSES),
+    signature: z.string().optional(),
+    reset_at: z.number().int().nonnegative().optional(),
+    usage: UsageSchema.optional(),
+    invoked: z.boolean().optional(),
+    message: z.string().optional(),
+  })
+  .strict();
+export type FailureData = z.infer<typeof FailureDataSchema>;
+
+// ---- Tín hiệu ----
+
+export const FreezeErrorSchema = z.discriminatedUnion('code', [
+  z.object({ code: z.literal('config_invalid'), diagnostics: z.array(z.unknown()) }).strict(),
+  z.object({ code: z.literal('unsupported_workflow'), workflow: z.string(), structure_hash: HashSchema }).strict(),
+  z.object({ code: z.literal('unsupported_decision_mode'), points: z.array(z.string()) }).strict(),
+  z.object({ code: z.literal('no_valid_binding'), step: z.string(), role: z.string() }).strict(),
+  z.object({ code: z.literal('override_exceeds_caller'), keys: z.array(z.string()) }).strict(),
+]);
+export type FreezeError = z.infer<typeof FreezeErrorSchema>;
+
+export const FreezeResultSchema = z.union([
+  z
+    .object({
+      ok: z.literal(true),
+      value: z.object({ policy: FrozenPolicySchema, context: FrozenExecutionContextSchema }).strict(),
+    })
+    .strict(),
+  z.object({ ok: z.literal(false), error: FreezeErrorSchema }).strict(),
+]);
+
+export const TriggerSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('create_task'), task: CanonicalTaskSchema }).strict(),
+  z.object({ kind: z.literal('confirm_task') }).strict(),
+  z.object({ kind: z.literal('source_updated'), task: CanonicalTaskSchema }).strict(),
+  z
+    .object({
+      kind: z.literal('dependency_status'),
+      depends_on: UuidSchema,
+      status: z.enum(['PENDING', 'READY', 'RUNNING', 'WAITING', 'DONE', 'FAILED', 'CANCELLED']),
+    })
+    .strict(),
+  z.object({ kind: z.literal('start'), freeze: FreezeResultSchema }).strict(),
+  z
+    .object({
+      kind: z.literal('effect_result'),
+      effect_id: UuidSchema,
+      attempt_id: UuidSchema.optional(),
+      outcome: z.enum(['succeeded', 'failed', 'unknown']),
+      data: z.unknown().optional(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('effect_reconciled'),
+      effect_id: UuidSchema,
+      finding: z.enum(['executed_succeeded', 'executed_failed', 'not_executed', 'still_unknown']),
+      data: z.unknown().optional(),
+      failure_class: z.enum(FAILURE_CLASSES).optional(),
+      signature: z.string().optional(),
+    })
+    .strict(),
+  z.object({ kind: z.literal('timer'), timer_id: UuidSchema }).strict(),
+  z.object({ kind: z.literal('answer'), question_id: UuidSchema, answer: z.string().min(1) }).strict(),
+  z
+    .object({ kind: z.literal('approve'), approval_request_id: UuidSchema, head_sha: z.string().optional() })
+    .strict(),
+  z
+    .object({ kind: z.literal('reject'), approval_request_id: UuidSchema, head_sha: z.string().optional() })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('drift_choice'),
+      choice: z.enum(['continue_old', 'apply_new', 'new_task']),
+      freeze: FreezeResultSchema.optional(),
+    })
+    .strict(),
+  z.object({ kind: z.literal('stop_attempt'), attempt_id: UuidSchema, reason: z.string() }).strict(),
+  z.object({ kind: z.literal('cancel'), reason: z.string() }).strict(),
+  z
+    .object({
+      kind: z.literal('amend'),
+      policy: FrozenPolicySchema,
+      diff: z.unknown(),
+      reason: z.string().min(1),
+    })
+    .strict(),
+]);
+export type Trigger = z.infer<typeof TriggerSchema>;
+export type TriggerKind = Trigger['kind'];
+
+/** Tín hiệu là lệnh của người: bắt buộc có `authz` và `expected_version`. */
+export const HUMAN_TRIGGERS: readonly TriggerKind[] = [
+  'create_task',
+  'confirm_task',
+  'answer',
+  'approve',
+  'reject',
+  'drift_choice',
+  'stop_attempt',
+  'cancel',
+  'amend',
+];
+
+export const TriggerEnvelopeSchema = z
+  .object({
+    schema_version: z.literal(TRIGGER_SCHEMA_VERSION),
+    task_id: UuidSchema,
+    dedup_key: z.string().min(1).max(512),
+    request_hash: HashSchema,
+    expected_version: z.number().int().nonnegative().optional(),
+    trigger: TriggerSchema,
+    now: EpochMsSchema,
+    ids: z.array(UuidSchema).max(MAX_ENVELOPE_IDS),
+    authz: AuthzContextSchema.optional(),
+  })
+  .strict()
+  .superRefine((env, ctx) => {
+    if (HUMAN_TRIGGERS.includes(env.trigger.kind)) {
+      if (env.authz === undefined) ctx.addIssue({ code: 'custom', path: ['authz'], message: 'lệnh của người cần authz' });
+      if (env.expected_version === undefined)
+        ctx.addIssue({ code: 'custom', path: ['expected_version'], message: 'lệnh của người cần expected_version' });
+    }
+  });
+export type TriggerEnvelope = z.infer<typeof TriggerEnvelopeSchema>;
+
+/** Dữ liệu kho đọc trong cùng transaction để `decide` vẫn thuần (contracts/signals-events.md). */
+export type RelatedFacts = {
+  deps: Record<string, TaskStatus | 'missing'>;
+  dependency_cycle: boolean;
+  retry_of?: TaskStatus | 'missing';
+  /** Task khác đã có cùng `(project, source_key)`, nếu có (FR-007). */
+  source_task?: { task_id: string; same_content: boolean };
+};
+
+export const EMPTY_RELATED: RelatedFacts = { deps: {}, dependency_cycle: false };
+
+/**
+ * `request_hash` = hash chuẩn hoá của `{ task_id, trigger, expected_version, actor }`; không gồm
+ * `now`/`ids` vì đó là giá trị cấp cho lần xử lý (research R-19, FR-026).
+ */
+export function computeRequestHash(env: {
+  task_id: string;
+  trigger: unknown;
+  expected_version?: number | undefined;
+  authz?: { actor: string } | undefined;
+}): Hash {
+  return hashCanonical({
+    task_id: env.task_id,
+    trigger: env.trigger,
+    expected_version: env.expected_version ?? null,
+    actor: env.authz?.actor ?? null,
+  });
+}
