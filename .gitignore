@@ -8,5 +8,6 @@ coverage/
 *.sqlite-wal
 *.sqlite-shm
 .cusr/
+.lavish/
 .DS_Store
 reports/
