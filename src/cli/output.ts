@@ -1,5 +1,8 @@
 // Output envelope and exit codes shared by the cusr, cusrd and cusr-runner binaries (contracts/cli-daemon.md).
 
+/** Control socket file name inside DATA_DIR. */
+export const CONTROL_SOCKET = 'control.sock';
+
 export const ExitCode = {
   ok: 0,
   failure: 1,
