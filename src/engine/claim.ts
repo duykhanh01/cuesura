@@ -1,7 +1,18 @@
 import { isBusinessEffect, type EffectKind } from '../domain/effect.ts';
 import { isTerminal, type TaskState } from '../domain/state.ts';
 
-export type ClaimBlockReason = 'stale_revision' | 'source_drift' | 'cancelling' | 'terminal' | 'deadline' | 'task_waiting';
+export type ClaimBlockReason =
+  | 'stale_revision'
+  | 'source_drift'
+  | 'cancelling'
+  | 'terminal'
+  | 'deadline'
+  | 'task_waiting'
+  | 'legacy_task'
+  | 'completion';
+
+/** The 002 daemon only dispatches tasks that carry a runtime snapshot; 001 callers keep the old rules. */
+export type ClaimOptions = { require_runtime?: boolean };
 
 export type Claimability = { ok: true } | { ok: false; reason: ClaimBlockReason };
 
@@ -15,8 +26,12 @@ export type ClaimTarget = { id: string; kind: EffectKind; revision: number };
  * `now` là thời điểm claim: effect nghiệp vụ tạo trước hạn không được bắt đầu sau `deadline_at`, kể cả khi
  * timer `deadline` chưa được xử lý (FR-023).
  */
-export function claimable(state: TaskState, effect: ClaimTarget, now: number): Claimability {
+export function claimable(state: TaskState, effect: ClaimTarget, now: number, opts: ClaimOptions = {}): Claimability {
+  // A legacy task without a runtime snapshot is read-only for the 002 daemon, service effects included.
+  if (opts.require_runtime === true && state.runtime_ref === null) return { ok: false, reason: 'legacy_task' };
   if (!isBusinessEffect(effect.kind)) return { ok: true };
+  // A recorded merge proof stops all business work; only stop/reconcile/observe may run (FR-040.02).
+  if (state.completion !== null) return { ok: false, reason: 'completion' };
   if (isTerminal(state.status)) return { ok: false, reason: 'terminal' };
   if (state.cancellation !== null) return { ok: false, reason: 'cancelling' };
   if (effect.revision !== state.revision) return { ok: false, reason: 'stale_revision' };

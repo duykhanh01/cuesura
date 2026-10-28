@@ -28,6 +28,7 @@ import {
 import { available, consume, release, reserve, usageOf } from './budget.ts';
 import { maybeFinishCancel, requestCancel } from './cancel.ts';
 import { classifyFailures } from './classify.ts';
+import { settleExecutionOnClose } from './runtime.ts';
 import { reject, type Ctx } from './context.ts';
 import { requestEffect, requestReconcile } from './effects.ts';
 import { applyRaise, chooseRung } from './escalation.ts';
@@ -398,6 +399,7 @@ function finish(ctx: Ctx, reason: string): void {
  */
 export function closeOut(ctx: Ctx): void {
   cancelArmedTimers(ctx);
+  settleExecutionOnClose(ctx);
   for (const e of Object.values(ctx.state.effects)) {
     if (e.status !== 'pending') continue;
     ctx.emit('EffectInvalidated', { effect_id: e.id, reason: 'task_ended' });
@@ -559,6 +561,7 @@ export function parseSuccess(ctx: Ctx, e: EffectMirror, data: unknown): { ok: tr
       case 'stop_attempt':
         return StopDataSchema;
       case 'reconcile':
+      case 'observe_external':
         return null;
       default:
         return assertNever(e.kind);
@@ -699,7 +702,9 @@ export function onEffectSucceeded(ctx: Ctx, e: EffectMirror, data: unknown): voi
       if (target !== undefined && target.status === 'started') requestReconcile(ctx, target);
       return;
     }
+    // Observation facts arrive through `observation_result`, not through this effect's own result.
     case 'reconcile':
+    case 'observe_external':
       return;
     default:
       assertNever(e.kind);

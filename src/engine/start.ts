@@ -4,6 +4,7 @@ import type { Trigger } from '../domain/trigger.ts';
 import { verifyContextHash, verifyPolicyHash } from '../policy/finalize.ts';
 import { reject, type Ctx } from './context.ts';
 import { enterStep } from './interpreter.ts';
+import { acceptRuntime } from './runtime.ts';
 import { mkWait } from './waits.ts';
 
 /**
@@ -62,7 +63,10 @@ export function onStart(ctx: Ctx, t: StartTrigger): void {
     return;
   }
   const { policy, context } = acceptFrozen(ctx, t.freeze.value, s.revision);
+  if (t.runtime !== undefined) acceptRuntime(ctx, t.runtime, policy);
   if (s.status === 'PENDING') ctx.emit('TaskReady', {});
+  // The runtime snapshot is committed before PolicyFrozen moves the task to RUNNING (FR-002.01).
+  if (t.runtime !== undefined) ctx.emit('RuntimeConfigured', { runtime: t.runtime, runtime_hash: t.runtime.runtime_hash });
   ctx.emit('PolicyFrozen', {
     policy,
     context,

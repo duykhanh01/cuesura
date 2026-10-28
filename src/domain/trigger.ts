@@ -4,6 +4,16 @@ import { hashCanonical } from '../shared/hash.ts';
 import { CanonicalTaskSchema } from './task.ts';
 import { AuthzContextSchema, FrozenExecutionContextSchema, FrozenPolicySchema } from './policy.ts';
 import type { TaskStatus } from './state.ts';
+import {
+  ArtifactSchema,
+  ExternalSubjectSchema,
+  FrozenRuntimeContextSchema,
+  MergeProofSchema,
+  ObservationSchema,
+  OPERATION_OUTCOMES,
+  OPERATION_STATUSES,
+  ProcessIdentitySchema,
+} from './runtime.ts';
 
 export const TRIGGER_SCHEMA_VERSION = 1;
 export const MAX_ENVELOPE_IDS = 8;
@@ -177,7 +187,8 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
       status: z.enum(['PENDING', 'READY', 'RUNNING', 'WAITING', 'DONE', 'FAILED', 'CANCELLED']),
     })
     .strict(),
-  z.object({ kind: z.literal('start'), freeze: FreezeResultSchema }).strict(),
+  // `runtime` is the 002 snapshot committed with PolicyFrozen; absent for legacy (001) starts.
+  z.object({ kind: z.literal('start'), freeze: FreezeResultSchema, runtime: FrozenRuntimeContextSchema.optional() }).strict(),
   z
     .object({
       kind: z.literal('effect_result'),
@@ -222,6 +233,49 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
       reason: z.string().min(1),
     })
     .strict(),
+  // ---- Runtime 002 (data-model.md "Trigger và event mới"); facts produced by the application layer ----
+  z.object({ kind: z.literal('request_execution') }).strict(),
+  z.object({ kind: z.literal('grant_execution'), request_id: UuidSchema }).strict(),
+  z.object({ kind: z.literal('release_execution'), request_id: UuidSchema, reason: z.string().min(1) }).strict(),
+  z
+    .object({
+      kind: z.literal('operation_result'),
+      operation_id: UuidSchema,
+      status: z.enum(OPERATION_STATUSES).exclude(['registered']),
+      outcome: z.enum(OPERATION_OUTCOMES).nullable(),
+      invocation_id: z.string().min(1).nullable(),
+      processes: z.array(ProcessIdentitySchema),
+      started_at: EpochMsSchema.nullable(),
+      finished_at: EpochMsSchema.nullable(),
+      receipt_digest: HashSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('ingest_record'),
+      operation_id: UuidSchema,
+      cursor: z
+        .object({
+          generation: z.number().int().nonnegative(),
+          segment: z.number().int().nonnegative(),
+          byte_offset: z.number().int().nonnegative(),
+          last_record_seq: z.number().int().nonnegative(),
+        })
+        .strict(),
+      records: z.number().int().nonnegative(),
+      digest: HashSchema,
+      artifacts: z.array(ArtifactSchema).max(16),
+    })
+    .strict(),
+  z
+    .object({ kind: z.literal('observation_due'), subject: ExternalSubjectSchema.optional() })
+    .strict(),
+  z.object({ kind: z.literal('observation_result'), observation: ObservationSchema, remote_digest: HashSchema }).strict(),
+  z
+    .object({ kind: z.literal('external_completion'), proof: MergeProofSchema, unverified_reason: z.string().min(1).nullable() })
+    .strict(),
+  z.object({ kind: z.literal('drain_result'), pending_operations: z.array(UuidSchema) }).strict(),
+  z.object({ kind: z.literal('recheck'), target: z.enum(['config', 'observation', 'drain']) }).strict(),
 ]);
 export type Trigger = z.infer<typeof TriggerSchema>;
 export type TriggerKind = Trigger['kind'];
@@ -237,6 +291,7 @@ export const HUMAN_TRIGGERS: readonly TriggerKind[] = [
   'stop_attempt',
   'cancel',
   'amend',
+  'recheck',
 ];
 
 export const TriggerEnvelopeSchema = z
@@ -268,6 +323,8 @@ export type RelatedFacts = {
   retry_of?: TaskStatus | 'missing';
   /** Task khác đã có cùng `(project, source_key)`, nếu có (FR-007). */
   source_task?: { task_id: string; same_content: boolean };
+  /** Daemon-wide slot and queue head, read in the same transaction as a grant (FR-044). */
+  execution?: { slot: { holder_task_id: string; request_id: string } | null; queue_head: string | null };
 };
 
 export const EMPTY_RELATED: RelatedFacts = { deps: {}, dependency_cycle: false };
