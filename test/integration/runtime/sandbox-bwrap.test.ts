@@ -40,8 +40,10 @@ describe.skipIf(!usable)('BwrapSandboxProvider under real bwrap (T020)', () => {
   it('hides unmounted host paths, host processes and the caller environment', () => {
     const canary = join(fx.outside, 'canary');
     expect(run(plan('gate', sh(`cat '${canary}' 2>/dev/null || echo hidden`)))).toMatchObject({ stdout: 'hidden' });
-    const pids = run(plan('gate', sh('ls -d /proc/[0-9]* | wc -l')));
-    expect(Number(pids.stdout)).toBeLessThanOrEqual(3);
+    // Counted with a shell glob: a pipeline would add its own processes. Only bwrap (pid 1) and sh remain.
+    const pids = run(plan('gate', sh('set -- /proc/[0-9]*; echo $#')));
+    expect(Number(pids.stdout)).toBeLessThanOrEqual(2);
+    expect(run(plan('gate', sh('tr "\\0" " " < /proc/1/cmdline'))).stdout).toMatch(/^\S*bwrap /);
     expect(run(plan('gate', sh('echo "$HOME"')))).toMatchObject({ stdout: '/cusr/home' });
     expect(run(plan('gate', sh('grep ^CapEff /proc/self/status')))).toMatchObject({ stdout: 'CapEff:\t0000000000000000' });
     expect(readFileSync(canary, 'utf8')).toBe('outside-canary\n');
