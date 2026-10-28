@@ -75,6 +75,9 @@ describe('GitHub required-check normalizer on live S0.3 reads', () => {
 });
 
 const ok = (body: unknown): GhRead => ({ ok: true, status: 200, body });
+const PROT_URL = 'https://api.github.com/repos/octo/repo/branches/main/protection';
+/** A 200 protection body for `octo/repo` `main`, as GitHub returns it with its own `url`. */
+const prot = (body: Record<string, unknown>): GhRead => ok({ url: PROT_URL, ...body });
 const fail = (status: number | null, body: unknown = null): GhRead => ({ ok: false, status, body, reason: status === null ? 'timeout' : `HTTP ${status}` });
 const rulesOf = (items: unknown[], complete = true): GhList => ({ ok: true, items, complete });
 const rule = (parameters: unknown, ruleset_id: unknown = 9): unknown => ({ type: 'required_status_checks', ruleset_id, parameters });
@@ -83,7 +86,7 @@ function reads(over: Partial<RequirementReads> = {}): RequirementReads {
   return {
     target: { repo: 'octo/repo', branch: 'main' },
     branch: ok({ protected: true }),
-    protection: ok({ required_status_checks: { checks: [{ context: 'build', app_id: null }] } }),
+    protection: prot({ required_status_checks: { checks: [{ context: 'build', app_id: null }] } }),
     rules: rulesOf([rule({ required_status_checks: [{ context: 'test' }] })]),
     rulesets: new Map([[9, ok({ enforcement: 'active' })]]),
     ...over,
@@ -99,23 +102,23 @@ describe('GitHub required-check normalizer edge cases', () => {
         { name: 'test', app: 'any', source: 'rules', enforcement: 'active', ruleset_id: 9 },
       ],
     });
-    const evaluate = normalizeRequirements(reads({ protection: ok({ required_status_checks: null }), rulesets: new Map([[9, ok({ enforcement: 'evaluate' })]]) }), 5);
+    const evaluate = normalizeRequirements(reads({ protection: prot({ required_status_checks: null }), rulesets: new Map([[9, ok({ enforcement: 'evaluate' })]]) }), 5);
     expect(evaluate).toMatchObject({ kind: 'none', identities: [{ name: 'test', enforcement: 'evaluate' }] });
     expect(evaluateRequired(evaluate, [])).toMatchObject({ kind: 'covered', github_required: 'none', github: [] });
   });
 
   it('app_id -1, null or absent is any-app; a positive id is pinned', () => {
     for (const app_id of [-1, null, undefined]) {
-      const ev = normalizeRequirements(reads({ protection: ok({ required_status_checks: { checks: [{ context: 'build', app_id }] } }), rules: rulesOf([]) }), 5);
+      const ev = normalizeRequirements(reads({ protection: prot({ required_status_checks: { checks: [{ context: 'build', app_id }] } }), rules: rulesOf([]) }), 5);
       expect(ev).toMatchObject({ kind: 'known', identities: [{ app: 'any' }] });
     }
-    const pinned = normalizeRequirements(reads({ protection: ok({ required_status_checks: { checks: [{ context: 'build', app_id: 15368 }] } }), rules: rulesOf([]) }), 5);
+    const pinned = normalizeRequirements(reads({ protection: prot({ required_status_checks: { checks: [{ context: 'build', app_id: 15368 }] } }), rules: rulesOf([]) }), 5);
     expect(pinned).toMatchObject({ kind: 'known', identities: [{ app: 15368 }] });
     expect(evaluateRequired(pinned, ['build'])).toMatchObject({ kind: 'required_checks_mismatch', app_pinned: [{ name: 'build', app: 15368 }] });
   });
 
   it('legacy `contexts` lists are any-app classic checks', () => {
-    const ev = normalizeRequirements(reads({ protection: ok({ required_status_checks: { contexts: ['ci/a'] } }), rules: rulesOf([]) }), 5);
+    const ev = normalizeRequirements(reads({ protection: prot({ required_status_checks: { contexts: ['ci/a'] } }), rules: rulesOf([]) }), 5);
     expect(ev).toMatchObject({ kind: 'known', identities: [{ name: 'ci/a', app: 'any', source: 'classic' }] });
   });
 
@@ -130,12 +133,16 @@ describe('GitHub required-check normalizer edge cases', () => {
     ['classic section absent, other repo', { protection: ok({ url: 'https://api.github.com/repos/octo/other/branches/main/protection' }) }],
     ['classic section absent, other branch', { protection: ok({ url: 'https://api.github.com/repos/octo/repo/branches/dev/protection' }) }],
     ['classic section absent, not a protection url', { protection: ok({ url: 'https://api.github.com/repos/octo/repo/branches/main' }) }],
-    ['classic section {}', { protection: ok({ required_status_checks: {} }) }],
-    ['classic section []', { protection: ok({ required_status_checks: [] }) }],
-    ['classic checks invalid', { protection: ok({ required_status_checks: { checks: 'invalid', contexts: [] } }) }],
-    ['classic contexts [null]', { protection: ok({ required_status_checks: { contexts: [null] } }) }],
-    ['classic check {}', { protection: ok({ required_status_checks: { checks: [{}] } }) }],
-    ['classic app id string', { protection: ok({ required_status_checks: { checks: [{ context: 'build', app_id: '15368' }] } }) }],
+    ['classic null, no url', { protection: ok({ required_status_checks: null }) }],
+    ['classic null, other repo', { protection: ok({ url: 'https://api.github.com/repos/octo/other/branches/main/protection', required_status_checks: null }) }],
+    ['classic null, other branch', { protection: ok({ url: 'https://api.github.com/repos/octo/repo/branches/dev/protection', required_status_checks: null }) }],
+    ['classic checks, no url', { protection: ok({ required_status_checks: { checks: [{ context: 'build', app_id: null }] } }) }],
+    ['classic section {}', { protection: prot({ required_status_checks: {} }) }],
+    ['classic section []', { protection: prot({ required_status_checks: [] }) }],
+    ['classic checks invalid', { protection: prot({ required_status_checks: { checks: 'invalid', contexts: [] } }) }],
+    ['classic contexts [null]', { protection: prot({ required_status_checks: { contexts: [null] } }) }],
+    ['classic check {}', { protection: prot({ required_status_checks: { checks: [{}] } }) }],
+    ['classic app id string', { protection: prot({ required_status_checks: { checks: [{ context: 'build', app_id: '15368' }] } }) }],
     ['rules unreadable', { rules: { ok: false, reason: 'HTTP 404' } }],
     ['rules not read', { rules: null }],
     ['rules truncated', { rules: rulesOf([], false) }],

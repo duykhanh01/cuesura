@@ -8,9 +8,9 @@
  * A read that failed, a page cap, a missing permission or a malformed body is `unknown`, never an empty
  * list. The one 404 accepted is classic protection answering "Branch not protected" while rulesets apply
  * (seen live 2026-10-28); any other 404, e.g. "Not Found" for a reader without access, stays unknown.
- * A 200 protection body without `required_status_checks` means status checks are not enabled (the field
- * is optional in GitHub's schema; not yet seen live), accepted only when its `url` names this branch's
- * protection.
+ * Every 200 protection body must carry a `url` naming this repo's and branch's protection, or it is
+ * unknown. Without `required_status_checks` it means status checks are not enabled (the field is
+ * optional in GitHub's schema; not yet seen live).
  */
 import { CHECK_ENFORCEMENTS, type CheckEnforcement, type RequiredEvidence, type RequiredIdentity, type RequiredProvenance, binds } from '../../domain/runtime.ts';
 
@@ -83,10 +83,10 @@ export function normalizeRequirements(reads: RequirementReads, observedAt: numbe
     if (prot === null) return unknown('classic protection not read');
     if (notProtected(prot)) classic = 'not_protected';
     else if (!prot.ok) return unknown(`classic protection unreadable: ${prot.reason}`);
-    else if (obj(prot.body)['required_status_checks'] === undefined) {
-      if (!isProtectionOf(prot.body, reads.target)) return unknown('classic protection body is not this branch\'s protection');
-      classic = 'read_no_status_checks';
-    } else {
+    // Every 200 body must name this branch's protection, whatever its status-check section says.
+    else if (!isProtectionOf(prot.body, reads.target)) return unknown('classic protection body is not this branch\'s protection');
+    else if (obj(prot.body)['required_status_checks'] === undefined) classic = 'read_no_status_checks';
+    else {
       classic = 'read';
       const fail = classicChecks(prot.body, partial);
       if (fail !== null) return unknown(fail);
