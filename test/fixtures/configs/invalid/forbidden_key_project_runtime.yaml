@@ -1,0 +1,6 @@
+# expect: forbidden_key 5 1
+# role: project
+version: 1
+gates: { build: make, unit: make test }
+runtime: { harness_isolation: { claude: allow_external_verified } }
+profile: standard

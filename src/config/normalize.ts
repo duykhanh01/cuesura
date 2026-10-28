@@ -1,16 +1,31 @@
 import { parseDuration } from '../shared/duration.ts';
-import type { Backoff, Limits } from '../domain/policy.ts';
+import { AUTHZ_ROLES, type Backoff, type Limits } from '../domain/policy.ts';
 import type {
   NormalizedProfile,
   NormalizedProject,
   NormalizedRole,
   NormalizedUser,
 } from '../domain/config.ts';
+import {
+  DEFAULT_RUNTIME_LIMITS,
+  type CredentialRef,
+  type HarnessInnerModePolicy,
+  type RuntimeLimits,
+} from '../domain/runtime.ts';
 import { WorkflowSchema, type Predicate, type Workflow } from '../domain/workflow.ts';
 import { SOFTWARE_DEV } from '../engine/workflows/software-dev.ts';
 import { deepMerge } from './merge.ts';
 import type { RawProjectConfig } from './schema-project.ts';
-import type { RawProfile, RawRole, RawStep, RawUserConfig, RawWorkflow } from './schema-user.ts';
+import type {
+  AccessTokenSpec,
+  RawProfile,
+  RawRole,
+  RawRuntime,
+  RawStep,
+  RawUserConfig,
+  RawWorkflow,
+  RuntimeTool,
+} from './schema-user.ts';
 
 /** Thời lượng đã qua schema nên luôn hợp lệ. */
 export function ms(text: string): number {
@@ -166,5 +181,60 @@ export function normalizeUserBase(u: RawUserConfig): Omit<NormalizedUser, 'workf
     projects,
     permissions: u.permissions ?? {},
     yolo: u.yolo ?? false,
+  };
+}
+
+// ---------- Runtime daemon 002 ----------
+
+/** Vị trí local và remote của một project; `null` khi chưa khai báo. */
+export type ProjectLocation = { path: string | null; repo: string | null };
+
+/**
+ * `projects.<id>.path`/`repo` nằm ngoài `NormalizedUser` để `hashes.user`, `effective` và `policy_hash`
+ * của cấu hình đã từng khai `repo` không đổi; runtime chụp chúng vào `FrozenRuntimeContext`.
+ */
+export function projectLocations(u: RawUserConfig): Record<string, ProjectLocation> {
+  return Object.fromEntries(
+    Object.entries(u.projects ?? {}).map(([k, v]) => [k, { path: v.path ?? null, repo: v.repo ?? null }]),
+  );
+}
+
+/** `runtime:` đã chuẩn hoá: mặc định đã điền, tham chiếu sắp theo tên. Không chứa secret. */
+export type RuntimeConfig = {
+  data_dir: string | null;
+  limits: RuntimeLimits;
+  /** Công cụ không khai báo thì doctor/preflight tự tìm và ghi lại. */
+  tool_paths: Partial<Record<RuntimeTool, string>>;
+  credential_refs: CredentialRef[];
+  access_tokens: AccessTokenSpec[];
+  /** Mọi harness đã khai báo đều có mục; mặc định `internal_required`. */
+  harness_isolation: Record<string, HarnessInnerModePolicy>;
+};
+
+export function mergeRuntimeLimits(overrides: RawRuntime['limits']): RuntimeLimits {
+  const out: RuntimeLimits = { ...DEFAULT_RUNTIME_LIMITS };
+  for (const [k, v] of Object.entries(overrides ?? {})) {
+    if (v !== undefined) out[k as keyof RuntimeLimits] = v;
+  }
+  return out;
+}
+
+/** `null` khi không khai báo `runtime:`; chỉ daemon 002 bắt buộc có nó. */
+export function normalizeRuntime(r: RawRuntime | undefined, harnesses: readonly string[]): RuntimeConfig | null {
+  if (r === undefined) return null;
+  const byName = <T>(a: [string, T], b: [string, T]): number => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+  const isolation: Record<string, HarnessInnerModePolicy> = {};
+  for (const h of [...harnesses].sort()) isolation[h] = r.harness_isolation?.[h] ?? 'internal_required';
+  return {
+    data_dir: r.data_dir ?? null,
+    limits: mergeRuntimeLimits(r.limits),
+    tool_paths: Object.fromEntries(Object.entries(r.tool_paths ?? {}).sort(byName)),
+    credential_refs: Object.entries(r.credential_refs ?? {})
+      .sort(byName)
+      .map(([name, file]) => ({ name, file })),
+    access_tokens: [...(r.access_tokens ?? [])]
+      .map((t) => ({ ...t, roles: AUTHZ_ROLES.filter((role) => t.roles.includes(role)), projects: [...t.projects].sort() }))
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
+    harness_isolation: isolation,
   };
 }

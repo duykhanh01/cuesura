@@ -4,10 +4,19 @@ import { hashCanonical } from '../shared/hash.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import type { Workflow } from '../domain/workflow.ts';
 import { findUnsupported, type UnsupportedFeature } from './capabilities.ts';
-import { checkPredicates, runChecks, type Locator } from './checks.ts';
+import { checkPredicates, checkRuntime, runChecks, type Locator } from './checks.ts';
 import { mergeProject, resolveProfiles, SourceMap, splitForbidden, type Layer } from './merge.ts';
 import type { NormalizedProfile, NormalizedUser, ValidatedConfig } from '../domain/config.ts';
-import { expandWorkflow, normalizeProfile, normalizeProject, normalizeUserBase } from './normalize.ts';
+import {
+  expandWorkflow,
+  normalizeProfile,
+  normalizeProject,
+  normalizeRuntime,
+  normalizeUserBase,
+  projectLocations,
+  type ProjectLocation,
+  type RuntimeConfig,
+} from './normalize.ts';
 import { diag, locate, sortDiagnostics, type Diagnostic, type KeyPath } from './positions.ts';
 import { PackSchema, PROJECT_KEYS, PROJECT_ONLY_KEYS, ProjectConfigSchema, type RawProjectConfig } from './schema-project.ts';
 
@@ -22,7 +31,16 @@ export type ValidateInput = {
   limits?: Partial<LoaderLimits>;
 };
 
-export type Validated = { config: ValidatedConfig; unsupported: UnsupportedFeature[] };
+/**
+ * `runtime` và `locations` nằm ngoài `ValidatedConfig` và ngoài `hashes`: chúng được chụp riêng vào
+ * `FrozenRuntimeContext` (`runtime_hash`), nên FrozenPolicy và hash cấu hình của 001 không đổi.
+ */
+export type Validated = {
+  config: ValidatedConfig;
+  unsupported: UnsupportedFeature[];
+  runtime: RuntimeConfig | null;
+  locations: Record<string, ProjectLocation>;
+};
 
 /** Issue của Zod → `schema_invalid`; khoá lạ được tách thành từng chẩn đoán tại chính khoá đó. */
 export function zodDiagnostics(error: z.ZodError, at: Locator, prefix: KeyPath = []): Diagnostic[] {
@@ -67,6 +85,7 @@ export function analyze(input: AnalyzeInput): Result<Validated, Diagnostic[]> {
   const rawUser = u.data;
 
   diags.push(...checkPredicates(rawUser, input.atUser));
+  diags.push(...checkRuntime(rawUser, input.atUser));
 
   const workflows: Record<string, Workflow> = {};
   for (const [wn, w] of Object.entries(rawUser.workflows ?? {})) {
@@ -107,7 +126,12 @@ export function analyze(input: AnalyzeInput): Result<Validated, Diagnostic[]> {
     },
     raw: { user: rawUser, profiles: resolved.profiles, project },
   };
-  return ok({ config, unsupported: findUnsupported(workflows, input.atUser) });
+  return ok({
+    config,
+    unsupported: findUnsupported(workflows, input.atUser),
+    runtime: normalizeRuntime(rawUser.runtime, Object.keys(rawUser.harnesses ?? {})),
+    locations: projectLocations(rawUser),
+  });
 }
 
 /**
