@@ -3,6 +3,7 @@ import type { DomainEvent } from '../domain/event.ts';
 import type { Effect } from '../domain/effect.ts';
 import type { FrozenExecutionContext, FrozenPolicy } from '../domain/policy.ts';
 import type { FrozenRuntimeContext } from '../domain/runtime.ts';
+import { orderQueue } from '../engine/execution-slot.ts';
 import type { TaskState, TaskStatus } from '../domain/state.ts';
 import type { EffectRow, TimerRow } from './projector.ts';
 
@@ -155,15 +156,12 @@ export type QueuedRequest = {
   request_global_seq: number;
 };
 
-/** Open requests in selection order: priority desc, resumed before fresh, request time, commit order. */
-export function readQueue(db: Database, limit: number): QueuedRequest[] {
+/** Open requests in the selector's order (`orderQueue`); at most one per task, so the whole queue is small. */
+export function readQueue(db: Database, limit = Number.MAX_SAFE_INTEGER): QueuedRequest[] {
   const rows = db
-    .prepare(
-      `SELECT request_id, task_id, grp, priority, requested_at, request_global_seq FROM execution_queue
-       WHERE status = 'queued' ORDER BY priority DESC, grp DESC, requested_at, request_global_seq LIMIT ?`,
-    )
-    .all(limit) as (Omit<QueuedRequest, 'group'> & { grp: 'fresh' | 'resumed' })[];
-  return rows.map(({ grp, ...r }) => ({ ...r, group: grp }));
+    .prepare(`SELECT request_id, task_id, grp, priority, requested_at, request_global_seq FROM execution_queue WHERE status = 'queued'`)
+    .all() as (Omit<QueuedRequest, 'group'> & { grp: 'fresh' | 'resumed' })[];
+  return orderQueue(rows.map(({ grp, ...r }) => ({ ...r, group: grp }))).slice(0, limit);
 }
 
 export function readSlot(db: Database): { holder_task_id: string; request_id: string; claimed_at: number } | null {
