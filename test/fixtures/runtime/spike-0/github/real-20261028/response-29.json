@@ -1,0 +1,101 @@
+{
+  "sha": "042b57287c27ae7ddc448ede14ba1006b875b799",
+  "node_id": "C_kwDOVaHCGdoAKDA0MmI1NzI4N2MyN2FlN2RkYzQ0OGVkZTE0YmExMDA2Yjg3NWI3OTk",
+  "commit": {
+    "author": {
+      "name": "Ng\u00f4 Duy Kh\u00e1nh",
+      "email": "80962056+duykhanh01@users.noreply.github.com",
+      "date": "2026-10-28T07:57:51Z"
+    },
+    "committer": {
+      "name": "Ng\u00f4 Duy Kh\u00e1nh",
+      "email": "80962056+duykhanh01@users.noreply.github.com",
+      "date": "2026-10-28T07:57:51Z"
+    },
+    "message": "test: add rebase head-at-merge fixture",
+    "tree": {
+      "sha": "228a416ca17e83cb47db8d7db0cf2f649a15b7e3",
+      "url": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/git/trees/228a416ca17e83cb47db8d7db0cf2f649a15b7e3"
+    },
+    "url": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/git/commits/042b57287c27ae7ddc448ede14ba1006b875b799",
+    "comment_count": 0,
+    "verification": {
+      "verified": false,
+      "reason": "unsigned",
+      "signature": null,
+      "payload": null,
+      "verified_at": null
+    }
+  },
+  "url": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/commits/042b57287c27ae7ddc448ede14ba1006b875b799",
+  "html_url": "https://github.com/duykhanh01/cuesura-spike-002-sandbox/commit/042b57287c27ae7ddc448ede14ba1006b875b799",
+  "comments_url": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/commits/042b57287c27ae7ddc448ede14ba1006b875b799/comments",
+  "author": {
+    "login": "duykhanh01",
+    "id": 80962056,
+    "node_id": "MDQ6VXNlcjgwOTYyMDU2",
+    "avatar_url": "https://avatars.githubusercontent.com/u/80962056?v=4",
+    "gravatar_id": "",
+    "url": "https://api.github.com/users/duykhanh01",
+    "html_url": "https://github.com/duykhanh01",
+    "followers_url": "https://api.github.com/users/duykhanh01/followers",
+    "following_url": "https://api.github.com/users/duykhanh01/following{/other_user}",
+    "gists_url": "https://api.github.com/users/duykhanh01/gists{/gist_id}",
+    "starred_url": "https://api.github.com/users/duykhanh01/starred{/owner}{/repo}",
+    "subscriptions_url": "https://api.github.com/users/duykhanh01/subscriptions",
+    "organizations_url": "https://api.github.com/users/duykhanh01/orgs",
+    "repos_url": "https://api.github.com/users/duykhanh01/repos",
+    "events_url": "https://api.github.com/users/duykhanh01/events{/privacy}",
+    "received_events_url": "https://api.github.com/users/duykhanh01/received_events",
+    "type": "User",
+    "user_view_type": "public",
+    "site_admin": false
+  },
+  "committer": {
+    "login": "duykhanh01",
+    "id": 80962056,
+    "node_id": "MDQ6VXNlcjgwOTYyMDU2",
+    "avatar_url": "https://avatars.githubusercontent.com/u/80962056?v=4",
+    "gravatar_id": "",
+    "url": "https://api.github.com/users/duykhanh01",
+    "html_url": "https://github.com/duykhanh01",
+    "followers_url": "https://api.github.com/users/duykhanh01/followers",
+    "following_url": "https://api.github.com/users/duykhanh01/following{/other_user}",
+    "gists_url": "https://api.github.com/users/duykhanh01/gists{/gist_id}",
+    "starred_url": "https://api.github.com/users/duykhanh01/starred{/owner}{/repo}",
+    "subscriptions_url": "https://api.github.com/users/duykhanh01/subscriptions",
+    "organizations_url": "https://api.github.com/users/duykhanh01/orgs",
+    "repos_url": "https://api.github.com/users/duykhanh01/repos",
+    "events_url": "https://api.github.com/users/duykhanh01/events{/privacy}",
+    "received_events_url": "https://api.github.com/users/duykhanh01/received_events",
+    "type": "User",
+    "user_view_type": "public",
+    "site_admin": false
+  },
+  "parents": [
+    {
+      "sha": "01deb1618eef654e00dd28781864f837d015f6d6",
+      "url": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/commits/01deb1618eef654e00dd28781864f837d015f6d6",
+      "html_url": "https://github.com/duykhanh01/cuesura-spike-002-sandbox/commit/01deb1618eef654e00dd28781864f837d015f6d6"
+    }
+  ],
+  "stats": {
+    "total": 3,
+    "additions": 3,
+    "deletions": 0
+  },
+  "files": [
+    {
+      "sha": "875f5c761df11c0c9c271044e133c2b96c03b9ee",
+      "filename": "spike/rebase.txt",
+      "status": "added",
+      "additions": 3,
+      "deletions": 0,
+      "changes": 3,
+      "blob_url": "https://github.com/duykhanh01/cuesura-spike-002-sandbox/blob/042b57287c27ae7ddc448ede14ba1006b875b799/spike%2Frebase.txt",
+      "raw_url": "https://github.com/duykhanh01/cuesura-spike-002-sandbox/raw/042b57287c27ae7ddc448ede14ba1006b875b799/spike%2Frebase.txt",
+      "contents_url": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/contents/spike%2Frebase.txt?ref=042b57287c27ae7ddc448ede14ba1006b875b799",
+      "patch": "@@ -0,0 +1,3 @@\n+Cuesura S0.3 disposable fixture.\n+Expected manual merge method: rebase.\n+No product code or credentials."
+    }
+  ]
+}

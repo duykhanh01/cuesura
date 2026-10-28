@@ -1,0 +1,10 @@
+{
+  "ref": "refs/heads/spike/s0-merge-20261028",
+  "node_id": "REF_kwDOVaHCGdoAInJlZnMvaGVhZHMvc3Bpa2UvczAtbWVyZ2UtMjAyNjEwMjg",
+  "url": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/git/refs/heads/spike/s0-merge-20261028",
+  "object": {
+    "sha": "fadab7702d979460c71a30edddc6535ac3a8ac33",
+    "type": "commit",
+    "url": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/git/commits/fadab7702d979460c71a30edddc6535ac3a8ac33"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "allowUnsandboxedCommands": false,
+    "filesystem": {
+      "allowWrite": [
+        "/cusr/scratch",
+        "/cusr/home",
+        "/tmp"
+      ]
+    }
+  },
+  "permissions": {
+    "defaultMode": "dontAsk",
+    "allow": [
+      "Bash",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep"
+    ],
+    "deny": [
+      "Bash(/usr/bin/touch /cusr/scratch/permission-denied-by-rule)",
+      "Read(//cusr/scratch/permission-denied.txt)"
+    ]
+  }
+}

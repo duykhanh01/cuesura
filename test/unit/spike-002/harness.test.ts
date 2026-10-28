@@ -8,6 +8,8 @@ import {
   SPIKE_BUDGET,
   checkConfig,
   fileSha256,
+  materialize,
+  planInvocation,
   readLedger,
   recordFinished,
   reserveBudget,
@@ -15,6 +17,8 @@ import {
   type HarnessConfig,
 } from '../../../scripts/spike-002/harness.ts';
 import { createProbeFixture } from '../../../scripts/spike-002/sandbox.ts';
+import { ROLES, roleJsonSchema, roleSchemaDigest } from '../../../scripts/spike-002/role-schema.ts';
+import { hashCanonical } from '../../../src/shared/hash.ts';
 
 const templates = ['claude', 'codex'].map((v) =>
   HarnessConfigSchema.parse(JSON.parse(readFileSync(fileURLToPath(new URL(`../../../scripts/spike-002/config/${v}.template.json`, import.meta.url)), 'utf8'))),
@@ -52,6 +56,19 @@ describe('spike-002 harness config policy', () => {
 
   it('an explicit, pinned config is ready', () => {
     expect(checkConfig(ready())).toEqual({ ready: true, blockers: [] });
+  });
+
+  it.each(ROLES)('Claude %s transmits the same closed schema without the unsupported dialect declaration', (role) => {
+    const fx = createProbeFixture(mkdtempSync(join(base, `schema-${role}-`)));
+    const config = ready();
+    const plan = planInvocation({ config, role, root: join(base, `schema-root-${role}`), attemptId: `schema-${role}`, worktree: fx.worktree, gitDirs: [fx.gitCommon], toolchain: [], prompt: 'local fixture' });
+    materialize(plan, config, role, 'local fixture');
+    const expected = roleJsonSchema(role);
+    delete expected['$schema'];
+    const wire = JSON.parse(readFileSync(plan.files.schema, 'utf8')) as unknown;
+    expect(wire).toEqual(expected);
+    expect(JSON.parse(plan.harness_argv[plan.harness_argv.indexOf('--json-schema') + 1] ?? '')).toEqual(expected);
+    expect(plan.manifest['schema']).toMatchObject({ digest: roleSchemaDigest(role), wire_digest: hashCanonical(expected) });
   });
 
   it.each([
@@ -107,6 +124,18 @@ describe('spike-002 harness config policy', () => {
 });
 
 describe('spike-002 shared spike budget ledger', () => {
+  it('an explicit owner-approved extension keeps the original six reservations and stops at eight', () => {
+    const ledger = join(base, 'owner-extension.jsonl');
+    for (let i = 0; i < 6; i++) reserveBudget(ledger, `original-${i}`, 'codex', 'coder', 300_000);
+    expect(() => reserveBudget(ledger, 'extra-1', 'claude', 'fixer', 300_000)).toThrow(/budget exhausted/);
+    reserveBudget(ledger, 'extra-1', 'claude', 'fixer', 300_000, 8);
+    reserveBudget(ledger, 'extra-2', 'codex', 'fixer', 300_000, 8);
+    expect(readLedger(ledger)).toHaveLength(8);
+    expect(readLedger(ledger)[6]).toMatchObject({ approved_max_invocations: 8 });
+    expect(() => reserveBudget(ledger, 'extra-3', 'codex', 'fixer', 300_000, 8)).toThrow(/budget exhausted/);
+    expect(() => reserveBudget(ledger, 'invalid', 'codex', 'fixer', 300_000, Number.NaN)).toThrow(/positive safe integer/);
+  });
+
   it(`allows exactly ${SPIKE_BUDGET.max_invocations} reservations and counts failures`, () => {
     const ledger = join(base, 'ledger.jsonl');
     for (let i = 0; i < SPIKE_BUDGET.max_invocations; i++) {

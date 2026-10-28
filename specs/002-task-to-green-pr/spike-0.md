@@ -1,10 +1,10 @@
 # Lát 0 — Kiểm chứng giả định trước khi xây runtime
 
-**Trạng thái: BLOCKED / chưa đạt.** Theo [ADR-0004](../../docs/adr/0004-isolated-bwrap-baseline.md),
+**Trạng thái: ĐẠT (T009, 2026-10-28).** Theo [ADR-0004](../../docs/adr/0004-isolated-bwrap-baseline.md),
 luồng tự động v1 dùng Isolated rootless bwrap, không bắt buộc AppArmor 4/child stack Cuesura.
-[Canary local 360/360](sandbox-reassessment.md) là bằng chứng một phần; chưa đủ outer proof đầy đủ,
-native nội bộ/permission/auth thật và GitHub proof. Xem [báo cáo hiện trạng](spike-0-report.md).
-Backlog đã tạo để mở khóa, nhưng A vẫn đợi S0.1–S0.3; không đánh dấu pass bằng docs/help/fake.
+S0.1–S0.3 đạt trên host triển khai đã chốt, kèm giới hạn owner chấp nhận; xem
+[kết luận T009](spike-0-report.md#t009--kết-luận-gate-lát-0-2026-10-28). Đổi host/binary/config/source
+hash thì manifest mất hiệu lực và phải chạy lại phần liên quan.
 
 “Native sandbox” trong guide này là sandbox **nội bộ** của harness chạy trong Isolated. Không
 có backend Native-only, Container/VM hay plugin registry trong v1. Profile AppArmor cũ là
@@ -76,6 +76,12 @@ Khi chạy phải có tài khoản/model và sự cho phép dùng usage cho spik
 Các lần thử native/fallback có gọi model đều tính chung trần 6 lượt, kể cả startup/tool failure;
 không tự tăng budget để đủ sáu output thành công, hết lượt phải báo và xin quyết định trước thử thêm.
 
+**Ngoại lệ owner đã duyệt cho lượt 2026-10-28:** sau 6 lượt (gồm lỗi schema Claude và thiếu helper
+Codex), owner cho thêm đúng 2 lượt fixer, tổng 8 × tối đa 5 phút. Giữ nguyên ledger, các reservation
+7/8 ghi `approved_max_invocations=8`; CLI dùng `--max-invocations 8` chỉ từ trusted owner caller.
+Mặc định prototype vẫn là 6; không tự reset ledger hoặc tiếp tục lượt 9. Xem
+[approval và manifest thật](../../test/fixtures/runtime/spike-0/harness/real-20261028/manifest.json).
+
 ## S0.3 — GitHub head-at-merge qua port gh
 
 Chỉ trên repo sandbox được cấp cho spike, không dùng repo sản phẩm `metronome`. Dùng `gh` port
@@ -105,6 +111,9 @@ nghĩa S0.1–S0.3 đã đạt, và nó không thay cho bằng chứng mà T006�
 | Sandbox (T004) | `node scripts/spike-002/sandbox.ts argv --layout FILE` | In argv bwrap và bảng mount theo role, không exec |
 | | `node scripts/spike-002/sandbox.ts probe --all` | Repo/worktree tạm và canary mount/PID/env/secret/control cho 5 role; ghi nhãn AppArmor nhưng không đánh giá. `--apparmor-fixture` chỉ dành cho hardening tùy chọn đã được admin review |
 | | `node scripts/spike-002/reassess-sandbox.ts` | Fixture tạm cho baseline/nested/copied bwrap/raw-userns; kiểm truy cập sau remount/unmount. Không gọi model/GitHub, không thay full S0.1 |
+| | `node scripts/spike-002/probe-local-boundary.ts` | Socket Unix/FD canary thật với positive controls; quyền mount theo 5 role và bounded symlink race trong vùng rw. Cần môi trường cho phép tạo Unix socket; không thay host mount-source TOCTOU proof, lifetime hoặc vendor smoke |
+| | `node scripts/spike-002/probe-mount-toctou.ts` | TOCTOU mount-source phía host: từ chối symlink lúc plan, agent không tráo được nguồn mount, process cùng uid ngoài sandbox tráo thì kiểm inode phát hiện. Không gọi model/mạng |
+| | `node scripts/spike-002/probe-lifetime.ts` | Fake child trong unit `systemd --user` tạm: SIGKILL launcher foreground, restart/stop daemon unit giả, stop runner unit; ghi InvocationID/cgroup/pid/exit.json. Không gọi model/mạng |
 | Runner (T004) | `node scripts/spike-002/runner.ts systemd-argv --spec FILE --root DIR` | In argv `systemd-run --user` + `flock` của unit `cusr-op-<op>.service`, không chạy |
 | | `node scripts/spike-002/runner.ts start --spec FILE --root DIR [--systemd]` | Chạy runner dưới flock (local hoặc trong unit riêng) |
 | | `node scripts/spike-002/runner.ts receipt --root DIR --kind runs\|operations --id ID` | Đọc launch/pid/exit và identity: `not_launched/unknown/running/lost/finished` |
@@ -112,9 +121,10 @@ nghĩa S0.1–S0.3 đã đạt, và nó không thay cho bằng chứng mà T006�
 | Harness (T004) | `node scripts/spike-002/harness.ts check --config FILE` | Kiểm config tường minh; template trong `scripts/spike-002/config/` cố ý chưa ready |
 | | `node scripts/spike-002/harness.ts plan --config FILE --role R --root DIR --attempt-id ID --worktree DIR --git-dir DIR [--toolchain DIR]...` | In argv harness + bwrap, run spec và manifest (capability `unknown`); không copy auth, không spawn |
 | | `node scripts/spike-002/harness.ts run <plan args> --prompt FILE --ledger FILE [--allow-paid]` | Claude/Codex bắt buộc `--allow-paid` và giữ chỗ trong ledger **trước** spawn; vendor `fixture` không tốn budget |
+| | Thêm `--max-invocations OWNER_APPROVED_TOTAL` vào `run` | Chỉ sau owner tăng trần rõ ràng; không đổi wall cap, giữ ledger cũ, ghi limit được duyệt vào reservation. Mặc định 6 không đổi |
 | | `node scripts/spike-002/harness.ts ledger --ledger FILE` | Xem số lượt đã giữ chỗ trên trần 6 |
 | gh port (T005) | `node scripts/spike-002/gh.ts observe --repo O/R --pr N --snapshot a,b --fixture FILE` | Chạy bundle đọc trên fixture local `test/fixtures/runtime/spike-0/gh-port/` |
-| | `node scripts/spike-002/gh.ts observe ... --live [--gh PATH] [--evidence-out FILE]` | Chỉ dùng ở T008 trên repo sandbox đã được cấp; chỉ GET, không có endpoint merge/create/rerun |
+| | `node scripts/spike-002/gh.ts observe ... [--expect-target BRANCH] --live [--gh PATH] [--evidence-out FILE]` | Chỉ dùng ở T008 trên repo sandbox đã được cấp; chỉ GET, không có endpoint merge/create/rerun |
 
 Kiểm thử local nằm trong `pnpm test` (`test/unit/spike-002`, `test/integration/spike-002`). Test
 bwrap tự skip khi host chặn user namespace, test systemd tự skip khi không có user manager. Test
@@ -122,9 +132,10 @@ bị skip được tính là **chưa chạy**, không phải đạt.
 
 Giới hạn của prototype, cần T006–T008 xác nhận hoặc sửa:
 
-- T004 giữ thông điệp scope của ADR-0003 trong `sandbox.ts`; T002 phải cập nhật chúng theo
-  ADR-0004. Không coi dòng nhắc thiếu child stack trong output cũ là blocker mới, cũng không
-  coi việc sửa thông điệp là full outer proof. Không sửa lại file evidence lịch sử.
+- T002 đã cập nhật thông điệp scope trong `sandbox.ts` theo ADR-0004. Không coi dòng nhắc thiếu
+  child stack trong output cũ là blocker mới, cũng không coi việc sửa thông điệp là full outer
+  proof. File evidence lịch sử giữ nguyên; bằng chứng local mới và hashes/provenance nằm ở
+  `test/fixtures/runtime/spike-0/host/manifest.json`.
 - Runner chạy local ngoài unit chỉ sở hữu process group: process con thoát bằng `setsid` vẫn sống
   (exit.json ghi `descendant_scope=process_group_only`). Trong unit `cusr-op-*` thì runner quét
   cgroup và systemd dừng toàn bộ cgroup. Main process của unit là `flock` bọc bởi `sh` có
@@ -135,7 +146,10 @@ Giới hạn của prototype, cần T006–T008 xác nhận hoặc sửa:
 - Exchange schema chỉ dùng tập keyword thận trọng (`type/properties/required/additionalProperties/
   items/enum/const/anyOf`). Độ dài, giới hạn và luật status/verdict được kiểm sau parse.
   Harness có chấp nhận schema này hay không thì do S0.2 xác định riêng cho từng role × vendor.
-- gh port ghi head-at-merge là ứng viên `pulls.head.sha` với `proof_status=unverified_pending_s0_3`.
+- gh port ghi head-at-merge là ứng viên `pulls.head.sha`; probe hậu merge xác nhận head giữ
+  nguyên qua push/delete cả ba fixture. API `2026-03-10` bỏ `merge_commit_sha`, nên port lấy merge
+  commit từ merged event (`issues/{n}/events`, chỉ GET, phân trang đủ) và tách fact `merged` khỏi
+  `completeness`/`gaps` của proof. Thiếu/truncated/mâu thuẫn → proof incomplete. Promote là việc của T044.
   Ruleset có enforcement không đọc được thì cả bộ required checks là `unknown`.
 
 Khi chạy T006–T008, lưu output prototype (probe report, run dir đã redact, manifest, ledger,
@@ -146,9 +160,9 @@ gate dưới đây giữ nguyên.
 
 | Mục | Bằng chứng bắt buộc | Trạng thái hiện tại |
 | --- | --- | --- |
-| S0.1 | Isolated outer layout/canary/FD/socket/re-exec/copy/raw-userns/lifetime đạt; mỗi vendor có native nội bộ result và native pass hoặc external_verified pass với permission evidence/owner config | Local canary một phần đã đạt; thiếu proof đầy đủ trên host triển khai và mode vendor proven |
-| S0.2 | 6 role/vendor outputs, auth home, quyền/network, version/schema digests và usage | Chưa chạy |
-| S0.3 | 3 merge modes, source push/delete, head proof và gh-port evidence | Chưa chạy |
+| S0.1 | Isolated outer layout/canary/FD/socket/re-exec/copy/raw-userns/lifetime đạt; mỗi vendor có native nội bộ result và native pass hoặc external_verified pass với permission evidence/owner config **Đạt** (T006 đóng 2026-10-28) trên worker WSL2 là host triển khai. Giới hạn owner chấp nhận: kiểm inode trước exec chuyển sang T020; scratch ro của Codex reviewer chưa có proof runtime |
+| S0.2 | 6 role/vendor outputs, auth home, quyền/network, version/schema digests và usage | **Đạt** (T007 đóng 2026-10-28, capability manifest đã pin). Đã có 6 role outputs, cộng Codex coder/reviewer chạy lại với candidate, và 2 lượt reviewer thử ghi, sau 12 lượt được duyệt; pnpm/pip network đạt (pip chạy lại 2/2). Session resume không duyệt, giữ unknown cùng hard USD cap |
+| S0.3 | 3 merge modes, source push/delete, head proof và gh-port evidence | Ba PR đã merged, head giữ nguyên sau push/delete, live identity/target/merged/none đạt; port lấy merge commit từ merged event, proof complete cả ba PR. Live classic/rules/none/unknown/app-pinned đã chạy (7 case khớp kỳ vọng), port sửa lỗi branch chỉ có ruleset; `evaluate` chỉ có fixture local. **Đạt** (T008 đóng 2026-10-28) |
 
 Điều kiện pass S0.1 cho **mỗi** vendor: outer boundary + lifetime đạt, và một trong hai nhánh:
 native đạt, hoặc native đã thử/ghi thất bại + owner cho phép external_verified + mode đó giữ

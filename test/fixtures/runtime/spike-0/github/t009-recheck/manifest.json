@@ -1,0 +1,45 @@
+{
+  "kind": "spike-0-t009-merge-proof-recheck",
+  "scope": "T009: gh.ts changed after the merge-event evidence (ruleset-only fix), so the three merged PRs were re-observed with the current port. GET only, private repo.",
+  "command": "node scripts/spike-002/gh.ts observe --repo duykhanh01/cuesura-spike-002-sandbox --pr N --snapshot '' --expect-repo-id 1436664345 --expect-target master --live --evidence-out port-pr-N.json",
+  "exit": {
+    "1": 0,
+    "2": 0,
+    "3": 0
+  },
+  "results": {
+    "1": {
+      "identity": "match",
+      "state": "merged",
+      "merge_commit_sha": "d329cc7e37c7100822924ea21166da9c86b19257",
+      "head_at_merge_candidate": "852ea24c0d34c651100002dbc175f8f784193043",
+      "completeness": "complete",
+      "merge_endpoint": "merged_204"
+    },
+    "2": {
+      "identity": "match",
+      "state": "merged",
+      "merge_commit_sha": "d78bcd879c05ba3b9d1f79be1af5a9b46514aaa1",
+      "head_at_merge_candidate": "e43c576d742ac4aae928f157d9a3042a8aad4558",
+      "completeness": "complete",
+      "merge_endpoint": "merged_204"
+    },
+    "3": {
+      "identity": "match",
+      "state": "merged",
+      "merge_commit_sha": "9ad1de32594287e475b91ba61f4063dc20de9aa8",
+      "head_at_merge_candidate": "042b57287c27ae7ddc448ede14ba1006b875b799",
+      "completeness": "complete",
+      "merge_endpoint": "merged_204"
+    }
+  },
+  "matches_previous": "merge commit, head candidate, completeness and merge endpoint equal real-20261028-merge-event/manifest.json for all three PRs",
+  "source_digests": {
+    "scripts/spike-002/gh.ts": "253bffd845dc1c562d9b17fa2a3251a3378642457c693715f37bbea8e87c6213"
+  },
+  "files": {
+    "port-pr-1.json": "b7e0b1ecd658db9b956920f2424b7f89cda15af2438828e25de6a811c07e32ca",
+    "port-pr-2.json": "a4a0421ed255ecb51b8dddbecce8167150e5c50aa93b3b992b4c2c8c811ca696",
+    "port-pr-3.json": "6740b1ffa2b64eede95707086ef00c5d502f4078f06cdb5a635ae95c516c6dde"
+  }
+}

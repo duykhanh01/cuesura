@@ -69,6 +69,9 @@ worktree có diff/commit chưa bảo toàn theo retention log.
   findings có severity/file/line/message; closed object, trường required, không tin task ID từ model.
 - Structured final response là nguồn chính. Result code/schema/provenance/semantic validation đều
   cần đạt; fallback file chỉ có khi capability manifest khai báo và path mới riêng operation.
+  Canonical schema giữ nguyên; Claude 2.1.306 từ chối khai báo meta-schema 2020-12 nên wire schema
+  bỏ riêng `$schema`, giữ toàn bộ keyword/ràng buộc còn lại. Manifest ghi thêm `wire_digest` bên
+  cạnh canonical digest; inline và file phải khớp, không đổi schema v1 hoặc nới semantic validation.
 - Codex build argv `exec --json --output-schema ... --output-last-message ... --sandbox ...`, cwd
   worktree; Claude print/structured-schema/settings tương ứng manifest. Không hardcode model ID từ
   ví dụ docs, không bypass permission. Internal OS sandbox có thể off duy nhất trong mode
@@ -100,6 +103,9 @@ Claude candidate là `sandbox.enabled=false` với permission rules/mode không 
 mode hỗ trợ bởi binary pinned. Không suy từ tên mode rằng permission còn giữ: S0.1 kiểm negative
 tool denial độc lập OS boundary. Không dùng --dangerously-*, ignore-rules/bypass/accept-all hay đổi
 approval policy để pass. Không có cấu hình version đó giữ hai lớp độc lập thì capability_missing.
+Nguồn bằng chứng denial theo S0.1/S0.2: Claude có event `permission_denied`; Codex 0.165.0 không
+phát event `--json` cho lệnh bị rule hoặc sandbox chặn, chỉ có dòng `Rejected` trên stderr khi rule
+chặn, nên adapter phải lưu stderr và không suy denial từ lời model.
 Settings do runner cấp read-only, validate effective config; managed sandbox requirement không bị
 ghi đè. Thay proof/config/version/layout thì manifest mất hiệu lực và chặn attempt mới tới khi kiểm
 lại; process đang chạy xử lý theo policy hiện hành, không đổi mode giữa attempt.
@@ -107,6 +113,8 @@ lại; process đang chạy xử lý theo policy hiện hành, không đổi mod
 ## Sandbox và Git boundary
 
 Mount tối thiểu bằng bubblewrap, proc/PID namespace riêng, no-new-privileges và bỏ capabilities.
+Nguồn mount được kiểm realpath lúc plan và ghi (dev, ino); trước/trong exec phải kiểm lại và fail
+closed nếu lệch, vì bwrap phân giải lại đường dẫn (S0.1 TOCTOU, `host/mount-toctou.json`).
 Không bắt buộc profile AppArmor riêng hoặc capability-denial audit trên mọi host. S0.1 kiểm
 re-exec/copy bwrap, raw userns và thử unmount/remount không mở lại host root, metadata Git hay
 vùng ghi bị cấm; ghi label/CapEff/errno thực, không dùng việc tạo namespace con thành công hoặc

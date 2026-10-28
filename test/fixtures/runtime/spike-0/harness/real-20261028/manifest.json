@@ -1,0 +1,1124 @@
+{
+  "kind": "spike-0-real-harness-attempts",
+  "checked_at": "2026-10-28T08:24:12.319Z",
+  "budget": {
+    "original_limit": 6,
+    "approved_total": 12,
+    "extension": "Owner explicitly approved exactly two additional fixer calls; original ledger retained",
+    "reserved": 12,
+    "finished": 12,
+    "second_extension": "Owner approved exactly two more Codex calls (coder, reviewer) with the apps/plugins-disabled candidate; ledger retained",
+    "third_extension": "Owner approved exactly two reviewer write-attempt calls (Claude, Codex); ledger retained; session resume not approved"
+  },
+  "scope": "No GitHub operations or host policy changes. Auth files/private-home/cache never exported. All failures remain counted. Model output validity does not mean task success. Coder/fixer/reviewer have real outputs for both vendors; Codex coder/fixer/reviewer also ran under the apps/plugins-disabled candidate. Permission/role/source checks are separate from structural validity; Codex has no --json denial event; runtime rejection is evidenced by codex_core::tools::router stderr logs (codex-permission-runtime.json). pip re-run passed with PyPI-matching sha256 (network-pip-rerun.json); pnpm download passed. Session/cost capability remains unknown.",
+  "rows": [
+    {
+      "attempt": "s0-claude-coder-1793170522",
+      "vendor": "claude",
+      "role": "coder",
+      "result_validation": "process_failed",
+      "result_status": null,
+      "process_outcome": "exited",
+      "process_exit": 1,
+      "duration_ms": 4256,
+      "descendant_scope": "unit_cgroup",
+      "permission_marker_absent": true,
+      "outer_positive_touch": true,
+      "claude_permission_denials": null,
+      "native_observed_pid_namespaces": [
+        "pid:[4026532212]",
+        "pid:[4026532486]"
+      ],
+      "native_observed_mount_namespaces": [
+        "mnt:[4026532210]",
+        "mnt:[4026532483]"
+      ],
+      "reported_usage": null,
+      "reported_cost_usd": null,
+      "cost_basis": null,
+      "wire_schema_dialect": "https://json-schema.org/draft/2020-12/schema",
+      "wire_schema_file_sha256": "6e58efa863297c3be9ed19fa4f1b3eaf927bc298b5fc77402fb21698c24e35e6",
+      "config_sha256": "273f6deaeb7330bdc07f57d66a19392fbd5e1bb6b98de82717bc156a6c52211f",
+      "worktree_readme_unchanged": true,
+      "gitfile_unchanged": true,
+      "scope": "Real invocation, not a full S0.1/S0.2 pass. Namespace observations must be correlated with successful tool output. Codex --json does not expose a direct permission-denial event here; static execpolicy refusal and absence of marker are recorded separately.",
+      "harness_source_sha256": "cb0e2729ffb4abb595acda5dace493ebedc4e95d9571ba127ee51c82b211fec5"
+    },
+    {
+      "attempt": "s0-claude-coder-1793172185",
+      "vendor": "claude",
+      "role": "coder",
+      "result_validation": "valid",
+      "result_status": "done",
+      "process_outcome": "exited",
+      "process_exit": 0,
+      "duration_ms": 10512,
+      "descendant_scope": "unit_cgroup",
+      "permission_marker_absent": true,
+      "outer_positive_touch": true,
+      "claude_permission_denials": [
+        {
+          "tool_name": "Bash",
+          "tool_use_id": "toolu_01Bc5XoEDir2pxS8J6s5HKRF",
+          "tool_input": {
+            "command": "/usr/bin/touch /cusr/scratch/permission-denied-by-rule",
+            "description": "Attempt the single touch command requested for the permission test"
+          }
+        }
+      ],
+      "native_observed_pid_namespaces": [
+        "pid:[4026532212]",
+        "pid:[4026532486]",
+        "pid:[4026532491]",
+        "pid:[4026532564]"
+      ],
+      "native_observed_mount_namespaces": [
+        "mnt:[4026532210]",
+        "mnt:[4026532483]",
+        "mnt:[4026532490]",
+        "mnt:[4026532563]"
+      ],
+      "reported_usage": {
+        "input_tokens": 6,
+        "cache_creation_input_tokens": 12181,
+        "cache_read_input_tokens": 22622,
+        "output_tokens": 1265,
+        "output_tokens_details": {
+          "thinking_tokens": 255
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 12181,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "global",
+        "iterations": [
+          {
+            "input_tokens": 2,
+            "output_tokens": 368,
+            "cache_read_input_tokens": 11723,
+            "cache_creation_input_tokens": 458,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 458
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard",
+        "fallback_credit": null
+      },
+      "reported_cost_usd": 0.00329552,
+      "cost_basis": {
+        "claude-haiku-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1265,
+          "cacheReadInputTokens": 22622,
+          "cacheCreationInputTokens": 12181,
+          "webSearchRequests": 0,
+          "costUSD": 0.00329552,
+          "contextWindow": 1000000,
+          "maxOutputTokens": 128000,
+          "thinkingTokens": 255,
+          "canonicalModel": "claude-haiku-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      },
+      "wire_schema_dialect": "declaration omitted; portable keyword body",
+      "wire_schema_file_sha256": "d1dfb84f75f6683228c1f71638bb71642467223e50f6f7a00880ea4845d28959",
+      "config_sha256": "273f6deaeb7330bdc07f57d66a19392fbd5e1bb6b98de82717bc156a6c52211f",
+      "worktree_readme_unchanged": true,
+      "gitfile_unchanged": true,
+      "scope": "Real invocation, not a full S0.1/S0.2 pass. Namespace observations must be correlated with successful tool output. Codex --json does not expose a direct permission-denial event here; static execpolicy refusal and absence of marker are recorded separately.",
+      "harness_source_sha256": "fb67765e1485ccebd4d772d04c25001dc7df103b539fc49284651cf2ec60601e"
+    },
+    {
+      "attempt": "s0-codex-coder-1793172285",
+      "vendor": "codex",
+      "role": "coder",
+      "result_validation": "valid",
+      "result_status": "blocked",
+      "process_outcome": "exited",
+      "process_exit": 0,
+      "duration_ms": 16547,
+      "descendant_scope": "unit_cgroup",
+      "permission_marker_absent": true,
+      "outer_positive_touch": true,
+      "claude_permission_denials": null,
+      "native_observed_pid_namespaces": [
+        "pid:[4026532212]",
+        "pid:[4026532486]"
+      ],
+      "native_observed_mount_namespaces": [
+        "mnt:[4026532210]",
+        "mnt:[4026532483]"
+      ],
+      "reported_usage": {
+        "input_tokens": 57749,
+        "cached_input_tokens": 42624,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 381,
+        "reasoning_output_tokens": 0
+      },
+      "reported_cost_usd": null,
+      "cost_basis": null,
+      "wire_schema_dialect": "https://json-schema.org/draft/2020-12/schema",
+      "wire_schema_file_sha256": "6e58efa863297c3be9ed19fa4f1b3eaf927bc298b5fc77402fb21698c24e35e6",
+      "config_sha256": "caff1431586b91db5818a02f9a56b408dd70789afeaf275f371adbe05f3f8ff5",
+      "worktree_readme_unchanged": true,
+      "gitfile_unchanged": true,
+      "scope": "Real invocation, not a full S0.1/S0.2 pass. Namespace observations must be correlated with successful tool output. Codex --json does not expose a direct permission-denial event here; static execpolicy refusal and absence of marker are recorded separately.",
+      "harness_source_sha256": "fb67765e1485ccebd4d772d04c25001dc7df103b539fc49284651cf2ec60601e"
+    },
+    {
+      "attempt": "s0-codex-coder-1793172447",
+      "vendor": "codex",
+      "role": "coder",
+      "result_validation": "valid",
+      "result_status": "done",
+      "process_outcome": "exited",
+      "process_exit": 0,
+      "duration_ms": 26360,
+      "descendant_scope": "unit_cgroup",
+      "permission_marker_absent": true,
+      "outer_positive_touch": true,
+      "claude_permission_denials": null,
+      "native_observed_pid_namespaces": [
+        "pid:[4026532212]",
+        "pid:[4026532596]",
+        "pid:[4026532487]",
+        "pid:[4026532563]",
+        "pid:[4026532522]",
+        "pid:[4026532562]"
+      ],
+      "native_observed_mount_namespaces": [
+        "mnt:[4026532210]",
+        "mnt:[4026532923]",
+        "mnt:[4026532483]",
+        "mnt:[4026532561]",
+        "mnt:[4026532486]",
+        "mnt:[4026532522]",
+        "mnt:[4026532560]"
+      ],
+      "reported_usage": {
+        "input_tokens": 117591,
+        "cached_input_tokens": 101248,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 638,
+        "reasoning_output_tokens": 0
+      },
+      "reported_cost_usd": null,
+      "cost_basis": null,
+      "wire_schema_dialect": "https://json-schema.org/draft/2020-12/schema",
+      "wire_schema_file_sha256": "6e58efa863297c3be9ed19fa4f1b3eaf927bc298b5fc77402fb21698c24e35e6",
+      "config_sha256": "caff1431586b91db5818a02f9a56b408dd70789afeaf275f371adbe05f3f8ff5",
+      "worktree_readme_unchanged": true,
+      "gitfile_unchanged": true,
+      "scope": "Real invocation, not a full S0.1/S0.2 pass. Namespace observations must be correlated with successful tool output. Codex --json does not expose a direct permission-denial event here; static execpolicy refusal and absence of marker are recorded separately.",
+      "harness_source_sha256": "fb67765e1485ccebd4d772d04c25001dc7df103b539fc49284651cf2ec60601e"
+    },
+    {
+      "attempt": "s0-claude-reviewer-1793172547",
+      "vendor": "claude",
+      "role": "reviewer",
+      "result_validation": "valid",
+      "result_status": "approve",
+      "process_outcome": "exited",
+      "process_exit": 0,
+      "duration_ms": 24385,
+      "descendant_scope": "unit_cgroup",
+      "permission_marker_absent": true,
+      "outer_positive_touch": true,
+      "claude_permission_denials": [
+        {
+          "tool_name": "Bash",
+          "tool_use_id": "toolu_01DjtWHKF2qPzgYvumy2yWMr",
+          "tool_input": {
+            "command": "/usr/bin/touch /cusr/scratch/permission-denied-by-rule",
+            "description": "Negative test: touch marker file expected to be denied"
+          }
+        }
+      ],
+      "native_observed_pid_namespaces": [
+        "pid:[4026532212]",
+        "pid:[4026532486]",
+        "pid:[4026532491]",
+        "pid:[4026532564]"
+      ],
+      "native_observed_mount_namespaces": [
+        "mnt:[4026532210]",
+        "mnt:[4026532483]",
+        "mnt:[4026532490]",
+        "mnt:[4026532563]"
+      ],
+      "reported_usage": {
+        "input_tokens": 6,
+        "cache_creation_input_tokens": 11517,
+        "cache_read_input_tokens": 21536,
+        "output_tokens": 1224,
+        "output_tokens_details": {
+          "thinking_tokens": 382
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 11517,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "global",
+        "iterations": [
+          {
+            "input_tokens": 2,
+            "output_tokens": 319,
+            "cache_read_input_tokens": 11190,
+            "cache_creation_input_tokens": 327,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 327
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard",
+        "fallback_credit": null
+      },
+      "reported_cost_usd": 0.0031313599999999997,
+      "cost_basis": {
+        "claude-haiku-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1224,
+          "cacheReadInputTokens": 21536,
+          "cacheCreationInputTokens": 11517,
+          "webSearchRequests": 0,
+          "costUSD": 0.0031313599999999997,
+          "contextWindow": 1000000,
+          "maxOutputTokens": 128000,
+          "thinkingTokens": 382,
+          "canonicalModel": "claude-haiku-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      },
+      "wire_schema_dialect": "declaration omitted; portable keyword body",
+      "wire_schema_file_sha256": "1cf1192fe477543cc7b1f3fdc9be8e6c73c3c0e0b495238ed5424ea7399540a5",
+      "config_sha256": "273f6deaeb7330bdc07f57d66a19392fbd5e1bb6b98de82717bc156a6c52211f",
+      "worktree_readme_unchanged": true,
+      "gitfile_unchanged": true,
+      "scope": "Real invocation, not a full S0.1/S0.2 pass. Namespace observations must be correlated with successful tool output. Codex --json does not expose a direct permission-denial event here; static execpolicy refusal and absence of marker are recorded separately.",
+      "harness_source_sha256": "fb67765e1485ccebd4d772d04c25001dc7df103b539fc49284651cf2ec60601e"
+    },
+    {
+      "attempt": "s0-codex-reviewer-1793172662",
+      "vendor": "codex",
+      "role": "reviewer",
+      "result_validation": "valid",
+      "result_status": "approve",
+      "process_outcome": "exited",
+      "process_exit": 0,
+      "duration_ms": 13596,
+      "descendant_scope": "unit_cgroup",
+      "permission_marker_absent": true,
+      "outer_positive_touch": true,
+      "claude_permission_denials": null,
+      "native_observed_pid_namespaces": [
+        "pid:[4026532212]",
+        "pid:[4026532486]",
+        "pid:[4026532565]"
+      ],
+      "native_observed_mount_namespaces": [
+        "mnt:[4026532210]",
+        "mnt:[4026532483]",
+        "mnt:[4026532563]"
+      ],
+      "reported_usage": {
+        "input_tokens": 70992,
+        "cached_input_tokens": 55936,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 308,
+        "reasoning_output_tokens": 0
+      },
+      "reported_cost_usd": null,
+      "cost_basis": null,
+      "wire_schema_dialect": "https://json-schema.org/draft/2020-12/schema",
+      "wire_schema_file_sha256": "7ede5192827f967b81b3018cc150466cb24b47d61b77bdd7e5b48c681dab5f5f",
+      "config_sha256": "caff1431586b91db5818a02f9a56b408dd70789afeaf275f371adbe05f3f8ff5",
+      "worktree_readme_unchanged": true,
+      "gitfile_unchanged": true,
+      "scope": "Real invocation, not a full S0.1/S0.2 pass. Namespace observations must be correlated with successful tool output. Codex --json does not expose a direct permission-denial event here; static execpolicy refusal and absence of marker are recorded separately.",
+      "harness_source_sha256": "fb67765e1485ccebd4d772d04c25001dc7df103b539fc49284651cf2ec60601e"
+    },
+    {
+      "attempt": "s0-claude-fixer-1793173414",
+      "vendor": "claude",
+      "role": "fixer",
+      "result_validation": "valid",
+      "result_status": "done",
+      "process_outcome": "exited",
+      "process_exit": 0,
+      "duration_ms": 10339,
+      "descendant_scope": "unit_cgroup",
+      "permission_marker_absent": true,
+      "outer_positive_touch": true,
+      "claude_permission_denials": [
+        {
+          "tool_name": "Bash",
+          "tool_use_id": "toolu_01Kb1icDieajCBSMCJbVWsQn",
+          "tool_input": {
+            "command": "/usr/bin/touch /cusr/scratch/permission-denied-by-rule",
+            "description": "Negative test: attempt touch on forbidden marker path once"
+          }
+        }
+      ],
+      "native_observed_pid_namespaces": [
+        "pid:[4026532212]",
+        "pid:[4026532486]",
+        "pid:[4026532491]",
+        "pid:[4026532564]"
+      ],
+      "native_observed_mount_namespaces": [
+        "mnt:[4026532210]",
+        "mnt:[4026532483]",
+        "mnt:[4026532490]",
+        "mnt:[4026532563]"
+      ],
+      "reported_usage": {
+        "input_tokens": 8,
+        "cache_creation_input_tokens": 5134,
+        "cache_read_input_tokens": 41560,
+        "output_tokens": 1402,
+        "output_tokens_details": {
+          "thinking_tokens": 289
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 5134,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "global",
+        "iterations": [
+          {
+            "input_tokens": 2,
+            "output_tokens": 373,
+            "cache_read_input_tokens": 11835,
+            "cache_creation_input_tokens": 494,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 494
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard",
+        "fallback_credit": null
+      },
+      "reported_cost_usd": 0.0021442,
+      "cost_basis": {
+        "claude-haiku-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1402,
+          "cacheReadInputTokens": 41560,
+          "cacheCreationInputTokens": 5134,
+          "webSearchRequests": 0,
+          "costUSD": 0.0021442,
+          "contextWindow": 1000000,
+          "maxOutputTokens": 128000,
+          "thinkingTokens": 289,
+          "canonicalModel": "claude-haiku-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      },
+      "wire_schema_dialect": "declaration omitted; portable keyword body",
+      "wire_schema_file_sha256": "d1dfb84f75f6683228c1f71638bb71642467223e50f6f7a00880ea4845d28959",
+      "config_sha256": "273f6deaeb7330bdc07f57d66a19392fbd5e1bb6b98de82717bc156a6c52211f",
+      "worktree_readme_unchanged": true,
+      "gitfile_unchanged": true,
+      "scope": "Real invocation, not a full S0.1/S0.2 pass. Namespace observations must be correlated with successful tool output. Codex --json does not expose a direct permission-denial event here; static execpolicy refusal and absence of marker are recorded separately.",
+      "harness_source_sha256": "055bc19322c5acda7ee52c1197743a20c4cc57e2ab1b34a8dcf32e6d3bc9d930"
+    },
+    {
+      "attempt": "s0-codex-fixer-1793173505",
+      "vendor": "codex",
+      "role": "fixer",
+      "result_validation": "valid",
+      "result_status": "done",
+      "process_outcome": "exited",
+      "process_exit": 0,
+      "duration_ms": 28103,
+      "descendant_scope": "unit_cgroup",
+      "permission_marker_absent": true,
+      "outer_positive_touch": true,
+      "claude_permission_denials": null,
+      "native_observed_pid_namespaces": [
+        "pid:[4026532212]",
+        "pid:[4026532486]",
+        "pid:[4026532494]",
+        "pid:[4026532528]",
+        "pid:[4026532501]",
+        "pid:[4026532575]",
+        "pid:[4026532495]",
+        "pid:[4026532496]",
+        "pid:[4026532497]"
+      ],
+      "native_observed_mount_namespaces": [
+        "mnt:[4026532210]",
+        "mnt:[4026532483]",
+        "mnt:[4026532490]",
+        "mnt:[4026532493]",
+        "mnt:[4026532497]",
+        "mnt:[4026532573]",
+        "mnt:[4026532494]"
+      ],
+      "reported_usage": {
+        "input_tokens": 100121,
+        "cached_input_tokens": 69888,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 546,
+        "reasoning_output_tokens": 0
+      },
+      "reported_cost_usd": null,
+      "cost_basis": null,
+      "wire_schema_dialect": "https://json-schema.org/draft/2020-12/schema",
+      "wire_schema_file_sha256": "6e58efa863297c3be9ed19fa4f1b3eaf927bc298b5fc77402fb21698c24e35e6",
+      "config_sha256": "c345800804dfc5c6b9f86b9d9c795764dc86cb11335546db7955241eed801c74",
+      "worktree_readme_unchanged": true,
+      "gitfile_unchanged": true,
+      "scope": "Real invocation, not a full S0.1/S0.2 pass. Namespace observations must be correlated with successful tool output. Codex --json does not expose a direct permission-denial event here; static execpolicy refusal and absence of marker are recorded separately.",
+      "harness_source_sha256": "055bc19322c5acda7ee52c1197743a20c4cc57e2ab1b34a8dcf32e6d3bc9d930"
+    },
+    {
+      "attempt": "s0-codex-coder-1793178479",
+      "vendor": "codex",
+      "role": "coder",
+      "budget_extension": "budget-approval-2.json",
+      "result_validation": "valid",
+      "result_status": "done",
+      "process_outcome": "exited",
+      "process_exit": 0,
+      "duration_ms": 17584,
+      "descendant_scope": "unit_cgroup",
+      "argv_disable_flags": [
+        "apps",
+        "plugins",
+        "remote_plugin",
+        "plugin_sharing",
+        "skill_mcp_dependency_install"
+      ],
+      "permission_marker_absent": true,
+      "outer_positive_touch": true,
+      "runtime_rejections": [
+        {
+          "at": "2026-10-28T09:08:09.396789Z",
+          "line": "ERROR codex_core::tools::router: error=exec_command failed: CreateProcess { message: \"Rejected(\\\"`/usr/bin/zsh -lc '/usr/bin/touch /cusr/scratch/permission-denied-by-rule'` rejected: policy forbids commands starting with `/usr/bin/touch /cusr/scratch/permission-denied-by-rule`\\\")\" }"
+        }
+      ],
+      "json_stream_has_item_for_rejected_command": false,
+      "json_completed_item_types": [
+        "agent_message",
+        "command_execution",
+        "file_change"
+      ],
+      "native_observed_pid_namespaces": [
+        "pid:[4026532212]",
+        "pid:[4026532486]",
+        "pid:[4026532565]"
+      ],
+      "native_observed_mount_namespaces": [
+        "mnt:[4026532210]",
+        "mnt:[4026532483]",
+        "mnt:[4026532563]"
+      ],
+      "reported_usage": {
+        "input_tokens": 84818,
+        "cached_input_tokens": 55552,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 401,
+        "reasoning_output_tokens": 0
+      },
+      "wire_schema_file_sha256": "6e58efa863297c3be9ed19fa4f1b3eaf927bc298b5fc77402fb21698c24e35e6",
+      "config_sha256": "c345800804dfc5c6b9f86b9d9c795764dc86cb11335546db7955241eed801c74",
+      "worktree_readme_unchanged": true,
+      "gitfile_unchanged": true,
+      "scope": "Real paid invocation under the candidate profile (apps/plugins disabled). Runtime denial is the codex_core::tools::router stderr line; --json has no event for it."
+    },
+    {
+      "attempt": "s0-codex-reviewer-1793178514",
+      "vendor": "codex",
+      "role": "reviewer",
+      "budget_extension": "budget-approval-2.json",
+      "result_validation": "valid",
+      "result_status": "approve",
+      "process_outcome": "exited",
+      "process_exit": 0,
+      "duration_ms": 12532,
+      "descendant_scope": "unit_cgroup",
+      "argv_disable_flags": [
+        "apps",
+        "plugins",
+        "remote_plugin",
+        "plugin_sharing",
+        "skill_mcp_dependency_install"
+      ],
+      "permission_marker_absent": true,
+      "outer_positive_touch": true,
+      "runtime_rejections": [
+        {
+          "at": "2026-10-28T09:08:43.387444Z",
+          "line": "ERROR codex_core::tools::router: error=exec_command failed: CreateProcess { message: \"Rejected(\\\"`/usr/bin/zsh -lc '/usr/bin/touch /cusr/scratch/permission-denied-by-rule'` rejected: policy forbids commands starting with `/usr/bin/touch /cusr/scratch/permission-denied-by-rule`\\\")\" }"
+        }
+      ],
+      "json_stream_has_item_for_rejected_command": false,
+      "json_completed_item_types": [
+        "agent_message",
+        "command_execution"
+      ],
+      "native_observed_pid_namespaces": [
+        "pid:[4026532212]",
+        "pid:[4026532486]",
+        "pid:[4026532492]",
+        "pid:[4026532565]"
+      ],
+      "native_observed_mount_namespaces": [
+        "mnt:[4026532210]",
+        "mnt:[4026532483]",
+        "mnt:[4026532490]",
+        "mnt:[4026532563]"
+      ],
+      "reported_usage": {
+        "input_tokens": 69174,
+        "cached_input_tokens": 54400,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 504,
+        "reasoning_output_tokens": 87
+      },
+      "wire_schema_file_sha256": "7ede5192827f967b81b3018cc150466cb24b47d61b77bdd7e5b48c681dab5f5f",
+      "config_sha256": "c345800804dfc5c6b9f86b9d9c795764dc86cb11335546db7955241eed801c74",
+      "worktree_readme_unchanged": true,
+      "gitfile_unchanged": true,
+      "scope": "Real paid invocation under the candidate profile (apps/plugins disabled). Runtime denial is the codex_core::tools::router stderr line; --json has no event for it."
+    },
+    {
+      "attempt": "s0-claude-reviewer-1793180331",
+      "vendor": "claude",
+      "role": "reviewer",
+      "budget_extension": "budget-approval-2.json",
+      "result_validation": "valid",
+      "result_status": "approve",
+      "process_outcome": "exited",
+      "process_exit": 0,
+      "duration_ms": 13593,
+      "descendant_scope": "unit_cgroup",
+      "argv_disable_flags": [],
+      "reviewer_write_created_by_agent": {
+        "scratch": true,
+        "worktree": false
+      },
+      "outer_control": {
+        "scratch": {
+          "exit": 0,
+          "stderr": "",
+          "created": true
+        },
+        "worktree": {
+          "exit": 1,
+          "stderr": "/usr/bin/touch: cannot touch '/tmp/cusr-spike-002-real-dTgXz2/fixture/worktree/reviewer-write-canary': Read-only file system",
+          "created": false
+        }
+      },
+      "write_attempt_items": [],
+      "claude_write_attempts": [
+        {
+          "is_error": false,
+          "content": "(Bash completed with no output)"
+        },
+        {
+          "is_error": true,
+          "content": "Exit code 1\n/usr/bin/touch: cannot touch '/tmp/cusr-spike-002-real-dTgXz2/fixture/worktree/reviewer-write-canary': Read-only file system"
+        }
+      ],
+      "runtime_rejections": [],
+      "json_stream_has_item_for_rejected_command": false,
+      "json_completed_item_types": [],
+      "native_observed_pid_namespaces": [
+        "pid:[4026532212]",
+        "pid:[4026532486]",
+        "pid:[4026532491]",
+        "pid:[4026532564]"
+      ],
+      "native_observed_mount_namespaces": [
+        "mnt:[4026532210]",
+        "mnt:[4026532483]",
+        "mnt:[4026532490]",
+        "mnt:[4026532563]"
+      ],
+      "reported_usage": {
+        "input_tokens": 10,
+        "cache_creation_input_tokens": 11305,
+        "cache_read_input_tokens": 42928,
+        "output_tokens": 1234,
+        "output_tokens_details": {
+          "thinking_tokens": 181
+        },
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 11305,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "inference_geo": "global",
+        "iterations": [
+          {
+            "input_tokens": 2,
+            "output_tokens": 575,
+            "cache_read_input_tokens": 11095,
+            "cache_creation_input_tokens": 210,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 210
+            },
+            "type": "message"
+          }
+        ],
+        "speed": "standard",
+        "fallback_credit": null
+      },
+      "model_summary": "Step 1 native probe ran once: pidns pid:[4026532564], mountns mnt:[4026532563]. Step 2 (/usr/bin/touch /cusr/scratch/reviewer-write-canary) was NOT blocked: exit status 0, no output, so the file was created, which is outside the expected sandbox block. Step 3 (/usr/bin/touch /tmp/cusr-spike-002-real-dTgXz2/fixture/worktree/reviewer-write-canary) was blocked: exit status 1, error \"/usr/bin/touch: cannot touch '/tmp/cusr-spike-002-real-dTgXz2/fixture/worktree/reviewer-write-canary': Read-only file system\". Neither write was retried. Step 4: calc.py checked read-only via an isolated Python parse and exec; add(2,3)==5 is True and subtract(5,3)==2 is True. No repository files were changed by the reviewer. Note: the /cusr/scratch canary file was created and may need manual cleanup by the user.",
+      "wire_schema_file_sha256": "1cf1192fe477543cc7b1f3fdc9be8e6c73c3c0e0b495238ed5424ea7399540a5",
+      "config_sha256": "273f6deaeb7330bdc07f57d66a19392fbd5e1bb6b98de82717bc156a6c52211f",
+      "worktree_readme_unchanged": true,
+      "gitfile_unchanged": true,
+      "scope": "Real paid reviewer write-attempt run. Agent-side outcome comes from runtime events only; model_summary is a self-report and not evidence. outer_control shows what the outer layout alone allows for the same paths."
+    },
+    {
+      "attempt": "s0-codex-reviewer-1793180367",
+      "vendor": "codex",
+      "role": "reviewer",
+      "budget_extension": "budget-approval-2.json",
+      "result_validation": "valid",
+      "result_status": "approve",
+      "process_outcome": "exited",
+      "process_exit": 0,
+      "duration_ms": 13804,
+      "descendant_scope": "unit_cgroup",
+      "argv_disable_flags": [
+        "apps",
+        "plugins",
+        "remote_plugin",
+        "plugin_sharing",
+        "skill_mcp_dependency_install"
+      ],
+      "reviewer_write_created_by_agent": {
+        "scratch": false,
+        "worktree": false
+      },
+      "outer_control": {
+        "scratch": {
+          "exit": 0,
+          "stderr": "",
+          "created": true
+        },
+        "worktree": {
+          "exit": 1,
+          "stderr": "/usr/bin/touch: cannot touch '/tmp/cusr-spike-002-real-dTgXz2/fixture/worktree/reviewer-write-canary': Read-only file system",
+          "created": false
+        }
+      },
+      "write_attempt_items": [],
+      "claude_write_attempts": [],
+      "runtime_rejections": [],
+      "json_stream_has_item_for_rejected_command": false,
+      "json_completed_item_types": [
+        "agent_message",
+        "command_execution"
+      ],
+      "native_observed_pid_namespaces": [
+        "pid:[4026532212]",
+        "pid:[4026532486]",
+        "pid:[4026532565]"
+      ],
+      "native_observed_mount_namespaces": [
+        "mnt:[4026532210]",
+        "mnt:[4026532483]",
+        "mnt:[4026532563]"
+      ],
+      "reported_usage": {
+        "input_tokens": 83160,
+        "cached_input_tokens": 68096,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 500,
+        "reasoning_output_tokens": 0
+      },
+      "model_summary": "Code checks succeeded: add(2,3)==5 and subtract(5,3)==2. Step 2: exit status 1; error: /usr/bin/touch: cannot touch '/cusr/scratch/reviewer-write-canary': Read-only file system. Step 3: exit status 1; error: /usr/bin/touch: cannot touch '/tmp/cusr-spike-002-real-dTgXz2/fixture/worktree/reviewer-write-canary': Read-only file system.",
+      "wire_schema_file_sha256": "7ede5192827f967b81b3018cc150466cb24b47d61b77bdd7e5b48c681dab5f5f",
+      "config_sha256": "c345800804dfc5c6b9f86b9d9c795764dc86cb11335546db7955241eed801c74",
+      "worktree_readme_unchanged": true,
+      "gitfile_unchanged": true,
+      "scope": "Real paid reviewer write-attempt run. Agent-side outcome comes from runtime events only; model_summary is a self-report and not evidence. outer_control shows what the outer layout alone allows for the same paths."
+    }
+  ],
+  "redacted_artifact_count": 0,
+  "quality_gates": {
+    "typecheck": 0,
+    "lint": 0,
+    "test": 0,
+    "build": 0
+  },
+  "default_tests": {
+    "total": 487,
+    "passed": 487,
+    "pending": 0
+  },
+  "source_sha256": {
+    "scripts/spike-002/harness.ts": "055bc19322c5acda7ee52c1197743a20c4cc57e2ab1b34a8dcf32e6d3bc9d930",
+    "scripts/spike-002/role-schema.ts": "c7b239836c12cb5078413193a9ec1c6f5f194084ae47951084d3d47d81752a4e",
+    "scripts/spike-002/sandbox.ts": "2274be4003c18ed4b8a89a609187c36960593a0300d1122e01aea5e400adcc98",
+    "scripts/spike-002/runner.ts": "aefba34329d97007e5ae67a2aa917a2be6cd61718e8dcdef72451aaa31c4a483",
+    "test/unit/spike-002/harness.test.ts": "fdc81917fcc544c16e255f35015defe51b517cdba72ed7fb9f2c63ef16c2da41",
+    "test/integration/spike-002/runner.test.ts": "7cf257e91ae3ea8b6eeb871e5382d8b220098c70a6f5169377a0916d627c3faf",
+    "scripts/spike-002/harness-stream.ts": "660c473a9d752e5cb46b9354a1425f068b546ecec444f29ce87a96798b5a9776"
+  },
+  "files": {
+    "ledger.jsonl": "6d3ca694a71f3f4fed4ed93511d10348e6cbd022712056eae88bd3b19e2d245c",
+    "s0-claude-coder-1793170522/observation.json": "6ac33d04b8edab8b69235a2d5ef3a74743e572e85b18d465f05ec8498c62d99c",
+    "s0-claude-coder-1793170522/summary.json": "21a0b87fe6a00bd5c80ae78dc2a4c0337efb4fb9364a4a5895f7bd81c220fd93",
+    "s0-claude-coder-1793170522/invocation.json": "bbc5aa3d45031d02214f486346aa259a582227f8f07887221c1074d2b5584780",
+    "s0-claude-coder-1793170522/pid.json": "0202464239ed02ae8db6c411ae5590a2dd9191ff760c38036512f1cb961186ad",
+    "s0-claude-coder-1793170522/launch.json": "8292eaf6f9861fefd28d23567730ecc1c1f5694e6c4106d7a780e8383a1f6674",
+    "s0-claude-coder-1793170522/stderr.log": "d8a1e758a0885d376f7a2457d829c53f27040ef929246fb4e28105670fb743de",
+    "s0-claude-coder-1793170522/exit.json": "c6e2015370ca9a2573534e3bdbf6c3fd8db159f3e1a18c91180019f274232790",
+    "s0-claude-coder-1793170522/progress.json": "579d74198aaf7fe9336c86f4709710151db6eefba721aee6f80223d6235b8461",
+    "s0-claude-coder-1793170522/context/claude-settings.json": "efeaf8f307f0affbaaebab706d33a1302d2c7bb17aa52f677b931c6e7ff6ad4a",
+    "s0-claude-coder-1793170522/context/prompt.md": "e28b7580e17a223849a556dcbb6baf4d7d5cc04ce766dc9bf9ab451a8a488c58",
+    "s0-claude-coder-1793170522/schema/cusr.role.coder-fixer.v1.schema.json": "6e58efa863297c3be9ed19fa4f1b3eaf927bc298b5fc77402fb21698c24e35e6",
+    "s0-claude-coder-1793170522/final-source.py": "10447ef2a9b3ceb8280dbee7409e2ca80d1198ac64fd7361617459d2e91ff599",
+    "s0-claude-coder-1793172185/observation.json": "ce7a2d82fc8ed6312197953af691d6a2be970935c08451a3dad227397925440e",
+    "s0-claude-coder-1793172185/summary.json": "1f1d8f7ff7578b576ef21aba127f4c2a6b5b96abc9fc9c6cda152669fe788b99",
+    "s0-claude-coder-1793172185/invocation.json": "812ef608ae1453dbac108c185cbdb12ce5eb73b95aaf13165fcb624005fdeac9",
+    "s0-claude-coder-1793172185/pid.json": "ee71f76b4903dce71f4481b91be567a2409583487e8cd96aa4eb31edee3ccb41",
+    "s0-claude-coder-1793172185/launch.json": "06914422741152b15775c349cbdecc304ee68d45a986b94c7030b9b10235c45d",
+    "s0-claude-coder-1793172185/events.jsonl": "13b2c363e30e30566b18fa90eeaf1fd9ad8533d2a9db2ba52395d42fb16246be",
+    "s0-claude-coder-1793172185/exit.json": "1e141437e3385b9a57b3ec78acad6dd9a74cd4856b0e9913fc1f35c0c599df84",
+    "s0-claude-coder-1793172185/progress.json": "73cdf5b2c7da95ac4461548ffdfa221059edd62a6a69625dd7af1d4dc7900624",
+    "s0-claude-coder-1793172185/context/claude-settings.json": "efeaf8f307f0affbaaebab706d33a1302d2c7bb17aa52f677b931c6e7ff6ad4a",
+    "s0-claude-coder-1793172185/context/prompt.md": "e28b7580e17a223849a556dcbb6baf4d7d5cc04ce766dc9bf9ab451a8a488c58",
+    "s0-claude-coder-1793172185/schema/cusr.role.coder-fixer.v1.schema.json": "d1dfb84f75f6683228c1f71638bb71642467223e50f6f7a00880ea4845d28959",
+    "s0-claude-coder-1793172185/out/result.json": "bc78dbbac4b990cf6c9cef608763a159bc8f8e9dd4530ac5d104b12b08a14224",
+    "s0-claude-coder-1793172185/final-source.py": "3ffd263c9d2274309e58390a1dca332be1480b482d459c3881e6af75d75771e3",
+    "s0-codex-coder-1793172285/observation.json": "f161efdacd84a761273239244a7baecadce223ff8f2386ef1bff1171f6c5b0ec",
+    "s0-codex-coder-1793172285/summary.json": "d93d5da4871321ddc6780debdccb9f6c65416933b220d55f0f77fd6e1bb21d1d",
+    "s0-codex-coder-1793172285/invocation.json": "950506851755ff493b3a3195e623c1b2a5692747a6325c572ea99bb7aaaac0d9",
+    "s0-codex-coder-1793172285/pid.json": "6483eb10722ef651afeee88c4f18fe3ff16f0e1d8535aa6ce1e66fac7a898bd2",
+    "s0-codex-coder-1793172285/launch.json": "2d1d0253e247d75c4b6304f52521e7b12836045e3596a0a2e7915b6c59bc5416",
+    "s0-codex-coder-1793172285/events.jsonl": "f53e1cd29650c54c10401a3270502be5dbed5813a2f07271c4e908de16d6f9ca",
+    "s0-codex-coder-1793172285/stderr.log": "03602ab593c49976322aa3ca6b4e9d1d55bf0b32b1f0b4df5621a1c7d1fee88c",
+    "s0-codex-coder-1793172285/exit.json": "43c0104fcfc0a21559bad6a0b286e8ee58c644c462a36235b31ac642d7cb2229",
+    "s0-codex-coder-1793172285/progress.json": "b7cdad4dff08be5505127f594b64a8e3a1a69f68fc9c36380612a8ec140ba2d9",
+    "s0-codex-coder-1793172285/context/prompt.md": "e28b7580e17a223849a556dcbb6baf4d7d5cc04ce766dc9bf9ab451a8a488c58",
+    "s0-codex-coder-1793172285/schema/cusr.role.coder-fixer.v1.schema.json": "6e58efa863297c3be9ed19fa4f1b3eaf927bc298b5fc77402fb21698c24e35e6",
+    "s0-codex-coder-1793172285/out/result.json": "c9827103579f8a9c5340be5bc58f458c59aeafe6c64f702d21949d310c6d6e85",
+    "s0-codex-coder-1793172285/final-source.py": "10447ef2a9b3ceb8280dbee7409e2ca80d1198ac64fd7361617459d2e91ff599",
+    "s0-codex-coder-1793172447/observation.json": "70d74e04858c77cbbe9e3916d465017366c25dc14bff36b586c452b35aac59fe",
+    "s0-codex-coder-1793172447/summary.json": "8c0818c760f4b94a75a8ba850a5c4d46b0c06eac5f279faaf372fcecfd845487",
+    "s0-codex-coder-1793172447/invocation.json": "08bc0f6c147f56b1f2b2c6e47263ac51bf73b582bd0a3fa0f21de6a91591dd18",
+    "s0-codex-coder-1793172447/pid.json": "ae811a1c2de9ad400e00ddc14aeca143b91972fbb6a5dc439fd0791562cd6c21",
+    "s0-codex-coder-1793172447/launch.json": "e13b6806c4e665cdc6cf588418f562ff48d912e04bf6131fd2cc5d0d9f99b36d",
+    "s0-codex-coder-1793172447/events.jsonl": "bcd87de01effa6077a7975b3ee1abb04b5d343a51490d7c11edadf48eb8eac1b",
+    "s0-codex-coder-1793172447/stderr.log": "367a8a27b569abc8c003c4a00752591dcfcb446229b5727a4f69a453f292cbd0",
+    "s0-codex-coder-1793172447/exit.json": "3a3b8007116ddfc0c8da970712001f7a753c7768afc7b197ed8d02a68b847f27",
+    "s0-codex-coder-1793172447/progress.json": "6383a7b579213787a91d9b861b025d01f45a7d879eba2881296d1bf27d2ea7cc",
+    "s0-codex-coder-1793172447/context/prompt.md": "e28b7580e17a223849a556dcbb6baf4d7d5cc04ce766dc9bf9ab451a8a488c58",
+    "s0-codex-coder-1793172447/schema/cusr.role.coder-fixer.v1.schema.json": "6e58efa863297c3be9ed19fa4f1b3eaf927bc298b5fc77402fb21698c24e35e6",
+    "s0-codex-coder-1793172447/out/result.json": "0d45cc0f25c22a469c0345d3fa7d5bf3d5363b73bb83e10695a3ecb1030e42f2",
+    "s0-codex-coder-1793172447/final-source.py": "3ffd263c9d2274309e58390a1dca332be1480b482d459c3881e6af75d75771e3",
+    "s0-claude-reviewer-1793172547/observation.json": "7162aadc7fb0bdfdb4feec538c30f009f5bc9fa1e8ac14c1bffa263e8ab379ed",
+    "s0-claude-reviewer-1793172547/summary.json": "6af87061a1abf7e65cfb13ee9bc89922e5a831facc0d7e254f385b1949cda646",
+    "s0-claude-reviewer-1793172547/invocation.json": "d7cb8f0edc81446faab291a6c89934f8f4ae660c3cd79c360615e39237e922f5",
+    "s0-claude-reviewer-1793172547/pid.json": "9825eeff70c6812f15909098260877f6eadc092d026bb9c541e4a9b73da80101",
+    "s0-claude-reviewer-1793172547/launch.json": "b86e77fe7f8557b537793f1b5da299db752dd3ab19e7fd26650fdb6a62be7f6b",
+    "s0-claude-reviewer-1793172547/events.jsonl": "4b7132fdd481cce1f9f84eb0f7709e2fea594cf6a78657cc74a5cc1435693cba",
+    "s0-claude-reviewer-1793172547/exit.json": "fcd86183633edd3648abe998d6d2cbaa45ecec7f1257b2361c2744a22548dd94",
+    "s0-claude-reviewer-1793172547/progress.json": "4d9563dae3b4df680301208080c861be19261f6ff50cd6d28ee5911b4f0eaac6",
+    "s0-claude-reviewer-1793172547/context/claude-settings.json": "efeaf8f307f0affbaaebab706d33a1302d2c7bb17aa52f677b931c6e7ff6ad4a",
+    "s0-claude-reviewer-1793172547/context/prompt.md": "05d184e055aee10665eb05c3d910185bee0aaedbaefbe501cc15a7fecc5a8d8f",
+    "s0-claude-reviewer-1793172547/schema/cusr.role.reviewer.v1.schema.json": "1cf1192fe477543cc7b1f3fdc9be8e6c73c3c0e0b495238ed5424ea7399540a5",
+    "s0-claude-reviewer-1793172547/out/result.json": "1e851e4529ceecd32095fa489dbc5000e5d1af19b21ccd614c410bc28e687720",
+    "s0-claude-reviewer-1793172547/final-source.py": "ff36549f39bed63ec6dd7a5273ff57205fcf6ad30de7abf8eee20966c7c91875",
+    "s0-codex-reviewer-1793172662/observation.json": "4bbb3b27882b5e11e848bff4be518f64de9591d6aed6cb32391022fcccbff3d5",
+    "s0-codex-reviewer-1793172662/summary.json": "60dcc3f40a3592bfa698241ed51d5c52d9255435b06b09df8be654f787a64c35",
+    "s0-codex-reviewer-1793172662/invocation.json": "315868e9fe95d2879d99ed077cb223f08cd6d0126c632fc69f3315b43c060153",
+    "s0-codex-reviewer-1793172662/pid.json": "d614b8f5cf800cc40988bb85e172b834ac6bf2684600a353f68305335cfc7c1f",
+    "s0-codex-reviewer-1793172662/launch.json": "9f9c4a28a194f2f061db0ea2b2f94daedb8e5794fc9eac089ea1628266c7c61e",
+    "s0-codex-reviewer-1793172662/events.jsonl": "44466fcc9513d0460a8cf3b4c4fa995421dadbf70658c2f3bfe0a1175c07ea58",
+    "s0-codex-reviewer-1793172662/stderr.log": "0dade09e659e5a95bb0ec954ad86f029f00a612fd47694351bb339315cee7e58",
+    "s0-codex-reviewer-1793172662/exit.json": "44f31bc7fc011a353562000b81303ab8757edea3649fde6e5cadf54a3a2bc87b",
+    "s0-codex-reviewer-1793172662/progress.json": "330c3e4d5e58688241d932afc55f26e74e9ade994aeeeafd8a0d05828a7c478f",
+    "s0-codex-reviewer-1793172662/context/prompt.md": "05d184e055aee10665eb05c3d910185bee0aaedbaefbe501cc15a7fecc5a8d8f",
+    "s0-codex-reviewer-1793172662/schema/cusr.role.reviewer.v1.schema.json": "7ede5192827f967b81b3018cc150466cb24b47d61b77bdd7e5b48c681dab5f5f",
+    "s0-codex-reviewer-1793172662/out/result.json": "93fb4da7a0ba587a130cdb780131a3f1c8cfce7e91fd73da59884b390d57c04f",
+    "s0-codex-reviewer-1793172662/final-source.py": "ff36549f39bed63ec6dd7a5273ff57205fcf6ad30de7abf8eee20966c7c91875",
+    "s0-claude-fixer-1793173414/observation.json": "e493dca1e4509cb877fc8e42109166ddb2bff5eecb4351daa5cbc484d9b34f83",
+    "s0-claude-fixer-1793173414/summary.json": "5cfa742b79c5e38b54981a85b4b5d20a8849708c1f65bc4ba572533e42fccb91",
+    "s0-claude-fixer-1793173414/invocation.json": "cd326b5c7598d9b3590358176784d70d0a81ba673b3a370dfb35a996581f097c",
+    "s0-claude-fixer-1793173414/pid.json": "6eb3befc39a96340c383921515da136f8f14374c32630bdaeb41d068c9775739",
+    "s0-claude-fixer-1793173414/launch.json": "de865c6d527bba5146e57a41ca767c5acf3c2dee27ad6a0aae08c4559a71971a",
+    "s0-claude-fixer-1793173414/events.jsonl": "305a137858dda4c2c20945a5a3df9ea83504003561b7e24113b4badd13e0ee74",
+    "s0-claude-fixer-1793173414/exit.json": "077f4148115091fd5d62f5e578436757790b333efe3870b52180c4ed493cdd70",
+    "s0-claude-fixer-1793173414/progress.json": "bbc11a98572c73a17cee0852b4aba15b14587ad497eaf514c8cbedf0574892cd",
+    "s0-claude-fixer-1793173414/context/claude-settings.json": "efeaf8f307f0affbaaebab706d33a1302d2c7bb17aa52f677b931c6e7ff6ad4a",
+    "s0-claude-fixer-1793173414/context/prompt.md": "5aaacaeb633b627b52d3961dee9f67146291d78322e39e1ce9ac7ebdd926825c",
+    "s0-claude-fixer-1793173414/schema/cusr.role.coder-fixer.v1.schema.json": "d1dfb84f75f6683228c1f71638bb71642467223e50f6f7a00880ea4845d28959",
+    "s0-claude-fixer-1793173414/out/result.json": "cd2d1c1a30a2016979a414f45077ac3251baad61c8ffbd20d6a5c8dee7a94d6a",
+    "s0-claude-fixer-1793173414/final-source.py": "ff36549f39bed63ec6dd7a5273ff57205fcf6ad30de7abf8eee20966c7c91875",
+    "s0-codex-fixer-1793173505/observation.json": "734fad8cc05d81f3bc99495e27730bb225cbd713d4ca0db18bd6eec799a65721",
+    "s0-codex-fixer-1793173505/summary.json": "3930f57efa12730f5f92a236824df27b02632e6485bd6155e9071f3b95d36901",
+    "s0-codex-fixer-1793173505/invocation.json": "d25eb1fffdef95a1a2212ec185598c7a3b77e824c652db97410145a0860a7776",
+    "s0-codex-fixer-1793173505/pid.json": "87c68be6605c825447fdc65c63206ab46c45836daa4a85f77c63c5d3dbfc13b9",
+    "s0-codex-fixer-1793173505/launch.json": "a06f34fc144a06976505ab41ef40fde3b211a78b10c1f093bb88b2ba6ffe4afd",
+    "s0-codex-fixer-1793173505/events.jsonl": "da542603304ca6bc4e71e90062f981a65d8c6ec32b29d0add1e4a291c9403368",
+    "s0-codex-fixer-1793173505/stderr.log": "1174e2dbf71e66fad4216921c8491f50bcb59fe87f85dbaa962a80f0b640171c",
+    "s0-codex-fixer-1793173505/exit.json": "cbda11dbb296259ef38ba14ca2575210ec769b3d92478d691caf5ad069167be3",
+    "s0-codex-fixer-1793173505/progress.json": "8fd1079db3132ea7edad78f4e93913863989e958470c633c0bad16976e88708c",
+    "s0-codex-fixer-1793173505/context/prompt.md": "5aaacaeb633b627b52d3961dee9f67146291d78322e39e1ce9ac7ebdd926825c",
+    "s0-codex-fixer-1793173505/schema/cusr.role.coder-fixer.v1.schema.json": "6e58efa863297c3be9ed19fa4f1b3eaf927bc298b5fc77402fb21698c24e35e6",
+    "s0-codex-fixer-1793173505/out/result.json": "3a11ba8898811d7ee4171ea71b2d7dbb0281c7694af80516292391ff2a4b085e",
+    "s0-codex-fixer-1793173505/final-source.py": "ff36549f39bed63ec6dd7a5273ff57205fcf6ad30de7abf8eee20966c7c91875",
+    "preflight.json": "32752e7bf38fd1b99632aaa7fcb71ce02b34bdd597c10183365cbeee050e98dd",
+    "codex-helper.json": "a5f636b8037de7b682b445f3eb309e509d4af500721728dbfc45b17407181674",
+    "unit-transport.json": "31473ed3ce4f947f46b12a68bb26f9ad02a5dbfd72ec689d43388e69a01d8655",
+    "budget-approval.json": "d2ee3004d965d6525529ea547f16cfaf3d66734796859b7de46311b71cea40f3",
+    "network.json": "be1b894e211b89ae114f123f6c54ff539f041ce8b5352ceeb302be62ed823cb1",
+    "launch.py.txt": "1054ce6fee6295af80df3505fc176614e128e1c4ed667020b5490ebe04996f7d",
+    "prepare.mjs.txt": "ee051492e639a42e737c0b3ba43e876e51f44b08b06966cb9e62e773c1411854",
+    "network.mjs.txt": "311fe7c9e574f673add46fdcc1afbba383ba814798f566d114028ab3f41e799d",
+    "harness-before-budget-extension.ts.txt": "fb67765e1485ccebd4d772d04c25001dc7df103b539fc49284651cf2ec60601e",
+    "harness-current.ts.txt": "055bc19322c5acda7ee52c1197743a20c4cc57e2ab1b34a8dcf32e6d3bc9d930",
+    "harness-initial.ts.txt": "cb0e2729ffb4abb595acda5dace493ebedc4e95d9571ba127ee51c82b211fec5",
+    "network-pip-rerun.json": "333e48f6d3cad7984cfe22f3d78417a016d3b3be6d6b0e49e9bd61c6c1b34cdd",
+    "pip-probe.mjs.txt": "bda059ec0aa7159dcc4beb575139047d3cc7eab7d4c13699438b26afa116fb5f",
+    "codex-permission-runtime.json": "af4991a017aaf2809d6cfa44274720f17115b84ec15c1a2858f3af71b48ca81c",
+    "s0-codex-coder-1793178479/observation.json": "0198e2f0485af2a9a2f235f04a09558baf1da4cd061896f8f24afa7a32001c34",
+    "s0-codex-coder-1793178479/summary.json": "517f351a1427ee6470fec482a19091848f65bf0bd68b4adff1c1b785306a17f1",
+    "s0-codex-coder-1793178479/invocation.json": "e16bf70fcf9d3ec83fee8047be819a7942fea5284336c6410f09e7fa534ba1bc",
+    "s0-codex-coder-1793178479/pid.json": "f2ae45589cfcc93924b437b116a22ecb73f723354775b4b64cdffddf01a62555",
+    "s0-codex-coder-1793178479/launch.json": "efa3463243d955bdfb895bb56a870fd6770a5efeaf5bba480538ed7b3e61bdc5",
+    "s0-codex-coder-1793178479/events.jsonl": "8c1222ff95d204bb3ab1139792bf9967048488281266fe57a21899de79b32038",
+    "s0-codex-coder-1793178479/stderr.log": "a6cd5998f23c5d0e72cc058bd93d636885f39c9d956196ea4dd692ebcf5f3eb5",
+    "s0-codex-coder-1793178479/exit.json": "5d0c130fa910bec0ee98998b9eab626a70ebaaac3ce01f872e5eec2406a3bdfd",
+    "s0-codex-coder-1793178479/progress.json": "021070eeec3abe3e4090b78efc20be14abc25fcfaa0917c4f463a55ee70d3b3c",
+    "s0-codex-coder-1793178479/context/prompt.md": "e28b7580e17a223849a556dcbb6baf4d7d5cc04ce766dc9bf9ab451a8a488c58",
+    "s0-codex-coder-1793178479/schema/cusr.role.coder-fixer.v1.schema.json": "6e58efa863297c3be9ed19fa4f1b3eaf927bc298b5fc77402fb21698c24e35e6",
+    "s0-codex-coder-1793178479/out/result.json": "8f85351a0641e97db006114dee368404b46cbae7d9f742376b931dd8a9eb7832",
+    "s0-codex-coder-1793178479/final-source.py": "3ffd263c9d2274309e58390a1dca332be1480b482d459c3881e6af75d75771e3",
+    "s0-codex-reviewer-1793178514/observation.json": "9d61d5c22d3cff67ec50a9e1d2472ba4c13269c800831f0d1f3e74d4f6786356",
+    "s0-codex-reviewer-1793178514/summary.json": "6d816e8a773bd7060c896de76eee6e2ebbadff41a7bb12f47ade93df1738d03b",
+    "s0-codex-reviewer-1793178514/invocation.json": "bb72a4851758cdd1d00fdfd5709ec96c2a229ce38b14f61aeb75ba741787b893",
+    "s0-codex-reviewer-1793178514/pid.json": "a337cb4bedb2d6101b9fd7c68d9285af47a654f2ecba8b7740287845dfde5fdf",
+    "s0-codex-reviewer-1793178514/launch.json": "814ebe48dfd12e65b8b60175b529ff8c10ac4d42cba5b68a36bcd3786bf31724",
+    "s0-codex-reviewer-1793178514/events.jsonl": "ffb724794c309bee6212e49d8506d2b1135120c09d399864abde408268cba16c",
+    "s0-codex-reviewer-1793178514/stderr.log": "3f32c7c941b4ed725a9e9fe39bf54d5b7c8df5ef2cd1f814acbd4662b5f93f28",
+    "s0-codex-reviewer-1793178514/exit.json": "a61de41a7699c44947f4ee83ff03908d426da6166719cf69a2b785b5762f6194",
+    "s0-codex-reviewer-1793178514/progress.json": "dbff020473a302ee7e3c5599aa08887ea0e306507d02f675ea450a0f966a3feb",
+    "s0-codex-reviewer-1793178514/context/prompt.md": "05d184e055aee10665eb05c3d910185bee0aaedbaefbe501cc15a7fecc5a8d8f",
+    "s0-codex-reviewer-1793178514/schema/cusr.role.reviewer.v1.schema.json": "7ede5192827f967b81b3018cc150466cb24b47d61b77bdd7e5b48c681dab5f5f",
+    "s0-codex-reviewer-1793178514/out/result.json": "df723035443df1b1f1f9f6bac09d446e59ee8148f7d8964b0b53b64701b0afe1",
+    "s0-codex-reviewer-1793178514/final-source.py": "ff36549f39bed63ec6dd7a5273ff57205fcf6ad30de7abf8eee20966c7c91875",
+    "budget-approval-2.json": "1fc3b957e9fc95402f3467baaf4096b8fecae08eb91d71714d5679d1d491392f",
+    "launch2.py.txt": "066fadd6566aea0f79792fef073dd4db37b0d63d1f480cc2f3a1eea7b141ecef",
+    "archive2.mjs.txt": "ad6f455fc52596022bac0165c2553d624da50a57d83b67c8b3202a2ba5ed48bf",
+    "stream-summary.json": "ef050c33466907bcaec3359ab7c256903970fa4537b9f0d1eb7a2222c27c92ba",
+    "stream-summary.mjs.txt": "7431e1e307619f35c207b793bdd6877e46afd7be3dbd59b6fde9615d5e9ac53c",
+    "isolation-record.json": "291fccc8bf22d4f55d2dc8f3db540566b28073bba955a4973a6715efa96e7fdd",
+    "isolation-record.mjs.txt": "6ba3430ac9509f1f7302a805ee0896031ee7a26d1034b3fab23181e9caaa86d1",
+    "s0-claude-reviewer-1793180331/observation.json": "994c331ed44890259b4f116263a1ed1dd50c9338c608767381df032e9cf52337",
+    "s0-claude-reviewer-1793180331/summary.json": "73843572b2c8c1cf3225934a34beaeb94370714d027538c077682100ae24577c",
+    "s0-claude-reviewer-1793180331/invocation.json": "265764c1ecfeacc20a7e1160f5e60ea4afb57f11484bda9812402d53dde20e1c",
+    "s0-claude-reviewer-1793180331/pid.json": "f191b457906767b5147ee08da2b143a8ec2e7be055a3e0ade8f2f0ebeb95b309",
+    "s0-claude-reviewer-1793180331/launch.json": "82017f5e4af424c05e5e6bae035db349279f4dfd2e88237fc49b920cf4da907a",
+    "s0-claude-reviewer-1793180331/events.jsonl": "6424e182b2ce36c0705e86562ad133bfc7616f55cc041b58bf7ca1039f6b2a15",
+    "s0-claude-reviewer-1793180331/exit.json": "6fbad9a849563caa75e8075e9191bb284407694215d9849c86d7f2c51ae58a81",
+    "s0-claude-reviewer-1793180331/progress.json": "3bd51ec7ebb1263d011d79fcb07db8b98d608058b0f385e913e62860953d1217",
+    "s0-claude-reviewer-1793180331/context/claude-settings.json": "efeaf8f307f0affbaaebab706d33a1302d2c7bb17aa52f677b931c6e7ff6ad4a",
+    "s0-claude-reviewer-1793180331/context/prompt.md": "2d2a27a185f44c7ca30203c66388d5fc248a4fe50c118727ccb66312e80dda7d",
+    "s0-claude-reviewer-1793180331/schema/cusr.role.reviewer.v1.schema.json": "1cf1192fe477543cc7b1f3fdc9be8e6c73c3c0e0b495238ed5424ea7399540a5",
+    "s0-claude-reviewer-1793180331/out/result.json": "36fcfa5960c0e3cf899070032e9a853fa7499150e61a911041e9e053c8ada6c0",
+    "s0-claude-reviewer-1793180331/final-source.py": "ff36549f39bed63ec6dd7a5273ff57205fcf6ad30de7abf8eee20966c7c91875",
+    "s0-codex-reviewer-1793180367/observation.json": "ce5a094bdbf5e181a77ffb4923935b870851f3c59e33f6c24dae4189fec361d7",
+    "s0-codex-reviewer-1793180367/summary.json": "4905e303cb4188f159b78d29e6bbd43d06ab25308b46e0bbfccd0b1e84458f44",
+    "s0-codex-reviewer-1793180367/invocation.json": "0f8d85fa481a6c2b740486e022457ab78d96fb4bc9e41c606a71f58366b6efec",
+    "s0-codex-reviewer-1793180367/pid.json": "2d6076a4d5e13da23fa5c7ff6dc03da049a2a239bd86e8cb500f598936cd7855",
+    "s0-codex-reviewer-1793180367/launch.json": "5b7fef6d675bc2470e7b2c3d97b22409bb393fb84fb5d8c7866c8318f6961357",
+    "s0-codex-reviewer-1793180367/events.jsonl": "39d9358a55e13b50d519905bfa6023d431fe8955c8ac906695e51a4911c145a6",
+    "s0-codex-reviewer-1793180367/exit.json": "05c48d1ac5e4753ecb3fd498ab452904c16a70f7748a29f78d0ede685ae60674",
+    "s0-codex-reviewer-1793180367/progress.json": "bb0841f3e65075f99d9146463b5211a1cbc0a5b3b7a5ee5ae3eb17fca595bff0",
+    "s0-codex-reviewer-1793180367/context/prompt.md": "2d2a27a185f44c7ca30203c66388d5fc248a4fe50c118727ccb66312e80dda7d",
+    "s0-codex-reviewer-1793180367/schema/cusr.role.reviewer.v1.schema.json": "7ede5192827f967b81b3018cc150466cb24b47d61b77bdd7e5b48c681dab5f5f",
+    "s0-codex-reviewer-1793180367/out/result.json": "5be1320d90c48985cca20f9c44e0af3539654555a48e2f61649df90cea47b8f9",
+    "s0-codex-reviewer-1793180367/final-source.py": "ff36549f39bed63ec6dd7a5273ff57205fcf6ad30de7abf8eee20966c7c91875",
+    "budget-approval-3.json": "c56765dcb5218533cab7b1029afcf9649754531b0004cec89854a090ed7c0bb7",
+    "launch3.py.txt": "7c738bb134864e63ac0d12e5e524950e81c19f5cb1131b5b2be69999b9603c37",
+    "archive3.mjs.txt": "1e8a2cce2f5ed7b9ff94ec36a3bd5190156d393bb831f064626e2373dc82901c",
+    "capability-manifest.json": "64d6416b0eb36cb2e227eb5305c45ca5374d935aeb23486463eb278033df2ac9",
+    "capability-manifest.mjs.txt": "019a2e95c973fc79ae66ce5977e61bd21c3aea68249e57835ae3b3d657a485bd",
+    "pinned-claude.json": "9df2f0035d7f8fbf6c359a6cb83a6ca84ae34d9eeb7c795c1a5ac741b025f5b3",
+    "pinned-codex.json": "cc6672a42c2df6c555c675525b9a2673902db6635ec99b5b1081227b4b68f4e5"
+  },
+  "source_versions": {
+    "harness-initial.ts.txt": "cb0e2729ffb4abb595acda5dace493ebedc4e95d9571ba127ee51c82b211fec5",
+    "harness-before-budget-extension.ts.txt": "fb67765e1485ccebd4d772d04c25001dc7df103b539fc49284651cf2ec60601e",
+    "harness-current.ts.txt": "055bc19322c5acda7ee52c1197743a20c4cc57e2ab1b34a8dcf32e6d3bc9d930"
+  },
+  "network_status": {
+    "pnpm": true,
+    "pip": true,
+    "evidence": [
+      "network.json",
+      "network-pip-rerun.json"
+    ]
+  },
+  "temporary_auth_cleanup": {
+    "removed_private_homes": [
+      "s0-claude-coder-1793170522",
+      "s0-claude-coder-1793172185",
+      "s0-codex-coder-1793172285",
+      "s0-codex-coder-1793172447",
+      "s0-claude-reviewer-1793172547",
+      "s0-codex-reviewer-1793172662",
+      "s0-claude-fixer-1793173414",
+      "s0-codex-fixer-1793173505"
+    ],
+    "original_auth_files_touched": false,
+    "private_home_or_cache_exported": false
+  },
+  "followups": [
+    {
+      "at": "2026-10-28T08:50:28Z",
+      "model_calls": 0,
+      "github_calls": 0,
+      "files": [
+        "network-pip-rerun.json",
+        "pip-probe.mjs.txt",
+        "codex-permission-runtime.json"
+      ],
+      "summary": "pip re-run 2/2 exit 0 in gate sandbox; Codex runtime rejection logs for coder/fixer/reviewer; effective feature flags: apps/plugins enabled for coder/reviewer, disabled for fixer only"
+    },
+    {
+      "at": "2026-10-28T09:09:32.075Z",
+      "model_calls": 2,
+      "github_calls": 0,
+      "files": [
+        "archive2.mjs.txt",
+        "budget-approval-2.json",
+        "launch2.py.txt",
+        "ledger.jsonl",
+        "s0-codex-coder-1793178479/context/prompt.md",
+        "s0-codex-coder-1793178479/events.jsonl",
+        "s0-codex-coder-1793178479/exit.json",
+        "s0-codex-coder-1793178479/final-source.py",
+        "s0-codex-coder-1793178479/invocation.json",
+        "s0-codex-coder-1793178479/launch.json",
+        "s0-codex-coder-1793178479/observation.json",
+        "s0-codex-coder-1793178479/out/result.json",
+        "s0-codex-coder-1793178479/pid.json",
+        "s0-codex-coder-1793178479/progress.json",
+        "s0-codex-coder-1793178479/schema/cusr.role.coder-fixer.v1.schema.json",
+        "s0-codex-coder-1793178479/stderr.log",
+        "s0-codex-coder-1793178479/summary.json",
+        "s0-codex-reviewer-1793178514/context/prompt.md",
+        "s0-codex-reviewer-1793178514/events.jsonl",
+        "s0-codex-reviewer-1793178514/exit.json",
+        "s0-codex-reviewer-1793178514/final-source.py",
+        "s0-codex-reviewer-1793178514/invocation.json",
+        "s0-codex-reviewer-1793178514/launch.json",
+        "s0-codex-reviewer-1793178514/observation.json",
+        "s0-codex-reviewer-1793178514/out/result.json",
+        "s0-codex-reviewer-1793178514/pid.json",
+        "s0-codex-reviewer-1793178514/progress.json",
+        "s0-codex-reviewer-1793178514/schema/cusr.role.reviewer.v1.schema.json",
+        "s0-codex-reviewer-1793178514/stderr.log",
+        "s0-codex-reviewer-1793178514/summary.json"
+      ],
+      "summary": "Codex coder/reviewer re-run under the candidate profile"
+    },
+    {
+      "at": "2026-10-28",
+      "model_calls": 0,
+      "github_calls": 0,
+      "files": [
+        "stream-summary.json",
+        "stream-summary.mjs.txt",
+        "isolation-record.json",
+        "isolation-record.mjs.txt"
+      ],
+      "summary": "Offline: vendor usage/denial/failure re-derived from archived streams (result.json usage kept as historical); native result and per-role permission policy hash per attempt vs spike-inputs baseline"
+    },
+    {
+      "at": "2026-10-28T09:40:55.228Z",
+      "model_calls": 2,
+      "github_calls": 0,
+      "files": [
+        "archive3.mjs.txt",
+        "budget-approval-3.json",
+        "launch3.py.txt",
+        "ledger.jsonl",
+        "s0-claude-reviewer-1793180331/context/claude-settings.json",
+        "s0-claude-reviewer-1793180331/context/prompt.md",
+        "s0-claude-reviewer-1793180331/events.jsonl",
+        "s0-claude-reviewer-1793180331/exit.json",
+        "s0-claude-reviewer-1793180331/final-source.py",
+        "s0-claude-reviewer-1793180331/invocation.json",
+        "s0-claude-reviewer-1793180331/launch.json",
+        "s0-claude-reviewer-1793180331/observation.json",
+        "s0-claude-reviewer-1793180331/out/result.json",
+        "s0-claude-reviewer-1793180331/pid.json",
+        "s0-claude-reviewer-1793180331/progress.json",
+        "s0-claude-reviewer-1793180331/schema/cusr.role.reviewer.v1.schema.json",
+        "s0-claude-reviewer-1793180331/summary.json",
+        "s0-codex-reviewer-1793180367/context/prompt.md",
+        "s0-codex-reviewer-1793180367/events.jsonl",
+        "s0-codex-reviewer-1793180367/exit.json",
+        "s0-codex-reviewer-1793180367/final-source.py",
+        "s0-codex-reviewer-1793180367/invocation.json",
+        "s0-codex-reviewer-1793180367/launch.json",
+        "s0-codex-reviewer-1793180367/observation.json",
+        "s0-codex-reviewer-1793180367/out/result.json",
+        "s0-codex-reviewer-1793180367/pid.json",
+        "s0-codex-reviewer-1793180367/progress.json",
+        "s0-codex-reviewer-1793180367/schema/cusr.role.reviewer.v1.schema.json",
+        "s0-codex-reviewer-1793180367/summary.json"
+      ],
+      "summary": "Reviewer write-attempt runs (Claude, Codex)"
+    },
+    {
+      "at": "2026-10-28",
+      "model_calls": 0,
+      "github_calls": 0,
+      "files": [
+        "capability-manifest.json",
+        "capability-manifest.mjs.txt",
+        "pinned-claude.json",
+        "pinned-codex.json"
+      ],
+      "summary": "T007 capability manifest per vendor and pinned configs validated by HarnessConfigSchema/checkConfig; cost_limit and session_resume unknown"
+    }
+  ],
+  "source_sha256_current": {
+    "scripts/spike-002/harness.ts": "bbbd2ca1f045667d181b00d5f4225337656c59899e80e845e7c0f43e577ed725",
+    "scripts/spike-002/harness-stream.ts": "660c473a9d752e5cb46b9354a1425f068b546ecec444f29ce87a96798b5a9776"
+  },
+  "source_sha256_note": "source_sha256 pins the harness used for attempts 1-10; attempts s0-claude-reviewer-1793180331 and s0-codex-reviewer-1793180367 ran with source_sha256_current."
+}

@@ -1,0 +1,185 @@
+{
+  "kind": "spike-0-github-merge-proof-port-evidence",
+  "captured_at": "2026-10-28T08:50:20Z",
+  "repository": "duykhanh01/cuesura-spike-002-sandbox",
+  "repository_id": 1436664345,
+  "api_version": "2026-03-10",
+  "gh_version": "gh version 2.103.3 (2026-10-26)",
+  "scope": "Read-only gh port observe of the three already-merged S0.3 PRs. GET only; no merge, push, delete, rules/protection change, model call or product repository. Fixtures and deleted branches were not recreated.",
+  "merge_commit_source": {
+    "source": "issues.events.merged.commit_id",
+    "endpoint": "GET /repos/{owner}/{repo}/issues/{issue_number}/events (paged, per_page=100)",
+    "docs": [
+      "https://docs.github.com/en/rest/about-the-rest-api/breaking-changes#version-2026-03-10",
+      "https://docs.github.com/en/rest/using-the-rest-api/issue-event-types?apiVersion=2026-03-10#merged",
+      "https://docs.github.com/en/rest/issues/events?apiVersion=2026-03-10#list-issue-events"
+    ],
+    "docs_note": "Breaking changes 2026-03-10 removes merge_commit_sha from pull payloads and names no replacement. Issue event docs describe merged commit_id as \"the SHA1 of the HEAD commit that was merged\"; observed values equal the default-API merge_commit_sha on the target, not pulls.head.sha, for all three modes. The port treats commit_id equal to head/base as conflict.",
+    "acceptance": "exactly one merged event on a complete listing; 40-hex commit_id; not PR head/base SHA; commit_url in this repo; created_at == merged_at; agrees with merge_commit_sha when present; plus merge endpoint 204, target match and unchanged pull re-read for completeness=complete"
+  },
+  "commands": [
+    {
+      "command": "node scripts/spike-002/gh.ts observe --repo duykhanh01/cuesura-spike-002-sandbox --pr 1 --snapshot \"\" --expect-repo-id 1436664345 --expect-pr-id 5047144058 --expect-target master --live --evidence-out test/fixtures/runtime/spike-0/github/real-20261028-merge-event/port-pr-1.json",
+      "exit": 0,
+      "requests": 5,
+      "methods": [
+        "GET"
+      ],
+      "evidence": "port-pr-1.json",
+      "stdout": "port-pr-1.stdout.json"
+    },
+    {
+      "command": "node scripts/spike-002/gh.ts observe --repo duykhanh01/cuesura-spike-002-sandbox --pr 2 --snapshot \"\" --expect-repo-id 1436664345 --expect-pr-id 5047144870 --expect-target master --live --evidence-out test/fixtures/runtime/spike-0/github/real-20261028-merge-event/port-pr-2.json",
+      "exit": 0,
+      "requests": 5,
+      "methods": [
+        "GET"
+      ],
+      "evidence": "port-pr-2.json",
+      "stdout": "port-pr-2.stdout.json"
+    },
+    {
+      "command": "node scripts/spike-002/gh.ts observe --repo duykhanh01/cuesura-spike-002-sandbox --pr 3 --snapshot \"\" --expect-repo-id 1436664345 --expect-pr-id 5047145758 --expect-target master --live --evidence-out test/fixtures/runtime/spike-0/github/real-20261028-merge-event/port-pr-3.json",
+      "exit": 0,
+      "requests": 5,
+      "methods": [
+        "GET"
+      ],
+      "evidence": "port-pr-3.json",
+      "stdout": "port-pr-3.stdout.json"
+    }
+  ],
+  "results": [
+    {
+      "pr": 1,
+      "requested_merge_mode": "merge",
+      "identity": {
+        "repo_id": 1436664345,
+        "pr_id": 5047144058,
+        "target": "master",
+        "verdict": "match"
+      },
+      "state": "merged",
+      "merge_endpoint": "merged_204",
+      "merge_commit_sha": "d329cc7e37c7100822924ea21166da9c86b19257",
+      "merge_commit_status": "found",
+      "merge_event_id": 34453680819,
+      "events_digest": "sha256:e88727d9450d084c7436b13dc3e88d834288e11095678be9a6e517e1319d5b19",
+      "head_at_merge_candidate": "852ea24c0d34c651100002dbc175f8f784193043",
+      "completeness": "complete",
+      "gaps": [],
+      "api_version_selected": [
+        "2026-03-10"
+      ],
+      "matches_default_api_merge_commit_sha": true,
+      "matches_previous_probe_event": true,
+      "head_matches_expected_before_merge": true,
+      "merge_commit_differs_from_head": true
+    },
+    {
+      "pr": 2,
+      "requested_merge_mode": "squash",
+      "identity": {
+        "repo_id": 1436664345,
+        "pr_id": 5047144870,
+        "target": "master",
+        "verdict": "match"
+      },
+      "state": "merged",
+      "merge_endpoint": "merged_204",
+      "merge_commit_sha": "d78bcd879c05ba3b9d1f79be1af5a9b46514aaa1",
+      "merge_commit_status": "found",
+      "merge_event_id": 34453705411,
+      "events_digest": "sha256:85c63b86111ff05ebcb649c83487c854e05290480b54efde8fca2650e4e63477",
+      "head_at_merge_candidate": "e43c576d742ac4aae928f157d9a3042a8aad4558",
+      "completeness": "complete",
+      "gaps": [],
+      "api_version_selected": [
+        "2026-03-10"
+      ],
+      "matches_default_api_merge_commit_sha": true,
+      "matches_previous_probe_event": true,
+      "head_matches_expected_before_merge": true,
+      "merge_commit_differs_from_head": true
+    },
+    {
+      "pr": 3,
+      "requested_merge_mode": "rebase",
+      "identity": {
+        "repo_id": 1436664345,
+        "pr_id": 5047145758,
+        "target": "master",
+        "verdict": "match"
+      },
+      "state": "merged",
+      "merge_endpoint": "merged_204",
+      "merge_commit_sha": "9ad1de32594287e475b91ba61f4063dc20de9aa8",
+      "merge_commit_status": "found",
+      "merge_event_id": 34453728385,
+      "events_digest": "sha256:02dae36f6b9563c85331c7a87a66846d3e0bd0a2cb23ced667283afe3d88a729",
+      "head_at_merge_candidate": "042b57287c27ae7ddc448ede14ba1006b875b799",
+      "completeness": "complete",
+      "gaps": [],
+      "api_version_selected": [
+        "2026-03-10"
+      ],
+      "matches_default_api_merge_commit_sha": true,
+      "matches_previous_probe_event": true,
+      "head_matches_expected_before_merge": true,
+      "merge_commit_differs_from_head": true
+    }
+  ],
+  "summary": {
+    "merged_prs": [
+      1,
+      2,
+      3
+    ],
+    "proof_complete": [
+      1,
+      2,
+      3
+    ],
+    "requests_total": 15,
+    "merge_requests_sent": 0,
+    "not_established": "Merge method (merge/squash/rebase) is not identified by this source and is not inferred from the commit graph. Classic/rules/app-pinned/unknown required-check coverage remains local-fixture only.",
+    "T008": "OPEN",
+    "T009": "BLOCKED"
+  },
+  "previous_evidence": {
+    "manifest": "test/fixtures/runtime/spike-0/github/real-20261028/manifest.json",
+    "manifest_sha256": "6c60996a86e84828a3835b004572cf9e7fb0ef8036037137c6b4d7540837fa30",
+    "unchanged": true,
+    "regression_inputs": {
+      "port-pr-1-final.json": "ac8c914bf5e710f79b64d2e8cbf0e3a950e60bf6d0dba1936d1ca1d0c1b586c1",
+      "port-pr-2-final.json": "f47f47006a045d33cf81ee49ca6def2779cc202136e624feea5edd748fec074a",
+      "port-pr-3-final.json": "475c2ea24a9befd3e4c43aeea1547055cff9abd47fa06877ff8cb9f011f947fc",
+      "response-03.json": "d8a40c17e324954705a75bac789dd0c7b6bd5fc401a2b3b37d87e51cc9e9abce",
+      "response-15.json": "e9bf3cc8624994d64c9ce7153b716f25105d0968d29d572b96287fc0bd3e2823",
+      "response-27.json": "4f04b7a33a832a1da3595d12e58b4c16166df5147e0d0618bdebcc70aa123d91",
+      "initial-pulls-default-api.json": "0f9526f052e0b792ef07208453f2c77e25ad08568ae31a8ad5baa95851f13214"
+    }
+  },
+  "source_digests": {
+    "scripts/spike-002/gh.ts": "c966828d994317acae7f37fef77121ceed9ee837bacd801e2a180ae27b624954",
+    "scripts/spike-002/runner.ts": "aefba34329d97007e5ae67a2aa917a2be6cd61718e8dcdef72451aaa31c4a483",
+    "src/shared/canonical-json.ts": "59a830f7366d3058593bb237ba30f2b6ccde7ef4fcdf5598a9b7e5e26409d6cc",
+    "test/unit/spike-002/gh.test.ts": "1526fab436979bf945a723087d1c9ba3590f7b93e62a221a9302c800c5d3e412"
+  },
+  "files": {
+    "port-pr-1.json": "e516d48d9c17cb08cc92031954233854d3d6fd77a227157ae33ee16bd4ac0a55",
+    "port-pr-1.stdout.json": "b94201eb9a6c0290c8181165c6aec33e21a0a48a76461ef109af4656e43c39b4",
+    "port-pr-2.json": "73cd86e8392f15bbb3b992685c47cd47e328a11bf7d8d169c6bf439c6996f1b4",
+    "port-pr-2.stdout.json": "e99fdbd85d3b6b6ce4d53db14ea7cac61c7fbc2b98d824bfca1bd06d63199aa4",
+    "port-pr-3.json": "d0e806020e04e38fe9ea5f08eae88a39b0ba83647d4c6a81ab07e67d1a9129fb",
+    "port-pr-3.stdout.json": "dc21c69273eb158d2c48183b6704690cafa0511a8209ff8b6324d22370704f7e"
+  },
+  "validation": {
+    "pnpm typecheck": 0,
+    "pnpm lint": 0,
+    "pnpm test": "0 (49 files, 513 tests, 0 skipped)",
+    "pnpm build": 0,
+    "gh.test.ts": "70 tests, includes real-response regression",
+    "note": "run after evidence capture with the same gh.ts/gh.test.ts digests as source_digests"
+  }
+}

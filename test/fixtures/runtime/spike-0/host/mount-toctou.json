@@ -1,0 +1,179 @@
+{
+  "schema_version": 1,
+  "kind": "spike-0-mount-source-toctou",
+  "checked_at": "2026-10-28T09:44:31.358Z",
+  "scope": "Host-side mount-source TOCTOU between buildSandbox() realpath checks and bwrap exec. Local fixture only; no model, network, sudo or policy change.",
+  "node": "v24.22.1",
+  "kernel": "6.18.54.1-microsoft-standard-WSL2",
+  "bwrap": "bubblewrap 0.6.1",
+  "hashes": {
+    "probe": "91271cfe19e45fef46068abe8b5f252acbaeea26693125e188d9dcdb72f62711",
+    "sandbox": "2274be4003c18ed4b8a89a609187c36960593a0300d1122e01aea5e400adcc98",
+    "bwrap": "bf6cf3d4456665f5d80c14eb79a76e0ce87b39a0883e614a161658b4ec33492c"
+  },
+  "plan_time_symlink_refused": "scratch: /tmp/cusr-spike-sandbox-wKCTik/scratch-link resolves through a symlink to /tmp/cusr-spike-sandbox-wKCTik/outside",
+  "sandbox_cannot_reach_source_parents": [
+    {
+      "role": "coder",
+      "layout_digest": "sha256:474eb3b6a937c47b551dca66bcae61dbcb75594a4c63bc95afc04355069e7b5b",
+      "exit": 0,
+      "source_swaps": {
+        "/tmp/cusr-spike-sandbox-wKCTik/worktree": "denied:16",
+        "/tmp/cusr-spike-sandbox-wKCTik/worktree/.git": "denied:16",
+        "/tmp/cusr-spike-sandbox-wKCTik/repo/.git": "denied:16",
+        "/tmp/cusr-spike-sandbox-wKCTik/scratch": "not_visible",
+        "/tmp/cusr-spike-sandbox-wKCTik/home": "not_visible",
+        "/tmp/cusr-spike-sandbox-wKCTik/context": "not_visible"
+      },
+      "sources_intact": true,
+      "parent_writes_inside": {
+        "/tmp/cusr-spike-sandbox-wKCTik": "written_inside_sandbox",
+        "/tmp/cusr-spike-sandbox-wKCTik/repo": "written_inside_sandbox",
+        "/tmp/cusr-spike-sandbox-wKCTik/worktree": "written_inside_sandbox"
+      },
+      "host_parent_writes_via_rw_mount": [
+        "/tmp/cusr-spike-sandbox-wKCTik/worktree"
+      ],
+      "unexpected_host_parent_writes": [],
+      "passed": true
+    },
+    {
+      "role": "fixer",
+      "layout_digest": "sha256:e92c6db3b8f733bdea269972e312eb44c633dcc5a6bff5eab4ba7116746985e7",
+      "exit": 0,
+      "source_swaps": {
+        "/tmp/cusr-spike-sandbox-wKCTik/worktree": "denied:16",
+        "/tmp/cusr-spike-sandbox-wKCTik/worktree/.git": "denied:16",
+        "/tmp/cusr-spike-sandbox-wKCTik/repo/.git": "denied:16",
+        "/tmp/cusr-spike-sandbox-wKCTik/scratch": "not_visible",
+        "/tmp/cusr-spike-sandbox-wKCTik/home": "not_visible",
+        "/tmp/cusr-spike-sandbox-wKCTik/context": "not_visible"
+      },
+      "sources_intact": true,
+      "parent_writes_inside": {
+        "/tmp/cusr-spike-sandbox-wKCTik": "written_inside_sandbox",
+        "/tmp/cusr-spike-sandbox-wKCTik/repo": "written_inside_sandbox",
+        "/tmp/cusr-spike-sandbox-wKCTik/worktree": "written_inside_sandbox"
+      },
+      "host_parent_writes_via_rw_mount": [
+        "/tmp/cusr-spike-sandbox-wKCTik/worktree"
+      ],
+      "unexpected_host_parent_writes": [],
+      "passed": true
+    },
+    {
+      "role": "reviewer",
+      "layout_digest": "sha256:a87547fccb02f03bae11bd7d43d2fdb527126876d0b22c1736806b043a31d626",
+      "exit": 0,
+      "source_swaps": {
+        "/tmp/cusr-spike-sandbox-wKCTik/worktree": "denied:16",
+        "/tmp/cusr-spike-sandbox-wKCTik/worktree/.git": "denied:30",
+        "/tmp/cusr-spike-sandbox-wKCTik/repo/.git": "denied:16",
+        "/tmp/cusr-spike-sandbox-wKCTik/scratch": "not_visible",
+        "/tmp/cusr-spike-sandbox-wKCTik/home": "not_visible",
+        "/tmp/cusr-spike-sandbox-wKCTik/context": "not_visible"
+      },
+      "sources_intact": true,
+      "parent_writes_inside": {
+        "/tmp/cusr-spike-sandbox-wKCTik": "written_inside_sandbox",
+        "/tmp/cusr-spike-sandbox-wKCTik/repo": "written_inside_sandbox",
+        "/tmp/cusr-spike-sandbox-wKCTik/worktree": "denied:30"
+      },
+      "host_parent_writes_via_rw_mount": [],
+      "unexpected_host_parent_writes": [],
+      "passed": true
+    },
+    {
+      "role": "setup",
+      "layout_digest": "sha256:ca2afa23d3cc5800f1c8ba5e840fc6afde4dac02d5e91e0002e1a5a745992d45",
+      "exit": 0,
+      "source_swaps": {
+        "/tmp/cusr-spike-sandbox-wKCTik/worktree": "denied:16",
+        "/tmp/cusr-spike-sandbox-wKCTik/worktree/.git": "denied:16",
+        "/tmp/cusr-spike-sandbox-wKCTik/repo/.git": "denied:16",
+        "/tmp/cusr-spike-sandbox-wKCTik/scratch": "not_visible",
+        "/tmp/cusr-spike-sandbox-wKCTik/context": "not_visible"
+      },
+      "sources_intact": true,
+      "parent_writes_inside": {
+        "/tmp/cusr-spike-sandbox-wKCTik": "written_inside_sandbox",
+        "/tmp/cusr-spike-sandbox-wKCTik/repo": "written_inside_sandbox",
+        "/tmp/cusr-spike-sandbox-wKCTik/worktree": "written_inside_sandbox"
+      },
+      "host_parent_writes_via_rw_mount": [
+        "/tmp/cusr-spike-sandbox-wKCTik/worktree"
+      ],
+      "unexpected_host_parent_writes": [],
+      "passed": true
+    },
+    {
+      "role": "gate",
+      "layout_digest": "sha256:926d7fe802d895a91dd2c6972c0bf38a0e3ca14da9372047ecdacf57f799119b",
+      "exit": 0,
+      "source_swaps": {
+        "/tmp/cusr-spike-sandbox-wKCTik/worktree": "denied:16",
+        "/tmp/cusr-spike-sandbox-wKCTik/worktree/.git": "denied:16",
+        "/tmp/cusr-spike-sandbox-wKCTik/repo/.git": "denied:16",
+        "/tmp/cusr-spike-sandbox-wKCTik/scratch": "not_visible",
+        "/tmp/cusr-spike-sandbox-wKCTik/context": "not_visible"
+      },
+      "sources_intact": true,
+      "parent_writes_inside": {
+        "/tmp/cusr-spike-sandbox-wKCTik": "written_inside_sandbox",
+        "/tmp/cusr-spike-sandbox-wKCTik/repo": "written_inside_sandbox",
+        "/tmp/cusr-spike-sandbox-wKCTik/worktree": "written_inside_sandbox"
+      },
+      "host_parent_writes_via_rw_mount": [
+        "/tmp/cusr-spike-sandbox-wKCTik/worktree"
+      ],
+      "unexpected_host_parent_writes": [],
+      "passed": true
+    }
+  ],
+  "host_swap_race": [
+    {
+      "mount": "scratch",
+      "host_source": "/tmp/cusr-spike-sandbox-wKCTik/scratch",
+      "sandbox_target": "/cusr/scratch",
+      "planned_inode": {
+        "dev": 2096,
+        "ino": 100539
+      },
+      "observed_inside": {
+        "dev": 2096,
+        "ino": 100558,
+        "entries": [
+          "canary"
+        ]
+      },
+      "exit": 0,
+      "stderr": "",
+      "bwrap_failed_closed": false,
+      "redirected_to_canary": true,
+      "inode_check_detects": true
+    },
+    {
+      "mount": "worktree",
+      "host_source": "/tmp/cusr-spike-sandbox-wKCTik/worktree",
+      "sandbox_target": "/tmp/cusr-spike-sandbox-wKCTik/worktree",
+      "planned_inode": {
+        "dev": 2096,
+        "ino": 100540
+      },
+      "observed_inside": null,
+      "exit": 1,
+      "stderr": "bwrap: Can't find source path /tmp/cusr-spike-sandbox-wKCTik/worktree/.git: No such file or directory",
+      "bwrap_failed_closed": true,
+      "redirected_to_canary": false,
+      "inode_check_detects": false
+    }
+  ],
+  "canary_unchanged": true,
+  "conclusion": {
+    "attacker_inside_sandbox_can_swap": false,
+    "same_uid_host_swap_redirects_bwrap": true,
+    "inode_check_detects_every_redirect": true,
+    "prototype_runs_inode_check": false
+  },
+  "passed": true
+}

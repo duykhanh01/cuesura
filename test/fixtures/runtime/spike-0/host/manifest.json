@@ -1,0 +1,172 @@
+{
+  "schema_version": 1,
+  "kind": "spike-0-host-manifest",
+  "checked_at": "2026-10-28T06:04:37.808868+00:00",
+  "scope": "T002 host record and T006 local part only, on the current WSL2 worker outside the tool sandbox. No policy change, sudo, model, GitHub. Not a full S0.1 pass. lifetime.json (added later) records real unit/cgroup/exit artifacts; the user manager reported degraded only because the preserved failed unit of attempt s0-claude-coder-1793170522 is kept.",
+  "git_head": "af5df8d482dc6ce26a94e54a85ec88db72bcf52d",
+  "commands": [
+    {
+      "argv": [
+        "node",
+        "scripts/spike-002/probe-local-boundary.ts"
+      ],
+      "exit": 0,
+      "output": "local-boundary.json"
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/spike-002/sandbox.ts",
+        "probe",
+        "--all"
+      ],
+      "exit": 0,
+      "output": "layout.json"
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/spike-002/reassess-sandbox.ts"
+      ],
+      "exit": 0,
+      "output": "namespace.json"
+    },
+    {
+      "argv": [
+        "pnpm",
+        "typecheck"
+      ],
+      "exit": 0
+    },
+    {
+      "argv": [
+        "pnpm",
+        "lint"
+      ],
+      "exit": 0
+    },
+    {
+      "argv": [
+        "pnpm",
+        "test"
+      ],
+      "exit": 0,
+      "tests": {
+        "total": 482,
+        "passed": 482,
+        "pending": 0,
+        "failed": 0
+      },
+      "raw_report": {
+        "path": "reports/vitest-default.json",
+        "sha256": "53bef2e904b956cda5bc7979cc3fa39850b4b780920f91a7781c02c907eecfd1"
+      }
+    },
+    {
+      "argv": [
+        "pnpm",
+        "build"
+      ],
+      "exit": 0
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/spike-002/probe-lifetime.ts"
+      ],
+      "exit": 0,
+      "output": "lifetime.json",
+      "checked_at": "2026-10-28T09:31:09.085Z"
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/spike-002/probe-mount-toctou.ts"
+      ],
+      "exit": 0,
+      "output": "mount-toctou.json",
+      "checked_at": "2026-10-28T09:44:31.358Z"
+    }
+  ],
+  "spike_suites": [
+    {
+      "file": "test/integration/spike-002/harness-run.test.ts",
+      "status": "passed",
+      "passed": 12,
+      "total": 12
+    },
+    {
+      "file": "test/integration/spike-002/local-boundary.test.ts",
+      "status": "passed",
+      "passed": 1,
+      "total": 1
+    },
+    {
+      "file": "test/integration/spike-002/runner-systemd.test.ts",
+      "status": "passed",
+      "passed": 2,
+      "total": 2
+    },
+    {
+      "file": "test/integration/spike-002/runner.test.ts",
+      "status": "passed",
+      "passed": 14,
+      "total": 14
+    },
+    {
+      "file": "test/integration/spike-002/sandbox-probe.test.ts",
+      "status": "passed",
+      "passed": 7,
+      "total": 7
+    },
+    {
+      "file": "test/unit/spike-002/gh.test.ts",
+      "status": "passed",
+      "passed": 44,
+      "total": 44
+    },
+    {
+      "file": "test/unit/spike-002/harness.test.ts",
+      "status": "passed",
+      "passed": 20,
+      "total": 20
+    },
+    {
+      "file": "test/unit/spike-002/role-schema.test.ts",
+      "status": "passed",
+      "passed": 32,
+      "total": 32
+    },
+    {
+      "file": "test/unit/spike-002/sandbox.test.ts",
+      "status": "passed",
+      "passed": 26,
+      "total": 26
+    }
+  ],
+  "files": {
+    "host.json": "3bd4176ac59b0df7427435cbaa58f4531bc9f9b5d753420af99ad672b00bf4db",
+    "host-tool-sandbox.json": "cc0a32778e17c158b61e34041a6cc4789750eb6298f6497659394201837b7811",
+    "layout.json": "d27caa3e6ab54776891295e738cad420110866fb317ac867681a8889a89ef138",
+    "local-boundary.json": "f70ab79da66d5c6edcdb056458c7efaecbaf668533126a14c5919881c1fb8f08",
+    "namespace.json": "78e63688ad90b891711d540bb9ab7dc9210d185e111abb0aa4aa5d1bca0093e7",
+    "lifetime.json": "3b728dea14b6b4efded4ea8d9f8a7a93ba0992b0eaf021538591a76882ce215a",
+    "mount-toctou.json": "bf5521f343e9b15eee532cb8a22567b586e7d93982ad7bc7b5ef5644c522cc29"
+  },
+  "sources": {
+    "scripts/spike-002/sandbox.ts": "2274be4003c18ed4b8a89a609187c36960593a0300d1122e01aea5e400adcc98",
+    "scripts/spike-002/runner.ts": "aefba34329d97007e5ae67a2aa917a2be6cd61718e8dcdef72451aaa31c4a483",
+    "scripts/spike-002/probe-local-boundary.ts": "bf54f4ed8a34eb55e35190c2636946650fb4907edbbf6f3ba3a8f796be96105e",
+    "scripts/spike-002/reassess-sandbox.ts": "b83a6a550a4d6da45c4e4351b6c509e0dbcd095d24acb59e8fa0f737f752f30b",
+    "scripts/spike-002/probe-lifetime.ts": "65a2c249de45f064d18e4756acba5e6381fc531be0c9cacda41788bc10d5d474",
+    "scripts/spike-002/probe-mount-toctou.ts": "91271cfe19e45fef46068abe8b5f252acbaeea26693125e188d9dcdb72f62711"
+  },
+  "namespace_refreshed_after_source_pin": true,
+  "test_sources": {
+    "test/unit/spike-002/sandbox.test.ts": "fb350639c96eff8a4ccc466041c7af728f03c69f76b05fcee0c7902712a7a3ba",
+    "test/integration/spike-002/sandbox-probe.test.ts": "c777977836491f25386cbcb195dbe8cb64f6d49be216d07551e431023752c174",
+    "test/integration/spike-002/local-boundary.test.ts": "55d8a095805b55fd69ec330474d086816cc808136faaa7261a35ee73878e4d66",
+    "test/integration/spike-002/runner-systemd.test.ts": "f58b65f4f93f9153d1e51364fd97788ea45b45ae731b12de176e3b35d2fea6bc"
+  },
+  "deployment_host": "Owner decision 2026-10-28: this WSL2 worker is the v1 deployment host."
+}

@@ -1,0 +1,92 @@
+{
+  "kind": "spike-0-pip-network-rerun",
+  "scope": "S0.2 pip re-run in the gate-role outer sandbox built by scripts/spike-002/sandbox.ts (probeLayout('gate') on the same state.json fixture as network.mjs), empty env, no private home/model auth, fresh scratch per run. Download only; no install or execution of package code. No model or GitHub call.",
+  "probe_script": "pip-probe.mjs.txt",
+  "invocation": "node pip-probe.mjs <out.json> 300000 (outside the Claude Code tool sandbox, same as network.mjs)",
+  "previous": {
+    "file": "network.json",
+    "pip_exit": null,
+    "note": "fresh-pip.mjs used a 30 s spawn timeout and recorded exit null with empty stdout/stderr; not reproduced here"
+  },
+  "pypi_reference": {
+    "source": "https://pypi.org/pypi/six/1.17.0/json",
+    "sha256": {
+      "six-1.17.0-py2.py3-none-any.whl": "4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274"
+    }
+  },
+  "runs": [
+    {
+      "role": "gate",
+      "package_manager": "pip",
+      "started_at": "2026-10-28T08:50:28.286Z",
+      "duration_ms": 742,
+      "timeout_ms": 300000,
+      "bwrap": "/usr/bin/bwrap",
+      "bwrap_argv_sha256": "ff169e96ab3d994cdc8bac84cb75c74eca47b190929c4f469c49acd3122a84e9",
+      "command": [
+        "/usr/bin/python3",
+        "-m",
+        "pip",
+        "download",
+        "--no-deps",
+        "--no-cache-dir",
+        "--dest",
+        "/cusr/scratch",
+        "six==1.17.0"
+      ],
+      "exit": 0,
+      "signal": null,
+      "spawn_error": null,
+      "layout_digest": "sha256:52754ccc3cb4d7e633282c826df971f3996a3d7d13491f1199cba6981e1b43c0",
+      "model_auth_mounted": false,
+      "fresh_destination": true,
+      "host_scratch": "/tmp/cusr-spike-002-real-dTgXz2/pip-rerun-VsWhcQ",
+      "stdout": "Collecting six==1.17.0\n  Downloading six-1.17.0-py2.py3-none-any.whl (11 kB)\nSaved /cusr/scratch/six-1.17.0-py2.py3-none-any.whl\nSuccessfully downloaded six",
+      "stderr": "",
+      "downloaded_files": [
+        {
+          "name": "six-1.17.0-py2.py3-none-any.whl",
+          "bytes": 11050,
+          "sha256": "4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274"
+        }
+      ]
+    },
+    {
+      "role": "gate",
+      "package_manager": "pip",
+      "started_at": "2026-10-28T08:50:37.462Z",
+      "duration_ms": 923,
+      "timeout_ms": 300000,
+      "bwrap": "/usr/bin/bwrap",
+      "bwrap_argv_sha256": "d426c1c2c7452527e884afa1f11c8885b383bce176d5a9483f2edeab996c1487",
+      "command": [
+        "/usr/bin/python3",
+        "-m",
+        "pip",
+        "download",
+        "--no-deps",
+        "--no-cache-dir",
+        "--dest",
+        "/cusr/scratch",
+        "six==1.17.0"
+      ],
+      "exit": 0,
+      "signal": null,
+      "spawn_error": null,
+      "layout_digest": "sha256:9a046e8cb8317f9386332f4cc4b1ff7f5e3497ec152ab50245b84048804ea4ba",
+      "model_auth_mounted": false,
+      "fresh_destination": true,
+      "host_scratch": "/tmp/cusr-spike-002-real-dTgXz2/pip-rerun-Zmbmsv",
+      "stdout": "Collecting six==1.17.0\n  Downloading six-1.17.0-py2.py3-none-any.whl (11 kB)\nSaved /cusr/scratch/six-1.17.0-py2.py3-none-any.whl\nSuccessfully downloaded six",
+      "stderr": "",
+      "downloaded_files": [
+        {
+          "name": "six-1.17.0-py2.py3-none-any.whl",
+          "bytes": 11050,
+          "sha256": "4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274"
+        }
+      ]
+    }
+  ],
+  "passed": true
+}

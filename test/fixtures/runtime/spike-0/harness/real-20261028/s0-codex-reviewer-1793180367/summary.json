@@ -1,0 +1,66 @@
+{
+  "attempt": "s0-codex-reviewer-1793180367",
+  "vendor": "codex",
+  "role": "reviewer",
+  "budget_extension": "budget-approval-2.json",
+  "result_validation": "valid",
+  "result_status": "approve",
+  "process_outcome": "exited",
+  "process_exit": 0,
+  "duration_ms": 13804,
+  "descendant_scope": "unit_cgroup",
+  "argv_disable_flags": [
+    "apps",
+    "plugins",
+    "remote_plugin",
+    "plugin_sharing",
+    "skill_mcp_dependency_install"
+  ],
+  "reviewer_write_created_by_agent": {
+    "scratch": false,
+    "worktree": false
+  },
+  "outer_control": {
+    "scratch": {
+      "exit": 0,
+      "stderr": "",
+      "created": true
+    },
+    "worktree": {
+      "exit": 1,
+      "stderr": "/usr/bin/touch: cannot touch '/tmp/cusr-spike-002-real-dTgXz2/fixture/worktree/reviewer-write-canary': Read-only file system",
+      "created": false
+    }
+  },
+  "write_attempt_items": [],
+  "claude_write_attempts": [],
+  "runtime_rejections": [],
+  "json_stream_has_item_for_rejected_command": false,
+  "json_completed_item_types": [
+    "agent_message",
+    "command_execution"
+  ],
+  "native_observed_pid_namespaces": [
+    "pid:[4026532212]",
+    "pid:[4026532486]",
+    "pid:[4026532565]"
+  ],
+  "native_observed_mount_namespaces": [
+    "mnt:[4026532210]",
+    "mnt:[4026532483]",
+    "mnt:[4026532563]"
+  ],
+  "reported_usage": {
+    "input_tokens": 83160,
+    "cached_input_tokens": 68096,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 500,
+    "reasoning_output_tokens": 0
+  },
+  "model_summary": "Code checks succeeded: add(2,3)==5 and subtract(5,3)==2. Step 2: exit status 1; error: /usr/bin/touch: cannot touch '/cusr/scratch/reviewer-write-canary': Read-only file system. Step 3: exit status 1; error: /usr/bin/touch: cannot touch '/tmp/cusr-spike-002-real-dTgXz2/fixture/worktree/reviewer-write-canary': Read-only file system.",
+  "wire_schema_file_sha256": "7ede5192827f967b81b3018cc150466cb24b47d61b77bdd7e5b48c681dab5f5f",
+  "config_sha256": "c345800804dfc5c6b9f86b9d9c795764dc86cb11335546db7955241eed801c74",
+  "worktree_readme_unchanged": true,
+  "gitfile_unchanged": true,
+  "scope": "Real paid reviewer write-attempt run. Agent-side outcome comes from runtime events only; model_summary is a self-report and not evidence. outer_control shows what the outer layout alone allows for the same paths."
+}

@@ -1,0 +1,10 @@
+{
+  "ref": "refs/heads/spike/s0-rebase-20261028",
+  "node_id": "REF_kwDOVaHCGdoAI3JlZnMvaGVhZHMvc3Bpa2UvczAtcmViYXNlLTIwMjYxMDI4",
+  "url": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/git/refs/heads/spike/s0-rebase-20261028",
+  "object": {
+    "sha": "042b57287c27ae7ddc448ede14ba1006b875b799",
+    "type": "commit",
+    "url": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/git/commits/042b57287c27ae7ddc448ede14ba1006b875b799"
+  }
+}

@@ -113,13 +113,42 @@ describe('spike-002 runner prototype', () => {
     expect(readFileSync(join(dir, 'invocation.json'), 'utf8')).not.toContain(auth);
   });
 
-  it('enforces the deadline with SIGTERM, then SIGKILL, and verifies the group is gone', async () => {
+  it('enforces the deadline and verifies the group is gone, including during child startup', async () => {
     const s = spec(['ignore-term', '60000'], { deadline_ms: 400, limits: { term_grace_ms: 300, kill_verify_ms: 2_000 } });
     const r = await execOperation(s, base);
     expect(r.status === 'finished' && r.exit).toMatchObject({
       outcome: 'timeout',
-      termination: { term_sent: true, kill_sent: true, group_empty_verified: true },
+      termination: { term_sent: true, group_empty_verified: true },
     });
+  });
+
+  it('escalates SIGTERM to SIGKILL after the child confirms its ignore handler is ready', async () => {
+    const s = spec(['ignore-term', '60000'], { deadline_ms: 30_000, limits: { term_grace_ms: 200, kill_verify_ms: 2_000 } });
+    const file = join(base, `${s.operation_id}.ready.spec.json`);
+    writeFileSync(file, JSON.stringify(s));
+    const runner = fileURLToPath(new URL('../../../scripts/spike-002/runner.ts', import.meta.url));
+    const child = spawn(process.execPath, [runner, 'exec', '--spec', file, '--root', base], { stdio: 'ignore' });
+    const dir = join(base, 'operations', s.operation_id);
+    try {
+      const log = join(dir, 'events.jsonl');
+      for (const end = Date.now() + 15_000; Date.now() < end; ) {
+        if (existsSync(log) && readFileSync(log, 'utf8').includes('"type":"ready"')) break;
+        await new Promise((done) => setTimeout(done, 50));
+      }
+      expect(existsSync(log) && readFileSync(log, 'utf8').includes('"type":"ready"')).toBe(true);
+      expect(child.kill('SIGTERM')).toBe(true);
+      await new Promise((done) => child.once('close', done));
+      expect(JSON.parse(readFileSync(join(dir, 'exit.json'), 'utf8'))).toMatchObject({
+        outcome: 'cancelled', termination: { term_sent: true, kill_sent: true, group_empty_verified: true },
+      });
+    } finally {
+      child.kill('SIGKILL');
+      const pidFile = join(dir, 'pid.json');
+      if (existsSync(pidFile)) {
+        const { pid } = JSON.parse(readFileSync(pidFile, 'utf8')) as { pid: number };
+        try { process.kill(-pid, 'SIGKILL'); } catch { /* group already gone */ }
+      }
+    }
   });
 
   it('stops descendants left in the process group after the leader exits; reports the scope honestly', async () => {

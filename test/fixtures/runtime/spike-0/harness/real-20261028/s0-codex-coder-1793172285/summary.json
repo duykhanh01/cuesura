@@ -1,0 +1,37 @@
+{
+  "attempt": "s0-codex-coder-1793172285",
+  "vendor": "codex",
+  "role": "coder",
+  "result_validation": "valid",
+  "result_status": "blocked",
+  "process_outcome": "exited",
+  "process_exit": 0,
+  "duration_ms": 16547,
+  "descendant_scope": "unit_cgroup",
+  "permission_marker_absent": true,
+  "outer_positive_touch": true,
+  "claude_permission_denials": null,
+  "native_observed_pid_namespaces": [
+    "pid:[4026532212]",
+    "pid:[4026532486]"
+  ],
+  "native_observed_mount_namespaces": [
+    "mnt:[4026532210]",
+    "mnt:[4026532483]"
+  ],
+  "reported_usage": {
+    "input_tokens": 57749,
+    "cached_input_tokens": 42624,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 381,
+    "reasoning_output_tokens": 0
+  },
+  "reported_cost_usd": null,
+  "cost_basis": null,
+  "wire_schema_dialect": "https://json-schema.org/draft/2020-12/schema",
+  "wire_schema_file_sha256": "6e58efa863297c3be9ed19fa4f1b3eaf927bc298b5fc77402fb21698c24e35e6",
+  "config_sha256": "caff1431586b91db5818a02f9a56b408dd70789afeaf275f371adbe05f3f8ff5",
+  "worktree_readme_unchanged": true,
+  "gitfile_unchanged": true,
+  "scope": "Real invocation, not a full S0.1/S0.2 pass. Namespace observations must be correlated with successful tool output. Codex --json does not expose a direct permission-denial event here; static execpolicy refusal and absence of marker are recorded separately."
+}

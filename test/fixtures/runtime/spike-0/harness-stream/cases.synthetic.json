@@ -1,0 +1,93 @@
+{
+  "source": "synthetic, hand-written for harness stream parser negative cases; NOT harness output. Shapes follow the real 2026-10-28 captures (Claude Code 2.1.306 stream-json, codex-cli 0.165.0 exec --json) but the failure values were never observed live, so they prove parser behaviour only, not vendor rate-limit/auth/refusal behaviour.",
+  "cases": [
+    {
+      "name": "claude rate limit rejected then 429 result",
+      "vendor": "claude",
+      "events": [
+        { "type": "system", "subtype": "init", "session_id": "s-synthetic" },
+        { "type": "rate_limit_event", "rate_limit_info": { "status": "rejected", "resetsAt": 1793190000, "rateLimitType": "five_hour" } },
+        { "type": "result", "subtype": "error_during_execution", "is_error": true, "api_error_status": 429, "result": "API Error: 429 rate_limit_error", "stop_reason": null, "safety_stops": 0, "usage": { "input_tokens": 3, "output_tokens": 0 }, "total_cost_usd": 0 }
+      ],
+      "stderr": "",
+      "expect": { "failure": "rate_limited", "usage": "reported", "denials": 0, "rate_limit_status": "rejected" }
+    },
+    {
+      "name": "claude auth error",
+      "vendor": "claude",
+      "events": [
+        { "type": "result", "subtype": "error_during_execution", "is_error": true, "api_error_status": 401, "result": "Invalid API key · Please run /login", "stop_reason": null, "safety_stops": 0 }
+      ],
+      "stderr": "",
+      "expect": { "failure": "auth", "usage": "unavailable", "denials": 0 }
+    },
+    {
+      "name": "claude refusal stop reason",
+      "vendor": "claude",
+      "events": [
+        { "type": "assistant", "message": { "stop_reason": "refusal", "content": [] } },
+        { "type": "result", "subtype": "success", "is_error": false, "api_error_status": null, "result": "", "stop_reason": "refusal", "safety_stops": 1, "usage": { "input_tokens": 10, "output_tokens": 2 }, "total_cost_usd": 0.0001 }
+      ],
+      "stderr": "",
+      "expect": { "failure": "refusal", "usage": "reported", "denials": 0 }
+    },
+    {
+      "name": "claude generic execution error",
+      "vendor": "claude",
+      "events": [
+        { "type": "result", "subtype": "error_during_execution", "is_error": true, "api_error_status": null, "result": "connection reset", "stop_reason": null, "safety_stops": 0 }
+      ],
+      "stderr": "",
+      "expect": { "failure": "vendor_error", "usage": "unavailable", "denials": 0 }
+    },
+    {
+      "name": "claude denial only in result record",
+      "vendor": "claude",
+      "events": [
+        { "type": "result", "subtype": "success", "is_error": false, "stop_reason": "end_turn", "safety_stops": 0, "usage": { "input_tokens": 5, "cache_read_input_tokens": 7, "cache_creation_input_tokens": 1, "output_tokens": 9 }, "total_cost_usd": 0.0002, "permission_denials": [ { "tool_name": "Bash", "tool_use_id": "toolu_synthetic", "tool_input": { "command": "/usr/bin/touch /cusr/scratch/permission-denied-by-rule" } } ] }
+      ],
+      "stderr": "",
+      "expect": { "failure": null, "usage": "reported", "denials": 1 }
+    },
+    {
+      "name": "codex turn failed with 429",
+      "vendor": "codex",
+      "events": [
+        { "type": "thread.started", "thread_id": "t-synthetic" },
+        { "type": "turn.started" },
+        { "type": "turn.failed", "error": { "message": "exceeded retry limit, last status: 429 Too Many Requests" } }
+      ],
+      "stderr": "",
+      "expect": { "failure": "rate_limited", "usage": "unavailable", "denials": 0 }
+    },
+    {
+      "name": "codex top-level auth error",
+      "vendor": "codex",
+      "events": [
+        { "type": "error", "message": "unexpected status 401 Unauthorized" }
+      ],
+      "stderr": "",
+      "expect": { "failure": "auth", "usage": "unavailable", "denials": 0 }
+    },
+    {
+      "name": "codex stream disconnect",
+      "vendor": "codex",
+      "events": [
+        { "type": "turn.started" },
+        { "type": "turn.failed", "error": { "message": "stream disconnected before completion" } }
+      ],
+      "stderr": "",
+      "expect": { "failure": "vendor_error", "usage": "unavailable", "denials": 0 }
+    },
+    {
+      "name": "claude truncated final record",
+      "vendor": "claude",
+      "events": [
+        { "type": "system", "subtype": "init", "session_id": "s-synthetic" }
+      ],
+      "truncated_tail": true,
+      "stderr": "",
+      "expect": { "failure": null, "usage": "unavailable", "denials": 0, "truncated_records": 1 }
+    }
+  ]
+}

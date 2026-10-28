@@ -1,0 +1,149 @@
+{
+  "scope": "Local namespace/read-only canaries only; NOT S0.1 pass, not a kernel exploit test, not a vendor smoke or an approved policy change.",
+  "node": "v24.22.1",
+  "bwrap": "bubblewrap 0.6.1",
+  "kernel": "6.18.54.1-microsoft-standard-WSL2",
+  "passed": true,
+  "runs": [
+    {
+      "role": "coder",
+      "mode": "baseline",
+      "exit": 0,
+      "output": "{\"apparmor_label\": \"unconfined\", \"cap_eff\": \"0000000000000000\", \"checks\": {\"cannot_remount_dotgit_rw\": true, \"cannot_remove_dotgit_overlay\": true, \"context_read_only\": true, \"context_readable\": true, \"control_path_hidden\": true, \"dotgit_read_only\": true, \"dotgit_still_read_only\": true, \"git_metadata_read_only\": true, \"home_writable\": true, \"host_pid_root_cannot_reveal_canary\": true, \"no_canary_or_control_fd_inherited\": true, \"no_new_privs\": true, \"outside_canary_hidden\": true, \"pid1_root_cannot_reveal_canary\": true, \"reviewer_still_cannot_write\": true, \"scratch_writable\": true, \"worktree_readable\": true, \"worktree_write_matches_role\": true}, \"passed\": true, \"remount_errno\": 1, \"role\": \"coder\", \"unmount_errno\": 1}",
+      "error": ""
+    },
+    {
+      "role": "coder",
+      "mode": "nested-bwrap",
+      "exit": 0,
+      "output": "{\"apparmor_label\": \"unconfined\", \"cap_eff\": \"0000000000000000\", \"checks\": {\"cannot_remount_dotgit_rw\": true, \"cannot_remove_dotgit_overlay\": true, \"context_read_only\": true, \"context_readable\": true, \"control_path_hidden\": true, \"dotgit_read_only\": true, \"dotgit_still_read_only\": true, \"git_metadata_read_only\": true, \"home_writable\": true, \"host_pid_root_cannot_reveal_canary\": true, \"no_canary_or_control_fd_inherited\": true, \"no_new_privs\": true, \"outside_canary_hidden\": true, \"pid1_root_cannot_reveal_canary\": true, \"reviewer_still_cannot_write\": true, \"scratch_writable\": true, \"worktree_readable\": true, \"worktree_write_matches_role\": true}, \"passed\": true, \"remount_errno\": 1, \"role\": \"coder\", \"unmount_errno\": 1}",
+      "error": ""
+    },
+    {
+      "role": "coder",
+      "mode": "copied-bwrap",
+      "exit": 0,
+      "output": "{\"apparmor_label\": \"unconfined\", \"cap_eff\": \"0000000000000000\", \"checks\": {\"cannot_remount_dotgit_rw\": true, \"cannot_remove_dotgit_overlay\": true, \"context_read_only\": true, \"context_readable\": true, \"control_path_hidden\": true, \"dotgit_read_only\": true, \"dotgit_still_read_only\": true, \"git_metadata_read_only\": true, \"home_writable\": true, \"host_pid_root_cannot_reveal_canary\": true, \"no_canary_or_control_fd_inherited\": true, \"no_new_privs\": true, \"outside_canary_hidden\": true, \"pid1_root_cannot_reveal_canary\": true, \"reviewer_still_cannot_write\": true, \"scratch_writable\": true, \"worktree_readable\": true, \"worktree_write_matches_role\": true}, \"passed\": true, \"remount_errno\": 1, \"role\": \"coder\", \"unmount_errno\": 1}",
+      "error": ""
+    },
+    {
+      "role": "coder",
+      "mode": "raw-userns",
+      "exit": 0,
+      "output": "{\"apparmor_label\": \"unconfined\", \"cap_eff\": \"000001ffffffffff\", \"checks\": {\"cannot_remount_dotgit_rw\": true, \"cannot_remove_dotgit_overlay\": true, \"context_read_only\": true, \"context_readable\": true, \"control_path_hidden\": true, \"dotgit_read_only\": true, \"dotgit_still_read_only\": true, \"git_metadata_read_only\": true, \"home_writable\": true, \"host_pid_root_cannot_reveal_canary\": true, \"no_canary_or_control_fd_inherited\": true, \"no_new_privs\": true, \"outside_canary_hidden\": true, \"pid1_root_cannot_reveal_canary\": true, \"reviewer_still_cannot_write\": true, \"scratch_writable\": true, \"worktree_readable\": true, \"worktree_write_matches_role\": true}, \"passed\": true, \"remount_errno\": 1, \"role\": \"coder\", \"unmount_errno\": 22}",
+      "error": ""
+    },
+    {
+      "role": "fixer",
+      "mode": "baseline",
+      "exit": 0,
+      "output": "{\"apparmor_label\": \"unconfined\", \"cap_eff\": \"0000000000000000\", \"checks\": {\"cannot_remount_dotgit_rw\": true, \"cannot_remove_dotgit_overlay\": true, \"context_read_only\": true, \"context_readable\": true, \"control_path_hidden\": true, \"dotgit_read_only\": true, \"dotgit_still_read_only\": true, \"git_metadata_read_only\": true, \"home_writable\": true, \"host_pid_root_cannot_reveal_canary\": true, \"no_canary_or_control_fd_inherited\": true, \"no_new_privs\": true, \"outside_canary_hidden\": true, \"pid1_root_cannot_reveal_canary\": true, \"reviewer_still_cannot_write\": true, \"scratch_writable\": true, \"worktree_readable\": true, \"worktree_write_matches_role\": true}, \"passed\": true, \"remount_errno\": 1, \"role\": \"fixer\", \"unmount_errno\": 1}",
+      "error": ""
+    },
+    {
+      "role": "fixer",
+      "mode": "nested-bwrap",
+      "exit": 0,
+      "output": "{\"apparmor_label\": \"unconfined\", \"cap_eff\": \"0000000000000000\", \"checks\": {\"cannot_remount_dotgit_rw\": true, \"cannot_remove_dotgit_overlay\": true, \"context_read_only\": true, \"context_readable\": true, \"control_path_hidden\": true, \"dotgit_read_only\": true, \"dotgit_still_read_only\": true, \"git_metadata_read_only\": true, \"home_writable\": true, \"host_pid_root_cannot_reveal_canary\": true, \"no_canary_or_control_fd_inherited\": true, \"no_new_privs\": true, \"outside_canary_hidden\": true, \"pid1_root_cannot_reveal_canary\": true, \"reviewer_still_cannot_write\": true, \"scratch_writable\": true, \"worktree_readable\": true, \"worktree_write_matches_role\": true}, \"passed\": true, \"remount_errno\": 1, \"role\": \"fixer\", \"unmount_errno\": 1}",
+      "error": ""
+    },
+    {
+      "role": "fixer",
+      "mode": "copied-bwrap",
+      "exit": 0,
+      "output": "{\"apparmor_label\": \"unconfined\", \"cap_eff\": \"0000000000000000\", \"checks\": {\"cannot_remount_dotgit_rw\": true, \"cannot_remove_dotgit_overlay\": true, \"context_read_only\": true, \"context_readable\": true, \"control_path_hidden\": true, \"dotgit_read_only\": true, \"dotgit_still_read_only\": true, \"git_metadata_read_only\": true, \"home_writable\": true, \"host_pid_root_cannot_reveal_canary\": true, \"no_canary_or_control_fd_inherited\": true, \"no_new_privs\": true, \"outside_canary_hidden\": true, \"pid1_root_cannot_reveal_canary\": true, \"reviewer_still_cannot_write\": true, \"scratch_writable\": true, \"worktree_readable\": true, \"worktree_write_matches_role\": true}, \"passed\": true, \"remount_errno\": 1, \"role\": \"fixer\", \"unmount_errno\": 1}",
+      "error": ""
+    },
+    {
+      "role": "fixer",
+      "mode": "raw-userns",
+      "exit": 0,
+      "output": "{\"apparmor_label\": \"unconfined\", \"cap_eff\": \"000001ffffffffff\", \"checks\": {\"cannot_remount_dotgit_rw\": true, \"cannot_remove_dotgit_overlay\": true, \"context_read_only\": true, \"context_readable\": true, \"control_path_hidden\": true, \"dotgit_read_only\": true, \"dotgit_still_read_only\": true, \"git_metadata_read_only\": true, \"home_writable\": true, \"host_pid_root_cannot_reveal_canary\": true, \"no_canary_or_control_fd_inherited\": true, \"no_new_privs\": true, \"outside_canary_hidden\": true, \"pid1_root_cannot_reveal_canary\": true, \"reviewer_still_cannot_write\": true, \"scratch_writable\": true, \"worktree_readable\": true, \"worktree_write_matches_role\": true}, \"passed\": true, \"remount_errno\": 1, \"role\": \"fixer\", \"unmount_errno\": 22}",
+      "error": ""
+    },
+    {
+      "role": "reviewer",
+      "mode": "baseline",
+      "exit": 0,
+      "output": "{\"apparmor_label\": \"unconfined\", \"cap_eff\": \"0000000000000000\", \"checks\": {\"cannot_remount_dotgit_rw\": true, \"cannot_remove_dotgit_overlay\": true, \"context_read_only\": true, \"context_readable\": true, \"control_path_hidden\": true, \"dotgit_read_only\": true, \"dotgit_still_read_only\": true, \"git_metadata_read_only\": true, \"home_writable\": true, \"host_pid_root_cannot_reveal_canary\": true, \"no_canary_or_control_fd_inherited\": true, \"no_new_privs\": true, \"outside_canary_hidden\": true, \"pid1_root_cannot_reveal_canary\": true, \"reviewer_still_cannot_write\": true, \"scratch_writable\": true, \"worktree_readable\": true, \"worktree_write_matches_role\": true}, \"passed\": true, \"remount_errno\": 1, \"role\": \"reviewer\", \"unmount_errno\": 1}",
+      "error": ""
+    },
+    {
+      "role": "reviewer",
+      "mode": "nested-bwrap",
+      "exit": 0,
+      "output": "{\"apparmor_label\": \"unconfined\", \"cap_eff\": \"0000000000000000\", \"checks\": {\"cannot_remount_dotgit_rw\": true, \"cannot_remove_dotgit_overlay\": true, \"context_read_only\": true, \"context_readable\": true, \"control_path_hidden\": true, \"dotgit_read_only\": true, \"dotgit_still_read_only\": true, \"git_metadata_read_only\": true, \"home_writable\": true, \"host_pid_root_cannot_reveal_canary\": true, \"no_canary_or_control_fd_inherited\": true, \"no_new_privs\": true, \"outside_canary_hidden\": true, \"pid1_root_cannot_reveal_canary\": true, \"reviewer_still_cannot_write\": true, \"scratch_writable\": true, \"worktree_readable\": true, \"worktree_write_matches_role\": true}, \"passed\": true, \"remount_errno\": 1, \"role\": \"reviewer\", \"unmount_errno\": 1}",
+      "error": ""
+    },
+    {
+      "role": "reviewer",
+      "mode": "copied-bwrap",
+      "exit": 0,
+      "output": "{\"apparmor_label\": \"unconfined\", \"cap_eff\": \"0000000000000000\", \"checks\": {\"cannot_remount_dotgit_rw\": true, \"cannot_remove_dotgit_overlay\": true, \"context_read_only\": true, \"context_readable\": true, \"control_path_hidden\": true, \"dotgit_read_only\": true, \"dotgit_still_read_only\": true, \"git_metadata_read_only\": true, \"home_writable\": true, \"host_pid_root_cannot_reveal_canary\": true, \"no_canary_or_control_fd_inherited\": true, \"no_new_privs\": true, \"outside_canary_hidden\": true, \"pid1_root_cannot_reveal_canary\": true, \"reviewer_still_cannot_write\": true, \"scratch_writable\": true, \"worktree_readable\": true, \"worktree_write_matches_role\": true}, \"passed\": true, \"remount_errno\": 1, \"role\": \"reviewer\", \"unmount_errno\": 1}",
+      "error": ""
+    },
+    {
+      "role": "reviewer",
+      "mode": "raw-userns",
+      "exit": 0,
+      "output": "{\"apparmor_label\": \"unconfined\", \"cap_eff\": \"000001ffffffffff\", \"checks\": {\"cannot_remount_dotgit_rw\": true, \"cannot_remove_dotgit_overlay\": true, \"context_read_only\": true, \"context_readable\": true, \"control_path_hidden\": true, \"dotgit_read_only\": true, \"dotgit_still_read_only\": true, \"git_metadata_read_only\": true, \"home_writable\": true, \"host_pid_root_cannot_reveal_canary\": true, \"no_canary_or_control_fd_inherited\": true, \"no_new_privs\": true, \"outside_canary_hidden\": true, \"pid1_root_cannot_reveal_canary\": true, \"reviewer_still_cannot_write\": true, \"scratch_writable\": true, \"worktree_readable\": true, \"worktree_write_matches_role\": true}, \"passed\": true, \"remount_errno\": 1, \"role\": \"reviewer\", \"unmount_errno\": 22}",
+      "error": ""
+    },
+    {
+      "role": "setup",
+      "mode": "baseline",
+      "exit": 0,
+      "output": "{\"apparmor_label\": \"unconfined\", \"cap_eff\": \"0000000000000000\", \"checks\": {\"cannot_remount_dotgit_rw\": true, \"cannot_remove_dotgit_overlay\": true, \"context_read_only\": true, \"context_readable\": true, \"control_path_hidden\": true, \"dotgit_read_only\": true, \"dotgit_still_read_only\": true, \"git_metadata_read_only\": true, \"home_writable\": true, \"host_pid_root_cannot_reveal_canary\": true, \"no_canary_or_control_fd_inherited\": true, \"no_new_privs\": true, \"outside_canary_hidden\": true, \"pid1_root_cannot_reveal_canary\": true, \"reviewer_still_cannot_write\": true, \"scratch_writable\": true, \"worktree_readable\": true, \"worktree_write_matches_role\": true}, \"passed\": true, \"remount_errno\": 1, \"role\": \"setup\", \"unmount_errno\": 1}",
+      "error": ""
+    },
+    {
+      "role": "setup",
+      "mode": "nested-bwrap",
+      "exit": 0,
+      "output": "{\"apparmor_label\": \"unconfined\", \"cap_eff\": \"0000000000000000\", \"checks\": {\"cannot_remount_dotgit_rw\": true, \"cannot_remove_dotgit_overlay\": true, \"context_read_only\": true, \"context_readable\": true, \"control_path_hidden\": true, \"dotgit_read_only\": true, \"dotgit_still_read_only\": true, \"git_metadata_read_only\": true, \"home_writable\": true, \"host_pid_root_cannot_reveal_canary\": true, \"no_canary_or_control_fd_inherited\": true, \"no_new_privs\": true, \"outside_canary_hidden\": true, \"pid1_root_cannot_reveal_canary\": true, \"reviewer_still_cannot_write\": true, \"scratch_writable\": true, \"worktree_readable\": true, \"worktree_write_matches_role\": true}, \"passed\": true, \"remount_errno\": 1, \"role\": \"setup\", \"unmount_errno\": 1}",
+      "error": ""
+    },
+    {
+      "role": "setup",
+      "mode": "copied-bwrap",
+      "exit": 0,
+      "output": "{\"apparmor_label\": \"unconfined\", \"cap_eff\": \"0000000000000000\", \"checks\": {\"cannot_remount_dotgit_rw\": true, \"cannot_remove_dotgit_overlay\": true, \"context_read_only\": true, \"context_readable\": true, \"control_path_hidden\": true, \"dotgit_read_only\": true, \"dotgit_still_read_only\": true, \"git_metadata_read_only\": true, \"home_writable\": true, \"host_pid_root_cannot_reveal_canary\": true, \"no_canary_or_control_fd_inherited\": true, \"no_new_privs\": true, \"outside_canary_hidden\": true, \"pid1_root_cannot_reveal_canary\": true, \"reviewer_still_cannot_write\": true, \"scratch_writable\": true, \"worktree_readable\": true, \"worktree_write_matches_role\": true}, \"passed\": true, \"remount_errno\": 1, \"role\": \"setup\", \"unmount_errno\": 1}",
+      "error": ""
+    },
+    {
+      "role": "setup",
+      "mode": "raw-userns",
+      "exit": 0,
+      "output": "{\"apparmor_label\": \"unconfined\", \"cap_eff\": \"000001ffffffffff\", \"checks\": {\"cannot_remount_dotgit_rw\": true, \"cannot_remove_dotgit_overlay\": true, \"context_read_only\": true, \"context_readable\": true, \"control_path_hidden\": true, \"dotgit_read_only\": true, \"dotgit_still_read_only\": true, \"git_metadata_read_only\": true, \"home_writable\": true, \"host_pid_root_cannot_reveal_canary\": true, \"no_canary_or_control_fd_inherited\": true, \"no_new_privs\": true, \"outside_canary_hidden\": true, \"pid1_root_cannot_reveal_canary\": true, \"reviewer_still_cannot_write\": true, \"scratch_writable\": true, \"worktree_readable\": true, \"worktree_write_matches_role\": true}, \"passed\": true, \"remount_errno\": 1, \"role\": \"setup\", \"unmount_errno\": 22}",
+      "error": ""
+    },
+    {
+      "role": "gate",
+      "mode": "baseline",
+      "exit": 0,
+      "output": "{\"apparmor_label\": \"unconfined\", \"cap_eff\": \"0000000000000000\", \"checks\": {\"cannot_remount_dotgit_rw\": true, \"cannot_remove_dotgit_overlay\": true, \"context_read_only\": true, \"context_readable\": true, \"control_path_hidden\": true, \"dotgit_read_only\": true, \"dotgit_still_read_only\": true, \"git_metadata_read_only\": true, \"home_writable\": true, \"host_pid_root_cannot_reveal_canary\": true, \"no_canary_or_control_fd_inherited\": true, \"no_new_privs\": true, \"outside_canary_hidden\": true, \"pid1_root_cannot_reveal_canary\": true, \"reviewer_still_cannot_write\": true, \"scratch_writable\": true, \"worktree_readable\": true, \"worktree_write_matches_role\": true}, \"passed\": true, \"remount_errno\": 1, \"role\": \"gate\", \"unmount_errno\": 1}",
+      "error": ""
+    },
+    {
+      "role": "gate",
+      "mode": "nested-bwrap",
+      "exit": 0,
+      "output": "{\"apparmor_label\": \"unconfined\", \"cap_eff\": \"0000000000000000\", \"checks\": {\"cannot_remount_dotgit_rw\": true, \"cannot_remove_dotgit_overlay\": true, \"context_read_only\": true, \"context_readable\": true, \"control_path_hidden\": true, \"dotgit_read_only\": true, \"dotgit_still_read_only\": true, \"git_metadata_read_only\": true, \"home_writable\": true, \"host_pid_root_cannot_reveal_canary\": true, \"no_canary_or_control_fd_inherited\": true, \"no_new_privs\": true, \"outside_canary_hidden\": true, \"pid1_root_cannot_reveal_canary\": true, \"reviewer_still_cannot_write\": true, \"scratch_writable\": true, \"worktree_readable\": true, \"worktree_write_matches_role\": true}, \"passed\": true, \"remount_errno\": 1, \"role\": \"gate\", \"unmount_errno\": 1}",
+      "error": ""
+    },
+    {
+      "role": "gate",
+      "mode": "copied-bwrap",
+      "exit": 0,
+      "output": "{\"apparmor_label\": \"unconfined\", \"cap_eff\": \"0000000000000000\", \"checks\": {\"cannot_remount_dotgit_rw\": true, \"cannot_remove_dotgit_overlay\": true, \"context_read_only\": true, \"context_readable\": true, \"control_path_hidden\": true, \"dotgit_read_only\": true, \"dotgit_still_read_only\": true, \"git_metadata_read_only\": true, \"home_writable\": true, \"host_pid_root_cannot_reveal_canary\": true, \"no_canary_or_control_fd_inherited\": true, \"no_new_privs\": true, \"outside_canary_hidden\": true, \"pid1_root_cannot_reveal_canary\": true, \"reviewer_still_cannot_write\": true, \"scratch_writable\": true, \"worktree_readable\": true, \"worktree_write_matches_role\": true}, \"passed\": true, \"remount_errno\": 1, \"role\": \"gate\", \"unmount_errno\": 1}",
+      "error": ""
+    },
+    {
+      "role": "gate",
+      "mode": "raw-userns",
+      "exit": 0,
+      "output": "{\"apparmor_label\": \"unconfined\", \"cap_eff\": \"000001ffffffffff\", \"checks\": {\"cannot_remount_dotgit_rw\": true, \"cannot_remove_dotgit_overlay\": true, \"context_read_only\": true, \"context_readable\": true, \"control_path_hidden\": true, \"dotgit_read_only\": true, \"dotgit_still_read_only\": true, \"git_metadata_read_only\": true, \"home_writable\": true, \"host_pid_root_cannot_reveal_canary\": true, \"no_canary_or_control_fd_inherited\": true, \"no_new_privs\": true, \"outside_canary_hidden\": true, \"pid1_root_cannot_reveal_canary\": true, \"reviewer_still_cannot_write\": true, \"scratch_writable\": true, \"worktree_readable\": true, \"worktree_write_matches_role\": true}, \"passed\": true, \"remount_errno\": 1, \"role\": \"gate\", \"unmount_errno\": 22}",
+      "error": ""
+    }
+  ]
+}

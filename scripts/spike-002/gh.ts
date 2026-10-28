@@ -2,13 +2,17 @@
  * Spike 0 read-only gh port prototype (T005, contracts/github.md).
  *
  *   node scripts/spike-002/gh.ts observe --repo OWNER/NAME --pr N --snapshot check1,check2 \
- *        [--expect-repo-id ID] [--expect-pr-id ID] --fixture FILE   (default: local fixture)
+ *        [--expect-repo-id ID] [--expect-pr-id ID] [--expect-target BRANCH] --fixture FILE   (default: local fixture)
  *   node scripts/spike-002/gh.ts observe ... --live [--gh PATH]       (T008 sandbox repo only)
  *
  * GET only, endpoint allowlist, argv without shell, pinned API version, per-call timeout, round
  * deadline, call/page/byte/send caps, request ledger and redacted raw evidence with digests. There is
  * no merge, create or rerun operation in this port. Head-at-merge facts are recorded as candidates;
  * whether `.head.sha` proves the head at merge is exactly what S0.3 (T008) must establish.
+ *
+ * API 2026-03-10 removed `merge_commit_sha` from pull responses, so the merge commit comes from the
+ * PR's single `merged` issue event (`commit_id`). Completeness of that proof is reported separately
+ * from the merged fact; a missing, truncated or contradictory source leaves the proof incomplete.
  */
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -38,6 +42,7 @@ export const ENDPOINTS: readonly RegExp[] = [
   new RegExp(`^repos/${SEG}/${SEG}$`),
   new RegExp(`^repos/${SEG}/${SEG}/pulls/\\d+$`),
   new RegExp(`^repos/${SEG}/${SEG}/pulls/\\d+/merge$`),
+  new RegExp(`^repos/${SEG}/${SEG}/issues/\\d+/events$`),
   new RegExp(`^repos/${SEG}/${SEG}/branches/${BRANCH}$`),
   new RegExp(`^repos/${SEG}/${SEG}/branches/${BRANCH}/protection$`),
   new RegExp(`^repos/${SEG}/${SEG}/rules/branches/${BRANCH}$`),
@@ -343,6 +348,15 @@ function appOf(v: unknown): 'any' | number {
   return n === null || n === -1 ? 'any' : n;
 }
 
+function notProtectedBody(body: string | undefined): boolean {
+  if (body === undefined) return false;
+  try {
+    return obj(JSON.parse(body))['message'] === 'Branch not protected';
+  } catch {
+    return false;
+  }
+}
+
 /** Classic protection + active branch rules. Missing permission, truncation or errors → unknown, never empty. */
 export async function readRequiredChecks(port: GhPort, owner: string, repo: string, branch: string): Promise<RequiredChecks> {
   const b = encodeURIComponent(branch);
@@ -351,9 +365,13 @@ export async function readRequiredChecks(port: GhPort, owner: string, repo: stri
   if (!branchRead.ok) return { status: 'unknown', checks, basis: `branch read failed: ${branchRead.reason}` };
   const isProtected = obj(branchRead.value.body)['protected'];
   if (isProtected === true) {
-    const prot = await port.get(`repos/${owner}/${repo}/branches/${b}/protection`);
-    if (!prot.ok) return { status: 'unknown', checks, basis: `classic protection unreadable: ${prot.reason}` };
-    const rsc = obj(obj(prot.value.body)['required_status_checks']);
+    const protPath = `repos/${owner}/${repo}/branches/${b}/protection`;
+    const prot = await port.get(protPath);
+    // `protected` is also true when only rulesets apply; the endpoint then answers 404 "Branch not
+    // protected" (seen live 2026-10-28). Any other failure, incl. a bare 404 "Not Found", stays unknown.
+    const noClassic = !prot.ok && prot.status === 404 && notProtectedBody(port.evidence.findLast((e) => e.path === protPath)?.body_redacted);
+    if (!prot.ok && !noClassic) return { status: 'unknown', checks, basis: `classic protection unreadable: ${prot.reason}` };
+    const rsc = obj(obj(prot.ok ? prot.value.body : null)['required_status_checks']);
     const list = Array.isArray(rsc['checks']) ? (rsc['checks'] as unknown[]) : null;
     if (list !== null) {
       for (const c of list) {
@@ -469,24 +487,84 @@ export async function readCheckBundle(
   return { complete: true, states, all_success: snapshot.length > 0 && snapshot.every((n) => states[n] === 'success'), basis: 'check-runs + statuses for one sha' };
 }
 
+const SHA_RE = /^[0-9a-f]{40}$/;
+
+export const MERGE_COMMIT_SOURCE = 'issues.events.merged.commit_id';
+
+export type MergeCommitFact = {
+  readonly sha: string | null;
+  readonly source: typeof MERGE_COMMIT_SOURCE;
+  readonly status: 'found' | 'missing' | 'invalid' | 'conflict' | 'unknown';
+  readonly basis: string;
+  readonly event_id: number | null;
+  readonly event_created_at: string | null;
+  readonly events: { readonly pages: number; readonly complete: boolean; readonly digest: string } | null;
+};
+
+/**
+ * Exactly one `merged` event on a fully paged listing, with a 40-hex `commit_id` that is neither the
+ * PR head nor base, points at this repo, carries the PR's `merged_at`, and agrees with a legacy
+ * `merge_commit_sha` when one is present. Anything else is not a merge commit fact.
+ */
+export async function readMergeCommit(port: GhPort, owner: string, repo: string, n: number, pull: PullFacts): Promise<MergeCommitFact> {
+  const fact = (status: MergeCommitFact['status'], basis: string, rest: Partial<MergeCommitFact> = {}): MergeCommitFact => ({
+    sha: null,
+    source: MERGE_COMMIT_SOURCE,
+    status,
+    basis,
+    event_id: null,
+    event_created_at: null,
+    events: null,
+    ...rest,
+  });
+  const listed = await port.list(`repos/${owner}/${repo}/issues/${n}/events`, (b) => (Array.isArray(b) ? b : null));
+  if (!listed.ok) return fact('unknown', `issue events unreadable: ${listed.reason}`);
+  const events = { pages: listed.value.pages, complete: listed.value.complete, digest: listed.digest };
+  if (!listed.value.complete) return fact('unknown', 'issue events truncated by page cap', { events });
+  const merged = listed.value.items.map(obj).filter((e) => e['event'] === 'merged');
+  if (merged.length === 0) return fact('missing', 'no merged event', { events });
+  if (merged.length > 1) return fact('conflict', `${merged.length} merged events`, { events });
+  const e = merged[0] as Obj;
+  const at = { events, event_id: num(e['id']), event_created_at: str(e['created_at']) };
+  const sha = e['commit_id'];
+  if (sha === null || sha === undefined) return fact('missing', 'merged event has no commit_id', at);
+  if (typeof sha !== 'string' || !SHA_RE.test(sha)) return fact('invalid', 'merged event commit_id is not a 40-hex SHA', at);
+  if (sha === pull.head.sha || sha === pull.base.sha) return fact('conflict', 'merged event commit_id equals the PR head or base SHA', at);
+  const url = e['commit_url'];
+  if (url !== null && url !== undefined && (typeof url !== 'string' || !url.toLowerCase().endsWith(`/repos/${owner}/${repo}/commits/${sha}`.toLowerCase()))) {
+    return fact('conflict', 'merged event commit_url points outside this repository', at);
+  }
+  if (at.event_created_at === null || at.event_created_at !== pull.merged_at) return fact('conflict', 'merged event time differs from merged_at', at);
+  if (pull.merge_commit_sha !== null && pull.merge_commit_sha !== sha) return fact('conflict', 'merged event disagrees with merge_commit_sha', at);
+  return fact('found', 'single merged event on a complete listing', { ...at, sha });
+}
+
 export type MergeProof = {
+  /** The merged fact itself (pulls.merged); independent of how complete the proof below is. */
   readonly merged: true;
   readonly repo_id: number | null;
   readonly pr_id: number | null;
   readonly target: string | null;
   readonly merged_at: string | null;
   readonly merge_commit_sha: string | null;
+  readonly merge_commit: MergeCommitFact;
   readonly head_at_merge_candidate: string | null;
+  /** Held across post-merge push/delete in the S0.3 sandbox; promotion is T044's call, not this port's. */
   readonly head_source: 'pulls.head.sha';
-  /** S0.3 decides whether this source proves head-at-merge for merge/squash/rebase + push/delete. */
-  readonly proof_status: 'unverified_pending_s0_3';
   readonly merge_endpoint: 'merged_204' | 'not_merged_404_unconfirmed' | 'unknown';
+  readonly completeness: 'complete' | 'incomplete';
+  readonly gaps: readonly string[];
 };
 
 export type Observation = {
-  readonly schema_version: 1;
+  readonly schema_version: 2;
   readonly api_version: string;
-  readonly identity: { readonly repo_id: number | null; readonly pr_id: number | null; readonly verdict: 'match' | 'identity_mismatch' | 'unchecked' | 'unknown' };
+  readonly identity: {
+    readonly repo_id: number | null;
+    readonly pr_id: number | null;
+    readonly target: string | null;
+    readonly verdict: 'match' | 'identity_mismatch' | 'target_mismatch' | 'unchecked' | 'unknown';
+  };
   readonly pull: PullFacts | null;
   readonly state: 'merged' | 'open' | 'closed' | 'inconsistent' | 'unknown';
   readonly merge_proof: MergeProof | null;
@@ -497,59 +575,78 @@ export type Observation = {
   readonly reasons: readonly string[];
 };
 
-async function mergeProof(port: GhPort, owner: string, repo: string, n: number, pull: PullFacts, repoId: number | null): Promise<MergeProof> {
+/** Merge endpoint, merged event and a pull re-read; any gap keeps the merged fact but marks the proof incomplete. */
+async function mergeProof(port: GhPort, owner: string, repo: string, n: number, pull: PullFacts, repoId: number | null, targetOk: boolean): Promise<MergeProof> {
   const m = await port.get(`repos/${owner}/${repo}/pulls/${n}/merge`);
+  const endpoint = m.ok && m.value.status === 204 ? 'merged_204' : !m.ok && m.status === 404 ? 'not_merged_404_unconfirmed' : 'unknown';
+  const commit = await readMergeCommit(port, owner, repo, n, pull);
+  const again = await port.get(`repos/${owner}/${repo}/pulls/${n}`);
+  const gaps: string[] = [];
+  if (repoId === null || pull.id === null) gaps.push('repo or PR id missing');
+  if (pull.base.ref === null) gaps.push('target missing');
+  else if (!targetOk) gaps.push('target does not match the task');
+  if (pull.merged_at === null) gaps.push('merged_at missing');
+  if (pull.head.sha === null || !SHA_RE.test(pull.head.sha)) gaps.push('head sha missing or invalid');
+  if (endpoint !== 'merged_204') gaps.push(`merge endpoint ${endpoint}`);
+  if (commit.status !== 'found') gaps.push(`merge commit ${commit.status}: ${commit.basis}`);
+  if (!again.ok) gaps.push(`pull re-read failed: ${again.reason}`);
+  else {
+    const p = pullFacts(again.value.body);
+    const same = p.id === pull.id && p.merged === true && p.merged_at === pull.merged_at && p.head.sha === pull.head.sha && p.base.ref === pull.base.ref && p.base.repo_id === pull.base.repo_id;
+    if (!same) gaps.push('pull changed between merge-proof reads');
+  }
   return {
     merged: true,
     repo_id: repoId,
     pr_id: pull.id,
     target: pull.base.ref,
     merged_at: pull.merged_at,
-    merge_commit_sha: pull.merge_commit_sha,
+    merge_commit_sha: commit.sha,
+    merge_commit: commit,
     head_at_merge_candidate: pull.head.sha,
     head_source: 'pulls.head.sha',
-    proof_status: 'unverified_pending_s0_3',
-    merge_endpoint: m.ok && m.value.status === 204 ? 'merged_204' : !m.ok && m.status === 404 ? 'not_merged_404_unconfirmed' : 'unknown',
+    merge_endpoint: endpoint,
+    completeness: gaps.length === 0 ? 'complete' : 'incomplete',
+    gaps,
   };
 }
 
+export type Expectation = { readonly repo_id: number | null; readonly pr_id: number | null; readonly target?: string | null };
+
 /** Contract read bundle: pull → (merge proof | required + checks of observed head) → pull again. */
-export async function observePull(
-  port: GhPort,
-  owner: string,
-  repo: string,
-  n: number,
-  snapshot: readonly string[],
-  expect: { readonly repo_id: number | null; readonly pr_id: number | null } = { repo_id: null, pr_id: null },
-): Promise<Observation> {
+export async function observePull(port: GhPort, owner: string, repo: string, n: number, snapshot: readonly string[], expect: Expectation = { repo_id: null, pr_id: null }): Promise<Observation> {
   const reasons: string[] = [];
-  const empty = { schema_version: 1 as const, api_version: API_VERSION, merge_proof: null, required: null, comparison: null, checks: null, green: false };
+  const empty = { schema_version: 2 as const, api_version: API_VERSION, merge_proof: null, required: null, comparison: null, checks: null, green: false };
+  const expectTarget = expect.target ?? null;
   const repoRead = await port.get(`repos/${owner}/${repo}`);
   const repoId = repoRead.ok ? num(obj(repoRead.value.body)['id']) : null;
   const first = await port.get(`repos/${owner}/${repo}/pulls/${n}`);
   if (!repoRead.ok || !first.ok) {
-    return { ...empty, identity: { repo_id: repoId, pr_id: null, verdict: 'unknown' }, pull: null, state: 'unknown', reasons: ['repo or pull unreadable'] };
+    return { ...empty, identity: { repo_id: repoId, pr_id: null, target: null, verdict: 'unknown' }, pull: null, state: 'unknown', reasons: ['repo or pull unreadable'] };
   }
   const pull = pullFacts(first.value.body);
-  const checked = expect.repo_id !== null || expect.pr_id !== null;
+  const checked = expect.repo_id !== null || expect.pr_id !== null || expectTarget !== null;
   const mismatch = (expect.repo_id !== null && expect.repo_id !== repoId) || (expect.pr_id !== null && expect.pr_id !== pull.id) || pull.base.repo_id !== repoId;
-  const identity = { repo_id: repoId, pr_id: pull.id, verdict: mismatch ? ('identity_mismatch' as const) : checked ? ('match' as const) : ('unchecked' as const) };
+  const targetOk = expectTarget === null || pull.base.ref === expectTarget;
+  const verdict = mismatch ? 'identity_mismatch' : !targetOk ? 'target_mismatch' : checked ? 'match' : 'unchecked';
+  const identity = { repo_id: repoId, pr_id: pull.id, target: pull.base.ref, verdict } as const;
   if (mismatch) return { ...empty, identity, pull, state: 'unknown', reasons: ['repo/PR identity does not match the task'] };
+  if (!targetOk) reasons.push('target does not match the task');
 
   if (pull.merged === true) {
-    return { ...empty, identity, pull, state: 'merged', merge_proof: await mergeProof(port, owner, repo, n, pull, repoId), reasons };
+    return { ...empty, identity, pull, state: 'merged', merge_proof: await mergeProof(port, owner, repo, n, pull, repoId, targetOk), reasons };
   }
   if (pull.head.sha === null || pull.base.ref === null || pull.merged !== false) {
     return { ...empty, identity, pull, state: 'unknown', reasons: ['pull facts incomplete'] };
   }
   const required = await readRequiredChecks(port, owner, repo, pull.base.ref);
   const comparison = compareRequired(required, snapshot);
-  const checks = /^[0-9a-f]{40}$/.test(pull.head.sha) ? await readCheckBundle(port, owner, repo, pull.head.sha, snapshot) : null;
+  const checks = SHA_RE.test(pull.head.sha) ? await readCheckBundle(port, owner, repo, pull.head.sha, snapshot) : null;
   const second = await port.get(`repos/${owner}/${repo}/pulls/${n}`);
   if (!second.ok) return { ...empty, identity, pull, state: 'unknown', required, comparison, checks, reasons: ['second pull read failed'] };
   const again = pullFacts(second.value.body);
   if (again.merged === true) {
-    return { ...empty, identity, pull: again, state: 'merged', merge_proof: await mergeProof(port, owner, repo, n, again, repoId), reasons: ['merged during observation'] };
+    return { ...empty, identity, pull: again, state: 'merged', merge_proof: await mergeProof(port, owner, repo, n, again, repoId, targetOk), reasons: [...reasons, 'merged during observation'] };
   }
   if (again.head.sha !== pull.head.sha || again.base.ref !== pull.base.ref || again.base.sha !== pull.base.sha || again.state !== pull.state) {
     return { ...empty, identity, pull: again, state: 'inconsistent', required, comparison, checks, reasons: ['head/base/state changed between reads'] };
@@ -557,7 +654,7 @@ export async function observePull(
   if (comparison.verdict !== 'covered') reasons.push(`required checks: ${comparison.verdict}`);
   if (checks === null || !checks.complete) reasons.push('check bundle incomplete');
   else if (!checks.all_success) reasons.push('not every snapshot check is success');
-  const green = pull.state === 'open' && comparison.verdict === 'covered' && checks !== null && checks.all_success;
+  const green = targetOk && pull.state === 'open' && comparison.verdict === 'covered' && checks !== null && checks.all_success;
   return { ...empty, identity, pull, state: pull.state === 'open' ? 'open' : 'closed', required, comparison, checks, green, reasons };
 }
 
@@ -584,7 +681,8 @@ function main(argv: readonly string[]): Promise<number> | number {
   const port = new GhPort(exec);
   const [owner, repo] = repoArg.split('/') as [string, string];
   const idOpt = (name: string): number | null => (opt(name) === undefined ? null : Number(opt(name)));
-  return observePull(port, owner, repo, pr, snapshot, { repo_id: idOpt('--expect-repo-id'), pr_id: idOpt('--expect-pr-id') }).then((observation) => {
+  const expect = { repo_id: idOpt('--expect-repo-id'), pr_id: idOpt('--expect-pr-id'), target: opt('--expect-target') ?? null };
+  return observePull(port, owner, repo, pr, snapshot, expect).then((observation) => {
     const report = { observation, ledger: port.ledger, evidence: port.evidence, limits: port.limits, mode: live ? 'live' : 'fixture' };
     const outFile = opt('--evidence-out');
     if (outFile !== undefined) writeFileSync(resolve(outFile), `${JSON.stringify(report, null, 2)}\n`);
@@ -595,7 +693,7 @@ function main(argv: readonly string[]): Promise<number> | number {
 
 function usage(): number {
   process.stderr.write(
-    'usage: gh.ts observe --repo OWNER/NAME --pr N --snapshot a,b [--expect-repo-id ID] [--expect-pr-id ID] (--fixture FILE | --live [--gh PATH]) [--evidence-out FILE]\n',
+    'usage: gh.ts observe --repo OWNER/NAME --pr N --snapshot a,b [--expect-repo-id ID] [--expect-pr-id ID] [--expect-target BRANCH] (--fixture FILE | --live [--gh PATH]) [--evidence-out FILE]\n',
   );
   return 2;
 }

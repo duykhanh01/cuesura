@@ -161,6 +161,12 @@ khai; đọc help/tài liệu không được tính là smoke đã đạt. Các 
 - **Evidence:** [Pull requests](https://docs.github.com/en/rest/pulls/pulls),
   [Branch protection](https://docs.github.com/en/rest/branches/branch-protection),
   [Rules for branch](https://docs.github.com/en/rest/repos/rules#get-rules-for-a-branch).
+  API `2026-03-10` [bỏ `merge_commit_sha`](https://docs.github.com/en/rest/about-the-rest-api/breaking-changes#version-2026-03-10)
+  khỏi PR payload, không nêu field thay thế; merge commit lấy từ `commit_id` của
+  [merged event](https://docs.github.com/en/rest/using-the-rest-api/issue-event-types?apiVersion=2026-03-10#merged)
+  qua [list issue events](https://docs.github.com/en/rest/issues/events?apiVersion=2026-03-10#list-issue-events).
+  Docs gọi `commit_id` là “HEAD commit that was merged”; ba fixture S0.3 cho thấy giá trị bằng
+  `merge_commit_sha` của API mặc định, khác `pulls.head.sha`, nên port coi trùng head/base là mâu thuẫn.
 - **Rationale:** Ghi riêng head tại merge với merge commit; squash/rebase không cho phép so chúng
   bằng nhau. Pin PR identity và raw-response digest, không suy ra merge từ branch bị xóa hoặc CI pass.
 - **Verification status:** API không được giả định là snapshot transaction. Fixture GitHub sandbox

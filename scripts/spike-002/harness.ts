@@ -34,6 +34,7 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { hashCanonical } from '../../src/shared/hash.ts';
 import { ROLE_SCHEMAS, isRole, roleJsonSchema, roleSchemaDigest, validateRoleResult, type Role, type ValidationIssue } from './role-schema.ts';
+import { summarizeStream } from './harness-stream.ts';
 import { DEFAULT_LIMITS, SafeIdSchema, execOperation, prepareRunDir, writeAtomic, type ExitRecord, type RunSpec } from './runner.ts';
 import { IN_SANDBOX, buildSandbox, sandboxCommand, type HostPolicy, defaultHostPolicy } from './sandbox.ts';
 
@@ -219,6 +220,13 @@ export type HarnessPlan = {
 
 const OUTPUT_NAME = 'final-response.json';
 
+/** Claude 2.1.306 rejects the 2020-12 meta-schema. The portable body uses shared draft-7 keywords. */
+function wireSchema(config: HarnessConfig, role: Role): Record<string, unknown> {
+  const schema = roleJsonSchema(role);
+  if (config.vendor === 'claude') delete schema['$schema'];
+  return schema;
+}
+
 /** Builds the full plan. Creates the run directory skeleton but copies no auth and spawns nothing. */
 export function planInvocation(input: PlanInput): HarnessPlan {
   const { config, role } = input;
@@ -235,7 +243,7 @@ export function planInvocation(input: PlanInput): HarnessPlan {
     model: config.model ?? '',
     effort: config.effort ?? '',
     schema_file: join(IN_SANDBOX.schema, schemaName),
-    schema_inline: JSON.stringify(roleJsonSchema(role)),
+    schema_inline: JSON.stringify(wireSchema(config, role)),
     output_file: join(IN_SANDBOX.scratch, OUTPUT_NAME),
     prompt_file: join(IN_SANDBOX.context, 'prompt.md'),
     settings_file: join(IN_SANDBOX.context, config.settings?.file_name ?? 'settings.json'),
@@ -310,7 +318,7 @@ export function planInvocation(input: PlanInput): HarnessPlan {
     argv_template_hash: hashCanonical({ argv: config.argv, role_args: config.role_args }),
     settings_hash: config.settings === null ? null : hashCanonical(config.settings.content),
     result_source: config.result_source,
-    schema: { role, id: ROLE_SCHEMAS[role].id, digest: roleSchemaDigest(role) },
+    schema: { role, id: ROLE_SCHEMAS[role].id, digest: roleSchemaDigest(role), wire_digest: hashCanonical(wireSchema(config, role)) },
     isolation: {
       native_result: config.isolation.native_result,
       selected_inner_mode: config.isolation.requested_inner_mode,
@@ -336,7 +344,7 @@ export function planInvocation(input: PlanInput): HarnessPlan {
 
 /** Writes schema/prompt/settings read-only and copies only the selected auth files (0600) into the private home. */
 export function materialize(plan: HarnessPlan, config: HarnessConfig, role: Role, prompt: string): void {
-  writeFileSync(plan.files.schema, `${JSON.stringify(roleJsonSchema(role), null, 2)}\n`, { mode: 0o400, flag: 'wx' });
+  writeFileSync(plan.files.schema, `${JSON.stringify(wireSchema(config, role), null, 2)}\n`, { mode: 0o400, flag: 'wx' });
   writeFileSync(plan.files.prompt, prompt, { mode: 0o400, flag: 'wx' });
   if (config.settings !== null && plan.files.settings !== null) {
     writeFileSync(plan.files.settings, `${JSON.stringify(config.settings.content, null, 2)}\n`, { mode: 0o400, flag: 'wx' });
@@ -363,6 +371,7 @@ export type LedgerEntry = {
   readonly wall_cap_ms: number;
   readonly event: 'reserved' | 'finished';
   readonly outcome: string | null;
+  readonly approved_max_invocations?: number;
 };
 
 export function readLedger(path: string): LedgerEntry[] {
@@ -400,16 +409,18 @@ function withLedgerLock<T>(path: string, fn: () => T): T {
 }
 
 /** Reserves one paid invocation before spawn. Every reservation counts, whatever the outcome. */
-export function reserveBudget(path: string, attemptId: string, vendor: string, role: string, wallMs: number): LedgerEntry {
+export function reserveBudget(path: string, attemptId: string, vendor: string, role: string, wallMs: number, maxInvocations: number = SPIKE_BUDGET.max_invocations): LedgerEntry {
+  if (!Number.isSafeInteger(maxInvocations) || maxInvocations < 1) throw new Error('approved invocation limit must be a positive safe integer');
   return withLedgerLock(path, () => {
     const entries = readLedger(path);
     const reserved = entries.filter((e) => e.event === 'reserved');
-    if (reserved.length >= SPIKE_BUDGET.max_invocations) {
-      throw new Error(`spike budget exhausted: ${reserved.length}/${SPIKE_BUDGET.max_invocations} invocations already reserved; ask the owner before more`);
+    if (reserved.length >= maxInvocations) {
+      throw new Error(`spike budget exhausted: ${reserved.length}/${maxInvocations} invocations already reserved; ask the owner before more`);
     }
     if (reserved.some((e) => e.attempt_id === attemptId)) throw new Error(`attempt ${attemptId} already reserved`);
     if (wallMs > SPIKE_BUDGET.max_wall_ms) throw new Error('wall cap exceeds 5 minutes');
-    const entry: LedgerEntry = { seq: entries.length, at: new Date().toISOString(), attempt_id: attemptId, vendor, role, wall_cap_ms: wallMs, event: 'reserved', outcome: null };
+    const entry: LedgerEntry = { seq: entries.length, at: new Date().toISOString(), attempt_id: attemptId, vendor, role, wall_cap_ms: wallMs, event: 'reserved', outcome: null,
+      ...(maxInvocations !== SPIKE_BUDGET.max_invocations ? { approved_max_invocations: maxInvocations } : {}) };
     appendDurable(path, `${JSON.stringify(entry)}\n`);
     return entry;
   });
@@ -487,6 +498,8 @@ export function normalizeResult(plan: HarnessPlan, config: HarnessConfig, role: 
     return { role, status: 'process_failed', issues: [`outcome ${exit.outcome} exit ${String(exit.exit_code)}`], raw_digest: digest, result_path: null };
   }
   if (!validation.ok) return { role, status: 'invalid_output', issues: validation.issues, raw_digest: digest, result_path: null };
+  const runFile = (name: string): string => (existsSync(join(plan.run_dir, name)) ? readFileSync(join(plan.run_dir, name), 'utf8') : '');
+  const stream = summarizeStream(config.vendor, runFile('events.jsonl'), runFile('stderr.log'));
   const out = {
     schema_version: 1,
     provenance: {
@@ -502,7 +515,8 @@ export function normalizeResult(plan: HarnessPlan, config: HarnessConfig, role: 
       binary_sha256: plan.manifest['binary'] !== undefined ? (plan.manifest['binary'] as { sha256: string }).sha256 : null,
       source: config.result_source.kind,
       raw_digest: digest,
-      usage: exit.usage,
+      usage: stream.usage,
+      stream: { permission_denials: stream.permission_denials, rate_limit: stream.rate_limit, failure: stream.failure, warnings: stream.warnings, truncated_records: stream.truncated_records },
     },
     value: validation.value,
   };
@@ -514,13 +528,13 @@ export function normalizeResult(plan: HarnessPlan, config: HarnessConfig, role: 
 export type RunOutcome = { readonly plan: HarnessPlan; readonly exit: ExitRecord | null; readonly result: NormalizedResult | null; readonly refused: string | null };
 
 /** plan → (paid guard + ledger reservation) → materialize → runner exec → normalize. */
-export async function runInvocation(input: PlanInput, opts: { ledger: string; allowPaid: boolean }): Promise<RunOutcome> {
+export async function runInvocation(input: PlanInput, opts: { ledger: string; allowPaid: boolean; maxInvocations?: number }): Promise<RunOutcome> {
   const plan = planInvocation(input);
   if (!plan.readiness.ready) return { plan, exit: null, result: null, refused: `not ready: ${plan.readiness.blockers.join('; ')}` };
   if (plan.paid && !opts.allowPaid) return { plan, exit: null, result: null, refused: 'paid vendor requires --allow-paid' };
   if (existsSync(join(plan.run_dir, 'launch.json'))) return { plan, exit: null, result: null, refused: 'attempt already launched; use runner receipt' };
   // Only paid vendors consume the shared spike budget; the local fixture vendor never does.
-  if (plan.paid) reserveBudget(opts.ledger, input.attemptId, input.config.vendor, input.role, plan.spec.deadline_ms);
+  if (plan.paid) reserveBudget(opts.ledger, input.attemptId, input.config.vendor, input.role, plan.spec.deadline_ms, opts.maxInvocations);
   let outcome = 'unknown';
   try {
     materialize(plan, input.config, input.role, input.prompt);
@@ -557,7 +571,7 @@ function main(argv: readonly string[]): Promise<number> | number {
     const ledger = opt('--ledger');
     if (ledger === undefined) return usage();
     const entries = readLedger(resolve(ledger));
-    out({ budget: SPIKE_BUDGET, reserved: entries.filter((e) => e.event === 'reserved').length, entries });
+    out({ budget: SPIKE_BUDGET, approved_max_invocations: Math.max(SPIKE_BUDGET.max_invocations, ...entries.map((e) => e.approved_max_invocations ?? 0)), reserved: entries.filter((e) => e.event === 'reserved').length, entries });
     return 0;
   }
   if (configFile === undefined) return usage();
@@ -592,7 +606,8 @@ function main(argv: readonly string[]): Promise<number> | number {
     const ledger = opt('--ledger');
     if (ledger === undefined) return usage();
     if (promptFile === undefined) return usage();
-    return runInvocation(input, { ledger: resolve(ledger), allowPaid: rest.includes('--allow-paid') }).then((r) => {
+    const max = opt('--max-invocations');
+    return runInvocation(input, { ledger: resolve(ledger), allowPaid: rest.includes('--allow-paid'), ...(max === undefined ? {} : { maxInvocations: Number(max) }) }).then((r) => {
       out({ refused: r.refused, exit: r.exit, result: r.result, manifest: r.plan.manifest });
       return r.result?.status === 'valid' ? 0 : 1;
     });
@@ -602,7 +617,7 @@ function main(argv: readonly string[]): Promise<number> | number {
 
 function usage(): number {
   process.stderr.write(
-    'usage: harness.ts check --config FILE | plan|run --config FILE --role coder|fixer|reviewer --root DIR --attempt-id ID --worktree DIR [--git-dir DIR]... [--toolchain DIR]... [--prompt FILE] [--ledger FILE --allow-paid] | ledger --ledger FILE\n',
+    'usage: harness.ts check --config FILE | plan|run --config FILE --role coder|fixer|reviewer --root DIR --attempt-id ID --worktree DIR [--git-dir DIR]... [--toolchain DIR]... [--prompt FILE] [--ledger FILE --allow-paid [--max-invocations OWNER_APPROVED_TOTAL]] | ledger --ledger FILE\n',
   );
   return 2;
 }

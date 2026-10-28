@@ -110,6 +110,14 @@ describe('spike-002 sandbox layout (execution contract)', () => {
     expect(() => buildSandbox(layout('coder', { toolchain: [link] }), policy)).toThrow(/symlink/);
   });
 
+  it('rejects a worktree .git symlink that would expose an outside file through the metadata mount', () => {
+    const wt = d('symlink-worktree');
+    const outside = join(d('outside'), 'credential-canary');
+    writeFileSync(outside, 'disposable credential fixture');
+    symlinkSync(outside, join(wt, '.git'));
+    expect(() => buildSandbox(layout('coder', { worktree: wt }), policy)).toThrow(/worktree \.git.*symlink/);
+  });
+
   it.each(['GH_TOKEN', 'GITHUB_TOKEN', 'SSH_AUTH_SOCK', 'DBUS_SESSION_BUS_ADDRESS', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'CUSR_ADMIN_TOKEN'])(
     'never passes %s into the sandbox, for any role',
     (key) => {

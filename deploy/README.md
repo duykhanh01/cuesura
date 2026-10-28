@@ -26,8 +26,8 @@ Probe `ro-bind / /` chỉ kiểm namespace khởi động, không là sandbox ta
 tạm, kiểm mount/PID/env/secret/control và re-exec/copy/raw-userns trên layout tối thiểu. Kết quả
 local không thay full S0.1: vẫn cần FD/socket thật, mọi vùng rw/path-race, lifetime cgroup và native
 nội bộ/permission/auth của từng vendor/version/role. Ghi command/exit/version/hash và nguồn host
-vào [report](../specs/002-task-to-green-pr/spike-0-report.md). T002 còn phải cập nhật thông điệp
-prototype theo ADR-0004; thông điệp cũ yêu cầu child stack không phải tiêu chí pass hiện tại.
+vào [report](../specs/002-task-to-green-pr/spike-0-report.md). T002 đã cập nhật thông điệp prototype
+theo ADR-0004; thông điệp cũ yêu cầu child stack không phải tiêu chí pass hiện tại.
 
 Nếu host từ chối userns, doctor chặn và báo policy/prerequisite cụ thể. Quản trị viên review
 kernel/package/profile hiện có để provisioning phù hợp; không tự sudo, đổi sysctl, ghi đè profile

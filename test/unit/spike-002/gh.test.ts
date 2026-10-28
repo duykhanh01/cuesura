@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -15,6 +16,8 @@ import {
   spawnGhExec,
   type FixtureResponse,
   type FixtureScript,
+  type GhLimits,
+  type Observation,
 } from '../../../scripts/spike-002/gh.ts';
 
 const FIXTURE = fileURLToPath(new URL('../../fixtures/runtime/spike-0/gh-port/open-green.synthetic.json', import.meta.url));
@@ -57,7 +60,7 @@ describe('spike-002 gh port boundary', () => {
     expect(exec.calls.every((c) => c.startsWith('GET '))).toBe(true);
   });
 
-  it.each([`${R}/pulls/5/merges`, `${R}/merges`, `${R}/actions/runs/1/rerun`, `${R}/pulls`, `${R}/git/refs/heads/main`, 'user', `${R}/pulls/5/merge/../../x`])(
+  it.each([`${R}/pulls/5/merges`, `${R}/merges`, `${R}/issues/5/comments`, `${R}/issues/events`, `${R}/issues/5/events/1`, `${R}/actions/runs/1/rerun`, `${R}/pulls`, `${R}/git/refs/heads/main`, 'user', `${R}/pulls/5/merge/../../x`])(
     'refuses endpoint %s',
     async (path) => {
       await expect(new GhPort(fixtureExec(green)).get(path)).rejects.toThrow(GhPortError);
@@ -209,6 +212,17 @@ describe('spike-002 gh port observation facts', () => {
     expect(o.green).toBe(false);
   });
 
+  it('ruleset-only branch: protected=true with protection 404 "Branch not protected" reads rules instead of unknown', async () => {
+    const o = await observe({ [`${R}/branches/main/protection`]: [{ status: 404, body: { message: 'Branch not protected', status: '404' } }] }, ['test']);
+    expect(o.required).toMatchObject({ status: 'required', checks: [{ name: 'test', source: 'rules', enforcement: 'active' }] });
+    expect(o.comparison).toEqual({ verdict: 'covered', github: ['test'] });
+  });
+
+  it('a bare protection 404 (no access) stays unknown', async () => {
+    const o = await observe({ [`${R}/branches/main/protection`]: [{ status: 404, body: { message: 'Not Found' } }] });
+    expect(o.required?.status).toBe('unknown');
+  });
+
   it('none only when the branch is confirmed unprotected and rules are fully read and empty', async () => {
     const port = new GhPort(fixtureExec(script({ [`${R}/branches/main`]: [{ status: 200, body: { protected: false } }], [q(`${R}/rules/branches/main`)]: [{ status: 200, body: [] }] })));
     const r = await readRequiredChecks(port, 'octo-sandbox', 'cusr-spike', 'main');
@@ -246,11 +260,23 @@ describe('spike-002 gh port observation facts', () => {
     expect(o).toMatchObject({ state: 'inconsistent', green: false });
   });
 
-  it('merged PR yields an unverified head-at-merge candidate, not a proof', async () => {
-    const merged = { ...pullBody, state: 'closed', merged: true, merged_at: '2026-10-28T00:00:00Z' };
-    const o = await observe({ [`${R}/pulls/5`]: [{ status: 200, body: merged }], [`${R}/pulls/5/merge`]: [{ status: 204 }] });
+  it('merged PR keeps the head as a candidate and takes the merge commit from the merged event', async () => {
+    const at = '2026-10-28T00:00:00Z';
+    const merged = { ...pullBody, state: 'closed', merged: true, merged_at: at };
+    const event = { id: 1, event: 'merged', commit_id: 'c'.repeat(40), commit_url: `https://api.github.com/${R}/commits/${'c'.repeat(40)}`, created_at: at };
+    const o = await observe({ [`${R}/pulls/5`]: [{ status: 200, body: merged }], [`${R}/pulls/5/merge`]: [{ status: 204 }], [q(`${R}/issues/5/events`)]: [{ status: 200, body: [event] }] });
     expect(o.state).toBe('merged');
-    expect(o.merge_proof).toMatchObject({ head_at_merge_candidate: SHA, head_source: 'pulls.head.sha', proof_status: 'unverified_pending_s0_3', merge_endpoint: 'merged_204', repo_id: 420001, pr_id: 770001 });
+    expect(o.merge_proof).toMatchObject({
+      head_at_merge_candidate: SHA,
+      head_source: 'pulls.head.sha',
+      merge_commit_sha: 'c'.repeat(40),
+      merge_commit: { status: 'found', source: 'issues.events.merged.commit_id' },
+      merge_endpoint: 'merged_204',
+      completeness: 'complete',
+      gaps: [],
+      repo_id: 420001,
+      pr_id: 770001,
+    });
     expect(o.port.ledger.every((r) => r.method === 'GET')).toBe(true);
   });
 
@@ -259,6 +285,7 @@ describe('spike-002 gh port observation facts', () => {
     const o = await observe({ [`${R}/pulls/5`]: [{ status: 200, body: pullBody }, { status: 200, body: merged }], [`${R}/pulls/5/merge`]: [{ status: 204 }] });
     expect(o.state).toBe('merged');
     expect(o.reasons).toContain('merged during observation');
+    expect(o.merge_proof).toMatchObject({ merged: true, completeness: 'incomplete', merge_commit_sha: null, merge_commit: { status: 'unknown' } });
   });
 
   it('closed but not merged is not a merge', async () => {
@@ -285,5 +312,146 @@ describe('spike-002 gh port observation facts', () => {
     expect(out).toMatchObject({ mode: 'fixture', observation: { green: true } });
     const none = spawnSync(process.execPath, [GH_TS, 'observe', '--repo', 'octo-sandbox/cusr-spike', '--pr', '5'], { encoding: 'utf8' });
     expect(none.status).toBe(2);
+  });
+});
+
+// Real API 2026-03-10 responses saved by S0.3 (T008); hashes are checked against the evidence manifest.
+const REAL = fileURLToPath(new URL('../../fixtures/runtime/spike-0/github/real-20261028/', import.meta.url));
+const realManifest = JSON.parse(readFileSync(join(REAL, 'manifest.json'), 'utf8')) as { files: Record<string, string> };
+const RR = 'repos/duykhanh01/cuesura-spike-002-sandbox';
+const REAL_REPO_ID = 1436664345;
+const EVENTS_FILE: Readonly<Record<number, string>> = { 1: 'response-03.json', 2: 'response-15.json', 3: 'response-27.json' };
+
+function realFile(name: string): unknown {
+  const raw = readFileSync(join(REAL, name));
+  expect(createHash('sha256').update(raw).digest('hex')).toBe(realManifest.files[name]);
+  return JSON.parse(raw.toString('utf8')) as unknown;
+}
+
+function realCase(n: number): { script: FixtureScript; pull: Record<string, unknown>; events: Record<string, unknown>[]; legacySha: string } {
+  const port = realFile(`port-pr-${n}-final.json`) as { evidence: { path: string; body_redacted: string }[] };
+  const body = (path: string): unknown => JSON.parse(port.evidence.find((e) => e.path === path)?.body_redacted ?? 'null') as unknown;
+  const pull = body(`${RR}/pulls/${n}`) as Record<string, unknown>;
+  const events = realFile(EVENTS_FILE[n] as string) as Record<string, unknown>[];
+  const legacy = (realFile('initial-pulls-default-api.json') as { number: number; merge_commit_sha: string }[]).find((p) => p.number === n);
+  return {
+    script: {
+      source: `real-20261028 PR ${String(n)}`,
+      responses: {
+        [RR]: [{ status: 200, body: body(RR) }],
+        [`${RR}/pulls/${n}`]: [{ status: 200, body: pull }],
+        [`${RR}/pulls/${n}/merge`]: [{ status: 204 }],
+        [q(`${RR}/issues/${n}/events`)]: [{ status: 200, body: events }],
+      },
+    },
+    pull,
+    events,
+    legacySha: legacy?.merge_commit_sha ?? '',
+  };
+}
+
+async function observeReal(n: number, over: Record<string, readonly FixtureResponse[]> = {}, target: string | null = 'master', limits: Partial<GhLimits> = {}): Promise<Observation & { port: GhPort }> {
+  const c = realCase(n);
+  const port = new GhPort(fixtureExec({ ...c.script, responses: { ...c.script.responses, ...over } }), limits);
+  const o = await observePull(port, 'duykhanh01', 'cuesura-spike-002-sandbox', n, [], { repo_id: REAL_REPO_ID, pr_id: c.pull['id'] as number, target });
+  return { ...o, port };
+}
+
+describe('spike-002 gh port merge proof from real API 2026-03-10 responses', () => {
+  it.each([1, 2, 3])('PR %i: no merge_commit_sha, merged event yields the same SHA the default API reported', async (n) => {
+    const c = realCase(n);
+    expect('merge_commit_sha' in c.pull).toBe(false);
+    const o = await observeReal(n);
+    expect(o.identity).toEqual({ repo_id: REAL_REPO_ID, pr_id: c.pull['id'], target: 'master', verdict: 'match' });
+    expect(o.state).toBe('merged');
+    expect(o.merge_proof).toMatchObject({
+      merged: true,
+      target: 'master',
+      merge_commit_sha: c.legacySha,
+      merge_commit: { status: 'found', sha: c.legacySha, events: { pages: 1, complete: true } },
+      head_at_merge_candidate: (c.pull['head'] as { sha: string }).sha,
+      merge_endpoint: 'merged_204',
+      completeness: 'complete',
+      gaps: [],
+    });
+    expect(o.merge_proof?.merge_commit_sha).not.toBe((c.pull['head'] as { sha: string }).sha);
+    expect(o.port.ledger.map((r) => `${r.method} ${r.path}`)).toEqual([
+      `GET ${RR}`,
+      `GET ${RR}/pulls/${n}`,
+      `GET ${RR}/pulls/${n}/merge`,
+      `GET ${q(`${RR}/issues/${n}/events`)}`,
+      `GET ${RR}/pulls/${n}`,
+    ]);
+    expect(o.port.evidence.every((e) => /^sha256:[0-9a-f]{64}$/.test(e.digest))).toBe(true);
+  });
+
+  const c1 = (): ReturnType<typeof realCase> => realCase(1);
+  const merged = (): Record<string, unknown> => c1().events.find((e) => e['event'] === 'merged') as Record<string, unknown>;
+  const withEvents = (events: unknown[]): Record<string, readonly FixtureResponse[]> => ({ [q(`${RR}/issues/1/events`)]: [{ status: 200, body: events }] });
+  const head = (): string => (c1().pull['head'] as { sha: string }).sha;
+  const baseSha = (): string => (c1().pull['base'] as { sha: string }).sha;
+
+  it.each<[string, () => Record<string, readonly FixtureResponse[]>, string]>([
+    ['events 403', () => ({ [q(`${RR}/issues/1/events`)]: [{ status: 403, body: { message: 'Resource not accessible' } }] }), 'unknown'],
+    ['events 410', () => ({ [q(`${RR}/issues/1/events`)]: [{ status: 410 }] }), 'unknown'],
+    ['events timeout', () => ({ [q(`${RR}/issues/1/events`)]: [{ status: 0, transport: 'timeout' }] }), 'unknown'],
+    ['events not a list', () => ({ [q(`${RR}/issues/1/events`)]: [{ status: 200, body: { message: 'x' } }] }), 'unknown'],
+    ['no merged event', () => withEvents(c1().events.filter((e) => e['event'] !== 'merged')), 'missing'],
+    ['merged event without commit_id', () => withEvents([{ ...merged(), commit_id: null }]), 'missing'],
+    ['short commit_id', () => withEvents([{ ...merged(), commit_id: 'd329cc7' }]), 'invalid'],
+    ['uppercase commit_id', () => withEvents([{ ...merged(), commit_id: String(merged()['commit_id']).toUpperCase() }]), 'invalid'],
+    ['two merged events', () => withEvents([merged(), { ...merged(), id: 2, commit_id: 'e'.repeat(40) }]), 'conflict'],
+    ['commit_id is the PR head', () => withEvents([{ ...merged(), commit_id: head(), commit_url: `https://api.github.com/${RR}/commits/${head()}` }]), 'conflict'],
+    ['commit_id is the PR base', () => withEvents([{ ...merged(), commit_id: baseSha(), commit_url: `https://api.github.com/${RR}/commits/${baseSha()}` }]), 'conflict'],
+    ['commit_url in another repo', () => withEvents([{ ...merged(), commit_url: `https://api.github.com/repos/other/fork/commits/${String(merged()['commit_id'])}` }]), 'conflict'],
+    ['event time differs from merged_at', () => withEvents([{ ...merged(), created_at: '2026-10-28T08:40:00Z' }]), 'conflict'],
+    ['legacy merge_commit_sha disagrees', () => ({ [`${RR}/pulls/1`]: [{ status: 200, body: { ...c1().pull, merge_commit_sha: 'f'.repeat(40) } }] }), 'conflict'],
+  ])('%s → merged fact kept, merge commit %s, proof incomplete', async (_name, over, status) => {
+    const o = await observeReal(1, over());
+    expect(o.state).toBe('merged');
+    expect(o.merge_proof).toMatchObject({ merged: true, merge_commit_sha: null, merge_commit: { status, sha: null }, completeness: 'incomplete' });
+    expect(o.merge_proof?.gaps.some((g) => g.startsWith(`merge commit ${status}`))).toBe(true);
+    expect(o.port.ledger.every((r) => r.method === 'GET')).toBe(true);
+  });
+
+  it('pagination beyond the page cap is unknown, never a missing event', async () => {
+    const filler = Array.from({ length: 100 }, (_, i) => ({ id: 10_000 + i, event: 'labeled', created_at: '2026-10-28T08:00:00Z' }));
+    const o = await observeReal(1, { [q(`${RR}/issues/1/events`)]: [{ status: 200, body: filler, headers: { link: '<x>; rel="next"' } }] }, 'master', { max_pages: 1 });
+    expect(o.merge_proof).toMatchObject({ merge_commit: { status: 'unknown', basis: 'issue events truncated by page cap', events: { complete: false } }, completeness: 'incomplete' });
+  });
+
+  it('reads every page before deciding, then finds the single merged event', async () => {
+    const filler = Array.from({ length: 100 }, (_, i) => ({ id: 10_000 + i, event: 'labeled', created_at: '2026-10-28T08:00:00Z' }));
+    const o = await observeReal(1, { [q(`${RR}/issues/1/events`)]: [{ status: 200, body: filler }], [q(`${RR}/issues/1/events`, 2)]: [{ status: 200, body: c1().events }] });
+    expect(o.merge_proof).toMatchObject({ merge_commit: { status: 'found', events: { pages: 2, complete: true } }, merge_commit_sha: c1().legacySha, completeness: 'complete' });
+  });
+
+  it('an agreeing legacy merge_commit_sha does not replace the event source', async () => {
+    const o = await observeReal(1, { [`${RR}/pulls/1`]: [{ status: 200, body: { ...c1().pull, merge_commit_sha: c1().legacySha } }] });
+    expect(o.merge_proof).toMatchObject({ merge_commit: { status: 'found', source: 'issues.events.merged.commit_id' }, completeness: 'complete' });
+  });
+
+  it('merge endpoint 404 or a changed re-read keeps merged but leaves the proof incomplete', async () => {
+    const notFound = await observeReal(1, { [`${RR}/pulls/1/merge`]: [{ status: 404 }] });
+    expect(notFound.merge_proof).toMatchObject({ merged: true, merge_endpoint: 'not_merged_404_unconfirmed', merge_commit: { status: 'found' }, completeness: 'incomplete' });
+    const moved = { ...c1().pull, head: { ...(c1().pull['head'] as object), sha: 'e'.repeat(40) } };
+    const changed = await observeReal(1, { [`${RR}/pulls/1`]: [{ status: 200, body: c1().pull }, { status: 200, body: moved }] });
+    expect(changed.merge_proof?.gaps).toContain('pull changed between merge-proof reads');
+    expect(changed.merge_proof?.completeness).toBe('incomplete');
+  });
+
+  it('target other than the task is target_mismatch and never a complete proof', async () => {
+    const o = await observeReal(1, {}, 'main');
+    expect(o.identity.verdict).toBe('target_mismatch');
+    expect(o.merge_proof).toMatchObject({ merged: true, completeness: 'incomplete' });
+    expect(o.merge_proof?.gaps).toContain('target does not match the task');
+  });
+
+  it('repo identity mismatch stops before any merge-proof read', async () => {
+    const c = realCase(1);
+    const port = new GhPort(fixtureExec(c.script));
+    const o = await observePull(port, 'duykhanh01', 'cuesura-spike-002-sandbox', 1, [], { repo_id: 1, pr_id: c.pull['id'] as number, target: 'master' });
+    expect(o).toMatchObject({ state: 'unknown', merge_proof: null, identity: { verdict: 'identity_mismatch' } });
+    expect(port.ledger).toHaveLength(2);
   });
 });

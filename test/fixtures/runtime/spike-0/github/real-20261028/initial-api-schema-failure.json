@@ -1,0 +1,36 @@
+{
+  "kind": "spike-0-github-post-merge-proof",
+  "checked_at": "2026-10-28T08:38:09.959004+00:00",
+  "repository": "duykhanh01/cuesura-spike-002-sandbox",
+  "repository_id": 1436664345,
+  "api_version": "2026-03-10",
+  "gh_version": "gh version 2.103.3 (2026-10-26)",
+  "pull_requests": [],
+  "request_ledger": [
+    {
+      "sequence": 1,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox",
+      "exit": 0,
+      "response": "initial-response-01.json",
+      "sha256": "b8390d72ed26daf201fed59a314e3c96e44720400b255833d1c8069bb17070a9"
+    },
+    {
+      "sequence": 2,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/pulls/1",
+      "exit": 0,
+      "response": "initial-response-02.json",
+      "sha256": "d4a964354e4d626c8ebc0f2e72fff8d6440eca098041c4dd69de174e4638848c"
+    }
+  ],
+  "merge_requests_sent": 0,
+  "scope": "Only owner-authorized merged fixture branches; no merge endpoint mutation, default branch write, rules/protection mutation, model calls or production repository.",
+  "private": true,
+  "default_branch": "master",
+  "execution": {
+    "exit": 1,
+    "error": "KeyError: merge_commit_sha (REST 2026-03-10 omitted field)",
+    "mutations_sent": 0
+  }
+}

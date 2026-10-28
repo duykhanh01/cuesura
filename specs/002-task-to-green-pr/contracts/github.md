@@ -26,11 +26,18 @@ của process port dừng/reconcile gh và cap bytes/pages/calls; GH_PROMPT_DISA
 không log auth/env secret. Credential chỉ ở home/env orchestrator, không mount agent. Raw evidence
 ghi response/status/digest; gh không quyết định task state hoặc tự reset ngân sách retry.
 
-1. GET `/repos/{owner}/{repo}/pulls/{number}` lấy ID/repo/head/base/state/merged/merged_at/
-   merge_commit_sha. PR identity phải khớp task, không chỉ URL do user nhập.
+1. GET `/repos/{owner}/{repo}/pulls/{number}` lấy ID/repo/head/base/state/merged/merged_at.
+   PR identity (repo ID, PR ID, target) phải khớp task, không chỉ URL do user nhập. API pin
+   `2026-03-10` không còn `merge_commit_sha`; nếu field xuất hiện thì chỉ dùng để đối chiếu.
 2. Nếu merged: thu merge proof và head-at-merge theo capability fixture. Không cần đợi CI/rules
    pass để ghi merge; bước 3 chỉ phục vụ chứng nhận/chờ khi chưa merge. Không suy từ mergeable,
-   PR closed hoặc branch mất; `merge_commit_sha` phải được hiểu theo trạng thái merged.
+   PR closed hoặc branch mất. Merge commit lấy từ `commit_id` của event `merged` trong GET
+   `/repos/{owner}/{repo}/issues/{number}/events` (phân trang đủ trong cap). Chỉ nhận khi có đúng
+   một merged event, SHA 40 hex, khác `head.sha`/`base.sha`, `commit_url` thuộc repo này,
+   `created_at` bằng `merged_at` và khớp `merge_commit_sha` nếu có. Thiếu/truncated → missing/
+   unknown; nhiều event hoặc lệch → conflict; sai dạng → invalid. Proof `complete` cần thêm GET
+   merge 204, target khớp task và PR đọc lại không đổi; nếu không, giữ fact merged nhưng proof
+   `incomplete` kèm gaps. Không suy merge/squash/rebase từ commit graph.
 3. Nếu chưa merge: GET branch/protection, `/rules/branches/{target}`, commit check-runs và statuses
    của observed head. Pagination phải đầy đủ trong cap; không đủ → completeness=false/unknown.
 4. GET PR lại; bundle head/base/state khác lần đầu thì inconsistent, không báo xanh hoặc dùng
@@ -50,6 +57,9 @@ FR-040.12, không thay bằng HEAD hiện tại hoặc suy từ merge commit squ
 - `github_required=none` chỉ khi branch read thành công xác nhận unprotected, active rules đọc đủ
   không có luật; hoặc đọc đủ classic+rules xác nhận không có required check. Rules `evaluate` không
   phải enforced; lưu provenance và enforcement. 401/403/404 không có bằng chứng hỗ trợ → unknown.
+  Ngoại lệ đã kiểm live (S0.3, 2026-10-28): branch chỉ có ruleset vẫn trả `protected: true`, còn
+  classic protection trả 404 với body `Branch not protected`; khi đó coi là không có classic và đọc
+  tiếp rules. 404 khác body đó (vd `Not Found` do thiếu quyền) vẫn là unknown.
 - Protected branch cần đọc được cả classic protection và active rules áp dụng từ repo/org; rule
   API không thay classic protection. Missing permission/feature response hoặc truncated pages
   không được coi empty. Non-check rules ghi lại nhưng không tuyên bố PR đủ điều kiện merge.
@@ -93,6 +103,12 @@ Fake HTTP server ghi request ledger và response script cho: tất cả 2xx/401/
 pagination cutoff, ruleset inherited/classic, none vs unknown, app identity, status/check collision,
 rerun success cũ/pending mới, concurrent head/base change và late push/merge. Test xác nhận zero
 merge request kể cả request yolo/approval và legacy effect lạc vào executor.
+
+Prototype `scripts/spike-002/gh.ts` đã có regression từ response API 2026 thật (thiếu
+`merge_commit_sha`, merged event hợp lệ) và các case thiếu/truncated/mâu thuẫn; live read-only trên
+ba PR sandbox S0.3 cho proof `complete`, xem
+[manifest](../../../test/fixtures/runtime/spike-0/github/real-20261028-merge-event/manifest.json).
+Classic/rules/app-pinned/unknown vẫn chỉ có fixture local.
 
 Smoke GitHub thật ghi repo/PR URL, expected/checked/merged head, merge commit, raw proof hash,
 request count và đầy đủ sources. Hai PR acceptance thật không được thay bằng fake-server pass.

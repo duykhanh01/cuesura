@@ -5,9 +5,9 @@
  *   node scripts/spike-002/sandbox.ts probe [--role R|--all] [--base DIR] [--apparmor-fixture]
  *
  * `probe` builds a throwaway git repo + linked worktree and runs filesystem/PID/secret/control
- * canaries inside bwrap. A passing probe on a host without the cusr-bwrap AppArmor stack is NOT
- * S0.1 evidence: it only shows the mount layout; capability denial must come from T006 on the
- * provisioned host. The probe never loads policy, uses sudo or touches sysctl.
+ * canaries inside bwrap. Under ADR-0004 these are partial S0.1 evidence: full FD/socket/race,
+ * lifetime and pinned vendor proofs still belong to T006. The AppArmor child stack is optional
+ * hardening, not a baseline prerequisite. The probe never loads policy, uses sudo or touches sysctl.
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
@@ -179,7 +179,10 @@ export function buildSandbox(input: SandboxLayout, policy: HostPolicy = defaultH
   mounts.push({ kind: role === 'reviewer' ? 'ro' : 'rw', source: worktree, target: worktree, purpose: 'worktree' });
   // `.git` (file for linked worktrees, dir for a main checkout) is metadata: overlay it read-only.
   const dotGit = join(worktree, '.git');
-  if (existsSync(dotGit)) mounts.push({ kind: 'ro', source: dotGit, target: dotGit, purpose: 'git-metadata' });
+  if (existsSync(dotGit)) {
+    checkNotForbidden(checkSource(dotGit, 'worktree .git'), 'worktree .git', policy);
+    mounts.push({ kind: 'ro', source: dotGit, target: dotGit, purpose: 'git-metadata' });
+  }
   for (const g of layout.git_dirs) {
     checkNotForbidden(checkSource(g, 'git_dir'), 'git_dir', policy);
     mounts.push({ kind: 'ro', source: g, target: g, purpose: 'git-metadata' });
@@ -431,7 +434,7 @@ export function probeRole(role: SandboxRole, fx: ProbeFixture, bwrap = '/usr/bin
   const env = runCheck(plan, 'env', '', bwrap);
   const leaked = env.split(/\s+/).filter((k) => FORBIDDEN_ENV.test(k) || SECRET_ENV.test(k));
   results.push({ name: 'no secret env', expect: 'denied', observed: env, pass: leaked.length === 0 });
-  // AppArmor stack is evidence only on the provisioned host (T006); recorded, never judged here.
+  // Optional host hardening is recorded separately from the baseline access boundary (ADR-0004).
   results.push({ name: 'apparmor label', expect: 'record', observed: runCheck(plan, 'label', '', bwrap), pass: null });
   return results;
 }
@@ -459,7 +462,7 @@ export function runProbe(roles: readonly SandboxRole[], opts: { base?: string; a
     schema_version: 1,
     kind: 'spike-0-sandbox-probe',
     evidence_scope:
-      'Outer mount/PID/env canaries on this machine only. Not S0.1 proof without the cusr-bwrap AppArmor child stack, capability-denial audit and T006 records.',
+      'Outer mount/PID/env canaries on this machine only (ADR-0004). Not S0.1 proof in full: FD/socket/race, systemd lifetime and pinned vendor/permission/auth records are still required. AppArmor child-stack hardening is optional.',
     bwrap: { path: bwrap, version: versionOf(bwrap, ['--version']), usable: usable.usable, detail: usable.detail },
     kernel: versionOf('uname', ['-r']),
     roles: {},

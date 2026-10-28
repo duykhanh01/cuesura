@@ -1,0 +1,12 @@
+{
+  "original_limit": 6,
+  "approved_total": 8,
+  "additional_invocations": 2,
+  "allowed_roles": [
+    "claude:fixer",
+    "codex:fixer"
+  ],
+  "parent_ledger_sha256": "421124ed0bce8a907b65b5a740475f30855f3801a78c66d6f87310740f7cccaa",
+  "parent_ledger_lines": 12,
+  "authorization": "Owner answered c\u00f3 to explicit request for exactly two fixer invocations, one per vendor, low effort, maximum five minutes each."
+}

@@ -1,0 +1,103 @@
+{
+  "kind": "spike-0-github-manual-merge-fixtures",
+  "checked_at": "2026-10-28T07:57:53.788731+00:00",
+  "repository": "duykhanh01/cuesura-spike-002-sandbox",
+  "repository_id": 1436664345,
+  "private": true,
+  "base": "master",
+  "merge_methods": {
+    "allow_merge_commit": true,
+    "allow_squash_merge": true,
+    "allow_rebase_merge": true
+  },
+  "pull_requests": [
+    {
+      "mode": "merge",
+      "number": 1,
+      "url": "https://github.com/duykhanh01/cuesura-spike-002-sandbox/pull/1",
+      "node_id": "PR_kwDOVaHCGc8AAAABLNVOeg",
+      "branch": "spike/s0-merge-20261028",
+      "base_sha_at_creation": "01deb1618eef654e00dd28781864f837d015f6d6",
+      "head_sha": "852ea24c0d34c651100002dbc175f8f784193043",
+      "state": "open"
+    },
+    {
+      "mode": "squash",
+      "number": 2,
+      "url": "https://github.com/duykhanh01/cuesura-spike-002-sandbox/pull/2",
+      "node_id": "PR_kwDOVaHCGc8AAAABLNVRpg",
+      "branch": "spike/s0-squash-20261028",
+      "base_sha_at_creation": "01deb1618eef654e00dd28781864f837d015f6d6",
+      "head_sha": "e43c576d742ac4aae928f157d9a3042a8aad4558",
+      "state": "open"
+    },
+    {
+      "mode": "rebase",
+      "number": 3,
+      "url": "https://github.com/duykhanh01/cuesura-spike-002-sandbox/pull/3",
+      "node_id": "PR_kwDOVaHCGc8AAAABLNVVHg",
+      "branch": "spike/s0-rebase-20261028",
+      "base_sha_at_creation": "01deb1618eef654e00dd28781864f837d015f6d6",
+      "head_sha": "042b57287c27ae7ddc448ede14ba1006b875b799",
+      "state": "open"
+    }
+  ],
+  "request_ledger": [
+    {
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox",
+      "exit": 0
+    },
+    {
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/git/ref/heads/master",
+      "exit": 0
+    },
+    {
+      "method": "POST",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/git/refs",
+      "exit": 0
+    },
+    {
+      "method": "PUT",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/contents/spike/merge.txt",
+      "exit": 0
+    },
+    {
+      "method": "POST",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/pulls",
+      "exit": 0
+    },
+    {
+      "method": "POST",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/git/refs",
+      "exit": 0
+    },
+    {
+      "method": "PUT",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/contents/spike/squash.txt",
+      "exit": 0
+    },
+    {
+      "method": "POST",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/pulls",
+      "exit": 0
+    },
+    {
+      "method": "POST",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/git/refs",
+      "exit": 0
+    },
+    {
+      "method": "PUT",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/contents/spike/rebase.txt",
+      "exit": 0
+    },
+    {
+      "method": "POST",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/pulls",
+      "exit": 0
+    }
+  ],
+  "scope": "Only branches/text fixtures/PRs in owner-authorized private test repo. No merge endpoint, production repo, CI/protection change or credentials uploaded. Manual merge and post-merge push/delete proof are still pending."
+}

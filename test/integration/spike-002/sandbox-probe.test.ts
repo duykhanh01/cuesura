@@ -27,6 +27,7 @@ describe.skipIf(!bwrap.usable)('spike-002 outer sandbox canaries (real bwrap, lo
   it('records the AppArmor label without judging it, and scopes the evidence', () => {
     expect(report.roles['coder']?.canaries.find((c) => c.name === 'apparmor label')?.pass).toBeNull();
     expect(report.evidence_scope).toMatch(/Not S0\.1 proof/);
+    expect(report.evidence_scope).toContain('AppArmor child-stack hardening is optional');
     expect(report.layout_pass).toBe(true);
   });
 });

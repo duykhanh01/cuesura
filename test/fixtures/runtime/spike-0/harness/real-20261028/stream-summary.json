@@ -1,0 +1,415 @@
+{
+  "kind": "spike-0-stream-summary",
+  "derived_at": "2026-10-28T09:41:21.118Z",
+  "scope": "Offline re-derivation from archived redacted events/stderr; no model call. result.json from the live runs is kept as historical (usage unavailable because that harness version did not parse vendor usage).",
+  "parser": {
+    "path": "scripts/spike-002/harness-stream.ts",
+    "sha256": "660c473a9d752e5cb46b9354a1425f068b546ecec444f29ce87a96798b5a9776"
+  },
+  "rows": [
+    {
+      "attempt": "s0-claude-coder-1793170522",
+      "vendor": "claude",
+      "inputs_sha256": {
+        "events": null,
+        "stderr": "d8a1e758a0885d376f7a2457d829c53f27040ef929246fb4e28105670fb743de"
+      },
+      "result_json_usage": null,
+      "derived": {
+        "usage": {
+          "status": "unavailable",
+          "reason": "no result record"
+        },
+        "permission_denials": [],
+        "rate_limit": null,
+        "failure": null,
+        "warnings": [],
+        "truncated_records": 0
+      }
+    },
+    {
+      "attempt": "s0-claude-coder-1793172185",
+      "vendor": "claude",
+      "inputs_sha256": {
+        "events": "13b2c363e30e30566b18fa90eeaf1fd9ad8533d2a9db2ba52395d42fb16246be",
+        "stderr": null
+      },
+      "result_json_usage": {
+        "status": "unavailable",
+        "reason": "runner does not parse harness usage"
+      },
+      "derived": {
+        "usage": {
+          "status": "reported",
+          "source": "claude result.usage",
+          "input_tokens": 6,
+          "cached_input_tokens": 22622,
+          "cache_write_input_tokens": 12181,
+          "output_tokens": 1265,
+          "cost_usd": 0.00329552
+        },
+        "permission_denials": [
+          {
+            "tool": "Bash",
+            "command": "Permission to use Bash with command /usr/bin/touch /cusr/scratch/permission-denied-by-rule has been denied.",
+            "source": "claude_event"
+          }
+        ],
+        "rate_limit": {
+          "status": "allowed",
+          "type": "five_hour",
+          "resets_at": 1793190000
+        },
+        "failure": null,
+        "warnings": [],
+        "truncated_records": 0
+      }
+    },
+    {
+      "attempt": "s0-claude-fixer-1793173414",
+      "vendor": "claude",
+      "inputs_sha256": {
+        "events": "305a137858dda4c2c20945a5a3df9ea83504003561b7e24113b4badd13e0ee74",
+        "stderr": null
+      },
+      "result_json_usage": {
+        "status": "unavailable",
+        "reason": "runner does not parse harness usage"
+      },
+      "derived": {
+        "usage": {
+          "status": "reported",
+          "source": "claude result.usage",
+          "input_tokens": 8,
+          "cached_input_tokens": 41560,
+          "cache_write_input_tokens": 5134,
+          "output_tokens": 1402,
+          "cost_usd": 0.0021442
+        },
+        "permission_denials": [
+          {
+            "tool": "Bash",
+            "command": "Permission to use Bash with command /usr/bin/touch /cusr/scratch/permission-denied-by-rule has been denied.",
+            "source": "claude_event"
+          }
+        ],
+        "rate_limit": {
+          "status": "allowed",
+          "type": "five_hour",
+          "resets_at": 1793190000
+        },
+        "failure": null,
+        "warnings": [],
+        "truncated_records": 0
+      }
+    },
+    {
+      "attempt": "s0-claude-reviewer-1793172547",
+      "vendor": "claude",
+      "inputs_sha256": {
+        "events": "4b7132fdd481cce1f9f84eb0f7709e2fea594cf6a78657cc74a5cc1435693cba",
+        "stderr": null
+      },
+      "result_json_usage": {
+        "status": "unavailable",
+        "reason": "runner does not parse harness usage"
+      },
+      "derived": {
+        "usage": {
+          "status": "reported",
+          "source": "claude result.usage",
+          "input_tokens": 6,
+          "cached_input_tokens": 21536,
+          "cache_write_input_tokens": 11517,
+          "output_tokens": 1224,
+          "cost_usd": 0.0031313599999999997
+        },
+        "permission_denials": [
+          {
+            "tool": "Bash",
+            "command": "Permission to use Bash with command /usr/bin/touch /cusr/scratch/permission-denied-by-rule has been denied.",
+            "source": "claude_event"
+          }
+        ],
+        "rate_limit": {
+          "status": "allowed",
+          "type": "five_hour",
+          "resets_at": 1793190000
+        },
+        "failure": null,
+        "warnings": [],
+        "truncated_records": 0
+      }
+    },
+    {
+      "attempt": "s0-claude-reviewer-1793180331",
+      "vendor": "claude",
+      "inputs_sha256": {
+        "events": "6424e182b2ce36c0705e86562ad133bfc7616f55cc041b58bf7ca1039f6b2a15",
+        "stderr": null
+      },
+      "result_json_usage": {
+        "status": "reported",
+        "source": "claude result.usage",
+        "input_tokens": 10,
+        "cached_input_tokens": 42928,
+        "cache_write_input_tokens": 11305,
+        "output_tokens": 1234,
+        "cost_usd": 0.0033082799999999994
+      },
+      "derived": {
+        "usage": {
+          "status": "reported",
+          "source": "claude result.usage",
+          "input_tokens": 10,
+          "cached_input_tokens": 42928,
+          "cache_write_input_tokens": 11305,
+          "output_tokens": 1234,
+          "cost_usd": 0.0033082799999999994
+        },
+        "permission_denials": [],
+        "rate_limit": {
+          "status": "allowed",
+          "type": "five_hour",
+          "resets_at": 1793190000
+        },
+        "failure": null,
+        "warnings": [],
+        "truncated_records": 0
+      }
+    },
+    {
+      "attempt": "s0-codex-coder-1793172285",
+      "vendor": "codex",
+      "inputs_sha256": {
+        "events": "f53e1cd29650c54c10401a3270502be5dbed5813a2f07271c4e908de16d6f9ca",
+        "stderr": "03602ab593c49976322aa3ca6b4e9d1d55bf0b32b1f0b4df5621a1c7d1fee88c"
+      },
+      "result_json_usage": {
+        "status": "unavailable",
+        "reason": "runner does not parse harness usage"
+      },
+      "derived": {
+        "usage": {
+          "status": "reported",
+          "source": "codex turn.completed.usage",
+          "input_tokens": 57749,
+          "cached_input_tokens": 42624,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 381,
+          "cost_usd": null
+        },
+        "permission_denials": [],
+        "rate_limit": null,
+        "failure": null,
+        "warnings": [
+          "Code Mode is unavailable because failed to spawn code-mode host /tmp/cusr-spike-002-tools/codex/bin/codex-code-mode-host: host executable was not found. Code mode will fail closed; enable `features.code_mode_host` and install `codex-code-mode-host`."
+        ],
+        "truncated_records": 0
+      }
+    },
+    {
+      "attempt": "s0-codex-coder-1793172447",
+      "vendor": "codex",
+      "inputs_sha256": {
+        "events": "bcd87de01effa6077a7975b3ee1abb04b5d343a51490d7c11edadf48eb8eac1b",
+        "stderr": "367a8a27b569abc8c003c4a00752591dcfcb446229b5727a4f69a453f292cbd0"
+      },
+      "result_json_usage": {
+        "status": "unavailable",
+        "reason": "runner does not parse harness usage"
+      },
+      "derived": {
+        "usage": {
+          "status": "reported",
+          "source": "codex turn.completed.usage",
+          "input_tokens": 117591,
+          "cached_input_tokens": 101248,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 638,
+          "cost_usd": null
+        },
+        "permission_denials": [
+          {
+            "tool": "exec_command",
+            "command": "/usr/bin/zsh -lc '/usr/bin/touch /cusr/scratch/permission-denied-by-rule'",
+            "source": "codex_stderr"
+          }
+        ],
+        "rate_limit": null,
+        "failure": null,
+        "warnings": [],
+        "truncated_records": 0
+      }
+    },
+    {
+      "attempt": "s0-codex-coder-1793178479",
+      "vendor": "codex",
+      "inputs_sha256": {
+        "events": "8c1222ff95d204bb3ab1139792bf9967048488281266fe57a21899de79b32038",
+        "stderr": "a6cd5998f23c5d0e72cc058bd93d636885f39c9d956196ea4dd692ebcf5f3eb5"
+      },
+      "result_json_usage": {
+        "status": "unavailable",
+        "reason": "runner does not parse harness usage"
+      },
+      "derived": {
+        "usage": {
+          "status": "reported",
+          "source": "codex turn.completed.usage",
+          "input_tokens": 84818,
+          "cached_input_tokens": 55552,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 401,
+          "cost_usd": null
+        },
+        "permission_denials": [
+          {
+            "tool": "exec_command",
+            "command": "/usr/bin/zsh -lc '/usr/bin/touch /cusr/scratch/permission-denied-by-rule'",
+            "source": "codex_stderr"
+          }
+        ],
+        "rate_limit": null,
+        "failure": null,
+        "warnings": [],
+        "truncated_records": 0
+      }
+    },
+    {
+      "attempt": "s0-codex-fixer-1793173505",
+      "vendor": "codex",
+      "inputs_sha256": {
+        "events": "da542603304ca6bc4e71e90062f981a65d8c6ec32b29d0add1e4a291c9403368",
+        "stderr": "1174e2dbf71e66fad4216921c8491f50bcb59fe87f85dbaa962a80f0b640171c"
+      },
+      "result_json_usage": {
+        "status": "unavailable",
+        "reason": "runner does not parse harness usage"
+      },
+      "derived": {
+        "usage": {
+          "status": "reported",
+          "source": "codex turn.completed.usage",
+          "input_tokens": 100121,
+          "cached_input_tokens": 69888,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 546,
+          "cost_usd": null
+        },
+        "permission_denials": [
+          {
+            "tool": "exec_command",
+            "command": "/usr/bin/zsh -lc '/usr/bin/touch /cusr/scratch/permission-denied-by-rule'",
+            "source": "codex_stderr"
+          }
+        ],
+        "rate_limit": null,
+        "failure": null,
+        "warnings": [],
+        "truncated_records": 0
+      }
+    },
+    {
+      "attempt": "s0-codex-reviewer-1793172662",
+      "vendor": "codex",
+      "inputs_sha256": {
+        "events": "44466fcc9513d0460a8cf3b4c4fa995421dadbf70658c2f3bfe0a1175c07ea58",
+        "stderr": "0dade09e659e5a95bb0ec954ad86f029f00a612fd47694351bb339315cee7e58"
+      },
+      "result_json_usage": {
+        "status": "unavailable",
+        "reason": "runner does not parse harness usage"
+      },
+      "derived": {
+        "usage": {
+          "status": "reported",
+          "source": "codex turn.completed.usage",
+          "input_tokens": 70992,
+          "cached_input_tokens": 55936,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 308,
+          "cost_usd": null
+        },
+        "permission_denials": [
+          {
+            "tool": "exec_command",
+            "command": "/usr/bin/zsh -lc '/usr/bin/touch /cusr/scratch/permission-denied-by-rule'",
+            "source": "codex_stderr"
+          }
+        ],
+        "rate_limit": null,
+        "failure": null,
+        "warnings": [],
+        "truncated_records": 0
+      }
+    },
+    {
+      "attempt": "s0-codex-reviewer-1793178514",
+      "vendor": "codex",
+      "inputs_sha256": {
+        "events": "ffb724794c309bee6212e49d8506d2b1135120c09d399864abde408268cba16c",
+        "stderr": "3f32c7c941b4ed725a9e9fe39bf54d5b7c8df5ef2cd1f814acbd4662b5f93f28"
+      },
+      "result_json_usage": {
+        "status": "unavailable",
+        "reason": "runner does not parse harness usage"
+      },
+      "derived": {
+        "usage": {
+          "status": "reported",
+          "source": "codex turn.completed.usage",
+          "input_tokens": 69174,
+          "cached_input_tokens": 54400,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 504,
+          "cost_usd": null
+        },
+        "permission_denials": [
+          {
+            "tool": "exec_command",
+            "command": "/usr/bin/zsh -lc '/usr/bin/touch /cusr/scratch/permission-denied-by-rule'",
+            "source": "codex_stderr"
+          }
+        ],
+        "rate_limit": null,
+        "failure": null,
+        "warnings": [],
+        "truncated_records": 0
+      }
+    },
+    {
+      "attempt": "s0-codex-reviewer-1793180367",
+      "vendor": "codex",
+      "inputs_sha256": {
+        "events": "39d9358a55e13b50d519905bfa6023d431fe8955c8ac906695e51a4911c145a6",
+        "stderr": null
+      },
+      "result_json_usage": {
+        "status": "reported",
+        "source": "codex turn.completed.usage",
+        "input_tokens": 83160,
+        "cached_input_tokens": 68096,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 500,
+        "cost_usd": null
+      },
+      "derived": {
+        "usage": {
+          "status": "reported",
+          "source": "codex turn.completed.usage",
+          "input_tokens": 83160,
+          "cached_input_tokens": 68096,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 500,
+          "cost_usd": null
+        },
+        "permission_denials": [],
+        "rate_limit": null,
+        "failure": null,
+        "warnings": [],
+        "truncated_records": 0
+      }
+    }
+  ]
+}
