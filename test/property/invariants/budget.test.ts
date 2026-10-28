@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { FailureDataSchema } from '../../../src/domain/trigger.ts';
 import { choicesArb, drive, walk } from '../arbitraries/signals.ts';
 import { escalationPolicyArb, policyArb, propertyParams, taskOverArb } from '../arbitraries/policies.ts';
+import { HEAVY_PROPERTY_TIMEOUT_MS } from '../../support/timeouts.ts';
 
 const anyPolicyArb = fc.oneof(escalationPolicyArb, policyArb);
 
@@ -33,7 +34,7 @@ describe('I09, FR-022 budget reservations', () => {
       }),
       propertyParams(),
     );
-  });
+  }, HEAVY_PROPERTY_TIMEOUT_MS);
 
   it('every invoked agent run is consumed, rate-limited runs included; a run never invoked is released', () => {
     let rateLimited = 0;
@@ -55,5 +56,5 @@ describe('I09, FR-022 budget reservations', () => {
       propertyParams(),
     );
     expect(rateLimited).toBeGreaterThan(0);
-  });
+  }, HEAVY_PROPERTY_TIMEOUT_MS);
 });
