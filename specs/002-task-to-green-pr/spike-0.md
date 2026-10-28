@@ -82,6 +82,52 @@ Trong cùng sandbox đọc classic/rules/no-rule/unknown và app-pinned requirem
 `string[]`; any-app + cùng tên được xét subset, app cụ thể trả required_checks_mismatch. Không cần
 thay FrozenPolicy/event schema để chạy probe. Ghi gh version/API version/request ledger.
 
+## Prototype và lệnh chạy (T003–T005)
+
+Prototype nằm ở `scripts/spike-002/`, chạy trực tiếp bằng `node`, không import runtime A,
+daemon, store hay entrypoint. **Mặc định mọi lệnh dưới đây chỉ chạy local**: không gọi model,
+không gọi GitHub, không sudo, không nạp profile hay đổi sysctl. Prototype chạy được không có
+nghĩa S0.1–S0.3 đã đạt, và nó không thay cho bằng chứng mà T006–T009 phải thu.
+
+| Phần | Lệnh | Phạm vi |
+| --- | --- | --- |
+| Schema (T003) | `node scripts/spike-002/export-role-schemas.ts [--check]` | Xuất JSON Schema/digest từ Zod vào `test/fixtures/runtime/spike-0/schema/`; `--check` exit 1 khi lệch |
+| Sandbox (T004) | `node scripts/spike-002/sandbox.ts argv --layout FILE` | In argv bwrap và bảng mount theo role, không exec |
+| | `node scripts/spike-002/sandbox.ts probe --all [--apparmor-fixture]` | Repo/worktree tạm và canary mount/PID/env/secret/control cho 5 role; ghi nhãn AppArmor nhưng không đánh giá |
+| Runner (T004) | `node scripts/spike-002/runner.ts systemd-argv --spec FILE --root DIR` | In argv `systemd-run --user` + `flock` của unit `cusr-op-<op>.service`, không chạy |
+| | `node scripts/spike-002/runner.ts start --spec FILE --root DIR [--systemd]` | Chạy runner dưới flock (local hoặc trong unit riêng) |
+| | `node scripts/spike-002/runner.ts receipt --root DIR --kind runs\|operations --id ID` | Đọc launch/pid/exit và identity: `not_launched/unknown/running/lost/finished` |
+| | `node scripts/spike-002/runner.ts status\|stop --operation-id ID` | `systemctl --user show/stop` đúng unit của operation |
+| Harness (T004) | `node scripts/spike-002/harness.ts check --config FILE` | Kiểm config tường minh; template trong `scripts/spike-002/config/` cố ý chưa ready |
+| | `node scripts/spike-002/harness.ts plan --config FILE --role R --root DIR --attempt-id ID --worktree DIR --git-dir DIR [--toolchain DIR]...` | In argv harness + bwrap, run spec và manifest (capability `unknown`); không copy auth, không spawn |
+| | `node scripts/spike-002/harness.ts run <plan args> --prompt FILE --ledger FILE [--allow-paid]` | Claude/Codex bắt buộc `--allow-paid` và giữ chỗ trong ledger **trước** spawn; vendor `fixture` không tốn budget |
+| | `node scripts/spike-002/harness.ts ledger --ledger FILE` | Xem số lượt đã giữ chỗ trên trần 6 |
+| gh port (T005) | `node scripts/spike-002/gh.ts observe --repo O/R --pr N --snapshot a,b --fixture FILE` | Chạy bundle đọc trên fixture local `test/fixtures/runtime/spike-0/gh-port/` |
+| | `node scripts/spike-002/gh.ts observe ... --live [--gh PATH] [--evidence-out FILE]` | Chỉ dùng ở T008 trên repo sandbox đã được cấp; chỉ GET, không có endpoint merge/create/rerun |
+
+Kiểm thử local nằm trong `pnpm test` (`test/unit/spike-002`, `test/integration/spike-002`). Test
+bwrap tự skip khi host chặn user namespace, test systemd tự skip khi không có user manager. Test
+bị skip được tính là **chưa chạy**, không phải đạt.
+
+Giới hạn của prototype, cần T006–T008 xác nhận hoặc sửa:
+
+- Runner chạy local ngoài unit chỉ sở hữu process group: process con thoát bằng `setsid` vẫn sống
+  (exit.json ghi `descendant_scope=process_group_only`). Trong unit `cusr-op-*` thì runner quét
+  cgroup và systemd dừng toàn bộ cgroup. Main process của unit là `flock` bọc bởi `sh` có
+  `trap "" TERM`, để runner kịp dừng nhóm harness và ghi exit.json khi unit bị stop.
+- Ledger chỉ giữ chỗ giữa các lần gọi; prototype không tự retry và không tự đổi mode. Template
+  harness lấy tên flag từ `--help` (Claude Code 2.1.306, codex-cli 0.164.0 trên máy worker), chưa
+  phải bằng chứng. Ví dụ, pointer `structured_output` của Claude chưa được kiểm chứng.
+- Exchange schema chỉ dùng tập keyword thận trọng (`type/properties/required/additionalProperties/
+  items/enum/const/anyOf`). Độ dài, giới hạn và luật status/verdict được kiểm sau parse.
+  Harness có chấp nhận schema này hay không thì do S0.2 xác định riêng cho từng role × vendor.
+- gh port ghi head-at-merge là ứng viên `pulls.head.sha` với `proof_status=unverified_pending_s0_3`.
+  Ruleset có enforcement không đọc được thì cả bộ required checks là `unknown`.
+
+Khi chạy T006–T008, lưu output prototype (probe report, run dir đã redact, manifest, ledger,
+evidence gh) vào thư mục fixture tương ứng kèm command/exit code. Budget 6 lượt × 5 phút và
+gate dưới đây giữ nguyên.
+
 ## Gate trước tasks/A
 
 | Mục | Bằng chứng bắt buộc | Trạng thái hiện tại |

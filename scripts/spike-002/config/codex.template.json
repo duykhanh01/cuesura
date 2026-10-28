@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "vendor": "codex",
+  "binary": {
+    "path": "/REPLACE/with/real/codex",
+    "sha256": null,
+    "version_argv": ["--version"],
+    "expected_version": null
+  },
+  "model": null,
+  "effort": null,
+  "argv": [
+    "exec",
+    "--json",
+    "--output-schema", "{schema_file}",
+    "--output-last-message", "{output_file}",
+    "--model", "{model}",
+    "--ignore-user-config",
+    "--ephemeral",
+    "-C", "{cwd}",
+    "{role_args}",
+    "-"
+  ],
+  "role_args": {
+    "coder": ["--sandbox", "workspace-write"],
+    "fixer": ["--sandbox", "workspace-write"],
+    "reviewer": ["--sandbox", "read-only"]
+  },
+  "prompt_via": "stdin",
+  "result_source": { "kind": "file" },
+  "settings": null,
+  "auth_files": [],
+  "isolation": {
+    "requested_inner_mode": "internal_required",
+    "owner_allows_external_verified": false,
+    "native_result": "not_run",
+    "outer_proof_hash": null,
+    "permission_policy_hash": null
+  },
+  "capabilities": {},
+  "wall_ms": 300000,
+  "env": {}
+}

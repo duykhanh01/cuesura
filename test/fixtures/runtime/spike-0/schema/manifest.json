@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "source": "scripts/spike-002/role-schema.ts",
+  "spec": "SPEC.md §12.3",
+  "digest_algorithm": "sha256 over canonical JSON (src/shared/hash.ts hashCanonical)",
+  "harness_acceptance": "unproven: S0.2 (T007) must record per role × vendor acceptance",
+  "roles": {
+    "coder": {
+      "schema_id": "cusr.role.coder-fixer.v1",
+      "file": "cusr.role.coder-fixer.v1.schema.json",
+      "digest": "sha256:0c1592471ef20ca5a8043c0c24c01b8f9b08593dc65be3686c427ba72e3023f4"
+    },
+    "fixer": {
+      "schema_id": "cusr.role.coder-fixer.v1",
+      "file": "cusr.role.coder-fixer.v1.schema.json",
+      "digest": "sha256:0c1592471ef20ca5a8043c0c24c01b8f9b08593dc65be3686c427ba72e3023f4"
+    },
+    "reviewer": {
+      "schema_id": "cusr.role.reviewer.v1",
+      "file": "cusr.role.reviewer.v1.schema.json",
+      "digest": "sha256:0ff4669a1cfda8e2208448032c76fd3428f55124fe5eb3e3e423cbb96ed1c57e"
+    }
+  }
+}
