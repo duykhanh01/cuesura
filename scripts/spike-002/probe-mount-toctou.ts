@@ -1,12 +1,12 @@
 /**
  * Local-only T006 evidence: host-side mount-source TOCTOU. buildSandbox() validates sources with
- * realpath at plan time, but bwrap resolves the path again at exec. This probe records:
+ * realpath and device/inode at plan time; the launcher verifies and pins FDs at exec. Records:
  *   1. plan time: a source that is already a symlink is refused;
  *   2. reachability: from inside every role, renaming or replacing a mount source path (where the
  *      host path is visible) fails and the host source keeps its inode; writes to recreated
  *      parents stay in the sandbox root unless the parent is itself a granted rw mount;
  *   3. race: a host process (same uid, outside any sandbox) swapping a source after planning
- *      either makes bwrap fail closed or redirects the mount; an inode check detects redirects.
+ *      must fail closed before bwrap can mount the replacement.
  * No model, network, sudo or host policy change.
  */
 import { spawnSync } from 'node:child_process';
@@ -14,7 +14,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildSandbox, createProbeFixture, probeLayout, SandboxPolicyError, SANDBOX_ROLES, type SandboxPlan } from './sandbox.ts';
+import { buildSandbox, createProbeFixture, probeLayout, sandboxCommand, SandboxPolicyError, SANDBOX_ROLES, type SandboxPlan } from './sandbox.ts';
 
 const BWRAP = '/usr/bin/bwrap';
 
@@ -57,7 +57,8 @@ const ident = (p: string): Ident => {
 };
 
 function runChild(plan: SandboxPlan, data: unknown): { exit: number | null; stderr: string; output: Record<string, unknown> | null } {
-  const r = spawnSync(BWRAP, [...plan.argv, '--', '/usr/bin/python3', '-I', '-c', CHILD, JSON.stringify(data)], { encoding: 'utf8', timeout: 30_000, env: {} });
+  const [exe, ...args] = sandboxCommand(plan, ['/usr/bin/python3', '-I', '-c', CHILD, JSON.stringify(data)], BWRAP);
+  const r = spawnSync(exe as string, args, { encoding: 'utf8', timeout: 30_000, env: {} });
   let output: Record<string, unknown> | null;
   try {
     output = JSON.parse(r.stdout) as Record<string, unknown>;
@@ -156,10 +157,9 @@ export function runMountToctouProbe(): Record<string, unknown> {
         attacker_inside_sandbox_can_swap: !sandboxReachable,
         same_uid_host_swap_redirects_bwrap: races.some((r) => r.redirected_to_canary),
         inode_check_detects_every_redirect: races.filter((r) => !r.bwrap_failed_closed).every((r) => r.inode_check_detects),
-        prototype_runs_inode_check: false,
+        prototype_runs_inode_check: true,
       },
-      // The race result is recorded, not gated: a same-uid host process is outside the agent threat model.
-      passed: planRefusal !== null && sandboxReachable && canaryUnchanged && races.every((r) => r.bwrap_failed_closed || r.inode_check_detects),
+      passed: planRefusal !== null && sandboxReachable && canaryUnchanged && races.every((r) => r.bwrap_failed_closed && !r.redirected_to_canary),
     };
   } finally {
     rmSync(fx.base, { recursive: true, force: true });

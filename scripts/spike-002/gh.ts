@@ -188,13 +188,14 @@ function parseIncluded(out: Buffer): { status: number; headers: Record<string, s
   const m = /^HTTP\/[\d.]+ (\d{3})[^\n]*\n/.exec(text);
   if (m === null) return null;
   const sepIdx = text.search(/\r?\n\r?\n/);
-  const headEnd = sepIdx < 0 ? text.length : sepIdx;
+  if (sepIdx < 0) return null;
+  const headEnd = sepIdx;
   const headers: Record<string, string> = {};
   for (const line of text.slice(m[0].length, headEnd).split(/\r?\n/)) {
     const i = line.indexOf(':');
     if (i > 0) headers[line.slice(0, i).trim().toLowerCase()] = line.slice(i + 1).trim();
   }
-  const body = sepIdx < 0 ? '' : text.slice(sepIdx).replace(/^\r?\n\r?\n/, '');
+  const body = text.slice(sepIdx).replace(/^\r?\n\r?\n/, '');
   return { status: Number(m[1]), headers, body };
 }
 
@@ -256,6 +257,11 @@ export class GhPort {
       const digest = sha256(canonicalJson({ status: parsed.status, headers, body: bodyRedacted }));
       this.evidence.push({ seq: base.seq, path: target, status: parsed.status, headers, body_redacted: bodyRedacted, digest });
       const ok = parsed.status >= 200 && parsed.status < 300;
+      if (ok && r.code !== 0) {
+        this.ledger.push({ ...base, status: parsed.status, outcome: 'transport_error', evidence_digest: digest });
+        last = { ok: false, reason: `gh exited ${String(r.code)} after HTTP ${parsed.status}`, status: null };
+        continue;
+      }
       this.ledger.push({ ...base, status: parsed.status, outcome: ok ? 'ok' : 'http_error', evidence_digest: digest });
       if (ok) {
         let body: unknown = null;
@@ -343,9 +349,9 @@ export type RequiredChecks =
   | { readonly status: 'required'; readonly checks: readonly RequiredCheck[]; readonly basis: string }
   | { readonly status: 'unknown'; readonly checks: readonly RequiredCheck[]; readonly basis: string };
 
-function appOf(v: unknown): 'any' | number {
-  const n = num(v);
-  return n === null || n === -1 ? 'any' : n;
+function appOf(v: unknown): 'any' | number | null {
+  if (v === undefined || v === null || v === -1) return 'any';
+  return typeof v === 'number' && Number.isSafeInteger(v) && v > 0 ? v : null;
 }
 
 function notProtectedBody(body: string | undefined): boolean {
@@ -371,15 +377,26 @@ export async function readRequiredChecks(port: GhPort, owner: string, repo: stri
     // protected" (seen live 2026-10-28). Any other failure, incl. a bare 404 "Not Found", stays unknown.
     const noClassic = !prot.ok && prot.status === 404 && notProtectedBody(port.evidence.findLast((e) => e.path === protPath)?.body_redacted);
     if (!prot.ok && !noClassic) return { status: 'unknown', checks, basis: `classic protection unreadable: ${prot.reason}` };
-    const rsc = obj(obj(prot.ok ? prot.value.body : null)['required_status_checks']);
+    const raw = obj(prot.ok ? prot.value.body : null)['required_status_checks'];
+    if (prot.ok && raw !== null && (typeof raw !== 'object' || Array.isArray(raw))) {
+      return { status: 'unknown', checks, basis: 'classic required checks malformed or missing' };
+    }
+    const rsc = obj(raw);
     const list = Array.isArray(rsc['checks']) ? (rsc['checks'] as unknown[]) : null;
     if (list !== null) {
       for (const c of list) {
         const name = str(obj(c)['context']);
-        if (name !== null) checks.push({ name, app: appOf(obj(c)['app_id']), source: 'classic', enforcement: 'classic', ruleset_id: null });
+        const app = appOf(obj(c)['app_id']);
+        if (!name || app === null) return { status: 'unknown', checks, basis: 'classic check identity malformed' };
+        checks.push({ name, app, source: 'classic', enforcement: 'classic', ruleset_id: null });
       }
-    } else if (Array.isArray(rsc['contexts'])) {
-      for (const name of rsc['contexts'] as unknown[]) if (typeof name === 'string') checks.push({ name, app: 'any', source: 'classic', enforcement: 'classic', ruleset_id: null });
+    } else if (rsc['checks'] === undefined && Array.isArray(rsc['contexts'])) {
+      for (const name of rsc['contexts'] as unknown[]) {
+        if (typeof name !== 'string' || name === '') return { status: 'unknown', checks, basis: 'classic contexts malformed' };
+        checks.push({ name, app: 'any', source: 'classic', enforcement: 'classic', ruleset_id: null });
+      }
+    } else if (prot.ok && raw !== null) {
+      return { status: 'unknown', checks, basis: 'classic required check list missing or malformed' };
     }
   } else if (isProtected !== false) {
     return { status: 'unknown', checks, basis: 'branch protected flag missing' };
@@ -391,10 +408,11 @@ export async function readRequiredChecks(port: GhPort, owner: string, repo: stri
   const enforcement = new Map<number, RequiredCheck['enforcement']>();
   for (const rule of rules.value.items) {
     const r = obj(rule);
+    if (!str(r['type'])) return { status: 'unknown', checks, basis: 'branch rule type missing or malformed' };
     if (r['type'] !== 'required_status_checks') continue;
     const rulesetId = num(r['ruleset_id']);
     let enf: RequiredCheck['enforcement'] = 'unknown';
-    if (rulesetId !== null) {
+    if (rulesetId !== null && Number.isSafeInteger(rulesetId) && rulesetId > 0) {
       if (!enforcement.has(rulesetId)) {
         const rs = await port.get(`repos/${owner}/${repo}/rulesets/${rulesetId}`);
         const e = rs.ok ? str(obj(rs.value.body)['enforcement']) : null;
@@ -402,11 +420,15 @@ export async function readRequiredChecks(port: GhPort, owner: string, repo: stri
       }
       enf = enforcement.get(rulesetId) ?? 'unknown';
     }
+    if (enf === 'unknown') return { status: 'unknown', checks, basis: 'ruleset enforcement unreadable' };
     const params = obj(r['parameters']);
-    const list = Array.isArray(params['required_status_checks']) ? (params['required_status_checks'] as unknown[]) : [];
+    const list = Array.isArray(params['required_status_checks']) ? (params['required_status_checks'] as unknown[]) : null;
+    if (list === null) return { status: 'unknown', checks, basis: 'rule required check list missing or malformed' };
     for (const c of list) {
       const name = str(obj(c)['context']);
-      if (name !== null) checks.push({ name, app: appOf(obj(c)['integration_id']), source: 'rules', enforcement: enf, ruleset_id: rulesetId });
+      const app = appOf(obj(c)['integration_id']);
+      if (!name || app === null) return { status: 'unknown', checks, basis: 'rule check identity malformed' };
+      checks.push({ name, app, source: 'rules', enforcement: enf, ruleset_id: rulesetId });
     }
   }
   if (checks.some((c) => c.enforcement === 'unknown')) return { status: 'unknown', checks, basis: 'ruleset enforcement unreadable' };
@@ -434,7 +456,7 @@ export function compareRequired(required: RequiredChecks, snapshot: readonly str
 
 export type CheckState = 'success' | 'pending' | 'failure' | 'neutral' | 'skipped' | 'cancelled' | 'missing' | 'collision' | 'unknown';
 
-/** Latest check run per name (highest id = newest attempt) and latest status per context, for one SHA. */
+/** Latest check run per name + app, and latest status per context, for one SHA. */
 export async function readCheckBundle(
   port: GhPort,
   owner: string,
@@ -454,12 +476,20 @@ export async function readCheckBundle(
   if (!statuses.ok) return unknown(`statuses: ${statuses.reason}`);
   if (!runs.value.complete || !statuses.value.complete) return unknown('pagination cap reached');
 
-  const latestRun = new Map<string, Obj>();
+  const latestRun = new Map<string, Map<number, Obj>>();
   for (const r of runs.value.items.map(obj)) {
     const name = str(r['name']);
     if (name === null || str(r['head_sha']) !== sha) continue;
-    const prev = latestRun.get(name);
-    if (prev === undefined || (num(r['id']) ?? 0) > (num(prev['id']) ?? 0)) latestRun.set(name, r);
+    const app = num(obj(r['app'])['id']);
+    const id = num(r['id']);
+    if (app === null || !Number.isSafeInteger(app) || app <= 0 || id === null || !Number.isSafeInteger(id) || id <= 0) {
+      if (snapshot.includes(name)) return unknown('check-run identity missing or malformed');
+      continue;
+    }
+    const apps = latestRun.get(name) ?? new Map<number, Obj>();
+    const prev = apps.get(app);
+    if (prev === undefined || id > (num(prev['id']) ?? 0)) apps.set(app, r);
+    latestRun.set(name, apps);
   }
   const latestStatus = new Map<string, Obj>();
   for (const s of statuses.value.items.map(obj)) {
@@ -470,9 +500,10 @@ export async function readCheckBundle(
   }
   const states: Record<string, CheckState> = {};
   for (const name of snapshot) {
-    const run = latestRun.get(name);
+    const apps = latestRun.get(name);
+    const run = apps?.values().next().value;
     const status = latestStatus.get(name);
-    if (run !== undefined && status !== undefined) states[name] = 'collision';
+    if ((apps?.size ?? 0) > 1 || (run !== undefined && status !== undefined)) states[name] = 'collision';
     else if (run !== undefined) {
       if (run['status'] !== 'completed') states[name] = 'pending';
       else {
@@ -531,7 +562,15 @@ export async function readMergeCommit(port: GhPort, owner: string, repo: string,
   if (typeof sha !== 'string' || !SHA_RE.test(sha)) return fact('invalid', 'merged event commit_id is not a 40-hex SHA', at);
   if (sha === pull.head.sha || sha === pull.base.sha) return fact('conflict', 'merged event commit_id equals the PR head or base SHA', at);
   const url = e['commit_url'];
-  if (url !== null && url !== undefined && (typeof url !== 'string' || !url.toLowerCase().endsWith(`/repos/${owner}/${repo}/commits/${sha}`.toLowerCase()))) {
+  if (url === null || url === undefined) return fact('missing', 'merged event has no commit_url', at);
+  let commitUrl: URL;
+  try {
+    if (typeof url !== 'string') throw new Error('invalid URL');
+    commitUrl = new URL(url);
+  } catch {
+    return fact('invalid', 'merged event commit_url is not a URL', at);
+  }
+  if (commitUrl.origin !== 'https://api.github.com' || commitUrl.username !== '' || commitUrl.password !== '' || commitUrl.search !== '' || commitUrl.hash !== '' || commitUrl.pathname.toLowerCase() !== `/repos/${owner}/${repo}/commits/${sha}`.toLowerCase()) {
     return fact('conflict', 'merged event commit_url points outside this repository', at);
   }
   if (at.event_created_at === null || at.event_created_at !== pull.merged_at) return fact('conflict', 'merged event time differs from merged_at', at);
@@ -645,8 +684,12 @@ export async function observePull(port: GhPort, owner: string, repo: string, n: 
   const second = await port.get(`repos/${owner}/${repo}/pulls/${n}`);
   if (!second.ok) return { ...empty, identity, pull, state: 'unknown', required, comparison, checks, reasons: ['second pull read failed'] };
   const again = pullFacts(second.value.body);
+  const againMismatch = again.id !== pull.id || again.base.repo_id !== repoId;
+  const againTargetOk = expectTarget === null || again.base.ref === expectTarget;
+  const againIdentity = { repo_id: repoId, pr_id: again.id, target: again.base.ref, verdict: againMismatch ? 'identity_mismatch' : !againTargetOk ? 'target_mismatch' : checked ? 'match' : 'unchecked' } as const;
+  if (againMismatch) return { ...empty, identity: againIdentity, pull: again, state: 'unknown', reasons: ['repo/PR identity changed between reads'] };
   if (again.merged === true) {
-    return { ...empty, identity, pull: again, state: 'merged', merge_proof: await mergeProof(port, owner, repo, n, again, repoId, targetOk), reasons: [...reasons, 'merged during observation'] };
+    return { ...empty, identity: againIdentity, pull: again, state: 'merged', merge_proof: await mergeProof(port, owner, repo, n, again, repoId, againTargetOk), reasons: [...(againTargetOk ? [] : ['target does not match the task']), 'merged during observation'] };
   }
   if (again.head.sha !== pull.head.sha || again.base.ref !== pull.base.ref || again.base.sha !== pull.base.sha || again.state !== pull.state) {
     return { ...empty, identity, pull: again, state: 'inconsistent', required, comparison, checks, reasons: ['head/base/state changed between reads'] };

@@ -39,6 +39,27 @@ describe('spike-002 harness stream summary (synthetic negative cases)', () => {
   it('fixture vendor never reports usage', () => {
     expect(summarizeStream('fixture', runnerLines([{ type: 'result', usage: { input_tokens: 1 } }], false), '').usage.status).toBe('unavailable');
   });
+
+  it.each(['claude', 'codex'] as const)('%s distinguishes missing usage counters from reported zero', (vendor) => {
+    const type = vendor === 'claude' ? 'result' : 'turn.completed';
+    for (const usage of [{}, { input_tokens: 1 }, { input_tokens: '0', output_tokens: 0 }, { input_tokens: -1, output_tokens: 0 }, { input_tokens: 0, output_tokens: null }, { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: '0', cached_input_tokens: '0' }]) {
+      expect(summarizeStream(vendor, runnerLines([{ type, usage }], false), '').usage.status).toBe('unavailable');
+    }
+    expect(summarizeStream(vendor, runnerLines([{ type, usage: { input_tokens: 0, output_tokens: 0 } }], false), '').usage).toMatchObject({ status: 'reported', input_tokens: 0, output_tokens: 0 });
+  });
+
+  it('Codex incomplete turn usage does not become a reported partial total', () => {
+    const events = [{ type: 'turn.completed', usage: { input_tokens: 5, output_tokens: 2 } }, { type: 'turn.completed', usage: {} }];
+    expect(summarizeStream('codex', runnerLines(events, false), '').usage.status).toBe('unavailable');
+  });
+
+  it('Codex preserves stderr permission denials when the rejected command contains backticks', () => {
+    const stderr = real('s0-codex-fixer-1793173505', 'stderr.log');
+    const command = '/usr/bin/touch `echo /cusr/scratch/permission-denied-by-rule`';
+    const changed = stderr.replace('/usr/bin/touch /cusr/scratch/permission-denied-by-rule', command);
+    expect(changed).not.toBe(stderr);
+    expect(summarizeStream('codex', '', changed).permission_denials).toEqual(expect.arrayContaining([expect.objectContaining({ command: `/usr/bin/zsh -lc '${command}'`, source: 'codex_stderr' })]));
+  });
 });
 
 describe('spike-002 harness stream summary (real 2026-10-28 captures)', () => {

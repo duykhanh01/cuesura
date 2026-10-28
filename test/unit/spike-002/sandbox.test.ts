@@ -1,4 +1,5 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -7,6 +8,7 @@ import {
   SandboxPolicyError,
   buildSandbox,
   defaultHostPolicy,
+  sandboxCommand,
   type HostPolicy,
   type SandboxLayout,
   type SandboxRole,
@@ -108,6 +110,86 @@ describe('spike-002 sandbox layout (execution contract)', () => {
     const link = join(base, 'link-to-ssh');
     symlinkSync(join(fakeHome, '.ssh'), link);
     expect(() => buildSandbox(layout('coder', { toolchain: [link] }), policy)).toThrow(/symlink/);
+  });
+
+  it.each([
+    ['reviewer home aliases worktree', 'reviewer', { private_home: worktree }],
+    ['coder home aliases worktree and bypasses metadata overlay', 'coder', { private_home: worktree }],
+    ['scratch aliases Git common dir', 'coder', { scratch: gitCommon }],
+    ['scratch contains Git common dir', 'coder', { scratch: join(base, 'repo') }],
+    ['home aliases Git common dir', 'coder', { private_home: gitCommon }],
+    ['home is inside Git metadata', 'coder', { private_home: d('repo/.git/private-home') }],
+    ['scratch aliases context', 'coder', { scratch: context }],
+    ['home aliases schema', 'coder', { schema: privateHome }],
+    ['home aliases scratch', 'coder', { private_home: scratch }],
+    ['scratch aliases toolchain', 'coder', { toolchain: [scratch] }],
+  ] satisfies [string, SandboxRole, Partial<SandboxLayout>][])('rejects writable source overlap: %s', (_name, role, over) => {
+    expect(() => buildSandbox(layout(role, over), policy)).toThrow(SandboxPolicyError);
+  });
+
+  it.each(['symlink', 'directory', 'ancestor'] as const)('fails closed when a source is replaced by %s after command construction', (kind) => {
+    const parent = d(`swap-${kind}`);
+    const source = d(`swap-${kind}/scratch`);
+    const plan = buildSandbox(layout('coder', { scratch: source }), policy);
+    const [exe, ...args] = sandboxCommand(plan, ['/usr/bin/true'], '/usr/bin/true');
+    if (kind === 'ancestor') {
+      renameSync(parent, `${parent}.aside`);
+      mkdirSync(source, { recursive: true });
+    } else {
+      renameSync(source, `${source}.aside`);
+      if (kind === 'symlink') symlinkSync(context, source);
+      else mkdirSync(source);
+    }
+    const r = spawnSync(exe as string, args, { encoding: 'utf8' });
+    expect(r.status).toBe(125);
+    expect(r.stderr).toMatch(/mount source changed/);
+  });
+
+  it('includes source device/inode in the layout digest', () => {
+    const source = d('digest-scratch');
+    const before = buildSandbox(layout('coder', { scratch: source }), policy);
+    renameSync(source, `${source}.aside`);
+    mkdirSync(source);
+    const after = buildSandbox(layout('coder', { scratch: source }), policy);
+    expect(before.argv).toEqual(after.argv);
+    expect(before.layout_digest).not.toBe(after.layout_digest);
+  });
+
+  it('rejects an optional source appearing between planning and launch', () => {
+    const source = join(base, 'optional-file');
+    const plan = buildSandbox(layout('coder'), { ...policy, systemRoTry: [source] });
+    writeFileSync(source, 'appeared');
+    const [exe, ...args] = sandboxCommand(plan, ['/usr/bin/true'], '/usr/bin/true');
+    const r = spawnSync(exe as string, args, { encoding: 'utf8' });
+    expect(r.status).toBe(125);
+    expect(r.stderr).toMatch(/source appeared/);
+  });
+
+  it('passes pinned source FDs to bwrap so a later path swap cannot redirect a mount', () => {
+    const source = d('pinned-scratch');
+    const canary = d('pinned-outside');
+    const fakeBwrap = join(base, 'inspect-bwrap.py');
+    writeFileSync(fakeBwrap, `#!/usr/bin/python3
+import json, os, sys
+args = sys.argv[1:]
+i = args.index('/cusr/scratch')
+assert args[i - 2] == '--bind-fd'
+fd = int(args[i - 1])
+os.rename(${JSON.stringify(source)}, ${JSON.stringify(`${source}.aside`)})
+os.symlink(${JSON.stringify(canary)}, ${JSON.stringify(source)})
+with open('/proc/self/fd/' + str(fd) + '/pinned', 'w') as f: f.write('original')
+st = os.fstat(fd)
+print(json.dumps({'dev': str(st.st_dev), 'ino': str(st.st_ino)}))
+`);
+    chmodSync(fakeBwrap, 0o700);
+    const plan = buildSandbox(layout('coder', { scratch: source }), policy);
+    const st = statSync(source, { bigint: true });
+    const [exe, ...args] = sandboxCommand(plan, ['/usr/bin/true'], fakeBwrap);
+    const r = spawnSync(exe as string, args, { encoding: 'utf8' });
+    expect(r.status, r.stderr).toBe(0);
+    expect(JSON.parse(r.stdout)).toEqual({ dev: String(st.dev), ino: String(st.ino) });
+    expect(readFileSync(join(`${source}.aside`, 'pinned'), 'utf8')).toBe('original');
+    expect(() => readFileSync(join(canary, 'pinned'))).toThrow();
   });
 
   it('rejects a worktree .git symlink that would expose an outside file through the metadata mount', () => {

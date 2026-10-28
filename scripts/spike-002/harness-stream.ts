@@ -40,6 +40,12 @@ const isRec = (v: unknown): v is Rec => typeof v === 'object' && v !== null && !
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 
+function validUsage(v: unknown, optional: readonly string[]): v is Rec {
+  if (!isRec(v)) return false;
+  const counter = (n: unknown): boolean => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0;
+  return counter(v['input_tokens']) && counter(v['output_tokens']) && optional.every((k) => v[k] === undefined || counter(v[k]));
+}
+
 /** Parses runner events.jsonl text into vendor payloads; truncated records are counted, not parsed. */
 export function streamPayloads(eventsText: string): { payloads: Rec[]; truncated: number } {
   const payloads: Rec[] = [];
@@ -87,9 +93,9 @@ function summarizeClaude(payloads: readonly Rec[]): Omit<StreamSummary, 'truncat
     } else if (p['type'] === 'assistant' && isRec(p['message']) && p['message']['stop_reason'] === 'refusal') {
       failure = { kind: 'refusal', detail: 'assistant stop_reason refusal' };
     } else if (p['type'] === 'result') {
-      const u = isRec(p['usage']) ? p['usage'] : null;
+      const u = validUsage(p['usage'], ['cache_read_input_tokens', 'cache_creation_input_tokens']) ? p['usage'] : null;
       usage = u === null
-        ? { status: 'unavailable', reason: 'result record has no usage' }
+        ? { status: 'unavailable', reason: 'result usage missing or malformed' }
         : {
             status: 'reported',
             source: 'claude result.usage',
@@ -118,14 +124,19 @@ function summarizeClaude(payloads: readonly Rec[]): Omit<StreamSummary, 'truncat
 }
 
 // codex_core::tools::router logs the refused exec on stderr; exec --json has no event for it.
-const CODEX_REJECTED = /codex_core::tools::router: .*Rejected\(\\?"`([^`]*)` rejected: ([^\\"]*)/;
+const CODEX_REJECTED = /codex_core::tools::router: .*Rejected\(\\?"`(.*)` rejected: ([^\\"]*)/;
 
 function summarizeCodex(payloads: readonly Rec[], stderr: string): Omit<StreamSummary, 'truncated_records'> {
   const warnings: string[] = [];
   let failure: StreamSummary['failure'] = null;
+  let incompleteUsage = false;
   const totals = { input: 0, cached: 0, write: 0, output: 0, turns: 0 };
   for (const p of payloads) {
-    if (p['type'] === 'turn.completed' && isRec(p['usage'])) {
+    if (p['type'] === 'turn.completed') {
+      if (!validUsage(p['usage'], ['cached_input_tokens', 'cache_write_input_tokens'])) {
+        incompleteUsage = true;
+        continue;
+      }
       const u = p['usage'];
       totals.input += num(u['input_tokens']);
       totals.cached += num(u['cached_input_tokens']);
@@ -147,8 +158,8 @@ function summarizeCodex(payloads: readonly Rec[], stderr: string): Omit<StreamSu
     const m = CODEX_REJECTED.exec(line);
     if (m !== null) denials.push({ tool: 'exec_command', command: m[1] ?? null, source: 'codex_stderr' });
   }
-  const usage: StreamUsage = totals.turns === 0
-    ? { status: 'unavailable', reason: 'no turn.completed usage' }
+  const usage: StreamUsage = totals.turns === 0 || incompleteUsage
+    ? { status: 'unavailable', reason: 'turn.completed usage missing or malformed' }
     : { status: 'reported', source: 'codex turn.completed.usage', input_tokens: totals.input, cached_input_tokens: totals.cached, cache_write_input_tokens: totals.write, output_tokens: totals.output, cost_usd: null };
   return { usage, permission_denials: denials, rate_limit: null, failure, warnings };
 }

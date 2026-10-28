@@ -6,7 +6,7 @@ import { closeSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync
 import { createConnection, createServer, type Socket } from 'node:net';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildSandbox, createProbeFixture, IN_SANDBOX, probeLayout, SANDBOX_ROLES } from './sandbox.ts';
+import { buildSandbox, createProbeFixture, IN_SANDBOX, probeLayout, sandboxCommand, SANDBOX_ROLES } from './sandbox.ts';
 
 const CHILD = String.raw`
 import json, os, pathlib, socket, sys, threading
@@ -191,7 +191,7 @@ export async function runLocalBoundaryProbe() {
     const roles: Array<{ role: string; layout_digest: string; result: Run }> = [];
     for (const role of SANDBOX_ROLES) {
       const plan = buildSandbox({ ...probeLayout(role, fx), schema });
-      const result = await run(['/usr/bin/bwrap', ...plan.argv, '--', '/usr/bin/python3', `${IN_SANDBOX.context}/local-boundary.py`, JSON.stringify({ ...data, role }), 'boundary']);
+      const result = await run(sandboxCommand(plan, ['/usr/bin/python3', `${IN_SANDBOX.context}/local-boundary.py`, JSON.stringify({ ...data, role }), 'boundary']));
       roles.push({ role, layout_digest: plan.layout_digest, result });
     }
     const unchanged = readFileSync(join(fx.outside, 'canary'), 'utf8') === 'outside-canary\n';

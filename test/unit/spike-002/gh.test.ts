@@ -28,7 +28,7 @@ const R = 'repos/octo-sandbox/cusr-spike';
 const SHA = 'a'.repeat(40);
 const q = (p: string, page = 1): string => `${p}?per_page=100&page=${page}`;
 const pullBody = green.responses[`${R}/pulls/5`]?.[0]?.body as Record<string, unknown>;
-const run = (name: string, conclusion: string | null, id: number, status = 'completed'): object => ({ id, name, head_sha: SHA, status, conclusion });
+const run = (name: string, conclusion: string | null, id: number, status = 'completed', app = 15368): object => ({ id, name, head_sha: SHA, status, conclusion, app: { id: app } });
 
 function script(over: Record<string, readonly FixtureResponse[]>): FixtureScript {
   return { source: 'synthetic', responses: { ...green.responses, ...over } };
@@ -98,6 +98,17 @@ describe('spike-002 gh port boundary', () => {
 });
 
 describe('spike-002 gh port limits', () => {
+  it.each([
+    ['failed gh after a 200 response', 1, 'HTTP/2.0 200 OK\r\n\r\n[]', 'transport_error'],
+    ['signalled gh after a 200 response', null, 'HTTP/2.0 200 OK\r\n\r\n[]', 'transport_error'],
+    ['truncated 204 header', 0, 'HTTP/2.0 204 No Content\r\n', 'unparseable'],
+  ] as const)('%s cannot establish a successful read', async (_name, code, stdout, outcome) => {
+    const port = new GhPort(() => Promise.resolve({ code, stdout: Buffer.from(stdout), stderr: 'unexpected EOF', timedOut: false, overflow: false }));
+    expect(await port.get(`${R}/pulls/5/merge`)).toMatchObject({ ok: false });
+    expect(await port.list(`${R}/commits/${SHA}/statuses`, (b) => Array.isArray(b) ? b : null)).toMatchObject({ ok: false });
+    expect(port.ledger.every((r) => r.outcome === outcome)).toBe(true);
+  });
+
   it('retries a 5xx GET within max_sends and records each send', async () => {
     const port = new GhPort(fixtureExec(script({ [`${R}/pulls/5`]: [{ status: 502 }, { status: 200, body: pullBody }] })));
     const r = await port.get(`${R}/pulls/5`);
@@ -245,6 +256,42 @@ describe('spike-002 gh port observation facts', () => {
     expect(compareRequired(r, [])).toEqual({ verdict: 'covered', github: [] });
   });
 
+  it.each([
+    {},
+    { required_status_checks: {} },
+    { required_status_checks: [] },
+    { required_status_checks: { checks: 'invalid', contexts: [] } },
+    { required_status_checks: { contexts: [null] } },
+    { required_status_checks: { checks: [{}] } },
+    { required_status_checks: { checks: [{ context: 'build', app_id: '15368' }] } },
+  ])('malformed classic protection %j is unknown, never covered', async (body) => {
+    const o = await observe({ [`${R}/branches/main/protection`]: [{ status: 200, body }], [q(`${R}/rules/branches/main`)]: [{ status: 200, body: [] }] });
+    expect(o.required?.status).toBe('unknown');
+    expect(o.comparison?.verdict).toBe('unknown');
+    expect(o.green).toBe(false);
+  });
+
+  it('explicit null classic requirements with a complete empty rules read establishes none', async () => {
+    const o = await observe({ [`${R}/branches/main/protection`]: [{ status: 200, body: { required_status_checks: null } }], [q(`${R}/rules/branches/main`)]: [{ status: 200, body: [] }] });
+    expect(o.required?.status).toBe('none');
+  });
+
+  it.each([
+    [200, {}],
+    [403, {}],
+    [403, { required_status_checks: [] }],
+    [200, { required_status_checks: [{}] }],
+    [200, { required_status_checks: [{ context: 'test', integration_id: '15368' }] }],
+  ] as const)('malformed rule or unreadable enforcement (%i, %j) is unknown even without checks', async (status, parameters) => {
+    const o = await observe({
+      [q(`${R}/rules/branches/main`)]: [{ status: 200, body: [{ type: 'required_status_checks', ruleset_id: 9, parameters }] }],
+      [`${R}/rulesets/9`]: [{ status, body: { enforcement: 'active' } }],
+    });
+    expect(o.required?.status).toBe('unknown');
+    expect(o.comparison?.verdict).toBe('unknown');
+    expect(o.green).toBe(false);
+  });
+
   it('a newer pending rerun is not hidden by an older success', async () => {
     const o = await observe({ [q(`${R}/commits/${SHA}/check-runs`)]: [{ status: 200, body: { check_runs: [run('build', 'success', 101), run('build', null, 150, 'in_progress'), run('test', 'success', 102)] } }] });
     expect(o.checks?.states['build']).toBe('pending');
@@ -266,6 +313,19 @@ describe('spike-002 gh port observation facts', () => {
   it('same name from a check run and a commit status is a collision', async () => {
     const o = await observe({ [q(`${R}/commits/${SHA}/statuses`)]: [{ status: 200, body: [{ id: 1, context: 'build', state: 'success' }] }] });
     expect(o.checks?.states['build']).toBe('collision');
+    expect(o.green).toBe(false);
+  });
+
+  it('same check name from two apps cannot hide a failure behind a newer success', async () => {
+    const o = await observe({ [q(`${R}/commits/${SHA}/check-runs`)]: [{ status: 200, body: { check_runs: [run('build', 'failure', 100, 'completed', 1), run('build', 'success', 101, 'completed', 2), run('test', 'success', 102)] } }] });
+    expect(o.checks?.states['build']).toBe('collision');
+    expect(o.checks?.all_success).toBe(false);
+    expect(o.green).toBe(false);
+  });
+
+  it('missing app identity cannot establish check success', async () => {
+    const o = await observe({ [q(`${R}/commits/${SHA}/check-runs`)]: [{ status: 200, body: { check_runs: [{ ...run('build', 'success', 101), app: null }] } }] });
+    expect(o.checks).toMatchObject({ complete: false, all_success: false });
     expect(o.green).toBe(false);
   });
 
@@ -301,6 +361,17 @@ describe('spike-002 gh port observation facts', () => {
     expect(o.state).toBe('merged');
     expect(o.reasons).toContain('merged during observation');
     expect(o.merge_proof).toMatchObject({ merged: true, completeness: 'incomplete', merge_commit_sha: null, merge_commit: { status: 'unknown' } });
+  });
+
+  it('retarget and merge on the second read rechecks the task target', async () => {
+    const at = '2026-10-28T00:00:00Z';
+    const merged = { ...pullBody, state: 'closed', merged: true, merged_at: at, base: { ...(pullBody['base'] as object), ref: 'release' } };
+    const event = { id: 1, event: 'merged', commit_id: 'c'.repeat(40), commit_url: `https://api.github.com/${R}/commits/${'c'.repeat(40)}`, created_at: at };
+    const port = new GhPort(fixtureExec(script({ [`${R}/pulls/5`]: [{ status: 200, body: pullBody }, { status: 200, body: merged }], [`${R}/pulls/5/merge`]: [{ status: 204 }], [q(`${R}/issues/5/events`)]: [{ status: 200, body: [event] }] })));
+    const o = await observePull(port, 'octo-sandbox', 'cusr-spike', 5, ['build', 'test'], { repo_id: 420001, pr_id: 770001, target: 'main' });
+    expect(o.identity).toMatchObject({ target: 'release', verdict: 'target_mismatch' });
+    expect(o.merge_proof).toMatchObject({ target: 'release', completeness: 'incomplete' });
+    expect(o.merge_proof?.gaps).toContain('target does not match the task');
   });
 
   it('closed but not merged is not a merge', async () => {
@@ -419,6 +490,10 @@ describe('spike-002 gh port merge proof from real API 2026-03-10 responses', () 
     ['commit_id is the PR head', () => withEvents([{ ...merged(), commit_id: head(), commit_url: `https://api.github.com/${RR}/commits/${head()}` }]), 'conflict'],
     ['commit_id is the PR base', () => withEvents([{ ...merged(), commit_id: baseSha(), commit_url: `https://api.github.com/${RR}/commits/${baseSha()}` }]), 'conflict'],
     ['commit_url in another repo', () => withEvents([{ ...merged(), commit_url: `https://api.github.com/repos/other/fork/commits/${String(merged()['commit_id'])}` }]), 'conflict'],
+    ['commit_url missing', () => withEvents([{ ...merged(), commit_url: undefined }]), 'missing'],
+    ['commit_url null', () => withEvents([{ ...merged(), commit_url: null }]), 'missing'],
+    ['commit_url in another host', () => withEvents([{ ...merged(), commit_url: `https://evil.example/${RR}/commits/${String(merged()['commit_id'])}` }]), 'conflict'],
+    ['commit_url with credentials', () => withEvents([{ ...merged(), commit_url: `https://user@api.github.com/${RR}/commits/${String(merged()['commit_id'])}` }]), 'conflict'],
     ['event time differs from merged_at', () => withEvents([{ ...merged(), created_at: '2026-10-28T08:40:00Z' }]), 'conflict'],
     ['legacy merge_commit_sha disagrees', () => ({ [`${RR}/pulls/1`]: [{ status: 200, body: { ...c1().pull, merge_commit_sha: 'f'.repeat(40) } }] }), 'conflict'],
   ])('%s → merged fact kept, merge commit %s, proof incomplete', async (_name, over, status) => {

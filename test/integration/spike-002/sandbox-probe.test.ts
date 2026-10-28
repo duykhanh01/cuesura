@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SANDBOX_ROLES, bwrapUsable, runProbe } from '../../../scripts/spike-002/sandbox.ts';
+import { runMountToctouProbe } from '../../../scripts/spike-002/probe-mount-toctou.ts';
 
 // Real bwrap on this machine. Skipped (not passed) where unprivileged userns is blocked, e.g. the
 // restricted host recorded in spike-0-report.md before AppArmor provisioning.
@@ -29,5 +30,11 @@ describe.skipIf(!bwrap.usable)('spike-002 outer sandbox canaries (real bwrap, lo
     expect(report.evidence_scope).toMatch(/Not S0\.1 proof/);
     expect(report.evidence_scope).toContain('AppArmor child-stack hardening is optional');
     expect(report.layout_pass).toBe(true);
+  });
+
+  it('fails closed on host-side source swaps after planning', () => {
+    const toctou = runMountToctouProbe();
+    expect(toctou['passed']).toBe(true);
+    expect(toctou['conclusion']).toMatchObject({ same_uid_host_swap_redirects_bwrap: false, prototype_runs_inode_check: true });
   });
 });

@@ -23,6 +23,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   unlinkSync,
   writeFileSync,
@@ -34,7 +35,7 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { hashCanonical } from '../../src/shared/hash.ts';
 import { ROLE_SCHEMAS, isRole, roleJsonSchema, roleSchemaDigest, validateRoleResult, type Role, type ValidationIssue } from './role-schema.ts';
-import { summarizeStream } from './harness-stream.ts';
+import { summarizeStream, type StreamSummary } from './harness-stream.ts';
 import { DEFAULT_LIMITS, SafeIdSchema, execOperation, prepareRunDir, writeAtomic, type ExitRecord, type RunSpec } from './runner.ts';
 import { IN_SANDBOX, buildSandbox, sandboxCommand, type HostPolicy, defaultHostPolicy } from './sandbox.ts';
 
@@ -444,16 +445,23 @@ export type NormalizedResult = {
   readonly issues: readonly ValidationIssue[] | readonly string[];
   readonly raw_digest: string | null;
   readonly result_path: string | null;
+  readonly stream: StreamSummary;
 };
 
-function readStdoutJson(runDir: string, pointer: readonly string[]): { value: unknown; raw: string } | null {
-  const path = join(runDir, 'events.jsonl');
-  if (!existsSync(path)) return null;
-  const lines = readFileSync(path, 'utf8').split('\n').filter(Boolean);
+/** Rotated generations precede the active segment; the runner retains them until ingestion ACK. */
+function readEvents(runDir: string): string {
+  const spool = join(runDir, 'spool');
+  const segments = existsSync(spool) ? readdirSync(spool).filter((n) => /^events\.\d{6,}\.jsonl$/.test(n)).sort((a, b) => Number(a.split('.')[1]) - Number(b.split('.')[1])) : [];
+  const paths = [...segments.map((n) => join(spool, n)), join(runDir, 'events.jsonl')];
+  return paths.filter((p) => existsSync(p)).map((p) => readFileSync(p, 'utf8')).join('\n');
+}
+
+function readStdoutJson(events: string, pointer: readonly string[]): { value: unknown; raw: string } | null {
+  const lines = events.split('\n').filter(Boolean);
   const last = lines.at(-1);
   if (last === undefined) return null;
-  const rec = JSON.parse(last) as { data: unknown; truncated?: boolean };
-  if (rec.truncated === true) return null;
+  const rec = tryParse(last) as { data?: unknown; truncated?: boolean } | null;
+  if (typeof rec !== 'object' || rec === null || rec.truncated === true) return null;
   let v: unknown = rec.data;
   for (const k of pointer) v = typeof v === 'object' && v !== null ? (v as Record<string, unknown>)[k] : undefined;
   return v === undefined ? null : { value: typeof v === 'string' ? tryParse(v) : v, raw: JSON.stringify(rec.data) };
@@ -472,7 +480,11 @@ function tryParse(s: string): unknown {
  * semantics; then writes out/result.json with provenance taken from runner files, not from the model.
  */
 export function normalizeResult(plan: HarnessPlan, config: HarnessConfig, role: Role, exit: ExitRecord, outputPreexisted: boolean): NormalizedResult {
-  const base = { role, raw_digest: null, result_path: null };
+  const events = readEvents(plan.run_dir);
+  const stderrPath = join(plan.run_dir, 'stderr.log');
+  const stream = summarizeStream(config.vendor, events, existsSync(stderrPath) ? readFileSync(stderrPath, 'utf8') : '');
+  writeAtomic(join(plan.run_dir, 'out'), 'stream-summary.json', `${JSON.stringify(stream)}\n`);
+  const base = { role, raw_digest: null, result_path: null, stream };
   if (exit.outcome === 'timeout') return { ...base, status: 'timeout', issues: ['deadline reached'] };
   let raw: string;
   let value: unknown;
@@ -486,7 +498,7 @@ export function normalizeResult(plan: HarnessPlan, config: HarnessConfig, role: 
     raw = readFileSync(plan.files.output, 'utf8');
     value = tryParse(raw);
   } else {
-    const got = readStdoutJson(plan.run_dir, config.result_source.pointer);
+    const got = readStdoutJson(events, config.result_source.pointer);
     if (got === null) return { ...base, status: exit.outcome === 'exited' && exit.exit_code === 0 ? 'missing_output' : 'process_failed', issues: ['no complete final stdout record'] };
     raw = got.raw;
     value = got.value;
@@ -495,11 +507,9 @@ export function normalizeResult(plan: HarnessPlan, config: HarnessConfig, role: 
   const validation = validateRoleResult(role, value);
   if (exit.outcome !== 'exited' || exit.exit_code !== 0) {
     // A schema-valid answer from a failed process is never accepted as done.
-    return { role, status: 'process_failed', issues: [`outcome ${exit.outcome} exit ${String(exit.exit_code)}`], raw_digest: digest, result_path: null };
+    return { ...base, status: 'process_failed', issues: [`outcome ${exit.outcome} exit ${String(exit.exit_code)}`], raw_digest: digest };
   }
-  if (!validation.ok) return { role, status: 'invalid_output', issues: validation.issues, raw_digest: digest, result_path: null };
-  const runFile = (name: string): string => (existsSync(join(plan.run_dir, name)) ? readFileSync(join(plan.run_dir, name), 'utf8') : '');
-  const stream = summarizeStream(config.vendor, runFile('events.jsonl'), runFile('stderr.log'));
+  if (!validation.ok) return { ...base, status: 'invalid_output', issues: validation.issues, raw_digest: digest };
   const out = {
     schema_version: 1,
     provenance: {
@@ -522,7 +532,7 @@ export function normalizeResult(plan: HarnessPlan, config: HarnessConfig, role: 
   };
   const outDir = join(plan.run_dir, 'out');
   writeAtomic(outDir, 'result.json', `${JSON.stringify(out)}\n`);
-  return { role, status: 'valid', issues: [], raw_digest: digest, result_path: join(outDir, 'result.json') };
+  return { role, status: 'valid', issues: [], raw_digest: digest, result_path: join(outDir, 'result.json'), stream };
 }
 
 export type RunOutcome = { readonly plan: HarnessPlan; readonly exit: ExitRecord | null; readonly result: NormalizedResult | null; readonly refused: string | null };

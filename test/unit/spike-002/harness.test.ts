@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +9,7 @@ import {
   checkConfig,
   fileSha256,
   materialize,
+  normalizeResult,
   planInvocation,
   readLedger,
   recordFinished,
@@ -19,6 +20,8 @@ import {
 import { createProbeFixture } from '../../../scripts/spike-002/sandbox.ts';
 import { ROLES, roleJsonSchema, roleSchemaDigest } from '../../../scripts/spike-002/role-schema.ts';
 import { hashCanonical } from '../../../src/shared/hash.ts';
+import { type ExitRecord } from '../../../scripts/spike-002/runner.ts';
+import { summarizeStream } from '../../../scripts/spike-002/harness-stream.ts';
 
 const templates = ['claude', 'codex'].map((v) =>
   HarnessConfigSchema.parse(JSON.parse(readFileSync(fileURLToPath(new URL(`../../../scripts/spike-002/config/${v}.template.json`, import.meta.url)), 'utf8'))),
@@ -163,5 +166,54 @@ describe('spike-002 shared spike budget ledger', () => {
     expect(r.refused).toBe('paid vendor requires --allow-paid');
     expect(readLedger(ledger)).toEqual([]);
     expect(r.exit).toBeNull();
+  });
+});
+
+describe('spike-002 result stream facts for every outcome', () => {
+  let serial = 0;
+  function planned(config: HarnessConfig): ReturnType<typeof planInvocation> {
+    const fx = createProbeFixture(mkdtempSync(join(base, 'normalize-')));
+    return planInvocation({ config, role: 'coder', root: join(base, 'normalize-root'), attemptId: `normalize-${serial++}`, worktree: fx.worktree, gitDirs: [fx.gitCommon], toolchain: [], prompt: 'p' });
+  }
+  const exited = (code: number, outcome: ExitRecord['outcome'] = 'exited'): ExitRecord => ({
+    schema_version: 1, operation_id: 'op-normalize', attempt_id: 'normalize', launch_nonce: 'nonce',
+    started_at: new Date().toISOString(), ended_at: new Date().toISOString(), outcome, exit_code: code,
+    signal: null, error: null, usage: { status: 'unavailable', reason: 'runner' },
+    duration_ms: 1,
+    termination: { term_sent: false, kill_sent: false, group_empty_verified: true, descendant_scope: 'process_group_only', descendants_killed: 0 },
+    artifacts: { events: { records: 0, bytes: 0, generations: 0, truncated_records: 0 }, stderr: { bytes: 0, digest: '' } },
+  });
+
+  it.each(['present', 'missing', 'timeout'] as const)('retains vendor failure, usage and denials with %s output', (output) => {
+    const config = ready({ vendor: 'codex', result_source: { kind: 'file' }, argv: ['{schema_file}', '{output_file}'] });
+    const plan = planned(config);
+    const events = [{ type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 2 } }, { type: 'turn.failed', error: { message: '429 Too Many Requests' } }];
+    writeFileSync(join(plan.run_dir, 'events.jsonl'), events.map((data) => JSON.stringify({ data })).join('\n'));
+    const stderr = readFileSync(fileURLToPath(new URL('../../fixtures/runtime/spike-0/harness/real-20261028/s0-codex-fixer-1793173505/stderr.log', import.meta.url)), 'utf8');
+    writeFileSync(join(plan.run_dir, 'stderr.log'), stderr);
+    if (output === 'present') writeFileSync(plan.files.output, JSON.stringify({ schema_version: 1, status: 'done', summary: 'ok', questions: [], blocker: null }));
+    const r = normalizeResult(plan, config, 'coder', exited(1, output === 'timeout' ? 'timeout' : 'exited'), false);
+    expect(r.status).toBe(output === 'timeout' ? 'timeout' : 'process_failed');
+    expect(r.stream.failure?.kind).toBe('rate_limited');
+    expect(r.stream.usage).toMatchObject({ status: 'reported', input_tokens: 10, output_tokens: 2 });
+    expect(r.stream.permission_denials.length).toBeGreaterThan(0);
+    expect(JSON.parse(readFileSync(join(plan.run_dir, 'out', 'stream-summary.json'), 'utf8'))).toEqual(r.stream);
+  });
+
+  it('summarizes rotated Claude records in generation order before the active final result', () => {
+    const config = ready();
+    const plan = planned(config);
+    const events = readFileSync(fileURLToPath(new URL('../../fixtures/runtime/spike-0/harness/real-20261028/s0-claude-fixer-1793173414/events.jsonl', import.meta.url)), 'utf8');
+    const lines = events.trimEnd().split('\n');
+    const split = lines.findIndex((line) => (JSON.parse(line) as { data: { type: string } }).data.type === 'result');
+    expect(split).toBeGreaterThan(0);
+    const cut = Math.floor(split / 2);
+    writeFileSync(join(plan.run_dir, 'spool', 'events.000000.jsonl'), lines.slice(0, cut).join('\n'));
+    writeFileSync(join(plan.run_dir, 'spool', 'events.000001.jsonl'), lines.slice(cut, split).join('\n'));
+    writeFileSync(join(plan.run_dir, 'events.jsonl'), lines.slice(split).join('\n'));
+    const r = normalizeResult(plan, config, 'coder', exited(1), false);
+    expect(r.stream).toEqual(summarizeStream('claude', events, ''));
+    expect(r.stream.rate_limit?.status).toBe('allowed');
+    expect(r.stream.permission_denials).toHaveLength(1);
   });
 });

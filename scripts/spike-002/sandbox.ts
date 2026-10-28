@@ -10,7 +10,7 @@
  * hardening, not a baseline prerequisite. The probe never loads policy, uses sudo or touches sysctl.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir, userInfo } from 'node:os';
 import { dirname, isAbsolute, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -106,6 +106,11 @@ export type SandboxPlan = {
   readonly role: SandboxRole;
   readonly argv: readonly string[];
   readonly mounts: readonly Mount[];
+  readonly sources: readonly {
+    readonly argv_index: number;
+    readonly source: string;
+    readonly identity: { readonly realpath: string; readonly dev: string; readonly ino: string } | null;
+  }[];
   readonly env: Readonly<Record<string, string>>;
   readonly cwd: string;
   readonly network: 'internet_outbound';
@@ -209,6 +214,16 @@ export function buildSandbox(input: SandboxLayout, policy: HostPolicy = defaultH
     mounts.push({ kind: 'ro', source: src, target, purpose: key });
   }
 
+  // Only the worktree's in-place metadata overlay may overlap a writable mount. Any alias
+  // of that worktree (including private home) would bypass the .git overlay at its host path.
+  for (const rw of mounts.filter((m) => m.kind === 'rw')) {
+    for (const other of mounts) {
+      if (rw === other || (!within(rw.source, other.source) && !within(other.source, rw.source))) continue;
+      if (rw.purpose === 'worktree' && other.purpose === 'git-metadata' && within(other.source, rw.source) && other.target === other.source) continue;
+      throw new SandboxPolicyError(`${rw.purpose} overlaps ${other.purpose}: ${rw.source} / ${other.source}`);
+    }
+  }
+
   checkEnv(role, layout.env);
   const env: Record<string, string> = {
     PATH: [...layout.toolchain, '/usr/local/bin', '/usr/bin', '/bin'].join(':'),
@@ -248,7 +263,19 @@ export function buildSandbox(input: SandboxLayout, policy: HostPolicy = defaultH
     '/tmp',
   ];
   if (!agent) argv.push('--tmpfs', IN_SANDBOX.home);
+  const sources: SandboxPlan['sources'][number][] = [];
   for (const m of mounts) {
+    let identity: SandboxPlan['sources'][number]['identity'];
+    try {
+      const realpath = realpathSync(m.source);
+      const st = statSync(m.source, { bigint: true });
+      identity = { realpath, dev: String(st.dev), ino: String(st.ino) };
+      if (m.purpose !== 'system' && realpath !== m.source) throw new SandboxPolicyError(`${m.purpose}: source changed during planning`);
+    } catch (e) {
+      if (m.optional !== true || (e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+      identity = null;
+    }
+    sources.push({ argv_index: argv.length, source: m.source, identity });
     const flag = m.kind === 'rw' ? '--bind' : '--ro-bind';
     argv.push(m.optional === true ? `${flag}-try` : flag, m.source, m.target);
   }
@@ -260,16 +287,17 @@ export function buildSandbox(input: SandboxLayout, policy: HostPolicy = defaultH
     role,
     argv,
     mounts,
+    sources,
     env,
     cwd: worktree,
     network: layout.network,
-    layout_digest: hashCanonical({ argv, network: layout.network }),
+    layout_digest: hashCanonical({ argv, sources, network: layout.network }),
   };
 }
 
-/** Full command line: `bwrap <sandbox argv> -- <command>`. */
+/** The launcher verifies identities and binds inherited FDs, closing the path lookup race. */
 export function sandboxCommand(plan: SandboxPlan, command: readonly string[], bwrap = '/usr/bin/bwrap'): string[] {
-  return [bwrap, ...plan.argv, '--', ...command];
+  return ['/usr/bin/python3', '-I', fileURLToPath(new URL('./sandbox-exec.py', import.meta.url)), JSON.stringify({ bwrap, argv: plan.argv, sources: plan.sources }), ...command];
 }
 
 export function bwrapUsable(bwrap = '/usr/bin/bwrap'): { usable: boolean; detail: string } {
@@ -373,7 +401,8 @@ case "$op" in
 esac`;
 
 function runCheck(plan: SandboxPlan, op: string, path: string, bwrap: string): string {
-  const r = spawnSync(bwrap, [...plan.argv, '--', '/bin/sh', '-c', CHECK, 'sh', op, path], {
+  const [exe, ...args] = sandboxCommand(plan, ['/bin/sh', '-c', CHECK, 'sh', op, path], bwrap);
+  const r = spawnSync(exe as string, args, {
     encoding: 'utf8',
     timeout: 20_000,
     env: {},
@@ -484,7 +513,8 @@ export function runProbe(roles: readonly SandboxRole[], opts: { base?: string; a
       const script = fileURLToPath(new URL('../../deploy/apparmor/probe-child.py', import.meta.url));
       const dir = dirname(script);
       const plan = buildSandbox({ ...probeLayout('coder', fx), toolchain: [realpathSync(dir)] });
-      const r = spawnSync(bwrap, [...plan.argv, '--', '/usr/bin/python3', script], { encoding: 'utf8', timeout: 60_000, env: {} });
+      const [exe, ...args] = sandboxCommand(plan, ['/usr/bin/python3', script], bwrap);
+      const r = spawnSync(exe as string, args, { encoding: 'utf8', timeout: 60_000, env: {} });
       fixture = { ran: true, exit: r.status, output: `${r.stdout}${r.stderr}`.trim().slice(0, 4_000) };
     }
     return { ...report, apparmor_fixture: fixture, layout_pass: all };
