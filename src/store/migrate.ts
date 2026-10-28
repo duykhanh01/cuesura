@@ -12,6 +12,7 @@ import { canonicalJson } from '../shared/canonical-json.ts';
 const MIGRATIONS: readonly { version: number; file: string; after?: (db: Database) => void }[] = [
   { version: 1, file: '001_init.sql' },
   { version: 2, file: '002_runtime.sql', after: rebuildForRuntime },
+  { version: 3, file: '003_command_outcome.sql' },
 ];
 
 /**

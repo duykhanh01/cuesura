@@ -4,6 +4,7 @@ import type { Uuid } from '../shared/brand.ts';
 import { computeRequestHash, TRIGGER_SCHEMA_VERSION, type TriggerEnvelope } from '../domain/trigger.ts';
 import { accept, type AcceptError, type AcceptOutcome } from './accept.ts';
 import type { CrashHook } from './crash.ts';
+import { selectNext } from '../engine/execution-slot.ts';
 import { readQueue, readSlot } from './read.ts';
 
 export type GrantOutcome =
@@ -17,10 +18,9 @@ export type GrantOutcome =
  * can never both commit; the slot table's singleton key is the last guard.
  */
 export function grantNext(db: Database, now: number, crash: CrashHook): Result<GrantOutcome, AcceptError> {
-  const holder = readSlot(db);
-  if (holder !== null) return ok({ kind: 'busy', holder_task_id: holder.holder_task_id });
-  const head = readQueue(db, 1)[0];
-  if (head === undefined) return ok({ kind: 'empty' });
+  const next = selectNext(readQueue(db), readSlot(db));
+  if (next.kind !== 'grant') return ok(next);
+  const head = next.request;
   const trigger = { kind: 'grant_execution' as const, request_id: head.request_id as Uuid };
   const env: TriggerEnvelope = {
     schema_version: TRIGGER_SCHEMA_VERSION,

@@ -4,6 +4,7 @@ import { openFileStoreForTest, injectEvents, storeDb } from '../../../src/store/
 import type { CrashPoint } from '../../../src/store/testing.ts';
 import { buildTask, freezeOk, uuidOf } from '../../support/builders.ts';
 import { buildRuntime, createGrantStart } from '../../support/runtime.ts';
+import { PREPARE_DATA } from '../../support/scenario.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 import { dbPath, useTempDir } from '../../support/temp-db.ts';
 
@@ -170,6 +171,33 @@ describe('operation claims and slot release (T025, FR-044.06)', () => {
     createGrantStart(d, t);
     d.must(t.id, { kind: 'cancel', reason: 'stop' });
     expect(d.task(t.id).status).toBe('CANCELLED');
+    expect(d.store.readSlot()).toBeNull();
+    expect(d.store.verifyProjections()).toMatchObject({ ok: true });
+  });
+
+  it('a receipt that arrives after the task ended resolves its operation and frees the slot it kept', () => {
+    const d = driver();
+    const t = buildTask({ id: uuidOf(1) });
+    const request_id = createGrantStart(d, t);
+    const prepare = d.pendingOne(t.id, 'prepare');
+    expect(d.store.claimEffect(prepare.id as Uuid, d.now as EpochMs, opClaim(1)).ok).toBe(true);
+    d.must(t.id, { kind: 'cancel', reason: 'stop' });
+    d.must(t.id, { kind: 'effect_result', effect_id: prepare.id as Uuid, outcome: 'succeeded', data: PREPARE_DATA });
+    expect(d.task(t.id).status).toBe('CANCELLED');
+    // The operation is still unresolved, so ending the task did not release the slot.
+    expect(d.store.readSlot()).toMatchObject({ request_id });
+    d.must(t.id, {
+      kind: 'operation_result',
+      operation_id: uuidOf(901),
+      status: 'finished',
+      outcome: 'succeeded',
+      invocation_id: 'inv-1',
+      processes: [],
+      started_at: d.now as EpochMs,
+      finished_at: d.now as EpochMs,
+      receipt_digest: HASH,
+    });
+    expect(d.task(t.id)).toMatchObject({ status: 'CANCELLED', operations: { [uuidOf(901)]: { status: 'finished' } } });
     expect(d.store.readSlot()).toBeNull();
     expect(d.store.verifyProjections()).toMatchObject({ ok: true });
   });

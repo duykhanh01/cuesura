@@ -40,6 +40,13 @@ function moveTo(s: TaskState, to: TaskStatus, type: string): void {
 
 type AnyEvent = DomainEvent | DomainEventDraft;
 
+/**
+ * Events a terminal task still accepts. Besides `SignalIgnored`, an operation that outlived the task
+ * may report its receipt and output, and the slot it kept is released once nothing still needs it;
+ * none of them touches the task status.
+ */
+export const POST_TERMINAL_EVENTS: readonly DomainEvent['type'][] = ['SignalIgnored', 'OperationObserved', 'OutputIngested', 'ArtifactIngested', 'ExecutionReleased'];
+
 /** Áp một sự kiện lên `TaskState` (contracts/core-api.md). Không đổi `state` đầu vào. */
 export function evolve(state: TaskState | null, event: AnyEvent): TaskState {
   return applyInPlace(state === null ? null : structuredClone(state), structuredClone(event));
@@ -103,7 +110,7 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
   }
 
   const s = state;
-  if (isTerminal(s.status) && event.type !== 'SignalIgnored') {
+  if (isTerminal(s.status) && !POST_TERMINAL_EVENTS.includes(event.type)) {
     throw new InvalidTransition(`${event.type} sau khi task đã kết thúc (${s.status})`);
   }
   s.version += 1;

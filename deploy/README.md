@@ -34,6 +34,48 @@ kernel/package/profile hiện có để provisioning phù hợp; không tự sud
 managed hoặc chạy unsandboxed. Không suy failure ở host bwrap 0.9.0 trong báo cáo lịch sử thành
 failure của mọi host Ubuntu/WSL2.
 
+### Chuẩn bị theo hệ và cách sửa khi preflight báo `capability_missing`
+
+Preflight (T030) kiểm từng điều kiện dưới đây và báo đúng nguyên nhân kèm mã `cause`; nó chỉ in
+lệnh sửa, không tự chạy sudo, đổi sysctl hay nạp profile. Không có điều kiện nào được bỏ qua bằng
+cách chạy unsandboxed.
+
+| Hệ | Cần làm |
+| --- | --- |
+| Ubuntu 22.04 (desktop/server), WSL2 | Cài `bubblewrap` nếu thiếu; server headless bật linger |
+| Debian 11/12, Fedora, RHEL/Rocky 8–9, Arch | `bubblewrap` từ gói distro; thường chạy ngay |
+| Ubuntu 23.10/24.04+ | Như trên, thêm profile AppArmor cho phép userns cho bwrap |
+| Host tắt user namespace (hardening, một số container) | Quản trị viên bật lại userns |
+
+| `cause` | Dấu hiệu | Lệnh sửa (người dùng tự chạy) |
+| --- | --- | --- |
+| `bwrap_missing` | Không tìm thấy `bwrap` | `sudo apt install bubblewrap` (hoặc gói `bubblewrap` của distro) |
+| `userns_apparmor_restricted` | `bwrap --unshare-user …` lỗi `setting up uid map: Permission denied` và `kernel.apparmor_restrict_unprivileged_userns = 1` | Nạp profile userns cho bwrap, xem bên dưới |
+| `userns_disabled` | `user.max_user_namespaces = 0` hoặc `kernel.unprivileged_userns_clone = 0` | Quản trị viên review chính sách hardening của host rồi mới bật lại; Cuesura không đề xuất giá trị sysctl |
+| `systemd_user_unavailable` | Không có user bus / `systemctl --user` lỗi (server headless, phiên SSH đã thoát) | `sudo loginctl enable-linger "$USER"`; WSL2 xem mục systemd và WSL2 |
+
+Profile userns cho Ubuntu 23.10/24.04+: trước khi nạp, kiểm `ls /etc/apparmor.d` xem đã có profile
+nào attach `/usr/bin/bwrap` chưa (do distro hoặc gói khác cài, hoặc [cusr-bwrap](apparmor/cusr-bwrap)
+ở mục dưới); đã có thì review profile đó thay vì nạp thêm, vì hai profile cùng attach một binary sẽ
+xung đột. Profile này chỉ cho bwrap tạo user namespace như trước khi Ubuntu bật hạn chế; mọi
+chương trình khác vẫn bị chặn, và mọi user trên máy dùng được bwrap.
+
+```sh
+sudo tee /etc/apparmor.d/cusr-bwrap-userns >/dev/null <<'PROFILE'
+abi <abi/4.0>,
+include <tunables/global>
+
+profile cusr-bwrap-userns /usr/bin/bwrap flags=(unconfined) {
+  userns,
+  include if exists <local/cusr-bwrap-userns>
+}
+PROFILE
+sudo apparmor_parser -r /etc/apparmor.d/cusr-bwrap-userns
+bwrap --unshare-user --ro-bind / / /usr/bin/true && echo ok
+```
+
+Gỡ: `sudo apparmor_parser -R /etc/apparmor.d/cusr-bwrap-userns && sudo rm /etc/apparmor.d/cusr-bwrap-userns`.
+
 ### AppArmor: policy host và hardening tùy chọn
 
 Giữ nguyên policy host. Profile [cusr-bwrap](apparmor/cusr-bwrap) theo ABI 4.0 từ

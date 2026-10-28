@@ -120,4 +120,21 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // Runner và adapter không ghi DB và không chọn trạng thái task (contracts/execution.md): chỉ daemon là writer.
+    files: ['src/runner/**/*.ts', 'src/adapters/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/store/**', '**/store', '**/daemon/**', '**/daemon', 'better-sqlite3'],
+              message: 'runner/adapters không import store, daemon hay SQLite; facts trả về daemon qua file hoặc port.',
+            },
+          ],
+        },
+      ],
+    },
+  },
 );

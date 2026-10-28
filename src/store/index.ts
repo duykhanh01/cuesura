@@ -39,7 +39,7 @@ export interface Store {
     limit: number,
     ids: (timerId: Uuid) => Uuid[],
   ): Result<AcceptOutcome[], FireError>;
-  pendingEffects(limit: number): Effect[];
+  pendingEffects(limit: number, after?: string): Effect[];
   readTask(taskId: Uuid): TaskState | null;
   readEvents(taskId: Uuid, fromSeq?: number): DomainEvent[];
   readPolicy(taskId: Uuid, revision: number, policyVersion?: number): FrozenPolicy | null;
@@ -82,8 +82,8 @@ export class SqliteStore implements Store {
   ): Result<AcceptOutcome[], FireError> {
     return fireDueTimers(this.db, now, limit, ids, this.crash);
   }
-  pendingEffects(limit: number): Effect[] {
-    return read.pendingEffects(this.db, limit);
+  pendingEffects(limit: number, after?: string): Effect[] {
+    return read.pendingEffects(this.db, limit, after);
   }
   admitCommand(input: Parameters<typeof commands.admitCommand>[1]): Result<commands.Admission, commands.LedgerError> {
     return commands.admitCommand(this.db, input);

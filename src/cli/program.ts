@@ -13,6 +13,14 @@ export interface CliSpec {
   readonly version: string;
 }
 
+/** One implemented subcommand. Options are long flags taking a value (`--data-dir <dir>`). */
+export interface CliCommand {
+  readonly name: string;
+  readonly description: string;
+  readonly options?: readonly { readonly flags: string; readonly description: string }[];
+  run(values: Readonly<Record<string, string | undefined>>, json: boolean, io: CliIo): Promise<number>;
+}
+
 export const processIo: CliIo = {
   stdout: (text) => {
     process.stdout.write(text);
@@ -31,10 +39,11 @@ export function packageVersion(): string {
 }
 
 /**
- * Runs one binary invocation and returns its exit code. No command is implemented yet, so only
- * `--version` and `--help` succeed; anything else is reported as not_available with exit 2.
+ * Runs one binary invocation and returns its exit code. Only `--version`, `--help` and the given
+ * commands succeed; anything else is reported as not_available with exit 2, so a command that is not
+ * implemented is never presented as available.
  */
-export function runCli(spec: CliSpec, argv: readonly string[], io: CliIo): number {
+export async function runCli(spec: CliSpec, argv: readonly string[], io: CliIo, commands: readonly CliCommand[] = []): Promise<number> {
   const json = argv.includes('--json');
   let exitCode: number = ExitCode.ok;
 
@@ -43,7 +52,6 @@ export function runCli(spec: CliSpec, argv: readonly string[], io: CliIo): numbe
     .option('-V, --version', 'output the version number')
     .option('--json', 'print exactly one JSON result object to stdout')
     .helpOption('-h, --help', 'display help')
-    .addHelpText('after', '\nNo commands are available in this build.')
     .allowUnknownOption()
     .allowExcessArguments()
     .configureOutput({
@@ -59,11 +67,21 @@ export function runCli(spec: CliSpec, argv: readonly string[], io: CliIo): numbe
         io.stdout(json ? renderEnvelope(okEnvelope({ version: spec.version })) : `${spec.version}\n`);
         return;
       }
-      exitCode = notAvailable(spec.name, program.args, json, io);
+      exitCode = notAvailable(spec.name, program.args, json, io, commands.length > 0);
     });
+  if (commands.length === 0) program.addHelpText('after', '\nNo commands are available in this build.');
+
+  for (const c of commands) {
+    const sub = program.command(c.name).description(c.description).option('--json', 'print exactly one JSON result object to stdout');
+    for (const o of c.options ?? []) sub.option(o.flags, o.description);
+    sub.exitOverride().action(async () => {
+      const { json: subJson, ...values } = sub.opts<Record<string, string | undefined> & { json?: true }>();
+      exitCode = await c.run(values, json || subJson === true, io);
+    });
+  }
 
   try {
-    program.parse([...argv], { from: 'user' });
+    await program.parseAsync([...argv], { from: 'user' });
   } catch (e) {
     if (!(e instanceof CommanderError)) throw e;
     if (e.exitCode === 0) return ExitCode.ok;
@@ -80,11 +98,11 @@ export function runCli(spec: CliSpec, argv: readonly string[], io: CliIo): numbe
   return exitCode;
 }
 
-function notAvailable(name: string, args: readonly string[], json: boolean, io: CliIo): number {
+function notAvailable(name: string, args: readonly string[], json: boolean, io: CliIo, hasCommands: boolean): number {
   const argument = args[0] ?? null;
   const message =
     argument === null
-      ? `${name}: no command given; no commands are available in this build`
+      ? `${name}: no command given${hasCommands ? '' : '; no commands are available in this build'}`
       : `${name}: ${argument.startsWith('-') ? 'option' : 'command'} "${argument}" is not available in this build`;
   if (json) {
     io.stdout(

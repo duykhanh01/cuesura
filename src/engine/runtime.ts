@@ -145,6 +145,11 @@ export function onOperationResult(ctx: Ctx, t: TriggerOf<'operation_result'>): v
     finished_at: t.finished_at,
     receipt_digest: t.receipt_digest,
   });
+  // A task that ended while this operation was unresolved kept the slot for it; free it with the last one.
+  const h = ctx.state.execution.holding;
+  if (isTerminal(ctx.state.status) && h !== null && slotBoundOperations(ctx.state).length === 0) {
+    ctx.emit('ExecutionReleased', { request_id: h.request_id, reason: 'task_ended', at: ctx.now });
+  }
 }
 
 /**
