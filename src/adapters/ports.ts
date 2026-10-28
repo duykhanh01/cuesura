@@ -90,6 +90,9 @@ export type OperationLaunch = {
   readonly env: Readonly<Record<string, string>>;
   readonly wall_ms: number;
   readonly deadline_at: EpochMs;
+  /** Snapshot stop limits: SIGTERM, grace, SIGKILL, then verify the cgroup is empty. */
+  readonly term_grace_ms: number;
+  readonly kill_verify_ms: number;
   readonly launch_nonce: string;
 };
 
