@@ -81,6 +81,18 @@ describe('Redactor', () => {
     expect(() => new Redactor().value(undefined)).toThrow(TypeError);
     expect(() => new Redactor().value({ n: 1n })).toThrow(TypeError);
   });
+
+  it.each(['?', '?ref=main&'])('redacts URL tokens after %s in text and JSON without consuming other URL parts', (query) => {
+    const r = new Redactor();
+    const base = `https://raw.githubusercontent.com/example/private/main/file.txt${query}token=`;
+    const token = 'test-only-download-token';
+    const url = `${base}${token}&raw=1#section`;
+    const expected = `${base}${REDACTED}&raw=1#section`;
+    expect(r.text(`Download '${url}' now`)).toBe(`Download '${expected}' now`);
+    expect(r.text(JSON.stringify({ download_url: url }))).toBe(JSON.stringify({ download_url: expected }));
+    expect(r.value({ download_url: url })).toEqual({ download_url: expected });
+    expect(r.text(expected)).toBe(expected);
+  });
 });
 
 describe('secretValuesFromText', () => {

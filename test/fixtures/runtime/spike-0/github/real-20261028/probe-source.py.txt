@@ -1,4 +1,4 @@
-import subprocess,json,pathlib,datetime,hashlib,base64,urllib.parse
+import subprocess,json,pathlib,datetime,hashlib,base64,urllib.parse,re
 root=pathlib.Path('/home/khanhnd1/Personal/cuesura')
 out=root/'test/fixtures/runtime/spike-0/github/real-20261028'
 out.mkdir(parents=True,exist_ok=True)
@@ -19,7 +19,8 @@ def api(path,method='GET',body=None,allow404=False):
  try: data=json.loads(p.stdout) if p.stdout.strip() else None
  except ValueError: data={'unparsed':p.stdout}
  seq=len(report['request_ledger'])+1
- raw=out/f'response-{seq:02d}.json';raw.write_text(json.dumps(data,indent=2)+'\n')
+ redacted=re.sub(r'([?&]token=)[^&\s\x22\x27<>\\#]+',r'\1[REDACTED]',json.dumps(data,indent=2),flags=re.I)
+ raw=out/f'response-{seq:02d}.json';raw.write_text(redacted+'\n')
  entry={'sequence':seq,'method':method,'path':path,'exit':p.returncode,'response':raw.name,'sha256':hashlib.sha256(raw.read_bytes()).hexdigest()}
  if body is not None: entry['request_body_sha256']=hashlib.sha256(json.dumps(body,sort_keys=True).encode()).hexdigest()
  report['request_ledger'].append(entry);save()

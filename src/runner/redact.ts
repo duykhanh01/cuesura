@@ -5,7 +5,7 @@
  */
 
 /** Bump whenever the rules below change what gets replaced. */
-export const REDACTION_VERSION = 1;
+export const REDACTION_VERSION = 2;
 
 export const REDACTED = '[REDACTED]';
 
@@ -37,6 +37,7 @@ const SECRET_PATTERNS: readonly RegExp[] = [
   /\bAKIA[0-9A-Z]{16}\b/g,
   /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/g,
   PRIVATE_KEY_BLOCK,
+  /([?&]token=)[^&\s"'<>\\#]+/gi,
   /(\b(?:authorization|proxy-authorization)[ \t]*:[ \t]*)(?:bearer|token|basic)[ \t]+[^\s"',]+/gi,
   /(\b(?:access_token|refresh_token|id_token|api_key|apikey|client_secret|password)"?[ \t]*[:=][ \t]*"?)[^"\s,}]{8,}/gi,
 ];

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
+import { canonicalJson } from '../../../src/shared/canonical-json.ts';
 import {
   API_VERSION,
   GhPort,
@@ -79,6 +80,20 @@ describe('spike-002 gh port boundary', () => {
     expect(port.ledger[0]?.evidence_digest).toBe(port.evidence[0]?.digest);
     expect(port.evidence[0]?.body_redacted).not.toContain('ghp_');
     expect(port.evidence[0]?.digest).toMatch(/^sha256:[0-9a-f]{64}$/);
+  });
+
+  it('redacts private download URL tokens in evidence before calculating its digest', async () => {
+    const token = 'test-only-download-token';
+    const url = 'https://raw.githubusercontent.com/example/private/main/file.txt';
+    const body = { download_url: `${url}?token=${token}&raw=1` };
+    const port = new GhPort(fixtureExec(script({ [`${R}/pulls/5`]: [{ status: 200, body }] })));
+    await port.get(`${R}/pulls/5`);
+    const evidence = port.evidence[0];
+    const expected = JSON.stringify({ download_url: `${url}?token=[REDACTED]&raw=1` });
+    expect(evidence?.body_redacted).toBe(expected);
+    expect(JSON.stringify({ ledger: port.ledger, evidence: port.evidence })).not.toContain(token);
+    expect(evidence?.digest).toBe(`sha256:${createHash('sha256').update(canonicalJson({ status: 200, headers: {}, body: expected })).digest('hex')}`);
+    expect(port.ledger[0]?.evidence_digest).toBe(evidence?.digest);
   });
 });
 

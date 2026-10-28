@@ -93,6 +93,7 @@ const SECRET_PATTERNS: readonly RegExp[] = [
   /\bAKIA[0-9A-Z]{16}\b/g,
   /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/g,
   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
+  /([?&]token=)[^&\s"'<>\\#]+/gi,
   /(\b(?:authorization|proxy-authorization)\s*:\s*)(?:bearer|token|basic)\s+[^\s"',]+/gi,
   /(\b(?:access_token|refresh_token|id_token|api_key|apikey|client_secret|password)"?\s*[:=]\s*"?)[^"\s,}]{8,}/gi,
 ];
