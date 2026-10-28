@@ -63,13 +63,17 @@ FR-040, có kiểm tra hồi quy, không giả lập approval hoặc thành côn
 Quyết định và các phương án đã loại được ghi tại
 [ADR-0001](../../docs/adr/0001-observe-manual-merge.md).
 
-**Môi trường đã chốt:** Ubuntu có AppArmor restriction userns cần provisioning profile bwrap bởi
-quản trị viên theo [runbook](../../deploy/README.md), giữ sysctl toàn máy. systemd user manager là
+**Môi trường đã chốt:** Luồng tự động mặc định **Isolated**: rootless bwrap bọc toàn bộ harness và
+repo-controlled setup/gate/autofix, runner trong systemd user unit theo
+[ADR-0004](../../docs/adr/0004-isolated-bwrap-baseline.md). V1 chỉ có một backend bwrap qua port
+`SandboxProvider` nhỏ; Native-only và Container/VM chưa triển khai. Không bắt buộc AppArmor 4,
+Ubuntu 24.04 hay child stack Cuesura; host có restriction userns cần provisioning phù hợp bởi quản
+trị viên theo [runbook](../../deploy/README.md), giữ policy/sysctl host. systemd user manager là
 prerequisite runner, gồm kiểm WSL2 thực sự bật systemd. Mặc định setup/gate/autofix/agent được dùng
 Internet ra ngoài; không có egress allowlist và không hứa chặn LAN/loopback, nhưng filesystem/PID và
 credential điều phối vẫn cách ly. Lát 0 kiểm cấu hình này trước triển khai.
-Lát 0 vẫn thử sandbox nội bộ bật; nếu nesting fail, chỉ cho mode `external_verified` theo ngoại lệ
-có điều kiện [ADR-0003](../../docs/adr/0003-bwrap-child-capabilities.md) sau khi outer boundary và
+Lát 0 vẫn thử sandbox nội bộ bật; đây không phải chế độ Native-only. Nếu nesting fail, chỉ cho mode
+`external_verified` theo ngoại lệ có điều kiện ADR-0004 sau khi outer boundary và
 permission/approval được kiểm chứng, owner cho phép tường minh; không `--dangerously-*` hoặc bypass quyền.
 
 ## Clarifications

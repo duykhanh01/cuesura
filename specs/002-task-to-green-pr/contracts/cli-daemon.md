@@ -97,8 +97,11 @@ NormalizedUser để runtime còn biết allowlisted remote.
 | Project `ci.required_checks[]` | Giữ string[] schema v1; không thêm key app_id; GitHub ghim app cụ thể trả required_checks_mismatch |
 
 Network mode đóng băng là internet_outbound theo quyết định chủ dự án; share host network,
-không egress allowlist hoặc cam kết chặn LAN/loopback. Profile host trong deploy phải provisioning
-trước capability pass, doctor không tự cài. Completion mode của daemon 002 cố định external_confirmation, không cho cusr.yaml bật merge/yolo.
+không egress allowlist hoặc cam kết chặn LAN/loopback. Runtime tự động v1 cố định Isolated/provider
+bwrap theo [ADR-0004](../../../docs/adr/0004-isolated-bwrap-baseline.md); không thêm key chọn backend
+Native-only/Container/VM. `harness_isolation` chỉ chọn lớp nội bộ, outer luôn bắt buộc. Host hạn chế
+userns cần admin provisioning phù hợp; AppArmor 4/child stack không bắt buộc, doctor không tự cài
+hoặc sửa policy. Completion mode của daemon 002 cố định external_confirmation, không cho cusr.yaml bật merge/yolo.
 Workflow phải giữ topology software_dev@1/human; role thực chạy chỉ coder/fixer/reviewer, profile
 nghiệm thu không skip review và CI snapshot không rỗng. Unsupported role/workflow/permission/cost
 cap được báo capability_missing trước RUNNING, không tự đổi binding.
@@ -112,8 +115,9 @@ initial ≤ max, segment ≤ spool, TERM+KILL ≤ drain/recheck. Trần CI thờ
 
 Doctor chạy probe không tốn model: version/schema availability, Git paths/permissions, cgroup/systemd,
 sandbox mount/proc/socket/secret access, storage writability, credential availability (không in secret).
-Lát 0 trước tasks/A kiểm host AppArmor, native sandbox bật trước, nhánh external_verified chỉ
-sau outer-proof/permission fixtures và owner config theo ADR-0003, auth home và ba role × hai vendor. Doctor
+Lát 0 trước A kiểm host rootless bwrap/systemd và outer boundary, sandbox nội bộ bật trước,
+nhánh external_verified chỉ sau outer-proof/permission fixtures và owner config theo ADR-0004,
+auth home và ba role × hai vendor. Không kiểm pass bằng tên profile AppArmor. Doctor
 trên WSL2 kiểm systemd=true cùng user-manager unit probe, không chỉ PID1. Schema output thật/cost/auth
 capability chỉ được đánh dấu proven khi có fixture thực nghiệm; chưa
 có thì chặn binding cần khả năng đó. Mỗi lần attempt kiểm lại binary hash và manifest còn phù hợp.

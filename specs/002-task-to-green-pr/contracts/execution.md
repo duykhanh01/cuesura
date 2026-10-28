@@ -2,9 +2,11 @@
 
 Nguồn: [SPEC §§12–14](../../../SPEC.md), [research R-05–R-08/R-11](../research.md).
 Giá trị giới hạn ở research được chụp vào snapshot runtime; không nâng ngầm khi restart.
-Host prerequisite AppArmor, outer boundary và mode harness được chọn phải đạt [lát 0](../spike-0.md) trước A theo
-[runbook](../../../deploy/README.md). Luôn thử native bật trước; external_verified chỉ hợp lệ theo
-ngoại lệ có điều kiện ở ADR-0003, không bỏ permission/approval hoặc capability denial.
+Host rootless bwrap/systemd, outer boundary và mode harness được chọn phải đạt
+[lát 0](../spike-0.md) trước A theo [runbook](../../../deploy/README.md) và
+[ADR-0004](../../../docs/adr/0004-isolated-bwrap-baseline.md). Không bắt buộc AppArmor 4 hoặc child
+stack Cuesura. Luôn thử sandbox nội bộ bật trước; external_verified chỉ hợp lệ theo ngoại lệ có
+điều kiện, không bỏ permission/approval hoặc policy host.
 
 ## Operation và runner ownership
 
@@ -79,11 +81,20 @@ worktree có diff/commit chưa bảo toàn theo retention log.
 
 ## Mode isolation và capability manifest
 
+Luồng tự động v1 cố định **Isolated**, provider `bwrap`; không có backend Native-only hoặc
+Container/VM. `SandboxProvider` là port nhỏ tại `src/adapters/ports.ts` để runner nhận launch plan
+(argv, layout digest và proof references); implementation duy nhất tại `src/runner/sandbox.ts`
+tái sử dụng prototype đã kiểm chứng. Runner vẫn sở hữu spawn/timeout/cgroup; provider không quản
+lý task hay credential publish. Không registry động hoặc cấu hình chọn backend chưa hỗ trợ.
+
+Các mode dưới đây chỉ chọn lớp OS sandbox **nội bộ** trong Isolated, không bỏ lớp ngoài.
 `internal_required` là mặc định. Trusted owner config có thể cho phép `allow_external_verified`
 cho từng harness; preflight chỉ chọn mode thực tế `external_verified` nếu native đã thử và outer
 proof/permission fixtures còn khớp. Repo/task/worker không được cấp quyền chọn hoặc đổi mode.
 Manifest/invocation ghi native_result, selected_inner_mode, outer_proof_hash, permission_policy_hash,
-kernel/profile/bwrap/harness/settings/layout hashes; snapshot pin manifest reference này.
+kernel/host policy/bwrap/harness/settings/layout hashes, isolation_mode=isolated và provider=bwrap;
+snapshot pin manifest reference này. AppArmor label/profile nếu có được ghi như dữ liệu host,
+không bắt buộc khớp tên child stack Cuesura.
 
 Claude candidate là `sandbox.enabled=false` với permission rules/mode không đổi; Codex dùng sandbox
 mode hỗ trợ bởi binary pinned. Không suy từ tên mode rằng permission còn giữ: S0.1 kiểm negative
@@ -96,11 +107,13 @@ lại; process đang chạy xử lý theo policy hiện hành, không đổi mod
 ## Sandbox và Git boundary
 
 Mount tối thiểu bằng bubblewrap, proc/PID namespace riêng, no-new-privileges và bỏ capabilities.
-Profile AppArmor host theo hướng (a): namespace setup của bwrap được cấp, descendants mang
-child stack deny capability kể cả gọi lại/copy bwrap. Điều này không có nghĩa mọi userns creation
-bị cấm; S0.1 dùng capability-operation/audit fixture và vẫn ghi native sandbox result từng harness.
+Không bắt buộc profile AppArmor riêng hoặc capability-denial audit trên mọi host. S0.1 kiểm
+re-exec/copy bwrap, raw userns và thử unmount/remount không mở lại host root, metadata Git hay
+vùng ghi bị cấm; ghi label/CapEff/errno thực, không dùng việc tạo namespace con thành công hoặc
+CapEff khác 0 làm đại diện cho thoát boundary. Hardening AppArmor tùy chọn cần bằng chứng riêng
+và không thay các fixture này; không nới policy host để pass.
 Nếu native bị chặn bởi nesting, chỉ chọn external_verified khi outer boundary + permission evidence
-đạt và owner đã cho phép; giữ deny, không đổi sang unconfined hoặc tự retry ngoài sandbox.
+đạt và owner đã cho phép; giữ permission/host policy, không tự retry ngoài sandbox.
 Coder/fixer rw worktree + scratch; reviewer ro worktree và rw scratch riêng; prompt/schema ro.
 Git common directory và per-worktree admin metadata ro với agent. Không mount runtime DB/socket,
 systemd bus, home chủ dự án, SSH agent socket, GitHub credential, docker socket hoặc host `/proc`.

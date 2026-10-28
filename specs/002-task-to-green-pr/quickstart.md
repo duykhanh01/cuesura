@@ -1,24 +1,27 @@
 # Validation guide: feature 002
 
-Phần **lát 0 chạy trước triển khai** theo [spike guide](spike-0.md), là gate trước tasks/A. Các
+Phần **lát 0 chạy trước triển khai** theo [spike guide](spike-0.md), là gate trước runtime A. Các
 phần A/B/C bên dưới dành cho sau implement: hiện chỉ có scripts typecheck/lint/test/build/reliability
 của 001, cusr/cusrd và test runtime chưa khả dụng. Spike cô lập có thể dùng vài lượt model trước A;
-full workflow smoke vẫn sau A/B. Host bwrap đang fail, không coi việc sửa docs là feasibility đã đạt.
+full workflow smoke vẫn sau A/B. Canary local đã đạt một phần, không coi việc sửa docs là feasibility đã đạt.
 
-## 0. Provisioning và spike ngày 1
+## 0. Kiểm host và spike ngày 1
 
-Đọc [deploy runbook](../../deploy/README.md): admin cài/review profile riêng, không nới sysctl.
-Sau đó chạy S0.1–S0.3: outer+inner sandbox hai vendor, auth home riêng, 6 role/vendor schemas,
+Đọc [deploy runbook](../../deploy/README.md) và [ADR-0004](../../docs/adr/0004-isolated-bwrap-baseline.md):
+kiểm rootless bwrap/systemd bằng user thường; chỉ admin provisioning nếu policy host cần, không
+ép AppArmor 4/child stack hoặc nới sysctl. V1 dùng Isolated, không có backend Native-only/Container.
+Sau đó chạy S0.1–S0.3: outer boundary và sandbox nội bộ hai vendor, auth home riêng, 6 role/vendor schemas,
 registry/vendor network, systemd lifetime và gh head-at-merge qua ba kiểu merge. Lưu spike report
-có exit code/fixture/digest; chưa pass cả ba thì không sinh tasks/A. Không cần daemon hoàn chỉnh
+có exit code/fixture/digest; chưa pass cả ba thì không mở A. Backlog đã có để mở khóa. Không cần daemon hoàn chỉnh
 để làm prototype; luôn thử native sandbox bật. Nếu nesting fail, chỉ xét mode external_verified
-theo ADR-0003 khi outer proof/permission fixture/owner config đạt; không bypass permission hoặc
+theo ADR-0004 khi outer proof/permission fixture/owner config đạt; không bypass permission hoặc
 dùng production repo để chạy spike.
 
 ## 1. Chuẩn bị môi trường
 
 - Node theo `.nvmrc` (24.22.1), pnpm theo package.json; Linux filesystem local, Git, systemd user
-  manager và bubblewrap có AppArmor profile đạt gate; trên WSL2 cần systemd=true và user-manager
+  manager và rootless bubblewrap có boundary đạt gate; không bắt buộc AppArmor profile riêng.
+  Trên WSL2 cần systemd=true và user-manager
   probe thực tế. Không dùng filesystem Windows cho DB/worktree.
 - Dùng data dir riêng trong `/tmp` cho fake/integration; không dùng DB dogfood. Store độc quyền;
   daemon thứ hai phải bị từ chối, CLI/runner không mở DB để ghi.

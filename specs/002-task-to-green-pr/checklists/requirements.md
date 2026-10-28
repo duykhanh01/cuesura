@@ -68,16 +68,17 @@
 - FR-029 liệt kê lối ra từng detail và yêu cầu explain in đúng; không amend-policy/kiểm lại head mới.
   Cùng priority ưu tiên task đang dở, cùng nhóm theo lúc xin slot. Lỗi config_invalid/capability_missing
   ở PENDING chỉ được thử lại bằng confirm/recheck có dedup, đọc base mới nhất.
-- Plan đã chốt hạn quan sát/backoff/drain. Readiness trước tasks/A hiện BLOCKED bởi lát 0, không
-  đồng nghĩa spec thiếu quyết định nghiệp vụ: host AppArmor, nesting/auth/schema/network và gh proof
-  phải có kết quả thật trước xây A. Profile/runbook đã có, chưa cài vào host.
+- Plan đã chốt hạn quan sát/backoff/drain. Readiness trước A hiện BLOCKED bởi lát 0, không
+  đồng nghĩa spec thiếu quyết định nghiệp vụ: host rootless bwrap/systemd, outer boundary,
+  nesting/auth/schema/network và gh proof phải có kết quả thật trước xây A. Backlog đã có để mở khóa.
 - Review 2026-10-28: Internet outbound mặc định (Q19), snapshot checks giữ string[]/policy+event v1;
   GitHub ghim app cụ thể là mismatch. Giữ gh port và file attempt chuẩn; systemd supervision được
   ghi ADR-0002 và sửa SPEC. Có go/no-go sau A/ngày 10 và token operate riêng cho assistant.
-- Profile host sửa theo hướng (a)/ADR-0003: child stack deny capability, không unconfined; S0.1
-  kiểm enforce/audit, re-exec/copy bwrap và native sandbox bật trước. Native fail có thể xét ngoại
-  lệ external_verified chỉ sau outer proof, permission fixture và owner config; không bypass quyền.
-  Mẫu vẫn allow userns, không tuyên bố chặn mọi namespace hoặc đã pass enforcement khi chưa nạp.
+- ADR-0004 thay baseline AppArmor của ADR-0003 bằng Isolated rootless bwrap; không bắt buộc
+  AppArmor 4/child stack, không giảm trust boundary. S0.1 kiểm FD/socket, re-exec/copy/raw-userns,
+  mount/PID/secret/ro/rw và lifetime thật; thử sandbox nội bộ bật trước. External_verified chỉ sau
+  native failure, outer/permission proof và owner config, không bypass quyền hoặc silent fallback.
+  V1 chỉ có port SandboxProvider nhỏ và backend bwrap; Native-only/Container/VM chưa triển khai.
 - Q15 yêu cầu ghi bền merge và chặn nghiệp vụ, dừng process/đối chiếu effect rồi mới DONE; push đã
   gửi có thể thành công muộn, không hứa thu hồi request. Giữ diff/commit local, claim và bằng chứng
   qua restart; dừng/đối chiếu có giới hạn riêng do plan chốt, hết hạn chờ merge_cleanup_pending và

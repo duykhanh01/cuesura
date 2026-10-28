@@ -1,7 +1,30 @@
 # Lát 0 — Báo cáo hiện trạng ngày 2026-10-28
 
-**Kết quả tổng: BLOCKED, chưa cho mở `/speckit-tasks` hoặc A.** Đây là kết quả đã chạy thật của
-phần chẩn đoán host và kiểm cú pháp, không phải báo cáo thành công của toàn spike.
+**Kết quả tổng hiện tại: BLOCKED trước A.** Backlog đã có; cập nhật thiết kế không tự mở runtime.
+Theo [ADR-0004](../../docs/adr/0004-isolated-bwrap-baseline.md), baseline là **Isolated rootless
+bwrap + systemd user unit**, không bắt buộc AppArmor 4/Ubuntu 24.04/child stack Cuesura. Giữ nguyên
+trust boundary của hiến chương và điều kiện ngoại lệ cho sandbox nội bộ, không có Native-only backend.
+
+| Gate / task tiếp theo | Bằng chứng hiện có và việc còn thiếu |
+| --- | --- |
+| T002: kiểm host và đồng bộ prototype | Userns/bwrap 0.6.1 có kết quả local đạt; cần pin host/version/policy và user-unit probe, cập nhật scope/comment/report prototype còn nhắc child stack bắt buộc. Không cần cài profile riêng nếu host đã chạy được và proof đạt |
+| T006 / S0.1 local | 20 lượt/360 checks đạt, không child stack, xem [reassessment](sandbox-reassessment.md). Thiếu FD/socket thật, path/mount-race, toàn bộ vùng rw, lifetime trên host triển khai; chưa là full outer proof |
+| T001 + T006/T007 / S0.1–S0.2 vendor | Chưa có native nội bộ/permission/auth/schema thật từng vendor/role; cần pin binary/model/effort/auth và quyền/budget chung 6 lượt × 5 phút, kể cả failure |
+| T001 + T008 / S0.3 | Chưa có repo GitHub sandbox được cấp và proof merge/squash/rebase + source push/delete; merge do người dùng thực hiện |
+| T009 | Chỉ tổng kết pass sau đủ ba gate, không dùng docs/quality gates/fake làm bằng chứng thay |
+
+Phần local T002/T006 có thể làm trước khi có credential/model/repo remote; không gọi model/GitHub
+trong lượt cập nhật tài liệu. T003–T005 giữ hoàn thành theo phạm vi prototype. AppArmor label/audit
+nếu chọn hardening vẫn ghi riêng, không nâng 360 checks thành chứng minh chống kernel exploit.
+
+Kiểm tra tài liệu sau ADR-0004: liên kết nội bộ còn tồn tại, `git diff --check` đạt; giữ 134 task
+với 32 `[P]`, chỉ T003–T005 hoàn thành, đủ 117 dòng coverage FR không trùng. Lượt này chỉ sửa tài
+liệu, không chạy lại quality gates mã nguồn hoặc thêm bằng chứng runtime.
+
+## Lịch sử chẩn đoán theo thiết kế trước ADR-0004
+
+Các bảng/điều kiện bên dưới giữ nguyên nguồn và phạm vi của từng lượt chạy, không phải gate
+AppArmor hiện hành. Chúng ghi chẩn đoán host và kiểm cú pháp, không phải thành công của toàn spike.
 
 | Kiểm tra thực tế | Kết quả | Phạm vi bằng chứng |
 | --- | --- | --- |
@@ -83,3 +106,41 @@ userns sẽ skip các test đó, và skip được tính là chưa chạy.
   được chọn cho private home, cùng cho phép tiêu tối đa 6 invocation × 5 phút ghi vào một ledger.
 - Repo GitHub sandbox (không phải `metronome`), quyền `gh` của orchestrator, người merge thủ công
   ba PR merge/squash/rebase, và kịch bản push/xóa source branch sau merge.
+
+## Đối chiếu sau bàn giao prototype (2026-10-28)
+
+**S0.1–S0.3 vẫn BLOCKED.** Lượt này kiểm lại bằng chứng local, không nạp profile, sửa kernel/sysctl,
+gọi model, gọi GitHub hoặc thay điều kiện pass. Kết quả dưới đây không thay bảng lịch sử của host
+bwrap 0.9.0 hoặc kết quả trước đó của worker Node 22.
+
+| Nguồn / kiểm tra | Kết quả | Phạm vi |
+| --- | --- | --- |
+| Shell chạy quality gates: `node --version` | `v24.22.1`, khớp `.nvmrc` và package.json | Xác nhận bản Node cho lượt chạy mới; không sửa lại nguồn/version của bằng chứng cũ |
+| `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build` | Cả bốn exit 0; default 48 file, 479 test pass, 0 pending/failed, duration 43,83 giây | Bằng chứng hồi quy trên Node 24; không thay outer proof hoặc smoke thật |
+| JSON report `reports/vitest-default.json` | Suite runner-systemd có 1 assertion pass; sandbox-probe có 7 assertion pass | Runner với fake child và layout local; không chứng minh AppArmor child stack/native vendor/host triển khai |
+| Probe đọc trực tiếp trong phiên công cụ: `/etc/os-release`, `bwrap --version` | Ubuntu 22.04.5, bubblewrap 0.6.1 | Ghi nhận môi trường probe hiện tại, không gộp với host lịch sử |
+| `/sys/module/apparmor/parameters/enabled`, `/proc/self/attr/current` | `N`, nhãn `kernel` | Phiên probe không có AppArmor enforcement/child stack cần cho thiết kế hiện tại |
+| `apparmor_parser --version` | `3.0.4` | Khác parser 4.0.1 ở host lịch sử |
+| `apparmor_parser --skip-kernel-load --skip-cache deploy/apparmor/cusr-bwrap` | Exit 1, `Could not open 'abi/4.0': No such file or directory` | Profile hiện tại chưa compile được trong môi trường này; không chỉ thiếu file profile đã cài |
+| Probe trực tiếp `systemctl --user is-system-running` trong phiên công cụ | Exit 1, `Failed to connect to bus: Operation not permitted` | Khác kết quả `running` người dùng cung cấp và assertion systemd trong lượt Vitest; quyền/bối cảnh truy cập bus cần được xác nhận trên terminal host, không kết luận user manager host bị tắt |
+
+Để mở S0.1 theo thiết kế AppArmor lúc đó (trước ADR-0004), cần kiểm trên đúng host triển khai rằng kernel bật
+AppArmor, userspace compile được profile ABI 4.0, và policy thực sự enforce trên process con cùng
+audit capability denial. Chỉ cài file `/etc/apparmor.d/cusr-bwrap` không giải quyết các prerequisite
+kernel/userspace còn thiếu này. Không bỏ child-stack/capability proof hoặc chọn external_verified
+để vượt bước outer proof; nếu host hiện tại không đáp ứng, chủ dự án cần review môi trường triển
+khai hoặc thiết kế cách ly thay thế trước T006. T007/T008 vẫn đợi credential, budget và sandbox
+được cấp theo phạm vi đã chốt.
+
+## Đánh giá lại cơ chế sandbox (2026-10-28)
+
+Xem [đánh giá AppArmor và phạm vi sandbox của harness](sandbox-reassessment.md). Thí nghiệm mới
+dùng chính sandbox builder hiện có, chỉ chạy fixture tạm: 5 role × 4 cách chạy (baseline,
+nested bwrap, copied bwrap, raw userns), 20 lượt/360 kiểm tra đạt, mọi process mang nhãn
+`unconfined`, không có child stack Cuesura. Đây là bằng chứng local về giới hạn truy cập được
+thử, không phải pass S0.1, bằng chứng chống kernel exploit hoặc smoke harness thật.
+
+Tại thời điểm đánh giá, đề nghị bỏ yêu cầu AppArmor 4 phổ quát, giữ OS boundary đã kiểm chứng, và
+đối chiếu phạm vi native sandbox theo từng vendor/version; ADR/spec/plan/tasks lúc đó chưa thay đổi, gate giữ
+BLOCKED. Probe mới nằm tại `scripts/spike-002/reassess-sandbox.ts`; typecheck/lint/default tests/
+build đều exit 0, default 48 file/479 test pass. Đánh giá không nạp/gỡ policy hoặc gọi model/GitHub.

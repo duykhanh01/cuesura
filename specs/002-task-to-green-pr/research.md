@@ -88,27 +88,27 @@ khai; đọc help/tài liệu không được tính là smoke đã đạt. Các 
 - **Alternatives considered:** Chỉ unref/detached không đủ; KillMode=none của daemon làm ownership
   khó kiểm soát; hai backend foreground/service tăng công bảo trì. Không chọn các hướng đó.
 
-## R-06 — Host AppArmor, sandbox lồng nhau và mạng
+## R-06 — Isolated rootless bwrap, sandbox lồng nhau và mạng
 
-- **Decision:** Provision profile riêng gắn `/usr/bin/bwrap` theo
-  [runbook](../../deploy/README.md), giữ `kernel.apparmor_restrict_unprivileged_userns=1`.
-  Cài profile là thao tác admin tách biệt; doctor chỉ kiểm/chẩn đoán, không tự sudo hoặc sửa sysctl.
-  Outer mount/PID/capability policy vẫn bắt buộc. S0.1 luôn thử native sandbox bật trước; nếu nesting
-  fail, ngoại lệ external_verified chỉ được chọn sau outer proof + permission evidence và owner config
-  theo ADR-0003. Không tự downgrade hoặc bỏ permission/approval/deny rules.
-- **Evidence:** Đã tái hiện host bwrap 0.9.0 fail `setting up uid map: Permission denied`; chủ dự án
-  xác nhận không có AppArmor profile bwrap. Ubuntu 24.04 nêu restriction và quyền userns trong
-  [release notes](https://documentation.ubuntu.com/release-notes/24.04/); không còn coi lỗi là riêng
-  phiên agent. [Bubblewrap](https://github.com/containers/bubblewrap) chỉ là primitive, policy phải
-  do caller dựng đúng; profile cấp userns không tự chứng minh confinement/nesting.
-- **Rationale:** Chọn hướng (a) theo profile AppArmor v4.0.2 bwrap-userns-restrict, ABI 4.0:
-  bwrap setup được namespace, exec descendants vào child stack có audit deny capability; stack
-  giữ qua re-exec/copy bwrap. Bỏ profile unconfined+userns cũ vì agent cũng gọi được bwrap;
-  không coi đó là rủi ro đã được chấp nhận. Xem [ADR-0003](../../docs/adr/0003-bwrap-child-capabilities.md).
-  Mẫu vẫn allow userns, không bảo đảm chặn mọi namespace; AppArmor chặn capability use thay vì
-  xóa CapEff bits. S0.1 phải đo enforcement/audit và compatibility, không chỉ compile/start process.
+- **Decision:** Luồng tự động v1 dùng Isolated rootless bwrap cho toàn bộ harness và repo-controlled
+  setup/gate/autofix, runner trong systemd user unit. Một port `SandboxProvider` nhỏ và backend bwrap
+  duy nhất; Native-only/Container/VM chưa triển khai. Theo [ADR-0004](../../docs/adr/0004-isolated-bwrap-baseline.md),
+  không bắt buộc AppArmor 4, Ubuntu 24.04 hoặc child stack Cuesura. Host hạn chế userns vẫn cần
+  provisioning phù hợp theo [runbook](../../deploy/README.md); doctor không tự sudo hoặc đổi policy/sysctl.
+  S0.1 luôn thử sandbox nội bộ bật trước; external_verified chỉ sau outer proof + permission evidence,
+  native failure thật và owner config. Không tự downgrade hoặc bỏ permission/approval/deny rules.
+- **Evidence:** Host lịch sử bwrap 0.9.0 đã fail `setting up uid map: Permission denied`; đây không
+  phải kết quả chung của các môi trường. [Reassessment](sandbox-reassessment.md) trên Ubuntu 22.04.5/WSL2,
+  bwrap 0.6.1 có 20 lượt/360 kiểm tra đạt không có child stack. Chỉ chứng minh các boundary đã thử;
+  không thay S0.1 đầy đủ, smoke vendor hoặc bằng chứng hardening kernel. Báo cáo giữ nguồn/version
+  của từng lượt riêng, không sửa lại failure lịch sử thành pass.
+- **Rationale:** Giữ boundary filesystem/PID/secret bắt buộc, kiểm trực tiếp qua canary, FD/socket,
+  mount/remount/unmount và re-exec/copy/raw-userns. Có capability trong namespace con không tự cấp
+  quyền vào namespace cha; không lấy việc cấm mọi namespace con làm tiêu chí thay cho giới hạn truy
+  cập thực. AppArmor child capability-denial là hardening bổ sung, không còn prerequisite phổ quát.
   Sandbox không mount DB/socket/admin/GitHub/SSH credential/home host/systemd bus; reviewer ro repo,
   coder/fixer rw worktree/scratch, metadata Git ro. Selected model auth ở home riêng theo attempt.
+  Native-only chưa chứng minh cùng boundary cho toàn bộ các harness nên không mở tự động hóa.
 - **Network decision (chủ dự án chấp nhận 2026-10-28):** Setup/gate/autofix/agent mặc định
   internet_outbound, share host network, DNS/registry/vendor hoạt động. Không có egress allowlist
   và không hứa chặn LAN/loopback. Giữ filesystem/PID isolation; setup/gate không có model auth,
@@ -116,10 +116,11 @@ khai; đọc help/tài liệu không được tính là smoke đã đạt. Các 
 - **Alternatives considered:** Không chọn sysctl=0 toàn máy hoặc silent unsandboxed fallback. OS
   user riêng chỉ được xét lại nếu lát 0 fail, không là backend thứ hai tự động. Tool denylist hoặc
   worktree đơn thuần không thay OS boundary.
-- **Verification status:** Host hiện **blocked**, profile chưa cài. Lát 0 trước A kiểm host profile,
-  native result của từng harness, auth private home/mạng và mode được chọn. Outer/permission chưa
+- **Verification status:** Gate hiện **BLOCKED** vì proof chưa đầy đủ, không do thiếu profile riêng.
+  Lát 0 trước A kiểm host rootless bwrap/systemd, native nội bộ từng harness, auth private home/mạng
+  và mode được chọn. Outer/permission chưa
   proven thì no-go; native fail riêng có thể qua nhánh external_verified có điều kiện. Không dời
-  thử nghiệm trước tasks/A này tới sau fake/recovery; hiện chưa có proof để kích hoạt ngoại lệ.
+  thử nghiệm trước runtime A này tới sau fake/recovery; hiện chưa có proof để kích hoạt ngoại lệ.
 
 ## R-07 — Harness là build-command/parse-output
 
@@ -216,5 +217,5 @@ khai; đọc help/tài liệu không được tính là smoke đã đạt. Các 
 
 Đã chọn hướng deployment và các giới hạn, nhưng **feasibility chưa đạt**: host sandbox đang fail,
 chưa có 6 output role/vendor hoặc GitHub head-at-merge fixture. Xem [lát 0](spike-0.md); không tuyên
-bố đã sẵn sàng tasks/A từ việc viết docs. Sau A có go/no-go và mốc ngày 10 trong plan. Constitution
+bố đã sẵn sàng runtime A từ việc viết docs. Sau A có go/no-go và mốc ngày 10 trong plan. Constitution
 không có waiver; điều chỉnh process baseline được ghi SPEC/ADR, gh/file protocol giữ baseline.

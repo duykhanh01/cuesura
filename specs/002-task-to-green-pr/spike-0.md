@@ -1,32 +1,42 @@
 # Lát 0 — Kiểm chứng giả định trước khi xây runtime
 
-**Trạng thái: BLOCKED / chưa đạt.** Xem [kết quả đã chạy](spike-0-report.md). Host userns probe đã fail ngày 2026-10-28; profile AppArmor chưa
-được cài và các thử nghiệm model/GitHub dưới đây chưa chạy. Đây là điều kiện mở lát A, không để
-sau A/B và không được đánh dấu pass bằng docs/help. `/speckit-tasks` bị chặn cho tới khi gate này
-có bằng chứng hoặc chủ dự án review thiết kế thay thế; không sinh tasks triển khai trên giả định cũ.
+**Trạng thái: BLOCKED / chưa đạt.** Theo [ADR-0004](../../docs/adr/0004-isolated-bwrap-baseline.md),
+luồng tự động v1 dùng Isolated rootless bwrap, không bắt buộc AppArmor 4/child stack Cuesura.
+[Canary local 360/360](sandbox-reassessment.md) là bằng chứng một phần; chưa đủ outer proof đầy đủ,
+native nội bộ/permission/auth thật và GitHub proof. Xem [báo cáo hiện trạng](spike-0-report.md).
+Backlog đã tạo để mở khóa, nhưng A vẫn đợi S0.1–S0.3; không đánh dấu pass bằng docs/help/fake.
+
+“Native sandbox” trong guide này là sandbox **nội bộ** của harness chạy trong Isolated. Không
+có backend Native-only, Container/VM hay plugin registry trong v1. Profile AppArmor cũ là
+hardening tùy chọn; không dùng việc thiếu profile đó để chặn một host đã chứng minh đủ boundary.
 
 ## S0.1 — Host, nested sandbox và process lifetime
 
-1. Quản trị viên provisioning theo [deploy runbook](../../deploy/README.md), giữ restriction userns=1.
-   Lưu OS/kernel/AppArmor/bwrap version, profile path/hash, sysctl trước/sau và exit code probe user
-   thường. Không ghi câu “lỗi riêng phiên agent”; baseline host đã được xác nhận fail.
+1. T002 kiểm prerequisite theo [deploy runbook](../../deploy/README.md), không sửa policy host.
+   Lưu OS/kernel/Node/bwrap version/hash, AppArmor label/policy/sysctl nếu có (không có thì ghi rõ),
+   exit probe userns bằng user thường và probe create/query/stop user unit. Chỉ admin provisioning
+   nếu policy host cần; không ép AppArmor 4 hoặc sysctl=1 trên mọi host. Giữ nguồn kết quả host cũ
+   và worker riêng. Sửa scope/comment/report prototype còn nhắc child stack bắt buộc theo ADR-0004.
 2. Dùng sandbox prototype tối thiểu đúng mount/PID/home/network layout của
    [execution contract](contracts/execution.md), chưa cần daemon/store hoàn chỉnh. Canary ngoài
    mount, socket admin, home host và git metadata phải không truy cập/ghi được; reviewer không ghi
-   repo; coder/fixer chỉ ghi worktree/scratch. Kiểm process con không thoát ownership/cgroup.
-   Profile theo [ADR-0003](../../docs/adr/0003-bwrap-child-capabilities.md): descendants luôn có
-   child stack enforce và capability denial. Chạy [fixture](../../deploy/apparmor/probe-child.py)
-   cho process con, re-exec `/usr/bin/bwrap` và bản copy trong scratch; đối chiếu audit capability
-   với thời điểm/nhãn probe, kiểm thao tác mount namespace cần CAP_SYS_ADMIN bị EPERM. Userns có
-   thể vẫn được tạo vì mẫu upstream allow userns; không lấy CapEff=0 hoặc chỉ một exit lỗi làm
-   bằng chứng. Fixture chạy ngoài đúng stack phải fail trước probe, không ghi nhầm thành pass.
+   repo; coder/fixer chỉ ghi vùng được cấp, gồm worktree/scratch/private-home/tmp theo layout.
+   Dùng socket Unix và FD canary thật để kiểm không thừa kế quyền qua descriptor, systemd bus
+   hoặc socket điều phối; không chỉ kiểm tên path không tồn tại. Kiểm mọi vùng rw và path/symlink
+   race không mở lại host/admin secret hay sửa vùng ro. Kiểm process con không thoát ownership/cgroup.
+   Chạy lại canary sau re-exec `/usr/bin/bwrap`, bản copy trong scratch, raw userns và thử
+   remount/unmount Git metadata/vùng ro. Ghi label/CapEff/errno thực; namespace con có thể tạo được,
+   không tự là fail nếu không vượt boundary. Tái sử dụng [reassessment](sandbox-reassessment.md)
+   và `scripts/spike-002/reassess-sandbox.ts`; 360 checks là đầu vào, không thay các case còn thiếu.
+   Giữ no-new-privileges/cap drop. Nếu host chọn hardening AppArmor, thêm fixture/audit riêng;
+   [probe child stack](../../deploy/apparmor/probe-child.py) không là gate phổ quát.
 3. Trong outer sandbox đó, **vẫn thử harness với sandbox nội bộ bật** trên từng vendor/version,
    read-only và workspace-write theo role. Đo đọc/ghi thực qua tool, không chỉ startup. Ghi native
    result/argv/settings/audit thật; nesting fail vẫn ghi failed, không đổi nó thành pass khi dùng mode khác.
    Xác nhận tool thực sự chạy trong lớp nội bộ, không chỉ config enabled: với Claude, pin các
    settings được version hỗ trợ để fail khi sandbox unavailable và cấm unsandboxed retry; không
    để fallback mặc định âm thầm biến native probe thành chạy chỉ với outer rồi báo native pass.
-4. Nếu native fail vì nesting, chỉ thử `external_verified` theo [ADR-0003](../../docs/adr/0003-bwrap-child-capabilities.md)
+4. Nếu native fail vì nesting, chỉ thử `external_verified` theo ADR-0004
    sau khi outer layout ở bước 2 đã chứng minh boundary và owner cho phép trong trusted config.
    Chỉ tắt lớp OS sandbox qua settings/sandbox mode; giữ nguyên permission/deny/approval policy,
    không `--dangerously-*`, bỏ rule/permission hoặc thêm CAP_SYS_ADMIN override. Managed policy
@@ -93,7 +103,8 @@ nghĩa S0.1–S0.3 đã đạt, và nó không thay cho bằng chứng mà T006�
 | --- | --- | --- |
 | Schema (T003) | `node scripts/spike-002/export-role-schemas.ts [--check]` | Xuất JSON Schema/digest từ Zod vào `test/fixtures/runtime/spike-0/schema/`; `--check` exit 1 khi lệch |
 | Sandbox (T004) | `node scripts/spike-002/sandbox.ts argv --layout FILE` | In argv bwrap và bảng mount theo role, không exec |
-| | `node scripts/spike-002/sandbox.ts probe --all [--apparmor-fixture]` | Repo/worktree tạm và canary mount/PID/env/secret/control cho 5 role; ghi nhãn AppArmor nhưng không đánh giá |
+| | `node scripts/spike-002/sandbox.ts probe --all` | Repo/worktree tạm và canary mount/PID/env/secret/control cho 5 role; ghi nhãn AppArmor nhưng không đánh giá. `--apparmor-fixture` chỉ dành cho hardening tùy chọn đã được admin review |
+| | `node scripts/spike-002/reassess-sandbox.ts` | Fixture tạm cho baseline/nested/copied bwrap/raw-userns; kiểm truy cập sau remount/unmount. Không gọi model/GitHub, không thay full S0.1 |
 | Runner (T004) | `node scripts/spike-002/runner.ts systemd-argv --spec FILE --root DIR` | In argv `systemd-run --user` + `flock` của unit `cusr-op-<op>.service`, không chạy |
 | | `node scripts/spike-002/runner.ts start --spec FILE --root DIR [--systemd]` | Chạy runner dưới flock (local hoặc trong unit riêng) |
 | | `node scripts/spike-002/runner.ts receipt --root DIR --kind runs\|operations --id ID` | Đọc launch/pid/exit và identity: `not_launched/unknown/running/lost/finished` |
@@ -111,6 +122,9 @@ bị skip được tính là **chưa chạy**, không phải đạt.
 
 Giới hạn của prototype, cần T006–T008 xác nhận hoặc sửa:
 
+- T004 giữ thông điệp scope của ADR-0003 trong `sandbox.ts`; T002 phải cập nhật chúng theo
+  ADR-0004. Không coi dòng nhắc thiếu child stack trong output cũ là blocker mới, cũng không
+  coi việc sửa thông điệp là full outer proof. Không sửa lại file evidence lịch sử.
 - Runner chạy local ngoài unit chỉ sở hữu process group: process con thoát bằng `setsid` vẫn sống
   (exit.json ghi `descendant_scope=process_group_only`). Trong unit `cusr-op-*` thì runner quét
   cgroup và systemd dừng toàn bộ cgroup. Main process của unit là `flock` bọc bởi `sh` có
@@ -128,11 +142,11 @@ Khi chạy T006–T008, lưu output prototype (probe report, run dir đã redact
 evidence gh) vào thư mục fixture tương ứng kèm command/exit code. Budget 6 lượt × 5 phút và
 gate dưới đây giữ nguyên.
 
-## Gate trước tasks/A
+## Gate trước runtime A
 
 | Mục | Bằng chứng bắt buộc | Trạng thái hiện tại |
 | --- | --- | --- |
-| S0.1 | Outer layout/canary/capability/lifetime đạt; mỗi vendor có native result thật và native pass hoặc external_verified pass với permission evidence/owner config | Fail host / chưa có outer proof hoặc mode proven |
+| S0.1 | Isolated outer layout/canary/FD/socket/re-exec/copy/raw-userns/lifetime đạt; mỗi vendor có native nội bộ result và native pass hoặc external_verified pass với permission evidence/owner config | Local canary một phần đã đạt; thiếu proof đầy đủ trên host triển khai và mode vendor proven |
 | S0.2 | 6 role/vendor outputs, auth home, quyền/network, version/schema digests và usage | Chưa chạy |
 | S0.3 | 3 merge modes, source push/delete, head proof và gh-port evidence | Chưa chạy |
 

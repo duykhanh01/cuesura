@@ -3,7 +3,7 @@
 Đây là 117 mục nghiệm thu dự kiến, gồm 83 mã con và 34 FR chưa tách. Nguồn scenario/SC là
 [checklist](../checklists/requirements.md); nội dung yêu cầu là [spec](../spec.md).
 0/A/B/C là các lát trong [plan](../plan.md), không phải nhiệm vụ đã hoàn thành.
-[Lát 0](../spike-0.md) là gate trước tasks/A; các dòng có 0 cần prototype/fixture thật trước runtime. Mỗi dòng cần task và
+[Lát 0](../spike-0.md) là gate trước runtime A; các dòng có 0 cần prototype/fixture thật trước runtime. Mỗi dòng cần task và
 bằng chứng riêng; cùng suite được dùng chung khi có assertion phân biệt từng nghĩa vụ.
 
 Các module trong bảng là vị trí dự kiến, chưa phải file đã được tạo. Property/unit chạy trong

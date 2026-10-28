@@ -4,7 +4,7 @@
 
 **Input**: 46 nhóm FR, 117 mục nghiệm thu; SC-001–SC-012, Q1–Q19.
 
-**Readiness: BLOCKED trước `/speckit-tasks` và lát A.** Host bwrap đã fail; provisioning và [lát 0](spike-0.md) chưa đạt. Đây là thiết kế đã sửa sau review, không phải xác nhận runtime khả thi.
+**Readiness: BLOCKED trước lát A.** Backlog đã tạo theo yêu cầu chủ dự án; [lát 0](spike-0.md) chưa đạt. Theo [ADR-0004](../../docs/adr/0004-isolated-bwrap-baseline.md), Isolated rootless bwrap là baseline cần kiểm chứng, không còn gate AppArmor 4 phổ quát. Canary local đã đạt nhưng chưa thay proof đầy đủ, smoke harness hoặc GitHub thật.
 
 ## Summary
 
@@ -21,7 +21,7 @@ Nối lõi 001 vào một daemon ghi SQLite, runner độc lập, Git/worktree v
 | Target Platform | Ubuntu/WSL2 có systemd user manager, bubblewrap/namespaces đã kiểm chứng; Git và util-linux flock |
 | Project Type | Một package CLI/daemon/runner; Unix socket cục bộ |
 | Performance Goals | Một slot thực thi; observation không giữ slot; giới hạn I/O/poll/spool/drain tại research R-04/R-11 |
-| Constraints | Snapshot trước RUNNING; không merge/yolo/amend/retry terminal; AppArmor profile riêng, outer boundary/permission phải đạt; native thử trước, external_verified có điều kiện; Internet outbound đã chốt, không egress allowlist |
+| Constraints | Snapshot trước RUNNING; không merge/yolo/amend/retry terminal; Isolated rootless bwrap và outer boundary/permission phải đạt, không bắt buộc AppArmor 4; sandbox nội bộ thử trước, external_verified có điều kiện; Internet outbound đã chốt, không egress allowlist |
 | Scale/Scope | Một người dùng; nhiều task queued/chờ, một task thực thi; một worktree/branch/PR mỗi task |
 
 ## Constitution Check
@@ -36,8 +36,8 @@ Nối lõi 001 vào một daemon ghi SQLite, runner độc lập, Git/worktree v
 | IV — Bằng chứng | Đạt | Validate response hai tầng; subset checks đúng SHA; DONE chưa chứng nhận ghi rõ |
 | V — Quyền kiểm soát | Đạt | Chỉ quan sát merge ngoài hệ thống; snapshot/binding bất biến; secret ngoài sandbox |
 | VI — Trung lập domain/vendor | Đạt | Core nhận fact/command typed generic; GitHub/harness/toolchain ở adapter |
-| VII — Kiểm chứng trung thực | Cần bằng chứng spike | Gate feasibility hiện BLOCKED; phải chạy lát 0 trước tasks/A, không lấy docs/help/fake thay kết quả thật |
-| VIII — Đơn giản | Đạt về thiết kế | Snapshot/event envelope v1 giữ nguyên; app-pinned chặn mismatch, chỉ DB migration cho runtime mới |
+| VII — Kiểm chứng trung thực | Cần bằng chứng spike | Gate feasibility hiện BLOCKED; phải chạy lát 0 trước A, không lấy docs/help/fake thay kết quả thật |
+| VIII — Đơn giản | Đạt về thiết kế | Snapshot/event envelope v1 giữ nguyên; app-pinned chặn mismatch; port SandboxProvider nhỏ, duy nhất backend bwrap, không registry/Native/Container trong v1 |
 
 Không cần miễn MUST. Merge thủ công trên GitHub là hành động ngoài Cuesura; agent/decider vẫn không được thực thi merge. I11 ở đây chỉ chứng minh không gửi merge, không chứng nhận thao tác người dùng. Giữ regression lõi cũ; daemon 002 không dispatch task legacy thiếu snapshot runtime. Điều chỉnh supervision đã ghi SPEC §§12.1/17.2 và [ADR-0002](../../docs/adr/0002-systemd-runner-lifetime.md); gh/file protocol giữ baseline. Gate feasibility chưa đạt nên không tuyên bố plan ready-to-implement.
 
@@ -50,7 +50,7 @@ specs/002-task-to-green-pr/
 ├── spec.md, checklists/requirements.md   # đầu vào
 ├── plan.md, research.md                 # thiết kế, bằng chứng khảo sát
 ├── data-model.md                        # entity/event/projection/migration
-├── spike-0.md                           # gate thực nghiệm trước tasks/A
+├── spike-0.md                           # gate thực nghiệm trước runtime A
 ├── quickstart.md                        # validation sau triển khai
 └── contracts/
     ├── cli-daemon.md                    # lệnh, quyền, JSON/UDS, config
@@ -59,7 +59,8 @@ specs/002-task-to-green-pr/
     └── acceptance-map.md                # từng FR → lát giao / tầng kiểm chứng
 ```
 
-`tasks.md` thuộc bước `$speckit-tasks`, không sinh trong lượt plan.
+`tasks.md` đã được tạo theo yêu cầu chủ dự án, giữ BLOCKED trước runtime A; việc có backlog không
+thay bằng chứng feasibility của lát 0.
 
 ### Source Code (repository root)
 
@@ -78,7 +79,7 @@ test/
 ├── integration/                # thêm SQLite/Git/process/application thật
 ├── reliability/                # thêm ≥200 I/O crash + full replay
 └── smoke/                      # thêm project opt-in; hai vendor/hai hệ sinh thái
-deploy/README.md, deploy/apparmor/ # runbook/profile host, có trong repo
+deploy/README.md, deploy/apparmor/ # runbook host; profile AppArmor chỉ hardening tùy chọn
 deploy/systemd/                 # unit mẫu dự kiến, hướng dẫn runner độc lập
 scripts/                        # validation/report, giữ script nền 001
 ```
@@ -103,7 +104,7 @@ Entity ở [data-model](data-model.md), giới hạn/lựa chọn ở [research]
 
 | Lát | Nội dung | Điều kiện sang lát tiếp |
 | --- | --- | --- |
-| 0 — Spike ngày 1 | Host AppArmor/bwrap, native sandbox hai harness bật trước và nhánh external_verified có điều kiện; private-home auth/network; 3 role × 2 vendor; systemd lifetime và gh head-at-merge | [S0.1–S0.3](spike-0.md) có fixture thật đạt; trước tasks/A. Hiện BLOCKED, chưa cài profile/chạy các lượt model/GitHub |
+| 0 — Spike ngày 1 | Host rootless bwrap/systemd, outer boundary và sandbox nội bộ hai harness bật trước; external_verified có điều kiện; private-home auth/network; 3 role × 2 vendor; lifetime và gh head-at-merge | [S0.1–S0.3](spike-0.md) có fixture thật đạt trước A. Hiện BLOCKED: thiếu proof đầy đủ và các lượt model/GitHub, không do thiếu child stack AppArmor |
 | A — Luồng fake | Domain/store, admission/snapshot, runtime đã chứng minh ở 0, worktree/gates, fake harness/GitHub, vòng sửa/chờ merge; CLI nhỏ đủ thử | US1/2/4 qua fake; gate go/no-go dưới đây; không dùng A/B để thay feasibility spike |
 | B — Recovery/tương tác | Re-adopt/spool/probe, inbox/answer/cancel/recheck, health/explain, queue/dependency; Git/process thật | US3/5/6; ≥200 daemon kills quanh spawn/commit/push/PR/drain; replay 100%, không duplicate effects |
 | C — Smoke xuyên suốt thật | Adapter đã có fixture từ 0; hai chiều coder/reviewer trên Node/Python, restart/manual merge | SC-001/002/005/008 đạt thật; SC còn lại có matrix/report; mọi FR có evidence hoặc ghi chưa đạt |
@@ -121,7 +122,7 @@ gia hạn một mốc review v1 sớm hơn nếu đã được ghi nhận. B ch�
 Điều kiện kỹ thuật để đề nghị **go**:
 
 1. S0.1–S0.3 đạt trên host triển khai với manifest/version/auth/boundary thực. Có native result
-   từng vendor; native pass hoặc external_verified đáp ứng ADR-0003 sau outer/permission proof,
+   từng vendor; native nội bộ pass hoặc external_verified đáp ứng ADR-0004 sau outer/permission proof,
    owner config tường minh. Không bypass permission, mở capability hoặc nới sysctl; prototype/schema/
    gh proof dùng được trong adapter A. Native fail không bị ghi lại thành native pass.
 2. US1/2/4 luồng fake và vòng sửa pass; chạy lại ít nhất 20 lần theo seeds ghi nhận, mỗi task đúng
@@ -148,7 +149,7 @@ crash, smoke thật, quyền hoặc idempotency để làm cho cột go thành x
 
 | Rủi ro | Cổng / kết quả khi chưa đạt |
 | --- | --- |
-| Host bwrap đang fail/nesting chưa kiểm | Provision profile, S0.1/S0.2 trước tasks/A; doctor không tự sudo/đổi mode, external_verified chỉ sau outer/permission proof và owner config |
+| Host rootless bwrap/systemd hoặc nesting chưa đạt proof | Chạy S0.1/S0.2 trên host triển khai; chỉ provisioning nếu policy host cần, doctor không tự sudo/đổi mode; external_verified chỉ sau outer/permission proof và owner config |
 | Head-at-merge qua squash/rebase/push sau merge chưa chứng minh | Fixture GitHub bắt buộc; thiếu bằng chứng trả unknown, không DONE phỏng đoán |
 | Không đọc đủ classic protection/rules/app identity | unknown/policy, không PR xanh |
 | Spawn/spool crash, ENOSPC, PID reuse | Operation lock/marker, atomic receipt, backpressure/reconcile; giữ claim |
@@ -161,10 +162,10 @@ crash, smoke thật, quyền hoặc idempotency để làm cho cột go thành x
 | Runner transient systemd service kể cả foreground | Điều chỉnh baseline process, đã sửa SPEC §§12.1/17.2 và ghi ADR-0002; spawn vẫn là primitive để gọi systemd-run, không gọi là baseline chưa đổi |
 | GitHub qua gh port | Giữ §17.2; bỏ fetch backend khỏi thiết kế, gh version/argv/deadline có fixture |
 | Files agent tại runs/<attempt_id> | Giữ §12.1 và các file invocation/pid/events/stderr/liveness/progress/exit/out/result; supplementary file không thay protocol |
-| AppArmor bwrap profile | Theo ADR-0003, child stack deny capability kể cả re-exec/copy; outer enforcement và mode thực tế giữ permission phải đạt S0.1 theo ngoại lệ có điều kiện; admin provisioning, không nới sysctl; gate 0 BLOCKED |
+| Isolated rootless bwrap | Theo ADR-0004: port SandboxProvider nhỏ, một backend bwrap; outer boundary/re-exec/copy/raw-userns/FD/socket/lifetime và permission phải đạt S0.1; AppArmor 4/child stack không bắt buộc, policy host giữ nguyên; gate 0 BLOCKED |
 | Policy/event version | Giữ v1 và snapshot check strings; không upcaster/dual decoder vì app_id. DB migration riêng cho durable runtime vẫn cần |
 
-Ngoại lệ ADR-0003 chỉ thay lớp OS sandbox nội bộ khi outer boundary đã proven, không miễn quyền/
+Ngoại lệ ADR-0004 chỉ thay lớp OS sandbox nội bộ khi outer boundary đã proven, không miễn quyền/
 approval/secret của hiến chương. Một package, Commander theo baseline, Node/Git/gh/systemd/bwrap/flock;
 không thêm durable framework, ORM, DB server, broker, DI container hoặc backend supervision thứ hai.
 Owner token/assistant operate token cấu hình riêng, không thêm bộ lệnh quản trị token vượt phạm vi.
