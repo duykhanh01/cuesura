@@ -5,6 +5,8 @@ coverage/
 .env
 .env.*
 *.sqlite
+# Pinned schema-1 database fixture (see test/fixtures/runtime/db/README.md).
+!test/fixtures/runtime/db/v1.sqlite
 *.sqlite-wal
 *.sqlite-shm
 .cusr/
