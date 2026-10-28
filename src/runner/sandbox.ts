@@ -17,6 +17,8 @@ import { homedir, userInfo } from 'node:os';
 import { dirname, isAbsolute, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { MountSourceIdentity, SandboxLaunchPlan, SandboxLayout, SandboxPlanError, SandboxProvider, SandboxRole } from '../adapters/ports.ts';
+import { OWNER_TOKEN_FILE } from '../application/access-tokens.ts';
+import { CONTROL_SOCKET } from '../cli/output.ts';
 import { hashCanonical } from '../shared/hash.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 
@@ -52,11 +54,25 @@ export type HostPolicy = {
   readonly systemRoTry: readonly string[];
 };
 
+/** DATA_DIR entries no sandbox may see: store, control socket, owner token, locks and config. */
+export const DATA_DIR_CONTROL_FILES: readonly string[] = [
+  'cusr.db',
+  'cusr.db-wal',
+  'cusr.db-shm',
+  CONTROL_SOCKET,
+  OWNER_TOKEN_FILE,
+  'cusrd.sock',
+  'cusrd.lock',
+  'config.yaml',
+  'locks',
+  'tokens',
+];
+
 /** Control files of this daemon's DATA_DIR are forbidden on top of the host credential locations. */
 export function defaultHostPolicy(dataDir: string | null, extraForbidden: readonly string[] = []): HostPolicy {
   const home = homedir();
   const uid = userInfo().uid;
-  const control = dataDir === null ? [] : ['cusr.db', 'cusr.db-wal', 'cusr.db-shm', 'cusrd.sock', 'cusrd.lock', 'config.yaml', 'locks', 'tokens'].map((n) => join(dataDir, n));
+  const control = dataDir === null ? [] : DATA_DIR_CONTROL_FILES.map((n) => join(dataDir, n));
   return {
     hostHome: home,
     forbidden: [
@@ -75,7 +91,7 @@ export function defaultHostPolicy(dataDir: string | null, extraForbidden: readon
       `${home}/.claude.json`,
       `${home}/.codex`,
       // Default DATA_DIR control files; run directories below ~/.cusr/runs stay mountable.
-      ...['cusrd.lock', 'cusr.db', 'cusrd.sock', 'config.yaml'].map((n) => `${home}/.cusr/${n}`),
+      ...DATA_DIR_CONTROL_FILES.map((n) => `${home}/.cusr/${n}`),
       ...control,
       ...extraForbidden,
     ],

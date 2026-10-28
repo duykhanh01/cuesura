@@ -1,7 +1,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { isTerminal, PENDING_REASONS, WAITING_REASONS } from '../../../src/domain/state.ts';
-import { isAllowedEdge } from '../../../src/engine/evolve.ts';
+import { isAllowedEdge, POST_TERMINAL_EVENTS } from '../../../src/engine/evolve.ts';
 import { choicesArb, drive, eventsOf, walk } from '../arbitraries/signals.ts';
 import { policyArb, propertyParams, taskOverArb } from '../arbitraries/policies.ts';
 
@@ -15,7 +15,7 @@ describe('FR-009, I12 chuyển trạng thái', () => {
             expect(isAllowedEdge(before.status, after.status), `${ev.type}: ${before.status} → ${after.status}`).toBe(true);
           }
           if (before !== null && isTerminal(before.status)) {
-            expect(ev.type).toBe('SignalIgnored');
+            expect(POST_TERMINAL_EVENTS).toContain(ev.type);
             expect(after.status).toBe(before.status);
           }
           if (after.status === 'WAITING') {
@@ -34,7 +34,7 @@ describe('FR-009, I12 chuyển trạng thái', () => {
         let ended = false;
         for (const t of trace) {
           if (ended && t.decision?.kind === 'accepted') {
-            expect(eventsOf(t).every((e) => e.type === 'SignalIgnored')).toBe(true);
+            expect(eventsOf(t).every((e) => POST_TERMINAL_EVENTS.includes(e.type))).toBe(true);
           }
           if (t.after !== null && isTerminal(t.after.status)) ended = true;
         }

@@ -254,6 +254,7 @@ export function observeLaunch(run: RunDir, probeLock: () => LockProbe, probe: Id
     if (pid.value.launch_nonce !== marker.value.launch_nonce) return { state: 'unknown', reason: 'pid receipt nonce differs from launch marker' };
     const check = checkIdentity(toProcessIdentity(pid.value), probe);
     if (check === 'alive') return { state: 'running', reason: 'pid and start ticks match' };
+    if (check === 'unknown') return { state: 'unknown', reason: 'process identity unreadable' };
     if (lockState === 'held') return { state: 'running', reason: 'harness gone but runner still holds the operation lock' };
     if (lockState === 'unknown') return { state: 'unknown', reason: 'harness gone and lock state unknown' };
     return { state: 'lost', reason: check === 'other_boot' ? 'recorded on another boot' : 'process identity no longer present' };

@@ -121,11 +121,17 @@ export function readContext(
   return row === undefined ? null : (JSON.parse(row.context_json) as FrozenExecutionContext);
 }
 
-/** Effect chờ executor, theo thứ tự được yêu cầu. */
-export function pendingEffects(db: Database, limit: number): Effect[] {
-  const rows = db
-    .prepare(`SELECT * FROM effects WHERE status = 'pending' ORDER BY created_seq LIMIT ?`)
-    .all(limit) as EffectRow[];
+/** Effect chờ executor, theo thứ tự được yêu cầu; `after` (một effect id) cho trang tiếp theo. */
+export function pendingEffects(db: Database, limit: number, after?: string): Effect[] {
+  const rows = (
+    after === undefined
+      ? db.prepare(`SELECT * FROM effects WHERE status = 'pending' ORDER BY created_seq LIMIT ?`).all(limit)
+      : db
+          .prepare(
+            `SELECT * FROM effects WHERE status = 'pending' AND created_seq > (SELECT created_seq FROM effects WHERE id = ?) ORDER BY created_seq LIMIT ?`,
+          )
+          .all(after, limit)
+  ) as EffectRow[];
   return rows.map(toEffect);
 }
 

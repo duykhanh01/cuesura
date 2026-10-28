@@ -46,7 +46,32 @@ export function installAuth(run: RunDir, files: readonly AuthFile[]): InstalledA
   return { home, files: installed };
 }
 
-/** Removes every installed auth file; called after the attempt's artifacts are archived. */
+/**
+ * Removes every installed auth file; called after the attempt's artifacts are archived. The agent had
+ * the home read-write, so every component is re-checked with lstat: a directory swapped for a symlink
+ * is refused (and nothing is followed out of the home), and a leaf symlink is unlinked, never its target.
+ */
 export function removeAuth(installed: InstalledAuth): void {
-  for (const rel of installed.files) rmSync(join(installed.home, rel), { force: true });
+  const home = lstatSync(installed.home, { throwIfNoEntry: false });
+  if (home === undefined) return;
+  if (!home.isDirectory()) throw new SandboxPolicyError('policy_violation', `private home ${installed.home} is no longer a directory`);
+  const escaped: string[] = [];
+  next: for (const rel of installed.files) {
+    const parts = rel.split('/');
+    let dir = installed.home;
+    for (const part of parts.slice(0, -1)) {
+      dir = join(dir, part);
+      const st = lstatSync(dir, { throwIfNoEntry: false });
+      if (st === undefined) continue next;
+      if (!st.isDirectory()) {
+        escaped.push(rel);
+        continue next;
+      }
+    }
+    const target = join(dir, parts[parts.length - 1] as string);
+    // rmSync unlinks a symlink itself, never its target, and refuses a directory without `recursive`.
+    if (lstatSync(target, { throwIfNoEntry: false }) !== undefined) rmSync(target, { force: true });
+  }
+  // The other files are already removed; the swapped paths were left untouched on purpose.
+  if (escaped.length > 0) throw new SandboxPolicyError('policy_violation', `auth paths leave the private home through a symlink: ${escaped.join(', ')}`);
 }

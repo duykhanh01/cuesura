@@ -40,7 +40,14 @@ export type CallOptions = {
 };
 
 export function callDaemon(opts: CallOptions): Promise<Result<DaemonReply, ClientError>> {
-  return new Promise((done) => {
+  return new Promise((settle) => {
+    // Settles once: a response cut mid-body fires `error`/`aborted`/`close` after or instead of `end`.
+    let settled = false;
+    const done = (r: Result<DaemonReply, ClientError>): void => {
+      if (settled) return;
+      settled = true;
+      settle(r);
+    };
     const payload = opts.body === undefined ? null : JSON.stringify(opts.body);
     const req = request(
       {
@@ -60,6 +67,12 @@ export function callDaemon(opts: CallOptions): Promise<Result<DaemonReply, Clien
           size += c.length;
           if (size > MAX_RESPONSE_BYTES) req.destroy(new Error('response too large'));
           else chunks.push(c);
+        });
+        const cut = (): void => done(err({ code: 'connection', message: 'daemon closed the connection before the response ended' }));
+        res.on('aborted', cut);
+        res.on('error', cut);
+        res.on('close', () => {
+          if (!res.complete) cut();
         });
         res.on('end', () => {
           try {

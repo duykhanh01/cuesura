@@ -10,7 +10,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import type { Server } from 'node:http';
 import { v7 as uuidv7 } from 'uuid';
 import type { Clock } from '../adapters/ports.ts';
-import { ensureOwnerToken, loadTokenMap, type TokenMap } from '../application/access-tokens.ts';
+import { ensureOwnerToken, loadTokenMap, readTokenFile, type TokenMap } from '../application/access-tokens.ts';
 import { authorize, type AuthzError, type Caller } from '../application/authz.ts';
 import { COMMAND_PAYLOADS, admitCommand, type AdmitError, type Admitted, type CommandInput, type CommandKind } from '../application/commands.ts';
 import { okEnvelope } from '../cli/output.ts';
@@ -18,6 +18,7 @@ import { readConfigFiles } from '../config/read-files.ts';
 import type { AccessTokenSpec } from '../config/schema-user.ts';
 import { validateConfig } from '../config/validate.ts';
 import type { ConfigSource } from '../config/yaml-loader.ts';
+import { Redactor } from '../runner/redact.ts';
 import { asEpochMs } from '../shared/brand.ts';
 import type { Result } from '../shared/result.ts';
 import { openStore, type Store, type StoreOpenError } from '../store/index.ts';
@@ -88,6 +89,14 @@ function admitReply(e: AdmitError, requestId: string | null): Reply {
   }
 }
 
+/** What the command ledger stores for a request: the handler's value or its rejection. */
+type CommandOutcome = { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly error: HandlerError };
+
+function outcomeReply(requestId: string, outcome: CommandOutcome, replayed: boolean): Reply {
+  if (!outcome.ok) return errorReply(422, { ...outcome.error, request_id: requestId });
+  return { status: 200, envelope: okEnvelope({ request_id: requestId, replayed, result: outcome.value }) };
+}
+
 /** DATA_DIR holds the store, tokens and socket: created 0700, refused when group/other can access it. */
 function prepareDataDir(dataDir: string): string | null {
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
@@ -101,7 +110,11 @@ function prepareDataDir(dataDir: string): string | null {
 export async function startDaemon(opts: DaemonOptions): Promise<Result<RunningDaemon, DaemonStartError>> {
   const clock = opts.clock ?? systemClock;
   const newId = opts.newId ?? newUuid;
-  const log = opts.log ?? (() => undefined);
+  const rawLog = opts.log ?? (() => undefined);
+  // Until the token files are read, only well-known credential shapes and secret-named env values are known.
+  let redactor = new Redactor({ env: process.env });
+  // Every daemon log line (request failures, handler errors) passes here: secrets are masked before output.
+  const log = (msg: string): void => rawLog(redactor.text(msg));
   const insecure = prepareDataDir(opts.dataDir);
   if (insecure !== null) return { ok: false, error: { code: 'data_dir_insecure', detail: insecure } };
 
@@ -109,6 +122,12 @@ export async function startDaemon(opts: DaemonOptions): Promise<Result<RunningDa
   if (!owner.ok) return { ok: false, error: { code: 'token_error', detail: JSON.stringify(owner.error) } };
   const tokens = loadTokenMap(owner.value.path, opts.accessTokens);
   if (!tokens.ok) return { ok: false, error: { code: 'token_error', detail: JSON.stringify(tokens.error) } };
+  const secrets: string[] = [];
+  for (const [id, path] of [['owner', owner.value.path], ...opts.accessTokens.map((t) => [t.id, t.token_file] as const)] as const) {
+    const t = readTokenFile(path, id);
+    if (t.ok) secrets.push(t.value);
+  }
+  redactor = new Redactor({ values: secrets, env: process.env });
   for (const a of tokens.value.audit) log(`token ${a.id} actor=${a.actor} roles=${a.roles.join(',')} projects=${a.projects === '*' ? '*' : a.projects.join(',')} fp=${a.fingerprint}`);
 
   const opened = openStore(join(opts.dataDir, STORE_FILE));
@@ -116,7 +135,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Result<RunningDa
   const store = opened.value;
 
   const dispatchLog: DispatchLog = (r) => log(`dispatch ${r.event} ${r.effect_id}${r.detail === undefined ? '' : `: ${r.detail}`}`);
-  const dispatcher = new Dispatcher({ store, clock, handlers: opts.effects ?? {}, log: dispatchLog });
+  const dispatcher = new Dispatcher({ store, clock, handlers: opts.effects ?? {}, log: dispatchLog, newId });
   const verify = store.verifyProjections();
   if (!verify.ok) {
     dispatcher.block(`projection mismatch (${verify.mismatches.length})`);
@@ -124,22 +143,25 @@ export async function startDaemon(opts: DaemonOptions): Promise<Result<RunningDa
   }
 
   const commands = opts.commands ?? {};
+  const inFlight = new Map<string, Promise<Reply>>();
   const queries = opts.queries ?? {};
   const handlers: ControlHandlers = {
     health(caller) {
       const allowed = authorize(caller, { role: 'read' });
       if (!allowed.ok) return authzReply(allowed.error);
-      return {
-        status: 200,
-        envelope: okEnvelope({
-          writer: 'ok',
-          projections: { ok: verify.ok, tasks: verify.tasks, events: verify.events, mismatches: verify.mismatches.length },
-          dispatch: { blocked: dispatcher.blockedReason, in_flight: dispatcher.inFlight },
-          slot: store.readSlot(),
-          queue_length: store.readQueue(100).length,
-          now: clock.now(),
-        }),
+      const data = {
+        writer: 'ok',
+        projections: { ok: verify.ok, tasks: verify.tasks, events: verify.events, mismatches: verify.mismatches.length },
+        dispatch: { blocked: dispatcher.blockedReason, in_flight: dispatcher.inFlight },
+        slot: store.readSlot(),
+        queue_length: store.readQueue(100).length,
+        now: clock.now(),
       };
+      // A blocked dispatcher (projection mismatch) is a health failure: `cusr status` exits 1.
+      if (dispatcher.blockedReason !== null) {
+        return errorReply(503, { code: 'unhealthy', message: `dispatch blocked: ${dispatcher.blockedReason}`, details: data });
+      }
+      return { status: 200, envelope: okEnvelope(data) };
     },
     async query(caller, body) {
       const allowed = authorize(caller, { role: 'read' });
@@ -163,15 +185,27 @@ export async function startDaemon(opts: DaemonOptions): Promise<Result<RunningDa
       const admitted = admitCommand({ store, now: () => clock.now(), newId }, caller, body);
       if (!admitted.ok) return admitReply(admitted.error, requestId);
       const record = admitted.value.record;
-      if (record.status === 'completed') return { status: 200, envelope: okEnvelope({ request_id: record.request_id, replayed: true, result: record.result }) };
+      if (record.status === 'completed') return outcomeReply(record.request_id, record.result as CommandOutcome, true);
+      // The same request already running in this process: wait for its answer instead of running twice.
+      const running = inFlight.get(record.request_id);
+      if (running !== undefined) return running;
       // Admission succeeded, so the kind is known and has a handler. An `admitted` record left by a
       // crash runs the same handler again with the IDs assigned the first time.
-      const r = await (handler as CommandHandler)(admitted.value, input, caller);
-      if (!r.ok) return errorReply(422, { ...r.error, request_id: record.request_id });
-      const done = store.completeCommand(record.request_id, r.value, clock.now());
-      if (!done.ok) return admitReply(done.error, record.request_id);
-      dispatcher.tick();
-      return { status: 200, envelope: okEnvelope({ request_id: record.request_id, replayed: false, result: r.value }) };
+      const run = (async (): Promise<Reply> => {
+        const r = await (handler as CommandHandler)(admitted.value, input, caller);
+        // A rejection is a result too: it is stored and replayed, never run again for the same request.
+        const outcome: CommandOutcome = r.ok ? { ok: true, value: r.value } : { ok: false, error: r.error };
+        const done = store.completeCommand(record.request_id, outcome, clock.now());
+        if (!done.ok) return admitReply(done.error, record.request_id);
+        if (r.ok) dispatcher.tick();
+        return outcomeReply(record.request_id, outcome, false);
+      })();
+      inFlight.set(record.request_id, run);
+      try {
+        return await run;
+      } finally {
+        inFlight.delete(record.request_id);
+      }
     },
   };
 

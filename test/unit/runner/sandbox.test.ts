@@ -92,6 +92,8 @@ describe('bwrap layout policy (T020)', () => {
     const p = defaultHostPolicy(data);
     expect(() => buildBwrap({ ...fixtureLayout('coder', fx), toolchain: [data] }, p)).toThrow(/overlaps forbidden/);
     expect(() => buildBwrap({ ...fixtureLayout('coder', fx), toolchain: [join(data, 'locks')] }, p)).toThrow(/overlaps forbidden/);
+    // The real control socket and owner token names, not only the legacy ones.
+    expect(p.forbidden).toEqual(expect.arrayContaining([join(data, 'control.sock'), join(data, 'owner.token')]));
   });
 });
 
@@ -136,6 +138,35 @@ describe('private home auth', () => {
     expect(statSync(target).mode & 0o777).toBe(0o600);
     removeAuth(installed);
     expect(() => statSync(target)).toThrow();
+  });
+
+  it('never follows a symlink the agent put in the home when removing auth', () => {
+    const fx = fixture();
+    const cred = join(fx.base, 'codex-auth.json');
+    writeFileSync(cred, '{"token":"secret-value"}');
+    const other = join(fx.base, 'claude-credentials.json');
+    writeFileSync(other, '{"token":"other"}');
+    const host = join(fx.base, 'host-codex');
+    mkdirSync(host);
+    const canary = join(host, 'auth.json');
+    writeFileSync(canary, 'host credential');
+    const run = RunDir.open({ dataDir: join(fx.base, 'data'), kind: 'runs', id: 'at-3', redactor: new Redactor() });
+    const installed = installAuth(run, [
+      { ref: { name: 'codex', file: cred }, to: '.codex/auth.json' },
+      { ref: { name: 'claude', file: other }, to: '.claude/.credentials.json' },
+    ]);
+    // The agent swaps .codex/ for a symlink to a host directory.
+    rmSync(join(installed.home, '.codex'), { recursive: true });
+    symlinkSync(host, join(installed.home, '.codex'));
+    expect(() => removeAuth(installed)).toThrow(/leave the private home/);
+    expect(readFileSync(canary, 'utf8')).toBe('host credential');
+    expect(() => statSync(join(installed.home, '.claude/.credentials.json'))).toThrow();
+    // A leaf symlink is unlinked, its target kept.
+    const leaf = installAuth(RunDir.open({ dataDir: join(fx.base, 'data'), kind: 'runs', id: 'at-4', redactor: new Redactor() }), [{ ref: { name: 'codex', file: cred }, to: 'auth.json' }]);
+    rmSync(join(leaf.home, 'auth.json'));
+    symlinkSync(canary, join(leaf.home, 'auth.json'));
+    removeAuth(leaf);
+    expect(readFileSync(canary, 'utf8')).toBe('host credential');
   });
 
   it('refuses symlinked credentials and targets outside the home before copying anything', () => {

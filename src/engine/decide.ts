@@ -51,6 +51,8 @@ export function decide(input: DecideInput): Decision {
   return { kind: 'accepted', events: ctx.events };
 }
 
+const AFTER_TERMINAL: readonly Trigger['kind'][] = ['operation_result', 'ingest_record', 'release_execution'];
+
 function dispatch(ctx: Ctx, t: Trigger): void {
   if (t.kind === 'create_task') {
     onCreateTask(ctx, t);
@@ -60,8 +62,9 @@ function dispatch(ctx: Ctx, t: Trigger): void {
   if (ctx.state.id !== ctx.env.task_id) reject('invalid_trigger', { reason: 'task_id_mismatch' });
   // `amend` thiếu admin bị từ chối trước mọi thứ khác, không phát sự kiện nào (FR-036).
   if (t.kind === 'amend' && !hasRole(ctx.env.authz, 'admin')) reject('not_admin');
-  // Trạng thái hút: mọi tín hiệu sau đó chỉ được ghi nhận (FR-010).
-  if (isTerminal(ctx.state.status)) {
+  // Trạng thái hút: mọi tín hiệu sau đó chỉ được ghi nhận (FR-010). Riêng receipt, output và release
+  // của operation còn sống lâu hơn task vẫn được xử lý, để slot không bị giữ mãi; status không đổi.
+  if (isTerminal(ctx.state.status) && !AFTER_TERMINAL.includes(t.kind)) {
     ctx.emit('SignalIgnored', { reason: 'terminal', trigger_kind: t.kind });
     return;
   }

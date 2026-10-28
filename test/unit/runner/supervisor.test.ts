@@ -196,6 +196,8 @@ describe('process identity and launch recovery view', () => {
     expect(observeLaunch(run, () => 'free', probe)).toMatchObject({ state: 'running', reason: 'pid and start ticks match' });
     run.writeJson(RUN_FILES.pid, { ...pid, start_ticks: 8 });
     expect(observeLaunch(run, () => 'free', probe).state).toBe('lost');
+    // /proc that cannot be read is no evidence the process is gone.
+    expect(observeLaunch(run, () => 'free', { bootId: () => 'boot-a', startTicks: () => 'unreadable' as const })).toMatchObject({ state: 'unknown', reason: 'process identity unreadable' });
     run.writeJson(RUN_FILES.pid, { ...pid, launch_nonce: 'stale' });
     expect(observeLaunch(run, () => 'free', probe).state).toBe('unknown');
     run.writeExit({ outcome: 'exited' });

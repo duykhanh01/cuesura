@@ -21,6 +21,7 @@ import { createProbeFixture } from '../../../scripts/spike-002/sandbox.ts';
 import { ROLES, roleJsonSchema, roleSchemaDigest } from '../../../scripts/spike-002/role-schema.ts';
 import { hashCanonical } from '../../../src/shared/hash.ts';
 import { type ExitRecord } from '../../../scripts/spike-002/runner.ts';
+import { recordedCodexStderr } from '../../support/spike-stderr.ts';
 import { summarizeStream } from '../../../scripts/spike-002/harness-stream.ts';
 
 const templates = ['claude', 'codex'].map((v) =>
@@ -189,7 +190,7 @@ describe('spike-002 result stream facts for every outcome', () => {
     const plan = planned(config);
     const events = [{ type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 2 } }, { type: 'turn.failed', error: { message: '429 Too Many Requests' } }];
     writeFileSync(join(plan.run_dir, 'events.jsonl'), events.map((data) => JSON.stringify({ data })).join('\n'));
-    const stderr = readFileSync(fileURLToPath(new URL('../../fixtures/runtime/spike-0/harness/real-20261028/s0-codex-fixer-1793173505/stderr.log', import.meta.url)), 'utf8');
+    const stderr = recordedCodexStderr('s0-codex-fixer-1793173505');
     writeFileSync(join(plan.run_dir, 'stderr.log'), stderr);
     if (output === 'present') writeFileSync(plan.files.output, JSON.stringify({ schema_version: 1, status: 'done', summary: 'ok', questions: [], blocker: null }));
     const r = normalizeResult(plan, config, 'coder', exited(1, output === 'timeout' ? 'timeout' : 'exited'), false);

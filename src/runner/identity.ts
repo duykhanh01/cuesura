@@ -26,17 +26,28 @@ export function bootId(): string {
   return readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim();
 }
 
-/** Field 22 of /proc/PID/stat (start time in clock ticks); null if the process is gone. */
-export function startTicks(pid: number): number | null {
+/**
+ * Field 22 of /proc/PID/stat (start time in clock ticks). `null` only when the process does not exist
+ * (ENOENT/ESRCH); any other failure (EACCES, an unparsable stat) is `unreadable`, which is not evidence
+ * that the process is gone.
+ */
+export function readStartTicks(pid: number): number | null | 'unreadable' {
   let stat: string;
   try {
     stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
-  } catch {
-    return null;
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    return code === 'ENOENT' || code === 'ESRCH' ? null : 'unreadable';
   }
   // comm may contain spaces and parentheses; fields resume after the last ')'.
   const ticks = Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19]);
-  return Number.isSafeInteger(ticks) && ticks >= 0 ? ticks : null;
+  return Number.isSafeInteger(ticks) && ticks >= 0 ? ticks : 'unreadable';
+}
+
+/** Start ticks of a process this runner just spawned or is; null if they cannot be read. */
+export function startTicks(pid: number): number | null {
+  const t = readStartTicks(pid);
+  return t === 'unreadable' ? null : t;
 }
 
 /** cgroup v2 path of this process, e.g. `/user.slice/.../cusr-op-<id>.service`. */
@@ -98,18 +109,21 @@ export function toProcessIdentity(rec: PidRecord): ProcessIdentity {
 
 export type IdentityProbe = {
   readonly bootId: () => string;
-  readonly startTicks: (pid: number) => number | null;
+  readonly startTicks: (pid: number) => number | null | 'unreadable';
 };
 
-export const HOST_PROBE: IdentityProbe = { bootId, startTicks };
+export const HOST_PROBE: IdentityProbe = { bootId, startTicks: readStartTicks };
 
 /**
  * `alive`: same boot, same pid and same start ticks. `other_boot`: the recorded process cannot exist
- * any more. `gone`: same boot but the pid is absent or reused by another process.
+ * any more. `gone`: same boot but the pid is absent or reused by another process. `unknown`: /proc
+ * could not be read, so there is no evidence either way.
  */
-export type IdentityCheck = 'alive' | 'gone' | 'other_boot';
+export type IdentityCheck = 'alive' | 'gone' | 'other_boot' | 'unknown';
 
 export function checkIdentity(id: ProcessIdentity, probe: IdentityProbe = HOST_PROBE): IdentityCheck {
   if (id.boot_id !== probe.bootId()) return 'other_boot';
-  return probe.startTicks(id.pid) === id.start_ticks ? 'alive' : 'gone';
+  const ticks = probe.startTicks(id.pid);
+  if (ticks === 'unreadable') return 'unknown';
+  return ticks === id.start_ticks ? 'alive' : 'gone';
 }

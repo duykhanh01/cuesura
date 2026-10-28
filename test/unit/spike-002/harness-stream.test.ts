@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { summarizeStream, type StreamVendor } from '../../../scripts/spike-002/harness-stream.ts';
+import { recordedCodexStderr } from '../../support/spike-stderr.ts';
 
 const fixture = (rel: string): string => fileURLToPath(new URL(`../../fixtures/runtime/spike-0/${rel}`, import.meta.url));
 const real = (attempt: string, name: string): string => readFileSync(fixture(`harness/real-20261028/${attempt}/${name}`), 'utf8');
@@ -54,7 +55,7 @@ describe('spike-002 harness stream summary (synthetic negative cases)', () => {
   });
 
   it('Codex preserves stderr permission denials when the rejected command contains backticks', () => {
-    const stderr = real('s0-codex-fixer-1793173505', 'stderr.log');
+    const stderr = recordedCodexStderr('s0-codex-fixer-1793173505');
     const command = '/usr/bin/touch `echo /cusr/scratch/permission-denied-by-rule`';
     const changed = stderr.replace('/usr/bin/touch /cusr/scratch/permission-denied-by-rule', command);
     expect(changed).not.toBe(stderr);
@@ -75,7 +76,7 @@ describe('spike-002 harness stream summary (real 2026-10-28 captures)', () => {
   });
 
   it.each(['s0-codex-coder-1793178479', 's0-codex-reviewer-1793178514', 's0-codex-fixer-1793173505'])('%s: token usage and stderr rejection', (a) => {
-    const s = summarizeStream('codex', real(a, 'events.jsonl'), real(a, 'stderr.log'));
+    const s = summarizeStream('codex', real(a, 'events.jsonl'), recordedCodexStderr(a));
     const summary = JSON.parse(real(a, 'summary.json')) as { reported_usage: { input_tokens: number; output_tokens: number } };
     expect(s.usage).toMatchObject({ status: 'reported', input_tokens: summary.reported_usage.input_tokens, output_tokens: summary.reported_usage.output_tokens, cost_usd: null });
     expect(s.permission_denials).toEqual([{ tool: 'exec_command', command: "/usr/bin/zsh -lc '/usr/bin/touch /cusr/scratch/permission-denied-by-rule'", source: 'codex_stderr' }]);
@@ -84,7 +85,7 @@ describe('spike-002 harness stream summary (real 2026-10-28 captures)', () => {
 
   it('Codex missing code-mode host: item error is a warning, not a failure, and no denial', () => {
     const a = 's0-codex-coder-1793172285';
-    const s = summarizeStream('codex', real(a, 'events.jsonl'), real(a, 'stderr.log'));
+    const s = summarizeStream('codex', real(a, 'events.jsonl'), recordedCodexStderr(a));
     expect(s.warnings).toEqual([expect.stringContaining('Code Mode is unavailable')]);
     expect(s.failure).toBeNull();
     expect(s.permission_denials).toEqual([]);

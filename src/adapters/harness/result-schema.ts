@@ -10,6 +10,7 @@
  * Provenance (task, attempt, schema, vendor) is attached by the orchestrator, never read from the model.
  */
 import { z } from 'zod';
+import { assertNever } from '../../shared/assert-never.ts';
 import type { Hash } from '../../shared/brand.ts';
 import { hashCanonical } from '../../shared/hash.ts';
 
@@ -206,6 +207,8 @@ function coderSemantics(r: CoderResult): ValidationIssue[] {
     case 'blocked':
       if (r.blocker === null) issues.push({ layer: 'semantic', path: 'blocker', message: `${r.status} requires a blocker` });
       break;
+    default:
+      assertNever(r.status);
   }
   return issues;
 }

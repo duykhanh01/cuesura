@@ -2,13 +2,15 @@ import { describe, expect, it } from 'vitest';
 import type { Clock } from '../../../src/adapters/ports.ts';
 import { DispatchConfigError, Dispatcher, type EffectHandlers } from '../../../src/daemon/dispatch.ts';
 import type { Effect } from '../../../src/domain/effect.ts';
-import { asEpochMs, type Uuid } from '../../../src/shared/brand.ts';
+import { asEpochMs, type EpochMs, type Uuid } from '../../../src/shared/brand.ts';
 import type { Store } from '../../../src/store/index.ts';
 import { openMemoryStore } from '../../../src/store/testing.ts';
 import { buildTask, freezeOk, uuidOf } from '../../support/builders.ts';
 import { createGrantStart } from '../../support/runtime.ts';
 import { PREPARE_DATA } from '../../support/scenario.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
+
+const HASH = `sha256:${'a'.repeat(64)}` as const;
 
 function setup(): { d: StoreDriver; clock: Clock } {
   const d = new StoreDriver(openMemoryStore());
@@ -75,6 +77,93 @@ describe('Dispatcher (T026)', () => {
     expect(open.tick().started).toEqual([prepare.id]);
     await open.settle();
     expect(logs).toEqual(['handler_failed']);
+    expect(d.task(t.id).effects[prepare.id]?.status).toBe('started');
+  });
+
+  it('commits the operation with the claim, so the slot stays held while the handler runs', async () => {
+    const { d, clock } = setup();
+    const t = buildTask({ id: uuidOf(5) });
+    const requestId = createGrantStart(d, t);
+    const prepare = d.pendingOne(t.id, 'prepare');
+    let during: unknown = null;
+    const disp = new Dispatcher({
+      store: d.store,
+      clock,
+      newId: () => uuidOf(950),
+      handlers: {
+        prepare: (effect, _signal, operation) => {
+          during = { ops: Object.keys(d.task(t.id).operations), release: d.send(t.id, { kind: 'release_execution', request_id: requestId as Uuid, reason: 'idle' }) };
+          return Promise.resolve([
+            d.envelope(t.id, { kind: 'operation_result', operation_id: operation.operation_id as Uuid, status: 'finished', outcome: 'succeeded', invocation_id: null, processes: [], started_at: d.now as EpochMs, finished_at: d.now as EpochMs, receipt_digest: HASH }),
+            d.envelope(t.id, { kind: 'effect_result', effect_id: effect.id as Uuid, outcome: 'succeeded', data: PREPARE_DATA }),
+          ]);
+        },
+      },
+    });
+    expect(disp.tick().started).toEqual([prepare.id]);
+    await disp.settle();
+    expect(during).toMatchObject({ ops: [uuidOf(950)], release: { ok: true, value: { decision: { kind: 'rejected', detail: { reason: 'unresolved_operations' } } } } });
+    expect(d.task(t.id).operations[uuidOf(950)]).toMatchObject({ effect_id: prepare.id, kind: 'setup', holds_slot: true, status: 'finished', unit: `cusr-op-${uuidOf(950)}.service` });
+    expect(d.task(t.id).effects[prepare.id]?.status).toBe('succeeded');
+  });
+
+  it('pages past effects that are always skipped, so they never starve later ones', () => {
+    const { d, clock } = setup();
+    for (let i = 0; i < 3; i++) {
+      const legacy = buildTask({ id: uuidOf(10 + i), source_key: `cli:legacy-${i}` });
+      d.must(legacy.id, { kind: 'create_task', task: legacy });
+      d.must(legacy.id, { kind: 'start', freeze: freezeOk(legacy, { limits: { max_wall_ms: 3_600_000 } }) });
+    }
+    const t = buildTask({ id: uuidOf(20), source_key: 'cli:runtime' });
+    createGrantStart(d, t);
+    const prepare = d.pendingOne(t.id, 'prepare');
+    const disp = new Dispatcher({ store: d.store, clock, batch: 2, handlers: { prepare: () => new Promise(() => undefined) } });
+    const report = disp.tick();
+    expect(report.started).toEqual([prepare.id]);
+    expect(report.skipped.filter((s) => s.reason === 'claim_blocked:legacy_task')).toHaveLength(3);
+  });
+
+  it('forgets an in-flight handler that throws synchronously', async () => {
+    const { d, clock } = setup();
+    const t = buildTask({ id: uuidOf(6) });
+    createGrantStart(d, t);
+    const disp = new Dispatcher({
+      store: d.store,
+      clock,
+      handlers: {
+        prepare: () => {
+          throw new Error('sync');
+        },
+      },
+    });
+    expect(disp.tick().started).toHaveLength(1);
+    await disp.settle();
+    expect(disp.inFlight).toBe(0);
+  });
+
+  it('stop() gives up on a handler that ignores abort after the grace period and drops its late result', async () => {
+    const { d, clock } = setup();
+    const t = buildTask({ id: uuidOf(7) });
+    createGrantStart(d, t);
+    const prepare = d.pendingOne(t.id, 'prepare');
+    let finish: () => void = () => undefined;
+    const logs: string[] = [];
+    const disp = new Dispatcher({
+      store: d.store,
+      clock,
+      log: (r) => logs.push(r.event),
+      handlers: {
+        prepare: (effect) =>
+          new Promise((r) => {
+            finish = () => r(d.envelope(t.id, { kind: 'effect_result', effect_id: effect.id as Uuid, outcome: 'succeeded', data: PREPARE_DATA }));
+          }),
+      },
+    });
+    disp.tick();
+    expect(await disp.stop(20)).toEqual([prepare.id]);
+    finish();
+    await disp.settle();
+    expect(logs).toEqual(['handler_abandoned', 'result_dropped']);
     expect(d.task(t.id).effects[prepare.id]?.status).toBe('started');
   });
 });

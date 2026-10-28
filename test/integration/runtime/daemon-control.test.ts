@@ -1,12 +1,14 @@
 import { randomBytes } from 'node:crypto';
 import { chmodSync, mkdtempSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { readTokenFile } from '../../../src/application/access-tokens.ts';
 import { callDaemon, exitCodeFor, statusCommand } from '../../../src/cli/client.ts';
 import { ExitCode } from '../../../src/cli/output.ts';
-import { startDaemon, type CommandHandler, type RunningDaemon } from '../../../src/daemon/main.ts';
+import Database from 'better-sqlite3';
+import { STORE_FILE, startDaemon, type CommandHandler, type RunningDaemon } from '../../../src/daemon/main.ts';
 import { asEpochMs } from '../../../src/shared/brand.ts';
 
 const dirs: string[] = [];
@@ -138,6 +140,117 @@ describe('daemon control socket (T026)', () => {
 
     const query = await callDaemon({ socketPath: sock, token: reader.token, method: 'POST', path: '/v1/query', body: { kind: 'task_show' } });
     expect(query.ok && exitCodeFor(query.value.envelope)).toBe(ExitCode.usage);
+  });
+
+  it('runs one handler for concurrent requests with the same id, and replays a rejection without running again', async () => {
+    const dir = dataDir();
+    let runs = 0;
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    const handler: CommandHandler = async (_admitted, input) => {
+      runs++;
+      await gate;
+      const reason = (input.payload as { reason?: string }).reason;
+      return reason === 'refuse' ? { ok: false, error: { code: 'task_not_cancellable', message: 'no', details: {} } } : { ok: true, value: { cancelled: true } };
+    };
+    const started = await startDaemon({ dataDir: dir, accessTokens: [], clock, newId, commands: { task_cancel: handler } });
+    if (!started.ok) throw new Error(started.error.detail);
+    daemons.push(started.value);
+    const owner = readTokenFile(started.value.ownerTokenPath, 'owner');
+    if (!owner.ok) throw new Error('owner token');
+    const post = (body: unknown) => callDaemon({ socketPath: started.value.socketPath, token: owner.value, method: 'POST', path: '/v1/command', body });
+
+    const a = post(cancel());
+    const b = post(cancel());
+    // Both requests reach the daemon before the first handler returns.
+    await new Promise((r) => setTimeout(r, 50));
+    release();
+    const [ra, rb] = await Promise.all([a, b]);
+    expect(runs).toBe(1);
+    for (const r of [ra, rb]) expect(r.ok && r.value).toMatchObject({ status: 200, envelope: { ok: true, data: { result: { cancelled: true } } } });
+
+    const refused = cancel({ request_id: '55555555-5555-4555-8555-555555555555', payload: { reason: 'refuse' } });
+    const first = await post(refused);
+    expect(first.ok && first.value).toMatchObject({ status: 422, envelope: { ok: false, error: { code: 'task_not_cancellable' } } });
+    expect(started.value.store.readCommand('55555555-5555-4555-8555-555555555555')).toMatchObject({ status: 'completed' });
+    const again = await post(refused);
+    expect(again.ok && again.value).toMatchObject({ status: 422, envelope: { ok: false, error: { code: 'task_not_cancellable' } } });
+    expect(runs).toBe(2);
+  });
+
+  it('settles a client call when the daemon cuts the response mid-body', async () => {
+    const base = realpathSync(mkdtempSync(join(tmpdir(), 'cusr-cut-')));
+    dirs.push(base);
+    const socketPath = join(base, 's.sock');
+    const server = createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json', 'content-length': '1000' });
+      res.write('{"schema_version":1,');
+      setTimeout(() => res.socket?.destroy(), 20);
+    });
+    await new Promise<void>((r) => server.listen(socketPath, r));
+    try {
+      const r = await callDaemon({ socketPath, token: 't', method: 'GET', path: '/v1/health', timeoutMs: 60_000 });
+      expect(r).toMatchObject({ ok: false, error: { code: 'connection' } });
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
+  });
+
+  it('reports blocked dispatch as a health failure (exit 1) and masks secrets in its log', async () => {
+    const dir = dataDir();
+    const lines: string[] = [];
+    let leak = '';
+    const handler: CommandHandler = () => Promise.reject(new Error(`upstream said: token ${leak} and ghp_${'a'.repeat(36)}`));
+    const started = await startDaemon({ dataDir: dir, accessTokens: [], clock, newId, commands: { task_cancel: handler }, log: (m) => lines.push(m) });
+    if (!started.ok) throw new Error(started.error.detail);
+    daemons.push(started.value);
+    const owner = readTokenFile(started.value.ownerTokenPath, 'owner');
+    if (!owner.ok) throw new Error('owner token');
+    leak = owner.value;
+
+    const failed = await callDaemon({ socketPath: started.value.socketPath, token: owner.value, method: 'POST', path: '/v1/command', body: cancel() });
+    expect(failed.ok && failed.value.status).toBe(500);
+    const logged = lines.join('\n');
+    expect(logged).toContain('control request failed');
+    expect(logged).not.toContain(owner.value);
+    expect(logged).not.toContain(`ghp_${'a'.repeat(36)}`);
+
+    started.value.dispatcher.block('projection mismatch (1)');
+    const term = io();
+    process.env['CUSR_TOKEN_FILE'] = started.value.ownerTokenPath;
+    try {
+      expect(await statusCommand.run({ dataDir: dir }, true, term)).toBe(ExitCode.failure);
+    } finally {
+      delete process.env['CUSR_TOKEN_FILE'];
+    }
+    expect(JSON.parse(term.out.join(''))).toMatchObject({ ok: false, error: { code: 'unhealthy', details: { dispatch: { blocked: 'projection mismatch (1)' } } } });
+  });
+
+  it('keeps replaying a success stored by a daemon before the ledger kept outcomes', async () => {
+    const dir = dataDir();
+    let runs = 0;
+    const handler: CommandHandler = () => (runs++, Promise.resolve({ ok: true, value: { cancelled: true } }));
+    const opts = { dataDir: dir, accessTokens: [], clock, newId, commands: { task_cancel: handler } };
+    const first = await startDaemon(opts);
+    if (!first.ok) throw new Error(first.error.detail);
+    const ownerPath = first.value.ownerTokenPath;
+    const owner = readTokenFile(ownerPath, 'owner');
+    if (!owner.ok) throw new Error('owner token');
+    const done = await callDaemon({ socketPath: first.value.socketPath, token: owner.value, method: 'POST', path: '/v1/command', body: cancel() });
+    expect(done.ok && done.value.status).toBe(200);
+    await first.value.stop();
+    // Rewrite the row as a schema-2 daemon stored it: the bare handler value.
+    const raw = new Database(join(dir, STORE_FILE));
+    raw.prepare(`UPDATE command_ledger SET result_json = '{"cancelled":true}' WHERE request_id = ?`).run(cancel()['request_id']);
+    raw.prepare('UPDATE schema_meta SET version = 2').run();
+    raw.close();
+
+    const second = await startDaemon(opts);
+    if (!second.ok) throw new Error(second.error.detail);
+    daemons.push(second.value);
+    const again = await callDaemon({ socketPath: second.value.socketPath, token: owner.value, method: 'POST', path: '/v1/command', body: cancel() });
+    expect(again.ok && again.value).toMatchObject({ status: 200, envelope: { ok: true, data: { replayed: true, result: { cancelled: true } } } });
+    expect(runs).toBe(1);
   });
 
   it('reports a stopped daemon as a connection failure (exit 3), never by opening the database', async () => {
