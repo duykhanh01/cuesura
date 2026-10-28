@@ -395,14 +395,18 @@ export function binds(i: RequiredIdentity): boolean {
   return i.enforcement === 'classic' || i.enforcement === 'active';
 }
 
-/** Which reads backed the evidence: classic protection read, absent by GitHub's own answer, or not applicable. */
+/**
+ * Which reads backed the evidence: classic protection read with its status-check section, read without
+ * one (status checks not enabled), absent by GitHub's own 404 answer, or not applicable.
+ */
 export const RequiredProvenanceSchema = z
   .object({
     branch_protected: z.boolean(),
-    classic: z.enum(['read', 'not_protected', 'unprotected_branch']),
+    classic: z.enum(['read', 'read_no_status_checks', 'not_protected', 'unprotected_branch']),
     ruleset_ids: z.array(PositiveInt),
   })
   .strict();
+export type RequiredProvenance = z.infer<typeof RequiredProvenanceSchema>;
 
 const RequiredBase = { observed_at: NonNegInt, basis: z.string().min(1) };
 

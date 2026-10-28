@@ -37,7 +37,7 @@ function readsFromEvidence(evidence: readonly Evidence[]): RequirementReads {
     const m = /\/rulesets\/(\d+)$/.exec(e.path);
     if (m !== null) rulesets.set(Number(m[1]), read(e) as GhRead);
   }
-  return { branch, protection: read(find(/\/branches\/master\/protection$/)), rules, rulesets };
+  return { target: { repo: 'duykhanh01/cuesura-spike-002-sandbox', branch: 'master' }, branch, protection: read(find(/\/branches\/master\/protection$/)), rules, rulesets };
 }
 
 const VERDICT = { covered: 'covered', required_checks_mismatch: 'required_checks_mismatch', unknown: 'unknown' } as const;
@@ -81,6 +81,7 @@ const rule = (parameters: unknown, ruleset_id: unknown = 9): unknown => ({ type:
 
 function reads(over: Partial<RequirementReads> = {}): RequirementReads {
   return {
+    target: { repo: 'octo/repo', branch: 'main' },
     branch: ok({ protected: true }),
     protection: ok({ required_status_checks: { checks: [{ context: 'build', app_id: null }] } }),
     rules: rulesOf([rule({ required_status_checks: [{ context: 'test' }] })]),
@@ -125,7 +126,10 @@ describe('GitHub required-check normalizer edge cases', () => {
     ['protection bare 404', { protection: fail(404, { message: 'Not Found' }) }],
     ['protection timeout', { protection: fail(null) }],
     ['protection not read', { protection: null }],
-    ['classic section absent', { protection: ok({}) }],
+    ['classic section absent, no url', { protection: ok({}) }],
+    ['classic section absent, other repo', { protection: ok({ url: 'https://api.github.com/repos/octo/other/branches/main/protection' }) }],
+    ['classic section absent, other branch', { protection: ok({ url: 'https://api.github.com/repos/octo/repo/branches/dev/protection' }) }],
+    ['classic section absent, not a protection url', { protection: ok({ url: 'https://api.github.com/repos/octo/repo/branches/main' }) }],
     ['classic section {}', { protection: ok({ required_status_checks: {} }) }],
     ['classic section []', { protection: ok({ required_status_checks: [] }) }],
     ['classic checks invalid', { protection: ok({ required_status_checks: { checks: 'invalid', contexts: [] } }) }],
@@ -153,6 +157,24 @@ describe('GitHub required-check normalizer edge cases', () => {
   it('an unknown read keeps what was read before the gap as partial, for explain only', () => {
     const ev = normalizeRequirements(reads({ rulesets: new Map() }), 5);
     expect(ev).toMatchObject({ kind: 'unknown', partial: [{ name: 'build', source: 'classic' }] });
+  });
+
+  it('a protection body for this branch without required_status_checks means status checks are off', () => {
+    const body = { url: 'https://api.github.com/repos/Octo/Repo/branches/main/protection', required_pull_request_reviews: { required_approving_review_count: 1 } };
+    const none = normalizeRequirements(reads({ protection: ok(body), rules: rulesOf([]) }), 5);
+    expect(none).toMatchObject({ kind: 'none', identities: [], provenance: { branch_protected: true, classic: 'read_no_status_checks' } });
+    // Rules still bind: the missing classic section does not waive them.
+    const known = normalizeRequirements(reads({ protection: ok(body) }), 5);
+    expect(known).toMatchObject({ kind: 'known', identities: [{ name: 'test', source: 'rules' }], provenance: { classic: 'read_no_status_checks' } });
+    expect(evaluateRequired(known, [])).toMatchObject({ kind: 'required_checks_mismatch', missing_from_snapshot: ['test'] });
+  });
+
+  it('a branch name with a slash matches its encoded or raw form in the protection url', () => {
+    for (const seg of ['release/1.0', 'release%2F1.0']) {
+      const body = { url: `https://api.github.com/repos/octo/repo/branches/${seg}/protection` };
+      const ev = normalizeRequirements(reads({ target: { repo: 'octo/repo', branch: 'release/1.0' }, protection: ok(body), rules: rulesOf([]) }), 5);
+      expect(ev.kind).toBe('none');
+    }
   });
 
   it('protection 404 "Branch not protected" with a complete empty rules read is none', () => {

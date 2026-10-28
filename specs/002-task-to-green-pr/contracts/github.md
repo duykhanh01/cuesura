@@ -60,6 +60,10 @@ FR-040.12, không thay bằng HEAD hiện tại hoặc suy từ merge commit squ
   Ngoại lệ đã kiểm live (S0.3, 2026-10-28): branch chỉ có ruleset vẫn trả `protected: true`, còn
   classic protection trả 404 với body `Branch not protected`; khi đó coi là không có classic và đọc
   tiếp rules. 404 khác body đó (vd `Not Found` do thiếu quyền) vẫn là unknown.
+  Protection 200 thiếu hẳn `required_status_checks` nghĩa là không bật status check (trường tùy chọn
+  trong schema GitHub; theo schema, **chưa kiểm live**): chỉ nhận khi `url` của body đúng endpoint
+  protection của repo/branch đích, provenance `read_no_status_checks`; vẫn phải đọc đủ rules.
+  `required_status_checks: null` cũng là không có classic check; body khác/thiếu `url` vẫn unknown.
 - Protected branch cần đọc được cả classic protection và active rules áp dụng từ repo/org; rule
   API không thay classic protection. Missing permission/feature response hoặc truncated pages
   không được coi empty. Non-check rules ghi lại nhưng không tuyên bố PR đủ điều kiện merge.

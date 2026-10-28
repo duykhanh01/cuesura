@@ -8,8 +8,11 @@
  * A read that failed, a page cap, a missing permission or a malformed body is `unknown`, never an empty
  * list. The one 404 accepted is classic protection answering "Branch not protected" while rulesets apply
  * (seen live 2026-10-28); any other 404, e.g. "Not Found" for a reader without access, stays unknown.
+ * A 200 protection body without `required_status_checks` means status checks are not enabled (the field
+ * is optional in GitHub's schema; not yet seen live), accepted only when its `url` names this branch's
+ * protection.
  */
-import { CHECK_ENFORCEMENTS, type CheckEnforcement, type RequiredEvidence, type RequiredIdentity, binds } from '../../domain/runtime.ts';
+import { CHECK_ENFORCEMENTS, type CheckEnforcement, type RequiredEvidence, type RequiredIdentity, type RequiredProvenance, binds } from '../../domain/runtime.ts';
 
 /** One GET as the gh port returned it; `body` is the parsed JSON, also for an HTTP error when present. */
 export type GhRead =
@@ -20,6 +23,8 @@ export type GhRead =
 export type GhList = { readonly ok: true; readonly items: readonly unknown[]; readonly complete: boolean } | { readonly ok: false; readonly reason: string };
 
 export type RequirementReads = {
+  /** `owner/name` and the target branch the reads were made for. */
+  readonly target: { readonly repo: string; readonly branch: string };
   readonly branch: GhRead;
   /** Read only when the branch reports `protected: true`; `null` otherwise. */
   readonly protection: GhRead | null;
@@ -37,6 +42,16 @@ const positiveInt = (v: unknown): number | null => (typeof v === 'number' && Num
 function appOf(v: unknown): RequiredIdentity['app'] | null {
   if (v === undefined || v === null || v === -1) return 'any';
   return positiveInt(v);
+}
+
+/** The body's own `url` must be this branch's protection endpoint; owner/repo compare case-insensitively. */
+function isProtectionOf(body: unknown, target: RequirementReads['target']): boolean {
+  const url = str(obj(body)['url']);
+  if (url === null) return false;
+  const m = /^https:\/\/[^/]+\/repos\/([^/]+\/[^/]+)\/branches\/(.+)\/protection$/.exec(url);
+  if (m === null || (m[1] as string).toLowerCase() !== target.repo.toLowerCase()) return false;
+  const branch = m[2] as string;
+  return branch === target.branch || branch === encodeURIComponent(target.branch);
 }
 
 function notProtected(r: GhRead): boolean {
@@ -62,13 +77,16 @@ export function normalizeRequirements(reads: RequirementReads, observedAt: numbe
   const isProtected = obj(reads.branch.body)['protected'];
   if (typeof isProtected !== 'boolean') return unknown('branch protected flag missing');
 
-  let classic: 'read' | 'not_protected' | 'unprotected_branch' = 'unprotected_branch';
+  let classic: RequiredProvenance['classic'] = 'unprotected_branch';
   if (isProtected) {
     const prot = reads.protection;
     if (prot === null) return unknown('classic protection not read');
     if (notProtected(prot)) classic = 'not_protected';
     else if (!prot.ok) return unknown(`classic protection unreadable: ${prot.reason}`);
-    else {
+    else if (obj(prot.body)['required_status_checks'] === undefined) {
+      if (!isProtectionOf(prot.body, reads.target)) return unknown('classic protection body is not this branch\'s protection');
+      classic = 'read_no_status_checks';
+    } else {
       classic = 'read';
       const fail = classicChecks(prot.body, partial);
       if (fail !== null) return unknown(fail);
@@ -109,9 +127,9 @@ export function normalizeRequirements(reads: RequirementReads, observedAt: numbe
 /** Appends classic identities to `out`; returns the reason when the body cannot be trusted. */
 function classicChecks(body: unknown, out: RequiredIdentity[]): string | null {
   const raw = obj(body)['required_status_checks'];
-  // An explicit null says there are none. An absent section is not read as none (same as the S0.3 prototype).
+  // An explicit null says there are none; an absent section is handled by the caller.
   if (raw === null) return null;
-  if (typeof raw !== 'object' || Array.isArray(raw)) return 'classic required checks malformed or missing';
+  if (typeof raw !== 'object' || Array.isArray(raw)) return 'classic required checks malformed';
   const rsc = obj(raw);
   if (Array.isArray(rsc['checks'])) {
     for (const c of rsc['checks'] as unknown[]) {
