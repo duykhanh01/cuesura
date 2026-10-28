@@ -371,6 +371,60 @@ export const MergeProofSchema = z
   .strict();
 export type MergeProof = z.infer<typeof MergeProofSchema>;
 
+/** `classic` is branch protection; ruleset enforcements as GitHub reports them. Only classic/active bind. */
+export const CHECK_ENFORCEMENTS = ['classic', 'active', 'evaluate', 'disabled'] as const;
+export type CheckEnforcement = (typeof CHECK_ENFORCEMENTS)[number];
+
+/**
+ * One required check as GitHub names it. `app: 'any'` when GitHub does not pin an app (absent, null or
+ * -1 in the pinned response schema); a number is a pinned app, which a name-only snapshot never covers.
+ * Lives in observation evidence only, never in FrozenPolicy.
+ */
+export const RequiredIdentitySchema = z
+  .object({
+    name: z.string().min(1),
+    app: z.union([z.literal('any'), PositiveInt]),
+    source: z.enum(['classic', 'rules']),
+    enforcement: z.enum(CHECK_ENFORCEMENTS),
+    ruleset_id: PositiveInt.nullable(),
+  })
+  .strict();
+export type RequiredIdentity = z.infer<typeof RequiredIdentitySchema>;
+
+export function binds(i: RequiredIdentity): boolean {
+  return i.enforcement === 'classic' || i.enforcement === 'active';
+}
+
+/** Which reads backed the evidence: classic protection read, absent by GitHub's own answer, or not applicable. */
+export const RequiredProvenanceSchema = z
+  .object({
+    branch_protected: z.boolean(),
+    classic: z.enum(['read', 'not_protected', 'unprotected_branch']),
+    ruleset_ids: z.array(PositiveInt),
+  })
+  .strict();
+
+const RequiredBase = { observed_at: NonNegInt, basis: z.string().min(1) };
+
+/**
+ * What GitHub requires of the target branch (FR-042). `none` needs complete positive evidence that no
+ * binding rule exists; `unknown` carries only what was read before the gap, never an empty "required"
+ * list; `known` has at least one binding identity.
+ */
+export const RequiredEvidenceSchema = z
+  .discriminatedUnion('kind', [
+    z.object({ kind: z.literal('known'), identities: z.array(RequiredIdentitySchema), provenance: RequiredProvenanceSchema, ...RequiredBase }).strict(),
+    z.object({ kind: z.literal('none'), identities: z.array(RequiredIdentitySchema), provenance: RequiredProvenanceSchema, ...RequiredBase }).strict(),
+    z.object({ kind: z.literal('unknown'), partial: z.array(RequiredIdentitySchema), ...RequiredBase }).strict(),
+  ])
+  .superRefine((e, ctx) => {
+    if (e.kind === 'unknown') return;
+    const binding = e.identities.filter(binds).length;
+    if (e.kind === 'known' && binding === 0) ctx.addIssue({ code: 'custom', message: 'known requires a binding identity' });
+    if (e.kind === 'none' && binding > 0) ctx.addIssue({ code: 'custom', message: 'none cannot carry a binding identity' });
+  });
+export type RequiredEvidence = z.infer<typeof RequiredEvidenceSchema>;
+
 export const ObservationBudgetSchema = z
   .object({
     started_at: NonNegInt,
