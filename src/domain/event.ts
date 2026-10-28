@@ -5,6 +5,18 @@ import type { FrozenExecutionContext, FrozenPolicy, Level } from './policy.ts';
 import type { AttemptKind, ResumeAction, TimerKind, Wait } from './state.ts';
 import type { StepKind } from './workflow.ts';
 import type { BaseRelation, Check, FailureClass, RequiredSet, Usage } from './trigger.ts';
+import type {
+  Artifact,
+  ExecutionGroup,
+  ExternalSubject,
+  FrozenRuntimeContext,
+  MergeProof,
+  Observation,
+  OperationKind,
+  OperationOutcome,
+  OperationStatus,
+  ProcessIdentity,
+} from './runtime.ts';
 
 export const EVENT_SCHEMA_VERSION = 1;
 
@@ -149,6 +161,63 @@ export type EventPayloads = {
   TaskCancelled: { reason: string };
   // Khác
   SignalIgnored: { reason: string; trigger_kind: string; detail?: unknown };
+  // Runtime 002 (data-model.md "Trigger và event mới"); additive, envelope stays schema_version 1.
+  RuntimeConfigured: { runtime: FrozenRuntimeContext; runtime_hash: string };
+  ExecutionQueued: {
+    request_id: string;
+    group: ExecutionGroup;
+    priority: number;
+    resume_action: ResumeAction | null;
+    requested_at: number;
+  };
+  ExecutionIntentUpdated: { request_id: string; priority: number; resume_action: ResumeAction | null };
+  ExecutionWithdrawn: { request_id: string; reason: string; at: number };
+  ExecutionGranted: { request_id: string; at: number; waited_ms: number };
+  ExecutionReleased: { request_id: string; reason: string; at: number };
+  OperationRegistered: {
+    operation_id: string;
+    effect_id: string;
+    attempt_id: string | null;
+    kind: OperationKind;
+    launch_nonce: string;
+    unit: string;
+    holds_slot: boolean;
+    at: number;
+  };
+  OperationObserved: {
+    operation_id: string;
+    status: OperationStatus;
+    outcome: OperationOutcome | null;
+    invocation_id: string | null;
+    processes: ProcessIdentity[];
+    started_at: number | null;
+    finished_at: number | null;
+    receipt_digest: string;
+  };
+  OutputIngested: {
+    operation_id: string;
+    cursor: { generation: number; segment: number; byte_offset: number; last_record_seq: number };
+    records: number;
+    digest: string;
+  };
+  ArtifactIngested: { artifact: Artifact };
+  ObservationScheduled: {
+    subject: ExternalSubject;
+    started_at: number;
+    deadline_at: number;
+    max_count: number;
+    next_due_at: number;
+    cadence_index: number;
+    generation: number;
+  };
+  ExternalStateObserved: { observation: Observation; remote_digest: string };
+  ObservationExpired: { at: number; reason: 'deadline' | 'rounds' };
+  ExternalCompletionObserved: { proof: MergeProof; unverified_reason: string | null; at: number };
+  DrainStarted: { at: number; deadline_at: number; max_rounds: number; pending_operations: string[] };
+  DrainProgressed: { at: number; round: number; pending_operations: string[] };
+  DrainPaused: { at: number; reason: 'deadline' | 'round_limit' };
+  DrainFinished: { at: number };
+  RecheckRequested: { request_id: string; target: 'config' | 'observation' | 'drain'; at: number };
 };
 
 export type EventType = keyof EventPayloads;
@@ -205,6 +274,25 @@ export const EVENT_TYPES = [
   'TaskFailed',
   'TaskCancelled',
   'SignalIgnored',
+  'RuntimeConfigured',
+  'ExecutionQueued',
+  'ExecutionIntentUpdated',
+  'ExecutionWithdrawn',
+  'ExecutionGranted',
+  'ExecutionReleased',
+  'OperationRegistered',
+  'OperationObserved',
+  'OutputIngested',
+  'ArtifactIngested',
+  'ObservationScheduled',
+  'ExternalStateObserved',
+  'ObservationExpired',
+  'ExternalCompletionObserved',
+  'DrainStarted',
+  'DrainProgressed',
+  'DrainPaused',
+  'DrainFinished',
+  'RecheckRequested',
 ] as const satisfies readonly EventType[];
 
 // Bảo đảm EVENT_TYPES liệt kê đủ mọi khoá của EventPayloads.

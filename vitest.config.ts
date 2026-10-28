@@ -25,6 +25,7 @@ export default defineConfig({
             'test/scenarios/**/*.test.ts',
             'test/property/**/*.test.ts',
             'test/integration/**/*.test.ts',
+            'test/contract/**/*.test.ts',
           ],
           testTimeout: 60_000,
         },
@@ -35,6 +36,14 @@ export default defineConfig({
           include: ['test/reliability/**/*.test.ts'],
           testTimeout: 1_800_000,
           hookTimeout: 120_000,
+        },
+      },
+      {
+        // Opt-in via `pnpm test:smoke`; not part of `pnpm test`.
+        test: {
+          name: 'smoke',
+          include: ['test/smoke/**/*.test.ts'],
+          testTimeout: 300_000,
         },
       },
     ],

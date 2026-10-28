@@ -79,6 +79,7 @@ function successData(sim: Sim, e: EffectMirror, c: Choice): unknown {
     case 'stop_attempt':
       return { stopped: true };
     case 'reconcile':
+    case 'observe_external':
       return {};
   }
 }

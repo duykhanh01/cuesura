@@ -1,11 +1,20 @@
-import { err, type Result } from '../shared/result.ts';
+import type { Hash } from '../shared/brand.ts';
+import { err, ok, type Result } from '../shared/result.ts';
 import type { ValidatedConfig } from '../domain/config.ts';
 import type { AuthzContext } from '../domain/policy.ts';
+import {
+  computeRuntimeHash,
+  FrozenRuntimeContextSchema,
+  RUNTIME_SCHEMA_VERSION,
+  type FrozenRuntimeContext,
+} from '../domain/runtime.ts';
 import type { CanonicalTask } from '../domain/task.ts';
+import { DAEMON_COMPLETION_MODE } from './capabilities.ts';
 import type { DocContent } from '../policy/finalize.ts';
 import { freezePolicy, type AttachmentContent, type Frozen, type FreezeError } from '../policy/freeze.ts';
 import type { Locator } from './checks.ts';
 import { applyOverrides, type TaskOverrides } from './merge.ts';
+import type { RuntimeConfig } from './normalize.ts';
 import { analyze } from './validate.ts';
 import { DEFAULT_LIMITS } from './yaml-loader.ts';
 
@@ -63,4 +72,47 @@ export function freeze(input: FreezeInput): Result<Frozen, FreezeError> {
   if (!re.ok) return err({ code: 'config_invalid', diagnostics: re.error });
   // Hash file giữ nguyên; override đi vào `config_hashes.effective` qua cấu hình đã chuẩn hoá.
   return freezePolicy({ ...input, config: { ...re.value.config, hashes } });
+}
+
+export type RuntimeFreezeInput = {
+  runtime: RuntimeConfig;
+  task_id: string;
+  revision: number;
+  base_sha: string;
+  /** Realpath đã được preflight kiểm (git common dir, quyền). */
+  project_path: string;
+  target: { repo: string; immutable_repo_id: string; base_ref: string };
+  /** Tên harness/công cụ → `manifest_hash` của CapabilityManifest còn hợp lệ. */
+  capability_refs: Record<string, Hash>;
+};
+
+export type RuntimeFreezeError = { code: 'runtime_invalid'; issues: { path: (string | number)[]; message: string }[] };
+
+/**
+ * Chốt `FrozenRuntimeContext` v1 cho một revision, tách khỏi `freeze`: không đụng FrozenPolicy hay
+ * FrozenExecutionContext và hash của chúng. Chỉ chụp tham chiếu credential, không đọc secret.
+ */
+export function freezeRuntimeContext(input: RuntimeFreezeInput): Result<FrozenRuntimeContext, RuntimeFreezeError> {
+  const body: Omit<FrozenRuntimeContext, 'runtime_hash'> = {
+    schema_version: RUNTIME_SCHEMA_VERSION,
+    task_id: input.task_id,
+    revision: input.revision,
+    base_sha: input.base_sha,
+    completion_mode: DAEMON_COMPLETION_MODE,
+    network_mode: 'internet_outbound',
+    isolation: { mode: 'isolated', provider: 'bwrap' },
+    project_path: input.project_path,
+    target: { provider: 'github', ...input.target },
+    limits: { ...input.runtime.limits },
+    capability_refs: { ...input.capability_refs },
+    credential_refs: input.runtime.credential_refs.map((c) => ({ name: c.name, file: c.file })),
+  };
+  const parsed = FrozenRuntimeContextSchema.safeParse({ ...body, runtime_hash: computeRuntimeHash(body) });
+  if (!parsed.success) {
+    return err({
+      code: 'runtime_invalid',
+      issues: parsed.error.issues.map((i) => ({ path: i.path as (string | number)[], message: i.message })),
+    });
+  }
+  return ok(parsed.data);
 }

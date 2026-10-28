@@ -14,6 +14,7 @@ import { onEffectResult, proceed } from './interpreter.ts';
 import { askHuman, onAnswer, onApprovalDecision } from './questions.ts';
 import { onReconciled } from './reconcile.ts';
 import { onDriftChoice, settleDrift } from './revision.ts';
+import { onGrantExecution, onIngestRecord, onOperationResult, onReleaseExecution, onRequestExecution } from './runtime.ts';
 import { onStart } from './start.ts';
 import { waitPolicy } from './waits.ts';
 
@@ -64,7 +65,18 @@ function dispatch(ctx: Ctx, t: Trigger): void {
     ctx.emit('SignalIgnored', { reason: 'terminal', trigger_kind: t.kind });
     return;
   }
-  const needsPolicy = !['confirm_task', 'source_updated', 'dependency_status', 'start', 'cancel'].includes(t.kind);
+  const needsPolicy = ![
+    'confirm_task',
+    'source_updated',
+    'dependency_status',
+    'start',
+    'cancel',
+    'request_execution',
+    'grant_execution',
+    'release_execution',
+    'operation_result',
+    'ingest_record',
+  ].includes(t.kind);
   if (needsPolicy && (ctx.policy === null || ctx.state.policy_ref === null)) reject('invalid_trigger', { reason: 'not_started' });
 
   switch (t.kind) {
@@ -113,6 +125,29 @@ function dispatch(ctx: Ctx, t: Trigger): void {
       return;
     case 'amend':
       onAmend(ctx, t);
+      return;
+    case 'request_execution':
+      onRequestExecution(ctx);
+      return;
+    case 'grant_execution':
+      onGrantExecution(ctx, t);
+      return;
+    case 'release_execution':
+      onReleaseExecution(ctx, t);
+      return;
+    case 'operation_result':
+      onOperationResult(ctx, t);
+      return;
+    case 'ingest_record':
+      onIngestRecord(ctx, t);
+      return;
+    // Observation, completion/drain and recheck handlers land with US1/US2/US5 (T044–T046, T062, T102).
+    case 'observation_due':
+    case 'observation_result':
+    case 'external_completion':
+    case 'drain_result':
+    case 'recheck':
+      reject('invalid_trigger', { reason: 'not_supported_yet', trigger_kind: t.kind });
       return;
     default:
       assertNever(t);

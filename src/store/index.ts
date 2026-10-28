@@ -7,20 +7,32 @@ import type { FrozenExecutionContext, FrozenPolicy } from '../domain/policy.ts';
 import type { TaskState } from '../domain/state.ts';
 import type { TriggerEnvelope } from '../domain/trigger.ts';
 import { accept, type AcceptError, type AcceptOutcome } from './accept.ts';
-import { claimEffect, type ClaimError } from './claim.ts';
+import { claimEffect, type ClaimError, type ClaimRequest } from './claim.ts';
+import { grantNext, type GrantOutcome } from './grant.ts';
+import * as commands from './commands.ts';
 import { crashHookFromEnv, type CrashHook } from './crash.ts';
 import { openDatabase, type StoreOpenError } from './open.ts';
 import * as read from './read.ts';
 import { dueTimers, fireDueTimers, type FireError } from './timers.ts';
 import { verifyProjections, type VerifyReport } from './verify.ts';
 
-export type { AcceptError, AcceptOutcome, ClaimError, FireError, StoreOpenError, VerifyReport };
+export type { AcceptError, AcceptOutcome, ClaimError, ClaimRequest, FireError, GrantOutcome, StoreOpenError, VerifyReport };
+export type { QueuedRequest } from './read.ts';
+export type { Admission, CommandRecord, LedgerError } from './commands.ts';
 export type { Timer } from './read.ts';
 
 /** Kho trạng thái một bên ghi, đồng bộ (contracts/core-api.md "Kho trạng thái"). */
 export interface Store {
   accept(envelope: TriggerEnvelope): Result<AcceptOutcome, AcceptError>;
-  claimEffect(effectId: Uuid, now: EpochMs): Result<Effect, ClaimError>;
+  claimEffect(effectId: Uuid, now: EpochMs, req?: ClaimRequest): Result<Effect, ClaimError>;
+  /** Grants the free execution slot to the queue head, if any (FR-044.01). */
+  grantNext(now: EpochMs): Result<GrantOutcome, AcceptError>;
+  readQueue(limit: number): read.QueuedRequest[];
+  readSlot(): { holder_task_id: string; request_id: string; claimed_at: number } | null;
+  admitCommand(input: Parameters<typeof commands.admitCommand>[1]): Result<commands.Admission, commands.LedgerError>;
+  completeCommand(requestId: string, result: unknown, now: EpochMs): Result<commands.CommandRecord, commands.LedgerError>;
+  readCommand(requestId: string): commands.CommandRecord | null;
+  pendingCommands(limit: number): commands.CommandRecord[];
   dueTimers(now: EpochMs, limit: number): read.Timer[];
   fireDueTimers(
     now: EpochMs,
@@ -48,8 +60,17 @@ export class SqliteStore implements Store {
   accept(envelope: TriggerEnvelope): Result<AcceptOutcome, AcceptError> {
     return accept(this.db, envelope, this.crash);
   }
-  claimEffect(effectId: Uuid, now: EpochMs): Result<Effect, ClaimError> {
-    return claimEffect(this.db, effectId, now, this.crash);
+  claimEffect(effectId: Uuid, now: EpochMs, req: ClaimRequest = {}): Result<Effect, ClaimError> {
+    return claimEffect(this.db, effectId, now, this.crash, req);
+  }
+  grantNext(now: EpochMs): Result<GrantOutcome, AcceptError> {
+    return grantNext(this.db, now, this.crash);
+  }
+  readQueue(limit: number): read.QueuedRequest[] {
+    return read.readQueue(this.db, limit);
+  }
+  readSlot(): { holder_task_id: string; request_id: string; claimed_at: number } | null {
+    return read.readSlot(this.db);
   }
   dueTimers(now: EpochMs, limit: number): read.Timer[] {
     return dueTimers(this.db, now, limit);
@@ -63,6 +84,18 @@ export class SqliteStore implements Store {
   }
   pendingEffects(limit: number): Effect[] {
     return read.pendingEffects(this.db, limit);
+  }
+  admitCommand(input: Parameters<typeof commands.admitCommand>[1]): Result<commands.Admission, commands.LedgerError> {
+    return commands.admitCommand(this.db, input);
+  }
+  completeCommand(requestId: string, result: unknown, now: EpochMs): Result<commands.CommandRecord, commands.LedgerError> {
+    return commands.completeCommand(this.db, requestId, result, now);
+  }
+  readCommand(requestId: string): commands.CommandRecord | null {
+    return commands.readCommand(this.db, requestId);
+  }
+  pendingCommands(limit: number): commands.CommandRecord[] {
+    return commands.pendingCommands(this.db, limit);
   }
   readTask(taskId: Uuid): TaskState | null {
     return read.readTask(this.db, taskId);

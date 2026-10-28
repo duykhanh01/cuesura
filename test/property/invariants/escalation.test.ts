@@ -6,6 +6,7 @@ import { countsTowardQuality } from '../../../src/engine/failure.ts';
 import { floorRung } from '../../../src/engine/escalation.ts';
 import { choicesArb, drive, walk } from '../arbitraries/signals.ts';
 import { escalationPolicyArb, policyArb, propertyParams, taskOverArb } from '../arbitraries/policies.ts';
+import { HEAVY_PROPERTY_TIMEOUT_MS } from '../../support/timeouts.ts';
 
 const anyPolicyArb = fc.oneof({ weight: 3, arbitrary: escalationPolicyArb }, { weight: 1, arbitrary: policyArb });
 
@@ -78,5 +79,5 @@ describe('I09 escalation stays within the frozen ladder and its approvals', () =
     );
     expect(raised).toBeGreaterThan(0);
     expect(approvalGated).toBeGreaterThan(0);
-  });
+  }, HEAVY_PROPERTY_TIMEOUT_MS);
 });

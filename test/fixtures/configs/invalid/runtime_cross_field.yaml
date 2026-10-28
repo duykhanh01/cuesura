@@ -1,0 +1,21 @@
+# expect: schema_invalid 18 13; schema_invalid 18 39; schema_invalid 18 39; schema_invalid 21 9; schema_invalid 21 62
+version: 1
+harnesses: { claude: { cmd: claude, auth: subscription, pool: claude } }
+pools: { claude: 1 }
+models: { sonnet: { harness: claude, id: sonnet, tier: 2 } }
+roles:
+  coder: { binding: [{ model: sonnet }] }
+  fixer: { binding: [{ model: sonnet }] }
+  reviewer: { permissions: read_only, binding: [{ model: sonnet }] }
+  scout: { permissions: read_only, binding: [{ model: sonnet }] }
+workflows:
+  impl: { base: software_dev@1 }
+profiles:
+  standard: { workflow: impl, budgets: { max_agent_runs: 10, max_wall: 2h } }
+projects:
+  acme: { base_branch: main, path: /srv/acme, repo: acme/app }
+runtime:
+  limits: { poll_initial_ms: 7200000, term_grace_ms: 400000 }
+  access_tokens:
+    - { id: assistant, actor: assistant, roles: [read, operate], projects: [acme], token_file: /srv/t/a }
+    - { id: assistant, actor: bot, roles: [read], projects: [ghost], token_file: /srv/t/b }

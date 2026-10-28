@@ -11,6 +11,8 @@ export const EFFECT_KINDS = [
   'rerun_ci',
   'merge',
   'reconcile',
+  // Read-only observation of a published subject with its own admission (research R-04).
+  'observe_external',
 ] as const;
 export type EffectKind = (typeof EFFECT_KINDS)[number];
 
@@ -28,7 +30,7 @@ export const BUSINESS_EFFECTS: readonly EffectKind[] = [
   'rerun_ci',
   'merge',
 ];
-export const SERVICE_EFFECTS: readonly EffectKind[] = ['stop_attempt', 'reconcile'];
+export const SERVICE_EFFECTS: readonly EffectKind[] = ['stop_attempt', 'reconcile', 'observe_external'];
 
 export function isBusinessEffect(kind: EffectKind): boolean {
   return BUSINESS_EFFECTS.includes(kind);

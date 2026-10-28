@@ -3,7 +3,7 @@ import { canonicalJson } from '../shared/canonical-json.ts';
 import type { DomainEvent } from '../domain/event.ts';
 import type { TaskState } from '../domain/state.ts';
 import { replay } from '../engine/evolve.ts';
-import { MemorySink, projectEffects, projectTask, projectTimers } from './projector.ts';
+import { MemorySink, projectEffects, projectRuntime, projectTask, projectTimers } from './projector.ts';
 import { toEvent, type EventRow } from './read.ts';
 
 export type VerifyMismatch = { table: string; key: string; expected: unknown; actual: unknown };
@@ -16,7 +16,7 @@ export type VerifyReport = {
 };
 
 /**
- * Dựng lại mọi bảng dẫn xuất (`tasks`, `task_deps`, `effects`, `timers`) và hai bảng snapshot từ nhật ký
+ * Dựng lại mọi bảng dẫn xuất (`tasks`, `task_deps`, `effects`, `timers`, bảng runtime 002) và các bảng snapshot từ nhật ký
  * bằng đúng hàm chiếu của `accept`, rồi so JSON chuẩn hoá với dữ liệu đang lưu (FR-029, SC-005).
  */
 export function verifyProjections(db: Database): VerifyReport {
@@ -58,6 +58,13 @@ export function verifyProjections(db: Database): VerifyReport {
     }
   }
 
+  // The execution slot is shared across tasks, so runtime tables replay the whole log in global order.
+  try {
+    projectRuntime(sink, rows.map(toEvent));
+  } catch (e) {
+    mismatches.push({ table: 'events', key: 'runtime', expected: 'runtime projection ok', actual: String(e) });
+  }
+
   compare(mismatches, 'tasks', sink.tasks, db.prepare('SELECT * FROM tasks').all(), (r) => r['id']);
   const deps = new Map<string, unknown>();
   for (const [t, ds] of sink.deps)
@@ -97,6 +104,17 @@ export function verifyProjections(db: Database): VerifyReport {
     db.prepare('SELECT * FROM frozen_contexts').all(),
     (r) => `${String(r['task_id'])}#${String(r['revision'])}`,
   );
+
+  const runtimeTables: [string, ReadonlyMap<string, unknown>, (r: Record<string, unknown>) => unknown][] = [
+    ['runtime_contexts', sink.runtimeContexts, (r) => `${String(r['task_id'])}#${String(r['revision'])}`],
+    ['execution_queue', sink.queue, (r) => r['request_id']],
+    ['execution_slot', sink.slot, (r) => r['key']],
+    ['operations', sink.operations, (r) => r['id']],
+    ['ingest_cursors', sink.cursors, (r) => r['operation_id']],
+    ['artifacts', sink.artifacts, (r) => r['artifact_id']],
+    ['external_observations', sink.observations, (r) => r['observation_id']],
+  ];
+  for (const [table, expected, key] of runtimeTables) compare(mismatches, table, expected, db.prepare(`SELECT * FROM ${table}`).all(), key);
 
   return { ok: mismatches.length === 0, tasks: byTask.size, events: rows.length, mismatches };
 }

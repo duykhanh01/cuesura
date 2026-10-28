@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { parseDuration } from '../shared/duration.ts';
-import { EFFORTS, MAX_QUALITY_TRIES_PER_RUNG } from '../domain/policy.ts';
+import { AUTHZ_ROLES, EFFORTS, MAX_QUALITY_TRIES_PER_RUNG } from '../domain/policy.ts';
+import { HARNESS_INNER_MODES, RuntimeLimitsSchema } from '../domain/runtime.ts';
 import { ACTIONS, DECISION_MODES, DECISION_POINTS, STEP_KINDS, WAIT_FOR } from '../domain/workflow.ts';
 import { SOFTWARE_DEV_NAME } from '../engine/workflows/software-dev.ts';
 
@@ -179,13 +180,72 @@ export const ProfileSchema = z
   .strict();
 export type RawProfile = z.infer<typeof ProfileSchema>;
 
+/**
+ * Đường dẫn tuyệt đối dạng chuẩn: không `.`/`..`, không đoạn rỗng, không NUL. Chỉ kiểm hình dạng; realpath,
+ * quyền và git common dir là I/O của preflight/doctor.
+ */
+export function isCleanAbsolutePath(p: string): boolean {
+  if (!p.startsWith('/') || p.includes('\0') || p.length > 4096) return false;
+  const segs = p.slice(1).split('/');
+  return segs.every((s) => s !== '' && s !== '.' && s !== '..');
+}
+
+export const AbsolutePathSchema = z
+  .string()
+  .refine(isCleanAbsolutePath, { message: 'cần đường dẫn tuyệt đối dạng chuẩn (không `.`, `..`, đoạn rỗng hay `/` cuối)' });
+
+/** Slug GitHub `owner/repo`; ID bất biến của repo lấy ở preflight. */
+export const RepoSlugSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/(?!\.\.?$)[A-Za-z0-9._-]{1,100}$/, { message: 'repo phải là slug GitHub dạng owner/repo' });
+
 export const ProjectEntrySchema = z
   .object({
-    repo: z.string().min(1).optional(),
+    path: AbsolutePathSchema.optional(),
+    repo: RepoSlugSchema.optional(),
     base_branch: z.string().min(1),
     protected_branches: nameList.optional(),
   })
   .strict();
+
+// ---------- Runtime của daemon 002 (contracts/cli-daemon.md "Cấu hình mở rộng tối thiểu") ----------
+
+export const RUNTIME_TOOLS = ['git', 'gh', 'systemd-run', 'bwrap', 'flock'] as const;
+export type RuntimeTool = (typeof RUNTIME_TOOLS)[number];
+
+const RefNameSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/, { message: 'tên chỉ gồm chữ, số, `_`, `.`, `-` (tối đa 64)' });
+
+function unique<T>(xs: readonly T[]): boolean {
+  return new Set(xs).size === xs.length;
+}
+
+/** Token riêng (contracts/cli-daemon.md "Token riêng cho assistant"): chỉ metadata và file, không secret. */
+export const AccessTokenSchema = z
+  .object({
+    id: RefNameSchema,
+    actor: z.string().min(1).max(128),
+    roles: z.array(z.enum(AUTHZ_ROLES)).min(1).refine(unique, { message: 'roles không được lặp' }),
+    projects: z.array(z.string().min(1)).min(1).refine(unique, { message: 'projects không được lặp' }),
+    token_file: AbsolutePathSchema,
+  })
+  .strict();
+export type AccessTokenSpec = z.infer<typeof AccessTokenSchema>;
+
+/**
+ * `runtime:` đóng; mọi khoá tuỳ chọn. Trần số trong `limits` là override từng phần trên
+ * `DEFAULT_RUNTIME_LIMITS`; ràng buộc chéo kiểm sau khi hợp nhất (checks.ts `checkRuntime`).
+ */
+export const RuntimeSchema = z
+  .object({
+    data_dir: AbsolutePathSchema.optional(),
+    limits: RuntimeLimitsSchema.partial().optional(),
+    tool_paths: z.partialRecord(z.enum(RUNTIME_TOOLS), AbsolutePathSchema).optional(),
+    credential_refs: z.record(RefNameSchema, AbsolutePathSchema).optional(),
+    access_tokens: z.array(AccessTokenSchema).optional(),
+    harness_isolation: z.record(z.string().min(1), z.enum(HARNESS_INNER_MODES)).optional(),
+  })
+  .strict();
+export type RawRuntime = z.infer<typeof RuntimeSchema>;
 
 /** `~/.cusr/config.yaml` (contracts/config.md "Thẩm quyền theo file"). */
 export const UserConfigSchema = z
@@ -200,6 +260,7 @@ export const UserConfigSchema = z
     projects: z.record(z.string(), ProjectEntrySchema).optional(),
     permissions: z.record(z.string(), z.enum(['read_only', 'write'])).optional(),
     yolo: z.boolean().optional(),
+    runtime: RuntimeSchema.optional(),
   })
   .strict();
 export type RawUserConfig = z.infer<typeof UserConfigSchema>;
@@ -214,4 +275,5 @@ export const USER_ONLY_KEYS = [
   'projects',
   'permissions',
   'yolo',
+  'runtime',
 ] as const;

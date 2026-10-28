@@ -2,6 +2,7 @@ import type { Database } from 'better-sqlite3';
 import type { DomainEvent } from '../domain/event.ts';
 import type { Effect } from '../domain/effect.ts';
 import type { FrozenExecutionContext, FrozenPolicy } from '../domain/policy.ts';
+import type { FrozenRuntimeContext } from '../domain/runtime.ts';
 import type { TaskState, TaskStatus } from '../domain/state.ts';
 import type { EffectRow, TimerRow } from './projector.ts';
 
@@ -126,4 +127,55 @@ export function pendingEffects(db: Database, limit: number): Effect[] {
     .prepare(`SELECT * FROM effects WHERE status = 'pending' ORDER BY created_seq LIMIT ?`)
     .all(limit) as EffectRow[];
   return rows.map(toEffect);
+}
+
+/** Slot holder and the next request by SPEC.md §6.2 order, read inside the caller's transaction. */
+export function readExecutionFacts(db: Database): {
+  slot: { holder_task_id: string; request_id: string } | null;
+  queue_head: string | null;
+} {
+  const slot = db.prepare(`SELECT holder_task_id, request_id FROM execution_slot WHERE key = 'execution'`).get() as
+    { holder_task_id: string; request_id: string } | undefined;
+  const head = readQueue(db, 1)[0];
+  return { slot: slot ?? null, queue_head: head?.request_id ?? null };
+}
+
+export type QueuedRequest = {
+  request_id: string;
+  task_id: string;
+  group: 'fresh' | 'resumed';
+  priority: number;
+  requested_at: number;
+  request_global_seq: number;
+};
+
+/** Open requests in selection order: priority desc, resumed before fresh, request time, commit order. */
+export function readQueue(db: Database, limit: number): QueuedRequest[] {
+  const rows = db
+    .prepare(
+      `SELECT request_id, task_id, grp, priority, requested_at, request_global_seq FROM execution_queue
+       WHERE status = 'queued' ORDER BY priority DESC, grp DESC, requested_at, request_global_seq LIMIT ?`,
+    )
+    .all(limit) as (Omit<QueuedRequest, 'group'> & { grp: 'fresh' | 'resumed' })[];
+  return rows.map(({ grp, ...r }) => ({ ...r, group: grp }));
+}
+
+export function readSlot(db: Database): { holder_task_id: string; request_id: string; claimed_at: number } | null {
+  const row = db.prepare(`SELECT holder_task_id, request_id, claimed_at FROM execution_slot WHERE key = 'execution'`).get() as
+    { holder_task_id: string; request_id: string; claimed_at: number } | undefined;
+  return row ?? null;
+}
+
+export function readRuntimeContext(db: Database, taskId: string, revision: number): FrozenRuntimeContext | null {
+  const row = db.prepare('SELECT runtime_json FROM runtime_contexts WHERE task_id = ? AND revision = ?').get(taskId, revision) as
+    { runtime_json: string } | undefined;
+  return row === undefined ? null : (JSON.parse(row.runtime_json) as FrozenRuntimeContext);
+}
+
+/** Operations not yet proven finished or never launched; startup reconciles these before granting work. */
+export function unresolvedOperations(db: Database): { id: string; task_id: string; effect_id: string; status: string; holds_slot: boolean }[] {
+  const rows = db
+    .prepare(`SELECT id, task_id, effect_id, status, holds_slot FROM operations WHERE status IN ('registered', 'running', 'unknown', 'lost') ORDER BY id`)
+    .all() as { id: string; task_id: string; effect_id: string; status: string; holds_slot: number }[];
+  return rows.map((r) => ({ ...r, holds_slot: r.holds_slot === 1 }));
 }

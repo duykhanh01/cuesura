@@ -10,6 +10,8 @@ import {
 } from '../domain/workflow.ts';
 import { diag, type Diagnostic, type KeyPath, type Position } from './positions.ts';
 import type { NormalizedProfile, NormalizedProject, NormalizedUser } from '../domain/config.ts';
+import { runtimeLimitIssues } from '../domain/runtime.ts';
+import { mergeRuntimeLimits } from './normalize.ts';
 import type { RawUserConfig } from './schema-user.ts';
 
 export type Locator = (path: KeyPath) => Position;
@@ -32,6 +34,48 @@ const OVERRIDE_ROOTS = [
   'hotspots',
   'conventions',
 ];
+
+// ---------- Runtime daemon 002 ----------
+
+/**
+ * Ràng buộc chéo của `runtime:` trên cấu hình thô đã qua schema: trần sau khi hợp nhất mặc định, token
+ * trùng, token chỉ được trỏ project đã khai báo, `harness_isolation` chỉ cho harness đã khai báo.
+ */
+export function checkRuntime(u: RawUserConfig, at: Locator): Diagnostic[] {
+  const rt = u.runtime;
+  if (rt === undefined) return [];
+  const out: Diagnostic[] = [];
+  const push = (path: KeyPath, message: string): void => {
+    out.push(diag('schema_invalid', at(path), path, message));
+  };
+
+  const declared = rt.limits ?? {};
+  for (const issue of runtimeLimitIssues(mergeRuntimeLimits(rt.limits))) {
+    // Chỉ về khoá người dùng khai báo đầu tiên trong ràng buộc; toàn mặc định thì về `runtime.limits`.
+    const key = issue.path.find((k) => declared[k] !== undefined);
+    push(key === undefined ? ['runtime', 'limits'] : ['runtime', 'limits', key], issue.message);
+  }
+
+  const projects = new Set(Object.keys(u.projects ?? {}));
+  const ids = new Set<string>();
+  const files = new Set<string>();
+  (rt.access_tokens ?? []).forEach((t, i) => {
+    const base: KeyPath = ['runtime', 'access_tokens', i];
+    if (ids.has(t.id)) push([...base, 'id'], `access token '${t.id}' bị khai báo lặp`);
+    ids.add(t.id);
+    if (files.has(t.token_file)) push([...base, 'token_file'], `token_file '${t.token_file}' đã dùng cho token khác`);
+    files.add(t.token_file);
+    t.projects.forEach((p, j) => {
+      if (!projects.has(p)) push([...base, 'projects', j], `project '${p}' chưa được khai báo trong projects`);
+    });
+  });
+
+  const harnesses = new Set(Object.keys(u.harnesses ?? {}));
+  for (const h of Object.keys(rt.harness_isolation ?? {})) {
+    if (!harnesses.has(h)) push(['runtime', 'harness_isolation', h], `harness '${h}' chưa được khai báo trong harnesses`);
+  }
+  return out;
+}
 
 // ---------- Kiểm tra 6: predicate ----------
 

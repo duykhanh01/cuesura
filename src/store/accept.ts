@@ -17,11 +17,13 @@ import type { CrashHook } from './crash.ts';
 import {
   IdCollision,
   projectEffects,
+  projectRuntime,
   projectTask,
   projectTimers,
+  SlotConflict,
   sqliteSink,
 } from './projector.ts';
-import { readPolicy, readTask, readTaskStatus } from './read.ts';
+import { readExecutionFacts, readPolicy, readTask, readTaskStatus } from './read.ts';
 
 export type AcceptOutcome = {
   dedup_key: string;
@@ -35,7 +37,7 @@ export type AcceptOutcome = {
 export type WriteFailure = { code: 'write_failed'; cause: 'disk_full' | 'busy' | 'io_error' };
 
 export type AcceptError =
-  | { code: 'conflict'; reason: 'request_hash_mismatch' | 'stale_version' | 'id_collision' }
+  | { code: 'conflict'; reason: 'request_hash_mismatch' | 'stale_version' | 'id_collision' | 'slot_held' }
   | WriteFailure;
 
 /** Lỗi SQLite của thao tác ghi → `write_failed` (FR-033); lỗi khác là lỗi lập trình và được ném lại. */
@@ -115,6 +117,8 @@ export function project(
   crash('after_effects');
   if (state !== null && events.length > 0) projectTimers(sink, events, state);
   crash('after_timers');
+  projectRuntime(sink, events);
+  crash('after_runtime');
 }
 
 /**
@@ -144,6 +148,8 @@ export function relatedFacts(
     deps,
     dependency_cycle: proposed !== undefined && reachesTask(db, env.task_id, proposed),
   };
+
+  if (t.kind === 'grant_execution') related.execution = readExecutionFacts(db);
 
   const retryOf = incoming?.retry_of ?? null;
   if (t.kind === 'create_task' && retryOf !== null) related.retry_of = readTaskStatus(db, retryOf);
@@ -288,6 +294,7 @@ export function accept(
   } catch (e) {
     rollback(db);
     if (e instanceof IdCollision) return err({ code: 'conflict', reason: 'id_collision' });
+    if (e instanceof SlotConflict) return err({ code: 'conflict', reason: 'slot_held' });
     const wf = writeFailure(e);
     if (wf !== null) return err(wf);
     throw e;

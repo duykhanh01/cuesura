@@ -1,9 +1,11 @@
 import { assertNever } from '../shared/assert-never.ts';
 import type { DomainEvent, DomainEventDraft } from '../domain/event.ts';
+import type { Hash } from '../shared/brand.ts';
 import {
   isTerminal,
   STATE_SCHEMA_VERSION,
   streakKey,
+  type Blocker,
   type TaskState,
   type TaskStatus,
 } from '../domain/state.ts';
@@ -96,6 +98,7 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
       deadline_at: null,
       deadline_passed: false,
       terminal: null,
+      ...emptyRuntime(),
     };
   }
 
@@ -489,10 +492,204 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
 
     case 'SignalIgnored':
       break;
+
+    case 'RuntimeConfigured':
+      s.runtime_ref = { revision: event.payload.runtime.revision, hash: event.payload.runtime_hash };
+      break;
+    case 'ExecutionQueued': {
+      const p = event.payload;
+      s.execution.request = {
+        request_id: p.request_id,
+        requested_at: p.requested_at,
+        // Commit order breaks ties between equal priorities and request times (SPEC.md §6.2).
+        request_global_seq: 'global_seq' in event ? event.global_seq : 0,
+        group: p.group,
+        priority: p.priority,
+        resume_action: p.resume_action,
+      };
+      break;
+    }
+    case 'ExecutionIntentUpdated': {
+      const r = s.execution.request;
+      if (r?.request_id === event.payload.request_id) {
+        r.priority = event.payload.priority;
+        r.resume_action = event.payload.resume_action;
+      }
+      break;
+    }
+    case 'ExecutionWithdrawn': {
+      const r = s.execution.request;
+      if (r?.request_id === event.payload.request_id) {
+        s.execution.accumulated_wait_ms += Math.max(0, event.payload.at - r.requested_at);
+        s.execution.request = null;
+      }
+      break;
+    }
+    case 'ExecutionGranted': {
+      const r = s.execution.request;
+      if (r?.request_id === event.payload.request_id) {
+        s.execution.accumulated_wait_ms += Math.max(0, event.payload.at - r.requested_at);
+        s.execution.request = null;
+      }
+      s.execution.holding = { request_id: event.payload.request_id, granted_at: event.payload.at };
+      break;
+    }
+    case 'ExecutionReleased':
+      if (s.execution.holding?.request_id === event.payload.request_id) s.execution.holding = null;
+      break;
+    case 'OperationRegistered': {
+      const p = event.payload;
+      s.operations[p.operation_id] = {
+        id: p.operation_id,
+        effect_id: p.effect_id,
+        attempt_id: p.attempt_id,
+        kind: p.kind,
+        revision: s.revision,
+        launch_nonce: p.launch_nonce,
+        unit: p.unit,
+        holds_slot: p.holds_slot,
+        status: 'registered',
+        outcome: null,
+        invocation_id: null,
+        processes: [],
+        registered_at: p.at,
+        started_at: null,
+        finished_at: null,
+        cursor: null,
+        artifact_ids: [],
+      };
+      break;
+    }
+    case 'OperationObserved': {
+      const o = s.operations[event.payload.operation_id];
+      if (o) {
+        const p = event.payload;
+        o.status = p.status;
+        o.outcome = p.outcome;
+        o.invocation_id = p.invocation_id;
+        o.processes = p.processes;
+        o.started_at = p.started_at;
+        o.finished_at = p.finished_at;
+      }
+      break;
+    }
+    case 'OutputIngested': {
+      const o = s.operations[event.payload.operation_id];
+      if (o) o.cursor = event.payload.cursor;
+      break;
+    }
+    case 'ArtifactIngested': {
+      const a = event.payload.artifact;
+      s.artifacts[a.artifact_id] = a;
+      const o = s.operations[a.operation_id];
+      if (o && !o.artifact_ids.includes(a.artifact_id)) o.artifact_ids.push(a.artifact_id);
+      break;
+    }
+    case 'ObservationScheduled': {
+      const p = event.payload;
+      const prev = s.observation;
+      // The total window and round cap are fixed by the first schedule; later ones only move the cadence.
+      s.observation = {
+        subject: p.subject,
+        budget: {
+          started_at: prev?.budget.started_at ?? p.started_at,
+          deadline_at: prev?.budget.deadline_at ?? p.deadline_at,
+          count: prev?.budget.count ?? 0,
+          max_count: prev?.budget.max_count ?? p.max_count,
+          next_due_at: p.next_due_at,
+          cadence_index: p.cadence_index,
+          generation: p.generation,
+          last_remote_digest: prev?.budget.last_remote_digest ?? null,
+          exhausted: prev?.budget.exhausted ?? false,
+        },
+        last: prev?.last ?? null,
+        expired: prev?.expired ?? false,
+      };
+      break;
+    }
+    case 'ExternalStateObserved': {
+      const o = s.observation;
+      if (o) {
+        const ob = event.payload.observation;
+        o.budget.count += 1;
+        o.budget.next_due_at = null;
+        o.budget.last_remote_digest = event.payload.remote_digest as Hash;
+        o.last = { observation_id: ob.observation_id, status: ob.status, observed_head: ob.observed_head, observed_at: ob.observed_at };
+      }
+      break;
+    }
+    case 'ObservationExpired':
+      if (s.observation) {
+        s.observation.expired = true;
+        s.observation.budget.exhausted = true;
+        s.observation.budget.next_due_at = null;
+      }
+      addBlocker(s, { code: 'observation_expired', source: event.payload.reason, since: event.payload.at, until: null });
+      break;
+    case 'ExternalCompletionObserved':
+      s.completion = {
+        proof: event.payload.proof,
+        unverified: event.payload.unverified_reason === null ? null : { reason: event.payload.unverified_reason },
+        recorded_at: event.payload.at,
+        drain: { started_at: null, deadline_at: null, count: 0, max_rounds: 0, auto_exhausted: false, paused: false },
+        pending_operations: [],
+        finalized_at: null,
+      };
+      s.merged = true;
+      break;
+    case 'DrainStarted':
+      if (s.completion) {
+        const d = s.completion.drain;
+        d.started_at = event.payload.at;
+        d.deadline_at = event.payload.deadline_at;
+        d.max_rounds = event.payload.max_rounds;
+        s.completion.pending_operations = event.payload.pending_operations;
+      }
+      addBlocker(s, { code: 'merge_cleanup_pending', source: 'drain', since: event.payload.at, until: event.payload.deadline_at });
+      break;
+    case 'DrainProgressed':
+      if (s.completion) {
+        s.completion.drain.count = event.payload.round;
+        s.completion.drain.paused = false;
+        s.completion.pending_operations = event.payload.pending_operations;
+      }
+      break;
+    case 'DrainPaused':
+      if (s.completion) {
+        s.completion.drain.paused = true;
+        if (event.payload.reason === 'round_limit') s.completion.drain.auto_exhausted = true;
+      }
+      break;
+    case 'DrainFinished':
+      if (s.completion) {
+        s.completion.finalized_at = event.payload.at;
+        s.completion.pending_operations = [];
+      }
+      s.blockers = s.blockers.filter((b) => b.code !== 'merge_cleanup_pending');
+      break;
+    case 'RecheckRequested':
+      break;
     default:
       assertNever(event);
   }
   return s;
+}
+
+/** Runtime fields at their replay defaults: a v1 log never sets them, so a legacy task stays `runtime_ref = null`. */
+export function emptyRuntime(): Pick<TaskState, 'runtime_ref' | 'execution' | 'operations' | 'artifacts' | 'observation' | 'completion' | 'blockers'> {
+  return {
+    runtime_ref: null,
+    execution: { request: null, holding: null, accumulated_wait_ms: 0 },
+    operations: {},
+    artifacts: {},
+    observation: null,
+    completion: null,
+    blockers: [],
+  };
+}
+
+function addBlocker(s: TaskState, b: Blocker): void {
+  if (!s.blockers.some((x) => x.code === b.code)) s.blockers.push(b);
 }
 
 /** Dữ kiện mà kết quả thành công của effect để lại trên task (worktree, PR, merge). */

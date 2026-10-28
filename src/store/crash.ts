@@ -1,10 +1,11 @@
-/** Bảy điểm ngắt của research R-08, theo thứ tự trong transaction `accept`. */
+/** Điểm ngắt của research R-08 theo thứ tự trong transaction `accept`; `after_runtime` thêm cho bảng runtime 002. */
 export const CRASH_POINTS = [
   'after_dedup',
   'after_events',
   'after_projection',
   'after_effects',
   'after_timers',
+  'after_runtime',
   'before_commit',
   'after_commit',
 ] as const;

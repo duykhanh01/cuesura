@@ -1,3 +1,4 @@
+import type { NormalizedUser } from '../domain/config.ts';
 import type { Workflow } from '../domain/workflow.ts';
 import { isSupportedStructure, unsupportedDecisionPoints } from '../policy/support.ts';
 import type { Locator } from './checks.ts';
@@ -26,4 +27,24 @@ export function findUnsupported(workflows: Record<string, Workflow>, at: Locator
     }
   }
   return out;
+}
+
+/** Daemon 002 chỉ hoàn tất khi merge được xác nhận từ bên ngoài; không cấu hình nào đổi được. */
+export const DAEMON_COMPLETION_MODE = 'external_confirmation' as const;
+
+/** Tính năng cấu hình hợp lệ ở 001 nhưng daemon 002 không chạy (contracts/cli-daemon.md). */
+export type DaemonUnsupportedFeature = {
+  code: 'unsupported_feature';
+  feature: 'yolo';
+  file: string;
+  line: number;
+  col: number;
+};
+
+/**
+ * `cusr.yaml` không khai được merge/yolo (khoá chỉ thuộc người dùng); phía người dùng, `yolo: true` vẫn
+ * hợp lệ với 001 nên chỉ được báo ở đây để daemon từ chối thay vì tự merge.
+ */
+export function findDaemonUnsupported(user: NormalizedUser, at: Locator): DaemonUnsupportedFeature[] {
+  return user.yolo ? [{ code: 'unsupported_feature', feature: 'yolo', ...at(['yolo']) }] : [];
 }

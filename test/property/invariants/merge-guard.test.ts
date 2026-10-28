@@ -9,6 +9,7 @@ import { agentData, ciData, gatesData, publishData, reviewData, started, toCode 
 import { mergeAllowed } from '../../support/merge-oracle.ts';
 import { choicesArb, drive, walk } from '../arbitraries/signals.ts';
 import { policyArb, propertyParams, taskOverArb } from '../arbitraries/policies.ts';
+import { HEAVY_PROPERTY_TIMEOUT_MS } from '../../support/timeouts.ts';
 
 describe('I11, FR-015 điều kiện merge', () => {
   it('không EffectRequested(merge) khi thiếu approval gắn head, review approve, required check success, required_set.complete hoặc head_contains_base', () => {
@@ -26,7 +27,7 @@ describe('I11, FR-015 điều kiện merge', () => {
       propertyParams(150),
     );
     // Chuỗi ngẫu nhiên hiếm khi tới merge; property tập trung bên dưới bảo đảm luôn có ca merge.
-  });
+  }, HEAVY_PROPERTY_TIMEOUT_MS);
 });
 
 const stateArb = fc.constantFrom<Check['state']>('success', 'success', 'success', 'failure', 'pending', 'cancelled', 'skipped', 'unknown');
@@ -100,5 +101,5 @@ describe('I11 merge guard trên bằng chứng sinh ngẫu nhiên', () => {
     );
     expect(merges).toBeGreaterThan(0);
     expect(blocked).toBeGreaterThan(0);
-  });
+  }, HEAVY_PROPERTY_TIMEOUT_MS);
 });

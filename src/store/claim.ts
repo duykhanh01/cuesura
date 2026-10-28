@@ -1,7 +1,8 @@
 import type { Database } from 'better-sqlite3';
 import { err, ok, type Result } from '../shared/result.ts';
 import type { Effect } from '../domain/effect.ts';
-import { claimable, type ClaimBlockReason } from '../engine/claim.ts';
+import { claimable, type ClaimBlockReason, type ClaimOptions } from '../engine/claim.ts';
+import { registerOperation, type OperationClaim, type OperationClaimError } from '../engine/runtime.ts';
 import { appendEvents, project, rollback, writeFailure, type WriteFailure } from './accept.ts';
 import type { CrashHook } from './crash.ts';
 import type { EffectRow } from './projector.ts';
@@ -10,17 +11,23 @@ import { readTask, toEffect } from './read.ts';
 export type ClaimError =
   | { code: 'effect_invalidated' | 'not_pending' | 'not_found' }
   | { code: 'claim_blocked'; reason: ClaimBlockReason }
+  | { code: 'operation_rejected'; reason: OperationClaimError }
   | WriteFailure;
+
+/** 002 claim: require a runtime snapshot and register the operation in the same transaction. */
+export type ClaimRequest = ClaimOptions & { operation?: OperationClaim };
 
 /**
  * `pending → started` trong một transaction: đọc projection, hỏi `claimable` (R-16), append
- * `EffectStarted`. Effect bị chặn giữ nguyên `pending`. `EffectStarted` chỉ được tạo ở đây.
+ * `EffectStarted`. Effect bị chặn giữ nguyên `pending`. `EffectStarted` chỉ được tạo ở đây. With
+ * `req.operation` the operation identity is committed together with the claim, before any spawn (T025).
  */
 export function claimEffect(
   db: Database,
   effectId: string,
   now: number,
   crash: CrashHook,
+  req: ClaimRequest = {},
 ): Result<Effect, ClaimError> {
   let effect: Effect;
   try {
@@ -40,8 +47,11 @@ export function claimEffect(
       state,
       { id: row.id, kind: row.kind as Effect['kind'], revision: row.revision },
       now,
+      req,
     );
     if (!c.ok) return fail({ code: 'claim_blocked', reason: c.reason });
+    const op = req.operation === undefined ? null : registerOperation(state, { id: row.id, attempt_id: state.effects[row.id]?.attempt_id ?? null }, req.operation, now);
+    if (op !== null && !op.ok) return fail({ code: 'operation_rejected', reason: op.reason });
 
     const started = {
       type: 'EffectStarted' as const,
@@ -49,7 +59,8 @@ export function claimEffect(
       actor: 'store',
       payload: { effect_id: effectId, at: now },
     };
-    const { state: next, events } = appendEvents(db, row.task_id, state, [started], {
+    const drafts = op === null ? [started] : [started, ...op.events];
+    const { state: next, events } = appendEvents(db, row.task_id, state, drafts, {
       dedup_key: null,
       claim: effectId,
     });

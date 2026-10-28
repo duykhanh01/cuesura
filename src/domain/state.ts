@@ -3,6 +3,17 @@ import type { CanonicalTask } from './task.ts';
 import type { EffectKind, EffectStatus } from './effect.ts';
 import type { Level } from './policy.ts';
 import type { BaseRelation, Check, FailureClass, RequiredSet, Usage } from './trigger.ts';
+import type {
+  Artifact,
+  ExecutionGroup,
+  ExternalSubject,
+  MergeProof,
+  ObservationBudget,
+  OperationKind,
+  OperationOutcome,
+  OperationStatus,
+  ProcessIdentity,
+} from './runtime.ts';
 
 export const STATE_SCHEMA_VERSION = 1;
 
@@ -62,6 +73,14 @@ export const DETAIL_CODES = [
   'effect_unknown',
   'infra_backoff',
   'rate_limited',
+  // Runtime 002 (data-model.md "State transitions"); additive only.
+  'execution_slot',
+  'capability_missing',
+  'head_changed',
+  'observation_expired',
+  'ci_wait_exhausted',
+  'required_checks_mismatch',
+  'merge_cleanup_pending',
 ] as const;
 export type DetailCode = (typeof DETAIL_CODES)[number];
 
@@ -185,6 +204,66 @@ export type SourceDrift = {
   prior_wait: Wait | null;
 };
 
+/** One waiting or granted request for the daemon-wide execution slot. */
+export type ExecutionState = {
+  request: {
+    request_id: string;
+    requested_at: number;
+    request_global_seq: number;
+    group: ExecutionGroup;
+    priority: number;
+    resume_action: ResumeAction | null;
+  } | null;
+  holding: { request_id: string; granted_at: number } | null;
+  /** Wait closed by grants/withdrawals; an open request adds `now - requested_at` on top. */
+  accumulated_wait_ms: number;
+};
+
+export type OperationMirror = {
+  id: string;
+  effect_id: string;
+  attempt_id: string | null;
+  kind: OperationKind;
+  revision: number;
+  launch_nonce: string;
+  unit: string;
+  holds_slot: boolean;
+  status: OperationStatus;
+  outcome: OperationOutcome | null;
+  invocation_id: string | null;
+  processes: ProcessIdentity[];
+  registered_at: number;
+  started_at: number | null;
+  finished_at: number | null;
+  cursor: { generation: number; segment: number; byte_offset: number; last_record_seq: number } | null;
+  artifact_ids: string[];
+};
+
+export type Blocker = { code: DetailCode; source: string; since: number; until: number | null };
+
+export type ObservationState = {
+  subject: ExternalSubject;
+  budget: ObservationBudget;
+  last: { observation_id: string; status: 'open' | 'closed' | 'merged' | 'unknown'; observed_head: string | null; observed_at: number } | null;
+  expired: boolean;
+};
+
+export type Completion = {
+  proof: MergeProof;
+  unverified: { reason: string } | null;
+  recorded_at: number;
+  drain: {
+    started_at: number | null;
+    deadline_at: number | null;
+    count: number;
+    max_rounds: number;
+    auto_exhausted: boolean;
+    paused: boolean;
+  };
+  pending_operations: string[];
+  finalized_at: number | null;
+};
+
 /** Projection `TaskState` (data-model.md). `version` tăng mỗi sự kiện (FR-028). */
 export type TaskState = {
   schema_version: number;
@@ -226,6 +305,15 @@ export type TaskState = {
   deadline_at: number | null;
   deadline_passed: boolean;
   terminal: { kind: 'DONE' | 'FAILED' | 'CANCELLED'; reason: string } | null;
+  // Runtime 002. Replaying a v1 log leaves these at their defaults; `runtime_ref === null` marks a legacy
+  // task the 002 daemon only reads and never dispatches.
+  runtime_ref: { revision: number; hash: string } | null;
+  execution: ExecutionState;
+  operations: Record<string, OperationMirror>;
+  artifacts: Record<string, Artifact>;
+  observation: ObservationState | null;
+  completion: Completion | null;
+  blockers: Blocker[];
 };
 
 export function streakKey(step: string, rung: number): string {
