@@ -21,7 +21,7 @@
     "test": "vitest run --project default",
     "test:reliability": "node scripts/test-reliability.ts",
     "test:smoke": "vitest run --project smoke --passWithNoTests",
-    "build": "tsc -p tsconfig.build.json && node -e \"require('node:fs').cpSync('src/store/migrations', 'dist/store/migrations', { recursive: true })\"",
+    "build": "tsc -p tsconfig.build.json && node -e \"const fs = require('node:fs'); fs.cpSync('src/store/migrations', 'dist/store/migrations', { recursive: true }); fs.cpSync('src/runner/sandbox-exec.py', 'dist/runner/sandbox-exec.py')\"",
     "report:invariants": "node scripts/report-invariants.ts"
   },
   "dependencies": {

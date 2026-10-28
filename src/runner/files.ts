@@ -312,7 +312,8 @@ export class RunDir {
       if (st.isSymbolicLink()) throw new RunnerFileError('symlink', `symlink in path ${rel}`);
       if (i < parts.length - 1 && !st.isDirectory()) throw new RunnerFileError('not_directory', `${parts.slice(0, i + 1).join('/')} is not a directory`);
     }
-    return p;
+    // Checking stops at the first missing component; the result is always the full path.
+    return join(this.dir, ...parts);
   }
 
   /** Creates `rel` (and its parents) as plain directories inside this run directory. */

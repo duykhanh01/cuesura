@@ -125,6 +125,12 @@ describe('path and id guards', () => {
     expect(readdirSync(outside)).toEqual([]);
   });
 
+  it('resolves the full path even when several trailing components do not exist yet', () => {
+    const run = open();
+    expect(run.resolve('private-home/.claude/.credentials.json')).toBe(join(run.dir, 'private-home', '.claude', '.credentials.json'));
+    expect(run.resolve('out/a/b')).toBe(join(run.dir, 'out', 'a', 'b'));
+  });
+
   it('refuses a file where a directory component is expected', () => {
     const run = open();
     writeFileSync(join(run.dir, 'scratch'), 'x');
