@@ -6,10 +6,16 @@ export const POLICY_SCHEMA_VERSION = 1;
 
 export const EFFORTS = ['low', 'medium', 'high'] as const;
 export type Effort = (typeof EFFORTS)[number];
-export const EFFORT_RANK: Record<Effort, number> = { low: 0, medium: 1, high: 2 };
+export const EFFORT_RANK: Record<Effort, number> = {
+  low: 0,
+  medium: 1,
+  high: 2,
+};
 
 /** Mức năng lực `(tier, effort_rank)` dùng cho sàn task (research R-18). */
-export const LevelSchema = z.object({ tier: z.number().int(), effort_rank: z.number().int() }).strict();
+export const LevelSchema = z
+  .object({ tier: z.number().int(), effort_rank: z.number().int() })
+  .strict();
 export type Level = z.infer<typeof LevelSchema>;
 
 export function levelKey(l: Level): string {
@@ -48,7 +54,11 @@ export const RUNG_STATES = ['auto', 'needs_approval', 'denied'] as const;
 export type RungState = (typeof RUNG_STATES)[number];
 
 export const RungSchema = z
-  .object({ binding: BindingSchema, level: LevelSchema, state: z.enum(RUNG_STATES) })
+  .object({
+    binding: BindingSchema,
+    level: LevelSchema,
+    state: z.enum(RUNG_STATES),
+  })
   .strict();
 export type Rung = z.infer<typeof RungSchema>;
 
@@ -69,7 +79,11 @@ export type CiClass = (typeof CI_CLASSES)[number];
 export const CiRuleSchema = z
   .object({
     match: z
-      .object({ job: z.string().optional(), check: z.string().optional(), log_pattern: z.string().max(256).optional() })
+      .object({
+        job: z.string().optional(),
+        check: z.string().optional(),
+        log_pattern: z.string().max(256).optional(),
+      })
       .strict(),
     class: z.enum(CI_CLASSES),
   })
@@ -101,10 +115,16 @@ export const LimitsSchema = z
         timeout_retries: z.number().int().nonnegative(),
         invalid_output_repairs: z.number().int().nonnegative(),
         invalid_output_fresh: z.number().int().nonnegative(),
-        quality_tries_per_rung: z.number().int().positive().max(MAX_QUALITY_TRIES_PER_RUNG),
+        quality_tries_per_rung: z
+          .number()
+          .int()
+          .positive()
+          .max(MAX_QUALITY_TRIES_PER_RUNG),
       })
       .strict(),
-    backoff: z.object({ rate_limit: BackoffSchema, infra: BackoffSchema }).strict(),
+    backoff: z
+      .object({ rate_limit: BackoffSchema, infra: BackoffSchema })
+      .strict(),
     /**
      * Lượt cộng thêm vào `max_visits` theo bước. Chỉ amendment của admin đặt (rỗng lúc chốt); là đường duy
      * nhất để mở lại bước đã hết lượt, vì graph workflow không đổi được khi task đang chạy.
@@ -119,7 +139,13 @@ export const GatePolicySchema = z
     commands: z.record(z.string(), z.string()),
     by_step: z.record(
       z.string(),
-      z.object({ run: z.array(z.string()), required: z.array(z.string()), skipped: z.array(z.string()) }).strict(),
+      z
+        .object({
+          run: z.array(z.string()),
+          required: z.array(z.string()),
+          skipped: z.array(z.string()),
+        })
+        .strict(),
     ),
   })
   .strict();
@@ -146,10 +172,18 @@ export const FrozenPolicySchema = z
     workflow: WorkflowSchema,
     structure_hash: HashSchema,
     steps: z.record(z.string(), StepPolicySchema),
-    ci: z.object({ required_checks: z.array(z.string()), rules: z.array(CiRuleSchema) }).strict(),
+    ci: z
+      .object({
+        required_checks: z.array(z.string()),
+        rules: z.array(CiRuleSchema),
+      })
+      .strict(),
     gates: GatePolicySchema,
     limits: LimitsSchema,
-    decision_modes: z.partialRecord(z.enum(DECISION_POINTS), z.enum(DECISION_MODES)),
+    decision_modes: z.partialRecord(
+      z.enum(DECISION_POINTS),
+      z.enum(DECISION_MODES),
+    ),
     permissions: z.record(z.string(), z.enum(['read_only', 'write'])),
     protected_branches: z.array(z.string()),
     config_hashes: ConfigHashesSchema,
@@ -160,12 +194,21 @@ export const FrozenPolicySchema = z
 export type FrozenPolicy = z.infer<typeof FrozenPolicySchema>;
 
 export const FrozenAttachmentSchema = z
-  .object({ name: z.string(), media_type: z.string(), content: z.string(), content_hash: HashSchema })
+  .object({
+    name: z.string(),
+    media_type: z.string(),
+    content: z.string(),
+    content_hash: HashSchema,
+  })
   .strict();
 
 /** Tài liệu văn bản được chụp vào ngữ cảnh: tên (đường dẫn khai báo trong cấu hình), nội dung và hash. */
 export const FrozenDocSchema = z
-  .object({ name: z.string().min(1), content: z.string(), content_hash: HashSchema })
+  .object({
+    name: z.string().min(1),
+    content: z.string(),
+    content_hash: HashSchema,
+  })
   .strict();
 export type FrozenDoc = z.infer<typeof FrozenDocSchema>;
 
@@ -193,7 +236,9 @@ export const FrozenExecutionContextSchema = z
     context_hash: HashSchema,
   })
   .strict();
-export type FrozenExecutionContext = z.infer<typeof FrozenExecutionContextSchema>;
+export type FrozenExecutionContext = z.infer<
+  typeof FrozenExecutionContextSchema
+>;
 
 export const AUTHZ_ROLES = ['read', 'operate', 'admin'] as const;
 export type AuthzRole = (typeof AUTHZ_ROLES)[number];
@@ -208,6 +253,9 @@ export const AuthzContextSchema = z
   .strict();
 export type AuthzContext = z.infer<typeof AuthzContextSchema>;
 
-export function hasRole(a: AuthzContext | null | undefined, role: AuthzRole): boolean {
+export function hasRole(
+  a: AuthzContext | null | undefined,
+  role: AuthzRole,
+): boolean {
   return a !== null && a !== undefined && a.roles.includes(role);
 }

@@ -1,6 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { Command, CommanderError } from 'commander';
-import { ExitCode, errorEnvelope, okEnvelope, renderEnvelope } from './output.ts';
+import {
+  ExitCode,
+  errorEnvelope,
+  okEnvelope,
+  renderEnvelope,
+} from './output.ts';
 
 export interface CliIo {
   readonly stdout: (text: string) => void;
@@ -17,8 +22,15 @@ export interface CliSpec {
 export interface CliCommand {
   readonly name: string;
   readonly description: string;
-  readonly options?: readonly { readonly flags: string; readonly description: string }[];
-  run(values: Readonly<Record<string, string | undefined>>, json: boolean, io: CliIo): Promise<number>;
+  readonly options?: readonly {
+    readonly flags: string;
+    readonly description: string;
+  }[];
+  run(
+    values: Readonly<Record<string, string | undefined>>,
+    json: boolean,
+    io: CliIo,
+  ): Promise<number>;
 }
 
 export const processIo: CliIo = {
@@ -32,9 +44,15 @@ export const processIo: CliIo = {
 
 /** Version of the installed package; the relative path holds for both src/cli and dist/cli. */
 export function packageVersion(): string {
-  const raw: unknown = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
-  const version = typeof raw === 'object' && raw !== null ? (raw as { version?: unknown }).version : undefined;
-  if (typeof version !== 'string' || version === '') throw new Error('package.json has no version');
+  const raw: unknown = JSON.parse(
+    readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
+  );
+  const version =
+    typeof raw === 'object' && raw !== null
+      ? (raw as { version?: unknown }).version
+      : undefined;
+  if (typeof version !== 'string' || version === '')
+    throw new Error('package.json has no version');
   return version;
 }
 
@@ -43,7 +61,12 @@ export function packageVersion(): string {
  * commands succeed; anything else is reported as not_available with exit 2, so a command that is not
  * implemented is never presented as available.
  */
-export async function runCli(spec: CliSpec, argv: readonly string[], io: CliIo, commands: readonly CliCommand[] = []): Promise<number> {
+export async function runCli(
+  spec: CliSpec,
+  argv: readonly string[],
+  io: CliIo,
+  commands: readonly CliCommand[] = [],
+): Promise<number> {
   const json = argv.includes('--json');
   let exitCode: number = ExitCode.ok;
 
@@ -64,18 +87,34 @@ export async function runCli(spec: CliSpec, argv: readonly string[], io: CliIo, 
     .action(() => {
       const opts = program.opts<{ version?: true; json?: true }>();
       if (opts.version === true) {
-        io.stdout(json ? renderEnvelope(okEnvelope({ version: spec.version })) : `${spec.version}\n`);
+        io.stdout(
+          json
+            ? renderEnvelope(okEnvelope({ version: spec.version }))
+            : `${spec.version}\n`,
+        );
         return;
       }
-      exitCode = notAvailable(spec.name, program.args, json, io, commands.length > 0);
+      exitCode = notAvailable(
+        spec.name,
+        program.args,
+        json,
+        io,
+        commands.length > 0,
+      );
     });
-  if (commands.length === 0) program.addHelpText('after', '\nNo commands are available in this build.');
+  if (commands.length === 0)
+    program.addHelpText('after', '\nNo commands are available in this build.');
 
   for (const c of commands) {
-    const sub = program.command(c.name).description(c.description).option('--json', 'print exactly one JSON result object to stdout');
+    const sub = program
+      .command(c.name)
+      .description(c.description)
+      .option('--json', 'print exactly one JSON result object to stdout');
     for (const o of c.options ?? []) sub.option(o.flags, o.description);
     sub.exitOverride().action(async () => {
-      const { json: subJson, ...values } = sub.opts<Record<string, string | undefined> & { json?: true }>();
+      const { json: subJson, ...values } = sub.opts<
+        Record<string, string | undefined> & { json?: true }
+      >();
       exitCode = await c.run(values, json || subJson === true, io);
     });
   }
@@ -89,7 +128,12 @@ export async function runCli(spec: CliSpec, argv: readonly string[], io: CliIo, 
     if (json) {
       io.stdout(
         renderEnvelope(
-          errorEnvelope({ code: 'invalid_arguments', message: e.message, details: {}, request_id: null }),
+          errorEnvelope({
+            code: 'invalid_arguments',
+            message: e.message,
+            details: {},
+            request_id: null,
+          }),
         ),
       );
     }
@@ -98,7 +142,13 @@ export async function runCli(spec: CliSpec, argv: readonly string[], io: CliIo, 
   return exitCode;
 }
 
-function notAvailable(name: string, args: readonly string[], json: boolean, io: CliIo, hasCommands: boolean): number {
+function notAvailable(
+  name: string,
+  args: readonly string[],
+  json: boolean,
+  io: CliIo,
+  hasCommands: boolean,
+): number {
   const argument = args[0] ?? null;
   const message =
     argument === null
@@ -107,7 +157,12 @@ function notAvailable(name: string, args: readonly string[], json: boolean, io: 
   if (json) {
     io.stdout(
       renderEnvelope(
-        errorEnvelope({ code: 'not_available', message, details: { program: name, argument }, request_id: null }),
+        errorEnvelope({
+          code: 'not_available',
+          message,
+          details: { program: name, argument },
+          request_id: null,
+        }),
       ),
     );
   } else {

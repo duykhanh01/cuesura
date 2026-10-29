@@ -18,7 +18,11 @@ export function requestCancel(ctx: Ctx, reason: string): void {
   ctx.emit('CancelRequested', { by: ctx.actor, reason, at: ctx.now });
   invalidatePending(ctx, 'cancelled', () => true);
   for (const e of Object.values(ctx.state.effects)) {
-    if (e.status === 'started' && e.kind === 'start_agent' && e.attempt_id !== null) {
+    if (
+      e.status === 'started' &&
+      e.kind === 'start_agent' &&
+      e.attempt_id !== null
+    ) {
       requestEffect(ctx, {
         kind: 'stop_attempt',
         logical_id: e.attempt_id,
@@ -35,13 +39,29 @@ export function requestCancel(ctx: Ctx, reason: string): void {
 }
 
 /** Vô hiệu hoá effect nghiệp vụ `pending` thoả `filter` và trả giữ chỗ (FR-018, FR-022). */
-export function invalidatePending(ctx: Ctx, reason: string, filter: (e: EffectMirror) => boolean): void {
+export function invalidatePending(
+  ctx: Ctx,
+  reason: string,
+  filter: (e: EffectMirror) => boolean,
+): void {
   for (const e of Object.values(ctx.state.effects)) {
-    if (e.status !== 'pending' || !isBusinessEffect(e.kind) || !filter(e)) continue;
+    if (e.status !== 'pending' || !isBusinessEffect(e.kind) || !filter(e))
+      continue;
     ctx.emit('EffectInvalidated', { effect_id: e.id, reason });
     release(ctx, e.reservation_id);
-    if (e.kind === 'start_agent' && e.attempt_id !== null && ctx.state.attempts[e.attempt_id]?.status === 'running') {
-      ctx.emit('AttemptFinished', { attempt_id: e.attempt_id, step: e.step as string, status: 'not_started', class: null, signature: null, usage: usageOf(null) });
+    if (
+      e.kind === 'start_agent' &&
+      e.attempt_id !== null &&
+      ctx.state.attempts[e.attempt_id]?.status === 'running'
+    ) {
+      ctx.emit('AttemptFinished', {
+        attempt_id: e.attempt_id,
+        step: e.step as string,
+        status: 'not_started',
+        class: null,
+        signature: null,
+        usage: usageOf(null),
+      });
     }
   }
 }
@@ -58,7 +78,9 @@ export function maybeFinishCancel(ctx: Ctx): void {
   if (Object.values(s.effects).some(inFlight)) return;
   closeOut(ctx);
   if (s.merged) {
-    const merge = Object.values(s.effects).find((e) => e.kind === 'merge' && e.status === 'succeeded');
+    const merge = Object.values(s.effects).find(
+      (e) => e.kind === 'merge' && e.status === 'succeeded',
+    );
     ctx.emit('CancelRecordedLate', { merge_effect_id: merge?.id ?? null });
     ctx.emit('TaskCompleted', { reason: 'merged_before_cancel' });
     return;

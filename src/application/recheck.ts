@@ -17,8 +17,18 @@ import type { TaskState, Wait } from '../domain/state.ts';
 import { MAX_ENVELOPE_IDS, type Trigger } from '../domain/trigger.ts';
 import type { Uuid } from '../shared/brand.ts';
 import type { AcceptError } from '../store/index.ts';
-import { authorize, authzContext, type AuthzError, type Caller } from './authz.ts';
-import { needsConfigCheck, recordConfigCheck, type ConfigCheckStatus, type ConfirmDeps } from './confirm.ts';
+import {
+  authorize,
+  authzContext,
+  type AuthzError,
+  type Caller,
+} from './authz.ts';
+import {
+  needsConfigCheck,
+  recordConfigCheck,
+  type ConfigCheckStatus,
+  type ConfirmDeps,
+} from './confirm.ts';
 import { submit } from './triage.ts';
 
 export type RecheckTarget = 'config' | 'observation' | 'drain';
@@ -27,9 +37,17 @@ export type RecheckDeps = ConfirmDeps & {
   /** IDs for the facts this check submits (the command's own IDs go to the recheck fact). */
   readonly newId: () => string;
   /** One read of the task's PR (coalesced with the observation service); facts carry source `recheck`. */
-  readonly observe: (taskId: string, evidenceRef: string) => Promise<{ readonly facts: readonly Trigger[]; readonly failure: string | null }>;
+  readonly observe: (
+    taskId: string,
+    evidenceRef: string,
+  ) => Promise<{
+    readonly facts: readonly Trigger[];
+    readonly failure: string | null;
+  }>;
   /** One bounded drain round; null when the task has no drain to run. */
-  readonly drain: (taskId: string) => Promise<{ readonly pending_operations: readonly string[] } | null>;
+  readonly drain: (
+    taskId: string,
+  ) => Promise<{ readonly pending_operations: readonly string[] } | null>;
 };
 
 export type RecheckCommand = {
@@ -50,40 +68,73 @@ export type RecheckResult = {
   readonly performed: boolean;
   readonly config_check: ConfigCheckStatus | null;
   /** Facts this check submitted, by kind, and those the engine did not accept (e.g. a stale round). */
-  readonly facts: readonly { readonly kind: Trigger['kind']; readonly accepted: boolean; readonly reason?: string }[];
+  readonly facts: readonly {
+    readonly kind: Trigger['kind'];
+    readonly accepted: boolean;
+    readonly reason?: string;
+  }[];
   readonly unavailable: string | null;
 };
 
 export type RecheckError =
   | AuthzError
   | { readonly code: 'unknown_task' }
-  | { readonly code: 'nothing_to_recheck'; readonly status: TaskState['status'] }
-  | { readonly code: 'rejected'; readonly reason: string; readonly detail?: unknown }
+  | {
+      readonly code: 'nothing_to_recheck';
+      readonly status: TaskState['status'];
+    }
+  | {
+      readonly code: 'rejected';
+      readonly reason: string;
+      readonly detail?: unknown;
+    }
   | AcceptError;
 
 /** What a recheck of `s` does, from committed state only. */
 export function recheckTarget(s: TaskState): RecheckTarget | 'terminal' | null {
   if (s.terminal !== null) return 'terminal';
-  if (s.completion !== null) return s.completion.finalized_at === null ? 'drain' : null;
+  if (s.completion !== null)
+    return s.completion.finalized_at === null ? 'drain' : null;
   if (needsConfigCheck(s) && s.status === 'PENDING') return 'config';
   if (s.pr_ref !== null && s.policy_ref !== null) return 'observation';
   return null;
 }
 
-export async function recheckTask(deps: RecheckDeps, caller: Caller, cmd: RecheckCommand): Promise<{ ok: true; value: RecheckResult } | { ok: false; error: RecheckError }> {
+export async function recheckTask(
+  deps: RecheckDeps,
+  caller: Caller,
+  cmd: RecheckCommand,
+): Promise<
+  { ok: true; value: RecheckResult } | { ok: false; error: RecheckError }
+> {
   const allowed = authorize(caller, { role: 'operate', project: cmd.project });
   if (!allowed.ok) return allowed;
   const before = deps.store.readTask(cmd.task_id as Uuid);
   if (before === null) return { ok: false, error: { code: 'unknown_task' } };
-  if (before.task.project !== cmd.project) return { ok: false, error: { code: 'forbidden', reason: 'project', required: before.task.project } };
+  if (before.task.project !== cmd.project)
+    return {
+      ok: false,
+      error: {
+        code: 'forbidden',
+        reason: 'project',
+        required: before.task.project,
+      },
+    };
   const target = recheckTarget(before);
-  if (target === null) return { ok: false, error: { code: 'nothing_to_recheck', status: before.status } };
+  if (target === null)
+    return {
+      ok: false,
+      error: { code: 'nothing_to_recheck', status: before.status },
+    };
 
   const accepted = submit(deps.store, {
     task_id: cmd.task_id,
     dedup_key: `cmd:${cmd.request_id}:recheck`,
     // A terminal task logs the signal (FR-046.08); the target only names what was asked.
-    trigger: { kind: 'recheck', target: target === 'terminal' ? 'observation' : target },
+    trigger: {
+      kind: 'recheck',
+      target: target === 'terminal' ? 'observation' : target,
+    },
     now: deps.now(),
     ids: cmd.assigned_ids,
     expected_version: cmd.expected_version,
@@ -91,30 +142,74 @@ export async function recheckTask(deps: RecheckDeps, caller: Caller, cmd: Rechec
   });
   if (!accepted.ok) return accepted;
   const d = accepted.value.decision;
-  if (d.kind === 'rejected') return { ok: false, error: { code: 'rejected', reason: d.code, ...(d.detail === undefined ? {} : { detail: d.detail }) } };
+  if (d.kind === 'rejected')
+    return {
+      ok: false,
+      error: {
+        code: 'rejected',
+        reason: d.code,
+        ...(d.detail === undefined ? {} : { detail: d.detail }),
+      },
+    };
   const performed = !accepted.value.duplicate && target !== 'terminal';
-  const facts: { kind: Trigger['kind']; accepted: boolean; reason?: string }[] = [];
+  const facts: { kind: Trigger['kind']; accepted: boolean; reason?: string }[] =
+    [];
   let configCheck: ConfigCheckStatus | null = null;
   let unavailable: string | null = null;
 
   if (performed && target === 'config') {
-    const r = await recordConfigCheck(deps, deps.store.readTask(cmd.task_id as Uuid) as TaskState, `cmd:${cmd.request_id}:config`);
+    const r = await recordConfigCheck(
+      deps,
+      deps.store.readTask(cmd.task_id as Uuid) as TaskState,
+      `cmd:${cmd.request_id}:config`,
+    );
     configCheck = r.status;
-    unavailable = r.unavailable === null ? null : `${r.unavailable.check}: ${r.unavailable.detail}`;
+    unavailable =
+      r.unavailable === null
+        ? null
+        : `${r.unavailable.check}: ${r.unavailable.detail}`;
   } else if (performed && target === 'observation') {
     const r = await deps.observe(cmd.task_id, `recheck:${cmd.request_id}`);
     unavailable = r.failure;
     r.facts.forEach((fact, i) => {
       const cur = deps.store.readTask(cmd.task_id as Uuid);
-      const out = submit(deps.store, { task_id: cmd.task_id, dedup_key: `cmd:${cmd.request_id}:fact:${i}`, trigger: fact, now: deps.now(), ids: Array.from({ length: MAX_ENVELOPE_IDS }, () => deps.newId()), ...(cur === null ? {} : { expected_version: cur.version }) });
+      const out = submit(deps.store, {
+        task_id: cmd.task_id,
+        dedup_key: `cmd:${cmd.request_id}:fact:${i}`,
+        trigger: fact,
+        now: deps.now(),
+        ids: Array.from({ length: MAX_ENVELOPE_IDS }, () => deps.newId()),
+        ...(cur === null ? {} : { expected_version: cur.version }),
+      });
       const ok = out.ok && out.value.decision.kind === 'accepted';
-      const reason = !out.ok ? out.error.code : out.value.decision.kind === 'rejected' ? out.value.decision.code : undefined;
-      facts.push({ kind: fact.kind, accepted: ok, ...(reason === undefined ? {} : { reason }) });
+      const reason = !out.ok
+        ? out.error.code
+        : out.value.decision.kind === 'rejected'
+          ? out.value.decision.code
+          : undefined;
+      facts.push({
+        kind: fact.kind,
+        accepted: ok,
+        ...(reason === undefined ? {} : { reason }),
+      });
     });
   } else if (performed && target === 'drain') {
     const r = await deps.drain(cmd.task_id);
     facts.push({ kind: 'drain_result', accepted: r !== null });
   }
   const s = deps.store.readTask(cmd.task_id as Uuid) as TaskState;
-  return { ok: true, value: { task_id: s.id, task_version: s.version, status: s.status, wait: s.wait, target, performed, config_check: configCheck, facts, unavailable } };
+  return {
+    ok: true,
+    value: {
+      task_id: s.id,
+      task_version: s.version,
+      status: s.status,
+      wait: s.wait,
+      target,
+      performed,
+      config_check: configCheck,
+      facts,
+      unavailable,
+    },
+  };
 }

@@ -5,12 +5,23 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ExitCode } from '../../../src/cli/output.ts';
 import { runCli } from '../../../src/cli/program.ts';
-import { addCommand, confirmCommand, proposeCommand, showCommand } from '../../../src/cli/tasks.ts';
+import {
+  addCommand,
+  confirmCommand,
+  proposeCommand,
+  showCommand,
+} from '../../../src/cli/tasks.ts';
 import { startDaemon, type RunningDaemon } from '../../../src/daemon/main.ts';
 import { taskControl } from '../../../src/daemon/task-control.ts';
 import { asEpochMs } from '../../../src/shared/brand.ts';
 import { PACKS } from '../../support/config-fixtures.ts';
-import { fakeGit, fakeGitHub, fakeHost, MANIFESTS, userConfig } from '../../support/preflight-fakes.ts';
+import {
+  fakeGit,
+  fakeGitHub,
+  fakeHost,
+  MANIFESTS,
+  userConfig,
+} from '../../support/preflight-fakes.ts';
 
 const dirs: string[] = [];
 const daemons: RunningDaemon[] = [];
@@ -21,9 +32,18 @@ afterEach(async () => {
 
 const clock = { now: () => asEpochMs(1_800_000_000_000), monotonic: () => 0 };
 let seq = 0;
-const newId = (): string => `00000000-0000-7000-8000-${String(++seq).padStart(12, '0')}`;
+const newId = (): string =>
+  `00000000-0000-7000-8000-${String(++seq).padStart(12, '0')}`;
 
-async function daemon(accessTokens: { id: string; actor: string; roles: ('read' | 'operate' | 'admin')[]; projects: string[]; token_file: string }[] = []) {
+async function daemon(
+  accessTokens: {
+    id: string;
+    actor: string;
+    roles: ('read' | 'operate' | 'admin')[];
+    projects: string[];
+    token_file: string;
+  }[] = [],
+) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'cusr-task-cli-')));
   dirs.push(base);
   const dataDir = join(base, 'data');
@@ -36,7 +56,17 @@ async function daemon(accessTokens: { id: string; actor: string; roles: ('read' 
       taskControl({
         store,
         now: () => clock.now(),
-        confirm: { store, ports: { git: fakeGit(), github: fakeGitHub(), host: fakeHost() }, configInputs: () => Promise.resolve({ user: userConfig(), packs: PACKS, manifests: MANIFESTS }), now: () => clock.now() },
+        confirm: {
+          store,
+          ports: { git: fakeGit(), github: fakeGitHub(), host: fakeHost() },
+          configInputs: () =>
+            Promise.resolve({
+              user: userConfig(),
+              packs: PACKS,
+              manifests: MANIFESTS,
+            }),
+          now: () => clock.now(),
+        },
       }),
   });
   if (!started.ok) throw new Error(JSON.stringify(started.error));
@@ -44,16 +74,35 @@ async function daemon(accessTokens: { id: string; actor: string; roles: ('read' 
   return { dataDir, base };
 }
 
-async function cli(argv: string[], env: Record<string, string> = {}): Promise<{ code: number; data: Record<string, unknown> | null; error: Record<string, unknown> | null }> {
+async function cli(
+  argv: string[],
+  env: Record<string, string> = {},
+): Promise<{
+  code: number;
+  data: Record<string, unknown> | null;
+  error: Record<string, unknown> | null;
+}> {
   const out: string[] = [];
   const saved = { ...process.env };
   Object.assign(process.env, env);
   try {
-    const code = await runCli({ name: 'cusr', description: 'test', version: '0' }, [...argv, '--json'], { stdout: (t) => out.push(t), stderr: () => undefined }, [addCommand, showCommand, confirmCommand, proposeCommand]);
-    const env1 = JSON.parse(out.join('')) as { ok: boolean; data?: Record<string, unknown>; error?: Record<string, unknown> };
+    const code = await runCli(
+      { name: 'cusr', description: 'test', version: '0' },
+      [...argv, '--json'],
+      { stdout: (t) => out.push(t), stderr: () => undefined },
+      [addCommand, showCommand, confirmCommand, proposeCommand],
+    );
+    const env1 = JSON.parse(out.join('')) as {
+      ok: boolean;
+      data?: Record<string, unknown>;
+      error?: Record<string, unknown>;
+    };
     // Commands answer `{ request_id, replayed, result }`; queries answer the data itself.
     const data = env1.ok ? (env1.data ?? null) : null;
-    const body = data !== null && 'result' in data && 'request_id' in data ? (data['result'] as Record<string, unknown>) : data;
+    const body =
+      data !== null && 'result' in data && 'request_id' in data
+        ? (data['result'] as Record<string, unknown>)
+        : data;
     return { code, data: body, error: env1.ok ? null : (env1.error ?? null) };
   } finally {
     process.env = saved;
@@ -64,49 +113,228 @@ describe('cusr add/show/confirm over the control socket (T048)', () => {
   it('adds a task, shows it and replays the same request instead of adding twice', async () => {
     const { dataDir } = await daemon();
     const req = '0190e9a0-0000-7000-8000-000000000001';
-    const add = await cli(['add', '--data-dir', dataDir, '--request-id', req, '--project', 'acme', '--title', 'Add search', '--base', 'main', '--acceptance', 'search by name works']);
-    expect(add).toMatchObject({ code: ExitCode.ok, data: { status: 'READY', project: 'acme', version: expect.any(Number) as unknown } });
+    const add = await cli([
+      'add',
+      '--data-dir',
+      dataDir,
+      '--request-id',
+      req,
+      '--project',
+      'acme',
+      '--title',
+      'Add search',
+      '--base',
+      'main',
+      '--acceptance',
+      'search by name works',
+    ]);
+    expect(add).toMatchObject({
+      code: ExitCode.ok,
+      data: {
+        status: 'READY',
+        project: 'acme',
+        version: expect.any(Number) as unknown,
+      },
+    });
     const id = add.data?.['task_id'] as string;
 
-    const again = await cli(['add', '--data-dir', dataDir, '--request-id', req, '--project', 'acme', '--title', 'Add search', '--base', 'main', '--acceptance', 'search by name works']);
+    const again = await cli([
+      'add',
+      '--data-dir',
+      dataDir,
+      '--request-id',
+      req,
+      '--project',
+      'acme',
+      '--title',
+      'Add search',
+      '--base',
+      'main',
+      '--acceptance',
+      'search by name works',
+    ]);
     expect(again.data?.['task_id']).toBe(id);
-    const changed = await cli(['add', '--data-dir', dataDir, '--request-id', req, '--project', 'acme', '--title', 'Something else', '--base', 'main']);
+    const changed = await cli([
+      'add',
+      '--data-dir',
+      dataDir,
+      '--request-id',
+      req,
+      '--project',
+      'acme',
+      '--title',
+      'Something else',
+      '--base',
+      'main',
+    ]);
     expect(changed.code).toBe(ExitCode.conflict);
 
-    expect(await cli(['show', '--data-dir', dataDir, '--task', id])).toMatchObject({ code: ExitCode.ok, data: { task_id: id, status: 'READY', pr_ref: null } });
-    expect(await cli(['show', '--data-dir', dataDir, '--task', '0190e9a0-0000-7000-8000-00000000ffff'])).toMatchObject({ code: ExitCode.missing });
+    expect(
+      await cli(['show', '--data-dir', dataDir, '--task', id]),
+    ).toMatchObject({
+      code: ExitCode.ok,
+      data: { task_id: id, status: 'READY', pr_ref: null },
+    });
+    expect(
+      await cli([
+        'show',
+        '--data-dir',
+        dataDir,
+        '--task',
+        '0190e9a0-0000-7000-8000-00000000ffff',
+      ]),
+    ).toMatchObject({ code: ExitCode.missing });
   });
 
   it('a task without acceptance stays PENDING; confirm checks the config of a READY task once', async () => {
     const { dataDir } = await daemon();
-    const pending = await cli(['add', '--data-dir', dataDir, '--project', 'acme', '--title', 'No acceptance', '--base', 'main']);
-    expect(pending.data).toMatchObject({ status: 'PENDING', wait: { detail: { code: 'missing_acceptance' } } });
+    const pending = await cli([
+      'add',
+      '--data-dir',
+      dataDir,
+      '--project',
+      'acme',
+      '--title',
+      'No acceptance',
+      '--base',
+      'main',
+    ]);
+    expect(pending.data).toMatchObject({
+      status: 'PENDING',
+      wait: { detail: { code: 'missing_acceptance' } },
+    });
 
-    const ready = await cli(['add', '--data-dir', dataDir, '--project', 'acme', '--title', 'Add search', '--base', 'main', '--acceptance', 'works']);
+    const ready = await cli([
+      'add',
+      '--data-dir',
+      dataDir,
+      '--project',
+      'acme',
+      '--title',
+      'Add search',
+      '--base',
+      'main',
+      '--acceptance',
+      'works',
+    ]);
     const id = ready.data?.['task_id'] as string;
     const version = String(ready.data?.['version']);
-    const confirmed = await cli(['confirm', '--data-dir', dataDir, '--project', 'acme', '--task', id, '--task-version', version]);
-    expect(confirmed).toMatchObject({ code: ExitCode.ok, data: { status: 'READY', config_check: 'checked' } });
-    expect(await cli(['confirm', '--data-dir', dataDir, '--project', 'acme', '--task', id, '--task-version', version])).toMatchObject({ code: ExitCode.conflict });
+    const confirmed = await cli([
+      'confirm',
+      '--data-dir',
+      dataDir,
+      '--project',
+      'acme',
+      '--task',
+      id,
+      '--task-version',
+      version,
+    ]);
+    expect(confirmed).toMatchObject({
+      code: ExitCode.ok,
+      data: { status: 'READY', config_check: 'checked' },
+    });
+    expect(
+      await cli([
+        'confirm',
+        '--data-dir',
+        dataDir,
+        '--project',
+        'acme',
+        '--task',
+        id,
+        '--task-version',
+        version,
+      ]),
+    ).toMatchObject({
+      code: ExitCode.conflict,
+    });
   });
 
   it('a read-only token cannot add, and a token for another project cannot see the task', async () => {
     const base = realpathSync(mkdtempSync(join(tmpdir(), 'cusr-task-tokens-')));
     dirs.push(base);
     const readerFile = join(base, 'reader.token');
-    writeFileSync(readerFile, `${randomBytes(32).toString('base64url')}\n`, { mode: 0o600 });
+    writeFileSync(readerFile, `${randomBytes(32).toString('base64url')}\n`, {
+      mode: 0o600,
+    });
     const otherFile = join(base, 'other.token');
-    writeFileSync(otherFile, `${randomBytes(32).toString('base64url')}\n`, { mode: 0o600 });
+    writeFileSync(otherFile, `${randomBytes(32).toString('base64url')}\n`, {
+      mode: 0o600,
+    });
     const scoped = await daemon([
-      { id: 'reader', actor: 'reader', roles: ['read'], projects: ['acme'], token_file: readerFile },
-      { id: 'other', actor: 'assistant', roles: ['read', 'operate'], projects: ['elsewhere'], token_file: otherFile },
+      {
+        id: 'reader',
+        actor: 'reader',
+        roles: ['read'],
+        projects: ['acme'],
+        token_file: readerFile,
+      },
+      {
+        id: 'other',
+        actor: 'assistant',
+        roles: ['read', 'operate'],
+        projects: ['elsewhere'],
+        token_file: otherFile,
+      },
     ]);
-    const reader = await cli(['add', '--data-dir', scoped.dataDir, '--project', 'acme', '--title', 'T', '--base', 'main', '--acceptance', 'a'], { CUSR_TOKEN_FILE: readerFile });
+    const reader = await cli(
+      [
+        'add',
+        '--data-dir',
+        scoped.dataDir,
+        '--project',
+        'acme',
+        '--title',
+        'T',
+        '--base',
+        'main',
+        '--acceptance',
+        'a',
+      ],
+      {
+        CUSR_TOKEN_FILE: readerFile,
+      },
+    );
     expect(reader.code).toBe(ExitCode.forbidden);
-    const mine = await cli(['add', '--data-dir', scoped.dataDir, '--project', 'acme', '--title', 'T', '--base', 'main', '--acceptance', 'a']);
-    const other = await cli(['show', '--data-dir', scoped.dataDir, '--task', mine.data?.['task_id'] as string], { CUSR_TOKEN_FILE: otherFile });
+    const mine = await cli([
+      'add',
+      '--data-dir',
+      scoped.dataDir,
+      '--project',
+      'acme',
+      '--title',
+      'T',
+      '--base',
+      'main',
+      '--acceptance',
+      'a',
+    ]);
+    const other = await cli(
+      [
+        'show',
+        '--data-dir',
+        scoped.dataDir,
+        '--task',
+        mine.data?.['task_id'] as string,
+      ],
+      { CUSR_TOKEN_FILE: otherFile },
+    );
     expect(other.code).toBe(ExitCode.missing);
-    expect(await cli(['show', '--data-dir', scoped.dataDir, '--task', mine.data?.['task_id'] as string], { CUSR_TOKEN_FILE: readerFile })).toMatchObject({ code: ExitCode.ok });
+    expect(
+      await cli(
+        [
+          'show',
+          '--data-dir',
+          scoped.dataDir,
+          '--task',
+          mine.data?.['task_id'] as string,
+        ],
+        { CUSR_TOKEN_FILE: readerFile },
+      ),
+    ).toMatchObject({
+      code: ExitCode.ok,
+    });
   });
 
   it('refuses incomplete arguments locally with usage exit', async () => {
@@ -118,35 +346,184 @@ describe('cusr add/show/confirm over the control socket (T048)', () => {
     const base = realpathSync(mkdtempSync(join(tmpdir(), 'cusr-task-run-')));
     dirs.push(base);
     const botFile = join(base, 'bot.token');
-    writeFileSync(botFile, `${randomBytes(32).toString('base64url')}\n`, { mode: 0o600 });
-    const { dataDir } = await daemon([{ id: 'assistant', actor: 'assistant', roles: ['read', 'operate'], projects: ['acme'], token_file: botFile }]);
-    const run = ['--profile', 'standard', '--mode', 'direct-pr', '--worker', 'claude/sonnet/medium', '--reason', 'small, low-risk change'];
+    writeFileSync(botFile, `${randomBytes(32).toString('base64url')}\n`, {
+      mode: 0o600,
+    });
+    const { dataDir } = await daemon([
+      {
+        id: 'assistant',
+        actor: 'assistant',
+        roles: ['read', 'operate'],
+        projects: ['acme'],
+        token_file: botFile,
+      },
+    ]);
+    const run = [
+      '--profile',
+      'standard',
+      '--mode',
+      'direct-pr',
+      '--worker',
+      'claude/sonnet/medium',
+      '--reason',
+      'small, low-risk change',
+    ];
     // The assistant creates the task and proposes how it runs; intake still needs confirmation.
-    const added = await cli(['add', '--data-dir', dataDir, '--project', 'acme', '--title', 'Add search', '--base', 'main', '--acceptance', 'works', ...run], { CUSR_TOKEN_FILE: botFile });
-    expect(added).toMatchObject({ code: ExitCode.ok, data: { status: 'PENDING', run_config: { status: 'proposed', mode: 'direct-pr', selection: { worker: { harness: 'claude', model: 'sonnet', effort: 'medium' }, reviewer: null }, proposed_by: 'assistant' } } });
+    const added = await cli(
+      [
+        'add',
+        '--data-dir',
+        dataDir,
+        '--project',
+        'acme',
+        '--title',
+        'Add search',
+        '--base',
+        'main',
+        '--acceptance',
+        'works',
+        ...run,
+      ],
+      {
+        CUSR_TOKEN_FILE: botFile,
+      },
+    );
+    expect(added).toMatchObject({
+      code: ExitCode.ok,
+      data: {
+        status: 'PENDING',
+        run_config: {
+          status: 'proposed',
+          mode: 'direct-pr',
+          selection: {
+            worker: { harness: 'claude', model: 'sonnet', effort: 'medium' },
+            reviewer: null,
+          },
+          proposed_by: 'assistant',
+        },
+      },
+    });
     const id = added.data?.['task_id'] as string;
     const digest = (added.data?.['run_config'] as { digest: string }).digest;
-    const version = () => cli(['show', '--data-dir', dataDir, '--task', id]).then((r) => String(r.data?.['version']));
+    const version = () =>
+      cli(['show', '--data-dir', dataDir, '--task', id]).then((r) =>
+        String(r.data?.['version']),
+      );
 
     // The assistant cannot confirm the run selection, even with the right digest.
-    const byBot = await cli(['confirm', '--data-dir', dataDir, '--project', 'acme', '--task', id, '--task-version', await version(), '--run-config', digest], { CUSR_TOKEN_FILE: botFile });
+    const byBot = await cli(
+      [
+        'confirm',
+        '--data-dir',
+        dataDir,
+        '--project',
+        'acme',
+        '--task',
+        id,
+        '--task-version',
+        await version(),
+        '--run-config',
+        digest,
+      ],
+      {
+        CUSR_TOKEN_FILE: botFile,
+      },
+    );
     expect(byBot.code).not.toBe(ExitCode.ok);
-    expect(byBot.error).toMatchObject({ code: 'rejected', details: { reason: 'untrusted_confirmation' } });
-    expect((await cli(['show', '--data-dir', dataDir, '--task', id])).data?.['run_config']).toMatchObject({ status: 'proposed' });
+    expect(byBot.error).toMatchObject({
+      code: 'rejected',
+      details: { reason: 'untrusted_confirmation' },
+    });
+    expect(
+      (await cli(['show', '--data-dir', dataDir, '--task', id])).data?.[
+        'run_config'
+      ],
+    ).toMatchObject({ status: 'proposed' });
 
     // The owner confirms intake and the selection in one interaction; a wrong digest is refused.
-    const wrong = await cli(['confirm', '--data-dir', dataDir, '--project', 'acme', '--task', id, '--task-version', await version(), '--run-config', `sha256:${'0'.repeat(64)}`]);
-    expect(wrong.error).toMatchObject({ details: { detail: { reason: 'run_config_digest_mismatch', current: digest } } });
-    const owner = await cli(['confirm', '--data-dir', dataDir, '--project', 'acme', '--task', id, '--task-version', await version(), '--run-config', digest]);
-    expect(owner).toMatchObject({ code: ExitCode.ok, data: { status: 'READY', run_config_confirmation: 'confirmed', run_config: { status: 'confirmed', confirmed_by: 'owner' } } });
+    const wrong = await cli([
+      'confirm',
+      '--data-dir',
+      dataDir,
+      '--project',
+      'acme',
+      '--task',
+      id,
+      '--task-version',
+      await version(),
+      '--run-config',
+      `sha256:${'0'.repeat(64)}`,
+    ]);
+    expect(wrong.error).toMatchObject({
+      details: {
+        detail: { reason: 'run_config_digest_mismatch', current: digest },
+      },
+    });
+    const owner = await cli([
+      'confirm',
+      '--data-dir',
+      dataDir,
+      '--project',
+      'acme',
+      '--task',
+      id,
+      '--task-version',
+      await version(),
+      '--run-config',
+      digest,
+    ]);
+    expect(owner).toMatchObject({
+      code: ExitCode.ok,
+      data: {
+        status: 'READY',
+        run_config_confirmation: 'confirmed',
+        run_config: { status: 'confirmed', confirmed_by: 'owner' },
+      },
+    });
 
     // A new proposal makes the old confirmation stale until it is confirmed again.
-    const proposed = await cli(['propose', '--data-dir', dataDir, '--project', 'acme', '--task', id, '--task-version', await version(), '--profile', 'standard', '--mode', 'full-review', '--worker', 'claude/sonnet/medium', '--reviewer', 'codex/sol/medium']);
-    expect(proposed).toMatchObject({ code: ExitCode.ok, data: { run_config: { status: 'stale', mode: 'full-review' } } });
+    const proposed = await cli([
+      'propose',
+      '--data-dir',
+      dataDir,
+      '--project',
+      'acme',
+      '--task',
+      id,
+      '--task-version',
+      await version(),
+      '--profile',
+      'standard',
+      '--mode',
+      'full-review',
+      '--worker',
+      'claude/sonnet/medium',
+      '--reviewer',
+      'codex/sol/medium',
+    ]);
+    expect(proposed).toMatchObject({
+      code: ExitCode.ok,
+      data: { run_config: { status: 'stale', mode: 'full-review' } },
+    });
   });
 
   it('refuses an incomplete run selection locally', async () => {
-    expect((await cli(['add', '--project', 'acme', '--title', 'T', '--base', 'main', '--mode', 'full-review', '--worker', 'claude/sonnet'])).code).toBe(ExitCode.usage);
+    expect(
+      (
+        await cli([
+          'add',
+          '--project',
+          'acme',
+          '--title',
+          'T',
+          '--base',
+          'main',
+          '--mode',
+          'full-review',
+          '--worker',
+          'claude/sonnet',
+        ])
+      ).code,
+    ).toBe(ExitCode.usage);
   });
 });
-

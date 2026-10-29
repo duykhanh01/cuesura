@@ -19,18 +19,32 @@ describe('backoff (research R-22)', () => {
 
   it('derives jitter from the key, so the same input gives the same delay', () => {
     expect(backoffDelay(CFG, 2, 'k1')).toBe(backoffDelay(CFG, 2, 'k1'));
-    const delays = new Set(['k1', 'k2', 'k3', 'k4', 'k5'].map((k) => backoffDelay(CFG, 2, k)));
+    const delays = new Set(
+      ['k1', 'k2', 'k3', 'k4', 'k5'].map((k) => backoffDelay(CFG, 2, k)),
+    );
     expect(delays.size).toBeGreaterThan(1);
   });
 
   it('stops after max_attempts', () => {
     expect(planBackoff(CFG, 3, 'k', 0)).toMatchObject({ kind: 'wait' });
-    expect(planBackoff(CFG, 4, 'k', 0)).toEqual({ kind: 'exhausted', reason: 'max_attempts' });
+    expect(planBackoff(CFG, 4, 'k', 0)).toEqual({
+      kind: 'exhausted',
+      reason: 'max_attempts',
+    });
   });
 
   it('honours reset_at within max_ms and refuses one further away', () => {
-    expect(planBackoff(CFG, 1, 'k', 1_000, 61_000)).toEqual({ kind: 'wait', due_at: 61_000 });
-    expect(planBackoff(CFG, 1, 'k', 1_000, 500)).toEqual({ kind: 'wait', due_at: 1_000 });
-    expect(planBackoff(CFG, 1, 'k', 0, 300_001)).toEqual({ kind: 'exhausted', reason: 'reset_too_far' });
+    expect(planBackoff(CFG, 1, 'k', 1_000, 61_000)).toEqual({
+      kind: 'wait',
+      due_at: 61_000,
+    });
+    expect(planBackoff(CFG, 1, 'k', 1_000, 500)).toEqual({
+      kind: 'wait',
+      due_at: 1_000,
+    });
+    expect(planBackoff(CFG, 1, 'k', 0, 300_001)).toEqual({
+      kind: 'exhausted',
+      reason: 'reset_too_far',
+    });
   });
 });

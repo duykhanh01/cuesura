@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { canonicalJson, CanonicalJsonError } from '../../../src/shared/canonical-json.ts';
+import {
+  canonicalJson,
+  CanonicalJsonError,
+} from '../../../src/shared/canonical-json.ts';
 
 describe('canonicalJson (R-03)', () => {
   it('sắp key theo code point, không khoảng trắng', () => {
@@ -10,13 +13,15 @@ describe('canonicalJson (R-03)', () => {
 
   it('so sánh theo code point chứ không theo UTF-16 code unit', () => {
     // U+FF61 < U+1F600 theo code point, nhưng surrogate 0xD83D < 0xFF61 theo code unit.
-    expect(canonicalJson({ '\u{1F600}': 1, '｡': 2 })).toBe('{"｡":2,"\u{1F600}":1}');
+    expect(canonicalJson({ '\u{1F600}': 1, '｡': 2 })).toBe(
+      '{"｡":2,"\u{1F600}":1}',
+    );
   });
 
   it('bỏ khoá undefined, mảng giữ thứ tự, số theo JSON.stringify', () => {
-    expect(canonicalJson({ x: undefined, y: [2, 1], z: 1e21, w: -0, v: 0.1 })).toBe(
-      '{"v":0.1,"w":0,"y":[2,1],"z":1e+21}',
-    );
+    expect(
+      canonicalJson({ x: undefined, y: [2, 1], z: 1e21, w: -0, v: 0.1 }),
+    ).toBe('{"v":0.1,"w":0,"y":[2,1],"z":1e+21}');
   });
 
   it.each([
@@ -39,7 +44,9 @@ describe('canonicalJson (R-03)', () => {
 
   it('từ chối tham chiếu vòng nhưng cho phép object dùng lại không vòng', () => {
     const shared = { k: 1 };
-    expect(canonicalJson({ a: shared, b: shared })).toBe('{"a":{"k":1},"b":{"k":1}}');
+    expect(canonicalJson({ a: shared, b: shared })).toBe(
+      '{"a":{"k":1},"b":{"k":1}}',
+    );
     const loop: Record<string, unknown> = {};
     loop['self'] = loop;
     expect(() => canonicalJson(loop)).toThrow(CanonicalJsonError);

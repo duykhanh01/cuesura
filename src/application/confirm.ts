@@ -9,7 +9,12 @@ import type { TaskState, Wait } from '../domain/state.ts';
 import { FREEZE_PENDING_CODES } from '../engine/start.ts';
 import type { Hash, Uuid } from '../shared/brand.ts';
 import type { AcceptError, Store } from '../store/index.ts';
-import { authorize, authzContext, type AuthzError, type Caller } from './authz.ts';
+import {
+  authorize,
+  authzContext,
+  type AuthzError,
+  type Caller,
+} from './authz.ts';
 import type { PreflightInput, PreflightPorts } from './preflight.ts';
 import { checkConfig, submit } from './triage.ts';
 
@@ -42,7 +47,8 @@ export type ConfirmCommand = {
  * `unavailable`: preflight could not establish a fact; nothing was recorded. `stale`: the task changed
  * during preflight. `recorded_earlier`: a replay of this request; its first candidate stands.
  */
-export type ConfigCheckStatus = 'checked' | 'skipped' | 'unavailable' | 'stale' | 'recorded_earlier';
+export type ConfigCheckStatus =
+  'checked' | 'skipped' | 'unavailable' | 'stale' | 'recorded_earlier';
 
 export type ConfirmResult = {
   readonly task_id: string;
@@ -51,20 +57,31 @@ export type ConfirmResult = {
   readonly wait: Wait | null;
   readonly config_check: ConfigCheckStatus;
   readonly run_config: 'confirmed' | 'not_requested';
-  readonly unavailable: { readonly check: string; readonly detail: string } | null;
+  readonly unavailable: {
+    readonly check: string;
+    readonly detail: string;
+  } | null;
 };
 
 export type ConfirmError =
   | AuthzError
   | { readonly code: 'unknown_task' }
-  | { readonly code: 'rejected'; readonly reason: string; readonly detail?: unknown }
+  | {
+      readonly code: 'rejected';
+      readonly reason: string;
+      readonly detail?: unknown;
+    }
   | AcceptError;
 
 /** Not started and either READY or PENDING only because its config/capability failed. */
 export function needsConfigCheck(s: TaskState): boolean {
   if (s.policy_ref !== null || s.execution.holding !== null) return false;
   if (s.status === 'READY') return true;
-  return s.status === 'PENDING' && s.wait?.reason === 'needs_info' && FREEZE_PENDING_CODES.includes(s.wait.detail.code);
+  return (
+    s.status === 'PENDING' &&
+    s.wait?.reason === 'needs_info' &&
+    FREEZE_PENDING_CODES.includes(s.wait.detail.code)
+  );
 }
 
 /** Runs preflight for a not-started task and records the candidate under `dedup_key`. */
@@ -72,11 +89,25 @@ export async function recordConfigCheck(
   deps: ConfirmDeps,
   state: TaskState,
   dedupKey: string,
-): Promise<{ status: ConfigCheckStatus; unavailable: { check: string; detail: string } | null }> {
+): Promise<{
+  status: ConfigCheckStatus;
+  unavailable: { check: string; detail: string } | null;
+}> {
   if (!needsConfigCheck(state)) return { status: 'skipped', unavailable: null };
-  const check = await checkConfig(deps.ports, { task: state.task, ...(await deps.configInputs()), mode: state.run.proposal?.selection.mode ?? null });
-  if (check.kind === 'infra') return { status: 'unavailable', unavailable: { check: check.check, detail: check.detail } };
-  const outcome = check.kind === 'ok' ? { ok: true as const, base_sha: check.candidate.base_sha } : { ok: false as const, error: check.error };
+  const check = await checkConfig(deps.ports, {
+    task: state.task,
+    ...(await deps.configInputs()),
+    mode: state.run.proposal?.selection.mode ?? null,
+  });
+  if (check.kind === 'infra')
+    return {
+      status: 'unavailable',
+      unavailable: { check: check.check, detail: check.detail },
+    };
+  const outcome =
+    check.kind === 'ok'
+      ? { ok: true as const, base_sha: check.candidate.base_sha }
+      : { ok: false as const, error: check.error };
   const r = submit(deps.store, {
     task_id: state.id,
     dedup_key: dedupKey,
@@ -85,20 +116,42 @@ export async function recordConfigCheck(
     expected_version: state.version,
   });
   if (!r.ok) {
-    if (r.error.code === 'conflict' && r.error.reason === 'request_hash_mismatch') return { status: 'recorded_earlier', unavailable: null };
-    if (r.error.code === 'conflict' && r.error.reason === 'stale_version') return { status: 'stale', unavailable: null };
+    if (
+      r.error.code === 'conflict' &&
+      r.error.reason === 'request_hash_mismatch'
+    )
+      return { status: 'recorded_earlier', unavailable: null };
+    if (r.error.code === 'conflict' && r.error.reason === 'stale_version')
+      return { status: 'stale', unavailable: null };
     throw new Error(`config_checked not accepted: ${JSON.stringify(r.error)}`);
   }
-  return { status: r.value.duplicate ? 'recorded_earlier' : 'checked', unavailable: null };
+  return {
+    status: r.value.duplicate ? 'recorded_earlier' : 'checked',
+    unavailable: null,
+  };
 }
 
-export async function confirmTask(deps: ConfirmDeps, caller: Caller, cmd: ConfirmCommand): Promise<{ ok: true; value: ConfirmResult } | { ok: false; error: ConfirmError }> {
+export async function confirmTask(
+  deps: ConfirmDeps,
+  caller: Caller,
+  cmd: ConfirmCommand,
+): Promise<
+  { ok: true; value: ConfirmResult } | { ok: false; error: ConfirmError }
+> {
   const allowed = authorize(caller, { role: 'operate', project: cmd.project });
   if (!allowed.ok) return allowed;
   const before = deps.store.readTask(cmd.task_id as Uuid);
   if (before === null) return { ok: false, error: { code: 'unknown_task' } };
   // The admitted project must be the task's own: a grant for another project cannot confirm it.
-  if (before.task.project !== cmd.project) return { ok: false, error: { code: 'forbidden', reason: 'project', required: before.task.project } };
+  if (before.task.project !== cmd.project)
+    return {
+      ok: false,
+      error: {
+        code: 'forbidden',
+        reason: 'project',
+        required: before.task.project,
+      },
+    };
 
   const confirmed = submit(deps.store, {
     task_id: cmd.task_id,
@@ -111,26 +164,67 @@ export async function confirmTask(deps: ConfirmDeps, caller: Caller, cmd: Confir
   });
   if (!confirmed.ok) return confirmed;
   const d = confirmed.value.decision;
-  if (d.kind === 'rejected') return { ok: false, error: { code: 'rejected', reason: d.code, ...(d.detail === undefined ? {} : { detail: d.detail }) } };
+  if (d.kind === 'rejected')
+    return {
+      ok: false,
+      error: {
+        code: 'rejected',
+        reason: d.code,
+        ...(d.detail === undefined ? {} : { detail: d.detail }),
+      },
+    };
 
   if (cmd.run_config_digest !== undefined) {
     const mid = deps.store.readTask(cmd.task_id as Uuid) as TaskState;
     const run = submit(deps.store, {
       task_id: cmd.task_id,
       dedup_key: `cmd:${cmd.request_id}:run`,
-      trigger: { kind: 'confirm_run_config', digest: cmd.run_config_digest as Hash },
+      trigger: {
+        kind: 'confirm_run_config',
+        digest: cmd.run_config_digest as Hash,
+      },
       now: deps.now(),
       expected_version: mid.version,
       authz: authzContext(caller, deps.now()),
     });
-    if (!run.ok && !(run.error.code === 'conflict' && run.error.reason === 'request_hash_mismatch')) return run;
+    if (
+      !run.ok &&
+      !(
+        run.error.code === 'conflict' &&
+        run.error.reason === 'request_hash_mismatch'
+      )
+    )
+      return run;
     if (run.ok && run.value.decision.kind === 'rejected') {
       const d2 = run.value.decision;
-      return { ok: false, error: { code: 'rejected', reason: d2.code, ...(d2.detail === undefined ? {} : { detail: d2.detail }) } };
+      return {
+        ok: false,
+        error: {
+          code: 'rejected',
+          reason: d2.code,
+          ...(d2.detail === undefined ? {} : { detail: d2.detail }),
+        },
+      };
     }
   }
   const after = deps.store.readTask(cmd.task_id as Uuid) as TaskState;
-  const check = await recordConfigCheck(deps, after, `cmd:${cmd.request_id}:config`);
+  const check = await recordConfigCheck(
+    deps,
+    after,
+    `cmd:${cmd.request_id}:config`,
+  );
   const s = deps.store.readTask(cmd.task_id as Uuid) as TaskState;
-  return { ok: true, value: { task_id: s.id, task_version: s.version, status: s.status, wait: s.wait, config_check: check.status, run_config: cmd.run_config_digest === undefined ? 'not_requested' : 'confirmed', unavailable: check.unavailable } };
+  return {
+    ok: true,
+    value: {
+      task_id: s.id,
+      task_version: s.version,
+      status: s.status,
+      wait: s.wait,
+      config_check: check.status,
+      run_config:
+        cmd.run_config_digest === undefined ? 'not_requested' : 'confirmed',
+      unavailable: check.unavailable,
+    },
+  };
 }

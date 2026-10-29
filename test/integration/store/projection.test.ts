@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { openFileStoreForTest, openMemoryStore, storeDb } from '../../../src/store/testing.ts';
+import {
+  openFileStoreForTest,
+  openMemoryStore,
+  storeDb,
+} from '../../../src/store/testing.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 import { mixedWorkload } from '../../support/store-flows.ts';
 import { dbPath, useTempDir } from '../../support/temp-db.ts';
@@ -18,13 +22,22 @@ describe('verifyProjections (T079, FR-029)', () => {
   });
 
   it.each([
-    ['tasks', `UPDATE tasks SET status = 'DONE' WHERE rowid = (SELECT min(rowid) FROM tasks)`],
+    [
+      'tasks',
+      `UPDATE tasks SET status = 'DONE' WHERE rowid = (SELECT min(rowid) FROM tasks)`,
+    ],
     [
       'tasks',
       `UPDATE tasks SET state_json = replace(state_json, '"version":', '"version":1') WHERE rowid = (SELECT min(rowid) FROM tasks)`,
     ],
-    ['effects', `UPDATE effects SET status = 'succeeded' WHERE status = 'pending'`],
-    ['effects', `DELETE FROM effects WHERE rowid = (SELECT max(rowid) FROM effects)`],
+    [
+      'effects',
+      `UPDATE effects SET status = 'succeeded' WHERE status = 'pending'`,
+    ],
+    [
+      'effects',
+      `DELETE FROM effects WHERE rowid = (SELECT max(rowid) FROM effects)`,
+    ],
     ['timers', `UPDATE timers SET due_at = due_at + 1`],
     ['task_deps', `DELETE FROM task_deps`],
     ['frozen_policies', `UPDATE frozen_policies SET policy_hash = 'sha256:00'`],
@@ -44,6 +57,8 @@ describe('verifyProjections (T079, FR-029)', () => {
     storeDb(store).exec(
       `UPDATE events SET seq = seq + 100 WHERE global_seq = (SELECT max(global_seq) FROM events)`,
     );
-    expect(store.verifyProjections().mismatches.some((m) => m.table === 'events')).toBe(true);
+    expect(
+      store.verifyProjections().mismatches.some((m) => m.table === 'events'),
+    ).toBe(true);
   });
 });

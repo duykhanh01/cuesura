@@ -1,7 +1,12 @@
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 import type { EpochMs } from '../../../src/shared/brand.ts';
-import { openFileStoreForTest, openMemoryStore, storeDb, type CrashPoint } from '../../../src/store/testing.ts';
+import {
+  openFileStoreForTest,
+  openMemoryStore,
+  storeDb,
+  type CrashPoint,
+} from '../../../src/store/testing.ts';
 import { buildTask, freezeOk } from '../../support/builders.ts';
 import { ciData, publishData } from '../../support/scenario.ts';
 import { StoreDriver, timerIds } from '../../support/store-driver.ts';
@@ -16,13 +21,18 @@ const WALL = 3_600_000;
 
 function started(d: StoreDriver): void {
   d.must(TASK.id, { kind: 'create_task', task: TASK });
-  d.must(TASK.id, { kind: 'start', freeze: freezeOk(TASK, { limits: { max_wall_ms: WALL } }) });
+  d.must(TASK.id, {
+    kind: 'start',
+    freeze: freezeOk(TASK, { limits: { max_wall_ms: WALL } }),
+  });
 }
 
 function timerSignals(d: StoreDriver): number {
   return (
     storeDb(d.store)
-      .prepare(`SELECT count(*) AS n FROM accepted_triggers WHERE dedup_key LIKE 'timer:%'`)
+      .prepare(
+        `SELECT count(*) AS n FROM accepted_triggers WHERE dedup_key LIKE 'timer:%'`,
+      )
       .get() as { n: number }
   ).n;
 }
@@ -46,7 +56,10 @@ describe('Timer trong kho (T081)', () => {
       decision: { kind: 'accepted' },
     });
     expect(d.task(TASK.id).timers[deadline?.id ?? '']?.status).toBe('fired');
-    expect(d.task(TASK.id).wait).toMatchObject({ reason: 'policy', detail: { code: 'deadline' } });
+    expect(d.task(TASK.id).wait).toMatchObject({
+      reason: 'policy',
+      detail: { code: 'deadline' },
+    });
 
     expect(d.fire()).toEqual([]);
     expect(timerSignals(d)).toBe(1);
@@ -56,7 +69,9 @@ describe('Timer trong kho (T081)', () => {
       { kind: 'timer', timer_id: deadline?.id as never },
       { dedup_key: `timer:${deadline?.id}` },
     );
-    expect(d.deliver({ ...env, ids: timerIds(deadline?.id ?? '') })).toMatchObject({
+    expect(
+      d.deliver({ ...env, ids: timerIds(deadline?.id ?? '') }),
+    ).toMatchObject({
       ok: true,
       value: { duplicate: true },
     });
@@ -101,10 +116,18 @@ describe('Timer trong kho (T081)', () => {
     d.must(TASK.id, { kind: 'create_task', task: TASK });
     d.must(TASK.id, {
       kind: 'start',
-      freeze: freezeOk(TASK, { limits: { max_wall_ms: 100 * WALL }, required_checks: ['A', 'B'] }),
+      freeze: freezeOk(TASK, {
+        limits: { max_wall_ms: 100 * WALL },
+        required_checks: ['A', 'B'],
+      }),
     });
     toPublish(d, TASK, 'H');
-    d.complete(TASK.id, d.pendingOne(TASK.id, 'publish').id, 'succeeded', publishData('H'));
+    d.complete(
+      TASK.id,
+      d.pendingOne(TASK.id, 'publish').id,
+      'succeeded',
+      publishData('H'),
+    );
     d.complete(TASK.id, d.pendingOne(TASK.id, 'create_pr').id, 'succeeded', {
       pr_ref: 'acme#1',
       head_sha: 'H',
@@ -115,7 +138,9 @@ describe('Timer trong kho (T081)', () => {
       'succeeded',
       ciData('H', { A: 'success' }, { names: ['A'] }),
     );
-    const poll = Object.values(d.task(TASK.id).timers).find((t) => t.kind === 'ci_poll');
+    const poll = Object.values(d.task(TASK.id).timers).find(
+      (t) => t.kind === 'ci_poll',
+    );
     if (poll === undefined) throw new Error('thiếu timer ci_poll');
     d.now = poll.due_at;
 
@@ -125,7 +150,9 @@ describe('Timer trong kho (T081)', () => {
       value: [{ decision: { kind: 'rejected', code: 'id_pool_exhausted' } }],
     });
     expect(timerSignals(d)).toBe(0);
-    expect(d.store.dueTimers(d.now as EpochMs, 10).map((t) => t.id)).toEqual([poll.id]);
+    expect(d.store.dueTimers(d.now as EpochMs, 10).map((t) => t.id)).toEqual([
+      poll.id,
+    ]);
 
     expect(d.fire()).toMatchObject([{ decision: { kind: 'accepted' } }]);
     expect(timerSignals(d)).toBe(1);

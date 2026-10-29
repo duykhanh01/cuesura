@@ -11,10 +11,14 @@ const rest: string[] = [];
 for (let i = 0; i < args.length; i++) {
   const a = args[i] as string;
   if (a === '--seed') env['CUSR_SEED'] = args[++i];
-  else if (a.startsWith('--seed=')) env['CUSR_SEED'] = a.slice('--seed='.length);
+  else if (a.startsWith('--seed='))
+    env['CUSR_SEED'] = a.slice('--seed='.length);
   else rest.push(a);
 }
-if (env['CUSR_SEED'] !== undefined && !Number.isInteger(Number(env['CUSR_SEED']))) {
+if (
+  env['CUSR_SEED'] !== undefined &&
+  !Number.isInteger(Number(env['CUSR_SEED']))
+) {
   process.stderr.write(`--seed phải là số nguyên: ${env['CUSR_SEED']}\n`);
   process.exit(2);
 }

@@ -20,25 +20,50 @@ type RecheckTrigger = Extract<Trigger, { kind: 'recheck' }>;
 
 export function onRecheck(ctx: Ctx, t: RecheckTrigger): void {
   const s = ctx.state;
-  if (!hasRole(ctx.env.authz, 'operate') && !hasRole(ctx.env.authz, 'admin')) reject('invalid_trigger', { reason: 'operate_required' });
+  if (!hasRole(ctx.env.authz, 'operate') && !hasRole(ctx.env.authz, 'admin'))
+    reject('invalid_trigger', { reason: 'operate_required' });
   switch (t.target) {
     case 'config': {
       const w = s.wait;
-      const ok = s.status === 'PENDING' && s.policy_ref === null && w?.reason === 'needs_info' && FREEZE_PENDING_CODES.includes(w.detail.code);
-      if (!ok) reject('invalid_trigger', { reason: 'recheck_not_applicable', target: t.target });
+      const ok =
+        s.status === 'PENDING' &&
+        s.policy_ref === null &&
+        w?.reason === 'needs_info' &&
+        FREEZE_PENDING_CODES.includes(w.detail.code);
+      if (!ok)
+        reject('invalid_trigger', {
+          reason: 'recheck_not_applicable',
+          target: t.target,
+        });
       break;
     }
     case 'observation':
-      if (s.pr_ref === null || s.policy_ref === null) reject('invalid_trigger', { reason: 'recheck_not_applicable', target: t.target });
-      if (s.completion !== null) reject('invalid_trigger', { reason: 'completion_recorded', target: t.target });
+      if (s.pr_ref === null || s.policy_ref === null)
+        reject('invalid_trigger', {
+          reason: 'recheck_not_applicable',
+          target: t.target,
+        });
+      if (s.completion !== null)
+        reject('invalid_trigger', {
+          reason: 'completion_recorded',
+          target: t.target,
+        });
       break;
     case 'drain':
-      if (s.completion === null || s.completion.finalized_at !== null) reject('invalid_trigger', { reason: 'recheck_not_applicable', target: t.target });
+      if (s.completion === null || s.completion.finalized_at !== null)
+        reject('invalid_trigger', {
+          reason: 'recheck_not_applicable',
+          target: t.target,
+        });
       break;
     default: {
       const never: never = t.target;
       throw new Error(`unknown recheck target ${String(never)}`);
     }
   }
-  ctx.emit('RecheckRequested', { request_id: ctx.env.dedup_key, target: t.target, at: ctx.now });
+  ctx.emit('RecheckRequested', {
+    request_id: ctx.env.dedup_key,
+    target: t.target,
+    at: ctx.now,
+  });
 }

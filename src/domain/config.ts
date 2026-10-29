@@ -11,9 +11,17 @@ import type { Predicate, Workflow } from './workflow.ts';
 export type ModelInfo = { harness: string; id: string; tier: number };
 
 /** Một bước của thang: đổi effort, model hoặc thêm context so với nấc trước (cộng dồn). */
-export type LadderStep = { effort?: Effort; model?: string; add_context?: string[] };
+export type LadderStep = {
+  effort?: Effort;
+  model?: string;
+  add_context?: string[];
+};
 
-export type BindingRule = { when: Predicate | null; model: string; effort: Effort };
+export type BindingRule = {
+  when: Predicate | null;
+  model: string;
+  effort: Effort;
+};
 
 export type NormalizedRole = {
   permissions: Binding['permissions'];
@@ -34,7 +42,12 @@ export type NormalizedProfile = {
   max_agent_runs: number | null;
   max_wall_ms: number | null;
   max_decider_calls: number;
-  escalation: { enabled: boolean; auto_up_to_tier: number; above: 'ask_human' | 'deny'; max_escalations: number };
+  escalation: {
+    enabled: boolean;
+    auto_up_to_tier: number;
+    above: 'ask_human' | 'deny';
+    max_escalations: number;
+  };
   classes: Limits['classes'];
   backoff: Limits['backoff'];
   overridable: string[];
@@ -60,12 +73,18 @@ export type NormalizedProject = {
 };
 
 export type NormalizedUser = {
-  harnesses: Record<string, { cmd: string; auth: 'subscription' | 'api_key'; pool: string }>;
+  harnesses: Record<
+    string,
+    { cmd: string; auth: 'subscription' | 'api_key'; pool: string }
+  >;
   pools: Record<string, number>;
   models: Record<string, ModelInfo>;
   roles: Record<string, NormalizedRole>;
   workflows: Record<string, Workflow>;
-  projects: Record<string, { base_branch: string; protected_branches: string[] }> | null;
+  projects: Record<
+    string,
+    { base_branch: string; protected_branches: string[] }
+  > | null;
   permissions: Record<string, Binding['permissions']>;
   yolo: boolean;
 };

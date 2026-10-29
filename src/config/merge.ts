@@ -1,7 +1,14 @@
 import { hasRole, type AuthzContext } from '../domain/policy.ts';
 import { canonicalJson } from '../shared/canonical-json.ts';
 import { err, ok, type Result } from '../shared/result.ts';
-import { diag, locate, type Diagnostic, type KeyPath, type LocatedDoc, type Position } from './positions.ts';
+import {
+  diag,
+  locate,
+  type Diagnostic,
+  type KeyPath,
+  type LocatedDoc,
+  type Position,
+} from './positions.ts';
 import type { RawProfile } from './schema-user.ts';
 
 export type PlainObject = Record<string, unknown>;
@@ -14,7 +21,8 @@ export function isPlainObject(v: unknown): v is PlainObject {
 export function deepMerge(lower: unknown, upper: unknown): unknown {
   if (!isPlainObject(lower) || !isPlainObject(upper)) return upper;
   const out: PlainObject = { ...lower };
-  for (const [k, v] of Object.entries(upper)) out[k] = k in lower ? deepMerge(lower[k], v) : v;
+  for (const [k, v] of Object.entries(upper))
+    out[k] = k in lower ? deepMerge(lower[k], v) : v;
   return out;
 }
 
@@ -55,7 +63,9 @@ export class SourceMap {
       }
     }
     const last = this.layers[this.layers.length - 1];
-    return last ? locate(last.located, []) : { file: '<unknown>', line: 1, col: 1 };
+    return last
+      ? locate(last.located, [])
+      : { file: '<unknown>', line: 1, col: 1 };
   }
 }
 
@@ -63,11 +73,17 @@ export class SourceMap {
  * Bước 1–2 của "Thứ tự hợp nhất": pack theo thứ tự `extends` (pack sau thắng pack trước), rồi
  * `cusr.yaml` ghi đè pack.
  */
-export function mergeProject(packs: readonly Layer[], project: Layer): { value: PlainObject; sources: SourceMap } {
+export function mergeProject(
+  packs: readonly Layer[],
+  project: Layer,
+): { value: PlainObject; sources: SourceMap } {
   let value: unknown = {};
   for (const p of packs) value = deepMerge(value, p.value);
   value = deepMerge(value, project.value);
-  return { value: value as PlainObject, sources: new SourceMap([...packs, project]) };
+  return {
+    value: value as PlainObject,
+    sources: new SourceMap([...packs, project]),
+  };
 }
 
 /**
@@ -79,12 +95,20 @@ export function splitForbidden(
   forbidden: readonly string[],
   why: string,
 ): { value: unknown; diagnostics: Diagnostic[] } {
-  if (!isPlainObject(layer.value)) return { value: layer.value, diagnostics: [] };
+  if (!isPlainObject(layer.value))
+    return { value: layer.value, diagnostics: [] };
   const value: PlainObject = {};
   const diagnostics: Diagnostic[] = [];
   for (const [k, v] of Object.entries(layer.value)) {
     if (forbidden.includes(k)) {
-      diagnostics.push(diag('forbidden_key', locate(layer.located, [k]), [k], `khoá '${k}' ${why}`));
+      diagnostics.push(
+        diag(
+          'forbidden_key',
+          locate(layer.located, [k]),
+          [k],
+          `khoá '${k}' ${why}`,
+        ),
+      );
     } else {
       value[k] = v;
     }
@@ -113,19 +137,40 @@ export function resolveProfiles(
       const parent = cur.extends;
       const path = ['profiles', chain[chain.length - 1] as string, 'extends'];
       if (chain.includes(parent)) {
-        diagnostics.push(diag('profile_cycle', at(path), path, `profile '${name}' có chu trình extends: ${[...chain, parent].join(' → ')}`));
+        diagnostics.push(
+          diag(
+            'profile_cycle',
+            at(path),
+            path,
+            `profile '${name}' có chu trình extends: ${[...chain, parent].join(' → ')}`,
+          ),
+        );
         failed = true;
         break;
       }
       const next = profiles[parent];
       if (next === undefined) {
-        diagnostics.push(diag('unknown_profile', at(path), path, `profile '${parent}' không tồn tại`));
+        diagnostics.push(
+          diag(
+            'unknown_profile',
+            at(path),
+            path,
+            `profile '${parent}' không tồn tại`,
+          ),
+        );
         failed = true;
         break;
       }
       chain.push(parent);
       if (chain.length - 1 > maxDepth) {
-        diagnostics.push(diag('profile_cycle', at(path), path, `extends của profile '${name}' sâu quá ${maxDepth} cấp`));
+        diagnostics.push(
+          diag(
+            'profile_cycle',
+            at(path),
+            path,
+            `extends của profile '${name}' sâu quá ${maxDepth} cấp`,
+          ),
+        );
         failed = true;
         break;
       }
@@ -133,7 +178,8 @@ export function resolveProfiles(
     }
     if (failed) continue;
     let merged: unknown = {};
-    for (const p of [...chain].reverse()) merged = deepMerge(merged, profiles[p]);
+    for (const p of [...chain].reverse())
+      merged = deepMerge(merged, profiles[p]);
     const { extends: _e, ...flat } = merged as RawProfile;
     out[name] = flat;
   }
@@ -156,10 +202,21 @@ export function resolveProfiles(
 export type TaskOverrides = Record<string, unknown>;
 
 /** Phần cấu hình mà override chạm tới; `roles.*` thuộc người dùng, `profile.*` thuộc profile, còn lại thuộc project. */
-export type OverrideTarget = { roles: PlainObject; profile: PlainObject; project: PlainObject };
+export type OverrideTarget = {
+  roles: PlainObject;
+  profile: PlainObject;
+  project: PlainObject;
+};
 
 /** Khoá đầu thuộc profile; khoá khác `roles` thuộc project. */
-export const PROFILE_OVERRIDE_KEYS = ['budgets', 'escalation', 'limits', 'allow_models', 'allow_roles', 'allow_no_gates'];
+export const PROFILE_OVERRIDE_KEYS = [
+  'budgets',
+  'escalation',
+  'limits',
+  'allow_models',
+  'allow_roles',
+  'allow_no_gates',
+];
 
 /**
  * Đường dẫn chạm quyền: chỉ người gọi có `admin` được đổi (FR-001 "MUST NOT nới quyền vượt quyền của
@@ -169,13 +226,22 @@ export const PROFILE_OVERRIDE_KEYS = ['budgets', 'escalation', 'limits', 'allow_
  */
 export function isPrivilegedPath(path: readonly string[]): boolean {
   const [head] = path;
-  if (head === 'allow_models' || head === 'allow_roles' || head === 'allow_no_gates') return path.length === 1;
+  if (
+    head === 'allow_models' ||
+    head === 'allow_roles' ||
+    head === 'allow_no_gates'
+  )
+    return path.length === 1;
   if (head === 'escalation' || head === 'budgets') return true;
   return head === 'roles' && path.length === 3 && path[2] === 'permissions';
 }
 
 /** Lá của cây cấu hình: chỉ đi sâu vào map; mảng và giá trị vô hướng là lá. Khoá của map là JSON của đường dẫn. */
-function leaves(value: unknown, prefix: string[], out: Map<string, string>): Map<string, string> {
+function leaves(
+  value: unknown,
+  prefix: string[],
+  out: Map<string, string>,
+): Map<string, string> {
   if (isPlainObject(value) && Object.keys(value).length > 0) {
     for (const [k, v] of Object.entries(value)) leaves(v, [...prefix, k], out);
   } else if (prefix.length > 0) {
@@ -187,11 +253,16 @@ function leaves(value: unknown, prefix: string[], out: Map<string, string>): Map
 /** Khung nhìn chung của phần chạm quyền: `roles.*` của người dùng và khoá của profile. */
 function privilegeView(t: OverrideTarget): Map<string, string> {
   const all = leaves({ ...t.profile, roles: t.roles }, [], new Map());
-  return new Map([...all].filter(([p]) => isPrivilegedPath(JSON.parse(p) as string[])));
+  return new Map(
+    [...all].filter(([p]) => isPrivilegedPath(JSON.parse(p) as string[])),
+  );
 }
 
 /** Đường dẫn chạm quyền có giá trị khác nhau (kể cả xuất hiện hay biến mất) giữa hai cấu hình. */
-function changedPrivileged(before: OverrideTarget, after: OverrideTarget): string[][] {
+function changedPrivileged(
+  before: OverrideTarget,
+  after: OverrideTarget,
+): string[][] {
   const a = privilegeView(before);
   const b = privilegeView(after);
   return [...new Set([...a.keys(), ...b.keys()])]
@@ -216,7 +287,10 @@ function setIn(obj: PlainObject, path: string[], value: unknown): PlainObject {
   if (head === undefined) return obj;
   if (rest.length === 0) return { ...obj, [head]: value };
   const child = obj[head];
-  return { ...obj, [head]: setIn(isPlainObject(child) ? child : {}, rest, value) };
+  return {
+    ...obj,
+    [head]: setIn(isPlainObject(child) ? child : {}, rest, value),
+  };
 }
 
 export type OverrideError =
@@ -236,7 +310,14 @@ export function applyOverrides(
     const at = { file: '<overrides>', line: 1, col: 1 };
     return err({
       code: 'override_not_allowed',
-      diagnostics: notAllowed.map((k) => diag('override_not_allowed', at, k.split('.'), `profile không cho override '${k}'`)),
+      diagnostics: notAllowed.map((k) =>
+        diag(
+          'override_not_allowed',
+          at,
+          k.split('.'),
+          `profile không cho override '${k}'`,
+        ),
+      ),
     });
   }
   const canOperate = hasRole(caller, 'operate') || hasRole(caller, 'admin');
@@ -248,18 +329,26 @@ export function applyOverrides(
     const head = path[0] as string;
     if (head === 'roles') {
       // Khoá `roles` trần thay cả map role; giá trị sai kiểu bị schema báo khi kiểm tra lại.
-      roles = path.length === 1 ? (overrides[k] as PlainObject) : setIn(roles, path.slice(1), overrides[k]);
-    }
-    else if (PROFILE_OVERRIDE_KEYS.includes(head)) profile = setIn(profile, path, overrides[k]);
+      roles =
+        path.length === 1
+          ? (overrides[k] as PlainObject)
+          : setIn(roles, path.slice(1), overrides[k]);
+    } else if (PROFILE_OVERRIDE_KEYS.includes(head))
+      profile = setIn(profile, path, overrides[k]);
     else project = setIn(project, path, overrides[k]);
   }
 
   if (!hasRole(caller, 'admin')) {
     const changed = changedPrivileged(target, { roles, profile, project });
     if (changed.length > 0) {
-      const exceeds = keys.filter((k) => changed.some((p) => related(k.split('.'), p)));
+      const exceeds = keys.filter((k) =>
+        changed.some((p) => related(k.split('.'), p)),
+      );
       // Không quy được về khoá nào thì vẫn từ chối, báo mọi khoá override.
-      return err({ code: 'override_exceeds_caller', keys: exceeds.length > 0 ? exceeds : keys });
+      return err({
+        code: 'override_exceeds_caller',
+        keys: exceeds.length > 0 ? exceeds : keys,
+      });
     }
   }
   return ok({ roles, profile, project });

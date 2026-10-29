@@ -21,21 +21,44 @@ export const DRAIN_MAX_ROUNDS = DEFAULT_RUNTIME_LIMITS.drain_max_rounds;
 
 /** Effects in flight and operations whose end is not proven: what still holds the task open. */
 export function drainPending(s: TaskState): string[] {
-  const effects = Object.values(s.effects).filter(inFlight).map((e) => `effect:${e.id}`);
-  const ops = Object.values(s.operations).filter(isUnresolved).map((o) => `operation:${o.id}`);
+  const effects = Object.values(s.effects)
+    .filter(inFlight)
+    .map((e) => `effect:${e.id}`);
+  const ops = Object.values(s.operations)
+    .filter(isUnresolved)
+    .map((o) => `operation:${o.id}`);
   return [...effects, ...ops].sort();
 }
 
 /** Starts the drain right after the proof is recorded. */
 export function startDrain(ctx: Ctx): void {
   for (const e of Object.values(ctx.state.effects)) {
-    if (e.status === 'started' && e.kind === 'start_agent' && e.attempt_id !== null) {
-      requestEffect(ctx, { kind: 'stop_attempt', logical_id: e.attempt_id, step: e.step, attempt_id: e.attempt_id, target_effect_id: e.id, request: { attempt_id: e.attempt_id, reason: 'merged' } });
+    if (
+      e.status === 'started' &&
+      e.kind === 'start_agent' &&
+      e.attempt_id !== null
+    ) {
+      requestEffect(ctx, {
+        kind: 'stop_attempt',
+        logical_id: e.attempt_id,
+        step: e.step,
+        attempt_id: e.attempt_id,
+        target_effect_id: e.id,
+        request: { attempt_id: e.attempt_id, reason: 'merged' },
+      });
     } else if (e.status === 'unknown') {
       requestReconcile(ctx, e);
     }
   }
-  ctx.emit('DrainStarted', { at: ctx.now, deadline_at: ctx.now + DRAIN_MAX_MS, max_rounds: DRAIN_MAX_ROUNDS, pending_operations: Object.values(ctx.state.operations).filter(isUnresolved).map((o) => o.id).sort() });
+  ctx.emit('DrainStarted', {
+    at: ctx.now,
+    deadline_at: ctx.now + DRAIN_MAX_MS,
+    max_rounds: DRAIN_MAX_ROUNDS,
+    pending_operations: Object.values(ctx.state.operations)
+      .filter(isUnresolved)
+      .map((o) => o.id)
+      .sort(),
+  });
   settleCompletion(ctx);
 }
 
@@ -45,12 +68,24 @@ export function startDrain(ctx: Ctx): void {
  */
 export function settleCompletion(ctx: Ctx): void {
   const s = ctx.state;
-  if (s.completion === null || s.completion.finalized_at !== null || isTerminal(s.status) || s.completion.drain.started_at === null) return;
+  if (
+    s.completion === null ||
+    s.completion.finalized_at !== null ||
+    isTerminal(s.status) ||
+    s.completion.drain.started_at === null
+  )
+    return;
   if (drainPending(s).length > 0) return;
   ctx.emit('DrainFinished', { at: ctx.now });
   closeOut(ctx);
-  if (ctx.state.cancellation !== null) ctx.emit('CancelRecordedLate', { merge_effect_id: null });
-  ctx.emit('TaskCompleted', { reason: ctx.state.completion?.unverified === null ? 'external_confirmation' : 'external_confirmation_unverified' });
+  if (ctx.state.cancellation !== null)
+    ctx.emit('CancelRecordedLate', { merge_effect_id: null });
+  ctx.emit('TaskCompleted', {
+    reason:
+      ctx.state.completion?.unverified === null
+        ? 'external_confirmation'
+        : 'external_confirmation_unverified',
+  });
 }
 
 type DrainResult = Extract<Trigger, { kind: 'drain_result' }>;
@@ -60,7 +95,10 @@ export function onDrainResult(ctx: Ctx, t: DrainResult): void {
   const c = ctx.state.completion;
   if (c === null) reject('invalid_trigger', { reason: 'no_completion' });
   if (c.finalized_at !== null) {
-    ctx.emit('SignalIgnored', { reason: 'drain_finished', trigger_kind: t.kind });
+    ctx.emit('SignalIgnored', {
+      reason: 'drain_finished',
+      trigger_kind: t.kind,
+    });
     return;
   }
   if (c.drain.paused) {
@@ -68,10 +106,19 @@ export function onDrainResult(ctx: Ctx, t: DrainResult): void {
     return;
   }
   const round = c.drain.count + 1;
-  ctx.emit('DrainProgressed', { at: ctx.now, round, pending_operations: [...t.pending_operations].sort() });
+  ctx.emit('DrainProgressed', {
+    at: ctx.now,
+    round,
+    pending_operations: [...t.pending_operations].sort(),
+  });
   settleCompletion(ctx);
   const after = ctx.state.completion;
   if (after === null || after.finalized_at !== null) return;
-  if (round >= after.drain.max_rounds) ctx.emit('DrainPaused', { at: ctx.now, reason: 'round_limit' });
-  else if (after.drain.deadline_at !== null && ctx.now >= after.drain.deadline_at) ctx.emit('DrainPaused', { at: ctx.now, reason: 'deadline' });
+  if (round >= after.drain.max_rounds)
+    ctx.emit('DrainPaused', { at: ctx.now, reason: 'round_limit' });
+  else if (
+    after.drain.deadline_at !== null &&
+    ctx.now >= after.drain.deadline_at
+  )
+    ctx.emit('DrainPaused', { at: ctx.now, reason: 'deadline' });
 }

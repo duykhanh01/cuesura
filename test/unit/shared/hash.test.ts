@@ -15,6 +15,8 @@ describe('hashCanonical', () => {
   });
 
   it('ổn định qua các lần chạy (giá trị hằng)', () => {
-    expect(hashCanonical({})).toBe('sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a');
+    expect(hashCanonical({})).toBe(
+      'sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a',
+    );
   });
 });

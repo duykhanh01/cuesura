@@ -1,8 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import type { Uuid } from '../../../src/shared/brand.ts';
-import { injectEvents, openMemoryStore, storeDb } from '../../../src/store/testing.ts';
+import {
+  injectEvents,
+  openMemoryStore,
+  storeDb,
+} from '../../../src/store/testing.ts';
 import { buildTask, freezeOk } from '../../support/builders.ts';
-import { agentData, gatesData, PREPARE_DATA, reviewData } from '../../support/scenario.ts';
+import {
+  agentData,
+  gatesData,
+  PREPARE_DATA,
+  reviewData,
+} from '../../support/scenario.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 
 const TASK = buildTask();
@@ -20,8 +29,18 @@ function started(seed = 1, limits?: { max_wall_ms?: number }): StoreDriver {
 /** Tới khi publish của revision 1 đang pending (US2 scenario 13). */
 function toPublish(seed = 1): StoreDriver {
   const d = started(seed);
-  d.complete(TASK.id, d.pendingOne(TASK.id, 'prepare').id, 'succeeded', PREPARE_DATA);
-  d.complete(TASK.id, d.pendingOne(TASK.id, 'start_agent').id, 'succeeded', agentData('done'));
+  d.complete(
+    TASK.id,
+    d.pendingOne(TASK.id, 'prepare').id,
+    'succeeded',
+    PREPARE_DATA,
+  );
+  d.complete(
+    TASK.id,
+    d.pendingOne(TASK.id, 'start_agent').id,
+    'succeeded',
+    agentData('done'),
+  );
   d.complete(
     TASK.id,
     d.pendingOne(TASK.id, 'run_gates').id,
@@ -39,8 +58,9 @@ function toPublish(seed = 1): StoreDriver {
 
 function status(d: StoreDriver, id: string): string | undefined {
   return (
-    storeDb(d.store).prepare('SELECT status FROM effects WHERE id = ?').get(id) as
-      { status: string } | undefined
+    storeDb(d.store)
+      .prepare('SELECT status FROM effects WHERE id = ?')
+      .get(id) as { status: string } | undefined
   )?.status;
 }
 
@@ -75,14 +95,20 @@ describe('Effect trong kho (T080)', () => {
     const d = started();
     const e = d.pendingOne(TASK.id, 'prepare');
     const r = d.claim(e.id);
-    expect(r).toMatchObject({ ok: true, value: { id: e.id, status: 'started' } });
+    expect(r).toMatchObject({
+      ok: true,
+      value: { id: e.id, status: 'started' },
+    });
     const last = d.store.readEvents(TASK.id).at(-1);
     expect(last).toMatchObject({
       type: 'EffectStarted',
       causation: { dedup_key: null, claim: e.id },
       payload: { effect_id: e.id, at: d.now },
     });
-    expect(d.claim(e.id)).toEqual({ ok: false, error: { code: 'not_pending' } });
+    expect(d.claim(e.id)).toEqual({
+      ok: false,
+      error: { code: 'not_pending' },
+    });
     expect(d.claim('00000000-0000-7000-8000-0000000000ff')).toEqual({
       ok: false,
       error: { code: 'not_found' },
@@ -93,20 +119,29 @@ describe('Effect trong kho (T080)', () => {
   it('effect bị vô hiệu hoá → effect_invalidated', () => {
     const d = toPublish();
     const pub = d.pendingOne(TASK.id, 'publish');
-    d.must(TASK.id, { kind: 'source_updated', task: { ...TASK, title: 'Mới' } });
+    d.must(TASK.id, {
+      kind: 'source_updated',
+      task: { ...TASK, title: 'Mới' },
+    });
     d.must(TASK.id, {
       kind: 'drift_choice',
       choice: 'apply_new',
       freeze: freezeOk({ ...TASK, title: 'Mới', revision: 2 }),
     });
     expect(status(d, pub.id)).toBe('invalidated');
-    expect(d.claim(pub.id)).toEqual({ ok: false, error: { code: 'effect_invalidated' } });
+    expect(d.claim(pub.id)).toEqual({
+      ok: false,
+      error: { code: 'effect_invalidated' },
+    });
   });
 
   it('source_drift: chặn, effect giữ pending; continue_old → claim được (US2 scenario 13 ở mức kho)', () => {
     const d = toPublish();
     const pub = d.pendingOne(TASK.id, 'publish');
-    d.must(TASK.id, { kind: 'source_updated', task: { ...TASK, title: 'Mới' } });
+    d.must(TASK.id, {
+      kind: 'source_updated',
+      task: { ...TASK, title: 'Mới' },
+    });
     const v = d.task(TASK.id).version;
     expect(d.claim(pub.id)).toEqual({
       ok: false,
@@ -159,7 +194,12 @@ describe('Effect trong kho (T080)', () => {
         'terminal',
         (d) =>
           injectEvents(d.store, TASK.id, [
-            { type: 'TaskCancelled', revision: 1, actor: 'test', payload: { reason: 'x' } },
+            {
+              type: 'TaskCancelled',
+              revision: 1,
+              actor: 'test',
+              payload: { reason: 'x' },
+            },
           ]),
       ],
       [
@@ -198,11 +238,20 @@ describe('Effect trong kho (T080)', () => {
 
   it('stop_attempt và reconcile không bị chặn khi đang hủy', () => {
     const d = started();
-    d.complete(TASK.id, d.pendingOne(TASK.id, 'prepare').id, 'succeeded', PREPARE_DATA);
+    d.complete(
+      TASK.id,
+      d.pendingOne(TASK.id, 'prepare').id,
+      'succeeded',
+      PREPARE_DATA,
+    );
     const agent = d.pendingOne(TASK.id, 'start_agent');
     expect(d.claim(agent.id).ok).toBe(true);
     // Một effect unknown để có effect reconcile.
-    d.must(TASK.id, { kind: 'effect_result', effect_id: agent.id as Uuid, outcome: 'unknown' });
+    d.must(TASK.id, {
+      kind: 'effect_result',
+      effect_id: agent.id as Uuid,
+      outcome: 'unknown',
+    });
     const probe = d.pendingOne(TASK.id, 'reconcile');
     d.must(TASK.id, { kind: 'cancel', reason: 'dừng' });
     expect(d.task(TASK.id).cancellation).not.toBeNull();
@@ -210,7 +259,8 @@ describe('Effect trong kho (T080)', () => {
       ok: true,
       value: { kind: 'reconcile', status: 'started' },
     });
-    for (const stop of d.pending(TASK.id, 'stop_attempt')) expect(d.claim(stop.id).ok).toBe(true);
+    for (const stop of d.pending(TASK.id, 'stop_attempt'))
+      expect(d.claim(stop.id).ok).toBe(true);
     expect(d.store.verifyProjections().ok).toBe(true);
   });
 

@@ -18,8 +18,18 @@ import {
   type Trigger,
 } from '../../../src/domain/index.ts';
 import { SOFTWARE_DEV } from '../../../src/engine/workflows/software-dev.ts';
-import { verifyContextHash, verifyPolicyHash } from '../../../src/policy/finalize.ts';
-import { authz, buildContext, buildPolicy, buildTask, envelope, uuidOf } from '../../support/builders.ts';
+import {
+  verifyContextHash,
+  verifyPolicyHash,
+} from '../../../src/policy/finalize.ts';
+import {
+  authz,
+  buildContext,
+  buildPolicy,
+  buildTask,
+  envelope,
+  uuidOf,
+} from '../../support/builders.ts';
 
 function roundTrip<T>(schema: { parse(v: unknown): T }, value: T): void {
   const text = canonicalJson(value);
@@ -37,13 +47,19 @@ describe('schema miền round-trip qua JSON chuẩn hoá', () => {
     expect(verifyPolicyHash({ ...p, profile: 'other' })).toBe(false);
   });
   it('FrozenExecutionContext, hash tự kiểm', () => {
-    const c = buildContext(buildTask(), 'abc', [{ name: 'spec.md', media_type: 'text/markdown', content: '# x' }]);
+    const c = buildContext(buildTask(), 'abc', [
+      { name: 'spec.md', media_type: 'text/markdown', content: '# x' },
+    ]);
     roundTrip(FrozenExecutionContextSchema, c);
     expect(verifyContextHash(c)).toBe(true);
   });
   it('AuthzContext', () => roundTrip(AuthzContextSchema, authz(['admin'])));
   it('TriggerEnvelope', () => {
-    const env = envelope(uuidOf(1), { kind: 'cancel', reason: 'không cần nữa' }, { authz: authz(), expected_version: 3, ids: [uuidOf(9)] });
+    const env = envelope(
+      uuidOf(1),
+      { kind: 'cancel', reason: 'không cần nữa' },
+      { authz: authz(), expected_version: 3, ids: [uuidOf(9)] },
+    );
     roundTrip(TriggerEnvelopeSchema, env);
   });
   it('DomainEvent', () => {
@@ -69,16 +85,26 @@ describe('ràng buộc schema', () => {
   });
   it('phong bì quá 8 ID bị từ chối', () => {
     const ids = Array.from({ length: 9 }, (_, i) => uuidOf(100 + i));
-    const env = envelope(uuidOf(1), { kind: 'timer', timer_id: uuidOf(2) }, { ids });
+    const env = envelope(
+      uuidOf(1),
+      { kind: 'timer', timer_id: uuidOf(2) },
+      { ids },
+    );
     expect(TriggerEnvelopeSchema.safeParse(env).success).toBe(false);
   });
   it('usage unavailable không mang số 0 (FR-024)', () => {
-    expect(UsageSchema.safeParse({ basis: 'unavailable', tokens: 0 }).success).toBe(false);
+    expect(
+      UsageSchema.safeParse({ basis: 'unavailable', tokens: 0 }).success,
+    ).toBe(false);
     expect(UsageSchema.safeParse({ basis: 'unavailable' }).success).toBe(true);
-    expect(UsageSchema.safeParse({ basis: 'reported', tokens: 0 }).success).toBe(true);
+    expect(
+      UsageSchema.safeParse({ basis: 'reported', tokens: 0 }).success,
+    ).toBe(true);
   });
   it('idemKey theo định dạng data-model', () => {
-    expect(idemKey('merge', 'acme', 't1', 2, 'abc123')).toBe('merge:acme:t1:r2:abc123');
+    expect(idemKey('merge', 'acme', 't1', 2, 'abc123')).toBe(
+      'merge:acme:t1:r2:abc123',
+    );
   });
 });
 
@@ -140,49 +166,99 @@ describe('switch đầy đủ với assertNever', () => {
   }
   function eventGroup(e: DomainEvent['type']): string {
     switch (e) {
-      case 'TaskCreated': case 'TaskRevised': case 'TaskConfirmed': case 'TaskReady': case 'TaskPending':
-      case 'TaskWaiting': case 'TaskResumed':
+      case 'TaskCreated':
+      case 'TaskRevised':
+      case 'TaskConfirmed':
+      case 'TaskReady':
+      case 'TaskPending':
+      case 'TaskWaiting':
+      case 'TaskResumed':
         return 'task';
-      case 'PolicyFrozen': case 'PolicyAmended': case 'AmendmentRejected':
+      case 'PolicyFrozen':
+      case 'PolicyAmended':
+      case 'AmendmentRejected':
         return 'policy';
-      case 'StepEntered': case 'StepSkipped': case 'StepExhausted':
+      case 'StepEntered':
+      case 'StepSkipped':
+      case 'StepExhausted':
         return 'step';
-      case 'AttemptRequested': case 'AttemptFinished': case 'FailureClassified':
+      case 'AttemptRequested':
+      case 'AttemptFinished':
+      case 'FailureClassified':
         return 'attempt';
-      case 'BudgetReserved': case 'BudgetConsumed': case 'BudgetReleased':
+      case 'BudgetReserved':
+      case 'BudgetConsumed':
+      case 'BudgetReleased':
         return 'budget';
-      case 'RungRaised': case 'TaskFloorRaised':
+      case 'RungRaised':
+      case 'TaskFloorRaised':
         return 'escalation';
-      case 'GateResultRecorded': case 'ReviewVerdictRecorded': case 'PublishRecorded': case 'CiResultRecorded':
-      case 'BaseRelationRecorded': case 'EvidenceInvalidated':
+      case 'GateResultRecorded':
+      case 'ReviewVerdictRecorded':
+      case 'PublishRecorded':
+      case 'CiResultRecorded':
+      case 'BaseRelationRecorded':
+      case 'EvidenceInvalidated':
         return 'evidence';
-      case 'EffectRequested': case 'EffectStarted': case 'EffectCompleted': case 'EffectInvalidated':
-      case 'EffectReconciled': case 'ReconcileIncomplete':
+      case 'EffectRequested':
+      case 'EffectStarted':
+      case 'EffectCompleted':
+      case 'EffectInvalidated':
+      case 'EffectReconciled':
+      case 'ReconcileIncomplete':
         return 'effect';
-      case 'TimerArmed': case 'TimerCancelled': case 'TimerFired':
+      case 'TimerArmed':
+      case 'TimerCancelled':
+      case 'TimerFired':
         return 'timer';
-      case 'QuestionAsked': case 'QuestionAnswered': case 'AnswerRejected': case 'ApprovalRequested':
-      case 'ApprovalGranted': case 'ApprovalRejected':
+      case 'QuestionAsked':
+      case 'QuestionAnswered':
+      case 'AnswerRejected':
+      case 'ApprovalRequested':
+      case 'ApprovalGranted':
+      case 'ApprovalRejected':
         return 'qa';
-      case 'SourceDriftDetected': case 'SafeBoundaryReached': case 'RevisionApplied':
+      case 'SourceDriftDetected':
+      case 'SafeBoundaryReached':
+      case 'RevisionApplied':
         return 'revision';
-      case 'CancelRequested': case 'CancelRecordedLate':
+      case 'CancelRequested':
+      case 'CancelRecordedLate':
         return 'cancel';
-      case 'TaskCompleted': case 'TaskFailed': case 'TaskCancelled':
+      case 'TaskCompleted':
+      case 'TaskFailed':
+      case 'TaskCancelled':
         return 'terminal';
       case 'SignalIgnored':
         return 'other';
-      case 'RuntimeConfigured': case 'ExecutionQueued': case 'ExecutionIntentUpdated': case 'ExecutionWithdrawn':
-      case 'ExecutionGranted': case 'ExecutionReleased':
+      case 'RuntimeConfigured':
+      case 'ExecutionQueued':
+      case 'ExecutionIntentUpdated':
+      case 'ExecutionWithdrawn':
+      case 'ExecutionGranted':
+      case 'ExecutionReleased':
         return 'execution';
-      case 'OperationRegistered': case 'OperationObserved': case 'OutputIngested': case 'ArtifactIngested':
+      case 'OperationRegistered':
+      case 'OperationObserved':
+      case 'OutputIngested':
+      case 'ArtifactIngested':
         return 'operation';
-      case 'ObservationScheduled': case 'ExternalStateObserved': case 'ObservationExpired':
-      case 'ExternalCompletionObserved': case 'DrainStarted': case 'DrainProgressed': case 'DrainPaused':
-      case 'DrainFinished': case 'RecheckRequested':
+      case 'ObservationScheduled':
+      case 'ExternalStateObserved':
+      case 'ObservationExpired':
+      case 'ExternalCompletionObserved':
+      case 'DrainStarted':
+      case 'DrainProgressed':
+      case 'DrainPaused':
+      case 'DrainFinished':
+      case 'RecheckRequested':
         return 'completion';
-      case 'RunConfigProposed': case 'RunConfigConfirmed': case 'CheckpointRecorded': case 'PublishContentRecorded':
-      case 'ReviewReused': case 'HeadDriftRecorded':
+      case 'RunConfigProposed':
+      case 'RunConfigConfirmed':
+      case 'CheckpointRecorded':
+      case 'PublishContentRecorded':
+      case 'ReviewReused':
+      case 'HeadDriftRecorded':
         return 'modes';
       default:
         return assertNever(e);

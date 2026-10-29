@@ -10,11 +10,29 @@
  */
 import { spawn } from 'node:child_process';
 import { z } from 'zod';
-import type { LaunchError, OperationLaunch, ProcessPort, StopOutcome, UnitObservation } from '../adapters/ports.ts';
+import type {
+  LaunchError,
+  OperationLaunch,
+  ProcessPort,
+  StopOutcome,
+  UnitObservation,
+} from '../adapters/ports.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import { RUN_FILES, RunDir, RunnerFileError, isSafeId } from './files.ts';
-import { HOST_PROBE, PidRecordSchema, checkIdentity, toProcessIdentity, unitName, type IdentityProbe } from './identity.ts';
-import { flockArgv, lockFilePath, readLaunchMarker, type LockProbe } from './operation-lock.ts';
+import {
+  HOST_PROBE,
+  PidRecordSchema,
+  checkIdentity,
+  toProcessIdentity,
+  unitName,
+  type IdentityProbe,
+} from './identity.ts';
+import {
+  flockArgv,
+  lockFilePath,
+  readLaunchMarker,
+  type LockProbe,
+} from './operation-lock.ts';
 import { Redactor } from './redact.ts';
 
 export const SYSTEMD_RUN = '/usr/bin/systemd-run';
@@ -29,7 +47,11 @@ export type CommandResult = {
 };
 
 /** argv-only command execution (no shell); injected so tests can script systemd answers. */
-export type CommandExec = (file: string, args: readonly string[], opts: { readonly timeout_ms: number }) => Promise<CommandResult>;
+export type CommandExec = (
+  file: string,
+  args: readonly string[],
+  opts: { readonly timeout_ms: number },
+) => Promise<CommandResult>;
 
 const OUTPUT_CAP = 64 * 1024;
 
@@ -45,7 +67,10 @@ export const spawnCommand: CommandExec = (file, args, opts) =>
       clearTimeout(timer);
       resolve(r);
     };
-    const child = spawn(file, [...args], { stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: '/usr/bin:/bin', ...userBusEnv() } });
+    const child = spawn(file, [...args], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { PATH: '/usr/bin:/bin', ...userBusEnv() },
+    });
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill('SIGKILL');
@@ -56,14 +81,30 @@ export const spawnCommand: CommandExec = (file, args, opts) =>
     child.stderr.on('data', (b: Buffer) => {
       if (stderr.length < OUTPUT_CAP) stderr += b.toString('utf8');
     });
-    child.once('error', (e) => done({ code: null, stdout, stderr, timed_out: timedOut, error: e.message }));
-    child.once('close', (code) => done({ code, stdout, stderr, timed_out: timedOut, error: null }));
+    child.once('error', (e) =>
+      done({
+        code: null,
+        stdout,
+        stderr,
+        timed_out: timedOut,
+        error: e.message,
+      }),
+    );
+    child.once('close', (code) =>
+      done({ code, stdout, stderr, timed_out: timedOut, error: null }),
+    );
   });
 
 /** systemctl/systemd-run --user need only the user bus address, never the daemon's full environment. */
 function userBusEnv(): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const k of ['XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS', 'HOME', 'USER', 'LANG']) {
+  for (const k of [
+    'XDG_RUNTIME_DIR',
+    'DBUS_SESSION_BUS_ADDRESS',
+    'HOME',
+    'USER',
+    'LANG',
+  ]) {
     const v = process.env[k];
     if (v !== undefined) out[k] = v;
   }
@@ -99,7 +140,11 @@ function seconds(ms: number): number {
  * whole cgroup, the runner can stop the harness group and finalise exit.json before the unit ends;
  * the runner installs its own handler, and spawned children get default dispositions.
  */
-export function systemdRunArgv(spec: OperationLaunch, lockFile: string, runnerCommand: readonly string[]): string[] {
+export function systemdRunArgv(
+  spec: OperationLaunch,
+  lockFile: string,
+  runnerCommand: readonly string[],
+): string[] {
   const stopMs = spec.term_grace_ms + spec.kill_verify_ms;
   return [
     SYSTEMD_RUN,
@@ -121,7 +166,13 @@ export function systemdRunArgv(spec: OperationLaunch, lockFile: string, runnerCo
   ];
 }
 
-const ACTIVE_STATES = new Set(['active', 'activating', 'deactivating', 'reloading', 'refreshing']);
+const ACTIVE_STATES = new Set([
+  'active',
+  'activating',
+  'deactivating',
+  'reloading',
+  'refreshing',
+]);
 
 export function parseUnitShow(unit: string, stdout: string): UnitObservation {
   const props = new Map<string, string>();
@@ -133,9 +184,14 @@ export function parseUnitShow(unit: string, stdout: string): UnitObservation {
   const active = props.get('ActiveState');
   const invocation = props.get('InvocationID') ?? '';
   const cgroup = props.get('ControlGroup') ?? '';
-  const facts = { unit, invocation_id: invocation === '' ? null : invocation, cgroup: cgroup === '' ? null : cgroup };
+  const facts = {
+    unit,
+    invocation_id: invocation === '' ? null : invocation,
+    cgroup: cgroup === '' ? null : cgroup,
+  };
   if (load === 'not-found') return { ...facts, state: 'not_found' };
-  if (load !== 'loaded' || active === undefined) return { ...facts, state: 'unknown' };
+  if (load !== 'loaded' || active === undefined)
+    return { ...facts, state: 'unknown' };
   if (ACTIVE_STATES.has(active)) return { ...facts, state: 'active' };
   if (active === 'failed') return { ...facts, state: 'failed' };
   if (active === 'inactive') return { ...facts, state: 'exited' };
@@ -158,21 +214,50 @@ export class SystemdSupervisor implements ProcessPort {
   readonly #redactor: Redactor;
 
   constructor(opts: SupervisorOptions) {
-    if (opts.runnerCommand.length === 0) throw new RunnerFileError('invalid_argument', 'empty runner command');
+    if (opts.runnerCommand.length === 0)
+      throw new RunnerFileError('invalid_argument', 'empty runner command');
     this.#dataDir = opts.dataDir;
     this.#runner = opts.runnerCommand;
     this.#exec = opts.exec ?? spawnCommand;
     this.#redactor = opts.redactor ?? new Redactor();
   }
 
-  async launch(spec: OperationLaunch): Promise<Result<{ readonly unit: string; readonly invocation_id: string | null }, LaunchError>> {
-    if (!isSafeId(spec.operation_id) || !isSafeId(spec.run_id)) return err({ code: 'spawn_failed', message: 'unsafe operation or run id' });
+  async launch(
+    spec: OperationLaunch,
+  ): Promise<
+    Result<
+      { readonly unit: string; readonly invocation_id: string | null },
+      LaunchError
+    >
+  > {
+    if (!isSafeId(spec.operation_id) || !isSafeId(spec.run_id))
+      return err({
+        code: 'spawn_failed',
+        message: 'unsafe operation or run id',
+      });
     const unit = unitName(spec.operation_id);
-    const run = RunDir.open({ dataDir: this.#dataDir, kind: spec.run_dir_kind, id: spec.run_id, redactor: this.#redactor });
-    if (readLaunchMarker(run).state !== 'missing') return err({ code: 'marker_exists', message: `${spec.run_dir_kind}/${spec.run_id} already has a launch marker` });
+    const run = RunDir.open({
+      dataDir: this.#dataDir,
+      kind: spec.run_dir_kind,
+      id: spec.run_id,
+      redactor: this.#redactor,
+    });
+    if (readLaunchMarker(run).state !== 'missing')
+      return err({
+        code: 'marker_exists',
+        message: `${spec.run_dir_kind}/${spec.run_id} already has a launch marker`,
+      });
     const before = await this.inspect(spec.operation_id);
-    if (before.state === 'unknown') return err({ code: 'unknown', message: `cannot read ${unit} before launch` });
-    if (before.state !== 'not_found') return err({ code: 'marker_exists', message: `${unit} is already loaded (${before.state})` });
+    if (before.state === 'unknown')
+      return err({
+        code: 'unknown',
+        message: `cannot read ${unit} before launch`,
+      });
+    if (before.state !== 'not_found')
+      return err({
+        code: 'marker_exists',
+        message: `${unit} is already loaded (${before.state})`,
+      });
 
     const invocation: InvocationSpec = {
       schema_version: 1,
@@ -191,34 +276,74 @@ export class SystemdSupervisor implements ProcessPort {
     };
     run.writeJson(RUN_FILES.invocation, InvocationSpecSchema.parse(invocation));
     const lock = lockFilePath(this.#dataDir, spec.operation_id, true);
-    const command = [...this.#runner, 'exec', '--data-dir', run.root, '--kind', spec.run_dir_kind, '--id', spec.run_id];
+    const command = [
+      ...this.#runner,
+      'exec',
+      '--data-dir',
+      run.root,
+      '--kind',
+      spec.run_dir_kind,
+      '--id',
+      spec.run_id,
+    ];
     const argv = systemdRunArgv(spec, lock, command);
-    const r = await this.#exec(argv[0] as string, argv.slice(1), { timeout_ms: 30_000 });
+    const r = await this.#exec(argv[0] as string, argv.slice(1), {
+      timeout_ms: 30_000,
+    });
     const after = await this.inspect(spec.operation_id);
     if (r.code === 0 && !r.timed_out) {
       // A short operation may already be finished and collected; the invocation id is then unknown.
       return ok({ unit, invocation_id: after.invocation_id });
     }
-    if (after.state === 'not_found' && !r.timed_out && r.error === null && readLaunchMarker(run).state === 'missing') {
-      return err({ code: 'spawn_failed', message: `systemd-run exit ${String(r.code)}: ${r.stderr.trim()}` });
+    if (
+      after.state === 'not_found' &&
+      !r.timed_out &&
+      r.error === null &&
+      readLaunchMarker(run).state === 'missing'
+    ) {
+      return err({
+        code: 'spawn_failed',
+        message: `systemd-run exit ${String(r.code)}: ${r.stderr.trim()}`,
+      });
     }
-    return err({ code: 'unknown', message: `systemd-run ${r.timed_out ? 'timed out' : `exit ${String(r.code)}`}; unit ${after.state}` });
+    return err({
+      code: 'unknown',
+      message: `systemd-run ${r.timed_out ? 'timed out' : `exit ${String(r.code)}`}; unit ${after.state}`,
+    });
   }
 
   async inspect(operationId: string): Promise<UnitObservation> {
     const unit = unitName(operationId);
-    const r = await this.#exec(SYSTEMCTL, ['--user', 'show', unit, '-p', 'LoadState,ActiveState,SubState,Result,InvocationID,ControlGroup'], { timeout_ms: 15_000 });
-    if (r.code !== 0 || r.timed_out) return { unit, state: 'unknown', invocation_id: null, cgroup: null };
+    const r = await this.#exec(
+      SYSTEMCTL,
+      [
+        '--user',
+        'show',
+        unit,
+        '-p',
+        'LoadState,ActiveState,SubState,Result,InvocationID,ControlGroup',
+      ],
+      {
+        timeout_ms: 15_000,
+      },
+    );
+    if (r.code !== 0 || r.timed_out)
+      return { unit, state: 'unknown', invocation_id: null, cgroup: null };
     return parseUnitShow(unit, r.stdout);
   }
 
   /** systemd sends SIGTERM to the whole cgroup, waits TimeoutStopSec, then SIGKILL; we verify after. */
-  async stop(operationId: string, opts: { readonly term_grace_ms: number; readonly kill_verify_ms: number }): Promise<StopOutcome> {
+  async stop(
+    operationId: string,
+    opts: { readonly term_grace_ms: number; readonly kill_verify_ms: number },
+  ): Promise<StopOutcome> {
     const unit = unitName(operationId);
     const before = await this.inspect(operationId);
     if (before.state === 'unknown') return 'unknown';
     if (before.state !== 'active') return 'not_running';
-    const r = await this.#exec(SYSTEMCTL, ['--user', 'stop', unit], { timeout_ms: opts.term_grace_ms + opts.kill_verify_ms + 5_000 });
+    const r = await this.#exec(SYSTEMCTL, ['--user', 'stop', unit], {
+      timeout_ms: opts.term_grace_ms + opts.kill_verify_ms + 5_000,
+    });
     const after = await this.inspect(operationId);
     if (after.state === 'unknown' || after.state === 'active') return 'unknown';
     return r.timed_out ? 'unknown' : 'stopped';
@@ -226,7 +351,11 @@ export class SystemdSupervisor implements ProcessPort {
 
   /** Releases a failed unit's record; only after its result was ingested and acknowledged. */
   async collect(operationId: string): Promise<boolean> {
-    const r = await this.#exec(SYSTEMCTL, ['--user', 'reset-failed', unitName(operationId)], { timeout_ms: 15_000 });
+    const r = await this.#exec(
+      SYSTEMCTL,
+      ['--user', 'reset-failed', unitName(operationId)],
+      { timeout_ms: 15_000 },
+    );
     return r.code === 0;
   }
 }
@@ -242,24 +371,60 @@ export type LaunchState =
   | { readonly state: 'lost'; readonly reason: string }
   | { readonly state: 'unknown'; readonly reason: string };
 
-export function observeLaunch(run: RunDir, probeLock: () => LockProbe, probe: IdentityProbe = HOST_PROBE): LaunchState {
+export function observeLaunch(
+  run: RunDir,
+  probeLock: () => LockProbe,
+  probe: IdentityProbe = HOST_PROBE,
+): LaunchState {
   const marker = readLaunchMarker(run);
   if (marker.state === 'missing') return { state: 'not_launched' };
-  if (marker.state === 'invalid') return { state: 'unknown', reason: `launch marker invalid: ${marker.reason}` };
+  if (marker.state === 'invalid')
+    return {
+      state: 'unknown',
+      reason: `launch marker invalid: ${marker.reason}`,
+    };
   const exit = run.readFinal(RUN_FILES.exit);
   if (exit.state === 'valid') return { state: 'finished' };
   const lockState = probeLock();
   const pid = run.readFinal(RUN_FILES.pid, PidRecordSchema);
   if (pid.state === 'valid') {
-    if (pid.value.launch_nonce !== marker.value.launch_nonce) return { state: 'unknown', reason: 'pid receipt nonce differs from launch marker' };
+    if (pid.value.launch_nonce !== marker.value.launch_nonce)
+      return {
+        state: 'unknown',
+        reason: 'pid receipt nonce differs from launch marker',
+      };
     const check = checkIdentity(toProcessIdentity(pid.value), probe);
-    if (check === 'alive') return { state: 'running', reason: 'pid and start ticks match' };
-    if (check === 'unknown') return { state: 'unknown', reason: 'process identity unreadable' };
-    if (lockState === 'held') return { state: 'running', reason: 'harness gone but runner still holds the operation lock' };
-    if (lockState === 'unknown') return { state: 'unknown', reason: 'harness gone and lock state unknown' };
-    return { state: 'lost', reason: check === 'other_boot' ? 'recorded on another boot' : 'process identity no longer present' };
+    if (check === 'alive')
+      return { state: 'running', reason: 'pid and start ticks match' };
+    if (check === 'unknown')
+      return { state: 'unknown', reason: 'process identity unreadable' };
+    if (lockState === 'held')
+      return {
+        state: 'running',
+        reason: 'harness gone but runner still holds the operation lock',
+      };
+    if (lockState === 'unknown')
+      return {
+        state: 'unknown',
+        reason: 'harness gone and lock state unknown',
+      };
+    return {
+      state: 'lost',
+      reason:
+        check === 'other_boot'
+          ? 'recorded on another boot'
+          : 'process identity no longer present',
+    };
   }
-  if (lockState === 'held') return { state: 'running', reason: 'runner holds the operation lock; no pid receipt yet' };
-  if (lockState === 'free') return { state: 'lost', reason: 'launch marker without pid receipt and no runner holds the lock' };
+  if (lockState === 'held')
+    return {
+      state: 'running',
+      reason: 'runner holds the operation lock; no pid receipt yet',
+    };
+  if (lockState === 'free')
+    return {
+      state: 'lost',
+      reason: 'launch marker without pid receipt and no runner holds the lock',
+    };
   return { state: 'unknown', reason: 'launch marker without pid receipt' };
 }

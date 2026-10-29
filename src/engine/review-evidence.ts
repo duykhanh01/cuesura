@@ -9,7 +9,11 @@ import { hashCanonical } from '../shared/hash.ts';
  * policy/binding. Attempt IDs, timestamps, new gate/CI receipts or a resume log are not part of it.
  * `null` until this revision has a checkpoint.
  */
-export function reviewInputDigest(s: Pick<TaskState, 'id' | 'revision' | 'run' | 'context_ref'>, policy: FrozenPolicy, step: string): string | null {
+export function reviewInputDigest(
+  s: Pick<TaskState, 'id' | 'revision' | 'run' | 'context_ref'>,
+  policy: FrozenPolicy,
+  step: string,
+): string | null {
   const cp = s.run.checkpoint;
   if (cp === null || cp.revision !== s.revision) return null;
   const sp = policy.steps[step];
@@ -22,12 +26,22 @@ export function reviewInputDigest(s: Pick<TaskState, 'id' | 'revision' | 'run' |
     diff_digest: cp.diff_digest,
     content_digest: s.run.content?.digest ?? cp.content_digest,
     context_hash: s.context_ref?.hash ?? null,
-    review: sp === undefined ? null : { role: sp.role, binding: sp.binding, ladder: sp.ladder },
+    review:
+      sp === undefined
+        ? null
+        : { role: sp.role, binding: sp.binding, ladder: sp.ladder },
     structure_hash: policy.structure_hash,
   });
 }
 
 /** A recorded verdict of this revision for exactly this input, if any; never one for another SHA. */
-export function reusableReview(s: Pick<TaskState, 'revision' | 'run'>, digest: string): ReviewEvidence | undefined {
-  return s.run.reviews.filter((r) => r.valid && r.revision === s.revision && r.input_digest === digest).at(-1);
+export function reusableReview(
+  s: Pick<TaskState, 'revision' | 'run'>,
+  digest: string,
+): ReviewEvidence | undefined {
+  return s.run.reviews
+    .filter(
+      (r) => r.valid && r.revision === s.revision && r.input_digest === digest,
+    )
+    .at(-1);
 }

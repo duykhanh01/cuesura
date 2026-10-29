@@ -1,8 +1,17 @@
 import { z } from 'zod';
-import { EpochMsSchema, HashSchema, UuidSchema, type Hash } from '../shared/brand.ts';
+import {
+  EpochMsSchema,
+  HashSchema,
+  UuidSchema,
+  type Hash,
+} from '../shared/brand.ts';
 import { hashCanonical } from '../shared/hash.ts';
 import { CanonicalTaskSchema } from './task.ts';
-import { AuthzContextSchema, FrozenExecutionContextSchema, FrozenPolicySchema } from './policy.ts';
+import {
+  AuthzContextSchema,
+  FrozenExecutionContextSchema,
+  FrozenPolicySchema,
+} from './policy.ts';
 import { RunSelectionSchema } from './run-config.ts';
 import type { TaskStatus } from './state.ts';
 import {
@@ -39,9 +48,14 @@ export const UsageSchema = z
     cost: z.number().nonnegative().optional(),
   })
   .strict()
-  .refine((u) => u.basis !== 'unavailable' || (u.tokens === undefined && u.cost === undefined), {
-    message: 'usage unavailable không được mang số liệu',
-  });
+  .refine(
+    (u) =>
+      u.basis !== 'unavailable' ||
+      (u.tokens === undefined && u.cost === undefined),
+    {
+      message: 'usage unavailable không được mang số liệu',
+    },
+  );
 export type Usage = z.infer<typeof UsageSchema>;
 
 export const BaseRelationSchema = z
@@ -63,7 +77,14 @@ export const RequiredSetSchema = z
   .strict();
 export type RequiredSet = z.infer<typeof RequiredSetSchema>;
 
-export const CHECK_STATES = ['success', 'failure', 'pending', 'cancelled', 'skipped', 'unknown'] as const;
+export const CHECK_STATES = [
+  'success',
+  'failure',
+  'pending',
+  'cancelled',
+  'skipped',
+  'unknown',
+] as const;
 export type CheckState = (typeof CHECK_STATES)[number];
 
 export const CheckSchema = z
@@ -87,7 +108,10 @@ export const AgentDataSchema = z
     usage: UsageSchema,
     invoked: z.boolean().optional(),
     // Worker-prepared commit/PR content, validated and stored by the orchestrator (M05); additive.
-    content: z.object({ digest: HashSchema, ref: z.string().min(1) }).strict().optional(),
+    content: z
+      .object({ digest: HashSchema, ref: z.string().min(1) })
+      .strict()
+      .optional(),
     // Harness session of this run, and whether it resumed an earlier one or fell back (M04); additive.
     session_ref: z.string().min(1).nullable().optional(),
     resumed: z.boolean().optional(),
@@ -101,7 +125,12 @@ export const ReviewDataSchema = z
     verdict: z.enum(['approve', 'request_changes']),
     findings: z.array(
       z
-        .object({ severity: z.string(), file: z.string().optional(), line: z.number().int().optional(), msg: z.string() })
+        .object({
+          severity: z.string(),
+          file: z.string().optional(),
+          line: z.number().int().optional(),
+          msg: z.string(),
+        })
         .strict(),
     ),
     head_sha: z.string().min(1),
@@ -128,7 +157,12 @@ export const GateDataSchema = z
   .object({
     results: z.array(
       z
-        .object({ gate: z.string(), passed: z.boolean(), signature: z.string().optional(), log_excerpt: z.string().max(4_096).optional() })
+        .object({
+          gate: z.string(),
+          passed: z.boolean(),
+          signature: z.string().optional(),
+          log_excerpt: z.string().max(4_096).optional(),
+        })
         .strict(),
     ),
     // 002, additive: the tree every required gate passed on, whether it held still, and the commit of it.
@@ -161,18 +195,42 @@ export const CreatePrDataSchema = z
     head_sha: z.string().min(1),
     body_digest: z.string().min(1).optional(),
     /** Content and marker the title/body were written from, so a later content change updates the same PR. */
-    pr_body: z.object({ content_digest: z.string().min(1), body_digest: z.string().min(1), operation_key: z.string().min(1), revision: z.number().int().positive() }).strict().optional(),
+    pr_body: z
+      .object({
+        content_digest: z.string().min(1),
+        body_digest: z.string().min(1),
+        operation_key: z.string().min(1),
+        revision: z.number().int().positive(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
 /** Result of comparing GitHub's required checks with the snapshot (engine/required-checks.ts). */
 export const RequiredCheckVerdictSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('covered'), github_required: z.enum(['known', 'none']), github: z.array(z.string()), snapshot_only: z.array(z.string()) }).strict(),
+  z
+    .object({
+      kind: z.literal('covered'),
+      github_required: z.enum(['known', 'none']),
+      github: z.array(z.string()),
+      snapshot_only: z.array(z.string()),
+    })
+    .strict(),
   z
     .object({
       kind: z.literal('required_checks_mismatch'),
       missing_from_snapshot: z.array(z.string()),
-      app_pinned: z.array(z.object({ name: z.string(), app: z.union([z.literal('any'), z.number().int().positive()]), source: z.enum(['classic', 'rules']), ruleset_id: z.number().int().positive().nullable() }).strict()),
+      app_pinned: z.array(
+        z
+          .object({
+            name: z.string(),
+            app: z.union([z.literal('any'), z.number().int().positive()]),
+            source: z.enum(['classic', 'rules']),
+            ruleset_id: z.number().int().positive().nullable(),
+          })
+          .strict(),
+      ),
       snapshot_only: z.array(z.string()),
     })
     .strict(),
@@ -197,7 +255,9 @@ export const AwaitCiDataSchema = z
   })
   .strict();
 
-export const MergeDataSchema = z.object({ merged: z.boolean(), merge_sha: z.string().optional() }).strict();
+export const MergeDataSchema = z
+  .object({ merged: z.boolean(), merge_sha: z.string().optional() })
+  .strict();
 
 export const StopDataSchema = z.object({ stopped: z.boolean() }).strict();
 
@@ -217,14 +277,52 @@ export type FailureData = z.infer<typeof FailureDataSchema>;
 
 export const FreezeErrorSchema = z.discriminatedUnion('code', [
   // `problems` (optional, additive) carries the 002 preflight report next to the config diagnostics.
-  z.object({ code: z.literal('config_invalid'), diagnostics: z.array(z.unknown()), problems: z.array(z.unknown()).optional() }).strict(),
-  z.object({ code: z.literal('capability_missing'), problems: z.array(z.unknown()) }).strict(),
+  z
+    .object({
+      code: z.literal('config_invalid'),
+      diagnostics: z.array(z.unknown()),
+      problems: z.array(z.unknown()).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      code: z.literal('capability_missing'),
+      problems: z.array(z.unknown()),
+    })
+    .strict(),
   // The confirmed run selection does not match the effective config (M02): a new confirmation is needed.
-  z.object({ code: z.literal('run_config_unconfirmed'), problems: z.array(z.unknown()) }).strict(),
-  z.object({ code: z.literal('unsupported_workflow'), workflow: z.string(), structure_hash: HashSchema }).strict(),
-  z.object({ code: z.literal('unsupported_decision_mode'), points: z.array(z.string()) }).strict(),
-  z.object({ code: z.literal('no_valid_binding'), step: z.string(), role: z.string() }).strict(),
-  z.object({ code: z.literal('override_exceeds_caller'), keys: z.array(z.string()) }).strict(),
+  z
+    .object({
+      code: z.literal('run_config_unconfirmed'),
+      problems: z.array(z.unknown()),
+    })
+    .strict(),
+  z
+    .object({
+      code: z.literal('unsupported_workflow'),
+      workflow: z.string(),
+      structure_hash: HashSchema,
+    })
+    .strict(),
+  z
+    .object({
+      code: z.literal('unsupported_decision_mode'),
+      points: z.array(z.string()),
+    })
+    .strict(),
+  z
+    .object({
+      code: z.literal('no_valid_binding'),
+      step: z.string(),
+      role: z.string(),
+    })
+    .strict(),
+  z
+    .object({
+      code: z.literal('override_exceeds_caller'),
+      keys: z.array(z.string()),
+    })
+    .strict(),
 ]);
 export type FreezeError = z.infer<typeof FreezeErrorSchema>;
 
@@ -232,30 +330,56 @@ export const FreezeResultSchema = z.union([
   z
     .object({
       ok: z.literal(true),
-      value: z.object({ policy: FrozenPolicySchema, context: FrozenExecutionContextSchema }).strict(),
+      value: z
+        .object({
+          policy: FrozenPolicySchema,
+          context: FrozenExecutionContextSchema,
+        })
+        .strict(),
     })
     .strict(),
   z.object({ ok: z.literal(false), error: FreezeErrorSchema }).strict(),
 ]);
 
 export const TriggerSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('create_task'), task: CanonicalTaskSchema }).strict(),
+  z
+    .object({ kind: z.literal('create_task'), task: CanonicalTaskSchema })
+    .strict(),
   z.object({ kind: z.literal('confirm_task') }).strict(),
-  z.object({ kind: z.literal('source_updated'), task: CanonicalTaskSchema }).strict(),
+  z
+    .object({ kind: z.literal('source_updated'), task: CanonicalTaskSchema })
+    .strict(),
   z
     .object({
       kind: z.literal('dependency_status'),
       depends_on: UuidSchema,
-      status: z.enum(['PENDING', 'READY', 'RUNNING', 'WAITING', 'DONE', 'FAILED', 'CANCELLED']),
+      status: z.enum([
+        'PENDING',
+        'READY',
+        'RUNNING',
+        'WAITING',
+        'DONE',
+        'FAILED',
+        'CANCELLED',
+      ]),
       // 002, additive: what the prerequisite's terminal record showed, kept with the trigger for explain.
       provenance: z
-        .object({ prerequisite_version: z.number().int().nonnegative(), unverified_reason: z.string().min(1).nullable() })
+        .object({
+          prerequisite_version: z.number().int().nonnegative(),
+          unverified_reason: z.string().min(1).nullable(),
+        })
         .strict()
         .optional(),
     })
     .strict(),
   // `runtime` is the 002 snapshot committed with PolicyFrozen; absent for legacy (001) starts.
-  z.object({ kind: z.literal('start'), freeze: FreezeResultSchema, runtime: FrozenRuntimeContextSchema.optional() }).strict(),
+  z
+    .object({
+      kind: z.literal('start'),
+      freeze: FreezeResultSchema,
+      runtime: FrozenRuntimeContextSchema.optional(),
+    })
+    .strict(),
   z
     .object({
       kind: z.literal('effect_result'),
@@ -269,19 +393,38 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
     .object({
       kind: z.literal('effect_reconciled'),
       effect_id: UuidSchema,
-      finding: z.enum(['executed_succeeded', 'executed_failed', 'not_executed', 'still_unknown']),
+      finding: z.enum([
+        'executed_succeeded',
+        'executed_failed',
+        'not_executed',
+        'still_unknown',
+      ]),
       data: z.unknown().optional(),
       failure_class: z.enum(FAILURE_CLASSES).optional(),
       signature: z.string().optional(),
     })
     .strict(),
   z.object({ kind: z.literal('timer'), timer_id: UuidSchema }).strict(),
-  z.object({ kind: z.literal('answer'), question_id: UuidSchema, answer: z.string().min(1) }).strict(),
   z
-    .object({ kind: z.literal('approve'), approval_request_id: UuidSchema, head_sha: z.string().optional() })
+    .object({
+      kind: z.literal('answer'),
+      question_id: UuidSchema,
+      answer: z.string().min(1),
+    })
     .strict(),
   z
-    .object({ kind: z.literal('reject'), approval_request_id: UuidSchema, head_sha: z.string().optional() })
+    .object({
+      kind: z.literal('approve'),
+      approval_request_id: UuidSchema,
+      head_sha: z.string().optional(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('reject'),
+      approval_request_id: UuidSchema,
+      head_sha: z.string().optional(),
+    })
     .strict(),
   z
     .object({
@@ -290,7 +433,13 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
       freeze: FreezeResultSchema.optional(),
     })
     .strict(),
-  z.object({ kind: z.literal('stop_attempt'), attempt_id: UuidSchema, reason: z.string() }).strict(),
+  z
+    .object({
+      kind: z.literal('stop_attempt'),
+      attempt_id: UuidSchema,
+      reason: z.string(),
+    })
+    .strict(),
   z.object({ kind: z.literal('cancel'), reason: z.string() }).strict(),
   z
     .object({
@@ -302,8 +451,16 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
     .strict(),
   // ---- Runtime 002 (data-model.md "Trigger và event mới"); facts produced by the application layer ----
   z.object({ kind: z.literal('request_execution') }).strict(),
-  z.object({ kind: z.literal('grant_execution'), request_id: UuidSchema }).strict(),
-  z.object({ kind: z.literal('release_execution'), request_id: UuidSchema, reason: z.string().min(1) }).strict(),
+  z
+    .object({ kind: z.literal('grant_execution'), request_id: UuidSchema })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('release_execution'),
+      request_id: UuidSchema,
+      reason: z.string().min(1),
+    })
+    .strict(),
   z
     .object({
       kind: z.literal('operation_result'),
@@ -335,7 +492,10 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
     })
     .strict(),
   z
-    .object({ kind: z.literal('observation_due'), subject: ExternalSubjectSchema.optional() })
+    .object({
+      kind: z.literal('observation_due'),
+      subject: ExternalSubjectSchema.optional(),
+    })
     .strict(),
   z
     .object({
@@ -345,17 +505,41 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
       /** CI of the observed head when the PR is open, read in the same round (FR-041.06); additive. */
       ci: AwaitCiDataSchema.optional(),
       /** The branch the PR targets when it is not the task's target, and whether it merged there (FR-041.05); additive. */
-      target: z.object({ ref: z.string().min(1), merged: z.boolean() }).strict().optional(),
+      target: z
+        .object({ ref: z.string().min(1), merged: z.boolean() })
+        .strict()
+        .optional(),
     })
     .strict(),
   z
-    .object({ kind: z.literal('external_completion'), proof: MergeProofSchema, unverified_reason: z.string().min(1).nullable() })
+    .object({
+      kind: z.literal('external_completion'),
+      proof: MergeProofSchema,
+      unverified_reason: z.string().min(1).nullable(),
+    })
     .strict(),
-  z.object({ kind: z.literal('drain_result'), pending_operations: z.array(UuidSchema) }).strict(),
-  z.object({ kind: z.literal('recheck'), target: z.enum(['config', 'observation', 'drain']) }).strict(),
+  z
+    .object({
+      kind: z.literal('drain_result'),
+      pending_operations: z.array(UuidSchema),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('recheck'),
+      target: z.enum(['config', 'observation', 'drain']),
+    })
+    .strict(),
   // Run configuration (task-execution-modes.md M01/M02): proposed by any operator, confirmed by the user.
-  z.object({ kind: z.literal('propose_run_config'), selection: RunSelectionSchema }).strict(),
-  z.object({ kind: z.literal('confirm_run_config'), digest: HashSchema }).strict(),
+  z
+    .object({
+      kind: z.literal('propose_run_config'),
+      selection: RunSelectionSchema,
+    })
+    .strict(),
+  z
+    .object({ kind: z.literal('confirm_run_config'), digest: HashSchema })
+    .strict(),
   // A remote head nobody in this task pushed (FR-041.03, H01–H05), from an observation or a publish probe.
   z
     .object({
@@ -411,9 +595,18 @@ export const TriggerEnvelopeSchema = z
   .strict()
   .superRefine((env, ctx) => {
     if (HUMAN_TRIGGERS.includes(env.trigger.kind)) {
-      if (env.authz === undefined) ctx.addIssue({ code: 'custom', path: ['authz'], message: 'lệnh của người cần authz' });
+      if (env.authz === undefined)
+        ctx.addIssue({
+          code: 'custom',
+          path: ['authz'],
+          message: 'lệnh của người cần authz',
+        });
       if (env.expected_version === undefined)
-        ctx.addIssue({ code: 'custom', path: ['expected_version'], message: 'lệnh của người cần expected_version' });
+        ctx.addIssue({
+          code: 'custom',
+          path: ['expected_version'],
+          message: 'lệnh của người cần expected_version',
+        });
     }
   });
 export type TriggerEnvelope = z.infer<typeof TriggerEnvelopeSchema>;
@@ -426,10 +619,16 @@ export type RelatedFacts = {
   /** Task khác đã có cùng `(project, source_key)`, nếu có (FR-007). */
   source_task?: { task_id: string; same_content: boolean };
   /** Daemon-wide slot and queue head, read in the same transaction as a grant (FR-044). */
-  execution?: { slot: { holder_task_id: string; request_id: string } | null; queue_head: string | null };
+  execution?: {
+    slot: { holder_task_id: string; request_id: string } | null;
+    queue_head: string | null;
+  };
 };
 
-export const EMPTY_RELATED: RelatedFacts = { deps: {}, dependency_cycle: false };
+export const EMPTY_RELATED: RelatedFacts = {
+  deps: {},
+  dependency_cycle: false,
+};
 
 /**
  * `request_hash` = hash chuẩn hoá của `{ task_id, trigger, expected_version, actor }`; không gồm

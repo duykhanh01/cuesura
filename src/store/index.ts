@@ -17,7 +17,16 @@ import * as read from './read.ts';
 import { dueTimers, fireDueTimers, type FireError } from './timers.ts';
 import { verifyProjections, type VerifyReport } from './verify.ts';
 
-export type { AcceptError, AcceptOutcome, ClaimError, ClaimRequest, FireError, GrantOutcome, StoreOpenError, VerifyReport };
+export type {
+  AcceptError,
+  AcceptOutcome,
+  ClaimError,
+  ClaimRequest,
+  FireError,
+  GrantOutcome,
+  StoreOpenError,
+  VerifyReport,
+};
 export type { QueuedRequest } from './read.ts';
 export type { Admission, CommandRecord, LedgerError } from './commands.ts';
 export type { Timer } from './read.ts';
@@ -25,13 +34,30 @@ export type { Timer } from './read.ts';
 /** Kho trạng thái một bên ghi, đồng bộ (contracts/core-api.md "Kho trạng thái"). */
 export interface Store {
   accept(envelope: TriggerEnvelope): Result<AcceptOutcome, AcceptError>;
-  claimEffect(effectId: Uuid, now: EpochMs, req?: ClaimRequest): Result<Effect, ClaimError>;
+  claimEffect(
+    effectId: Uuid,
+    now: EpochMs,
+    req?: ClaimRequest,
+  ): Result<Effect, ClaimError>;
   /** Grants the free execution slot to the queue head, if any (FR-044.01); `ids` feed a resumed step. */
-  grantNext(now: EpochMs, ids?: readonly string[]): Result<GrantOutcome, AcceptError>;
+  grantNext(
+    now: EpochMs,
+    ids?: readonly string[],
+  ): Result<GrantOutcome, AcceptError>;
   readQueue(limit: number): read.QueuedRequest[];
-  readSlot(): { holder_task_id: string; request_id: string; claimed_at: number } | null;
-  admitCommand(input: Parameters<typeof commands.admitCommand>[1]): Result<commands.Admission, commands.LedgerError>;
-  completeCommand(requestId: string, result: unknown, now: EpochMs): Result<commands.CommandRecord, commands.LedgerError>;
+  readSlot(): {
+    holder_task_id: string;
+    request_id: string;
+    claimed_at: number;
+  } | null;
+  admitCommand(
+    input: Parameters<typeof commands.admitCommand>[1],
+  ): Result<commands.Admission, commands.LedgerError>;
+  completeCommand(
+    requestId: string,
+    result: unknown,
+    now: EpochMs,
+  ): Result<commands.CommandRecord, commands.LedgerError>;
   readCommand(requestId: string): commands.CommandRecord | null;
   pendingCommands(limit: number): commands.CommandRecord[];
   dueTimers(now: EpochMs, limit: number): read.Timer[];
@@ -45,9 +71,16 @@ export interface Store {
   /** Task IDs in the given statuses, in ID order. */
   taskIdsByStatus(statuses: readonly TaskStatus[]): string[];
   readEvents(taskId: Uuid, fromSeq?: number): DomainEvent[];
-  readPolicy(taskId: Uuid, revision: number, policyVersion?: number): FrozenPolicy | null;
+  readPolicy(
+    taskId: Uuid,
+    revision: number,
+    policyVersion?: number,
+  ): FrozenPolicy | null;
   readContext(taskId: Uuid, revision: number): FrozenExecutionContext | null;
-  readRuntimeContext(taskId: Uuid, revision: number): FrozenRuntimeContext | null;
+  readRuntimeContext(
+    taskId: Uuid,
+    revision: number,
+  ): FrozenRuntimeContext | null;
   verifyProjections(): VerifyReport;
   close(): void;
 }
@@ -64,16 +97,27 @@ export class SqliteStore implements Store {
   accept(envelope: TriggerEnvelope): Result<AcceptOutcome, AcceptError> {
     return accept(this.db, envelope, this.crash);
   }
-  claimEffect(effectId: Uuid, now: EpochMs, req: ClaimRequest = {}): Result<Effect, ClaimError> {
+  claimEffect(
+    effectId: Uuid,
+    now: EpochMs,
+    req: ClaimRequest = {},
+  ): Result<Effect, ClaimError> {
     return claimEffect(this.db, effectId, now, this.crash, req);
   }
-  grantNext(now: EpochMs, ids: readonly string[] = []): Result<GrantOutcome, AcceptError> {
+  grantNext(
+    now: EpochMs,
+    ids: readonly string[] = [],
+  ): Result<GrantOutcome, AcceptError> {
     return grantNext(this.db, now, this.crash, ids);
   }
   readQueue(limit: number): read.QueuedRequest[] {
     return read.readQueue(this.db, limit);
   }
-  readSlot(): { holder_task_id: string; request_id: string; claimed_at: number } | null {
+  readSlot(): {
+    holder_task_id: string;
+    request_id: string;
+    claimed_at: number;
+  } | null {
     return read.readSlot(this.db);
   }
   dueTimers(now: EpochMs, limit: number): read.Timer[] {
@@ -89,10 +133,16 @@ export class SqliteStore implements Store {
   pendingEffects(limit: number, after?: string): Effect[] {
     return read.pendingEffects(this.db, limit, after);
   }
-  admitCommand(input: Parameters<typeof commands.admitCommand>[1]): Result<commands.Admission, commands.LedgerError> {
+  admitCommand(
+    input: Parameters<typeof commands.admitCommand>[1],
+  ): Result<commands.Admission, commands.LedgerError> {
     return commands.admitCommand(this.db, input);
   }
-  completeCommand(requestId: string, result: unknown, now: EpochMs): Result<commands.CommandRecord, commands.LedgerError> {
+  completeCommand(
+    requestId: string,
+    result: unknown,
+    now: EpochMs,
+  ): Result<commands.CommandRecord, commands.LedgerError> {
     return commands.completeCommand(this.db, requestId, result, now);
   }
   readCommand(requestId: string): commands.CommandRecord | null {
@@ -110,13 +160,20 @@ export class SqliteStore implements Store {
   readEvents(taskId: Uuid, fromSeq?: number): DomainEvent[] {
     return read.readEvents(this.db, taskId, fromSeq);
   }
-  readPolicy(taskId: Uuid, revision: number, policyVersion?: number): FrozenPolicy | null {
+  readPolicy(
+    taskId: Uuid,
+    revision: number,
+    policyVersion?: number,
+  ): FrozenPolicy | null {
     return read.readPolicy(this.db, taskId, revision, policyVersion);
   }
   readContext(taskId: Uuid, revision: number): FrozenExecutionContext | null {
     return read.readContext(this.db, taskId, revision);
   }
-  readRuntimeContext(taskId: Uuid, revision: number): FrozenRuntimeContext | null {
+  readRuntimeContext(
+    taskId: Uuid,
+    revision: number,
+  ): FrozenRuntimeContext | null {
     return read.readRuntimeContext(this.db, taskId, revision);
   }
   verifyProjections(): VerifyReport {

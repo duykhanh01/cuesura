@@ -13,12 +13,23 @@ import { fileURLToPath } from 'node:url';
 import { INVARIANTS } from '../test/invariants.map.ts';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
-const GROUPS = { default: 'pnpm test', reliability: 'pnpm test:reliability' } as const;
+const GROUPS = {
+  default: 'pnpm test',
+  reliability: 'pnpm test:reliability',
+} as const;
 type Group = keyof typeof GROUPS;
 
 type Assertion = { status: string; fullName: string };
-type FileResult = { name: string; status: string; assertionResults: Assertion[] };
-type Report = { startTime: number; success: boolean; testResults: FileResult[] };
+type FileResult = {
+  name: string;
+  status: string;
+  assertionResults: Assertion[];
+};
+type Report = {
+  startTime: number;
+  success: boolean;
+  testResults: FileResult[];
+};
 
 type SuiteStatus = 'passed' | 'failed' | 'skipped' | 'missing';
 type SuiteResult = { group: Group; status: SuiteStatus; tests: number };
@@ -38,7 +49,8 @@ function readReport(group: Group): Report | null {
 
 function suiteStatus(f: FileResult): SuiteStatus {
   const xs = f.assertionResults;
-  if (f.status === 'failed' || xs.some((a) => a.status === 'failed')) return 'failed';
+  if (f.status === 'failed' || xs.some((a) => a.status === 'failed'))
+    return 'failed';
   if (xs.length === 0) return 'missing';
   if (xs.some((a) => a.status !== 'passed')) return 'skipped';
   return 'passed';
@@ -52,7 +64,11 @@ for (const group of Object.keys(GROUPS) as Group[]) {
   reports[group] = r;
   for (const f of r.testResults) {
     const file = relative(ROOT, f.name).split('\\').join('/');
-    const result: SuiteResult = { group, status: suiteStatus(f), tests: f.assertionResults.length };
+    const result: SuiteResult = {
+      group,
+      status: suiteStatus(f),
+      tests: f.assertionResults.length,
+    };
     suites.set(file, result);
     if (result.status === 'failed' || result.status === 'skipped')
       problems.push(
@@ -71,14 +87,23 @@ const LABEL: Record<SuiteStatus, string> = {
 const rows: string[][] = [];
 for (const [id, inv] of Object.entries(INVARIANTS)) {
   if (inv.scope === 'out_of_scope') {
-    rows.push([id, inv.title, 'ngoài phạm vi', inv.layer, 'chưa thuộc phạm vi', '—']);
+    rows.push([
+      id,
+      inv.title,
+      'ngoài phạm vi',
+      inv.layer,
+      'chưa thuộc phạm vi',
+      '—',
+    ]);
     continue;
   }
-  if (inv.suites.length === 0) problems.push(`${id}: trong phạm vi nhưng không có bộ kiểm thử`);
+  if (inv.suites.length === 0)
+    problems.push(`${id}: trong phạm vi nhưng không có bộ kiểm thử`);
   const parts = inv.suites.map((s) => {
     const r = suites.get(s);
     const status: SuiteStatus = r?.status ?? 'missing';
-    if (status === 'missing') problems.push(`${id}: ${s} không có trong kết quả chạy`);
+    if (status === 'missing')
+      problems.push(`${id}: ${s} không có trong kết quả chạy`);
     return { s, status, r };
   });
   const ok = parts.length > 0 && parts.every((p) => p.status === 'passed');
@@ -89,7 +114,10 @@ for (const [id, inv] of Object.entries(INVARIANTS)) {
     inv.layer,
     ok ? 'có bằng chứng' : 'CHƯA ĐẠT',
     parts
-      .map((p) => `${p.s} (${p.r?.group ?? '?'}, ${p.r?.tests ?? 0} test, ${LABEL[p.status]})`)
+      .map(
+        (p) =>
+          `${p.s} (${p.r?.group ?? '?'}, ${p.r?.tests ?? 0} test, ${LABEL[p.status]})`,
+      )
       .join('<br>'),
   ]);
 }
@@ -108,6 +136,7 @@ const out: string[] = [
   '|---|---|---|---|---|---|',
   ...rows.map((r) => `| ${r.join(' | ')} |`),
 ];
-if (problems.length > 0) out.push('', '## Chưa đạt', '', ...problems.map((p) => `- ${p}`));
+if (problems.length > 0)
+  out.push('', '## Chưa đạt', '', ...problems.map((p) => `- ${p}`));
 process.stdout.write(`${out.join('\n')}\n`);
 process.exitCode = problems.length > 0 ? 1 : 0;

@@ -1,8 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { canonicalJson } from '../../../src/shared/canonical-json.ts';
 import { computeRequestHash } from '../../../src/domain/trigger.ts';
-import { openFileStoreForTest, openMemoryStore, storeDb } from '../../../src/store/testing.ts';
-import { authz, buildTask, envelope, freezeOk, uuidOf } from '../../support/builders.ts';
+import {
+  openFileStoreForTest,
+  openMemoryStore,
+  storeDb,
+} from '../../../src/store/testing.ts';
+import {
+  authz,
+  buildTask,
+  envelope,
+  freezeOk,
+  uuidOf,
+} from '../../support/builders.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 import { dbPath, useTempDir } from '../../support/temp-db.ts';
 
@@ -34,12 +44,17 @@ describe('Store.accept (T078)', () => {
     expect(r.task_version).toBe(s.version);
     expect(r.global_seq_range).not.toBeNull();
     expect(store.readPolicy(TASK.id, 1)?.policy_hash).toBe(s.policy_ref?.hash);
-    expect(store.readContext(TASK.id, 1)?.context_hash).toBe(s.context_ref?.hash);
-    expect(d.pendingOne(TASK.id, 'prepare').status).toBe('pending');
-    expect(store.dueTimers(Number.MAX_SAFE_INTEGER as never, 10).map((t) => t.kind)).toContain(
-      'deadline',
+    expect(store.readContext(TASK.id, 1)?.context_hash).toBe(
+      s.context_ref?.hash,
     );
-    expect(store.verifyProjections()).toMatchObject({ ok: true, mismatches: [] });
+    expect(d.pendingOne(TASK.id, 'prepare').status).toBe('pending');
+    expect(
+      store.dueTimers(Number.MAX_SAFE_INTEGER as never, 10).map((t) => t.kind),
+    ).toContain('deadline');
+    expect(store.verifyProjections()).toMatchObject({
+      ok: true,
+      mismatches: [],
+    });
     store.close();
   });
 
@@ -51,12 +66,18 @@ describe('Store.accept (T078)', () => {
     const before = counts(d);
 
     // Gửi lại với `now` và `ids` khác: không thuộc request_hash (R-19).
-    const again = { ...env, now: (env.now + 60_000) as typeof env.now, ids: [uuidOf(999)] };
+    const again = {
+      ...env,
+      now: (env.now + 60_000) as typeof env.now,
+      ids: [uuidOf(999)],
+    };
     const second = d.deliver(again);
     expect(first.ok && second.ok).toBe(true);
     if (!first.ok || !second.ok) return;
     expect(second.value.duplicate).toBe(true);
-    expect(canonicalJson({ ...second.value, duplicate: false })).toBe(canonicalJson(first.value));
+    expect(canonicalJson({ ...second.value, duplicate: false })).toBe(
+      canonicalJson(first.value),
+    );
     expect(counts(d)).toEqual(before);
   });
 
@@ -70,7 +91,12 @@ describe('Store.accept (T078)', () => {
     const h = computeRequestHash(base);
     expect(computeRequestHash({ ...base, task_id: uuidOf(2) })).not.toBe(h);
     expect(computeRequestHash({ ...base, expected_version: 4 })).not.toBe(h);
-    expect(computeRequestHash({ ...base, authz: authz(['operate'], 'someone-else') })).not.toBe(h);
+    expect(
+      computeRequestHash({
+        ...base,
+        authz: authz(['operate'], 'someone-else'),
+      }),
+    ).not.toBe(h);
     expect(computeRequestHash({ ...base, authz: authz(['admin']) })).toBe(h);
 
     const d = new StoreDriver(openMemoryStore());
@@ -91,8 +117,15 @@ describe('Store.accept (T078)', () => {
     d.must(TASK.id, { kind: 'create_task', task: TASK });
     const before = counts(d);
     const v = d.task(TASK.id).version;
-    const r = d.send(TASK.id, { kind: 'cancel', reason: 'cũ' }, { expected_version: v - 1 });
-    expect(r).toEqual({ ok: false, error: { code: 'conflict', reason: 'stale_version' } });
+    const r = d.send(
+      TASK.id,
+      { kind: 'cancel', reason: 'cũ' },
+      { expected_version: v - 1 },
+    );
+    expect(r).toEqual({
+      ok: false,
+      error: { code: 'conflict', reason: 'stale_version' },
+    });
     expect(counts(d)).toEqual(before);
     // Không được ghi vào accepted_triggers: cùng khoá với version đúng vẫn chạy được.
     expect(d.task(TASK.id).version).toBe(v);
@@ -102,8 +135,16 @@ describe('Store.accept (T078)', () => {
     const d = new StoreDriver(openMemoryStore());
     const env = d.envelope(TASK.id, { kind: 'confirm_task' });
     const r1 = d.deliver(env);
-    expect(r1.ok && r1.value.decision).toEqual({ kind: 'rejected', code: 'unknown_task' });
-    expect(counts(d)).toEqual({ events: 0, effects: 0, timers: 0, accepted: 1 });
+    expect(r1.ok && r1.value.decision).toEqual({
+      kind: 'rejected',
+      code: 'unknown_task',
+    });
+    expect(counts(d)).toEqual({
+      events: 0,
+      effects: 0,
+      timers: 0,
+      accepted: 1,
+    });
     const r2 = d.deliver(env);
     expect(r2.ok && r2.value).toMatchObject({
       duplicate: true,
@@ -119,7 +160,10 @@ describe('Store.accept (T078)', () => {
       request_hash: computeRequestHash({ task_id: TASK.id, trigger: {} }),
     };
     const r = d.deliver(env);
-    expect(r.ok && r.value.decision).toMatchObject({ kind: 'rejected', code: 'invalid_trigger' });
+    expect(r.ok && r.value.decision).toMatchObject({
+      kind: 'rejected',
+      code: 'invalid_trigger',
+    });
     expect(d.store.readTask(TASK.id)).toBeNull();
   });
 
@@ -169,7 +213,10 @@ describe('Store.accept (T078)', () => {
 
     expect(d.deliver({ ...env, ids: [] })).toMatchObject({
       ok: true,
-      value: { duplicate: false, decision: { kind: 'rejected', code: 'id_pool_exhausted' } },
+      value: {
+        duplicate: false,
+        decision: { kind: 'rejected', code: 'id_pool_exhausted' },
+      },
     });
     expect(counts(d)).toEqual(before);
     expect(d.deliver(env)).toMatchObject({
@@ -185,7 +232,10 @@ describe('Store.accept (T078)', () => {
     d.must(A.id, { kind: 'create_task', task: A });
     d.must(B.id, { kind: 'create_task', task: B });
     const startA = d.envelope(A.id, { kind: 'start', freeze: freezeOk(A) });
-    expect(d.deliver(startA)).toMatchObject({ ok: true, value: { decision: { kind: 'accepted' } } });
+    expect(d.deliver(startA)).toMatchObject({
+      ok: true,
+      value: { decision: { kind: 'accepted' } },
+    });
     const before = counts(d);
 
     const startB = d.envelope(B.id, { kind: 'start', freeze: freezeOk(B) });
@@ -198,10 +248,15 @@ describe('Store.accept (T078)', () => {
     expect(d.store.verifyProjections().ok).toBe(true);
 
     // Lần trước không để lại dedup: cùng khoá với ID mới chạy được.
-    expect(d.deliver(startB)).toMatchObject({ ok: true, value: { decision: { kind: 'accepted' } } });
+    expect(d.deliver(startB)).toMatchObject({
+      ok: true,
+      value: { decision: { kind: 'accepted' } },
+    });
     const db = storeDb(d.store);
     for (const t of ['effects', 'timers']) {
-      const rows = db.prepare(`SELECT task_id, count(*) AS n FROM ${t} GROUP BY task_id`).all();
+      const rows = db
+        .prepare(`SELECT task_id, count(*) AS n FROM ${t} GROUP BY task_id`)
+        .all();
       expect(rows, t).toHaveLength(2);
     }
     expect(d.store.verifyProjections().ok).toBe(true);

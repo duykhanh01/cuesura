@@ -11,7 +11,12 @@ import type { Usage } from '../domain/trigger.ts';
 import type { RunDirKind } from '../runner/files.ts';
 import type { EpochMs, Hash } from '../shared/brand.ts';
 import type { Result } from '../shared/result.ts';
-import type { Role, RoleResult, ValidationIssue, WireSchema } from './harness/result-schema.ts';
+import type {
+  Role,
+  RoleResult,
+  ValidationIssue,
+  WireSchema,
+} from './harness/result-schema.ts';
 
 // ---- Clock ----
 
@@ -23,7 +28,14 @@ export interface Clock {
 
 // ---- Sandbox (one provider: rootless bwrap, ADR-0004) ----
 
-export const SANDBOX_ROLES = ['coder', 'fixer', 'reviewer', 'setup', 'gate', 'autofix'] as const;
+export const SANDBOX_ROLES = [
+  'coder',
+  'fixer',
+  'reviewer',
+  'setup',
+  'gate',
+  'autofix',
+] as const;
 export type SandboxRole = (typeof SANDBOX_ROLES)[number];
 
 /** Host paths a launch needs; the provider checks them against host policy and pins their identity. */
@@ -68,13 +80,17 @@ export type SandboxLaunchPlan = {
 };
 
 export type SandboxPlanError = {
-  readonly code: 'policy_violation' | 'source_missing' | 'source_symlink' | 'proof_missing';
+  readonly code:
+    'policy_violation' | 'source_missing' | 'source_symlink' | 'proof_missing';
   readonly message: string;
 };
 
 export interface SandboxProvider {
   readonly provider: 'bwrap';
-  plan(layout: SandboxLayout, command: readonly string[]): Result<SandboxLaunchPlan, SandboxPlanError>;
+  plan(
+    layout: SandboxLayout,
+    command: readonly string[],
+  ): Result<SandboxLaunchPlan, SandboxPlanError>;
 }
 
 // ---- Process supervision (transient user units, one per operation) ----
@@ -112,9 +128,19 @@ export type UnitObservation = {
 export type StopOutcome = 'stopped' | 'not_running' | 'unknown';
 
 export interface ProcessPort {
-  launch(spec: OperationLaunch): Promise<Result<{ readonly unit: string; readonly invocation_id: string | null }, LaunchError>>;
+  launch(
+    spec: OperationLaunch,
+  ): Promise<
+    Result<
+      { readonly unit: string; readonly invocation_id: string | null },
+      LaunchError
+    >
+  >;
   inspect(operationId: string): Promise<UnitObservation>;
-  stop(operationId: string, opts: { readonly term_grace_ms: number; readonly kill_verify_ms: number }): Promise<StopOutcome>;
+  stop(
+    operationId: string,
+    opts: { readonly term_grace_ms: number; readonly kill_verify_ms: number },
+  ): Promise<StopOutcome>;
 }
 
 // ---- Harness (one role invocation; no attempt/retry decisions) ----
@@ -210,7 +236,13 @@ export type GitCommand = {
 };
 
 export type GitResult =
-  | { readonly kind: 'exited'; readonly code: number; readonly stdout: string; readonly stderr: string; readonly truncated: boolean }
+  | {
+      readonly kind: 'exited';
+      readonly code: number;
+      readonly stdout: string;
+      readonly stderr: string;
+      readonly truncated: boolean;
+    }
   | { readonly kind: 'timeout' }
   | { readonly kind: 'spawn_failed'; readonly message: string }
   /** Not run: the subcommand/arguments are not allowed or the repo config is not trusted. */
@@ -258,7 +290,12 @@ export interface GitHubPort {
 // ---- Host probe (read-only checks of host prerequisites; never changes the host) ----
 
 export type HostExecResult =
-  | { readonly kind: 'exited'; readonly code: number; readonly stdout: string; readonly stderr: string }
+  | {
+      readonly kind: 'exited';
+      readonly code: number;
+      readonly stdout: string;
+      readonly stderr: string;
+    }
   | { readonly kind: 'timeout' }
   | { readonly kind: 'spawn_failed'; readonly message: string };
 
@@ -269,5 +306,8 @@ export interface HostProbePort {
   realpath(path: string): Promise<string | null>;
   /** Small text file such as a `/proc/sys` knob; null when it does not exist or cannot be read. */
   readText(path: string): Promise<string | null>;
-  exec(argv: readonly string[], opts: { readonly timeout_ms: number }): Promise<HostExecResult>;
+  exec(
+    argv: readonly string[],
+    opts: { readonly timeout_ms: number },
+  ): Promise<HostExecResult>;
 }

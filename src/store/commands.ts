@@ -41,16 +41,27 @@ function toRecord(r: CommandRow): CommandRecord {
     status: r.status,
     admitted_at: r.admitted_at,
     completed_at: r.completed_at,
-    result: r.result_json === null ? null : (JSON.parse(r.result_json) as unknown),
+    result:
+      r.result_json === null ? null : (JSON.parse(r.result_json) as unknown),
   };
 }
 
 export type Admission = { kind: 'new' | 'existing'; record: CommandRecord };
 
-export type LedgerError = { code: 'conflict'; reason: 'command_mismatch' | 'not_admitted' | 'result_mismatch' } | WriteFailure;
+export type LedgerError =
+  | {
+      code: 'conflict';
+      reason: 'command_mismatch' | 'not_admitted' | 'result_mismatch';
+    }
+  | WriteFailure;
 
-export function readCommand(db: Database, requestId: string): CommandRecord | null {
-  const row = db.prepare('SELECT * FROM command_ledger WHERE request_id = ?').get(requestId) as CommandRow | undefined;
+export function readCommand(
+  db: Database,
+  requestId: string,
+): CommandRecord | null {
+  const row = db
+    .prepare('SELECT * FROM command_ledger WHERE request_id = ?')
+    .get(requestId) as CommandRow | undefined;
   return row === undefined ? null : toRecord(row);
 }
 
@@ -61,14 +72,26 @@ export function readCommand(db: Database, requestId: string): CommandRecord | nu
  */
 export function admitCommand(
   db: Database,
-  input: { request_id: string; actor: string; kind: string; command_hash: string; task_id: string | null; assigned_ids: readonly string[]; now: number },
+  input: {
+    request_id: string;
+    actor: string;
+    kind: string;
+    command_hash: string;
+    task_id: string | null;
+    assigned_ids: readonly string[];
+    now: number;
+  },
 ): Result<Admission, LedgerError> {
   try {
     db.exec('BEGIN IMMEDIATE');
     const prior = readCommand(db, input.request_id);
     if (prior !== null) {
       rollback(db);
-      if (prior.command_hash !== input.command_hash || prior.actor !== input.actor || prior.kind !== input.kind) {
+      if (
+        prior.command_hash !== input.command_hash ||
+        prior.actor !== input.actor ||
+        prior.kind !== input.kind
+      ) {
         return err({ code: 'conflict', reason: 'command_mismatch' });
       }
       return ok({ kind: 'existing', record: prior });
@@ -76,7 +99,15 @@ export function admitCommand(
     db.prepare(
       `INSERT INTO command_ledger (request_id, actor, kind, command_hash, task_id, assigned_ids_json, status, admitted_at, completed_at, result_json)
        VALUES (?, ?, ?, ?, ?, ?, 'admitted', ?, NULL, NULL)`,
-    ).run(input.request_id, input.actor, input.kind, input.command_hash, input.task_id, canonicalJson(input.assigned_ids), input.now);
+    ).run(
+      input.request_id,
+      input.actor,
+      input.kind,
+      input.command_hash,
+      input.task_id,
+      canonicalJson(input.assigned_ids),
+      input.now,
+    );
     db.exec('COMMIT');
   } catch (e) {
     rollback(db);
@@ -84,11 +115,19 @@ export function admitCommand(
     if (wf !== null) return err(wf);
     throw e;
   }
-  return ok({ kind: 'new', record: readCommand(db, input.request_id) as CommandRecord });
+  return ok({
+    kind: 'new',
+    record: readCommand(db, input.request_id) as CommandRecord,
+  });
 }
 
 /** Stores the first result. Completing again with the same result is a no-op; a different one conflicts. */
-export function completeCommand(db: Database, requestId: string, result: unknown, now: number): Result<CommandRecord, LedgerError> {
+export function completeCommand(
+  db: Database,
+  requestId: string,
+  result: unknown,
+  now: number,
+): Result<CommandRecord, LedgerError> {
   try {
     db.exec('BEGIN IMMEDIATE');
     const prior = readCommand(db, requestId);
@@ -98,13 +137,13 @@ export function completeCommand(db: Database, requestId: string, result: unknown
     }
     if (prior.status === 'completed') {
       rollback(db);
-      return canonicalJson(prior.result) === canonicalJson(result) ? ok(prior) : err({ code: 'conflict', reason: 'result_mismatch' });
+      return canonicalJson(prior.result) === canonicalJson(result)
+        ? ok(prior)
+        : err({ code: 'conflict', reason: 'result_mismatch' });
     }
-    db.prepare(`UPDATE command_ledger SET status = 'completed', completed_at = ?, result_json = ? WHERE request_id = ?`).run(
-      now,
-      canonicalJson(result),
-      requestId,
-    );
+    db.prepare(
+      `UPDATE command_ledger SET status = 'completed', completed_at = ?, result_json = ? WHERE request_id = ?`,
+    ).run(now, canonicalJson(result), requestId);
     db.exec('COMMIT');
   } catch (e) {
     rollback(db);
@@ -118,7 +157,9 @@ export function completeCommand(db: Database, requestId: string, result: unknown
 /** Admitted commands without a result: a restarted daemon resumes them instead of dropping them. */
 export function pendingCommands(db: Database, limit: number): CommandRecord[] {
   const rows = db
-    .prepare(`SELECT * FROM command_ledger WHERE status = 'admitted' ORDER BY admitted_at, request_id LIMIT ?`)
+    .prepare(
+      `SELECT * FROM command_ledger WHERE status = 'admitted' ORDER BY admitted_at, request_id LIMIT ?`,
+    )
     .all(limit) as CommandRow[];
   return rows.map(toRecord);
 }

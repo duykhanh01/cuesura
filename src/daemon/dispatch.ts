@@ -27,7 +27,9 @@ export type EffectHandler = (
 ) => Promise<TriggerEnvelope | readonly TriggerEnvelope[]>;
 
 /** `merge` cannot be given a handler: the type excludes it and the constructor refuses it at runtime. */
-export type EffectHandlers = Partial<Record<Exclude<EffectKind, 'merge'>, EffectHandler>>;
+export type EffectHandlers = Partial<
+  Record<Exclude<EffectKind, 'merge'>, EffectHandler>
+>;
 
 export type SkipReason =
   | 'merge_refused'
@@ -53,10 +55,17 @@ const OPERATION_KIND: Record<Exclude<EffectKind, 'merge'>, OperationKind> = {
 
 export type DispatchReport = {
   readonly started: readonly string[];
-  readonly skipped: readonly { readonly effect_id: string; readonly reason: SkipReason }[];
+  readonly skipped: readonly {
+    readonly effect_id: string;
+    readonly reason: SkipReason;
+  }[];
 };
 
-export type DispatchLog = (record: { readonly event: string; readonly effect_id: string; readonly detail?: string }) => void;
+export type DispatchLog = (record: {
+  readonly event: string;
+  readonly effect_id: string;
+  readonly detail?: string;
+}) => void;
 
 export type DispatcherOptions = {
   readonly store: Store;
@@ -82,12 +91,16 @@ export class Dispatcher {
   readonly #log: DispatchLog;
   readonly #batch: number;
   readonly #newId: () => string;
-  readonly #inFlight = new Map<string, { abort: AbortController; done: Promise<void> }>();
+  readonly #inFlight = new Map<
+    string,
+    { abort: AbortController; done: Promise<void> }
+  >();
   #blocked: string | null = null;
   #stopped = false;
 
   constructor(opts: DispatcherOptions) {
-    if (Object.hasOwn(opts.handlers, 'merge')) throw new DispatchConfigError('merge is never executed by the daemon');
+    if (Object.hasOwn(opts.handlers, 'merge'))
+      throw new DispatchConfigError('merge is never executed by the daemon');
     this.#store = opts.store;
     this.#clock = opts.clock;
     this.#handlers = opts.handlers;
@@ -139,7 +152,11 @@ export class Dispatcher {
     return { started, skipped };
   }
 
-  #tryStart(effect: Effect, started: string[], skipped: { effect_id: string; reason: SkipReason }[]): void {
+  #tryStart(
+    effect: Effect,
+    started: string[],
+    skipped: { effect_id: string; reason: SkipReason }[],
+  ): void {
     const reason = this.#skipReason(effect);
     if (reason !== null) {
       skipped.push({ effect_id: effect.id, reason });
@@ -154,15 +171,28 @@ export class Dispatcher {
       unit: unitName(operationId),
       holds_slot: holdsSlot(kind),
     };
-    const claimed = this.#store.claimEffect(effect.id as Uuid, this.#clock.now(), { require_runtime: true, operation });
+    const claimed = this.#store.claimEffect(
+      effect.id as Uuid,
+      this.#clock.now(),
+      { require_runtime: true, operation },
+    );
     if (!claimed.ok) {
       const e = claimed.error;
-      const r = e.code === 'claim_blocked' ? (`claim_blocked:${e.reason}` as const) : e.code === 'operation_rejected' ? (`operation_rejected:${e.reason}` as const) : e.code;
+      const r =
+        e.code === 'claim_blocked'
+          ? (`claim_blocked:${e.reason}` as const)
+          : e.code === 'operation_rejected'
+            ? (`operation_rejected:${e.reason}` as const)
+            : e.code;
       skipped.push({ effect_id: effect.id, reason: r });
       return;
     }
     // Only now, after EffectStarted and the operation are committed, may anything outside the store happen.
-    this.#start(claimed.value, operation, this.#handlers[kind] as EffectHandler);
+    this.#start(
+      claimed.value,
+      operation,
+      this.#handlers[kind] as EffectHandler,
+    );
     started.push(effect.id);
   }
 
@@ -173,23 +203,42 @@ export class Dispatcher {
     return this.#handlers[effect.kind] === undefined ? 'no_handler' : null;
   }
 
-  #start(effect: Effect, operation: OperationClaim, handler: EffectHandler): void {
+  #start(
+    effect: Effect,
+    operation: OperationClaim,
+    handler: EffectHandler,
+  ): void {
     const abort = new AbortController();
     const run = async (): Promise<void> => {
       try {
         const result = await handler(effect, abort.signal, operation);
-        const envelopes = (Array.isArray(result) ? result : [result]) as readonly TriggerEnvelope[];
+        const envelopes = (
+          Array.isArray(result) ? result : [result]
+        ) as readonly TriggerEnvelope[];
         for (const envelope of envelopes) {
           if (this.#stopped) {
-            this.#log({ event: 'result_dropped', effect_id: effect.id, detail: 'dispatcher stopped' });
+            this.#log({
+              event: 'result_dropped',
+              effect_id: effect.id,
+              detail: 'dispatcher stopped',
+            });
             return;
           }
           const accepted = this.#store.accept(envelope);
-          if (!accepted.ok) this.#log({ event: 'result_rejected', effect_id: effect.id, detail: JSON.stringify(accepted.error) });
+          if (!accepted.ok)
+            this.#log({
+              event: 'result_rejected',
+              effect_id: effect.id,
+              detail: JSON.stringify(accepted.error),
+            });
         }
       } catch (e) {
         // The effect stays `started`: recovery reconciles it; nothing here guesses an outcome.
-        this.#log({ event: 'handler_failed', effect_id: effect.id, detail: e instanceof Error ? e.message : String(e) });
+        this.#log({
+          event: 'handler_failed',
+          effect_id: effect.id,
+          detail: e instanceof Error ? e.message : String(e),
+        });
       }
     };
     // Registered before the handler runs, so a synchronous throw cannot delete the entry before it exists.
@@ -198,7 +247,8 @@ export class Dispatcher {
     entry.done = Promise.resolve()
       .then(run)
       .finally(() => {
-        if (this.#inFlight.get(effect.id) === entry) this.#inFlight.delete(effect.id);
+        if (this.#inFlight.get(effect.id) === entry)
+          this.#inFlight.delete(effect.id);
       });
   }
 
@@ -222,7 +272,12 @@ export class Dispatcher {
     clearTimeout(timer);
     this.#stopped = true;
     const abandoned = [...this.#inFlight.keys()];
-    for (const id of abandoned) this.#log({ event: 'handler_abandoned', effect_id: id, detail: `still running after ${graceMs}ms` });
+    for (const id of abandoned)
+      this.#log({
+        event: 'handler_abandoned',
+        effect_id: id,
+        detail: `still running after ${graceMs}ms`,
+      });
     return abandoned;
   }
 }

@@ -9,8 +9,14 @@ import tseslint from 'typescript-eslint';
  */
 export const pureCoreRestrictedImports = {
   patterns: [
-    { group: ['node:*'], message: 'Lõi thuần không được import module Node (FR-012).' },
-    { group: ['better-sqlite3', 'yaml', 'uuid'], message: 'Lõi thuần không được import thư viện I/O.' },
+    {
+      group: ['node:*'],
+      message: 'Lõi thuần không được import module Node (FR-012).',
+    },
+    {
+      group: ['better-sqlite3', 'yaml', 'uuid'],
+      message: 'Lõi thuần không được import thư viện I/O.',
+    },
     {
       group: ['**/store/**', '**/store', '**/config/**', '**/config'],
       message: 'Lõi thuần không được phụ thuộc src/store hay src/config.',
@@ -22,12 +28,19 @@ export const pureCoreRestrictedGlobals = [
   { name: 'Date', message: 'Thời điểm đi vào qua phong bì tín hiệu (R-04).' },
   { name: 'performance', message: 'Lõi thuần không đo thời gian.' },
   { name: 'process', message: 'Lõi thuần không đọc môi trường tiến trình.' },
-  { name: 'setTimeout', message: 'Lõi thuần không hẹn giờ; dùng sự kiện TimerArmed.' },
+  {
+    name: 'setTimeout',
+    message: 'Lõi thuần không hẹn giờ; dùng sự kiện TimerArmed.',
+  },
   { name: 'setInterval', message: 'Lõi thuần không hẹn giờ.' },
 ];
 
 export const pureCoreRestrictedProperties = [
-  { object: 'Math', property: 'random', message: 'Jitter phải suy tất định từ dữ liệu (FR-012).' },
+  {
+    object: 'Math',
+    property: 'random',
+    message: 'Jitter phải suy tất định từ dữ liệu (FR-012).',
+  },
 ];
 
 export const pureCoreRules = {
@@ -44,18 +57,32 @@ export const pureCoreFiles = [
 ];
 
 export default tseslint.config(
-  { ignores: ['node_modules/', 'dist/', 'coverage/', 'reports/', 'test/fixtures/lint/**'] },
+  {
+    ignores: [
+      'node_modules/',
+      'dist/',
+      'coverage/',
+      'reports/',
+      'test/fixtures/lint/**',
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   {
     languageOptions: {
       globals: { ...globals.node },
-      parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname,
+      },
     },
     rules: {
       '@typescript-eslint/no-floating-promises': 'error',
       '@typescript-eslint/no-misused-promises': 'error',
-      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+      ],
       '@typescript-eslint/switch-exhaustiveness-check': 'off',
     },
   },
@@ -82,8 +109,13 @@ export default tseslint.config(
         'error',
         {
           patterns: [
-            { group: ['node:*', '!node:crypto'], message: 'hash.ts chỉ được import node:crypto.' },
-            ...pureCoreRestrictedImports.patterns.filter((p) => !p.group.includes('node:*')),
+            {
+              group: ['node:*', '!node:crypto'],
+              message: 'hash.ts chỉ được import node:crypto.',
+            },
+            ...pureCoreRestrictedImports.patterns.filter(
+              (p) => !p.group.includes('node:*'),
+            ),
           ],
         },
       ],
@@ -96,7 +128,10 @@ export default tseslint.config(
         'error',
         {
           patterns: [
-            { group: ['**/config/**', '**/config'], message: 'src/store không phụ thuộc src/config (R-12).' },
+            {
+              group: ['**/config/**', '**/config'],
+              message: 'src/store không phụ thuộc src/config (R-12).',
+            },
           ],
         },
       ],
@@ -112,7 +147,11 @@ export default tseslint.config(
           patterns: [
             {
               // NodeNext cho phép viết import với đuôi .js trỏ tới testing.ts.
-              group: ['**/store/testing', '**/store/testing.ts', '**/store/testing.js'],
+              group: [
+                '**/store/testing',
+                '**/store/testing.ts',
+                '**/store/testing.js',
+              ],
               message: 'testing.ts chỉ dành cho kiểm thử.',
             },
           ],
@@ -129,8 +168,15 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: ['**/store/**', '**/store', '**/daemon/**', '**/daemon', 'better-sqlite3'],
-              message: 'runner/adapters không import store, daemon hay SQLite; facts trả về daemon qua file hoặc port.',
+              group: [
+                '**/store/**',
+                '**/store',
+                '**/daemon/**',
+                '**/daemon',
+                'better-sqlite3',
+              ],
+              message:
+                'runner/adapters không import store, daemon hay SQLite; facts trả về daemon qua file hoặc port.',
             },
           ],
         },

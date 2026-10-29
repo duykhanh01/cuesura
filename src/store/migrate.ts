@@ -9,7 +9,11 @@ import { canonicalJson } from '../shared/canonical-json.ts';
  * Migration theo phiên bản; file SQL nằm cạnh module (được copy sang `dist` khi build). `after` chạy trong
  * cùng transaction với SQL.
  */
-const MIGRATIONS: readonly { version: number; file: string; after?: (db: Database) => void }[] = [
+const MIGRATIONS: readonly {
+  version: number;
+  file: string;
+  after?: (db: Database) => void;
+}[] = [
   { version: 1, file: '001_init.sql' },
   { version: 2, file: '002_runtime.sql', after: rebuildForRuntime },
   { version: 3, file: '003_command_outcome.sql' },
@@ -20,15 +24,26 @@ const MIGRATIONS: readonly { version: number; file: string; after?: (db: Databas
  * tables in global order. Raw events, accepted triggers and frozen snapshots are left byte-for-byte intact.
  */
 function rebuildForRuntime(db: Database): void {
-  const rows = db.prepare('SELECT * FROM events ORDER BY global_seq').all() as EventRow[];
+  const rows = db
+    .prepare('SELECT * FROM events ORDER BY global_seq')
+    .all() as EventRow[];
   const events = rows.map(toEvent);
   const byTask = new Map<string, typeof events>();
-  for (const e of events) byTask.set(e.task_id, [...(byTask.get(e.task_id) ?? []), e]);
-  const update = db.prepare('UPDATE tasks SET status = ?, wait_reason = ?, version = ?, state_json = ? WHERE id = ?');
+  for (const e of events)
+    byTask.set(e.task_id, [...(byTask.get(e.task_id) ?? []), e]);
+  const update = db.prepare(
+    'UPDATE tasks SET status = ?, wait_reason = ?, version = ?, state_json = ? WHERE id = ?',
+  );
   for (const [taskId, list] of byTask) {
     const state = replay(list);
     if (state === null) continue;
-    update.run(state.status, state.wait?.reason ?? null, state.version, canonicalJson(state), taskId);
+    update.run(
+      state.status,
+      state.wait?.reason ?? null,
+      state.version,
+      canonicalJson(state),
+      taskId,
+    );
   }
   projectRuntime(sqliteSink(db), events);
 }
@@ -41,11 +56,14 @@ export type MigrateResult =
 
 function currentVersion(db: Database): number {
   const meta = db
-    .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_meta'`)
+    .prepare(
+      `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_meta'`,
+    )
     .get();
   if (meta === undefined) return 0;
-  const row = db.prepare('SELECT version FROM schema_meta WHERE id = 1').get() as
-    { version: number } | undefined;
+  const row = db
+    .prepare('SELECT version FROM schema_meta WHERE id = 1')
+    .get() as { version: number } | undefined;
   return row?.version ?? 0;
 }
 
@@ -55,10 +73,14 @@ function currentVersion(db: Database): number {
  */
 export function migrate(db: Database): MigrateResult {
   const from = currentVersion(db);
-  if (from > SCHEMA_VERSION) return { ok: false, code: 'schema_incompatible', found: from };
+  if (from > SCHEMA_VERSION)
+    return { ok: false, code: 'schema_incompatible', found: from };
   for (const m of MIGRATIONS) {
     if (m.version <= from) continue;
-    const sql = readFileSync(new URL(`./migrations/${m.file}`, import.meta.url), 'utf8');
+    const sql = readFileSync(
+      new URL(`./migrations/${m.file}`, import.meta.url),
+      'utf8',
+    );
     db.transaction(() => {
       db.exec(sql);
       m.after?.(db);

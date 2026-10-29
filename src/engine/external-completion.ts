@@ -25,14 +25,20 @@ export function externalConfirmation(ctx: Ctx): boolean {
 /** The merge gate of a runtime task: wait for the merge on GitHub; no approval request, no merge effect. */
 export function waitForExternalMerge(ctx: Ctx, step: string): void {
   // With the observation window spent, nothing would notice the merge: only a recheck observes (FR-043.06).
-  if (ctx.state.observation?.expired === true) return waitObservationExpired(ctx, null);
+  if (ctx.state.observation?.expired === true)
+    return waitObservationExpired(ctx, null);
   waitTask(
     ctx,
     mkWait('approval', 'merge', {
       resume: { kind: 'none' },
       resume_when: ['external_completion'],
       exit_paths: ['merge the PR on GitHub', 'cancel'],
-      detail: { step, mode: 'external_confirmation', head_sha: ctx.state.head_sha, pr_ref: ctx.state.pr_ref },
+      detail: {
+        step,
+        mode: 'external_confirmation',
+        head_sha: ctx.state.head_sha,
+        pr_ref: ctx.state.pr_ref,
+      },
     }),
   );
 }
@@ -46,47 +52,93 @@ export function waitForExternalMerge(ctx: Ctx, step: string): void {
 function verifiedHead(ctx: Ctx, head: string): boolean {
   const s = ctx.state;
   if (s.head_sha !== head || s.run.head_drift !== null) return false;
-  if (s.run.mode !== null && (s.run.checkpoint === null || s.run.checkpoint.revision !== s.revision || s.run.checkpoint.sha !== head)) return false;
+  if (
+    s.run.mode !== null &&
+    (s.run.checkpoint === null ||
+      s.run.checkpoint.revision !== s.revision ||
+      s.run.checkpoint.sha !== head)
+  )
+    return false;
   const ci = latestCi(s, head);
-  return reviewOf(s, head) !== 'missing' && ci !== undefined && ciVerdict(ctx.frozen, ci.required_set, ci.checks).kind === 'pass';
+  return (
+    reviewOf(s, head) !== 'missing' &&
+    ci !== undefined &&
+    ciVerdict(ctx.frozen, ci.required_set, ci.checks).kind === 'pass'
+  );
 }
 
 type ExternalCompletion = Extract<Trigger, { kind: 'external_completion' }>;
 
 export function onExternalCompletion(ctx: Ctx, t: ExternalCompletion): void {
   const s = ctx.state;
-  if (!externalConfirmation(ctx)) reject('invalid_trigger', { reason: 'not_external_confirmation' });
+  if (!externalConfirmation(ctx))
+    reject('invalid_trigger', { reason: 'not_external_confirmation' });
   if (s.pr_ref === null) reject('invalid_trigger', { reason: 'no_pr' });
-  if (t.proof.subject.target_ref !== s.task.base_branch) reject('invalid_trigger', { reason: 'merge_target_mismatch', target: t.proof.subject.target_ref });
+  if (t.proof.subject.target_ref !== s.task.base_branch)
+    reject('invalid_trigger', {
+      reason: 'merge_target_mismatch',
+      target: t.proof.subject.target_ref,
+    });
   const last = s.observation?.last ?? null;
-  if (last === null || last.observation_id !== t.proof.observation_id || last.status !== 'merged') {
-    reject('invalid_trigger', { reason: 'observation_missing', observation_id: t.proof.observation_id });
+  if (
+    last === null ||
+    last.observation_id !== t.proof.observation_id ||
+    last.status !== 'merged'
+  ) {
+    reject('invalid_trigger', {
+      reason: 'observation_missing',
+      observation_id: t.proof.observation_id,
+    });
   }
   if (s.completion !== null) {
-    const same = s.completion.proof.merge_commit_sha === t.proof.merge_commit_sha && s.completion.proof.subject.subject_id === t.proof.subject.subject_id;
-    ctx.emit('SignalIgnored', { reason: same ? 'completion_recorded' : 'completion_conflict', trigger_kind: t.kind, detail: { merge_commit_sha: t.proof.merge_commit_sha } });
+    const same =
+      s.completion.proof.merge_commit_sha === t.proof.merge_commit_sha &&
+      s.completion.proof.subject.subject_id === t.proof.subject.subject_id;
+    ctx.emit('SignalIgnored', {
+      reason: same ? 'completion_recorded' : 'completion_conflict',
+      trigger_kind: t.kind,
+      detail: { merge_commit_sha: t.proof.merge_commit_sha },
+    });
     return;
   }
 
   const checked = s.head_sha;
-  const unverified = t.unverified_reason ?? (verifiedHead(ctx, t.proof.merged_head_sha) ? null : 'merged_head_unverified');
-  ctx.emit('ExternalCompletionObserved', { proof: { ...t.proof, checked_head_sha: checked }, unverified_reason: unverified, at: ctx.now });
+  const unverified =
+    t.unverified_reason ??
+    (verifiedHead(ctx, t.proof.merged_head_sha)
+      ? null
+      : 'merged_head_unverified');
+  ctx.emit('ExternalCompletionObserved', {
+    proof: { ...t.proof, checked_head_sha: checked },
+    unverified_reason: unverified,
+    at: ctx.now,
+  });
 
   // No new business work after a merge: pending business effects and every armed timer go; effects
   // already started keep running until the drain stops or reconciles them (FR-040.04–06).
   invalidatePending(ctx, 'merged', () => true);
   for (const timer of Object.values(ctx.state.timers)) {
-    if (timer.status === 'armed') ctx.emit('TimerCancelled', { timer_id: timer.id });
+    if (timer.status === 'armed')
+      ctx.emit('TimerCancelled', { timer_id: timer.id });
   }
   const r = ctx.state.execution.request;
-  if (r !== null) ctx.emit('ExecutionWithdrawn', { request_id: r.request_id, reason: 'completion', at: ctx.now });
+  if (r !== null)
+    ctx.emit('ExecutionWithdrawn', {
+      request_id: r.request_id,
+      reason: 'completion',
+      at: ctx.now,
+    });
   // Emitted directly, not through waitTask: completion outranks a pending source drift.
   ctx.emit('TaskWaiting', {
     wait: mkWait('policy', 'merge_cleanup_pending', {
       resume: { kind: 'none' },
       resume_when: ['drain_result', 'recheck(drain)'],
       exit_paths: ['recheck'],
-      detail: { merged_head_sha: t.proof.merged_head_sha, checked_head_sha: checked, unverified_reason: unverified },
+      detail: {
+        merged_head_sha: t.proof.merged_head_sha,
+        checked_head_sha: checked,
+        unverified_reason: unverified,
+      },
     }),
   });
   startDrain(ctx);

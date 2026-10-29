@@ -9,11 +9,20 @@ import {
   type FrozenRuntimeContext,
 } from '../domain/runtime.ts';
 import type { MergeMethod } from '../domain/merge-method.ts';
-import type { ExecutionMode, PrTemplate, RunConfigSnapshot } from '../domain/run-config.ts';
+import type {
+  ExecutionMode,
+  PrTemplate,
+  RunConfigSnapshot,
+} from '../domain/run-config.ts';
 import type { CanonicalTask } from '../domain/task.ts';
 import { DAEMON_COMPLETION_MODE } from './capabilities.ts';
 import type { DocContent } from '../policy/finalize.ts';
-import { freezePolicy, type AttachmentContent, type Frozen, type FreezeError } from '../policy/freeze.ts';
+import {
+  freezePolicy,
+  type AttachmentContent,
+  type Frozen,
+  type FreezeError,
+} from '../policy/freeze.ts';
 import type { Locator } from './checks.ts';
 import { applyOverrides, type TaskOverrides } from './merge.ts';
 import type { RuntimeConfig } from './normalize.ts';
@@ -41,15 +50,24 @@ const atOverrides: Locator = () => ({ file: '<overrides>', line: 1, col: 1 });
  */
 export function freeze(input: FreezeInput): Result<Frozen, FreezeError> {
   const overrides = input.overrides ?? {};
-  const profileName = input.task.profile ?? input.config.project?.profile ?? null;
-  if (Object.keys(overrides).length === 0 || profileName === null || !(profileName in input.config.profiles)) {
+  const profileName =
+    input.task.profile ?? input.config.project?.profile ?? null;
+  if (
+    Object.keys(overrides).length === 0 ||
+    profileName === null ||
+    !(profileName in input.config.profiles)
+  ) {
     return freezePolicy(input);
   }
 
   const { raw, hashes, files } = input.config;
   const profile = input.config.profiles[profileName];
   const applied = applyOverrides(
-    { roles: (raw.user.roles ?? {}) as Record<string, unknown>, profile: raw.profiles[profileName] ?? {}, project: raw.project ?? {} },
+    {
+      roles: (raw.user.roles ?? {}) as Record<string, unknown>,
+      profile: raw.profiles[profileName] ?? {},
+      project: raw.project ?? {},
+    },
     overrides,
     profile?.overridable ?? [],
     input.caller,
@@ -60,7 +78,11 @@ export function freeze(input: FreezeInput): Result<Frozen, FreezeError> {
       : err({ code: 'override_exceeds_caller', keys: applied.error.keys });
   }
 
-  const user = { ...raw.user, roles: applied.value.roles, profiles: { ...raw.profiles, [profileName]: applied.value.profile } };
+  const user = {
+    ...raw.user,
+    roles: applied.value.roles,
+    profiles: { ...raw.profiles, [profileName]: applied.value.profile },
+  };
   const project = raw.project === null ? null : applied.value.project;
   const re = analyze({
     user,
@@ -92,13 +114,18 @@ export type RuntimeFreezeInput = {
   merge_method?: MergeMethod;
 };
 
-export type RuntimeFreezeError = { code: 'runtime_invalid'; issues: { path: (string | number)[]; message: string }[] };
+export type RuntimeFreezeError = {
+  code: 'runtime_invalid';
+  issues: { path: (string | number)[]; message: string }[];
+};
 
 /**
  * Chốt `FrozenRuntimeContext` v1 cho một revision, tách khỏi `freeze`: không đụng FrozenPolicy hay
  * FrozenExecutionContext và hash của chúng. Chỉ chụp tham chiếu credential, không đọc secret.
  */
-export function freezeRuntimeContext(input: RuntimeFreezeInput): Result<FrozenRuntimeContext, RuntimeFreezeError> {
+export function freezeRuntimeContext(
+  input: RuntimeFreezeInput,
+): Result<FrozenRuntimeContext, RuntimeFreezeError> {
   const body: Omit<FrozenRuntimeContext, 'runtime_hash'> = {
     schema_version: RUNTIME_SCHEMA_VERSION,
     task_id: input.task_id,
@@ -111,16 +138,31 @@ export function freezeRuntimeContext(input: RuntimeFreezeInput): Result<FrozenRu
     target: { provider: 'github', ...input.target },
     limits: { ...input.runtime.limits },
     capability_refs: { ...input.capability_refs },
-    credential_refs: input.runtime.credential_refs.map((c) => ({ name: c.name, file: c.file })),
-    ...(input.run_config === undefined ? {} : { run_config: structuredClone(input.run_config) }),
-    ...(input.pr_template === undefined ? {} : { pr_template: input.pr_template }),
-    ...(input.merge_method === undefined ? {} : { merge_method: input.merge_method }),
+    credential_refs: input.runtime.credential_refs.map((c) => ({
+      name: c.name,
+      file: c.file,
+    })),
+    ...(input.run_config === undefined
+      ? {}
+      : { run_config: structuredClone(input.run_config) }),
+    ...(input.pr_template === undefined
+      ? {}
+      : { pr_template: input.pr_template }),
+    ...(input.merge_method === undefined
+      ? {}
+      : { merge_method: input.merge_method }),
   };
-  const parsed = FrozenRuntimeContextSchema.safeParse({ ...body, runtime_hash: computeRuntimeHash(body) });
+  const parsed = FrozenRuntimeContextSchema.safeParse({
+    ...body,
+    runtime_hash: computeRuntimeHash(body),
+  });
   if (!parsed.success) {
     return err({
       code: 'runtime_invalid',
-      issues: parsed.error.issues.map((i) => ({ path: i.path as (string | number)[], message: i.message })),
+      issues: parsed.error.issues.map((i) => ({
+        path: i.path as (string | number)[],
+        message: i.message,
+      })),
     });
   }
   return ok(parsed.data);

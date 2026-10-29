@@ -47,7 +47,10 @@ export const DEFAULT_LIMITS = {
 } as const;
 export type Limits = { -readonly [K in keyof typeof DEFAULT_LIMITS]: number };
 
-export const SafeIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/).refine((s) => !s.includes('..'));
+export const SafeIdSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/)
+  .refine((s) => !s.includes('..'));
 
 const LimitsSchema = z
   .strictObject({
@@ -70,7 +73,11 @@ export const RunSpecSchema = z.strictObject({
   cwd: z.string(),
   env: z.record(z.string(), z.string()),
   stdin_file: z.string().nullable(),
-  deadline_ms: z.number().int().positive().max(24 * 3_600_000),
+  deadline_ms: z
+    .number()
+    .int()
+    .positive()
+    .max(24 * 3_600_000),
   /** Files whose secret values (e.g. selected model auth) must never reach logs. Values are read, not stored. */
   redact_files: z.array(z.string()),
   /** Opaque binding/hashes recorded in invocation.json after redaction. */
@@ -102,14 +109,20 @@ export class Redactor {
   readonly #values: readonly string[];
 
   constructor(values: readonly string[] = []) {
-    this.#values = [...new Set(values.filter((v) => v.length >= 8))].sort((a, b) => b.length - a.length);
+    this.#values = [...new Set(values.filter((v) => v.length >= 8))].sort(
+      (a, b) => b.length - a.length,
+    );
   }
 
   redact(text: string): string {
     let out = text;
     for (const v of this.#values) out = out.split(v).join('[REDACTED]');
     for (const p of SECRET_PATTERNS) {
-      out = out.replace(p, (_m, prefix?: unknown) => `${typeof prefix === 'string' ? prefix : ''}[REDACTED]`);
+      out = out.replace(
+        p,
+        (_m, prefix?: unknown) =>
+          `${typeof prefix === 'string' ? prefix : ''}[REDACTED]`,
+      );
     }
     return out;
   }
@@ -123,14 +136,22 @@ export function secretValuesFromFile(path: string): string[] {
     if (typeof v === 'string') {
       if (v.length >= 12) values.push(v);
     } else if (Array.isArray(v)) v.forEach(walk);
-    else if (typeof v === 'object' && v !== null) Object.values(v).forEach(walk);
+    else if (typeof v === 'object' && v !== null)
+      Object.values(v).forEach(walk);
   };
   try {
     walk(JSON.parse(text));
   } catch {
     for (const line of text.split('\n')) {
       const t = line.trim();
-      if (t.length >= 12) values.push(t, ...t.split('=').slice(1).filter((x) => x.length >= 12));
+      if (t.length >= 12)
+        values.push(
+          t,
+          ...t
+            .split('=')
+            .slice(1)
+            .filter((x) => x.length >= 12),
+        );
     }
   }
   return values;
@@ -148,7 +169,10 @@ function fsyncDir(dir: string): void {
 }
 
 function writeTemp(dir: string, name: string, data: string): string {
-  const tmp = join(dir, `.${name}.tmp-${process.pid}-${randomBytes(4).toString('hex')}`);
+  const tmp = join(
+    dir,
+    `.${name}.tmp-${process.pid}-${randomBytes(4).toString('hex')}`,
+  );
   const fd = openSync(tmp, 'wx', 0o600);
   try {
     writeSync(fd, data);
@@ -185,22 +209,30 @@ function within(child: string, parent: string): boolean {
 }
 
 /** Run directory under DATA_DIR/{runs|operations}/ID; rejects symlinks anywhere below the root. */
-export function prepareRunDir(root: string, kind: RunSpec['kind'], id: string): string {
+export function prepareRunDir(
+  root: string,
+  kind: RunSpec['kind'],
+  id: string,
+): string {
   if (!isAbsolute(root)) throw new RunnerError(`root ${root} must be absolute`);
-  if (!SafeIdSchema.safeParse(id).success) throw new RunnerError(`unsafe id ${id}`);
+  if (!SafeIdSchema.safeParse(id).success)
+    throw new RunnerError(`unsafe id ${id}`);
   mkdirSync(root, { recursive: true, mode: 0o700 });
   const realRoot = realpathSync(root);
   let dir = realRoot;
   for (const part of [kind, id]) {
     dir = join(dir, part);
     if (existsSync(dir)) {
-      if (!lstatSync(dir).isDirectory()) throw new RunnerError(`${dir} is not a plain directory`);
+      if (!lstatSync(dir).isDirectory())
+        throw new RunnerError(`${dir} is not a plain directory`);
     } else mkdirSync(dir, { mode: 0o700 });
   }
-  if (realpathSync(dir) !== dir || !within(dir, realRoot)) throw new RunnerError(`${dir} escapes ${realRoot}`);
+  if (realpathSync(dir) !== dir || !within(dir, realRoot))
+    throw new RunnerError(`${dir} escapes ${realRoot}`);
   for (const sub of ['out', 'spool']) {
     const p = join(dir, sub);
-    if (existsSync(p) && !lstatSync(p).isDirectory()) throw new RunnerError(`${p} is not a plain directory`);
+    if (existsSync(p) && !lstatSync(p).isDirectory())
+      throw new RunnerError(`${p} is not a plain directory`);
     mkdirSync(p, { recursive: true, mode: 0o700 });
   }
   return dir;
@@ -208,12 +240,14 @@ export function prepareRunDir(root: string, kind: RunSpec['kind'], id: string): 
 
 /** Resolves a relative artifact path inside `dir`, refusing traversal and symlinked components. */
 export function artifactPath(dir: string, rel: string): string {
-  if (isAbsolute(rel) || rel.split(/[\\/]/).includes('..') || rel === '') throw new RunnerError(`bad artifact path ${rel}`);
+  if (isAbsolute(rel) || rel.split(/[\\/]/).includes('..') || rel === '')
+    throw new RunnerError(`bad artifact path ${rel}`);
   const full = join(dir, rel);
   let p = dir;
   for (const part of rel.split('/')) {
     p = join(p, part);
-    if (existsSync(p) && lstatSync(p).isSymbolicLink()) throw new RunnerError(`symlink in artifact path ${rel}`);
+    if (existsSync(p) && lstatSync(p).isSymbolicLink())
+      throw new RunnerError(`symlink in artifact path ${rel}`);
   }
   return full;
 }
@@ -237,7 +271,9 @@ export function startTicks(pid: number): string | null {
 
 function ownCgroup(): string | null {
   try {
-    const line = readFileSync('/proc/self/cgroup', 'utf8').split('\n').find((l) => l.startsWith('0::'));
+    const line = readFileSync('/proc/self/cgroup', 'utf8')
+      .split('\n')
+      .find((l) => l.startsWith('0::'));
     return line === undefined ? null : line.slice(3);
   } catch {
     return null;
@@ -267,12 +303,19 @@ function signalGroup(pgid: number, signal: NodeJS.Signals): boolean {
 }
 
 /** Kills every other process in our cgroup, but only when that cgroup is this operation's own unit. */
-function sweepOwnUnitCgroup(operationId: string): { scope: 'unit_cgroup' | 'process_group_only'; killed: number } {
+function sweepOwnUnitCgroup(operationId: string): {
+  scope: 'unit_cgroup' | 'process_group_only';
+  killed: number;
+} {
   const cg = ownCgroup();
-  if (cg === null || !cg.endsWith(`/${unitName(operationId)}`)) return { scope: 'process_group_only', killed: 0 };
+  if (cg === null || !cg.endsWith(`/${unitName(operationId)}`))
+    return { scope: 'process_group_only', killed: 0 };
   let killed = 0;
   try {
-    const procs = readFileSync(`/sys/fs/cgroup${cg}/cgroup.procs`, 'utf8').split('\n').filter(Boolean).map(Number);
+    const procs = readFileSync(`/sys/fs/cgroup${cg}/cgroup.procs`, 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map(Number);
     for (const pid of procs) {
       if (pid === process.pid || pid === process.ppid) continue;
       try {
@@ -290,7 +333,13 @@ function sweepOwnUnitCgroup(operationId: string): { scope: 'unit_cgroup' | 'proc
 
 // --- exec ---------------------------------------------------------------------------------------
 
-export type Outcome = 'exited' | 'signaled' | 'timeout' | 'cancelled' | 'artifact_backpressure' | 'spawn_failed';
+export type Outcome =
+  | 'exited'
+  | 'signaled'
+  | 'timeout'
+  | 'cancelled'
+  | 'artifact_backpressure'
+  | 'spawn_failed';
 
 export type ExitRecord = {
   readonly schema_version: 1;
@@ -312,16 +361,30 @@ export type ExitRecord = {
   };
   readonly usage: { readonly status: 'unavailable'; readonly reason: string };
   readonly artifacts: {
-    readonly events: { readonly records: number; readonly bytes: number; readonly generations: number; readonly truncated_records: number };
+    readonly events: {
+      readonly records: number;
+      readonly bytes: number;
+      readonly generations: number;
+      readonly truncated_records: number;
+    };
     readonly stderr: { readonly bytes: number; readonly digest: string };
   };
   readonly error: string | null;
 };
 
-export type ExecResult = { readonly status: 'finished'; readonly exit: ExitRecord } | { readonly status: 'marker_exists'; readonly dir: string };
+export type ExecResult =
+  | { readonly status: 'finished'; readonly exit: ExitRecord }
+  | { readonly status: 'marker_exists'; readonly dir: string };
 
 function redactSpec(spec: RunSpec, r: Redactor): unknown {
-  return JSON.parse(r.redact(JSON.stringify({ ...spec, redact_files: spec.redact_files.map(() => '[path]') }))) as unknown;
+  return JSON.parse(
+    r.redact(
+      JSON.stringify({
+        ...spec,
+        redact_files: spec.redact_files.map(() => '[path]'),
+      }),
+    ),
+  ) as unknown;
 }
 
 class EventLog {
@@ -341,7 +404,12 @@ class EventLog {
   }
 
   /** Returns false when the spool cap would be exceeded (caller stops the operation). */
-  append(kind: string, text: string, truncated: boolean, spoolUsed: () => number): boolean {
+  append(
+    kind: string,
+    text: string,
+    truncated: boolean,
+    spoolUsed: () => number,
+  ): boolean {
     let data: unknown = text;
     try {
       data = JSON.parse(text) as unknown;
@@ -349,20 +417,39 @@ class EventLog {
       // keep as string
     }
     const render = (): string => {
-      const base = { schema_version: 1, operation_id: this.#spec.operation_id, generation: this.generation, seq: this.seq, at: new Date().toISOString(), kind };
+      const base = {
+        schema_version: 1,
+        operation_id: this.#spec.operation_id,
+        generation: this.generation,
+        seq: this.seq,
+        at: new Date().toISOString(),
+        kind,
+      };
       const full = `${JSON.stringify({ ...base, data, ...(truncated ? { truncated: true } : {}) })}\n`;
       if (Buffer.byteLength(full) <= this.#limits.record_bytes) return full;
       truncated = true;
       const room = Math.max(0, this.#limits.record_bytes - 512);
       const cut = `${JSON.stringify({ ...base, data: Buffer.from(text).subarray(0, room).toString('utf8'), truncated: true })}\n`;
-      return Buffer.byteLength(cut) <= this.#limits.record_bytes ? cut : `${JSON.stringify({ ...base, data: '', truncated: true })}\n`;
+      return Buffer.byteLength(cut) <= this.#limits.record_bytes
+        ? cut
+        : `${JSON.stringify({ ...base, data: '', truncated: true })}\n`;
     };
     let line = render();
     const size = Buffer.byteLength(line);
     if (spoolUsed() + size > this.#limits.spool_bytes) return false;
     const path = join(this.#dir, 'events.jsonl');
-    if (existsSync(path) && statSync(path).size + size > this.#limits.segment_bytes) {
-      renameSync(path, join(this.#dir, 'spool', `events.${String(this.generation).padStart(6, '0')}.jsonl`));
+    if (
+      existsSync(path) &&
+      statSync(path).size + size > this.#limits.segment_bytes
+    ) {
+      renameSync(
+        path,
+        join(
+          this.#dir,
+          'spool',
+          `events.${String(this.generation).padStart(6, '0')}.jsonl`,
+        ),
+      );
       fsyncDir(join(this.#dir, 'spool'));
       fsyncDir(this.#dir);
       this.generation++;
@@ -407,30 +494,38 @@ class LineSplitter {
 
   /** Partial final line after process death is kept and marked truncated. */
   end(): void {
-    if (this.#pending.length > 0 && !this.#discarding) this.#emit(this.#pending, true);
+    if (this.#pending.length > 0 && !this.#discarding)
+      this.#emit(this.#pending, true);
     this.#pending = Buffer.alloc(0);
   }
 }
 
 export function resolveLimits(spec: RunSpec): Limits {
   const l: Limits = { ...DEFAULT_LIMITS };
-  for (const [k, v] of Object.entries(spec.limits)) if (v !== undefined) l[k as keyof Limits] = v;
-  if (l.segment_bytes > l.spool_bytes) throw new RunnerError('segment_bytes must not exceed spool_bytes');
-  if (l.record_bytes > l.segment_bytes) throw new RunnerError('record_bytes must not exceed segment_bytes');
+  for (const [k, v] of Object.entries(spec.limits))
+    if (v !== undefined) l[k as keyof Limits] = v;
+  if (l.segment_bytes > l.spool_bytes)
+    throw new RunnerError('segment_bytes must not exceed spool_bytes');
+  if (l.record_bytes > l.segment_bytes)
+    throw new RunnerError('record_bytes must not exceed segment_bytes');
   return l;
 }
 
-const SECRET_ENV = /(TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|APIKEY|CREDENTIAL|PRIVATE_KEY)/i;
+const SECRET_ENV =
+  /(TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|APIKEY|CREDENTIAL|PRIVATE_KEY)/i;
 
 export function parseSpec(raw: unknown): RunSpec {
   const spec = RunSpecSchema.parse(raw);
   for (const key of Object.keys(spec.env)) {
     if (SECRET_ENV.test(key) || /^(GH_|GITHUB_|SSH_AUTH_SOCK$)/.test(key)) {
-      throw new RunnerError(`env ${key}: secrets are not passed through the run spec`);
+      throw new RunnerError(
+        `env ${key}: secrets are not passed through the run spec`,
+      );
     }
   }
   if (!isAbsolute(spec.cwd)) throw new RunnerError('cwd must be absolute');
-  if (spec.kind === 'runs' && spec.attempt_id === null) throw new RunnerError('runs/ requires attempt_id');
+  if (spec.kind === 'runs' && spec.attempt_id === null)
+    throw new RunnerError('runs/ requires attempt_id');
   return spec;
 }
 
@@ -438,18 +533,34 @@ export function parseSpec(raw: unknown): RunSpec {
  * Runs one operation to completion. Writes launch.json (exclusive, before spawn), invocation.json,
  * pid.json, events.jsonl/stderr.log (redacted, bounded), liveness/progress.json and exit.json.
  */
-export async function execOperation(rawSpec: unknown, root: string): Promise<ExecResult> {
+export async function execOperation(
+  rawSpec: unknown,
+  root: string,
+): Promise<ExecResult> {
   const spec = parseSpec(rawSpec);
   const limits = resolveLimits(spec);
-  const id = spec.kind === 'runs' ? (spec.attempt_id as string) : spec.operation_id;
+  const id =
+    spec.kind === 'runs' ? (spec.attempt_id as string) : spec.operation_id;
   const dir = prepareRunDir(root, spec.kind, id);
-  const redactor = new Redactor(spec.redact_files.flatMap((f) => secretValuesFromFile(f)));
+  const redactor = new Redactor(
+    spec.redact_files.flatMap((f) => secretValuesFromFile(f)),
+  );
   const nonce = randomBytes(16).toString('hex');
   const startedAt = new Date();
-  const deadlineUtc = new Date(startedAt.getTime() + spec.deadline_ms).toISOString();
+  const deadlineUtc = new Date(
+    startedAt.getTime() + spec.deadline_ms,
+  ).toISOString();
 
-  const marker = { schema_version: 1, operation_id: spec.operation_id, attempt_id: spec.attempt_id, nonce, at: startedAt.toISOString(), runner_pid: process.pid };
-  if (!createOnce(dir, 'launch.json', `${JSON.stringify(marker)}\n`)) return { status: 'marker_exists', dir };
+  const marker = {
+    schema_version: 1,
+    operation_id: spec.operation_id,
+    attempt_id: spec.attempt_id,
+    nonce,
+    at: startedAt.toISOString(),
+    runner_pid: process.pid,
+  };
+  if (!createOnce(dir, 'launch.json', `${JSON.stringify(marker)}\n`))
+    return { status: 'marker_exists', dir };
 
   writeAtomic(
     dir,
@@ -461,7 +572,15 @@ export async function execOperation(rawSpec: unknown, root: string): Promise<Exe
       limits,
       deadline_utc: deadlineUtc,
       launch_nonce: nonce,
-      artifacts: ['events.jsonl', 'stderr.log', 'liveness', 'progress.json', 'exit.json', 'out/', 'spool/'],
+      artifacts: [
+        'events.jsonl',
+        'stderr.log',
+        'liveness',
+        'progress.json',
+        'exit.json',
+        'out/',
+        'spool/',
+      ],
     })}\n`,
   );
 
@@ -476,22 +595,46 @@ export async function execOperation(rawSpec: unknown, root: string): Promise<Exe
   let lastOutputAt: string | null = null;
 
   const writeProgress = (): void => {
-    writeAtomic(dir, 'progress.json', `${JSON.stringify({ last_output_at: lastOutputAt, records: log.records, stderr_bytes: stderrBytes })}\n`);
+    writeAtomic(
+      dir,
+      'progress.json',
+      `${JSON.stringify({ last_output_at: lastOutputAt, records: log.records, stderr_bytes: stderrBytes })}\n`,
+    );
   };
   writeAtomic(dir, 'liveness', `${new Date().toISOString()}\n`);
-  const liveness = setInterval(() => writeAtomic(dir, 'liveness', `${new Date().toISOString()}\n`), limits.liveness_ms);
+  const liveness = setInterval(
+    () => writeAtomic(dir, 'liveness', `${new Date().toISOString()}\n`),
+    limits.liveness_ms,
+  );
 
   let child: ChildProcess;
   try {
     child = spawn(spec.command[0] as string, spec.command.slice(1), {
       cwd: spec.cwd,
-      env: { ...spec.env, CUSR_OPERATION_ID: spec.operation_id, ...(spec.attempt_id !== null ? { CUSR_ATTEMPT_ID: spec.attempt_id } : {}) },
-      stdio: [spec.stdin_file !== null ? openSync(spec.stdin_file, 'r') : 'ignore', 'pipe', 'pipe'],
+      env: {
+        ...spec.env,
+        CUSR_OPERATION_ID: spec.operation_id,
+        ...(spec.attempt_id !== null
+          ? { CUSR_ATTEMPT_ID: spec.attempt_id }
+          : {}),
+      },
+      stdio: [
+        spec.stdin_file !== null ? openSync(spec.stdin_file, 'r') : 'ignore',
+        'pipe',
+        'pipe',
+      ],
       detached: true,
     });
   } catch (e) {
     clearInterval(liveness);
-    return finish(null, null, 'spawn_failed', e instanceof Error ? e.message : String(e), { scope: 'process_group_only', killed: 0 }, false);
+    return finish(
+      null,
+      null,
+      'spawn_failed',
+      e instanceof Error ? e.message : String(e),
+      { scope: 'process_group_only', killed: 0 },
+      false,
+    );
   }
 
   const terminate = (reason: Outcome): void => {
@@ -504,22 +647,39 @@ export async function execOperation(rawSpec: unknown, root: string): Promise<Exe
     }, limits.term_grace_ms).unref();
   };
 
-  const stdoutLines = new LineSplitter(limits.record_bytes, (line, truncated) => {
-    lastOutputAt = new Date().toISOString();
-    if (stopReason === 'artifact_backpressure') return;
-    if (!log.append('stdout', redactor.redact(line.toString('utf8')), truncated, spoolUsed)) terminate('artifact_backpressure');
-  });
-  const stderrLines = new LineSplitter(limits.record_bytes, (line, truncated) => {
-    if (stopReason === 'artifact_backpressure') return;
-    const text = `${redactor.redact(line.toString('utf8'))}${truncated ? ' [truncated]' : ''}\n`;
-    const size = Buffer.byteLength(text);
-    if (spoolUsed() + size > limits.spool_bytes || stderrBytes + size > limits.segment_bytes) {
-      terminate('artifact_backpressure');
-      return;
-    }
-    appendFileSync(stderrPath, text, { mode: 0o600 });
-    stderrBytes += size;
-  });
+  const stdoutLines = new LineSplitter(
+    limits.record_bytes,
+    (line, truncated) => {
+      lastOutputAt = new Date().toISOString();
+      if (stopReason === 'artifact_backpressure') return;
+      if (
+        !log.append(
+          'stdout',
+          redactor.redact(line.toString('utf8')),
+          truncated,
+          spoolUsed,
+        )
+      )
+        terminate('artifact_backpressure');
+    },
+  );
+  const stderrLines = new LineSplitter(
+    limits.record_bytes,
+    (line, truncated) => {
+      if (stopReason === 'artifact_backpressure') return;
+      const text = `${redactor.redact(line.toString('utf8'))}${truncated ? ' [truncated]' : ''}\n`;
+      const size = Buffer.byteLength(text);
+      if (
+        spoolUsed() + size > limits.spool_bytes ||
+        stderrBytes + size > limits.segment_bytes
+      ) {
+        terminate('artifact_backpressure');
+        return;
+      }
+      appendFileSync(stderrPath, text, { mode: 0o600 });
+      stderrBytes += size;
+    },
+  );
   let progressTimer: NodeJS.Timeout | null = null;
   const onOutput = (): void => {
     progressTimer ??= setTimeout(() => {
@@ -537,13 +697,22 @@ export async function execOperation(rawSpec: unknown, root: string): Promise<Exe
   });
 
   const closed = new Promise<void>((res) => child.once('close', () => res()));
-  const spawned = await new Promise<{ ok: true } | { ok: false; error: string }>((res) => {
+  const spawned = await new Promise<
+    { ok: true } | { ok: false; error: string }
+  >((res) => {
     child.once('spawn', () => res({ ok: true }));
     child.once('error', (e) => res({ ok: false, error: e.message }));
   });
   if (!spawned.ok || child.pid === undefined) {
     clearInterval(liveness);
-    return finish(null, null, 'spawn_failed', spawned.ok ? 'no pid' : spawned.error, { scope: 'process_group_only', killed: 0 }, false);
+    return finish(
+      null,
+      null,
+      'spawn_failed',
+      spawned.ok ? 'no pid' : spawned.error,
+      { scope: 'process_group_only', killed: 0 },
+      false,
+    );
   }
   const pid = child.pid;
   writeAtomic(
@@ -568,7 +737,9 @@ export async function execOperation(rawSpec: unknown, root: string): Promise<Exe
   process.once('SIGTERM', onSignal);
   process.once('SIGINT', onSignal);
 
-  const [code, signal] = await new Promise<[number | null, NodeJS.Signals | null]>((res) => child.once('exit', (c, s) => res([c, s])));
+  const [code, signal] = await new Promise<
+    [number | null, NodeJS.Signals | null]
+  >((res) => child.once('exit', (c, s) => res([c, s])));
   clearTimeout(deadline);
   // The leader is gone; anything left in its group is part of this operation and is stopped too.
   if (groupAlive(pid)) {
@@ -577,7 +748,10 @@ export async function execOperation(rawSpec: unknown, root: string): Promise<Exe
     if (groupAlive(pid)) killSent = signalGroup(pid, 'SIGKILL') || killSent;
   }
   let verified = !groupAlive(pid);
-  for (const until = performance.now() + limits.kill_verify_ms; !verified && performance.now() < until; ) {
+  for (
+    const until = performance.now() + limits.kill_verify_ms;
+    !verified && performance.now() < until;
+  ) {
     await sleep(50);
     verified = !groupAlive(pid);
   }
@@ -591,7 +765,8 @@ export async function execOperation(rawSpec: unknown, root: string): Promise<Exe
   clearInterval(liveness);
   if (progressTimer !== null) clearTimeout(progressTimer);
   writeProgress();
-  const outcome: Outcome = stopReason ?? (signal !== null ? 'signaled' : 'exited');
+  const outcome: Outcome =
+    stopReason ?? (signal !== null ? 'signaled' : 'exited');
   return finish(code, signal, outcome, null, sweep, verified);
 
   function finish(
@@ -602,7 +777,9 @@ export async function execOperation(rawSpec: unknown, root: string): Promise<Exe
     sweep: { scope: 'unit_cgroup' | 'process_group_only'; killed: number },
     verified: boolean,
   ): ExecResult {
-    const stderrText = existsSync(stderrPath) ? readFileSync(stderrPath) : Buffer.alloc(0);
+    const stderrText = existsSync(stderrPath)
+      ? readFileSync(stderrPath)
+      : Buffer.alloc(0);
     const exit: ExitRecord = {
       schema_version: 1,
       operation_id: spec.operation_id,
@@ -614,10 +791,24 @@ export async function execOperation(rawSpec: unknown, root: string): Promise<Exe
       started_at: startedAt.toISOString(),
       ended_at: new Date().toISOString(),
       duration_ms: Math.round(performance.now() - t0),
-      termination: { term_sent: termSent, kill_sent: killSent, group_empty_verified: verified, descendant_scope: sweep.scope, descendants_killed: sweep.killed },
-      usage: { status: 'unavailable', reason: 'runner does not parse harness usage' },
+      termination: {
+        term_sent: termSent,
+        kill_sent: killSent,
+        group_empty_verified: verified,
+        descendant_scope: sweep.scope,
+        descendants_killed: sweep.killed,
+      },
+      usage: {
+        status: 'unavailable',
+        reason: 'runner does not parse harness usage',
+      },
       artifacts: {
-        events: { records: log.records, bytes: log.bytes, generations: log.generation + 1, truncated_records: log.truncated },
+        events: {
+          records: log.records,
+          bytes: log.bytes,
+          generations: log.generation + 1,
+          truncated_records: log.truncated,
+        },
         stderr: { bytes: stderrBytes, digest: `sha256:${sha256(stderrText)}` },
       },
       error: error === null ? null : redactor.redact(error),
@@ -652,13 +843,38 @@ function readJson(path: string): unknown {
  * running (identity matches), lost (identity gone) or unknown (no pid receipt).
  */
 export function readReceipt(dir: string): Receipt {
-  if (!existsSync(join(dir, 'launch.json'))) return { state: 'not_launched', reason: 'no launch marker', exit: null };
-  if (existsSync(join(dir, 'exit.json'))) return { state: 'finished', reason: 'exit.json present', exit: readJson(join(dir, 'exit.json')) as ExitRecord };
-  if (!existsSync(join(dir, 'pid.json'))) return { state: 'unknown', reason: 'launch marker without pid receipt', exit: null };
-  const pid = readJson(join(dir, 'pid.json')) as { pid: number; start_ticks: string | null; boot_id: string };
-  if (pid.boot_id !== bootId()) return { state: 'lost', reason: 'different boot', exit: null };
-  if (pid.start_ticks !== null && startTicks(pid.pid) === pid.start_ticks) return { state: 'running', reason: 'pid and start ticks match', exit: null };
-  return { state: 'lost', reason: 'process identity no longer present', exit: null };
+  if (!existsSync(join(dir, 'launch.json')))
+    return { state: 'not_launched', reason: 'no launch marker', exit: null };
+  if (existsSync(join(dir, 'exit.json')))
+    return {
+      state: 'finished',
+      reason: 'exit.json present',
+      exit: readJson(join(dir, 'exit.json')) as ExitRecord,
+    };
+  if (!existsSync(join(dir, 'pid.json')))
+    return {
+      state: 'unknown',
+      reason: 'launch marker without pid receipt',
+      exit: null,
+    };
+  const pid = readJson(join(dir, 'pid.json')) as {
+    pid: number;
+    start_ticks: string | null;
+    boot_id: string;
+  };
+  if (pid.boot_id !== bootId())
+    return { state: 'lost', reason: 'different boot', exit: null };
+  if (pid.start_ticks !== null && startTicks(pid.pid) === pid.start_ticks)
+    return {
+      state: 'running',
+      reason: 'pid and start ticks match',
+      exit: null,
+    };
+  return {
+    state: 'lost',
+    reason: 'process identity no longer present',
+    exit: null,
+  };
 }
 
 // --- systemd ------------------------------------------------------------------------------------
@@ -670,8 +886,26 @@ export function lockPath(root: string, operationId: string): string {
 }
 
 /** flock-wrapped runner argv; flock exits 75 if another runner holds the operation lock. */
-export function flockArgv(specFile: string, root: string, operationId: string): string[] {
-  return ['/usr/bin/flock', '--exclusive', '--nonblock', '--conflict-exit-code', '75', lockPath(root, operationId), process.execPath, RUNNER, 'exec', '--spec', specFile, '--root', root];
+export function flockArgv(
+  specFile: string,
+  root: string,
+  operationId: string,
+): string[] {
+  return [
+    '/usr/bin/flock',
+    '--exclusive',
+    '--nonblock',
+    '--conflict-exit-code',
+    '75',
+    lockPath(root, operationId),
+    process.execPath,
+    RUNNER,
+    'exec',
+    '--spec',
+    specFile,
+    '--root',
+    root,
+  ];
 }
 
 /**
@@ -680,7 +914,11 @@ export function flockArgv(specFile: string, root: string, operationId: string): 
  * and keeps the unit alive while the runner stops the harness group and finalises exit.json; the
  * runner's own handler replaces the inherited ignore, and spawned children get default dispositions.
  */
-export function systemdRunArgv(specFile: string, root: string, operationId: string): string[] {
+export function systemdRunArgv(
+  specFile: string,
+  root: string,
+  operationId: string,
+): string[] {
   return [
     '/usr/bin/systemd-run',
     '--user',
@@ -699,14 +937,31 @@ export function systemdRunArgv(specFile: string, root: string, operationId: stri
   ];
 }
 
-function systemctl(args: readonly string[]): { status: number | null; stdout: string; stderr: string } {
-  const r = spawnSync('/usr/bin/systemctl', ['--user', ...args], { encoding: 'utf8', timeout: 30_000 });
+function systemctl(args: readonly string[]): {
+  status: number | null;
+  stdout: string;
+  stderr: string;
+} {
+  const r = spawnSync('/usr/bin/systemctl', ['--user', ...args], {
+    encoding: 'utf8',
+    timeout: 30_000,
+  });
   return { status: r.status, stdout: r.stdout, stderr: r.stderr };
 }
 
 export function unitStatus(operationId: string): Record<string, string> {
-  const r = systemctl(['show', unitName(operationId), '-p', 'LoadState,ActiveState,SubState,Result,InvocationID,ControlGroup,MainPID']);
-  return Object.fromEntries(r.stdout.split('\n').filter(Boolean).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]));
+  const r = systemctl([
+    'show',
+    unitName(operationId),
+    '-p',
+    'LoadState,ActiveState,SubState,Result,InvocationID,ControlGroup,MainPID',
+  ]);
+  return Object.fromEntries(
+    r.stdout
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]),
+  );
 }
 
 export function stopUnit(operationId: string): number | null {
@@ -719,44 +974,62 @@ function main(argv: readonly string[]): Promise<number> | number {
     const i = rest.indexOf(name);
     return i >= 0 ? rest[i + 1] : undefined;
   };
-  const out = (v: unknown): void => void process.stdout.write(`${JSON.stringify(v, null, 2)}\n`);
+  const out = (v: unknown): void =>
+    void process.stdout.write(`${JSON.stringify(v, null, 2)}\n`);
   const root = opt('--root');
   const specFile = opt('--spec');
   switch (cmd) {
     case 'exec': {
       if (root === undefined || specFile === undefined) return usage();
-      return execOperation(readJson(resolve(specFile)), resolve(root)).then((r) => {
-        out(r);
-        if (r.status === 'marker_exists') return 3;
-        return r.exit.outcome === 'exited' && r.exit.exit_code === 0 ? 0 : 1;
-      });
+      return execOperation(readJson(resolve(specFile)), resolve(root)).then(
+        (r) => {
+          out(r);
+          if (r.status === 'marker_exists') return 3;
+          return r.exit.outcome === 'exited' && r.exit.exit_code === 0 ? 0 : 1;
+        },
+      );
     }
     case 'systemd-argv':
     case 'start': {
       if (root === undefined || specFile === undefined) return usage();
       const spec = parseSpec(readJson(resolve(specFile)));
       const absRoot = resolve(root);
-      mkdirSync(dirname(lockPath(absRoot, spec.operation_id)), { recursive: true, mode: 0o700 });
+      mkdirSync(dirname(lockPath(absRoot, spec.operation_id)), {
+        recursive: true,
+        mode: 0o700,
+      });
       const useSystemd = cmd === 'systemd-argv' || rest.includes('--systemd');
-      const full = useSystemd ? systemdRunArgv(resolve(specFile), absRoot, spec.operation_id) : flockArgv(resolve(specFile), absRoot, spec.operation_id);
+      const full = useSystemd
+        ? systemdRunArgv(resolve(specFile), absRoot, spec.operation_id)
+        : flockArgv(resolve(specFile), absRoot, spec.operation_id);
       if (cmd === 'systemd-argv') {
         out({ unit: unitName(spec.operation_id), argv: full });
         return 0;
       }
-      const r = spawnSync(full[0] as string, full.slice(1), { stdio: 'inherit' });
+      const r = spawnSync(full[0] as string, full.slice(1), {
+        stdio: 'inherit',
+      });
       return r.status ?? 1;
     }
     case 'receipt': {
       const kind = opt('--kind');
       const id = opt('--id');
-      if (root === undefined || (kind !== 'runs' && kind !== 'operations') || id === undefined) return usage();
-      out(readReceipt(artifactPath(realpathSync(resolve(root)), `${kind}/${id}`)));
+      if (
+        root === undefined ||
+        (kind !== 'runs' && kind !== 'operations') ||
+        id === undefined
+      )
+        return usage();
+      out(
+        readReceipt(artifactPath(realpathSync(resolve(root)), `${kind}/${id}`)),
+      );
       return 0;
     }
     case 'status':
     case 'stop': {
       const op = opt('--operation-id');
-      if (op === undefined || !SafeIdSchema.safeParse(op).success) return usage();
+      if (op === undefined || !SafeIdSchema.safeParse(op).success)
+        return usage();
       if (cmd === 'status') out(unitStatus(op));
       else out({ unit: unitName(op), exit: stopUnit(op) });
       return 0;
@@ -782,7 +1055,10 @@ if (process.argv[1] !== undefined && resolve(process.argv[1]) === RUNNER) {
       process.exitCode = code;
     })
     .catch((e: unknown) => {
-      process.stderr.write(`${e instanceof Error ? `${e.name}: ${e.message}` : String(e)}\n`);
-      process.exitCode = e instanceof RunnerError || e instanceof z.ZodError ? 2 : 1;
+      process.stderr.write(
+        `${e instanceof Error ? `${e.name}: ${e.message}` : String(e)}\n`,
+      );
+      process.exitCode =
+        e instanceof RunnerError || e instanceof z.ZodError ? 2 : 1;
     });
 }

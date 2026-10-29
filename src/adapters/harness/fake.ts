@@ -4,12 +4,26 @@
  * answer comes back as `invalid_output`. It has no proven vendor capability: its manifest marks every
  * capability `unknown`, so nothing proven about Claude/Codex can be inferred from a fake run.
  */
-import { CapabilityManifestSchema, RUNTIME_SCHEMA_VERSION, type CapabilityManifest } from '../../domain/runtime.ts';
+import {
+  CapabilityManifestSchema,
+  RUNTIME_SCHEMA_VERSION,
+  type CapabilityManifest,
+} from '../../domain/runtime.ts';
 import type { Usage } from '../../domain/trigger.ts';
 import type { EpochMs, Hash } from '../../shared/brand.ts';
 import { hashCanonical, hashText } from '../../shared/hash.ts';
-import type { HarnessFailure, HarnessInput, HarnessOutcome, HarnessPort, PermissionDenial } from '../ports.ts';
-import { ROLE_SCHEMA_DIGESTS, validateRoleResult, type Role } from './result-schema.ts';
+import type {
+  HarnessFailure,
+  HarnessInput,
+  HarnessOutcome,
+  HarnessPort,
+  PermissionDenial,
+} from '../ports.ts';
+import {
+  ROLE_SCHEMA_DIGESTS,
+  validateRoleResult,
+  type Role,
+} from './result-schema.ts';
 
 export const FAKE_VENDOR = 'fake';
 
@@ -41,12 +55,18 @@ export class FakeHarnessError extends Error {
 
 const UNAVAILABLE: Usage = { basis: 'unavailable' };
 
-export function fakeCapabilityManifest(o: { resume?: 'proven' | 'unknown' | 'unsupported' } = {}): CapabilityManifest {
+export function fakeCapabilityManifest(
+  o: { resume?: 'proven' | 'unknown' | 'unsupported' } = {},
+): CapabilityManifest {
   const fake = hashText('cusr fake harness');
   const body = {
     schema_version: RUNTIME_SCHEMA_VERSION,
     vendor: FAKE_VENDOR,
-    binary: { realpath: '/nonexistent/cusr-fake-harness', version: 'fake', digest: fake },
+    binary: {
+      realpath: '/nonexistent/cusr-fake-harness',
+      version: 'fake',
+      digest: fake,
+    },
     role_schemas: { ...ROLE_SCHEMA_DIGESTS },
     isolation_mode: 'isolated' as const,
     provider: 'bwrap' as const,
@@ -67,7 +87,10 @@ export function fakeCapabilityManifest(o: { resume?: 'proven' | 'unknown' | 'uns
     fixture_refs: [],
     checked_at: 0,
   };
-  return CapabilityManifestSchema.parse({ ...body, manifest_hash: hashCanonical(body) });
+  return CapabilityManifestSchema.parse({
+    ...body,
+    manifest_hash: hashCanonical(body),
+  });
 }
 
 function rawDigest(value: unknown): Hash | null {
@@ -85,10 +108,16 @@ export class FakeHarness implements HarnessPort {
   readonly #queues: Map<Role, FakeStep[]>;
 
   /** `resume: 'proven'` is a fake session port for tests of the resume decision, never vendor evidence. */
-  constructor(script: FakeScript, harness = 'fake', o: { resume?: 'proven' | 'unknown' | 'unsupported' } = {}) {
+  constructor(
+    script: FakeScript,
+    harness = 'fake',
+    o: { resume?: 'proven' | 'unknown' | 'unsupported' } = {},
+  ) {
     this.harness = harness;
     this.manifest = fakeCapabilityManifest(o);
-    this.#queues = new Map(Object.entries(script).map(([role, steps]) => [role as Role, [...steps]]));
+    this.#queues = new Map(
+      Object.entries(script).map(([role, steps]) => [role as Role, [...steps]]),
+    );
   }
 
   /** Steps not yet consumed, so a test can assert the flow made exactly the expected calls. */
@@ -97,20 +126,50 @@ export class FakeHarness implements HarnessPort {
   }
 
   async run(input: HarnessInput, signal: AbortSignal): Promise<HarnessOutcome> {
-    if (input.schema.role !== input.role || input.schema.digest !== ROLE_SCHEMA_DIGESTS[input.role]) {
-      throw new FakeHarnessError(`schema ${input.schema.schema_id} does not match role ${input.role}`);
+    if (
+      input.schema.role !== input.role ||
+      input.schema.digest !== ROLE_SCHEMA_DIGESTS[input.role]
+    ) {
+      throw new FakeHarnessError(
+        `schema ${input.schema.schema_id} does not match role ${input.role}`,
+      );
     }
     this.calls.push(input);
-    const base = { role: input.role, session_ref: null, permission_denials: [] };
+    const base = {
+      role: input.role,
+      session_ref: null,
+      permission_denials: [],
+    };
     if (signal.aborted) {
-      return { ...base, kind: 'failure', failure: 'cancelled', detail: 'aborted before start', reset_at: null, invoked: false, usage: UNAVAILABLE };
+      return {
+        ...base,
+        kind: 'failure',
+        failure: 'cancelled',
+        detail: 'aborted before start',
+        reset_at: null,
+        invoked: false,
+        usage: UNAVAILABLE,
+      };
     }
     const step = this.#queues.get(input.role)?.shift();
-    if (step === undefined) throw new FakeHarnessError(`no scripted step left for ${input.role} (operation ${input.operation_id})`);
+    if (step === undefined)
+      throw new FakeHarnessError(
+        `no scripted step left for ${input.role} (operation ${input.operation_id})`,
+      );
     switch (step.kind) {
       case 'hang':
-        await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }));
-        return { ...base, kind: 'failure', failure: 'cancelled', detail: 'aborted while running', reset_at: null, invoked: true, usage: UNAVAILABLE };
+        await new Promise<void>((resolve) =>
+          signal.addEventListener('abort', () => resolve(), { once: true }),
+        );
+        return {
+          ...base,
+          kind: 'failure',
+          failure: 'cancelled',
+          detail: 'aborted while running',
+          reset_at: null,
+          invoked: true,
+          usage: UNAVAILABLE,
+        };
       case 'failure':
         return {
           ...base,
@@ -131,9 +190,20 @@ export class FakeHarness implements HarnessPort {
         const digest = rawDigest(step.value);
         const checked = validateRoleResult(input.role, step.value);
         if (!checked.ok || digest === null) {
-          return { ...facts, kind: 'invalid_output', issues: checked.ok ? ['answer is not JSON'] : checked.issues, raw_digest: digest };
+          return {
+            ...facts,
+            kind: 'invalid_output',
+            issues: checked.ok ? ['answer is not JSON'] : checked.issues,
+            raw_digest: digest,
+          };
         }
-        return { ...facts, kind: 'result', value: checked.value, raw_digest: digest, schema_digest: input.schema.digest };
+        return {
+          ...facts,
+          kind: 'result',
+          value: checked.value,
+          raw_digest: digest,
+          schema_digest: input.schema.digest,
+        };
       }
     }
   }

@@ -2,7 +2,12 @@ import type { z } from 'zod';
 import { assertNever } from '../shared/assert-never.ts';
 import { sameChoice } from '../domain/run-config.ts';
 import { bindingName } from '../domain/policy.ts';
-import { isTerminal, type AttemptKind, type EffectMirror, type ResumeAction } from '../domain/state.ts';
+import {
+  isTerminal,
+  type AttemptKind,
+  type EffectMirror,
+  type ResumeAction,
+} from '../domain/state.ts';
 import {
   AgentDataSchema,
   AwaitCiDataSchema,
@@ -32,13 +37,25 @@ import {
 import { available, consume, release, reserve, usageOf } from './budget.ts';
 import { maybeFinishCancel, requestCancel } from './cancel.ts';
 import { classifyFailures } from './classify.ts';
-import { externalConfirmation, waitForExternalMerge } from './external-completion.ts';
+import {
+  externalConfirmation,
+  waitForExternalMerge,
+} from './external-completion.ts';
 import { settleExecutionOnClose, waitForSlot } from './runtime.ts';
 import { reject, type Ctx } from './context.ts';
 import { requestEffect, requestReconcile } from './effects.ts';
 import { applyRaise, chooseRung } from './escalation.ts';
-import { handleFailure, recordCheckFailure, reviewSignature } from './failure.ts';
-import { ciVerdict, latestCi, mergeGuard, type GuardFailure } from './merge-guard.ts';
+import {
+  handleFailure,
+  recordCheckFailure,
+  reviewSignature,
+} from './failure.ts';
+import {
+  ciVerdict,
+  latestCi,
+  mergeGuard,
+  type GuardFailure,
+} from './merge-guard.ts';
 import { askHuman, requestApproval } from './questions.ts';
 import { settleUnderDrift } from './head-drift.ts';
 import { deferForDrift } from './revision.ts';
@@ -53,7 +70,11 @@ import { ensureRunning, mkWait, waitPolicy, waitTask } from './waits.ts';
  * Điểm vào duy nhất để làm việc tiếp theo. Chặn theo thứ tự: task đã kết thúc; đang hủy (chỉ chờ effect
  * còn dở rồi kết thúc, FR-018); source drift (hoãn tới khi người chọn, FR-011); đã quá hạn (FR-023).
  */
-export function proceed(ctx: Ctx, action: ResumeAction, reason = 'continue'): void {
+export function proceed(
+  ctx: Ctx,
+  action: ResumeAction,
+  reason = 'continue',
+): void {
   const s = ctx.state;
   if (isTerminal(s.status)) return;
   if (s.cancellation !== null) {
@@ -66,13 +87,20 @@ export function proceed(ctx: Ctx, action: ResumeAction, reason = 'continue'): vo
   // An unexpected remote head holds everything until reconciled; a late callback is not an exit (H01).
   if (s.run.head_drift !== null) return;
   // A PR closed without a merge holds business work until it is reopened; no replacement PR (FR-041.07).
-  if (s.runtime_ref !== null && s.observation?.last?.status === 'closed' && !s.observation.expired) {
+  if (
+    s.runtime_ref !== null &&
+    s.observation?.last?.status === 'closed' &&
+    !s.observation.expired
+  ) {
     waitPrClosed(ctx, action);
     return;
   }
   // GitHub reported a merge whose proof was not accepted: nothing resumes until it is reconciled, even
   // after a later read failed or showed something else (FR-040.12).
-  if (s.runtime_ref !== null && s.blockers.some((b) => b.code === 'merge_evidence_incomplete')) {
+  if (
+    s.runtime_ref !== null &&
+    s.blockers.some((b) => b.code === 'merge_evidence_incomplete')
+  ) {
     waitMergeEvidence(ctx, action);
     return;
   }
@@ -94,7 +122,9 @@ export function proceed(ctx: Ctx, action: ResumeAction, reason = 'continue'): vo
  */
 export function pastDeadline(ctx: Ctx): boolean {
   const s = ctx.state;
-  return s.deadline_passed || (s.deadline_at !== null && ctx.now >= s.deadline_at);
+  return (
+    s.deadline_passed || (s.deadline_at !== null && ctx.now >= s.deadline_at)
+  );
 }
 
 function execute(ctx: Ctx, action: ResumeAction): void {
@@ -113,7 +143,12 @@ function execute(ctx: Ctx, action: ResumeAction): void {
       route(ctx, action.step, action.outcome);
       return;
     case 'retry_effect':
-      enterStep(ctx, action.step, { step: action.step, outcome: 'retry' }, 'retry');
+      enterStep(
+        ctx,
+        action.step,
+        { step: action.step, outcome: 'retry' },
+        'retry',
+      );
       return;
     case 'poll_ci':
       requestAwaitCi(ctx, action.step);
@@ -157,7 +192,11 @@ const SKIP_OUTCOME: Partial<Record<StepKind, string>> = {
   triage: 'ok',
 };
 
-function skip(ctx: Ctx, step: string, reason: 'when' | 'skip_when' | 'no_gates' | 'pr_exists' | 'prepared'): void {
+function skip(
+  ctx: Ctx,
+  step: string,
+  reason: 'when' | 'skip_when' | 'no_gates' | 'pr_exists' | 'prepared',
+): void {
   const def = stepDef(ctx, step);
   const outcome = SKIP_OUTCOME[def.kind] ?? 'ok';
   ctx.emit('StepSkipped', { step, kind: def.kind, reason, outcome });
@@ -172,8 +211,13 @@ export function enterStep(
   attemptKind: AttemptKind = 'initial',
 ): void {
   const def = stepDef(ctx, step);
-  if (def.when !== undefined && !evalPredicate(def.when, facts(ctx, step))) return skip(ctx, step, 'when');
-  if (def.skip_when !== undefined && evalPredicate(def.skip_when, facts(ctx, step))) return skip(ctx, step, 'skip_when');
+  if (def.when !== undefined && !evalPredicate(def.when, facts(ctx, step)))
+    return skip(ctx, step, 'when');
+  if (
+    def.skip_when !== undefined &&
+    evalPredicate(def.skip_when, facts(ctx, step))
+  )
+    return skip(ctx, step, 'skip_when');
   const visits = ctx.state.step_visits[step] ?? 0;
   const limit = visitLimit(ctx, step);
   if (limit !== null && visits >= limit) {
@@ -189,17 +233,31 @@ export function enterStep(
 /** `max_visits` của bước cộng lượt admin đã cấp thêm qua amendment; `null` khi bước không giới hạn. */
 export function visitLimit(ctx: Ctx, step: string): number | null {
   const max = stepDef(ctx, step).max_visits;
-  return max === undefined ? null : max + (ctx.frozen.limits.extra_visits[step] ?? 0);
+  return max === undefined
+    ? null
+    : max + (ctx.frozen.limits.extra_visits[step] ?? 0);
 }
 
 /** Đi theo `next[outcome]` của bước. */
-export function route(ctx: Ctx, step: string, outcome: string, body?: string): void {
+export function route(
+  ctx: Ctx,
+  step: string,
+  outcome: string,
+  body?: string,
+): void {
   const target = stepDef(ctx, step).next[outcome];
-  if (target === undefined) throw new Error(`bước '${step}' không có transition '${outcome}'`);
+  if (target === undefined)
+    throw new Error(`bước '${step}' không có transition '${outcome}'`);
   goTarget(ctx, step, target, outcome, body);
 }
 
-function goTarget(ctx: Ctx, from: string, target: string, outcome: string, body?: string): void {
+function goTarget(
+  ctx: Ctx,
+  from: string,
+  target: string,
+  outcome: string,
+  body?: string,
+): void {
   if (!isSpecialTarget(target)) {
     enterStep(ctx, target, { step: from, outcome });
     return;
@@ -210,9 +268,15 @@ function goTarget(ctx: Ctx, from: string, target: string, outcome: string, body?
     waitTask(
       ctx,
       mkWait('human_input', 'loop_exhausted', {
-        resume: isAgentStep(def) ? { kind: 'start_attempt', step: from, attempt_kind: 'initial' } : { kind: 'enter_step', step: from },
+        resume: isAgentStep(def)
+          ? { kind: 'start_attempt', step: from, attempt_kind: 'initial' }
+          : { kind: 'enter_step', step: from },
         resume_when: [`amend(limits.extra_visits.${from})`],
-        detail: { step: from, outcome, visits: ctx.state.step_visits[from] ?? 0 },
+        detail: {
+          step: from,
+          outcome,
+          visits: ctx.state.step_visits[from] ?? 0,
+        },
       }),
     );
     return;
@@ -223,13 +287,19 @@ function goTarget(ctx: Ctx, from: string, target: string, outcome: string, body?
   const attempt = ctx.state.current_attempt[from] ?? null;
   switch (target) {
     case 'ask':
-      askHuman(ctx, 'agent_question', { step: from, attempt_id: attempt, body: body ?? `Bước '${from}' cần thêm thông tin`, resume: again });
+      askHuman(ctx, 'agent_question', {
+        step: from,
+        attempt_id: attempt,
+        body: body ?? `Bước '${from}' cần thêm thông tin`,
+        resume: again,
+      });
       return;
     case 'escalate':
       askHuman(ctx, 'loop_exhausted', {
         step: from,
         attempt_id: attempt,
-        body: body ?? `Bước '${from}' dừng với '${outcome}'; cần người quyết định`,
+        body:
+          body ?? `Bước '${from}' dừng với '${outcome}'; cần người quyết định`,
         resume: again,
         detail: { step: from, outcome },
       });
@@ -255,7 +325,11 @@ function visitOf(ctx: Ctx, step: string): number {
 }
 
 /** Diễn giải một bước theo loại (research R-11). */
-export function runStep(ctx: Ctx, step: string, attemptKind: AttemptKind = 'initial'): void {
+export function runStep(
+  ctx: Ctx,
+  step: string,
+  attemptKind: AttemptKind = 'initial',
+): void {
   const def = stepDef(ctx, step);
   const s = ctx.state;
   const p = ctx.frozen;
@@ -265,7 +339,12 @@ export function runStep(ctx: Ctx, step: string, attemptKind: AttemptKind = 'init
       // Đủ lượt cho mọi bước agent còn phải đi trước khi xét merge, không thì chờ người (FR-040).
       const need = agentRunsAhead(ctx, step);
       if (available(s.budget) < need) {
-        waitPolicy(ctx, 'agent_runs_insufficient', { kind: 'route', step, outcome: 'ok' }, { needed: need, available: available(s.budget) });
+        waitPolicy(
+          ctx,
+          'agent_runs_insufficient',
+          { kind: 'route', step, outcome: 'ok' },
+          { needed: need, available: available(s.budget) },
+        );
         return;
       }
       route(ctx, step, 'ok');
@@ -298,7 +377,10 @@ export function runStep(ctx: Ctx, step: string, attemptKind: AttemptKind = 'init
         kind: 'run_gates',
         logical_id: `${step}#${visit}`,
         step,
-        request: { gates: run.map((g) => ({ gate: g, cmd: p.gates.commands[g] ?? '' })), required: gates?.required ?? [] },
+        request: {
+          gates: run.map((g) => ({ gate: g, cmd: p.gates.commands[g] ?? '' })),
+          required: gates?.required ?? [],
+        },
       });
       return;
     }
@@ -313,7 +395,10 @@ export function runStep(ctx: Ctx, step: string, attemptKind: AttemptKind = 'init
       const c = classifyFailures(p.ci.rules, ci?.checks ?? []);
       if (c.kind === 'class') {
         if (c.class === 'code') {
-          const failing = c.by_check.filter((x) => x.class === 'code').map((x) => x.check).sort();
+          const failing = c.by_check
+            .filter((x) => x.class === 'code')
+            .map((x) => x.check)
+            .sort();
           recordCheckFailure(ctx, `ci:${failing.join(',')}`);
         }
         route(ctx, step, c.class);
@@ -333,15 +418,38 @@ export function runStep(ctx: Ctx, step: string, attemptKind: AttemptKind = 'init
       // Runtime (002): the user merges on GitHub; no approval request, auto approval or merge effect.
       if (externalConfirmation(ctx)) return waitForExternalMerge(ctx, step);
       // Merge vào protected branch luôn cần người duyệt, kể cả khi `auto_when` khớp (SPEC.md §14.2).
-      const protectedTarget = p.protected_branches.some((b) => branchMatches(b, s.task.base_branch));
-      if (!protectedTarget && def.auto_when !== undefined && evalPredicate(def.auto_when, facts(ctx, step))) {
+      const protectedTarget = p.protected_branches.some((b) =>
+        branchMatches(b, s.task.base_branch),
+      );
+      if (
+        !protectedTarget &&
+        def.auto_when !== undefined &&
+        evalPredicate(def.auto_when, facts(ctx, step))
+      ) {
         const id = ctx.nextId();
-        ctx.emit('ApprovalRequested', { approval_id: id, kind: 'merge', step, rung: null, head_sha: s.head_sha, policy_hash: p.policy_hash });
-        ctx.emit('ApprovalGranted', { approval_id: id, by: 'policy:auto_when', head_sha: s.head_sha });
+        ctx.emit('ApprovalRequested', {
+          approval_id: id,
+          kind: 'merge',
+          step,
+          rung: null,
+          head_sha: s.head_sha,
+          policy_hash: p.policy_hash,
+        });
+        ctx.emit('ApprovalGranted', {
+          approval_id: id,
+          by: 'policy:auto_when',
+          head_sha: s.head_sha,
+        });
         route(ctx, step, 'approved');
         return;
       }
-      requestApproval(ctx, { kind: 'merge', step, rung: null, head_sha: s.head_sha, resume: { kind: 'route', step, outcome: 'approved' } });
+      requestApproval(ctx, {
+        kind: 'merge',
+        step,
+        rung: null,
+        head_sha: s.head_sha,
+        resume: { kind: 'route', step, outcome: 'approved' },
+      });
       return;
     }
     case 'complete':
@@ -357,23 +465,58 @@ function runAction(ctx: Ctx, step: string, def: StepDef, visit: number): void {
   switch (def.action) {
     case 'git.publish':
       if (waitForSlot(ctx, { kind: 'run_step', step })) return;
-      requestEffect(ctx, { kind: 'publish', logical_id: `${step}#${visit}`, step, request: publishRequest(ctx, visit) });
+      requestEffect(ctx, {
+        kind: 'publish',
+        logical_id: `${step}#${visit}`,
+        step,
+        request: publishRequest(ctx, visit),
+      });
       return;
     case 'github.create_pr':
       if (s.pr_ref !== null) {
         // The same PR keeps its marker; only its title/body follow newer worker content (M05/M07).
         const content = s.run.content?.digest ?? null;
         const pb = s.run.pr_body;
-        if (s.runtime_ref === null || pb === null || content === null || content === pb.content_digest) return skip(ctx, step, 'pr_exists');
-        requestEffect(ctx, { kind: 'create_pr', logical_id: `${s.id}#${visit}#describe:${content}`, step, request: { head_sha: s.head_sha, content_digest: content, update: true } });
+        if (
+          s.runtime_ref === null ||
+          pb === null ||
+          content === null ||
+          content === pb.content_digest
+        )
+          return skip(ctx, step, 'pr_exists');
+        requestEffect(ctx, {
+          kind: 'create_pr',
+          logical_id: `${s.id}#${visit}#describe:${content}`,
+          step,
+          request: {
+            head_sha: s.head_sha,
+            content_digest: content,
+            update: true,
+          },
+        });
         return;
       }
-      requestEffect(ctx, { kind: 'create_pr', logical_id: `${s.id}#${visit}`, step, request: { head_sha: s.head_sha, content_digest: s.run.content?.digest ?? null } });
+      requestEffect(ctx, {
+        kind: 'create_pr',
+        logical_id: `${s.id}#${visit}`,
+        step,
+        request: {
+          head_sha: s.head_sha,
+          content_digest: s.run.content?.digest ?? null,
+        },
+      });
       return;
     case 'github.rerun_failed': {
       const ci = s.head_sha === null ? undefined : latestCi(s, s.head_sha);
-      const failed = (ci?.checks ?? []).filter((c) => c.state === 'failure').map((c) => c.name);
-      requestEffect(ctx, { kind: 'rerun_ci', logical_id: `${s.head_sha ?? 'none'}#${visit}`, step, request: { head_sha: s.head_sha, checks: failed } });
+      const failed = (ci?.checks ?? [])
+        .filter((c) => c.state === 'failure')
+        .map((c) => c.name);
+      requestEffect(ctx, {
+        kind: 'rerun_ci',
+        logical_id: `${s.head_sha ?? 'none'}#${visit}`,
+        step,
+        request: { head_sha: s.head_sha, checks: failed },
+      });
       return;
     }
     case 'github.merge': {
@@ -383,7 +526,12 @@ function runAction(ctx: Ctx, step: string, def: StepDef, visit: number): void {
         onGuardFailure(ctx, step, g.code);
         return;
       }
-      requestEffect(ctx, { kind: 'merge', logical_id: `${g.head_sha}#${visit}`, step, request: { head_sha: g.head_sha, pr_ref: s.pr_ref } });
+      requestEffect(ctx, {
+        kind: 'merge',
+        logical_id: `${g.head_sha}#${visit}`,
+        step,
+        request: { head_sha: g.head_sha, pr_ref: s.pr_ref },
+      });
       return;
     }
     case undefined:
@@ -401,12 +549,20 @@ function onGuardFailure(ctx: Ctx, step: string, code: GuardFailure): void {
       return;
     case 'checks_incomplete':
     case 'checks_failed': {
-      const ci = Object.entries(ctx.frozen.workflow.steps).find(([, d]) => d.kind === 'wait')?.[0];
+      const ci = Object.entries(ctx.frozen.workflow.steps).find(
+        ([, d]) => d.kind === 'wait',
+      )?.[0];
       if (ci !== undefined && code === 'checks_incomplete') {
         armCiPoll(ctx, ci, { kind: 'poll_ci', step: ci }, { guard: code });
         return;
       }
-      askHuman(ctx, 'merge_not_done', { step, attempt_id: null, body: `Merge guard: ${code}`, resume: recheck, detail: { guard: code } });
+      askHuman(ctx, 'merge_not_done', {
+        step,
+        attempt_id: null,
+        body: `Merge guard: ${code}`,
+        resume: recheck,
+        detail: { guard: code },
+      });
       return;
     }
     case 'base_outdated':
@@ -421,7 +577,13 @@ function onGuardFailure(ctx: Ctx, step: string, code: GuardFailure): void {
     case 'no_head':
     case 'review_missing':
     case 'approval_missing':
-      askHuman(ctx, 'merge_not_done', { step, attempt_id: null, body: `Merge guard: ${code}`, resume: recheck, detail: { guard: code } });
+      askHuman(ctx, 'merge_not_done', {
+        step,
+        attempt_id: null,
+        body: `Merge guard: ${code}`,
+        resume: recheck,
+        detail: { guard: code },
+      });
       return;
     default:
       assertNever(code);
@@ -470,9 +632,13 @@ function agentRunsAhead(ctx: Ctx, from: string): number {
     const def: StepDef | undefined = wf.steps[cur];
     if (def === undefined) break;
     const f = facts(ctx, cur);
-    const skipped = (def.when !== undefined && !evalPredicate(def.when, f)) || (def.skip_when !== undefined && evalPredicate(def.skip_when, f));
+    const skipped =
+      (def.when !== undefined && !evalPredicate(def.when, f)) ||
+      (def.skip_when !== undefined && evalPredicate(def.skip_when, f));
     if (isAgentStep(def) && !skipped) n++;
-    const out: string | undefined = SUCCESS.find((o) => def.next[o] !== undefined);
+    const out: string | undefined = SUCCESS.find(
+      (o) => def.next[o] !== undefined,
+    );
     cur = out === undefined ? undefined : def.next[out];
   }
   return n;
@@ -488,24 +654,40 @@ function agentRunsAhead(ctx: Ctx, from: string): number {
 export function startAttempt(ctx: Ctx, step: string, kind: AttemptKind): void {
   const s = ctx.state;
   const sp = ctx.frozen.steps[step];
-  if (sp === undefined) throw new Error(`chính sách không có binding cho bước '${step}'`);
-  const again: ResumeAction = { kind: 'start_attempt', step, attempt_kind: kind };
+  if (sp === undefined)
+    throw new Error(`chính sách không có binding cho bước '${step}'`);
+  const again: ResumeAction = {
+    kind: 'start_attempt',
+    step,
+    attempt_kind: kind,
+  };
   if (waitForSlot(ctx, again)) return;
   // Điểm chung tạo attempt: mỗi lượt vào bước có tối đa một attempt. Lượt hiện tại đã có attempt (thử lại
   // sau câu trả lời, sau khi dừng, sau lỗi…) thì phải vào lại bước, nên luôn bị `max_visits` chặn.
-  if (Object.values(s.attempts).filter((a) => a.step === step).length >= visitOf(ctx, step)) {
+  if (
+    Object.values(s.attempts).filter((a) => a.step === step).length >=
+    visitOf(ctx, step)
+  ) {
     enterStep(ctx, step, { step, outcome: 'resume' }, kind);
     return;
   }
   const choice = chooseRung(ctx, step, sp, again);
   if (choice === null) return;
-  if (pastDeadline(ctx)) return waitPolicy(ctx, 'deadline', again, { deadline_at: s.deadline_at });
-  if (available(s.budget) < 1) return waitPolicy(ctx, 'agent_runs_exhausted', again, { step });
+  if (pastDeadline(ctx))
+    return waitPolicy(ctx, 'deadline', again, { deadline_at: s.deadline_at });
+  if (available(s.budget) < 1)
+    return waitPolicy(ctx, 'agent_runs_exhausted', again, { step });
   const rungIndex = choice.rung;
   const rung = sp.ladder[rungIndex] as (typeof sp.ladder)[number];
   // A binding outside the confirmed selection, worker or reviewer, needs a new confirmation, never a silent switch (M02).
-  if (s.run.mode !== null && !confirmedChoices(s, sp.role).some((c) => sameChoice(c, rung.binding))) {
-    return waitPolicy(ctx, 'run_config_unconfirmed', again, { step, binding: bindingName(rung.binding) });
+  if (
+    s.run.mode !== null &&
+    !confirmedChoices(s, sp.role).some((c) => sameChoice(c, rung.binding))
+  ) {
+    return waitPolicy(ctx, 'run_config_unconfirmed', again, {
+      step,
+      binding: bindingName(rung.binding),
+    });
   }
   applyRaise(ctx, step, sp, choice);
 
@@ -526,9 +708,22 @@ export function startAttempt(ctx: Ctx, step: string, kind: AttemptKind): void {
     reservation_id: reservationId,
   });
   const answers = Object.values(ctx.state.questions)
-    .filter((q) => q.step === step && q.status === 'answered' && q.revision === s.revision)
+    .filter(
+      (q) =>
+        q.step === step && q.status === 'answered' && q.revision === s.revision,
+    )
     .map((q) => ({ question_id: q.id, answer: q.answer }));
-  const resume = s.runtime_ref === null ? {} : resumePlan(ctx, step, sp.role, bindingName(rung.binding), kind, attemptId);
+  const resume =
+    s.runtime_ref === null
+      ? {}
+      : resumePlan(
+          ctx,
+          step,
+          sp.role,
+          bindingName(rung.binding),
+          kind,
+          attemptId,
+        );
   requestEffect(ctx, {
     kind: 'start_agent',
     logical_id: attemptId,
@@ -554,18 +749,44 @@ export function startAttempt(ctx: Ctx, step: string, kind: AttemptKind): void {
  * a fresh session the failure handling asked for. The handler resumes only when the harness proved it
  * can; either way it rebuilds the full repair packet, so a fallback loses nothing but the session.
  */
-function resumePlan(ctx: Ctx, step: string, role: string, binding: string, kind: AttemptKind, self: string): { resume: { session_ref: string; from_attempt_id: string } | null; resume_reason: string | null } {
-  if (role !== 'coder' && role !== 'fixer') return { resume: null, resume_reason: null };
+function resumePlan(
+  ctx: Ctx,
+  step: string,
+  role: string,
+  binding: string,
+  kind: AttemptKind,
+  self: string,
+): {
+  resume: { session_ref: string; from_attempt_id: string } | null;
+  resume_reason: string | null;
+} {
+  if (role !== 'coder' && role !== 'fixer')
+    return { resume: null, resume_reason: null };
   const s = ctx.state;
   const repair = step !== 'code' || kind !== 'initial';
   if (!repair) return { resume: null, resume_reason: null };
-  if (kind === 'fresh_session') return { resume: null, resume_reason: 'fresh_session_requested' };
-  const workers = Object.values(s.attempts).filter((a) => a.id !== self && a.revision === s.revision && a.status === 'finished' && (ctx.frozen.steps[a.step]?.role === 'coder' || ctx.frozen.steps[a.step]?.role === 'fixer'));
+  if (kind === 'fresh_session')
+    return { resume: null, resume_reason: 'fresh_session_requested' };
+  const workers = Object.values(s.attempts).filter(
+    (a) =>
+      a.id !== self &&
+      a.revision === s.revision &&
+      a.status === 'finished' &&
+      (ctx.frozen.steps[a.step]?.role === 'coder' ||
+        ctx.frozen.steps[a.step]?.role === 'fixer'),
+  );
   // Attempts keep their request order in state.
   const last = workers.filter((a) => typeof a.session_ref === 'string').at(-1);
   if (last === undefined) return { resume: null, resume_reason: 'no_session' };
-  if (last.binding !== binding) return { resume: null, resume_reason: 'binding_changed' };
-  return { resume: { session_ref: last.session_ref as string, from_attempt_id: last.id }, resume_reason: null };
+  if (last.binding !== binding)
+    return { resume: null, resume_reason: 'binding_changed' };
+  return {
+    resume: {
+      session_ref: last.session_ref as string,
+      from_attempt_id: last.id,
+    },
+    resume_reason: null,
+  };
 }
 
 // ---------- CI ----------
@@ -573,17 +794,26 @@ function resumePlan(ctx: Ctx, step: string, role: string, binding: string, kind:
 function requestAwaitCi(ctx: Ctx, step: string): void {
   const s = ctx.state;
   // A spent window is final for the head: no poll after it, whatever resumed the CI wait (FR-043.08).
-  if (s.runtime_ref !== null && ciSpent(ctx, step)) return waitCiExhausted(ctx, step, { kind: 'poll_ci', step }, {});
+  if (s.runtime_ref !== null && ciSpent(ctx, step))
+    return waitCiExhausted(ctx, step, { kind: 'poll_ci', step }, {});
   // A runtime task stamps the request so the per-head CI window starts at the first poll (FR-043.08).
   const at = s.runtime_ref === null ? {} : { at: ctx.now };
   // A runtime task numbers polls per head, which only grows: re-entering the CI wait from the merge
   // wait (a rerun seen by the observation) must not collide with an earlier poll of the same head.
-  const n = s.runtime_ref === null ? `${s.ci_polls + 1}` : `p${(s.head_sha === null ? 0 : (s.run.ci_wait[s.head_sha]?.polls ?? 0)) + 1}`;
+  const n =
+    s.runtime_ref === null
+      ? `${s.ci_polls + 1}`
+      : `p${(s.head_sha === null ? 0 : (s.run.ci_wait[s.head_sha]?.polls ?? 0)) + 1}`;
   requestEffect(ctx, {
     kind: 'await_ci',
     logical_id: `${s.head_sha ?? 'none'}#${visitOf(ctx, step)}#${n}`,
     step,
-    request: { head_sha: s.head_sha, pr_ref: s.pr_ref, required_checks: ctx.frozen.ci.required_checks, ...at },
+    request: {
+      head_sha: s.head_sha,
+      pr_ref: s.pr_ref,
+      required_checks: ctx.frozen.ci.required_checks,
+      ...at,
+    },
   });
 }
 
@@ -592,31 +822,66 @@ function requestAwaitCi(ctx: Ctx, step: string): void {
  * first poll of that head, and at most `ci_max_polls_per_head` polls. A rerun, a recheck or a revisit of
  * the step does not reset it; only a new head starts a new window.
  */
-export function ciWindow(ctx: Pick<Ctx, 'state' | 'frozen'>, step: string, head: string | null): { exhausted: boolean; polls: number; max_polls: number; started_at: number | null; until: number | null } {
+export function ciWindow(
+  ctx: Pick<Ctx, 'state' | 'frozen'>,
+  step: string,
+  head: string | null,
+): {
+  exhausted: boolean;
+  polls: number;
+  max_polls: number;
+  started_at: number | null;
+  until: number | null;
+} {
   const def = ctx.frozen.workflow.steps[step];
   const poll = def?.poll ?? 60_000;
   const timeout = def?.timeout ?? 3_600_000;
-  const cap = ctx.state.run.limits?.ci_max_polls_per_head ?? Number.POSITIVE_INFINITY;
+  const cap =
+    ctx.state.run.limits?.ci_max_polls_per_head ?? Number.POSITIVE_INFINITY;
   const maxPolls = Math.min(cap, Math.max(1, Math.ceil(timeout / poll)));
   const w = head === null ? undefined : ctx.state.run.ci_wait[head];
-  if (w === undefined) return { exhausted: false, polls: 0, max_polls: maxPolls, started_at: null, until: null };
-  return { exhausted: w.polls >= maxPolls, polls: w.polls, max_polls: maxPolls, started_at: w.started_at, until: w.started_at + timeout };
+  if (w === undefined)
+    return {
+      exhausted: false,
+      polls: 0,
+      max_polls: maxPolls,
+      started_at: null,
+      until: null,
+    };
+  return {
+    exhausted: w.polls >= maxPolls,
+    polls: w.polls,
+    max_polls: maxPolls,
+    started_at: w.started_at,
+    until: w.started_at + timeout,
+  };
 }
 
 /** Whether the head's CI window is spent: every poll used, or its time passed (FR-043.08). */
-export function ciSpent(ctx: Pick<Ctx, 'state' | 'frozen' | 'now'>, step: string): boolean {
+export function ciSpent(
+  ctx: Pick<Ctx, 'state' | 'frozen' | 'now'>,
+  step: string,
+): boolean {
   const w = ciWindow(ctx, step, ctx.state.head_sha);
   return w.exhausted || (w.until !== null && ctx.now > w.until);
 }
 
 /** Whether the time of the head's CI window has passed; the last poll's own answer still counts within it. */
-function ciClosed(ctx: Pick<Ctx, 'state' | 'frozen' | 'now'>, step: string): boolean {
+function ciClosed(
+  ctx: Pick<Ctx, 'state' | 'frozen' | 'now'>,
+  step: string,
+): boolean {
   const w = ciWindow(ctx, step, ctx.state.head_sha);
   return w.until !== null && ctx.now > w.until;
 }
 
 /** The head's CI window is spent: wait `ci/ci_wait_exhausted`, with no fix, rerun or further poll (FR-043.08). */
-export function waitCiExhausted(ctx: Ctx, step: string, resume: ResumeAction, detail: Record<string, unknown>): void {
+export function waitCiExhausted(
+  ctx: Ctx,
+  step: string,
+  resume: ResumeAction,
+  detail: Record<string, unknown>,
+): void {
   const w = ciWindow(ctx, step, ctx.state.head_sha);
   waitTask(
     ctx,
@@ -624,7 +889,15 @@ export function waitCiExhausted(ctx: Ctx, step: string, resume: ResumeAction, de
       resume,
       resume_when: ['recheck(observation)'],
       exit_paths: ['merge the PR on GitHub', 'cancel'],
-      detail: { ...detail, step, head_sha: ctx.state.head_sha, polls: w.polls, max_polls: w.max_polls, started_at: w.started_at, until: w.until },
+      detail: {
+        ...detail,
+        step,
+        head_sha: ctx.state.head_sha,
+        polls: w.polls,
+        max_polls: w.max_polls,
+        started_at: w.started_at,
+        until: w.until,
+      },
     }),
   );
 }
@@ -639,25 +912,41 @@ function armCiPoll(
   step: string,
   resume: ResumeAction,
   detail: Record<string, unknown>,
-  as: { reason: 'ci' | 'infra'; code: 'checks_incomplete' | 'observation_unknown' } = { reason: 'ci', code: 'checks_incomplete' },
+  as: {
+    reason: 'ci' | 'infra';
+    code: 'checks_incomplete' | 'observation_unknown';
+  } = { reason: 'ci', code: 'checks_incomplete' },
 ): void {
   const def = stepDef(ctx, step);
   const poll = def.poll ?? 60_000;
   if (ctx.state.runtime_ref !== null) {
     const w = ciWindow(ctx, step, ctx.state.head_sha);
-    if (w.exhausted || (w.until !== null && ctx.now + poll > w.until)) return waitCiExhausted(ctx, step, resume, detail);
+    if (w.exhausted || (w.until !== null && ctx.now + poll > w.until))
+      return waitCiExhausted(ctx, step, resume, detail);
   } else {
-    const maxPolls = def.timeout !== undefined ? Math.max(1, Math.ceil(def.timeout / poll)) : 1;
+    const maxPolls =
+      def.timeout !== undefined
+        ? Math.max(1, Math.ceil(def.timeout / poll))
+        : 1;
     if (ctx.state.ci_polls >= maxPolls && ctx.state.current_step === step) {
       route(ctx, step, 'timeout');
       return;
     }
   }
   const timerId = ctx.nextId();
-  ctx.emit('TimerArmed', { timer_id: timerId, kind: 'ci_poll', due_at: ctx.now + poll, payload: { step, resume } });
+  ctx.emit('TimerArmed', {
+    timer_id: timerId,
+    kind: 'ci_poll',
+    due_at: ctx.now + poll,
+    payload: { step, resume },
+  });
   waitTask(
     ctx,
-    mkWait(as.reason, as.code, { resume, resume_when: [`timer(${timerId})`], detail: { ...detail, timer_id: timerId } }),
+    mkWait(as.reason, as.code, {
+      resume,
+      resume_when: [`timer(${timerId})`],
+      detail: { ...detail, timer_id: timerId },
+    }),
   );
 }
 
@@ -666,15 +955,23 @@ function armCiPoll(
 type EffectResultTrigger = Extract<Trigger, { kind: 'effect_result' }>;
 
 function stepKindOf(ctx: Ctx, e: EffectMirror): StepKind | null {
-  return e.step === null ? null : (ctx.frozen.workflow.steps[e.step]?.kind ?? null);
+  return e.step === null
+    ? null
+    : (ctx.frozen.workflow.steps[e.step]?.kind ?? null);
 }
 
 /** Schema thành công theo loại effect (contracts/signals-events.md "Kết quả effect"). */
-export function parseSuccess(ctx: Ctx, e: EffectMirror, data: unknown): { ok: true; data: unknown } | { ok: false; issues: string[] } {
+export function parseSuccess(
+  ctx: Ctx,
+  e: EffectMirror,
+  data: unknown,
+): { ok: true; data: unknown } | { ok: false; issues: string[] } {
   const schema = (() => {
     switch (e.kind) {
       case 'start_agent':
-        return stepKindOf(ctx, e) === 'review' ? ReviewDataSchema : AgentDataSchema;
+        return stepKindOf(ctx, e) === 'review'
+          ? ReviewDataSchema
+          : AgentDataSchema;
       case 'run_gates':
         return GateDataSchema;
       case 'prepare':
@@ -700,43 +997,82 @@ export function parseSuccess(ctx: Ctx, e: EffectMirror, data: unknown): { ok: tr
   })();
   if (schema === null) return { ok: true, data };
   const r = schema.safeParse(data);
-  return r.success ? { ok: true, data: r.data } : { ok: false, issues: r.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`) };
+  return r.success
+    ? { ok: true, data: r.data }
+    : {
+        ok: false,
+        issues: r.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`),
+      };
 }
 
 /** Tín hiệu `effect_result` (contracts/signals-events.md). */
 export function onEffectResult(ctx: Ctx, t: EffectResultTrigger): void {
   const e = ctx.state.effects[t.effect_id];
-  if (e === undefined) reject('invalid_trigger', { reason: 'unknown_effect', effect_id: t.effect_id });
+  if (e === undefined)
+    reject('invalid_trigger', {
+      reason: 'unknown_effect',
+      effect_id: t.effect_id,
+    });
   if (t.attempt_id !== undefined && t.attempt_id !== e.attempt_id) {
     reject('invalid_trigger', { reason: 'attempt_mismatch', effect_id: e.id });
   }
   if (e.status !== 'started') {
-    ctx.emit('SignalIgnored', { reason: `effect_${e.status}`, trigger_kind: t.kind, detail: { effect_id: e.id } });
+    ctx.emit('SignalIgnored', {
+      reason: `effect_${e.status}`,
+      trigger_kind: t.kind,
+      detail: { effect_id: e.id },
+    });
     return;
   }
   switch (t.outcome) {
     case 'unknown':
-      ctx.emit('EffectCompleted', { effect_id: e.id, status: 'unknown', result: null });
+      ctx.emit('EffectCompleted', {
+        effect_id: e.id,
+        status: 'unknown',
+        result: null,
+      });
       onEffectUnknown(ctx, e);
       return;
     case 'succeeded': {
       // Output agent sai schema vẫn là lượt đã chạy; nó thành lỗi `invalid_output` ở bước sau (FR-014).
       const parsed = parseSuccess(ctx, e, t.data);
-      if (!parsed.ok && e.kind !== 'start_agent') reject('invalid_trigger', { reason: 'invalid_data', issues: parsed.issues });
-      ctx.emit('EffectCompleted', { effect_id: e.id, status: 'succeeded', result: parsed.ok ? parsed.data : (t.data ?? null) });
+      if (!parsed.ok && e.kind !== 'start_agent')
+        reject('invalid_trigger', {
+          reason: 'invalid_data',
+          issues: parsed.issues,
+        });
+      ctx.emit('EffectCompleted', {
+        effect_id: e.id,
+        status: 'succeeded',
+        result: parsed.ok ? parsed.data : (t.data ?? null),
+      });
       // A late result after a merge proof (e.g. a push that still landed) is recorded, never acted on.
       if (ctx.state.completion !== null) return;
       // Under a recorded head drift a result is history of its own operation (H01/H02): no route.
-      if (ctx.state.run.head_drift !== null) return settleUnderDrift(ctx, e, (t.data as { invoked?: boolean } | undefined)?.invoked !== false);
+      if (ctx.state.run.head_drift !== null)
+        return settleUnderDrift(
+          ctx,
+          e,
+          (t.data as { invoked?: boolean } | undefined)?.invoked !== false,
+        );
       onEffectSucceeded(ctx, e, t.data);
       return;
     }
     case 'failed': {
       const f = FailureDataSchema.safeParse(t.data);
-      if (!f.success) reject('invalid_trigger', { reason: 'invalid_failure', issues: f.error.issues.map((i) => i.message) });
-      ctx.emit('EffectCompleted', { effect_id: e.id, status: 'failed', result: f.data });
+      if (!f.success)
+        reject('invalid_trigger', {
+          reason: 'invalid_failure',
+          issues: f.error.issues.map((i) => i.message),
+        });
+      ctx.emit('EffectCompleted', {
+        effect_id: e.id,
+        status: 'failed',
+        result: f.data,
+      });
       if (ctx.state.completion !== null) return;
-      if (ctx.state.run.head_drift !== null) return settleUnderDrift(ctx, e, f.data.invoked !== false);
+      if (ctx.state.run.head_drift !== null)
+        return settleUnderDrift(ctx, e, f.data.invoked !== false);
       onEffectFailed(ctx, e, f.data);
       return;
     }
@@ -750,7 +1086,10 @@ export function onEffectUnknown(ctx: Ctx, e: EffectMirror): void {
   requestReconcile(ctx, e);
   if (ctx.state.status === 'RUNNING' && ctx.state.cancellation === null) {
     ctx.emit('TaskWaiting', {
-      wait: mkWait('infra', 'effect_unknown', { resume_when: [`reconcile(${e.id})`], detail: { effect_id: e.id, kind: e.kind } }),
+      wait: mkWait('infra', 'effect_unknown', {
+        resume_when: [`reconcile(${e.id})`],
+        detail: { effect_id: e.id, kind: e.kind },
+      }),
     });
   }
 }
@@ -758,11 +1097,16 @@ export function onEffectUnknown(ctx: Ctx, e: EffectMirror): void {
 /** Bỏ trạng thái chờ đối chiếu của chính effect này trước khi đi tiếp. */
 function resumeIfWaitingOn(ctx: Ctx, e: EffectMirror): void {
   const w = ctx.state.wait;
-  if (ctx.state.status === 'WAITING' && w?.detail['effect_id'] === e.id) ctx.emit('TaskResumed', { reason: `effect:${e.id}` });
+  if (ctx.state.status === 'WAITING' && w?.detail['effect_id'] === e.id)
+    ctx.emit('TaskResumed', { reason: `effect:${e.id}` });
 }
 
 /** Xử lý dữ liệu thành công (đã kiểm schema với effect không phải agent). Dùng chung với đối chiếu (R-17). */
-export function onEffectSucceeded(ctx: Ctx, e: EffectMirror, data: unknown): void {
+export function onEffectSucceeded(
+  ctx: Ctx,
+  e: EffectMirror,
+  data: unknown,
+): void {
   resumeIfWaitingOn(ctx, e);
   const step = e.step;
   switch (e.kind) {
@@ -774,9 +1118,16 @@ export function onEffectSucceeded(ctx: Ctx, e: EffectMirror, data: unknown): voi
       if (onGateTree(ctx, e, d)) return;
       const sg = ctx.frozen.gates.by_step[step as string];
       // Bước không khai `required` thì mọi gate đã chạy đều bắt buộc; không bao giờ đạt vì danh sách rỗng.
-      const required = sg !== undefined && sg.required.length > 0 ? sg.required : (sg?.run ?? d.results.map((r) => r.gate));
-      const passed = required.length > 0 && required.every((g) => d.results.some((r) => r.gate === g && r.passed));
-      const failing = d.results.find((r) => !r.passed && required.includes(r.gate)) ?? d.results.find((r) => !r.passed);
+      const required =
+        sg !== undefined && sg.required.length > 0
+          ? sg.required
+          : (sg?.run ?? d.results.map((r) => r.gate));
+      const passed =
+        required.length > 0 &&
+        required.every((g) => d.results.some((r) => r.gate === g && r.passed));
+      const failing =
+        d.results.find((r) => !r.passed && required.includes(r.gate)) ??
+        d.results.find((r) => !r.passed);
       const signature = failing?.signature ?? null;
       ctx.emit('GateResultRecorded', {
         step: step as string,
@@ -788,18 +1139,33 @@ export function onEffectSucceeded(ctx: Ctx, e: EffectMirror, data: unknown): voi
         resets_streak_of: passed ? ctx.state.last_fix_step : null,
       });
       if (!passed) recordCheckFailure(ctx, signature);
-      if (passed && d.checkpoint === undefined && commitsCheckpoint(ctx, step as string)) {
-        onEffectFailed(ctx, e, { failure_class: 'infra', message: 'gates passed without a checkpoint commit' });
+      if (
+        passed &&
+        d.checkpoint === undefined &&
+        commitsCheckpoint(ctx, step as string)
+      ) {
+        onEffectFailed(ctx, e, {
+          failure_class: 'infra',
+          message: 'gates passed without a checkpoint commit',
+        });
         return;
       }
-      if (passed && d.checkpoint !== undefined) recordCheckpoint(ctx, step as string, d.checkpoint);
-      proceed(ctx, { kind: 'route', step: step as string, outcome: passed ? 'pass' : 'fail' });
+      if (passed && d.checkpoint !== undefined)
+        recordCheckpoint(ctx, step as string, d.checkpoint);
+      proceed(ctx, {
+        kind: 'route',
+        step: step as string,
+        outcome: passed ? 'pass' : 'fail',
+      });
       return;
     }
     case 'prepare': {
       const d = PrepareDataSchema.parse(data);
       if (!d.setup.passed) {
-        onEffectFailed(ctx, e, { failure_class: 'infra', message: 'setup_failed' });
+        onEffectFailed(ctx, e, {
+          failure_class: 'infra',
+          message: 'setup_failed',
+        });
         return;
       }
       proceed(ctx, { kind: 'route', step: step as string, outcome: 'ok' });
@@ -819,21 +1185,38 @@ export function onEffectSucceeded(ctx: Ctx, e: EffectMirror, data: unknown): voi
     case 'await_ci': {
       const d = AwaitCiDataSchema.parse(data);
       // CI of a PR that targets another branch is not recorded: it proves nothing for this target.
-      if (d.target_ref !== undefined && d.target_ref !== ctx.state.task.base_branch) return waitTargetMismatch(ctx, step as string, d.target_ref, d.target_merged === true);
+      if (
+        d.target_ref !== undefined &&
+        d.target_ref !== ctx.state.task.base_branch
+      )
+        return waitTargetMismatch(
+          ctx,
+          step as string,
+          d.target_ref,
+          d.target_merged === true,
+        );
       // A closed PR yields no CI evidence; the task waits for it to be reopened (FR-041.07).
       if (d.pr_state === 'closed') {
-        if (ctx.state.cancellation !== null) return proceed(ctx, { kind: 'none' });
+        if (ctx.state.cancellation !== null)
+          return proceed(ctx, { kind: 'none' });
         return waitPrClosed(ctx, { kind: 'poll_ci', step: step as string });
       }
-      const green = d.head_sha === ctx.state.head_sha && ciVerdict(ctx.frozen, d.required_set, d.checks).kind === 'pass';
+      const green =
+        d.head_sha === ctx.state.head_sha &&
+        ciVerdict(ctx.frozen, d.required_set, d.checks).kind === 'pass';
       ctx.emit('CiResultRecorded', {
         head_sha: d.head_sha,
         required_set: d.required_set,
         checks: d.checks,
         resets_streak_of: green ? ctx.state.last_fix_step : null,
       });
-      if (d.base_relation !== undefined) ctx.emit('BaseRelationRecorded', { relation: d.base_relation });
-      onCiRecorded(ctx, step as string, d.head_sha === ctx.state.head_sha ? d.required : undefined);
+      if (d.base_relation !== undefined)
+        ctx.emit('BaseRelationRecorded', { relation: d.base_relation });
+      onCiRecorded(
+        ctx,
+        step as string,
+        d.head_sha === ctx.state.head_sha ? d.required : undefined,
+      );
       return;
     }
     case 'merge': {
@@ -843,13 +1226,22 @@ export function onEffectSucceeded(ctx: Ctx, e: EffectMirror, data: unknown): voi
         return;
       }
       if (ctx.state.cancellation !== null) return;
-      askHuman(ctx, 'merge_not_done', { step, attempt_id: null, body: 'Merge chưa thực hiện', resume: { kind: 'merge_check', step: step as string } });
+      askHuman(ctx, 'merge_not_done', {
+        step,
+        attempt_id: null,
+        body: 'Merge chưa thực hiện',
+        resume: { kind: 'merge_check', step: step as string },
+      });
       return;
     }
     case 'stop_attempt': {
       // Attempt đã dừng: đối chiếu effect khởi chạy để biết nó kết thúc ra sao (FR-018).
-      const target = e.target_effect_id === null ? undefined : ctx.state.effects[e.target_effect_id];
-      if (target !== undefined && target.status === 'started') requestReconcile(ctx, target);
+      const target =
+        e.target_effect_id === null
+          ? undefined
+          : ctx.state.effects[e.target_effect_id];
+      if (target !== undefined && target.status === 'started')
+        requestReconcile(ctx, target);
       return;
     }
     // Observation facts arrive through `observation_result`, not through this effect's own result.
@@ -861,20 +1253,51 @@ export function onEffectSucceeded(ctx: Ctx, e: EffectMirror, data: unknown): voi
   }
 }
 
-export function onCiRecorded(ctx: Ctx, step: string, required?: RequiredCheckVerdict): void {
+export function onCiRecorded(
+  ctx: Ctx,
+  step: string,
+  required?: RequiredCheckVerdict,
+): void {
   const s = ctx.state;
-  if (s.cancellation !== null || isTerminal(s.status)) return proceed(ctx, { kind: 'none' });
+  if (s.cancellation !== null || isTerminal(s.status))
+    return proceed(ctx, { kind: 'none' });
   // A result that lands after the head's CI window closed is evidence only, even for a poll sent in time (FR-043.08).
-  if (s.runtime_ref !== null && ciClosed(ctx, step)) return waitCiExhausted(ctx, step, { kind: 'poll_ci', step }, { late_result: true });
-  if (required !== undefined && required.kind !== 'covered' && s.runtime_ref !== null) return onRequiredNotCovered(ctx, step, required);
+  if (s.runtime_ref !== null && ciClosed(ctx, step))
+    return waitCiExhausted(
+      ctx,
+      step,
+      { kind: 'poll_ci', step },
+      { late_result: true },
+    );
+  if (
+    required !== undefined &&
+    required.kind !== 'covered' &&
+    s.runtime_ref !== null
+  )
+    return onRequiredNotCovered(ctx, step, required);
   const head = s.head_sha;
   const ci = head === null ? undefined : latestCi(s, head);
   // Kết quả cho head khác head hiện hành không chứng minh gì cho head này: chờ tiếp.
-  const verdict = ci === undefined ? null : ciVerdict(ctx.frozen, ci.required_set, ci.checks);
-  if (verdict?.kind === 'pass') return proceed(ctx, { kind: 'route', step, outcome: 'pass' });
-  if (verdict?.kind === 'fail') return proceed(ctx, { kind: 'route', step, outcome: 'fail' });
-  if (s.source_drift !== null || pastDeadline(ctx)) return proceed(ctx, { kind: 'poll_ci', step });
-  armCiPoll(ctx, step, { kind: 'poll_ci', step }, verdict === null ? { stale_head: true } : { missing: verdict.missing, not_passed: verdict.not_passed, complete: verdict.complete });
+  const verdict =
+    ci === undefined ? null : ciVerdict(ctx.frozen, ci.required_set, ci.checks);
+  if (verdict?.kind === 'pass')
+    return proceed(ctx, { kind: 'route', step, outcome: 'pass' });
+  if (verdict?.kind === 'fail')
+    return proceed(ctx, { kind: 'route', step, outcome: 'fail' });
+  if (s.source_drift !== null || pastDeadline(ctx))
+    return proceed(ctx, { kind: 'poll_ci', step });
+  armCiPoll(
+    ctx,
+    step,
+    { kind: 'poll_ci', step },
+    verdict === null
+      ? { stale_head: true }
+      : {
+          missing: verdict.missing,
+          not_passed: verdict.not_passed,
+          complete: verdict.complete,
+        },
+  );
 }
 
 /**
@@ -883,11 +1306,22 @@ export function onCiRecorded(ctx: Ctx, step: string, required?: RequiredCheckVer
  * and observing again, or a cancel and a new task (FR-042.09). The snapshot is never widened. An
  * incomplete read is `unknown`: it waits under infra and polls again within the head's CI window.
  */
-function onRequiredNotCovered(ctx: Ctx, step: string, v: Exclude<RequiredCheckVerdict, { kind: 'covered' }>): void {
+function onRequiredNotCovered(
+  ctx: Ctx,
+  step: string,
+  v: Exclude<RequiredCheckVerdict, { kind: 'covered' }>,
+): void {
   const s = ctx.state;
-  if (s.source_drift !== null || pastDeadline(ctx)) return proceed(ctx, { kind: 'poll_ci', step });
+  if (s.source_drift !== null || pastDeadline(ctx))
+    return proceed(ctx, { kind: 'poll_ci', step });
   if (v.kind === 'unknown') {
-    armCiPoll(ctx, step, { kind: 'poll_ci', step }, { required: 'unknown', basis: v.basis }, { reason: 'infra', code: 'observation_unknown' });
+    armCiPoll(
+      ctx,
+      step,
+      { kind: 'poll_ci', step },
+      { required: 'unknown', basis: v.basis },
+      { reason: 'infra', code: 'observation_unknown' },
+    );
     return;
   }
   waitTask(
@@ -895,8 +1329,17 @@ function onRequiredNotCovered(ctx: Ctx, step: string, v: Exclude<RequiredCheckVe
     mkWait('policy', 'required_checks_mismatch', {
       resume: { kind: 'poll_ci', step },
       resume_when: ['observation', 'recheck(observation)'],
-      exit_paths: ['make the GitHub required checks a subset of the frozen ci.required_checks, then recheck', 'cancel and add a new task with the new configuration'],
-      detail: { step, head_sha: s.head_sha, github_only: v.missing_from_snapshot, app_pinned: v.app_pinned, snapshot_only: v.snapshot_only },
+      exit_paths: [
+        'make the GitHub required checks a subset of the frozen ci.required_checks, then recheck',
+        'cancel and add a new task with the new configuration',
+      ],
+      detail: {
+        step,
+        head_sha: s.head_sha,
+        github_only: v.missing_from_snapshot,
+        app_pinned: v.app_pinned,
+        snapshot_only: v.snapshot_only,
+      },
     }),
   );
 }
@@ -908,33 +1351,73 @@ function onRequiredNotCovered(ctx: Ctx, step: string, v: Exclude<RequiredCheckVe
  * cannot be retargeted, so it waits for a person with no timer (FR-040.12). No CI result or merge
  * evidence is taken from the other branch.
  */
-function waitTargetMismatch(ctx: Ctx, step: string, observed: string, merged: boolean): void {
+function waitTargetMismatch(
+  ctx: Ctx,
+  step: string,
+  observed: string,
+  merged: boolean,
+): void {
   const s = ctx.state;
-  if (s.cancellation !== null || isTerminal(s.status)) return proceed(ctx, { kind: 'none' });
+  if (s.cancellation !== null || isTerminal(s.status))
+    return proceed(ctx, { kind: 'none' });
   const resume: ResumeAction = { kind: 'poll_ci', step };
   const detail = { step, expected: s.task.base_branch, observed, merged };
   const def = stepDef(ctx, step);
   const poll = def.poll ?? 60_000;
-  const maxPolls = def.timeout !== undefined ? Math.max(1, Math.ceil(def.timeout / poll)) : 1;
+  const maxPolls =
+    def.timeout !== undefined ? Math.max(1, Math.ceil(def.timeout / poll)) : 1;
   if (merged) {
-    waitTask(ctx, mkWait('policy', 'target_mismatch', { resume, resume_when: ['amend'], exit_paths: ['cancel'], detail }));
+    waitTask(
+      ctx,
+      mkWait('policy', 'target_mismatch', {
+        resume,
+        resume_when: ['amend'],
+        exit_paths: ['cancel'],
+        detail,
+      }),
+    );
     return;
   }
   const exit_paths = [`retarget the PR to ${s.task.base_branch}`, 'cancel'];
   if (s.ci_polls >= maxPolls) {
-    waitTask(ctx, mkWait('policy', 'target_mismatch', { resume, resume_when: ['amend'], exit_paths, detail }));
+    waitTask(
+      ctx,
+      mkWait('policy', 'target_mismatch', {
+        resume,
+        resume_when: ['amend'],
+        exit_paths,
+        detail,
+      }),
+    );
     return;
   }
   const timerId = ctx.nextId();
-  ctx.emit('TimerArmed', { timer_id: timerId, kind: 'ci_poll', due_at: ctx.now + poll, payload: { step, resume } });
-  waitTask(ctx, mkWait('policy', 'target_mismatch', { resume, resume_when: [`timer(${timerId})`, 'amend'], exit_paths, detail: { ...detail, timer_id: timerId } }));
+  ctx.emit('TimerArmed', {
+    timer_id: timerId,
+    kind: 'ci_poll',
+    due_at: ctx.now + poll,
+    payload: { step, resume },
+  });
+  waitTask(
+    ctx,
+    mkWait('policy', 'target_mismatch', {
+      resume,
+      resume_when: [`timer(${timerId})`, 'amend'],
+      exit_paths,
+      detail: { ...detail, timer_id: timerId },
+    }),
+  );
 }
 
 /** Attempt của kết quả không còn là attempt hiện hành của bước: ghi nhận rồi bỏ qua (data-model "Attempt"). */
 function isStale(ctx: Ctx, attemptId: string | null): boolean {
   if (attemptId === null) return true;
   const a = ctx.state.attempts[attemptId];
-  return a === undefined || a.revision !== ctx.state.revision || ctx.state.current_attempt[a.step] !== attemptId;
+  return (
+    a === undefined ||
+    a.revision !== ctx.state.revision ||
+    ctx.state.current_attempt[a.step] !== attemptId
+  );
 }
 
 function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
@@ -947,26 +1430,67 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
 
   // FR-014: chỉ output đã kiểm tra schema mới làm qua bước.
   if (!parsed.success || !parsed.data.schema_checked) {
-    onEffectFailed(ctx, e, { failure_class: 'invalid_output', message: parsed.success ? 'schema_checked=false' : 'output sai schema' }, true);
+    onEffectFailed(
+      ctx,
+      e,
+      {
+        failure_class: 'invalid_output',
+        message: parsed.success ? 'schema_checked=false' : 'output sai schema',
+      },
+      true,
+    );
     return;
   }
   const d = parsed.data;
   const status = 'verdict' in d ? d.verdict : d.status;
   if (e.attempt_id !== null) {
-    const session = 'session_ref' in d && d.session_ref !== undefined ? { session_ref: d.session_ref } : {};
-    ctx.emit('AttemptFinished', { attempt_id: e.attempt_id, step, status, class: null, signature: null, usage: usageOf(d.usage), ...session });
+    const session =
+      'session_ref' in d && d.session_ref !== undefined
+        ? { session_ref: d.session_ref }
+        : {};
+    ctx.emit('AttemptFinished', {
+      attempt_id: e.attempt_id,
+      step,
+      status,
+      class: null,
+      signature: null,
+      usage: usageOf(d.usage),
+      ...session,
+    });
   }
   if (afterAttempt(ctx, e)) return;
   if (!('verdict' in d) && d.content !== undefined) {
-    ctx.emit('PublishContentRecorded', { content: { revision: ctx.state.revision, digest: d.content.digest, ref: d.content.ref, attempt_id: e.attempt_id } });
+    ctx.emit('PublishContentRecorded', {
+      content: {
+        revision: ctx.state.revision,
+        digest: d.content.digest,
+        ref: d.content.ref,
+        attempt_id: e.attempt_id,
+      },
+    });
   }
   if ('verdict' in d) {
     const approved = d.verdict === 'approve';
     const signature = approved ? null : reviewSignature(d.findings);
-    const input = modeReview(ctx) ? reviewInputDigest(ctx.state, ctx.frozen, step) : null;
+    const input = modeReview(ctx)
+      ? reviewInputDigest(ctx.state, ctx.frozen, step)
+      : null;
     // A mode-aware review approves the checkpoint commit and the input it was given, nothing else (M03).
-    if (modeReview(ctx) && (input === null || d.head_sha !== ctx.state.run.checkpoint?.sha || d.input_digest !== input)) {
-      onEffectFailed(ctx, e, { failure_class: 'invalid_output', message: 'review does not match the checkpoint it was given' }, true);
+    if (
+      modeReview(ctx) &&
+      (input === null ||
+        d.head_sha !== ctx.state.run.checkpoint?.sha ||
+        d.input_digest !== input)
+    ) {
+      onEffectFailed(
+        ctx,
+        e,
+        {
+          failure_class: 'invalid_output',
+          message: 'review does not match the checkpoint it was given',
+        },
+        true,
+      );
       return;
     }
     ctx.emit('ReviewVerdictRecorded', {
@@ -976,7 +1500,9 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
       head_sha: d.head_sha,
       signature,
       resets_streak_of: approved ? ctx.state.last_fix_step : null,
-      ...(input === null ? {} : { input_digest: input, findings: d.findings.slice(0, MAX_FINDINGS) }),
+      ...(input === null
+        ? {}
+        : { input_digest: input, findings: d.findings.slice(0, MAX_FINDINGS) }),
     });
     if (!approved) recordCheckFailure(ctx, signature);
     proceed(ctx, { kind: 'route', step, outcome: d.verdict });
@@ -996,7 +1522,11 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
  */
 function afterAttempt(ctx: Ctx, e: EffectMirror): boolean {
   if (isStale(ctx, e.attempt_id)) {
-    ctx.emit('SignalIgnored', { reason: 'stale_attempt', trigger_kind: ctx.env.trigger.kind, detail: { attempt_id: e.attempt_id } });
+    ctx.emit('SignalIgnored', {
+      reason: 'stale_attempt',
+      trigger_kind: ctx.env.trigger.kind,
+      detail: { attempt_id: e.attempt_id },
+    });
     return true;
   }
   const a = ctx.state.attempts[e.attempt_id as string];
@@ -1006,7 +1536,11 @@ function afterAttempt(ctx: Ctx, e: EffectMirror): boolean {
       step: a.step,
       attempt_id: a.id,
       body: `Attempt ${a.n} của bước '${a.step}' đã dừng theo yêu cầu`,
-      resume: { kind: 'start_attempt', step: a.step, attempt_kind: 'fresh_session' },
+      resume: {
+        kind: 'start_attempt',
+        step: a.step,
+        attempt_kind: 'fresh_session',
+      },
     });
     return true;
   }
@@ -1016,7 +1550,12 @@ function afterAttempt(ctx: Ctx, e: EffectMirror): boolean {
 /**
  * Failed effect: settles the reservation and the attempt, then applies the per-class handling of FR-019.
  */
-export function onEffectFailed(ctx: Ctx, e: EffectMirror, f: FailureData, budgetSettled = false): void {
+export function onEffectFailed(
+  ctx: Ctx,
+  e: EffectMirror,
+  f: FailureData,
+  budgetSettled = false,
+): void {
   resumeIfWaitingOn(ctx, e);
   const s = ctx.state;
   const step = e.step;
@@ -1036,7 +1575,12 @@ export function onEffectFailed(ctx: Ctx, e: EffectMirror, f: FailureData, budget
     });
     if (afterAttempt(ctx, e)) return;
   }
-  if (s.cancellation !== null || step === null || e.kind === 'stop_attempt' || e.kind === 'reconcile') {
+  if (
+    s.cancellation !== null ||
+    step === null ||
+    e.kind === 'stop_attempt' ||
+    e.kind === 'reconcile'
+  ) {
     proceed(ctx, { kind: 'none' });
     return;
   }
@@ -1063,8 +1607,14 @@ function reuseReview(ctx: Ctx, step: string): boolean {
   if (input === null) return false;
   const prior = reusableReview(ctx.state, input);
   if (prior === undefined) return false;
-  ctx.emit('ReviewReused', { step, from_attempt_id: prior.attempt_id, verdict: prior.verdict, input_digest: input });
-  if (prior.verdict === 'request_changes') recordCheckFailure(ctx, prior.signature);
+  ctx.emit('ReviewReused', {
+    step,
+    from_attempt_id: prior.attempt_id,
+    verdict: prior.verdict,
+    input_digest: input,
+  });
+  if (prior.verdict === 'request_changes')
+    recordCheckFailure(ctx, prior.signature);
   route(ctx, step, prior.verdict);
   return true;
 }
@@ -1073,7 +1623,13 @@ function reuseReview(ctx: Ctx, step: string): boolean {
 function publishRequest(ctx: Ctx, visit: number): Record<string, unknown> {
   const cp = ctx.state.run.checkpoint;
   if (ctx.state.run.mode === null || cp === null) return { checkpoint: visit };
-  return { checkpoint: visit, sha: cp.sha, tree: cp.tree, base_sha: cp.base_sha, content_digest: ctx.state.run.content?.digest ?? cp.content_digest };
+  return {
+    checkpoint: visit,
+    sha: cp.sha,
+    tree: cp.tree,
+    base_sha: cp.base_sha,
+    content_digest: ctx.state.run.content?.digest ?? cp.content_digest,
+  };
 }
 
 /**
@@ -1081,28 +1637,55 @@ function publishRequest(ctx: Ctx, visit: number): Record<string, unknown> {
  * and a passing run of the commit gate step must come with the checkpoint commit of that same tree.
  * Returns true when the result was handled here.
  */
-function onGateTree(ctx: Ctx, e: EffectMirror, d: z.infer<typeof GateDataSchema>): boolean {
+function onGateTree(
+  ctx: Ctx,
+  e: EffectMirror,
+  d: z.infer<typeof GateDataSchema>,
+): boolean {
   if (ctx.state.run.mode === null) return false;
   const step = e.step as string;
   if (d.stable === false) {
-    waitPolicy(ctx, 'gate_tree_unstable', { kind: 'run_step', step }, { step, tree: d.tree ?? null });
+    waitPolicy(
+      ctx,
+      'gate_tree_unstable',
+      { kind: 'run_step', step },
+      { step, tree: d.tree ?? null },
+    );
     return true;
   }
   if (d.checkpoint !== undefined && d.checkpoint.tree !== d.tree) {
-    waitPolicy(ctx, 'worktree_changed', { kind: 'run_step', step }, { step, gate_tree: d.tree ?? null, checkpoint_tree: d.checkpoint.tree });
+    waitPolicy(
+      ctx,
+      'worktree_changed',
+      { kind: 'run_step', step },
+      { step, gate_tree: d.tree ?? null, checkpoint_tree: d.checkpoint.tree },
+    );
     return true;
   }
   return false;
 }
 
 /** The gate step whose pass leads to review or publish ends with the checkpoint commit in a mode task. */
-export function commitsCheckpoint(ctx: Pick<Ctx, 'state' | 'frozen'>, step: string): boolean {
+export function commitsCheckpoint(
+  ctx: Pick<Ctx, 'state' | 'frozen'>,
+  step: string,
+): boolean {
   if (ctx.state.run.mode === null) return false;
   const pass = ctx.frozen.workflow.steps[step]?.next['pass'];
   const next = pass === undefined ? undefined : ctx.frozen.workflow.steps[pass];
   return next?.kind === 'review' || next?.action === 'git.publish';
 }
 
-function recordCheckpoint(ctx: Ctx, step: string, c: z.infer<typeof CheckpointDataSchema>): void {
-  ctx.emit('CheckpointRecorded', { checkpoint: { revision: ctx.state.revision, ...c, gate_visit: visitOf(ctx, step) } });
+function recordCheckpoint(
+  ctx: Ctx,
+  step: string,
+  c: z.infer<typeof CheckpointDataSchema>,
+): void {
+  ctx.emit('CheckpointRecorded', {
+    checkpoint: {
+      revision: ctx.state.revision,
+      ...c,
+      gate_visit: visitOf(ctx, step),
+    },
+  });
 }

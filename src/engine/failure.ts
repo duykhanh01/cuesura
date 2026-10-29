@@ -1,5 +1,16 @@
-import { MAX_QUALITY_TRIES_PER_RUNG, type Backoff, type Limits } from '../domain/policy.ts';
-import { counterKey, streakKey, type AttemptKind, type DetailCode, type EffectMirror, type ResumeAction } from '../domain/state.ts';
+import {
+  MAX_QUALITY_TRIES_PER_RUNG,
+  type Backoff,
+  type Limits,
+} from '../domain/policy.ts';
+import {
+  counterKey,
+  streakKey,
+  type AttemptKind,
+  type DetailCode,
+  type EffectMirror,
+  type ResumeAction,
+} from '../domain/state.ts';
 import type { FailureClass, FailureData } from '../domain/trigger.ts';
 import { hashCanonical } from '../shared/hash.ts';
 import { assertNever } from '../shared/assert-never.ts';
@@ -11,7 +22,10 @@ import { askHuman } from './questions.ts';
 import { mkWait, waitPolicy, waitTask } from './waits.ts';
 
 /** Only these classes feed quality escalation (FR-019). */
-export const QUALITY_CLASSES: readonly FailureClass[] = ['quality', 'invalid_output'];
+export const QUALITY_CLASSES: readonly FailureClass[] = [
+  'quality',
+  'invalid_output',
+];
 
 export function countsTowardQuality(c: FailureClass): boolean {
   return QUALITY_CLASSES.includes(c);
@@ -28,25 +42,44 @@ type Recorded = { count: number; escalate: boolean };
  */
 export function recordFailure(
   ctx: Ctx,
-  o: { step: string; attempt_id: string | null; class: FailureClass; signature: string | null; rung: number | null },
+  o: {
+    step: string;
+    attempt_id: string | null;
+    class: FailureClass;
+    signature: string | null;
+    rung: number | null;
+  },
 ): Recorded {
   const s = ctx.state;
   const c = ctx.frozen.limits.classes;
-  const key = o.class === 'invalid_output' && o.rung !== null ? counterKey(o.step, o.class, o.rung) : counterKey(o.step, o.class);
+  const key =
+    o.class === 'invalid_output' && o.rung !== null
+      ? counterKey(o.step, o.class, o.rung)
+      : counterKey(o.step, o.class);
   const count = (s.class_counters[key] ?? 0) + 1;
   let consecutive = count;
   let escalate = false;
   if (countsTowardQuality(o.class) && o.rung !== null) {
     const prev = s.failure_streaks[streakKey(o.step, o.rung)];
-    consecutive = o.signature !== null && prev?.signature === o.signature ? prev.consecutive + 1 : 1;
+    consecutive =
+      o.signature !== null && prev?.signature === o.signature
+        ? prev.consecutive + 1
+        : 1;
     const tries = (prev?.quality_tries ?? 0) + 1;
     escalate =
       prev?.escalate === true ||
       tries >= Math.min(c.quality_tries_per_rung, MAX_QUALITY_TRIES_PER_RUNG) ||
       (o.class === 'quality' && consecutive >= 2) ||
-      (o.class === 'invalid_output' && count > c.invalid_output_repairs + c.invalid_output_fresh);
+      (o.class === 'invalid_output' &&
+        count > c.invalid_output_repairs + c.invalid_output_fresh);
   }
-  ctx.emit('FailureClassified', { ...o, counter_key: key, count, consecutive, escalate });
+  ctx.emit('FailureClassified', {
+    ...o,
+    counter_key: key,
+    count,
+    consecutive,
+    escalate,
+  });
   return { count, escalate };
 }
 
@@ -61,19 +94,34 @@ export function recordCheckFailure(ctx: Ctx, signature: string | null): void {
   const attemptId = s.current_attempt[step] ?? null;
   const attempt = attemptId === null ? undefined : s.attempts[attemptId];
   const rung = attempt?.rung ?? s.rungs.by_step[step] ?? 0;
-  recordFailure(ctx, { step, attempt_id: attemptId, class: 'quality', signature, rung });
+  recordFailure(ctx, {
+    step,
+    attempt_id: attemptId,
+    class: 'quality',
+    signature,
+    rung,
+  });
 }
 
-export function reviewSignature(findings: readonly { severity: string; file?: string | undefined; msg: string }[]): string | null {
+export function reviewSignature(
+  findings: readonly {
+    severity: string;
+    file?: string | undefined;
+    msg: string;
+  }[],
+): string | null {
   if (findings.length === 0) return null;
   // Code-unit order, independent of the host locale, so replay yields the same signature.
-  const key = findings.map((f) => [f.severity, f.file ?? '', f.msg].join('\0')).sort();
+  const key = findings
+    .map((f) => [f.severity, f.file ?? '', f.msg].join('\0'))
+    .sort();
   return `review:${hashCanonical(key).slice('sha256:'.length, 'sha256:'.length + 16)}`;
 }
 
 function invalidOutputKind(c: Limits['classes'], count: number): AttemptKind {
   if (count <= c.invalid_output_repairs) return 'repair';
-  if (count <= c.invalid_output_repairs + c.invalid_output_fresh) return 'fresh_session';
+  if (count <= c.invalid_output_repairs + c.invalid_output_fresh)
+    return 'fresh_session';
   return 'retry';
 }
 
@@ -84,19 +132,42 @@ function invalidOutputKind(c: Limits['classes'], count: number): AttemptKind {
 export function handleFailure(ctx: Ctx, e: EffectMirror, f: FailureData): void {
   const step = e.step as string;
   const agent = e.kind === 'start_agent';
-  const attempt = agent && e.attempt_id !== null ? ctx.state.attempts[e.attempt_id] : undefined;
+  const attempt =
+    agent && e.attempt_id !== null
+      ? ctx.state.attempts[e.attempt_id]
+      : undefined;
   const cls = f.failure_class;
-  const r = recordFailure(ctx, { step, attempt_id: e.attempt_id, class: cls, signature: f.signature ?? null, rung: attempt?.rung ?? null });
+  const r = recordFailure(ctx, {
+    step,
+    attempt_id: e.attempt_id,
+    class: cls,
+    signature: f.signature ?? null,
+    rung: attempt?.rung ?? null,
+  });
   const limits = ctx.frozen.limits;
   const retry = (kind: AttemptKind = 'retry'): ResumeAction =>
-    agent ? { kind: 'start_attempt', step, attempt_kind: kind } : { kind: 'retry_effect', step };
+    agent
+      ? { kind: 'start_attempt', step, attempt_kind: kind }
+      : { kind: 'retry_effect', step };
   switch (cls) {
     case 'rate_limit':
-      scheduleRetry(ctx, e, cls, limits.backoff.rate_limit, r.count, retry(), f.reset_at);
+      scheduleRetry(
+        ctx,
+        e,
+        cls,
+        limits.backoff.rate_limit,
+        r.count,
+        retry(),
+        f.reset_at,
+      );
       return;
     case 'infra':
       if (r.count > limits.classes.infra_retries) {
-        waitPolicy(ctx, 'backoff_exhausted', retry(), { step, class: cls, count: r.count });
+        waitPolicy(ctx, 'backoff_exhausted', retry(), {
+          step,
+          class: cls,
+          count: r.count,
+        });
         return;
       }
       scheduleRetry(ctx, e, cls, limits.backoff.infra, r.count, retry());
@@ -118,7 +189,15 @@ export function handleFailure(ctx: Ctx, e: EffectMirror, f: FailureData): void {
         askAbout(ctx, e, f, 'effect_failed', retry());
         return;
       }
-      proceed(ctx, retry(cls === 'invalid_output' ? invalidOutputKind(limits.classes, r.count) : 'retry'), cls);
+      proceed(
+        ctx,
+        retry(
+          cls === 'invalid_output'
+            ? invalidOutputKind(limits.classes, r.count)
+            : 'retry',
+        ),
+        cls,
+      );
       return;
     case 'unknown':
       // No blind replay: a person decides after looking at the effect.
@@ -149,22 +228,48 @@ function scheduleRetry(
   }
   const plan = planBackoff(cfg, count, e.idem_key, ctx.now, resetAt);
   if (plan.kind === 'exhausted') {
-    waitPolicy(ctx, 'backoff_exhausted', resume, { step, class: cls, count, reason: plan.reason });
+    waitPolicy(ctx, 'backoff_exhausted', resume, {
+      step,
+      class: cls,
+      count,
+      reason: plan.reason,
+    });
     return;
   }
   const timerId = ctx.nextId();
-  ctx.emit('TimerArmed', { timer_id: timerId, kind: 'backoff', due_at: plan.due_at, payload: { step, resume } });
+  ctx.emit('TimerArmed', {
+    timer_id: timerId,
+    kind: 'backoff',
+    due_at: plan.due_at,
+    payload: { step, resume },
+  });
   waitTask(
     ctx,
-    mkWait(cls === 'rate_limit' ? 'rate_limit' : 'infra', cls === 'rate_limit' ? 'rate_limited' : 'infra_backoff', {
-      resume,
-      resume_when: [`timer(${timerId})`],
-      detail: { step, class: cls, count, timer_id: timerId, due_at: plan.due_at },
-    }),
+    mkWait(
+      cls === 'rate_limit' ? 'rate_limit' : 'infra',
+      cls === 'rate_limit' ? 'rate_limited' : 'infra_backoff',
+      {
+        resume,
+        resume_when: [`timer(${timerId})`],
+        detail: {
+          step,
+          class: cls,
+          count,
+          timer_id: timerId,
+          due_at: plan.due_at,
+        },
+      },
+    ),
   );
 }
 
-function askAbout(ctx: Ctx, e: EffectMirror, f: FailureData, code: DetailCode, resume: ResumeAction): void {
+function askAbout(
+  ctx: Ctx,
+  e: EffectMirror,
+  f: FailureData,
+  code: DetailCode,
+  resume: ResumeAction,
+): void {
   const step = e.step as string;
   askHuman(ctx, code, {
     step,

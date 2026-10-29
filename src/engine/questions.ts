@@ -10,10 +10,22 @@ import { mkWait, waitPolicy, waitTask } from './waits.ts';
 export function askHuman(
   ctx: Ctx,
   code: DetailCode,
-  o: { step: string | null; attempt_id: string | null; body: string; resume: ResumeAction; detail?: Record<string, unknown> },
+  o: {
+    step: string | null;
+    attempt_id: string | null;
+    body: string;
+    resume: ResumeAction;
+    detail?: Record<string, unknown>;
+  },
 ): void {
   const qid = ctx.nextId();
-  ctx.emit('QuestionAsked', { question_id: qid, step: o.step, attempt_id: o.attempt_id, body: o.body, resume: o.resume });
+  ctx.emit('QuestionAsked', {
+    question_id: qid,
+    step: o.step,
+    attempt_id: o.attempt_id,
+    body: o.body,
+    resume: o.resume,
+  });
   waitTask(
     ctx,
     mkWait('human_input', code, {
@@ -27,11 +39,23 @@ export function askHuman(
 /** Yêu cầu approval của người: WAITING `approval` với `approval_kind` (research R-13). */
 export function requestApproval(
   ctx: Ctx,
-  o: { kind: 'escalation' | 'merge'; step: string; rung: number | null; head_sha: string | null; resume: ResumeAction },
+  o: {
+    kind: 'escalation' | 'merge';
+    step: string;
+    rung: number | null;
+    head_sha: string | null;
+    resume: ResumeAction;
+  },
 ): void {
   const s = ctx.state;
   const open = Object.values(s.approvals).find(
-    (a) => a.status === 'requested' && a.kind === o.kind && a.step === o.step && a.rung === o.rung && a.revision === s.revision && a.head_sha === o.head_sha,
+    (a) =>
+      a.status === 'requested' &&
+      a.kind === o.kind &&
+      a.step === o.step &&
+      a.rung === o.rung &&
+      a.revision === s.revision &&
+      a.head_sha === o.head_sha,
   );
   const id = open?.id ?? ctx.nextId();
   if (open === undefined) {
@@ -50,7 +74,13 @@ export function requestApproval(
       resume: o.resume,
       resume_when: [`approve(${id})`],
       exit_paths: [`reject(${id})`, 'cancel'],
-      detail: { approval_id: id, approval_kind: o.kind, step: o.step, rung: o.rung, head_sha: o.head_sha },
+      detail: {
+        approval_id: id,
+        approval_kind: o.kind,
+        step: o.step,
+        rung: o.rung,
+        head_sha: o.head_sha,
+      },
     }),
   );
 }
@@ -61,12 +91,21 @@ type AnswerTrigger = Extract<Trigger, { kind: 'answer' }>;
 export function onAnswer(ctx: Ctx, t: AnswerTrigger): void {
   const s = ctx.state;
   const q = s.questions[t.question_id];
-  if (q === undefined || q.status === 'withdrawn') reject('question_not_open', { question_id: t.question_id });
+  if (q === undefined || q.status === 'withdrawn')
+    reject('question_not_open', { question_id: t.question_id });
   if (q.status === 'answered') {
-    ctx.emit('AnswerRejected', { question_id: q.id, by: ctx.actor, reason: 'already_answered' });
+    ctx.emit('AnswerRejected', {
+      question_id: q.id,
+      by: ctx.actor,
+      reason: 'already_answered',
+    });
     return;
   }
-  ctx.emit('QuestionAnswered', { question_id: q.id, answer: t.answer, by: ctx.actor });
+  ctx.emit('QuestionAnswered', {
+    question_id: q.id,
+    answer: t.answer,
+    by: ctx.actor,
+  });
   const w = ctx.state.wait;
   if (ctx.state.status === 'WAITING' && w?.detail['question_id'] === q.id) {
     proceed(ctx, q.resume, `answer:${q.id}`);
@@ -74,12 +113,17 @@ export function onAnswer(ctx: Ctx, t: AnswerTrigger): void {
   }
   // Câu hỏi bị che bởi một lý do chờ khác (source drift, hạn): đổi việc được hoãn thành `resume` của câu hỏi.
   const drift = ctx.state.source_drift;
-  if (drift?.safe_boundary_reached && drift.prior_wait?.detail['question_id'] === q.id) {
+  if (
+    drift?.safe_boundary_reached &&
+    drift.prior_wait?.detail['question_id'] === q.id
+  ) {
     reachSafeBoundary(ctx, q.resume, null);
     return;
   }
   if (w?.reason === 'policy' && w.detail['code'] === 'deadline') {
-    waitPolicy(ctx, 'deadline', q.resume, { deadline_at: ctx.state.deadline_at });
+    waitPolicy(ctx, 'deadline', q.resume, {
+      deadline_at: ctx.state.deadline_at,
+    });
   }
 }
 
@@ -92,29 +136,61 @@ type ApprovalTrigger = Extract<Trigger, { kind: 'approve' | 'reject' }>;
 export function onApprovalDecision(ctx: Ctx, t: ApprovalTrigger): void {
   const s = ctx.state;
   const a = s.approvals[t.approval_request_id];
-  if (a === undefined || a.status !== 'requested' || a.revoked || a.revision !== s.revision) {
-    reject('approval_mismatch', { approval_id: t.approval_request_id, reason: 'not_open' });
+  if (
+    a === undefined ||
+    a.status !== 'requested' ||
+    a.revoked ||
+    a.revision !== s.revision
+  ) {
+    reject('approval_mismatch', {
+      approval_id: t.approval_request_id,
+      reason: 'not_open',
+    });
   }
   if (!hasRole(ctx.env.authz, 'operate') && !hasRole(ctx.env.authz, 'admin')) {
     reject('approval_mismatch', { approval_id: a.id, reason: 'no_authz' });
   }
-  if (a.kind === 'merge' && (t.head_sha === undefined || t.head_sha !== a.head_sha || t.head_sha !== s.head_sha)) {
+  if (
+    a.kind === 'merge' &&
+    (t.head_sha === undefined ||
+      t.head_sha !== a.head_sha ||
+      t.head_sha !== s.head_sha)
+  ) {
     reject('approval_mismatch', { approval_id: a.id, reason: 'head_sha' });
   }
   if (a.kind === 'escalation' && a.policy_hash !== s.policy_ref?.hash) {
     reject('approval_mismatch', { approval_id: a.id, reason: 'policy_hash' });
   }
-  const waiting = s.status === 'WAITING' && s.wait?.detail['approval_id'] === a.id;
+  const waiting =
+    s.status === 'WAITING' && s.wait?.detail['approval_id'] === a.id;
   if (t.kind === 'approve') {
-    ctx.emit('ApprovalGranted', { approval_id: a.id, by: ctx.actor, head_sha: a.head_sha });
-    if (waiting) proceed(ctx, (s.wait as NonNullable<typeof s.wait>).resume, `approve:${a.id}`);
+    ctx.emit('ApprovalGranted', {
+      approval_id: a.id,
+      by: ctx.actor,
+      head_sha: a.head_sha,
+    });
+    if (waiting)
+      proceed(
+        ctx,
+        (s.wait as NonNullable<typeof s.wait>).resume,
+        `approve:${a.id}`,
+      );
     return;
   }
   ctx.emit('ApprovalRejected', { approval_id: a.id, by: ctx.actor });
   if (!waiting) return;
   if (a.kind === 'merge' && a.step !== null) {
-    proceed(ctx, { kind: 'route', step: a.step, outcome: 'rejected' }, `reject:${a.id}`);
+    proceed(
+      ctx,
+      { kind: 'route', step: a.step, outcome: 'rejected' },
+      `reject:${a.id}`,
+    );
     return;
   }
-  waitPolicy(ctx, 'escalation_rejected', { kind: 'none' }, { approval_id: a.id, step: a.step, rung: a.rung });
+  waitPolicy(
+    ctx,
+    'escalation_rejected',
+    { kind: 'none' },
+    { approval_id: a.id, step: a.step, rung: a.rung },
+  );
 }

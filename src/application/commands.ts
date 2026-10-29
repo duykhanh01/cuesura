@@ -15,13 +15,22 @@ const Reason = z.string().min(1).max(4_096);
 
 /** Closed payload per supported mutation. */
 export const COMMAND_PAYLOADS = {
-  task_add: z.object({ task: z.record(z.string(), z.unknown()), run_config: RunProposalSchema.optional() }).strict(),
+  task_add: z
+    .object({
+      task: z.record(z.string(), z.unknown()),
+      run_config: RunProposalSchema.optional(),
+    })
+    .strict(),
   task_confirm: z.object({ run_config_digest: HashSchema.optional() }).strict(),
   task_propose_run: z.object({ run_config: RunProposalSchema }).strict(),
   task_cancel: z.object({ reason: Reason }).strict(),
   task_recheck: z.object({}).strict(),
-  answer: z.object({ question_id: UuidSchema, answer: z.string().min(1).max(65_536) }).strict(),
-  approve_escalation: z.object({ step: z.string().min(1), rung: z.number().int().nonnegative() }).strict(),
+  answer: z
+    .object({ question_id: UuidSchema, answer: z.string().min(1).max(65_536) })
+    .strict(),
+  approve_escalation: z
+    .object({ step: z.string().min(1), rung: z.number().int().nonnegative() })
+    .strict(),
 } as const;
 export type CommandKind = keyof typeof COMMAND_PAYLOADS;
 
@@ -36,7 +45,12 @@ const REQUIRED_ROLE: Record<CommandKind, AuthzRole> = {
 };
 
 /** Rejected before anything is recorded; the CLI maps them to exit 2. */
-export const UNSUPPORTED_COMMANDS = ['task_retry', 'task_amend_policy', 'merge_approve', 'yolo'] as const;
+export const UNSUPPORTED_COMMANDS = [
+  'task_retry',
+  'task_amend_policy',
+  'merge_approve',
+  'yolo',
+] as const;
 
 /** IDs the server assigns at admission: a task ID for `task_add` plus an ID pool for the core envelope. */
 const ASSIGNED_IDS = 8;
@@ -61,34 +75,64 @@ export type AdmitError =
 
 export type Admitted = Admission & { command_hash: string };
 
-export type CommandDeps = { store: Store; now: () => number; newId: () => string };
+export type CommandDeps = {
+  store: Store;
+  now: () => number;
+  newId: () => string;
+};
 
 /**
  * Admits one mutation for `caller`. The command hash covers kind, target, expected version, payload and
  * the verified actor, so the same request ID replays the first result and any change is a conflict.
  */
-export function admitCommand(deps: CommandDeps, caller: Caller | null, input: unknown): Result<Admitted, AdmitError> {
+export function admitCommand(
+  deps: CommandDeps,
+  caller: Caller | null,
+  input: unknown,
+): Result<Admitted, AdmitError> {
   const parsed = CommandSchema.safeParse(input);
-  if (!parsed.success) return err({ code: 'invalid_command', issues: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`) });
+  if (!parsed.success)
+    return err({
+      code: 'invalid_command',
+      issues: parsed.error.issues.map(
+        (i) => `${i.path.join('.')}: ${i.message}`,
+      ),
+    });
   const cmd = parsed.data;
-  if ((UNSUPPORTED_COMMANDS as readonly string[]).includes(cmd.kind)) return err({ code: 'unsupported_feature', kind: cmd.kind });
-  if (!Object.hasOwn(COMMAND_PAYLOADS, cmd.kind)) return err({ code: 'invalid_command', issues: [`kind: unknown command ${cmd.kind}`] });
+  if ((UNSUPPORTED_COMMANDS as readonly string[]).includes(cmd.kind))
+    return err({ code: 'unsupported_feature', kind: cmd.kind });
+  if (!Object.hasOwn(COMMAND_PAYLOADS, cmd.kind))
+    return err({
+      code: 'invalid_command',
+      issues: [`kind: unknown command ${cmd.kind}`],
+    });
   const kind = cmd.kind as CommandKind;
 
-  const allowed = authorize(caller, { role: REQUIRED_ROLE[kind], project: cmd.project });
+  const allowed = authorize(caller, {
+    role: REQUIRED_ROLE[kind],
+    project: cmd.project,
+  });
   if (!allowed.ok) return err(allowed.error);
   const actor = (caller as Caller).grant.actor;
 
   const payload = COMMAND_PAYLOADS[kind].safeParse(cmd.payload);
-  if (!payload.success) return err({ code: 'invalid_command', issues: payload.error.issues.map((i) => `payload.${i.path.join('.')}: ${i.message}`) });
+  if (!payload.success)
+    return err({
+      code: 'invalid_command',
+      issues: payload.error.issues.map(
+        (i) => `payload.${i.path.join('.')}: ${i.message}`,
+      ),
+    });
   const issues: string[] = [];
   if (cmd.project === null) issues.push('project: required');
   if (kind === 'task_add') {
     if (cmd.task_id !== null) issues.push('task_id: assigned by the server');
-    if (cmd.expected_version !== null) issues.push('expected_version: not used by task_add');
+    if (cmd.expected_version !== null)
+      issues.push('expected_version: not used by task_add');
   } else {
     if (cmd.task_id === null) issues.push('task_id: required');
-    if (cmd.expected_version === null) issues.push('expected_version: required');
+    if (cmd.expected_version === null)
+      issues.push('expected_version: required');
   }
   if (issues.length > 0) return err({ code: 'invalid_command', issues });
 

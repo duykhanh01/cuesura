@@ -1,5 +1,9 @@
 import type { Hash } from '../shared/brand.ts';
-import { FORBIDDEN_DECIDER_POINTS, type DecisionPoint, type Workflow } from '../domain/workflow.ts';
+import {
+  FORBIDDEN_DECIDER_POINTS,
+  type DecisionPoint,
+  type Workflow,
+} from '../domain/workflow.ts';
 import { SOFTWARE_DEV } from '../engine/workflows/software-dev.ts';
 import { structureHash } from './structure-hash.ts';
 
@@ -13,7 +17,11 @@ export function isSupportedStructure(w: Workflow): boolean {
 /** Điểm quyết định dùng chế độ decider mà feature 001 chưa thực thi (FR-039). Điểm bị cấm đã là lỗi (FR-006). */
 export function unsupportedDecisionPoints(w: Workflow): string[] {
   return Object.entries(w.decisions)
-    .filter(([p, mode]) => mode !== 'human' && !FORBIDDEN_DECIDER_POINTS.includes(p as DecisionPoint))
+    .filter(
+      ([p, mode]) =>
+        mode !== 'human' &&
+        !FORBIDDEN_DECIDER_POINTS.includes(p as DecisionPoint),
+    )
     .map(([p]) => p)
     .sort();
 }

@@ -13,7 +13,10 @@ export class IdPool {
 
   take(): string {
     const id = this.ids[this.next];
-    if (id === undefined) throw new IdPoolExhausted(`cần ID thứ ${this.next + 1}, phong bì chỉ có ${this.ids.length}`);
+    if (id === undefined)
+      throw new IdPoolExhausted(
+        `cần ID thứ ${this.next + 1}, phong bì chỉ có ${this.ids.length}`,
+      );
     this.next++;
     return id;
   }

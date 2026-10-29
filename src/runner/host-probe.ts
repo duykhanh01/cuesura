@@ -48,21 +48,45 @@ export class NodeHostProbe implements HostProbePort {
     }
   }
 
-  exec(argv: readonly string[], opts: { readonly timeout_ms: number }): Promise<HostExecResult> {
+  exec(
+    argv: readonly string[],
+    opts: { readonly timeout_ms: number },
+  ): Promise<HostExecResult> {
     const [file, ...args] = argv;
-    if (file === undefined) return Promise.resolve({ kind: 'spawn_failed', message: 'empty argv' });
+    if (file === undefined)
+      return Promise.resolve({ kind: 'spawn_failed', message: 'empty argv' });
     const env: NodeJS.ProcessEnv = {};
-    for (const k of ['PATH', 'HOME', 'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS']) {
+    for (const k of [
+      'PATH',
+      'HOME',
+      'XDG_RUNTIME_DIR',
+      'DBUS_SESSION_BUS_ADDRESS',
+    ]) {
       if (this.env[k] !== undefined) env[k] = this.env[k];
     }
     return new Promise((resolve) => {
-      execFile(file, args, { env, timeout: opts.timeout_ms, maxBuffer: OUTPUT_BYTES, encoding: 'utf8' }, (error, stdout, stderr) => {
-        if (error === null) return resolve({ kind: 'exited', code: 0, stdout, stderr });
-        const e = error as NodeJS.ErrnoException & { killed?: boolean; code?: number | string };
-        if (e.killed === true) return resolve({ kind: 'timeout' });
-        if (typeof e.code === 'number') return resolve({ kind: 'exited', code: e.code, stdout, stderr });
-        resolve({ kind: 'spawn_failed', message: e.message });
-      });
+      execFile(
+        file,
+        args,
+        {
+          env,
+          timeout: opts.timeout_ms,
+          maxBuffer: OUTPUT_BYTES,
+          encoding: 'utf8',
+        },
+        (error, stdout, stderr) => {
+          if (error === null)
+            return resolve({ kind: 'exited', code: 0, stdout, stderr });
+          const e = error as NodeJS.ErrnoException & {
+            killed?: boolean;
+            code?: number | string;
+          };
+          if (e.killed === true) return resolve({ kind: 'timeout' });
+          if (typeof e.code === 'number')
+            return resolve({ kind: 'exited', code: e.code, stdout, stderr });
+          resolve({ kind: 'spawn_failed', message: e.message });
+        },
+      );
     });
   }
 }

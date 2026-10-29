@@ -21,14 +21,18 @@ export const NO_CRASH: CrashHook = () => {};
  *
  * `SIGKILL` không chạy handler hay flush nào, gần với mất điện hơn `process.exit` (R-08).
  */
-export function crashHookFromEnv(env: NodeJS.ProcessEnv = process.env): CrashHook {
+export function crashHookFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): CrashHook {
   const at = env['CUSR_CRASH_AT'];
   if (at === undefined || at === '') return NO_CRASH;
   if (!(CRASH_POINTS as readonly string[]).includes(at))
     throw new Error(`CUSR_CRASH_AT không hợp lệ: ${at}`);
   const after = Number(env['CUSR_CRASH_AFTER'] || '1');
   if (!Number.isInteger(after) || after < 1)
-    throw new Error(`CUSR_CRASH_AFTER không hợp lệ: ${env['CUSR_CRASH_AFTER']}`);
+    throw new Error(
+      `CUSR_CRASH_AFTER không hợp lệ: ${env['CUSR_CRASH_AFTER']}`,
+    );
   let hits = 0;
   return (point) => {
     if (point !== at || ++hits !== after) return;

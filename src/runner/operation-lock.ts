@@ -9,7 +9,14 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, realpathSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { z } from 'zod';
-import { RUN_FILES, RunnerFileError, isSafeId, type FinalRead, type RunDir, type WrittenFile } from './files.ts';
+import {
+  RUN_FILES,
+  RunnerFileError,
+  isSafeId,
+  type FinalRead,
+  type RunDir,
+  type WrittenFile,
+} from './files.ts';
 
 export const FLOCK = '/usr/bin/flock';
 /** flock exit code when another runner already holds the operation lock. */
@@ -17,17 +24,42 @@ export const LOCK_CONFLICT_EXIT = 75;
 export const LOCKS_DIR = 'locks';
 
 /** Absolute lock file path; creates DATA_DIR/locks (0700) when asked. */
-export function lockFilePath(dataDir: string, operationId: string, create = false): string {
-  if (!isAbsolute(dataDir)) throw new RunnerFileError('unsafe_path', `data dir ${dataDir} must be absolute`);
-  if (!isSafeId(operationId)) throw new RunnerFileError('unsafe_id', `unsafe operation id ${JSON.stringify(operationId)}`);
-  if (create) mkdirSync(join(dataDir, LOCKS_DIR), { recursive: true, mode: 0o700 });
+export function lockFilePath(
+  dataDir: string,
+  operationId: string,
+  create = false,
+): string {
+  if (!isAbsolute(dataDir))
+    throw new RunnerFileError(
+      'unsafe_path',
+      `data dir ${dataDir} must be absolute`,
+    );
+  if (!isSafeId(operationId))
+    throw new RunnerFileError(
+      'unsafe_id',
+      `unsafe operation id ${JSON.stringify(operationId)}`,
+    );
+  if (create)
+    mkdirSync(join(dataDir, LOCKS_DIR), { recursive: true, mode: 0o700 });
   return join(realpathSync(dataDir), LOCKS_DIR, `${operationId}.lock`);
 }
 
 /** Runs `command` while holding the exclusive lock; a held lock exits {@link LOCK_CONFLICT_EXIT} without running it. */
-export function flockArgv(lockFile: string, command: readonly string[]): string[] {
-  if (command.length === 0) throw new RunnerFileError('invalid_argument', 'empty command');
-  return [FLOCK, '--exclusive', '--nonblock', '--conflict-exit-code', String(LOCK_CONFLICT_EXIT), lockFile, ...command];
+export function flockArgv(
+  lockFile: string,
+  command: readonly string[],
+): string[] {
+  if (command.length === 0)
+    throw new RunnerFileError('invalid_argument', 'empty command');
+  return [
+    FLOCK,
+    '--exclusive',
+    '--nonblock',
+    '--conflict-exit-code',
+    String(LOCK_CONFLICT_EXIT),
+    lockFile,
+    ...command,
+  ];
 }
 
 export type LockProbe = 'free' | 'held' | 'unknown';
@@ -37,7 +69,21 @@ export type LockProbe = 'free' | 'held' | 'unknown';
  * writes the marker after taking the lock, so `free` then means the runner is gone.
  */
 export function probeOperationLock(lockFile: string): LockProbe {
-  const r = spawnSync(FLOCK, ['--exclusive', '--nonblock', '--conflict-exit-code', String(LOCK_CONFLICT_EXIT), lockFile, '/bin/true'], { timeout: 10_000, stdio: 'ignore' });
+  const r = spawnSync(
+    FLOCK,
+    [
+      '--exclusive',
+      '--nonblock',
+      '--conflict-exit-code',
+      String(LOCK_CONFLICT_EXIT),
+      lockFile,
+      '/bin/true',
+    ],
+    {
+      timeout: 10_000,
+      stdio: 'ignore',
+    },
+  );
   if (r.error !== undefined) return 'unknown';
   if (r.status === 0) return 'free';
   return r.status === LOCK_CONFLICT_EXIT ? 'held' : 'unknown';
@@ -56,7 +102,9 @@ export const LaunchMarkerSchema = z
   .strict();
 export type LaunchMarker = z.infer<typeof LaunchMarkerSchema>;
 
-export type LaunchClaim = { readonly state: 'claimed'; readonly file: WrittenFile } | { readonly state: 'marker_exists' };
+export type LaunchClaim =
+  | { readonly state: 'claimed'; readonly file: WrittenFile }
+  | { readonly state: 'marker_exists' };
 
 /**
  * Writes launch.json exactly once (temp → fsync → link → fsync dir). The caller must already hold the
@@ -66,7 +114,9 @@ export type LaunchClaim = { readonly state: 'claimed'; readonly file: WrittenFil
 export function claimLaunch(run: RunDir, marker: LaunchMarker): LaunchClaim {
   const parsed = LaunchMarkerSchema.parse(marker);
   const file = run.createLaunchMarker(parsed);
-  return file === null ? { state: 'marker_exists' } : { state: 'claimed', file };
+  return file === null
+    ? { state: 'marker_exists' }
+    : { state: 'claimed', file };
 }
 
 export function readLaunchMarker(run: RunDir): FinalRead<LaunchMarker> {

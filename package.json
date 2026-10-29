@@ -17,7 +17,8 @@
   "packageManager": "pnpm@12.15.0",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "lint": "eslint .",
+    "lint": "eslint . && prettier --check .",
+    "format": "prettier --write .",
     "test": "vitest run --project default",
     "test:reliability": "node scripts/test-reliability.ts",
     "test:smoke": "vitest run --project smoke --passWithNoTests",

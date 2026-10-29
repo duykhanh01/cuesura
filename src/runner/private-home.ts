@@ -5,7 +5,14 @@
  * trusted credential references; the owner's real home and other vendors' auth never enter. Auth is
  * removed again once the attempt's artifacts are archived. Setup/gate/autofix never get a home.
  */
-import { chmodSync, constants, copyFileSync, lstatSync, mkdirSync, rmSync } from 'node:fs';
+import {
+  chmodSync,
+  constants,
+  copyFileSync,
+  lstatSync,
+  mkdirSync,
+  rmSync,
+} from 'node:fs';
 import { dirname, join } from 'node:path';
 import { RelativePathSchema, type CredentialRef } from '../domain/runtime.ts';
 import type { RunDir } from './files.ts';
@@ -16,7 +23,10 @@ export const PRIVATE_HOME_DIR = 'private-home';
 /** One credential reference copied to a path relative to the private home, e.g. `.claude/.credentials.json`. */
 export type AuthFile = { readonly ref: CredentialRef; readonly to: string };
 
-export type InstalledAuth = { readonly home: string; readonly files: readonly string[] };
+export type InstalledAuth = {
+  readonly home: string;
+  readonly files: readonly string[];
+};
 
 export function privateHome(run: RunDir): string {
   return run.ensureDir(PRIVATE_HOME_DIR);
@@ -26,12 +36,27 @@ export function privateHome(run: RunDir): string {
  * Copies the selected auth files into the private home. A source must be a regular file (no symlink)
  * and a target must stay inside the home. Fails closed before copying anything on a bad entry.
  */
-export function installAuth(run: RunDir, files: readonly AuthFile[]): InstalledAuth {
+export function installAuth(
+  run: RunDir,
+  files: readonly AuthFile[],
+): InstalledAuth {
   for (const f of files) {
-    if (!RelativePathSchema.safeParse(f.to).success) throw new SandboxPolicyError('policy_violation', `auth target ${f.to} must stay inside the private home`);
+    if (!RelativePathSchema.safeParse(f.to).success)
+      throw new SandboxPolicyError(
+        'policy_violation',
+        `auth target ${f.to} must stay inside the private home`,
+      );
     const st = lstatSync(f.ref.file, { throwIfNoEntry: false });
-    if (st === undefined) throw new SandboxPolicyError('source_missing', `credential ${f.ref.name} is missing`);
-    if (!st.isFile()) throw new SandboxPolicyError('policy_violation', `credential ${f.ref.name} must be a regular file (symlinks refused)`);
+    if (st === undefined)
+      throw new SandboxPolicyError(
+        'source_missing',
+        `credential ${f.ref.name} is missing`,
+      );
+    if (!st.isFile())
+      throw new SandboxPolicyError(
+        'policy_violation',
+        `credential ${f.ref.name} must be a regular file (symlinks refused)`,
+      );
   }
   const home = privateHome(run);
   const installed: string[] = [];
@@ -54,7 +79,11 @@ export function installAuth(run: RunDir, files: readonly AuthFile[]): InstalledA
 export function removeAuth(installed: InstalledAuth): void {
   const home = lstatSync(installed.home, { throwIfNoEntry: false });
   if (home === undefined) return;
-  if (!home.isDirectory()) throw new SandboxPolicyError('policy_violation', `private home ${installed.home} is no longer a directory`);
+  if (!home.isDirectory())
+    throw new SandboxPolicyError(
+      'policy_violation',
+      `private home ${installed.home} is no longer a directory`,
+    );
   const escaped: string[] = [];
   next: for (const rel of installed.files) {
     const parts = rel.split('/');
@@ -70,8 +99,13 @@ export function removeAuth(installed: InstalledAuth): void {
     }
     const target = join(dir, parts[parts.length - 1] as string);
     // rmSync unlinks a symlink itself, never its target, and refuses a directory without `recursive`.
-    if (lstatSync(target, { throwIfNoEntry: false }) !== undefined) rmSync(target, { force: true });
+    if (lstatSync(target, { throwIfNoEntry: false }) !== undefined)
+      rmSync(target, { force: true });
   }
   // The other files are already removed; the swapped paths were left untouched on purpose.
-  if (escaped.length > 0) throw new SandboxPolicyError('policy_violation', `auth paths leave the private home through a symlink: ${escaped.join(', ')}`);
+  if (escaped.length > 0)
+    throw new SandboxPolicyError(
+      'policy_violation',
+      `auth paths leave the private home through a symlink: ${escaped.join(', ')}`,
+    );
 }

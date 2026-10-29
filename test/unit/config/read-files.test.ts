@@ -13,6 +13,8 @@ describe('readConfigFiles', () => {
   });
 
   it('không có cusr.yaml thì chỉ đọc file người dùng', async () => {
-    expect(await readConfigFiles({ user: join(CONFIGS, 'valid', 'user.yaml') })).toHaveLength(1);
+    expect(
+      await readConfigFiles({ user: join(CONFIGS, 'valid', 'user.yaml') }),
+    ).toHaveLength(1);
   });
 });

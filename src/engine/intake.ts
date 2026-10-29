@@ -4,7 +4,12 @@ import type { Trigger } from '../domain/trigger.ts';
 import { reject, type Ctx } from './context.ts';
 import { onSourceDrift, sameContent } from './revision.ts';
 import { FREEZE_PENDING_CODES } from './start.ts';
-import { checkDependencies, checkRetryOf, pendingWait, retriage } from './triage.ts';
+import {
+  checkDependencies,
+  checkRetryOf,
+  pendingWait,
+  retriage,
+} from './triage.ts';
 import { mkWait } from './waits.ts';
 
 /** Task cần người xác nhận khi không do chính người dùng tạo (SPEC.md §5.2). */
@@ -18,21 +23,31 @@ type CreateTrigger = Extract<Trigger, { kind: 'create_task' }>;
 export function onCreateTask(ctx: Ctx, t: CreateTrigger): void {
   if (ctx.hasState) reject('task_exists', { task_id: ctx.state.id });
   const task = CanonicalTaskSchema.parse(t.task);
-  if (task.id !== ctx.env.task_id) reject('invalid_trigger', { reason: 'task_id_mismatch' });
+  if (task.id !== ctx.env.task_id)
+    reject('invalid_trigger', { reason: 'task_id_mismatch' });
   const existing = ctx.related.source_task;
   if (existing !== undefined && existing.task_id !== task.id) {
-    reject('task_exists', { task_id: existing.task_id, same_content: existing.same_content });
+    reject('task_exists', {
+      task_id: existing.task_id,
+      same_content: existing.same_content,
+    });
   }
   checkDependencies(task, ctx.related);
   checkRetryOf(task, ctx.related);
-  ctx.emit('TaskCreated', { task: { ...task, revision: 1 }, needs_confirmation: needsConfirmation(task) });
+  ctx.emit('TaskCreated', {
+    task: { ...task, revision: 1 },
+    needs_confirmation: needsConfirmation(task),
+  });
   retriage(ctx, ctx.related.deps);
 }
 
 export function onConfirmTask(ctx: Ctx): void {
   const s = ctx.state;
   if (!s.needs_confirmation || s.confirmed) {
-    ctx.emit('SignalIgnored', { reason: 'no_confirmation_needed', trigger_kind: 'confirm_task' });
+    ctx.emit('SignalIgnored', {
+      reason: 'no_confirmation_needed',
+      trigger_kind: 'confirm_task',
+    });
     return;
   }
   ctx.emit('TaskConfirmed', { by: ctx.actor });
@@ -45,7 +60,11 @@ type SourceUpdated = Extract<Trigger, { kind: 'source_updated' }>;
 export function onSourceUpdated(ctx: Ctx, t: SourceUpdated): void {
   const s = ctx.state;
   const task = CanonicalTaskSchema.parse(t.task);
-  if (task.id !== s.id || task.project !== s.project || task.source_key !== s.source_key) {
+  if (
+    task.id !== s.id ||
+    task.project !== s.project ||
+    task.source_key !== s.source_key
+  ) {
     reject('invalid_trigger', { reason: 'task_identity_mismatch' });
   }
   if (s.policy_ref !== null) {
@@ -53,7 +72,10 @@ export function onSourceUpdated(ctx: Ctx, t: SourceUpdated): void {
     return;
   }
   if (sameContent(task, s.task)) {
-    ctx.emit('SignalIgnored', { reason: 'same_content', trigger_kind: 'source_updated' });
+    ctx.emit('SignalIgnored', {
+      reason: 'same_content',
+      trigger_kind: 'source_updated',
+    });
     return;
   }
   checkDependencies(task, ctx.related);
@@ -65,8 +87,14 @@ type DependencyStatus = Extract<Trigger, { kind: 'dependency_status' }>;
 
 export function onDependencyStatus(ctx: Ctx, t: DependencyStatus): void {
   const s = ctx.state;
-  if (!s.task.depends_on.includes(t.depends_on) || (s.status !== 'PENDING' && s.status !== 'READY')) {
-    ctx.emit('SignalIgnored', { reason: 'dependency_not_relevant', trigger_kind: t.kind });
+  if (
+    !s.task.depends_on.includes(t.depends_on) ||
+    (s.status !== 'PENDING' && s.status !== 'READY')
+  ) {
+    ctx.emit('SignalIgnored', {
+      reason: 'dependency_not_relevant',
+      trigger_kind: t.kind,
+    });
     return;
   }
   retriage(ctx, { ...ctx.related.deps, [t.depends_on]: t.status });
@@ -77,7 +105,11 @@ type ConfigChecked = Extract<Trigger, { kind: 'config_checked' }>;
 /** PENDING because the config or a capability failed (not because of triage). */
 function configPending(ctx: Ctx): boolean {
   const w = ctx.state.wait;
-  return ctx.state.status === 'PENDING' && w?.reason === 'needs_info' && FREEZE_PENDING_CODES.includes(w.detail.code);
+  return (
+    ctx.state.status === 'PENDING' &&
+    w?.reason === 'needs_info' &&
+    FREEZE_PENDING_CODES.includes(w.detail.code)
+  );
 }
 
 /**
@@ -87,8 +119,16 @@ function configPending(ctx: Ctx): boolean {
  */
 export function onConfigChecked(ctx: Ctx, t: ConfigChecked): void {
   const s = ctx.state;
-  if (s.policy_ref !== null || (s.status !== 'PENDING' && s.status !== 'READY') || s.execution.holding !== null) {
-    ctx.emit('SignalIgnored', { reason: 'config_check_stale', trigger_kind: t.kind, detail: { status: s.status } });
+  if (
+    s.policy_ref !== null ||
+    (s.status !== 'PENDING' && s.status !== 'READY') ||
+    s.execution.holding !== null
+  ) {
+    ctx.emit('SignalIgnored', {
+      reason: 'config_check_stale',
+      trigger_kind: t.kind,
+      detail: { status: s.status },
+    });
     return;
   }
   if (pendingWait(ctx, ctx.related.deps) !== null) {
@@ -97,17 +137,32 @@ export function onConfigChecked(ctx: Ctx, t: ConfigChecked): void {
   }
   if (t.outcome.ok) {
     if (configPending(ctx)) ctx.emit('TaskReady', {});
-    else ctx.emit('SignalIgnored', { reason: 'config_unchanged', trigger_kind: t.kind });
+    else
+      ctx.emit('SignalIgnored', {
+        reason: 'config_unchanged',
+        trigger_kind: t.kind,
+      });
     return;
   }
   const e = t.outcome.error;
-  const wait = mkWait('needs_info', e.code, { resume: { kind: 'triage' }, resume_when: ['task_confirm', 'task_recheck'], detail: { error: e } });
+  const wait = mkWait('needs_info', e.code, {
+    resume: { kind: 'triage' },
+    resume_when: ['task_confirm', 'task_recheck'],
+    detail: { error: e },
+  });
   if (configPending(ctx) && canonicalJson(s.wait) === canonicalJson(wait)) {
-    ctx.emit('SignalIgnored', { reason: 'config_unchanged', trigger_kind: t.kind });
+    ctx.emit('SignalIgnored', {
+      reason: 'config_unchanged',
+      trigger_kind: t.kind,
+    });
     return;
   }
   if (s.execution.request !== null) {
-    ctx.emit('ExecutionWithdrawn', { request_id: s.execution.request.request_id, reason: 'config_invalid', at: ctx.now });
+    ctx.emit('ExecutionWithdrawn', {
+      request_id: s.execution.request.request_id,
+      reason: 'config_invalid',
+      at: ctx.now,
+    });
   }
   ctx.emit('TaskPending', { wait });
 }

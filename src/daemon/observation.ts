@@ -23,9 +23,16 @@ import type { Trigger } from '../domain/trigger.ts';
 import type { Uuid } from '../shared/brand.ts';
 import type { AcceptOutcome, Store } from '../store/index.ts';
 
-export type ObservedFacts = { readonly facts: readonly Trigger[]; readonly failure: string | null };
+export type ObservedFacts = {
+  readonly facts: readonly Trigger[];
+  readonly failure: string | null;
+};
 
-export type ObserveFn = (taskId: string, evidenceRef: string, source: Observation['source']) => Promise<ObservedFacts>;
+export type ObserveFn = (
+  taskId: string,
+  evidenceRef: string,
+  source: Observation['source'],
+) => Promise<ObservedFacts>;
 
 /** One read per task at a time: a second caller for the same task waits for the first read. */
 export class ObservationCoordinator {
@@ -36,10 +43,16 @@ export class ObservationCoordinator {
     this.#observe = observe;
   }
 
-  observe(taskId: string, evidenceRef: string, source: Observation['source']): Promise<ObservedFacts> {
+  observe(
+    taskId: string,
+    evidenceRef: string,
+    source: Observation['source'],
+  ): Promise<ObservedFacts> {
     const running = this.#inflight.get(taskId);
     if (running !== undefined) return running;
-    const p = this.#observe(taskId, evidenceRef, source).finally(() => this.#inflight.delete(taskId));
+    const p = this.#observe(taskId, evidenceRef, source).finally(() =>
+      this.#inflight.delete(taskId),
+    );
     this.#inflight.set(taskId, p);
     return p;
   }
@@ -58,7 +71,8 @@ export type ObservationDeps = {
   readonly max_tasks?: number;
 };
 
-const ids = (deps: { newId: () => string }): string[] => Array.from({ length: MAX_ENVELOPE_IDS }, () => deps.newId());
+const ids = (deps: { newId: () => string }): string[] =>
+  Array.from({ length: MAX_ENVELOPE_IDS }, () => deps.newId());
 
 /** The CI wait of the task polls the PR itself; the observation stays out of its way. */
 /**
@@ -67,9 +81,20 @@ const ids = (deps: { newId: () => string }): string[] => Array.from({ length: MA
  */
 function ciWaitPolling(s: TaskState, now: number): boolean {
   const awaiting = Object.values(s.effects).some(
-    (e) => e.kind === 'await_ci' && (e.status === 'started' || (e.status === 'pending' && claimable(s, { id: e.id, kind: e.kind, revision: e.revision }, now, { require_runtime: true }).ok)),
+    (e) =>
+      e.kind === 'await_ci' &&
+      (e.status === 'started' ||
+        (e.status === 'pending' &&
+          claimable(s, { id: e.id, kind: e.kind, revision: e.revision }, now, {
+            require_runtime: true,
+          }).ok)),
   );
-  return awaiting || Object.values(s.timers).some((t) => t.kind === 'ci_poll' && t.status === 'armed');
+  return (
+    awaiting ||
+    Object.values(s.timers).some(
+      (t) => t.kind === 'ci_poll' && t.status === 'armed',
+    )
+  );
 }
 
 export type DueKind = 'expire' | 'observe';
@@ -77,13 +102,24 @@ export type DueKind = 'expire' | 'observe';
 /** Whether an automatic round of `s` is due at `now`, and what it is. */
 export function observationDue(s: TaskState, now: number): DueKind | null {
   const ob = s.observation;
-  if (s.runtime_ref === null || s.terminal !== null || s.completion !== null || ob === null || ob.expired) return null;
+  if (
+    s.runtime_ref === null ||
+    s.terminal !== null ||
+    s.completion !== null ||
+    ob === null ||
+    ob.expired
+  )
+    return null;
   const b = ob.budget;
   if (now >= b.deadline_at || b.count >= b.max_count) return 'expire';
   if (b.next_due_at === null || b.next_due_at > now) return null;
   if (ciWaitPolling(s, now)) return null;
   // Merged into another branch: final, nothing left to observe (FR-040.12).
-  if (s.wait?.detail.code === 'target_mismatch' && s.wait.detail['merged'] === true) return null;
+  if (
+    s.wait?.detail.code === 'target_mismatch' &&
+    s.wait.detail['merged'] === true
+  )
+    return null;
   return 'observe';
 }
 
@@ -91,46 +127,88 @@ export type ObservationRoundReport = {
   readonly task_id: string;
   readonly kind: DueKind;
   readonly generation: number;
-  readonly outcomes: readonly { readonly kind: Trigger['kind']; readonly outcome: AcceptOutcome | null }[];
+  readonly outcomes: readonly {
+    readonly kind: Trigger['kind'];
+    readonly outcome: AcceptOutcome | null;
+  }[];
   readonly failure: string | null;
 };
 
 /** Tasks with an automatic round due now, oldest due first. */
-export function dueTasks(store: Store, now: number): { id: string; kind: DueKind; due: number }[] {
+export function dueTasks(
+  store: Store,
+  now: number,
+): { id: string; kind: DueKind; due: number }[] {
   const out: { id: string; kind: DueKind; due: number }[] = [];
   for (const id of store.taskIdsByStatus(['RUNNING', 'WAITING'])) {
     const s = store.readTask(id as Uuid);
     if (s === null) continue;
     const kind = observationDue(s, now);
-    if (kind !== null) out.push({ id, kind, due: s.observation?.budget.next_due_at ?? now });
+    if (kind !== null)
+      out.push({ id, kind, due: s.observation?.budget.next_due_at ?? now });
   }
   return out.sort((a, b) => a.due - b.due || (a.id < b.id ? -1 : 1));
 }
 
-export async function observationRound(deps: ObservationDeps): Promise<ObservationRoundReport[]> {
+export async function observationRound(
+  deps: ObservationDeps,
+): Promise<ObservationRoundReport[]> {
   const started = deps.clock.now();
   const reports: ObservationRoundReport[] = [];
   const due = dueTasks(deps.store, started).slice(0, deps.max_tasks ?? 100);
   for (const d of due) {
     const s = deps.store.readTask(d.id as Uuid);
     if (s === null || s.observation === null) continue;
-    const roundMs = s.run.limits?.observation_round_ms ?? DEFAULT_RUNTIME_LIMITS.observation_round_ms;
+    const roundMs =
+      s.run.limits?.observation_round_ms ??
+      DEFAULT_RUNTIME_LIMITS.observation_round_ms;
     if (deps.clock.now() - started >= roundMs) break;
     const generation = s.observation.budget.generation;
     if (d.kind === 'expire') {
-      const r = submit(deps.store, { task_id: d.id, dedup_key: `obs-due:${d.id}:g${generation}:${s.observation.budget.count}`, trigger: { kind: 'observation_due' }, now: deps.clock.now(), ids: ids(deps), expected_version: s.version });
-      reports.push({ task_id: d.id, kind: d.kind, generation, outcomes: [{ kind: 'observation_due', outcome: r.ok ? r.value : null }], failure: r.ok ? null : r.error.code });
+      const r = submit(deps.store, {
+        task_id: d.id,
+        dedup_key: `obs-due:${d.id}:g${generation}:${s.observation.budget.count}`,
+        trigger: { kind: 'observation_due' },
+        now: deps.clock.now(),
+        ids: ids(deps),
+        expected_version: s.version,
+      });
+      reports.push({
+        task_id: d.id,
+        kind: d.kind,
+        generation,
+        outcomes: [{ kind: 'observation_due', outcome: r.ok ? r.value : null }],
+        failure: r.ok ? null : r.error.code,
+      });
       continue;
     }
     if (deps.coordinator.busy(d.id)) continue;
-    const read = await deps.coordinator.observe(d.id, `observe:${d.id}:g${generation}`, 'timer');
-    const outcomes: { kind: Trigger['kind']; outcome: AcceptOutcome | null }[] = [];
+    const read = await deps.coordinator.observe(
+      d.id,
+      `observe:${d.id}:g${generation}`,
+      'timer',
+    );
+    const outcomes: { kind: Trigger['kind']; outcome: AcceptOutcome | null }[] =
+      [];
     read.facts.forEach((fact, i) => {
       const cur = deps.store.readTask(d.id as Uuid);
-      const r = submit(deps.store, { task_id: d.id, dedup_key: `obs:${d.id}:g${generation}:${i}`, trigger: fact, now: deps.clock.now(), ids: ids(deps), ...(cur === null ? {} : { expected_version: cur.version }) });
+      const r = submit(deps.store, {
+        task_id: d.id,
+        dedup_key: `obs:${d.id}:g${generation}:${i}`,
+        trigger: fact,
+        now: deps.clock.now(),
+        ids: ids(deps),
+        ...(cur === null ? {} : { expected_version: cur.version }),
+      });
       outcomes.push({ kind: fact.kind, outcome: r.ok ? r.value : null });
     });
-    reports.push({ task_id: d.id, kind: d.kind, generation, outcomes, failure: read.failure });
+    reports.push({
+      task_id: d.id,
+      kind: d.kind,
+      generation,
+      outcomes,
+      failure: read.failure,
+    });
   }
   return reports;
 }

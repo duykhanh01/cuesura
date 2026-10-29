@@ -6,7 +6,13 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { buildSandbox, createProbeFixture, probeLayout, sandboxCommand, SANDBOX_ROLES } from './sandbox.ts';
+import {
+  buildSandbox,
+  createProbeFixture,
+  probeLayout,
+  sandboxCommand,
+  SANDBOX_ROLES,
+} from './sandbox.ts';
 
 // This child tests only disposable files created by createProbeFixture(). Namespace syscalls
 // run inside the existing outer sandbox and never target host namespaces or real credentials.
@@ -126,19 +132,25 @@ try {
   for (const role of SANDBOX_ROLES) {
     const plan = buildSandbox(probeLayout(role, fx));
     const data = JSON.stringify({ ...fx, role, host_pid: process.pid });
-    for (const mode of ['baseline', 'nested-bwrap', 'copied-bwrap', 'raw-userns']) {
-      const [exe, ...args] = sandboxCommand(plan, ['/usr/bin/python3', '/cusr/context/reassessment.py', data, mode]);
-      const r = spawnSync(
-        exe as string,
-        args,
-        {
-          env: {},
-          encoding: 'utf8',
-          timeout: 20_000,
-          stdio: ['ignore', 'pipe', 'pipe'],
-          maxBuffer: 64 * 1024,
-        },
-      );
+    for (const mode of [
+      'baseline',
+      'nested-bwrap',
+      'copied-bwrap',
+      'raw-userns',
+    ]) {
+      const [exe, ...args] = sandboxCommand(plan, [
+        '/usr/bin/python3',
+        '/cusr/context/reassessment.py',
+        data,
+        mode,
+      ]);
+      const r = spawnSync(exe as string, args, {
+        env: {},
+        encoding: 'utf8',
+        timeout: 20_000,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        maxBuffer: 64 * 1024,
+      });
       rows.push({
         role,
         mode,
@@ -150,11 +162,15 @@ try {
         readFileSync(join(fx.worktree, '.git'), 'utf8') !== dotgitBefore ||
         readFileSync(join(fx.gitCommon, 'HEAD'), 'utf8') !== headBefore
       ) {
-        throw new Error('Disposable metadata changed: confinement check failed');
+        throw new Error(
+          'Disposable metadata changed: confinement check failed',
+        );
       }
     }
   }
-  const version = spawnSync('/usr/bin/bwrap', ['--version'], { encoding: 'utf8' });
+  const version = spawnSync('/usr/bin/bwrap', ['--version'], {
+    encoding: 'utf8',
+  });
   const kernel = spawnSync('uname', ['-r'], { encoding: 'utf8' });
   const report = {
     scope:

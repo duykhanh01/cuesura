@@ -2,8 +2,18 @@ import { z } from 'zod';
 import type { CanonicalTask } from './task.ts';
 import type { EffectKind, EffectStatus } from './effect.ts';
 import type { Level } from './policy.ts';
-import type { ExecutionMode, RunConfirmation, RunSelection } from './run-config.ts';
-import type { BaseRelation, Check, FailureClass, RequiredSet, Usage } from './trigger.ts';
+import type {
+  ExecutionMode,
+  RunConfirmation,
+  RunSelection,
+} from './run-config.ts';
+import type {
+  BaseRelation,
+  Check,
+  FailureClass,
+  RequiredSet,
+  Usage,
+} from './trigger.ts';
 import type {
   Artifact,
   ExecutionGroup,
@@ -19,17 +29,40 @@ import type {
 
 export const STATE_SCHEMA_VERSION = 1;
 
-export const TASK_STATUSES = ['PENDING', 'READY', 'RUNNING', 'WAITING', 'DONE', 'FAILED', 'CANCELLED'] as const;
+export const TASK_STATUSES = [
+  'PENDING',
+  'READY',
+  'RUNNING',
+  'WAITING',
+  'DONE',
+  'FAILED',
+  'CANCELLED',
+] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
-export const TERMINAL_STATUSES: readonly TaskStatus[] = ['DONE', 'FAILED', 'CANCELLED'];
+export const TERMINAL_STATUSES: readonly TaskStatus[] = [
+  'DONE',
+  'FAILED',
+  'CANCELLED',
+];
 
 export function isTerminal(s: TaskStatus): boolean {
   return TERMINAL_STATUSES.includes(s);
 }
 
 /** Tập `wait_reason` giữ nguyên SPEC.md §6.1. */
-export const PENDING_REASONS = ['confirmation', 'needs_info', 'dependency'] as const;
-export const WAITING_REASONS = ['human_input', 'approval', 'ci', 'rate_limit', 'policy', 'infra'] as const;
+export const PENDING_REASONS = [
+  'confirmation',
+  'needs_info',
+  'dependency',
+] as const;
+export const WAITING_REASONS = [
+  'human_input',
+  'approval',
+  'ci',
+  'rate_limit',
+  'policy',
+  'infra',
+] as const;
 export const WAIT_REASONS = [...PENDING_REASONS, ...WAITING_REASONS] as const;
 export type WaitReason = (typeof WAIT_REASONS)[number];
 export const WaitReasonSchema = z.enum(WAIT_REASONS);
@@ -119,7 +152,12 @@ export type Wait = {
   resume: ResumeAction;
 };
 
-export const ATTEMPT_KINDS = ['initial', 'retry', 'repair', 'fresh_session'] as const;
+export const ATTEMPT_KINDS = [
+  'initial',
+  'retry',
+  'repair',
+  'fresh_session',
+] as const;
 export type AttemptKind = (typeof ATTEMPT_KINDS)[number];
 
 export type Attempt = {
@@ -135,7 +173,11 @@ export type Attempt = {
   status: 'running' | 'finished';
   /** Người đã yêu cầu dừng attempt; kết quả về sau không làm qua bước. */
   stop_requested: boolean;
-  outcome: { class: FailureClass | null; status: string | null; signature: string | null } | null;
+  outcome: {
+    class: FailureClass | null;
+    status: string | null;
+    signature: string | null;
+  } | null;
   usage: Usage | null;
   /** Harness session the attempt ran in, when the harness reported one (resume, M04). */
   session_ref?: string | null;
@@ -153,7 +195,12 @@ export type EffectMirror = {
   target_effect_id: string | null;
 };
 
-export const TIMER_KINDS = ['deadline', 'backoff', 'ci_poll', 'ci_timeout'] as const;
+export const TIMER_KINDS = [
+  'deadline',
+  'backoff',
+  'ci_poll',
+  'ci_timeout',
+] as const;
 export type TimerKind = (typeof TIMER_KINDS)[number];
 
 export type TimerMirror = {
@@ -164,7 +211,11 @@ export type TimerMirror = {
   payload: { step?: string; resume?: ResumeAction };
 };
 
-export type Reservation = { effect_id: string; units: number; status: 'held' | 'consumed' | 'released' };
+export type Reservation = {
+  effect_id: string;
+  units: number;
+  status: 'held' | 'consumed' | 'released';
+};
 
 export type Counter = { limit: number; used: number; reserved: number };
 
@@ -200,7 +251,12 @@ export type Approval = {
   revoked: boolean;
 };
 
-export type FailureStreak = { signature: string | null; consecutive: number; quality_tries: number; escalate: boolean };
+export type FailureStreak = {
+  signature: string | null;
+  consecutive: number;
+  quality_tries: number;
+  escalate: boolean;
+};
 
 export type Evidence = {
   gates: {
@@ -211,11 +267,26 @@ export type Evidence = {
     signature: string | null;
     valid: boolean;
     /** 002: failing gates with a redacted log tail, for the repair packet (M04). */
-    failed?: { gate: string; signature: string | null; log_excerpt: string | null }[];
+    failed?: {
+      gate: string;
+      signature: string | null;
+      log_excerpt: string | null;
+    }[];
   }[];
-  reviews: { revision: number; head_sha: string; verdict: 'approve' | 'request_changes'; valid: boolean }[];
+  reviews: {
+    revision: number;
+    head_sha: string;
+    verdict: 'approve' | 'request_changes';
+    valid: boolean;
+  }[];
   review_skipped: { revision: number; valid: boolean }[];
-  ci: { revision: number; head_sha: string; required_set: RequiredSet; checks: Check[]; valid: boolean }[];
+  ci: {
+    revision: number;
+    head_sha: string;
+    required_set: RequiredSet;
+    checks: Check[];
+    valid: boolean;
+  }[];
   base_relations: (BaseRelation & { revision: number; valid: boolean })[];
   publishes: { revision: number; head_sha: string; valid: boolean }[];
 };
@@ -260,16 +331,31 @@ export type OperationMirror = {
   registered_at: number;
   started_at: number | null;
   finished_at: number | null;
-  cursor: { generation: number; segment: number; byte_offset: number; last_record_seq: number } | null;
+  cursor: {
+    generation: number;
+    segment: number;
+    byte_offset: number;
+    last_record_seq: number;
+  } | null;
   artifact_ids: string[];
 };
 
-export type Blocker = { code: DetailCode; source: string; since: number; until: number | null };
+export type Blocker = {
+  code: DetailCode;
+  source: string;
+  since: number;
+  until: number | null;
+};
 
 export type ObservationState = {
   subject: ExternalSubject;
   budget: ObservationBudget;
-  last: { observation_id: string; status: 'open' | 'closed' | 'merged' | 'unknown'; observed_head: string | null; observed_at: number } | null;
+  last: {
+    observation_id: string;
+    status: 'open' | 'closed' | 'merged' | 'unknown';
+    observed_head: string | null;
+    observed_at: number;
+  } | null;
   expired: boolean;
 };
 
@@ -304,7 +390,12 @@ export type CheckpointState = {
 };
 
 /** Worker-prepared commit message and PR title/body, validated and stored outside the code (M05). */
-export type PublishContentState = { revision: number; digest: string; ref: string; attempt_id: string | null };
+export type PublishContentState = {
+  revision: number;
+  digest: string;
+  ref: string;
+  attempt_id: string | null;
+};
 
 /** Review evidence with everything the reviewer saw, so an unchanged input reuses the verdict (M03). */
 export type ReviewEvidence = {
@@ -314,15 +405,31 @@ export type ReviewEvidence = {
   sha: string;
   input_digest: string;
   signature: string | null;
-  findings: { severity: string; file?: string | undefined; line?: number | undefined; msg: string }[];
+  findings: {
+    severity: string;
+    file?: string | undefined;
+    line?: number | undefined;
+    msg: string;
+  }[];
   valid: boolean;
 };
 
 /** A remote head nobody in this task expected: blocks business work until reconciled (FR-041.03, H01–H05). */
-export type HeadDrift = { expected: string | null; observed: string | null; source: string; evidence_ref: string; at: number };
+export type HeadDrift = {
+  expected: string | null;
+  observed: string | null;
+  source: string;
+  evidence_ref: string;
+  at: number;
+};
 
 export type RunState = {
-  proposal: { selection: RunSelection; digest: string; by: string; at: number } | null;
+  proposal: {
+    selection: RunSelection;
+    digest: string;
+    by: string;
+    at: number;
+  } | null;
   confirmation: RunConfirmation | null;
   /** Mode and selection digest frozen at start; null before start and for snapshots without modes. */
   mode: ExecutionMode | null;
@@ -339,7 +446,12 @@ export type RunState = {
   pr_body: PrBodyState | null;
 };
 
-export type PrBodyState = { content_digest: string; body_digest: string; operation_key: string; revision: number };
+export type PrBodyState = {
+  content_digest: string;
+  body_digest: string;
+  operation_key: string;
+  revision: number;
+};
 
 export type CiWait = { started_at: number; polls: number };
 
@@ -379,7 +491,12 @@ export type TaskState = {
   ci_polls: number;
   merged: boolean;
   source_drift: SourceDrift | null;
-  cancellation: { requested_at: number; by: string; reason: string; late: boolean } | null;
+  cancellation: {
+    requested_at: number;
+    by: string;
+    reason: string;
+    late: boolean;
+  } | null;
   started_at: number | null;
   deadline_at: number | null;
   deadline_passed: boolean;

@@ -1,19 +1,41 @@
 import { describe, expect, it } from 'vitest';
-import { recheckTask, type RecheckDeps } from '../../../src/application/recheck.ts';
+import {
+  recheckTask,
+  type RecheckDeps,
+} from '../../../src/application/recheck.ts';
 import type { Caller } from '../../../src/application/authz.ts';
 import type { CanonicalTask } from '../../../src/domain/task.ts';
-import type { RequiredCheckVerdict, Trigger } from '../../../src/domain/trigger.ts';
+import type {
+  RequiredCheckVerdict,
+  Trigger,
+} from '../../../src/domain/trigger.ts';
 import type { Uuid } from '../../../src/shared/brand.ts';
 import { replay } from '../../../src/engine/evolve.ts';
 import { hashCanonical } from '../../../src/shared/hash.ts';
 import { openFileStoreForTest } from '../../../src/store/testing.ts';
 import { buildTask, uuidOf } from '../../support/builders.ts';
 import { createGrantStart } from '../../support/runtime.ts';
-import { agentData, ciData, publishData, reviewData } from '../../support/scenario.ts';
+import {
+  agentData,
+  ciData,
+  publishData,
+  reviewData,
+} from '../../support/scenario.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
-import { checkpointGates, currentReviewInput, toPublish } from '../../support/store-flows.ts';
+import {
+  checkpointGates,
+  currentReviewInput,
+  toPublish,
+} from '../../support/store-flows.ts';
 import { dbPath, useTempDir } from '../../support/temp-db.ts';
-import { A, ci, COVERED, merge, observation, toGreen } from '../../support/observation.ts';
+import {
+  A,
+  ci,
+  COVERED,
+  merge,
+  observation,
+  toGreen,
+} from '../../support/observation.ts';
 
 // US2 repair loops, CI limits and PR observation at the engine/SQLite boundary (T053, US2.1–11, SC-003,
 // US1.7/US1.9/US1.11, H01–H03/H05). Facts are injected the way the daemon handlers and the observation
@@ -24,18 +46,39 @@ const B = 'b'.repeat(40);
 const C = 'c'.repeat(40);
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
-const PREPARE = { base_sha: 'base0000', worktree_ref: 'wt', branch: 'b', setup: { ran: false, passed: true } };
+const PREPARE = {
+  base_sha: 'base0000',
+  worktree_ref: 'wt',
+  branch: 'b',
+  setup: { ran: false, passed: true },
+};
 
 const setup = () => new StoreDriver(openFileStoreForTest(dbPath(tempDir())));
-const types = (d: StoreDriver, t: CanonicalTask) => d.store.readEvents(t.id).map((e) => e.type);
-const effects = (d: StoreDriver, t: CanonicalTask, kind: string, step?: string) => Object.values(d.task(t.id).effects).filter((e) => e.kind === kind && (step === undefined || e.step === step));
-const code = (d: StoreDriver, t: CanonicalTask) => d.task(t.id).wait?.detail.code;
-const stepOf = (d: StoreDriver, t: CanonicalTask, e: { id: string }) => d.task(t.id).effects[e.id]?.step;
+const types = (d: StoreDriver, t: CanonicalTask) =>
+  d.store.readEvents(t.id).map((e) => e.type);
+const effects = (
+  d: StoreDriver,
+  t: CanonicalTask,
+  kind: string,
+  step?: string,
+) =>
+  Object.values(d.task(t.id).effects).filter(
+    (e) => e.kind === kind && (step === undefined || e.step === step),
+  );
+const code = (d: StoreDriver, t: CanonicalTask) =>
+  d.task(t.id).wait?.detail.code;
+const stepOf = (d: StoreDriver, t: CanonicalTask, e: { id: string }) =>
+  d.task(t.id).effects[e.id]?.step;
 
 let grantSeq = 900;
 /** The slot went back while CI ran or the task waited; work resumes under a new grant. */
 function grant(d: StoreDriver): void {
-  const ids = [uuidOf(grantSeq++), uuidOf(grantSeq++), uuidOf(grantSeq++), uuidOf(grantSeq++)];
+  const ids = [
+    uuidOf(grantSeq++),
+    uuidOf(grantSeq++),
+    uuidOf(grantSeq++),
+    uuidOf(grantSeq++),
+  ];
   const g = d.store.grantNext(d.now as never, ids);
   if (!g.ok) throw new Error(JSON.stringify(g));
 }
@@ -46,18 +89,56 @@ describe('repair loops (US2.1–US2.3, M03/M04/M06)', () => {
     const t = buildTask();
     createGrantStart(d, t, 'full-review');
     d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE);
-    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
-    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', { results: [{ gate: 'build', passed: true }, { gate: 'unit', passed: false, signature: 'unit:E1', log_excerpt: 'expected 2, got 3' }], tree: 'e'.repeat(40), stable: true });
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      agentData('done'),
+    );
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', {
+      results: [
+        { gate: 'build', passed: true },
+        {
+          gate: 'unit',
+          passed: false,
+          signature: 'unit:E1',
+          log_excerpt: 'expected 2, got 3',
+        },
+      ],
+      tree: 'e'.repeat(40),
+      stable: true,
+    });
     const s = d.task(t.id);
     expect(s.current_step).toBe('fix_gates');
-    expect(s.evidence.gates.at(-1)).toMatchObject({ passed: false, failed: [{ gate: 'unit', signature: 'unit:E1', log_excerpt: 'expected 2, got 3' }] });
-    expect(d.pendingOne(t.id, 'start_agent').request).toMatchObject({ role: 'fixer' });
+    expect(s.evidence.gates.at(-1)).toMatchObject({
+      passed: false,
+      failed: [
+        {
+          gate: 'unit',
+          signature: 'unit:E1',
+          log_excerpt: 'expected 2, got 3',
+        },
+      ],
+    });
+    expect(d.pendingOne(t.id, 'start_agent').request).toMatchObject({
+      role: 'fixer',
+    });
     expect(effects(d, t, 'publish')).toEqual([]);
-    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      agentData('done'),
+    );
     // Gates again, on the fixed tree, before the reviewer sees anything.
     expect(stepOf(d, t, d.pendingOne(t.id, 'run_gates'))).toBe('gates');
     expect(effects(d, t, 'start_agent', 'review')).toEqual([]);
-    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(A));
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'run_gates').id,
+      'succeeded',
+      checkpointGates(A),
+    );
     expect(stepOf(d, t, d.pendingOne(t.id, 'start_agent'))).toBe('review');
   });
 
@@ -66,19 +147,54 @@ describe('repair loops (US2.1–US2.3, M03/M04/M06)', () => {
     const t = buildTask();
     createGrantStart(d, t, 'full-review');
     d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE);
-    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
-    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(A));
-    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', reviewData('request_changes', A, { findings: [{ severity: 'major', msg: 'missing test' }], input_digest: currentReviewInput(d, t.id) }));
-    expect(d.pendingOne(t.id, 'start_agent').request).toMatchObject({ role: 'fixer' });
-    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
-    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(C));
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      agentData('done'),
+    );
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'run_gates').id,
+      'succeeded',
+      checkpointGates(A),
+    );
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      reviewData('request_changes', A, {
+        findings: [{ severity: 'major', msg: 'missing test' }],
+        input_digest: currentReviewInput(d, t.id),
+      }),
+    );
+    expect(d.pendingOne(t.id, 'start_agent').request).toMatchObject({
+      role: 'fixer',
+    });
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      agentData('done'),
+    );
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'run_gates').id,
+      'succeeded',
+      checkpointGates(C),
+    );
     // A new commit is a new review input: the reviewer runs again (separate session, read only).
     const review = d.pendingOne(t.id, 'start_agent');
     expect(review).toMatchObject({ request: { role: 'reviewer' } });
     expect(stepOf(d, t, review)).toBe('review');
     expect(types(d, t)).not.toContain('ReviewReused');
     expect(effects(d, t, 'publish')).toEqual([]);
-    d.complete(t.id, review.id, 'succeeded', reviewData('approve', C, { input_digest: currentReviewInput(d, t.id) }));
+    d.complete(
+      t.id,
+      review.id,
+      'succeeded',
+      reviewData('approve', C, { input_digest: currentReviewInput(d, t.id) }),
+    );
     expect(d.pendingOne(t.id, 'publish').request).toMatchObject({ sha: C });
   });
 
@@ -86,35 +202,126 @@ describe('repair loops (US2.1–US2.3, M03/M04/M06)', () => {
     const d = setup();
     const t = buildTask();
     createGrantStart(d, t, 'full-review');
-    const content = (s: string) => ({ digest: hashCanonical(s), ref: `/c/${s}.json` });
+    const content = (s: string) => ({
+      digest: hashCanonical(s),
+      ref: `/c/${s}.json`,
+    });
     d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE);
-    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done', { content: content('v1') }));
-    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(A));
-    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', reviewData('approve', A, { input_digest: currentReviewInput(d, t.id) }));
-    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
-    const prBody = { content_digest: hashCanonical('v1'), body_digest: 'sha256:body1', operation_key: 'create_pr:op', revision: 1 };
-    d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', { pr_ref: 'acme#7', head_sha: A, pr_body: prBody });
-    d.complete(t.id, d.pendingOne(t.id, 'await_ci').id, 'succeeded', ci(A, { build: 'success', test: 'failure' }));
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      agentData('done', { content: content('v1') }),
+    );
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'run_gates').id,
+      'succeeded',
+      checkpointGates(A),
+    );
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      reviewData('approve', A, { input_digest: currentReviewInput(d, t.id) }),
+    );
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'publish').id,
+      'succeeded',
+      publishData(A),
+    );
+    const prBody = {
+      content_digest: hashCanonical('v1'),
+      body_digest: 'sha256:body1',
+      operation_key: 'create_pr:op',
+      revision: 1,
+    };
+    d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
+      pr_ref: 'acme#7',
+      head_sha: A,
+      pr_body: prBody,
+    });
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'await_ci').id,
+      'succeeded',
+      ci(A, { build: 'success', test: 'failure' }),
+    );
     grant(d);
-    expect(d.pendingOne(t.id, 'start_agent')).toMatchObject({ request: { role: 'coder' } });
+    expect(d.pendingOne(t.id, 'start_agent')).toMatchObject({
+      request: { role: 'coder' },
+    });
     expect(stepOf(d, t, d.pendingOne(t.id, 'start_agent'))).toBe('ci_fix');
-    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done', { content: content('v2') }));
-    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(B));
-    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', reviewData('approve', B, { input_digest: currentReviewInput(d, t.id) }));
-    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(B));
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      agentData('done', { content: content('v2') }),
+    );
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'run_gates').id,
+      'succeeded',
+      checkpointGates(B),
+    );
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      reviewData('approve', B, { input_digest: currentReviewInput(d, t.id) }),
+    );
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'publish').id,
+      'succeeded',
+      publishData(B),
+    );
     // The same PR gets the newer title/body; no second PR is created.
     const describe = d.pendingOne(t.id, 'create_pr');
-    expect(describe.request).toMatchObject({ update: true, content_digest: hashCanonical('v2') });
-    d.complete(t.id, describe.id, 'succeeded', { pr_ref: 'acme#7', head_sha: B, pr_body: { ...prBody, content_digest: hashCanonical('v2'), body_digest: 'sha256:body2' } });
+    expect(describe.request).toMatchObject({
+      update: true,
+      content_digest: hashCanonical('v2'),
+    });
+    d.complete(t.id, describe.id, 'succeeded', {
+      pr_ref: 'acme#7',
+      head_sha: B,
+      pr_body: {
+        ...prBody,
+        content_digest: hashCanonical('v2'),
+        body_digest: 'sha256:body2',
+      },
+    });
     expect(d.task(t.id).pr_ref).toBe('acme#7');
-    expect(d.pendingOne(t.id, 'await_ci').request).toMatchObject({ head_sha: B });
+    expect(d.pendingOne(t.id, 'await_ci').request).toMatchObject({
+      head_sha: B,
+    });
     // A green run of A says nothing about B.
-    d.complete(t.id, d.pendingOne(t.id, 'await_ci').id, 'succeeded', ci(A, { build: 'success', test: 'success' }));
-    expect(d.task(t.id)).toMatchObject({ status: 'WAITING', wait: { reason: 'ci', detail: { code: 'checks_incomplete', stale_head: true } } });
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'await_ci').id,
+      'succeeded',
+      ci(A, { build: 'success', test: 'success' }),
+    );
+    expect(d.task(t.id)).toMatchObject({
+      status: 'WAITING',
+      wait: {
+        reason: 'ci',
+        detail: { code: 'checks_incomplete', stale_head: true },
+      },
+    });
     d.now += 60_000;
     d.fire();
-    d.complete(t.id, d.pendingOne(t.id, 'await_ci').id, 'succeeded', ci(B, { build: 'success', test: 'success' }));
-    expect(d.task(t.id)).toMatchObject({ status: 'WAITING', wait: { reason: 'approval', detail: { code: 'merge', head_sha: B } } });
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'await_ci').id,
+      'succeeded',
+      ci(B, { build: 'success', test: 'success' }),
+    );
+    expect(d.task(t.id)).toMatchObject({
+      status: 'WAITING',
+      wait: { reason: 'approval', detail: { code: 'merge', head_sha: B } },
+    });
     expect(effects(d, t, 'create_pr')).toHaveLength(2);
   });
 });
@@ -125,19 +332,46 @@ describe('CI classification and limits (US2.4/US2.5, FR-010/015/020)', () => {
     const t = buildTask();
     createGrantStart(d, t, 'direct-pr');
     toPublish(d, t, A);
-    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
-    d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', { pr_ref: 'acme#7', head_sha: A });
-    const flaky = ciData(A, { build: 'success', test: 'failure' }, {}, { required: COVERED });
-    (flaky['checks'] as { name: string; log_excerpt?: string }[])[1]!.log_excerpt = 'ETIMEDOUT talking to runner';
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'publish').id,
+      'succeeded',
+      publishData(A),
+    );
+    d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
+      pr_ref: 'acme#7',
+      head_sha: A,
+    });
+    const flaky = ciData(
+      A,
+      { build: 'success', test: 'failure' },
+      {},
+      { required: COVERED },
+    );
+    (
+      flaky['checks'] as { name: string; log_excerpt?: string }[]
+    )[1]!.log_excerpt = 'ETIMEDOUT talking to runner';
     for (let round = 0; round < 3; round++) {
       d.complete(t.id, d.pendingOne(t.id, 'await_ci').id, 'succeeded', flaky);
       if (round < 2) {
-        expect(d.pendingOne(t.id, 'rerun_ci').request).toMatchObject({ head_sha: A, checks: ['test'] });
-        d.complete(t.id, d.pendingOne(t.id, 'rerun_ci').id, 'succeeded', { head_sha: A, rerun_checks: ['test'] });
+        expect(d.pendingOne(t.id, 'rerun_ci').request).toMatchObject({
+          head_sha: A,
+          checks: ['test'],
+        });
+        d.complete(t.id, d.pendingOne(t.id, 'rerun_ci').id, 'succeeded', {
+          head_sha: A,
+          rerun_checks: ['test'],
+        });
       }
     }
     expect(effects(d, t, 'rerun_ci')).toHaveLength(2);
-    expect(d.task(t.id)).toMatchObject({ status: 'WAITING', wait: { reason: 'human_input', detail: { code: 'loop_exhausted', step: 'rerun_ci' } } });
+    expect(d.task(t.id)).toMatchObject({
+      status: 'WAITING',
+      wait: {
+        reason: 'human_input',
+        detail: { code: 'loop_exhausted', step: 'rerun_ci' },
+      },
+    });
     expect(types(d, t)).not.toContain('RungRaised');
     expect(effects(d, t, 'start_agent', 'ci_fix')).toEqual([]);
   });
@@ -147,12 +381,26 @@ describe('CI classification and limits (US2.4/US2.5, FR-010/015/020)', () => {
     const t = buildTask();
     createGrantStart(d, t, 'direct-pr');
     toPublish(d, t, A);
-    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
-    d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', { pr_ref: 'acme#7', head_sha: A });
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'publish').id,
+      'succeeded',
+      publishData(A),
+    );
+    d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
+      pr_ref: 'acme#7',
+      head_sha: A,
+    });
     const data = ciData(A, { e2e: 'failure' }, {}, { required: COVERED });
     (data['checks'] as { job?: string }[])[0]!.job = 'e2e';
     d.complete(t.id, d.pendingOne(t.id, 'await_ci').id, 'succeeded', data);
-    expect(d.task(t.id)).toMatchObject({ status: 'WAITING', wait: { reason: 'human_input', detail: { code: 'ci_unclassified', checks: ['e2e'] } } });
+    expect(d.task(t.id)).toMatchObject({
+      status: 'WAITING',
+      wait: {
+        reason: 'human_input',
+        detail: { code: 'ci_unclassified', checks: ['e2e'] },
+      },
+    });
     expect(effects(d, t, 'start_agent', 'ci_fix')).toEqual([]);
   });
 
@@ -161,13 +409,47 @@ describe('CI classification and limits (US2.4/US2.5, FR-010/015/020)', () => {
     const t = buildTask();
     createGrantStart(d, t, 'direct-pr', { limits: { max_agent_runs: 2 } });
     d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE);
-    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
-    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', { results: [{ gate: 'build', passed: false, signature: 'build:E1' }, { gate: 'unit', passed: true }], tree: 'e'.repeat(40), stable: true });
-    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
-    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', { results: [{ gate: 'build', passed: false, signature: 'build:E2' }, { gate: 'unit', passed: true }], tree: 'e'.repeat(40), stable: true });
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      agentData('done'),
+    );
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', {
+      results: [
+        { gate: 'build', passed: false, signature: 'build:E1' },
+        { gate: 'unit', passed: true },
+      ],
+      tree: 'e'.repeat(40),
+      stable: true,
+    });
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      agentData('done'),
+    );
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', {
+      results: [
+        { gate: 'build', passed: false, signature: 'build:E2' },
+        { gate: 'unit', passed: true },
+      ],
+      tree: 'e'.repeat(40),
+      stable: true,
+    });
     const s = d.task(t.id);
-    expect(s).toMatchObject({ status: 'WAITING', wait: { reason: 'policy', detail: { code: 'agent_runs_exhausted', step: 'fix_gates' } } });
-    expect(s.budget.agent_runs).toMatchObject({ limit: 2, used: 2, reserved: 0 });
+    expect(s).toMatchObject({
+      status: 'WAITING',
+      wait: {
+        reason: 'policy',
+        detail: { code: 'agent_runs_exhausted', step: 'fix_gates' },
+      },
+    });
+    expect(s.budget.agent_runs).toMatchObject({
+      limit: 2,
+      used: 2,
+      reserved: 0,
+    });
     expect(d.pending(t.id, 'start_agent')).toEqual([]);
   });
 
@@ -178,13 +460,26 @@ describe('CI classification and limits (US2.4/US2.5, FR-010/015/020)', () => {
     d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE);
     const kinds: string[] = [];
     for (let i = 0; i < 2; i++) {
-      d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done', { schema_checked: false }));
-      kinds.push(String(d.pendingOne(t.id, 'start_agent').request['attempt_kind']));
+      d.complete(
+        t.id,
+        d.pendingOne(t.id, 'start_agent').id,
+        'succeeded',
+        agentData('done', { schema_checked: false }),
+      );
+      kinds.push(
+        String(d.pendingOne(t.id, 'start_agent').request['attempt_kind']),
+      );
     }
     expect(kinds).toEqual(['repair', 'fresh_session']);
     expect(types(d, t)).not.toContain('RungRaised');
-    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'failed', { failure_class: 'rate_limit', invoked: true });
-    expect(d.task(t.id)).toMatchObject({ status: 'WAITING', wait: { reason: 'rate_limit' } });
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'failed', {
+      failure_class: 'rate_limit',
+      invoked: true,
+    });
+    expect(d.task(t.id)).toMatchObject({
+      status: 'WAITING',
+      wait: { reason: 'rate_limit' },
+    });
     expect(types(d, t)).not.toContain('RungRaised');
     // The rate-limited call ran: it is spent, not refunded.
     expect(d.task(t.id).budget.agent_runs.used).toBe(3);
@@ -192,33 +487,71 @@ describe('CI classification and limits (US2.4/US2.5, FR-010/015/020)', () => {
 });
 
 describe('auth and refusal (SC-003, FR-015)', () => {
-  it.each(['auth_config', 'refused'] as const)('%s waits for a person: no retry, no other binding, no rung raise', (cls) => {
-    const d = setup();
-    const t = buildTask();
-    createGrantStart(d, t, 'direct-pr');
-    d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE);
-    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'failed', { failure_class: cls, message: 'denied', invoked: true });
-    expect(d.task(t.id)).toMatchObject({ status: 'WAITING', wait: { reason: 'human_input', detail: { code: cls } } });
-    expect(d.pending(t.id, 'start_agent')).toEqual([]);
-    expect(types(d, t)).not.toContain('RungRaised');
-  });
+  it.each(['auth_config', 'refused'] as const)(
+    '%s waits for a person: no retry, no other binding, no rung raise',
+    (cls) => {
+      const d = setup();
+      const t = buildTask();
+      createGrantStart(d, t, 'direct-pr');
+      d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE);
+      d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'failed', {
+        failure_class: cls,
+        message: 'denied',
+        invoked: true,
+      });
+      expect(d.task(t.id)).toMatchObject({
+        status: 'WAITING',
+        wait: { reason: 'human_input', detail: { code: cls } },
+      });
+      expect(d.pending(t.id, 'start_agent')).toEqual([]);
+      expect(types(d, t)).not.toContain('RungRaised');
+    },
+  );
 });
 
 describe('required checks (US2.6, FR-042)', () => {
   function toCi(d: StoreDriver, t: CanonicalTask): void {
     createGrantStart(d, t, 'direct-pr');
     toPublish(d, t, A);
-    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
-    d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', { pr_ref: 'acme#7', head_sha: A });
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'publish').id,
+      'succeeded',
+      publishData(A),
+    );
+    d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
+      pr_ref: 'acme#7',
+      head_sha: A,
+    });
   }
 
   it('GitHub A/B vs snapshot B/C: required_checks_mismatch names both sides even when every check passes; nothing is merged into the snapshot', () => {
     const d = setup();
     const t = buildTask();
     toCi(d, t);
-    const mismatch: RequiredCheckVerdict = { kind: 'required_checks_mismatch', missing_from_snapshot: ['A'], app_pinned: [], snapshot_only: ['C'] };
-    d.complete(t.id, d.pendingOne(t.id, 'await_ci').id, 'succeeded', ci(A, { A: 'success', B: 'success', C: 'success' }, mismatch));
-    expect(d.task(t.id)).toMatchObject({ status: 'WAITING', wait: { reason: 'policy', detail: { code: 'required_checks_mismatch', github_only: ['A'], snapshot_only: ['C'] } } });
+    const mismatch: RequiredCheckVerdict = {
+      kind: 'required_checks_mismatch',
+      missing_from_snapshot: ['A'],
+      app_pinned: [],
+      snapshot_only: ['C'],
+    };
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'await_ci').id,
+      'succeeded',
+      ci(A, { A: 'success', B: 'success', C: 'success' }, mismatch),
+    );
+    expect(d.task(t.id)).toMatchObject({
+      status: 'WAITING',
+      wait: {
+        reason: 'policy',
+        detail: {
+          code: 'required_checks_mismatch',
+          github_only: ['A'],
+          snapshot_only: ['C'],
+        },
+      },
+    });
     expect(d.store.readPolicy(t.id, 1, 1)?.ci.required_checks).toEqual([]);
   });
 
@@ -226,18 +559,45 @@ describe('required checks (US2.6, FR-042)', () => {
     const d = setup();
     const t = buildTask();
     toCi(d, t);
-    d.complete(t.id, d.pendingOne(t.id, 'await_ci').id, 'succeeded', ci(A, { build: 'success' }, { kind: 'unknown', basis: 'rules page 3 unreadable' }));
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'await_ci').id,
+      'succeeded',
+      ci(
+        A,
+        { build: 'success' },
+        { kind: 'unknown', basis: 'rules page 3 unreadable' },
+      ),
+    );
     const s = d.task(t.id);
-    expect(s).toMatchObject({ status: 'WAITING', wait: { reason: 'infra', detail: { code: 'observation_unknown', required: 'unknown' } } });
-    expect(Object.values(s.timers).filter((x) => x.kind === 'ci_poll' && x.status === 'armed')).toHaveLength(1);
+    expect(s).toMatchObject({
+      status: 'WAITING',
+      wait: {
+        reason: 'infra',
+        detail: { code: 'observation_unknown', required: 'unknown' },
+      },
+    });
+    expect(
+      Object.values(s.timers).filter(
+        (x) => x.kind === 'ci_poll' && x.status === 'armed',
+      ),
+    ).toHaveLength(1);
   });
 
   it('github_required none with every snapshot check passing is green', () => {
     const d = setup();
     const t = buildTask();
     toCi(d, t);
-    d.complete(t.id, d.pendingOne(t.id, 'await_ci').id, 'succeeded', ci(A, { build: 'success', test: 'success' }));
-    expect(d.task(t.id)).toMatchObject({ status: 'WAITING', wait: { reason: 'approval', detail: { code: 'merge' } } });
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'await_ci').id,
+      'succeeded',
+      ci(A, { build: 'success', test: 'success' }),
+    );
+    expect(d.task(t.id)).toMatchObject({
+      status: 'WAITING',
+      wait: { reason: 'approval', detail: { code: 'merge' } },
+    });
   });
 });
 
@@ -246,10 +606,24 @@ describe('green PR under observation (US2.7/US2.8, US1.7, FR-041)', () => {
     const d = setup();
     const t = buildTask();
     toGreen(d, t);
-    d.must(t.id, observation(d, t, 'open', A, { ci: ci(A, { build: 'success', test: 'success' }) }));
-    d.must(t.id, { kind: 'head_drift', expected: A, observed: B, source: 'observation', evidence_ref: 'obs:B' });
+    d.must(
+      t.id,
+      observation(d, t, 'open', A, {
+        ci: ci(A, { build: 'success', test: 'success' }),
+      }),
+    );
+    d.must(t.id, {
+      kind: 'head_drift',
+      expected: A,
+      observed: B,
+      source: 'observation',
+      evidence_ref: 'obs:B',
+    });
     const s = d.task(t.id);
-    expect(s).toMatchObject({ status: 'WAITING', wait: { reason: 'policy', detail: { code: 'head_changed', observed: B } } });
+    expect(s).toMatchObject({
+      status: 'WAITING',
+      wait: { reason: 'policy', detail: { code: 'head_changed', observed: B } },
+    });
     expect(s.head_sha).toBe(A);
     expect(d.pending(t.id)).toEqual([]);
   });
@@ -258,39 +632,90 @@ describe('green PR under observation (US2.7/US2.8, US1.7, FR-041)', () => {
     const d = setup();
     const t = buildTask();
     toGreen(d, t);
-    d.must(t.id, observation(d, t, 'open', A, { ci: ci(A, { build: 'success', test: 'success' }) }));
+    d.must(
+      t.id,
+      observation(d, t, 'open', A, {
+        ci: ci(A, { build: 'success', test: 'success' }),
+      }),
+    );
     const before = d.task(t.id);
     d.now += 60_000;
-    d.must(t.id, observation(d, t, 'open', A, { ci: ci(A, { build: 'success', test: 'success' }), digest: hashCanonical('base moved') }));
+    d.must(
+      t.id,
+      observation(d, t, 'open', A, {
+        ci: ci(A, { build: 'success', test: 'success' }),
+        digest: hashCanonical('base moved'),
+      }),
+    );
     const after = d.task(t.id);
     expect(after.wait).toEqual(before.wait);
     expect(after.evidence).toEqual(before.evidence);
     expect(d.pending(t.id)).toEqual([]);
     // A changed remote only resets the cadence; the window stays.
-    expect(after.observation?.budget).toMatchObject({ cadence_index: 0, deadline_at: before.observation?.budget.deadline_at });
+    expect(after.observation?.budget).toMatchObject({
+      cadence_index: 0,
+      deadline_at: before.observation?.budget.deadline_at,
+    });
   });
 
   it('US2.7: GitHub starting to require an uncovered check withdraws green; once covered again, green returns', () => {
     const d = setup();
     const t = buildTask();
     toGreen(d, t);
-    const mismatch: RequiredCheckVerdict = { kind: 'required_checks_mismatch', missing_from_snapshot: ['security'], app_pinned: [], snapshot_only: [] };
-    d.must(t.id, observation(d, t, 'open', A, { ci: ci(A, { build: 'success', test: 'success' }, mismatch) }));
-    expect(d.task(t.id)).toMatchObject({ status: 'WAITING', wait: { reason: 'policy', detail: { code: 'required_checks_mismatch', github_only: ['security'] } } });
+    const mismatch: RequiredCheckVerdict = {
+      kind: 'required_checks_mismatch',
+      missing_from_snapshot: ['security'],
+      app_pinned: [],
+      snapshot_only: [],
+    };
+    d.must(
+      t.id,
+      observation(d, t, 'open', A, {
+        ci: ci(A, { build: 'success', test: 'success' }, mismatch),
+      }),
+    );
+    expect(d.task(t.id)).toMatchObject({
+      status: 'WAITING',
+      wait: {
+        reason: 'policy',
+        detail: { code: 'required_checks_mismatch', github_only: ['security'] },
+      },
+    });
     d.now += 60_000;
-    d.must(t.id, observation(d, t, 'open', A, { ci: ci(A, { build: 'success', test: 'success' }) }));
-    expect(d.task(t.id)).toMatchObject({ status: 'WAITING', wait: { reason: 'approval', detail: { code: 'merge' } } });
+    d.must(
+      t.id,
+      observation(d, t, 'open', A, {
+        ci: ci(A, { build: 'success', test: 'success' }),
+      }),
+    );
+    expect(d.task(t.id)).toMatchObject({
+      status: 'WAITING',
+      wait: { reason: 'approval', detail: { code: 'merge' } },
+    });
   });
 
   it('US2.8: a rerun that turns a check pending withdraws green; a failure goes through the CI repair loop', () => {
     const d = setup();
     const t = buildTask();
     toGreen(d, t, 'direct-pr');
-    d.must(t.id, observation(d, t, 'open', A, { ci: ci(A, { build: 'success', test: 'pending' }) }));
-    expect(d.task(t.id)).toMatchObject({ status: 'WAITING', wait: { reason: 'ci', detail: { code: 'checks_incomplete' } } });
+    d.must(
+      t.id,
+      observation(d, t, 'open', A, {
+        ci: ci(A, { build: 'success', test: 'pending' }),
+      }),
+    );
+    expect(d.task(t.id)).toMatchObject({
+      status: 'WAITING',
+      wait: { reason: 'ci', detail: { code: 'checks_incomplete' } },
+    });
     d.now += 60_000;
     d.fire();
-    d.complete(t.id, d.pendingOne(t.id, 'await_ci').id, 'succeeded', ci(A, { build: 'success', test: 'failure' }));
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'await_ci').id,
+      'succeeded',
+      ci(A, { build: 'success', test: 'failure' }),
+    );
     grant(d);
     expect(stepOf(d, t, d.pendingOne(t.id, 'start_agent'))).toBe('ci_fix');
   });
@@ -300,12 +725,20 @@ describe('green PR under observation (US2.7/US2.8, US1.7, FR-041)', () => {
     const t = buildTask();
     toGreen(d, t);
     d.must(t.id, observation(d, t, 'closed', A));
-    expect(d.task(t.id)).toMatchObject({ status: 'WAITING', wait: { reason: 'policy', detail: { code: 'pr_closed', pr_ref: 'acme#7' } } });
+    expect(d.task(t.id)).toMatchObject({
+      status: 'WAITING',
+      wait: {
+        reason: 'policy',
+        detail: { code: 'pr_closed', pr_ref: 'acme#7' },
+      },
+    });
     expect(d.pending(t.id)).toEqual([]);
     expect(d.task(t.id).terminal).toBeNull();
     d.now += 120_000;
     d.must(t.id, observation(d, t, 'open', A));
-    expect(d.pendingOne(t.id, 'await_ci').request).toMatchObject({ head_sha: A });
+    expect(d.pendingOne(t.id, 'await_ci').request).toMatchObject({
+      head_sha: A,
+    });
     expect(effects(d, t, 'create_pr')).toHaveLength(1);
   });
 
@@ -313,13 +746,35 @@ describe('green PR under observation (US2.7/US2.8, US1.7, FR-041)', () => {
     const d = setup();
     const t = buildTask();
     toGreen(d, t);
-    d.must(t.id, observation(d, t, 'open', A, { ci: ci(A, { build: 'success', test: 'success' }) }));
+    d.must(
+      t.id,
+      observation(d, t, 'open', A, {
+        ci: ci(A, { build: 'success', test: 'success' }),
+      }),
+    );
     d.now += 60_000;
     d.must(t.id, observation(d, t, 'unknown', null));
-    expect(d.task(t.id)).toMatchObject({ status: 'WAITING', wait: { reason: 'infra', detail: { code: 'observation_unknown', last_observation: { status: 'unknown' } } } });
+    expect(d.task(t.id)).toMatchObject({
+      status: 'WAITING',
+      wait: {
+        reason: 'infra',
+        detail: {
+          code: 'observation_unknown',
+          last_observation: { status: 'unknown' },
+        },
+      },
+    });
     d.now += 120_000;
-    d.must(t.id, observation(d, t, 'open', A, { ci: ci(A, { build: 'success', test: 'success' }) }));
-    expect(d.task(t.id)).toMatchObject({ status: 'WAITING', wait: { reason: 'approval', detail: { code: 'merge' } } });
+    d.must(
+      t.id,
+      observation(d, t, 'open', A, {
+        ci: ci(A, { build: 'success', test: 'success' }),
+      }),
+    );
+    expect(d.task(t.id)).toMatchObject({
+      status: 'WAITING',
+      wait: { reason: 'approval', detail: { code: 'merge' } },
+    });
   });
 });
 
@@ -329,24 +784,55 @@ describe('CI and execution limits vs observation (US2.9/US2.10, FR-043.08–11)'
     const t = buildTask();
     createGrantStart(d, t, 'direct-pr', { limits: { max_wall_ms: 6 * HOUR } });
     toPublish(d, t, A);
-    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
-    d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', { pr_ref: 'acme#7', head_sha: A });
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'publish').id,
+      'succeeded',
+      publishData(A),
+    );
+    d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
+      pr_ref: 'acme#7',
+      head_sha: A,
+    });
     for (let i = 0; i < 200 && code(d, t) !== 'ci_wait_exhausted'; i++) {
-      d.complete(t.id, d.pendingOne(t.id, 'await_ci').id, 'succeeded', ci(A, { build: 'success', test: 'pending' }));
+      d.complete(
+        t.id,
+        d.pendingOne(t.id, 'await_ci').id,
+        'succeeded',
+        ci(A, { build: 'success', test: 'pending' }),
+      );
       if (code(d, t) === 'ci_wait_exhausted') break;
       d.now += 60_000;
       d.fire();
     }
     const s = d.task(t.id);
-    expect(s).toMatchObject({ status: 'WAITING', wait: { reason: 'ci', detail: { code: 'ci_wait_exhausted', head_sha: A, max_polls: 60 } } });
+    expect(s).toMatchObject({
+      status: 'WAITING',
+      wait: {
+        reason: 'ci',
+        detail: { code: 'ci_wait_exhausted', head_sha: A, max_polls: 60 },
+      },
+    });
     expect(s.run.ci_wait[A]?.polls).toBeLessThanOrEqual(60);
     expect(effects(d, t, 'await_ci').length).toBe(s.run.ci_wait[A]?.polls);
-    expect(Object.values(s.timers).filter((x) => x.status === 'armed' && x.kind === 'ci_poll')).toEqual([]);
+    expect(
+      Object.values(s.timers).filter(
+        (x) => x.status === 'armed' && x.kind === 'ci_poll',
+      ),
+    ).toEqual([]);
     // The observation keeps watching; a late pass is recorded and changes nothing else.
-    d.must(t.id, observation(d, t, 'open', A, { ci: ci(A, { build: 'success', test: 'success' }) }));
+    d.must(
+      t.id,
+      observation(d, t, 'open', A, {
+        ci: ci(A, { build: 'success', test: 'success' }),
+      }),
+    );
     const after = d.task(t.id);
     expect(after.wait?.detail.code).toBe('ci_wait_exhausted');
-    expect(after.evidence.ci.at(-1)?.checks.map((c) => c.state)).toEqual(['success', 'success']);
+    expect(after.evidence.ci.at(-1)?.checks.map((c) => c.state)).toEqual([
+      'success',
+      'success',
+    ]);
     expect(d.pending(t.id)).toEqual([]);
     // A merge still completes the task.
     merge(d, t, A);
@@ -357,16 +843,32 @@ describe('CI and execution limits vs observation (US2.9/US2.10, FR-043.08–11)'
     const d = setup();
     const t = buildTask();
     toGreen(d, t);
-    d.must(t.id, observation(d, t, 'open', A, { ci: ci(A, { build: 'success', test: 'success' }) }));
+    d.must(
+      t.id,
+      observation(d, t, 'open', A, {
+        ci: ci(A, { build: 'success', test: 'success' }),
+      }),
+    );
     d.now += 2 * HOUR;
     d.fire();
-    expect(d.task(t.id)).toMatchObject({ status: 'WAITING', wait: { reason: 'policy', detail: { code: 'deadline' } } });
+    expect(d.task(t.id)).toMatchObject({
+      status: 'WAITING',
+      wait: { reason: 'policy', detail: { code: 'deadline' } },
+    });
     const count = d.task(t.id).observation?.budget.count ?? 0;
-    d.must(t.id, observation(d, t, 'open', A, { ci: ci(A, { build: 'success', test: 'pending' }) }));
+    d.must(
+      t.id,
+      observation(d, t, 'open', A, {
+        ci: ci(A, { build: 'success', test: 'pending' }),
+      }),
+    );
     expect(d.task(t.id).observation?.budget.count).toBe(count + 1);
     expect(d.pending(t.id)).toEqual([]);
     merge(d, t, A);
-    expect(d.task(t.id)).toMatchObject({ status: 'DONE', completion: { unverified: null } });
+    expect(d.task(t.id)).toMatchObject({
+      status: 'DONE',
+      completion: { unverified: null },
+    });
   });
 
   it('US1.9: past the task deadline a CI failure starts no fix; the task waits on the deadline', () => {
@@ -374,15 +876,38 @@ describe('CI and execution limits vs observation (US2.9/US2.10, FR-043.08–11)'
     const t = buildTask();
     createGrantStart(d, t, 'direct-pr');
     toPublish(d, t, A);
-    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
-    d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', { pr_ref: 'acme#7', head_sha: A });
-    d.complete(t.id, d.pendingOne(t.id, 'await_ci').id, 'succeeded', ci(A, { build: 'success', test: 'pending' }));
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'publish').id,
+      'succeeded',
+      publishData(A),
+    );
+    d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
+      pr_ref: 'acme#7',
+      head_sha: A,
+    });
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'await_ci').id,
+      'succeeded',
+      ci(A, { build: 'success', test: 'pending' }),
+    );
     d.now += 2 * HOUR;
     d.fire();
-    expect(d.task(t.id)).toMatchObject({ status: 'WAITING', wait: { reason: 'policy', detail: { code: 'deadline' } } });
+    expect(d.task(t.id)).toMatchObject({
+      status: 'WAITING',
+      wait: { reason: 'policy', detail: { code: 'deadline' } },
+    });
     // The CI poll of a business wait is refused past the deadline; the observation still reads the PR.
-    expect(d.pending(t.id, 'await_ci').every((e) => !d.claim(e.id).ok)).toBe(true);
-    d.must(t.id, observation(d, t, 'open', A, { ci: ci(A, { build: 'success', test: 'failure' }) }));
+    expect(d.pending(t.id, 'await_ci').every((e) => !d.claim(e.id).ok)).toBe(
+      true,
+    );
+    d.must(
+      t.id,
+      observation(d, t, 'open', A, {
+        ci: ci(A, { build: 'success', test: 'failure' }),
+      }),
+    );
     expect(d.task(t.id).wait?.detail.code).toBe('deadline');
     expect(effects(d, t, 'start_agent', 'ci_fix')).toEqual([]);
   });
@@ -396,10 +921,26 @@ describe('observation vs the CI window, merge proof and target (PR review)', () 
     const t = buildTask();
     toGreen(d, t, 'direct-pr', LONG);
     d.now += 2 * HOUR;
-    d.must(t.id, observation(d, t, 'open', A, { ci: ci(A, { build: 'success', test: 'failure' }) }));
+    d.must(
+      t.id,
+      observation(d, t, 'open', A, {
+        ci: ci(A, { build: 'success', test: 'failure' }),
+      }),
+    );
     grant(d);
-    expect(d.task(t.id)).toMatchObject({ status: 'WAITING', wait: { reason: 'ci', detail: { code: 'ci_wait_exhausted', head_sha: A, withdrawn: 'merge' } } });
-    expect(d.task(t.id).evidence.ci.at(-1)?.checks.map((c) => c.state)).toEqual(['success', 'failure']);
+    expect(d.task(t.id)).toMatchObject({
+      status: 'WAITING',
+      wait: {
+        reason: 'ci',
+        detail: { code: 'ci_wait_exhausted', head_sha: A, withdrawn: 'merge' },
+      },
+    });
+    expect(
+      d
+        .task(t.id)
+        .evidence.ci.at(-1)
+        ?.checks.map((c) => c.state),
+    ).toEqual(['success', 'failure']);
     expect(d.pending(t.id)).toEqual([]);
     expect(effects(d, t, 'start_agent', 'ci_fix')).toEqual([]);
   });
@@ -429,7 +970,13 @@ describe('observation vs the CI window, merge proof and target (PR review)', () 
     const s = d.task(t.id);
     expect(s.completion).toBeNull();
     expect(s.observation?.budget.next_due_at).toBeGreaterThan(d.now);
-    expect(s).toMatchObject({ status: 'WAITING', wait: { reason: 'policy', detail: { code: 'merge_evidence_incomplete', pr_ref: 'acme#7' } } });
+    expect(s).toMatchObject({
+      status: 'WAITING',
+      wait: {
+        reason: 'policy',
+        detail: { code: 'merge_evidence_incomplete', pr_ref: 'acme#7' },
+      },
+    });
     expect(d.pending(t.id)).toEqual([]);
     d.now = s.observation?.budget.next_due_at ?? d.now;
     merge(d, t, A);
@@ -441,17 +988,41 @@ describe('observation vs the CI window, merge proof and target (PR review)', () 
     const t = buildTask();
     createGrantStart(d, t, 'direct-pr', LONG);
     toPublish(d, t, A);
-    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
-    d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', { pr_ref: 'acme#7', head_sha: A });
-    d.complete(t.id, d.pendingOne(t.id, 'await_ci').id, 'succeeded', ci(A, { build: 'success', test: 'failure' }));
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'publish').id,
+      'succeeded',
+      publishData(A),
+    );
+    d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
+      pr_ref: 'acme#7',
+      head_sha: A,
+    });
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'await_ci').id,
+      'succeeded',
+      ci(A, { build: 'success', test: 'failure' }),
+    );
     grant(d);
     const fixer = d.pendingOne(t.id, 'start_agent');
     expect(stepOf(d, t, fixer)).toBe('ci_fix');
     expect(d.claim(fixer.id).ok).toBe(true);
-    d.must(t.id, observation(d, t, 'merged', A, { source: 'recheck', merge_proof: false }));
-    d.must(t.id, { kind: 'effect_result', effect_id: fixer.id as Uuid, outcome: 'succeeded', data: agentData('done') });
+    d.must(
+      t.id,
+      observation(d, t, 'merged', A, { source: 'recheck', merge_proof: false }),
+    );
+    d.must(t.id, {
+      kind: 'effect_result',
+      effect_id: fixer.id as Uuid,
+      outcome: 'succeeded',
+      data: agentData('done'),
+    });
     expect(d.pending(t.id, 'run_gates')).toEqual([]);
-    expect(d.task(t.id)).toMatchObject({ status: 'WAITING', wait: { reason: 'policy', detail: { code: 'merge_evidence_incomplete' } } });
+    expect(d.task(t.id)).toMatchObject({
+      status: 'WAITING',
+      wait: { reason: 'policy', detail: { code: 'merge_evidence_incomplete' } },
+    });
   });
 
   it('FR-040.12: a business effect enqueued before an incomplete merge is seen is never claimed; an accepted proof withdraws it', () => {
@@ -459,80 +1030,208 @@ describe('observation vs the CI window, merge proof and target (PR review)', () 
     const t = buildTask();
     createGrantStart(d, t, 'direct-pr', LONG);
     toPublish(d, t, A);
-    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
-    d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', { pr_ref: 'acme#7', head_sha: A });
-    d.complete(t.id, d.pendingOne(t.id, 'await_ci').id, 'succeeded', ci(A, { build: 'success', test: 'failure' }));
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'publish').id,
+      'succeeded',
+      publishData(A),
+    );
+    d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
+      pr_ref: 'acme#7',
+      head_sha: A,
+    });
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'await_ci').id,
+      'succeeded',
+      ci(A, { build: 'success', test: 'failure' }),
+    );
     grant(d);
     const fixer = d.pendingOne(t.id, 'start_agent');
-    d.must(t.id, observation(d, t, 'merged', A, { source: 'recheck', merge_proof: false }));
-    expect(d.claim(fixer.id)).toEqual({ ok: false, error: { code: 'claim_blocked', reason: 'merge_evidence_incomplete' } });
+    d.must(
+      t.id,
+      observation(d, t, 'merged', A, { source: 'recheck', merge_proof: false }),
+    );
+    expect(d.claim(fixer.id)).toEqual({
+      ok: false,
+      error: { code: 'claim_blocked', reason: 'merge_evidence_incomplete' },
+    });
     d.must(t.id, observation(d, t, 'unknown', null, { source: 'recheck' }));
-    expect(d.claim(fixer.id)).toMatchObject({ ok: false, error: { reason: 'merge_evidence_incomplete' } });
+    expect(d.claim(fixer.id)).toMatchObject({
+      ok: false,
+      error: { reason: 'merge_evidence_incomplete' },
+    });
     merge(d, t, A, 'recheck');
     expect(d.task(t.id).effects[fixer.id]?.status).toBe('invalidated');
   });
 
-  it.each(['unknown', 'open', 'closed'] as const)('FR-040.12: a later %s read never lifts the hold of an incomplete merge; only an accepted proof does', (later) => {
-    const d = setup();
-    const t = buildTask();
-    createGrantStart(d, t, 'direct-pr', LONG);
-    toPublish(d, t, A);
-    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
-    d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', { pr_ref: 'acme#7', head_sha: A });
-    d.complete(t.id, d.pendingOne(t.id, 'await_ci').id, 'succeeded', ci(A, { build: 'success', test: 'failure' }));
-    grant(d);
-    const fixer = d.pendingOne(t.id, 'start_agent');
-    expect(d.claim(fixer.id).ok).toBe(true);
-    d.must(t.id, observation(d, t, 'merged', A, { source: 'recheck', merge_proof: false }));
-    d.must(t.id, observation(d, t, later, later === 'unknown' ? null : A, { source: 'recheck' }));
-    expect(d.task(t.id).blockers.map((b) => b.code)).toContain('merge_evidence_incomplete');
-    d.must(t.id, { kind: 'effect_result', effect_id: fixer.id as Uuid, outcome: 'succeeded', data: agentData('done') });
-    expect(d.pending(t.id, 'run_gates')).toEqual([]);
-    expect(d.pending(t.id).filter((e) => e.kind !== 'stop_attempt' && e.kind !== 'reconcile')).toEqual([]);
-    expect(replay(d.store.readEvents(t.id))?.blockers).toEqual(d.task(t.id).blockers);
-    merge(d, t, A, 'recheck');
-    expect(d.task(t.id).blockers.map((b) => b.code)).not.toContain('merge_evidence_incomplete');
-    expect(d.task(t.id).completion).not.toBeNull();
-  });
+  it.each(['unknown', 'open', 'closed'] as const)(
+    'FR-040.12: a later %s read never lifts the hold of an incomplete merge; only an accepted proof does',
+    (later) => {
+      const d = setup();
+      const t = buildTask();
+      createGrantStart(d, t, 'direct-pr', LONG);
+      toPublish(d, t, A);
+      d.complete(
+        t.id,
+        d.pendingOne(t.id, 'publish').id,
+        'succeeded',
+        publishData(A),
+      );
+      d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
+        pr_ref: 'acme#7',
+        head_sha: A,
+      });
+      d.complete(
+        t.id,
+        d.pendingOne(t.id, 'await_ci').id,
+        'succeeded',
+        ci(A, { build: 'success', test: 'failure' }),
+      );
+      grant(d);
+      const fixer = d.pendingOne(t.id, 'start_agent');
+      expect(d.claim(fixer.id).ok).toBe(true);
+      d.must(
+        t.id,
+        observation(d, t, 'merged', A, {
+          source: 'recheck',
+          merge_proof: false,
+        }),
+      );
+      d.must(
+        t.id,
+        observation(d, t, later, later === 'unknown' ? null : A, {
+          source: 'recheck',
+        }),
+      );
+      expect(d.task(t.id).blockers.map((b) => b.code)).toContain(
+        'merge_evidence_incomplete',
+      );
+      d.must(t.id, {
+        kind: 'effect_result',
+        effect_id: fixer.id as Uuid,
+        outcome: 'succeeded',
+        data: agentData('done'),
+      });
+      expect(d.pending(t.id, 'run_gates')).toEqual([]);
+      expect(
+        d
+          .pending(t.id)
+          .filter((e) => e.kind !== 'stop_attempt' && e.kind !== 'reconcile'),
+      ).toEqual([]);
+      expect(replay(d.store.readEvents(t.id))?.blockers).toEqual(
+        d.task(t.id).blockers,
+      );
+      merge(d, t, A, 'recheck');
+      expect(d.task(t.id).blockers.map((b) => b.code)).not.toContain(
+        'merge_evidence_incomplete',
+      );
+      expect(d.task(t.id).completion).not.toBeNull();
+    },
+  );
 
-  it.each(['failure', 'success'] as const)('FR-043.08: a CI answer (%s) to a poll sent in time but landing after the window is evidence only', (test) => {
-    const d = setup();
-    const t = buildTask();
-    createGrantStart(d, t, 'direct-pr', LONG);
-    toPublish(d, t, A);
-    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
-    d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', { pr_ref: 'acme#7', head_sha: A });
-    const poll = d.pendingOne(t.id, 'await_ci');
-    d.now += 2 * HOUR;
-    d.complete(t.id, poll.id, 'succeeded', ci(A, { build: 'success', test }));
-    grant(d);
-    expect(d.task(t.id)).toMatchObject({ status: 'WAITING', wait: { reason: 'ci', detail: { code: 'ci_wait_exhausted', head_sha: A, late_result: true } } });
-    expect(d.task(t.id).evidence.ci.at(-1)?.checks.map((c) => c.state)).toEqual(['success', test]);
-    expect(d.pending(t.id)).toEqual([]);
-  });
+  it.each(['failure', 'success'] as const)(
+    'FR-043.08: a CI answer (%s) to a poll sent in time but landing after the window is evidence only',
+    (test) => {
+      const d = setup();
+      const t = buildTask();
+      createGrantStart(d, t, 'direct-pr', LONG);
+      toPublish(d, t, A);
+      d.complete(
+        t.id,
+        d.pendingOne(t.id, 'publish').id,
+        'succeeded',
+        publishData(A),
+      );
+      d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
+        pr_ref: 'acme#7',
+        head_sha: A,
+      });
+      const poll = d.pendingOne(t.id, 'await_ci');
+      d.now += 2 * HOUR;
+      d.complete(t.id, poll.id, 'succeeded', ci(A, { build: 'success', test }));
+      grant(d);
+      expect(d.task(t.id)).toMatchObject({
+        status: 'WAITING',
+        wait: {
+          reason: 'ci',
+          detail: { code: 'ci_wait_exhausted', head_sha: A, late_result: true },
+        },
+      });
+      expect(
+        d
+          .task(t.id)
+          .evidence.ci.at(-1)
+          ?.checks.map((c) => c.state),
+      ).toEqual(['success', test]);
+      expect(d.pending(t.id)).toEqual([]);
+    },
+  );
 
   it('FR-041.05: an observation of a PR retargeted elsewhere withdraws green as target_mismatch; retargeted back, CI is checked again', () => {
     const d = setup();
     const t = buildTask();
     toGreen(d, t, 'full-review', LONG);
-    d.must(t.id, observation(d, t, 'unknown', A, { target: { ref: 'other', merged: false } }));
-    expect(d.task(t.id)).toMatchObject({ status: 'WAITING', wait: { reason: 'policy', detail: { code: 'target_mismatch', expected: t.base_branch, observed: 'other', merged: false } } });
+    d.must(
+      t.id,
+      observation(d, t, 'unknown', A, {
+        target: { ref: 'other', merged: false },
+      }),
+    );
+    expect(d.task(t.id)).toMatchObject({
+      status: 'WAITING',
+      wait: {
+        reason: 'policy',
+        detail: {
+          code: 'target_mismatch',
+          expected: t.base_branch,
+          observed: 'other',
+          merged: false,
+        },
+      },
+    });
     expect(d.pending(t.id)).toEqual([]);
     d.now += 60_000;
-    d.must(t.id, observation(d, t, 'open', A, { ci: ci(A, { build: 'success', test: 'success' }) }));
-    expect(d.pendingOne(t.id, 'await_ci').request).toMatchObject({ head_sha: A });
+    d.must(
+      t.id,
+      observation(d, t, 'open', A, {
+        ci: ci(A, { build: 'success', test: 'success' }),
+      }),
+    );
+    expect(d.pendingOne(t.id, 'await_ci').request).toMatchObject({
+      head_sha: A,
+    });
   });
 
   it('FR-040.12: a PR merged into another branch waits target_mismatch for a person; no later read moves it and observing stops', () => {
     const d = setup();
     const t = buildTask();
     toGreen(d, t, 'full-review', LONG);
-    d.must(t.id, observation(d, t, 'unknown', A, { target: { ref: 'other', merged: true } }));
-    const w = { status: 'WAITING', wait: { reason: 'policy', resume_when: ['amend'], exit_paths: ['cancel'], detail: { code: 'target_mismatch', observed: 'other', merged: true } } };
+    d.must(
+      t.id,
+      observation(d, t, 'unknown', A, {
+        target: { ref: 'other', merged: true },
+      }),
+    );
+    const w = {
+      status: 'WAITING',
+      wait: {
+        reason: 'policy',
+        resume_when: ['amend'],
+        exit_paths: ['cancel'],
+        detail: { code: 'target_mismatch', observed: 'other', merged: true },
+      },
+    };
     expect(d.task(t.id)).toMatchObject(w);
     expect(d.task(t.id).completion).toBeNull();
     d.now += 60_000;
-    d.must(t.id, observation(d, t, 'open', A, { source: 'recheck', ci: ci(A, { build: 'success', test: 'success' }) }));
+    d.must(
+      t.id,
+      observation(d, t, 'open', A, {
+        source: 'recheck',
+        ci: ci(A, { build: 'success', test: 'success' }),
+      }),
+    );
     d.must(t.id, observation(d, t, 'unknown', null, { source: 'recheck' }));
     expect(d.task(t.id)).toMatchObject(w);
   });
@@ -543,15 +1242,32 @@ describe('observation window (US2.11, FR-043.04–06, FR-046.05/06)', () => {
     const d = setup();
     const t = buildTask();
     toGreen(d, t);
-    d.must(t.id, observation(d, t, 'open', A, { ci: ci(A, { build: 'success', test: 'success' }) }));
+    d.must(
+      t.id,
+      observation(d, t, 'open', A, {
+        ci: ci(A, { build: 'success', test: 'success' }),
+      }),
+    );
     const window = d.task(t.id).observation?.budget;
     // Not due yet: nothing changes.
-    expect(d.must(t.id, { kind: 'observation_due' }).decision).toMatchObject({ kind: 'accepted' });
+    expect(d.must(t.id, { kind: 'observation_due' }).decision).toMatchObject({
+      kind: 'accepted',
+    });
     expect(types(d, t).at(-1)).toBe('SignalIgnored');
     d.now += 31 * DAY;
     d.must(t.id, { kind: 'observation_due' });
     const s = d.task(t.id);
-    expect(s).toMatchObject({ status: 'WAITING', wait: { reason: 'policy', detail: { code: 'observation_expired', prior_wait: { detail: { code: 'merge' } } } }, observation: { expired: true } });
+    expect(s).toMatchObject({
+      status: 'WAITING',
+      wait: {
+        reason: 'policy',
+        detail: {
+          code: 'observation_expired',
+          prior_wait: { detail: { code: 'merge' } },
+        },
+      },
+      observation: { expired: true },
+    });
     expect(s.blockers.map((b) => b.code)).toContain('observation_expired');
     // A late automatic round is history only.
     d.must(t.id, observation(d, t, 'open', A));
@@ -561,7 +1277,11 @@ describe('observation window (US2.11, FR-043.04–06, FR-046.05/06)', () => {
     d.must(t.id, observation(d, t, 'open', A, { source: 'recheck' }));
     const r = d.task(t.id);
     expect(r.wait?.detail.code).toBe('observation_expired');
-    expect(r.observation?.budget).toMatchObject({ deadline_at: window?.deadline_at, started_at: window?.started_at, exhausted: true });
+    expect(r.observation?.budget).toMatchObject({
+      deadline_at: window?.deadline_at,
+      started_at: window?.started_at,
+      exhausted: true,
+    });
     merge(d, t, A, 'recheck');
     expect(d.task(t.id).status).toBe('DONE');
   });
@@ -577,7 +1297,10 @@ describe('observation window (US2.11, FR-043.04–06, FR-046.05/06)', () => {
     const second = observation(d, t, 'open', A, { generation: g });
     d.must(t.id, first);
     d.must(t.id, second);
-    expect(d.task(t.id).observation?.budget).toMatchObject({ count: 2, generation: g + 1 });
+    expect(d.task(t.id).observation?.budget).toMatchObject({
+      count: 2,
+      generation: g + 1,
+    });
     expect(types(d, t).at(-1)).toBe('SignalIgnored');
   });
 
@@ -586,21 +1309,40 @@ describe('observation window (US2.11, FR-043.04–06, FR-046.05/06)', () => {
     const t = buildTask();
     toGreen(d, t);
     for (let i = 0; i < 4; i++) {
-      d.must(t.id, observation(d, t, 'open', A, { digest: hashCanonical('same') }));
+      d.must(
+        t.id,
+        observation(d, t, 'open', A, { digest: hashCanonical('same') }),
+      );
       d.now += 60_000;
     }
     const s = d.task(t.id);
     expect(s.observation?.budget).toMatchObject({ count: 4, cadence_index: 3 });
-    expect(replay(d.store.readEvents(t.id))?.observation).toEqual(s.observation);
+    expect(replay(d.store.readEvents(t.id))?.observation).toEqual(
+      s.observation,
+    );
   });
 });
 
 describe('recheck service (T062, FR-046)', () => {
   let idSeq = 40_000;
-  const owner: Caller = { grant: { id: 'owner', actor: 'owner', roles: ['read', 'operate', 'admin'], projects: '*' } };
-  const reader: Caller = { grant: { id: 'r', actor: 'reader', roles: ['read'], projects: '*' } };
+  const owner: Caller = {
+    grant: {
+      id: 'owner',
+      actor: 'owner',
+      roles: ['read', 'operate', 'admin'],
+      projects: '*',
+    },
+  };
+  const reader: Caller = {
+    grant: { id: 'r', actor: 'reader', roles: ['read'], projects: '*' },
+  };
 
-  function deps(d: StoreDriver, t: CanonicalTask, calls: { observe: number; drain: number }, facts: () => Trigger[]): RecheckDeps {
+  function deps(
+    d: StoreDriver,
+    t: CanonicalTask,
+    calls: { observe: number; drain: number },
+    facts: () => Trigger[],
+  ): RecheckDeps {
     return {
       store: d.store,
       ports: null as never,
@@ -618,7 +1360,13 @@ describe('recheck service (T062, FR-046)', () => {
       },
     };
   }
-  const cmd = (d: StoreDriver, t: CanonicalTask, id: number) => ({ request_id: uuidOf(id), project: t.project, task_id: t.id, expected_version: d.task(t.id).version, assigned_ids: [uuidOf(id + 1), uuidOf(id + 2)] });
+  const cmd = (d: StoreDriver, t: CanonicalTask, id: number) => ({
+    request_id: uuidOf(id),
+    project: t.project,
+    task_id: t.id,
+    expected_version: d.task(t.id).version,
+    assigned_ids: [uuidOf(id + 1), uuidOf(id + 2)],
+  });
 
   it('needs operate; a task with a PR is observed once and the same request ID replays without another read', async () => {
     const d = setup();
@@ -627,11 +1375,26 @@ describe('recheck service (T062, FR-046)', () => {
     d.must(t.id, observation(d, t, 'open', A));
     const before = d.task(t.id).observation?.budget;
     const calls = { observe: 0, drain: 0 };
-    const dep = deps(d, t, calls, () => [observation(d, t, 'open', A, { source: 'recheck', ci: ci(A, { build: 'success', test: 'success' }) })]);
-    expect(await recheckTask(dep, reader, cmd(d, t, 500))).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+    const dep = deps(d, t, calls, () => [
+      observation(d, t, 'open', A, {
+        source: 'recheck',
+        ci: ci(A, { build: 'success', test: 'success' }),
+      }),
+    ]);
+    expect(await recheckTask(dep, reader, cmd(d, t, 500))).toMatchObject({
+      ok: false,
+      error: { code: 'forbidden' },
+    });
     const c = cmd(d, t, 510);
     const r = await recheckTask(dep, owner, c);
-    expect(r).toMatchObject({ ok: true, value: { target: 'observation', performed: true, facts: [{ kind: 'observation_result', accepted: true }] } });
+    expect(r).toMatchObject({
+      ok: true,
+      value: {
+        target: 'observation',
+        performed: true,
+        facts: [{ kind: 'observation_result', accepted: true }],
+      },
+    });
     const again = await recheckTask(dep, owner, c);
     expect(again).toMatchObject({ ok: true, value: { performed: false } });
     expect(calls.observe).toBe(1);
@@ -645,23 +1408,51 @@ describe('recheck service (T062, FR-046)', () => {
     const t = buildTask();
     toGreen(d, t, 'direct-pr');
     // A rerun turned a check pending; the CI poll is in flight when the user merges.
-    d.must(t.id, observation(d, t, 'open', A, { ci: ci(A, { build: 'success', test: 'pending' }) }));
+    d.must(
+      t.id,
+      observation(d, t, 'open', A, {
+        ci: ci(A, { build: 'success', test: 'pending' }),
+      }),
+    );
     d.now += 60_000;
     d.fire();
     const poll = d.pendingOne(t.id, 'await_ci');
     d.claim(poll.id);
     merge(d, t, A);
-    for (let i = 0; i < 3; i++) d.must(t.id, { kind: 'drain_result', pending_operations: [] });
-    expect(d.task(t.id).completion?.drain).toMatchObject({ paused: true, auto_exhausted: true, count: 3 });
+    for (let i = 0; i < 3; i++)
+      d.must(t.id, { kind: 'drain_result', pending_operations: [] });
+    expect(d.task(t.id).completion?.drain).toMatchObject({
+      paused: true,
+      auto_exhausted: true,
+      count: 3,
+    });
     d.now += 3 * HOUR;
     const calls = { observe: 0, drain: 0 };
-    const r = await recheckTask(deps(d, t, calls, () => []), owner, cmd(d, t, 600));
-    expect(r).toMatchObject({ ok: true, value: { target: 'drain', performed: true } });
+    const r = await recheckTask(
+      deps(d, t, calls, () => []),
+      owner,
+      cmd(d, t, 600),
+    );
+    expect(r).toMatchObject({
+      ok: true,
+      value: { target: 'drain', performed: true },
+    });
     expect(calls).toEqual({ observe: 0, drain: 1 });
-    expect(d.task(t.id).completion?.drain).toMatchObject({ count: 4, paused: true });
-    expect(d.task(t.id)).toMatchObject({ status: 'WAITING', wait: { detail: { code: 'merge_cleanup_pending' } } });
+    expect(d.task(t.id).completion?.drain).toMatchObject({
+      count: 4,
+      paused: true,
+    });
+    expect(d.task(t.id)).toMatchObject({
+      status: 'WAITING',
+      wait: { detail: { code: 'merge_cleanup_pending' } },
+    });
     // The poll's own result resolves the last open effect: DONE exactly once, no business route.
-    d.must(t.id, { kind: 'effect_result', effect_id: poll.id as Uuid, outcome: 'succeeded', data: ci(A, { build: 'success', test: 'failure' }) });
+    d.must(t.id, {
+      kind: 'effect_result',
+      effect_id: poll.id as Uuid,
+      outcome: 'succeeded',
+      data: ci(A, { build: 'success', test: 'failure' }),
+    });
     expect(d.task(t.id).status).toBe('DONE');
     expect(types(d, t).filter((x) => x === 'TaskCompleted')).toHaveLength(1);
     expect(effects(d, t, 'start_agent', 'ci_fix')).toEqual([]);
@@ -671,8 +1462,24 @@ describe('recheck service (T062, FR-046)', () => {
     const d = setup();
     const t = buildTask();
     toGreen(d, t);
-    expect(d.send(t.id, { kind: 'recheck', target: 'drain' })).toMatchObject({ ok: true, value: { decision: { kind: 'rejected', detail: { reason: 'recheck_not_applicable' } } } });
-    expect(d.send(t.id, { kind: 'recheck', target: 'config' })).toMatchObject({ ok: true, value: { decision: { kind: 'rejected', detail: { reason: 'recheck_not_applicable' } } } });
+    expect(d.send(t.id, { kind: 'recheck', target: 'drain' })).toMatchObject({
+      ok: true,
+      value: {
+        decision: {
+          kind: 'rejected',
+          detail: { reason: 'recheck_not_applicable' },
+        },
+      },
+    });
+    expect(d.send(t.id, { kind: 'recheck', target: 'config' })).toMatchObject({
+      ok: true,
+      value: {
+        decision: {
+          kind: 'rejected',
+          detail: { reason: 'recheck_not_applicable' },
+        },
+      },
+    });
     d.must(t.id, observation(d, t, 'open', A));
     merge(d, t, A);
     expect(d.task(t.id).status).toBe('DONE');
@@ -691,16 +1498,46 @@ describe('source drift at the runtime boundary (T063, FR-026)', () => {
     const coder = d.pendingOne(t.id, 'start_agent');
     d.claim(coder.id);
     const before = d.task(t.id);
-    d.must(t.id, { kind: 'source_updated', task: { ...t, description: 'search by e-mail too' } });
-    expect(d.task(t.id).source_drift).toMatchObject({ pending_revision: 2, safe_boundary_reached: false });
-    d.must(t.id, { kind: 'effect_result', effect_id: coder.id as Uuid, outcome: 'succeeded', data: agentData('done') });
+    d.must(t.id, {
+      kind: 'source_updated',
+      task: { ...t, description: 'search by e-mail too' },
+    });
+    expect(d.task(t.id).source_drift).toMatchObject({
+      pending_revision: 2,
+      safe_boundary_reached: false,
+    });
+    d.must(t.id, {
+      kind: 'effect_result',
+      effect_id: coder.id as Uuid,
+      outcome: 'succeeded',
+      data: agentData('done'),
+    });
     const s = d.task(t.id);
-    expect(s).toMatchObject({ status: 'WAITING', wait: { reason: 'human_input', detail: { code: 'source_drift', apply_new: 'unsupported_for_runtime_task' } } });
+    expect(s).toMatchObject({
+      status: 'WAITING',
+      wait: {
+        reason: 'human_input',
+        detail: {
+          code: 'source_drift',
+          apply_new: 'unsupported_for_runtime_task',
+        },
+      },
+    });
     expect(s.wait?.resume_when).toEqual(['drift_choice(continue_old)']);
     expect(d.pending(t.id, 'run_gates')).toEqual([]);
     expect(s.deadline_at).toBe(before.deadline_at);
     expect(s.budget.agent_runs.used).toBe(1);
-    expect(d.send(t.id, { kind: 'drift_choice', choice: 'apply_new' })).toMatchObject({ ok: true, value: { decision: { kind: 'rejected', detail: { reason: 'runtime_revision_unsupported' } } } });
+    expect(
+      d.send(t.id, { kind: 'drift_choice', choice: 'apply_new' }),
+    ).toMatchObject({
+      ok: true,
+      value: {
+        decision: {
+          kind: 'rejected',
+          detail: { reason: 'runtime_revision_unsupported' },
+        },
+      },
+    });
     // Continuing the frozen revision resumes exactly where the boundary held it.
     d.must(t.id, { kind: 'drift_choice', choice: 'continue_old' });
     // The slot went back while a person decided; the gates run under a new grant.

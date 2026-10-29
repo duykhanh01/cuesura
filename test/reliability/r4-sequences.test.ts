@@ -5,14 +5,21 @@ import { canonicalJson } from '../../src/shared/canonical-json.ts';
 import type { DomainEvent } from '../../src/domain/event.ts';
 import { bindingName, type FrozenPolicy } from '../../src/domain/policy.ts';
 import { isTerminal, type TaskState } from '../../src/domain/state.ts';
-import { MAX_ENVELOPE_IDS, type TriggerEnvelope } from '../../src/domain/trigger.ts';
+import {
+  MAX_ENVELOPE_IDS,
+  type TriggerEnvelope,
+} from '../../src/domain/trigger.ts';
 import type { Decision } from '../../src/engine/decide.ts';
 import { applyInPlace, isAllowedEdge } from '../../src/engine/evolve.ts';
 import type { Store } from '../../src/store/index.ts';
 import { openMemoryStore, storeDb } from '../../src/store/testing.ts';
 import { mergeAllowed } from '../support/merge-oracle.ts';
 import type { Sim } from '../support/scenario.ts';
-import { choicesArb, drive, type DriveOptions } from '../property/arbitraries/signals.ts';
+import {
+  choicesArb,
+  drive,
+  type DriveOptions,
+} from '../property/arbitraries/signals.ts';
 import {
   escalationPolicyArb,
   policyArb,
@@ -29,8 +36,13 @@ function stepsOf(sim: Sim): Step[] {
   let d = 0;
   return sim.log.map((e): Step => {
     if (e.kind === 'decide')
-      return { kind: 'accept', envelope: e.envelope, decision: sim.decisions[d++] as Decision };
-    if (e.kind === 'claim') return { kind: 'claim', effect_id: e.effect_id, now: e.now };
+      return {
+        kind: 'accept',
+        envelope: e.envelope,
+        decision: sim.decisions[d++] as Decision,
+      };
+    if (e.kind === 'claim')
+      return { kind: 'claim', effect_id: e.effect_id, now: e.now };
     throw new Error('drive không tạo inject');
   });
 }
@@ -75,7 +87,10 @@ class Checker {
 
   afterWrite(where: string): void {
     const before = this.state;
-    const fresh = this.store.readEvents(this.taskId, (before?.version ?? 0) + 1);
+    const fresh = this.store.readEvents(
+      this.taskId,
+      (before?.version ?? 0) + 1,
+    );
     const ids = new Set<string>();
     for (const [i, ev] of fresh.entries()) {
       const at = `${where} ${ev.type}#${ev.seq}`;
@@ -96,8 +111,12 @@ class Checker {
           at,
         ).toBeNull();
       }
-      const next = applyInPlace(prev === null ? null : structuredClone(prev), structuredClone(ev));
-      if (ev.type === 'AttemptRequested') this.checkAttempt(next, ev.payload, at);
+      const next = applyInPlace(
+        prev === null ? null : structuredClone(prev),
+        structuredClone(ev),
+      );
+      if (ev.type === 'AttemptRequested')
+        this.checkAttempt(next, ev.payload, at);
       if (ev.type === 'PolicyFrozen' || ev.type === 'PolicyAmended')
         this.policy = ev.payload.policy;
 
@@ -109,7 +128,8 @@ class Checker {
         expect(next.status, at).toBe(prev.status);
       }
       // I08: revision không giảm.
-      if (prev !== null) expect(next.revision, at).toBeGreaterThanOrEqual(prev.revision);
+      if (prev !== null)
+        expect(next.revision, at).toBeGreaterThanOrEqual(prev.revision);
       // I04: không hai effect cùng khoá idempotency.
       if (ev.type === 'EffectRequested') {
         expect(this.idemKeys.has(ev.payload.idem_key), at).toBe(false);
@@ -132,7 +152,10 @@ class Checker {
     at: string,
   ): void {
     const ladder = this.policy?.steps[p.step]?.ladder;
-    expect(ladder, `${at}: bước ${p.step} không có trong chính sách`).toBeDefined();
+    expect(
+      ladder,
+      `${at}: bước ${p.step} không có trong chính sách`,
+    ).toBeDefined();
     const rung = ladder?.[p.rung];
     expect(rung, `${at}: nấc ${p.rung} ngoài thang`).toBeDefined();
     if (rung === undefined) return;
@@ -149,20 +172,25 @@ class Checker {
           a.revision === after.revision &&
           a.policy_hash === after.policy_ref?.hash,
       );
-      expect(granted, `${at}: thiếu approval cho ${p.step}#${p.rung}`).toBe(true);
+      expect(granted, `${at}: thiếu approval cho ${p.step}#${p.rung}`).toBe(
+        true,
+      );
     }
   }
 
   private checkState(where: string): void {
     const s = this.state;
     // I03 ở mức kho: projection `tasks` khớp evolve của nhật ký sau mỗi lần ghi.
-    expect(canonicalJson(this.store.readTask(this.taskId)), where).toBe(canonicalJson(s));
+    expect(canonicalJson(this.store.readTask(this.taskId)), where).toBe(
+      canonicalJson(s),
+    );
     if (s === null) return;
     // I07, I09: lượt vào bước có trần; used + reserved ≤ limit; reserved = tổng reservation đang giữ.
     const wf = this.policy?.workflow;
     for (const [step, n] of Object.entries(s.step_visits)) {
       const max = wf?.steps[step]?.max_visits;
-      if (max !== undefined) expect(n, `${where} visits ${step}`).toBeLessThanOrEqual(max);
+      if (max !== undefined)
+        expect(n, `${where} visits ${step}`).toBeLessThanOrEqual(max);
     }
     const b = s.budget.agent_runs;
     expect(b.used + b.reserved, where).toBeLessThanOrEqual(b.limit);
@@ -180,7 +208,9 @@ class Checker {
     const ref = s.policy_ref;
     if (ref !== null) {
       const key = `${ref.revision}:${ref.version}`;
-      const json = canonicalJson(this.store.readPolicy(this.taskId, ref.revision, ref.version));
+      const json = canonicalJson(
+        this.store.readPolicy(this.taskId, ref.revision, ref.version),
+      );
       const seen = this.policies.get(key);
       if (seen === undefined) this.policies.set(key, json);
       else expect(json, `${where} policy ${key}`).toBe(seen);
@@ -222,10 +252,13 @@ function runOnce(taskId: Uuid, steps: readonly Step[]): Store {
     const where = `bước ${i}`;
     if (st.kind === 'accept') {
       const r = store.accept(st.envelope);
-      if (!r.ok) throw new Error(`${where}: accept lỗi ${JSON.stringify(r.error)}`);
+      if (!r.ok)
+        throw new Error(`${where}: accept lỗi ${JSON.stringify(r.error)}`);
       expect(r.value.duplicate, where).toBe(false);
       // I01: kho gọi cùng `decide` trên state đọc từ SQLite và cho đúng quyết định của lõi thuần.
-      expect(canonicalJson(r.value.decision), where).toBe(canonicalJson(st.decision));
+      expect(canonicalJson(r.value.decision), where).toBe(
+        canonicalJson(st.decision),
+      );
       check.afterWrite(where);
     } else {
       const r = store.claimEffect(st.effect_id as Uuid, st.now as EpochMs);
@@ -238,12 +271,17 @@ function runOnce(taskId: Uuid, steps: readonly Step[]): Store {
 }
 
 /** Gửi mỗi tín hiệu `k ∈ [2, 5]` lần liền nhau, rồi gửi lại toàn bộ một lượt nữa ở cuối (SC-007). */
-function runRepeated(steps: readonly Step[], repeats: readonly number[]): Store {
+function runRepeated(
+  steps: readonly Step[],
+  repeats: readonly number[],
+): Store {
   const store = openMemoryStore();
   let a = 0;
   for (const st of steps) {
     if (st.kind === 'claim') {
-      expect(store.claimEffect(st.effect_id as Uuid, st.now as EpochMs).ok).toBe(true);
+      expect(
+        store.claimEffect(st.effect_id as Uuid, st.now as EpochMs).ok,
+      ).toBe(true);
       continue;
     }
     const k = repeats[a++ % repeats.length] as number;
@@ -251,9 +289,12 @@ function runRepeated(steps: readonly Step[], repeats: readonly number[]): Store 
     if (!first.ok) throw new Error(`accept lỗi ${JSON.stringify(first.error)}`);
     for (let j = 1; j < k; j++) {
       const again = store.accept(st.envelope);
-      if (!again.ok) throw new Error(`gửi lại lỗi ${JSON.stringify(again.error)}`);
+      if (!again.ok)
+        throw new Error(`gửi lại lỗi ${JSON.stringify(again.error)}`);
       expect(again.value.duplicate).toBe(true);
-      expect(canonicalJson(again.value.decision)).toBe(canonicalJson(first.value.decision));
+      expect(canonicalJson(again.value.decision)).toBe(
+        canonicalJson(first.value.decision),
+      );
     }
   }
   for (const st of steps) {
@@ -283,7 +324,10 @@ describe('R4 chuỗi tín hiệu ngẫu nhiên qua kho in-memory (T108, SC-003, 
         taskOverArb,
         choicesArb(),
         driveOptsArb,
-        fc.array(fc.integer({ min: 2, max: 5 }), { minLength: 1, maxLength: 16 }),
+        fc.array(fc.integer({ min: 2, max: 5 }), {
+          minLength: 1,
+          maxLength: 16,
+        }),
         (policy, over, choices, opts, repeats) => {
           const { sim } = drive(policy, over, choices, 1, opts);
           const steps = stepsOf(sim);

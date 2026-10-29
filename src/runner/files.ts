@@ -32,7 +32,12 @@ import {
 import { isAbsolute, join } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { z } from 'zod';
-import { DEFAULT_RUNTIME_LIMITS, RelativePathSchema, type IngestCursor, type RuntimeLimits } from '../domain/runtime.ts';
+import {
+  DEFAULT_RUNTIME_LIMITS,
+  RelativePathSchema,
+  type IngestCursor,
+  type RuntimeLimits,
+} from '../domain/runtime.ts';
 import type { Hash } from '../shared/brand.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import type { Redactor } from './redact.ts';
@@ -100,7 +105,10 @@ export class RunnerFileError extends Error {
 // ---- limits -----------------------------------------------------------------------------------
 
 /** The snapshot caps this module enforces; a full {@link RuntimeLimits} is accepted as is. */
-export type FileLimits = Pick<RuntimeLimits, 'log_record_bytes' | 'result_bytes' | 'log_segment_bytes' | 'spool_bytes'>;
+export type FileLimits = Pick<
+  RuntimeLimits,
+  'log_record_bytes' | 'result_bytes' | 'log_segment_bytes' | 'spool_bytes'
+>;
 
 export function fileLimits(l: FileLimits = DEFAULT_RUNTIME_LIMITS): FileLimits {
   const out: FileLimits = {
@@ -110,10 +118,22 @@ export function fileLimits(l: FileLimits = DEFAULT_RUNTIME_LIMITS): FileLimits {
     spool_bytes: l.spool_bytes,
   };
   for (const [k, v] of Object.entries(out)) {
-    if (!Number.isSafeInteger(v) || v <= 0) throw new RunnerFileError('invalid_limits', `${k} must be a positive integer`);
+    if (!Number.isSafeInteger(v) || v <= 0)
+      throw new RunnerFileError(
+        'invalid_limits',
+        `${k} must be a positive integer`,
+      );
   }
-  if (out.log_record_bytes > out.log_segment_bytes) throw new RunnerFileError('invalid_limits', 'log_record_bytes must be <= log_segment_bytes');
-  if (out.log_segment_bytes > out.spool_bytes) throw new RunnerFileError('invalid_limits', 'log_segment_bytes must be <= spool_bytes');
+  if (out.log_record_bytes > out.log_segment_bytes)
+    throw new RunnerFileError(
+      'invalid_limits',
+      'log_record_bytes must be <= log_segment_bytes',
+    );
+  if (out.log_segment_bytes > out.spool_bytes)
+    throw new RunnerFileError(
+      'invalid_limits',
+      'log_segment_bytes must be <= spool_bytes',
+    );
   return out;
 }
 
@@ -133,7 +153,10 @@ function lstatOrNull(p: string): Stats | null {
 }
 
 function fsyncDir(dir: string): void {
-  const fd = openSync(dir, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+  const fd = openSync(
+    dir,
+    constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
+  );
   try {
     fsyncSync(fd);
   } finally {
@@ -161,13 +184,21 @@ function sha256(buf: Buffer): Hash {
   return `sha256:${createHash('sha256').update(buf).digest('hex')}`;
 }
 
-const O_CREATE_EXCL = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW;
-const O_APPEND_EXISTING = constants.O_WRONLY | constants.O_APPEND | constants.O_NOFOLLOW;
+const O_CREATE_EXCL =
+  constants.O_WRONLY |
+  constants.O_CREAT |
+  constants.O_EXCL |
+  constants.O_NOFOLLOW;
+const O_APPEND_EXISTING =
+  constants.O_WRONLY | constants.O_APPEND | constants.O_NOFOLLOW;
 const O_READ = constants.O_RDONLY | constants.O_NOFOLLOW;
 
 /** Writes `data` to a fresh, fsynced temp file next to `name`; returns its path. */
 function writeTempIn(dir: string, name: string, data: Buffer): string {
-  const tmp = join(dir, `.${name}.tmp-${process.pid}-${randomBytes(6).toString('hex')}`);
+  const tmp = join(
+    dir,
+    `.${name}.tmp-${process.pid}-${randomBytes(6).toString('hex')}`,
+  );
   const fd = openSync(tmp, O_CREATE_EXCL, FILE_MODE);
   try {
     writeAll(fd, data);
@@ -221,8 +252,10 @@ function plainDir(parent: string, name: string, create: boolean): string {
     }
     st = lstatSync(p);
   }
-  if (st.isSymbolicLink()) throw new RunnerFileError('symlink', `${p} is a symlink`);
-  if (!st.isDirectory()) throw new RunnerFileError('not_directory', `${p} is not a directory`);
+  if (st.isSymbolicLink())
+    throw new RunnerFileError('symlink', `${p} is a symlink`);
+  if (!st.isDirectory())
+    throw new RunnerFileError('not_directory', `${p} is not a directory`);
   return p;
 }
 
@@ -238,7 +271,12 @@ export interface WrittenFile {
 export type FinalRead<T> =
   | { readonly state: 'missing' }
   | { readonly state: 'invalid'; readonly reason: string }
-  | { readonly state: 'valid'; readonly value: T; readonly bytes: number; readonly digest: Hash };
+  | {
+      readonly state: 'valid';
+      readonly value: T;
+      readonly bytes: number;
+      readonly digest: Hash;
+    };
 
 export interface ResultTooLarge {
   readonly code: 'result_too_large';
@@ -268,7 +306,14 @@ export class RunDir {
   readonly redactor: Redactor;
   readonly limits: FileLimits;
 
-  private constructor(root: string, kind: RunDirKind, id: string, dir: string, redactor: Redactor, limits: FileLimits) {
+  private constructor(
+    root: string,
+    kind: RunDirKind,
+    id: string,
+    dir: string,
+    redactor: Redactor,
+    limits: FileLimits,
+  ) {
     this.root = root;
     this.kind = kind;
     this.id = id;
@@ -279,20 +324,40 @@ export class RunDir {
 
   static open(opts: OpenRunDirOptions): RunDir {
     const create = opts.create ?? true;
-    if (!isAbsolute(opts.dataDir)) throw new RunnerFileError('unsafe_path', `data dir ${opts.dataDir} must be absolute`);
-    if (!(RUN_DIR_KINDS as readonly string[]).includes(opts.kind)) throw new RunnerFileError('invalid_argument', `unknown run dir kind ${opts.kind}`);
-    if (!isSafeId(opts.id)) throw new RunnerFileError('unsafe_id', `unsafe id ${JSON.stringify(opts.id)}`);
+    if (!isAbsolute(opts.dataDir))
+      throw new RunnerFileError(
+        'unsafe_path',
+        `data dir ${opts.dataDir} must be absolute`,
+      );
+    if (!(RUN_DIR_KINDS as readonly string[]).includes(opts.kind))
+      throw new RunnerFileError(
+        'invalid_argument',
+        `unknown run dir kind ${opts.kind}`,
+      );
+    if (!isSafeId(opts.id))
+      throw new RunnerFileError(
+        'unsafe_id',
+        `unsafe id ${JSON.stringify(opts.id)}`,
+      );
     const limits = fileLimits(opts.limits);
     if (create) mkdirSync(opts.dataDir, { recursive: true, mode: DIR_MODE });
     let root: string;
     try {
       root = realpathSync(opts.dataDir);
     } catch (e) {
-      if (errno(e) === 'ENOENT') throw new RunnerFileError('not_found', `data dir ${opts.dataDir} does not exist`);
+      if (errno(e) === 'ENOENT')
+        throw new RunnerFileError(
+          'not_found',
+          `data dir ${opts.dataDir} does not exist`,
+        );
       throw e;
     }
     const dir = plainDir(plainDir(root, opts.kind, create), opts.id, create);
-    if (realpathSync(dir) !== dir) throw new RunnerFileError('escapes_root', `${dir} resolves outside ${root}`);
+    if (realpathSync(dir) !== dir)
+      throw new RunnerFileError(
+        'escapes_root',
+        `${dir} resolves outside ${root}`,
+      );
     if (create) for (const sub of RUN_SUBDIRS) plainDir(dir, sub, true);
     return new RunDir(root, opts.kind, opts.id, dir, opts.redactor, limits);
   }
@@ -302,15 +367,24 @@ export class RunDir {
    * existing symlink component. Missing components are allowed (the caller may be about to create them).
    */
   resolve(rel: string): string {
-    if (!RelativePathSchema.safeParse(rel).success || rel.includes('\\')) throw new RunnerFileError('unsafe_path', `unsafe relative path ${JSON.stringify(rel)}`);
+    if (!RelativePathSchema.safeParse(rel).success || rel.includes('\\'))
+      throw new RunnerFileError(
+        'unsafe_path',
+        `unsafe relative path ${JSON.stringify(rel)}`,
+      );
     const parts = rel.split('/');
     let p = this.dir;
     for (let i = 0; i < parts.length; i++) {
       p = join(p, parts[i] as string);
       const st = lstatOrNull(p);
       if (st === null) break;
-      if (st.isSymbolicLink()) throw new RunnerFileError('symlink', `symlink in path ${rel}`);
-      if (i < parts.length - 1 && !st.isDirectory()) throw new RunnerFileError('not_directory', `${parts.slice(0, i + 1).join('/')} is not a directory`);
+      if (st.isSymbolicLink())
+        throw new RunnerFileError('symlink', `symlink in path ${rel}`);
+      if (i < parts.length - 1 && !st.isDirectory())
+        throw new RunnerFileError(
+          'not_directory',
+          `${parts.slice(0, i + 1).join('/')} is not a directory`,
+        );
     }
     // Checking stops at the first missing component; the result is always the full path.
     return join(this.dir, ...parts);
@@ -327,21 +401,39 @@ export class RunDir {
   #parentOf(rel: string): { dir: string; name: string } {
     this.resolve(rel);
     const i = rel.lastIndexOf('/');
-    return i < 0 ? { dir: this.dir, name: rel } : { dir: this.ensureDir(rel.slice(0, i)), name: rel.slice(i + 1) };
+    return i < 0
+      ? { dir: this.dir, name: rel }
+      : { dir: this.ensureDir(rel.slice(0, i)), name: rel.slice(i + 1) };
   }
 
   #encodeJson(value: unknown, maxBytes: number, rel: string): Buffer {
-    const buf = Buffer.from(`${JSON.stringify(this.redactor.value(value))}\n`, 'utf8');
-    if (buf.length > maxBytes) throw new RunnerFileError('too_large', `${rel} is ${buf.length} bytes, limit ${maxBytes}`);
+    const buf = Buffer.from(
+      `${JSON.stringify(this.redactor.value(value))}\n`,
+      'utf8',
+    );
+    if (buf.length > maxBytes)
+      throw new RunnerFileError(
+        'too_large',
+        `${rel} is ${buf.length} bytes, limit ${maxBytes}`,
+      );
     return buf;
   }
 
   #written(rel: string, buf: Buffer): WrittenFile {
-    return { relative_path: rel, bytes: buf.length, digest: sha256(buf), redaction_version: this.redactor.version };
+    return {
+      relative_path: rel,
+      bytes: buf.length,
+      digest: sha256(buf),
+      redaction_version: this.redactor.version,
+    };
   }
 
   /** Redacted JSON, written atomically. Control files are bounded by `result_bytes`. */
-  writeJson(rel: string, value: unknown, maxBytes: number = this.limits.result_bytes): WrittenFile {
+  writeJson(
+    rel: string,
+    value: unknown,
+    maxBytes: number = this.limits.result_bytes,
+  ): WrittenFile {
     const buf = this.#encodeJson(value, maxBytes, rel);
     const { dir, name } = this.#parentOf(rel);
     writeAtomicIn(dir, name, buf);
@@ -349,9 +441,17 @@ export class RunDir {
   }
 
   /** Redacted text, written atomically. */
-  writeText(rel: string, text: string, maxBytes: number = this.limits.result_bytes): WrittenFile {
+  writeText(
+    rel: string,
+    text: string,
+    maxBytes: number = this.limits.result_bytes,
+  ): WrittenFile {
     const buf = Buffer.from(this.redactor.text(text), 'utf8');
-    if (buf.length > maxBytes) throw new RunnerFileError('too_large', `${rel} is ${buf.length} bytes, limit ${maxBytes}`);
+    if (buf.length > maxBytes)
+      throw new RunnerFileError(
+        'too_large',
+        `${rel} is ${buf.length} bytes, limit ${maxBytes}`,
+      );
     const { dir, name } = this.#parentOf(rel);
     writeAtomicIn(dir, name, buf);
     return this.#written(rel, buf);
@@ -378,8 +478,16 @@ export class RunDir {
 
   /** out/result.json; a result over `result_bytes` after redaction is rejected, never truncated. */
   writeResult(value: unknown): Result<WrittenFile, ResultTooLarge> {
-    const buf = Buffer.from(`${JSON.stringify(this.redactor.value(value))}\n`, 'utf8');
-    if (buf.length > this.limits.result_bytes) return err({ code: 'result_too_large', bytes: buf.length, limit: this.limits.result_bytes });
+    const buf = Buffer.from(
+      `${JSON.stringify(this.redactor.value(value))}\n`,
+      'utf8',
+    );
+    if (buf.length > this.limits.result_bytes)
+      return err({
+        code: 'result_too_large',
+        bytes: buf.length,
+        limit: this.limits.result_bytes,
+      });
     const { dir, name } = this.#parentOf(RUN_FILES.result);
     writeAtomicIn(dir, name, buf);
     return ok(this.#written(RUN_FILES.result, buf));
@@ -394,7 +502,8 @@ export class RunDir {
     try {
       path = this.resolve(rel);
     } catch (e) {
-      if (e instanceof RunnerFileError) return { state: 'invalid', reason: e.message };
+      if (e instanceof RunnerFileError)
+        return { state: 'invalid', reason: e.message };
       throw e;
     }
     let fd: number;
@@ -402,29 +511,53 @@ export class RunDir {
       fd = openSync(path, O_READ);
     } catch (e) {
       if (errno(e) === 'ENOENT') return { state: 'missing' };
-      if (errno(e) === 'ELOOP') return { state: 'invalid', reason: `${rel} is a symlink` };
+      if (errno(e) === 'ELOOP')
+        return { state: 'invalid', reason: `${rel} is a symlink` };
       throw e;
     }
     let buf: Buffer;
     try {
       const st = fstatSync(fd);
-      if (!st.isFile()) return { state: 'invalid', reason: `${rel} is not a regular file` };
-      if (st.size > this.limits.result_bytes) return { state: 'invalid', reason: `${rel} is ${st.size} bytes, limit ${this.limits.result_bytes}` };
+      if (!st.isFile())
+        return { state: 'invalid', reason: `${rel} is not a regular file` };
+      if (st.size > this.limits.result_bytes)
+        return {
+          state: 'invalid',
+          reason: `${rel} is ${st.size} bytes, limit ${this.limits.result_bytes}`,
+        };
       buf = readAll(fd, 0, st.size);
     } finally {
       closeSync(fd);
     }
-    if (buf.length === 0 || buf[buf.length - 1] !== 0x0a) return { state: 'invalid', reason: `${rel} is incomplete` };
+    if (buf.length === 0 || buf[buf.length - 1] !== 0x0a)
+      return { state: 'invalid', reason: `${rel} is incomplete` };
     let parsed: unknown;
     try {
-      parsed = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(buf));
+      parsed = JSON.parse(
+        new TextDecoder('utf-8', { fatal: true }).decode(buf),
+      );
     } catch {
       return { state: 'invalid', reason: `${rel} is not valid JSON` };
     }
-    if (schema === undefined) return { state: 'valid', value: parsed as T, bytes: buf.length, digest: sha256(buf) };
+    if (schema === undefined)
+      return {
+        state: 'valid',
+        value: parsed as T,
+        bytes: buf.length,
+        digest: sha256(buf),
+      };
     const r = schema.safeParse(parsed);
-    if (!r.success) return { state: 'invalid', reason: `${rel} does not match its schema: ${r.error.issues.map((i) => i.message).join('; ')}` };
-    return { state: 'valid', value: r.data, bytes: buf.length, digest: sha256(buf) };
+    if (!r.success)
+      return {
+        state: 'invalid',
+        reason: `${rel} does not match its schema: ${r.error.issues.map((i) => i.message).join('; ')}`,
+      };
+    return {
+      state: 'valid',
+      value: r.data,
+      bytes: buf.length,
+      digest: sha256(buf),
+    };
   }
 }
 
@@ -499,15 +632,32 @@ export function listSegments(run: RunDir): SegmentInfo[] {
     const m = SEGMENT_RE.exec(name);
     if (m === null) continue;
     const st = lstatSync(join(spool, name));
-    if (st.isSymbolicLink()) throw new RunnerFileError('symlink', `spool segment ${name} is a symlink`);
-    if (!st.isFile()) throw new RunnerFileError('not_regular_file', `spool segment ${name} is not a regular file`);
-    out.push({ generation: Number(m[1]), segment: Number(m[2]), name, bytes: st.size });
+    if (st.isSymbolicLink())
+      throw new RunnerFileError(
+        'symlink',
+        `spool segment ${name} is a symlink`,
+      );
+    if (!st.isFile())
+      throw new RunnerFileError(
+        'not_regular_file',
+        `spool segment ${name} is not a regular file`,
+      );
+    out.push({
+      generation: Number(m[1]),
+      segment: Number(m[2]),
+      name,
+      bytes: st.size,
+    });
   }
   out.sort((a, b) => a.segment - b.segment);
   for (let i = 1; i < out.length; i++) {
     const prev = out[i - 1] as SegmentInfo;
     const cur = out[i] as SegmentInfo;
-    if (cur.segment === prev.segment || cur.generation < prev.generation) throw new RunnerFileError('layout_mismatch', `spool segments ${prev.name} and ${cur.name} are out of order`);
+    if (cur.segment === prev.segment || cur.generation < prev.generation)
+      throw new RunnerFileError(
+        'layout_mismatch',
+        `spool segments ${prev.name} and ${cur.name} are out of order`,
+      );
   }
   return out;
 }
@@ -527,7 +677,11 @@ function readSegment(run: RunDir, name: string, from: number): Buffer | null {
     fd = openSync(join(run.resolve(SPOOL_DIR), name), O_READ);
   } catch (e) {
     if (errno(e) === 'ENOENT') return null;
-    if (errno(e) === 'ELOOP') throw new RunnerFileError('symlink', `spool segment ${name} is a symlink`);
+    if (errno(e) === 'ELOOP')
+      throw new RunnerFileError(
+        'symlink',
+        `spool segment ${name} is a symlink`,
+      );
     throw e;
   }
   try {
@@ -547,7 +701,9 @@ function parseRecord(line: Buffer): LogRecord | string {
     return 'not valid JSON';
   }
   const r = LogRecordSchema.safeParse(raw);
-  return r.success ? r.data : `bad record: ${r.error.issues.map((i) => `${i.path.join('.')} ${i.message}`).join('; ')}`;
+  return r.success
+    ? r.data
+    : `bad record: ${r.error.issues.map((i) => `${i.path.join('.')} ${i.message}`).join('; ')}`;
 }
 
 function lastSeqIn(run: RunDir, segments: readonly SegmentInfo[]): number {
@@ -597,7 +753,17 @@ export class EventLogWriter {
   #failed = false;
   #closed = false;
 
-  private constructor(run: RunDir, operationId: string, now: () => Date, state: { generation: number; segment: number; seq: number; fd: number | null }) {
+  private constructor(
+    run: RunDir,
+    operationId: string,
+    now: () => Date,
+    state: {
+      generation: number;
+      segment: number;
+      seq: number;
+      fd: number | null;
+    },
+  ) {
     this.#run = run;
     this.#operationId = operationId;
     this.#now = now;
@@ -605,22 +771,48 @@ export class EventLogWriter {
     this.#segment = state.segment;
     this.#seq = state.seq;
     this.#fd = state.fd;
-    this.#stderrFd = openSync(run.resolve(RUN_FILES.stderr), O_APPEND_EXISTING | constants.O_CREAT, FILE_MODE);
+    this.#stderrFd = openSync(
+      run.resolve(RUN_FILES.stderr),
+      O_APPEND_EXISTING | constants.O_CREAT,
+      FILE_MODE,
+    );
     this.#usage = spoolUsage(run);
   }
 
-  static open(run: RunDir, operationId: string, opts: EventLogWriterOptions = {}): EventLogWriter {
-    if (!isSafeId(operationId)) throw new RunnerFileError('unsafe_id', `unsafe operation id ${JSON.stringify(operationId)}`);
+  static open(
+    run: RunDir,
+    operationId: string,
+    opts: EventLogWriterOptions = {},
+  ): EventLogWriter {
+    if (!isSafeId(operationId))
+      throw new RunnerFileError(
+        'unsafe_id',
+        `unsafe operation id ${JSON.stringify(operationId)}`,
+      );
     const now = opts.now ?? ((): Date => new Date());
     const segments = listSegments(run);
     const last = segments.at(-1);
     if (last === undefined) {
-      if (lstatOrNull(run.resolve(RUN_FILES.events)) !== null) throw new RunnerFileError('layout_mismatch', 'events.jsonl exists without a spool segment');
+      if (lstatOrNull(run.resolve(RUN_FILES.events)) !== null)
+        throw new RunnerFileError(
+          'layout_mismatch',
+          'events.jsonl exists without a spool segment',
+        );
       const fd = createSegment(run, 0, 0, Buffer.alloc(0));
-      return new EventLogWriter(run, operationId, now, { generation: 0, segment: 0, seq: 0, fd });
+      return new EventLogWriter(run, operationId, now, {
+        generation: 0,
+        segment: 0,
+        seq: 0,
+        fd,
+      });
     }
     linkEvents(run, last.name);
-    return new EventLogWriter(run, operationId, now, { generation: last.generation + 1, segment: last.segment + 1, seq: lastSeqIn(run, segments), fd: null });
+    return new EventLogWriter(run, operationId, now, {
+      generation: last.generation + 1,
+      segment: last.segment + 1,
+      seq: lastSeqIn(run, segments),
+      fd: null,
+    });
   }
 
   get generation(): number {
@@ -637,22 +829,37 @@ export class EventLogWriter {
   }
 
   #ensureUsable(): void {
-    if (this.#closed) throw new RunnerFileError('writer_failed', 'event log writer is closed');
-    if (this.#failed) throw new RunnerFileError('writer_failed', 'event log writer failed; re-open to continue in a new generation');
+    if (this.#closed)
+      throw new RunnerFileError('writer_failed', 'event log writer is closed');
+    if (this.#failed)
+      throw new RunnerFileError(
+        'writer_failed',
+        'event log writer failed; re-open to continue in a new generation',
+      );
   }
 
   /** Reserves `bytes` of spool; re-measures from disk first, since the daemon may have acked segments. */
   #reserve(bytes: number): ArtifactBackpressure | null {
     const limit = this.#run.limits.spool_bytes;
     if (this.#usage + bytes > limit) this.#usage = spoolUsage(this.#run);
-    if (this.#usage + bytes > limit) return { code: 'artifact_backpressure', spool_bytes: this.#usage, requested_bytes: bytes, limit };
+    if (this.#usage + bytes > limit)
+      return {
+        code: 'artifact_backpressure',
+        spool_bytes: this.#usage,
+        requested_bytes: bytes,
+        limit,
+      };
     return null;
   }
 
   /** Appends one redacted record. Oversize records are rejected; nothing is truncated. */
   append(kind: string, data: unknown): Result<AppendedRecord, AppendError> {
     this.#ensureUsable();
-    if (!KindSchema.safeParse(kind).success) throw new RunnerFileError('invalid_argument', `invalid record kind ${JSON.stringify(kind)}`);
+    if (!KindSchema.safeParse(kind).success)
+      throw new RunnerFileError(
+        'invalid_argument',
+        `invalid record kind ${JSON.stringify(kind)}`,
+      );
     const limits = this.#run.limits;
     const seq = this.#seq + 1;
     const record: LogRecord = {
@@ -665,10 +872,17 @@ export class EventLogWriter {
       data: this.#run.redactor.value(data),
     };
     const line = Buffer.from(`${JSON.stringify(record)}\n`, 'utf8');
-    if (line.length > limits.log_record_bytes) return err({ code: 'record_too_large', bytes: line.length, limit: limits.log_record_bytes });
+    if (line.length > limits.log_record_bytes)
+      return err({
+        code: 'record_too_large',
+        bytes: line.length,
+        limit: limits.log_record_bytes,
+      });
     const full = this.#reserve(line.length);
     if (full !== null) return err(full);
-    const needsNew = this.#fd === null || (this.#size > 0 && this.#size + line.length > limits.log_segment_bytes);
+    const needsNew =
+      this.#fd === null ||
+      (this.#size > 0 && this.#size + line.length > limits.log_segment_bytes);
     let offset: number;
     try {
       if (needsNew) {
@@ -689,7 +903,13 @@ export class EventLogWriter {
     this.#size += line.length;
     this.#usage += line.length;
     this.#seq = seq;
-    return ok({ generation: this.#generation, segment: this.#segment, seq, byte_offset: offset, bytes: line.length });
+    return ok({
+      generation: this.#generation,
+      segment: this.#segment,
+      seq,
+      byte_offset: offset,
+      bytes: line.length,
+    });
   }
 
   /**
@@ -697,9 +917,14 @@ export class EventLogWriter {
    * is flushed up to a cut no secret can straddle (see {@link Redactor.safeCut}); the remainder stays
    * buffered. On backpressure the text stays buffered and is reported, not dropped.
    */
-  appendStderr(chunk: string | Uint8Array): Result<number, ArtifactBackpressure> {
+  appendStderr(
+    chunk: string | Uint8Array,
+  ): Result<number, ArtifactBackpressure> {
     this.#ensureUsable();
-    this.#stderrPending += typeof chunk === 'string' ? chunk : this.#decoder.write(Buffer.from(chunk));
+    this.#stderrPending +=
+      typeof chunk === 'string'
+        ? chunk
+        : this.#decoder.write(Buffer.from(chunk));
     return this.#drainStderr(false);
   }
 
@@ -718,7 +943,11 @@ export class EventLogWriter {
     if (!final) {
       const line = pending.lastIndexOf('\n') + 1;
       const force = Buffer.byteLength(pending.slice(line)) > cap;
-      cut = redactor.safeCut(pending, force ? pending.length : line, 2 * redactor.carry + cap);
+      cut = redactor.safeCut(
+        pending,
+        force ? pending.length : line,
+        2 * redactor.carry + cap,
+      );
     }
     if (cut === 0) return ok(0);
     const buf = Buffer.from(redactor.text(pending.slice(0, cut)), 'utf8');
@@ -751,7 +980,10 @@ export class EventLogWriter {
 /** Points events.jsonl at a spool segment via a hard link replaced atomically. */
 function linkEvents(run: RunDir, segmentName: string): void {
   const target = run.resolve(RUN_FILES.events);
-  const tmp = join(run.dir, `.${RUN_FILES.events}.tmp-${process.pid}-${randomBytes(6).toString('hex')}`);
+  const tmp = join(
+    run.dir,
+    `.${RUN_FILES.events}.tmp-${process.pid}-${randomBytes(6).toString('hex')}`,
+  );
   linkSync(join(run.resolve(SPOOL_DIR), segmentName), tmp);
   try {
     renameSync(tmp, target);
@@ -766,10 +998,19 @@ function linkEvents(run: RunDir, segmentName: string): void {
  * Creates a segment already holding `initial` (fsynced before it becomes visible, so a rotated segment
  * is never empty), switches events.jsonl to it and returns an append fd.
  */
-function createSegment(run: RunDir, generation: number, segment: number, initial: Buffer): number {
+function createSegment(
+  run: RunDir,
+  generation: number,
+  segment: number,
+  initial: Buffer,
+): number {
   const spool = run.ensureDir(SPOOL_DIR);
   const name = segmentFileName(generation, segment);
-  if (!createOnceIn(spool, name, initial)) throw new RunnerFileError('layout_mismatch', `spool segment ${name} already exists`);
+  if (!createOnceIn(spool, name, initial))
+    throw new RunnerFileError(
+      'layout_mismatch',
+      `spool segment ${name} already exists`,
+    );
   linkEvents(run, name);
   return openSync(join(spool, name), O_APPEND_EXISTING);
 }
@@ -794,7 +1035,13 @@ export interface ReadBatch {
 export type ReadError =
   | { readonly code: 'cursor_mismatch'; readonly message: string }
   | { readonly code: 'cursor_not_found'; readonly message: string }
-  | { readonly code: 'corrupt_record'; readonly generation: number; readonly segment: number; readonly byte_offset: number; readonly reason: string };
+  | {
+      readonly code: 'corrupt_record';
+      readonly generation: number;
+      readonly segment: number;
+      readonly byte_offset: number;
+      readonly reason: string;
+    };
 
 export interface ReadOptions {
   readonly maxRecords?: number;
@@ -805,14 +1052,29 @@ export interface ReadOptions {
  * re-reading from the same cursor returns the same records. A trailing partial line of the active
  * segment is left for the next read.
  */
-export function readRecords(run: RunDir, operationId: string, from: IngestPosition | null, opts: ReadOptions = {}): Result<ReadBatch, ReadError> {
-  if (from !== null && from.operation_id !== operationId) return err({ code: 'cursor_mismatch', message: `cursor is for operation ${from.operation_id}` });
+export function readRecords(
+  run: RunDir,
+  operationId: string,
+  from: IngestPosition | null,
+  opts: ReadOptions = {},
+): Result<ReadBatch, ReadError> {
+  if (from !== null && from.operation_id !== operationId)
+    return err({
+      code: 'cursor_mismatch',
+      message: `cursor is for operation ${from.operation_id}`,
+    });
   const segments = listSegments(run);
   if (segments.length === 0) return ok({ records: [], cursor: from, torn: [] });
   let i = 0;
   if (from !== null) {
-    i = segments.findIndex((s) => s.generation === from.generation && s.segment === from.segment);
-    if (i < 0) return err({ code: 'cursor_not_found', message: `segment ${from.generation}.${from.segment} is not in the spool` });
+    i = segments.findIndex(
+      (s) => s.generation === from.generation && s.segment === from.segment,
+    );
+    if (i < 0)
+      return err({
+        code: 'cursor_not_found',
+        message: `segment ${from.generation}.${from.segment} is not in the spool`,
+      });
   }
   const max = opts.maxRecords ?? Number.POSITIVE_INFINITY;
   const records: LogRecord[] = [];
@@ -823,27 +1085,69 @@ export function readRecords(run: RunDir, operationId: string, from: IngestPositi
   for (; i < segments.length; i++) {
     const seg = segments[i] as SegmentInfo;
     const buf = readSegment(run, seg.name, offset);
-    if (buf === null) return err({ code: 'cursor_not_found', message: `segment ${seg.name} has no byte ${offset}` });
+    if (buf === null)
+      return err({
+        code: 'cursor_not_found',
+        message: `segment ${seg.name} has no byte ${offset}`,
+      });
     let pos = 0;
     while (records.length < max) {
       const nl = buf.indexOf(0x0a, pos);
       if (nl < 0) break;
       const rec = parseRecord(buf.subarray(pos, nl));
-      const at = { generation: seg.generation, segment: seg.segment, byte_offset: offset + pos };
-      if (typeof rec === 'string') return err({ code: 'corrupt_record', ...at, reason: rec });
-      if (rec.operation_id !== operationId) return err({ code: 'corrupt_record', ...at, reason: `operation_id ${rec.operation_id}` });
-      if (rec.generation !== seg.generation) return err({ code: 'corrupt_record', ...at, reason: `generation ${rec.generation} in segment of generation ${seg.generation}` });
-      if (rec.seq <= lastSeq) return err({ code: 'corrupt_record', ...at, reason: `seq ${rec.seq} after ${lastSeq}` });
+      const at = {
+        generation: seg.generation,
+        segment: seg.segment,
+        byte_offset: offset + pos,
+      };
+      if (typeof rec === 'string')
+        return err({ code: 'corrupt_record', ...at, reason: rec });
+      if (rec.operation_id !== operationId)
+        return err({
+          code: 'corrupt_record',
+          ...at,
+          reason: `operation_id ${rec.operation_id}`,
+        });
+      if (rec.generation !== seg.generation)
+        return err({
+          code: 'corrupt_record',
+          ...at,
+          reason: `generation ${rec.generation} in segment of generation ${seg.generation}`,
+        });
+      if (rec.seq <= lastSeq)
+        return err({
+          code: 'corrupt_record',
+          ...at,
+          reason: `seq ${rec.seq} after ${lastSeq}`,
+        });
       records.push(rec);
       lastSeq = rec.seq;
       pos = nl + 1;
-      cursor = { operation_id: operationId, generation: seg.generation, segment: seg.segment, byte_offset: offset + pos, last_record_seq: lastSeq };
+      cursor = {
+        operation_id: operationId,
+        generation: seg.generation,
+        segment: seg.segment,
+        byte_offset: offset + pos,
+        last_record_seq: lastSeq,
+      };
     }
     const next = segments[i + 1];
     if (records.length >= max || next === undefined) break;
-    if (pos < buf.length) torn.push({ generation: seg.generation, segment: seg.segment, byte_offset: offset + pos, bytes: buf.length - pos });
+    if (pos < buf.length)
+      torn.push({
+        generation: seg.generation,
+        segment: seg.segment,
+        byte_offset: offset + pos,
+        bytes: buf.length - pos,
+      });
     offset = 0;
-    cursor = { operation_id: operationId, generation: next.generation, segment: next.segment, byte_offset: 0, last_record_seq: lastSeq };
+    cursor = {
+      operation_id: operationId,
+      generation: next.generation,
+      segment: next.segment,
+      byte_offset: 0,
+      last_record_seq: lastSeq,
+    };
   }
   return ok({ records, cursor, torn });
 }
@@ -852,14 +1156,27 @@ export function readRecords(run: RunDir, operationId: string, from: IngestPositi
  * Deletes the sealed segments the cursor has moved past. Call only after the records and the cursor
  * were committed. Never deletes the cursor's own segment or the active one; repeating is a no-op.
  */
-export function ackThrough(run: RunDir, operationId: string, cursor: IngestPosition): Result<string[], ReadError> {
-  if (cursor.operation_id !== operationId) return err({ code: 'cursor_mismatch', message: `cursor is for operation ${cursor.operation_id}` });
+export function ackThrough(
+  run: RunDir,
+  operationId: string,
+  cursor: IngestPosition,
+): Result<string[], ReadError> {
+  if (cursor.operation_id !== operationId)
+    return err({
+      code: 'cursor_mismatch',
+      message: `cursor is for operation ${cursor.operation_id}`,
+    });
   const segments = listSegments(run);
-  const i = segments.findIndex((s) => s.generation === cursor.generation && s.segment === cursor.segment);
+  const i = segments.findIndex(
+    (s) => s.generation === cursor.generation && s.segment === cursor.segment,
+  );
   if (i < 0) {
     const first = segments[0];
     if (first !== undefined && cursor.segment < first.segment) return ok([]);
-    return err({ code: 'cursor_not_found', message: `segment ${cursor.generation}.${cursor.segment} is not in the spool` });
+    return err({
+      code: 'cursor_not_found',
+      message: `segment ${cursor.generation}.${cursor.segment} is not in the spool`,
+    });
   }
   const spool = run.resolve(SPOOL_DIR);
   const deleted: string[] = [];

@@ -3,13 +3,27 @@ import { canonicalJson } from '../shared/canonical-json.ts';
 import type { DomainEventDraft } from '../domain/event.ts';
 import { hasRole, type FrozenPolicy } from '../domain/policy.ts';
 import { isTerminal, type TaskState } from '../domain/state.ts';
-import type { RelatedFacts, Trigger, TriggerEnvelope } from '../domain/trigger.ts';
+import type {
+  RelatedFacts,
+  Trigger,
+  TriggerEnvelope,
+} from '../domain/trigger.ts';
 import { verifyPolicyHash } from '../policy/finalize.ts';
-import { invalidatePending, maybeFinishCancel, requestCancel } from './cancel.ts';
+import {
+  invalidatePending,
+  maybeFinishCancel,
+  requestCancel,
+} from './cancel.ts';
 import { Ctx, reject, Rejection, type RejectCode } from './context.ts';
 import { requestEffect, requestReconcile } from './effects.ts';
 import { IdPoolExhausted } from './ids.ts';
-import { onConfigChecked, onDependencyStatus, onConfirmTask, onCreateTask, onSourceUpdated } from './intake.ts';
+import {
+  onConfigChecked,
+  onDependencyStatus,
+  onConfirmTask,
+  onCreateTask,
+  onSourceUpdated,
+} from './intake.ts';
 import { onDrainResult, settleCompletion } from './drain.ts';
 import { onExternalCompletion } from './external-completion.ts';
 import { onObservationDue, onObservationResult } from './observation.ts';
@@ -17,7 +31,14 @@ import { onEffectResult, proceed } from './interpreter.ts';
 import { askHuman, onAnswer, onApprovalDecision } from './questions.ts';
 import { onReconciled } from './reconcile.ts';
 import { onDriftChoice, settleDrift } from './revision.ts';
-import { onGrantExecution, onIngestRecord, onOperationResult, onReleaseExecution, onRequestExecution, settleSlot } from './runtime.ts';
+import {
+  onGrantExecution,
+  onIngestRecord,
+  onOperationResult,
+  onReleaseExecution,
+  onRequestExecution,
+  settleSlot,
+} from './runtime.ts';
 import { onStart } from './start.ts';
 import { onRecheck } from './recheck.ts';
 import { waitPolicy } from './waits.ts';
@@ -54,14 +75,22 @@ export function decide(input: DecideInput): Decision {
       settleSlot(ctx);
     }
   } catch (e) {
-    if (e instanceof Rejection) return e.detail === undefined ? { kind: 'rejected', code: e.code } : { kind: 'rejected', code: e.code, detail: e.detail };
-    if (e instanceof IdPoolExhausted) return { kind: 'rejected', code: 'id_pool_exhausted' };
+    if (e instanceof Rejection)
+      return e.detail === undefined
+        ? { kind: 'rejected', code: e.code }
+        : { kind: 'rejected', code: e.code, detail: e.detail };
+    if (e instanceof IdPoolExhausted)
+      return { kind: 'rejected', code: 'id_pool_exhausted' };
     throw e;
   }
   return { kind: 'accepted', events: ctx.events };
 }
 
-const AFTER_TERMINAL: readonly Trigger['kind'][] = ['operation_result', 'ingest_record', 'release_execution'];
+const AFTER_TERMINAL: readonly Trigger['kind'][] = [
+  'operation_result',
+  'ingest_record',
+  'release_execution',
+];
 
 function dispatch(ctx: Ctx, t: Trigger): void {
   if (t.kind === 'create_task') {
@@ -69,9 +98,11 @@ function dispatch(ctx: Ctx, t: Trigger): void {
     return;
   }
   if (!ctx.hasState) reject('unknown_task');
-  if (ctx.state.id !== ctx.env.task_id) reject('invalid_trigger', { reason: 'task_id_mismatch' });
+  if (ctx.state.id !== ctx.env.task_id)
+    reject('invalid_trigger', { reason: 'task_id_mismatch' });
   // `amend` thiếu admin bị từ chối trước mọi thứ khác, không phát sự kiện nào (FR-036).
-  if (t.kind === 'amend' && !hasRole(ctx.env.authz, 'admin')) reject('not_admin');
+  if (t.kind === 'amend' && !hasRole(ctx.env.authz, 'admin'))
+    reject('not_admin');
   // Trạng thái hút: mọi tín hiệu sau đó chỉ được ghi nhận (FR-010). Riêng receipt, output và release
   // của operation còn sống lâu hơn task vẫn được xử lý, để slot không bị giữ mãi; status không đổi.
   if (isTerminal(ctx.state.status) && !AFTER_TERMINAL.includes(t.kind)) {
@@ -94,7 +125,8 @@ function dispatch(ctx: Ctx, t: Trigger): void {
     'confirm_run_config',
     'recheck',
   ].includes(t.kind);
-  if (needsPolicy && (ctx.policy === null || ctx.state.policy_ref === null)) reject('invalid_trigger', { reason: 'not_started' });
+  if (needsPolicy && (ctx.policy === null || ctx.state.policy_ref === null))
+    reject('invalid_trigger', { reason: 'not_started' });
 
   switch (t.kind) {
     case 'confirm_task':
@@ -138,7 +170,10 @@ function dispatch(ctx: Ctx, t: Trigger): void {
       return;
     case 'cancel':
       if (ctx.state.cancellation !== null) {
-        ctx.emit('SignalIgnored', { reason: 'already_cancelling', trigger_kind: t.kind });
+        ctx.emit('SignalIgnored', {
+          reason: 'already_cancelling',
+          trigger_kind: t.kind,
+        });
         return;
       }
       requestCancel(ctx, t.reason);
@@ -193,9 +228,14 @@ function dispatch(ctx: Ctx, t: Trigger): void {
 /** Timer đến hạn (FR-030). Timer `deadline` chuyển task sang chờ chính sách (R-22, FR-023). */
 function onTimer(ctx: Ctx, timerId: string): void {
   const timer = ctx.state.timers[timerId];
-  if (timer === undefined) reject('invalid_trigger', { reason: 'unknown_timer', timer_id: timerId });
+  if (timer === undefined)
+    reject('invalid_trigger', { reason: 'unknown_timer', timer_id: timerId });
   if (timer.status !== 'armed') {
-    ctx.emit('SignalIgnored', { reason: `timer_${timer.status}`, trigger_kind: 'timer', detail: { timer_id: timerId } });
+    ctx.emit('SignalIgnored', {
+      reason: `timer_${timer.status}`,
+      trigger_kind: 'timer',
+      detail: { timer_id: timerId },
+    });
     return;
   }
   ctx.emit('TimerFired', { timer_id: timerId });
@@ -203,18 +243,30 @@ function onTimer(ctx: Ctx, timerId: string): void {
   switch (timer.kind) {
     case 'deadline': {
       // Đã chờ vì hạn (do `now` vượt `deadline_at` trước khi timer được xử lý): không lồng thêm lần chờ.
-      if (s.cancellation !== null || (s.wait?.reason === 'policy' && s.wait.detail.code === 'deadline')) return;
+      if (
+        s.cancellation !== null ||
+        (s.wait?.reason === 'policy' && s.wait.detail.code === 'deadline')
+      )
+        return;
       // Việc đang chờ được giữ lại để làm tiếp nếu admin gia hạn.
-      const resume = s.status === 'WAITING' ? (s.wait?.resume ?? { kind: 'none' }) : { kind: 'none' as const };
+      const resume =
+        s.status === 'WAITING'
+          ? (s.wait?.resume ?? { kind: 'none' })
+          : { kind: 'none' as const };
       const prior = s.status === 'WAITING' ? s.wait : null;
-      waitPolicy(ctx, 'deadline', resume, { deadline_at: s.deadline_at, ...(prior !== null ? { prior_wait: prior } : {}) });
+      waitPolicy(ctx, 'deadline', resume, {
+        deadline_at: s.deadline_at,
+        ...(prior !== null ? { prior_wait: prior } : {}),
+      });
       return;
     }
     case 'ci_poll':
     case 'ci_timeout':
     case 'backoff': {
-      const waitingOnThis = s.status === 'WAITING' && s.wait?.detail['timer_id'] === timerId;
-      if (waitingOnThis && timer.payload.resume !== undefined) proceed(ctx, timer.payload.resume, `timer:${timerId}`);
+      const waitingOnThis =
+        s.status === 'WAITING' && s.wait?.detail['timer_id'] === timerId;
+      if (waitingOnThis && timer.payload.resume !== undefined)
+        proceed(ctx, timer.payload.resume, `timer:${timerId}`);
       return;
     }
     default:
@@ -229,9 +281,17 @@ function onTimer(ctx: Ctx, timerId: string): void {
 function onStopAttempt(ctx: Ctx, attemptId: string, reason: string): void {
   const s = ctx.state;
   const a = s.attempts[attemptId];
-  if (a === undefined) reject('invalid_trigger', { reason: 'unknown_attempt', attempt_id: attemptId });
+  if (a === undefined)
+    reject('invalid_trigger', {
+      reason: 'unknown_attempt',
+      attempt_id: attemptId,
+    });
   if (a.status !== 'running' || a.stop_requested) {
-    ctx.emit('SignalIgnored', { reason: 'stale_attempt', trigger_kind: 'stop_attempt', detail: { attempt_id: attemptId } });
+    ctx.emit('SignalIgnored', {
+      reason: 'stale_attempt',
+      trigger_kind: 'stop_attempt',
+      detail: { attempt_id: attemptId },
+    });
     return;
   }
   const e = s.effects[a.effect_id];
@@ -242,7 +302,11 @@ function onStopAttempt(ctx: Ctx, attemptId: string, reason: string): void {
       step: a.step,
       attempt_id: a.id,
       body: `Attempt ${a.n} của bước '${a.step}' đã dừng trước khi chạy: ${reason}`,
-      resume: { kind: 'start_attempt', step: a.step, attempt_kind: 'fresh_session' },
+      resume: {
+        kind: 'start_attempt',
+        step: a.step,
+        attempt_kind: 'fresh_session',
+      },
     });
     return;
   }
@@ -266,12 +330,18 @@ type AmendTrigger = Extract<Trigger, { kind: 'amend' }>;
 function onAmend(ctx: Ctx, t: AmendTrigger): void {
   const cur = ctx.frozen;
   const next = t.policy;
-  if (next.task_id !== cur.task_id || next.revision !== cur.revision) reject('invalid_trigger', { reason: 'amend_target_mismatch' });
-  if (next.structure_hash !== cur.structure_hash || canonicalJson(next.workflow) !== canonicalJson(cur.workflow)) {
+  if (next.task_id !== cur.task_id || next.revision !== cur.revision)
+    reject('invalid_trigger', { reason: 'amend_target_mismatch' });
+  if (
+    next.structure_hash !== cur.structure_hash ||
+    canonicalJson(next.workflow) !== canonicalJson(cur.workflow)
+  ) {
     reject('workflow_change_forbidden');
   }
-  if (next.policy_version !== cur.policy_version + 1) reject('invalid_trigger', { reason: 'policy_version' });
-  if (!verifyPolicyHash(next)) reject('invalid_trigger', { reason: 'policy_hash' });
+  if (next.policy_version !== cur.policy_version + 1)
+    reject('invalid_trigger', { reason: 'policy_version' });
+  if (!verifyPolicyHash(next))
+    reject('invalid_trigger', { reason: 'policy_hash' });
 
   ctx.emit('PolicyAmended', {
     policy: next,
@@ -285,18 +355,31 @@ function onAmend(ctx: Ctx, t: AmendTrigger): void {
 
   const s = ctx.state;
   // Gia hạn: `deadline_at` tính lại từ thời điểm bắt đầu với `max_wall_ms` mới.
-  if (s.deadline_at !== null && next.limits.max_wall_ms !== cur.limits.max_wall_ms) {
-    const due = s.deadline_at - cur.limits.max_wall_ms + next.limits.max_wall_ms;
+  if (
+    s.deadline_at !== null &&
+    next.limits.max_wall_ms !== cur.limits.max_wall_ms
+  ) {
+    const due =
+      s.deadline_at - cur.limits.max_wall_ms + next.limits.max_wall_ms;
     if (due > ctx.now) {
       for (const tm of Object.values(s.timers)) {
-        if (tm.kind === 'deadline' && tm.status === 'armed') ctx.emit('TimerCancelled', { timer_id: tm.id });
+        if (tm.kind === 'deadline' && tm.status === 'armed')
+          ctx.emit('TimerCancelled', { timer_id: tm.id });
       }
-      ctx.emit('TimerArmed', { timer_id: ctx.nextId(), kind: 'deadline', due_at: due, payload: {} });
+      ctx.emit('TimerArmed', {
+        timer_id: ctx.nextId(),
+        kind: 'deadline',
+        due_at: due,
+        payload: {},
+      });
     }
   }
   const w = ctx.state.wait;
-  const reopened = w?.detail.code === 'loop_exhausted' && w.resume_when.some((r) => r.startsWith('amend('));
-  if (ctx.state.status !== 'WAITING' || (w?.reason !== 'policy' && !reopened)) return;
+  const reopened =
+    w?.detail.code === 'loop_exhausted' &&
+    w.resume_when.some((r) => r.startsWith('amend('));
+  if (ctx.state.status !== 'WAITING' || (w?.reason !== 'policy' && !reopened))
+    return;
   const prior = w.detail['prior_wait'] as typeof w | undefined;
   if (!ctx.state.deadline_passed && prior !== undefined) {
     ctx.emit('TaskWaiting', { wait: prior });

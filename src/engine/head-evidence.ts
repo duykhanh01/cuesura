@@ -27,8 +27,16 @@ export type ObservedChecks = {
 export type ReviewRequirement = 'approved' | 'missing' | 'not_required';
 
 export type HeadVerdict =
-  | { readonly kind: 'green'; readonly head_sha: string; readonly review: 'approved' | 'not_required' }
-  | { readonly kind: 'head_changed'; readonly expected: string; readonly observed: string }
+  | {
+      readonly kind: 'green';
+      readonly head_sha: string;
+      readonly review: 'approved' | 'not_required';
+    }
+  | {
+      readonly kind: 'head_changed';
+      readonly expected: string;
+      readonly observed: string;
+    }
   | {
       readonly kind: 'not_green';
       readonly head_sha: string;
@@ -49,39 +57,105 @@ export function headVerdict(
   required: RequiredVerdict,
   observed: ObservedChecks,
 ): HeadVerdict {
-  if (observed.head_sha !== expectedHead) return { kind: 'head_changed', expected: expectedHead, observed: observed.head_sha };
+  if (observed.head_sha !== expectedHead)
+    return {
+      kind: 'head_changed',
+      expected: expectedHead,
+      observed: observed.head_sha,
+    };
   const rev = state.revision;
   const byName = new Map<string, Check[]>();
-  for (const c of observed.checks) byName.set(c.name, [...(byName.get(c.name) ?? []), c]);
-  const collisions = [...new Set([...observed.collisions.filter((n) => snapshot.includes(n)), ...snapshot.filter((n) => (byName.get(n)?.length ?? 0) > 1)])].sort();
+  for (const c of observed.checks)
+    byName.set(c.name, [...(byName.get(c.name) ?? []), c]);
+  const collisions = [
+    ...new Set([
+      ...observed.collisions.filter((n) => snapshot.includes(n)),
+      ...snapshot.filter((n) => (byName.get(n)?.length ?? 0) > 1),
+    ]),
+  ].sort();
   const names = [...new Set(snapshot)].sort();
   const missing = names.filter((n) => !byName.has(n));
-  const single = (n: string): Check | undefined => (collisions.includes(n) ? undefined : byName.get(n)?.[0]);
+  const single = (n: string): Check | undefined =>
+    collisions.includes(n) ? undefined : byName.get(n)?.[0];
   const failed = names.filter((n) => single(n)?.state === 'failure');
-  const notPassed = names.filter((n) => byName.has(n) && !collisions.includes(n) && single(n)?.state !== 'success' && single(n)?.state !== 'failure');
+  const notPassed = names.filter(
+    (n) =>
+      byName.has(n) &&
+      !collisions.includes(n) &&
+      single(n)?.state !== 'success' &&
+      single(n)?.state !== 'failure',
+  );
 
-  const gates = state.evidence.gates.filter((g) => g.valid && g.revision === rev);
+  const gates = state.evidence.gates.filter(
+    (g) => g.valid && g.revision === rev,
+  );
   const lastGate = gates.at(-1);
   const cp = state.run.checkpoint;
-  const onCheckpoint = state.run.mode === null || (cp !== null && cp.revision === rev && cp.sha === expectedHead);
-  const gate = lastGate === undefined ? 'missing' : !lastGate.passed ? 'failed' : onCheckpoint ? 'passed' : 'other_tree';
+  const onCheckpoint =
+    state.run.mode === null ||
+    (cp !== null && cp.revision === rev && cp.sha === expectedHead);
+  const gate =
+    lastGate === undefined
+      ? 'missing'
+      : !lastGate.passed
+        ? 'failed'
+        : onCheckpoint
+          ? 'passed'
+          : 'other_tree';
   const review = reviewOf(state, expectedHead);
 
-  const green = required.kind === 'covered' && observed.complete && collisions.length === 0 && missing.length === 0 && failed.length === 0 && notPassed.length === 0 && gate === 'passed' && review !== 'missing';
-  if (green) return { kind: 'green', head_sha: expectedHead, review: review === 'approved' ? 'approved' : 'not_required' };
-  return { kind: 'not_green', head_sha: expectedHead, required: required.kind, incomplete: !observed.complete, collisions, failed, not_passed: notPassed, missing, gate, review };
+  const green =
+    required.kind === 'covered' &&
+    observed.complete &&
+    collisions.length === 0 &&
+    missing.length === 0 &&
+    failed.length === 0 &&
+    notPassed.length === 0 &&
+    gate === 'passed' &&
+    review !== 'missing';
+  if (green)
+    return {
+      kind: 'green',
+      head_sha: expectedHead,
+      review: review === 'approved' ? 'approved' : 'not_required',
+    };
+  return {
+    kind: 'not_green',
+    head_sha: expectedHead,
+    required: required.kind,
+    incomplete: !observed.complete,
+    collisions,
+    failed,
+    not_passed: notPassed,
+    missing,
+    gate,
+    review,
+  };
 }
 
 /**
  * Review requirement of `head`: `direct-pr` needs none; a confirmed `full-review` needs the latest
  * verdict recorded for that commit in this revision to be an approval; a legacy task keeps the old rule.
  */
-export function reviewOf(state: Pick<TaskState, 'revision' | 'evidence' | 'run'>, head: string): ReviewRequirement {
+export function reviewOf(
+  state: Pick<TaskState, 'revision' | 'evidence' | 'run'>,
+  head: string,
+): ReviewRequirement {
   const rev = state.revision;
   if (state.run.mode === 'direct-pr') return 'not_required';
   if (state.run.mode === 'full-review') {
-    const last = state.run.reviews.filter((r) => r.valid && r.revision === rev && r.sha === head).at(-1);
+    const last = state.run.reviews
+      .filter((r) => r.valid && r.revision === rev && r.sha === head)
+      .at(-1);
     return last?.verdict === 'approve' ? 'approved' : 'missing';
   }
-  return state.evidence.reviews.some((r) => r.valid && r.revision === rev && r.head_sha === head && r.verdict === 'approve') ? 'approved' : 'missing';
+  return state.evidence.reviews.some(
+    (r) =>
+      r.valid &&
+      r.revision === rev &&
+      r.head_sha === head &&
+      r.verdict === 'approve',
+  )
+    ? 'approved'
+    : 'missing';
 }

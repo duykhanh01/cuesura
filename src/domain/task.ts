@@ -7,11 +7,18 @@ export const TASK_SIZES = ['XS', 'S', 'M', 'L', 'XL'] as const;
 export type TaskSize = (typeof TASK_SIZES)[number];
 
 export const AttachmentRefSchema = z
-  .object({ name: z.string().min(1), media_type: z.string().min(1), content_ref: z.string().min(1) })
+  .object({
+    name: z.string().min(1),
+    media_type: z.string().min(1),
+    content_ref: z.string().min(1),
+  })
   .strict();
 
 export const RequesterSchema = z
-  .object({ kind: z.enum(['human', 'assistant', 'source']), id: z.string().min(1) })
+  .object({
+    kind: z.enum(['human', 'assistant', 'source']),
+    id: z.string().min(1),
+  })
   .strict();
 export type Requester = z.infer<typeof RequesterSchema>;
 

@@ -21,7 +21,8 @@
     Markdown nên `pnpm lint`/Prettier không phải bằng chứng định dạng tài liệu. Không chạy
     `pnpm typecheck`, `pnpm lint`, `pnpm test` hoặc `pnpm build` chỉ vì tài liệu thay đổi.
   - Có sửa code, test hoặc cấu hình thực thi: `pnpm typecheck`, `pnpm lint`, `pnpm test` phải sạch;
-    chạy thêm các kiểm tra bắt buộc theo phạm vi thay đổi và hướng dẫn của repo.
+    chạy thêm các kiểm tra bắt buộc theo phạm vi thay đổi và hướng dẫn của repo. `pnpm lint` gồm ESLint
+    và `prettier --check`; sửa định dạng bằng `pnpm format`.
 - PR sửa quy tắc kiểm tra vẫn áp dụng quy tắc đã có trên `main` cho đến khi merge, trừ chỉ dẫn trực
   tiếp của người dùng; không tự dùng quy tắc mới trong PR để miễn kiểm tra cho chính PR đó.
 - Làm xong: commit, push nhánh và tạo PR vào `main`. Agent không tự merge PR; người dùng merge.

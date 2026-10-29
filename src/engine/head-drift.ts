@@ -18,17 +18,31 @@ type HeadDriftTrigger = Extract<Trigger, { kind: 'head_drift' }>;
 
 export function onHeadDrift(ctx: Ctx, t: HeadDriftTrigger): void {
   const s = ctx.state;
-  if (s.runtime_ref === null) reject('invalid_trigger', { reason: 'not_runtime_task' });
+  if (s.runtime_ref === null)
+    reject('invalid_trigger', { reason: 'not_runtime_task' });
   if (isTerminal(s.status) || s.completion !== null) {
-    ctx.emit('SignalIgnored', { reason: s.completion !== null ? 'completion_recorded' : 'terminal', trigger_kind: t.kind });
+    ctx.emit('SignalIgnored', {
+      reason: s.completion !== null ? 'completion_recorded' : 'terminal',
+      trigger_kind: t.kind,
+    });
     return;
   }
   const prior = s.run.head_drift;
   if (prior !== null && prior.observed === t.observed) {
-    ctx.emit('SignalIgnored', { reason: 'head_drift_recorded', trigger_kind: t.kind, detail: { observed: t.observed } });
+    ctx.emit('SignalIgnored', {
+      reason: 'head_drift_recorded',
+      trigger_kind: t.kind,
+      detail: { observed: t.observed },
+    });
     return;
   }
-  const drift = { expected: t.expected, observed: t.observed, source: t.source, evidence_ref: t.evidence_ref, at: ctx.now };
+  const drift = {
+    expected: t.expected,
+    observed: t.observed,
+    source: t.source,
+    evidence_ref: t.evidence_ref,
+    at: ctx.now,
+  };
   ctx.emit('HeadDriftRecorded', { drift });
   invalidatePending(ctx, 'head_changed', () => true);
   if (s.cancellation !== null) return;
@@ -37,13 +51,22 @@ export function onHeadDrift(ctx: Ctx, t: HeadDriftTrigger): void {
       resume: { kind: 'none' },
       resume_when: ['reconcile(head_changed)'],
       exit_paths: ['reconcile the branch (FR-029)', 'cancel'],
-      detail: { expected: t.expected, observed: t.observed, source: t.source, evidence_ref: t.evidence_ref },
+      detail: {
+        expected: t.expected,
+        observed: t.observed,
+        source: t.source,
+        evidence_ref: t.evidence_ref,
+      },
     }),
   });
 }
 
 /** Under a recorded drift a late result is history only: settle its budget, route nothing. */
-export function settleUnderDrift(ctx: Ctx, e: EffectMirror, invoked: boolean): void {
+export function settleUnderDrift(
+  ctx: Ctx,
+  e: EffectMirror,
+  invoked: boolean,
+): void {
   if (e.kind !== 'start_agent') return;
   if (invoked) consume(ctx, e.reservation_id);
   else release(ctx, e.reservation_id);

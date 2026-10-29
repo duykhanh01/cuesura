@@ -2,11 +2,28 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
-import { closeSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  closeSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { createConnection, createServer, type Socket } from 'node:net';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildSandbox, createProbeFixture, IN_SANDBOX, probeLayout, sandboxCommand, SANDBOX_ROLES } from './sandbox.ts';
+import {
+  buildSandbox,
+  createProbeFixture,
+  IN_SANDBOX,
+  probeLayout,
+  sandboxCommand,
+  SANDBOX_ROLES,
+} from './sandbox.ts';
 
 const CHILD = String.raw`
 import json, os, pathlib, socket, sys, threading
@@ -128,29 +145,53 @@ sys.exit(0 if all(checks.values()) else 1)
 `;
 
 type ChildReport = { checks: Record<string, boolean>; passed: boolean };
-type Run = { exit: number | null; signal: string | null; error: string; output: ChildReport | null };
+type Run = {
+  exit: number | null;
+  signal: string | null;
+  error: string;
+  output: ChildReport | null;
+};
 
 async function run(command: readonly string[], extraFd?: number): Promise<Run> {
   const child = spawn(command[0] ?? '', command.slice(1), {
     env: {},
-    stdio: extraFd === undefined ? ['ignore', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe', extraFd],
+    stdio:
+      extraFd === undefined
+        ? ['ignore', 'pipe', 'pipe']
+        : ['ignore', 'pipe', 'pipe', extraFd],
   });
   let stdout = '';
   let stderr = '';
   let failure = '';
-  child.on('error', (error) => { failure = error.message; });
+  child.on('error', (error) => {
+    failure = error.message;
+  });
   child.stdout?.on('data', (data: Buffer) => {
     stdout += data.toString();
-    if (stdout.length > 64 * 1024) { failure = 'probe output exceeded cap'; child.kill('SIGKILL'); }
+    if (stdout.length > 64 * 1024) {
+      failure = 'probe output exceeded cap';
+      child.kill('SIGKILL');
+    }
   });
-  child.stderr?.on('data', (data: Buffer) => { stderr = (stderr + data.toString()).slice(0, 4000); });
-  const timer = setTimeout(() => { failure = 'probe deadline exceeded'; child.kill('SIGKILL'); }, 20_000);
-  const [exit, signal] = await new Promise<[number | null, string | null]>((done) => {
-    child.once('close', (exit, signal) => done([exit, signal]));
+  child.stderr?.on('data', (data: Buffer) => {
+    stderr = (stderr + data.toString()).slice(0, 4000);
   });
+  const timer = setTimeout(() => {
+    failure = 'probe deadline exceeded';
+    child.kill('SIGKILL');
+  }, 20_000);
+  const [exit, signal] = await new Promise<[number | null, string | null]>(
+    (done) => {
+      child.once('close', (exit, signal) => done([exit, signal]));
+    },
+  );
   clearTimeout(timer);
   let output: ChildReport | null = null;
-  try { output = JSON.parse(stdout) as ChildReport; } catch { failure ||= 'probe did not return JSON'; }
+  try {
+    output = JSON.parse(stdout) as ChildReport;
+  } catch {
+    failure ||= 'probe did not return JSON';
+  }
   return { exit, signal, error: failure || stderr.trim(), output };
 }
 
@@ -177,8 +218,12 @@ export async function runLocalBoundaryProbe() {
     secretFd = openSync(join(fx.outside, 'canary'), 'r');
     const identity = statSync(join(fx.outside, 'canary'), { bigint: true });
     const hostSockets = readdirSync('/proc/self/fd').flatMap((fd) => {
-      try { const target = readlinkSync(`/proc/self/fd/${fd}`); return target.startsWith('socket:') ? [target] : []; }
-      catch { return []; }
+      try {
+        const target = readlinkSync(`/proc/self/fd/${fd}`);
+        return target.startsWith('socket:') ? [target] : [];
+      } catch {
+        return [];
+      }
     });
     const script = join(fx.context, 'local-boundary.py');
     writeFileSync(script, CHILD);
@@ -186,47 +231,85 @@ export async function runLocalBoundaryProbe() {
     const schema = join(fx.base, 'schema');
     mkdirSync(schema);
     writeFileSync(join(schema, 'role.json'), '{}');
-    const data = { ...fx, host_pid: process.pid, host_fd: secretFd, secret_identity: [String(identity.dev), String(identity.ino)], host_sockets: hostSockets };
-    const positive = await run(['/usr/bin/python3', script, JSON.stringify(data), 'control'], secretFd);
-    const roles: Array<{ role: string; layout_digest: string; result: Run }> = [];
+    const data = {
+      ...fx,
+      host_pid: process.pid,
+      host_fd: secretFd,
+      secret_identity: [String(identity.dev), String(identity.ino)],
+      host_sockets: hostSockets,
+    };
+    const positive = await run(
+      ['/usr/bin/python3', script, JSON.stringify(data), 'control'],
+      secretFd,
+    );
+    const roles: Array<{ role: string; layout_digest: string; result: Run }> =
+      [];
     for (const role of SANDBOX_ROLES) {
       const plan = buildSandbox({ ...probeLayout(role, fx), schema });
-      const result = await run(sandboxCommand(plan, ['/usr/bin/python3', `${IN_SANDBOX.context}/local-boundary.py`, JSON.stringify({ ...data, role }), 'boundary']));
+      const result = await run(
+        sandboxCommand(plan, [
+          '/usr/bin/python3',
+          `${IN_SANDBOX.context}/local-boundary.py`,
+          JSON.stringify({ ...data, role }),
+          'boundary',
+        ]),
+      );
       roles.push({ role, layout_digest: plan.layout_digest, result });
     }
-    const unchanged = readFileSync(join(fx.outside, 'canary'), 'utf8') === 'outside-canary\n';
-    const digest = (path: string): string => createHash('sha256').update(readFileSync(path)).digest('hex');
-    const passed = (row: Run): boolean => row.exit === 0 && row.error === '' && row.output?.passed === true;
+    const unchanged =
+      readFileSync(join(fx.outside, 'canary'), 'utf8') === 'outside-canary\n';
+    const digest = (path: string): string =>
+      createHash('sha256').update(readFileSync(path)).digest('hex');
+    const passed = (row: Run): boolean =>
+      row.exit === 0 && row.error === '' && row.output?.passed === true;
     return {
       schema_version: 1,
       kind: 'spike-0-local-boundary',
       checked_at: new Date().toISOString(),
-      scope: 'Disposable live Unix socket/FD, role mounts and bounded in-sandbox symlink races only. Not a host mount-source TOCTOU proof, systemd lifetime, vendor smoke or full S0.1 pass.',
+      scope:
+        'Disposable live Unix socket/FD, role mounts and bounded in-sandbox symlink races only. Not a host mount-source TOCTOU proof, systemd lifetime, vendor smoke or full S0.1 pass.',
       node: process.version,
       kernel: spawnSync('uname', ['-r'], { encoding: 'utf8' }).stdout.trim(),
-      bwrap: spawnSync('/usr/bin/bwrap', ['--version'], { encoding: 'utf8' }).stdout.trim(),
-      hashes: { probe: digest(fileURLToPath(import.meta.url)), sandbox: digest(fileURLToPath(new URL('./sandbox.ts', import.meta.url))), bwrap: digest('/usr/bin/bwrap') },
+      bwrap: spawnSync('/usr/bin/bwrap', ['--version'], {
+        encoding: 'utf8',
+      }).stdout.trim(),
+      hashes: {
+        probe: digest(fileURLToPath(import.meta.url)),
+        sandbox: digest(
+          fileURLToPath(new URL('./sandbox.ts', import.meta.url)),
+        ),
+        bwrap: digest('/usr/bin/bwrap'),
+      },
       positive_controls: positive,
       roles,
       host_canary_unchanged: unchanged,
-      passed: unchanged && passed(positive) && roles.every((row) => passed(row.result)),
+      passed:
+        unchanged &&
+        passed(positive) &&
+        roles.every((row) => passed(row.result)),
     };
   } finally {
     if (secretFd !== undefined) closeSync(secretFd);
     connection?.destroy();
     for (const socket of sockets) socket.destroy();
-    if (server.listening) await new Promise<void>((done) => server.close(() => done()));
+    if (server.listening)
+      await new Promise<void>((done) => server.close(() => done()));
     rmSync(fx.base, { recursive: true, force: true });
   }
 }
 
-if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (
+  process.argv[1] !== undefined &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
   try {
     const report = await runLocalBoundaryProbe();
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
     process.exitCode = report.passed ? 0 : 1;
   } catch (error) {
-    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.stderr.write(
+      `${error instanceof Error ? error.message : String(error)}\n`,
+    );
     process.exitCode = 1;
   }
 }

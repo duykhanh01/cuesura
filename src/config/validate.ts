@@ -4,9 +4,24 @@ import { hashCanonical } from '../shared/hash.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import type { Workflow } from '../domain/workflow.ts';
 import { findUnsupported, type UnsupportedFeature } from './capabilities.ts';
-import { checkPredicates, checkRuntime, runChecks, type Locator } from './checks.ts';
-import { mergeProject, resolveProfiles, SourceMap, splitForbidden, type Layer } from './merge.ts';
-import type { NormalizedProfile, NormalizedUser, ValidatedConfig } from '../domain/config.ts';
+import {
+  checkPredicates,
+  checkRuntime,
+  runChecks,
+  type Locator,
+} from './checks.ts';
+import {
+  mergeProject,
+  resolveProfiles,
+  SourceMap,
+  splitForbidden,
+  type Layer,
+} from './merge.ts';
+import type {
+  NormalizedProfile,
+  NormalizedUser,
+  ValidatedConfig,
+} from '../domain/config.ts';
 import {
   expandWorkflow,
   normalizeProfile,
@@ -17,12 +32,29 @@ import {
   type ProjectLocation,
   type RuntimeConfig,
 } from './normalize.ts';
-import { diag, locate, sortDiagnostics, type Diagnostic, type KeyPath } from './positions.ts';
-import { PackSchema, PROJECT_KEYS, PROJECT_ONLY_KEYS, ProjectConfigSchema, type RawProjectConfig } from './schema-project.ts';
+import {
+  diag,
+  locate,
+  sortDiagnostics,
+  type Diagnostic,
+  type KeyPath,
+} from './positions.ts';
+import {
+  PackSchema,
+  PROJECT_KEYS,
+  PROJECT_ONLY_KEYS,
+  ProjectConfigSchema,
+  type RawProjectConfig,
+} from './schema-project.ts';
 
 export type { ValidatedConfig };
 import { USER_ONLY_KEYS, UserConfigSchema } from './schema-user.ts';
-import { DEFAULT_LIMITS, loadYaml, type ConfigSource, type LoaderLimits } from './yaml-loader.ts';
+import {
+  DEFAULT_LIMITS,
+  loadYaml,
+  type ConfigSource,
+  type LoaderLimits,
+} from './yaml-loader.ts';
 
 export type ValidateInput = {
   user: ConfigSource;
@@ -43,12 +75,24 @@ export type Validated = {
 };
 
 /** Issue của Zod → `schema_invalid`; khoá lạ được tách thành từng chẩn đoán tại chính khoá đó. */
-export function zodDiagnostics(error: z.ZodError, at: Locator, prefix: KeyPath = []): Diagnostic[] {
+export function zodDiagnostics(
+  error: z.ZodError,
+  at: Locator,
+  prefix: KeyPath = [],
+): Diagnostic[] {
   const out: Diagnostic[] = [];
   for (const issue of error.issues) {
     const path = [...prefix, ...(issue.path as KeyPath)];
     if (issue.code === 'unrecognized_keys') {
-      for (const k of issue.keys) out.push(diag('schema_invalid', at([...path, k]), [...path, k], `khoá '${k}' không được hỗ trợ`));
+      for (const k of issue.keys)
+        out.push(
+          diag(
+            'schema_invalid',
+            at([...path, k]),
+            [...path, k],
+            `khoá '${k}' không được hỗ trợ`,
+          ),
+        );
     } else {
       out.push(diag('schema_invalid', at(path), path, issue.message));
     }
@@ -100,16 +144,29 @@ export function analyze(input: AnalyzeInput): Result<Validated, Diagnostic[]> {
     }
   }
 
-  const resolved = resolveProfiles(rawUser.profiles ?? {}, input.atUser, input.maxProfileDepth);
+  const resolved = resolveProfiles(
+    rawUser.profiles ?? {},
+    input.atUser,
+    input.maxProfileDepth,
+  );
   diags.push(...resolved.diagnostics);
   if (diags.length > 0) return err(diags);
 
   const user: NormalizedUser = { ...normalizeUserBase(rawUser), workflows };
   const profiles: Record<string, NormalizedProfile> = {};
-  for (const [pn, p] of Object.entries(resolved.profiles)) profiles[pn] = normalizeProfile(p);
+  for (const [pn, p] of Object.entries(resolved.profiles))
+    profiles[pn] = normalizeProfile(p);
   const normProject = normalizeProject(project);
 
-  diags.push(...runChecks({ user, profiles, project: normProject, atUser: input.atUser, atProject: input.atProject }));
+  diags.push(
+    ...runChecks({
+      user,
+      profiles,
+      project: normProject,
+      atUser: input.atUser,
+      atProject: input.atProject,
+    }),
+  );
   if (diags.length > 0) return err(diags);
 
   const config: ValidatedConfig = {
@@ -129,7 +186,10 @@ export function analyze(input: AnalyzeInput): Result<Validated, Diagnostic[]> {
   return ok({
     config,
     unsupported: findUnsupported(workflows, input.atUser),
-    runtime: normalizeRuntime(rawUser.runtime, Object.keys(rawUser.harnesses ?? {})),
+    runtime: normalizeRuntime(
+      rawUser.runtime,
+      Object.keys(rawUser.harnesses ?? {}),
+    ),
     locations: projectLocations(rawUser),
   });
 }
@@ -138,7 +198,9 @@ export function analyze(input: AnalyzeInput): Result<Validated, Diagnostic[]> {
  * `validateConfig` (contracts/core-api.md): trả đủ lỗi tìm được, sắp theo `(file, line, col)`; riêng lỗi
  * cú pháp và kích thước làm tài liệu không đọc được nên dừng ở đó.
  */
-export function validateConfig(input: ValidateInput): Result<Validated, Diagnostic[]> {
+export function validateConfig(
+  input: ValidateInput,
+): Result<Validated, Diagnostic[]> {
   const limits: LoaderLimits = { ...DEFAULT_LIMITS, ...input.limits };
 
   // Cú pháp: đọc mọi file trước, gom lỗi của cả bộ.
@@ -153,43 +215,76 @@ export function validateConfig(input: ValidateInput): Result<Validated, Diagnost
     if (!r.ok) syntax.push(...r.error);
     else packDocs[name] = r.value;
   }
-  if (!userDoc.ok || (projectDoc && !projectDoc.ok) || syntax.length > 0) return err(sortDiagnostics(syntax));
+  if (!userDoc.ok || (projectDoc && !projectDoc.ok) || syntax.length > 0)
+    return err(sortDiagnostics(syntax));
 
   const diags: Diagnostic[] = [];
 
   // Thẩm quyền theo file (FR-001).
-  const userLayer = splitForbidden(userDoc.value, PROJECT_KEYS, 'thuộc cusr.yaml, không thuộc cấu hình người dùng');
+  const userLayer = splitForbidden(
+    userDoc.value,
+    PROJECT_KEYS,
+    'thuộc cusr.yaml, không thuộc cấu hình người dùng',
+  );
   diags.push(...userLayer.diagnostics);
   const atUser: Locator = (path) => locate(userDoc.value.located, path);
 
   let projectValue: unknown = undefined;
-  let atProject: Locator = () => ({ file: input.project?.file ?? '<project>', line: 1, col: 1 });
+  let atProject: Locator = () => ({
+    file: input.project?.file ?? '<project>',
+    line: 1,
+    col: 1,
+  });
   const packHashes: Record<string, Hash> = {};
   if (projectDoc?.ok) {
-    const projLayer = splitForbidden(projectDoc.value, USER_ONLY_KEYS, 'chỉ thuộc cấu hình người dùng');
+    const projLayer = splitForbidden(
+      projectDoc.value,
+      USER_ONLY_KEYS,
+      'chỉ thuộc cấu hình người dùng',
+    );
     diags.push(...projLayer.diagnostics);
 
     const extendsList = (projLayer.value as { extends?: unknown }).extends;
-    const names = Array.isArray(extendsList) ? extendsList.filter((x): x is string => typeof x === 'string') : [];
+    const names = Array.isArray(extendsList)
+      ? extendsList.filter((x): x is string => typeof x === 'string')
+      : [];
     const packLayers: Layer[] = [];
     names.forEach((name, i) => {
       const pack = packDocs[name];
       if (pack === undefined) {
-        diags.push(diag('unknown_pack', locate(projectDoc.value.located, ['extends', i]), ['extends', i], `pack '${name}' không tồn tại`));
+        diags.push(
+          diag(
+            'unknown_pack',
+            locate(projectDoc.value.located, ['extends', i]),
+            ['extends', i],
+            `pack '${name}' không tồn tại`,
+          ),
+        );
         return;
       }
-      const cleaned = splitForbidden(pack, [...USER_ONLY_KEYS, ...PROJECT_ONLY_KEYS], 'không thuộc thẩm quyền của pack');
+      const cleaned = splitForbidden(
+        pack,
+        [...USER_ONLY_KEYS, ...PROJECT_ONLY_KEYS],
+        'không thuộc thẩm quyền của pack',
+      );
       diags.push(...cleaned.diagnostics);
       const parsed = PackSchema.safeParse(cleaned.value);
       if (!parsed.success) {
-        diags.push(...zodDiagnostics(parsed.error, (p) => locate(pack.located, p)));
+        diags.push(
+          ...zodDiagnostics(parsed.error, (p) => locate(pack.located, p)),
+        );
         return;
       }
-      packHashes[name] = hashCanonical(normalizeProject({ ...parsed.data, version: 1 }));
+      packHashes[name] = hashCanonical(
+        normalizeProject({ ...parsed.data, version: 1 }),
+      );
       const { version: _v, ...preset } = parsed.data;
       packLayers.push({ located: pack.located, value: preset });
     });
-    const merged = mergeProject(packLayers, { located: projectDoc.value.located, value: projLayer.value });
+    const merged = mergeProject(packLayers, {
+      located: projectDoc.value.located,
+      value: projLayer.value,
+    });
     projectValue = merged.value;
     const sources: SourceMap = merged.sources;
     atProject = (path) => sources.position(path);

@@ -1,5 +1,15 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,7 +26,12 @@ import {
   type RunSpec,
 } from '../../../scripts/spike-002/runner.ts';
 
-const FAKE = fileURLToPath(new URL('../../fixtures/runtime/spike-0/bin/fake-harness.js', import.meta.url));
+const FAKE = fileURLToPath(
+  new URL(
+    '../../fixtures/runtime/spike-0/bin/fake-harness.js',
+    import.meta.url,
+  ),
+);
 const base = realpathSync(mkdtempSync(join(tmpdir(), 'cusr-runner-')));
 const leftover: number[] = [];
 
@@ -51,11 +66,24 @@ function spec(args: string[], over: Partial<RunSpec> = {}): RunSpec {
   };
 }
 
-function events(dir: string): Array<{ seq: number; generation: number; data: unknown; truncated?: boolean }> {
+function events(dir: string): Array<{
+  seq: number;
+  generation: number;
+  data: unknown;
+  truncated?: boolean;
+}> {
   return readFileSync(join(dir, 'events.jsonl'), 'utf8')
     .split('\n')
     .filter(Boolean)
-    .map((l) => JSON.parse(l) as { seq: number; generation: number; data: unknown; truncated?: boolean });
+    .map(
+      (l) =>
+        JSON.parse(l) as {
+          seq: number;
+          generation: number;
+          data: unknown;
+          truncated?: boolean;
+        },
+    );
 }
 
 function alive(pid: number): boolean {
@@ -73,13 +101,32 @@ describe('spike-002 runner prototype', () => {
     const r = await execOperation(s, base);
     expect(r.status).toBe('finished');
     const dir = join(base, 'operations', s.operation_id);
-    for (const f of ['launch.json', 'invocation.json', 'pid.json', 'events.jsonl', 'stderr.log', 'liveness', 'progress.json', 'exit.json']) {
+    for (const f of [
+      'launch.json',
+      'invocation.json',
+      'pid.json',
+      'events.jsonl',
+      'stderr.log',
+      'liveness',
+      'progress.json',
+      'exit.json',
+    ]) {
       expect(existsSync(join(dir, f)), f).toBe(true);
     }
-    const exit = JSON.parse(readFileSync(join(dir, 'exit.json'), 'utf8')) as Record<string, unknown>;
-    expect(exit).toMatchObject({ outcome: 'exited', exit_code: 0, usage: { status: 'unavailable' } });
-    const launch = JSON.parse(readFileSync(join(dir, 'launch.json'), 'utf8')) as { nonce: string };
-    const pid = JSON.parse(readFileSync(join(dir, 'pid.json'), 'utf8')) as Record<string, unknown>;
+    const exit = JSON.parse(
+      readFileSync(join(dir, 'exit.json'), 'utf8'),
+    ) as Record<string, unknown>;
+    expect(exit).toMatchObject({
+      outcome: 'exited',
+      exit_code: 0,
+      usage: { status: 'unavailable' },
+    });
+    const launch = JSON.parse(
+      readFileSync(join(dir, 'launch.json'), 'utf8'),
+    ) as { nonce: string };
+    const pid = JSON.parse(
+      readFileSync(join(dir, 'pid.json'), 'utf8'),
+    ) as Record<string, unknown>;
     expect(exit['launch_nonce']).toBe(launch.nonce);
     expect(pid['launch_nonce']).toBe(launch.nonce);
     expect(typeof pid['start_ticks']).toBe('string');
@@ -106,15 +153,22 @@ describe('spike-002 runner prototype', () => {
     const s = spec(['secret', secret], { redact_files: [auth] });
     await execOperation(s, base);
     const dir = join(base, 'operations', s.operation_id);
-    const all = ['events.jsonl', 'stderr.log', 'invocation.json', 'exit.json'].map((f) => readFileSync(join(dir, f), 'utf8')).join('\n');
+    const all = ['events.jsonl', 'stderr.log', 'invocation.json', 'exit.json']
+      .map((f) => readFileSync(join(dir, f), 'utf8'))
+      .join('\n');
     expect(all).not.toContain(secret);
     expect(all).not.toMatch(/ghp_a{36}/);
     expect(all).toContain('[REDACTED]');
-    expect(readFileSync(join(dir, 'invocation.json'), 'utf8')).not.toContain(auth);
+    expect(readFileSync(join(dir, 'invocation.json'), 'utf8')).not.toContain(
+      auth,
+    );
   });
 
   it('enforces the deadline and verifies the group is gone, including during child startup', async () => {
-    const s = spec(['ignore-term', '60000'], { deadline_ms: 400, limits: { term_grace_ms: 300, kill_verify_ms: 2_000 } });
+    const s = spec(['ignore-term', '60000'], {
+      deadline_ms: 400,
+      limits: { term_grace_ms: 300, kill_verify_ms: 2_000 },
+    });
     const r = await execOperation(s, base);
     expect(r.status === 'finished' && r.exit).toMatchObject({
       outcome: 'timeout',
@@ -123,43 +177,78 @@ describe('spike-002 runner prototype', () => {
   });
 
   it('escalates SIGTERM to SIGKILL after the child confirms its ignore handler is ready', async () => {
-    const s = spec(['ignore-term', '60000'], { deadline_ms: 30_000, limits: { term_grace_ms: 200, kill_verify_ms: 2_000 } });
+    const s = spec(['ignore-term', '60000'], {
+      deadline_ms: 30_000,
+      limits: { term_grace_ms: 200, kill_verify_ms: 2_000 },
+    });
     const file = join(base, `${s.operation_id}.ready.spec.json`);
     writeFileSync(file, JSON.stringify(s));
-    const runner = fileURLToPath(new URL('../../../scripts/spike-002/runner.ts', import.meta.url));
-    const child = spawn(process.execPath, [runner, 'exec', '--spec', file, '--root', base], { stdio: 'ignore' });
+    const runner = fileURLToPath(
+      new URL('../../../scripts/spike-002/runner.ts', import.meta.url),
+    );
+    const child = spawn(
+      process.execPath,
+      [runner, 'exec', '--spec', file, '--root', base],
+      { stdio: 'ignore' },
+    );
     const dir = join(base, 'operations', s.operation_id);
     try {
       const log = join(dir, 'events.jsonl');
-      for (const end = Date.now() + 15_000; Date.now() < end; ) {
-        if (existsSync(log) && readFileSync(log, 'utf8').includes('"type":"ready"')) break;
+      for (const end = Date.now() + 15_000; Date.now() < end;) {
+        if (
+          existsSync(log) &&
+          readFileSync(log, 'utf8').includes('"type":"ready"')
+        )
+          break;
         await new Promise((done) => setTimeout(done, 50));
       }
-      expect(existsSync(log) && readFileSync(log, 'utf8').includes('"type":"ready"')).toBe(true);
+      expect(
+        existsSync(log) && readFileSync(log, 'utf8').includes('"type":"ready"'),
+      ).toBe(true);
       expect(child.kill('SIGTERM')).toBe(true);
       await new Promise((done) => child.once('close', done));
-      expect(JSON.parse(readFileSync(join(dir, 'exit.json'), 'utf8'))).toMatchObject({
-        outcome: 'cancelled', termination: { term_sent: true, kill_sent: true, group_empty_verified: true },
+      expect(
+        JSON.parse(readFileSync(join(dir, 'exit.json'), 'utf8')),
+      ).toMatchObject({
+        outcome: 'cancelled',
+        termination: {
+          term_sent: true,
+          kill_sent: true,
+          group_empty_verified: true,
+        },
       });
     } finally {
       child.kill('SIGKILL');
       const pidFile = join(dir, 'pid.json');
       if (existsSync(pidFile)) {
-        const { pid } = JSON.parse(readFileSync(pidFile, 'utf8')) as { pid: number };
-        try { process.kill(-pid, 'SIGKILL'); } catch { /* group already gone */ }
+        const { pid } = JSON.parse(readFileSync(pidFile, 'utf8')) as {
+          pid: number;
+        };
+        try {
+          process.kill(-pid, 'SIGKILL');
+        } catch {
+          /* group already gone */
+        }
       }
     }
   });
 
   it('stops descendants left in the process group after the leader exits; reports the scope honestly', async () => {
     const pids = join(base, 'grandchild-pids.json');
-    const s = spec(['grandchild', pids, 'exit'], { limits: { term_grace_ms: 200 } });
+    const s = spec(['grandchild', pids, 'exit'], {
+      limits: { term_grace_ms: 200 },
+    });
     const r = await execOperation(s, base);
-    const { in_group, escaped } = JSON.parse(readFileSync(pids, 'utf8')) as { in_group: number; escaped: number };
+    const { in_group, escaped } = JSON.parse(readFileSync(pids, 'utf8')) as {
+      in_group: number;
+      escaped: number;
+    };
     leftover.push(escaped);
     expect(alive(in_group)).toBe(false);
     // Outside a cusr-op unit the runner only owns its process group; setsid escapes need the unit cgroup (T006).
-    expect(r.status === 'finished' && r.exit.termination.descendant_scope).toBe('process_group_only');
+    expect(r.status === 'finished' && r.exit.termination.descendant_scope).toBe(
+      'process_group_only',
+    );
     expect(alive(escaped)).toBe(true);
   });
 
@@ -168,7 +257,14 @@ describe('spike-002 runner prototype', () => {
     await execOperation(s, base);
     const ev = events(join(base, 'operations', s.operation_id));
     expect(ev[0]?.truncated).toBe(true);
-    expect(Buffer.byteLength(readFileSync(join(base, 'operations', s.operation_id, 'events.jsonl'), 'utf8').split('\n')[0] ?? '')).toBeLessThanOrEqual(1024);
+    expect(
+      Buffer.byteLength(
+        readFileSync(
+          join(base, 'operations', s.operation_id, 'events.jsonl'),
+          'utf8',
+        ).split('\n')[0] ?? '',
+      ),
+    ).toBeLessThanOrEqual(1024);
     expect(ev[1]?.data).toBe('after');
   });
 
@@ -181,7 +277,9 @@ describe('spike-002 runner prototype', () => {
   });
 
   it('rotates segments into spool/ with increasing generation', async () => {
-    const s = spec(['echo', '200'], { limits: { segment_bytes: 4096, record_bytes: 1024 } });
+    const s = spec(['echo', '200'], {
+      limits: { segment_bytes: 4096, record_bytes: 1024 },
+    });
     await execOperation(s, base);
     const dir = join(base, 'operations', s.operation_id);
     const segments = readdirSync(join(dir, 'spool')).sort();
@@ -193,9 +291,18 @@ describe('spike-002 runner prototype', () => {
   });
 
   it('stops the operation with artifact_backpressure instead of dropping output at the spool cap', async () => {
-    const s = spec(['flood', String(1024 * 1024)], { limits: { spool_bytes: 64 * 1024, segment_bytes: 32 * 1024, record_bytes: 4096, term_grace_ms: 500 } });
+    const s = spec(['flood', String(1024 * 1024)], {
+      limits: {
+        spool_bytes: 64 * 1024,
+        segment_bytes: 32 * 1024,
+        record_bytes: 4096,
+        term_grace_ms: 500,
+      },
+    });
     const r = await execOperation(s, base);
-    expect(r.status === 'finished' && r.exit.outcome).toBe('artifact_backpressure');
+    expect(r.status === 'finished' && r.exit.outcome).toBe(
+      'artifact_backpressure',
+    );
   });
 
   it('records spawn failure without a pid receipt', async () => {
@@ -205,17 +312,27 @@ describe('spike-002 runner prototype', () => {
   });
 
   it('rejects secrets in the run spec env and unsafe ids', () => {
-    expect(() => parseSpec(spec(['echo'], { env: { GH_TOKEN: 'x' } }))).toThrow(RunnerError);
-    expect(() => parseSpec(spec(['echo'], { env: { ANTHROPIC_API_KEY: 'x' } }))).toThrow(RunnerError);
-    expect(() => parseSpec(spec(['echo'], { operation_id: '../escape' }))).toThrow();
-    expect(() => parseSpec(spec(['echo'], { kind: 'runs', attempt_id: null }))).toThrow(RunnerError);
+    expect(() => parseSpec(spec(['echo'], { env: { GH_TOKEN: 'x' } }))).toThrow(
+      RunnerError,
+    );
+    expect(() =>
+      parseSpec(spec(['echo'], { env: { ANTHROPIC_API_KEY: 'x' } })),
+    ).toThrow(RunnerError);
+    expect(() =>
+      parseSpec(spec(['echo'], { operation_id: '../escape' })),
+    ).toThrow();
+    expect(() =>
+      parseSpec(spec(['echo'], { kind: 'runs', attempt_id: null })),
+    ).toThrow(RunnerError);
   });
 
   it('guards the artifact root against symlinks and traversal', () => {
     const root = join(base, 'guard');
     mkdirSync(join(root, 'operations'), { recursive: true });
     symlinkSync('/etc', join(root, 'operations', 'evil'));
-    expect(() => prepareRunDir(root, 'operations', 'evil')).toThrow(RunnerError);
+    expect(() => prepareRunDir(root, 'operations', 'evil')).toThrow(
+      RunnerError,
+    );
     const dir = prepareRunDir(root, 'operations', 'good');
     expect(() => artifactPath(dir, '../x')).toThrow(RunnerError);
     expect(() => artifactPath(dir, '/etc/passwd')).toThrow(RunnerError);
@@ -231,18 +348,33 @@ describe('spike-002 runner prototype', () => {
     expect(createOnce(dir, 'launch.json', '{}')).toBe(false);
     expect(readReceipt(dir).state).toBe('unknown');
     const boot = readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim();
-    writeFileSync(join(dir, 'pid.json'), JSON.stringify({ pid: process.pid, start_ticks: '1', boot_id: boot }));
+    writeFileSync(
+      join(dir, 'pid.json'),
+      JSON.stringify({ pid: process.pid, start_ticks: '1', boot_id: boot }),
+    );
     expect(readReceipt(dir).state).toBe('lost');
     const child = spawn(process.execPath, ['-e', 'setTimeout(()=>{}, 30000)']);
     const ticks = readFileSync(`/proc/${String(child.pid)}/stat`, 'utf8');
-    writeFileSync(join(dir, 'pid.json'), JSON.stringify({ pid: child.pid, start_ticks: ticks.slice(ticks.lastIndexOf(')') + 2).split(' ')[19], boot_id: boot }));
+    writeFileSync(
+      join(dir, 'pid.json'),
+      JSON.stringify({
+        pid: child.pid,
+        start_ticks: ticks.slice(ticks.lastIndexOf(')') + 2).split(' ')[19],
+        boot_id: boot,
+      }),
+    );
     expect(readReceipt(dir).state).toBe('running');
     child.kill('SIGKILL');
-    writeFileSync(join(dir, 'pid.json'), JSON.stringify({ pid: 1, start_ticks: '1', boot_id: 'other-boot' }));
+    writeFileSync(
+      join(dir, 'pid.json'),
+      JSON.stringify({ pid: 1, start_ticks: '1', boot_id: 'other-boot' }),
+    );
     expect(readReceipt(dir).state).toBe('lost');
     const s = spec(['echo', '1']);
     await execOperation(s, base);
-    expect(readReceipt(join(base, 'operations', s.operation_id)).state).toBe('finished');
+    expect(readReceipt(join(base, 'operations', s.operation_id)).state).toBe(
+      'finished',
+    );
   });
 
   it('holds a kernel flock per operation: a concurrent runner exits 75 without touching files', async () => {
@@ -254,8 +386,11 @@ describe('spike-002 runner prototype', () => {
     const argv = flockArgv(file, root, s.operation_id);
     const first = spawn(argv[0] as string, argv.slice(1), { stdio: 'ignore' });
     const lock = join(root, 'operations', s.operation_id, 'launch.json');
-    for (let i = 0; i < 100 && !existsSync(lock); i++) await new Promise((r) => setTimeout(r, 50));
-    const second = spawnSync(argv[0] as string, argv.slice(1), { encoding: 'utf8' });
+    for (let i = 0; i < 100 && !existsSync(lock); i++)
+      await new Promise((r) => setTimeout(r, 50));
+    const second = spawnSync(argv[0] as string, argv.slice(1), {
+      encoding: 'utf8',
+    });
     expect(second.status).toBe(75);
     await new Promise((r) => first.once('exit', r));
     expect(first.exitCode).toBe(0);

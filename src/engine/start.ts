@@ -22,11 +22,19 @@ export function acceptFrozen(
 ): { policy: FrozenPolicy; context: FrozenExecutionContext } {
   const { policy, context } = v;
   const s = ctx.state;
-  if (policy.task_id !== s.id || context.task_id !== s.id) reject('invalid_trigger', { reason: 'freeze_task_mismatch' });
-  if (policy.revision !== revision || context.revision !== revision) reject('invalid_trigger', { reason: 'freeze_revision_mismatch' });
-  if (policy.base_sha !== context.base_sha) reject('invalid_trigger', { reason: 'freeze_base_mismatch' });
-  if (!verifyPolicyHash(policy) || !verifyContextHash(context)) reject('invalid_trigger', { reason: 'freeze_hash_mismatch' });
-  if (ctx.policy !== null && ctx.policy.structure_hash !== policy.structure_hash) reject('workflow_change_forbidden');
+  if (policy.task_id !== s.id || context.task_id !== s.id)
+    reject('invalid_trigger', { reason: 'freeze_task_mismatch' });
+  if (policy.revision !== revision || context.revision !== revision)
+    reject('invalid_trigger', { reason: 'freeze_revision_mismatch' });
+  if (policy.base_sha !== context.base_sha)
+    reject('invalid_trigger', { reason: 'freeze_base_mismatch' });
+  if (!verifyPolicyHash(policy) || !verifyContextHash(context))
+    reject('invalid_trigger', { reason: 'freeze_hash_mismatch' });
+  if (
+    ctx.policy !== null &&
+    ctx.policy.structure_hash !== policy.structure_hash
+  )
+    reject('workflow_change_forbidden');
   return v;
 }
 
@@ -51,13 +59,21 @@ export const FREEZE_PENDING_CODES: readonly string[] = [
 export function onStart(ctx: Ctx, t: StartTrigger): void {
   const s = ctx.state;
   if (s.policy_ref !== null) {
-    ctx.emit('SignalIgnored', { reason: 'already_started', trigger_kind: 'start' });
+    ctx.emit('SignalIgnored', {
+      reason: 'already_started',
+      trigger_kind: 'start',
+    });
     return;
   }
-  const retryable = s.status === 'PENDING' && s.wait?.reason === 'needs_info' && FREEZE_PENDING_CODES.includes(s.wait.detail.code);
-  if (s.status !== 'READY' && !retryable) reject('invalid_trigger', { reason: 'not_ready', status: s.status });
+  const retryable =
+    s.status === 'PENDING' &&
+    s.wait?.reason === 'needs_info' &&
+    FREEZE_PENDING_CODES.includes(s.wait.detail.code);
+  if (s.status !== 'READY' && !retryable)
+    reject('invalid_trigger', { reason: 'not_ready', status: s.status });
   // A 002 start runs only under the execution slot granted to this task (FR-044).
-  if (t.runtime !== undefined && s.execution.holding === null) reject('invalid_trigger', { reason: 'slot_not_held' });
+  if (t.runtime !== undefined && s.execution.holding === null)
+    reject('invalid_trigger', { reason: 'slot_not_held' });
 
   if (!t.freeze.ok) {
     const e = t.freeze.error;
@@ -71,7 +87,11 @@ export function onStart(ctx: Ctx, t: StartTrigger): void {
     // Nothing was spawned under the slot, so it goes back for the next task.
     const h = ctx.state.execution.holding;
     if (h !== null && slotBoundOperations(ctx.state).length === 0) {
-      ctx.emit('ExecutionReleased', { request_id: h.request_id, reason: 'freeze_failed', at: ctx.now });
+      ctx.emit('ExecutionReleased', {
+        request_id: h.request_id,
+        reason: 'freeze_failed',
+        at: ctx.now,
+      });
     }
     return;
   }
@@ -82,7 +102,11 @@ export function onStart(ctx: Ctx, t: StartTrigger): void {
   }
   if (s.status === 'PENDING') ctx.emit('TaskReady', {});
   // The runtime snapshot is committed before PolicyFrozen moves the task to RUNNING (FR-002.01).
-  if (t.runtime !== undefined) ctx.emit('RuntimeConfigured', { runtime: t.runtime, runtime_hash: t.runtime.runtime_hash });
+  if (t.runtime !== undefined)
+    ctx.emit('RuntimeConfigured', {
+      runtime: t.runtime,
+      runtime_hash: t.runtime.runtime_hash,
+    });
   ctx.emit('PolicyFrozen', {
     policy,
     context,
@@ -92,23 +116,48 @@ export function onStart(ctx: Ctx, t: StartTrigger): void {
   });
   ctx.policy = policy;
   if (ctx.state.deadline_at === null) {
-    ctx.emit('TimerArmed', { timer_id: ctx.nextId(), kind: 'deadline', due_at: ctx.now + policy.limits.max_wall_ms, payload: {} });
+    ctx.emit('TimerArmed', {
+      timer_id: ctx.nextId(),
+      kind: 'deadline',
+      due_at: ctx.now + policy.limits.max_wall_ms,
+      payload: {},
+    });
   }
   enterStep(ctx, policy.workflow.start, null);
 }
-
 
 /**
  * A runtime start freezes exactly the selection the user confirmed for this revision (M01/M02): same
  * digest as the current proposal and its confirmation, and the graph of that mode. Anything else is an
  * invalid start; nothing is spawned on an unconfirmed or stale selection.
  */
-function acceptRunConfig(ctx: Ctx, rc: FrozenRuntimeContext['run_config'], policy: FrozenPolicy): void {
+function acceptRunConfig(
+  ctx: Ctx,
+  rc: FrozenRuntimeContext['run_config'],
+  policy: FrozenPolicy,
+): void {
   const s = ctx.state;
-  if (rc === undefined) reject('invalid_trigger', { reason: 'run_config_missing' });
-  if (!runConfigConfirmed(s) || rc.digest !== s.run.proposal?.digest || rc.digest !== selectionDigest(rc.selection)) {
-    reject('invalid_trigger', { reason: 'run_config_unconfirmed', digest: rc.digest });
+  if (rc === undefined)
+    reject('invalid_trigger', { reason: 'run_config_missing' });
+  if (
+    !runConfigConfirmed(s) ||
+    rc.digest !== s.run.proposal?.digest ||
+    rc.digest !== selectionDigest(rc.selection)
+  ) {
+    reject('invalid_trigger', {
+      reason: 'run_config_unconfirmed',
+      digest: rc.digest,
+    });
   }
-  if (rc.selection.task_id !== s.id || rc.selection.revision !== s.revision || rc.mode !== rc.selection.mode) reject('invalid_trigger', { reason: 'run_config_mismatch' });
-  if (policy.workflow_name !== modeWorkflowName(rc.mode)) reject('invalid_trigger', { reason: 'run_config_graph_mismatch', workflow: policy.workflow_name });
+  if (
+    rc.selection.task_id !== s.id ||
+    rc.selection.revision !== s.revision ||
+    rc.mode !== rc.selection.mode
+  )
+    reject('invalid_trigger', { reason: 'run_config_mismatch' });
+  if (policy.workflow_name !== modeWorkflowName(rc.mode))
+    reject('invalid_trigger', {
+      reason: 'run_config_graph_mismatch',
+      workflow: policy.workflow_name,
+    });
 }

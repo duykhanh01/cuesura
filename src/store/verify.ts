@@ -3,10 +3,21 @@ import { canonicalJson } from '../shared/canonical-json.ts';
 import type { DomainEvent } from '../domain/event.ts';
 import type { TaskState } from '../domain/state.ts';
 import { replay } from '../engine/evolve.ts';
-import { MemorySink, projectEffects, projectRuntime, projectTask, projectTimers } from './projector.ts';
+import {
+  MemorySink,
+  projectEffects,
+  projectRuntime,
+  projectTask,
+  projectTimers,
+} from './projector.ts';
 import { toEvent, type EventRow } from './read.ts';
 
-export type VerifyMismatch = { table: string; key: string; expected: unknown; actual: unknown };
+export type VerifyMismatch = {
+  table: string;
+  key: string;
+  expected: unknown;
+  actual: unknown;
+};
 
 export type VerifyReport = {
   ok: boolean;
@@ -20,7 +31,9 @@ export type VerifyReport = {
  * bằng đúng hàm chiếu của `accept`, rồi so JSON chuẩn hoá với dữ liệu đang lưu (FR-029, SC-005).
  */
 export function verifyProjections(db: Database): VerifyReport {
-  const rows = db.prepare('SELECT * FROM events ORDER BY global_seq').all() as EventRow[];
+  const rows = db
+    .prepare('SELECT * FROM events ORDER BY global_seq')
+    .all() as EventRow[];
   const byTask = new Map<string, DomainEvent[]>();
   for (const r of rows) {
     const list = byTask.get(r.task_id) ?? [];
@@ -44,7 +57,12 @@ export function verifyProjections(db: Database): VerifyReport {
     try {
       state = replay(events);
     } catch (e) {
-      mismatches.push({ table: 'events', key: taskId, expected: 'replay ok', actual: String(e) });
+      mismatches.push({
+        table: 'events',
+        key: taskId,
+        expected: 'replay ok',
+        actual: String(e),
+      });
       continue;
     }
     if (state === null) continue;
@@ -54,7 +72,12 @@ export function verifyProjections(db: Database): VerifyReport {
       projectTimers(sink, events, state);
     } catch (e) {
       // Ví dụ hai task cùng tạo một effect/timer ID: nhật ký không dựng lại được projection hiện có.
-      mismatches.push({ table: 'events', key: taskId, expected: 'projection ok', actual: String(e) });
+      mismatches.push({
+        table: 'events',
+        key: taskId,
+        expected: 'projection ok',
+        actual: String(e),
+      });
     }
   }
 
@@ -62,10 +85,21 @@ export function verifyProjections(db: Database): VerifyReport {
   try {
     projectRuntime(sink, rows.map(toEvent));
   } catch (e) {
-    mismatches.push({ table: 'events', key: 'runtime', expected: 'runtime projection ok', actual: String(e) });
+    mismatches.push({
+      table: 'events',
+      key: 'runtime',
+      expected: 'runtime projection ok',
+      actual: String(e),
+    });
   }
 
-  compare(mismatches, 'tasks', sink.tasks, db.prepare('SELECT * FROM tasks').all(), (r) => r['id']);
+  compare(
+    mismatches,
+    'tasks',
+    sink.tasks,
+    db.prepare('SELECT * FROM tasks').all(),
+    (r) => r['id'],
+  );
   const deps = new Map<string, unknown>();
   for (const [t, ds] of sink.deps)
     for (const d of ds) deps.set(`${t}#${d}`, { task_id: t, depends_on: d });
@@ -95,7 +129,8 @@ export function verifyProjections(db: Database): VerifyReport {
     'frozen_policies',
     sink.policies,
     db.prepare('SELECT * FROM frozen_policies').all(),
-    (r) => `${String(r['task_id'])}#${String(r['revision'])}#${String(r['policy_version'])}`,
+    (r) =>
+      `${String(r['task_id'])}#${String(r['revision'])}#${String(r['policy_version'])}`,
   );
   compare(
     mismatches,
@@ -105,8 +140,16 @@ export function verifyProjections(db: Database): VerifyReport {
     (r) => `${String(r['task_id'])}#${String(r['revision'])}`,
   );
 
-  const runtimeTables: [string, ReadonlyMap<string, unknown>, (r: Record<string, unknown>) => unknown][] = [
-    ['runtime_contexts', sink.runtimeContexts, (r) => `${String(r['task_id'])}#${String(r['revision'])}`],
+  const runtimeTables: [
+    string,
+    ReadonlyMap<string, unknown>,
+    (r: Record<string, unknown>) => unknown,
+  ][] = [
+    [
+      'runtime_contexts',
+      sink.runtimeContexts,
+      (r) => `${String(r['task_id'])}#${String(r['revision'])}`,
+    ],
     ['execution_queue', sink.queue, (r) => r['request_id']],
     ['execution_slot', sink.slot, (r) => r['key']],
     ['operations', sink.operations, (r) => r['id']],
@@ -114,9 +157,21 @@ export function verifyProjections(db: Database): VerifyReport {
     ['artifacts', sink.artifacts, (r) => r['artifact_id']],
     ['external_observations', sink.observations, (r) => r['observation_id']],
   ];
-  for (const [table, expected, key] of runtimeTables) compare(mismatches, table, expected, db.prepare(`SELECT * FROM ${table}`).all(), key);
+  for (const [table, expected, key] of runtimeTables)
+    compare(
+      mismatches,
+      table,
+      expected,
+      db.prepare(`SELECT * FROM ${table}`).all(),
+      key,
+    );
 
-  return { ok: mismatches.length === 0, tasks: byTask.size, events: rows.length, mismatches };
+  return {
+    ok: mismatches.length === 0,
+    tasks: byTask.size,
+    events: rows.length,
+    mismatches,
+  };
 }
 
 function compare(
@@ -127,11 +182,16 @@ function compare(
   key: (r: Record<string, unknown>) => unknown,
 ): void {
   const actual = new Map<string, unknown>();
-  for (const r of actualRows as Record<string, unknown>[]) actual.set(String(key(r)), { ...r });
+  for (const r of actualRows as Record<string, unknown>[])
+    actual.set(String(key(r)), { ...r });
   for (const k of new Set([...expected.keys(), ...actual.keys()])) {
     const e = expected.get(k);
     const a = actual.get(k);
-    if (e === undefined || a === undefined || canonicalJson(e) !== canonicalJson(a)) {
+    if (
+      e === undefined ||
+      a === undefined ||
+      canonicalJson(e) !== canonicalJson(a)
+    ) {
       out.push({ table, key: k, expected: e ?? null, actual: a ?? null });
     }
   }

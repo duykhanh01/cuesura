@@ -4,7 +4,8 @@ export type Uuid = string & { readonly __brand: 'Uuid' };
 export type EpochMs = number & { readonly __brand: 'EpochMs' };
 export type Hash = `sha256:${string}`;
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const HASH_RE = /^sha256:[0-9a-f]{64}$/;
 
 export const UuidSchema = z

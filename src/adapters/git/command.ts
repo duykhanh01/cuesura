@@ -48,10 +48,23 @@ export const GIT_SUBCOMMANDS = [
   'write-tree',
 ] as const;
 
-const CONFIG_READ_FLAGS = ['--get', '--get-all', '--get-regexp', '--list', '-l'];
+const CONFIG_READ_FLAGS = [
+  '--get',
+  '--get-all',
+  '--get-regexp',
+  '--list',
+  '-l',
+];
 
 /** The only per-call environment: who made a commit and when, so a commit OID is reproducible. */
-export const COMMIT_ENV = ['GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_AUTHOR_DATE', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL', 'GIT_COMMITTER_DATE'] as const;
+export const COMMIT_ENV = [
+  'GIT_AUTHOR_NAME',
+  'GIT_AUTHOR_EMAIL',
+  'GIT_AUTHOR_DATE',
+  'GIT_COMMITTER_NAME',
+  'GIT_COMMITTER_EMAIL',
+  'GIT_COMMITTER_DATE',
+] as const;
 
 /** Repo config that runs a program or redirects traffic and cannot be neutralized from the command line. */
 const UNTRUSTED_CONFIG: readonly RegExp[] = [
@@ -97,7 +110,12 @@ export class GitConfigError extends Error {
 }
 
 function cleanAbsolute(p: string): boolean {
-  return isAbsolute(p) && normalize(p) === p && !p.endsWith('/') && !/[\s'"`$\\;&|<>()*?[\]{}!#~]/.test(p);
+  return (
+    isAbsolute(p) &&
+    normalize(p) === p &&
+    !p.endsWith('/') &&
+    !/[\s'"`$\\;&|<>()*?[\]{}!#~]/.test(p)
+  );
 }
 
 /**
@@ -118,15 +136,36 @@ export function configNames(out: string): string[] | null {
 }
 
 export function untrustedConfigKeys(names: readonly string[]): string[] {
-  return names.filter((n) => UNTRUSTED_CONFIG.some((r) => r.test(n.toLowerCase())));
+  return names.filter((n) =>
+    UNTRUSTED_CONFIG.some((r) => r.test(n.toLowerCase())),
+  );
 }
 
 /** Why `args` may not run, or null. */
 export function refuseArgs(args: readonly string[]): string | null {
   const [sub, ...rest] = args;
-  if (sub === undefined || !(GIT_SUBCOMMANDS as readonly string[]).includes(sub)) return `subcommand ${sub ?? '(none)'} is not allowed`;
-  if (sub === 'config' && !rest.some((a) => CONFIG_READ_FLAGS.includes(a))) return 'git config may only read';
-  if (sub === 'config' && rest.some((a) => ['--global', '--system', '--file', '-f', '--blob', '--edit', '-e'].includes(a))) return 'git config may only read repo config';
+  if (
+    sub === undefined ||
+    !(GIT_SUBCOMMANDS as readonly string[]).includes(sub)
+  )
+    return `subcommand ${sub ?? '(none)'} is not allowed`;
+  if (sub === 'config' && !rest.some((a) => CONFIG_READ_FLAGS.includes(a)))
+    return 'git config may only read';
+  if (
+    sub === 'config' &&
+    rest.some((a) =>
+      [
+        '--global',
+        '--system',
+        '--file',
+        '-f',
+        '--blob',
+        '--edit',
+        '-e',
+      ].includes(a),
+    )
+  )
+    return 'git config may only read repo config';
   return null;
 }
 
@@ -136,12 +175,23 @@ export class GitCommandRunner implements GitPort {
   readonly #env: NodeJS.ProcessEnv;
 
   constructor(o: GitRunnerOptions) {
-    for (const [name, p] of [['git', o.git], ['emptyHooksDir', o.emptyHooksDir], ['home', o.home]] as const) {
-      if (!cleanAbsolute(p)) throw new GitConfigError(`${name} must be a clean absolute path: ${p}`);
+    for (const [name, p] of [
+      ['git', o.git],
+      ['emptyHooksDir', o.emptyHooksDir],
+      ['home', o.home],
+    ] as const) {
+      if (!cleanAbsolute(p))
+        throw new GitConfigError(`${name} must be a clean absolute path: ${p}`);
     }
-    if (o.credentialHelper !== null && !cleanAbsolute(o.credentialHelper)) throw new GitConfigError(`credential helper must be a clean absolute path: ${o.credentialHelper}`);
+    if (o.credentialHelper !== null && !cleanAbsolute(o.credentialHelper))
+      throw new GitConfigError(
+        `credential helper must be a clean absolute path: ${o.credentialHelper}`,
+      );
     for (const d of o.safeDirectories) {
-      if (!cleanAbsolute(d) || d === '/') throw new GitConfigError(`safe.directory must be a specific absolute path, not ${d}`);
+      if (!cleanAbsolute(d) || d === '/')
+        throw new GitConfigError(
+          `safe.directory must be a specific absolute path, not ${d}`,
+        );
     }
     this.#o = o;
     this.#config = [
@@ -156,7 +206,9 @@ export class GitCommandRunner implements GitPort {
       'tag.gpgSign=false',
       'protocol.ext.allow=never',
       'credential.helper=',
-      ...(o.credentialHelper === null ? [] : [`credential.helper=${o.credentialHelper}`]),
+      ...(o.credentialHelper === null
+        ? []
+        : [`credential.helper=${o.credentialHelper}`]),
       'safe.directory=',
       ...o.safeDirectories.map((d) => `safe.directory=${d}`),
     ];
@@ -185,30 +237,84 @@ export class GitCommandRunner implements GitPort {
   async run(command: GitCommand): Promise<GitResult> {
     const refused = refuseArgs(command.args);
     if (refused !== null) return { kind: 'refused', reason: refused };
-    if (!isAbsolute(command.cwd)) return { kind: 'refused', reason: `cwd must be absolute: ${command.cwd}` };
-    const extra = Object.keys(command.env ?? {}).filter((k) => !(COMMIT_ENV as readonly string[]).includes(k));
-    if (extra.length > 0) return { kind: 'refused', reason: `environment not allowed: ${extra.sort().join(', ')}` };
+    if (!isAbsolute(command.cwd))
+      return {
+        kind: 'refused',
+        reason: `cwd must be absolute: ${command.cwd}`,
+      };
+    const extra = Object.keys(command.env ?? {}).filter(
+      (k) => !(COMMIT_ENV as readonly string[]).includes(k),
+    );
+    if (extra.length > 0)
+      return {
+        kind: 'refused',
+        reason: `environment not allowed: ${extra.sort().join(', ')}`,
+      };
     // Repo config is read (never executed) first; a key git would act on in an unsafe way stops the call.
     // A scan that failed or was cut short proves nothing, so the call is refused rather than run unchecked.
-    const scan = await this.#spawn(['config', '--list', '--name-only', '--show-scope', '-z'], command.cwd, command.timeout_ms, CONFIG_SCAN_BYTES, null);
+    const scan = await this.#spawn(
+      ['config', '--list', '--name-only', '--show-scope', '-z'],
+      command.cwd,
+      command.timeout_ms,
+      CONFIG_SCAN_BYTES,
+      null,
+    );
     if (scan.kind !== 'exited') return scan;
-    if (scan.code !== 0) return { kind: 'refused', reason: `repo config scan failed (exit ${scan.code}): ${scan.stderr.trim()}` };
-    if (scan.truncated) return { kind: 'refused', reason: `repo config exceeds ${CONFIG_SCAN_BYTES} bytes and cannot be fully checked` };
+    if (scan.code !== 0)
+      return {
+        kind: 'refused',
+        reason: `repo config scan failed (exit ${scan.code}): ${scan.stderr.trim()}`,
+      };
+    if (scan.truncated)
+      return {
+        kind: 'refused',
+        reason: `repo config exceeds ${CONFIG_SCAN_BYTES} bytes and cannot be fully checked`,
+      };
     const names = configNames(scan.stdout);
-    if (names === null) return { kind: 'refused', reason: 'repo config scan output is malformed' };
+    if (names === null)
+      return {
+        kind: 'refused',
+        reason: 'repo config scan output is malformed',
+      };
     const bad = untrustedConfigKeys(names);
-    if (bad.length > 0) return { kind: 'refused', reason: `untrusted repo config: ${[...new Set(bad)].sort().join(', ')}` };
-    return this.#spawn(command.args, command.cwd, command.timeout_ms, command.max_output_bytes, command.stdin, command.env ?? {});
+    if (bad.length > 0)
+      return {
+        kind: 'refused',
+        reason: `untrusted repo config: ${[...new Set(bad)].sort().join(', ')}`,
+      };
+    return this.#spawn(
+      command.args,
+      command.cwd,
+      command.timeout_ms,
+      command.max_output_bytes,
+      command.stdin,
+      command.env ?? {},
+    );
   }
 
-  #spawn(args: readonly string[], cwd: string, timeoutMs: number, maxBytes: number, stdin: string | null, extraEnv: Readonly<Record<string, string>> = {}): Promise<GitResult> {
+  #spawn(
+    args: readonly string[],
+    cwd: string,
+    timeoutMs: number,
+    maxBytes: number,
+    stdin: string | null,
+    extraEnv: Readonly<Record<string, string>> = {},
+  ): Promise<GitResult> {
     const argv = [...this.#config.flatMap((c) => ['-c', c]), ...args];
     return new Promise((resolve) => {
       let child;
       try {
-        child = spawn(this.#o.git, argv, { cwd, env: { ...this.#env, ...extraEnv }, stdio: ['pipe', 'pipe', 'pipe'], detached: true });
+        child = spawn(this.#o.git, argv, {
+          cwd,
+          env: { ...this.#env, ...extraEnv },
+          stdio: ['pipe', 'pipe', 'pipe'],
+          detached: true,
+        });
       } catch (e) {
-        resolve({ kind: 'spawn_failed', message: e instanceof Error ? e.message : String(e) });
+        resolve({
+          kind: 'spawn_failed',
+          message: e instanceof Error ? e.message : String(e),
+        });
         return;
       }
       const out: Buffer[] = [];
@@ -250,10 +356,18 @@ export class GitCommandRunner implements GitPort {
           errBytes += Math.min(b.length, room);
         }
       });
-      child.on('error', (e) => done({ kind: 'spawn_failed', message: e.message }));
+      child.on('error', (e) =>
+        done({ kind: 'spawn_failed', message: e.message }),
+      );
       child.on('close', (code) => {
         if (timedOut) return done({ kind: 'timeout' });
-        done({ kind: 'exited', code: code ?? -1, stdout: Buffer.concat(out).toString('utf8'), stderr: Buffer.concat(errOut).toString('utf8'), truncated });
+        done({
+          kind: 'exited',
+          code: code ?? -1,
+          stdout: Buffer.concat(out).toString('utf8'),
+          stderr: Buffer.concat(errOut).toString('utf8'),
+          truncated,
+        });
       });
       child.stdin.on('error', () => undefined);
       child.stdin.end(stdin ?? undefined);

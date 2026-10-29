@@ -17,7 +17,8 @@ export type SandboxFixture = {
 
 function git(args: readonly string[], cwd: string): void {
   const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
-  if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
+  if (r.status !== 0)
+    throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
 }
 
 /** Throwaway repo + linked worktree + canary dir under a real tmp path (outside the host home). */
@@ -29,22 +30,45 @@ export function createSandboxFixture(): SandboxFixture {
   git(['init', '-q', '-b', 'main'], repo);
   writeFileSync(join(repo, 'README.md'), 'fixture\n');
   git(['add', 'README.md'], repo);
-  git(['-c', 'user.name=cusr', '-c', 'user.email=cusr@invalid', 'commit', '-q', '-m', 'init'], repo);
+  git(
+    [
+      '-c',
+      'user.name=cusr',
+      '-c',
+      'user.email=cusr@invalid',
+      'commit',
+      '-q',
+      '-m',
+      'init',
+    ],
+    repo,
+  );
   git(['worktree', 'add', '-q', '-b', 'cusr/probe', worktree], repo);
-  const dirs = { scratch: join(base, 'scratch'), home: join(base, 'home'), context: join(base, 'context'), outside: join(base, 'outside') };
+  const dirs = {
+    scratch: join(base, 'scratch'),
+    home: join(base, 'home'),
+    context: join(base, 'context'),
+    outside: join(base, 'outside'),
+  };
   for (const d of Object.values(dirs)) mkdirSync(d);
   writeFileSync(join(dirs.context, 'prompt.md'), 'prompt\n');
   writeFileSync(join(dirs.outside, 'canary'), 'outside-canary\n');
   return { base, repo, worktree, gitCommon: join(repo, '.git'), ...dirs };
 }
 
-export function fixtureLayout(role: SandboxRole, fx: SandboxFixture): SandboxLayout {
+export function fixtureLayout(
+  role: SandboxRole,
+  fx: SandboxFixture,
+): SandboxLayout {
   return {
     role,
     worktree: fx.worktree,
     git_dirs: [fx.gitCommon],
     scratch: fx.scratch,
-    private_home: role === 'coder' || role === 'fixer' || role === 'reviewer' ? fx.home : null,
+    private_home:
+      role === 'coder' || role === 'fixer' || role === 'reviewer'
+        ? fx.home
+        : null,
     context: fx.context,
     schema: null,
     toolchain: [],

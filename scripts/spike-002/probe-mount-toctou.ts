@@ -11,10 +11,26 @@
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync } from 'node:fs';
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+} from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildSandbox, createProbeFixture, probeLayout, sandboxCommand, SandboxPolicyError, SANDBOX_ROLES, type SandboxPlan } from './sandbox.ts';
+import {
+  buildSandbox,
+  createProbeFixture,
+  probeLayout,
+  sandboxCommand,
+  SandboxPolicyError,
+  SANDBOX_ROLES,
+  type SandboxPlan,
+} from './sandbox.ts';
 
 const BWRAP = '/usr/bin/bwrap';
 
@@ -56,9 +72,24 @@ const ident = (p: string): Ident => {
   return { dev: st.dev, ino: st.ino };
 };
 
-function runChild(plan: SandboxPlan, data: unknown): { exit: number | null; stderr: string; output: Record<string, unknown> | null } {
-  const [exe, ...args] = sandboxCommand(plan, ['/usr/bin/python3', '-I', '-c', CHILD, JSON.stringify(data)], BWRAP);
-  const r = spawnSync(exe as string, args, { encoding: 'utf8', timeout: 30_000, env: {} });
+function runChild(
+  plan: SandboxPlan,
+  data: unknown,
+): {
+  exit: number | null;
+  stderr: string;
+  output: Record<string, unknown> | null;
+} {
+  const [exe, ...args] = sandboxCommand(
+    plan,
+    ['/usr/bin/python3', '-I', '-c', CHILD, JSON.stringify(data)],
+    BWRAP,
+  );
+  const r = spawnSync(exe as string, args, {
+    encoding: 'utf8',
+    timeout: 30_000,
+    env: {},
+  });
   let output: Record<string, unknown> | null;
   try {
     output = JSON.parse(r.stdout) as Record<string, unknown>;
@@ -69,8 +100,17 @@ function runChild(plan: SandboxPlan, data: unknown): { exit: number | null; stde
 }
 
 // Mount targets inside the sandbox may differ from host sources (scratch/home/context map to /cusr/*).
-function sourceTargets(plan: SandboxPlan): { source: string; target: string; kind: string; purpose: string }[] {
-  return plan.mounts.filter((m) => m.purpose !== 'system').map((m) => ({ source: m.source, target: m.target, kind: m.kind, purpose: m.purpose }));
+function sourceTargets(
+  plan: SandboxPlan,
+): { source: string; target: string; kind: string; purpose: string }[] {
+  return plan.mounts
+    .filter((m) => m.purpose !== 'system')
+    .map((m) => ({
+      source: m.source,
+      target: m.target,
+      kind: m.kind,
+      purpose: m.purpose,
+    }));
 }
 
 export function runMountToctouProbe(): Record<string, unknown> {
@@ -83,7 +123,10 @@ export function runMountToctouProbe(): Record<string, unknown> {
     try {
       buildSandbox({ ...probeLayout('coder', fx), scratch: linked });
     } catch (e) {
-      planRefusal = e instanceof SandboxPolicyError ? e.message : `unexpected: ${String(e)}`;
+      planRefusal =
+        e instanceof SandboxPolicyError
+          ? e.message
+          : `unexpected: ${String(e)}`;
     }
     rmSync(linked);
 
@@ -91,19 +134,52 @@ export function runMountToctouProbe(): Record<string, unknown> {
     const reach = SANDBOX_ROLES.map((role) => {
       const plan = buildSandbox(probeLayout(role, fx));
       const sources = sourceTargets(plan);
-      const before = Object.fromEntries(sources.map((s) => [s.source, ident(s.source)]));
-      const parents = [...new Set(sources.map((s) => dirname(s.source)))].sort();
-      const run = runChild(plan, { sources: sources.map((s) => s.source), parents, targets: [] });
-      const swaps = (run.output?.['source_swaps'] ?? {}) as Record<string, string>;
-      const sourcesIntact = sources.every((s) => { const now = ident(s.source); return now.ino === before[s.source]?.ino && !existsSync(`${s.source}.swapped`); });
-      const rwMounts = sources.filter((s) => s.kind === 'rw').map((s) => s.source);
-      const hostParentWrites = parents.filter((p) => existsSync(join(p, '.cusr-toctou-probe')));
+      const before = Object.fromEntries(
+        sources.map((s) => [s.source, ident(s.source)]),
+      );
+      const parents = [
+        ...new Set(sources.map((s) => dirname(s.source))),
+      ].sort();
+      const run = runChild(plan, {
+        sources: sources.map((s) => s.source),
+        parents,
+        targets: [],
+      });
+      const swaps = (run.output?.['source_swaps'] ?? {}) as Record<
+        string,
+        string
+      >;
+      const sourcesIntact = sources.every((s) => {
+        const now = ident(s.source);
+        return (
+          now.ino === before[s.source]?.ino &&
+          !existsSync(`${s.source}.swapped`)
+        );
+      });
+      const rwMounts = sources
+        .filter((s) => s.kind === 'rw')
+        .map((s) => s.source);
+      const hostParentWrites = parents.filter((p) =>
+        existsSync(join(p, '.cusr-toctou-probe')),
+      );
       for (const p of hostParentWrites) rmSync(join(p, '.cusr-toctou-probe'));
       const unexpected = hostParentWrites.filter((p) => !rwMounts.includes(p));
       return {
-        role, layout_digest: plan.layout_digest, exit: run.exit, source_swaps: swaps, sources_intact: sourcesIntact,
-        parent_writes_inside: run.output?.['parent_writes'] ?? null, host_parent_writes_via_rw_mount: hostParentWrites.filter((p) => rwMounts.includes(p)), unexpected_host_parent_writes: unexpected,
-        passed: run.exit === 0 && sourcesIntact && !Object.values(swaps).includes('swapped') && unexpected.length === 0,
+        role,
+        layout_digest: plan.layout_digest,
+        exit: run.exit,
+        source_swaps: swaps,
+        sources_intact: sourcesIntact,
+        parent_writes_inside: run.output?.['parent_writes'] ?? null,
+        host_parent_writes_via_rw_mount: hostParentWrites.filter((p) =>
+          rwMounts.includes(p),
+        ),
+        unexpected_host_parent_writes: unexpected,
+        passed:
+          run.exit === 0 &&
+          sourcesIntact &&
+          !Object.values(swaps).includes('swapped') &&
+          unexpected.length === 0,
       };
     });
 
@@ -117,8 +193,17 @@ export function runMountToctouProbe(): Record<string, unknown> {
       renameSync(m.source, aside);
       symlinkSync(fx.outside, m.source);
       try {
-        const run = runChild(plan, { sources: [], parents: [], targets: [m.target] });
-        const seen = ((run.output?.['targets'] as Record<string, { dev?: number; ino?: number; entries?: string[] | null }> | undefined) ?? {})[m.target];
+        const run = runChild(plan, {
+          sources: [],
+          parents: [],
+          targets: [m.target],
+        });
+        const seen = ((run.output?.['targets'] as
+          | Record<
+              string,
+              { dev?: number; ino?: number; entries?: string[] | null }
+            >
+          | undefined) ?? {})[m.target];
         return {
           mount: which,
           host_source: m.source,
@@ -129,7 +214,9 @@ export function runMountToctouProbe(): Record<string, unknown> {
           stderr: run.stderr.slice(0, 300),
           bwrap_failed_closed: run.exit !== 0 && seen === undefined,
           redirected_to_canary: seen?.entries?.includes('canary') === true,
-          inode_check_detects: seen?.ino !== undefined && (seen.ino !== planned.ino || seen.dev !== planned.dev),
+          inode_check_detects:
+            seen?.ino !== undefined &&
+            (seen.ino !== planned.ino || seen.dev !== planned.dev),
         };
       } finally {
         rmSync(m.source);
@@ -137,42 +224,67 @@ export function runMountToctouProbe(): Record<string, unknown> {
       }
     });
 
-    const digest = (path: string): string => createHash('sha256').update(readFileSync(path)).digest('hex');
-    const canaryUnchanged = readFileSync(join(fx.outside, 'canary'), 'utf8') === 'outside-canary\n' && readdirSync(fx.outside).length === 1;
+    const digest = (path: string): string =>
+      createHash('sha256').update(readFileSync(path)).digest('hex');
+    const canaryUnchanged =
+      readFileSync(join(fx.outside, 'canary'), 'utf8') === 'outside-canary\n' &&
+      readdirSync(fx.outside).length === 1;
     const sandboxReachable = reach.every((r) => r.passed);
     return {
       schema_version: 1,
       kind: 'spike-0-mount-source-toctou',
       checked_at: new Date().toISOString(),
-      scope: 'Host-side mount-source TOCTOU between buildSandbox() realpath checks and bwrap exec. Local fixture only; no model, network, sudo or policy change.',
+      scope:
+        'Host-side mount-source TOCTOU between buildSandbox() realpath checks and bwrap exec. Local fixture only; no model, network, sudo or policy change.',
       node: process.version,
       kernel: spawnSync('uname', ['-r'], { encoding: 'utf8' }).stdout.trim(),
-      bwrap: spawnSync(BWRAP, ['--version'], { encoding: 'utf8' }).stdout.trim(),
-      hashes: { probe: digest(fileURLToPath(import.meta.url)), sandbox: digest(fileURLToPath(new URL('./sandbox.ts', import.meta.url))), bwrap: digest(BWRAP) },
+      bwrap: spawnSync(BWRAP, ['--version'], {
+        encoding: 'utf8',
+      }).stdout.trim(),
+      hashes: {
+        probe: digest(fileURLToPath(import.meta.url)),
+        sandbox: digest(
+          fileURLToPath(new URL('./sandbox.ts', import.meta.url)),
+        ),
+        bwrap: digest(BWRAP),
+      },
       plan_time_symlink_refused: planRefusal,
       sandbox_cannot_reach_source_parents: reach,
       host_swap_race: races,
       canary_unchanged: canaryUnchanged,
       conclusion: {
         attacker_inside_sandbox_can_swap: !sandboxReachable,
-        same_uid_host_swap_redirects_bwrap: races.some((r) => r.redirected_to_canary),
-        inode_check_detects_every_redirect: races.filter((r) => !r.bwrap_failed_closed).every((r) => r.inode_check_detects),
+        same_uid_host_swap_redirects_bwrap: races.some(
+          (r) => r.redirected_to_canary,
+        ),
+        inode_check_detects_every_redirect: races
+          .filter((r) => !r.bwrap_failed_closed)
+          .every((r) => r.inode_check_detects),
         prototype_runs_inode_check: true,
       },
-      passed: planRefusal !== null && sandboxReachable && canaryUnchanged && races.every((r) => r.bwrap_failed_closed && !r.redirected_to_canary),
+      passed:
+        planRefusal !== null &&
+        sandboxReachable &&
+        canaryUnchanged &&
+        races.every((r) => r.bwrap_failed_closed && !r.redirected_to_canary),
     };
   } finally {
     rmSync(fx.base, { recursive: true, force: true });
   }
 }
 
-if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (
+  process.argv[1] !== undefined &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
   try {
     const report = runMountToctouProbe();
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
     process.exitCode = report['passed'] === true ? 0 : 1;
   } catch (error) {
-    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.stderr.write(
+      `${error instanceof Error ? error.message : String(error)}\n`,
+    );
     process.exitCode = 1;
   }
 }

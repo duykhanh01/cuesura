@@ -4,9 +4,20 @@ import type { ExecutionRequest } from '../domain/runtime.ts';
 // open requests and the holder read inside its transaction; nothing here reads a clock or the store.
 
 /** The fields selection may look at: never `created_at` or the insertion order of the rows. */
-export type SlotCandidate = Pick<ExecutionRequest, 'request_id' | 'task_id' | 'group' | 'priority' | 'requested_at' | 'request_global_seq'>;
+export type SlotCandidate = Pick<
+  ExecutionRequest,
+  | 'request_id'
+  | 'task_id'
+  | 'group'
+  | 'priority'
+  | 'requested_at'
+  | 'request_global_seq'
+>;
 
-export type SlotHolder = { readonly holder_task_id: string; readonly request_id: string };
+export type SlotHolder = {
+  readonly holder_task_id: string;
+  readonly request_id: string;
+};
 
 export type SlotSelection<R extends SlotCandidate> =
   | { readonly kind: 'busy'; readonly holder_task_id: string }
@@ -31,9 +42,16 @@ export function orderQueue<R extends SlotCandidate>(queue: readonly R[]): R[] {
 }
 
 /** A held slot is never preempted, whatever waits behind it; otherwise the first request in order wins. */
-export function selectNext<R extends SlotCandidate>(queue: readonly R[], slot: SlotHolder | null): SlotSelection<R> {
-  if (slot !== null) return { kind: 'busy', holder_task_id: slot.holder_task_id };
+export function selectNext<R extends SlotCandidate>(
+  queue: readonly R[],
+  slot: SlotHolder | null,
+): SlotSelection<R> {
+  if (slot !== null)
+    return { kind: 'busy', holder_task_id: slot.holder_task_id };
   let best: R | undefined;
-  for (const r of queue) if (best === undefined || compareRequests(r, best) < 0) best = r;
-  return best === undefined ? { kind: 'empty' } : { kind: 'grant', request: best };
+  for (const r of queue)
+    if (best === undefined || compareRequests(r, best) < 0) best = r;
+  return best === undefined
+    ? { kind: 'empty' }
+    : { kind: 'grant', request: best };
 }

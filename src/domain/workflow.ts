@@ -38,14 +38,25 @@ export type Outcome = (typeof OUTCOMES_BY_KIND)[StepKind][number];
  * - `retry`: attempt mới cùng bước;
  * - `fail`: FAILED; `cancel`: quy trình hủy (FR-018).
  */
-export const SPECIAL_TARGETS = ['ask', 'escalate', 'retry', 'fail', 'cancel'] as const;
+export const SPECIAL_TARGETS = [
+  'ask',
+  'escalate',
+  'retry',
+  'fail',
+  'cancel',
+] as const;
 export type SpecialTarget = (typeof SPECIAL_TARGETS)[number];
 
 export function isSpecialTarget(t: string): t is SpecialTarget {
   return (SPECIAL_TARGETS as readonly string[]).includes(t);
 }
 
-export const ACTIONS = ['git.publish', 'github.create_pr', 'github.rerun_failed', 'github.merge'] as const;
+export const ACTIONS = [
+  'git.publish',
+  'github.create_pr',
+  'github.rerun_failed',
+  'github.merge',
+] as const;
 export type ActionName = (typeof ACTIONS)[number];
 
 export const WAIT_FOR = ['github.checks'] as const;
@@ -75,7 +86,12 @@ export const PredicateSchema = z
   .strict();
 export type Predicate = z.infer<typeof PredicateSchema>;
 
-export const DECISION_MODES = ['human', 'agent', 'agent_if_confident', 'agent_review'] as const;
+export const DECISION_MODES = [
+  'human',
+  'agent',
+  'agent_if_confident',
+  'agent_review',
+] as const;
 export type DecisionMode = (typeof DECISION_MODES)[number];
 
 /** Điểm quyết định. Năm loại cuối không bao giờ được ủy quyền cho decider (FR-006). */
@@ -128,7 +144,9 @@ export const WorkflowSchema = z
   .object({
     start: z.string().min(1),
     steps: z.record(z.string(), StepSchema),
-    decisions: z.partialRecord(z.enum(DECISION_POINTS), z.enum(DECISION_MODES)).default({}),
+    decisions: z
+      .partialRecord(z.enum(DECISION_POINTS), z.enum(DECISION_MODES))
+      .default({}),
   })
   .strict();
 export type Workflow = z.infer<typeof WorkflowSchema>;
@@ -171,12 +189,25 @@ export function branchMatches(pattern: string, branch: string): boolean {
 
 /** Mọi khoá khai báo phải khớp (AND); danh sách giá trị nghĩa là một trong số đó (OR). */
 export function evalPredicate(p: Predicate, f: PredicateFacts): boolean {
-  if (p.flag !== undefined && !anyOf(p.flag).some((x) => f.labels.includes(x))) return false;
-  if (p.label !== undefined && !anyOf(p.label).some((x) => f.labels.includes(x))) return false;
-  if (p.size !== undefined && (f.size === null || !anyOf(p.size).includes(f.size))) return false;
-  if (p.task_type !== undefined && !anyOf(p.task_type).includes(f.task_type)) return false;
+  if (p.flag !== undefined && !anyOf(p.flag).some((x) => f.labels.includes(x)))
+    return false;
+  if (
+    p.label !== undefined &&
+    !anyOf(p.label).some((x) => f.labels.includes(x))
+  )
+    return false;
+  if (
+    p.size !== undefined &&
+    (f.size === null || !anyOf(p.size).includes(f.size))
+  )
+    return false;
+  if (p.task_type !== undefined && !anyOf(p.task_type).includes(f.task_type))
+    return false;
   if (p.attempt_gte !== undefined && f.attempt < p.attempt_gte) return false;
-  if (p.target_branch !== undefined && !anyOf(p.target_branch).some((g) => globMatch(g, f.target_branch)))
+  if (
+    p.target_branch !== undefined &&
+    !anyOf(p.target_branch).some((g) => globMatch(g, f.target_branch))
+  )
     return false;
   return true;
 }

@@ -8,12 +8,22 @@ export function available(b: Budget): number {
 }
 
 /** Giữ chỗ một lượt trước khi yêu cầu `start_agent` (FR-022). */
-export function reserve(ctx: Ctx, reservation_id: string, effect_id: string): void {
+export function reserve(
+  ctx: Ctx,
+  reservation_id: string,
+  effect_id: string,
+): void {
   ctx.emit('BudgetReserved', { reservation_id, effect_id, units: 1 });
 }
 
-function held(ctx: Ctx, reservation_id: string | null): reservation_id is string {
-  return reservation_id !== null && ctx.state.budget.reservations[reservation_id]?.status === 'held';
+function held(
+  ctx: Ctx,
+  reservation_id: string | null,
+): reservation_id is string {
+  return (
+    reservation_id !== null &&
+    ctx.state.budget.reservations[reservation_id]?.status === 'held'
+  );
 }
 
 /** `held → consumed`: agent đã thật sự được gọi. */

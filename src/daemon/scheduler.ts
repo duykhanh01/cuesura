@@ -9,7 +9,10 @@
  */
 import { runConfigConfirmed } from '../engine/run-config.ts';
 import type { Clock } from '../adapters/ports.ts';
-import { notifyDependents, type DependencyNotice } from '../application/dependency.ts';
+import {
+  notifyDependents,
+  type DependencyNotice,
+} from '../application/dependency.ts';
 import type { StartResult } from '../application/start.ts';
 import { submit } from '../application/triage.ts';
 import { MAX_ENVELOPE_IDS } from '../domain/trigger.ts';
@@ -32,7 +35,10 @@ export type SchedulerReport = {
   readonly dependencies: readonly DependencyNotice[];
   readonly queued: readonly string[];
   readonly granted: string | null;
-  readonly started: { readonly task_id: string; readonly result: StartResult } | null;
+  readonly started: {
+    readonly task_id: string;
+    readonly result: StartResult;
+  } | null;
 };
 
 export class Scheduler {
@@ -52,27 +58,57 @@ export class Scheduler {
     const queued: string[] = [];
     for (const id of store.taskIdsByStatus(['READY'])) {
       const s = store.readTask(id as Uuid);
-      if (s === null || s.policy_ref !== null || s.execution.request !== null || s.execution.holding !== null) continue;
+      if (
+        s === null ||
+        s.policy_ref !== null ||
+        s.execution.request !== null ||
+        s.execution.holding !== null
+      )
+        continue;
       // A fresh task queues only once its run selection is confirmed for this revision (M01/M02).
       if (!runConfigConfirmed(s)) continue;
       if ((this.#retryAfter.get(id) ?? 0) > now) continue;
       this.#retryAfter.delete(id);
-      const r = submit(store, { task_id: id, dedup_key: `queue:${id}:v${s.version}`, trigger: { kind: 'request_execution' }, now, ids: [this.#deps.newId()] });
-      if (r.ok && r.value.decision.kind === 'accepted' && !r.value.duplicate) queued.push(id);
+      const r = submit(store, {
+        task_id: id,
+        dedup_key: `queue:${id}:v${s.version}`,
+        trigger: { kind: 'request_execution' },
+        now,
+        ids: [this.#deps.newId()],
+      });
+      if (r.ok && r.value.decision.kind === 'accepted' && !r.value.duplicate)
+        queued.push(id);
     }
 
     let granted: string | null = null;
     if (store.readSlot() === null) {
-      const g = store.grantNext(now, Array.from({ length: MAX_ENVELOPE_IDS }, () => this.#deps.newId()));
-      if (g.ok && g.value.kind === 'decided' && g.value.outcome.decision.kind === 'accepted') granted = g.value.task_id;
+      const g = store.grantNext(
+        now,
+        Array.from({ length: MAX_ENVELOPE_IDS }, () => this.#deps.newId()),
+      );
+      if (
+        g.ok &&
+        g.value.kind === 'decided' &&
+        g.value.outcome.decision.kind === 'accepted'
+      )
+        granted = g.value.task_id;
     }
 
     let started: SchedulerReport['started'] = null;
     const slot = store.readSlot();
-    const holder = slot === null ? null : store.readTask(slot.holder_task_id as Uuid);
-    if (holder !== null && holder.status === 'READY' && holder.policy_ref === null) {
+    const holder =
+      slot === null ? null : store.readTask(slot.holder_task_id as Uuid);
+    if (
+      holder !== null &&
+      holder.status === 'READY' &&
+      holder.policy_ref === null
+    ) {
       const result = await this.#deps.start(holder.id);
-      if (result.kind === 'unavailable') this.#retryAfter.set(holder.id, clock.now() + (this.#deps.startRetryMs ?? START_RETRY_MS));
+      if (result.kind === 'unavailable')
+        this.#retryAfter.set(
+          holder.id,
+          clock.now() + (this.#deps.startRetryMs ?? START_RETRY_MS),
+        );
       started = { task_id: holder.id, result };
     }
     return { dependencies, queued, granted, started };

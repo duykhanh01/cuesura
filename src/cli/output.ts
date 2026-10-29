@@ -22,8 +22,18 @@ export interface EnvelopeError {
 }
 
 export type Envelope<T = unknown> =
-  | { readonly schema_version: 1; readonly ok: true; readonly data: T; readonly error: null }
-  | { readonly schema_version: 1; readonly ok: false; readonly data: null; readonly error: EnvelopeError };
+  | {
+      readonly schema_version: 1;
+      readonly ok: true;
+      readonly data: T;
+      readonly error: null;
+    }
+  | {
+      readonly schema_version: 1;
+      readonly ok: false;
+      readonly data: null;
+      readonly error: EnvelopeError;
+    };
 
 export function okEnvelope<T>(data: T): Envelope<T> {
   return { schema_version: 1, ok: true, data, error: null };

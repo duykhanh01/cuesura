@@ -1,6 +1,13 @@
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,10 +15,16 @@ import { describe, expect, it } from 'vitest';
 
 // Runs the source entrypoints as real processes (Node strips types) against contracts/cli-daemon.md.
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url));
-const VERSION = (JSON.parse(readFileSync(`${ROOT}package.json`, 'utf8')) as { version: string }).version;
+const VERSION = (
+  JSON.parse(readFileSync(`${ROOT}package.json`, 'utf8')) as { version: string }
+).version;
 const BINARIES = ['cusr', 'cusrd', 'cusr-runner'] as const;
 
-function exec(bin: string, args: string[], env: Record<string, string> = {}): { status: number | null; stdout: string; stderr: string } {
+function exec(
+  bin: string,
+  args: string[],
+  env: Record<string, string> = {},
+): { status: number | null; stdout: string; stderr: string } {
   const r = spawnSync(process.execPath, [`src/cli/${bin}.ts`, ...args], {
     cwd: ROOT,
     encoding: 'utf8',
@@ -22,7 +35,11 @@ function exec(bin: string, args: string[], env: Record<string, string> = {}): { 
 
 describe.each(BINARIES)('%s binary', (bin) => {
   it('--version prints the package version and exits 0', () => {
-    expect(exec(bin, ['--version'])).toEqual({ status: 0, stdout: `${VERSION}\n`, stderr: '' });
+    expect(exec(bin, ['--version'])).toEqual({
+      status: 0,
+      stdout: `${VERSION}\n`,
+      stderr: '',
+    });
   });
 
   it('--json on an unimplemented command prints one error envelope and exits 2', () => {
@@ -59,10 +76,19 @@ describe('cusr status', () => {
     const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cusr-status-')));
     try {
       const token = join(dir, 'client.token');
-      writeFileSync(token, `${randomBytes(32).toString('base64url')}\n`, { mode: 0o600 });
-      const r = exec('cusr', ['status', '--json'], { CUSR_DATA_DIR: dir, CUSR_TOKEN_FILE: token });
+      writeFileSync(token, `${randomBytes(32).toString('base64url')}\n`, {
+        mode: 0o600,
+      });
+      const r = exec('cusr', ['status', '--json'], {
+        CUSR_DATA_DIR: dir,
+        CUSR_TOKEN_FILE: token,
+      });
       expect(r.status).toBe(3);
-      expect(JSON.parse(r.stdout)).toMatchObject({ schema_version: 1, ok: false, error: { code: 'daemon_unreachable' } });
+      expect(JSON.parse(r.stdout)).toMatchObject({
+        schema_version: 1,
+        ok: false,
+        error: { code: 'daemon_unreachable' },
+      });
       expect(existsSync(join(dir, 'cusr.db'))).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });

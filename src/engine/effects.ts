@@ -1,4 +1,8 @@
-import { idemKey, isBusinessEffect, type EffectKind } from '../domain/effect.ts';
+import {
+  idemKey,
+  isBusinessEffect,
+  type EffectKind,
+} from '../domain/effect.ts';
 import type { EffectMirror } from '../domain/state.ts';
 import type { Ctx } from './context.ts';
 
@@ -22,7 +26,10 @@ export function findByIdemKey(ctx: Ctx, key: string): EffectMirror | undefined {
  * Phát `EffectRequested` với khoá idempotency `idemKey()` (FR-016). Khoá đã có trong state thì không phát
  * lần hai và trả effect cũ: kho có unique constraint trên `idem_key` (data-model.md "Effect").
  */
-export function requestEffect(ctx: Ctx, spec: EffectSpec): { id: string; created: boolean } {
+export function requestEffect(
+  ctx: Ctx,
+  spec: EffectSpec,
+): { id: string; created: boolean } {
   const s = ctx.state;
   const key = idemKey(spec.kind, s.project, s.id, s.revision, spec.logical_id);
   const existing = findByIdemKey(ctx, key);
@@ -55,11 +62,19 @@ export function requestReconcile(ctx: Ctx, target: EffectMirror): void {
     step: target.step,
     attempt_id: target.attempt_id,
     target_effect_id: target.id,
-    request: { effect_id: target.id, kind: target.kind, idem_key: target.idem_key },
+    request: {
+      effect_id: target.id,
+      kind: target.kind,
+      idem_key: target.idem_key,
+    },
   });
 }
 
 /** Effect nghiệp vụ chưa xong: chặn ranh giới an toàn của source drift (FR-011). */
-export function businessInFlight(effects: Record<string, EffectMirror>): EffectMirror[] {
-  return Object.values(effects).filter((e) => isBusinessEffect(e.kind) && inFlight(e));
+export function businessInFlight(
+  effects: Record<string, EffectMirror>,
+): EffectMirror[] {
+  return Object.values(effects).filter(
+    (e) => isBusinessEffect(e.kind) && inFlight(e),
+  );
 }

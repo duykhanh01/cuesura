@@ -3,7 +3,8 @@ import { err, ok, type Result } from '../shared/result.ts';
 import { migrate, SCHEMA_VERSION } from './migrate.ts';
 
 export type StoreOpenError = {
-  code: 'store_locked' | 'schema_incompatible' | 'integrity_failed' | 'io_error';
+  code:
+    'store_locked' | 'schema_incompatible' | 'integrity_failed' | 'io_error';
   detail: string;
 };
 
@@ -12,12 +13,15 @@ export const DEFAULT_BUSY_TIMEOUT_MS = 5_000;
 function isBusy(e: unknown): boolean {
   const code = (e as { code?: unknown } | null)?.code;
   return (
-    typeof code === 'string' && (code.startsWith('SQLITE_BUSY') || code.startsWith('SQLITE_LOCKED'))
+    typeof code === 'string' &&
+    (code.startsWith('SQLITE_BUSY') || code.startsWith('SQLITE_LOCKED'))
   );
 }
 
 /** Migration rồi `integrity_check`; dùng chung cho kho trên file và kho trong bộ nhớ. */
-export function prepareSchema(db: Database.Database): Result<void, StoreOpenError> {
+export function prepareSchema(
+  db: Database.Database,
+): Result<void, StoreOpenError> {
   const m = migrate(db);
   if (!m.ok)
     return err({
@@ -44,7 +48,10 @@ export function openDatabase(
   try {
     db = new Database(path);
   } catch (e) {
-    return err({ code: isBusy(e) ? 'store_locked' : 'io_error', detail: String(e) });
+    return err({
+      code: isBusy(e) ? 'store_locked' : 'io_error',
+      detail: String(e),
+    });
   }
   try {
     db.pragma(
@@ -53,7 +60,9 @@ export function openDatabase(
     db.pragma('locking_mode = EXCLUSIVE');
     const mode = db.pragma('journal_mode = WAL', { simple: true }) as string;
     if (mode.toLowerCase() !== 'wal')
-      throw Object.assign(new Error(`journal_mode=${mode}`), { code: 'SQLITE_BUSY' });
+      throw Object.assign(new Error(`journal_mode=${mode}`), {
+        code: 'SQLITE_BUSY',
+      });
     db.pragma('synchronous = FULL');
     db.pragma('foreign_keys = ON');
     db.exec('BEGIN IMMEDIATE; COMMIT');
@@ -65,6 +74,9 @@ export function openDatabase(
     return ok(db);
   } catch (e) {
     db.close();
-    return err({ code: isBusy(e) ? 'store_locked' : 'io_error', detail: String(e) });
+    return err({
+      code: isBusy(e) ? 'store_locked' : 'io_error',
+      detail: String(e),
+    });
   }
 }

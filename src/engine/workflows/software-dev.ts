@@ -21,14 +21,24 @@ const RAW = {
       max_visits: 1,
       // Scout tối đa một lượt; hết lượt thì code chạy tiếp mà không có báo cáo scout (§5.4.1).
       on_exhausted: 'code',
-      next: { done: 'code', needs_input: 'ask', needs_context: 'code', blocked: 'code' },
+      next: {
+        done: 'code',
+        needs_input: 'ask',
+        needs_context: 'code',
+        blocked: 'code',
+      },
     },
     code: {
       kind: 'agent',
       role: 'coder',
       max_visits: 12,
       on_exhausted: 'escalate',
-      next: { done: 'gates', needs_input: 'ask', needs_context: 'retry', blocked: 'escalate' },
+      next: {
+        done: 'gates',
+        needs_input: 'ask',
+        needs_context: 'retry',
+        blocked: 'escalate',
+      },
     },
     gates: {
       kind: 'gate',
@@ -43,7 +53,12 @@ const RAW = {
       role: 'fixer',
       max_visits: 7,
       on_exhausted: 'escalate',
-      next: { done: 'gates', needs_input: 'ask', needs_context: 'retry', blocked: 'escalate' },
+      next: {
+        done: 'gates',
+        needs_input: 'ask',
+        needs_context: 'retry',
+        blocked: 'escalate',
+      },
     },
     review: {
       kind: 'review',
@@ -58,9 +73,20 @@ const RAW = {
       role: 'fixer',
       max_visits: 7,
       on_exhausted: 'escalate',
-      next: { done: 'gates', needs_input: 'ask', needs_context: 'retry', blocked: 'escalate' },
+      next: {
+        done: 'gates',
+        needs_input: 'ask',
+        needs_context: 'retry',
+        blocked: 'escalate',
+      },
     },
-    publish: { kind: 'action', action: 'git.publish', max_visits: 10, on_exhausted: 'escalate', next: { ok: 'pr' } },
+    publish: {
+      kind: 'action',
+      action: 'git.publish',
+      max_visits: 10,
+      on_exhausted: 'escalate',
+      next: { ok: 'pr' },
+    },
     pr: { kind: 'action', action: 'github.create_pr', next: { ok: 'ci' } },
     ci: {
       kind: 'wait',
@@ -76,7 +102,11 @@ const RAW = {
       rules: 'ci_rules',
       max_visits: 10,
       on_exhausted: 'escalate',
-      next: { flaky_or_infra: 'rerun_ci', autofix: 'ci_autofix', code: 'ci_fix' },
+      next: {
+        flaky_or_infra: 'rerun_ci',
+        autofix: 'ci_autofix',
+        code: 'ci_fix',
+      },
     },
     rerun_ci: {
       kind: 'action',
@@ -97,14 +127,25 @@ const RAW = {
       role: 'coder',
       max_visits: 7,
       on_exhausted: 'escalate',
-      next: { done: 'gates', needs_input: 'ask', needs_context: 'retry', blocked: 'escalate' },
+      next: {
+        done: 'gates',
+        needs_input: 'ask',
+        needs_context: 'retry',
+        blocked: 'escalate',
+      },
     },
     merge_gate: {
       kind: 'approval',
       auto_when: { target_branch: ['feature/*', 'group/*'] },
       next: { approved: 'merge', rejected: 'cancel' },
     },
-    merge: { kind: 'action', action: 'github.merge', max_visits: 5, on_exhausted: 'escalate', next: { ok: 'complete' } },
+    merge: {
+      kind: 'action',
+      action: 'github.merge',
+      max_visits: 5,
+      on_exhausted: 'escalate',
+      next: { ok: 'complete' },
+    },
     complete: { kind: 'complete', next: {} },
   },
   decisions: {

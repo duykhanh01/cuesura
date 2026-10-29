@@ -17,12 +17,24 @@ import type { Redactor } from '../runner/redact.ts';
 import type { Store } from '../store/index.ts';
 import { taskControl } from './task-control.ts';
 
-export async function productionControl(opts: { configPath: string; dataDir: string; clock: Clock; redactor: Redactor }): Promise<(store: Store) => ReturnType<typeof taskControl>> {
+export async function productionControl(opts: {
+  configPath: string;
+  dataDir: string;
+  clock: Clock;
+  redactor: Redactor;
+}): Promise<(store: Store) => ReturnType<typeof taskControl>> {
   const host = new NodeHostProbe();
   const sources = await readConfigFiles({ user: opts.configPath });
-  const validated = validateConfig({ user: sources[0] as ConfigSource, packs: {} });
+  const validated = validateConfig({
+    user: sources[0] as ConfigSource,
+    packs: {},
+  });
   const runtime = validated.ok ? validated.value.runtime : null;
-  const projects = validated.ok ? Object.values(validated.value.locations).flatMap((l) => (l.path === null ? [] : [l.path])) : [];
+  const projects = validated.ok
+    ? Object.values(validated.value.locations).flatMap((l) =>
+        l.path === null ? [] : [l.path],
+      )
+    : [];
   const git = runtime?.tool_paths.git ?? (await host.findExecutable('git'));
   const gh = runtime?.tool_paths.gh ?? (await host.findExecutable('gh'));
   const hooks = join(opts.dataDir, 'empty-hooks');
@@ -30,8 +42,41 @@ export async function productionControl(opts: { configPath: string; dataDir: str
   const now = (): number => opts.clock.now();
   return (store) => {
     const ports = {
-      git: git === null ? { run: () => Promise.resolve({ kind: 'spawn_failed' as const, message: 'git not found' }) } : new GitCommandRunner({ git, emptyHooksDir: hooks, safeDirectories: projects, credentialHelper: null, home: process.env['HOME'] ?? opts.dataDir }),
-      github: gh === null ? { request: () => Promise.resolve({ ok: false as const, error: { reason: 'unknown' as const, status: null, detail: 'gh not found', retry_after_ms: null } }) } : new GhPort({ exec: spawnGhExec(gh, process.env), clock: opts.clock, redactor: opts.redactor }),
+      git:
+        git === null
+          ? {
+              run: () =>
+                Promise.resolve({
+                  kind: 'spawn_failed' as const,
+                  message: 'git not found',
+                }),
+            }
+          : new GitCommandRunner({
+              git,
+              emptyHooksDir: hooks,
+              safeDirectories: projects,
+              credentialHelper: null,
+              home: process.env['HOME'] ?? opts.dataDir,
+            }),
+      github:
+        gh === null
+          ? {
+              request: () =>
+                Promise.resolve({
+                  ok: false as const,
+                  error: {
+                    reason: 'unknown' as const,
+                    status: null,
+                    detail: 'gh not found',
+                    retry_after_ms: null,
+                  },
+                }),
+            }
+          : new GhPort({
+              exec: spawnGhExec(gh, process.env),
+              clock: opts.clock,
+              redactor: opts.redactor,
+            }),
       host,
     };
     return taskControl({
@@ -40,7 +85,13 @@ export async function productionControl(opts: { configPath: string; dataDir: str
       confirm: {
         store,
         ports,
-        configInputs: async () => ({ user: (await readConfigFiles({ user: opts.configPath }))[0] as ConfigSource, packs: {}, manifests: {} }),
+        configInputs: async () => ({
+          user: (
+            await readConfigFiles({ user: opts.configPath })
+          )[0] as ConfigSource,
+          packs: {},
+          manifests: {},
+        }),
         now,
       },
     });

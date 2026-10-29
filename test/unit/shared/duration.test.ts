@@ -13,7 +13,10 @@ describe('parseDuration', () => {
     expect(parseDuration(text)).toEqual({ ok: true, value: ms });
   });
 
-  it.each(['-5s', '5', '5w', '1.5h', '', 's', '10 m', '99999999999999999d'])('từ chối %j', (text) => {
-    expect(parseDuration(text).ok).toBe(false);
-  });
+  it.each(['-5s', '5', '5w', '1.5h', '', 's', '10 m', '99999999999999999d'])(
+    'từ chối %j',
+    (text) => {
+      expect(parseDuration(text).ok).toBe(false);
+    },
+  );
 });

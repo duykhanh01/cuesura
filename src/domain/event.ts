@@ -2,10 +2,25 @@ import { z } from 'zod';
 import type { CanonicalTask } from './task.ts';
 import type { EffectKind } from './effect.ts';
 import type { FrozenExecutionContext, FrozenPolicy, Level } from './policy.ts';
-import type { AttemptKind, CheckpointState, HeadDrift, PublishContentState, ResumeAction, ReviewEvidence, TimerKind, Wait } from './state.ts';
+import type {
+  AttemptKind,
+  CheckpointState,
+  HeadDrift,
+  PublishContentState,
+  ResumeAction,
+  ReviewEvidence,
+  TimerKind,
+  Wait,
+} from './state.ts';
 import type { RunConfirmation, RunSelection } from './run-config.ts';
 import type { StepKind } from './workflow.ts';
-import type { BaseRelation, Check, FailureClass, RequiredSet, Usage } from './trigger.ts';
+import type {
+  BaseRelation,
+  Check,
+  FailureClass,
+  RequiredSet,
+  Usage,
+} from './trigger.ts';
 import type {
   Artifact,
   ExecutionGroup,
@@ -39,10 +54,21 @@ export type EventPayloads = {
     context_hash: string;
     structure_hash: string;
   };
-  PolicyAmended: { policy: FrozenPolicy; diff: unknown; reason: string; by: string; policy_hash: string; policy_version: number };
+  PolicyAmended: {
+    policy: FrozenPolicy;
+    diff: unknown;
+    reason: string;
+    by: string;
+    policy_hash: string;
+    policy_version: number;
+  };
   AmendmentRejected: { code: string; by: string };
   // Bước
-  StepEntered: { step: string; visit: number; from: { step: string; outcome: string } | null };
+  StepEntered: {
+    step: string;
+    visit: number;
+    from: { step: string; outcome: string } | null;
+  };
   StepSkipped: {
     step: string;
     kind: StepKind;
@@ -87,14 +113,29 @@ export type EventPayloads = {
   BudgetConsumed: { reservation_id: string };
   BudgetReleased: { reservation_id: string };
   // Escalation
-  RungRaised: { step: string; from: number; to: number; reason: string; signature: string | null };
-  TaskFloorRaised: { step: string; level: Level; reason: 'scope_task' | 'hard' };
+  RungRaised: {
+    step: string;
+    from: number;
+    to: number;
+    reason: string;
+    signature: string | null;
+  };
+  TaskFloorRaised: {
+    step: string;
+    level: Level;
+    reason: 'scope_task' | 'hard';
+  };
   // Bằng chứng
   GateResultRecorded: {
     step: string;
     visit: number;
     effect_id: string;
-    results: { gate: string; passed: boolean; signature?: string | undefined; log_excerpt?: string | undefined }[];
+    results: {
+      gate: string;
+      passed: boolean;
+      signature?: string | undefined;
+      log_excerpt?: string | undefined;
+    }[];
     passed: boolean;
     signature: string | null;
     resets_streak_of: string | null;
@@ -111,7 +152,12 @@ export type EventPayloads = {
     findings?: ReviewEvidence['findings'];
   };
   PublishRecorded: { head_sha: string };
-  CiResultRecorded: { head_sha: string; required_set: RequiredSet; checks: Check[]; resets_streak_of: string | null };
+  CiResultRecorded: {
+    head_sha: string;
+    required_set: RequiredSet;
+    checks: Check[];
+    resets_streak_of: string | null;
+  };
   BaseRelationRecorded: { relation: BaseRelation };
   EvidenceInvalidated: { revision: number; approvals: string[] };
   // Effect
@@ -127,21 +173,40 @@ export type EventPayloads = {
     request: Record<string, unknown>;
   };
   EffectStarted: { effect_id: string; at: number };
-  EffectCompleted: { effect_id: string; status: 'succeeded' | 'failed' | 'unknown'; result: unknown };
+  EffectCompleted: {
+    effect_id: string;
+    status: 'succeeded' | 'failed' | 'unknown';
+    result: unknown;
+  };
   EffectInvalidated: { effect_id: string; reason: string };
   EffectReconciled: {
     effect_id: string;
-    finding: 'executed_succeeded' | 'executed_failed' | 'not_executed' | 'still_unknown';
+    finding:
+      | 'executed_succeeded'
+      | 'executed_failed'
+      | 'not_executed'
+      | 'still_unknown';
     status: 'succeeded' | 'failed' | 'unknown' | 'pending';
     result: unknown;
   };
   ReconcileIncomplete: { effect_id: string; issues: string[] };
   // Timer
-  TimerArmed: { timer_id: string; kind: TimerKind; due_at: number; payload: { step?: string; resume?: ResumeAction } };
+  TimerArmed: {
+    timer_id: string;
+    kind: TimerKind;
+    due_at: number;
+    payload: { step?: string; resume?: ResumeAction };
+  };
   TimerCancelled: { timer_id: string };
   TimerFired: { timer_id: string };
   // Hỏi đáp
-  QuestionAsked: { question_id: string; step: string | null; attempt_id: string | null; body: string; resume: ResumeAction };
+  QuestionAsked: {
+    question_id: string;
+    step: string | null;
+    attempt_id: string | null;
+    body: string;
+    resume: ResumeAction;
+  };
   QuestionAnswered: { question_id: string; answer: string; by: string };
   AnswerRejected: { question_id: string; by: string; reason: string };
   ApprovalRequested: {
@@ -155,8 +220,15 @@ export type EventPayloads = {
   ApprovalGranted: { approval_id: string; by: string; head_sha: string | null };
   ApprovalRejected: { approval_id: string; by: string };
   // Revision
-  SourceDriftDetected: { pending_revision: number; task: CanonicalTask; at: number };
-  SafeBoundaryReached: { deferred: ResumeAction | null; prior_wait: Wait | null };
+  SourceDriftDetected: {
+    pending_revision: number;
+    task: CanonicalTask;
+    at: number;
+  };
+  SafeBoundaryReached: {
+    deferred: ResumeAction | null;
+    prior_wait: Wait | null;
+  };
   RevisionApplied: { revision: number; task: CanonicalTask };
   // Hủy
   CancelRequested: { by: string; reason: string; at: number };
@@ -176,7 +248,11 @@ export type EventPayloads = {
     resume_action: ResumeAction | null;
     requested_at: number;
   };
-  ExecutionIntentUpdated: { request_id: string; priority: number; resume_action: ResumeAction | null };
+  ExecutionIntentUpdated: {
+    request_id: string;
+    priority: number;
+    resume_action: ResumeAction | null;
+  };
   ExecutionWithdrawn: { request_id: string; reason: string; at: number };
   ExecutionGranted: { request_id: string; at: number; waited_ms: number };
   ExecutionReleased: { request_id: string; reason: string; at: number };
@@ -202,7 +278,12 @@ export type EventPayloads = {
   };
   OutputIngested: {
     operation_id: string;
-    cursor: { generation: number; segment: number; byte_offset: number; last_record_seq: number };
+    cursor: {
+      generation: number;
+      segment: number;
+      byte_offset: number;
+      last_record_seq: number;
+    };
     records: number;
     digest: string;
   };
@@ -218,19 +299,42 @@ export type EventPayloads = {
   };
   ExternalStateObserved: { observation: Observation; remote_digest: string };
   ObservationExpired: { at: number; reason: 'deadline' | 'rounds' };
-  ExternalCompletionObserved: { proof: MergeProof; unverified_reason: string | null; at: number };
-  DrainStarted: { at: number; deadline_at: number; max_rounds: number; pending_operations: string[] };
+  ExternalCompletionObserved: {
+    proof: MergeProof;
+    unverified_reason: string | null;
+    at: number;
+  };
+  DrainStarted: {
+    at: number;
+    deadline_at: number;
+    max_rounds: number;
+    pending_operations: string[];
+  };
   DrainProgressed: { at: number; round: number; pending_operations: string[] };
   DrainPaused: { at: number; reason: 'deadline' | 'round_limit' };
   DrainFinished: { at: number };
-  RecheckRequested: { request_id: string; target: 'config' | 'observation' | 'drain'; at: number };
+  RecheckRequested: {
+    request_id: string;
+    target: 'config' | 'observation' | 'drain';
+    at: number;
+  };
   // Execution modes (task-execution-modes.md)
-  RunConfigProposed: { selection: RunSelection; digest: string; by: string; at: number };
+  RunConfigProposed: {
+    selection: RunSelection;
+    digest: string;
+    by: string;
+    at: number;
+  };
   RunConfigConfirmed: { confirmation: RunConfirmation };
   CheckpointRecorded: { checkpoint: CheckpointState };
   PublishContentRecorded: { content: PublishContentState };
   /** An unchanged review input reused a recorded verdict; no reviewer ran and no usage was spent. */
-  ReviewReused: { step: string; from_attempt_id: string; verdict: 'approve' | 'request_changes'; input_digest: string };
+  ReviewReused: {
+    step: string;
+    from_attempt_id: string;
+    verdict: 'approve' | 'request_changes';
+    input_digest: string;
+  };
   HeadDriftRecorded: { drift: HeadDrift };
 };
 
@@ -317,10 +421,16 @@ export const EVENT_TYPES = [
 
 // Bảo đảm EVENT_TYPES liệt kê đủ mọi khoá của EventPayloads.
 type _MissingEventTypes = Exclude<EventType, (typeof EVENT_TYPES)[number]>;
-const _allEventTypesListed: _MissingEventTypes extends never ? true : never = true;
+const _allEventTypesListed: _MissingEventTypes extends never ? true : never =
+  true;
 void _allEventTypesListed;
 
-type DraftOf<T extends EventType> = { type: T; revision: number; actor: string; payload: EventPayloads[T] };
+type DraftOf<T extends EventType> = {
+  type: T;
+  revision: number;
+  actor: string;
+  payload: EventPayloads[T];
+};
 
 /** Sự kiện chưa có `seq`/`global_seq`; kho gán khi append. */
 export type DomainEventDraft = { [T in EventType]: DraftOf<T> }[EventType];
@@ -344,11 +454,21 @@ export const DomainEventSchema = z
     type: z.enum(EVENT_TYPES),
     revision: z.number().int().positive(),
     actor: z.string(),
-    causation: z.object({ dedup_key: z.string().nullable(), claim: z.string().optional() }).strict(),
+    causation: z
+      .object({
+        dedup_key: z.string().nullable(),
+        claim: z.string().optional(),
+      })
+      .strict(),
     payload: z.record(z.string(), z.unknown()),
   })
   .strict();
 
-export function draft<T extends EventType>(type: T, revision: number, actor: string, payload: EventPayloads[T]): DomainEventDraft {
+export function draft<T extends EventType>(
+  type: T,
+  revision: number,
+  actor: string,
+  payload: EventPayloads[T],
+): DomainEventDraft {
   return { type, revision, actor, payload } as DomainEventDraft;
 }

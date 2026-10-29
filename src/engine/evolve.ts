@@ -35,7 +35,8 @@ export function isAllowedEdge(from: TaskStatus, to: TaskStatus): boolean {
 }
 
 function moveTo(s: TaskState, to: TaskStatus, type: string): void {
-  if (!isAllowedEdge(s.status, to)) throw new InvalidTransition(`${type}: ${s.status} → ${to} không hợp lệ`);
+  if (!isAllowedEdge(s.status, to))
+    throw new InvalidTransition(`${type}: ${s.status} → ${to} không hợp lệ`);
   s.status = to;
 }
 
@@ -46,20 +47,33 @@ type AnyEvent = DomainEvent | DomainEventDraft;
  * may report its receipt and output, and the slot it kept is released once nothing still needs it;
  * none of them touches the task status.
  */
-export const POST_TERMINAL_EVENTS: readonly DomainEvent['type'][] = ['SignalIgnored', 'OperationObserved', 'OutputIngested', 'ArtifactIngested', 'ExecutionReleased'];
+export const POST_TERMINAL_EVENTS: readonly DomainEvent['type'][] = [
+  'SignalIgnored',
+  'OperationObserved',
+  'OutputIngested',
+  'ArtifactIngested',
+  'ExecutionReleased',
+];
 
 /** Áp một sự kiện lên `TaskState` (contracts/core-api.md). Không đổi `state` đầu vào. */
 export function evolve(state: TaskState | null, event: AnyEvent): TaskState {
-  return applyInPlace(state === null ? null : structuredClone(state), structuredClone(event));
+  return applyInPlace(
+    state === null ? null : structuredClone(state),
+    structuredClone(event),
+  );
 }
 
 /**
  * Bản sửa tại chỗ cho `decide`, vốn đã tự sao chép state một lần. Payload được giữ theo tham chiếu, nên
  * caller phải truyền bản sao riêng của sự kiện.
  */
-export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskState {
+export function applyInPlace(
+  state: TaskState | null,
+  event: AnyEvent,
+): TaskState {
   if (state === null) {
-    if (event.type !== 'TaskCreated') throw new InvalidTransition(`${event.type} trước TaskCreated`);
+    if (event.type !== 'TaskCreated')
+      throw new InvalidTransition(`${event.type} trước TaskCreated`);
     const { task, needs_confirmation } = event.payload;
     return {
       schema_version: STATE_SCHEMA_VERSION,
@@ -94,7 +108,14 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
       timers: {},
       questions: {},
       approvals: {},
-      evidence: { gates: [], reviews: [], review_skipped: [], ci: [], base_relations: [], publishes: [] },
+      evidence: {
+        gates: [],
+        reviews: [],
+        review_skipped: [],
+        ci: [],
+        base_relations: [],
+        publishes: [],
+      },
       head_sha: null,
       pr_ref: null,
       base_sha: null,
@@ -112,7 +133,9 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
 
   const s = state;
   if (isTerminal(s.status) && !POST_TERMINAL_EVENTS.includes(event.type)) {
-    throw new InvalidTransition(`${event.type} sau khi task đã kết thúc (${s.status})`);
+    throw new InvalidTransition(
+      `${event.type} sau khi task đã kết thúc (${s.status})`,
+    );
   }
   s.version += 1;
 
@@ -148,8 +171,15 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
     case 'PolicyFrozen': {
       const { policy, context } = event.payload;
       const first = s.policy_ref === null;
-      s.policy_ref = { revision: policy.revision, hash: policy.policy_hash, version: policy.policy_version };
-      s.context_ref = { revision: context.revision, hash: context.context_hash };
+      s.policy_ref = {
+        revision: policy.revision,
+        hash: policy.policy_hash,
+        version: policy.policy_version,
+      };
+      s.context_ref = {
+        revision: context.revision,
+        hash: context.context_hash,
+      };
       if (first) {
         // Ngân sách gắn với task, không reset khi đổi revision (FR-011, FR-040).
         s.budget.agent_runs.limit = policy.limits.max_agent_runs;
@@ -161,7 +191,11 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
     }
     case 'PolicyAmended': {
       const p = event.payload.policy;
-      s.policy_ref = { revision: p.revision, hash: p.policy_hash, version: p.policy_version };
+      s.policy_ref = {
+        revision: p.revision,
+        hash: p.policy_hash,
+        version: p.policy_version,
+      };
       s.budget.agent_runs.limit = p.limits.max_agent_runs;
       s.budget.decider_calls.limit = p.limits.max_decider_calls;
       s.budget.escalations.limit = p.limits.max_escalations;
@@ -177,7 +211,8 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
       break;
     case 'StepSkipped':
       s.current_step = event.payload.step;
-      if (event.payload.kind === 'review') s.evidence.review_skipped.push({ revision: s.revision, valid: true });
+      if (event.payload.kind === 'review')
+        s.evidence.review_skipped.push({ revision: s.revision, valid: true });
       break;
     case 'StepExhausted':
       break;
@@ -206,9 +241,14 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
       const a = s.attempts[event.payload.attempt_id];
       if (a) {
         a.status = 'finished';
-        a.outcome = { class: event.payload.class, status: event.payload.status, signature: event.payload.signature };
+        a.outcome = {
+          class: event.payload.class,
+          status: event.payload.status,
+          signature: event.payload.signature,
+        };
         a.usage = event.payload.usage;
-        if (event.payload.session_ref !== undefined) a.session_ref = event.payload.session_ref;
+        if (event.payload.session_ref !== undefined)
+          a.session_ref = event.payload.session_ref;
       }
       if (event.payload.status === 'done') s.last_fix_step = event.payload.step;
       break;
@@ -217,7 +257,10 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
       const p = event.payload;
       s.class_counters[p.counter_key] = p.count;
       // Only quality classes touch the escalation streak (FR-019).
-      if (p.rung !== null && (p.class === 'quality' || p.class === 'invalid_output')) {
+      if (
+        p.rung !== null &&
+        (p.class === 'quality' || p.class === 'invalid_output')
+      ) {
         const k = streakKey(p.step, p.rung);
         const prev = s.failure_streaks[k];
         s.failure_streaks[k] = {
@@ -232,7 +275,11 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
 
     case 'BudgetReserved': {
       const p = event.payload;
-      s.budget.reservations[p.reservation_id] = { effect_id: p.effect_id, units: p.units, status: 'held' };
+      s.budget.reservations[p.reservation_id] = {
+        effect_id: p.effect_id,
+        units: p.units,
+        status: 'held',
+      };
       s.budget.agent_runs.reserved += p.units;
       break;
     }
@@ -257,7 +304,8 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
     case 'RungRaised':
       s.rungs.by_step[event.payload.step] = event.payload.to;
       s.budget.escalations.used += 1;
-      if (!s.escalated_steps.includes(event.payload.step)) s.escalated_steps.push(event.payload.step);
+      if (!s.escalated_steps.includes(event.payload.step))
+        s.escalated_steps.push(event.payload.step);
       break;
     case 'TaskFloorRaised':
       s.rungs.floor_level = event.payload.level;
@@ -271,7 +319,13 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
         passed: event.payload.passed,
         signature: event.payload.signature,
         valid: true,
-        failed: event.payload.results.filter((r) => !r.passed).map((r) => ({ gate: r.gate, signature: r.signature ?? null, log_excerpt: r.log_excerpt ?? null })),
+        failed: event.payload.results
+          .filter((r) => !r.passed)
+          .map((r) => ({
+            gate: r.gate,
+            signature: r.signature ?? null,
+            log_excerpt: r.log_excerpt ?? null,
+          })),
       });
       resetStreak(s, event.payload.resets_streak_of);
       break;
@@ -297,7 +351,11 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
       resetStreak(s, event.payload.resets_streak_of);
       break;
     case 'PublishRecorded':
-      s.evidence.publishes.push({ revision: s.revision, head_sha: event.payload.head_sha, valid: true });
+      s.evidence.publishes.push({
+        revision: s.revision,
+        head_sha: event.payload.head_sha,
+        valid: true,
+      });
       s.head_sha = event.payload.head_sha;
       break;
     case 'CiResultRecorded':
@@ -311,12 +369,23 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
       resetStreak(s, event.payload.resets_streak_of);
       break;
     case 'BaseRelationRecorded':
-      s.evidence.base_relations.push({ ...event.payload.relation, revision: s.revision, valid: true });
+      s.evidence.base_relations.push({
+        ...event.payload.relation,
+        revision: s.revision,
+        valid: true,
+      });
       break;
     case 'EvidenceInvalidated': {
       const rev = event.payload.revision;
       const ev = s.evidence;
-      for (const list of [ev.gates, ev.reviews, ev.review_skipped, ev.ci, ev.base_relations, ev.publishes]) {
+      for (const list of [
+        ev.gates,
+        ev.reviews,
+        ev.review_skipped,
+        ev.ci,
+        ev.base_relations,
+        ev.publishes,
+      ]) {
         for (const e of list) if (e.revision === rev) e.valid = false;
       }
       for (const id of event.payload.approvals) {
@@ -344,7 +413,11 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
         const head = p.request['head_sha'];
         if (s.runtime_ref !== null && typeof head === 'string') {
           const w = s.run.ci_wait[head];
-          s.run.ci_wait[head] = { started_at: w?.started_at ?? (p.request['at'] as number | undefined) ?? 0, polls: (w?.polls ?? 0) + 1 };
+          s.run.ci_wait[head] = {
+            started_at:
+              w?.started_at ?? (p.request['at'] as number | undefined) ?? 0,
+            polls: (w?.polls ?? 0) + 1,
+          };
         }
       }
       if (p.kind === 'stop_attempt' && p.attempt_id !== null) {
@@ -362,7 +435,8 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
       const e = s.effects[event.payload.effect_id];
       if (e) {
         e.status = event.payload.status;
-        if (event.payload.status === 'succeeded') applySuccessFacts(s, e.kind, event.payload.result);
+        if (event.payload.status === 'succeeded')
+          applySuccessFacts(s, e.kind, event.payload.result);
       }
       break;
     }
@@ -375,7 +449,8 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
       const e = s.effects[event.payload.effect_id];
       if (e) {
         e.status = event.payload.status;
-        if (event.payload.status === 'succeeded') applySuccessFacts(s, e.kind, event.payload.result);
+        if (event.payload.status === 'succeeded')
+          applySuccessFacts(s, e.kind, event.payload.result);
       }
       break;
     }
@@ -384,7 +459,13 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
 
     case 'TimerArmed': {
       const p = event.payload;
-      s.timers[p.timer_id] = { id: p.timer_id, kind: p.kind, due_at: p.due_at, status: 'armed', payload: p.payload };
+      s.timers[p.timer_id] = {
+        id: p.timer_id,
+        kind: p.kind,
+        due_at: p.due_at,
+        status: 'armed',
+        payload: p.payload,
+      };
       if (p.kind === 'deadline') {
         s.deadline_at = p.due_at;
         s.deadline_passed = false;
@@ -468,7 +549,11 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
       const p = event.payload;
       // Sửa yêu cầu lần nữa khi drift còn mở chỉ thay nội dung chờ áp; ranh giới an toàn giữ nguyên.
       s.source_drift = s.source_drift
-        ? { ...s.source_drift, pending_revision: p.pending_revision, task: p.task }
+        ? {
+            ...s.source_drift,
+            pending_revision: p.pending_revision,
+            task: p.task,
+          }
         : {
             pending_revision: p.pending_revision,
             detected_at: p.at,
@@ -492,11 +577,17 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
       s.source_drift = null;
       s.current_attempt = {};
       s.ci_polls = 0;
-      for (const q of Object.values(s.questions)) if (q.status === 'open') q.status = 'withdrawn';
+      for (const q of Object.values(s.questions))
+        if (q.status === 'open') q.status = 'withdrawn';
       break;
 
     case 'CancelRequested':
-      s.cancellation = { requested_at: event.payload.at, by: event.payload.by, reason: event.payload.reason, late: false };
+      s.cancellation = {
+        requested_at: event.payload.at,
+        by: event.payload.by,
+        reason: event.payload.reason,
+        late: false,
+      };
       s.source_drift = null;
       break;
     case 'CancelRecordedLate':
@@ -523,7 +614,10 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
       break;
 
     case 'RuntimeConfigured':
-      s.runtime_ref = { revision: event.payload.runtime.revision, hash: event.payload.runtime_hash };
+      s.runtime_ref = {
+        revision: event.payload.runtime.revision,
+        hash: event.payload.runtime_hash,
+      };
       s.run.mode = event.payload.runtime.run_config?.mode ?? null;
       s.run.frozen_digest = event.payload.runtime.run_config?.digest ?? null;
       s.run.limits = event.payload.runtime.limits;
@@ -552,7 +646,10 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
     case 'ExecutionWithdrawn': {
       const r = s.execution.request;
       if (r?.request_id === event.payload.request_id) {
-        s.execution.accumulated_wait_ms += Math.max(0, event.payload.at - r.requested_at);
+        s.execution.accumulated_wait_ms += Math.max(
+          0,
+          event.payload.at - r.requested_at,
+        );
         s.execution.request = null;
       }
       break;
@@ -560,14 +657,21 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
     case 'ExecutionGranted': {
       const r = s.execution.request;
       if (r?.request_id === event.payload.request_id) {
-        s.execution.accumulated_wait_ms += Math.max(0, event.payload.at - r.requested_at);
+        s.execution.accumulated_wait_ms += Math.max(
+          0,
+          event.payload.at - r.requested_at,
+        );
         s.execution.request = null;
       }
-      s.execution.holding = { request_id: event.payload.request_id, granted_at: event.payload.at };
+      s.execution.holding = {
+        request_id: event.payload.request_id,
+        granted_at: event.payload.at,
+      };
       break;
     }
     case 'ExecutionReleased':
-      if (s.execution.holding?.request_id === event.payload.request_id) s.execution.holding = null;
+      if (s.execution.holding?.request_id === event.payload.request_id)
+        s.execution.holding = null;
       break;
     case 'OperationRegistered': {
       const p = event.payload;
@@ -614,7 +718,8 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
       const a = event.payload.artifact;
       s.artifacts[a.artifact_id] = a;
       const o = s.operations[a.operation_id];
-      if (o && !o.artifact_ids.includes(a.artifact_id)) o.artifact_ids.push(a.artifact_id);
+      if (o && !o.artifact_ids.includes(a.artifact_id))
+        o.artifact_ids.push(a.artifact_id);
       break;
     }
     case 'ObservationScheduled': {
@@ -649,11 +754,24 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
           o.budget.next_due_at = null;
           o.budget.last_remote_digest = event.payload.remote_digest as Hash;
         }
-        o.last = { observation_id: ob.observation_id, status: ob.status, observed_head: ob.observed_head, observed_at: ob.observed_at };
+        o.last = {
+          observation_id: ob.observation_id,
+          status: ob.status,
+          observed_head: ob.observed_head,
+          observed_at: ob.observed_at,
+        };
       }
       // A merge GitHub reported holds the task until its proof is accepted, whatever later reads show (FR-040.12).
-      if (event.payload.observation.status === 'merged' && s.completion === null) {
-        addBlocker(s, { code: 'merge_evidence_incomplete', source: 'observation', since: event.payload.observation.observed_at, until: null });
+      if (
+        event.payload.observation.status === 'merged' &&
+        s.completion === null
+      ) {
+        addBlocker(s, {
+          code: 'merge_evidence_incomplete',
+          source: 'observation',
+          since: event.payload.observation.observed_at,
+          until: null,
+        });
       }
       break;
     }
@@ -663,19 +781,36 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
         s.observation.budget.exhausted = true;
         s.observation.budget.next_due_at = null;
       }
-      addBlocker(s, { code: 'observation_expired', source: event.payload.reason, since: event.payload.at, until: null });
+      addBlocker(s, {
+        code: 'observation_expired',
+        source: event.payload.reason,
+        since: event.payload.at,
+        until: null,
+      });
       break;
     case 'ExternalCompletionObserved':
       s.completion = {
         proof: event.payload.proof,
-        unverified: event.payload.unverified_reason === null ? null : { reason: event.payload.unverified_reason },
+        unverified:
+          event.payload.unverified_reason === null
+            ? null
+            : { reason: event.payload.unverified_reason },
         recorded_at: event.payload.at,
-        drain: { started_at: null, deadline_at: null, count: 0, max_rounds: 0, auto_exhausted: false, paused: false },
+        drain: {
+          started_at: null,
+          deadline_at: null,
+          count: 0,
+          max_rounds: 0,
+          auto_exhausted: false,
+          paused: false,
+        },
         pending_operations: [],
         finalized_at: null,
       };
       s.merged = true;
-      s.blockers = s.blockers.filter((b) => b.code !== 'merge_evidence_incomplete');
+      s.blockers = s.blockers.filter(
+        (b) => b.code !== 'merge_evidence_incomplete',
+      );
       break;
     case 'DrainStarted':
       if (s.completion) {
@@ -685,7 +820,12 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
         d.max_rounds = event.payload.max_rounds;
         s.completion.pending_operations = event.payload.pending_operations;
       }
-      addBlocker(s, { code: 'merge_cleanup_pending', source: 'drain', since: event.payload.at, until: event.payload.deadline_at });
+      addBlocker(s, {
+        code: 'merge_cleanup_pending',
+        source: 'drain',
+        since: event.payload.at,
+        until: event.payload.deadline_at,
+      });
       break;
     case 'DrainProgressed':
       if (s.completion) {
@@ -697,7 +837,8 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
     case 'DrainPaused':
       if (s.completion) {
         s.completion.drain.paused = true;
-        if (event.payload.reason === 'round_limit') s.completion.drain.auto_exhausted = true;
+        if (event.payload.reason === 'round_limit')
+          s.completion.drain.auto_exhausted = true;
       }
       break;
     case 'DrainFinished':
@@ -709,10 +850,20 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
       break;
     case 'RecheckRequested':
       // A recheck of a paused drain allows one more bounded round; the round and time caps stay.
-      if (event.payload.target === 'drain' && s.completion !== null && s.completion.finalized_at === null) s.completion.drain.paused = false;
+      if (
+        event.payload.target === 'drain' &&
+        s.completion !== null &&
+        s.completion.finalized_at === null
+      )
+        s.completion.drain.paused = false;
       break;
     case 'RunConfigProposed':
-      s.run.proposal = { selection: event.payload.selection, digest: event.payload.digest, by: event.payload.by, at: event.payload.at };
+      s.run.proposal = {
+        selection: event.payload.selection,
+        digest: event.payload.digest,
+        by: event.payload.by,
+        at: event.payload.at,
+      };
       break;
     case 'RunConfigConfirmed':
       s.run.confirmation = event.payload.confirmation;
@@ -727,7 +878,12 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
       break;
     case 'HeadDriftRecorded':
       s.run.head_drift = event.payload.drift;
-      addBlocker(s, { code: 'head_changed', source: event.payload.drift.source, since: event.payload.drift.at, until: null });
+      addBlocker(s, {
+        code: 'head_changed',
+        source: event.payload.drift.source,
+        since: event.payload.drift.at,
+        until: null,
+      });
       break;
     default:
       assertNever(event);
@@ -736,9 +892,31 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
 }
 
 /** Runtime fields at their replay defaults: a v1 log never sets them, so a legacy task stays `runtime_ref = null`. */
-export function emptyRuntime(): Pick<TaskState, 'runtime_ref' | 'execution' | 'operations' | 'artifacts' | 'observation' | 'completion' | 'blockers' | 'run'> {
+export function emptyRuntime(): Pick<
+  TaskState,
+  | 'runtime_ref'
+  | 'execution'
+  | 'operations'
+  | 'artifacts'
+  | 'observation'
+  | 'completion'
+  | 'blockers'
+  | 'run'
+> {
   return {
-    run: { proposal: null, confirmation: null, mode: null, frozen_digest: null, checkpoint: null, content: null, reviews: [], head_drift: null, limits: null, ci_wait: {}, pr_body: null },
+    run: {
+      proposal: null,
+      confirmation: null,
+      mode: null,
+      frozen_digest: null,
+      checkpoint: null,
+      content: null,
+      reviews: [],
+      head_drift: null,
+      limits: null,
+      ci_wait: {},
+      pr_body: null,
+    },
     runtime_ref: null,
     execution: { request: null, holding: null, accumulated_wait_ms: 0 },
     operations: {},
@@ -767,8 +945,14 @@ function applySuccessFacts(s: TaskState, kind: string, result: unknown): void {
   const r = (result ?? {}) as Record<string, unknown>;
   // `base_sha` marks a usable worktree; a failed setup leaves prepare to be retried.
   const setup = r['setup'] as { passed?: unknown } | undefined;
-  if (kind === 'prepare' && typeof r['base_sha'] === 'string' && setup?.passed === true) s.base_sha = r['base_sha'];
-  if (kind === 'create_pr' && typeof r['pr_ref'] === 'string') s.pr_ref = r['pr_ref'];
+  if (
+    kind === 'prepare' &&
+    typeof r['base_sha'] === 'string' &&
+    setup?.passed === true
+  )
+    s.base_sha = r['base_sha'];
+  if (kind === 'create_pr' && typeof r['pr_ref'] === 'string')
+    s.pr_ref = r['pr_ref'];
   const body = r['pr_body'] as PrBodyState | undefined;
   if (kind === 'create_pr' && body !== undefined) s.run.pr_body = body;
   if (kind === 'merge' && r['merged'] === true) s.merged = true;

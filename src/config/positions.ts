@@ -1,12 +1,28 @@
-import { isMap, isSeq, isScalar, type Document, type LineCounter, type Node } from 'yaml';
+import {
+  isMap,
+  isSeq,
+  isScalar,
+  type Document,
+  type LineCounter,
+  type Node,
+} from 'yaml';
 
-export { DIAGNOSTIC_CODES, type Diagnostic, type DiagnosticCode, type KeyPath } from '../domain/config.ts';
+export {
+  DIAGNOSTIC_CODES,
+  type Diagnostic,
+  type DiagnosticCode,
+  type KeyPath,
+} from '../domain/config.ts';
 import type { Diagnostic, DiagnosticCode, KeyPath } from '../domain/config.ts';
 
 export type Position = { file: string; line: number; col: number };
 
 /** Tài liệu YAML đã parse cùng bộ đếm dòng, đủ để ánh xạ đường dẫn khoá về vị trí. */
-export type LocatedDoc = { file: string; doc: Document; lineCounter: LineCounter };
+export type LocatedDoc = {
+  file: string;
+  doc: Document;
+  lineCounter: LineCounter;
+};
 
 function offsetOf(node: unknown): number | null {
   const range = (node as { range?: [number, number, number] } | null)?.range;
@@ -22,7 +38,9 @@ export function locate(src: LocatedDoc, path: KeyPath): Position {
   let best = 0;
   for (const seg of path) {
     if (isMap(node)) {
-      const pair = node.items.find((p) => (isScalar(p.key) ? p.key.value : p.key) === seg);
+      const pair = node.items.find(
+        (p) => (isScalar(p.key) ? p.key.value : p.key) === seg,
+      );
       if (!pair) break;
       best = offsetOf(pair.key) ?? best;
       node = pair.value;
@@ -40,13 +58,29 @@ export function locate(src: LocatedDoc, path: KeyPath): Position {
 }
 
 /** Vị trí của node YAML bất kỳ (dùng cho lỗi gắn với node như tag hay alias). */
-export function nodePosition(src: LocatedDoc, node: Node | null | undefined): Position {
+export function nodePosition(
+  src: LocatedDoc,
+  node: Node | null | undefined,
+): Position {
   const { line, col } = src.lineCounter.linePos(offsetOf(node) ?? 0);
   return { file: src.file, line, col };
 }
 
-export function diag(code: DiagnosticCode, at: Position, path: KeyPath, message: string): Diagnostic {
-  return { code, severity: 'error', file: at.file, line: at.line, col: at.col, path, message };
+export function diag(
+  code: DiagnosticCode,
+  at: Position,
+  path: KeyPath,
+  message: string,
+): Diagnostic {
+  return {
+    code,
+    severity: 'error',
+    file: at.file,
+    line: at.line,
+    col: at.col,
+    path,
+    message,
+  };
 }
 
 /** Sắp theo `(file, line, col)`, rồi theo mã để thứ tự tất định khi trùng vị trí. */

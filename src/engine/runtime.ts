@@ -1,7 +1,18 @@
 import { holdsSlot } from '../domain/effect.ts';
 import type { DomainEventDraft } from '../domain/event.ts';
-import { cursorAfter, RESOLVED_OPERATION_STATUSES, verifyRuntimeHash, type FrozenRuntimeContext, type OperationKind } from '../domain/runtime.ts';
-import { isTerminal, type OperationMirror, type ResumeAction, type TaskState } from '../domain/state.ts';
+import {
+  cursorAfter,
+  RESOLVED_OPERATION_STATUSES,
+  verifyRuntimeHash,
+  type FrozenRuntimeContext,
+  type OperationKind,
+} from '../domain/runtime.ts';
+import {
+  isTerminal,
+  type OperationMirror,
+  type ResumeAction,
+  type TaskState,
+} from '../domain/state.ts';
 import type { Trigger } from '../domain/trigger.ts';
 import { canonicalJson } from '../shared/canonical-json.ts';
 import { reject, type Ctx } from './context.ts';
@@ -20,16 +31,26 @@ export function isUnresolved(o: OperationMirror): boolean {
 
 /** Operations whose claim must keep the execution slot (FR-044.06): unresolved and marked slot-bound. */
 export function slotBoundOperations(s: TaskState): OperationMirror[] {
-  return Object.values(s.operations).filter((o) => o.holds_slot && isUnresolved(o));
+  return Object.values(s.operations).filter(
+    (o) => o.holds_slot && isUnresolved(o),
+  );
 }
 
 /** Validates the 002 runtime snapshot carried by `start` against the frozen policy being accepted. */
-export function acceptRuntime(ctx: Ctx, rt: FrozenRuntimeContext, policy: { revision: number; base_sha: string }): void {
+export function acceptRuntime(
+  ctx: Ctx,
+  rt: FrozenRuntimeContext,
+  policy: { revision: number; base_sha: string },
+): void {
   const s = ctx.state;
-  if (rt.task_id !== s.id) reject('invalid_trigger', { reason: 'runtime_task_mismatch' });
-  if (rt.revision !== policy.revision || rt.base_sha !== policy.base_sha) reject('invalid_trigger', { reason: 'runtime_freeze_mismatch' });
-  if (!verifyRuntimeHash(rt)) reject('invalid_trigger', { reason: 'runtime_hash_mismatch' });
-  if (rt.target.base_ref !== s.task.base_branch) reject('invalid_trigger', { reason: 'runtime_base_ref_mismatch' });
+  if (rt.task_id !== s.id)
+    reject('invalid_trigger', { reason: 'runtime_task_mismatch' });
+  if (rt.revision !== policy.revision || rt.base_sha !== policy.base_sha)
+    reject('invalid_trigger', { reason: 'runtime_freeze_mismatch' });
+  if (!verifyRuntimeHash(rt))
+    reject('invalid_trigger', { reason: 'runtime_hash_mismatch' });
+  if (rt.target.base_ref !== s.task.base_branch)
+    reject('invalid_trigger', { reason: 'runtime_base_ref_mismatch' });
 }
 
 /**
@@ -38,24 +59,44 @@ export function acceptRuntime(ctx: Ctx, rt: FrozenRuntimeContext, policy: { revi
  */
 export function onRequestExecution(ctx: Ctx): void {
   const s = ctx.state;
-  if (s.cancellation !== null || s.completion !== null) reject('invalid_trigger', { reason: 'not_executable' });
+  if (s.cancellation !== null || s.completion !== null)
+    reject('invalid_trigger', { reason: 'not_executable' });
   if (s.execution.holding !== null) {
-    ctx.emit('SignalIgnored', { reason: 'already_holding', trigger_kind: 'request_execution' });
+    ctx.emit('SignalIgnored', {
+      reason: 'already_holding',
+      trigger_kind: 'request_execution',
+    });
     return;
   }
   const fresh = s.policy_ref === null;
-  if (fresh ? s.status !== 'READY' : s.status !== 'WAITING' && s.status !== 'RUNNING') {
+  if (
+    fresh
+      ? s.status !== 'READY'
+      : s.status !== 'WAITING' && s.status !== 'RUNNING'
+  ) {
     reject('invalid_trigger', { reason: 'not_queueable', status: s.status });
   }
-  const resume: ResumeAction | null = !fresh && s.status === 'WAITING' ? (s.wait?.resume ?? null) : null;
+  const resume: ResumeAction | null =
+    !fresh && s.status === 'WAITING' ? (s.wait?.resume ?? null) : null;
   const priority = s.task.priority;
   const open = s.execution.request;
   if (open !== null) {
-    if (open.priority === priority && canonicalJson(open.resume_action) === canonicalJson(resume)) {
-      ctx.emit('SignalIgnored', { reason: 'already_queued', trigger_kind: 'request_execution', detail: { request_id: open.request_id } });
+    if (
+      open.priority === priority &&
+      canonicalJson(open.resume_action) === canonicalJson(resume)
+    ) {
+      ctx.emit('SignalIgnored', {
+        reason: 'already_queued',
+        trigger_kind: 'request_execution',
+        detail: { request_id: open.request_id },
+      });
       return;
     }
-    ctx.emit('ExecutionIntentUpdated', { request_id: open.request_id, priority, resume_action: resume });
+    ctx.emit('ExecutionIntentUpdated', {
+      request_id: open.request_id,
+      priority,
+      resume_action: resume,
+    });
     return;
   }
   ctx.emit('ExecutionQueued', {
@@ -71,29 +112,51 @@ export function onRequestExecution(ctx: Ctx): void {
  * Grant the slot to this task's open request. The store reads the slot holder and queue head inside the
  * same BEGIN IMMEDIATE transaction; a stale view is rejected rather than granting twice.
  */
-export function onGrantExecution(ctx: Ctx, t: TriggerOf<'grant_execution'>): void {
+export function onGrantExecution(
+  ctx: Ctx,
+  t: TriggerOf<'grant_execution'>,
+): void {
   const s = ctx.state;
   const r = s.execution.request;
   if (r === null || r.request_id !== t.request_id) {
-    ctx.emit('SignalIgnored', { reason: 'stale_request', trigger_kind: t.kind, detail: { request_id: t.request_id } });
+    ctx.emit('SignalIgnored', {
+      reason: 'stale_request',
+      trigger_kind: t.kind,
+      detail: { request_id: t.request_id },
+    });
     return;
   }
   if (s.cancellation !== null || s.completion !== null) {
-    ctx.emit('ExecutionWithdrawn', { request_id: r.request_id, reason: s.cancellation !== null ? 'cancelling' : 'completion', at: ctx.now });
+    ctx.emit('ExecutionWithdrawn', {
+      request_id: r.request_id,
+      reason: s.cancellation !== null ? 'cancelling' : 'completion',
+      at: ctx.now,
+    });
     return;
   }
   const facts = ctx.related.execution;
-  if (facts === undefined) reject('invalid_trigger', { reason: 'missing_execution_facts' });
-  if (facts.slot !== null) reject('invalid_trigger', { reason: 'slot_held', holder_task_id: facts.slot.holder_task_id });
-  if (facts.queue_head !== r.request_id) reject('invalid_trigger', { reason: 'not_queue_head', queue_head: facts.queue_head });
+  if (facts === undefined)
+    reject('invalid_trigger', { reason: 'missing_execution_facts' });
+  if (facts.slot !== null)
+    reject('invalid_trigger', {
+      reason: 'slot_held',
+      holder_task_id: facts.slot.holder_task_id,
+    });
+  if (facts.queue_head !== r.request_id)
+    reject('invalid_trigger', {
+      reason: 'not_queue_head',
+      queue_head: facts.queue_head,
+    });
   ctx.emit('ExecutionGranted', {
     request_id: r.request_id,
     at: ctx.now,
-    waited_ms: s.execution.accumulated_wait_ms + Math.max(0, ctx.now - r.requested_at),
+    waited_ms:
+      s.execution.accumulated_wait_ms + Math.max(0, ctx.now - r.requested_at),
   });
   // A started task waiting for the slot resumes the step it stopped at; a fresh one waits for its start.
   const w = ctx.state.wait;
-  if (ctx.state.status === 'WAITING' && w?.detail.code === 'execution_slot') proceed(ctx, w.resume, 'execution_granted');
+  if (ctx.state.status === 'WAITING' && w?.detail.code === 'execution_slot')
+    proceed(ctx, w.resume, 'execution_granted');
 }
 
 /** Runtime (002) tasks share one slot; legacy tasks without a runtime snapshot never queue for it. */
@@ -109,7 +172,13 @@ function usesSlot(s: TaskState): boolean {
 export function waitForSlot(ctx: Ctx, resume: ResumeAction): boolean {
   const s = ctx.state;
   if (!usesSlot(s) || s.execution.holding !== null) return false;
-  waitTask(ctx, mkWait('policy', 'execution_slot', { resume, resume_when: ['grant_execution'] }));
+  waitTask(
+    ctx,
+    mkWait('policy', 'execution_slot', {
+      resume,
+      resume_when: ['grant_execution'],
+    }),
+  );
   // Source drift may have taken the wait over at a safe boundary; then the task is not queued.
   if (ctx.state.wait?.detail.code === 'execution_slot') onRequestExecution(ctx);
   return true;
@@ -118,7 +187,9 @@ export function waitForSlot(ctx: Ctx, resume: ResumeAction): boolean {
 /** Slot-bound work this task still has: pending or in-flight slot effects, or unresolved slot operations. */
 export function hasSlotWork(s: TaskState): boolean {
   if (slotBoundOperations(s).length > 0) return true;
-  return Object.values(s.effects).some((e) => holdsSlot(e.kind) && (e.status === 'pending' || inFlight(e)));
+  return Object.values(s.effects).some(
+    (e) => holdsSlot(e.kind) && (e.status === 'pending' || inFlight(e)),
+  );
 }
 
 /**
@@ -132,40 +203,77 @@ export function settleSlot(ctx: Ctx): void {
   const r = s.execution.request;
   if (r !== null) {
     const fresh = r.group === 'fresh';
-    const stillQueued = fresh ? s.status === 'READY' && s.policy_ref === null : s.status === 'WAITING' && s.wait?.detail.code === 'execution_slot';
-    if (!stillQueued) ctx.emit('ExecutionWithdrawn', { request_id: r.request_id, reason: fresh ? 'not_ready' : 'not_waiting_for_slot', at: ctx.now });
+    const stillQueued = fresh
+      ? s.status === 'READY' && s.policy_ref === null
+      : s.status === 'WAITING' && s.wait?.detail.code === 'execution_slot';
+    if (!stillQueued)
+      ctx.emit('ExecutionWithdrawn', {
+        request_id: r.request_id,
+        reason: fresh ? 'not_ready' : 'not_waiting_for_slot',
+        at: ctx.now,
+      });
   }
   const h = ctx.state.execution.holding;
   if (h !== null && ctx.state.policy_ref !== null && !hasSlotWork(ctx.state)) {
-    ctx.emit('ExecutionReleased', { request_id: h.request_id, reason: 'no_slot_work', at: ctx.now });
+    ctx.emit('ExecutionReleased', {
+      request_id: h.request_id,
+      reason: 'no_slot_work',
+      at: ctx.now,
+    });
   }
 }
 
 /** Release only after every slot-bound operation is resolved; an unresolved claim keeps the slot. */
-export function onReleaseExecution(ctx: Ctx, t: TriggerOf<'release_execution'>): void {
+export function onReleaseExecution(
+  ctx: Ctx,
+  t: TriggerOf<'release_execution'>,
+): void {
   const h = ctx.state.execution.holding;
   if (h === null || h.request_id !== t.request_id) {
-    ctx.emit('SignalIgnored', { reason: 'not_holding', trigger_kind: t.kind, detail: { request_id: t.request_id } });
+    ctx.emit('SignalIgnored', {
+      reason: 'not_holding',
+      trigger_kind: t.kind,
+      detail: { request_id: t.request_id },
+    });
     return;
   }
   const pending = slotBoundOperations(ctx.state);
-  if (pending.length > 0) reject('invalid_trigger', { reason: 'unresolved_operations', operation_ids: pending.map((o) => o.id) });
-  ctx.emit('ExecutionReleased', { request_id: h.request_id, reason: t.reason, at: ctx.now });
+  if (pending.length > 0)
+    reject('invalid_trigger', {
+      reason: 'unresolved_operations',
+      operation_ids: pending.map((o) => o.id),
+    });
+  ctx.emit('ExecutionReleased', {
+    request_id: h.request_id,
+    reason: t.reason,
+    at: ctx.now,
+  });
 }
 
 /** Called before a terminal event: withdraw an open request and release a slot nothing still needs. */
 export function settleExecutionOnClose(ctx: Ctx): void {
   const s = ctx.state;
   if (s.execution.request !== null) {
-    ctx.emit('ExecutionWithdrawn', { request_id: s.execution.request.request_id, reason: 'task_ended', at: ctx.now });
+    ctx.emit('ExecutionWithdrawn', {
+      request_id: s.execution.request.request_id,
+      reason: 'task_ended',
+      at: ctx.now,
+    });
   }
   const h = ctx.state.execution.holding;
   if (h !== null && slotBoundOperations(ctx.state).length === 0) {
-    ctx.emit('ExecutionReleased', { request_id: h.request_id, reason: 'task_ended', at: ctx.now });
+    ctx.emit('ExecutionReleased', {
+      request_id: h.request_id,
+      reason: 'task_ended',
+      at: ctx.now,
+    });
   }
 }
 
-const NEXT_STATUS: Record<OperationMirror['status'], readonly OperationMirror['status'][]> = {
+const NEXT_STATUS: Record<
+  OperationMirror['status'],
+  readonly OperationMirror['status'][]
+> = {
   registered: ['running', 'finished', 'not_launched', 'unknown', 'lost'],
   running: ['running', 'finished', 'unknown', 'lost'],
   unknown: ['running', 'finished', 'not_launched', 'unknown', 'lost'],
@@ -175,18 +283,40 @@ const NEXT_STATUS: Record<OperationMirror['status'], readonly OperationMirror['s
 };
 
 /** Normalized receipt from the runner files. A late receipt for a resolved operation only gets logged. */
-export function onOperationResult(ctx: Ctx, t: TriggerOf<'operation_result'>): void {
+export function onOperationResult(
+  ctx: Ctx,
+  t: TriggerOf<'operation_result'>,
+): void {
   const o = ctx.state.operations[t.operation_id];
-  if (o === undefined) reject('invalid_trigger', { reason: 'unknown_operation', operation_id: t.operation_id });
+  if (o === undefined)
+    reject('invalid_trigger', {
+      reason: 'unknown_operation',
+      operation_id: t.operation_id,
+    });
   if (!isUnresolved(o)) {
-    ctx.emit('SignalIgnored', { reason: 'operation_resolved', trigger_kind: t.kind, detail: { operation_id: o.id } });
+    ctx.emit('SignalIgnored', {
+      reason: 'operation_resolved',
+      trigger_kind: t.kind,
+      detail: { operation_id: o.id },
+    });
     return;
   }
-  if (!NEXT_STATUS[o.status].includes(t.status)) reject('invalid_trigger', { reason: 'operation_transition', from: o.status, to: t.status });
-  if (t.status === 'finished' && (t.outcome === null || t.finished_at === null)) reject('invalid_trigger', { reason: 'finished_without_outcome' });
-  if (t.status !== 'finished' && t.outcome !== null) reject('invalid_trigger', { reason: 'outcome_before_finish' });
+  if (!NEXT_STATUS[o.status].includes(t.status))
+    reject('invalid_trigger', {
+      reason: 'operation_transition',
+      from: o.status,
+      to: t.status,
+    });
+  if (t.status === 'finished' && (t.outcome === null || t.finished_at === null))
+    reject('invalid_trigger', { reason: 'finished_without_outcome' });
+  if (t.status !== 'finished' && t.outcome !== null)
+    reject('invalid_trigger', { reason: 'outcome_before_finish' });
   // "Not launched" is a claim that nothing ran: it must not carry any process identity.
-  if (t.status === 'not_launched' && (t.processes.length > 0 || t.started_at !== null)) reject('invalid_trigger', { reason: 'not_launched_with_process' });
+  if (
+    t.status === 'not_launched' &&
+    (t.processes.length > 0 || t.started_at !== null)
+  )
+    reject('invalid_trigger', { reason: 'not_launched_with_process' });
   ctx.emit('OperationObserved', {
     operation_id: o.id,
     status: t.status,
@@ -199,8 +329,16 @@ export function onOperationResult(ctx: Ctx, t: TriggerOf<'operation_result'>): v
   });
   // A task that ended while this operation was unresolved kept the slot for it; free it with the last one.
   const h = ctx.state.execution.holding;
-  if (isTerminal(ctx.state.status) && h !== null && slotBoundOperations(ctx.state).length === 0) {
-    ctx.emit('ExecutionReleased', { request_id: h.request_id, reason: 'task_ended', at: ctx.now });
+  if (
+    isTerminal(ctx.state.status) &&
+    h !== null &&
+    slotBoundOperations(ctx.state).length === 0
+  ) {
+    ctx.emit('ExecutionReleased', {
+      request_id: h.request_id,
+      reason: 'task_ended',
+      at: ctx.now,
+    });
   }
 }
 
@@ -210,20 +348,43 @@ export function onOperationResult(ctx: Ctx, t: TriggerOf<'operation_result'>): v
  */
 export function onIngestRecord(ctx: Ctx, t: TriggerOf<'ingest_record'>): void {
   const o = ctx.state.operations[t.operation_id];
-  if (o === undefined) reject('invalid_trigger', { reason: 'unknown_operation', operation_id: t.operation_id });
+  if (o === undefined)
+    reject('invalid_trigger', {
+      reason: 'unknown_operation',
+      operation_id: t.operation_id,
+    });
   const next = { operation_id: o.id, ...t.cursor };
   const prev = o.cursor === null ? null : { operation_id: o.id, ...o.cursor };
   if (!cursorAfter(next, prev)) {
-    ctx.emit('SignalIgnored', { reason: 'stale_cursor', trigger_kind: t.kind, detail: { operation_id: o.id, cursor: t.cursor } });
+    ctx.emit('SignalIgnored', {
+      reason: 'stale_cursor',
+      trigger_kind: t.kind,
+      detail: { operation_id: o.id, cursor: t.cursor },
+    });
     return;
   }
   for (const a of t.artifacts) {
-    if (a.operation_id !== o.id) reject('invalid_trigger', { reason: 'artifact_operation_mismatch', artifact_id: a.artifact_id });
+    if (a.operation_id !== o.id)
+      reject('invalid_trigger', {
+        reason: 'artifact_operation_mismatch',
+        artifact_id: a.artifact_id,
+      });
     const known = ctx.state.artifacts[a.artifact_id];
-    if (known !== undefined && canonicalJson(known) !== canonicalJson(a)) reject('invalid_trigger', { reason: 'artifact_conflict', artifact_id: a.artifact_id });
+    if (known !== undefined && canonicalJson(known) !== canonicalJson(a))
+      reject('invalid_trigger', {
+        reason: 'artifact_conflict',
+        artifact_id: a.artifact_id,
+      });
   }
-  ctx.emit('OutputIngested', { operation_id: o.id, cursor: t.cursor, records: t.records, digest: t.digest });
-  for (const a of t.artifacts) if (ctx.state.artifacts[a.artifact_id] === undefined) ctx.emit('ArtifactIngested', { artifact: a });
+  ctx.emit('OutputIngested', {
+    operation_id: o.id,
+    cursor: t.cursor,
+    records: t.records,
+    digest: t.digest,
+  });
+  for (const a of t.artifacts)
+    if (ctx.state.artifacts[a.artifact_id] === undefined)
+      ctx.emit('ArtifactIngested', { artifact: a });
 }
 
 export type OperationClaim = {
@@ -234,7 +395,8 @@ export type OperationClaim = {
   holds_slot: boolean;
 };
 
-export type OperationClaimError = 'slot_not_held' | 'operation_exists' | 'effect_has_open_operation';
+export type OperationClaimError =
+  'slot_not_held' | 'operation_exists' | 'effect_has_open_operation';
 
 /**
  * Drafts registering an operation in the same transaction as `EffectStarted`, so its identity is
@@ -245,12 +407,20 @@ export function registerOperation(
   effect: { id: string; attempt_id: string | null },
   op: OperationClaim,
   now: number,
-): { ok: true; events: DomainEventDraft[] } | { ok: false; reason: OperationClaimError } {
-  if (s.operations[op.operation_id] !== undefined) return { ok: false, reason: 'operation_exists' };
-  if (Object.values(s.operations).some((o) => o.effect_id === effect.id && isUnresolved(o))) {
+):
+  | { ok: true; events: DomainEventDraft[] }
+  | { ok: false; reason: OperationClaimError } {
+  if (s.operations[op.operation_id] !== undefined)
+    return { ok: false, reason: 'operation_exists' };
+  if (
+    Object.values(s.operations).some(
+      (o) => o.effect_id === effect.id && isUnresolved(o),
+    )
+  ) {
     return { ok: false, reason: 'effect_has_open_operation' };
   }
-  if (op.holds_slot && s.execution.holding === null) return { ok: false, reason: 'slot_not_held' };
+  if (op.holds_slot && s.execution.holding === null)
+    return { ok: false, reason: 'slot_not_held' };
   return {
     ok: true,
     events: [
@@ -275,5 +445,7 @@ export function registerOperation(
 
 /** Whether `s` can still be granted work by the 002 daemon at all (used by queue selection and health). */
 export function executable(s: TaskState): boolean {
-  return !isTerminal(s.status) && s.cancellation === null && s.completion === null;
+  return (
+    !isTerminal(s.status) && s.cancellation === null && s.completion === null
+  );
 }

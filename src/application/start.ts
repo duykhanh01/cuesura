@@ -22,7 +22,11 @@ import type { PreflightCandidate, PreflightPorts } from './preflight.ts';
 import { runConfigConfirmed } from '../engine/run-config.ts';
 import { resolveMergeMethod } from '../domain/merge-method.ts';
 import type { RunConfirmation } from '../domain/run-config.ts';
-import { checkSelection, readPrTemplate, type SelectionProblem } from './run-config.ts';
+import {
+  checkSelection,
+  readPrTemplate,
+  type SelectionProblem,
+} from './run-config.ts';
 import { checkConfig, submit } from './triage.ts';
 
 /** Documents frozen into the execution context that do not live in the repo's base commit. */
@@ -46,31 +50,64 @@ const DOC_BYTES = 1024 * 1024;
 export type StartResult =
   | { readonly kind: 'not_startable'; readonly reason: string }
   /** Preflight could not establish a fact; the slot went back and the task stays READY. */
-  | { readonly kind: 'unavailable'; readonly check: string; readonly detail: string; readonly release: AcceptOutcome | AcceptError }
-  | { readonly kind: 'submitted'; readonly frozen: boolean; readonly outcome: AcceptOutcome }
+  | {
+      readonly kind: 'unavailable';
+      readonly check: string;
+      readonly detail: string;
+      readonly release: AcceptOutcome | AcceptError;
+    }
+  | {
+      readonly kind: 'submitted';
+      readonly frozen: boolean;
+      readonly outcome: AcceptOutcome;
+    }
   | { readonly kind: 'conflict'; readonly error: AcceptError };
 
 /** `conventions` of the frozen project config, read from the base commit like `cusr.yaml`. */
-async function readConventions(git: GitPort, candidate: PreflightCandidate): Promise<DocContent[]> {
+async function readConventions(
+  git: GitPort,
+  candidate: PreflightCandidate,
+): Promise<DocContent[]> {
   const out: DocContent[] = [];
   for (const name of candidate.validated.config.project?.conventions ?? []) {
-    const r = await git.run({ args: ['cat-file', 'blob', `${candidate.base_sha}:${name}`], cwd: candidate.project_path, timeout_ms: 10_000, max_output_bytes: DOC_BYTES, stdin: null });
+    const r = await git.run({
+      args: ['cat-file', 'blob', `${candidate.base_sha}:${name}`],
+      cwd: candidate.project_path,
+      timeout_ms: 10_000,
+      max_output_bytes: DOC_BYTES,
+      stdin: null,
+    });
     // A missing or oversize document is left out; freeze then reports it as config_invalid.
-    if (r.kind === 'exited' && r.code === 0 && !r.truncated) out.push({ name, content: r.stdout });
+    if (r.kind === 'exited' && r.code === 0 && !r.truncated)
+      out.push({ name, content: r.stdout });
   }
   return out;
 }
 
-const daemonAuthz = (now: number): AuthzContext => ({ actor: 'cusrd', roles: ['operate'], issued_by: 'cusrd', issued_at: now });
+const daemonAuthz = (now: number): AuthzContext => ({
+  actor: 'cusrd',
+  roles: ['operate'],
+  issued_by: 'cusrd',
+  issued_at: now,
+});
 
-const unconfirmed = (problems: SelectionProblem[]) => ({ ok: false as const, error: { code: 'run_config_unconfirmed' as const, problems } });
+const unconfirmed = (problems: SelectionProblem[]) => ({
+  ok: false as const,
+  error: { code: 'run_config_unconfirmed' as const, problems },
+});
 
-async function freezeFor(deps: StartDeps, s: TaskState, candidate: PreflightCandidate) {
+async function freezeFor(
+  deps: StartDeps,
+  s: TaskState,
+  candidate: PreflightCandidate,
+) {
   const { config } = candidate.validated;
   const proposal = s.run.proposal as NonNullable<TaskState['run']['proposal']>;
   const confirmation = s.run.confirmation as RunConfirmation;
   const sel = proposal.selection;
-  const prompts = Object.values(config.user.roles).flatMap((r) => (r.prompt === null ? [] : [r.prompt]));
+  const prompts = Object.values(config.user.roles).flatMap((r) =>
+    r.prompt === null ? [] : [r.prompt],
+  );
   const frozen = freeze({
     config,
     task: s.task,
@@ -81,12 +118,33 @@ async function freezeFor(deps: StartDeps, s: TaskState, candidate: PreflightCand
     conventions: await readConventions(deps.ports.git, candidate),
     mode: sel.mode,
   });
-  if (!frozen.ok) return { ok: false as const, error: frozen.error as FreezeError };
+  if (!frozen.ok)
+    return { ok: false as const, error: frozen.error as FreezeError };
   const mismatch = checkSelection(frozen.value.policy, sel);
   if (mismatch.length > 0) return unconfirmed(mismatch);
-  const template = await readPrTemplate(deps.ports.git, candidate.project_path, candidate.base_sha, config.project?.pr_template ?? null);
+  const template = await readPrTemplate(
+    deps.ports.git,
+    candidate.project_path,
+    candidate.base_sha,
+    config.project?.pr_template ?? null,
+  );
   if (!template.ok) {
-    return { ok: false as const, error: { code: 'config_invalid' as const, diagnostics: [], problems: [{ check: template.error.check, message: template.error.message, ...('candidates' in template.error ? { candidates: template.error.candidates } : {}) }] } };
+    return {
+      ok: false as const,
+      error: {
+        code: 'config_invalid' as const,
+        diagnostics: [],
+        problems: [
+          {
+            check: template.error.check,
+            message: template.error.message,
+            ...('candidates' in template.error
+              ? { candidates: template.error.candidates }
+              : {}),
+          },
+        ],
+      },
+    };
   }
   const runtime = freezeRuntimeContext({
     runtime: candidate.runtime,
@@ -96,26 +154,56 @@ async function freezeFor(deps: StartDeps, s: TaskState, candidate: PreflightCand
     project_path: candidate.project_path,
     target: candidate.target,
     capability_refs: { ...candidate.capability_refs },
-    run_config: { mode: sel.mode, selection: sel, digest: proposal.digest as Hash, confirmation },
+    run_config: {
+      mode: sel.mode,
+      selection: sel,
+      digest: proposal.digest as Hash,
+      confirmation,
+    },
     pr_template: template.value,
     merge_method: resolveMergeMethod(config.project),
   });
   if (!runtime.ok) {
-    return { ok: false as const, error: { code: 'config_invalid' as const, diagnostics: [], problems: runtime.error.issues.map((i) => ({ check: 'runtime', message: `${i.path.join('.')}: ${i.message}` })) } };
+    return {
+      ok: false as const,
+      error: {
+        code: 'config_invalid' as const,
+        diagnostics: [],
+        problems: runtime.error.issues.map((i) => ({
+          check: 'runtime',
+          message: `${i.path.join('.')}: ${i.message}`,
+        })),
+      },
+    };
   }
   return { ok: true as const, policy: frozen.value, runtime: runtime.value };
 }
 
-export async function startTask(deps: StartDeps, taskId: string): Promise<StartResult> {
+export async function startTask(
+  deps: StartDeps,
+  taskId: string,
+): Promise<StartResult> {
   const s = deps.store.readTask(taskId as Uuid);
   if (s === null) return { kind: 'not_startable', reason: 'unknown_task' };
-  if (s.policy_ref !== null) return { kind: 'not_startable', reason: 'already_started' };
-  if (s.status !== 'READY') return { kind: 'not_startable', reason: `status_${s.status}` };
+  if (s.policy_ref !== null)
+    return { kind: 'not_startable', reason: 'already_started' };
+  if (s.status !== 'READY')
+    return { kind: 'not_startable', reason: `status_${s.status}` };
   const holding = s.execution.holding;
-  if (holding === null) return { kind: 'not_startable', reason: 'slot_not_held' };
+  if (holding === null)
+    return { kind: 'not_startable', reason: 'slot_not_held' };
   const dedup = `start:${s.id}:r${s.revision}:${holding.request_id}`;
   const release = (reason: string) => {
-    const r = submit(deps.store, { task_id: s.id, dedup_key: `${dedup}:release`, trigger: { kind: 'release_execution', request_id: holding.request_id as Uuid, reason }, now: deps.now() });
+    const r = submit(deps.store, {
+      task_id: s.id,
+      dedup_key: `${dedup}:release`,
+      trigger: {
+        kind: 'release_execution',
+        request_id: holding.request_id as Uuid,
+        reason,
+      },
+      now: deps.now(),
+    });
     return r.ok ? r.value : r.error;
   };
   // Nothing spawns on a selection the user has not confirmed for this revision (M01/M02).
@@ -124,18 +212,41 @@ export async function startTask(deps: StartDeps, taskId: string): Promise<StartR
     return { kind: 'not_startable', reason: 'run_config_unconfirmed' };
   }
 
-  const check = await checkConfig(deps.ports, { task: s.task, ...(await deps.configInputs()), mode: s.run.proposal?.selection.mode ?? null });
-  if (check.kind === 'infra') return { kind: 'unavailable', check: check.check, detail: check.detail, release: release('preflight_unavailable') };
+  const check = await checkConfig(deps.ports, {
+    task: s.task,
+    ...(await deps.configInputs()),
+    mode: s.run.proposal?.selection.mode ?? null,
+  });
+  if (check.kind === 'infra')
+    return {
+      kind: 'unavailable',
+      check: check.check,
+      detail: check.detail,
+      release: release('preflight_unavailable'),
+    };
 
-  const frozen = check.kind === 'ok' ? await freezeFor(deps, s, check.candidate) : { ok: false as const, error: check.error };
+  const frozen =
+    check.kind === 'ok'
+      ? await freezeFor(deps, s, check.candidate)
+      : { ok: false as const, error: check.error };
   const r = submit(deps.store, {
     task_id: s.id,
     dedup_key: dedup,
-    trigger: frozen.ok ? { kind: 'start', freeze: { ok: true, value: frozen.policy }, runtime: frozen.runtime } : { kind: 'start', freeze: { ok: false, error: frozen.error } },
+    trigger: frozen.ok
+      ? {
+          kind: 'start',
+          freeze: { ok: true, value: frozen.policy },
+          runtime: frozen.runtime,
+        }
+      : { kind: 'start', freeze: { ok: false, error: frozen.error } },
     now: deps.now(),
     ids: Array.from({ length: START_IDS }, () => deps.newId()),
     expected_version: s.version,
   });
   if (!r.ok) return { kind: 'conflict', error: r.error };
-  return { kind: 'submitted', frozen: frozen.ok && r.value.decision.kind === 'accepted', outcome: r.value };
+  return {
+    kind: 'submitted',
+    frozen: frozen.ok && r.value.decision.kind === 'accepted',
+    outcome: r.value,
+  };
 }

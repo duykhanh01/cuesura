@@ -7,11 +7,23 @@ const LADDERS: LadderStep[][] = [
   [],
   [{ effort: 'high' }],
   [{ effort: 'high' }, { model: 'opus', effort: 'high' }],
-  [{ add_context: ['repo_map'] }, { model: 'opus' }, { model: 'opus', effort: 'high' }],
+  [
+    { add_context: ['repo_map'] },
+    { model: 'opus' },
+    { model: 'opus', effort: 'high' },
+  ],
 ];
 
-const roleArb = (model: string, permissions: 'write' | 'read_only'): fc.Arbitrary<RoleSpec> =>
-  fc.record({ ladder: fc.constantFrom(...LADDERS), effort: fc.constantFrom('low' as const, 'medium' as const) }).map((r) => ({ model, permissions, ...r }));
+const roleArb = (
+  model: string,
+  permissions: 'write' | 'read_only',
+): fc.Arbitrary<RoleSpec> =>
+  fc
+    .record({
+      ladder: fc.constantFrom(...LADDERS),
+      effort: fc.constantFrom('low' as const, 'medium' as const),
+    })
+    .map((r) => ({ model, permissions, ...r }));
 
 /**
  * Chính sách với giới hạn, thang và required checks khác nhau (T049). Thang các role khác độ dài và khác
@@ -19,7 +31,10 @@ const roleArb = (model: string, permissions: 'write' | 'read_only'): fc.Arbitrar
  */
 export const policyArb: fc.Arbitrary<PolicyOptions> = fc.record({
   limits: fc.record({
-    max_agent_runs: fc.oneof({ weight: 1, arbitrary: fc.integer({ min: 1, max: 3 }) }, { weight: 4, arbitrary: fc.integer({ min: 4, max: 16 }) }),
+    max_agent_runs: fc.oneof(
+      { weight: 1, arbitrary: fc.integer({ min: 1, max: 3 }) },
+      { weight: 4, arbitrary: fc.integer({ min: 4, max: 16 }) },
+    ),
     max_wall_ms: fc.constantFrom(600_000, 3_600_000, 6 * 3_600_000),
   }),
   required_checks: fc.subarray(['build', 'test', 'format']),
@@ -31,8 +46,16 @@ export const policyArb: fc.Arbitrary<PolicyOptions> = fc.record({
   }),
 });
 
-const scopedRoleArb = (model: string, permissions: 'write' | 'read_only'): fc.Arbitrary<RoleSpec> =>
-  fc.tuple(roleArb(model, permissions), fc.constantFrom('step' as const, 'task' as const)).map(([r, scope]) => ({ ...r, scope }));
+const scopedRoleArb = (
+  model: string,
+  permissions: 'write' | 'read_only',
+): fc.Arbitrary<RoleSpec> =>
+  fc
+    .tuple(
+      roleArb(model, permissions),
+      fc.constantFrom('step' as const, 'task' as const),
+    )
+    .map(([r, scope]) => ({ ...r, scope }));
 
 /**
  * Policies that stress escalation: denied or approval-gated upper rungs, small escalation limits and roles
@@ -42,11 +65,17 @@ export const escalationPolicyArb: fc.Arbitrary<PolicyOptions> = fc.record({
   limits: fc.record({
     max_agent_runs: fc.integer({ min: 4, max: 24 }),
     max_escalations: fc.integer({ min: 0, max: 4 }),
-    classes: fc.record({ quality_tries_per_rung: fc.integer({ min: 1, max: 3 }) }),
+    classes: fc.record({
+      quality_tries_per_rung: fc.integer({ min: 1, max: 3 }),
+    }),
   }),
   escalation: fc.record({
     auto_up_to_tier: fc.constantFrom(1, 2, 2, 3),
-    above: fc.constantFrom('ask_human' as const, 'ask_human' as const, 'deny' as const),
+    above: fc.constantFrom(
+      'ask_human' as const,
+      'ask_human' as const,
+      'deny' as const,
+    ),
   }),
   roles: fc.record({
     coder: scopedRoleArb('sonnet', 'write'),

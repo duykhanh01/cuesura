@@ -2,7 +2,10 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { validateConfig } from '../../src/config/validate.ts';
 import { freeze } from '../../src/config/freeze.ts';
-import type { ConfigSource, LoaderLimits } from '../../src/config/yaml-loader.ts';
+import type {
+  ConfigSource,
+  LoaderLimits,
+} from '../../src/config/yaml-loader.ts';
 import type { AuthzRole } from '../../src/domain/policy.ts';
 import type { ValidatedConfig } from '../../src/domain/config.ts';
 import type { DocContent } from '../../src/policy/finalize.ts';
@@ -53,8 +56,12 @@ export function parseHeader(text: string): FixtureHeader {
     expect,
     role: (meta.role as FixtureHeader['role'] | undefined) ?? 'user',
     withProject: meta['with-project'] ?? null,
-    limits: meta.limits ? (JSON.parse(meta.limits) as Partial<LoaderLimits>) : {},
-    overrides: meta.overrides ? (JSON.parse(meta.overrides) as Record<string, unknown>) : null,
+    limits: meta.limits
+      ? (JSON.parse(meta.limits) as Partial<LoaderLimits>)
+      : {},
+    overrides: meta.overrides
+      ? (JSON.parse(meta.overrides) as Record<string, unknown>)
+      : null,
     caller: meta.caller ? (meta.caller.split(',') as AuthzRole[]) : ['operate'],
   };
 }
@@ -66,11 +73,15 @@ const PACK_PROBE_PROJECT: ConfigSource = {
 };
 
 /** Chạy một fixture invalid và trả các lỗi `(code, line, col)` thực tế theo thứ tự. */
-export function runInvalidFixture(name: string): { header: FixtureHeader; actual: { code: string; line: number; col: number }[] } {
+export function runInvalidFixture(name: string): {
+  header: FixtureHeader;
+  actual: { code: string; line: number; col: number }[];
+} {
   const path = join('configs', 'invalid', name);
   const fixture = source(path);
   const header = parseHeader(fixture.text);
-  const user = header.role === 'user' ? fixture : source('configs/valid/user.yaml');
+  const user =
+    header.role === 'user' ? fixture : source('configs/valid/user.yaml');
   const project =
     header.role === 'project'
       ? fixture
@@ -81,8 +92,17 @@ export function runInvalidFixture(name: string): { header: FixtureHeader; actual
           : undefined;
   const packs = header.role === 'pack' ? { ...PACKS, probe: fixture } : PACKS;
 
-  const r = validateConfig({ user, ...(project ? { project } : {}), packs, limits: header.limits });
-  if (!r.ok) return { header, actual: r.error.map((d) => ({ code: d.code, line: d.line, col: d.col })) };
+  const r = validateConfig({
+    user,
+    ...(project ? { project } : {}),
+    packs,
+    limits: header.limits,
+  });
+  if (!r.ok)
+    return {
+      header,
+      actual: r.error.map((d) => ({ code: d.code, line: d.line, col: d.col })),
+    };
   if (header.overrides === null) return { header, actual: [] };
 
   const fr = freeze({
@@ -96,13 +116,22 @@ export function runInvalidFixture(name: string): { header: FixtureHeader; actual
   });
   if (fr.ok) return { header, actual: [] };
   if (fr.error.code === 'config_invalid') {
-    return { header, actual: fr.error.diagnostics.map((d) => ({ code: d.code, line: d.line, col: d.col })) };
+    return {
+      header,
+      actual: fr.error.diagnostics.map((d) => ({
+        code: d.code,
+        line: d.line,
+        col: d.col,
+      })),
+    };
   }
   return { header, actual: [{ code: fr.error.code, line: 1, col: 1 }] };
 }
 
 export function invalidFixtureNames(): string[] {
-  return readdirSync(join(CONFIGS, 'invalid')).filter((f) => f.endsWith('.yaml')).sort();
+  return readdirSync(join(CONFIGS, 'invalid'))
+    .filter((f) => f.endsWith('.yaml'))
+    .sort();
 }
 
 /** Cấu hình người dùng tối thiểu hợp lệ; test chỉnh từng phần qua `minUser`. */
@@ -126,9 +155,15 @@ models: { sonnet: { harness: claude, id: sonnet, tier: 2 }, opus: { harness: cla
 `,
 };
 
-export function minUser(parts: Partial<typeof MIN_PARTS> = {}, extra = ''): ConfigSource {
+export function minUser(
+  parts: Partial<typeof MIN_PARTS> = {},
+  extra = '',
+): ConfigSource {
   const p = { ...MIN_PARTS, ...parts };
-  return { file: 'config.yaml', text: p.head + p.roles + p.workflows + p.profiles + extra };
+  return {
+    file: 'config.yaml',
+    text: p.head + p.roles + p.workflows + p.profiles + extra,
+  };
 }
 
 export const MIN_PROJECT: ConfigSource = {
@@ -137,8 +172,13 @@ export const MIN_PROJECT: ConfigSource = {
 };
 
 /** Nội dung giả cho mọi prompt và conventions mà cấu hình khai báo, để `freeze` chụp được ngữ cảnh. */
-export function docsFor(config: ValidatedConfig): { prompts: DocContent[]; conventions: DocContent[] } {
+export function docsFor(config: ValidatedConfig): {
+  prompts: DocContent[];
+  conventions: DocContent[];
+} {
   const doc = (name: string): DocContent => ({ name, content: `# ${name}\n` });
-  const prompts = Object.values(config.user.roles).flatMap((r) => (r.prompt === null ? [] : [doc(r.prompt)]));
+  const prompts = Object.values(config.user.roles).flatMap((r) =>
+    r.prompt === null ? [] : [doc(r.prompt)],
+  );
   return { prompts, conventions: (config.project?.conventions ?? []).map(doc) };
 }

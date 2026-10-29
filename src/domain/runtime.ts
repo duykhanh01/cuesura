@@ -79,10 +79,13 @@ export const DEFAULT_RUNTIME_LIMITS: RuntimeLimits = {
 };
 
 /** Cross-field rules of the CLI contract: initial ≤ max, record ≤ segment ≤ spool, TERM+KILL ≤ drain/recheck. */
-export function runtimeLimitIssues(l: RuntimeLimits): { path: (keyof RuntimeLimits)[]; message: string }[] {
+export function runtimeLimitIssues(
+  l: RuntimeLimits,
+): { path: (keyof RuntimeLimits)[]; message: string }[] {
   const out: { path: (keyof RuntimeLimits)[]; message: string }[] = [];
   const le = (a: keyof RuntimeLimits, b: keyof RuntimeLimits): void => {
-    if (l[a] > l[b]) out.push({ path: [a, b], message: `${a} must be <= ${b}` });
+    if (l[a] > l[b])
+      out.push({ path: [a, b], message: `${a} must be <= ${b}` });
   };
   le('poll_initial_ms', 'poll_max_ms');
   le('poll_max_ms', 'observation_max_ms');
@@ -91,19 +94,32 @@ export function runtimeLimitIssues(l: RuntimeLimits): { path: (keyof RuntimeLimi
   le('review_diff_bytes', 'context_bytes');
   le('observation_round_ms', 'observation_max_ms');
   const stop = l.term_grace_ms + l.kill_verify_ms;
-  if (stop > l.drain_max_ms) out.push({ path: ['term_grace_ms', 'kill_verify_ms', 'drain_max_ms'], message: 'term_grace_ms + kill_verify_ms must be <= drain_max_ms' });
-  if (stop > l.recheck_max_ms) out.push({ path: ['term_grace_ms', 'kill_verify_ms', 'recheck_max_ms'], message: 'term_grace_ms + kill_verify_ms must be <= recheck_max_ms' });
+  if (stop > l.drain_max_ms)
+    out.push({
+      path: ['term_grace_ms', 'kill_verify_ms', 'drain_max_ms'],
+      message: 'term_grace_ms + kill_verify_ms must be <= drain_max_ms',
+    });
+  if (stop > l.recheck_max_ms)
+    out.push({
+      path: ['term_grace_ms', 'kill_verify_ms', 'recheck_max_ms'],
+      message: 'term_grace_ms + kill_verify_ms must be <= recheck_max_ms',
+    });
   return out;
 }
 
-export const HARNESS_INNER_MODES = ['internal_required', 'allow_external_verified'] as const;
+export const HARNESS_INNER_MODES = [
+  'internal_required',
+  'allow_external_verified',
+] as const;
 export type HarnessInnerModePolicy = (typeof HARNESS_INNER_MODES)[number];
 
 /** Inner sandbox actually selected for an attempt; the outer Isolated boundary is always on (ADR-0004). */
 export const SELECTED_INNER_MODES = ['native', 'external_verified'] as const;
 export type SelectedInnerMode = (typeof SELECTED_INNER_MODES)[number];
 
-export const CredentialRefSchema = z.object({ name: z.string().min(1), file: z.string().startsWith('/') }).strict();
+export const CredentialRefSchema = z
+  .object({ name: z.string().min(1), file: z.string().startsWith('/') })
+  .strict();
 export type CredentialRef = z.infer<typeof CredentialRefSchema>;
 
 /**
@@ -118,7 +134,9 @@ export const FrozenRuntimeContextSchema = z
     base_sha: z.string().min(1),
     completion_mode: z.literal('external_confirmation'),
     network_mode: z.literal('internet_outbound'),
-    isolation: z.object({ mode: z.literal('isolated'), provider: z.literal('bwrap') }).strict(),
+    isolation: z
+      .object({ mode: z.literal('isolated'), provider: z.literal('bwrap') })
+      .strict(),
     project_path: z.string().startsWith('/'),
     target: z
       .object({
@@ -144,7 +162,9 @@ export const FrozenRuntimeContextSchema = z
 export type FrozenRuntimeContext = z.infer<typeof FrozenRuntimeContextSchema>;
 
 /** `runtime_hash` covers every other field of the snapshot. */
-export function computeRuntimeHash(rt: Omit<FrozenRuntimeContext, 'runtime_hash'>): Hash {
+export function computeRuntimeHash(
+  rt: Omit<FrozenRuntimeContext, 'runtime_hash'>,
+): Hash {
   const { runtime_hash: _ignored, ...rest } = rt as FrozenRuntimeContext;
   return hashCanonical(rest);
 }
@@ -200,15 +220,40 @@ export const ExecutionSlotSchema = z
   .strict();
 export type ExecutionSlot = z.infer<typeof ExecutionSlotSchema>;
 
-export const OPERATION_KINDS = ['agent', 'setup', 'gate', 'autofix', 'publish', 'git', 'github'] as const;
+export const OPERATION_KINDS = [
+  'agent',
+  'setup',
+  'gate',
+  'autofix',
+  'publish',
+  'git',
+  'github',
+] as const;
 export type OperationKind = (typeof OPERATION_KINDS)[number];
 
 /** `registered`/`running` and `unknown`/`lost` are unresolved: they keep the slot and the reservation. */
-export const OPERATION_STATUSES = ['registered', 'running', 'finished', 'not_launched', 'unknown', 'lost'] as const;
+export const OPERATION_STATUSES = [
+  'registered',
+  'running',
+  'finished',
+  'not_launched',
+  'unknown',
+  'lost',
+] as const;
 export type OperationStatus = (typeof OPERATION_STATUSES)[number];
-export const RESOLVED_OPERATION_STATUSES: readonly OperationStatus[] = ['finished', 'not_launched'];
+export const RESOLVED_OPERATION_STATUSES: readonly OperationStatus[] = [
+  'finished',
+  'not_launched',
+];
 
-export const OPERATION_OUTCOMES = ['succeeded', 'failed', 'cancelled', 'timeout', 'backpressure', 'invalid_output'] as const;
+export const OPERATION_OUTCOMES = [
+  'succeeded',
+  'failed',
+  'cancelled',
+  'timeout',
+  'backpressure',
+  'invalid_output',
+] as const;
 export type OperationOutcome = (typeof OPERATION_OUTCOMES)[number];
 
 /** A process identity is never a bare PID (execution contract "Operation và runner ownership"). */
@@ -223,7 +268,11 @@ export const ProcessIdentitySchema = z
 export type ProcessIdentity = z.infer<typeof ProcessIdentitySchema>;
 
 export const SupervisorIdentitySchema = z
-  .object({ unit: z.string().min(1), invocation_id: z.string().min(1).nullable(), cgroup: z.string().min(1).nullable() })
+  .object({
+    unit: z.string().min(1),
+    invocation_id: z.string().min(1).nullable(),
+    cgroup: z.string().min(1).nullable(),
+  })
   .strict();
 
 export const OperationReceiptSchema = z
@@ -259,14 +308,29 @@ export const IngestCursorSchema = z
 export type IngestCursor = z.infer<typeof IngestCursorSchema>;
 
 /** Cursors only move forward: compare (generation, segment, byte_offset) lexicographically. */
-export function cursorAfter(next: Omit<IngestCursor, 'acked_at'>, prev: Omit<IngestCursor, 'acked_at'> | null): boolean {
+export function cursorAfter(
+  next: Omit<IngestCursor, 'acked_at'>,
+  prev: Omit<IngestCursor, 'acked_at'> | null,
+): boolean {
   if (prev === null) return true;
-  if (next.generation !== prev.generation) return next.generation > prev.generation;
+  if (next.generation !== prev.generation)
+    return next.generation > prev.generation;
   if (next.segment !== prev.segment) return next.segment > prev.segment;
-  return next.byte_offset > prev.byte_offset && next.last_record_seq >= prev.last_record_seq;
+  return (
+    next.byte_offset > prev.byte_offset &&
+    next.last_record_seq >= prev.last_record_seq
+  );
 }
 
-export const ARTIFACT_KINDS = ['events', 'stderr', 'result', 'exit', 'diff', 'gate_log', 'evidence'] as const;
+export const ARTIFACT_KINDS = [
+  'events',
+  'stderr',
+  'result',
+  'exit',
+  'diff',
+  'gate_log',
+  'evidence',
+] as const;
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
 
 /** Relative path under the runtime root; never absolute, never `..`, never empty segments. */
@@ -274,9 +338,15 @@ export const RelativePathSchema = z
   .string()
   .min(1)
   .max(1024)
-  .refine((p) => !p.startsWith('/') && p.split('/').every((s) => s !== '' && s !== '.' && s !== '..') && !p.includes('\0'), {
-    message: 'relative path must stay inside the artifact root',
-  });
+  .refine(
+    (p) =>
+      !p.startsWith('/') &&
+      p.split('/').every((s) => s !== '' && s !== '.' && s !== '..') &&
+      !p.includes('\0'),
+    {
+      message: 'relative path must stay inside the artifact root',
+    },
+  );
 
 export const ArtifactSchema = z
   .object({
@@ -303,7 +373,13 @@ export const CapabilityManifestSchema = z
   .object({
     schema_version: z.literal(RUNTIME_SCHEMA_VERSION),
     vendor: z.string().min(1),
-    binary: z.object({ realpath: z.string().startsWith('/'), version: z.string().min(1), digest: HashSchema }).strict(),
+    binary: z
+      .object({
+        realpath: z.string().startsWith('/'),
+        version: z.string().min(1),
+        digest: HashSchema,
+      })
+      .strict(),
     role_schemas: z.record(z.string(), HashSchema),
     isolation_mode: z.literal('isolated'),
     provider: z.literal('bwrap'),
@@ -312,7 +388,12 @@ export const CapabilityManifestSchema = z
         structured_output: z.enum(['proven', 'unknown', 'unsupported']),
         permission_enforced: z.enum(['proven', 'unknown', 'unsupported']),
         private_home_auth: z.enum(['proven', 'unknown', 'unsupported']),
-        cost_reporting: z.enum(['reported', 'estimated', 'unavailable', 'unknown']),
+        cost_reporting: z.enum([
+          'reported',
+          'estimated',
+          'unavailable',
+          'unknown',
+        ]),
         resume: z.enum(['proven', 'unknown', 'unsupported']),
       })
       .strict(),
@@ -329,8 +410,18 @@ export const CapabilityManifestSchema = z
   })
   .strict()
   .superRefine((m, ctx) => {
-    if (m.selected_inner_mode === 'external_verified' && (m.native_result !== 'failed' || m.outer_proof_hash === null || m.permission_policy_hash === null)) {
-      ctx.addIssue({ code: 'custom', path: ['selected_inner_mode'], message: 'external_verified needs a recorded native failure plus outer and permission proofs' });
+    if (
+      m.selected_inner_mode === 'external_verified' &&
+      (m.native_result !== 'failed' ||
+        m.outer_proof_hash === null ||
+        m.permission_policy_hash === null)
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['selected_inner_mode'],
+        message:
+          'external_verified needs a recorded native failure plus outer and permission proofs',
+      });
     }
   });
 export type CapabilityManifest = z.infer<typeof CapabilityManifestSchema>;
@@ -348,8 +439,18 @@ export const ExternalSubjectSchema = z
   .strict();
 export type ExternalSubject = z.infer<typeof ExternalSubjectSchema>;
 
-export const OBSERVATION_SOURCES = ['timer', 'recheck', 'recovery', 'cancel'] as const;
-export const SUBJECT_STATUSES = ['open', 'closed', 'merged', 'unknown'] as const;
+export const OBSERVATION_SOURCES = [
+  'timer',
+  'recheck',
+  'recovery',
+  'cancel',
+] as const;
+export const SUBJECT_STATUSES = [
+  'open',
+  'closed',
+  'merged',
+  'unknown',
+] as const;
 
 export const ObservationSchema = z
   .object({
@@ -362,7 +463,9 @@ export const ObservationSchema = z
     status: z.enum(SUBJECT_STATUSES),
     observed_head: z.string().min(1).nullable(),
     raw_evidence_ref: z.string().min(1),
-    completeness: z.object({ merge_proof: z.boolean(), quality: z.boolean() }).strict(),
+    completeness: z
+      .object({ merge_proof: z.boolean(), quality: z.boolean() })
+      .strict(),
   })
   .strict();
 export type Observation = z.infer<typeof ObservationSchema>;
@@ -381,7 +484,12 @@ export const MergeProofSchema = z
 export type MergeProof = z.infer<typeof MergeProofSchema>;
 
 /** `classic` is branch protection; ruleset enforcements as GitHub reports them. Only classic/active bind. */
-export const CHECK_ENFORCEMENTS = ['classic', 'active', 'evaluate', 'disabled'] as const;
+export const CHECK_ENFORCEMENTS = [
+  'classic',
+  'active',
+  'evaluate',
+  'disabled',
+] as const;
 export type CheckEnforcement = (typeof CHECK_ENFORCEMENTS)[number];
 
 /**
@@ -411,7 +519,12 @@ export function binds(i: RequiredIdentity): boolean {
 export const RequiredProvenanceSchema = z
   .object({
     branch_protected: z.boolean(),
-    classic: z.enum(['read', 'read_no_status_checks', 'not_protected', 'unprotected_branch']),
+    classic: z.enum([
+      'read',
+      'read_no_status_checks',
+      'not_protected',
+      'unprotected_branch',
+    ]),
     ruleset_ids: z.array(PositiveInt),
   })
   .strict();
@@ -426,15 +539,43 @@ const RequiredBase = { observed_at: NonNegInt, basis: z.string().min(1) };
  */
 export const RequiredEvidenceSchema = z
   .discriminatedUnion('kind', [
-    z.object({ kind: z.literal('known'), identities: z.array(RequiredIdentitySchema), provenance: RequiredProvenanceSchema, ...RequiredBase }).strict(),
-    z.object({ kind: z.literal('none'), identities: z.array(RequiredIdentitySchema), provenance: RequiredProvenanceSchema, ...RequiredBase }).strict(),
-    z.object({ kind: z.literal('unknown'), partial: z.array(RequiredIdentitySchema), ...RequiredBase }).strict(),
+    z
+      .object({
+        kind: z.literal('known'),
+        identities: z.array(RequiredIdentitySchema),
+        provenance: RequiredProvenanceSchema,
+        ...RequiredBase,
+      })
+      .strict(),
+    z
+      .object({
+        kind: z.literal('none'),
+        identities: z.array(RequiredIdentitySchema),
+        provenance: RequiredProvenanceSchema,
+        ...RequiredBase,
+      })
+      .strict(),
+    z
+      .object({
+        kind: z.literal('unknown'),
+        partial: z.array(RequiredIdentitySchema),
+        ...RequiredBase,
+      })
+      .strict(),
   ])
   .superRefine((e, ctx) => {
     if (e.kind === 'unknown') return;
     const binding = e.identities.filter(binds).length;
-    if (e.kind === 'known' && binding === 0) ctx.addIssue({ code: 'custom', message: 'known requires a binding identity' });
-    if (e.kind === 'none' && binding > 0) ctx.addIssue({ code: 'custom', message: 'none cannot carry a binding identity' });
+    if (e.kind === 'known' && binding === 0)
+      ctx.addIssue({
+        code: 'custom',
+        message: 'known requires a binding identity',
+      });
+    if (e.kind === 'none' && binding > 0)
+      ctx.addIssue({
+        code: 'custom',
+        message: 'none cannot carry a binding identity',
+      });
   });
 export type RequiredEvidence = z.infer<typeof RequiredEvidenceSchema>;
 

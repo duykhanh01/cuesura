@@ -1,9 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { packageVersion, runCli, type CliSpec } from '../../../src/cli/program.ts';
+import {
+  packageVersion,
+  runCli,
+  type CliSpec,
+} from '../../../src/cli/program.ts';
 
-const spec: CliSpec = { name: 'cusr', description: 'test binary', version: '1.2.3' };
+const spec: CliSpec = {
+  name: 'cusr',
+  description: 'test binary',
+  version: '1.2.3',
+};
 
-async function run(argv: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+async function run(
+  argv: string[],
+): Promise<{ code: number; stdout: string; stderr: string }> {
   let stdout = '';
   let stderr = '';
   const code = await runCli(spec, argv, {
@@ -19,7 +29,11 @@ async function run(argv: string[]): Promise<{ code: number; stdout: string; stde
 
 describe('runCli', () => {
   it('prints the version and exits 0', async () => {
-    expect(await run(['--version'])).toEqual({ code: 0, stdout: '1.2.3\n', stderr: '' });
+    expect(await run(['--version'])).toEqual({
+      code: 0,
+      stdout: '1.2.3\n',
+      stderr: '',
+    });
     expect((await run(['-V'])).stdout).toBe('1.2.3\n');
   });
 
@@ -82,7 +96,9 @@ describe('runCli', () => {
 
 describe('packageVersion', () => {
   it('reads the version from package.json', async () => {
-    const { default: pkg } = await import('../../../package.json', { with: { type: 'json' } });
+    const { default: pkg } = await import('../../../package.json', {
+      with: { type: 'json' },
+    });
     expect(packageVersion()).toBe(pkg.version);
   });
 });

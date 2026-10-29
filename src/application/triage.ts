@@ -4,10 +4,22 @@
  * version and task conditions when the fact is accepted, so a stale view becomes a conflict.
  */
 import type { AuthzContext } from '../domain/policy.ts';
-import { computeRequestHash, TRIGGER_SCHEMA_VERSION, type FreezeError, type Trigger, type TriggerEnvelope } from '../domain/trigger.ts';
+import {
+  computeRequestHash,
+  TRIGGER_SCHEMA_VERSION,
+  type FreezeError,
+  type Trigger,
+  type TriggerEnvelope,
+} from '../domain/trigger.ts';
 import type { AcceptError, AcceptOutcome, Store } from '../store/index.ts';
 import type { Result } from '../shared/result.ts';
-import { preflight, type PreflightCandidate, type PreflightError, type PreflightInput, type PreflightPorts } from './preflight.ts';
+import {
+  preflight,
+  type PreflightCandidate,
+  type PreflightError,
+  type PreflightInput,
+  type PreflightPorts,
+} from './preflight.ts';
 
 export type EnvelopeInput = {
   readonly task_id: string;
@@ -23,7 +35,9 @@ export function envelope(e: EnvelopeInput): TriggerEnvelope {
   const base = {
     task_id: e.task_id,
     trigger: e.trigger,
-    ...(e.expected_version === undefined ? {} : { expected_version: e.expected_version }),
+    ...(e.expected_version === undefined
+      ? {}
+      : { expected_version: e.expected_version }),
     ...(e.authz === undefined ? {} : { authz: e.authz }),
   };
   return {
@@ -36,14 +50,24 @@ export function envelope(e: EnvelopeInput): TriggerEnvelope {
   } as TriggerEnvelope;
 }
 
-export function submit(store: Store, e: EnvelopeInput): Result<AcceptOutcome, AcceptError> {
+export function submit(
+  store: Store,
+  e: EnvelopeInput,
+): Result<AcceptOutcome, AcceptError> {
   return store.accept(envelope(e));
 }
 
 /** The freeze error recorded on the task for a failed preflight; problems keep check/cause/fix/runbook. */
-export function preflightFreezeError(e: Extract<PreflightError, { problems: unknown }>): FreezeError {
-  if (e.code === 'capability_missing') return { code: 'capability_missing', problems: [...e.problems] };
-  return { code: 'config_invalid', diagnostics: e.problems.flatMap((p) => p.diagnostics), problems: [...e.problems] };
+export function preflightFreezeError(
+  e: Extract<PreflightError, { problems: unknown }>,
+): FreezeError {
+  if (e.code === 'capability_missing')
+    return { code: 'capability_missing', problems: [...e.problems] };
+  return {
+    code: 'config_invalid',
+    diagnostics: e.problems.flatMap((p) => p.diagnostics),
+    problems: [...e.problems],
+  };
 }
 
 export type ConfigCheck =
@@ -52,9 +76,13 @@ export type ConfigCheck =
   | { readonly kind: 'infra'; readonly check: string; readonly detail: string };
 
 /** Runs preflight once for this request; the result is a candidate, never a snapshot (FR-002.03). */
-export async function checkConfig(ports: PreflightPorts, input: PreflightInput): Promise<ConfigCheck> {
+export async function checkConfig(
+  ports: PreflightPorts,
+  input: PreflightInput,
+): Promise<ConfigCheck> {
   const r = await preflight(ports, input);
   if (r.ok) return { kind: 'ok', candidate: r.value };
-  if (r.error.code === 'infra_unavailable') return { kind: 'infra', check: r.error.check, detail: r.error.detail };
+  if (r.error.code === 'infra_unavailable')
+    return { kind: 'infra', check: r.error.check, detail: r.error.detail };
   return { kind: 'failed', error: preflightFreezeError(r.error) };
 }

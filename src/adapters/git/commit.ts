@@ -6,7 +6,14 @@
  * finds the same OID instead of making a second commit. The ref moves by compare-and-swap from the
  * parent; a ref that is neither the parent nor the expected OID is reported, never reset.
  */
-import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, writeSync } from 'node:fs';
+import {
+  closeSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  writeSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import type { GitPort, GitResult } from '../ports.ts';
@@ -14,7 +21,13 @@ import type { GitPort, GitResult } from '../ports.ts';
 const GIT_TIMEOUT_MS = 30_000;
 const Oid = z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/);
 
-const Identity = z.object({ name: z.string().min(1).max(256), email: z.string().min(3).max(256), at: z.number().int().nonnegative() }).strict();
+const Identity = z
+  .object({
+    name: z.string().min(1).max(256),
+    email: z.string().min(3).max(256),
+    at: z.number().int().nonnegative(),
+  })
+  .strict();
 
 export const CommitIntentSchema = z
   .object({
@@ -26,7 +39,10 @@ export const CommitIntentSchema = z
     parent: Oid,
     author: Identity,
     committer: Identity,
-    message: z.string().min(1).max(64 * 1024),
+    message: z
+      .string()
+      .min(1)
+      .max(64 * 1024),
     oid: Oid,
   })
   .strict();
@@ -47,7 +63,9 @@ export class FileCommitIntentStore implements CommitIntentStore {
   }
   load(key: string): CommitIntent | null {
     try {
-      return CommitIntentSchema.parse(JSON.parse(readFileSync(join(this.#dir, `${key}.json`), 'utf8')));
+      return CommitIntentSchema.parse(
+        JSON.parse(readFileSync(join(this.#dir, `${key}.json`), 'utf8')),
+      );
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
       throw e;
@@ -82,18 +100,44 @@ export type CommitOutcome =
   /** The branch now points at the intent's OID (`recovered`: it already did). */
   | { readonly kind: 'committed' | 'recovered'; readonly intent: CommitIntent }
   /** The branch is at neither the parent nor the intended commit; nothing was moved. */
-  | { readonly kind: 'head_changed'; readonly intent: CommitIntent | null; readonly found: string | null }
+  | {
+      readonly kind: 'head_changed';
+      readonly intent: CommitIntent | null;
+      readonly found: string | null;
+    }
   /** The intent stored under this key differs from the inputs: never committed twice for one key. */
   | { readonly kind: 'intent_conflict'; readonly stored: CommitIntent }
   /** Git did not answer; the ref may or may not have moved. Probe again with the same key. */
-  | { readonly kind: 'unknown'; readonly intent: CommitIntent | null; readonly detail: string };
+  | {
+      readonly kind: 'unknown';
+      readonly intent: CommitIntent | null;
+      readonly detail: string;
+    };
 
 class Unknown extends Error {}
 
-async function git(port: GitPort, cwd: string, args: readonly string[], opts: { stdin?: string; env?: Record<string, string> } = {}): Promise<Extract<GitResult, { kind: 'exited' }>> {
-  const r = await port.run({ args, cwd, timeout_ms: GIT_TIMEOUT_MS, max_output_bytes: 64 * 1024, stdin: opts.stdin ?? null, ...(opts.env === undefined ? {} : { env: opts.env }) });
+async function git(
+  port: GitPort,
+  cwd: string,
+  args: readonly string[],
+  opts: { stdin?: string; env?: Record<string, string> } = {},
+): Promise<Extract<GitResult, { kind: 'exited' }>> {
+  const r = await port.run({
+    args,
+    cwd,
+    timeout_ms: GIT_TIMEOUT_MS,
+    max_output_bytes: 64 * 1024,
+    stdin: opts.stdin ?? null,
+    ...(opts.env === undefined ? {} : { env: opts.env }),
+  });
   if (r.kind === 'exited') return r;
-  throw new Unknown(r.kind === 'refused' ? `refused: ${r.reason}` : r.kind === 'spawn_failed' ? r.message : r.kind);
+  throw new Unknown(
+    r.kind === 'refused'
+      ? `refused: ${r.reason}`
+      : r.kind === 'spawn_failed'
+        ? r.message
+        : r.kind,
+  );
 }
 
 const gitDate = (ms: number): string => `@${Math.floor(ms / 1000)} +0000`;
@@ -109,33 +153,67 @@ function commitEnv(i: CommitInput): Record<string, string> {
   };
 }
 
-async function branchOid(port: GitPort, cwd: string, branch: string): Promise<string | null> {
-  const r = await git(port, cwd, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}^{commit}`]);
+async function branchOid(
+  port: GitPort,
+  cwd: string,
+  branch: string,
+): Promise<string | null> {
+  const r = await git(port, cwd, [
+    'rev-parse',
+    '--verify',
+    '--quiet',
+    `refs/heads/${branch}^{commit}`,
+  ]);
   return r.code === 0 ? r.stdout.trim() : null;
 }
 
 /** Writes the commit object for `i` (no ref change) and returns its OID; same input → same OID. */
 async function writeCommit(port: GitPort, i: CommitInput): Promise<string> {
-  const r = await git(port, i.worktree_path, ['commit-tree', i.tree, '-p', i.parent, '-F', '-'], { stdin: i.message, env: commitEnv(i) });
-  if (r.code !== 0) throw new Unknown(`commit-tree failed: ${r.stderr.trim().slice(0, 512)}`);
+  const r = await git(
+    port,
+    i.worktree_path,
+    ['commit-tree', i.tree, '-p', i.parent, '-F', '-'],
+    { stdin: i.message, env: commitEnv(i) },
+  );
+  if (r.code !== 0)
+    throw new Unknown(`commit-tree failed: ${r.stderr.trim().slice(0, 512)}`);
   return r.stdout.trim();
 }
 
 const sameInput = (a: CommitIntent, b: CommitInput): boolean =>
-  a.worktree_path === b.worktree_path && a.branch === b.branch && a.tree === b.tree && a.parent === b.parent && a.message === b.message && JSON.stringify(a.author) === JSON.stringify(b.author) && JSON.stringify(a.committer) === JSON.stringify(b.committer);
+  a.worktree_path === b.worktree_path &&
+  a.branch === b.branch &&
+  a.tree === b.tree &&
+  a.parent === b.parent &&
+  a.message === b.message &&
+  JSON.stringify(a.author) === JSON.stringify(b.author) &&
+  JSON.stringify(a.committer) === JSON.stringify(b.committer);
 
-export async function commitCheckpoint(port: GitPort, store: CommitIntentStore, input: CommitInput): Promise<CommitOutcome> {
+export async function commitCheckpoint(
+  port: GitPort,
+  store: CommitIntentStore,
+  input: CommitInput,
+): Promise<CommitOutcome> {
   let intent: CommitIntent | null = store.load(input.key);
   try {
-    if (intent !== null && !sameInput(intent, input)) return { kind: 'intent_conflict', stored: intent };
+    if (intent !== null && !sameInput(intent, input))
+      return { kind: 'intent_conflict', stored: intent };
     if (intent === null) {
       const current = await branchOid(port, input.worktree_path, input.branch);
-      if (current !== input.parent) return { kind: 'head_changed', intent: null, found: current };
+      if (current !== input.parent)
+        return { kind: 'head_changed', intent: null, found: current };
       const oid = await writeCommit(port, input);
-      const candidate = CommitIntentSchema.parse({ schema_version: 1, ...input, oid });
+      const candidate = CommitIntentSchema.parse({
+        schema_version: 1,
+        ...input,
+        oid,
+      });
       if (store.create(candidate) === 'exists') {
         const stored = store.load(input.key);
-        if (stored === null || !sameInput(stored, input)) return stored === null ? { kind: 'unknown', intent: null, detail: 'intent vanished' } : { kind: 'intent_conflict', stored };
+        if (stored === null || !sameInput(stored, input))
+          return stored === null
+            ? { kind: 'unknown', intent: null, detail: 'intent vanished' }
+            : { kind: 'intent_conflict', stored };
         intent = stored;
       } else {
         intent = candidate;
@@ -143,35 +221,71 @@ export async function commitCheckpoint(port: GitPort, store: CommitIntentStore, 
     }
     return await applyIntent(port, intent);
   } catch (e) {
-    if (e instanceof Unknown) return { kind: 'unknown', intent, detail: e.message };
+    if (e instanceof Unknown)
+      return { kind: 'unknown', intent, detail: e.message };
     throw e;
   }
 }
 
 /** Moves the branch to the intent's OID by CAS from its parent, or recognizes that it already did. */
-async function applyIntent(port: GitPort, intent: CommitIntent): Promise<CommitOutcome> {
+async function applyIntent(
+  port: GitPort,
+  intent: CommitIntent,
+): Promise<CommitOutcome> {
   const current = await branchOid(port, intent.worktree_path, intent.branch);
   if (current === intent.oid) return { kind: 'recovered', intent };
-  if (current !== intent.parent) return { kind: 'head_changed', intent, found: current };
+  if (current !== intent.parent)
+    return { kind: 'head_changed', intent, found: current };
   // The object may be missing if a crash hit between intent and gc; re-create it, it must match.
   const oid = await writeCommit(port, intent);
-  if (oid !== intent.oid) return { kind: 'unknown', intent, detail: `commit ${oid} differs from intended ${intent.oid}` };
-  const r = await port.run({ args: ['update-ref', `refs/heads/${intent.branch}`, intent.oid, intent.parent], cwd: intent.worktree_path, timeout_ms: GIT_TIMEOUT_MS, max_output_bytes: 64 * 1024, stdin: null });
+  if (oid !== intent.oid)
+    return {
+      kind: 'unknown',
+      intent,
+      detail: `commit ${oid} differs from intended ${intent.oid}`,
+    };
+  const r = await port.run({
+    args: [
+      'update-ref',
+      `refs/heads/${intent.branch}`,
+      intent.oid,
+      intent.parent,
+    ],
+    cwd: intent.worktree_path,
+    timeout_ms: GIT_TIMEOUT_MS,
+    max_output_bytes: 64 * 1024,
+    stdin: null,
+  });
   if (r.kind === 'exited' && r.code === 0) return { kind: 'committed', intent };
   // Timeout, refusal or a lost CAS race: only the ref itself says what happened.
   const after = await branchOid(port, intent.worktree_path, intent.branch);
   if (after === intent.oid) return { kind: 'committed', intent };
-  if (after === intent.parent) return { kind: 'unknown', intent, detail: r.kind === 'exited' ? r.stderr.trim().slice(0, 512) : r.kind };
+  if (after === intent.parent)
+    return {
+      kind: 'unknown',
+      intent,
+      detail: r.kind === 'exited' ? r.stderr.trim().slice(0, 512) : r.kind,
+    };
   return { kind: 'head_changed', intent, found: after };
 }
 
 /** Probe only: whether the branch carries the intent stored under `key`, without changing anything. */
-export async function probeCommit(port: GitPort, store: CommitIntentStore, key: string): Promise<'committed' | 'not_applied' | 'head_changed' | 'no_intent' | 'unknown'> {
+export async function probeCommit(
+  port: GitPort,
+  store: CommitIntentStore,
+  key: string,
+): Promise<
+  'committed' | 'not_applied' | 'head_changed' | 'no_intent' | 'unknown'
+> {
   const intent = store.load(key);
   if (intent === null) return 'no_intent';
   try {
     const current = await branchOid(port, intent.worktree_path, intent.branch);
-    return current === intent.oid ? 'committed' : current === intent.parent ? 'not_applied' : 'head_changed';
+    return current === intent.oid
+      ? 'committed'
+      : current === intent.parent
+        ? 'not_applied'
+        : 'head_changed';
   } catch (e) {
     if (e instanceof Unknown) return 'unknown';
     throw e;

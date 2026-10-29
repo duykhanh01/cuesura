@@ -8,7 +8,14 @@
  * base ancestry must all agree. Anything else is reported as a mismatch and left as found: nothing here
  * removes, resets or force-moves a worktree, a branch or the original repo.
  */
-import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, writeSync } from 'node:fs';
+import {
+  closeSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  writeSync,
+} from 'node:fs';
 import { dirname, join } from 'node:path';
 import { z } from 'zod';
 import type { GitPort, GitResult } from '../ports.ts';
@@ -53,8 +60,18 @@ export type WorktreeMismatch =
   | 'common_dir_mismatch';
 
 export type WorktreeOutcome =
-  | { readonly kind: 'created' | 'adopted'; readonly worktree_path: string; readonly branch: string; readonly head: string; readonly marker: OwnerMarker }
-  | { readonly kind: 'mismatch'; readonly reason: WorktreeMismatch; readonly detail: string }
+  | {
+      readonly kind: 'created' | 'adopted';
+      readonly worktree_path: string;
+      readonly branch: string;
+      readonly head: string;
+      readonly marker: OwnerMarker;
+    }
+  | {
+      readonly kind: 'mismatch';
+      readonly reason: WorktreeMismatch;
+      readonly detail: string;
+    }
   /** Git did not answer (timeout, spawn, refused): nothing is known, nothing was changed after the marker. */
   | { readonly kind: 'unknown'; readonly detail: string };
 
@@ -75,7 +92,10 @@ export function markerPath(markersDir: string, taskId: string): string {
   return join(markersDir, `${taskId}.json`);
 }
 
-export function readMarker(markersDir: string, taskId: string): OwnerMarker | 'corrupt' | null {
+export function readMarker(
+  markersDir: string,
+  taskId: string,
+): OwnerMarker | 'corrupt' | null {
   let text: string;
   try {
     text = readFileSync(markerPath(markersDir, taskId), 'utf8');
@@ -119,18 +139,38 @@ function createMarker(markersDir: string, m: OwnerMarker): boolean {
 
 class GitUnknown extends Error {}
 
-async function git(port: GitPort, cwd: string, args: readonly string[]): Promise<Extract<GitResult, { kind: 'exited' }>> {
-  const r = await port.run({ args, cwd, timeout_ms: GIT_TIMEOUT_MS, max_output_bytes: GIT_OUTPUT_BYTES, stdin: null });
+async function git(
+  port: GitPort,
+  cwd: string,
+  args: readonly string[],
+): Promise<Extract<GitResult, { kind: 'exited' }>> {
+  const r = await port.run({
+    args,
+    cwd,
+    timeout_ms: GIT_TIMEOUT_MS,
+    max_output_bytes: GIT_OUTPUT_BYTES,
+    stdin: null,
+  });
   if (r.kind === 'exited') return r;
-  throw new GitUnknown(r.kind === 'refused' ? `refused: ${r.reason}` : r.kind === 'spawn_failed' ? r.message : r.kind);
+  throw new GitUnknown(
+    r.kind === 'refused'
+      ? `refused: ${r.reason}`
+      : r.kind === 'spawn_failed'
+        ? r.message
+        : r.kind,
+  );
 }
 
 type Registered = { path: string; head: string | null; branch: string | null };
 
 /** `git worktree list --porcelain` of the project. */
-export async function listWorktrees(port: GitPort, project: string): Promise<Registered[]> {
+export async function listWorktrees(
+  port: GitPort,
+  project: string,
+): Promise<Registered[]> {
   const r = await git(port, project, ['worktree', 'list', '--porcelain']);
-  if (r.code !== 0) throw new GitUnknown(`worktree list failed: ${r.stderr.trim()}`);
+  if (r.code !== 0)
+    throw new GitUnknown(`worktree list failed: ${r.stderr.trim()}`);
   const out: Registered[] = [];
   for (const block of r.stdout.split('\n\n')) {
     const lines = block.split('\n');
@@ -145,8 +185,17 @@ export async function listWorktrees(port: GitPort, project: string): Promise<Reg
   return out;
 }
 
-async function refOid(port: GitPort, cwd: string, ref: string): Promise<string | null> {
-  const r = await git(port, cwd, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
+async function refOid(
+  port: GitPort,
+  cwd: string,
+  ref: string,
+): Promise<string | null> {
+  const r = await git(port, cwd, [
+    'rev-parse',
+    '--verify',
+    '--quiet',
+    `${ref}^{commit}`,
+  ]);
   return r.code === 0 ? r.stdout.trim() : null;
 }
 
@@ -154,7 +203,10 @@ async function refOid(port: GitPort, cwd: string, ref: string): Promise<string |
  * Creates the task worktree from the frozen base, or adopts the one this task created before. Never
  * removes or resets anything; a mismatch is returned for the engine to wait on.
  */
-export async function ensureWorktree(port: GitPort, spec: WorktreeSpec): Promise<WorktreeOutcome> {
+export async function ensureWorktree(
+  port: GitPort,
+  spec: WorktreeSpec,
+): Promise<WorktreeOutcome> {
   try {
     return await ensure(port, spec);
   } catch (e) {
@@ -163,7 +215,10 @@ export async function ensureWorktree(port: GitPort, spec: WorktreeSpec): Promise
   }
 }
 
-async function ensure(port: GitPort, spec: WorktreeSpec): Promise<WorktreeOutcome> {
+async function ensure(
+  port: GitPort,
+  spec: WorktreeSpec,
+): Promise<WorktreeOutcome> {
   const branch = taskBranch(spec.task_id, spec.title);
   const path = join(spec.worktrees_root, spec.task_id);
   const project = spec.project_realpath;
@@ -179,39 +234,116 @@ async function ensure(port: GitPort, spec: WorktreeSpec): Promise<WorktreeOutcom
   };
 
   const existing = readMarker(spec.markers_dir, spec.task_id);
-  if (existing === 'corrupt') return { kind: 'mismatch', reason: 'marker_conflict', detail: 'owner marker is unreadable' };
+  if (existing === 'corrupt')
+    return {
+      kind: 'mismatch',
+      reason: 'marker_conflict',
+      detail: 'owner marker is unreadable',
+    };
   const marker = existing ?? wanted;
-  if (existing !== null && (existing.project_realpath !== project || existing.worktree_path !== path || existing.branch !== branch)) {
-    return { kind: 'mismatch', reason: 'marker_conflict', detail: `marker records ${existing.branch} at ${existing.worktree_path}` };
+  if (
+    existing !== null &&
+    (existing.project_realpath !== project ||
+      existing.worktree_path !== path ||
+      existing.branch !== branch)
+  ) {
+    return {
+      kind: 'mismatch',
+      reason: 'marker_conflict',
+      detail: `marker records ${existing.branch} at ${existing.worktree_path}`,
+    };
   }
   if (existing !== null && existing.common_git_dir !== spec.common_git_dir) {
-    return { kind: 'mismatch', reason: 'common_dir_mismatch', detail: `marker records ${existing.common_git_dir}` };
+    return {
+      kind: 'mismatch',
+      reason: 'common_dir_mismatch',
+      detail: `marker records ${existing.common_git_dir}`,
+    };
   }
 
-  const registered = (await listWorktrees(port, project)).find((w) => w.path === path) ?? null;
+  const registered =
+    (await listWorktrees(port, project)).find((w) => w.path === path) ?? null;
   const branchOid = await refOid(port, project, `refs/heads/${branch}`);
 
   if (registered === null && branchOid === null) {
     // Nothing exists yet. Without a marker, first claim ownership; with ours, resume the interrupted create.
-    if (existing === null && !createMarker(spec.markers_dir, wanted)) return { kind: 'mismatch', reason: 'marker_conflict', detail: 'marker appeared concurrently' };
-    const add = await git(port, project, ['worktree', 'add', '-b', branch, path, `${marker.base_sha}^{commit}`]);
-    if (add.code !== 0) return { kind: 'mismatch', reason: 'not_owned', detail: `worktree add failed: ${add.stderr.trim().slice(0, 512)}` };
+    if (existing === null && !createMarker(spec.markers_dir, wanted))
+      return {
+        kind: 'mismatch',
+        reason: 'marker_conflict',
+        detail: 'marker appeared concurrently',
+      };
+    const add = await git(port, project, [
+      'worktree',
+      'add',
+      '-b',
+      branch,
+      path,
+      `${marker.base_sha}^{commit}`,
+    ]);
+    if (add.code !== 0)
+      return {
+        kind: 'mismatch',
+        reason: 'not_owned',
+        detail: `worktree add failed: ${add.stderr.trim().slice(0, 512)}`,
+      };
     const head = await refOid(port, path, 'HEAD');
-    if (head !== marker.base_sha) return { kind: 'unknown', detail: `new worktree HEAD ${head ?? 'none'} is not the base` };
+    if (head !== marker.base_sha)
+      return {
+        kind: 'unknown',
+        detail: `new worktree HEAD ${head ?? 'none'} is not the base`,
+      };
     return { kind: 'created', worktree_path: path, branch, head, marker };
   }
 
   // Something exists: only this task's marker can claim it, and every fact must agree.
-  if (existing === null) return { kind: 'mismatch', reason: 'not_owned', detail: registered !== null ? `worktree ${path} exists without an owner marker` : `branch ${branch} exists without an owner marker` };
-  if (registered === null) return { kind: 'mismatch', reason: 'worktree_missing', detail: `branch ${branch} exists but worktree ${path} is not registered` };
-  if (registered.branch !== `refs/heads/${branch}`) return { kind: 'mismatch', reason: 'branch_mismatch', detail: `worktree is on ${registered.branch ?? 'a detached HEAD'}` };
-  const common = await git(port, path, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  if (existing === null)
+    return {
+      kind: 'mismatch',
+      reason: 'not_owned',
+      detail:
+        registered !== null
+          ? `worktree ${path} exists without an owner marker`
+          : `branch ${branch} exists without an owner marker`,
+    };
+  if (registered === null)
+    return {
+      kind: 'mismatch',
+      reason: 'worktree_missing',
+      detail: `branch ${branch} exists but worktree ${path} is not registered`,
+    };
+  if (registered.branch !== `refs/heads/${branch}`)
+    return {
+      kind: 'mismatch',
+      reason: 'branch_mismatch',
+      detail: `worktree is on ${registered.branch ?? 'a detached HEAD'}`,
+    };
+  const common = await git(port, path, [
+    'rev-parse',
+    '--path-format=absolute',
+    '--git-common-dir',
+  ]);
   if (common.code !== 0 || common.stdout.trim() !== spec.common_git_dir) {
-    return { kind: 'mismatch', reason: 'common_dir_mismatch', detail: common.code === 0 ? common.stdout.trim() : common.stderr.trim() };
+    return {
+      kind: 'mismatch',
+      reason: 'common_dir_mismatch',
+      detail: common.code === 0 ? common.stdout.trim() : common.stderr.trim(),
+    };
   }
   const head = await refOid(port, path, 'HEAD');
-  if (head === null) return { kind: 'unknown', detail: 'worktree HEAD does not resolve' };
-  const ancestor = await git(port, path, ['merge-base', '--is-ancestor', marker.base_sha, head]);
-  if (ancestor.code !== 0) return { kind: 'mismatch', reason: 'base_not_ancestor', detail: `${marker.base_sha} is not an ancestor of ${head}` };
+  if (head === null)
+    return { kind: 'unknown', detail: 'worktree HEAD does not resolve' };
+  const ancestor = await git(port, path, [
+    'merge-base',
+    '--is-ancestor',
+    marker.base_sha,
+    head,
+  ]);
+  if (ancestor.code !== 0)
+    return {
+      kind: 'mismatch',
+      reason: 'base_not_ancestor',
+      detail: `${marker.base_sha} is not an ancestor of ${head}`,
+    };
   return { kind: 'adopted', worktree_path: path, branch, head, marker };
 }

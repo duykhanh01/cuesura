@@ -1,4 +1,9 @@
-import { asEpochMs, asUuid, type EpochMs, type Uuid } from '../../src/shared/brand.ts';
+import {
+  asEpochMs,
+  asUuid,
+  type EpochMs,
+  type Uuid,
+} from '../../src/shared/brand.ts';
 import type { CanonicalTask } from '../../src/domain/task.ts';
 import type {
   AuthzContext,
@@ -11,10 +16,25 @@ import type {
   StepPolicy,
 } from '../../src/domain/policy.ts';
 import { isAgentStep, type Workflow } from '../../src/domain/workflow.ts';
-import { computeRequestHash, type Trigger, type TriggerEnvelope } from '../../src/domain/trigger.ts';
-import { modeGraph, modeWorkflowName, SOFTWARE_DEV, SOFTWARE_DEV_NAME } from '../../src/engine/workflows/software-dev.ts';
+import {
+  computeRequestHash,
+  type Trigger,
+  type TriggerEnvelope,
+} from '../../src/domain/trigger.ts';
+import {
+  modeGraph,
+  modeWorkflowName,
+  SOFTWARE_DEV,
+  SOFTWARE_DEV_NAME,
+} from '../../src/engine/workflows/software-dev.ts';
 import type { ExecutionMode } from '../../src/domain/run-config.ts';
-import { buildLadder, computeFloorMaps, type EscalationPolicy, type LadderStep, type ModelInfo } from '../../src/policy/ladder.ts';
+import {
+  buildLadder,
+  computeFloorMaps,
+  type EscalationPolicy,
+  type LadderStep,
+  type ModelInfo,
+} from '../../src/policy/ladder.ts';
 import { finalizeContext, finalizePolicy } from '../../src/policy/finalize.ts';
 import { structureHash } from '../../src/policy/structure-hash.ts';
 import { hashCanonical } from '../../src/shared/hash.ts';
@@ -42,13 +62,21 @@ export const T0 = asEpochMs(1_800_000_000_000);
 
 // ---------- Authz ----------
 
-export function authz(roles: AuthzRole[] = ['operate'], actor = 'owner'): AuthzContext {
+export function authz(
+  roles: AuthzRole[] = ['operate'],
+  actor = 'owner',
+): AuthzContext {
   return { actor, roles, issued_by: 'test-daemon', issued_at: T0 };
 }
 
 /** The owner's own token: the trusted channel that may confirm a run selection. */
 export function ownerAuthz(): AuthzContext {
-  return { actor: 'owner', roles: ['read', 'operate', 'admin'], issued_by: 'token:owner', issued_at: T0 };
+  return {
+    actor: 'owner',
+    roles: ['read', 'operate', 'admin'],
+    issued_by: 'token:owner',
+    issued_at: T0,
+  };
 }
 
 // ---------- Task ----------
@@ -93,13 +121,37 @@ export const MODELS: Record<string, ModelInfo> = {
   terra: { harness: 'codex', id: 'terra-1', tier: 3 },
 };
 
-export type RoleSpec = { model: string; effort?: Binding['effort']; permissions?: Binding['permissions']; ladder?: LadderStep[]; scope?: 'step' | 'task' };
+export type RoleSpec = {
+  model: string;
+  effort?: Binding['effort'];
+  permissions?: Binding['permissions'];
+  ladder?: LadderStep[];
+  scope?: 'step' | 'task';
+};
 
 export const DEFAULT_ROLES: Record<string, RoleSpec> = {
-  coder: { model: 'sonnet', effort: 'medium', ladder: [{ effort: 'high' }, { model: 'opus', effort: 'high' }] },
-  fixer: { model: 'sonnet', effort: 'medium', ladder: [{ effort: 'high' }, { model: 'opus', effort: 'high' }] },
-  reviewer: { model: 'sol', effort: 'medium', permissions: 'read_only', ladder: [{ effort: 'high' }] },
-  scout: { model: 'sol', effort: 'medium', permissions: 'read_only', ladder: [] },
+  coder: {
+    model: 'sonnet',
+    effort: 'medium',
+    ladder: [{ effort: 'high' }, { model: 'opus', effort: 'high' }],
+  },
+  fixer: {
+    model: 'sonnet',
+    effort: 'medium',
+    ladder: [{ effort: 'high' }, { model: 'opus', effort: 'high' }],
+  },
+  reviewer: {
+    model: 'sol',
+    effort: 'medium',
+    permissions: 'read_only',
+    ladder: [{ effort: 'high' }],
+  },
+  scout: {
+    model: 'sol',
+    effort: 'medium',
+    permissions: 'read_only',
+    ladder: [],
+  },
 };
 
 export const DEFAULT_LIMITS: Limits = {
@@ -108,9 +160,20 @@ export const DEFAULT_LIMITS: Limits = {
   max_wall_ms: 6 * 3_600_000,
   max_escalations: 4,
   extra_visits: {},
-  classes: { infra_retries: 3, timeout_retries: 1, invalid_output_repairs: 1, invalid_output_fresh: 1, quality_tries_per_rung: 3 },
+  classes: {
+    infra_retries: 3,
+    timeout_retries: 1,
+    invalid_output_repairs: 1,
+    invalid_output_fresh: 1,
+    quality_tries_per_rung: 3,
+  },
   backoff: {
-    rate_limit: { base_ms: 60_000, factor: 2, max_ms: 1_800_000, max_attempts: 5 },
+    rate_limit: {
+      base_ms: 60_000,
+      factor: 2,
+      max_ms: 1_800_000,
+      max_attempts: 5,
+    },
     infra: { base_ms: 5_000, factor: 2, max_ms: 300_000, max_attempts: 3 },
   },
 };
@@ -122,7 +185,10 @@ export type PolicyOptions = {
   project?: string;
   roles?: Partial<Record<string, RoleSpec>>;
   escalation?: Partial<EscalationPolicy>;
-  limits?: Partial<Omit<Limits, 'classes' | 'backoff'>> & { classes?: Partial<Limits['classes']>; backoff?: Partial<Limits['backoff']> };
+  limits?: Partial<Omit<Limits, 'classes' | 'backoff'>> & {
+    classes?: Partial<Limits['classes']>;
+    backoff?: Partial<Limits['backoff']>;
+  };
   required_checks?: string[];
   ci_rules?: CiRule[];
   workflow?: Workflow;
@@ -141,10 +207,18 @@ export const DEFAULT_CI_RULES: CiRule[] = [
 ];
 
 export function buildPolicy(o: PolicyOptions = {}): FrozenPolicy {
-  const workflow = o.mode === undefined ? (o.workflow ?? SOFTWARE_DEV) : modeGraph(o.workflow ?? SOFTWARE_DEV, o.mode);
+  const workflow =
+    o.mode === undefined
+      ? (o.workflow ?? SOFTWARE_DEV)
+      : modeGraph(o.workflow ?? SOFTWARE_DEV, o.mode);
   const roles: Record<string, RoleSpec> = { ...DEFAULT_ROLES };
   for (const [k, v] of Object.entries(o.roles ?? {})) if (v) roles[k] = v;
-  const esc: EscalationPolicy = { auto_up_to_tier: 2, above: 'ask_human', allow_models: null, ...o.escalation };
+  const esc: EscalationPolicy = {
+    auto_up_to_tier: 2,
+    above: 'ask_human',
+    allow_models: null,
+    ...o.escalation,
+  };
   const ladders: Record<string, ReturnType<typeof buildLadder>> = {};
   const roleOf: Record<string, string> = {};
   for (const [name, step] of Object.entries(workflow.steps)) {
@@ -159,7 +233,11 @@ export function buildPolicy(o: PolicyOptions = {}): FrozenPolicy {
       effort: spec.effort ?? 'medium',
       add_context: [],
       permissions: spec.permissions ?? 'write',
-      limits: { max_turns: 80, stall_timeout_ms: 600_000, wall_timeout_ms: 2_700_000 },
+      limits: {
+        max_turns: 80,
+        stall_timeout_ms: 600_000,
+        wall_timeout_ms: 2_700_000,
+      },
     };
     ladders[name] = buildLadder(initial, spec.ladder ?? [], MODELS, esc);
     roleOf[name] = step.role;
@@ -176,7 +254,12 @@ export function buildPolicy(o: PolicyOptions = {}): FrozenPolicy {
       escalation_scope: roles[role]?.scope ?? 'step',
     };
   }
-  const commands = o.gates ?? { build: 'npm run build', unit: 'npm test', lint: 'npm run lint', format_fix: 'npm run format' };
+  const commands = o.gates ?? {
+    build: 'npm run build',
+    unit: 'npm test',
+    lint: 'npm run lint',
+    format_fix: 'npm run format',
+  };
   const by_step: FrozenPolicy['gates']['by_step'] = {};
   for (const [name, step] of Object.entries(workflow.steps)) {
     if (step.kind !== 'gate') continue;
@@ -194,7 +277,8 @@ export function buildPolicy(o: PolicyOptions = {}): FrozenPolicy {
     backoff: { ...DEFAULT_LIMITS.backoff, ...o.limits?.backoff },
   };
   const permissions: Record<string, 'read_only' | 'write'> = {};
-  for (const [r, spec] of Object.entries(roles)) permissions[r] = spec.permissions ?? 'write';
+  for (const [r, spec] of Object.entries(roles))
+    permissions[r] = spec.permissions ?? 'write';
   const h = hashCanonical('fixture');
   return finalizePolicy({
     schema_version: 1,
@@ -203,11 +287,15 @@ export function buildPolicy(o: PolicyOptions = {}): FrozenPolicy {
     base_sha: o.base_sha ?? 'base0000',
     project: o.project ?? 'acme',
     profile: 'standard',
-    workflow_name: o.mode === undefined ? SOFTWARE_DEV_NAME : modeWorkflowName(o.mode),
+    workflow_name:
+      o.mode === undefined ? SOFTWARE_DEV_NAME : modeWorkflowName(o.mode),
     workflow,
     structure_hash: structureHash(workflow),
     steps,
-    ci: { required_checks: o.required_checks ?? [], rules: o.ci_rules ?? DEFAULT_CI_RULES },
+    ci: {
+      required_checks: o.required_checks ?? [],
+      rules: o.ci_rules ?? DEFAULT_CI_RULES,
+    },
     gates: { commands, by_step },
     limits,
     decision_modes: workflow.decisions,
@@ -218,7 +306,11 @@ export function buildPolicy(o: PolicyOptions = {}): FrozenPolicy {
   });
 }
 
-export function buildContext(task: CanonicalTask, base_sha = 'base0000', attachments: { name: string; media_type: string; content: string }[] = []): FrozenExecutionContext {
+export function buildContext(
+  task: CanonicalTask,
+  base_sha = 'base0000',
+  attachments: { name: string; media_type: string; content: string }[] = [],
+): FrozenExecutionContext {
   return finalizeContext({
     schema_version: 1,
     task_id: task.id,
@@ -238,11 +330,22 @@ export function buildContext(task: CanonicalTask, base_sha = 'base0000', attachm
   });
 }
 
-export function freezeOk(task: CanonicalTask, o: PolicyOptions = {}): { ok: true; value: { policy: FrozenPolicy; context: FrozenExecutionContext } } {
+export function freezeOk(
+  task: CanonicalTask,
+  o: PolicyOptions = {},
+): {
+  ok: true;
+  value: { policy: FrozenPolicy; context: FrozenExecutionContext };
+} {
   return {
     ok: true,
     value: {
-      policy: buildPolicy({ task_id: task.id, revision: task.revision, project: task.project, ...o }),
+      policy: buildPolicy({
+        task_id: task.id,
+        revision: task.revision,
+        project: task.project,
+        ...o,
+      }),
       context: buildContext(task, o.base_sha),
     },
   };
@@ -260,7 +363,11 @@ export type EnvelopeOptions = {
 
 let dedupCounter = 0;
 
-export function envelope(taskId: string, trigger: Trigger, o: EnvelopeOptions = {}): TriggerEnvelope {
+export function envelope(
+  taskId: string,
+  trigger: Trigger,
+  o: EnvelopeOptions = {},
+): TriggerEnvelope {
   const env = {
     schema_version: 1 as const,
     task_id: taskId as Uuid,
@@ -269,7 +376,9 @@ export function envelope(taskId: string, trigger: Trigger, o: EnvelopeOptions = 
     now: (o.now ?? T0) as EpochMs,
     ids: o.ids ?? [],
     ...(o.authz !== undefined ? { authz: o.authz } : {}),
-    ...(o.expected_version !== undefined ? { expected_version: o.expected_version } : {}),
+    ...(o.expected_version !== undefined
+      ? { expected_version: o.expected_version }
+      : {}),
   };
   return { ...env, request_hash: computeRequestHash(env) };
 }

@@ -1,7 +1,11 @@
 import type { Database } from 'better-sqlite3';
 import { ok, type Result } from '../shared/result.ts';
 import type { Uuid } from '../shared/brand.ts';
-import { computeRequestHash, TRIGGER_SCHEMA_VERSION, type TriggerEnvelope } from '../domain/trigger.ts';
+import {
+  computeRequestHash,
+  TRIGGER_SCHEMA_VERSION,
+  type TriggerEnvelope,
+} from '../domain/trigger.ts';
 import { accept, type AcceptError, type AcceptOutcome } from './accept.ts';
 import type { CrashHook } from './crash.ts';
 import { selectNext } from '../engine/execution-slot.ts';
@@ -10,7 +14,12 @@ import { readQueue, readSlot } from './read.ts';
 export type GrantOutcome =
   | { kind: 'busy'; holder_task_id: string }
   | { kind: 'empty' }
-  | { kind: 'decided'; task_id: string; request_id: string; outcome: AcceptOutcome };
+  | {
+      kind: 'decided';
+      task_id: string;
+      request_id: string;
+      outcome: AcceptOutcome;
+    };
 
 /**
  * One grant step for the single execution slot. The queue head is picked here, but `accept` re-reads the
@@ -18,11 +27,19 @@ export type GrantOutcome =
  * can never both commit; the slot table's singleton key is the last guard. `ids` are not part of the
  * request hash, so a retry with fresh IDs is still the same request.
  */
-export function grantNext(db: Database, now: number, crash: CrashHook, ids: readonly string[] = []): Result<GrantOutcome, AcceptError> {
+export function grantNext(
+  db: Database,
+  now: number,
+  crash: CrashHook,
+  ids: readonly string[] = [],
+): Result<GrantOutcome, AcceptError> {
   const next = selectNext(readQueue(db), readSlot(db));
   if (next.kind !== 'grant') return ok(next);
   const head = next.request;
-  const trigger = { kind: 'grant_execution' as const, request_id: head.request_id as Uuid };
+  const trigger = {
+    kind: 'grant_execution' as const,
+    request_id: head.request_id as Uuid,
+  };
   const env: TriggerEnvelope = {
     schema_version: TRIGGER_SCHEMA_VERSION,
     task_id: head.task_id as Uuid,
@@ -36,5 +53,10 @@ export function grantNext(db: Database, now: number, crash: CrashHook, ids: read
   };
   const r = accept(db, env, crash);
   if (!r.ok) return r;
-  return ok({ kind: 'decided', task_id: head.task_id, request_id: head.request_id, outcome: r.value });
+  return ok({
+    kind: 'decided',
+    task_id: head.task_id,
+    request_id: head.request_id,
+    outcome: r.value,
+  });
 }

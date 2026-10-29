@@ -1,7 +1,11 @@
 import type { Database } from 'better-sqlite3';
 import { canonicalJson } from '../shared/canonical-json.ts';
 import { err, ok, type Result } from '../shared/result.ts';
-import { EVENT_SCHEMA_VERSION, type DomainEvent, type DomainEventDraft } from '../domain/event.ts';
+import {
+  EVENT_SCHEMA_VERSION,
+  type DomainEvent,
+  type DomainEventDraft,
+} from '../domain/event.ts';
 import type { TaskState, TaskStatus } from '../domain/state.ts';
 import type { CanonicalTask } from '../domain/task.ts';
 import {
@@ -23,7 +27,12 @@ import {
   SlotConflict,
   sqliteSink,
 } from './projector.ts';
-import { readExecutionFacts, readPolicy, readTask, readTaskStatus } from './read.ts';
+import {
+  readExecutionFacts,
+  readPolicy,
+  readTask,
+  readTaskStatus,
+} from './read.ts';
 
 export type AcceptOutcome = {
   dedup_key: string;
@@ -34,20 +43,35 @@ export type AcceptOutcome = {
   global_seq_range: [number, number] | null;
 };
 
-export type WriteFailure = { code: 'write_failed'; cause: 'disk_full' | 'busy' | 'io_error' };
+export type WriteFailure = {
+  code: 'write_failed';
+  cause: 'disk_full' | 'busy' | 'io_error';
+};
 
 export type AcceptError =
-  | { code: 'conflict'; reason: 'request_hash_mismatch' | 'stale_version' | 'id_collision' | 'slot_held' }
+  | {
+      code: 'conflict';
+      reason:
+        | 'request_hash_mismatch'
+        | 'stale_version'
+        | 'id_collision'
+        | 'slot_held';
+    }
   | WriteFailure;
 
 /** Lỗi SQLite của thao tác ghi → `write_failed` (FR-033); lỗi khác là lỗi lập trình và được ném lại. */
 export function writeFailure(e: unknown): WriteFailure | null {
   const code = (e as { code?: unknown } | null)?.code;
   if (typeof code !== 'string') return null;
-  if (code === 'SQLITE_FULL') return { code: 'write_failed', cause: 'disk_full' };
+  if (code === 'SQLITE_FULL')
+    return { code: 'write_failed', cause: 'disk_full' };
   if (code.startsWith('SQLITE_BUSY') || code.startsWith('SQLITE_LOCKED'))
     return { code: 'write_failed', cause: 'busy' };
-  if (code.startsWith('SQLITE_IOERR') || code === 'SQLITE_CANTOPEN' || code === 'SQLITE_READONLY')
+  if (
+    code.startsWith('SQLITE_IOERR') ||
+    code === 'SQLITE_CANTOPEN' ||
+    code === 'SQLITE_READONLY'
+  )
     return { code: 'write_failed', cause: 'io_error' };
   return null;
 }
@@ -95,7 +119,10 @@ export function appendEvents(
       task_id: taskId,
       seq,
       global_seq: Number(r.lastInsertRowid),
-      causation: causation.claim === undefined ? { dedup_key: causation.dedup_key } : causation,
+      causation:
+        causation.claim === undefined
+          ? { dedup_key: causation.dedup_key }
+          : causation,
     } as DomainEvent;
     events.push(ev);
     s = applyInPlace(s, structuredClone(ev));
@@ -143,31 +170,45 @@ export function relatedFacts(
 
   const proposed =
     incoming?.depends_on ??
-    (t.kind === 'drift_choice' ? state?.source_drift?.task.depends_on : undefined);
+    (t.kind === 'drift_choice'
+      ? state?.source_drift?.task.depends_on
+      : undefined);
   const related: RelatedFacts = {
     deps,
-    dependency_cycle: proposed !== undefined && reachesTask(db, env.task_id, proposed),
+    dependency_cycle:
+      proposed !== undefined && reachesTask(db, env.task_id, proposed),
   };
 
   if (t.kind === 'grant_execution') related.execution = readExecutionFacts(db);
 
   const retryOf = incoming?.retry_of ?? null;
-  if (t.kind === 'create_task' && retryOf !== null) related.retry_of = readTaskStatus(db, retryOf);
+  if (t.kind === 'create_task' && retryOf !== null)
+    related.retry_of = readTaskStatus(db, retryOf);
 
   if (t.kind === 'create_task') {
     const row = db
-      .prepare('SELECT state_json FROM tasks WHERE project = ? AND source_key = ?')
-      .get(t.task.project, t.task.source_key) as { state_json: string } | undefined;
+      .prepare(
+        'SELECT state_json FROM tasks WHERE project = ? AND source_key = ?',
+      )
+      .get(t.task.project, t.task.source_key) as
+      { state_json: string } | undefined;
     if (row !== undefined) {
       const other = JSON.parse(row.state_json) as TaskState;
-      related.source_task = { task_id: other.id, same_content: sameContent(t.task, other.task) };
+      related.source_task = {
+        task_id: other.id,
+        same_content: sameContent(t.task, other.task),
+      };
     }
   }
   return related;
 }
 
 /** Có đường từ một trong `from` qua `task_deps` về `target` không (chu trình khi `target` phụ thuộc `from`). */
-function reachesTask(db: Database, target: string, from: readonly string[]): boolean {
+function reachesTask(
+  db: Database,
+  target: string,
+  from: readonly string[],
+): boolean {
   const next = db.prepare('SELECT depends_on FROM task_deps WHERE task_id = ?');
   const seen = new Set<string>();
   const stack = [...from];
@@ -176,7 +217,8 @@ function reachesTask(db: Database, target: string, from: readonly string[]): boo
     if (id === target) return true;
     if (seen.has(id)) continue;
     seen.add(id);
-    for (const r of next.all(id) as { depends_on: string }[]) stack.push(r.depends_on);
+    for (const r of next.all(id) as { depends_on: string }[])
+      stack.push(r.depends_on);
   }
   return false;
 }
@@ -222,29 +264,50 @@ export function accept(
     db.exec('BEGIN IMMEDIATE');
 
     const prior = db
-      .prepare('SELECT request_hash, outcome_json FROM accepted_triggers WHERE dedup_key = ?')
-      .get(env.dedup_key) as { request_hash: string; outcome_json: string } | undefined;
+      .prepare(
+        'SELECT request_hash, outcome_json FROM accepted_triggers WHERE dedup_key = ?',
+      )
+      .get(env.dedup_key) as
+      { request_hash: string; outcome_json: string } | undefined;
     if (prior !== undefined) {
       rollback(db);
       if (prior.request_hash !== requestHash)
         return err({ code: 'conflict', reason: 'request_hash_mismatch' });
-      return ok({ ...(JSON.parse(prior.outcome_json) as AcceptOutcome), duplicate: true });
+      return ok({
+        ...(JSON.parse(prior.outcome_json) as AcceptOutcome),
+        duplicate: true,
+      });
     }
     crash('after_dedup');
 
     const state = readTask(db, env.task_id);
-    if (env.expected_version !== undefined && (state?.version ?? 0) !== env.expected_version) {
+    if (
+      env.expected_version !== undefined &&
+      (state?.version ?? 0) !== env.expected_version
+    ) {
       rollback(db);
       return err({ code: 'conflict', reason: 'stale_version' });
     }
 
     let decision: Decision;
     if (env.request_hash !== requestHash) {
-      decision = { kind: 'rejected', code: 'invalid_trigger', detail: { reason: 'request_hash' } };
+      decision = {
+        kind: 'rejected',
+        code: 'invalid_trigger',
+        detail: { reason: 'request_hash' },
+      };
     } else {
       const ref = state?.policy_ref ?? null;
-      const policy = ref === null ? null : readPolicy(db, env.task_id, ref.revision, ref.version);
-      decision = decide({ state, policy, envelope: env, related: relatedFacts(db, env, state) });
+      const policy =
+        ref === null
+          ? null
+          : readPolicy(db, env.task_id, ref.revision, ref.version);
+      decision = decide({
+        state,
+        policy,
+        envelope: env,
+        related: relatedFacts(db, env, state),
+      });
     }
 
     // Thiếu ID là lỗi của `ids`, mà `ids` không thuộc request hash: không ghi dedup, để lần gửi lại
@@ -261,9 +324,15 @@ export function accept(
     }
 
     const drafts = decision.kind === 'accepted' ? decision.events : [];
-    const { state: next, events } = appendEvents(db, env.task_id, state, drafts, {
-      dedup_key: env.dedup_key,
-    });
+    const { state: next, events } = appendEvents(
+      db,
+      env.task_id,
+      state,
+      drafts,
+      {
+        dedup_key: env.dedup_key,
+      },
+    );
     crash('after_events');
     project(db, events, next, crash);
 
@@ -275,7 +344,9 @@ export function accept(
       decision,
       task_version: next?.version ?? null,
       global_seq_range:
-        first !== undefined && last !== undefined ? [first.global_seq, last.global_seq] : null,
+        first !== undefined && last !== undefined
+          ? [first.global_seq, last.global_seq]
+          : null,
     };
     db.prepare(
       `INSERT INTO accepted_triggers (dedup_key, request_hash, task_id, envelope_json, outcome_json, global_seq_from, global_seq_to)
@@ -293,8 +364,10 @@ export function accept(
     db.exec('COMMIT');
   } catch (e) {
     rollback(db);
-    if (e instanceof IdCollision) return err({ code: 'conflict', reason: 'id_collision' });
-    if (e instanceof SlotConflict) return err({ code: 'conflict', reason: 'slot_held' });
+    if (e instanceof IdCollision)
+      return err({ code: 'conflict', reason: 'id_collision' });
+    if (e instanceof SlotConflict)
+      return err({ code: 'conflict', reason: 'slot_held' });
     const wf = writeFailure(e);
     if (wf !== null) return err(wf);
     throw e;

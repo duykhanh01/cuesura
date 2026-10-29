@@ -41,7 +41,11 @@ export type RepairState = {
 };
 
 /** Worker-prepared commit message and PR title/body (M05). */
-export type PublishContent = { readonly commit_message: string; readonly pr_title: string; readonly pr_body: string };
+export type PublishContent = {
+  readonly commit_message: string;
+  readonly pr_title: string;
+  readonly pr_body: string;
+};
 
 export type PublishBrief = {
   readonly template: { readonly path: string; readonly content: string } | null;
@@ -63,10 +67,17 @@ export type ContextInput = {
   readonly step: string;
   readonly revision: number;
   readonly context: FrozenExecutionContext;
-  readonly binding: { readonly harness: string; readonly model: string; readonly effort: string | null };
+  readonly binding: {
+    readonly harness: string;
+    readonly model: string;
+    readonly effort: string | null;
+  };
   /** Name of the role prompt in `context.prompt_refs`, or null. */
   readonly prompt: string | null;
-  readonly answers: readonly { readonly question_id: string; readonly answer: string }[];
+  readonly answers: readonly {
+    readonly question_id: string;
+    readonly answer: string;
+  }[];
   readonly failures: readonly RoleFailure[];
   readonly diff: ReviewDiff | null;
   /** Required for a repair (fixer, or a coder step that fixes CI). */
@@ -75,66 +86,108 @@ export type ContextInput = {
   readonly publish?: PublishBrief | null;
   /** Reviewer of a `full-review` task: the PR content it checks with the diff. */
   readonly pr_content?: PublishContent | null;
-  readonly limits: { readonly context_bytes: number; readonly review_diff_bytes: number };
+  readonly limits: {
+    readonly context_bytes: number;
+    readonly review_diff_bytes: number;
+  };
   readonly redactor: Redactor;
 };
 
-export type Truncation = { readonly section: string; readonly kept_bytes: number; readonly original_bytes: number; readonly digest: Hash };
+export type Truncation = {
+  readonly section: string;
+  readonly kept_bytes: number;
+  readonly original_bytes: number;
+  readonly digest: Hash;
+};
 
 export type RoleContext = {
   readonly text: string;
   readonly digest: Hash;
   readonly bytes: number;
   readonly truncated: readonly Truncation[];
-  readonly diff: { readonly digest: Hash; readonly paths: readonly string[]; readonly bytes: number } | null;
+  readonly diff: {
+    readonly digest: Hash;
+    readonly paths: readonly string[];
+    readonly bytes: number;
+  } | null;
 };
 
-export type NeedsContext = { readonly kind: 'needs_context'; readonly missing: readonly string[] };
+export type NeedsContext = {
+  readonly kind: 'needs_context';
+  readonly missing: readonly string[];
+};
 
 const bytes = (s: string): number => Buffer.byteLength(s, 'utf8');
 
 // ESC sequences (CSI/OSC), other C0/C1 controls except tab and newline, and bidi overrides.
-// eslint-disable-next-line no-control-regex
-const CONTROL = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|[\u0000-\u0008\u000b-\u001f\u007f-\u009f‪-‮⁦-⁩]/g;
+const CONTROL =
+  // eslint-disable-next-line no-control-regex
+  /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|[\u0000-\u0008\u000b-\u001f\u007f-\u009f‪-‮⁦-⁩]/g;
 /** Lines a chat channel or the CLI would read as a command; quoted so they stay data. */
-const CHANNEL_COMMAND = /^(\s*)(\/[A-Za-z_]+(?:@\S+)?\b|cusr\s+(?:task\s+)?(?:approve|answer|cancel|confirm|recheck|add)\b)/gim;
+const CHANNEL_COMMAND =
+  /^(\s*)(\/[A-Za-z_]+(?:@\S+)?\b|cusr\s+(?:task\s+)?(?:approve|answer|cancel|confirm|recheck|add)\b)/gim;
 
 /** Redacts secrets, removes control characters and quotes channel command lines. */
 export function sanitize(text: string, redactor: Redactor): string {
-  return redactor.text(text).replace(/\r\n?/g, '\n').replace(CONTROL, '').replace(CHANNEL_COMMAND, '$1[quoted] $2');
+  return redactor
+    .text(text)
+    .replace(/\r\n?/g, '\n')
+    .replace(CONTROL, '')
+    .replace(CHANNEL_COMMAND, '$1[quoted] $2');
 }
 
 /** Cuts `text` to at most `max` UTF-8 bytes on a character boundary, preferring a line end. */
 function cut(text: string, max: number): string {
   if (bytes(text) <= max) return text;
-  let s = Buffer.from(text, 'utf8').subarray(0, Math.max(0, max)).toString('utf8');
+  let s = Buffer.from(text, 'utf8')
+    .subarray(0, Math.max(0, max))
+    .toString('utf8');
   if (s.endsWith('�')) s = s.slice(0, -1);
   const nl = s.lastIndexOf('\n');
   return nl > s.length / 2 ? s.slice(0, nl + 1) : s;
 }
 
-type Section = { readonly name: string; readonly body: string; readonly required: boolean };
+type Section = {
+  readonly name: string;
+  readonly body: string;
+  readonly required: boolean;
+};
 
 function marker(t: Truncation): string {
   return `\n[truncated ${t.section}: kept ${t.kept_bytes} of ${t.original_bytes} bytes; full ${t.digest}]\n`;
 }
 
-const list = (xs: readonly string[]): string => xs.map((x) => `- ${x}`).join('\n');
+const list = (xs: readonly string[]): string =>
+  xs.map((x) => `- ${x}`).join('\n');
 
-export function buildRoleContext(input: ContextInput): { ok: true; value: RoleContext } | { ok: false; error: NeedsContext } {
+export function buildRoleContext(
+  input: ContextInput,
+): { ok: true; value: RoleContext } | { ok: false; error: NeedsContext } {
   const { context: c, redactor } = input;
   const clean = (s: string): string => sanitize(s, redactor);
   const missing: string[] = [];
   if (c.revision !== input.revision) missing.push('context_revision');
   if (c.acceptance.length === 0) missing.push('acceptance');
-  const repairing = input.role === 'fixer' || (input.repair !== undefined && input.repair !== null);
+  const repairing =
+    input.role === 'fixer' ||
+    (input.repair !== undefined && input.repair !== null);
   if (repairing && input.failures.length === 0) missing.push('failures');
   if (repairing && input.repair === null) missing.push('repair_state');
-  if (input.role === 'reviewer' && input.pr_content === null) missing.push('pr_content');
-  if (input.role === 'reviewer' && (input.diff === null || input.diff.paths.length === 0)) missing.push('diff');
-  const prompt = input.prompt === null ? null : (c.prompt_refs.find((p) => p.name === input.prompt) ?? null);
-  if (input.prompt !== null && prompt === null) missing.push(`prompt:${input.prompt}`);
-  if (missing.length > 0) return { ok: false, error: { kind: 'needs_context', missing } };
+  if (input.role === 'reviewer' && input.pr_content === null)
+    missing.push('pr_content');
+  if (
+    input.role === 'reviewer' &&
+    (input.diff === null || input.diff.paths.length === 0)
+  )
+    missing.push('diff');
+  const prompt =
+    input.prompt === null
+      ? null
+      : (c.prompt_refs.find((p) => p.name === input.prompt) ?? null);
+  if (input.prompt !== null && prompt === null)
+    missing.push(`prompt:${input.prompt}`);
+  if (missing.length > 0)
+    return { ok: false, error: { kind: 'needs_context', missing } };
 
   const truncated: Truncation[] = [];
   let diff: RoleContext['diff'] = null;
@@ -146,7 +199,12 @@ export function buildRoleContext(input: ContextInput): { ok: true; value: RoleCo
     diff = { digest: hashText(full), paths, bytes: bytes(full) };
     let tail = '';
     if (kept.length < full.length) {
-      const t: Truncation = { section: 'diff', kept_bytes: bytes(kept), original_bytes: bytes(full), digest: hashText(full) };
+      const t: Truncation = {
+        section: 'diff',
+        kept_bytes: bytes(kept),
+        original_bytes: bytes(full),
+        digest: hashText(full),
+      };
       truncated.push(t);
       tail = marker(t);
     }
@@ -163,26 +221,120 @@ export function buildRoleContext(input: ContextInput): { ok: true; value: RoleCo
     { name: 'header', body: header, required: true },
     { name: 'title', body: clean(c.request.title), required: true },
     { name: 'acceptance', body: list(c.acceptance.map(clean)), required: true },
-    ...(repairing ? [{ name: 'failures', body: input.failures.map((f) => `### ${f.source}: ${clean(f.name)}${f.sha == null ? '' : ` @ ${f.sha}`}${f.generation == null ? '' : ` (run ${f.generation})`}\n${clean(f.detail)}`).join('\n\n'), required: true }] : []),
-    ...(input.repair == null ? [] : [{ name: 'repair_state', body: repairBody(input.repair, clean), required: true }]),
-    ...(input.publish == null ? [] : [{ name: 'publish_content', body: publishBody(input.publish, clean), required: true }]),
-    ...(input.pr_content == null ? [] : [{ name: 'pr_content', body: `Title: ${clean(input.pr_content.pr_title)}\n\n${clean(input.pr_content.pr_body)}\n\nCommit message:\n${clean(input.pr_content.commit_message)}`, required: true }]),
-    ...(input.role === 'reviewer' ? [{ name: 'diff', body: diffBody, required: true }] : []),
-    { name: 'answers', body: input.answers.map((a) => `- (${a.question_id}) ${clean(a.answer)}`).join('\n'), required: false },
-    { name: 'requirements', body: list(c.request.requirements.map(clean)), required: false },
-    { name: 'constraints', body: list(c.request.constraints.map(clean)), required: false },
-    { name: 'out_of_scope', body: list(c.request.out_of_scope.map(clean)), required: false },
-    { name: 'description', body: clean(c.request.description), required: false },
-    ...(input.repair != null && input.repair.diff !== '' ? [{ name: 'worktree_diff', body: `\`\`\`diff\n${clean(input.repair.diff)}\n\`\`\``, required: false }] : []),
-    ...(input.role === 'fixer' && diffBody !== '' ? [{ name: 'diff', body: diffBody, required: false }] : []),
-    ...(prompt === null ? [] : [{ name: `prompt:${prompt.name}`, body: clean(prompt.content), required: false }]),
-    ...c.conventions.map((d) => ({ name: `convention:${d.name}`, body: clean(d.content), required: false })),
-    ...c.attachments.map((a) => ({ name: `attachment:${a.name}`, body: `(${a.media_type})\n${clean(a.content)}`, required: false })),
+    ...(repairing
+      ? [
+          {
+            name: 'failures',
+            body: input.failures
+              .map(
+                (f) =>
+                  `### ${f.source}: ${clean(f.name)}${f.sha == null ? '' : ` @ ${f.sha}`}${f.generation == null ? '' : ` (run ${f.generation})`}\n${clean(f.detail)}`,
+              )
+              .join('\n\n'),
+            required: true,
+          },
+        ]
+      : []),
+    ...(input.repair == null
+      ? []
+      : [
+          {
+            name: 'repair_state',
+            body: repairBody(input.repair, clean),
+            required: true,
+          },
+        ]),
+    ...(input.publish == null
+      ? []
+      : [
+          {
+            name: 'publish_content',
+            body: publishBody(input.publish, clean),
+            required: true,
+          },
+        ]),
+    ...(input.pr_content == null
+      ? []
+      : [
+          {
+            name: 'pr_content',
+            body: `Title: ${clean(input.pr_content.pr_title)}\n\n${clean(input.pr_content.pr_body)}\n\nCommit message:\n${clean(input.pr_content.commit_message)}`,
+            required: true,
+          },
+        ]),
+    ...(input.role === 'reviewer'
+      ? [{ name: 'diff', body: diffBody, required: true }]
+      : []),
+    {
+      name: 'answers',
+      body: input.answers
+        .map((a) => `- (${a.question_id}) ${clean(a.answer)}`)
+        .join('\n'),
+      required: false,
+    },
+    {
+      name: 'requirements',
+      body: list(c.request.requirements.map(clean)),
+      required: false,
+    },
+    {
+      name: 'constraints',
+      body: list(c.request.constraints.map(clean)),
+      required: false,
+    },
+    {
+      name: 'out_of_scope',
+      body: list(c.request.out_of_scope.map(clean)),
+      required: false,
+    },
+    {
+      name: 'description',
+      body: clean(c.request.description),
+      required: false,
+    },
+    ...(input.repair != null && input.repair.diff !== ''
+      ? [
+          {
+            name: 'worktree_diff',
+            body: `\`\`\`diff\n${clean(input.repair.diff)}\n\`\`\``,
+            required: false,
+          },
+        ]
+      : []),
+    ...(input.role === 'fixer' && diffBody !== ''
+      ? [{ name: 'diff', body: diffBody, required: false }]
+      : []),
+    ...(prompt === null
+      ? []
+      : [
+          {
+            name: `prompt:${prompt.name}`,
+            body: clean(prompt.content),
+            required: false,
+          },
+        ]),
+    ...c.conventions.map((d) => ({
+      name: `convention:${d.name}`,
+      body: clean(d.content),
+      required: false,
+    })),
+    ...c.attachments.map((a) => ({
+      name: `attachment:${a.name}`,
+      body: `(${a.media_type})\n${clean(a.content)}`,
+      required: false,
+    })),
   ].filter((s) => s.body !== '');
 
-  const render = (name: string, body: string): string => `## ${name}\n${body}\n\n`;
-  const requiredBytes = sections.filter((s) => s.required).reduce((n, s) => n + bytes(render(s.name, s.body)), 0);
-  if (requiredBytes > input.limits.context_bytes) return { ok: false, error: { kind: 'needs_context', missing: ['context_budget'] } };
+  const render = (name: string, body: string): string =>
+    `## ${name}\n${body}\n\n`;
+  const requiredBytes = sections
+    .filter((s) => s.required)
+    .reduce((n, s) => n + bytes(render(s.name, s.body)), 0);
+  if (requiredBytes > input.limits.context_bytes)
+    return {
+      ok: false,
+      error: { kind: 'needs_context', missing: ['context_budget'] },
+    };
 
   // Optional sections keep their order and fill what is left; one that does not fit is cut with a marker
   // (or reduced to the marker alone), so every cut is visible and nothing is silently lost.
@@ -200,8 +352,15 @@ export function buildRoleContext(input: ContextInput): { ok: true; value: RoleCo
       room -= fullSize;
       continue;
     }
-    const probe: Truncation = { section: s.name, kept_bytes: 0, original_bytes: bytes(s.body), digest: hashText(s.body) };
-    const overhead = bytes(render(s.name, '')) + bytes(marker({ ...probe, kept_bytes: probe.original_bytes }));
+    const probe: Truncation = {
+      section: s.name,
+      kept_bytes: 0,
+      original_bytes: bytes(s.body),
+      digest: hashText(s.body),
+    };
+    const overhead =
+      bytes(render(s.name, '')) +
+      bytes(marker({ ...probe, kept_bytes: probe.original_bytes }));
     const kept = room > overhead ? cut(s.body, room - overhead) : '';
     const t: Truncation = { ...probe, kept_bytes: bytes(kept) };
     truncated.push(t);
@@ -211,7 +370,16 @@ export function buildRoleContext(input: ContextInput): { ok: true; value: RoleCo
       room -= bytes(piece);
     }
   }
-  return { ok: true, value: { text: out, digest: hashText(out), bytes: bytes(out), truncated, diff } };
+  return {
+    ok: true,
+    value: {
+      text: out,
+      digest: hashText(out),
+      bytes: bytes(out),
+      truncated,
+      diff,
+    },
+  };
 }
 
 function repairBody(r: RepairState, clean: (s: string) => string): string {
@@ -229,8 +397,13 @@ function repairBody(r: RepairState, clean: (s: string) => string): string {
 function publishBody(p: PublishBrief, clean: (s: string) => string): string {
   const parts = [
     `Write the commit message, PR title and PR description for this change as JSON {"commit_message", "pr_title", "pr_body"} to ${p.file}. Do not add <!-- cusr: ... --> markers; Cuesura adds its own. Update them when your change makes them inaccurate.`,
-    p.template === null ? 'The repo has no PR template: write a plain description.' : `PR template (${clean(p.template.path)}), follow it:\n${clean(p.template.content)}`,
+    p.template === null
+      ? 'The repo has no PR template: write a plain description.'
+      : `PR template (${clean(p.template.path)}), follow it:\n${clean(p.template.content)}`,
   ];
-  if (p.current !== null) parts.push(`Current content:\nTitle: ${clean(p.current.pr_title)}\n\n${clean(p.current.pr_body)}\n\nCommit message:\n${clean(p.current.commit_message)}`);
+  if (p.current !== null)
+    parts.push(
+      `Current content:\nTitle: ${clean(p.current.pr_title)}\n\n${clean(p.current.pr_body)}\n\nCommit message:\n${clean(p.current.commit_message)}`,
+    );
   return parts.join('\n\n');
 }

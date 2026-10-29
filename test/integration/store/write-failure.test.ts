@@ -1,7 +1,11 @@
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 import { canonicalJson } from '../../../src/shared/canonical-json.ts';
-import { openFileStoreForTest, storeDb, type CrashPoint } from '../../../src/store/testing.ts';
+import {
+  openFileStoreForTest,
+  storeDb,
+  type CrashPoint,
+} from '../../../src/store/testing.ts';
 import { buildTask, freezeOk } from '../../support/builders.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 import { dbPath, useTempDir } from '../../support/temp-db.ts';
@@ -12,7 +16,14 @@ function snapshot(d: StoreDriver): string {
   const db = storeDb(d.store);
   const all = (t: string): unknown[] => db.prepare(`SELECT * FROM ${t}`).all();
   return canonicalJson(
-    ['events', 'tasks', 'effects', 'timers', 'accepted_triggers', 'frozen_policies'].map(all),
+    [
+      'events',
+      'tasks',
+      'effects',
+      'timers',
+      'accepted_triggers',
+      'frozen_policies',
+    ].map(all),
   );
 }
 
@@ -28,7 +39,10 @@ describe('Lỗi ghi → write_failed, trạng thái không đổi (T083, FR-033)
     db.pragma(`max_page_count = ${pages}`);
 
     const r = d.send(TASK.id, { kind: 'start', freeze: freezeOk(TASK) });
-    expect(r).toEqual({ ok: false, error: { code: 'write_failed', cause: 'disk_full' } });
+    expect(r).toEqual({
+      ok: false,
+      error: { code: 'write_failed', cause: 'disk_full' },
+    });
     expect(db.inTransaction).toBe(false);
     expect(snapshot(d)).toBe(before);
 
@@ -44,7 +58,11 @@ describe('Lỗi ghi → write_failed, trạng thái không đổi (T083, FR-033)
   });
 
   it('busy giữa transaction (ép bằng hook) → write_failed busy, rollback toàn bộ', () => {
-    for (const point of ['after_events', 'after_effects', 'before_commit'] as CrashPoint[]) {
+    for (const point of [
+      'after_events',
+      'after_effects',
+      'before_commit',
+    ] as CrashPoint[]) {
       let armed = false;
       const store = openFileStoreForTest(dbPath(tmp()), {
         crash: (p) => {
@@ -56,7 +74,10 @@ describe('Lỗi ghi → write_failed, trạng thái không đổi (T083, FR-033)
       d.must(TASK.id, { kind: 'create_task', task: TASK });
       const before = snapshot(d);
       armed = true;
-      expect(d.send(TASK.id, { kind: 'start', freeze: freezeOk(TASK) }), point).toEqual({
+      expect(
+        d.send(TASK.id, { kind: 'start', freeze: freezeOk(TASK) }),
+        point,
+      ).toEqual({
         ok: false,
         error: { code: 'write_failed', cause: 'busy' },
       });

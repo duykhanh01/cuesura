@@ -1,4 +1,9 @@
-import { draft, type DomainEventDraft, type EventPayloads, type EventType } from '../domain/event.ts';
+import {
+  draft,
+  type DomainEventDraft,
+  type EventPayloads,
+  type EventType,
+} from '../domain/event.ts';
 import type { FrozenPolicy } from '../domain/policy.ts';
 import type { TaskState } from '../domain/state.ts';
 import type { RelatedFacts, TriggerEnvelope } from '../domain/trigger.ts';
@@ -49,7 +54,12 @@ export class Ctx {
   readonly ids: IdPool;
   readonly actor: string;
 
-  constructor(state: TaskState | null, policy: FrozenPolicy | null, env: TriggerEnvelope, related: RelatedFacts) {
+  constructor(
+    state: TaskState | null,
+    policy: FrozenPolicy | null,
+    env: TriggerEnvelope,
+    related: RelatedFacts,
+  ) {
     this.current = state === null ? null : structuredClone(state);
     this.policy = policy;
     this.env = env;
@@ -73,7 +83,8 @@ export class Ctx {
 
   /** Chính sách bắt buộc phải có (task đã chạy). */
   get frozen(): FrozenPolicy {
-    if (this.policy === null) throw new Error('Ctx.frozen khi chưa có chính sách');
+    if (this.policy === null)
+      throw new Error('Ctx.frozen khi chưa có chính sách');
     return this.policy;
   }
 
@@ -82,7 +93,10 @@ export class Ctx {
   }
 
   emit<T extends EventType>(type: T, payload: EventPayloads[T]): void {
-    const revision = type === 'TaskCreated' ? (payload as EventPayloads['TaskCreated']).task.revision : this.state.revision;
+    const revision =
+      type === 'TaskCreated'
+        ? (payload as EventPayloads['TaskCreated']).task.revision
+        : this.state.revision;
     // Hai bản sao: một cho nhật ký, một cho state, để sửa state về sau không chạm vào sự kiện đã phát.
     const d = draft(type, revision, this.actor, structuredClone(payload));
     this.events.push(d);

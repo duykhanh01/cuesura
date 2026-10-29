@@ -9,7 +9,13 @@
  * `unknown` (it may have been applied), so the caller probes before any new send.
  */
 import { spawn } from 'node:child_process';
-import type { Clock, GitHubFailure, GitHubPort, GitHubRequest, GitHubResponse } from '../ports.ts';
+import type {
+  Clock,
+  GitHubFailure,
+  GitHubPort,
+  GitHubRequest,
+  GitHubResponse,
+} from '../ports.ts';
 import type { Redactor } from '../../runner/redact.ts';
 import type { Hash } from '../../shared/brand.ts';
 import { canonicalJson } from '../../shared/canonical-json.ts';
@@ -27,7 +33,9 @@ export const DEFAULT_GH_LIMITS = {
   max_response_bytes: 2 * 1024 * 1024,
   max_sends: 3,
 } as const;
-export type GhLimits = { -readonly [K in keyof typeof DEFAULT_GH_LIMITS]: number };
+export type GhLimits = {
+  -readonly [K in keyof typeof DEFAULT_GH_LIMITS]: number;
+};
 
 const SEG = '[A-Za-z0-9_.-]+';
 const BRANCH = '[A-Za-z0-9_.%/-]+';
@@ -49,29 +57,86 @@ export const GET_ENDPOINTS: readonly RegExp[] = [
 ];
 
 /** The only writes: open a PR, re-run the failed jobs of one workflow run. Never merge. */
-export const POST_ENDPOINTS: readonly RegExp[] = [new RegExp(`^${REPO}/pulls$`), new RegExp(`^${REPO}/actions/runs/\\d+/rerun-failed-jobs$`)];
+export const POST_ENDPOINTS: readonly RegExp[] = [
+  new RegExp(`^${REPO}/pulls$`),
+  new RegExp(`^${REPO}/actions/runs/\\d+/rerun-failed-jobs$`),
+];
 
 /** The one edit: title/description of a PR (M05/M07); never state, base, head or merge settings. */
-export const PATCH_ENDPOINTS: readonly RegExp[] = [new RegExp(`^${REPO}/pulls/\\d+$`)];
+export const PATCH_ENDPOINTS: readonly RegExp[] = [
+  new RegExp(`^${REPO}/pulls/\\d+$`),
+];
 const PATCH_FIELDS = new Set(['title', 'body']);
 
-const QUERY_KEYS = new Set(['per_page', 'page', 'state', 'head', 'base', 'sort', 'direction']);
-const KEEP_HEADERS = new Set(['etag', 'link', 'retry-after', 'date', 'x-github-request-id', 'x-ratelimit-remaining', 'x-ratelimit-reset', 'x-ratelimit-resource', 'x-github-api-version-selected']);
+const QUERY_KEYS = new Set([
+  'per_page',
+  'page',
+  'state',
+  'head',
+  'base',
+  'sort',
+  'direction',
+]);
+const KEEP_HEADERS = new Set([
+  'etag',
+  'link',
+  'retry-after',
+  'date',
+  'x-github-request-id',
+  'x-ratelimit-remaining',
+  'x-ratelimit-reset',
+  'x-ratelimit-resource',
+  'x-github-api-version-selected',
+]);
 
-export type GhExecResult = { readonly code: number | null; readonly stdout: Buffer; readonly stderr: string; readonly timedOut: boolean; readonly overflow: boolean };
-export type GhExec = (args: readonly string[], opts: { readonly timeoutMs: number; readonly maxBytes: number; readonly stdin: string | null }) => Promise<GhExecResult>;
+export type GhExecResult = {
+  readonly code: number | null;
+  readonly stdout: Buffer;
+  readonly stderr: string;
+  readonly timedOut: boolean;
+  readonly overflow: boolean;
+};
+export type GhExec = (
+  args: readonly string[],
+  opts: {
+    readonly timeoutMs: number;
+    readonly maxBytes: number;
+    readonly stdin: string | null;
+  },
+) => Promise<GhExecResult>;
 
 /** Variables `gh` may see; the token comes from the orchestrator, never from a repo or agent. */
-const GH_ENV_PASS = ['PATH', 'HOME', 'GH_TOKEN', 'GH_HOST', 'GH_CONFIG_DIR', 'XDG_CONFIG_HOME'] as const;
+const GH_ENV_PASS = [
+  'PATH',
+  'HOME',
+  'GH_TOKEN',
+  'GH_HOST',
+  'GH_CONFIG_DIR',
+  'XDG_CONFIG_HOME',
+] as const;
 
 /** Real gh via spawn (no shell), its process group killed on timeout or overflow. */
 export function spawnGhExec(gh: string, env: NodeJS.ProcessEnv): GhExec {
-  if (!gh.startsWith('/')) throw new Error(`gh must be an absolute path: ${gh}`);
-  const childEnv: Record<string, string> = { GH_PROMPT_DISABLED: '1', GH_PAGER: 'cat', PAGER: 'cat', NO_COLOR: '1', GH_NO_UPDATE_NOTIFIER: '1', GH_SPINNER_DISABLED: '1', CLICOLOR: '0', LANG: 'C' };
+  if (!gh.startsWith('/'))
+    throw new Error(`gh must be an absolute path: ${gh}`);
+  const childEnv: Record<string, string> = {
+    GH_PROMPT_DISABLED: '1',
+    GH_PAGER: 'cat',
+    PAGER: 'cat',
+    NO_COLOR: '1',
+    GH_NO_UPDATE_NOTIFIER: '1',
+    GH_SPINNER_DISABLED: '1',
+    CLICOLOR: '0',
+    LANG: 'C',
+  };
   for (const k of GH_ENV_PASS) if (env[k] !== undefined) childEnv[k] = env[k];
   return (args, opts) =>
     new Promise((resolve) => {
-      const child = spawn(gh, [...args], { env: childEnv, stdio: ['pipe', 'pipe', 'pipe'], detached: true });
+      const child = spawn(gh, [...args], {
+        env: childEnv,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        detached: true,
+      });
       const chunks: Buffer[] = [];
       let bytes = 0;
       let stderr = '';
@@ -102,11 +167,23 @@ export function spawnGhExec(gh: string, env: NodeJS.ProcessEnv): GhExec {
       });
       child.once('error', (e) => {
         clearTimeout(timer);
-        resolve({ code: null, stdout: Buffer.alloc(0), stderr: e.message, timedOut, overflow });
+        resolve({
+          code: null,
+          stdout: Buffer.alloc(0),
+          stderr: e.message,
+          timedOut,
+          overflow,
+        });
       });
       child.once('close', (code) => {
         clearTimeout(timer);
-        resolve({ code, stdout: Buffer.concat(chunks), stderr, timedOut, overflow });
+        resolve({
+          code,
+          stdout: Buffer.concat(chunks),
+          stderr,
+          timedOut,
+          overflow,
+        });
       });
       child.stdin.on('error', () => undefined);
       child.stdin.end(opts.stdin ?? undefined);
@@ -119,13 +196,21 @@ export type GhEvidence = {
   readonly path: string;
   readonly send: number;
   readonly status: number | null;
-  readonly outcome: 'ok' | 'http_error' | 'timeout' | 'overflow' | 'transport_error' | 'unparseable';
+  readonly outcome:
+    | 'ok'
+    | 'http_error'
+    | 'timeout'
+    | 'overflow'
+    | 'transport_error'
+    | 'unparseable';
   readonly headers: Readonly<Record<string, string>>;
   readonly body_redacted: string;
   readonly digest: Hash | null;
 };
 
-function parseIncluded(out: Buffer): { status: number; headers: Record<string, string>; body: string } | null {
+function parseIncluded(
+  out: Buffer,
+): { status: number; headers: Record<string, string>; body: string } | null {
   const text = out.toString('utf8');
   const m = /^HTTP\/[\d.]+ (\d{3})[^\n]*\n/.exec(text);
   if (m === null) return null;
@@ -134,9 +219,14 @@ function parseIncluded(out: Buffer): { status: number; headers: Record<string, s
   const headers: Record<string, string> = {};
   for (const line of text.slice(m[0].length, sep).split(/\r?\n/)) {
     const i = line.indexOf(':');
-    if (i > 0) headers[line.slice(0, i).trim().toLowerCase()] = line.slice(i + 1).trim();
+    if (i > 0)
+      headers[line.slice(0, i).trim().toLowerCase()] = line.slice(i + 1).trim();
   }
-  return { status: Number(m[1]), headers, body: text.slice(sep).replace(/^\r?\n\r?\n/, '') };
+  return {
+    status: Number(m[1]),
+    headers,
+    body: text.slice(sep).replace(/^\r?\n\r?\n/, ''),
+  };
 }
 
 export type GhPortOptions = {
@@ -170,7 +260,9 @@ export class GhPort implements GitHubPort {
   }
 
   #remaining(): number {
-    return this.#limits.round_ms - (this.#o.clock.monotonic() - this.#roundStart);
+    return (
+      this.#limits.round_ms - (this.#o.clock.monotonic() - this.#roundStart)
+    );
   }
 
   #record(e: Omit<GhEvidence, 'seq'>): GhEvidence {
@@ -180,18 +272,63 @@ export class GhPort implements GitHubPort {
     return full;
   }
 
-  async request(req: GitHubRequest): Promise<Result<GitHubResponse, GitHubFailure>> {
-    const allowed = (req.method === 'GET' ? GET_ENDPOINTS : req.method === 'POST' ? POST_ENDPOINTS : PATCH_ENDPOINTS).some((re) => re.test(req.path));
-    if (!allowed) return err({ reason: 'not_allowed', status: null, detail: `${req.method} ${req.path} is not allowed`, retry_after_ms: null });
+  async request(
+    req: GitHubRequest,
+  ): Promise<Result<GitHubResponse, GitHubFailure>> {
+    const allowed = (
+      req.method === 'GET'
+        ? GET_ENDPOINTS
+        : req.method === 'POST'
+          ? POST_ENDPOINTS
+          : PATCH_ENDPOINTS
+    ).some((re) => re.test(req.path));
+    if (!allowed)
+      return err({
+        reason: 'not_allowed',
+        status: null,
+        detail: `${req.method} ${req.path} is not allowed`,
+        retry_after_ms: null,
+      });
     const badKey = Object.keys(req.query).find((k) => !QUERY_KEYS.has(k));
-    if (badKey !== undefined) return err({ reason: 'not_allowed', status: null, detail: `query ${badKey} is not allowed`, retry_after_ms: null });
-    if (req.method === 'GET' && req.body !== null) return err({ reason: 'not_allowed', status: null, detail: 'GET has no body', retry_after_ms: null });
-    if (req.method === 'PATCH' && (typeof req.body !== 'object' || req.body === null || Object.keys(req.body).some((k) => !PATCH_FIELDS.has(k)))) {
-      return err({ reason: 'not_allowed', status: null, detail: 'PATCH may change only title and body', retry_after_ms: null });
+    if (badKey !== undefined)
+      return err({
+        reason: 'not_allowed',
+        status: null,
+        detail: `query ${badKey} is not allowed`,
+        retry_after_ms: null,
+      });
+    if (req.method === 'GET' && req.body !== null)
+      return err({
+        reason: 'not_allowed',
+        status: null,
+        detail: 'GET has no body',
+        retry_after_ms: null,
+      });
+    if (
+      req.method === 'PATCH' &&
+      (typeof req.body !== 'object' ||
+        req.body === null ||
+        Object.keys(req.body).some((k) => !PATCH_FIELDS.has(k)))
+    ) {
+      return err({
+        reason: 'not_allowed',
+        status: null,
+        detail: 'PATCH may change only title and body',
+        retry_after_ms: null,
+      });
     }
     const qs = new URLSearchParams(req.query).toString();
     const target = qs === '' ? req.path : `${req.path}?${qs}`;
-    const args = ['api', '--method', req.method, '--include', '-H', 'Accept: application/vnd.github+json', '-H', `X-GitHub-Api-Version: ${API_VERSION}`];
+    const args = [
+      'api',
+      '--method',
+      req.method,
+      '--include',
+      '-H',
+      'Accept: application/vnd.github+json',
+      '-H',
+      `X-GitHub-Api-Version: ${API_VERSION}`,
+    ];
     const write = req.method !== 'GET';
     if (write) args.push('--input', '-');
     args.push(target);
@@ -199,86 +336,216 @@ export class GhPort implements GitHubPort {
     // A write is sent once: a lost answer is unknown, never resent blindly.
     const sends = write ? 1 : this.#limits.max_sends;
 
-    let last: GitHubFailure = { reason: 'unknown', status: null, detail: 'not sent', retry_after_ms: null };
+    let last: GitHubFailure = {
+      reason: 'unknown',
+      status: null,
+      detail: 'not sent',
+      retry_after_ms: null,
+    };
     for (let send = 1; send <= sends; send++) {
-      if (this.#calls >= this.#limits.max_calls) return err({ reason: 'unknown', status: null, detail: 'call cap reached', retry_after_ms: null });
+      if (this.#calls >= this.#limits.max_calls)
+        return err({
+          reason: 'unknown',
+          status: null,
+          detail: 'call cap reached',
+          retry_after_ms: null,
+        });
       const remaining = this.#remaining();
-      if (remaining <= 0) return err({ reason: 'unknown', status: null, detail: 'round deadline reached', retry_after_ms: null });
+      if (remaining <= 0)
+        return err({
+          reason: 'unknown',
+          status: null,
+          detail: 'round deadline reached',
+          retry_after_ms: null,
+        });
       this.#calls++;
-      const r = await this.#o.exec(args, { timeoutMs: Math.min(this.#limits.call_timeout_ms, remaining), maxBytes: this.#limits.max_response_bytes, stdin });
-      const base = { method: req.method, path: target, send, headers: {}, body_redacted: '', digest: null };
+      const r = await this.#o.exec(args, {
+        timeoutMs: Math.min(this.#limits.call_timeout_ms, remaining),
+        maxBytes: this.#limits.max_response_bytes,
+        stdin,
+      });
+      const base = {
+        method: req.method,
+        path: target,
+        send,
+        headers: {},
+        body_redacted: '',
+        digest: null,
+      };
       if (r.timedOut || r.overflow) {
-        this.#record({ ...base, status: null, outcome: r.timedOut ? 'timeout' : 'overflow' });
-        last = { reason: 'unknown', status: null, detail: r.timedOut ? 'timeout' : 'response exceeds byte cap', retry_after_ms: null };
+        this.#record({
+          ...base,
+          status: null,
+          outcome: r.timedOut ? 'timeout' : 'overflow',
+        });
+        last = {
+          reason: 'unknown',
+          status: null,
+          detail: r.timedOut ? 'timeout' : 'response exceeds byte cap',
+          retry_after_ms: null,
+        };
         if (r.overflow) return err(last);
         continue;
       }
       const parsed = parseIncluded(r.stdout);
       if (parsed === null) {
-        this.#record({ ...base, status: null, outcome: r.code === 0 ? 'unparseable' : 'transport_error' });
-        last = { reason: 'unknown', status: null, detail: `no HTTP response (${this.#o.redactor.text(r.stderr.trim()).slice(0, 200)})`, retry_after_ms: null };
+        this.#record({
+          ...base,
+          status: null,
+          outcome: r.code === 0 ? 'unparseable' : 'transport_error',
+        });
+        last = {
+          reason: 'unknown',
+          status: null,
+          detail: `no HTTP response (${this.#o.redactor.text(r.stderr.trim()).slice(0, 200)})`,
+          retry_after_ms: null,
+        };
         continue;
       }
-      const headers = Object.fromEntries(Object.entries(parsed.headers).filter(([k]) => KEEP_HEADERS.has(k)));
+      const headers = Object.fromEntries(
+        Object.entries(parsed.headers).filter(([k]) => KEEP_HEADERS.has(k)),
+      );
       const body_redacted = this.#o.redactor.text(parsed.body);
-      const digest = hashText(canonicalJson({ status: parsed.status, headers, body: body_redacted }));
+      const digest = hashText(
+        canonicalJson({ status: parsed.status, headers, body: body_redacted }),
+      );
       const success = parsed.status >= 200 && parsed.status < 300;
       if (success && r.code !== 0) {
-        this.#record({ ...base, status: parsed.status, outcome: 'transport_error', headers, body_redacted, digest });
-        last = { reason: 'unknown', status: null, detail: `gh exited ${String(r.code)} after HTTP ${parsed.status}`, retry_after_ms: null };
+        this.#record({
+          ...base,
+          status: parsed.status,
+          outcome: 'transport_error',
+          headers,
+          body_redacted,
+          digest,
+        });
+        last = {
+          reason: 'unknown',
+          status: null,
+          detail: `gh exited ${String(r.code)} after HTTP ${parsed.status}`,
+          retry_after_ms: null,
+        };
         continue;
       }
-      this.#record({ ...base, status: parsed.status, outcome: success ? 'ok' : 'http_error', headers, body_redacted, digest });
+      this.#record({
+        ...base,
+        status: parsed.status,
+        outcome: success ? 'ok' : 'http_error',
+        headers,
+        body_redacted,
+        digest,
+      });
       if (success) {
         let body: unknown = null;
         if (parsed.body !== '') {
           try {
             body = JSON.parse(parsed.body) as unknown;
           } catch {
-            return err({ reason: 'unknown', status: parsed.status, detail: 'unparseable JSON body', retry_after_ms: null });
+            return err({
+              reason: 'unknown',
+              status: parsed.status,
+              detail: 'unparseable JSON body',
+              retry_after_ms: null,
+            });
           }
         }
-        return ok({ status: parsed.status, headers, body, evidence_digest: digest });
+        return ok({
+          status: parsed.status,
+          headers,
+          body,
+          evidence_digest: digest,
+        });
       }
       const retryAfter = Number(headers['retry-after'] ?? '0') * 1000;
       let errorBody: unknown;
       try {
-        errorBody = parsed.body === '' ? undefined : (JSON.parse(body_redacted) as unknown);
+        errorBody =
+          parsed.body === ''
+            ? undefined
+            : (JSON.parse(body_redacted) as unknown);
       } catch {
         errorBody = undefined;
       }
-      last = { reason: 'http_error', status: parsed.status, detail: `HTTP ${parsed.status}`, retry_after_ms: retryAfter > 0 ? retryAfter : null, ...(errorBody === undefined ? {} : { body: errorBody }) };
-      const retryable = req.method === 'GET' && (parsed.status >= 500 || parsed.status === 429);
+      last = {
+        reason: 'http_error',
+        status: parsed.status,
+        detail: `HTTP ${parsed.status}`,
+        retry_after_ms: retryAfter > 0 ? retryAfter : null,
+        ...(errorBody === undefined ? {} : { body: errorBody }),
+      };
+      const retryable =
+        req.method === 'GET' && (parsed.status >= 500 || parsed.status === 429);
       if (!retryable) return err(last);
-      if (retryAfter > this.#remaining()) return err({ reason: 'unknown', status: parsed.status, detail: `retry-after ${retryAfter} ms beyond the round window`, retry_after_ms: retryAfter });
-      if (retryAfter > 0) await new Promise((res) => setTimeout(res, retryAfter));
+      if (retryAfter > this.#remaining())
+        return err({
+          reason: 'unknown',
+          status: parsed.status,
+          detail: `retry-after ${retryAfter} ms beyond the round window`,
+          retry_after_ms: retryAfter,
+        });
+      if (retryAfter > 0)
+        await new Promise((res) => setTimeout(res, retryAfter));
     }
     // A POST that got no readable answer may have been applied; that is unknown, never "failed".
     return err(last);
   }
 }
 
-export type ListRead = { readonly items: unknown[]; readonly complete: boolean; readonly pages: number; readonly digest: Hash };
+export type ListRead = {
+  readonly items: unknown[];
+  readonly complete: boolean;
+  readonly pages: number;
+  readonly digest: Hash;
+};
 
 /** Page-numbered GET listing; complete only if the last page was short and no `rel="next"` remains. */
 export async function listAll(
   port: GitHubPort,
   path: string,
   pick: (body: unknown) => unknown[] | null,
-  opts: { readonly per_page?: number; readonly max_pages?: number; readonly query?: Readonly<Record<string, string>> } = {},
+  opts: {
+    readonly per_page?: number;
+    readonly max_pages?: number;
+    readonly query?: Readonly<Record<string, string>>;
+  } = {},
 ): Promise<Result<ListRead, GitHubFailure>> {
   const perPage = opts.per_page ?? DEFAULT_GH_LIMITS.per_page;
   const maxPages = opts.max_pages ?? DEFAULT_GH_LIMITS.max_pages;
   const items: unknown[] = [];
   const digests: string[] = [];
   for (let page = 1; page <= maxPages; page++) {
-    const r = await port.request({ method: 'GET', path, query: { ...opts.query, per_page: String(perPage), page: String(page) }, body: null });
+    const r = await port.request({
+      method: 'GET',
+      path,
+      query: { ...opts.query, per_page: String(perPage), page: String(page) },
+      body: null,
+    });
     if (!r.ok) return r;
     digests.push(r.value.evidence_digest);
     const got = pick(r.value.body);
-    if (got === null) return err({ reason: 'unknown', status: r.value.status, detail: 'unexpected list shape', retry_after_ms: null });
+    if (got === null)
+      return err({
+        reason: 'unknown',
+        status: r.value.status,
+        detail: 'unexpected list shape',
+        retry_after_ms: null,
+      });
     items.push(...got);
-    if (got.length < perPage && !/rel="next"/.test(r.value.headers['link'] ?? '')) return ok({ items, complete: true, pages: page, digest: hashText(digests.join(',')) });
+    if (
+      got.length < perPage &&
+      !/rel="next"/.test(r.value.headers['link'] ?? '')
+    )
+      return ok({
+        items,
+        complete: true,
+        pages: page,
+        digest: hashText(digests.join(',')),
+      });
   }
-  return ok({ items, complete: false, pages: maxPages, digest: hashText(digests.join(',')) });
+  return ok({
+    items,
+    complete: false,
+    pages: maxPages,
+    digest: hashText(digests.join(',')),
+  });
 }

@@ -80,25 +80,39 @@ function isObject(v: unknown): v is JsonObject {
 
 /** Rejects keywords outside the portable subset and objects that are not closed with every key required. */
 export function assertPortableSchema(node: unknown, path = '#'): void {
-  if (!isObject(node)) throw new SchemaPortabilityError(`${path}: schema node must be an object`);
+  if (!isObject(node))
+    throw new SchemaPortabilityError(`${path}: schema node must be an object`);
   for (const key of Object.keys(node)) {
-    if (!PORTABLE_KEYWORDS.has(key)) throw new SchemaPortabilityError(`${path}: keyword ${key} is not portable`);
+    if (!PORTABLE_KEYWORDS.has(key))
+      throw new SchemaPortabilityError(
+        `${path}: keyword ${key} is not portable`,
+      );
   }
   if (node['type'] === 'object') {
     const props = node['properties'];
-    if (!isObject(props)) throw new SchemaPortabilityError(`${path}: object without properties`);
-    if (node['additionalProperties'] !== false) throw new SchemaPortabilityError(`${path}: object is not closed`);
+    if (!isObject(props))
+      throw new SchemaPortabilityError(`${path}: object without properties`);
+    if (node['additionalProperties'] !== false)
+      throw new SchemaPortabilityError(`${path}: object is not closed`);
     const required = node['required'];
     const keys = Object.keys(props).sort();
-    if (!Array.isArray(required) || [...(required as string[])].sort().join('\0') !== keys.join('\0')) {
-      throw new SchemaPortabilityError(`${path}: every property must be required (use null or [] for absence)`);
+    if (
+      !Array.isArray(required) ||
+      [...(required as string[])].sort().join('\0') !== keys.join('\0')
+    ) {
+      throw new SchemaPortabilityError(
+        `${path}: every property must be required (use null or [] for absence)`,
+      );
     }
-    for (const [k, v] of Object.entries(props)) assertPortableSchema(v, `${path}/properties/${k}`);
+    for (const [k, v] of Object.entries(props))
+      assertPortableSchema(v, `${path}/properties/${k}`);
   }
-  if (node['items'] !== undefined) assertPortableSchema(node['items'], `${path}/items`);
+  if (node['items'] !== undefined)
+    assertPortableSchema(node['items'], `${path}/items`);
   const anyOf = node['anyOf'];
   if (anyOf !== undefined) {
-    if (!Array.isArray(anyOf)) throw new SchemaPortabilityError(`${path}: anyOf must be an array`);
+    if (!Array.isArray(anyOf))
+      throw new SchemaPortabilityError(`${path}: anyOf must be an array`);
     anyOf.forEach((v, i) => assertPortableSchema(v, `${path}/anyOf/${i}`));
   }
 }
@@ -124,38 +138,93 @@ export function roleSchemaDigest(role: Role): string {
   return hashCanonical(roleJsonSchema(role));
 }
 
-export type ValidationIssue = { readonly layer: 'structure' | 'semantic'; readonly path: string; readonly message: string };
+export type ValidationIssue = {
+  readonly layer: 'structure' | 'semantic';
+  readonly path: string;
+  readonly message: string;
+};
 
 export type RoleValidation =
-  | { readonly ok: true; readonly role: Role; readonly value: CoderResult | ReviewerResult }
-  | { readonly ok: false; readonly role: Role; readonly issues: readonly ValidationIssue[] };
+  | {
+      readonly ok: true;
+      readonly role: Role;
+      readonly value: CoderResult | ReviewerResult;
+    }
+  | {
+      readonly ok: false;
+      readonly role: Role;
+      readonly issues: readonly ValidationIssue[];
+    };
 
-function textIssue(issues: ValidationIssue[], path: string, text: string, max: number): void {
-  if (text.trim().length === 0) issues.push({ layer: 'semantic', path, message: 'must not be blank' });
-  if (text.length > max) issues.push({ layer: 'semantic', path, message: `longer than ${max} characters` });
+function textIssue(
+  issues: ValidationIssue[],
+  path: string,
+  text: string,
+  max: number,
+): void {
+  if (text.trim().length === 0)
+    issues.push({ layer: 'semantic', path, message: 'must not be blank' });
+  if (text.length > max)
+    issues.push({
+      layer: 'semantic',
+      path,
+      message: `longer than ${max} characters`,
+    });
 }
 
 function coderSemantics(r: CoderResult): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   textIssue(issues, 'summary', r.summary, SUMMARY_MAX);
-  if (r.questions.length > QUESTIONS_MAX) issues.push({ layer: 'semantic', path: 'questions', message: `more than ${QUESTIONS_MAX}` });
+  if (r.questions.length > QUESTIONS_MAX)
+    issues.push({
+      layer: 'semantic',
+      path: 'questions',
+      message: `more than ${QUESTIONS_MAX}`,
+    });
   r.questions.forEach((q, i) => {
     textIssue(issues, `questions[${i}].question`, q.question, TEXT_MAX);
-    if (q.options.length > OPTIONS_MAX) issues.push({ layer: 'semantic', path: `questions[${i}].options`, message: `more than ${OPTIONS_MAX}` });
-    q.options.forEach((o, j) => textIssue(issues, `questions[${i}].options[${j}]`, o, TEXT_MAX));
+    if (q.options.length > OPTIONS_MAX)
+      issues.push({
+        layer: 'semantic',
+        path: `questions[${i}].options`,
+        message: `more than ${OPTIONS_MAX}`,
+      });
+    q.options.forEach((o, j) =>
+      textIssue(issues, `questions[${i}].options[${j}]`, o, TEXT_MAX),
+    );
   });
   if (r.blocker !== null) textIssue(issues, 'blocker', r.blocker, TEXT_MAX);
   switch (r.status) {
     case 'done':
-      if (r.questions.length > 0) issues.push({ layer: 'semantic', path: 'questions', message: 'done must not ask questions' });
-      if (r.blocker !== null) issues.push({ layer: 'semantic', path: 'blocker', message: 'done must not carry a blocker' });
+      if (r.questions.length > 0)
+        issues.push({
+          layer: 'semantic',
+          path: 'questions',
+          message: 'done must not ask questions',
+        });
+      if (r.blocker !== null)
+        issues.push({
+          layer: 'semantic',
+          path: 'blocker',
+          message: 'done must not carry a blocker',
+        });
       break;
     case 'needs_input':
-      if (r.questions.length === 0) issues.push({ layer: 'semantic', path: 'questions', message: 'needs_input requires a question' });
+      if (r.questions.length === 0)
+        issues.push({
+          layer: 'semantic',
+          path: 'questions',
+          message: 'needs_input requires a question',
+        });
       break;
     case 'needs_context':
     case 'blocked':
-      if (r.blocker === null) issues.push({ layer: 'semantic', path: 'blocker', message: `${r.status} requires a blocker` });
+      if (r.blocker === null)
+        issues.push({
+          layer: 'semantic',
+          path: 'blocker',
+          message: `${r.status} requires a blocker`,
+        });
       break;
   }
   return issues;
@@ -164,21 +233,45 @@ function coderSemantics(r: CoderResult): ValidationIssue[] {
 function reviewerSemantics(r: ReviewerResult): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   textIssue(issues, 'summary', r.summary, SUMMARY_MAX);
-  if (r.findings.length > FINDINGS_MAX) issues.push({ layer: 'semantic', path: 'findings', message: `more than ${FINDINGS_MAX}` });
+  if (r.findings.length > FINDINGS_MAX)
+    issues.push({
+      layer: 'semantic',
+      path: 'findings',
+      message: `more than ${FINDINGS_MAX}`,
+    });
   r.findings.forEach((f, i) => {
     textIssue(issues, `findings[${i}].file`, f.file, TEXT_MAX);
     textIssue(issues, `findings[${i}].message`, f.message, TEXT_MAX);
     if (f.file.startsWith('/') || f.file.split('/').includes('..')) {
-      issues.push({ layer: 'semantic', path: `findings[${i}].file`, message: 'must be a repo-relative path' });
+      issues.push({
+        layer: 'semantic',
+        path: `findings[${i}].file`,
+        message: 'must be a repo-relative path',
+      });
     }
-    if (f.line !== null && f.line < 1) issues.push({ layer: 'semantic', path: `findings[${i}].line`, message: 'must be >= 1 or null' });
+    if (f.line !== null && f.line < 1)
+      issues.push({
+        layer: 'semantic',
+        path: `findings[${i}].line`,
+        message: 'must be >= 1 or null',
+      });
   });
-  const blocking = r.findings.some((f) => f.severity === 'critical' || f.severity === 'major');
+  const blocking = r.findings.some(
+    (f) => f.severity === 'critical' || f.severity === 'major',
+  );
   if (r.verdict === 'approve' && blocking) {
-    issues.push({ layer: 'semantic', path: 'verdict', message: 'approve with critical/major findings' });
+    issues.push({
+      layer: 'semantic',
+      path: 'verdict',
+      message: 'approve with critical/major findings',
+    });
   }
   if (r.verdict === 'request_changes' && r.findings.length === 0) {
-    issues.push({ layer: 'semantic', path: 'findings', message: 'request_changes requires a finding' });
+    issues.push({
+      layer: 'semantic',
+      path: 'findings',
+      message: 'request_changes requires a finding',
+    });
   }
   return issues;
 }
@@ -187,18 +280,28 @@ function reviewerSemantics(r: ReviewerResult): ValidationIssue[] {
 export function validateRoleResult(role: Role, value: unknown): RoleValidation {
   if (role === 'reviewer') {
     const parsed = ReviewerResultSchema.safeParse(value);
-    if (!parsed.success) return { ok: false, role, issues: structureIssues(parsed.error) };
+    if (!parsed.success)
+      return { ok: false, role, issues: structureIssues(parsed.error) };
     const issues = reviewerSemantics(parsed.data);
-    return issues.length > 0 ? { ok: false, role, issues } : { ok: true, role, value: parsed.data };
+    return issues.length > 0
+      ? { ok: false, role, issues }
+      : { ok: true, role, value: parsed.data };
   }
   const parsed = CoderResultSchema.safeParse(value);
-  if (!parsed.success) return { ok: false, role, issues: structureIssues(parsed.error) };
+  if (!parsed.success)
+    return { ok: false, role, issues: structureIssues(parsed.error) };
   const issues = coderSemantics(parsed.data);
-  return issues.length > 0 ? { ok: false, role, issues } : { ok: true, role, value: parsed.data };
+  return issues.length > 0
+    ? { ok: false, role, issues }
+    : { ok: true, role, value: parsed.data };
 }
 
 function structureIssues(error: z.ZodError): ValidationIssue[] {
-  return error.issues.map((i) => ({ layer: 'structure', path: i.path.map(String).join('.'), message: i.message }));
+  return error.issues.map((i) => ({
+    layer: 'structure',
+    path: i.path.map(String).join('.'),
+    message: i.message,
+  }));
 }
 
 export function isRole(value: string): value is Role {

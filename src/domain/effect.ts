@@ -16,7 +16,14 @@ export const EFFECT_KINDS = [
 ] as const;
 export type EffectKind = (typeof EFFECT_KINDS)[number];
 
-export const EFFECT_STATUSES = ['pending', 'started', 'succeeded', 'failed', 'unknown', 'invalidated'] as const;
+export const EFFECT_STATUSES = [
+  'pending',
+  'started',
+  'succeeded',
+  'failed',
+  'unknown',
+  'invalidated',
+] as const;
 export type EffectStatus = (typeof EFFECT_STATUSES)[number];
 
 /** Effect nghiệp vụ bị chặn bởi điều kiện claim; effect phục vụ thì không (research R-16). */
@@ -30,7 +37,11 @@ export const BUSINESS_EFFECTS: readonly EffectKind[] = [
   'rerun_ci',
   'merge',
 ];
-export const SERVICE_EFFECTS: readonly EffectKind[] = ['stop_attempt', 'reconcile', 'observe_external'];
+export const SERVICE_EFFECTS: readonly EffectKind[] = [
+  'stop_attempt',
+  'reconcile',
+  'observe_external',
+];
 
 export function isBusinessEffect(kind: EffectKind): boolean {
   return BUSINESS_EFFECTS.includes(kind);
@@ -40,7 +51,12 @@ export function isBusinessEffect(kind: EffectKind): boolean {
  * Work that runs under the single execution slot (FR-044.01): Prepare/setup, gates/autofix, publish and
  * agent attempts. GitHub reads/writes (PR, CI, rerun) and service effects never hold it.
  */
-export const SLOT_EFFECTS: readonly EffectKind[] = ['prepare', 'start_agent', 'run_gates', 'publish'];
+export const SLOT_EFFECTS: readonly EffectKind[] = [
+  'prepare',
+  'start_agent',
+  'run_gates',
+  'publish',
+];
 
 export function holdsSlot(kind: EffectKind): boolean {
   return SLOT_EFFECTS.includes(kind);

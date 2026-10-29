@@ -27,8 +27,14 @@ export function levelOf(b: Binding, models: Record<string, ModelInfo>): Level {
  * tier ≤ `auto_up_to_tier` → `auto`; cao hơn → `needs_approval` hoặc `denied` theo `above`.
  * Nấc 0 là binding khởi đầu đã được profile chấp nhận nên luôn `auto`.
  */
-export function rungState(index: number, b: Binding, level: Level, esc: EscalationPolicy): RungState {
-  if (esc.allow_models !== null && !esc.allow_models.includes(b.model)) return 'denied';
+export function rungState(
+  index: number,
+  b: Binding,
+  level: Level,
+  esc: EscalationPolicy,
+): RungState {
+  if (esc.allow_models !== null && !esc.allow_models.includes(b.model))
+    return 'denied';
   if (index === 0) return 'auto';
   if (level.tier <= esc.auto_up_to_tier) return 'auto';
   return esc.above === 'deny' ? 'denied' : 'needs_approval';
@@ -45,7 +51,11 @@ export function buildLadder(
   let cur = initial;
   const push = (b: Binding): void => {
     const level = levelOf(b, models);
-    rungs.push({ binding: b, level, state: rungState(rungs.length, b, level, esc) });
+    rungs.push({
+      binding: b,
+      level,
+      state: rungState(rungs.length, b, level, esc),
+    });
   };
   push(cur);
   for (const s of steps) {
@@ -57,7 +67,9 @@ export function buildLadder(
       harness: info?.harness ?? cur.harness,
       model_id: info?.id ?? cur.model_id,
       effort: s.effort ?? cur.effort,
-      add_context: s.add_context ? [...cur.add_context, ...s.add_context] : cur.add_context,
+      add_context: s.add_context
+        ? [...cur.add_context, ...s.add_context]
+        : cur.add_context,
     };
     push(cur);
   }
@@ -68,9 +80,12 @@ export function buildLadder(
  * `floor_map[step]` (research R-18): với mỗi mức năng lực xuất hiện trong chính sách, nấc nhỏ nhất
  * trên thang của step có mức ≥ mức đó; không có thì là nấc cuối của thang.
  */
-export function computeFloorMaps(ladders: Record<string, readonly Rung[]>): Record<string, Record<string, number>> {
+export function computeFloorMaps(
+  ladders: Record<string, readonly Rung[]>,
+): Record<string, Record<string, number>> {
   const levels = new Map<string, Level>();
-  for (const ladder of Object.values(ladders)) for (const r of ladder) levels.set(levelKey(r.level), r.level);
+  for (const ladder of Object.values(ladders))
+    for (const r of ladder) levels.set(levelKey(r.level), r.level);
   const out: Record<string, Record<string, number>> = {};
   for (const [step, ladder] of Object.entries(ladders)) {
     const map: Record<string, number> = {};

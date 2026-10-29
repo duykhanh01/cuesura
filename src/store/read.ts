@@ -39,7 +39,9 @@ export function toEvent(r: EventRow): DomainEvent {
     revision: r.revision,
     actor: r.actor,
     causation:
-      r.claim === null ? { dedup_key: r.dedup_key } : { dedup_key: r.dedup_key, claim: r.claim },
+      r.claim === null
+        ? { dedup_key: r.dedup_key }
+        : { dedup_key: r.dedup_key, claim: r.claim },
     payload: JSON.parse(r.payload_json) as unknown,
   } as DomainEvent;
 }
@@ -53,7 +55,9 @@ export function toEffect(r: EffectRow): Effect {
     idem_key: r.idem_key,
     status: r.status as Effect['status'],
     request: JSON.parse(r.request_json) as Record<string, unknown>,
-    ...(r.result_json !== null ? { result: JSON.parse(r.result_json) as unknown } : {}),
+    ...(r.result_json !== null
+      ? { result: JSON.parse(r.result_json) as unknown }
+      : {}),
     reservation_id: r.reservation_id,
   };
 }
@@ -70,25 +74,41 @@ export function toTimer(r: TimerRow): Timer {
 }
 
 export function readTask(db: Database, taskId: string): TaskState | null {
-  const row = db.prepare('SELECT state_json FROM tasks WHERE id = ?').get(taskId) as
-    { state_json: string } | undefined;
+  const row = db
+    .prepare('SELECT state_json FROM tasks WHERE id = ?')
+    .get(taskId) as { state_json: string } | undefined;
   return row === undefined ? null : (JSON.parse(row.state_json) as TaskState);
 }
 
 /** Task IDs in the given statuses, in ID order. */
-export function taskIdsByStatus(db: Database, statuses: readonly TaskStatus[]): string[] {
+export function taskIdsByStatus(
+  db: Database,
+  statuses: readonly TaskStatus[],
+): string[] {
   if (statuses.length === 0) return [];
-  const rows = db.prepare(`SELECT id FROM tasks WHERE status IN (${statuses.map(() => '?').join(', ')}) ORDER BY id`).all(...statuses) as { id: string }[];
+  const rows = db
+    .prepare(
+      `SELECT id FROM tasks WHERE status IN (${statuses.map(() => '?').join(', ')}) ORDER BY id`,
+    )
+    .all(...statuses) as { id: string }[];
   return rows.map((r) => r.id);
 }
 
-export function readTaskStatus(db: Database, taskId: string): TaskStatus | 'missing' {
-  const row = db.prepare('SELECT status FROM tasks WHERE id = ?').get(taskId) as
-    { status: TaskStatus } | undefined;
+export function readTaskStatus(
+  db: Database,
+  taskId: string,
+): TaskStatus | 'missing' {
+  const row = db
+    .prepare('SELECT status FROM tasks WHERE id = ?')
+    .get(taskId) as { status: TaskStatus } | undefined;
   return row?.status ?? 'missing';
 }
 
-export function readEvents(db: Database, taskId: string, fromSeq = 1): DomainEvent[] {
+export function readEvents(
+  db: Database,
+  taskId: string,
+  fromSeq = 1,
+): DomainEvent[] {
   const rows = db
     .prepare('SELECT * FROM events WHERE task_id = ? AND seq >= ? ORDER BY seq')
     .all(taskId, fromSeq) as EventRow[];
@@ -115,7 +135,9 @@ export function readPolicy(
           )
           .get(taskId, revision, policyVersion)
   ) as { policy_json: string } | undefined;
-  return row === undefined ? null : (JSON.parse(row.policy_json) as FrozenPolicy);
+  return row === undefined
+    ? null
+    : (JSON.parse(row.policy_json) as FrozenPolicy);
 }
 
 export function readContext(
@@ -124,16 +146,28 @@ export function readContext(
   revision: number,
 ): FrozenExecutionContext | null {
   const row = db
-    .prepare('SELECT context_json FROM frozen_contexts WHERE task_id = ? AND revision = ?')
+    .prepare(
+      'SELECT context_json FROM frozen_contexts WHERE task_id = ? AND revision = ?',
+    )
     .get(taskId, revision) as { context_json: string } | undefined;
-  return row === undefined ? null : (JSON.parse(row.context_json) as FrozenExecutionContext);
+  return row === undefined
+    ? null
+    : (JSON.parse(row.context_json) as FrozenExecutionContext);
 }
 
 /** Effect chờ executor, theo thứ tự được yêu cầu; `after` (một effect id) cho trang tiếp theo. */
-export function pendingEffects(db: Database, limit: number, after?: string): Effect[] {
+export function pendingEffects(
+  db: Database,
+  limit: number,
+  after?: string,
+): Effect[] {
   const rows = (
     after === undefined
-      ? db.prepare(`SELECT * FROM effects WHERE status = 'pending' ORDER BY created_seq LIMIT ?`).all(limit)
+      ? db
+          .prepare(
+            `SELECT * FROM effects WHERE status = 'pending' ORDER BY created_seq LIMIT ?`,
+          )
+          .all(limit)
       : db
           .prepare(
             `SELECT * FROM effects WHERE status = 'pending' AND created_seq > (SELECT created_seq FROM effects WHERE id = ?) ORDER BY created_seq LIMIT ?`,
@@ -148,8 +182,11 @@ export function readExecutionFacts(db: Database): {
   slot: { holder_task_id: string; request_id: string } | null;
   queue_head: string | null;
 } {
-  const slot = db.prepare(`SELECT holder_task_id, request_id FROM execution_slot WHERE key = 'execution'`).get() as
-    { holder_task_id: string; request_id: string } | undefined;
+  const slot = db
+    .prepare(
+      `SELECT holder_task_id, request_id FROM execution_slot WHERE key = 'execution'`,
+    )
+    .get() as { holder_task_id: string; request_id: string } | undefined;
   const head = readQueue(db, 1)[0];
   return { slot: slot ?? null, queue_head: head?.request_id ?? null };
 }
@@ -164,29 +201,67 @@ export type QueuedRequest = {
 };
 
 /** Open requests in the selector's order (`orderQueue`); at most one per task, so the whole queue is small. */
-export function readQueue(db: Database, limit = Number.MAX_SAFE_INTEGER): QueuedRequest[] {
+export function readQueue(
+  db: Database,
+  limit = Number.MAX_SAFE_INTEGER,
+): QueuedRequest[] {
   const rows = db
-    .prepare(`SELECT request_id, task_id, grp, priority, requested_at, request_global_seq FROM execution_queue WHERE status = 'queued'`)
+    .prepare(
+      `SELECT request_id, task_id, grp, priority, requested_at, request_global_seq FROM execution_queue WHERE status = 'queued'`,
+    )
     .all() as (Omit<QueuedRequest, 'group'> & { grp: 'fresh' | 'resumed' })[];
-  return orderQueue(rows.map(({ grp, ...r }) => ({ ...r, group: grp }))).slice(0, limit);
+  return orderQueue(rows.map(({ grp, ...r }) => ({ ...r, group: grp }))).slice(
+    0,
+    limit,
+  );
 }
 
-export function readSlot(db: Database): { holder_task_id: string; request_id: string; claimed_at: number } | null {
-  const row = db.prepare(`SELECT holder_task_id, request_id, claimed_at FROM execution_slot WHERE key = 'execution'`).get() as
-    { holder_task_id: string; request_id: string; claimed_at: number } | undefined;
+export function readSlot(
+  db: Database,
+): { holder_task_id: string; request_id: string; claimed_at: number } | null {
+  const row = db
+    .prepare(
+      `SELECT holder_task_id, request_id, claimed_at FROM execution_slot WHERE key = 'execution'`,
+    )
+    .get() as
+    | { holder_task_id: string; request_id: string; claimed_at: number }
+    | undefined;
   return row ?? null;
 }
 
-export function readRuntimeContext(db: Database, taskId: string, revision: number): FrozenRuntimeContext | null {
-  const row = db.prepare('SELECT runtime_json FROM runtime_contexts WHERE task_id = ? AND revision = ?').get(taskId, revision) as
-    { runtime_json: string } | undefined;
-  return row === undefined ? null : (JSON.parse(row.runtime_json) as FrozenRuntimeContext);
+export function readRuntimeContext(
+  db: Database,
+  taskId: string,
+  revision: number,
+): FrozenRuntimeContext | null {
+  const row = db
+    .prepare(
+      'SELECT runtime_json FROM runtime_contexts WHERE task_id = ? AND revision = ?',
+    )
+    .get(taskId, revision) as { runtime_json: string } | undefined;
+  return row === undefined
+    ? null
+    : (JSON.parse(row.runtime_json) as FrozenRuntimeContext);
 }
 
 /** Operations not yet proven finished or never launched; startup reconciles these before granting work. */
-export function unresolvedOperations(db: Database): { id: string; task_id: string; effect_id: string; status: string; holds_slot: boolean }[] {
+export function unresolvedOperations(db: Database): {
+  id: string;
+  task_id: string;
+  effect_id: string;
+  status: string;
+  holds_slot: boolean;
+}[] {
   const rows = db
-    .prepare(`SELECT id, task_id, effect_id, status, holds_slot FROM operations WHERE status IN ('registered', 'running', 'unknown', 'lost') ORDER BY id`)
-    .all() as { id: string; task_id: string; effect_id: string; status: string; holds_slot: number }[];
+    .prepare(
+      `SELECT id, task_id, effect_id, status, holds_slot FROM operations WHERE status IN ('registered', 'running', 'unknown', 'lost') ORDER BY id`,
+    )
+    .all() as {
+    id: string;
+    task_id: string;
+    effect_id: string;
+    status: string;
+    holds_slot: number;
+  }[];
   return rows.map((r) => ({ ...r, holds_slot: r.holds_slot === 1 }));
 }

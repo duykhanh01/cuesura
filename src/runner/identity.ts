@@ -14,7 +14,11 @@ export const UNIT_PREFIX = 'cusr-op-';
 
 /** Same operation, same unit: the name is derived from the operation id and nothing else. */
 export function unitName(operationId: string): string {
-  if (!isSafeId(operationId)) throw new RunnerFileError('unsafe_id', `unsafe operation id ${JSON.stringify(operationId)}`);
+  if (!isSafeId(operationId))
+    throw new RunnerFileError(
+      'unsafe_id',
+      `unsafe operation id ${JSON.stringify(operationId)}`,
+    );
   return `${UNIT_PREFIX}${operationId}.service`;
 }
 
@@ -84,7 +88,10 @@ export type PidRecord = z.infer<typeof PidRecordSchema>;
  * Identity of a freshly spawned process group leader, read from inside the runner's unit. Returns
  * null when the process already exited (no start ticks): the caller records that fact instead.
  */
-export function captureIdentity(pid: number, op: { readonly operation_id: string; readonly launch_nonce: string }): PidRecord | null {
+export function captureIdentity(
+  pid: number,
+  op: { readonly operation_id: string; readonly launch_nonce: string },
+): PidRecord | null {
   const ticks = startTicks(pid);
   if (ticks === null) return null;
   const invocation = process.env['INVOCATION_ID'];
@@ -98,13 +105,21 @@ export function captureIdentity(pid: number, op: { readonly operation_id: string
     start_ticks: ticks,
     runner_pid: process.pid,
     runner_start_ticks: startTicks(process.pid),
-    invocation_id: invocation !== undefined && /^[0-9a-f]{32}$/.test(invocation) ? invocation : null,
+    invocation_id:
+      invocation !== undefined && /^[0-9a-f]{32}$/.test(invocation)
+        ? invocation
+        : null,
     cgroup: ownCgroup(),
   };
 }
 
 export function toProcessIdentity(rec: PidRecord): ProcessIdentity {
-  return { boot_id: rec.boot_id, pid: rec.pid, pgid: rec.pgid, start_ticks: rec.start_ticks };
+  return {
+    boot_id: rec.boot_id,
+    pid: rec.pid,
+    pgid: rec.pgid,
+    start_ticks: rec.start_ticks,
+  };
 }
 
 export type IdentityProbe = {
@@ -121,7 +136,10 @@ export const HOST_PROBE: IdentityProbe = { bootId, startTicks: readStartTicks };
  */
 export type IdentityCheck = 'alive' | 'gone' | 'other_boot' | 'unknown';
 
-export function checkIdentity(id: ProcessIdentity, probe: IdentityProbe = HOST_PROBE): IdentityCheck {
+export function checkIdentity(
+  id: ProcessIdentity,
+  probe: IdentityProbe = HOST_PROBE,
+): IdentityCheck {
   if (id.boot_id !== probe.bootId()) return 'other_boot';
   const ticks = probe.startTicks(id.pid);
   if (ticks === 'unreadable') return 'unknown';

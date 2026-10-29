@@ -1,12 +1,23 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { GitCommandRunner, type GitRunnerOptions } from '../../src/adapters/git/command.ts';
+import {
+  GitCommandRunner,
+  type GitRunnerOptions,
+} from '../../src/adapters/git/command.ts';
 
 // Temp Git repos driven by real git for adapter tests; nothing outside the temp dir is touched.
 
-export const GIT_BIN = realpathSync(spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout.trim());
+export const GIT_BIN = realpathSync(
+  spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout.trim(),
+);
 
 export type GitSandbox = {
   readonly base: string;
@@ -48,13 +59,24 @@ export function gitSandbox(prefix = 'cusr-git-'): GitSandbox {
     repo(name = `repo${n++}`, files = { 'a.txt': 'hello\n' }) {
       const dir = join(base, name);
       sh(base, 'init', '-q', '-b', 'main', dir);
-      for (const [f, text] of Object.entries(files)) writeFileSync(join(dir, f), text);
+      for (const [f, text] of Object.entries(files))
+        writeFileSync(join(dir, f), text);
       sh(dir, 'add', '-A');
       sh(dir, 'commit', '-qm', 'init');
       return dir;
     },
     runner: (o = {}) =>
-      new GitCommandRunner({ git: GIT_BIN, emptyHooksDir: hooks, safeDirectories: [base], credentialHelper: null, home: base, protocols: ['file'], env: { ...process.env, ...env }, passEnv: [], ...o }),
+      new GitCommandRunner({
+        git: GIT_BIN,
+        emptyHooksDir: hooks,
+        safeDirectories: [base],
+        credentialHelper: null,
+        home: base,
+        protocols: ['file'],
+        env: { ...process.env, ...env },
+        passEnv: [],
+        ...o,
+      }),
     cleanup: () => rmSync(base, { recursive: true, force: true }),
   };
 }

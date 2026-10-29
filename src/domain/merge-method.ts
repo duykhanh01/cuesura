@@ -15,6 +15,8 @@ export const MergeMethodSchema = z.enum(MERGE_METHODS);
 export const DEFAULT_MERGE_METHOD: MergeMethod = 'squash';
 
 /** The method for a new task: the declared one, else the default. */
-export function resolveMergeMethod(project: { readonly merge_method?: MergeMethod } | null | undefined): MergeMethod {
+export function resolveMergeMethod(
+  project: { readonly merge_method?: MergeMethod } | null | undefined,
+): MergeMethod {
   return project?.merge_method ?? DEFAULT_MERGE_METHOD;
 }

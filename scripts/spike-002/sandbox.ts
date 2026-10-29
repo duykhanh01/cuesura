@@ -10,14 +10,29 @@
  * hardening, not a baseline prerequisite. The probe never loads policy, uses sudo or touches sysctl.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir, tmpdir, userInfo } from 'node:os';
 import { dirname, isAbsolute, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { hashCanonical } from '../../src/shared/hash.ts';
 
-export const SANDBOX_ROLES = ['coder', 'fixer', 'reviewer', 'setup', 'gate'] as const;
+export const SANDBOX_ROLES = [
+  'coder',
+  'fixer',
+  'reviewer',
+  'setup',
+  'gate',
+] as const;
 export type SandboxRole = (typeof SANDBOX_ROLES)[number];
 
 /** Fixed in-sandbox locations; worktree and git dirs keep their host paths so gitdir links resolve. */
@@ -54,7 +69,9 @@ export type HostPolicy = {
   readonly systemRoTry: readonly string[];
 };
 
-export function defaultHostPolicy(extraForbidden: readonly string[] = []): HostPolicy {
+export function defaultHostPolicy(
+  extraForbidden: readonly string[] = [],
+): HostPolicy {
   const home = homedir();
   const uid = userInfo().uid;
   return {
@@ -109,7 +126,11 @@ export type SandboxPlan = {
   readonly sources: readonly {
     readonly argv_index: number;
     readonly source: string;
-    readonly identity: { readonly realpath: string; readonly dev: string; readonly ino: string } | null;
+    readonly identity: {
+      readonly realpath: string;
+      readonly dev: string;
+      readonly ino: string;
+    } | null;
   }[];
   readonly env: Readonly<Record<string, string>>;
   readonly cwd: string;
@@ -121,18 +142,33 @@ export class SandboxPolicyError extends Error {
   override name = 'SandboxPolicyError';
 }
 
-const AGENT_ROLES: ReadonlySet<SandboxRole> = new Set(['coder', 'fixer', 'reviewer']);
-const FORBIDDEN_ENV = /^(GH_|GITHUB_|SSH_AUTH_SOCK$|DBUS_|XDG_RUNTIME_DIR$|DOCKER_|CUSR_(ADMIN|OPERATE|TOKEN))/;
-const SECRET_ENV = /(TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|APIKEY|CREDENTIAL|PRIVATE_KEY|AUTH)/i;
+const AGENT_ROLES: ReadonlySet<SandboxRole> = new Set([
+  'coder',
+  'fixer',
+  'reviewer',
+]);
+const FORBIDDEN_ENV =
+  /^(GH_|GITHUB_|SSH_AUTH_SOCK$|DBUS_|XDG_RUNTIME_DIR$|DOCKER_|CUSR_(ADMIN|OPERATE|TOKEN))/;
+const SECRET_ENV =
+  /(TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|APIKEY|CREDENTIAL|PRIVATE_KEY|AUTH)/i;
 
 function within(child: string, parent: string): boolean {
-  return child === parent || child.startsWith(parent.endsWith(sep) ? parent : parent + sep);
+  return (
+    child === parent ||
+    child.startsWith(parent.endsWith(sep) ? parent : parent + sep)
+  );
 }
 
 /** Absolute, normalised, symlink-free; callers must pass real paths so mounts cannot be redirected. */
 function checkSource(path: string, what: string): string {
-  if (!isAbsolute(path) || normalize(path) !== path || path.split(sep).includes('..')) {
-    throw new SandboxPolicyError(`${what}: ${path} must be an absolute normalised path`);
+  if (
+    !isAbsolute(path) ||
+    normalize(path) !== path ||
+    path.split(sep).includes('..')
+  ) {
+    throw new SandboxPolicyError(
+      `${what}: ${path} must be an absolute normalised path`,
+    );
   }
   let real: string;
   try {
@@ -140,39 +176,71 @@ function checkSource(path: string, what: string): string {
   } catch {
     throw new SandboxPolicyError(`${what}: ${path} does not exist`);
   }
-  if (real !== path) throw new SandboxPolicyError(`${what}: ${path} resolves through a symlink to ${real}`);
+  if (real !== path)
+    throw new SandboxPolicyError(
+      `${what}: ${path} resolves through a symlink to ${real}`,
+    );
   return path;
 }
 
-function checkNotForbidden(path: string, what: string, policy: HostPolicy): void {
-  if (path === '/' || within(policy.hostHome, path) || path === dirname(policy.hostHome)) {
+function checkNotForbidden(
+  path: string,
+  what: string,
+  policy: HostPolicy,
+): void {
+  if (
+    path === '/' ||
+    within(policy.hostHome, path) ||
+    path === dirname(policy.hostHome)
+  ) {
     throw new SandboxPolicyError(`${what}: ${path} would expose the host home`);
   }
   for (const f of policy.forbidden) {
-    if (within(path, f) || within(f, path)) throw new SandboxPolicyError(`${what}: ${path} overlaps forbidden ${f}`);
+    if (within(path, f) || within(f, path))
+      throw new SandboxPolicyError(`${what}: ${path} overlaps forbidden ${f}`);
   }
 }
 
-function checkEnv(role: SandboxRole, env: Readonly<Record<string, string>>): void {
+function checkEnv(
+  role: SandboxRole,
+  env: Readonly<Record<string, string>>,
+): void {
   for (const key of Object.keys(env)) {
-    if (!/^[A-Z_][A-Z0-9_]*$/.test(key)) throw new SandboxPolicyError(`env ${key}: invalid name`);
-    if (FORBIDDEN_ENV.test(key)) throw new SandboxPolicyError(`env ${key}: orchestration/control secret is never passed`);
+    if (!/^[A-Z_][A-Z0-9_]*$/.test(key))
+      throw new SandboxPolicyError(`env ${key}: invalid name`);
+    if (FORBIDDEN_ENV.test(key))
+      throw new SandboxPolicyError(
+        `env ${key}: orchestration/control secret is never passed`,
+      );
     if (SECRET_ENV.test(key)) {
       // Model auth lives in the private home; no role receives secrets via env in this prototype.
-      throw new SandboxPolicyError(`env ${key}: secret-like variable rejected for ${role}`);
+      throw new SandboxPolicyError(
+        `env ${key}: secret-like variable rejected for ${role}`,
+      );
     }
   }
 }
 
 /** Pure: validates the layout against the host policy and returns the bwrap argv prefix. */
-export function buildSandbox(input: SandboxLayout, policy: HostPolicy = defaultHostPolicy()): SandboxPlan {
+export function buildSandbox(
+  input: SandboxLayout,
+  policy: HostPolicy = defaultHostPolicy(),
+): SandboxPlan {
   const layout = SandboxLayoutSchema.parse(input);
   const role = layout.role;
   const agent = AGENT_ROLES.has(role);
   const mounts: Mount[] = [];
 
-  for (const p of policy.systemRo) mounts.push({ kind: 'ro', source: p, target: p, purpose: 'system' });
-  for (const p of policy.systemRoTry) mounts.push({ kind: 'ro', source: p, target: p, purpose: 'system', optional: true });
+  for (const p of policy.systemRo)
+    mounts.push({ kind: 'ro', source: p, target: p, purpose: 'system' });
+  for (const p of policy.systemRoTry)
+    mounts.push({
+      kind: 'ro',
+      source: p,
+      target: p,
+      purpose: 'system',
+      optional: true,
+    });
 
   for (const t of layout.toolchain) {
     checkNotForbidden(checkSource(t, 'toolchain'), 'toolchain', policy);
@@ -181,12 +249,26 @@ export function buildSandbox(input: SandboxLayout, policy: HostPolicy = defaultH
 
   const worktree = checkSource(layout.worktree, 'worktree');
   checkNotForbidden(worktree, 'worktree', policy);
-  mounts.push({ kind: role === 'reviewer' ? 'ro' : 'rw', source: worktree, target: worktree, purpose: 'worktree' });
+  mounts.push({
+    kind: role === 'reviewer' ? 'ro' : 'rw',
+    source: worktree,
+    target: worktree,
+    purpose: 'worktree',
+  });
   // `.git` (file for linked worktrees, dir for a main checkout) is metadata: overlay it read-only.
   const dotGit = join(worktree, '.git');
   if (existsSync(dotGit)) {
-    checkNotForbidden(checkSource(dotGit, 'worktree .git'), 'worktree .git', policy);
-    mounts.push({ kind: 'ro', source: dotGit, target: dotGit, purpose: 'git-metadata' });
+    checkNotForbidden(
+      checkSource(dotGit, 'worktree .git'),
+      'worktree .git',
+      policy,
+    );
+    mounts.push({
+      kind: 'ro',
+      source: dotGit,
+      target: dotGit,
+      purpose: 'git-metadata',
+    });
   }
   for (const g of layout.git_dirs) {
     checkNotForbidden(checkSource(g, 'git_dir'), 'git_dir', policy);
@@ -195,19 +277,36 @@ export function buildSandbox(input: SandboxLayout, policy: HostPolicy = defaultH
 
   const scratch = checkSource(layout.scratch, 'scratch');
   checkNotForbidden(scratch, 'scratch', policy);
-  if (within(scratch, worktree) || within(worktree, scratch)) throw new SandboxPolicyError('scratch must not overlap the worktree');
-  mounts.push({ kind: 'rw', source: scratch, target: IN_SANDBOX.scratch, purpose: 'scratch' });
+  if (within(scratch, worktree) || within(worktree, scratch))
+    throw new SandboxPolicyError('scratch must not overlap the worktree');
+  mounts.push({
+    kind: 'rw',
+    source: scratch,
+    target: IN_SANDBOX.scratch,
+    purpose: 'scratch',
+  });
 
   if (agent) {
-    if (layout.private_home === null) throw new SandboxPolicyError(`${role} requires a private home`);
+    if (layout.private_home === null)
+      throw new SandboxPolicyError(`${role} requires a private home`);
     const home = checkSource(layout.private_home, 'private_home');
     checkNotForbidden(home, 'private_home', policy);
-    mounts.push({ kind: 'rw', source: home, target: IN_SANDBOX.home, purpose: 'private-home' });
+    mounts.push({
+      kind: 'rw',
+      source: home,
+      target: IN_SANDBOX.home,
+      purpose: 'private-home',
+    });
   } else if (layout.private_home !== null) {
-    throw new SandboxPolicyError(`${role} must not receive a harness home (no model auth for setup/gate)`);
+    throw new SandboxPolicyError(
+      `${role} must not receive a harness home (no model auth for setup/gate)`,
+    );
   }
 
-  for (const [key, target] of [['context', IN_SANDBOX.context], ['schema', IN_SANDBOX.schema]] as const) {
+  for (const [key, target] of [
+    ['context', IN_SANDBOX.context],
+    ['schema', IN_SANDBOX.schema],
+  ] as const) {
     const src = layout[key];
     if (src === null) continue;
     checkNotForbidden(checkSource(src, key), key, policy);
@@ -218,9 +317,21 @@ export function buildSandbox(input: SandboxLayout, policy: HostPolicy = defaultH
   // of that worktree (including private home) would bypass the .git overlay at its host path.
   for (const rw of mounts.filter((m) => m.kind === 'rw')) {
     for (const other of mounts) {
-      if (rw === other || (!within(rw.source, other.source) && !within(other.source, rw.source))) continue;
-      if (rw.purpose === 'worktree' && other.purpose === 'git-metadata' && within(other.source, rw.source) && other.target === other.source) continue;
-      throw new SandboxPolicyError(`${rw.purpose} overlaps ${other.purpose}: ${rw.source} / ${other.source}`);
+      if (
+        rw === other ||
+        (!within(rw.source, other.source) && !within(other.source, rw.source))
+      )
+        continue;
+      if (
+        rw.purpose === 'worktree' &&
+        other.purpose === 'git-metadata' &&
+        within(other.source, rw.source) &&
+        other.target === other.source
+      )
+        continue;
+      throw new SandboxPolicyError(
+        `${rw.purpose} overlaps ${other.purpose}: ${rw.source} / ${other.source}`,
+      );
     }
   }
 
@@ -270,9 +381,13 @@ export function buildSandbox(input: SandboxLayout, policy: HostPolicy = defaultH
       const realpath = realpathSync(m.source);
       const st = statSync(m.source, { bigint: true });
       identity = { realpath, dev: String(st.dev), ino: String(st.ino) };
-      if (m.purpose !== 'system' && realpath !== m.source) throw new SandboxPolicyError(`${m.purpose}: source changed during planning`);
+      if (m.purpose !== 'system' && realpath !== m.source)
+        throw new SandboxPolicyError(
+          `${m.purpose}: source changed during planning`,
+        );
     } catch (e) {
-      if (m.optional !== true || (e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+      if (m.optional !== true || (e as NodeJS.ErrnoException).code !== 'ENOENT')
+        throw e;
       identity = null;
     }
     sources.push({ argv_index: argv.length, source: m.source, identity });
@@ -280,7 +395,8 @@ export function buildSandbox(input: SandboxLayout, policy: HostPolicy = defaultH
     argv.push(m.optional === true ? `${flag}-try` : flag, m.source, m.target);
   }
   argv.push('--clearenv');
-  for (const [k, v] of Object.entries(env).sort(([a], [b]) => (a < b ? -1 : 1))) argv.push('--setenv', k, v);
+  for (const [k, v] of Object.entries(env).sort(([a], [b]) => (a < b ? -1 : 1)))
+    argv.push('--setenv', k, v);
   argv.push('--chdir', worktree);
 
   return {
@@ -296,16 +412,37 @@ export function buildSandbox(input: SandboxLayout, policy: HostPolicy = defaultH
 }
 
 /** The launcher verifies identities and binds inherited FDs, closing the path lookup race. */
-export function sandboxCommand(plan: SandboxPlan, command: readonly string[], bwrap = '/usr/bin/bwrap'): string[] {
-  return ['/usr/bin/python3', '-I', fileURLToPath(new URL('./sandbox-exec.py', import.meta.url)), JSON.stringify({ bwrap, argv: plan.argv, sources: plan.sources }), ...command];
+export function sandboxCommand(
+  plan: SandboxPlan,
+  command: readonly string[],
+  bwrap = '/usr/bin/bwrap',
+): string[] {
+  return [
+    '/usr/bin/python3',
+    '-I',
+    fileURLToPath(new URL('./sandbox-exec.py', import.meta.url)),
+    JSON.stringify({ bwrap, argv: plan.argv, sources: plan.sources }),
+    ...command,
+  ];
 }
 
-export function bwrapUsable(bwrap = '/usr/bin/bwrap'): { usable: boolean; detail: string } {
-  if (!existsSync(bwrap)) return { usable: false, detail: `${bwrap} not found` };
-  const r = spawnSync(bwrap, ['--unshare-user', '--ro-bind', '/', '/', '/usr/bin/true'], { encoding: 'utf8', timeout: 10_000 });
+export function bwrapUsable(bwrap = '/usr/bin/bwrap'): {
+  usable: boolean;
+  detail: string;
+} {
+  if (!existsSync(bwrap))
+    return { usable: false, detail: `${bwrap} not found` };
+  const r = spawnSync(
+    bwrap,
+    ['--unshare-user', '--ro-bind', '/', '/', '/usr/bin/true'],
+    { encoding: 'utf8', timeout: 10_000 },
+  );
   return r.status === 0
     ? { usable: true, detail: 'bwrap --unshare-user ran /usr/bin/true' }
-    : { usable: false, detail: `exit ${String(r.status)}: ${(r.stderr || r.error?.message || '').trim()}` };
+    : {
+        usable: false,
+        detail: `exit ${String(r.status)}: ${(r.stderr || r.error?.message || '').trim()}`,
+      };
 }
 
 // --- canary probe -----------------------------------------------------------------------------
@@ -332,24 +469,48 @@ export type ProbeFixture = {
 };
 
 function git(args: readonly string[], cwd: string): void {
-  const r = spawnSync('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', ...args], {
-    cwd,
-    encoding: 'utf8',
-    env: { PATH: process.env['PATH'] ?? '/usr/bin:/bin', HOME: cwd, GIT_CONFIG_NOSYSTEM: '1', LANG: 'C' },
-  });
-  if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
+  const r = spawnSync(
+    'git',
+    ['-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', ...args],
+    {
+      cwd,
+      encoding: 'utf8',
+      env: {
+        PATH: process.env['PATH'] ?? '/usr/bin:/bin',
+        HOME: cwd,
+        GIT_CONFIG_NOSYSTEM: '1',
+        LANG: 'C',
+      },
+    },
+  );
+  if (r.status !== 0)
+    throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
 }
 
 /** Throwaway repo + linked worktree + canary files under `base` (real path, not under host home). */
 export function createProbeFixture(baseDir?: string): ProbeFixture {
-  const base = realpathSync(baseDir ?? mkdtempSync(join(tmpdir(), 'cusr-spike-sandbox-')));
+  const base = realpathSync(
+    baseDir ?? mkdtempSync(join(tmpdir(), 'cusr-spike-sandbox-')),
+  );
   const repo = join(base, 'repo');
   const worktree = join(base, 'worktree');
   mkdirSync(repo);
   git(['init', '-q', '-b', 'main'], repo);
   writeFileSync(join(repo, 'README.md'), 'fixture\n');
   git(['add', 'README.md'], repo);
-  git(['-c', 'user.name=cusr', '-c', 'user.email=cusr@invalid', 'commit', '-q', '-m', 'init'], repo);
+  git(
+    [
+      '-c',
+      'user.name=cusr',
+      '-c',
+      'user.email=cusr@invalid',
+      'commit',
+      '-q',
+      '-m',
+      'init',
+    ],
+    repo,
+  );
   git(['worktree', 'add', '-q', '-b', 'cusr/probe', worktree], repo);
   const dirs = {
     scratch: join(base, 'scratch'),
@@ -372,7 +533,10 @@ export function createProbeFixture(baseDir?: string): ProbeFixture {
   };
 }
 
-export function probeLayout(role: SandboxRole, fx: ProbeFixture): SandboxLayout {
+export function probeLayout(
+  role: SandboxRole,
+  fx: ProbeFixture,
+): SandboxLayout {
   return {
     role,
     worktree: fx.worktree,
@@ -400,14 +564,24 @@ case "$op" in
   env) env | cut -d= -f1 | sort | tr '\n' ' ' ;;
 esac`;
 
-function runCheck(plan: SandboxPlan, op: string, path: string, bwrap: string): string {
-  const [exe, ...args] = sandboxCommand(plan, ['/bin/sh', '-c', CHECK, 'sh', op, path], bwrap);
+function runCheck(
+  plan: SandboxPlan,
+  op: string,
+  path: string,
+  bwrap: string,
+): string {
+  const [exe, ...args] = sandboxCommand(
+    plan,
+    ['/bin/sh', '-c', CHECK, 'sh', op, path],
+    bwrap,
+  );
   const r = spawnSync(exe as string, args, {
     encoding: 'utf8',
     timeout: 20_000,
     env: {},
   });
-  if (r.status !== 0) return `error: exit ${String(r.status)} ${(r.stderr || r.error?.message || '').trim()}`;
+  if (r.status !== 0)
+    return `error: exit ${String(r.status)} ${(r.stderr || r.error?.message || '').trim()}`;
   return r.stdout.trim();
 }
 
@@ -419,31 +593,66 @@ function firstHostHomeEntry(home: string): string | null {
 }
 
 /** Runs canaries for one role. `pass: null` marks an observation that is recorded, not judged. */
-export function probeRole(role: SandboxRole, fx: ProbeFixture, bwrap = '/usr/bin/bwrap'): CanaryResult[] {
+export function probeRole(
+  role: SandboxRole,
+  fx: ProbeFixture,
+  bwrap = '/usr/bin/bwrap',
+): CanaryResult[] {
   // The fixture lives outside the host home, so the default policy accepts it.
   const plan = buildSandbox(probeLayout(role, fx));
   const writes = role !== 'reviewer';
   const uid = userInfo().uid;
   const checks: Array<[string, string, string, ProbeExpect]> = [
     ['outside canary unreadable', 'read', join(fx.outside, 'canary'), 'denied'],
-    ['control socket path absent', 'exists', join(fx.control, 'cusrd.sock'), 'denied'],
+    [
+      'control socket path absent',
+      'exists',
+      join(fx.control, 'cusrd.sock'),
+      'denied',
+    ],
     ['user bus absent', 'exists', `/run/user/${uid}/bus`, 'denied'],
     ['docker socket absent', 'exists', '/var/run/docker.sock', 'denied'],
     ['worktree readable', 'read', join(fx.worktree, 'README.md'), 'allowed'],
-    ['worktree write', 'write', join(fx.worktree, 'agent-write.txt'), writes ? 'allowed' : 'denied'],
-    ['worktree .git file read-only', 'write', join(fx.worktree, '.git'), 'denied'],
+    [
+      'worktree write',
+      'write',
+      join(fx.worktree, 'agent-write.txt'),
+      writes ? 'allowed' : 'denied',
+    ],
+    [
+      'worktree .git file read-only',
+      'write',
+      join(fx.worktree, '.git'),
+      'denied',
+    ],
     ['git common dir readable', 'read', join(fx.gitCommon, 'HEAD'), 'allowed'],
     ['git common dir read-only', 'write', join(fx.gitCommon, 'HEAD'), 'denied'],
     ['git admin dir read-only', 'write', join(fx.gitAdmin, 'HEAD'), 'denied'],
     ['scratch writable', 'write', join(IN_SANDBOX.scratch, 'x'), 'allowed'],
-    ['context readable', 'read', join(IN_SANDBOX.context, 'prompt.md'), 'allowed'],
-    ['context read-only', 'write', join(IN_SANDBOX.context, 'prompt.md'), 'denied'],
+    [
+      'context readable',
+      'read',
+      join(IN_SANDBOX.context, 'prompt.md'),
+      'allowed',
+    ],
+    [
+      'context read-only',
+      'write',
+      join(IN_SANDBOX.context, 'prompt.md'),
+      'denied',
+    ],
     ['home writable', 'write', join(IN_SANDBOX.home, 'x'), 'allowed'],
     ['/usr read-only', 'write', '/usr/cusr-canary', 'denied'],
   ];
   const hostHomeEntry = firstHostHomeEntry(homedir());
-  if (hostHomeEntry !== null) checks.push(['host home entry absent', 'exists', hostHomeEntry, 'denied']);
-  for (const p of [`${homedir()}/.ssh`, `${homedir()}/.config/gh`, `${homedir()}/.claude`, `${homedir()}/.codex`]) {
+  if (hostHomeEntry !== null)
+    checks.push(['host home entry absent', 'exists', hostHomeEntry, 'denied']);
+  for (const p of [
+    `${homedir()}/.ssh`,
+    `${homedir()}/.config/gh`,
+    `${homedir()}/.claude`,
+    `${homedir()}/.codex`,
+  ]) {
     checks.push([`credential path absent ${p}`, 'exists', p, 'denied']);
   }
 
@@ -452,7 +661,12 @@ export function probeRole(role: SandboxRole, fx: ProbeFixture, bwrap = '/usr/bin
     return { name, expect, observed, pass: observed === expect };
   });
   const pids = runCheck(plan, 'pids', '', bwrap);
-  results.push({ name: 'pid namespace (visible pids <= 4)', expect: 'denied', observed: pids, pass: Number(pids) > 0 && Number(pids) <= 4 });
+  results.push({
+    name: 'pid namespace (visible pids <= 4)',
+    expect: 'denied',
+    observed: pids,
+    pass: Number(pids) > 0 && Number(pids) <= 4,
+  });
   const status = runCheck(plan, 'status', '', bwrap);
   results.push({
     name: 'no_new_privs and dropped bounding caps',
@@ -461,10 +675,22 @@ export function probeRole(role: SandboxRole, fx: ProbeFixture, bwrap = '/usr/bin
     pass: /NoNewPrivs:\s+1/.test(status) && /CapEff:\s+0+\b/.test(status),
   });
   const env = runCheck(plan, 'env', '', bwrap);
-  const leaked = env.split(/\s+/).filter((k) => FORBIDDEN_ENV.test(k) || SECRET_ENV.test(k));
-  results.push({ name: 'no secret env', expect: 'denied', observed: env, pass: leaked.length === 0 });
+  const leaked = env
+    .split(/\s+/)
+    .filter((k) => FORBIDDEN_ENV.test(k) || SECRET_ENV.test(k));
+  results.push({
+    name: 'no secret env',
+    expect: 'denied',
+    observed: env,
+    pass: leaked.length === 0,
+  });
   // Optional host hardening is recorded separately from the baseline access boundary (ADR-0004).
-  results.push({ name: 'apparmor label', expect: 'record', observed: runCheck(plan, 'label', '', bwrap), pass: null });
+  results.push({
+    name: 'apparmor label',
+    expect: 'record',
+    observed: runCheck(plan, 'label', '', bwrap),
+    pass: null,
+  });
   return results;
 }
 
@@ -472,10 +698,26 @@ export type ProbeReport = {
   readonly schema_version: 1;
   readonly kind: 'spike-0-sandbox-probe';
   readonly evidence_scope: string;
-  readonly bwrap: { readonly path: string; readonly version: string; readonly usable: boolean; readonly detail: string };
+  readonly bwrap: {
+    readonly path: string;
+    readonly version: string;
+    readonly usable: boolean;
+    readonly detail: string;
+  };
   readonly kernel: string;
-  readonly roles: Record<string, { readonly layout_digest: string; readonly pass: boolean; readonly canaries: readonly CanaryResult[] }>;
-  readonly apparmor_fixture: { readonly ran: boolean; readonly exit: number | null; readonly output: string } | null;
+  readonly roles: Record<
+    string,
+    {
+      readonly layout_digest: string;
+      readonly pass: boolean;
+      readonly canaries: readonly CanaryResult[];
+    }
+  >;
+  readonly apparmor_fixture: {
+    readonly ran: boolean;
+    readonly exit: number | null;
+    readonly output: string;
+  } | null;
   readonly layout_pass: boolean;
 };
 
@@ -484,7 +726,10 @@ function versionOf(cmd: string, args: readonly string[]): string {
   return (r.stdout || r.stderr || '').trim() || 'unknown';
 }
 
-export function runProbe(roles: readonly SandboxRole[], opts: { base?: string; apparmorFixture?: boolean; bwrap?: string } = {}): ProbeReport {
+export function runProbe(
+  roles: readonly SandboxRole[],
+  opts: { base?: string; apparmorFixture?: boolean; bwrap?: string } = {},
+): ProbeReport {
   const bwrap = opts.bwrap ?? '/usr/bin/bwrap';
   const usable = bwrapUsable(bwrap);
   const report: ProbeReport = {
@@ -492,7 +737,12 @@ export function runProbe(roles: readonly SandboxRole[], opts: { base?: string; a
     kind: 'spike-0-sandbox-probe',
     evidence_scope:
       'Outer mount/PID/env canaries on this machine only (ADR-0004). Not S0.1 proof in full: FD/socket/race, systemd lifetime and pinned vendor/permission/auth records are still required. AppArmor child-stack hardening is optional.',
-    bwrap: { path: bwrap, version: versionOf(bwrap, ['--version']), usable: usable.usable, detail: usable.detail },
+    bwrap: {
+      path: bwrap,
+      version: versionOf(bwrap, ['--version']),
+      usable: usable.usable,
+      detail: usable.detail,
+    },
     kernel: versionOf('uname', ['-r']),
     roles: {},
     apparmor_fixture: null,
@@ -506,20 +756,42 @@ export function runProbe(roles: readonly SandboxRole[], opts: { base?: string; a
       const canaries = probeRole(role, fx, bwrap);
       const pass = canaries.every((c) => c.pass !== false);
       all &&= pass;
-      report.roles[role] = { layout_digest: buildSandbox(probeLayout(role, fx)).layout_digest, pass, canaries };
+      report.roles[role] = {
+        layout_digest: buildSandbox(probeLayout(role, fx)).layout_digest,
+        pass,
+        canaries,
+      };
     }
     let fixture: ProbeReport['apparmor_fixture'] = null;
     if (opts.apparmorFixture === true) {
-      const script = fileURLToPath(new URL('../../deploy/apparmor/probe-child.py', import.meta.url));
+      const script = fileURLToPath(
+        new URL('../../deploy/apparmor/probe-child.py', import.meta.url),
+      );
       const dir = dirname(script);
-      const plan = buildSandbox({ ...probeLayout('coder', fx), toolchain: [realpathSync(dir)] });
-      const [exe, ...args] = sandboxCommand(plan, ['/usr/bin/python3', script], bwrap);
-      const r = spawnSync(exe as string, args, { encoding: 'utf8', timeout: 60_000, env: {} });
-      fixture = { ran: true, exit: r.status, output: `${r.stdout}${r.stderr}`.trim().slice(0, 4_000) };
+      const plan = buildSandbox({
+        ...probeLayout('coder', fx),
+        toolchain: [realpathSync(dir)],
+      });
+      const [exe, ...args] = sandboxCommand(
+        plan,
+        ['/usr/bin/python3', script],
+        bwrap,
+      );
+      const r = spawnSync(exe as string, args, {
+        encoding: 'utf8',
+        timeout: 60_000,
+        env: {},
+      });
+      fixture = {
+        ran: true,
+        exit: r.status,
+        output: `${r.stdout}${r.stderr}`.trim().slice(0, 4_000),
+      };
     }
     return { ...report, apparmor_fixture: fixture, layout_pass: all };
   } finally {
-    if (opts.base === undefined) rmSync(fx.base, { recursive: true, force: true });
+    if (opts.base === undefined)
+      rmSync(fx.base, { recursive: true, force: true });
   }
 }
 
@@ -532,14 +804,20 @@ function main(argv: readonly string[]): number {
   if (cmd === 'argv') {
     const file = opt('--layout');
     if (file === undefined) return usage();
-    const plan = buildSandbox(JSON.parse(readFileSync(resolve(file), 'utf8')) as SandboxLayout);
+    const plan = buildSandbox(
+      JSON.parse(readFileSync(resolve(file), 'utf8')) as SandboxLayout,
+    );
     process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
     return 0;
   }
   if (cmd === 'probe') {
     const role = opt('--role');
-    const roles = rest.includes('--all') || role === undefined ? SANDBOX_ROLES : [role as SandboxRole];
-    if (!roles.every((r) => (SANDBOX_ROLES as readonly string[]).includes(r))) return usage();
+    const roles =
+      rest.includes('--all') || role === undefined
+        ? SANDBOX_ROLES
+        : [role as SandboxRole];
+    if (!roles.every((r) => (SANDBOX_ROLES as readonly string[]).includes(r)))
+      return usage();
     const base = opt('--base');
     const report = runProbe(roles, {
       ...(base !== undefined ? { base: resolve(base) } : {}),
@@ -558,11 +836,16 @@ function usage(): number {
   return 2;
 }
 
-if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (
+  process.argv[1] !== undefined &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
   try {
     process.exitCode = main(process.argv.slice(2));
   } catch (e) {
-    process.stderr.write(`${e instanceof Error ? `${e.name}: ${e.message}` : String(e)}\n`);
+    process.stderr.write(
+      `${e instanceof Error ? `${e.name}: ${e.message}` : String(e)}\n`,
+    );
     process.exitCode = e instanceof SandboxPolicyError ? 2 : 1;
   }
 }

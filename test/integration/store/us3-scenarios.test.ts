@@ -4,17 +4,34 @@ import { describe, expect, it } from 'vitest';
 import type { Uuid } from '../../../src/shared/brand.ts';
 import { canonicalJson } from '../../../src/shared/canonical-json.ts';
 import { openStore } from '../../../src/store/index.ts';
-import { openFileStoreForTest, openMemoryStore, storeDb } from '../../../src/store/testing.ts';
+import {
+  openFileStoreForTest,
+  openMemoryStore,
+  storeDb,
+} from '../../../src/store/testing.ts';
 import { buildTask, freezeOk, uuidOf } from '../../support/builders.ts';
 import { runChild } from '../../support/child.ts';
-import { agentData, PREPARE_DATA, publishData } from '../../support/scenario.ts';
+import {
+  agentData,
+  PREPARE_DATA,
+  publishData,
+} from '../../support/scenario.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
-import { createAndStart, mixedWorkload, toPublish, WALL } from '../../support/store-flows.ts';
+import {
+  createAndStart,
+  mixedWorkload,
+  toPublish,
+  WALL,
+} from '../../support/store-flows.ts';
 import { dbPath, useTempDir } from '../../support/temp-db.ts';
 
 const TASK = buildTask();
 
-function counts(d: StoreDriver): { events: number; effects: number; timers: number } {
+function counts(d: StoreDriver): {
+  events: number;
+  effects: number;
+  timers: number;
+} {
   const db = storeDb(d.store);
   const n = (t: string): number =>
     (db.prepare(`SELECT count(*) AS n FROM ${t}`).get() as { n: number }).n;
@@ -40,7 +57,9 @@ describe('US3: ghi nhận tín hiệu bền và đúng một lần (T085)', () =
     expect(counts(d)).toEqual(before);
     if (!first.ok || !again.ok) throw new Error('accept lỗi');
     expect(again.value.duplicate).toBe(true);
-    expect(canonicalJson(again.value.decision)).toBe(canonicalJson(first.value.decision));
+    expect(canonicalJson(again.value.decision)).toBe(
+      canonicalJson(first.value.decision),
+    );
     d.store.close();
   });
 
@@ -64,7 +83,9 @@ describe('US3: ghi nhận tín hiệu bền và đúng một lần (T085)', () =
       if (!opened.ok) throw new Error(opened.error.detail);
       const d2 = new StoreDriver(opened.value);
       expect(counts(d2).events > before.events, point).toBe(committed);
-      expect(d2.task(TASK.id).status, point).toBe(committed ? 'RUNNING' : 'READY');
+      expect(d2.task(TASK.id).status, point).toBe(
+        committed ? 'RUNNING' : 'READY',
+      );
       expect(opened.value.verifyProjections().ok, point).toBe(true);
       opened.value.close();
     }
@@ -76,7 +97,13 @@ describe('US3: ghi nhận tín hiệu bền và đúng một lần (T085)', () =
     const stale = d.task(TASK.id).version;
     d.must(TASK.id, { kind: 'start', freeze: freezeOk(TASK) });
     const before = canonicalJson([counts(d), d.task(TASK.id)]);
-    expect(d.send(TASK.id, { kind: 'cancel', reason: 'x' }, { expected_version: stale })).toEqual({
+    expect(
+      d.send(
+        TASK.id,
+        { kind: 'cancel', reason: 'x' },
+        { expected_version: stale },
+      ),
+    ).toEqual({
       ok: false,
       error: { code: 'conflict', reason: 'stale_version' },
     });
@@ -86,7 +113,11 @@ describe('US3: ghi nhận tín hiệu bền và đúng một lần (T085)', () =
   it('Scenario 4: dựng lại toàn bộ projection từ nhật ký nhiều task khớp 100%', () => {
     const store = openFileStoreForTest(dbPath(tmp()));
     mixedWorkload(new StoreDriver(store));
-    expect(store.verifyProjections()).toMatchObject({ ok: true, tasks: 3, mismatches: [] });
+    expect(store.verifyProjections()).toMatchObject({
+      ok: true,
+      tasks: 3,
+      mismatches: [],
+    });
     store.close();
   });
 
@@ -95,7 +126,11 @@ describe('US3: ghi nhận tín hiệu bền và đúng một lần (T085)', () =
     createAndStart(d, TASK);
     const prep = d.pendingOne(TASK.id, 'prepare');
     expect(d.claim(prep.id).ok).toBe(true);
-    d.must(TASK.id, { kind: 'effect_result', effect_id: prep.id as Uuid, outcome: 'unknown' });
+    d.must(TASK.id, {
+      kind: 'effect_result',
+      effect_id: prep.id as Uuid,
+      outcome: 'unknown',
+    });
     // Đối chiếu: chưa thực thi → đưa lại vào hàng đợi với cùng khoá.
     expect(d.claim(d.pendingOne(TASK.id, 'reconcile').id).ok).toBe(true);
     d.must(TASK.id, {
@@ -104,7 +139,11 @@ describe('US3: ghi nhận tín hiệu bền và đúng một lần (T085)', () =
       finding: 'not_executed',
     });
     const again = d.pendingOne(TASK.id, 'prepare');
-    expect(again).toMatchObject({ id: prep.id, idem_key: prep.idem_key, status: 'pending' });
+    expect(again).toMatchObject({
+      id: prep.id,
+      idem_key: prep.idem_key,
+      status: 'pending',
+    });
     const n = (
       storeDb(d.store)
         .prepare('SELECT count(*) AS n FROM effects WHERE idem_key = ?')
@@ -121,18 +160,22 @@ describe('US3: ghi nhận tín hiệu bền và đúng một lần (T085)', () =
     d.store.close();
     const ops = join(tmp(), 'ops.json');
     writeFileSync(ops, JSON.stringify([{ op: 'fire', now: d.now + WALL }]));
-    expect(runChild(['apply', path, ops], { CUSR_CRASH_AT: 'after_commit' }).signal).toBe(
-      'SIGKILL',
-    );
+    expect(
+      runChild(['apply', path, ops], { CUSR_CRASH_AT: 'after_commit' }).signal,
+    ).toBe('SIGKILL');
     // Chạy lại toàn bộ thao tác, lần này không bị ngắt.
     expect(runChild(['apply', path, ops]).status).toBe(0);
 
     const store = openFileStoreForTest(path);
-    const fired = store.readEvents(TASK.id).filter((e) => e.type === 'TimerFired');
+    const fired = store
+      .readEvents(TASK.id)
+      .filter((e) => e.type === 'TimerFired');
     expect(fired).toHaveLength(1);
     const timerSignals = (
       storeDb(store)
-        .prepare(`SELECT count(*) AS n FROM accepted_triggers WHERE dedup_key LIKE 'timer:%'`)
+        .prepare(
+          `SELECT count(*) AS n FROM accepted_triggers WHERE dedup_key LIKE 'timer:%'`,
+        )
         .get() as { n: number }
     ).n;
     expect(timerSignals).toBe(1);
@@ -143,7 +186,11 @@ describe('US3: ghi nhận tín hiệu bền và đúng một lần (T085)', () =
     /** Effect đã claim; tiến trình chết; sau khi mở lại executor chỉ báo được `unknown`. */
     function lost(d: StoreDriver, effectId: string): number {
       expect(d.claim(effectId).ok).toBe(true);
-      d.must(TASK.id, { kind: 'effect_result', effect_id: effectId as Uuid, outcome: 'unknown' });
+      d.must(TASK.id, {
+        kind: 'effect_result',
+        effect_id: effectId as Uuid,
+        outcome: 'unknown',
+      });
       expect(d.task(TASK.id).wait).toMatchObject({
         reason: 'infra',
         detail: { code: 'effect_unknown', effect_id: effectId },
@@ -169,9 +216,16 @@ describe('US3: ghi nhận tín hiệu bền và đúng một lần (T085)', () =
         data: publishData('head7'),
       });
       expect(eventTypes(d, TASK.id, from)).toEqual(
-        expect.arrayContaining(['EffectReconciled', 'PublishRecorded', 'BaseRelationRecorded']),
+        expect.arrayContaining([
+          'EffectReconciled',
+          'PublishRecorded',
+          'BaseRelationRecorded',
+        ]),
       );
-      expect(d.task(TASK.id)).toMatchObject({ status: 'RUNNING', head_sha: 'head7' });
+      expect(d.task(TASK.id)).toMatchObject({
+        status: 'RUNNING',
+        head_sha: 'head7',
+      });
       expect(d.pendingOne(TASK.id, 'create_pr')).toBeDefined();
       expect(d.store.verifyProjections().ok).toBe(true);
     });
@@ -197,7 +251,12 @@ describe('US3: ghi nhận tín hiệu bền và đúng một lần (T085)', () =
 
     it('create PR: đối chiếu đủ → ghi pr_ref, đi tiếp tới await_ci; thiếu pr_ref → vẫn unknown', () => {
       const d = atPublish();
-      d.complete(TASK.id, d.pendingOne(TASK.id, 'publish').id, 'succeeded', publishData('head7'));
+      d.complete(
+        TASK.id,
+        d.pendingOne(TASK.id, 'publish').id,
+        'succeeded',
+        publishData('head7'),
+      );
       const pr = d.pendingOne(TASK.id, 'create_pr');
       lost(d, pr.id);
       d.must(TASK.id, {
@@ -213,14 +272,22 @@ describe('US3: ghi nhận tín hiệu bền và đúng một lần (T085)', () =
         finding: 'executed_succeeded',
         data: { pr_ref: 'acme#7', head_sha: 'head7' },
       });
-      expect(d.task(TASK.id)).toMatchObject({ status: 'RUNNING', pr_ref: 'acme#7' });
+      expect(d.task(TASK.id)).toMatchObject({
+        status: 'RUNNING',
+        pr_ref: 'acme#7',
+      });
       expect(d.pendingOne(TASK.id, 'await_ci')).toBeDefined();
     });
 
     it('start agent: đối chiếu đủ (output đã kiểm schema, invoked, usage) → giữ chỗ thành đã dùng, sang gates; chỉ có exit code → vẫn unknown', () => {
       const d = new StoreDriver(openMemoryStore());
       createAndStart(d, TASK);
-      d.complete(TASK.id, d.pendingOne(TASK.id, 'prepare').id, 'succeeded', PREPARE_DATA);
+      d.complete(
+        TASK.id,
+        d.pendingOne(TASK.id, 'prepare').id,
+        'succeeded',
+        PREPARE_DATA,
+      );
       const agent = d.pendingOne(TASK.id, 'start_agent');
       lost(d, agent.id);
       d.must(TASK.id, {
@@ -230,7 +297,9 @@ describe('US3: ghi nhận tín hiệu bền và đúng một lần (T085)', () =
         data: { exit_code: 0 },
       });
       expect(d.task(TASK.id).effects[agent.id]?.status).toBe('unknown');
-      expect(d.task(TASK.id).budget.reservations[agent.reservation_id ?? '']?.status).toBe('held');
+      expect(
+        d.task(TASK.id).budget.reservations[agent.reservation_id ?? '']?.status,
+      ).toBe('held');
 
       d.must(TASK.id, {
         kind: 'effect_reconciled',
@@ -240,7 +309,9 @@ describe('US3: ghi nhận tín hiệu bền và đúng một lần (T085)', () =
       });
       const s = d.task(TASK.id);
       expect(s.effects[agent.id]?.status).toBe('succeeded');
-      expect(s.budget.reservations[agent.reservation_id ?? '']?.status).toBe('consumed');
+      expect(s.budget.reservations[agent.reservation_id ?? '']?.status).toBe(
+        'consumed',
+      );
       expect(s.current_step).toBe('gates');
       expect(d.pendingOne(TASK.id, 'run_gates')).toBeDefined();
       expect(d.store.verifyProjections().ok).toBe(true);
@@ -253,14 +324,21 @@ describe('US3: ghi nhận tín hiệu bền và đúng một lần (T085)', () =
     const B = uuidOf(202);
     d.must(A.id, { kind: 'create_task', task: A });
     const version = d.task(A.id).version;
-    d.must(A.id, { kind: 'cancel', reason: 'dừng' }, { dedup_key: 'K', expected_version: version });
+    d.must(
+      A.id,
+      { kind: 'cancel', reason: 'dừng' },
+      { dedup_key: 'K', expected_version: version },
+    );
     const before = counts(d);
     const r = d.send(
       B,
       { kind: 'cancel', reason: 'dừng' },
       { dedup_key: 'K', expected_version: version },
     );
-    expect(r).toEqual({ ok: false, error: { code: 'conflict', reason: 'request_hash_mismatch' } });
+    expect(r).toEqual({
+      ok: false,
+      error: { code: 'conflict', reason: 'request_hash_mismatch' },
+    });
     expect(counts(d)).toEqual(before);
     expect(d.store.readTask(B)).toBeNull();
   });

@@ -28,14 +28,17 @@ function write(value: unknown, path: string, seen: Set<object>): string {
     case 'boolean':
       return value ? 'true' : 'false';
     case 'number':
-      if (!Number.isFinite(value)) throw new CanonicalJsonError(`${path}: số không hữu hạn`);
+      if (!Number.isFinite(value))
+        throw new CanonicalJsonError(`${path}: số không hữu hạn`);
       return JSON.stringify(value);
     case 'bigint':
       throw new CanonicalJsonError(`${path}: bigint không phải giá trị JSON`);
     case 'undefined':
     case 'function':
     case 'symbol':
-      throw new CanonicalJsonError(`${path}: ${typeof value} không phải giá trị JSON`);
+      throw new CanonicalJsonError(
+        `${path}: ${typeof value} không phải giá trị JSON`,
+      );
     case 'object':
       break;
   }
@@ -51,12 +54,16 @@ function write(value: unknown, path: string, seen: Set<object>): string {
     }
     const proto: unknown = Object.getPrototypeOf(obj);
     if (proto !== Object.prototype && proto !== null) {
-      throw new CanonicalJsonError(`${path}: object có prototype không phải Object`);
+      throw new CanonicalJsonError(
+        `${path}: object có prototype không phải Object`,
+      );
     }
     const entries = Object.entries(obj as Record<string, unknown>)
       .filter(([, v]) => v !== undefined)
       .sort(([a], [b]) => compareCodePoints(a, b));
-    const body = entries.map(([k, v]) => `${JSON.stringify(k)}:${write(v, `${path}.${k}`, seen)}`);
+    const body = entries.map(
+      ([k, v]) => `${JSON.stringify(k)}:${write(v, `${path}.${k}`, seen)}`,
+    );
     return `{${body.join(',')}}`;
   } finally {
     seen.delete(obj);

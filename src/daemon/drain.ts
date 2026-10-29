@@ -15,11 +15,18 @@ import type { AcceptOutcome, Store } from '../store/index.ts';
 export const DRAIN_TERM_GRACE_MS = 10_000;
 export const DRAIN_KILL_VERIFY_MS = 5_000;
 
-export type DrainDeps = { readonly store: Store; readonly process: ProcessPort; readonly clock: Clock };
+export type DrainDeps = {
+  readonly store: Store;
+  readonly process: ProcessPort;
+  readonly clock: Clock;
+};
 
 export type DrainRound = {
   readonly task_id: string;
-  readonly stops: readonly { readonly operation_id: string; readonly outcome: StopOutcome | 'not_running' }[];
+  readonly stops: readonly {
+    readonly operation_id: string;
+    readonly outcome: StopOutcome | 'not_running';
+  }[];
   readonly pending_operations: readonly string[];
   readonly outcome: AcceptOutcome | null;
 };
@@ -28,23 +35,41 @@ export type DrainRound = {
 export function drainingTasks(store: Store): string[] {
   return store.taskIdsByStatus(['WAITING', 'RUNNING']).filter((id) => {
     const c = store.readTask(id as Uuid)?.completion ?? null;
-    return c !== null && c.finalized_at === null && c.drain.started_at !== null && !c.drain.paused;
+    return (
+      c !== null &&
+      c.finalized_at === null &&
+      c.drain.started_at !== null &&
+      !c.drain.paused
+    );
   });
 }
 
-export async function drainRound(deps: DrainDeps, taskId: string): Promise<DrainRound | null> {
+export async function drainRound(
+  deps: DrainDeps,
+  taskId: string,
+): Promise<DrainRound | null> {
   const s = deps.store.readTask(taskId as Uuid);
   const c = s?.completion ?? null;
-  if (s === null || c === null || c.finalized_at !== null || c.drain.paused) return null;
-  const stops: { operation_id: string; outcome: StopOutcome | 'not_running' }[] = [];
+  if (s === null || c === null || c.finalized_at !== null || c.drain.paused)
+    return null;
+  const stops: {
+    operation_id: string;
+    outcome: StopOutcome | 'not_running';
+  }[] = [];
   const pending: string[] = [];
   for (const op of Object.values(s.operations).filter(isUnresolved)) {
     const unit = await deps.process.inspect(op.id);
     if (unit.state === 'active') {
-      const outcome = await deps.process.stop(op.id, { term_grace_ms: DRAIN_TERM_GRACE_MS, kill_verify_ms: DRAIN_KILL_VERIFY_MS });
+      const outcome = await deps.process.stop(op.id, {
+        term_grace_ms: DRAIN_TERM_GRACE_MS,
+        kill_verify_ms: DRAIN_KILL_VERIFY_MS,
+      });
       stops.push({ operation_id: op.id, outcome });
     } else {
-      stops.push({ operation_id: op.id, outcome: unit.state === 'unknown' ? 'unknown' : 'not_running' });
+      stops.push({
+        operation_id: op.id,
+        outcome: unit.state === 'unknown' ? 'unknown' : 'not_running',
+      });
     }
     // Stopped or not, the operation stays pending until its receipt resolves it in the engine.
     pending.push(op.id);
@@ -53,9 +78,17 @@ export async function drainRound(deps: DrainDeps, taskId: string): Promise<Drain
   const r = submit(deps.store, {
     task_id: taskId,
     dedup_key: `drain:${taskId}:${c.drain.count + 1}`,
-    trigger: { kind: 'drain_result', pending_operations: pending.sort() as Uuid[] },
+    trigger: {
+      kind: 'drain_result',
+      pending_operations: pending.sort() as Uuid[],
+    },
     now: deps.clock.now(),
     ...(after === null ? {} : { expected_version: after.version }),
   });
-  return { task_id: taskId, stops, pending_operations: pending, outcome: r.ok ? r.value : null };
+  return {
+    task_id: taskId,
+    stops,
+    pending_operations: pending,
+    outcome: r.ok ? r.value : null,
+  };
 }

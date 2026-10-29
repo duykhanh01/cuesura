@@ -14,7 +14,11 @@ export const EXECUTION_MODES = ['direct-pr', 'full-review'] as const;
 export type ExecutionMode = (typeof EXECUTION_MODES)[number];
 
 export const RunChoiceSchema = z
-  .object({ harness: z.string().min(1).max(64), model: z.string().min(1).max(128), effort: z.enum(EFFORTS) })
+  .object({
+    harness: z.string().min(1).max(64),
+    model: z.string().min(1).max(128),
+    effort: z.enum(EFFORTS),
+  })
   .strict();
 export type RunChoice = z.infer<typeof RunChoiceSchema>;
 
@@ -33,14 +37,31 @@ const RunSelectionFields = z
   })
   .strict();
 
-function reviewerMatchesMode(s: { mode: ExecutionMode; reviewer: RunChoice | null }, ctx: z.RefinementCtx): void {
-  if (s.mode === 'full-review' && s.reviewer === null) ctx.addIssue({ code: 'custom', path: ['reviewer'], message: 'full-review needs a reviewer binding' });
-  if (s.mode === 'direct-pr' && s.reviewer !== null) ctx.addIssue({ code: 'custom', path: ['reviewer'], message: 'direct-pr runs no reviewer' });
+function reviewerMatchesMode(
+  s: { mode: ExecutionMode; reviewer: RunChoice | null },
+  ctx: z.RefinementCtx,
+): void {
+  if (s.mode === 'full-review' && s.reviewer === null)
+    ctx.addIssue({
+      code: 'custom',
+      path: ['reviewer'],
+      message: 'full-review needs a reviewer binding',
+    });
+  if (s.mode === 'direct-pr' && s.reviewer !== null)
+    ctx.addIssue({
+      code: 'custom',
+      path: ['reviewer'],
+      message: 'direct-pr runs no reviewer',
+    });
 }
 
-export const RunSelectionSchema = RunSelectionFields.superRefine(reviewerMatchesMode);
+export const RunSelectionSchema =
+  RunSelectionFields.superRefine(reviewerMatchesMode);
 /** A selection as a caller proposes it; the server binds it to the task ID and revision. */
-export const RunProposalSchema = RunSelectionFields.omit({ task_id: true, revision: true }).superRefine(reviewerMatchesMode);
+export const RunProposalSchema = RunSelectionFields.omit({
+  task_id: true,
+  revision: true,
+}).superRefine(reviewerMatchesMode);
 export type RunProposal = z.infer<typeof RunProposalSchema>;
 export type RunSelection = z.infer<typeof RunSelectionSchema>;
 
@@ -48,8 +69,13 @@ export function selectionDigest(s: RunSelection): Hash {
   return hashCanonical(s);
 }
 
-export function sameChoice(a: RunChoice, b: { harness: string; model: string; effort: string }): boolean {
-  return a.harness === b.harness && a.model === b.model && a.effort === b.effort;
+export function sameChoice(
+  a: RunChoice,
+  b: { harness: string; model: string; effort: string },
+): boolean {
+  return (
+    a.harness === b.harness && a.model === b.model && a.effort === b.effort
+  );
 }
 
 /**
@@ -69,15 +95,28 @@ export type RunConfirmation = z.infer<typeof RunConfirmationSchema>;
 export const TRUSTED_CONFIRM_CHANNELS: readonly string[] = ['token:owner'];
 
 export function trustedConfirmer(authz: AuthzContext | undefined): boolean {
-  return authz !== undefined && TRUSTED_CONFIRM_CHANNELS.includes(authz.issued_by);
+  return (
+    authz !== undefined && TRUSTED_CONFIRM_CHANNELS.includes(authz.issued_by)
+  );
 }
 
 /** The confirmed selection frozen into the runtime snapshot at start. */
 export const RunConfigSnapshotSchema = z
-  .object({ mode: z.enum(EXECUTION_MODES), selection: RunSelectionSchema, digest: HashSchema, confirmation: RunConfirmationSchema })
+  .object({
+    mode: z.enum(EXECUTION_MODES),
+    selection: RunSelectionSchema,
+    digest: HashSchema,
+    confirmation: RunConfirmationSchema,
+  })
   .strict();
 export type RunConfigSnapshot = z.infer<typeof RunConfigSnapshotSchema>;
 
 /** PR template read from the frozen base; `null` when the repo has none. */
-export const PrTemplateSchema = z.object({ path: z.string().min(1), content: z.string().max(64 * 1024), content_hash: HashSchema }).strict();
+export const PrTemplateSchema = z
+  .object({
+    path: z.string().min(1),
+    content: z.string().max(64 * 1024),
+    content_hash: HashSchema,
+  })
+  .strict();
 export type PrTemplate = z.infer<typeof PrTemplateSchema>;

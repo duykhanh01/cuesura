@@ -10,7 +10,12 @@ import {
   type Trigger,
   type TriggerEnvelope,
 } from '../../src/domain/trigger.ts';
-import type { AcceptError, AcceptOutcome, ClaimError, Store } from '../../src/store/index.ts';
+import type {
+  AcceptError,
+  AcceptOutcome,
+  ClaimError,
+  Store,
+} from '../../src/store/index.ts';
 import { authz, envelope, IdSource, T0 } from './builders.ts';
 
 /** Một thao tác trên kho, đủ để tiến trình con chạy lại đúng chuỗi đó (R-08). */
@@ -39,7 +44,11 @@ export function applyOp(store: Store, op: StoreOp): unknown {
   }
 }
 
-export type DriverSend = { authz?: AuthzContext; expected_version?: number; dedup_key?: string };
+export type DriverSend = {
+  authz?: AuthzContext;
+  expected_version?: number;
+  dedup_key?: string;
+};
 
 /**
  * Executor và người dùng giả cho kho thật: dựng phong bì với `now`/`ids` tất định, ghi lại mọi thao tác
@@ -62,7 +71,11 @@ export class StoreDriver {
     return s;
   }
 
-  envelope(taskId: string, trigger: Trigger, o: DriverSend = {}): TriggerEnvelope {
+  envelope(
+    taskId: string,
+    trigger: Trigger,
+    o: DriverSend = {},
+  ): TriggerEnvelope {
     const human = HUMAN_TRIGGERS.includes(trigger.kind);
     const a = o.authz ?? (human ? authz(['operate']) : undefined);
     return envelope(taskId, trigger, {
@@ -73,7 +86,9 @@ export class StoreDriver {
       ...(human
         ? {
             expected_version:
-              o.expected_version ?? this.store.readTask(taskId as Uuid)?.version ?? 0,
+              o.expected_version ??
+              this.store.readTask(taskId as Uuid)?.version ??
+              0,
           }
         : {}),
     });
@@ -84,7 +99,11 @@ export class StoreDriver {
     return this.store.accept(env);
   }
 
-  send(taskId: string, trigger: Trigger, o: DriverSend = {}): Result<AcceptOutcome, AcceptError> {
+  send(
+    taskId: string,
+    trigger: Trigger,
+    o: DriverSend = {},
+  ): Result<AcceptOutcome, AcceptError> {
     return this.deliver(this.envelope(taskId, trigger, o));
   }
 
@@ -113,12 +132,15 @@ export class StoreDriver {
   pending(taskId: string, kind?: EffectKind): Effect[] {
     return this.store
       .pendingEffects(1000)
-      .filter((e) => e.task_id === taskId && (kind === undefined || e.kind === kind));
+      .filter(
+        (e) => e.task_id === taskId && (kind === undefined || e.kind === kind),
+      );
   }
 
   pendingOne(taskId: string, kind: EffectKind): Effect {
     const xs = this.pending(taskId, kind);
-    if (xs.length !== 1) throw new Error(`cần đúng một ${kind} pending, có ${xs.length}`);
+    if (xs.length !== 1)
+      throw new Error(`cần đúng một ${kind} pending, có ${xs.length}`);
     return xs[0] as Effect;
   }
 
