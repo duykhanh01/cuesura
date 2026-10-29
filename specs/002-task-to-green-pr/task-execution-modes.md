@@ -14,8 +14,9 @@ nguyên giá trị lịch sử; việc có tài liệu này không chứng minh 
 | `direct-pr` | Code → gates → checkpoint commit → push → tạo/nhận lại PR → CI → chờ merge thủ công |
 | `full-review` | Code → gates → checkpoint commit → review → push → tạo/nhận lại PR → CI → chờ merge thủ công |
 
-Trong `full-review`, yêu cầu sửa đi về worker → gates → commit mới → review lại. Trong
-`direct-pr`, sửa gate/CI đi về worker → gates → commit mới → publish cùng PR, không gọi reviewer.
+Trong `full-review`, yêu cầu sửa đi về worker → gates → commit nếu code đổi → xét evidence review
+(dùng lại kết quả còn hiệu lực hoặc gọi reviewer theo điều kiện bên dưới). Trong
+`direct-pr`, sửa gate/CI đi về worker → gates → commit nếu code đổi → publish cùng PR, không gọi reviewer.
 Cả hai giữ nguyên ngân sách, slot, bảo vệ quyền, đối chiếu effect và quan sát merge của feature 002.
 Chế độ không cấp quyền merge hoặc miễn branch protection trên GitHub.
 
@@ -75,6 +76,14 @@ hợp lệ và policy cho phép. Không giữ process agent sống trong lúc ch
 khi không resume được hoặc policy yêu cầu, mang acceptance, diff, Q&A và lỗi/findings có giới hạn;
 ghi rõ lý do fallback. Không mở hai attempt ghi cùng worktree và không resume session reviewer để sửa.
 
+Mỗi lần gọi worker sửa, kể cả resume session cũ, daemon MUST dựng context mới từ state đã đối chiếu:
+nguyên nhân sửa (gate/review/CI), log hoặc findings hiện hành kèm nguồn/SHA/run generation nếu có,
+task/revision/acceptance, base/checkpoint SHA, trạng thái worktree và diff mới nhất, nội dung PR hiện
+hành và Q&A mới nhận. Không chỉ gửi lời nhắc tiếp tục hoặc dùng prompt từ lần sửa trước. Packet có
+digest/provenance và cùng giới hạn context; trạng thái đổi trước spawn thì đối chiếu lại và dựng lại
+packet. Thiếu thông tin bắt buộc thì chờ `needs_context`, không resume bằng context cũ hoặc thiếu.
+Context mới không cấp quyền nhận head ngoài dự kiến; drift vẫn chặn theo policy hiện hành.
+
 ## Nội dung commit và PR
 
 Orchestrator đọc PR template từ frozen base và đưa nguyên nội dung vào context worker. Nếu có
@@ -109,6 +118,12 @@ worktree riêng, dùng message worker chuẩn bị. Đây là snapshot cơ học
 Không tin danh sách file worker khai báo là nguồn duy nhất; loại artifact nội bộ và giữ thay đổi
 ngoài dự kiến để đối chiếu. Gate evidence phải gắn đúng tree của commit, kể cả lệnh gate có thể sửa file.
 
+Toàn bộ gate bắt buộc MUST đạt trên cùng một trạng thái code cuối cùng: ghi tree/digest trước và sau
+mỗi gate, không có worker/process khác ghi chồng. Gate/formatter sửa code làm evidence của tree cũ
+không đủ; hoàn tất phần sửa rồi chạy lại tập gate bắt buộc theo policy trên tree mới, trong giới hạn
+retry/wall time hiện có và chỉ với lệnh được phép chạy lại. Nếu gate tiếp tục đổi code hoặc không
+chứng minh được các gate cùng kiểm tree cuối thì chặn để đối chiếu, không lặp vô hạn hay commit/push.
+
 Review nhận diff của cặp base SHA/commit SHA bất biến, không đọc một diff thay đổi theo working copy.
 Reviewer chỉ đọc checkout tương ứng; approval ghi cặp SHA và digest nội dung PR đã xem. Daemon giữ
 khóa công việc worktree qua snapshot/review/publish và bảo đảm process có quyền ghi đã kết thúc rõ.
@@ -120,6 +135,29 @@ chiếu. Muốn đưa code mới vào PR phải gates, commit mới và review l
 thêm file hoặc chạy formatter sau approval rồi dùng approval cũ. Body đổi cần được reviewer đối chiếu
 lại trong `full-review`; retry không dựng lại body khác cho cùng create intent.
 
+## Dùng lại kết quả review còn hiệu lực
+
+Trong cùng task/revision, trước khi gọi reviewer, daemon MUST so đầu vào review với evidence đã lưu:
+base dùng tính diff, checkpoint SHA/tree/diff digest, title/description cần review (không tính marker
+điều khiển do orchestrator gắn), acceptance/conventions review đã đóng băng và policy/binding review.
+Attempt ID, timestamp, receipt gate/CI mới hoặc log resume không tự làm đổi đầu vào review.
+Chỉ dùng lại kết quả đã validate và ghi bền, còn hiệu lực, khi mọi đầu vào trên khớp;
+không suy từ việc worker nói không sửa.
+Code hoặc nội dung PR đổi thì review lại; acceptance/policy/base dùng tính diff đổi thì không được
+dùng kết quả cũ. Base tip ngoài frozen base chỉ đổi không tự thay đầu vào, theo FR-041.04.
+Chỉ việc worker chạy không tự vô hiệu evidence; phải đối chiếu tree/diff/body thực tế với checkpoint.
+
+- Đã approve và đầu vào không đổi: dùng lại đúng evidence, không gọi reviewer khi retry publish,
+  poll/rerun CI hoặc restart daemon. Gate/CI vẫn phải thỏa evidence và giới hạn riêng.
+- Đã request changes và đầu vào không đổi: giữ findings cũ, xử lý lượt sửa không tiến triển theo
+  failure signature/budget/escalation hiện có; không gọi reviewer để hỏi lại cùng một nội dung.
+- Worker trả `done` mà tree code không đổi: giữ checkpoint SHA, không tạo commit mới chỉ vì step
+  đã chạy. Nếu chỉ title/body đổi thì giữ commit nhưng xét lại review theo nội dung PR mới.
+
+Không áp dụng cache qua task/revision khác và không chuyển approval sang SHA khác theo phỏng đoán.
+Mất hoặc chưa rõ receipt của lượt review phải reconcile kết quả đã finalize trước khi quyết định
+gọi lại; việc dùng lại evidence có provenance, không ghi một lượt reviewer/usage không thực sự xảy ra.
+
 ## Bằng chứng triển khai cần có
 
 Các mã M dưới đây bổ sung coverage 117 nghĩa vụ FR hiện có; chưa có bằng chứng nghiệm thu.
@@ -128,9 +166,9 @@ Các mã M dưới đây bổ sung coverage 117 nghĩa vụ FR hiện có; chưa
 | --- | --- |
 | M01 | Agent đề xuất từ chỉ dẫn; daemon không suy size/rủi ro; thiếu hoặc giả xác nhận không spawn |
 | M02 | Xác nhận gắn đúng bộ lựa chọn; thay đổi/restart/replay/quota không bỏ qua xác nhận hoặc tự đổi chế độ |
-| M03 | `direct-pr` không gọi reviewer; `full-review` cùng vendor hoạt động, reviewer riêng session và chỉ đọc |
-| M04 | Gate/review/CI fail quay lại worker; resume nếu hợp lệ, fallback có lý do và không gọi chồng |
+| M03 | `direct-pr` không gọi reviewer; `full-review` cùng vendor, riêng session/chỉ đọc; reuse approve hoặc findings đúng đầu vào, no-op không gọi lại reviewer, đầu vào đổi buộc review mới |
+| M04 | Gate/review/CI fail quay lại worker; cả resume và fallback nhận packet nguyên nhân sửa/trạng thái mới nhất, packet stale/thiếu bị chặn; fallback có lý do, không gọi chồng |
 | M05 | Template frozen, lựa chọn nhiều template, artifact hợp lệ và được cập nhật sau fixer/CI; từ chối marker điều khiển giả trong title/body worker ở cả hai mode; không thêm writer agent |
-| M06 | Mutation sau gate/review, HEAD/ref drift và process còn ghi đều chặn publish; push chính SHA đã kiểm |
+| M06 | Gate/formatter sửa code buộc kiểm tập gate trên tree cuối trong giới hạn; mutation sau gate/review, HEAD/ref drift hoặc writer còn chạy chặn publish; push chính SHA đã kiểm |
 | M07 | Commit/push/create/update PR timeout/crash nhận lại đúng intent và nội dung; probe marker canonical cùng identity/receipt, không nhận PR giả hoặc lặp PR, không ghi đè body ngoài dự kiến |
 | M08 | Green/checked-head/explain thể hiện đúng mode; `direct-pr` không giả approve, không miễn CI/merge hoặc mở lại terminal |

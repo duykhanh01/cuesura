@@ -79,7 +79,9 @@ worktree có diff/commit chưa bảo toàn theo retention log.
 - Fixer là vai trò sửa của worker đã code: ưu tiên resume session worker cho lỗi gate/review/CI,
   không resume session reviewer. Resume chỉ cùng harness/binding, đúng policy; nếu không còn dùng
   được thì attempt mới có lý do fallback và mang Q&A
-  có ngân sách. Adapter không quyết định tạo attempt. Refusal không bị retry để vượt quyền.
+  có ngân sách. Mọi lần sửa kể cả resume MUST nhận packet mới có nguyên nhân/log/findings, nguồn/SHA/run
+  generation, acceptance, checkpoint/worktree/diff, PR content và Q&A hiện hành; packet stale phải dựng
+  lại, thiếu bắt buộc thì needs_context. Adapter không quyết định tạo attempt. Refusal không bị retry để vượt quyền.
 - Context tối đa 128 KiB, reviewer diff 64 KiB; kèm diff digest/path list, phần cắt phải ghi rõ.
   Không đủ acceptance/diff bắt buộc thì needs_context/chờ, không cắt thông tin rồi approve. Reviewer
   có session riêng, chỉ đọc trong `full-review`; có thể cùng vendor/model. `direct-pr` không gọi reviewer.
@@ -149,11 +151,18 @@ không có token GitHub. Config từ Git objects tại frozen base SHA, không f
 - Setup/gate/autofix dùng command string snapshot, chạy `/bin/sh -c` chỉ với command đã chốt; mỗi
   command default wall cap 10 phút và cap tổng task còn lại, ghi checkpoint trước thao tác ghi.
   Retry chỉ khi hợp đồng declared safe; unknown của command không-safe phải chờ người.
+- Ghi tree/digest trước/sau mỗi gate. Mọi gate bắt buộc phải đạt trên tree code cuối cùng; nếu gate
+  hoặc formatter sửa code thì chạy lại tập gate theo policy/retry safety và giới hạn hiện có. Không
+  chứng minh cùng tree cuối hoặc writer còn chạy thì chặn commit/publish, không lặp vô hạn.
 - Coder/fixer đổi code → invalidate gate/review/CI bị ảnh hưởng. Chạy gates rồi orchestrator commit
   trước review (`full-review`); `direct-pr` đi thẳng publish sau commit. Commit dùng message worker
   chuẩn bị; evidence gắn đúng tree/base SHA/commit SHA. Orchestrator khóa công việc worktree, đối
   chiếu process/ref/tree/worktree trước publish và push đúng SHA đã lưu. Drift chặn publish để
   đối chiếu, không commit thêm sau approval rồi dùng bằng chứng cũ; agent không publish.
+- Trước gọi reviewer, đối chiếu evidence theo [điều kiện reuse](../task-execution-modes.md#dùng-lại-kết-quả-review-còn-hiệu-lực):
+  cùng task/revision và base/checkpoint/diff, title/body, acceptance/conventions frozen, policy/binding review
+  không đổi thì dùng lại approve hoặc findings còn hiệu lực, không gọi lại agent. No-op giữ checkpoint;
+  findings cũ dẫn tới xử lý giới hạn sửa, không hỏi lại cùng diff. Reconcile receipt trước retry review.
 - Commit intent lưu tree/parent/author/committer timestamps/message/OID dự kiến trước cập nhật ref.
   Recovery nhận lại OID đó, không tạo commit khác; unknown không reset HEAD theo phỏng đoán.
 - Push kiểm remote expected old SHA, chỉ fast-forward; remote khác dự kiến chờ head_changed,

@@ -29,6 +29,12 @@ Thứ tự bổ sung: US1 thực hiện T135–T137 và kiểm bằng fake; US2 
 qua session port fake. US4 mới nối real session tại T138 sau T068–T071, rồi T077. T139 kiểm tổng
 hợp sau T064/T077, trước T078/go-no-go. Không đặt T138 làm prerequisite ngược của US1/US2.
 
+Bổ sung review workflow: P0 snapshot yêu cầu toàn bộ gates cùng đạt trên tree code cuối; P1 resume
+luôn có packet nguyên nhân/trạng thái mới nhất; P1 review cost dùng lại approve/findings hợp lệ
+khi toàn bộ đầu vào không đổi và giữ checkpoint nếu worker no-op. Nối vào T038/T039/T050/T054–T057
+và T137–T139/M03/M04/M06; không thêm task hoặc đổi thứ tự phụ thuộc. Recovery và CI attribution
+giữ hợp đồng idempotency/receipt/probe và SHA/generation hiện có, cần chứng minh khi triển khai.
+
 ## Summary
 
 Nối lõi 001 vào một daemon ghi SQLite, runner độc lập, Git/worktree và hai harness CLI. Giao theo lát 0 kiểm chứng thật → A fake tới PR xanh → go/no-go → B recovery/tương tác với ≥200 crash → C smoke xuyên suốt thật hai chiều vendor. Khi xác nhận merge, ghi bền bằng chứng và chặn nghiệp vụ; chỉ DONE sau khi dừng process/đối chiếu effect, kể cả head chưa chứng nhận. Xem [ADR-0001](../../docs/adr/0001-observe-manual-merge.md).
