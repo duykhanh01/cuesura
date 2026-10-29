@@ -15,8 +15,12 @@
 
 - Tên nhánh theo phạm vi việc: `<feature>/<mô tả>` (vd `002/preflight`), `fix/<mô tả>`, `docs/<mô tả>`.
 - Việc cần code của một PR chưa merge: hỏi người dùng trước, không tự tạo nhánh từ nhánh chưa merge.
-- Làm xong: `pnpm typecheck`, `pnpm lint`, `pnpm test` phải sạch; commit, push nhánh và tạo PR vào
-  `main`. Agent không tự merge PR; người dùng merge.
+- Kiểm tra phù hợp với thay đổi:
+  - Chỉ sửa tài liệu: kiểm tra liên kết nội bộ, định dạng và tính nhất quán của nội dung; không chạy
+    `pnpm typecheck`, `pnpm lint`, `pnpm test` hoặc `pnpm build` chỉ vì tài liệu thay đổi.
+  - Có sửa code, test hoặc cấu hình thực thi: `pnpm typecheck`, `pnpm lint`, `pnpm test` phải sạch;
+    chạy thêm các kiểm tra bắt buộc theo phạm vi thay đổi và hướng dẫn của repo.
+- Làm xong: commit, push nhánh và tạo PR vào `main`. Agent không tự merge PR; người dùng merge.
 - Sau khi PR được merge: `git worktree remove ../metronome.worktrees/<nhánh>` và xóa nhánh local.
 
 ## Dọn worktree rác

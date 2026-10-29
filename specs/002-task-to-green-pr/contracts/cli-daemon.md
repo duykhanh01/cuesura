@@ -4,6 +4,20 @@ Hợp đồng dự kiến cho feature 002, mở rộng [CLI v1](../../../SPEC.md
 Chưa có binary triển khai. Đầu vào task vẫn theo CanonicalTaskSchema; CLI chuẩn hóa trường tùy chọn,
 server gắn task ID/requester đáng tin, không nhận `AuthzContext` do caller tự khai.
 
+## Xác nhận cấu hình trước spawn
+
+Áp dụng [M01–M08](../task-execution-modes.md): agent nhận task đọc chỉ dẫn `when to use` để đề xuất;
+daemon chỉ validate lựa chọn tường minh. Trước spawn đầu, người dùng xem task/revision, profile,
+mode, worker harness/model/effort và reviewer binding nếu `full-review`, cùng fallback đã cho phép.
+Xác nhận từ kênh người dùng đáng tin gắn với digest bộ lựa chọn; assistant không tự khai `confirmed`
+để vượt bước này, token operate không được nâng quyền. Auto-confirm intake không miễn xác nhận chạy.
+Các key/command/proof cụ thể cần triển khai, chưa phải CLI/schema hiện có.
+
+Confirm/recheck không tự chọn lại binding. Cấu hình hiệu lực khác bộ đã xác nhận thì chờ xác nhận
+mới trước spawn; retry/resume trong bộ đã duyệt không hỏi lại. Task đã bắt đầu không đổi mode/graph
+qua amend-policy của feature 002; tạo task mới nếu cần đổi. Không ràng buộc vendor và không hạ
+`full-review` xuống `direct-pr` khi hết quota.
+
 ## Lệnh và quyền
 
 | Lệnh dự kiến | Quyền / hành vi |
@@ -102,8 +116,11 @@ bwrap theo [ADR-0004](../../../docs/adr/0004-isolated-bwrap-baseline.md); không
 Native-only/Container/VM. `harness_isolation` chỉ chọn lớp nội bộ, outer luôn bắt buộc. Host hạn chế
 userns cần admin provisioning phù hợp; AppArmor 4/child stack không bắt buộc, doctor không tự cài
 hoặc sửa policy. Completion mode của daemon 002 cố định external_confirmation, không cho cusr.yaml bật merge/yolo.
-Workflow phải giữ topology software_dev@1/human; role thực chạy chỉ coder/fixer/reviewer, profile
-nghiệm thu không skip review và CI snapshot không rỗng. Unsupported role/workflow/permission/cost
+Workflow giữ các boundary software_dev/human và bổ sung hai chế độ đã xác nhận; role thực chạy chỉ
+coder/fixer/reviewer. `direct-pr` không cần reviewer binding/capability/quota; `full-review` cần
+reviewer riêng session, có thể cùng vendor. CI snapshot nghiệm thu không rỗng. Graph hiện có
+`software_dev@1` còn skip theo XS và chưa có checkpoint trước review; cần sửa/version hóa trước
+khi sử dụng. Unsupported role/workflow/permission/cost
 cap được báo capability_missing trước RUNNING, không tự đổi binding.
 
 `runtime.limits` cụ thể: observation_max_ms, observation_max_rounds, poll_initial_ms, poll_factor,

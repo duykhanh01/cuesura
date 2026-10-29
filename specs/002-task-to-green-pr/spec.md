@@ -6,6 +6,8 @@
 
 **Status**: Draft
 
+**Cập nhật 2026-10-29**: [Chế độ thực thi và xác nhận trước khi chạy](task-execution-modes.md) bổ sung yêu cầu M01–M08: `direct-pr`/`full-review`, xác nhận bộ harness/model/effort trước spawn, worker chuẩn bị nội dung PR, commit trước review và ưu tiên resume worker khi sửa. Thiết kế chưa được triển khai; giữ nguyên bằng chứng spike/schema cũ.
+
 **Input**: User description: "Viết spec feature 2 — chọn A: toàn bộ luồng tới PR xanh, gồm runner,
 Claude/Codex, worktree, gate, review và GitHub."
 
@@ -13,7 +15,7 @@ Claude/Codex, worktree, gate, review và GitHub."
 
 Feature 002 lấy mốc **Luồng xuyên suốt** của [SPEC.md §19](../../SPEC.md) làm kết quả chính, nối
 [lõi điều phối tất định](../001-deterministic-core/spec.md) với các thao tác thực tế. Chủ dự án giao một
-task có acceptance, theo dõi agent làm việc trong worktree riêng, nhận PR đã qua gate, review và CI,
+task có acceptance, xác nhận cấu hình chạy, theo dõi agent trong worktree riêng, nhận PR đã qua gate, CI và review theo chế độ,
 và biết rõ khi nào hệ thống cần mình can thiệp. Phạm vi chủ đích rộng hơn một hàng của roadmap:
 recovery, 200 lần ngắt daemon, inbox, CLI và health lấy một phần từ mốc **Khôi phục và tương tác**;
 smoke thật hai chiều vendor lấy bằng chứng liên quan từ R8. Giữ chúng trong feature 002 để nghiệm thu
@@ -215,8 +217,8 @@ code; kiểm tra vòng sửa, bằng chứng mới và số lượt. Tách mẫu
 1. **Given** coder trả kết quả hợp lệ nhưng gate fail, **When** xử lý kết quả, **Then** không publish;
    fixer nhận log lỗi có giới hạn và acceptance; sửa xong phải chạy lại gate trước review.
 2. **Given** reviewer yêu cầu sửa, **When** fixer đổi code, **Then** kết quả review cũ mất hiệu lực;
-   gate và review cần thiết chạy lại trước publish. Reviewer mặc định khác vendor với coder/fixer
-   thực tế tạo thay đổi; thiếu binding hợp lệ thì chờ người.
+   gate, checkpoint commit và review chạy lại trước publish trong `full-review`. Reviewer dùng session
+   riêng, chỉ đọc, có thể cùng vendor/model; thiếu binding/quota thì chờ hoặc xin xác nhận lựa chọn khác.
 3. **Given** PR có CI fail do code, **When** còn lượt sửa, **Then** sửa trên worktree của task, chạy
    lại gate/review cần thiết và cập nhật chính PR đó; CI của head cũ không làm head mới thành xanh.
 4. **Given** CI lỗi hạ tầng hoặc flaky có bằng chứng phân loại, **When** policy cho phép thử lại,
@@ -493,10 +495,11 @@ nhóm bao gồm toàn bộ các mục con, không thay thế việc kiểm chứ
   fallback MUST theo SPEC.md §12.3; metadata do orchestrator gắn, không tin ID agent tự khai.
 - **FR-013**: Coder/fixer MUST chỉ ghi trong vùng được cấp; reviewer MUST chỉ đọc. Phát hiện thay đổi
   ngoài phạm vi MUST dừng để đối chiếu; không tự gán thay đổi của người dùng ở repo gốc cho agent.
-- **FR-014**: Gate bắt buộc MUST đạt trước review/publish. Review MUST gắn thay đổi đã xem; mặc định
-  reviewer khác vendor với coder/fixer thực tế tạo diff, resolve từ FrozenPolicy, thiếu lựa chọn thì
-  chờ người. Thay đổi code sau review MUST làm bằng chứng bị ảnh hưởng mất hiệu lực và chạy lại kiểm
-  tra theo policy. Luồng nghiệm thu PR xanh của feature này MUST có review, không dùng profile bỏ review.
+- **FR-014**: Gate bắt buộc MUST đạt trước review/publish. Trong `full-review`, reviewer MUST dùng
+  session riêng, chỉ đọc; approval MUST gắn base SHA/commit SHA cố định sau checkpoint và nội dung PR
+  đã xem. Không ràng buộc khác vendor/model. Trong mode này, code đổi MUST vô hiệu bằng chứng liên quan,
+  chạy lại gate, commit và review. `direct-pr` MUST bỏ reviewer theo chế độ đã được người dùng xác nhận, không giả
+  approve hoặc suy skip từ size; publish cả hai mode MUST khớp checkpoint. Xem M01–M08.
 - **FR-015**: Mọi thất bại MUST được phân loại theo SPEC.md §9.2 và áp đúng giới hạn kế thừa từ feature
   001: infra tối đa 3 retry; timeout/stall tối đa 1 retry; invalid output tối đa 1 repair và 1 session
   mới mỗi nấc trước khi xét nâng; auth/refusal chờ người. Rate limit/infra MUST không nâng model vì
@@ -507,8 +510,10 @@ nhóm bao gồm toàn bộ các mục con, không thay thế việc kiểm chứ
 
 **Publish và CI**
 
-- **FR-017**: Orchestrator MUST checkpoint/commit, push và tạo hoặc nhận lại PR trên repo/head/base
-  đúng của task. Mỗi thao tác logic MUST có idempotency key ổn định và bằng chứng đủ đối chiếu sau
+- **FR-017**: Orchestrator MUST tạo branch/worktree, checkpoint commit trước review (nếu có),
+  push đúng SHA đã kiểm và tạo hoặc nhận lại PR trên repo/head/base đúng của task. Worker MUST chuẩn
+  bị commit message và PR title/description theo template frozen; artifact được validate trước dùng.
+  Mỗi thao tác logic MUST có idempotency key ổn định và bằng chứng đủ đối chiếu sau
   timeout/crash. Agent MUST không được cấp quyền tự publish hoặc merge thay orchestrator.
 - **FR-018**: Trước khi thử lại commit/push/tạo PR, hệ thống MUST đối chiếu theo SPEC.md §13.2. Remote
   khác SHA dự kiến hoặc nhiều kết quả mơ hồ MUST được báo để xử lý, không force-push, tạo PR thay thế
@@ -516,7 +521,8 @@ nhóm bao gồm toàn bộ các mục con, không thay thế việc kiểm chứ
   FR-041. Đối chiếu thiếu bằng chứng MUST giữ unknown.
 - **FR-019**: Vòng chờ CI để tự động tiếp tục thực thi MUST có giới hạn; quan sát PR vẫn tiếp tục
   theo FR-043. Hệ thống MUST chỉ báo PR xanh khi có danh sách required checks
-  đầy đủ, mọi check thành công cho đúng head hiện tại, gate đạt và review còn hiệu lực. Pending,
+  đầy đủ, mọi check thành công cho đúng head hiện tại, gate đạt và review còn hiệu lực nếu là
+  `full-review`; `direct-pr` MUST hiện rõ không chạy review. Pending,
   cancelled, missing, unknown hoặc danh sách chưa xác định đầy đủ MUST không được coi là pass.
   Nguồn danh sách theo FR-042; giới hạn và hành vi khi hết hạn theo FR-043; thu hồi xanh theo FR-041.
 - **FR-020**: CI fail do code MUST đi qua vòng sửa có giới hạn, gate/review cần thiết rồi cập nhật cùng
@@ -836,8 +842,9 @@ R7 soak và R9 vận hành đầy đủ vẫn thuộc mốc phát hành v1.
   Giới hạn một task thực thi là mặc định để nghiệm thu luồng đầu tiên, không thay phạm vi song song v1.
 - Cấu hình repo, profile và credential được người vận hành chuẩn bị trước. CLI feature này chưa phải
   toàn bộ CLI v1; không thêm trình thiết lập, quản trị policy hay nguồn task ngoài CLI để hoàn thành mốc.
-- Bộ nghiệm thu dùng profile có review bắt buộc và danh sách CI required checks trong snapshot
-  không rỗng, có cả trường hợp GitHub xác nhận không có protection/rulesets áp dụng. Quy tắc
+- Bộ nghiệm thu SC-001 dùng `full-review`; bổ sung M01–M08 cho cả `direct-pr` và `full-review`
+  cùng vendor. Danh sách CI required checks trong snapshot không rỗng, có cả trường hợp GitHub
+  xác nhận không có protection/rulesets áp dụng. Quy tắc
   profile khác vẫn theo SPEC.md; chưa hỗ trợ thì báo rõ trước chạy, không suy luận “không biết check”
   thành “không có check”.
 - Cần repo sandbox GitHub, quyền chạy CI và quyền sử dụng hai harness cho smoke. Nếu thiếu, tiêu chí

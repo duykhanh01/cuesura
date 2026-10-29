@@ -1,5 +1,9 @@
 # Cuesura — Đánh giá kiến trúc và khuyến nghị (use case đầu tiên: workflow phát triển phần mềm)
 
+> Cập nhật thiết kế 2026-10-29: [hai chế độ và xác nhận trước khi chạy](../specs/002-task-to-green-pr/task-execution-modes.md)
+> thay thế các ví dụ cũ về skip review theo XS, bắt buộc khác vendor và commit sau review.
+> Nội dung bên dưới lưu lập luận kiến trúc ban đầu; runtime của quyết định mới chưa triển khai.
+
 *Ngày: 2026-10-26. Vai trò: Principal Software Architect review.*
 
 > **Đặc tả triển khai:** [SPEC.md](../SPEC.md) là nguồn chuẩn cho phạm vi, hành vi và baseline kỹ thuật đã thống nhất. Tài liệu này giữ lại lập luận và các ví dụ thiết kế ban đầu; những ví dụ chưa đồng bộ không thay thế hợp đồng trong SPEC.

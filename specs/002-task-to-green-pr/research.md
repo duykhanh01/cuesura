@@ -21,9 +21,12 @@ khai; đọc help/tài liệu không được tính là smoke đã đạt. Các 
 
 - **Decision:** Thêm chế độ kết thúc generic `external_confirmation` trong snapshot runtime. Ở bước
   merge gate, chế độ này chờ bằng chứng, không gọi `mergeGuard` để đòi head chứa base mới nhất và
-  không phát effect merge. Giữ graph `software_dev@1`; preflight chỉ nhận task có predicate skip-review
-  không khớp và scout không được yêu cầu. Cấu hình/ngữ cảnh yêu cầu khác bị capability_missing, không
-  tự đổi predicate/snapshot để bỏ role hoặc miễn review.
+  không phát effect merge. Quyết định 2026-10-29 bổ sung [hai chế độ](task-execution-modes.md):
+  preflight kiểm mode/binding đã được người dùng xác nhận, không dùng size XS để miễn review;
+  scout không được yêu cầu trong feature này. `direct-pr` không cần reviewer capability;
+  `full-review` cần reviewer riêng session nhưng không cần khác vendor. Graph `software_dev@1`
+  hiện có phải được sửa/version hóa để checkpoint commit trước review và nối hai mode; không
+  tự đổi predicate/snapshot hoặc mode lúc chạy để vượt capability/quota.
   Các mode cũ của lõi vẫn có kiểm tra hồi quy, nhưng daemon 002 chỉ nhận chế độ manual này và có
   hàng rào executor từ chối mọi effect merge.
 - **Evidence:** [workflow](../../src/engine/workflows/software-dev.ts),

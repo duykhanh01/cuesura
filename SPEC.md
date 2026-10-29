@@ -1,6 +1,6 @@
 # Cuesura — Đặc tả tổng quan
 
-**Phiên bản:** 0.1 · **Ngày:** 2026-10-27 · **Trạng thái:** Đặc tả thiết kế, chưa triển khai.
+**Phiên bản:** 0.2 · **Ngày:** 2026-10-29 · **Trạng thái:** Đặc tả thiết kế, chưa triển khai.
 
 > Every call has a cue. Every pause has a purpose.
 >
@@ -119,13 +119,13 @@ Task có `schema_version`, `id`, `title`, `type`, `project`, `base_branch`, `des
 - `acceptance` phải có ít nhất một tiêu chí trước READY. Code kiểm tra cấu trúc và sự hiện diện; việc tiêu chí có đúng ý người dùng được xác nhận bởi người giao hoặc bước refine được cho phép.
 - Metadata riêng của GitHub hay kênh khác nằm trong liên kết nguồn. Context compiler đưa yêu cầu và trích đoạn liên quan cho agent, không đưa token, địa chỉ điều khiển hay cú pháp quản trị của kênh.
 - Dependency phải tồn tại, không tự tham chiếu và không tạo chu trình. Dependency FAILED/CANCELLED làm task phụ thuộc tiếp tục chờ có giải thích; không coi là hoàn thành.
-- Task do assistant tạo mặc định cần xác nhận. Auto-confirm và hạn mức tạo task theo client phải do người dùng cấu hình.
+- Agent nhận task có thể đọc chỉ dẫn `when to use` để đề xuất harness/model/effort và chế độ `direct-pr` hoặc `full-review`; daemon không suy chế độ từ nội dung hay kích thước task. Trước spawn đầu tiên, người dùng phải xác nhận bộ lựa chọn cụ thể, gồm reviewer nếu có. Auto-confirm intake không thay xác nhận cấu hình chạy; xem [hợp đồng chế độ](specs/002-task-to-green-pr/task-execution-modes.md).
 
 ### 5.3 Snapshot và revision
 
 Kiểm tra workflow/profile/binding ngay khi nhận task. Khi bắt đầu thực thi, chốt lại cấu hình project tại `base_sha` và tạo đồng thời:
 
-- **FrozenPolicy:** workflow đã expand, binding và ladder từng bước, quyền, gate thực tế, giới hạn, chế độ quyết định, schema version và các hash cấu hình.
+- **FrozenPolicy:** workflow đã expand, chế độ thực thi đã xác nhận, binding và ladder từng bước, quyền, gate thực tế, giới hạn, chế độ quyết định, schema version và các hash cấu hình. Xác nhận gắn với đúng bộ lựa chọn; cấu hình hiệu lực đổi phải xin xác nhận lại trước spawn.
 - **FrozenExecutionContext:** nội dung yêu cầu, acceptance, bản chụp attachments, prompt/conventions và `base_sha`.
 
 Nếu cấu hình lúc bắt đầu không còn hợp lệ, task ở PENDING và được yêu cầu xử lý trước khi tạo worktree. Không âm thầm thay một policy đã đóng băng. Output bước trước, diff hiện tại và Q&A là phần context tăng thêm có provenance; không thay snapshot yêu cầu gốc.
@@ -170,17 +170,18 @@ Một lần hủy chưa thành CANCELLED khi process hoặc merge request vẫn 
 | Triage | Kiểm tra quyền, task, acceptance, dependency và policy | PENDING với lý do rõ ràng |
 | Prepare | Snapshot, tạo worktree/branch, chạy setup theo cấu hình | Phân loại lỗi và chờ/retry hữu hạn |
 | Scout, nếu được bật | Thu thập context còn thiếu, chỉ đọc | Tối đa một lượt mặc định; thiếu context quan trọng thì hỏi người |
-| Code | Coder sửa trong worktree, trả kết quả có schema | Hỏi người, bổ sung context hoặc xử lý lỗi theo policy |
+| Code | Coder sửa trong worktree, chuẩn bị commit message và PR title/description theo template frozen, trả kết quả có schema | Hỏi người, bổ sung context hoặc xử lý lỗi theo policy |
 | Gates | Orchestrator chạy các gate đã đóng băng | Fixer nhận log đã lọc; sửa xong chạy lại gate |
-| Review | Reviewer độc lập đối chiếu acceptance và diff hiện tại | Findings có cấu trúc → fixer → gates → review |
-| Publish | Orchestrator checkpoint/commit, push và tạo hoặc nhận lại PR | Probe trước khi làm lại |
+| Checkpoint | Sau gates, orchestrator commit trạng thái code đã đối chiếu bằng message worker chuẩn bị | Intent/OID bền vững; gate evidence khớp tree |
+| Review, chỉ `full-review` | Reviewer session riêng, chỉ đọc, đối chiếu acceptance, diff của commit cố định và nội dung PR | Findings → worker sửa → gates → commit mới → review |
+| Publish | Orchestrator push đúng SHA đã kiểm và tạo hoặc nhận lại PR bằng nội dung worker chuẩn bị | Ref/tree/worktree drift thì chặn; probe trước retry |
 | CI | Chờ required checks của đúng head SHA | Hạ tầng/flaky: rerun hữu hạn; autofix: gate; lỗi code: coder/fixer rồi chạy lại gates/review cần thiết |
 | Merge | Tuần tự hóa theo branch đích, kiểm tra lại mọi điều kiện | Cập nhật base và chạy lại kiểm tra, hoặc WAITING |
 | Complete | Xác nhận merge, lưu artifact/usage, đồng bộ nguồn | Dọn dẹp có điều kiện; lỗi thông báo không làm lặp merge |
 
-Mặc định reviewer khác vendor với coder thực tế đã tạo diff. Nếu escalation đổi vendor, phải resolve reviewer hợp lệ từ FrozenPolicy; không có lựa chọn thì chờ người. Review approve chỉ có hiệu lực cho diff/head đã review; thay đổi code sau đó phải được kiểm tra lại theo policy.
+Có hai chế độ do người dùng xác nhận trước khi chạy: `direct-pr` không gọi reviewer; `full-review` bắt buộc review trước publish. Không tự chọn theo size XS và không bắt buộc khác vendor/model. Reviewer dùng session riêng, chỉ đọc; approval gắn base SHA/commit SHA cụ thể. Thay đổi code sau review phải gates, commit mới và review lại; publish không commit thêm code sau approval.
 
-Task rất nhỏ có thể bỏ review nếu profile cho phép và ghi rõ việc bỏ qua. Quyền bỏ review không cho phép tự merge: mọi chế độ auto-merge vẫn cần review approve. Khi người dùng duyệt thủ công, các gate/check bắt buộc và branch protection vẫn giữ nguyên.
+Hết quota thì chờ hoặc đề xuất lựa chọn khác để người dùng duyệt, không tự đổi chế độ/binding ngoài bộ đã duyệt. Các vòng sửa trong giới hạn không hỏi lại; đổi chế độ sau khi đã chạy cần task mới trong feature 002. `direct-pr` không cấp quyền merge: mọi chế độ auto-merge trong v1 vẫn cần review approve; feature 002 chỉ quan sát merge thủ công. Xem [hợp đồng chi tiết và tiêu chí kiểm chứng](specs/002-task-to-green-pr/task-execution-modes.md).
 
 Setup, formatter và gate là lệnh từ cấu hình project đáng tin cậy, có thể có side effect. Không mặc định xem mọi shell command là “pure”; chỉ retry tự động khi hợp đồng của lệnh cho phép chạy lại an toàn.
 
@@ -209,7 +210,7 @@ Gate project không khai báo chỉ được bỏ qua theo quy tắc optional v�
 
 ### 9.1 Role và quyền
 
-Coder/fixer được ghi trong worktree; reviewer/scout/decider chỉ đọc. CI fix dùng lại coder hoặc fixer theo binding đã resolve. Refiner đề xuất acceptance tối đa một lượt khi profile cho phép; planner tự tách epic nằm sau v1.
+Daemon tạo branch/worktree; coder/fixer được ghi code, không có quyền publish. Fixer là vai trò sửa của worker đã tạo thay đổi: lỗi gate/review/CI ưu tiên resume session worker đó theo binding đã resolve, không tạo worker mới chỉ vì đổi tên step. Reviewer/scout/decider chỉ đọc; reviewer luôn tách session khỏi worker. Refiner đề xuất acceptance tối đa một lượt khi profile cho phép; planner tự tách epic nằm sau v1.
 
 Binding gồm harness, model, effort, quyền và các giới hạn thực tế được hỗ trợ. Tên model/CLI flag nằm trong cấu hình adapter, không gắn cứng trong engine. Resume chỉ dùng khi cùng harness, session còn hợp lệ và policy cho phép; nếu không thì session mới với context packet có giới hạn.
 
@@ -330,6 +331,8 @@ Coder/fixer trả `status` thuộc `done | needs_input | needs_context | blocked
   "blocker": null
 }
 ```
+
+Coder/fixer sẽ chuẩn bị thêm commit message, PR title và description theo template từ frozen base, dưới dạng artifact ngoài code; orchestrator dùng nội dung đó để publish. Đây là hợp đồng bổ sung cần version hóa/kiểm chứng schema, chưa có trong ví dụ schema hiện tại.
 
 Reviewer có verdict `approve | request_changes`, summary và findings có severity/file/line/message. Decider có hợp đồng ở §10. Mỗi role có schema được version hóa; metadata task/attempt và provenance do orchestrator gắn, không tin ID mà agent tự khai.
 

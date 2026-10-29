@@ -6,6 +6,21 @@
 
 **Readiness: BLOCKED trước lát A.** Backlog đã tạo theo yêu cầu chủ dự án; [lát 0](spike-0.md) chưa đạt. Theo [ADR-0004](../../docs/adr/0004-isolated-bwrap-baseline.md), Isolated rootless bwrap là baseline cần kiểm chứng, không còn gate AppArmor 4 phổ quát. Canary local đã đạt nhưng chưa thay proof đầy đủ, smoke harness hoặc GitHub thật.
 
+## Điều chỉnh thiết kế 2026-10-29
+
+Áp dụng [chế độ thực thi và xác nhận](task-execution-modes.md), coverage M01–M08 và backlog
+T135–T139. Thay skip theo XS bằng mode được người dùng xác nhận; không bắt buộc khác vendor.
+Commit sau gates, trước review; publish đúng SHA. Worker chuẩn bị message/title/body từ template
+frozen và tiếp tục sửa qua resume khi hợp lệ. Agent nhận task đề xuất từ `when to use`, daemon
+không suy rủi ro hoặc tự chọn lại binding. Bổ sung xác nhận bền từ kênh người dùng đáng tin trước
+spawn, không thay authority admin hiện có.
+
+Hiến chương IV dùng SHOULD khác vendor, không phải điều kiện bắt buộc; reviewer riêng session,
+chỉ đọc và bằng chứng gắn SHA vẫn giữ. Gate review là bắt buộc khi mode là `full-review`;
+`direct-pr` không tạo approve giả và không cấp quyền auto-merge. Không sửa hiến chương trong PR này.
+Bằng chứng hai vendor của spike/SC-001 vẫn là coverage adapter, không là điều kiện admission.
+Plan/schema/graph cũ phải được nối qua T135–T139; tài liệu không thay bằng chứng runtime.
+
 ## Summary
 
 Nối lõi 001 vào một daemon ghi SQLite, runner độc lập, Git/worktree và hai harness CLI. Giao theo lát 0 kiểm chứng thật → A fake tới PR xanh → go/no-go → B recovery/tương tác với ≥200 crash → C smoke xuyên suốt thật hai chiều vendor. Khi xác nhận merge, ghi bền bằng chứng và chặn nghiệp vụ; chỉ DONE sau khi dừng process/đối chiếu effect, kể cả head chưa chứng nhận. Xem [ADR-0001](../../docs/adr/0001-observe-manual-merge.md).
