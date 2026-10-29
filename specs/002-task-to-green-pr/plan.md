@@ -41,6 +41,15 @@ head trong lúc review, callback đến trước/sau observation, update có gua
 ở A và crash I/O tại T082/T093 ở B, không kéo recovery B thành prerequisite ngược cho A.
 Triển khai Phase 3 theo backlog cũ cần đối chiếu [phạm vi rà lại](tasks.md#đối-chiếu-phase-3-đã-làm-theo-backlog-cũ), giữ bằng chứng cũ và đánh giá lại theo từng yêu cầu mới.
 
+Bổ sung `merge.method` theo [SPEC §14.2](../../SPEC.md#142-merge): object closed, enum
+squash/merge/rebase, default squash khi thiếu object/key, giá trị sai báo config_invalid. Resolve
+từ frozen base và chụp cùng policy/context của task mới; không sửa task đang chạy hoặc hash
+snapshot cũ. Feature 002 chỉ hiển thị preference/message, không kiểm method đã bật như capability
+để chặn admission và không gửi merge. Method thực tế khác/unknown không chặn proof/drain/DONE
+hoặc tự đánh dấu merged_head_unverified; audit chỉ ghi khi có evidence. V1 có merge effect sau
+này phải dùng method frozen, message artifact đã validate và không fallback khi repo không cho
+phép. Nối T030/T032/T045/T111/T135/T136/T139, giữ thứ tự phụ thuộc và scope 002.
+
 ## Summary
 
 Nối lõi 001 vào một daemon ghi SQLite, runner độc lập, Git/worktree và hai harness CLI. Giao theo lát 0 kiểm chứng thật → A fake tới PR xanh → go/no-go → B recovery/tương tác với ≥200 crash → C smoke xuyên suốt thật hai chiều vendor. Khi xác nhận merge, ghi bền bằng chứng và chặn nghiệp vụ; chỉ DONE sau khi dừng process/đối chiếu effect, kể cả head chưa chứng nhận. Xem [ADR-0001](../../docs/adr/0001-observe-manual-merge.md).

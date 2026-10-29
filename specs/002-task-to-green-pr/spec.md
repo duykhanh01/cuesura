@@ -727,6 +727,23 @@ nhóm bao gồm toàn bộ các mục con, không thay thế việc kiểm chứ
   | **FR-046.07** | Với merge_cleanup_pending, recheck MUST yêu cầu một lượt dừng/đối chiếu hữu hạn process/effect còn mở và ghi bằng chứng, chỉ DONE khi đạt FR-040.04; thao tác phục vụ này được phép sau deadline/hạn quan sát, không resume workflow/retry publish/reset giới hạn tự động. |
   | **FR-046.08** | Recheck task terminal MUST NOT mở lại task hoặc phát effect nghiệp vụ mới. |
 
+### Method merge mặc định
+
+Theo [SPEC §14.2](../../SPEC.md#142-merge), project có `merge.method` dự kiến, mặc định `squash`,
+cho phép `merge`/`rebase`. Object/key thiếu dùng default; sai kiểu/enum hoặc key lạ trong object
+closed phải lỗi config_invalid. Resolve từ frozen base, snapshot khi task bắt đầu; config mới
+không đổi task đang chạy, không sửa snapshot/hash cũ. Key này chưa được loader/runtime hỗ trợ.
+
+Trong feature 002, method và squash message từ artifact worker chỉ để đề xuất cho người dùng;
+không bật endpoint/quyền merge hoặc kiểm method GitHub đã bật như điều kiện admission. Merge
+thủ công khác cấu hình hoặc không xác minh được method vẫn hoàn tất khi proof/drain đạt. Actual
+method chỉ ghi khi có evidence, còn lại unknown; mismatch là audit, không phải blocker hoặc lý do
+merged_head_unverified. Checked head, head-at-merge và merge commit vẫn riêng theo FR-040.10.
+V1 sau khi có quyền gửi effect merge mới kiểm method được phép và không fallback ngầm.
+
+Coverage thêm vào M02/M05/M08 và T030/T032/T045/T111/T135/T136/T139, không mở scope auto-merge
+của feature 002 hoặc thay 117 mã FR hiện có.
+
 ### Phạm vi bằng chứng và truy vết
 
 | Hành trình trong SPEC.md | Story / yêu cầu | Bằng chứng cần có ở feature 002 |

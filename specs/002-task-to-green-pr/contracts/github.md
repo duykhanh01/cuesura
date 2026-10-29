@@ -5,6 +5,20 @@ chính thức và các giới hạn; [data model](../data-model.md) định ngh�
 API merge trong port. Dùng gh api qua port process mỏng theo SPEC §17.2, không fetch backend.
 Command allowlist, timeout/transport/pagination/bytes được pin theo runtime snapshot.
 
+## Method mặc định và merge thủ công
+
+Theo [SPEC §14.2](../../../SPEC.md#142-merge), `cusr.yaml` dự kiến có `merge.method`, mặc định
+`squash`, đổi được sang `merge` hoặc `rebase`, đóng băng khi task bắt đầu. Với feature 002, đây
+chỉ là lựa chọn đề xuất: port vẫn không có endpoint merge và không kiểm method như điều kiện
+admission/hoàn tất. Cung cấp commit message worker đã chuẩn bị cho người dùng dùng khi squash.
+
+Merge thủ công bằng method khác cấu hình vẫn DONE khi proof/drain đạt. Ghi method thực tế và
+chênh lệch chỉ khi có bằng chứng đáng tin; không xác minh được thì unknown, không đoán từ graph
+hoặc coi thiếu method là proof incomplete. Khác method không làm mất chứng nhận head đã kiểm.
+`checked_head_sha`, `merged_head_sha` và `merge_commit_sha` là ba dữ kiện riêng; squash/rebase
+không đòi merge commit bằng PR head. V1 khi được phép gửi merge sẽ dùng method frozen và message
+artifact hiện hành đã validate, ghi digest vào intent, chờ nếu method không được phép thay vì fallback.
+
 ## Publish và đối chiếu
 
 | Thao tác | Identity / probe trước retry |
