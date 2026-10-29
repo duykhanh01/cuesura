@@ -40,6 +40,7 @@ import { Redactor } from '../../src/runner/redact.ts';
 import { IN_SANDBOX } from '../../src/runner/sandbox.ts';
 import { InvocationSpecSchema } from '../../src/runner/supervisor.ts';
 import { hashCanonical } from '../../src/shared/hash.ts';
+import type { Hash } from '../../src/shared/brand.ts';
 import { err, ok, type Result } from '../../src/shared/result.ts';
 import { readRealJson, vendorPin } from './harness-fixtures.ts';
 
@@ -51,6 +52,18 @@ export const FAKE_VENDOR = fileURLToPath(
  * Maps the fixed in-sandbox paths onto the host layout and runs the command directly. Test only: it
  * enforces nothing, which is exactly what lets the write-zone canary be observed.
  */
+/** The layout shape {@link PassThroughSandbox} reports for a role. */
+export function passThroughShape(role: string): Hash {
+  return hashCanonical(['pass-through', role]);
+}
+
+const PASS_THROUGH_SHAPES: Readonly<Record<string, Hash>> = Object.fromEntries(
+  (['coder', 'fixer', 'reviewer'] as const).map((r) => [
+    r,
+    passThroughShape(r),
+  ]),
+);
+
 export class PassThroughSandbox implements SandboxProvider {
   readonly provider = 'bwrap' as const;
   readonly plans: SandboxLayout[] = [];
@@ -88,6 +101,7 @@ export class PassThroughSandbox implements SandboxProvider {
       network: 'internet_outbound',
       mount_sources: [],
       layout_digest: hashCanonical(layout),
+      layout_shape: passThroughShape(layout.role),
       proof_refs: ['test:pass-through'],
     });
   }
@@ -201,6 +215,7 @@ export const HOST_POLICY_HASH = hashCanonical('test host policy');
 export function evidenceManifest(
   pin: VendorPin,
   over: Partial<EvidenceEntry> = {},
+  layoutShapes: Readonly<Record<string, Hash>> = PASS_THROUGH_SHAPES,
 ): CapabilityManifest {
   const adapter = pin.vendor === 'claude' ? claudeAdapter : codexAdapter;
   const evidence = readRealJson<Evidence>('capability-manifest.json');
@@ -232,6 +247,7 @@ export function evidenceManifest(
     entry,
     observed: observed.value,
     cost: pin.vendor === 'claude' ? 'reported' : 'unavailable',
+    layout_shapes: layoutShapes,
     fixture_refs: [
       'test/fixtures/runtime/spike-0/harness/real-20261028/capability-manifest.json',
     ],

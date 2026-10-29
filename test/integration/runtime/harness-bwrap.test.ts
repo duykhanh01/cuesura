@@ -16,12 +16,16 @@ import {
   type Role,
 } from '../../../src/adapters/harness/result-schema.ts';
 import type { HarnessInput } from '../../../src/adapters/ports.ts';
-import { RunnerHarness } from '../../../src/runner/invocation.ts';
+import {
+  attemptLayoutInputs,
+  RunnerHarness,
+} from '../../../src/runner/invocation.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
 import {
   BWRAP,
   BwrapSandboxProvider,
   defaultHostPolicy,
+  probeLayoutShapes,
 } from '../../../src/runner/sandbox.ts';
 import type { EpochMs } from '../../../src/shared/brand.ts';
 import { hashCanonical, hashText } from '../../../src/shared/hash.ts';
@@ -87,14 +91,20 @@ function setup(attempt: string, mode: string) {
   }
   const data = join(fx.base, 'data');
   const policy = defaultHostPolicy(data);
+  const sandbox = new BwrapSandboxProvider({ policy });
+  const shapes = probeLayoutShapes(sandbox, {
+    roles: ['coder', 'fixer', 'reviewer'],
+    ...attemptLayoutInputs(pin, 'probe'),
+  });
+  if (!shapes.ok) throw new Error(shapes.error.message);
   const h = new RunnerHarness({
     harness: 'claude',
     adapter: claudeAdapter,
     pin,
-    manifest: evidenceManifest(pin),
+    manifest: evidenceManifest(pin, {}, shapes.value),
     isolation: 'internal_required',
     process: new InlineProcessPort(data),
-    sandbox: new BwrapSandboxProvider({ policy }),
+    sandbox,
     host_policy_hash: HOST_POLICY_HASH,
     data_dir: data,
     credentials,

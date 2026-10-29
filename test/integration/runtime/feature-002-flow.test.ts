@@ -62,6 +62,7 @@ const passthrough: SandboxProvider = {
       network: 'internet_outbound',
       mount_sources: [],
       layout_digest: hashText(layout.role),
+      layout_shape: hashText(layout.role),
       proof_refs: [],
     }),
 };

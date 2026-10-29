@@ -35,6 +35,7 @@ import {
 import { dirname, join } from 'node:path';
 import {
   observeHarness,
+  verifyLayout,
   verifyManifest,
   type CapabilityProblem,
 } from '../application/capabilities.ts';
@@ -96,6 +97,20 @@ const STDERR_READ_MAX = 1024 * 1024;
 /** The run's outcome could not be proven; the effect must be reconciled, never re-launched blindly. */
 export class InvocationUnknown extends Error {
   override name = 'InvocationUnknown';
+}
+
+/**
+ * Toolchain and environment every attempt of this pin gets in its sandbox layout; a doctor probes the
+ * layout shapes it pins with the same inputs (`probeLayoutShapes`).
+ */
+export function attemptLayoutInputs(
+  pin: VendorPin,
+  attemptId: string,
+): { toolchain: string[]; env: Record<string, string> } {
+  return {
+    toolchain: [...new Set([dirname(pin.binary.realpath), ...pin.toolchain])],
+    env: { ...pin.env, CUSR_ATTEMPT_ID: attemptId },
+  };
 }
 
 export type Workspace = {
@@ -273,6 +288,13 @@ export class RunnerHarness implements HarnessPort {
           'capability_missing',
           `sandbox ${sandboxed.error.code}: ${sandboxed.error.message}`,
         );
+      const layoutProblem = verifyLayout(
+        o.manifest,
+        input.role,
+        sandboxed.value.layout_shape,
+      );
+      if (layoutProblem !== null)
+        return never('capability_missing', layoutProblem.message);
 
       const nonce = newLaunchNonce();
       const wall = Math.max(
@@ -514,10 +536,7 @@ export class RunnerHarness implements HarnessPort {
         private_home: installed.home,
         context,
         schema: schemaDir,
-        toolchain: [
-          ...new Set([dirname(o.pin.binary.realpath), ...o.pin.toolchain]),
-        ],
-        env: { ...o.pin.env, CUSR_ATTEMPT_ID: input.attempt_id },
+        ...attemptLayoutInputs(o.pin, input.attempt_id),
         network: 'internet_outbound',
       },
     };

@@ -79,6 +79,8 @@ export type SandboxLaunchPlan = {
   readonly network: 'internet_outbound';
   readonly mount_sources: readonly MountSourceIdentity[];
   readonly layout_digest: Hash;
+  /** {@link layout_digest} without the attempt's own paths; the capability manifest pins it per role. */
+  readonly layout_shape: Hash;
   /** Fixture/manifest references of the outer-boundary proof this plan relies on. */
   readonly proof_refs: readonly string[];
 };

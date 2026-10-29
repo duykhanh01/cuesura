@@ -21,6 +21,7 @@ import {
   SandboxPolicyError,
   buildBwrap,
   defaultHostPolicy,
+  probeLayoutShapes,
 } from '../../../src/runner/sandbox.ts';
 import {
   createSandboxFixture,
@@ -226,6 +227,60 @@ describe('BwrapSandboxProvider plan', () => {
     expect(reviewer.ok && reviewer.value.layout_digest).not.toBe(
       plan.layout_digest,
     );
+  });
+
+  it('the layout shape is the same for every attempt of a role and changes with the layout policy', () => {
+    const a = fixture();
+    const b = fixture();
+    const provider = new BwrapSandboxProvider({ policy });
+    const shape = (
+      l: ReturnType<typeof fixtureLayout>,
+      p = provider,
+    ): string | null => {
+      const r = p.plan(l, ['/bin/true']);
+      return r.ok ? r.value.layout_shape : null;
+    };
+    const coder = shape(fixtureLayout('coder', a));
+    expect(coder).not.toBeNull();
+    // Another attempt: other worktree, scratch, home and attempt id; only the paths differ.
+    expect(
+      shape({
+        ...fixtureLayout('coder', b),
+        env: { CUSR_ATTEMPT_ID: 'at-2' },
+      }),
+    ).toBe(
+      shape({ ...fixtureLayout('coder', a), env: { CUSR_ATTEMPT_ID: 'at-1' } }),
+    );
+    expect(shape(fixtureLayout('reviewer', a))).not.toBe(coder);
+    expect(
+      shape({ ...fixtureLayout('coder', a), toolchain: [b.outside] }),
+    ).not.toBe(coder);
+    expect(
+      shape({ ...fixtureLayout('coder', a), env: { EXTRA: '1' } }),
+    ).not.toBe(coder);
+    const wider = new BwrapSandboxProvider({
+      policy: { ...policy, systemRo: [...policy.systemRo, b.outside] },
+    });
+    expect(shape(fixtureLayout('coder', a), wider)).not.toBe(coder);
+  });
+
+  it('a probe yields the shape real attempts of each role get', () => {
+    const fx = fixture();
+    const provider = new BwrapSandboxProvider({ policy });
+    const probed = probeLayoutShapes(provider, {
+      roles: ['coder', 'reviewer'],
+      toolchain: [],
+      env: {},
+    });
+    if (!probed.ok) throw new Error(probed.error.message);
+    for (const role of ['coder', 'reviewer'] as const) {
+      // Agent attempts always get a schema directory.
+      const r = provider.plan(
+        { ...fixtureLayout(role, fx), schema: fx.outside },
+        ['/bin/true'],
+      );
+      expect(r.ok && r.value.layout_shape).toBe(probed.value[role]);
+    }
   });
 
   it('returns policy errors as data and refuses an empty command or missing proof', () => {

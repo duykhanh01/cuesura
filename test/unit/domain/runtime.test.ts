@@ -144,6 +144,7 @@ describe('runtime snapshot and entities', () => {
       environment_hash: HASH,
       settings_hash: HASH,
       host_policy_hash: HASH,
+      layout_shapes: { coder: HASH },
       fixture_refs: [],
       checked_at: 0,
       manifest_hash: HASH,

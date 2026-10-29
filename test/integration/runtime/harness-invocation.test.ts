@@ -319,6 +319,36 @@ describe('admission before every attempt (T070)', () => {
     });
   });
 
+  it('a sandbox layout other than the pinned one for the role is capability_missing; nothing launches', async () => {
+    const e = env('claude', attempt);
+    const manifest = evidenceManifest(
+      e.pin,
+      {},
+      {
+        coder: hashText('another layout'),
+      },
+    );
+    const out = await harness(e, { manifest }).run(
+      input('claude', 'coder'),
+      signal(),
+    );
+    expect(out).toMatchObject({
+      kind: 'failure',
+      failure: 'capability_missing',
+      detail: 'sandbox layout for coder changed since the proof',
+      invoked: false,
+    });
+    expect(e.proc.launches).toHaveLength(0);
+    const reviewer = await harness(e, { manifest }).run(
+      input('claude', 'reviewer'),
+      signal(),
+    );
+    expect(reviewer).toMatchObject({
+      failure: 'capability_missing',
+      detail: 'no proven sandbox layout for reviewer',
+    });
+  });
+
   it('a manifest without proven structured output or permission enforcement is refused', async () => {
     const e = env('codex', 's0-codex-coder-1793178479');
     const m = evidenceManifest(e.pin, {

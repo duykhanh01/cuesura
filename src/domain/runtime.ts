@@ -404,6 +404,8 @@ export const CapabilityManifestSchema = z
     environment_hash: HashSchema,
     settings_hash: HashSchema,
     host_policy_hash: HashSchema,
+    /** Sandbox layout shape per role (`SandboxLaunchPlan.layout_shape`); another layout is not proven. */
+    layout_shapes: z.record(z.string(), HashSchema),
     fixture_refs: z.array(z.string()),
     checked_at: NonNegInt,
     manifest_hash: HashSchema,

@@ -15,12 +15,16 @@ import { createHash } from 'node:crypto';
 import {
   existsSync,
   lstatSync,
+  mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
   realpathSync,
+  rmSync,
   statSync,
+  writeFileSync,
 } from 'node:fs';
-import { homedir, userInfo } from 'node:os';
+import { homedir, tmpdir, userInfo } from 'node:os';
 import { dirname, isAbsolute, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
@@ -33,6 +37,7 @@ import type {
 } from '../adapters/ports.ts';
 import { OWNER_TOKEN_FILE } from '../application/access-tokens.ts';
 import { CONTROL_SOCKET } from '../cli/output.ts';
+import type { Hash } from '../shared/brand.ts';
 import { hashCanonical } from '../shared/hash.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 
@@ -454,6 +459,56 @@ export function buildBwrap(
   };
 }
 
+/** Mounts whose host paths belong to one attempt; their shape is pinned, never the paths themselves. */
+const ATTEMPT_MOUNTS: ReadonlySet<string> = new Set([
+  'worktree',
+  'git-metadata',
+  'scratch',
+  'private-home',
+  'context',
+  'schema',
+]);
+
+/**
+ * The layout of a plan without the attempt's own paths: namespace flags, the ordered mount table
+ * (system and toolchain mounts by path, attempt mounts by purpose), environment names, network and the
+ * launcher. Equal for every attempt of a role under the same policy, so a manifest can pin it (T072).
+ */
+function layoutShape(
+  plan: BwrapPlan,
+  launcher: { bwrap: string; python: string; digest: string },
+): Hash {
+  const first = plan.sources[0]?.argv_index ?? plan.bwrap_args.length;
+  const mounts: string[] = [];
+  for (const m of plan.mounts) {
+    const entry = JSON.stringify(
+      ATTEMPT_MOUNTS.has(m.purpose)
+        ? {
+            kind: m.kind,
+            purpose: m.purpose,
+            target: m.target === m.source ? null : m.target,
+          }
+        : {
+            kind: m.kind,
+            purpose: m.purpose,
+            source: m.source,
+            target: m.target,
+            optional: m.optional === true,
+          },
+    );
+    // A linked worktree has one more git dir than a main checkout; the same mount twice adds nothing.
+    if (!mounts.includes(entry)) mounts.push(entry);
+  }
+  return hashCanonical({
+    role: plan.role,
+    flags: plan.bwrap_args.slice(0, first),
+    mounts,
+    env: Object.keys(plan.env).sort(),
+    network: plan.network,
+    launcher,
+  });
+}
+
 export type BwrapProviderOptions = {
   readonly policy: HostPolicy;
   readonly bwrap?: string;
@@ -523,8 +578,62 @@ export class BwrapSandboxProvider implements SandboxProvider {
         network: plan.network,
         launcher: this.#launcherDigest,
       }),
+      layout_shape: layoutShape(plan, {
+        bwrap: this.#bwrap,
+        python: this.#python,
+        digest: this.#launcherDigest,
+      }),
       proof_refs: [...this.#proofRefs],
     });
+  }
+}
+
+/**
+ * Plans each role on a throwaway layout and returns its {@link SandboxLaunchPlan.layout_shape}: what a
+ * doctor pins in the capability manifest. `toolchain` and `env` must be what attempts will pass.
+ */
+export function probeLayoutShapes(
+  provider: SandboxProvider,
+  o: {
+    readonly roles: readonly SandboxRole[];
+    readonly toolchain: readonly string[];
+    readonly env: Readonly<Record<string, string>>;
+  },
+): Result<Record<string, Hash>, SandboxPlanError> {
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'cusr-layout-probe-')));
+  try {
+    const dir = (name: string): string => {
+      const p = join(base, name);
+      mkdirSync(p);
+      return p;
+    };
+    const worktree = dir('worktree');
+    const common = dir('common');
+    const admin = dir('admin');
+    writeFileSync(join(worktree, '.git'), `gitdir: ${admin}\n`);
+    const shapes: Record<string, Hash> = {};
+    for (const role of o.roles) {
+      const plan = provider.plan(
+        {
+          role,
+          worktree,
+          git_dirs: [common, admin],
+          scratch: dir(`scratch-${role}`),
+          private_home: AGENT_ROLES.has(role) ? dir(`home-${role}`) : null,
+          context: dir(`context-${role}`),
+          schema: dir(`schema-${role}`),
+          toolchain: o.toolchain,
+          env: o.env,
+          network: 'internet_outbound',
+        },
+        ['/bin/true'],
+      );
+      if (!plan.ok) return plan;
+      shapes[role] = plan.value.layout_shape;
+    }
+    return ok(shapes);
+  } finally {
+    rmSync(base, { recursive: true, force: true });
   }
 }
 

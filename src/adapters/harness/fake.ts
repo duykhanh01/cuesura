@@ -84,6 +84,7 @@ export function fakeCapabilityManifest(
     environment_hash: fake,
     settings_hash: fake,
     host_policy_hash: fake,
+    layout_shapes: {},
     fixture_refs: [],
     checked_at: 0,
   };

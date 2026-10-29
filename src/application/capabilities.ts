@@ -59,6 +59,7 @@ export type CapabilityProblem = {
     | 'settings'
     | 'environment'
     | 'host_policy'
+    | 'layout'
     | 'schema'
     | 'capability'
     | 'isolation'
@@ -174,6 +175,26 @@ export function verifyManifest(
   });
 }
 
+/**
+ * The sandbox layout an attempt is about to launch must be the one the manifest pinned for its role;
+ * a changed mount table, flag, environment name or launcher blocks the attempt until it is proven again.
+ */
+export function verifyLayout(
+  m: CapabilityManifest,
+  role: string,
+  shape: Hash,
+): CapabilityProblem | null {
+  const pinned = m.layout_shapes[role];
+  if (pinned === undefined)
+    return { check: 'layout', message: `no proven sandbox layout for ${role}` };
+  if (pinned !== shape)
+    return {
+      check: 'layout',
+      message: `sandbox layout for ${role} changed since the proof`,
+    };
+  return null;
+}
+
 // ---- observation ----
 
 const digestCache = new Map<string, { key: string; digest: Hash }>();
@@ -267,6 +288,8 @@ export function manifestFromEvidence(o: {
   readonly entry: EvidenceEntry;
   readonly observed: ObservedHarness;
   readonly cost: 'reported' | 'unavailable';
+  /** From `probeLayoutShapes` on this host, with the toolchain and environment attempts use. */
+  readonly layout_shapes: Readonly<Record<string, Hash>>;
   readonly fixture_refs: readonly string[];
   readonly checked_at: number;
 }): CapabilityManifest {
@@ -300,6 +323,7 @@ export function manifestFromEvidence(o: {
     environment_hash: o.observed.environment_hash,
     settings_hash: o.observed.settings_hash,
     host_policy_hash: o.observed.host_policy_hash,
+    layout_shapes: { ...o.layout_shapes },
     fixture_refs: [...o.fixture_refs],
     checked_at: o.checked_at,
   };
