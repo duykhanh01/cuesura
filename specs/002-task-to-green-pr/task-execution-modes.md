@@ -158,6 +158,43 @@ Không áp dụng cache qua task/revision khác và không chuyển approval san
 Mất hoặc chưa rõ receipt của lượt review phải reconcile kết quả đã finalize trước khi quyết định
 gọi lại; việc dùng lại evidence có provenance, không ghi một lượt reviewer/usage không thực sự xảy ra.
 
+## Remote đổi head khi review còn chạy
+
+Reviewer đang kiểm commit A thì một bên khác có thể push B lên branch của task/PR. B ở đây là head
+ngoài expected-old/new của operation hợp lệ, không phải kết quả push A đã được ghi intent nhưng chưa
+ingest receipt. Khóa worktree không chặn được push từ bên ngoài; không lấy callback reviewer làm
+bằng chứng remote vẫn khớp. Chỉ base tip đổi mà branch task không đổi vẫn theo FR-041.04.
+
+- Khi đối chiếu thấy B ngoài dự kiến, ghi fact có expected/observed SHA và provenance, chuyển
+  `WAITING/policy head_changed`, thu hồi xanh và chặn claim/dispatch nghiệp vụ mới, kể cả publish
+  đã được enqueue nhưng chưa gửi. Không tự nhận B, chuyển approval sang B hoặc ghi đè remote.
+- Reviewer trả approve A sau đó: vẫn đối chiếu và ghi receipt/result của đúng operation, có thể giữ
+  làm lịch sử cho A, nhưng không gỡ blocker, không đổi expected/checked head và không route sang
+  publish/CI/green cho B. Cùng quy tắc với findings hoặc receipt publish đến muộn; effect đã gửi
+  phải được reconcile, không giả rằng request remote chưa xảy ra rồi gửi lại.
+- Nếu approve A đến trước fact head_changed, nó chỉ đủ cho A. Trước publish phải đối chiếu lại
+  identity/ref/remote SHA và blocker. Update remote phải giữ điều kiện expected-old tại lúc gửi
+  đồng thời vẫn chỉ cho fast-forward; B chen giữa probe và push phải làm update bị từ chối, không
+  force-push hoặc đổi expected-old theo remote mới. Không chứng minh được guard thì chờ đối chiếu.
+- Restart giữ fact drift, blocker, binding của review với A và intent/receipt đang dở; replay hoặc
+  ingest approve A không được mở lại đường publish. Chỉ luồng đối chiếu và lối ra đã quy định ở
+  FR-029 mới có thể giải quyết head_changed; callback reviewer không phải lối ra.
+
+Các scenario dưới đây là yêu cầu kiểm chứng, chưa phải test đã chạy:
+
+| Mã | Thứ tự sự kiện | Kết quả bắt buộc |
+| --- | --- | --- |
+| H01 | Review A chạy → quan sát B → approve A | Giữ head_changed; lưu receipt A, không publish/nhận B hoặc báo xanh |
+| H02 | Review A chạy → B được push → approve A enqueue publish → quan sát B trước dispatch | Pending publish không được claim/gửi; approve không gỡ blocker |
+| H03 | Review A chạy → B được push → approve A → probe trước publish thấy B, chưa có poll mới | Probe chặn publish; không cần chờ observation timer phát hiện |
+| H04 | Approve A → probe thấy expected-old → B chen trước update remote | Guard expected-old tại update từ chối push; B được giữ, không force hoặc nhận B |
+| H05 | Restart giữa các bước H01–H03, kể cả approve đã finalize nhưng chưa ingest | Nhận lại receipt/fact, giữ blocker và SHA; không tạo commit/PR hoặc chạy lại reviewer chỉ vì restart |
+| H06 | Review A chạy → chỉ base tip đổi, branch task và đầu vào review giữ nguyên → approve A | Không phát head_changed cho branch task hoặc gọi review lại chỉ vì base tip đổi |
+
+H01–H03/H06 được kiểm bằng fake events/HTTP và integration của T050/T051/T053/T058/T139;
+H04 bằng Git/bare remote thật tại T029/T041/T139; H05 có replay/SQLite ở T139, mở rộng crash I/O
+tại T082/T093. Không coi test drift sau khi PR đã xanh là thay thế cho race callback đang review.
+
 ## Bằng chứng triển khai cần có
 
 Các mã M dưới đây bổ sung coverage 117 nghĩa vụ FR hiện có; chưa có bằng chứng nghiệm thu.
@@ -169,6 +206,6 @@ Các mã M dưới đây bổ sung coverage 117 nghĩa vụ FR hiện có; chưa
 | M03 | `direct-pr` không gọi reviewer; `full-review` cùng vendor, riêng session/chỉ đọc; reuse approve hoặc findings đúng đầu vào, no-op không gọi lại reviewer, đầu vào đổi buộc review mới |
 | M04 | Gate/review/CI fail quay lại worker; cả resume và fallback nhận packet nguyên nhân sửa/trạng thái mới nhất, packet stale/thiếu bị chặn; fallback có lý do, không gọi chồng |
 | M05 | Template frozen, lựa chọn nhiều template, artifact hợp lệ và được cập nhật sau fixer/CI; từ chối marker điều khiển giả trong title/body worker ở cả hai mode; không thêm writer agent |
-| M06 | Gate/formatter sửa code buộc kiểm tập gate trên tree cuối trong giới hạn; mutation sau gate/review, HEAD/ref drift hoặc writer còn chạy chặn publish; push chính SHA đã kiểm |
-| M07 | Commit/push/create/update PR timeout/crash nhận lại đúng intent và nội dung; probe marker canonical cùng identity/receipt, không nhận PR giả hoặc lặp PR, không ghi đè body ngoài dự kiến |
+| M06 | Gate/formatter sửa code buộc kiểm tập gate trên tree cuối trong giới hạn; mutation/writer hoặc remote drift H01–H04 chặn publish; approve A muộn không gỡ blocker/duyệt B, push đúng SHA đã kiểm |
+| M07 | Commit/push/create/update PR timeout/crash nhận lại đúng intent/nội dung; replay H05 giữ drift và receipt A, không lặp commit/PR/reviewer; probe marker canonical cùng identity/receipt, không nhận PR giả hoặc ghi đè body ngoài dự kiến |
 | M08 | Green/checked-head/explain thể hiện đúng mode; `direct-pr` không giả approve, không miễn CI/merge hoặc mở lại terminal |

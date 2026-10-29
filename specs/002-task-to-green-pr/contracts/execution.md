@@ -168,6 +168,11 @@ không có token GitHub. Config từ Git objects tại frozen base SHA, không f
 - Push kiểm remote expected old SHA, chỉ fast-forward; remote khác dự kiến chờ head_changed,
   không force-push. Local git ref cập nhật cũng compare-and-swap old OID. Remote push đã gửi có
   thể xong sau merge; drain ghi đúng thực tế, không tạo retry hoặc push local remainder.
+- Remote branch đổi sang B khi reviewer còn kiểm A: result/receipt A không được gỡ head_changed
+  hoặc route publish. Kiểm blocker/identity/remote trước dispatch và giữ expected-old trong update
+  remote đồng thời vẫn chỉ fast-forward; probe rồi push không có guard chưa đủ cho race. Unknown
+  giữ chờ; không force hoặc đổi expected-old để nhận B. Restart/replay giữ fact/blocker; xem
+  [H01–H06](../task-execution-modes.md#remote-đổi-head-khi-review-còn-chạy).
 - Mọi kết quả publish gồm repo identity, branch, expected-old/new SHA, local checkpoint, request
   receipt; create/recover PR theo [GitHub contract](github.md). Agent không có quyền merge/publish.
 

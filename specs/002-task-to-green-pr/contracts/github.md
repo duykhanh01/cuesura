@@ -97,6 +97,13 @@ FR-040.12, không thay bằng HEAD hiện tại hoặc suy từ merge commit squ
   `direct-pr` ghi rõ review không được yêu cầu theo mode đã xác nhận, không giả approve; GitHub
   no-protection không miễn gate/CI hoặc review của `full-review`.
 
+Review callback không xác nhận remote head hiện tại: khi reviewer A đang chạy mà branch task
+bị push thành B ngoài dự kiến, observation ghi head_changed và chặn business dispatch; approve A
+đến muộn chỉ hoàn tất receipt/lịch sử A, không gỡ blocker hoặc duyệt B. Nếu observation chưa thấy B,
+probe trước publish và guard expected-old trong update phải chặn drift; receipt muộn/restart không
+route lại bước đã chặn. Chỉ base tip đổi không gây nhánh này.
+[H01–H06](../task-execution-modes.md#remote-đổi-head-khi-review-còn-chạy) kiểm cả hai thứ tự callback/observation, probe/push và replay.
+
 ## Lịch quan sát và recheck
 
 Observation bắt đầu khi nhận diện PR lần đầu (kể cả nhận lại sau crash), không chỉ lúc PR xanh.

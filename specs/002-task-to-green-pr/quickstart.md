@@ -5,6 +5,9 @@ Khi nối runtime phải kiểm M01–M08 ngoài các suite hiện có: không s
 đổi mode/binding ngầm, `direct-pr` không review, `full-review` cùng vendor dùng session riêng,
 resume worker, template/artifact đúng và push đúng commit đã kiểm. Các lệnh dưới đây chưa có
 flags/proof mới cho mode và không được coi là đã hỗ trợ quyết định này.
+Bổ sung [H01–H06](task-execution-modes.md#remote-đổi-head-khi-review-còn-chạy) khi kiểm race:
+remote B chen lúc review A, callback/observation hai thứ tự, probe/update guard, restart và chỉ
+base tip đổi. Ghi riêng bằng chứng từng H; chưa chạy thì báo chưa kiểm.
 
 Phần **lát 0 chạy trước triển khai** theo [spike guide](spike-0.md), là gate trước runtime A. Các
 phần A/B/C bên dưới dành cho sau implement: hiện chỉ có scripts typecheck/lint/test/build/reliability
