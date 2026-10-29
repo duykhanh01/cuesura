@@ -1,0 +1,793 @@
+{
+  "schema_version": 1,
+  "base_commit": "c1a8b9e81b4718eaacf3b63cb04cc8176531b79a",
+  "scope": "Full default suite on Ubuntu after adding gate tests; no paid model or GitHub writes. Test node copied outside home with same sha256; NO_COLOR and FORCE_COLOR unset.",
+  "test_command": "env -u NO_COLOR -u FORCE_COLOR PATH=/tmp/cusr-phase6-node/bin:$PATH pnpm test",
+  "report_sha256": "52d5768f64a77fd59d63218c2841632c6199f69e83e8e924adb877c5c47b10b1",
+  "log_sha256": "f2a2f6b28c55d44a313c7646c6086c54ad6c464c033942007e849c135cecbd48",
+  "total_files": 106,
+  "tests": 1431,
+  "passed": 1431,
+  "failed": 0,
+  "pending": 0,
+  "start_time_epoch_ms": 1793281487386,
+  "files": [
+    {
+      "file": "test/contract/artifacts.test.ts",
+      "status": "passed",
+      "passed": 15,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/contract/gh-port.test.ts",
+      "status": "passed",
+      "passed": 8,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/contract/github-checks.test.ts",
+      "status": "passed",
+      "passed": 17,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/contract/github-observation.test.ts",
+      "status": "passed",
+      "passed": 15,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/contract/github-observe.test.ts",
+      "status": "passed",
+      "passed": 17,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/contract/harness.test.ts",
+      "status": "passed",
+      "passed": 39,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/contract/publish.test.ts",
+      "status": "passed",
+      "passed": 18,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/contract/runner-lifecycle.test.ts",
+      "status": "passed",
+      "passed": 19,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/contract/sandbox-permissions.test.ts",
+      "status": "passed",
+      "passed": 33,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/scenarios/us1-config.test.ts",
+      "status": "passed",
+      "passed": 11,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/scenarios/us2-decide.test.ts",
+      "status": "passed",
+      "passed": 26,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/scenarios/us4-escalation.test.ts",
+      "status": "passed",
+      "passed": 19,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/scenarios/us5-explain.test.ts",
+      "status": "passed",
+      "passed": 8,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/contract/cli/unavailable-command.test.ts",
+      "status": "passed",
+      "passed": 10,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/application/commands.test.ts",
+      "status": "passed",
+      "passed": 4,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/crash/crash-points.test.ts",
+      "status": "passed",
+      "passed": 9,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/runtime/atomic-claims.test.ts",
+      "status": "passed",
+      "passed": 10,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/runtime/confirm-start.test.ts",
+      "status": "passed",
+      "passed": 15,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/runtime/daemon-control.test.ts",
+      "status": "passed",
+      "passed": 10,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/runtime/drain.test.ts",
+      "status": "passed",
+      "passed": 5,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/runtime/execution-modes.test.ts",
+      "status": "passed",
+      "passed": 17,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/runtime/external-completion.test.ts",
+      "status": "passed",
+      "passed": 7,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/runtime/feature-002-fixes.test.ts",
+      "status": "passed",
+      "passed": 40,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/runtime/feature-002-flow.test.ts",
+      "status": "passed",
+      "passed": 25,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/runtime/feature-002-gate.test.ts",
+      "status": "passed",
+      "passed": 5,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/runtime/feature-002-real-adapters.test.ts",
+      "status": "passed",
+      "passed": 3,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/runtime/gates.test.ts",
+      "status": "passed",
+      "passed": 10,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/runtime/git-command.test.ts",
+      "status": "passed",
+      "passed": 18,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/runtime/git-commit.test.ts",
+      "status": "passed",
+      "passed": 6,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/runtime/git-worktree.test.ts",
+      "status": "passed",
+      "passed": 9,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/runtime/harness-bwrap.test.ts",
+      "status": "passed",
+      "passed": 2,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/runtime/harness-invocation.test.ts",
+      "status": "passed",
+      "passed": 27,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/runtime/migration.test.ts",
+      "status": "passed",
+      "passed": 5,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/runtime/observation-limits.test.ts",
+      "status": "passed",
+      "passed": 7,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/runtime/preflight-git.test.ts",
+      "status": "passed",
+      "passed": 4,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/runtime/sandbox-bwrap.test.ts",
+      "status": "passed",
+      "passed": 3,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/runtime/scheduler.test.ts",
+      "status": "passed",
+      "passed": 8,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/runtime/supervisor-systemd.test.ts",
+      "status": "passed",
+      "passed": 1,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/runtime/task-cli.test.ts",
+      "status": "passed",
+      "passed": 6,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/spike-002/harness-run.test.ts",
+      "status": "passed",
+      "passed": 12,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/spike-002/local-boundary.test.ts",
+      "status": "passed",
+      "passed": 1,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/spike-002/runner-systemd.test.ts",
+      "status": "passed",
+      "passed": 2,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/spike-002/runner.test.ts",
+      "status": "passed",
+      "passed": 15,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/spike-002/sandbox-probe.test.ts",
+      "status": "passed",
+      "passed": 8,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/store/accept.test.ts",
+      "status": "passed",
+      "passed": 9,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/store/effects.test.ts",
+      "status": "passed",
+      "passed": 8,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/store/projection.test.ts",
+      "status": "passed",
+      "passed": 9,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/store/single-writer.test.ts",
+      "status": "passed",
+      "passed": 2,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/store/timers.test.ts",
+      "status": "passed",
+      "passed": 5,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/store/us3-scenarios.test.ts",
+      "status": "passed",
+      "passed": 11,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/integration/store/write-failure.test.ts",
+      "status": "passed",
+      "passed": 2,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/property/invariants/bounds.test.ts",
+      "status": "passed",
+      "passed": 1,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/property/invariants/budget.test.ts",
+      "status": "passed",
+      "passed": 2,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/property/invariants/claim.test.ts",
+      "status": "passed",
+      "passed": 1,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/property/invariants/determinism.test.ts",
+      "status": "passed",
+      "passed": 2,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/property/invariants/escalation.test.ts",
+      "status": "passed",
+      "passed": 1,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/property/invariants/evidence.test.ts",
+      "status": "passed",
+      "passed": 1,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/property/invariants/external-completion.test.ts",
+      "status": "passed",
+      "passed": 3,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/property/invariants/idempotency.test.ts",
+      "status": "passed",
+      "passed": 1,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/property/invariants/merge-guard.test.ts",
+      "status": "passed",
+      "passed": 2,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/property/invariants/required-subset.test.ts",
+      "status": "passed",
+      "passed": 8,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/property/invariants/revision.test.ts",
+      "status": "passed",
+      "passed": 2,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/property/invariants/runtime-evidence.test.ts",
+      "status": "passed",
+      "passed": 2,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/property/invariants/runtime-limits.test.ts",
+      "status": "passed",
+      "passed": 3,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/property/invariants/runtime-slot.test.ts",
+      "status": "passed",
+      "passed": 4,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/property/invariants/transitions.test.ts",
+      "status": "passed",
+      "passed": 1,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/property/invariants/usage.test.ts",
+      "status": "passed",
+      "passed": 2,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/adapters/context.test.ts",
+      "status": "passed",
+      "passed": 10,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/adapters/fake-harness.test.ts",
+      "status": "passed",
+      "passed": 7,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/adapters/github-requirements.test.ts",
+      "status": "passed",
+      "passed": 47,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/adapters/result-schema.test.ts",
+      "status": "passed",
+      "passed": 26,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/application/authz.test.ts",
+      "status": "passed",
+      "passed": 6,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/application/preflight.test.ts",
+      "status": "passed",
+      "passed": 28,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/cli/program.test.ts",
+      "status": "passed",
+      "passed": 10,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/config/checks.test.ts",
+      "status": "passed",
+      "passed": 23,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/config/invalid-fixtures.test.ts",
+      "status": "passed",
+      "passed": 36,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/config/loader.test.ts",
+      "status": "passed",
+      "passed": 12,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/config/merge.test.ts",
+      "status": "passed",
+      "passed": 33,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/config/perf.test.ts",
+      "status": "passed",
+      "passed": 1,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/config/read-files.test.ts",
+      "status": "passed",
+      "passed": 2,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/config/runtime.test.ts",
+      "status": "passed",
+      "passed": 59,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/daemon/dispatch.test.ts",
+      "status": "passed",
+      "passed": 8,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/domain/runtime.test.ts",
+      "status": "passed",
+      "passed": 21,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/domain/schemas.test.ts",
+      "status": "passed",
+      "passed": 12,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/engine/backoff.test.ts",
+      "status": "passed",
+      "passed": 4,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/engine/classify.test.ts",
+      "status": "passed",
+      "passed": 4,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/engine/failure.test.ts",
+      "status": "passed",
+      "passed": 3,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/lint/boundaries.test.ts",
+      "status": "passed",
+      "passed": 2,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/policy/amendment.test.ts",
+      "status": "passed",
+      "passed": 7,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/policy/freeze.test.ts",
+      "status": "passed",
+      "passed": 23,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/policy/structure-hash.test.ts",
+      "status": "passed",
+      "passed": 4,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/runner/event-log.test.ts",
+      "status": "passed",
+      "passed": 19,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/runner/files.test.ts",
+      "status": "passed",
+      "passed": 45,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/runner/redact.test.ts",
+      "status": "passed",
+      "passed": 27,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/runner/sandbox.test.ts",
+      "status": "passed",
+      "passed": 16,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/runner/stderr-redaction.test.ts",
+      "status": "passed",
+      "passed": 39,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/runner/supervisor.test.ts",
+      "status": "passed",
+      "passed": 16,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/shared/canonical-json.test.ts",
+      "status": "passed",
+      "passed": 11,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/shared/duration.test.ts",
+      "status": "passed",
+      "passed": 14,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/shared/hash.test.ts",
+      "status": "passed",
+      "passed": 3,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/spike-002/capability-manifest.test.ts",
+      "status": "passed",
+      "passed": 4,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/spike-002/gh.test.ts",
+      "status": "passed",
+      "passed": 96,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/spike-002/harness-stream.test.ts",
+      "status": "passed",
+      "passed": 20,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/spike-002/harness.test.ts",
+      "status": "passed",
+      "passed": 28,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/spike-002/role-schema.test.ts",
+      "status": "passed",
+      "passed": 32,
+      "failed": 0,
+      "pending": 0
+    },
+    {
+      "file": "test/unit/spike-002/sandbox.test.ts",
+      "status": "passed",
+      "passed": 42,
+      "failed": 0,
+      "pending": 0
+    }
+  ],
+  "checks": [
+    {
+      "command": "pnpm typecheck",
+      "exit": 0,
+      "log_sha256": "70685b4df7789c854b9e1ceab7d78a6d0f9a0831c11eb0010b7b5fdbe0e50c39"
+    },
+    {
+      "command": "pnpm lint",
+      "exit": 0,
+      "log_sha256": "26db9673ec89bc95699a8e66249537512722e2114018fc39c411bfb94c2d9eaa"
+    },
+    {
+      "command": "pnpm build",
+      "exit": 0,
+      "log_sha256": "1f1274c6069258a190e723209b26dc15f74d9fa17cb41eb0ab237eb2fb9c2eb1"
+    }
+  ],
+  "earlier_attempts": [
+    {
+      "command": "pnpm test",
+      "exit": 1,
+      "passed": 1421,
+      "failed": 3,
+      "skipped": 2,
+      "reason": "NO_COLOR plus FORCE_COLOR warning on 3 --version tests; harness-bwrap skipped because node under home."
+    },
+    {
+      "command": "env -u FORCE_COLOR PATH=/tmp/cusr-phase6-node/bin:$PATH pnpm test",
+      "exit": 1,
+      "passed": 1423,
+      "failed": 3,
+      "skipped": 0,
+      "reason": "NO_COLOR still inherited; CLI tests intentionally set FORCE_COLOR."
+    }
+  ]
+}

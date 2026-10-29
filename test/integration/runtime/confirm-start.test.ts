@@ -53,7 +53,8 @@ type Env = {
 };
 
 function setup(env: Env = {}) {
-  const d = new StoreDriver(openFileStoreForTest(dbPath(tempDir())));
+  const path = dbPath(tempDir());
+  const d = new StoreDriver(openFileStoreForTest(path));
   const live: Env = { ...env };
   let ids = 5_000;
   const ports = () => ({
@@ -95,7 +96,7 @@ function setup(env: Env = {}) {
     newId: () => uuidOf(ids++),
     ...over,
   });
-  return { d, live, gitCalls, confirmDeps, startDeps };
+  return { d, live, gitCalls, confirmDeps, startDeps, path };
 }
 
 function confirmCmd(
@@ -565,6 +566,69 @@ describe('start freezes one snapshot under the slot before RUNNING (T032, FR-002
     });
   });
 
+  it.each(['squash', 'merge', 'rebase'] as const)(
+    'T139 M02: %s survives config change and SQLite reopen, even when squash is disabled on GitHub',
+    async (method) => {
+      const f = setup({
+        git: { cusr: `${CUSR}merge: { method: ${method} }\n` },
+      });
+      const task = buildTask();
+      f.d.must(task.id, { kind: 'create_task', task });
+      proposeAndConfirm(
+        f.d,
+        task,
+        await configuredSelection(task, 'direct-pr'),
+      );
+      grant(f.d, task);
+      const deps = f.startDeps();
+      const github = deps.ports.github;
+      const start = {
+        ...deps,
+        ports: {
+          ...deps.ports,
+          github: {
+            request: async (req: Parameters<typeof github.request>[0]) => {
+              const r = await github.request(req);
+              return r.ok
+                ? {
+                    ...r,
+                    value: {
+                      ...r.value,
+                      body: {
+                        ...(r.value.body as object),
+                        allow_squash_merge: false,
+                      },
+                    },
+                  }
+                : r;
+            },
+          },
+        },
+      };
+      expect(await startTask(start, task.id)).toMatchObject({
+        kind: 'submitted',
+        frozen: true,
+      });
+      const before = f.d.store.readRuntimeContext(task.id, 1);
+      expect(before?.merge_method).toBe(method);
+      f.live.git = {
+        cusr: `${CUSR}merge: { method: ${method === 'merge' ? 'squash' : 'merge'} }\n`,
+      };
+      f.d.store.close();
+      const reopened = openFileStoreForTest(f.path);
+      try {
+        expect(reopened.readRuntimeContext(task.id, 1)).toEqual(before);
+        expect(
+          await startTask({ ...f.startDeps(), store: reopened }, task.id),
+        ).toEqual({ kind: 'not_startable', reason: 'already_started' });
+        expect(reopened.readRuntimeContext(task.id, 1)).toEqual(before);
+        expect(reopened.verifyProjections().ok).toBe(true);
+      } finally {
+        reopened.close();
+      }
+    },
+  );
+
   it('freezes the one PR template of the base; several without a choice wait (M05)', async () => {
     const one = setup({
       git: {
@@ -619,5 +683,28 @@ describe('start freezes one snapshot under the slot before RUNNING (T032, FR-002
         },
       },
     });
+  });
+  it('T139 M05: an explicit choice among multiple templates freezes that exact base blob', async () => {
+    const chosen = '.github/PULL_REQUEST_TEMPLATE/detail.md';
+    const f = setup({
+      git: {
+        cusr: `${CUSR}pr_template: ${chosen}\n`,
+        templates: {
+          '.github/PULL_REQUEST_TEMPLATE/short.md': '# Short\n',
+          [chosen]: '# Detail\nKeep acceptance and tests.\n',
+        },
+      },
+    });
+    const task = buildTask();
+    f.d.must(task.id, { kind: 'create_task', task });
+    proposeAndConfirm(f.d, task, await configuredSelection(task, 'direct-pr'));
+    grant(f.d, task);
+    expect(await startTask(f.startDeps(), task.id)).toMatchObject({
+      kind: 'submitted',
+      frozen: true,
+    });
+    expect(f.d.store.readRuntimeContext(task.id, 1)?.pr_template).toMatchObject(
+      { path: chosen, content: '# Detail\nKeep acceptance and tests.\n' },
+    );
   });
 });

@@ -58,6 +58,19 @@ request lặp không lặp event. Cap spool 64 MiB thì dừng operation với a
 invalid output. Retention 30 ngày chỉ cho artifact terminal đã ACK, giữ tombstone; không xóa
 worktree có diff/commit chưa bảo toàn theo retention log.
 
+### Finalized reviewer proof (T139)
+
+Reviewer result chỉ finalize sau khi kiểm vùng ghi đạt. `out/result.json` ghi nguyên tử cả giá trị
+đã validate và metadata `provenance.recovery` (digest input/exit/value), giữ manifest/schema/launch
+nonce/session/usage. Instance harness mới có thể đọc lại đúng attempt từ disk trước mọi preflight
+cho một lượt mới: phải khớp operation/run/nonce, input và manifest; exit 0/cây process đã rõ;
+role schema và semantic vẫn hợp lệ. Không cần credential để nhận kết quả của lượt đã xong,
+không launch lại và không tạo usage mới. Đây là additive metadata, không đổi role schema v1.
+
+Thiếu/partial/lệch proof, result legacy chưa có metadata, worker đã launch hoặc reviewer chưa
+finalize đều giữ unknown; không tự tạo lượt thay thế. Scan/adopt process/operation tổng quát và
+crash I/O rộng vẫn thuộc B; không lấy API đọc finalized review làm bằng chứng startup recovery đầy đủ.
+
 ## Harness contract
 
 | Input từ runner | Output adapter chuẩn hóa |

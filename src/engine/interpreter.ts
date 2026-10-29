@@ -1508,6 +1508,20 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
     proceed(ctx, { kind: 'route', step, outcome: d.verdict });
     return;
   }
+  // Context refused before launch is a human wait, never another automatic model attempt.
+  if (
+    ctx.state.runtime_ref !== null &&
+    d.status === 'needs_context' &&
+    d.invoked === false
+  ) {
+    askHuman(ctx, 'agent_question', {
+      step,
+      attempt_id: e.attempt_id,
+      body: `needs_context: ${d.summary}`,
+      resume: { kind: 'start_attempt', step, attempt_kind: 'retry' },
+    });
+    return;
+  }
   if (d.status === 'needs_input') {
     if (ctx.state.cancellation !== null) return proceed(ctx, { kind: 'none' });
     route(ctx, step, 'needs_input', d.questions?.join('\n') ?? d.summary);

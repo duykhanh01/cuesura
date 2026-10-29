@@ -27,7 +27,11 @@ import { Redactor } from '../../../src/runner/redact.ts';
 import type { EpochMs } from '../../../src/shared/brand.ts';
 import { hashText } from '../../../src/shared/hash.ts';
 import { ok } from '../../../src/shared/result.ts';
-import { openFileStoreForTest } from '../../../src/store/testing.ts';
+import type { Uuid } from '../../../src/shared/brand.ts';
+import {
+  injectEvents,
+  openFileStoreForTest,
+} from '../../../src/store/testing.ts';
 import { buildTask, freezeOk, uuidOf } from '../../support/builders.ts';
 import { FakeGitHub } from '../../support/fake-github.ts';
 import { gitSandbox } from '../../support/git-repo.ts';
@@ -99,6 +103,9 @@ type SetupOptions = {
   ci_rules?: CiRule[];
   /** Reviewer approvals scripted in `full-review` (default 1). */
   reviews?: number;
+  writeCode?: boolean;
+  askFirst?: boolean;
+  afterGit?: (args: readonly string[]) => void;
 };
 
 function setup(task: CanonicalTask, o: SetupOptions) {
@@ -144,9 +151,12 @@ function setup(task: CanonicalTask, o: SetupOptions) {
     kind: 'result' as const,
     value: {
       schema_version: 1,
-      status: 'done',
+      status: o.askFirst === true && i === 0 ? 'needs_input' : 'done',
       summary: i === 0 ? 'added search' : `fix ${i}`,
-      questions: [],
+      questions:
+        o.askFirst === true && i === 0
+          ? [{ question: 'Which encoding?', options: [] }]
+          : [],
       blocker: null,
     },
     ...(o.resume === true ? { session_ref: `sess-${i + 1}` } : {}),
@@ -162,10 +172,11 @@ function setup(task: CanonicalTask, o: SetupOptions) {
     manifest: coder.manifest,
     run: (input, signal) => {
       const k = coder.calls.length;
-      writeFileSync(
-        join(paths.worktrees, task.id, 'search.ts'),
-        `export const search = (q: string) => q;${k === 0 ? '' : ` // fix ${k}`}\n`,
-      );
+      if (o.writeCode !== false)
+        writeFileSync(
+          join(paths.worktrees, task.id, 'search.ts'),
+          `export const search = (q: string) => q;${k === 0 ? '' : ` // fix ${k}`}\n`,
+        );
       if (typeof o.content === 'function')
         o.content(contentFile(input.context.text));
       else if (o.content !== null)
@@ -207,9 +218,16 @@ function setup(task: CanonicalTask, o: SetupOptions) {
   const clock = { now: () => d.now as EpochMs, monotonic: () => d.now };
   const newId = (): string => uuidOf(ids++);
   let dispatcher: Dispatcher | null = null;
+  const git = g.runner();
   const deps: HandlerDeps = {
     store: d.store,
-    git: g.runner(),
+    git: {
+      run: async (req) => {
+        const result = await git.run(req);
+        o.afterGit?.(req.args);
+        return result;
+      },
+    },
     github: () => github,
     harnesses: { claude, codex },
     sandbox: passthrough,
@@ -500,76 +518,81 @@ describe.each(['full-review', 'direct-pr'] as const)(
       });
     });
 
-    it('show offers the frozen merge method and the worker message; a manual merge by an unknown method still completes verified', async () => {
-      const task = buildTask();
-      const { d, deps, github, start, settle } = setup(task, {
-        mode,
-        merge_method: 'rebase',
-      });
-      d.must(task.id, { kind: 'create_task', task });
-      start();
-      await settle();
-      const s = d.task(task.id);
-      expect(s.wait).toMatchObject({
-        reason: 'approval',
-        detail: { code: 'merge', mode: 'external_confirmation' },
-      });
-      const rt = d.store.readRuntimeContext(task.id, 1);
-      expect(mergeView(s, rt, readStoredContent)).toEqual({
-        method: 'rebase',
-        proposed: {
-          title: CONTENT.pr_title,
-          message: CONTENT.commit_message,
-          digest: s.run.content?.digest,
-        },
-        observed_method: null,
-      });
-      // A snapshot frozen before merge.method existed shows no method rather than a back-filled default.
-      const { merge_method: _m, ...legacy } = rt as NonNullable<typeof rt>;
-      expect(
-        mergeView(s, legacy as typeof rt, readStoredContent),
-      ).toMatchObject({ method: null });
-      expect(mergeView(s, null, readStoredContent)).toBeNull();
-
-      // The user merges by some method 002 cannot prove: DONE, head still certified, method unknown.
-      github.merge(7, 'e'.repeat(40));
-      for (const t of (await observeTask(deps, task.id, 'obs:1')).extra)
-        d.must(task.id, t);
-      const done = d.task(task.id);
-      expect(done).toMatchObject({
-        status: 'DONE',
-        completion: { unverified: null },
-      });
-      expect(mergeView(done, rt, readStoredContent)).toMatchObject({
-        method: 'rebase',
-        observed_method: 'unknown',
-      });
-    });
-
-    it('worker content carrying a control marker, even hidden, never reaches a commit or a PR (M05)', async () => {
-      for (const forged of [
-        '<!-- cusr:task=x revision=1 op=y -->',
-        '<!​-- CUSR : task=x -->',
-        '&lt;!-- cusr:task=x -->',
-      ]) {
+    it.each(['squash', 'merge', 'rebase'] as const)(
+      'T139 M08: frozen %s and worker message survive a manual merge whose method is unknown',
+      async (method) => {
         const task = buildTask();
-        const { d, github, start, settle } = setup(task, {
+        const { d, deps, github, start, settle } = setup(task, {
           mode,
-          content: { ...CONTENT, pr_body: `${CONTENT.pr_body}\n${forged}` },
+          merge_method: method,
         });
         d.must(task.id, { kind: 'create_task', task });
         start();
         await settle();
         const s = d.task(task.id);
-        expect(s.run.content).toBeNull();
-        expect(s.run.checkpoint).toBeNull();
-        expect(github.prs).toEqual([]);
+        expect(s.wait).toMatchObject({
+          reason: 'approval',
+          detail: { code: 'merge', mode: 'external_confirmation' },
+        });
+        const rt = d.store.readRuntimeContext(task.id, 1);
+        expect(mergeView(s, rt, readStoredContent)).toEqual({
+          method,
+          proposed: {
+            title: CONTENT.pr_title,
+            message: CONTENT.commit_message,
+            digest: s.run.content?.digest,
+          },
+          observed_method: null,
+        });
+        // A snapshot frozen before merge.method existed shows no method rather than a back-filled default.
+        const { merge_method: _m, ...legacy } = rt as NonNullable<typeof rt>;
         expect(
-          Object.values(s.effects).filter(
-            (e) => e.kind === 'publish' || e.kind === 'create_pr',
-          ),
-        ).toEqual([]);
-      }
+          mergeView(s, legacy as typeof rt, readStoredContent),
+        ).toMatchObject({ method: null });
+        expect(mergeView(s, null, readStoredContent)).toBeNull();
+
+        // The user merges by some method 002 cannot prove: DONE, head still certified, method unknown.
+        github.merge(7, 'e'.repeat(40));
+        for (const t of (await observeTask(deps, task.id, 'obs:1')).extra)
+          d.must(task.id, t);
+        const done = d.task(task.id);
+        expect(done).toMatchObject({
+          status: 'DONE',
+          completion: { unverified: null },
+        });
+        expect(mergeView(done, rt, readStoredContent)).toMatchObject({
+          method,
+          observed_method: 'unknown',
+        });
+      },
+    );
+
+    it('worker content carrying a control marker, even hidden, never reaches a commit or a PR (M05)', async () => {
+      for (const field of ['pr_title', 'pr_body'] as const)
+        for (const forged of [
+          '<!-- cusr:task=x revision=1 op=y -->',
+          '<!-- cusr:task=x --><!-- cusr:task=y -->',
+          '<!​-- CUSR : task=x -->',
+          '&lt;!-- cusr:task=x -->',
+        ]) {
+          const task = buildTask();
+          const { d, github, start, settle } = setup(task, {
+            mode,
+            content: { ...CONTENT, [field]: `${CONTENT[field]}\n${forged}` },
+          });
+          d.must(task.id, { kind: 'create_task', task });
+          start();
+          await settle();
+          const s = d.task(task.id);
+          expect(s.run.content).toBeNull();
+          expect(s.run.checkpoint).toBeNull();
+          expect(github.prs).toEqual([]);
+          expect(
+            Object.values(s.effects).filter(
+              (e) => e.kind === 'publish' || e.kind === 'create_pr',
+            ),
+          ).toEqual([]);
+        }
     });
 
     it('a worker that wrote no content does not get its change committed or published (M05)', async () => {
@@ -622,6 +645,21 @@ describe.each(['full-review', 'direct-pr'] as const)(
     );
   },
 );
+
+it('T139 M03: missing reviewer diff never launches or consumes a reviewer run', async () => {
+  const task = buildTask();
+  const f = setup(task, { mode: 'full-review', writeCode: false });
+  f.d.must(task.id, { kind: 'create_task', task });
+  f.start();
+  await f.settle();
+  expect(f.codex.calls).toEqual([]);
+  expect(f.coder.calls).toHaveLength(1);
+  expect(f.d.task(task.id).budget.agent_runs).toMatchObject({
+    used: 1,
+    reserved: 0,
+  });
+  expect(f.github.prs).toEqual([]);
+});
 
 describe('worktree changed by someone else before the worker (T072, real Git)', () => {
   it('the worker does not start on a changed worktree; recheck takes the change as the person’s and the flow goes on', async () => {
@@ -869,6 +907,160 @@ describe.each(['full-review', 'direct-pr'] as const)(
             proof: { merged_head_sha: second, checked_head_sha: second },
           },
         });
+      },
+    );
+    it('T139 M04: a coder answer follows the worker into a resumed CI repair, with a new packet digest', async () => {
+      const task = buildTask();
+      const f = setup(task, {
+        mode,
+        reviews: 2,
+        runs: [CONTENT, CONTENT, FIXED],
+        resume: true,
+        askFirst: true,
+        checks: [{ build: 'success', test: 'failure' }],
+        ci_rules: [{ match: { check: 'test' }, class: 'code' }],
+      });
+      f.d.must(task.id, { kind: 'create_task', task });
+      f.start();
+      await f.settle();
+      const question = Object.values(f.d.task(task.id).questions).find(
+        (q) => q.status === 'open',
+      );
+      if (question === undefined) throw new Error('no worker question');
+      f.d.must(task.id, {
+        kind: 'answer',
+        question_id: question.id as Uuid,
+        answer: 'UTF-8; preserve accents',
+      });
+      await settleWithSlot(f.d, f.settle);
+      expect(f.coder.calls).toHaveLength(3);
+      const repair = f.coder.calls[2];
+      expect(repair?.context.text).toContain('Which encoding?');
+      expect(repair?.context.text).toContain('UTF-8; preserve accents');
+      expect(repair?.context.text).toContain('Cause: ci');
+      expect(repair?.session).not.toBeNull();
+      expect(repair?.context.digest).not.toBe(f.coder.calls[1]?.context.digest);
+      expect(f.d.task(task.id).wait?.detail.code).toBe('merge');
+    });
+
+    it('T139 M04: drift arriving during repair packet construction prevents a stale worker launch', async () => {
+      const task = buildTask();
+      let env: ReturnType<typeof setup> | null = null;
+      let drifted = false;
+      const f = setup(task, {
+        mode,
+        reviews: 2,
+        runs: [CONTENT, FIXED],
+        resume: true,
+        checks: [{ build: 'success', test: 'failure' }],
+        ci_rules: [{ match: { check: 'test' }, class: 'code' }],
+        afterGit: (args) => {
+          if (
+            env === null ||
+            drifted ||
+            !args.includes('--no-ext-diff') ||
+            env.d.task(task.id).current_step !== 'ci_fix'
+          )
+            return;
+          drifted = true;
+          env.d.must(task.id, {
+            kind: 'head_drift',
+            expected: env.d.task(task.id).head_sha ?? '',
+            observed: 'b'.repeat(40),
+            source: 'observation',
+            evidence_ref: 'during-packet',
+          });
+        },
+      });
+      env = f;
+      f.d.must(task.id, { kind: 'create_task', task });
+      f.start();
+      await settleWithSlot(f.d, f.settle);
+      expect(drifted).toBe(true);
+      expect(f.coder.calls).toHaveLength(1);
+      expect(f.d.task(task.id).blockers.map((b) => b.code)).toContain(
+        'head_changed',
+      );
+      expect(f.github.prs).toHaveLength(1);
+      expect(f.github.calls.filter((c) => c.startsWith('PATCH '))).toEqual([]);
+    });
+    it.each([1, 2])(
+      'T139 M04: context changes %i time(s) during Git reads; rebuild once then stop within the bound',
+      async (maxChanges) => {
+        const task = buildTask();
+        let env: ReturnType<typeof setup> | null = null;
+        let changes = 0;
+        const f = setup(task, {
+          mode,
+          reviews: 2,
+          runs: [CONTENT, FIXED],
+          resume: true,
+          checks: [{ build: 'success', test: 'failure' }],
+          ci_rules: [{ match: { check: 'test' }, class: 'code' }],
+          afterGit: (args) => {
+            if (
+              env === null ||
+              changes >= maxChanges ||
+              !args.includes('--no-ext-diff') ||
+              env.d.task(task.id).current_step !== 'ci_fix'
+            )
+              return;
+            changes++;
+            const question_id = uuidOf(80_000 + changes);
+            // A newly ingested answer interleaves with the async Git read; admission itself is covered separately.
+            injectEvents(env.d.store, task.id, [
+              {
+                type: 'QuestionAsked',
+                actor: 'test',
+                revision: 1,
+                payload: {
+                  question_id,
+                  step: 'code',
+                  attempt_id: null,
+                  body: 'Fresh encoding question ' + changes,
+                  resume: { kind: 'none' },
+                },
+              },
+              {
+                type: 'QuestionAnswered',
+                actor: 'owner',
+                revision: 1,
+                payload: {
+                  question_id,
+                  answer: 'UTF-8 generation ' + changes,
+                  by: 'owner',
+                },
+              },
+            ]);
+          },
+        });
+        env = f;
+        f.d.must(task.id, { kind: 'create_task', task });
+        f.start();
+        await settleWithSlot(f.d, f.settle);
+        expect(changes).toBe(maxChanges);
+        if (maxChanges === 1) {
+          expect(f.coder.calls).toHaveLength(2);
+          expect(f.coder.calls[1]?.context.text).toContain(
+            'Fresh encoding question 1',
+          );
+          expect(f.coder.calls[1]?.context.text).toContain(
+            'UTF-8 generation 1',
+          );
+          expect(f.d.task(task.id).wait?.detail.code).toBe('merge');
+        } else {
+          expect(f.coder.calls).toHaveLength(1);
+          expect(f.d.task(task.id).wait?.detail.code).toBe('agent_question');
+          expect(
+            Object.values(f.d.task(task.id).questions).some(
+              (q) => q.status === 'open' && q.body.startsWith('needs_context:'),
+            ),
+          ).toBe(true);
+          expect(f.github.calls.filter((c) => c.startsWith('PATCH '))).toEqual(
+            [],
+          );
+        }
+        expect(f.d.store.verifyProjections().ok).toBe(true);
       },
     );
   },

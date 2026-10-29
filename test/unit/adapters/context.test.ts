@@ -311,4 +311,26 @@ describe('repair packet, template and PR content (T037/T136, M04/M05)', () => {
     );
     expect(v.text).toContain('## pr_content\nTitle: Add x');
   });
+  it('T139 M04: answered Q&A required by a repair is never silently truncated', () => {
+    expect(
+      buildRoleContext(
+        input({
+          step: 'ci_fix',
+          failures,
+          repair,
+          answers: [
+            {
+              question_id: 'q',
+              question: 'Encoding?',
+              answer: 'x'.repeat(6_000),
+            },
+          ],
+          limits: { context_bytes: 4_000, review_diff_bytes: 64 * 1024 },
+        }),
+      ),
+    ).toMatchObject({
+      ok: false,
+      error: { kind: 'needs_context', missing: ['context_budget'] },
+    });
+  });
 });

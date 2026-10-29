@@ -6,8 +6,21 @@
  * checkpoint; each attempt's manifest is the one confirmed with the task; reservations are consumed
  * only for runs that happened. This is fixture replay, not an end-to-end smoke with real vendors.
  */
-import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  writeFileSync,
+} from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
+import {
+  BWRAP,
+  BwrapSandboxProvider,
+  defaultHostPolicy,
+} from '../../../src/runner/sandbox.ts';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { claudeAdapter } from '../../../src/adapters/harness/claude.ts';
 import { codexAdapter } from '../../../src/adapters/harness/codex.ts';
@@ -85,6 +98,9 @@ let n = 0;
 
 function setup(o: {
   mode: ExecutionMode;
+  sameVendor?: boolean;
+  realSandbox?: boolean;
+  reviewerWrites?: boolean;
   confirmed?: (m: Record<string, CapabilityManifest>) => Record<string, Hash>;
 }) {
   const project = g.repo(`real${n++}`);
@@ -121,9 +137,22 @@ function setup(o: {
   const bin = tempDir('cusr-real-bin-', dirs);
   const credDir = join(bin, 'cred');
   mkdirSync(credDir);
+  const replay = join(bin, 'replay');
+  cpSync(join(REAL, 's0-claude-coder-1793172185'), join(replay, 'worker'), {
+    recursive: true,
+  });
+  cpSync(
+    join(REAL, 's0-claude-reviewer-1793180331'),
+    join(replay, 'reviewer'),
+    { recursive: true },
+  );
   const pins: Record<'claude' | 'codex', VendorPin> = {
     claude: fakeVendorPin('claude', bin, {
-      FAKE_VENDOR_REPLAY: join(REAL, 's0-claude-coder-1793172185'),
+      FAKE_VENDOR_REPLAY: join(replay, 'worker'),
+      ...(o.sameVendor === true
+        ? { FAKE_VENDOR_REVIEWER_REPLAY: join(replay, 'reviewer') }
+        : {}),
+      ...(o.reviewerWrites === true ? { FAKE_VENDOR_REVIEWER_WRITE: '1' } : {}),
       FAKE_VENDOR_MODE: 'publish,write_worktree',
       FAKE_VENDOR_ECHO_MODEL: '1',
     }),
@@ -131,6 +160,8 @@ function setup(o: {
       FAKE_VENDOR_REPLAY: join(REAL, 's0-codex-reviewer-1793180367'),
     }),
   };
+  if (o.realSandbox === true)
+    pins.claude = { ...pins.claude, toolchain: [dirname(process.execPath)] };
   const credentials: Record<string, { name: string; file: string }> = {};
   for (const pin of Object.values(pins))
     for (const h of pin.home_files) {
@@ -159,7 +190,12 @@ function setup(o: {
       manifest: manifests[vendor],
       isolation: 'internal_required',
       process: proc,
-      sandbox: new PassThroughSandbox(),
+      sandbox:
+        o.realSandbox === true
+          ? new BwrapSandboxProvider({
+              policy: defaultHostPolicy(join(data, 'runtime')),
+            })
+          : new PassThroughSandbox(),
       host_policy_hash: HOST_POLICY_HASH,
       data_dir: join(data, 'runtime'),
       credentials,
@@ -206,6 +242,18 @@ function setup(o: {
       required_checks: ['build', 'test'],
       limits: { max_wall_ms: 3_600_000 },
       mode: o.mode,
+      ...(o.sameVendor === true
+        ? {
+            roles: {
+              reviewer: {
+                model: 'sonnet',
+                effort: 'medium',
+                permissions: 'read_only',
+                ladder: [],
+              },
+            },
+          }
+        : {}),
     });
     proposeAndConfirm(d, task, selectionFor(task, o.mode, frozen.value.policy));
     d.must(task.id, { kind: 'request_execution' });
@@ -359,3 +407,65 @@ describe('the confirmed manifest is the one in force (T070/T071)', () => {
     expect(f.github.prs).toEqual([]);
   });
 });
+
+const isolatedUsable =
+  existsSync(BWRAP) &&
+  spawnSync(BWRAP, ['--unshare-user', '--ro-bind', '/', '/', '/usr/bin/true'])
+    .status === 0 &&
+  !dirname(process.execPath).startsWith(homedir());
+describe.skipIf(!isolatedUsable)(
+  'T139 M03 same vendor/model under real bwrap',
+  () => {
+    it('one confirmed harness serves worker and reviewer with separate homes/sessions, reviewer read-only, one PR', async () => {
+      const f = setup({
+        mode: 'full-review',
+        sameVendor: true,
+        realSandbox: true,
+      });
+      f.start();
+      await f.settle();
+      const state = f.d.task(f.task.id);
+      expect(state.wait?.detail.code, JSON.stringify(state.wait)).toBe('merge');
+      expect(f.proc.launches).toHaveLength(2);
+      const [worker, reviewer] = f.proc.launches;
+      expect(worker?.argv.join(' ')).toContain('--bind');
+      expect(reviewer?.argv.join(' ')).toContain('--ro-bind');
+      expect(reviewer?.argv).not.toContain('--resume');
+      expect(worker?.run_id).not.toBe(reviewer?.run_id);
+      const attempts = Object.values(state.attempts);
+      expect(new Set(attempts.map((a) => a.binding)).size).toBe(1);
+      const results = f.proc.launches.map((l) =>
+        RunDir.open({
+          dataDir: join(f.data, 'runtime'),
+          kind: 'runs',
+          id: l.run_id,
+          redactor: new Redactor(),
+          create: false,
+        }).readFinal(RUN_FILES.result),
+      );
+      expect(results.every((r) => r.state === 'valid')).toBe(true);
+      expect(f.github.prs).toHaveLength(1);
+      expect(state.run.reviews).toMatchObject([
+        { verdict: 'approve', sha: state.run.checkpoint?.sha },
+      ]);
+      expect(f.d.store.verifyProjections().ok).toBe(true);
+    });
+
+    it('the same-vendor reviewer write is denied by the mount and cannot produce green or a PR', async () => {
+      const f = setup({
+        mode: 'full-review',
+        sameVendor: true,
+        realSandbox: true,
+        reviewerWrites: true,
+      });
+      f.start();
+      await f.settle();
+      expect(f.proc.launches).toHaveLength(2);
+      expect(f.github.prs).toEqual([]);
+      expect(
+        f.d.task(f.task.id).run.reviews.filter((r) => r.verdict === 'approve'),
+      ).toEqual([]);
+      expect(g.sh(f.worktree, 'status', '--porcelain')).toBe('');
+    });
+  },
+);

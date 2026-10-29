@@ -1,0 +1,167 @@
+{
+  "schema_version": 1,
+  "checked_at": "2026-10-29T13:45:56.700056+00:00",
+  "base_commit": "c1a8b9e81b4718eaacf3b63cb04cc8176531b79a",
+  "deployment_host": "Ubuntu (owner selected 2026-10-29 in this session; WSL2 is not required)",
+  "os_release": "PRETTY_NAME=\"Ubuntu 24.04.5 LTS\"\nNAME=\"Ubuntu\"\nVERSION_ID=\"24.04\"\nVERSION=\"24.04.5 LTS (Noble Numbat)\"\nVERSION_CODENAME=noble\nID=ubuntu\nID_LIKE=debian\nHOME_URL=\"https://www.ubuntu.com/\"\nSUPPORT_URL=\"https://help.ubuntu.com/\"\nBUG_REPORT_URL=\"https://bugs.launchpad.net/ubuntu/\"\nPRIVACY_POLICY_URL=\"https://www.ubuntu.com/legal/terms-and-policies/privacy-policy\"\nUBUNTU_CODENAME=noble\nLOGO=ubuntu-logo\n",
+  "kernel": "7.0.0-38-generic",
+  "commands": [
+    {
+      "argv": [
+        "uname",
+        "-sr"
+      ],
+      "exit": 0,
+      "stdout": "Linux 7.0.0-38-generic",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "node",
+        "--version"
+      ],
+      "exit": 0,
+      "stdout": "v24.22.1",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "pnpm",
+        "--version"
+      ],
+      "exit": 0,
+      "stdout": "12.15.0",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "bwrap",
+        "--version"
+      ],
+      "exit": 0,
+      "stdout": "bubblewrap 0.9.0",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "systemctl",
+        "--version"
+      ],
+      "exit": 0,
+      "stdout": "systemd 255 (255.4-1ubuntu8.18)\n+PAM +AUDIT +SELINUX +APPARMOR +IMA +SMACK +SECCOMP +GCRYPT -GNUTLS +OPENSSL +ACL +BLKID +CURL +ELFUTILS +FIDO2 +IDN2 -IDN +IPTC +KMOD +LIBCRYPTSETUP +LIBFDISK +PCRE2 -PWQUALITY +P11KIT +QRENCODE +TPM2 +BZIP2 +LZ4 +XZ +ZLIB +ZSTD -BPF_FRAMEWORK -XKBCOMMON +UTMP +SYSVINIT default-hierarchy=unified",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "systemctl",
+        "--user",
+        "is-system-running"
+      ],
+      "exit": 1,
+      "stdout": "degraded",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "bwrap",
+        "--unshare-user",
+        "--ro-bind",
+        "/",
+        "/",
+        "/usr/bin/true"
+      ],
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "git",
+        "--version"
+      ],
+      "exit": 0,
+      "stdout": "git version 2.56.0",
+      "stderr": ""
+    }
+  ],
+  "binaries": {
+    "node": {
+      "path": "/home/khanhnd/.nvm/versions/node/v24.22.1/bin/node",
+      "sha256": "e32e2d16081cf644f88392934288086e7662529d0d43277c34f7aad2207cfafb"
+    },
+    "bwrap": {
+      "path": "/usr/bin/bwrap",
+      "sha256": "e318903862396f96de3df57264e0158682b952fd3fb53ac23d876413e7b30f71"
+    },
+    "systemctl": {
+      "path": "/usr/bin/systemctl",
+      "sha256": "37ec607113f55f1b385b4fa75588a43402aec0de57927500763b267713f10f63"
+    },
+    "systemd-run": {
+      "path": "/usr/bin/systemd-run",
+      "sha256": "de28cc5757d3789efa5f6fed5659893410469f68b42175d4531f5b34d3a09e16"
+    },
+    "flock": {
+      "path": "/usr/bin/flock",
+      "sha256": "e619344dc3eec4023498465679262f9ca27d1e8cef9cfc4c1ae72b428577b806"
+    },
+    "git": {
+      "path": "/usr/bin/git",
+      "sha256": "824d5b2fffef332ec7ba053e579659bb12f26a0b4747da6f9c6dc0e71d36f235"
+    }
+  },
+  "test_node": {
+    "path": "/tmp/cusr-phase6-node/bin/node",
+    "sha256": "e32e2d16081cf644f88392934288086e7662529d0d43277c34f7aad2207cfafb",
+    "same_as_host_node": true
+  },
+  "archived_spike_manifests": [
+    {
+      "manifest": "test/fixtures/runtime/spike-0/host/manifest.json",
+      "sha256": "906ae9e8698d0d404e5751e21345f080e4b55f4952c5c20f27dd5980a1d09079",
+      "files": 7,
+      "missing": [],
+      "mismatched": []
+    },
+    {
+      "manifest": "test/fixtures/runtime/spike-0/harness/real-20261028/manifest.json",
+      "sha256": "269613e32ec8e5ce805807ea750029d3a3a0f95b5b745c803dd6c568c2ee7058",
+      "files": 183,
+      "missing": [
+        "s0-claude-coder-1793170522/stderr.log",
+        "s0-codex-coder-1793172285/stderr.log",
+        "s0-codex-coder-1793172447/stderr.log",
+        "s0-codex-reviewer-1793172662/stderr.log",
+        "s0-codex-fixer-1793173505/stderr.log",
+        "s0-codex-coder-1793178479/stderr.log",
+        "s0-codex-reviewer-1793178514/stderr.log"
+      ],
+      "mismatched": []
+    },
+    {
+      "manifest": "test/fixtures/runtime/spike-0/github/real-20261028/manifest.json",
+      "sha256": "1c4d4f9ab9c6a2d49993fbe027ac79953d485609ab139b1d1ff748c69a5ab085",
+      "files": 49,
+      "missing": [],
+      "mismatched": []
+    },
+    {
+      "manifest": "test/fixtures/runtime/spike-0/github/real-20261028-merge-event/manifest.json",
+      "sha256": "3f7289adcc1fb22e768f461bed1a456e6066c29e88e3856134b360238946d60c",
+      "files": 6,
+      "missing": [],
+      "mismatched": []
+    },
+    {
+      "manifest": "test/fixtures/runtime/spike-0/github/live-rules/manifest.json",
+      "sha256": "8cef8f010134f1ae729a68127ab4d5a276cc299349a73b3ac89ab07a31d494b1",
+      "files": 23,
+      "missing": [],
+      "mismatched": []
+    }
+  ],
+  "limitations": [
+    "Only archived fixture bytes and hashes were rechecked; historical paid runs were not repeated and are not a current production capability proof.",
+    "No model usage, GitHub writes, sudo, sysctl changes or host provisioning."
+  ]
+}

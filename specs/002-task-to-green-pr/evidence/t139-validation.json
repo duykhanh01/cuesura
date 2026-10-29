@@ -1,0 +1,1007 @@
+{
+  "schema_version": 1,
+  "kind": "T139-M01-M08-H01-H06-validation",
+  "checked_at": "2026-10-29T14:47:06.691087+00:00",
+  "base_commit": "5bda3ee",
+  "implementation_base": "c1a8b9e",
+  "scope": "Property/admission, real SQLite close/reopen, real Git/process and Ubuntu bwrap/systemd, fake vendor replay and GitHub. No paid model or GitHub mutation. General daemon recovery and broad crash I/O remain B.",
+  "seed": 20261029,
+  "env": {
+    "NO_COLOR": "unset",
+    "FORCE_COLOR": "unset",
+    "PATH_prefix": "/tmp/cusr-phase6-node/bin"
+  },
+  "source_sha256": {
+    "src/adapters/context.ts": "101191cdfd29b913a3124330e6b8ba1b0693ba113291a01a85667d6e7023cfc0",
+    "src/daemon/handlers.ts": "7fc4ac9c115d666969e412e2bbbc1d7ac117f616ab19be3f6bbec609bf41259c",
+    "src/engine/interpreter.ts": "c47e9e3ed311f66875dcad8a233498736bc35fc60119a290ad4458c3412078ee",
+    "src/runner/invocation.ts": "ee6efe33446a1f150a348d69f9cf41f8e611fc89a7ae6ec80136e7807485ba56",
+    "test/fixtures/runtime/fake-vendor/vendor.js": "ca93d9dcd950ef0b76a697f4f218fd166d376eed85abbdd7b54f14d9777a143a",
+    "test/integration/runtime/confirm-start.test.ts": "35a037b9fb014fbd6e2843af50b82addb40c1c8ee657f1f99c3cd999bbdb8725",
+    "test/integration/runtime/feature-002-flow.test.ts": "f5109e2e5c2f99ecf2b278ea9213b706ddc1c913434ba18560c50fb262f58917",
+    "test/integration/runtime/feature-002-gate.test.ts": "55eee599019136edd2e4989376931c617a6f1d31c179b793d41e59f7616edfad",
+    "test/integration/runtime/feature-002-real-adapters.test.ts": "84cbbd4f2428bb6b751c2a1ebd149a362d5734687abbbcbbcc51b5547ba87551",
+    "test/integration/runtime/harness-invocation.test.ts": "eac6c183f8804aa88614a6bb785d0817fd53ad65cd632829d278c9fd7333e2ad",
+    "test/property/invariants/runtime-evidence.test.ts": "74575e7cdd96200f779ac3910c7b5ad8fbd02083e0f5d56438547333f365b9fc",
+    "test/unit/adapters/context.test.ts": "28697b81725ee52452dd64e80b2141416db7fa4f950e43e1597f97fe1670a24e"
+  },
+  "checks": [
+    {
+      "command": "pnpm typecheck",
+      "exit": 0,
+      "log_sha256": "70685b4df7789c854b9e1ceab7d78a6d0f9a0831c11eb0010b7b5fdbe0e50c39"
+    },
+    {
+      "command": "pnpm lint",
+      "exit": 0,
+      "log_sha256": "26db9673ec89bc95699a8e66249537512722e2114018fc39c411bfb94c2d9eaa"
+    },
+    {
+      "command": "pnpm build",
+      "exit": 0,
+      "log_sha256": "1f1274c6069258a190e723209b26dc15f74d9fa17cb41eb0ab237eb2fb9c2eb1"
+    }
+  ],
+  "full_default": {
+    "command": "CUSR_SEED=20261029 env -u NO_COLOR -u FORCE_COLOR PATH=/tmp/cusr-phase6-node/bin:$PATH pnpm test --outputFile.json=/tmp/t139-final-vitest.json",
+    "exit": 0,
+    "report_sha256": "baa726b56b965039efd25430695e1036399bf0f973ea3341d227a6df1bfd763a",
+    "log_sha256": "ece02efbaa9f11748999fd734e0b8babcb4328645a3a61c78847853b9bc09617",
+    "files": 106,
+    "tests": 1462,
+    "passed": 1462,
+    "failed": 0,
+    "pending": 0,
+    "file_results": [
+      {
+        "file": "test/contract/artifacts.test.ts",
+        "status": "passed",
+        "passed": 15,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/contract/gh-port.test.ts",
+        "status": "passed",
+        "passed": 8,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/contract/github-checks.test.ts",
+        "status": "passed",
+        "passed": 17,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/contract/github-observation.test.ts",
+        "status": "passed",
+        "passed": 15,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/contract/github-observe.test.ts",
+        "status": "passed",
+        "passed": 17,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/contract/harness.test.ts",
+        "status": "passed",
+        "passed": 39,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/contract/publish.test.ts",
+        "status": "passed",
+        "passed": 18,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/contract/runner-lifecycle.test.ts",
+        "status": "passed",
+        "passed": 19,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/contract/sandbox-permissions.test.ts",
+        "status": "passed",
+        "passed": 33,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/scenarios/us1-config.test.ts",
+        "status": "passed",
+        "passed": 11,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/scenarios/us2-decide.test.ts",
+        "status": "passed",
+        "passed": 26,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/scenarios/us4-escalation.test.ts",
+        "status": "passed",
+        "passed": 19,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/scenarios/us5-explain.test.ts",
+        "status": "passed",
+        "passed": 8,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/contract/cli/unavailable-command.test.ts",
+        "status": "passed",
+        "passed": 10,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/crash/crash-points.test.ts",
+        "status": "passed",
+        "passed": 9,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/application/commands.test.ts",
+        "status": "passed",
+        "passed": 4,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/runtime/atomic-claims.test.ts",
+        "status": "passed",
+        "passed": 10,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/runtime/confirm-start.test.ts",
+        "status": "passed",
+        "passed": 19,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/runtime/daemon-control.test.ts",
+        "status": "passed",
+        "passed": 10,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/runtime/drain.test.ts",
+        "status": "passed",
+        "passed": 5,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/runtime/execution-modes.test.ts",
+        "status": "passed",
+        "passed": 17,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/runtime/external-completion.test.ts",
+        "status": "passed",
+        "passed": 7,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/runtime/feature-002-fixes.test.ts",
+        "status": "passed",
+        "passed": 40,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/runtime/feature-002-flow.test.ts",
+        "status": "passed",
+        "passed": 38,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/runtime/feature-002-gate.test.ts",
+        "status": "passed",
+        "passed": 6,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/runtime/feature-002-real-adapters.test.ts",
+        "status": "passed",
+        "passed": 5,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/runtime/gates.test.ts",
+        "status": "passed",
+        "passed": 10,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/runtime/git-command.test.ts",
+        "status": "passed",
+        "passed": 18,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/runtime/git-commit.test.ts",
+        "status": "passed",
+        "passed": 6,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/runtime/git-worktree.test.ts",
+        "status": "passed",
+        "passed": 9,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/runtime/harness-bwrap.test.ts",
+        "status": "passed",
+        "passed": 2,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/runtime/harness-invocation.test.ts",
+        "status": "passed",
+        "passed": 36,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/runtime/migration.test.ts",
+        "status": "passed",
+        "passed": 5,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/runtime/observation-limits.test.ts",
+        "status": "passed",
+        "passed": 7,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/runtime/preflight-git.test.ts",
+        "status": "passed",
+        "passed": 4,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/runtime/sandbox-bwrap.test.ts",
+        "status": "passed",
+        "passed": 3,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/runtime/scheduler.test.ts",
+        "status": "passed",
+        "passed": 8,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/runtime/supervisor-systemd.test.ts",
+        "status": "passed",
+        "passed": 1,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/runtime/task-cli.test.ts",
+        "status": "passed",
+        "passed": 6,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/spike-002/harness-run.test.ts",
+        "status": "passed",
+        "passed": 12,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/spike-002/local-boundary.test.ts",
+        "status": "passed",
+        "passed": 1,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/spike-002/runner-systemd.test.ts",
+        "status": "passed",
+        "passed": 2,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/spike-002/runner.test.ts",
+        "status": "passed",
+        "passed": 15,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/spike-002/sandbox-probe.test.ts",
+        "status": "passed",
+        "passed": 8,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/store/accept.test.ts",
+        "status": "passed",
+        "passed": 9,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/store/effects.test.ts",
+        "status": "passed",
+        "passed": 8,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/store/projection.test.ts",
+        "status": "passed",
+        "passed": 9,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/store/single-writer.test.ts",
+        "status": "passed",
+        "passed": 2,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/store/timers.test.ts",
+        "status": "passed",
+        "passed": 5,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/store/us3-scenarios.test.ts",
+        "status": "passed",
+        "passed": 11,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/integration/store/write-failure.test.ts",
+        "status": "passed",
+        "passed": 2,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/property/invariants/bounds.test.ts",
+        "status": "passed",
+        "passed": 1,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/property/invariants/budget.test.ts",
+        "status": "passed",
+        "passed": 2,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/property/invariants/claim.test.ts",
+        "status": "passed",
+        "passed": 1,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/property/invariants/determinism.test.ts",
+        "status": "passed",
+        "passed": 2,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/property/invariants/escalation.test.ts",
+        "status": "passed",
+        "passed": 1,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/property/invariants/evidence.test.ts",
+        "status": "passed",
+        "passed": 1,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/property/invariants/external-completion.test.ts",
+        "status": "passed",
+        "passed": 3,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/property/invariants/idempotency.test.ts",
+        "status": "passed",
+        "passed": 1,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/property/invariants/merge-guard.test.ts",
+        "status": "passed",
+        "passed": 2,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/property/invariants/required-subset.test.ts",
+        "status": "passed",
+        "passed": 8,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/property/invariants/revision.test.ts",
+        "status": "passed",
+        "passed": 2,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/property/invariants/runtime-evidence.test.ts",
+        "status": "passed",
+        "passed": 3,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/property/invariants/runtime-limits.test.ts",
+        "status": "passed",
+        "passed": 3,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/property/invariants/runtime-slot.test.ts",
+        "status": "passed",
+        "passed": 4,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/property/invariants/transitions.test.ts",
+        "status": "passed",
+        "passed": 1,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/property/invariants/usage.test.ts",
+        "status": "passed",
+        "passed": 2,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/adapters/context.test.ts",
+        "status": "passed",
+        "passed": 11,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/adapters/fake-harness.test.ts",
+        "status": "passed",
+        "passed": 7,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/adapters/github-requirements.test.ts",
+        "status": "passed",
+        "passed": 47,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/adapters/result-schema.test.ts",
+        "status": "passed",
+        "passed": 26,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/application/authz.test.ts",
+        "status": "passed",
+        "passed": 6,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/application/preflight.test.ts",
+        "status": "passed",
+        "passed": 28,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/cli/program.test.ts",
+        "status": "passed",
+        "passed": 10,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/config/checks.test.ts",
+        "status": "passed",
+        "passed": 23,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/config/invalid-fixtures.test.ts",
+        "status": "passed",
+        "passed": 36,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/config/loader.test.ts",
+        "status": "passed",
+        "passed": 12,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/config/merge.test.ts",
+        "status": "passed",
+        "passed": 33,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/config/perf.test.ts",
+        "status": "passed",
+        "passed": 1,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/config/read-files.test.ts",
+        "status": "passed",
+        "passed": 2,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/config/runtime.test.ts",
+        "status": "passed",
+        "passed": 59,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/daemon/dispatch.test.ts",
+        "status": "passed",
+        "passed": 8,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/domain/runtime.test.ts",
+        "status": "passed",
+        "passed": 21,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/domain/schemas.test.ts",
+        "status": "passed",
+        "passed": 12,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/engine/backoff.test.ts",
+        "status": "passed",
+        "passed": 4,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/engine/classify.test.ts",
+        "status": "passed",
+        "passed": 4,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/engine/failure.test.ts",
+        "status": "passed",
+        "passed": 3,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/lint/boundaries.test.ts",
+        "status": "passed",
+        "passed": 2,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/policy/amendment.test.ts",
+        "status": "passed",
+        "passed": 7,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/policy/freeze.test.ts",
+        "status": "passed",
+        "passed": 23,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/policy/structure-hash.test.ts",
+        "status": "passed",
+        "passed": 4,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/runner/event-log.test.ts",
+        "status": "passed",
+        "passed": 19,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/runner/files.test.ts",
+        "status": "passed",
+        "passed": 45,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/runner/redact.test.ts",
+        "status": "passed",
+        "passed": 27,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/runner/sandbox.test.ts",
+        "status": "passed",
+        "passed": 16,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/runner/stderr-redaction.test.ts",
+        "status": "passed",
+        "passed": 39,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/runner/supervisor.test.ts",
+        "status": "passed",
+        "passed": 16,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/shared/canonical-json.test.ts",
+        "status": "passed",
+        "passed": 11,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/shared/duration.test.ts",
+        "status": "passed",
+        "passed": 14,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/shared/hash.test.ts",
+        "status": "passed",
+        "passed": 3,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/spike-002/capability-manifest.test.ts",
+        "status": "passed",
+        "passed": 4,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/spike-002/gh.test.ts",
+        "status": "passed",
+        "passed": 96,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/spike-002/harness-stream.test.ts",
+        "status": "passed",
+        "passed": 20,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/spike-002/harness.test.ts",
+        "status": "passed",
+        "passed": 28,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/spike-002/role-schema.test.ts",
+        "status": "passed",
+        "passed": 32,
+        "failed": 0,
+        "pending": 0
+      },
+      {
+        "file": "test/unit/spike-002/sandbox.test.ts",
+        "status": "passed",
+        "passed": 42,
+        "failed": 0,
+        "pending": 0
+      }
+    ],
+    "T139_H_assertions": [
+      {
+        "name": "PR observation (FR-041/042) a head that moved between the two pull reads is inconsistent: evidence of two heads is never mixed (H03)",
+        "status": "passed"
+      },
+      {
+        "name": "expected-old guard at the remote update (T041, H04) B landing between the probe and the push is refused at the update; nothing is forced or re-based on B",
+        "status": "passed"
+      },
+      {
+        "name": "start freezes one snapshot under the slot before RUNNING (T032, FR-002.01) T139 M02: squash survives config change and SQLite reopen, even when squash is disabled on GitHub",
+        "status": "passed"
+      },
+      {
+        "name": "start freezes one snapshot under the slot before RUNNING (T032, FR-002.01) T139 M02: merge survives config change and SQLite reopen, even when squash is disabled on GitHub",
+        "status": "passed"
+      },
+      {
+        "name": "start freezes one snapshot under the slot before RUNNING (T032, FR-002.01) T139 M02: rebase survives config change and SQLite reopen, even when squash is disabled on GitHub",
+        "status": "passed"
+      },
+      {
+        "name": "start freezes one snapshot under the slot before RUNNING (T032, FR-002.01) T139 M05: an explicit choice among multiple templates freezes that exact base blob",
+        "status": "passed"
+      },
+      {
+        "name": "remote head drift while the review runs (T137, FR-041.03, H01/H02/H05) H01: B observed while A is reviewed; the late approval of A is history, nothing routes",
+        "status": "passed"
+      },
+      {
+        "name": "remote head drift while the review runs (T137, FR-041.03, H01/H02/H05) H02: an approval that enqueued publish is not sent once B is known; claims are refused",
+        "status": "passed"
+      },
+      {
+        "name": "remote head drift while the review runs (T137, FR-041.03, H01/H02/H05) H05 (replay part): the drift, the blocker and A-bound review survive a rebuild from the log",
+        "status": "passed"
+      },
+      {
+        "name": "green PR under observation (US2.7/US2.8, US1.7, FR-041) US2.7/H06: a base tip change alone keeps the evidence and the merge wait; no fixer, gate or review",
+        "status": "passed"
+      },
+      {
+        "name": "feature 002 flow in full-review: task to green PR, then the user merges (US1) T139 M08: frozen squash and worker message survive a manual merge whose method is unknown",
+        "status": "passed"
+      },
+      {
+        "name": "feature 002 flow in full-review: task to green PR, then the user merges (US1) T139 M08: frozen merge and worker message survive a manual merge whose method is unknown",
+        "status": "passed"
+      },
+      {
+        "name": "feature 002 flow in full-review: task to green PR, then the user merges (US1) T139 M08: frozen rebase and worker message survive a manual merge whose method is unknown",
+        "status": "passed"
+      },
+      {
+        "name": "feature 002 flow in direct-pr: task to green PR, then the user merges (US1) T139 M08: frozen squash and worker message survive a manual merge whose method is unknown",
+        "status": "passed"
+      },
+      {
+        "name": "feature 002 flow in direct-pr: task to green PR, then the user merges (US1) T139 M08: frozen merge and worker message survive a manual merge whose method is unknown",
+        "status": "passed"
+      },
+      {
+        "name": "feature 002 flow in direct-pr: task to green PR, then the user merges (US1) T139 M08: frozen rebase and worker message survive a manual merge whose method is unknown",
+        "status": "passed"
+      },
+      {
+        "name": "T139 M03: missing reviewer diff never launches or consumes a reviewer run",
+        "status": "passed"
+      },
+      {
+        "name": "remote drift while the reviewer reads A (T137, H01/H03, real Git) B pushed to the task branch during the review: the probe before publish blocks, B is kept, no PR",
+        "status": "passed"
+      },
+      {
+        "name": "feature 002 repair flow in full-review (T064) T139 M04: a coder answer follows the worker into a resumed CI repair, with a new packet digest",
+        "status": "passed"
+      },
+      {
+        "name": "feature 002 repair flow in full-review (T064) T139 M04: drift arriving during repair packet construction prevents a stale worker launch",
+        "status": "passed"
+      },
+      {
+        "name": "feature 002 repair flow in full-review (T064) T139 M04: context changes 1 time(s) during Git reads; rebuild once then stop within the bound",
+        "status": "passed"
+      },
+      {
+        "name": "feature 002 repair flow in full-review (T064) T139 M04: context changes 2 time(s) during Git reads; rebuild once then stop within the bound",
+        "status": "passed"
+      },
+      {
+        "name": "feature 002 repair flow in direct-pr (T064) T139 M04: a coder answer follows the worker into a resumed CI repair, with a new packet digest",
+        "status": "passed"
+      },
+      {
+        "name": "feature 002 repair flow in direct-pr (T064) T139 M04: drift arriving during repair packet construction prevents a stale worker launch",
+        "status": "passed"
+      },
+      {
+        "name": "feature 002 repair flow in direct-pr (T064) T139 M04: context changes 1 time(s) during Git reads; rebuild once then stop within the bound",
+        "status": "passed"
+      },
+      {
+        "name": "feature 002 repair flow in direct-pr (T064) T139 M04: context changes 2 time(s) during Git reads; rebuild once then stop within the bound",
+        "status": "passed"
+      },
+      {
+        "name": "H05 SQLite reopen, callback ingested before drift: true keeps drift and the A-bound result, deduplicates its redelivery, and never creates another reviewer or publish",
+        "status": "passed"
+      },
+      {
+        "name": "H05 SQLite reopen, callback ingested before drift: false keeps drift and the A-bound result, deduplicates its redelivery, and never creates another reviewer or publish",
+        "status": "passed"
+      },
+      {
+        "name": "T139 M02: SQLite replay keeps a legacy runtime without merge.method and its original hash",
+        "status": "passed"
+      },
+      {
+        "name": "T139 M03 same vendor/model under real bwrap one confirmed harness serves worker and reviewer with separate homes/sessions, reviewer read-only, one PR",
+        "status": "passed"
+      },
+      {
+        "name": "T139 M03 same vendor/model under real bwrap the same-vendor reviewer write is denied by the mount and cannot produce green or a PR",
+        "status": "passed"
+      },
+      {
+        "name": "T139 M07 finalized reviewer recovery a fresh harness instance reads its finalized review and usage without launching again",
+        "status": "passed"
+      },
+      {
+        "name": "T139 M07 finalized reviewer recovery a mismatched or missing input remains unknown; no second reviewer starts",
+        "status": "passed"
+      },
+      {
+        "name": "T139 M07 finalized reviewer recovery a mismatched or missing result remains unknown; no second reviewer starts",
+        "status": "passed"
+      },
+      {
+        "name": "T139 M07 finalized reviewer recovery a mismatched or missing exit remains unknown; no second reviewer starts",
+        "status": "passed"
+      },
+      {
+        "name": "T139 M07 finalized reviewer recovery a mismatched or missing proof remains unknown; no second reviewer starts",
+        "status": "passed"
+      },
+      {
+        "name": "T139 M07 finalized reviewer recovery a mismatched or missing marker remains unknown; no second reviewer starts",
+        "status": "passed"
+      },
+      {
+        "name": "T139 M07 finalized reviewer recovery a mismatched or missing manifest remains unknown; no second reviewer starts",
+        "status": "passed"
+      },
+      {
+        "name": "T139 M07 finalized reviewer recovery a boundary violation leaves no reusable reviewer approval",
+        "status": "passed"
+      },
+      {
+        "name": "T139 M04: a resumed real adapter receives a fresh repair packet including Q&A and checkpoint",
+        "status": "passed"
+      },
+      {
+        "name": "review evidence (T050, FR-014, M03) H01/H02: a head drift at any point blocks every business effect; nothing publishes after it",
+        "status": "passed"
+      },
+      {
+        "name": "T139 M04 context admission a pre-launch needs_context never spends usage or automatically retries in either mode",
+        "status": "passed"
+      },
+      {
+        "name": "repair packet, template and PR content (T037/T136, M04/M05) T139 M04: answered Q&A required by a repair is never silently truncated",
+        "status": "passed"
+      }
+    ]
+  },
+  "before_after_logs": [
+    {
+      "file": "/tmp/t139-flow-before.log",
+      "scope": "Before handler fix: Q&A missing and stale launch in both modes",
+      "sha256": "3ef938de64f4f8f47f90553988426c30c4722e8747c9b917273c0dae1aab98b7"
+    },
+    {
+      "file": "/tmp/t139-qa-budget-before.log",
+      "scope": "Before required Q&A: context silently truncated",
+      "sha256": "5e07c70c65279fbf3ff67d8661eda0975b511c955759bd9c475169a3c4060788"
+    },
+    {
+      "file": "/tmp/t139-recovery-before.log",
+      "scope": "Before recovery/boundary fix: finalized review not reusable and boundary-invalid approve left on disk",
+      "sha256": "c5a3bb34658289437cfd94316b56b377975cdbc474c961ad3d547a10e8a0bec0"
+    },
+    {
+      "file": "/tmp/t139-rebuild-debug.log",
+      "scope": "Before pre-launch wait fix: needs_context retried automatically",
+      "sha256": "122c24ffb742dc051689d0b547e3c4cc3ded2926248f43d21ad605241c2c5971"
+    },
+    {
+      "file": "/tmp/t139-reviewer-context-before.log",
+      "scope": "Before invoked=false: missing reviewer context consumed a run",
+      "sha256": "6ad0a899448f418b12970655511d5917af49373a8c94e6eb20af47696c71593c"
+    },
+    {
+      "file": "/tmp/t139-recovery-final.log",
+      "scope": "After final recovery fixes: 8 targeted proof cases pass",
+      "sha256": "15cb97a799ce8bae8aa739d935356bdd9c5b70489834e4b06ee6d499a1ba5ebb"
+    }
+  ],
+  "historical_seed_ledger": "phase6-seeds.json remains the pre-T139 diagnostic result; no new 20-seed T078 claim."
+}

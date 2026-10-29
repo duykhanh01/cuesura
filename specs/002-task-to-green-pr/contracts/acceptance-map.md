@@ -8,16 +8,16 @@ bằng chứng riêng; cùng suite được dùng chung khi có assertion phân 
 
 Bổ sung [M01–M08](../task-execution-modes.md) được truy vết qua T135–T139; 117 dòng FR dưới đây
 giữ ID để bảo toàn coverage. FR-014/017/019 được hiểu theo hai mode đã xác nhận; smoke hai
-vendor kiểm adapter, không bắt mọi task dùng hai vendor. Các M chưa được nghiệm thu.
+vendor kiểm adapter, không bắt mọi task dùng hai vendor. Các M chưa được nghiệm thu toàn bộ; [matrix Phase 6](../acceptance-report.md#nghiệm-thu-phase-6--cổng-lát-a) nêu assertion đã chạy và phần còn thiếu, T139 được khép trong [matrix kiểm tổng hợp](../acceptance-report.md#t139--kiểm-tổng-hợp-m01m08-và-h01h06); paid smoke/recovery B vẫn tách riêng.
 
 `merge.method` bổ sung M02/M05/M08 qua T030/T032/T045/T111/T135/T136/T139: default squash,
 override merge/rebase, config sai, freeze/replay cũ, message đề xuất và manual merge khác/unknown
 method không chặn proof/drain/DONE. Không có endpoint merge trong 002; method mismatch không tự
-làm head unverified. Đã triển khai ở T030/T032/T045/T135/T136 (loader, freeze, `cusr show`); T111/T139 và nghiệm thu chưa làm, không thêm mã FR mới.
+làm head unverified. Đã triển khai ở T030/T032/T045/T135/T136 (loader, freeze, `cusr show`); T111 còn mở; T139 đã kiểm fixture/property/SQLite/OS; paid smoke C chưa nghiệm thu, không thêm mã FR mới.
 
 Bổ sung [H01–H06](../task-execution-modes.md#remote-đổi-head-khi-review-còn-chạy) làm rõ
 FR-041.03/M06/M07: H01–H03/H06 tại T050/T051/T053/T058/T139, H04 tại T029/T041/T139,
-H05 replay/SQLite tại T139 và crash I/O tại T082/T093. Chưa có bằng chứng nghiệm thu cho các H;
+H05 replay/SQLite tại T139 và crash I/O tại T082/T093. Bằng chứng H01–H06 và giới hạn SQLite/file/crash ở [report Phase 6](../acceptance-report.md#h01h06);
 không dùng test drift của PR đã xanh thay race reviewer còn chạy.
 
 Các module trong bảng là vị trí dự kiến, chưa phải file đã được tạo. Property/unit chạy trong
@@ -145,3 +145,10 @@ không lấy nội dung bảng này làm bằng chứng đã đạt.
 | FR-046.06 | B | application/recheck, service effects | CLI/SQLite dedup + finite HTTP/drain integration | US2.11, US6.6 | SC-010, SC-012 |
 | FR-046.07 | B | application/recheck, service effects | CLI/SQLite dedup + finite HTTP/drain integration | US3.7, US6.6 | SC-012 |
 | FR-046.08 | B | application/recheck, service effects | CLI/SQLite dedup + finite HTTP/drain integration | US6.6, EC-008 | SC-012 |
+
+## Đối chiếu tại cổng Phase 6
+
+[Coverage 117 FR](../phase6-coverage.md) ghi đúng 117 mã cùng task triển khai/kiểm chứng và task còn mở;
+không đổi ID hoặc đánh dấu cả nhóm từ một test. [Go/no-go](../go-no-go.md) đề nghị no-go và giữ B đóng
+trước quyết định owner. T077 được kiểm độc lập trên Ubuntu; T139 đã đạt phạm vi local, T072 còn mở. Không dùng ledger xanh
+để bỏ prerequisite của T078 hoặc thay smoke C.

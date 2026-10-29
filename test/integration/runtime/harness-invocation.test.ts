@@ -641,3 +641,151 @@ function evidenceManifestEntry(vendor: 'claude' | 'codex'): {
     capabilities: Record<string, { status: string; evidence: string | null }>;
   };
 }
+
+describe('T139 M07 finalized reviewer recovery', () => {
+  it('a fresh harness instance reads its finalized review and usage without launching again', async () => {
+    const e = env('claude', 's0-claude-reviewer-1793180331');
+    const inp = input('claude', 'reviewer');
+    const first = await harness(e).run(inp, signal());
+    expect(first.kind).toBe('result');
+    const stopped = new AbortController();
+    stopped.abort();
+    const recovered = await harness(e, { credentials: {} }).run(
+      inp,
+      stopped.signal,
+    );
+    expect(recovered).toEqual(first);
+    expect(e.proc.launches).toHaveLength(1);
+  });
+
+  it.each(['input', 'result', 'exit', 'proof', 'marker', 'manifest'])(
+    'a mismatched or missing %s remains unknown; no second reviewer starts',
+    async (change) => {
+      const e = env('claude', 's0-claude-reviewer-1793180331');
+      const inp = input('claude', 'reviewer');
+      await harness(e).run(inp, signal());
+      const run = RunDir.open({
+        dataDir: e.data,
+        kind: 'runs',
+        id: inp.attempt_id,
+        redactor: new Redactor(),
+        create: false,
+      });
+      if (change === 'proof') {
+        const saved = run.readFinal(RUN_FILES.result);
+        if (saved.state !== 'valid') throw new Error('no result');
+        const record = saved.value as { provenance: Record<string, unknown> };
+        delete record.provenance['recovery'];
+        run.writeJson(RUN_FILES.result, record);
+      }
+      if (change === 'result') {
+        const saved = run.readFinal(RUN_FILES.result);
+        if (saved.state !== 'valid') throw new Error('no result');
+        const record = saved.value as { value: { summary: string } };
+        record.value.summary = 'edited after finalization';
+        run.writeJson(RUN_FILES.result, record);
+      }
+      if (change === 'exit') {
+        const exit = run.readFinal(RUN_FILES.exit);
+        if (exit.state !== 'valid') throw new Error('no exit');
+        run.writeJson(RUN_FILES.exit, {
+          ...(exit.value as object),
+          launch_nonce: 'other',
+        });
+      }
+      if (change === 'marker') {
+        const saved = run.readFinal(RUN_FILES.launch);
+        if (saved.state !== 'valid') throw new Error('no marker');
+        run.writeJson(RUN_FILES.launch, {
+          ...(saved.value as object),
+          launch_nonce: 'other-launch',
+        });
+      }
+      const next =
+        change === 'input'
+          ? {
+              ...inp,
+              context: { text: 'changed', digest: hashText('changed') },
+            }
+          : inp;
+      await expect(
+        harness(
+          e,
+          change === 'manifest'
+            ? {
+                manifest: {
+                  ...evidenceManifest(e.pin),
+                  manifest_hash: hashCanonical('other manifest'),
+                },
+              }
+            : {},
+        ).run(next, signal()),
+      ).rejects.toThrow(InvocationUnknown);
+      expect(e.proc.launches).toHaveLength(1);
+    },
+  );
+
+  it('a boundary violation leaves no reusable reviewer approval', async () => {
+    const e = env('claude', 's0-claude-reviewer-1793180331', 'write_worktree');
+    const inp = input('claude', 'reviewer');
+    expect(await harness(e).run(inp, signal())).toMatchObject({
+      kind: 'failure',
+      failure: 'boundary_violation',
+    });
+    const run = RunDir.open({
+      dataDir: e.data,
+      kind: 'runs',
+      id: inp.attempt_id,
+      redactor: new Redactor(),
+      create: false,
+    });
+    expect(run.readFinal(RUN_FILES.result).state).toBe('missing');
+    await expect(harness(e).run(inp, signal())).rejects.toThrow(
+      InvocationUnknown,
+    );
+    expect(e.proc.launches).toHaveLength(1);
+  });
+});
+
+it('T139 M04: a resumed real adapter receives a fresh repair packet including Q&A and checkpoint', async () => {
+  const e = env('claude', 's0-claude-coder-1793172185');
+  const manifest = evidenceManifest(e.pin, {
+    capabilities: {
+      ...evidenceManifestEntry('claude').capabilities,
+      session_resume: {
+        status: 'proven',
+        evidence: 'test-only protocol fixture',
+      },
+    },
+  });
+  const h = harness(e, { manifest });
+  const first = input('claude', 'coder');
+  const out = await h.run(first, signal());
+  expect(out.kind).toBe('result');
+  expect(out.session_ref).not.toBeNull();
+  const text =
+    'Role: fixer\nCause: CI generation 2\nCheckpoint: ' +
+    'a'.repeat(40) +
+    '\nQ: encoding?\nA: UTF-8\n';
+  const second = input('claude', 'fixer', {
+    session: { ref: out.session_ref ?? '' },
+    context: { text, digest: hashText(text) },
+  });
+  expect((await h.run(second, signal())).kind).toBe('result');
+  expect(e.proc.launches.at(-1)?.argv).toContain('--resume');
+  expect(e.proc.launches.at(-1)?.argv).toContain(out.session_ref);
+  const run = RunDir.open({
+    dataDir: e.data,
+    kind: 'runs',
+    id: second.attempt_id,
+    redactor: new Redactor(),
+    create: false,
+  });
+  expect(readFileSync(run.resolve('context/prompt.md'), 'utf8')).toBe(text);
+  const record = run.readFinal(RUN_FILES.result);
+  expect(record.state === 'valid' && record.value).toMatchObject({
+    provenance: { context_digest: hashText(text) },
+  });
+  expect(second.context.digest).not.toBe(first.context.digest);
+  expect(e.proc.launches).toHaveLength(2);
+});

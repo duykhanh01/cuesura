@@ -12,8 +12,10 @@ const argv = process.argv.slice(2);
 const codex = argv[0] === 'exec';
 const modes = (process.env.FAKE_VENDOR_MODE ?? '').split(',');
 const has = (m) => modes.includes(m);
-const replay = process.env.FAKE_VENDOR_REPLAY;
 const stdin = readFileSync(0, 'utf8');
+// Optional role routing lets one pinned binary/settings run both roles, as a real vendor does.
+const reviewer = !!process.env.FAKE_VENDOR_REVIEWER_REPLAY && /^Role: reviewer$/m.test(stdin);
+const replay = reviewer ? process.env.FAKE_VENDOR_REVIEWER_REPLAY : process.env.FAKE_VENDOR_REPLAY;
 const out = (o) => process.stdout.write(`${JSON.stringify(o)}\n`);
 
 out({ type: 'fake_invocation', argv, stdin_bytes: Buffer.byteLength(stdin), cwd: process.cwd() });
@@ -27,13 +29,13 @@ if (has('print_home')) {
   out({ type: 'leak', text });
   process.stderr.write(`leak ${text}\n`);
 }
-if (has('publish')) {
+if (has('publish') && !reviewer) {
   // Writes the commit/PR content where the context says, as the sandbox maps /cusr/scratch.
   const m = /as JSON \{[^}]*\} to (\S+\.json)\./.exec(stdin);
-  const path = m[1].replace('/cusr/scratch', process.env.FAKE_SANDBOX_SCRATCH);
+  const path = m[1].replace('/cusr/scratch', process.env.FAKE_SANDBOX_SCRATCH ?? '/cusr/scratch');
   writeFileSync(path, JSON.stringify({ commit_message: 'Fix add', pr_title: 'Fix add', pr_body: 'Fixes add.' }));
 }
-if (has('write_worktree')) writeFileSync(join(process.cwd(), 'agent-wrote.txt'), 'x');
+if (has('write_worktree') && (!reviewer || process.env.FAKE_VENDOR_REVIEWER_WRITE)) writeFileSync(join(process.cwd(), 'agent-wrote.txt'), 'x');
 if (has('hang')) setInterval(() => {}, 1000);
 else {
   const records = readFileSync(join(replay, 'events.jsonl'), 'utf8')

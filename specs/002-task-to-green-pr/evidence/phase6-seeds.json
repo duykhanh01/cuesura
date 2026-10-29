@@ -1,0 +1,3694 @@
+{
+  "schema_version": 1,
+  "kind": "phase6-A-diagnostic-seeds",
+  "base_commit": "c1a8b9e81b4718eaacf3b63cb04cc8176531b79a",
+  "scope": "Diagnostic repeatability while T139 remains open; not a claim that T078 prerequisite or M01-M08 are complete. Fake harness/GitHub plus real Git/SQLite/process and OS tests where available; no paid model or GitHub mutation.",
+  "started_at": "2026-10-29T13:43:14.392012+00:00",
+  "node": "v24.22.1",
+  "node_sha256": "e32e2d16081cf644f88392934288086e7662529d0d43277c34f7aad2207cfafb",
+  "env": {
+    "NO_COLOR": "unset",
+    "FORCE_COLOR": "unset",
+    "PATH_prefix": "/tmp/cusr-phase6-node/bin",
+    "CUSR_RUNS": "unset (per-test defaults)"
+  },
+  "filters": [
+    "test/integration/runtime/feature-002-flow.test.ts",
+    "test/integration/runtime/feature-002-fixes.test.ts",
+    "test/integration/runtime/feature-002-real-adapters.test.ts",
+    "test/integration/runtime/feature-002-gate.test.ts",
+    "test/integration/runtime/execution-modes.test.ts",
+    "test/integration/runtime/confirm-start.test.ts",
+    "test/integration/runtime/gates.test.ts",
+    "test/integration/runtime/git-commit.test.ts",
+    "test/integration/runtime/drain.test.ts",
+    "test/integration/runtime/observation-limits.test.ts",
+    "test/property/invariants/runtime-evidence.test.ts",
+    "test/property/invariants/runtime-limits.test.ts",
+    "test/property/invariants/required-subset.test.ts",
+    "test/unit/adapters/context.test.ts",
+    "test/contract"
+  ],
+  "source_sha256": {
+    "test/contract/artifacts.test.ts": "3fcddaa2c9b273f8a10e11824b4149971ae19e47849a5fdece139ced32298dd8",
+    "test/contract/cli/unavailable-command.test.ts": "06c4467c9134ece6f3b028702e1ba79c448dbd2f717909063b93a62b7921165c",
+    "test/contract/gh-port.test.ts": "5e8d90b3c55e2e650c3029d449b554b2f3f3b51277f97316134dd9dae7d7a8bc",
+    "test/contract/github-checks.test.ts": "65582d114851d21da8dcd196c1c6daaff14dd05e5d75582f88b6430b39379731",
+    "test/contract/github-observation.test.ts": "22b757cf31007386f4c7f857b557a9b29832936dd73e121a80d1e6318f26ede4",
+    "test/contract/github-observe.test.ts": "70962dd428ec0cf6b271384c4cbaf441180e8cc14abf895521a7f5b53edf8a5d",
+    "test/contract/harness.test.ts": "d857fd4d996dfa1fdec2f1729e89d6b3dbd234922b58256e41cf758dcf7f7720",
+    "test/contract/publish.test.ts": "50d08bd598ac97545270d1290a953ea89e6a357c94e35a2dc001013bb3e99825",
+    "test/contract/runner-lifecycle.test.ts": "fb66ebaedc6ab6f100c6c6abe21e4dc31b3fcb5f7e128a788f180f55fed625d0",
+    "test/contract/sandbox-permissions.test.ts": "f5ed637c2efbeb1960135b1bb1198e1c4a637cc8895c2bcbbe8989213e87ddc8",
+    "test/integration/runtime/confirm-start.test.ts": "fcee21e3c73e8e820c49b7b7a4c66e5361711a278f3b3d91d069476731a50a7f",
+    "test/integration/runtime/drain.test.ts": "92a1d76581809b81b98359e74e31892bcfe6f36d50c0a0321e4d6ee13b99a734",
+    "test/integration/runtime/execution-modes.test.ts": "dfdbadd998757ee6435b6a841399b30c57f42ef56e5d2bd44d51fd0c37f96c69",
+    "test/integration/runtime/feature-002-fixes.test.ts": "75d581f7b43266b00a69545b9d83c5999d7a2f50ba167f8eeb2dbd2b1517a71d",
+    "test/integration/runtime/feature-002-flow.test.ts": "bdea286d6480a25d56d5a7dfc06e6fe0f09707e0e4840e037f878596843058fa",
+    "test/integration/runtime/feature-002-gate.test.ts": "7b030b0d9334f170cb76865f5c8cf5bd97617f93ab9080d5484e6b30114d6720",
+    "test/integration/runtime/feature-002-real-adapters.test.ts": "b72067bd5be1c0169997564c7e5c3b3d93bf9b4fed9952555ff4c77cee599717",
+    "test/integration/runtime/gates.test.ts": "a90f89272dbbd1fda63a0e9d5f97539427d614ea2a2ca13d2bff07aabeb41704",
+    "test/integration/runtime/git-commit.test.ts": "239de72c2748388c7ff6e7360764b95e9e1b65122403536cd35575abe28e34f5",
+    "test/integration/runtime/observation-limits.test.ts": "a40bca788ff14a26109e3b31eccb00330cfb6db84d65c30e864177843b6c615f",
+    "test/property/invariants/required-subset.test.ts": "e3a4e54afe9f9951d7933d9b201c0ccd5f16c35245699ceea51bafa277ff8fce",
+    "test/property/invariants/runtime-evidence.test.ts": "965782e18bc823c4725b1b3acefa85d4d3642c0cdc2b8b336455f9fafa99f50b",
+    "test/property/invariants/runtime-limits.test.ts": "1dfa4c613ccb55b32e0b346b5170bbe86ee016970e88ec5422b644faec0d3557",
+    "test/unit/adapters/context.test.ts": "bfdadad133da773e2266130a227ce52fac1871a472392b9717aec6400b40e2f9"
+  },
+  "runs": [
+    {
+      "seed": 2026102901,
+      "exit": 0,
+      "duration_seconds": 48.335,
+      "tests": 347,
+      "passed": 347,
+      "failed": 0,
+      "pending": 0,
+      "report_sha256": "f70dc7f3bef0bc1217d2a78d8892c8dd70bc4ec88300894fcb33366b90a7ca85",
+      "log_sha256": "6b8580fddbdc929b074cec05bcd69d6557ee057d81775f3fc48f18a42041fc46",
+      "files": [
+        {
+          "file": "test/integration/runtime/execution-modes.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/observation-limits.test.ts",
+          "status": "passed",
+          "passed": 7,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/harness.test.ts",
+          "status": "passed",
+          "passed": 39,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-limits.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-real-adapters.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/cli/unavailable-command.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/sandbox-permissions.test.ts",
+          "status": "passed",
+          "passed": 33,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-fixes.test.ts",
+          "status": "passed",
+          "passed": 40,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/artifacts.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-checks.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observation.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/drain.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/git-commit.test.ts",
+          "status": "passed",
+          "passed": 6,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/required-subset.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observe.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/gh-port.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/unit/adapters/context.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-evidence.test.ts",
+          "status": "passed",
+          "passed": 2,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/runner-lifecycle.test.ts",
+          "status": "passed",
+          "passed": 19,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-flow.test.ts",
+          "status": "passed",
+          "passed": 25,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/publish.test.ts",
+          "status": "passed",
+          "passed": 18,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-gate.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/gates.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/confirm-start.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        }
+      ]
+    },
+    {
+      "seed": 2026102902,
+      "exit": 0,
+      "duration_seconds": 42.847,
+      "tests": 347,
+      "passed": 347,
+      "failed": 0,
+      "pending": 0,
+      "report_sha256": "74e83fe27c34cdffefb74ebe8ce208e8435ce0ec170b2b640803b39509ad66b1",
+      "log_sha256": "033bedbc9c1dd72b66b3049e7c3a5ef9eaa383f1dbf6b0a9a6d633209cc3295e",
+      "files": [
+        {
+          "file": "test/contract/harness.test.ts",
+          "status": "passed",
+          "passed": 39,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-fixes.test.ts",
+          "status": "passed",
+          "passed": 40,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/unit/adapters/context.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/drain.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-flow.test.ts",
+          "status": "passed",
+          "passed": 25,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/required-subset.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/gates.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/cli/unavailable-command.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/observation-limits.test.ts",
+          "status": "passed",
+          "passed": 7,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/artifacts.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-checks.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observation.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/execution-modes.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/sandbox-permissions.test.ts",
+          "status": "passed",
+          "passed": 33,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-evidence.test.ts",
+          "status": "passed",
+          "passed": 2,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observe.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/gh-port.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/confirm-start.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-limits.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/runner-lifecycle.test.ts",
+          "status": "passed",
+          "passed": 19,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-gate.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/publish.test.ts",
+          "status": "passed",
+          "passed": 18,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-real-adapters.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/git-commit.test.ts",
+          "status": "passed",
+          "passed": 6,
+          "failed": 0,
+          "pending": 0
+        }
+      ]
+    },
+    {
+      "seed": 2026102903,
+      "exit": 0,
+      "duration_seconds": 52.37,
+      "tests": 347,
+      "passed": 347,
+      "failed": 0,
+      "pending": 0,
+      "report_sha256": "4a1739d234139433ec4e855fdf5fba962c592d809906a587fd381dae2679843e",
+      "log_sha256": "5226d45c80ac76ffc94b62ec46cc726470b111a09612233482048d84d5e6b7c2",
+      "files": [
+        {
+          "file": "test/integration/runtime/confirm-start.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-gate.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-flow.test.ts",
+          "status": "passed",
+          "passed": 25,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-limits.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/execution-modes.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-checks.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-evidence.test.ts",
+          "status": "passed",
+          "passed": 2,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/git-commit.test.ts",
+          "status": "passed",
+          "passed": 6,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/observation-limits.test.ts",
+          "status": "passed",
+          "passed": 7,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/required-subset.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/artifacts.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observation.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observe.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-fixes.test.ts",
+          "status": "passed",
+          "passed": 40,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/cli/unavailable-command.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/runner-lifecycle.test.ts",
+          "status": "passed",
+          "passed": 19,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/harness.test.ts",
+          "status": "passed",
+          "passed": 39,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/gh-port.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/drain.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/gates.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/sandbox-permissions.test.ts",
+          "status": "passed",
+          "passed": 33,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/unit/adapters/context.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/publish.test.ts",
+          "status": "passed",
+          "passed": 18,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-real-adapters.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        }
+      ]
+    },
+    {
+      "seed": 2026102904,
+      "exit": 0,
+      "duration_seconds": 57.24,
+      "tests": 347,
+      "passed": 347,
+      "failed": 0,
+      "pending": 0,
+      "report_sha256": "0359c158202d11c8c2576294da23035232185bd6729ba1b807cf982471946ccc",
+      "log_sha256": "0127eb83f57682cc29fd5e3f7b25cba65d2fb6fa53d047bc915bb971a90ab697",
+      "files": [
+        {
+          "file": "test/integration/runtime/confirm-start.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/drain.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-fixes.test.ts",
+          "status": "passed",
+          "passed": 40,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-gate.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-limits.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/gates.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/required-subset.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/unit/adapters/context.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/observation-limits.test.ts",
+          "status": "passed",
+          "passed": 7,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/gh-port.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-evidence.test.ts",
+          "status": "passed",
+          "passed": 2,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/artifacts.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observation.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observe.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-flow.test.ts",
+          "status": "passed",
+          "passed": 25,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/cli/unavailable-command.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/runner-lifecycle.test.ts",
+          "status": "passed",
+          "passed": 19,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/harness.test.ts",
+          "status": "passed",
+          "passed": 39,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-checks.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/execution-modes.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/git-commit.test.ts",
+          "status": "passed",
+          "passed": 6,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/sandbox-permissions.test.ts",
+          "status": "passed",
+          "passed": 33,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-real-adapters.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/publish.test.ts",
+          "status": "passed",
+          "passed": 18,
+          "failed": 0,
+          "pending": 0
+        }
+      ]
+    },
+    {
+      "seed": 2026102905,
+      "exit": 0,
+      "duration_seconds": 46.811,
+      "tests": 347,
+      "passed": 347,
+      "failed": 0,
+      "pending": 0,
+      "report_sha256": "5329f173a3ae8f9a2c696658e1cdc476b5c943603a10829b4a3e53bacca99438",
+      "log_sha256": "777ed6a1f444f8f86f5f27ae04d7c911a16c1ecfe99a856dbfe685a6516b3a32",
+      "files": [
+        {
+          "file": "test/integration/runtime/feature-002-real-adapters.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-flow.test.ts",
+          "status": "passed",
+          "passed": 25,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/required-subset.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/git-commit.test.ts",
+          "status": "passed",
+          "passed": 6,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-evidence.test.ts",
+          "status": "passed",
+          "passed": 2,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/runner-lifecycle.test.ts",
+          "status": "passed",
+          "passed": 19,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/unit/adapters/context.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/drain.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/publish.test.ts",
+          "status": "passed",
+          "passed": 18,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-fixes.test.ts",
+          "status": "passed",
+          "passed": 40,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/gh-port.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-limits.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/artifacts.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observation.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observe.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-gate.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/confirm-start.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/sandbox-permissions.test.ts",
+          "status": "passed",
+          "passed": 33,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/harness.test.ts",
+          "status": "passed",
+          "passed": 39,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-checks.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/execution-modes.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/observation-limits.test.ts",
+          "status": "passed",
+          "passed": 7,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/cli/unavailable-command.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/gates.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        }
+      ]
+    },
+    {
+      "seed": 2026102906,
+      "exit": 0,
+      "duration_seconds": 41.003,
+      "tests": 347,
+      "passed": 347,
+      "failed": 0,
+      "pending": 0,
+      "report_sha256": "b71dbb13a068f6a3b2bd9d39ea8360126d72eb7010af89d19d8ccdce5274659a",
+      "log_sha256": "cb118ce67fd3e79b1fb7e9df74385332ff7e82303f56921c5e756afb5ec76213",
+      "files": [
+        {
+          "file": "test/integration/runtime/feature-002-real-adapters.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-limits.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/drain.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-evidence.test.ts",
+          "status": "passed",
+          "passed": 2,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/execution-modes.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/required-subset.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/git-commit.test.ts",
+          "status": "passed",
+          "passed": 6,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/unit/adapters/context.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observation.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/runner-lifecycle.test.ts",
+          "status": "passed",
+          "passed": 19,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-flow.test.ts",
+          "status": "passed",
+          "passed": 25,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/gh-port.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/gates.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/artifacts.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observe.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/harness.test.ts",
+          "status": "passed",
+          "passed": 39,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-gate.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/confirm-start.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/sandbox-permissions.test.ts",
+          "status": "passed",
+          "passed": 33,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/publish.test.ts",
+          "status": "passed",
+          "passed": 18,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-checks.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-fixes.test.ts",
+          "status": "passed",
+          "passed": 40,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/observation-limits.test.ts",
+          "status": "passed",
+          "passed": 7,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/cli/unavailable-command.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        }
+      ]
+    },
+    {
+      "seed": 2026102907,
+      "exit": 0,
+      "duration_seconds": 42.805,
+      "tests": 347,
+      "passed": 347,
+      "failed": 0,
+      "pending": 0,
+      "report_sha256": "f6f68356c2469d62cc5e18c8365b5fdaaf0c63f4cf6d3a7e368092fa0ec90bd1",
+      "log_sha256": "235763086413db7e4d4761749ecd80f99f49e5d222631584c384d03a45811f89",
+      "files": [
+        {
+          "file": "test/unit/adapters/context.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observation.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/confirm-start.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/execution-modes.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-flow.test.ts",
+          "status": "passed",
+          "passed": 25,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/gates.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-evidence.test.ts",
+          "status": "passed",
+          "passed": 2,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/observation-limits.test.ts",
+          "status": "passed",
+          "passed": 7,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/runner-lifecycle.test.ts",
+          "status": "passed",
+          "passed": 19,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-limits.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/sandbox-permissions.test.ts",
+          "status": "passed",
+          "passed": 33,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-gate.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/gh-port.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/git-commit.test.ts",
+          "status": "passed",
+          "passed": 6,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/artifacts.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observe.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/harness.test.ts",
+          "status": "passed",
+          "passed": 39,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-real-adapters.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/drain.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/cli/unavailable-command.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/publish.test.ts",
+          "status": "passed",
+          "passed": 18,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-checks.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-fixes.test.ts",
+          "status": "passed",
+          "passed": 40,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/required-subset.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        }
+      ]
+    },
+    {
+      "seed": 2026102908,
+      "exit": 0,
+      "duration_seconds": 48.003,
+      "tests": 347,
+      "passed": 347,
+      "failed": 0,
+      "pending": 0,
+      "report_sha256": "353f87815aadf2e850d5ad53e9ce2fceb4bb50ff0128e5720226a0491e28a5a1",
+      "log_sha256": "c99dbc51a6a32c75ba165af5736286b5973f96426e4ef9cd2b68f4053fe565e5",
+      "files": [
+        {
+          "file": "test/contract/runner-lifecycle.test.ts",
+          "status": "passed",
+          "passed": 19,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-limits.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/drain.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/unit/adapters/context.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-fixes.test.ts",
+          "status": "passed",
+          "passed": 40,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-gate.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-evidence.test.ts",
+          "status": "passed",
+          "passed": 2,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observation.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/confirm-start.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/sandbox-permissions.test.ts",
+          "status": "passed",
+          "passed": 33,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-real-adapters.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/required-subset.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/git-commit.test.ts",
+          "status": "passed",
+          "passed": 6,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/gh-port.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/observation-limits.test.ts",
+          "status": "passed",
+          "passed": 7,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/artifacts.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observe.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/harness.test.ts",
+          "status": "passed",
+          "passed": 39,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/gates.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/execution-modes.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/cli/unavailable-command.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/publish.test.ts",
+          "status": "passed",
+          "passed": 18,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-checks.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-flow.test.ts",
+          "status": "passed",
+          "passed": 25,
+          "failed": 0,
+          "pending": 0
+        }
+      ]
+    },
+    {
+      "seed": 2026102909,
+      "exit": 0,
+      "duration_seconds": 42.777,
+      "tests": 347,
+      "passed": 347,
+      "failed": 0,
+      "pending": 0,
+      "report_sha256": "74047037340827f135ef079035e1cfb51de9f9f589af2734c053586de7ba2a92",
+      "log_sha256": "ddf96b52a404b614d265cfb2f210213798ecdc59151e885f6006c7992af39607",
+      "files": [
+        {
+          "file": "test/integration/runtime/drain.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/observation-limits.test.ts",
+          "status": "passed",
+          "passed": 7,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/sandbox-permissions.test.ts",
+          "status": "passed",
+          "passed": 33,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/required-subset.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/artifacts.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-limits.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-flow.test.ts",
+          "status": "passed",
+          "passed": 25,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-evidence.test.ts",
+          "status": "passed",
+          "passed": 2,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observation.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-fixes.test.ts",
+          "status": "passed",
+          "passed": 40,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-gate.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/gates.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/cli/unavailable-command.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/harness.test.ts",
+          "status": "passed",
+          "passed": 39,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-real-adapters.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/unit/adapters/context.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/gh-port.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observe.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/publish.test.ts",
+          "status": "passed",
+          "passed": 18,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/git-commit.test.ts",
+          "status": "passed",
+          "passed": 6,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/execution-modes.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/confirm-start.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/runner-lifecycle.test.ts",
+          "status": "passed",
+          "passed": 19,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-checks.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        }
+      ]
+    },
+    {
+      "seed": 2026102910,
+      "exit": 0,
+      "duration_seconds": 41.94,
+      "tests": 347,
+      "passed": 347,
+      "failed": 0,
+      "pending": 0,
+      "report_sha256": "126467e2ea117a9af734ec9eaf3e0e5bf06dca1e6f722e8530a410ff76dcdfcf",
+      "log_sha256": "7715b619b20271f55f2970e9ba245c5cd58cc89fd55c8c4516635b94e231b7ff",
+      "files": [
+        {
+          "file": "test/unit/adapters/context.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/drain.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/cli/unavailable-command.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/required-subset.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observation.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/artifacts.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-checks.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-gate.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/sandbox-permissions.test.ts",
+          "status": "passed",
+          "passed": 33,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observe.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/execution-modes.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-real-adapters.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-flow.test.ts",
+          "status": "passed",
+          "passed": 25,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-limits.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/git-commit.test.ts",
+          "status": "passed",
+          "passed": 6,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/gates.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-evidence.test.ts",
+          "status": "passed",
+          "passed": 2,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/gh-port.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/harness.test.ts",
+          "status": "passed",
+          "passed": 39,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/publish.test.ts",
+          "status": "passed",
+          "passed": 18,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/observation-limits.test.ts",
+          "status": "passed",
+          "passed": 7,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-fixes.test.ts",
+          "status": "passed",
+          "passed": 40,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/confirm-start.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/runner-lifecycle.test.ts",
+          "status": "passed",
+          "passed": 19,
+          "failed": 0,
+          "pending": 0
+        }
+      ]
+    },
+    {
+      "seed": 2026102911,
+      "exit": 0,
+      "duration_seconds": 52.543,
+      "tests": 347,
+      "passed": 347,
+      "failed": 0,
+      "pending": 0,
+      "report_sha256": "81da37978b7b85042f3a8680b2566be05741c93a546dd051ae5b7256f3114f87",
+      "log_sha256": "39426dfe7bb764dcdc8c11e3d4c86377f12c69cb2b8cdb5397a41e41f4c2a1d3",
+      "files": [
+        {
+          "file": "test/contract/sandbox-permissions.test.ts",
+          "status": "passed",
+          "passed": 33,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/unit/adapters/context.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/execution-modes.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/runner-lifecycle.test.ts",
+          "status": "passed",
+          "passed": 19,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-limits.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observation.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/artifacts.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-real-adapters.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/git-commit.test.ts",
+          "status": "passed",
+          "passed": 6,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/cli/unavailable-command.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observe.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-gate.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/gates.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/observation-limits.test.ts",
+          "status": "passed",
+          "passed": 7,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/drain.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-evidence.test.ts",
+          "status": "passed",
+          "passed": 2,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-checks.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-flow.test.ts",
+          "status": "passed",
+          "passed": 25,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/gh-port.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/harness.test.ts",
+          "status": "passed",
+          "passed": 39,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/publish.test.ts",
+          "status": "passed",
+          "passed": 18,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/required-subset.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-fixes.test.ts",
+          "status": "passed",
+          "passed": 40,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/confirm-start.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        }
+      ]
+    },
+    {
+      "seed": 2026102912,
+      "exit": 0,
+      "duration_seconds": 59.736,
+      "tests": 347,
+      "passed": 347,
+      "failed": 0,
+      "pending": 0,
+      "report_sha256": "efc17bf7457a17926d300396964de0f231c3ffff397afb81b75b20aa1974bf2e",
+      "log_sha256": "d8e1def2a7b6e0732f1a8170aa90df5c3ecc05480c77666cb42443ddf00a799b",
+      "files": [
+        {
+          "file": "test/integration/runtime/gates.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/cli/unavailable-command.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/required-subset.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-limits.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/sandbox-permissions.test.ts",
+          "status": "passed",
+          "passed": 33,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-fixes.test.ts",
+          "status": "passed",
+          "passed": 40,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/drain.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/artifacts.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observation.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/observation-limits.test.ts",
+          "status": "passed",
+          "passed": 7,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/confirm-start.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observe.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/unit/adapters/context.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/git-commit.test.ts",
+          "status": "passed",
+          "passed": 6,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-real-adapters.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/execution-modes.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/publish.test.ts",
+          "status": "passed",
+          "passed": 18,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-checks.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-gate.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/gh-port.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/harness.test.ts",
+          "status": "passed",
+          "passed": 39,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/runner-lifecycle.test.ts",
+          "status": "passed",
+          "passed": 19,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-evidence.test.ts",
+          "status": "passed",
+          "passed": 2,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-flow.test.ts",
+          "status": "passed",
+          "passed": 25,
+          "failed": 0,
+          "pending": 0
+        }
+      ]
+    },
+    {
+      "seed": 2026102913,
+      "exit": 0,
+      "duration_seconds": 46.382,
+      "tests": 347,
+      "passed": 347,
+      "failed": 0,
+      "pending": 0,
+      "report_sha256": "6aeb2c9b5541ea98ba5191ece726a3229ba9fd72671ce70a4d43173b6afe345b",
+      "log_sha256": "74227fbe42b27b1c60ecb50f4997124e821f41c293e5ccab3dae6d5459829a61",
+      "files": [
+        {
+          "file": "test/contract/cli/unavailable-command.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/git-commit.test.ts",
+          "status": "passed",
+          "passed": 6,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/sandbox-permissions.test.ts",
+          "status": "passed",
+          "passed": 33,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/observation-limits.test.ts",
+          "status": "passed",
+          "passed": 7,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/artifacts.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-gate.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-flow.test.ts",
+          "status": "passed",
+          "passed": 25,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observe.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/confirm-start.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observation.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/required-subset.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/drain.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-evidence.test.ts",
+          "status": "passed",
+          "passed": 2,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/unit/adapters/context.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-fixes.test.ts",
+          "status": "passed",
+          "passed": 40,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/gates.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/execution-modes.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/publish.test.ts",
+          "status": "passed",
+          "passed": 18,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-checks.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-real-adapters.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/gh-port.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/harness.test.ts",
+          "status": "passed",
+          "passed": 39,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/runner-lifecycle.test.ts",
+          "status": "passed",
+          "passed": 19,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-limits.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        }
+      ]
+    },
+    {
+      "seed": 2026102914,
+      "exit": 0,
+      "duration_seconds": 41.538,
+      "tests": 347,
+      "passed": 347,
+      "failed": 0,
+      "pending": 0,
+      "report_sha256": "dec89ce11c1e626d42c03103dd50763bc1d67a2484bb5597530f2357cf310d3c",
+      "log_sha256": "b84eda78b45adc1dd1fffa46e432bafbda7b592010d7b900ede4b46dbdb49007",
+      "files": [
+        {
+          "file": "test/contract/github-observation.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-real-adapters.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/cli/unavailable-command.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/observation-limits.test.ts",
+          "status": "passed",
+          "passed": 7,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-gate.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/artifacts.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/confirm-start.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/sandbox-permissions.test.ts",
+          "status": "passed",
+          "passed": 33,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/required-subset.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/drain.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observe.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-evidence.test.ts",
+          "status": "passed",
+          "passed": 2,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/execution-modes.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/harness.test.ts",
+          "status": "passed",
+          "passed": 39,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/git-commit.test.ts",
+          "status": "passed",
+          "passed": 6,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-flow.test.ts",
+          "status": "passed",
+          "passed": 25,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-limits.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-fixes.test.ts",
+          "status": "passed",
+          "passed": 40,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/unit/adapters/context.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-checks.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/gates.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/gh-port.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/publish.test.ts",
+          "status": "passed",
+          "passed": 18,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/runner-lifecycle.test.ts",
+          "status": "passed",
+          "passed": 19,
+          "failed": 0,
+          "pending": 0
+        }
+      ]
+    },
+    {
+      "seed": 2026102915,
+      "exit": 0,
+      "duration_seconds": 48.563,
+      "tests": 347,
+      "passed": 347,
+      "failed": 0,
+      "pending": 0,
+      "report_sha256": "09ea31fcfc0a4e03c17f431a0d1b2113eb89de60c60e8e8004b5d0fd09201309",
+      "log_sha256": "19d640d44627240b2a48885948826a4e4f553fff88d5db2126bc90e5083cc6c5",
+      "files": [
+        {
+          "file": "test/contract/github-observation.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-real-adapters.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-evidence.test.ts",
+          "status": "passed",
+          "passed": 2,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/drain.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/execution-modes.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/artifacts.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/confirm-start.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/harness.test.ts",
+          "status": "passed",
+          "passed": 39,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/cli/unavailable-command.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/git-commit.test.ts",
+          "status": "passed",
+          "passed": 6,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-limits.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observe.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/required-subset.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-fixes.test.ts",
+          "status": "passed",
+          "passed": 40,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/unit/adapters/context.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/sandbox-permissions.test.ts",
+          "status": "passed",
+          "passed": 33,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-gate.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/observation-limits.test.ts",
+          "status": "passed",
+          "passed": 7,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-flow.test.ts",
+          "status": "passed",
+          "passed": 25,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/runner-lifecycle.test.ts",
+          "status": "passed",
+          "passed": 19,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-checks.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/gates.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/gh-port.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/publish.test.ts",
+          "status": "passed",
+          "passed": 18,
+          "failed": 0,
+          "pending": 0
+        }
+      ]
+    },
+    {
+      "seed": 2026102916,
+      "exit": 0,
+      "duration_seconds": 50.057,
+      "tests": 347,
+      "passed": 347,
+      "failed": 0,
+      "pending": 0,
+      "report_sha256": "8406a357f698d6d8cd5d88fcc610e2ebe4aad7589bde2cf7903b06da3f2ebf33",
+      "log_sha256": "f9da9086944c5608b2c6de57b37113750a440488c032ed1831e724e1c08b55d7",
+      "files": [
+        {
+          "file": "test/integration/runtime/execution-modes.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-fixes.test.ts",
+          "status": "passed",
+          "passed": 40,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/cli/unavailable-command.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-real-adapters.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/harness.test.ts",
+          "status": "passed",
+          "passed": 39,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observation.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/artifacts.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/drain.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/confirm-start.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-limits.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/gates.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/unit/adapters/context.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observe.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-evidence.test.ts",
+          "status": "passed",
+          "passed": 2,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-flow.test.ts",
+          "status": "passed",
+          "passed": 25,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/publish.test.ts",
+          "status": "passed",
+          "passed": 18,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/required-subset.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/observation-limits.test.ts",
+          "status": "passed",
+          "passed": 7,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/runner-lifecycle.test.ts",
+          "status": "passed",
+          "passed": 19,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-gate.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/sandbox-permissions.test.ts",
+          "status": "passed",
+          "passed": 33,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-checks.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/git-commit.test.ts",
+          "status": "passed",
+          "passed": 6,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/gh-port.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        }
+      ]
+    },
+    {
+      "seed": 2026102917,
+      "exit": 0,
+      "duration_seconds": 39.428,
+      "tests": 347,
+      "passed": 347,
+      "failed": 0,
+      "pending": 0,
+      "report_sha256": "cb51970993ef4f751011e89cfa1e1d48a66b36f443ef4c93d63f813d171156a6",
+      "log_sha256": "cf1944bcece38cdb66283fe22909e0a27b64d78868f4e3f4f62fe591b014b1e1",
+      "files": [
+        {
+          "file": "test/integration/runtime/feature-002-fixes.test.ts",
+          "status": "passed",
+          "passed": 40,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/gates.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/unit/adapters/context.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-flow.test.ts",
+          "status": "passed",
+          "passed": 25,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/confirm-start.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observation.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observe.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/artifacts.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/execution-modes.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/git-commit.test.ts",
+          "status": "passed",
+          "passed": 6,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/drain.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/runner-lifecycle.test.ts",
+          "status": "passed",
+          "passed": 19,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/gh-port.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/harness.test.ts",
+          "status": "passed",
+          "passed": 39,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-limits.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/required-subset.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/publish.test.ts",
+          "status": "passed",
+          "passed": 18,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/cli/unavailable-command.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-real-adapters.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-evidence.test.ts",
+          "status": "passed",
+          "passed": 2,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-gate.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/sandbox-permissions.test.ts",
+          "status": "passed",
+          "passed": 33,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-checks.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/observation-limits.test.ts",
+          "status": "passed",
+          "passed": 7,
+          "failed": 0,
+          "pending": 0
+        }
+      ]
+    },
+    {
+      "seed": 2026102918,
+      "exit": 0,
+      "duration_seconds": 36.663,
+      "tests": 347,
+      "passed": 347,
+      "failed": 0,
+      "pending": 0,
+      "report_sha256": "a1efabeb8719ce7bddf78aee867d051af11b5393e6e1e40adbf251cbd8092745",
+      "log_sha256": "fc04dfc40f9d6937ed5a417e3d80fd6ba054187ac5ec5082077888f4585ee118",
+      "files": [
+        {
+          "file": "test/contract/github-observation.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/git-commit.test.ts",
+          "status": "passed",
+          "passed": 6,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-flow.test.ts",
+          "status": "passed",
+          "passed": 25,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/publish.test.ts",
+          "status": "passed",
+          "passed": 18,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-gate.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/drain.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/confirm-start.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observe.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/artifacts.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-fixes.test.ts",
+          "status": "passed",
+          "passed": 40,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/execution-modes.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/required-subset.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/observation-limits.test.ts",
+          "status": "passed",
+          "passed": 7,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/gh-port.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/harness.test.ts",
+          "status": "passed",
+          "passed": 39,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/unit/adapters/context.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-evidence.test.ts",
+          "status": "passed",
+          "passed": 2,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/runner-lifecycle.test.ts",
+          "status": "passed",
+          "passed": 19,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/cli/unavailable-command.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/gates.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-limits.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-real-adapters.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/sandbox-permissions.test.ts",
+          "status": "passed",
+          "passed": 33,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-checks.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        }
+      ]
+    },
+    {
+      "seed": 2026102919,
+      "exit": 0,
+      "duration_seconds": 35.455,
+      "tests": 347,
+      "passed": 347,
+      "failed": 0,
+      "pending": 0,
+      "report_sha256": "3845b7ec9df223b9c41b2a3f3c1ce4112d338a671bb8b129b40df2532108b0b7",
+      "log_sha256": "2ff87722c4d3e9268c5879209658908e659e615d15c90eba733459adc4c1da7b",
+      "files": [
+        {
+          "file": "test/integration/runtime/observation-limits.test.ts",
+          "status": "passed",
+          "passed": 7,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/required-subset.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-real-adapters.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/publish.test.ts",
+          "status": "passed",
+          "passed": 18,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/drain.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observation.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/execution-modes.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observe.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-gate.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/artifacts.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-flow.test.ts",
+          "status": "passed",
+          "passed": 25,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-fixes.test.ts",
+          "status": "passed",
+          "passed": 40,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/unit/adapters/context.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-evidence.test.ts",
+          "status": "passed",
+          "passed": 2,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/gh-port.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/harness.test.ts",
+          "status": "passed",
+          "passed": 39,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-checks.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-limits.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/runner-lifecycle.test.ts",
+          "status": "passed",
+          "passed": 19,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/confirm-start.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/git-commit.test.ts",
+          "status": "passed",
+          "passed": 6,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/sandbox-permissions.test.ts",
+          "status": "passed",
+          "passed": 33,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/gates.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/cli/unavailable-command.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        }
+      ]
+    },
+    {
+      "seed": 2026102920,
+      "exit": 0,
+      "duration_seconds": 38.744,
+      "tests": 347,
+      "passed": 347,
+      "failed": 0,
+      "pending": 0,
+      "report_sha256": "1aeec53abefeacb50df69d225578f8d13e1217b033fa7b3499493a0dc97a666f",
+      "log_sha256": "61d66fcf6198a077a6cea0bb860ea8c31f0208efa9a3d7a86ce17314c9ec8d7c",
+      "files": [
+        {
+          "file": "test/integration/runtime/gates.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/drain.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observe.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/execution-modes.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/runner-lifecycle.test.ts",
+          "status": "passed",
+          "passed": 19,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-real-adapters.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-observation.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/required-subset.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-fixes.test.ts",
+          "status": "passed",
+          "passed": 40,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/harness.test.ts",
+          "status": "passed",
+          "passed": 39,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/artifacts.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-gate.test.ts",
+          "status": "passed",
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-evidence.test.ts",
+          "status": "passed",
+          "passed": 2,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/feature-002-flow.test.ts",
+          "status": "passed",
+          "passed": 25,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/property/invariants/runtime-limits.test.ts",
+          "status": "passed",
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/gh-port.test.ts",
+          "status": "passed",
+          "passed": 8,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/publish.test.ts",
+          "status": "passed",
+          "passed": 18,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/github-checks.test.ts",
+          "status": "passed",
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/unit/adapters/context.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/sandbox-permissions.test.ts",
+          "status": "passed",
+          "passed": 33,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/confirm-start.test.ts",
+          "status": "passed",
+          "passed": 15,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/observation-limits.test.ts",
+          "status": "passed",
+          "passed": 7,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/contract/cli/unavailable-command.test.ts",
+          "status": "passed",
+          "passed": 10,
+          "failed": 0,
+          "pending": 0
+        },
+        {
+          "file": "test/integration/runtime/git-commit.test.ts",
+          "status": "passed",
+          "passed": 6,
+          "failed": 0,
+          "pending": 0
+        }
+      ]
+    }
+  ],
+  "finished_at": "2026-10-29T13:58:28.138009+00:00",
+  "complete": true,
+  "command_argv_template": [
+    "pnpm",
+    "exec",
+    "vitest",
+    "run",
+    "--project",
+    "default",
+    "...filters",
+    "--sequence.shuffle",
+    "--sequence.seed=<seed>",
+    "--outputFile.json=<report>"
+  ]
+}

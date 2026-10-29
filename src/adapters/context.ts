@@ -76,6 +76,7 @@ export type ContextInput = {
   readonly prompt: string | null;
   readonly answers: readonly {
     readonly question_id: string;
+    readonly question?: string;
     readonly answer: string;
   }[];
   readonly failures: readonly RoleFailure[];
@@ -268,9 +269,12 @@ export function buildRoleContext(
     {
       name: 'answers',
       body: input.answers
-        .map((a) => `- (${a.question_id}) ${clean(a.answer)}`)
+        .map(
+          (a) =>
+            `- (${a.question_id}) ${a.question === undefined ? '' : clean(a.question) + '\n  '}${clean(a.answer)}`,
+        )
         .join('\n'),
-      required: false,
+      required: true,
     },
     {
       name: 'requirements',

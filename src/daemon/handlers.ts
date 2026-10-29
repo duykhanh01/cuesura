@@ -87,6 +87,7 @@ import { InvocationUnknown } from '../runner/invocation.ts';
 import type { Redactor } from '../runner/redact.ts';
 import type { EpochMs, Uuid } from '../shared/brand.ts';
 import { hashCanonical, hashText } from '../shared/hash.ts';
+import { claimable } from '../engine/claim.ts';
 import { reviewInputDigest } from '../engine/review-evidence.ts';
 import type { Store } from '../store/index.ts';
 import type { EffectHandler, EffectHandlers } from './dispatch.ts';
@@ -597,6 +598,7 @@ async function startAgent(
   op: OperationClaim,
   mirror: { attempt_id: string | null; step: string | null },
   extra: Trigger[] = [],
+  refreshes = 1,
 ): Promise<EffectOutcome> {
   const l = load(deps, effect);
   const role = effect.request['role'];
@@ -657,9 +659,12 @@ async function startAgent(
       ? file
       : join(harness.agent_paths.scratch, contentName);
   if (worker) mkdirSync(scratch, { recursive: true, mode: 0o700 });
-  const answers = Array.isArray(effect.request['answers'])
-    ? (effect.request['answers'] as { question_id: string; answer: string }[])
-    : [];
+  // Repairs cross steps: keep every answered question of this revision, not the queued step's old packet.
+  const answers = Object.values(l.s.questions).flatMap((q) =>
+    q.revision === l.s.revision && q.status === 'answered' && q.answer !== null
+      ? [{ question_id: q.id, question: q.body, answer: q.answer }]
+      : [],
+  );
   const built = buildRoleContext({
     role: r,
     step,
@@ -696,10 +701,14 @@ async function startAgent(
   });
   if (!built.ok) {
     return r === 'reviewer'
-      ? failed(
-          'infra',
-          `review context missing: ${built.error.missing.join(', ')}`,
-        )
+      ? {
+          outcome: 'failed',
+          data: {
+            failure_class: 'infra',
+            message: `review context missing: ${built.error.missing.join(', ')}`,
+            invoked: false,
+          },
+        }
       : {
           outcome: 'succeeded',
           data: {
@@ -710,6 +719,37 @@ async function startAgent(
             invoked: false,
           },
         };
+  }
+  const workspace =
+    harness.agent_paths === undefined ? undefined : await workspaceOf(deps, l);
+  // Git/context reads yield: reconcile once more immediately before the harness can spawn.
+  const current = deps.store.readTask(effect.task_id as Uuid);
+  const allowed =
+    current !== null &&
+    claimable(current, effect, deps.clock.now(), { require_runtime: true }).ok;
+  if (signal.aborted || !allowed || current?.version !== l.s.version) {
+    if (!signal.aborted && allowed && refreshes > 0)
+      return startAgent(deps, effect, signal, op, mirror, extra, refreshes - 1);
+    if (!worker)
+      return {
+        outcome: 'failed',
+        data: {
+          failure_class: 'infra',
+          message: 'state changed while preparing review context',
+          invoked: false,
+        },
+      };
+    return {
+      outcome: 'succeeded',
+      data: {
+        schema_checked: true,
+        status: 'needs_context',
+        summary:
+          'state changed while preparing context; reconcile before another attempt',
+        usage: { basis: 'unavailable' },
+        invoked: false,
+      },
+    };
   }
   const wall = binding.limits.wall_timeout_ms ?? 45 * 60_000;
   const resume = sessionFor(effect.request, harness);
@@ -737,9 +777,7 @@ async function startAgent(
         ...(worker && harness.agent_paths !== undefined
           ? { collect: [{ scratch_name: contentName, host_path: file }] }
           : {}),
-        ...(harness.agent_paths === undefined
-          ? {}
-          : { workspace: await workspaceOf(deps, l) }),
+        ...(workspace === undefined ? {} : { workspace }),
       },
       signal,
     );

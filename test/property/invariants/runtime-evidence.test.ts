@@ -234,3 +234,48 @@ describe('review evidence (T050, FR-014, M03)', () => {
     HEAVY_PROPERTY_TIMEOUT_MS,
   );
 });
+
+describe('T139 M04 context admission', () => {
+  it('a pre-launch needs_context never spends usage or automatically retries in either mode', () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom('direct-pr', 'full-review'),
+        fc.string({ minLength: 1, maxLength: 100 }),
+        (mode, summary) => {
+          const d = new StoreDriver(openMemoryStore());
+          const t = buildTask();
+          try {
+            createGrantStart(d, t, mode);
+            d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', {
+              base_sha: 'base0000',
+              worktree_ref: 'wt',
+              branch: 'b',
+              setup: { ran: false, passed: true },
+            });
+            d.complete(
+              t.id,
+              d.pendingOne(t.id, 'start_agent').id,
+              'succeeded',
+              agentData('needs_context', { summary, invoked: false }),
+            );
+            expect(d.task(t.id).status).toBe('WAITING');
+            expect(d.task(t.id).wait?.reason).toBe('human_input');
+            expect(d.pending(t.id, 'start_agent')).toEqual([]);
+            expect(d.task(t.id).budget.agent_runs).toMatchObject({
+              used: 0,
+              reserved: 0,
+            });
+            expect(
+              d.store
+                .readEvents(t.id)
+                .filter((e) => e.type === 'BudgetConsumed'),
+            ).toEqual([]);
+          } finally {
+            d.store.close();
+          }
+        },
+      ),
+      propertyParams(30),
+    );
+  });
+});

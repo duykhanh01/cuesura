@@ -1,23 +1,21 @@
 # Validation guide: feature 002
 
-**Thiết kế cập nhật, chưa triển khai**: xem [hai chế độ và xác nhận](task-execution-modes.md).
-Khi nối runtime phải kiểm M01–M08 ngoài các suite hiện có: không spawn trước xác nhận, không
-đổi mode/binding ngầm, `direct-pr` không review, `full-review` cùng vendor dùng session riêng,
-resume worker, template/artifact đúng và push đúng commit đã kiểm. Các lệnh dưới đây chưa có
-flags/proof mới cho mode và không được coi là đã hỗ trợ quyết định này.
-Bổ sung [H01–H06](task-execution-modes.md#remote-đổi-head-khi-review-còn-chạy) khi kiểm race:
-remote B chen lúc review A, callback/observation hai thứ tự, probe/update guard, restart và chỉ
-base tip đổi. Ghi riêng bằng chứng từng H; chưa chạy thì báo chưa kiểm.
+**Trạng thái 2026-10-29:** nền và phần lớn US1/US2/US4 đã có; cổng Phase 6 đề nghị no-go,
+T139 đã kiểm đủ fixture/property/OS; T072/T078 còn mở, chưa có quyết định owner mở B. Xem [go/no-go](go-no-go.md),
+[báo cáo nghiệm thu](acceptance-report.md#nghiệm-thu-phase-6--cổng-lát-a),
+[ledger seeds](evidence/phase6-seeds.json) và [117 FR](phase6-coverage.md).
 
-Khi triển khai schema `merge.method`, kiểm default (thiếu object/key), cả ba giá trị hợp lệ,
-sai kiểu/enum/key lạ, config đổi sau freeze và replay snapshot cũ không bị viết lại. Với 002,
-kiểm repo tắt squash không chặn admission; manual merge khác/unknown method vẫn proof/drain/DONE
-và audit không làm head đã kiểm thành unverified chỉ vì method. Không dùng config để thử gửi merge.
+Owner chọn Ubuntu; không yêu cầu WSL2. Typecheck/lint/build và default tests đã chạy trên Ubuntu,
+bao gồm bwrap và systemd user thật. Node ở trong home làm `harness-bwrap` tự skip: sao cùng binary
+ra `/tmp` rồi đưa directory đó lên đầu PATH; không mount host home vào sandbox. Bỏ NO_COLOR/FORCE_COLOR
+kế thừa khi chạy suite để không xung đột với test CLI cố ý bật màu. Xem lệnh trong acceptance report.
 
-Phần **lát 0 chạy trước triển khai** theo [spike guide](spike-0.md), là gate trước runtime A. Các
-phần A/B/C bên dưới dành cho sau implement: hiện chỉ có scripts typecheck/lint/test/build/reliability
-của 001, cusr/cusrd và test runtime chưa khả dụng. Spike cô lập có thể dùng vài lượt model trước A;
-full workflow smoke vẫn sau A/B. Canary local đã đạt một phần, không coi việc sửa docs là feasibility đã đạt.
+Hai mode/confirmation/template/checkpoint đã triển khai từng phần theo
+[hợp đồng M01–M08/H01–H06](task-execution-modes.md). Same-vendor/session/ro và Q&A/resume/stale packet đã có test local; fixture không chứng nhận paid smoke
+hoặc resume/cost capability của vendor thật. T139 đã bổ sung same-vendor/session/ro, Q&A/resume/stale packet, finalized review và ma trận method
+freeze/config đổi/replay; xem [matrix T139](acceptance-report.md#t139--kiểm-tổng-hợp-m01m08-và-h01h06).
+Feature 002 không gửi merge. Các đoạn hướng dẫn B/C bên dưới là kế hoạch, chỉ chạy sau gate tương ứng;
+không được lấy ví dụ lệnh hoặc checkbox task làm bằng chứng runtime đã nối end-to-end.
 
 ## 0. Kiểm host và spike ngày 1
 
@@ -55,13 +53,13 @@ pnpm test
 pnpm build
 ```
 
-Khi thêm Commander/entrypoints phải cập nhật lockfile/bin, `test/contract` include trong default
-Vitest project. Không thêm test mới mà lệnh chuẩn không chạy tới.
+Commander/entrypoints và `test/contract` đã có trong package/default Vitest project.
+Không thêm test mới mà lệnh chuẩn không chạy tới.
 
 ## 2. Lát A — Fake tới PR xanh và policy limits
 
-Suite dự kiến ở `test/integration/runtime/feature-002-flow.test.ts` dùng fake harness hai vendor,
-Git worktree thật/local bare remote, fake HTTP GitHub và Clock inject. Chạy sau khi file được implement:
+Suite `test/integration/runtime/feature-002-flow.test.ts` đã có fake harness, Git worktree thật/local
+bare remote, fake HTTP GitHub và Clock inject. Chạy cùng fixes và contracts; review phụ thuộc mode:
 
 ```sh
 pnpm exec vitest run --project default test/integration/runtime/feature-002-flow.test.ts
@@ -69,7 +67,7 @@ pnpm exec vitest run --project default test/contract
 pnpm exec vitest run --project default test/property
 ```
 
-Expected: task intake/freeze → worktree/code/gates/review/publish/CI → WAITING/approval merge; đúng
+Expected: task intake/freeze → worktree/code/gates/checkpoint → review nếu full → publish/CI → WAITING/approval merge; đúng
 một PR, zero merge request, đầy đủ SHA/binding/usage/evidence. Gây lần lượt gate fail, review changes,
 CI code/infra/flaky/auth/refusal/invalid output để kiểm giới hạn và reviewer vendor. Kiểm worktree
 ownership, fake process im lặng nhưng có progress, reviewer write denied và canary không lọt log.

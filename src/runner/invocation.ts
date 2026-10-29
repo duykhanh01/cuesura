@@ -33,6 +33,10 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { z } from 'zod';
+import { UsageSchema } from '../domain/trigger.ts';
+import { HashSchema } from '../shared/brand.ts';
+import { readLaunchMarker } from './operation-lock.ts';
 import {
   observeHarness,
   verifyLayout,
@@ -51,6 +55,8 @@ import {
 } from '../adapters/harness/validate-result.ts';
 import {
   ROLE_SCHEMA_DIGESTS,
+  ReviewerResultSchema,
+  validateRoleResult,
   wireRoleSchema,
 } from '../adapters/harness/result-schema.ts';
 import type {
@@ -93,6 +99,32 @@ export const PROMPT_FILE = 'context/prompt.md';
 const SCRATCH = 'scratch';
 /** stderr kept for parsing denials: the tail, bounded. */
 const STDERR_READ_MAX = 1024 * 1024;
+
+// Final review data and its recovery proof share the same atomic out/result.json write.
+const FinalizedReviewSchema = z.strictObject({
+  schema_version: z.literal(1),
+  value: ReviewerResultSchema,
+  provenance: z.object({
+    manifest_hash: HashSchema,
+    launch_nonce: z.string().min(1),
+    raw_digest: HashSchema,
+    schema_digest: HashSchema,
+    usage: UsageSchema,
+    session_ref: z.string().nullable(),
+    permission_denials: z.array(
+      z.strictObject({
+        tool: z.string(),
+        command: z.string().nullable(),
+        source: z.string(),
+      }),
+    ),
+    recovery: z.strictObject({
+      input_digest: HashSchema,
+      exit_digest: HashSchema,
+      value_digest: HashSchema,
+    }),
+  }),
+});
 
 /** The run's outcome could not be proven; the effect must be reconciled, never re-launched blindly. */
 export class InvocationUnknown extends Error {
@@ -192,6 +224,16 @@ export class RunnerHarness implements HarnessPort {
       reset_at: null,
       invoked: false,
     });
+    const run = RunDir.open({
+      dataDir: o.data_dir,
+      kind: 'runs',
+      id: input.attempt_id,
+      redactor: o.redactor,
+      ...(o.file_limits === undefined ? {} : { limits: o.file_limits }),
+    });
+    if (run.readFinal(RUN_FILES.launch).state !== 'missing')
+      return this.#recoverReview(run, input);
+
     if (signal.aborted) return never('cancelled', 'aborted before start');
     // A reviewer always runs in its own new, read-only session (contracts/execution.md).
     if (input.role === 'reviewer' && input.session !== null)
@@ -247,18 +289,6 @@ export class RunnerHarness implements HarnessPort {
       return never(
         'capability_missing',
         `resume requested but ${verified.value.resume_fallback ?? 'not proven'}`,
-      );
-
-    const run = RunDir.open({
-      dataDir: o.data_dir,
-      kind: 'runs',
-      id: input.attempt_id,
-      redactor: o.redactor,
-      ...(o.file_limits === undefined ? {} : { limits: o.file_limits }),
-    });
-    if (run.readFinal(RUN_FILES.launch).state !== 'missing')
-      throw new InvocationUnknown(
-        `attempt ${input.attempt_id} was already launched; recover it`,
       );
 
     let installed: InstalledAuth | null = null;
@@ -391,21 +421,12 @@ export class RunnerHarness implements HarnessPort {
       // The result is stored and returned with the auth values redacted too, not only the run's rules.
       const redactAuth = <T>(x: T): T =>
         authRedactor.value(o.redactor.value(x)) as T;
-      const outcome = this.#finalize(
-        run,
-        input,
-        v,
-        verified.value,
-        plan,
-        sandboxed.value.layout_digest,
-        redactAuth,
-      );
       const violations = writeZoneViolations(
         before,
         snapshotWriteZone(layout.layout),
       );
-      const ingest = ingestOf(run, input.operation_id, records.value);
-      if (violations.length > 0)
+      if (violations.length > 0) {
+        const ingest = ingestOf(run, input.operation_id, records.value);
         return redactAuth({
           role: input.role,
           usage: facts.usage,
@@ -418,6 +439,18 @@ export class RunnerHarness implements HarnessPort {
           invoked: true,
           ...(ingest === null ? {} : { ingest }),
         });
+      }
+      const outcome = this.#finalize(
+        run,
+        input,
+        v,
+        verified.value,
+        plan,
+        sandboxed.value.layout_digest,
+        exit,
+        redactAuth,
+      );
+      const ingest = ingestOf(run, input.operation_id, records.value);
       return redactAuth(ingest === null ? outcome : { ...outcome, ingest });
     } catch (e) {
       // A run whose end is not proven may still be using its home: recovery removes the auth.
@@ -429,6 +462,60 @@ export class RunnerHarness implements HarnessPort {
     }
   }
 
+  /** A repeated call may read finalized review data; it never launches a replacement. */
+  #recoverReview(run: RunDir, input: HarnessInput): HarnessOutcome {
+    const result = run.readFinal(RUN_FILES.result, FinalizedReviewSchema);
+    const exit = run.readFinal(RUN_FILES.exit, RunnerExitSchema);
+    const marker = readLaunchMarker(run);
+    if (
+      input.role !== 'reviewer' ||
+      result.state !== 'valid' ||
+      exit.state !== 'valid' ||
+      marker.state !== 'valid'
+    )
+      throw new InvocationUnknown(
+        'no complete finalized reviewer proof; reconcile the original operation',
+      );
+    const p = result.value.provenance;
+    const e = exit.value;
+    if (
+      p.recovery.input_digest !== hashCanonical(input) ||
+      p.recovery.value_digest !== hashCanonical(result.value.value) ||
+      p.recovery.exit_digest !== hashCanonical(e) ||
+      p.manifest_hash !== this.#o.manifest.manifest_hash ||
+      marker.value.operation_id !== input.operation_id ||
+      marker.value.attempt_id !== input.attempt_id ||
+      marker.value.launch_nonce !== e.launch_nonce ||
+      p.launch_nonce !== e.launch_nonce ||
+      e.operation_id !== input.operation_id ||
+      e.run_id !== input.attempt_id ||
+      e.outcome !== 'exited' ||
+      e.exit_code !== 0 ||
+      !e.spawned ||
+      !e.termination.tree_empty_verified ||
+      p.schema_digest !== input.schema.digest ||
+      !validateRoleResult('reviewer', result.value.value).ok
+    )
+      throw new InvocationUnknown(
+        'finalized review provenance does not match this invocation',
+      );
+    const records = readRecords(run, input.operation_id, null);
+    if (!records.ok)
+      throw new InvocationUnknown('finalized review records unreadable');
+    const ingest = ingestOf(run, input.operation_id, records.value);
+    return {
+      kind: 'result',
+      role: 'reviewer',
+      value: result.value.value,
+      usage: p.usage,
+      session_ref: p.session_ref,
+      permission_denials: p.permission_denials,
+      raw_digest: p.raw_digest,
+      schema_digest: p.schema_digest,
+      ...(ingest === null ? {} : { ingest }),
+    };
+  }
+
   /** Writes out/result.json for an accepted result; a result over the cap after redaction is invalid. */
   #finalize(
     run: RunDir,
@@ -437,6 +524,7 @@ export class RunnerHarness implements HarnessPort {
     verified: { manifest_hash: Hash; inner_mode: string },
     plan: VendorPlan,
     layoutDigest: Hash,
+    exit: RunnerExit,
     redact: <T>(x: T) => T,
   ): HarnessOutcome {
     if (v.record === null) return v.outcome;
@@ -450,6 +538,16 @@ export class RunnerHarness implements HarnessPort {
           settings_hash: plan.settings_hash,
           layout_digest: layoutDigest,
           finalized_at: this.#o.clock.now(),
+          session_ref: v.outcome.session_ref,
+          ...(input.role === 'reviewer'
+            ? {
+                recovery: {
+                  input_digest: hashCanonical(input),
+                  exit_digest: hashCanonical(exit),
+                  value_digest: hashCanonical(redact(v.record.value)),
+                },
+              }
+            : {}),
         },
       }),
     );

@@ -172,3 +172,233 @@ nguyên vẹn của cùng binary node đặt ngoài home.
   phí: coder chạy `--no-session-persistence` và mỗi attempt có private home mới nên resume Claude thật
   chưa thể thành công. Resume thật chuyển sang T099/T126 (FR-038), cần lưu phiên và chuyển transcript
   giữa các home trước.
+
+# Nghiệm thu Phase 6 — cổng lát A
+
+**Snapshot lượt đầu tại `5bda3ee`.** Các giới hạn T139 ở phần này là kết quả audit trước khi sửa;
+xem [kết quả T139 tiếp theo](#t139--kiểm-tổng-hợp-m01m08-và-h01h06) cho trạng thái hiện hành.
+
+Ngày: 2026-10-29. Nhánh `002/phase6-gate`, base `c1a8b9e` (`origin/main` sau Phase 5).
+Owner cho tiếp tục với 4/16 mục checklist chưa tick; giữ nguyên checklist. Owner chọn **Ubuntu**
+làm host nghiệm thu, không yêu cầu WSL2. Không lấy code từ PR #15 hoặc worktree T072 đang làm riêng.
+
+**Kết luận kỹ thuật: đề nghị no-go, chưa mở B.** T072/T139 còn mở; T078 chưa đủ prerequisite.
+T079 có bản review tại [go-no-go.md](go-no-go.md), T080 chờ quyết định tường minh của owner.
+Một lượt chạy xanh không đóng được các nghĩa vụ chưa có assertion/bằng chứng.
+
+## Lệnh và môi trường
+
+[Baseline ledger](evidence/phase6-baseline.json) ghi từng file/kết quả và hash log/report.
+[Host ledger](evidence/phase6-host.json) ghi OS/kernel, version/hash binary, userns và systemd user
+probe thật. Node 24.22.1 được sao nguyên vẹn ra `/tmp/cusr-phase6-node/bin/node`, hash
+`e32e2d16081cf644f88392934288086e7662529d0d43277c34f7aad2207cfafb` giống binary host.
+Sandbox vẫn không mount home. Không sudo, đổi sysctl hoặc provisioning host.
+
+| Kiểm | Kết quả |
+| --- | --- |
+| `pnpm typecheck` | exit 0 |
+| `pnpm lint` (ESLint và Prettier) | exit 0 |
+| `pnpm test` với env dưới đây | 106 file / 1.431 test pass, 0 skip, exit 0 |
+| `pnpm build` | exit 0 |
+| `sandbox-bwrap.test.ts` / `harness-bwrap.test.ts` / `supervisor-systemd.test.ts` | 3/3 + 2/2 + 1/1 pass trên Ubuntu thật |
+| `feature-002-gate.test.ts` bổ sung | 5/5 pass; SQLite file thật, đóng/mở lại |
+| 20 seeds `2026102901`–`2026102920` | 20/20 pass, mỗi seed 347/347, tổng 6.940 lượt test, 0 skip; chẩn đoán trước khi đóng T139 |
+
+```sh
+# Dùng bản sao cùng binary bên ngoài home để không tự skip harness-bwrap.
+mkdir -p /tmp/cusr-phase6-node/bin
+cp "$(command -v node)" /tmp/cusr-phase6-node/bin/node
+# Test CLI cố ý FORCE_COLOR=1; bỏ NO_COLOR kế thừa để Node không phát warning về hai biến mâu thuẫn.
+env -u NO_COLOR -u FORCE_COLOR PATH="/tmp/cusr-phase6-node/bin:$PATH" pnpm test
+```
+
+Hai lượt đầu được giữ là failed: Node dưới host home làm skip `harness-bwrap` ở lượt đầu;
+3 test `--version` cùng đỏ do warning `NO_COLOR`/`FORCE_COLOR`, kể cả khi chỉ bỏ `FORCE_COLOR`
+vì test tự đặt lại biến này. Targeted CLI 10/10 pass sau khi bỏ cả hai biến kế thừa, rồi chạy lại
+full suite như bảng trên. Không tắt warning, không lọc stderr hoặc nới assertion để làm xanh.
+
+## Ledger 20 seeds
+
+[phase6-seeds.json](evidence/phase6-seeds.json) lưu command filters, source hashes, mỗi seed/exit,
+số passed/failed/pending theo file và hash report/log. `CUSR_SEED` điều khiển fast-check;
+`--sequence.shuffle --sequence.seed=<seed>` đổi thứ tự suite/test Vitest. Các scenario integration
+cố định được chạy lặp với thứ tự khác, không được gọi là 20 task ngẫu nhiên end-to-end.
+
+Dùng `filters` trong ledger cho từng seed:
+
+```sh
+env -u NO_COLOR -u FORCE_COLOR PATH="/tmp/cusr-phase6-node/bin:$PATH" CUSR_SEED=2026102901 \
+  node --input-type=module <<'JS'
+import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+const { filters } = JSON.parse(readFileSync('specs/002-task-to-green-pr/evidence/phase6-seeds.json', 'utf8'));
+const result = spawnSync('pnpm', ['exec', 'vitest', 'run', '--project', 'default', ...filters,
+  '--sequence.shuffle', `--sequence.seed=${process.env.CUSR_SEED}`], { stdio: 'inherit' });
+process.exit(result.status ?? 1);
+JS
+```
+
+Nhóm test gồm US1/US2 hai mode, adapter lifecycle phát lại fixture, confirmation/admission,
+checkpoint/gates, drain, service recheck (trong fixes), observation limits, context, required-subset
+và toàn bộ contracts. Clock inject cho deadlines/limits. `feature-002-flow` assert một
+worktree/branch/PR cho mỗi task, một create PR, zero merge requests, push SHA đã kiểm, mô tả cập nhật
+trên cùng PR. Fixes/drain assert DONE sau receipts rõ và giới hạn dừng/poll; test mới assert
+projection không lệch sau reopen. Các assertion đó giữ nguyên, không suy từ test count.
+
+| Seed | Passed / total | Skip | Exit | Giây |
+| --- | --- | --- | --- | --- |
+| 2026102901 | 347/347 | 0 | 0 | 48.335 |
+| 2026102902 | 347/347 | 0 | 0 | 42.847 |
+| 2026102903 | 347/347 | 0 | 0 | 52.37 |
+| 2026102904 | 347/347 | 0 | 0 | 57.24 |
+| 2026102905 | 347/347 | 0 | 0 | 46.811 |
+| 2026102906 | 347/347 | 0 | 0 | 41.003 |
+| 2026102907 | 347/347 | 0 | 0 | 42.805 |
+| 2026102908 | 347/347 | 0 | 0 | 48.003 |
+| 2026102909 | 347/347 | 0 | 0 | 42.777 |
+| 2026102910 | 347/347 | 0 | 0 | 41.94 |
+| 2026102911 | 347/347 | 0 | 0 | 52.543 |
+| 2026102912 | 347/347 | 0 | 0 | 59.736 |
+| 2026102913 | 347/347 | 0 | 0 | 46.382 |
+| 2026102914 | 347/347 | 0 | 0 | 41.538 |
+| 2026102915 | 347/347 | 0 | 0 | 48.563 |
+| 2026102916 | 347/347 | 0 | 0 | 50.057 |
+| 2026102917 | 347/347 | 0 | 0 | 39.428 |
+| 2026102918 | 347/347 | 0 | 0 | 36.663 |
+| 2026102919 | 347/347 | 0 | 0 | 35.455 |
+| 2026102920 | 347/347 | 0 | 0 | 38.744 |
+
+## M01–M08 sau T139 audit
+
+| Mã | Bằng chứng đã chạy | Phần chưa đủ để nghiệm thu toàn M |
+| --- | --- | --- |
+| M01 | `execution-modes`, `confirm-start`, `scheduler`: forged/stale/unconfirmed bị chặn, direct không cần reviewer capability | Luồng intake/confirmation production chưa nối trọn; không chứng nhận từ fixture |
+| M02 | `feature-002-gate`: confirmation, dedup và projection qua đóng/mở SQLite; `confirm-start`: kiểm binding hiệu lực; `harness-invocation`: pin/capability đổi không launch | Ma trận merge.method config đổi sau freeze + replay snapshot cũ chưa tổng hợp ở T139; không tự đọc quota/chuyển mode |
+| M03 | `execution-modes`, property `runtime-evidence`: direct không reviewer; no-op giữ SHA/reuse approve, findings không đổi dùng lại; body/commit đổi review mới. Test mới: đổi context/acceptance/base/policy không reuse | Chưa có flow cùng vendor/model worker/reviewer với session riêng và quyền ro qua real adapter; không lấy khác vendor đang test làm bằng chứng |
+| M04 | `feature-002-flow` hai mode: CI → fixer nhận packet SHA/log mới, resume/fallback có lý do; `context`: thiếu failures/state/revision → needs_context; `harness-invocation`: session chỉ khi proven, reviewer không resume | Chưa có integration Q&A mới + resume/fixer và đổi state trong lúc dựng packet/trước spawn. Vendor resume thực vẫn unknown; không gọi thêm model trong lượt này |
+| M05 | `confirm-start` template frozen/multiple-template chưa chọn; `flow` content mới sau CI; `publish` và flow cả hai mode chặn marker giả/canonical, worker content ra ngoài Git | Chưa kiểm nguyên flow template + fixer bằng vendor thật; fixture replay là tầng bằng chứng hiện có |
+| M06 | `gates`: formatter đổi tree chạy lại toàn tập, trần 3 passes; `execution-modes`: mutation chặn commit/publish; real Git conditional push ở `publish`, drift ở `flow`; H01–H04 bên dưới | T072 chưa hoàn tất kiểm user dirty diff/boundary trước worker; không gán dữ liệu ngoài dự kiến cho agent |
+| M07 | `git-commit`, `publish`: lost reply/probe/OID/body conflict; test mới giữ drift và callback qua SQLite reopen, redelivery không thêm BudgetConsumed/attempt | Chưa có nhận lại finalized review từ runner files trước gọi lại; callback test đã normalize không thay file recovery. H05 crash I/O rộng nằm ở B |
+| M08 | `execution-modes`, `flow`, `external-completion`, `drain`: green/verified theo mode; direct không approve giả; manual merge method unknown vẫn verified/DONE; không gửi merge | Chưa chứng nhận CLI explain đầy đủ (T111), smoke thật và mọi biến thể method trong cùng flow |
+
+Các phần B/C đã có task riêng không tự trở thành prerequisite A. Những mục T139 đòi trước A
+(same-vendor/session, stale packet/Q&A và tổng hợp method/finalized-result) vẫn chưa được đánh dấu đạt.
+
+## H01–H06
+
+| Mã | Assertion / tầng đã chạy | Giới hạn |
+| --- | --- | --- |
+| H01 | `execution-modes`: drift B trước callback approve A giữ head_changed, receipt A thành lịch sử; property runtime-evidence | Fact drift inject tại engine/SQLite |
+| H02 | `execution-modes`: approve enqueue publish rồi drift làm effect invalidated, claim bị từ chối | Không gửi request publish |
+| H03 | `feature-002-flow`: B push trong lúc reviewer đọc A; probe publish chặn, B giữ nguyên, không PR | Real Git/bare remote, fake harness/GitHub |
+| H04 | `publish`: B chen giữa probe và update remote, guard expected-old từ chối; không force | Real Git/bare remote |
+| H05 | `feature-002-gate`: hai thứ tự callback/drift qua close/reopen SQLite, redelivery không thêm usage/reviewer; `execution-modes` replay | Callback normalized, chưa phải finalized runner-file recovery. Crash I/O rộng T082/T093 ở B |
+| H06 | `feature-002-fixes` US2.7: chỉ base tip đổi không thu hồi evidence/green hoặc gọi fixer/gates | Engine/observation fixture; không suy rằng base dùng tính diff đã đổi |
+
+## Kiểm tra bằng chứng lát 0
+
+Manifest gốc giữ nguyên; không đổi fixture để giả rằng đã có proof mới.
+Đối chiếu byte tại [host ledger](evidence/phase6-host.json): **268 file được tham chiếu, 261 có mặt
+và khớp hash, 7 thiếu, 0 file có mặt bị lệch**. Cả 7 nằm trong `harness/real-20261028/*/stderr.log`,
+không có ở worktree chính hoặc worktree PR #15; hash trong manifest đều là file không rỗng.
+Không dựng log thay thế hoặc coi summary là log gốc. Danh sách cụ thể nằm trong ledger.
+
+- S0.1: [host manifest](../../test/fixtures/runtime/spike-0/host/manifest.json) và
+  [isolation record](../../test/fixtures/runtime/spike-0/harness/real-20261028/isolation-record.json)
+  là lịch sử; ba OS suites của adapter hiện tại được kiểm lại trên Ubuntu ở lượt này.
+- S0.2: [harness manifest](../../test/fixtures/runtime/spike-0/harness/real-20261028/manifest.json),
+  [capabilities](../../test/fixtures/runtime/spike-0/harness/real-20261028/capability-manifest.json)
+  và six-role fixture replay vẫn dùng được trong tests. Không đủ byte gốc để xác nhận lại toàn bộ
+  bộ evidence; cost_limit/session_resume vẫn unknown, không ghi proven.
+- S0.3: [merge-event manifest](../../test/fixtures/runtime/spike-0/github/real-20261028-merge-event/manifest.json),
+  [rules manifest](../../test/fixtures/runtime/spike-0/github/live-rules/manifest.json) có file khớp hash;
+  [T009 recheck](../../test/fixtures/runtime/spike-0/github/t009-recheck/manifest.json) là GET lịch sử,
+  không tuyên rules/auth hiện hành đã được đọc lại. Không gửi merge hoặc tạo PR thử.
+
+Đây là thiếu độ đầy đủ/freshness evidence, không phải yêu cầu quay lại WSL2. Ubuntu là đích đã chọn.
+[Coverage 117 FR](phase6-coverage.md) phân biệt nhiệm vụ A còn mở và nhiệm vụ B/C chưa đến lượt.
+
+
+# T139 — Kiểm tổng hợp M01–M08 và H01–H06
+
+Ngày 2026-10-29, tiếp tục trên `002/phase6-gate` sau `5bda3ee`, theo yêu cầu owner làm T139.
+Ubuntu là host nghiệm thu. Không lấy code từ worktree/PR T072 chưa merge. **T139 đạt trong phạm vi
+fixture/property/SQLite/Git/process/OS của task; T072 và T078/T080 vẫn cần khép riêng trước mở B.**
+Kết quả cuối: **106 file / 1.462 test pass, 0 skip**; typecheck/lint/build exit 0.
+Ledger cuối: [t139-validation.json](evidence/t139-validation.json). Ledger 20 seeds cũ giữ nguyên;
+không gắn kết quả 20 seeds ở mã cũ vào implementation T139 mới.
+
+## Những lỗi được test tái hiện trước khi sửa
+
+- Q&A ở bước code mất khi chuyển sang `ci_fix`: handler dùng answers của effect cũ/khác bước.
+  Handler đọc mọi câu hỏi đã trả lời của đúng revision từ state hiện hành, gồm câu hỏi và câu trả lời.
+  Q&A là phần bắt buộc trong context budget; không đủ chỗ thì `needs_context` thay vì cắt âm thầm.
+- Drift/answer có thể chen vào các lần đọc Git async trong lúc dựng packet. Ngay trước harness,
+  handler kiểm lại version và claimability; thay đổi còn hợp lệ thì dựng lại tối đa một lần,
+  còn lệch/blocked thì không launch. `needs_context` do orchestrator từ chối **trước launch** chờ
+  người (`human_input/agent_question`), nhả reservation và không tiêu BudgetConsumed; output
+  needs_context từ agent đã thực sự chạy vẫn theo retry policy cũ. Property test kiểm cả hai mode.
+- Review thiếu diff chưa gọi harness nhưng bị tính một agent run. Failure nay ghi `invoked:false`;
+  negative flow assert worker dùng đúng một lượt, reviewer dùng 0 và không PR.
+- `out/result.json` được ghi trước kiểm boundary nên có thể để lại approve không dùng được; một
+  instance harness mới cũng luôn trả unknown cho review đã finalize. Nay kiểm boundary trước finalize,
+  ghi nguyên tử review và recovery proof (input/exit/value digest + provenance/manifest) vào cùng
+  `out/result.json`. Instance mới chỉ đọc lại khi role/schema/semantics, launch nonce/operation/run,
+  input và manifest khớp, exit 0 và cây process đã rõ. Thiếu/lệch/legacy chưa có proof giữ unknown,
+  không spawn lại. Usage/records của lượt cũ được giữ nguyên, không tạo usage ước lượng hoặc 0 giả.
+
+Không đổi closed role schemas/digest đã chứng minh ở T003/T007; metadata orchestrator là bổ sung
+trong result file, không sửa fixtures lịch sử hoặc FrozenPolicy/runtime hash cũ. Recovery ở đây là
+đọc một finalized reviewer result đã có; startup scan/re-adopt mọi loại operation và crash I/O rộng
+vẫn là T082/T093 của B. Worker đã launch hoặc review chưa finalize vẫn unknown, không tự chạy thay.
+
+## Matrix nghiệm thu T139
+
+| Mã | Assertion và bằng chứng |
+| --- | --- |
+| M01 | `execution-modes`, `confirm-start`, `scheduler`: thiếu/forged/stale confirmation không spawn; `direct-pr` không cần reviewer capability; admission giữ mode/binding đã duyệt |
+| M02 | `feature-002-gate`: confirmation/dedup, old snapshot hash và projection qua SQLite reopen; `confirm-start` thêm squash/merge/rebase với config đổi sau freeze/reopen, GitHub `allow_squash_merge:false` vẫn admission; config/runtime unit phủ default/invalid/key lạ |
+| M03 | `feature-002-real-adapters`: cùng vendor/model, worker/reviewer dùng run/home riêng, reviewer không --resume, bwrap ro thật từ chối ghi; `flow` thiếu reviewer diff không gọi/không tính lượt; `execution-modes` và property `runtime-evidence` phủ no-op/reuse approve/findings, đổi SHA/body/context/acceptance/base/policy buộc review mới |
+| M04 | `flow` cả hai mode: Q&A bước code đi qua CI repair/resume, packet/digest mới; drift khi dựng packet chặn launch; state đổi một lần rebuild, đổi hai lần chờ người; unit context giữ Q&A trong cap bắt buộc; property không spend/retry pre-launch needs_context; `harness-invocation` kiểm adapter resume nhận đúng prompt Q&A/checkpoint mới |
+| M05 | `confirm-start`: một template, nhiều template chưa chọn bị chặn, chọn tường minh freeze đúng blob; `flow`: content mới sau fixer/CI, marker giả/ẩn/entity/nhân đôi trong cả title lẫn body đều bị chặn ở hai mode; worker content nằm ngoài Git |
+| M06 | `gates`: toàn tập gate đạt tree cuối sau formatter, trần 3 passes; `execution-modes` chặn tree/commit lệch; `flow` publish đúng SHA; H01–H04 và reviewer write denial không có publish trái phép |
+| M07 | `git-commit`/`publish`: commit/push/create/update lost reply đều probe, không nhận PR marker giả, body drift không ghi đè; `harness-invocation`: fresh instance đọc finalized review từ disk, giữ usage/ingest, không launch lần hai kể cả khi thiếu credential/đã abort; input/result/exit/proof lệch thì unknown; `feature-002-gate` redelivery qua SQLite không tính BudgetConsumed lại |
+| M08 | `flow` cả hai mode × squash/merge/rebase: preference frozen, manual method unknown vẫn verified/DONE theo checked head/proof/drain; `github-observe` phát lại cả ba PR merge/squash/rebase của T008, không dùng method preference để chặn proof; `execution-modes` direct không fake approve, head drift/unverified đúng; zero merge requests |
+
+| H | Tầng và assertion |
+| --- | --- |
+| H01 | `execution-modes` + property: B được quan sát trước approve A, receipt A thành lịch sử, giữ blocker, không publish |
+| H02 | `execution-modes` + property: approve A enqueue publish rồi B được biết, pending invalidated/claim bị từ chối |
+| H03 | `flow`: remote B push lúc review A, probe trước publish chặn dù chưa có poll mới; bare Git giữ B |
+| H04 | `publish`: B chen sau probe và trước update, expected-old guard từ chối; không force-push/nhận B |
+| H05 | `feature-002-gate`: hai thứ tự callback/drift qua SQLite close/reopen/dedup, giữ SHA/blocker và không tính usage lại; `harness-invocation` nhận finalized review từ disk qua instance mới; crash I/O rộng T082/T093 chưa chạy, không phải prerequisite của A |
+| H06 | `feature-002-fixes` US2.7: chỉ base tip đổi không thu hồi approval/green hoặc gọi fixer/gates |
+
+Chạy các file trên trong default suite cùng toàn bộ regression 001/002; seed fast-check là
+`20261029`. Targeted tests dùng `-t` có các test khác bị lọc (Vitest hiển thị skipped); ledger nghiệm
+thu dùng **full default suite không lọc**, ghi số skip thật của lượt cuối. Lệnh:
+
+```sh
+pnpm typecheck
+pnpm lint
+env -u NO_COLOR -u FORCE_COLOR PATH="/tmp/cusr-phase6-node/bin:$PATH" CUSR_SEED=20261029 \
+  pnpm test --outputFile.json=/tmp/t139-final-vitest.json
+pnpm build
+```
+
+Các lượt trước sửa có test đỏ cho Q&A, stale packet, Q&A bị cắt, reviewer thiếu context bị tính lượt,
+review recovery và result finalize trước boundary. Sau sửa, targeted tests và regression được chạy
+lại; ledger lưu hash log trước/sau, source hashes và số liệu full suite cuối. Fixture vendor bổ sung
+routing theo role để cùng binary/settings phục vụ worker và reviewer, và dùng đúng scratch path khi
+chạy bwrap thật. Đó là binary giả phát lại T007, không phải model invocation mới.
+
+## Phần vẫn giữ ngoài nghiệm thu T139
+
+- T072 đã merge (PR #16 pin layout, PR #18 đối chiếu worktree) và đã hợp nhất vào nhánh này; còn chạy
+  T078 với ít nhất 20 seeds mới trên mã đã hợp nhất.
+- 7 stderr.log spike gốc vẫn thiếu; không dựng log thay thế. Hash audit cũ giữ nguyên và cần xử lý
+  ở cổng A. Việc này không được biến fixture/protocol thành proof vendor thật.
+- `session_resume` và hard USD cap của vendor thật vẫn unknown theo manifest T007; production
+  không được nâng capability từ manifest test-only. Không gọi model hoặc tiêu usage mới ở lượt này.
+- Doctor/CLI đầy đủ, daemon startup recovery và ≥200 crash B, rồi paid smoke C vẫn chưa nghiệm thu.
+  Owner chưa chốt T080; không mở B hoặc tự merge PR.
