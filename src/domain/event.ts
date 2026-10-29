@@ -315,7 +315,7 @@ export type EventPayloads = {
   DrainFinished: { at: number };
   RecheckRequested: {
     request_id: string;
-    target: 'config' | 'observation' | 'drain';
+    target: 'config' | 'observation' | 'drain' | 'worktree';
     at: number;
   };
   // Execution modes (task-execution-modes.md)
@@ -336,6 +336,13 @@ export type EventPayloads = {
     input_digest: string;
   };
   HeadDriftRecorded: { drift: HeadDrift };
+  /** The person took the changed worktree as the task's own; the next worker attempt starts from it (T072). */
+  WorktreeChangeAccepted: {
+    tree: string;
+    previous: string;
+    by: string;
+    at: number;
+  };
 };
 
 export type EventType = keyof EventPayloads;
@@ -417,6 +424,7 @@ export const EVENT_TYPES = [
   'PublishContentRecorded',
   'ReviewReused',
   'HeadDriftRecorded',
+  'WorktreeChangeAccepted',
 ] as const satisfies readonly EventType[];
 
 // Bảo đảm EVENT_TYPES liệt kê đủ mọi khoá của EventPayloads.

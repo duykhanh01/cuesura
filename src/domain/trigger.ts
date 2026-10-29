@@ -116,6 +116,8 @@ export const AgentDataSchema = z
     session_ref: z.string().min(1).nullable().optional(),
     resumed: z.boolean().optional(),
     resume_fallback: z.string().min(1).optional(),
+    // The worktree tree after this worker attempt (T072); additive.
+    worktree_tree: z.string().min(1).optional(),
   })
   .strict();
 
@@ -178,6 +180,8 @@ export const PrepareDataSchema = z
     worktree_ref: z.string().min(1),
     branch: z.string().min(1),
     setup: z.object({ ran: z.boolean(), passed: z.boolean() }).strict(),
+    // The worktree tree once prepared (T072); additive.
+    worktree_tree: z.string().min(1).optional(),
   })
   .strict();
 
@@ -269,6 +273,12 @@ export const FailureDataSchema = z
     usage: UsageSchema.optional(),
     invoked: z.boolean().optional(),
     message: z.string().optional(),
+    // T072, additive: the worktree tree after a worker attempt, or the change found before one.
+    worktree_tree: z.string().min(1).optional(),
+    worktree: z
+      .object({ known: z.string().min(1), observed: z.string().min(1) })
+      .strict()
+      .optional(),
   })
   .strict();
 export type FailureData = z.infer<typeof FailureDataSchema>;
@@ -527,7 +537,7 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
   z
     .object({
       kind: z.literal('recheck'),
-      target: z.enum(['config', 'observation', 'drain']),
+      target: z.enum(['config', 'observation', 'drain', 'worktree']),
     })
     .strict(),
   // Run configuration (task-execution-modes.md M01/M02): proposed by any operator, confirmed by the user.

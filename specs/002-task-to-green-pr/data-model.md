@@ -107,7 +107,7 @@ EffectRequested/Completed, TimerArmed/Cancelled, TaskCompleted, QuestionAnswered
 | external_completion(proof) | ExternalCompletionObserved + invalidation nghiệp vụ/timers + DrainStarted; không giả CancelRequested |
 | drain_result(facts) | DrainProgressed; nếu predicate đạt: DrainFinished, ExecutionReleased nếu có, TaskCompleted đúng một lần |
 | drain_deadline/round_limit | DrainPaused, WAITING/policy merge_cleanup_pending; không retry tự động |
-| recheck(request) | RecheckRequested, một effect observe hoặc drain; dedup cùng command ledger, không sửa ngân sách |
+| recheck(request) | RecheckRequested, một effect observe hoặc drain; dedup cùng command ledger, không sửa ngân sách. Target `worktree` (task chờ `worktree_changed`): thêm WorktreeChangeAccepted với tree đã quan sát, ghi là thay đổi của người dùng, rồi chạy lại bước đó |
 | ingest_record(operation, cursor, normalized) | ArtifactIngested/OutputAccepted + cursor; commit chung, rồi ACK file |
 | observation_due/deadline | ObservationScheduled/Expired; CI/deadline task giữ blocker riêng, không ghi đè drain |
 
@@ -125,6 +125,7 @@ không chọn WAITING/DONE/retry/escalation. Runtime xử lý completion trướ
 | CI fail và slot bận | WAITING/policy execution_slot, deadline tiếp tục chạy |
 | PR xanh | WAITING/approval merge; nhả slot khi rõ process/effect, giữ worktree |
 | Head ngoài dự kiến | WAITING/policy head_changed, thu hồi xanh, không nhận head mới |
+| Worktree khác tree task để lại khi worker sắp chạy | WAITING/policy worktree_changed (known/observed), không gọi agent; `recheck` nhận tree đó làm mốc mới của task (T072) |
 | Hết hạn/thang/lượt | Giữ blocker, không thêm thực thi; observation vẫn chạy trong hạn riêng |
 | Hết hạn quan sát | WAITING/policy observation_expired, hủy lịch, recheck hữu hạn |
 | Merge proof đủ khi task chưa terminal | WAITING/policy merge_cleanup_pending cho tới drain xong; không giải phóng dependency sớm |

@@ -1575,6 +1575,22 @@ export function onEffectFailed(
     });
     if (afterAttempt(ctx, e)) return;
   }
+  // The worktree is not the tree the task last left: someone else changed it, and it is not the
+  // attempt's to take (T072). A person looks first; `recheck` takes the observed tree as the task's.
+  if (
+    agent &&
+    f.worktree !== undefined &&
+    s.cancellation === null &&
+    step !== null
+  ) {
+    waitPolicy(
+      ctx,
+      'worktree_changed',
+      { kind: 'run_step', step },
+      { step, known: f.worktree.known, observed: f.worktree.observed },
+    );
+    return;
+  }
   if (
     s.cancellation !== null ||
     step === null ||

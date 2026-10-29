@@ -2,6 +2,7 @@ import { hasRole } from '../domain/policy.ts';
 import { FREEZE_PENDING_CODES } from './start.ts';
 import type { Trigger } from '../domain/trigger.ts';
 import { reject, type Ctx } from './context.ts';
+import { proceed } from './interpreter.ts';
 
 /**
  * `recheck` (T062, FR-046.01–08). The engine only records that one bounded check was asked for and
@@ -13,7 +14,10 @@ import { reject, type Ctx } from './context.ts';
  * - `config`: a task PENDING/needs_info on config_invalid/capability_missing reads the newest base and
  *   goes through preflight as a confirm would (FR-046.02);
  * - `observation`: a task with a PR is observed once; the automatic schedule is untouched (FR-046.03/05/06);
- * - `drain`: a paused drain after a merge proof may run one more bounded stop/reconcile round (FR-046.07).
+ * - `drain`: a paused drain after a merge proof may run one more bounded stop/reconcile round (FR-046.07);
+ * - `worktree`: a task waiting on `worktree_changed` before a worker attempt takes the observed tree as
+ *   its own (recorded as the person's change, T072) and runs the step again; a tree that moved since
+ *   is caught by the next attempt's own check.
  */
 
 type RecheckTrigger = Extract<Trigger, { kind: 'recheck' }>;
@@ -56,6 +60,20 @@ export function onRecheck(ctx: Ctx, t: RecheckTrigger): void {
           target: t.target,
         });
       break;
+    case 'worktree': {
+      const w = s.wait;
+      if (
+        s.status !== 'WAITING' ||
+        w?.detail.code !== 'worktree_changed' ||
+        typeof w.detail['observed'] !== 'string' ||
+        typeof w.detail['known'] !== 'string'
+      )
+        reject('invalid_trigger', {
+          reason: 'recheck_not_applicable',
+          target: t.target,
+        });
+      break;
+    }
     default: {
       const never: never = t.target;
       throw new Error(`unknown recheck target ${String(never)}`);
@@ -66,4 +84,15 @@ export function onRecheck(ctx: Ctx, t: RecheckTrigger): void {
     target: t.target,
     at: ctx.now,
   });
+  if (t.target === 'worktree') {
+    const w = s.wait as NonNullable<typeof s.wait>;
+    ctx.emit('WorktreeChangeAccepted', {
+      tree: w.detail['observed'] as string,
+      previous: w.detail['known'] as string,
+      by: ctx.actor,
+      at: ctx.now,
+    });
+    ctx.emit('TaskResumed', { reason: 'worktree_accepted' });
+    proceed(ctx, w.resume, 'worktree_accepted');
+  }
 }

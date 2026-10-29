@@ -163,7 +163,8 @@ nguyên vẹn của cùng binary node đặt ngoài home.
 
 ## Chưa làm ở Phase 5
 
-- Chưa đối chiếu worktree trước mỗi attempt worker để không gán thay đổi dirty của người dùng cho agent (T072).
+- ~~Chưa đối chiếu worktree trước mỗi attempt worker (T072)~~: đã xong 2026-10-29 — worktree khác tree
+  task để lại thì chờ `worktree_changed`, `task recheck` nhận thay đổi của người dùng; layout sandbox pin theo role.
 - Chưa có doctor ghi `CapabilityManifest` production; `cusrd` vẫn chưa nối effect handler/RunnerHarness,
   sweep retention chưa được lên lịch.
 - Resume worker thật chưa được chứng minh (manifest T007 `session_resume: unknown`), mọi lượt sửa thật

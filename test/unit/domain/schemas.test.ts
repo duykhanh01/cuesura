@@ -259,6 +259,7 @@ describe('switch đầy đủ với assertNever', () => {
       case 'PublishContentRecorded':
       case 'ReviewReused':
       case 'HeadDriftRecorded':
+      case 'WorktreeChangeAccepted':
         return 'modes';
       default:
         return assertNever(e);

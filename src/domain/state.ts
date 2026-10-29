@@ -444,6 +444,12 @@ export type RunState = {
   ci_wait: Record<string, CiWait>;
   /** What the PR title/body were last written from, and the marker they carry (M05/M07). */
   pr_body: PrBodyState | null;
+  /**
+   * The worktree tree the orchestrator last saw as the task's own: after prepare, after each worker
+   * attempt, after the gates and after an accepted user change (T072). A worker attempt starting on
+   * another tree waits instead of taking someone else's change as its own. Null before the first.
+   */
+  worktree_tree?: string | null;
 };
 
 export type PrBodyState = {

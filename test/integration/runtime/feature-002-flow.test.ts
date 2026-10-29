@@ -266,13 +266,15 @@ function setup(task: CanonicalTask, o: SetupOptions) {
     d.must(task.id, { kind: 'start', freeze: frozen, runtime });
   };
 
+  /** One dispatcher round; returns how many effects it started. */
+  const tick = async (): Promise<number> => {
+    const r = dispatcher.tick();
+    await dispatcher.settle();
+    d.now += 1_000;
+    return r.started.length;
+  };
   const settle = async (max = 40): Promise<void> => {
-    for (let i = 0; i < max; i++) {
-      const r = dispatcher.tick();
-      await dispatcher.settle();
-      d.now += 1_000;
-      if (r.started.length === 0) return;
-    }
+    for (let i = 0; i < max; i++) if ((await tick()) === 0) return;
     throw new Error('flow did not settle');
   };
   return {
@@ -281,10 +283,12 @@ function setup(task: CanonicalTask, o: SetupOptions) {
     github,
     remote,
     start,
+    tick,
     settle,
     codex,
     coder,
     worktree: join(paths.worktrees, task.id),
+    newId,
   };
 }
 
@@ -618,6 +622,51 @@ describe.each(['full-review', 'direct-pr'] as const)(
     );
   },
 );
+
+describe('worktree changed by someone else before the worker (T072, real Git)', () => {
+  it('the worker does not start on a changed worktree; recheck takes the change as the person’s and the flow goes on', async () => {
+    const task = buildTask();
+    const { d, start, tick, settle, coder, worktree, newId } = setup(task, {
+      mode: 'direct-pr',
+    });
+    d.must(task.id, { kind: 'create_task', task });
+    start();
+    expect(await tick()).toBe(1);
+    const prepared = d.task(task.id).run.worktree_tree;
+    expect(prepared).toMatch(/^[0-9a-f]{40}$/);
+
+    // A person edits the task worktree before the coder starts.
+    writeFileSync(join(worktree, 'notes.md'), 'mine\n');
+    await settle();
+    const s = d.task(task.id);
+    expect(s.wait?.detail).toMatchObject({
+      code: 'worktree_changed',
+      known: prepared,
+    });
+    expect(coder.calls).toHaveLength(0);
+    expect(s.run.worktree_tree).toBe(prepared);
+
+    d.must(task.id, { kind: 'recheck', target: 'worktree' });
+    const accepted = d.store
+      .readEvents(task.id)
+      .find((e) => e.type === 'WorktreeChangeAccepted');
+    expect(accepted?.payload).toMatchObject({
+      previous: prepared,
+      tree: s.wait?.detail['observed'],
+    });
+    const granted = d.store.grantNext(d.now as EpochMs, [
+      newId(),
+      newId(),
+      newId(),
+      newId(),
+    ]);
+    if (!granted.ok || granted.value.kind !== 'decided')
+      throw new Error(JSON.stringify(granted));
+    await settle();
+    expect(coder.calls).toHaveLength(1);
+    expect(d.task(task.id).wait?.detail.code).toBe('merge');
+  });
+});
 
 describe('remote drift while the reviewer reads A (T137, H01/H03, real Git)', () => {
   it('B pushed to the task branch during the review: the probe before publish blocks, B is kept, no PR', async () => {

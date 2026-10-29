@@ -30,7 +30,7 @@ qua amend-policy của feature 002; tạo task mới nếu cần đổi. Không 
 | `cusr task add --file FILE` | operate; JSON task input, trả task có thể PENDING/READY, không chờ tới PR |
 | `cusr task show/list/explain/history` | read; list có `--limit` tối đa 100 và cursor; show/explain nhận ID |
 | `cusr task logs ID --after CURSOR [--follow]` | read; snapshot hữu hạn hoặc stream JSONL có seq/cursor; một follow session tối đa 1 giờ, có thể nối lại |
-| `cusr task confirm/cancel/recheck ID` | operate; version/dedup; recheck chọn cấu hình/PR/drain theo task, không gọi agent |
+| `cusr task confirm/cancel/recheck ID` | operate; version/dedup; recheck chọn cấu hình/PR/drain/worktree theo task, không gọi agent; với `worktree_changed` thì nhận tree đã quan sát làm mốc của task rồi chạy lại bước |
 | `cusr inbox`, `cusr answer QUESTION --file FILE` | read/operate; câu trả lời đầu thắng, ràng buộc revision/version |
 | `cusr task approve ID --kind escalation --step STEP --rung N` | admin; task/revision/policy hash đúng, không cấp merge |
 | `cusr task retry/amend-policy`, merge approval, yolo | unsupported_feature, exit 2; không tạo mutation nghiệp vụ |

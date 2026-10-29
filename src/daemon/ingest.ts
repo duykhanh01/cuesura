@@ -30,6 +30,12 @@ export type EffectOutcome =
         readonly invoked?: boolean;
         readonly usage?: Usage;
         readonly reset_at?: number;
+        /** Worker effects (T072): the tree the attempt left, or the change found before it. */
+        readonly worktree_tree?: string;
+        readonly worktree?: {
+          readonly known: string;
+          readonly observed: string;
+        };
       };
     }
   | { readonly outcome: 'unknown'; readonly detail: string };

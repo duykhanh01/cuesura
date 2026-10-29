@@ -240,6 +240,8 @@ async function prepare(
   if (wt.kind === 'unknown') return unknown(wt.detail);
   if (wt.kind === 'mismatch')
     return failed('infra', `worktree ${wt.reason}: ${wt.detail}`);
+  const tree = await worktreeTree(deps, l);
+  if (!tree.ok) return tree.outcome;
   return {
     outcome: 'succeeded',
     data: {
@@ -247,8 +249,34 @@ async function prepare(
       worktree_ref: wt.worktree_path,
       branch: wt.branch,
       setup: { ran: false, passed: true },
+      worktree_tree: tree.tree,
     },
   };
+}
+
+/** The task worktree's full working tree (tracked, untracked, deleted) as a Git tree, read once (T072). */
+async function worktreeTree(
+  deps: HandlerDeps,
+  l: Loaded,
+): Promise<{ ok: true; tree: string } | { ok: false; outcome: EffectOutcome }> {
+  const cp = await takeCheckpoint(deps.git, await checkpointSpec(deps, l));
+  if (cp.ok) return { ok: true, tree: cp.value.tree_oid };
+  return {
+    ok: false,
+    outcome:
+      cp.error.kind === 'unknown'
+        ? unknown(cp.error.detail)
+        : failed('infra', cp.error.detail),
+  };
+}
+
+/** Adds the worktree tree a worker attempt left to its outcome, success or failure (T072). */
+function withWorktreeTree(out: EffectOutcome, tree: string): EffectOutcome {
+  if (out.outcome !== 'succeeded' && out.outcome !== 'failed') return out;
+  return {
+    ...out,
+    data: { ...(out.data as Record<string, unknown>), worktree_tree: tree },
+  } as EffectOutcome;
 }
 
 // ---- start_agent ----
@@ -596,6 +624,23 @@ async function startAgent(
     };
   const r = role as Role;
   const step = mirror.step ?? r;
+  // A worker starts only on the tree the task last left (T072): a change made by someone else in
+  // between is not the attempt's to take. Nothing is invoked; the engine waits for a person.
+  const known = l.s.run.worktree_tree ?? null;
+  if (WORKER_ROLES.includes(r) && known !== null) {
+    const now = await worktreeTree(deps, l);
+    if (!now.ok) return now.outcome;
+    if (now.tree !== known)
+      return {
+        outcome: 'failed',
+        data: {
+          failure_class: 'unknown',
+          message: 'the worktree changed outside the task since its last step',
+          invoked: false,
+          worktree: { known, observed: now.tree },
+        },
+      };
+  }
   const review = r === 'reviewer' ? await reviewRange(deps, l) : null;
   const inputDigest =
     r === 'reviewer' ? reviewInputDigest(l.s, l.policy, step) : null;
@@ -716,7 +761,12 @@ async function startAgent(
   const plain = agentOutcome(r, out, review?.sha ?? null, inputDigest);
   // Sessions are a worker concern: a reviewer always runs in its own new, read-only session.
   const outcome = worker ? withSession(plain, out, resume) : plain;
-  return worker ? acceptContent(deps, l, file, outcome) : outcome;
+  if (!worker) return outcome;
+  const accepted = acceptContent(deps, l, file, outcome);
+  // What the attempt left is now the task's tree; an attempt never invoked changed nothing.
+  if (out.kind === 'failure' && out.invoked === false) return accepted;
+  const after = await worktreeTree(deps, l);
+  return after.ok ? withWorktreeTree(accepted, after.tree) : accepted;
 }
 
 /** The task worktree and the Git dirs a sandboxed role sees read-only (common dir, worktree admin dir). */

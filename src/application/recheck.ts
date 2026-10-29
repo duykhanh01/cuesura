@@ -7,6 +7,8 @@
  *   and the observation window (FR-046.07);
  * - a task with a PR → one observation of the PR and its CI, recorded as ordinary facts (FR-046.03); the
  *   automatic schedule, deadline and budgets stay as they are (FR-046.04–06);
+ * - a task waiting on `worktree_changed` before a worker attempt → the observed tree becomes the task's
+ *   own, recorded as the person's change, and the step runs again (T072);
  * - a terminal task → the request is only logged by the engine (FR-046.08).
  *
  * The engine first accepts a `recheck` fact under the request's dedup key, so the same request ID replays
@@ -31,7 +33,7 @@ import {
 } from './confirm.ts';
 import { submit } from './triage.ts';
 
-export type RecheckTarget = 'config' | 'observation' | 'drain';
+export type RecheckTarget = 'config' | 'observation' | 'drain' | 'worktree';
 
 export type RecheckDeps = ConfirmDeps & {
   /** IDs for the facts this check submits (the command's own IDs go to the recheck fact). */
@@ -96,6 +98,12 @@ export function recheckTarget(s: TaskState): RecheckTarget | 'terminal' | null {
   if (s.completion !== null)
     return s.completion.finalized_at === null ? 'drain' : null;
   if (needsConfigCheck(s) && s.status === 'PENDING') return 'config';
+  if (
+    s.status === 'WAITING' &&
+    s.wait?.detail.code === 'worktree_changed' &&
+    typeof s.wait.detail['observed'] === 'string'
+  )
+    return 'worktree';
   if (s.pr_ref !== null && s.policy_ref !== null) return 'observation';
   return null;
 }

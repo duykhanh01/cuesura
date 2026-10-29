@@ -1489,6 +1489,101 @@ describe('recheck service (T062, FR-046)', () => {
   });
 });
 
+describe('worktree changed outside the task (T072, SPEC §14.1)', () => {
+  const T0 = '0'.repeat(40);
+  const T1 = '1'.repeat(40);
+  const T2 = '2'.repeat(40);
+
+  it('a worker attempt on a changed worktree waits; recheck takes the change as the person’s and runs the step again', () => {
+    const d = setup();
+    const t = buildTask();
+    createGrantStart(d, t, 'full-review');
+    d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', {
+      ...PREPARE,
+      worktree_tree: T0,
+    });
+    expect(d.task(t.id).run.worktree_tree).toBe(T0);
+    // Nothing to accept yet: recheck has no worktree to take.
+    expect(d.send(t.id, { kind: 'recheck', target: 'worktree' })).toMatchObject(
+      {
+        ok: true,
+        value: {
+          decision: {
+            kind: 'rejected',
+            detail: { reason: 'recheck_not_applicable' },
+          },
+        },
+      },
+    );
+    const coder = d.pendingOne(t.id, 'start_agent');
+    d.complete(t.id, coder.id, 'failed', {
+      failure_class: 'unknown',
+      message: 'the worktree changed outside the task since its last step',
+      invoked: false,
+      worktree: { known: T0, observed: T1 },
+    });
+    const s = d.task(t.id);
+    expect(s.status).toBe('WAITING');
+    expect(s.wait?.detail).toMatchObject({
+      code: 'worktree_changed',
+      step: 'code',
+      known: T0,
+      observed: T1,
+    });
+    expect(
+      effects(d, t, 'start_agent').filter((e) => e.status === 'pending'),
+    ).toEqual([]);
+    // The change was not the agent's: the baseline stays until a person takes it.
+    expect(s.run.worktree_tree).toBe(T0);
+
+    d.must(t.id, { kind: 'recheck', target: 'worktree' });
+    const accepted = d.store
+      .readEvents(t.id)
+      .find((e) => e.type === 'WorktreeChangeAccepted');
+    expect(accepted?.payload).toMatchObject({ tree: T1, previous: T0 });
+    expect(d.task(t.id).run.worktree_tree).toBe(T1);
+    // The step runs again once the task gets an execution slot back.
+    expect(code(d, t)).toBe('execution_slot');
+    grant(d);
+    const again = d.pendingOne(t.id, 'start_agent');
+    expect(again.id).not.toBe(coder.id);
+    expect(again.request).toMatchObject({ role: 'coder' });
+
+    // What the attempt leaves is the task's own tree; a gate tree that moved is not.
+    d.complete(t.id, again.id, 'succeeded', {
+      ...agentData('done'),
+      worktree_tree: T2,
+    });
+    expect(d.task(t.id).run.worktree_tree).toBe(T2);
+  });
+
+  it('a failed worker attempt still leaves its tree; an unstable gate tree never becomes the baseline', () => {
+    const d = setup();
+    const t = buildTask();
+    createGrantStart(d, t, 'full-review');
+    d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', {
+      ...PREPARE,
+      worktree_tree: T0,
+    });
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'failed', {
+      failure_class: 'timeout',
+      worktree_tree: T1,
+    });
+    expect(d.task(t.id).run.worktree_tree).toBe(T1);
+    grant(d);
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', {
+      ...agentData('done'),
+      worktree_tree: T1,
+    });
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', {
+      results: [{ gate: 'build', passed: true }],
+      tree: T2,
+      stable: false,
+    });
+    expect(d.task(t.id).run.worktree_tree).toBe(T1);
+  });
+});
+
 describe('source drift at the runtime boundary (T063, FR-026)', () => {
   it('the drift is recorded at once, the running attempt finishes, the next step waits; limits and deadline stay; the new revision needs a new task', () => {
     const d = setup();

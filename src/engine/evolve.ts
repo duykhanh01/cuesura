@@ -437,6 +437,7 @@ export function applyInPlace(
         e.status = event.payload.status;
         if (event.payload.status === 'succeeded')
           applySuccessFacts(s, e.kind, event.payload.result);
+        applyWorktreeTree(s, e.kind, event.payload.result);
       }
       break;
     }
@@ -451,6 +452,7 @@ export function applyInPlace(
         e.status = event.payload.status;
         if (event.payload.status === 'succeeded')
           applySuccessFacts(s, e.kind, event.payload.result);
+        applyWorktreeTree(s, e.kind, event.payload.result);
       }
       break;
     }
@@ -848,6 +850,9 @@ export function applyInPlace(
       }
       s.blockers = s.blockers.filter((b) => b.code !== 'merge_cleanup_pending');
       break;
+    case 'WorktreeChangeAccepted':
+      s.run.worktree_tree = event.payload.tree;
+      break;
     case 'RecheckRequested':
       // A recheck of a paused drain allows one more bounded round; the round and time caps stay.
       if (
@@ -916,6 +921,7 @@ export function emptyRuntime(): Pick<
       limits: null,
       ci_wait: {},
       pr_body: null,
+      worktree_tree: null,
     },
     runtime_ref: null,
     execution: { request: null, holding: null, accumulated_wait_ms: 0 },
@@ -956,6 +962,24 @@ function applySuccessFacts(s: TaskState, kind: string, result: unknown): void {
   const body = r['pr_body'] as PrBodyState | undefined;
   if (kind === 'create_pr' && body !== undefined) s.run.pr_body = body;
   if (kind === 'merge' && r['merged'] === true) s.merged = true;
+}
+
+/**
+ * The worktree tree an effect saw as the task's own (T072): what prepare left, what a worker attempt
+ * left (failed ones too, since they may have written), and a gate tree that held still and matches its
+ * checkpoint. A gate tree that moved or differs from its checkpoint is a wait, never a new baseline.
+ */
+function applyWorktreeTree(s: TaskState, kind: string, result: unknown): void {
+  const r = (result ?? {}) as Record<string, unknown>;
+  if (kind === 'prepare' || kind === 'start_agent') {
+    if (typeof r['worktree_tree'] === 'string')
+      s.run.worktree_tree = r['worktree_tree'];
+    return;
+  }
+  if (kind !== 'run_gates' || typeof r['tree'] !== 'string') return;
+  const cp = r['checkpoint'] as { tree?: unknown } | undefined;
+  if (r['stable'] !== false && (cp === undefined || cp.tree === r['tree']))
+    s.run.worktree_tree = r['tree'];
 }
 
 /** Dựng lại state từ nhật ký (FR-029). */
