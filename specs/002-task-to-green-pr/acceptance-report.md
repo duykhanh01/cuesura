@@ -129,14 +129,27 @@ Lệnh: `pnpm typecheck`, `pnpm lint` sạch. `pnpm test`: mọi test Phase 5 pa
 “refuses a parent of the host home” và `daemon-control.test.ts` “keeps replaying a success stored by a
 daemon before the ledger kept outcomes”.
 
+### Suite OS thật trên host (T077)
+
+Ngày chạy: 2026-10-29, `main` tại `c1a8b9e`. Host triển khai Ubuntu 24.04.5 LTS,
+kernel 7.0.0-38-generic, bubblewrap 0.9.0, systemd 255 (`systemd --user` chạy được). Node 24.22.1 của host
+nằm dưới `~/.nvm`, mà sandbox không bao giờ mount home, nên `harness-bwrap` tự skip; lần chạy dùng bản sao
+nguyên vẹn của cùng binary node đặt ngoài home.
+
+| Suite | Kiểm | Kết quả |
+| --- | --- | --- |
+| `sandbox-bwrap.test.ts` | `BwrapSandboxProvider` dưới bwrap thật: mount theo role, canary ngoài vùng ghi | 3/3 pass |
+| `harness-bwrap.test.ts` | `RunnerHarness` dưới bwrap thật: coder ra kết quả hợp lệ; reviewer ghi worktree bị mount từ chối, không đổi gì, auth in ra bị che | 2/2 pass |
+| `supervisor-systemd.test.ts` | `SystemdSupervisor` dưới `systemd --user`: một unit mỗi operation dưới kernel lock, từ chối launch thứ hai, dừng cgroup | 1/1 pass |
+
 ## US4
 
 | Kịch bản | Bằng chứng | Kết quả |
 | --- | --- | --- |
 | US4.1 hai harness đã kiểm chứng, mỗi role chuẩn hóa với provenance attempt; usage thiếu = unavailable | `harness.test.ts` sáu run role × vendor; `harness-invocation.test.ts` sáu run qua lifecycle (out/result.json có manifest/inner mode/context digest); flow `feature-002-real-adapters.test.ts` hai mode (BudgetConsumed đúng số run, OutputIngested/ArtifactIngested) | Đạt (fixture replay) |
 | US4.2 exit 0 nhưng sai cấu trúc/cắt/ngữ nghĩa/artifact cũ không done/approve | `harness.test.ts` “a final answer is accepted only when every layer holds”; `harness-invocation.test.ts` exit1, thiếu file Codex | Đạt |
-| US4.3 quyền hiệu lực theo role; ghi ngoài vùng → dừng đối chiếu; môi trường không chứng minh → chặn | `sandbox-permissions.test.ts`; `harness-invocation.test.ts` (reviewer sửa worktree → `boundary_violation`; binary/settings/env/host đổi, file rules sửa sau khi chốt pin (lệch `sha256`), sandbox plan lỗi, home không rỗng, thiếu credential → `capability_missing`, không launch) | Đạt ở mức plan/canary; mount bwrap thật chờ host |
-| US4.4 im lặng còn tiến triển không là stall; hết hạn dừng đúng cây trong hạn | `runner-lifecycle.test.ts` (CPU, process con, file, chỉ ghi stderr, stdout từng phần chưa xuống dòng; stalled; TERM→KILL; `setsid` descendant; UTC nhảy; deadline bền) | Đạt (process thật, không systemd) |
+| US4.3 quyền hiệu lực theo role; ghi ngoài vùng → dừng đối chiếu; môi trường không chứng minh → chặn | `sandbox-permissions.test.ts`; `harness-invocation.test.ts` (reviewer sửa worktree → `boundary_violation`; binary/settings/env/host đổi, file rules sửa sau khi chốt pin (lệch `sha256`), sandbox plan lỗi, home không rỗng, thiếu credential → `capability_missing`, không launch) | Đạt; mount bwrap thật trên host (bảng trên) |
+| US4.4 im lặng còn tiến triển không là stall; hết hạn dừng đúng cây trong hạn | `runner-lifecycle.test.ts` (CPU, process con, file, chỉ ghi stderr, stdout từng phần chưa xuống dòng; stalled; TERM→KILL; `setsid` descendant; UTC nhảy; deadline bền) | Đạt (process thật; supervisor systemd thật ở bảng trên) |
 | US4.5 secret che trước lưu, phần cắt báo rõ, output chưa ingest không mất | `runner-lifecycle.test.ts`, `artifacts.test.ts`, `harness-invocation.test.ts` (auth canary in ra stdout/stderr bị che trong mọi file run, nội dung worker sao chép ra đã che; giá trị auth Codex lặp lại trong `summary` bị che ở `out/result.json` và outcome); context cắt có marker (Phase 3) | Đạt |
 | US4.6 quyền/trần chi phí cứng chưa có bằng chứng → chặn, không thay bằng ước lượng | `sandbox-permissions.test.ts` (`hard_cap` → `cost`), `harness-invocation.test.ts` (manifest thiếu proven, external_verified không được phép) | Đạt |
 
@@ -145,7 +158,7 @@ daemon before the ledger kept outcomes”.
 | Mã | Thêm ở Phase 5 | Còn chờ |
 | --- | --- | --- |
 | M02 | Mỗi attempt kiểm manifest hiện hành bằng `capability_refs` đã chốt; khác → chặn trước launch, trả chỗ | Doctor ghi manifest production |
-| M04 | Session thật: chỉ resume khi manifest + adapter có dạng resume; Codex `unsupported`, reviewer không resume; packet sửa luôn mới | Resume thật cần proof (T007 `unknown`) |
+| M04 | Session thật: chỉ resume khi manifest + adapter có dạng resume; Codex `unsupported`, reviewer không resume; packet sửa luôn mới | Resume thật: T099/T126 (T077 đóng với `unknown`, xem dưới) |
 | M05 | Worker sandbox ghi nội dung vào scratch của run, harness sao chép file mới/đã che ra | — |
 
 ## Chưa làm ở Phase 5
@@ -153,4 +166,8 @@ daemon before the ledger kept outcomes”.
 - Chưa đối chiếu worktree trước mỗi attempt worker để không gán thay đổi dirty của người dùng cho agent (T072).
 - Chưa có doctor ghi `CapabilityManifest` production; `cusrd` vẫn chưa nối effect handler/RunnerHarness,
   sweep retention chưa được lên lịch.
-- Bằng chứng OS thật của RunnerHarness/bwrap/systemd phải chạy trên host triển khai (T077).
+- Resume worker thật chưa được chứng minh (manifest T007 `session_resume: unknown`), mọi lượt sửa thật
+  đi phiên mới có lý do. Chủ dự án quyết định 2026-10-29 đóng T077 với `unknown`, không chạy proof trả
+  phí: coder chạy `--no-session-persistence` và mỗi attempt có private home mới nên resume Claude thật
+  chưa thể thành công. Resume thật chuyển sang T099/T126 (FR-038), cần lưu phiên và chuyển transcript
+  giữa các home trước.
