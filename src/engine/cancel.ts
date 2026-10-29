@@ -53,6 +53,8 @@ export function invalidatePending(ctx: Ctx, reason: string, filter: (e: EffectMi
 export function maybeFinishCancel(ctx: Ctx): void {
   const s = ctx.state;
   if (s.cancellation === null || isTerminal(s.status)) return;
+  // Once a merge proof is recorded the drain decides; the cancel is recorded late on DONE.
+  if (s.completion !== null) return;
   if (Object.values(s.effects).some(inFlight)) return;
   closeOut(ctx);
   if (s.merged) {

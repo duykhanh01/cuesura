@@ -1,9 +1,12 @@
+import type { z } from 'zod';
 import { assertNever } from '../shared/assert-never.ts';
+import { sameChoice } from '../domain/run-config.ts';
 import { bindingName } from '../domain/policy.ts';
 import { isTerminal, type AttemptKind, type EffectMirror, type ResumeAction } from '../domain/state.ts';
 import {
   AgentDataSchema,
   AwaitCiDataSchema,
+  CheckpointDataSchema,
   CreatePrDataSchema,
   FailureDataSchema,
   GateDataSchema,
@@ -28,14 +31,18 @@ import {
 import { available, consume, release, reserve, usageOf } from './budget.ts';
 import { maybeFinishCancel, requestCancel } from './cancel.ts';
 import { classifyFailures } from './classify.ts';
-import { settleExecutionOnClose } from './runtime.ts';
+import { externalConfirmation, waitForExternalMerge } from './external-completion.ts';
+import { settleExecutionOnClose, waitForSlot } from './runtime.ts';
 import { reject, type Ctx } from './context.ts';
 import { requestEffect, requestReconcile } from './effects.ts';
 import { applyRaise, chooseRung } from './escalation.ts';
 import { handleFailure, recordCheckFailure, reviewSignature } from './failure.ts';
 import { ciVerdict, latestCi, mergeGuard, type GuardFailure } from './merge-guard.ts';
 import { askHuman, requestApproval } from './questions.ts';
+import { settleUnderDrift } from './head-drift.ts';
 import { deferForDrift } from './revision.ts';
+import { reusableReview, reviewInputDigest } from './review-evidence.ts';
+import { confirmedChoices } from './run-config.ts';
 import { ensureRunning, mkWait, waitPolicy, waitTask } from './waits.ts';
 
 // ---------- Điều phối hành động ----------
@@ -52,6 +59,10 @@ export function proceed(ctx: Ctx, action: ResumeAction, reason = 'continue'): vo
     return;
   }
   if (action.kind === 'none') return;
+  // After a merge proof only the drain runs: no step, retry or push resumes (FR-040.02/05).
+  if (s.completion !== null) return;
+  // An unexpected remote head holds everything until reconciled; a late callback is not an exit (H01).
+  if (s.run.head_drift !== null) return;
   if (s.source_drift !== null) {
     deferForDrift(ctx, action);
     return;
@@ -250,6 +261,7 @@ export function runStep(ctx: Ctx, step: string, attemptKind: AttemptKind = 'init
     case 'prepare':
       // Revision mới dùng lại worktree và diff hiện có (FR-040).
       if (s.base_sha !== null) return skip(ctx, step, 'prepared');
+      if (waitForSlot(ctx, { kind: 'run_step', step })) return;
       requestEffect(ctx, {
         kind: 'prepare',
         logical_id: `${step}#${visit}`,
@@ -258,13 +270,17 @@ export function runStep(ctx: Ctx, step: string, attemptKind: AttemptKind = 'init
       });
       return;
     case 'agent':
+      startAttempt(ctx, step, attemptKind);
+      return;
     case 'review':
+      if (reuseReview(ctx, step)) return;
       startAttempt(ctx, step, attemptKind);
       return;
     case 'gate': {
       const gates = p.gates.by_step[step];
       const run = gates?.run ?? [];
       if (run.length === 0) return skip(ctx, step, 'no_gates');
+      if (waitForSlot(ctx, { kind: 'run_step', step })) return;
       requestEffect(ctx, {
         kind: 'run_gates',
         logical_id: `${step}#${visit}`,
@@ -301,6 +317,8 @@ export function runStep(ctx: Ctx, step: string, attemptKind: AttemptKind = 'init
       return;
     }
     case 'approval': {
+      // Runtime (002): the user merges on GitHub; no approval request, auto approval or merge effect.
+      if (externalConfirmation(ctx)) return waitForExternalMerge(ctx, step);
       // Merge vào protected branch luôn cần người duyệt, kể cả khi `auto_when` khớp (SPEC.md §14.2).
       const protectedTarget = p.protected_branches.some((b) => branchMatches(b, s.task.base_branch));
       if (!protectedTarget && def.auto_when !== undefined && evalPredicate(def.auto_when, facts(ctx, step))) {
@@ -325,11 +343,12 @@ function runAction(ctx: Ctx, step: string, def: StepDef, visit: number): void {
   const s = ctx.state;
   switch (def.action) {
     case 'git.publish':
-      requestEffect(ctx, { kind: 'publish', logical_id: `${step}#${visit}`, step, request: { checkpoint: visit } });
+      if (waitForSlot(ctx, { kind: 'run_step', step })) return;
+      requestEffect(ctx, { kind: 'publish', logical_id: `${step}#${visit}`, step, request: publishRequest(ctx, visit) });
       return;
     case 'github.create_pr':
       if (s.pr_ref !== null) return skip(ctx, step, 'pr_exists');
-      requestEffect(ctx, { kind: 'create_pr', logical_id: `${s.id}#${visit}`, step, request: { head_sha: s.head_sha } });
+      requestEffect(ctx, { kind: 'create_pr', logical_id: `${s.id}#${visit}`, step, request: { head_sha: s.head_sha, content_digest: s.run.content?.digest ?? null } });
       return;
     case 'github.rerun_failed': {
       const ci = s.head_sha === null ? undefined : latestCi(s, s.head_sha);
@@ -338,6 +357,7 @@ function runAction(ctx: Ctx, step: string, def: StepDef, visit: number): void {
       return;
     }
     case 'github.merge': {
+      if (externalConfirmation(ctx)) return waitForExternalMerge(ctx, step);
       const g = mergeGuard(s, ctx.frozen);
       if (!g.ok) {
         onGuardFailure(ctx, step, g.code);
@@ -450,6 +470,7 @@ export function startAttempt(ctx: Ctx, step: string, kind: AttemptKind): void {
   const sp = ctx.frozen.steps[step];
   if (sp === undefined) throw new Error(`chính sách không có binding cho bước '${step}'`);
   const again: ResumeAction = { kind: 'start_attempt', step, attempt_kind: kind };
+  if (waitForSlot(ctx, again)) return;
   // Điểm chung tạo attempt: mỗi lượt vào bước có tối đa một attempt. Lượt hiện tại đã có attempt (thử lại
   // sau câu trả lời, sau khi dừng, sau lỗi…) thì phải vào lại bước, nên luôn bị `max_visits` chặn.
   if (Object.values(s.attempts).filter((a) => a.step === step).length >= visitOf(ctx, step)) {
@@ -460,9 +481,13 @@ export function startAttempt(ctx: Ctx, step: string, kind: AttemptKind): void {
   if (choice === null) return;
   if (pastDeadline(ctx)) return waitPolicy(ctx, 'deadline', again, { deadline_at: s.deadline_at });
   if (available(s.budget) < 1) return waitPolicy(ctx, 'agent_runs_exhausted', again, { step });
-  applyRaise(ctx, step, sp, choice);
   const rungIndex = choice.rung;
   const rung = sp.ladder[rungIndex] as (typeof sp.ladder)[number];
+  // A binding outside the confirmed selection, worker or reviewer, needs a new confirmation, never a silent switch (M02).
+  if (s.run.mode !== null && !confirmedChoices(s, sp.role).some((c) => sameChoice(c, rung.binding))) {
+    return waitPolicy(ctx, 'run_config_unconfirmed', again, { step, binding: bindingName(rung.binding) });
+  }
+  applyRaise(ctx, step, sp, choice);
 
   const attemptId = ctx.nextId();
   const effectId = ctx.nextId();
@@ -593,6 +618,10 @@ export function onEffectResult(ctx: Ctx, t: EffectResultTrigger): void {
       const parsed = parseSuccess(ctx, e, t.data);
       if (!parsed.ok && e.kind !== 'start_agent') reject('invalid_trigger', { reason: 'invalid_data', issues: parsed.issues });
       ctx.emit('EffectCompleted', { effect_id: e.id, status: 'succeeded', result: parsed.ok ? parsed.data : (t.data ?? null) });
+      // A late result after a merge proof (e.g. a push that still landed) is recorded, never acted on.
+      if (ctx.state.completion !== null) return;
+      // Under a recorded head drift a result is history of its own operation (H01/H02): no route.
+      if (ctx.state.run.head_drift !== null) return settleUnderDrift(ctx, e, (t.data as { invoked?: boolean } | undefined)?.invoked !== false);
       onEffectSucceeded(ctx, e, t.data);
       return;
     }
@@ -600,6 +629,8 @@ export function onEffectResult(ctx: Ctx, t: EffectResultTrigger): void {
       const f = FailureDataSchema.safeParse(t.data);
       if (!f.success) reject('invalid_trigger', { reason: 'invalid_failure', issues: f.error.issues.map((i) => i.message) });
       ctx.emit('EffectCompleted', { effect_id: e.id, status: 'failed', result: f.data });
+      if (ctx.state.completion !== null) return;
+      if (ctx.state.run.head_drift !== null) return settleUnderDrift(ctx, e, f.data.invoked !== false);
       onEffectFailed(ctx, e, f.data);
       return;
     }
@@ -634,6 +665,7 @@ export function onEffectSucceeded(ctx: Ctx, e: EffectMirror, data: unknown): voi
       return;
     case 'run_gates': {
       const d = GateDataSchema.parse(data);
+      if (onGateTree(ctx, e, d)) return;
       const sg = ctx.frozen.gates.by_step[step as string];
       // Bước không khai `required` thì mọi gate đã chạy đều bắt buộc; không bao giờ đạt vì danh sách rỗng.
       const required = sg !== undefined && sg.required.length > 0 ? sg.required : (sg?.run ?? d.results.map((r) => r.gate));
@@ -650,6 +682,11 @@ export function onEffectSucceeded(ctx: Ctx, e: EffectMirror, data: unknown): voi
         resets_streak_of: passed ? ctx.state.last_fix_step : null,
       });
       if (!passed) recordCheckFailure(ctx, signature);
+      if (passed && d.checkpoint === undefined && commitsCheckpoint(ctx, step as string)) {
+        onEffectFailed(ctx, e, { failure_class: 'infra', message: 'gates passed without a checkpoint commit' });
+        return;
+      }
+      if (passed && d.checkpoint !== undefined) recordCheckpoint(ctx, step as string, d.checkpoint);
       proceed(ctx, { kind: 'route', step: step as string, outcome: passed ? 'pass' : 'fail' });
       return;
     }
@@ -675,6 +712,8 @@ export function onEffectSucceeded(ctx: Ctx, e: EffectMirror, data: unknown): voi
       return;
     case 'await_ci': {
       const d = AwaitCiDataSchema.parse(data);
+      // CI of a PR that targets another branch is not recorded: it proves nothing for this target.
+      if (d.target_ref !== undefined && d.target_ref !== ctx.state.task.base_branch) return waitTargetMismatch(ctx, step as string, d.target_ref, d.target_merged === true);
       const green = d.head_sha === ctx.state.head_sha && ciVerdict(ctx.frozen, d.required_set, d.checks).kind === 'pass';
       ctx.emit('CiResultRecorded', {
         head_sha: d.head_sha,
@@ -724,6 +763,35 @@ function onCiRecorded(ctx: Ctx, step: string): void {
   armCiPoll(ctx, step, { kind: 'poll_ci', step }, verdict === null ? { stale_head: true } : { missing: verdict.missing, not_passed: verdict.not_passed, complete: verdict.complete });
 }
 
+/**
+ * The PR targets another branch than the task snapshot (FR-041.05): WAITING/policy `target_mismatch`.
+ * Within the step's poll budget a timer re-observes, so retargeting the PR back resumes the CI wait;
+ * past it only an amendment or a cancel moves the task. A PR already merged into the other branch
+ * cannot be retargeted, so it waits for a person with no timer (FR-040.12). No CI result or merge
+ * evidence is taken from the other branch.
+ */
+function waitTargetMismatch(ctx: Ctx, step: string, observed: string, merged: boolean): void {
+  const s = ctx.state;
+  if (s.cancellation !== null || isTerminal(s.status)) return proceed(ctx, { kind: 'none' });
+  const resume: ResumeAction = { kind: 'poll_ci', step };
+  const detail = { step, expected: s.task.base_branch, observed, merged };
+  const def = stepDef(ctx, step);
+  const poll = def.poll ?? 60_000;
+  const maxPolls = def.timeout !== undefined ? Math.max(1, Math.ceil(def.timeout / poll)) : 1;
+  if (merged) {
+    waitTask(ctx, mkWait('policy', 'target_mismatch', { resume, resume_when: ['amend'], exit_paths: ['cancel'], detail }));
+    return;
+  }
+  const exit_paths = [`retarget the PR to ${s.task.base_branch}`, 'cancel'];
+  if (s.ci_polls >= maxPolls) {
+    waitTask(ctx, mkWait('policy', 'target_mismatch', { resume, resume_when: ['amend'], exit_paths, detail }));
+    return;
+  }
+  const timerId = ctx.nextId();
+  ctx.emit('TimerArmed', { timer_id: timerId, kind: 'ci_poll', due_at: ctx.now + poll, payload: { step, resume } });
+  waitTask(ctx, mkWait('policy', 'target_mismatch', { resume, resume_when: [`timer(${timerId})`, 'amend'], exit_paths, detail: { ...detail, timer_id: timerId } }));
+}
+
 /** Attempt của kết quả không còn là attempt hiện hành của bước: ghi nhận rồi bỏ qua (data-model "Attempt"). */
 function isStale(ctx: Ctx, attemptId: string | null): boolean {
   if (attemptId === null) return true;
@@ -750,9 +818,18 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
     ctx.emit('AttemptFinished', { attempt_id: e.attempt_id, step, status, class: null, signature: null, usage: usageOf(d.usage) });
   }
   if (afterAttempt(ctx, e)) return;
+  if (!('verdict' in d) && d.content !== undefined) {
+    ctx.emit('PublishContentRecorded', { content: { revision: ctx.state.revision, digest: d.content.digest, ref: d.content.ref, attempt_id: e.attempt_id } });
+  }
   if ('verdict' in d) {
     const approved = d.verdict === 'approve';
     const signature = approved ? null : reviewSignature(d.findings);
+    const input = modeReview(ctx) ? reviewInputDigest(ctx.state, ctx.frozen, step) : null;
+    // A mode-aware review approves the checkpoint commit and the input it was given, nothing else (M03).
+    if (modeReview(ctx) && (input === null || d.head_sha !== ctx.state.run.checkpoint?.sha || d.input_digest !== input)) {
+      onEffectFailed(ctx, e, { failure_class: 'invalid_output', message: 'review does not match the checkpoint it was given' }, true);
+      return;
+    }
     ctx.emit('ReviewVerdictRecorded', {
       step,
       attempt_id: e.attempt_id as string,
@@ -760,6 +837,7 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
       head_sha: d.head_sha,
       signature,
       resets_streak_of: approved ? ctx.state.last_fix_step : null,
+      ...(input === null ? {} : { input_digest: input, findings: d.findings.slice(0, MAX_FINDINGS) }),
     });
     if (!approved) recordCheckFailure(ctx, signature);
     proceed(ctx, { kind: 'route', step, outcome: d.verdict });
@@ -824,4 +902,68 @@ export function onEffectFailed(ctx: Ctx, e: EffectMirror, f: FailureData, budget
     return;
   }
   handleFailure(ctx, e, f);
+}
+
+// ---------- Execution modes (task-execution-modes.md) ----------
+
+const MAX_FINDINGS = 50;
+
+/** Review steps of a task started with a confirmed mode compare inputs and bind to the checkpoint. */
+function modeReview(ctx: Ctx): boolean {
+  return ctx.state.run.mode === 'full-review';
+}
+
+/**
+ * Before calling the reviewer: an unchanged review input of this revision reuses the recorded verdict
+ * (M03). An approval routes on without a reviewer run; unchanged findings go back to the fixer through
+ * the same failure signature, so a no-progress loop is caught by the existing limits.
+ */
+function reuseReview(ctx: Ctx, step: string): boolean {
+  if (!modeReview(ctx)) return false;
+  const input = reviewInputDigest(ctx.state, ctx.frozen, step);
+  if (input === null) return false;
+  const prior = reusableReview(ctx.state, input);
+  if (prior === undefined) return false;
+  ctx.emit('ReviewReused', { step, from_attempt_id: prior.attempt_id, verdict: prior.verdict, input_digest: input });
+  if (prior.verdict === 'request_changes') recordCheckFailure(ctx, prior.signature);
+  route(ctx, step, prior.verdict);
+  return true;
+}
+
+/** What publish pushes: the checkpoint commit, never whatever HEAD is at the time (M06). */
+function publishRequest(ctx: Ctx, visit: number): Record<string, unknown> {
+  const cp = ctx.state.run.checkpoint;
+  if (ctx.state.run.mode === null || cp === null) return { checkpoint: visit };
+  return { checkpoint: visit, sha: cp.sha, tree: cp.tree, base_sha: cp.base_sha, content_digest: ctx.state.run.content?.digest ?? cp.content_digest };
+}
+
+/**
+ * Gate tree discipline of a mode-aware task (M06): a run whose tree did not hold still is not evidence,
+ * and a passing run of the commit gate step must come with the checkpoint commit of that same tree.
+ * Returns true when the result was handled here.
+ */
+function onGateTree(ctx: Ctx, e: EffectMirror, d: z.infer<typeof GateDataSchema>): boolean {
+  if (ctx.state.run.mode === null) return false;
+  const step = e.step as string;
+  if (d.stable === false) {
+    waitPolicy(ctx, 'gate_tree_unstable', { kind: 'run_step', step }, { step, tree: d.tree ?? null });
+    return true;
+  }
+  if (d.checkpoint !== undefined && d.checkpoint.tree !== d.tree) {
+    waitPolicy(ctx, 'worktree_changed', { kind: 'run_step', step }, { step, gate_tree: d.tree ?? null, checkpoint_tree: d.checkpoint.tree });
+    return true;
+  }
+  return false;
+}
+
+/** The gate step whose pass leads to review or publish ends with the checkpoint commit in a mode task. */
+export function commitsCheckpoint(ctx: Pick<Ctx, 'state' | 'frozen'>, step: string): boolean {
+  if (ctx.state.run.mode === null) return false;
+  const pass = ctx.frozen.workflow.steps[step]?.next['pass'];
+  const next = pass === undefined ? undefined : ctx.frozen.workflow.steps[pass];
+  return next?.kind === 'review' || next?.action === 'git.publish';
+}
+
+function recordCheckpoint(ctx: Ctx, step: string, c: z.infer<typeof CheckpointDataSchema>): void {
+  ctx.emit('CheckpointRecorded', { checkpoint: { revision: ctx.state.revision, ...c, gate_visit: visitOf(ctx, step) } });
 }

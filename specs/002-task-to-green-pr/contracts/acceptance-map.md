@@ -13,7 +13,7 @@ vendor kiểm adapter, không bắt mọi task dùng hai vendor. Các M chưa đ
 `merge.method` bổ sung M02/M05/M08 qua T030/T032/T045/T111/T135/T136/T139: default squash,
 override merge/rebase, config sai, freeze/replay cũ, message đề xuất và manual merge khác/unknown
 method không chặn proof/drain/DONE. Không có endpoint merge trong 002; method mismatch không tự
-làm head unverified. Đây là yêu cầu chưa được triển khai hoặc nghiệm thu, không thêm mã FR mới.
+làm head unverified. Đã triển khai ở T030/T032/T045/T135/T136 (loader, freeze, `cusr show`); T111/T139 và nghiệm thu chưa làm, không thêm mã FR mới.
 
 Bổ sung [H01–H06](../task-execution-modes.md#remote-đổi-head-khi-review-còn-chạy) làm rõ
 FR-041.03/M06/M07: H01–H03/H06 tại T050/T051/T053/T058/T139, H04 tại T029/T041/T139,

@@ -1,8 +1,11 @@
+import { canonicalJson } from '../shared/canonical-json.ts';
 import { CanonicalTaskSchema, type CanonicalTask } from '../domain/task.ts';
 import type { Trigger } from '../domain/trigger.ts';
 import { reject, type Ctx } from './context.ts';
 import { onSourceDrift, sameContent } from './revision.ts';
-import { checkDependencies, checkRetryOf, retriage } from './triage.ts';
+import { FREEZE_PENDING_CODES } from './start.ts';
+import { checkDependencies, checkRetryOf, pendingWait, retriage } from './triage.ts';
+import { mkWait } from './waits.ts';
 
 /** Task cần người xác nhận khi không do chính người dùng tạo (SPEC.md §5.2). */
 function needsConfirmation(task: CanonicalTask): boolean {
@@ -67,4 +70,44 @@ export function onDependencyStatus(ctx: Ctx, t: DependencyStatus): void {
     return;
   }
   retriage(ctx, { ...ctx.related.deps, [t.depends_on]: t.status });
+}
+
+type ConfigChecked = Extract<Trigger, { kind: 'config_checked' }>;
+
+/** PENDING because the config or a capability failed (not because of triage). */
+function configPending(ctx: Ctx): boolean {
+  const w = ctx.state.wait;
+  return ctx.state.status === 'PENDING' && w?.reason === 'needs_info' && FREEZE_PENDING_CODES.includes(w.detail.code);
+}
+
+/**
+ * Preflight candidate of a task that has not started (FR-002.02/03). Triage blockers come first; the
+ * candidate only moves the task between READY and PENDING/needs_info and never freezes a snapshot: the
+ * single snapshot is frozen at start under the slot. A task holding the slot is left to its start.
+ */
+export function onConfigChecked(ctx: Ctx, t: ConfigChecked): void {
+  const s = ctx.state;
+  if (s.policy_ref !== null || (s.status !== 'PENDING' && s.status !== 'READY') || s.execution.holding !== null) {
+    ctx.emit('SignalIgnored', { reason: 'config_check_stale', trigger_kind: t.kind, detail: { status: s.status } });
+    return;
+  }
+  if (pendingWait(ctx, ctx.related.deps) !== null) {
+    retriage(ctx, ctx.related.deps);
+    return;
+  }
+  if (t.outcome.ok) {
+    if (configPending(ctx)) ctx.emit('TaskReady', {});
+    else ctx.emit('SignalIgnored', { reason: 'config_unchanged', trigger_kind: t.kind });
+    return;
+  }
+  const e = t.outcome.error;
+  const wait = mkWait('needs_info', e.code, { resume: { kind: 'triage' }, resume_when: ['task_confirm', 'task_recheck'], detail: { error: e } });
+  if (configPending(ctx) && canonicalJson(s.wait) === canonicalJson(wait)) {
+    ctx.emit('SignalIgnored', { reason: 'config_unchanged', trigger_kind: t.kind });
+    return;
+  }
+  if (s.execution.request !== null) {
+    ctx.emit('ExecutionWithdrawn', { request_id: s.execution.request.request_id, reason: 'config_invalid', at: ctx.now });
+  }
+  ctx.emit('TaskPending', { wait });
 }

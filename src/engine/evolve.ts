@@ -269,6 +269,7 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
         passed: event.payload.passed,
         signature: event.payload.signature,
         valid: true,
+        failed: event.payload.results.filter((r) => !r.passed).map((r) => ({ gate: r.gate, signature: r.signature ?? null, log_excerpt: r.log_excerpt ?? null })),
       });
       resetStreak(s, event.payload.resets_streak_of);
       break;
@@ -279,6 +280,18 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
         verdict: event.payload.verdict,
         valid: true,
       });
+      if (event.payload.input_digest !== undefined) {
+        s.run.reviews.push({
+          revision: s.revision,
+          attempt_id: event.payload.attempt_id,
+          verdict: event.payload.verdict,
+          sha: event.payload.head_sha,
+          input_digest: event.payload.input_digest,
+          signature: event.payload.signature,
+          findings: event.payload.findings ?? [],
+          valid: true,
+        });
+      }
       resetStreak(s, event.payload.resets_streak_of);
       break;
     case 'PublishRecorded':
@@ -502,6 +515,8 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
 
     case 'RuntimeConfigured':
       s.runtime_ref = { revision: event.payload.runtime.revision, hash: event.payload.runtime_hash };
+      s.run.mode = event.payload.runtime.run_config?.mode ?? null;
+      s.run.frozen_digest = event.payload.runtime.run_config?.digest ?? null;
       break;
     case 'ExecutionQueued': {
       const p = event.payload;
@@ -676,6 +691,24 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
       break;
     case 'RecheckRequested':
       break;
+    case 'RunConfigProposed':
+      s.run.proposal = { selection: event.payload.selection, digest: event.payload.digest, by: event.payload.by, at: event.payload.at };
+      break;
+    case 'RunConfigConfirmed':
+      s.run.confirmation = event.payload.confirmation;
+      break;
+    case 'CheckpointRecorded':
+      s.run.checkpoint = event.payload.checkpoint;
+      break;
+    case 'PublishContentRecorded':
+      s.run.content = event.payload.content;
+      break;
+    case 'ReviewReused':
+      break;
+    case 'HeadDriftRecorded':
+      s.run.head_drift = event.payload.drift;
+      addBlocker(s, { code: 'head_changed', source: event.payload.drift.source, since: event.payload.drift.at, until: null });
+      break;
     default:
       assertNever(event);
   }
@@ -683,8 +716,9 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
 }
 
 /** Runtime fields at their replay defaults: a v1 log never sets them, so a legacy task stays `runtime_ref = null`. */
-export function emptyRuntime(): Pick<TaskState, 'runtime_ref' | 'execution' | 'operations' | 'artifacts' | 'observation' | 'completion' | 'blockers'> {
+export function emptyRuntime(): Pick<TaskState, 'runtime_ref' | 'execution' | 'operations' | 'artifacts' | 'observation' | 'completion' | 'blockers' | 'run'> {
   return {
+    run: { proposal: null, confirmation: null, mode: null, frozen_digest: null, checkpoint: null, content: null, reviews: [], head_drift: null },
     runtime_ref: null,
     execution: { request: null, holding: null, accumulated_wait_ms: 0 },
     operations: {},

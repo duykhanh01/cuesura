@@ -4,15 +4,15 @@
  * operation identity commit together), and only after that commit hands the effect and its operation to
  * a handler built on the ports. A handler returns facts as trigger envelopes (the operation receipt and
  * the effect result); the dispatcher accepts them in order through the same store. Handlers never touch
- * the store, never choose a task status and never decide retry. A business effect's operation holds the
- * execution slot until its receipt resolves it.
+ * the store, never choose a task status and never decide retry. A slot-bound effect's operation (prepare,
+ * agent attempt, gates, publish) holds the execution slot until its receipt resolves it.
  *
  * Never dispatched: `merge` (merging is the user's action on GitHub, ADR-0001), tasks without a runtime
  * snapshot (legacy 001 tasks are read-only here), and effect kinds that have no handler yet.
  */
 import { randomUUID } from 'node:crypto';
 import type { Clock } from '../adapters/ports.ts';
-import { isBusinessEffect, type Effect, type EffectKind } from '../domain/effect.ts';
+import { holdsSlot, type Effect, type EffectKind } from '../domain/effect.ts';
 import type { OperationKind } from '../domain/runtime.ts';
 import type { TriggerEnvelope } from '../domain/trigger.ts';
 import type { OperationClaim } from '../engine/runtime.ts';
@@ -109,6 +109,18 @@ export class Dispatcher {
     return this.#inFlight.size;
   }
 
+  /** Signals the handler of one in-flight effect (e.g. `stop_attempt` for a running agent); false if none. */
+  abort(effectId: string): boolean {
+    const f = this.#inFlight.get(effectId);
+    if (f === undefined) return false;
+    f.abort.abort();
+    return true;
+  }
+
+  isInFlight(effectId: string): boolean {
+    return this.#inFlight.has(effectId);
+  }
+
   /**
    * One synchronous pass over every pending effect, page by page, so effects that are always skipped
    * (legacy tasks, kinds without a handler) never starve the ones behind them. Claims what can run now
@@ -140,7 +152,7 @@ export class Dispatcher {
       kind: OPERATION_KIND[kind],
       launch_nonce: newLaunchNonce(),
       unit: unitName(operationId),
-      holds_slot: isBusinessEffect(kind),
+      holds_slot: holdsSlot(kind),
     };
     const claimed = this.#store.claimEffect(effect.id as Uuid, this.#clock.now(), { require_runtime: true, operation });
     if (!claimed.ok) {

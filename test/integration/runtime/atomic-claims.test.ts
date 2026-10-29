@@ -3,7 +3,7 @@ import type { EpochMs, Uuid } from '../../../src/shared/brand.ts';
 import { openFileStoreForTest, injectEvents, storeDb } from '../../../src/store/testing.ts';
 import type { CrashPoint } from '../../../src/store/testing.ts';
 import { buildTask, freezeOk, uuidOf } from '../../support/builders.ts';
-import { buildRuntime, createGrantStart } from '../../support/runtime.ts';
+import { createGrantStart } from '../../support/runtime.ts';
 import { PREPARE_DATA } from '../../support/scenario.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 import { dbPath, useTempDir } from '../../support/temp-db.ts';
@@ -145,8 +145,9 @@ describe('operation claims and slot release (T025, FR-044.06)', () => {
   it('a slot-bound claim without the slot is rejected and the effect stays pending', () => {
     const d = driver();
     const t = buildTask({ id: uuidOf(1) });
-    d.must(t.id, { kind: 'create_task', task: t });
-    d.must(t.id, { kind: 'start', freeze: freezeOk(t, { limits: { max_wall_ms: 3_600_000 } }), runtime: buildRuntime(t) });
+    // Started under the slot, then the slot was released before the prepare effect was claimed.
+    const requestId = createGrantStart(d, t);
+    d.must(t.id, { kind: 'release_execution', request_id: requestId as Uuid, reason: 'test' });
     const prepare = d.pendingOne(t.id, 'prepare');
     expect(d.store.claimEffect(prepare.id as Uuid, d.now as EpochMs, opClaim(1))).toMatchObject({ ok: false, error: { code: 'operation_rejected', reason: 'slot_not_held' } });
     expect(d.pendingOne(t.id, 'prepare').status).toBe('pending');

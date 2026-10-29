@@ -53,6 +53,7 @@ cách chạy unsandboxed.
 | `userns_apparmor_restricted` | `bwrap --unshare-user …` lỗi `setting up uid map: Permission denied` và `kernel.apparmor_restrict_unprivileged_userns = 1` | Nạp profile userns cho bwrap, xem bên dưới |
 | `userns_disabled` | `user.max_user_namespaces = 0` hoặc `kernel.unprivileged_userns_clone = 0` | Quản trị viên review chính sách hardening của host rồi mới bật lại; Cuesura không đề xuất giá trị sysctl |
 | `systemd_user_unavailable` | Không có user bus / `systemctl --user` lỗi (server headless, phiên SSH đã thoát) | `sudo loginctl enable-linger "$USER"`; WSL2 xem mục systemd và WSL2 |
+| `bwrap_probe_failed` | `bwrap --unshare-user …` lỗi nhưng không khớp dấu hiệu nào ở trên; preflight in stderr của bwrap | Chạy các lệnh kiểm ở mục Baseline và review policy host; không chạy unsandboxed |
 
 Profile userns cho Ubuntu 23.10/24.04+: trước khi nạp, kiểm `ls /etc/apparmor.d` xem đã có profile
 nào attach `/usr/bin/bwrap` chưa (do distro hoặc gói khác cài, hoặc [cusr-bwrap](apparmor/cusr-bwrap)

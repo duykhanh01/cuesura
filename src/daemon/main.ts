@@ -23,6 +23,7 @@ import { asEpochMs } from '../shared/brand.ts';
 import type { Result } from '../shared/result.ts';
 import { openStore, type Store, type StoreOpenError } from '../store/index.ts';
 import { Dispatcher, type DispatchLog, type EffectHandlers } from './dispatch.ts';
+import { productionControl } from './production.ts';
 import { closeServer, createControlServer, errorReply, listenControlSocket, type ControlHandlers, type Reply } from './server.ts';
 
 export const STORE_FILE = 'cusr.db';
@@ -48,6 +49,8 @@ export type DaemonOptions = {
   readonly effects?: EffectHandlers;
   readonly commands?: Partial<Record<CommandKind, CommandHandler>>;
   readonly queries?: Readonly<Record<string, QueryHandler>>;
+  /** Handlers that need the opened store (e.g. the task surface); merged over `commands`/`queries`. */
+  readonly control?: (store: Store) => { readonly commands?: Partial<Record<CommandKind, CommandHandler>>; readonly queries?: Readonly<Record<string, QueryHandler>> };
   readonly dispatchIntervalMs?: number;
   readonly log?: (msg: string) => void;
 };
@@ -142,9 +145,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<Result<RunningDa
     log(`projection verification failed: ${verify.mismatches.length} mismatches; dispatch blocked`);
   }
 
-  const commands = opts.commands ?? {};
+  const extra = opts.control?.(store) ?? {};
+  const commands = { ...opts.commands, ...extra.commands };
   const inFlight = new Map<string, Promise<Reply>>();
-  const queries = opts.queries ?? {};
+  const queries = { ...opts.queries, ...extra.queries };
   const handlers: ControlHandlers = {
     health(caller) {
       const allowed = authorize(caller, { role: 'read' });
@@ -266,7 +270,9 @@ export async function daemonMain(args: DaemonCliArgs, io: { stderr: (t: string) 
     return 2;
   }
   const log = (m: string): void => io.stderr(`cusrd: ${m}\n`);
-  const started = await startDaemon({ dataDir: cfg.value.dataDir, accessTokens: cfg.value.accessTokens, log });
+  const clock: Clock = { now: () => asEpochMs(Date.now()), monotonic: () => performance.now() };
+  const control = await productionControl({ configPath: args.config, dataDir: cfg.value.dataDir, clock, redactor: new Redactor({ env: process.env }) });
+  const started = await startDaemon({ dataDir: cfg.value.dataDir, accessTokens: cfg.value.accessTokens, log, clock, control });
   if (!started.ok) {
     io.stderr(`cusrd: ${started.error.code}: ${started.error.detail}\n`);
     return started.error.code === 'store_locked' ? 3 : 1;

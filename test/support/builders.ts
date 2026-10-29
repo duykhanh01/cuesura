@@ -12,7 +12,8 @@ import type {
 } from '../../src/domain/policy.ts';
 import { isAgentStep, type Workflow } from '../../src/domain/workflow.ts';
 import { computeRequestHash, type Trigger, type TriggerEnvelope } from '../../src/domain/trigger.ts';
-import { SOFTWARE_DEV, SOFTWARE_DEV_NAME } from '../../src/engine/workflows/software-dev.ts';
+import { modeGraph, modeWorkflowName, SOFTWARE_DEV, SOFTWARE_DEV_NAME } from '../../src/engine/workflows/software-dev.ts';
+import type { ExecutionMode } from '../../src/domain/run-config.ts';
 import { buildLadder, computeFloorMaps, type EscalationPolicy, type LadderStep, type ModelInfo } from '../../src/policy/ladder.ts';
 import { finalizeContext, finalizePolicy } from '../../src/policy/finalize.ts';
 import { structureHash } from '../../src/policy/structure-hash.ts';
@@ -43,6 +44,11 @@ export const T0 = asEpochMs(1_800_000_000_000);
 
 export function authz(roles: AuthzRole[] = ['operate'], actor = 'owner'): AuthzContext {
   return { actor, roles, issued_by: 'test-daemon', issued_at: T0 };
+}
+
+/** The owner's own token: the trusted channel that may confirm a run selection. */
+export function ownerAuthz(): AuthzContext {
+  return { actor: 'owner', roles: ['read', 'operate', 'admin'], issued_by: 'token:owner', issued_at: T0 };
 }
 
 // ---------- Task ----------
@@ -123,6 +129,8 @@ export type PolicyOptions = {
   gates?: Record<string, string>;
   policy_version?: number;
   protected_branches?: string[];
+  /** 002: freeze the `software_dev@2:<mode>` graph derived from `workflow`. */
+  mode?: ExecutionMode;
 };
 
 export const DEFAULT_CI_RULES: CiRule[] = [
@@ -133,7 +141,7 @@ export const DEFAULT_CI_RULES: CiRule[] = [
 ];
 
 export function buildPolicy(o: PolicyOptions = {}): FrozenPolicy {
-  const workflow = o.workflow ?? SOFTWARE_DEV;
+  const workflow = o.mode === undefined ? (o.workflow ?? SOFTWARE_DEV) : modeGraph(o.workflow ?? SOFTWARE_DEV, o.mode);
   const roles: Record<string, RoleSpec> = { ...DEFAULT_ROLES };
   for (const [k, v] of Object.entries(o.roles ?? {})) if (v) roles[k] = v;
   const esc: EscalationPolicy = { auto_up_to_tier: 2, above: 'ask_human', allow_models: null, ...o.escalation };
@@ -195,7 +203,7 @@ export function buildPolicy(o: PolicyOptions = {}): FrozenPolicy {
     base_sha: o.base_sha ?? 'base0000',
     project: o.project ?? 'acme',
     profile: 'standard',
-    workflow_name: SOFTWARE_DEV_NAME,
+    workflow_name: o.mode === undefined ? SOFTWARE_DEV_NAME : modeWorkflowName(o.mode),
     workflow,
     structure_hash: structureHash(workflow),
     steps,

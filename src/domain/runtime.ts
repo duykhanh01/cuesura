@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { HashSchema, type Hash } from '../shared/brand.ts';
 import { hashCanonical } from '../shared/hash.ts';
+import { MergeMethodSchema } from './merge-method.ts';
+import { PrTemplateSchema, RunConfigSnapshotSchema } from './run-config.ts';
 
 // Runtime entities of feature 002 (specs/002-task-to-green-pr/data-model.md). FrozenPolicy and the
 // event envelope stay at schema_version 1; everything here is additive.
@@ -129,6 +131,13 @@ export const FrozenRuntimeContextSchema = z
     limits: RuntimeLimitsSchema,
     capability_refs: z.record(z.string(), HashSchema),
     credential_refs: z.array(CredentialRefSchema),
+    // Additive (task-execution-modes.md): the confirmed run selection and the PR template of the base.
+    // A snapshot without them predates the two modes and is never started again.
+    run_config: RunConfigSnapshotSchema.optional(),
+    pr_template: PrTemplateSchema.nullable().optional(),
+    // Additive (SPEC §14.2): the merge method resolved at the frozen base. Absent in a snapshot frozen
+    // before it existed; never back-filled, so that snapshot keeps its hash.
+    merge_method: MergeMethodSchema.optional(),
     runtime_hash: HashSchema,
   })
   .strict();

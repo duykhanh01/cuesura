@@ -75,6 +75,13 @@ export function readTask(db: Database, taskId: string): TaskState | null {
   return row === undefined ? null : (JSON.parse(row.state_json) as TaskState);
 }
 
+/** Task IDs in the given statuses, in ID order. */
+export function taskIdsByStatus(db: Database, statuses: readonly TaskStatus[]): string[] {
+  if (statuses.length === 0) return [];
+  const rows = db.prepare(`SELECT id FROM tasks WHERE status IN (${statuses.map(() => '?').join(', ')}) ORDER BY id`).all(...statuses) as { id: string }[];
+  return rows.map((r) => r.id);
+}
+
 export function readTaskStatus(db: Database, taskId: string): TaskStatus | 'missing' {
   const row = db.prepare('SELECT status FROM tasks WHERE id = ?').get(taskId) as
     { status: TaskStatus } | undefined;

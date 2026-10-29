@@ -5,6 +5,7 @@ import type { RuntimeConfig } from '../../../src/config/normalize.ts';
 import { validateConfig, type Validated } from '../../../src/config/validate.ts';
 import type { ConfigSource } from '../../../src/config/yaml-loader.ts';
 import { DEFAULT_RUNTIME_LIMITS, FrozenRuntimeContextSchema, verifyRuntimeHash } from '../../../src/domain/runtime.ts';
+import { resolveMergeMethod } from '../../../src/domain/merge-method.ts';
 import { hashCanonical } from '../../../src/shared/hash.ts';
 import { authz, buildTask } from '../../support/builders.ts';
 import { docsFor, MIN_PROJECT, minUser, PACKS, source } from '../../support/config-fixtures.ts';
@@ -79,6 +80,7 @@ describe('runtime config', () => {
       credential_refs: [],
       access_tokens: [],
       harness_isolation: { claude: 'internal_required' },
+      modes: { 'direct-pr': { when_to_use: null }, 'full-review': { when_to_use: null } },
     } satisfies RuntimeConfig);
   });
 
@@ -91,6 +93,7 @@ describe('runtime config', () => {
   access_tokens:
     - { id: assistant-work, actor: assistant, roles: [operate, read], projects: [acme], token_file: /srv/access/a.token }
   harness_isolation: { claude: allow_external_verified }
+  modes: { full-review: { when_to_use: "changes touching auth or data" } }
 `);
     expect(v.runtime).toEqual({
       data_dir: '/var/lib/cusr',
@@ -102,6 +105,8 @@ describe('runtime config', () => {
       ],
       access_tokens: [{ id: 'assistant-work', actor: 'assistant', roles: ['read', 'operate'], projects: ['acme'], token_file: '/srv/access/a.token' }],
       harness_isolation: { claude: 'allow_external_verified' },
+      // Declared modes are the allowlist: direct-pr is not allowed here.
+      modes: { 'full-review': { when_to_use: 'changes touching auth or data' } },
     });
   });
 
@@ -207,6 +212,42 @@ describe('project file authority', () => {
   });
 });
 
+describe('project merge.method (SPEC §14.2)', () => {
+  const project = (extra: string): ConfigSource => ({ file: 'cusr.yaml', text: MIN_PROJECT.text + extra });
+  const resolved = (extra: string) => {
+    const r = validate('', project(extra));
+    if (!r.ok) throw new Error(JSON.stringify(r.error));
+    return { declared: r.value.config.project?.merge_method, method: resolveMergeMethod(r.value.config.project) };
+  };
+
+  it('defaults to squash when the object or the key is absent; an override is kept as declared', () => {
+    expect(resolved('')).toEqual({ declared: undefined, method: 'squash' });
+    expect(resolved('merge: {}\n')).toEqual({ declared: undefined, method: 'squash' });
+    expect(resolved('merge: { method: squash }\n')).toEqual({ declared: 'squash', method: 'squash' });
+    expect(resolved('merge: { method: merge }\n')).toEqual({ declared: 'merge', method: 'merge' });
+    expect(resolved('merge: { method: rebase }\n')).toEqual({ declared: 'rebase', method: 'rebase' });
+  });
+
+  it.each([
+    ['merge: squash', 'merge'],
+    ['merge: { method: fast_forward }', 'merge.method'],
+    ['merge: { method: [squash] }', 'merge.method'],
+    ['merge: { method: squash, auto: true }', 'merge.auto'],
+  ])('%s is invalid config, never a silent default', (line, path) => {
+    expect(errors('', project(`${line}\n`)).map((e) => [e.code, e.path])).toEqual([['schema_invalid', path]]);
+  });
+
+  it('belongs to cusr.yaml only, never to the user config', () => {
+    expect(errors('merge: { method: rebase }\n').map((e) => [e.code, e.path])).toEqual([['forbidden_key', 'merge']]);
+  });
+
+  it('not declaring it leaves the project hash as it was', () => {
+    const base = validate('', project(''));
+    const empty = validate('', project('merge: {}\n'));
+    expect(base.ok && empty.ok && base.value.config.hashes.project === empty.value.config.hashes.project).toBe(true);
+  });
+});
+
 describe('daemon capabilities', () => {
   it('reports user yolo as unsupported for the 002 daemon', () => {
     const v = valid('yolo: true\n');
@@ -258,6 +299,18 @@ describe('freezeRuntimeContext', () => {
     const r = freezeRuntimeContext({ ...INPUT, runtime: { ...RUNTIME, data_dir: '/var/lib/cusr', tool_paths: { git: '/usr/bin/git' } } });
     const s = freezeRuntimeContext(INPUT);
     expect(r.ok && s.ok && r.value.runtime_hash === s.value.runtime_hash).toBe(true);
+  });
+
+  it('freezes the merge method only when given; a snapshot without it keeps its hash', () => {
+    const plain = freezeRuntimeContext(INPUT);
+    const squash = freezeRuntimeContext({ ...INPUT, merge_method: 'squash' });
+    const rebase = freezeRuntimeContext({ ...INPUT, merge_method: 'rebase' });
+    if (!plain.ok || !squash.ok || !rebase.ok) throw new Error('freeze failed');
+    expect('merge_method' in plain.value).toBe(false);
+    expect(squash.value.merge_method).toBe('squash');
+    expect(new Set([plain.value.runtime_hash, squash.value.runtime_hash, rebase.value.runtime_hash]).size).toBe(3);
+    expect(verifyRuntimeHash(squash.value)).toBe(true);
+    expect(FrozenRuntimeContextSchema.safeParse({ ...squash.value, merge_method: 'ff' }).success).toBe(false);
   });
 
   it('returns runtime_invalid for malformed inputs', () => {

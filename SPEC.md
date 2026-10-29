@@ -405,7 +405,7 @@ merge:
   method: squash # squash | merge | rebase
 ```
 
-Đây là key thiết kế mới, chưa được loader/runtime hiện tại hỗ trợ. `merge` là object closed, chỉ
+Loader và runtime snapshot của feature 002 đã nhận key này; effect merge của v1 chưa có. `merge` là object closed, chỉ
 có key `method`; bỏ cả object hoặc bỏ `method` thì mặc định `squash`, còn giá trị ngoài enum hoặc
 sai kiểu phải báo cấu hình không hợp lệ. `merge` nghĩa là tạo merge commit, `rebase` nghĩa là
 rebase merge PR, không phải yêu cầu tự rebase worktree của task. Method được đọc từ frozen base

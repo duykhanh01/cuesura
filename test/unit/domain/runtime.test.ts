@@ -9,12 +9,23 @@ import {
   runtimeLimitIssues,
   verifyRuntimeHash,
 } from '../../../src/domain/runtime.ts';
+import type { TaskState } from '../../../src/domain/state.ts';
 import { decide } from '../../../src/engine/decide.ts';
 import { emptyRuntime, replay } from '../../../src/engine/evolve.ts';
 import { claimable } from '../../../src/engine/claim.ts';
 import { buildTask, envelope, freezeOk, uuidOf } from '../../support/builders.ts';
-import { buildRuntime } from '../../support/runtime.ts';
+import { buildRuntime, confirmedRuntime, proposeAndConfirm, selectionFor } from '../../support/runtime.ts';
+import { StoreDriver } from '../../support/store-driver.ts';
+import { openMemoryStore } from '../../../src/store/testing.ts';
 import { started } from '../../support/scenario.ts';
+
+/** A 002 start runs under the slot; tests of the start handler begin from a granted fresh request. */
+function granted(s: TaskState | null): TaskState {
+  if (s === null) throw new Error('no task state');
+  const g = structuredClone(s);
+  g.execution.holding = { request_id: uuidOf(60), granted_at: 0 };
+  return g;
+}
 
 const HASH = `sha256:${'b'.repeat(64)}`;
 
@@ -99,10 +110,11 @@ describe('replay defaults and pure runtime decisions', () => {
 
   it('start with a runtime snapshot commits RuntimeConfigured before PolicyFrozen', () => {
     const task = buildTask();
-    const created = decide({ state: null, policy: null, envelope: envelope(task.id, { kind: 'create_task', task }, { authz: { actor: 'o', roles: ['operate'], issued_by: 't', issued_at: 0 }, expected_version: 0 }), related: { deps: {}, dependency_cycle: false } });
-    if (created.kind !== 'accepted') throw new Error('create rejected');
-    const s0 = replay(created.events);
-    const d = decide({ state: s0, policy: null, envelope: envelope(task.id, { kind: 'start', freeze: freezeOk(task), runtime: buildRuntime(task) }, { ids: [uuidOf(70), uuidOf(71), uuidOf(72), uuidOf(73)] }), related: { deps: {}, dependency_cycle: false } });
+    const d0 = new StoreDriver(openMemoryStore());
+    d0.must(task.id, { kind: 'create_task', task });
+    proposeAndConfirm(d0, task, selectionFor(task, 'full-review'));
+    const s0 = granted(d0.task(task.id));
+    const d = decide({ state: s0, policy: null, envelope: envelope(task.id, { kind: 'start', freeze: freezeOk(task, { mode: 'full-review' }), runtime: confirmedRuntime(d0, task) }, { ids: [uuidOf(70), uuidOf(71), uuidOf(72), uuidOf(73)] }), related: { deps: {}, dependency_cycle: false } });
     if (d.kind !== 'accepted') throw new Error(JSON.stringify(d));
     const types = d.events.map((e) => e.type);
     expect(types.indexOf('RuntimeConfigured')).toBeGreaterThanOrEqual(0);
@@ -113,7 +125,7 @@ describe('replay defaults and pure runtime decisions', () => {
     const task = buildTask();
     const created = decide({ state: null, policy: null, envelope: envelope(task.id, { kind: 'create_task', task }, { authz: { actor: 'o', roles: ['operate'], issued_by: 't', issued_at: 0 }, expected_version: 0 }), related: { deps: {}, dependency_cycle: false } });
     if (created.kind !== 'accepted') throw new Error('create rejected');
-    const d = decide({ state: replay(created.events), policy: null, envelope: envelope(task.id, { kind: 'start', freeze: freezeOk(task), runtime: buildRuntime(task, { base_sha: 'other' }) }, { ids: [uuidOf(70)] }), related: { deps: {}, dependency_cycle: false } });
+    const d = decide({ state: granted(replay(created.events)), policy: null, envelope: envelope(task.id, { kind: 'start', freeze: freezeOk(task), runtime: buildRuntime(task, { base_sha: 'other' }) }, { ids: [uuidOf(70)] }), related: { deps: {}, dependency_cycle: false } });
     expect(d).toMatchObject({ kind: 'rejected', code: 'invalid_trigger', detail: { reason: 'runtime_freeze_mismatch' } });
   });
 
@@ -133,9 +145,11 @@ describe('replay defaults and pure runtime decisions', () => {
     expect(claimable(s, { id: 'e', kind: 'observe_external', revision: s.revision }, Number.MAX_SAFE_INTEGER)).toEqual({ ok: true });
   });
 
-  it('observation and completion triggers are not accepted until their stories land', () => {
+  it('observation scheduling is not accepted until its story lands; a drain result needs a merge proof', () => {
     const sim = started(buildTask());
-    const d = decide({ state: sim.s, policy: sim.policy, envelope: envelope(sim.s.id, { kind: 'drain_result', pending_operations: [] }), related: { deps: {}, dependency_cycle: false } });
-    expect(d).toMatchObject({ kind: 'rejected', code: 'invalid_trigger', detail: { reason: 'not_supported_yet' } });
+    const due = decide({ state: sim.s, policy: sim.policy, envelope: envelope(sim.s.id, { kind: 'observation_due' }), related: { deps: {}, dependency_cycle: false } });
+    expect(due).toMatchObject({ kind: 'rejected', code: 'invalid_trigger', detail: { reason: 'not_supported_yet' } });
+    const drain = decide({ state: sim.s, policy: sim.policy, envelope: envelope(sim.s.id, { kind: 'drain_result', pending_operations: [] }), related: { deps: {}, dependency_cycle: false } });
+    expect(drain).toMatchObject({ kind: 'rejected', code: 'invalid_trigger', detail: { reason: 'no_completion' } });
   });
 });

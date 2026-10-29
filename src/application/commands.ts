@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { AuthzRole } from '../domain/policy.ts';
-import { UuidSchema } from '../shared/brand.ts';
+import { RunProposalSchema } from '../domain/run-config.ts';
+import { HashSchema, UuidSchema } from '../shared/brand.ts';
 import { hashCanonical } from '../shared/hash.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import type { Admission, LedgerError, Store } from '../store/index.ts';
@@ -14,8 +15,9 @@ const Reason = z.string().min(1).max(4_096);
 
 /** Closed payload per supported mutation. */
 export const COMMAND_PAYLOADS = {
-  task_add: z.object({ task: z.record(z.string(), z.unknown()) }).strict(),
-  task_confirm: z.object({}).strict(),
+  task_add: z.object({ task: z.record(z.string(), z.unknown()), run_config: RunProposalSchema.optional() }).strict(),
+  task_confirm: z.object({ run_config_digest: HashSchema.optional() }).strict(),
+  task_propose_run: z.object({ run_config: RunProposalSchema }).strict(),
   task_cancel: z.object({ reason: Reason }).strict(),
   task_recheck: z.object({}).strict(),
   answer: z.object({ question_id: UuidSchema, answer: z.string().min(1).max(65_536) }).strict(),
@@ -26,6 +28,7 @@ export type CommandKind = keyof typeof COMMAND_PAYLOADS;
 const REQUIRED_ROLE: Record<CommandKind, AuthzRole> = {
   task_add: 'operate',
   task_confirm: 'operate',
+  task_propose_run: 'operate',
   task_cancel: 'operate',
   task_recheck: 'operate',
   answer: 'operate',

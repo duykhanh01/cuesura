@@ -4,7 +4,8 @@ import type { Result } from '../shared/result.ts';
 import type { DomainEvent } from '../domain/event.ts';
 import type { Effect } from '../domain/effect.ts';
 import type { FrozenExecutionContext, FrozenPolicy } from '../domain/policy.ts';
-import type { TaskState } from '../domain/state.ts';
+import type { FrozenRuntimeContext } from '../domain/runtime.ts';
+import type { TaskState, TaskStatus } from '../domain/state.ts';
 import type { TriggerEnvelope } from '../domain/trigger.ts';
 import { accept, type AcceptError, type AcceptOutcome } from './accept.ts';
 import { claimEffect, type ClaimError, type ClaimRequest } from './claim.ts';
@@ -25,8 +26,8 @@ export type { Timer } from './read.ts';
 export interface Store {
   accept(envelope: TriggerEnvelope): Result<AcceptOutcome, AcceptError>;
   claimEffect(effectId: Uuid, now: EpochMs, req?: ClaimRequest): Result<Effect, ClaimError>;
-  /** Grants the free execution slot to the queue head, if any (FR-044.01). */
-  grantNext(now: EpochMs): Result<GrantOutcome, AcceptError>;
+  /** Grants the free execution slot to the queue head, if any (FR-044.01); `ids` feed a resumed step. */
+  grantNext(now: EpochMs, ids?: readonly string[]): Result<GrantOutcome, AcceptError>;
   readQueue(limit: number): read.QueuedRequest[];
   readSlot(): { holder_task_id: string; request_id: string; claimed_at: number } | null;
   admitCommand(input: Parameters<typeof commands.admitCommand>[1]): Result<commands.Admission, commands.LedgerError>;
@@ -41,9 +42,12 @@ export interface Store {
   ): Result<AcceptOutcome[], FireError>;
   pendingEffects(limit: number, after?: string): Effect[];
   readTask(taskId: Uuid): TaskState | null;
+  /** Task IDs in the given statuses, in ID order. */
+  taskIdsByStatus(statuses: readonly TaskStatus[]): string[];
   readEvents(taskId: Uuid, fromSeq?: number): DomainEvent[];
   readPolicy(taskId: Uuid, revision: number, policyVersion?: number): FrozenPolicy | null;
   readContext(taskId: Uuid, revision: number): FrozenExecutionContext | null;
+  readRuntimeContext(taskId: Uuid, revision: number): FrozenRuntimeContext | null;
   verifyProjections(): VerifyReport;
   close(): void;
 }
@@ -63,8 +67,8 @@ export class SqliteStore implements Store {
   claimEffect(effectId: Uuid, now: EpochMs, req: ClaimRequest = {}): Result<Effect, ClaimError> {
     return claimEffect(this.db, effectId, now, this.crash, req);
   }
-  grantNext(now: EpochMs): Result<GrantOutcome, AcceptError> {
-    return grantNext(this.db, now, this.crash);
+  grantNext(now: EpochMs, ids: readonly string[] = []): Result<GrantOutcome, AcceptError> {
+    return grantNext(this.db, now, this.crash, ids);
   }
   readQueue(limit: number): read.QueuedRequest[] {
     return read.readQueue(this.db, limit);
@@ -100,6 +104,9 @@ export class SqliteStore implements Store {
   readTask(taskId: Uuid): TaskState | null {
     return read.readTask(this.db, taskId);
   }
+  taskIdsByStatus(statuses: readonly TaskStatus[]): string[] {
+    return read.taskIdsByStatus(this.db, statuses);
+  }
   readEvents(taskId: Uuid, fromSeq?: number): DomainEvent[] {
     return read.readEvents(this.db, taskId, fromSeq);
   }
@@ -108,6 +115,9 @@ export class SqliteStore implements Store {
   }
   readContext(taskId: Uuid, revision: number): FrozenExecutionContext | null {
     return read.readContext(this.db, taskId, revision);
+  }
+  readRuntimeContext(taskId: Uuid, revision: number): FrozenRuntimeContext | null {
+    return read.readRuntimeContext(this.db, taskId, revision);
   }
   verifyProjections(): VerifyReport {
     return verifyProjections(this.db);

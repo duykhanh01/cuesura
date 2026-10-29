@@ -1,9 +1,13 @@
+import { holdsSlot } from '../domain/effect.ts';
 import type { DomainEventDraft } from '../domain/event.ts';
 import { cursorAfter, RESOLVED_OPERATION_STATUSES, verifyRuntimeHash, type FrozenRuntimeContext, type OperationKind } from '../domain/runtime.ts';
 import { isTerminal, type OperationMirror, type ResumeAction, type TaskState } from '../domain/state.ts';
 import type { Trigger } from '../domain/trigger.ts';
 import { canonicalJson } from '../shared/canonical-json.ts';
 import { reject, type Ctx } from './context.ts';
+import { inFlight } from './effects.ts';
+import { proceed } from './interpreter.ts';
+import { mkWait, waitTask } from './waits.ts';
 
 // Pure runtime handlers of feature 002: execution queue/slot, operation receipts and output ingest.
 // Facts (slot holder, queue head, receipts, cursors) come from the application layer; nothing here does I/O.
@@ -87,6 +91,54 @@ export function onGrantExecution(ctx: Ctx, t: TriggerOf<'grant_execution'>): voi
     at: ctx.now,
     waited_ms: s.execution.accumulated_wait_ms + Math.max(0, ctx.now - r.requested_at),
   });
+  // A started task waiting for the slot resumes the step it stopped at; a fresh one waits for its start.
+  const w = ctx.state.wait;
+  if (ctx.state.status === 'WAITING' && w?.detail.code === 'execution_slot') proceed(ctx, w.resume, 'execution_granted');
+}
+
+/** Runtime (002) tasks share one slot; legacy tasks without a runtime snapshot never queue for it. */
+function usesSlot(s: TaskState): boolean {
+  return s.runtime_ref !== null;
+}
+
+/**
+ * Called before a started task runs slot-bound work (FR-044.05). Without the slot the task waits as
+ * WAITING/policy execution_slot and queues as `resumed` with `resume`; the deadline keeps running.
+ * Returns true when the caller must stop here.
+ */
+export function waitForSlot(ctx: Ctx, resume: ResumeAction): boolean {
+  const s = ctx.state;
+  if (!usesSlot(s) || s.execution.holding !== null) return false;
+  waitTask(ctx, mkWait('policy', 'execution_slot', { resume, resume_when: ['grant_execution'] }));
+  // Source drift may have taken the wait over at a safe boundary; then the task is not queued.
+  if (ctx.state.wait?.detail.code === 'execution_slot') onRequestExecution(ctx);
+  return true;
+}
+
+/** Slot-bound work this task still has: pending or in-flight slot effects, or unresolved slot operations. */
+export function hasSlotWork(s: TaskState): boolean {
+  if (slotBoundOperations(s).length > 0) return true;
+  return Object.values(s.effects).some((e) => holdsSlot(e.kind) && (e.status === 'pending' || inFlight(e)));
+}
+
+/**
+ * Run after every decision on a runtime task (FR-044.02/05). Withdraws a request the task no longer
+ * qualifies for, and returns the slot once a started task has no slot-bound work left, including while
+ * it waits for CI, merge, a human or a cooldown. An unresolved claim always keeps the slot.
+ */
+export function settleSlot(ctx: Ctx): void {
+  const s = ctx.state;
+  if (!usesSlot(s) || isTerminal(s.status)) return;
+  const r = s.execution.request;
+  if (r !== null) {
+    const fresh = r.group === 'fresh';
+    const stillQueued = fresh ? s.status === 'READY' && s.policy_ref === null : s.status === 'WAITING' && s.wait?.detail.code === 'execution_slot';
+    if (!stillQueued) ctx.emit('ExecutionWithdrawn', { request_id: r.request_id, reason: fresh ? 'not_ready' : 'not_waiting_for_slot', at: ctx.now });
+  }
+  const h = ctx.state.execution.holding;
+  if (h !== null && ctx.state.policy_ref !== null && !hasSlotWork(ctx.state)) {
+    ctx.emit('ExecutionReleased', { request_id: h.request_id, reason: 'no_slot_work', at: ctx.now });
+  }
 }
 
 /** Release only after every slot-bound operation is resolved; an unresolved claim keeps the slot. */

@@ -205,12 +205,16 @@ export type GitCommand = {
   readonly timeout_ms: number;
   readonly max_output_bytes: number;
   readonly stdin: string | null;
+  /** Commit identity and time only (`GIT_AUTHOR_*`, `GIT_COMMITTER_*`); anything else is refused. */
+  readonly env?: Readonly<Record<string, string>>;
 };
 
 export type GitResult =
   | { readonly kind: 'exited'; readonly code: number; readonly stdout: string; readonly stderr: string; readonly truncated: boolean }
   | { readonly kind: 'timeout' }
-  | { readonly kind: 'spawn_failed'; readonly message: string };
+  | { readonly kind: 'spawn_failed'; readonly message: string }
+  /** Not run: the subcommand/arguments are not allowed or the repo config is not trusted. */
+  | { readonly kind: 'refused'; readonly reason: string };
 
 export interface GitPort {
   run(command: GitCommand): Promise<GitResult>;
@@ -219,7 +223,7 @@ export interface GitPort {
 // ---- GitHub (pinned gh/API, allowlisted endpoints, no merge method) ----
 
 export type GitHubRequest = {
-  readonly method: 'GET' | 'POST';
+  readonly method: 'GET' | 'POST' | 'PATCH';
   /** API path without host, e.g. `repos/o/r/pulls/1`; checked against the port allowlist. */
   readonly path: string;
   readonly query: Readonly<Record<string, string>>;
@@ -243,8 +247,27 @@ export type GitHubFailure = {
   readonly status: number | null;
   readonly detail: string;
   readonly retry_after_ms: number | null;
+  /** Parsed JSON body of an HTTP error response, when there was one (e.g. 404 "Branch not protected"). */
+  readonly body?: unknown;
 };
 
 export interface GitHubPort {
   request(req: GitHubRequest): Promise<Result<GitHubResponse, GitHubFailure>>;
+}
+
+// ---- Host probe (read-only checks of host prerequisites; never changes the host) ----
+
+export type HostExecResult =
+  | { readonly kind: 'exited'; readonly code: number; readonly stdout: string; readonly stderr: string }
+  | { readonly kind: 'timeout' }
+  | { readonly kind: 'spawn_failed'; readonly message: string };
+
+export interface HostProbePort {
+  /** Absolute realpath of an executable found on PATH, or null. */
+  findExecutable(name: string): Promise<string | null>;
+  /** Realpath of an existing path, or null when it does not exist. */
+  realpath(path: string): Promise<string | null>;
+  /** Small text file such as a `/proc/sys` knob; null when it does not exist or cannot be read. */
+  readText(path: string): Promise<string | null>;
+  exec(argv: readonly string[], opts: { readonly timeout_ms: number }): Promise<HostExecResult>;
 }

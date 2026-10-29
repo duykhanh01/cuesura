@@ -111,6 +111,10 @@ describe('switch đầy đủ với assertNever', () => {
       case 'external_completion':
       case 'drain_result':
       case 'recheck':
+      case 'config_checked':
+      case 'propose_run_config':
+      case 'confirm_run_config':
+      case 'head_drift':
         return t.kind;
       default:
         return assertNever(t);
@@ -177,6 +181,9 @@ describe('switch đầy đủ với assertNever', () => {
       case 'ExternalCompletionObserved': case 'DrainStarted': case 'DrainProgressed': case 'DrainPaused':
       case 'DrainFinished': case 'RecheckRequested':
         return 'completion';
+      case 'RunConfigProposed': case 'RunConfigConfirmed': case 'CheckpointRecorded': case 'PublishContentRecorded':
+      case 'ReviewReused': case 'HeadDriftRecorded':
+        return 'modes';
       default:
         return assertNever(e);
     }
@@ -184,7 +191,7 @@ describe('switch đầy đủ với assertNever', () => {
 
   it('mọi kind có nhánh', () => {
     expect(EFFECT_KINDS.map(effectLabel)).toEqual([...EFFECT_KINDS]);
-    expect(new Set(EVENT_TYPES.map(eventGroup)).size).toBe(17);
+    expect(new Set(EVENT_TYPES.map(eventGroup)).size).toBe(18);
     expect(triggerLabel({ kind: 'cancel', reason: 'r' })).toBe('cancel');
     expect(() => assertNever('x' as never)).toThrow();
   });

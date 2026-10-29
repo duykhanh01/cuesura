@@ -732,7 +732,7 @@ nhóm bao gồm toàn bộ các mục con, không thay thế việc kiểm chứ
 Theo [SPEC §14.2](../../SPEC.md#142-merge), project có `merge.method` dự kiến, mặc định `squash`,
 cho phép `merge`/`rebase`. Object/key thiếu dùng default; sai kiểu/enum hoặc key lạ trong object
 closed phải lỗi config_invalid. Resolve từ frozen base, snapshot khi task bắt đầu; config mới
-không đổi task đang chạy, không sửa snapshot/hash cũ. Key này chưa được loader/runtime hỗ trợ.
+không đổi task đang chạy, không sửa snapshot/hash cũ. Loader, freeze và `cusr show` đã hỗ trợ key này.
 
 Trong feature 002, method và squash message từ artifact worker chỉ để đề xuất cho người dùng;
 không bật endpoint/quyền merge hoặc kiểm method GitHub đã bật như điều kiện admission. Merge

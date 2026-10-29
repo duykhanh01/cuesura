@@ -25,7 +25,7 @@ Use case đầu tiên là quy trình phát triển phần mềm: code → review
    - Worker chuẩn bị commit message và nội dung PR; daemon tạo branch, commit và publish.
    - `full-review` có reviewer riêng session, chỉ đọc, có thể cùng vendor; `direct-pr` bỏ bước reviewer.
    - Mở PR và chờ CI. Sửa gate/review/CI ưu tiên resume worker đã code, trong giới hạn đã duyệt.
-   - Method mặc định là squash merge, dự kiến đổi được bằng `merge.method` trong `cusr.yaml`; feature 002 chỉ đề xuất method cho người merge thủ công, schema/runtime của key này chưa triển khai.
+   - Method mặc định là squash merge, đổi được bằng `merge.method` trong `cusr.yaml`; feature 002 chỉ đề xuất method cho người merge thủ công (`cusr show`), chưa gửi merge.
    - Merge an toàn. Mặc định bạn duyệt từng lần merge vào `main`. Chế độ yolo (chỉ bạn bật được, theo từng repo) cho phép code tự merge khi đủ điều kiện cứng. Agent không bao giờ quyết định merge.
 4. **Role và model cấu hình được,** đóng băng theo từng task, kèm thang nâng effort/model theo chữ ký lỗi.
 5. **Chế độ quyết định:** người quyết, hoặc agent `decider` quyết và ghi lại để có thể lật lại.

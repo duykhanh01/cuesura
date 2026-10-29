@@ -52,6 +52,8 @@ export function onReconciled(ctx: Ctx, t: Reconciled): void {
       const data = (parseSuccess(ctx, e, t.data) as { ok: true; data: unknown }).data;
       ctx.emit('EffectReconciled', { effect_id: e.id, finding: t.finding, status: 'succeeded', result: data });
       closeProbe(ctx, e, { finding: t.finding });
+      // After a merge proof the finding is recorded as it is; nothing proceeds from it (FR-040.05).
+      if (ctx.state.completion !== null) return;
       onEffectSucceeded(ctx, e, data);
       return;
     }
@@ -63,13 +65,14 @@ export function onReconciled(ctx: Ctx, t: Reconciled): void {
       const f = FailureDataSchema.parse({ failure_class: t.failure_class, ...(t.signature !== undefined ? { signature: t.signature } : {}) });
       ctx.emit('EffectReconciled', { effect_id: e.id, finding: t.finding, status: 'failed', result: f });
       closeProbe(ctx, e, { finding: t.finding });
+      if (ctx.state.completion !== null) return;
       onEffectFailed(ctx, e, f);
       return;
     }
     case 'not_executed': {
       // Chắc chắn chưa chạy: trả giữ chỗ. Chỉ effect chạy lại an toàn mới về hàng đợi với cùng `idem_key`.
       release(ctx, e.reservation_id);
-      const requeue = isRequeueSafe(e.kind) && ctx.state.cancellation === null && e.revision === ctx.state.revision;
+      const requeue = isRequeueSafe(e.kind) && ctx.state.cancellation === null && ctx.state.completion === null && e.revision === ctx.state.revision;
       ctx.emit('EffectReconciled', { effect_id: e.id, finding: t.finding, status: requeue ? 'pending' : 'failed', result: null });
       closeProbe(ctx, e, { finding: t.finding });
       if (ctx.state.status === 'WAITING' && ctx.state.wait?.detail['effect_id'] === e.id) {

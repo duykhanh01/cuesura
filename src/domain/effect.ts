@@ -36,6 +36,16 @@ export function isBusinessEffect(kind: EffectKind): boolean {
   return BUSINESS_EFFECTS.includes(kind);
 }
 
+/**
+ * Work that runs under the single execution slot (FR-044.01): Prepare/setup, gates/autofix, publish and
+ * agent attempts. GitHub reads/writes (PR, CI, rerun) and service effects never hold it.
+ */
+export const SLOT_EFFECTS: readonly EffectKind[] = ['prepare', 'start_agent', 'run_gates', 'publish'];
+
+export function holdsSlot(kind: EffectKind): boolean {
+  return SLOT_EFFECTS.includes(kind);
+}
+
 /** Effect có thể đưa lại vào hàng đợi cùng `idem_key` khi đối chiếu báo chưa thực thi. */
 export function isRequeueSafe(kind: EffectKind): boolean {
   return kind !== 'start_agent';

@@ -1,5 +1,6 @@
 import type { Hash } from '../shared/brand.ts';
 import type { Binding, CiRule, Effort, Limits } from './policy.ts';
+import type { MergeMethod } from './merge-method.ts';
 import type { Predicate, Workflow } from './workflow.ts';
 
 /**
@@ -52,6 +53,10 @@ export type NormalizedProject = {
   hotspots: string[];
   conventions: string[];
   profile: string | null;
+  /** Path of the PR template in the repo, when several exist (task-execution-modes.md). */
+  pr_template?: string;
+  /** `merge.method` as declared; absent when not declared, so the normalized project keeps its hash. */
+  merge_method?: MergeMethod;
 };
 
 export type NormalizedUser = {

@@ -12,7 +12,8 @@ import {
 } from '../domain/policy.ts';
 import type { CanonicalTask } from '../domain/task.ts';
 import { DECISION_POINTS, isAgentStep, type DecisionMode, type DecisionPoint, type StepDef, type Workflow } from '../domain/workflow.ts';
-import { SOFTWARE_DEV_NAME } from '../engine/workflows/software-dev.ts';
+import type { ExecutionMode } from '../domain/run-config.ts';
+import { modeGraph, modeWorkflowName, SOFTWARE_DEV_NAME } from '../engine/workflows/software-dev.ts';
 import { bindingFacts, resolveBinding } from './binding.ts';
 import { finalizeContext, finalizePolicy, type DocContent } from './finalize.ts';
 import { buildLadder, computeFloorMaps, type EscalationPolicy } from './ladder.ts';
@@ -41,6 +42,8 @@ export type FreezePolicyInput = {
   prompts?: DocContent[];
   /** Nội dung các file `conventions` của project, theo tên khai báo trong `cusr.yaml`. */
   conventions?: DocContent[];
+  /** 002: the confirmed execution mode; the graph is then `software_dev@2:<mode>` (task-execution-modes.md). */
+  mode?: ExecutionMode;
 };
 
 export type Frozen = { policy: FrozenPolicy; context: FrozenExecutionContext };
@@ -156,12 +159,13 @@ export function freezePolicy(input: FreezePolicyInput): Result<Frozen, FreezeErr
     return invalid(userFile, 'schema_invalid', ['projects', task.project], `project '${task.project}' không có trong danh sách repo được phép`);
   }
   const workflowName = profile.workflow as string;
-  const workflow = config.user.workflows[workflowName];
-  if (workflow === undefined) return invalid(userFile, 'schema_invalid', ['profiles', profileName, 'workflow'], `workflow '${workflowName}' không tồn tại`);
+  const configured = config.user.workflows[workflowName];
+  if (configured === undefined) return invalid(userFile, 'schema_invalid', ['profiles', profileName, 'workflow'], `workflow '${workflowName}' không tồn tại`);
 
-  if (!isSupportedStructure(workflow)) {
-    return err({ code: 'unsupported_workflow', workflow: workflowName, structure_hash: structureHash(workflow) });
+  if (!isSupportedStructure(configured)) {
+    return err({ code: 'unsupported_workflow', workflow: workflowName, structure_hash: structureHash(configured) });
   }
+  const workflow = input.mode === undefined ? configured : modeGraph(configured, input.mode);
   const unsupported = unsupportedDecisionPoints(workflow);
   if (unsupported.length > 0) return err({ code: 'unsupported_decision_mode', points: unsupported });
 
@@ -220,7 +224,7 @@ export function freezePolicy(input: FreezePolicyInput): Result<Frozen, FreezeErr
     project: task.project,
     profile: profileName,
     // Tên chuẩn của workflow đã chạy được; tên người dùng đặt nằm trong config_hashes.
-    workflow_name: SOFTWARE_DEV_NAME,
+    workflow_name: input.mode === undefined ? SOFTWARE_DEV_NAME : modeWorkflowName(input.mode),
     workflow,
     structure_hash: structureHash(workflow),
     steps,

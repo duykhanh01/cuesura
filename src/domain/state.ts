@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { CanonicalTask } from './task.ts';
 import type { EffectKind, EffectStatus } from './effect.ts';
 import type { Level } from './policy.ts';
+import type { ExecutionMode, RunConfirmation, RunSelection } from './run-config.ts';
 import type { BaseRelation, Check, FailureClass, RequiredSet, Usage } from './trigger.ts';
 import type {
   Artifact,
@@ -81,6 +82,13 @@ export const DETAIL_CODES = [
   'ci_wait_exhausted',
   'required_checks_mismatch',
   'merge_cleanup_pending',
+  // Execution modes (task-execution-modes.md); additive only.
+  'run_config_unconfirmed',
+  'gate_tree_unstable',
+  'worktree_changed',
+  'publish_content_invalid',
+  // PR retargeted away from the task's base branch (FR-041.05); additive only.
+  'target_mismatch',
 ] as const;
 export type DetailCode = (typeof DETAIL_CODES)[number];
 
@@ -187,7 +195,16 @@ export type Approval = {
 export type FailureStreak = { signature: string | null; consecutive: number; quality_tries: number; escalate: boolean };
 
 export type Evidence = {
-  gates: { revision: number; step: string; visit: number; passed: boolean; signature: string | null; valid: boolean }[];
+  gates: {
+    revision: number;
+    step: string;
+    visit: number;
+    passed: boolean;
+    signature: string | null;
+    valid: boolean;
+    /** 002: failing gates with a redacted log tail, for the repair packet (M04). */
+    failed?: { gate: string; signature: string | null; log_excerpt: string | null }[];
+  }[];
   reviews: { revision: number; head_sha: string; verdict: 'approve' | 'request_changes'; valid: boolean }[];
   review_skipped: { revision: number; valid: boolean }[];
   ci: { revision: number; head_sha: string; required_set: RequiredSet; checks: Check[]; valid: boolean }[];
@@ -264,6 +281,50 @@ export type Completion = {
   finalized_at: number | null;
 };
 
+/** Commit the gates passed on, made by the orchestrator with the worker's message (M06). */
+export type CheckpointState = {
+  revision: number;
+  sha: string;
+  tree: string;
+  base_sha: string;
+  diff_digest: string;
+  /** Digest of the worker's publish content the commit message came from. */
+  content_digest: string;
+  /** False when the tree did not change and the previous checkpoint commit was kept. */
+  committed: boolean;
+  gate_visit: number;
+};
+
+/** Worker-prepared commit message and PR title/body, validated and stored outside the code (M05). */
+export type PublishContentState = { revision: number; digest: string; ref: string; attempt_id: string | null };
+
+/** Review evidence with everything the reviewer saw, so an unchanged input reuses the verdict (M03). */
+export type ReviewEvidence = {
+  revision: number;
+  attempt_id: string;
+  verdict: 'approve' | 'request_changes';
+  sha: string;
+  input_digest: string;
+  signature: string | null;
+  findings: { severity: string; file?: string | undefined; line?: number | undefined; msg: string }[];
+  valid: boolean;
+};
+
+/** A remote head nobody in this task expected: blocks business work until reconciled (FR-041.03, H01–H05). */
+export type HeadDrift = { expected: string | null; observed: string | null; source: string; evidence_ref: string; at: number };
+
+export type RunState = {
+  proposal: { selection: RunSelection; digest: string; by: string; at: number } | null;
+  confirmation: RunConfirmation | null;
+  /** Mode and selection digest frozen at start; null before start and for snapshots without modes. */
+  mode: ExecutionMode | null;
+  frozen_digest: string | null;
+  checkpoint: CheckpointState | null;
+  content: PublishContentState | null;
+  reviews: ReviewEvidence[];
+  head_drift: HeadDrift | null;
+};
+
 /** Projection `TaskState` (data-model.md). `version` tăng mỗi sự kiện (FR-028). */
 export type TaskState = {
   schema_version: number;
@@ -314,6 +375,7 @@ export type TaskState = {
   observation: ObservationState | null;
   completion: Completion | null;
   blockers: Blocker[];
+  run: RunState;
 };
 
 export function streakKey(step: string, rung: number): string {

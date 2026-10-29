@@ -15,9 +15,10 @@ export type GrantOutcome =
 /**
  * One grant step for the single execution slot. The queue head is picked here, but `accept` re-reads the
  * slot and head inside its BEGIN IMMEDIATE transaction and `decide` rejects a stale view, so two grants
- * can never both commit; the slot table's singleton key is the last guard.
+ * can never both commit; the slot table's singleton key is the last guard. `ids` are not part of the
+ * request hash, so a retry with fresh IDs is still the same request.
  */
-export function grantNext(db: Database, now: number, crash: CrashHook): Result<GrantOutcome, AcceptError> {
+export function grantNext(db: Database, now: number, crash: CrashHook, ids: readonly string[] = []): Result<GrantOutcome, AcceptError> {
   const next = selectNext(readQueue(db), readSlot(db));
   if (next.kind !== 'grant') return ok(next);
   const head = next.request;
@@ -30,7 +31,8 @@ export function grantNext(db: Database, now: number, crash: CrashHook): Result<G
     request_hash: computeRequestHash({ task_id: head.task_id, trigger }),
     trigger,
     now: now as TriggerEnvelope['now'],
-    ids: [],
+    // A resumed grant runs the step it stopped at, which may create an attempt or effect.
+    ids: [...ids] as TriggerEnvelope['ids'],
   };
   const r = accept(db, env, crash);
   if (!r.ok) return r;

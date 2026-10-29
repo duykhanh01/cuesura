@@ -1,4 +1,5 @@
 import { WorkflowSchema, type Workflow } from '../../domain/workflow.ts';
+import type { ExecutionMode } from '../../domain/run-config.ts';
 
 export const SOFTWARE_DEV_NAME = 'software_dev@1';
 
@@ -118,3 +119,35 @@ const RAW = {
 
 /** Được kiểm bằng schema khi load module; sai cấu trúc thì ném lỗi ngay lúc import. */
 export const SOFTWARE_DEV: Workflow = WorkflowSchema.parse(RAW);
+
+export const SOFTWARE_DEV_V2 = 'software_dev@2';
+
+export function modeWorkflowName(mode: ExecutionMode): string {
+  return `${SOFTWARE_DEV_V2}:${mode}`;
+}
+
+/**
+ * Graph a 002 task runs for its confirmed mode (task-execution-modes.md), derived from the configured
+ * software_dev@1 graph so per-step limits stay the user's. The gate step ends with the checkpoint
+ * commit (handler side), so `gates → checkpoint → review → publish` in `full-review` and
+ * `gates → checkpoint → publish` in `direct-pr`:
+ * - no review skip by size; `direct-pr` has no review step at all, so nothing approves on its behalf;
+ * - an autofix that changed code goes back through the gates, which commit the final tree.
+ */
+export function modeGraph(w: Workflow, mode: ExecutionMode): Workflow {
+  const steps = structuredClone(w.steps);
+  const set = (name: string, outcome: string, target: string): void => {
+    const step = steps[name];
+    if (step !== undefined) step.next = { ...step.next, [outcome]: target };
+  };
+  set('gates', 'pass', mode === 'full-review' ? 'review' : 'publish');
+  set('ci_autofix', 'pass', 'gates');
+  if (mode === 'full-review') {
+    const review = steps['review'];
+    if (review !== undefined) delete review.skip_when;
+  } else {
+    delete steps['review'];
+    delete steps['fix_review'];
+  }
+  return WorkflowSchema.parse({ ...w, steps });
+}

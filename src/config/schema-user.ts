@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { parseDuration } from '../shared/duration.ts';
 import { AUTHZ_ROLES, EFFORTS, MAX_QUALITY_TRIES_PER_RUNG } from '../domain/policy.ts';
 import { HARNESS_INNER_MODES, RuntimeLimitsSchema } from '../domain/runtime.ts';
+import { EXECUTION_MODES } from '../domain/run-config.ts';
 import { ACTIONS, DECISION_MODES, DECISION_POINTS, STEP_KINDS, WAIT_FOR } from '../domain/workflow.ts';
 import { SOFTWARE_DEV_NAME } from '../engine/workflows/software-dev.ts';
 
@@ -243,6 +244,11 @@ export const RuntimeSchema = z
     credential_refs: z.record(RefNameSchema, AbsolutePathSchema).optional(),
     access_tokens: z.array(AccessTokenSchema).optional(),
     harness_isolation: z.record(z.string().min(1), z.enum(HARNESS_INNER_MODES)).optional(),
+    /**
+     * Execution modes the user allows, each with natural-language guidance for the assistant that
+     * proposes a mode (task-execution-modes.md). cusrd never reads the guidance; absent = both allowed.
+     */
+    modes: z.partialRecord(z.enum(EXECUTION_MODES), z.object({ when_to_use: z.string().min(1).max(4_000) }).strict()).optional(),
   })
   .strict();
 export type RawRuntime = z.infer<typeof RuntimeSchema>;

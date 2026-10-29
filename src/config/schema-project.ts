@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MERGE_METHODS } from '../domain/merge-method.ts';
 import { CI_CLASSES } from '../domain/policy.ts';
 
 function compiles(pattern: string): boolean {
@@ -56,6 +57,9 @@ export const ProjectConfigSchema = z
     ci: z.object({ required_checks: nameList.optional() }).strict().optional(),
     pools: z.record(z.string(), z.number().int().positive()).optional(),
     profile: z.string().min(1).optional(),
+    pr_template: z.string().min(1).max(255).optional(),
+    /** Closed object: only `method`; absent object or key means squash (SPEC §14.2). */
+    merge: z.object({ method: z.enum(MERGE_METHODS).optional() }).strict().optional(),
   })
   .strict();
 export type RawProjectConfig = z.infer<typeof ProjectConfigSchema>;
@@ -66,7 +70,7 @@ export const PackSchema = z
   .strict();
 
 /** Khoá chỉ `cusr.yaml` có; pack khai báo là `forbidden_key`. */
-export const PROJECT_ONLY_KEYS = ['ci', 'pools', 'extends', 'profile'] as const;
+export const PROJECT_ONLY_KEYS = ['ci', 'pools', 'extends', 'profile', 'pr_template', 'merge'] as const;
 
 /** Khoá thuộc project; cấu hình người dùng khai báo là `forbidden_key`. */
-export const PROJECT_KEYS = [...Object.keys(sharedProjectKeys), 'ci', 'extends', 'profile'] as const;
+export const PROJECT_KEYS = [...Object.keys(sharedProjectKeys), 'ci', 'extends', 'profile', 'pr_template', 'merge'] as const;

@@ -3,6 +3,7 @@ import { EpochMsSchema, HashSchema, UuidSchema, type Hash } from '../shared/bran
 import { hashCanonical } from '../shared/hash.ts';
 import { CanonicalTaskSchema } from './task.ts';
 import { AuthzContextSchema, FrozenExecutionContextSchema, FrozenPolicySchema } from './policy.ts';
+import { RunSelectionSchema } from './run-config.ts';
 import type { TaskStatus } from './state.ts';
 import {
   ArtifactSchema,
@@ -85,6 +86,8 @@ export const AgentDataSchema = z
     questions: z.array(z.string()).optional(),
     usage: UsageSchema,
     invoked: z.boolean().optional(),
+    // Worker-prepared commit/PR content, validated and stored by the orchestrator (M05); additive.
+    content: z.object({ digest: HashSchema, ref: z.string().min(1) }).strict().optional(),
   })
   .strict();
 
@@ -100,14 +103,34 @@ export const ReviewDataSchema = z
     head_sha: z.string().min(1),
     usage: UsageSchema,
     invoked: z.boolean().optional(),
+    // Digest of everything the reviewer saw (base/commit/diff, PR content, frozen context, binding); M03.
+    input_digest: HashSchema.optional(),
+  })
+  .strict();
+
+/** The checkpoint commit made after the required gates passed on one final tree (M06). */
+export const CheckpointDataSchema = z
+  .object({
+    sha: z.string().regex(/^[0-9a-f]{40}$/),
+    tree: z.string().regex(/^[0-9a-f]{40}$/),
+    base_sha: z.string().min(1),
+    diff_digest: HashSchema,
+    content_digest: HashSchema,
+    committed: z.boolean(),
   })
   .strict();
 
 export const GateDataSchema = z
   .object({
     results: z.array(
-      z.object({ gate: z.string(), passed: z.boolean(), signature: z.string().optional() }).strict(),
+      z
+        .object({ gate: z.string(), passed: z.boolean(), signature: z.string().optional(), log_excerpt: z.string().max(4_096).optional() })
+        .strict(),
     ),
+    // 002, additive: the tree every required gate passed on, whether it held still, and the commit of it.
+    tree: z.string().min(1).optional(),
+    stable: z.boolean().optional(),
+    checkpoint: CheckpointDataSchema.optional(),
   })
   .strict();
 
@@ -128,7 +151,7 @@ export const RerunDataSchema = z
   .object({ head_sha: z.string().min(1), rerun_checks: z.array(z.string()) })
   .strict();
 
-export const CreatePrDataSchema = z.object({ pr_ref: z.string().min(1), head_sha: z.string().min(1) }).strict();
+export const CreatePrDataSchema = z.object({ pr_ref: z.string().min(1), head_sha: z.string().min(1), body_digest: z.string().min(1).optional() }).strict();
 
 export const AwaitCiDataSchema = z
   .object({
@@ -136,6 +159,10 @@ export const AwaitCiDataSchema = z
     required_set: RequiredSetSchema,
     checks: z.array(CheckSchema),
     base_relation: BaseRelationSchema.optional(),
+    /** Base branch the PR was seen targeting, set only when it is not the task's target (FR-041.05). */
+    target_ref: z.string().min(1).optional(),
+    /** The PR was already merged into `target_ref`: re-observing cannot fix it. */
+    target_merged: z.boolean().optional(),
   })
   .strict();
 
@@ -158,7 +185,11 @@ export type FailureData = z.infer<typeof FailureDataSchema>;
 // ---- Tín hiệu ----
 
 export const FreezeErrorSchema = z.discriminatedUnion('code', [
-  z.object({ code: z.literal('config_invalid'), diagnostics: z.array(z.unknown()) }).strict(),
+  // `problems` (optional, additive) carries the 002 preflight report next to the config diagnostics.
+  z.object({ code: z.literal('config_invalid'), diagnostics: z.array(z.unknown()), problems: z.array(z.unknown()).optional() }).strict(),
+  z.object({ code: z.literal('capability_missing'), problems: z.array(z.unknown()) }).strict(),
+  // The confirmed run selection does not match the effective config (M02): a new confirmation is needed.
+  z.object({ code: z.literal('run_config_unconfirmed'), problems: z.array(z.unknown()) }).strict(),
   z.object({ code: z.literal('unsupported_workflow'), workflow: z.string(), structure_hash: HashSchema }).strict(),
   z.object({ code: z.literal('unsupported_decision_mode'), points: z.array(z.string()) }).strict(),
   z.object({ code: z.literal('no_valid_binding'), step: z.string(), role: z.string() }).strict(),
@@ -185,6 +216,11 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
       kind: z.literal('dependency_status'),
       depends_on: UuidSchema,
       status: z.enum(['PENDING', 'READY', 'RUNNING', 'WAITING', 'DONE', 'FAILED', 'CANCELLED']),
+      // 002, additive: what the prerequisite's terminal record showed, kept with the trigger for explain.
+      provenance: z
+        .object({ prerequisite_version: z.number().int().nonnegative(), unverified_reason: z.string().min(1).nullable() })
+        .strict()
+        .optional(),
     })
     .strict(),
   // `runtime` is the 002 snapshot committed with PolicyFrozen; absent for legacy (001) starts.
@@ -276,6 +312,29 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
     .strict(),
   z.object({ kind: z.literal('drain_result'), pending_operations: z.array(UuidSchema) }).strict(),
   z.object({ kind: z.literal('recheck'), target: z.enum(['config', 'observation', 'drain']) }).strict(),
+  // Run configuration (task-execution-modes.md M01/M02): proposed by any operator, confirmed by the user.
+  z.object({ kind: z.literal('propose_run_config'), selection: RunSelectionSchema }).strict(),
+  z.object({ kind: z.literal('confirm_run_config'), digest: HashSchema }).strict(),
+  // A remote head nobody in this task pushed (FR-041.03, H01–H05), from an observation or a publish probe.
+  z
+    .object({
+      kind: z.literal('head_drift'),
+      expected: z.string().min(1).nullable(),
+      observed: z.string().min(1).nullable(),
+      source: z.enum(['observation', 'publish_probe', 'pr_probe', 'worktree']),
+      evidence_ref: z.string().min(1),
+    })
+    .strict(),
+  // Preflight candidate of a task that has not started (FR-002.02/03): advisory, never a snapshot.
+  z
+    .object({
+      kind: z.literal('config_checked'),
+      outcome: z.union([
+        z.object({ ok: z.literal(true), base_sha: z.string().min(1) }).strict(),
+        z.object({ ok: z.literal(false), error: FreezeErrorSchema }).strict(),
+      ]),
+    })
+    .strict(),
 ]);
 export type Trigger = z.infer<typeof TriggerSchema>;
 export type TriggerKind = Trigger['kind'];
@@ -292,6 +351,8 @@ export const HUMAN_TRIGGERS: readonly TriggerKind[] = [
   'cancel',
   'amend',
   'recheck',
+  'propose_run_config',
+  'confirm_run_config',
 ];
 
 export const TriggerEnvelopeSchema = z

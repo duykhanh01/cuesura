@@ -2,7 +2,8 @@ import { z } from 'zod';
 import type { CanonicalTask } from './task.ts';
 import type { EffectKind } from './effect.ts';
 import type { FrozenExecutionContext, FrozenPolicy, Level } from './policy.ts';
-import type { AttemptKind, ResumeAction, TimerKind, Wait } from './state.ts';
+import type { AttemptKind, CheckpointState, HeadDrift, PublishContentState, ResumeAction, ReviewEvidence, TimerKind, Wait } from './state.ts';
+import type { RunConfirmation, RunSelection } from './run-config.ts';
 import type { StepKind } from './workflow.ts';
 import type { BaseRelation, Check, FailureClass, RequiredSet, Usage } from './trigger.ts';
 import type {
@@ -91,7 +92,7 @@ export type EventPayloads = {
     step: string;
     visit: number;
     effect_id: string;
-    results: { gate: string; passed: boolean; signature?: string | undefined }[];
+    results: { gate: string; passed: boolean; signature?: string | undefined; log_excerpt?: string | undefined }[];
     passed: boolean;
     signature: string | null;
     resets_streak_of: string | null;
@@ -103,6 +104,9 @@ export type EventPayloads = {
     head_sha: string;
     signature: string | null;
     resets_streak_of: string | null;
+    // 002, additive: what the reviewer saw and said, for reuse (M03) and the fixer packet (M04).
+    input_digest?: string;
+    findings?: ReviewEvidence['findings'];
   };
   PublishRecorded: { head_sha: string };
   CiResultRecorded: { head_sha: string; required_set: RequiredSet; checks: Check[]; resets_streak_of: string | null };
@@ -218,6 +222,14 @@ export type EventPayloads = {
   DrainPaused: { at: number; reason: 'deadline' | 'round_limit' };
   DrainFinished: { at: number };
   RecheckRequested: { request_id: string; target: 'config' | 'observation' | 'drain'; at: number };
+  // Execution modes (task-execution-modes.md)
+  RunConfigProposed: { selection: RunSelection; digest: string; by: string; at: number };
+  RunConfigConfirmed: { confirmation: RunConfirmation };
+  CheckpointRecorded: { checkpoint: CheckpointState };
+  PublishContentRecorded: { content: PublishContentState };
+  /** An unchanged review input reused a recorded verdict; no reviewer ran and no usage was spent. */
+  ReviewReused: { step: string; from_attempt_id: string; verdict: 'approve' | 'request_changes'; input_digest: string };
+  HeadDriftRecorded: { drift: HeadDrift };
 };
 
 export type EventType = keyof EventPayloads;
@@ -293,6 +305,12 @@ export const EVENT_TYPES = [
   'DrainPaused',
   'DrainFinished',
   'RecheckRequested',
+  'RunConfigProposed',
+  'RunConfigConfirmed',
+  'CheckpointRecorded',
+  'PublishContentRecorded',
+  'ReviewReused',
+  'HeadDriftRecorded',
 ] as const satisfies readonly EventType[];
 
 // Bảo đảm EVENT_TYPES liệt kê đủ mọi khoá của EventPayloads.

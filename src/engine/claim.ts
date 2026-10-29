@@ -9,7 +9,9 @@ export type ClaimBlockReason =
   | 'deadline'
   | 'task_waiting'
   | 'legacy_task'
-  | 'completion';
+  | 'completion'
+  | 'head_changed'
+  | 'run_config_unconfirmed';
 
 /** The 002 daemon only dispatches tasks that carry a runtime snapshot; 001 callers keep the old rules. */
 export type ClaimOptions = { require_runtime?: boolean };
@@ -30,9 +32,15 @@ export function claimable(state: TaskState, effect: ClaimTarget, now: number, op
   // A legacy task without a runtime snapshot is read-only for the 002 daemon, service effects included.
   if (opts.require_runtime === true && state.runtime_ref === null) return { ok: false, reason: 'legacy_task' };
   if (!isBusinessEffect(effect.kind)) return { ok: true };
+  // A runtime task runs only the selection the user confirmed and froze at start (M01/M02).
+  if (opts.require_runtime === true && (state.run.frozen_digest === null || state.run.confirmation?.digest !== state.run.frozen_digest)) {
+    return { ok: false, reason: 'run_config_unconfirmed' };
+  }
   // A recorded merge proof stops all business work; only stop/reconcile/observe may run (FR-040.02).
   if (state.completion !== null) return { ok: false, reason: 'completion' };
   if (isTerminal(state.status)) return { ok: false, reason: 'terminal' };
+  // An unexpected remote head blocks every business effect, publishes already enqueued included (H02).
+  if (state.run.head_drift !== null) return { ok: false, reason: 'head_changed' };
   if (state.cancellation !== null) return { ok: false, reason: 'cancelling' };
   if (effect.revision !== state.revision) return { ok: false, reason: 'stale_revision' };
   if (state.source_drift !== null) return { ok: false, reason: 'source_drift' };

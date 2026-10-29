@@ -112,13 +112,15 @@ NormalizedUser để runtime còn biết allowlisted remote.
 | User `runtime.tool_paths` | git/gh/systemd-run/bwrap/flock absolute executable; hash/version được doctor ghi |
 | User `runtime.credential_refs` | File reference cho GitHub/harness, không copy secret vào snapshot |
 | Project `ci.required_checks[]` | Giữ string[] schema v1; không thêm key app_id; GitHub ghim app cụ thể trả required_checks_mismatch |
-| Project `merge.method` (dự kiến) | `squash` mặc định, enum `squash`/`merge`/`rebase`; object `merge` closed chỉ có method; resolve từ frozen base và đóng băng theo task, không cấp quyền merge/yolo |
+| Project `merge.method` | `squash` mặc định, enum `squash`/`merge`/`rebase`; object `merge` closed chỉ có method; resolve từ frozen base và đóng băng theo task, không cấp quyền merge/yolo |
 
 `merge` vắng hoặc object rỗng thì resolve method=`squash`; sai kiểu/enum hoặc key không biết trong
 object phải báo config_invalid, không đổi ngầm về default. Giá trị `merge` chọn merge commit;
-`rebase` chọn cách merge PR, không cho phép tự rebase worktree đang chạy. Đây là bổ sung schema
-cần triển khai, không phải key loader hiện có đã nhận. Freeze/migration phải giữ snapshot/hash cũ;
-không gán ngược default mới cho task cũ chưa lưu lựa chọn method.
+`rebase` chọn cách merge PR, không cho phép tự rebase worktree đang chạy. Start ghi method đã
+resolve vào `FrozenRuntimeContext.merge_method` (trường tuỳ chọn); snapshot cũ không có trường
+này giữ nguyên hash và hiển thị method `null`, không gán ngược default mới.
+`task_show` trả `merge: { method, proposed: { title, message, digest } | null, observed_method }`
+khi task đã start; `observed_method` là `unknown` sau merge vì 002 không đọc bằng chứng method.
 Feature 002 chỉ dùng method để hiển thị lựa chọn và message đề xuất khi chờ merge thủ công;
 không cần capability gửi merge hoặc method đã bật ở repo để tạo/chạy task, không thêm command merge.
 V1 khi có effect merge mới kiểm method đã bật và chặn gửi nếu không đáp ứng, không tự fallback.

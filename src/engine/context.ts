@@ -16,6 +16,7 @@ export const REJECT_CODES = [
   'dependency_invalid',
   'question_not_open',
   'approval_mismatch',
+  'untrusted_confirmation',
 ] as const;
 export type RejectCode = (typeof REJECT_CODES)[number];
 

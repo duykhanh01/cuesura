@@ -1,3 +1,4 @@
+import { EXECUTION_MODES, type ExecutionMode } from '../domain/run-config.ts';
 import { parseDuration } from '../shared/duration.ts';
 import { AUTHZ_ROLES, type Backoff, type Limits } from '../domain/policy.ts';
 import type {
@@ -158,6 +159,9 @@ export function normalizeProject(p: RawProjectConfig | null): NormalizedProject 
     hotspots: p.hotspots ?? [],
     conventions: p.conventions ?? [],
     profile: p.profile ?? null,
+    // Only when declared, so the normalized project (and its historical hash) is unchanged otherwise.
+    ...(p.pr_template === undefined ? {} : { pr_template: p.pr_template }),
+    ...(p.merge?.method === undefined ? {} : { merge_method: p.merge.method }),
   };
 }
 
@@ -209,6 +213,8 @@ export type RuntimeConfig = {
   access_tokens: AccessTokenSpec[];
   /** Mọi harness đã khai báo đều có mục; mặc định `internal_required`. */
   harness_isolation: Record<string, HarnessInnerModePolicy>;
+  /** Allowed execution modes with their guidance; both when `runtime.modes` is absent. */
+  modes: Partial<Record<ExecutionMode, { when_to_use: string | null }>>;
 };
 
 export function mergeRuntimeLimits(overrides: RawRuntime['limits']): RuntimeLimits {
@@ -236,5 +242,9 @@ export function normalizeRuntime(r: RawRuntime | undefined, harnesses: readonly 
       .map((t) => ({ ...t, roles: AUTHZ_ROLES.filter((role) => t.roles.includes(role)), projects: [...t.projects].sort() }))
       .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
     harness_isolation: isolation,
+    modes:
+      r.modes === undefined
+        ? Object.fromEntries(EXECUTION_MODES.map((m) => [m, { when_to_use: null }]))
+        : Object.fromEntries(EXECUTION_MODES.flatMap((m) => (r.modes?.[m] === undefined ? [] : [[m, { when_to_use: r.modes[m].when_to_use }]]))),
   };
 }

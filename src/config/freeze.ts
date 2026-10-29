@@ -8,6 +8,8 @@ import {
   RUNTIME_SCHEMA_VERSION,
   type FrozenRuntimeContext,
 } from '../domain/runtime.ts';
+import type { MergeMethod } from '../domain/merge-method.ts';
+import type { ExecutionMode, PrTemplate, RunConfigSnapshot } from '../domain/run-config.ts';
 import type { CanonicalTask } from '../domain/task.ts';
 import { DAEMON_COMPLETION_MODE } from './capabilities.ts';
 import type { DocContent } from '../policy/finalize.ts';
@@ -27,6 +29,7 @@ export type FreezeInput = {
   attachments: AttachmentContent[];
   prompts?: DocContent[];
   conventions?: DocContent[];
+  mode?: ExecutionMode;
 };
 
 const atOverrides: Locator = () => ({ file: '<overrides>', line: 1, col: 1 });
@@ -84,6 +87,9 @@ export type RuntimeFreezeInput = {
   target: { repo: string; immutable_repo_id: string; base_ref: string };
   /** Tên harness/công cụ → `manifest_hash` của CapabilityManifest còn hợp lệ. */
   capability_refs: Record<string, Hash>;
+  run_config?: RunConfigSnapshot;
+  pr_template?: PrTemplate | null;
+  merge_method?: MergeMethod;
 };
 
 export type RuntimeFreezeError = { code: 'runtime_invalid'; issues: { path: (string | number)[]; message: string }[] };
@@ -106,6 +112,9 @@ export function freezeRuntimeContext(input: RuntimeFreezeInput): Result<FrozenRu
     limits: { ...input.runtime.limits },
     capability_refs: { ...input.capability_refs },
     credential_refs: input.runtime.credential_refs.map((c) => ({ name: c.name, file: c.file })),
+    ...(input.run_config === undefined ? {} : { run_config: structuredClone(input.run_config) }),
+    ...(input.pr_template === undefined ? {} : { pr_template: input.pr_template }),
+    ...(input.merge_method === undefined ? {} : { merge_method: input.merge_method }),
   };
   const parsed = FrozenRuntimeContextSchema.safeParse({ ...body, runtime_hash: computeRuntimeHash(body) });
   if (!parsed.success) {

@@ -9,14 +9,18 @@ import { invalidatePending, maybeFinishCancel, requestCancel } from './cancel.ts
 import { Ctx, reject, Rejection, type RejectCode } from './context.ts';
 import { requestEffect, requestReconcile } from './effects.ts';
 import { IdPoolExhausted } from './ids.ts';
-import { onDependencyStatus, onConfirmTask, onCreateTask, onSourceUpdated } from './intake.ts';
+import { onConfigChecked, onDependencyStatus, onConfirmTask, onCreateTask, onSourceUpdated } from './intake.ts';
+import { onDrainResult, settleCompletion } from './drain.ts';
+import { onExternalCompletion, onObservationResult } from './external-completion.ts';
 import { onEffectResult, proceed } from './interpreter.ts';
 import { askHuman, onAnswer, onApprovalDecision } from './questions.ts';
 import { onReconciled } from './reconcile.ts';
 import { onDriftChoice, settleDrift } from './revision.ts';
-import { onGrantExecution, onIngestRecord, onOperationResult, onReleaseExecution, onRequestExecution } from './runtime.ts';
+import { onGrantExecution, onIngestRecord, onOperationResult, onReleaseExecution, onRequestExecution, settleSlot } from './runtime.ts';
 import { onStart } from './start.ts';
 import { waitPolicy } from './waits.ts';
+import { onHeadDrift } from './head-drift.ts';
+import { onConfirmRunConfig, onProposeRunConfig } from './run-config.ts';
 
 export type DecideInput = {
   /** `null` khi task chưa tồn tại. */
@@ -42,7 +46,11 @@ export function decide(input: DecideInput): Decision {
   const ctx = new Ctx(input.state, input.policy, input.envelope, input.related);
   try {
     dispatch(ctx, input.envelope.trigger);
-    if (ctx.hasState) settleDrift(ctx);
+    if (ctx.hasState) {
+      settleDrift(ctx);
+      settleCompletion(ctx);
+      settleSlot(ctx);
+    }
   } catch (e) {
     if (e instanceof Rejection) return e.detail === undefined ? { kind: 'rejected', code: e.code } : { kind: 'rejected', code: e.code, detail: e.detail };
     if (e instanceof IdPoolExhausted) return { kind: 'rejected', code: 'id_pool_exhausted' };
@@ -70,6 +78,7 @@ function dispatch(ctx: Ctx, t: Trigger): void {
   }
   const needsPolicy = ![
     'confirm_task',
+    'config_checked',
     'source_updated',
     'dependency_status',
     'start',
@@ -79,12 +88,17 @@ function dispatch(ctx: Ctx, t: Trigger): void {
     'release_execution',
     'operation_result',
     'ingest_record',
+    'propose_run_config',
+    'confirm_run_config',
   ].includes(t.kind);
   if (needsPolicy && (ctx.policy === null || ctx.state.policy_ref === null)) reject('invalid_trigger', { reason: 'not_started' });
 
   switch (t.kind) {
     case 'confirm_task':
       onConfirmTask(ctx);
+      return;
+    case 'config_checked':
+      onConfigChecked(ctx, t);
       return;
     case 'source_updated':
       onSourceUpdated(ctx, t);
@@ -144,11 +158,26 @@ function dispatch(ctx: Ctx, t: Trigger): void {
     case 'ingest_record':
       onIngestRecord(ctx, t);
       return;
-    // Observation, completion/drain and recheck handlers land with US1/US2/US5 (T044–T046, T062, T102).
-    case 'observation_due':
-    case 'observation_result':
     case 'external_completion':
+      onExternalCompletion(ctx, t);
+      return;
+    case 'observation_result':
+      onObservationResult(ctx, t);
+      return;
     case 'drain_result':
+      onDrainResult(ctx, t);
+      return;
+    case 'propose_run_config':
+      onProposeRunConfig(ctx, t);
+      return;
+    case 'confirm_run_config':
+      onConfirmRunConfig(ctx, t);
+      return;
+    case 'head_drift':
+      onHeadDrift(ctx, t);
+      return;
+    // Observation scheduling and recheck handlers land with US2/US5 (T059, T062, T102).
+    case 'observation_due':
     case 'recheck':
       reject('invalid_trigger', { reason: 'not_supported_yet', trigger_kind: t.kind });
       return;
