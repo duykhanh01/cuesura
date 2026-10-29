@@ -173,9 +173,9 @@ Một lần hủy chưa thành CANCELLED khi process hoặc merge request vẫn 
 | Prepare | Snapshot, tạo worktree/branch, chạy setup theo cấu hình | Phân loại lỗi và chờ/retry hữu hạn |
 | Scout, nếu được bật | Thu thập context còn thiếu, chỉ đọc | Tối đa một lượt mặc định; thiếu context quan trọng thì hỏi người |
 | Code | Coder sửa trong worktree, chuẩn bị commit message và PR title/description theo template frozen, trả kết quả có schema | Hỏi người, bổ sung context hoặc xử lý lỗi theo policy |
-| Gates | Orchestrator chạy các gate đã đóng băng | Fixer nhận log đã lọc; sửa xong chạy lại gate |
+| Gates | Các gate bắt buộc cùng đạt trên tree code cuối; formatter/gate sửa code thì kiểm lại tập gate trong giới hạn | Worker nhận lỗi và trạng thái mới nhất; chưa chứng minh tree cuối thì chặn |
 | Checkpoint | Sau gates, orchestrator commit trạng thái code đã đối chiếu bằng message worker chuẩn bị | Intent/OID bền vững; gate evidence khớp tree |
-| Review, chỉ `full-review` | Reviewer session riêng, chỉ đọc, đối chiếu acceptance, diff của commit cố định và nội dung PR | Findings → worker sửa → gates → commit mới → review |
+| Review, chỉ `full-review` | Dùng lại evidence hợp lệ khi toàn bộ đầu vào không đổi; nếu chưa có thì reviewer riêng session, chỉ đọc, kiểm acceptance/commit cố định/nội dung PR | Findings → worker sửa → gates → commit nếu code đổi → xét evidence; không tiến triển thì giữ findings và xử lý giới hạn |
 | Publish | Orchestrator push đúng SHA đã kiểm và tạo hoặc nhận lại PR bằng nội dung worker chuẩn bị | Ref/tree/worktree drift thì chặn; probe trước retry |
 | CI | Chờ required checks của đúng head SHA | Hạ tầng/flaky: rerun hữu hạn; autofix: gate; lỗi code: coder/fixer rồi chạy lại gates/review cần thiết |
 | Merge | Tuần tự hóa theo branch đích, kiểm tra lại mọi điều kiện | Cập nhật base và chạy lại kiểm tra, hoặc WAITING |
@@ -184,6 +184,8 @@ Một lần hủy chưa thành CANCELLED khi process hoặc merge request vẫn 
 Có hai chế độ do người dùng xác nhận trước khi chạy: `direct-pr` không gọi reviewer; `full-review` bắt buộc review trước publish. Không tự chọn theo size XS và không bắt buộc khác vendor/model. Reviewer dùng session riêng, chỉ đọc; approval gắn base SHA/commit SHA cụ thể. Thay đổi code sau review phải gates, commit mới và review lại; publish không commit thêm code sau approval.
 
 Hết quota thì chờ hoặc đề xuất lựa chọn khác để người dùng duyệt, không tự đổi chế độ/binding ngoài bộ đã duyệt. Các vòng sửa trong giới hạn không hỏi lại; đổi chế độ làm thay đổi graph của task đã chạy nên cần task mới trong toàn bộ v1 theo §5.3. `direct-pr` không cấp quyền merge: mọi chế độ auto-merge trong v1 vẫn cần review approve; feature 002 chỉ quan sát merge thủ công. Xem [hợp đồng chi tiết và tiêu chí kiểm chứng](specs/002-task-to-green-pr/task-execution-modes.md).
+
+Mỗi lần resume worker sửa MUST có packet mới ghi nguyên nhân, log/findings, checkpoint/worktree/diff, nội dung PR và Q&A hiện hành. Trong cùng task/revision, review chỉ được gọi lại khi cần: approve/findings còn hiệu lực và toàn bộ đầu vào review không đổi thì dùng lại evidence; worker no-op không tạo commit mới hoặc hỏi lại reviewer. Xem [điều kiện reuse](specs/002-task-to-green-pr/task-execution-modes.md#dùng-lại-kết-quả-review-còn-hiệu-lực).
 
 Setup, formatter và gate là lệnh từ cấu hình project đáng tin cậy, có thể có side effect. Không mặc định xem mọi shell command là “pure”; chỉ retry tự động khi hợp đồng của lệnh cho phép chạy lại an toàn.
 

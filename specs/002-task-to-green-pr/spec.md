@@ -499,7 +499,10 @@ nhóm bao gồm toàn bộ các mục con, không thay thế việc kiểm chứ
   session riêng, chỉ đọc; approval MUST gắn base SHA/commit SHA cố định sau checkpoint và nội dung PR
   đã xem. Không ràng buộc khác vendor/model. Trong mode này, code đổi MUST vô hiệu bằng chứng liên quan,
   chạy lại gate, commit và review. `direct-pr` MUST bỏ reviewer theo chế độ đã được người dùng xác nhận, không giả
-  approve hoặc suy skip từ size; publish cả hai mode MUST khớp checkpoint. Xem M01–M08.
+  approve hoặc suy skip từ size; publish cả hai mode MUST khớp checkpoint. Gate/formatter sửa code MUST
+  kiểm lại tập gate bắt buộc trên tree cuối trong giới hạn retry an toàn. Trong cùng task/revision,
+  approve/findings còn hiệu lực và mọi đầu vào review không đổi MUST được dùng lại, không gọi reviewer
+  hoặc tạo commit mới chỉ vì worker no-op; đầu vào đổi MUST xét review mới theo M03/M06. Xem M01–M08.
 - **FR-015**: Mọi thất bại MUST được phân loại theo SPEC.md §9.2 và áp đúng giới hạn kế thừa từ feature
   001: infra tối đa 3 retry; timeout/stall tối đa 1 retry; invalid output tối đa 1 repair và 1 session
   mới mỗi nấc trước khi xét nâng; auth/refusal chờ người. Rate limit/infra MUST không nâng model vì
