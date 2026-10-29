@@ -20,6 +20,12 @@ Trong `full-review`, yêu cầu sửa đi về worker → gates → commit nếu
 Cả hai giữ nguyên ngân sách, slot, bảo vệ quyền, đối chiếu effect và quan sát merge của feature 002.
 Chế độ không cấp quyền merge hoặc miễn branch protection trên GitHub.
 
+Method merge độc lập execution mode: theo [SPEC §14.2](../../SPEC.md#142-merge), mặc định `squash`,
+repo đổi bằng `cusr.yaml` `merge.method: squash | merge | rebase` (schema dự kiến), đóng băng khi
+task bắt đầu. Trong 002, method/message worker chỉ được đề xuất cho người merge thủ công; method
+khác hoặc không xác minh được không chặn proof/drain/DONE. Ghi actual method nếu có bằng chứng,
+còn lại unknown; không dùng khác method làm lý do merge chưa chứng nhận và không mở quyền merge.
+
 `direct-pr` không tạo bằng chứng approve giả. PR xanh và head đã kiểm được đánh giá theo chế độ
 đã xác nhận: gates và CI luôn bắt buộc theo policy; review bắt buộc với `full-review`. Show/explain
 và PR phải thể hiện chế độ và việc không chạy review để người dùng hiểu mức kiểm tra đã thực hiện.
@@ -202,10 +208,10 @@ Các mã M dưới đây bổ sung coverage 117 nghĩa vụ FR hiện có; chưa
 | Mã | Kiểm chứng bắt buộc |
 | --- | --- |
 | M01 | Agent đề xuất từ chỉ dẫn; daemon không suy size/rủi ro; thiếu hoặc giả xác nhận không spawn |
-| M02 | Xác nhận gắn đúng bộ lựa chọn; thay đổi/restart/replay/quota không bỏ qua xác nhận hoặc tự đổi chế độ |
+| M02 | Xác nhận gắn đúng bộ lựa chọn; thay đổi/restart/replay/quota không bỏ qua xác nhận hoặc tự đổi chế độ; merge.method default/enum/freeze đúng, config mới không đổi task đang chạy |
 | M03 | `direct-pr` không gọi reviewer; `full-review` cùng vendor, riêng session/chỉ đọc; reuse approve hoặc findings đúng đầu vào, no-op không gọi lại reviewer, đầu vào đổi buộc review mới |
 | M04 | Gate/review/CI fail quay lại worker; cả resume và fallback nhận packet nguyên nhân sửa/trạng thái mới nhất, packet stale/thiếu bị chặn; fallback có lý do, không gọi chồng |
 | M05 | Template frozen, lựa chọn nhiều template, artifact hợp lệ và được cập nhật sau fixer/CI; từ chối marker điều khiển giả trong title/body worker ở cả hai mode; không thêm writer agent |
 | M06 | Gate/formatter sửa code buộc kiểm tập gate trên tree cuối trong giới hạn; mutation/writer hoặc remote drift H01–H04 chặn publish; approve A muộn không gỡ blocker/duyệt B, push đúng SHA đã kiểm |
 | M07 | Commit/push/create/update PR timeout/crash nhận lại đúng intent/nội dung; replay H05 giữ drift và receipt A, không lặp commit/PR/reviewer; probe marker canonical cùng identity/receipt, không nhận PR giả hoặc ghi đè body ngoài dự kiến |
-| M08 | Green/checked-head/explain thể hiện đúng mode; `direct-pr` không giả approve, không miễn CI/merge hoặc mở lại terminal |
+| M08 | Green/checked-head/explain thể hiện đúng mode; `direct-pr` không giả approve hoặc miễn CI/merge; 002 merge thủ công khác/unknown method vẫn hoàn tất khi proof/drain đạt, audit không giả phương thức hoặc làm head mất chứng nhận |

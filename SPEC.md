@@ -397,6 +397,36 @@ Checkpoint trước bước có thể ghi; orchestrator commit thay đổi sau b
 
 ### 14.2 Merge
 
+Mặc định dùng **squash merge** để một task/PR tương ứng một commit trên branch đích. Repo có thể
+đổi bằng `merge.method` trong `cusr.yaml`:
+
+```yaml
+merge:
+  method: squash # squash | merge | rebase
+```
+
+Đây là key thiết kế mới, chưa được loader/runtime hiện tại hỗ trợ. `merge` là object closed, chỉ
+có key `method`; bỏ cả object hoặc bỏ `method` thì mặc định `squash`, còn giá trị ngoài enum hoặc
+sai kiểu phải báo cấu hình không hợp lệ. `merge` nghĩa là tạo merge commit, `rebase` nghĩa là
+rebase merge PR, không phải yêu cầu tự rebase worktree của task. Method được đọc từ frozen base
+và đóng băng cùng policy/context khi task bắt đầu; đổi config chỉ ảnh hưởng task bắt đầu sau đó.
+Method không đổi graph `direct-pr`/`full-review`, quyền merge, approval hoặc quyền yolo.
+Default mới chỉ áp dụng khi resolve task mới; snapshot cũ không có trường này phải giữ nguyên
+hash/nội dung và ghi chưa có lựa chọn được lưu, không gán ngược default cho lịch sử.
+
+Khi Cuesura được phép gửi effect merge trong v1, phải dùng đúng method đã đóng băng; repository
+không cho phép hoặc không xác minh được method đó thì chờ người xử lý, không tự fallback. Với
+squash, dùng commit message artifact hiện hành đã validate do worker chuẩn bị; lưu nội dung/digest
+cùng merge intent để recovery không dựng message khác cho cùng thao tác.
+
+Feature 002 chỉ quan sát merge thủ công: method là lựa chọn đề xuất, cung cấp cùng message squash
+cho người dùng, không gọi endpoint merge hoặc chặn task chỉ vì repo không bật method đề xuất.
+Người dùng merge bằng method khác vẫn được ghi nhận theo merge proof hợp lệ; nếu có bằng chứng
+method thực tế thì ghi chênh lệch để audit, không dùng làm blocker hoặc lý do merged_head_unverified.
+Không xác minh được method thì ghi unknown, không đoán từ commit graph và không coi là thiếu merge
+proof. Luôn lưu riêng head đã kiểm, head của PR tại merge và commit trên branch đích; squash/rebase
+có thể đổi commit SHA mà không làm head-at-merge khác head đã kiểm.
+
 Protected branches mặc định bao gồm default branch. Phần kiểm tra dưới đây chỉ áp dụng khi **Cuesura gửi effect merge**, không áp dụng để ngăn hoặc phủ nhận merge thủ công đã xảy ra trên GitHub. Mỗi branch đích có một merge queue; ngay trước effect merge phải kiểm tra:
 
 1. Head SHA đúng kết quả gate/CI và approval cho thao tác merge đang hiệu lực; reviewer approval cùng head bắt buộc khi là `full-review`. `direct-pr` không cần reviewer approval cho merge có người duyệt, nhưng không đủ điều kiện auto-merge.

@@ -9,6 +9,11 @@ Bổ sung [H01–H06](task-execution-modes.md#remote-đổi-head-khi-review-còn
 remote B chen lúc review A, callback/observation hai thứ tự, probe/update guard, restart và chỉ
 base tip đổi. Ghi riêng bằng chứng từng H; chưa chạy thì báo chưa kiểm.
 
+Khi triển khai schema `merge.method`, kiểm default (thiếu object/key), cả ba giá trị hợp lệ,
+sai kiểu/enum/key lạ, config đổi sau freeze và replay snapshot cũ không bị viết lại. Với 002,
+kiểm repo tắt squash không chặn admission; manual merge khác/unknown method vẫn proof/drain/DONE
+và audit không làm head đã kiểm thành unverified chỉ vì method. Không dùng config để thử gửi merge.
+
 Phần **lát 0 chạy trước triển khai** theo [spike guide](spike-0.md), là gate trước runtime A. Các
 phần A/B/C bên dưới dành cho sau implement: hiện chỉ có scripts typecheck/lint/test/build/reliability
 của 001, cusr/cusrd và test runtime chưa khả dụng. Spike cô lập có thể dùng vài lượt model trước A;
