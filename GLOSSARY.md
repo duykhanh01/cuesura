@@ -16,8 +16,12 @@ _Avoid_: Bỏ kiểm tra, tự merge
 Chế độ yêu cầu reviewer độc lập kiểm tra thay đổi trước khi công bố PR; độc lập không đòi hỏi khác vendor.
 _Avoid_: Bắt buộc hai vendor, tự review trong lượt code
 
+**Effort**:
+Mức suy luận được chọn cho model trong một lần chạy, trong phạm vi harness hỗ trợ.
+_Avoid_: Thinking (tên khác cho cùng trường)
+
 **Xác nhận cấu hình chạy**:
-Sự đồng ý của người dùng cho một task với harness, model, thinking và chế độ cụ thể, gồm reviewer khi cần.
+Sự đồng ý của người dùng cho một task với harness, model, effort và chế độ cụ thể, gồm reviewer khi cần.
 _Avoid_: Đề xuất của agent, cờ xác nhận do agent tự khai
 
 **Lượt agent giữ chỗ**:

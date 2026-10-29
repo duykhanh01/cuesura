@@ -21,7 +21,7 @@ Use case đầu tiên là quy trình phát triển phần mềm: code → review
 2. **Triage và lập lịch:** xử lý dependency, chạy song song các task độc lập, tự dừng khi chạm hạn mức subscription.
 3. **Workflow cho mỗi task trong worktree riêng:**
    - Code, rồi chạy gate (build/test).
-   - Trước khi chạy, bạn xác nhận harness, model, thinking và chế độ: `direct-pr` hoặc `full-review`.
+   - Trước khi chạy, bạn xác nhận harness, model, effort và chế độ: `direct-pr` hoặc `full-review`.
    - Worker chuẩn bị commit message và nội dung PR; daemon tạo branch, commit và publish.
    - `full-review` có reviewer riêng session, chỉ đọc, có thể cùng vendor; `direct-pr` bỏ bước reviewer.
    - Mở PR và chờ CI. Sửa gate/review/CI ưu tiên resume worker đã code, trong giới hạn đã duyệt.

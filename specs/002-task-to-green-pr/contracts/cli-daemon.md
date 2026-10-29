@@ -10,7 +10,10 @@ server gắn task ID/requester đáng tin, không nhận `AuthzContext` do calle
 daemon chỉ validate lựa chọn tường minh. Trước spawn đầu, người dùng xem task/revision, profile,
 mode, worker harness/model/effort và reviewer binding nếu `full-review`, cùng fallback đã cho phép.
 Xác nhận từ kênh người dùng đáng tin gắn với digest bộ lựa chọn; assistant không tự khai `confirmed`
-để vượt bước này, token operate không được nâng quyền. Auto-confirm intake không miễn xác nhận chạy.
+để vượt bước này, token operate không được nâng quyền. Task do assistant tạo mặc định chờ xác nhận intake; auto-confirm intake và hạn mức tạo task theo
+client chỉ do người dùng cấu hình. Auto-confirm intake không miễn xác nhận chạy.
+Giao diện có thể gộp cùng một lượt xác nhận khi hiển thị task và toàn bộ cấu hình chạy; bằng chứng
+phải ghi rõ cả hai phạm vi, không biến auto-confirm intake thành duyệt binding.
 Các key/command/proof cụ thể cần triển khai, chưa phải CLI/schema hiện có.
 
 Confirm/recheck không tự chọn lại binding. Cấu hình hiệu lực khác bộ đã xác nhận thì chờ xác nhận

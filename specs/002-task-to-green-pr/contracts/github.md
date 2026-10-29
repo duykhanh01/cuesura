@@ -20,6 +20,13 @@ nhận PR; tuple repo/head/base phải khớp. Nhiều PR khớp hoặc remote d
 thay thế. HTTP 422/timeout sau create không chứng minh thất bại; query/probe trước lần gửi mới.
 POST rerun không có idempotency remote: không chứng minh được chưa gửi thì unknown, không lặp bừa.
 
+Title/body worker là dữ liệu không đáng tin: trước khi ghép, từ chối marker trong namespace
+`<!-- cusr:` theo cùng chuẩn hóa của parser. Chỉ orchestrator gắn một block marker canonical
+cuối body và ghi digest body cuối vào intent. Probe chỉ nhận block canonical ở vị trí này cùng
+repo/head/base/operation receipt, không tìm marker tự do trong nội dung worker hoặc tin title.
+Marker giả/nhân đôi/body lệch phải chặn để đối chiếu, kể cả `direct-pr`; kiểm fixture giả mạo
+và timeout/recovery nằm trong M05/M07 và T136/T139.
+
 Nội dung template được đọc từ frozen base và đưa cho worker; orchestrator không diễn giải heading
 Markdown. Cả hai mode dùng nội dung worker chuẩn bị, marker/source links do orchestrator gắn;
 không có writer agent riêng. Nội dung mới sau fixer/CI được đối chiếu theo

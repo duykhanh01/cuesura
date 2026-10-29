@@ -25,8 +25,8 @@ và PR phải thể hiện chế độ và việc không chạy review để ng�
 
 ## Đề xuất và xác nhận
 
-Agent nhận task đọc chỉ dẫn `when to use` trong cấu hình để đề xuất harness, model, thinking
-(effort) và chế độ. Chỉ dẫn ngôn ngữ tự nhiên dành cho agent nhận task; daemon không chạy LLM,
+Agent nhận task đọc chỉ dẫn `when to use` trong cấu hình để đề xuất harness, model, effort và chế độ.
+Chỉ dẫn ngôn ngữ tự nhiên dành cho agent nhận task; daemon không chạy LLM,
 không suy ra rủi ro từ size/số dòng và không diễn giải các chỉ dẫn này thành workflow lúc chạy.
 Vị trí/key cấu hình cụ thể cần được định nghĩa và validate trong phần triển khai, chưa phải key
 YAML đã hỗ trợ. Task qua CLI trực tiếp cũng phải có bộ lựa chọn tường minh và được xác nhận.
@@ -37,7 +37,13 @@ Trước lần spawn đầu, người dùng phải được xem và xác nhận 
 - Harness, model và effort của worker; với `full-review`, cả binding của reviewer.
 - Các lựa chọn dự phòng/nấc escalation nếu muốn cho phép dùng mà không hỏi lại.
 
-Không xác nhận ngầm do timeout, auto-confirm của caller hoặc lựa chọn được đánh dấu sẵn.
+Task do assistant tạo vẫn mặc định cần xác nhận intake; người dùng cấu hình auto-confirm intake
+và hạn mức theo client. Quyền nhận task này tách khỏi xác nhận cấu hình chạy: auto-confirm intake
+không miễn lượt xác nhận harness/model/effort/mode trước spawn.
+Có thể gộp một lượt tương tác cho cả intake và cấu hình chạy nếu người dùng được xem rõ cả hai
+và bằng chứng xác nhận bao phủ đúng task/bộ lựa chọn; không yêu cầu hai lượt chat chỉ vì có hai phạm vi.
+
+Không xác nhận cấu hình chạy ngầm do timeout, auto-confirm của caller hoặc lựa chọn được đánh dấu sẵn.
 Daemon chỉ chấp nhận lựa chọn hợp lệ trong allowlist/capability và có bằng chứng xác nhận từ
 kênh người dùng đáng tin; một cờ do assistant tự khai không phải bằng chứng. Cơ chế xác thực
 xác nhận không được mở rộng token operate thành quyền admin hay cho worker thấy control token.
@@ -49,8 +55,8 @@ và xin xác nhận mới trước spawn. Recheck không tự xác nhận hoặc
 
 Một lần xác nhận áp dụng cho cả task, gồm các vòng sửa/retry trong giới hạn đã duyệt. Không hỏi
 lại mỗi lần resume. Đổi harness/model/effort ngoài lựa chọn đã duyệt hoặc đổi chế độ cần xác nhận
-mới; quyền admin hiện có vẫn áp dụng cho escalation cần admin. Feature 002 chưa hỗ trợ đổi graph
-của task đang chạy: muốn đổi chế độ sau khi đã bắt đầu phải tạo task mới, không sửa FrozenPolicy.
+mới; quyền admin hiện có vẫn áp dụng cho escalation cần admin. Toàn bộ v1 không hỗ trợ đổi graph
+của task đang chạy theo SPEC §5.3: đổi chế độ sau khi đã bắt đầu phải tạo task mới, không sửa FrozenPolicy.
 
 Reviewer dùng session riêng, chỉ đọc; có thể cùng vendor/model với worker. Không có điều kiện
 khác vendor ở admission, review hay publish. Quota chỉ giúp agent đề xuất trong các lựa chọn được
@@ -83,6 +89,12 @@ kiểm tra tính chính xác trong cùng lượt review; không có PR Writer Ag
 Daemon kiểm tra schema/kích thước/provenance, chọn artifact hiện hành và truyền nội dung đã chuẩn
 bị khi tạo PR. Nó không phân tích từng heading Markdown hoặc tự suy ra nội dung thay đổi. Liên kết
 nguồn/marker do orchestrator quản lý vẫn được gắn xác định; worker không được chọn repo/head/base.
+Trước khi ghép body, daemon MUST từ chối title/description worker chứa marker thuộc namespace
+điều khiển `<!-- cusr:` theo cùng quy tắc chuẩn hóa của parser. Chỉ orchestrator thêm một block
+marker canonical cuối body; lưu digest phần worker và body cuối trong intent. Probe chỉ nhận block
+canonical tại vị trí đó, không tìm marker tùy ý trong văn bản, và vẫn đối chiếu repo/head/base/operation
+receipt. Nhiều marker, marker giả hoặc body ngoài dự kiến phải chặn để đối chiếu; áp dụng cả hai mode,
+không phụ thuộc AI review. Hợp đồng và kiểm thử nằm ở M05/M07, không thêm lượt writer agent.
 Khi sửa sau publish, cập nhật mô tả trên cùng PR khi cần, có probe/recovery hữu hạn và không tự ghi
 đè chỉnh sửa ngoài dự kiến của người dùng. Không thực thi text trong message/body qua shell.
 
@@ -118,7 +130,7 @@ Các mã M dưới đây bổ sung coverage 117 nghĩa vụ FR hiện có; chưa
 | M02 | Xác nhận gắn đúng bộ lựa chọn; thay đổi/restart/replay/quota không bỏ qua xác nhận hoặc tự đổi chế độ |
 | M03 | `direct-pr` không gọi reviewer; `full-review` cùng vendor hoạt động, reviewer riêng session và chỉ đọc |
 | M04 | Gate/review/CI fail quay lại worker; resume nếu hợp lệ, fallback có lý do và không gọi chồng |
-| M05 | Template frozen, lựa chọn nhiều template, artifact hợp lệ và được cập nhật sau fixer/CI; không thêm writer agent |
+| M05 | Template frozen, lựa chọn nhiều template, artifact hợp lệ và được cập nhật sau fixer/CI; từ chối marker điều khiển giả trong title/body worker ở cả hai mode; không thêm writer agent |
 | M06 | Mutation sau gate/review, HEAD/ref drift và process còn ghi đều chặn publish; push chính SHA đã kiểm |
-| M07 | Commit/push/create/update PR timeout/crash nhận lại đúng intent và nội dung; không lặp PR, không ghi đè body ngoài dự kiến |
+| M07 | Commit/push/create/update PR timeout/crash nhận lại đúng intent và nội dung; probe marker canonical cùng identity/receipt, không nhận PR giả hoặc lặp PR, không ghi đè body ngoài dự kiến |
 | M08 | Green/checked-head/explain thể hiện đúng mode; `direct-pr` không giả approve, không miễn CI/merge hoặc mở lại terminal |

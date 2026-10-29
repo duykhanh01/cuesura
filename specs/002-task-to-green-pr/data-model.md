@@ -12,7 +12,7 @@ của lõi 001; drain, slot và observation là dữ liệu/chi tiết chờ, kh
 | Đề xuất cấu hình chạy | Task/revision, mode, profile, worker/reviewer harness/model/effort, fallback và digest; chỉ là đề xuất |
 | Xác nhận cấu hình chạy | Actor/provenance từ kênh người dùng đáng tin, digest bộ lựa chọn và task/revision; lưu bền, sai digest không spawn |
 | Snapshot cấu hình chạy | Mode và bộ lựa chọn đã xác nhận, liên kết FrozenPolicy/runtime; không viết lại snapshot lịch sử |
-| Nội dung publish | Template base/path/digest, commit message, PR title/description, artifact digest/provenance; không nằm trong code commit |
+| Nội dung publish | Template base/path/digest, commit message, PR title/description worker đã kiểm namespace marker, digest/provenance artifact và body cuối có block marker do orchestrator tạo; không nằm trong code commit |
 | Review evidence | Base SHA, commit SHA, digest nội dung PR, verdict; `direct-pr` lưu mode không yêu cầu review, không giả approve |
 | Worker session | Session coder hợp lệ gần nhất, binding, liên kết attempt sửa và lý do fallback; reviewer session tách biệt |
 

@@ -15,11 +15,19 @@ frozen và tiếp tục sửa qua resume khi hợp lệ. Agent nhận task đề
 không suy rủi ro hoặc tự chọn lại binding. Bổ sung xác nhận bền từ kênh người dùng đáng tin trước
 spawn, không thay authority admin hiện có.
 
-Hiến chương IV dùng SHOULD khác vendor, không phải điều kiện bắt buộc; reviewer riêng session,
-chỉ đọc và bằng chứng gắn SHA vẫn giữ. Gate review là bắt buộc khi mode là `full-review`;
-`direct-pr` không tạo approve giả và không cấp quyền auto-merge. Không sửa hiến chương trong PR này.
+Amendment hiến chương 1.1.0 → 2.0.0 được chủ dự án yêu cầu khi review PR #8: nguyên tắc IV
+thay ưu tiên khác vendor bằng reviewer riêng session/chỉ đọc và review theo mode; nguyên tắc V
+giới hạn merge guard cho effect do Cuesura gửi, tách merge thủ công ngoài hệ thống. Đây là MAJOR
+vì định nghĩa lại hợp đồng review và phạm vi bất biến merge. Không thêm/bỏ section hoặc placeholder;
+không sửa template (workflow đọc hiến chương khi chạy). SPEC I11/§5.2/§7/§14.2, contracts, tasks,
+glossary và README được đồng bộ trong PR. Gate review bắt buộc với `full-review`; `direct-pr`
+không tạo approve giả và không cấp quyền auto-merge. Xác nhận intake mặc định vẫn giữ nguyên.
 Bằng chứng hai vendor của spike/SC-001 vẫn là coverage adapter, không là điều kiện admission.
 Plan/schema/graph cũ phải được nối qua T135–T139; tài liệu không thay bằng chứng runtime.
+
+Thứ tự bổ sung: US1 thực hiện T135–T137 và kiểm bằng fake; US2 kiểm quyết định resume/fallback
+qua session port fake. US4 mới nối real session tại T138 sau T068–T071, rồi T077. T139 kiểm tổng
+hợp sau T064/T077, trước T078/go-no-go. Không đặt T138 làm prerequisite ngược của US1/US2.
 
 ## Summary
 
@@ -41,15 +49,16 @@ Nối lõi 001 vào một daemon ghi SQLite, runner độc lập, Git/worktree v
 
 ## Constitution Check
 
-Đối chiếu [hiến chương 1.1.0](../../.specify/memory/constitution.md) trước Phase 0 và sau Phase 1:
+Đối chiếu [hiến chương 2.0.0](../../.specify/memory/constitution.md), gồm amendment ngày 2026-10-29,
+cho thiết kế cập nhật; bằng chứng Phase 0/1 cũ vẫn giữ provenance của phiên bản đã kiểm:
 
 | Nguyên tắc | Trước nghiên cứu | Sau thiết kế / bằng chứng |
 | --- | --- | --- |
 | I — Tất định | Đạt về hướng tiếp cận | Slot/completion/drain/timer là hàm thuần; now/ID/facts từ application service |
 | II — Commit/idempotency | Đạt | accept nguyên tử; receipt/probe trước retry; replay slot theo global_seq |
 | III — Hữu hạn | Đạt, cần chốt giá trị | R-04 chốt CI/observation/drain; R-11 chốt context/spool; unknown có đường recheck/cancel |
-| IV — Bằng chứng | Đạt | Validate response hai tầng; subset checks đúng SHA; DONE chưa chứng nhận ghi rõ |
-| V — Quyền kiểm soát | Đạt | Chỉ quan sát merge ngoài hệ thống; snapshot/binding bất biến; secret ngoài sandbox |
+| IV — Bằng chứng | Đạt về thiết kế, cần M01–M08 | Validate response; gates/CI và review theo mode đúng SHA; reviewer riêng session/chỉ đọc, không ưu tiên vendor; DONE chưa chứng nhận ghi rõ |
+| V — Quyền kiểm soát | Đạt về thiết kế, cần bằng chứng xác nhận | Giữ xác nhận intake và cấu hình chạy riêng; snapshot/binding bất biến; chỉ quan sát merge ngoài hệ thống; secret ngoài sandbox |
 | VI — Trung lập domain/vendor | Đạt | Core nhận fact/command typed generic; GitHub/harness/toolchain ở adapter |
 | VII — Kiểm chứng trung thực | Cần bằng chứng spike | Gate feasibility hiện BLOCKED; phải chạy lát 0 trước A, không lấy docs/help/fake thay kết quả thật |
 | VIII — Đơn giản | Đạt về thiết kế | Snapshot/event envelope v1 giữ nguyên; app-pinned chặn mismatch; port SandboxProvider nhỏ, duy nhất backend bwrap, không registry/Native/Container trong v1 |

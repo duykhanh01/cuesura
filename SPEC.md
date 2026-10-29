@@ -89,7 +89,7 @@ V1 không có Primary AI chạy liên tục, plugin marketplace, workflow tự s
 | I08 | Workflow, policy và đầu vào gốc bất biến theo revision. Thay đổi phải có event, actor, lý do và phiên bản mới. |
 | I09 | Mọi lần gọi agent phải thỏa role, binding, quyền, approval, pool và ngân sách đã resolve. Agent không được tự đổi những giới hạn đó. |
 | I10 | Thứ tự event lấy từ sequence đã commit; không suy ra bằng ID hay thời gian hệ thống. Trigger lặp không tạo thêm hiệu ứng logic. |
-| I11 | Merge chỉ do code thực hiện sau khi kiểm tra quyền, head/base, review và CI. Decider không quyết định merge. |
+| I11 | Effect merge do Cuesura gửi chỉ do code thực hiện sau khi kiểm quyền, head/base, gate/CI, review theo chế độ và approval cho merge; auto-merge luôn cần reviewer approve. Người dùng merge thủ công trên GitHub là thao tác bên ngoài, được đối chiếu bằng chứng riêng; không giả review/approval hoặc gọi guard để gửi merge. Decider và agent không quyết định merge. |
 | I12 | Trạng thái kết thúc không tự mở lại. Retry sau kết thúc tạo task mới có liên kết nguồn; lịch sử task cũ được giữ nguyên. |
 
 ## 5. Mô hình miền và dữ liệu
@@ -119,6 +119,8 @@ Task có `schema_version`, `id`, `title`, `type`, `project`, `base_branch`, `des
 - `acceptance` phải có ít nhất một tiêu chí trước READY. Code kiểm tra cấu trúc và sự hiện diện; việc tiêu chí có đúng ý người dùng được xác nhận bởi người giao hoặc bước refine được cho phép.
 - Metadata riêng của GitHub hay kênh khác nằm trong liên kết nguồn. Context compiler đưa yêu cầu và trích đoạn liên quan cho agent, không đưa token, địa chỉ điều khiển hay cú pháp quản trị của kênh.
 - Dependency phải tồn tại, không tự tham chiếu và không tạo chu trình. Dependency FAILED/CANCELLED làm task phụ thuộc tiếp tục chờ có giải thích; không coi là hoàn thành.
+- Task do assistant tạo mặc định cần xác nhận ở bước intake. Auto-confirm intake và hạn mức tạo task theo client phải do người dùng cấu hình. Xác nhận intake quyết định nhận task, không thay xác nhận cấu hình chạy trước spawn.
+- Một lượt tương tác có thể xác nhận cả intake và cấu hình chạy nếu hiển thị rõ cả hai phạm vi; không bắt người dùng xác nhận hai lần khi bộ task/cấu hình đã được duyệt đầy đủ.
 - Agent nhận task có thể đọc chỉ dẫn `when to use` để đề xuất harness/model/effort và chế độ `direct-pr` hoặc `full-review`; daemon không suy chế độ từ nội dung hay kích thước task. Trước spawn đầu tiên, người dùng phải xác nhận bộ lựa chọn cụ thể, gồm reviewer nếu có. Auto-confirm intake không thay xác nhận cấu hình chạy; xem [hợp đồng chế độ](specs/002-task-to-green-pr/task-execution-modes.md).
 
 ### 5.3 Snapshot và revision
@@ -181,7 +183,7 @@ Một lần hủy chưa thành CANCELLED khi process hoặc merge request vẫn 
 
 Có hai chế độ do người dùng xác nhận trước khi chạy: `direct-pr` không gọi reviewer; `full-review` bắt buộc review trước publish. Không tự chọn theo size XS và không bắt buộc khác vendor/model. Reviewer dùng session riêng, chỉ đọc; approval gắn base SHA/commit SHA cụ thể. Thay đổi code sau review phải gates, commit mới và review lại; publish không commit thêm code sau approval.
 
-Hết quota thì chờ hoặc đề xuất lựa chọn khác để người dùng duyệt, không tự đổi chế độ/binding ngoài bộ đã duyệt. Các vòng sửa trong giới hạn không hỏi lại; đổi chế độ sau khi đã chạy cần task mới trong feature 002. `direct-pr` không cấp quyền merge: mọi chế độ auto-merge trong v1 vẫn cần review approve; feature 002 chỉ quan sát merge thủ công. Xem [hợp đồng chi tiết và tiêu chí kiểm chứng](specs/002-task-to-green-pr/task-execution-modes.md).
+Hết quota thì chờ hoặc đề xuất lựa chọn khác để người dùng duyệt, không tự đổi chế độ/binding ngoài bộ đã duyệt. Các vòng sửa trong giới hạn không hỏi lại; đổi chế độ làm thay đổi graph của task đã chạy nên cần task mới trong toàn bộ v1 theo §5.3. `direct-pr` không cấp quyền merge: mọi chế độ auto-merge trong v1 vẫn cần review approve; feature 002 chỉ quan sát merge thủ công. Xem [hợp đồng chi tiết và tiêu chí kiểm chứng](specs/002-task-to-green-pr/task-execution-modes.md).
 
 Setup, formatter và gate là lệnh từ cấu hình project đáng tin cậy, có thể có side effect. Không mặc định xem mọi shell command là “pure”; chỉ retry tự động khi hợp đồng của lệnh cho phép chạy lại an toàn.
 
@@ -358,7 +360,7 @@ Effect có ID riêng và `idem_key` được tạo từ danh tính thao tác log
 | Setup/gate/autofix | Hợp đồng chạy lại của lệnh; checkpoint và kết quả đã ghi; lệnh không an toàn thì chờ người |
 | Commit | Trailer chứa effect key và nội dung/checkpoint dự kiến |
 | Push | Ref remote và SHA dự kiến; remote ở SHA khác phải reconcile, không force-push mù |
-| Create PR | Repo, head/base branch và marker; phân biệt PR đang mở, đã đóng và đã merge |
+| Create PR | Repo, head/base branch và marker do orchestrator tạo; từ chối namespace marker trong title/body worker, không nhận PR chỉ theo nội dung worker; phân biệt PR đang mở, đã đóng và đã merge |
 | Comment/sync/notify | Marker hoặc khóa dedup phía kênh nếu có; kênh không hỗ trợ probe cần chính sách riêng |
 | Merge | PR state, merge commit, expected head/base và quyền hiện tại |
 | Cleanup | Tồn tại, ownership, trạng thái commit/push và dữ liệu cần bảo toàn |
@@ -391,15 +393,17 @@ Checkpoint trước bước có thể ghi; orchestrator commit thay đổi sau b
 
 ### 14.2 Merge
 
-Protected branches mặc định bao gồm default branch. Mỗi branch đích có một merge queue; ngay trước effect merge phải kiểm tra:
+Protected branches mặc định bao gồm default branch. Phần kiểm tra dưới đây chỉ áp dụng khi **Cuesura gửi effect merge**, không áp dụng để ngăn hoặc phủ nhận merge thủ công đã xảy ra trên GitHub. Mỗi branch đích có một merge queue; ngay trước effect merge phải kiểm tra:
 
-1. Head SHA đúng kết quả kiểm tra và approval đang hiệu lực.
+1. Head SHA đúng kết quả gate/CI và approval cho thao tác merge đang hiệu lực; reviewer approval cùng head bắt buộc khi là `full-review`. `direct-pr` không cần reviewer approval cho merge có người duyệt, nhưng không đủ điều kiện auto-merge.
 2. Head đã bao gồm base tip hiện tại; base đổi thì cập nhật branch, chạy lại gate/review cần thiết và CI.
 3. Required checks đầy đủ và thành công; pending/cancelled/missing/unknown không phải pass.
 4. Auto-merge có reviewer approve và không còn finding nghiêm trọng chưa xử lý.
 5. Quyền merge còn hiệu lực, branch protection thỏa mãn và không có yêu cầu hủy chặn effect chưa gửi.
 
 Local queue chỉ tuần tự hóa merge của Cuesura. Cần expected-head guard và branch protection yêu cầu cập nhật base để chặn race với thay đổi bên ngoài; không thể bảo đảm điều này thì auto-merge bị khóa. Conflict được giao fixer tối đa một lượt mặc định, rồi chờ người.
+
+Người dùng có thể merge thủ công cả PR `direct-pr` lẫn `full-review` trên GitHub theo quyền và branch protection. Cuesura đối chiếu repo/PR/target/head-at-merge rồi hoàn tất theo bằng chứng; không giả review/approval nội bộ hoặc gửi thêm lệnh merge. Nếu head chưa được kiểm đủ theo chế độ, ghi rõ merge chưa chứng nhận. Feature 002 chỉ có đường quan sát này, không gửi effect merge.
 
 **Protected branch có hai chế độ:** `human` duyệt từng PR/head, hoặc `auto` dựa trên quyền yolo do người dùng cấp trước cho repo. Decider không tham gia cả hai chế độ.
 
