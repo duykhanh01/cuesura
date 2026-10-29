@@ -68,6 +68,8 @@ export type EventPayloads = {
     class: FailureClass | null;
     signature: string | null;
     usage: Usage;
+    /** Harness session reported by the run, kept so a repair can resume it (M04); additive. */
+    session_ref?: string | null;
   };
   FailureClassified: {
     step: string;

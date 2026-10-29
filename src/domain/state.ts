@@ -14,6 +14,7 @@ import type {
   OperationOutcome,
   OperationStatus,
   ProcessIdentity,
+  RuntimeLimits,
 } from './runtime.ts';
 
 export const STATE_SCHEMA_VERSION = 1;
@@ -89,6 +90,11 @@ export const DETAIL_CODES = [
   'publish_content_invalid',
   // PR retargeted away from the task's base branch (FR-041.05); additive only.
   'target_mismatch',
+  // PR observation (FR-041.07/08, FR-042.06); additive only.
+  'pr_closed',
+  'observation_unknown',
+  // GitHub reports a merge whose evidence is incomplete (FR-040.12); additive only.
+  'merge_evidence_incomplete',
 ] as const;
 export type DetailCode = (typeof DETAIL_CODES)[number];
 
@@ -131,6 +137,8 @@ export type Attempt = {
   stop_requested: boolean;
   outcome: { class: FailureClass | null; status: string | null; signature: string | null } | null;
   usage: Usage | null;
+  /** Harness session the attempt ran in, when the harness reported one (resume, M04). */
+  session_ref?: string | null;
 };
 
 export type EffectMirror = {
@@ -323,7 +331,17 @@ export type RunState = {
   content: PublishContentState | null;
   reviews: ReviewEvidence[];
   head_drift: HeadDrift | null;
+  /** Daemon caps frozen in the runtime snapshot; null for tasks without one. */
+  limits: RuntimeLimits | null;
+  /** CI wait per head (FR-043.08): first poll time and polls requested; never reset by a recheck. */
+  ci_wait: Record<string, CiWait>;
+  /** What the PR title/body were last written from, and the marker they carry (M05/M07). */
+  pr_body: PrBodyState | null;
 };
+
+export type PrBodyState = { content_digest: string; body_digest: string; operation_key: string; revision: number };
+
+export type CiWait = { started_at: number; polls: number };
 
 /** Projection `TaskState` (data-model.md). `version` tăng mỗi sự kiện (FR-028). */
 export type TaskState = {

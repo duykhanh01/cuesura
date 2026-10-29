@@ -70,6 +70,15 @@ export class FakeGitHub implements GitHubPort {
       this.prs.push(pr);
       return reply(201, this.#pull(pr));
     }
+    const patch = req.method === 'PATCH' ? /\/pulls\/(\d+)$/.exec(req.path) : null;
+    if (patch !== null) {
+      const p = this.prs.find((x) => x.number === Number(patch[1]));
+      if (p === undefined) return Promise.resolve(err({ reason: 'http_error', status: 404, detail: 'HTTP 404', retry_after_ms: null }));
+      const b = req.body as { title?: string; body?: string };
+      if (b.title !== undefined) p.title = b.title;
+      if (b.body !== undefined) p.body = b.body;
+      return reply(200, this.#pull(p));
+    }
     if (req.method !== 'GET') return Promise.resolve(err({ reason: 'not_allowed', status: null, detail: 'unexpected write', retry_after_ms: null }));
     if (req.path === `${r}/pulls`) {
       const head = (req.query['head'] ?? '').split(':')[1];

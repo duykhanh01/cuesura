@@ -11,13 +11,15 @@ import { requestEffect, requestReconcile } from './effects.ts';
 import { IdPoolExhausted } from './ids.ts';
 import { onConfigChecked, onDependencyStatus, onConfirmTask, onCreateTask, onSourceUpdated } from './intake.ts';
 import { onDrainResult, settleCompletion } from './drain.ts';
-import { onExternalCompletion, onObservationResult } from './external-completion.ts';
+import { onExternalCompletion } from './external-completion.ts';
+import { onObservationDue, onObservationResult } from './observation.ts';
 import { onEffectResult, proceed } from './interpreter.ts';
 import { askHuman, onAnswer, onApprovalDecision } from './questions.ts';
 import { onReconciled } from './reconcile.ts';
 import { onDriftChoice, settleDrift } from './revision.ts';
 import { onGrantExecution, onIngestRecord, onOperationResult, onReleaseExecution, onRequestExecution, settleSlot } from './runtime.ts';
 import { onStart } from './start.ts';
+import { onRecheck } from './recheck.ts';
 import { waitPolicy } from './waits.ts';
 import { onHeadDrift } from './head-drift.ts';
 import { onConfirmRunConfig, onProposeRunConfig } from './run-config.ts';
@@ -90,6 +92,7 @@ function dispatch(ctx: Ctx, t: Trigger): void {
     'ingest_record',
     'propose_run_config',
     'confirm_run_config',
+    'recheck',
   ].includes(t.kind);
   if (needsPolicy && (ctx.policy === null || ctx.state.policy_ref === null)) reject('invalid_trigger', { reason: 'not_started' });
 
@@ -176,10 +179,11 @@ function dispatch(ctx: Ctx, t: Trigger): void {
     case 'head_drift':
       onHeadDrift(ctx, t);
       return;
-    // Observation scheduling and recheck handlers land with US2/US5 (T059, T062, T102).
     case 'observation_due':
+      onObservationDue(ctx, t);
+      return;
     case 'recheck':
-      reject('invalid_trigger', { reason: 'not_supported_yet', trigger_kind: t.kind });
+      onRecheck(ctx, t);
       return;
     default:
       assertNever(t);

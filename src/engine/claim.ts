@@ -11,6 +11,7 @@ export type ClaimBlockReason =
   | 'legacy_task'
   | 'completion'
   | 'head_changed'
+  | 'merge_evidence_incomplete'
   | 'run_config_unconfirmed';
 
 /** The 002 daemon only dispatches tasks that carry a runtime snapshot; 001 callers keep the old rules. */
@@ -41,6 +42,8 @@ export function claimable(state: TaskState, effect: ClaimTarget, now: number, op
   if (isTerminal(state.status)) return { ok: false, reason: 'terminal' };
   // An unexpected remote head blocks every business effect, publishes already enqueued included (H02).
   if (state.run.head_drift !== null) return { ok: false, reason: 'head_changed' };
+  // A merge GitHub reported without an accepted proof holds enqueued business effects until reconciled (FR-040.12).
+  if (state.blockers.some((b) => b.code === 'merge_evidence_incomplete')) return { ok: false, reason: 'merge_evidence_incomplete' };
   if (state.cancellation !== null) return { ok: false, reason: 'cancelling' };
   if (effect.revision !== state.revision) return { ok: false, reason: 'stale_revision' };
   if (state.source_drift !== null) return { ok: false, reason: 'source_drift' };

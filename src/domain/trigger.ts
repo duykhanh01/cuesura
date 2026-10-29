@@ -88,6 +88,10 @@ export const AgentDataSchema = z
     invoked: z.boolean().optional(),
     // Worker-prepared commit/PR content, validated and stored by the orchestrator (M05); additive.
     content: z.object({ digest: HashSchema, ref: z.string().min(1) }).strict().optional(),
+    // Harness session of this run, and whether it resumed an earlier one or fell back (M04); additive.
+    session_ref: z.string().min(1).nullable().optional(),
+    resumed: z.boolean().optional(),
+    resume_fallback: z.string().min(1).optional(),
   })
   .strict();
 
@@ -151,7 +155,30 @@ export const RerunDataSchema = z
   .object({ head_sha: z.string().min(1), rerun_checks: z.array(z.string()) })
   .strict();
 
-export const CreatePrDataSchema = z.object({ pr_ref: z.string().min(1), head_sha: z.string().min(1), body_digest: z.string().min(1).optional() }).strict();
+export const CreatePrDataSchema = z
+  .object({
+    pr_ref: z.string().min(1),
+    head_sha: z.string().min(1),
+    body_digest: z.string().min(1).optional(),
+    /** Content and marker the title/body were written from, so a later content change updates the same PR. */
+    pr_body: z.object({ content_digest: z.string().min(1), body_digest: z.string().min(1), operation_key: z.string().min(1), revision: z.number().int().positive() }).strict().optional(),
+  })
+  .strict();
+
+/** Result of comparing GitHub's required checks with the snapshot (engine/required-checks.ts). */
+export const RequiredCheckVerdictSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('covered'), github_required: z.enum(['known', 'none']), github: z.array(z.string()), snapshot_only: z.array(z.string()) }).strict(),
+  z
+    .object({
+      kind: z.literal('required_checks_mismatch'),
+      missing_from_snapshot: z.array(z.string()),
+      app_pinned: z.array(z.object({ name: z.string(), app: z.union([z.literal('any'), z.number().int().positive()]), source: z.enum(['classic', 'rules']), ruleset_id: z.number().int().positive().nullable() }).strict()),
+      snapshot_only: z.array(z.string()),
+    })
+    .strict(),
+  z.object({ kind: z.literal('unknown'), basis: z.string() }).strict(),
+]);
+export type RequiredCheckVerdict = z.infer<typeof RequiredCheckVerdictSchema>;
 
 export const AwaitCiDataSchema = z
   .object({
@@ -163,6 +190,10 @@ export const AwaitCiDataSchema = z
     target_ref: z.string().min(1).optional(),
     /** The PR was already merged into `target_ref`: re-observing cannot fix it. */
     target_merged: z.boolean().optional(),
+    /** The PR was seen closed without a merge (FR-041.07); absent means open. */
+    pr_state: z.enum(['open', 'closed']).optional(),
+    /** GitHub's requirement compared to the frozen snapshot (FR-042); absent for legacy data. */
+    required: RequiredCheckVerdictSchema.optional(),
   })
   .strict();
 
@@ -306,7 +337,17 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
   z
     .object({ kind: z.literal('observation_due'), subject: ExternalSubjectSchema.optional() })
     .strict(),
-  z.object({ kind: z.literal('observation_result'), observation: ObservationSchema, remote_digest: HashSchema }).strict(),
+  z
+    .object({
+      kind: z.literal('observation_result'),
+      observation: ObservationSchema,
+      remote_digest: HashSchema,
+      /** CI of the observed head when the PR is open, read in the same round (FR-041.06); additive. */
+      ci: AwaitCiDataSchema.optional(),
+      /** The branch the PR targets when it is not the task's target, and whether it merged there (FR-041.05); additive. */
+      target: z.object({ ref: z.string().min(1), merged: z.boolean() }).strict().optional(),
+    })
+    .strict(),
   z
     .object({ kind: z.literal('external_completion'), proof: MergeProofSchema, unverified_reason: z.string().min(1).nullable() })
     .strict(),

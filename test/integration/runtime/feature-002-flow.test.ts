@@ -23,6 +23,7 @@ import { FakeGitHub } from '../../support/fake-github.ts';
 import { gitSandbox } from '../../support/git-repo.ts';
 import { confirmedRuntime, proposeAndConfirm, selectionFor } from '../../support/runtime.ts';
 import type { ExecutionMode } from '../../../src/domain/run-config.ts';
+import type { CiRule } from '../../../src/domain/policy.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 import { dbPath, useTempDir } from '../../support/temp-db.ts';
 
@@ -56,7 +57,24 @@ function contentFile(text: string): string {
   return m[1] as string;
 }
 
-function setup(task: CanonicalTask, o: { mode: ExecutionMode; content?: Content | null | ((file: string) => void); template?: string; merge_method?: MergeMethod; duringReview?: (remote: string) => void }) {
+type SetupOptions = {
+  mode: ExecutionMode;
+  content?: Content | null | ((file: string) => void);
+  template?: string;
+  merge_method?: MergeMethod;
+  duringReview?: (remote: string) => void;
+  /** One entry per worker run: the content it writes, in order (default: one run with `content`). */
+  runs?: readonly Content[];
+  /** The fake harness proves resume and reports a session per run (a session port for tests only). */
+  resume?: boolean;
+  /** Check states of each pushed SHA, in push order (default: all green). */
+  checks?: readonly Record<string, 'success' | 'failure'>[];
+  ci_rules?: CiRule[];
+  /** Reviewer approvals scripted in `full-review` (default 1). */
+  reviews?: number;
+};
+
+function setup(task: CanonicalTask, o: SetupOptions) {
   const project = g.repo(`acme${n++}`);
   const base = g.sh(project, 'rev-parse', 'HEAD');
   const remote = `${project}.remote.git`;
@@ -67,27 +85,31 @@ function setup(task: CanonicalTask, o: { mode: ExecutionMode; content?: Content 
   github.headOf = (branch) => {
     try {
       const sha = g.sh(remote, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`);
-      // Checks of whatever head gets pushed come back green.
-      github.checks.set(sha, { build: 'success', test: 'success' });
+      // Checks of whatever head gets pushed come back green, unless the test scripted them per push.
+      if (!github.checks.has(sha)) github.checks.set(sha, o.checks?.[github.checks.size] ?? { build: 'success', test: 'success' });
       return sha;
     } catch {
       return null;
     }
   };
   const paths = { worktrees: join(data, 'worktrees'), markers: join(data, 'owners'), intents: join(data, 'intents'), scratch: join(data, 'scratch'), content: join(data, 'content') };
-  const coder = new FakeHarness({ coder: [{ kind: 'result', value: { schema_version: 1, status: 'done', summary: 'added search', questions: [], blocker: null } }] }, 'claude');
+  const runs = o.runs ?? [o.content ?? CONTENT];
+  const answers = runs.map((_, i) => ({ kind: 'result' as const, value: { schema_version: 1, status: 'done', summary: i === 0 ? 'added search' : `fix ${i}`, questions: [], blocker: null }, ...(o.resume === true ? { session_ref: `sess-${i + 1}` } : {}) }));
+  const coder = new FakeHarness({ coder: answers }, 'claude', o.resume === true ? { resume: 'proven' } : {});
   // The fake model edits the worktree and writes its commit/PR content where it was told to.
   const claude: HarnessPort = {
     harness: 'claude',
     manifest: coder.manifest,
     run: (input, signal) => {
-      writeFileSync(join(paths.worktrees, task.id, 'search.ts'), 'export const search = (q: string) => q;\n');
+      const k = coder.calls.length;
+      writeFileSync(join(paths.worktrees, task.id, 'search.ts'), `export const search = (q: string) => q;${k === 0 ? '' : ` // fix ${k}`}\n`);
       if (typeof o.content === 'function') o.content(contentFile(input.context.text));
-      else if (o.content !== null) writeFileSync(contentFile(input.context.text), JSON.stringify(o.content ?? CONTENT));
+      else if (o.content !== null) writeFileSync(contentFile(input.context.text), JSON.stringify(runs[k] ?? runs.at(-1)));
       return coder.run(input, signal);
     },
   };
-  const reviewer = new FakeHarness({ reviewer: o.mode === 'full-review' ? [{ kind: 'result', value: { schema_version: 1, verdict: 'approve', summary: 'looks right', findings: [] } }] : [] }, 'codex');
+  const approve = { kind: 'result' as const, value: { schema_version: 1, verdict: 'approve', summary: 'looks right', findings: [] } };
+  const reviewer = new FakeHarness({ reviewer: o.mode === 'full-review' ? Array.from({ length: o.reviews ?? 1 }, () => approve) : [] }, 'codex');
   const codex = Object.assign(reviewer, {
     run: ((orig) => (input: Parameters<HarnessPort['run']>[0], signal: AbortSignal) => {
       o.duringReview?.(remote);
@@ -116,7 +138,7 @@ function setup(task: CanonicalTask, o: { mode: ExecutionMode; content?: Content 
   dispatcher = new Dispatcher({ store: d.store, clock, handlers: buildHandlers(deps), newId });
 
   const start = (): void => {
-    const frozen = freezeOk(task, { base_sha: base, gates: { build: 'true', unit: 'true', lint: 'true', format_fix: 'true' }, required_checks: ['build', 'test'], limits: { max_wall_ms: 3_600_000 }, mode: o.mode });
+    const frozen = freezeOk(task, { base_sha: base, gates: { build: 'true', unit: 'true', lint: 'true', format_fix: 'true' }, required_checks: ['build', 'test'], limits: { max_wall_ms: 3_600_000 }, mode: o.mode, ...(o.ci_rules === undefined ? {} : { ci_rules: o.ci_rules }) });
     proposeAndConfirm(d, task, selectionFor(task, o.mode, frozen.value.policy));
     d.must(task.id, { kind: 'request_execution' });
     const granted = d.store.grantNext(d.now as EpochMs, [newId()]);
@@ -246,12 +268,13 @@ describe.each(['full-review', 'direct-pr'] as const)('feature 002 flow in %s: ta
     const s = d.task(task.id);
     expect(s).toMatchObject({ status: 'WAITING', wait: { reason: 'policy', resume_when: ['amend'], exit_paths: ['cancel'], detail: { code: 'target_mismatch', expected: task.base_branch, observed: 'other', merged: true } } });
     expect(s.completion).toBeNull();
-    expect(s.observation).toBeNull();
+    expect(s.observation?.last?.status).toBe('unknown');
     expect(types(d, task)).not.toContain('CiResultRecorded');
     expect(Object.values(s.timers).filter((t) => t.status === 'armed' && t.kind === 'ci_poll')).toEqual([]);
     // A later observation still reports the mismatch, never a merge proof for the task's target.
     const again = await observeTask(deps, task.id, 'obs:2');
-    expect(again.extra).toEqual([]);
+    expect(again.extra).toMatchObject([{ kind: 'observation_result', target: { ref: 'other', merged: true } }]);
+    expect(again.extra.map((f) => f.kind)).not.toContain('external_completion');
     expect(again.outcome).toMatchObject({ outcome: 'succeeded', data: { target_ref: 'other', target_merged: true } });
   });
 
@@ -355,3 +378,77 @@ describe('remote drift while the reviewer reads A (T137, H01/H03, real Git)', ()
   });
 });
 
+
+// T064 (US2.3, US1.7, M04/M05/M06/M07): a CI failure on the published head goes through the repair loop
+// on the same worktree, gates → checkpoint commit → (review) → fast-forward push of the new commit, the
+// same PR gets the newer title/body, and only CI of the new head makes it green. Resume is decided with
+// the fake session port; that is not evidence of a real harness resume (T138).
+const FIXED: Content = { commit_message: 'Handle empty query\n\nCI test failed on an empty query.', pr_title: 'Add name search (empty query)', pr_body: '## Summary\nSearch by name, empty query handled.\n\n## Tests\nunit' };
+
+describe.each(['full-review', 'direct-pr'] as const)('feature 002 repair flow in %s (T064)', (mode) => {
+  async function settleWithSlot(d: StoreDriver, settle: () => Promise<void>): Promise<void> {
+    for (let i = 0; i < 6; i++) {
+      await settle();
+      if (d.task(d.store.taskIdsByStatus(['WAITING', 'RUNNING'])[0] as never)?.wait?.detail.code !== 'execution_slot') return;
+      d.store.grantNext(d.now as EpochMs, [uuidOf(30_000 + i * 4), uuidOf(30_001 + i * 4), uuidOf(30_002 + i * 4), uuidOf(30_003 + i * 4)]);
+    }
+  }
+
+  it.each([true, false])('CI code failure → fix on the same worktree → same PR updated → green on the new head (resume proven: %s)', async (resume) => {
+    const task = buildTask();
+    const { d, deps, github, remote, start, settle, codex, coder, worktree } = setup(task, {
+      mode,
+      reviews: 2,
+      runs: [CONTENT, FIXED],
+      resume,
+      checks: [{ build: 'success', test: 'failure' }],
+      ci_rules: [{ match: { check: 'test' }, class: 'code' }],
+    });
+    d.must(task.id, { kind: 'create_task', task });
+    start();
+    await settleWithSlot(d, settle);
+    const s = d.task(task.id);
+    expect(s).toMatchObject({ status: 'WAITING', wait: { reason: 'approval', detail: { code: 'merge' } } });
+    expect(coder.calls).toHaveLength(2);
+    const [first, second] = [s.evidence.publishes[0]?.head_sha, s.evidence.publishes[1]?.head_sha];
+    expect(first).toBeDefined();
+    expect(second).toBe(s.run.checkpoint?.sha);
+    expect(second).not.toBe(first);
+    // Fast-forward only: the first head is an ancestor of the second; one branch, one PR.
+    g.sh(worktree, 'merge-base', '--is-ancestor', first ?? '', second ?? '');
+    const branches = g.sh(remote, 'for-each-ref', '--format=%(refname:short)', 'refs/heads/cusr/');
+    expect(branches.split('\n')).toHaveLength(1);
+    expect(g.sh(remote, 'rev-parse', branches)).toBe(second);
+    expect(g.sh(worktree, 'log', '-1', '--format=%B', second ?? '')).toBe(FIXED.commit_message);
+    expect(github.prs).toHaveLength(1);
+    expect(github.calls.filter((c) => c === `POST repos/${github.repo}/pulls`)).toHaveLength(1);
+    expect(github.calls.filter((c) => c.startsWith('PATCH '))).toHaveLength(1);
+    expect(github.prs[0]).toMatchObject({ title: FIXED.pr_title, head: { sha: second } });
+    expect(github.prs[0]?.body.startsWith(FIXED.pr_body)).toBe(true);
+    expect(github.prs[0]?.body.match(/<!-- cusr:/g)).toHaveLength(1);
+    // The repair context carried the failing CI check of the first head and the reconciled state.
+    const ctx = coder.calls[1]?.context.text ?? '';
+    expect(ctx).toContain('test');
+    expect(ctx).toContain(first ?? '');
+    // Resume: only with a proven session capability, on the same binding; otherwise a new session with a reason.
+    const fix = Object.values(s.attempts).find((a) => a.step === 'ci_fix');
+    const fixEffect = d.store
+      .readEvents(task.id)
+      .map((e) => e.payload as { effect_id?: string; result?: unknown })
+      .find((p) => p.effect_id === fix?.effect_id && p.result !== undefined);
+    if (resume) {
+      expect(coder.calls[1]?.session).toEqual({ ref: 'sess-1' });
+      expect(fixEffect?.result).toMatchObject({ resumed: true, session_ref: 'sess-2' });
+    } else {
+      expect(coder.calls[1]?.session).toBeNull();
+      expect(fixEffect?.result).toMatchObject({ resumed: false, resume_fallback: 'no_session' });
+    }
+    if (mode === 'full-review') expect(s.run.reviews.filter((r) => r.verdict === 'approve').map((r) => r.sha)).toEqual([first, second]);
+    else expect(codex.calls).toEqual([]);
+    // CI of the old head is history; the merge of the new head is verified.
+    github.merge(7, 'e'.repeat(40));
+    const seen = await observeTask(deps, task.id, 'obs:merge');
+    for (const t of seen.extra) d.must(task.id, t);
+    expect(d.task(task.id)).toMatchObject({ status: 'DONE', completion: { unverified: null, proof: { merged_head_sha: second, checked_head_sha: second } } });
+  });
+});

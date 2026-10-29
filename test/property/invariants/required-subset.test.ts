@@ -136,3 +136,18 @@ describe('required checks subset G ⊆ S (FR-042)', () => {
     );
   });
 });
+
+describe('required checks under permutations (T050, FR-042.03)', () => {
+  it('the verdict does not depend on the order GitHub lists requirements in, nor on the snapshot order', () => {
+    fc.assert(
+      fc.property(knownOrNoneArb, fc.array(nameArb, { maxLength: 5 }), fc.integer(), (evidence, snapshot, seed) => {
+        if (evidence.kind === 'unknown') return;
+        const shuffle = <T>(xs: readonly T[]): T[] => xs.map((x, i) => [x, (seed * 31 + i * 17) % 97] as const).sort((a, b) => a[1] - b[1]).map(([x]) => x);
+        const a = evaluateRequired(evidence, snapshot);
+        const b = evaluateRequired({ ...evidence, identities: shuffle(evidence.identities) }, shuffle(snapshot));
+        expect(b).toEqual(a);
+      }),
+      propertyParams(200),
+    );
+  });
+});

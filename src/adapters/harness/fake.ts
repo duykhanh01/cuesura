@@ -41,7 +41,7 @@ export class FakeHarnessError extends Error {
 
 const UNAVAILABLE: Usage = { basis: 'unavailable' };
 
-export function fakeCapabilityManifest(): CapabilityManifest {
+export function fakeCapabilityManifest(o: { resume?: 'proven' | 'unknown' | 'unsupported' } = {}): CapabilityManifest {
   const fake = hashText('cusr fake harness');
   const body = {
     schema_version: RUNTIME_SCHEMA_VERSION,
@@ -55,7 +55,7 @@ export function fakeCapabilityManifest(): CapabilityManifest {
       permission_enforced: 'unknown' as const,
       private_home_auth: 'unknown' as const,
       cost_reporting: 'unknown' as const,
-      resume: 'unknown' as const,
+      resume: o.resume ?? ('unknown' as const),
     },
     native_result: 'not_tried' as const,
     selected_inner_mode: null,
@@ -80,12 +80,14 @@ function rawDigest(value: unknown): Hash | null {
 
 export class FakeHarness implements HarnessPort {
   readonly harness: string;
-  readonly manifest: CapabilityManifest = fakeCapabilityManifest();
+  readonly manifest: CapabilityManifest;
   readonly calls: HarnessInput[] = [];
   readonly #queues: Map<Role, FakeStep[]>;
 
-  constructor(script: FakeScript, harness = 'fake') {
+  /** `resume: 'proven'` is a fake session port for tests of the resume decision, never vendor evidence. */
+  constructor(script: FakeScript, harness = 'fake', o: { resume?: 'proven' | 'unknown' | 'unsupported' } = {}) {
     this.harness = harness;
+    this.manifest = fakeCapabilityManifest(o);
     this.#queues = new Map(Object.entries(script).map(([role, steps]) => [role as Role, [...steps]]));
   }
 

@@ -3,7 +3,7 @@ import type { CanonicalTask } from '../../src/domain/task.ts';
 import type { FrozenPolicy } from '../../src/domain/policy.ts';
 import { selectionDigest, type ExecutionMode, type RunSelection } from '../../src/domain/run-config.ts';
 import type { Hash, Uuid } from '../../src/shared/brand.ts';
-import { buildPolicy, freezeOk, ownerAuthz } from './builders.ts';
+import { buildPolicy, freezeOk, ownerAuthz, type PolicyOptions } from './builders.ts';
 import type { StoreDriver } from './store-driver.ts';
 
 /** A valid 002 runtime snapshot for `task`, matching `freezeOk(task)` (base `base0000`). */
@@ -68,13 +68,19 @@ export function confirmedRuntime(d: StoreDriver, task: CanonicalTask, over: Part
 }
 
 /** create → confirm a run selection → queue → grant → start with a runtime snapshot; returns the granted request ID. */
-export function createGrantStart(d: StoreDriver, task: CanonicalTask, mode: ExecutionMode = 'full-review'): string {
+export function createGrantStart(
+  d: StoreDriver,
+  task: CanonicalTask,
+  mode: ExecutionMode = 'full-review',
+  policy: Pick<PolicyOptions, 'limits' | 'ci_rules' | 'required_checks'> = {},
+  runtime: Partial<Omit<FrozenRuntimeContext, 'runtime_hash'>> = {},
+): string {
   d.must(task.id, { kind: 'create_task', task });
   proposeAndConfirm(d, task, selectionFor(task, mode));
   d.must(task.id, { kind: 'request_execution' });
   const g = d.store.grantNext(d.now as never);
   if (!g.ok || g.value.kind !== 'decided' || g.value.outcome.decision.kind !== 'accepted') throw new Error(`grant failed: ${JSON.stringify(g)}`);
-  d.must(task.id, { kind: 'start', freeze: freezeOk(task, { limits: { max_wall_ms: 3_600_000 }, mode }), runtime: confirmedRuntime(d, task) });
+  d.must(task.id, { kind: 'start', freeze: freezeOk(task, { ...policy, limits: { max_wall_ms: 3_600_000, ...policy.limits }, mode }), runtime: confirmedRuntime(d, task, runtime) });
   return g.value.request_id;
 }
 

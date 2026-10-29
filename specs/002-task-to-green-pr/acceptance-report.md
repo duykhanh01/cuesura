@@ -63,3 +63,55 @@ trỏ tới test đã chạy lại sau đối chiếu.
   lệnh setup chưa có trong snapshot nên `prepare` báo `setup.ran=false`; `reconcile` luôn
   `still_unknown` tới T090.
 - Real harness/resume session (T138), tổng hợp M01–M08/H01–H06 (T139), smoke thật (Phase 10).
+
+# Nghiệm thu Phase 4 — US2 vòng sửa, giới hạn CI và quan sát PR (T064)
+
+Ngày chạy: 2026-10-29, nhánh `claude/hopeful-wozniak-0psgls`. Fake harness (kể cả session port giả),
+fake GitHub/`gh api` fixture, Clock do test điều khiển; Git thật ở flow test. Không có tài khoản/model
+thật, không publish PR thật. Fake session port không phải bằng chứng resume của harness thật (T138);
+M01–M08 được kiểm lại ở T139 sau adapter thật US4.
+
+Lệnh: `pnpm typecheck`, `pnpm lint` sạch. `pnpm test`: mọi test Phase 4 pass; hai test đã đỏ trên
+`main` trước thay đổi này trong môi trường chạy (container root, Node 22.22 thay vì 24.22.1) vẫn đỏ, không
+liên quan: `test/unit/runner/sandbox.test.ts` “refuses a parent of the host home” (HOME=/root) và
+`test/integration/runtime/daemon-control.test.ts` “keeps replaying a success stored by a daemon before the ledger kept outcomes”.
+
+## US2 và các FR
+
+| Kịch bản | Bằng chứng | Kết quả |
+| --- | --- | --- |
+| US2.1 gate fail → fixer nhận log/acceptance, gate chạy lại trước review, không publish | `feature-002-fixes.test.ts` “US2.1” | Đạt (engine/SQLite) |
+| US2.2 request_changes → fixer → gate → checkpoint commit mới → review mới trước publish | `feature-002-fixes.test.ts` “US2.2”; property `runtime-evidence.test.ts` (một lượt reviewer cho mỗi input khác nhau) | Đạt |
+| US2.3 CI lỗi code → sửa trên worktree → cùng PR, mô tả cập nhật; CI head cũ không làm head mới xanh | `feature-002-fixes.test.ts` “US2.3”; `feature-002-flow.test.ts` “repair flow” (Git thật, cả hai mode: push fast-forward, một branch/PR, PATCH title/body một lần, merge head mới verified) | Đạt |
+| US2.4 infra/flaky rerun trong giới hạn, không nâng model; chưa phân loại → chờ | `feature-002-fixes.test.ts` “US2.4” ×2; `github-observation.test.ts` (rerun POST một lần, mất trả lời → unknown) | Đạt |
+| US2.5 hết lượt → không attempt, hiện giới hạn | `feature-002-fixes.test.ts` “US2.5” | Đạt |
+| US2.6 G⊆S, mismatch nêu hai phía, unknown → infra, none hợp lệ | `feature-002-fixes.test.ts` “required checks” ×3; property `required-subset.test.ts` (thêm hoán vị); `github-observation.test.ts` (rules 403 → unknown) | Đạt |
+| US2.7 head ngoài → head_changed; base tip đơn lẻ (H06) giữ evidence; GitHub thêm check ngoài snapshot → thu hồi, bao phủ lại → xanh | `feature-002-fixes.test.ts` “US2.7” ×3 | Đạt |
+| US2.8 check rerun pending/fail thu hồi xanh → CI/vòng sửa; PR đóng → pr_closed, không PR mới; mở lại → đối chiếu lại | `feature-002-fixes.test.ts` “US2.8” ×2 | Đạt |
+| US2.9 hết cửa sổ CI theo head → ci_wait_exhausted; CI pass muộn chỉ là bằng chứng; merge vẫn DONE | `feature-002-fixes.test.ts` “US2.9” | Đạt |
+| US2.10 hết deadline khi chờ merge → chặn việc mới, quan sát tiếp, merge sau đó DONE | `feature-002-fixes.test.ts` “US2.10” | Đạt |
+| US2.11 hết hạn quan sát → observation_expired, ngừng poll; recheck một lượt, không bật lại lịch; merge thấy qua recheck → DONE | `feature-002-fixes.test.ts` “observation window”; `observation-limits.test.ts` (hết hạn không I/O, cả sau restart); property `runtime-limits.test.ts` | Đạt |
+| US1.7 PR xanh rồi head/required đổi | như US2.7/US2.8 | Đạt (engine) |
+| US1.9 đường fixer/deadline | `feature-002-fixes.test.ts` “US1.9”; recheck drain sau deadline | Đạt (engine) |
+| US1.11 deadline thực khi sửa | `scheduler.test.ts` (Phase 3) + “US1.9” | Đạt (engine) |
+| SC-003 phân loại/giới hạn: invalid output repair + phiên mới, rate limit tính lượt, auth/refusal chờ người | `feature-002-fixes.test.ts` “SC-003”, “auth and refusal” | Đạt (fake) |
+| SC-010 thu hồi xanh và quan sát qua PR đóng/hết CI/deadline | các dòng US2.7–US2.11 | Đạt (fake); explain ở T106/T120 |
+| FR-043.05 không chuỗi poll trùng, restart không reset | `feature-002-fixes.test.ts` (generation cũ bị bỏ qua, replay giữ cửa sổ); `observation-limits.test.ts` (gộp lượt đọc cùng task) | Đạt |
+| FR-046 recheck: operate, dedup, config/observation/drain, terminal chỉ ghi log | `feature-002-fixes.test.ts` “recheck service” ×3 | Đạt (service + fake ports); route CLI ở T110 |
+| FR-026 source drift ở ranh giới runtime | `feature-002-fixes.test.ts` “source drift at the runtime boundary” | Đạt; áp revision mới cho task runtime bị từ chối (cần task mới) |
+
+## Cập nhật M/H
+
+| Mã | Thêm ở Phase 4 | Còn chờ |
+| --- | --- | --- |
+| M04 | Quyết định resume: chỉ resume session worker cùng binding khi harness chứng minh resume; không thì phiên mới kèm lý do (`no_session`, `binding_changed`, `fresh_session_requested`, `resume_unknown`); packet sửa luôn dựng đủ (flow test hai nhánh) | Resume harness thật T138 |
+| M05/M07 | Sau sửa, nội dung worker mới cập nhật title/body của chính PR (đọc trước/PATCH/đọc lại), giữ marker; body bị sửa trên GitHub → chờ người | Output harness thật (US4) |
+| M06 | Push fast-forward checkpoint mới sau sửa, head cũ là tổ tiên | Crash I/O T082/T093 |
+| H06 | Base tip đổi đơn lẻ không thu hồi review/evidence, không gọi fixer/gate | — |
+
+## Chưa làm ở Phase 4
+
+- Vòng lặp `cusrd` chưa chạy service quan sát/recheck (cùng tình trạng scheduler/drain/handler ở Phase 3);
+  route CLI `task recheck` thuộc T110.
+- Cache 304 của T061 chưa làm: service không gửi request có điều kiện, nên không có cache để dùng lại.
+- Chi tiết chờ hết deadline vẫn dùng mã `deadline` của lõi 001; spec gọi là `task_deadline`.

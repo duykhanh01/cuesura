@@ -1,4 +1,3 @@
-import { DEFAULT_RUNTIME_LIMITS } from '../domain/runtime.ts';
 import type { Trigger } from '../domain/trigger.ts';
 import { invalidatePending } from './cancel.ts';
 import { reject, type Ctx } from './context.ts';
@@ -6,6 +5,7 @@ import { startDrain } from './drain.ts';
 import { reviewOf } from './head-evidence.ts';
 import { ciVerdict, latestCi } from './merge-guard.ts';
 import { mkWait, waitTask } from './waits.ts';
+import { waitObservationExpired } from './observation.ts';
 
 /**
  * External confirmation (T045, FR-021, FR-040.01–03/10–15, research R-02). A runtime (002) task never
@@ -24,6 +24,8 @@ export function externalConfirmation(ctx: Ctx): boolean {
 
 /** The merge gate of a runtime task: wait for the merge on GitHub; no approval request, no merge effect. */
 export function waitForExternalMerge(ctx: Ctx, step: string): void {
+  // With the observation window spent, nothing would notice the merge: only a recheck observes (FR-043.06).
+  if (ctx.state.observation?.expired === true) return waitObservationExpired(ctx, null);
   waitTask(
     ctx,
     mkWait('approval', 'merge', {
@@ -88,31 +90,4 @@ export function onExternalCompletion(ctx: Ctx, t: ExternalCompletion): void {
     }),
   });
   startDrain(ctx);
-}
-
-type ObservationResult = Extract<Trigger, { kind: 'observation_result' }>;
-
-/**
- * Records one observation of the task's PR. The first one opens the observation window with the default
- * runtime caps; budgets, cadence and expiry belong to the observation service (T059). A merge proof is
- * accepted later only for an observation recorded here with status `merged`.
- */
-export function onObservationResult(ctx: Ctx, t: ObservationResult): void {
-  const s = ctx.state;
-  const o = t.observation;
-  if (s.pr_ref === null) reject('invalid_trigger', { reason: 'no_pr' });
-  if (o.subject.target_ref !== s.task.base_branch) reject('invalid_trigger', { reason: 'observation_target_mismatch', target: o.subject.target_ref });
-  if (s.observation !== null && JSON.stringify(s.observation.subject) !== JSON.stringify(o.subject)) reject('invalid_trigger', { reason: 'observation_subject_mismatch' });
-  if (s.observation === null) {
-    ctx.emit('ObservationScheduled', {
-      subject: o.subject,
-      started_at: ctx.now,
-      deadline_at: ctx.now + DEFAULT_RUNTIME_LIMITS.observation_max_ms,
-      max_count: DEFAULT_RUNTIME_LIMITS.observation_max_rounds,
-      next_due_at: ctx.now,
-      cadence_index: 0,
-      generation: o.generation,
-    });
-  }
-  ctx.emit('ExternalStateObserved', { observation: o, remote_digest: t.remote_digest });
 }

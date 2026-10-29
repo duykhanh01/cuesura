@@ -17,6 +17,7 @@ import {
   ReviewDataSchema,
   StopDataSchema,
   type FailureData,
+  type RequiredCheckVerdict,
   type Trigger,
 } from '../domain/trigger.ts';
 import {
@@ -41,6 +42,7 @@ import { ciVerdict, latestCi, mergeGuard, type GuardFailure } from './merge-guar
 import { askHuman, requestApproval } from './questions.ts';
 import { settleUnderDrift } from './head-drift.ts';
 import { deferForDrift } from './revision.ts';
+import { waitMergeEvidence, waitPrClosed } from './observation.ts';
 import { reusableReview, reviewInputDigest } from './review-evidence.ts';
 import { confirmedChoices } from './run-config.ts';
 import { ensureRunning, mkWait, waitPolicy, waitTask } from './waits.ts';
@@ -63,6 +65,17 @@ export function proceed(ctx: Ctx, action: ResumeAction, reason = 'continue'): vo
   if (s.completion !== null) return;
   // An unexpected remote head holds everything until reconciled; a late callback is not an exit (H01).
   if (s.run.head_drift !== null) return;
+  // A PR closed without a merge holds business work until it is reopened; no replacement PR (FR-041.07).
+  if (s.runtime_ref !== null && s.observation?.last?.status === 'closed' && !s.observation.expired) {
+    waitPrClosed(ctx, action);
+    return;
+  }
+  // GitHub reported a merge whose proof was not accepted: nothing resumes until it is reconciled, even
+  // after a later read failed or showed something else (FR-040.12).
+  if (s.runtime_ref !== null && s.blockers.some((b) => b.code === 'merge_evidence_incomplete')) {
+    waitMergeEvidence(ctx, action);
+    return;
+  }
   if (s.source_drift !== null) {
     deferForDrift(ctx, action);
     return;
@@ -347,7 +360,14 @@ function runAction(ctx: Ctx, step: string, def: StepDef, visit: number): void {
       requestEffect(ctx, { kind: 'publish', logical_id: `${step}#${visit}`, step, request: publishRequest(ctx, visit) });
       return;
     case 'github.create_pr':
-      if (s.pr_ref !== null) return skip(ctx, step, 'pr_exists');
+      if (s.pr_ref !== null) {
+        // The same PR keeps its marker; only its title/body follow newer worker content (M05/M07).
+        const content = s.run.content?.digest ?? null;
+        const pb = s.run.pr_body;
+        if (s.runtime_ref === null || pb === null || content === null || content === pb.content_digest) return skip(ctx, step, 'pr_exists');
+        requestEffect(ctx, { kind: 'create_pr', logical_id: `${s.id}#${visit}#describe:${content}`, step, request: { head_sha: s.head_sha, content_digest: content, update: true } });
+        return;
+      }
       requestEffect(ctx, { kind: 'create_pr', logical_id: `${s.id}#${visit}`, step, request: { head_sha: s.head_sha, content_digest: s.run.content?.digest ?? null } });
       return;
     case 'github.rerun_failed': {
@@ -508,6 +528,7 @@ export function startAttempt(ctx: Ctx, step: string, kind: AttemptKind): void {
   const answers = Object.values(ctx.state.questions)
     .filter((q) => q.step === step && q.status === 'answered' && q.revision === s.revision)
     .map((q) => ({ question_id: q.id, answer: q.answer }));
+  const resume = s.runtime_ref === null ? {} : resumePlan(ctx, step, sp.role, bindingName(rung.binding), kind, attemptId);
   requestEffect(ctx, {
     kind: 'start_agent',
     logical_id: attemptId,
@@ -522,36 +543,121 @@ export function startAttempt(ctx: Ctx, step: string, kind: AttemptKind): void {
       attempt_kind: kind,
       context_hash: s.context_ref?.hash ?? null,
       answers,
+      ...resume,
     },
   });
+}
+
+/**
+ * Which worker session a repair should resume (task-execution-modes.md M04): the newest finished worker
+ * attempt of this revision that reported a session on the same binding. Never across bindings, never for
+ * a fresh session the failure handling asked for. The handler resumes only when the harness proved it
+ * can; either way it rebuilds the full repair packet, so a fallback loses nothing but the session.
+ */
+function resumePlan(ctx: Ctx, step: string, role: string, binding: string, kind: AttemptKind, self: string): { resume: { session_ref: string; from_attempt_id: string } | null; resume_reason: string | null } {
+  if (role !== 'coder' && role !== 'fixer') return { resume: null, resume_reason: null };
+  const s = ctx.state;
+  const repair = step !== 'code' || kind !== 'initial';
+  if (!repair) return { resume: null, resume_reason: null };
+  if (kind === 'fresh_session') return { resume: null, resume_reason: 'fresh_session_requested' };
+  const workers = Object.values(s.attempts).filter((a) => a.id !== self && a.revision === s.revision && a.status === 'finished' && (ctx.frozen.steps[a.step]?.role === 'coder' || ctx.frozen.steps[a.step]?.role === 'fixer'));
+  // Attempts keep their request order in state.
+  const last = workers.filter((a) => typeof a.session_ref === 'string').at(-1);
+  if (last === undefined) return { resume: null, resume_reason: 'no_session' };
+  if (last.binding !== binding) return { resume: null, resume_reason: 'binding_changed' };
+  return { resume: { session_ref: last.session_ref as string, from_attempt_id: last.id }, resume_reason: null };
 }
 
 // ---------- CI ----------
 
 function requestAwaitCi(ctx: Ctx, step: string): void {
   const s = ctx.state;
+  // A spent window is final for the head: no poll after it, whatever resumed the CI wait (FR-043.08).
+  if (s.runtime_ref !== null && ciSpent(ctx, step)) return waitCiExhausted(ctx, step, { kind: 'poll_ci', step }, {});
+  // A runtime task stamps the request so the per-head CI window starts at the first poll (FR-043.08).
+  const at = s.runtime_ref === null ? {} : { at: ctx.now };
+  // A runtime task numbers polls per head, which only grows: re-entering the CI wait from the merge
+  // wait (a rerun seen by the observation) must not collide with an earlier poll of the same head.
+  const n = s.runtime_ref === null ? `${s.ci_polls + 1}` : `p${(s.head_sha === null ? 0 : (s.run.ci_wait[s.head_sha]?.polls ?? 0)) + 1}`;
   requestEffect(ctx, {
     kind: 'await_ci',
-    logical_id: `${s.head_sha ?? 'none'}#${visitOf(ctx, step)}#${s.ci_polls + 1}`,
+    logical_id: `${s.head_sha ?? 'none'}#${visitOf(ctx, step)}#${n}`,
     step,
-    request: { head_sha: s.head_sha, pr_ref: s.pr_ref, required_checks: ctx.frozen.ci.required_checks },
+    request: { head_sha: s.head_sha, pr_ref: s.pr_ref, required_checks: ctx.frozen.ci.required_checks, ...at },
   });
 }
 
-/** Chờ CI thêm trong giới hạn `timeout / poll` lần hỏi; hết thì đi theo outcome `timeout` (R-10). */
-function armCiPoll(ctx: Ctx, step: string, resume: ResumeAction, detail: Record<string, unknown>): void {
+/**
+ * CI budget of one head for a runtime task (FR-043.08, research R-04): the frozen step timeout from the
+ * first poll of that head, and at most `ci_max_polls_per_head` polls. A rerun, a recheck or a revisit of
+ * the step does not reset it; only a new head starts a new window.
+ */
+export function ciWindow(ctx: Pick<Ctx, 'state' | 'frozen'>, step: string, head: string | null): { exhausted: boolean; polls: number; max_polls: number; started_at: number | null; until: number | null } {
+  const def = ctx.frozen.workflow.steps[step];
+  const poll = def?.poll ?? 60_000;
+  const timeout = def?.timeout ?? 3_600_000;
+  const cap = ctx.state.run.limits?.ci_max_polls_per_head ?? Number.POSITIVE_INFINITY;
+  const maxPolls = Math.min(cap, Math.max(1, Math.ceil(timeout / poll)));
+  const w = head === null ? undefined : ctx.state.run.ci_wait[head];
+  if (w === undefined) return { exhausted: false, polls: 0, max_polls: maxPolls, started_at: null, until: null };
+  return { exhausted: w.polls >= maxPolls, polls: w.polls, max_polls: maxPolls, started_at: w.started_at, until: w.started_at + timeout };
+}
+
+/** Whether the head's CI window is spent: every poll used, or its time passed (FR-043.08). */
+export function ciSpent(ctx: Pick<Ctx, 'state' | 'frozen' | 'now'>, step: string): boolean {
+  const w = ciWindow(ctx, step, ctx.state.head_sha);
+  return w.exhausted || (w.until !== null && ctx.now > w.until);
+}
+
+/** Whether the time of the head's CI window has passed; the last poll's own answer still counts within it. */
+function ciClosed(ctx: Pick<Ctx, 'state' | 'frozen' | 'now'>, step: string): boolean {
+  const w = ciWindow(ctx, step, ctx.state.head_sha);
+  return w.until !== null && ctx.now > w.until;
+}
+
+/** The head's CI window is spent: wait `ci/ci_wait_exhausted`, with no fix, rerun or further poll (FR-043.08). */
+export function waitCiExhausted(ctx: Ctx, step: string, resume: ResumeAction, detail: Record<string, unknown>): void {
+  const w = ciWindow(ctx, step, ctx.state.head_sha);
+  waitTask(
+    ctx,
+    mkWait('ci', 'ci_wait_exhausted', {
+      resume,
+      resume_when: ['recheck(observation)'],
+      exit_paths: ['merge the PR on GitHub', 'cancel'],
+      detail: { ...detail, step, head_sha: ctx.state.head_sha, polls: w.polls, max_polls: w.max_polls, started_at: w.started_at, until: w.until },
+    }),
+  );
+}
+
+/**
+ * Chờ CI thêm trong giới hạn `timeout / poll` lần hỏi; hết thì đi theo outcome `timeout` (R-10). A runtime
+ * task instead waits `ci/ci_wait_exhausted` once the head's window is spent: no fix, rerun or extension,
+ * while the PR observation keeps running on its own schedule (FR-043.08).
+ */
+function armCiPoll(
+  ctx: Ctx,
+  step: string,
+  resume: ResumeAction,
+  detail: Record<string, unknown>,
+  as: { reason: 'ci' | 'infra'; code: 'checks_incomplete' | 'observation_unknown' } = { reason: 'ci', code: 'checks_incomplete' },
+): void {
   const def = stepDef(ctx, step);
   const poll = def.poll ?? 60_000;
-  const maxPolls = def.timeout !== undefined ? Math.max(1, Math.ceil(def.timeout / poll)) : 1;
-  if (ctx.state.ci_polls >= maxPolls && ctx.state.current_step === step) {
-    route(ctx, step, 'timeout');
-    return;
+  if (ctx.state.runtime_ref !== null) {
+    const w = ciWindow(ctx, step, ctx.state.head_sha);
+    if (w.exhausted || (w.until !== null && ctx.now + poll > w.until)) return waitCiExhausted(ctx, step, resume, detail);
+  } else {
+    const maxPolls = def.timeout !== undefined ? Math.max(1, Math.ceil(def.timeout / poll)) : 1;
+    if (ctx.state.ci_polls >= maxPolls && ctx.state.current_step === step) {
+      route(ctx, step, 'timeout');
+      return;
+    }
   }
   const timerId = ctx.nextId();
   ctx.emit('TimerArmed', { timer_id: timerId, kind: 'ci_poll', due_at: ctx.now + poll, payload: { step, resume } });
   waitTask(
     ctx,
-    mkWait('ci', 'checks_incomplete', { resume, resume_when: [`timer(${timerId})`], detail: { ...detail, timer_id: timerId } }),
+    mkWait(as.reason, as.code, { resume, resume_when: [`timer(${timerId})`], detail: { ...detail, timer_id: timerId } }),
   );
 }
 
@@ -714,6 +820,11 @@ export function onEffectSucceeded(ctx: Ctx, e: EffectMirror, data: unknown): voi
       const d = AwaitCiDataSchema.parse(data);
       // CI of a PR that targets another branch is not recorded: it proves nothing for this target.
       if (d.target_ref !== undefined && d.target_ref !== ctx.state.task.base_branch) return waitTargetMismatch(ctx, step as string, d.target_ref, d.target_merged === true);
+      // A closed PR yields no CI evidence; the task waits for it to be reopened (FR-041.07).
+      if (d.pr_state === 'closed') {
+        if (ctx.state.cancellation !== null) return proceed(ctx, { kind: 'none' });
+        return waitPrClosed(ctx, { kind: 'poll_ci', step: step as string });
+      }
       const green = d.head_sha === ctx.state.head_sha && ciVerdict(ctx.frozen, d.required_set, d.checks).kind === 'pass';
       ctx.emit('CiResultRecorded', {
         head_sha: d.head_sha,
@@ -722,7 +833,7 @@ export function onEffectSucceeded(ctx: Ctx, e: EffectMirror, data: unknown): voi
         resets_streak_of: green ? ctx.state.last_fix_step : null,
       });
       if (d.base_relation !== undefined) ctx.emit('BaseRelationRecorded', { relation: d.base_relation });
-      onCiRecorded(ctx, step as string);
+      onCiRecorded(ctx, step as string, d.head_sha === ctx.state.head_sha ? d.required : undefined);
       return;
     }
     case 'merge': {
@@ -750,9 +861,12 @@ export function onEffectSucceeded(ctx: Ctx, e: EffectMirror, data: unknown): voi
   }
 }
 
-function onCiRecorded(ctx: Ctx, step: string): void {
+export function onCiRecorded(ctx: Ctx, step: string, required?: RequiredCheckVerdict): void {
   const s = ctx.state;
   if (s.cancellation !== null || isTerminal(s.status)) return proceed(ctx, { kind: 'none' });
+  // A result that lands after the head's CI window closed is evidence only, even for a poll sent in time (FR-043.08).
+  if (s.runtime_ref !== null && ciClosed(ctx, step)) return waitCiExhausted(ctx, step, { kind: 'poll_ci', step }, { late_result: true });
+  if (required !== undefined && required.kind !== 'covered' && s.runtime_ref !== null) return onRequiredNotCovered(ctx, step, required);
   const head = s.head_sha;
   const ci = head === null ? undefined : latestCi(s, head);
   // Kết quả cho head khác head hiện hành không chứng minh gì cho head này: chờ tiếp.
@@ -761,6 +875,30 @@ function onCiRecorded(ctx: Ctx, step: string): void {
   if (verdict?.kind === 'fail') return proceed(ctx, { kind: 'route', step, outcome: 'fail' });
   if (s.source_drift !== null || pastDeadline(ctx)) return proceed(ctx, { kind: 'poll_ci', step });
   armCiPoll(ctx, step, { kind: 'poll_ci', step }, verdict === null ? { stale_head: true } : { missing: verdict.missing, not_passed: verdict.not_passed, complete: verdict.complete });
+}
+
+/**
+ * GitHub requires checks the frozen snapshot does not cover, or could not be read in full (FR-042.04/06).
+ * A mismatch withdraws green and waits under policy with both sides listed; the exit is adjusting GitHub
+ * and observing again, or a cancel and a new task (FR-042.09). The snapshot is never widened. An
+ * incomplete read is `unknown`: it waits under infra and polls again within the head's CI window.
+ */
+function onRequiredNotCovered(ctx: Ctx, step: string, v: Exclude<RequiredCheckVerdict, { kind: 'covered' }>): void {
+  const s = ctx.state;
+  if (s.source_drift !== null || pastDeadline(ctx)) return proceed(ctx, { kind: 'poll_ci', step });
+  if (v.kind === 'unknown') {
+    armCiPoll(ctx, step, { kind: 'poll_ci', step }, { required: 'unknown', basis: v.basis }, { reason: 'infra', code: 'observation_unknown' });
+    return;
+  }
+  waitTask(
+    ctx,
+    mkWait('policy', 'required_checks_mismatch', {
+      resume: { kind: 'poll_ci', step },
+      resume_when: ['observation', 'recheck(observation)'],
+      exit_paths: ['make the GitHub required checks a subset of the frozen ci.required_checks, then recheck', 'cancel and add a new task with the new configuration'],
+      detail: { step, head_sha: s.head_sha, github_only: v.missing_from_snapshot, app_pinned: v.app_pinned, snapshot_only: v.snapshot_only },
+    }),
+  );
 }
 
 /**
@@ -815,7 +953,8 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
   const d = parsed.data;
   const status = 'verdict' in d ? d.verdict : d.status;
   if (e.attempt_id !== null) {
-    ctx.emit('AttemptFinished', { attempt_id: e.attempt_id, step, status, class: null, signature: null, usage: usageOf(d.usage) });
+    const session = 'session_ref' in d && d.session_ref !== undefined ? { session_ref: d.session_ref } : {};
+    ctx.emit('AttemptFinished', { attempt_id: e.attempt_id, step, status, class: null, signature: null, usage: usageOf(d.usage), ...session });
   }
   if (afterAttempt(ctx, e)) return;
   if (!('verdict' in d) && d.content !== undefined) {

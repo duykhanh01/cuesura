@@ -57,11 +57,14 @@ export function reachSafeBoundary(ctx: Ctx, deferred: ResumeAction | null, prior
   const prior = priorWait?.detail['code'] === 'source_drift' ? null : priorWait;
   ctx.emit('SafeBoundaryReached', { deferred, prior_wait: prior });
   const drift = ctx.state.source_drift;
+  // A runtime task froze its runtime snapshot and run selection for one revision; feature 002 has no way
+  // to freeze them again for a new one, so the new requirement goes to a new task (FR-026, T063).
+  const runtime = ctx.state.runtime_ref !== null;
   ctx.emit('TaskWaiting', {
     wait: {
       reason: 'human_input',
-      detail: { code: 'source_drift', pending_revision: drift?.pending_revision ?? null },
-      resume_when: ['drift_choice(continue_old)', 'drift_choice(apply_new)'],
+      detail: { code: 'source_drift', pending_revision: drift?.pending_revision ?? null, ...(runtime ? { apply_new: 'unsupported_for_runtime_task' } : {}) },
+      resume_when: runtime ? ['drift_choice(continue_old)'] : ['drift_choice(continue_old)', 'drift_choice(apply_new)'],
       exit_paths: ['drift_choice(new_task)', 'cancel'],
       resume: { kind: 'none' },
     },
@@ -91,6 +94,7 @@ export function onDriftChoice(ctx: Ctx, t: DriftChoice): void {
       return;
     }
     case 'apply_new': {
+      if (s.runtime_ref !== null) reject('invalid_trigger', { reason: 'runtime_revision_unsupported' });
       if (t.freeze === undefined) reject('invalid_trigger', { reason: 'apply_new_needs_freeze' });
       // Triage của revision mới chạy trước khi ghi gì (FR-040, FR-008): acceptance và dependency phải hợp lệ,
       // dependency phải DONE. Task đang chạy không quay về PENDING được nên lựa chọn bị từ chối.

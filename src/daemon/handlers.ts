@@ -26,14 +26,16 @@ import { ensureWorktree, markerPath, taskBranch } from '../adapters/git/worktree
 import { ROLES, wireRoleSchema, type Role } from '../adapters/harness/result-schema.ts';
 import { toMergeProof } from '../adapters/github/merge-proof.ts';
 import { observePull } from '../adapters/github/observe.ts';
-import { createOrRecoverPr } from '../adapters/github/publish.ts';
+import { createOrRecoverPr, updatePrDescription } from '../adapters/github/publish.ts';
+import { rerunFailedJobs } from '../adapters/github/rerun.ts';
 import type { Clock, GitHubPort, GitPort, HarnessOutcome, HarnessPort, SandboxProvider } from '../adapters/ports.ts';
 import type { Effect } from '../domain/effect.ts';
 import type { Binding, FrozenExecutionContext, FrozenPolicy } from '../domain/policy.ts';
-import type { FrozenRuntimeContext } from '../domain/runtime.ts';
+import type { FrozenRuntimeContext, Observation } from '../domain/runtime.ts';
 import type { TaskState } from '../domain/state.ts';
-import type { Trigger, TriggerEnvelope } from '../domain/trigger.ts';
-import { evaluateRequired } from '../engine/required-checks.ts';
+import type { z } from 'zod';
+import type { AwaitCiDataSchema, RequiredCheckVerdict, Trigger, TriggerEnvelope } from '../domain/trigger.ts';
+import { evaluateRequired, type RequiredVerdict } from '../engine/required-checks.ts';
 import type { OperationClaim } from '../engine/runtime.ts';
 import type { CommandExecutor } from '../runner/commands.ts';
 import type { Redactor } from '../runner/redact.ts';
@@ -272,6 +274,7 @@ async function startAgent(deps: HandlerDeps, effect: Effect, signal: AbortSignal
       : { outcome: 'succeeded', data: { schema_checked: true, status: 'needs_context', summary: `missing context: ${built.error.missing.join(', ')}`, usage: { basis: 'unavailable' }, invoked: false } };
   }
   const wall = binding.limits.wall_timeout_ms ?? 45 * 60_000;
+  const resume = sessionFor(effect.request, harness);
   const out = await harness.run(
     {
       role: r,
@@ -283,12 +286,34 @@ async function startAgent(deps: HandlerDeps, effect: Effect, signal: AbortSignal
       schema: wireRoleSchema(r, { omit_meta_schema: false }),
       wall_ms: wall,
       deadline_at: (l.s.deadline_at ?? deps.clock.now() + wall) as EpochMs,
-      session: null,
+      session: resume.session,
     },
     signal,
   );
-  const outcome = agentOutcome(r, out, review?.sha ?? null, inputDigest);
+  const plain = agentOutcome(r, out, review?.sha ?? null, inputDigest);
+  // Sessions are a worker concern: a reviewer always runs in its own new, read-only session.
+  const outcome = worker ? withSession(plain, out, resume) : plain;
   return worker ? acceptContent(deps, l, file, outcome) : outcome;
+}
+
+type ResumeChoice = { readonly session: { readonly ref: string } | null; readonly fallback: string | null; readonly asked: boolean };
+
+/**
+ * Resumes the engine's chosen worker session only when the harness proved resume works; otherwise a new
+ * session with the reason recorded. The context is the full repair packet in both cases (M04).
+ */
+export function sessionFor(request: Record<string, unknown>, harness: HarnessPort): ResumeChoice {
+  const plan = request['resume'] as { session_ref?: unknown } | null | undefined;
+  const reason = typeof request['resume_reason'] === 'string' ? request['resume_reason'] : null;
+  if (plan === undefined || plan === null || typeof plan.session_ref !== 'string') return { session: null, fallback: reason, asked: false };
+  if (harness.manifest.capabilities.resume !== 'proven') return { session: null, fallback: `resume_${harness.manifest.capabilities.resume}`, asked: true };
+  return { session: { ref: plan.session_ref }, fallback: null, asked: true };
+}
+
+function withSession(out: EffectOutcome, o: HarnessOutcome, r: ResumeChoice): EffectOutcome {
+  if (out.outcome !== 'succeeded') return out;
+  const extra = { session_ref: o.session_ref, ...(r.asked || r.fallback !== null ? { resumed: r.session !== null } : {}), ...(r.fallback === null ? {} : { resume_fallback: r.fallback }) };
+  return { outcome: 'succeeded', data: { ...(out.data as Record<string, unknown>), ...extra } };
 }
 
 // ---- gates ----
@@ -409,6 +434,7 @@ async function createPr(deps: HandlerDeps, effect: Effect): Promise<EffectOutcom
   if (l.s.head_sha === null) return failed('infra', 'no published head');
   const content = currentContent(deps, l.s);
   if (content === null) return failed('infra', 'no accepted PR content');
+  if (effect.request['update'] === true) return describePr(deps, l, content);
   const r = await createOrRecoverPr(deps.github(), {
     repo: l.rt.target.repo,
     immutable_repo_id: l.rt.target.immutable_repo_id,
@@ -421,60 +447,162 @@ async function createPr(deps: HandlerDeps, effect: Effect): Promise<EffectOutcom
     revision: l.s.revision,
     operation_key: effect.idem_key,
   });
-  if (r.kind === 'created' || r.kind === 'recovered') return { outcome: 'succeeded', data: { pr_ref: `${l.rt.target.repo}#${r.pr.number}`, head_sha: r.pr.head_sha, body_digest: r.body_digest } };
+  if (r.kind === 'created' || r.kind === 'recovered') {
+    const prBody = { content_digest: l.s.run.content?.digest ?? hashCanonical(content), body_digest: r.body_digest, operation_key: effect.idem_key, revision: l.s.revision };
+    return { outcome: 'succeeded', data: { pr_ref: `${l.rt.target.repo}#${r.pr.number}`, head_sha: r.pr.head_sha, body_digest: r.body_digest, pr_body: prBody } };
+  }
   if (r.kind === 'unknown') return unknown(r.detail);
   // Someone else's PR, a forged or edited marker/body, or content we refuse: a person reconciles.
   if (r.kind === 'conflict' || r.kind === 'content_rejected') return failed('auth_config', `pull request ${r.kind}: ${'reason' in r ? r.reason : r.field}`);
   return failed('infra', `pull request ${r.kind}`);
 }
 
+type CiData = z.infer<typeof AwaitCiDataSchema>;
+
+/** What one read of the task's PR established: CI data of its head (or why none), and facts for the engine. */
+export type ObservedPr = { readonly ci: CiData | null; readonly failure: string | null; readonly facts: Trigger[] };
+
 /**
- * One read of the task's PR. A merge yields the observation and, with complete evidence, the merge proof
- * as facts; an open PR yields the CI data of its head. Shared by `await_ci` and the observation service.
+ * One read of the task's PR. Every readable outcome yields an `observation_result` (merged, open,
+ * closed, or unknown for a read that could not be trusted) bound to the window's generation; a merge
+ * with complete evidence adds the merge proof, a head the task did not push adds a drift fact, and an
+ * open PR carries the CI data of its head. Shared by `await_ci`, the observation service and recheck.
  */
-export async function observeTask(deps: HandlerDeps, taskId: string, evidenceRef: string): Promise<{ outcome: EffectOutcome; extra: Trigger[] }> {
+export async function observeTaskPr(deps: HandlerDeps, taskId: string, evidenceRef: string, source: Observation['source']): Promise<ObservedPr> {
   let l: Loaded;
   try {
     l = load(deps, { task_id: taskId } as Effect);
   } catch (e) {
-    if (e instanceof Skip) return { outcome: e.outcome, extra: [] };
+    if (e instanceof Skip) return { ci: null, failure: e.message, facts: [] };
     throw e;
   }
   const n = prNumber(l.s.pr_ref);
-  if (n === null) return { outcome: failed('infra', 'no PR to observe'), extra: [] };
+  if (n === null) return { ci: null, failure: 'no PR to observe', facts: [] };
   const now = deps.clock.now();
   const obs = await observePull(deps.github(), { repo: l.rt.target.repo, immutable_repo_id: l.rt.target.immutable_repo_id, pr_number: n, pr_id: null, target: l.s.task.base_branch }, now);
+  const known = l.s.observation?.subject ?? null;
+  const subjectOf = (pull: { id: number | null; head: { ref: string | null } } | null) =>
+    known ?? (pull?.id == null ? null : { provider: 'github' as const, immutable_repo_id: l.rt.target.immutable_repo_id, subject_id: String(pull.id), target_ref: l.s.task.base_branch, head_ref: pull.head.ref ?? 'unknown' });
+  const observation = (status: Observation['status'], head: string | null, digest: unknown, merge_proof = false): Trigger[] => {
+    const subject = subjectOf(obs.pull);
+    if (subject === null) return [];
+    const o: Observation = { observation_id: deps.newId(), source, requested_at: now, observed_at: deps.clock.now(), generation: source === 'timer' ? (l.s.observation?.budget.generation ?? 0) : 0, subject, status, observed_head: head, raw_evidence_ref: evidenceRef, completeness: { merge_proof, quality: status === 'open' } };
+    return [{ kind: 'observation_result', observation: o, remote_digest: hashCanonical({ status, head, digest }) }];
+  };
+  const noCi = (head: string | null): CiData => ({ head_sha: head ?? l.s.head_sha ?? 'none', required_set: { names: [], source: 'policy', complete: false }, checks: [] });
   if (obs.status === 'merged') {
-    const subject = { provider: 'github' as const, immutable_repo_id: l.rt.target.immutable_repo_id, subject_id: String(obs.pull.id), target_ref: l.s.task.base_branch, head_ref: obs.pull.head.ref ?? 'unknown' };
-    const observationId = deps.newId();
-    const extra: Trigger[] = [
-      {
-        kind: 'observation_result',
-        observation: { observation_id: observationId, source: 'timer', requested_at: now, observed_at: deps.clock.now(), generation: (l.s.observation?.budget.generation ?? 0) + 1, subject, status: 'merged', observed_head: obs.pull.head.sha, raw_evidence_ref: evidenceRef, completeness: { merge_proof: obs.merge.completeness === 'complete', quality: false } },
-        remote_digest: hashCanonical(obs.merge),
-      },
-    ];
-    const proof = toMergeProof(obs.merge, subject, l.s.head_sha, { observation_id: observationId, evidence_ref: evidenceRef });
-    if (proof !== null) extra.push({ kind: 'external_completion', proof, unverified_reason: null });
-    const head = obs.pull.head.sha ?? l.s.head_sha ?? 'none';
-    return { outcome: { outcome: 'succeeded', data: { head_sha: head, required_set: { names: [], source: 'policy', complete: false }, checks: [] } }, extra };
+    const facts = observation('merged', obs.pull.head.sha, obs.merge, obs.merge.completeness === 'complete');
+    const first = facts[0];
+    if (first?.kind === 'observation_result') {
+      const proof = toMergeProof(obs.merge, first.observation.subject, l.s.head_sha, { observation_id: first.observation.observation_id, evidence_ref: evidenceRef });
+      if (proof !== null) facts.push({ kind: 'external_completion', proof, unverified_reason: null });
+    }
+    return { ci: noCi(obs.pull.head.sha), failure: null, facts };
   }
   // A PR moved to another branch: its CI there is no evidence for the task's target (FR-041.05).
   if (obs.status === 'target_mismatch') {
-    const data = { head_sha: obs.pull.head.sha ?? l.s.head_sha ?? 'none', required_set: { names: [], source: 'policy', complete: false }, checks: [], target_ref: obs.pull.base.ref ?? 'unknown', ...(obs.pull.merged === true ? { target_merged: true } : {}) };
-    return { outcome: { outcome: 'succeeded', data }, extra: [] };
+    const ci = { ...noCi(obs.pull.head.sha), target_ref: obs.pull.base.ref ?? 'unknown', ...(obs.pull.merged === true ? { target_merged: true } : {}) };
+    // The fact carries the other branch so every reader (CI wait, observation, recheck) sees the mismatch.
+    const target = { ref: obs.pull.base.ref ?? 'unknown', merged: obs.pull.merged === true };
+    const facts = observation('unknown', obs.pull.head.sha, { target });
+    const first = facts[0];
+    if (first?.kind === 'observation_result') first.target = target;
+    return { ci, failure: null, facts };
   }
-  if (obs.status !== 'open') return { outcome: failed('infra', `observation ${obs.status}: ${obs.reasons.join('; ')}`), extra: [] };
-  // A PR head that is not the head this task pushed: a drift fact, never the new expected head (H01).
-  if (l.s.head_sha !== null && obs.pull.head.sha !== null && obs.pull.head.sha !== l.s.head_sha) {
-    const drift: Trigger = { kind: 'head_drift', expected: l.s.head_sha, observed: obs.pull.head.sha, source: 'observation', evidence_ref: evidenceRef };
-    return { outcome: { outcome: 'succeeded', data: { head_sha: obs.pull.head.sha, required_set: { names: [], source: 'policy', complete: false }, checks: [] } }, extra: [drift] };
+  if (obs.status !== 'open' && obs.status !== 'closed') {
+    return { ci: null, failure: `observation ${obs.status}: ${obs.reasons.join('; ')}`, facts: observation('unknown', obs.pull?.head.sha ?? null, { status: obs.status, reasons: obs.reasons }) };
   }
+  if (obs.status === 'closed') return { ci: { ...noCi(obs.pull.head.sha), pr_state: 'closed' }, failure: null, facts: observation('closed', obs.pull.head.sha, null) };
   const verdict = evaluateRequired(obs.required, l.policy.ci.required_checks);
   const names = verdict.kind === 'covered' ? [...verdict.github] : [];
   const checks = obs.checks?.checks.map((c) => ({ name: c.name, state: c.state })) ?? [];
   const complete = verdict.kind === 'covered' && obs.checks !== null && obs.checks.complete && obs.checks.collisions.length === 0;
-  return { outcome: { outcome: 'succeeded', data: { head_sha: obs.pull.head.sha, required_set: { names, source: 'branch_protection', complete }, checks } }, extra: [] };
+  const ci: CiData = { head_sha: obs.pull.head.sha as string, required_set: { names, source: 'branch_protection', complete }, checks, required: requiredData(verdict) };
+  const facts = observation('open', obs.pull.head.sha, { required: ci.required, checks, complete });
+  // A PR head that is not the head this task pushed: a drift fact, never the new expected head (H01).
+  if (l.s.head_sha !== null && obs.pull.head.sha !== null && obs.pull.head.sha !== l.s.head_sha) {
+    facts.push({ kind: 'head_drift', expected: l.s.head_sha, observed: obs.pull.head.sha, source: 'observation', evidence_ref: evidenceRef });
+    return { ci: noCi(obs.pull.head.sha), failure: null, facts };
+  }
+  const first = facts[0];
+  if (first?.kind === 'observation_result') first.ci = ci;
+  return { ci, failure: null, facts };
+}
+
+/**
+ * Updates the title/description of the task's own PR to the newest worker content after a repair (M05/M07):
+ * same PR, same marker; a body someone else edited is a reconciliation for a person, never overwritten.
+ */
+async function describePr(deps: HandlerDeps, l: Loaded, content: PublishContent): Promise<EffectOutcome> {
+  const n = prNumber(l.s.pr_ref);
+  const pb = l.s.run.pr_body;
+  const digest = l.s.run.content?.digest ?? null;
+  if (n === null || pb === null || digest === null) return failed('infra', 'no PR description to update');
+  const r = await updatePrDescription(deps.github(), {
+    repo: l.rt.target.repo,
+    pr_number: n,
+    expected_body_digest: pb.body_digest,
+    spec: { title: content.pr_title, body: content.pr_body, task_id: l.s.id, revision: pb.revision, operation_key: pb.operation_key },
+  });
+  switch (r.kind) {
+    case 'updated':
+    case 'already_current':
+      return { outcome: 'succeeded', data: { pr_ref: l.s.pr_ref as string, head_sha: l.s.head_sha as string, body_digest: r.body_digest, pr_body: { ...pb, content_digest: digest, body_digest: r.body_digest } } };
+    case 'unknown':
+      return unknown(r.detail);
+    case 'body_changed':
+      return failed('auth_config', `PR description was edited on GitHub (${r.observed_digest}); not overwritten`);
+    case 'content_rejected':
+      return failed('auth_config', `PR content rejected: ${r.field}`);
+    case 'rejected':
+      return failed('auth_config', `PR update refused: HTTP ${r.status}`);
+  }
+}
+
+/** `await_ci`: the observation facts plus the CI data of the head as the effect's own result. */
+export async function observeTask(deps: HandlerDeps, taskId: string, evidenceRef: string): Promise<{ outcome: EffectOutcome; extra: Trigger[] }> {
+  const r = await observeTaskPr(deps, taskId, evidenceRef, 'timer');
+  // The effect's own result carries the CI; the observation fact need not repeat it.
+  for (const f of r.facts) if (f.kind === 'observation_result') delete f.ci;
+  if (r.ci === null) return { outcome: failed('infra', r.failure ?? 'observation failed'), extra: r.facts };
+  return { outcome: { outcome: 'succeeded', data: r.ci }, extra: r.facts };
+}
+
+/** The evaluator's verdict as effect data (plain arrays, closed schema). */
+export function requiredData(v: RequiredVerdict): RequiredCheckVerdict {
+  switch (v.kind) {
+    case 'covered':
+      return { kind: 'covered', github_required: v.github_required, github: [...v.github], snapshot_only: [...v.snapshot_only] };
+    case 'required_checks_mismatch':
+      return { kind: 'required_checks_mismatch', missing_from_snapshot: [...v.missing_from_snapshot], app_pinned: v.app_pinned.map((p) => ({ ...p })), snapshot_only: [...v.snapshot_only] };
+    case 'unknown':
+      return { kind: 'unknown', basis: v.basis };
+  }
+}
+
+// ---- rerun_ci ----
+
+/**
+ * Re-runs the failed jobs of the head's workflow runs once (T057). The engine only gets here for a
+ * failure the frozen ci rules call infra/flaky, within the step's limit; a lost POST is unknown and is
+ * reconciled, never posted again.
+ */
+async function rerunCi(deps: HandlerDeps, effect: Effect): Promise<EffectOutcome> {
+  const l = load(deps, effect);
+  const head = typeof effect.request['head_sha'] === 'string' ? effect.request['head_sha'] : null;
+  if (head === null || head !== l.s.head_sha) return failed('infra', 'rerun for a head that is not the published head');
+  const checks = Array.isArray(effect.request['checks']) ? (effect.request['checks'] as string[]) : [];
+  const r = await rerunFailedJobs(deps.github(), { repo: l.rt.target.repo, head_sha: head, checks });
+  switch (r.kind) {
+    case 'rerun':
+      return { outcome: 'succeeded', data: { head_sha: head, rerun_checks: [...r.checks] } };
+    case 'nothing_to_rerun':
+      return failed('unknown', `nothing to rerun: ${r.reason}`);
+    case 'failed':
+      return failed('auth_config', `rerun refused: ${r.detail}`);
+    case 'unknown':
+      return r.sent.length === 0 && /unreadable|incomplete/.test(r.detail) ? failed('infra', r.detail) : unknown(r.detail);
+  }
 }
 
 // ---- service effects ----
@@ -510,6 +638,7 @@ export function buildHandlers(deps: HandlerDeps): EffectHandlers {
     publish: wrap((e) => publish(deps, e)),
     create_pr: plain((e) => createPr(deps, e)),
     await_ci: wrap((e, _s, o) => observeTask(deps, e.task_id, `op:${o.operation_id}`)),
+    rerun_ci: plain((e) => rerunCi(deps, e)),
     stop_attempt: plain((_e, _s, _o, m) => Promise.resolve(stopAttempt(deps, m))),
     reconcile: plain(() => Promise.resolve({ outcome: 'succeeded', data: { finding: 'still_unknown' } })),
   };

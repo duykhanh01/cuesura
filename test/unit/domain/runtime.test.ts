@@ -145,10 +145,10 @@ describe('replay defaults and pure runtime decisions', () => {
     expect(claimable(s, { id: 'e', kind: 'observe_external', revision: s.revision }, Number.MAX_SAFE_INTEGER)).toEqual({ ok: true });
   });
 
-  it('observation scheduling is not accepted until its story lands; a drain result needs a merge proof', () => {
+  it('observation_due needs an open observation window; a drain result needs a merge proof', () => {
     const sim = started(buildTask());
     const due = decide({ state: sim.s, policy: sim.policy, envelope: envelope(sim.s.id, { kind: 'observation_due' }), related: { deps: {}, dependency_cycle: false } });
-    expect(due).toMatchObject({ kind: 'rejected', code: 'invalid_trigger', detail: { reason: 'not_supported_yet' } });
+    expect(due).toMatchObject({ kind: 'rejected', code: 'invalid_trigger', detail: { reason: 'no_observation' } });
     const drain = decide({ state: sim.s, policy: sim.policy, envelope: envelope(sim.s.id, { kind: 'drain_result', pending_operations: [] }), related: { deps: {}, dependency_cycle: false } });
     expect(drain).toMatchObject({ kind: 'rejected', code: 'invalid_trigger', detail: { reason: 'no_completion' } });
   });

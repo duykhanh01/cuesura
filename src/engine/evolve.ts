@@ -6,6 +6,7 @@ import {
   STATE_SCHEMA_VERSION,
   streakKey,
   type Blocker,
+  type PrBodyState,
   type TaskState,
   type TaskStatus,
 } from '../domain/state.ts';
@@ -207,6 +208,7 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
         a.status = 'finished';
         a.outcome = { class: event.payload.class, status: event.payload.status, signature: event.payload.signature };
         a.usage = event.payload.usage;
+        if (event.payload.session_ref !== undefined) a.session_ref = event.payload.session_ref;
       }
       if (event.payload.status === 'done') s.last_fix_step = event.payload.step;
       break;
@@ -337,7 +339,14 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
         reservation_id: p.reservation_id,
         target_effect_id: p.target_effect_id,
       };
-      if (p.kind === 'await_ci') s.ci_polls += 1;
+      if (p.kind === 'await_ci') {
+        s.ci_polls += 1;
+        const head = p.request['head_sha'];
+        if (s.runtime_ref !== null && typeof head === 'string') {
+          const w = s.run.ci_wait[head];
+          s.run.ci_wait[head] = { started_at: w?.started_at ?? (p.request['at'] as number | undefined) ?? 0, polls: (w?.polls ?? 0) + 1 };
+        }
+      }
       if (p.kind === 'stop_attempt' && p.attempt_id !== null) {
         const a = s.attempts[p.attempt_id];
         if (a) a.stop_requested = true;
@@ -517,6 +526,7 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
       s.runtime_ref = { revision: event.payload.runtime.revision, hash: event.payload.runtime_hash };
       s.run.mode = event.payload.runtime.run_config?.mode ?? null;
       s.run.frozen_digest = event.payload.runtime.run_config?.digest ?? null;
+      s.run.limits = event.payload.runtime.limits;
       break;
     case 'ExecutionQueued': {
       const p = event.payload;
@@ -633,10 +643,17 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
       const o = s.observation;
       if (o) {
         const ob = event.payload.observation;
-        o.budget.count += 1;
-        o.budget.next_due_at = null;
-        o.budget.last_remote_digest = event.payload.remote_digest as Hash;
+        // Only automatic rounds count against the window and move the schedule; a recheck does neither.
+        if (ob.source === 'timer') {
+          o.budget.count += 1;
+          o.budget.next_due_at = null;
+          o.budget.last_remote_digest = event.payload.remote_digest as Hash;
+        }
         o.last = { observation_id: ob.observation_id, status: ob.status, observed_head: ob.observed_head, observed_at: ob.observed_at };
+      }
+      // A merge GitHub reported holds the task until its proof is accepted, whatever later reads show (FR-040.12).
+      if (event.payload.observation.status === 'merged' && s.completion === null) {
+        addBlocker(s, { code: 'merge_evidence_incomplete', source: 'observation', since: event.payload.observation.observed_at, until: null });
       }
       break;
     }
@@ -658,6 +675,7 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
         finalized_at: null,
       };
       s.merged = true;
+      s.blockers = s.blockers.filter((b) => b.code !== 'merge_evidence_incomplete');
       break;
     case 'DrainStarted':
       if (s.completion) {
@@ -690,6 +708,8 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
       s.blockers = s.blockers.filter((b) => b.code !== 'merge_cleanup_pending');
       break;
     case 'RecheckRequested':
+      // A recheck of a paused drain allows one more bounded round; the round and time caps stay.
+      if (event.payload.target === 'drain' && s.completion !== null && s.completion.finalized_at === null) s.completion.drain.paused = false;
       break;
     case 'RunConfigProposed':
       s.run.proposal = { selection: event.payload.selection, digest: event.payload.digest, by: event.payload.by, at: event.payload.at };
@@ -718,7 +738,7 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
 /** Runtime fields at their replay defaults: a v1 log never sets them, so a legacy task stays `runtime_ref = null`. */
 export function emptyRuntime(): Pick<TaskState, 'runtime_ref' | 'execution' | 'operations' | 'artifacts' | 'observation' | 'completion' | 'blockers' | 'run'> {
   return {
-    run: { proposal: null, confirmation: null, mode: null, frozen_digest: null, checkpoint: null, content: null, reviews: [], head_drift: null },
+    run: { proposal: null, confirmation: null, mode: null, frozen_digest: null, checkpoint: null, content: null, reviews: [], head_drift: null, limits: null, ci_wait: {}, pr_body: null },
     runtime_ref: null,
     execution: { request: null, holding: null, accumulated_wait_ms: 0 },
     operations: {},
@@ -749,6 +769,8 @@ function applySuccessFacts(s: TaskState, kind: string, result: unknown): void {
   const setup = r['setup'] as { passed?: unknown } | undefined;
   if (kind === 'prepare' && typeof r['base_sha'] === 'string' && setup?.passed === true) s.base_sha = r['base_sha'];
   if (kind === 'create_pr' && typeof r['pr_ref'] === 'string') s.pr_ref = r['pr_ref'];
+  const body = r['pr_body'] as PrBodyState | undefined;
+  if (kind === 'create_pr' && body !== undefined) s.run.pr_body = body;
   if (kind === 'merge' && r['merged'] === true) s.merged = true;
 }
 
