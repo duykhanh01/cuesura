@@ -410,8 +410,8 @@ Ngày 2026-10-30 (Asia/Ho_Chi_Minh), base `bc9d84a6eba1cbf1c41c48c30ea56c45e2fd7
 Có một sửa fixture adapter trong PR này; source hashes và diff digest ghi đúng mã đã kiểm.
 `main` đã pull fast-forward; T072 layout pin (#16), worktree ownership (#18) và T139 (#17) đều
 có trong base. **T078 đạt trong phạm vi core A. Kết luận kỹ thuật cổng A: NO-GO** do evidence lát 0
-chưa đầy đủ; B/C giữ đóng. Quyết định owner T080 vẫn cần câu trả lời tường minh, không suy từ yêu
-cầu chạy kiểm tra. Xem [review cập nhật](go-no-go.md).
+chưa đầy đủ; B/C giữ đóng. Tại lượt T078, quyết định owner T080 còn chờ; sau đó đã được chốt
+ở [bản ghi T080](#t080--owner-chốt-no-go). Xem [review cập nhật](go-no-go.md).
 
 ## Baseline và host
 
@@ -515,3 +515,14 @@ Effort đo được của lượt này: 1772.414 giây tổng thời gian lệnh
 tuần tự, không phải giờ công phát triển). Không phát sinh model usage. Coverage vẫn đủ 117 mã;
 T072/T078 đã đóng trong phạm vi A, các task B/C vẫn mở. Không có timesheet/usage toàn phase để
 kết luận budget v1 còn đủ; phần ước lượng B/C giữ riêng trong go/no-go.
+
+# T080 — Owner chốt NO-GO
+
+Ghi nhận **2026-10-30 00:36:40 +07:00** (2026-10-29 17:36:40 UTC), sau PR #19 đã merge
+ở `2105b74`. Chủ dự án chỉ đạo “thôi chốt t80 đi” sau khi được báo NO-GO, phần evidence thiếu
+và phương án bổ sung/chạy lại. **Quyết định: NO-GO, giữ B/C đóng.**
+
+Lý do: T078 đạt 20/20 seeds nhưng còn thiếu 7 stderr.log spike gốc; vendor/auth/rules hiện hành
+chưa được chứng nhận lại. [Go/no-go](go-no-go.md#quyết-định-owner--t080) đã ghi người quyết định,
+thời điểm và lý do; T080 hoàn tất. Phase 6 đã hoàn tất review/quyết định, chưa mở Phase 7.
+Lượt này chỉ cập nhật tài liệu quyết định; không chạy proof model mới hoặc thay đổi kết quả T078.

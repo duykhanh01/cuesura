@@ -1,23 +1,30 @@
-# Cổng lát A — NO-GO kỹ thuật, B/C giữ đóng
+# Cổng lát A — owner chốt NO-GO, B/C giữ đóng
 
-**Review:** 2026-10-30 (Asia/Ho_Chi_Minh) · **Hạn đánh giá:** 2026-11-06 · **Base:** `bc9d84a` + sửa fixture layout bwrap trong PR này (source hashes ở ledger).
+**Review:** 2026-10-30 (Asia/Ho_Chi_Minh) · **Hạn đánh giá:** 2026-11-06 · **Base nghiệm thu T078:** `bc9d84a` + sửa fixture layout bwrap đã merge ở PR #19 (`2105b74`; source hashes ở ledger).
 **Host:** Ubuntu 24.04.5. T072 (#16/#18) và T139 (#17) đã merge vào base.
 
 **Chốt kỹ thuật: NO-GO.** T078 đạt 20/20 seeds mới; typecheck/lint/test/build sạch. Điều kiện
 S0.1–S0.3 chưa thể xác nhận đầy đủ vì archive thiếu 7 stderr.log gốc và chưa chứng nhận lại
 vendor/auth/rules hiện hành. Test xanh không thay proof còn thiếu. B/C giữ đóng.
 
+**T080 đã chốt: owner xác nhận NO-GO**, ghi nhận lúc **2026-10-30 00:36:40 +07:00**
+(2026-10-29 17:36:40 UTC), sau khi được báo kết quả T078 và các cách bổ sung evidence.
+Phase 6 hoàn tất việc review/quyết định; điều kiện mở B chưa đạt.
+
 ## Quyết định owner — T080
 
 | Trường | Giá trị |
 | --- | --- |
 | Kết luận kỹ thuật | **NO-GO**, sau T078 trên `bc9d84a` |
-| Quyết định tường minh của owner | **Chưa có xác nhận tường minh của owner**; kết luận kỹ thuật ở trên đã chốt theo evidence |
-| Thời điểm/lý do owner xác nhận | Chưa có |
+| Quyết định tường minh của owner | **NO-GO**, giữ B/C đóng |
+| Người quyết định | Chủ dự án, qua chỉ đạo trong phiên làm việc này |
+| Thời điểm ghi nhận | **2026-10-30 00:36:40 +07:00** (2026-10-29 17:36:40 UTC) |
+| Căn cứ xác nhận | Owner nói “thôi chốt t80 đi” sau phần giải thích NO-GO và phương án bổ sung/chạy lại evidence |
+| Lý do | T078 đạt nhưng còn thiếu 7 stderr.log spike gốc; vendor/auth/rules hiện hành chưa được chứng nhận lại. Chốt NO-GO theo evidence hiện có |
 | Điều kiện mở B | Khép evidence A, review budget/effort, owner ghi **go** tường minh |
 
-Theo [T080](tasks.md), chỉ tick sau câu trả lời tường minh, thời điểm và lý do của chủ dự án.
-Không suy từ im lặng; không mở B hoặc tự merge PR báo cáo.
+Đã ghi quyết định, thời điểm và lý do theo [T080](tasks.md); task được tick hoàn tất.
+Lượt này chỉ ghi nhận quyết định, không chạy proof model mới. Không mở B hoặc tự merge PR báo cáo.
 
 ## Điều kiện kỹ thuật sau T078
 
@@ -43,7 +50,8 @@ Ubuntu là đích đã chọn; không yêu cầu quay lại WSL2. Không gọi m
 
 1. Khôi phục đúng 7 log theo expected digest trong audit, hoặc nghiệm thu lại proof bị ảnh hưởng
    với quyền/budget cụ thể; không dựng log thay thế. Đối chiếu version/auth/boundary/rules theo S0.1–S0.3.
-2. Owner đánh giá budget/effort B/C, ghi quyết định T080 cùng thời điểm và lý do.
+2. Nếu muốn mở B, owner đánh giá lại budget/effort B/C và ghi quyết định **GO mới** cùng thời điểm
+   và lý do; giữ bản ghi NO-GO T080 này làm lịch sử.
 
 T072/T139/T078 đã khép trong phạm vi task; không còn là blocker. H05 crash I/O mở rộng T082/T093,
 ≥200 daemon kills T094, CLI/T111, paid smoke C và resume vendor thật T099/T126 vẫn ở B/C.
@@ -59,7 +67,7 @@ Tổng effort/chi phí lịch sử toàn phase **chưa có dữ liệu đáng ti
 
 | Phần còn lại | Backlog | Ước lượng kỹ thuật, chưa cam kết |
 | --- | --- | --- |
-| Khép A | Evidence spike + quyết định owner T080 | Chưa ước lượng được thời gian tìm lại bytes gốc; proof trả phí mới cần budget/phạm vi cụ thể |
+| Điều kiện để đổi kết luận A | Evidence spike + review budget/effort và quyết định GO mới | Chưa ước lượng được thời gian tìm lại bytes gốc; proof trả phí mới cần budget/phạm vi cụ thể |
 | B — recovery | T081–T094: 14 task, ≥200 daemon kills/replay | 5–8 ngày công |
 | B — tương tác/CLI | T095–T120: 26 task | 4–6 ngày công |
 | C — smoke/report | T121–T134: 14 task | 3–5 ngày công, cộng thời gian owner merge/credential/model budget |
@@ -73,4 +81,4 @@ Chưa có căn cứ chắc để xác nhận phần còn lại vừa budget 4 tu
 
 - T072/T077/T139/T078: đạt phạm vi A/fixture/property/OS theo report; không chứng nhận paid resume/smoke.
 - T079: review cập nhật đủ bằng chứng mới và phần còn chặn.
-- T080: chờ owner xác nhận tường minh. **NO-GO kỹ thuật; B/C giữ đóng.**
+- T080: **hoàn tất, owner chốt NO-GO** lúc 2026-10-30 00:36:40 +07:00. Phase 6 đã ghi đủ kết quả/quyết định; **B/C giữ đóng**.

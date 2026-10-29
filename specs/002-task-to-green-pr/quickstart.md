@@ -1,8 +1,8 @@
 # Validation guide: feature 002
 
-**Trạng thái 2026-10-30:** nền và phần lớn US1/US2/US4 đã có; cổng Phase 6 đề nghị no-go,
-T072/T139 đã merge; T078 đạt 20/20 seeds mới trên `bc9d84a`, chưa có quyết định owner mở B.
-NO-GO kỹ thuật còn do thiếu 7 log spike gốc và chưa chứng nhận lại vendor/auth/rules live. Xem [go/no-go](go-no-go.md),
+**Trạng thái 2026-10-30:** Phase 6 đã hoàn tất review; **T080: owner chốt NO-GO**, B/C giữ đóng.
+T072/T139 và PR #19 đã merge; T078 đạt 20/20 seeds mới trên base `bc9d84a` + fixture fix của PR #19.
+Lý do NO-GO: thiếu 7 log spike gốc và chưa chứng nhận lại vendor/auth/rules live. Xem [go/no-go](go-no-go.md),
 [báo cáo T078](acceptance-report.md#t078--nghiệm-thu-lại-sau-hợp-nhất-t072-và-t139),
 [ledger T078](evidence/t078-validation.json) và [117 FR](phase6-coverage.md).
 

@@ -149,6 +149,6 @@ không lấy nội dung bảng này làm bằng chứng đã đạt.
 ## Đối chiếu tại cổng Phase 6
 
 [Coverage 117 FR](../phase6-coverage.md) ghi đúng 117 mã cùng task triển khai/kiểm chứng và task còn mở;
-không đổi ID hoặc đánh dấu cả nhóm từ một test. [Go/no-go](../go-no-go.md) đề nghị no-go và giữ B đóng
-trước quyết định owner. T077 được kiểm độc lập trên Ubuntu; T072/T139 đã merge, T078 đạt 20 seeds mới trên `bc9d84a`.
+không đổi ID hoặc đánh dấu cả nhóm từ một test. [Go/no-go](../go-no-go.md) ghi **owner chốt NO-GO tại T080**
+ngày 2026-10-30, giữ B/C đóng. T077 được kiểm độc lập trên Ubuntu; T072/T139 đã merge, T078 đạt 20 seeds mới trên base `bc9d84a` + fixture fix của PR #19.
 [Ledger T078](../evidence/t078-validation.json) kiểm lại core A; không thay proof spike còn thiếu hoặc smoke C.
