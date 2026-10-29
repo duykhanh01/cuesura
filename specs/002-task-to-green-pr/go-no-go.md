@@ -1,81 +1,76 @@
-# Cổng lát A — đề nghị no-go, chờ owner quyết định
+# Cổng lát A — NO-GO kỹ thuật, B/C giữ đóng
 
-**Review:** 2026-10-29 · **Hạn đánh giá giữ nguyên:** 2026-11-06 · **Base:** `c1a8b9e`.
-**Host owner chọn:** Ubuntu; không yêu cầu WSL2. **B/C chưa được mở.**
+**Review:** 2026-10-30 (Asia/Ho_Chi_Minh) · **Hạn đánh giá:** 2026-11-06 · **Base:** `bc9d84a` + sửa fixture layout bwrap trong PR này (source hashes ở ledger).
+**Host:** Ubuntu 24.04.5. T072 (#16/#18) và T139 (#17) đã merge vào base.
 
-Đề nghị **no-go** vì T072 chưa hợp nhất, T078 chưa nghiệm thu lại trên mã sau T139; bộ evidence spike
-còn thiếu 7 file gốc. Baseline xanh và 20 seeds kiểm repeatability là thông tin hỗ trợ, không chứng
-minh các phần chưa kiểm. Không cắt ≥200 crash, permission/idempotency hay smoke để đổi kết luận.
+**Chốt kỹ thuật: NO-GO.** T078 đạt 20/20 seeds mới; typecheck/lint/test/build sạch. Điều kiện
+S0.1–S0.3 chưa thể xác nhận đầy đủ vì archive thiếu 7 stderr.log gốc và chưa chứng nhận lại
+vendor/auth/rules hiện hành. Test xanh không thay proof còn thiếu. B/C giữ đóng.
 
 ## Quyết định owner — T080
 
 | Trường | Giá trị |
 | --- | --- |
-| Quyết định | **Chưa có**; đề nghị kỹ thuật ở trên không phải quyết định owner |
-| Người quyết định | Chủ dự án, chờ trả lời tường minh |
-| Thời điểm quyết định | Chưa có |
-| Lý do được owner chốt | Chưa có |
-| Điều kiện mở B | Chỉ sau khi xử lý các điều kiện A còn thiếu, review lại và ghi **go** tường minh |
+| Kết luận kỹ thuật | **NO-GO**, sau T078 trên `bc9d84a` |
+| Quyết định tường minh của owner | **Chưa có xác nhận tường minh của owner**; kết luận kỹ thuật ở trên đã chốt theo evidence |
+| Thời điểm/lý do owner xác nhận | Chưa có |
+| Điều kiện mở B | Khép evidence A, review budget/effort, owner ghi **go** tường minh |
 
-Trong lượt này, owner đã cho tiếp tục với 4 mục checklist giữ nguyên và chọn Ubuntu.
-Hai xác nhận đó không phải go cho B. T080 sẽ chỉ được tick sau khi ghi câu trả lời, thời điểm và
-lý do cụ thể của owner. Không suy go hoặc no-go từ im lặng.
+Theo [T080](tasks.md), chỉ tick sau câu trả lời tường minh, thời điểm và lý do của chủ dự án.
+Không suy từ im lặng; không mở B hoặc tự merge PR báo cáo.
 
-## Điều kiện kỹ thuật
+## Điều kiện kỹ thuật sau T078
 
 | Điều kiện theo plan | Bằng chứng | Đánh giá |
 | --- | --- | --- |
-| S0.1–S0.3 có bằng chứng truy vết | [Spike T009](spike-0-report.md#t009--kết-luận-gate-lát-0-2026-10-28), [host/hash audit](evidence/phase6-host.json) | Lịch sử còn truy vết; 261/268 file khớp hash, 7 stderr.log thiếu; không xác nhận toàn bộ evidence còn đầy đủ |
-| US1/US2/US4 + M01–M08, ít nhất 20 seeds | [Report](acceptance-report.md#nghiệm-thu-phase-6--cổng-lát-a), [ledger](evidence/phase6-seeds.json) | T139 đã khép local, xem [matrix mới](acceptance-report.md#t139--kiểm-tổng-hợp-m01m08-và-h01h06); 20 seeds cũ không thay T078 sau hợp nhất T072 |
-| Boundary/secret/reviewer ro | OS Ubuntu: sandbox 3/3, harness 2/2, supervisor 1/1; negative contracts/lifecycle pass | T077 đã kiểm lại độc lập. T072 còn thiếu kiểm boundary/user dirty diff trước worker; không nhận code từ worktree T072 chưa merge |
-| Limits/drain/projection + quality gates | Clock tests, SQLite reopen/projection, typecheck/lint/test/build | Baseline lượt đầu 1.431 test; kết quả T139 mới ở [ledger](evidence/t139-validation.json), không thay crash I/O B |
-| Effort, budget và 117 coverage | [117 FR](phase6-coverage.md), bảng B/C bên dưới | Truy vết đủ 117, chưa phải 117 pass; effort lịch sử không có timesheet nên không bịa tổng giờ |
+| S0.1–S0.3 có proof đầy đủ còn hiệu lực | [Spike T009](spike-0-report.md#t009--kết-luận-gate-lát-0-2026-10-28), [audit mới](evidence/t078-host.json) | **Chặn go:** 264/271 file khớp hash, 7 stderr.log thiếu, 0 lệch; vendor/auth/rules live chưa được chứng nhận lại |
+| US1/US2/US4, M01–M08, ≥20 seeds | [T078](acceptance-report.md#t078--nghiệm-thu-lại-sau-hợp-nhất-t072-và-t139), [ledger mới](evidence/t078-validation.json) | **Đạt core A:** 20/20 seeds 2026102921–2026102940, 14,020 test executions, 0 skip; hai mode, một worktree/branch/PR, zero logical publish duplicate/merge requests |
+| Boundary/secret/reviewer ro | Real bwrap/harness/systemd + same-vendor ro trong baseline và từng seed; T072 dirty worktree/layout pin | **Đạt phạm vi A:** không skip OS tests, canary redact, user dirty diff không gán cho worker; không chứng nhận paid smoke |
+| Limits/drain/projection + quality gates | [Ledger](evidence/t078-validation.json): typecheck/lint/build exit 0, baseline 106 file/1468 test pass, 0 skip | **Đạt phạm vi A:** Clock limits và SQLite reopen/replay; crash I/O B chưa đến lượt |
+| Effort, budget và 117 coverage | [117 FR](phase6-coverage.md), bảng B/C dưới đây | Truy vết đủ 117; effort lịch sử không có timesheet, budget còn lại chưa được owner xác nhận |
 
-Các binary/hash/probe hiện hành trong host ledger là của Ubuntu. Fixture lịch sử của WSL2 giữ provenance
-cũ; không dùng tên OS làm blocker và không yêu cầu quay lại WSL2. Khi triển khai vendor thật phải pin
-binary/settings/permission hiện hành; không dùng fixture replay để tạo capability proven cho production.
-Không gọi model hoặc tiêu usage mới trong lượt này.
+S0.1: [host manifest](../../test/fixtures/runtime/spike-0/host/manifest.json),
+[isolation record](../../test/fixtures/runtime/spike-0/harness/real-20261028/isolation-record.json).
+S0.2: [harness manifest](../../test/fixtures/runtime/spike-0/harness/real-20261028/manifest.json),
+[capabilities](../../test/fixtures/runtime/spike-0/harness/real-20261028/capability-manifest.json).
+S0.3: [merge-event](../../test/fixtures/runtime/spike-0/github/real-20261028-merge-event/manifest.json),
+[rules](../../test/fixtures/runtime/spike-0/github/live-rules/manifest.json),
+[T009 recheck](../../test/fixtures/runtime/spike-0/github/t009-recheck/manifest.json).
+Đây là evidence lịch sử có provenance; hash archive không chứng minh auth/rules live.
+Ubuntu là đích đã chọn; không yêu cầu quay lại WSL2. Không gọi model trả phí ở lượt này.
 
-## Việc cần khép trước review lại A
+## Điều kiện để review lại
 
-| Đầu mối | Phần còn thiếu | Điều kiện đủ để đóng |
-| --- | --- | --- |
-| T072 | So vùng ghi/checkpoint trước worker, bảo vệ dirty diff người dùng và boundary | Runtime + negative tests pass; merge PR riêng rồi kiểm lại trên main mới |
-| T139 | **Đã khép local.** Same-vendor/ro; Q&A/stale/rebuild có trần; finalized-review proof; method freeze/config/replay; M/H đầy đủ | [Report T139](acceptance-report.md#t139--kiểm-tổng-hợp-m01m08-và-h01h06), quality gates/default suite; paid smoke và crash B tách riêng |
-| Bằng chứng lát 0 | 7 stderr.log tham chiếu nhưng thiếu ở checkout sạch | Tìm lại đúng bytes khớp digest hoặc nghiệm thu lại phần proof bị ảnh hưởng theo quyền/budget riêng; không dựng log thay thế |
-| T078 | Chưa chạy lại sau T139 và hợp nhất T072 | T139 đã đóng; hợp nhất T072 rồi chạy bộ assertions hoàn chỉnh ít nhất 20 seeds, lưu ledger mới; giữ ledger chẩn đoán hiện tại |
+1. Khôi phục đúng 7 log theo expected digest trong audit, hoặc nghiệm thu lại proof bị ảnh hưởng
+   với quyền/budget cụ thể; không dựng log thay thế. Đối chiếu version/auth/boundary/rules theo S0.1–S0.3.
+2. Owner đánh giá budget/effort B/C, ghi quyết định T080 cùng thời điểm và lý do.
 
-H05 crash I/O mở rộng vẫn là T082/T093 của B. ≥200 daemon kills T094, CLI/T111, smoke C và proof
-resume vendor thật chưa được duyệt usage không được kéo ngược thành điều kiện giả cho A; giữ đúng
-phạm vi task gốc và báo unknown khi chưa có proof. T139 đã có matrix local theo yêu cầu trước T078; không thêm cổng trả phí vào A.
+T072/T139/T078 đã khép trong phạm vi task; không còn là blocker. H05 crash I/O mở rộng T082/T093,
+≥200 daemon kills T094, CLI/T111, paid smoke C và resume vendor thật T099/T126 vẫn ở B/C.
+Giữ `session_resume`/hard USD cap unknown theo manifest; không kéo paid smoke hoặc crash B ngược về
+A. Không giảm 200 crash/quyền/idempotency/smoke để đổi kết luận.
 
 ## Effort và budget B/C
 
-Kickoff feature 002: 2026-10-28; budget v1 khoảng 4 tuần, tương ứng mốc kế hoạch 2026-11-25.
-Ngày review là ngày 2; mốc go/no-go vẫn 2026-11-06, không reset sau PR hoặc đổi host.
+Kickoff 2026-10-28; budget v1 khoảng 4 tuần, mốc kế hoạch 2026-11-25. Hạn review 2026-11-06 giữ nguyên.
+Lượt T078 đo được 1772.414 giây tổng lệnh quality gates + 20 seeds. Đây là thời gian chạy lệnh,
+không phải timesheet. Audit kiểm 271 tham chiếu; không phát sinh model usage hoặc provisioning host.
+Tổng effort/chi phí lịch sử toàn phase **chưa có dữ liệu đáng tin**, không suy từ số test/checkbox.
 
-Effort đo được: lượt đầu thêm 5 tests, T139 bổ sung 31 cases; kiểm 117/117 mã, audit 268 file tham chiếu,
-chạy baseline/OS và ledger 20 seeds có duration theo từng lượt. Không gọi model; không publish PR thử,
-không provisioning host. Đây là số phép kiểm và thời gian lệnh, không phải tổng công phát triển.
-Git history ghi các PR nền/US1/US2/US4 đã merge; không có timesheet hoặc usage ledger toàn phase
-để suy tổng giờ/chi phí lịch sử. Tổng effort đó hiện **không có dữ liệu đáng tin**.
-
-| Phần còn lại | Backlog | Ước lượng để owner đánh giá, chưa cam kết |
+| Phần còn lại | Backlog | Ước lượng kỹ thuật, chưa cam kết |
 | --- | --- | --- |
-| Khép A | T072, T078 sau hợp nhất và evidence | 2–4 ngày công tùy mức sửa boundary/context/file recovery; tìm lại log có thể cần đầu vào bên ngoài |
-| B — recovery | T081–T094: 14 task, ≥200 daemon kills/replay | 5–8 ngày công; trọng tâm spawn/commit/push/PR/drain unknown, unit/spool re-adopt |
-| B — tương tác/CLI | T095–T120: 26 task | 4–6 ngày công; một phần code đã có, vẫn cần kiểm quyền/CLI/inbox/recheck/cancel/restart |
-| C — smoke/report | T121–T134: 14 task | 3–5 ngày công, cộng thời gian owner merge/credential/model budget và host/vendor proof |
-| Tổng còn lại | 54 task B/C + khép A | Khoảng 14–23 ngày công; không quy đổi thành USD khi chưa có binding/budget C được duyệt |
+| Khép A | Evidence spike + quyết định owner T080 | Chưa ước lượng được thời gian tìm lại bytes gốc; proof trả phí mới cần budget/phạm vi cụ thể |
+| B — recovery | T081–T094: 14 task, ≥200 daemon kills/replay | 5–8 ngày công |
+| B — tương tác/CLI | T095–T120: 26 task | 4–6 ngày công |
+| C — smoke/report | T121–T134: 14 task | 3–5 ngày công, cộng thời gian owner merge/credential/model budget |
+| Tổng B/C | 54 task | 12–19 ngày công + thời gian chờ/evidence A; không quy đổi USD khi chưa duyệt binding/budget C |
 
-Đây là ước lượng kỹ thuật với giả định một người triển khai chính, dependency hiện tại giữ ổn định,
-không đổi spec; không phải measured velocity. Vì chưa có tổng effort lịch sử và các điểm nối
-runtime chưa đủ, chưa có căn cứ chắc rằng phần còn lại vừa budget 4 tuần. Owner cần chốt lại sau
-khi A đủ bằng chứng; không đề nghị go chỉ vì số test xanh hoặc số checkbox.
+Ước lượng giữ giả định một người triển khai chính, không đổi spec; không phải measured velocity.
+Chưa có căn cứ chắc để xác nhận phần còn lại vừa budget 4 tuần. [Coverage](phase6-coverage.md)
+đóng T072 trong A và giữ mọi nghĩa vụ B/C; đủ 117 mã không có nghĩa 117 yêu cầu đã nghiệm thu.
 
-## Trạng thái tasks của lượt review
+## Trạng thái sau review
 
-- T077: hoàn tất trong phạm vi fixture/protocol/OS Ubuntu; không chứng nhận paid resume/smoke.
-- T079: bản review và 117 coverage sẵn sàng để owner quyết định.
-- T139: khép phạm vi local theo matrix/report mới. T072/T078 còn mở, giữ lý do và bằng chứng trong tasks/report.
-- T080: chờ quyết định owner, chưa tick. B/C giữ đóng.
+- T072/T077/T139/T078: đạt phạm vi A/fixture/property/OS theo report; không chứng nhận paid resume/smoke.
+- T079: review cập nhật đủ bằng chứng mới và phần còn chặn.
+- T080: chờ owner xác nhận tường minh. **NO-GO kỹ thuật; B/C giữ đóng.**

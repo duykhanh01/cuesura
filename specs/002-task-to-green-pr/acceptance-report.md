@@ -402,3 +402,116 @@ chạy bwrap thật. Đó là binary giả phát lại T007, không phải model
   không được nâng capability từ manifest test-only. Không gọi model hoặc tiêu usage mới ở lượt này.
 - Doctor/CLI đầy đủ, daemon startup recovery và ≥200 crash B, rồi paid smoke C vẫn chưa nghiệm thu.
   Owner chưa chốt T080; không mở B hoặc tự merge PR.
+
+
+# T078 — Nghiệm thu lại sau hợp nhất T072 và T139
+
+Ngày 2026-10-30 (Asia/Ho_Chi_Minh), base `bc9d84a6eba1cbf1c41c48c30ea56c45e2fd7f3f`, nhánh `002/t078-gate`.
+Có một sửa fixture adapter trong PR này; source hashes và diff digest ghi đúng mã đã kiểm.
+`main` đã pull fast-forward; T072 layout pin (#16), worktree ownership (#18) và T139 (#17) đều
+có trong base. **T078 đạt trong phạm vi core A. Kết luận kỹ thuật cổng A: NO-GO** do evidence lát 0
+chưa đầy đủ; B/C giữ đóng. Quyết định owner T080 vẫn cần câu trả lời tường minh, không suy từ yêu
+cầu chạy kiểm tra. Xem [review cập nhật](go-no-go.md).
+
+## Baseline và host
+
+[Ledger T078](evidence/t078-validation.json) ghi commit, hash toàn bộ `src`/`test`, config/lockfile,
+command, seed, thời gian, kết quả từng file và hash log/report. [Host audit mới](evidence/t078-host.json)
+ghi Ubuntu 24.04.5, Node 24.22.1, pnpm 12.15.0, bwrap 0.9.0, systemd 255, binary hashes và probes.
+`systemctl --user is-system-running` trả `degraded` (exit 1); suite supervisor thật vẫn chạy đạt.
+
+| Kiểm | Kết quả |
+| --- | --- |
+| `pnpm typecheck` | exit 0 |
+| `pnpm lint` | exit 0 |
+| Full `pnpm test`, CUSR_SEED=2026102921 | 106 file, 1468/1468 pass, 0 skip, exit 0 |
+| `pnpm build` | exit 0 |
+| 20 seeds mới 2026102921–2026102940 | 20/20 pass, 14,020 lượt test, 0 skip |
+| bwrap/harness/systemd và same-vendor reviewer ro | Chạy thật trong baseline và từng seed, không skip |
+
+Node được sao nguyên vẹn ra `/tmp/cusr-t078-node/bin/node`, SHA-256
+`e32e2d16081cf644f88392934288086e7662529d0d43277c34f7aad2207cfafb` giống binary host; không mount host home.
+Bỏ `NO_COLOR`/`FORCE_COLOR` kế thừa, giữ `CUSR_RUNS` unset để dùng trần property mặc định từng test.
+Không gọi model trả phí, sửa host policy, chạy smoke C hoặc ≥200 crash B. GitHub trong tests là fake;
+PR chứa báo cáo nghiệm thu là thao tác repository riêng.
+
+## Ledger 20 seeds sau T139
+
+Mỗi seed chạy **toàn bộ `test/integration/runtime` + `test/contract`**, các property runtime
+evidence/limits/slot/required-subset, unit context/config/domain runtime/sandbox. Khác ledger chẩn
+đoán trước T139, lượt này bao gồm `harness-invocation` (fresh packet/review recovery), T072 và ba
+OS suites trong từng seed. `CUSR_SEED` đổi fast-check; `--sequence.shuffle --sequence.seed` đổi thứ
+tự test Vitest. Scenario integration cố định được chạy lại, không coi là 20 workflow end-to-end
+ngẫu nhiên độc lập. Ledger cũ giữ nguyên để bảo toàn lịch sử.
+
+| Seed | Pass / total | Skip | Exit | Giây |
+| --- | --- | --- | --- | --- |
+| 2026102921 | 701/701 | 0 | 0 | 97.324 |
+| 2026102922 | 701/701 | 0 | 0 | 87.177 |
+| 2026102923 | 701/701 | 0 | 0 | 65.261 |
+| 2026102924 | 701/701 | 0 | 0 | 66.063 |
+| 2026102925 | 701/701 | 0 | 0 | 77.229 |
+| 2026102926 | 701/701 | 0 | 0 | 77.832 |
+| 2026102927 | 701/701 | 0 | 0 | 97.29 |
+| 2026102928 | 701/701 | 0 | 0 | 76.917 |
+| 2026102929 | 701/701 | 0 | 0 | 80.412 |
+| 2026102930 | 701/701 | 0 | 0 | 71.029 |
+| 2026102931 | 701/701 | 0 | 0 | 78.137 |
+| 2026102932 | 701/701 | 0 | 0 | 91.006 |
+| 2026102933 | 701/701 | 0 | 0 | 95.968 |
+| 2026102934 | 701/701 | 0 | 0 | 78.653 |
+| 2026102935 | 701/701 | 0 | 0 | 82.516 |
+| 2026102936 | 701/701 | 0 | 0 | 70.776 |
+| 2026102937 | 701/701 | 0 | 0 | 97.35 |
+| 2026102938 | 701/701 | 0 | 0 | 95.727 |
+| 2026102939 | 701/701 | 0 | 0 | 69.759 |
+| 2026102940 | 701/701 | 0 | 0 | 66.677 |
+
+Tái hiện một seed bằng filter nguyên văn trong ledger (sao cùng binary Node ra `/tmp` trước):
+
+```sh
+env -u NO_COLOR -u FORCE_COLOR PATH="/tmp/cusr-t078-node/bin:$PATH" CUSR_SEED=2026102921 \
+  node --input-type=module <<'JS'
+import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+const { filters } = JSON.parse(readFileSync('specs/002-task-to-green-pr/evidence/t078-validation.json', 'utf8'));
+const result = spawnSync('pnpm', ['exec', 'vitest', 'run', '--project', 'default', ...filters,
+  '--sequence.shuffle', `--sequence.seed=${process.env.CUSR_SEED}`], { stdio: 'inherit' });
+process.exit(result.status ?? 1);
+JS
+```
+
+## Assertions quyết định kết quả
+
+| Nghĩa vụ | Bằng chứng chạy trong cả 20 seeds |
+| --- | --- |
+| US1, US1.7/9/11, một worktree/branch/PR | `feature-002-flow`, `confirm-start`, `scheduler`, `atomic-claims`: hai mode, dependency chỉ READY sau DONE; fixer dùng cùng worktree/branch/PR; một POST create PR, một PATCH mỗi nội dung mới, publish đúng checkpoint SHA; không merge request |
+| US2 + T062 | `feature-002-fixes`, `gates`, `observation-limits`, `drain`: gate/review/CI sửa rồi kiểm lại, deadline/poll/run caps giữ nguyên; service recheck có quyền và dedup, drain xong mới DONE |
+| US4, T072/T077 | `harness-invocation`, `feature-002-real-adapters`, `harness-bwrap`, `sandbox-bwrap`, `supervisor-systemd`, toàn bộ contracts: six-role fixtures, canary redact, reviewer ro, layout pin, dirty worktree chặn worker, recheck ghi thay đổi của người dùng, không downgrade boundary |
+| M01/M02 | confirmation/admission forged/stale/direct; merge.method default/ba enum/invalid/key lạ, freeze/config đổi/replay và repo không squash không chặn admission |
+| M03/M04 | same-vendor/model nhưng khác home/session, reviewer không resume; no-op reuse và input đổi buộc review; Q&A qua CI fixer, packet stale không launch, rebuild có trần; thiếu context trước launch không tính usage |
+| M05/M06 | frozen template và content fixer; marker giả/nhân đôi title/body hai mode bị chặn; formatter đổi tree chạy lại toàn tập có trần; review/publish exact SHA; H01–H04 chặn cả hai thứ tự callback/drift và conditional push bare Git |
+| M07/M08 | commit/push/PR lost reply được probe, body drift không ghi đè; finalized review đọc lại từ disk không launch/usage lần hai; green và manual merge proof theo mode, unknown method vẫn DONE khi proof/drain hợp lệ; zero merge requests |
+| Projection/H05/H06 | `feature-002-gate` SQLite file thật close/reopen, dedup và replay giữ projection/drift, không cộng usage lại; base-tip-only không gọi fixer/review. Crash I/O rộng ở B, chưa nghiệm thu |
+
+Đây là kiểm lại [matrix T139](#t139--kiểm-tổng-hợp-m01m08-và-h01h06) và T072 trên commit đã hợp nhất,
+không suy từ tổng test count. Ledger ghi mọi file pass/failed/pending. Lượt baseline đầu **2 failed /
+1.466 passed / 0 skip** được giữ ở [ledger ban đầu](evidence/t078-initial-validation.json): fixture
+same-vendor bwrap còn pin layout pass-through nên runtime từ chối trước launch (`auth_config`).
+Sửa fixture dùng `probeLayoutShapes` + `attemptLayoutInputs` trên đúng bwrap provider, cùng pattern
+với `harness-bwrap.test.ts`; không nới layout check production. Suite adapter sau sửa đạt 5/5 trước
+khi chạy lại gates và chuỗi 20 seeds ở trên. Log/report thô ở `/tmp/cusr-t078-evidence/` là artifact local, hash lưu trong
+ledger; chúng không được coi là evidence spike vendor thật.
+
+## Điều kiện A còn chặn go
+
+Audit lại **271 tham chiếu: 264 file khớp hash, 7 thiếu, 0 lệch**. So audit 268 trước đây, thêm 3
+file của manifest T009 recheck. Cả 7 vẫn là `stderr.log` harness spike; ledger mới liệt kê path và
+expected digest. Đã tìm ở `/tmp`, `/home/khanhnd/projects`, `/home/khanhnd/.local/state`,
+`/home/khanhnd/.local/share` và `/home/khanhnd/.cache`, chưa tìm được bytes gốc. Không tạo file thay thế hay nâng fixture replay thành proof production. Auth/rules/vendor
+hiện hành chưa được chứng nhận lại; hashes lịch sử chỉ xác nhận archive.
+
+Effort đo được của lượt này: 1772.414 giây tổng thời gian lệnh quality gates + 20 seeds (chạy
+tuần tự, không phải giờ công phát triển). Không phát sinh model usage. Coverage vẫn đủ 117 mã;
+T072/T078 đã đóng trong phạm vi A, các task B/C vẫn mở. Không có timesheet/usage toàn phase để
+kết luận budget v1 còn đủ; phần ước lượng B/C giữ riêng trong go/no-go.

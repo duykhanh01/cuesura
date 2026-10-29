@@ -1,0 +1,196 @@
+{
+  "schema_version": 1,
+  "checked_at": "2026-10-29T16:55:08.458309+00:00",
+  "base_commit": "bc9d84a6eba1cbf1c41c48c30ea56c45e2fd7f3f",
+  "os_release": "PRETTY_NAME=\"Ubuntu 24.04.5 LTS\"\nNAME=\"Ubuntu\"\nVERSION_ID=\"24.04\"\nVERSION=\"24.04.5 LTS (Noble Numbat)\"\nVERSION_CODENAME=noble\nID=ubuntu\nID_LIKE=debian\nHOME_URL=\"https://www.ubuntu.com/\"\nSUPPORT_URL=\"https://help.ubuntu.com/\"\nBUG_REPORT_URL=\"https://bugs.launchpad.net/ubuntu/\"\nPRIVACY_POLICY_URL=\"https://www.ubuntu.com/legal/terms-and-policies/privacy-policy\"\nUBUNTU_CODENAME=noble\nLOGO=ubuntu-logo\n",
+  "commands": [
+    {
+      "argv": [
+        "uname",
+        "-sr"
+      ],
+      "exit": 0,
+      "stdout": "Linux 7.0.0-38-generic",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "node",
+        "--version"
+      ],
+      "exit": 0,
+      "stdout": "v24.22.1",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "pnpm",
+        "--version"
+      ],
+      "exit": 0,
+      "stdout": "12.15.0",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "bwrap",
+        "--version"
+      ],
+      "exit": 0,
+      "stdout": "bubblewrap 0.9.0",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "systemctl",
+        "--version"
+      ],
+      "exit": 0,
+      "stdout": "systemd 255 (255.4-1ubuntu8.18)\n+PAM +AUDIT +SELINUX +APPARMOR +IMA +SMACK +SECCOMP +GCRYPT -GNUTLS +OPENSSL +ACL +BLKID +CURL +ELFUTILS +FIDO2 +IDN2 -IDN +IPTC +KMOD +LIBCRYPTSETUP +LIBFDISK +PCRE2 -PWQUALITY +P11KIT +QRENCODE +TPM2 +BZIP2 +LZ4 +XZ +ZLIB +ZSTD -BPF_FRAMEWORK -XKBCOMMON +UTMP +SYSVINIT default-hierarchy=unified",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "systemctl",
+        "--user",
+        "is-system-running"
+      ],
+      "exit": 1,
+      "stdout": "degraded",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "bwrap",
+        "--unshare-user",
+        "--ro-bind",
+        "/",
+        "/",
+        "/usr/bin/true"
+      ],
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    }
+  ],
+  "binaries": {
+    "node": {
+      "path": "/home/khanhnd/.nvm/versions/node/v24.22.1/bin/node",
+      "sha256": "e32e2d16081cf644f88392934288086e7662529d0d43277c34f7aad2207cfafb"
+    },
+    "bwrap": {
+      "path": "/usr/bin/bwrap",
+      "sha256": "e318903862396f96de3df57264e0158682b952fd3fb53ac23d876413e7b30f71"
+    },
+    "systemctl": {
+      "path": "/usr/bin/systemctl",
+      "sha256": "37ec607113f55f1b385b4fa75588a43402aec0de57927500763b267713f10f63"
+    },
+    "systemd-run": {
+      "path": "/usr/bin/systemd-run",
+      "sha256": "de28cc5757d3789efa5f6fed5659893410469f68b42175d4531f5b34d3a09e16"
+    },
+    "flock": {
+      "path": "/usr/bin/flock",
+      "sha256": "e619344dc3eec4023498465679262f9ca27d1e8cef9cfc4c1ae72b428577b806"
+    },
+    "git": {
+      "path": "/usr/bin/git",
+      "sha256": "824d5b2fffef332ec7ba053e579659bb12f26a0b4747da6f9c6dc0e71d36f235"
+    },
+    "claude": {
+      "path": "/home/khanhnd/.local/share/claude/versions/2.1.312",
+      "sha256": "4f4178ce41d83e23341ebfbaecdbcf8ea6bf7baea0690025abe49eeec3a5d01d"
+    },
+    "codex": {
+      "path": "/home/khanhnd/.nvm/versions/node/v24.22.1/lib/node_modules/@openai/codex/bin/codex.js",
+      "sha256": "61b0194f3bb6534439c8d26a3ed57d0805f84b884588b761795323eeb92fcf70"
+    }
+  },
+  "archived_spike_manifests": [
+    {
+      "manifest": "test/fixtures/runtime/spike-0/github/live-rules/manifest.json",
+      "sha256": "8cef8f010134f1ae729a68127ab4d5a276cc299349a73b3ac89ab07a31d494b1",
+      "files": 23,
+      "missing": [],
+      "mismatched": []
+    },
+    {
+      "manifest": "test/fixtures/runtime/spike-0/github/real-20261028/manifest.json",
+      "sha256": "1c4d4f9ab9c6a2d49993fbe027ac79953d485609ab139b1d1ff748c69a5ab085",
+      "files": 49,
+      "missing": [],
+      "mismatched": []
+    },
+    {
+      "manifest": "test/fixtures/runtime/spike-0/github/real-20261028-merge-event/manifest.json",
+      "sha256": "3f7289adcc1fb22e768f461bed1a456e6066c29e88e3856134b360238946d60c",
+      "files": 6,
+      "missing": [],
+      "mismatched": []
+    },
+    {
+      "manifest": "test/fixtures/runtime/spike-0/github/t009-recheck/manifest.json",
+      "sha256": "a24655376b5b8c826d64c57f4a95f0257453937b8c8e1c6baf7fc54e35c27a6d",
+      "files": 3,
+      "missing": [],
+      "mismatched": []
+    },
+    {
+      "manifest": "test/fixtures/runtime/spike-0/harness/real-20261028/manifest.json",
+      "sha256": "269613e32ec8e5ce805807ea750029d3a3a0f95b5b745c803dd6c568c2ee7058",
+      "files": 183,
+      "missing": [
+        {
+          "path": "s0-claude-coder-1793170522/stderr.log",
+          "expected_sha256": "d8a1e758a0885d376f7a2457d829c53f27040ef929246fb4e28105670fb743de"
+        },
+        {
+          "path": "s0-codex-coder-1793172285/stderr.log",
+          "expected_sha256": "03602ab593c49976322aa3ca6b4e9d1d55bf0b32b1f0b4df5621a1c7d1fee88c"
+        },
+        {
+          "path": "s0-codex-coder-1793172447/stderr.log",
+          "expected_sha256": "367a8a27b569abc8c003c4a00752591dcfcb446229b5727a4f69a453f292cbd0"
+        },
+        {
+          "path": "s0-codex-reviewer-1793172662/stderr.log",
+          "expected_sha256": "0dade09e659e5a95bb0ec954ad86f029f00a612fd47694351bb339315cee7e58"
+        },
+        {
+          "path": "s0-codex-fixer-1793173505/stderr.log",
+          "expected_sha256": "1174e2dbf71e66fad4216921c8491f50bcb59fe87f85dbaa962a80f0b640171c"
+        },
+        {
+          "path": "s0-codex-coder-1793178479/stderr.log",
+          "expected_sha256": "a6cd5998f23c5d0e72cc058bd93d636885f39c9d956196ea4dd692ebcf5f3eb5"
+        },
+        {
+          "path": "s0-codex-reviewer-1793178514/stderr.log",
+          "expected_sha256": "3f32c7c941b4ed725a9e9fe39bf54d5b7c8df5ef2cd1f814acbd4662b5f93f28"
+        }
+      ],
+      "mismatched": []
+    },
+    {
+      "manifest": "test/fixtures/runtime/spike-0/host/manifest.json",
+      "sha256": "906ae9e8698d0d404e5751e21345f080e4b55f4952c5c20f27dd5980a1d09079",
+      "files": 7,
+      "missing": [],
+      "mismatched": []
+    }
+  ],
+  "test_node": {
+    "path": "/tmp/cusr-t078-node/bin/node",
+    "sha256": "e32e2d16081cf644f88392934288086e7662529d0d43277c34f7aad2207cfafb"
+  },
+  "summary": {
+    "references": 271,
+    "missing": 7,
+    "mismatched": 0
+  },
+  "limitations": [
+    "Archived fixture hashes do not certify live vendor/auth/rules capability. No paid model calls or GitHub mutations.",
+    "Searched /tmp, /home/khanhnd/projects, /home/khanhnd/.local/state, /home/khanhnd/.local/share and /home/khanhnd/.cache for the seven original stderr.log paths; none found. No replacement logs created."
+  ]
+}

@@ -1,6 +1,6 @@
 # Coverage 117 FR tại cổng lát A
 
-Ngày đối chiếu: 2026-10-29, `002/phase6-gate` từ `c1a8b9e`.
+Ngày đối chiếu: 2026-10-30 (Asia/Ho_Chi_Minh), `002/t078-gate` từ `bc9d84a`. T072/T139 đã merge; [T078](acceptance-report.md#t078--nghiệm-thu-lại-sau-hợp-nhất-t072-và-t139) đạt 20 seeds mới.
 
 Đủ **117/117 mã**, khớp [acceptance map](contracts/acceptance-map.md) và [bảng tasks](tasks.md).
 Đây là kiểm tra truy vết và phần còn mở, **không phải 117/117 yêu cầu đã nghiệm thu**.
@@ -30,7 +30,7 @@ CLI đầy đủ và paid smoke thuộc B/C; các mục này được giữ nguy
 | FR-010 | A/B | T025, T056, T071, T099, T103 | T016, T053, T095, T096 | T095, T096, T099, T103 | A có evidence; B/C còn mở |
 | FR-011 | 0/A/C | T003, T013, T068, T069, T070 | T007, T066, T077, T122, T126, T127 | T122, T126, T127 | A có evidence; B/C còn mở |
 | FR-012 | 0/A/C | T003, T013, T068, T069, T075 | T007, T066, T077, T122, T126 | T122, T126 | A có evidence; B/C còn mở |
-| FR-013 | 0/A/C | T004, T020, T072 | T006, T065, T077, T126 | T072, T126 | A còn mở: T072 |
+| FR-013 | 0/A/C | T004, T020, T072 | T006, T065, T077, T126 | T126 | A có evidence; B/C còn mở |
 | FR-014 | A/C | T054, T055, T043, T076 | T050, T053, T077, T127 | T127 | A có evidence; B/C còn mở |
 | FR-015 | A/B | T056, T057, T104 | T053, T066, T096, T105 | T096, T104, T105 | A có evidence; B/C còn mở |
 | FR-016 | A/B/C | T019, T071, T074 | T066, T067, T077, T126 | T126 | A có evidence; B/C còn mở |
@@ -57,8 +57,8 @@ CLI đầy đủ và paid smoke thuộc B/C; các mục này được giữ nguy
 | FR-029 | B | T058, T100, T111 | T106, T120 | T100, T106, T111, T120 | Chờ B/C |
 | FR-030 | A/B | T018, T019, T075, T088 | T067, T081, T083, T094 | T081, T083, T088, T094 | A có evidence; B/C còn mở |
 | FR-031 | B | T087, T088, T114 | T083, T094, T106 | T083, T087, T088, T094, T106, T114 | Chờ B/C |
-| FR-032 | 0/A/B | T004, T020, T021, T072, T112, T116, T117 | T006, T065, T107, T120 | T072, T107, T112, T116, T117, T120 | A còn mở: T072 |
-| FR-033 | 0/A/C | T004, T020, T022, T070, T072, T112 | T006, T007, T065, T077, T126 | T072, T112, T126 | A còn mở: T072 |
+| FR-032 | 0/A/B | T004, T020, T021, T072, T112, T116, T117 | T006, T065, T107, T120 | T107, T112, T116, T117, T120 | A có evidence; B/C còn mở |
+| FR-033 | 0/A/C | T004, T020, T022, T070, T072, T112 | T006, T007, T065, T077, T126 | T112, T126 | A có evidence; B/C còn mở |
 | FR-034.01 | B | T085, T086, T089, T090 | T081, T082, T094, T123, T128 | T081, T082, T085, T086, T089, T090, T094, T123, T128 | Chờ B/C |
 | FR-034.02 | B | T091 | T084, T094 | T084, T091, T094 | Chờ B/C |
 | FR-034.03 | B | T060, T091 | T084, T094 | T084, T091, T094 | Chờ B/C |

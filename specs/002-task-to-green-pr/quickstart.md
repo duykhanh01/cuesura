@@ -1,9 +1,10 @@
 # Validation guide: feature 002
 
-**Trạng thái 2026-10-29:** nền và phần lớn US1/US2/US4 đã có; cổng Phase 6 đề nghị no-go,
-T139 đã kiểm đủ fixture/property/OS; T072/T078 còn mở, chưa có quyết định owner mở B. Xem [go/no-go](go-no-go.md),
-[báo cáo nghiệm thu](acceptance-report.md#nghiệm-thu-phase-6--cổng-lát-a),
-[ledger seeds](evidence/phase6-seeds.json) và [117 FR](phase6-coverage.md).
+**Trạng thái 2026-10-30:** nền và phần lớn US1/US2/US4 đã có; cổng Phase 6 đề nghị no-go,
+T072/T139 đã merge; T078 đạt 20/20 seeds mới trên `bc9d84a`, chưa có quyết định owner mở B.
+NO-GO kỹ thuật còn do thiếu 7 log spike gốc và chưa chứng nhận lại vendor/auth/rules live. Xem [go/no-go](go-no-go.md),
+[báo cáo T078](acceptance-report.md#t078--nghiệm-thu-lại-sau-hợp-nhất-t072-và-t139),
+[ledger T078](evidence/t078-validation.json) và [117 FR](phase6-coverage.md).
 
 Owner chọn Ubuntu; không yêu cầu WSL2. Typecheck/lint/build và default tests đã chạy trên Ubuntu,
 bao gồm bwrap và systemd user thật. Node ở trong home làm `harness-bwrap` tự skip: sao cùng binary

@@ -20,6 +20,7 @@ import {
   BWRAP,
   BwrapSandboxProvider,
   defaultHostPolicy,
+  probeLayoutShapes,
 } from '../../../src/runner/sandbox.ts';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { claudeAdapter } from '../../../src/adapters/harness/claude.ts';
@@ -39,7 +40,10 @@ import type { CapabilityManifest } from '../../../src/domain/runtime.ts';
 import type { ExecutionMode } from '../../../src/domain/run-config.ts';
 import { SpawnExecutor } from '../../../src/runner/commands.ts';
 import { RUN_FILES, RunDir } from '../../../src/runner/files.ts';
-import { RunnerHarness } from '../../../src/runner/invocation.ts';
+import {
+  attemptLayoutInputs,
+  RunnerHarness,
+} from '../../../src/runner/invocation.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
 import type { EpochMs, Hash } from '../../../src/shared/brand.ts';
 import { hashCanonical, hashText } from '../../../src/shared/hash.ts';
@@ -177,9 +181,24 @@ function setup(o: {
       );
       credentials[h.credential] = { name: h.credential, file };
     }
+  const sandbox =
+    o.realSandbox === true
+      ? new BwrapSandboxProvider({
+          policy: defaultHostPolicy(join(data, 'runtime')),
+        })
+      : new PassThroughSandbox();
+  const manifest = (pin: VendorPin): CapabilityManifest => {
+    if (o.realSandbox !== true) return evidenceManifest(pin);
+    const shapes = probeLayoutShapes(sandbox, {
+      roles: ['coder', 'fixer', 'reviewer'],
+      ...attemptLayoutInputs(pin, 'probe'),
+    });
+    if (!shapes.ok) throw new Error(shapes.error.message);
+    return evidenceManifest(pin, {}, shapes.value);
+  };
   const manifests = {
-    claude: evidenceManifest(pins.claude),
-    codex: evidenceManifest(pins.codex),
+    claude: manifest(pins.claude),
+    codex: manifest(pins.codex),
   };
   const proc = new InlineProcessPort(join(data, 'runtime'));
   const real = (vendor: 'claude' | 'codex'): RunnerHarness =>
@@ -190,12 +209,7 @@ function setup(o: {
       manifest: manifests[vendor],
       isolation: 'internal_required',
       process: proc,
-      sandbox:
-        o.realSandbox === true
-          ? new BwrapSandboxProvider({
-              policy: defaultHostPolicy(join(data, 'runtime')),
-            })
-          : new PassThroughSandbox(),
+      sandbox,
       host_policy_hash: HOST_POLICY_HASH,
       data_dir: join(data, 'runtime'),
       credentials,
