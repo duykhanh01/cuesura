@@ -656,7 +656,7 @@ nhóm bao gồm toàn bộ các mục con, không thay thế việc kiểm chứ
   | --- | --- |
   | **FR-041.01** | Hệ thống MUST quan sát PR theo lịch hữu hạn FR-043, kể cả PR xanh/đóng chưa merge hoặc hết deadline thực thi; merge đã xác nhận chuyển sang FR-040. |
   | **FR-041.02** | Bằng chứng xanh MUST gắn revision, head SHA, tập checks và thời điểm đối chiếu. |
-  | **FR-041.03** | Head bị bên ngoài đổi MUST thu hồi xanh và chuyển WAITING/policy với head_changed; không tự nhận head mới, sửa code hoặc ghi đè remote. |
+  | **FR-041.03** | Head bị bên ngoài đổi MUST thu hồi xanh và chuyển WAITING/policy với head_changed; không tự nhận head mới, sửa code hoặc ghi đè remote. Khi review A còn chạy mà branch task bị push thành B ngoài dự kiến, approve/result A đến muộn MUST chỉ được ghi đúng provenance, không gỡ blocker, chuyển evidence sang B hoặc tiếp tục publish. Approve đến trước fact drift vẫn MUST qua guard remote/blocker trước publish; restart giữ fact/blocker và intent/receipt. Kiểm H01–H06 trong hợp đồng chế độ. |
   | **FR-041.04** | Chỉ base tip đổi MUST giữ bằng chứng theo head và trạng thái task; không tự cập nhật/rebase, gọi fixer hoặc chạy lại gate/review. Cập nhật base thuộc phần merge ngoài phạm vi. |
   | **FR-041.05** | Branch đích khác snapshot MUST chuyển WAITING/policy với target_mismatch. |
   | **FR-041.06** | Check pending/fail trên head hợp lệ MUST thu hồi xanh và xử lý CI trong giới hạn; tập yêu cầu GitHub không được snapshot bao phủ xử lý theo FR-042. |

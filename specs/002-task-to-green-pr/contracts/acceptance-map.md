@@ -10,6 +10,11 @@ Bổ sung [M01–M08](../task-execution-modes.md) được truy vết qua T135�
 giữ ID để bảo toàn coverage. FR-014/017/019 được hiểu theo hai mode đã xác nhận; smoke hai
 vendor kiểm adapter, không bắt mọi task dùng hai vendor. Các M chưa được nghiệm thu.
 
+Bổ sung [H01–H06](../task-execution-modes.md#remote-đổi-head-khi-review-còn-chạy) làm rõ
+FR-041.03/M06/M07: H01–H03/H06 tại T050/T051/T053/T058/T139, H04 tại T029/T041/T139,
+H05 replay/SQLite tại T139 và crash I/O tại T082/T093. Chưa có bằng chứng nghiệm thu cho các H;
+không dùng test drift của PR đã xanh thay race reviewer còn chạy.
+
 Các module trong bảng là vị trí dự kiến, chưa phải file đã được tạo. Property/unit chạy trong
 `test/property`/`test/unit`; contract trong `test/contract`; integration trong `test/integration/runtime`;
 crash trong `test/reliability`; thực nghiệm trả phí trong `test/smoke`. `quickstart.md` nêu các suite

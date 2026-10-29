@@ -14,6 +14,7 @@ của lõi 001; drain, slot và observation là dữ liệu/chi tiết chờ, kh
 | Snapshot cấu hình chạy | Mode và bộ lựa chọn đã xác nhận, liên kết FrozenPolicy/runtime; không viết lại snapshot lịch sử |
 | Nội dung publish | Template base/path/digest, commit message, PR title/description worker đã kiểm namespace marker, digest/provenance artifact và body cuối có block marker do orchestrator tạo; không nằm trong code commit |
 | Review evidence | Task/revision, base/checkpoint SHA/tree/diff, title/body digest, acceptance/conventions frozen và policy/binding digest, verdict/findings, receipt/validity và provenance reuse; chỉ dùng lại nếu mọi đầu vào khớp, không tạo lượt reviewer giả; `direct-pr` không giả approve |
+| Head drift trong lúc review | Fact expected-old/new và observed head, observation/provenance, blocker head_changed; review operation/result vẫn gắn SHA A, không chuyển evidence sang B hoặc gỡ blocker khi ingest muộn/replay |
 | Worker session | Session coder hợp lệ gần nhất, binding, attempt sửa, lý do fallback; mọi lần sửa có packet digest/provenance của nguyên nhân/log/findings/SHA/run generation, checkpoint/worktree/diff, PR content và Q&A hiện hành; reviewer session tách biệt |
 
 Khi triển khai phải quyết định schema/event version phù hợp và giữ replay/fixture cũ; các bảng
