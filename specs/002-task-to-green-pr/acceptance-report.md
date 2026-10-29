@@ -115,3 +115,42 @@ liên quan: `test/unit/runner/sandbox.test.ts` “refuses a parent of the host h
   route CLI `task recheck` thuộc T110.
 - Cache 304 của T061 chưa làm: service không gửi request có điều kiện, nên không có cache để dùng lại.
 - Chi tiết chờ hết deadline vẫn dùng mã `deadline` của lõi 001; spec gọi là `task_deadline`.
+
+# Nghiệm thu Phase 5 — US4 agent đúng quyền và bằng chứng (T065–T077, T138)
+
+Ngày chạy: 2026-10-29, nhánh `claude/wizardly-faraday-kf91dl`. Không gọi model, không tài khoản thật,
+không publish PR thật. Run thật T007 được phát lại qua adapter production và qua runner lifecycle thật
+bằng một binary thay thế (`test/fixtures/runtime/fake-vendor/vendor.js`); đó là phát lại fixture, không
+phải smoke xuyên suốt với vendor thật. Container chạy không có `/usr/bin/bwrap` và systemd user, nên các
+suite OS thật (`sandbox-bwrap`, `harness-bwrap`, `supervisor-systemd`) bị skip ở đây.
+
+Lệnh: `pnpm typecheck`, `pnpm lint` sạch. `pnpm test`: mọi test Phase 5 pass; hai test đỏ sẵn trên
+`main` trong môi trường này (root/HOME=/root, Node 22.22) vẫn đỏ, không liên quan: `sandbox.test.ts`
+“refuses a parent of the host home” và `daemon-control.test.ts` “keeps replaying a success stored by a
+daemon before the ledger kept outcomes”.
+
+## US4
+
+| Kịch bản | Bằng chứng | Kết quả |
+| --- | --- | --- |
+| US4.1 hai harness đã kiểm chứng, mỗi role chuẩn hóa với provenance attempt; usage thiếu = unavailable | `harness.test.ts` sáu run role × vendor; `harness-invocation.test.ts` sáu run qua lifecycle (out/result.json có manifest/inner mode/context digest); flow `feature-002-real-adapters.test.ts` hai mode (BudgetConsumed đúng số run, OutputIngested/ArtifactIngested) | Đạt (fixture replay) |
+| US4.2 exit 0 nhưng sai cấu trúc/cắt/ngữ nghĩa/artifact cũ không done/approve | `harness.test.ts` “a final answer is accepted only when every layer holds”; `harness-invocation.test.ts` exit1, thiếu file Codex | Đạt |
+| US4.3 quyền hiệu lực theo role; ghi ngoài vùng → dừng đối chiếu; môi trường không chứng minh → chặn | `sandbox-permissions.test.ts`; `harness-invocation.test.ts` (reviewer sửa worktree → `boundary_violation`; binary/settings/env/host đổi, file rules sửa sau khi chốt pin (lệch `sha256`), sandbox plan lỗi, home không rỗng, thiếu credential → `capability_missing`, không launch) | Đạt ở mức plan/canary; mount bwrap thật chờ host |
+| US4.4 im lặng còn tiến triển không là stall; hết hạn dừng đúng cây trong hạn | `runner-lifecycle.test.ts` (CPU, process con, file, chỉ ghi stderr, stdout từng phần chưa xuống dòng; stalled; TERM→KILL; `setsid` descendant; UTC nhảy; deadline bền) | Đạt (process thật, không systemd) |
+| US4.5 secret che trước lưu, phần cắt báo rõ, output chưa ingest không mất | `runner-lifecycle.test.ts`, `artifacts.test.ts`, `harness-invocation.test.ts` (auth canary in ra stdout/stderr bị che trong mọi file run, nội dung worker sao chép ra đã che; giá trị auth Codex lặp lại trong `summary` bị che ở `out/result.json` và outcome); context cắt có marker (Phase 3) | Đạt |
+| US4.6 quyền/trần chi phí cứng chưa có bằng chứng → chặn, không thay bằng ước lượng | `sandbox-permissions.test.ts` (`hard_cap` → `cost`), `harness-invocation.test.ts` (manifest thiếu proven, external_verified không được phép) | Đạt |
+
+## M/H cập nhật
+
+| Mã | Thêm ở Phase 5 | Còn chờ |
+| --- | --- | --- |
+| M02 | Mỗi attempt kiểm manifest hiện hành bằng `capability_refs` đã chốt; khác → chặn trước launch, trả chỗ | Doctor ghi manifest production |
+| M04 | Session thật: chỉ resume khi manifest + adapter có dạng resume; Codex `unsupported`, reviewer không resume; packet sửa luôn mới | Resume thật cần proof (T007 `unknown`) |
+| M05 | Worker sandbox ghi nội dung vào scratch của run, harness sao chép file mới/đã che ra | — |
+
+## Chưa làm ở Phase 5
+
+- Chưa đối chiếu worktree trước mỗi attempt worker để không gán thay đổi dirty của người dùng cho agent (T072).
+- Chưa có doctor ghi `CapabilityManifest` production; `cusrd` vẫn chưa nối effect handler/RunnerHarness,
+  sweep retention chưa được lên lịch.
+- Bằng chứng OS thật của RunnerHarness/bwrap/systemd phải chạy trên host triển khai (T077).

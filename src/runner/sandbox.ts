@@ -12,7 +12,14 @@
  * Provider output is data only; the runner spawns it under its own supervisor, timeout and cgroup.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import {
+  existsSync,
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+} from 'node:fs';
 import { homedir, userInfo } from 'node:os';
 import { dirname, isAbsolute, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -519,4 +526,90 @@ export class BwrapSandboxProvider implements SandboxProvider {
       proof_refs: [...this.#proofRefs],
     });
   }
+}
+
+// ---- write zone (T072): runtime canary of what a role may not change ----
+
+/** Metadata entries of a git dir that decide behaviour (config, refs, hooks); objects are append-only. */
+const GIT_METADATA = [
+  'HEAD',
+  'config',
+  'packed-refs',
+  'refs',
+  'hooks',
+  'info',
+  'commondir',
+  'gitdir',
+];
+
+export type WriteZoneSnapshot = {
+  readonly role: SandboxRole;
+  /** Fingerprint of the worktree for roles that must not write it (reviewer); null otherwise. */
+  readonly worktree: string | null;
+  readonly metadata: string;
+};
+
+function fingerprint(paths: readonly string[]): string {
+  const entries: [string, number, number, string][] = [];
+  const walk = (p: string, depth: number): void => {
+    let st;
+    try {
+      st = lstatSync(p);
+    } catch {
+      entries.push([p, -1, 0, 'missing']);
+      return;
+    }
+    const type = st.isSymbolicLink()
+      ? 'link'
+      : st.isDirectory()
+        ? 'dir'
+        : 'file';
+    entries.push([p, st.size, st.mtimeMs, type]);
+    if (type === 'dir' && depth < 8)
+      for (const n of readdirSync(p).sort()) walk(join(p, n), depth + 1);
+  };
+  for (const p of paths) walk(p, 0);
+  return hashCanonical(entries);
+}
+
+/** Snapshot before and after an agent run; any change in a read-only zone is a boundary violation. */
+export function snapshotWriteZone(layout: SandboxLayout): WriteZoneSnapshot {
+  const meta = [
+    join(layout.worktree, '.git'),
+    ...layout.git_dirs.flatMap((g) => GIT_METADATA.map((n) => join(g, n))),
+  ];
+  return {
+    role: layout.role,
+    worktree: READ_ONLY_REPO_ROLES.has(layout.role)
+      ? fingerprintTree(layout.worktree)
+      : null,
+    metadata: fingerprint(meta),
+  };
+}
+
+function fingerprintTree(dir: string): string {
+  const entries: [string, number, number][] = [];
+  const walk = (d: string): void => {
+    for (const n of readdirSync(d).sort()) {
+      if (n === '.git') continue;
+      const p = join(d, n);
+      const st = lstatSync(p);
+      entries.push([p, st.size, st.mtimeMs]);
+      if (st.isDirectory() && !st.isSymbolicLink()) walk(p);
+    }
+  };
+  walk(dir);
+  return hashCanonical(entries);
+}
+
+export function writeZoneViolations(
+  before: WriteZoneSnapshot,
+  after: WriteZoneSnapshot,
+): string[] {
+  const out: string[] = [];
+  if (before.worktree !== after.worktree)
+    out.push(`${before.role} changed the read-only worktree`);
+  if (before.metadata !== after.metadata)
+    out.push(`${before.role} run changed git metadata`);
+  return out;
 }

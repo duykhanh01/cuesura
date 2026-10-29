@@ -6,7 +6,11 @@
  * Every port reports what it could establish, never a guess: an outcome it could not prove is
  * `unknown`, and `unknown` is never read as "did not happen".
  */
-import type { CapabilityManifest, OperationKind } from '../domain/runtime.ts';
+import type {
+  Artifact,
+  CapabilityManifest,
+  OperationKind,
+} from '../domain/runtime.ts';
 import type { Usage } from '../domain/trigger.ts';
 import type { RunDirKind } from '../runner/files.ts';
 import type { EpochMs, Hash } from '../shared/brand.ts';
@@ -110,6 +114,12 @@ export type OperationLaunch = {
   readonly term_grace_ms: number;
   readonly kill_verify_ms: number;
   readonly launch_nonce: string;
+  /** File inside the run directory fed to stdin (the prompt); stdin is closed otherwise. */
+  readonly stdin?: string | null;
+  /** No progress signal for this long stops the operation as stalled; null disables stall checks. */
+  readonly stall_ms?: number | null;
+  /** Directories whose file changes count as progress (the worktree, scratch). */
+  readonly watch?: readonly string[];
 };
 
 export type LaunchError = {
@@ -165,6 +175,20 @@ export type HarnessInput = {
   readonly deadline_at: EpochMs;
   /** Resume only within the same harness/session and when policy allows it. */
   readonly session: { readonly ref: string } | null;
+  /**
+   * Files the role writes under its own scratch (named as the context told it, see
+   * {@link HarnessPort.agent_paths}) that the orchestrator copies out to `host_path` after the run,
+   * only when new for this run, regular and within the result cap.
+   */
+  /** Where the role runs: the task worktree and its Git dirs (read-only); set for sandboxed harnesses. */
+  readonly workspace?: {
+    readonly worktree: string;
+    readonly git_dirs: readonly string[];
+  };
+  readonly collect?: readonly {
+    readonly scratch_name: string;
+    readonly host_path: string;
+  }[];
 };
 
 export type PermissionDenial = {
@@ -182,6 +206,10 @@ export const HARNESS_FAILURES = [
   'process_failed',
   'missing_output',
   'cancelled',
+  /** The attempt's capability manifest, pin or boundary could not be verified; never invoked. */
+  'capability_missing',
+  /** A role changed a zone it may only read (reviewer worktree, git metadata). */
+  'boundary_violation',
 ] as const;
 export type HarnessFailure = (typeof HARNESS_FAILURES)[number];
 
@@ -191,6 +219,22 @@ type OutcomeFacts = {
   readonly usage: Usage;
   readonly session_ref: string | null;
   readonly permission_denials: readonly PermissionDenial[];
+  /** Run artifacts read for this outcome, for the store to commit (ACK) with the result. */
+  readonly ingest?: RunIngest;
+};
+
+/** The complete records read from a run and the files that hold them (FR-016/036). */
+export type RunIngest = {
+  readonly operation_id: string;
+  readonly cursor: {
+    readonly generation: number;
+    readonly segment: number;
+    readonly byte_offset: number;
+    readonly last_record_seq: number;
+  };
+  readonly records: number;
+  readonly digest: Hash;
+  readonly artifacts: readonly Artifact[];
 };
 
 export type HarnessOutcome =
@@ -219,6 +263,8 @@ export interface HarnessPort {
   readonly harness: string;
   /** Proven/unknown capabilities of this binary; never upgraded from help text. */
   readonly manifest: CapabilityManifest;
+  /** Where the role sees its scratch when it runs sandboxed; absent when it writes host paths (fake). */
+  readonly agent_paths?: { readonly scratch: string };
   run(input: HarnessInput, signal: AbortSignal): Promise<HarnessOutcome>;
 }
 

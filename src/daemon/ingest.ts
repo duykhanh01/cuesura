@@ -5,6 +5,7 @@
  * Adapters only report outcomes here; nothing chooses a task status.
  */
 import type { OperationOutcome } from '../domain/runtime.ts';
+import type { Usage } from '../domain/trigger.ts';
 import {
   computeRequestHash,
   MAX_ENVELOPE_IDS,
@@ -25,6 +26,10 @@ export type EffectOutcome =
         readonly failure_class: string;
         readonly message?: string;
         readonly signature?: string;
+        /** Agent effects: false only when the harness provably never ran. */
+        readonly invoked?: boolean;
+        readonly usage?: Usage;
+        readonly reset_at?: number;
       };
     }
   | { readonly outcome: 'unknown'; readonly detail: string };

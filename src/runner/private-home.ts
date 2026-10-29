@@ -5,23 +5,34 @@
  * trusted credential references; the owner's real home and other vendors' auth never enter. Auth is
  * removed again once the attempt's artifacts are archived. Setup/gate/autofix never get a home.
  */
+import { createHash } from 'node:crypto';
 import {
   chmodSync,
   constants,
   copyFileSync,
   lstatSync,
   mkdirSync,
+  readdirSync,
+  readFileSync,
   rmSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { RelativePathSchema, type CredentialRef } from '../domain/runtime.ts';
 import type { RunDir } from './files.ts';
+import { secretValuesFromText } from './redact.ts';
 import { SandboxPolicyError } from './sandbox.ts';
 
 export const PRIVATE_HOME_DIR = 'private-home';
 
-/** One credential reference copied to a path relative to the private home, e.g. `.claude/.credentials.json`. */
-export type AuthFile = { readonly ref: CredentialRef; readonly to: string };
+/**
+ * One credential reference copied to a path relative to the private home, e.g. `.claude/.credentials.json`.
+ * `sha256`, when set, is the content the pin was confirmed with; a copy with other content is refused.
+ */
+export type AuthFile = {
+  readonly ref: CredentialRef;
+  readonly to: string;
+  readonly sha256?: string;
+};
 
 export type InstalledAuth = {
   readonly home: string;
@@ -67,6 +78,18 @@ export function installAuth(
     copyFileSync(f.ref.file, target, constants.COPYFILE_EXCL);
     chmodSync(target, 0o600);
     installed.push(f.to);
+    // Checked on the copy the binary will read, so a source edited after confirmation never runs.
+    if (
+      f.sha256 !== undefined &&
+      createHash('sha256').update(readFileSync(target)).digest('hex') !==
+        f.sha256
+    ) {
+      removeAuth({ home, files: installed });
+      throw new SandboxPolicyError(
+        'policy_violation',
+        `${f.to} differs from its pinned sha256`,
+      );
+    }
   }
   return { home, files: installed };
 }
@@ -108,4 +131,47 @@ export function removeAuth(installed: InstalledAuth): void {
       'policy_violation',
       `auth paths leave the private home through a symlink: ${escaped.join(', ')}`,
     );
+}
+
+/**
+ * A private home must start empty: anything already there (a previous attempt's auth, a planted
+ * config, hooks or plugins) would run with this attempt. Refuses a non-empty or non-directory home.
+ */
+export function assertFreshHome(run: RunDir): string {
+  const home = privateHome(run);
+  const st = lstatSync(home);
+  if (!st.isDirectory() || st.isSymbolicLink())
+    throw new SandboxPolicyError(
+      'policy_violation',
+      `private home ${home} is not a plain directory`,
+    );
+  const entries = readdirSync(home);
+  if (entries.length > 0)
+    throw new SandboxPolicyError(
+      'policy_violation',
+      `private home is not empty: ${entries.slice(0, 5).join(', ')}`,
+    );
+  return home;
+}
+
+/**
+ * Literal secret values of every file in the private home (the installed auth), so the runner's
+ * redactor masks them in output even when a vendor prints them. Symlinks are not followed.
+ */
+export function homeSecretValues(home: string, depth = 0): string[] {
+  if (depth > 4) return [];
+  let names: string[];
+  try {
+    names = readdirSync(home);
+  } catch {
+    return [];
+  }
+  return names.flatMap((n) => {
+    const p = join(home, n);
+    const st = lstatSync(p, { throwIfNoEntry: false });
+    if (st === undefined || st.isSymbolicLink()) return [];
+    if (st.isDirectory()) return homeSecretValues(p, depth + 1);
+    if (!st.isFile() || st.size > 1024 * 1024) return [];
+    return secretValuesFromText(readFileSync(p, 'utf8'));
+  });
 }

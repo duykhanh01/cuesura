@@ -17,6 +17,7 @@ import type {
   StopOutcome,
   UnitObservation,
 } from '../adapters/ports.ts';
+import { RelativePathSchema } from '../domain/runtime.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import { RUN_FILES, RunDir, RunnerFileError, isSafeId } from './files.ts';
 import {
@@ -127,6 +128,10 @@ export const InvocationSpecSchema = z
     term_grace_ms: z.number().int().positive(),
     kill_verify_ms: z.number().int().positive(),
     launch_nonce: z.string().min(1),
+    // Additive: prompt on stdin, stall detection and the directories whose changes count as progress.
+    stdin: RelativePathSchema.nullable().optional(),
+    stall_ms: z.number().int().positive().nullable().optional(),
+    watch: z.array(z.string().startsWith('/')).optional(),
   })
   .strict();
 export type InvocationSpec = z.infer<typeof InvocationSpecSchema>;
@@ -273,6 +278,9 @@ export class SystemdSupervisor implements ProcessPort {
       term_grace_ms: spec.term_grace_ms,
       kill_verify_ms: spec.kill_verify_ms,
       launch_nonce: spec.launch_nonce,
+      ...(spec.stdin === undefined ? {} : { stdin: spec.stdin }),
+      ...(spec.stall_ms === undefined ? {} : { stall_ms: spec.stall_ms }),
+      ...(spec.watch === undefined ? {} : { watch: [...spec.watch] }),
     };
     run.writeJson(RUN_FILES.invocation, InvocationSpecSchema.parse(invocation));
     const lock = lockFilePath(this.#dataDir, spec.operation_id, true);

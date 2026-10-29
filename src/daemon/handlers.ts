@@ -83,6 +83,7 @@ import {
 } from '../engine/required-checks.ts';
 import type { OperationClaim } from '../engine/runtime.ts';
 import type { CommandExecutor } from '../runner/commands.ts';
+import { InvocationUnknown } from '../runner/invocation.ts';
 import type { Redactor } from '../runner/redact.ts';
 import type { EpochMs, Uuid } from '../shared/brand.ts';
 import { hashCanonical, hashText } from '../shared/hash.ts';
@@ -391,6 +392,9 @@ const HARNESS_FAILURE_CLASS: Record<string, string> = {
   process_failed: 'infra',
   missing_output: 'invalid_output',
   cancelled: 'infra',
+  capability_missing: 'auth_config',
+  // A person looks at the worktree before anything continues (US4.3).
+  boundary_violation: 'unknown',
 };
 
 function agentOutcome(
@@ -405,6 +409,10 @@ function agentOutcome(
       data: {
         failure_class: HARNESS_FAILURE_CLASS[o.failure] ?? 'unknown',
         message: o.detail,
+        // The reservation is released only when the harness provably never ran (FR-010/016).
+        invoked: o.invoked,
+        usage: o.usage,
+        ...(o.reset_at === null ? {} : { reset_at: o.reset_at }),
       },
     };
   const digest = inputDigest === null ? {} : { input_digest: inputDigest };
@@ -560,6 +568,7 @@ async function startAgent(
   signal: AbortSignal,
   op: OperationClaim,
   mirror: { attempt_id: string | null; step: string | null },
+  extra: Trigger[] = [],
 ): Promise<EffectOutcome> {
   const l = load(deps, effect);
   const role = effect.request['role'];
@@ -573,6 +582,18 @@ async function startAgent(
   const harness = deps.harnesses[binding.harness];
   if (harness === undefined)
     return failed('auth_config', `no harness ${binding.harness}`);
+  // The manifest confirmed with the task must still be the one in force; a re-proved or changed
+  // binary needs a new confirmation, never a silent switch between attempts (T070/T071).
+  const confirmed = l.rt.capability_refs[binding.harness];
+  if (confirmed !== undefined && confirmed !== harness.manifest.manifest_hash)
+    return {
+      outcome: 'failed',
+      data: {
+        failure_class: 'auth_config',
+        message: `harness ${binding.harness} manifest changed since the run was confirmed`,
+        invoked: false,
+      },
+    };
   const r = role as Role;
   const step = mirror.step ?? r;
   const review = r === 'reviewer' ? await reviewRange(deps, l) : null;
@@ -583,7 +604,13 @@ async function startAgent(
   const repairing =
     r === 'fixer' || (step !== 'code' && worker && fix.cause !== null);
   const scratch = where(deps, l).scratch;
-  const file = join(scratch, `publish-${op.operation_id}.json`);
+  const contentName = `publish-${op.operation_id}.json`;
+  const file = join(scratch, contentName);
+  // A sandboxed worker writes into its own run scratch; the harness copies the file out to `file`.
+  const agentFile =
+    harness.agent_paths === undefined
+      ? file
+      : join(harness.agent_paths.scratch, contentName);
   if (worker) mkdirSync(scratch, { recursive: true, mode: 0o700 });
   const answers = Array.isArray(effect.request['answers'])
     ? (effect.request['answers'] as { question_id: string; answer: string }[])
@@ -612,7 +639,7 @@ async function startAgent(
       ? {
           template: l.rt.pr_template ?? null,
           current: currentContent(deps, l.s),
-          file,
+          file: agentFile,
         }
       : null,
     ...(r === 'reviewer' ? { pr_content: currentContent(deps, l.s) } : {}),
@@ -641,32 +668,71 @@ async function startAgent(
   }
   const wall = binding.limits.wall_timeout_ms ?? 45 * 60_000;
   const resume = sessionFor(effect.request, harness);
-  const out = await harness.run(
-    {
-      role: r,
-      operation_id: op.operation_id,
-      attempt_id: mirror.attempt_id ?? effect.id,
-      revision: l.s.revision,
-      binding: {
-        harness: binding.harness,
-        vendor: harness.manifest.vendor,
-        model: binding.model_id,
-        effort: binding.effort,
-        permission_policy_hash:
-          harness.manifest.permission_policy_hash ?? hashCanonical('none'),
+  let out: HarnessOutcome;
+  try {
+    out = await harness.run(
+      {
+        role: r,
+        operation_id: op.operation_id,
+        attempt_id: mirror.attempt_id ?? effect.id,
+        revision: l.s.revision,
+        binding: {
+          harness: binding.harness,
+          vendor: harness.manifest.vendor,
+          model: binding.model_id,
+          effort: binding.effort,
+          permission_policy_hash:
+            harness.manifest.permission_policy_hash ?? hashCanonical('none'),
+        },
+        context: { text: built.value.text, digest: built.value.digest },
+        schema: wireRoleSchema(r, { omit_meta_schema: false }),
+        wall_ms: wall,
+        deadline_at: (l.s.deadline_at ?? deps.clock.now() + wall) as EpochMs,
+        session: resume.session,
+        ...(worker && harness.agent_paths !== undefined
+          ? { collect: [{ scratch_name: contentName, host_path: file }] }
+          : {}),
+        ...(harness.agent_paths === undefined
+          ? {}
+          : { workspace: await workspaceOf(deps, l) }),
       },
-      context: { text: built.value.text, digest: built.value.digest },
-      schema: wireRoleSchema(r, { omit_meta_schema: false }),
-      wall_ms: wall,
-      deadline_at: (l.s.deadline_at ?? deps.clock.now() + wall) as EpochMs,
-      session: resume.session,
-    },
-    signal,
-  );
+      signal,
+    );
+  } catch (e) {
+    // Launch or end not proven: the effect is reconciled, its reservation kept (contracts/execution.md §5).
+    if (e instanceof InvocationUnknown) return unknown(e.message);
+    throw e;
+  }
+  // The run's records and files go into the store with the result; that commit is their ACK.
+  if (out.ingest !== undefined)
+    extra.push({
+      kind: 'ingest_record',
+      operation_id: out.ingest.operation_id as Uuid,
+      cursor: out.ingest.cursor,
+      records: out.ingest.records,
+      digest: out.ingest.digest,
+      artifacts: [...out.ingest.artifacts],
+    });
   const plain = agentOutcome(r, out, review?.sha ?? null, inputDigest);
   // Sessions are a worker concern: a reviewer always runs in its own new, read-only session.
   const outcome = worker ? withSession(plain, out, resume) : plain;
   return worker ? acceptContent(deps, l, file, outcome) : outcome;
+}
+
+/** The task worktree and the Git dirs a sandboxed role sees read-only (common dir, worktree admin dir). */
+async function workspaceOf(
+  deps: HandlerDeps,
+  l: Loaded,
+): Promise<{ worktree: string; git_dirs: string[] }> {
+  const worktree = where(deps, l).worktree;
+  const admin = (
+    await gitText(deps, worktree, ['rev-parse', '--absolute-git-dir'], 4096)
+  ).trim();
+  const common = await commonDir(deps, l.rt.project_path);
+  return {
+    worktree,
+    git_dirs: admin === common ? [common] : [common, admin],
+  };
 }
 
 type ResumeChoice = {
@@ -1405,7 +1471,10 @@ export function buildHandlers(deps: HandlerDeps): EffectHandlers {
     wrap(async (e, s, o, m) => ({ outcome: await f(e, s, o, m), extra: [] }));
   return {
     prepare: plain((e) => prepare(deps, e)),
-    start_agent: plain((e, s, o, m) => startAgent(deps, e, s, o, m)),
+    start_agent: wrap(async (e, s, o, m) => {
+      const extra: Trigger[] = [];
+      return { outcome: await startAgent(deps, e, s, o, m, extra), extra };
+    }),
     run_gates: plain((e, _s, _o, m) => gates(deps, e, m.step)),
     publish: wrap((e) => publish(deps, e)),
     create_pr: plain((e) => createPr(deps, e)),
