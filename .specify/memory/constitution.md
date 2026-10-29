@@ -52,9 +52,12 @@ comment hoặc merge đã thành công.
 ### IV. Bằng chứng, không phải lời agent
 
 - Exit code thành công hay việc agent nói "xong" MUST NOT đủ để qua bước. Kết quả phải đúng schema,
-  đúng attempt và đạt mọi gate bắt buộc (build, test, review, CI).
+  đúng attempt và đạt mọi gate bắt buộc theo policy/chế độ đã được người dùng xác nhận.
+  `full-review` MUST có review; `direct-pr` không yêu cầu review, không giả bằng chứng approve
+  và không miễn gate/CI hoặc cấp quyền merge.
 - Required checks ở trạng thái pending, cancelled, missing hoặc unknown MUST NOT được coi là pass.
-- Reviewer SHOULD khác vendor với coder và chỉ nhận dữ liệu cần thiết (diff có giới hạn kích thước).
+- Reviewer MUST dùng session riêng với coder, chỉ đọc và chỉ nhận dữ liệu cần thiết
+  (diff có giới hạn kích thước). Vendor/model có thể giống coder; không mặc định ưu tiên khác vendor.
 
 **Lý do:** agent có thể tự tin mà sai; chỉ tín hiệu kiểm chứng được mới đẩy workflow tiến lên.
 
@@ -65,8 +68,12 @@ comment hoặc merge đã thành công.
   hay ngân sách của mình.
 - Nâng effort/model/vendor MUST đi theo thang đã duyệt trước, do code kích hoạt theo phân loại lỗi.
   Lỗi hạ tầng hoặc hết hạn mức MUST NOT kích hoạt nâng model; không hạ model ngầm.
-- Merge MUST chỉ do code thực hiện sau khi kiểm tra quyền, head/base SHA, review và CI. Decider và
-  agent không quyết định merge. Mặc định người duyệt từng merge vào protected branch; chế độ yolo
+- Effect merge do Cuesura gửi MUST chỉ do code thực hiện sau khi kiểm tra quyền, head/base SHA,
+  gate/CI, review theo chế độ và approval cho thao tác merge. Auto-merge MUST có reviewer approve;
+  `direct-pr` không đủ điều kiện auto-merge. Decider và agent không quyết định merge. Người dùng
+  có thể merge thủ công trên GitHub theo quyền/branch protection; Cuesura MUST đối chiếu bằng chứng
+  thao tác bên ngoài đó, không giả approval/review và không đòi merge qua guard của effect nội bộ.
+  Mặc định người duyệt từng merge vào protected branch; chế độ yolo
   chỉ người dùng admin bật qua kênh tin cậy, không bao giờ qua `cusr.yaml` của repo, và được kiểm
   tra lại ngay lúc dispatch merge.
 - Quyết định của decider MUST được ghi lại, giải thích được và lật lại được trong phạm vi còn đảo
@@ -166,4 +173,4 @@ mỗi thành phần phải được dùng thật.
 - Hướng dẫn vận hành chi tiết nằm trong [SPEC.md](../../SPEC.md) và
   [docs/architecture.md](../../docs/architecture.md).
 
-**Version**: 1.1.0 | **Ratified**: 2026-10-27 | **Last Amended**: 2026-10-27
+**Version**: 2.0.0 | **Ratified**: 2026-10-27 | **Last Amended**: 2026-10-29

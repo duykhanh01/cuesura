@@ -6,6 +6,29 @@
 
 **Readiness: BLOCKED trước lát A.** Backlog đã tạo theo yêu cầu chủ dự án; [lát 0](spike-0.md) chưa đạt. Theo [ADR-0004](../../docs/adr/0004-isolated-bwrap-baseline.md), Isolated rootless bwrap là baseline cần kiểm chứng, không còn gate AppArmor 4 phổ quát. Canary local đã đạt nhưng chưa thay proof đầy đủ, smoke harness hoặc GitHub thật.
 
+## Điều chỉnh thiết kế 2026-10-29
+
+Áp dụng [chế độ thực thi và xác nhận](task-execution-modes.md), coverage M01–M08 và backlog
+T135–T139. Thay skip theo XS bằng mode được người dùng xác nhận; không bắt buộc khác vendor.
+Commit sau gates, trước review; publish đúng SHA. Worker chuẩn bị message/title/body từ template
+frozen và tiếp tục sửa qua resume khi hợp lệ. Agent nhận task đề xuất từ `when to use`, daemon
+không suy rủi ro hoặc tự chọn lại binding. Bổ sung xác nhận bền từ kênh người dùng đáng tin trước
+spawn, không thay authority admin hiện có.
+
+Amendment hiến chương 1.1.0 → 2.0.0 được chủ dự án yêu cầu khi review PR #8: nguyên tắc IV
+thay ưu tiên khác vendor bằng reviewer riêng session/chỉ đọc và review theo mode; nguyên tắc V
+giới hạn merge guard cho effect do Cuesura gửi, tách merge thủ công ngoài hệ thống. Đây là MAJOR
+vì định nghĩa lại hợp đồng review và phạm vi bất biến merge. Không thêm/bỏ section hoặc placeholder;
+không sửa template (workflow đọc hiến chương khi chạy). SPEC I11/§5.2/§7/§14.2, contracts, tasks,
+glossary và README được đồng bộ trong PR. Gate review bắt buộc với `full-review`; `direct-pr`
+không tạo approve giả và không cấp quyền auto-merge. Xác nhận intake mặc định vẫn giữ nguyên.
+Bằng chứng hai vendor của spike/SC-001 vẫn là coverage adapter, không là điều kiện admission.
+Plan/schema/graph cũ phải được nối qua T135–T139; tài liệu không thay bằng chứng runtime.
+
+Thứ tự bổ sung: US1 thực hiện T135–T137 và kiểm bằng fake; US2 kiểm quyết định resume/fallback
+qua session port fake. US4 mới nối real session tại T138 sau T068–T071, rồi T077. T139 kiểm tổng
+hợp sau T064/T077, trước T078/go-no-go. Không đặt T138 làm prerequisite ngược của US1/US2.
+
 ## Summary
 
 Nối lõi 001 vào một daemon ghi SQLite, runner độc lập, Git/worktree và hai harness CLI. Giao theo lát 0 kiểm chứng thật → A fake tới PR xanh → go/no-go → B recovery/tương tác với ≥200 crash → C smoke xuyên suốt thật hai chiều vendor. Khi xác nhận merge, ghi bền bằng chứng và chặn nghiệp vụ; chỉ DONE sau khi dừng process/đối chiếu effect, kể cả head chưa chứng nhận. Xem [ADR-0001](../../docs/adr/0001-observe-manual-merge.md).
@@ -26,15 +49,16 @@ Nối lõi 001 vào một daemon ghi SQLite, runner độc lập, Git/worktree v
 
 ## Constitution Check
 
-Đối chiếu [hiến chương 1.1.0](../../.specify/memory/constitution.md) trước Phase 0 và sau Phase 1:
+Đối chiếu [hiến chương 2.0.0](../../.specify/memory/constitution.md), gồm amendment ngày 2026-10-29,
+cho thiết kế cập nhật; bằng chứng Phase 0/1 cũ vẫn giữ provenance của phiên bản đã kiểm:
 
 | Nguyên tắc | Trước nghiên cứu | Sau thiết kế / bằng chứng |
 | --- | --- | --- |
 | I — Tất định | Đạt về hướng tiếp cận | Slot/completion/drain/timer là hàm thuần; now/ID/facts từ application service |
 | II — Commit/idempotency | Đạt | accept nguyên tử; receipt/probe trước retry; replay slot theo global_seq |
 | III — Hữu hạn | Đạt, cần chốt giá trị | R-04 chốt CI/observation/drain; R-11 chốt context/spool; unknown có đường recheck/cancel |
-| IV — Bằng chứng | Đạt | Validate response hai tầng; subset checks đúng SHA; DONE chưa chứng nhận ghi rõ |
-| V — Quyền kiểm soát | Đạt | Chỉ quan sát merge ngoài hệ thống; snapshot/binding bất biến; secret ngoài sandbox |
+| IV — Bằng chứng | Đạt về thiết kế, cần M01–M08 | Validate response; gates/CI và review theo mode đúng SHA; reviewer riêng session/chỉ đọc, không ưu tiên vendor; DONE chưa chứng nhận ghi rõ |
+| V — Quyền kiểm soát | Đạt về thiết kế, cần bằng chứng xác nhận | Giữ xác nhận intake và cấu hình chạy riêng; snapshot/binding bất biến; chỉ quan sát merge ngoài hệ thống; secret ngoài sandbox |
 | VI — Trung lập domain/vendor | Đạt | Core nhận fact/command typed generic; GitHub/harness/toolchain ở adapter |
 | VII — Kiểm chứng trung thực | Cần bằng chứng spike | Gate feasibility hiện BLOCKED; phải chạy lát 0 trước A, không lấy docs/help/fake thay kết quả thật |
 | VIII — Đơn giản | Đạt về thiết kế | Snapshot/event envelope v1 giữ nguyên; app-pinned chặn mismatch; port SandboxProvider nhỏ, duy nhất backend bwrap, không registry/Native/Container trong v1 |

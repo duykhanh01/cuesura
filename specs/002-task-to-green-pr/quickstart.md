@@ -1,5 +1,11 @@
 # Validation guide: feature 002
 
+**Thiết kế cập nhật, chưa triển khai**: xem [hai chế độ và xác nhận](task-execution-modes.md).
+Khi nối runtime phải kiểm M01–M08 ngoài các suite hiện có: không spawn trước xác nhận, không
+đổi mode/binding ngầm, `direct-pr` không review, `full-review` cùng vendor dùng session riêng,
+resume worker, template/artifact đúng và push đúng commit đã kiểm. Các lệnh dưới đây chưa có
+flags/proof mới cho mode và không được coi là đã hỗ trợ quyết định này.
+
 Phần **lát 0 chạy trước triển khai** theo [spike guide](spike-0.md), là gate trước runtime A. Các
 phần A/B/C bên dưới dành cho sau implement: hiện chỉ có scripts typecheck/lint/test/build/reliability
 của 001, cusr/cusrd và test runtime chưa khả dụng. Spike cô lập có thể dùng vài lượt model trước A;

@@ -11,13 +11,27 @@ Command allowlist, timeout/transport/pagination/bytes được pin theo runtime 
 | --- | --- |
 | Commit | Checkpoint tree/parent/metadata/OID dự kiến, compare-and-swap local ref |
 | Push | Immutable repo ID + source branch + expected-old/new SHA; remote bằng new thì nhận lại, khác cả hai thì unknown/head_changed |
-| Create PR | Repo + head owner/branch + target + marker chứa task/revision/operation key; query mọi state, không chỉ PR open |
+| Create PR | Repo + head owner/branch + target + marker chứa task/revision/operation key; title/body từ artifact worker đã validate, digest lưu cùng intent; query mọi state, không chỉ PR open |
+| Update PR description | Cùng repo/PR identity, expected previous body và body artifact mới; probe trước retry, thay đổi ngoài dự kiến thì chờ, không ghi đè mù |
 | Rerun CI | Cụ thể workflow run ID/attempt/head; chỉ khi policy và số lượt cho phép, đối chiếu run generation trước retry |
 
 Một logical operation giữ idem key qua timeout/restart. Không coi marker/title tự nó là đủ quyền
 nhận PR; tuple repo/head/base phải khớp. Nhiều PR khớp hoặc remote diverged thì chờ, không tạo PR
 thay thế. HTTP 422/timeout sau create không chứng minh thất bại; query/probe trước lần gửi mới.
 POST rerun không có idempotency remote: không chứng minh được chưa gửi thì unknown, không lặp bừa.
+
+Title/body worker là dữ liệu không đáng tin: trước khi ghép, từ chối marker trong namespace
+`<!-- cusr:` theo cùng chuẩn hóa của parser. Chỉ orchestrator gắn một block marker canonical
+cuối body và ghi digest body cuối vào intent. Probe chỉ nhận block canonical ở vị trí này cùng
+repo/head/base/operation receipt, không tìm marker tự do trong nội dung worker hoặc tin title.
+Marker giả/nhân đôi/body lệch phải chặn để đối chiếu, kể cả `direct-pr`; kiểm fixture giả mạo
+và timeout/recovery nằm trong M05/M07 và T136/T139.
+
+Nội dung template được đọc từ frozen base và đưa cho worker; orchestrator không diễn giải heading
+Markdown. Cả hai mode dùng nội dung worker chuẩn bị, marker/source links do orchestrator gắn;
+không có writer agent riêng. Nội dung mới sau fixer/CI được đối chiếu theo
+[hợp đồng chế độ](../task-execution-modes.md); update PR description cần endpoint allowlist,
+receipt/probe và kiểm thử riêng trước khi hỗ trợ, không tự mở quyền GitHub cho worker.
 
 ## API read bundle
 
@@ -79,7 +93,9 @@ FR-040.12, không thay bằng HEAD hiện tại hoặc suy từ merge commit squ
   status mới nhất của cùng identity; pending/failure của rerun không được che bằng success cũ.
   Cùng tên nhiều nguồn không ánh xạ rõ hoặc status/check collision không giải được → policy.
 - Chỉ success đạt; neutral/skipped/pending/cancelled/missing/unknown không đủ theo spec này.
-  Gate/review snapshot còn hiệu lực cùng head vẫn bắt buộc, GitHub no-protection không miễn chúng.
+  Gate snapshot cùng head luôn bắt buộc; review cùng head bắt buộc trong `full-review`.
+  `direct-pr` ghi rõ review không được yêu cầu theo mode đã xác nhận, không giả approve; GitHub
+  no-protection không miễn gate/CI hoặc review của `full-review`.
 
 ## Lịch quan sát và recheck
 

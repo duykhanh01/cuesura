@@ -3,6 +3,22 @@
 Các entity/event dưới đây là bổ sung dự kiến, chưa phải schema đã triển khai. Giữ bảy task status
 của lõi 001; drain, slot và observation là dữ liệu/chi tiết chờ, không thêm task status.
 
+## Bổ sung theo quyết định 2026-10-29
+
+[Hợp đồng chế độ](task-execution-modes.md) yêu cầu dữ liệu thiết kế bổ sung, chưa có trong schema v1:
+
+| Dữ liệu | Nội dung và bất biến |
+| --- | --- |
+| Đề xuất cấu hình chạy | Task/revision, mode, profile, worker/reviewer harness/model/effort, fallback và digest; chỉ là đề xuất |
+| Xác nhận cấu hình chạy | Actor/provenance từ kênh người dùng đáng tin, digest bộ lựa chọn và task/revision; lưu bền, sai digest không spawn |
+| Snapshot cấu hình chạy | Mode và bộ lựa chọn đã xác nhận, liên kết FrozenPolicy/runtime; không viết lại snapshot lịch sử |
+| Nội dung publish | Template base/path/digest, commit message, PR title/description worker đã kiểm namespace marker, digest/provenance artifact và body cuối có block marker do orchestrator tạo; không nằm trong code commit |
+| Review evidence | Base SHA, commit SHA, digest nội dung PR, verdict; `direct-pr` lưu mode không yêu cầu review, không giả approve |
+| Worker session | Session coder hợp lệ gần nhất, binding, liên kết attempt sửa và lý do fallback; reviewer session tách biệt |
+
+Khi triển khai phải quyết định schema/event version phù hợp và giữ replay/fixture cũ; các bảng
+v1 bên dưới mô tả nền đã có, không tự có các trường mới chỉ vì bổ sung tài liệu.
+
 ## Snapshot và entity
 
 | Entity | Trường chính | Quy tắc |

@@ -76,11 +76,16 @@ worktree có diff/commit chưa bảo toàn theo retention log.
   worktree; Claude print/structured-schema/settings tương ứng manifest. Không hardcode model ID từ
   ví dụ docs, không bypass permission. Internal OS sandbox có thể off duy nhất trong mode
   external_verified đã kiểm; outer vẫn bắt buộc. Auth/session home riêng, không load tùy ý config user.
-- Resume chỉ cùng harness/session, đúng policy; nếu không còn dùng được thì attempt mới mang Q&A
+- Fixer là vai trò sửa của worker đã code: ưu tiên resume session worker cho lỗi gate/review/CI,
+  không resume session reviewer. Resume chỉ cùng harness/binding, đúng policy; nếu không còn dùng
+  được thì attempt mới có lý do fallback và mang Q&A
   có ngân sách. Adapter không quyết định tạo attempt. Refusal không bị retry để vượt quyền.
 - Context tối đa 128 KiB, reviewer diff 64 KiB; kèm diff digest/path list, phần cắt phải ghi rõ.
   Không đủ acceptance/diff bắt buộc thì needs_context/chờ, không cắt thông tin rồi approve. Reviewer
-  khác vendor với coder/fixer thực tạo diff; vendor được xác định từ manifest, không chỉ tên model.
+  có session riêng, chỉ đọc trong `full-review`; có thể cùng vendor/model. `direct-pr` không gọi reviewer.
+- Worker chuẩn bị commit message, PR title/description theo template frozen trong artifact ngoài code;
+  sửa code thì cập nhật mô tả khi cần. Hợp đồng output mới phải version hóa/kiểm chứng schema riêng,
+  không coi schema/fixture spike hiện có đã bao phủ; xem [M01–M08](../task-execution-modes.md).
 
 ## Mode isolation và capability manifest
 
@@ -144,8 +149,11 @@ không có token GitHub. Config từ Git objects tại frozen base SHA, không f
 - Setup/gate/autofix dùng command string snapshot, chạy `/bin/sh -c` chỉ với command đã chốt; mỗi
   command default wall cap 10 phút và cap tổng task còn lại, ghi checkpoint trước thao tác ghi.
   Retry chỉ khi hợp đồng declared safe; unknown của command không-safe phải chờ người.
-- Coder/fixer đổi code → invalidate gate/review/CI bị ảnh hưởng; chạy lại gate rồi review trước
-  publish. Orchestrator checkpoint/hash tree và commit để evidence gắn đúng SHA; agent không publish.
+- Coder/fixer đổi code → invalidate gate/review/CI bị ảnh hưởng. Chạy gates rồi orchestrator commit
+  trước review (`full-review`); `direct-pr` đi thẳng publish sau commit. Commit dùng message worker
+  chuẩn bị; evidence gắn đúng tree/base SHA/commit SHA. Orchestrator khóa công việc worktree, đối
+  chiếu process/ref/tree/worktree trước publish và push đúng SHA đã lưu. Drift chặn publish để
+  đối chiếu, không commit thêm sau approval rồi dùng bằng chứng cũ; agent không publish.
 - Commit intent lưu tree/parent/author/committer timestamps/message/OID dự kiến trước cập nhật ref.
   Recovery nhận lại OID đó, không tạo commit khác; unknown không reset HEAD theo phỏng đoán.
 - Push kiểm remote expected old SHA, chỉ fast-forward; remote khác dự kiến chờ head_changed,

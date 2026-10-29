@@ -6,6 +6,10 @@
 [Lát 0](../spike-0.md) là gate trước runtime A; các dòng có 0 cần prototype/fixture thật trước runtime. Mỗi dòng cần task và
 bằng chứng riêng; cùng suite được dùng chung khi có assertion phân biệt từng nghĩa vụ.
 
+Bổ sung [M01–M08](../task-execution-modes.md) được truy vết qua T135–T139; 117 dòng FR dưới đây
+giữ ID để bảo toàn coverage. FR-014/017/019 được hiểu theo hai mode đã xác nhận; smoke hai
+vendor kiểm adapter, không bắt mọi task dùng hai vendor. Các M chưa được nghiệm thu.
+
 Các module trong bảng là vị trí dự kiến, chưa phải file đã được tạo. Property/unit chạy trong
 `test/property`/`test/unit`; contract trong `test/contract`; integration trong `test/integration/runtime`;
 crash trong `test/reliability`; thực nghiệm trả phí trong `test/smoke`. `quickstart.md` nêu các suite

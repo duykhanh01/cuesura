@@ -4,6 +4,26 @@ Thuật ngữ miền dùng khi mô tả việc điều phối agent, giới hạ
 
 ## Language
 
+**Chế độ thực thi**:
+Lựa chọn cách đưa kết quả task tới PR, do người dùng xác nhận trước khi chạy. Hai chế độ là `direct-pr` và `full-review`.
+_Avoid_: Độ khó task, tự động suy chế độ từ kích thước
+
+**Direct PR (`direct-pr`)**:
+Chế độ đưa thay đổi qua gate và công bố PR mà không gọi reviewer; các kiểm tra CI và quyền merge vẫn áp dụng.
+_Avoid_: Bỏ kiểm tra, tự merge
+
+**Full review (`full-review`)**:
+Chế độ yêu cầu reviewer độc lập kiểm tra thay đổi trước khi công bố PR; độc lập không đòi hỏi khác vendor.
+_Avoid_: Bắt buộc hai vendor, tự review trong lượt code
+
+**Effort**:
+Mức suy luận được chọn cho model trong một lần chạy, trong phạm vi harness hỗ trợ.
+_Avoid_: Thinking (tên khác cho cùng trường)
+
+**Xác nhận cấu hình chạy**:
+Sự đồng ý của người dùng cho một task với harness, model, effort và chế độ cụ thể, gồm reviewer khi cần.
+_Avoid_: Đề xuất của agent, cờ xác nhận do agent tự khai
+
 **Lượt agent giữ chỗ**:
 Một phần hạn mức đã dành cho lần gọi agent dự kiến, chưa được xác nhận là đã thực sự gọi. Phần này không còn khả dụng cho lần gọi khác; chỉ được trả lại khi chắc chắn agent chưa chạy.
 _Avoid_: Lượt agent đã dùng, lượt miễn phí khi chưa rõ kết quả
@@ -29,7 +49,7 @@ Yêu cầu hủy mà việc đối chiếu xác nhận merge của task đã th�
 _Avoid_: Task đã hủy nhưng vẫn merge, hủy đồng nghĩa revert
 
 **PR xanh**:
-PR có gate, review và các kiểm tra CI bắt buộc đã đạt cho một head SHA cụ thể, với danh sách kiểm tra đã được đối chiếu đầy đủ. Đây là bằng chứng cho head đó, không phải quyền merge, trạng thái DONE hay bảo đảm branch đã cập nhật theo base mới nhất.
+PR có gate và các kiểm tra CI bắt buộc đã đạt cho một head SHA cụ thể, cùng review nếu chế độ là `full-review`, với danh sách kiểm tra đã được đối chiếu đầy đủ. Bằng chứng ghi rõ chế độ; không phải quyền merge, trạng thái DONE hay bảo đảm branch đã cập nhật theo base mới nhất.
 _Avoid_: Task đã xong, được phép tự merge, xanh vĩnh viễn cho mọi thay đổi của PR
 
 **Slot thực thi**:
@@ -37,7 +57,7 @@ Quyền chiếm một suất để task chạy attempt agent hoặc bước chu�
 _Avoid_: Một task chưa kết thúc, giữ slot suốt vòng đời task, nhả slot đồng nghĩa xóa worktree
 
 **Head đã kiểm**:
-Head SHA của PR mà Cuesura đã có đủ gate, review và CI bắt buộc cho revision hiện tại. Head này không tự đổi theo push bên ngoài.
+Head SHA của PR mà Cuesura đã có đủ gate, CI và review nếu được yêu cầu bởi chế độ đã xác nhận cho revision hiện tại. Head này không tự đổi theo push bên ngoài.
 _Avoid_: Head hiện tại của PR, head mới nhất trên remote
 
 **Merge chưa chứng nhận**:
