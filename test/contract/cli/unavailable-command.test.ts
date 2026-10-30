@@ -43,7 +43,7 @@ describe.each(BINARIES)('%s binary', (bin) => {
   });
 
   it('--json on an unimplemented command prints one error envelope and exits 2', () => {
-    const r = exec(bin, ['inbox', '--json']);
+    const r = exec(bin, ['no-such-command', '--json']);
     expect(r.status).toBe(2);
     const lines = r.stdout.trimEnd().split('\n');
     expect(lines).toHaveLength(1);
@@ -63,7 +63,7 @@ describe.each(BINARIES)('%s binary', (bin) => {
   });
 
   it('an unimplemented command without --json writes only to stderr and exits 2', () => {
-    const r = exec(bin, ['inbox']);
+    const r = exec(bin, ['no-such-command']);
     expect(r.status).toBe(2);
     expect(r.stdout).toBe('');
     expect(r.stderr).toContain('not available');

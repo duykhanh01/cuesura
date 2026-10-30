@@ -17,7 +17,7 @@ import {
   type StartupDeps,
 } from '../../src/daemon/startup.ts';
 import { isUnresolved } from '../../src/engine/runtime.ts';
-import { SPOOL_DIR } from '../../src/runner/files.ts';
+import { ACKED_DIR } from '../../src/runner/files.ts';
 import { unitName } from '../../src/runner/identity.ts';
 import { Redactor } from '../../src/runner/redact.ts';
 import { SystemdSupervisor, inspectUnit } from '../../src/runner/supervisor.ts';
@@ -216,16 +216,16 @@ async function spawn(): Promise<void> {
 
 /**
  * The daemon side of a runner's spool: ingest from the committed cursor in small batches and ACK
- * (delete sealed segments) only behind it. ACK passes a kill point at each segment it deletes.
+ * (move sealed segments out of the spool) only behind it. ACK passes a kill point at each segment it moves.
  */
 function spool(): void {
   if (args.operation_id === undefined) throw new Error('spool life without op');
-  const unlink = fs.unlinkSync;
-  fs.unlinkSync = (p: fs.PathLike) => {
-    const ack = String(p).includes(`/${SPOOL_DIR}/`);
-    if (ack) sw.hit('ack:unlink:before', 'before_effect');
-    unlink(p);
-    if (ack) sw.hit('ack:unlink:after', 'after_external');
+  const rename = fs.renameSync;
+  fs.renameSync = (from: fs.PathLike, to: fs.PathLike) => {
+    const ack = String(to).includes(`/${ACKED_DIR}/`);
+    if (ack) sw.hit('ack:move:before', 'before_effect');
+    rename(from, to);
+    if (ack) sw.hit('ack:move:after', 'after_external');
   };
   syncBuiltinESMExports();
   const opened = openStore(lay.store);

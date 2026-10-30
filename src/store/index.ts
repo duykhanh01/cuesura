@@ -85,6 +85,9 @@ export interface Store {
   /** Operations not proven finished or never launched, in ID order (startup reconciles these). */
   unresolvedOperations(): read.UnresolvedOperation[];
   verifyProjections(): VerifyReport;
+  /** `PRAGMA integrity_check` messages; exactly `['ok']` when healthy. */
+  integrityCheck(): string[];
+  schemaVersion(): number;
   close(): void;
 }
 
@@ -187,6 +190,18 @@ export class SqliteStore implements Store {
   }
   verifyProjections(): VerifyReport {
     return verifyProjections(this.db);
+  }
+  integrityCheck(): string[] {
+    return (
+      this.db.pragma('integrity_check') as { integrity_check: string }[]
+    ).map((r) => r.integrity_check);
+  }
+  schemaVersion(): number {
+    return (
+      this.db.prepare('SELECT version FROM schema_meta WHERE id = 1').get() as {
+        version: number;
+      }
+    ).version;
   }
   close(): void {
     if (this.db.open) this.db.close();

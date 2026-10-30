@@ -208,7 +208,7 @@ describe('daemon control socket (T026)', () => {
 
     // A read-only token cannot mutate, whatever actor the body claims.
     expect(await code(reader.token, { ...cancel(), actor: 'owner' })).toBe(
-      ExitCode.usage,
+      ExitCode.forbidden,
     );
     expect(await code(reader.token, cancel())).toBe(ExitCode.forbidden);
     // Supported kind with no handler in this build: refused before admission.

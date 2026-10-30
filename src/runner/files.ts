@@ -61,6 +61,8 @@ export const RUN_FILES = {
 export type RunFileName = (typeof RUN_FILES)[keyof typeof RUN_FILES];
 
 export const SPOOL_DIR = 'spool';
+/** Segments behind the committed cursor; `task logs` still reads them, the spool cap no longer counts them. */
+export const ACKED_DIR = 'acked';
 const RUN_SUBDIRS = ['out', SPOOL_DIR] as const;
 
 const FILE_MODE = 0o600;
@@ -1202,11 +1204,56 @@ export function ackThrough(
     });
   }
   const spool = run.resolve(SPOOL_DIR);
+  const acked = run.resolve(ACKED_DIR);
   const deleted: string[] = [];
   for (const s of segments.slice(0, i)) {
-    unlinkSync(join(spool, s.name));
+    mkdirSync(acked, { recursive: true, mode: DIR_MODE });
+    renameSync(join(spool, s.name), join(acked, s.name));
     deleted.push(s.name);
   }
-  if (deleted.length > 0) fsyncDir(spool);
+  if (deleted.length > 0) {
+    fsyncDir(acked);
+    fsyncDir(spool);
+  }
   return ok(deleted);
+}
+
+/** Every complete record the run still holds, acknowledged segments included, in `seq` order. */
+export function readAllRecords(run: RunDir): LogRecord[] {
+  const files: { path: string; segment: number }[] = [];
+  for (const rel of [ACKED_DIR, SPOOL_DIR]) {
+    const dir = run.resolve(rel);
+    let names: string[];
+    try {
+      names = readdirSync(dir);
+    } catch (e) {
+      if (errno(e) === 'ENOENT') continue;
+      throw e;
+    }
+    for (const name of names) {
+      const m = SEGMENT_RE.exec(name);
+      if (m !== null)
+        files.push({ path: join(dir, name), segment: Number(m[2]) });
+    }
+  }
+  files.sort((a, b) => a.segment - b.segment);
+  const out: LogRecord[] = [];
+  for (const f of files) {
+    const fd = openSync(f.path, O_READ);
+    let buf: Buffer;
+    try {
+      buf = readAll(fd, 0, fstatSync(fd).size);
+    } finally {
+      closeSync(fd);
+    }
+    let pos = 0;
+    for (;;) {
+      const nl = buf.indexOf(0x0a, pos);
+      if (nl < 0) break;
+      const rec = parseRecord(buf.subarray(pos, nl));
+      if (typeof rec !== 'string') out.push(rec);
+      pos = nl + 1;
+    }
+  }
+  return out;
 }

@@ -186,7 +186,7 @@ const unknown = (detail: string): EffectOutcome => ({
   detail,
 });
 
-function load(deps: HandlerDeps, effect: Effect): Loaded {
+function load(deps: Pick<HandlerDeps, 'store'>, effect: Effect): Loaded {
   const s = deps.store.readTask(effect.task_id as Uuid);
   if (s === null || s.policy_ref === null)
     throw new Skip(failed('infra', 'task not started'));
@@ -1454,7 +1454,7 @@ export type ObservedPr = {
  * open PR carries the CI data of its head. Shared by `await_ci`, the observation service and recheck.
  */
 export async function observeTaskPr(
-  deps: HandlerDeps,
+  deps: Pick<HandlerDeps, 'store' | 'github' | 'clock' | 'newId'>,
   taskId: string,
   evidenceRef: string,
   source: Observation['source'],

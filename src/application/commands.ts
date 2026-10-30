@@ -55,6 +55,12 @@ export const UNSUPPORTED_COMMANDS = [
 /** IDs the server assigns at admission: a task ID for `task_add` plus an ID pool for the core envelope. */
 const ASSIGNED_IDS = 8;
 
+/** The two fields authz reads, from a body the closed schema has not accepted yet. */
+const ClaimedSchema = z.looseObject({
+  kind: z.unknown(),
+  project: z.string().nullable().optional(),
+});
+
 export const CommandSchema = z
   .object({
     request_id: UuidSchema,
@@ -66,6 +72,19 @@ export const CommandSchema = z
   })
   .strict();
 export type CommandInput = z.input<typeof CommandSchema>;
+
+/** What to do instead of an unsupported command (FR-021, FR-045.01/02). */
+export const UNSUPPORTED_GUIDANCE: Readonly<
+  Record<(typeof UNSUPPORTED_COMMANDS)[number], string>
+> = {
+  task_retry:
+    'task retry is not part of this version; use task add for an independent task',
+  task_amend_policy:
+    'amend-policy is not part of this version; cancel and use task add with the new config',
+  merge_approve:
+    'merge approval is not part of this version; merge the PR on GitHub, then wait for the observation or run task recheck',
+  yolo: 'yolo is not part of this version; merge the PR on GitHub, then wait for the observation or run task recheck',
+};
 
 export type AdmitError =
   | AuthzError
@@ -90,6 +109,20 @@ export function admitCommand(
   caller: Caller | null,
   input: unknown,
 ): Result<Admitted, AdmitError> {
+  // Authz comes first (contracts/cli-daemon.md): a field the caller added cannot turn a refusal into a
+  // syntax error, and a body naming someone else's actor is still judged by the token alone.
+  const claimed = ClaimedSchema.safeParse(input);
+  if (
+    claimed.success &&
+    typeof claimed.data.kind === 'string' &&
+    Object.hasOwn(COMMAND_PAYLOADS, claimed.data.kind)
+  ) {
+    const allowed = authorize(caller, {
+      role: REQUIRED_ROLE[claimed.data.kind as CommandKind],
+      project: claimed.data.project ?? null,
+    });
+    if (!allowed.ok) return err(allowed.error);
+  }
   const parsed = CommandSchema.safeParse(input);
   if (!parsed.success)
     return err({

@@ -1,7 +1,7 @@
 /**
- * Minimal task queries and mutations for the fake flow (T048): `task_add`, `task_confirm` and
- * `task_show`, all through the daemon's application layer (authz, ledger, dedup), never the database
- * directly. The full CLI/explain surface belongs to US6.
+ * Task queries and mutations of the CLI (T048, T108–T110): add, confirm, recheck, show, list, explain and
+ * history, all through the daemon's application layer (authz, ledger, dedup), never the database directly.
+ * Queries read the projection and the event log only: no LLM and no external I/O (FR-027.01/02).
  */
 import { z } from 'zod';
 import {
@@ -19,7 +19,10 @@ import type { Store } from '../store/index.ts';
 import { authorize, authzContext, type Caller } from './authz.ts';
 import type { Admitted, CommandInput } from './commands.ts';
 import { confirmTask, type ConfirmDeps } from './confirm.ts';
-import type { RecheckDeps } from './recheck.ts';
+import { recheckTarget, recheckTask, type RecheckDeps } from './recheck.ts';
+import { explainRuntime } from '../explain/explain.ts';
+import { TASK_STATUSES } from '../domain/state.ts';
+import { asEpochMs } from '../shared/brand.ts';
 import { submit } from './triage.ts';
 import type { RunProposal } from '../domain/run-config.ts';
 import { runConfigConfirmed } from '../engine/run-config.ts';
@@ -232,6 +235,8 @@ export type TaskServiceDeps = {
   readonly newId?: () => string;
   /** One read of a task's PR (the recheck observation); without it a cancel leaves the read to recheck. */
   readonly observe?: RecheckDeps['observe'];
+  /** One bounded drain round for `task recheck`; `task_recheck` needs this and `observe`. */
+  readonly drain?: RecheckDeps['drain'];
 };
 
 export function taskAdd(
@@ -354,37 +359,331 @@ export async function taskConfirm(
   });
 }
 
+/** `task_recheck` (T110, FR-046): one bounded check through the service T062, under the command's IDs. */
+export async function taskRecheck(
+  deps: TaskServiceDeps,
+  admitted: Admitted,
+  input: CommandInput,
+  caller: Caller,
+): Promise<Result<unknown, AppError>> {
+  const r = await recheckTask(
+    {
+      ...deps.confirm,
+      newId: deps.newId as () => string,
+      observe: deps.observe as RecheckDeps['observe'],
+      drain: deps.drain as RecheckDeps['drain'],
+    },
+    caller,
+    {
+      request_id: admitted.record.request_id,
+      project: input.project as string,
+      task_id: input.task_id as string,
+      expected_version: input.expected_version as number,
+      assigned_ids: admitted.record.assigned_ids,
+    },
+  );
+  if (r.ok) return ok(r.value);
+  const e = r.error;
+  return err({
+    code: e.code === 'unknown_task' ? 'task_not_found' : e.code,
+    message: 'reason' in e ? String(e.reason) : e.code,
+    details: { ...e },
+  });
+}
+
+function invalidQuery(kind: string, e: z.ZodError): AppError {
+  return {
+    code: 'invalid_request',
+    message: `invalid ${kind} query`,
+    details: {
+      issues: e.issues.map((i) => `${i.path.join('.')}: ${i.message}`),
+    },
+  };
+}
+
+const notFound = (id: string): AppError => ({
+  code: 'task_not_found',
+  message: `no task ${id}`,
+  details: {},
+});
+
+/**
+ * The task as this caller may see it. A task outside the caller's projects is reported as missing, not
+ * as forbidden, so IDs do not leak.
+ */
+function readable(
+  store: Store,
+  caller: Caller,
+  id: string,
+): Result<TaskState, AppError> {
+  const s = store.readTask(id as Uuid);
+  return s === null ||
+    !authorize(caller, { role: 'read', project: s.project }).ok
+    ? err(notFound(id))
+    : ok(s);
+}
+
+function mergeOf(store: Store, s: TaskState): Record<string, unknown> | null {
+  const rt =
+    s.runtime_ref === null
+      ? null
+      : store.readRuntimeContext(s.id as Uuid, s.runtime_ref.revision);
+  return mergeView(s, rt, readStoredContent);
+}
+
+const TaskQuerySchema = z
+  .object({ kind: z.string(), task_id: UuidSchema })
+  .strict();
+
+/**
+ * Where each fact on `task show` came from (FR-027.01): the observation behind the PR and head, the
+ * attempt that reported each usage, the reservations it spent and the artifacts the store committed.
+ */
+function provenance(s: TaskState): Record<string, unknown> {
+  return {
+    pr: {
+      ref: s.pr_ref,
+      head_sha: s.head_sha,
+      base_sha: s.base_sha,
+      observation: s.observation?.last ?? null,
+    },
+    usage: Object.values(s.attempts)
+      .sort((a, b) => a.n - b.n)
+      .map((a) => ({
+        attempt_id: a.id,
+        step: a.step,
+        binding: a.binding,
+        reservation_id: a.reservation_id,
+        reservation: s.budget.reservations[a.reservation_id]?.status ?? null,
+        usage: a.usage,
+      })),
+    budget: {
+      agent_runs: s.budget.agent_runs,
+      escalations: s.budget.escalations,
+    },
+    artifacts: Object.values(s.artifacts).map((a) => ({
+      artifact_id: a.artifact_id,
+      operation_id: a.operation_id,
+      kind: a.kind,
+      digest: a.digest,
+      bytes: a.bytes,
+    })),
+  };
+}
+
 /** `task_show` query: read role and the task's project in the caller's allowlist. */
 export function taskShow(
   store: Store,
   caller: Caller,
   body: Readonly<Record<string, unknown>>,
 ): Result<unknown, AppError> {
-  const id = UuidSchema.safeParse(body['task_id']);
-  if (!id.success)
+  const q = TaskQuerySchema.safeParse(body);
+  if (!q.success)
     return err({
       code: 'invalid_request',
       message: 'task_id is required',
       details: {},
     });
-  const s = store.readTask(id.data);
-  if (s === null)
+  const s = readable(store, caller, q.data.task_id);
+  if (!s.ok) return s;
+  return ok({
+    ...taskView(s.value, mergeOf(store, s.value)),
+    step: s.value.current_step,
+    provenance: provenance(s.value),
+  });
+}
+
+export const TASK_LIST_LIMIT = 100;
+
+const TaskListSchema = z
+  .object({
+    kind: z.literal('task_list'),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(TASK_LIST_LIMIT)
+      .default(TASK_LIST_LIMIT),
+    cursor: UuidSchema.optional(),
+    project: z.string().min(1).optional(),
+    status: z.enum(TASK_STATUSES).optional(),
+  })
+  .strict();
+
+/** `task_list`: pages in task ID order, only tasks of the caller's projects (FR-027.01). */
+export function taskList(
+  store: Store,
+  caller: Caller,
+  body: Readonly<Record<string, unknown>>,
+): Result<unknown, AppError> {
+  const q = TaskListSchema.safeParse(body);
+  if (!q.success) return err(invalidQuery('task_list', q.error));
+  const { limit, cursor, project, status } = q.data;
+  if (project !== undefined) {
+    const allowed = authorize(caller, { role: 'read', project });
+    if (!allowed.ok)
+      return err({
+        code: 'forbidden',
+        message: `requires project ${project}`,
+        details: { ...allowed.error },
+      });
+  }
+  const items: Record<string, unknown>[] = [];
+  let next: string | null = null;
+  for (const id of store.taskIdsByStatus(
+    status === undefined ? TASK_STATUSES : [status],
+  )) {
+    if (cursor !== undefined && id <= cursor) continue;
+    const s = store.readTask(id as Uuid);
+    if (s === null) continue;
+    if (project !== undefined && s.project !== project) continue;
+    if (!authorize(caller, { role: 'read', project: s.project }).ok) continue;
+    if (items.length === limit) {
+      next = items.at(-1)?.['task_id'] as string;
+      break;
+    }
+    items.push({
+      task_id: s.id,
+      project: s.project,
+      title: s.task.title,
+      status: s.status,
+      wait_code: s.wait?.detail.code ?? null,
+      version: s.version,
+      priority: s.task.priority,
+      pr_ref: s.pr_ref,
+      head_sha: s.head_sha,
+    });
+  }
+  return ok({ items, next_cursor: next });
+}
+
+const HISTORY_PAGE = 500;
+const HISTORY_BYTES = 4 * 1024 * 1024;
+
+const TaskHistorySchema = z
+  .object({
+    kind: z.literal('task_history'),
+    task_id: UuidSchema,
+    after: z.number().int().nonnegative().default(0),
+    limit: z.number().int().min(1).max(HISTORY_PAGE).default(HISTORY_PAGE),
+  })
+  .strict();
+
+/** `task_history`: the accepted events in order; `after` is an event `seq`. */
+export function taskHistory(
+  store: Store,
+  caller: Caller,
+  body: Readonly<Record<string, unknown>>,
+): Result<unknown, AppError> {
+  const q = TaskHistorySchema.safeParse(body);
+  if (!q.success) return err(invalidQuery('task_history', q.error));
+  const s = readable(store, caller, q.data.task_id);
+  if (!s.ok) return s;
+  const all = store.readEvents(s.value.id as Uuid, q.data.after + 1);
+  const events: unknown[] = [];
+  let bytes = 0;
+  for (const e of all) {
+    if (events.length === q.data.limit || bytes >= HISTORY_BYTES) break;
+    bytes += JSON.stringify(e.payload).length;
+    events.push({
+      seq: e.seq,
+      type: e.type,
+      revision: e.revision,
+      actor: e.actor,
+      dedup_key: e.causation.dedup_key,
+      payload: e.payload,
+    });
+  }
+  const last = events.at(-1) as { seq: number } | undefined;
+  return ok({
+    task_id: s.value.id,
+    events,
+    next_cursor: last?.seq ?? q.data.after,
+    more: events.length < all.length,
+  });
+}
+
+/** `task_explain` (T111): built from committed data only. */
+export function taskExplain(
+  store: Store,
+  caller: Caller,
+  body: Readonly<Record<string, unknown>>,
+  now: number,
+): Result<unknown, AppError> {
+  const q = TaskQuerySchema.safeParse(body);
+  if (!q.success)
     return err({
-      code: 'task_not_found',
-      message: `no task ${id.data}`,
+      code: 'invalid_request',
+      message: 'task_id is required',
       details: {},
     });
-  const allowed = authorize(caller, { role: 'read', project: s.project });
-  // A task outside the caller's projects is reported as missing, not as forbidden, so IDs do not leak.
-  if (!allowed.ok)
-    return err({
-      code: 'task_not_found',
-      message: `no task ${id.data}`,
-      details: {},
+  const r = readable(store, caller, q.data.task_id);
+  if (!r.ok) return r;
+  const s = r.value;
+  const position = store
+    .readQueue(Number.MAX_SAFE_INTEGER)
+    .findIndex((x) => x.task_id === s.id);
+  return ok(
+    explainRuntime(
+      s,
+      store.readEvents(s.id as Uuid),
+      s.policy_ref === null
+        ? null
+        : store.readPolicy(s.id as Uuid, s.policy_ref.revision),
+      {
+        now: asEpochMs(now),
+        recheckable: recheckTarget(s) !== null,
+        rt:
+          s.runtime_ref === null
+            ? null
+            : store.readRuntimeContext(s.id as Uuid, s.runtime_ref.revision),
+        queue_position: position < 0 ? null : position + 1,
+        prerequisite: (id) => {
+          const p = readable(store, caller, id);
+          return p.ok ? p.value : null;
+        },
+        merge: mergeOf(store, s),
+      },
+    ),
+  );
+}
+
+const QuestionSchema = z
+  .object({ kind: z.literal('question_show'), question_id: UuidSchema })
+  .strict();
+
+/**
+ * `question_show`: which task holds a question, answered or not, so `cusr answer QUESTION` can name the
+ * task and project and a repeated request reaches the ledger with the same payload.
+ */
+export function questionShow(
+  store: Store,
+  caller: Caller,
+  body: Readonly<Record<string, unknown>>,
+): Result<unknown, AppError> {
+  const q = QuestionSchema.safeParse(body);
+  if (!q.success) return err(invalidQuery('question_show', q.error));
+  for (const id of store.taskIdsByStatus(TASK_STATUSES)) {
+    const s = store.readTask(id as Uuid);
+    const found = s?.questions[q.data.question_id];
+    if (
+      s === null ||
+      found === undefined ||
+      !authorize(caller, { role: 'read', project: s.project }).ok
+    )
+      continue;
+    return ok({
+      question_id: found.id,
+      task_id: s.id,
+      project: s.project,
+      status: found.status,
+      revision: found.revision,
+      task_version: s.version,
     });
-  const rt =
-    s.runtime_ref === null
-      ? null
-      : store.readRuntimeContext(s.id as Uuid, s.runtime_ref.revision);
-  return ok(taskView(s, mergeView(s, rt, readStoredContent)));
+  }
+  return err({
+    code: 'question_not_found',
+    message: `no question ${q.data.question_id}`,
+    details: {},
+  });
 }

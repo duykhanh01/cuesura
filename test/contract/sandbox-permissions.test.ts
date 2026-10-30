@@ -360,3 +360,31 @@ describe('permission rules hold independently of the outer boundary (T006/T007)'
     expect(!hard.ok && hard.error.map((x) => x.check)).toEqual(['cost']);
   });
 });
+
+describe('control tokens stay out of a worker sandbox (T107, FR-028/032)', () => {
+  it.each(['coder', 'fixer', 'reviewer'] as SandboxRole[])(
+    '%s has no token variable and no mount of the data dir that holds the tokens',
+    (role) => {
+      const fx = fixture();
+      for (const key of [
+        'CUSR_TOKEN_FILE',
+        'CUSR_OPERATE_TOKEN',
+        'CUSR_ADMIN_TOKEN',
+      ])
+        expect(() =>
+          buildBwrap(
+            {
+              ...fixtureLayout(role, fx),
+              env: { [key]: '/srv/cusr/op.token' },
+            },
+            policy,
+          ),
+        ).toThrow(SandboxPolicyError);
+      const plan = buildBwrap(fixtureLayout(role, fx), policy);
+      const text = JSON.stringify(plan);
+      expect(text).not.toContain('owner.token');
+      expect(text).not.toContain('control.sock');
+      expect(text).not.toContain('.cusr');
+    },
+  );
+});

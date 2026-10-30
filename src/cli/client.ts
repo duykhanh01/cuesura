@@ -19,7 +19,10 @@ import {
   renderEnvelope,
   type Envelope,
 } from './output.ts';
+import { exitCodeFor } from './errors.ts';
 import type { CliCommand } from './program.ts';
+
+export { exitCodeFor } from './errors.ts';
 
 export const DEFAULT_CLIENT_TIMEOUT_MS = 15_000;
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
@@ -157,31 +160,6 @@ export function callDaemon(
     if (payload !== null) req.write(payload);
     req.end();
   });
-}
-
-/** Exit code of a command from the daemon's answer; a task's status never decides it. */
-export function exitCodeFor(envelope: Envelope): ExitCode {
-  if (envelope.ok) return ExitCode.ok;
-  switch (envelope.error.code) {
-    case 'unauthenticated':
-    case 'forbidden':
-      return ExitCode.forbidden;
-    case 'conflict':
-      return ExitCode.conflict;
-    case 'not_found':
-    case 'task_not_found':
-    case 'question_not_found':
-    case 'approval_not_found':
-      return ExitCode.missing;
-    case 'invalid_command':
-    case 'invalid_request':
-    case 'unsupported_feature':
-    case 'not_available':
-    case 'body_too_large':
-      return ExitCode.usage;
-    default:
-      return ExitCode.failure;
-  }
 }
 
 /** `cusr status`: daemon health over the socket (read). */

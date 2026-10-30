@@ -109,11 +109,12 @@ async function cli(
   }
 }
 
-describe('cusr add/show/confirm over the control socket (T048)', () => {
+describe('cusr task add/show/confirm over the control socket (T048)', () => {
   it('adds a task, shows it and replays the same request instead of adding twice', async () => {
     const { dataDir } = await daemon();
     const req = '0190e9a0-0000-7000-8000-000000000001';
     const add = await cli([
+      'task',
       'add',
       '--data-dir',
       dataDir,
@@ -139,6 +140,7 @@ describe('cusr add/show/confirm over the control socket (T048)', () => {
     const id = add.data?.['task_id'] as string;
 
     const again = await cli([
+      'task',
       'add',
       '--data-dir',
       dataDir,
@@ -155,6 +157,7 @@ describe('cusr add/show/confirm over the control socket (T048)', () => {
     ]);
     expect(again.data?.['task_id']).toBe(id);
     const changed = await cli([
+      'task',
       'add',
       '--data-dir',
       dataDir,
@@ -170,17 +173,17 @@ describe('cusr add/show/confirm over the control socket (T048)', () => {
     expect(changed.code).toBe(ExitCode.conflict);
 
     expect(
-      await cli(['show', '--data-dir', dataDir, '--task', id]),
+      await cli(['task', 'show', '--data-dir', dataDir, id]),
     ).toMatchObject({
       code: ExitCode.ok,
       data: { task_id: id, status: 'READY', pr_ref: null },
     });
     expect(
       await cli([
+        'task',
         'show',
         '--data-dir',
         dataDir,
-        '--task',
         '0190e9a0-0000-7000-8000-00000000ffff',
       ]),
     ).toMatchObject({ code: ExitCode.missing });
@@ -189,6 +192,7 @@ describe('cusr add/show/confirm over the control socket (T048)', () => {
   it('a task without acceptance stays PENDING; confirm checks the config of a READY task once', async () => {
     const { dataDir } = await daemon();
     const pending = await cli([
+      'task',
       'add',
       '--data-dir',
       dataDir,
@@ -205,6 +209,7 @@ describe('cusr add/show/confirm over the control socket (T048)', () => {
     });
 
     const ready = await cli([
+      'task',
       'add',
       '--data-dir',
       dataDir,
@@ -220,14 +225,14 @@ describe('cusr add/show/confirm over the control socket (T048)', () => {
     const id = ready.data?.['task_id'] as string;
     const version = String(ready.data?.['version']);
     const confirmed = await cli([
+      'task',
       'confirm',
       '--data-dir',
       dataDir,
       '--project',
       'acme',
-      '--task',
       id,
-      '--task-version',
+      '--expected-version',
       version,
     ]);
     expect(confirmed).toMatchObject({
@@ -236,14 +241,14 @@ describe('cusr add/show/confirm over the control socket (T048)', () => {
     });
     expect(
       await cli([
+        'task',
         'confirm',
         '--data-dir',
         dataDir,
         '--project',
         'acme',
-        '--task',
         id,
-        '--task-version',
+        '--expected-version',
         version,
       ]),
     ).toMatchObject({
@@ -280,6 +285,7 @@ describe('cusr add/show/confirm over the control socket (T048)', () => {
     ]);
     const reader = await cli(
       [
+        'task',
         'add',
         '--data-dir',
         scoped.dataDir,
@@ -298,6 +304,7 @@ describe('cusr add/show/confirm over the control socket (T048)', () => {
     );
     expect(reader.code).toBe(ExitCode.forbidden);
     const mine = await cli([
+      'task',
       'add',
       '--data-dir',
       scoped.dataDir,
@@ -312,10 +319,10 @@ describe('cusr add/show/confirm over the control socket (T048)', () => {
     ]);
     const other = await cli(
       [
+        'task',
         'show',
         '--data-dir',
         scoped.dataDir,
-        '--task',
         mine.data?.['task_id'] as string,
       ],
       { CUSR_TOKEN_FILE: otherFile },
@@ -324,10 +331,10 @@ describe('cusr add/show/confirm over the control socket (T048)', () => {
     expect(
       await cli(
         [
+          'task',
           'show',
           '--data-dir',
           scoped.dataDir,
-          '--task',
           mine.data?.['task_id'] as string,
         ],
         { CUSR_TOKEN_FILE: readerFile },
@@ -338,8 +345,10 @@ describe('cusr add/show/confirm over the control socket (T048)', () => {
   });
 
   it('refuses incomplete arguments locally with usage exit', async () => {
-    expect((await cli(['add', '--project', 'acme'])).code).toBe(ExitCode.usage);
-    expect((await cli(['confirm', '--task', 'x'])).code).toBe(ExitCode.usage);
+    expect((await cli(['task', 'add', '--project', 'acme'])).code).toBe(
+      ExitCode.usage,
+    );
+    expect((await cli(['task', 'confirm', 'x'])).code).toBe(ExitCode.usage);
   });
 
   it('add carries a run selection; only the owner confirms its digest, an assistant token cannot (T048, M01/M02)', async () => {
@@ -371,6 +380,7 @@ describe('cusr add/show/confirm over the control socket (T048)', () => {
     // The assistant creates the task and proposes how it runs; intake still needs confirmation.
     const added = await cli(
       [
+        'task',
         'add',
         '--data-dir',
         dataDir,
@@ -406,21 +416,21 @@ describe('cusr add/show/confirm over the control socket (T048)', () => {
     const id = added.data?.['task_id'] as string;
     const digest = (added.data?.['run_config'] as { digest: string }).digest;
     const version = () =>
-      cli(['show', '--data-dir', dataDir, '--task', id]).then((r) =>
+      cli(['task', 'show', '--data-dir', dataDir, id]).then((r) =>
         String(r.data?.['version']),
       );
 
     // The assistant cannot confirm the run selection, even with the right digest.
     const byBot = await cli(
       [
+        'task',
         'confirm',
         '--data-dir',
         dataDir,
         '--project',
         'acme',
-        '--task',
         id,
-        '--task-version',
+        '--expected-version',
         await version(),
         '--run-config',
         digest,
@@ -435,21 +445,21 @@ describe('cusr add/show/confirm over the control socket (T048)', () => {
       details: { reason: 'untrusted_confirmation' },
     });
     expect(
-      (await cli(['show', '--data-dir', dataDir, '--task', id])).data?.[
+      (await cli(['task', 'show', '--data-dir', dataDir, id])).data?.[
         'run_config'
       ],
     ).toMatchObject({ status: 'proposed' });
 
     // The owner confirms intake and the selection in one interaction; a wrong digest is refused.
     const wrong = await cli([
+      'task',
       'confirm',
       '--data-dir',
       dataDir,
       '--project',
       'acme',
-      '--task',
       id,
-      '--task-version',
+      '--expected-version',
       await version(),
       '--run-config',
       `sha256:${'0'.repeat(64)}`,
@@ -460,14 +470,14 @@ describe('cusr add/show/confirm over the control socket (T048)', () => {
       },
     });
     const owner = await cli([
+      'task',
       'confirm',
       '--data-dir',
       dataDir,
       '--project',
       'acme',
-      '--task',
       id,
-      '--task-version',
+      '--expected-version',
       await version(),
       '--run-config',
       digest,
@@ -483,14 +493,14 @@ describe('cusr add/show/confirm over the control socket (T048)', () => {
 
     // A new proposal makes the old confirmation stale until it is confirmed again.
     const proposed = await cli([
+      'task',
       'propose',
       '--data-dir',
       dataDir,
       '--project',
       'acme',
-      '--task',
       id,
-      '--task-version',
+      '--expected-version',
       await version(),
       '--profile',
       'standard',
@@ -511,6 +521,7 @@ describe('cusr add/show/confirm over the control socket (T048)', () => {
     expect(
       (
         await cli([
+          'task',
           'add',
           '--project',
           'acme',

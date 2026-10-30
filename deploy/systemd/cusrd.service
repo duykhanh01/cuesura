@@ -1,0 +1,17 @@
+# Unit mẫu cho một daemon writer, cài dạng user unit. Sửa ExecStart theo nơi cài và config; xem deploy/README.md.
+# Không có lệnh nào trong repo tự cài hoặc nạp unit này.
+[Unit]
+Description=Cuesura daemon (one writer per data dir)
+After=default.target
+
+[Service]
+Type=exec
+ExecStart=%h/.local/bin/cusrd --config %h/.cusr/config.yaml --data-dir %h/.cusr
+Restart=on-failure
+RestartSec=5
+# Runner là transient unit riêng (`cusr-op-*.service`), không thuộc cgroup này: dừng daemon không dừng agent.
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

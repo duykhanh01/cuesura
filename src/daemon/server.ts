@@ -26,6 +26,7 @@ export const MAX_BODY_BYTES = 1024 * 1024;
 export const MAX_SOCKET_PATH_BYTES = 107;
 export const HEADER_TIMEOUT_MS = 5_000;
 export const REQUEST_TIMEOUT_MS = 10_000;
+const CONNECTION_CHECK_MS = 1_000;
 
 export type Reply = { readonly status: number; readonly envelope: Envelope };
 
@@ -115,7 +116,12 @@ export function createControlServer(
   log: (msg: string) => void = () => undefined,
 ): Server {
   const server = createServer(
-    { headersTimeout: HEADER_TIMEOUT_MS, requestTimeout: REQUEST_TIMEOUT_MS },
+    {
+      headersTimeout: HEADER_TIMEOUT_MS,
+      requestTimeout: REQUEST_TIMEOUT_MS,
+      // Node only checks those two limits on this interval (default 30 seconds).
+      connectionsCheckingInterval: CONNECTION_CHECK_MS,
+    },
     (req, res) => {
       void (async () => {
         const caller = authenticate(tokens, bearer(req));

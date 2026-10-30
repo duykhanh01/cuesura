@@ -725,3 +725,95 @@ thứ chín (`22b856c`): exit 0, 1.614 giây, cùng kết quả.
 Lượt này không ghi lại ledger `evidence/t094-runtime-crash.json` và không đếm lại số SIGKILL; bằng chứng
 ≥ 200 kill của T094 (có `spawn_adoption` trên systemd thật) vẫn là lượt T094. Kiểm lại trên host có
 systemd sau Phase 8 thuộc T120.
+
+# T120 — US6 xem và điều khiển qua CLI
+
+Ngày: 2026-10-31. Nhánh `002/phase9-cli`, base `7b6b841`; các lệnh chạy trên code cuối của nhánh, riêng reliability chạy trên bản trước hai lượt sửa doctor/explain (xem dòng reliability). Host: Linux `7.0.0-38-generic`,
+Node v24.22.1, user thường (uid 1000), `systemctl --user` = `degraded` nhưng user manager chạy được, bwrap có.
+Fake harness/GitHub; không tài khoản/model/GitHub thật, không publish PR.
+
+## Lệnh
+
+| Kiểm | Kết quả |
+| --- | --- |
+| `pnpm typecheck`, `pnpm lint` | exit 0 |
+| `pnpm test` | 121 file: 120 pass, 1 skip; 1.793 test pass, 4 skip, 0 fail. Một lần chạy khác fail 1 test flake có sẵn, xem dòng dưới |
+| Flake `cancel-drain.test.ts` (“recovery records it lost after the probe runs”) | Chạy nguyên file 20 lần: `origin/main` fail 5/20, nhánh này fail 3/20. Chạy riêng test đó: 0/15 ở cả hai. Có từ trước PR, chưa sửa |
+| 4 test skip | `harness-bwrap` (2) và `feature-002-real-adapters` (2): các test này tự skip trên host này; chưa kiểm lại ở lượt này |
+| `pnpm test:reliability --seed 20261030 --no-file-parallelism` | exit 0, 429/429, 1.549 giây, trên bản trước hai lượt sửa doctor/explain. Từ bản đó tới code cuối, trong `src` chỉ `doctor.ts`, `cli/tasks.ts` và `explain/allowed-actions.ts` đổi (crash driver không dùng), nên không chạy lại. Commit của lần chạy đã được gộp khi viết lại lịch sử nhánh |
+| `dist/cli/cusrd.js` + `dist/cli/cusr.js` thật | status exit 0; doctor exit 1 chỉ vì thiếu `manifest:claude`, `manifest:codex` (`host`, `systemd_unit`, `sandbox_canary` đạt); add/list/explain/logs exit 0; retry, `approve --kind merge`, yolo exit 2; stale version và không có gì để recheck exit 6; daemon đã dừng exit 3 |
+
+Crash ledger (`reports/runtime-crash-20261030.json`, không commit): **259 daemon kills**: `spawn_adoption` 43, `output_ack` 49, `commit_push` 44, `pr_create` 54, `merge_drain` 49, `h05` 20.
+`spawn_adoption` chạy thật với systemd user manager, không skip như ở T105. Sau integration T094 (≥ 200 kills,
+replay projection) vẫn đạt. `r1-crash` 201/201.
+
+## Matrix US6.1–7
+
+| Kịch bản | Bằng chứng | Kết quả |
+| --- | --- | --- |
+| US6.1 show/explain không LLM: bước, lý do, PR/head, lượt, bằng chứng, chờ slot tách riêng, prerequisite chưa chứng nhận, merge_cleanup | `feature-002-cli.test.ts` khối explain: chờ lần đầu 90 giây không tính deadline; prerequisite `merged_head_unverified` còn hiện sau restart; drain tạm dừng hiện effect chưa rõ, status khác DONE. Query chỉ đọc projection và event log | Đạt (fake) |
+| US6.2 một kết quả có version, mã lỗi ổn định; log nối lại | Mọi lệnh finite trong test đi qua kiểm “đúng một dòng envelope `schema_version: 1`”; logs: chỉ record đã commit, đã redact; nối lại từ cursor không lặp; rotation + ACK + restart giữ đủ 30 record; `--follow` JSONL có seq/cursor | Đạt |
+| US6.3 read/tự khai owner bị từ chối | `access-control.test.ts`: token read exit 5 mọi mutation; assistant tự khai `actor`/`roles`/`authz` khi approve vẫn exit 5, zero event; revoke qua restart thì exit 5, lịch sử giữ actor cũ | Đạt |
+| US6.4 merge approval/yolo | CLI và raw command: `unsupported_feature`, exit 2, hướng dẫn merge trên GitHub, zero event, không ledger row | Đạt |
+| US6.5 task retry/amend-policy | Như trên, hướng dẫn `task add` | Đạt |
+| US6.6 recheck | Khối recheck: một lần đọc, replay không đọc lại; deadline/budget/`next_due_at`/generation giữ nguyên; expired không bật poll, merge sau đó qua drain tới DONE, không effect merge; drain một lượt không đọc PR; terminal không đọc, không effect; PENDING đọc config một lần rồi READY, không effect; read exit 5, stale exit 6 | Đạt với PR read/drain fake qua `ObservationCoordinator` thật |
+| US6.7 lối ra từng detail | `test/unit/explain/allowed-actions.test.ts`: mọi `DETAIL_CODES` có lối ra và không nhắc amend/yolo/gia hạn; từng dòng FR-029 đúng thứ tự thao tác; không có PR thì chỉ cancel và task add; recheck không hiện khi service sẽ từ chối; lệnh approve explain in ra chạy được với owner, exit 5 với assistant | Đạt |
+
+## Matrix exit, authz, recheck
+
+| Exit | Trường hợp đã kiểm |
+| --- | --- |
+| 0 | Query task CANCELLED vẫn exit 0: status task không quyết định exit |
+| 1 | doctor fail (`unhealthy`); health lỗi (test sẵn có ở `daemon-control.test.ts`) |
+| 2 | Thiếu đối số, cờ lạ (`--actor`), đối số thừa, file không đọc được, request ID sai, thiếu `--expected-version`, query body thừa khóa, body > 1 MiB, unsupported, token file thiếu |
+| 3 | Daemon dừng, tiến trình `cusr` thật; thư mục data không đổi; mutation mất trả lời vẫn in request ID; `--follow` in cursor để nối lại |
+| 4 | Task/câu hỏi/approval không có; task project khác khi đọc |
+| 5 | Vai trò thiếu, project khác khi lệnh nêu đúng project đó, token không biết/đã thu hồi |
+| 6 | Stale version, payload khác cùng request ID, không có gì để recheck |
+
+| Target recheck | Hành vi đã kiểm |
+| --- | --- |
+| `config` | Đọc cấu hình mới qua triage |
+| `observation` | Một lần đọc, giữ lịch, sau expired giữ `observation_expired` |
+| `drain` | Một lượt dừng/đối chiếu sau khi drain đã dừng |
+| `worktree` | Service T062/T072 (`feature-002-fixes`), chưa có test riêng qua CLI |
+| `terminal` | Không đọc, không effect, không mở lại |
+
+## Đối chiếu US1.1–11
+
+US1.1–7 và US1.9 giữ bằng chứng ở các mục trên, các suite đó chạy lại trong `pnpm test` ở trên. Phần đã hoãn sang
+đây: US1.8 recheck PENDING qua CLI; US1.10 explain prerequisite; US1.11 explain chờ slot: đều Đạt (fake) theo
+matrix US6. Tất cả là fake harness/GitHub; smoke thật thuộc C.
+
+## Thay đổi hành vi cần biết
+
+- CLI tối thiểu T048 đổi tên: `cusr add/show/confirm/propose` thành `cusr task …`, `--task ID` thành đối số,
+  `--task-version` thành `--expected-version`. Test `task-cli.test.ts` đã đổi theo.
+- Authz chạy trước schema. Token read gửi body có `actor` nay exit 5 thay vì 2, theo hợp đồng; test cũ trong
+  `daemon-control.test.ts` kỳ vọng exit 2 đã đổi.
+- Segment sau ACK chuyển sang `acked/` thay vì bị xóa, vì DB chỉ giữ số lượng và digest. Disk của run chỉ giảm khi
+  retention dọn. Kill point ACK của crash driver chuyển từ `unlink` sang `rename`; lần chạy đầu fail đúng vì lý do này.
+- Đọc task theo ID ở project khác trả exit 4, không phải 5 như câu chữ T107, để không lộ ID; giữ hành vi đã có từ T048.
+
+## Sửa sau review
+
+- **Doctor mất chẩn đoán khi systemd treo:** probe unit được 15 giây, bằng timeout của client, nên CLI exit 3 và mất
+  báo cáo. Nay mọi probe host dùng chung ngân sách 30 giây, client chờ 45 giây; hết ngân sách thì probe sau báo
+  `timeout` mà không chạy. Test treo thật hơn 15 giây: exit 1 kèm cách sửa; đổi client về 15 giây thì test thấy exit 3.
+  Ngân sách không bao gồm phần đọc store (`verifyProjections`) chạy đồng bộ; store rất lớn vẫn có thể vượt 45 giây.
+- **Explain bảo chờ khi task không thể xếp hàng:** READY chưa có lựa chọn được xác nhận nay hiện propose/confirm.
+  Lệnh confirm kèm `--run-config DIGEST`; test chạy đúng lệnh explain in ra và task vào hàng chờ. Task đã start gặp
+  `run_config_unconfirmed` chỉ còn cancel và task add, vì engine từ chối propose và confirm sau start.
+
+## Chưa đạt / ngoài phạm vi
+
+- **`cusrd` production chưa chạy được task tới PR:** chưa nối effect handler/harness/sandbox và chưa ghi manifest,
+  nên task dừng ở `capability_missing`. Không có task nào trong Phase 9 phủ việc này; đã thêm T140, chặn T121–T130.
+- Observe/drain của recheck và scheduler trong production đã nối nhưng chưa chạy với GitHub thật hay task có PR thật.
+- Doctor chưa đối chiếu settings, environment và host policy của manifest vì cần pin của vendor; preflight và
+  từng attempt làm việc này. Sandbox canary dùng một lệnh bwrap riêng, không phải layout đầy đủ của role.
+- Unit `cusrd.service` mới qua `systemd-analyze --user verify`, chưa cài và chưa chạy thử trên host.
+- GitGuardian incident 39322897 là false positive: chuỗi canary tự viết trong test. Đã thay bằng giá trị sinh lúc
+  chạy và gộp commit để chuỗi không còn trong lịch sử nhánh; incident cũ trên dashboard vẫn cần owner đóng nếu còn mở.
+- `--follow` hỏi lại theo chu kỳ, không phải stream từ daemon; mất kết nối thì thoát 3, người gọi tự nối lại.
+- Điều kiện T077 (proof resume Claude thật) và các thiếu sót go-no-go vẫn như cũ.

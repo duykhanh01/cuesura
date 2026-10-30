@@ -18,10 +18,15 @@ export interface CliSpec {
   readonly version: string;
 }
 
-/** One implemented subcommand. Options are long flags taking a value (`--data-dir <dir>`). */
+/**
+ * One implemented subcommand; a two-word name (`task add`) sits under its group. Options are long flags,
+ * taking a value (`--data-dir <dir>`) or not (`--follow`, given as the string `'true'`). Positional
+ * arguments (`<id>`) reach `run` under their own name.
+ */
 export interface CliCommand {
   readonly name: string;
   readonly description: string;
+  readonly args?: readonly string[];
   readonly options?: readonly {
     readonly flags: string;
     readonly description: string;
@@ -105,16 +110,36 @@ export async function runCli(
   if (commands.length === 0)
     program.addHelpText('after', '\nNo commands are available in this build.');
 
+  const groups = new Map<string, Command>();
   for (const c of commands) {
-    const sub = program
-      .command(c.name)
+    const words = c.name.split(' ');
+    const leaf = words.at(-1) as string;
+    let parent = program;
+    if (words.length > 1) {
+      const name = words[0] as string;
+      const known = groups.get(name);
+      parent =
+        known ??
+        program.command(name).description(`${name} commands`).exitOverride();
+      groups.set(name, parent);
+    }
+    const sub = parent
+      .command(leaf)
       .description(c.description)
+      .allowExcessArguments(false)
       .option('--json', 'print exactly one JSON result object to stdout');
+    for (const a of c.args ?? []) sub.argument(a);
     for (const o of c.options ?? []) sub.option(o.flags, o.description);
-    sub.exitOverride().action(async () => {
-      const { json: subJson, ...values } = sub.opts<
-        Record<string, string | undefined> & { json?: true }
+    sub.exitOverride().action(async (...given: unknown[]) => {
+      const { json: subJson, ...opts } = sub.opts<
+        Record<string, string | true | undefined> & { json?: true }
       >();
+      const values: Record<string, string | undefined> = {};
+      for (const [k, v] of Object.entries(opts))
+        values[k] = v === true ? 'true' : v;
+      (c.args ?? []).forEach((a, i) => {
+        values[a.replace(/[<>[\]]/g, '')] = given[i] as string | undefined;
+      });
       exitCode = await c.run(values, json || subJson === true, io);
     });
   }

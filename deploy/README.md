@@ -103,7 +103,8 @@ Nếu binary không tách được OS sandbox khỏi quyền/approval, binding v
 
 Daemon gọi `spawn` cho `systemd-run --user`; runner transient service độc lập, `Restart=no`,
 `KillMode=control-group`, không dependency vòng đời vào daemon. Không coi PID1 là systemd là đủ:
-doctor kiểm user bus, unit create/query/stop và fixture stop daemon không dừng runner unit.
+doctor kiểm user bus và chạy thử một transient unit tới khi xong rồi thu dọn. Việc runner sống qua lúc dừng
+daemon cần dừng chính daemon, nên được kiểm bằng `test/integration/runtime/supervisor-systemd.test.ts`.
 
 Trên WSL2, `/etc/wsl.conf` cần:
 
@@ -117,6 +118,88 @@ thực tế. Xem [Microsoft WSL systemd](https://learn.microsoft.com/en-us/windo
 `systemctl --user is-system-running` có thể `degraded` do unit không liên quan; pass/fail dựa vào
 probe unit riêng của Cuesura, không chỉ chuỗi trạng thái này. Logout/distro shutdown không tương
 đương daemon restart; không cam kết runner sống qua việc tắt máy/WSL, recovery phải đối chiếu lost.
+
+### Chạy daemon: foreground hoặc service
+
+Một data dir chỉ có một writer: daemon thứ hai trên cùng thư mục thoát với `store_locked`. Chọn một
+trong hai cách, cả hai dùng cùng runner unit `cusr-op-*.service` độc lập với daemon.
+
+Foreground, dừng bằng Ctrl-C hoặc SIGTERM:
+
+```sh
+cusrd --config ~/.cusr/config.yaml --data-dir ~/.cusr
+```
+
+Service: dùng unit mẫu [cusrd.service](systemd/cusrd.service). Repo không tự cài hay nạp unit; người
+vận hành sửa `ExecStart` theo nơi cài rồi tự chạy:
+
+```sh
+install -D -m 0644 deploy/systemd/cusrd.service ~/.config/systemd/user/cusrd.service
+systemctl --user daemon-reload
+systemctl --user enable --now cusrd.service
+cusr status --json
+cusr doctor --project "$PROJECT" --json
+```
+
+Yêu cầu version: Node đúng `engines` trong `package.json`, `systemd-run` và `systemctl` tại
+`/usr/bin`. Trên WSL2 cần user manager như mục trên; `wsl.exe --shutdown` dừng cả daemon lẫn runner,
+restart đối chiếu `lost`. Trên server headless cần `loginctl enable-linger` như bảng `cause`. Đường dẫn
+thực tế (data dir, socket `control.sock`, `owner.token`) theo `--data-dir`/`runtime.data_dir`; socket
+phải ngắn hơn 108 byte.
+
+`cusr doctor` chỉ đọc: không gọi model, không sudo, không provision. Check nào fail thì exit 1 và in lệnh
+sửa để người vận hành tự chạy. Harness chưa có capability manifest thì báo fail, không suy "proven" từ
+help/version của binary; manifest có rồi vẫn fail nếu hash sai, thiếu năng lực bắt buộc hoặc binary đã đổi.
+Settings, environment và host policy cần pin của vendor nên do preflight và từng attempt kiểm. Unit mẫu đã
+qua `systemd-analyze --user verify` (chỉ báo thiếu binary ở `ExecStart` khi chưa cài).
+
+**Hạn chế hiện tại:** `cusrd` production chưa nối effect handler và harness (git/GitHub thật có ở recheck,
+cancel, doctor và preflight), và chưa ghi manifest; task dừng ở PENDING `capability_missing`, không tới
+PR. Luồng tới PR đang được kiểm bằng fake/fixture; nối production là điều kiện trước smoke lát C.
+
+## Token và quyền
+
+Quyền chỉ lấy từ bearer token map phía server: `read`, `operate`, `admin` kèm danh sách project. Tên
+actor/role tự khai trong body không có tác dụng, kiểm quyền chạy trước kiểm schema nên caller tự khai
+owner/admin vẫn exit 5.
+
+**Owner bootstrap.** Daemon sinh `DATA_DIR/owner.token` (0600) ở lần khởi động đầu, có đủ ba quyền trên
+mọi project. Chỉ owner dùng; không chia sẻ cho assistant. Data dir phải 0700 và thuộc đúng user, nếu
+không daemon từ chối chạy.
+
+**Token assistant.** Owner sinh secret 32 byte ngẫu nhiên vào file riêng ngoài worktree và ngoài home
+assistant đọc được, không in ra chat/log:
+
+```sh
+install -d -m 0700 /srv/cusr-access
+(umask 077; head -c 32 /dev/urandom | basenc --base64url | tr -d '=\n' > /srv/cusr-access/assistant-work.token)
+```
+
+Khai trong user config (không phải `cusr.yaml`, không qua payload lệnh) với đúng `[read, operate]` và
+project tường minh:
+
+```yaml
+runtime:
+  access_tokens:
+    - id: assistant-work
+      actor: assistant
+      roles: [read, operate]
+      projects: [node-sandbox]
+      token_file: /srv/cusr-access/assistant-work.token
+```
+
+**Cấp và thu hồi.** Thêm/xóa entry rồi restart daemon; không có lệnh quản trị token qua CLI. Startup ghi
+audit gồm hash cấu hình và ID/actor/role/project/fingerprint của từng token, không ghi secret. Thu hồi
+chặn mọi request mới (exit 5) nhưng không giả vờ lấy lại effect đã gửi; lịch sử đã accepted giữ actor
+cũ. Hai entry trỏ cùng secret bị từ chối lúc khởi động.
+
+**Cách cấp cho assistant.** Client/connector đặt `CUSR_TOKEN_FILE` trỏ tới file token operate; token chỉ
+nhận qua file, không qua argv. Connector không được thấy home owner hay `owner.token`.
+
+**Ranh giới.** Token map **không** phải ranh giới quyền với process cùng UID có shell đầy đủ: process đó
+đọc được `owner.token`. Muốn tách quyền thật, chạy assistant bằng UID khác hoặc trong sandbox chỉ thấy
+token operate. Worker coder/fixer/reviewer không nhận token nào, kể cả operate: sandbox từ chối biến
+`CUSR_TOKEN*` và không mount data dir.
 
 ## Network và credentials
 

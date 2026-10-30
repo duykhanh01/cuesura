@@ -1,11 +1,5 @@
 #!/usr/bin/env node
-import { statusCommand } from './client.ts';
-import {
-  addCommand,
-  confirmCommand,
-  proposeCommand,
-  showCommand,
-} from './tasks.ts';
+import { CUSR_COMMANDS } from './commands.ts';
 import { packageVersion, processIo, runCli } from './program.ts';
 
 process.exitCode = await runCli(
@@ -16,5 +10,5 @@ process.exitCode = await runCli(
   },
   process.argv.slice(2),
   processIo,
-  [statusCommand, addCommand, showCommand, confirmCommand, proposeCommand],
+  CUSR_COMMANDS,
 );

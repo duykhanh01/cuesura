@@ -61,7 +61,8 @@ artifact paths. Không tin ID/path do agent tự khai; cấm traversal/symlink t
 Log record có schema_version, operation_id, generation, seq, at, kind, data, tối đa 256 KiB;
 redact trước lưu spool/stderr/diagnostic. Result tối đa 1 MiB; exit/result temp→fsync→rename→fsync
 directory. Rotation đổi events.jsonl sang segment có generation trong spool, giữ identity/cursor
-đọc tiếp được; chỉ xóa segment sau ACK đã commit. Ingest events + cursor cùng transaction, rồi ACK;
+đọc tiếp được; sau ACK đã commit segment rời spool sang `acked/` của run (không còn tính vào cap spool,
+`task logs` vẫn đọc được tới khi retention dọn cả run). Ingest events + cursor cùng transaction, rồi ACK;
 request lặp không lặp event. Cap spool 64 MiB thì dừng operation với artifact_backpressure, không
 âm thầm bỏ output chưa ingest. Disk full giữ health lỗi/claim; partial final sau process chết là
 invalid output. Retention 30 ngày chỉ cho artifact terminal đã ACK, giữ tombstone; không xóa

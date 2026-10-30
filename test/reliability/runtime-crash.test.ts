@@ -45,6 +45,7 @@ import {
   EventLogWriter,
   RunDir,
   listSegments,
+  readAllRecords,
   type FileLimits,
 } from '../../src/runner/files.ts';
 import { unitName } from '../../src/runner/identity.ts';
@@ -665,6 +666,10 @@ const outputAck: GroupDef = {
     expect(c.cursor).toBe(RECORDS);
     // Every sealed segment is acknowledged; the last one stays as the live tail.
     expect(c.segments).toBe(1);
+    // `task logs` still reads each record exactly once, whichever move the kill landed on.
+    expect(readAllRecords(spoolRun(lay)).map((r) => r.seq)).toEqual(
+      Array.from({ length: RECORDS }, (_, i) => i + 1),
+    );
     return c;
   },
 };

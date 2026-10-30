@@ -1,7 +1,8 @@
 # CLI, daemon và cấu hình runtime
 
-Hợp đồng dự kiến cho feature 002, mở rộng [CLI v1](../../../SPEC.md#15-cli-kênh-nguồn-và-quyền-truy-cập).
-Chưa có binary triển khai. Đầu vào task vẫn theo CanonicalTaskSchema; CLI chuẩn hóa trường tùy chọn,
+Hợp đồng cho feature 002, mở rộng [CLI v1](../../../SPEC.md#15-cli-kênh-nguồn-và-quyền-truy-cập).
+Bảng lệnh dưới đây đã có trong `cusr`/`cusrd` (T106–T120); `cusrd` production chưa nối effect handler,
+xem [T120](../acceptance-report.md#t120--us6-xem-và-điều-khiển-qua-cli). Đầu vào task vẫn theo CanonicalTaskSchema; CLI chuẩn hóa trường tùy chọn,
 server gắn task ID/requester đáng tin, không nhận `AuthzContext` do caller tự khai.
 
 ## Xác nhận cấu hình trước spawn
@@ -23,21 +24,22 @@ qua amend-policy của feature 002; tạo task mới nếu cần đổi. Không 
 
 ## Lệnh và quyền
 
-| Lệnh dự kiến | Quyền / hành vi |
+| Lệnh | Quyền / hành vi |
 | --- | --- |
 | `cusrd --config FILE --data-dir DIR` | Owner khởi động daemon foreground; có unit systemd mẫu; một writer |
 | `cusr doctor --project NAME`, `cusr status` | read; doctor kiểm capability và health, lỗi health exit 1 |
 | `cusr task add --file FILE` | operate; JSON task input, trả task có thể PENDING/READY, không chờ tới PR |
+| `cusr task propose ID --profile P --mode M --worker H/M/E` | operate; đề xuất bộ lựa chọn chạy, xác nhận riêng |
 | `cusr task show/list/explain/history` | read; list có `--limit` tối đa 100 và cursor; show/explain nhận ID |
 | `cusr task logs ID --after CURSOR [--follow]` | read; snapshot hữu hạn hoặc stream JSONL có seq/cursor; một follow session tối đa 1 giờ, có thể nối lại |
 | `cusr task confirm/cancel/recheck ID` | operate; version/dedup; recheck chọn cấu hình/PR/drain/worktree theo task, không gọi agent; với `worktree_changed` thì nhận tree đã quan sát làm mốc của task rồi chạy lại bước |
-| `cusr inbox`, `cusr answer QUESTION --file FILE` | read/operate; câu trả lời đầu thắng, ràng buộc revision/version |
+| `cusr inbox`, `cusr answer QUESTION --file FILE --expected-version N` | read/operate; câu trả lời đầu thắng, ràng buộc revision/version |
 | `cusr task approve ID --kind escalation --step STEP --rung N` | admin; task/revision/policy hash đúng, không cấp merge |
 | `cusr task retry/amend-policy`, merge approval, yolo | unsupported_feature, exit 2; không tạo mutation nghiệp vụ |
 
 Mọi mutation nhận `--request-id UUID`, `--expected-version N` khi sửa task hiện có; task add không
 cần expected-version. Nếu CLI tự sinh request ID phải in lại trong kết quả để người dùng đối chiếu
-sau timeout. Cùng ID+canonical payload trả cùng kết quả; payload khác conflict. New request ID mới
+sau timeout. `--project` tùy chọn với lệnh theo ID: CLI đọc project của task qua `task_show`. Cùng ID+canonical payload trả cùng kết quả; payload khác conflict. New request ID mới
 thử lại cấu hình đã sửa; replay request cũ không âm thầm đọc base mới rồi đổi kết quả.
 
 `--json` cho mọi lệnh; output finite đúng một object `{schema_version:1,ok,data,error}`. Error gồm
@@ -59,6 +61,9 @@ merge_cleanup_pending/process/effect chưa rõ, không hiện DONE.
   admin và project allowlist. Token chỉ nhận qua file cấu hình/`CUSR_TOKEN_FILE`, không argv/log.
   Bootstrap token owner sinh lúc daemon init data dir, quyền 0600. Token map do owner quản lý;
   không lấy role từ sender name/UID tự khai/marker/header actor.
+- `task logs` đọc `POST /v1/query` kind `task_logs`; `--follow` là CLI hỏi lại theo cursor rồi in JSONL,
+  không có route stream riêng. Cursor đếm record đã commit theo thứ tự event, không đổi qua rotation/restart;
+  batch mất file hiện là `gap`, không bị bỏ im lặng.
 - `read` không mutation, `operate` không cấp escalation/admin. CLI read cũng gọi daemon vì SQLite
   đang khóa EXCLUSIVE. Daemon disconnected trả exit 3; không fallback mở DB trực tiếp.
 - Application kiểm authz/schema/allowlist/version/dedup trước I/O. Ghi command admission/dedup và ID

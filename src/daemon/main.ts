@@ -27,12 +27,14 @@ import {
 } from '../application/authz.ts';
 import {
   COMMAND_PAYLOADS,
+  UNSUPPORTED_GUIDANCE,
   admitCommand,
   type AdmitError,
   type Admitted,
   type CommandInput,
   type CommandKind,
 } from '../application/commands.ts';
+import { httpStatusFor } from '../cli/errors.ts';
 import { okEnvelope } from '../cli/output.ts';
 import { readConfigFiles } from '../config/read-files.ts';
 import type { AccessTokenSpec } from '../config/schema-user.ts';
@@ -53,7 +55,7 @@ import {
   clearOperationMark,
   writeOperationMark,
 } from '../runner/process-tag.ts';
-import { healthReply } from './health.ts';
+import { healthProblem, healthReply } from './health.ts';
 import type { LockInspector, UnitInspector } from './reconcile.ts';
 import { productionControl } from './production.ts';
 import {
@@ -106,9 +108,18 @@ export type DaemonOptions = {
   readonly commands?: Partial<Record<CommandKind, CommandHandler>>;
   readonly queries?: Readonly<Record<string, QueryHandler>>;
   /** Handlers that need the opened store (e.g. the task surface); merged over `commands`/`queries`. */
-  readonly control?: (store: Store) => {
+  readonly control?: (
+    store: Store,
+    runtime: { readonly health: () => string | null },
+  ) => {
     readonly commands?: Partial<Record<CommandKind, CommandHandler>>;
     readonly queries?: Readonly<Record<string, QueryHandler>>;
+    /**
+     * One scheduler pass (dependency notifications, queue, grant, start). It runs once before the first
+     * request and then on the dispatch interval, never overlapping itself and never while new work is
+     * held, blocked or latched.
+     */
+    readonly schedule?: () => Promise<unknown>;
   };
   readonly dispatchIntervalMs?: number;
   readonly log?: (msg: string) => void;
@@ -159,7 +170,12 @@ function admitReply(e: AdmitError, requestId: string | null): Reply {
       return errorReply(400, {
         code: 'unsupported_feature',
         message: `${e.kind} is not supported`,
-        details: { kind: e.kind },
+        details: {
+          kind: e.kind,
+          guidance: Object.hasOwn(UNSUPPORTED_GUIDANCE, e.kind)
+            ? UNSUPPORTED_GUIDANCE[e.kind as keyof typeof UNSUPPORTED_GUIDANCE]
+            : null,
+        },
         request_id: requestId,
       });
     case 'invalid_command':
@@ -197,7 +213,10 @@ function outcomeReply(
   replayed: boolean,
 ): Reply {
   if (!outcome.ok)
-    return errorReply(422, { ...outcome.error, request_id: requestId });
+    return errorReply(httpStatusFor(outcome.error.code), {
+      ...outcome.error,
+      request_id: requestId,
+    });
   return {
     status: 200,
     envelope: okEnvelope({
@@ -258,6 +277,7 @@ export async function startDaemon(
     if (t.ok) secrets.push(t.value);
   }
   redactor = new Redactor({ values: secrets, env: process.env });
+  log(`token config hash ${tokens.value.config_hash}`);
   for (const a of tokens.value.audit)
     log(
       `token ${a.id} actor=${a.actor} roles=${a.roles.join(',')} projects=${a.projects === '*' ? '*' : a.projects.join(',')} fp=${a.fingerprint}`,
@@ -343,7 +363,30 @@ export async function startDaemon(
     });
     return recovering;
   };
-  const extra = opts.control?.(store) ?? {};
+  const extra =
+    opts.control?.(store, { health: () => healthProblem(dispatcher) }) ?? {};
+  let scheduling: Promise<void> | null = null;
+  const schedule = (): Promise<void> => {
+    if (
+      extra.schedule === undefined ||
+      scheduling !== null ||
+      healthProblem(dispatcher) !== null
+    )
+      return scheduling ?? Promise.resolve();
+    scheduling = extra
+      .schedule()
+      .then(
+        () => undefined,
+        (e: unknown) =>
+          log(
+            `scheduler pass failed: ${e instanceof Error ? e.message : String(e)}`,
+          ),
+      )
+      .finally(() => {
+        scheduling = null;
+      });
+    return scheduling;
+  };
   const commands = { ...opts.commands, ...extra.commands };
   const inFlight = new Map<string, Promise<Reply>>();
   const queries = { ...opts.queries, ...extra.queries };
@@ -473,7 +516,11 @@ export async function startDaemon(
     };
   }
 
+  // A dependency notification lost when the daemon died right after DONE is recovered by this first pass
+  // (T119); notifications are derived from committed state, so a repeat changes nothing.
+  await schedule();
   const interval = setInterval(() => {
+    void schedule();
     dispatcher.tick();
     if (store.unresolvedOperations().length > 0) void recover();
   }, opts.dispatchIntervalMs ?? 1_000);
@@ -493,6 +540,7 @@ export async function startDaemon(
       async stop() {
         clearInterval(interval);
         await recovering;
+        await scheduling;
         await closeServer(server);
         await dispatcher.stop();
         store.close();
@@ -569,6 +617,7 @@ export async function daemonMain(
     dataDir: cfg.value.dataDir,
     clock,
     redactor: new Redactor({ env: process.env }),
+    newId: newUuid,
   });
   const started = await startDaemon({
     dataDir: cfg.value.dataDir,

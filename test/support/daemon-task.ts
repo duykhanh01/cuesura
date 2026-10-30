@@ -17,7 +17,11 @@ import {
   type DaemonOptions,
   type RunningDaemon,
 } from '../../src/daemon/main.ts';
-import { taskControl } from '../../src/daemon/task-control.ts';
+import {
+  taskControl,
+  type TaskControlDeps,
+} from '../../src/daemon/task-control.ts';
+import type { Store } from '../../src/store/index.ts';
 import { asEpochMs } from '../../src/shared/brand.ts';
 import { openFileStoreForTest } from '../../src/store/testing.ts';
 import { PACKS } from './config-fixtures.ts';
@@ -51,6 +55,14 @@ export type Reply = {
   };
 };
 
+/** Services a test adds to the task surface (recheck, logs, doctor, the scheduler). */
+export type SeededExtra = (
+  store: Store,
+  runtime: { readonly health: () => string | null },
+) => Partial<Omit<TaskControlDeps, 'store' | 'now'>> & {
+  readonly schedule?: () => Promise<unknown>;
+};
+
 export class SeededDaemon {
   readonly base: string;
   readonly dataDir: string;
@@ -58,6 +70,7 @@ export class SeededDaemon {
   daemon: RunningDaemon | null = null;
   readonly #specs: TokenSpec[];
   readonly #opts: Partial<DaemonOptions>;
+  readonly #extra: SeededExtra;
   #seq = 0;
   readonly clock = {
     now: () => asEpochMs(this.now),
@@ -65,7 +78,12 @@ export class SeededDaemon {
   };
   now = 1_800_000_000_000;
 
-  constructor(specs: TokenSpec[] = [], opts: Partial<DaemonOptions> = {}) {
+  constructor(
+    specs: TokenSpec[] = [],
+    opts: Partial<DaemonOptions> = {},
+    extra: SeededExtra = () => ({}),
+  ) {
+    this.#extra = extra;
     this.base = realpathSync(mkdtempSync(join(tmpdir(), 'cusr-seeded-')));
     this.dataDir = join(this.base, 'data');
     mkdirSync(this.dataDir, { mode: 0o700 });
@@ -106,22 +124,28 @@ export class SeededDaemon {
       })),
       clock: this.clock,
       newId: this.newId,
-      control: (store) =>
-        taskControl({
-          store,
-          now: () => this.clock.now(),
-          confirm: {
+      control: (store, runtime) => {
+        const { schedule, ...more } = this.#extra(store, runtime);
+        return {
+          ...taskControl({
             store,
-            ports: { git: fakeGit(), github: fakeGitHub(), host: fakeHost() },
-            configInputs: () =>
-              Promise.resolve({
-                user: userConfig(),
-                packs: PACKS,
-                manifests: MANIFESTS,
-              }),
             now: () => this.clock.now(),
-          },
-        }),
+            confirm: {
+              store,
+              ports: { git: fakeGit(), github: fakeGitHub(), host: fakeHost() },
+              configInputs: () =>
+                Promise.resolve({
+                  user: userConfig(),
+                  packs: PACKS,
+                  manifests: MANIFESTS,
+                }),
+              now: () => this.clock.now(),
+            },
+            ...more,
+          }),
+          ...(schedule === undefined ? {} : { schedule }),
+        };
+      },
       ...this.#opts,
     });
     if (!started.ok) throw new Error(JSON.stringify(started.error));

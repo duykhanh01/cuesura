@@ -2,7 +2,8 @@
  * Spool recovery on real files and a real SQLite file (T083, FR-008/023/030/031). A runner keeps
  * writing while no daemon ingests; a daemon killed at any point of the ingest transaction loses neither
  * records nor the cursor and never ingests a record twice. Sealed segments are deleted only after the
- * cursor past them is committed and the operation is resolved; retention never removes what the store
+ * cursor past them is committed and the operation is resolved (kept for `task logs` under `acked/`,
+ * outside the spool cap); retention never removes what the store
  * has not acknowledged.
  */
 import { spawnSync } from 'node:child_process';
@@ -37,6 +38,7 @@ import {
   type CrashPoint,
 } from '../../../src/store/testing.ts';
 import { buildTask, uuidOf } from '../../support/builders.ts';
+import { runExit } from '../../support/run-exit.ts';
 import { createGrantStart } from '../../support/runtime.ts';
 import { PREPARE_DATA } from '../../support/scenario.ts';
 import type { SpoolChildArgs } from '../../support/spool-ingest-child.ts';
@@ -126,32 +128,7 @@ function write(f: Fixture, n: number): void {
   f.log.sync();
 }
 
-function exitRecord(endedAt: number): RunnerExit {
-  return {
-    schema_version: 1,
-    operation_id: OP,
-    run_id: OP,
-    launch_nonce: 'nonce-1',
-    outcome: 'exited',
-    exit_code: 0,
-    signal: null,
-    spawned: true,
-    started_at: endedAt - 1_000,
-    ended_at: endedAt,
-    duration_ms: 1_000,
-    deadline_at: endedAt + 60_000,
-    termination: {
-      term_sent: false,
-      kill_sent: false,
-      tree_empty_verified: true,
-      scope: 'unit_cgroup',
-      killed_after_exit: 0,
-    },
-    progress: { last_progress_at: endedAt, last_reasons: [], samples: 1 },
-    artifacts: { records: 0, last_seq: 0, truncated_records: 0 },
-    error: null,
-  };
-}
+const exitRecord = (endedAt: number): RunnerExit => runExit(OP, endedAt);
 
 /** The runner ends: exit.json is final and the operation and its effect are resolved in the store. */
 function finish(f: Fixture): void {
