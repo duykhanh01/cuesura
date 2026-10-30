@@ -111,6 +111,11 @@ export type EventPayloads = {
     consecutive: number;
     escalate: boolean;
   };
+  /**
+   * The step's effect succeeded and its result held up, so the rate-limit/infra outage it was retrying
+   * through is over: these counters start again from zero (FR-019 limits apply per outage).
+   */
+  RetryCountersCleared: { step: string; counter_keys: string[] };
   // Ngân sách
   BudgetReserved: { reservation_id: string; effect_id: string; units: number };
   BudgetConsumed: { reservation_id: string };
@@ -381,6 +386,7 @@ export const EVENT_TYPES = [
   'AttemptRequested',
   'AttemptFinished',
   'FailureClassified',
+  'RetryCountersCleared',
   'BudgetReserved',
   'BudgetConsumed',
   'BudgetReleased',

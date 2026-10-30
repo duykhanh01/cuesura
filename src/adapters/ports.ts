@@ -201,6 +201,8 @@ export type PermissionDenial = {
 
 export const HARNESS_FAILURES = [
   'rate_limited',
+  /** Provider overloaded or out of capacity; retried on the rate-limit backoff. */
+  'overloaded',
   'auth',
   'refusal',
   'vendor_error',

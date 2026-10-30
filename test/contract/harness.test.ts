@@ -21,10 +21,11 @@ import {
   type Expected,
   type FileRead,
 } from '../../src/adapters/harness/validate-result.ts';
-import type {
-  VendorAdapter,
-  VendorPlanInput,
-  VendorRead,
+import {
+  classifyFailure,
+  type VendorAdapter,
+  type VendorPlanInput,
+  type VendorRead,
 } from '../../src/adapters/harness/vendor.ts';
 import { IN_SANDBOX } from '../../src/runner/sandbox.ts';
 import type { EpochMs } from '../../src/shared/brand.ts';
@@ -609,20 +610,30 @@ type SyntheticCase = {
 };
 
 describe('refusal, auth and rate limit map to failures with usage kept (synthetic shapes)', () => {
-  const file = fileURLToPath(
-    new URL(
-      '../fixtures/runtime/spike-0/harness-stream/cases.synthetic.json',
-      import.meta.url,
-    ),
-  );
-  const cases = (
-    JSON.parse(readFileSync(file, 'utf8')) as { cases: SyntheticCase[] }
-  ).cases.filter(
+  const read = (name: string): SyntheticCase[] =>
+    (
+      JSON.parse(
+        readFileSync(
+          fileURLToPath(
+            new URL(
+              `../fixtures/runtime/spike-0/harness-stream/${name}`,
+              import.meta.url,
+            ),
+          ),
+          'utf8',
+        ),
+      ) as { cases: SyntheticCase[] }
+    ).cases;
+  const cases = [
+    ...read('cases.synthetic.json'),
+    ...read('cases.capacity.synthetic.json'),
+  ].filter(
     (c): c is SyntheticCase & { vendor: 'claude' | 'codex' } =>
       c.vendor !== 'fixture',
   );
   const FAILURE: Record<string, string> = {
     rate_limited: 'rate_limited',
+    overloaded: 'overloaded',
     auth: 'auth',
     refusal: 'refusal',
     vendor_error: 'vendor_error',
@@ -653,6 +664,40 @@ describe('refusal, auth and rate limit map to failures with usage kept (syntheti
         invoked: true,
       });
     }
+  });
+
+  it('an HTTP status decides before the wording; overload wording alone is enough', () => {
+    expect(classifyFailure('Overloaded', 401)).toBe('auth');
+    expect(classifyFailure('API Error: 429 rate_limit_error', 529)).toBe(
+      'overloaded',
+    );
+    expect(classifyFailure('rate limited while overloaded', null)).toBe(
+      'rate_limited',
+    );
+    expect(classifyFailure('502 Bad Gateway', null)).toBe('overloaded');
+    expect(classifyFailure('Gateway Timeout', null)).toBe('overloaded');
+    expect(classifyFailure('connection reset', null)).toBe('vendor_error');
+    expect(classifyFailure('connection reset', 400)).toBe('vendor_error');
+  });
+
+  it('codex keeps a recovered reconnect as a warning, not a failure', () => {
+    const facts = codexAdapter.read({
+      stdout: [
+        { type: 'turn.started' },
+        { type: 'error', message: 'Reconnecting... 1/5 (stream disconnected)' },
+        {
+          type: 'turn.completed',
+          usage: { input_tokens: 10, output_tokens: 2 },
+        },
+      ],
+      stderr: '',
+      truncated_records: 0,
+    });
+    expect(facts.failure).toBeNull();
+    expect(facts.final).toEqual({ kind: 'file' });
+    expect(facts.warnings).toEqual([
+      'recovered: Reconnecting... 1/5 (stream disconnected)',
+    ]);
   });
 
   it('a rate limit keeps the vendor reset time', () => {

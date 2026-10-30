@@ -124,6 +124,8 @@ export type VendorPlanError = {
 
 export const FAILURE_KINDS = [
   'rate_limited',
+  /** The provider is overloaded or out of capacity (HTTP 5xx/529); waiting is the fix, not the model. */
+  'overloaded',
   'auth',
   'refusal',
   'vendor_error',
@@ -215,21 +217,24 @@ export function validCounters(
   );
 }
 
+const OVERLOADED_STATUS = new Set([500, 502, 503, 504, 529]);
+const RATE_LIMITED_TEXT = /\b429\b|rate.?limit|too many requests/i;
+const AUTH_TEXT =
+  /\b40[13]\b|unauthori[sz]ed|forbidden|not logged in|invalid api key/i;
+const OVERLOADED_TEXT =
+  /\b(?:50[0234]|529)\b|overloaded|at capacity|server is busy|temporarily unavailable|service unavailable|internal server error|bad gateway|gateway time-?out/i;
+
 /** HTTP status first, then the vendor's own wording; anything else is a vendor error. */
 export function classifyFailure(
   detail: string,
   status: number | null,
 ): FailureKind {
-  if (status === 429 || /\b429\b|rate.?limit|too many requests/i.test(detail))
-    return 'rate_limited';
-  if (
-    status === 401 ||
-    status === 403 ||
-    /\b40[13]\b|unauthori[sz]ed|forbidden|not logged in|invalid api key/i.test(
-      detail,
-    )
-  )
-    return 'auth';
+  if (status === 429) return 'rate_limited';
+  if (status === 401 || status === 403) return 'auth';
+  if (status !== null && OVERLOADED_STATUS.has(status)) return 'overloaded';
+  if (RATE_LIMITED_TEXT.test(detail)) return 'rate_limited';
+  if (AUTH_TEXT.test(detail)) return 'auth';
+  if (OVERLOADED_TEXT.test(detail)) return 'overloaded';
   return 'vendor_error';
 }
 

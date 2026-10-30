@@ -5,6 +5,7 @@ import {
 } from '../domain/policy.ts';
 import {
   counterKey,
+  isTerminal,
   streakKey,
   type AttemptKind,
   type DetailCode,
@@ -20,6 +21,31 @@ import type { Ctx } from './context.ts';
 import { pastDeadline, proceed } from './interpreter.ts';
 import { askHuman } from './questions.ts';
 import { mkWait, waitPolicy, waitTask } from './waits.ts';
+
+/** Classes whose retries are counted per outage, not over the life of the task. */
+const TRANSIENT_CLASSES: readonly FailureClass[] = ['infra', 'rate_limit'];
+
+/**
+ * Emits `RetryCountersCleared` for `step` when its transient counters are set and no failure was
+ * classified on the step among the events emitted since `since`.
+ */
+export function clearRetryCounters(
+  ctx: Ctx,
+  step: string | null,
+  since: number,
+): void {
+  // A finished task keeps its counters as history; nothing is retried any more.
+  if (step === null || isTerminal(ctx.state.status)) return;
+  const failed = ctx.events
+    .slice(since)
+    .some((ev) => ev.type === 'FailureClassified' && ev.payload.step === step);
+  if (failed) return;
+  const keys = TRANSIENT_CLASSES.map((c) => counterKey(step, c)).filter(
+    (k) => ctx.state.class_counters[k] !== undefined,
+  );
+  if (keys.length > 0)
+    ctx.emit('RetryCountersCleared', { step, counter_keys: keys });
+}
 
 /** Only these classes feed quality escalation (FR-019). */
 export const QUALITY_CLASSES: readonly FailureClass[] = [

@@ -46,6 +46,7 @@ import { reject, type Ctx } from './context.ts';
 import { requestEffect, requestReconcile } from './effects.ts';
 import { applyRaise, chooseRung } from './escalation.ts';
 import {
+  clearRetryCounters,
   handleFailure,
   recordCheckFailure,
   reviewSignature,
@@ -1121,12 +1122,22 @@ function resumeIfWaitingOn(ctx: Ctx, e: EffectMirror): void {
     ctx.emit('TaskResumed', { reason: `effect:${e.id}` });
 }
 
-/** Xử lý dữ liệu thành công (đã kiểm schema với effect không phải agent). Dùng chung với đối chiếu (R-17). */
+/**
+ * Xử lý dữ liệu thành công (đã kiểm schema với effect không phải agent). Dùng chung với đối chiếu (R-17).
+ * Only a result that held up — no failure classified on the step while handling it — ends the step's
+ * rate-limit/infra outage; a `reconcile` probe settles through `closeProbe` and never comes here.
+ */
 export function onEffectSucceeded(
   ctx: Ctx,
   e: EffectMirror,
   data: unknown,
 ): void {
+  const since = ctx.events.length;
+  routeSuccess(ctx, e, data);
+  clearRetryCounters(ctx, e.step, since);
+}
+
+function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
   resumeIfWaitingOn(ctx, e);
   const step = e.step;
   switch (e.kind) {

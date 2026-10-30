@@ -185,6 +185,7 @@ describe('switch đầy đủ với assertNever', () => {
       case 'AttemptRequested':
       case 'AttemptFinished':
       case 'FailureClassified':
+      case 'RetryCountersCleared':
         return 'attempt';
       case 'BudgetReserved':
       case 'BudgetConsumed':

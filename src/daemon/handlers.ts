@@ -68,6 +68,7 @@ import type {
   Clock,
   GitHubPort,
   GitPort,
+  HarnessFailure,
   HarnessInput,
   HarnessOutcome,
   HarnessPort,
@@ -91,6 +92,7 @@ import type { TaskState } from '../domain/state.ts';
 import type { z } from 'zod';
 import type {
   AwaitCiDataSchema,
+  FailureClass,
   RequiredCheckVerdict,
   Trigger,
   TriggerEnvelope,
@@ -564,8 +566,11 @@ async function repairState(
   };
 }
 
-const HARNESS_FAILURE_CLASS: Record<string, string> = {
+const HARNESS_FAILURE_CLASS: Record<HarnessFailure, FailureClass> = {
   rate_limited: 'rate_limit',
+  // An overloaded provider clears in minutes, not seconds: the rate-limit backoff fits, the infra one
+  // would be spent before capacity comes back.
+  overloaded: 'rate_limit',
   auth: 'auth_config',
   refusal: 'refused',
   vendor_error: 'infra',
@@ -588,7 +593,7 @@ function agentOutcome(
     return {
       outcome: 'failed',
       data: {
-        failure_class: HARNESS_FAILURE_CLASS[o.failure] ?? 'unknown',
+        failure_class: HARNESS_FAILURE_CLASS[o.failure],
         message: o.detail,
         // The reservation is released only when the harness provably never ran (FR-010/016).
         invoked: o.invoked,

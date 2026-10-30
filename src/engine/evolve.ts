@@ -257,6 +257,9 @@ export function applyInPlace(
       if (event.payload.status === 'done') s.last_fix_step = event.payload.step;
       break;
     }
+    case 'RetryCountersCleared':
+      for (const k of event.payload.counter_keys) delete s.class_counters[k];
+      break;
     case 'FailureClassified': {
       const p = event.payload;
       s.class_counters[p.counter_key] = p.count;

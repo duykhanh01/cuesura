@@ -86,7 +86,7 @@ nhãn; chỉ có exit code thì chưa đủ.
 | Task | `TaskCreated`, `TaskRevised`, `TaskConfirmed`, `TaskReady`, `TaskPending`, `TaskWaiting`, `TaskResumed` |
 | Chính sách | `PolicyFrozen` (gồm `policy_hash`, `context_hash`, `structure_hash`), `PolicyAmended`, `AmendmentRejected` |
 | Bước | `StepEntered`, `StepSkipped`, `StepExhausted` |
-| Attempt | `AttemptRequested`, `AttemptFinished`, `FailureClassified` |
+| Attempt | `AttemptRequested`, `AttemptFinished`, `FailureClassified`, `RetryCountersCleared` |
 | Ngân sách | `BudgetReserved`, `BudgetConsumed`, `BudgetReleased` |
 | Escalation | `RungRaised`, `TaskFloorRaised` |
 | Bằng chứng | `GateResultRecorded`, `ReviewVerdictRecorded`, `PublishRecorded`, `CiResultRecorded`, `BaseRelationRecorded`, `EvidenceInvalidated` |

@@ -135,9 +135,17 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
 const CODEX_REJECTED =
   /codex_core::tools::router: .*Rejected\(\\?"`(.*)` rejected: ([^\\"]*)/;
 
+function failureOf(detail: string): NonNullable<VendorFacts['failure']> {
+  const d = detail.slice(0, DETAIL_MAX);
+  return { kind: classifyFailure(d, null), detail: d, reset_at: null };
+}
+
 function read(input: VendorRead): VendorFacts {
   const warnings: string[] = [];
-  let failure: VendorFacts['failure'] = null;
+  let failed: VendorFacts['failure'] = null;
+  // A top-level `error` is also what codex prints while it reconnects a dropped stream on its own
+  // ("Reconnecting... 1/5"); it only fails the run when no turn completes after it.
+  let pending: VendorFacts['failure'] = null;
   let incomplete = false;
   let turns = 0;
   let tokens = 0;
@@ -146,6 +154,10 @@ function read(input: VendorRead): VendorFacts {
     if (p['type'] === 'thread.started')
       session = str(p['thread_id']) ?? session;
     else if (p['type'] === 'turn.completed') {
+      if (pending !== null) {
+        warnings.push(`recovered: ${pending.detail}`.slice(0, DETAIL_MAX));
+        pending = null;
+      }
       const u = p['usage'];
       if (
         !validCounters(
@@ -160,15 +172,13 @@ function read(input: VendorRead): VendorFacts {
       // cached_input_tokens is part of input_tokens here; only input and output are added.
       tokens += (u['input_tokens'] as number) + (u['output_tokens'] as number);
       turns++;
-    } else if (p['type'] === 'turn.failed' || p['type'] === 'error') {
-      const detail = (
-        (p['type'] === 'turn.failed'
-          ? isRec(p['error'])
-            ? str(p['error']['message'])
-            : null
-          : str(p['message'])) ?? String(p['type'])
-      ).slice(0, DETAIL_MAX);
-      failure = { kind: classifyFailure(detail, null), detail, reset_at: null };
+    } else if (p['type'] === 'turn.failed') {
+      failed = failureOf(
+        (isRec(p['error']) ? str(p['error']['message']) : null) ??
+          'turn.failed',
+      );
+    } else if (p['type'] === 'error') {
+      pending = failureOf(str(p['message']) ?? 'error');
     } else if (
       p['type'] === 'item.completed' &&
       isRec(p['item']) &&
@@ -179,6 +189,7 @@ function read(input: VendorRead): VendorFacts {
       );
     }
   }
+  const failure = failed ?? pending;
   const denials: PermissionDenial[] = [];
   for (const line of input.stderr.split('\n')) {
     const m = CODEX_REJECTED.exec(line);

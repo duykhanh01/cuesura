@@ -194,6 +194,63 @@ describe('US4 - Model escalation and budget under the approved policy', () => {
     expect(eventsOf(infra, 'RungRaised')).toEqual([]);
   });
 
+  it('Scenario 3b: a success on the step clears its infra and rate-limit counters, so the next outage starts afresh', () => {
+    const sim = run();
+    toCode(sim);
+    fail(sim, sim.pendingOne('start_agent').id, 'infra');
+    sim.advance(10_000).fireDue();
+    fail(sim, sim.pendingOne('start_agent').id, 'rate_limit');
+    expect(sim.s.class_counters).toMatchObject({
+      'code#infra': 1,
+      'code#rate_limit': 1,
+    });
+    sim.advance(10 * 60_000).fireDue();
+    sim.complete(
+      sim.pendingOne('start_agent').id,
+      'succeeded',
+      agentData('done'),
+    );
+    expect(sim.s.class_counters['code#infra']).toBeUndefined();
+    expect(sim.s.class_counters['code#rate_limit']).toBeUndefined();
+  });
+
+  it('Scenario 3c: a prepare that reports success with a failed setup is an infra failure and keeps counting to the limit', () => {
+    const sim = run();
+    const setupFailed = {
+      ...PREPARE_DATA,
+      setup: { ran: true, passed: false },
+    };
+    for (let i = 1; i <= 3; i++) {
+      sim.complete(sim.pendingOne('prepare').id, 'succeeded', setupFailed);
+      expect(sim.s.class_counters['prepare#infra']).toBe(i);
+      expect(eventsOf(sim, 'RetryCountersCleared')).toEqual([]);
+      sim.advance(300_000).fireDue();
+    }
+    sim.complete(sim.pendingOne('prepare').id, 'succeeded', setupFailed);
+    expect(sim.s.wait).toMatchObject({
+      reason: 'policy',
+      detail: { code: 'backoff_exhausted', class: 'infra', count: 4 },
+    });
+  });
+
+  it('Scenario 3d: a reconcile probe that settles a failed run does not clear the retries the run spent', () => {
+    const sim = run({ limits: { max_agent_runs: 10 } });
+    toCode(sim);
+    for (let i = 1; i <= 3; i++) {
+      fail(sim, sim.pendingOne('start_agent').id, 'infra');
+      sim.advance(300_000).fireDue();
+    }
+    const agent = sim.pendingOne('start_agent');
+    sim.complete(agent.id, 'unknown');
+    expect(sim.effects('reconcile', 'pending')).toHaveLength(1);
+    sim.reconciled(agent.id, 'executed_failed', { failure_class: 'infra' });
+    expect(eventsOf(sim, 'RetryCountersCleared')).toEqual([]);
+    expect(sim.s.wait).toMatchObject({
+      reason: 'policy',
+      detail: { code: 'backoff_exhausted', class: 'infra', count: 4 },
+    });
+  });
+
   it('Scenario 4: with the agent run cap used up no new attempt starts and the task waits on policy', () => {
     const sim = run({ limits: { max_agent_runs: 2 } }, XS_TASK);
     sim.complete(toCode(sim).id, 'succeeded', agentData('done'));

@@ -241,14 +241,8 @@ export function validateResult(input: {
     );
   if (facts.failure !== null) {
     const f = facts.failure;
-    const kind: HarnessFailure =
-      f.kind === 'rate_limited'
-        ? 'rate_limited'
-        : f.kind === 'auth'
-          ? 'auth'
-          : f.kind === 'refusal'
-            ? 'refusal'
-            : 'vendor_error';
+    // Vendor failure kinds are a subset of the harness failures, by the same names.
+    const kind: HarnessFailure = f.kind;
     return failure(kind, f.detail, true, f.reset_at);
   }
   const byOutcome = FAILURE_OF_OUTCOME[exit.outcome];
