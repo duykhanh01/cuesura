@@ -13,10 +13,11 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { claudeAdapter } from '../../../src/adapters/harness/claude.ts';
 import { codexAdapter } from '../../../src/adapters/harness/codex.ts';
 import {
@@ -24,15 +25,18 @@ import {
   type Role,
 } from '../../../src/adapters/harness/result-schema.ts';
 import type { VendorPin } from '../../../src/adapters/harness/vendor.ts';
-import type { HarnessInput } from '../../../src/adapters/ports.ts';
+import type { HarnessInput, ProcessPort } from '../../../src/adapters/ports.ts';
 import { sessionFor } from '../../../src/daemon/handlers.ts';
 import { RUN_FILES, RunDir } from '../../../src/runner/files.ts';
 import {
   InvocationUnknown,
+  OUTCOME_FILE,
   RunnerHarness,
 } from '../../../src/runner/invocation.ts';
+import { homeSecretValues } from '../../../src/runner/private-home.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
 import type { EpochMs } from '../../../src/shared/brand.ts';
+import { err } from '../../../src/shared/result.ts';
 import { hashCanonical, hashText } from '../../../src/shared/hash.ts';
 import {
   acceptedValue,
@@ -512,8 +516,9 @@ describe('run outcomes', () => {
     const e = env('claude', 's0-claude-coder-1793172185');
     const inp = input('claude', 'coder');
     const h = harness(e);
-    await h.run(inp, signal());
-    await expect(h.run(inp, signal())).rejects.toThrow(InvocationUnknown);
+    const first = await h.run(inp, signal());
+    // The repeated call concludes the finished run from disk, as recovery does.
+    expect(await h.run(inp, signal())).toEqual(first);
     expect(e.proc.launches).toHaveLength(1);
   });
 });
@@ -642,6 +647,35 @@ function evidenceManifestEntry(vendor: 'claude' | 'codex'): {
   };
 }
 
+/** The daemon dies right after the launch: the run goes on to its exit alone and nobody concludes it. */
+async function orphaned(e: Env, inp: HarnessInput): Promise<RunDir> {
+  const dying: ProcessPort = {
+    launch: async (spec) => {
+      await e.proc.launch(spec);
+      return err({ code: 'unknown', message: 'daemon killed' });
+    },
+    inspect: (id) => e.proc.inspect(id),
+    stop: (id) => e.proc.stop(id),
+  };
+  await expect(
+    harness(e, { process: dying }).run(inp, signal()),
+  ).rejects.toThrow(InvocationUnknown);
+  const run = RunDir.open({
+    dataDir: e.data,
+    kind: 'runs',
+    id: inp.attempt_id,
+    redactor: new Redactor(),
+    create: false,
+  });
+  for (
+    let i = 0;
+    i < 250 && run.readFinal(RUN_FILES.exit).state !== 'valid';
+    i++
+  )
+    await new Promise((r) => setTimeout(r, 20));
+  return run;
+}
+
 describe('T139 M07 finalized reviewer recovery', () => {
   it('a fresh harness instance reads its finalized review and usage without launching again', async () => {
     const e = env('claude', 's0-claude-reviewer-1793180331');
@@ -655,6 +689,143 @@ describe('T139 M07 finalized reviewer recovery', () => {
       stopped.signal,
     );
     expect(recovered).toEqual(first);
+    expect(e.proc.launches).toHaveLength(1);
+  });
+
+  it('recover() after a restart reads the same finalized review and never launches; anything else is unknown', async () => {
+    const e = env('claude', 's0-claude-reviewer-1793180331');
+    const inp = input('claude', 'reviewer');
+    const first = await harness(e).run(inp, signal());
+    const fresh = harness(e, { credentials: {} });
+    expect(fresh.recover(inp)).toEqual(first);
+    expect(() =>
+      fresh.recover({
+        ...inp,
+        context: { text: 'changed', digest: hashText('changed') },
+      }),
+    ).toThrow(InvocationUnknown);
+    // No run directory at all: nothing to read, and still nothing launched.
+    expect(() => fresh.recover({ ...inp, attempt_id: randomUUID() })).toThrow(
+      InvocationUnknown,
+    );
+    expect(e.proc.launches).toHaveLength(1);
+  });
+
+  it.each([
+    ['coder', 's0-claude-coder-1793172185'],
+    ['reviewer', 's0-claude-reviewer-1793180331'],
+  ] as const)(
+    'a %s run that ended while no daemon concluded it is concluded from disk by recover(); nothing launched',
+    async (role, scenario) => {
+      const e = env('claude', scenario);
+      const inp = input('claude', role);
+      const run = await orphaned(e, inp);
+      expect(run.readFinal(RUN_FILES.result).state).toBe('missing');
+      const recovered = harness(e, { credentials: {} }).recover(inp);
+      expect(recovered.kind).toBe('result');
+      expect(run.readFinal(RUN_FILES.result).state).toBe('valid');
+      expect(run.readFinal(OUTCOME_FILE).state).toBe('valid');
+      // Concluded: the auth leaves the home, and the stored outcome answers from now on.
+      expect(homeSecretValues(join(run.dir, 'private-home'))).toEqual([]);
+      expect(harness(e, { credentials: {} }).recover(inp)).toEqual(recovered);
+      expect(e.proc.launches).toHaveLength(1);
+    },
+  );
+
+  it.each(
+    (['coder', 'reviewer'] as const).flatMap((role) =>
+      (['before', 'after'] as const).map((at) => ({ role, at })),
+    ),
+  )(
+    'an outcome write failure $at persistence preserves $role auth for a redacted retry without another launch',
+    async ({ role, at }) => {
+      const secret = 'plain-auth-value-0123456789';
+      const scenario =
+        role === 'coder'
+          ? 's0-codex-coder-1793178479'
+          : 's0-codex-reviewer-1793180367';
+      const e = env('codex', scenario, 'leak_summary', secret);
+      const inp = input('codex', role);
+      const run = await orphaned(e, inp);
+      const home = join(run.dir, 'private-home');
+      const auth = homeSecretValues(home);
+      expect(auth.length).toBeGreaterThan(0);
+      const writeJson = run.writeJson.bind(run);
+      const write = vi
+        .spyOn(RunDir.prototype, 'writeJson')
+        .mockImplementation((rel, value, maxBytes) => {
+          if (rel === OUTCOME_FILE && at === 'before')
+            throw Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' });
+          const written = writeJson(rel, value, maxBytes);
+          if (rel === OUTCOME_FILE)
+            throw Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' });
+          return written;
+        });
+      try {
+        expect(() => harness(e, { credentials: {} }).recover(inp)).toThrow(
+          new InvocationUnknown('outcome not stored: ENOSPC'),
+        );
+        expect(run.readFinal(OUTCOME_FILE).state).toBe(
+          at === 'before' ? 'missing' : 'valid',
+        );
+        expect(homeSecretValues(home)).toEqual(auth);
+        expect(
+          e.pin.home_files.every((f) => existsSync(join(home, f.to))),
+        ).toBe(true);
+      } finally {
+        write.mockRestore();
+      }
+      const recovered = harness(e, { credentials: {} }).recover(inp);
+      expect(recovered.kind).toBe('result');
+      expect(JSON.stringify(recovered)).toContain('[REDACTED]');
+      expect(JSON.stringify(recovered)).not.toContain(secret);
+      expect(run.readFinal(OUTCOME_FILE).state).toBe(
+        role === 'reviewer' && at === 'before' ? 'missing' : 'valid',
+      );
+      expect(homeSecretValues(home)).toEqual([]);
+      expect(harness(e, { credentials: {} }).recover(inp)).toEqual(recovered);
+      for (const file of [RUN_FILES.result, OUTCOME_FILE]) {
+        if (run.readFinal(file).state === 'missing') continue;
+        const stored = readFileSync(run.resolve(file), 'utf8');
+        expect(stored).toContain('[REDACTED]');
+        expect(stored).not.toContain(secret);
+      }
+      expect(e.proc.launches).toHaveLength(1);
+    },
+  );
+
+  it('recovery after the auth left returns the stored, redacted outcome; without it, unknown', async () => {
+    const secret = 'plain-auth-value-0123456789';
+    const e = env('codex', 's0-codex-coder-1793178479', 'leak_summary', secret);
+    const inp = input('codex', 'coder');
+    const first = await harness(e).run(inp, signal());
+    expect(JSON.stringify(first)).not.toContain(secret);
+    const recovered = harness(e, { credentials: {} }).recover(inp);
+    expect(recovered).toEqual(first);
+    expect(JSON.stringify(recovered)).not.toContain(secret);
+    // No stored outcome and no auth to redact the raw output with: never returned raw.
+    const run = RunDir.open({
+      dataDir: e.data,
+      kind: 'runs',
+      id: inp.attempt_id,
+      redactor: new Redactor(),
+      create: false,
+    });
+    rmSync(run.resolve(OUTCOME_FILE));
+    expect(() => harness(e, { credentials: {} }).recover(inp)).toThrow(
+      InvocationUnknown,
+    );
+    expect(e.proc.launches).toHaveLength(1);
+  });
+
+  it('a write zone changed between the exit and recovery cannot be pinned on the run: unknown', async () => {
+    const e = env('claude', 's0-claude-reviewer-1793180331');
+    const inp = input('claude', 'reviewer');
+    await orphaned(e, inp);
+    writeFileSync(join(e.worktree, 'later.txt'), 'edited by someone\n');
+    expect(() => harness(e, { credentials: {} }).recover(inp)).toThrow(
+      InvocationUnknown,
+    );
     expect(e.proc.launches).toHaveLength(1);
   });
 
@@ -740,9 +911,11 @@ describe('T139 M07 finalized reviewer recovery', () => {
       create: false,
     });
     expect(run.readFinal(RUN_FILES.result).state).toBe('missing');
-    await expect(harness(e).run(inp, signal())).rejects.toThrow(
-      InvocationUnknown,
-    );
+    // A repeated call gets the same stored failure back, never an approval and never a launch.
+    expect(await harness(e).run(inp, signal())).toMatchObject({
+      kind: 'failure',
+      failure: 'boundary_violation',
+    });
     expect(e.proc.launches).toHaveLength(1);
   });
 });

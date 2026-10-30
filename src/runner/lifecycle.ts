@@ -89,6 +89,11 @@ export const RunnerExitSchema = z
         records: z.number().int().nonnegative(),
         last_seq: z.number().int().nonnegative(),
         truncated_records: z.number().int().nonnegative(),
+        /**
+         * Output received but not stored once the spool was full or could not be written: counted, never
+         * dropped silently (FR-031). Absent in exit records written before it existed.
+         */
+        dropped_bytes: z.number().int().nonnegative().optional(),
       })
       .strict(),
     error: z.string().nullable(),
@@ -232,6 +237,9 @@ export async function execOperation(
   });
   let records = 0;
   let truncated = 0;
+  let dropped = 0;
+  /** First event log write error (disk full, I/O): the run is stopped as `artifact_backpressure`. */
+  let storageError: string | null = null;
   let stopReason: RunOutcome | null = null;
   let termSent = false;
   let killSent = false;
@@ -258,6 +266,7 @@ export async function execOperation(
     } catch {
       // A full disk keeps the facts below; exit.json still records the outcome if it can be written.
     }
+    dropped += log.pendingStderrBytes;
     log.close();
     const ended = clock.now();
     const exit: RunnerExit = {
@@ -285,11 +294,16 @@ export async function execOperation(
         last_reasons: [...(progress?.last_reasons ?? [])],
         samples,
       },
-      artifacts: { records, last_seq: log.seq, truncated_records: truncated },
+      artifacts: {
+        records,
+        last_seq: log.seq,
+        truncated_records: truncated,
+        dropped_bytes: dropped,
+      },
       error:
-        o.error === undefined || o.error === null
+        (o.error ?? storageError) === null
           ? null
-          : run.redactor.text(o.error),
+          : run.redactor.text((o.error ?? storageError) as string),
     };
     run.writeExit(RunnerExitSchema.parse(exit));
     return { state: 'finished', exit };
@@ -342,23 +356,50 @@ export async function execOperation(
   const pid = child.pid;
   const identity = captureIdentity(pid, spec);
   if (identity !== null) {
-    run.writeJson(RUN_FILES.pid, identity);
     known.set(pid, identity.start_ticks);
+    try {
+      run.writeJson(RUN_FILES.pid, identity);
+    } catch (e) {
+      // Without a PID receipt nobody can adopt the tree later: it is stopped below, while this runner
+      // still knows it.
+      storageError = `pid receipt write failed: ${e instanceof Error ? e.message : String(e)}`;
+    }
   }
 
-  const onAppend = (r: Result<unknown, AppendError>): void => {
-    if (r.ok) return;
-    if (r.error.code === 'artifact_backpressure')
+  /** The event log cannot be written (disk full, I/O error): stop the operation, keep what is stored. */
+  function storageFailed(e: unknown): void {
+    storageError ??= `event log write failed: ${e instanceof Error ? e.message : String(e)}`;
+    terminate('artifact_backpressure');
+  }
+  /** Output no longer stored is counted, so a stopped run never looks complete. */
+  const storing = (bytes: number): boolean => {
+    if (stopReason !== 'artifact_backpressure') return true;
+    dropped += bytes;
+    return false;
+  };
+  const append = (kind: string, data: unknown, bytes: number): boolean => {
+    let r: Result<unknown, AppendError>;
+    try {
+      r = log.append(kind, data);
+    } catch (e) {
+      dropped += bytes;
+      storageFailed(e);
+      return false;
+    }
+    if (r.ok) return true;
+    if (r.error.code === 'artifact_backpressure') {
+      dropped += bytes;
       terminate('artifact_backpressure');
-    else truncated++;
+    } else truncated++;
+    return false;
   };
   const stdout = new LineSplitter(
     run.limits.log_record_bytes - 4096,
     (line) => {
-      if (stopReason === 'artifact_backpressure') return;
+      if (!storing(line?.length ?? 0)) return;
       if (line === null) {
         truncated++;
-        onAppend(log.append('stdout.truncated', { reason: 'record over cap' }));
+        append('stdout.truncated', { reason: 'record over cap' }, 0);
         return;
       }
       const text = line.toString('utf8');
@@ -368,9 +409,7 @@ export async function execOperation(
       } catch {
         data = { text };
       }
-      const r = log.append('stdout', data);
-      if (r.ok) records++;
-      onAppend(r);
+      if (append('stdout', data, line.length)) records++;
     },
   );
   // Both streams are buffered into whole lines, so log.seq misses output that has not ended a line
@@ -382,9 +421,14 @@ export async function execOperation(
   });
   child.stderr?.on('data', (b: Buffer) => {
     outputChunks++;
-    if (stopReason === 'artifact_backpressure') return;
-    const r = log.appendStderr(b);
-    if (!r.ok) terminate('artifact_backpressure');
+    if (!storing(b.length)) return;
+    try {
+      // On backpressure the text stays buffered in the writer and is counted when the run ends.
+      if (!log.appendStderr(b).ok) terminate('artifact_backpressure');
+    } catch (e) {
+      dropped += b.length;
+      storageFailed(e);
+    }
   });
 
   const tree = (): number[] => {
@@ -476,6 +520,7 @@ export async function execOperation(
     )
       terminate('stalled');
   };
+  if (storageError !== null) terminate('artifact_backpressure');
   sample();
   const sampler = setInterval(sample, sampleMs);
   const unsubscribe = (deps.onStop ?? processStop)(() =>

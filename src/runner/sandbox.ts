@@ -682,7 +682,9 @@ function fingerprint(paths: readonly string[]): string {
 }
 
 /** Snapshot before and after an agent run; any change in a read-only zone is a boundary violation. */
-export function snapshotWriteZone(layout: SandboxLayout): WriteZoneSnapshot {
+export function snapshotWriteZone(
+  layout: Pick<SandboxLayout, 'role' | 'worktree' | 'git_dirs'>,
+): WriteZoneSnapshot {
   const meta = [
     join(layout.worktree, '.git'),
     ...layout.git_dirs.flatMap((g) => GIT_METADATA.map((n) => join(g, n))),

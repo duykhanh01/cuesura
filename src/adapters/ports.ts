@@ -268,6 +268,11 @@ export interface HarnessPort {
   /** Where the role sees its scratch when it runs sandboxed; absent when it writes host paths (fake). */
   readonly agent_paths?: { readonly scratch: string };
   run(input: HarnessInput, signal: AbortSignal): Promise<HarnessOutcome>;
+  /**
+   * The outcome of a run of this operation that already ended, read from what it finalized on disk;
+   * never launches. Throws when the outcome cannot be proven for this exact input.
+   */
+  recover?(input: HarnessInput): HarnessOutcome;
 }
 
 // ---- Git (orchestrator-side argv only; repo config/hooks/executables are not trusted) ----

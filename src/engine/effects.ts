@@ -54,11 +54,20 @@ export function inFlight(e: EffectMirror): boolean {
   return e.status === 'started' || e.status === 'unknown';
 }
 
-/** Yêu cầu đối chiếu một effect `unknown` hoặc `started`; khoá theo ID effect gốc. */
+/**
+ * Yêu cầu đối chiếu một effect `unknown` hoặc `started`; khoá theo ID effect gốc. A probe still open
+ * serves; once every earlier probe ended (the effect went back to the queue and was lost again, T093)
+ * the next one takes the next key, so a lost effect always has a reconcile.
+ */
 export function requestReconcile(ctx: Ctx, target: EffectMirror): void {
+  const probes = Object.values(ctx.state.effects).filter(
+    (e) => e.kind === 'reconcile' && e.target_effect_id === target.id,
+  );
+  if (probes.some((e) => e.status === 'pending' || inFlight(e))) return;
   requestEffect(ctx, {
     kind: 'reconcile',
-    logical_id: target.id,
+    logical_id:
+      probes.length === 0 ? target.id : `${target.id}:${probes.length}`,
     step: target.step,
     attempt_id: target.attempt_id,
     target_effect_id: target.id,

@@ -5,9 +5,9 @@ import { takeCheckpoint } from '../../../src/adapters/git/checkpoint.ts';
 import {
   commitCheckpoint,
   FileCommitIntentStore,
-  probeCommit,
   type CommitInput,
 } from '../../../src/adapters/git/commit.ts';
+import { probeCommit } from '../../../src/adapters/git/reconcile.ts';
 import {
   ensureWorktree,
   markerPath,
@@ -117,9 +117,9 @@ describe('orchestrator commit (T039, FR-017/018)', () => {
       lost.input,
     );
     expect(first).toMatchObject({ kind: 'unknown' });
-    expect(await probeCommit(lost.git, lost.store, lost.input.key)).toBe(
-      'not_applied',
-    );
+    expect(
+      await probeCommit(lost.git, lost.store, lost.input.key),
+    ).toMatchObject({ kind: 'not_applied' });
     const again = await commitCheckpoint(lost.git, lost.store, lost.input);
     expect(again).toMatchObject({
       kind: 'committed',
@@ -135,7 +135,10 @@ describe('orchestrator commit (T039, FR-017/018)', () => {
     expect(r.kind).toBe('committed');
     expect(
       await probeCommit(applied.git, applied.store, applied.input.key),
-    ).toBe('committed');
+    ).toMatchObject({
+      kind: 'committed',
+      intent: { oid: r.kind === 'committed' ? r.intent.oid : '' },
+    });
   });
 
   it('the commit OID is reproducible from the stored intent', async () => {

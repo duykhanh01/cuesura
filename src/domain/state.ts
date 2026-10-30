@@ -373,6 +373,24 @@ export type Completion = {
   };
   pending_operations: string[];
   finalized_at: number | null;
+  /** What the worktree still held at the last drain round (FR-040.06); absent before the first one. */
+  local_remainder?: LocalRemainder;
+};
+
+/**
+ * The task's local work after a merge (FR-040.06): kept as it is, never reset, deleted or pushed to
+ * match the merged head. Null fields are facts that could not be read.
+ */
+export type LocalRemainder = {
+  worktree: string;
+  local_head: string | null;
+  remote_head: string | null;
+  /** Uncommitted changes, untracked files included. */
+  dirty: boolean | null;
+  /** Local commits the remote branch does not have. */
+  unpushed: boolean | null;
+  detail: string | null;
+  observed_at: number;
 };
 
 /** Commit the gates passed on, made by the orchestrator with the worker's message (M06). */

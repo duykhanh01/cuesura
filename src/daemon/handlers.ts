@@ -11,8 +11,9 @@
  * content (commit message, PR title/body) comes from a file outside the worktree, checked and stored by
  * digest before it is used (M05).
  *
- * Known gaps, kept explicit: setup commands are not in the frozen snapshot yet, so `prepare` reports
- * `setup.ran = false`; `reconcile` answers `still_unknown` until recovery (T090) probes each kind.
+ * `reconcile` (T090) probes the effect it targets by kind before anything is sent again; see
+ * {@link reconcileEffect}. Known gap, kept explicit: setup commands are not in the frozen snapshot yet,
+ * so `prepare` reports `setup.ran = false`.
  */
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -27,7 +28,7 @@ import {
   readContentFile,
   validateContent,
 } from '../adapters/publish-content.ts';
-import { runAutofix, runGates } from '../adapters/gates.ts';
+import { gateResultOf, runAutofix, runGates } from '../adapters/gates.ts';
 import {
   takeCheckpoint,
   type CheckpointSpec,
@@ -37,6 +38,7 @@ import {
   FileCommitIntentStore,
 } from '../adapters/git/commit.ts';
 import { pushBranch } from '../adapters/git/push.ts';
+import { probeCommit, probePush } from '../adapters/git/reconcile.ts';
 import {
   ensureWorktree,
   markerPath,
@@ -52,12 +54,21 @@ import { observePull } from '../adapters/github/observe.ts';
 import {
   createOrRecoverPr,
   updatePrDescription,
+  type DescriptionUpdate,
+  type PrFact,
+  type PrSpec,
 } from '../adapters/github/publish.ts';
+import {
+  probeDescription,
+  probePr,
+  probeRerun,
+} from '../adapters/github/reconcile.ts';
 import { rerunFailedJobs } from '../adapters/github/rerun.ts';
 import type {
   Clock,
   GitHubPort,
   GitPort,
+  HarnessInput,
   HarnessOutcome,
   HarnessPort,
   SandboxProvider,
@@ -68,7 +79,11 @@ import type {
   FrozenExecutionContext,
   FrozenPolicy,
 } from '../domain/policy.ts';
-import type { FrozenRuntimeContext, Observation } from '../domain/runtime.ts';
+import {
+  cursorAfter,
+  type FrozenRuntimeContext,
+  type Observation,
+} from '../domain/runtime.ts';
 import type { TaskState } from '../domain/state.ts';
 import type { z } from 'zod';
 import type {
@@ -82,7 +97,7 @@ import {
   type RequiredVerdict,
 } from '../engine/required-checks.ts';
 import type { OperationClaim } from '../engine/runtime.ts';
-import type { CommandExecutor } from '../runner/commands.ts';
+import { CommandJournal, type CommandExecutor } from '../runner/commands.ts';
 import { InvocationUnknown } from '../runner/invocation.ts';
 import type { Redactor } from '../runner/redact.ts';
 import type { EpochMs, Uuid } from '../shared/brand.ts';
@@ -110,6 +125,8 @@ export type HandlerDeps = {
     readonly intents: string;
     readonly scratch: string;
     readonly content: string;
+    /** Command journals, one directory per effect (FR-004): what recovery reads before a retry. */
+    readonly receipts: string;
   };
   readonly committer: { readonly name: string; readonly email: string };
   /** Push URL of a repo slug, from the runtime snapshot (never the repo's own remote config). */
@@ -599,6 +616,8 @@ async function startAgent(
   mirror: { attempt_id: string | null; step: string | null },
   extra: Trigger[] = [],
   refreshes = 1,
+  /** Rebuild the original input and read the finished run's outcome; never launch (T090). */
+  recovering = false,
 ): Promise<EffectOutcome> {
   const l = load(deps, effect);
   const role = effect.request['role'];
@@ -629,7 +648,7 @@ async function startAgent(
   // A worker starts only on the tree the task last left (T072): a change made by someone else in
   // between is not the attempt's to take. Nothing is invoked; the engine waits for a person.
   const known = l.s.run.worktree_tree ?? null;
-  if (WORKER_ROLES.includes(r) && known !== null) {
+  if (!recovering && WORKER_ROLES.includes(r) && known !== null) {
     const now = await worktreeTree(deps, l);
     if (!now.ok) return now.outcome;
     if (now.tree !== known)
@@ -727,7 +746,10 @@ async function startAgent(
   const allowed =
     current !== null &&
     claimable(current, effect, deps.clock.now(), { require_runtime: true }).ok;
-  if (signal.aborted || !allowed || current?.version !== l.s.version) {
+  if (
+    !recovering &&
+    (signal.aborted || !allowed || current?.version !== l.s.version)
+  ) {
     if (!signal.aborted && allowed && refreshes > 0)
       return startAgent(deps, effect, signal, op, mirror, extra, refreshes - 1);
     if (!worker)
@@ -753,49 +775,50 @@ async function startAgent(
   }
   const wall = binding.limits.wall_timeout_ms ?? 45 * 60_000;
   const resume = sessionFor(effect.request, harness);
+  // Without a task deadline the run's is fixed by its operation, so recovery rebuilds the same input.
+  const registered =
+    l.s.operations[op.operation_id]?.registered_at ?? deps.clock.now();
   let out: HarnessOutcome;
   try {
-    out = await harness.run(
-      {
-        role: r,
-        operation_id: op.operation_id,
-        attempt_id: mirror.attempt_id ?? effect.id,
-        revision: l.s.revision,
-        binding: {
-          harness: binding.harness,
-          vendor: harness.manifest.vendor,
-          model: binding.model_id,
-          effort: binding.effort,
-          permission_policy_hash:
-            harness.manifest.permission_policy_hash ?? hashCanonical('none'),
-        },
-        context: { text: built.value.text, digest: built.value.digest },
-        schema: wireRoleSchema(r, { omit_meta_schema: false }),
-        wall_ms: wall,
-        deadline_at: (l.s.deadline_at ?? deps.clock.now() + wall) as EpochMs,
-        session: resume.session,
-        ...(worker && harness.agent_paths !== undefined
-          ? { collect: [{ scratch_name: contentName, host_path: file }] }
-          : {}),
-        ...(workspace === undefined ? {} : { workspace }),
+    const input: HarnessInput = {
+      role: r,
+      operation_id: op.operation_id,
+      attempt_id: mirror.attempt_id ?? effect.id,
+      revision: l.s.revision,
+      binding: {
+        harness: binding.harness,
+        vendor: harness.manifest.vendor,
+        model: binding.model_id,
+        effort: binding.effort,
+        permission_policy_hash:
+          harness.manifest.permission_policy_hash ?? hashCanonical('none'),
       },
-      signal,
-    );
+      context: { text: built.value.text, digest: built.value.digest },
+      schema: wireRoleSchema(r, { omit_meta_schema: false }),
+      wall_ms: wall,
+      deadline_at: (l.s.deadline_at ?? registered + wall) as EpochMs,
+      session: resume.session,
+      ...(worker && harness.agent_paths !== undefined
+        ? { collect: [{ scratch_name: contentName, host_path: file }] }
+        : {}),
+      ...(workspace === undefined ? {} : { workspace }),
+    };
+    if (!recovering) out = await harness.run(input, signal);
+    else if (harness.recover === undefined)
+      throw new InvocationUnknown(
+        `harness ${binding.harness} cannot recover a finished run`,
+      );
+    else out = harness.recover(input);
   } catch (e) {
     // Launch or end not proven: the effect is reconciled, its reservation kept (contracts/execution.md §5).
     if (e instanceof InvocationUnknown) return unknown(e.message);
     throw e;
   }
   // The run's records and files go into the store with the result; that commit is their ACK.
-  if (out.ingest !== undefined)
-    extra.push({
-      kind: 'ingest_record',
-      operation_id: out.ingest.operation_id as Uuid,
-      cursor: out.ingest.cursor,
-      records: out.ingest.records,
-      digest: out.ingest.digest,
-      artifacts: [...out.ingest.artifacts],
-    });
+  if (out.ingest !== undefined) {
+    const t = ingestTrigger(deps, effect.task_id, out.ingest);
+    if (t !== null) extra.push(t);
+  }
   const plain = agentOutcome(r, out, review?.sha ?? null, inputDigest);
   // Sessions are a worker concern: a reviewer always runs in its own new, read-only session.
   const outcome = worker ? withSession(plain, out, resume) : plain;
@@ -805,6 +828,50 @@ async function startAgent(
   if (out.kind === 'failure' && out.invoked === false) return accepted;
   const after = await worktreeTree(deps, l);
   return after.ok ? withWorktreeTree(accepted, after.tree) : accepted;
+}
+
+/**
+ * The ingest the run's outcome carries. Records the store already committed (startup ingest got there
+ * first, then recovery read the run again) would be a stale cursor, dropping the artifacts with them:
+ * those artifacts go alone, at the committed cursor. Null when nothing is new.
+ */
+function ingestTrigger(
+  deps: HandlerDeps,
+  taskId: string,
+  ingest: NonNullable<HarnessOutcome['ingest']>,
+): Extract<Trigger, { kind: 'ingest_record' }> | null {
+  const s = deps.store.readTask(taskId as Uuid);
+  const committed = s?.operations[ingest.operation_id]?.cursor ?? null;
+  const base = {
+    kind: 'ingest_record' as const,
+    operation_id: ingest.operation_id as Uuid,
+  };
+  if (
+    committed === null ||
+    cursorAfter(
+      { operation_id: ingest.operation_id, ...ingest.cursor },
+      { operation_id: ingest.operation_id, ...committed },
+    )
+  )
+    return {
+      ...base,
+      cursor: ingest.cursor,
+      records: ingest.records,
+      digest: ingest.digest,
+      artifacts: [...ingest.artifacts],
+    };
+  const fresh = ingest.artifacts.filter(
+    (a) => s?.artifacts[a.artifact_id] === undefined,
+  );
+  return fresh.length === 0
+    ? null
+    : {
+        ...base,
+        cursor: { ...committed },
+        records: 0,
+        digest: hashCanonical([]),
+        artifacts: fresh,
+      };
 }
 
 /** The task worktree and the Git dirs a sandboxed role sees read-only (common dir, worktree admin dir). */
@@ -885,6 +952,14 @@ function commitStep(policy: FrozenPolicy, step: string | null): boolean {
   return next?.kind === 'review' || next?.action === 'git.publish';
 }
 
+/** Key of the checkpoint commit a gate effect makes: one logical commit per effect. */
+const commitKey = (s: TaskState, effectId: string): string =>
+  `${s.id}.r${s.revision}.${effectId}`;
+
+/** The command journal of one effect, kept across daemon lives (FR-004). */
+const journalOf = (deps: HandlerDeps, effectId: string): CommandJournal =>
+  new CommandJournal(join(deps.paths.receipts, effectId));
+
 /**
  * Commits the tree every required gate passed on (M06), with the worker's commit message. A tree equal
  * to HEAD keeps HEAD: a worker that changed nothing does not make a new commit.
@@ -918,21 +993,27 @@ async function checkpointCommit(
   let sha = head.sha;
   let committed = false;
   if (tree !== head.tree) {
-    const at = deps.clock.now();
-    const c = await commitCheckpoint(
-      deps.git,
-      new FileCommitIntentStore(deps.paths.intents),
-      {
-        key: `${l.s.id}.r${l.s.revision}.${effect.id}`,
-        worktree_path: spec.worktree_path,
-        branch: spec.branch,
-        tree,
-        parent: cp.value.parent_oid,
-        author: { ...deps.committer, at },
-        committer: { ...deps.committer, at },
-        message: content.commit_message,
-      },
-    );
+    const intents = new FileCommitIntentStore(deps.paths.intents);
+    const key = commitKey(l.s, effect.id);
+    // A recovered run commits the same tree on the same parent: it reuses the stored times, so the
+    // commit is the one the intent names, never a second one (FR-018).
+    const prior = intents.load(key);
+    const at =
+      prior !== null &&
+      prior.tree === tree &&
+      prior.parent === cp.value.parent_oid
+        ? prior.author.at
+        : deps.clock.now();
+    const c = await commitCheckpoint(deps.git, intents, {
+      key,
+      worktree_path: spec.worktree_path,
+      branch: spec.branch,
+      tree,
+      parent: cp.value.parent_oid,
+      author: { ...deps.committer, at },
+      committer: { ...deps.committer, at },
+      message: content.commit_message,
+    });
     if (c.kind === 'unknown') throw new Skip(unknown(c.detail));
     if (c.kind !== 'committed' && c.kind !== 'recovered')
       throw new Skip(failed('infra', `commit ${c.kind}`));
@@ -985,13 +1066,14 @@ async function gates(
     deadline_at: l.s.deadline_at as EpochMs | null,
     checkpoint: spec,
   };
+  const run = { ...deps, journal: journalOf(deps, effect.id) };
   if (step === 'ci_autofix') {
-    const r = await runAutofix(deps, input);
+    const r = await runAutofix(run, input);
     if (r.kind === 'unknown')
       return r.retry_allowed ? failed('infra', r.detail) : unknown(r.detail);
     return { outcome: 'succeeded', data: r.data ?? { results: [] } };
   }
-  const r = await runGates(deps, input);
+  const r = await runGates(run, input);
   if (r.kind === 'unknown')
     return r.retry_allowed ? failed('infra', r.detail) : unknown(r.detail);
   const data = r.data ?? { results: [], tree: '', stable: true };
@@ -1071,8 +1153,7 @@ async function publish(
       extra: [drift],
     };
   }
-  const published =
-    l.s.evidence.publishes.filter((p) => p.valid).at(-1)?.head_sha ?? null;
+  const published = publishedHead(l.s);
   const r = await pushBranch(deps.git, {
     cwd: spec.worktree_path,
     remote_url: deps.remoteUrl(l.rt.target.repo),
@@ -1096,27 +1177,41 @@ async function publish(
   }
   if (r.kind !== 'pushed' && r.kind !== 'already_pushed')
     return { outcome: failed('infra', `push ${r.kind}`), extra: [] };
+  return {
+    outcome: await pushedOutcome(deps, l, spec.worktree_path, sha),
+    extra: [],
+  };
+}
+
+/** The head published by the last valid publish: what the remote branch is expected to hold now. */
+const publishedHead = (s: TaskState): string | null =>
+  s.evidence.publishes.filter((p) => p.valid).at(-1)?.head_sha ?? null;
+
+/** A publish whose SHA is on the remote: the head and how it relates to the frozen base. */
+async function pushedOutcome(
+  deps: HandlerDeps,
+  l: Loaded,
+  cwd: string,
+  sha: string,
+): Promise<EffectOutcome> {
   const contains = await deps.git.run({
     args: ['merge-base', '--is-ancestor', l.rt.base_sha, sha],
-    cwd: spec.worktree_path,
+    cwd,
     timeout_ms: 10_000,
     max_output_bytes: 1024,
     stdin: null,
   });
   return {
-    outcome: {
-      outcome: 'succeeded',
-      data: {
+    outcome: 'succeeded',
+    data: {
+      head_sha: sha,
+      base_relation: {
         head_sha: sha,
-        base_relation: {
-          head_sha: sha,
-          base_ref: l.s.task.base_branch,
-          base_sha: l.rt.base_sha,
-          head_contains_base: contains.kind === 'exited' && contains.code === 0,
-        },
+        base_ref: l.s.task.base_branch,
+        base_sha: l.rt.base_sha,
+        head_contains_base: contains.kind === 'exited' && contains.code === 0,
       },
     },
-    extra: [],
   };
 }
 
@@ -1125,6 +1220,51 @@ async function publish(
 function prNumber(ref: string | null): number | null {
   const m = ref === null ? null : /#(\d+)$/.exec(ref);
   return m === null ? null : Number(m[1]);
+}
+
+/** Identity of the task's PR: repo, head/base tuple and the marker with this operation's key. */
+function prSpecOf(
+  l: Loaded,
+  head: string,
+  content: PublishContent,
+  operationKey: string,
+): PrSpec {
+  return {
+    repo: l.rt.target.repo,
+    immutable_repo_id: l.rt.target.immutable_repo_id,
+    head_branch: taskBranch(l.s.id, l.s.task.title),
+    base: l.s.task.base_branch,
+    head_sha: head,
+    title: content.pr_title,
+    body: content.pr_body,
+    task_id: l.s.id,
+    revision: l.s.revision,
+    operation_key: operationKey,
+  };
+}
+
+/** The task's PR, created or found again, as `create_pr` data. */
+function prOutcome(
+  l: Loaded,
+  content: PublishContent,
+  operationKey: string,
+  pr: PrFact,
+  bodyDigest: string,
+): EffectOutcome {
+  return {
+    outcome: 'succeeded',
+    data: {
+      pr_ref: `${l.rt.target.repo}#${pr.number}`,
+      head_sha: pr.head_sha,
+      body_digest: bodyDigest,
+      pr_body: {
+        content_digest: l.s.run.content?.digest ?? hashCanonical(content),
+        body_digest: bodyDigest,
+        operation_key: operationKey,
+        revision: l.s.revision,
+      },
+    },
+  };
 }
 
 async function createPr(
@@ -1136,35 +1276,12 @@ async function createPr(
   const content = currentContent(deps, l.s);
   if (content === null) return failed('infra', 'no accepted PR content');
   if (effect.request['update'] === true) return describePr(deps, l, content);
-  const r = await createOrRecoverPr(deps.github(), {
-    repo: l.rt.target.repo,
-    immutable_repo_id: l.rt.target.immutable_repo_id,
-    head_branch: taskBranch(l.s.id, l.s.task.title),
-    base: l.s.task.base_branch,
-    head_sha: l.s.head_sha,
-    title: content.pr_title,
-    body: content.pr_body,
-    task_id: l.s.id,
-    revision: l.s.revision,
-    operation_key: effect.idem_key,
-  });
-  if (r.kind === 'created' || r.kind === 'recovered') {
-    const prBody = {
-      content_digest: l.s.run.content?.digest ?? hashCanonical(content),
-      body_digest: r.body_digest,
-      operation_key: effect.idem_key,
-      revision: l.s.revision,
-    };
-    return {
-      outcome: 'succeeded',
-      data: {
-        pr_ref: `${l.rt.target.repo}#${r.pr.number}`,
-        head_sha: r.pr.head_sha,
-        body_digest: r.body_digest,
-        pr_body: prBody,
-      },
-    };
-  }
+  const r = await createOrRecoverPr(
+    deps.github(),
+    prSpecOf(l, l.s.head_sha, content, effect.idem_key),
+  );
+  if (r.kind === 'created' || r.kind === 'recovered')
+    return prOutcome(l, content, effect.idem_key, r.pr, r.body_digest);
   if (r.kind === 'unknown') return unknown(r.detail);
   // Someone else's PR, a forged or edited marker/body, or content we refuse: a person reconciles.
   if (r.kind === 'conflict' || r.kind === 'content_rejected')
@@ -1365,21 +1482,15 @@ export async function observeTaskPr(
   return { ci, failure: null, facts };
 }
 
-/**
- * Updates the title/description of the task's own PR to the newest worker content after a repair (M05/M07):
- * same PR, same marker; a body someone else edited is a reconciliation for a person, never overwritten.
- */
-async function describePr(
-  deps: HandlerDeps,
+/** The description update of the task's PR to `content`: same PR, same marker, the body it last sent. */
+function descriptionOf(
   l: Loaded,
   content: PublishContent,
-): Promise<EffectOutcome> {
+): DescriptionUpdate | null {
   const n = prNumber(l.s.pr_ref);
   const pb = l.s.run.pr_body;
-  const digest = l.s.run.content?.digest ?? null;
-  if (n === null || pb === null || digest === null)
-    return failed('infra', 'no PR description to update');
-  const r = await updatePrDescription(deps.github(), {
+  if (n === null || pb === null || l.s.run.content === null) return null;
+  return {
     repo: l.rt.target.repo,
     pr_number: n,
     expected_body_digest: pb.body_digest,
@@ -1390,23 +1501,41 @@ async function describePr(
       revision: pb.revision,
       operation_key: pb.operation_key,
     },
-  });
+  };
+}
+
+function describedOutcome(l: Loaded, bodyDigest: string): EffectOutcome {
+  return {
+    outcome: 'succeeded',
+    data: {
+      pr_ref: l.s.pr_ref as string,
+      head_sha: l.s.head_sha as string,
+      body_digest: bodyDigest,
+      pr_body: {
+        ...(l.s.run.pr_body as NonNullable<TaskState['run']['pr_body']>),
+        content_digest: l.s.run.content?.digest as string,
+        body_digest: bodyDigest,
+      },
+    },
+  };
+}
+
+/**
+ * Updates the title/description of the task's own PR to the newest worker content after a repair (M05/M07):
+ * same PR, same marker; a body someone else edited is a reconciliation for a person, never overwritten.
+ */
+async function describePr(
+  deps: HandlerDeps,
+  l: Loaded,
+  content: PublishContent,
+): Promise<EffectOutcome> {
+  const u = descriptionOf(l, content);
+  if (u === null) return failed('infra', 'no PR description to update');
+  const r = await updatePrDescription(deps.github(), u);
   switch (r.kind) {
     case 'updated':
     case 'already_current':
-      return {
-        outcome: 'succeeded',
-        data: {
-          pr_ref: l.s.pr_ref as string,
-          head_sha: l.s.head_sha as string,
-          body_digest: r.body_digest,
-          pr_body: {
-            ...pb,
-            content_digest: digest,
-            body_digest: r.body_digest,
-          },
-        },
-      };
+      return describedOutcome(l, r.body_digest);
     case 'unknown':
       return unknown(r.detail);
     case 'body_changed':
@@ -1503,6 +1632,440 @@ async function rerunCi(
   }
 }
 
+// ---- reconcile ----
+
+type Reconciled = Extract<Trigger, { kind: 'effect_reconciled' }>;
+
+/** What a probe established about the target effect, and the facts that go with it. */
+type Probe =
+  | {
+      readonly finding: 'executed_succeeded';
+      readonly data: unknown;
+      readonly extra?: Trigger[];
+    }
+  | {
+      readonly finding: 'executed_failed';
+      readonly failure_class: NonNullable<Reconciled['failure_class']>;
+      readonly signature?: string;
+      readonly detail: string;
+      readonly extra?: Trigger[];
+    }
+  | { readonly finding: 'not_executed'; readonly detail: string }
+  | { readonly finding: 'still_unknown'; readonly detail: string };
+
+const still = (detail: string): Probe => ({
+  finding: 'still_unknown',
+  detail,
+});
+
+/**
+ * A handler outcome turned into a finding: a fresh, complete run of a safe operation is its result,
+ * with the facts that run observed (a merge seen by a CI read, T093).
+ */
+function fromOutcome(o: EffectOutcome, extra: Trigger[] = []): Probe {
+  if (o.outcome === 'unknown') return still(o.detail);
+  if (o.outcome === 'succeeded')
+    return { finding: 'executed_succeeded', data: o.data, extra };
+  const f = o.data as {
+    failure_class: NonNullable<Reconciled['failure_class']>;
+    message?: string;
+  };
+  return {
+    finding: 'executed_failed',
+    failure_class: f.failure_class,
+    detail: f.message ?? 'failed',
+    extra,
+  };
+}
+
+/**
+ * Setup/gates and autofix (FR-004). Gates and setup are declared safe to run again: after a lost run
+ * they run again on the worktree as it is, and a checkpoint commit already made is found by its intent
+ * (same tree and parent give the same OID). A branch some other hand moved keeps its checkpoint and
+ * waits; nothing is reset. Autofix rewrites sources and is not safe: only its journal decides, either
+ * nothing ever spawned (then the claim may go back) or every command it started has a receipt.
+ */
+async function probeGates(
+  deps: HandlerDeps,
+  target: Effect,
+  step: string | null,
+): Promise<Probe> {
+  const l = load(deps, target);
+  const journal = journalOf(deps, target.id).read();
+  if (!journal.ok) return still(journal.detail);
+  if (step === 'ci_autofix') {
+    const spawned = journal.commands.filter((c) => c.started);
+    if (spawned.length === 0)
+      return {
+        finding: 'not_executed',
+        detail: 'journal: no autofix command was spawned',
+      };
+    const receipts = journal.commands.flatMap((c) =>
+      c.receipt === null ? [] : [c.receipt],
+    );
+    const listed = Array.isArray(target.request['gates'])
+      ? target.request['gates'].length
+      : 0;
+    const last = receipts.at(-1);
+    const complete =
+      spawned.every((c) => c.receipt !== null) &&
+      receipts.every((r) => r.status !== 'unknown') &&
+      (receipts.length === listed ||
+        (last !== undefined && last.status !== 'passed'));
+    if (!complete)
+      return still('autofix may have run and written; a person decides');
+    return {
+      finding: 'executed_succeeded',
+      data: { results: receipts.map(gateResultOf) },
+    };
+  }
+  const commit = await probeCommit(
+    deps.git,
+    new FileCommitIntentStore(deps.paths.intents),
+    commitKey(l.s, target.id),
+  );
+  if (commit.kind === 'unknown') return still(`commit: ${commit.detail}`);
+  if (commit.kind === 'head_changed')
+    return still(
+      `branch at ${commit.found ?? 'nothing'}, not the checkpoint ${commit.intent.oid}; kept as is`,
+    );
+  return fromOutcome(await gates(deps, target, step));
+}
+
+/** Push by remote ref against expected old/new (FR-018): pushed is recorded, never pushed twice. */
+async function probePublish(
+  deps: HandlerDeps,
+  target: Effect,
+  done: boolean,
+): Promise<Probe> {
+  const l = load(deps, target);
+  const sha =
+    typeof target.request['sha'] === 'string' ? target.request['sha'] : null;
+  if (sha === null) return still('publish without a SHA');
+  const cwd = where(deps, l).worktree;
+  const published = publishedHead(l.s);
+  const r = await probePush(deps.git, {
+    cwd,
+    remote_url: deps.remoteUrl(l.rt.target.repo),
+    branch: where(deps, l).branch,
+    expected_old: published,
+    new_sha: sha,
+  });
+  switch (r.kind) {
+    case 'pushed':
+      return fromOutcome(await pushedOutcome(deps, l, cwd, sha));
+    case 'not_pushed':
+      return {
+        finding: 'not_executed',
+        detail: 'remote at the expected old head',
+      };
+    case 'head_changed':
+      return {
+        finding: 'executed_failed',
+        failure_class: 'auth_config',
+        detail: 'remote branch moved',
+        // After a merge proof the remote is history; no new drift is raised (FR-040.03).
+        extra: done
+          ? []
+          : [
+              {
+                kind: 'head_drift',
+                expected: published,
+                observed: r.remote_sha,
+                source: 'publish_probe',
+                evidence_ref: `effect:${target.id}`,
+              },
+            ],
+      };
+    case 'unknown':
+      return still(`remote: ${r.detail}`);
+  }
+}
+
+/** The PR by tuple and marker in every state, or the description by body digest (FR-017/018). */
+async function probeCreatePr(
+  deps: HandlerDeps,
+  target: Effect,
+): Promise<Probe> {
+  const l = load(deps, target);
+  const content = currentContent(deps, l.s);
+  if (content === null) return still('no accepted PR content to compare');
+  if (target.request['update'] === true) {
+    const u = descriptionOf(l, content);
+    if (u === null) return still('no PR description to compare');
+    const r = await probeDescription(deps.github(), u);
+    switch (r.kind) {
+      case 'current':
+        return fromOutcome(describedOutcome(l, r.body_digest));
+      case 'not_applied':
+        return {
+          finding: 'not_executed',
+          detail: 'PR still carries the previous body',
+        };
+      case 'body_changed':
+        return {
+          finding: 'executed_failed',
+          failure_class: 'auth_config',
+          detail: `PR description was edited on GitHub (${r.observed_digest})`,
+        };
+      case 'unknown':
+        return still(r.detail);
+    }
+  }
+  if (l.s.head_sha === null) return still('no published head');
+  const r = await probePr(
+    deps.github(),
+    prSpecOf(l, l.s.head_sha, content, target.idem_key),
+  );
+  switch (r.kind) {
+    case 'recovered':
+      return fromOutcome(
+        prOutcome(l, content, target.idem_key, r.pr, r.body_digest),
+      );
+    case 'absent':
+      return {
+        finding: 'not_executed',
+        detail: 'no PR on the tuple in any state',
+      };
+    case 'conflict':
+      return {
+        finding: 'executed_failed',
+        failure_class: 'auth_config',
+        detail: `pull request conflict: ${r.reason} ${r.prs.join(',')}`,
+      };
+    case 'closed':
+    case 'head_changed':
+      return {
+        finding: 'executed_failed',
+        failure_class: 'infra',
+        detail: `pull request ${r.kind}`,
+      };
+    case 'unknown':
+      return still(r.detail);
+  }
+}
+
+/** A rerun has no remote idempotency: only a later run attempt since the claim proves it happened. */
+async function probeRerunCi(
+  deps: HandlerDeps,
+  target: Effect,
+  since: number | null,
+): Promise<Probe> {
+  const head =
+    typeof target.request['head_sha'] === 'string'
+      ? target.request['head_sha']
+      : null;
+  const checks = Array.isArray(target.request['checks'])
+    ? (target.request['checks'] as string[])
+    : [];
+  if (head === null || since === null) return still('rerun without a head');
+  const l = load(deps, target);
+  const r = await probeRerun(deps.github(), {
+    repo: l.rt.target.repo,
+    head_sha: head,
+    checks,
+    since,
+  });
+  return r.kind === 'rerun'
+    ? {
+        finding: 'executed_succeeded',
+        data: { head_sha: head, rerun_checks: [...r.checks] },
+      }
+    : still(r.detail);
+}
+
+/**
+ * An agent run that ended while no daemon read it (US3.2): its outcome comes back through the harness's
+ * recovery path, from what the run finalized and for the input the handler rebuilds, never by running
+ * the agent again. A run not proven finished (lost, unknown) is not read here: resume is the engine's.
+ */
+async function probeAgent(
+  deps: HandlerDeps,
+  target: Effect,
+  mirror: TaskState['effects'][string],
+  ops: readonly TaskState['operations'][string][],
+): Promise<Probe> {
+  const finished = ops.filter(
+    (o) => o.kind === 'agent' && o.status === 'finished',
+  );
+  const op = finished[0];
+  if (finished.length !== 1 || op === undefined)
+    return still('no single finished agent run to read back');
+  const extra: Trigger[] = [];
+  let out: EffectOutcome;
+  try {
+    out = await startAgent(
+      deps,
+      target,
+      new AbortController().signal,
+      {
+        operation_id: op.id,
+        kind: op.kind,
+        launch_nonce: op.launch_nonce,
+        unit: op.unit,
+        holds_slot: op.holds_slot,
+      },
+      mirror,
+      extra,
+      0,
+      true,
+    );
+  } catch (e) {
+    // The input could not be rebuilt: that says nothing about how the run ended.
+    if (e instanceof Skip) return still(`input not rebuilt: ${e.message}`);
+    throw e;
+  }
+  if (out.outcome === 'succeeded')
+    out = {
+      outcome: 'succeeded',
+      data: { ...(out.data as Record<string, unknown>), invoked: true },
+    };
+  return fromOutcome(out, extra);
+}
+
+/**
+ * Probes the effect a `reconcile` targets before anything is sent again (T090, SPEC.md §13.2,
+ * FR-003/004/017/018/034.01). Only operations that ran inside the daemon are probed here; while one of
+ * them is still registered or running in this daemon nothing is touched. An agent run that finished is
+ * read back through its harness; one that did not is the engine's to resume (T099) and stays unknown.
+ * Reads that fail or evidence
+ * that does not decide keep the effect unknown. Once the finding is definite, the target's lost or
+ * unknown operations are closed with it, which is what lets the claim and the slot go.
+ */
+async function reconcileEffect(
+  deps: HandlerDeps,
+  effect: Effect,
+  mirror: TaskState['effects'][string],
+): Promise<{ outcome: EffectOutcome; extra: Trigger[] }> {
+  let git = 0;
+  let github = 0;
+  const counted: HandlerDeps = {
+    ...deps,
+    git: { run: (c) => (git++, deps.git.run(c)) },
+    github: () => {
+      const port = deps.github();
+      return { request: (r) => (github++, port.request(r)) };
+    },
+  };
+  const s = deps.store.readTask(effect.task_id as Uuid);
+  const targetId = mirror.target_effect_id;
+  const target = targetId === null ? null : deps.store.readEffect(targetId);
+  const tm = targetId === null ? undefined : s?.effects[targetId];
+  const done = (p: Probe, extra: Trigger[]) => ({
+    outcome: {
+      outcome: 'succeeded' as const,
+      data: {
+        finding: p.finding,
+        ...('detail' in p ? { detail: p.detail } : {}),
+        // Requests the probe took; one logical effect may need several (pages, re-reads).
+        requests: { git, github },
+      },
+    },
+    extra,
+  });
+  if (
+    s === null ||
+    target === null ||
+    tm === undefined ||
+    (tm.status !== 'unknown' && tm.status !== 'started')
+  )
+    return done(still('nothing open to reconcile'), []);
+  const ops = Object.values(s.operations).filter(
+    (o) => o.effect_id === target.id,
+  );
+  if (ops.some((o) => o.status === 'registered' || o.status === 'running'))
+    return done(still('an operation of the effect is still running'), []);
+
+  let p: Probe;
+  switch (target.kind) {
+    case 'prepare':
+      // Worktree adoption checks ownership first; setup is declared safe to run again.
+      p = fromOutcome(await prepare(counted, target));
+      break;
+    case 'run_gates':
+      p = await probeGates(counted, target, tm.step);
+      break;
+    case 'publish':
+      p = await probePublish(counted, target, s.completion !== null);
+      break;
+    case 'create_pr':
+      p = await probeCreatePr(counted, target);
+      break;
+    case 'await_ci': {
+      const o = await observeTask(counted, target.task_id, `op:${effect.id}`);
+      p = fromOutcome(o.outcome, o.extra);
+      break;
+    }
+    case 'rerun_ci':
+      p = await probeRerunCi(
+        counted,
+        target,
+        ops.reduce<number | null>(
+          (m, o) =>
+            m === null ? o.registered_at : Math.min(m, o.registered_at),
+          null,
+        ),
+      );
+      break;
+    case 'stop_attempt':
+      p = fromOutcome(stopAttempt(deps, tm));
+      break;
+    case 'reconcile':
+      // A reconcile only probes and repeats what is declared safe: an interrupted one runs again under
+      // its key, and its own target is probed then (T093).
+      p = {
+        finding: 'not_executed',
+        detail: 'an interrupted reconcile is run again',
+      };
+      break;
+    case 'start_agent':
+      p = await probeAgent(counted, target, tm, ops);
+      break;
+    case 'merge':
+    case 'observe_external':
+      p = still(`${target.kind} is not probed here`);
+      break;
+  }
+  if (p.finding === 'still_unknown') return done(p, []);
+
+  const now = deps.clock.now();
+  const extra: Trigger[] = ops
+    .filter(
+      (o) =>
+        o.kind !== 'agent' && (o.status === 'lost' || o.status === 'unknown'),
+    )
+    .map((o) => ({
+      kind: 'operation_result' as const,
+      operation_id: o.id as Uuid,
+      status: 'finished' as const,
+      outcome: p.finding === 'executed_succeeded' ? 'succeeded' : 'failed',
+      invocation_id: null,
+      processes: [],
+      started_at: o.started_at as never,
+      finished_at: now as never,
+      receipt_digest: hashCanonical({
+        operation: o.id,
+        reconciled_by: effect.id,
+        finding: p.finding,
+      }),
+    }));
+  if ('extra' in p && p.extra !== undefined) extra.push(...p.extra);
+  extra.push({
+    kind: 'effect_reconciled',
+    effect_id: target.id as Uuid,
+    finding: p.finding,
+    requests: { git, github },
+    ...(p.finding === 'executed_succeeded' ? { data: p.data } : {}),
+    ...(p.finding === 'executed_failed'
+      ? {
+          failure_class: p.failure_class,
+          ...(p.signature === undefined ? {} : { signature: p.signature }),
+        }
+      : {}),
+  });
+  return done(p, extra);
+}
+
 // ---- service effects ----
 
 function stopAttempt(
@@ -1573,11 +2136,6 @@ export function buildHandlers(deps: HandlerDeps): EffectHandlers {
     stop_attempt: plain((_e, _s, _o, m) =>
       Promise.resolve(stopAttempt(deps, m)),
     ),
-    reconcile: plain(() =>
-      Promise.resolve({
-        outcome: 'succeeded',
-        data: { finding: 'still_unknown' },
-      }),
-    ),
+    reconcile: wrap((e, _s, _o, m) => reconcileEffect(deps, e, m)),
   };
 }

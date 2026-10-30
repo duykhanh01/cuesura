@@ -101,7 +101,8 @@ export type GateResult = {
 /** Passes over the required set when a gate or formatter keeps changing the tree (M06). */
 export const GATE_TREE_PASSES = 3;
 
-const resultOf = (r: CommandReceipt): GateResult =>
+/** The gate result a receipt stands for; also what recovery rebuilds from a journal. */
+export const gateResultOf = (r: CommandReceipt): GateResult =>
   r.status === 'passed'
     ? { gate: r.name, passed: true }
     : {
@@ -174,7 +175,7 @@ export async function runGates(
       return {
         ...last,
         data: {
-          results: receipts.map(resultOf),
+          results: receipts.map(gateResultOf),
           tree: before.value.tree_oid,
           stable: true,
         },
@@ -186,7 +187,7 @@ export async function runGates(
   return {
     ...out,
     data: {
-      results: out.receipts.map(resultOf),
+      results: out.receipts.map(gateResultOf),
       tree: end.ok ? end.value.tree_oid : out.checkpoint.tree_oid,
       stable: false,
     },
@@ -235,5 +236,5 @@ export async function runAutofix(
 ): Promise<CommandSetOutcome & { readonly data?: { results: GateResult[] } }> {
   const out = await runSet(deps, 'autofix', input, true);
   if (out.kind !== 'completed') return out;
-  return { ...out, data: { results: out.receipts.map(resultOf) } };
+  return { ...out, data: { results: out.receipts.map(gateResultOf) } };
 }

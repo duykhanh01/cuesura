@@ -9,15 +9,27 @@
  *
  * Never dispatched: `merge` (merging is the user's action on GitHub, ADR-0001), tasks without a runtime
  * snapshot (legacy 001 tasks are read-only here), and effect kinds that have no handler yet.
+ *
+ * Store failure latch (FR-023): once the store or the data directory refuses a write (a claim, a result,
+ * a handler's file), nothing new is claimed, service effects included, until the daemon restarts and
+ * startup recovery proves the store again. Facts not written stay where they are: the effect stays
+ * `started` with its operation, so restart reconciles it; runner spools wait for ingest.
  */
 import { randomUUID } from 'node:crypto';
 import type { Clock } from '../adapters/ports.ts';
-import { holdsSlot, type Effect, type EffectKind } from '../domain/effect.ts';
+import {
+  holdsSlot,
+  isBusinessEffect,
+  type Effect,
+  type EffectKind,
+} from '../domain/effect.ts';
 import type { OperationKind } from '../domain/runtime.ts';
 import type { TriggerEnvelope } from '../domain/trigger.ts';
 import type { OperationClaim } from '../engine/runtime.ts';
 import { newLaunchNonce, unitName } from '../runner/identity.ts';
+import { runInOperation } from '../runner/process-tag.ts';
 import type { Uuid } from '../shared/brand.ts';
+import { writeFailure } from '../store/accept.ts';
 import type { ClaimError, Store } from '../store/index.ts';
 
 export type EffectHandler = (
@@ -33,8 +45,10 @@ export type EffectHandlers = Partial<
 
 export type SkipReason =
   | 'merge_refused'
+  | 'store_unwritable'
   | 'no_handler'
   | 'dispatch_blocked'
+  | 'dispatch_held'
   | 'in_flight'
   | ClaimError['code']
   | `claim_blocked:${string}`
@@ -75,7 +89,28 @@ export type DispatcherOptions = {
   readonly batch?: number;
   /** Operation IDs; must be safe unit-name components (UUIDs). */
   readonly newId?: () => string;
+  /**
+   * Durable mark of when an operation's handler starts, written before it can spawn anything and
+   * cleared once its facts are written; recovery dates surviving processes against it.
+   */
+  readonly marks?: {
+    readonly write: (operationId: string) => void;
+    readonly clear: (operationId: string) => void;
+  };
 };
+
+/** errno of a filesystem that cannot take a write; anything else from a handler is not a store failure. */
+const STORAGE_ERRNO = new Set(['ENOSPC', 'EDQUOT', 'EIO', 'EROFS']);
+
+/** The store or the data directory refused a write: the reason to latch, or null for any other error. */
+export function storageFailure(e: unknown): string | null {
+  const wf = writeFailure(e);
+  if (wf !== null) return `store write failed: ${wf.cause}`;
+  const code = (e as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && STORAGE_ERRNO.has(code)
+    ? `filesystem write failed: ${code}`
+    : null;
+}
 
 /** How long `stop()` waits for in-flight handlers after aborting them. */
 export const DEFAULT_STOP_GRACE_MS = 10_000;
@@ -91,11 +126,14 @@ export class Dispatcher {
   readonly #log: DispatchLog;
   readonly #batch: number;
   readonly #newId: () => string;
+  readonly #marks: DispatcherOptions['marks'];
   readonly #inFlight = new Map<
     string,
     { abort: AbortController; done: Promise<void> }
   >();
   #blocked: string | null = null;
+  #held: string | null = null;
+  #latched: string | null = null;
   #stopped = false;
 
   constructor(opts: DispatcherOptions) {
@@ -107,6 +145,7 @@ export class Dispatcher {
     this.#log = opts.log ?? (() => undefined);
     this.#batch = opts.batch ?? 100;
     this.#newId = opts.newId ?? randomUUID;
+    this.#marks = opts.marks;
   }
 
   /** Stops new claims (e.g. projection mismatch at startup); in-flight work is left to finish. */
@@ -116,6 +155,32 @@ export class Dispatcher {
 
   get blockedReason(): string | null {
     return this.#blocked;
+  }
+
+  /**
+   * Holds business effects while a claim is unresolved (FR-036): no new work is handed out, but service
+   * effects (reconcile, stop, observation) still run so recovery can resolve it. `null` lifts the hold.
+   */
+  hold(reason: string | null): void {
+    this.#held = reason;
+  }
+
+  get heldReason(): string | null {
+    return this.#held;
+  }
+
+  /**
+   * Latches a store/filesystem write failure (FR-023): no effect of any kind is claimed until restart.
+   * The first reason is kept; neither `block` nor `hold` lifts it.
+   */
+  latch(reason: string): void {
+    if (this.#latched !== null) return;
+    this.#latched = reason;
+    this.#log({ event: 'store_latched', effect_id: '-', detail: reason });
+  }
+
+  get latchedReason(): string | null {
+    return this.#latched;
   }
 
   get inFlight(): number {
@@ -178,6 +243,8 @@ export class Dispatcher {
     );
     if (!claimed.ok) {
       const e = claimed.error;
+      if (e.code === 'write_failed')
+        this.latch(`store write failed: ${e.cause}`);
       const r =
         e.code === 'claim_blocked'
           ? (`claim_blocked:${e.reason}` as const)
@@ -198,7 +265,10 @@ export class Dispatcher {
 
   #skipReason(effect: Effect): SkipReason | null {
     if (effect.kind === 'merge') return 'merge_refused';
+    if (this.#latched !== null) return 'store_unwritable';
     if (this.#blocked !== null) return 'dispatch_blocked';
+    if (this.#held !== null && isBusinessEffect(effect.kind))
+      return 'dispatch_held';
     if (this.#inFlight.has(effect.id)) return 'in_flight';
     return this.#handlers[effect.kind] === undefined ? 'no_handler' : null;
   }
@@ -211,7 +281,22 @@ export class Dispatcher {
     const abort = new AbortController();
     const run = async (): Promise<void> => {
       try {
-        const result = await handler(effect, abort.signal, operation);
+        this.#marks?.write(operation.operation_id);
+      } catch (e) {
+        // No durable mark, no handler: recovery then knows nothing of it was spawned.
+        this.#log({
+          event: 'handler_failed',
+          effect_id: effect.id,
+          detail: `process mark: ${e instanceof Error ? e.message : String(e)}`,
+        });
+        this.latch(storageFailure(e) ?? 'process mark not written');
+        return;
+      }
+      try {
+        // Processes the handler spawns carry the operation id, so a restart can find survivors.
+        const result = await runInOperation(operation.operation_id, () =>
+          handler(effect, abort.signal, operation),
+        );
         const envelopes = (
           Array.isArray(result) ? result : [result]
         ) as readonly TriggerEnvelope[];
@@ -225,12 +310,23 @@ export class Dispatcher {
             return;
           }
           const accepted = this.#store.accept(envelope);
-          if (!accepted.ok)
+          if (!accepted.ok) {
             this.#log({
               event: 'result_rejected',
               effect_id: effect.id,
               detail: JSON.stringify(accepted.error),
             });
+            if (accepted.error.code === 'write_failed') {
+              // Later facts of this effect depend on the one not written; restart reconciles them all.
+              this.latch(`store write failed: ${accepted.error.cause}`);
+              return;
+            }
+          }
+        }
+        try {
+          this.#marks?.clear(operation.operation_id);
+        } catch {
+          // A stale mark only narrows what recovery may skip; it never widens it.
         }
       } catch (e) {
         // The effect stays `started`: recovery reconciles it; nothing here guesses an outcome.
@@ -239,6 +335,8 @@ export class Dispatcher {
           effect_id: effect.id,
           detail: e instanceof Error ? e.message : String(e),
         });
+        const failure = storageFailure(e);
+        if (failure !== null) this.latch(failure);
       }
     };
     // Registered before the handler runs, so a synchronous throw cannot delete the entry before it exists.

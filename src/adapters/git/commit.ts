@@ -268,26 +268,3 @@ async function applyIntent(
     };
   return { kind: 'head_changed', intent, found: after };
 }
-
-/** Probe only: whether the branch carries the intent stored under `key`, without changing anything. */
-export async function probeCommit(
-  port: GitPort,
-  store: CommitIntentStore,
-  key: string,
-): Promise<
-  'committed' | 'not_applied' | 'head_changed' | 'no_intent' | 'unknown'
-> {
-  const intent = store.load(key);
-  if (intent === null) return 'no_intent';
-  try {
-    const current = await branchOid(port, intent.worktree_path, intent.branch);
-    return current === intent.oid
-      ? 'committed'
-      : current === intent.parent
-        ? 'not_applied'
-        : 'head_changed';
-  } catch (e) {
-    if (e instanceof Unknown) return 'unknown';
-    throw e;
-  }
-}

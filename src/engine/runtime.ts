@@ -344,7 +344,9 @@ export function onOperationResult(
 
 /**
  * Complete records read past the stored cursor. The cursor only moves forward; a repeat of an ingested
- * range is ignored, so re-reading a segment after a crash never duplicates events (FR-036).
+ * range is ignored, so re-reading a segment after a crash never duplicates events (FR-036). Artifacts
+ * that become final after the last record (exit.json, the sealed segments) arrive with the stored cursor
+ * and no records, or with no cursor when the run never wrote a record: only the artifacts are recorded.
  */
 export function onIngestRecord(ctx: Ctx, t: TriggerOf<'ingest_record'>): void {
   const o = ctx.state.operations[t.operation_id];
@@ -353,9 +355,16 @@ export function onIngestRecord(ctx: Ctx, t: TriggerOf<'ingest_record'>): void {
       reason: 'unknown_operation',
       operation_id: t.operation_id,
     });
-  const next = { operation_id: o.id, ...t.cursor };
   const prev = o.cursor === null ? null : { operation_id: o.id, ...o.cursor };
-  if (!cursorAfter(next, prev)) {
+  const artifactsOnly =
+    t.records === 0 &&
+    canonicalJson(t.cursor) === canonicalJson(o.cursor) &&
+    t.artifacts.some((a) => ctx.state.artifacts[a.artifact_id] === undefined);
+  if (
+    !artifactsOnly &&
+    (t.cursor === null ||
+      !cursorAfter({ operation_id: o.id, ...t.cursor }, prev))
+  ) {
     ctx.emit('SignalIgnored', {
       reason: 'stale_cursor',
       trigger_kind: t.kind,
@@ -376,12 +385,13 @@ export function onIngestRecord(ctx: Ctx, t: TriggerOf<'ingest_record'>): void {
         artifact_id: a.artifact_id,
       });
   }
-  ctx.emit('OutputIngested', {
-    operation_id: o.id,
-    cursor: t.cursor,
-    records: t.records,
-    digest: t.digest,
-  });
+  if (!artifactsOnly && t.cursor !== null)
+    ctx.emit('OutputIngested', {
+      operation_id: o.id,
+      cursor: t.cursor,
+      records: t.records,
+      digest: t.digest,
+    });
   for (const a of t.artifacts)
     if (ctx.state.artifacts[a.artifact_id] === undefined)
       ctx.emit('ArtifactIngested', { artifact: a });

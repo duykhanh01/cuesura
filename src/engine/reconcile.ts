@@ -8,6 +8,7 @@ import {
 } from '../domain/trigger.ts';
 import { release, usageOf } from './budget.ts';
 import { reject, type Ctx } from './context.ts';
+import { settleUnderDrift } from './head-drift.ts';
 import {
   onEffectFailed,
   onEffectSucceeded,
@@ -33,6 +34,12 @@ function closeProbe(ctx: Ctx, target: EffectMirror, result: unknown): void {
     }
   }
 }
+
+/** Kết quả của chính effect `reconcile`: phát hiện và số request probe đã dùng, nếu có. */
+const probeResult = (t: Reconciled) => ({
+  finding: t.finding,
+  ...(t.requests === undefined ? {} : { requests: t.requests }),
+});
 
 /**
  * Dữ liệu chuẩn bắt buộc cho `executed_succeeded` (R-17). Với `start_agent`: output đã kiểm tra schema,
@@ -88,9 +95,16 @@ export function onReconciled(ctx: Ctx, t: Reconciled): void {
         status: 'succeeded',
         result: data,
       });
-      closeProbe(ctx, e, { finding: t.finding });
+      closeProbe(ctx, e, probeResult(t));
       // After a merge proof the finding is recorded as it is; nothing proceeds from it (FR-040.05).
       if (ctx.state.completion !== null) return;
+      // Under a recorded head drift a late result is history of its own operation (H01/H05): no route.
+      if (ctx.state.run.head_drift !== null)
+        return settleUnderDrift(
+          ctx,
+          e,
+          (data as { invoked?: boolean } | null)?.invoked !== false,
+        );
       onEffectSucceeded(ctx, e, data);
       return;
     }
@@ -119,32 +133,41 @@ export function onReconciled(ctx: Ctx, t: Reconciled): void {
         status: 'failed',
         result: f,
       });
-      closeProbe(ctx, e, { finding: t.finding });
+      closeProbe(ctx, e, probeResult(t));
       if (ctx.state.completion !== null) return;
+      if (ctx.state.run.head_drift !== null)
+        return settleUnderDrift(ctx, e, true);
       onEffectFailed(ctx, e, f);
       return;
     }
     case 'not_executed': {
       // Chắc chắn chưa chạy: trả giữ chỗ. Chỉ effect chạy lại an toàn mới về hàng đợi với cùng `idem_key`.
       release(ctx, e.reservation_id);
+      // A reconcile runs probes and declared-safe repeats only, and its target still waits for it: an
+      // interrupted one goes back to the queue under the same key, merge, drift or cancel alike (T093).
+      const probe = e.kind === 'reconcile';
+      // Never back into the queue after a merge proof or under a head drift (FR-040.05, H05).
       const requeue =
-        isRequeueSafe(e.kind) &&
-        ctx.state.cancellation === null &&
-        ctx.state.completion === null &&
-        e.revision === ctx.state.revision;
+        probe ||
+        (isRequeueSafe(e.kind) &&
+          ctx.state.cancellation === null &&
+          ctx.state.completion === null &&
+          ctx.state.run.head_drift === null &&
+          e.revision === ctx.state.revision);
       ctx.emit('EffectReconciled', {
         effect_id: e.id,
         finding: t.finding,
         status: requeue ? 'pending' : 'failed',
         result: null,
       });
-      closeProbe(ctx, e, { finding: t.finding });
+      closeProbe(ctx, e, probeResult(t));
       if (
         ctx.state.status === 'WAITING' &&
         ctx.state.wait?.detail['effect_id'] === e.id
       ) {
         ctx.emit('TaskResumed', { reason: `effect:${e.id}` });
       }
+      if (probe) return;
       if (requeue || e.kind !== 'start_agent' || e.attempt_id === null) {
         proceed(ctx, { kind: 'none' });
         return;

@@ -1,8 +1,12 @@
 /**
  * Daemon composition (T026). One process is the only store writer: the SQLite file is opened with an
- * exclusive lock, so a second daemon on the same DATA_DIR fails with `store_locked`. Startup verifies
- * every projection by replay and blocks dispatch on a mismatch. Clock, IDs, effect handlers and
- * command/query handlers are injected, so tests run the real transport and store with fakes behind it.
+ * exclusive lock, so a second daemon on the same DATA_DIR fails with `store_locked`. Startup recovery
+ * (startup.ts) verifies every projection, reconciles open operations and ingests runner output before the
+ * first dispatch; a mismatch blocks dispatch and an unresolved claim holds new work, both reported by
+ * health. A store or filesystem write failure while running latches the dispatcher (FR-023): nothing is
+ * claimed, ingested or acknowledged and new commands are refused until restart. While running, the daemon keeps reconciling operations no handler owns (adopted runners,
+ * unreadable probes). Clock, IDs, effect handlers, host probes and command/query handlers are injected,
+ * so tests run the real transport and store with fakes behind it.
  */
 import { lstatSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -34,15 +38,23 @@ import { readConfigFiles } from '../config/read-files.ts';
 import type { AccessTokenSpec } from '../config/schema-user.ts';
 import { validateConfig } from '../config/validate.ts';
 import type { ConfigSource } from '../config/yaml-loader.ts';
+import type { IdentityProbe } from '../runner/identity.ts';
 import { Redactor } from '../runner/redact.ts';
+import { inspectUnit } from '../runner/supervisor.ts';
 import { asEpochMs } from '../shared/brand.ts';
 import type { Result } from '../shared/result.ts';
-import { openStore, type Store, type StoreOpenError } from '../store/index.ts';
+import type { Store, StoreOpenError } from '../store/index.ts';
 import {
   Dispatcher,
   type DispatchLog,
   type EffectHandlers,
 } from './dispatch.ts';
+import {
+  clearOperationMark,
+  writeOperationMark,
+} from '../runner/process-tag.ts';
+import { healthReply } from './health.ts';
+import type { LockInspector, UnitInspector } from './reconcile.ts';
 import { productionControl } from './production.ts';
 import {
   closeServer,
@@ -52,6 +64,12 @@ import {
   type ControlHandlers,
   type Reply,
 } from './server.ts';
+import {
+  heldReason,
+  recoverOperations,
+  recoverStore,
+  type StartupReport,
+} from './startup.ts';
 
 export const STORE_FILE = 'cusr.db';
 
@@ -94,6 +112,10 @@ export type DaemonOptions = {
   };
   readonly dispatchIntervalMs?: number;
   readonly log?: (msg: string) => void;
+  /** Host probes used by recovery; default to systemd, the kernel operation lock and /proc. */
+  readonly inspectUnit?: UnitInspector;
+  readonly probeLock?: LockInspector;
+  readonly identity?: IdentityProbe;
 };
 
 export type DaemonStartError =
@@ -108,6 +130,9 @@ export type RunningDaemon = {
   readonly store: Store;
   readonly dispatcher: Dispatcher;
   readonly tokens: TokenMap;
+  readonly startup: StartupReport;
+  /** One recovery pass now (the interval runs it too); resolves once it is done. */
+  recover(): Promise<void>;
   stop(): Promise<void>;
 };
 
@@ -238,9 +263,29 @@ export async function startDaemon(
       `token ${a.id} actor=${a.actor} roles=${a.roles.join(',')} projects=${a.projects === '*' ? '*' : a.projects.join(',')} fp=${a.fingerprint}`,
     );
 
-  const opened = openStore(join(opts.dataDir, STORE_FILE));
-  if (!opened.ok) return { ok: false, error: opened.error };
-  const store = opened.value;
+  const recovery = {
+    dataDir: opts.dataDir,
+    redactor,
+    inspect: opts.inspectUnit ?? ((id: string) => inspectUnit(id)),
+    ...(opts.probeLock === undefined ? {} : { probeLock: opts.probeLock }),
+    ...(opts.identity === undefined ? {} : { identity: opts.identity }),
+    now: () => clock.now(),
+    newId,
+  };
+  const recovered = await recoverStore({
+    ...recovery,
+    path: join(opts.dataDir, STORE_FILE),
+  });
+  if (!recovered.ok) return { ok: false, error: recovered.error };
+  const { store, report: startup } = recovered.value;
+  for (const r of startup.operations)
+    log(
+      `recover ${r.operation_id}: ${r.from} -> ${r.finding.status} (${r.finding.reason}); effect ${r.effect}${r.error === undefined ? '' : `; error ${r.error}`}`,
+    );
+  for (const r of startup.ingest)
+    log(
+      `spool ${r.operation_id}: ${r.status} records=${r.records} torn=${r.torn} acked=${r.acked.length}${r.detail === undefined ? '' : `: ${r.detail}`}`,
+    );
 
   const dispatchLog: DispatchLog = (r) =>
     log(
@@ -252,15 +297,52 @@ export async function startDaemon(
     handlers: opts.effects ?? {},
     log: dispatchLog,
     newId,
+    marks: {
+      write: (id) => writeOperationMark(opts.dataDir, id),
+      clear: (id) => clearOperationMark(opts.dataDir, id),
+    },
   });
-  const verify = store.verifyProjections();
-  if (!verify.ok) {
-    dispatcher.block(`projection mismatch (${verify.mismatches.length})`);
-    log(
-      `projection verification failed: ${verify.mismatches.length} mismatches; dispatch blocked`,
-    );
+  if (startup.blocked !== null) {
+    dispatcher.block(startup.blocked);
+    log(`startup recovery: dispatch blocked: ${startup.blocked}`);
   }
+  dispatcher.hold(startup.held);
+  if (startup.held !== null)
+    log(`startup recovery: new work held: ${startup.held}`);
+  let unresolved = startup.unresolved;
 
+  // Operations no handler owns are followed until they resolve; a pass never overlaps the previous one.
+  let recovering: Promise<void> | null = null;
+  const recover = (): Promise<void> => {
+    if (recovering !== null) return recovering;
+    // A latched store takes no facts: runner spools wait on disk, unacknowledged, for the restart.
+    if (dispatcher.blockedReason !== null || dispatcher.latchedReason !== null)
+      return Promise.resolve();
+    recovering = (async () => {
+      const r = await recoverOperations({
+        ...recovery,
+        store,
+        inFlight: (id) => dispatcher.isInFlight(id),
+      });
+      for (const o of r.reconcile.operations)
+        if (o.from !== o.finding.status || o.effect !== 'kept')
+          log(
+            `recover ${o.operation_id}: ${o.from} -> ${o.finding.status} (${o.finding.reason}); effect ${o.effect}`,
+          );
+      if (
+        r.reconcile.write_failed ||
+        r.ingest.some((i) => i.status === 'write_failed')
+      ) {
+        dispatcher.latch('store write failed during recovery');
+        return;
+      }
+      unresolved = r.reconcile.unresolved;
+      dispatcher.hold(heldReason(unresolved));
+    })().finally(() => {
+      recovering = null;
+    });
+    return recovering;
+  };
   const extra = opts.control?.(store) ?? {};
   const commands = { ...opts.commands, ...extra.commands };
   const inFlight = new Map<string, Promise<Reply>>();
@@ -269,31 +351,13 @@ export async function startDaemon(
     health(caller) {
       const allowed = authorize(caller, { role: 'read' });
       if (!allowed.ok) return authzReply(allowed.error);
-      const data = {
-        writer: 'ok',
-        projections: {
-          ok: verify.ok,
-          tasks: verify.tasks,
-          events: verify.events,
-          mismatches: verify.mismatches.length,
-        },
-        dispatch: {
-          blocked: dispatcher.blockedReason,
-          in_flight: dispatcher.inFlight,
-        },
-        slot: store.readSlot(),
-        queue_length: store.readQueue(100).length,
+      return healthReply({
+        store,
+        dispatcher,
+        startup,
+        unresolved,
         now: clock.now(),
-      };
-      // A blocked dispatcher (projection mismatch) is a health failure: `cusr status` exits 1.
-      if (dispatcher.blockedReason !== null) {
-        return errorReply(503, {
-          code: 'unhealthy',
-          message: `dispatch blocked: ${dispatcher.blockedReason}`,
-          details: data,
-        });
-      }
-      return { status: 200, envelope: okEnvelope(data) };
+      });
     },
     async query(caller, body) {
       const allowed = authorize(caller, { role: 'read' });
@@ -321,6 +385,15 @@ export async function startDaemon(
       const kind = typeof input?.kind === 'string' ? input.kind : '';
       // A supported kind without a handler in this build is refused before admission, so no ledger row
       // waits for it forever. Unknown and unsupported kinds get their own error from admission.
+      // Nothing is admitted while the store is latched: no request is reported accepted unless it is
+      // durably recorded and can still be executed.
+      if (dispatcher.latchedReason !== null)
+        return errorReply(503, {
+          code: 'store_unwritable',
+          message: `store unwritable: ${dispatcher.latchedReason}`,
+          details: { failure: dispatcher.latchedReason },
+          request_id: requestId,
+        });
       const known = Object.hasOwn(COMMAND_PAYLOADS, kind);
       const handler = known ? commands[kind as CommandKind] : undefined;
       if (known && handler === undefined) {
@@ -336,7 +409,11 @@ export async function startDaemon(
         caller,
         body,
       );
-      if (!admitted.ok) return admitReply(admitted.error, requestId);
+      if (!admitted.ok) {
+        if (admitted.error.code === 'write_failed')
+          dispatcher.latch(`store write failed: ${admitted.error.cause}`);
+        return admitReply(admitted.error, requestId);
+      }
       const record = admitted.value.record;
       if (record.status === 'completed')
         return outcomeReply(
@@ -364,7 +441,11 @@ export async function startDaemon(
           outcome,
           clock.now(),
         );
-        if (!done.ok) return admitReply(done.error, record.request_id);
+        if (!done.ok) {
+          if (done.error.code === 'write_failed')
+            dispatcher.latch(`store write failed: ${done.error.cause}`);
+          return admitReply(done.error, record.request_id);
+        }
         if (r.ok) dispatcher.tick();
         return outcomeReply(record.request_id, outcome, false);
       })();
@@ -392,10 +473,10 @@ export async function startDaemon(
     };
   }
 
-  const interval = setInterval(
-    () => dispatcher.tick(),
-    opts.dispatchIntervalMs ?? 1_000,
-  );
+  const interval = setInterval(() => {
+    dispatcher.tick();
+    if (store.unresolvedOperations().length > 0) void recover();
+  }, opts.dispatchIntervalMs ?? 1_000);
   interval.unref();
   dispatcher.tick();
 
@@ -407,8 +488,11 @@ export async function startDaemon(
       store,
       dispatcher,
       tokens: tokens.value,
+      startup,
+      recover,
       async stop() {
         clearInterval(interval);
+        await recovering;
         await closeServer(server);
         await dispatcher.stop();
         store.close();

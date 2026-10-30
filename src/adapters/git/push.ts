@@ -76,6 +76,15 @@ export async function probeRemote(
 const matches = (ref: RemoteRef, sha: string | null): boolean =>
   sha === null ? ref.kind === 'absent' : ref.kind === 'at' && ref.sha === sha;
 
+/** A readable remote ref against one push: at its new SHA, at its expected old value, or elsewhere. */
+export function classifyRemote(
+  ref: Exclude<RemoteRef, { kind: 'unknown' }>,
+  spec: Pick<PushSpec, 'expected_old' | 'new_sha'>,
+): 'at_new' | 'at_old' | 'elsewhere' {
+  if (matches(ref, spec.new_sha)) return 'at_new';
+  return matches(ref, spec.expected_old) ? 'at_old' : 'elsewhere';
+}
+
 export async function pushBranch(
   port: GitPort,
   spec: PushSpec,
@@ -88,9 +97,10 @@ export async function pushBranch(
   );
   if (before.kind === 'unknown')
     return { kind: 'unknown', detail: `probe: ${before.detail}` };
-  if (matches(before, spec.new_sha))
+  const seen = classifyRemote(before, spec);
+  if (seen === 'at_new')
     return { kind: 'already_pushed', remote_sha: spec.new_sha };
-  if (!matches(before, spec.expected_old))
+  if (seen === 'elsewhere')
     return {
       kind: 'head_changed',
       remote_sha: before.kind === 'at' ? before.sha : null,
@@ -140,10 +150,9 @@ export async function pushBranch(
       kind: 'unknown',
       detail: `push: ${describe(r)}; probe: ${after.detail}`,
     };
-  if (matches(after, spec.new_sha))
-    return { kind: 'pushed', remote_sha: spec.new_sha };
-  if (matches(after, spec.expected_old))
-    return { kind: 'not_pushed', detail: describe(r) };
+  const landed = classifyRemote(after, spec);
+  if (landed === 'at_new') return { kind: 'pushed', remote_sha: spec.new_sha };
+  if (landed === 'at_old') return { kind: 'not_pushed', detail: describe(r) };
   return {
     kind: 'head_changed',
     remote_sha: after.kind === 'at' ? after.sha : null,

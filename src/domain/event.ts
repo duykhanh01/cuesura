@@ -6,6 +6,7 @@ import type {
   AttemptKind,
   CheckpointState,
   HeadDrift,
+  LocalRemainder,
   PublishContentState,
   ResumeAction,
   ReviewEvidence,
@@ -310,7 +311,12 @@ export type EventPayloads = {
     max_rounds: number;
     pending_operations: string[];
   };
-  DrainProgressed: { at: number; round: number; pending_operations: string[] };
+  DrainProgressed: {
+    at: number;
+    round: number;
+    pending_operations: string[];
+    local?: LocalRemainder;
+  };
   DrainPaused: { at: number; reason: 'deadline' | 'round_limit' };
   DrainFinished: { at: number };
   RecheckRequested: {

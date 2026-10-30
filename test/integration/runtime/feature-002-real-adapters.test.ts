@@ -137,6 +137,7 @@ function setup(o: {
     intents: join(data, 'intents'),
     scratch: join(data, 'scratch'),
     content: join(data, 'content'),
+    receipts: join(data, 'receipts'),
   };
   const bin = tempDir('cusr-real-bin-', dirs);
   const credDir = join(bin, 'cred');

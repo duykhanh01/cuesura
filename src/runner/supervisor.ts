@@ -203,6 +203,28 @@ export function parseUnitShow(unit: string, stdout: string): UnitObservation {
   return { ...facts, state: 'unknown' };
 }
 
+/** `systemctl --user show` of the operation's unit; anything unreadable is `unknown`, never `not_found`. */
+export async function inspectUnit(
+  operationId: string,
+  exec: CommandExec = spawnCommand,
+): Promise<UnitObservation> {
+  const unit = unitName(operationId);
+  const r = await exec(
+    SYSTEMCTL,
+    [
+      '--user',
+      'show',
+      unit,
+      '-p',
+      'LoadState,ActiveState,SubState,Result,InvocationID,ControlGroup',
+    ],
+    { timeout_ms: 15_000 },
+  );
+  if (r.code !== 0 || r.timed_out)
+    return { unit, state: 'unknown', invocation_id: null, cgroup: null };
+  return parseUnitShow(unit, r.stdout);
+}
+
 export type SupervisorOptions = {
   /** Absolute DATA_DIR holding runs/, operations/ and locks/. */
   readonly dataDir: string;
@@ -320,24 +342,8 @@ export class SystemdSupervisor implements ProcessPort {
     });
   }
 
-  async inspect(operationId: string): Promise<UnitObservation> {
-    const unit = unitName(operationId);
-    const r = await this.#exec(
-      SYSTEMCTL,
-      [
-        '--user',
-        'show',
-        unit,
-        '-p',
-        'LoadState,ActiveState,SubState,Result,InvocationID,ControlGroup',
-      ],
-      {
-        timeout_ms: 15_000,
-      },
-    );
-    if (r.code !== 0 || r.timed_out)
-      return { unit, state: 'unknown', invocation_id: null, cgroup: null };
-    return parseUnitShow(unit, r.stdout);
+  inspect(operationId: string): Promise<UnitObservation> {
+    return inspectUnit(operationId, this.#exec);
   }
 
   /** systemd sends SIGTERM to the whole cgroup, waits TimeoutStopSec, then SIGKILL; we verify after. */

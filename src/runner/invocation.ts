@@ -64,15 +64,16 @@ import type {
   VendorPin,
   VendorPlan,
 } from '../adapters/harness/vendor.ts';
-import type {
-  Clock,
-  HarnessFailure,
-  HarnessInput,
-  HarnessOutcome,
-  HarnessPort,
-  ProcessPort,
-  RunIngest,
-  SandboxProvider,
+import {
+  SANDBOX_ROLES,
+  type Clock,
+  type HarnessFailure,
+  type HarnessInput,
+  type HarnessOutcome,
+  type HarnessPort,
+  type ProcessPort,
+  type RunIngest,
+  type SandboxProvider,
 } from '../adapters/ports.ts';
 import { collectArtifacts } from './artifacts.ts';
 import type { EpochMs, Hash } from '../shared/brand.ts';
@@ -123,6 +124,56 @@ const FinalizedReviewSchema = z.strictObject({
       exit_digest: HashSchema,
       value_digest: HashSchema,
     }),
+  }),
+});
+
+/** Written before the spawn: what concluding the run needs beyond the run's own files. */
+export const LAUNCH_STATE_FILE = 'launch-state.json';
+
+const LaunchStateSchema = z.strictObject({
+  schema_version: z.literal(1),
+  input_digest: HashSchema,
+  launch_nonce: z.string().min(1),
+  result_source: z.discriminatedUnion('kind', [
+    z.strictObject({
+      kind: z.literal('stdout_json'),
+      pointer: z.array(z.string()).readonly(),
+    }),
+    z.strictObject({ kind: z.literal('file'), scratch_name: z.string() }),
+  ]),
+  settings_hash: HashSchema,
+  binary_digest: HashSchema,
+  manifest_hash: HashSchema,
+  inner_mode: z.string().min(1),
+  layout_digest: HashSchema,
+  scratch: z.string().min(1),
+  /** The layout fields the write-zone snapshot reads. */
+  zone: z.strictObject({
+    role: z.enum(SANDBOX_ROLES),
+    worktree: z.string().min(1),
+    git_dirs: z.array(z.string()),
+  }),
+  before: z.strictObject({
+    role: z.enum(SANDBOX_ROLES),
+    worktree: z.string().nullable(),
+    metadata: z.string(),
+  }),
+  preexisted: z.boolean(),
+  collect_before: z.array(z.string()),
+  auth: z.strictObject({ home: z.string().min(1), files: z.array(z.string()) }),
+});
+type LaunchState = z.infer<typeof LaunchStateSchema>;
+
+/** The redacted outcome of a concluded run, without its ingest (re-read from the run's files). */
+export const OUTCOME_FILE = 'out/outcome.json';
+
+const StoredOutcomeSchema = z.strictObject({
+  schema_version: z.literal(1),
+  input_digest: HashSchema,
+  launch_nonce: z.string().min(1),
+  outcome: z.looseObject({
+    kind: z.enum(['result', 'invalid_output', 'failure']),
+    role: z.string(),
   }),
 });
 
@@ -231,8 +282,9 @@ export class RunnerHarness implements HarnessPort {
       redactor: o.redactor,
       ...(o.file_limits === undefined ? {} : { limits: o.file_limits }),
     });
+    // A repeated call for a launched operation concludes what is on disk; it never launches again.
     if (run.readFinal(RUN_FILES.launch).state !== 'missing')
-      return this.#recoverReview(run, input);
+      return this.recover(input);
 
     if (signal.aborted) return never('cancelled', 'aborted before start');
     // A reviewer always runs in its own new, read-only session (contracts/execution.md).
@@ -327,6 +379,30 @@ export class RunnerHarness implements HarnessPort {
         return never('capability_missing', layoutProblem.message);
 
       const nonce = newLaunchNonce();
+      // Everything the conclusion needs that only exists before launch is on disk before the spawn,
+      // so a daemon that dies while the run goes on can still conclude it (US3.2).
+      const state: LaunchState = {
+        schema_version: 1,
+        input_digest: hashCanonical(input),
+        launch_nonce: nonce,
+        result_source: plan.result,
+        settings_hash: plan.settings_hash,
+        binary_digest: observed.value.binary.digest,
+        manifest_hash: verified.value.manifest_hash,
+        inner_mode: verified.value.inner_mode,
+        layout_digest: sandboxed.value.layout_digest,
+        scratch: layout.scratch,
+        zone: {
+          role: layout.layout.role,
+          worktree: layout.layout.worktree,
+          git_dirs: [...layout.layout.git_dirs],
+        },
+        before,
+        preexisted,
+        collect_before: [...collectBefore],
+        auth: { home: installed.home, files: [...installed.files] },
+      };
+      run.writeJson(LAUNCH_STATE_FILE, state);
       const wall = Math.max(
         1,
         Math.min(input.wall_ms, input.deadline_at - o.clock.now()),
@@ -361,73 +437,203 @@ export class RunnerHarness implements HarnessPort {
       }
 
       const exit = await this.#wait(run, input, wall, signal);
-      if (exit.launch_nonce !== nonce)
-        throw new InvocationUnknown('exit record belongs to another launch');
+      return this.#conclude(run, input, state, exit, authRedactor, false);
+    } catch (e) {
+      // A run whose end is not proven may still be using its home: recovery removes the auth.
+      if (e instanceof InvocationUnknown) installed = null;
+      throw e;
+    } finally {
+      // Auth leaves the home once the run's artifacts are on disk, whatever the outcome.
+      if (installed !== null) removeAuth(installed);
+    }
+  }
 
-      const records = readRecords(run, input.operation_id, null);
+  /**
+   * Recovery after the daemon lost a run that ended (US3.2): never launches. A reviewer whose result the
+   * daemon finalized is read back with its proof, or stays unknown when that proof does not hold; any
+   * other run, a reviewer that ended while no daemon ran included, is concluded from what it left on disk
+   * and the launch state written before its spawn, exactly as `run` would have concluded it. Anything
+   * that does not match this input and launch, or a write zone changed since in a way the run cannot be
+   * told apart from, stays unknown.
+   */
+  recover(input: HarnessInput): HarnessOutcome {
+    const o = this.#o;
+    let run: RunDir;
+    try {
+      run = RunDir.open({
+        dataDir: o.data_dir,
+        kind: 'runs',
+        id: input.attempt_id,
+        redactor: o.redactor,
+        create: false,
+        ...(o.file_limits === undefined ? {} : { limits: o.file_limits }),
+      });
+    } catch (e) {
+      throw new InvocationUnknown(
+        `run directory unreadable: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+    // A review the daemon finalized stands or falls with its proof; it is never re-derived.
+    if (
+      input.role === 'reviewer' &&
+      run.readFinal(RUN_FILES.result).state !== 'missing'
+    )
+      return this.#recoverReview(run, input);
+    const state = run.readFinal(LAUNCH_STATE_FILE, LaunchStateSchema);
+    const exit = run.readFinal(RUN_FILES.exit, RunnerExitSchema);
+    const marker = readLaunchMarker(run);
+    if (
+      state.state !== 'valid' ||
+      exit.state !== 'valid' ||
+      marker.state !== 'valid'
+    )
+      throw new InvocationUnknown(
+        'no launch state, exit record and marker to conclude the run from',
+      );
+    const st = state.value;
+    const e = exit.value;
+    if (
+      st.input_digest !== hashCanonical(input) ||
+      st.manifest_hash !== o.manifest.manifest_hash ||
+      marker.value.operation_id !== input.operation_id ||
+      marker.value.attempt_id !== input.attempt_id ||
+      marker.value.launch_nonce !== st.launch_nonce ||
+      e.operation_id !== input.operation_id ||
+      e.run_id !== input.attempt_id
+    )
+      throw new InvocationUnknown(
+        'launch state does not match this invocation',
+      );
+    // Concluded before: the stored outcome was redacted with the auth values, which may be gone now.
+    const stored = run.readFinal(OUTCOME_FILE, StoredOutcomeSchema);
+    if (stored.state === 'invalid')
+      throw new InvocationUnknown(`stored outcome invalid: ${stored.reason}`);
+    if (stored.state === 'valid') {
+      if (
+        stored.value.input_digest !== st.input_digest ||
+        stored.value.launch_nonce !== st.launch_nonce
+      )
+        throw new InvocationUnknown('stored outcome belongs to another launch');
+      const records = readRecords(run, input.operation_id, null, {
+        final: true,
+      });
       if (!records.ok)
         throw new InvocationUnknown(
           `event log unreadable: ${records.error.code}`,
         );
-      const stdout = records.value.records
-        .filter((r) => r.kind === 'stdout')
-        .map((r) => r.data);
-      const facts = o.adapter.read({
-        stdout,
-        truncated_records:
-          exit.artifacts.truncated_records + records.value.torn.length,
-        stderr: readStderr(run),
-      });
-      const file: FileRead | null =
-        plan.result.kind === 'file'
-          ? readFreshFile(layout.scratch, plan.result.scratch_name, {
-              preexisted,
-              launched_at: exit.started_at as EpochMs,
-              max_bytes: run.limits.result_bytes,
-            })
-          : null;
-      const v = validateResult({
-        expected: {
-          operation_id: input.operation_id,
-          attempt_id: input.attempt_id,
-          revision: input.revision,
-          role: input.role,
-          binding: input.binding,
-          context_digest: input.context.digest,
-          schema,
-          launch_nonce: nonce,
-          binary_digest: observed.value.binary.digest,
-        },
-        exit: {
-          operation_id: exit.operation_id,
-          launch_nonce: exit.launch_nonce,
-          outcome: exit.outcome,
-          exit_code: exit.exit_code,
-          spawned: exit.spawned,
-          started_at: exit.started_at as EpochMs,
-        },
-        facts,
-        source: plan.result,
-        file,
-      });
-      collectFiles(
-        input,
-        layout.scratch,
-        collectBefore,
-        exit.started_at as EpochMs,
-        run.limits.result_bytes,
-        (t) => authRedactor.text(o.redactor.text(t)),
+      const outcome = stored.value.outcome as HarnessOutcome;
+      const ingest = ingestOf(run, input.operation_id, records.value);
+      removeAuth(st.auth);
+      return ingest === null ? outcome : { ...outcome, ingest };
+    }
+    // Raw output is concluded only while every auth file is still there to redact it with.
+    if (!st.auth.files.every((f) => existsSync(join(st.auth.home, f))))
+      throw new InvocationUnknown(
+        'auth already removed and no stored outcome: the raw output cannot be redacted',
       );
-      // The result is stored and returned with the auth values redacted too, not only the run's rules.
-      const redactAuth = <T>(x: T): T =>
-        authRedactor.value(o.redactor.value(x)) as T;
-      const violations = writeZoneViolations(
-        before,
-        snapshotWriteZone(layout.layout),
+    // Keep the auth available for another recovery until the redacted outcome is durably stored.
+    const authRedactor = new Redactor({
+      values: homeSecretValues(st.auth.home),
+    });
+    const outcome = this.#conclude(run, input, st, e, authRedactor, true);
+    removeAuth(st.auth);
+    return outcome;
+  }
+
+  /**
+   * Turns a final exit record into the outcome: records, the vendor's answer, the result file, the
+   * write zone, then finalization. `recovering`: the write zone is compared long after the exit, so a
+   * change there cannot be pinned on the run and the outcome stays unknown instead.
+   */
+  #conclude(
+    run: RunDir,
+    input: HarnessInput,
+    st: LaunchState,
+    exit: RunnerExit,
+    authRedactor: Redactor,
+    recovering: boolean,
+  ): HarnessOutcome {
+    const o = this.#o;
+    if (exit.launch_nonce !== st.launch_nonce)
+      throw new InvocationUnknown('exit record belongs to another launch');
+    const schema = wireRoleSchema(input.role, {
+      omit_meta_schema: o.adapter.vendor === 'claude',
+    });
+
+    // exit.json is final: a partial last record is truncated output, never waited for.
+    const records = readRecords(run, input.operation_id, null, {
+      final: true,
+    });
+    if (!records.ok)
+      throw new InvocationUnknown(
+        `event log unreadable: ${records.error.code}`,
       );
-      if (violations.length > 0) {
-        const ingest = ingestOf(run, input.operation_id, records.value);
-        return redactAuth({
+    const stdout = records.value.records
+      .filter((r) => r.kind === 'stdout')
+      .map((r) => r.data);
+    const facts = o.adapter.read({
+      stdout,
+      truncated_records:
+        exit.artifacts.truncated_records + records.value.torn.length,
+      stderr: readStderr(run),
+    });
+    const file: FileRead | null =
+      st.result_source.kind === 'file'
+        ? readFreshFile(st.scratch, st.result_source.scratch_name, {
+            preexisted: st.preexisted,
+            launched_at: exit.started_at as EpochMs,
+            max_bytes: run.limits.result_bytes,
+          })
+        : null;
+    const v = validateResult({
+      expected: {
+        operation_id: input.operation_id,
+        attempt_id: input.attempt_id,
+        revision: input.revision,
+        role: input.role,
+        binding: input.binding,
+        context_digest: input.context.digest,
+        schema,
+        launch_nonce: st.launch_nonce,
+        binary_digest: st.binary_digest,
+      },
+      exit: {
+        operation_id: exit.operation_id,
+        launch_nonce: exit.launch_nonce,
+        outcome: exit.outcome,
+        exit_code: exit.exit_code,
+        spawned: exit.spawned,
+        started_at: exit.started_at as EpochMs,
+      },
+      facts,
+      source: st.result_source,
+      file,
+    });
+    const violations = writeZoneViolations(
+      st.before,
+      snapshotWriteZone(st.zone),
+    );
+    if (violations.length > 0 && recovering)
+      throw new InvocationUnknown(
+        `write zone changed since the launch (${violations.join('; ')}); not attributable after a restart`,
+      );
+    collectFiles(
+      input,
+      st.scratch,
+      new Set(st.collect_before),
+      exit.started_at as EpochMs,
+      run.limits.result_bytes,
+      (t) => authRedactor.text(o.redactor.text(t)),
+    );
+    // The result is stored and returned with the auth values redacted too, not only the run's rules.
+    const redactAuth = <T>(x: T): T =>
+      authRedactor.value(o.redactor.value(x)) as T;
+    if (violations.length > 0) {
+      const ingest = ingestOf(run, input.operation_id, records.value);
+      return this.#store(
+        run,
+        st,
+        {
           role: input.role,
           usage: facts.usage,
           session_ref: facts.session_ref,
@@ -438,28 +644,55 @@ export class RunnerHarness implements HarnessPort {
           reset_at: null,
           invoked: true,
           ...(ingest === null ? {} : { ingest }),
-        });
-      }
-      const outcome = this.#finalize(
-        run,
-        input,
-        v,
-        verified.value,
-        plan,
-        sandboxed.value.layout_digest,
-        exit,
+        },
         redactAuth,
       );
-      const ingest = ingestOf(run, input.operation_id, records.value);
-      return redactAuth(ingest === null ? outcome : { ...outcome, ingest });
-    } catch (e) {
-      // A run whose end is not proven may still be using its home: recovery removes the auth.
-      if (e instanceof InvocationUnknown) installed = null;
-      throw e;
-    } finally {
-      // Auth leaves the home once the run's artifacts are on disk, whatever the outcome.
-      if (installed !== null) removeAuth(installed);
     }
+    const outcome = this.#finalize(
+      run,
+      input,
+      v,
+      { manifest_hash: st.manifest_hash, inner_mode: st.inner_mode },
+      st.settings_hash,
+      st.layout_digest,
+      exit,
+      redactAuth,
+      recovering,
+    );
+    const ingest = ingestOf(run, input.operation_id, records.value);
+    return this.#store(
+      run,
+      st,
+      ingest === null ? outcome : { ...outcome, ingest },
+      redactAuth,
+    );
+  }
+
+  /**
+   * Redacts the outcome and keeps it next to the result: once the auth values leave the home, this is
+   * the only form recovery may return. Not stored, the run is not concluded and its auth stays.
+   */
+  #store(
+    run: RunDir,
+    st: LaunchState,
+    outcome: HarnessOutcome,
+    redact: <T>(x: T) => T,
+  ): HarnessOutcome {
+    const safe = redact(outcome);
+    const { ingest: _ingest, ...kept } = safe;
+    try {
+      run.writeJson(OUTCOME_FILE, {
+        schema_version: 1,
+        input_digest: st.input_digest,
+        launch_nonce: st.launch_nonce,
+        outcome: kept,
+      });
+    } catch (e) {
+      throw new InvocationUnknown(
+        `outcome not stored: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+    return safe;
   }
 
   /** A repeated call may read finalized review data; it never launches a replacement. */
@@ -503,6 +736,15 @@ export class RunnerHarness implements HarnessPort {
     if (!records.ok)
       throw new InvocationUnknown('finalized review records unreadable');
     const ingest = ingestOf(run, input.operation_id, records.value);
+    // The finalized proof is sufficient even if the later outcome write failed or state is absent.
+    const state = run.readFinal(LAUNCH_STATE_FILE, LaunchStateSchema);
+    if (
+      state.state === 'valid' &&
+      state.value.input_digest === p.recovery.input_digest &&
+      state.value.launch_nonce === p.launch_nonce &&
+      state.value.manifest_hash === p.manifest_hash
+    )
+      removeAuth(state.value.auth);
     return {
       kind: 'result',
       role: 'reviewer',
@@ -522,12 +764,16 @@ export class RunnerHarness implements HarnessPort {
     input: HarnessInput,
     v: ReturnType<typeof validateResult>,
     verified: { manifest_hash: Hash; inner_mode: string },
-    plan: VendorPlan,
+    settingsHash: Hash,
     layoutDigest: Hash,
     exit: RunnerExit,
     redact: <T>(x: T) => T,
+    recovering = false,
   ): HarnessOutcome {
     if (v.record === null) return v.outcome;
+    // Finalized before the daemon died: the file may already be committed as an artifact, keep it.
+    if (recovering && run.readFinal(RUN_FILES.result).state === 'valid')
+      return v.outcome;
     const written = run.writeResult(
       redact({
         ...v.record,
@@ -535,7 +781,7 @@ export class RunnerHarness implements HarnessPort {
           ...v.record.provenance,
           manifest_hash: verified.manifest_hash,
           inner_mode: verified.inner_mode,
-          settings_hash: plan.settings_hash,
+          settings_hash: settingsHash,
           layout_digest: layoutDigest,
           finalized_at: this.#o.clock.now(),
           session_ref: v.outcome.session_ref,

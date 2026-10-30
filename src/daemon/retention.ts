@@ -140,6 +140,16 @@ export function tombstoneRun(run: RunDir, entry: RunEntry, now: number): void {
       rmSync(join(run.dir, name), { recursive: true, force: true });
 }
 
+/** Where an operation's runner files live: its attempt's run directory, or its own. */
+export function runLocation(op: {
+  readonly id: string;
+  readonly attempt_id: string | null;
+}): { kind: RunDirKind; id: string } {
+  return op.attempt_id === null
+    ? { kind: 'operations', id: op.id }
+    : { kind: 'runs', id: op.attempt_id };
+}
+
 /** The run entries of one task as the store and the run directories describe them. */
 export function taskRunEntries(
   s: TaskState,
@@ -151,8 +161,7 @@ export function taskRunEntries(
 ): RunEntry[] {
   const out: RunEntry[] = [];
   for (const op of Object.values(s.operations)) {
-    const kind: RunDirKind = op.attempt_id === null ? 'operations' : 'runs';
-    const id = op.attempt_id ?? op.id;
+    const { kind, id } = runLocation(op);
     let run: RunDir;
     try {
       run = RunDir.open({

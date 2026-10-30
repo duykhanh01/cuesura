@@ -412,6 +412,14 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
       data: z.unknown().optional(),
       failure_class: z.enum(FAILURE_CLASSES).optional(),
       signature: z.string().optional(),
+      // Requests the probe took; a logical effect is counted once however many it needed (T089).
+      requests: z
+        .object({
+          git: z.number().int().nonnegative(),
+          github: z.number().int().nonnegative(),
+        })
+        .strict()
+        .optional(),
     })
     .strict(),
   z.object({ kind: z.literal('timer'), timer_id: UuidSchema }).strict(),
@@ -488,6 +496,7 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
     .object({
       kind: z.literal('ingest_record'),
       operation_id: UuidSchema,
+      // Null only for final artifacts of a run that never wrote a record (no cursor to stay at).
       cursor: z
         .object({
           generation: z.number().int().nonnegative(),
@@ -495,7 +504,8 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
           byte_offset: z.number().int().nonnegative(),
           last_record_seq: z.number().int().nonnegative(),
         })
-        .strict(),
+        .strict()
+        .nullable(),
       records: z.number().int().nonnegative(),
       digest: HashSchema,
       artifacts: z.array(ArtifactSchema).max(16),
@@ -532,6 +542,17 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
     .object({
       kind: z.literal('drain_result'),
       pending_operations: z.array(UuidSchema),
+      local: z
+        .object({
+          worktree: z.string().min(1),
+          local_head: z.string().nullable(),
+          remote_head: z.string().nullable(),
+          dirty: z.boolean().nullable(),
+          unpushed: z.boolean().nullable(),
+          detail: z.string().max(1024).nullable(),
+        })
+        .strict()
+        .optional(),
     })
     .strict(),
   z

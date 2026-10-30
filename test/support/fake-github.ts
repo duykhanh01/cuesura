@@ -22,6 +22,13 @@ export type FakePr = {
   merge_commit: string | null;
 };
 
+export type FakeGitHubState = {
+  prs: FakePr[];
+  calls: string[];
+  checks: Record<string, Record<string, 'success' | 'failure'>>;
+  next: number;
+};
+
 export class FakeGitHub implements GitHubPort {
   readonly repo: string;
   readonly repoId: number;
@@ -36,6 +43,24 @@ export class FakeGitHub implements GitHubPort {
   constructor(repo = 'acme/app', repoId = 4242) {
     this.repo = repo;
     this.repoId = repoId;
+  }
+
+  /** Plain state, so a fake can outlive one process (the runtime crash driver keeps it in a file). */
+  snapshot(): FakeGitHubState {
+    return {
+      prs: structuredClone(this.prs),
+      calls: [...this.calls],
+      checks: Object.fromEntries(this.checks),
+      next: this.#next,
+    };
+  }
+
+  restore(s: FakeGitHubState): void {
+    this.prs.splice(0, this.prs.length, ...s.prs);
+    this.calls.splice(0, this.calls.length, ...s.calls);
+    this.checks.clear();
+    for (const [sha, c] of Object.entries(s.checks)) this.checks.set(sha, c);
+    this.#next = s.next;
   }
 
   merge(n: number, mergeCommit: string, at = '2026-10-29T12:00:00Z'): void {

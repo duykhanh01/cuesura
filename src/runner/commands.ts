@@ -8,6 +8,16 @@
  * command that is not declared safe must wait for a human instead of being run again.
  */
 import { spawn } from 'node:child_process';
+import {
+  closeSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  writeSync,
+} from 'node:fs';
+import { join } from 'node:path';
 import type {
   Clock,
   SandboxLaunchPlan,
@@ -16,6 +26,7 @@ import type {
 } from '../adapters/ports.ts';
 import type { EpochMs, Hash } from '../shared/brand.ts';
 import { hashText } from '../shared/hash.ts';
+import { operationEnv } from './process-tag.ts';
 import type { Redactor } from './redact.ts';
 
 export const COMMAND_ROLES = ['setup', 'gate', 'autofix'] as const;
@@ -111,7 +122,124 @@ export type CommandDeps = {
   readonly executor: CommandExecutor;
   readonly clock: Clock;
   readonly redactor: Redactor;
+  /** Durable receipts of the operation these commands belong to; recovery reads them (T090). */
+  readonly journal?: CommandJournal;
 };
+
+export type JournalEntry =
+  | {
+      readonly kind: 'started';
+      readonly role: CommandRole;
+      readonly name: string;
+      readonly command_digest: Hash;
+      readonly at: number;
+    }
+  | { readonly kind: 'receipt'; readonly receipt: CommandReceipt };
+
+export type JournalRead =
+  | {
+      readonly ok: true;
+      /** Every command that may have run, in order, with its receipt once it ended. */
+      readonly commands: readonly {
+        readonly name: string;
+        readonly role: CommandRole;
+        readonly started: boolean;
+        readonly receipt: CommandReceipt | null;
+      }[];
+    }
+  | { readonly ok: false; readonly detail: string };
+
+/**
+ * One operation's command journal (FR-004): a `started` record is on disk before a command can spawn,
+ * and its receipt after it ended. A command with `started` and no receipt may have run and written; a
+ * journal with no `started` at all proves nothing was spawned. Records are append-only files, each
+ * fsynced with its directory; a crash mid-write leaves a last record that does not parse, and an
+ * unreadable journal proves nothing either way.
+ */
+export class CommandJournal {
+  readonly #dir: string;
+  constructor(dir: string) {
+    this.#dir = dir;
+  }
+
+  append(entry: JournalEntry): void {
+    mkdirSync(this.#dir, { recursive: true, mode: 0o700 });
+    const seq = readdirSync(this.#dir).filter((f) =>
+      f.endsWith('.json'),
+    ).length;
+    const fd = openSync(
+      join(this.#dir, `${String(seq).padStart(6, '0')}.json`),
+      'wx',
+      0o600,
+    );
+    try {
+      writeSync(fd, `${JSON.stringify(entry)}\n`);
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+    const d = openSync(this.#dir, 'r');
+    try {
+      fsyncSync(d);
+    } finally {
+      closeSync(d);
+    }
+  }
+
+  read(): JournalRead {
+    let files: string[];
+    try {
+      files = readdirSync(this.#dir)
+        .filter((f) => f.endsWith('.json'))
+        .sort();
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT')
+        return { ok: true, commands: [] };
+      return { ok: false, detail: `journal unreadable: ${String(e)}` };
+    }
+    const commands: {
+      name: string;
+      role: CommandRole;
+      started: boolean;
+      receipt: CommandReceipt | null;
+    }[] = [];
+    for (const f of files) {
+      let e: JournalEntry;
+      try {
+        e = JSON.parse(
+          readFileSync(join(this.#dir, f), 'utf8'),
+        ) as JournalEntry;
+      } catch (err) {
+        return { ok: false, detail: `journal record ${f}: ${String(err)}` };
+      }
+      if (e.kind === 'started') {
+        commands.push({
+          name: e.name,
+          role: e.role,
+          started: true,
+          receipt: null,
+        });
+        continue;
+      }
+      const open = commands.at(-1);
+      // A receipt closes its own started record; one without (deadline, refused plan) never spawned.
+      if (
+        open !== undefined &&
+        open.receipt === null &&
+        open.name === e.receipt.name
+      )
+        open.receipt = e.receipt;
+      else
+        commands.push({
+          name: e.receipt.name,
+          role: e.receipt.role,
+          started: false,
+          receipt: e.receipt,
+        });
+    }
+    return { ok: true, commands };
+  }
+}
 
 function tail(text: string): string {
   const b = Buffer.from(text, 'utf8');
@@ -130,6 +258,21 @@ export function mayRetry(r: CommandReceipt): boolean {
 }
 
 export async function runCommand(
+  deps: CommandDeps,
+  spec: CommandSpec,
+): Promise<CommandReceipt> {
+  const raw = await execute(deps, spec);
+  // The receipt is journaled and reported: the command line and diagnostics may carry a secret.
+  const receipt: CommandReceipt = {
+    ...raw,
+    command: deps.redactor.text(raw.command),
+    detail: raw.detail === null ? null : deps.redactor.text(raw.detail),
+  };
+  deps.journal?.append({ kind: 'receipt', receipt });
+  return receipt;
+}
+
+async function execute(
   deps: CommandDeps,
   spec: CommandSpec,
 ): Promise<CommandReceipt> {
@@ -178,6 +321,28 @@ export async function runCommand(
     };
   }
   const started = deps.clock.now();
+  try {
+    deps.journal?.append({
+      kind: 'started',
+      role: spec.role,
+      name: spec.name,
+      command_digest: base.command_digest,
+      at: started,
+    });
+  } catch (e) {
+    // No durable record that it may run: it does not run.
+    return {
+      ...base,
+      layout_digest: plan.value.layout_digest,
+      status: 'not_launched',
+      exit_code: null,
+      started_at: null,
+      finished_at: deps.clock.now(),
+      wall_ms: wall,
+      output: none,
+      detail: `journal: ${e instanceof Error ? e.message : String(e)}`,
+    };
+  }
   const r = await deps.executor.run(plan.value, {
     timeout_ms: wall,
     max_output_bytes: OUTPUT_BYTES,
@@ -248,7 +413,7 @@ export class SpawnExecutor implements CommandExecutor {
       try {
         child = spawn(file, args, {
           cwd: plan.cwd,
-          env: { ...plan.env },
+          env: { ...plan.env, ...operationEnv() },
           stdio: ['ignore', 'pipe', 'pipe'],
           detached: true,
         });

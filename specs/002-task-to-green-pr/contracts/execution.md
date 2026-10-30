@@ -27,6 +27,13 @@ stack Cuesura. Luôn thử sandbox nội bộ bật trước; external_verified 
    chỗ; đã chạy kể cả rate-limit/resume/repair vẫn tính đã dùng.
 
 Git command ngắn và HTTP cũng có effect deadline/receipt, nhưng không cần một harness process.
+Process con daemon chạy cho operation của chính nó (git, gh, lệnh repo) có process group riêng nên có
+thể sống tiếp sau khi daemon chết; chúng mang env `CUSR_OPERATION_ID` (con cháu kế thừa). Khôi phục quét
+`/proc` và dừng process còn sống mang tag (SIGKILL cả group sau khi kiểm start ticks), vì timeout của
+chúng đã chết theo daemon; còn sót thì operation là running. Trước khi handler có thể spawn, daemon ghi
+bền mốc `DATA_DIR/process-marks/<operation>.json` theo đồng hồ boot (`/proc/uptime`, cùng gốc với start
+ticks, không đổi khi chỉnh UTC); process cùng user không đọc được environ và bắt đầu từ mốc đó thì unknown. Cả hai giữ effect, không probe hay thử lại; chỉ khi chứng
+minh không còn process nào mới ghi lost. Tag chỉ để tìm, không xác thực.
 Prepare/setup/gate/autofix/publish chạy process dài dùng cùng operation supervisor; drain không chỉ
 dừng start_agent. Runner không biết task.status, không ghi DB và không quyết định retry/escalation.
 
@@ -39,7 +46,9 @@ DATA_DIR/runs/ATTEMPT_ID/             # default ~/.cusr/runs/<attempt_id>/, đú
 ├── liveness, progress.json          # do runner ghi
 ├── exit.json                       # outcome/signal/usage/artifact digest, runner ghi nguyên tử
 ├── out/result.json                 # validated/finalized phía orchestrator
+├── out/outcome.json                # outcome đã redact, recovery trả lại khi auth đã rời home
 ├── launch.json                     # marker bổ sung trước spawn, agent không mount
+├── launch-state.json               # trạng thái trước spawn để kết luận run sau restart
 └── context/, schema/, scratch/, private-home/, spool/ # supplementary files
 ```
 

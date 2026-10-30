@@ -828,6 +828,11 @@ export class EventLogWriter {
     return this.#seq;
   }
 
+  /** Stderr text received but not written yet (an unfinished line, or held back by backpressure). */
+  get pendingStderrBytes(): number {
+    return Buffer.byteLength(this.#stderrPending);
+  }
+
   #ensureUsable(): void {
     if (this.#closed)
       throw new RunnerFileError('writer_failed', 'event log writer is closed');
@@ -1028,7 +1033,10 @@ export interface ReadBatch {
   readonly records: LogRecord[];
   /** Position after the last complete record; null only when nothing exists yet and no cursor was given. */
   readonly cursor: IngestPosition | null;
-  /** Partial tails of sealed segments that were skipped (a writer died mid-record). */
+  /**
+   * Partial tails that were skipped: of sealed segments (a writer died mid-record), and with `final`
+   * also of the last segment.
+   */
   readonly torn: TornTail[];
 }
 
@@ -1045,12 +1053,17 @@ export type ReadError =
 
 export interface ReadOptions {
   readonly maxRecords?: number;
+  /**
+   * The writer is gone for good (exit.json is final): a partial tail of the last segment will never be
+   * completed, so it is reported as torn instead of being left for a next read (FR-031).
+   */
+  readonly final?: boolean;
 }
 
 /**
  * Reads complete records after `from` (null = from the oldest segment). Never mutates anything, so
  * re-reading from the same cursor returns the same records. A trailing partial line of the active
- * segment is left for the next read.
+ * segment is left for the next read, unless `final` says no writer will ever finish it.
  */
 export function readRecords(
   run: RunDir,
@@ -1132,7 +1145,17 @@ export function readRecords(
       };
     }
     const next = segments[i + 1];
-    if (records.length >= max || next === undefined) break;
+    if (records.length >= max) break;
+    if (next === undefined) {
+      if (opts.final === true && pos < buf.length)
+        torn.push({
+          generation: seg.generation,
+          segment: seg.segment,
+          byte_offset: offset + pos,
+          bytes: buf.length - pos,
+        });
+      break;
+    }
     if (pos < buf.length)
       torn.push({
         generation: seg.generation,

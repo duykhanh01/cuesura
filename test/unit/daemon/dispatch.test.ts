@@ -3,6 +3,7 @@ import type { Clock } from '../../../src/adapters/ports.ts';
 import {
   DispatchConfigError,
   Dispatcher,
+  storageFailure,
   type EffectHandlers,
 } from '../../../src/daemon/dispatch.ts';
 import type { Effect } from '../../../src/domain/effect.ts';
@@ -19,6 +20,31 @@ import { PREPARE_DATA } from '../../support/scenario.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 
 const HASH = `sha256:${'a'.repeat(64)}` as const;
+
+/** The store with one write method answering `write_failed`; `calls` counts the refused writes. */
+function refusing(
+  store: Store,
+  method: 'accept' | 'claimEffect',
+  calls: { n: number },
+): Store {
+  return new Proxy(store, {
+    get(target, prop) {
+      if (prop === method)
+        return () => (
+          calls.n++,
+          { ok: false, error: { code: 'write_failed', cause: 'disk_full' } }
+        );
+      const v = Reflect.get(target, prop, target) as unknown;
+      return typeof v === 'function'
+        ? (v as (...a: unknown[]) => unknown).bind(target)
+        : v;
+    },
+  });
+}
+
+function errno(code: string): Error {
+  return Object.assign(new Error(code), { code });
+}
 
 function setup(): { d: StoreDriver; clock: Clock } {
   const d = new StoreDriver(openMemoryStore());
@@ -119,6 +145,43 @@ describe('Dispatcher (T026)', () => {
       new Dispatcher({ store, clock, handlers: {} }).tick().skipped,
     ).toEqual([{ effect_id: 'm1', reason: 'merge_refused' }]);
     expect(claims).toBe(0);
+  });
+
+  it('while held for an unresolved claim, holds business effects and still runs service effects', async () => {
+    const { d, clock } = setup();
+    const t = buildTask({ id: uuidOf(5) });
+    createGrantStart(d, t);
+    const prepare = d.pendingOne(t.id, 'prepare');
+    const ran: string[] = [];
+    const disp = new Dispatcher({
+      store: d.store,
+      clock,
+      handlers: {
+        prepare: () => Promise.reject(new Error('must not run while held')),
+        reconcile: (effect) => (
+          ran.push(effect.kind),
+          Promise.resolve(
+            d.envelope(t.id, {
+              kind: 'effect_reconciled',
+              effect_id: effect.request['effect_id'] as Uuid,
+              finding: 'still_unknown',
+            }),
+          )
+        ),
+      },
+    });
+    disp.hold('unresolved claims (1)');
+    expect(disp.tick()).toEqual({
+      started: [],
+      skipped: [{ effect_id: prepare.id, reason: 'dispatch_held' }],
+    });
+    d.complete(t.id, prepare.id, 'unknown');
+    const reconcile = d.pendingOne(t.id, 'reconcile');
+    expect(disp.tick().started).toEqual([reconcile.id]);
+    await disp.settle();
+    expect(ran).toEqual(['reconcile']);
+    disp.hold(null);
+    expect(disp.heldReason).toBeNull();
   });
 
   it('claims nothing while blocked, and a failing handler leaves the effect started for recovery', async () => {
@@ -295,5 +358,166 @@ describe('Dispatcher (T026)', () => {
     await disp.settle();
     expect(logs).toEqual(['handler_abandoned', 'result_dropped']);
     expect(d.task(t.id).effects[prepare.id]?.status).toBe('started');
+  });
+});
+
+describe('process marks (FR-034.01)', () => {
+  const marking = (log: string[], fail = false) => ({
+    write: (id: string) => {
+      if (fail) throw errno('ENOSPC');
+      log.push(`write:${id}`);
+    },
+    clear: (id: string) => log.push(`clear:${id}`),
+  });
+
+  it('marks an operation before its handler runs and clears it once the facts are written', async () => {
+    const { d, clock } = setup();
+    const t = buildTask({ id: uuidOf(21) });
+    createGrantStart(d, t);
+    const prepare = d.pendingOne(t.id, 'prepare');
+    const log: string[] = [];
+    const disp = new Dispatcher({
+      store: d.store,
+      clock,
+      marks: marking(log),
+      handlers: {
+        prepare: (effect, _s, op) => {
+          log.push(`handler:${op.operation_id}`);
+          return Promise.resolve(
+            d.envelope(t.id, {
+              kind: 'effect_result',
+              effect_id: effect.id as Uuid,
+              outcome: 'succeeded',
+              data: PREPARE_DATA,
+            }),
+          );
+        },
+      },
+    });
+    disp.tick();
+    await disp.settle();
+    const op = Object.values(d.task(t.id).operations).find(
+      (o) => o.effect_id === prepare.id,
+    );
+    expect(log).toEqual([
+      `write:${op?.id}`,
+      `handler:${op?.id}`,
+      `clear:${op?.id}`,
+    ]);
+  });
+
+  it('keeps the mark when the handler fails, and runs no handler whose mark cannot be written', async () => {
+    const { d, clock } = setup();
+    const t = buildTask({ id: uuidOf(22) });
+    createGrantStart(d, t);
+    const prepare = d.pendingOne(t.id, 'prepare');
+    const log: string[] = [];
+    const failing = new Dispatcher({
+      store: d.store,
+      clock,
+      marks: marking(log),
+      handlers: { prepare: () => Promise.reject(new Error('port down')) },
+    });
+    failing.tick();
+    await failing.settle();
+    expect(log.filter((l) => l.startsWith('clear:'))).toEqual([]);
+
+    const other = setup();
+    createGrantStart(other.d, buildTask({ id: uuidOf(23) }));
+    let ran = 0;
+    const unmarked = new Dispatcher({
+      store: other.d.store,
+      clock: other.clock,
+      marks: marking([], true),
+      handlers: { prepare: () => (ran++, Promise.reject(new Error('no'))) },
+    });
+    unmarked.tick();
+    await unmarked.settle();
+    expect(ran).toBe(0);
+    expect(unmarked.latchedReason).toContain('ENOSPC');
+    expect(d.task(t.id).effects[prepare.id]?.status).toBe('started');
+  });
+});
+
+describe('store failure latch (T092, FR-023)', () => {
+  it('a refused claim latches: nothing else is claimed, service effects included, and block/hold do not lift it', () => {
+    const { d, clock } = setup();
+    const t = buildTask({ id: uuidOf(8) });
+    createGrantStart(d, t);
+    const prepare = d.pendingOne(t.id, 'prepare');
+    const calls = { n: 0 };
+    const logs: string[] = [];
+    const disp = new Dispatcher({
+      store: refusing(d.store, 'claimEffect', calls),
+      clock,
+      handlers: { prepare: () => Promise.reject(new Error('must not run')) },
+      log: (r) => logs.push(`${r.event}:${r.detail ?? ''}`),
+    });
+    expect(disp.tick()).toEqual({
+      started: [],
+      skipped: [{ effect_id: prepare.id, reason: 'write_failed' }],
+    });
+    expect(disp.latchedReason).toBe('store write failed: disk_full');
+    expect(logs).toEqual(['store_latched:store write failed: disk_full']);
+
+    disp.block('stopping');
+    disp.hold(null);
+    expect(disp.tick().skipped).toEqual([
+      { effect_id: prepare.id, reason: 'store_unwritable' },
+    ]);
+    expect(calls.n).toBe(1);
+    expect(d.pendingOne(t.id, 'prepare').status).toBe('pending');
+  });
+
+  it('a result the store refuses latches; the effect stays started and no later fact of it is written', async () => {
+    const { d, clock } = setup();
+    const t = buildTask({ id: uuidOf(9) });
+    createGrantStart(d, t);
+    const prepare = d.pendingOne(t.id, 'prepare');
+    const calls = { n: 0 };
+    const result = (effectId: string): ReturnType<StoreDriver['envelope']> =>
+      d.envelope(t.id, {
+        kind: 'effect_result',
+        effect_id: effectId as Uuid,
+        outcome: 'succeeded',
+        data: PREPARE_DATA,
+      });
+    const disp = new Dispatcher({
+      store: refusing(d.store, 'accept', calls),
+      clock,
+      handlers: {
+        prepare: (effect) =>
+          Promise.resolve([result(effect.id), result(effect.id)]),
+      },
+    });
+    expect(disp.tick().started).toEqual([prepare.id]);
+    await disp.settle();
+    expect(calls.n).toBe(1);
+    expect(disp.latchedReason).toBe('store write failed: disk_full');
+    expect(d.task(t.id).effects[prepare.id]?.status).toBe('started');
+    expect(disp.tick()).toEqual({ started: [], skipped: [] });
+  });
+
+  it('a handler failing on a full or read-only filesystem latches; any other failure does not', async () => {
+    for (const [error, latched] of [
+      [errno('ENOSPC'), 'filesystem write failed: ENOSPC'],
+      [errno('EROFS'), 'filesystem write failed: EROFS'],
+      [errno('SQLITE_IOERR_WRITE'), 'store write failed: io_error'],
+      [errno('ENOENT'), null],
+      [new Error('port down'), null],
+    ] as const) {
+      const { d, clock } = setup();
+      const t = buildTask({ id: uuidOf(10) });
+      createGrantStart(d, t);
+      const disp = new Dispatcher({
+        store: d.store,
+        clock,
+        handlers: { prepare: () => Promise.reject(error) },
+      });
+      expect(disp.tick().started).toHaveLength(1);
+      await disp.settle();
+      expect(disp.latchedReason).toBe(latched);
+      expect(storageFailure(error)).toBe(latched);
+    }
   });
 });

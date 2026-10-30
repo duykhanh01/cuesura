@@ -1,4 +1,20 @@
-# Cổng lát A — owner chốt NO-GO, B/C giữ đóng
+# Cổng lát A — owner chốt GO mới, mở B (NO-GO T080 giữ làm lịch sử)
+
+## Quyết định owner — GO mới mở B
+
+| Trường | Giá trị |
+| --- | --- |
+| Quyết định tường minh của owner | **GO**, mở lát B bắt đầu từ Phase 7 (US3, T081–T094); C vẫn đóng |
+| Người quyết định | Chủ dự án, qua chỉ đạo trong phiên làm việc |
+| Thời điểm ghi nhận | **2026-10-30 07:46:57 +07:00** (2026-10-30 00:46:57 UTC) |
+| Căn cứ xác nhận | Owner yêu cầu “làm phase 7”, được báo Phase 7 cần GO trong khi T080 đang NO-GO, rồi trả lời “go” |
+| Lý do | Owner chấp nhận mở B dù chưa khép evidence A; quyết định thuộc owner |
+| Điều kiện kỹ thuật chưa khép | Vẫn thiếu 7 stderr.log spike gốc; vendor/auth/rules live chưa chứng nhận lại; budget/effort B/C chưa review lại. GO này **không** chứng nhận các điều kiện đó và không đổi kết luận kỹ thuật NO-GO bên dưới |
+| Phạm vi không đổi | Không giảm 200 daemon kills, quyền, idempotency hoặc smoke; C chỉ mở sau T094/T105/T120 và quyền tài khoản/sandbox cụ thể |
+
+Phần dưới là bản ghi NO-GO T080, giữ nguyên làm lịch sử.
+
+---
 
 **Review:** 2026-10-30 (Asia/Ho_Chi_Minh) · **Hạn đánh giá:** 2026-11-06 · **Base nghiệm thu T078:** `bc9d84a` + sửa fixture layout bwrap đã merge ở PR #19 (`2105b74`; source hashes ở ledger).
 **Host:** Ubuntu 24.04.5. T072 (#16/#18) và T139 (#17) đã merge vào base.

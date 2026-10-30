@@ -834,6 +834,8 @@ export function applyInPlace(
         s.completion.drain.count = event.payload.round;
         s.completion.drain.paused = false;
         s.completion.pending_operations = event.payload.pending_operations;
+        if (event.payload.local !== undefined)
+          s.completion.local_remainder = event.payload.local;
       }
       break;
     case 'DrainPaused':

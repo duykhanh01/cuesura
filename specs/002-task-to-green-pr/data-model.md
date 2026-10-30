@@ -108,7 +108,7 @@ EffectRequested/Completed, TimerArmed/Cancelled, TaskCompleted, QuestionAnswered
 | drain_result(facts) | DrainProgressed; nếu predicate đạt: DrainFinished, ExecutionReleased nếu có, TaskCompleted đúng một lần |
 | drain_deadline/round_limit | DrainPaused, WAITING/policy merge_cleanup_pending; không retry tự động |
 | recheck(request) | RecheckRequested, một effect observe hoặc drain; dedup cùng command ledger, không sửa ngân sách. Target `worktree` (task chờ `worktree_changed`): thêm WorktreeChangeAccepted với tree đã quan sát, ghi là thay đổi của người dùng, rồi chạy lại bước đó |
-| ingest_record(operation, cursor, normalized) | ArtifactIngested/OutputAccepted + cursor; commit chung, rồi ACK file |
+| ingest_record(operation, cursor, normalized) | ArtifactIngested/OutputAccepted + cursor; commit chung, rồi ACK file. Cursor null chỉ khi run chưa ghi record nào: chỉ artifact final |
 | observation_due/deadline | ObservationScheduled/Expired; CI/deadline task giữ blocker riêng, không ghi đè drain |
 
 Các fact I/O đều có observation time, provenance và digest; `now`/ID được tạo ngoài engine. Adapter

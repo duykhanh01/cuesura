@@ -10,8 +10,9 @@ import { isUnresolved } from './runtime.ts';
  * Drain after a merge proof (T046, FR-040.04–09/13). Only work already sent is dealt with: running agent
  * attempts get `stop_attempt`, effects whose outcome is unknown get `reconcile`, and a push already sent
  * may still land and is recorded as it is, without proceeding or retrying. Nothing new is started, local
- * changes stay in the worktree. TaskCompleted is written exactly once, together with DrainFinished, and
- * only when no effect is in flight and no operation is unresolved; until then the task waits as
+ * changes stay in the worktree, and each round records what it still holds (local remainder).
+ * TaskCompleted is written exactly once, together with DrainFinished, and only when no effect is in
+ * flight and no operation is unresolved; until then the task waits as
  * merge_cleanup_pending and keeps its claims. The drain is bounded (default 5 minutes, 3 rounds); past
  * either it pauses and only a recheck resumes it.
  */
@@ -110,6 +111,10 @@ export function onDrainResult(ctx: Ctx, t: DrainResult): void {
     at: ctx.now,
     round,
     pending_operations: [...t.pending_operations].sort(),
+    // The worktree as the round found it: recorded, never cleaned up to match the merge (FR-040.06).
+    ...(t.local === undefined
+      ? {}
+      : { local: { ...t.local, observed_at: ctx.now } }),
   });
   settleCompletion(ctx);
   const after = ctx.state.completion;

@@ -142,7 +142,23 @@ function sameTuple(v: unknown, s: PrSpec): boolean {
   );
 }
 
-async function probe(port: GitHubPort, s: PrSpec): Promise<PrOutcome | null> {
+/** What a probe of every PR state found for the task's tuple and marker; null: no PR on the tuple. */
+export type FoundPr =
+  | {
+      readonly kind: 'recovered';
+      readonly pr: PrFact;
+      readonly body_digest: string;
+    }
+  | Extract<
+      PrOutcome,
+      { kind: 'closed' | 'head_changed' | 'conflict' | 'unknown' }
+    >;
+
+/** Reads every PR on the task's head/base tuple (all states) and judges ownership; sends nothing. */
+export async function findTaskPr(
+  port: GitHubPort,
+  s: PrSpec,
+): Promise<FoundPr | null> {
   const owner = s.repo.split('/')[0] as string;
   const r = await listAll(
     port,
@@ -189,7 +205,7 @@ export async function createOrRecoverPr(
     return { kind: 'content_rejected', field: 'title' };
   if (markerCount(s.body) > 0)
     return { kind: 'content_rejected', field: 'body' };
-  const existing = await probe(port, s);
+  const existing = await findTaskPr(port, s);
   if (existing !== null) return existing;
 
   const body = finalBody(s);
@@ -214,7 +230,7 @@ export async function createOrRecoverPr(
         : { kind: 'head_changed', pr: f };
   }
   // Anything but a clean, matching 201 is checked against GitHub before deciding.
-  const after = await probe(port, s);
+  const after = await findTaskPr(port, s);
   if (after !== null)
     return after.kind === 'recovered' && r.ok
       ? { ...after, kind: 'created' }
@@ -258,7 +274,8 @@ export type DescriptionOutcome =
     }
   | { readonly kind: 'unknown'; readonly detail: string };
 
-async function readBody(
+/** Title and body of one PR as GitHub has them now, or why they could not be read. */
+export async function readPrBody(
   port: GitHubPort,
   repo: string,
   n: number,
@@ -294,7 +311,7 @@ export async function updatePrDescription(
     return { kind: 'content_rejected', field: 'body' };
   const next = finalBody(u.spec);
   const want = bodyDigest(next);
-  const before = await readBody(port, u.repo, u.pr_number);
+  const before = await readPrBody(port, u.repo, u.pr_number);
   if (typeof before === 'string')
     return { kind: 'unknown', detail: `read: ${before}` };
   const current = bodyDigest(before.body);
@@ -309,7 +326,7 @@ export async function updatePrDescription(
     body: { title: u.spec.title, body: next },
   });
   if (r.ok) return { kind: 'updated', body_digest: want };
-  const after = await readBody(port, u.repo, u.pr_number);
+  const after = await readPrBody(port, u.repo, u.pr_number);
   if (typeof after === 'string')
     return {
       kind: 'unknown',

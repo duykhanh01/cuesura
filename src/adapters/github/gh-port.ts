@@ -16,6 +16,7 @@ import type {
   GitHubRequest,
   GitHubResponse,
 } from '../ports.ts';
+import { operationEnv } from '../../runner/process-tag.ts';
 import type { Redactor } from '../../runner/redact.ts';
 import type { Hash } from '../../shared/brand.ts';
 import { canonicalJson } from '../../shared/canonical-json.ts';
@@ -133,7 +134,7 @@ export function spawnGhExec(gh: string, env: NodeJS.ProcessEnv): GhExec {
   return (args, opts) =>
     new Promise((resolve) => {
       const child = spawn(gh, [...args], {
-        env: childEnv,
+        env: { ...childEnv, ...operationEnv() },
         stdio: ['pipe', 'pipe', 'pipe'],
         detached: true,
       });

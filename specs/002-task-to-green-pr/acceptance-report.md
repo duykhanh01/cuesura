@@ -526,3 +526,116 @@ Lý do: T078 đạt 20/20 seeds nhưng còn thiếu 7 stderr.log spike gốc; ve
 chưa được chứng nhận lại. [Go/no-go](go-no-go.md#quyết-định-owner--t080) đã ghi người quyết định,
 thời điểm và lý do; T080 hoàn tất. Phase 6 đã hoàn tất review/quyết định, chưa mở Phase 7.
 Lượt này chỉ cập nhật tài liệu quyết định; không chạy proof model mới hoặc thay đổi kết quả T078.
+
+# T093/T094 — Daemon bị giết trên runtime thật
+
+Ngày: 2026-10-30. Nhánh `002/us3-recovery` (PR #21), base code `e44e55e` cộng thay đổi của lượt này.
+Host chạy: WSL2 `6.18.54.1-microsoft-standard-WSL2`, Ubuntu 22.04.5, Node 24.22.1, git 2.34.1,
+systemd 249 với user manager (`degraded`), 12 CPU, 7 GB RAM. Đây không phải host Ubuntu owner chọn
+cho Phase 6; lượt trên host đó chưa chạy.
+
+## Crash driver (T093)
+
+`test/reliability/runtime-crash.test.ts` dùng `test/support/runtime-crash.ts` và tiến trình con
+`test/support/runtime-crash-child.ts`. Mỗi lượt chạy bắt đầu từ một template (file SQLite thật,
+project Git và bare remote thật, GitHub giả lưu ở file nên sống qua tiến trình, run directory thật).
+Một “đời daemon” là một tiến trình riêng: `recoverStore` như cusrd (writer lock, schema, verify
+projection, reconcile operation, ingest spool), rồi chạy chính handler/dispatcher của daemon. Mọi
+request ra ngoài và mọi lần ghi store đi qua một điểm ngắt. Điểm được ghi vào ledger rồi tiến trình
+tự `SIGKILL` khi gặp đúng `(key, occurrence)` đã chọn. Điểm chọn từ seed và ledger của một lượt chạy
+mẫu không ngắt, nên `--seed` tái hiện đúng lần kill.
+
+| Nhóm | Chạy thật | Điểm ngắt |
+| --- | --- | --- |
+| spawn_adoption | systemd user manager, `cusr-runner`, flock kernel, /proc | claim, trước/sau start unit, sau pid/exit receipt, trước/sau ghi `operation_result`/ingest |
+| output_ack | spool xoay vòng do writer của runner ghi, ingest lô 4 record | trước/sau mỗi lô commit, trước/sau xóa từng segment (ACK); runner xong trước hoặc trong lúc daemon chết |
+| commit_push | gates thật, checkpoint commit, push lên bare remote | claim, trước/sau `update-ref`/`push`/lệnh gate, trước/sau ghi receipt |
+| pr_create | tạo hoặc nhận lại PR | trước/sau `POST pulls` và các probe đọc, trước/sau receipt |
+| merge_drain | user đã merge; đọc CI, merge proof, drain, DONE, dependent | đọc PR/events, receipt, vòng drain, `TaskCompleted` |
+| h05 | full-review: reviewer A đang chạy hoặc publish dở; drift B ghi khi daemon chết | quanh reviewer, push và receipt |
+
+Một phần ba số lượt chạy giết thêm đời daemon đang phục hồi (kể cả lúc đang probe). Sau mỗi kill,
+store được mở đúng như daemon chết để lại: `integrity_check`, `verifyProjections` dựng lại mọi bảng
+projection từ nhật ký, và nhật ký đã commit phải còn nguyên là tiền tố của mọi đời sau. Đời cuối phải
+tới đích của nhóm, với đúng một spawn, một commit, một push, một PR, một DONE. Drift và blocker của
+H05 phải còn nguyên.
+
+## Lỗi recovery driver tìm ra và đã sửa
+
+Lượt đầu (4–8 kill mỗi nhóm) làm task kẹt vĩnh viễn ở các trường hợp sau, đều tái hiện lại được bằng seed:
+
+1. **Receipt đã commit nhưng effect result chưa.** Dispatcher ghi `operation_result`, rồi các fact
+   phụ, rồi `effect_result`, mỗi bước một transaction. Daemon chết giữa các bước này để lại
+   operation `finished` và effect `started`. Startup không reconcile được vì operation đã resolved.
+   Cửa sổ tương tự có giữa hai fact mà `commit` của reconcile ghi, và ở latch T092. Sửa:
+   `settleOrphans` trong `src/daemon/reconcile.ts`. Effect `started` không có handler giữ và mọi
+   operation đã `finished`/`not_launched`/`lost` sẽ thành `unknown`, rồi đi reconcile. Agent chưa
+   từng spawn thì thành `not_executed`. Báo cáo startup có thêm trường `orphaned`.
+2. **Reconcile tự bị giết.** Reconcile của một reconcile trả `still_unknown`, nên effect gốc kẹt.
+   Sửa: handler trả `not_executed` cho target loại `reconcile`; engine đưa probe về hàng đợi cùng
+   key, kể cả sau merge, khi có drift hoặc khi cancel. Lý do: reconcile chỉ probe và lặp lại việc đã
+   khai báo an toàn.
+3. **Effect về hàng đợi rồi lại mất.** `requestReconcile` khóa theo ID effect gốc. Probe đầu đã
+   xong thì lần mất sau không có reconcile mới. Sửa (`src/engine/effects.ts`): probe còn mở thì dùng
+   lại; mọi probe trước đã xong thì lấy key kế tiếp.
+4. **Reconcile của `await_ci` bỏ mất fact merge.** Probe chỉ lấy outcome của `observeTask` mà bỏ
+   `observation_result`/`external_completion`, nên task chờ CI mãi dù PR đã merge. Sửa: probe mang
+   theo các fact đó.
+
+Test hồi quy thêm ở suite mặc định: `feature-002-recovery.test.ts` (receipt không result, agent
+`not_launched` mồ côi, reconcile bị ngắt chạy lại dưới drift, effect mất lần hai có reconcile mới),
+`publish-recovery.test.ts` (reconcile của lần đọc CI bị mất ghi được merge, rồi DONE đúng một lần).
+
+## Lượt T094
+
+```sh
+pnpm test:reliability --seed 20261028 --no-file-parallelism
+```
+
+`--no-file-parallelism` được dùng vì lượt đầu chạy song song trên host 7 GB bị thiếu RAM. Lượt đó
+r4-sequences dùng 6 GB và timeout ở 30 phút, 4 lần R1 timeout 60 giây ở tiến trình con, nên được
+giữ là failed. Lượt đó cũng lộ thêm lỗi 3 ở trên và một race trong driver: điểm `spawn:exit:after`
+có thể bị bỏ qua khi pass reconcile đọc exit trước. Driver giờ chỉ chạy pass khi đã thấy exit hoặc
+unit đã dừng. Kết quả lượt cuối, sau mọi sửa:
+
+| Kiểm | Kết quả |
+| --- | --- |
+| `pnpm typecheck`, `pnpm lint` | exit 0 |
+| `pnpm test` | 113 file / 1.546 pass, 4 skip (bwrap/real-adapter cần host, như trước) |
+| `pnpm test:reliability --seed 20261028 --no-file-parallelism` | 3 file / 429 test pass, exit 0, 1.536 giây |
+| `runtime-crash` | 227/227, 220 lượt chạy, **252 lần SIGKILL daemon** |
+| `r1-crash` (R-08, store) | 201/201, 200 SIGKILL trong transaction |
+| `r4-sequences` | 1/1 (10.000 chuỗi) |
+| T081–T084 | `runner-adoption` (6, systemd thật), `publish-recovery` (15), `spool-recovery` (20), `feature-002-recovery` (17) pass trong `pnpm test` |
+
+Ledger từng lượt (nhóm, variant, điểm kill, đời, số event, replay digest, counts) ở
+[t094-runtime-crash.json](evidence/t094-runtime-crash.json), sha256
+`32b6fd4ab68a0f19f689a89c719dc061ca3719a5aea1cf7d38dcb1ed71b747fb`. Log lượt chạy có sha256
+`327885bb4b8a662a1d7dc4f96e62200283f0714f92c52bb4de93e24690cfe5b4` (không lưu vào repo).
+
+| Nhóm | Lượt | Kill | Trước effect | Sau external | Trước ingest | Sau ingest | Điểm khác nhau |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| spawn_adoption | 40 | 44 | 13 | 10 | 10 | 11 | 12 |
+| output_ack | 40 | 49 | 7 | 5 | 17 | 20 | 25 |
+| commit_push | 40 | 44 | 10 | 11 | 10 | 10 | 20 |
+| pr_create | 40 | 51 | 12 | 12 | 10 | 16 | 10 |
+| merge_drain | 40 | 44 | 10 | 10 | 12 | 12 | 16 |
+| h05 | 20 | 20 | 6 | 6 | 4 | 4 | 10 |
+
+Kết quả theo yêu cầu SC-004/005/006:
+
+- 100% store sau mỗi kill có `integrity_check = ok` và projection khớp nhật ký. Nhật ký đã commit
+  không mất hay đổi ở đời sau.
+- Không có attempt, commit, push hay PR nào bị lặp:
+  - spawn_adoption: đúng 1 spawn và 1 run có launch marker mỗi lượt. Lượt bị giết trước khi launch
+    có tới 2 operation `not_launched`, không lượt nào spawn lần hai. Output của runner được ingest
+    đúng 20 record.
+  - commit_push / pr_create: 1 commit, 1 push (reflog remote), 1 POST, 1 PR.
+  - merge_drain: 1 `TaskCompleted`, dependent READY sau DONE.
+  - output_ack: 40/40 record, cursor 40, chỉ còn segment cuối sau ACK.
+  - h05: reviewer chạy ≤ 1 lần, push ≤ 1 lần, 0 PR, blocker `head_changed` và drift B giữ nguyên.
+- Mọi operation đều được resolve ở đời cuối của các nhóm flow.
+
+Không lấy crash của 001 hay PID giả thay bằng chứng runtime. Agent ở các nhóm flow là harness giả
+trong tiến trình. Spawn agent thật được phủ ở spawn_adoption qua systemd. SC-005 với vendor thật
+vẫn chờ C.

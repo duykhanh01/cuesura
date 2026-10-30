@@ -67,6 +67,7 @@ export interface Store {
     ids: (timerId: Uuid) => Uuid[],
   ): Result<AcceptOutcome[], FireError>;
   pendingEffects(limit: number, after?: string): Effect[];
+  readEffect(effectId: string): Effect | null;
   readTask(taskId: Uuid): TaskState | null;
   /** Task IDs in the given statuses, in ID order. */
   taskIdsByStatus(statuses: readonly TaskStatus[]): string[];
@@ -81,6 +82,8 @@ export interface Store {
     taskId: Uuid,
     revision: number,
   ): FrozenRuntimeContext | null;
+  /** Operations not proven finished or never launched, in ID order (startup reconciles these). */
+  unresolvedOperations(): read.UnresolvedOperation[];
   verifyProjections(): VerifyReport;
   close(): void;
 }
@@ -133,6 +136,9 @@ export class SqliteStore implements Store {
   pendingEffects(limit: number, after?: string): Effect[] {
     return read.pendingEffects(this.db, limit, after);
   }
+  readEffect(effectId: string): Effect | null {
+    return read.readEffect(this.db, effectId);
+  }
   admitCommand(
     input: Parameters<typeof commands.admitCommand>[1],
   ): Result<commands.Admission, commands.LedgerError> {
@@ -175,6 +181,9 @@ export class SqliteStore implements Store {
     revision: number,
   ): FrozenRuntimeContext | null {
     return read.readRuntimeContext(this.db, taskId, revision);
+  }
+  unresolvedOperations(): read.UnresolvedOperation[] {
+    return read.unresolvedOperations(this.db);
   }
   verifyProjections(): VerifyReport {
     return verifyProjections(this.db);

@@ -1,0 +1,5158 @@
+{
+  "seed": 20261028,
+  "kills_per_group": 40,
+  "groups": {
+    "spawn_adoption": {
+      "runs": 40,
+      "kills": 44,
+      "phases": {
+        "before_effect": 13,
+        "after_external": 10,
+        "before_ingest": 10,
+        "after_ingest": 11
+      },
+      "points": 12
+    },
+    "output_ack": {
+      "runs": 40,
+      "kills": 49,
+      "phases": {
+        "before_effect": 7,
+        "after_external": 5,
+        "before_ingest": 17,
+        "after_ingest": 20
+      },
+      "points": 25
+    },
+    "commit_push": {
+      "runs": 40,
+      "kills": 44,
+      "phases": {
+        "before_effect": 10,
+        "after_external": 11,
+        "before_ingest": 10,
+        "after_ingest": 10
+      },
+      "points": 20
+    },
+    "pr_create": {
+      "runs": 40,
+      "kills": 51,
+      "phases": {
+        "before_effect": 12,
+        "after_external": 12,
+        "before_ingest": 10,
+        "after_ingest": 16
+      },
+      "points": 10
+    },
+    "merge_drain": {
+      "runs": 40,
+      "kills": 44,
+      "phases": {
+        "before_effect": 10,
+        "after_external": 10,
+        "before_ingest": 12,
+        "after_ingest": 12
+      },
+      "points": 16
+    },
+    "h05": {
+      "runs": 20,
+      "kills": 20,
+      "phases": {
+        "before_effect": 6,
+        "after_external": 6,
+        "before_ingest": 4,
+        "after_ingest": 4
+      },
+      "points": 10
+    }
+  },
+  "runs": [
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 0,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:start_agent:before",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 29,
+      "digest": "sha256:4043131841f6496aa8efed7ae72ba7c4e8375fbe8149a09cdbef0fd5177a2b54",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 1,
+      "kills": [
+        {
+          "life": 1,
+          "key": "spawn:exit:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 29,
+      "digest": "sha256:8cd23cefd815b3821669226a4250b06959475383e6db58b7cadd22eb68c4442c",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 2,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 29,
+      "digest": "sha256:a200e70ea16120274a399300ea5cd5fcbea4cd0d873f9ca3b685de5f36a0af9d",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 3,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 29,
+      "digest": "sha256:1da2c5147fb09f148863315c075e2dad3a8e99df338ea48451c10e7ca297336c",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 4,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:start_agent:before",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 29,
+      "digest": "sha256:4c5e767f638712eb559df83e20f2cb0428fd8eff8a68af7fc46f3e361990a0e4",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 5,
+      "kills": [
+        {
+          "life": 1,
+          "key": "spawn:launch:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 30,
+      "digest": "sha256:edc6686c1c3d8838ccc7d2b41be74aedea65b60b65e1aff80d3c7e4cc4fae39d",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 6,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 29,
+      "digest": "sha256:990c22ced27654ebd95c0490282c847dc8ca7aaeda2955bcd4790122d13f0ec9",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 7,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 29,
+      "digest": "sha256:acaa7492a9f39ad787a91bf1ef9eec00b1349da0c3bcbac401ee8877bc3cbe87",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 8,
+      "kills": [
+        {
+          "life": 1,
+          "key": "spawn:launch:before",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 39,
+      "digest": "sha256:7f8d3b58a7cac59e2415e67be0e2eed4d5fde470f48d81ad979accc6a68314c5",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 2,
+        "not_launched": 1,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 9,
+      "kills": [
+        {
+          "life": 1,
+          "key": "spawn:exit:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 29,
+      "digest": "sha256:3afb159b33ba6924f91a60c83ac1d7c2eb04453728358f5d0f7c5957ad2f646a",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 10,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 29,
+      "digest": "sha256:70280c7d468af024bede9d41654b783e09fdf5955b679e09a00739973165300d",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 11,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 29,
+      "digest": "sha256:4e1e8e4dfa5d04707ef7633b68ecf42c7896348869203b4439ce700caf7e0705",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 12,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:start_agent:before",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 29,
+      "digest": "sha256:a60c98a4a672311c6994b216721c3d6413ee264e710258711e9ba1f3d15af8eb",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 13,
+      "kills": [
+        {
+          "life": 1,
+          "key": "spawn:exit:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 29,
+      "digest": "sha256:a93dacd6b6d2d16dc83eeaceca0f8bf5401d88d6fa4b0dbaaf44aa177f43ef77",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 14,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 29,
+      "digest": "sha256:67d409b4635a35e947cc127e8f518bf004c33c02c2d727f443cc32f24a7aa411",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 15,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 29,
+      "digest": "sha256:8160b662e6c069f49e727e7a292e2050285273a35f071c7db5f787a238b68de8",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 16,
+      "kills": [
+        {
+          "life": 1,
+          "key": "spawn:launch:before",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 39,
+      "digest": "sha256:2536bbccaecf12cc1fc8343844d63172cf5214a0dc4a2ab7fb79812b58d6ff00",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 2,
+        "not_launched": 1,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 17,
+      "kills": [
+        {
+          "life": 1,
+          "key": "spawn:pid:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 30,
+      "digest": "sha256:5b599185abfa4fc2a3140a0b41a72538292a6072e1575c716f35482c3c2f4de3",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 18,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 29,
+      "digest": "sha256:6a40575cdb5ed9ce49f1f5ec926c690e9544b19295d046e597e7cfee1d3f2758",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 19,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 29,
+      "digest": "sha256:f4129851ba61615e7fe3e24ed7c9baa482263d90e838d3d1429b3d243e239487",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 20,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:start_agent:before",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 29,
+      "digest": "sha256:c88aa7d7f84e641f75c724721e126e8b4abea3ef6ff9116226ebac488545d340",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 21,
+      "kills": [
+        {
+          "life": 1,
+          "key": "spawn:launch:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        },
+        {
+          "life": 2,
+          "key": "store:operation_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 3,
+      "events": 30,
+      "digest": "sha256:c5570efeef21f72a689100d18182cec2315afbac9e0a7e690326bf90d8d5ed66",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 22,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 29,
+      "digest": "sha256:fe80dc12dee6cacf081f4b1e7ea8b4e8e1b43e303d335b5c7b6637ae25361288",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 23,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 29,
+      "digest": "sha256:bebb20ad4a07beb9843edf84a15311a074e145bc8ff8c8e11f033217f5964609",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 24,
+      "kills": [
+        {
+          "life": 1,
+          "key": "spawn:launch:before",
+          "occurrence": 1,
+          "phase": "before_effect"
+        },
+        {
+          "life": 2,
+          "key": "claim:start_agent:before",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 3,
+      "events": 39,
+      "digest": "sha256:496267c3970f1dc75d6d2e0cb6cc5b02f95c93e3a24486436c03d67214a50877",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 2,
+        "not_launched": 1,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 25,
+      "kills": [
+        {
+          "life": 1,
+          "key": "spawn:pid:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 30,
+      "digest": "sha256:674c531bb83fe6232ff33ec3a03e975a2f021db4ec768f37def8407807d788cc",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 26,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 29,
+      "digest": "sha256:bb758770daa6c743beb08fc4f5ee03cd1baeef8e3b30450d9b9037e7811f1955",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 27,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 29,
+      "digest": "sha256:970857593a06393baabe2a62f63517930e2ad47d4fecd7de9e5d336683c2efbf",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 28,
+      "kills": [
+        {
+          "life": 1,
+          "key": "spawn:launch:before",
+          "occurrence": 1,
+          "phase": "before_effect"
+        },
+        {
+          "life": 2,
+          "key": "claim:start_agent:after",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 3,
+      "events": 49,
+      "digest": "sha256:249eedda91e0147649e03f7a0d667f15bbac70e411d6471b9cfad518d218fb0a",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 3,
+        "not_launched": 2,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 29,
+      "kills": [
+        {
+          "life": 1,
+          "key": "spawn:exit:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 29,
+      "digest": "sha256:44a9a7ac16356e158590d83ff6ea4e70e3f89ec0ed26538fed37ead6d44e92c9",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 30,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 29,
+      "digest": "sha256:accb90d9b7af1234acb176f68a738ce87dc392f8ada4006c4698bf7179d59612",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 31,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 29,
+      "digest": "sha256:cb32ccd9baa134cd6186272611c35f8ead875139a3460ede7d480db11e7cbbe4",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 32,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:start_agent:after",
+          "occurrence": 1,
+          "phase": "before_effect"
+        },
+        {
+          "life": 2,
+          "key": "claim:start_agent:after",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 3,
+      "events": 49,
+      "digest": "sha256:e4d316085099344adf1399b0ff54389c0cd2dd816f9a5e128e3dfd176a5aac81",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 3,
+        "not_launched": 2,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 33,
+      "kills": [
+        {
+          "life": 1,
+          "key": "spawn:launch:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 30,
+      "digest": "sha256:a02612b00373a8e9950eeaaac6fe68673d0e541d0fb3703c253303c41619e5cf",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 34,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 29,
+      "digest": "sha256:4234c2a8bca2df21e965dc326cc1a1c37f16b7ff84c2805b194bbe5f5602b204",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 35,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 29,
+      "digest": "sha256:f4bc65a99f1b6f8789b7e44eebe0f70c1a7e06d77811b04445f9e6606ff3d2d8",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 36,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:start_agent:before",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 29,
+      "digest": "sha256:e0c6d7ace7733389e787d43a6a81cc005ea64efe5803f4ebe540b0131ba527b0",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 37,
+      "kills": [
+        {
+          "life": 1,
+          "key": "spawn:launch:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 30,
+      "digest": "sha256:b233666235aec28978bd26c3abc63b10838269a8c0067accdec07d6a3a4c9372",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 38,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 29,
+      "digest": "sha256:3616b3d06ef83bd9723b6468e251dd9e2296fa9f9b5ba586d1e84b68c4af4765",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "spawn_adoption",
+      "variant": "agent",
+      "n": 39,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 29,
+      "digest": "sha256:42d3d792af0dc9ef9a5b596ad065640929a8a1f9b9b1d8ff20991f05009284bd",
+      "counts": {
+        "spawns": 1,
+        "launched": 1,
+        "operations": 1,
+        "not_launched": 0,
+        "records": 20
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "finished",
+      "n": 0,
+      "kills": [
+        {
+          "life": 1,
+          "key": "ack:unlink:before",
+          "occurrence": 8,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 43,
+      "digest": "sha256:dcd9c4f288b2674f644e2a9740c365f785b29222a6343c8d8d36cd9d92a3392b",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "writing",
+      "n": 1,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:before",
+          "occurrence": 2,
+          "phase": "before_ingest"
+        },
+        {
+          "life": 2,
+          "key": "store:ingest_record:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 3,
+      "events": 43,
+      "digest": "sha256:0159001ef41849c3c0bcd98b610e6f62ddf419ca39eda9c495ddacbad179efe1",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "finished",
+      "n": 2,
+      "kills": [
+        {
+          "life": 1,
+          "key": "ack:unlink:after",
+          "occurrence": 7,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 43,
+      "digest": "sha256:dcd9c4f288b2674f644e2a9740c365f785b29222a6343c8d8d36cd9d92a3392b",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "writing",
+      "n": 3,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:after",
+          "occurrence": 9,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 43,
+      "digest": "sha256:0c6b9a2b016487e4e50347d7032fc9a72035a71a29e3065e3b021916bb5e6ca1",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "finished",
+      "n": 4,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:before",
+          "occurrence": 9,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 43,
+      "digest": "sha256:dcd9c4f288b2674f644e2a9740c365f785b29222a6343c8d8d36cd9d92a3392b",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "writing",
+      "n": 5,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:before",
+          "occurrence": 2,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 43,
+      "digest": "sha256:0242a1998437c220a436b84771d6168a1956dc8238979612a0646168cb4c540a",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "finished",
+      "n": 6,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:after",
+          "occurrence": 6,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 43,
+      "digest": "sha256:dcd9c4f288b2674f644e2a9740c365f785b29222a6343c8d8d36cd9d92a3392b",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "writing",
+      "n": 7,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:after",
+          "occurrence": 9,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 43,
+      "digest": "sha256:03b1ce48c4e6c831c4fc88fff715fd71d99c88d380d75e748e32a6f2997a5ea8",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "finished",
+      "n": 8,
+      "kills": [
+        {
+          "life": 1,
+          "key": "ack:unlink:before",
+          "occurrence": 6,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 43,
+      "digest": "sha256:dcd9c4f288b2674f644e2a9740c365f785b29222a6343c8d8d36cd9d92a3392b",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "writing",
+      "n": 9,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:before",
+          "occurrence": 8,
+          "phase": "before_ingest"
+        },
+        {
+          "life": 2,
+          "key": "store:ingest_record:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 3,
+      "events": 43,
+      "digest": "sha256:77a15d3b6bf9121c13cf0eead98462778588f395f1af49241c406c0c6fc2b28b",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "finished",
+      "n": 10,
+      "kills": [
+        {
+          "life": 1,
+          "key": "ack:unlink:after",
+          "occurrence": 2,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 43,
+      "digest": "sha256:dcd9c4f288b2674f644e2a9740c365f785b29222a6343c8d8d36cd9d92a3392b",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "writing",
+      "n": 11,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:after",
+          "occurrence": 10,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 43,
+      "digest": "sha256:2eef49c0cad840013a119ea7d6189fa693da846d9a5549a6323cd93e65429b84",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "finished",
+      "n": 12,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:before",
+          "occurrence": 9,
+          "phase": "before_ingest"
+        },
+        {
+          "life": 2,
+          "key": "ack:unlink:before",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 3,
+      "events": 43,
+      "digest": "sha256:dcd9c4f288b2674f644e2a9740c365f785b29222a6343c8d8d36cd9d92a3392b",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "writing",
+      "n": 13,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:before",
+          "occurrence": 9,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 43,
+      "digest": "sha256:823b4c1d54c594609efe7e9cd821097b5e7870287ccfcdf50331fa4c3606cd9d",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "finished",
+      "n": 14,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:after",
+          "occurrence": 2,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 43,
+      "digest": "sha256:dcd9c4f288b2674f644e2a9740c365f785b29222a6343c8d8d36cd9d92a3392b",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "writing",
+      "n": 15,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:after",
+          "occurrence": 9,
+          "phase": "after_ingest"
+        },
+        {
+          "life": 2,
+          "key": "store:ingest_record:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 3,
+      "events": 43,
+      "digest": "sha256:13ad1d7fc4582728bd02cba8a69fe76e9879006005d0e0b63717e88d8c47ba5c",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "finished",
+      "n": 16,
+      "kills": [
+        {
+          "life": 1,
+          "key": "ack:unlink:before",
+          "occurrence": 7,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 43,
+      "digest": "sha256:dcd9c4f288b2674f644e2a9740c365f785b29222a6343c8d8d36cd9d92a3392b",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "writing",
+      "n": 17,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:before",
+          "occurrence": 10,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 43,
+      "digest": "sha256:2de49bbb6b2b527f82831fbf274a00e79b3b431b78c6d26315a12df4d1171710",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "finished",
+      "n": 18,
+      "kills": [
+        {
+          "life": 1,
+          "key": "ack:unlink:after",
+          "occurrence": 8,
+          "phase": "after_external"
+        },
+        {
+          "life": 2,
+          "key": "ack:unlink:before",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 3,
+      "events": 43,
+      "digest": "sha256:dcd9c4f288b2674f644e2a9740c365f785b29222a6343c8d8d36cd9d92a3392b",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "writing",
+      "n": 19,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:after",
+          "occurrence": 10,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 43,
+      "digest": "sha256:1cbcef6d3b60e3161ba34a3a3808fb71453214ffa2b40285069f053edd5f945f",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "finished",
+      "n": 20,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:before",
+          "occurrence": 10,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 43,
+      "digest": "sha256:dcd9c4f288b2674f644e2a9740c365f785b29222a6343c8d8d36cd9d92a3392b",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "writing",
+      "n": 21,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:before",
+          "occurrence": 7,
+          "phase": "before_ingest"
+        },
+        {
+          "life": 2,
+          "key": "store:ingest_record:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 3,
+      "events": 43,
+      "digest": "sha256:9d6abfe23be3f88852d9af340ea0678ef76fa02aa803fa8a5cc0fdededc54a47",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "finished",
+      "n": 22,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:after",
+          "occurrence": 3,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 43,
+      "digest": "sha256:dcd9c4f288b2674f644e2a9740c365f785b29222a6343c8d8d36cd9d92a3392b",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "writing",
+      "n": 23,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 43,
+      "digest": "sha256:ed4e89ed2a90c065ae6d146ea4dc3cbec1493166122b8e7c399bf95d6c8d0d4e",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "finished",
+      "n": 24,
+      "kills": [
+        {
+          "life": 1,
+          "key": "ack:unlink:before",
+          "occurrence": 5,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 43,
+      "digest": "sha256:dcd9c4f288b2674f644e2a9740c365f785b29222a6343c8d8d36cd9d92a3392b",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "writing",
+      "n": 25,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:before",
+          "occurrence": 10,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 43,
+      "digest": "sha256:dd988b8df830f1d857dd6d49a3f324412407239cc8e778a252a546be2f9e98c7",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "finished",
+      "n": 26,
+      "kills": [
+        {
+          "life": 1,
+          "key": "ack:unlink:after",
+          "occurrence": 5,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 43,
+      "digest": "sha256:dcd9c4f288b2674f644e2a9740c365f785b29222a6343c8d8d36cd9d92a3392b",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "writing",
+      "n": 27,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:after",
+          "occurrence": 10,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 43,
+      "digest": "sha256:cf6f5161d1751f9deebbd406f6c74f95d0b94b66b83cde58ada37fcb59617f5a",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "finished",
+      "n": 28,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:before",
+          "occurrence": 3,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 43,
+      "digest": "sha256:dcd9c4f288b2674f644e2a9740c365f785b29222a6343c8d8d36cd9d92a3392b",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "writing",
+      "n": 29,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:before",
+          "occurrence": 5,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 43,
+      "digest": "sha256:8ca63dfbdf159d10e9302ae43ab62e8295a6c4c9452e2f882ee2bde1640bd570",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "finished",
+      "n": 30,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 43,
+      "digest": "sha256:dcd9c4f288b2674f644e2a9740c365f785b29222a6343c8d8d36cd9d92a3392b",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "writing",
+      "n": 31,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:after",
+          "occurrence": 2,
+          "phase": "after_ingest"
+        },
+        {
+          "life": 2,
+          "key": "store:ingest_record:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 3,
+      "events": 43,
+      "digest": "sha256:d72dff1efac26c1b12fb7be17702a10b24b1c44b8014e10a1b35c1b77e46ca9a",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "finished",
+      "n": 32,
+      "kills": [
+        {
+          "life": 1,
+          "key": "ack:unlink:before",
+          "occurrence": 3,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 43,
+      "digest": "sha256:dcd9c4f288b2674f644e2a9740c365f785b29222a6343c8d8d36cd9d92a3392b",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "writing",
+      "n": 33,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:before",
+          "occurrence": 2,
+          "phase": "before_ingest"
+        },
+        {
+          "life": 2,
+          "key": "store:ingest_record:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 3,
+      "events": 43,
+      "digest": "sha256:f46d61ec5b5f953fabe0c7e72a66c4cb335cc8074cfc5bdf236a5b70837c7062",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "finished",
+      "n": 34,
+      "kills": [
+        {
+          "life": 1,
+          "key": "ack:unlink:after",
+          "occurrence": 3,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 43,
+      "digest": "sha256:dcd9c4f288b2674f644e2a9740c365f785b29222a6343c8d8d36cd9d92a3392b",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "writing",
+      "n": 35,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:after",
+          "occurrence": 3,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 43,
+      "digest": "sha256:94a8fed5e7ab6b7bfc40a709b0d7235f19f54f185a6933deccb74774edc135c6",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "finished",
+      "n": 36,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 43,
+      "digest": "sha256:dcd9c4f288b2674f644e2a9740c365f785b29222a6343c8d8d36cd9d92a3392b",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "writing",
+      "n": 37,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:before",
+          "occurrence": 3,
+          "phase": "before_ingest"
+        },
+        {
+          "life": 2,
+          "key": "store:ingest_record:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 3,
+      "events": 43,
+      "digest": "sha256:9554352b748eed9e28bb8dea7f0ddcf9370269e337d87c22c56abebd47cf83d7",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "finished",
+      "n": 38,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:after",
+          "occurrence": 6,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 43,
+      "digest": "sha256:dcd9c4f288b2674f644e2a9740c365f785b29222a6343c8d8d36cd9d92a3392b",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "output_ack",
+      "variant": "writing",
+      "n": 39,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:ingest_record:after",
+          "occurrence": 10,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 43,
+      "digest": "sha256:7a24b022c1283e5891ac103e66733ffa5dad11f1759ad9caf65c71d1c3802445",
+      "counts": {
+        "records": 40,
+        "batches": 10,
+        "cursor": 40,
+        "segments": 1
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 0,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:run_gates:before",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 47,
+      "digest": "sha256:5ee54c6227037580766876514bdf5580a71094f9b73b148aff8e77ee6785bd54",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 4
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 1,
+      "kills": [
+        {
+          "life": 1,
+          "key": "exec:true:after",
+          "occurrence": 2,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 57,
+      "digest": "sha256:98868d8e779262687287963df1d4db7a922cb418bf0752bd0152fe1349f7494b",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 5
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 2,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        },
+        {
+          "life": 2,
+          "key": "git:add:before",
+          "occurrence": 1,
+          "phase": "read"
+        }
+      ],
+      "lives": 3,
+      "events": 69,
+      "digest": "sha256:450cf8fcd6fa9b37f65ebbf47074293fe35fb09c5655e79df3faee64e1907d11",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 7
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 3,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 47,
+      "digest": "sha256:e606cb5c7dd29570963ab2e035bae315bd0e17668e8fcd08b8250c15497d286d",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 4
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 4,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:publish:after",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 61,
+      "digest": "sha256:f6b1fbdead2eac8292ee14abf82c80c668f3c99008bf316718578f20ccc8c06c",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 6
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 5,
+      "kills": [
+        {
+          "life": 1,
+          "key": "exec:true:after",
+          "occurrence": 3,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 57,
+      "digest": "sha256:06d841f57fcff829ce9e8d539615c30d2447999fa2c5aac45abc580517d16376",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 5
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 6,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 57,
+      "digest": "sha256:d230776fe2d93588cbab8d9f78a666cf99eee7950750dfd422217f42d4e4e70f",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 5
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 7,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:after",
+          "occurrence": 2,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 56,
+      "digest": "sha256:e48bfa670d8a4c435389ada7d4d337e9d527540ebbd379283ad7e5b97899147d",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 5
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 8,
+      "kills": [
+        {
+          "life": 1,
+          "key": "git:update-ref:before",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 57,
+      "digest": "sha256:6abb14acc6fd68662107aa70883e7ee0db906a56b9cb3df074f4ef6091185400",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 5
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 9,
+      "kills": [
+        {
+          "life": 1,
+          "key": "exec:true:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 57,
+      "digest": "sha256:8f3ae6cb044c1e01cd341877f5bcd6474ee0daad40a8b73d071847bc94264a3b",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 5
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 10,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 56,
+      "digest": "sha256:e21aa62a175cebf8be0df360b0646a750ee27bcd0ad40fa9d1802f7b2459df7b",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 5
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 11,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 47,
+      "digest": "sha256:e4e761f1d696307f13843a66951bb507278f9ed8a03ecd8c55d148caefaea6fe",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 4
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 12,
+      "kills": [
+        {
+          "life": 1,
+          "key": "exec:true:before",
+          "occurrence": 2,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 57,
+      "digest": "sha256:05e016c1fe4a07188222318cfaa0088ea04574b4a84fe92c0bd678001748e24e",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 5
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 13,
+      "kills": [
+        {
+          "life": 1,
+          "key": "git:push:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 57,
+      "digest": "sha256:7fe837ff886e88a2faaaa3f63bc3290c1f8d3ec405aa82a1431860305e0c795b",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 5
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 14,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 56,
+      "digest": "sha256:081007e081ecd7d281288f6f07065b74a3fe24e975b02fa4b14cdb9e1c913c77",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 5
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 15,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:after",
+          "occurrence": 2,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 56,
+      "digest": "sha256:043b3353598916651eeb02072a256f3ddaa9e9ac87caef1de16b7c0dd71b0eb8",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 5
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 16,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:run_gates:before",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 47,
+      "digest": "sha256:26b9ae8dee957781fc6c52bd57c07b211a644efb8252af31bf62fafee7e3bdce",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 4
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 17,
+      "kills": [
+        {
+          "life": 1,
+          "key": "exec:true:after",
+          "occurrence": 2,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 57,
+      "digest": "sha256:32c79f1353fac3148cf4e125fbb25e882a3459daf29ddf5ed94be9ec8b478724",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 5
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 18,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:before",
+          "occurrence": 2,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 57,
+      "digest": "sha256:0591b787363c519c95c904b700d1c0a914420b2a1c90ae8eb5bca6c1042637a8",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 5
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 19,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 47,
+      "digest": "sha256:136dbe4b5442584312e73217185e5560d431a32ce4778d437fb86a4c75c58a26",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 4
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 20,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:publish:after",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 61,
+      "digest": "sha256:5bc8896f236f0160854f882454e3a1d8b0a48152952554a45d40c5e57ec63eba",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 6
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 21,
+      "kills": [
+        {
+          "life": 1,
+          "key": "git:push:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 57,
+      "digest": "sha256:ffc297e4b0a492acc78126942553a0e0cdd00c31cd220925e31a1117a06bc6c7",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 5
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 22,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 57,
+      "digest": "sha256:d9900fad704c5875645937c1dab1a0bc511bee05f795f69129497f1237a7d998",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 5
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 23,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:after",
+          "occurrence": 2,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 47,
+      "digest": "sha256:ea241ad564946f6ecc8afac20ee76aff67f664f0b8ce4e707405d28712082838",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 4
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 24,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:publish:before",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 47,
+      "digest": "sha256:77619c2b26a2912170f845a7366e5277ef279c712c645725f8bb7bd7a4a112d0",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 4
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 25,
+      "kills": [
+        {
+          "life": 1,
+          "key": "exec:true:after",
+          "occurrence": 3,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 57,
+      "digest": "sha256:d7a413eb84be7b428e46472d3d03be7ac098120a321f6889f59ca91467712fed",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 5
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 26,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 56,
+      "digest": "sha256:788bc425e6baf086061aa3d6df5f76956a967434b0b9ffb6915271a4efcdcb3d",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 5
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 27,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:after",
+          "occurrence": 2,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 56,
+      "digest": "sha256:6bfcb4b7d7caa5d842cc283f8cad49d37f8091df159fa10ac4f8bc429c0b42b7",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 5
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 28,
+      "kills": [
+        {
+          "life": 1,
+          "key": "git:update-ref:before",
+          "occurrence": 1,
+          "phase": "before_effect"
+        },
+        {
+          "life": 2,
+          "key": "git:write-tree:after",
+          "occurrence": 1,
+          "phase": "read"
+        }
+      ],
+      "lives": 3,
+      "events": 69,
+      "digest": "sha256:d2abea3dd9fe7347a1dbf8f3af732ba1b51b3bf64e8c4029d05bc67f3240152f",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 7
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 29,
+      "kills": [
+        {
+          "life": 1,
+          "key": "exec:true:after",
+          "occurrence": 3,
+          "phase": "after_external"
+        },
+        {
+          "life": 2,
+          "key": "git:push:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 3,
+      "events": 67,
+      "digest": "sha256:a203a77c0ed109ce983dbe73f35d8c3f13fd124b8e15ee8357748ca99c581d41",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 6
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 30,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:before",
+          "occurrence": 2,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 56,
+      "digest": "sha256:4d973141cef1e05055fa635005cbcaa70260c85f2d26844b90732af932c5fa8c",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 5
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 31,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:after",
+          "occurrence": 2,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 56,
+      "digest": "sha256:68a3131b71be2e3f7aab111dccb69e7a78d9c7c5d5e8752738d3b0ef7e04960e",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 5
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 32,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:publish:after",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 61,
+      "digest": "sha256:c92dd5c838a3172a458859456ce0aaad67cdfe9800a247ca750c1ec4a128cf73",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 6
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 33,
+      "kills": [
+        {
+          "life": 1,
+          "key": "exec:true:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 57,
+      "digest": "sha256:eb756f87527123c7eb43e9bd74bf1620d7f80fd0a4a9e41c651ced4eb14cc542",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 5
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 34,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:before",
+          "occurrence": 2,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 56,
+      "digest": "sha256:584f2e2150cf136895ef633c96183ae5871c2e21837cac47f2fcabf4748811fe",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 5
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 35,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        },
+        {
+          "life": 2,
+          "key": "git:rev-parse:before",
+          "occurrence": 1,
+          "phase": "read"
+        }
+      ],
+      "lives": 3,
+      "events": 68,
+      "digest": "sha256:c0eb7992fe07e6c4f4d734ae4a2aea6473918a255696e54fbed3f162b8462cf9",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 7
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 36,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:publish:after",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 61,
+      "digest": "sha256:fbe3a6d2b6461dab8ecd0a636d35338ffde7ff97928e0ecdc3d8ab32970efb94",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 6
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 37,
+      "kills": [
+        {
+          "life": 1,
+          "key": "git:push:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 57,
+      "digest": "sha256:151a9ef5acc0ae88082b8f370d51f8e8832db0d0bda689f68edc7b7fd767ad76",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 5
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 38,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 57,
+      "digest": "sha256:119cfdee21ec5b9781f66a0ca3397a45af9238f163cd0199d74005c8eca96576",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 5
+      }
+    },
+    {
+      "group": "commit_push",
+      "variant": "direct-pr",
+      "n": 39,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 47,
+      "digest": "sha256:3e533cca576295020e8ed065c35e2ab507c5a30eae1d01c323fcd214c8a5d0e2",
+      "counts": {
+        "commits": 1,
+        "pushes": 1,
+        "prs": 0,
+        "operations": 4
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 0,
+      "kills": [
+        {
+          "life": 1,
+          "key": "github:POST pulls:before",
+          "occurrence": 1,
+          "phase": "before_effect"
+        },
+        {
+          "life": 2,
+          "key": "claim:create_pr:before",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 3,
+      "events": 67,
+      "digest": "sha256:188fcfe207d3f324bb1636433a7dbf431cc8356fbe8f0992bd9528dc6f40966b",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 7
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 1,
+      "kills": [
+        {
+          "life": 1,
+          "key": "github:POST pulls:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 63,
+      "digest": "sha256:2fbac78ea25ba0b186731587e4556416be20d26af8c2ce85b893c665ec47524d",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 6
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 2,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        },
+        {
+          "life": 2,
+          "key": "store:operation_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 3,
+      "events": 73,
+      "digest": "sha256:d7e5ed03efba0079af4c25d0e02d1ac30a12533e5913169de606dbaeafa030bd",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 8
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 3,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        },
+        {
+          "life": 2,
+          "key": "github:GET pulls:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 3,
+      "events": 74,
+      "digest": "sha256:027bdb06ff1f4f6799a9d8e5f9d568e50a536f403108d4fc0de38a8af47e1caa",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 8
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 4,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:create_pr:after",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 67,
+      "digest": "sha256:ba2c3e3e4deca538facb961fae0a859c80a5b4d3c0437afb7ced7c6f74047949",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 7
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 5,
+      "kills": [
+        {
+          "life": 1,
+          "key": "github:POST pulls:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 63,
+      "digest": "sha256:b6e8974b3a6f8dc16c344177a541a1624409854c7236c9530ad9b839aa85044f",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 6
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 6,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 62,
+      "digest": "sha256:0c928429ae5195795a8c3e4e77eee92b6983a3ac261ea2599896876a189860c8",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 6
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 7,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 62,
+      "digest": "sha256:f3b4b92abf7f9942cc888bf953f2b8995c144891ccdd0484bd1a4d8bb8ba427e",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 6
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 8,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:create_pr:after",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 67,
+      "digest": "sha256:d04dd56a93866ee7f02812f6506a99d9e542b72d74be768f43f34df605a2b1a1",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 7
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 9,
+      "kills": [
+        {
+          "life": 1,
+          "key": "github:GET pulls:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 67,
+      "digest": "sha256:59bab54946eaffb86469e04391e7db7b5f2cd375388ee60f3836da069668003c",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 7
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 10,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 63,
+      "digest": "sha256:0ad70393c48141c3ed0f4d0ca2da9e1eb832d0a2ed82e61d9a538131a59ff1b5",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 6
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 11,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 53,
+      "digest": "sha256:6b5eb3d16378abb1bcb78465c19db5d5e232023c223ad2547a3bba2801f910e6",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 5
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 12,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:create_pr:after",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 67,
+      "digest": "sha256:7d74f766cc0b71f6760836cd8d28dceb68f0f55ba8f5dd2cb9b751e5ad2587f8",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 7
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 13,
+      "kills": [
+        {
+          "life": 1,
+          "key": "github:POST pulls:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 63,
+      "digest": "sha256:70d4bce47495d7c37bdc96354c9e426600c87fe6cd86c1052e83ed301b739393",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 6
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 14,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        },
+        {
+          "life": 2,
+          "key": "store:effect_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 3,
+      "events": 63,
+      "digest": "sha256:b170aa0ee563b129a1d5835b78d51c54e6f86bc3eb70b404285c69420f14e699",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 6
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 15,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 62,
+      "digest": "sha256:3c82c4dfe0f86e89c4ed7ccb5d94ec2c22b82392d7f4365abf62ad9a4fa79570",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 6
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 16,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:create_pr:before",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 53,
+      "digest": "sha256:e894367139fabee6a7bae3a3f22e5aaf97009ad73b564812ff74209cf0e78411",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 5
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 17,
+      "kills": [
+        {
+          "life": 1,
+          "key": "github:POST pulls:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 63,
+      "digest": "sha256:a732eaefefa325699d476153348ca1c64610d1d1328274d33edb316e1bccd962",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 6
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 18,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 63,
+      "digest": "sha256:a0b67c294cbffa9698ce6cbd834af18494ff6e53d9605f955e0e72379f68744e",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 6
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 19,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 53,
+      "digest": "sha256:fac467ed06c9ebc4965bf1d0aecabbf33eb56aaf16cdd95fbc4d0a744fcd53d7",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 5
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 20,
+      "kills": [
+        {
+          "life": 1,
+          "key": "github:POST pulls:before",
+          "occurrence": 1,
+          "phase": "before_effect"
+        },
+        {
+          "life": 2,
+          "key": "github:POST pulls:before",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 3,
+      "events": 81,
+      "digest": "sha256:e7e5630f50a11e6bdc246023d90204d3bc3c605a54b3c74e382787e68934eb8f",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 9
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 21,
+      "kills": [
+        {
+          "life": 1,
+          "key": "github:GET pulls:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        },
+        {
+          "life": 2,
+          "key": "store:effect_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 3,
+      "events": 67,
+      "digest": "sha256:3053a2c7cfd51de62b35c9c2d0c81a755fecf5db05a064643b9bafb9ec1c74f1",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 7
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 22,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 63,
+      "digest": "sha256:65896b23a5f6f4c55175be33c5413fc8539f21ad3cf8e563f6593ada6714d779",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 6
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 23,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        },
+        {
+          "life": 2,
+          "key": "github:GET pulls:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 3,
+      "events": 74,
+      "digest": "sha256:69f9db7957468a4873c51c162ec427bcf6baf7934d22b58941f6875dce891e5f",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 8
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 24,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:create_pr:after",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 67,
+      "digest": "sha256:c7baf2cf6df5cf2094f68d2f3220e3aee90a7035e4706e22685dab2d91400b62",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 7
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 25,
+      "kills": [
+        {
+          "life": 1,
+          "key": "github:POST pulls:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 63,
+      "digest": "sha256:682ee19b8d2e8a0bba5483d06797567b84802ede01aae675335ada8b6fb0955f",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 6
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 26,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        },
+        {
+          "life": 2,
+          "key": "github:GET pulls:before",
+          "occurrence": 1,
+          "phase": "read"
+        }
+      ],
+      "lives": 3,
+      "events": 74,
+      "digest": "sha256:6b96db6c8afe6aa4800a7237edfa7e6ed5cc030db4c7a569d58c595e29c6fe2c",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 8
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 27,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 62,
+      "digest": "sha256:d14d6524ff5e9d58dbe3038acb026267065a58cb222d9b42ad232682fc9f739b",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 6
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 28,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:create_pr:after",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 67,
+      "digest": "sha256:32630d130b0247ced2752467c304a20bf794783e636952ce85523893945d4c88",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 7
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 29,
+      "kills": [
+        {
+          "life": 1,
+          "key": "github:POST pulls:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 63,
+      "digest": "sha256:5fc1deefffeb801c278a98e65a3e7820ceaabf599693edb7261ed1cc2536ae8b",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 6
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 30,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 62,
+      "digest": "sha256:c51c6c0a238f3446e682d4c57e53c1b448e28ea5992b1df53fe2387c52080098",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 6
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 31,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 62,
+      "digest": "sha256:b90c708f8e9072db7aa73e78d0694086588330278841fa1d93eac49f34a1e819",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 6
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 32,
+      "kills": [
+        {
+          "life": 1,
+          "key": "github:POST pulls:before",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 67,
+      "digest": "sha256:2987d4e5212a37b3efb66674bea8ce0a17a09014540748720751e822dd0b3fe1",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 7
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 33,
+      "kills": [
+        {
+          "life": 1,
+          "key": "github:GET pulls:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        },
+        {
+          "life": 2,
+          "key": "store:effect_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 3,
+      "events": 67,
+      "digest": "sha256:c202da86df1a44a2464e78667d6e3aaae0a82cf686c344bfeb7455fa21d86121",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 7
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 34,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 63,
+      "digest": "sha256:edee3db45a44b29109f9bc213dfc4734f0a62b06c8b2c67c3fd96e2d0d19eb98",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 6
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 35,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        },
+        {
+          "life": 2,
+          "key": "store:operation_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 3,
+      "events": 73,
+      "digest": "sha256:bdf078bc0593139607e376df72629b74783e74211fbaa3e231f53c59e8bd494a",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 8
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 36,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:create_pr:after",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 67,
+      "digest": "sha256:e4a666e96a4b25049b29e8821e43d7314810a01d6c6673578df661cc30b6fb73",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 7
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 37,
+      "kills": [
+        {
+          "life": 1,
+          "key": "github:POST pulls:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 63,
+      "digest": "sha256:cdac8f36026ce84a8ab357035b350a2e6e45d6cfbeb59e91b024a7db93bc11f5",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 6
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 38,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        },
+        {
+          "life": 2,
+          "key": "store:effect_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 3,
+      "events": 63,
+      "digest": "sha256:1c21475b083030286dc8c0bab4191503f712989f057985b53580b831c7d16ce4",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 6
+      }
+    },
+    {
+      "group": "pr_create",
+      "variant": "direct-pr",
+      "n": 39,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 53,
+      "digest": "sha256:07706988c7ec07238575a83ed268d49fec928f5a396df6f1bdf8aa3bd1086162",
+      "counts": {
+        "prs": 1,
+        "posts": 1,
+        "pushes": 1,
+        "operations": 5
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 0,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:await_ci:before",
+          "occurrence": 1,
+          "phase": "before_effect"
+        },
+        {
+          "life": 2,
+          "key": "store:external_completion:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 3,
+      "events": 80,
+      "digest": "sha256:b69697246a9ce76c35977e1fdc7d8f7d20d1cc0cfbe2c7877f5f294480645833",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 1,
+        "operations": 7
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 1,
+      "kills": [
+        {
+          "life": 1,
+          "key": "github:GET pulls/:n:after",
+          "occurrence": 2,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 78,
+      "digest": "sha256:b3d98165b57810dba1a659fa578c686f1b13ceafe954dee22b5da37b9f68a69f",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 7
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 2,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:dependency_status:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 69,
+      "digest": "sha256:26a46b6bedcfcb1d1f4c09c725e00bd7fbe6662746130376230f357a86e595e7",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 6
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 3,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:observation_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 79,
+      "digest": "sha256:28f94f51e493e580004ab41bf4cad871862ee7fb232ba7e0de6c57bf6b8c4a29",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 7
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 4,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:await_ci:after",
+          "occurrence": 1,
+          "phase": "before_effect"
+        },
+        {
+          "life": 2,
+          "key": "store:effect_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 3,
+      "events": 77,
+      "digest": "sha256:7622f5b0696f774a160927836f92b3ad0ee56b8815c7ee9799254d57a4e6b256",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 7
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 5,
+      "kills": [
+        {
+          "life": 1,
+          "key": "github:GET issues/:n/events:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        },
+        {
+          "life": 2,
+          "key": "store:dependency_status:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 3,
+      "events": 78,
+      "digest": "sha256:ca172e601d6a8d0141446e9ad99ad3e275e99c6bc64885dac57684b5a3e7d07a",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 7
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 6,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 78,
+      "digest": "sha256:e22abb3dcf96643eb7b72f041e46c39b70b86b6edf566e37cdce57f9d90a0279",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 7
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 7,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 69,
+      "digest": "sha256:47919a2191c2e1a31cb1f59dbaf8e64290ee889c7e7400965bc8eb5a40841c57",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 6
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 8,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:await_ci:after",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 78,
+      "digest": "sha256:8f3a511e79221fac827b5d2f843b1f9acd96bb58c638e84a9a4610124a117bf7",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 7
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 9,
+      "kills": [
+        {
+          "life": 1,
+          "key": "github:GET pulls/:n/merge:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 78,
+      "digest": "sha256:ff9a491dbc6ad91ef5cb1640e7a756c9135294bff6d2a89e77842c80f821b0a2",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 7
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 10,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:external_completion:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 79,
+      "digest": "sha256:4dcdd0e0b3de69cb67d45049d0d731ffcdbf380b6ec2ababc7eef84995947f6f",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 7
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 11,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:dependency_status:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 69,
+      "digest": "sha256:1656fdc5ee0cb4934289d614322c51f74fbbba1e8a596667dca1f38a50ebef94",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 6
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 12,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:await_ci:after",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 78,
+      "digest": "sha256:f956fb13e89a68ab096c9c28fd7cb31a1ec0fa54ea8a6f7c6a80678773f05ef9",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 7
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 13,
+      "kills": [
+        {
+          "life": 1,
+          "key": "github:GET issues/:n/events:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 78,
+      "digest": "sha256:2f924b0a9d604ab3a10bc9d5b4078c427facbb231bc69ca37b2e073372f08db2",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 7
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 14,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:observation_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 77,
+      "digest": "sha256:40716f13433f6478446e82b7611eaaacce0d07cc97af9b190e9ab5280253f6a9",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 7
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 15,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 69,
+      "digest": "sha256:6cd0ea8d26bf882c63f69bc69e5813bbcc831df916f8d2219a7c59fa8937cb99",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 6
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 16,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:await_ci:before",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 69,
+      "digest": "sha256:17501fcc9666ed8f205546df060c422dc9e8e51562a80a8bafcfc19153caa88e",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 6
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 17,
+      "kills": [
+        {
+          "life": 1,
+          "key": "github:GET pulls/:n:after",
+          "occurrence": 2,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 78,
+      "digest": "sha256:b322167f1244e6bfa153fae67ed95dba2482e385bda544b6713f35b854660332",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 7
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 18,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 78,
+      "digest": "sha256:242e0377677abdd728fcf10c8804de617b04f933d76ea8f43ffd5f875c0deedd",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 7
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 19,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 69,
+      "digest": "sha256:8e6e004b0d2ff1925cc40db86780a0306e0629d43469f044adee5c2d3fdaca91",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 6
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 20,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:await_ci:after",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 78,
+      "digest": "sha256:3bb6905272c2d1a7d4e4447b94d4fc514c1f5b3e098ef7b3b9523389befad35f",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 7
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 21,
+      "kills": [
+        {
+          "life": 1,
+          "key": "github:GET pulls/:n:after",
+          "occurrence": 2,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 78,
+      "digest": "sha256:c5ad56f822c55b89fb7935bcfa8f7c90f9695ab20705477b5455167eb091c0f6",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 7
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 22,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:dependency_status:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 69,
+      "digest": "sha256:d875861d6aee7f3c4bbb481f0f583e9e19945b198236f3380388715514ccbd51",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 6
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 23,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 69,
+      "digest": "sha256:13bfa7c0b05c1280f3aaea8e9efad8b03020ded95319461dff3f10d12f731b4f",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 6
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 24,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:await_ci:before",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 69,
+      "digest": "sha256:ea330fcb53c618d6687c5c1211b75d2567cb920753c7645c85ba1d3072ca2804",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 6
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 25,
+      "kills": [
+        {
+          "life": 1,
+          "key": "github:GET pulls/:n:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 78,
+      "digest": "sha256:3b810ae3f71eacadf6f1b0069395c5d24cdba56db1907601b0ba8ff1dc8f6ca2",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 7
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 26,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 80,
+      "digest": "sha256:406839dbb41932f6a111c945cef14f38a0fdc4fe57e4d0d226a14cfc9e6fe154",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 1,
+        "operations": 7
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 27,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 77,
+      "digest": "sha256:df0692022c554ee5129d98f965eccda4dfda263a0c1db6eb9f3b685d6775e862",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 7
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 28,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:await_ci:before",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 69,
+      "digest": "sha256:4ec8531bbb8f872e7b096656fe9eec1ca4dc38d6c557a9bb6624d2e5253ffc37",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 6
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 29,
+      "kills": [
+        {
+          "life": 1,
+          "key": "github:GET pulls/:n/merge:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 78,
+      "digest": "sha256:aadb353e628635c0eb6db7e634a594a8c8d26b7e50e6239f206a90618066fb7d",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 7
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 30,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 78,
+      "digest": "sha256:a89e1f4fd39be08fb597d599a77d9563ede941953af36c3f7a7ad25d9c8d7ec8",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 7
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 31,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:dependency_status:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 69,
+      "digest": "sha256:96c6a7af04d166d858ba0303d67de949b561d850fb2a4e980be6acdb45547b21",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 6
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 32,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:await_ci:after",
+          "occurrence": 1,
+          "phase": "before_effect"
+        },
+        {
+          "life": 2,
+          "key": "store:dependency_status:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 3,
+      "events": 78,
+      "digest": "sha256:fdced93da78c4ac2c6429cc634ed2efd004125652669f08909504a132c4125e2",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 7
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 33,
+      "kills": [
+        {
+          "life": 1,
+          "key": "github:GET pulls/:n:after",
+          "occurrence": 2,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 78,
+      "digest": "sha256:5bcd4dd77430741bce159c5bca72332ede4ef0c9a1b357ed3f9906c63fff5f41",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 7
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 34,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 78,
+      "digest": "sha256:87c1bf4af590010414c3b369bbc6012c7d935364622d49d25e2826803798a229",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 7
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 35,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:dependency_status:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 69,
+      "digest": "sha256:e93d5609400c153a5e44391b3f50393a90655e1a0664a3357666e17a032b6038",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 6
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 36,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:await_ci:before",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 69,
+      "digest": "sha256:b37895785f36f73c8ed723fcfe7752c5f640b09aee1ecce6c8b9d56b2952bcfb",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 6
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 37,
+      "kills": [
+        {
+          "life": 1,
+          "key": "github:GET pulls/:n:after",
+          "occurrence": 2,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 78,
+      "digest": "sha256:875c2ce36c461e4b6d880f36a9e6f59708d8051a102834c77e6ee001027306b9",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 7
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 38,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:dependency_status:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 69,
+      "digest": "sha256:4d15410ec3ec128d892234339dd34d0b83308f394b78e53a2fd8e76836c4c978",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 0,
+        "operations": 6
+      }
+    },
+    {
+      "group": "merge_drain",
+      "variant": "direct-pr",
+      "n": 39,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:external_completion:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 80,
+      "digest": "sha256:23f874359864a9822bc7ce34a94069f84d695337480f182c97e5e0efc80a957d",
+      "counts": {
+        "done": 1,
+        "prs": 1,
+        "pushes": 1,
+        "drain_rounds": 1,
+        "operations": 7
+      }
+    },
+    {
+      "group": "h05",
+      "variant": "review",
+      "n": 0,
+      "kills": [
+        {
+          "life": 1,
+          "key": "harness:codex:before",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 49,
+      "digest": "sha256:21e57f8aee2ff6adb93f7382ece3579c31af71b548f1c5cea234baf004d457ad",
+      "counts": {
+        "reviewers": 1,
+        "pushes": 0
+      }
+    },
+    {
+      "group": "h05",
+      "variant": "publish",
+      "n": 1,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:publish:after",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 64,
+      "digest": "sha256:b79eda6d5c5135e95aaf9f444723b102d9672ecf933835de89c2cb8fc4411724",
+      "counts": {
+        "reviewers": 0,
+        "pushes": 0,
+        "blockers": 1
+      }
+    },
+    {
+      "group": "h05",
+      "variant": "review",
+      "n": 2,
+      "kills": [
+        {
+          "life": 1,
+          "key": "harness:codex:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 49,
+      "digest": "sha256:d0737bc3e9f20ea0a705decdd0239fe5584232d700b5d7dd32cd57273df47b90",
+      "counts": {
+        "reviewers": 1,
+        "pushes": 0
+      }
+    },
+    {
+      "group": "h05",
+      "variant": "publish",
+      "n": 3,
+      "kills": [
+        {
+          "life": 1,
+          "key": "git:push:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 64,
+      "digest": "sha256:c54190d1d8650764dacdc4da4dd94ded27368da16fe0b50114cee975d44bee1c",
+      "counts": {
+        "reviewers": 0,
+        "pushes": 1,
+        "blockers": 1
+      }
+    },
+    {
+      "group": "h05",
+      "variant": "review",
+      "n": 4,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 51,
+      "digest": "sha256:f4e0e9b32223d3814eca50168b54693c56a24f1ba0043e4839b9cf0dc14a62bb",
+      "counts": {
+        "reviewers": 1,
+        "pushes": 0,
+        "blockers": 1
+      }
+    },
+    {
+      "group": "h05",
+      "variant": "publish",
+      "n": 5,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 63,
+      "digest": "sha256:9eda1b7c541e424431689c62d2300870cf973b00b56cc1ebddf264e610166549",
+      "counts": {
+        "reviewers": 0,
+        "pushes": 1,
+        "blockers": 1
+      }
+    },
+    {
+      "group": "h05",
+      "variant": "review",
+      "n": 6,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 53,
+      "digest": "sha256:a2b6f763f07e03007f263ea56a29956b5fbe4615dbf2fd88027a3de50dfc7595",
+      "counts": {
+        "reviewers": 1,
+        "pushes": 0
+      }
+    },
+    {
+      "group": "h05",
+      "variant": "publish",
+      "n": 7,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 63,
+      "digest": "sha256:9a7c156c4317b25d06350520f96c3e2ad8f63857d6b913d1083b691e70be3c46",
+      "counts": {
+        "reviewers": 0,
+        "pushes": 1,
+        "blockers": 1
+      }
+    },
+    {
+      "group": "h05",
+      "variant": "review",
+      "n": 8,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:start_agent:after",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 49,
+      "digest": "sha256:dc614733e23b536e64c142ecd09d73c69eaef6cfd19acc2dc0f9c0d25a96f914",
+      "counts": {
+        "reviewers": 0,
+        "pushes": 0
+      }
+    },
+    {
+      "group": "h05",
+      "variant": "publish",
+      "n": 9,
+      "kills": [
+        {
+          "life": 1,
+          "key": "git:push:before",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 64,
+      "digest": "sha256:98bdcb923174c9413afb5383b7d93620da380202405fe28107aadef599997d56",
+      "counts": {
+        "reviewers": 0,
+        "pushes": 0,
+        "blockers": 1
+      }
+    },
+    {
+      "group": "h05",
+      "variant": "review",
+      "n": 10,
+      "kills": [
+        {
+          "life": 1,
+          "key": "harness:codex:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 49,
+      "digest": "sha256:454786f00834beb4685305b7ba94632084efa508fa41ee580133437ded03bba3",
+      "counts": {
+        "reviewers": 1,
+        "pushes": 0
+      }
+    },
+    {
+      "group": "h05",
+      "variant": "publish",
+      "n": 11,
+      "kills": [
+        {
+          "life": 1,
+          "key": "git:push:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 64,
+      "digest": "sha256:6b7bbad11e08d7209eeab72ea0b90390a6fc2515213f00dd874c541242194e75",
+      "counts": {
+        "reviewers": 0,
+        "pushes": 1,
+        "blockers": 1
+      }
+    },
+    {
+      "group": "h05",
+      "variant": "review",
+      "n": 12,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 51,
+      "digest": "sha256:4b56b32987599756669e0d76ae4cf6cb4ed009d55d06d6e12efe9cba54624c65",
+      "counts": {
+        "reviewers": 1,
+        "pushes": 0,
+        "blockers": 1
+      }
+    },
+    {
+      "group": "h05",
+      "variant": "publish",
+      "n": 13,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:before",
+          "occurrence": 1,
+          "phase": "before_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 63,
+      "digest": "sha256:2eca904369ef9f287e089aa87a8163c33c118e5fc0df9f1bfdc2860b7450b654",
+      "counts": {
+        "reviewers": 0,
+        "pushes": 1,
+        "blockers": 1
+      }
+    },
+    {
+      "group": "h05",
+      "variant": "review",
+      "n": 14,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:operation_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 51,
+      "digest": "sha256:14bf1a2f68d6f2c7654ccd2fabfb63df29baf4848c5dc73bbbc4eb46283fc312",
+      "counts": {
+        "reviewers": 1,
+        "pushes": 0,
+        "blockers": 1
+      }
+    },
+    {
+      "group": "h05",
+      "variant": "publish",
+      "n": 15,
+      "kills": [
+        {
+          "life": 1,
+          "key": "store:effect_result:after",
+          "occurrence": 1,
+          "phase": "after_ingest"
+        }
+      ],
+      "lives": 2,
+      "events": 61,
+      "digest": "sha256:926a475f8a3393c98552ae13700de6de20cb649ba4f517cadc50863384e69ee2",
+      "counts": {
+        "reviewers": 0,
+        "pushes": 1
+      }
+    },
+    {
+      "group": "h05",
+      "variant": "review",
+      "n": 16,
+      "kills": [
+        {
+          "life": 1,
+          "key": "claim:start_agent:before",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 46,
+      "digest": "sha256:51980b481171dacc75b88d5891396230f6b7f288270cf9b514ae6dd08271ef8e",
+      "counts": {
+        "reviewers": 0,
+        "pushes": 0
+      }
+    },
+    {
+      "group": "h05",
+      "variant": "publish",
+      "n": 17,
+      "kills": [
+        {
+          "life": 1,
+          "key": "git:push:before",
+          "occurrence": 1,
+          "phase": "before_effect"
+        }
+      ],
+      "lives": 2,
+      "events": 64,
+      "digest": "sha256:9d8d165c79be277ff4b65c18b76d4030895392116f7c90ecfa716dd1b8524071",
+      "counts": {
+        "reviewers": 0,
+        "pushes": 0,
+        "blockers": 1
+      }
+    },
+    {
+      "group": "h05",
+      "variant": "review",
+      "n": 18,
+      "kills": [
+        {
+          "life": 1,
+          "key": "harness:codex:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 49,
+      "digest": "sha256:d0e651b767508d7dabcfe1569f6e880be3023b462fb3ed9f96513ac8dc088da2",
+      "counts": {
+        "reviewers": 1,
+        "pushes": 0
+      }
+    },
+    {
+      "group": "h05",
+      "variant": "publish",
+      "n": 19,
+      "kills": [
+        {
+          "life": 1,
+          "key": "git:push:after",
+          "occurrence": 1,
+          "phase": "after_external"
+        }
+      ],
+      "lives": 2,
+      "events": 64,
+      "digest": "sha256:cfdcc5a569e59303de5d48bb61180b1607e23e6d5981f7827f6aff3a1abb774c",
+      "counts": {
+        "reviewers": 0,
+        "pushes": 1,
+        "blockers": 1
+      }
+    }
+  ]
+}

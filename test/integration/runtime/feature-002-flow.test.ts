@@ -8,6 +8,8 @@ import {
   readStoredContent,
 } from '../../../src/adapters/publish-content.ts';
 import type {
+  HarnessInput,
+  HarnessOutcome,
   HarnessPort,
   SandboxProvider,
 } from '../../../src/adapters/ports.ts';
@@ -23,6 +25,8 @@ import type { MergeMethod } from '../../../src/domain/merge-method.ts';
 import { taskBranch } from '../../../src/adapters/git/worktree.ts';
 import type { CanonicalTask } from '../../../src/domain/task.ts';
 import { SpawnExecutor } from '../../../src/runner/commands.ts';
+import { InvocationUnknown } from '../../../src/runner/invocation.ts';
+import { canonicalJson } from '../../../src/shared/canonical-json.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
 import type { EpochMs } from '../../../src/shared/brand.ts';
 import { hashText } from '../../../src/shared/hash.ts';
@@ -145,6 +149,7 @@ function setup(task: CanonicalTask, o: SetupOptions) {
     intents: join(data, 'intents'),
     scratch: join(data, 'scratch'),
     content: join(data, 'content'),
+    receipts: join(data, 'receipts'),
   };
   const runs = o.runs ?? [o.content ?? CONTENT];
   const answers = runs.map((_, i) => ({
@@ -1063,5 +1068,128 @@ describe.each(['full-review', 'direct-pr'] as const)(
         expect(f.d.store.verifyProjections().ok).toBe(true);
       },
     );
+  },
+);
+
+describe.each(['coder', 'reviewer'] as const)(
+  'restart after a %s finished while no daemon read it (US3.2, T090)',
+  (role) => {
+    it('its result comes back through the harness on reconcile: no second run, the flow goes on to the PR', async () => {
+      const task = buildTask();
+      const { d, deps, start, settle, codex, coder, github } = setup(task, {
+        mode: 'full-review',
+      });
+      const harness = deps.harnesses[role === 'coder' ? 'claude' : 'codex'];
+      if (harness === undefined) throw new Error('no harness');
+      const finished: { input: HarnessInput; out: HarnessOutcome }[] = [];
+      const run = harness.run.bind(harness);
+      let died = false;
+      // The run goes to its end; the daemon dies before it reads the outcome (once).
+      Object.assign(harness, {
+        run: async (input: HarnessInput, signal: AbortSignal) => {
+          const out = await run(input, signal);
+          if (died) return out;
+          died = true;
+          finished.push({ input, out });
+          throw new Error('daemon killed');
+        },
+      });
+      const recovered: HarnessInput[] = [];
+      Object.assign(harness, {
+        recover: (input: HarnessInput): HarnessOutcome => {
+          recovered.push(input);
+          const r = finished.find(
+            (f) => canonicalJson(f.input) === canonicalJson(input),
+          );
+          if (r === undefined)
+            throw new InvocationUnknown('no finished run for this input');
+          // Recovery reads the run from its first record; its result file is new.
+          return { ...r.out, ingest: { ...ingest, artifacts: [log, result] } };
+        },
+      });
+      d.must(task.id, { kind: 'create_task', task });
+      start();
+      await settle();
+      const open = Object.values(d.task(task.id).effects).filter(
+        (e) => e.status === 'started',
+      );
+      expect(open).toHaveLength(1);
+      const agent = open[0];
+      if (agent === undefined) throw new Error('no agent effect');
+      expect(agent.kind).toBe('start_agent');
+      const op = Object.values(d.task(task.id).operations).find(
+        (o) => o.effect_id === agent.id,
+      );
+      if (op === undefined) throw new Error('no operation');
+
+      // Startup ingest already committed the run's records and its log before recovery reads it.
+      const artifact = (kind: 'events' | 'result', path: string) => ({
+        artifact_id: `${op.id}:${path}`,
+        operation_id: op.id,
+        kind,
+        relative_path: path,
+        digest: hashText(path),
+        bytes: 10,
+        redaction_version: 2,
+        finalized: true,
+        acked: false,
+      });
+      const log = artifact('events', 'events.jsonl');
+      const result = artifact('result', 'out/result.json');
+      const ingest = {
+        operation_id: op.id,
+        cursor: {
+          generation: 1,
+          segment: 1,
+          byte_offset: 120,
+          last_record_seq: 3,
+        },
+        records: 3,
+        digest: hashText('records'),
+        artifacts: [log],
+      };
+      d.must(task.id, {
+        kind: 'ingest_record',
+        ...ingest,
+        operation_id: op.id as Uuid,
+      });
+
+      // What restart commits for a runner whose exit.json is final (T086): finished, effect unknown.
+      d.must(task.id, {
+        kind: 'operation_result',
+        operation_id: op.id as Uuid,
+        status: 'finished',
+        outcome: 'succeeded',
+        invocation_id: null,
+        processes: [],
+        started_at: d.now as EpochMs,
+        finished_at: d.now as EpochMs,
+        receipt_digest: `sha256:${'c'.repeat(64)}`,
+      });
+      d.must(task.id, {
+        kind: 'effect_result',
+        effect_id: agent.id as Uuid,
+        ...(agent.attempt_id === null
+          ? {}
+          : { attempt_id: agent.attempt_id as Uuid }),
+        outcome: 'unknown',
+      });
+      await settle();
+
+      expect(recovered).toHaveLength(1);
+      expect((role === 'coder' ? coder : codex).calls).toHaveLength(1);
+      const s = d.task(task.id);
+      expect(s.effects[agent.id]?.status).toBe('succeeded');
+      // The result file is indexed alone at the committed cursor, the records are not counted twice.
+      expect(s.artifacts[result.artifact_id]).toMatchObject({ kind: 'result' });
+      expect(
+        d.store.readEvents(task.id).filter((e) => e.type === 'OutputIngested'),
+      ).toHaveLength(1);
+      expect(s.run.reviews).toMatchObject([
+        { verdict: 'approve', sha: s.run.checkpoint?.sha },
+      ]);
+      expect(github.prs).toHaveLength(1);
+      expect(d.store.verifyProjections().ok).toBe(true);
+    });
   },
 );

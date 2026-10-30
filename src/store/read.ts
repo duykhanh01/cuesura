@@ -177,6 +177,13 @@ export function pendingEffects(
   return rows.map(toEffect);
 }
 
+/** One effect with its request, whatever its status (reconcile reads the effect it probes). */
+export function readEffect(db: Database, id: string): Effect | null {
+  const row = db.prepare(`SELECT * FROM effects WHERE id = ?`).get(id) as
+    EffectRow | undefined;
+  return row === undefined ? null : toEffect(row);
+}
+
 /** Slot holder and the next request by SPEC.md §6.2 order, read inside the caller's transaction. */
 export function readExecutionFacts(db: Database): {
   slot: { holder_task_id: string; request_id: string } | null;
@@ -244,24 +251,22 @@ export function readRuntimeContext(
     : (JSON.parse(row.runtime_json) as FrozenRuntimeContext);
 }
 
-/** Operations not yet proven finished or never launched; startup reconciles these before granting work. */
-export function unresolvedOperations(db: Database): {
+export type UnresolvedOperation = {
   id: string;
   task_id: string;
   effect_id: string;
   status: string;
   holds_slot: boolean;
-}[] {
+};
+
+/** Operations not yet proven finished or never launched; startup reconciles these before granting work. */
+export function unresolvedOperations(db: Database): UnresolvedOperation[] {
   const rows = db
     .prepare(
       `SELECT id, task_id, effect_id, status, holds_slot FROM operations WHERE status IN ('registered', 'running', 'unknown', 'lost') ORDER BY id`,
     )
-    .all() as {
-    id: string;
-    task_id: string;
-    effect_id: string;
-    status: string;
+    .all() as (Omit<UnresolvedOperation, 'holds_slot'> & {
     holds_slot: number;
-  }[];
+  })[];
   return rows.map((r) => ({ ...r, holds_slot: r.holds_slot === 1 }));
 }

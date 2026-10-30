@@ -11,6 +11,7 @@
  */
 import { spawn } from 'node:child_process';
 import { isAbsolute, normalize } from 'node:path';
+import { operationEnv } from '../../runner/process-tag.ts';
 import type { GitCommand, GitPort, GitResult } from '../ports.ts';
 
 const STDERR_BYTES = 64 * 1024;
@@ -306,7 +307,7 @@ export class GitCommandRunner implements GitPort {
       try {
         child = spawn(this.#o.git, argv, {
           cwd,
-          env: { ...this.#env, ...extraEnv },
+          env: { ...this.#env, ...extraEnv, ...operationEnv() },
           stdio: ['pipe', 'pipe', 'pipe'],
           detached: true,
         });

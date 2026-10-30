@@ -299,23 +299,167 @@ Evidence trước đó tại
 
 ### Tests for User Story 3
 
-- [ ] T081 [P] [US3] Viết `test/integration/runtime/runner-adoption.test.ts` cho daemon foreground kill và systemd daemon stop/restart, trước/sau unit start/PID receipt/marker, runner unit vẫn sống, operation lock ngăn double spawn, kill runner dừng descendants, PID reuse/reboot không giết nhầm (FR-007/034.01/035).
-- [ ] T082 [P] [US3] Viết `test/integration/runtime/publish-recovery.test.ts` bằng Git/fake HTTP thật, ngắt sau commit/ref CAS/push/PR success trước receipt, remote diverged/duplicate marker/422/network unknown, setup non-safe unknown và local remainder sau late push; mở rộng H05: restart khi reviewer A chưa ingest nhưng drift B đã ghi, giữ fact/blocker/receipt và không lặp reviewer/commit/PR hoặc route publish từ result A (FR-003/004/017/018, FR-041.03).
-- [ ] T083 [P] [US3] Viết `test/integration/runtime/spool-recovery.test.ts` cho partial record/result, rotation, cursor/event atomicity, crash trước/sau ACK, ENOSPC/BUSY/64 MiB backpressure, cursor generation/seq và retention không xóa chưa ACK (FR-008/023/030/031).
-- [ ] T084 [P] [US3] Viết `test/integration/runtime/feature-002-recovery.test.ts` cho startup single-writer/integrity/schema/replay mismatch, queue global_seq, timer/deadline giữ nguyên, merge recorded trước drain crash, late fixer/push và unknown drain không DONE/nhả claim (FR-022/034.01–03/036).
+- [x] T081 [P] [US3] Viết `test/integration/runtime/runner-adoption.test.ts` cho daemon foreground kill và systemd daemon stop/restart, trước/sau unit start/PID receipt/marker, runner unit vẫn sống, operation lock ngăn double spawn, kill runner dừng descendants, PID reuse/reboot không giết nhầm (FR-007/034.01/035).
+  - Hoàn tất 2026-10-30: 6 test trên systemd user manager, `cusr-runner exec`, flock kernel và /proc thật
+    (bỏ qua khi host không có user manager). Daemon stand-in `test/support/runner-adoption-child.ts` bị
+    SIGKILL sau claim (not_launched, trả reservation, không spawn), sau khi unit chạy nhưng trước marker
+    (nhận lại running, supervisor `marker_exists`, runner thứ hai thoát 75 vì lock, đúng một spawn, stop
+    unit dừng cả cây kể cả con setsid, exit muộn → finished + effect unknown), sau marker/pid (nhận lại theo
+    identity; SIGKILL runner → cgroup dừng hết, lost giữ claim/reservation/slot). Unit daemon riêng bị
+    restart rồi stop: unit operation giữ nguyên InvocationID, daemon khởi động lại nhận lại và không launch
+    lần hai. PID bị dùng lại hoặc của boot khác → lost, tiến trình lạ vẫn sống, stop không tìm thấy unit.
+- [x] T082 [P] [US3] Viết `test/integration/runtime/publish-recovery.test.ts` bằng Git/fake HTTP thật, ngắt sau commit/ref CAS/push/PR success trước receipt, remote diverged/duplicate marker/422/network unknown, setup non-safe unknown và local remainder sau late push; mở rộng H05: restart khi reviewer A chưa ingest nhưng drift B đã ghi, giữ fact/blocker/receipt và không lặp reviewer/commit/PR hoặc route publish từ result A (FR-003/004/017/018, FR-041.03).
+  - Hoàn tất 2026-10-30: 9 test chạy handler thật của daemon trên SQLite file, worktree/bare remote Git
+    thật và FakeGitHub có trạng thái (port, không qua HTTP; transport `gh` đã có contract riêng). Daemon chết
+    trước/sau `update-ref` của checkpoint commit, sau `push`, sau 201 của create PR, trước receipt; restart
+    thấy operation lost, effect unknown + reconcile, vài vòng dispatch không gửi lại gì. Probe trên bằng
+    chứng còn lại: intent commit nhận lại đúng một OID, remote đã có SHA → `already_pushed` không push lần
+    hai, remote bị người khác publish → `head_changed` không ghi đè, PR có marker → `recovered` không POST
+    lần hai, marker nhân đôi → `conflict multiple`, 422 với PR đã tạo → handler ghi đúng PR đó, answer mất
+    khi GitHub không đọc được → unknown qua restart rồi probe thấy một PR. H05: reviewer A đã xong trên đĩa
+    chưa ingest, drift B đã ghi, restart giữ drift/blocker/review, A → unknown; kết quả A đến qua reconcile
+    không mở publish/PR/gates hay reviewer thứ hai. Gọi các probe này trong effect `reconcile` của daemon
+    thuộc T089/T090; setup không declared safe retry thuộc T090, local remainder sau late push thuộc T091.
+- [x] T083 [P] [US3] Viết `test/integration/runtime/spool-recovery.test.ts` cho partial record/result, rotation, cursor/event atomicity, crash trước/sau ACK, ENOSPC/BUSY/64 MiB backpressure, cursor generation/seq và retention không xóa chưa ACK (FR-008/023/030/031).
+  - Hoàn tất 2026-10-30 cùng T087: 20 test trên SQLite file và spool thật. SIGKILL tiến trình con tại 6 điểm của transaction ingest (`after_dedup`…`after_commit`), restart ingest phần còn lại đúng một lần; SQLITE_FULL/IOERR/BUSY không commit, không ACK; backpressure ở cap giữ đủ record; retention giữ run chưa ACK; daemon startup ingest trước khi dispatch. Result partial/invalid vẫn do `test/unit/runner/files.test.ts` kiểm.
+- [x] T084 [P] [US3] Viết `test/integration/runtime/feature-002-recovery.test.ts` cho startup single-writer/integrity/schema/replay mismatch, queue global_seq, timer/deadline giữ nguyên, merge recorded trước drain crash, late fixer/push và unknown drain không DONE/nhả claim (FR-022/034.01–03/036).
+  - Hoàn tất 2026-10-30 cùng T085/T086: 13 test trên SQLite file và run directory thật. Startup đúng thứ tự,
+    report ghi trước dispatch, writer thứ hai `store_locked`, schema mới hơn bị từ chối nguyên vẹn, projection
+    lệch chặn trước reconcile/ingest và health 503; slot/queue theo global_seq/timer/deadline đọc lại nguyên
+    vẹn kể cả quá hạn. Reconcile: not_launched trả reservation, runner sống được nhận lại không spawn lại,
+    exit muộn → finished + effect unknown, mất identity → lost giữ claim, PID bị dùng lại vẫn lost, identity
+    không đọc được → hold tới khi lượt sau chứng minh, operation trong daemon chết → lost + reconcile, flock
+    kernel thật giữ trước marker → running rồi lost. Merge ghi trước crash: CI đỏ đến muộn không mở fixer,
+    drain pause, không DONE, dependent không được nhả. Systemd/lock/proc được giả lập trừ flock; daemon kill
+    hàng loạt thuộc T093.
 
 ### Implementation for User Story 3
 
-- [ ] T085 [US3] Tạo `src/daemon/startup.ts` theo thứ tự writer lock→schema/integrity→verify mọi projection→reconcile operations/slot/timers→ingest→schedule; legacy runtime=null chỉ đọc, mismatch/unresolved claim chặn cấp việc và health có lý do (FR-022/036).
-- [ ] T086 [US3] Tạo `src/daemon/reconcile.ts` nhận lại systemd unit/flock/launch/pid/exit bằng identity đầy đủ, process chết có proof nhưng thiếu result→lost, unknown giữ claim/reservation; same-vendor session resume tối đa một lần khi policy/session cho phép, chỉ là facts cho engine xét budget, không spawn thay attempt cũ (FR-034.01/035).
-- [ ] T087 [US3] Hoàn thiện `src/daemon/ingest.ts`, `src/store/accept.ts` cho event+cursor cùng transaction, “Chỉ nhảy sau record đầy đủ; thay đổi cùng transaction với event suy ra”, ACK sau commit, duplicate seq không duplicate event, operation/generation/segment/digest được kiểm (FR-031).
-- [ ] T088 [US3] Hoàn thiện `src/runner/spool.ts`, `src/runner/files.ts` rotation 8 MiB/segment giữ unacked, cap spool 64 MiB→artifact_backpressure và stop operation, disk full giữ receipts/claim/health; terminal partial final invalid output, không âm thầm bỏ output (FR-008/023/030/031).
-- [ ] T089 [US3] Hoàn thiện probe/re-adopt tại `src/adapters/git/reconcile.ts`, `src/adapters/github/reconcile.ts` trước retry commit/push/create PR/rerun: exact OID/remote/identity/all states/operation key, unknown/multiple giữ chờ; request retry count tách logical external effects (FR-017/018/034.01).
-- [ ] T090 [US3] Nối recovery setup/gate/autofix/publish vào `src/daemon/reconcile.ts`, `src/runner/commands.ts`: mọi long operation có receipt, declared safe retry mới cho phép, checkpoint giữ nguyên khi HEAD lệch, filesystem write proof trước nhả claim (FR-003/004/034.01).
-- [ ] T091 [US3] Hoàn thiện `src/daemon/drain.ts`, `src/engine/reconcile.ts` sau restart: merge proof ưu tiên, giữ hạn/count/unknown claim, invalidate business chưa gửi, nhận late results đúng thực tế không resume/publish, preserve local_remainder, không dependency sớm (FR-034.02/03, FR-040.02–09/13).
-- [ ] T092 [US3] Nối store failure latch vào `src/daemon/dispatch.ts`, `src/daemon/health.ts`: không phát effect khi SQLite/FS không ghi được, không trả accepted thành công giả; runner spool chờ ingest, recovery không xóa dữ liệu để giải phóng disk, writer thứ hai bị từ chối (FR-006/022/023).
-- [ ] T093 [US3] Thêm crash driver `test/reliability/runtime-crash.test.ts`, hỗ trợ tại `test/support/runtime-crash.ts` và nối `scripts/test-reliability.ts`: ít nhất 40 kills mỗi nhóm spawn/adoption, output/ACK, commit/push, PR create/recover, merge/drain; mỗi nhóm gồm trước effect/sau external success/trước durable ingest, seed+point+request/effect ledger và replay mọi bảng sau từng restart; gồm H05 quanh fact head_changed/result review và publish đang dở, không gỡ blocker hoặc lặp effect do callback A (FR-036, FR-041.03, SC-004).
-- [ ] T094 [US3] Chạy T081–T084 và ≥200 kills T093 bằng `pnpm test:reliability --seed 20261028`, ghi ledger/replay digest/operation counts tại `specs/002-task-to-green-pr/acceptance-report.md`; 100% committed state/projection khớp, zero duplicate attempt/commit/PR, không lấy crash 001/fake PID thay evidence runtime (SC-004/005/006).
+- [x] T085 [US3] Tạo `src/daemon/startup.ts` theo thứ tự writer lock→schema/integrity→verify mọi projection→reconcile operations/slot/timers→ingest→schedule; legacy runtime=null chỉ đọc, mismatch/unresolved claim chặn cấp việc và health có lý do (FR-022/036).
+  - `recoverStore` chạy lock/schema/integrity (`openStore`) → verify → `reconcileOperations` → `ingestAllSpools`,
+    ghi `DATA_DIR/startup-report.json` (temp→fsync→rename→fsync dir) trước lần dispatch đầu; không ghi được
+    report thì chặn. Projection lệch hoặc lỗi ghi chặn dispatch; claim unknown chỉ `hold` effect nghiệp vụ, effect
+    phục vụ (reconcile/stop/observe) vẫn chạy để gỡ; cả hai làm health 503 có lý do. Daemon lặp lại reconcile
+    cho operation không handler nào giữ (runner được nhận lại, probe chưa đọc được) và nhả hold khi hết unknown.
+    Task thiếu runtime snapshot được liệt kê read-only. Timer không bị bắn/gia hạn lại ở startup.
+- [x] T086 [US3] Tạo `src/daemon/reconcile.ts` nhận lại systemd unit/flock/launch/pid/exit bằng identity đầy đủ, process chết có proof nhưng thiếu result→lost, unknown giữ claim/reservation; same-vendor session resume tối đa một lần khi policy/session cho phép, chỉ là facts cho engine xét budget, không spawn thay attempt cũ (FR-034.01/035).
+  - Operation agent (effect `start_agent`) đối chiếu unit systemd, flock, `launch.json`, `pid.json`, `exit.json`
+    và identity (boot/pid/start ticks/nonce): không marker + unit không chạy + lock trống → not_launched và
+    `effect_reconciled not_executed`; sống → running (không đổi effect); exit hợp lệ → finished, effect
+    `unknown`; chết có proof → lost, effect `unknown`, giữ claim/reservation; còn lại → unknown. Operation chạy
+    trong daemon (Git/GitHub/gate) không còn process để nhận lại → lost, effect `unknown` cho reconcile theo
+    loại (T089/T090). Đọc kết quả của run đã finished thuộc T090; quyết định resume session cho attempt lost
+    thuộc T099 — reconcile chỉ báo facts attempt (step/binding/kind/reservation).
+  - Sửa sau review PR #21: process con của operation trong daemon (git, `gh`, lệnh repo) mang env
+    `CUSR_OPERATION_ID` (`src/runner/process-tag.ts`, gắn theo handler qua `AsyncLocalStorage` của
+    dispatcher) và sống sót khi daemon bị SIGKILL vì chạy process group riêng. Reconcile quét `/proc`:
+    process còn sống mang tag bị dừng (SIGKILL cả group sau khi kiểm start ticks — timeout của chúng đã
+    chết theo daemon), rồi quét lại tối đa 2 giây; còn sót → `running` (ghi identity). Dispatcher ghi bền
+    `process-marks/<operation>.json` (boot_id + tick theo `/proc/uptime`) trước khi handler có thể spawn
+    và xóa khi fact đã ghi; ghi không được thì không chạy handler (latch). Process cùng user không đọc được
+    environ (non-dumpable) và có start ticks từ mốc đó trở đi → `unknown`; process của user khác, bắt đầu
+    trước mốc, mốc của boot khác hoặc không có mốc (chưa từng spawn) không thể thuộc operation. Mốc và
+    start ticks cùng đồng hồ boot nên chỉnh giờ/UTC không làm lệch. Cả `running` lẫn `unknown` giữ effect
+    `started`, không probe/thử lại; chỉ khi chứng minh không còn process nào mới `lost`. Test: ca giả
+    lập trong `feature-002-recovery.test.ts`, `/proc` thật (kể cả process non-dumpable) ở
+    `test/unit/runner/process-tag.test.ts`.
+- [x] T087 [US3] Hoàn thiện `src/daemon/ingest.ts`, `src/store/accept.ts` cho event+cursor cùng transaction, “Chỉ nhảy sau record đầy đủ; thay đổi cùng transaction với event suy ra”, ACK sau commit, duplicate seq không duplicate event, operation/generation/segment/digest được kiểm (FR-031).
+  - `ingestOperationSpool`/`ingestAllSpools` đọc từ cursor đã commit, mỗi batch là một `ingest_record` (event + cursor cùng transaction của `accept`, không cần sửa `accept.ts`). ACK chỉ theo cursor trong store và chỉ khi operation lẫn effect đã resolved, vì harness đang recover còn đọc lại từ record đầu. Artifact chỉ đính kèm khi `exit.json` đã final; artifact còn lại (log đã ingest hết lúc runner còn chạy, hoặc quá 16 mục mỗi trigger) được gửi tiếp ở đúng cursor đã commit với `records: 0`, engine ghi `ArtifactIngested` mà không đổi cursor. Còn artifact final chưa commit thì không ACK. `startDaemon` ingest trước dispatch; lỗi ghi thì chặn dispatch. Thứ tự startup đầy đủ vẫn thuộc T085.
+  - Sửa sau review PR #21: run không ghi record nào (im lặng hoặc chỉ stderr) vẫn commit artifact final:
+    `ingest_record` nhận `cursor: null` khi operation chưa có cursor, chỉ cho lượt `records: 0`; engine
+    ghi `ArtifactIngested`, không có `OutputIngested`/cursor. Test ở `spool-recovery.test.ts`.
+- [x] T088 [US3] Hoàn thiện `src/runner/spool.ts`, `src/runner/files.ts` rotation 8 MiB/segment giữ unacked, cap spool 64 MiB→artifact_backpressure và stop operation, disk full giữ receipts/claim/health; terminal partial final invalid output, không âm thầm bỏ output (FR-008/023/030/031).
+  - Hoàn tất 2026-10-30: spool vẫn nằm trong `src/runner/files.ts` (rotation 8 MiB, cap 64 MiB, chỉ xóa sau
+    ACK đã có từ T087), không tách `spool.ts`. Runner (`lifecycle.ts`): lỗi ghi event log hoặc PID receipt
+    (ENOSPC/EIO) không làm runner chết nữa mà dừng cả cây với `artifact_backpressure`, nguyên nhân ghi vào
+    `exit.json.error`; output nhận được nhưng không lưu (sau cap/lỗi ghi, stderr còn treo) đếm ở
+    `artifacts.dropped_bytes` (tùy chọn, exit cũ vẫn đọc được). `readRecords(..., { final: true })` báo
+    dòng cuối rách của segment cuối là torn khi `exit.json` đã final; ingest và harness dùng chế độ này,
+    harness cộng torn vào `truncated_records` nên kết quả bị cắt cụt là invalid output thay vì chờ mãi.
+    Test: `test/integration/runtime/runner-storage.test.ts` (process thật, cap nhỏ; ENOSPC tiêm tại
+    `writeSync`), thêm ca torn final ở `spool-recovery.test.ts`.
+- [x] T089 [US3] Hoàn thiện probe/re-adopt tại `src/adapters/git/reconcile.ts`, `src/adapters/github/reconcile.ts` trước retry commit/push/create PR/rerun: exact OID/remote/identity/all states/operation key, unknown/multiple giữ chờ; request retry count tách logical external effects (FR-017/018/034.01).
+  - Hoàn tất 2026-10-30: probe chỉ đọc. Git: `probeCommit` (chuyển từ `commit.ts`) theo intent đã lưu →
+    committed (đúng OID)/not_applied/no_intent/head_changed/unknown; `probePush` theo remote ref với
+    expected-old/new (`classifyRemote` dùng chung với `pushBranch`). GitHub: `probePr` (tuple + marker mọi
+    state qua `findTaskPr` của `publish.ts`, `absent` chỉ sau listing đầy đủ, nhiều PR → conflict),
+    `probeDescription` theo body digest, `probeRerun` chỉ nhận rerun khi mọi workflow run của head có
+    attempt mới bắt đầu sau lúc claim, còn lại unknown (POST không idempotent). Số request probe dùng ghi ở
+    `effect_reconciled.requests` (trường tùy chọn) và kết quả effect `reconcile`, tách khỏi effect logic.
+    Test: `test/contract/reconcile-probes.test.ts` (Git thật + bare remote, FakeGitHub; probe không ghi).
+- [x] T090 [US3] Nối recovery setup/gate/autofix/publish vào `src/daemon/reconcile.ts`, `src/runner/commands.ts`: mọi long operation có receipt, declared safe retry mới cho phép, checkpoint giữ nguyên khi HEAD lệch, filesystem write proof trước nhả claim (FR-003/004/034.01).
+  - Hoàn tất 2026-10-30: probe theo loại effect nằm trong handler `reconcile` của
+    `src/daemon/handlers.ts` (`reconcileEffect`, cần helper nội bộ của handler; `daemon/reconcile.ts` vẫn
+    lo operation/runner). Prepare và gate (declared safe) chạy lại; commit checkpoint đã có intent dùng lại
+    thời điểm của intent nên ra đúng OID cũ; nhánh bị người khác dời → giữ unknown, không reset. Autofix
+    (unsafe) chỉ dựa vào journal: chưa spawn lệnh nào → not_executed (về hàng đợi cùng key), mọi lệnh đã
+    có receipt → dựng kết quả từ receipt, còn lại giữ unknown chờ người. Publish/create PR/mô tả/rerun/
+    await_ci dùng probe T089; remote lệch → executed_failed + `head_drift` (trừ khi đã merge). Có kết
+    luận chắc chắn thì operation lost/unknown của effect được đóng `finished` cùng lúc (nhả claim/slot);
+    còn đang chạy trong daemon thì không chạm. `start_agent` vẫn unknown (đọc kết quả/resume thuộc T099).
+    `CommandJournal` (`runner/commands.ts`): `started` fsync trước spawn (không ghi được thì không spawn),
+    receipt sau khi xong, mỗi effect một thư mục `paths.receipts/<effect>`. Giới hạn: kết luận
+    `still_unknown` không tự đối chiếu lại, chờ recheck/người như trước. Test: `publish-recovery.test.ts`
+    viết lại theo reconcile thật của daemon (commit/push/PR/marker trùng/remote lệch) và thêm 4 ca
+    gate/autofix bị giết giữa chừng; `test/unit/runner/command-journal.test.ts`.
+  - Sửa sau review PR #21: receipt che `command` và `detail` bằng redactor trước khi ghi journal và trả
+    về (`command_digest` vẫn là digest lệnh đã freeze). Reconcile `start_agent` có operation `finished`
+    dựng lại đúng input của handler (hạn của run lấy từ `registered_at` khi task không có deadline) và
+    đọc kết quả qua `HarnessPort.recover`, không bao giờ launch, thành `executed_succeeded`. Runner thật
+    ghi `launch-state.json` trước spawn (digest input, nonce, nguồn kết quả, snapshot write zone, file có
+    sẵn, home auth), nên mọi role — kể cả run kết thúc khi không có daemon — được kết luận từ đĩa bằng
+    cùng pipeline với `run`; `result.json` đã finalize được giữ nguyên (đã có thể là artifact), reviewer
+    đã finalize vẫn phải khớp proof. Outcome đã redact được lưu ở `out/outcome.json` trước khi auth rời
+    home; recovery trả bản đó, và chỉ kết luận từ output thô khi mọi file auth còn nguyên để redact (không
+    thì `still_unknown`, không bao giờ trả output thô). Records đã được startup ingest thì handler gửi
+    riêng artifact mới tại cursor đã commit (không bị bỏ vì stale cursor). Input/launch lệch, write zone
+    đổi sau exit (không quy được cho run) thì giữ `still_unknown`. Operation lost/unknown vẫn cho T099. Test: `harness-invocation.test.ts`,
+    `feature-002-flow.test.ts` (coder và reviewer xong khi daemon chết → reconcile → đúng một run, đi
+    tiếp tới PR).
+- [x] T091 [US3] Hoàn thiện `src/daemon/drain.ts`, `src/engine/reconcile.ts` sau restart: merge proof ưu tiên, giữ hạn/count/unknown claim, invalidate business chưa gửi, nhận late results đúng thực tế không resume/publish, preserve local_remainder, không dependency sớm (FR-034.02/03, FR-040.02–09/13).
+  - Hoàn tất 2026-10-30: `onReconciled` không route kết quả muộn khi đã có head drift (như `effect_result`,
+    H01/H05) và không đưa not_executed về hàng đợi khi drift/merge. Vòng drain nhận `local` (probe chỉ đọc
+    `probeLocalRemainder`: HEAD worktree, dirty kể cả untracked, commit remote chưa có, remote head) và
+    ghi vào `completion.local_remainder` qua `DrainProgressed` (trường tùy chọn, projection cũ vẫn khớp);
+    không reset/xoá/push. Test tích hợp: merge đã ghi khi daemon chết lúc đọc CI, restart → vòng drain
+    giữ claim và ghi remainder (commit local + file chưa commit) → reconcile đọc lại PR chỉ ghi bằng chứng
+    → DONE đúng một lần, rồi dependent mới READY; thêm 3 ca engine ở `feature-002-recovery.test.ts`.
+    Drain/reconcile vẫn chưa nối vào vòng lặp `cusrd` (wiring daemon thật, như T047).
+- [x] T092 [US3] Nối store failure latch vào `src/daemon/dispatch.ts`, `src/daemon/health.ts`: không phát effect khi SQLite/FS không ghi được, không trả accepted thành công giả; runner spool chờ ingest, recovery không xóa dữ liệu để giải phóng disk, writer thứ hai bị từ chối (FR-006/022/023).
+  - Hoàn tất 2026-10-30: `Dispatcher.latch` giữ lý do đầu tiên khi claim/result bị store từ chối
+    (`write_failed`) hoặc handler lỗi ENOSPC/EDQUOT/EIO/EROFS/SQLITE ghi; từ đó không claim effect nào, kể
+    cả service effect, `block`/`hold` không gỡ được, chỉ restart (startup recovery kiểm lại store) mới gỡ.
+    Fact sau fact bị từ chối của cùng effect không được ghi; effect giữ `started` cho reconcile. Daemon
+    (`main.ts`): admission/complete command lỗi ghi cũng latch; khi đã latch, command mới trả 503
+    `store_unwritable` trước admission (không ghi ledger), `recover()` không reconcile/ingest/ACK nên spool
+    chờ trên đĩa; lỗi ghi lúc recovery chuyển từ `block` sang latch. `src/daemon/health.ts` tách từ
+    `main.ts`: health có `store.writable/failure`, 503 khi latch/block/hold. Retention không đổi (chỉ xóa run
+    đã ACK). Test: unit `dispatch.test.ts` (3 ca latch) và `test/integration/runtime/store-failure.test.ts`
+    (daemon thật: health 503, command 503 không vào ledger, recover không accept, writer thứ hai
+    `store_locked`, restart sạch latch).
+- [x] T093 [US3] Thêm crash driver `test/reliability/runtime-crash.test.ts`, hỗ trợ tại `test/support/runtime-crash.ts` và nối `scripts/test-reliability.ts`: ít nhất 40 kills mỗi nhóm spawn/adoption, output/ACK, commit/push, PR create/recover, merge/drain; mỗi nhóm gồm trước effect/sau external success/trước durable ingest, seed+point+request/effect ledger và replay mọi bảng sau từng restart; gồm H05 quanh fact head_changed/result review và publish đang dở, không gỡ blocker hoặc lặp effect do callback A (FR-036, FR-041.03, SC-004).
+  - Hoàn tất 2026-10-30: mỗi đời daemon là tiến trình riêng (`runtime-crash-child.ts`) chạy
+    `recoverStore` rồi handler/dispatcher thật trên SQLite file, Git worktree/bare remote thật, GitHub
+    giả lưu ở file, systemd/`cusr-runner` thật cho spawn. Mọi request ngoài và mọi lần ghi store qua
+    điểm ngắt có ghi ledger, tự `SIGKILL` tại `(key, occurrence)` chọn từ seed. Có 6 nhóm:
+    spawn_adoption, output_ack, commit_push, pr_create, merge_drain và h05 (drift B ghi khi daemon chết).
+    Mỗi kill đều kiểm integrity, `verifyProjections` và nhật ký là tiền tố. Đời cuối kiểm đúng một
+    spawn/commit/push/PR/DONE. Driver tìm ra 4 lỗi recovery, đã sửa kèm test hồi quy: effect `started`
+    mồ côi khi receipt commit mà result chưa (`settleOrphans`, `orphaned` trong startup report),
+    reconcile bị giết thì không ai đối chiếu (giờ `not_executed` và chạy lại cùng key), effect về hàng
+    đợi rồi mất lần hai không có reconcile mới (`requestReconcile` lấy key kế), reconcile `await_ci`
+    bỏ fact merge. `scripts/test-reliability.ts` nhận thêm `--kills`.
+  - Sửa sau review PR #21: khóa dedup của `settleOrphans` gắn operation mới nhất của effect
+    (`recover:<effect>:<operation>:…`), lấy theo thứ tự `OperationRegistered` đã commit chứ không theo
+    đồng hồ; effect chạy lại sau reconcile rồi mồ côi lần hai (kể cả khi đồng hồ lùi) không còn nhận câu
+    trả lời cache của lần đầu và kẹt `started`. Test ở `feature-002-recovery.test.ts`.
+- [x] T094 [US3] Chạy T081–T084 và ≥200 kills T093 bằng `pnpm test:reliability --seed 20261028`, ghi ledger/replay digest/operation counts tại `specs/002-task-to-green-pr/acceptance-report.md`; 100% committed state/projection khớp, zero duplicate attempt/commit/PR, không lấy crash 001/fake PID thay evidence runtime (SC-004/005/006).
+  - Hoàn tất 2026-10-30 trên WSL2 Ubuntu 22.04 (systemd user manager), chưa chạy trên host Ubuntu
+    của Phase 6: `pnpm test:reliability --seed 20261028 --no-file-parallelism` đạt 429/429. Runtime
+    crash có 220 lượt, 252 SIGKILL daemon; R1 có 200 kill; r4 có 10.000 chuỗi. T081–T084 pass trong
+    `pnpm test` (1.546 pass, 4 skip host-gated). 100% store khớp, không lặp attempt/commit/push/PR.
+    Ledger ở `evidence/t094-runtime-crash.json`, chi tiết ở acceptance-report.md. Lượt song song đầu
+    tiên fail vì thiếu RAM (giữ là failed). SC-005 với vendor thật vẫn chờ C.
 
 **Checkpoint**: Recovery I/O thật đạt; SC-005 vendor thật vẫn đợi C. Hoàn thiện interaction/CLI B trước C.
 
