@@ -1,6 +1,7 @@
 import { assertNever } from '../shared/assert-never.ts';
 import type { DomainEvent, DomainEventDraft } from '../domain/event.ts';
 import type { Hash } from '../shared/brand.ts';
+import { cancelReadRef } from '../domain/runtime.ts';
 import {
   isTerminal,
   STATE_SCHEMA_VERSION,
@@ -233,6 +234,9 @@ export function applyInPlace(
         stop_requested: false,
         outcome: null,
         usage: null,
+        ...(p.resumed_from === undefined
+          ? {}
+          : { resumed_from: p.resumed_from }),
       };
       s.current_attempt[p.step] = p.attempt_id;
       break;
@@ -589,6 +593,14 @@ export function applyInPlace(
         by: event.payload.by,
         reason: event.payload.reason,
         late: false,
+        ...(event.payload.read_token === undefined
+          ? {}
+          : { read_token: event.payload.read_token }),
+        // A merge already shown before the cancel counts the same as one shown after it.
+        ...(event.payload.read_token !== undefined &&
+        s.observation?.last?.status === 'merged'
+          ? { merge_seen: s.observation.last.observation_id }
+          : {}),
       };
       s.source_drift = null;
       break;
@@ -747,6 +759,19 @@ export function applyInPlace(
       break;
     }
     case 'ExternalStateObserved': {
+      const c = s.cancellation;
+      const read = event.payload.observation;
+      // The cancel's own read counts. A read of any source that shows a merge, proven or not, is kept
+      // for good: no open/closed read logged later, its own late answer included, ends the cancel over
+      // it; only the merge proof (DONE through the drain) does (FR-025.03/04, FR-040.12).
+      if (c?.read_token !== undefined) {
+        if (read.status === 'merged') c.merge_seen = read.observation_id;
+        if (read.raw_evidence_ref === cancelReadRef(c.read_token))
+          c.pr_read = {
+            observation_id: read.observation_id,
+            status: read.status,
+          };
+      }
       const o = s.observation;
       if (o) {
         const ob = event.payload.observation;

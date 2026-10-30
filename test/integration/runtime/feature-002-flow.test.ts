@@ -1,8 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
-import { FakeHarness } from '../../../src/adapters/harness/fake.ts';
+import { describe, expect, it } from 'vitest';
 import {
   MAX_CONTENT_FILE_BYTES,
   readStoredContent,
@@ -10,310 +9,27 @@ import {
 import type {
   HarnessInput,
   HarnessOutcome,
-  HarnessPort,
-  SandboxProvider,
 } from '../../../src/adapters/ports.ts';
 import { notifyDependents } from '../../../src/application/dependency.ts';
-import { Dispatcher } from '../../../src/daemon/dispatch.ts';
-import {
-  buildHandlers,
-  observeTask,
-  type HandlerDeps,
-} from '../../../src/daemon/handlers.ts';
+import { observeTask } from '../../../src/daemon/handlers.ts';
 import { mergeView } from '../../../src/application/queries.ts';
-import type { MergeMethod } from '../../../src/domain/merge-method.ts';
 import { taskBranch } from '../../../src/adapters/git/worktree.ts';
 import type { CanonicalTask } from '../../../src/domain/task.ts';
-import { SpawnExecutor } from '../../../src/runner/commands.ts';
 import { InvocationUnknown } from '../../../src/runner/invocation.ts';
 import { canonicalJson } from '../../../src/shared/canonical-json.ts';
-import { Redactor } from '../../../src/runner/redact.ts';
 import type { EpochMs } from '../../../src/shared/brand.ts';
 import { hashText } from '../../../src/shared/hash.ts';
-import { ok } from '../../../src/shared/result.ts';
 import type { Uuid } from '../../../src/shared/brand.ts';
-import {
-  injectEvents,
-  openFileStoreForTest,
-} from '../../../src/store/testing.ts';
-import { buildTask, freezeOk, uuidOf } from '../../support/builders.ts';
-import { FakeGitHub } from '../../support/fake-github.ts';
-import { gitSandbox } from '../../support/git-repo.ts';
-import {
-  confirmedRuntime,
-  proposeAndConfirm,
-  selectionFor,
-} from '../../support/runtime.ts';
-import type { ExecutionMode } from '../../../src/domain/run-config.ts';
-import type { CiRule } from '../../../src/domain/policy.ts';
+import { injectEvents } from '../../../src/store/testing.ts';
+import { buildTask, uuidOf } from '../../support/builders.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
-import { dbPath, useTempDir } from '../../support/temp-db.ts';
+import { CONTENT, flowEnv, type Content } from '../../support/flow-env.ts';
 
 // US1 baseline (T028/T047): real Git worktree and bare remote, fake harnesses and GitHub, Clock driven
 // by the test. One task, one branch, one PR, green CI, zero merge requests, then the user's merge.
 
-const g = gitSandbox('cusr-flow-');
-afterAll(() => g.cleanup());
-const tempDir = useTempDir('cusr-flow-db-');
-
-/** Runs `/bin/sh -c` directly; the bwrap boundary itself is covered by the sandbox and gates suites. */
-const passthrough: SandboxProvider = {
-  provider: 'bwrap',
-  plan: (layout, command) =>
-    ok({
-      isolation_mode: 'isolated',
-      provider: 'bwrap',
-      role: layout.role,
-      argv: [...command],
-      cwd: layout.worktree,
-      env: { PATH: '/usr/bin:/bin' },
-      network: 'internet_outbound',
-      mount_sources: [],
-      layout_digest: hashText(layout.role),
-      layout_shape: hashText(layout.role),
-      proof_refs: [],
-    }),
-};
-
+const { g, setup } = flowEnv('cusr-flow-');
 let n = 0;
-
-type Content = { commit_message: string; pr_title: string; pr_body: string };
-
-const CONTENT: Content = {
-  commit_message: 'Add name search\n\nSearch tasks by name.',
-  pr_title: 'Add name search',
-  pr_body: '## Summary\nSearch by name.\n\n## Tests\nunit',
-};
-
-/** The file the orchestrator asked the worker to write its commit/PR content to (from the context). */
-function contentFile(text: string): string {
-  const m = /as JSON \{[^}]*\} to (\S+\.json)\./.exec(text);
-  if (m === null) throw new Error('no content file in the worker context');
-  return m[1] as string;
-}
-
-type SetupOptions = {
-  mode: ExecutionMode;
-  content?: Content | null | ((file: string) => void);
-  template?: string;
-  merge_method?: MergeMethod;
-  duringReview?: (remote: string) => void;
-  /** One entry per worker run: the content it writes, in order (default: one run with `content`). */
-  runs?: readonly Content[];
-  /** The fake harness proves resume and reports a session per run (a session port for tests only). */
-  resume?: boolean;
-  /** Check states of each pushed SHA, in push order (default: all green). */
-  checks?: readonly Record<string, 'success' | 'failure'>[];
-  ci_rules?: CiRule[];
-  /** Reviewer approvals scripted in `full-review` (default 1). */
-  reviews?: number;
-  writeCode?: boolean;
-  askFirst?: boolean;
-  afterGit?: (args: readonly string[]) => void;
-};
-
-function setup(task: CanonicalTask, o: SetupOptions) {
-  const project = g.repo(`acme${n++}`);
-  const base = g.sh(project, 'rev-parse', 'HEAD');
-  const remote = `${project}.remote.git`;
-  g.sh(g.base, 'clone', '-q', '--bare', project, remote);
-  const data = `${project}.data`;
-  const d = new StoreDriver(openFileStoreForTest(dbPath(tempDir())));
-  const github = new FakeGitHub();
-  github.headOf = (branch) => {
-    try {
-      const sha = g.sh(
-        remote,
-        'rev-parse',
-        '--verify',
-        '--quiet',
-        `refs/heads/${branch}`,
-      );
-      // Checks of whatever head gets pushed come back green, unless the test scripted them per push.
-      if (!github.checks.has(sha))
-        github.checks.set(
-          sha,
-          o.checks?.[github.checks.size] ?? {
-            build: 'success',
-            test: 'success',
-          },
-        );
-      return sha;
-    } catch {
-      return null;
-    }
-  };
-  const paths = {
-    worktrees: join(data, 'worktrees'),
-    markers: join(data, 'owners'),
-    intents: join(data, 'intents'),
-    scratch: join(data, 'scratch'),
-    content: join(data, 'content'),
-    receipts: join(data, 'receipts'),
-  };
-  const runs = o.runs ?? [o.content ?? CONTENT];
-  const answers = runs.map((_, i) => ({
-    kind: 'result' as const,
-    value: {
-      schema_version: 1,
-      status: o.askFirst === true && i === 0 ? 'needs_input' : 'done',
-      summary: i === 0 ? 'added search' : `fix ${i}`,
-      questions:
-        o.askFirst === true && i === 0
-          ? [{ question: 'Which encoding?', options: [] }]
-          : [],
-      blocker: null,
-    },
-    ...(o.resume === true ? { session_ref: `sess-${i + 1}` } : {}),
-  }));
-  const coder = new FakeHarness(
-    { coder: answers },
-    'claude',
-    o.resume === true ? { resume: 'proven' } : {},
-  );
-  // The fake model edits the worktree and writes its commit/PR content where it was told to.
-  const claude: HarnessPort = {
-    harness: 'claude',
-    manifest: coder.manifest,
-    run: (input, signal) => {
-      const k = coder.calls.length;
-      if (o.writeCode !== false)
-        writeFileSync(
-          join(paths.worktrees, task.id, 'search.ts'),
-          `export const search = (q: string) => q;${k === 0 ? '' : ` // fix ${k}`}\n`,
-        );
-      if (typeof o.content === 'function')
-        o.content(contentFile(input.context.text));
-      else if (o.content !== null)
-        writeFileSync(
-          contentFile(input.context.text),
-          JSON.stringify(runs[k] ?? runs.at(-1)),
-        );
-      return coder.run(input, signal);
-    },
-  };
-  const approve = {
-    kind: 'result' as const,
-    value: {
-      schema_version: 1,
-      verdict: 'approve',
-      summary: 'looks right',
-      findings: [],
-    },
-  };
-  const reviewer = new FakeHarness(
-    {
-      reviewer:
-        o.mode === 'full-review'
-          ? Array.from({ length: o.reviews ?? 1 }, () => approve)
-          : [],
-    },
-    'codex',
-  );
-  const codex = Object.assign(reviewer, {
-    run: (
-      (orig) =>
-      (input: Parameters<HarnessPort['run']>[0], signal: AbortSignal) => {
-        o.duringReview?.(remote);
-        return orig(input, signal);
-      }
-    )(reviewer.run.bind(reviewer)),
-  });
-  let ids = 20_000;
-  const clock = { now: () => d.now as EpochMs, monotonic: () => d.now };
-  const newId = (): string => uuidOf(ids++);
-  let dispatcher: Dispatcher | null = null;
-  const git = g.runner();
-  const deps: HandlerDeps = {
-    store: d.store,
-    git: {
-      run: async (req) => {
-        const result = await git.run(req);
-        o.afterGit?.(req.args);
-        return result;
-      },
-    },
-    github: () => github,
-    harnesses: { claude, codex },
-    sandbox: passthrough,
-    executor: new SpawnExecutor(),
-    clock,
-    redactor: new Redactor(),
-    newId,
-    paths,
-    committer: { name: 'Cuesura', email: 'cusr@invalid' },
-    remoteUrl: () => remote,
-    abort: (id) => dispatcher?.abort(id) ?? false,
-  };
-  dispatcher = new Dispatcher({
-    store: d.store,
-    clock,
-    handlers: buildHandlers(deps),
-    newId,
-  });
-
-  const start = (): void => {
-    const frozen = freezeOk(task, {
-      base_sha: base,
-      gates: { build: 'true', unit: 'true', lint: 'true', format_fix: 'true' },
-      required_checks: ['build', 'test'],
-      limits: { max_wall_ms: 3_600_000 },
-      mode: o.mode,
-      ...(o.ci_rules === undefined ? {} : { ci_rules: o.ci_rules }),
-    });
-    proposeAndConfirm(d, task, selectionFor(task, o.mode, frozen.value.policy));
-    d.must(task.id, { kind: 'request_execution' });
-    const granted = d.store.grantNext(d.now as EpochMs, [newId()]);
-    if (!granted.ok || granted.value.kind !== 'decided')
-      throw new Error(JSON.stringify(granted));
-    const template =
-      o.template === undefined
-        ? null
-        : {
-            path: '.github/pull_request_template.md',
-            content: o.template,
-            content_hash: hashText(o.template),
-          };
-    const runtime = confirmedRuntime(d, task, {
-      base_sha: base,
-      project_path: project,
-      target: {
-        provider: 'github',
-        repo: 'acme/app',
-        immutable_repo_id: '4242',
-        base_ref: 'main',
-      },
-      pr_template: template,
-      ...(o.merge_method === undefined ? {} : { merge_method: o.merge_method }),
-    });
-    d.must(task.id, { kind: 'start', freeze: frozen, runtime });
-  };
-
-  /** One dispatcher round; returns how many effects it started. */
-  const tick = async (): Promise<number> => {
-    const r = dispatcher.tick();
-    await dispatcher.settle();
-    d.now += 1_000;
-    return r.started.length;
-  };
-  const settle = async (max = 40): Promise<void> => {
-    for (let i = 0; i < max; i++) if ((await tick()) === 0) return;
-    throw new Error('flow did not settle');
-  };
-  return {
-    d,
-    deps,
-    github,
-    remote,
-    start,
-    tick,
-    settle,
-    codex,
-    coder,
-    worktree: join(paths.worktrees, task.id),
-    newId,
-  };
-}
 
 const types = (d: StoreDriver, t: CanonicalTask) =>
   d.store.readEvents(t.id).map((e) => e.type);

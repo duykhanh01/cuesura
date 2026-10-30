@@ -1,21 +1,39 @@
-import { isBusinessEffect } from '../domain/effect.ts';
-import { isTerminal, type EffectMirror } from '../domain/state.ts';
+import { isBusinessEffect, type EffectKind } from '../domain/effect.ts';
+import { cancelReadRef } from '../domain/runtime.ts';
+import {
+  isTerminal,
+  type EffectMirror,
+  type TaskState,
+} from '../domain/state.ts';
 import { release, usageOf } from './budget.ts';
 import type { Ctx } from './context.ts';
 import { inFlight, requestEffect, requestReconcile } from './effects.ts';
 import { closeOut } from './interpreter.ts';
+import { mkWait } from './waits.ts';
+
+/**
+ * Effects that run only local processes (setup, gates), stopped on cancel. A push, PR or rerun request
+ * already sent is left to finish within its own bound: stopping it midway would only make its remote
+ * effect unknown.
+ */
+const LOCAL_STOPPABLE: readonly EffectKind[] = ['prepare', 'run_gates'];
 
 /**
  * Hủy theo FR-018, trong cùng một `Decision`:
  * - effect nghiệp vụ `pending` bị vô hiệu hoá, giữ chỗ tương ứng được trả;
- * - effect `started` giữ nguyên; attempt agent đang chạy nhận effect `stop_attempt`;
+ * - effect `started` giữ nguyên; attempt agent, setup và gate đang chạy nhận effect `stop_attempt`;
  * - effect `unknown` nhận effect `reconcile`;
  * - không còn effect nào dở thì task kết thúc ngay.
  */
 export function requestCancel(ctx: Ctx, reason: string): void {
   const s = ctx.state;
   if (isTerminal(s.status) || s.cancellation !== null) return;
-  ctx.emit('CancelRequested', { by: ctx.actor, reason, at: ctx.now });
+  ctx.emit('CancelRequested', {
+    by: ctx.actor,
+    reason,
+    at: ctx.now,
+    ...(s.runtime_ref === null ? {} : { read_token: ctx.nextId() }),
+  });
   invalidatePending(ctx, 'cancelled', () => true);
   for (const e of Object.values(ctx.state.effects)) {
     if (
@@ -30,6 +48,16 @@ export function requestCancel(ctx: Ctx, reason: string): void {
         attempt_id: e.attempt_id,
         target_effect_id: e.id,
         request: { attempt_id: e.attempt_id, reason },
+      });
+    } else if (e.status === 'started' && LOCAL_STOPPABLE.includes(e.kind)) {
+      // Setup and gate processes are stopped too (FR-025.02); the effect then goes to reconcile.
+      requestEffect(ctx, {
+        kind: 'stop_attempt',
+        logical_id: `stop:${e.id}`,
+        step: e.step,
+        attempt_id: null,
+        target_effect_id: e.id,
+        request: { effect_id: e.id, reason },
       });
     } else if (e.status === 'unknown') {
       requestReconcile(ctx, e);
@@ -76,6 +104,10 @@ export function maybeFinishCancel(ctx: Ctx): void {
   // Once a merge proof is recorded the drain decides; the cancel is recorded late on DONE.
   if (s.completion !== null) return;
   if (Object.values(s.effects).some(inFlight)) return;
+  if (cancelNeedsPrRead(s)) {
+    waitCancelReconcile(ctx);
+    return;
+  }
   closeOut(ctx);
   if (s.merged) {
     const merge = Object.values(s.effects).find(
@@ -86,4 +118,51 @@ export function maybeFinishCancel(ctx: Ctx): void {
     return;
   }
   ctx.emit('TaskCancelled', { reason: s.cancellation.reason });
+}
+
+/**
+ * A runtime task with a PR ends CANCELLED only after a read of that PR requested for this cancel showed
+ * it open or closed (FR-025.03). The read is bound to the cancel by its token, issued in the same accept
+ * as the request, never by comparing clocks: a read made before the cancel, or by the automatic schedule,
+ * does not count however its timestamps fall. A merge shown with its proof goes through the drain to DONE;
+ * a merge without proof or an unreadable PR keeps the task waiting, never assumed not merged. A cancel
+ * recorded before tokens existed keeps its old rule (no read).
+ */
+export function cancelNeedsPrRead(s: TaskState): boolean {
+  const c = s.cancellation;
+  if (s.runtime_ref === null || s.pr_ref === null || c === null) return false;
+  if (c.read_token === undefined) return false;
+  // A merge was shown, or its evidence is incomplete or contradicts: wait for reconciliation, whatever
+  // any read said before or after (FR-040.12).
+  if (
+    c.merge_seen !== undefined ||
+    s.blockers.some((b) => b.code === 'merge_evidence_incomplete')
+  )
+    return true;
+  const r = c.pr_read;
+  return !(r !== undefined && (r.status === 'open' || r.status === 'closed'));
+}
+
+/** The evidence ref a read for the task's open cancel must carry; null when no read is asked for. */
+export function cancelReadEvidence(s: TaskState): string | null {
+  const t = s.cancellation?.read_token;
+  return t === undefined || !cancelNeedsPrRead(s) ? null : cancelReadRef(t);
+}
+
+function waitCancelReconcile(ctx: Ctx): void {
+  const s = ctx.state;
+  if (s.status === 'WAITING' && s.wait?.detail.code === 'cancel_reconcile')
+    return;
+  ctx.emit('TaskWaiting', {
+    wait: mkWait('policy', 'cancel_reconcile', {
+      resume_when: ['observation(after cancel)', 'recheck(observation)'],
+      exit_paths: ['recheck', 'merge the PR on GitHub, then recheck'],
+      detail: {
+        pr_ref: s.pr_ref,
+        head_sha: s.head_sha,
+        requested_at: s.cancellation?.requested_at ?? null,
+        last_cancel_read: s.cancellation?.pr_read ?? null,
+      },
+    }),
+  });
 }

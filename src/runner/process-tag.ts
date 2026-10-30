@@ -215,7 +215,10 @@ export function findTagged(
   return { ok: true, processes };
 }
 
-export type TaggedStopper = (processes: readonly ProcessIdentity[]) => void;
+export type TaggedStopper = (
+  processes: readonly ProcessIdentity[],
+  signal?: NodeJS.Signals,
+) => void;
 
 /**
  * Kills what a dead daemon left running for its operation: nobody reads its result and the timeout
@@ -224,6 +227,7 @@ export type TaggedStopper = (processes: readonly ProcessIdentity[]) => void;
  */
 export function stopTagged(
   processes: readonly ProcessIdentity[],
+  signal: NodeJS.Signals = 'SIGKILL',
   procRoot = '/proc',
 ): void {
   const self = read(`${procRoot}/self/stat`, 'utf8');
@@ -236,9 +240,52 @@ export function stopTagged(
     const group = p.pgid > 1 && p.pgid !== own ? [-p.pgid] : [];
     for (const target of [...group, p.pid])
       try {
-        process.kill(target, 'SIGKILL');
+        process.kill(target, signal);
       } catch {
         // Already gone; the next scan proves it.
       }
   }
+}
+
+/**
+ * Stops every live process of a local operation (setup, gate) this daemon runs or ran, by its tag
+ * (FR-025.02, FR-009): SIGTERM first, so a command can clean up, then SIGKILL to whatever is left after
+ * `term_grace_ms`, and a check that all are gone within `kill_verify_ms`. `not_running` when nothing
+ * tagged is alive or the operation never got its mark (nothing was spawned); `unknown` when the scan
+ * fails or a process is still there at the end.
+ */
+export async function stopOperationProcesses(
+  dataDir: string,
+  operationId: string,
+  o: {
+    readonly term_grace_ms?: number;
+    readonly kill_verify_ms?: number;
+    readonly probe?: TaggedProbe;
+    readonly stopper?: TaggedStopper;
+  } = {},
+): Promise<'stopped' | 'not_running' | 'unknown'> {
+  const mark = readOperationMark(dataDir, operationId);
+  if (!mark.ok) return 'unknown';
+  if (mark.mark === null) return 'not_running';
+  const scan = (): TaggedScan =>
+    (o.probe ?? findTagged)(operationId, mark.mark);
+  const stop = o.stopper ?? stopTagged;
+  const wait = (): Promise<void> => new Promise((r) => setTimeout(r, 50));
+  let found = scan();
+  if (!found.ok) return 'unknown';
+  if (found.processes.length === 0) return 'not_running';
+  stop(found.processes, 'SIGTERM');
+  const graceEnd = Date.now() + (o.term_grace_ms ?? 10_000);
+  while (found.ok && found.processes.length > 0 && Date.now() < graceEnd) {
+    await wait();
+    found = scan();
+  }
+  const killEnd = Date.now() + (o.kill_verify_ms ?? 5_000);
+  while (found.ok && found.processes.length > 0) {
+    stop(found.processes, 'SIGKILL');
+    if (Date.now() >= killEnd) return 'unknown';
+    await wait();
+    found = scan();
+  }
+  return found.ok ? 'stopped' : 'unknown';
 }

@@ -9,6 +9,7 @@ import {
 } from '../domain/runtime.ts';
 import {
   isTerminal,
+  type EffectMirror,
   type OperationMirror,
   type ResumeAction,
   type TaskState,
@@ -16,7 +17,7 @@ import {
 import type { Trigger } from '../domain/trigger.ts';
 import { canonicalJson } from '../shared/canonical-json.ts';
 import { reject, type Ctx } from './context.ts';
-import { inFlight } from './effects.ts';
+import { inFlight, requestReconcile } from './effects.ts';
 import { proceed } from './interpreter.ts';
 import { mkWait, waitTask } from './waits.ts';
 
@@ -29,10 +30,29 @@ export function isUnresolved(o: OperationMirror): boolean {
   return !RESOLVED_OPERATION_STATUSES.includes(o.status);
 }
 
-/** Operations whose claim must keep the execution slot (FR-044.06): unresolved and marked slot-bound. */
+/**
+ * A probe of slot-bound work (a reconcile of setup, an agent, gates or a publish, or a reconcile of such a
+ * probe) may run that work again or still have its processes: it binds the slot as the work does.
+ */
+export function slotProbe(s: TaskState, effectId: string): boolean {
+  let e = s.effects[effectId];
+  for (let hops = 0; e?.kind === 'reconcile' && hops < 64; hops++) {
+    const target: EffectMirror | undefined =
+      e.target_effect_id === null ? undefined : s.effects[e.target_effect_id];
+    if (target === undefined) return false;
+    if (holdsSlot(target.kind)) return true;
+    e = target;
+  }
+  return false;
+}
+
+/**
+ * Operations whose claim must keep the execution slot (FR-044.01/06): unresolved and slot-bound, the
+ * operations of a probe of slot-bound work included.
+ */
 export function slotBoundOperations(s: TaskState): OperationMirror[] {
   return Object.values(s.operations).filter(
-    (o) => o.holds_slot && isUnresolved(o),
+    (o) => isUnresolved(o) && (o.holds_slot || slotProbe(s, o.effect_id)),
   );
 }
 
@@ -188,7 +208,9 @@ export function waitForSlot(ctx: Ctx, resume: ResumeAction): boolean {
 export function hasSlotWork(s: TaskState): boolean {
   if (slotBoundOperations(s).length > 0) return true;
   return Object.values(s.effects).some(
-    (e) => holdsSlot(e.kind) && (e.status === 'pending' || inFlight(e)),
+    (e) =>
+      (holdsSlot(e.kind) || slotProbe(s, e.id)) &&
+      (e.status === 'pending' || inFlight(e)),
   );
 }
 
@@ -317,6 +339,7 @@ export function onOperationResult(
     (t.processes.length > 0 || t.started_at !== null)
   )
     reject('invalid_trigger', { reason: 'not_launched_with_process' });
+  const before = o.status;
   ctx.emit('OperationObserved', {
     operation_id: o.id,
     status: t.status,
@@ -327,6 +350,16 @@ export function onOperationResult(
     finished_at: t.finished_at,
     receipt_digest: t.receipt_digest,
   });
+  // New evidence about an operation whose effect waits unknown with no probe left (a probe that could
+  // not see its processes gone ended still_unknown): probe again now. Bounded, as it follows only a
+  // change of the operation's status, and every probe checks the processes first (Constitution III).
+  const e = ctx.state.effects[o.effect_id];
+  if (
+    !isTerminal(ctx.state.status) &&
+    t.status !== before &&
+    e?.status === 'unknown'
+  )
+    requestReconcile(ctx, e, { afterRunning: true });
   // A task that ended while this operation was unresolved kept the slot for it; free it with the last one.
   const h = ctx.state.execution.holding;
   if (

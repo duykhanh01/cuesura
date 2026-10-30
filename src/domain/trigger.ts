@@ -105,6 +105,8 @@ export const AgentDataSchema = z
     status: z.enum(['done', 'needs_input', 'needs_context', 'blocked']),
     summary: z.string(),
     questions: z.array(z.string()).optional(),
+    // What a needs_context/blocked worker says is missing or blocking (FR-039); additive.
+    blocker: z.string().max(65_536).optional(),
     usage: UsageSchema,
     invoked: z.boolean().optional(),
     // Worker-prepared commit/PR content, validated and stored by the orchestrator (M05); additive.
@@ -263,7 +265,25 @@ export const MergeDataSchema = z
   .object({ merged: z.boolean(), merge_sha: z.string().optional() })
   .strict();
 
-export const StopDataSchema = z.object({ stopped: z.boolean() }).strict();
+export const StopDataSchema = z
+  .object({
+    stopped: z.boolean(),
+    // Whether the in-flight handler was aborted, and the runners stopped through the process port
+    // (FR-025.02); additive.
+    aborted: z.boolean().optional(),
+    stops: z
+      .array(
+        z
+          .object({
+            operation_id: UuidSchema,
+            outcome: z.enum(['stopped', 'not_running', 'unknown']),
+          })
+          .strict(),
+      )
+      .max(64)
+      .optional(),
+  })
+  .strict();
 
 export const FailureDataSchema = z
   .object({

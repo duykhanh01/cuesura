@@ -201,6 +201,7 @@ function dispatch(ctx: Ctx, t: Trigger): void {
       return;
     case 'observation_result':
       onObservationResult(ctx, t);
+      maybeFinishCancel(ctx);
       return;
     case 'drain_result':
       onDrainResult(ctx, t);

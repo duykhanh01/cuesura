@@ -1,4 +1,7 @@
 import { isRequeueSafe } from '../domain/effect.ts';
+import { AGENT_LOST_SIGNATURE } from '../domain/runtime.ts';
+import { hashCanonical } from '../shared/hash.ts';
+import { isUnresolved } from './runtime.ts';
 import type { EffectMirror } from '../domain/state.ts';
 import {
   AgentDataSchema,
@@ -123,10 +126,43 @@ export function onReconciled(ctx: Ctx, t: Reconciled): void {
         });
         return;
       }
+      // A lost attempt: every run must be proven lost, and they close in this same accept, so no crash
+      // can leave the runs closed while the attempt still waits for a result that will never come.
+      const lost =
+        e.kind === 'start_agent' && t.signature === AGENT_LOST_SIGNATURE
+          ? Object.values(ctx.state.operations).filter(
+              (o) => o.effect_id === e.id && o.kind === 'agent',
+            )
+          : [];
+      if (
+        t.signature === AGENT_LOST_SIGNATURE &&
+        (lost.length === 0 ||
+          lost.some((o) => o.status !== 'lost' && isUnresolved(o)))
+      ) {
+        ctx.emit('ReconcileIncomplete', {
+          effect_id: e.id,
+          issues: ['agent_lost: every run of the attempt must be lost'],
+        });
+        return;
+      }
       const f = FailureDataSchema.parse({
         failure_class: t.failure_class,
         ...(t.signature !== undefined ? { signature: t.signature } : {}),
       });
+      for (const o of lost.filter((x) => x.status === 'lost'))
+        ctx.emit('OperationObserved', {
+          operation_id: o.id,
+          status: 'finished',
+          outcome: 'failed',
+          invocation_id: o.invocation_id,
+          processes: o.processes,
+          started_at: o.started_at,
+          finished_at: ctx.now,
+          receipt_digest: hashCanonical({
+            operation: o.id,
+            lost_closed_by: ctx.env.dedup_key,
+          }),
+        });
       ctx.emit('EffectReconciled', {
         effect_id: e.id,
         finding: t.finding,

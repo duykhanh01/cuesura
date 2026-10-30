@@ -12,6 +12,11 @@
  * ingest of the result (the store write that records it). Reads are logged but never planned as the
  * first kill of a run.
  */
+import {
+  clearOperationMark,
+  stopOperationProcesses,
+  writeOperationMark,
+} from '../../src/runner/process-tag.ts';
 import { spawnSync } from 'node:child_process';
 import {
   appendFileSync,
@@ -440,8 +445,20 @@ export function flowDaemon(
     committer: { name: 'Cuesura', email: 'cusr@invalid' },
     remoteUrl: () => lay.remote,
     abort: (id) => dispatcher?.abort(id) ?? false,
+    settled: (id) => dispatcher?.settled(id) ?? Promise.resolve(),
+    stopLocal: (id) => stopOperationProcesses(lay.data, id),
   });
-  dispatcher = new Dispatcher({ store, clock: c, handlers, newId: uuidv7 });
+  // Marks as the daemon writes them, so recovery and local stops read the same evidence it would.
+  dispatcher = new Dispatcher({
+    store,
+    clock: c,
+    handlers,
+    newId: uuidv7,
+    marks: {
+      write: (id) => writeOperationMark(lay.data, id),
+      clear: (id) => clearOperationMark(lay.data, id),
+    },
+  });
   return dispatcher;
 }
 

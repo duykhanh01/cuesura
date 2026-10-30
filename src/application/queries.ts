@@ -19,6 +19,7 @@ import type { Store } from '../store/index.ts';
 import { authorize, authzContext, type Caller } from './authz.ts';
 import type { Admitted, CommandInput } from './commands.ts';
 import { confirmTask, type ConfirmDeps } from './confirm.ts';
+import type { RecheckDeps } from './recheck.ts';
 import { submit } from './triage.ts';
 import type { RunProposal } from '../domain/run-config.ts';
 import { runConfigConfirmed } from '../engine/run-config.ts';
@@ -227,6 +228,10 @@ export type TaskServiceDeps = {
   readonly store: Store;
   readonly now: () => number;
   readonly confirm: ConfirmDeps;
+  /** IDs for facts a command submits beyond its own (e.g. the PR read after a cancel). */
+  readonly newId?: () => string;
+  /** One read of a task's PR (the recheck observation); without it a cancel leaves the read to recheck. */
+  readonly observe?: RecheckDeps['observe'];
 };
 
 export function taskAdd(

@@ -65,15 +65,27 @@ export type ExecOutcome =
       readonly kind: 'unknown';
       readonly message: string;
       readonly output: string;
+      /** Set when it was stopped on request: whether its whole process group was seen gone. */
+      readonly stop?: 'verified' | 'unverified';
     };
 
 /** Runs a sandbox launch plan; the default spawns it directly, the systemd runner replaces it later. */
 export interface CommandExecutor {
   run(
     plan: SandboxLaunchPlan,
-    opts: { readonly timeout_ms: number; readonly max_output_bytes: number },
+    opts: {
+      readonly timeout_ms: number;
+      readonly max_output_bytes: number;
+      /** Stop request: nothing is spawned once it fired; a running group gets TERM, then KILL. */
+      readonly signal?: AbortSignal;
+    },
   ): Promise<ExecOutcome>;
 }
+
+/** Grace between SIGTERM and SIGKILL when a command is stopped on request (FR-009, FR-025.02). */
+export const STOP_TERM_GRACE_MS = 10_000;
+/** How long a stopped group may take to disappear after SIGKILL. */
+export const STOP_KILL_VERIFY_MS = 5_000;
 
 export const RECEIPT_STATUSES = [
   'passed',
@@ -399,15 +411,32 @@ async function execute(
   }
 }
 
-/** Spawns the plan's argv directly in its own process group; the group is killed on timeout. */
+/**
+ * Spawns the plan's argv directly in its own process group; the group is killed on timeout. A stop
+ * request prevents the spawn, or sends the running group SIGTERM and, after the grace, SIGKILL.
+ */
 export class SpawnExecutor implements CommandExecutor {
+  readonly #termGraceMs: number;
+  constructor(o: { readonly term_grace_ms?: number } = {}) {
+    this.#termGraceMs = o.term_grace_ms ?? STOP_TERM_GRACE_MS;
+  }
+
   run(
     plan: SandboxLaunchPlan,
-    opts: { readonly timeout_ms: number; readonly max_output_bytes: number },
+    opts: {
+      readonly timeout_ms: number;
+      readonly max_output_bytes: number;
+      readonly signal?: AbortSignal;
+    },
   ): Promise<ExecOutcome> {
     const [file, ...args] = plan.argv;
     if (file === undefined)
       return Promise.resolve({ kind: 'not_launched', message: 'empty argv' });
+    if (opts.signal?.aborted === true)
+      return Promise.resolve({
+        kind: 'not_launched',
+        message: 'stopped before start',
+      });
     return new Promise((resolve) => {
       let child;
       try {
@@ -444,30 +473,81 @@ export class SpawnExecutor implements CommandExecutor {
       child.on('spawn', () => {
         spawned = true;
       });
+      const kill = (sig: NodeJS.Signals): void => {
+        try {
+          if (child.pid !== undefined) process.kill(-child.pid, sig);
+        } catch {
+          child.kill(sig);
+        }
+      };
       const timer = setTimeout(() => {
         timedOut = true;
-        try {
-          if (child.pid !== undefined) process.kill(-child.pid, 'SIGKILL');
-        } catch {
-          child.kill('SIGKILL');
-        }
+        kill('SIGKILL');
       }, opts.timeout_ms);
-      child.on('error', (e) => {
+      let stoppedAt: number | null = null;
+      let grace: NodeJS.Timeout | undefined;
+      // TERM now and KILL after the grace, scheduled at the stop itself: a leader that ignores TERM
+      // never closes, so nothing may wait for its close to escalate (FR-009).
+      const onStop = (): void => {
+        stoppedAt = Date.now();
+        kill('SIGTERM');
+        grace = setTimeout(() => kill('SIGKILL'), this.#termGraceMs);
+      };
+      opts.signal?.addEventListener('abort', onStop, { once: true });
+      const done = (): void => {
         clearTimeout(timer);
+        opts.signal?.removeEventListener('abort', onStop);
+      };
+      // The group outlives its leader when a child ignores TERM and holds no pipe of ours: the stop is
+      // over only once the whole group is gone, killed after the grace if it must be (FR-009).
+      const groupAlive = (): boolean => {
+        if (child.pid === undefined) return false;
+        try {
+          process.kill(-child.pid, 0);
+          return true;
+        } catch {
+          return false;
+        }
+      };
+      const endStop = async (at: number): Promise<boolean> => {
+        const pause = (): Promise<void> =>
+          new Promise((r) => setTimeout(r, 50));
+        while (groupAlive() && Date.now() < at + this.#termGraceMs)
+          await pause();
+        clearTimeout(grace);
+        if (groupAlive()) kill('SIGKILL');
+        const until = Date.now() + STOP_KILL_VERIFY_MS;
+        while (groupAlive() && Date.now() < until) await pause();
+        return !groupAlive();
+      };
+      child.on('error', (e) => {
+        done();
         resolve(
           spawned
             ? {
                 kind: 'unknown',
                 message: e.message,
                 output: Buffer.concat(chunks).toString('utf8'),
+                ...(stoppedAt === null ? {} : { stop: 'unverified' as const }),
               }
             : { kind: 'not_launched', message: e.message },
         );
       });
       child.on('close', (code, signal) => {
-        clearTimeout(timer);
+        done();
         const output = Buffer.concat(chunks).toString('utf8');
         if (timedOut) return resolve({ kind: 'timeout', output, truncated });
+        if (stoppedAt !== null) {
+          void endStop(stoppedAt).then((gone) =>
+            resolve({
+              kind: 'unknown',
+              message: `stopped on request (${signal ?? `exit ${String(code)}`})${gone ? '' : '; process group not verified gone'}`,
+              output,
+              stop: gone ? 'verified' : 'unverified',
+            }),
+          );
+          return;
+        }
         if (code === null)
           return resolve({
             kind: 'unknown',

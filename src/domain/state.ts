@@ -128,6 +128,11 @@ export const DETAIL_CODES = [
   'observation_unknown',
   // GitHub reports a merge whose evidence is incomplete (FR-040.12); additive only.
   'merge_evidence_incomplete',
+  // An invoked worker reports missing context or a blocker it cannot clear (FR-039); additive only.
+  'agent_needs_context',
+  'agent_blocked',
+  // A cancel waits for a read of its PR made after the request before it may end CANCELLED (FR-025.03).
+  'cancel_reconcile',
 ] as const;
 export type DetailCode = (typeof DETAIL_CODES)[number];
 
@@ -181,6 +186,8 @@ export type Attempt = {
   usage: Usage | null;
   /** Harness session the attempt ran in, when the harness reported one (resume, M04). */
   session_ref?: string | null;
+  /** Attempt whose session this one was asked to resume (FR-038). */
+  resumed_from?: string;
 };
 
 export type EffectMirror = {
@@ -520,6 +527,12 @@ export type TaskState = {
     by: string;
     reason: string;
     late: boolean;
+    /** See `CancelRequested.read_token`; absent on a task without a runtime snapshot. */
+    read_token?: string;
+    /** The newest read that carried `read_token`. */
+    pr_read?: { observation_id: string; status: string };
+    /** A read of any source showed the PR merged while this cancel was open (or just before it). */
+    merge_seen?: string;
   } | null;
   started_at: number | null;
   deadline_at: number | null;

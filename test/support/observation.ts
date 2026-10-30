@@ -52,6 +52,8 @@ export function observation(
     generation?: number;
     target?: { ref: string; merged: boolean };
     merge_proof?: boolean;
+    /** `raw_evidence_ref`; a cancel read carries `cancel:<read_token>` (FR-025.03). */
+    ref?: string;
   } = {},
 ): Trigger {
   const s = d.task(t.id);
@@ -70,7 +72,7 @@ export function observation(
       subject: s.observation?.subject ?? SUBJECT,
       status,
       observed_head: head,
-      raw_evidence_ref: `ev-${obsSeq}`,
+      raw_evidence_ref: o.ref ?? `ev-${obsSeq}`,
       completeness: {
         merge_proof: o.merge_proof ?? status === 'merged',
         quality: status === 'open',
@@ -81,6 +83,13 @@ export function observation(
     ...(o.ci === undefined ? {} : { ci: o.ci as never }),
     ...(o.target === undefined ? {} : { target: o.target }),
   };
+}
+
+/** The evidence ref a read made for the task's open cancel carries. */
+export function cancelRef(d: StoreDriver, t: CanonicalTask): string {
+  const token = d.task(t.id).cancellation?.read_token;
+  if (token === undefined) throw new Error('no cancel read token');
+  return `cancel:${token}`;
 }
 
 /** The merge observed, then its proof: what `observeTaskPr` submits for a complete merge. */

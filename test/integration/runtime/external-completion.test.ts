@@ -12,6 +12,7 @@ import {
   publishData,
 } from '../../support/scenario.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
+import { cancelRef, observation } from '../../support/observation.ts';
 import { toPublish } from '../../support/store-flows.ts';
 import { dbPath, useTempDir } from '../../support/temp-db.ts';
 
@@ -268,6 +269,16 @@ describe('external confirmation (T045, FR-021, FR-040)', () => {
     const t = buildTask();
     toMergeGate(d, t);
     d.must(t.id, { kind: 'cancel', reason: 'stop' });
+    // The PR is read once after the request before the cancel may end (FR-025.03).
+    expect(d.task(t.id).wait?.detail.code).toBe('cancel_reconcile');
+    d.now += 1_000;
+    d.must(
+      t.id,
+      observation(d, t, 'open', HEAD, {
+        source: 'recheck',
+        ref: cancelRef(d, t),
+      }),
+    );
     expect(d.task(t.id).status).toBe('CANCELLED');
     complete(d, t);
     expect(d.task(t.id)).toMatchObject({

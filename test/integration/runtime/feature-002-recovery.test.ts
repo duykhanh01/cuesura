@@ -54,7 +54,17 @@ import {
   proposeAndConfirm,
   selectionFor,
 } from '../../support/runtime.ts';
-import { ciData, PREPARE_DATA, publishData } from '../../support/scenario.ts';
+import {
+  agentData,
+  ciData,
+  PREPARE_DATA,
+  publishData,
+} from '../../support/scenario.ts';
+import {
+  buildHandlers,
+  type HandlerDeps,
+} from '../../../src/daemon/handlers.ts';
+import type { TriggerEnvelope } from '../../../src/domain/trigger.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 import { toPublish } from '../../support/store-flows.ts';
 import { useTempDir } from '../../support/temp-db.ts';
@@ -158,6 +168,7 @@ async function restart(f: Fixture, realLock = false) {
 function toAgent(
   f: Fixture,
   t: CanonicalTask = buildTask({ id: uuidOf(1) }),
+  before?: (t: CanonicalTask) => void,
 ): { task: CanonicalTask; effectId: string; attemptId: string } {
   createGrantStart(f.d, t);
   f.d.complete(
@@ -166,6 +177,7 @@ function toAgent(
     'succeeded',
     PREPARE_DATA,
   );
+  before?.(t);
   const e = f.d.pendingOne(t.id, 'start_agent');
   const claimed = f.d.store.claimEffect(e.id as Uuid, f.d.now as EpochMs, {
     require_runtime: true,
@@ -501,6 +513,161 @@ describe('open operations are reconciled before work is granted (T086, FR-034.01
     expect(f.d.store.readSlot()?.holder_task_id).toBe(task.id);
     expect(f.d.pending(task.id, 'start_agent')).toEqual([]);
     expect(report.held).toBeNull();
+  });
+
+  /** A worker asks, the answer resumes its session, and that resumed run dies without exit.json. */
+  async function lostResume(f: Fixture) {
+    let question = '';
+    const { task, effectId, attemptId } = toAgent(f, undefined, (t) => {
+      f.d.complete(
+        t.id,
+        f.d.pendingOne(t.id, 'start_agent').id,
+        'succeeded',
+        agentData('needs_input', {
+          questions: ['Which encoding?'],
+          session_ref: 'sess-1',
+        }),
+      );
+      question = Object.values(f.d.task(t.id).questions)[0]?.id ?? '';
+      f.d.must(t.id, {
+        kind: 'answer',
+        question_id: question as Uuid,
+        answer: 'UTF-8',
+      });
+      const g = f.d.store.grantNext(
+        f.d.now as EpochMs,
+        [0, 1, 2, 3].map((i) => uuidOf(60_000 + i)),
+      );
+      if (!g.ok) throw new Error(JSON.stringify(g));
+    });
+    expect(f.d.task(task.id).attempts[attemptId]?.resumed_from).toBeDefined();
+    const used = f.d.task(task.id).budget.agent_runs.used;
+    launched(f, attemptId);
+    await restart(f);
+    expect(f.d.task(task.id).operations[OP]?.status).toBe('lost');
+    expect(f.d.task(task.id).effects[effectId]?.status).toBe('unknown');
+    return { task, effectId, attemptId, question, used };
+  }
+
+  let recN = 61_000;
+  /** Runs the daemon's reconcile handler on the pending probe; `prefix` envelopes reach the store. */
+  async function reconcileOnce(
+    f: Fixture,
+    taskId: string,
+    prefix = Infinity,
+  ): Promise<number> {
+    const rec = f.d.pending(taskId, 'reconcile')[0];
+    if (rec === undefined) throw new Error('no reconcile pending');
+    const handlers = buildHandlers({
+      store: f.d.store,
+      clock: { now: () => f.d.now as EpochMs, monotonic: () => f.d.now },
+      newId: () => uuidOf(recN++),
+      abort: () => false,
+    } as unknown as HandlerDeps);
+    const opId = uuidOf(recN++);
+    const claim = {
+      operation_id: opId,
+      kind: 'github' as const,
+      launch_nonce: `rec-${opId}`,
+      unit: `cusr-op-${opId}.service`,
+      holds_slot: false,
+    };
+    const claimed = f.d.store.claimEffect(rec.id as Uuid, f.d.now as EpochMs, {
+      require_runtime: true,
+      operation: claim,
+    });
+    if (!claimed.ok) throw new Error(JSON.stringify(claimed.error));
+    const run = handlers.reconcile;
+    if (run === undefined) throw new Error('no reconcile handler');
+    const out = await run(claimed.value, new AbortController().signal, claim);
+    const list = Array.isArray(out) ? out : [out as TriggerEnvelope];
+    for (const env of list.slice(0, prefix)) {
+      const r = f.d.store.accept(env as TriggerEnvelope);
+      expect(r.ok && r.value.decision.kind).toBe('accepted');
+    }
+    return list.length;
+  }
+
+  /** After the lost run is settled: one counted failure, then a new session that carries the answer. */
+  function expectFallback(
+    f: Fixture,
+    l: Awaited<ReturnType<typeof lostResume>>,
+  ): void {
+    const s = f.d.task(l.task.id);
+    expect(s.effects[l.effectId]?.status).toBe('failed');
+    expect(s.operations[OP]?.status).toBe('finished');
+    expect(s.attempts[l.attemptId]).toMatchObject({
+      status: 'finished',
+      outcome: { class: 'infra' },
+    });
+    expect(s.budget.agent_runs.used).toBe(l.used + 1);
+    expect(
+      s.budget.reservations[s.effects[l.effectId]?.reservation_id ?? '']
+        ?.status,
+    ).toBe('consumed');
+    for (
+      let i = 0;
+      i < 4 && f.d.pending(l.task.id, 'start_agent').length === 0;
+      i++
+    ) {
+      f.d.now += 600_000;
+      f.d.fire();
+      if (f.d.task(l.task.id).wait?.detail.code === 'execution_slot')
+        f.d.store.grantNext(
+          f.d.now as EpochMs,
+          [0, 1, 2, 3].map((k) => uuidOf(63_000 + i * 4 + k)),
+        );
+    }
+    const next = f.d.pendingOne(l.task.id, 'start_agent');
+    expect(next.request).toMatchObject({
+      resume: null,
+      resume_reason: 'session_unusable',
+      answers: [{ question_id: l.question, answer: 'UTF-8' }],
+    });
+    const after = f.d.task(l.task.id);
+    expect(
+      after.attempts[after.effects[next.id]?.attempt_id ?? '']?.resumed_from,
+    ).toBeUndefined();
+    expect(f.d.store.verifyProjections().ok).toBe(true);
+  }
+
+  it('a resumed run proven lost is a counted, failed run; the next attempt starts a new session with the Q&A (FR-035, FR-038)', async () => {
+    const f = fixture();
+    const l = await lostResume(f);
+    await reconcileOnce(f, l.task.id);
+    expectFallback(f, l);
+  });
+
+  it('the daemon dying between the reconcile facts never loses the evidence that the run is lost', async () => {
+    // How many facts the handler sends, so every crash point between them is tried.
+    const probe = fixture();
+    const total = await reconcileOnce(
+      probe,
+      (await lostResume(probe)).task.id,
+      0,
+    );
+    expect(total).toBeGreaterThan(1);
+    for (let prefix = 0; prefix < total; prefix++) {
+      const f = fixture();
+      const l = await lostResume(f);
+      await reconcileOnce(f, l.task.id, prefix);
+      // The lost run is closed only together with the failed attempt, never on its own.
+      const s = f.d.task(l.task.id);
+      expect(s.operations[OP]?.status === 'finished', `prefix ${prefix}`).toBe(
+        s.effects[l.effectId]?.status === 'failed',
+      );
+      await restart(f);
+      // Whatever probes recovery left (an interrupted one runs again first, T093) run until settled.
+      for (
+        let i = 0;
+        i < 4 &&
+        f.d.task(l.task.id).effects[l.effectId]?.status !== 'failed' &&
+        f.d.pending(l.task.id, 'reconcile').length > 0;
+        i++
+      )
+        await reconcileOnce(f, l.task.id);
+      expectFallback(f, l);
+    }
   });
 
   it('a pid reused by another process is not the harness: still lost, never stopped', async () => {

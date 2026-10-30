@@ -59,11 +59,22 @@ export function inFlight(e: EffectMirror): boolean {
  * serves; once every earlier probe ended (the effect went back to the queue and was lost again, T093)
  * the next one takes the next key, so a lost effect always has a reconcile.
  */
-export function requestReconcile(ctx: Ctx, target: EffectMirror): void {
+export function requestReconcile(
+  ctx: Ctx,
+  target: EffectMirror,
+  o: { readonly afterRunning?: boolean } = {},
+): void {
   const probes = Object.values(ctx.state.effects).filter(
     (e) => e.kind === 'reconcile' && e.target_effect_id === target.id,
   );
-  if (probes.some((e) => e.status === 'pending' || inFlight(e))) return;
+  if (probes.some((e) => e.status === 'pending')) return;
+  // New evidence while a probe runs: that probe may already have read the old state, so one more is
+  // queued; it is claimed only once the running one ended (`probe_running`).
+  if (
+    probes.some((e) => inFlight(e)) &&
+    !(o.afterRunning === true && probes.every((e) => e.status !== 'unknown'))
+  )
+    return;
   requestEffect(ctx, {
     kind: 'reconcile',
     logical_id:

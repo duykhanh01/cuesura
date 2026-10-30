@@ -695,6 +695,17 @@ export function startAttempt(ctx: Ctx, step: string, kind: AttemptKind): void {
   const effectId = ctx.nextId();
   const reservationId = ctx.nextId();
   const n = Object.values(s.attempts).filter((a) => a.step === step).length + 1;
+  const resume: Partial<ReturnType<typeof resumePlan>> =
+    s.runtime_ref === null
+      ? {}
+      : resumePlan(
+          ctx,
+          step,
+          sp.role,
+          bindingName(rung.binding),
+          kind,
+          attemptId,
+        );
   ensureRunning(ctx, 'attempt');
   reserve(ctx, reservationId, effectId);
   ctx.emit('AttemptRequested', {
@@ -706,6 +717,9 @@ export function startAttempt(ctx: Ctx, step: string, kind: AttemptKind): void {
     binding: bindingName(rung.binding),
     effect_id: effectId,
     reservation_id: reservationId,
+    ...(resume.resume == null
+      ? {}
+      : { resumed_from: resume.resume.from_attempt_id }),
   });
   const answers = Object.values(ctx.state.questions)
     .filter(
@@ -713,17 +727,6 @@ export function startAttempt(ctx: Ctx, step: string, kind: AttemptKind): void {
         q.step === step && q.status === 'answered' && q.revision === s.revision,
     )
     .map((q) => ({ question_id: q.id, answer: q.answer }));
-  const resume =
-    s.runtime_ref === null
-      ? {}
-      : resumePlan(
-          ctx,
-          step,
-          sp.role,
-          bindingName(rung.binding),
-          kind,
-          attemptId,
-        );
   requestEffect(ctx, {
     kind: 'start_agent',
     logical_id: attemptId,
@@ -744,10 +747,12 @@ export function startAttempt(ctx: Ctx, step: string, kind: AttemptKind): void {
 }
 
 /**
- * Which worker session a repair should resume (task-execution-modes.md M04): the newest finished worker
- * attempt of this revision that reported a session on the same binding. Never across bindings, never for
- * a fresh session the failure handling asked for. The handler resumes only when the harness proved it
- * can; either way it rebuilds the full repair packet, so a fallback loses nothing but the session.
+ * Which worker session a repair, or the continuation after an answer, should resume (M04, FR-038): the
+ * newest finished worker attempt of this revision that reported a session on the same binding. Never
+ * across bindings, never for a fresh session the failure handling asked for, and a session is resumed at
+ * most once: when an attempt that resumed it ended without a session of its own (lost, failed, dead
+ * session), the next one starts a new session. The handler resumes only when the harness proved it can;
+ * either way the context carries the full packet with every answer, so a fallback loses only the session.
  */
 function resumePlan(
   ctx: Ctx,
@@ -763,7 +768,14 @@ function resumePlan(
   if (role !== 'coder' && role !== 'fixer')
     return { resume: null, resume_reason: null };
   const s = ctx.state;
-  const repair = step !== 'code' || kind !== 'initial';
+  const answered = Object.values(s.questions).some(
+    (q) =>
+      q.step === step &&
+      q.status === 'answered' &&
+      q.revision === s.revision &&
+      q.attempt_id !== null,
+  );
+  const repair = step !== 'code' || kind !== 'initial' || answered;
   if (!repair) return { resume: null, resume_reason: null };
   if (kind === 'fresh_session')
     return { resume: null, resume_reason: 'fresh_session_requested' };
@@ -780,6 +792,14 @@ function resumePlan(
   if (last === undefined) return { resume: null, resume_reason: 'no_session' };
   if (last.binding !== binding)
     return { resume: null, resume_reason: 'binding_changed' };
+  const spent = Object.values(s.attempts).some(
+    (a) =>
+      a.id !== self &&
+      a.resumed_from === last.id &&
+      a.status === 'finished' &&
+      typeof a.session_ref !== 'string',
+  );
+  if (spent) return { resume: null, resume_reason: 'session_unusable' };
   return {
     resume: {
       session_ref: last.session_ref as string,
@@ -1520,6 +1540,27 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
       body: `needs_context: ${d.summary}`,
       resume: { kind: 'start_attempt', step, attempt_kind: 'retry' },
     });
+    return;
+  }
+  // An invoked worker that lacks context or is blocked waits for a person with what it reported; the
+  // next attempt runs only on an answer, under the usual slot/budget checks (FR-039).
+  if (
+    ctx.state.runtime_ref !== null &&
+    (d.status === 'needs_context' || d.status === 'blocked')
+  ) {
+    if (ctx.state.cancellation !== null) return proceed(ctx, { kind: 'none' });
+    const reported = d.blocker ?? d.summary;
+    askHuman(
+      ctx,
+      d.status === 'blocked' ? 'agent_blocked' : 'agent_needs_context',
+      {
+        step,
+        attempt_id: e.attempt_id,
+        body: `${d.status}: ${reported}`,
+        resume: { kind: 'start_attempt', step, attempt_kind: 'retry' },
+        detail: { step, reported },
+      },
+    );
     return;
   }
   if (d.status === 'needs_input') {

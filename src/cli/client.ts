@@ -80,6 +80,8 @@ export function callDaemon(
     const req = request(
       {
         socketPath: opts.socketPath,
+        // One connection per request: a pooled keep-alive socket would outlive a daemon restart.
+        agent: false,
         method: opts.method,
         path: opts.path,
         headers: {
@@ -168,6 +170,8 @@ export function exitCodeFor(envelope: Envelope): ExitCode {
       return ExitCode.conflict;
     case 'not_found':
     case 'task_not_found':
+    case 'question_not_found':
+    case 'approval_not_found':
       return ExitCode.missing;
     case 'invalid_command':
     case 'invalid_request':

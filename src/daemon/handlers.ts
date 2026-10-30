@@ -71,7 +71,9 @@ import type {
   HarnessInput,
   HarnessOutcome,
   HarnessPort,
+  ProcessPort,
   SandboxProvider,
+  StopOutcome,
 } from '../adapters/ports.ts';
 import type { Effect } from '../domain/effect.ts';
 import type {
@@ -80,6 +82,7 @@ import type {
   FrozenPolicy,
 } from '../domain/policy.ts';
 import {
+  AGENT_LOST_SIGNATURE,
   cursorAfter,
   type FrozenRuntimeContext,
   type Observation,
@@ -97,7 +100,12 @@ import {
   type RequiredVerdict,
 } from '../engine/required-checks.ts';
 import type { OperationClaim } from '../engine/runtime.ts';
-import { CommandJournal, type CommandExecutor } from '../runner/commands.ts';
+import {
+  CommandJournal,
+  STOP_KILL_VERIFY_MS,
+  STOP_TERM_GRACE_MS,
+  type CommandExecutor,
+} from '../runner/commands.ts';
 import { InvocationUnknown } from '../runner/invocation.ts';
 import type { Redactor } from '../runner/redact.ts';
 import type { EpochMs, Uuid } from '../shared/brand.ts';
@@ -106,7 +114,9 @@ import { claimable } from '../engine/claim.ts';
 import { reviewInputDigest } from '../engine/review-evidence.ts';
 import type { Store } from '../store/index.ts';
 import type { EffectHandler, EffectHandlers } from './dispatch.ts';
+import { DRAIN_KILL_VERIFY_MS, DRAIN_TERM_GRACE_MS } from './drain.ts';
 import { resultEnvelopes, type EffectOutcome } from './ingest.ts';
+import { isUnresolved } from '../engine/runtime.ts';
 
 export type HandlerDeps = {
   readonly store: Store;
@@ -133,6 +143,21 @@ export type HandlerDeps = {
   readonly remoteUrl: (repo: string) => string;
   /** Aborts the in-flight handler of an effect (the dispatcher's `abort`). */
   readonly abort: (effectId: string) => boolean;
+  /**
+   * Resolves once an aborted handler has returned (the dispatcher's `settled`), so a stop never reports
+   * done while that handler may still spawn something.
+   */
+  readonly settled?: (effectId: string) => Promise<void>;
+  /**
+   * Stops a runner no handler of this process owns (adopted after a restart) with the drain's
+   * TERM/KILL/verify bounds (FR-025.02); without it such a runner keeps going until its own result.
+   */
+  readonly process?: ProcessPort;
+  /**
+   * Stops the tagged processes of a local operation (setup, gate) and verifies they are gone; usually
+   * `stopOperationProcesses` over the daemon's data dir. Without it a local operation runs to its own bound.
+   */
+  readonly stopLocal?: (operationId: string) => Promise<StopOutcome>;
 };
 
 type Loaded = {
@@ -232,6 +257,116 @@ async function headOf(
     throw new Skip(unknown('worktree HEAD unreadable'));
   const [sha, tree] = r.stdout.trim().split('\n');
   return { sha: sha as string, tree: tree as string };
+}
+
+/** How often a running local handler re-reads its task for a cancel or merge proof. */
+const HALT_POLL_MS = 200;
+
+type Guard = {
+  /** The handler's ports: no Git or gate command starts once the guard fired. */
+  readonly deps: HandlerDeps;
+  /** Fires on the handler's own abort, or once the task records a cancel or a merge proof. */
+  readonly signal: AbortSignal;
+  /** A command it stopped could not be seen gone (its process group may still run). */
+  readonly unverified: () => boolean;
+  readonly dispose: () => void;
+};
+
+/**
+ * Local setup and gate work, guarded at the moment each command would start and while it runs: the
+ * handler's own abort (a stop) or a cancel or merge proof committed to the task meanwhile ends it
+ * (FR-025.01/02, FR-040.02). The task is read again before every command and every HALT_POLL_MS, so a
+ * snapshot taken before an await never lets work start after the cancel.
+ */
+function guard(deps: HandlerDeps, taskId: string, outer: AbortSignal): Guard {
+  const ac = new AbortController();
+  // A store that cannot be read (closed at shutdown, failing) stops the work as well.
+  const halted = (): boolean => {
+    try {
+      const s = deps.store.readTask(taskId as Uuid);
+      return s === null || s.cancellation !== null || s.completion !== null;
+    } catch {
+      return true;
+    }
+  };
+  const check = (): boolean => {
+    if (!ac.signal.aborted && (outer.aborted || halted())) ac.abort();
+    return ac.signal.aborted;
+  };
+  // Polling ends with the guard: once it fired, nothing reads the store again (the daemon may be
+  // closing it after the dispatcher's abort).
+  const timer = setInterval(check, HALT_POLL_MS);
+  ac.signal.addEventListener('abort', () => clearInterval(timer), {
+    once: true,
+  });
+  const onOuter = (): void => ac.abort();
+  outer.addEventListener('abort', onOuter, { once: true });
+  if (outer.aborted) ac.abort();
+  let unverified = false;
+  return {
+    signal: ac.signal,
+    unverified: () => unverified,
+    dispose: () => {
+      clearInterval(timer);
+      outer.removeEventListener('abort', onOuter);
+    },
+    deps: {
+      ...deps,
+      git: {
+        run: (cmd) =>
+          check()
+            ? Promise.resolve({
+                kind: 'spawn_failed',
+                message: 'stopped: stop, cancel or merge recorded',
+              })
+            : deps.git.run(cmd),
+      },
+      executor: {
+        run: async (plan, o) => {
+          if (check())
+            return {
+              kind: 'not_launched',
+              message: 'stopped: stop, cancel or merge recorded',
+            };
+          const out = await deps.executor.run(plan, {
+            ...o,
+            signal: ac.signal,
+          });
+          if (out.kind === 'unknown' && out.stop === 'unverified')
+            unverified = true;
+          return out;
+        },
+      },
+    },
+  };
+}
+
+/** What a guarded local handler reports once its guard fired: failed when all it ran is seen gone. */
+function stoppedOutcome(g: Guard): EffectOutcome {
+  return g.unverified()
+    ? unknown('stopped; a process group was not seen gone')
+    : failed('infra', 'stopped: stop, cancel or merge recorded');
+}
+
+/** What the local work a probe ran left behind: a stop it could not see through to the end. */
+type LocalTrace = { unverified: boolean };
+
+async function guarded(
+  deps: HandlerDeps,
+  taskId: string,
+  outer: AbortSignal,
+  run: (g: Guard) => Promise<EffectOutcome>,
+  trace?: LocalTrace,
+): Promise<EffectOutcome> {
+  const g = guard(deps, taskId, outer);
+  try {
+    if (g.signal.aborted) return stoppedOutcome(g);
+    const out = await run(g);
+    return g.signal.aborted ? stoppedOutcome(g) : out;
+  } finally {
+    g.dispose();
+    if (trace !== undefined && g.unverified()) trace.unverified = true;
+  }
 }
 
 // ---- prepare ----
@@ -511,6 +646,7 @@ function agentOutcome(
       status: v.status,
       summary: v.summary,
       questions: v.questions.map((q) => q.question),
+      ...(v.blocker === null ? {} : { blocker: v.blocker }),
       usage: o.usage,
       invoked: true,
     },
@@ -1036,10 +1172,12 @@ async function checkpointCommit(
   };
 }
 
+/** Run under a {@link guard}: its ports refuse new commands once it fired; the caller reports that. */
 async function gates(
   deps: HandlerDeps,
   effect: Effect,
   step: string | null,
+  signal: AbortSignal,
 ): Promise<EffectOutcome> {
   const l = load(deps, effect);
   const list = Array.isArray(effect.request['gates'])
@@ -1066,6 +1204,7 @@ async function gates(
     deadline_at: l.s.deadline_at as EpochMs | null,
     checkpoint: spec,
   };
+  // A stop request reaches every gate command: none is spawned after it, a running one is ended.
   const run = { ...deps, journal: journalOf(deps, effect.id) };
   if (step === 'ci_autofix') {
     const r = await runAutofix(run, input);
@@ -1074,6 +1213,8 @@ async function gates(
     return { outcome: 'succeeded', data: r.data ?? { results: [] } };
   }
   const r = await runGates(run, input);
+  // Stopped: nothing is committed from a run cut short; the guard reports how it ended.
+  if (signal.aborted) return failed('infra', 'stopped');
   if (r.kind === 'unknown')
     return r.retry_allowed ? failed('infra', r.detail) : unknown(r.detail);
   const data = r.data ?? { results: [], tree: '', stable: true };
@@ -1689,6 +1830,8 @@ async function probeGates(
   deps: HandlerDeps,
   target: Effect,
   step: string | null,
+  signal: AbortSignal,
+  trace: LocalTrace,
 ): Promise<Probe> {
   const l = load(deps, target);
   const journal = journalOf(deps, target.id).read();
@@ -1729,7 +1872,16 @@ async function probeGates(
     return still(
       `branch at ${commit.found ?? 'nothing'}, not the checkpoint ${commit.intent.oid}; kept as is`,
     );
-  return fromOutcome(await gates(deps, target, step));
+  // Run again under the guard: a cancel or merge recorded while this probe runs stops it too.
+  return fromOutcome(
+    await guarded(
+      deps,
+      target.task_id,
+      signal,
+      (g) => gates(g.deps, target, step, g.signal),
+      trace,
+    ),
+  );
 }
 
 /** Push by remote ref against expected old/new (FR-018): pushed is recorded, never pushed twice. */
@@ -1889,6 +2041,21 @@ async function probeAgent(
     (o) => o.kind === 'agent' && o.status === 'finished',
   );
   const op = finished[0];
+  // Every run of the attempt is proven gone without a result (recovery found no process left): the
+  // attempt is lost. It was launched, so it counts; the engine decides the next attempt and resumes a
+  // session at most once (FR-035, FR-038).
+  const runs = ops.filter((o) => o.kind === 'agent');
+  if (
+    finished.length === 0 &&
+    runs.length > 0 &&
+    runs.every((o) => o.status === 'lost')
+  )
+    return {
+      finding: 'executed_failed',
+      failure_class: 'infra',
+      signature: AGENT_LOST_SIGNATURE,
+      detail: 'runner gone without a result',
+    };
   if (finished.length !== 1 || op === undefined)
     return still('no single finished agent run to read back');
   const extra: Trigger[] = [];
@@ -1927,16 +2094,20 @@ async function probeAgent(
  * Probes the effect a `reconcile` targets before anything is sent again (T090, SPEC.md §13.2,
  * FR-003/004/017/018/034.01). Only operations that ran inside the daemon are probed here; while one of
  * them is still registered or running in this daemon nothing is touched. An agent run that finished is
- * read back through its harness; one that did not is the engine's to resume (T099) and stays unknown.
- * Reads that fail or evidence
- * that does not decide keep the effect unknown. Once the finding is definite, the target's lost or
+ * read back through its harness; one whose runs are all proven lost is a failed, counted run, and the
+ * engine weighs the next attempt and any resume (T099, FR-035); any other agent run stays unknown.
+ * Reads that fail or evidence that does not decide keep the effect unknown. Once the finding is definite, the target's lost or
  * unknown operations are closed with it, which is what lets the claim and the slot go.
  */
 async function reconcileEffect(
   deps: HandlerDeps,
   effect: Effect,
   mirror: TaskState['effects'][string],
+  signal: AbortSignal,
 ): Promise<{ outcome: EffectOutcome; extra: Trigger[] }> {
+  // Setup or gates this probe ran again and could not see stopped: this reconcile's own operation
+  // stays unresolved, so its processes are reconciled by their tag before anything ends (FR-025.02).
+  const trace: LocalTrace = { unverified: false };
   let git = 0;
   let github = 0;
   const counted: HandlerDeps = {
@@ -1951,7 +2122,16 @@ async function reconcileEffect(
   const targetId = mirror.target_effect_id;
   const target = targetId === null ? null : deps.store.readEffect(targetId);
   const tm = targetId === null ? undefined : s?.effects[targetId];
-  const done = (p: Probe, extra: Trigger[]) => ({
+  const done = (p: Probe, extra: Trigger[]) =>
+    trace.unverified
+      ? {
+          outcome: unknown(
+            `a local process this probe ran was not seen gone (${p.finding})`,
+          ),
+          extra: [],
+        }
+      : doneOk(p, extra);
+  const doneOk = (p: Probe, extra: Trigger[]) => ({
     outcome: {
       outcome: 'succeeded' as const,
       data: {
@@ -1975,15 +2155,62 @@ async function reconcileEffect(
   );
   if (ops.some((o) => o.status === 'registered' || o.status === 'running'))
     return done(still('an operation of the effect is still running'), []);
+  // An operation of this daemon left unknown (a stop not seen through, an outcome never read) may still
+  // have processes: they are stopped by their tag and seen gone before anything is probed, run again or
+  // closed, a reconcile of a reconcile included (FR-025.02, FR-034.01). Agent runs have their own probe.
+  for (const o of ops.filter(
+    (x) => x.kind !== 'agent' && x.status === 'unknown',
+  )) {
+    if (deps.stopLocal === undefined)
+      return done(
+        still(`operation ${o.id} unknown; its processes cannot be checked`),
+        [],
+      );
+    if ((await deps.stopLocal(o.id)) === 'unknown')
+      return done(still(`operation ${o.id} not seen gone`), []);
+  }
 
   let p: Probe;
+  // Local setup and gates leave nothing outside the worktree: after a cancel or a merge proof one cut
+  // short is recorded as stopped instead of run again.
+  const settling = s.cancellation !== null || s.completion !== null;
+  // Recorded as stopped only once nothing of it is left running: each of its local operations is
+  // stopped by its tag and seen gone; otherwise it stays unknown and is probed again (FR-025.02).
+  const notRunAgain = async (): Promise<Probe> => {
+    if (deps.stopLocal === undefined)
+      return still('cannot check its processes are gone');
+    for (const o of ops.filter((x) => x.kind !== 'agent')) {
+      const r = await deps.stopLocal(o.id);
+      if (r === 'unknown') return still(`operation ${o.id} not seen gone`);
+    }
+    return {
+      finding: 'executed_failed',
+      failure_class: 'infra',
+      signature: 'stopped',
+      detail: 'cut short by a cancel or a merge; not run again',
+    };
+  };
   switch (target.kind) {
     case 'prepare':
-      // Worktree adoption checks ownership first; setup is declared safe to run again.
-      p = fromOutcome(await prepare(counted, target));
+      // Worktree adoption checks ownership first; setup is declared safe to run again, but never once
+      // the task is cancelling or merged: no business work starts then (FR-025.01, FR-040.02).
+      p = settling
+        ? await notRunAgain()
+        : fromOutcome(
+            await guarded(
+              counted,
+              target.task_id,
+              signal,
+              (g) => prepare(g.deps, target),
+              trace,
+            ),
+          );
       break;
     case 'run_gates':
-      p = await probeGates(counted, target, tm.step);
+      p =
+        settling && tm.step !== 'ci_autofix'
+          ? await notRunAgain()
+          : await probeGates(counted, target, tm.step, signal, trace);
       break;
     case 'publish':
       p = await probePublish(counted, target, s.completion !== null);
@@ -2008,7 +2235,7 @@ async function reconcileEffect(
       );
       break;
     case 'stop_attempt':
-      p = fromOutcome(stopAttempt(deps, tm));
+      p = fromOutcome(await stopAttempt(deps, effect.task_id, tm));
       break;
     case 'reconcile':
       // A reconcile only probes and repeats what is declared safe: an interrupted one runs again under
@@ -2068,13 +2295,88 @@ async function reconcileEffect(
 
 // ---- service effects ----
 
-function stopAttempt(
+/** How long a stop waits for an aborted local handler: its command's TERM grace and KILL check, plus margin. */
+const HANDLER_STOP_WAIT_MS = STOP_TERM_GRACE_MS + STOP_KILL_VERIFY_MS + 5_000;
+
+/**
+ * Stops the work behind `target_effect_id`: the in-flight handler is aborted (an agent invocation stops
+ * its own unit), a runner no handler owns is stopped through the process port, and the processes of a
+ * local setup or gate operation are stopped by their tag; each stop is verified. The operation stays
+ * unresolved until its receipt; a stop that cannot be verified is `unknown`.
+ */
+async function stopAttempt(
   deps: HandlerDeps,
+  task: string,
   mirror: { target_effect_id: string | null },
-): EffectOutcome {
+): Promise<EffectOutcome> {
   const target = mirror.target_effect_id;
-  if (target !== null) deps.abort(target);
-  return { outcome: 'succeeded', data: { stopped: true } };
+  if (target === null)
+    return { outcome: 'succeeded', data: { stopped: false } };
+  const aborted = deps.abort(target);
+  const stops: { operation_id: string; outcome: StopOutcome }[] = [];
+  const ops = Object.values(
+    deps.store.readTask(task as Uuid)?.operations ?? {},
+  ).filter((o) => o.effect_id === target && isUnresolved(o));
+  // An aborted local handler stops spawning and ends its running command (TERM, grace, KILL); wait for
+  // it to return, bounded, so nothing it does after the scan below goes unseen. Without proof that it
+  // returned, the stop is not done: the handler may still be about to spawn.
+  if (aborted && ops.some((o) => o.kind !== 'agent')) {
+    if (deps.settled === undefined)
+      return unknown('local handler aborted; its return cannot be awaited');
+    let timer: NodeJS.Timeout | undefined;
+    const returned = await Promise.race([
+      deps.settled(target).then(() => true),
+      new Promise<boolean>((r) => {
+        timer = setTimeout(() => r(false), HANDLER_STOP_WAIT_MS);
+      }),
+    ]);
+    clearTimeout(timer);
+    if (!returned)
+      return unknown(
+        `local handler of ${target} did not return within ${HANDLER_STOP_WAIT_MS} ms`,
+      );
+  }
+  for (const op of ops) {
+    if (op.kind !== 'agent') {
+      // Whatever is left of a local operation is stopped by its tag: TERM, grace, KILL, verified.
+      if (deps.stopLocal !== undefined)
+        stops.push({
+          operation_id: op.id,
+          outcome: await deps.stopLocal(op.id),
+        });
+      continue;
+    }
+    if (!aborted && deps.process !== undefined) {
+      const unit = await deps.process.inspect(op.id);
+      stops.push({
+        operation_id: op.id,
+        outcome:
+          unit.state === 'active'
+            ? await deps.process.stop(op.id, {
+                term_grace_ms: DRAIN_TERM_GRACE_MS,
+                kill_verify_ms: DRAIN_KILL_VERIFY_MS,
+              })
+            : unit.state === 'unknown'
+              ? 'unknown'
+              : 'not_running',
+      });
+    }
+  }
+  if (stops.some((x) => x.outcome === 'unknown'))
+    return unknown(
+      `stop of ${stops
+        .filter((x) => x.outcome === 'unknown')
+        .map((x) => x.operation_id)
+        .join(',')} not verified`,
+    );
+  return {
+    outcome: 'succeeded',
+    data: {
+      stopped: aborted || stops.some((x) => x.outcome === 'stopped'),
+      aborted,
+      stops,
+    },
+  };
 }
 
 /** Builds every handler the daemon runs for runtime tasks; `merge` has none by construction. */
@@ -2121,21 +2423,23 @@ export function buildHandlers(deps: HandlerDeps): EffectHandlers {
   ) =>
     wrap(async (e, s, o, m) => ({ outcome: await f(e, s, o, m), extra: [] }));
   return {
-    prepare: plain((e) => prepare(deps, e)),
+    prepare: plain((e, s) =>
+      guarded(deps, e.task_id, s, (g) => prepare(g.deps, e)),
+    ),
     start_agent: wrap(async (e, s, o, m) => {
       const extra: Trigger[] = [];
       return { outcome: await startAgent(deps, e, s, o, m, extra), extra };
     }),
-    run_gates: plain((e, _s, _o, m) => gates(deps, e, m.step)),
+    run_gates: plain((e, s, _o, m) =>
+      guarded(deps, e.task_id, s, (g) => gates(g.deps, e, m.step, g.signal)),
+    ),
     publish: wrap((e) => publish(deps, e)),
     create_pr: plain((e) => createPr(deps, e)),
     await_ci: wrap((e, _s, o) =>
       observeTask(deps, e.task_id, `op:${o.operation_id}`),
     ),
     rerun_ci: plain((e) => rerunCi(deps, e)),
-    stop_attempt: plain((_e, _s, _o, m) =>
-      Promise.resolve(stopAttempt(deps, m)),
-    ),
-    reconcile: wrap((e, _s, _o, m) => reconcileEffect(deps, e, m)),
+    stop_attempt: plain((e, _s, _o, m) => stopAttempt(deps, e.task_id, m)),
+    reconcile: wrap((e, s, _o, m) => reconcileEffect(deps, e, m, s)),
   };
 }

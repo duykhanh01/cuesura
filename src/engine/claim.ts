@@ -12,7 +12,8 @@ export type ClaimBlockReason =
   | 'completion'
   | 'head_changed'
   | 'merge_evidence_incomplete'
-  | 'run_config_unconfirmed';
+  | 'run_config_unconfirmed'
+  | 'probe_running';
 
 /** The 002 daemon only dispatches tasks that carry a runtime snapshot; 001 callers keep the old rules. */
 export type ClaimOptions = { require_runtime?: boolean };
@@ -39,6 +40,23 @@ export function claimable(
   // A legacy task without a runtime snapshot is read-only for the 002 daemon, service effects included.
   if (opts.require_runtime === true && state.runtime_ref === null)
     return { ok: false, reason: 'legacy_task' };
+  // One probe of an effect at a time: a follow-up probe waits until the earlier one has ended and been
+  // reconciled itself. A probe left unknown may still have processes (a rerun gate it could not see
+  // stopped); its own probe settles it first (FR-044.01).
+  if (effect.kind === 'reconcile') {
+    const target = state.effects[effect.id]?.target_effect_id ?? null;
+    if (
+      target !== null &&
+      Object.values(state.effects).some(
+        (e) =>
+          e.id !== effect.id &&
+          e.kind === 'reconcile' &&
+          e.target_effect_id === target &&
+          (e.status === 'started' || e.status === 'unknown'),
+      )
+    )
+      return { ok: false, reason: 'probe_running' };
+  }
   if (!isBusinessEffect(effect.kind)) return { ok: true };
   // A runtime task runs only the selection the user confirmed and froze at start (M01/M02).
   if (

@@ -471,24 +471,65 @@ Evidence trước đó tại
 
 ### Tests for User Story 5
 
-- [ ] T095 [P] [US5] Viết `test/integration/runtime/questions.test.ts` cho US5.1/2/7: question bền/restart, answer đầu thắng, replay request 2–5 lần, competing/stale revision, resume session chết và needs_context/blocked trong budget (FR-024/037/038/039).
-- [ ] T096 [P] [US5] Viết `test/integration/runtime/cancel-drain.test.ts` và `test/property/invariants/runtime-cancel.test.ts` cho FR-025.01–05: pending invalidation, process kill, publish unknown/PR preservation, cancel thấy merge, terminal rồi mới merged, merge cleanup exhausted/recheck qua service T062 đã có từ A (không đợi CLI T110); gate approval/rate-limit/auth/refusal đúng policy (US5.3–6).
+- [x] T095 [P] [US5] Viết `test/integration/runtime/questions.test.ts` cho US5.1/2/7: question bền/restart, answer đầu thắng, replay request 2–5 lần, competing/stale revision, resume session chết và needs_context/blocked trong budget (FR-024/037/038/039).
+  - Hoàn tất 2026-10-30: `test/integration/runtime/questions.test.ts` (16 test) chạy trên SQLite file thật
+    (mở lại store để kiểm restart) và daemon thật qua UDS (`test/support/daemon-task.ts`): inbox sau restart
+    daemon, replay 2/3/5 lần một request, 5 answer đua nhau đúng một thắng, competing/stale/withdrawn
+    là conflict, scope project/role, resume/fallback và needs_context/blocked trong ngân sách.
+- [x] T096 [P] [US5] Viết `test/integration/runtime/cancel-drain.test.ts` và `test/property/invariants/runtime-cancel.test.ts` cho FR-025.01–05: pending invalidation, process kill, publish unknown/PR preservation, cancel thấy merge, terminal rồi mới merged, merge cleanup exhausted/recheck qua service T062 đã có từ A (không đợi CLI T110); gate approval/rate-limit/auth/refusal đúng policy (US5.3–6).
+  - Hoàn tất phần cancel 2026-10-30: `cancel-drain.test.ts` (10 test, SQLite file thật; runner adopt bị dừng
+    như process group thật và kiểm `/proc`; service trên Git worktree/bare remote thật + FakeGitHub) và
+    property `runtime-cancel.test.ts` (FR-025.01–05 trên chuỗi cancel/đọc PR/merge/drain/timer ngẫu nhiên).
+    Phần gate approval/rate-limit/auth/refusal (US5.5) kiểm cùng T104.
 
 ### Implementation for User Story 5
 
-- [ ] T097 [US5] Nối `src/engine/questions.ts`, `src/application/inbox.ts` để needs_input kết thúc attempt, question/revision/provenance được commit, WAITING/human_input nhả slot sau effect rõ, inbox query sống qua restart, không giữ agent chờ người (FR-024).
-- [ ] T098 [US5] Tạo `src/application/answer.ts` với operate/project/version/revision/question scope và command dedup; QuestionAnswered+answer context nguyên tử, câu trả lời hợp lệ đầu thắng, request lặp cùng kết quả/competing conflict, không cấp thêm attempt từ request lặp (FR-037).
-- [ ] T099 [US5] Nối `src/engine/questions.ts`, `src/engine/claim.ts`, `src/runner/invocation.ts` resume tối đa một lần cho attempt lost khi policy/session cho phép, chỉ cùng harness/session đã proven; session không dùng được thì engine xét attempt mới mang Q&A, đủ slot/quyền/approval/budget, mọi call thật tính lượt, adapter không tự retry (FR-038).
+- [x] T097 [US5] Nối `src/engine/questions.ts`, `src/application/inbox.ts` để needs_input kết thúc attempt, question/revision/provenance được commit, WAITING/human_input nhả slot sau effect rõ, inbox query sống qua restart, không giữ agent chờ người (FR-024).
+  - Hoàn tất: `src/application/inbox.ts` + query `inbox` (read, lọc theo project của token, chỉ câu hỏi
+    open của revision hiện tại). needs_input đã kết thúc attempt và nhả slot trong engine; test khóa lại.
+- [x] T098 [US5] Tạo `src/application/answer.ts` với operate/project/version/revision/question scope và command dedup; QuestionAnswered+answer context nguyên tử, câu trả lời hợp lệ đầu thắng, request lặp cùng kết quả/competing conflict, không cấp thêm attempt từ request lặp (FR-037).
+  - Hoàn tất: `src/application/answer.ts` + command `answer` trong `src/daemon/task-control.ts`; dedup
+    `cmd:<request_id>:answer` trước kiểm version nên replay sau crash vẫn trả kết quả đầu; AnswerRejected,
+    `question_not_open` và stale version đều là `conflict`, `question_not_found` là exit 4.
+- [x] T099 [US5] Nối `src/engine/questions.ts`, `src/engine/claim.ts`, `src/runner/invocation.ts` resume tối đa một lần cho attempt lost khi policy/session cho phép, chỉ cùng harness/session đã proven; session không dùng được thì engine xét attempt mới mang Q&A, đủ slot/quyền/approval/budget, mọi call thật tính lượt, adapter không tự retry (FR-038).
   - Điều kiện từ T077 (2026-10-29): trước proof resume Claude thật, worker phải lưu phiên (bỏ
     `--no-session-persistence` khi có thể được resume) và runner chuyển đúng transcript phiên đó
     (`.claude/projects/<cwd>/<id>.jsonl`, kiểm hash, đã bỏ auth) từ home attempt trước sang home mới; thay
     đổi biên private home này cần cập nhật `contracts/execution.md` trước khi code.
-- [ ] T100 [US5] Nối needs_context/blocked vào `src/engine/waits.ts`, `src/adapters/context.ts`: lưu phần thiếu/blocker và allowed exit, không role ngoài phạm vi hoặc vòng hỏi vô hạn, attempt mới chỉ khi context bắt buộc đầy đủ và còn giới hạn (FR-039).
-- [ ] T101 [US5] Mở `src/engine/cancel.ts`, `src/application/cancel.ts` và `src/daemon/drain.ts`: ghi cancel intent/invalidate business pending, TERM/KILL/xác minh mọi operation task, giữ slot/claim tới effect rõ, giữ diff/commit/branch/PR; không tự đóng/xóa/rollback bên ngoài (FR-025.01/02/05).
-- [ ] T102 [US5] Nối cancel observation/probe vào `src/engine/cancel.ts`, `src/daemon/observation.ts`: đối chiếu PR mới nhất ngay cả observation hết hạn, unknown không CANCELLED; merge trước terminal→DONE sau drain với “yêu cầu hủy đến quá muộn”/unverified, merged sau CANCELLED chỉ history, không mở lại (FR-025.03/04, FR-040.15, FR-043.07).
-- [ ] T103 [US5] Tạo `src/application/approve.ts` cho escalation admin gắn task/revision/step/rung/policy hash hiện hành, expected-version/dedup; operate/read/worker không tự duyệt, merge/yolo luôn unsupported và không tạo approval (FR-010/028).
-- [ ] T104 [US5] Nối quota/cooldown/auth/refusal vào `src/engine/failure.ts`, `src/store/timers.ts`, `src/engine/waits.ts`: rate-limit có lịch hữu hạn nhả slot khi operation rõ, auth/refusal chờ người không escalation né quyền, unknown probe giữ claim (FR-015, US5.5).
-- [ ] T105 [US5] Chạy T095/T096 với service recheck T062 đã được kiểm từ A, rồi ghi US5.1–7 tại `specs/002-task-to-green-pr/acceptance-report.md`, bao gồm answer/cancel replay 2–5 lần, actual process descendants, PR đã tạo không xóa, cancel unknown/merged/terminal và session fallback không vượt lượt (SC-006/007/012).
+  - Hoàn tất phần engine (fake session port): tiếp tục sau answer resume đúng session của attempt đã hỏi
+    (`resumePlan`), `AttemptRequested.resumed_from` (additive) giới hạn mỗi session resume tối đa một lần;
+    resume hỏng/lost thì attempt mới `session_unusable` vẫn mang Q&A và tính lượt. Điều kiện T077 cho proof
+    Claude thật (lưu phiên, chuyển transcript, sửa `contracts/execution.md`) **chưa làm**, thuộc C.
+- [x] T100 [US5] Nối needs_context/blocked vào `src/engine/waits.ts`, `src/adapters/context.ts`: lưu phần thiếu/blocker và allowed exit, không role ngoài phạm vi hoặc vòng hỏi vô hạn, attempt mới chỉ khi context bắt buộc đầy đủ và còn giới hạn (FR-039).
+  - Hoàn tất: task runtime có worker needs_context/blocked (đã gọi) chờ người với detail
+    `agent_needs_context`/`agent_blocked` + `reported` (blocker được handler giữ lại, `AgentData.blocker`
+    additive), không tự retry/escalate hay gọi role khác; answer chạy một attempt `retry` mang Q&A, qua
+    slot/ngân sách (hết lượt → chờ policy). Task 001 không runtime giữ routing cũ.
+- [x] T101 [US5] Mở `src/engine/cancel.ts`, `src/application/cancel.ts` và `src/daemon/drain.ts`: ghi cancel intent/invalidate business pending, TERM/KILL/xác minh mọi operation task, giữ slot/claim tới effect rõ, giữ diff/commit/branch/PR; không tự đóng/xóa/rollback bên ngoài (FR-025.01/02/05).
+  - Hoàn tất: `src/application/cancel.ts` + command `task_cancel`. Engine giữ nguyên invalidation/stop/
+    reconcile của 001; handler `stop_attempt` giờ dừng runner không còn handler (adopt sau restart) qua
+    `ProcessPort` với TERM/KILL/verify của drain, stop không xác minh được là `unknown`; `StopData` thêm
+    `aborted`/`stops` (additive). Slot/claim giữ tới receipt và kết quả attempt; không đóng PR/xóa branch.
+- [x] T102 [US5] Nối cancel observation/probe vào `src/engine/cancel.ts`, `src/daemon/observation.ts`: đối chiếu PR mới nhất ngay cả observation hết hạn, unknown không CANCELLED; merge trước terminal→DONE sau drain với “yêu cầu hủy đến quá muộn”/unverified, merged sau CANCELLED chỉ history, không mở lại (FR-025.03/04, FR-040.15, FR-043.07).
+  - Hoàn tất: task runtime có PR chỉ CANCELLED sau một lần đọc PR **sau** thời điểm hủy cho open/closed
+    (`cancelNeedsPrRead`, chờ `policy/cancel_reconcile`); service đọc ngay kể cả observation đã hết hạn,
+    đọc lỗi thì chờ tới recheck. Merge có proof → drain → DONE + `CancelRecordedLate`; merge sau CANCELLED chỉ
+    là lịch sử. Test cũ `external-completion` kỳ vọng CANCELLED ngay khi có PR được sửa theo FR-025.03.
+- [x] T103 [US5] Tạo `src/application/approve.ts` cho escalation admin gắn task/revision/step/rung/policy hash hiện hành, expected-version/dedup; operate/read/worker không tự duyệt, merge/yolo luôn unsupported và không tạo approval (FR-010/028).
+  - Hoàn tất: `src/application/approve.ts` + command `approve_escalation` (admin ở admission); chọn đúng
+    request escalation mở của step/rung/revision hiện hành, engine kiểm policy hash; không bao giờ cấp
+    approval loại khác; replay trả kết quả cũ, request khác là conflict, không có request là exit 4.
+- [x] T104 [US5] Nối quota/cooldown/auth/refusal vào `src/engine/failure.ts`, `src/store/timers.ts`, `src/engine/waits.ts`: rate-limit có lịch hữu hạn nhả slot khi operation rõ, auth/refusal chờ người không escalation né quyền, unknown probe giữ claim (FR-015, US5.5).
+  - Hoàn tất bằng test: engine 001 đã xử lý đủ (rate limit tính lượt, nhả slot, timer hữu hạn theo
+    `reset_at`/backoff rồi `backoff_exhausted`; auth/refusal chờ người, không retry/nâng nấc/approval;
+    unknown giữ claim tới reconcile). `cancel-drain.test.ts` khóa lại trên task runtime; handler đã
+    chuyển `reset_at` của harness. Không cần sửa `failure.ts`/`timers.ts`/`waits.ts`.
+- [x] T105 [US5] Chạy T095/T096 với service recheck T062 đã được kiểm từ A, rồi ghi US5.1–7 tại `specs/002-task-to-green-pr/acceptance-report.md`, bao gồm answer/cancel replay 2–5 lần, actual process descendants, PR đã tạo không xóa, cancel unknown/merged/terminal và session fallback không vượt lượt (SC-006/007/012).
+  - Hoàn tất 2026-10-30 trên PR #22: [mục T105](acceptance-report.md#t105--us5-trả-lời-và-hủy-có-kiểm-soát)
+    ghi US5.1–7, replay 2–5 lần, process thật, PR giữ nguyên, cancel unknown/merged/terminal, fallback
+    session và năm lượt sửa sau review. Container chạy root: 3 test môi trường fail cả trên `main`;
+    reliability pass nhưng `spawn_adoption` bị skip vì thiếu systemd user manager. Proof resume Claude
+    thật (điều kiện T077) và kiểm lại ≥ 200 kill trên host có systemd còn mở (C/T120).
 
 ## Phase 9: User Story 6 — Xem và điều khiển qua CLI (P2, lát B)
 

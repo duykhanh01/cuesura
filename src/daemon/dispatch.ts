@@ -25,7 +25,7 @@ import {
 } from '../domain/effect.ts';
 import type { OperationKind } from '../domain/runtime.ts';
 import type { TriggerEnvelope } from '../domain/trigger.ts';
-import type { OperationClaim } from '../engine/runtime.ts';
+import { isUnresolved, type OperationClaim } from '../engine/runtime.ts';
 import { newLaunchNonce, unitName } from '../runner/identity.ts';
 import { runInOperation } from '../runner/process-tag.ts';
 import type { Uuid } from '../shared/brand.ts';
@@ -195,6 +195,11 @@ export class Dispatcher {
     return true;
   }
 
+  /** Resolves once the handler of `effectId` (if any is in flight) has finished and its result is written. */
+  settled(effectId: string): Promise<void> {
+    return this.#inFlight.get(effectId)?.done ?? Promise.resolve();
+  }
+
   isInFlight(effectId: string): boolean {
     return this.#inFlight.has(effectId);
   }
@@ -323,11 +328,17 @@ export class Dispatcher {
             }
           }
         }
-        try {
-          this.#marks?.clear(operation.operation_id);
-        } catch {
-          // A stale mark only narrows what recovery may skip; it never widens it.
-        }
+        // The mark goes only with a resolved operation: one left unknown may still have processes, and
+        // a missing mark would read as "nothing was spawned" to every later scan (FR-034.01).
+        const op = this.#store.readTask(effect.task_id as Uuid)?.operations[
+          operation.operation_id
+        ];
+        if (op !== undefined && !isUnresolved(op))
+          try {
+            this.#marks?.clear(operation.operation_id);
+          } catch {
+            // A stale mark only narrows what recovery may skip; it never widens it.
+          }
       } catch (e) {
         // The effect stays `started`: recovery reconciles it; nothing here guesses an outcome.
         this.#log({

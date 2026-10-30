@@ -231,6 +231,17 @@ export const OPERATION_KINDS = [
 ] as const;
 export type OperationKind = (typeof OPERATION_KINDS)[number];
 
+/**
+ * Signature of a reconcile finding for an agent attempt whose runs were all proven gone without a result
+ * (FR-035): the engine closes those runs in the same accept that fails the attempt.
+ */
+export const AGENT_LOST_SIGNATURE = 'agent_lost';
+
+/** Evidence ref of a PR read made for one cancel (FR-025.03): only such a read can end that cancel. */
+export function cancelReadRef(token: string): string {
+  return `cancel:${token}`;
+}
+
 /** `registered`/`running` and `unknown`/`lost` are unresolved: they keep the slot and the reservation. */
 export const OPERATION_STATUSES = [
   'registered',

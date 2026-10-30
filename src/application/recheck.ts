@@ -31,6 +31,7 @@ import {
   type ConfigCheckStatus,
   type ConfirmDeps,
 } from './confirm.ts';
+import { cancelReadEvidence } from '../engine/cancel.ts';
 import { submit } from './triage.ts';
 
 export type RecheckTarget = 'config' | 'observation' | 'drain' | 'worktree';
@@ -177,7 +178,11 @@ export async function recheckTask(
         ? null
         : `${r.unavailable.check}: ${r.unavailable.detail}`;
   } else if (performed && target === 'observation') {
-    const r = await deps.observe(cmd.task_id, `recheck:${cmd.request_id}`);
+    // While a cancel waits for its read, this read is the one that counts for it (FR-025.03).
+    const r = await deps.observe(
+      cmd.task_id,
+      cancelReadEvidence(before) ?? `recheck:${cmd.request_id}`,
+    );
     unavailable = r.failure;
     r.facts.forEach((fact, i) => {
       const cur = deps.store.readTask(cmd.task_id as Uuid);

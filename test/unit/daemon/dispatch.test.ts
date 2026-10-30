@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { resultEnvelopes } from '../../../src/daemon/ingest.ts';
 import type { Clock } from '../../../src/adapters/ports.ts';
 import {
   DispatchConfigError,
@@ -361,6 +362,8 @@ describe('Dispatcher (T026)', () => {
   });
 });
 
+let ids = 77_000;
+
 describe('process marks (FR-034.01)', () => {
   const marking = (log: string[], fail = false) => ({
     write: (id: string) => {
@@ -384,12 +387,13 @@ describe('process marks (FR-034.01)', () => {
         prepare: (effect, _s, op) => {
           log.push(`handler:${op.operation_id}`);
           return Promise.resolve(
-            d.envelope(t.id, {
-              kind: 'effect_result',
-              effect_id: effect.id as Uuid,
-              outcome: 'succeeded',
-              data: PREPARE_DATA,
-            }),
+            resultEnvelopes(
+              effect,
+              op,
+              null,
+              { outcome: 'succeeded', data: PREPARE_DATA },
+              { now: d.now, started_at: d.now, newId: () => uuidOf(ids++) },
+            ),
           );
         },
       },
@@ -404,6 +408,38 @@ describe('process marks (FR-034.01)', () => {
       `handler:${op?.id}`,
       `clear:${op?.id}`,
     ]);
+  });
+
+  it('keeps the mark of an operation left unknown: its processes may still run (FR-034.01)', async () => {
+    const { d, clock } = setup();
+    const t = buildTask({ id: uuidOf(24) });
+    createGrantStart(d, t);
+    const prepare = d.pendingOne(t.id, 'prepare');
+    const log: string[] = [];
+    const disp = new Dispatcher({
+      store: d.store,
+      clock,
+      marks: marking(log),
+      handlers: {
+        prepare: (effect, _s, op) =>
+          Promise.resolve(
+            resultEnvelopes(
+              effect,
+              op,
+              null,
+              { outcome: 'unknown', detail: 'stop not seen through' },
+              { now: d.now, started_at: d.now, newId: () => uuidOf(ids++) },
+            ),
+          ),
+      },
+    });
+    disp.tick();
+    await disp.settle();
+    const op = Object.values(d.task(t.id).operations).find(
+      (o) => o.effect_id === prepare.id,
+    );
+    expect(op?.status).toBe('unknown');
+    expect(log).toEqual([`write:${op?.id}`]);
   });
 
   it('keeps the mark when the handler fails, and runs no handler whose mark cannot be written', async () => {

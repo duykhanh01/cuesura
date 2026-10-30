@@ -87,6 +87,8 @@ export type EventPayloads = {
     binding: string;
     effect_id: string;
     reservation_id: string;
+    /** Worker attempt whose session this attempt resumes (FR-038); absent when it starts a new session. */
+    resumed_from?: string;
   };
   AttemptFinished: {
     attempt_id: string;
@@ -232,7 +234,16 @@ export type EventPayloads = {
   };
   RevisionApplied: { revision: number; task: CanonicalTask };
   // Hủy
-  CancelRequested: { by: string; reason: string; at: number };
+  CancelRequested: {
+    by: string;
+    reason: string;
+    at: number;
+    /**
+     * Runtime task: the token a read of the PR must carry (`raw_evidence_ref = cancel:<token>`) to count
+     * for this cancel, so only a read requested after the cancel was recorded can end it (FR-025.03).
+     */
+    read_token?: string;
+  };
   CancelRecordedLate: { merge_effect_id: string | null };
   // Kết thúc
   TaskCompleted: { reason: string };

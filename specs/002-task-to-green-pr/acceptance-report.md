@@ -639,3 +639,89 @@ Kết quả theo yêu cầu SC-004/005/006:
 Không lấy crash của 001 hay PID giả thay bằng chứng runtime. Agent ở các nhóm flow là harness giả
 trong tiến trình. Spawn agent thật được phủ ở spawn_adoption qua systemd. SC-005 với vendor thật
 vẫn chờ C.
+
+# T105 — US5 trả lời và hủy có kiểm soát
+
+Ngày: 2026-10-30. Nhánh `claude/wonderful-hamilton-abwvdz` (PR #22), base `90b8beb` (Phase 7 đã merge)
+cộng ba commit Phase 8 và chín lượt sửa sau review (`e63b165`, `df7c4c9`, `399a025`, `27be750`, `b4f12c5`, `07680aa`, `04ff0ba`, `4dc8cfb` và lượt thứ chín). Host chạy: container cloud Ubuntu 24.04.5, kernel `6.18.44-fc-v185`, Node v22.22.0
+(`engines` yêu cầu 24.22.1), git 2.43.0, **chạy bằng root**, không có systemd user manager
+(`systemctl --user` = `offline`). Không phải host owner chọn; không có tài khoản/model/GitHub thật.
+
+## Lệnh
+
+| Kiểm | Kết quả |
+| --- | --- |
+| `pnpm typecheck`, `pnpm lint` | exit 0 |
+| `pnpm test` | 118 file: 107 pass, 8 skip, **3 fail**; 1.597 test pass, 40 skip, 3 fail; 119 giây |
+| 3 test fail | `command-journal` (“no durable started record, no spawn”), `process-tag` (“a process of this user it cannot read…”), `sandbox` (“refuses a parent of the host home”). Cả ba cũng fail trên `main` `90b8beb` trong cùng container trước khi sửa gì (baseline: 4 fail, thêm một test `daemon-control` keep-alive nay đã pass nhờ client mở một kết nối mỗi request). Nguyên nhân: tiến trình chạy bằng root, HOME `/root`. Không phải lỗi của Phase 8; chưa chạy lại trên host thường. |
+| `questions.test.ts` | 17/17 |
+| `cancel-drain.test.ts` | 41/41 |
+| property `runtime-cancel.test.ts` | 200 chuỗi ngẫu nhiên (đồng hồ tiến, đứng yên hoặc lùi), đạt cả CANCELLED lẫn DONE-trễ, cộng regression cùng millisecond |
+| `feature-002-recovery.test.ts` | 24/24 (thêm runner resume bị mất, và crash sau từng fact của reconcile) |
+
+## Matrix US5.1–7
+
+| Kịch bản | Bằng chứng | Kết quả |
+| --- | --- | --- |
+| US5.1 needs_input kết thúc attempt, câu hỏi bền, inbox sau restart | `questions.test.ts`: attempt `finished`, không effect in-flight, slot `null`, WAITING `human_input/agent_question`; mở lại file SQLite và **restart daemon thật** qua UDS, `inbox` vẫn trả câu hỏi; token project khác không thấy, project không được đọc bị từ chối | Đạt (fake harness) |
+| US5.2 câu trả lời đầu thắng, replay, cạnh tranh, sai revision | Cùng file, qua daemon thật: một request gửi **2, 3 và 5 lần** (tuần tự và đồng thời) → một `QuestionAnswered`, mọi lần sau `replayed: true` cùng kết quả, không thêm attempt; 5 request khác ID đua nhau → đúng 1 thắng, 4 `conflict` (exit 6); competing ở version hiện tại → `conflict already_answered`, chỉ ghi `AnswerRejected`; stale version → conflict trước khi ghi; câu hỏi bị revision mới rút → `conflict question_not_open`; token project khác exit 5/4, token read exit 5, câu hỏi không có exit 4 | Đạt |
+| US5.3 hủy khi attempt chạy và effect chưa dispatch | `cancel-drain.test.ts`: effect chưa dispatch bị `invalidated`, attempt `not_started`, slot trả, CANCELLED ngay. Runner đã adopt (không còn handler) là **process group thật** (`sh` + 2 `sleep`): `stop_attempt` dừng qua `ProcessPort` (TERM rồi KILL), `/proc` xác nhận cả 3 PID đã chết; slot và claim giữ tới receipt của operation và kết quả attempt, rồi mới CANCELLED; không effect nghiệp vụ mới. `prepare` đang chạy một cây process thật có tag operation: cancel yêu cầu stop, process bị giết theo tag và `/proc` xác nhận đã hết, CANCELLED sau receipt và kết quả của setup. Gate đang chạy lúc hủy (flow Git thật): lệnh đang chạy nhận SIGTERM và trap cleanup chạy, `unit`/`lint` không được spawn, không checkpoint, stop chỉ xong sau khi handler gate trả về. Dừng theo tag: SIGTERM, chờ grace, rồi SIGKILL và xác minh; process bỏ qua TERM bị KILL sau grace. Executor gate: con bỏ qua TERM và không giữ pipe vẫn bị KILL sau grace, lệnh chỉ kết thúc khi cả process group đã hết; không spawn sau abort. `prepare` không chạy lệnh git nào sau abort. Handler bị abort không trả về trong thời hạn (hoặc không chờ được) → stop là `unknown`, task không CANCELLED. Reconcile sau cancel/merge không chạy lại setup/gate: chỉ ghi `failed` (`stopped`) khi process theo tag được thấy đã hết, không thì giữ `unknown`; zero lệnh git/gate. Leader bỏ qua TERM bị KILL sau grace (lịch KILL đặt ngay lúc abort). Cancel ghi trong lúc reconcile đang chạy lại gate: guard đọc lại task trước mỗi lệnh và mỗi 200 ms, lệnh đang chạy nhận TERM, không gate nào khác, không commit. Dừng không xác minh được nhóm process (fault injection) giữ `unknown`, không thành `failed`; khi đó chính effect và operation của lượt reconcile cũng giữ `unknown`, nên task không CANCELLED/DONE trước khi process của lượt đó được đối chiếu. Shutdown giữa lúc reconcile chạy lại gate: abort của dispatcher tới guard, guard ngừng đọc store, đóng SQLite không gây exception. Process mark chỉ bị xóa khi operation đã giải quyết; operation `unknown` giữ mark. Mọi reconcile, kể cả reconcile của một reconcile, kiểm và dừng theo tag các operation local `unknown` của effect đích trước khi probe hay đóng: chưa thấy hết thì `still_unknown`, slot và cancel giữ nguyên. Đường đối chiếu không đứt: khi operation của một effect `unknown` đổi trạng thái (recovery ghi `lost`, receipt tới) mà không còn probe mở, engine tạo probe mới. Regression đi hết chuỗi bằng SQLite, dispatcher, handler và `reconcileOperations` thật: `unknown` → probe không xác minh được (kẹt, không effect pending, slot giữ) → process chết → recovery ghi `lost` → probe mới → CANCELLED, slot được trả; và cùng chuỗi khi `lost` được ghi **trong lúc** probe đang kiểm process: một probe kế tiếp được xếp, chỉ claim sau khi probe đang chạy kết thúc (`probe_running`, không hai probe của cùng effect chạy song song), rồi kết thúc CANCELLED. Probe kế tiếp cũng bị chặn khi probe trước còn `unknown` (có thể còn gate chạy lại đang sống); probe của chính probe đó đối chiếu nó trước. Probe của việc giữ slot (setup/agent/gate/publish, và probe của probe ấy) tự giữ slot (FR-044.01). Regression: xếp R2 → R1 thành `unknown` với process gate chạy lại còn sống → R2 vẫn bị chặn, slot giữ → recovery dừng process của R1 theo tag → CANCELLED, slot trả; tắt riêng từng phần bản sửa thì test tương ứng fail | Đạt; systemd thật không có trên host này (supervisor thật đã kiểm ở T081) |
+| US5.4 hủy khi publish chưa rõ, PR đã tạo | Store: `create_pr` unknown → cancel không CANCELLED, reconcile thấy PR → `pr_ref` được ghi, chờ `cancel_reconcile`. Git thật + FakeGitHub: cancel ở PR xanh đọc PR một lượt rồi CANCELLED; chỉ có request `GET`, PR vẫn `open`, branch remote và HEAD worktree vẫn ở SHA checkpoint | Đạt |
+| US5.5 hạn mức, auth, refusal | Rate limit: lượt gọi được tính, slot trả, timer hữu hạn (≥ `reset_at`, ≤ trần backoff), retry giữ nấc; hết `max_attempts` → `policy/backoff_exhausted`. `auth_config`/`refused`: chờ người, không retry kể cả sau 1 giờ, không `RungRaised`/`ApprovalRequested`. Outcome unknown giữ claim và slot, chờ reconcile | Đạt (engine 001 đã có; test khóa lại trên task runtime) |
+| US5.6 hủy khi PR đã merge | Merge trước khi cancel kết thúc → DONE với merge commit, `CancelRecordedLate`, không `TaskCancelled`, zero merge request. Drain đã cạn lượt rồi mới cancel → recheck drain (service T062) chạy đúng 1 vòng, kết quả cuối → DONE đúng 1 lần. GitHub không đọc được → giữ `cancel_reconcile`, recheck sau đó → CANCELLED. Merge thấy sau CANCELLED chỉ là lịch sử. Lần đọc được gắn với cancel bằng `read_token` cấp trong cùng accept: observation ghi trước cancel cùng millisecond, hoặc vòng tự động sau đó, không kết thúc được cancel. Một lần đọc bất kỳ thấy `merged` (kể cả thiếu proof, kể cả ngay trước cancel) được giữ lại vĩnh viễn trong cancel: lần đọc open/closed đến sau, kể cả câu trả lời muộn của chính lần đọc mang token, không kết thúc được cancel; blocker `merge_evidence_incomplete` cũng giữ cancel chờ; proof đến sau vẫn kết thúc DONE. Property (có bước merged thiếu proof): CANCELLED chỉ khi lần đọc mang token cho open/closed và được ghi **sau** `CancelRequested` theo seq, không merge proof, không effect in-flight | Đạt |
+| US5.7 needs_context/blocked, session cũ không dùng được | needs_context/blocked chờ người với phần thiếu (`reported`), không retry/escalate tự động, không gọi role khác; answer chạy đúng 1 attempt `retry` mang Q&A qua slot/ngân sách; hết `max_agent_runs` → chờ policy, không attempt. Resume đúng session đã hỏi; resume hỏng không có session riêng → attempt sau `session_unusable`, vẫn mang Q&A, mỗi lần gọi đều tính lượt (3 attempt cho 3 lần gọi). Runner resume chết thật thiếu `exit.json`: recovery ghi `lost`, reconcile handler thật ghi lượt thất bại (`infra`/`agent_lost`, tính lượt, đóng operation), retry sau backoff mở session mới mang Q&A; engine đóng run `lost` trong cùng accept với lượt thất bại, test crash sau từng fact vẫn tới đúng kết quả; projection khớp nhật ký | Đạt với fake session port |
+
+Approval escalation (T103, FR-010/FR-028), qua daemon thật: token assistant `[read, operate]` và token
+read bị từ chối (exit 5), sai rung exit 4, `merge_approve`/`yolo` exit 2 và không tạo approval; owner duyệt
+đúng request mở của step/rung/revision hiện hành, replay cùng request trả kết quả cũ, request khác cho
+cùng rung là conflict; chỉ có approval loại escalation.
+
+Inbox: task đã CANCELLED/DONE không còn câu hỏi trong inbox, kể cả khi hỏi theo `task_id`.
+
+## Thay đổi hành vi cần biết
+
+- Task runtime có PR không còn CANCELLED ngay khi hủy: phải có một lần đọc PR **sau** thời điểm hủy cho
+  open/closed (FR-025.03). Test cũ `external-completion.test.ts` (“a cancelled task is not reopened…”)
+  kỳ vọng CANCELLED ngay đã được sửa theo FR-025.03. Task 001 không runtime giữ hành vi cũ.
+- Cancel dừng cả `prepare`/`run_gates` đang chạy (process theo tag operation). Push, tạo PR và rerun
+  đã gửi được để chạy hết trong giới hạn riêng: dừng giữa chừng chỉ làm kết quả bên ngoài thành unknown.
+- Reconcile của attempt agent mà mọi run đều `lost` giờ là lượt thất bại `infra` (`agent_lost`) thay vì
+  `still_unknown` mãi.
+- needs_context/blocked của worker đã gọi trên task runtime không còn đi theo route `retry`/`escalate`
+  của workflow mà chờ người (FR-039). Task 001 giữ route cũ.
+- Tiếp tục sau answer ở bước `code` giờ resume session của attempt đã hỏi nếu harness đã chứng minh
+  resume (trước đây luôn session mới).
+
+## Chưa đạt / ngoài phạm vi lượt này
+
+- Proof resume Claude **thật** (điều kiện T077: lưu phiên, chuyển transcript sang home mới, sửa
+  `contracts/execution.md`) chưa làm; mọi resume ở đây là fake session port. Thuộc C.
+- `productionControl` chưa truyền `observe`/`ProcessPort`/effect handlers vào daemon production; command
+  `task_cancel` ở production ghi intent và chờ recheck đọc PR. Nối route production thuộc T109/T110.
+- CLI `cusr inbox/answer/task cancel/task approve` chưa có (T109); test đi thẳng qua UDS `/v1/command`.
+- Không chạy được trên host có systemd user manager: nhóm `spawn_adoption` của crash driver bị skip ở
+  đây (xem dưới).
+
+## Reliability sau Phase 8
+
+```sh
+pnpm test:reliability --seed 20261028 --no-file-parallelism
+```
+
+Chạy trên `b4f12c5` (code cuối của PR), cùng container: exit 0, 1.544 giây.
+
+| File | Kết quả |
+| --- | --- |
+| `runtime-crash` | 185 pass, **42 skip**: nhóm `spawn_adoption` cần systemd user manager, host này `offline`. `output_ack`, `commit_push`, `pr_create`, `merge_drain` (40 lượt mỗi nhóm) và `h05` (20) đều pass |
+| `r1-crash` (R-08, store) | 201/201 |
+| `r4-sequences` | 1/1 |
+
+Lượt trên chạy trước lượt sửa thứ sáu. Sau lượt sửa thứ sáu, crash driver dùng process mark và dừng theo
+tag như daemon production; chạy lại đầy đủ trên `07680aa`: exit 0, 1.649 giây, `runtime-crash` 185 pass/42
+skip (`spawn_adoption`), `r1-crash` 201/201, `r4-sequences` 1/1. Sau lượt sửa thứ bảy, chạy lại trên
+`04ff0ba`: exit 0, 1.618 giây, cùng kết quả (185 pass/42 skip, 201/201, 1/1). Code cuối sau lượt sửa
+thứ chín (`22b856c`): exit 0, 1.614 giây, cùng kết quả.
+
+Lượt này không ghi lại ledger `evidence/t094-runtime-crash.json` và không đếm lại số SIGKILL; bằng chứng
+≥ 200 kill của T094 (có `spawn_adoption` trên systemd thật) vẫn là lượt T094. Kiểm lại trên host có
+systemd sau Phase 8 thuộc T120.
