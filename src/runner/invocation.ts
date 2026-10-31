@@ -65,6 +65,7 @@ import type {
   VendorPlan,
 } from '../adapters/harness/vendor.ts';
 import {
+  DaemonStopping,
   SANDBOX_ROLES,
   type Clock,
   type HarnessFailure,
@@ -441,7 +442,8 @@ export class RunnerHarness implements HarnessPort {
       return this.#conclude(run, input, state, exit, authRedactor, false);
     } catch (e) {
       // A run whose end is not proven may still be using its home: recovery removes the auth.
-      if (e instanceof InvocationUnknown) installed = null;
+      if (e instanceof InvocationUnknown || e instanceof DaemonStopping)
+        installed = null;
       throw e;
     } finally {
       // Auth leaves the home once the run's artifacts are on disk, whatever the outcome.
@@ -910,6 +912,9 @@ export class RunnerHarness implements HarnessPort {
       if (exit.state === 'valid') return exit.value;
       if (exit.state === 'invalid' && goneSince !== null)
         throw new InvocationUnknown(`exit.json invalid: ${exit.reason}`);
+      // The unit outlives this daemon (contracts/execution.md §3): the effect stays started, and the next
+      // daemon adopts the run. Stopping it here would spend the attempt and call a replacement.
+      if (signal.reason instanceof DaemonStopping) throw signal.reason;
       const elapsed = o.clock.monotonic() - start;
       if ((signal.aborted || elapsed > wall + grace + 30_000) && !stopped) {
         stopped = true;

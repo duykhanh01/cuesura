@@ -25,6 +25,14 @@ import type {
 
 // ---- Clock ----
 
+/**
+ * The reason a handler's signal carries when the daemon itself is stopping (service stop or restart), as
+ * opposed to a stop of this work. What runs in its own unit keeps running, and the next daemon adopts it.
+ */
+export class DaemonStopping extends Error {
+  override name = 'DaemonStopping';
+}
+
 /** Wall time for durable deadlines; monotonic time for elapsed/timeout arithmetic. */
 export interface Clock {
   now(): EpochMs;

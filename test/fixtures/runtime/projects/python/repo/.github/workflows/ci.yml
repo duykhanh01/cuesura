@@ -1,0 +1,14 @@
+name: ci
+on:
+  pull_request:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -B -c "import ast, pathlib; ast.parse(pathlib.Path('src/slugs/strings.py').read_text())"
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: PYTHONPATH=src python3 -B -m unittest discover -s tests

@@ -25,7 +25,11 @@ import {
   type Role,
 } from '../../../src/adapters/harness/result-schema.ts';
 import type { VendorPin } from '../../../src/adapters/harness/vendor.ts';
-import type { HarnessInput, ProcessPort } from '../../../src/adapters/ports.ts';
+import {
+  DaemonStopping,
+  type HarnessInput,
+  type ProcessPort,
+} from '../../../src/adapters/ports.ts';
 import { sessionFor } from '../../../src/daemon/handlers.ts';
 import { RUN_FILES, RunDir } from '../../../src/runner/files.ts';
 import {
@@ -510,6 +514,26 @@ describe('run outcomes', () => {
       failure: 'cancelled',
       invoked: true,
     });
+  });
+
+  it('a daemon stop leaves the run to its unit and the auth in its home; nothing is concluded', async () => {
+    const e = env('claude', 's0-claude-coder-1793172185', 'hang');
+    const inp = input('claude', 'coder');
+    const stops: string[] = [];
+    const stop = e.proc.stop.bind(e.proc);
+    e.proc.stop = (id: string) => {
+      stops.push(id);
+      return stop(id);
+    };
+    const ac = new AbortController();
+    setTimeout(() => ac.abort(new DaemonStopping()), 300);
+    await expect(harness(e).run(inp, ac.signal)).rejects.toBeInstanceOf(
+      DaemonStopping,
+    );
+    expect(stops).toEqual([]);
+    expect(e.proc.launches).toHaveLength(1);
+    expect((await e.proc.inspect(inp.operation_id)).state).toBe('active');
+    await stop(inp.operation_id);
   });
 
   it('an attempt that was already launched is recovered, never launched again', async () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { resultEnvelopes } from '../../../src/daemon/ingest.ts';
-import type { Clock } from '../../../src/adapters/ports.ts';
+import { DaemonStopping, type Clock } from '../../../src/adapters/ports.ts';
 import {
   DispatchConfigError,
   Dispatcher,
@@ -325,6 +325,44 @@ describe('Dispatcher (T026)', () => {
     expect(disp.tick().started).toHaveLength(1);
     await disp.settle();
     expect(disp.inFlight).toBe(0);
+  });
+
+  it('tells a daemon stop from a stop of the work in the signal a handler sees', async () => {
+    const running = () => {
+      const { d, clock } = setup();
+      const t = buildTask({ id: uuidOf(8) });
+      createGrantStart(d, t);
+      const prepare = d.pendingOne(t.id, 'prepare');
+      let reason: unknown;
+      const disp = new Dispatcher({
+        store: d.store,
+        clock,
+        handlers: {
+          prepare: (_effect, signal) =>
+            new Promise((_, reject) => {
+              signal.addEventListener('abort', () => {
+                reason = signal.reason;
+                reject(new Error('stopped'));
+              });
+            }),
+        },
+      });
+      disp.tick();
+      return { disp, id: prepare.id, reason: () => reason };
+    };
+    const handlerStarted = () => new Promise((r) => setImmediate(r));
+
+    const byStop = running();
+    await handlerStarted();
+    await byStop.disp.stop(1_000);
+    expect(byStop.reason()).toBeInstanceOf(DaemonStopping);
+
+    const byAbort = running();
+    await handlerStarted();
+    expect(byAbort.disp.abort(byAbort.id)).toBe(true);
+    await byAbort.disp.settle();
+    expect(byAbort.reason()).toBeDefined();
+    expect(byAbort.reason()).not.toBeInstanceOf(DaemonStopping);
   });
 
   it('stop() gives up on a handler that ignores abort after the grace period and drops its late result', async () => {

@@ -161,6 +161,8 @@ export class FakeGitHub implements GitHubPort {
           retry_after_ms: null,
         }),
       );
+    if (req.path === r)
+      return reply(200, { id: this.repoId, full_name: this.repo });
     if (req.path === `${r}/pulls`) {
       const head = (req.query['head'] ?? '').split(':')[1];
       return reply(

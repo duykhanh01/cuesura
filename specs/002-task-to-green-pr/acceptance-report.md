@@ -817,3 +817,41 @@ matrix US6. Tất cả là fake harness/GitHub; smoke thật thuộc C.
   chạy và gộp commit để chuỗi không còn trong lịch sử nhánh; incident cũ trên dashboard vẫn cần owner đóng nếu còn mở.
 - `--follow` hỏi lại theo chu kỳ, không phải stream từ daemon; mất kết nối thì thoát 3, người gọi tự nối lại.
 - Điều kiện T077 (proof resume Claude thật) và các thiếu sót go-no-go vẫn như cũ.
+
+## T121–T125 — suite smoke và chạy thử local
+
+**Đây không phải bằng chứng SC.** Mọi kết quả dưới đây dùng vendor replay T007 và GitHub giả; không gọi model, không
+ghi lên GitHub. SC-001/002/005/008/012 vẫn **chưa kiểm** tới khi T126–T130 chạy thật.
+
+`pnpm test:smoke`: 32 pass, 10 skip (kịch bản thật, cần `CUSR_SMOKE_REAL`), 1 todo (T126). Chạy thử đi qua CLI thật,
+preflight thật, unit systemd, bwrap, Git và gate thật; đây là lần đầu luồng `task add` → DONE đi qua preflight trên
+wiring production (#25 seed task ở bước start).
+
+| Task | Suite | Kiểm local | Còn lại |
+| --- | --- | --- | --- |
+| T121 | `task-to-green-pr.test.ts` | Fixture validate, required checks khớp job CI, không có secret; hai chiều vendor full-review tới PR xanh rồi DONE; đọc rule source trả "không có protection", ghi duy nhất là tạo PR | Hai repo sandbox; T127 |
+| T122 | `harness-roles.test.ts` | Sáu cặp role × vendor qua task thật; reviewer ghi worktree bị chặn; vendor in private home mọi lượt, canary không có trong data dir | Invocation thật và evidence `attested`: T126 |
+| T123 | `runner-restart.test.ts` | SIGKILL/SIGTERM × hai vendor khi unit agent còn active: cùng attempt, unit, InvocationID và process qua lần dừng; attempt kết thúc `done` sau lần dừng, một lượt budget, không gọi thay thế | T128 |
+| T124 | `gates.test.ts` | Lệnh gate đúng pass/fail ở Node/Python; gate đỏ không có checkpoint, fixer sửa, gate xanh rồi mới publish | T129 |
+| T125 | `manual-merge.test.ts` | Chờ khi chưa merge; DONE một lần qua restart; source push/delete sau merge giữ head đã kiểm; T008 merge/squash/rebase qua proof production; không có request merge | T130 |
+
+GitHub giả không phân biệt kiểu merge; ba kiểu chỉ được kiểm qua record T008. Driver thật (`test/support/smoke-real.ts`)
+mới chạy `cusrd`/`cusr` đã build tới `doctor`, chưa từng chạy một task thật.
+
+### Lỗi phát hiện: dừng daemon êm đốt mất attempt
+
+`Dispatcher.stop` abort mọi handler bằng cùng tín hiệu với hủy việc, nên `RunnerHarness` dừng luôn unit của agent. Sau
+`systemctl stop`/restart, attempt cũ tính hết một lượt budget và attempt thay thế được gọi, trái `contracts/execution.md`
+§3 và SC-005; với agent thật là tốn tiền và làm lại việc. SIGKILL không bị, và `runner-adoption.test.ts` không bắt được
+vì child của nó không đi qua harness. Nay `stop` abort với lý do `DaemonStopping`: harness để nguyên unit và auth, effect
+giữ `started`, daemon sau nhận lại. Hủy việc vẫn dừng unit như cũ. Test: `dispatch.test.ts`, `harness-invocation.test.ts`,
+và `runner-restart.test.ts` (bỏ bản sửa thì hai ca SIGTERM fail: unit đã `not_found` ngay sau khi dừng, và riêng phần
+đọc log cũng fail vì attempt cũ không kết thúc `done`).
+
+### Điều kiện trước T126–T130
+
+- Hai repo sandbox Node/Python, nội dung từ `repo/` của fixture, required checks `build`/`test`, review bắt buộc. Repo
+  spike `cuesura-spike-002-sandbox` không có protection nên chỉ phủ trường hợp no-protection.
+- Owner duyệt budget. T126 phải chứng minh lại ít nhất Claude vì binary đã đổi (T007 là 2.1.306, host 2.1.314).
+- Công cụ sinh evidence có `attested` từ lượt chạy thật: chưa có, thuộc T126.
+- Bindings là toàn cục trong một config, nên mỗi chiều vendor cần config và data dir riêng (`CUSR_SMOKE_REAL` đã tách).

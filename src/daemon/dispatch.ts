@@ -16,7 +16,7 @@
  * `started` with its operation, so restart reconciles it; runner spools wait for ingest.
  */
 import { randomUUID } from 'node:crypto';
-import type { Clock } from '../adapters/ports.ts';
+import { DaemonStopping, type Clock } from '../adapters/ports.ts';
 import {
   holdsSlot,
   isBusinessEffect,
@@ -374,7 +374,8 @@ export class Dispatcher {
    */
   async stop(graceMs = DEFAULT_STOP_GRACE_MS): Promise<string[]> {
     this.#blocked ??= 'stopping';
-    for (const f of this.#inFlight.values()) f.abort.abort();
+    for (const f of this.#inFlight.values())
+      f.abort.abort(new DaemonStopping());
     let timer: NodeJS.Timeout | undefined;
     const expired = new Promise<void>((r) => (timer = setTimeout(r, graceMs)));
     await Promise.race([this.settle(), expired]);
