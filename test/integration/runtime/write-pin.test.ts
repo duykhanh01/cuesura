@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { RuntimeConfig } from '../../../src/config/normalize.ts';
 import {
+  notRunnable,
   writePin,
   type WritePinInput,
 } from '../../../src/runner/harness-records.ts';
@@ -115,7 +116,17 @@ describe('cusr-runner write-pin', () => {
     expect(() => statSync(path)).toThrow();
   });
 
-  it('refuses a claude pin without the commands its sandbox needs, or without its fields', () => {
+  it('counts only a runnable file, whatever this host has installed', () => {
+    const { tools } = setup();
+    writeFileSync(join(tools, 'no-exec'), '');
+    writeFileSync(join(tools, 'good'), '', { mode: 0o755 });
+    mkdirSync(join(tools, 'a-directory'));
+    expect(
+      notRunnable([tools], ['good', 'no-exec', 'a-directory', 'absent']),
+    ).toEqual(['no-exec', 'a-directory', 'absent']);
+  });
+
+  it('refuses a claude pin without its fields, and writes one with them', () => {
     const { input } = setup();
     const settings = {
       permissions: { defaultMode: 'dontAsk' },
@@ -134,15 +145,9 @@ describe('cusr-runner write-pin', () => {
       return d;
     };
     const withTools = fake('with-tools');
-    writeFileSync(join(withTools, 'socat'), '');
-    const complete = { ...claude, settings, max_turns: 8, tools: ['Bash'] };
-    // Present but not runnable is still missing.
-    expect(writePin({ ...complete, toolchain: [withTools] })).toMatchObject({
-      ok: false,
-      error: expect.stringContaining('socat') as string,
-    });
-    chmodSync(join(withTools, 'socat'), 0o755);
+    writeFileSync(join(withTools, 'socat'), '', { mode: 0o755 });
     writeFileSync(join(withTools, 'bwrap'), '', { mode: 0o755 });
+    const complete = { ...claude, settings, max_turns: 8, tools: ['Bash'] };
     const r = writePin({ ...complete, toolchain: [withTools] });
     expect(r.ok, JSON.stringify(r)).toBe(true);
   });

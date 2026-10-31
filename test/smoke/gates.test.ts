@@ -137,3 +137,41 @@ describe.skipIf(real === null).each(PROJECT_KINDS)(
     }, 3_700_000);
   },
 );
+
+// T129, red path. The task's verbatim code fails its verbatim test, and `unit` is required (`lint` is not, so
+// it could not hold a publish). A run that never went red fails here rather than passing unexercised.
+describe.skipIf(real === null).each(PROJECT_KINDS)(
+  'real red gate on the %s sandbox',
+  (kind) => {
+    it('publishes nothing while red; the fixer turns it green, then one PR', async () => {
+      const r = new RealRun(real as NonNullable<typeof real>, kind);
+      await r.startDaemon();
+      try {
+        const id = await r.addRedGateTask();
+        const waiting = await r.untilMergeWait(id, 3_600_000);
+        const events = await r.history(id);
+        const types = events.map((e) => e.type);
+        const gates = events.filter((e) => e.type === 'GateResultRecorded');
+        r.record('T129-red', {
+          task_id: id,
+          pr_ref: waiting['pr_ref'],
+          head_sha: waiting['head_sha'],
+          gate_results: gates.map((e) => e.payload),
+          attempts: events
+            .filter((e) => e.type === 'AttemptRequested')
+            .map((e) => e.payload),
+        });
+        expect(gates[0]?.payload['passed']).toBe(false);
+        expect(gates.at(-1)?.payload['passed']).toBe(true);
+        expect(types.indexOf('CheckpointRecorded')).toBeGreaterThan(
+          types.indexOf('GateResultRecorded'),
+        );
+        expect(types.indexOf('PublishRecorded')).toBeGreaterThan(
+          types.indexOf('CheckpointRecorded'),
+        );
+      } finally {
+        await r.stopDaemon('SIGTERM');
+      }
+    }, 3_700_000);
+  },
+);

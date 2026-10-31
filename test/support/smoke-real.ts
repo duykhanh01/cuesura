@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import {
   PROJECT_KINDS,
+  redGateTaskFile,
   SmokeDriver,
   taskFile,
   type Envelope,
@@ -135,6 +136,15 @@ export class RealRun extends SmokeDriver {
   addTask(): Promise<string> {
     const run: RunChoice = this.direction.run;
     return this.addAndConfirm(taskFile(this.kind), run);
+  }
+
+  /** No reviewer: the scenario is about the gate, and each call spends usage. */
+  addRedGateTask(): Promise<string> {
+    return this.addAndConfirm(redGateTaskFile(this.kind), {
+      ...this.direction.run,
+      mode: 'direct-pr',
+      reviewer: null,
+    });
   }
 
   /** The PR as GitHub itself reports it, not as the daemon recorded it. */

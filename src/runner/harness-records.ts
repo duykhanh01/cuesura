@@ -353,6 +353,22 @@ export type WritePinInput = {
   readonly force: boolean;
 };
 
+/** Host view only; doctor and preflight ask again inside the sandbox's own mounts. */
+export function notRunnable(
+  dirs: readonly string[],
+  tools: readonly string[],
+): string[] {
+  const runnable = (file: string): boolean => {
+    try {
+      accessSync(file, constants.X_OK);
+      return statSync(file).isFile();
+    } catch {
+      return false;
+    }
+  };
+  return tools.filter((t) => !dirs.some((d) => runnable(join(d, t))));
+}
+
 const sha256File = (path: string): string =>
   createHash('sha256').update(readFileSync(path)).digest('hex');
 
@@ -434,18 +450,7 @@ export function writePin(o: WritePinInput): Result<VendorPin, string> {
   const settings = pinSettingsHash(pin, 'native');
   if (!settings.ok) return settings;
   const { dirs, requires } = harnessSandboxTools(pin, 'native');
-  const runnable = (file: string): boolean => {
-    try {
-      accessSync(file, constants.X_OK);
-      return statSync(file).isFile();
-    } catch {
-      return false;
-    }
-  };
-  // Host view only; doctor and preflight ask again inside the sandbox's own mounts.
-  const absent = requires.filter(
-    (t) => !dirs.some((d) => runnable(join(d, t))),
-  );
+  const absent = notRunnable(dirs, requires);
   if (absent.length > 0)
     return err(
       `${pin.vendor} needs ${absent.join(', ')} in its sandbox: install under /usr or add the directory to --toolchain`,

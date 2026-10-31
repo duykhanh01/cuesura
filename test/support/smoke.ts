@@ -50,6 +50,9 @@ export const variantDir = (kind: ProjectKind, v: 'pass' | 'fail'): string =>
   join(PROJECTS_DIR, kind, 'variants', v);
 export const taskFile = (kind: ProjectKind): string =>
   join(PROJECTS_DIR, kind, 'task.json');
+/** A task whose verbatim code fails its verbatim test, so the required unit gate goes red (T129). */
+export const redGateTaskFile = (kind: ProjectKind): string =>
+  join(PROJECTS_DIR, kind, 'task-red-gate.json');
 
 export const hostUsable = (): boolean =>
   existsSync(BWRAP) &&

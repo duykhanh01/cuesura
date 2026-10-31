@@ -897,6 +897,33 @@ Host Linux hiện tại, effort low, `claude-haiku-5-5` và `gpt-6-luna`. Ledger
 - `cusr doctor` không báo thiếu `socat`, điều kiện của inner sandbox Claude.
 - Nhiều binding trong một role: chỉ binding đầu được dùng, nên đổi chiều vendor phải sửa config dù `--worker`/`--reviewer` đã chọn.
 
+### Chạy lại T128–T129 sau PR #28
+
+Ngày 2026-10-31, host Ubuntu này, effort low, mỗi task `max_agent_runs` 4. Claude được chứng minh lại vì pin đổi sang `socat` của
+hệ thống (`/usr/bin/socat`, 3 lượt, ba role đạt). Bằng chứng: `test/fixtures/runtime/spike-0/harness/rerun-20261031/`.
+
+| Ca | Chiều | Kết quả | PR, head |
+| --- | --- | --- | --- |
+| T128 SIGKILL | Node, Claude coder, Codex reviewer | Đạt: cùng attempt tới PR xanh | Node#3, `c465ecaf18` |
+| T129 gate xanh | Node, như trên | Đạt | Node#4, `d040c17d91` |
+| T129 gate đỏ | Node, Claude worker, `direct-pr` | Đạt: `unit` đỏ, không checkpoint, không publish; fixer sửa code, không sửa test; xanh rồi mới một PR | Node#6, `8ffee9c97d` |
+| T129 gate đỏ | Python, Codex worker, `direct-pr` | Đạt: như trên | Python#5, `cadae4cfb9` |
+
+Prompt role và `worker_rules` có trong `context/prompt.md` của lượt đã kiểm. Bốn lượt Claude coder và hai lượt Claude fixer không có
+lượt nào báo `blocked` hay chạy lệnh ghi Git, so với 2/4 lượt Claude coder `blocked` trước khi sửa. Mẫu nhỏ nên đây là bằng chứng bản
+sửa có tác dụng, không phải bảo đảm model không bao giờ thử commit. Các ca Node SIGTERM và Python của T128, Python gate xanh của T129
+đạt ở lượt trước PR #28, không chạy lại.
+
+Tổng lượt: Claude 9 (proof 3, coder 4, fixer 2), Codex 4 (reviewer 2, coder 1, fixer 1), trong trần 12 mỗi vendor owner đã duyệt.
+Claude báo khoảng $0.014 cho các task, chưa gồm proof; Codex chỉ báo token.
+
+Phát hiện ở lượt này:
+
+- `software_dev` chỉ bắt buộc `build` và `unit`. Task đầu của ca gate đỏ làm `lint` đỏ, và Node#5 vẫn được mở với `passed: true`, không
+  gọi fixer, dù acceptance ghi `lint` phải pass. Đây là thiết kế hiện tại của gate tùy chọn. Không merge Node#5.
+- Lượt fixer đầu của Node#6 không sửa gì và trả `done` kèm `blocker` vì mô tả task ghi "không sửa trong bước này"; validator từ chối
+  đúng (`invalid_output`), lượt repair sửa xong, tốn thêm một lượt. Nguyên nhân là câu chữ của fixture, không phải sản phẩm.
+
 ### Điều kiện trước T126–T130
 
 - Hai repo sandbox Node/Python đã có, nội dung từ `repo/` của fixture, required checks `build`/`test`, review bắt buộc. Repo
