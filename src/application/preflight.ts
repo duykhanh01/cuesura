@@ -107,6 +107,16 @@ export type PreflightInput = {
   readonly manifest_problems?: Readonly<Record<string, string>>;
   /** Mode of the run selection, when one is proposed; reviewer checks apply to `full-review` only. */
   readonly mode?: ExecutionMode | null;
+  /** What each harness's sandbox can run; a harness not listed has its tools left unchecked. */
+  readonly harness_tools?: Readonly<Record<string, SandboxTools>>;
+  /** PATH of the gate sandbox; left unchecked when absent. */
+  readonly gate_path?: readonly string[];
+};
+
+/** PATH directories of a harness's sandbox and the commands its binary cannot start without. */
+export type SandboxTools = {
+  readonly dirs: readonly string[];
+  readonly requires: readonly string[];
 };
 
 export type PreflightPorts = {
@@ -310,6 +320,9 @@ async function run(
     input.manifests,
     input.mode ?? null,
   );
+  support.problems.push(
+    ...(await checkTools(ports.host, input, validated.value, support)),
+  );
   const remote = await readRepoIdentity(ports.github, location.repo);
   if (!remote.ok) support.problems.push(remote.error);
   if (support.problems.length > 0 || !remote.ok)
@@ -448,6 +461,150 @@ export async function checkHost(
         `${RUNBOOK_CAUSES}; ${RUNBOOK_SYSTEMD}`,
       ),
     );
+  }
+  return out;
+}
+
+// ---- Commands a sandbox of this task must be able to run ----
+
+/** What `/bin/sh` answers itself (POSIX keywords and builtins, dash's among them): never a program to look for. */
+const SHELL_WORDS: ReadonlySet<string> = new Set(
+  `! { } . : [ alias bg break case cd chdir command continue do done echo elif else esac eval exec exit export
+   false fc fg fi for getopts hash if in jobs kill local printf pwd read readonly return set shift source test
+   then time times trap true type ulimit umask unalias unset until wait while`.split(
+    /\s+/,
+  ),
+);
+
+/** The program a plain `/bin/sh -c` command starts, or null for a path, a keyword or shell syntax. */
+export function commandTool(command: string): string | null {
+  const words = command.trim().split(/\s+/);
+  const first = words.find((w) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(w)) ?? '';
+  return /^[A-Za-z0-9._+-]+$/.test(first) && !SHELL_WORDS.has(first)
+    ? first
+    : null;
+}
+
+/** Prints each tool (`$2…`) that no directory of `$1` holds as a runnable file. */
+export const TOOL_PROBE_SCRIPT =
+  'dirs=$1; shift; IFS=:; for t in "$@"; do found=; for d in $dirs; do if [ -f "$d/$t" ] && [ -x "$d/$t" ]; then found=1; fi; done; [ -n "$found" ] || echo "$t"; done; exit 0';
+
+/**
+ * Which `tools` a sandbox with this PATH cannot run, asked inside the same mounts: a host path says nothing
+ * about the execute bit, a directory, or a symlink whose target the sandbox does not mount.
+ */
+export async function missingTools(
+  host: HostProbePort,
+  bwrap: string,
+  dirs: readonly string[],
+  tools: readonly string[],
+): Promise<
+  | { readonly ok: true; readonly missing: readonly string[] }
+  | { readonly ok: false; readonly detail: string }
+> {
+  if (tools.length === 0) return { ok: true, missing: [] };
+  const toolchain = dirs.filter(
+    (d) => d !== '/bin' && d !== '/usr' && !d.startsWith('/usr/'),
+  );
+  const r = await host.exec(
+    [
+      bwrap,
+      '--unshare-user',
+      '--ro-bind',
+      '/usr',
+      '/usr',
+      '--symlink',
+      'usr/bin',
+      '/bin',
+      '--symlink',
+      'usr/sbin',
+      '/sbin',
+      '--symlink',
+      'usr/lib',
+      '/lib',
+      '--symlink',
+      'usr/lib64',
+      '/lib64',
+      ...toolchain.flatMap((d) => ['--ro-bind-try', d, d]),
+      '/bin/sh',
+      '-c',
+      TOOL_PROBE_SCRIPT,
+      'sh',
+      dirs.join(':'),
+      ...tools,
+    ],
+    { timeout_ms: PROBE_TIMEOUT_MS },
+  );
+  if (r.kind !== 'exited')
+    return { ok: false, detail: `the sandbox probe ended: ${r.kind}` };
+  if (r.code !== 0)
+    return {
+      ok: false,
+      detail: `the sandbox probe exited ${r.code}: ${r.stderr.trim().slice(0, 512)}`,
+    };
+  return { ok: true, missing: r.stdout.split('\n').filter((l) => l !== '') };
+}
+
+/**
+ * Found before any turn is spent: an agent without the project's runtime finishes its code and only then
+ * reports blocked, and a gate without it fails with exit 127. Only names are checked, nothing is mounted.
+ */
+async function checkTools(
+  host: HostProbePort,
+  input: PreflightInput,
+  validated: Validated,
+  support: ReturnType<typeof checkSupport>,
+): Promise<PreflightProblem[]> {
+  const bwrap = await tool(host, validated.runtime?.tool_paths.bwrap, 'bwrap');
+  if (bwrap === null) return [];
+  const project = validated.config.project;
+  const commands = Object.values({
+    ...project?.gates,
+    ...project?.autofix,
+  });
+  const fromGates = commands.flatMap((c) => commandTool(c) ?? []);
+  const projectTools = [...new Set([...(project?.tools ?? []), ...fromGates])];
+  const out: PreflightProblem[] = [];
+  for (const [h, roles] of Object.entries(support.harness_roles).sort(
+    ([a], [b]) => (a < b ? -1 : 1),
+  )) {
+    const tools = input.harness_tools?.[h];
+    if (tools === undefined) continue;
+    const works = roles.includes('coder') || roles.includes('fixer');
+    const probe = await missingTools(host, bwrap, tools.dirs, [
+      ...new Set([...tools.requires, ...(works ? projectTools : [])]),
+    ]);
+    if (!probe.ok || probe.missing.length > 0)
+      out.push(
+        problem(
+          'capability_missing',
+          'toolchain',
+          probe.ok
+            ? `harness '${h}' sandbox cannot run ${probe.missing.join(', ')} from its PATH (${tools.dirs.join(':')})`
+            : `harness '${h}' sandbox could not be checked: ${probe.detail}`,
+          {
+            fix: `install it under /usr, or add its directory to toolchain in harnesses/${h}/pin.json and prove the harness again`,
+          },
+        ),
+      );
+  }
+  if (input.gate_path !== undefined) {
+    const probe = await missingTools(host, bwrap, input.gate_path, [
+      ...new Set(fromGates),
+    ]);
+    if (!probe.ok || probe.missing.length > 0)
+      out.push(
+        problem(
+          'capability_missing',
+          'toolchain',
+          probe.ok
+            ? `the gate sandbox cannot run ${probe.missing.join(', ')} from its PATH (${input.gate_path.join(':')})`
+            : `the gate sandbox could not be checked: ${probe.detail}`,
+          {
+            fix: 'install it under /usr, or run cusrd from a Node that has it',
+          },
+        ),
+      );
   }
   return out;
 }
@@ -731,10 +888,15 @@ export function checkSupport(
   task: CanonicalTask,
   manifests: Readonly<Record<string, CapabilityManifest | null>>,
   mode: ExecutionMode | null = null,
-): { problems: PreflightProblem[]; capability_refs: Record<string, Hash> } {
+): {
+  problems: PreflightProblem[];
+  capability_refs: Record<string, Hash>;
+  harness_roles: Record<string, Role[]>;
+} {
   const { config } = validated;
   const problems: PreflightProblem[] = [];
   const capability_refs: Record<string, Hash> = {};
+  const harness_roles: Record<string, Role[]> = {};
   const cap = (check: string, message: string): void =>
     void problems.push(problem('capability_missing', check, message));
 
@@ -775,11 +937,11 @@ export function checkSupport(
           : `profile '${profileName}' or its workflow does not exist`,
       ),
     );
-    return { problems, capability_refs };
+    return { problems, capability_refs, harness_roles };
   }
   if (!isSupportedStructure(workflow)) {
     cap('workflow', `workflow '${workflowName ?? ''}' is not software_dev@1`);
-    return { problems, capability_refs };
+    return { problems, capability_refs, harness_roles };
   }
   const points = unsupportedDecisionPoints(workflow);
   if (points.length > 0)
@@ -823,12 +985,11 @@ export function checkSupport(
     config.raw.profiles[profileName ?? '']?.budgets as
       { max_cost_usd?: unknown } | undefined
   )?.max_cost_usd;
-  const harnesses = new Map<string, Role[]>();
   for (const role of [...roles].sort()) {
     for (const h of roleHarnesses(validated, role, profile.allow_models))
-      harnesses.set(h, [...(harnesses.get(h) ?? []), role]);
+      harness_roles[h] = [...(harness_roles[h] ?? []), role];
   }
-  for (const [h, hRoles] of [...harnesses].sort(([a], [b]) =>
+  for (const [h, hRoles] of Object.entries(harness_roles).sort(([a], [b]) =>
     a < b ? -1 : 1,
   )) {
     const before = problems.length;
@@ -869,7 +1030,7 @@ export function checkSupport(
     }
     if (problems.length === before) capability_refs[h] = m.manifest_hash;
   }
-  return { problems, capability_refs };
+  return { problems, capability_refs, harness_roles };
 }
 
 /** Agent/review steps that run for this task; a `when` that does not match leaves the step out. */

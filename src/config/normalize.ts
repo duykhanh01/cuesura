@@ -200,6 +200,8 @@ export function normalizeProject(
         : typeof p.setup === 'string'
           ? [p.setup]
           : p.setup,
+    // Only when declared: the hashes of a config without it must not change.
+    ...(p.tools === undefined ? {} : { tools: p.tools }),
     gates: p.gates ?? {},
     autofix: p.autofix ?? {},
     log_digest: p.log_digest ?? {},

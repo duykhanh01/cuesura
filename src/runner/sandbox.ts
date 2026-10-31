@@ -56,6 +56,13 @@ export const PROOF_REFS: readonly string[] = [
   'test/fixtures/runtime/spike-0/host/local-boundary.json',
 ];
 
+/** What PATH holds in every sandbox after the layout's toolchain; all of it lies in the read-only system mounts. */
+export const SANDBOX_SYSTEM_PATH: readonly string[] = [
+  '/usr/local/bin',
+  '/usr/bin',
+  '/bin',
+];
+
 /** Fixed in-sandbox locations; worktree and git dirs keep their host paths so gitdir links resolve. */
 export const IN_SANDBOX = {
   home: '/cusr/home',
@@ -393,7 +400,7 @@ export function buildBwrap(
 
   checkEnv(layout.env);
   const env: Record<string, string> = {
-    PATH: [...layout.toolchain, '/usr/local/bin', '/usr/bin', '/bin'].join(':'),
+    PATH: [...layout.toolchain, ...SANDBOX_SYSTEM_PATH].join(':'),
     HOME: IN_SANDBOX.home,
     TMPDIR: '/tmp',
     LANG: 'C.UTF-8',

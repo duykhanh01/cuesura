@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   checkHost,
+  commandTool,
   githubSlugFromRemote,
   preflight,
   preflightWait,
   type PreflightError,
+  type SandboxTools,
 } from '../../../src/application/preflight.ts';
 import type { CapabilityManifest } from '../../../src/domain/runtime.ts';
 import type { ExecutionMode } from '../../../src/domain/run-config.ts';
@@ -34,6 +36,8 @@ async function runPreflight(
     manifests?: Record<string, CapabilityManifest | null>;
     task?: Parameters<typeof buildTask>[0];
     mode?: ExecutionMode | null;
+    harness_tools?: Record<string, SandboxTools>;
+    gate_path?: string[];
   } = {},
 ) {
   const ports = {
@@ -47,6 +51,10 @@ async function runPreflight(
     packs: PACKS,
     manifests: o.manifests ?? MANIFESTS,
     mode: o.mode === undefined ? 'full-review' : o.mode,
+    ...(o.harness_tools === undefined
+      ? {}
+      : { harness_tools: o.harness_tools }),
+    ...(o.gate_path === undefined ? {} : { gate_path: o.gate_path }),
   });
   return { result, ports };
 }
@@ -375,6 +383,64 @@ describe('preflight (T030, FR-002)', () => {
       expect(
         failure((await runPreflight({ github: 'unknown' })).result),
       ).toMatchObject({ code: 'infra_unavailable', check: 'github_repo' });
+    });
+  });
+
+  describe('commands a sandbox of this task can run', () => {
+    const NONE = { dirs: ['/nowhere'], requires: [] };
+    const FULL = { dirs: ['/usr/bin'], requires: [] };
+    const toolchainProblems = (
+      r: Awaited<ReturnType<typeof runPreflight>>['result'],
+    ): string[] => {
+      const e = failure(r);
+      return 'problems' in e
+        ? e.problems
+            .filter((p) => p.check === 'toolchain')
+            .map((p) => p.message)
+        : [];
+    };
+
+    it('reads the program of a plain gate command, and nothing from shell syntax or a path', () => {
+      expect(commandTool('node --test')).toBe('node');
+      expect(commandTool('PYTHONPATH=src python3 -m unittest')).toBe('python3');
+      expect(commandTool('./scripts/check.sh')).toBeNull();
+      expect(commandTool('(cd web && npm test)')).toBeNull();
+      expect(commandTool('cd web && npm test')).toBeNull();
+      expect(commandTool('umask 077 && npm test')).toBeNull();
+      expect(commandTool('printf x')).toBeNull();
+    });
+
+    it('refuses a worker whose sandbox lacks what the gates run, before any agent turn', async () => {
+      const { result } = await runPreflight({
+        harness_tools: { claude: NONE, codex: FULL },
+      });
+      const [message, ...rest] = toolchainProblems(result);
+      expect(rest).toEqual([]);
+      expect(message).toContain("harness 'claude' sandbox cannot run npm");
+      expect(
+        (await runPreflight({ harness_tools: { claude: FULL, codex: FULL } }))
+          .result.ok,
+      ).toBe(true);
+    });
+
+    it('checks what the project declares and what the binary needs', async () => {
+      const declared = await runPreflight({
+        git: { cusr: `${CUSR}\ntools: [pnpm]\n` },
+        harness_tools: {
+          claude: { dirs: ['/nowhere'], requires: ['socat'] },
+          codex: FULL,
+        },
+      });
+      expect(toolchainProblems(declared.result)[0]).toContain(
+        'cannot run socat, pnpm, npm',
+      );
+    });
+
+    it('refuses gates the gate sandbox cannot run', async () => {
+      const { result } = await runPreflight({ gate_path: ['/nowhere'] });
+      expect(toolchainProblems(result)).toEqual([
+        'the gate sandbox cannot run npm from its PATH (/nowhere)',
+      ]);
     });
   });
 

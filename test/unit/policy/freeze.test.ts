@@ -256,6 +256,34 @@ describe('freeze (FR-004, FR-037)', () => {
     );
   });
 
+  it('binding đã xác nhận chọn trong các rule của role; không có rule nào khớp thì giữ rule đầu', () => {
+    const task = buildTask({ size: 'L', profile: 'heavy' });
+    const frozen = (model: string) => {
+      const harness = USER.user.models[model]?.harness ?? '';
+      const rule = USER.user.roles.coder?.binding.find(
+        (b) => b.model === model,
+      );
+      const r = freeze({
+        config: USER,
+        task,
+        caller: authz(),
+        base_sha: 'cafe1234',
+        attachments: [],
+        ...docsFor(USER),
+        selection: {
+          worker: { harness, model, effort: rule?.effort ?? 'high' },
+          reviewer: null,
+        },
+      });
+      if (!r.ok) throw new Error(JSON.stringify(r.error));
+      return r.value.policy.steps.code?.binding.model;
+    };
+    // Rule đầu với task L là opus; xác nhận sonnet thì chạy sonnet, không phải sửa cấu hình.
+    expect(frozen('opus')).toBe('opus');
+    expect(frozen('sonnet')).toBe('sonnet');
+    expect(frozen('no-such-model')).toBe('opus');
+  });
+
   it('no_valid_binding khi allowlist loại hết rule', () => {
     const profiles =
       'profiles:\n  standard: { workflow: impl, allow_models: [opus], budgets: { max_agent_runs: 5, max_wall: 1h } }\n';

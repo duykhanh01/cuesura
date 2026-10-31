@@ -123,6 +123,14 @@ export const AgentDataSchema = z
   })
   .strict();
 
+/**
+ * A reviewer has no status of its own, except this: context that cannot be built, refused before launch.
+ * Retrying cannot clear it, so it waits for a person as a worker's does.
+ */
+export const ReviewRefusedSchema = AgentDataSchema.refine(
+  (d) => d.status === 'needs_context' && d.invoked === false,
+);
+
 export const ReviewDataSchema = z
   .object({
     schema_checked: z.boolean(),

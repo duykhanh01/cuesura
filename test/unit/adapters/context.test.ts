@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  WORKER_RULES,
   buildRoleContext,
   sanitize,
   type ContextInput,
@@ -46,6 +47,49 @@ function withContext(over: Partial<Parameters<typeof finalizeContext>[0]>) {
 }
 
 describe('role context (T037, FR-005)', () => {
+  it('puts the frozen role prompt ahead of the task and never cuts it', () => {
+    const context = withContext({
+      prompt_refs: [{ name: 'coder.md', content: 'Do not commit.\n' }],
+      conventions: [{ name: 'AGENTS.md', content: 'x'.repeat(200 * 1024) }],
+    });
+    const v = ok(buildRoleContext(input({ context, prompt: 'coder.md' })));
+    expect(v.text).toContain('## prompt:coder.md\nDo not commit.');
+    expect(v.text.indexOf('## prompt:coder.md')).toBeLessThan(
+      v.text.indexOf('## title'),
+    );
+    expect(v.truncated.map((t) => t.section)).not.toContain('prompt:coder.md');
+    // A prompt too large for the budget stops the run instead of reaching the agent cut.
+    const huge = withContext({
+      prompt_refs: [{ name: 'coder.md', content: 'x'.repeat(200 * 1024) }],
+    });
+    expect(
+      buildRoleContext(input({ context: huge, prompt: 'coder.md' })),
+    ).toMatchObject({ ok: false, error: { missing: ['context_budget'] } });
+  });
+
+  it('tells workers, whatever the prompt says, that Cuesura commits; a reviewer is not told', () => {
+    const coder = ok(buildRoleContext(input()));
+    expect(coder.text).toContain(`## worker_rules\n${WORKER_RULES}`);
+    const fixer = ok(
+      buildRoleContext(
+        input({
+          role: 'fixer',
+          failures: [{ source: 'gate', name: 'unit', detail: 'failed' }],
+        }),
+      ),
+    );
+    expect(fixer.text).toContain('## worker_rules');
+    const reviewer = ok(
+      buildRoleContext(
+        input({
+          role: 'reviewer',
+          diff: { text: 'd', paths: ['a'], from: 'x', to: 'y' },
+        }),
+      ),
+    );
+    expect(reviewer.text).not.toContain('worker_rules');
+  });
+
   it('carries the immutable request, acceptance, binding and step, with a digest of the text', () => {
     const v = ok(
       buildRoleContext(

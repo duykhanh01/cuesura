@@ -117,11 +117,29 @@ async function freezeFor(
     prompts: await deps.docs.prompts([...new Set(prompts)].sort()),
     conventions: await readConventions(deps.ports.git, candidate),
     mode: sel.mode,
+    selection: sel,
   });
   if (!frozen.ok)
     return { ok: false as const, error: frozen.error as FreezeError };
   const mismatch = checkSelection(frozen.value.policy, sel);
   if (mismatch.length > 0) return unconfirmed(mismatch);
+  // Frozen it could never fit: refused here, while editing the file still helps this task.
+  const budget = candidate.runtime.limits.context_bytes;
+  const oversize = frozen.value.context.prompt_refs.filter(
+    (p) => Buffer.byteLength(p.content) > budget,
+  );
+  if (oversize.length > 0)
+    return {
+      ok: false as const,
+      error: {
+        code: 'config_invalid' as const,
+        diagnostics: [],
+        problems: oversize.map((p) => ({
+          check: 'prompt',
+          message: `role prompt ${p.name} is larger than limits.context_bytes (${budget}); shorten it`,
+        })),
+      },
+    };
   const template = await readPrTemplate(
     deps.ports.git,
     candidate.project_path,
@@ -162,6 +180,12 @@ async function freezeFor(
     },
     pr_template: template.value,
     merge_method: resolveMergeMethod(config.project),
+    role_prompts: Object.fromEntries(
+      Object.values(frozen.value.policy.steps).flatMap((st) => {
+        const prompt = config.user.roles[st.role]?.prompt ?? null;
+        return prompt === null ? [] : [[st.role, prompt]];
+      }),
+    ),
   });
   if (!runtime.ok) {
     return {

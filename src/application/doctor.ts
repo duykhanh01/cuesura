@@ -21,12 +21,12 @@ import { overlaps } from '../runner/sandbox.ts';
 import { authorize, type Caller } from './authz.ts';
 import type { ConfigInputs } from './confirm.ts';
 import { binaryDigest, manifestHash } from './capabilities.ts';
-import { checkHost } from './preflight.ts';
+import { checkHost, missingTools, type SandboxTools } from './preflight.ts';
 import type { AppError } from './queries.ts';
 
 /**
  * All host probes of one doctor share this time, the sum of their own limits (bwrap and user bus 5 seconds
- * each, unit and canary 10 each). The client waits longer, so a hung probe comes back as a failed check
+ * each, unit and canary 10 each); a tools probe shares what is left. The client waits longer, so a hung probe comes back as a failed check
  * with its fix instead of a lost connection.
  */
 export const DOCTOR_PROBE_BUDGET_MS = 30_000;
@@ -44,6 +44,8 @@ export type DoctorDeps = {
   /** Digest of a harness binary; reads the file by default. */
   readonly digest?: (path: string) => string;
   readonly probeBudgetMs?: number;
+  /** What each recorded harness's sandbox can run, so a binary that cannot start shows before a task. */
+  readonly harnessTools?: () => Readonly<Record<string, SandboxTools>>;
   /** Credential files, every directory a sandbox of this daemon mounts, and what could not be resolved. */
   readonly credentialMounts?: () => Promise<{
     readonly credentials: readonly string[];
@@ -407,6 +409,30 @@ export async function runDoctor(
               'set projects.<id>.path',
             )
           : ok_(`project:${project}`, path),
+      );
+    }
+    for (const [h, tools] of Object.entries(deps.harnessTools?.() ?? {}).sort(
+      ([a], [b]) => (a < b ? -1 : 1),
+    )) {
+      if (tools.requires.length === 0) continue;
+      const fix = `install it under /usr, or add its directory to toolchain in harnesses/${h}/pin.json and prove the harness again`;
+      const bwrap =
+        runtime?.tool_paths.bwrap ?? (await host.findExecutable('bwrap'));
+      if (bwrap === null) {
+        checks.push(fail(`tools:${h}`, 'bwrap was not found', fix));
+        continue;
+      }
+      const probe = await missingTools(host, bwrap, tools.dirs, tools.requires);
+      checks.push(
+        !probe.ok
+          ? fail(`tools:${h}`, probe.detail, 'see deploy/README.md')
+          : probe.missing.length === 0
+            ? ok_(`tools:${h}`, `can run ${tools.requires.join(', ')}`)
+            : fail(
+                `tools:${h}`,
+                `its sandbox cannot run ${probe.missing.join(', ')} from PATH (${tools.dirs.join(':')}); the binary cannot start`,
+                fix,
+              ),
       );
     }
     for (const h of Object.keys(config.user.harnesses).sort()) {

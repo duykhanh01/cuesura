@@ -64,6 +64,11 @@ describe.each(['full-review', 'direct-pr'] as const)(
       expect(coder.remaining('coder')).toBe(0);
       // The worker saw the frozen template and where to write its content.
       expect(coder.calls[0]?.context.text).toContain('## Summary');
+      // The prompt frozen for the role reached the agent, and so did the rule that Cuesura commits.
+      expect(coder.calls[0]?.context.text).toContain(
+        '## prompt:prompts/coder.md',
+      );
+      expect(coder.calls[0]?.context.text).toContain('## worker_rules');
       // gates → checkpoint commit made with the worker's message; publish pushed exactly that commit.
       const cp = s.run.checkpoint;
       expect(cp).toMatchObject({ revision: 1, committed: true });
@@ -382,6 +387,63 @@ it('T139 M03: missing reviewer diff never launches or consumes a reviewer run', 
   expect(f.github.prs).toEqual([]);
 });
 
+async function settleWithSlot(
+  d: StoreDriver,
+  settle: () => Promise<void>,
+): Promise<void> {
+  for (let i = 0; i < 6; i++) {
+    await settle();
+    if (
+      d.task(d.store.taskIdsByStatus(['WAITING', 'RUNNING'])[0] as never)?.wait
+        ?.detail.code !== 'execution_slot'
+    )
+      return;
+    d.store.grantNext(d.now as EpochMs, [
+      uuidOf(30_000 + i * 4),
+      uuidOf(30_001 + i * 4),
+      uuidOf(30_002 + i * 4),
+      uuidOf(30_003 + i * 4),
+    ]);
+  }
+}
+
+it('a reviewer prompt too large for the context waits for a person: no call, no run consumed, no backoff', async () => {
+  const task = buildTask();
+  const f = setup(task, {
+    mode: 'full-review',
+    reviewerPrompt: 'x'.repeat(200 * 1024),
+  });
+  f.d.must(task.id, { kind: 'create_task', task });
+  f.start();
+  await f.settle();
+  expect(f.codex.calls).toEqual([]);
+  const s = f.d.task(task.id);
+  expect(s.status).toBe('WAITING');
+  expect(s.wait?.detail.code).toBe('agent_question');
+  expect(s.wait?.resume).toMatchObject({
+    kind: 'start_attempt',
+    step: 'review',
+    attempt_kind: 'retry',
+  });
+  expect(s.budget.agent_runs).toMatchObject({ used: 1, reserved: 0 });
+  expect(Object.values(s.questions).map((q) => q.body)).toEqual([
+    'needs_context: missing context: context_budget',
+  ]);
+  // An answer retries under the slot; the prompt still does not fit, so it asks again and still calls nothing.
+  const question = Object.values(s.questions)[0];
+  f.d.must(task.id, {
+    kind: 'answer',
+    question_id: question?.id as Uuid,
+    answer: 'the owner shortens the prompt',
+  });
+  await settleWithSlot(f.d, f.settle);
+  expect(f.codex.calls).toEqual([]);
+  const again = f.d.task(task.id);
+  expect(again.wait?.detail.code).toBe('agent_question');
+  expect(Object.keys(again.questions)).toHaveLength(2);
+  expect(again.budget.agent_runs.reserved).toBe(0);
+});
+
 describe('worktree changed by someone else before the worker (T072, real Git)', () => {
   it('the worker does not start on a changed worktree; recheck takes the change as the person’s and the flow goes on', async () => {
     const task = buildTask();
@@ -495,26 +557,6 @@ const FIXED: Content = {
 describe.each(['full-review', 'direct-pr'] as const)(
   'feature 002 repair flow in %s (T064)',
   (mode) => {
-    async function settleWithSlot(
-      d: StoreDriver,
-      settle: () => Promise<void>,
-    ): Promise<void> {
-      for (let i = 0; i < 6; i++) {
-        await settle();
-        if (
-          d.task(d.store.taskIdsByStatus(['WAITING', 'RUNNING'])[0] as never)
-            ?.wait?.detail.code !== 'execution_slot'
-        )
-          return;
-        d.store.grantNext(d.now as EpochMs, [
-          uuidOf(30_000 + i * 4),
-          uuidOf(30_001 + i * 4),
-          uuidOf(30_002 + i * 4),
-          uuidOf(30_003 + i * 4),
-        ]);
-      }
-    }
-
     it.each([true, false])(
       'CI code failure → fix on the same worktree → same PR updated → green on the new head (resume proven: %s)',
       async (resume) => {

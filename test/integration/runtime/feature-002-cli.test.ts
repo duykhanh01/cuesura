@@ -1331,6 +1331,7 @@ describe('doctor (T112, FR-027.02/033)', () => {
       health?: string | null;
       digest?: (path: string) => string;
       probeBudgetMs?: number;
+      harnessTools?: Record<string, { dirs: string[]; requires: string[] }>;
     } = {},
   ) {
     const host = fakeHost(o.host);
@@ -1355,6 +1356,9 @@ describe('doctor (T112, FR-027.02/033)', () => {
         ...(o.probeBudgetMs === undefined
           ? {}
           : { probeBudgetMs: o.probeBudgetMs }),
+        ...(o.harnessTools === undefined
+          ? {}
+          : { harnessTools: () => o.harnessTools ?? {} }),
       },
     }));
     return { sd, host };
@@ -1395,6 +1399,31 @@ describe('doctor (T112, FR-027.02/033)', () => {
       expect(argv.join(' ')).not.toMatch(
         /\bsudo\b|sysctl -w|apparmor_parser|claude|codex/,
       );
+  });
+
+  it('a harness whose sandbox lacks what its binary needs fails, naming the tool and the fix', async () => {
+    const { sd } = doctored({
+      harnessTools: {
+        claude: { dirs: ['/nowhere'], requires: ['bwrap', 'socat'] },
+        codex: { dirs: ['/usr/bin'], requires: [] },
+      },
+    });
+    await sd.start();
+    const r = await cli(sd, ['doctor']);
+    expect(r.code, r.out).toBe(ExitCode.failure);
+    expect(names(r)).toMatchObject({ 'tools:claude': 'fail' });
+    expect(names(r)['tools:codex']).toBeUndefined();
+    expect(r.out).toContain('bwrap, socat');
+  });
+
+  it('a binary with what it needs passes that check', async () => {
+    const { sd } = doctored({
+      harnessTools: {
+        claude: { dirs: ['/usr/bin'], requires: ['socat'] },
+      },
+    });
+    await sd.start();
+    expect(names(await cli(sd, ['doctor']))['tools:claude']).toBe('ok');
   });
 
   it('a harness without a manifest fails with exit 1 and is not called proven', async () => {

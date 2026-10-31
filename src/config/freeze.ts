@@ -13,6 +13,7 @@ import type {
   ExecutionMode,
   PrTemplate,
   RunConfigSnapshot,
+  RunSelection,
 } from '../domain/run-config.ts';
 import type { CanonicalTask } from '../domain/task.ts';
 import { DAEMON_COMPLETION_MODE } from './capabilities.ts';
@@ -39,6 +40,7 @@ export type FreezeInput = {
   prompts?: DocContent[];
   conventions?: DocContent[];
   mode?: ExecutionMode;
+  selection?: Pick<RunSelection, 'worker' | 'reviewer'>;
 };
 
 const atOverrides: Locator = () => ({ file: '<overrides>', line: 1, col: 1 });
@@ -112,6 +114,7 @@ export type RuntimeFreezeInput = {
   run_config?: RunConfigSnapshot;
   pr_template?: PrTemplate | null;
   merge_method?: MergeMethod;
+  role_prompts?: Readonly<Record<string, string>>;
 };
 
 export type RuntimeFreezeError = {
@@ -151,6 +154,9 @@ export function freezeRuntimeContext(
     ...(input.merge_method === undefined
       ? {}
       : { merge_method: input.merge_method }),
+    ...(input.role_prompts === undefined
+      ? {}
+      : { role_prompts: { ...input.role_prompts } }),
   };
   const parsed = FrozenRuntimeContextSchema.safeParse({
     ...body,

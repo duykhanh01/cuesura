@@ -851,8 +851,9 @@ và `runner-restart.test.ts` (bỏ bản sửa thì hai ca SIGTERM fail: unit đ
 ### T126 — chứng minh harness trên host hiện tại
 
 Chạy `cusr-runner prove-harness` ngày 2026-10-31 trên host Linux không phải WSL2, với outer proof chạy lại tại
-`test/fixtures/runtime/spike-0/host-linux-20261031/` (chỉ năm probe local, không phải toàn bộ cổng T006). Host này khác host
-WSL2 mà owner chốt là host triển khai v1 ngày 2026-10-28; bằng chứng dưới đây chỉ có giá trị cho host này.
+`test/fixtures/runtime/spike-0/host-linux-20261031/` (chỉ năm probe local, không phải toàn bộ cổng T006). Ngày 2026-10-31 owner
+chốt dùng host Ubuntu này cho v1, thay cho WSL2 đã chốt ngày 2026-10-28, và không coi hai host là khác biệt lớn; bằng chứng
+dưới đây vì vậy tính cho v1.
 
 | Vendor | Binary | Kết quả | Lượt gọi |
 | --- | --- | --- | --- |

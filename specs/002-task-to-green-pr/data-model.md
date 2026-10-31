@@ -12,6 +12,7 @@ của lõi 001; drain, slot và observation là dữ liệu/chi tiết chờ, kh
 | Đề xuất cấu hình chạy | Task/revision, mode, profile, worker/reviewer harness/model/effort, fallback và digest; chỉ là đề xuất |
 | Xác nhận cấu hình chạy | Actor/provenance từ kênh người dùng đáng tin, digest bộ lựa chọn và task/revision; lưu bền, sai digest không spawn |
 | Snapshot cấu hình chạy | Mode và bộ lựa chọn đã xác nhận, liên kết FrozenPolicy/runtime; không viết lại snapshot lịch sử |
+| Prompt theo role | `FrozenRuntimeContext.role_prompts` (tuỳ chọn, không có ở snapshot cũ): role → tên trong `prompt_refs` của context; task cũ chạy không có prompt role |
 | Method merge | `FrozenRuntimeContext.merge_method` (tuỳ chọn, không có ở snapshot cũ) resolve từ `merge.method` của project tại frozen base: squash mặc định hoặc merge/rebase; chỉ là lựa chọn đề xuất trong 002, độc lập quyền merge và execution mode |
 | Audit method merge | Configured method, observed method nếu được chứng minh hoặc unknown, evidence/provenance; mismatch chỉ là audit, không là blocker/proof gap hoặc tự gây merged_head_unverified |
 | Nội dung publish | Template base/path/digest, commit message, PR title/description worker đã kiểm namespace marker, digest/provenance artifact và body cuối có block marker do orchestrator tạo; không nằm trong code commit |

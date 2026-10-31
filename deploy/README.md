@@ -153,9 +153,10 @@ help/version của binary; manifest có rồi vẫn fail nếu hash sai, thiếu
 Settings, environment và host policy cần pin của vendor nên do preflight và từng attempt kiểm. Unit mẫu đã
 qua `systemd-analyze --user verify` (chỉ báo thiếu binary ở `ExecStart` khi chưa cài).
 
-**Hạn chế hiện tại:** `cusrd` production chưa nối effect handler và harness (git/GitHub thật có ở recheck,
-cancel, doctor và preflight), và chưa ghi manifest; task dừng ở PENDING `capability_missing`, không tới
-PR. Luồng tới PR đang được kiểm bằng fake/fixture; nối production là điều kiện trước smoke lát C.
+**Hạn chế hiện tại:** `cusrd` chạy task thật tới PR khi harness có bản ghi hợp lệ (mục [Harness thật](#harness-thật-pin-và-manifest)
+bên dưới); thiếu bản ghi thì task dừng ở PENDING `capability_missing`. Còn hở: `setup` của project được đọc
+nhưng chưa vào snapshot nên **không chạy**, kể cả với project có khai báo; task có attachment `content_ref`
+fail ở freeze vì chưa có nguồn nội dung (`cusr add` luôn tạo task không attachment).
 
 ## Token và quyền
 
@@ -208,10 +209,14 @@ token operate. Worker coder/fixer/reviewer không nhận token nào, kể cả o
 - `pin.json` theo `VendorPinSchema`: binary (realpath, version, sha256), toolchain, env không bí mật,
   `home_files` trỏ tới tên trong `runtime.credential_refs`, settings, `max_turns`, `tools`. Pin mới là thứ
   quyết định binary nào chạy, không phải `harnesses.<tên>.cmd`. Xem mẫu đã kiểm chứng ở
-  `test/fixtures/runtime/spike-0/harness/real-20261028/pinned-*.json`.
+  `test/fixtures/runtime/spike-0/harness/real-20261028/pinned-*.json`. Tạo bằng `cusr-runner write-pin`, lệnh
+  lấy version và sha256 từ binary trên host, để `env` rỗng và từ chối đường dẫn không tồn tại ở host này.
 - `manifest.json`, chỉ ghi bằng lệnh dưới đây, từ evidence của **đúng binary và cấu hình đó**:
 
 ```sh
+cusr-runner write-pin --config ~/.cusr/config.yaml --harness claude --vendor claude \
+  --binary "$(command -v claude)" --toolchain /opt/node/bin --auth claude-0:.claude/.credentials.json \
+  --settings claude-settings.json --max-turns 16 --tools Bash,Read,Edit,Write,Glob,Grep
 cusr-runner record-manifest --config ~/.cusr/config.yaml --harness claude --evidence <evidence.json>
 ```
 
@@ -220,6 +225,14 @@ Mỗi vendor trong evidence phải có `binary.sha256` và `attested` gồm `set
 Lệnh so từng trường với pin và host hiện tại, lệch là từ chối và in giá trị cần có; đổi bất kỳ trường nào của
 pin đều cần chứng minh lại (T126), và pin sửa sau khi ghi sẽ chặn request, attempt kế tiếp. Đổi đường dẫn file
 credential thì không cần: bằng chứng không phụ thuộc file nằm ở đâu. Evidence T007 không có `attested` nên không dùng được. Lệnh không gọi harness, không tốn usage.
+
+Sandbox của harness chỉ thấy `toolchain` của pin, thư mục của binary và `/usr`; Node qua nvm nằm dưới home nên
+không có trong đó. Claude ở inner mode `native` cần thêm `bwrap` và `socat`: `cusr doctor` báo ở `tools:<tên>`.
+Preflight từ chối (`capability_missing`, check `toolchain`) trước khi tốn lượt nếu sandbox worker thiếu chương
+trình mà gate/autofix gọi trực tiếp hoặc `tools` của `cusr.yaml` khai báo, hoặc sandbox gate thiếu chương trình
+gate gọi. Cả doctor lẫn preflight hỏi bằng `bwrap` với cùng mount hệ thống và toolchain của sandbox, nên file
+không có quyền chạy, thư mục, và symlink trỏ ra ngoài mount (kể cả qua `/etc/alternatives`) đều tính là thiếu.
+Builtin của `/bin/sh` như `umask` không cần kiểm.
 
 Sau khi ghi, restart `cusrd`. `cusr doctor` báo lý do ở `manifest:<tên>` khi bản ghi thiếu hoặc không còn khớp;
 lúc đó task dừng ở `capability_missing`. Đổi `runtime.credential_refs` hoặc `tool_paths` khi daemon đang chạy

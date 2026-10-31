@@ -43,6 +43,7 @@ import { SpawnExecutor } from '../runner/commands.ts';
 import {
   adapterFor,
   harnessRecordProblem,
+  harnessSandboxTools,
   hostSandbox,
   loadHarnessRecord,
   type HarnessRecord,
@@ -51,6 +52,7 @@ import { NodeHostProbe } from '../runner/host-probe.ts';
 import { RunnerHarness } from '../runner/invocation.ts';
 import { stopOperationProcesses } from '../runner/process-tag.ts';
 import type { Redactor } from '../runner/redact.ts';
+import { SANDBOX_SYSTEM_PATH } from '../runner/sandbox.ts';
 import { SystemdSupervisor } from '../runner/supervisor.ts';
 import type { Hash, Uuid } from '../shared/brand.ts';
 import { hashCanonical } from '../shared/hash.ts';
@@ -304,11 +306,27 @@ export async function productionControl(opts: {
       },
       host,
     };
+    const gateToolchain = opts.seams?.gateToolchain ?? [
+      dirname(process.execPath),
+    ];
+    const harnessTools = () =>
+      Object.fromEntries(
+        [...records].map(([h, r]) => [
+          h,
+          harnessSandboxTools(r.pin, r.manifest.selected_inner_mode ?? null),
+        ]),
+      );
     const configInputs = async () => {
       const user = (
         await readConfigFiles({ user: opts.configPath })
       )[0] as ConfigSource;
-      return { user, packs: {}, ...manifestInputs(user) };
+      return {
+        user,
+        packs: {},
+        ...manifestInputs(user),
+        harness_tools: harnessTools(),
+        gate_path: [...gateToolchain, ...SANDBOX_SYSTEM_PATH],
+      };
     };
     const coordinator = new ObservationCoordinator((taskId, ref, source) =>
       observeTaskPr(
@@ -331,9 +349,6 @@ export async function productionControl(opts: {
       redactor: opts.redactor,
     });
     const limits = runtime?.limits ?? DEFAULT_RUNTIME_LIMITS;
-    const gateToolchain = opts.seams?.gateToolchain ?? [
-      dirname(process.execPath),
-    ];
     const boundary =
       runtime === null
         ? null
@@ -474,6 +489,7 @@ export async function productionControl(opts: {
           dataDir: opts.dataDir,
           host,
           configInputs,
+          harnessTools,
           ...(runtime === null || sandbox === null
             ? {}
             : {

@@ -842,7 +842,7 @@ async function startAgent(
       model: binding.model,
       effort: binding.effort,
     },
-    prompt: null,
+    prompt: l.rt.role_prompts?.[r] ?? null,
     answers,
     failures: repairing ? fix.failures : [],
     diff: review?.diff ?? null,
@@ -867,7 +867,11 @@ async function startAgent(
     redactor: deps.redactor,
   });
   if (!built.ok) {
-    return r === 'reviewer'
+    // A diff or PR content not there yet may come on a retry; a prompt that cannot fit never will.
+    const lasting = built.error.missing.some(
+      (m) => m === 'context_budget' || m.startsWith('prompt:'),
+    );
+    return r === 'reviewer' && !lasting
       ? {
           outcome: 'failed',
           data: {

@@ -15,6 +15,7 @@ import type { EpochMs } from '../../src/shared/brand.ts';
 import { hashText } from '../../src/shared/hash.ts';
 import { ok } from '../../src/shared/result.ts';
 import { openFileStoreForTest } from '../../src/store/testing.ts';
+import { finalizeContext } from '../../src/policy/finalize.ts';
 import { freezeOk, uuidOf } from './builders.ts';
 import { FakeGitHub } from './fake-github.ts';
 import { gitSandbox } from './git-repo.ts';
@@ -80,6 +81,7 @@ export type SetupOptions = {
   /** Reviewer approvals scripted in `full-review` (default 1). */
   reviews?: number;
   writeCode?: boolean;
+  reviewerPrompt?: string;
   askFirst?: boolean;
   /** Gate commands of the frozen policy (default: all `true`). */
   gates?: Record<string, string>;
@@ -252,6 +254,16 @@ export function flowEnv(prefix: string) {
         mode: o.mode,
         ...(o.ci_rules === undefined ? {} : { ci_rules: o.ci_rules }),
       });
+      const { context_hash: _hash, ...plain } = frozen.value.context;
+      frozen.value.context = finalizeContext({
+        ...plain,
+        prompt_refs: [
+          { name: 'prompts/coder.md', content: 'Coder prompt.\n' },
+          ...(o.reviewerPrompt === undefined
+            ? []
+            : [{ name: 'prompts/reviewer.md', content: o.reviewerPrompt }]),
+        ],
+      });
       proposeAndConfirm(
         d,
         task,
@@ -279,6 +291,12 @@ export function flowEnv(prefix: string) {
           base_ref: 'main',
         },
         pr_template: template,
+        role_prompts: {
+          coder: 'prompts/coder.md',
+          ...(o.reviewerPrompt === undefined
+            ? {}
+            : { reviewer: 'prompts/reviewer.md' }),
+        },
         ...(o.merge_method === undefined
           ? {}
           : { merge_method: o.merge_method }),

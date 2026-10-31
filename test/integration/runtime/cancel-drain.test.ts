@@ -488,7 +488,8 @@ describe('a stopped command group: TERM, grace, KILL for every member (FR-009, F
         argv: [
           '/bin/sh',
           '-c',
-          `(trap '' TERM; exec sleep 30) >/dev/null 2>&1 </dev/null & echo $! > ${pidFile}; wait`,
+          // The pid appears only once TERM is ignored; a TERM sent earlier would simply end the child.
+          `sh -c 'trap "" TERM; echo $$ > ${pidFile}.tmp; mv ${pidFile}.tmp ${pidFile}; exec sleep 30' >/dev/null 2>&1 </dev/null & wait`,
         ],
         cwd: dir,
         env: { PATH: '/usr/bin:/bin' },

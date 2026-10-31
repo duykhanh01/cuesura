@@ -374,6 +374,8 @@ export class Rehearsal extends SmokeDriver {
     const { kind, worker, coder, hold } = this.o;
     const bin = join(this.base, 'bin');
     mkdirSync(join(bin, 'replays'), { recursive: true });
+    // The stand-in vendor has no inner sandbox, but preflight asks a Claude pin for what the real one needs.
+    writeFileSync(join(bin, 'socat'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
     const replay = (vendor: 'claude' | 'codex', role: string): string => {
       const to = join(bin, 'replays', `${vendor}-${role}`);
       cpSync(join(REAL, replayOf(vendor, role)), to, { recursive: true });

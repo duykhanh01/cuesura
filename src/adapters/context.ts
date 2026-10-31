@@ -5,8 +5,9 @@
  * stripped of terminal/channel control syntax before it is counted.
  *
  * Size is capped (context 128 KiB, reviewer diff 64 KiB by default). Required parts are never cut: when
- * acceptance, the fixer's failures or the reviewer's diff are missing, or the required parts alone do
- * not fit, the result is `needs_context` and no agent is called. Optional parts are cut from the end,
+ * acceptance, the fixer's failures or the reviewer's diff are missing, or the required parts (the role
+ * prompt among them) alone do not fit, the result is `needs_context` and no agent is called. Workers also
+ * get {@link WORKER_RULES}, which hold whatever the owner's prompt says. Optional parts are cut from the end,
  * lowest priority first, and every cut says what was kept, of how much, and the digest of the whole.
  */
 import type { FrozenExecutionContext } from '../domain/policy.ts';
@@ -118,6 +119,13 @@ export type NeedsContext = {
   readonly missing: readonly string[];
 };
 
+/** What the run enforces on a worker. Not left to the owner's prompt: `.git` is read-only either way. */
+export const WORKER_RULES = [
+  'Cuesura commits, pushes and opens the PR itself after this step. The Git directory is read-only in this sandbox.',
+  'Leave your changes uncommitted in the worktree. Do not run git add, commit, push or any command that writes to Git, and do not open a PR.',
+  'A read-only Git directory is expected: it is not a reason to report blocked.',
+].join('\n');
+
 const bytes = (s: string): number => Buffer.byteLength(s, 'utf8');
 
 // ESC sequences (CSI/OSC), other C0/C1 controls except tab and newline, and bidi overrides.
@@ -220,6 +228,18 @@ export function buildRoleContext(
   ].join('\n');
   const sections: Section[] = [
     { name: 'header', body: header, required: true },
+    ...(prompt === null
+      ? []
+      : [
+          {
+            name: `prompt:${prompt.name}`,
+            body: clean(prompt.content),
+            required: true,
+          },
+        ]),
+    ...(input.role === 'coder' || input.role === 'fixer'
+      ? [{ name: 'worker_rules', body: WORKER_RULES, required: true }]
+      : []),
     { name: 'title', body: clean(c.request.title), required: true },
     { name: 'acceptance', body: list(c.acceptance.map(clean)), required: true },
     ...(repairing
@@ -308,15 +328,6 @@ export function buildRoleContext(
     ...(input.role === 'fixer' && diffBody !== ''
       ? [{ name: 'diff', body: diffBody, required: false }]
       : []),
-    ...(prompt === null
-      ? []
-      : [
-          {
-            name: `prompt:${prompt.name}`,
-            body: clean(prompt.content),
-            required: false,
-          },
-        ]),
     ...c.conventions.map((d) => ({
       name: `convention:${d.name}`,
       body: clean(d.content),

@@ -532,6 +532,51 @@ describe('start freezes one snapshot under the slot before RUNNING (T032, FR-002
     expect(d.task(task.id).run.mode).toBe('direct-pr');
   });
 
+  it('freezes which prompt each role uses, and runs the confirmed binding among those a role declares', async () => {
+    const { d, startDeps } = setup();
+    // The first rule that matches an L task is opus; the user confirmed the other one.
+    const task = buildTask({ size: 'L', profile: 'heavy' });
+    d.must(task.id, { kind: 'create_task', task });
+    const sel = await configuredSelection(task, 'direct-pr');
+    expect(sel.worker.model).toBe('opus');
+    proposeAndConfirm(d, task, {
+      ...sel,
+      worker: { harness: 'claude', model: 'sonnet', effort: 'medium' },
+    });
+    grant(d, task);
+    expect(await startTask(startDeps(), task.id)).toMatchObject({
+      kind: 'submitted',
+      frozen: true,
+    });
+    const policy = d.store.readPolicy(task.id, 1);
+    expect(policy?.steps['code']?.binding.model).toBe('sonnet');
+    expect(d.store.readRuntimeContext(task.id, 1)?.role_prompts).toMatchObject({
+      coder: 'prompts/coder.md',
+      fixer: 'prompts/fixer.md',
+    });
+  });
+
+  it('refuses a role prompt that could never fit, before anything is frozen and while the file can still be fixed', async () => {
+    const { d, startDeps } = setup();
+    const task = buildTask();
+    d.must(task.id, { kind: 'create_task', task });
+    proposeAndConfirm(d, task, await configuredSelection(task, 'direct-pr'));
+    grant(d, task);
+    const docs = {
+      prompts: (names: readonly string[]) =>
+        Promise.resolve(
+          names.map((name) => ({ name, content: 'x'.repeat(200 * 1024) })),
+        ),
+      attachments: () => Promise.resolve([]),
+    };
+    await startTask(startDeps({ docs }), task.id);
+    expect(d.store.readPolicy(task.id, 1)).toBeNull();
+    expect(d.store.readRuntimeContext(task.id, 1)).toBeNull();
+    const s = d.task(task.id);
+    expect(s.wait?.detail).toMatchObject({ code: 'config_invalid' });
+    expect(JSON.stringify(s.wait?.detail)).toContain('limits.context_bytes');
+  });
+
   it('freezes merge.method from the base: squash by default, the override when declared; invalid config waits (SPEC §14.2)', async () => {
     const started = async (cusr: string | undefined) => {
       const env = setup(cusr === undefined ? {} : { git: { cusr } });

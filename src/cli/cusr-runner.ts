@@ -1,16 +1,37 @@
 #!/usr/bin/env node
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { RUN_DIR_KINDS, RunDir, type RunDirKind } from '../runner/files.ts';
 import { execOperation } from '../runner/lifecycle.ts';
 import { homeSecretValues, PRIVATE_HOME_DIR } from '../runner/private-home.ts';
 import { Redactor } from '../runner/redact.ts';
-import { ExitCode } from './output.ts';
+import {
+  errorEnvelope,
+  ExitCode,
+  okEnvelope,
+  renderEnvelope,
+} from './output.ts';
 import {
   packageVersion,
   processIo,
   runCli,
   type CliCommand,
+  type CliIo,
 } from './program.ts';
+
+/** Refuses an owner step: one envelope with --json, one line on stderr otherwise. */
+function refuser(json: boolean, io: CliIo) {
+  return (code: string, message: string, exit: number): number => {
+    if (json)
+      io.stdout(
+        renderEnvelope(
+          errorEnvelope({ code, message, details: {}, request_id: null }),
+        ),
+      );
+    else io.stderr(`${message}\n`);
+    return exit;
+  };
+}
 
 /** `exec --data-dir D --kind K --id I`: runs one operation inside its unit (supervisor.ts). */
 const exec: CliCommand = {
@@ -70,15 +91,19 @@ const recordManifest: CliCommand = {
     { flags: '--harness <name>', description: 'harness with a pin.json' },
     { flags: '--evidence <file>', description: 'evidence of the same binary' },
   ],
-  async run(values, _json, io) {
+  async run(values, json, io) {
+    const refuse = refuser(json, io);
     const { config, dataDir, harness, evidence } = values;
     if (
       config === undefined ||
       harness === undefined ||
       evidence === undefined
     ) {
-      io.stderr('record-manifest needs --config, --harness and --evidence\n');
-      return ExitCode.usage;
+      return refuse(
+        'invalid_arguments',
+        'record-manifest needs --config, --harness and --evidence',
+        ExitCode.usage,
+      );
     }
     // Only this owner step needs the daemon's config loading; `exec` stays free of the store.
     const { loadDaemonConfig } = await import('../daemon/main.ts');
@@ -86,8 +111,7 @@ const recordManifest: CliCommand = {
       await import('../runner/harness-records.ts');
     const cfg = await loadDaemonConfig({ config, dataDir });
     if (!cfg.ok) {
-      io.stderr(`${cfg.error}\n`);
-      return ExitCode.usage;
+      return refuse('config_invalid', cfg.error, ExitCode.usage);
     }
     const r = record({
       dataDir: cfg.value.dataDir,
@@ -99,10 +123,140 @@ const recordManifest: CliCommand = {
       now: Date.now(),
     });
     if (!r.ok) {
-      io.stderr(`${r.error}\n`);
-      return ExitCode.failure;
+      return refuse('manifest_refused', r.error, ExitCode.failure);
     }
-    io.stdout(`${r.value.manifest_hash}\n`);
+    const { manifest_hash } = r.value;
+    io.stdout(
+      json
+        ? renderEnvelope(okEnvelope({ harness, manifest_hash }))
+        : `${manifest_hash}\n`,
+    );
+    return ExitCode.ok;
+  },
+};
+
+/** `credential:path,credential:path`, or null when one entry has no path. */
+function homeFiles(
+  value: string | undefined,
+): { credential: string; to: string }[] | null {
+  const out: { credential: string; to: string }[] = [];
+  for (const entry of value === undefined ? [] : value.split(',')) {
+    const at = entry.indexOf(':');
+    if (at <= 0 || at === entry.length - 1) return null;
+    out.push({ credential: entry.slice(0, at), to: entry.slice(at + 1) });
+  }
+  return out;
+}
+
+/** Owner step, never run by the daemon: writes a harness pin from this host, for a later proof. */
+const writePin: CliCommand = {
+  name: 'write-pin',
+  description:
+    'write a harness pin.json from the binary and tools on this host',
+  options: [
+    { flags: '--config <file>', description: 'user config' },
+    { flags: '--data-dir <dir>', description: 'DATA_DIR' },
+    {
+      flags: '--harness <name>',
+      description: 'harness name in the user config',
+    },
+    { flags: '--vendor <vendor>', description: 'claude or codex' },
+    { flags: '--binary <path>', description: 'the harness binary' },
+    {
+      flags: '--toolchain <dirs>',
+      description:
+        'comma-separated real directories mounted read-only and put on PATH',
+    },
+    {
+      flags: '--auth <files>',
+      description: 'comma-separated credential:home-path of auth files',
+    },
+    {
+      flags: '--rules <files>',
+      description:
+        'comma-separated credential:home-path of vendor rule files; their digest is pinned',
+    },
+    { flags: '--settings <file>', description: 'claude: settings JSON' },
+    { flags: '--max-turns <n>', description: 'claude: turn cap' },
+    { flags: '--tools <names>', description: 'claude: comma-separated tools' },
+    { flags: '--force', description: 'replace an existing pin' },
+  ],
+  async run(values, json, io) {
+    const refuse = refuser(json, io);
+    const { config, dataDir, harness, vendor, binary, settings, tools } =
+      values;
+    const auth = homeFiles(values['auth']);
+    const rules = homeFiles(values['rules']);
+    const maxTurns = values['maxTurns'];
+    if (
+      config === undefined ||
+      harness === undefined ||
+      binary === undefined ||
+      (vendor !== 'claude' && vendor !== 'codex') ||
+      auth === null ||
+      rules === null ||
+      (maxTurns !== undefined && !/^[1-9][0-9]*$/.test(maxTurns))
+    ) {
+      return refuse(
+        'invalid_arguments',
+        'write-pin needs --config, --harness, --vendor claude|codex and --binary; --auth and --rules take credential:path',
+        ExitCode.usage,
+      );
+    }
+    if (
+      vendor === 'codex' &&
+      (settings !== undefined || maxTurns !== undefined || tools !== undefined)
+    ) {
+      return refuse(
+        'invalid_arguments',
+        '--settings, --max-turns and --tools are for claude only',
+        ExitCode.usage,
+      );
+    }
+    let parsedSettings: Record<string, unknown> | null = null;
+    if (settings !== undefined) {
+      try {
+        parsedSettings = JSON.parse(readFileSync(settings, 'utf8')) as Record<
+          string,
+          unknown
+        >;
+      } catch (e) {
+        return refuse(
+          'invalid_arguments',
+          `cannot read ${settings}: ${String(e)}`,
+          ExitCode.usage,
+        );
+      }
+    }
+    const { loadDaemonConfig } = await import('../daemon/main.ts');
+    const { writePin: write } = await import('../runner/harness-records.ts');
+    const cfg = await loadDaemonConfig({ config, dataDir });
+    if (!cfg.ok) {
+      return refuse('config_invalid', cfg.error, ExitCode.usage);
+    }
+    const r = write({
+      dataDir: cfg.value.dataDir,
+      harness,
+      vendor,
+      binary,
+      runtime: cfg.value.runtime,
+      toolchain: values['toolchain']?.split(',') ?? [],
+      auth,
+      rules,
+      settings: parsedSettings,
+      max_turns: maxTurns === undefined ? null : Number(maxTurns),
+      tools: tools?.split(',') ?? null,
+      force: values['force'] !== undefined,
+    });
+    if (!r.ok) {
+      return refuse('pin_refused', r.error, ExitCode.failure);
+    }
+    const { version, sha256 } = r.value.binary;
+    io.stdout(
+      json
+        ? renderEnvelope(okEnvelope({ harness, version, sha256 }))
+        : `${version} sha256:${sha256}\n`,
+    );
     return ExitCode.ok;
   },
 };
@@ -129,7 +283,8 @@ const proveHarness: CliCommand = {
     },
     { flags: '--dry-run', description: 'check and report; invoke nothing' },
   ],
-  async run(values, _json, io) {
+  async run(values, json, io) {
+    const refuse = refuser(json, io);
     const { config, dataDir, harness, model, effort, outerProof } = values;
     const { out, approval, maxInvocations, dryRun } = values;
     if (
@@ -138,17 +293,17 @@ const proveHarness: CliCommand = {
       model === undefined ||
       outerProof === undefined
     ) {
-      io.stderr(
-        'prove-harness needs --config, --harness, --model and --outer-proof\n',
+      return refuse(
+        'invalid_arguments',
+        'prove-harness needs --config, --harness, --model and --outer-proof',
+        ExitCode.usage,
       );
-      return ExitCode.usage;
     }
     const { loadDaemonConfig } = await import('../daemon/main.ts');
     const proof = await import('../runner/harness-proof.ts');
     const cfg = await loadDaemonConfig({ config, dataDir });
     if (!cfg.ok) {
-      io.stderr(`${cfg.error}\n`);
-      return ExitCode.usage;
+      return refuse('config_invalid', cfg.error, ExitCode.usage);
     }
     const options = {
       dataDir: cfg.value.dataDir,
@@ -164,12 +319,19 @@ const proveHarness: CliCommand = {
     if (dryRun !== undefined) {
       const plan = proof.planProof(options);
       if (!plan.ok) {
-        io.stderr(`${plan.error}\n`);
-        return ExitCode.failure;
+        return refuse('proof_refused', plan.error, ExitCode.failure);
       }
       const { pin, identity, invocations_spent } = plan.value;
+      const report = {
+        binary: pin.binary,
+        identity,
+        invocations_spent,
+        invocations_needed: proof.PROOF_ROLES.length,
+      };
       io.stdout(
-        `${JSON.stringify({ binary: pin.binary, identity, invocations_spent, invocations_needed: proof.PROOF_ROLES.length })}\n`,
+        json
+          ? renderEnvelope(okEnvelope(report))
+          : `${JSON.stringify(report)}\n`,
       );
       return ExitCode.ok;
     }
@@ -180,10 +342,11 @@ const proveHarness: CliCommand = {
       !Number.isInteger(cap) ||
       cap < 1
     ) {
-      io.stderr(
-        'a proof spends model usage: it needs --out, --approval and --max-invocations\n',
+      return refuse(
+        'invalid_arguments',
+        'a proof spends model usage: it needs --out, --approval and --max-invocations',
+        ExitCode.usage,
       );
-      return ExitCode.usage;
     }
     const r = await proof.proveHarness({
       ...options,
@@ -191,10 +354,14 @@ const proveHarness: CliCommand = {
       budget: { approval, maxInvocations: cap },
     });
     if (!r.ok) {
-      io.stderr(`${r.error}\n`);
-      return ExitCode.failure;
+      return refuse('proof_refused', r.error, ExitCode.failure);
     }
-    io.stdout(`${r.value.evidence}\n`);
+    const { evidence } = r.value;
+    io.stdout(
+      json
+        ? renderEnvelope(okEnvelope({ harness, evidence }))
+        : `${evidence}\n`,
+    );
     return ExitCode.ok;
   },
 };
@@ -207,5 +374,5 @@ process.exitCode = await runCli(
   },
   process.argv.slice(2),
   processIo,
-  [exec, recordManifest, proveHarness],
+  [exec, recordManifest, writePin, proveHarness],
 );

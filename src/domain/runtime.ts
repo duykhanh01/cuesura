@@ -156,6 +156,9 @@ export const FrozenRuntimeContextSchema = z
     // Additive (SPEC §14.2): the merge method resolved at the frozen base. Absent in a snapshot frozen
     // before it existed; never back-filled, so that snapshot keeps its hash.
     merge_method: MergeMethodSchema.optional(),
+    // Additive: role → name in the context's `prompt_refs`, since the config may change after the freeze.
+    // Absent in a snapshot frozen before it existed; that task runs without a role prompt, as it did.
+    role_prompts: z.record(z.string(), z.string().min(1)).optional(),
     runtime_hash: HashSchema,
   })
   .strict();

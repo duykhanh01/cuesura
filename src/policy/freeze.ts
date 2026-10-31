@@ -24,7 +24,11 @@ import {
   type StepDef,
   type Workflow,
 } from '../domain/workflow.ts';
-import type { ExecutionMode } from '../domain/run-config.ts';
+import {
+  sameChoice,
+  type ExecutionMode,
+  type RunSelection,
+} from '../domain/run-config.ts';
 import {
   modeGraph,
   modeWorkflowName,
@@ -72,6 +76,8 @@ export type FreezePolicyInput = {
   conventions?: DocContent[];
   /** 002: the confirmed execution mode; the graph is then `software_dev@2:<mode>` (task-execution-modes.md). */
   mode?: ExecutionMode;
+  /** 002: the confirmed bindings; each picks among the rules its role declares, it adds none. */
+  selection?: Pick<RunSelection, 'worker' | 'reviewer'>;
 };
 
 export type Frozen = { policy: FrozenPolicy; context: FrozenExecutionContext };
@@ -123,6 +129,7 @@ function stepBinding(
   name: string,
   step: StepDef,
   task: CanonicalTask,
+  selection: FreezePolicyInput['selection'],
 ): Result<StepPolicy, FreezeError> {
   const roleName = step.role as string;
   const role = config.user.roles[roleName];
@@ -134,11 +141,25 @@ function stepBinding(
   if (role === undefined) return noBinding;
   if (profile.allow_roles !== null && !profile.allow_roles.includes(roleName))
     return noBinding;
-  const chosen = resolveBinding(
-    role.binding,
-    bindingFacts(task),
-    profile.allow_models,
-  );
+  const facts = bindingFacts(task);
+  const wanted =
+    roleName === 'coder' || roleName === 'fixer'
+      ? selection?.worker
+      : roleName === 'reviewer'
+        ? selection?.reviewer
+        : null;
+  const confirmed = role.binding.filter((rule) => {
+    const harness = config.user.models[rule.model]?.harness;
+    return (
+      wanted != null &&
+      harness !== undefined &&
+      sameChoice(wanted, { harness, model: rule.model, effort: rule.effort })
+    );
+  });
+  // No declared rule matches: the first one stands and `checkSelection` reports the mismatch.
+  const chosen =
+    resolveBinding(confirmed, facts, profile.allow_models) ??
+    resolveBinding(role.binding, facts, profile.allow_models);
   if (chosen === null) return noBinding;
 
   const model = config.user.models[chosen.rule.model];
@@ -287,7 +308,7 @@ export function freezePolicy(
   for (const name of Object.keys(workflow.steps).sort()) {
     const step = workflow.steps[name] as StepDef;
     if (!isAgentStep(step)) continue;
-    const r = stepBinding(config, profile, name, step, task);
+    const r = stepBinding(config, profile, name, step, task, input.selection);
     if (!r.ok) return r;
     steps[name] = r.value;
   }

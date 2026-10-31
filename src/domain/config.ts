@@ -56,6 +56,8 @@ export type NormalizedProfile = {
 export type NormalizedProject = {
   extends: string[];
   setup: string[];
+  /** Commands the project needs that its gates do not name; absent when not declared. */
+  tools?: string[];
   gates: Record<string, string>;
   autofix: Record<string, string>;
   log_digest: Record<string, unknown>;

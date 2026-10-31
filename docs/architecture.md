@@ -583,6 +583,7 @@ Cuesura dùng cho mọi project, ở bất kỳ ngôn ngữ nào. Engine, schedu
 | Mục | Ý nghĩa | Ví dụ |
 |---|---|---|
 | `setup` | Lệnh chạy một lần khi tạo worktree | `npm ci`, `uv sync`, `go mod download` |
+| `tools` | Chương trình project cần mà gate không gọi trực tiếp; chỉ là tên, preflight kiểm sandbox có | `node`, `pnpm` |
 | `gates` | Lệnh shell, exit 0 là pass | build, test, lint, typecheck |
 | `autofix` | Gate tự sửa, không cần agent | `prettier --write`, `ruff format`, `cargo fmt` |
 | `log_digest` | Rule lọc log gate/CI thành bản tóm tắt lỗi (mục 7.1) | Regex giữ dòng lỗi, test fail, stacktrace đầu tiên |

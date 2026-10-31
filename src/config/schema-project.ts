@@ -45,6 +45,8 @@ const commandMap = z.record(z.string(), z.string().min(1));
 /** Khoá dùng chung giữa pack và `cusr.yaml`. */
 const sharedProjectKeys = {
   setup: z.union([z.string().min(1), nameList]).optional(),
+  /** Commands the project needs that its gates do not name. Names only: a repo never picks a mount. */
+  tools: z.array(z.string().regex(/^[A-Za-z0-9._+-]+$/)).optional(),
   gates: commandMap.optional(),
   autofix: commandMap.optional(),
   log_digest: z.record(z.string(), z.unknown()).optional(),

@@ -20,6 +20,7 @@ import {
   PublishDataSchema,
   RerunDataSchema,
   ReviewDataSchema,
+  ReviewRefusedSchema,
   StopDataSchema,
   type FailureData,
   type RequiredCheckVerdict,
@@ -991,7 +992,7 @@ export function parseSuccess(
     switch (e.kind) {
       case 'start_agent':
         return stepKindOf(ctx, e) === 'review'
-          ? ReviewDataSchema
+          ? ReviewDataSchema.or(ReviewRefusedSchema)
           : AgentDataSchema;
       case 'run_gates':
         return GateDataSchema;
@@ -1454,7 +1455,9 @@ function isStale(ctx: Ctx, attemptId: string | null): boolean {
 function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
   const step = e.step as string;
   const review = stepKindOf(ctx, e) === 'review';
-  const parsed = (review ? ReviewDataSchema : AgentDataSchema).safeParse(data);
+  const parsed = (
+    review ? ReviewDataSchema.or(ReviewRefusedSchema) : AgentDataSchema
+  ).safeParse(data);
   const invoked = parsed.success ? parsed.data.invoked !== false : true;
   if (invoked) consume(ctx, e.reservation_id);
   else release(ctx, e.reservation_id);

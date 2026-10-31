@@ -14,7 +14,10 @@ import {
 import type { ConfigSource } from '../../src/config/yaml-loader.ts';
 import { hashCanonical } from '../../src/shared/hash.ts';
 import { err, ok } from '../../src/shared/result.ts';
-import { preflight } from '../../src/application/preflight.ts';
+import {
+  preflight,
+  TOOL_PROBE_SCRIPT,
+} from '../../src/application/preflight.ts';
 import { freeze } from '../../src/config/freeze.ts';
 import type {
   ExecutionMode,
@@ -80,6 +83,17 @@ export function fakeHost(
     readText: (p) => Promise.resolve(o.sysctl?.[p] ?? null),
     exec: (argv): Promise<HostExecResult> => {
       execs.push([...argv]);
+      // The tools probe, as the fake's file system answers it: only /usr/bin holds anything.
+      const script = argv.indexOf(TOOL_PROBE_SCRIPT);
+      if (script >= 0) {
+        const held = (argv[script + 2] ?? '').split(':').includes('/usr/bin');
+        return Promise.resolve({
+          kind: 'exited',
+          code: 0,
+          stdout: held ? '' : argv.slice(script + 3).join('\n'),
+          stderr: '',
+        });
+      }
       if (argv[0] === '/usr/bin/bwrap') {
         const e = o.bwrapExit ?? { code: 0, stderr: '' };
         return Promise.resolve({

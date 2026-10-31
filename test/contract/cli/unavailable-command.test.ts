@@ -28,7 +28,8 @@ function exec(
   const r = spawnSync(process.execPath, [`src/cli/${bin}.ts`, ...args], {
     cwd: ROOT,
     encoding: 'utf8',
-    env: { ...process.env, FORCE_COLOR: '1', ...env },
+    // Node warns on stderr when NO_COLOR and FORCE_COLOR are both set.
+    env: { ...process.env, NO_COLOR: undefined, FORCE_COLOR: '1', ...env },
   });
   return { status: r.status, stdout: r.stdout, stderr: r.stderr };
 }

@@ -10,14 +10,21 @@
  * this configuration, so it refuses. The T007 fixture has no `attested` and cannot be used. It never invokes
  * the harness, so it costs no model usage and proves nothing by itself.
  */
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
+  accessSync,
+  constants,
+  existsSync,
   lstatSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
 import { claudeAdapter } from '../adapters/harness/claude.ts';
 import { codexAdapter } from '../adapters/harness/codex.ts';
@@ -35,6 +42,7 @@ import {
   verifyManifest,
   type EvidenceEntry,
 } from '../application/capabilities.ts';
+import type { SandboxTools } from '../application/preflight.ts';
 import type { RuntimeConfig } from '../config/normalize.ts';
 import {
   CapabilityManifestSchema,
@@ -51,6 +59,7 @@ import {
   BwrapSandboxProvider,
   defaultHostPolicy,
   IN_SANDBOX,
+  SANDBOX_SYSTEM_PATH,
   type HostPolicy,
   probeLayoutShapes,
 } from './sandbox.ts';
@@ -161,6 +170,24 @@ function pinSettingsHash(
     session: null,
   });
   return plan.ok ? ok(plan.value.settings_hash) : err(plan.error.message);
+}
+
+/** PATH of this harness's sandbox and the commands its binary cannot start without. */
+export function harnessSandboxTools(
+  pin: VendorPin,
+  inner: SelectedInnerMode | null,
+): SandboxTools {
+  return {
+    dirs: [
+      ...attemptLayoutInputs(pin, 'probe').toolchain,
+      ...SANDBOX_SYSTEM_PATH,
+    ],
+    // Claude's own sandbox refuses to run without them; `failIfUnavailable` is set for native mode only.
+    requires:
+      pin.vendor === 'claude' && inner !== 'external_verified'
+        ? ['bwrap', 'socat']
+        : [],
+  };
 }
 
 /** Why this record does not hold on this host right now, or null when it does. */
@@ -307,4 +334,125 @@ export function recordManifest(o: {
   writeFileSync(tmp, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
   renameSync(tmp, join(dir, MANIFEST_FILE));
   return ok(manifest);
+}
+
+export type WritePinInput = {
+  readonly dataDir: string;
+  readonly harness: string;
+  readonly vendor: VendorPin['vendor'];
+  readonly binary: string;
+  readonly runtime: RuntimeConfig;
+  readonly toolchain: readonly string[];
+  /** `credential` → path in the private home. Auth rotates, so it carries no digest. */
+  readonly auth: readonly { credential: string; to: string }[];
+  /** Same, for a vendor rule file: its content digest is pinned, so editing it is refused at install. */
+  readonly rules: readonly { credential: string; to: string }[];
+  readonly settings: Record<string, unknown> | null;
+  readonly max_turns: number | null;
+  readonly tools: readonly string[] | null;
+  readonly force: boolean;
+};
+
+const sha256File = (path: string): string =>
+  createHash('sha256').update(readFileSync(path)).digest('hex');
+
+/**
+ * Writes `pin.json` from what is on this host now, so no value is carried over from another machine:
+ * `env` stays empty and every path must exist here. A pin says what to run, not that it works; the
+ * harness still needs a proof and `record-manifest`, and the old manifest stops matching a changed pin.
+ */
+export function writePin(o: WritePinInput): Result<VendorPin, string> {
+  const dir = recordDir(o.dataDir, o.harness);
+  const path = join(dir, PIN_FILE);
+  if (!o.force && existsSync(path))
+    return err(`${path} exists; pass --force to replace it`);
+  let real: string;
+  let version: string;
+  try {
+    real = realpathSync(o.binary);
+    version = execFileSync(real, ['--version'], {
+      encoding: 'utf8',
+      timeout: 10_000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+  } catch (e) {
+    return err(`cannot run ${o.binary} --version: ${String(e)}`);
+  }
+  if (version === '') return err(`${o.binary} --version printed nothing`);
+  for (const d of o.toolchain) {
+    if (!isAbsolute(d)) return err(`toolchain ${d} is not an absolute path`);
+    try {
+      if (!statSync(d).isDirectory())
+        return err(`toolchain ${d} is not a directory`);
+      // The sandbox refuses a symlinked mount source at every plan; say so now.
+      if (realpathSync(d) !== d)
+        return err(`toolchain ${d} is a symlink; use ${realpathSync(d)}`);
+    } catch {
+      return err(`toolchain ${d} does not exist on this host`);
+    }
+  }
+  const file = (name: string): Result<string, string> => {
+    const ref = o.runtime.credential_refs.find((c) => c.name === name);
+    return ref === undefined
+      ? err(`no runtime.credential_refs entry ${name}`)
+      : existsSync(ref.file)
+        ? ok(ref.file)
+        : err(`credential ${name}: ${ref.file} does not exist`);
+  };
+  const home_files: VendorPin['home_files'] = [];
+  for (const a of o.auth) {
+    const f = file(a.credential);
+    if (!f.ok) return f;
+    home_files.push({ credential: a.credential, to: a.to });
+  }
+  for (const r of o.rules) {
+    const f = file(r.credential);
+    if (!f.ok) return f;
+    home_files.push({
+      credential: r.credential,
+      to: r.to,
+      sha256: sha256File(f.value),
+    });
+  }
+  const parsed = VendorPinSchema.safeParse({
+    schema_version: 1,
+    vendor: o.vendor,
+    binary: { realpath: real, version, sha256: sha256File(real) },
+    toolchain: [...o.toolchain],
+    env: {},
+    home_files,
+    settings: o.settings,
+    max_turns: o.max_turns,
+    tools: o.tools,
+  });
+  if (!parsed.success)
+    return err(
+      `pin fails its schema: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
+    );
+  const pin = parsed.data;
+  // The adapter's own refusals (a bypass token, missing Claude fields) apply to the pin as written.
+  const settings = pinSettingsHash(pin, 'native');
+  if (!settings.ok) return settings;
+  const { dirs, requires } = harnessSandboxTools(pin, 'native');
+  const runnable = (file: string): boolean => {
+    try {
+      accessSync(file, constants.X_OK);
+      return statSync(file).isFile();
+    } catch {
+      return false;
+    }
+  };
+  // Host view only; doctor and preflight ask again inside the sandbox's own mounts.
+  const absent = requires.filter(
+    (t) => !dirs.some((d) => runnable(join(d, t))),
+  );
+  if (absent.length > 0)
+    return err(
+      `${pin.vendor} needs ${absent.join(', ')} in its sandbox: install under /usr or add the directory to --toolchain`,
+    );
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const tmp = join(dir, `${PIN_FILE}.${process.pid}.tmp`);
+  writeFileSync(tmp, `${JSON.stringify(pin, null, 2)}\n`, { mode: 0o600 });
+  renameSync(tmp, path);
+  return ok(pin);
 }
