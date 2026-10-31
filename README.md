@@ -41,6 +41,15 @@ Use case đầu tiên là quy trình phát triển phần mềm: code → review
 
 Baseline: Node 24 LTS, TypeScript strict, SQLite (`better-sqlite3`), Zod 4, Commander, `yaml`, Vitest và fast-check. Build bằng `tsc`, quản lý package bằng pnpm, lint/format bằng ESLint + typescript-eslint + Prettier. Chạy trên Ubuntu/WSL2; xem [quyết định kỹ thuật](SPEC.md#17-baseline-kỹ-thuật).
 
+## Agent sử dụng Cuesura
+
+[Gói skill `cusr`](skills/cusr/SKILL.md) hướng dẫn lệnh và điều kiện sử dụng CLI `cusr`.
+Cài toàn bộ `skills/cusr` vào thư mục skill cá nhân của **assistant caller** (Codex hoặc Claude Code),
+ngoài repo mà Cuesura giao cho worker. Không commit skill điều khiển này vào repo đích hoặc cấp token
+điều khiển cho worker; worker không được dùng skill kể cả khi vô tình đọc thấy nó.
+Gói chỉ gồm file thường, không cần symlink hay source/spec của Cuesura. CLI đã cài và thông tin kết nối
+được người vận hành cung cấp riêng; agent dùng token `read/operate`, người dùng tự xác nhận run/approve.
+
 ## Phát triển
 
 Feature đang làm là lõi điều phối tất định ([specs/001-deterministic-core](specs/001-deterministic-core/spec.md)). Hướng dẫn kiểm chứng đầy đủ, kèm kết quả mong đợi của từng lệnh, ở [quickstart.md](specs/001-deterministic-core/quickstart.md).
