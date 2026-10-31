@@ -213,7 +213,7 @@ export type RunnerHarnessOptions = {
   readonly sandbox: SandboxProvider;
   readonly host_policy_hash: Hash;
   readonly data_dir: string;
-  /** Credential references by name; values never pass through here. */
+  /** Credential references by name, for an input without frozen ones; values never pass through here. */
   readonly credentials: Readonly<Record<string, CredentialRef>>;
   readonly redactor: Redactor;
   readonly clock: Clock;
@@ -258,6 +258,7 @@ export class RunnerHarness implements HarnessPort {
 
   async run(input: HarnessInput, signal: AbortSignal): Promise<HarnessOutcome> {
     const o = this.#o;
+    const limits = input.limits ?? o.limits;
     const base = {
       role: input.role,
       usage: { basis: 'unavailable' as const },
@@ -418,11 +419,11 @@ export class RunnerHarness implements HarnessPort {
         env: sandboxed.value.env,
         wall_ms: wall,
         deadline_at: input.deadline_at,
-        term_grace_ms: o.limits.term_grace_ms,
-        kill_verify_ms: o.limits.kill_verify_ms,
+        term_grace_ms: limits.term_grace_ms,
+        kill_verify_ms: limits.kill_verify_ms,
         launch_nonce: nonce,
         stdin: PROMPT_FILE,
-        stall_ms: o.limits.stall_ms,
+        stall_ms: limits.stall_ms,
         watch:
           input.role === 'reviewer'
             ? [layout.scratch]
@@ -834,8 +835,11 @@ export class RunnerHarness implements HarnessPort {
     let installed: InstalledAuth;
     try {
       assertFreshHome(run);
+      const frozen = input.credentials ?? [];
       const files = o.pin.home_files.map((h) => {
-        const ref = o.credentials[h.credential];
+        const ref =
+          frozen.find((c) => c.name === h.credential) ??
+          o.credentials[h.credential];
         if (ref === undefined)
           throw new SandboxPolicyError(
             'source_missing',
@@ -896,7 +900,8 @@ export class RunnerHarness implements HarnessPort {
     const o = this.#o;
     const sleep = o.sleep ?? delay;
     const poll = o.poll_ms ?? 1_000;
-    const grace = o.limits.term_grace_ms + o.limits.kill_verify_ms;
+    const limits = input.limits ?? o.limits;
+    const grace = limits.term_grace_ms + limits.kill_verify_ms;
     const start = o.clock.monotonic();
     let stopped = false;
     let goneSince: number | null = null;
@@ -908,7 +913,7 @@ export class RunnerHarness implements HarnessPort {
       const elapsed = o.clock.monotonic() - start;
       if ((signal.aborted || elapsed > wall + grace + 30_000) && !stopped) {
         stopped = true;
-        const r = await o.process.stop(input.operation_id, o.limits);
+        const r = await o.process.stop(input.operation_id, limits);
         if (r === 'unknown')
           throw new InvocationUnknown('stop outcome unknown');
       }

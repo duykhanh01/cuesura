@@ -15,7 +15,7 @@
  * {@link reconcileEffect}. Known gap, kept explicit: setup commands are not in the frozen snapshot yet,
  * so `prepare` reports `setup.ran = false`.
  */
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   buildRoleContext,
@@ -38,7 +38,12 @@ import {
   FileCommitIntentStore,
 } from '../adapters/git/commit.ts';
 import { pushBranch } from '../adapters/git/push.ts';
-import { probeCommit, probePush } from '../adapters/git/reconcile.ts';
+import {
+  probeCommit,
+  probeLocalRemainder,
+  probePush,
+  type LocalRemainderProbe,
+} from '../adapters/git/reconcile.ts';
 import {
   ensureWorktree,
   markerPath,
@@ -128,6 +133,8 @@ export type HandlerDeps = {
   readonly harnesses: Readonly<Record<string, HarnessPort>>;
   readonly sandbox: SandboxProvider;
   readonly executor: CommandExecutor;
+  /** Read-only directories gates see besides `/usr` (the node of the daemon, say); none by default. */
+  readonly gate_toolchain?: readonly string[];
   readonly clock: Clock;
   readonly redactor: Redactor;
   readonly newId: () => string;
@@ -939,6 +946,12 @@ async function startAgent(
       wall_ms: wall,
       deadline_at: (l.s.deadline_at ?? registered + wall) as EpochMs,
       session: resume.session,
+      credentials: l.rt.credential_refs,
+      limits: {
+        term_grace_ms: l.rt.limits.term_grace_ms,
+        kill_verify_ms: l.rt.limits.kill_verify_ms,
+        stall_ms: binding.limits.stall_timeout_ms,
+      },
       ...(worker && harness.agent_paths !== undefined
         ? { collect: [{ scratch_name: contentName, host_path: file }] }
         : {}),
@@ -1201,7 +1214,7 @@ async function gates(
       scratch: w.scratch,
       context: null,
       schema: null,
-      toolchain: [],
+      toolchain: [...(deps.gate_toolchain ?? [])],
       env: {},
       network: 'internet_outbound' as const,
     },
@@ -2385,6 +2398,24 @@ async function stopAttempt(
 }
 
 /** Builds every handler the daemon runs for runtime tasks; `merge` has none by construction. */
+/** What the task's worktree still holds (FR-040.06), for a drain round; null once there is no worktree. */
+export async function localRemainderOf(
+  deps: Pick<HandlerDeps, 'store' | 'git' | 'paths' | 'remoteUrl'>,
+  taskId: string,
+): Promise<LocalRemainderProbe | null> {
+  const s = deps.store.readTask(taskId as Uuid);
+  if (s === null) return null;
+  const rt = deps.store.readRuntimeContext(s.id as Uuid, s.revision);
+  const worktree = join(deps.paths.worktrees, s.id);
+  if (rt === null || !existsSync(worktree)) return null;
+  return probeLocalRemainder(deps.git, {
+    worktree,
+    remote_url: deps.remoteUrl(rt.target.repo),
+    branch: taskBranch(s.id, s.task.title),
+    base_sha: rt.base_sha,
+  });
+}
+
 export function buildHandlers(deps: HandlerDeps): EffectHandlers {
   const wrap =
     (

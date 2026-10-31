@@ -107,7 +107,7 @@ export type GhExec = (
 ) => Promise<GhExecResult>;
 
 /** Variables `gh` may see; the token comes from the orchestrator, never from a repo or agent. */
-const GH_ENV_PASS = [
+export const GH_ENV_PASS = [
   'PATH',
   'HOME',
   'GH_TOKEN',

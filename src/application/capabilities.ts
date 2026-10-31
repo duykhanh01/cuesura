@@ -210,11 +210,14 @@ export function binaryDigest(path: string): Hash {
   return digest;
 }
 
+/** Every pin field the run depends on besides the binary and the settings document (`settings_hash`). */
 export function environmentHash(pin: VendorPin): Hash {
   return hashCanonical({
     env: pin.env,
     toolchain: pin.toolchain,
     home_files: pin.home_files,
+    max_turns: pin.max_turns,
+    tools: pin.tools,
   });
 }
 

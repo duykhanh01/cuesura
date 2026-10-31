@@ -103,6 +103,8 @@ export type PreflightInput = {
   readonly packs: Readonly<Record<string, ConfigSource>>;
   /** Current manifest per harness; null when none was recorded. */
   readonly manifests: Readonly<Record<string, CapabilityManifest | null>>;
+  /** Why a harness has no manifest here, when the source knows; doctor reports it. */
+  readonly manifest_problems?: Readonly<Record<string, string>>;
   /** Mode of the run selection, when one is proposed; reviewer checks apply to `full-review` only. */
   readonly mode?: ExecutionMode | null;
 };

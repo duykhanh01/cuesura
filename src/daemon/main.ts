@@ -36,6 +36,7 @@ import {
 } from '../application/commands.ts';
 import { httpStatusFor } from '../cli/errors.ts';
 import { okEnvelope } from '../cli/output.ts';
+import type { RuntimeConfig } from '../config/normalize.ts';
 import { readConfigFiles } from '../config/read-files.ts';
 import type { AccessTokenSpec } from '../config/schema-user.ts';
 import { validateConfig } from '../config/validate.ts';
@@ -99,6 +100,15 @@ export type QueryHandler = (
   body: Readonly<Record<string, unknown>>,
 ) => Promise<Reply>;
 
+/** What the daemon offers the handlers built over its store. */
+export type DaemonRuntime = {
+  readonly health: () => string | null;
+  readonly abort: (effectId: string) => boolean;
+  readonly settled: (effectId: string) => Promise<void>;
+  /** The store refused a write: nothing new is claimed until a restart proves it again (FR-023). */
+  readonly latch: (reason: string) => void;
+};
+
 export type DaemonOptions = {
   readonly dataDir: string;
   readonly accessTokens: readonly AccessTokenSpec[];
@@ -110,10 +120,17 @@ export type DaemonOptions = {
   /** Handlers that need the opened store (e.g. the task surface); merged over `commands`/`queries`. */
   readonly control?: (
     store: Store,
-    runtime: { readonly health: () => string | null },
+    runtime: DaemonRuntime,
   ) => {
     readonly commands?: Partial<Record<CommandKind, CommandHandler>>;
     readonly queries?: Readonly<Record<string, QueryHandler>>;
+    /** Merged over `effects`; these handlers can reach the dispatcher through `runtime`. */
+    readonly effects?: EffectHandlers;
+    /**
+     * Passes that run on the dispatch interval under the same conditions as `schedule`, each never
+     * overlapping itself (timers, PR observation, drain). They start after the first request can arrive.
+     */
+    readonly rounds?: readonly (() => Promise<unknown>)[];
     /**
      * One scheduler pass (dependency notifications, queue, grant, start). It runs once before the first
      * request and then on the dispatch interval, never overlapping itself and never while new work is
@@ -307,14 +324,22 @@ export async function startDaemon(
       `spool ${r.operation_id}: ${r.status} records=${r.records} torn=${r.torn} acked=${r.acked.length}${r.detail === undefined ? '' : `: ${r.detail}`}`,
     );
 
+  // Called here because the handlers go into the dispatcher; `runtime` is only used once it exists.
+  const extra: ReturnType<NonNullable<DaemonOptions['control']>> =
+    opts.control?.(store, {
+      health: () => healthProblem(dispatcher),
+      abort: (id) => dispatcher.abort(id),
+      settled: (id) => dispatcher.settled(id),
+      latch: (reason) => dispatcher.latch(reason),
+    }) ?? {};
   const dispatchLog: DispatchLog = (r) =>
     log(
       `dispatch ${r.event} ${r.effect_id}${r.detail === undefined ? '' : `: ${r.detail}`}`,
     );
-  const dispatcher = new Dispatcher({
+  const dispatcher: Dispatcher = new Dispatcher({
     store,
     clock,
-    handlers: opts.effects ?? {},
+    handlers: { ...opts.effects, ...extra.effects },
     log: dispatchLog,
     newId,
     marks: {
@@ -363,8 +388,6 @@ export async function startDaemon(
     });
     return recovering;
   };
-  const extra =
-    opts.control?.(store, { health: () => healthProblem(dispatcher) }) ?? {};
   let scheduling: Promise<void> | null = null;
   const schedule = (): Promise<void> => {
     if (
@@ -387,6 +410,27 @@ export async function startDaemon(
       });
     return scheduling;
   };
+  const running = new Set<Promise<void>>();
+  const rounds = (extra.rounds ?? []).map((round) => {
+    let current: Promise<void> | null = null;
+    return (): void => {
+      if (current !== null || healthProblem(dispatcher) !== null) return;
+      const pass: Promise<void> = round()
+        .then(
+          () => undefined,
+          (e: unknown) =>
+            log(
+              `daemon round failed: ${e instanceof Error ? e.message : String(e)}`,
+            ),
+        )
+        .finally(() => {
+          running.delete(pass);
+          current = null;
+        });
+      current = pass;
+      running.add(pass);
+    };
+  });
   const commands = { ...opts.commands, ...extra.commands };
   const inFlight = new Map<string, Promise<Reply>>();
   const queries = { ...opts.queries, ...extra.queries };
@@ -521,6 +565,7 @@ export async function startDaemon(
   await schedule();
   const interval = setInterval(() => {
     void schedule();
+    for (const round of rounds) round();
     dispatcher.tick();
     if (store.unresolvedOperations().length > 0) void recover();
   }, opts.dispatchIntervalMs ?? 1_000);
@@ -541,6 +586,7 @@ export async function startDaemon(
         clearInterval(interval);
         await recovering;
         await scheduling;
+        await Promise.all(running);
         await closeServer(server);
         await dispatcher.stop();
         store.close();
@@ -555,10 +601,15 @@ export type DaemonCliArgs = {
 };
 
 /** Reads the trusted user config; only `runtime` is used to start the daemon. */
-export async function loadDaemonConfig(
-  args: DaemonCliArgs,
-): Promise<
-  Result<{ dataDir: string; accessTokens: AccessTokenSpec[] }, string>
+export async function loadDaemonConfig(args: DaemonCliArgs): Promise<
+  Result<
+    {
+      dataDir: string;
+      accessTokens: AccessTokenSpec[];
+      runtime: RuntimeConfig;
+    },
+    string
+  >
 > {
   let sources;
   try {
@@ -592,6 +643,7 @@ export async function loadDaemonConfig(
     value: {
       dataDir: isAbsolute(dataDir) ? dataDir : resolve(dataDir),
       accessTokens: runtime.access_tokens,
+      runtime,
     },
   };
 }

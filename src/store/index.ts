@@ -82,6 +82,9 @@ export interface Store {
     taskId: Uuid,
     revision: number,
   ): FrozenRuntimeContext | null;
+  frozenCredentialFiles(): string[];
+  /** Every project path any snapshot froze. */
+  frozenProjectPaths(): string[];
   /** Operations not proven finished or never launched, in ID order (startup reconciles these). */
   unresolvedOperations(): read.UnresolvedOperation[];
   verifyProjections(): VerifyReport;
@@ -184,6 +187,12 @@ export class SqliteStore implements Store {
     revision: number,
   ): FrozenRuntimeContext | null {
     return read.readRuntimeContext(this.db, taskId, revision);
+  }
+  frozenCredentialFiles(): string[] {
+    return read.frozenCredentialFiles(this.db);
+  }
+  frozenProjectPaths(): string[] {
+    return read.frozenProjectPaths(this.db);
   }
   unresolvedOperations(): read.UnresolvedOperation[] {
     return read.unresolvedOperations(this.db);

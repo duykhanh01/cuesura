@@ -9,6 +9,7 @@
 import type {
   Artifact,
   CapabilityManifest,
+  CredentialRef,
   OperationKind,
 } from '../domain/runtime.ts';
 import type { Usage } from '../domain/trigger.ts';
@@ -177,6 +178,14 @@ export type HarnessInput = {
   readonly deadline_at: EpochMs;
   /** Resume only within the same harness/session and when policy allows it. */
   readonly session: { readonly ref: string } | null;
+  /** The task's frozen references; they win over what the harness was built with (Constitution V). */
+  readonly credentials?: readonly CredentialRef[];
+  /** The task's frozen stop bounds; `stall_ms` is the role's, null disables stall checks. */
+  readonly limits?: {
+    readonly term_grace_ms: number;
+    readonly kill_verify_ms: number;
+    readonly stall_ms: number | null;
+  };
   /**
    * Files the role writes under its own scratch (named as the context told it, see
    * {@link HarnessPort.agent_paths}) that the orchestrator copies out to `host_path` after the run,

@@ -206,7 +206,7 @@ describe('operation process tag', () => {
     () => {
       const root = mkdtempSync(join(tmpdir(), 'cusr-proc-'));
       const uid = process.getuid?.() ?? 0;
-      const pid = (ticks: number, btime: number): void => {
+      const pid = (ticks: number, btime: number, flags = 0): void => {
         writeFileSync(join(root, 'stat'), `cpu 0\nbtime ${btime}\n`);
         const d = join(root, '4242');
         mkdirSync(d, { recursive: true });
@@ -216,6 +216,7 @@ describe('operation process tag', () => {
         );
         const fields = Array.from({ length: 50 }, () => '0');
         fields[2] = '4242';
+        fields[6] = String(flags);
         fields[19] = String(ticks);
         writeFileSync(join(d, 'stat'), `4242 (ssh) ${fields.join(' ')}`);
         if (!existsSync(join(d, 'environ'))) {
@@ -230,6 +231,9 @@ describe('operation process tag', () => {
         pid(100_500, btime);
         expect(findTagged(id, mark, root)).toMatchObject({ ok: false });
       }
+      // Exiting (PF_EXITING): its environ is refused the same way, but it can no longer run anything.
+      pid(100_500, 1_800_000_000, 0x4);
+      expect(findTagged(id, mark, root)).toEqual({ ok: true, processes: [] });
       // Started before the mark, no mark (nothing was spawned), or a mark of another boot: not it.
       pid(50_000, 1_799_999_940);
       expect(findTagged(id, mark, root)).toEqual({ ok: true, processes: [] });

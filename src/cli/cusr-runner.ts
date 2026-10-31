@@ -60,6 +60,53 @@ const exec: CliCommand = {
   },
 };
 
+/** Owner step, never run by the daemon: records what evidence proved about a pinned binary (T140). */
+const recordManifest: CliCommand = {
+  name: 'record-manifest',
+  description: 'record a harness capability manifest from recorded evidence',
+  options: [
+    { flags: '--config <file>', description: 'user config' },
+    { flags: '--data-dir <dir>', description: 'DATA_DIR' },
+    { flags: '--harness <name>', description: 'harness with a pin.json' },
+    { flags: '--evidence <file>', description: 'evidence of the same binary' },
+  ],
+  async run(values, _json, io) {
+    const { config, dataDir, harness, evidence } = values;
+    if (
+      config === undefined ||
+      harness === undefined ||
+      evidence === undefined
+    ) {
+      io.stderr('record-manifest needs --config, --harness and --evidence\n');
+      return ExitCode.usage;
+    }
+    // Only this owner step needs the daemon's config loading; `exec` stays free of the store.
+    const { loadDaemonConfig } = await import('../daemon/main.ts');
+    const { recordManifest: record } =
+      await import('../runner/harness-records.ts');
+    const cfg = await loadDaemonConfig({ config, dataDir });
+    if (!cfg.ok) {
+      io.stderr(`${cfg.error}\n`);
+      return ExitCode.usage;
+    }
+    const r = record({
+      dataDir: cfg.value.dataDir,
+      harness,
+      configPath: config,
+      runtime: cfg.value.runtime,
+      evidenceFile: evidence,
+      fixtureRef: evidence,
+      now: Date.now(),
+    });
+    if (!r.ok) {
+      io.stderr(`${r.error}\n`);
+      return ExitCode.failure;
+    }
+    io.stdout(`${r.value.manifest_hash}\n`);
+    return ExitCode.ok;
+  },
+};
+
 process.exitCode = await runCli(
   {
     name: 'cusr-runner',
@@ -68,5 +115,5 @@ process.exitCode = await runCli(
   },
   process.argv.slice(2),
   processIo,
-  [exec],
+  [exec, recordManifest],
 );

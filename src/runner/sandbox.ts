@@ -91,6 +91,8 @@ export const DATA_DIR_CONTROL_FILES: readonly string[] = [
   'config.yaml',
   'locks',
   'tokens',
+  'harnesses',
+  'git-credential-gh',
 ];
 
 /** Control files of this daemon's DATA_DIR are forbidden on top of the host credential locations. */
@@ -181,6 +183,11 @@ const FORBIDDEN_ENV =
   /^(GH_|GITHUB_|SSH_AUTH_SOCK$|DBUS_|XDG_RUNTIME_DIR$|DOCKER_|CUSR_(ADMIN|OPERATE|TOKEN))/;
 const SECRET_ENV =
   /(TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|APIKEY|CREDENTIAL|PRIVATE_KEY|AUTH)/i;
+
+/** One path equals or contains the other. */
+export function overlaps(a: string, b: string): boolean {
+  return within(a, b) || within(b, a);
+}
 
 function within(child: string, parent: string): boolean {
   return (
@@ -514,6 +521,11 @@ export type BwrapProviderOptions = {
   readonly bwrap?: string;
   readonly python?: string;
   readonly proofRefs?: readonly string[];
+  /**
+   * Paths no mount of this plan may overlap, read at each plan: what the host policy cannot know when
+   * it is built and pinned, like credentials frozen by a task. Any mount counts, system ones too.
+   */
+  readonly forbiddenNow?: () => readonly string[];
 };
 
 function fileDigest(path: string): string {
@@ -527,6 +539,7 @@ export class BwrapSandboxProvider implements SandboxProvider {
   readonly #python: string;
   readonly #proofRefs: readonly string[];
   readonly #launcherDigest: string;
+  readonly #forbiddenNow: () => readonly string[];
 
   constructor(opts: BwrapProviderOptions) {
     this.#policy = opts.policy;
@@ -534,6 +547,7 @@ export class BwrapSandboxProvider implements SandboxProvider {
     this.#python = opts.python ?? PYTHON;
     this.#proofRefs = opts.proofRefs ?? PROOF_REFS;
     this.#launcherDigest = fileDigest(LAUNCHER);
+    this.#forbiddenNow = opts.forbiddenNow ?? (() => []);
   }
 
   plan(
@@ -550,6 +564,13 @@ export class BwrapSandboxProvider implements SandboxProvider {
     let plan: BwrapPlan;
     try {
       plan = buildBwrap(layout, this.#policy);
+      for (const f of this.#forbiddenNow())
+        for (const m of plan.mounts)
+          if (overlaps(m.source, f))
+            throw new SandboxPolicyError(
+              'policy_violation',
+              `${m.purpose}: ${m.source} overlaps forbidden ${f}`,
+            );
     } catch (e) {
       if (e instanceof SandboxPolicyError)
         return err({ code: e.code, message: e.message });

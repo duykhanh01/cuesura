@@ -17,6 +17,7 @@ import { validateConfig } from '../config/validate.ts';
 import type { Uuid } from '../shared/brand.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import type { Store } from '../store/index.ts';
+import { overlaps } from '../runner/sandbox.ts';
 import { authorize, type Caller } from './authz.ts';
 import type { ConfigInputs } from './confirm.ts';
 import { binaryDigest, manifestHash } from './capabilities.ts';
@@ -43,6 +44,12 @@ export type DoctorDeps = {
   /** Digest of a harness binary; reads the file by default. */
   readonly digest?: (path: string) => string;
   readonly probeBudgetMs?: number;
+  /** Credential files, every directory a sandbox of this daemon mounts, and what could not be resolved. */
+  readonly credentialMounts?: () => Promise<{
+    readonly credentials: readonly string[];
+    readonly mounts: readonly string[];
+    readonly unresolved: readonly string[];
+  }>;
 };
 
 export type DoctorCheck = {
@@ -362,6 +369,27 @@ export async function runDoctor(
           : ok_(`credential:${ref.name}`, 'file exists; content not read'),
       );
     }
+    if (deps.credentialMounts !== undefined) {
+      const { credentials, mounts, unresolved } = await deps.credentialMounts();
+      const clashes = credentials.flatMap((c) =>
+        mounts.filter((m) => overlaps(c, m)).map((m) => `${c} in ${m}`),
+      );
+      checks.push(
+        clashes.length > 0
+          ? fail(
+              'credential_mounts',
+              `every gate and agent run mounting these is refused: ${clashes.join('; ')}`,
+              'move the credential file out of that directory',
+            )
+          : unresolved.length > 0
+            ? fail(
+                'credential_mounts',
+                `Git directory not resolved, so its mount was not checked: ${unresolved.join('; ')}`,
+                'make git work in that project, then run doctor again',
+              )
+            : ok_('credential_mounts', 'no credential is in a sandbox mount'),
+      );
+    }
     if (project !== undefined) {
       const loc = locations[project];
       if (loc === undefined)
@@ -387,7 +415,7 @@ export async function runDoctor(
         m === null
           ? fail(
               `manifest:${h}`,
-              'no capability manifest recorded; bindings of this harness stay capability_missing',
+              `${inputs.manifest_problems?.[h] ?? 'no capability manifest recorded'}; bindings of this harness stay capability_missing`,
               'record one from experimental fixtures; a help or version output is not proof',
             )
           : manifestCheck(`manifest:${h}`, m, deps.digest ?? binaryDigest),

@@ -147,13 +147,20 @@ function statFields(stat: string): string[] {
   return stat.slice(stat.lastIndexOf(')') + 2).split(' ');
 }
 
+/** PF_EXITING in the flags field of /proc/PID/stat: the process is dying or already a zombie. */
+const PF_EXITING = 0x4;
+
+function exiting(stat: string): boolean {
+  return (Number(statFields(stat)[6]) & PF_EXITING) !== 0;
+}
+
 /**
  * Every live process tagged with the operation. Only evidence counts as absence: a process that exited
  * (ENOENT/ESRCH), one of another user, or one that started before the operation's mark (or with no mark
  * at all: nothing was spawned) is not the operation's. A process of this user whose environment cannot
  * be read (non-dumpable, as ssh makes itself) and that started since the mark may be, so the scan fails
  * and the operation stays unknown. Start times and the mark share the boot clock, so no wall-clock or
- * UTC change moves one against the other. Zombies have an empty environ: they ran.
+ * UTC change moves one against the other. An exiting process counts as gone, whatever its environ shows.
  */
 export function findTagged(
   operationId: string,
@@ -202,6 +209,9 @@ export function findTagged(
     const env = read(`${dir}/environ`, 'latin1');
     if (!env.ok) {
       if (env.gone || since === null || ticks < since) continue;
+      // An exiting process has released its memory, so its environ is refused like a non-dumpable one's.
+      const again = read(`${dir}/stat`, 'utf8');
+      if (!again.ok ? again.gone : exiting(again.text)) continue;
       return fail(`pid ${name}: environment unreadable`);
     }
     if (!env.text.split('\0').includes(entry)) continue;

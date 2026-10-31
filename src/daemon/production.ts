@@ -1,28 +1,182 @@
 /**
- * Production wiring of the task surface for `cusrd` (T048, T110, T112, T114, T119): real Git, gh and host
- * probes behind preflight, the user config re-read for every request so a fixed config is picked up by
- * the next confirm, the PR read and drain round behind recheck and cancel, and the scheduler. No
- * capability manifest is recorded and no effect handler is wired yet, so preflight reports harnesses as
- * `capability_missing` and no task can start here; doctor says so instead of vouching for them.
+ * Production wiring of `cusrd` (T048, T110, T112, T114, T119, T140): real Git, gh and host probes behind
+ * preflight, the user config re-read for every request so a fixed config is picked up by the next
+ * confirm, the effect handlers over bwrap and transient units, the scheduler, and the rounds nothing else
+ * drives (due timers, PR observation, drain).
+ *
+ * This is what lets the daemon call a real agent, and the gate for that is the harness record: a harness
+ * runs only with an owner `pin.json` and a `manifest.json` that still holds on this host, and each attempt
+ * checks them again. Records are read at daemon start, so a new one takes a restart; the check before each
+ * request and attempt is against the disk, so a changed binary stops new work at once. What an attempt
+ * runs with (credential references, stop bounds, stall limit) comes from the task's frozen snapshot.
  */
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import {
+  chmodSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from 'node:fs';
+import { dirname, extname, isAbsolute, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { GitCommandRunner } from '../adapters/git/command.ts';
-import { GhPort, spawnGhExec } from '../adapters/github/gh-port.ts';
-import type { Clock } from '../adapters/ports.ts';
+import {
+  GH_ENV_PASS,
+  GhPort,
+  spawnGhExec,
+} from '../adapters/github/gh-port.ts';
+import type {
+  Clock,
+  GitHubPort,
+  GitPort,
+  HarnessPort,
+  HostProbePort,
+} from '../adapters/ports.ts';
+import { MAX_ENVELOPE_IDS } from '../domain/trigger.ts';
+import { DEFAULT_RUNTIME_LIMITS } from '../domain/runtime.ts';
+import type { RuntimeConfig } from '../config/normalize.ts';
 import { readConfigFiles } from '../config/read-files.ts';
 import { validateConfig } from '../config/validate.ts';
 import type { ConfigSource } from '../config/yaml-loader.ts';
+import type { DocContent } from '../policy/finalize.ts';
+import { SpawnExecutor } from '../runner/commands.ts';
+import {
+  adapterFor,
+  harnessRecordProblem,
+  hostSandbox,
+  loadHarnessRecord,
+  type HarnessRecord,
+} from '../runner/harness-records.ts';
 import { NodeHostProbe } from '../runner/host-probe.ts';
+import { RunnerHarness } from '../runner/invocation.ts';
+import { stopOperationProcesses } from '../runner/process-tag.ts';
 import type { Redactor } from '../runner/redact.ts';
-import type { Store } from '../store/index.ts';
 import { SystemdSupervisor } from '../runner/supervisor.ts';
-import { drainRound } from './drain.ts';
-import { observeTaskPr } from './handlers.ts';
-import { ObservationCoordinator } from './observation.ts';
+import type { Hash, Uuid } from '../shared/brand.ts';
+import { hashCanonical } from '../shared/hash.ts';
+import type { Store } from '../store/index.ts';
 import { startTask } from '../application/start.ts';
+import { drainingTasks, drainRound } from './drain.ts';
+import {
+  buildHandlers,
+  localRemainderOf,
+  observeTaskPr,
+  type HandlerDeps,
+} from './handlers.ts';
+import type { DaemonRuntime } from './main.ts';
+import { ObservationCoordinator, observationRound } from './observation.ts';
 import { Scheduler } from './scheduler.ts';
 import { taskControl } from './task-control.ts';
+
+const PROMPT_BYTES = 1024 * 1024;
+
+/**
+ * `roles.<role>.prompt` names a file relative to the user config, which only the owner edits. A missing
+ * or oversize one is left out; freeze then reports it as config_invalid.
+ */
+export function readPrompts(
+  configPath: string,
+  names: readonly string[],
+): DocContent[] {
+  const out: DocContent[] = [];
+  for (const name of names) {
+    if (isAbsolute(name) || name.split('/').includes('..')) continue;
+    try {
+      const content = readFileSync(join(dirname(configPath), name), 'utf8');
+      if (Buffer.byteLength(content) <= PROMPT_BYTES)
+        out.push({ name, content });
+    } catch {
+      // Left out, as above.
+    }
+  }
+  return out;
+}
+
+/** gh answers git's credential questions; git runs only an absolute path, so a small script wraps it. */
+function writeCredentialHelper(dataDir: string, gh: string): string {
+  const path = join(dataDir, 'git-credential-gh');
+  const quoted = `'${gh.replaceAll("'", `'\\''`)}'`;
+  writeFileSync(path, `#!/bin/sh\nexec ${quoted} auth git-credential "$@"\n`, {
+    mode: 0o700,
+  });
+  chmodSync(path, 0o700);
+  return path;
+}
+
+/**
+ * Every credential file a task of this store froze, plus those of the running config, each also by its
+ * real path. A reference replaced in the config is still a live secret of the tasks that froze it, and
+ * of the account it names afterwards, so no sandbox of any task may mount it.
+ */
+export function knownCredentialFiles(
+  store: Store,
+  runtime: RuntimeConfig,
+): string[] {
+  const files = new Set([
+    ...runtime.credential_refs.map((r) => r.file),
+    ...store.frozenCredentialFiles(),
+  ]);
+  for (const file of [...files]) {
+    try {
+      files.add(realpathSync(file));
+    } catch {
+      // Gone: the path itself stays forbidden in case it comes back.
+    }
+  }
+  return [...files];
+}
+
+/**
+ * The Git directory a sandbox of each project mounts, resolved the way execution does: a linked worktree's
+ * `.git` is a file pointing elsewhere, and a task worktree's admin directory lies under the common one. A
+ * path gone or not a repository can start no run; a project Git could not answer for stays `unresolved`.
+ */
+async function projectGitDirs(
+  git: GitPort,
+  host: HostProbePort,
+  projects: readonly string[],
+): Promise<{ dirs: string[]; unresolved: string[] }> {
+  const found = await Promise.all(
+    [...new Set(projects)].map(async (project) => {
+      if ((await host.realpath(project)) === null) return {};
+      const r = await git.run({
+        args: ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+        cwd: project,
+        timeout_ms: 5_000,
+        max_output_bytes: 4096,
+        stdin: null,
+      });
+      if (r.kind !== 'exited') return { unresolved: `${project}: ${r.kind}` };
+      if (r.code !== 0) return {};
+      const dir = r.stdout.trim();
+      return { dir: (await host.realpath(dir)) ?? dir };
+    }),
+  );
+  return {
+    dirs: found.flatMap((f) => f.dir ?? []),
+    unresolved: found.flatMap((f) => f.unresolved ?? []),
+  };
+}
+
+/** The part of the runtime config this process is built on and only reads at start. */
+const hostBound = (r: RuntimeConfig): Hash =>
+  hashCanonical({
+    credential_refs: r.credential_refs,
+    tool_paths: r.tool_paths,
+  });
+
+/** The runner next to this module, whichever of source or build is running. */
+const RUNNER = fileURLToPath(
+  new URL(`../cli/cusr-runner${extname(import.meta.url)}`, import.meta.url),
+);
+
+/** Seams for a test without GitHub; production uses none of them. */
+export type ProductionSeams = {
+  readonly github?: () => GitHubPort;
+  readonly remoteUrl?: (repo: string) => string;
+  readonly gitProtocols?: readonly string[];
+  readonly gateToolchain?: readonly string[];
+};
 
 export async function productionControl(opts: {
   configPath: string;
@@ -30,12 +184,15 @@ export async function productionControl(opts: {
   clock: Clock;
   redactor: Redactor;
   newId: () => string;
+  seams?: ProductionSeams;
 }): Promise<
   (
     store: Store,
-    runtime: { readonly health: () => string | null },
+    daemon: DaemonRuntime,
   ) => ReturnType<typeof taskControl> & {
     readonly schedule: () => Promise<unknown>;
+    readonly effects: ReturnType<typeof buildHandlers>;
+    readonly rounds: readonly (() => Promise<unknown>)[];
   }
 > {
   const host = new NodeHostProbe();
@@ -55,7 +212,70 @@ export async function productionControl(opts: {
   const hooks = join(opts.dataDir, 'empty-hooks');
   mkdirSync(hooks, { recursive: true, mode: 0o700 });
   const now = (): number => opts.clock.now();
-  return (store, runtime) => {
+  const sandbox =
+    runtime === null
+      ? null
+      : hostSandbox({
+          dataDir: opts.dataDir,
+          configPath: opts.configPath,
+          runtime,
+        });
+  const startedWith = runtime === null ? null : hostBound(runtime);
+  const records = new Map<string, HarnessRecord>();
+  const loadProblems: Record<string, string> = {};
+  if (validated.ok)
+    for (const h of Object.keys(validated.value.config.user.harnesses)) {
+      const r = loadHarnessRecord(opts.dataDir, h);
+      if (r.ok) records.set(h, r.value);
+      else loadProblems[h] = r.error;
+    }
+  /** A record is offered to preflight only while it holds on this host. */
+  const manifestInputs = (user: ConfigSource) => {
+    const manifests: Record<string, HarnessRecord['manifest'] | null> = {};
+    const manifest_problems = { ...loadProblems };
+    const current = validateConfig({ user, packs: {} });
+    // The sandbox policy and the tools were built from these at start; new work waits for a restart.
+    const stale =
+      current.ok &&
+      current.value.runtime !== null &&
+      hostBound(current.value.runtime) !== startedWith;
+    for (const [h, record] of records) {
+      const problem = stale
+        ? 'runtime.credential_refs or tool_paths changed since cusrd started; restart it'
+        : runtime === null || sandbox === null
+          ? 'no runtime config'
+          : harnessRecordProblem(record, {
+              isolation: runtime.harness_isolation[h] ?? 'internal_required',
+              host_policy_hash: sandbox.policy_hash,
+            });
+      manifests[h] = problem === null ? record.manifest : null;
+      if (problem !== null) manifest_problems[h] = problem;
+    }
+    return { manifests, manifest_problems };
+  };
+  const newGitHub = (): GitHubPort =>
+    opts.seams?.github?.() ??
+    (gh === null
+      ? {
+          request: () =>
+            Promise.resolve({
+              ok: false as const,
+              error: {
+                reason: 'unknown' as const,
+                status: null,
+                detail: 'gh not found',
+                retry_after_ms: null,
+              },
+            }),
+        }
+      : new GhPort({
+          exec: spawnGhExec(gh, process.env),
+          clock: opts.clock,
+          redactor: opts.redactor,
+        }));
+  const credentialHelper =
+    gh === null ? null : writeCredentialHelper(opts.dataDir, gh);
+  return (store, daemon) => {
     const ports = {
       git:
         git === null
@@ -70,42 +290,31 @@ export async function productionControl(opts: {
               git,
               emptyHooksDir: hooks,
               safeDirectories: projects,
-              credentialHelper: null,
+              credentialHelper,
               home: process.env['HOME'] ?? opts.dataDir,
+              passEnv: GH_ENV_PASS.filter((k) => k !== 'PATH' && k !== 'HOME'),
+              ...(opts.seams?.gitProtocols === undefined
+                ? {}
+                : { protocols: opts.seams.gitProtocols }),
             }),
-      github:
-        gh === null
-          ? {
-              request: () =>
-                Promise.resolve({
-                  ok: false as const,
-                  error: {
-                    reason: 'unknown' as const,
-                    status: null,
-                    detail: 'gh not found',
-                    retry_after_ms: null,
-                  },
-                }),
-            }
-          : new GhPort({
-              exec: spawnGhExec(gh, process.env),
-              clock: opts.clock,
-              redactor: opts.redactor,
-            }),
+      // A port's call cap and round window count from its creation, so each request gets its own.
+      github: {
+        request: (req: Parameters<GitHubPort['request']>[0]) =>
+          newGitHub().request(req),
+      },
       host,
     };
-    const configInputs = async () => ({
-      user: (
+    const configInputs = async () => {
+      const user = (
         await readConfigFiles({ user: opts.configPath })
-      )[0] as ConfigSource,
-      packs: {},
-      manifests: {},
-    });
+      )[0] as ConfigSource;
+      return { user, packs: {}, ...manifestInputs(user) };
+    };
     const coordinator = new ObservationCoordinator((taskId, ref, source) =>
       observeTaskPr(
         {
           store,
-          github: () => ports.github,
+          github: newGitHub,
           clock: opts.clock,
           newId: opts.newId,
         },
@@ -116,12 +325,92 @@ export async function productionControl(opts: {
     );
     const observe = (taskId: string, ref: string) =>
       coordinator.observe(taskId, ref, 'recheck');
-    // Only `inspect` and `stop` are used here; those never run this entrypoint.
     const process_ = new SystemdSupervisor({
       dataDir: opts.dataDir,
-      runnerCommand: [process.execPath, 'cusr-runner'],
+      runnerCommand: [process.execPath, RUNNER],
       redactor: opts.redactor,
     });
+    const limits = runtime?.limits ?? DEFAULT_RUNTIME_LIMITS;
+    const gateToolchain = opts.seams?.gateToolchain ?? [
+      dirname(process.execPath),
+    ];
+    const boundary =
+      runtime === null
+        ? null
+        : hostSandbox({
+            dataDir: opts.dataDir,
+            configPath: opts.configPath,
+            runtime,
+            forbiddenNow: () => knownCredentialFiles(store, runtime),
+          }).provider;
+    const harnesses: Record<string, HarnessPort> = {};
+    if (sandbox !== null && boundary !== null)
+      for (const [h, record] of records)
+        harnesses[h] = new RunnerHarness({
+          harness: h,
+          adapter: adapterFor(record.pin.vendor),
+          pin: record.pin,
+          manifest: record.manifest,
+          isolation: runtime?.harness_isolation[h] ?? 'internal_required',
+          process: process_,
+          sandbox: boundary,
+          host_policy_hash: sandbox.policy_hash,
+          data_dir: opts.dataDir,
+          // Only the task's frozen references, passed with each attempt: a config edited since the
+          // task was frozen, or since this daemon started, must not change whose account it runs on.
+          credentials: {},
+          redactor: opts.redactor,
+          clock: opts.clock,
+          // Fallback for an input without bounds; the handlers always pass the frozen ones.
+          limits: {
+            term_grace_ms: limits.term_grace_ms,
+            kill_verify_ms: limits.kill_verify_ms,
+            stall_ms: null,
+          },
+        });
+    const remoteUrl =
+      opts.seams?.remoteUrl ?? ((repo) => `https://github.com/${repo}.git`);
+    const dir = (name: string): string => join(opts.dataDir, name);
+    const deps: HandlerDeps = {
+      store,
+      git: ports.git,
+      github: newGitHub,
+      harnesses,
+      // Without a runtime config the daemon refuses to start; no effect runs on this path.
+      sandbox: boundary ?? {
+        provider: 'bwrap',
+        plan: () => ({
+          ok: false,
+          error: { code: 'proof_missing', message: 'no runtime config' },
+        }),
+      },
+      executor: new SpawnExecutor(),
+      gate_toolchain: gateToolchain,
+      clock: opts.clock,
+      redactor: opts.redactor,
+      newId: opts.newId,
+      paths: {
+        worktrees: dir('worktrees'),
+        markers: dir('owners'),
+        intents: dir('intents'),
+        scratch: dir('scratch'),
+        content: dir('content'),
+        receipts: dir('receipts'),
+      },
+      committer: { name: 'Cuesura', email: 'cusr@invalid' },
+      remoteUrl,
+      abort: daemon.abort,
+      settled: daemon.settled,
+      process: process_,
+      stopLocal: (operationId) =>
+        stopOperationProcesses(opts.dataDir, operationId),
+    };
+    const drainDeps = {
+      store,
+      process: process_,
+      clock: opts.clock,
+      local: (taskId: string) => localRemainderOf(deps, taskId),
+    };
     const scheduler = new Scheduler({
       store,
       clock: opts.clock,
@@ -133,7 +422,10 @@ export async function productionControl(opts: {
             ports,
             configInputs,
             docs: {
-              prompts: () => Promise.resolve([]),
+              prompts: (names) =>
+                Promise.resolve(readPrompts(opts.configPath, names)),
+              // `cusr add` creates tasks without attachments and no spec defines what a content_ref
+              // points at; a task that names one fails its freeze instead of reading a path it chose.
               attachments: () => Promise.resolve([]),
             },
             now,
@@ -142,25 +434,90 @@ export async function productionControl(opts: {
           taskId,
         ),
     });
+    const fireTimers = (): Promise<void> => {
+      const r = store.fireDueTimers(opts.clock.now(), 100, () =>
+        Array.from({ length: MAX_ENVELOPE_IDS }, () => opts.newId() as Uuid),
+      );
+      if (r.ok) return Promise.resolve();
+      if (r.error.code === 'write_failed')
+        daemon.latch(`store write failed: ${r.error.cause}`);
+      return Promise.reject(new Error(`timers: ${r.error.code}`));
+    };
+    // The engine allows few drain rounds per merge, so they are spread over its time window instead of
+    // being spent in the first seconds, before a stopped runner's receipt can arrive.
+    const lastDrain = new Map<string, number>();
+    const drainAll = async (): Promise<void> => {
+      for (const id of drainingTasks(store)) {
+        const l =
+          store.readTask(id as Uuid)?.run.limits ?? DEFAULT_RUNTIME_LIMITS;
+        const last = lastDrain.get(id);
+        const at = opts.clock.now();
+        if (
+          last !== undefined &&
+          at - last < l.drain_max_ms / l.drain_max_rounds
+        )
+          continue;
+        lastDrain.set(id, at);
+        await drainRound(drainDeps, id);
+      }
+    };
     return {
       ...taskControl({
         store,
         now,
         newId: opts.newId,
         observe,
-        drain: (taskId) =>
-          drainRound({ store, process: process_, clock: opts.clock }, taskId),
+        drain: (taskId) => drainRound(drainDeps, taskId),
         confirm: { store, ports, configInputs, now },
         logs: { dataDir: opts.dataDir, redactor: opts.redactor },
         doctor: {
           dataDir: opts.dataDir,
           host,
           configInputs,
-          health: runtime.health,
+          ...(runtime === null || sandbox === null
+            ? {}
+            : {
+                credentialMounts: async () => {
+                  const { dirs, unresolved } = await projectGitDirs(
+                    ports.git,
+                    host,
+                    [...projects, ...store.frozenProjectPaths()],
+                  );
+                  return {
+                    credentials: knownCredentialFiles(store, runtime),
+                    mounts: [
+                      ...sandbox.policy.systemRo,
+                      ...sandbox.policy.systemRoTry,
+                      ...gateToolchain,
+                      ...[...records.values()].flatMap(({ pin }) => [
+                        dirname(pin.binary.realpath),
+                        ...pin.toolchain,
+                      ]),
+                      deps.paths.worktrees,
+                      deps.paths.scratch,
+                      ...dirs,
+                    ],
+                    unresolved,
+                  };
+                },
+              }),
+          health: daemon.health,
           now,
         },
       }),
       schedule: () => scheduler.tick(),
+      effects: buildHandlers(deps),
+      rounds: [
+        fireTimers,
+        () =>
+          observationRound({
+            store,
+            clock: opts.clock,
+            coordinator,
+            newId: opts.newId,
+          }),
+        drainAll,
+      ],
     };
   };
 }

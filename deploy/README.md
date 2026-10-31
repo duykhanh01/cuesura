@@ -201,6 +201,38 @@ nhận qua file, không qua argv. Connector không được thấy home owner ha
 token operate. Worker coder/fixer/reviewer không nhận token nào, kể cả operate: sandbox từ chối biến
 `CUSR_TOKEN*` và không mount data dir.
 
+## Harness thật: pin và manifest
+
+`cusrd` chỉ gọi một harness khi có đủ hai bản ghi của owner tại `<DATA_DIR>/harnesses/<tên harness>/`:
+
+- `pin.json` theo `VendorPinSchema`: binary (realpath, version, sha256), toolchain, env không bí mật,
+  `home_files` trỏ tới tên trong `runtime.credential_refs`, settings, `max_turns`, `tools`. Pin mới là thứ
+  quyết định binary nào chạy, không phải `harnesses.<tên>.cmd`. Xem mẫu đã kiểm chứng ở
+  `test/fixtures/runtime/spike-0/harness/real-20261028/pinned-*.json`.
+- `manifest.json`, chỉ ghi bằng lệnh dưới đây, từ evidence của **đúng binary và cấu hình đó**:
+
+```sh
+cusr-runner record-manifest --config ~/.cusr/config.yaml --harness claude --evidence <evidence.json>
+```
+
+Mỗi vendor trong evidence phải có `binary.sha256` và `attested` gồm `settings_hash`, `environment_hash`
+(env, toolchain, `home_files`, `max_turns`, `tools`), `host_policy_hash`, `layout_shapes` của lượt chứng minh.
+Lệnh so từng trường với pin và host hiện tại, lệch là từ chối và in giá trị cần có; đổi bất kỳ trường nào của
+pin đều cần chứng minh lại (T126), và pin sửa sau khi ghi sẽ chặn request, attempt kế tiếp. Đổi đường dẫn file
+credential thì không cần: bằng chứng không phụ thuộc file nằm ở đâu. Evidence T007 không có `attested` nên không dùng được. Lệnh không gọi harness, không tốn usage.
+
+Sau khi ghi, restart `cusrd`. `cusr doctor` báo lý do ở `manifest:<tên>` khi bản ghi thiếu hoặc không còn khớp;
+lúc đó task dừng ở `capability_missing`. Đổi `runtime.credential_refs` hoặc `tool_paths` khi daemon đang chạy
+cũng chặn việc mới tới khi restart. Task đã bắt đầu vẫn dùng credential reference đã đóng băng của nó.
+Mọi credential file mà config hiện tại hoặc bất kỳ task nào trong store từng đóng băng đều không được nằm trong
+mount của sandbox, kể cả sau khi đã thay trong config; đụng mount thì gate/agent không chạy (`not_launched`,
+`capability_missing`). Danh sách này không tự thu hẹp theo thời gian, nên đừng để credential trong thư mục toolchain
+hay repo; `cusr doctor` báo trước ở mục `credential_mounts`.
+
+Push dùng `gh auth git-credential` qua script `<DATA_DIR>/git-credential-gh` do daemon tạo; không mount vào
+sandbox. Gate chỉ thấy `/usr` và thư mục của `node` đang chạy daemon, nên công cụ cài ở nơi khác (pnpm toàn
+cục ngoài thư mục đó, Python qua pyenv) phải có trong đó hoặc gate sẽ báo không tìm thấy lệnh.
+
 ## Network và credentials
 
 Theo quyết định chủ dự án 2026-10-28, mặc định `internet_outbound`: setup/gate/autofix và agent có
