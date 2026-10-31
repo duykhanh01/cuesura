@@ -557,10 +557,10 @@ async function checkTools(
   const bwrap = await tool(host, validated.runtime?.tool_paths.bwrap, 'bwrap');
   if (bwrap === null) return [];
   const project = validated.config.project;
-  const commands = Object.values({
-    ...project?.gates,
-    ...project?.autofix,
-  });
+  const commands = [
+    ...(project?.setup ?? []),
+    ...Object.values({ ...project?.gates, ...project?.autofix }),
+  ];
   const fromGates = commands.flatMap((c) => commandTool(c) ?? []);
   const projectTools = [...new Set([...(project?.tools ?? []), ...fromGates])];
   const out: PreflightProblem[] = [];

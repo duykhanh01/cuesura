@@ -180,6 +180,7 @@ async function freezeFor(
     },
     pr_template: template.value,
     merge_method: resolveMergeMethod(config.project),
+    setup_commands: config.project?.setup ?? [],
     role_prompts: Object.fromEntries(
       Object.values(frozen.value.policy.steps).flatMap((st) => {
         const prompt = config.user.roles[st.role]?.prompt ?? null;

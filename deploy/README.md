@@ -158,8 +158,7 @@ Settings, environment và host policy cần pin của vendor nên do preflight v
 qua `systemd-analyze --user verify` (chỉ báo thiếu binary ở `ExecStart` khi chưa cài).
 
 **Hạn chế hiện tại:** `cusrd` chạy task thật tới PR khi harness có bản ghi hợp lệ (mục [Harness thật](#harness-thật-pin-và-manifest)
-bên dưới); thiếu bản ghi thì task dừng ở PENDING `capability_missing`. Còn hở: `setup` của project được đọc
-nhưng chưa vào snapshot nên **không chạy**, kể cả với project có khai báo; task có attachment `content_ref`
+bên dưới); thiếu bản ghi thì task dừng ở PENDING `capability_missing`. Còn hở: task có attachment `content_ref`
 fail ở freeze vì chưa có nguồn nội dung (`cusr add` luôn tạo task không attachment).
 
 ## Token và quyền
@@ -233,8 +232,8 @@ credential thì không cần: bằng chứng không phụ thuộc file nằm ở
 Sandbox của harness chỉ thấy `toolchain` của pin, thư mục của binary và `/usr`; Node qua nvm nằm dưới home nên
 không có trong đó. Claude ở inner mode `native` cần thêm `bwrap` và `socat`: `cusr doctor` báo ở `tools:<tên>`.
 Preflight từ chối (`capability_missing`, check `toolchain`) trước khi tốn lượt nếu sandbox worker thiếu chương
-trình mà gate/autofix gọi trực tiếp hoặc `tools` của `cusr.yaml` khai báo, hoặc sandbox gate thiếu chương trình
-gate gọi. Cả doctor lẫn preflight hỏi bằng `bwrap` với cùng mount hệ thống và toolchain của sandbox, nên file
+trình mà setup/gate/autofix gọi trực tiếp hoặc `tools` của `cusr.yaml` khai báo, hoặc sandbox gate thiếu chương trình
+setup/gate gọi. Cả doctor lẫn preflight hỏi bằng `bwrap` với cùng mount hệ thống và toolchain của sandbox, nên file
 không có quyền chạy, thư mục, và symlink trỏ ra ngoài mount (kể cả qua `/etc/alternatives`) đều tính là thiếu.
 Builtin của `/bin/sh` như `umask` không cần kiểm.
 

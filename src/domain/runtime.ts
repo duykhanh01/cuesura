@@ -159,6 +159,9 @@ export const FrozenRuntimeContextSchema = z
     // Additive: role → name in the context's `prompt_refs`, since the config may change after the freeze.
     // Absent in a snapshot frozen before it existed; that task runs without a role prompt, as it did.
     role_prompts: z.record(z.string(), z.string().min(1)).optional(),
+    // Additive: the project's setup commands at the frozen base, run by `prepare`. Absent when it has none
+    // and in a snapshot frozen before it existed; that task runs no setup, as it did.
+    setup_commands: z.array(z.string().min(1)).optional(),
     runtime_hash: HashSchema,
   })
   .strict();

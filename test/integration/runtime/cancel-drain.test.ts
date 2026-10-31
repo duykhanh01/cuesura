@@ -425,6 +425,44 @@ describe('cancel stops setup and gate processes (US5.3, FR-025.02)', () => {
   });
 });
 
+describe('project setup running when the cancel arrives (US5.3, FR-025.02, FR-009)', () => {
+  it('the running command gets TERM, the next is not spawned, no worker starts, and the task ends CANCELLED', async () => {
+    const task = buildTask();
+    const dir = tempDir();
+    const log = join(dir, 'setup.log');
+    const f = setup(task, {
+      mode: 'direct-pr',
+      setup_commands: [
+        `echo one >> ${log}; trap 'echo one:term >> ${log}; exit 143' TERM; sleep 30 & wait`,
+        `echo two >> ${log}`,
+      ],
+    });
+    f.d.must(task.id, { kind: 'create_task', task });
+    f.start();
+    const prepare = f.d.pendingOne(task.id, 'prepare');
+    f.dispatch();
+    for (let i = 0; i < 200 && !existsSync(log); i++)
+      await new Promise((r) => setTimeout(r, 25));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(readFileSync(log, 'utf8')).toBe('one\n');
+
+    f.d.must(task.id, { kind: 'cancel', reason: 'stop' });
+    const stop = f.d.pendingOne(task.id, 'stop_attempt');
+    expect(f.d.task(task.id).effects[stop.id]?.target_effect_id).toBe(
+      prepare.id,
+    );
+    f.dispatch();
+    await f.drain();
+    expect(readFileSync(log, 'utf8')).toBe('one\none:term\n');
+    const s = f.d.task(task.id);
+    expect(s.effects[prepare.id]?.status).toBe('failed');
+    expect(s.status).toBe('CANCELLED');
+    expect(f.coder.calls).toEqual([]);
+    await new Promise((r) => setTimeout(r, 200));
+    expect(readFileSync(log, 'utf8')).toBe('one\none:term\n');
+  });
+});
+
 describe('a gate running when the cancel arrives (US5.3, FR-025.02, FR-009)', () => {
   it('the running gate gets TERM, no later gate is spawned, and the stop is done only after the handler returned', async () => {
     const task = buildTask();

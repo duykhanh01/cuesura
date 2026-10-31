@@ -436,6 +436,14 @@ describe('preflight (T030, FR-002)', () => {
       );
     });
 
+    it('asks the same of setup, which runs in the gate sandbox', async () => {
+      const { result } = await runPreflight({
+        git: { cusr: CUSR.replace('setup: "npm ci"', 'setup: "uv sync"') },
+        gate_path: ['/nowhere'],
+      });
+      expect(toolchainProblems(result)[0]).toContain('cannot run uv, npm');
+    });
+
     it('refuses gates the gate sandbox cannot run', async () => {
       const { result } = await runPreflight({ gate_path: ['/nowhere'] });
       expect(toolchainProblems(result)).toEqual([

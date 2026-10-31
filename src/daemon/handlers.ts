@@ -12,8 +12,7 @@
  * digest before it is used (M05).
  *
  * `reconcile` (T090) probes the effect it targets by kind before anything is sent again; see
- * {@link reconcileEffect}. Known gap, kept explicit: setup commands are not in the frozen snapshot yet,
- * so `prepare` reports `setup.ran = false`.
+ * {@link reconcileEffect}.
  */
 import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -28,7 +27,14 @@ import {
   readContentFile,
   validateContent,
 } from '../adapters/publish-content.ts';
-import { gateResultOf, runAutofix, runGates } from '../adapters/gates.ts';
+import {
+  failureSignature,
+  gateResultOf,
+  runAutofix,
+  runGates,
+  runSetup,
+  type CommandSetInput,
+} from '../adapters/gates.ts';
 import {
   takeCheckpoint,
   type CheckpointSpec,
@@ -402,6 +408,39 @@ async function prepare(
   if (wt.kind === 'unknown') return unknown(wt.detail);
   if (wt.kind === 'mismatch')
     return failed('infra', `worktree ${wt.reason}: ${wt.detail}`);
+  // Before the tree is read: what setup leaves is where the task starts. Declared safe to run again, so a
+  // retry or a reconcile of this effect simply runs it again.
+  const commands = (l.rt.setup_commands ?? []).map((command, i) => ({
+    name: `setup-${i + 1}`,
+    command,
+  }));
+  const spec = await checkpointSpec(deps, l);
+  // A sandbox refuses a mount source that does not exist, and no worker has made this one yet.
+  if (commands.length > 0)
+    mkdirSync(where(deps, l).scratch, { recursive: true, mode: 0o700 });
+  const setup = await runSetup(
+    { ...deps, journal: journalOf(deps, effect.id) },
+    {
+      commands,
+      layout: commandLayout(deps, l, spec),
+      wall_ms: l.rt.limits.command_wall_ms,
+      deadline_at: l.s.deadline_at as EpochMs | null,
+      checkpoint: spec,
+    },
+  );
+  if (setup.kind === 'unknown')
+    return setup.retry_allowed
+      ? failed('infra', setup.detail)
+      : unknown(setup.detail);
+  const stopped = setup.receipts.find((r) => r.status !== 'passed');
+  if (stopped !== undefined)
+    return failed(
+      // Out of time is one retry then a person (SPEC §9.2), not the infra backoff.
+      stopped.status === 'timeout' || stopped.status === 'deadline'
+        ? 'timeout'
+        : 'infra',
+      `setup_failed: ${failureSignature(stopped)}: ${stopped.detail ?? stopped.output.tail.slice(-1024)}`,
+    );
   const tree = await worktreeTree(deps, l);
   if (!tree.ok) return tree.outcome;
   return {
@@ -410,7 +449,7 @@ async function prepare(
       base_sha: base,
       worktree_ref: wt.worktree_path,
       branch: wt.branch,
-      setup: { ran: false, passed: true },
+      setup: { ran: commands.length > 0, passed: true },
       worktree_tree: tree.tree,
     },
   };
@@ -1194,6 +1233,25 @@ async function checkpointCommit(
   };
 }
 
+/** The sandbox of a project command (setup, gate, autofix): no context, no schema, no harness auth. */
+function commandLayout(
+  deps: HandlerDeps,
+  l: Loaded,
+  spec: CheckpointSpec,
+): CommandSetInput['layout'] {
+  const w = where(deps, l);
+  return {
+    worktree: w.worktree,
+    git_dirs: [spec.common_git_dir],
+    scratch: w.scratch,
+    context: null,
+    schema: null,
+    toolchain: [...(deps.gate_toolchain ?? [])],
+    env: {},
+    network: 'internet_outbound',
+  };
+}
+
 /** Run under a {@link guard}: its ports refuse new commands once it fired; the caller reports that. */
 async function gates(
   deps: HandlerDeps,
@@ -1208,20 +1266,10 @@ async function gates(
   const required = Array.isArray(effect.request['required'])
     ? (effect.request['required'] as string[])
     : [];
-  const w = where(deps, l);
   const spec = await checkpointSpec(deps, l);
   const input = {
     commands: list.map((g) => ({ name: g.gate, command: g.cmd })),
-    layout: {
-      worktree: w.worktree,
-      git_dirs: [spec.common_git_dir],
-      scratch: w.scratch,
-      context: null,
-      schema: null,
-      toolchain: [...(deps.gate_toolchain ?? [])],
-      env: {},
-      network: 'internet_outbound' as const,
-    },
+    layout: commandLayout(deps, l, spec),
     wall_ms: l.rt.limits.command_wall_ms,
     deadline_at: l.s.deadline_at as EpochMs | null,
     checkpoint: spec,

@@ -1,3 +1,4 @@
+import { DEFAULT_RUNTIME_LIMITS } from '../../src/domain/runtime.ts';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll } from 'vitest';
@@ -82,6 +83,9 @@ export type SetupOptions = {
   reviews?: number;
   writeCode?: boolean;
   reviewerPrompt?: string;
+  /** Project setup of the frozen runtime; `prepare` runs it. */
+  setup_commands?: string[];
+  command_wall_ms?: number;
   askFirst?: boolean;
   /** Gate commands of the frozen policy (default: all `true`). */
   gates?: Record<string, string>;
@@ -291,6 +295,17 @@ export function flowEnv(prefix: string) {
           base_ref: 'main',
         },
         pr_template: template,
+        ...(o.setup_commands === undefined
+          ? {}
+          : { setup_commands: o.setup_commands }),
+        ...(o.command_wall_ms === undefined
+          ? {}
+          : {
+              limits: {
+                ...DEFAULT_RUNTIME_LIMITS,
+                command_wall_ms: o.command_wall_ms,
+              },
+            }),
         role_prompts: {
           coder: 'prompts/coder.md',
           ...(o.reviewerPrompt === undefined

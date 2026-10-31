@@ -1,5 +1,11 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
@@ -371,6 +377,91 @@ describe.each(['full-review', 'direct-pr'] as const)(
     );
   },
 );
+
+describe('project setup in prepare', () => {
+  const prepareResult = (f: ReturnType<typeof setup>, id: Uuid): unknown => {
+    const effect = Object.values(f.d.task(id).effects).find(
+      (e) => e.kind === 'prepare',
+    );
+    const done = f.d.store
+      .readEvents(id)
+      .find(
+        (e) =>
+          e.type === 'EffectCompleted' && e.payload['effect_id'] === effect?.id,
+      );
+    return (done?.payload as Record<string, unknown> | undefined)?.['result'];
+  };
+
+  it('runs in order before the worker, and what it leaves is where the task starts', async () => {
+    const task = buildTask();
+    const f = setup(task, {
+      mode: 'direct-pr',
+      setup_commands: ['echo a > setup-a', 'cat setup-a > setup-b'],
+    });
+    f.d.must(task.id, { kind: 'create_task', task });
+    f.start();
+    await f.settle();
+    expect(readFileSync(join(f.worktree, 'setup-b'), 'utf8')).toBe('a\n');
+    expect(f.coder.calls).toHaveLength(1);
+    const s = f.d.task(task.id);
+    expect(prepareResult(f, task.id)).toMatchObject({
+      setup: { ran: true, passed: true },
+    });
+    // The worker did not see setup's files as a change made by someone else.
+    expect(s.wait?.detail.code).toBe('merge');
+  });
+
+  it('a command over its wall time retries once, then asks a person: no infra backoff', async () => {
+    const task = buildTask();
+    const f = setup(task, {
+      mode: 'direct-pr',
+      setup_commands: ['sleep 30'],
+      command_wall_ms: 200,
+    });
+    f.d.must(task.id, { kind: 'create_task', task });
+    f.start();
+    await f.settle();
+    const events = f.d.store.readEvents(task.id);
+    expect(
+      events
+        .filter((e) => e.type === 'FailureClassified')
+        .map((e) => e.payload['class']),
+    ).toEqual(['timeout', 'timeout']);
+    const s = f.d.task(task.id);
+    expect(s.status).toBe('WAITING');
+    expect(s.wait?.detail).toMatchObject({ code: 'timeout' });
+    expect(f.coder.calls).toEqual([]);
+    expect(prepareResult(f, task.id)).toMatchObject({
+      failure_class: 'timeout',
+      message: expect.stringContaining('setup:setup-1:timeout') as string,
+    });
+  });
+
+  it('a failing command stops the rest and no worker starts; the failure names it', async () => {
+    const task = buildTask();
+    const f = setup(task, {
+      mode: 'direct-pr',
+      setup_commands: ['echo boom >&2; exit 7', 'echo never > setup-never'],
+    });
+    f.d.must(task.id, { kind: 'create_task', task });
+    f.start();
+    await f.tick();
+    expect(f.coder.calls).toEqual([]);
+    expect(existsSync(join(f.worktree, 'setup-never'))).toBe(false);
+    const failure = f.d.store
+      .readEvents(task.id)
+      .find((e) => e.type === 'FailureClassified');
+    expect(failure?.payload).toMatchObject({ class: 'infra' });
+    // A command that exits with an error takes the infra backoff, not the one timeout retry.
+    expect(f.d.task(task.id).wait?.detail.code).toBe('infra_backoff');
+    expect(prepareResult(f, task.id)).toMatchObject({
+      failure_class: 'infra',
+      message: expect.stringContaining(
+        'setup_failed: setup:setup-1:exit_7',
+      ) as string,
+    });
+  });
+});
 
 it('T139 M03: missing reviewer diff never launches or consumes a reviewer run', async () => {
   const task = buildTask();

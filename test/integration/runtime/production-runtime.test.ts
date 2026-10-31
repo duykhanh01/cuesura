@@ -650,6 +650,7 @@ const hostUsable =
 /** A task frozen and started in the store, under `productionControl` and the real daemon loop. */
 async function runSeeded(o: {
   readonly gateDir: string;
+  readonly setup_commands?: string[];
   readonly extraRefs?: readonly { name: string; file: string }[];
 }) {
   const h = setup();
@@ -722,6 +723,9 @@ async function runSeeded(o: {
   if (!granted.ok || granted.value.kind !== 'decided')
     throw new Error(JSON.stringify(granted));
   const runtime = confirmedRuntime(d, task, {
+    ...(o.setup_commands === undefined
+      ? {}
+      : { setup_commands: o.setup_commands }),
     base_sha: baseSha,
     project_path: project,
     target: {
@@ -775,7 +779,15 @@ async function runSeeded(o: {
       await new Promise((r) => setTimeout(r, 100));
     }
   };
-  return { h, github, store, task, until, stop: () => started.value.stop() };
+  return {
+    h,
+    github,
+    store,
+    task,
+    remote,
+    until,
+    stop: () => started.value.stop(),
+  };
 }
 
 describe.skipIf(!hostUsable)('productionControl on this host', () => {
@@ -786,8 +798,9 @@ describe.skipIf(!hostUsable)('productionControl on this host', () => {
   };
 
   it('runs a confirmed task to a green PR and to DONE after the merge', async () => {
-    const { h, github, store, task, until, stop } = await runSeeded({
+    const { h, github, store, task, remote, until, stop } = await runSeeded({
       gateDir: gateDir(),
+      setup_commands: ['touch setup-ran'],
     });
     try {
       await until(
@@ -795,6 +808,11 @@ describe.skipIf(!hostUsable)('productionControl on this host', () => {
         () => store.readTask(task.id)?.wait?.detail.code === 'merge',
       );
       expect(github.prs).toHaveLength(1);
+      // Setup ran in the real sandbox, and its file is part of the tree the gates passed on.
+      const head = store.readTask(task.id)?.head_sha ?? '';
+      expect(() =>
+        g.sh(remote, 'cat-file', '-e', `${head}:setup-ran`),
+      ).not.toThrow();
       // The role's frozen stall limit and the snapshot's stop bounds reached the operation's unit.
       const task_ = store.readTask(task.id);
       const attempt = Object.values(task_?.attempts ?? {})[0];

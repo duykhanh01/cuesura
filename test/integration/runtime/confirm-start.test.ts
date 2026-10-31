@@ -550,6 +550,10 @@ describe('start freezes one snapshot under the slot before RUNNING (T032, FR-002
     });
     const policy = d.store.readPolicy(task.id, 1);
     expect(policy?.steps['code']?.binding.model).toBe('sonnet');
+    // Read from the project config at the frozen base.
+    expect(d.store.readRuntimeContext(task.id, 1)?.setup_commands).toEqual([
+      'npm ci',
+    ]);
     expect(d.store.readRuntimeContext(task.id, 1)?.role_prompts).toMatchObject({
       coder: 'prompts/coder.md',
       fixer: 'prompts/fixer.md',
