@@ -85,7 +85,7 @@ Toàn bộ giả định nằm ở Phụ lục A.
 3. **`when_use` kiểu `condition: insufficient_context`.** Code không thể tự đánh giá "thiếu context". Nếu cố làm, bạn sẽ lặng lẽ đưa một LLM router trở lại, tức chính Primary mà bạn muốn bỏ. Cách tách lại ở mục 5.
 4. **Cấu hình mọi thứ khi tạo từng task.** Nên dùng *profile* (preset), và chỉ override khi thật sự cần. Với hàng chục task mỗi feature, cấu hình từng task sẽ thành gánh nặng.
 5. **Scout là một bước thường trực.** Coding agent hiện đại tự khảo sát repo trong lúc code. Scout riêng chỉ nên là bước opt-in, khi Planner đánh dấu hoặc Coder trả về `needs_context`. **[SL]**
-6. **Tài nguyên đặc thù (device/emulator, browser E2E), remote worker, dashboard** phải nằm ngoài v1. Bạn đã tự nhận ra điều này, giữ nguyên quyết định đó.
+6. **Tài nguyên đặc thù (device/emulator, browser E2E), remote worker, dashboard web** phải nằm ngoài v1. Bạn đã tự nhận ra điều này, giữ nguyên quyết định đó.
 
 ### 1.3 Những chỗ đang bị đánh giá thấp (rủi ro thật)
 
@@ -1280,7 +1280,7 @@ Tiền đề không đổi: 1 developer, có AI hỗ trợ, khoảng 6 giờ t�
 - Nguồn task qua form (cần HTTP server), Slack, Telegram hoặc email. Trong v1, Telegram chỉ là *kênh hỏi đáp và duyệt* (mục 8.6b), không nhận task mới.
 - Tách epic bằng `planner`. Trong v1, bạn tự tách hoặc nhờ assistant tạo task con.
 - Sửa workflow lúc runtime. Nâng model ngoài thang đã khai báo. Định tuyến model theo chi phí.
-- Multi-user và auth. Temporal, Restate hay DBOS. TUI phức tạp.
+- Multi-user và auth. Temporal, Restate hay DBOS. Giao diện terminal ngoài phạm vi đã chốt ở [spec 004](../specs/004-terminal-tui/spec.md).
 - Tự giải merge conflict nhiều vòng. Kênh thông báo ngoài Telegram và comment GitHub (Slack, Discord, email, ntfy).
 
 **Kỷ luật thay cho giới hạn số dòng code:**

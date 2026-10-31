@@ -46,6 +46,7 @@ V1 phục vụ một người dùng trên một máy Linux/Ubuntu hoặc WSL2, c
 | Điều phối | Dependency DAG, priority, pool, cooldown hạn mức, timer bền vững |
 | GitHub | Commit/push/PR/comment, chờ CI, phân loại lỗi, sửa CI, merge gắn SHA và tuần tự hóa |
 | Người dùng | Inbox, trả lời, duyệt, hủy; Telegram là kênh hỏi đáp/duyệt mặc định, GitHub cho task từ issue |
+| Giao diện terminal | `cusr` mở giao diện tương tác để theo dõi, tạo task, xác nhận cấu hình và xử lý việc đang chờ, qua cùng dịch vụ và quyền như CLI; chi tiết ở [spec 004](specs/004-terminal-tui/spec.md) |
 | Quyết định | Human và decider có giới hạn; ghi nhận, giải thích và lật lại trong phạm vi còn đảo ngược được |
 | Nhóm task | Nhóm tạo thủ công, dependency, integration branch tùy chọn, task tích hợp và nghiệm thu cấp nhóm |
 | Vận hành | Recovery, backup/restore, migration, doctor, health, history và báo cáo sử dụng |
@@ -55,7 +56,7 @@ V1 phục vụ một người dùng trên một máy Linux/Ubuntu hoặc WSL2, c
 - Adapter Pi/ACP, MCP server và giao diện form/HTTP.
 - Planner tự tách epic; nguồn task mới như Telegram, Slack, email, tracker khác. Telegram v1 không nhận task mới.
 - Toolchain pack đầy đủ cho Node, Python, Go, Rust, JVM; tự động bổ sung context như một nấc escalation.
-- Remote worker, vòng đời emulator/browser, screenshot comparison, dashboard.
+- Remote worker, vòng đời emulator/browser, screenshot comparison, dashboard web.
 - Webhook, định tuyến theo chi phí và multi-user với cơ chế xác thực riêng.
 
 V1 không có Primary AI chạy liên tục, plugin marketplace, workflow tự sửa lúc chạy, hay cơ chế tự cấp quyền cho agent. Durable-execution framework, message broker và database server không nằm trong baseline v1.
@@ -459,9 +460,12 @@ Nhóm chỉ DONE khi kết quả tích hợp được merge vào branch đích c
 
 | Nhóm lệnh | Hợp đồng |
 |---|---|
+| `cusr` không kèm lệnh, trong terminal tương tác | Mở giao diện tương tác; ngoài terminal vẫn báo lỗi thiếu lệnh như hiện tại |
 | `cusr init`, `cusr doctor`, `cusr status` | Cấu hình repo, kiểm tra môi trường và sức khỏe |
 | `cusr task add/show/list/explain/history/logs` | Tạo và đọc task; `add` là tên chuẩn cho thao tác tạo |
 | `cusr task confirm/approve/cancel/retry` | Thao tác có kiểm tra quyền, version và dedup; retry terminal tạo task mới có liên kết |
+| `cusr project list`, `cusr task board/content/progress/options` | Dữ liệu chỉ đọc cho giao diện terminal; output `--json` như mọi lệnh ([hợp đồng feature 004](specs/004-terminal-tui/contracts/cli-daemon.md)) |
+| `cusr request show` | Tra kết quả mutation theo request ID, chỉ đọc |
 | `cusr inbox`, `cusr answer` | Liệt kê và trả lời câu hỏi |
 | `cusr group status`, `cusr decisions list/overturn` | Tiến độ nhóm và lịch sử quyết định |
 | `cusr repo yolo on/off`, `cusr task amend-policy` | Quản trị có xác nhận tin cậy và audit |
@@ -538,10 +542,11 @@ Chỉ số gồm token và agent runs/task được chấp nhận, wasted runs, 
 | Database | SQLite + `better-sqlite3`, SQL/migration có phiên bản, module store mỏng |
 | Schema | Zod 4; JSON Schema sinh từ cùng định nghĩa và kiểm chứng trên harness thật |
 | CLI và IPC | Commander; Unix domain socket qua thư viện chuẩn Node |
+| Giao diện terminal | Renderer nhỏ trong repo, `string-width` đo độ rộng chữ; không dùng framework giao diện ([R-01 feature 004](specs/004-terminal-tui/research.md#r-01--renderer)) |
 | Cấu hình | `yaml` của eemeli, core schema, diagnostics có vị trí dòng/cột |
 | Process | `node:child_process.spawn`; feature 002 gọi `systemd-run --user` qua spawn để runner có unit riêng; gate/git/gh cũng qua port process có timeout, chỉ thêm execa khi có nhu cầu đã chứng minh |
 | ID | UUIDv7 qua package `uuid`; ID/clock được cung cấp từ ngoài engine |
-| Kiểm thử | Vitest + fast-check; Clock inject ở tầng có I/O, fake ports/harness, fixture và crash injection |
+| Kiểm thử | Vitest + fast-check; Clock inject ở tầng có I/O, fake ports/harness, fixture và crash injection; `node-pty` và `@xterm/headless` cho kiểm thử giao diện terminal |
 | Package manager | pnpm, pin phiên bản trong metadata project, commit lockfile, CI cài bằng frozen lockfile |
 | Lint/format | ESLint + typescript-eslint + Prettier; kiểm tra Promise không được xử lý và dùng Promise sai ngữ cảnh |
 | GitHub | `gh` qua port mỏng có timeout, phân loại lỗi và fake phục vụ kiểm thử |
