@@ -924,6 +924,23 @@ Phát hiện ở lượt này:
 - Lượt fixer đầu của Node#6 không sửa gì và trả `done` kèm `blocker` vì mô tả task ghi "không sửa trong bước này"; validator từ chối
   đúng (`invalid_output`), lượt repair sửa xong, tốn thêm một lượt. Nguyên nhân là câu chữ của fixture, không phải sản phẩm.
 
+### T130 — merge thủ công thật
+
+Owner merge thủ công Node#6 và Python#5 ngày 2026-10-31 bằng `gh pr merge --squash --admin`. Sandbox bắt buộc một review, mà PR do
+chính tài khoản owner tạo nên không tự approve được; vì vậy đây là merge qua quyền admin và GitHub vẫn ghi `REVIEW_REQUIRED`. Daemon xác
+nhận từ bằng chứng merge của GitHub, không dựa vào review. Bằng chứng: `test/fixtures/runtime/spike-0/harness/rerun-20261031/smoke-ledger.jsonl`.
+
+| PR | Task | Head đã kiểm = head đã merge | Merge commit | Kết quả |
+| --- | --- | --- | --- | --- |
+| Node#6 | `01a1921c-99f8-76e0-94f9-54758be389f5` | `8ffee9c97ddbc7a61f971b2f9a2c2b420c2c41de` | `d8ac95e4702bf22de17478fd4142b5601046611b` | Drain rồi DONE một lần, `unverified: null` |
+| Python#5 | `01a1921e-d62b-760c-9043-f52ff7c40864` | `cadae4cfb9fb872f448a06e06eef386e082fba9b` | `809ec0faec408de9142a50233fa7c326245b6c97` | Drain rồi DONE một lần, `unverified: null` |
+
+Head và merge commit khớp với GitHub API đọc độc lập. Không có request merge từ hệ thống: GitHub port chỉ có `GET`, `POST`, `PATCH`, còn merge
+cần `PUT`; `pulls/N/merge` chỉ được đọc bằng `GET` để lấy bằng chứng; task không có effect merge; và cả hai PR đã ở trạng thái `MERGED`
+trước khi daemon của lượt này khởi động. Kiểu squash đi qua daemon thật; merge commit,
+rebase, source push và source delete sau merge chỉ được đối chiếu qua record thật T008 phát lại trong `manual-merge.test.ts`, không chạy
+lại trên sandbox lần này. Recheck hết hạn và cleanup không có case thật nên chưa kiểm.
+
 ### Điều kiện trước T126–T130
 
 - Hai repo sandbox Node/Python đã có, nội dung từ `repo/` của fixture, required checks `build`/`test`, review bắt buộc. Repo
