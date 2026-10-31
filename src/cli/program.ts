@@ -57,7 +57,7 @@ export function packageVersion(): string {
       ? (raw as { version?: unknown }).version
       : undefined;
   if (typeof version !== 'string' || version === '')
-    throw new Error('package.json has no version');
+    throw new Error('package.json is missing a valid version');
   return version;
 }
 
@@ -77,9 +77,9 @@ export async function runCli(
 
   const program = new Command(spec.name)
     .description(spec.description)
-    .option('-V, --version', 'output the version number')
-    .option('--json', 'print exactly one JSON result object to stdout')
-    .helpOption('-h, --help', 'display help')
+    .option('-V, --version', 'Show the version number')
+    .option('--json', 'Print one JSON result object to standard output')
+    .helpOption('-h, --help', 'Show help')
     .allowUnknownOption()
     .allowExcessArguments()
     .configureOutput({
@@ -120,14 +120,17 @@ export async function runCli(
       const known = groups.get(name);
       parent =
         known ??
-        program.command(name).description(`${name} commands`).exitOverride();
+        program
+          .command(name)
+          .description(`Commands for ${name}`)
+          .exitOverride();
       groups.set(name, parent);
     }
     const sub = parent
       .command(leaf)
       .description(c.description)
       .allowExcessArguments(false)
-      .option('--json', 'print exactly one JSON result object to stdout');
+      .option('--json', 'Print one JSON result object to standard output');
     for (const a of c.args ?? []) sub.argument(a);
     for (const o of c.options ?? []) sub.option(o.flags, o.description);
     sub.exitOverride().action(async (...given: unknown[]) => {

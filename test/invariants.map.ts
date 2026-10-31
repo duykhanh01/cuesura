@@ -1,7 +1,4 @@
-/**
- * Ánh xạ bất biến I01–I12 → bộ kiểm thử làm bằng chứng (research R-14, SC-008). Bảng gốc ở mục
- * "Bằng chứng theo bất biến" của spec. `suites` là đường dẫn file test tính từ gốc repo.
- */
+/** Map I01-I12 to actual evidence suites. Suite paths are relative to the repository root. */
 export type InvariantEntry =
   | {
       title: string;
@@ -13,9 +10,9 @@ export type InvariantEntry =
 
 export const INVARIANTS: Record<string, InvariantEntry> = {
   I01: {
-    title: 'Quyết định tất định',
+    title: 'Deterministic decisions',
     scope: 'full',
-    layer: 'Thuộc tính trên lõi quyết định',
+    layer: 'Decision-core property tests',
     suites: [
       'test/property/invariants/determinism.test.ts',
       'test/scenarios/us2-decide.test.ts',
@@ -24,15 +21,15 @@ export const INVARIANTS: Record<string, InvariantEntry> = {
     ],
   },
   I02: {
-    title: 'Một bên ghi',
+    title: 'Single writer',
     scope: 'partial',
-    layer: 'Tích hợp trên kho thật',
+    layer: 'Real-store integration tests',
     suites: ['test/integration/store/single-writer.test.ts'],
   },
   I03: {
-    title: 'Ghi nguyên tử, effect sau commit',
+    title: 'Atomic writes and effects after commit',
     scope: 'partial',
-    layer: 'Tích hợp có ngắt tiến trình',
+    layer: 'Integration tests with crash injection',
     suites: [
       'test/integration/crash/crash-points.test.ts',
       'test/integration/store/write-failure.test.ts',
@@ -41,9 +38,9 @@ export const INVARIANTS: Record<string, InvariantEntry> = {
     ],
   },
   I04: {
-    title: 'Khoá idempotency',
+    title: 'Idempotency keys',
     scope: 'partial',
-    layer: 'Thuộc tính + tích hợp kho',
+    layer: 'Property and store integration tests',
     suites: [
       'test/property/invariants/idempotency.test.ts',
       'test/integration/store/effects.test.ts',
@@ -53,20 +50,20 @@ export const INVARIANTS: Record<string, InvariantEntry> = {
     ],
   },
   I05: {
-    title: 'Worktree riêng, tuần tự',
+    title: 'Isolated, sequential worktrees',
     scope: 'out_of_scope',
-    layer: 'Chưa có bằng chứng',
+    layer: 'No evidence yet',
   },
   I06: {
-    title: 'Bằng chứng, không phải lời agent',
+    title: 'Validated execution evidence',
     scope: 'partial',
-    layer: 'Thuộc tính',
+    layer: 'Property tests',
     suites: ['test/property/invariants/evidence.test.ts'],
   },
   I07: {
-    title: 'Mọi thứ có giới hạn',
+    title: 'Bounded execution',
     scope: 'partial',
-    layer: 'Thuộc tính',
+    layer: 'Property tests',
     suites: [
       'test/property/invariants/bounds.test.ts',
       'test/property/invariants/budget.test.ts',
@@ -76,9 +73,9 @@ export const INVARIANTS: Record<string, InvariantEntry> = {
     ],
   },
   I08: {
-    title: 'Bất biến theo revision',
+    title: 'Revision immutability',
     scope: 'partial',
-    layer: 'Thuộc tính + tích hợp kho',
+    layer: 'Property and store integration tests',
     suites: [
       'test/scenarios/us1-config.test.ts',
       'test/unit/policy/freeze.test.ts',
@@ -90,9 +87,9 @@ export const INVARIANTS: Record<string, InvariantEntry> = {
     ],
   },
   I09: {
-    title: 'Role, binding, approval, ngân sách',
+    title: 'Roles, bindings, approvals, and budgets',
     scope: 'partial',
-    layer: 'Thuộc tính',
+    layer: 'Property tests',
     suites: [
       'test/property/invariants/escalation.test.ts',
       'test/property/invariants/budget.test.ts',
@@ -102,9 +99,9 @@ export const INVARIANTS: Record<string, InvariantEntry> = {
     ],
   },
   I10: {
-    title: 'Thứ tự sự kiện, trigger lặp',
+    title: 'Event order and repeated triggers',
     scope: 'full',
-    layer: 'Thuộc tính + tích hợp kho',
+    layer: 'Property and store integration tests',
     suites: [
       'test/property/invariants/determinism.test.ts',
       'test/property/invariants/claim.test.ts',
@@ -116,18 +113,18 @@ export const INVARIANTS: Record<string, InvariantEntry> = {
     ],
   },
   I11: {
-    title: 'Điều kiện merge',
+    title: 'Merge conditions',
     scope: 'partial',
-    layer: 'Thuộc tính',
+    layer: 'Property tests',
     suites: [
       'test/property/invariants/merge-guard.test.ts',
       'test/reliability/r4-sequences.test.ts',
     ],
   },
   I12: {
-    title: 'Kết thúc không mở lại',
+    title: 'Terminal states stay terminal',
     scope: 'full',
-    layer: 'Thuộc tính + tích hợp kho',
+    layer: 'Property and store integration tests',
     suites: [
       'test/property/invariants/transitions.test.ts',
       'test/scenarios/us2-decide.test.ts',

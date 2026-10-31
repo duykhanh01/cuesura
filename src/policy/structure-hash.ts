@@ -3,8 +3,8 @@ import { hashCanonical } from '../shared/hash.ts';
 import type { Workflow } from '../domain/workflow.ts';
 
 /**
- * Hash của tập bước, loại bước (kèm action/for) và cạnh transition, bỏ qua tham số như giới hạn
- * lượt, gate, binding, `skip_when` (research R-11).
+ * Hash graph structure only: step names, kinds, actions, wait targets, and edges. Exclude tunable
+ * parameters.
  */
 export function structureHash(w: Workflow): Hash {
   const steps: Record<string, unknown> = {};

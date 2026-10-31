@@ -18,13 +18,12 @@ import type {
 } from '../../src/store/index.ts';
 import { authz, envelope, IdSource, T0 } from './builders.ts';
 
-/** Một thao tác trên kho, đủ để tiến trình con chạy lại đúng chuỗi đó (R-08). */
 export type StoreOp =
   | { op: 'accept'; envelope: TriggerEnvelope }
   | { op: 'claim'; effect_id: string; now: number }
   | { op: 'fire'; now: number };
 
-/** ID cho phong bì timer, suy tất định từ timer ID để tiến trình con cấp đúng cùng ID. */
+/** Derive timer-envelope IDs from the timer ID so crash children reproduce the same allocation. */
 export function timerIds(timerId: string): Uuid[] {
   const h = createHash('sha256').update(timerId).digest('hex');
   return Array.from({ length: MAX_ENVELOPE_IDS }, (_, i) => {
@@ -50,10 +49,6 @@ export type DriverSend = {
   dedup_key?: string;
 };
 
-/**
- * Executor và người dùng giả cho kho thật: dựng phong bì với `now`/`ids` tất định, ghi lại mọi thao tác
- * để phát lại trên kho khác.
- */
 export class StoreDriver {
   readonly store: Store;
   readonly ops: StoreOp[] = [];
@@ -67,7 +62,7 @@ export class StoreDriver {
 
   task(taskId: string): TaskState {
     const s = this.store.readTask(taskId as Uuid);
-    if (s === null) throw new Error(`task ${taskId} chưa tồn tại`);
+    if (s === null) throw new Error(`Task ${taskId} does not exist`);
     return s;
   }
 
@@ -107,12 +102,11 @@ export class StoreDriver {
     return this.deliver(this.envelope(taskId, trigger, o));
   }
 
-  /** Gửi và đòi `accepted`. */
   must(taskId: string, trigger: Trigger, o: DriverSend = {}): AcceptOutcome {
     const r = this.send(taskId, trigger, o);
-    if (!r.ok) throw new Error(`accept lỗi: ${JSON.stringify(r.error)}`);
+    if (!r.ok) throw new Error(`accept failed: ${JSON.stringify(r.error)}`);
     if (r.value.decision.kind !== 'accepted')
-      throw new Error(`decide từ chối: ${JSON.stringify(r.value.decision)}`);
+      throw new Error(`decide rejected: ${JSON.stringify(r.value.decision)}`);
     return r.value;
   }
 
@@ -121,11 +115,11 @@ export class StoreDriver {
     return this.store.claimEffect(effectId as Uuid, this.now as EpochMs);
   }
 
-  /** Bắn timer đến hạn và đòi không lỗi. */
   fire(): AcceptOutcome[] {
     this.ops.push({ op: 'fire', now: this.now });
     const r = this.store.fireDueTimers(this.now as EpochMs, 100, timerIds);
-    if (!r.ok) throw new Error(`fireDueTimers lỗi: ${JSON.stringify(r.error)}`);
+    if (!r.ok)
+      throw new Error(`fireDueTimers failed: ${JSON.stringify(r.error)}`);
     return r.value;
   }
 
@@ -140,11 +134,12 @@ export class StoreDriver {
   pendingOne(taskId: string, kind: EffectKind): Effect {
     const xs = this.pending(taskId, kind);
     if (xs.length !== 1)
-      throw new Error(`cần đúng một ${kind} pending, có ${xs.length}`);
+      throw new Error(
+        `Expected exactly one pending ${kind} effect; found ${xs.length}`,
+      );
     return xs[0] as Effect;
   }
 
-  /** Claim rồi gửi `effect_result`. */
   complete(
     taskId: string,
     effectId: string,

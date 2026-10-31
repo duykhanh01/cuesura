@@ -1,4 +1,3 @@
--- Migration 002 (specs/002-task-to-green-pr/data-model.md "Projection, transaction và migration").
 -- Every table below except command_ledger is a projection rebuilt from events; raw events, accepted
 -- triggers and frozen snapshots of schema 1 are not touched. migrate.ts rebuilds task projections in the
 -- same transaction, because TaskState gained runtime fields with replay defaults.

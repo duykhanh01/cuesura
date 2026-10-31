@@ -1,5 +1,5 @@
 /**
- * Check runs and commit statuses of one SHA (T043, contracts/github.md "Required checks và danh tính").
+ * Check runs and commit statuses of one SHA (T043, contracts/github.md).
  * Both sources are read for exactly that SHA, completely within the caps, or the result is incomplete.
  * For each identity the current generation wins: the newest check run (highest ID) of a name and app,
  * the newest status of a context; an older success never hides a newer pending or failure. The same

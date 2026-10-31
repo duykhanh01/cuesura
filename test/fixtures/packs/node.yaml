@@ -1,4 +1,4 @@
-# Toolchain pack mẫu cho Node: chỉ preset cho khoá thuộc project.
+# Node toolchain presets for project-owned keys only.
 setup: "npm install"
 log_digest:
   keep: ["error", "FAIL", "AssertionError"]

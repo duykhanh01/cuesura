@@ -42,10 +42,10 @@ function eventTypes(d: StoreDriver, taskId: string, fromSeq: number): string[] {
   return d.store.readEvents(taskId as Uuid, fromSeq).map((e) => e.type);
 }
 
-describe('US3: ghi nhận tín hiệu bền và đúng một lần (T085)', () => {
+describe('US3: durable, exactly-once trigger acceptance (T085)', () => {
   const tmp = useTempDir();
 
-  it('Scenario 1: gửi lại cùng tín hiệu → không có sự kiện, effect hay timer mới; trả kết quả lần đầu', () => {
+  it('Scenario 1: replay returns the original result without new events, effects, or timers', () => {
     const d = new StoreDriver(openFileStoreForTest(dbPath(tmp())));
     d.must(TASK.id, { kind: 'create_task', task: TASK });
     const env = d.envelope(TASK.id, { kind: 'start', freeze: freezeOk(TASK) });
@@ -55,7 +55,7 @@ describe('US3: ghi nhận tín hiệu bền và đúng một lần (T085)', () =
     expect(before.timers).toBeGreaterThan(0);
     const again = d.deliver(env);
     expect(counts(d)).toEqual(before);
-    if (!first.ok || !again.ok) throw new Error('accept lỗi');
+    if (!first.ok || !again.ok) throw new Error('accept failed');
     expect(again.value.duplicate).toBe(true);
     expect(canonicalJson(again.value.decision)).toBe(
       canonicalJson(first.value.decision),
@@ -63,7 +63,7 @@ describe('US3: ghi nhận tín hiệu bền và đúng một lần (T085)', () =
     d.store.close();
   });
 
-  it('Scenario 2: tiến trình bị ngắt giữa lúc ghi → mở lại thấy hoặc đủ hoặc không có gì', () => {
+  it('Scenario 2: reopening after a crash sees either all or none of a transaction', () => {
     const path = dbPath(tmp());
     const d = new StoreDriver(openFileStoreForTest(path));
     d.must(TASK.id, { kind: 'create_task', task: TASK });
@@ -91,7 +91,7 @@ describe('US3: ghi nhận tín hiệu bền và đúng một lần (T085)', () =
     }
   });
 
-  it('Scenario 3: lệnh dựa trên version cũ bị từ chối conflict, không đổi gì', () => {
+  it('Scenario 3: stale-version commands conflict without changing state', () => {
     const d = new StoreDriver(openMemoryStore());
     d.must(TASK.id, { kind: 'create_task', task: TASK });
     const stale = d.task(TASK.id).version;
@@ -110,7 +110,7 @@ describe('US3: ghi nhận tín hiệu bền và đúng một lần (T085)', () =
     expect(canonicalJson([counts(d), d.task(TASK.id)])).toBe(before);
   });
 
-  it('Scenario 4: dựng lại toàn bộ projection từ nhật ký nhiều task khớp 100%', () => {
+  it('Scenario 4: rebuilding every projection from a multi-task log matches exactly', () => {
     const store = openFileStoreForTest(dbPath(tmp()));
     mixedWorkload(new StoreDriver(store));
     expect(store.verifyProjections()).toMatchObject({
@@ -121,7 +121,7 @@ describe('US3: ghi nhận tín hiệu bền và đúng một lần (T085)', () =
     store.close();
   });
 
-  it('Scenario 5: yêu cầu lại cùng thao tác dùng lại idem_key, không tạo effect thứ hai', () => {
+  it('Scenario 5: repeated operations reuse idem_key without creating another effect', () => {
     const d = new StoreDriver(openMemoryStore());
     createAndStart(d, TASK);
     const prep = d.pendingOne(TASK.id, 'prepare');
@@ -131,7 +131,7 @@ describe('US3: ghi nhận tín hiệu bền và đúng một lần (T085)', () =
       effect_id: prep.id as Uuid,
       outcome: 'unknown',
     });
-    // Đối chiếu: chưa thực thi → đưa lại vào hàng đợi với cùng khoá.
+
     expect(d.claim(d.pendingOne(TASK.id, 'reconcile').id).ok).toBe(true);
     d.must(TASK.id, {
       kind: 'effect_reconciled',
@@ -153,7 +153,7 @@ describe('US3: ghi nhận tín hiệu bền và đúng một lần (T085)', () =
     expect(d.store.verifyProjections().ok).toBe(true);
   });
 
-  it('Scenario 6: timer đến hạn chỉ tạo một tín hiệu, kể cả khi xử lý lại sau khi tiến trình chết', () => {
+  it('Scenario 6: timers produce one trigger even after a process crash', () => {
     const path = dbPath(tmp());
     const d = new StoreDriver(openFileStoreForTest(path));
     createAndStart(d, TASK);
@@ -163,7 +163,7 @@ describe('US3: ghi nhận tín hiệu bền và đúng một lần (T085)', () =
     expect(
       runChild(['apply', path, ops], { CUSR_CRASH_AT: 'after_commit' }).signal,
     ).toBe('SIGKILL');
-    // Chạy lại toàn bộ thao tác, lần này không bị ngắt.
+
     expect(runChild(['apply', path, ops]).status).toBe(0);
 
     const store = openFileStoreForTest(path);
@@ -182,8 +182,7 @@ describe('US3: ghi nhận tín hiệu bền và đúng một lần (T085)', () =
     store.close();
   });
 
-  describe('Scenario 7: thao tác đã thành công bên ngoài nhưng chưa ghi kết quả', () => {
-    /** Effect đã claim; tiến trình chết; sau khi mở lại executor chỉ báo được `unknown`. */
+  describe('Scenario 7: an external operation succeeded before its result was recorded', () => {
     function lost(d: StoreDriver, effectId: string): number {
       expect(d.claim(effectId).ok).toBe(true);
       d.must(TASK.id, {
@@ -205,7 +204,7 @@ describe('US3: ghi nhận tín hiệu bền và đúng một lần (T085)', () =
       return d;
     }
 
-    it('publish: đối chiếu đủ dữ liệu → ghi bằng chứng, đi tiếp tới create_pr', () => {
+    it('publish: complete reconciliation records evidence and proceeds to create_pr', () => {
       const d = atPublish();
       const pub = d.pendingOne(TASK.id, 'publish');
       const from = lost(d, pub.id);
@@ -230,7 +229,7 @@ describe('US3: ghi nhận tín hiệu bền và đúng một lần (T085)', () =
       expect(d.store.verifyProjections().ok).toBe(true);
     });
 
-    it('publish: báo thành công nhưng thiếu base_relation → effect vẫn unknown, task chờ đối chiếu', () => {
+    it('publish: success without base_relation stays unknown and waits for reconciliation', () => {
       const d = atPublish();
       const pub = d.pendingOne(TASK.id, 'publish');
       const from = lost(d, pub.id);
@@ -249,7 +248,7 @@ describe('US3: ghi nhận tín hiệu bền và đúng một lần (T085)', () =
       expect(d.pending(TASK.id, 'create_pr')).toEqual([]);
     });
 
-    it('create PR: đối chiếu đủ → ghi pr_ref, đi tiếp tới await_ci; thiếu pr_ref → vẫn unknown', () => {
+    it('create PR: complete evidence records pr_ref; missing pr_ref stays unknown', () => {
       const d = atPublish();
       d.complete(
         TASK.id,
@@ -279,7 +278,7 @@ describe('US3: ghi nhận tín hiệu bền và đúng một lần (T085)', () =
       expect(d.pendingOne(TASK.id, 'await_ci')).toBeDefined();
     });
 
-    it('start agent: đối chiếu đủ (output đã kiểm schema, invoked, usage) → giữ chỗ thành đã dùng, sang gates; chỉ có exit code → vẫn unknown', () => {
+    it('start agent: validated output, invoked, and usage consume the reservation; an exit code alone stays unknown', () => {
       const d = new StoreDriver(openMemoryStore());
       createAndStart(d, TASK);
       d.complete(
@@ -318,7 +317,7 @@ describe('US3: ghi nhận tín hiệu bền và đúng một lần (T085)', () =
     });
   });
 
-  it('Scenario 8: khoá K của task A gửi cho task B với cùng nội dung → conflict, không trả kết quả của A', () => {
+  it("Scenario 8: using task A's key for task B conflicts instead of replaying A's result", () => {
     const d = new StoreDriver(openMemoryStore());
     const A = buildTask({ id: uuidOf(201), source_key: 'cli:a' });
     const B = uuidOf(202);
@@ -326,13 +325,13 @@ describe('US3: ghi nhận tín hiệu bền và đúng một lần (T085)', () =
     const version = d.task(A.id).version;
     d.must(
       A.id,
-      { kind: 'cancel', reason: 'dừng' },
+      { kind: 'cancel', reason: 'stop' },
       { dedup_key: 'K', expected_version: version },
     );
     const before = counts(d);
     const r = d.send(
       B,
-      { kind: 'cancel', reason: 'dừng' },
+      { kind: 'cancel', reason: 'stop' },
       { dedup_key: 'K', expected_version: version },
     );
     expect(r).toEqual({

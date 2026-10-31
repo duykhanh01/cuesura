@@ -6,15 +6,10 @@ import { readTask } from './read.ts';
 import { SqliteStore, type Store } from './index.ts';
 import { openDatabase, prepareSchema } from './open.ts';
 
-// Entry chỉ dành cho kiểm thử (contracts/core-api.md): ESLint cấm import file này từ src/** ngoài store.
-
 export { CRASH_POINTS, type CrashHook, type CrashPoint } from './crash.ts';
 export { SqliteStore } from './index.ts';
 
-/**
- * Kho trên SQLite in-memory với cùng schema, unique constraint và code transaction như kho trên file
- * (R-09). Không có bằng chứng độ bền: chỉ dùng cho dedup, thứ tự, idempotency và bất biến quyết định.
- */
+/** Use the same schema and transactions as the file store. In-memory tests cannot prove durability. */
 export function openMemoryStore(opts: { crash?: CrashHook } = {}): SqliteStore {
   const db = new Database(':memory:');
   db.pragma('foreign_keys = ON');
@@ -26,7 +21,6 @@ export function openMemoryStore(opts: { crash?: CrashHook } = {}): SqliteStore {
   return new SqliteStore(db, opts.crash ?? NO_CRASH);
 }
 
-/** Kho trên file với hook lỗi tuỳ chọn thay cho `CUSR_CRASH_AT` (ép lỗi ghi ngay trong tiến trình test). */
 export function openFileStoreForTest(
   path: string,
   opts: { busyTimeoutMs?: number; crash?: CrashHook } = {},
@@ -39,10 +33,7 @@ export function openFileStoreForTest(
   return new SqliteStore(db.value, opts.crash ?? NO_CRASH);
 }
 
-/**
- * Ghi thẳng sự kiện vào nhật ký qua cùng đường append + projection (như `Sim.inject`), để dựng trạng thái
- * mà `decide` không tự tạo ra, ví dụ effect pending của task đã kết thúc. Không qua `decide`.
- */
+/** Inject through append/projection without decide to construct otherwise unreachable test states. */
 export function injectEvents(
   store: Store,
   taskId: string,
@@ -65,6 +56,6 @@ export function injectEvents(
 
 export function storeDb(store: Store): Database.Database {
   if (!(store instanceof SqliteStore))
-    throw new Error('storeDb: không phải SqliteStore');
+    throw new Error('storeDb: expected a SqliteStore instance');
   return store.db;
 }

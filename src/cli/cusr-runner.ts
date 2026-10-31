@@ -19,7 +19,6 @@ import {
   type CliIo,
 } from './program.ts';
 
-/** Refuses an owner step: one envelope with --json, one line on stderr otherwise. */
 function refuser(json: boolean, io: CliIo) {
   return (code: string, message: string, exit: number): number => {
     if (json)
@@ -33,14 +32,17 @@ function refuser(json: boolean, io: CliIo) {
   };
 }
 
-/** `exec --data-dir D --kind K --id I`: runs one operation inside its unit (supervisor.ts). */
 const exec: CliCommand = {
   name: 'exec',
-  description: 'run one operation from its run directory (inside its unit)',
+  description:
+    'Run an operation from its run directory within its service unit',
   options: [
-    { flags: '--data-dir <dir>', description: 'DATA_DIR' },
-    { flags: '--kind <kind>', description: 'runs or operations' },
-    { flags: '--id <id>', description: 'attempt or operation id' },
+    { flags: '--data-dir <dir>', description: 'Daemon data directory' },
+    {
+      flags: '--kind <kind>',
+      description: 'Run directory kind: runs or operations',
+    },
+    { flags: '--id <id>', description: 'Attempt or operation ID' },
   ],
   async run(values, _json, io) {
     const { dataDir, kind, id } = values;
@@ -49,7 +51,7 @@ const exec: CliCommand = {
       id === undefined ||
       !(RUN_DIR_KINDS as readonly string[]).includes(kind ?? '')
     ) {
-      io.stderr('exec needs --data-dir, --kind runs|operations and --id\n');
+      io.stderr('exec requires --data-dir, --kind runs|operations, and --id\n');
       return ExitCode.usage;
     }
     const probe = RunDir.open({
@@ -74,8 +76,8 @@ const exec: CliCommand = {
     if (r.state === 'finished') return ExitCode.ok;
     io.stderr(
       r.state === 'marker_exists'
-        ? `${kind}/${id} was already launched; not spawning again\n`
-        : `invalid invocation: ${r.reason}\n`,
+        ? `${kind}/${id} has already been launched; duplicate execution was refused\n`
+        : `Invalid invocation: ${r.reason}\n`,
     );
     return ExitCode.usage;
   },
@@ -84,12 +86,18 @@ const exec: CliCommand = {
 /** Owner step, never run by the daemon: records what evidence proved about a pinned binary (T140). */
 const recordManifest: CliCommand = {
   name: 'record-manifest',
-  description: 'record a harness capability manifest from recorded evidence',
+  description: 'Record a harness capability manifest from verified evidence',
   options: [
-    { flags: '--config <file>', description: 'user config' },
-    { flags: '--data-dir <dir>', description: 'DATA_DIR' },
-    { flags: '--harness <name>', description: 'harness with a pin.json' },
-    { flags: '--evidence <file>', description: 'evidence of the same binary' },
+    { flags: '--config <file>', description: 'User configuration file' },
+    { flags: '--data-dir <dir>', description: 'Daemon data directory' },
+    {
+      flags: '--harness <name>',
+      description: 'Harness with a recorded pin.json',
+    },
+    {
+      flags: '--evidence <file>',
+      description: 'Evidence file for the pinned harness binary',
+    },
   ],
   async run(values, json, io) {
     const refuse = refuser(json, io);
@@ -101,11 +109,11 @@ const recordManifest: CliCommand = {
     ) {
       return refuse(
         'invalid_arguments',
-        'record-manifest needs --config, --harness and --evidence',
+        'record-manifest requires --config, --harness, and --evidence',
         ExitCode.usage,
       );
     }
-    // Only this owner step needs the daemon's config loading; `exec` stays free of the store.
+    // Load configuration only for owner commands; exec stays independent of the store.
     const { loadDaemonConfig } = await import('../daemon/main.ts');
     const { recordManifest: record } =
       await import('../runner/harness-records.ts');
@@ -135,7 +143,6 @@ const recordManifest: CliCommand = {
   },
 };
 
-/** `credential:path,credential:path`, or null when one entry has no path. */
 function homeFiles(
   value: string | undefined,
 ): { credential: string; to: string }[] | null {
@@ -151,35 +158,41 @@ function homeFiles(
 /** Owner step, never run by the daemon: writes a harness pin from this host, for a later proof. */
 const writePin: CliCommand = {
   name: 'write-pin',
-  description:
-    'write a harness pin.json from the binary and tools on this host',
+  description: 'Record a harness binary and host tools in pin.json',
   options: [
-    { flags: '--config <file>', description: 'user config' },
-    { flags: '--data-dir <dir>', description: 'DATA_DIR' },
+    { flags: '--config <file>', description: 'User configuration file' },
+    { flags: '--data-dir <dir>', description: 'Daemon data directory' },
     {
       flags: '--harness <name>',
-      description: 'harness name in the user config',
+      description: 'Harness name from the user configuration',
     },
-    { flags: '--vendor <vendor>', description: 'claude or codex' },
-    { flags: '--binary <path>', description: 'the harness binary' },
+    {
+      flags: '--vendor <vendor>',
+      description: 'Harness vendor: claude or codex',
+    },
+    { flags: '--binary <path>', description: 'Path to the harness executable' },
     {
       flags: '--toolchain <dirs>',
       description:
-        'comma-separated real directories mounted read-only and put on PATH',
+        'Comma-separated canonical directory paths mounted read-only and added to PATH',
     },
     {
       flags: '--auth <files>',
-      description: 'comma-separated credential:home-path of auth files',
+      description:
+        'Comma-separated authentication files in credential:home-path format',
     },
     {
       flags: '--rules <files>',
       description:
-        'comma-separated credential:home-path of vendor rule files; their digest is pinned',
+        'Comma-separated vendor rule files in credential:home-path format; their digest is pinned',
     },
-    { flags: '--settings <file>', description: 'claude: settings JSON' },
-    { flags: '--max-turns <n>', description: 'claude: turn cap' },
-    { flags: '--tools <names>', description: 'claude: comma-separated tools' },
-    { flags: '--force', description: 'replace an existing pin' },
+    { flags: '--settings <file>', description: 'Claude settings JSON file' },
+    { flags: '--max-turns <n>', description: 'Claude turn limit' },
+    {
+      flags: '--tools <names>',
+      description: 'Comma-separated Claude tool names',
+    },
+    { flags: '--force', description: 'Replace an existing pin' },
   ],
   async run(values, json, io) {
     const refuse = refuser(json, io);
@@ -199,7 +212,7 @@ const writePin: CliCommand = {
     ) {
       return refuse(
         'invalid_arguments',
-        'write-pin needs --config, --harness, --vendor claude|codex and --binary; --auth and --rules take credential:path',
+        'write-pin requires --config, --harness, --vendor claude|codex, and --binary; use credential:path format for --auth and --rules',
         ExitCode.usage,
       );
     }
@@ -209,7 +222,7 @@ const writePin: CliCommand = {
     ) {
       return refuse(
         'invalid_arguments',
-        '--settings, --max-turns and --tools are for claude only',
+        '--settings, --max-turns, and --tools require --vendor claude',
         ExitCode.usage,
       );
     }
@@ -223,7 +236,7 @@ const writePin: CliCommand = {
       } catch (e) {
         return refuse(
           'invalid_arguments',
-          `cannot read ${settings}: ${String(e)}`,
+          `Cannot read ${settings}: ${String(e)}`,
           ExitCode.usage,
         );
       }
@@ -264,24 +277,40 @@ const writePin: CliCommand = {
 /** Owner step, never run by the daemon: without --dry-run it invokes the pinned binary and spends usage. */
 const proveHarness: CliCommand = {
   name: 'prove-harness',
-  description: 'prove a pinned harness on this host and write its evidence',
+  description: 'Verify a pinned harness on this host and record the evidence',
   options: [
-    { flags: '--config <file>', description: 'user config' },
-    { flags: '--data-dir <dir>', description: 'DATA_DIR' },
-    { flags: '--harness <name>', description: 'harness with a pin.json' },
-    { flags: '--model <id>', description: 'model every role runs on' },
-    { flags: '--effort <level>', description: 'effort every role runs at' },
+    { flags: '--config <file>', description: 'User configuration file' },
+    { flags: '--data-dir <dir>', description: 'Daemon data directory' },
+    {
+      flags: '--harness <name>',
+      description: 'Harness with a recorded pin.json',
+    },
+    {
+      flags: '--model <id>',
+      description: 'Model used for every verification role',
+    },
+    {
+      flags: '--effort <level>',
+      description: 'Effort level used for every verification role',
+    },
     {
       flags: '--outer-proof <file>',
-      description: 'host boundary proof (T006)',
+      description: 'Host sandbox verification file',
     },
-    { flags: '--out <file>', description: 'evidence file to write' },
-    { flags: '--approval <text>', description: 'who approved this spend' },
+    { flags: '--out <file>', description: 'Output evidence file' },
+    {
+      flags: '--approval <text>',
+      description: 'Approval reference for model usage',
+    },
     {
       flags: '--max-invocations <n>',
-      description: 'cap on invocations of this binary, spent ones included',
+      description:
+        'Total invocation limit, including previously recorded invocations',
     },
-    { flags: '--dry-run', description: 'check and report; invoke nothing' },
+    {
+      flags: '--dry-run',
+      description: 'Show the verification plan without invoking the model',
+    },
   ],
   async run(values, json, io) {
     const refuse = refuser(json, io);
@@ -295,7 +324,7 @@ const proveHarness: CliCommand = {
     ) {
       return refuse(
         'invalid_arguments',
-        'prove-harness needs --config, --harness, --model and --outer-proof',
+        'prove-harness requires --config, --harness, --model, and --outer-proof',
         ExitCode.usage,
       );
     }
@@ -344,7 +373,7 @@ const proveHarness: CliCommand = {
     ) {
       return refuse(
         'invalid_arguments',
-        'a proof spends model usage: it needs --out, --approval and --max-invocations',
+        'Harness verification consumes model usage; specify --out, --approval, and a positive integer --max-invocations',
         ExitCode.usage,
       );
     }

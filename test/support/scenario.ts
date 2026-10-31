@@ -48,7 +48,6 @@ export type ClaimResult =
   | { ok: false; code: 'claim_blocked'; reason: ClaimBlockReason }
   | { ok: false; code: 'not_pending' | 'effect_invalidated' | 'not_found' };
 
-/** Một lần gọi `decide` đã ghi lại, đủ để phát lại (phong bì giữ `now` và `ids`, R-04). */
 type LogEntry =
   | { kind: 'decide'; envelope: TriggerEnvelope; related: RelatedFacts }
   | { kind: 'claim'; effect_id: string; now: number }
@@ -57,18 +56,15 @@ type LogEntry =
 export type SendOptions = {
   authz?: AuthzContext;
   related?: RelatedFacts;
-  /** Số ID cấp trong phong bì; mặc định trần 8. */
+
   ids?: number;
   expected_version?: number;
 };
 
 /**
- * Harness in-memory cho `decide` + `evolve` (T048): đóng vai kho ở mức logic, không có SQLite.
- * - Mỗi `when` gọi `decide` hai lần trên bản sao đầu vào và so JSON chuẩn hoá (I01).
- * - Sự kiện được gán `seq`/`global_seq` theo thứ tự chấp nhận, như kho.
- * - `claim` gọi `claimable` rồi áp `EffectStarted`, trả `claim_blocked` như `Store.claimEffect`.
- * - `replayCheck` phát lại toàn bộ nhật ký đầu vào trên harness mới và so sự kiện, trạng thái cuối.
- * - Sau mỗi lần ghi, task đang chờ phải giải thích được (SC-006); câu trả lời lưu ở `waits`.
+ * In-memory decide/evolve harness without SQLite. Check determinism on each trigger, assign
+ * committed sequence order, verify waiting-state explanations, and replay the full input log
+ * independently.
  */
 export class Sim {
   state: TaskState | null = null;
@@ -76,7 +72,7 @@ export class Sim {
   readonly events: DomainEvent[] = [];
   readonly decisions: Decision[] = [];
   readonly log: LogEntry[] = [];
-  /** Giải thích của mọi trạng thái chờ đã đi qua, theo thứ tự ghi (SC-006). */
+
   readonly waits: Explanation[] = [];
   related: RelatedFacts = EMPTY_RELATED;
   now: number = T0;
@@ -89,7 +85,6 @@ export class Sim {
     this.idSource = new IdSource(seed);
   }
 
-  /** Sim bắt đầu từ một nhật ký sẵn có (`given`). */
   static given(
     taskId: Uuid,
     events: readonly DomainEvent[],
@@ -105,7 +100,7 @@ export class Sim {
   }
 
   get s(): TaskState {
-    if (this.state === null) throw new Error('task chưa tồn tại');
+    if (this.state === null) throw new Error('Task does not exist');
     return this.state;
   }
 
@@ -127,7 +122,6 @@ export class Sim {
     });
   }
 
-  /** `when`: gửi một tín hiệu qua `decide` rồi áp kết quả. */
   when(trigger: Trigger, o: SendOptions = {}): Decision {
     return this.deliver(
       this.buildEnvelope(trigger, o),
@@ -135,7 +129,6 @@ export class Sim {
     );
   }
 
-  /** Gửi lại đúng một phong bì (khác `now`/`ids` không đổi `request_hash`). */
   deliver(
     env: TriggerEnvelope,
     related: RelatedFacts = this.related,
@@ -147,13 +140,13 @@ export class Sim {
       related,
     };
     const frozen = canonicalJson(input);
-    // Bản đầu chạy trên đầu vào đóng băng sâu: decide ghi vào state, chính sách hay phong bì là ném lỗi.
+    // The first call uses deeply frozen inputs so any attempted mutation throws.
     const d1 = decide(deepFreeze(structuredClone(input)));
     const d2 = decide(structuredClone(input));
     if (canonicalJson(d1) !== canonicalJson(d2))
-      throw new Error('decide không tất định trên cùng đầu vào');
+      throw new Error('decide is not deterministic for identical inputs');
     if (canonicalJson(input) !== frozen)
-      throw new Error('decide đã sửa đầu vào');
+      throw new Error('decide mutated its input');
     this.log.push({ kind: 'decide', envelope: env, related });
     this.decisions.push(d1);
     if (d1.kind === 'accepted') this.append(d1.events, env.dedup_key);
@@ -191,7 +184,6 @@ export class Sim {
     if (x !== null) this.waits.push(x);
   }
 
-  /** Như `Store.claimEffect`: `pending → started` khi `claimable` cho phép (R-16). */
   claim(effectId: string): ClaimResult {
     const e = this.state?.effects[effectId];
     if (e === undefined) return { ok: false, code: 'not_found' };
@@ -216,13 +208,11 @@ export class Sim {
     return { ok: true };
   }
 
-  /** Ghi thẳng sự kiện vào nhật ký (dựng `given` giữa chừng một kịch bản). */
+  /** Bypass decide to construct intermediate scenario states. */
   inject(drafts: DomainEventDraft[]): void {
     this.log.push({ kind: 'inject', drafts: structuredClone(drafts) });
     this.append(drafts, null);
   }
-
-  // ---------- Truy vấn ----------
 
   effects(kind?: EffectKind, status?: EffectMirror['status']): EffectMirror[] {
     return Object.values(this.state?.effects ?? {}).filter(
@@ -232,11 +222,12 @@ export class Sim {
     );
   }
 
-  /** Effect `pending` duy nhất của loại `kind` (lỗi nếu không có hoặc nhiều hơn một). */
   pendingOne(kind: EffectKind): EffectMirror {
     const xs = this.effects(kind, 'pending');
     if (xs.length !== 1)
-      throw new Error(`cần đúng một ${kind} pending, có ${xs.length}`);
+      throw new Error(
+        `Expected exactly one pending ${kind} effect; found ${xs.length}`,
+      );
     return xs[0] as EffectMirror;
   }
 
@@ -250,7 +241,6 @@ export class Sim {
     return this.events.slice(from).map((e) => e.type);
   }
 
-  /** Sự kiện của quyết định gần nhất (không gồm `EffectStarted` do claim). */
   lastEvents(): DomainEventDraft[] {
     const d = this.decisions.at(-1);
     return d?.kind === 'accepted' ? d.events : [];
@@ -258,13 +248,10 @@ export class Sim {
 
   openQuestion(): string {
     const q = Object.values(this.s.questions).find((x) => x.status === 'open');
-    if (q === undefined) throw new Error('không có câu hỏi mở');
+    if (q === undefined) throw new Error('No open question');
     return q.id;
   }
 
-  // ---------- Executor giả ----------
-
-  /** Claim rồi gửi `effect_result`. */
   complete(
     effectId: string,
     outcome: 'succeeded' | 'failed' | 'unknown',
@@ -316,7 +303,6 @@ export class Sim {
     return this.when({ kind: 'timer', timer_id: timerId as Uuid });
   }
 
-  /** Bắn mọi timer đã đến hạn theo thứ tự `due_at` (như `fireDueTimers`). */
   fireDue(): Decision[] {
     const due = this.armedTimers()
       .filter((t) => t.due_at <= this.now)
@@ -324,9 +310,6 @@ export class Sim {
     return due.map((t) => this.fire(t.id));
   }
 
-  // ---------- Phát lại ----------
-
-  /** Phát lại toàn bộ đầu vào trên Sim mới; sự kiện, quyết định và state phải giống từng byte (SC-004). */
   replayCheck(): void {
     const again = new Sim(this.taskId);
     for (const entry of this.log) {
@@ -339,21 +322,19 @@ export class Sim {
         again.now = entry.now;
         const r = again.claim(entry.effect_id);
         if (!r.ok)
-          throw new Error(`phát lại claim ${entry.effect_id}: ${r.code}`);
+          throw new Error(`replayed claim ${entry.effect_id}: ${r.code}`);
       }
     }
     if (canonicalJson(again.events) !== canonicalJson(this.events))
-      throw new Error('phát lại cho nhật ký khác');
+      throw new Error('Replay produced a different log');
     if (canonicalJson(again.decisions) !== canonicalJson(this.decisions))
-      throw new Error('phát lại cho quyết định khác');
+      throw new Error('Replay produced a different decision');
     if (canonicalJson(again.state) !== canonicalJson(this.state))
-      throw new Error('phát lại cho state khác');
+      throw new Error('Replay produced a different state');
     if (canonicalJson(replay(this.events)) !== canonicalJson(this.state))
-      throw new Error('dựng lại từ nhật ký khác projection');
+      throw new Error('Rebuilt state differs from the projection');
   }
 }
-
-// ---------- Dữ liệu kết quả mẫu ----------
 
 export const USAGE = { basis: 'reported' as const, tokens: 1200 };
 
@@ -449,15 +430,12 @@ export function ciData(
   };
 }
 
-// ---------- Kịch bản dựng sẵn ----------
-
 export type StartOptions = {
   task?: Partial<CanonicalTask>;
   policy?: PolicyOptions;
   seed?: number;
 };
 
-/** Tạo task và chốt chính sách: task RUNNING ở bước `prepare`. */
 export function started(
   task: CanonicalTask,
   o: { policy?: PolicyOptions; seed?: number } = {},
@@ -471,18 +449,16 @@ export function started(
 export function expectAccepted(d: Decision): DomainEventDraft[] {
   if (d.kind !== 'accepted')
     throw new Error(
-      `mong accepted, nhận rejected ${d.code} ${JSON.stringify(d.detail ?? null)}`,
+      `Expected accepted; received rejected ${d.code}: ${JSON.stringify(d.detail ?? null)}`,
     );
   return d.events;
 }
 
-/** Chạy hết prepare và attempt code đầu tiên tới khi có effect `start_agent` pending cho `code`. */
 export function toCode(sim: Sim): EffectMirror {
   sim.complete(sim.pendingOne('prepare').id, 'succeeded', PREPARE_DATA);
   return sim.pendingOne('start_agent');
 }
 
-/** Đi từ code tới khi chờ approval merge, với head `head` và CI xanh. */
 export function toMergeGate(
   sim: Sim,
   head = 'head1',

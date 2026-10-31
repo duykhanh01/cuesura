@@ -10,7 +10,6 @@ import type { RelatedFacts, TriggerEnvelope } from '../domain/trigger.ts';
 import { applyInPlace } from './evolve.ts';
 import { IdPool } from './ids.ts';
 
-/** Mã từ chối của `decide` (contracts/signals-events.md "Mã từ chối của `decide`"). */
 export const REJECT_CODES = [
   'unknown_task',
   'task_exists',
@@ -25,7 +24,7 @@ export const REJECT_CODES = [
 ] as const;
 export type RejectCode = (typeof REJECT_CODES)[number];
 
-/** Ném từ sâu trong bộ xử lý để từ chối cả quyết định; `decide` bắt và trả `rejected`. */
+/** Abort the entire decision; decide catches this and returns rejected. */
 export class Rejection extends Error {
   override name = 'Rejection';
   readonly code: RejectCode;
@@ -41,10 +40,7 @@ export function reject(code: RejectCode, detail?: unknown): never {
   throw new Rejection(code, detail);
 }
 
-/**
- * Ngữ cảnh của một lần `decide`: state làm việc (bản sao), chính sách hiệu lực, phong bì và danh sách
- * sự kiện đã phát. Mỗi `emit` áp ngay sự kiện lên state, nên bước sau luôn thấy kết quả của bước trước.
- */
+/** emit immediately evolves a working copy so later handlers see earlier events from this decision. */
 export class Ctx {
   private current: TaskState | null;
   policy: FrozenPolicy | null;
@@ -69,7 +65,8 @@ export class Ctx {
   }
 
   get state(): TaskState {
-    if (this.current === null) throw new Error('Ctx.state trước TaskCreated');
+    if (this.current === null)
+      throw new Error('Ctx.state accessed before TaskCreated');
     return this.current;
   }
 
@@ -81,10 +78,9 @@ export class Ctx {
     return this.env.now;
   }
 
-  /** Chính sách bắt buộc phải có (task đã chạy). */
   get frozen(): FrozenPolicy {
     if (this.policy === null)
-      throw new Error('Ctx.frozen khi chưa có chính sách');
+      throw new Error('Ctx.frozen accessed before a policy was recorded');
     return this.policy;
   }
 
@@ -97,7 +93,7 @@ export class Ctx {
       type === 'TaskCreated'
         ? (payload as EventPayloads['TaskCreated']).task.revision
         : this.state.revision;
-    // Hai bản sao: một cho nhật ký, một cho state, để sửa state về sau không chạm vào sự kiện đã phát.
+    // Keep separate copies for the log and state so later state changes cannot mutate emitted events.
     const d = draft(type, revision, this.actor, structuredClone(payload));
     this.events.push(d);
     this.current = applyInPlace(this.current, structuredClone(d));

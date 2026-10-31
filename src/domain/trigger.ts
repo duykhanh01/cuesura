@@ -40,7 +40,7 @@ export const FAILURE_CLASSES = [
 ] as const;
 export type FailureClass = (typeof FAILURE_CLASSES)[number];
 
-/** Usage có nhãn; `unavailable` không bao giờ mang số (FR-024). */
+/** Unavailable usage never carries numeric metrics. */
 export const UsageSchema = z
   .object({
     basis: z.enum(['reported', 'estimated', 'unavailable']),
@@ -53,7 +53,7 @@ export const UsageSchema = z
       u.basis !== 'unavailable' ||
       (u.tokens === undefined && u.cost === undefined),
     {
-      message: 'usage unavailable không được mang số liệu',
+      message: 'Unavailable usage must not include numeric metrics',
     },
   );
 export type Usage = z.infer<typeof UsageSchema>;
@@ -96,8 +96,6 @@ export const CheckSchema = z
   })
   .strict();
 export type Check = z.infer<typeof CheckSchema>;
-
-// ---- Dữ liệu thành công theo loại effect (contracts/signals-events.md "Kết quả effect") ----
 
 export const AgentDataSchema = z
   .object({
@@ -311,8 +309,6 @@ export const FailureDataSchema = z
   .strict();
 export type FailureData = z.infer<typeof FailureDataSchema>;
 
-// ---- Tín hiệu ----
-
 export const FreezeErrorSchema = z.discriminatedUnion('code', [
   // `problems` (optional, additive) carries the 002 preflight report next to the config diagnostics.
   z
@@ -495,7 +491,7 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
       reason: z.string().min(1),
     })
     .strict(),
-  // ---- Runtime 002 (data-model.md "Trigger và event mới"); facts produced by the application layer ----
+
   z.object({ kind: z.literal('request_execution') }).strict(),
   z
     .object({ kind: z.literal('grant_execution'), request_id: UuidSchema })
@@ -623,7 +619,6 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
 export type Trigger = z.infer<typeof TriggerSchema>;
 export type TriggerKind = Trigger['kind'];
 
-/** Tín hiệu là lệnh của người: bắt buộc có `authz` và `expected_version`. */
 export const HUMAN_TRIGGERS: readonly TriggerKind[] = [
   'create_task',
   'confirm_task',
@@ -658,24 +653,24 @@ export const TriggerEnvelopeSchema = z
         ctx.addIssue({
           code: 'custom',
           path: ['authz'],
-          message: 'lệnh của người cần authz',
+          message: 'Human commands require authz',
         });
       if (env.expected_version === undefined)
         ctx.addIssue({
           code: 'custom',
           path: ['expected_version'],
-          message: 'lệnh của người cần expected_version',
+          message: 'Human commands require expected_version',
         });
     }
   });
 export type TriggerEnvelope = z.infer<typeof TriggerEnvelopeSchema>;
 
-/** Dữ liệu kho đọc trong cùng transaction để `decide` vẫn thuần (contracts/signals-events.md). */
+/** The store reads these facts in the same transaction so decide remains pure. */
 export type RelatedFacts = {
   deps: Record<string, TaskStatus | 'missing'>;
   dependency_cycle: boolean;
   retry_of?: TaskStatus | 'missing';
-  /** Task khác đã có cùng `(project, source_key)`, nếu có (FR-007). */
+
   source_task?: { task_id: string; same_content: boolean };
   /** Daemon-wide slot and queue head, read in the same transaction as a grant (FR-044). */
   execution?: {
@@ -690,8 +685,8 @@ export const EMPTY_RELATED: RelatedFacts = {
 };
 
 /**
- * `request_hash` = hash chuẩn hoá của `{ task_id, trigger, expected_version, actor }`; không gồm
- * `now`/`ids` vì đó là giá trị cấp cho lần xử lý (research R-19, FR-026).
+ * request_hash covers task_id, trigger, expected_version, and actor. Exclude now and ids, which
+ * are supplied for each processing attempt rather than identifying the request.
  */
 export function computeRequestHash(env: {
   task_id: string;

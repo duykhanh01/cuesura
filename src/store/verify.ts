@@ -27,8 +27,8 @@ export type VerifyReport = {
 };
 
 /**
- * Dựng lại mọi bảng dẫn xuất (`tasks`, `task_deps`, `effects`, `timers`, bảng runtime 002) và các bảng snapshot từ nhật ký
- * bằng đúng hàm chiếu của `accept`, rồi so JSON chuẩn hoá với dữ liệu đang lưu (FR-029, SC-005).
+ * Rebuild derived tables and snapshots with the same projector used by accept, then compare
+ * canonical JSON.
  */
 export function verifyProjections(db: Database): VerifyReport {
   const rows = db
@@ -71,7 +71,7 @@ export function verifyProjections(db: Database): VerifyReport {
       projectEffects(sink, events, state);
       projectTimers(sink, events, state);
     } catch (e) {
-      // Ví dụ hai task cùng tạo một effect/timer ID: nhật ký không dựng lại được projection hiện có.
+      // A log with reused effect/timer IDs cannot reproduce the existing projection.
       mismatches.push({
         table: 'events',
         key: taskId,

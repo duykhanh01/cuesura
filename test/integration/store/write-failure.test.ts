@@ -27,7 +27,7 @@ function snapshot(d: StoreDriver): string {
   );
 }
 
-describe('Lỗi ghi → write_failed, trạng thái không đổi (T083, FR-033)', () => {
+describe('Write failures return write_failed without state changes (T083, FR-033)', () => {
   const tmp = useTempDir();
 
   it('SQLITE_FULL do max_page_count → write_failed disk_full', () => {
@@ -46,10 +46,9 @@ describe('Lỗi ghi → write_failed, trạng thái không đổi (T083, FR-033)
     expect(db.inTransaction).toBe(false);
     expect(snapshot(d)).toBe(before);
 
-    // Hết lỗi thì cùng tín hiệu (cùng khoá) chạy được: lần trước không để lại gì.
     db.pragma('max_page_count = 1073741823');
     const env = d.ops.at(-1);
-    if (env?.op !== 'accept') throw new Error('thiếu phong bì');
+    if (env?.op !== 'accept') throw new Error('envelope is missing');
     expect(d.deliver(env.envelope)).toMatchObject({
       ok: true,
       value: { duplicate: false, decision: { kind: 'accepted' } },
@@ -57,7 +56,7 @@ describe('Lỗi ghi → write_failed, trạng thái không đổi (T083, FR-033)
     expect(d.store.verifyProjections().ok).toBe(true);
   });
 
-  it('busy giữa transaction (ép bằng hook) → write_failed busy, rollback toàn bộ', () => {
+  it('a busy error injected during a transaction rolls back all writes', () => {
     for (const point of [
       'after_events',
       'after_effects',

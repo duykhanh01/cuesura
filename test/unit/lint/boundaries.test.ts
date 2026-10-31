@@ -8,7 +8,6 @@ const FIXTURE = fileURLToPath(
   new URL('../../fixtures/lint/engine-violation.ts', import.meta.url),
 );
 
-/** Luật ranh giới mà cấu hình thật của repo áp cho một file trong src/engine (R-12). */
 async function engineRules(): Promise<Partial<Linter.RulesRecord>> {
   const eslint = new ESLint({ cwd: ROOT });
   const config = (await eslint.calculateConfigForFile(
@@ -22,16 +21,15 @@ async function engineRules(): Promise<Partial<Linter.RulesRecord>> {
   };
 }
 
-describe('Ranh giới lõi thuần bằng ESLint (T111, I01)', () => {
-  it('cấu hình của src/engine/** bật đủ ba luật chặn I/O, đồng hồ và ngẫu nhiên', async () => {
+describe('ESLint pure-core boundaries (T111, I01)', () => {
+  it('engine configuration blocks I/O, clocks, and randomness', async () => {
     const rules = await engineRules();
     for (const [name, value] of Object.entries(rules)) {
-      // ESLint chuẩn hoá mức lỗi thành số: 2 = error.
       expect(Array.isArray(value) ? value[0] : value, name).toBe(2);
     }
   });
 
-  it('fixture import node:fs, dùng Date.now() và Math.random() bị báo đủ lỗi', async () => {
+  it('reports node:fs imports, Date.now(), and Math.random() in the fixture', async () => {
     const eslint = new ESLint({
       cwd: ROOT,
       overrideConfigFile: true,

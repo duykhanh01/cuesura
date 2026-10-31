@@ -26,8 +26,8 @@ const fail = (name: string, o: Partial<Check> = {}): Check => ({
   ...o,
 });
 
-describe('R-21 phân loại lỗi CI', () => {
-  it('rule đầu tiên khớp theo job, check, log_pattern', () => {
+describe('R-21 CI failure classification', () => {
+  it('uses the first rule matching job, check, and log_pattern', () => {
     expect(
       classifyFailures(RULES, [
         fail('e2e', { job: 'e2e', log_excerpt: 'connect ETIMEDOUT 1.2.3.4' }),
@@ -42,7 +42,7 @@ describe('R-21 phân loại lỗi CI', () => {
     expect(
       classifyFailures(RULES, [fail('unit', { job: 'test' })]),
     ).toMatchObject({ kind: 'class', class: 'code' });
-    // Rule trước thắng: log hạ tầng trên job format vẫn là flaky_or_infra.
+
     expect(
       classifyFailures(RULES, [
         fail('fmt', { job: 'format', log_excerpt: 'runner lost' }),
@@ -50,7 +50,7 @@ describe('R-21 phân loại lỗi CI', () => {
     ).toMatchObject({ class: 'flaky_or_infra' });
   });
 
-  it('nhiều lớp thì chọn code > autofix > flaky_or_infra', () => {
+  it('prioritizes code over autofix over flaky_or_infra', () => {
     const r = classifyFailures(RULES, [
       fail('fmt', { job: 'format' }),
       fail('x', { log_excerpt: 'ETIMEDOUT' }),
@@ -73,7 +73,7 @@ describe('R-21 phân loại lỗi CI', () => {
     ).toMatchObject({ class: 'autofix' });
   });
 
-  it('check thất bại không khớp rule nào → unclassified; chỉ xét check failure', () => {
+  it('unmatched failed checks are unclassified; successful checks are ignored', () => {
     expect(
       classifyFailures(RULES, [
         fail('fmt', { job: 'format' }),
@@ -88,7 +88,7 @@ describe('R-21 phân loại lỗi CI', () => {
     ).toMatchObject({ class: 'autofix' });
   });
 
-  it('bước ci_triage: không khớp rule → WAITING human_input ci_unclassified; chỉ xét check của head hiện hành', () => {
+  it('ci_triage waits on unmatched failures and uses only the current head', () => {
     const task = buildTask();
     const sim = started(task, { policy: { ci_rules: RULES } });
     sim.complete(toCode(sim).id, 'succeeded', agentData('done'));
@@ -107,7 +107,7 @@ describe('R-21 phân loại lỗi CI', () => {
       pr_ref: 'acme#1',
       head_sha: 'H',
     });
-    // Kết quả của head cũ không được dùng để phân loại.
+
     sim.complete(
       sim.pendingOne('await_ci').id,
       'succeeded',

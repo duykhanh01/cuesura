@@ -1,6 +1,6 @@
 /**
  * Normalizer of GitHub required-check reads into `RequiredEvidence` (FR-042.02/05/06, contracts/github.md
- * "Required checks và danh tính"). Promoted from the S0.3-proven prototype `readRequiredChecks` in
+ *). Promoted from the S0.3-proven prototype `readRequiredChecks` in
  * `scripts/spike-002/gh.ts`, as a pure function over responses the gh port already fetched: the observe
  * step (T044) reads the branch, then classic protection when GitHub says the branch is protected, then
  * every page of `/rules/branches/{target}`, then each ruleset in `rulesetIdsToRead`.

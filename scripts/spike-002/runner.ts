@@ -1,5 +1,5 @@
 /**
- * Spike 0 runner prototype (T004, contracts/execution.md "Operation và runner ownership", "Files và output").
+ * Spike 0 runner prototype (T004, contracts/execution.md,).
  *
  *   node scripts/spike-002/runner.ts systemd-argv --spec FILE --root DIR   print unit argv only
  *   node scripts/spike-002/runner.ts start --spec FILE --root DIR [--systemd]

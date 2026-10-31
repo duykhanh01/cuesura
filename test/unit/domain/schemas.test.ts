@@ -37,16 +37,16 @@ function roundTrip<T>(schema: { parse(v: unknown): T }, value: T): void {
   expect(canonicalJson(parsed)).toBe(text);
 }
 
-describe('schema miền round-trip qua JSON chuẩn hoá', () => {
+describe('Domain schemas round-trip through canonical JSON', () => {
   it('CanonicalTask', () => roundTrip(CanonicalTaskSchema, buildTask()));
   it('Workflow software_dev@1', () => roundTrip(WorkflowSchema, SOFTWARE_DEV));
-  it('FrozenPolicy, hash tự kiểm', () => {
+  it('FrozenPolicy verifies its own hash', () => {
     const p = buildPolicy();
     roundTrip(FrozenPolicySchema, p);
     expect(verifyPolicyHash(p)).toBe(true);
     expect(verifyPolicyHash({ ...p, profile: 'other' })).toBe(false);
   });
-  it('FrozenExecutionContext, hash tự kiểm', () => {
+  it('FrozenExecutionContext verifies its own hash', () => {
     const c = buildContext(buildTask(), 'abc', [
       { name: 'spec.md', media_type: 'text/markdown', content: '# x' },
     ]);
@@ -57,7 +57,7 @@ describe('schema miền round-trip qua JSON chuẩn hoá', () => {
   it('TriggerEnvelope', () => {
     const env = envelope(
       uuidOf(1),
-      { kind: 'cancel', reason: 'không cần nữa' },
+      { kind: 'cancel', reason: 'No longer needed' },
       { authz: authz(), expected_version: 3, ids: [uuidOf(9)] },
     );
     roundTrip(TriggerEnvelopeSchema, env);
@@ -78,12 +78,12 @@ describe('schema miền round-trip qua JSON chuẩn hoá', () => {
   });
 });
 
-describe('ràng buộc schema', () => {
-  it('lệnh của người thiếu authz hoặc expected_version bị từ chối', () => {
+describe('Schema constraints', () => {
+  it('rejects human commands without authz or expected_version', () => {
     const env = envelope(uuidOf(1), { kind: 'cancel', reason: 'x' });
     expect(TriggerEnvelopeSchema.safeParse(env).success).toBe(false);
   });
-  it('phong bì quá 8 ID bị từ chối', () => {
+  it('rejects envelopes containing more than eight IDs', () => {
     const ids = Array.from({ length: 9 }, (_, i) => uuidOf(100 + i));
     const env = envelope(
       uuidOf(1),
@@ -92,7 +92,7 @@ describe('ràng buộc schema', () => {
     );
     expect(TriggerEnvelopeSchema.safeParse(env).success).toBe(false);
   });
-  it('usage unavailable không mang số 0 (FR-024)', () => {
+  it('unavailable usage cannot carry zero-valued metrics (FR-024)', () => {
     expect(
       UsageSchema.safeParse({ basis: 'unavailable', tokens: 0 }).success,
     ).toBe(false);
@@ -101,15 +101,14 @@ describe('ràng buộc schema', () => {
       UsageSchema.safeParse({ basis: 'reported', tokens: 0 }).success,
     ).toBe(true);
   });
-  it('idemKey theo định dạng data-model', () => {
+  it('idemKey follows the data-model format', () => {
     expect(idemKey('merge', 'acme', 't1', 2, 'abc123')).toBe(
       'merge:acme:t1:r2:abc123',
     );
   });
 });
 
-describe('switch đầy đủ với assertNever', () => {
-  // Thiếu một nhánh thì typecheck báo lỗi ở assertNever.
+describe('Exhaustive switches with assertNever', () => {
   function triggerLabel(t: Trigger): string {
     switch (t.kind) {
       case 'create_task':
@@ -267,7 +266,7 @@ describe('switch đầy đủ với assertNever', () => {
     }
   }
 
-  it('mọi kind có nhánh', () => {
+  it('handles every kind', () => {
     expect(EFFECT_KINDS.map(effectLabel)).toEqual([...EFFECT_KINDS]);
     expect(new Set(EVENT_TYPES.map(eventGroup)).size).toBe(18);
     expect(triggerLabel({ kind: 'cancel', reason: 'r' })).toBe('cancel');

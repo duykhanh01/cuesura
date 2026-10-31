@@ -36,7 +36,7 @@ import {
 
 export type AcceptOutcome = {
   dedup_key: string;
-  /** true: trả kết quả của lần chấp nhận đầu (FR-026). */
+  /** true returns the original accepted result for an idempotent replay. */
   duplicate: boolean;
   decision: Decision;
   task_version: number | null;
@@ -59,7 +59,7 @@ export type AcceptError =
     }
   | WriteFailure;
 
-/** Lỗi SQLite của thao tác ghi → `write_failed` (FR-033); lỗi khác là lỗi lập trình và được ném lại. */
+/** Map SQLite write failures to write_failed; rethrow programming errors. */
 export function writeFailure(e: unknown): WriteFailure | null {
   const code = (e as { code?: unknown } | null)?.code;
   if (typeof code !== 'string') return null;
@@ -76,14 +76,13 @@ export function writeFailure(e: unknown): WriteFailure | null {
   return null;
 }
 
-/** Hoàn tác transaction đang mở; bỏ qua lỗi khi SQLite đã tự rollback. */
 export function rollback(db: Database): void {
   if (db.inTransaction) db.exec('ROLLBACK');
 }
 
 /**
- * Append sự kiện của một lô: gán `seq` liên tục theo task và `global_seq` theo thứ tự commit (FR-027),
- * áp từng sự kiện bằng `evolve`. Trả state cuối và các sự kiện đầy đủ.
+ * Assign per-task seq and global_seq in commit order, evolving each event before projecting the
+ * final state.
  */
 export function appendEvents(
   db: Database,
@@ -130,7 +129,6 @@ export function appendEvents(
   return { state: s, events };
 }
 
-/** Ghi projection theo ba phần, mỗi phần là một điểm ngắt của R-08. */
 export function project(
   db: Database,
   events: readonly DomainEvent[],
@@ -148,10 +146,7 @@ export function project(
   crash('after_runtime');
 }
 
-/**
- * Dữ liệu liên quan cho `decide`, đọc trong cùng transaction (contracts/signals-events.md): trạng thái
- * dependency, chu trình, task nguồn của retry và task cùng `(project, source_key)`.
- */
+/** Read related task facts inside the same transaction as decide. */
 export function relatedFacts(
   db: Database,
   env: TriggerEnvelope,
@@ -203,7 +198,6 @@ export function relatedFacts(
   return related;
 }
 
-/** Có đường từ một trong `from` qua `task_deps` về `target` không (chu trình khi `target` phụ thuộc `from`). */
 function reachesTask(
   db: Database,
   target: string,
@@ -224,10 +218,9 @@ function reachesTask(
 }
 
 /**
- * Chấp nhận một tín hiệu trong một transaction `BEGIN IMMEDIATE` (contracts/core-api.md): dedup → đọc
- * state, policy, `RelatedFacts` → `decide` → append → projection → commit. Đồng bộ hoàn toàn, không
- * `await` (FR-025). Mọi lỗi ghi làm rollback toàn bộ. ID trong `ids` trùng effect/timer đã có →
- * `conflict id_collision`; thiếu ID → `id_pool_exhausted` không được ghi dedup.
+ * One synchronous BEGIN IMMEDIATE transaction: deduplicate, read, decide, append, project, commit.
+ * Write failures roll back everything. Colliding IDs conflict; missing IDs must not record
+ * deduplication.
  */
 export function accept(
   db: Database,
@@ -236,7 +229,7 @@ export function accept(
 ): Result<AcceptOutcome, AcceptError> {
   const parsed = TriggerEnvelopeSchema.safeParse(input);
   if (!parsed.success) {
-    // Phong bì sai schema không có danh tính đáng tin để dedup: không ghi gì.
+    // Malformed envelopes have no trusted deduplication identity; write nothing.
     const key = (input as { dedup_key?: unknown } | null)?.dedup_key;
     return ok({
       dedup_key: typeof key === 'string' ? key : '',
@@ -310,8 +303,8 @@ export function accept(
       });
     }
 
-    // Thiếu ID là lỗi của `ids`, mà `ids` không thuộc request hash: không ghi dedup, để lần gửi lại
-    // cùng khoá với đủ ID được xử lý thật (FR-030 với timer).
+    // ids is outside request_hash. Do not record deduplication on exhaustion so the same request can retry with enough IDs.
+
     if (decision.kind === 'rejected' && decision.code === 'id_pool_exhausted') {
       rollback(db);
       return ok({

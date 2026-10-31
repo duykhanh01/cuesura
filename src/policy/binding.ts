@@ -2,7 +2,6 @@ import { evalPredicate, type PredicateFacts } from '../domain/workflow.ts';
 import type { BindingRule } from '../domain/config.ts';
 import type { CanonicalTask } from '../domain/task.ts';
 
-/** Dữ kiện của task dùng để xét `when` của rule binding lúc chốt; lượt đầu là attempt 1. */
 export function bindingFacts(task: CanonicalTask): PredicateFacts {
   return {
     labels: task.labels,
@@ -13,10 +12,6 @@ export function bindingFacts(task: CanonicalTask): PredicateFacts {
   };
 }
 
-/**
- * Chọn rule đầu tiên khớp (docs/architecture.md §5.2): rule có model bị `allow_models` loại thì thử rule
- * kế; hết rule thì không có binding (`no_valid_binding`).
- */
 export function resolveBinding(
   rules: readonly BindingRule[],
   facts: PredicateFacts,

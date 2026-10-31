@@ -4,13 +4,13 @@ import type { MergeMethod } from './merge-method.ts';
 import type { Predicate, Workflow } from './workflow.ts';
 
 /**
- * Cấu hình đã kiểm tra và chuẩn hoá (thời lượng là ms, mặc định đã điền). `src/config` tạo ra nó,
- * `src/policy` đọc nó; kiểu nằm ở domain để policy không phụ thuộc config (research R-12).
+ * Normalized configuration types live in domain so the pure policy layer does not depend on
+ * config.
  */
 
 export type ModelInfo = { harness: string; id: string; tier: number };
 
-/** Một bước của thang: đổi effort, model hoặc thêm context so với nấc trước (cộng dồn). */
+/** Ladder changes accumulate from the preceding rung. */
 export type LadderStep = {
   effort?: Effort;
   model?: string;
@@ -38,7 +38,7 @@ export type NormalizedProfile = {
   allow_roles: string[] | null;
   allow_models: string[] | null;
   allow_no_gates: boolean;
-  /** `null` khi thiếu; bộ kiểm tra báo `no_task_bound`. */
+  /** null when absent; validation reports no_task_bound. */
   max_agent_runs: number | null;
   max_wall_ms: number | null;
   max_decider_calls: number;
@@ -92,7 +92,6 @@ export type NormalizedUser = {
 };
 
 export const DIAGNOSTIC_CODES = [
-  // Cú pháp (FR-002)
   'yaml_syntax',
   'duplicate_key',
   'unsupported_tag',
@@ -102,7 +101,7 @@ export const DIAGNOSTIC_CODES = [
   'schema_invalid',
   'forbidden_key',
   'unknown_pack',
-  // Tham chiếu (FR-003 kiểm tra 1)
+
   'unknown_role',
   'unknown_model',
   'unknown_pool',
@@ -112,7 +111,7 @@ export const DIAGNOSTIC_CODES = [
   // Outcome (2)
   'outcome_without_target',
   'outcome_not_in_kind',
-  // Chu trình (3)
+
   'unbounded_cycle',
   'no_task_bound',
   // Thang (4)
@@ -122,7 +121,7 @@ export const DIAGNOSTIC_CODES = [
   'no_initial_binding',
   // Predicate (6)
   'unknown_predicate',
-  // Chế độ quyết định (FR-006)
+
   'decision_mode_forbidden',
   // Gate
   'required_gate_missing',
@@ -136,7 +135,6 @@ export type DiagnosticCode = (typeof DIAGNOSTIC_CODES)[number];
 
 export type KeyPath = (string | number)[];
 
-/** Chẩn đoán cấu hình theo contracts/config.md "Định dạng chẩn đoán". */
 export type Diagnostic = {
   code: DiagnosticCode;
   severity: 'error';
@@ -147,16 +145,15 @@ export type Diagnostic = {
   message: string;
 };
 
-/** Cấu hình đã kiểm tra, đủ để chốt chính sách mà không đọc lại file. */
 export type ValidatedConfig = {
   files: { user: string; project: string | null };
   user: NormalizedUser;
-  /** Profile đã phẳng hoá theo `extends`. */
+
   profiles: Record<string, NormalizedProfile>;
-  /** `cusr.yaml` đã hợp nhất với pack. */
+
   project: NormalizedProject | null;
   hashes: { user: Hash; project: Hash | null; packs: Record<string, Hash> };
-  /** Cấu hình thô (profile đã phẳng hoá, project đã hợp nhất pack) để áp override rồi kiểm tra lại. */
+  /** Retain raw merged values so overrides can be applied and validated again. */
   raw: {
     user: Record<string, unknown>;
     profiles: Record<string, Record<string, unknown>>;

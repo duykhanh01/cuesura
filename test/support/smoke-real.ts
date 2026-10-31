@@ -1,9 +1,7 @@
 /**
- * The opt-in half of `test/smoke/`. It runs only with `CUSR_SMOKE_REAL` naming a JSON file the operator
- * wrote, and each run may spend model usage and writes to the sandbox repos named there, so nothing here
- * runs from `pnpm test` or from `pnpm test:smoke` alone. It drives the built `cusrd` and `cusr` (`pnpm
- * build` first) with the operator's config and harness records. A skipped real scenario is "chưa kiểm"
- * in the acceptance report; the local rehearsal never stands in for it.
+ * Opt-in smoke tests require CUSR_SMOKE_REAL and can consume model usage or write to the
+ * configured sandbox repositories. A skipped real scenario remains unverified; local rehearsals do
+ * not replace it.
  */
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { appendFileSync, readFileSync } from 'node:fs';

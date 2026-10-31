@@ -27,7 +27,6 @@ import {
   taskOverArb,
 } from '../property/arbitraries/policies.ts';
 
-/** Một thao tác trên kho, lấy từ nhật ký đầu vào của `Sim`. */
 type Step =
   | { kind: 'accept'; envelope: TriggerEnvelope; decision: Decision }
   | { kind: 'claim'; effect_id: string; now: number };
@@ -43,11 +42,10 @@ function stepsOf(sim: Sim): Step[] {
       };
     if (e.kind === 'claim')
       return { kind: 'claim', effect_id: e.effect_id, now: e.now };
-    throw new Error('drive không tạo inject');
+    throw new Error('drive does not produce injected events');
   });
 }
 
-/** ID mới mà một sự kiện cấp ra từ phong bì (I07: ≤ 8 ID mỗi quyết định). */
 function newIds(ev: DomainEvent): string[] {
   const p = ev.payload as Record<string, unknown>;
   switch (ev.type) {
@@ -67,8 +65,8 @@ function newIds(ev: DomainEvent): string[] {
 }
 
 /**
- * Theo dõi một task trên kho: sau mỗi `accept` hoặc claim đọc sự kiện mới từ nhật ký, áp `evolve` lên bản sao riêng
- * và kiểm mọi bất biến trong phạm vi trên đúng dữ liệu kho đã ghi.
+ * After each accept/claim, independently evolve newly committed events and verify invariants
+ * against the store.
  */
 class Checker {
   private state: TaskState | null = null;
@@ -95,13 +93,12 @@ class Checker {
     for (const [i, ev] of fresh.entries()) {
       const at = `${where} ${ev.type}#${ev.seq}`;
       const prev = this.state;
-      // I10: seq liên tục theo task, global_seq tăng ngặt theo thứ tự commit.
+
       expect(ev.seq, at).toBe((before?.version ?? 0) + i + 1);
       expect(ev.global_seq, at).toBeGreaterThan(this.lastGlobal);
       this.lastGlobal = ev.global_seq;
 
       if (ev.type === 'EffectRequested' && ev.payload.kind === 'merge') {
-        // I11: chỉ yêu cầu merge khi đủ điều kiện trên state ngay trước sự kiện.
         expect(
           mergeAllowed(
             prev as TaskState,
@@ -120,17 +117,16 @@ class Checker {
       if (ev.type === 'PolicyFrozen' || ev.type === 'PolicyAmended')
         this.policy = ev.payload.policy;
 
-      // FR-009, I12: chỉ cạnh hợp lệ; trạng thái kết thúc là hút.
       if (prev !== null && prev.status !== next.status)
         expect(isAllowedEdge(prev.status, next.status), at).toBe(true);
       if (prev !== null && isTerminal(prev.status)) {
         expect(ev.type, at).toBe('SignalIgnored');
         expect(next.status, at).toBe(prev.status);
       }
-      // I08: revision không giảm.
+
       if (prev !== null)
         expect(next.revision, at).toBeGreaterThanOrEqual(prev.revision);
-      // I04: không hai effect cùng khoá idempotency.
+
       if (ev.type === 'EffectRequested') {
         expect(this.idemKeys.has(ev.payload.idem_key), at).toBe(false);
         this.idemKeys.add(ev.payload.idem_key);
@@ -143,8 +139,8 @@ class Checker {
   }
 
   /**
-   * I09, SC-003: attempt chỉ chạy trên nấc của thang đã đóng băng, đúng binding của nấc đó, không trên nấc
-   * `denied`, và nấc `needs_approval` phải có approval còn hiệu lực cho đúng bước, nấc, revision, chính sách.
+   * Attempts must use an allowed frozen rung and its binding. Approval-required rungs need current
+   * approval for the exact step, rung, revision, and policy.
    */
   private checkAttempt(
     after: TaskState,
@@ -154,10 +150,10 @@ class Checker {
     const ladder = this.policy?.steps[p.step]?.ladder;
     expect(
       ladder,
-      `${at}: bước ${p.step} không có trong chính sách`,
+      `${at}: step ${p.step} is missing from the policy`,
     ).toBeDefined();
     const rung = ladder?.[p.rung];
-    expect(rung, `${at}: nấc ${p.rung} ngoài thang`).toBeDefined();
+    expect(rung, `${at}: rung ${p.rung} is outside the ladder`).toBeDefined();
     if (rung === undefined) return;
     expect(p.binding, at).toBe(bindingName(rung.binding));
     expect(rung.state, at).not.toBe('denied');
@@ -172,20 +168,21 @@ class Checker {
           a.revision === after.revision &&
           a.policy_hash === after.policy_ref?.hash,
       );
-      expect(granted, `${at}: thiếu approval cho ${p.step}#${p.rung}`).toBe(
-        true,
-      );
+      expect(
+        granted,
+        `${at}: approval is missing for ${p.step}#${p.rung}`,
+      ).toBe(true);
     }
   }
 
   private checkState(where: string): void {
     const s = this.state;
-    // I03 ở mức kho: projection `tasks` khớp evolve của nhật ký sau mỗi lần ghi.
+
     expect(canonicalJson(this.store.readTask(this.taskId)), where).toBe(
       canonicalJson(s),
     );
     if (s === null) return;
-    // I07, I09: lượt vào bước có trần; used + reserved ≤ limit; reserved = tổng reservation đang giữ.
+
     const wf = this.policy?.workflow;
     for (const [step, n] of Object.entries(s.step_visits)) {
       const max = wf?.steps[step]?.max_visits;
@@ -199,12 +196,12 @@ class Checker {
       .filter((r) => r.status === 'held')
       .reduce((n, r) => n + r.units, 0);
     expect(b.reserved, where).toBe(held);
-    // SC-006: task đang chờ có điều kiện tiếp tục và đường kết thúc.
+
     if (s.status === 'WAITING' || (s.status === 'PENDING' && s.wait !== null)) {
       expect(s.wait?.resume_when.length ?? 0, where).toBeGreaterThan(0);
       expect(s.wait?.exit_paths.length ?? 0, where).toBeGreaterThan(0);
     }
-    // I08: chính sách đã chốt cho một (revision, version) không đổi về sau.
+
     const ref = s.policy_ref;
     if (ref !== null) {
       const key = `${ref.revision}:${ref.version}`;
@@ -244,18 +241,17 @@ function journal(store: Store): string {
   });
 }
 
-/** Chạy chuỗi qua kho một lần, kiểm bất biến sau mỗi thao tác; trả kho để so với lần gửi lặp. */
 function runOnce(taskId: Uuid, steps: readonly Step[]): Store {
   const store = openMemoryStore();
   const check = new Checker(store, taskId);
   steps.forEach((st, i) => {
-    const where = `bước ${i}`;
+    const where = `step ${i}`;
     if (st.kind === 'accept') {
       const r = store.accept(st.envelope);
       if (!r.ok)
-        throw new Error(`${where}: accept lỗi ${JSON.stringify(r.error)}`);
+        throw new Error(`${where}: accept failed: ${JSON.stringify(r.error)}`);
       expect(r.value.duplicate, where).toBe(false);
-      // I01: kho gọi cùng `decide` trên state đọc từ SQLite và cho đúng quyết định của lõi thuần.
+
       expect(canonicalJson(r.value.decision), where).toBe(
         canonicalJson(st.decision),
       );
@@ -270,7 +266,7 @@ function runOnce(taskId: Uuid, steps: readonly Step[]): Store {
   return store;
 }
 
-/** Gửi mỗi tín hiệu `k ∈ [2, 5]` lần liền nhau, rồi gửi lại toàn bộ một lượt nữa ở cuối (SC-007). */
+/** Replay each trigger 2-5 consecutive times, then replay the entire sequence once more. */
 function runRepeated(
   steps: readonly Step[],
   repeats: readonly number[],
@@ -286,11 +282,12 @@ function runRepeated(
     }
     const k = repeats[a++ % repeats.length] as number;
     const first = store.accept(st.envelope);
-    if (!first.ok) throw new Error(`accept lỗi ${JSON.stringify(first.error)}`);
+    if (!first.ok)
+      throw new Error(`accept failed: ${JSON.stringify(first.error)}`);
     for (let j = 1; j < k; j++) {
       const again = store.accept(st.envelope);
       if (!again.ok)
-        throw new Error(`gửi lại lỗi ${JSON.stringify(again.error)}`);
+        throw new Error(`replay failed: ${JSON.stringify(again.error)}`);
       expect(again.value.duplicate).toBe(true);
       expect(canonicalJson(again.value.decision)).toBe(
         canonicalJson(first.value.decision),
@@ -306,7 +303,7 @@ function runRepeated(
 }
 
 const anyPolicyArb = fc.oneof(policyArb, escalationPolicyArb);
-/** Trộn các chế độ lái của property test: thường, dồn lỗi để nâng nấc, sửa yêu cầu dày. */
+
 const driveOptsArb = fc.constantFrom<DriveOptions>(
   {},
   {},
@@ -314,9 +311,9 @@ const driveOptsArb = fc.constantFrom<DriveOptions>(
   { driftEvery: 5 },
 );
 
-describe('R4 chuỗi tín hiệu ngẫu nhiên qua kho in-memory (T108, SC-003, SC-007)', () => {
-  // fast-check in `seed` và `path` của ca phản ví dụ khi fail; `pnpm test:reliability --seed <seed>` tái hiện.
-  it('10.000 chuỗi: không vi phạm bất biến sau mỗi accept; gửi lại 2–5 lần không đổi sự kiện, effect, timer', () => {
+describe('R4 generated trigger sequences through the in-memory store (T108, SC-003, SC-007)', () => {
+  // fast-check reports seed and counterexample path; pnpm test:reliability --seed reproduces the run.
+  it('10,000 sequences preserve invariants; 2-5 replays leave events, effects, and timers unchanged', () => {
     let accepts = 0;
     fc.assert(
       fc.property(
@@ -334,7 +331,7 @@ describe('R4 chuỗi tín hiệu ngẫu nhiên qua kho in-memory (T108, SC-003, 
           accepts += steps.filter((s) => s.kind === 'accept').length;
 
           const once = runOnce(sim.taskId, steps);
-          // Kho và lõi thuần cho cùng nhật ký.
+
           expect(once.readEvents(sim.taskId).length).toBe(sim.events.length);
 
           const repeated = runRepeated(steps, repeats);

@@ -8,7 +8,6 @@ import {
   taskOverArb,
 } from '../arbitraries/policies.ts';
 
-/** ID mới mà một quyết định cấp ra (lấy từ phong bì). */
 function newIds(payload: Record<string, unknown>, type: string): string[] {
   switch (type) {
     case 'EffectRequested':
@@ -29,8 +28,8 @@ function newIds(payload: Record<string, unknown>, type: string): string[] {
   }
 }
 
-describe('I07 mọi thứ có giới hạn', () => {
-  it('step_visits ≤ max_visits; used + reserved ≤ limit; ≤ 8 ID mỗi quyết định; không attempt sau hạn', () => {
+describe('I07 bounded execution', () => {
+  it('bounds step visits, budgets, IDs per decision, and attempt deadlines', () => {
     fc.assert(
       fc.property(
         policyArb,
@@ -45,7 +44,7 @@ describe('I07 mọi thứ có giới hạn', () => {
               const max = wf.steps[step]?.max_visits;
               if (max === undefined) continue;
               expect(n, step).toBeLessThanOrEqual(max);
-              // Mỗi lượt vào bước có tối đa một attempt, kể cả attempt do người trả lời khởi động (§5.4.1).
+
               const attempts = Object.values(after.attempts).filter(
                 (a) => a.step === step,
               ).length;

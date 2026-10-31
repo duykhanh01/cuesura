@@ -45,10 +45,9 @@ const coderLadder = (ladder: string) =>
     `coder:\n    binding: [{ model: sonnet }]\n    escalation:\n      ladder: ${ladder}`,
   );
 
-// Sáu kiểm tra trước thực thi của FR-003 (SPEC.md §8): mỗi kiểm tra một ca đạt, một ca lỗi đúng mã.
-describe('FR-003 kiểm tra 1: tham chiếu tồn tại', () => {
-  it('đạt: cấu hình tối thiểu', () => expect(codes({})).toEqual([]));
-  it('lỗi: transition trỏ tới bước không tồn tại', () => {
+describe('FR-003 check 1: references exist', () => {
+  it('accepts minimal configuration', () => expect(codes({})).toEqual([]));
+  it('rejects transitions to unknown steps', () => {
     expect(
       codes({
         workflows:
@@ -56,7 +55,7 @@ describe('FR-003 kiểm tra 1: tham chiếu tồn tại', () => {
       }),
     ).toEqual(['unknown_step']);
   });
-  it('lỗi: role, model, pool không tồn tại', () => {
+  it('rejects unknown roles, models, and pools', () => {
     expect(
       codes({
         workflows:
@@ -72,7 +71,7 @@ describe('FR-003 kiểm tra 1: tham chiếu tồn tại', () => {
       }),
     ).toEqual(['unknown_model']);
   });
-  it('lỗi: profile tham chiếu role/model không có', () => {
+  it('rejects unknown roles and models referenced by profiles', () => {
     expect(
       codes({
         profiles:
@@ -82,10 +81,10 @@ describe('FR-003 kiểm tra 1: tham chiếu tồn tại', () => {
   });
 });
 
-describe('FR-003 kiểm tra 2: outcome hữu hạn và có đích', () => {
-  it('đạt: mọi outcome của software_dev@1 có đích', () =>
+describe('FR-003 check 2: finite outcomes with targets', () => {
+  it('every software_dev@1 outcome has a target', () =>
     expect(codes({})).toEqual([]));
-  it('lỗi: outcome không thuộc loại bước', () => {
+  it('rejects outcomes unsupported by the step kind', () => {
     expect(
       codes({
         workflows:
@@ -93,7 +92,7 @@ describe('FR-003 kiểm tra 2: outcome hữu hạn và có đích', () => {
       }),
     ).toEqual(['outcome_not_in_kind']);
   });
-  it('lỗi: outcome thiếu đích', () => {
+  it('rejects outcomes without targets', () => {
     const wf = LOOP(
       '\n        max_visits: 3\n        on_exhausted: escalate',
     ).replace(', blocked: escalate }\n      review', ' }\n      review');
@@ -101,8 +100,8 @@ describe('FR-003 kiểm tra 2: outcome hữu hạn và có đích', () => {
   });
 });
 
-describe('FR-003 kiểm tra 3: chu trình có bộ đếm, task có cận trên', () => {
-  it('đạt: vòng review ↔ fix có max_visits', () => {
+describe('FR-003 check 3: bounded cycles and tasks', () => {
+  it('accepts a review/fix loop bounded by max_visits', () => {
     expect(
       codes({
         workflows: LOOP(
@@ -111,10 +110,10 @@ describe('FR-003 kiểm tra 3: chu trình có bộ đếm, task có cận trên'
       }),
     ).toEqual([]);
   });
-  it('lỗi: vòng review ↔ fix không có giới hạn đếm', () => {
+  it('rejects an unbounded review/fix loop', () => {
     expect(codes({ workflows: LOOP('') })).toEqual(['unbounded_cycle']);
   });
-  it('lỗi: profile thiếu trần lượt agent hoặc thời gian', () => {
+  it('rejects profiles without agent-run or wall-time caps', () => {
     expect(
       codes({
         profiles:
@@ -127,9 +126,9 @@ describe('FR-003 kiểm tra 3: chu trình có bộ đếm, task có cận trên'
   });
 });
 
-describe('FR-003 kiểm tra 4: thang đạt được', () => {
+describe('FR-003 check 4: reachable ladder rungs', () => {
   const ladder = '[{ effort: high }, { model: opus }]';
-  it('đạt: max_visits 5 đủ cho nấc 2 (2·2+1)', () => {
+  it('max_visits 5 reaches rung 2 (2 * 2 + 1)', () => {
     expect(
       codes({
         roles: coderLadder(ladder),
@@ -138,7 +137,7 @@ describe('FR-003 kiểm tra 4: thang đạt được', () => {
       }),
     ).toEqual([]);
   });
-  it('lỗi: max_visits 4 không tới được nấc 2', () => {
+  it('max_visits 4 cannot reach rung 2', () => {
     expect(
       codes({
         roles: coderLadder(ladder),
@@ -147,7 +146,7 @@ describe('FR-003 kiểm tra 4: thang đạt được', () => {
       }),
     ).toEqual(['unreachable_rung']);
   });
-  it('max_rung giới hạn thang nên nấc vượt max_rung không bị xét', () => {
+  it('max_rung excludes higher rungs from reachability checks', () => {
     expect(
       codes({
         roles: coderLadder(ladder),
@@ -156,7 +155,7 @@ describe('FR-003 kiểm tra 4: thang đạt được', () => {
       }),
     ).toEqual([]);
   });
-  it('lỗi: max_rung vượt thang của role', () => {
+  it('rejects max_rung beyond the role ladder', () => {
     expect(
       codes({
         workflows:
@@ -166,13 +165,13 @@ describe('FR-003 kiểm tra 4: thang đạt được', () => {
   });
 });
 
-describe('FR-003 kiểm tra 5: binding khởi đầu', () => {
+describe('FR-003 check 5: initial binding', () => {
   const roles = (rules: string) =>
     MIN_PARTS.roles.replace(
       'coder: { binding: [{ model: sonnet }] }',
       `coder: { binding: ${rules} }`,
     );
-  it('đạt: rule có điều kiện kèm rule dự phòng', () => {
+  it('accepts conditional rules with an unconditional fallback', () => {
     expect(
       codes({
         roles: roles(
@@ -181,20 +180,20 @@ describe('FR-003 kiểm tra 5: binding khởi đầu', () => {
       }),
     ).toEqual([]);
   });
-  it('lỗi: mọi rule đều có điều kiện', () => {
+  it('rejects bindings with only conditional rules', () => {
     expect(
       codes({ roles: roles('[{ when: { size: [L] }, model: opus }]') }),
     ).toEqual(['no_initial_binding']);
   });
 });
 
-describe('FR-003 kiểm tra 6: predicate thuộc tập định nghĩa trước', () => {
+describe('FR-003 check 6: predefined predicates', () => {
   const roles = (when: string) =>
     MIN_PARTS.roles.replace(
       'coder: { binding: [{ model: sonnet }] }',
       `coder: { binding: [{ when: ${when}, model: opus }, { model: sonnet }] }`,
     );
-  it('đạt: đủ sáu predicate cho phép', () => {
+  it('accepts all six supported predicates', () => {
     expect(
       codes({
         roles: roles(
@@ -203,19 +202,19 @@ describe('FR-003 kiểm tra 6: predicate thuộc tập định nghĩa trước',
       }),
     ).toEqual([]);
   });
-  it('lỗi: predicate lạ', () =>
+  it('rejects unknown predicates', () =>
     expect(codes({ roles: roles('{ priority: high }') })).toEqual([
       'unknown_predicate',
     ]));
-  it('lỗi: predicate đúng tên nhưng sai kiểu là schema_invalid', () => {
+  it('invalid types for known predicates return schema_invalid', () => {
     expect(codes({ roles: roles('{ attempt_gte: two }') })).toEqual([
       'schema_invalid',
     ]);
   });
 });
 
-describe('FR-006 và gate', () => {
-  it('decision_mode_forbidden cho điểm quyết định bị cấm', () => {
+describe('FR-006 and gates', () => {
+  it('forbidden decision points return decision_mode_forbidden', () => {
     expect(
       codes({
         workflows:
@@ -223,7 +222,7 @@ describe('FR-006 và gate', () => {
       }),
     ).toEqual(['decision_mode_forbidden']);
   });
-  it('gate bắt buộc phải được project khai báo', () => {
+  it('required gates must be declared by the project', () => {
     const r = validateConfig({
       user: minUser(),
       project: {
@@ -236,7 +235,7 @@ describe('FR-006 và gate', () => {
       'required_gate_missing',
     ]);
   });
-  it('allow_no_gates cho phép project không có gate', () => {
+  it('allow_no_gates permits a project without gates', () => {
     const profiles =
       'profiles:\n  standard: { workflow: impl, allow_no_gates: true, budgets: { max_agent_runs: 1, max_wall: 1h } }\n';
     expect(
@@ -249,8 +248,8 @@ describe('FR-006 và gate', () => {
   });
 });
 
-describe('trả đủ lỗi, sắp theo (file, line, col)', () => {
-  it('nhiều lỗi trong cùng cấu hình được trả hết', () => {
+describe('returns all errors sorted by file, line, and column', () => {
+  it('reports multiple errors in one configuration', () => {
     const r = validateConfig({
       user: minUser({
         workflows:

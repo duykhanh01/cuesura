@@ -17,7 +17,6 @@ import type { Diagnostic, DiagnosticCode, KeyPath } from '../domain/config.ts';
 
 export type Position = { file: string; line: number; col: number };
 
-/** Tài liệu YAML đã parse cùng bộ đếm dòng, đủ để ánh xạ đường dẫn khoá về vị trí. */
 export type LocatedDoc = {
   file: string;
   doc: Document;
@@ -30,8 +29,8 @@ function offsetOf(node: unknown): number | null {
 }
 
 /**
- * Vị trí của `path` trong tài liệu: khoá của cặp map khi phần tử cuối là tên khoá, chính node khi là
- * chỉ số mảng. Không tìm được thì lùi về node cha gần nhất (R-05); rỗng thì đầu file.
+ * Map keys locate the key token; array indices locate the item. Missing paths fall back to the
+ * nearest parent.
  */
 export function locate(src: LocatedDoc, path: KeyPath): Position {
   let node: unknown = src.doc.contents;
@@ -57,7 +56,6 @@ export function locate(src: LocatedDoc, path: KeyPath): Position {
   return { file: src.file, line, col };
 }
 
-/** Vị trí của node YAML bất kỳ (dùng cho lỗi gắn với node như tag hay alias). */
 export function nodePosition(
   src: LocatedDoc,
   node: Node | null | undefined,
@@ -83,7 +81,7 @@ export function diag(
   };
 }
 
-/** Sắp theo `(file, line, col)`, rồi theo mã để thứ tự tất định khi trùng vị trí. */
+/** Use the diagnostic code as a final tie-breaker for deterministic ordering. */
 export function sortDiagnostics(ds: readonly Diagnostic[]): Diagnostic[] {
   return [...ds].sort(
     (a, b) =>

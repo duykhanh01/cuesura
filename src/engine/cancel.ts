@@ -19,11 +19,9 @@ import { mkWait } from './waits.ts';
 const LOCAL_STOPPABLE: readonly EffectKind[] = ['prepare', 'run_gates'];
 
 /**
- * Hủy theo FR-018, trong cùng một `Decision`:
- * - effect nghiệp vụ `pending` bị vô hiệu hoá, giữ chỗ tương ứng được trả;
- * - effect `started` giữ nguyên; attempt agent, setup và gate đang chạy nhận effect `stop_attempt`;
- * - effect `unknown` nhận effect `reconcile`;
- * - không còn effect nào dở thì task kết thúc ngay.
+ * Cancellation invalidates pending business effects and releases their reservations. Running
+ * operations are stopped, unknown effects are reconciled, and the task ends only after all
+ * outstanding work settles.
  */
 export function requestCancel(ctx: Ctx, reason: string): void {
   const s = ctx.state;
@@ -66,7 +64,6 @@ export function requestCancel(ctx: Ctx, reason: string): void {
   maybeFinishCancel(ctx);
 }
 
-/** Vô hiệu hoá effect nghiệp vụ `pending` thoả `filter` và trả giữ chỗ (FR-018, FR-022). */
 export function invalidatePending(
   ctx: Ctx,
   reason: string,
@@ -94,10 +91,7 @@ export function invalidatePending(
   }
 }
 
-/**
- * Khi không còn effect `started` hay `unknown`: CANCELLED, hoặc DONE kèm `CancelRecordedLate` nếu đối
- * chiếu đã xác nhận merge thành công (FR-018).
- */
+/** A confirmed merge remains DONE even when cancellation was requested before reconciliation. */
 export function maybeFinishCancel(ctx: Ctx): void {
   const s = ctx.state;
   if (s.cancellation === null || isTerminal(s.status)) return;

@@ -1,6 +1,5 @@
 /**
- * Runner side of one operation (T073, FR-007/009, contracts/execution.md "Operation và runner
- * ownership"). Runs inside the operation's own transient unit, under the operation's kernel lock held
+ * Runner side of one operation (T073, FR-007/009, contracts/execution.md). Runs inside the operation's own transient unit, under the operation's kernel lock held
  * by `flock` (see supervisor.ts), and never touches the store or the engine:
  *
  * 1. reads invocation.json, claims launch.json exactly once (an existing marker means a previous

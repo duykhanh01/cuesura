@@ -46,9 +46,8 @@ export type FreezeInput = {
 const atOverrides: Locator = () => ({ file: '<overrides>', line: 1, col: 1 });
 
 /**
- * Bước 4 của "Thứ tự hợp nhất" rồi chốt (contracts/core-api.md `freeze`). Override được áp lên cấu hình
- * thô và kiểm tra lại toàn bộ, nên giá trị override sai cũng thành `config_invalid`. Phần chốt thuần nằm
- * ở `src/policy/freeze.ts`; tách ra vì policy không được phụ thuộc config (research R-12).
+ * Apply overrides to the raw configuration, then validate again. Policy freezing stays in
+ * src/policy so the pure policy layer does not depend on config I/O.
  */
 export function freeze(input: FreezeInput): Result<Frozen, FreezeError> {
   const overrides = input.overrides ?? {};
@@ -97,7 +96,7 @@ export function freeze(input: FreezeInput): Result<Frozen, FreezeError> {
     maxProfileDepth: DEFAULT_LIMITS.max_profile_depth,
   });
   if (!re.ok) return err({ code: 'config_invalid', diagnostics: re.error });
-  // Hash file giữ nguyên; override đi vào `config_hashes.effective` qua cấu hình đã chuẩn hoá.
+  // File hashes stay unchanged; normalized overrides contribute to config_hashes.effective.
   return freezePolicy({ ...input, config: { ...re.value.config, hashes } });
 }
 
@@ -106,10 +105,10 @@ export type RuntimeFreezeInput = {
   task_id: string;
   revision: number;
   base_sha: string;
-  /** Realpath đã được preflight kiểm (git common dir, quyền). */
+
   project_path: string;
   target: { repo: string; immutable_repo_id: string; base_ref: string };
-  /** Tên harness/công cụ → `manifest_hash` của CapabilityManifest còn hợp lệ. */
+
   capability_refs: Record<string, Hash>;
   run_config?: RunConfigSnapshot;
   pr_template?: PrTemplate | null;
@@ -123,8 +122,8 @@ export type RuntimeFreezeError = {
 };
 
 /**
- * Chốt `FrozenRuntimeContext` v1 cho một revision, tách khỏi `freeze`: không đụng FrozenPolicy hay
- * FrozenExecutionContext và hash của chúng. Chỉ chụp tham chiếu credential, không đọc secret.
+ * Freeze runtime separately so policy and execution-context hashes stay unchanged. Store
+ * credential references only.
  */
 export function freezeRuntimeContext(
   input: RuntimeFreezeInput,

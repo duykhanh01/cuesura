@@ -14,7 +14,7 @@ import type { AccessTokenSpec } from '../config/schema-user.ts';
 import { hashCanonical } from '../shared/hash.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 
-// Capability tokens (contracts/cli-daemon.md "Token riêng cho assistant"). Secrets stay in their files;
+// Capability tokens (contracts/cli-daemon.md). Secrets stay in their files;
 // the daemon keeps only a SHA-256 → grant map and never logs or snapshots a token.
 
 export const OWNER_TOKEN_FILE = 'owner.token';

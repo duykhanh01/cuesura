@@ -270,7 +270,7 @@ export const OPERATION_OUTCOMES = [
 ] as const;
 export type OperationOutcome = (typeof OPERATION_OUTCOMES)[number];
 
-/** A process identity is never a bare PID (execution contract "Operation và runner ownership"). */
+/** A process identity is never a bare PID (execution contract). */
 export const ProcessIdentitySchema = z
   .object({
     boot_id: z.string().min(1),

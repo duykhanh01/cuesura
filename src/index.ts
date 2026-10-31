@@ -1,4 +1,3 @@
-// API công khai (contracts/core-api.md).
 export type { Result } from './shared/result.ts';
 export type { Uuid, EpochMs, Hash } from './shared/brand.ts';
 

@@ -66,16 +66,16 @@ function freezeTask(
   });
 }
 
-describe('US1 - Kiểm tra cấu hình và chốt chính sách', () => {
-  it('Scenario 1: transition trỏ tới bước không tồn tại bị báo đúng file:dòng:cột và tên bước', () => {
+describe('US1 - Validate configuration and freeze policy', () => {
+  it('Scenario 1: unknown transition targets report the source file, line, column, and step', () => {
     const workflows =
       'workflows:\n  impl:\n    base: software_dev@1\n    steps:\n      gates:\n        next: { pass: review, fail: fixx }\n';
     expect(errorsOf(minUser({ workflows }))).toEqual([
-      "config.yaml:15:31 unknown_step: transition 'fail' của bước 'gates' trỏ tới 'fixx'",
+      "config.yaml:15:31 unknown_step: Transition 'fail' of step 'gates' targets unknown step 'fixx'",
     ]);
   });
 
-  it('Scenario 2: vòng review → fix không có giới hạn đếm bị từ chối và chỉ ra chu trình', () => {
+  it('Scenario 2: an unbounded review/fix cycle is rejected with its path', () => {
     const workflows = `workflows:
   impl: { base: software_dev@1 }
   loop:
@@ -100,11 +100,11 @@ describe('US1 - Kiểm tra cấu hình và chốt chính sách', () => {
     const errs = errorsOf(minUser({ workflows }));
     expect(errs).toHaveLength(1);
     expect(errs[0]).toMatch(
-      /^config\.yaml:\d+:\d+ unbounded_cycle: chu trình chưa có giới hạn đếm: fix → review → fix$/,
+      /^config\.yaml:\d+:\d+ unbounded_cycle: Cycle has no visit limit: fix → review → fix$/,
     );
   });
 
-  it('Scenario 3: hai cấu hình chỉ khác thứ tự khoá và định dạng cho cùng hash chính sách', () => {
+  it('Scenario 3: key order and formatting do not change the policy hash', () => {
     const task = buildTask();
     const a = freezeTask(valid(USER), task);
     const b = freezeTask(
@@ -116,7 +116,7 @@ describe('US1 - Kiểm tra cấu hình và chốt chính sách', () => {
     ).toBe(true);
   });
 
-  it('Scenario 4: sửa cấu hình sau khi chốt không đổi chính sách của task đã chốt', () => {
+  it('Scenario 4: later configuration edits do not change a frozen policy', () => {
     const first = freezeTask(valid(USER), buildTask());
     if (!first.ok) throw new Error('freeze');
     const frozen = structuredClone(first.value.policy);
@@ -139,7 +139,7 @@ describe('US1 - Kiểm tra cấu hình và chốt chính sách', () => {
     expect(later.value.policy.limits.max_agent_runs).toBe(30);
   });
 
-  it('Scenario 5: nấc thang không thể đạt trong giới hạn lượt bị báo lỗi', () => {
+  it('Scenario 5: unreachable ladder rungs report an error', () => {
     const roles = MIN_PARTS.roles.replace(
       'coder: { binding: [{ model: sonnet }] }',
       'coder:\n    binding: [{ model: sonnet }]\n    escalation:\n      ladder: [{ effort: high }, { model: opus }]',
@@ -149,22 +149,21 @@ describe('US1 - Kiểm tra cấu hình và chốt chính sách', () => {
     const errs = errorsOf(minUser({ roles, workflows }));
     expect(errs).toHaveLength(1);
     expect(errs[0]).toContain('unreachable_rung');
-    expect(errs[0]).toContain("nấc 2 của role 'coder'");
+    expect(errs[0]).toContain("Rung 2 of role 'coder'");
   });
 
-  it('Scenario 6: amendment chỉ có tên actor hoặc chỉ có operate bị từ chối, chính sách giữ nguyên', () => {
+  it('Scenario 6: actor-only and operate-only amendments are rejected without changing the policy', () => {
     const r = freezeTask(valid(USER), buildTask());
     if (!r.ok) throw new Error('freeze');
     const policy = r.value.policy;
     const before = structuredClone(policy);
     const change = { limits: { ...policy.limits, max_agent_runs: 99 } };
 
-    // Chỉ có tên actor tự khai: không có ngữ cảnh quyền.
     expect(
       proposeAmendment({
         current: policy,
         change,
-        reason: 'cần thêm lượt',
+        reason: 'Additional runs are required',
         authz: null,
       }),
     ).toEqual({ ok: false, error: { code: 'not_admin' } });
@@ -172,7 +171,7 @@ describe('US1 - Kiểm tra cấu hình và chốt chính sách', () => {
       proposeAmendment({
         current: policy,
         change,
-        reason: 'cần thêm lượt',
+        reason: 'Additional runs are required',
         authz: authz(['operate'], 'owner'),
       }),
     ).toEqual({
@@ -187,7 +186,7 @@ describe('US1 - Kiểm tra cấu hình và chốt chính sách', () => {
     ]).toEqual([1, 1, 12]);
   });
 
-  it('Scenario 7: project thắng pack; override chỉ áp khi profile cho phép và không vượt người gọi; khoá ngoài thẩm quyền bị báo', () => {
+  it('Scenario 7: project overrides pack; overrides respect profile and caller permissions; forbidden keys report errors', () => {
     const packs = {
       node: {
         file: 'node.yaml',
@@ -236,11 +235,11 @@ describe('US1 - Kiểm tra cấu hình và chốt chính sách', () => {
       packs: PACKS,
     });
     expect(!forbidden.ok && forbidden.error.map(formatDiagnostic)).toEqual([
-      "cusr.yaml:20:1 forbidden_key: khoá 'roles' chỉ thuộc cấu hình người dùng",
+      "cusr.yaml:20:1 forbidden_key: Key 'roles' is only allowed in the user configuration",
     ]);
   });
 
-  it('Scenario 8: ngữ cảnh đã chốt giữ nguyên nội dung và hash khi yêu cầu hay attachment gốc đổi', () => {
+  it('Scenario 8: frozen context content and hashes survive source and attachment changes', () => {
     const task = buildTask({
       attachments: [
         {
@@ -258,14 +257,13 @@ describe('US1 - Kiểm tra cấu hình và chốt chính sách', () => {
     const context = r.value.context;
     const before = structuredClone(context);
 
-    // Nguồn đổi sau khi chốt.
     attachments[0]!.content = 'v2';
-    task.description = 'yêu cầu đã sửa';
-    task.acceptance.push('tiêu chí mới');
+    task.description = 'Updated request';
+    task.acceptance.push('New criterion');
 
     expect(context).toEqual(before);
     expect(verifyContextHash(context)).toBe(true);
-    // Thay đổi chỉ vào qua revision mới, với ngữ cảnh mới.
+
     const next = freezeTask(
       valid(USER),
       { ...task, revision: 2 },
@@ -276,7 +274,7 @@ describe('US1 - Kiểm tra cấu hình và chốt chính sách', () => {
     );
   });
 
-  it('Scenario 9: agent_review được báo là chưa hỗ trợ; chốt cho task dùng workflow đó bị từ chối, không đổi sang human', () => {
+  it('Scenario 9: agent_review is unsupported and freeze rejects it without switching to human', () => {
     const user = source('configs/valid/user-workflows.yaml');
     const project = source('configs/valid/cusr-minimal.yaml', 'cusr.yaml');
     const r = validateConfig({ user, project, packs: {} });
@@ -298,7 +296,7 @@ describe('US1 - Kiểm tra cấu hình và chốt chính sách', () => {
     });
   });
 
-  it('Scenario 10: workflow hợp lệ khác software_dev@1 được chấp nhận khi kiểm tra nhưng bị từ chối khi chốt', () => {
+  it('Scenario 10: valid custom workflows validate but cannot be frozen', () => {
     const r = validateConfig({
       user: source('configs/valid/user-workflows.yaml'),
       project: source('configs/valid/cusr-minimal.yaml', 'cusr.yaml'),
@@ -313,7 +311,7 @@ describe('US1 - Kiểm tra cấu hình và chốt chính sách', () => {
     expect('value' in f).toBe(false);
   });
 
-  it('Scenario 11: workflow A chỉ human chốt được; workflow B dùng agent bị từ chối kèm lý do', () => {
+  it('Scenario 11: human-only workflow A freezes; agent workflow B is rejected with a reason', () => {
     const r = validateConfig({
       user: source('configs/valid/user-workflows.yaml'),
       project: source('configs/valid/cusr-minimal.yaml', 'cusr.yaml'),

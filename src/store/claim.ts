@@ -32,9 +32,8 @@ export type ClaimError =
 export type ClaimRequest = ClaimOptions & { operation?: OperationClaim };
 
 /**
- * `pending → started` trong một transaction: đọc projection, hỏi `claimable` (R-16), append
- * `EffectStarted`. Effect bị chặn giữ nguyên `pending`. `EffectStarted` chỉ được tạo ở đây. With
- * `req.operation` the operation identity is committed together with the claim, before any spawn (T025).
+ * Commit EffectStarted and operation identity together before spawning. Blocked effects stay
+ * pending.
  */
 export function claimEffect(
   db: Database,
@@ -60,7 +59,7 @@ export function claimEffect(
     const state = readTask(db, row.task_id);
     if (state === null)
       throw new Error(
-        `effect ${effectId} trỏ tới task không có: ${row.task_id}`,
+        `Effect ${effectId} references a missing task: ${row.task_id}`,
       );
     const c = claimable(
       state,

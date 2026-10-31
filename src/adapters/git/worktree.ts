@@ -1,5 +1,5 @@
 /**
- * The task's own worktree and branch (T036, FR-003, contracts/execution.md "Prepare, gate và publish").
+ * The task's own worktree and branch (T036, FR-003, contracts/execution.md).
  * One branch `cusr/<task_id>-<slug>` and one worktree per task, created from the frozen base. An owner
  * marker is written outside every agent-writable area before anything is created, so a crash between
  * the two steps is resumed rather than mistaken for someone else's worktree.

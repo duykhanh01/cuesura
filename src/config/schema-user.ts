@@ -17,8 +17,8 @@ import {
 import { SOFTWARE_DEV_NAME } from '../engine/workflows/software-dev.ts';
 
 /**
- * Thời lượng dạng `45s`, `10m`, `6h`, phải lớn hơn 0; đổi sang ms ở normalize.ts. Mọi thời lượng trong
- * cấu hình đều là trần hoặc chu kỳ nên `0s` không có nghĩa và bị FrozenPolicy từ chối.
+ * Configuration durations must be positive: they represent limits or intervals. Normalize to
+ * milliseconds later.
  */
 export const DurationSchema = z.string().refine(
   (s) => {
@@ -27,11 +27,10 @@ export const DurationSchema = z.string().refine(
   },
   {
     message:
-      'thời lượng không hợp lệ (số nguyên dương + ms|s|m|h|d, ví dụ 45s, 10m, 6h)',
+      'Invalid duration; use a positive integer followed by ms, s, m, h, or d (e.g. 45s, 10m, 6h)',
   },
 );
 
-/** Predicate thô; khoá và kiểu giá trị được kiểm ở checks.ts (FR-003 kiểm tra 6). */
 export const RawPredicateSchema = z.record(z.string(), z.unknown());
 
 const nameList = z.array(z.string().min(1));
@@ -74,7 +73,7 @@ export const LadderStepSchema = z
       s.add_context !== undefined,
     {
       message:
-        'nấc thang phải đổi ít nhất một trong effort, model, add_context',
+        'A ladder rung must change at least one of: effort, model, add_context',
     },
   );
 
@@ -108,7 +107,6 @@ export const RoleSchema = z
   .strict();
 export type RawRole = z.infer<typeof RoleSchema>;
 
-/** Bước trong cấu hình người dùng: như `StepSchema` nhưng thời lượng là chuỗi và predicate còn thô. */
 export const UserStepSchema = z
   .object({
     kind: z.enum(STEP_KINDS).optional(),
@@ -133,9 +131,8 @@ export const UserStepSchema = z
 export type RawStep = z.infer<typeof UserStepSchema>;
 
 /**
- * Workflow: hoặc tham chiếu `base: software_dev@1` và chỉnh tham số từng bước, hoặc khai báo đủ graph
- * (`start` + `steps`). Đổi graph của workflow dựng sẵn làm `structure_hash` khác, nên bị báo
- * `unsupported_workflow` khi chốt (R-11).
+ * A workflow either extends software_dev@1 or declares a complete graph. A changed built-in graph
+ * gets a different structure_hash and is rejected at freeze time.
  */
 export const UserWorkflowSchema = z
   .object({
@@ -153,18 +150,17 @@ export const UserWorkflowSchema = z
       ctx.addIssue({
         code: 'custom',
         path: ['start'],
-        message: 'workflow không có base cần start',
+        message: 'A workflow without a base requires start',
       });
     if (w.steps === undefined)
       ctx.addIssue({
         code: 'custom',
         path: ['steps'],
-        message: 'workflow không có base cần steps',
+        message: 'A workflow without a base requires steps',
       });
   });
 export type RawWorkflow = z.infer<typeof UserWorkflowSchema>;
 
-/** `profiles.<name>.limits.backoff.<lớp>`; khai báo thì phải đủ cận trên (contracts/config.md "Backoff"). */
 export const BackoffInputSchema = z
   .object({
     base: DurationSchema,
@@ -227,15 +223,15 @@ export const ProfileSchema = z
       })
       .strict()
       .optional(),
-    /** Đường dẫn khoá được override khi tạo task, ví dụ `roles.reviewer.binding`, `budgets.max_agent_runs`. */
+
     overridable: nameList.optional(),
   })
   .strict();
 export type RawProfile = z.infer<typeof ProfileSchema>;
 
 /**
- * Đường dẫn tuyệt đối dạng chuẩn: không `.`/`..`, không đoạn rỗng, không NUL. Chỉ kiểm hình dạng; realpath,
- * quyền và git common dir là I/O của preflight/doctor.
+ * Validate path syntax here; realpath, permissions, and Git-directory checks belong to
+ * preflight/doctor.
  */
 export function isCleanAbsolutePath(p: string): boolean {
   if (!p.startsWith('/') || p.includes('\0') || p.length > 4096) return false;
@@ -245,15 +241,14 @@ export function isCleanAbsolutePath(p: string): boolean {
 
 export const AbsolutePathSchema = z.string().refine(isCleanAbsolutePath, {
   message:
-    'cần đường dẫn tuyệt đối dạng chuẩn (không `.`, `..`, đoạn rỗng hay `/` cuối)',
+    'Expected a normalized absolute path without `.`, `..`, empty segments, or a trailing `/`',
 });
 
-/** Slug GitHub `owner/repo`; ID bất biến của repo lấy ở preflight. */
 export const RepoSlugSchema = z
   .string()
   .regex(
     /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/(?!\.\.?$)[A-Za-z0-9._-]{1,100}$/,
-    { message: 'repo phải là slug GitHub dạng owner/repo' },
+    { message: 'repo must be a GitHub repository in owner/repo format' },
   );
 
 export const ProjectEntrySchema = z
@@ -265,8 +260,6 @@ export const ProjectEntrySchema = z
   })
   .strict();
 
-// ---------- Runtime của daemon 002 (contracts/cli-daemon.md "Cấu hình mở rộng tối thiểu") ----------
-
 export const RUNTIME_TOOLS = [
   'git',
   'gh',
@@ -277,14 +270,14 @@ export const RUNTIME_TOOLS = [
 export type RuntimeTool = (typeof RUNTIME_TOOLS)[number];
 
 const RefNameSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/, {
-  message: 'tên chỉ gồm chữ, số, `_`, `.`, `-` (tối đa 64)',
+  message:
+    'Names must start with a letter or digit and contain only letters, digits, underscores, periods, or hyphens (maximum: 64 characters)',
 });
 
 function unique<T>(xs: readonly T[]): boolean {
   return new Set(xs).size === xs.length;
 }
 
-/** Token riêng (contracts/cli-daemon.md "Token riêng cho assistant"): chỉ metadata và file, không secret. */
 export const AccessTokenSchema = z
   .object({
     id: RefNameSchema,
@@ -292,20 +285,17 @@ export const AccessTokenSchema = z
     roles: z
       .array(z.enum(AUTHZ_ROLES))
       .min(1)
-      .refine(unique, { message: 'roles không được lặp' }),
+      .refine(unique, { message: 'roles must not contain duplicates' }),
     projects: z
       .array(z.string().min(1))
       .min(1)
-      .refine(unique, { message: 'projects không được lặp' }),
+      .refine(unique, { message: 'projects must not contain duplicates' }),
     token_file: AbsolutePathSchema,
   })
   .strict();
 export type AccessTokenSpec = z.infer<typeof AccessTokenSchema>;
 
-/**
- * `runtime:` đóng; mọi khoá tuỳ chọn. Trần số trong `limits` là override từng phần trên
- * `DEFAULT_RUNTIME_LIMITS`; ràng buộc chéo kiểm sau khi hợp nhất (checks.ts `checkRuntime`).
- */
+/** Runtime limits override defaults individually; check cross-field constraints after merging them. */
 export const RuntimeSchema = z
   .object({
     data_dir: AbsolutePathSchema.optional(),
@@ -332,7 +322,6 @@ export const RuntimeSchema = z
   .strict();
 export type RawRuntime = z.infer<typeof RuntimeSchema>;
 
-/** `~/.cusr/config.yaml` (contracts/config.md "Thẩm quyền theo file"). */
 export const UserConfigSchema = z
   .object({
     version: z.literal(1),
@@ -352,7 +341,6 @@ export const UserConfigSchema = z
   .strict();
 export type RawUserConfig = z.infer<typeof UserConfigSchema>;
 
-/** Khoá chỉ thuộc cấu hình người dùng; xuất hiện trong `cusr.yaml` hay pack là `forbidden_key`. */
 export const USER_ONLY_KEYS = [
   'harnesses',
   'models',

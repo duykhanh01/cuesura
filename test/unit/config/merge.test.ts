@@ -26,9 +26,9 @@ function validProject(text: string, packs: Record<string, ConfigSource> = {}) {
   return r.value.config.project;
 }
 
-describe('thẩm quyền theo file (FR-001)', () => {
+describe('Configuration authority by file (FR-001)', () => {
   it.each(USER_ONLY_KEYS)(
-    'khoá %s trong cusr.yaml là forbidden_key tại chính khoá đó',
+    'key %s in cusr.yaml reports forbidden_key at that key',
     (key) => {
       const r = validateConfig({
         user: USER,
@@ -45,7 +45,7 @@ describe('thẩm quyền theo file (FR-001)', () => {
     },
   );
 
-  it('khoá của project trong cấu hình người dùng là forbidden_key', () => {
+  it('project keys in user configuration return forbidden_key', () => {
     const r = validateConfig({
       user: minUser({}, 'setup: npm ci\n'),
       packs: {},
@@ -53,7 +53,7 @@ describe('thẩm quyền theo file (FR-001)', () => {
     expect(!r.ok && r.error.map((d) => d.code)).toEqual(['forbidden_key']);
   });
 
-  it('pack không được khai báo ci.required_checks, pools, extends, profile', () => {
+  it('packs cannot declare ci.required_checks, pools, extends, or profile', () => {
     const r = validateConfig({
       user: USER,
       project: project(
@@ -70,13 +70,13 @@ describe('thẩm quyền theo file (FR-001)', () => {
   });
 });
 
-describe('thứ tự hợp nhất', () => {
+describe('Merge precedence', () => {
   const packs = {
     a: pack('a', 'setup: from-a\nhotspots: [a1]\n'),
     b: pack('b', 'setup: from-b\n'),
   };
 
-  it('pack sau trong extends ghi đè pack trước', () => {
+  it('later packs in extends override earlier packs', () => {
     expect(
       validProject(
         'version: 1\nextends: [a, b]\ngates: { build: x, unit: y }\nprofile: standard\n',
@@ -91,7 +91,7 @@ describe('thứ tự hợp nhất', () => {
     ).toEqual(['from-a']);
   });
 
-  it('cusr.yaml thắng pack', () => {
+  it('cusr.yaml overrides packs', () => {
     const p = validProject(
       'version: 1\nextends: [a]\nsetup: own\ngates: { build: x, unit: y }\nprofile: standard\n',
       packs,
@@ -100,7 +100,7 @@ describe('thứ tự hợp nhất', () => {
     expect(p?.hotspots).toEqual(['a1']);
   });
 
-  it('map hợp nhất theo khoá, mảng bị thay thế không nối', () => {
+  it('maps merge by key; arrays are replaced rather than concatenated', () => {
     const packs2 = {
       p: pack(
         'p',
@@ -115,13 +115,13 @@ describe('thứ tự hợp nhất', () => {
     expect(p?.conventions).toEqual(['C.md']);
   });
 
-  it('deepMerge: giá trị vô hướng và mảng của lớp trên thắng', () => {
+  it('deepMerge replaces scalars and arrays with higher-precedence values', () => {
     expect(
       deepMerge({ a: { b: 1, c: [1, 2] } }, { a: { c: [3] }, d: 1 }),
     ).toEqual({ a: { b: 1, c: [3] }, d: 1 });
   });
 
-  it('lỗi ở khoá kế thừa từ pack chỉ về file pack', () => {
+  it('errors in inherited pack keys point to the pack file', () => {
     const r = validateConfig({
       user: USER,
       project: project(
@@ -138,7 +138,7 @@ describe('thứ tự hợp nhất', () => {
 });
 
 describe('profile', () => {
-  it('extends hợp nhất profile cha trước con', () => {
+  it('extends merges parent profiles before children', () => {
     const r = validateConfig({ user: USER, packs: {} });
     expect(r.ok && r.value.config.profiles.heavy).toMatchObject({
       workflow: 'impl',
@@ -152,7 +152,7 @@ describe('profile', () => {
     });
   });
 
-  it('profile_cycle khi extends tạo chu trình', () => {
+  it('extends cycles return profile_cycle', () => {
     const r = validateConfig({
       user: minUser({
         profiles:
@@ -165,7 +165,7 @@ describe('profile', () => {
     ]);
   });
 
-  it('extends sâu quá giới hạn bị từ chối', () => {
+  it('rejects extends beyond the maximum depth', () => {
     const chain = Array.from(
       { length: 4 },
       (_, i) => `  p${i}: { extends: p${i + 1} }\n`,
@@ -176,7 +176,7 @@ describe('profile', () => {
       packs: {},
       limits: { max_profile_depth: 3 },
     });
-    // p0 (5 cấp) và p1 (4 cấp) vượt 3; p2 trở xuống không.
+    // p0 (depth 5) and p1 (depth 4) exceed 3; p2 and below do not.
     expect(!r.ok && r.error.map((d) => [d.code, d.path.join('.')])).toEqual([
       ['profile_cycle', 'profiles.p3.extends'],
       ['profile_cycle', 'profiles.p4.extends'],
@@ -187,7 +187,7 @@ describe('profile', () => {
   });
 });
 
-describe('override khi tạo task (bước 4)', () => {
+describe('Task-creation overrides (stage 4)', () => {
   const validated = (() => {
     const r = validateConfig({
       user: USER,
@@ -211,7 +211,7 @@ describe('override khi tạo task (bước 4)', () => {
       ...docsFor(validated),
     });
 
-  it('override được profile cho phép thì áp sau cùng', () => {
+  it('permitted overrides apply last', () => {
     const r = run(
       {
         'roles.reviewer.binding': [{ model: 'sonnet' }],
@@ -225,7 +225,7 @@ describe('override khi tạo task (bước 4)', () => {
     );
   });
 
-  it('override_not_allowed khi profile không cho khoá đó', () => {
+  it('disallowed keys return override_not_allowed', () => {
     const r = run({ 'budgets.max_wall': '9h' }, ['admin']);
     expect(
       !r.ok &&
@@ -234,7 +234,7 @@ describe('override khi tạo task (bước 4)', () => {
     ).toEqual(['override_not_allowed']);
   });
 
-  it('override_exceeds_caller khi override nới quyền mà người gọi chỉ có operate', () => {
+  it('operate-only callers cannot widen permissions through overrides', () => {
     const r = run({ 'budgets.max_agent_runs': 50 }, ['operate']);
     expect(!r.ok && r.error).toEqual({
       code: 'override_exceeds_caller',
@@ -242,12 +242,12 @@ describe('override khi tạo task (bước 4)', () => {
     });
   });
 
-  it('người gọi có admin được nới ngân sách qua override', () => {
+  it('admins may increase budgets through overrides', () => {
     const r = run({ 'budgets.max_agent_runs': 50 }, ['admin']);
     expect(r.ok && r.value.policy.limits.max_agent_runs).toBe(50);
   });
 
-  it('người gọi chỉ có read không override được gì', () => {
+  it('read-only callers cannot apply overrides', () => {
     const r = applyOverrides(
       { roles: {}, profile: {}, project: {} },
       { 'gates.lint': 'x' },
@@ -260,7 +260,7 @@ describe('override khi tạo task (bước 4)', () => {
     });
   });
 
-  describe('quyền được xét trên cấu hình sau override, không trên tên khoá', () => {
+  describe('checks permissions in the effective configuration rather than override names', () => {
     const target = {
       roles: {
         coder: { permissions: 'read_only', binding: [{ model: 'sonnet' }] },
@@ -270,7 +270,7 @@ describe('override khi tạo task (bước 4)', () => {
     };
     const operate = authz(['operate']);
 
-    it('override object cha nâng permissions bị chặn như khoá lá', () => {
+    it('parent-object overrides cannot bypass leaf permission checks', () => {
       const viaParent = applyOverrides(
         target,
         {
@@ -298,7 +298,7 @@ describe('override khi tạo task (bước 4)', () => {
       });
     });
 
-    it('override object cha bỏ permissions (về mặc định write) cũng bị chặn', () => {
+    it('removing permissions through a parent override cannot bypass the default write check', () => {
       const r = applyOverrides(
         target,
         { 'roles.coder': { binding: [{ model: 'opus' }] } },
@@ -311,7 +311,7 @@ describe('override khi tạo task (bước 4)', () => {
       });
     });
 
-    it('override object cha giữ nguyên permissions thì được', () => {
+    it('permits parent-object overrides that preserve permissions', () => {
       const r = applyOverrides(
         target,
         {
@@ -326,7 +326,7 @@ describe('override khi tạo task (bước 4)', () => {
       expect(r.ok).toBe(true);
     });
 
-    it('override cả roles hay budgets qua object cha cũng bị xét', () => {
+    it('checks whole roles and budgets overrides through parent objects', () => {
       const roles = applyOverrides(
         target,
         { roles: { coder: { permissions: 'write', binding: [] } } },
@@ -357,7 +357,7 @@ describe('override khi tạo task (bước 4)', () => {
       ).toBe(true);
     });
 
-    it('qua freeze: caller operate không nâng được role read_only lên write', () => {
+    it('freeze prevents operate callers from upgrading read_only roles to write', () => {
       const roles = MIN_PARTS.roles.replace(
         'coder: { binding: [{ model: sonnet }] }',
         'coder: { permissions: read_only, binding: [{ model: sonnet }] }',
@@ -389,7 +389,7 @@ describe('override khi tạo task (bước 4)', () => {
       });
     });
 
-    it('tên role chứa dấu chấm không lọt khỏi luật quyền', () => {
+    it('periods in role names cannot bypass permission checks', () => {
       const dotted = {
         roles: {
           'team.coder': {
@@ -433,7 +433,7 @@ describe('override khi tạo task (bước 4)', () => {
       expect(same.ok).toBe(true);
     });
 
-    it('qua freeze: thay cả map roles để nâng role có dấu chấm bị chặn (FR-001)', () => {
+    it('freeze blocks permission upgrades through a full roles-map override (FR-001)', () => {
       const roles = `${MIN_PARTS.roles}  team.coder: { permissions: read_only, binding: [{ model: sonnet }] }\n`;
       const profiles =
         'profiles:\n  standard: { workflow: impl, overridable: [roles], budgets: { max_agent_runs: 5, max_wall: 1h } }\n';
@@ -469,7 +469,7 @@ describe('override khi tạo task (bước 4)', () => {
     });
   });
 
-  it('giá trị override sai được kiểm lại như cấu hình', () => {
+  it('revalidates invalid override values', () => {
     const r = run({ 'roles.reviewer.binding': [{ model: 'gpt' }] }, [
       'operate',
     ]);
@@ -480,7 +480,7 @@ describe('override khi tạo task (bước 4)', () => {
     ).toEqual([['unknown_model', '<overrides>']]);
   });
 
-  it('cấu hình tối thiểu không override vẫn chốt được', () => {
+  it('freezes minimal configuration without overrides', () => {
     const r = validateConfig({
       user: minUser(),
       project: MIN_PROJECT,

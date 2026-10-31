@@ -115,7 +115,6 @@ export function readEvents(
   return rows.map(toEvent);
 }
 
-/** Chính sách của một revision; mặc định `policy_version` mới nhất. */
 export function readPolicy(
   db: Database,
   taskId: string,
@@ -155,7 +154,6 @@ export function readContext(
     : (JSON.parse(row.context_json) as FrozenExecutionContext);
 }
 
-/** Effect chờ executor, theo thứ tự được yêu cầu; `after` (một effect id) cho trang tiếp theo. */
 export function pendingEffects(
   db: Database,
   limit: number,

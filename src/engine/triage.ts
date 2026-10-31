@@ -5,9 +5,6 @@ import type { RelatedFacts } from '../domain/trigger.ts';
 import { reject, type Ctx } from './context.ts';
 import { mkWait } from './waits.ts';
 
-/**
- * Dependency phải tồn tại, không tự tham chiếu, không tạo chu trình (FR-008). Sai thì từ chối tín hiệu.
- */
 export function checkDependencies(
   task: CanonicalTask,
   related: RelatedFacts,
@@ -23,7 +20,6 @@ export function checkDependencies(
     reject('dependency_invalid', { reason: 'dependency_cycle' });
 }
 
-/** Retry chỉ hợp lệ khi task nguồn đã kết thúc (FR-010). */
 export function checkRetryOf(task: CanonicalTask, related: RelatedFacts): void {
   if (task.retry_of === null) return;
   const st = related.retry_of ?? 'missing';
@@ -36,10 +32,6 @@ export function checkRetryOf(task: CanonicalTask, related: RelatedFacts): void {
   }
 }
 
-/**
- * Điều kiện tới READY (FR-008): đã xác nhận nếu cần, có ít nhất một acceptance, mọi dependency DONE.
- * Trả `null` khi đủ điều kiện.
- */
 export function pendingWait(
   ctx: Ctx,
   deps: Record<string, TaskStatus | 'missing'>,
@@ -81,7 +73,6 @@ export function pendingWait(
   return null;
 }
 
-/** Xét lại điều kiện READY khi task chưa chạy; chỉ phát sự kiện khi trạng thái hay lý do chờ đổi. */
 export function retriage(
   ctx: Ctx,
   deps: Record<string, TaskStatus | 'missing'>,

@@ -1,5 +1,5 @@
 /**
- * Repo-controlled commands (T038, FR-004, contracts/execution.md "Prepare, gate và publish"): setup,
+ * Repo-controlled commands (T038, FR-004, contracts/execution.md): setup,
  * gates and autofix run exactly the frozen command string as `/bin/sh -c <command>` inside the Isolated
  * sandbox, never on the host. Each run is capped by the frozen command wall (10 minutes by default) and
  * by what is left of the task deadline, and always produces a receipt.

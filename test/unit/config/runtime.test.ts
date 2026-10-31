@@ -206,7 +206,7 @@ describe('runtime config', () => {
       {
         code: 'schema_invalid',
         path: 'runtime.backend',
-        message: "khoá 'backend' không được hỗ trợ",
+        message: "Key 'backend' is not supported",
       },
     ]);
     expect(paths('runtime: { limits: { poll_ms: 1 } }\n')).toEqual([
@@ -344,7 +344,7 @@ describe('project file authority', () => {
       {
         code: 'forbidden_key',
         path: 'runtime',
-        message: "khoá 'runtime' chỉ thuộc cấu hình người dùng",
+        message: "Key 'runtime' is only allowed in the user configuration",
       },
     ]);
   });
@@ -584,7 +584,12 @@ describe('historical hashes', () => {
     if (!r.ok) throw new Error(JSON.stringify(r.error));
     const f = freeze({
       config: r.value.config,
-      task: buildTask(),
+      // Preserve the original Unicode input behind the historical context hash.
+      task: buildTask({
+        title: 'Thêm tìm kiếm khách hàng',
+        description: 'Cho phép tìm khách hàng theo tên.',
+        acceptance: ['Tìm theo tên trả kết quả đúng'],
+      }),
       caller: authz(),
       base_sha: 'cafe1234',
       attachments: [],

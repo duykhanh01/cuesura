@@ -8,18 +8,18 @@ import {
   taskOverArb,
 } from '../arbitraries/policies.ts';
 
-describe('I01 quyết định tất định', () => {
-  it('cùng đầu vào cho cùng Decision; decide không sửa đầu vào; phát lại cho cùng kết quả', () => {
+describe('I01 deterministic decisions', () => {
+  it('identical inputs yield identical decisions without input mutations; replay matches', () => {
     fc.assert(
       fc.property(
         policyArb,
         taskOverArb,
         choicesArb(),
         (policy, over, choices) => {
-          // Ở mỗi bước, `Sim` gọi decide trên đầu vào đóng băng sâu và trên một bản sao, rồi so JSON chuẩn
-          // hoá: decide không ghi vào đầu vào và không đọc gì ngoài nó (đồng hồ, ngẫu nhiên đã bị lint chặn).
+          // Sim compares decisions on deeply frozen inputs and independent copies. Lint separately blocks clock and randomness access.
+
           const run = drive(policy, over, choices);
-          // Phát lại toàn bộ nhật ký đầu vào trên harness mới cho cùng sự kiện, quyết định và state.
+
           run.sim.replayCheck();
         },
       ),
@@ -27,7 +27,7 @@ describe('I01 quyết định tất định', () => {
     );
   });
 
-  it('hai lần chạy cùng chuỗi lựa chọn cho cùng quyết định và trạng thái cuối', () => {
+  it('the same choice sequence yields identical decisions and final state', () => {
     fc.assert(
       fc.property(
         policyArb,

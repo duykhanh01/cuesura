@@ -1,8 +1,6 @@
 /**
- * Task commands over the control socket (T048, T108–T115). Every call carries the caller's token; the CLI
- * never opens the database. Syntax and schema errors stop here, before anything reaches the daemon. A
- * mutation has a request ID, generated when not given and printed back in every outcome, so a caller can
- * replay it after a timeout and get the first result.
+ * All commands use the daemon socket; the CLI never opens the store. Validate syntax before sending.
+ * Mutations print a request ID so callers can retry safely after a timeout.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -24,10 +22,9 @@ type Values = Readonly<Record<string, string | undefined>>;
 
 const DATA_DIR = {
   flags: '--data-dir <dir>',
-  description: 'daemon data directory (default $CUSR_DATA_DIR or ~/.cusr)',
+  description: 'Daemon data directory (default: $CUSR_DATA_DIR or ~/.cusr)',
 };
 
-/** One call to the daemon; a transport failure comes back as an envelope too, with the exit it maps to. */
 async function call(
   values: Values,
   path: '/v1/command' | '/v1/query',
@@ -92,7 +89,6 @@ function usage(message: string, json: boolean, io: CliIo): number {
   return print(fail('invalid_arguments', message, {}, null), json, io);
 }
 
-/** `harness/model/effort`, as the user config names them. */
 function choice(
   v: string | undefined,
 ): { harness: string; model: string; effort: string } | null | undefined {
@@ -106,22 +102,30 @@ function choice(
 const RUN_OPTIONS = [
   {
     flags: '--profile <name>',
-    description: 'profile the run selection is for',
+    description: 'Profile for this run configuration',
   },
   {
     flags: '--mode <mode>',
-    description: 'direct-pr or full-review (see runtime.modes.*.when_to_use)',
+    description: 'Execution mode: direct-pr or full-review',
   },
-  { flags: '--worker <h/m/e>', description: 'worker harness/model/effort' },
+  {
+    flags: '--worker <h/m/e>',
+    description: 'Worker binding in harness/model/effort format',
+  },
   {
     flags: '--reviewer <h/m/e>',
-    description: 'reviewer harness/model/effort (full-review only)',
+    description:
+      'Reviewer binding in harness/model/effort format (full-review only)',
   },
   {
     flags: '--fallback <list>',
-    description: 'comma-separated harness/model/effort the worker may move to',
+    description:
+      'Comma-separated fallback bindings in harness/model/effort format',
   },
-  { flags: '--reason <text>', description: 'why this mode and bindings' },
+  {
+    flags: '--reason <text>',
+    description: 'Reason for the selected mode and bindings',
+  },
 ];
 
 /** The run selection from flags; undefined when none given, a string when malformed. */
@@ -143,7 +147,7 @@ function runProposal(
     reviewer === null ||
     fallbacks.some((f) => f == null)
   ) {
-    return 'a run selection needs --profile, --mode and --worker h/m/e (and --reviewer h/m/e for full-review)';
+    return 'Run configuration requires --profile, --mode, and --worker in harness/model/effort format; full-review also requires --reviewer';
   }
   return {
     profile: values['profile'],
@@ -155,18 +159,18 @@ function runProposal(
   };
 }
 
-/** `--request-id` lets a caller retry the same request; the daemon replays its first result. */
 const REQUEST_ID = {
   flags: '--request-id <uuid>',
-  description: 'idempotency key (default: a new UUIDv7, printed in the result)',
+  description:
+    'Request ID for safe retries (default: a new UUIDv7, included in the result)',
 };
 const EXPECTED_VERSION = {
   flags: '--expected-version <n>',
-  description: 'task version you saw (from task show)',
+  description: 'Expected task version from cusr task show',
 };
 const PROJECT = {
   flags: '--project <id>',
-  description: 'project of the task (default: looked up from the task)',
+  description: 'Project ID (default: resolved from the task)',
 };
 
 function version(values: Values): number | null {
@@ -175,7 +179,6 @@ function version(values: Values): number | null {
   return Number.isInteger(n) && n >= 0 ? n : null;
 }
 
-/** Sends one mutation of an existing task, looking its project up first unless `--project` names it. */
 async function mutate(
   values: Values,
   kind: string,
@@ -186,7 +189,11 @@ async function mutate(
 ): Promise<number> {
   const expected = version(values);
   if (expected === null)
-    return usage(`${kind} needs --expected-version N`, json, io);
+    return usage(
+      `${kind} requires --expected-version with a non-negative integer`,
+      json,
+      io,
+    );
   const requestId = values['requestId'] ?? uuidv7();
   let project = values['project'];
   if (project === undefined) {
@@ -243,36 +250,42 @@ function readJsonFile(path: string): Record<string, unknown> | string {
     const raw: unknown = JSON.parse(readFileSync(path, 'utf8'));
     return typeof raw === 'object' && raw !== null && !Array.isArray(raw)
       ? (raw as Record<string, unknown>)
-      : `${path} does not hold a JSON object`;
+      : `${path} must contain a JSON object`;
   } catch (e) {
-    return `cannot read ${path}: ${e instanceof Error ? e.message : String(e)}`;
+    return `Cannot read ${path}: ${e instanceof Error ? e.message : String(e)}`;
   }
 }
 
 export const addCommand: CliCommand = {
   name: 'task add',
-  description: 'add a task from --file or flags; does not wait for a PR',
+  description: 'Add a task from a JSON file or flags and return immediately',
   options: [
     DATA_DIR,
     REQUEST_ID,
     {
       flags: '--file <file>',
       description:
-        'JSON task input: project, title, base_branch, acceptance, …',
+        'JSON task file containing project, title, base_branch, and acceptance',
     },
-    { flags: '--project <id>', description: 'project id from the user config' },
-    { flags: '--title <text>', description: 'task title' },
-    { flags: '--base <branch>', description: 'base branch' },
+    {
+      flags: '--project <id>',
+      description: 'Project ID from the user configuration',
+    },
+    { flags: '--title <text>', description: 'Task title' },
+    { flags: '--base <branch>', description: 'Base branch' },
     {
       flags: '--acceptance <text>',
-      description: 'acceptance criteria, one per line',
+      description: 'Acceptance criteria, one per line',
     },
-    { flags: '--description <text>', description: 'description' },
+    { flags: '--description <text>', description: 'Task description' },
     {
       flags: '--depends-on <ids>',
-      description: 'comma-separated task ids this task waits for',
+      description: 'Comma-separated dependency task IDs',
     },
-    { flags: '--priority <n>', description: 'higher runs first (default 0)' },
+    {
+      flags: '--priority <n>',
+      description: 'Scheduling priority; higher values run first (default: 0)',
+    },
     ...RUN_OPTIONS,
   ],
   async run(values, json, io) {
@@ -288,7 +301,7 @@ export const addCommand: CliCommand = {
       task = rest;
       if (project === undefined)
         return usage(
-          'task add needs a project in --file or --project',
+          'task add requires a project in the JSON file or --project',
           json,
           io,
         );
@@ -296,7 +309,7 @@ export const addCommand: CliCommand = {
       const { title, base } = values;
       if (project === undefined || title === undefined || base === undefined)
         return usage(
-          'task add needs --file, or --project, --title and --base',
+          'task add requires --file or all of --project, --title, and --base',
           json,
           io,
         );
@@ -344,7 +357,7 @@ export const addCommand: CliCommand = {
 export const showCommand: CliCommand = {
   name: 'task show',
   description:
-    'show a task: status, step, wait, version, PR, head, usage and evidence sources',
+    'Show task status, progress, version, pull request, usage, and evidence',
   args: ['<id>'],
   options: [DATA_DIR],
   run: (values, json, io) =>
@@ -353,19 +366,22 @@ export const showCommand: CliCommand = {
 
 export const listCommand: CliCommand = {
   name: 'task list',
-  description: 'list tasks you may read, at most 100 per page',
+  description: 'List accessible tasks (up to 100 per page)',
   options: [
     DATA_DIR,
-    { flags: '--limit <n>', description: 'page size, at most 100' },
-    { flags: '--cursor <id>', description: 'next_cursor of the previous page' },
-    { flags: '--project <id>', description: 'only this project' },
-    { flags: '--status <status>', description: 'only this status' },
+    { flags: '--limit <n>', description: 'Page size (maximum: 100)' },
+    {
+      flags: '--cursor <id>',
+      description: 'Pagination cursor from the previous result',
+    },
+    { flags: '--project <id>', description: 'Filter by project ID' },
+    { flags: '--status <status>', description: 'Filter by task status' },
   ],
   run(values, json, io) {
     const limit =
       values['limit'] === undefined ? undefined : Number(values['limit']);
     if (limit !== undefined && !Number.isInteger(limit))
-      return Promise.resolve(usage('--limit needs a whole number', json, io));
+      return Promise.resolve(usage('--limit must be an integer', json, io));
     return query(
       values,
       {
@@ -385,8 +401,7 @@ export const listCommand: CliCommand = {
 
 export const explainCommand: CliCommand = {
   name: 'task explain',
-  description:
-    'why a task waits, what ways out it has and which limits are spent; never calls a model',
+  description: 'Explain task blockers, available actions, and remaining limits',
   args: ['<id>'],
   options: [DATA_DIR],
   run: (values, json, io) =>
@@ -395,12 +410,15 @@ export const explainCommand: CliCommand = {
 
 export const historyCommand: CliCommand = {
   name: 'task history',
-  description: 'the accepted events of a task, in order',
+  description: 'Show accepted task events in sequence order',
   args: ['<id>'],
   options: [
     DATA_DIR,
-    { flags: '--after <seq>', description: 'only events after this seq' },
-    { flags: '--limit <n>', description: 'page size, at most 500' },
+    {
+      flags: '--after <seq>',
+      description: 'Show events after this sequence number',
+    },
+    { flags: '--limit <n>', description: 'Page size (maximum: 500)' },
   ],
   run(values, json, io) {
     const after =
@@ -412,7 +430,7 @@ export const historyCommand: CliCommand = {
       (limit !== undefined && !Number.isInteger(limit))
     )
       return Promise.resolve(
-        usage('--after and --limit need whole numbers', json, io),
+        usage('--after and --limit must be integers', json, io),
       );
     return query(
       values,
@@ -431,7 +449,7 @@ export const historyCommand: CliCommand = {
 export const proposeCommand: CliCommand = {
   name: 'task propose',
   description:
-    'propose the mode and harness/model/effort a task runs with (confirmed separately)',
+    'Propose a task execution mode and model bindings for confirmation',
   args: ['<id>'],
   options: [DATA_DIR, REQUEST_ID, PROJECT, EXPECTED_VERSION, ...RUN_OPTIONS],
   run(values, json, io) {
@@ -439,7 +457,7 @@ export const proposeCommand: CliCommand = {
     if (run === undefined || typeof run === 'string')
       return Promise.resolve(
         usage(
-          run ?? 'task propose needs --profile, --mode and --worker',
+          run ?? 'task propose requires --profile, --mode, and --worker',
           json,
           io,
         ),
@@ -458,7 +476,7 @@ export const proposeCommand: CliCommand = {
 export const confirmCommand: CliCommand = {
   name: 'task confirm',
   description:
-    'confirm a task (and, with --run-config, the run selection shown by show) and re-check its config',
+    'Confirm a task and revalidate its configuration; use --run-config to confirm the proposed run',
   args: ['<id>'],
   options: [
     DATA_DIR,
@@ -468,7 +486,7 @@ export const confirmCommand: CliCommand = {
     {
       flags: '--run-config <digest>',
       description:
-        'digest of the run selection you reviewed (owner token only)',
+        'Run configuration digest from cusr task show (owner token required)',
     },
   ],
   run: (values, json, io) =>
@@ -487,21 +505,24 @@ export const confirmCommand: CliCommand = {
 export const cancelCommand: CliCommand = {
   name: 'task cancel',
   description:
-    'cancel a task; nothing sent is taken back and a merge already made still ends DONE',
+    'Request task cancellation; completed external actions are preserved',
   args: ['<id>'],
   options: [
     DATA_DIR,
     REQUEST_ID,
     PROJECT,
     EXPECTED_VERSION,
-    { flags: '--reason <text>', description: 'why (recorded in the history)' },
+    {
+      flags: '--reason <text>',
+      description: 'Cancellation reason recorded in task history',
+    },
   ],
   run: (values, json, io) =>
     mutate(
       values,
       'task_cancel',
       values['id'] as string,
-      { reason: values['reason'] ?? 'cancelled from the CLI' },
+      { reason: values['reason'] ?? 'Cancelled from the CLI' },
       json,
       io,
     ),
@@ -510,7 +531,7 @@ export const cancelCommand: CliCommand = {
 export const recheckCommand: CliCommand = {
   name: 'task recheck',
   description:
-    'one bounded check chosen from the task state (config, PR, drain or worktree); no agent, merge or new head',
+    'Recheck task configuration, pull request, drain, or worktree based on its current state',
   args: ['<id>'],
   options: [DATA_DIR, REQUEST_ID, PROJECT, EXPECTED_VERSION],
   run: (values, json, io) =>
@@ -538,16 +559,16 @@ function unsupported(
 
 export const approveCommand: CliCommand = {
   name: 'task approve',
-  description: 'approve an escalation (admin); merge approval is not supported',
+  description: 'Approve a model escalation (admin required)',
   args: ['<id>'],
   options: [
     DATA_DIR,
     REQUEST_ID,
     PROJECT,
     EXPECTED_VERSION,
-    { flags: '--kind <kind>', description: 'escalation' },
-    { flags: '--step <step>', description: 'step of the escalation' },
-    { flags: '--rung <n>', description: 'rung of the escalation' },
+    { flags: '--kind <kind>', description: 'Approval kind: escalation' },
+    { flags: '--step <step>', description: 'Step requesting escalation' },
+    { flags: '--rung <n>', description: 'Requested escalation rung' },
   ],
   run(values, json, io) {
     if (values['kind'] === 'merge')
@@ -560,7 +581,7 @@ export const approveCommand: CliCommand = {
     )
       return Promise.resolve(
         usage(
-          'task approve needs --kind escalation, --step and --rung',
+          'task approve requires --kind escalation, --step, and an integer --rung',
           json,
           io,
         ),
@@ -578,7 +599,7 @@ export const approveCommand: CliCommand = {
 
 export const retryCommand: CliCommand = {
   name: 'task retry',
-  description: 'not supported: use task add for an independent task',
+  description: 'Unsupported; use cusr task add to create an independent task',
   args: ['[id]'],
   options: [DATA_DIR, REQUEST_ID, EXPECTED_VERSION],
   run: (_values, json, io) => unsupported('task_retry', json, io),
@@ -586,7 +607,8 @@ export const retryCommand: CliCommand = {
 
 export const amendPolicyCommand: CliCommand = {
   name: 'task amend-policy',
-  description: 'not supported: cancel and use task add with the new config',
+  description:
+    'Unsupported; cancel the task and create one with the updated configuration',
   args: ['[id]'],
   options: [DATA_DIR, REQUEST_ID, EXPECTED_VERSION],
   run: (_values, json, io) => unsupported('task_amend_policy', json, io),
@@ -594,7 +616,8 @@ export const amendPolicyCommand: CliCommand = {
 
 export const yoloCommand: CliCommand = {
   name: 'yolo',
-  description: 'not supported: merge the PR on GitHub, then task recheck',
+  description:
+    'Unsupported; merge the pull request on GitHub, then run cusr task recheck',
   args: ['[id]'],
   options: [DATA_DIR],
   run: (_values, json, io) => unsupported('yolo', json, io),
@@ -602,11 +625,11 @@ export const yoloCommand: CliCommand = {
 
 export const inboxCommand: CliCommand = {
   name: 'inbox',
-  description: 'open questions of the tasks you may read',
+  description: 'List open questions for accessible tasks',
   options: [
     DATA_DIR,
-    { flags: '--project <id>', description: 'only this project' },
-    { flags: '--task <id>', description: 'only this task' },
+    { flags: '--project <id>', description: 'Filter by project ID' },
+    { flags: '--task <id>', description: 'Filter by task ID' },
   ],
   run: (values, json, io) =>
     query(
@@ -626,24 +649,28 @@ export const inboxCommand: CliCommand = {
 export const answerCommand: CliCommand = {
   name: 'answer',
   description:
-    'answer a question from a text file; the first valid answer wins',
+    'Answer a question from a text file; the first valid answer is accepted',
   args: ['<question>'],
   options: [
     DATA_DIR,
     REQUEST_ID,
     EXPECTED_VERSION,
-    { flags: '--file <file>', description: 'file holding the answer' },
+    { flags: '--file <file>', description: 'Text file containing the answer' },
   ],
   async run(values, json, io) {
     const expected = version(values);
     if (values['file'] === undefined || expected === null)
-      return usage('answer needs --file and --expected-version N', json, io);
+      return usage(
+        'answer requires --file and --expected-version with a non-negative integer',
+        json,
+        io,
+      );
     let answer: string;
     try {
       answer = readFileSync(values['file'], 'utf8').trimEnd();
     } catch (e) {
       return usage(
-        `cannot read ${values['file']}: ${e instanceof Error ? e.message : String(e)}`,
+        `Cannot read ${values['file']}: ${e instanceof Error ? e.message : String(e)}`,
         json,
         io,
       );
@@ -686,10 +713,10 @@ export const answerCommand: CliCommand = {
 export const doctorCommand: CliCommand = {
   name: 'doctor',
   description:
-    'check the store, recovery, host, sandbox, paths, credentials and manifests; no model, sudo or provisioning',
+    'Check daemon health, host prerequisites, credentials, and harness capabilities',
   options: [
     DATA_DIR,
-    { flags: '--project <id>', description: 'also check this project' },
+    { flags: '--project <id>', description: 'Include checks for this project' },
   ],
   run: (values, json, io) =>
     query(

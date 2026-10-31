@@ -4,8 +4,8 @@ import { join } from 'node:path';
 import { afterEach } from 'vitest';
 
 /**
- * Thư mục tạm trên filesystem Linux (WSL2: `/tmp`, không phải `/mnt/c`) cho file SQLite thật; tự dọn
- * sau mỗi test. Gọi ở mức module của file test.
+ * Use a local Linux filesystem for real SQLite files (WSL2: /tmp, never /mnt/c). Clean up after
+ * each test.
  */
 export function useTempDir(prefix = 'cusr-store-'): () => string {
   const dirs: string[] = [];

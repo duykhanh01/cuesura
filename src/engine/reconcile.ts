@@ -21,7 +21,6 @@ import {
 
 type Reconciled = Extract<Trigger, { kind: 'effect_reconciled' }>;
 
-/** Effect `reconcile` đã yêu cầu cho effect gốc cũng xong cùng lúc. */
 function closeProbe(ctx: Ctx, target: EffectMirror, result: unknown): void {
   for (const e of Object.values(ctx.state.effects)) {
     if (
@@ -38,18 +37,17 @@ function closeProbe(ctx: Ctx, target: EffectMirror, result: unknown): void {
   }
 }
 
-/** Kết quả của chính effect `reconcile`: phát hiện và số request probe đã dùng, nếu có. */
 const probeResult = (t: Reconciled) => ({
   finding: t.finding,
   ...(t.requests === undefined ? {} : { requests: t.requests }),
 });
 
 /**
- * Dữ liệu chuẩn bắt buộc cho `executed_succeeded` (R-17). Với `start_agent`: output đã kiểm tra schema,
- * có `invoked` và usage có nhãn; chỉ exit code thì chưa đủ.
+ * A reconciled agent success requires validated output, invoked, and labeled usage; an exit code
+ * alone is insufficient.
  */
 function successIssues(ctx: Ctx, e: EffectMirror, data: unknown): string[] {
-  if (data === undefined) return ['thiếu data'];
+  if (data === undefined) return ['data is required'];
   const parsed = parseSuccess(ctx, e, data);
   if (!parsed.ok) return parsed.issues;
   if (e.kind === 'start_agent') {
@@ -60,14 +58,15 @@ function successIssues(ctx: Ctx, e: EffectMirror, data: unknown): string[] {
     ).parse(data);
     const issues: string[] = [];
     if (!d.schema_checked)
-      issues.push('schema_checked: output chưa kiểm tra schema');
-    if (d.invoked === undefined) issues.push('invoked: thiếu');
+      issues.push(
+        'schema_checked: output has not been validated against its schema',
+      );
+    if (d.invoked === undefined) issues.push('invoked is required');
     return issues;
   }
   return [];
 }
 
-/** Tín hiệu `effect_reconciled` theo bảng "Kết quả đối chiếu" (contracts/signals-events.md). */
 export function onReconciled(ctx: Ctx, t: Reconciled): void {
   const e = ctx.state.effects[t.effect_id];
   if (e === undefined)
@@ -120,8 +119,8 @@ export function onReconciled(ctx: Ctx, t: Reconciled): void {
           effect_id: e.id,
           issues: [
             t.failure_class === undefined
-              ? 'failure_class: thiếu'
-              : 'signature: lớp quality cần chữ ký',
+              ? 'failure_class is required'
+              : 'signature is required for quality failures',
           ],
         });
         return;
@@ -177,7 +176,7 @@ export function onReconciled(ctx: Ctx, t: Reconciled): void {
       return;
     }
     case 'not_executed': {
-      // Chắc chắn chưa chạy: trả giữ chỗ. Chỉ effect chạy lại an toàn mới về hàng đợi với cùng `idem_key`.
+      // Release only after proving non-execution. Requeue only effects declared safe, preserving their idem_key.
       release(ctx, e.reservation_id);
       // A reconcile runs probes and declared-safe repeats only, and its target still waits for it: an
       // interrupted one goes back to the queue under the same key, merge, drift or cancel alike (T093).
@@ -226,7 +225,7 @@ export function onReconciled(ctx: Ctx, t: Reconciled): void {
         proceed(ctx, { kind: 'none' });
         return;
       }
-      // Attempt mới có ID mới nên có khoá mới (FR-016).
+
       proceed(ctx, {
         kind: 'start_attempt',
         step: attempt.step,

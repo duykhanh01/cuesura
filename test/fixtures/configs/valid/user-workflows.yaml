@@ -1,4 +1,4 @@
-# Workflow A chỉ dùng chế độ human; workflow B dùng agent; workflow C hợp lệ nhưng khác software_dev@1
+# A uses human decisions; B uses agents; C is valid but differs from software_dev@1.
 # (US1 scenario 9, 10, 11).
 version: 1
 harnesses:

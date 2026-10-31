@@ -12,8 +12,8 @@ import { runConfigConfirmed } from './run-config.ts';
 import { modeWorkflowName } from './workflows/software-dev.ts';
 
 /**
- * Kiểm kết quả `freeze` mang trong tín hiệu: đúng task, đúng revision, hash tự kiểm; revision sau không
- * được đổi graph workflow (FR-040: cùng repo và workflow).
+ * Verify task/revision identity and hashes. Later revisions must retain the repository and
+ * workflow graph.
  */
 export function acceptFrozen(
   ctx: Ctx,
@@ -40,7 +40,6 @@ export function acceptFrozen(
 
 type StartTrigger = Extract<Trigger, { kind: 'start' }>;
 
-/** Lỗi chốt mà task có thể chờ để sửa (research R-13): PENDING `needs_info`. */
 export const FREEZE_PENDING_CODES: readonly string[] = [
   'config_invalid',
   'capability_missing',
@@ -52,9 +51,8 @@ export const FREEZE_PENDING_CODES: readonly string[] = [
 ];
 
 /**
- * Tín hiệu `start`: lỗi `freeze` → PENDING `needs_info` với `detail.code` theo R-13 và không có
- * `PolicyFrozen` (FR-038). Thành công → một `PolicyFrozen` chứa cả chính sách và ngữ cảnh, đặt
- * `deadline_at` lần đầu kèm timer `deadline` (R-22), rồi vào bước đầu của workflow.
+ * Freeze failure leaves needs_info without PolicyFrozen. Success records both snapshots in one
+ * event and sets the task deadline only on the first start.
  */
 export function onStart(ctx: Ctx, t: StartTrigger): void {
   const s = ctx.state;

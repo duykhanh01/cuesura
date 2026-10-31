@@ -7,8 +7,8 @@ import {
   taskOverArb,
 } from '../arbitraries/policies.ts';
 
-describe('I06, FR-014 bằng chứng, không phải lời agent', () => {
-  it('không qua bước khi thiếu schema_checked, sai attempt hiện hành hoặc gate bắt buộc chưa đạt', () => {
+describe('I06, FR-014 validated execution evidence', () => {
+  it('requires schema_checked, the current attempt, and passing required gates to advance', () => {
     fc.assert(
       fc.property(
         policyArb,
@@ -17,7 +17,7 @@ describe('I06, FR-014 bằng chứng, không phải lời agent', () => {
         (policy, over, choices) => {
           const { sim } = drive(policy, over, choices);
           const wf = sim.policy!.workflow;
-          // Kết quả gần nhất làm căn cứ cho từng bước, theo thứ tự nhật ký.
+
           const lastAgent: Record<
             string,
             | {
@@ -27,7 +27,7 @@ describe('I06, FR-014 bằng chứng, không phải lời agent', () => {
               }
             | undefined
           > = {};
-          // Output gốc mà executor gửi cho effect khởi chạy của mỗi attempt.
+
           const effectOfAttempt = new Map<string, string>();
           const output = new Map<string, Record<string, unknown>>();
           const lastGate: Record<string, boolean | undefined> = {};
@@ -84,7 +84,6 @@ describe('I06, FR-014 bằng chứng, không phải lời agent', () => {
                   (kind === 'agent' && from.outcome === 'done') ||
                   (kind === 'review' && from.outcome === 'approve')
                 ) {
-                  // Có output đã kiểm tra schema của attempt hiện hành với đúng outcome.
                   const last = lastAgent[from.step];
                   expect(last?.status).toBe(from.outcome);
                   expect(last?.current).toBe(true);
@@ -102,7 +101,7 @@ describe('I06, FR-014 bằng chứng, không phải lời agent', () => {
             }
             if (ev.type === 'StepEntered') skipped.delete(ev.payload.step);
           });
-          // Attempt cũ bị bỏ qua có ghi nhận và không kéo theo chuyển bước trong cùng quyết định.
+
           for (const d of sim.decisions) {
             if (d.kind !== 'accepted') continue;
             const i = d.events.findIndex(

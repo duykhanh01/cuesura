@@ -3,12 +3,6 @@ import type { ExecutionMode } from '../../domain/run-config.ts';
 
 export const SOFTWARE_DEV_NAME = 'software_dev@1';
 
-/**
- * Workflow phát triển phần mềm mặc định (SPEC.md §7, docs/architecture.md §5.2):
- * Triage → Prepare → Scout tuỳ chọn → Code → Gates → Review → Publish → CI → Merge → Complete,
- * cùng các vòng `fix_gates`, `fix_review`, `ci_triage`, `rerun_ci`, `ci_autofix`, `ci_fix`.
- * Thời lượng tính bằng ms (đã chuẩn hoá).
- */
 const RAW = {
   start: 'triage',
   steps: {
@@ -19,7 +13,7 @@ const RAW = {
       role: 'scout',
       when: { flag: 'needs_scout' },
       max_visits: 1,
-      // Scout tối đa một lượt; hết lượt thì code chạy tiếp mà không có báo cáo scout (§5.4.1).
+      // Scout gets one visit; exhaustion continues to code without a scout report.
       on_exhausted: 'code',
       next: {
         done: 'code',
@@ -158,7 +152,6 @@ const RAW = {
   },
 };
 
-/** Được kiểm bằng schema khi load module; sai cấu trúc thì ném lỗi ngay lúc import. */
 export const SOFTWARE_DEV: Workflow = WorkflowSchema.parse(RAW);
 
 export const SOFTWARE_DEV_V2 = 'software_dev@2';

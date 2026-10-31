@@ -14,7 +14,7 @@ export type EffectSpec = {
   reservation_id?: string | null;
   target_effect_id?: string | null;
   request: Record<string, unknown>;
-  /** ID đã lấy sẵn (khi phải biết trước, ví dụ để giữ chỗ ngân sách). */
+
   effect_id?: string;
 };
 
@@ -22,10 +22,7 @@ export function findByIdemKey(ctx: Ctx, key: string): EffectMirror | undefined {
   return Object.values(ctx.state.effects).find((e) => e.idem_key === key);
 }
 
-/**
- * Phát `EffectRequested` với khoá idempotency `idemKey()` (FR-016). Khoá đã có trong state thì không phát
- * lần hai và trả effect cũ: kho có unique constraint trên `idem_key` (data-model.md "Effect").
- */
+/** Reuse an existing effect with the same idempotency key; the store also enforces uniqueness. */
 export function requestEffect(
   ctx: Ctx,
   spec: EffectSpec,
@@ -49,15 +46,13 @@ export function requestEffect(
   return { id, created: true };
 }
 
-/** Effect đang chạy hoặc chưa rõ kết quả: chưa thể coi là xong (FR-017, FR-018). */
 export function inFlight(e: EffectMirror): boolean {
   return e.status === 'started' || e.status === 'unknown';
 }
 
 /**
- * Yêu cầu đối chiếu một effect `unknown` hoặc `started`; khoá theo ID effect gốc. A probe still open
- * serves; once every earlier probe ended (the effect went back to the queue and was lost again, T093)
- * the next one takes the next key, so a lost effect always has a reconcile.
+ * Reuse an open reconciliation probe. After all earlier probes finish, allocate the next key so an
+ * effect lost again after requeueing always has a recovery probe.
  */
 export function requestReconcile(
   ctx: Ctx,
@@ -90,7 +85,6 @@ export function requestReconcile(
   });
 }
 
-/** Effect nghiệp vụ chưa xong: chặn ranh giới an toàn của source drift (FR-011). */
 export function businessInFlight(
   effects: Record<string, EffectMirror>,
 ): EffectMirror[] {

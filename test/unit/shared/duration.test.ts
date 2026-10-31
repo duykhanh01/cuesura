@@ -14,7 +14,7 @@ describe('parseDuration', () => {
   });
 
   it.each(['-5s', '5', '5w', '1.5h', '', 's', '10 m', '99999999999999999d'])(
-    'từ chối %j',
+    'rejects %j',
     (text) => {
       expect(parseDuration(text).ok).toBe(false);
     },

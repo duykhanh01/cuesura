@@ -1,4 +1,4 @@
-# cusr.yaml mẫu của repo (docs/architecture.md §5.2b).
+# Example project configuration.
 version: 1
 extends: [node]
 setup: "npm ci"

@@ -3,7 +3,7 @@ import { structureHash } from '../../../src/policy/structure-hash.ts';
 import { SOFTWARE_DEV } from '../../../src/engine/workflows/software-dev.ts';
 import type { Workflow } from '../../../src/domain/workflow.ts';
 
-// Đổi hằng số này nghĩa là đổi graph của software_dev@1: cần tên phiên bản mới (R-11).
+// Changing this hash changes the software_dev@1 graph and requires a new workflow version.
 const SOFTWARE_DEV_STRUCTURE =
   'sha256:bc4d48ee99b452b6feb8bd0702fd66795501a4d12a9ffe4e06c81e2e0fb0a2e0';
 
@@ -14,11 +14,11 @@ function edit(f: (w: Workflow) => void): Workflow {
 }
 
 describe('structure_hash (R-11)', () => {
-  it('hằng số cho software_dev@1', () => {
+  it('software_dev@1 structure hash', () => {
     expect(structureHash(SOFTWARE_DEV)).toBe(SOFTWARE_DEV_STRUCTURE);
   });
 
-  it('bỏ qua tham số: giới hạn lượt, gate, skip_when, thời lượng, decisions', () => {
+  it('ignores visits, gates, skip_when, durations, and decision parameters', () => {
     const w = edit((x) => {
       x.steps.code!.max_visits = 3;
       x.steps.gates!.run = ['build'];
@@ -29,7 +29,7 @@ describe('structure_hash (R-11)', () => {
     expect(structureHash(w)).toBe(SOFTWARE_DEV_STRUCTURE);
   });
 
-  it('đổi cạnh transition, loại bước hay thêm bước làm hash khác', () => {
+  it('transition, step-kind, or step-set changes alter the hash', () => {
     expect(
       structureHash(edit((x) => (x.steps.gates!.next.fail = 'code'))),
     ).not.toBe(SOFTWARE_DEV_STRUCTURE);
@@ -43,7 +43,7 @@ describe('structure_hash (R-11)', () => {
     ).not.toBe(SOFTWARE_DEV_STRUCTURE);
   });
 
-  it('không phụ thuộc thứ tự khai báo bước', () => {
+  it('step declaration order does not change the hash', () => {
     const reversed: Workflow = {
       ...SOFTWARE_DEV,
       steps: Object.fromEntries(Object.entries(SOFTWARE_DEV.steps).reverse()),

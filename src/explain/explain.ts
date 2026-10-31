@@ -16,7 +16,7 @@ export type Explanation = {
     resume_when: string[];
     exit_paths: string[];
   } | null;
-  /** `requested`: attempt được yêu cầu; `invoked`: lượt agent đã xác nhận chạy (giữ chỗ đã `consumed`). */
+  /** requested counts scheduled attempts; invoked counts consumed reservations proving an actual run. */
   bindings_used: {
     step: string;
     rung: number;
@@ -31,8 +31,8 @@ export type Explanation = {
     escalations: number;
   };
   /**
-   * Mỗi lần nâng nấc theo thứ tự nhật ký. `event_seq` là `seq` của `RungRaised`; `trigger_seq` là sự kiện đã
-   * kích hoạt nó: `FailureClassified` xin nâng nấc (lý do `quality`) hoặc `TaskFloorRaised` (lý do `floor`).
+   * Rung raises follow event order. trigger_seq identifies the FailureClassified or TaskFloorRaised
+   * event that caused one.
    */
   escalations: {
     step: string;
@@ -52,9 +52,8 @@ export type Explanation = {
 };
 
 /**
- * Giải thích trạng thái task chỉ từ dữ liệu đã ghi, không gọi LLM hay I/O (FR-034).
- * `now` là tuỳ chọn: lõi không đọc đồng hồ, nên thời gian còn lại tới `deadline_at` chỉ tính được khi người
- * gọi đưa thời điểm vào; không có `now` thì `remaining.wall_ms` là `null` trừ khi hạn đã qua hoặc chưa đặt.
+ * Explain recorded facts without I/O. Callers supply now; without it, remaining wall time is
+ * unknown unless the deadline is absent or already elapsed.
  */
 export function explain(
   state: TaskState,
@@ -103,10 +102,8 @@ export function explain(
 }
 
 /**
- * Gom attempt theo `(step, rung, binding)`, theo thứ tự `AttemptRequested` trong nhật ký: thứ tự key của
- * `state.attempts` không đáng tin vì kho lưu projection dạng JSON chuẩn hoá (key sắp theo ID).
- * `requested` đếm mọi attempt được yêu cầu; `invoked` chỉ đếm lượt đã xác nhận agent thật sự chạy, tức
- * giữ chỗ ngân sách đã chuyển sang `consumed` (FR-022).
+ * Group attempts by step, rung, and binding in AttemptRequested event order. Projection keys are
+ * sorted by ID and cannot establish execution order. Invoked counts only consumed reservations.
  */
 function bindingsUsed(
   state: TaskState,
@@ -153,7 +150,7 @@ function escalations(
   events: readonly DomainEvent[],
 ): Explanation['escalations'] {
   const out: Explanation['escalations'] = [];
-  /** `FailureClassified` xin nâng nấc gần nhất theo `(step, rung)`. */
+
   const asks = new Map<string, number>();
   let floorSeq: number | null = null;
   for (const e of events) {
@@ -185,16 +182,15 @@ function escalations(
   return out;
 }
 
-/** Điều còn lại mà `explain()` lõi không biết: chỉ đọc state/log đã ghi và những gì người gọi đưa vào. */
 export type RuntimeInput = {
   readonly now: EpochMs;
   readonly recheckable: boolean;
   readonly rt: FrozenRuntimeContext | null;
-  /** Vị trí trong hàng chờ slot, 1 là kế tiếp; `null` khi không xếp hàng. */
+  /** Queue position is 1-based; null means the task is not queued. */
   readonly queue_position: number | null;
-  /** `null`: prerequisite ngoài phạm vi đọc của người gọi. */
+  /** null means the prerequisite is outside the caller-readable evidence. */
   readonly prerequisite: (id: string) => TaskState | null;
-  /** Phương thức/nội dung merge như `task show` đã dựng. */
+
   readonly merge: Record<string, unknown> | null;
 };
 
@@ -202,9 +198,12 @@ export type RuntimeExplanation = Omit<Explanation, 'wait'> & {
   task_id: string;
   version: number;
   revision: number;
-  /** `false`: chưa start, chưa có giới hạn đóng băng nên `remaining` chưa có nghĩa. */
+  /** Before start there are no frozen limits, so remaining values are not yet meaningful. */
   limits_frozen: boolean;
-  /** Chỉ lý do; lối ra đọc ở `allowed_actions`, bản `resume_when` lõi còn nhắc amend của 001. */
+  /**
+   * Read supported exits from allowed_actions; legacy resume_when may mention unimplemented
+   * amendments.
+   */
   wait: { reason: WaitReason; detail: unknown } | null;
   allowed_actions: AllowedAction[];
   blockers: TaskState['blockers'];
@@ -220,7 +219,10 @@ export type RuntimeExplanation = Omit<Explanation, 'wait'> & {
     state: 'not_started' | 'running' | 'passed';
     at: number | null;
     remaining_ms: number | null;
-    /** Trần khi chưa bắt đầu tính (READY chờ slot lần đầu chưa tiêu hạn). */
+    /**
+     * Before first execution, show the full wall budget because slot waiting has not started the
+     * deadline.
+     */
     max_wall_ms: number | null;
   };
   slot: {
@@ -230,9 +232,9 @@ export type RuntimeExplanation = Omit<Explanation, 'wait'> & {
       requested_at: number;
       position: number | null;
     } | null;
-    /** Chờ slot lần đầu: không tính vào deadline. */
+    /** Initial slot waiting does not consume the task deadline. */
     initial_wait_ms: number;
-    /** Chờ xin lại sau khi đã chạy: có tính vào deadline. */
+    /** Reacquiring the slot after execution starts does consume the deadline. */
     resumed_wait_ms: number;
   };
   prerequisites: {
@@ -255,7 +257,10 @@ export type RuntimeExplanation = Omit<Explanation, 'wait'> & {
   evidence: TaskState['evidence'];
 };
 
-/** Chờ slot tách theo nhóm: `ExecutionGranted.waited_ms` của từng request cộng phần request đang mở. */
+/**
+ * Sum completed ExecutionGranted.waited_ms values and the currently open request separately by
+ * wait group.
+ */
 function slotWaits(
   state: TaskState,
   events: readonly DomainEvent[],
@@ -278,11 +283,6 @@ function slotWaits(
   return waits;
 }
 
-/**
- * `task explain` của runtime 002 (FR-027.03–05, FR-029): lối ra theo wait detail, blocker còn hiệu lực,
- * độ mới của quan sát, hạn, thời gian chờ slot, prerequisite chưa chứng nhận và drain sau merge. Chỉ đọc
- * dữ liệu đã ghi; không LLM, không I/O.
- */
 export function explainRuntime(
   state: TaskState,
   events: readonly DomainEvent[],

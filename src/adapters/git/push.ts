@@ -1,5 +1,5 @@
 /**
- * Publishing the task branch (T041, FR-017/018, contracts/github.md "Publish và đối chiếu"). A push is
+ * Publishing the task branch (T041, FR-017/018, contracts/github.md). A push is
  * identified by repo, branch, expected old SHA and new SHA. It only fast-forwards: the new head must
  * descend from the expected old one, and the remote is moved by compare-and-swap on that old value
  * (`--force-with-lease` with an explicit expectation, never a `+` refspec or a plain `--force`).

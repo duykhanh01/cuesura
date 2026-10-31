@@ -39,13 +39,10 @@ import { finalizeContext, finalizePolicy } from '../../src/policy/finalize.ts';
 import { structureHash } from '../../src/policy/structure-hash.ts';
 import { hashCanonical } from '../../src/shared/hash.ts';
 
-// ---------- ID và thời gian tất định ----------
-
 export function uuidOf(n: number): Uuid {
   return asUuid(`00000000-0000-7000-8000-${n.toString(16).padStart(12, '0')}`);
 }
 
-/** Cấp UUID tăng dần từ một seed; cùng seed cho cùng dãy ID. */
 export class IdSource {
   private next: number;
   constructor(seed = 1) {
@@ -86,13 +83,13 @@ export function buildTask(over: Partial<CanonicalTask> = {}): CanonicalTask {
   return {
     schema_version: 1,
     id,
-    title: 'Thêm tìm kiếm khách hàng',
+    title: 'Add customer search',
     type: 'implementation',
     project: 'acme',
     base_branch: 'main',
-    description: 'Cho phép tìm khách hàng theo tên.',
+    description: 'Allow searching for customers by name.',
     requirements: ['API /customers?q='],
-    acceptance: ['Tìm theo tên trả kết quả đúng'],
+    acceptance: ['Searching by name returns matching customers'],
     constraints: [],
     out_of_scope: [],
     attachments: [],
@@ -224,7 +221,7 @@ export function buildPolicy(o: PolicyOptions = {}): FrozenPolicy {
   for (const [name, step] of Object.entries(workflow.steps)) {
     if (!isAgentStep(step) || step.role === undefined) continue;
     const spec = roles[step.role];
-    if (!spec) throw new Error(`builder: thiếu role ${step.role}`);
+    if (!spec) throw new Error(`builder: role ${step.role} is missing`);
     const info = MODELS[spec.model] as ModelInfo;
     const initial: Binding = {
       harness: info.harness,
@@ -350,8 +347,6 @@ export function freezeOk(
     },
   };
 }
-
-// ---------- Phong bì ----------
 
 export type EnvelopeOptions = {
   now?: number;

@@ -4,42 +4,48 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 /**
- * Ranh giới module (research R-12): lõi thuần không được chạm I/O, đồng hồ hay ngẫu nhiên.
- * Được export để test/unit/lint/boundaries.test.ts dùng lại đúng cấu hình này.
+ * The pure core cannot access I/O, clocks, or randomness. Tests reuse this exported boundary
+ * configuration.
  */
 export const pureCoreRestrictedImports = {
   patterns: [
     {
       group: ['node:*'],
-      message: 'Lõi thuần không được import module Node (FR-012).',
+      message: 'The pure core must not import Node.js modules (FR-012).',
     },
     {
       group: ['better-sqlite3', 'yaml', 'uuid'],
-      message: 'Lõi thuần không được import thư viện I/O.',
+      message: 'The pure core must not import I/O libraries.',
     },
     {
       group: ['**/store/**', '**/store', '**/config/**', '**/config'],
-      message: 'Lõi thuần không được phụ thuộc src/store hay src/config.',
+      message: 'The pure core must not depend on src/store or src/config.',
     },
   ],
 };
 
 export const pureCoreRestrictedGlobals = [
-  { name: 'Date', message: 'Thời điểm đi vào qua phong bì tín hiệu (R-04).' },
-  { name: 'performance', message: 'Lõi thuần không đo thời gian.' },
-  { name: 'process', message: 'Lõi thuần không đọc môi trường tiến trình.' },
+  {
+    name: 'Date',
+    message: 'Pass the current time through the trigger envelope (R-04).',
+  },
+  { name: 'performance', message: 'The pure core must not read the clock.' },
+  {
+    name: 'process',
+    message: 'The pure core must not read the process environment.',
+  },
   {
     name: 'setTimeout',
-    message: 'Lõi thuần không hẹn giờ; dùng sự kiện TimerArmed.',
+    message: 'The pure core must not schedule timers; emit TimerArmed instead.',
   },
-  { name: 'setInterval', message: 'Lõi thuần không hẹn giờ.' },
+  { name: 'setInterval', message: 'The pure core must not schedule timers.' },
 ];
 
 export const pureCoreRestrictedProperties = [
   {
     object: 'Math',
     property: 'random',
-    message: 'Jitter phải suy tất định từ dữ liệu (FR-012).',
+    message: 'Derive jitter deterministically from input data (FR-012).',
   },
 ];
 
@@ -95,14 +101,14 @@ export default tseslint.config(
     rules: pureCoreRules,
   },
   {
-    // shared là tầng nền dùng chung: cùng luật thuần, riêng hash.ts được dùng node:crypto.
+    // shared follows the pure-core rules; hash.ts alone may import node:crypto.
     files: ['src/shared/**/*.ts'],
     ignores: ['src/shared/hash.ts'],
     rules: pureCoreRules,
   },
   {
     files: ['src/shared/hash.ts'],
-    // Cùng luật thuần như phần còn lại của shared; ngoại lệ duy nhất là node:crypto (R-12).
+
     rules: {
       ...pureCoreRules,
       'no-restricted-imports': [
@@ -111,7 +117,7 @@ export default tseslint.config(
           patterns: [
             {
               group: ['node:*', '!node:crypto'],
-              message: 'hash.ts chỉ được import node:crypto.',
+              message: 'hash.ts may only import node:crypto.',
             },
             ...pureCoreRestrictedImports.patterns.filter(
               (p) => !p.group.includes('node:*'),
@@ -130,7 +136,7 @@ export default tseslint.config(
           patterns: [
             {
               group: ['**/config/**', '**/config'],
-              message: 'src/store không phụ thuộc src/config (R-12).',
+              message: 'src/store must not depend on src/config (R-12).',
             },
           ],
         },
@@ -146,13 +152,13 @@ export default tseslint.config(
         {
           patterns: [
             {
-              // NodeNext cho phép viết import với đuôi .js trỏ tới testing.ts.
+              // NodeNext also resolves .js imports to testing.ts.
               group: [
                 '**/store/testing',
                 '**/store/testing.ts',
                 '**/store/testing.js',
               ],
-              message: 'testing.ts chỉ dành cho kiểm thử.',
+              message: 'testing.ts is restricted to tests.',
             },
           ],
         },
@@ -160,7 +166,7 @@ export default tseslint.config(
     },
   },
   {
-    // Runner và adapter không ghi DB và không chọn trạng thái task (contracts/execution.md): chỉ daemon là writer.
+    // Only the daemon writes to the database; runners and adapters return facts.
     files: ['src/runner/**/*.ts', 'src/adapters/**/*.ts'],
     rules: {
       'no-restricted-imports': [
@@ -176,7 +182,7 @@ export default tseslint.config(
                 'better-sqlite3',
               ],
               message:
-                'runner/adapters không import store, daemon hay SQLite; facts trả về daemon qua file hoặc port.',
+                'Runners and adapters must not import the store, daemon, or SQLite; return facts through files or ports.',
             },
           ],
         },

@@ -54,7 +54,7 @@ function run(
 const USER = config(source('configs/valid/user.yaml'));
 
 describe('freeze (FR-004, FR-037)', () => {
-  it('cấu hình chỉ khác thứ tự khoá và định dạng cho cùng policy_hash', () => {
+  it('key order and formatting do not affect policy_hash', () => {
     const a = run(USER);
     const b = run(config(source('configs/valid/user-reordered.yaml')));
     expect(a.ok && b.ok).toBe(true);
@@ -64,7 +64,7 @@ describe('freeze (FR-004, FR-037)', () => {
     }
   });
 
-  it('cấu hình tương đương về ngữ nghĩa (2h và 120m) cho cùng hash (FR-004)', () => {
+  it('equivalent durations (2h and 120m) produce the same hash (FR-004)', () => {
     const user = source('configs/valid/user.yaml');
     const a = run(config(user));
     const b = run(
@@ -82,7 +82,7 @@ describe('freeze (FR-004, FR-037)', () => {
     }
   });
 
-  it('thời lượng 0 bị từ chối khi kiểm tra cấu hình, không làm freeze ném lỗi', () => {
+  it('rejects zero durations during validation without throwing from freeze', () => {
     const user = source('configs/valid/user.yaml');
     const r = validateConfig({
       user: {
@@ -97,7 +97,7 @@ describe('freeze (FR-004, FR-037)', () => {
     ]);
   });
 
-  it('prompt của role và conventions của project được chụp kèm nội dung và hash (FR-037)', () => {
+  it('snapshots role prompts and project conventions with content and hashes (FR-037)', () => {
     const r = run(USER);
     if (!r.ok) throw new Error(JSON.stringify(r.error));
     expect(r.value.context.prompt_refs.map((p) => p.name)).toEqual([
@@ -120,7 +120,7 @@ describe('freeze (FR-004, FR-037)', () => {
     ]);
   });
 
-  it('nội dung prompt khác cho context_hash khác', () => {
+  it('different prompt content changes context_hash', () => {
     const docs = docsFor(USER);
     const a = freeze({
       config: USER,
@@ -138,7 +138,7 @@ describe('freeze (FR-004, FR-037)', () => {
       attachments: [],
       ...docs,
       prompts: docs.prompts.map((p) =>
-        p.name === 'prompts/coder.md' ? { ...p, content: 'khác' } : p,
+        p.name === 'prompts/coder.md' ? { ...p, content: 'different' } : p,
       ),
     });
     expect(
@@ -148,7 +148,7 @@ describe('freeze (FR-004, FR-037)', () => {
     ).toBe(true);
   });
 
-  it('thiếu nội dung prompt thì không trả snapshot nào (FR-038)', () => {
+  it('missing prompt content prevents all snapshots (FR-038)', () => {
     const docs = docsFor(USER);
     const r = freeze({
       config: USER,
@@ -166,7 +166,7 @@ describe('freeze (FR-004, FR-037)', () => {
     ).toEqual([['<prompts>', 'prompts.prompts/coder.md']]);
   });
 
-  it('policy và context gắn cùng task_id, revision, base_sha; hash tự kiểm được', () => {
+  it('policy and context share task_id, revision, and base_sha with verifiable hashes', () => {
     const r = run(USER, buildTask({ revision: 3 }));
     if (!r.ok) throw new Error(JSON.stringify(r.error));
     const { policy, context } = r.value;
@@ -183,7 +183,7 @@ describe('freeze (FR-004, FR-037)', () => {
     expect(verifyPolicyHash(policy) && verifyContextHash(context)).toBe(true);
   });
 
-  it('bước gate không khai required: mọi gate đã khai báo trong run là bắt buộc', () => {
+  it('without required, every declared gate in run is mandatory', () => {
     const withAutofix = run(USER);
     if (!withAutofix.ok) throw new Error(JSON.stringify(withAutofix.error));
     expect(withAutofix.value.policy.gates.by_step['ci_autofix']).toEqual({
@@ -195,7 +195,7 @@ describe('freeze (FR-004, FR-037)', () => {
       'build',
       'unit',
     ]);
-    // Project không khai format_fix: gate bị bỏ như optional, không thành required_gate_missing.
+    // Undeclared format_fix is optional and skipped; it must not become required_gate_missing.
     const minimal = run(config(minUser(), MIN_PROJECT));
     if (!minimal.ok) throw new Error(JSON.stringify(minimal.error));
     expect(minimal.value.policy.gates.by_step['ci_autofix']).toEqual({
@@ -205,7 +205,7 @@ describe('freeze (FR-004, FR-037)', () => {
     });
   });
 
-  it('attachment được chụp kèm content_hash', () => {
+  it('snapshots attachments with content_hash', () => {
     const task = buildTask({
       attachments: [
         {
@@ -228,7 +228,7 @@ describe('freeze (FR-004, FR-037)', () => {
     ]);
   });
 
-  it('thiếu nội dung attachment thì không trả snapshot nào (FR-038)', () => {
+  it('missing attachment content prevents all snapshots (FR-038)', () => {
     const task = buildTask({
       attachments: [
         {
@@ -244,8 +244,7 @@ describe('freeze (FR-004, FR-037)', () => {
     expect('value' in r).toBe(false);
   });
 
-  it('binding: rule đầu tiên khớp; rule bị allowlist loại thì thử rule kế', () => {
-    // coder: L/XL → opus, còn lại sonnet. Profile standard không cho opus.
+  it('selects the first matching allowlisted binding rule', () => {
     const large = run(USER, buildTask({ size: 'L', profile: 'standard' }));
     const heavy = run(USER, buildTask({ size: 'L', profile: 'heavy' }));
     expect(large.ok && large.value.policy.steps.code?.binding.model).toBe(
@@ -256,7 +255,7 @@ describe('freeze (FR-004, FR-037)', () => {
     );
   });
 
-  it('binding đã xác nhận chọn trong các rule của role; không có rule nào khớp thì giữ rule đầu', () => {
+  it('confirmed bindings select matching role rules and preserve the first rule if none match', () => {
     const task = buildTask({ size: 'L', profile: 'heavy' });
     const frozen = (model: string) => {
       const harness = USER.user.models[model]?.harness ?? '';
@@ -278,13 +277,13 @@ describe('freeze (FR-004, FR-037)', () => {
       if (!r.ok) throw new Error(JSON.stringify(r.error));
       return r.value.policy.steps.code?.binding.model;
     };
-    // Rule đầu với task L là opus; xác nhận sonnet thì chạy sonnet, không phải sửa cấu hình.
+
     expect(frozen('opus')).toBe('opus');
     expect(frozen('sonnet')).toBe('sonnet');
     expect(frozen('no-such-model')).toBe('opus');
   });
 
-  it('no_valid_binding khi allowlist loại hết rule', () => {
+  it('excluding all rules returns no_valid_binding', () => {
     const profiles =
       'profiles:\n  standard: { workflow: impl, allow_models: [opus], budgets: { max_agent_runs: 5, max_wall: 1h } }\n';
     const r = run(config(minUser({ profiles }), MIN_PROJECT));
@@ -295,7 +294,7 @@ describe('freeze (FR-004, FR-037)', () => {
     });
   });
 
-  it('trạng thái nấc theo allowlist và auto_up_to_tier', () => {
+  it('rung status follows the allowlist and auto_up_to_tier', () => {
     const std = run(USER, buildTask({ profile: 'standard' }));
     const heavy = run(USER, buildTask({ profile: 'heavy' }));
     expect(
@@ -306,7 +305,7 @@ describe('freeze (FR-004, FR-037)', () => {
     ).toEqual(['auto', 'auto', 'auto']);
   });
 
-  it('floor_map ánh xạ mức năng lực sang hai thang khác độ dài và khác binding (R-18)', () => {
+  it('floor_map handles ladders with different lengths and bindings (R-18)', () => {
     const r = run(USER, buildTask({ profile: 'heavy' }));
     if (!r.ok) throw new Error(JSON.stringify(r.error));
     const { code, review } = r.value.policy.steps;
@@ -317,11 +316,11 @@ describe('freeze (FR-004, FR-037)', () => {
       { tier: 3, effort_rank: 2 },
     ]);
     expect(code?.floor_map).toEqual({ '2:1': 0, '2:2': 1, '3:2': 2 });
-    // Thang review không có mức (3,2): sàn đó ánh xạ về nấc cuối của review, không vượt thang.
+    // The review ladder has no capability (3, 2); clamp the floor to its last rung.
     expect(review?.floor_map).toEqual({ '2:1': 0, '2:2': 1, '3:2': 1 });
   });
 
-  it('reviewer luôn chỉ đọc', () => {
+  it('reviewers are always read-only', () => {
     const r = run(USER);
     expect(r.ok && r.value.policy.steps.review?.binding.permissions).toBe(
       'read_only',
@@ -332,7 +331,7 @@ describe('freeze (FR-004, FR-037)', () => {
     });
   });
 
-  it('gate optional mà project không khai báo bị bỏ và được ghi', () => {
+  it('records skipped undeclared optional gates', () => {
     const r = run(
       config(source('configs/valid/user.yaml'), {
         file: 'cusr.yaml',
@@ -351,7 +350,7 @@ describe('freeze (FR-004, FR-037)', () => {
     });
   });
 
-  it('chốt ci.required_checks và ci_rules đã hợp nhất pack → project', () => {
+  it('freezes required checks and CI rules after pack/project merging', () => {
     const r = run(USER);
     expect(r.ok && r.value.policy.ci).toEqual({
       required_checks: ['build', 'test'],
@@ -359,14 +358,14 @@ describe('freeze (FR-004, FR-037)', () => {
     });
   });
 
-  it('chế độ quyết định được chốt đủ, chỉ human (FR-039)', () => {
+  it('freezes all decision points in human mode (FR-039)', () => {
     const r = run(USER);
     expect(
       r.ok && new Set(Object.values(r.value.policy.decision_modes)),
     ).toEqual(new Set(['human']));
   });
 
-  it('giới hạn lấy từ profile, backoff có mặc định (R-22)', () => {
+  it('uses profile limits and default backoff (R-22)', () => {
     const r = run(USER);
     expect(r.ok && r.value.policy.limits).toMatchObject({
       max_agent_runs: 12,
@@ -384,7 +383,7 @@ describe('freeze (FR-004, FR-037)', () => {
     });
   });
 
-  it('unsupported_workflow khi structure_hash khác software_dev@1 (FR-041)', () => {
+  it('a different structure_hash returns unsupported_workflow (FR-041)', () => {
     const c = config(
       source('configs/valid/user-workflows.yaml'),
       source('configs/valid/cusr-minimal.yaml', 'cusr.yaml'),
@@ -405,7 +404,7 @@ describe('freeze (FR-004, FR-037)', () => {
     ).toBe('wf_c');
   });
 
-  it('unsupported_decision_mode khi workflow của task dùng decider (FR-039)', () => {
+  it('decider workflows return unsupported_decision_mode (FR-039)', () => {
     const c = config(
       source('configs/valid/user-workflows.yaml'),
       source('configs/valid/cusr-minimal.yaml', 'cusr.yaml'),
@@ -417,12 +416,12 @@ describe('freeze (FR-004, FR-037)', () => {
     });
   });
 
-  it('task dùng project không có trong danh sách repo được phép bị từ chối', () => {
+  it('rejects tasks outside the project allowlist', () => {
     const r = run(USER, buildTask({ project: 'other' }));
     expect(!r.ok && r.error.code).toBe('config_invalid');
   });
 
-  it('escalation tắt thì thang chỉ còn nấc khởi đầu', () => {
+  it('disabling escalation retains only the initial rung', () => {
     const profiles =
       'profiles:\n  standard: { workflow: impl, escalation: { enabled: false }, budgets: { max_agent_runs: 5, max_wall: 1h } }\n';
     const roles = MIN_PARTS.roles.replace(

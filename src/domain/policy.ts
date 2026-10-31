@@ -12,7 +12,6 @@ export const EFFORT_RANK: Record<Effort, number> = {
   high: 2,
 };
 
-/** Mức năng lực `(tier, effort_rank)` dùng cho sàn task (research R-18). */
 export const LevelSchema = z
   .object({ tier: z.number().int(), effort_rank: z.number().int() })
   .strict();
@@ -126,8 +125,8 @@ export const LimitsSchema = z
       .object({ rate_limit: BackoffSchema, infra: BackoffSchema })
       .strict(),
     /**
-     * Lượt cộng thêm vào `max_visits` theo bước. Chỉ amendment của admin đặt (rỗng lúc chốt); là đường duy
-     * nhất để mở lại bước đã hết lượt, vì graph workflow không đổi được khi task đang chạy.
+     * Only admin amendments add visits. This is the only way to reopen an exhausted step without
+     * changing its graph.
      */
     extra_visits: z.record(z.string(), z.number().int().nonnegative()),
   })
@@ -159,7 +158,7 @@ export const ConfigHashesSchema = z
   })
   .strict();
 
-/** FrozenPolicy (data-model.md). `policy_hash` là hash của mọi trường còn lại. */
+/** policy_hash covers every other field. */
 export const FrozenPolicySchema = z
   .object({
     schema_version: z.literal(POLICY_SCHEMA_VERSION),
@@ -202,7 +201,6 @@ export const FrozenAttachmentSchema = z
   })
   .strict();
 
-/** Tài liệu văn bản được chụp vào ngữ cảnh: tên (đường dẫn khai báo trong cấu hình), nội dung và hash. */
 export const FrozenDocSchema = z
   .object({
     name: z.string().min(1),
@@ -229,9 +227,9 @@ export const FrozenExecutionContextSchema = z
       .strict(),
     acceptance: z.array(z.string()),
     attachments: z.array(FrozenAttachmentSchema),
-    /** Prompt của các role trong chính sách, chụp nguyên nội dung (FR-037). */
+
     prompt_refs: z.array(FrozenDocSchema),
-    /** File conventions của project, chụp nguyên nội dung. */
+
     conventions: z.array(FrozenDocSchema),
     context_hash: HashSchema,
   })

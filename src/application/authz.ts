@@ -1,7 +1,7 @@
 import type { AuthzContext, AuthzRole } from '../domain/policy.ts';
 import { tokenDigest, type Grant, type TokenMap } from './access-tokens.ts';
 
-// Server-side authorization (contracts/cli-daemon.md "Lệnh và quyền"). The caller's identity comes only
+// Server-side authorization (contracts/cli-daemon.md). The caller's identity comes only
 // from the bearer token; actor/role fields in a request body or header are never trusted.
 
 export type Caller = { grant: Grant };

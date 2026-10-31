@@ -1,11 +1,6 @@
 /**
- * Báo cáo bất biến I01–I12 (research R-14, SC-008), chạy bằng `pnpm report:invariants`.
- *
- * Đọc kết quả JSON của lần `pnpm test` (reports/vitest-default.json) và `pnpm test:reliability`
- * (reports/vitest-reliability.json) gần nhất cùng ánh xạ ở test/invariants.map.ts, rồi in bảng. Thoát mã 1
- * khi thiếu kết quả của một nhóm, khi bất biến trong phạm vi không có bộ kiểm thử, hoặc khi một bộ được
- * ánh xạ bị thiếu, skip hay fail trong kết quả. Báo cáo dựng từ kết quả chạy thật, không viết tay
- * (nguyên tắc VII).
+ * Builds the invariant report from actual Vitest results. Missing, skipped, or failed evidence
+ * exits with code 1.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
@@ -40,7 +35,7 @@ function readReport(group: Group): Report | null {
   const path = resolve(ROOT, `reports/vitest-${group}.json`);
   if (!existsSync(path)) {
     problems.push(
-      `thiếu kết quả nhóm ${group}: chạy \`${GROUPS[group]}\` trước (${relative(ROOT, path)})`,
+      `Missing results for ${group}: run \`${GROUPS[group]}\` first (${relative(ROOT, path)})`,
     );
     return null;
   }
@@ -72,51 +67,44 @@ for (const group of Object.keys(GROUPS) as Group[]) {
     suites.set(file, result);
     if (result.status === 'failed' || result.status === 'skipped')
       problems.push(
-        `${file} (${group}): ${result.status === 'failed' ? 'fail' : 'có test bị skip'}`,
+        `${file} (${group}): ${result.status === 'failed' ? 'failed' : 'contains skipped tests'}`,
       );
   }
 }
 
 const LABEL: Record<SuiteStatus, string> = {
-  passed: 'đạt',
-  failed: 'fail',
-  skipped: 'skip',
-  missing: 'thiếu',
+  passed: 'passed',
+  failed: 'failed',
+  skipped: 'skipped',
+  missing: 'missing',
 };
 
 const rows: string[][] = [];
 for (const [id, inv] of Object.entries(INVARIANTS)) {
   if (inv.scope === 'out_of_scope') {
-    rows.push([
-      id,
-      inv.title,
-      'ngoài phạm vi',
-      inv.layer,
-      'chưa thuộc phạm vi',
-      '—',
-    ]);
+    rows.push([id, inv.title, 'out of scope', inv.layer, 'out of scope', '—']);
     continue;
   }
   if (inv.suites.length === 0)
-    problems.push(`${id}: trong phạm vi nhưng không có bộ kiểm thử`);
+    problems.push(`${id}: in scope but has no test suites`);
   const parts = inv.suites.map((s) => {
     const r = suites.get(s);
     const status: SuiteStatus = r?.status ?? 'missing';
     if (status === 'missing')
-      problems.push(`${id}: ${s} không có trong kết quả chạy`);
+      problems.push(`${id}: ${s} is missing from the test results`);
     return { s, status, r };
   });
   const ok = parts.length > 0 && parts.every((p) => p.status === 'passed');
   rows.push([
     id,
     inv.title,
-    inv.scope === 'full' ? 'đầy đủ' : 'một phần',
+    inv.scope === 'full' ? 'full' : 'partial',
     inv.layer,
-    ok ? 'có bằng chứng' : 'CHƯA ĐẠT',
+    ok ? 'verified' : 'NOT VERIFIED',
     parts
       .map(
         (p) =>
-          `${p.s} (${p.r?.group ?? '?'}, ${p.r?.tests ?? 0} test, ${LABEL[p.status]})`,
+          `${p.s} (${p.r?.group ?? '?'}, ${p.r?.tests ?? 0} tests, ${LABEL[p.status]})`,
       )
       .join('<br>'),
   ]);
@@ -124,19 +112,24 @@ for (const [id, inv] of Object.entries(INVARIANTS)) {
 
 const when = (g: Group): string => {
   const r = reports[g];
-  return r === undefined ? 'không có' : new Date(r.startTime).toISOString();
+  return r === undefined ? 'unavailable' : new Date(r.startTime).toISOString();
 };
 
 const out: string[] = [
-  '# Báo cáo bất biến (SC-008)',
+  '# Invariant report (SC-008)',
   '',
-  `Kết quả \`${GROUPS.default}\`: ${when('default')}; \`${GROUPS.reliability}\`: ${when('reliability')}.`,
+  `Results for \`${GROUPS.default}\`: ${when('default')}; \`${GROUPS.reliability}\`: ${when('reliability')}.`,
   '',
-  '| Bất biến | Tên | Phạm vi | Tầng bằng chứng | Trạng thái | Bộ kiểm thử |',
+  '| Invariant | Name | Scope | Evidence layer | Status | Test suites |',
   '|---|---|---|---|---|---|',
   ...rows.map((r) => `| ${r.join(' | ')} |`),
 ];
 if (problems.length > 0)
-  out.push('', '## Chưa đạt', '', ...problems.map((p) => `- ${p}`));
+  out.push(
+    '',
+    '## Unverified invariants',
+    '',
+    ...problems.map((p) => `- ${p}`),
+  );
 process.stdout.write(`${out.join('\n')}\n`);
 process.exitCode = problems.length > 0 ? 1 : 0;

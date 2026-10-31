@@ -23,9 +23,8 @@ export function createAndStart(d: StoreDriver, task: CanonicalTask): void {
 }
 
 /**
- * prepare → code → gates → review: dừng khi `publish` đang pending. A task started with a mode gets the
- * checkpoint commit `head` from its gates, and a full-review approval bound to that commit and its input;
- * a direct-pr task has no review.
+ * Stop before publish. Mode-aware tasks use the gate checkpoint; full-review also requires an
+ * approval bound to that commit and input, while direct-pr has no review.
  */
 export function toPublish(
   d: StoreDriver,
@@ -106,8 +105,8 @@ export function currentReviewInput(d: StoreDriver, taskId: string): string {
 }
 
 /**
- * Chuỗi nhiều task có tín hiệu trùng, từ chối, conflict, hủy và timer: dùng cho bộ ngắt tiến trình và
- * kiểm tra dựng lại projection.
+ * Multi-task workload with duplicates, rejections, conflicts, cancellation, and timers for crash
+ * and replay tests.
  */
 export function mixedWorkload(d: StoreDriver): CanonicalTask[] {
   const a = buildTask({ id: uuidOf(101), source_key: 'cli:a' });
@@ -122,10 +121,14 @@ export function mixedWorkload(d: StoreDriver): CanonicalTask[] {
   d.must(b.id, { kind: 'create_task', task: b });
   d.must(c.id, { kind: 'create_task', task: c });
   toPublish(d, a);
-  // Gửi lại đúng phong bì cuối (trùng khoá) và một lệnh dựa trên version cũ.
+
   const last = d.ops.findLast((o) => o.op === 'accept');
   if (last?.op === 'accept') d.deliver(last.envelope);
-  d.send(b.id, { kind: 'cancel', reason: 'cũ' }, { expected_version: 0 });
+  d.send(
+    b.id,
+    { kind: 'cancel', reason: 'stale request' },
+    { expected_version: 0 },
+  );
   d.complete(
     a.id,
     d.pendingOne(a.id, 'publish').id,
@@ -136,7 +139,7 @@ export function mixedWorkload(d: StoreDriver): CanonicalTask[] {
     kind: 'start',
     freeze: freezeOk(b, { limits: { max_wall_ms: WALL } }),
   });
-  d.must(b.id, { kind: 'cancel', reason: 'không cần nữa' });
+  d.must(b.id, { kind: 'cancel', reason: 'No longer needed' });
   d.send(uuidOf(999), { kind: 'confirm_task' });
   d.now += WALL;
   d.fire();

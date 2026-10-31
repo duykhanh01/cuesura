@@ -1,4 +1,3 @@
-/** Điểm ngắt của research R-08 theo thứ tự trong transaction `accept`; `after_runtime` thêm cho bảng runtime 002. */
 export const CRASH_POINTS = [
   'after_dedup',
   'after_events',
@@ -16,10 +15,8 @@ export type CrashHook = (point: CrashPoint) => void;
 export const NO_CRASH: CrashHook = () => {};
 
 /**
- * Đọc `CUSR_CRASH_AT=<point>` một lần lúc mở kho. `CUSR_CRASH_AFTER=<n>` (mặc định 1) chọn lần thứ n đi
- * qua điểm đó, để bộ test ngắt giữa một chuỗi tín hiệu. Biến không đặt thì hook không làm gì.
- *
- * `SIGKILL` không chạy handler hay flush nào, gần với mất điện hơn `process.exit` (R-08).
+ * Read crash settings once at store open. CUSR_CRASH_AFTER selects the nth visit (default: 1).
+ * SIGKILL skips handlers and flushing, approximating sudden power loss.
  */
 export function crashHookFromEnv(
   env: NodeJS.ProcessEnv = process.env,
@@ -27,12 +24,10 @@ export function crashHookFromEnv(
   const at = env['CUSR_CRASH_AT'];
   if (at === undefined || at === '') return NO_CRASH;
   if (!(CRASH_POINTS as readonly string[]).includes(at))
-    throw new Error(`CUSR_CRASH_AT không hợp lệ: ${at}`);
+    throw new Error(`Invalid CUSR_CRASH_AT: ${at}`);
   const after = Number(env['CUSR_CRASH_AFTER'] || '1');
   if (!Number.isInteger(after) || after < 1)
-    throw new Error(
-      `CUSR_CRASH_AFTER không hợp lệ: ${env['CUSR_CRASH_AFTER']}`,
-    );
+    throw new Error(`Invalid CUSR_CRASH_AFTER: ${env['CUSR_CRASH_AFTER']}`);
   let hits = 0;
   return (point) => {
     if (point !== at || ++hits !== after) return;

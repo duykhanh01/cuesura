@@ -1,5 +1,5 @@
 /**
- * Orchestrator-side Git (T035, contracts/execution.md "Sandbox và Git boundary"). Runs a trusted git
+ * Orchestrator-side Git (T035, contracts/execution.md). Runs a trusted git
  * binary by argv, never through a shell, with an environment built from an allowlist and config pinned
  * on the command line, which outranks repo config:
  * - hooks point at an empty directory; fsmonitor, pager, editor, ssh command and askpass are fixed;

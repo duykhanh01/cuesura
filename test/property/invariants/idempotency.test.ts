@@ -7,8 +7,8 @@ import {
   taskOverArb,
 } from '../arbitraries/policies.ts';
 
-describe('I04 khoá idempotency ở mức quyết định', () => {
-  it('không hai EffectRequested cùng idem_key; khoá gắn project/task/revision; attempt mới có khoá mới; chạy lại giữ khoá', () => {
+describe('I04 decision-level idempotency keys', () => {
+  it('keys bind project/task/revision, change for new attempts, and survive requeueing', () => {
     fc.assert(
       fc.property(
         policyArb,
@@ -32,7 +32,6 @@ describe('I04 khoá idempotency ở mức quyết định', () => {
               ev.type === 'EffectReconciled' &&
               ev.payload.status === 'pending'
             ) {
-              // Đưa lại vào hàng đợi là cùng effect, cùng khoá (R-17).
               expect(after.effects[ev.payload.effect_id]?.idem_key).toBe(
                 before?.effects[ev.payload.effect_id]?.idem_key,
               );

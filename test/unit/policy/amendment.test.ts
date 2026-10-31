@@ -3,7 +3,7 @@ import { proposeAmendment } from '../../../src/policy/amendment.ts';
 import { verifyPolicyHash } from '../../../src/policy/finalize.ts';
 import { authz, buildPolicy } from '../../support/builders.ts';
 
-const reason = 'tăng trần lượt agent cho task lớn';
+const reason = 'Increase the agent-run budget for a larger task';
 
 describe('proposeAmendment (FR-005, FR-036)', () => {
   const current = buildPolicy();
@@ -15,7 +15,7 @@ describe('proposeAmendment (FR-005, FR-036)', () => {
     },
   };
 
-  it('not_admin khi không có ngữ cảnh quyền, dù có tên actor', () => {
+  it('an actor name without trusted authorization returns not_admin', () => {
     expect(proposeAmendment({ current, change, reason, authz: null })).toEqual({
       ok: false,
       error: { code: 'not_admin' },
@@ -25,7 +25,7 @@ describe('proposeAmendment (FR-005, FR-036)', () => {
     ).toEqual({ ok: false, error: { code: 'not_admin' } });
   });
 
-  it('not_admin khi chỉ có quyền operate', () => {
+  it('operate-only authorization returns not_admin', () => {
     expect(
       proposeAmendment({
         current,
@@ -39,7 +39,7 @@ describe('proposeAmendment (FR-005, FR-036)', () => {
     });
   });
 
-  it('workflow_change_forbidden khi đổi graph workflow', () => {
+  it('workflow graph changes return workflow_change_forbidden', () => {
     const r = proposeAmendment({
       current,
       change: { workflow: current.workflow } as never,
@@ -52,7 +52,7 @@ describe('proposeAmendment (FR-005, FR-036)', () => {
     });
   });
 
-  it('policy_version tăng 1 và policy_hash được tính lại', () => {
+  it('increments policy_version and recomputes policy_hash', () => {
     const r = proposeAmendment({
       current,
       change,
@@ -68,7 +68,7 @@ describe('proposeAmendment (FR-005, FR-036)', () => {
     expect(verifyPolicyHash(r.value)).toBe(true);
   });
 
-  it('chế độ quyết định khác human bị từ chối (FR-039)', () => {
+  it('rejects non-human decision modes (FR-039)', () => {
     const r = proposeAmendment({
       current,
       change: {
@@ -80,7 +80,7 @@ describe('proposeAmendment (FR-005, FR-036)', () => {
     expect(!r.ok && r.error.code).toBe('invalid');
   });
 
-  it('chính sách mới không dùng chung object với change hay current', () => {
+  it('new policies share no objects with change or current', () => {
     const ch = { limits: { ...current.limits, max_agent_runs: 50 } };
     const r = proposeAmendment({
       current,
@@ -98,7 +98,7 @@ describe('proposeAmendment (FR-005, FR-036)', () => {
     expect(verifyPolicyHash(r.value)).toBe(true);
   });
 
-  it('đầu vào giữ nguyên dù bị từ chối hay được chấp nhận', () => {
+  it('preserves inputs on both acceptance and rejection', () => {
     proposeAmendment({ current, change, reason, authz: authz(['operate']) });
     proposeAmendment({ current, change, reason, authz: authz(['admin']) });
     expect(current).toEqual(snapshot);

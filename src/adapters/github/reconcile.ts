@@ -1,6 +1,6 @@
 /**
  * Read-only probes of GitHub effects before any retry (T089, FR-017/018/034.01, contracts/github.md
- * "Publish và đối chiếu"). Each logical effect is found again by its own identity: the PR by repo ID,
+ *). Each logical effect is found again by its own identity: the PR by repo ID,
  * head/base tuple and the canonical marker with the operation key across every state; a description
  * update by the body digest it sent; a CI rerun by the workflow runs of the head that started a new
  * attempt after the operation was claimed. A probe only reads. Several matches, a body someone edited

@@ -23,9 +23,9 @@ import {
 } from '../arbitraries/policies.ts';
 import { HEAVY_PROPERTY_TIMEOUT_MS } from '../../support/timeouts.ts';
 
-describe('I11, FR-015 điều kiện merge', () => {
+describe('I11, FR-015 merge conditions', () => {
   it(
-    'không EffectRequested(merge) khi thiếu approval gắn head, review approve, required check success, required_set.complete hoặc head_contains_base',
+    'requires head-bound approval, approved review, successful checks, complete requirements, and base ancestry',
     () => {
       fc.assert(
         fc.property(
@@ -47,7 +47,7 @@ describe('I11, FR-015 điều kiện merge', () => {
         ),
         propertyParams(150),
       );
-      // Chuỗi ngẫu nhiên hiếm khi tới merge; property tập trung bên dưới bảo đảm luôn có ca merge.
+      // Random sequences rarely reach merge; the focused property below guarantees merge cases.
     },
     HEAVY_PROPERTY_TIMEOUT_MS,
   );
@@ -80,7 +80,6 @@ const ciArb = fc.record({
   ),
 });
 
-/** Bằng chứng ngẫu nhiên ngay trước bước merge: head review/publish/approval, CI nhiều lượt, quan hệ base. */
 const mergeCaseArb = fc.record({
   required: fc.subarray(['A', 'B']),
   size: fc.constantFrom('M' as const, 'XS' as const),
@@ -91,9 +90,9 @@ const mergeCaseArb = fc.record({
   cancel: fc.constantFrom('none', 'none', 'before', 'after'),
 });
 
-describe('I11 merge guard trên bằng chứng sinh ngẫu nhiên', () => {
+describe('I11 merge guard with generated evidence', () => {
   it(
-    'mọi EffectRequested(merge) thoả oracle; bằng chứng thiếu thì task chờ thay vì merge',
+    'every merge request satisfies the oracle; missing evidence causes a wait',
     () => {
       let merges = 0;
       let blocked = 0;
@@ -171,7 +170,7 @@ describe('I11 merge guard trên bằng chứng sinh ngẫu nhiên', () => {
           let policyNow: FrozenPolicy | null = null;
           walk(sim.events, (before, ev, after) => {
             if (ev.type === 'PolicyFrozen') policyNow = ev.payload.policy;
-            // Chính hàm guard (lớp phòng thủ thứ hai sau bước approval) khớp oracle trên mọi state.
+
             if (policyNow !== null && after.head_sha !== null) {
               expect(mergeGuard(after, policyNow).ok).toBe(
                 mergeAllowed(after, policyNow, after.head_sha) === null,

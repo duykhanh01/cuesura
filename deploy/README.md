@@ -34,6 +34,8 @@ kernel/package/profile hiện có để provisioning phù hợp; không tự sud
 managed hoặc chạy unsandboxed. Không suy failure ở host bwrap 0.9.0 trong báo cáo lịch sử thành
 failure của mọi host Ubuntu/WSL2.
 
+<a id="host-prerequisites"></a>
+
 ### Chuẩn bị theo hệ và cách sửa khi preflight báo `capability_missing`
 
 Preflight (T030) kiểm từng điều kiện dưới đây và báo đúng nguyên nhân kèm mã `cause`; nó chỉ in
@@ -98,6 +100,8 @@ thử và fail, outer boundary được chứng minh, permission/approval negati
 phép trong trusted config và hashes/version/layout còn khớp. Managed policy bắt buộc native thì
 không override; không dùng dangerously/bypass/accept-all hoặc đổi mode theo lỗi từng tool call.
 Nếu binary không tách được OS sandbox khỏi quyền/approval, binding vẫn blocked.
+
+<a id="systemd-and-wsl2"></a>
 
 ## systemd và WSL2
 

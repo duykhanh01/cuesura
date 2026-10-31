@@ -1,5 +1,5 @@
 /**
- * Daemon startup recovery (T085, FR-022/036, data-model.md "Projection, transaction và migration"). The
+ * Daemon startup recovery (T085, FR-022/036, data-model.md). The
  * order is fixed and nothing is granted before it ends:
  *
  *   1. writer lock: the store file is opened with an exclusive lock; a second daemon gets `store_locked`;

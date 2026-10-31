@@ -33,7 +33,7 @@ function counts(d: StoreDriver): Record<string, number> {
 describe('Store.accept (T078)', () => {
   const tmp = useTempDir();
 
-  it('chấp nhận nguyên tử trên file thật: sự kiện, projection, effect, timer và snapshot cùng commit', () => {
+  it('atomically commits events, projections, effects, timers, and snapshots to a real file', () => {
     const store = openFileStoreForTest(dbPath(tmp()));
     const d = new StoreDriver(store);
     d.must(TASK.id, { kind: 'create_task', task: TASK });
@@ -58,14 +58,14 @@ describe('Store.accept (T078)', () => {
     store.close();
   });
 
-  it('gửi lại cùng khoá trả kết quả lần đầu, không thêm gì (FR-026)', () => {
+  it('replaying a key returns the original result without writes (FR-026)', () => {
     const d = new StoreDriver(openMemoryStore());
     d.must(TASK.id, { kind: 'create_task', task: TASK });
     const env = d.envelope(TASK.id, { kind: 'start', freeze: freezeOk(TASK) });
     const first = d.deliver(env);
     const before = counts(d);
 
-    // Gửi lại với `now` và `ids` khác: không thuộc request_hash (R-19).
+    // now and ids are deliberately different because neither belongs to request_hash.
     const again = {
       ...env,
       now: (env.now + 60_000) as typeof env.now,
@@ -81,7 +81,7 @@ describe('Store.accept (T078)', () => {
     expect(counts(d)).toEqual(before);
   });
 
-  it('request_hash gồm task_id, expected_version và actor', () => {
+  it('request_hash includes task_id, expected_version, and actor', () => {
     const base = {
       task_id: TASK.id,
       trigger: { kind: 'cancel', reason: 'x' },
@@ -112,14 +112,14 @@ describe('Store.accept (T078)', () => {
     });
   });
 
-  it('expected_version lệch → conflict stale_version, không ghi gì (FR-028)', () => {
+  it('a stale expected_version returns conflict/stale_version without writes (FR-028)', () => {
     const d = new StoreDriver(openMemoryStore());
     d.must(TASK.id, { kind: 'create_task', task: TASK });
     const before = counts(d);
     const v = d.task(TASK.id).version;
     const r = d.send(
       TASK.id,
-      { kind: 'cancel', reason: 'cũ' },
+      { kind: 'cancel', reason: 'stale request' },
       { expected_version: v - 1 },
     );
     expect(r).toEqual({
@@ -127,11 +127,11 @@ describe('Store.accept (T078)', () => {
       error: { code: 'conflict', reason: 'stale_version' },
     });
     expect(counts(d)).toEqual(before);
-    // Không được ghi vào accepted_triggers: cùng khoá với version đúng vẫn chạy được.
+
     expect(d.task(TASK.id).version).toBe(v);
   });
 
-  it('Decision.rejected được lưu, không append sự kiện; gửi lại trả cùng từ chối', () => {
+  it('persists Decision.rejected without events and replays the same rejection', () => {
     const d = new StoreDriver(openMemoryStore());
     const env = d.envelope(TASK.id, { kind: 'confirm_task' });
     const r1 = d.deliver(env);
@@ -153,7 +153,7 @@ describe('Store.accept (T078)', () => {
     });
   });
 
-  it('request_hash sai trong phong bì → invalid_trigger, không có sự kiện', () => {
+  it('an incorrect request_hash returns invalid_trigger without events', () => {
     const d = new StoreDriver(openMemoryStore());
     const env = {
       ...d.envelope(TASK.id, { kind: 'create_task', task: TASK }),
@@ -167,11 +167,11 @@ describe('Store.accept (T078)', () => {
     expect(d.store.readTask(TASK.id)).toBeNull();
   });
 
-  it('seq/global_seq theo thứ tự accept, không theo ID hay now của phong bì (FR-027)', () => {
+  it('seq/global_seq follow acceptance order rather than envelope IDs or timestamps (FR-027)', () => {
     const A = buildTask({ id: uuidOf(10), source_key: 'cli:a' });
     const B = buildTask({ id: uuidOf(11), source_key: 'cli:b' });
     const store = openMemoryStore();
-    // Phong bì của B có `now` sớm hơn và ID nhỏ hơn nhưng được chấp nhận sau.
+    // B has an earlier timestamp and a smaller ID but is accepted later.
     const envA = envelope(
       A.id,
       { kind: 'create_task', task: A },
@@ -196,7 +196,7 @@ describe('Store.accept (T078)', () => {
     );
     const ra = store.accept(envA);
     const rb = store.accept(envB);
-    if (!ra.ok || !rb.ok) throw new Error('accept lỗi');
+    if (!ra.ok || !rb.ok) throw new Error('accept failed');
     const [, aTo] = ra.value.global_seq_range ?? [0, 0];
     const [bFrom] = rb.value.global_seq_range ?? [0, 0];
     expect(bFrom).toBe(aTo + 1);
@@ -205,7 +205,7 @@ describe('Store.accept (T078)', () => {
     expect(store.readEvents(B.id)[0]?.seq).toBe(1);
   });
 
-  it('thiếu ID → id_pool_exhausted không ghi dedup; gửi lại cùng khoá với đủ ID được xử lý', () => {
+  it('ID exhaustion does not record deduplication and permits retry with enough IDs', () => {
     const d = new StoreDriver(openMemoryStore());
     d.must(TASK.id, { kind: 'create_task', task: TASK });
     const before = counts(d);
@@ -225,7 +225,7 @@ describe('Store.accept (T078)', () => {
     });
   });
 
-  it('ID của task khác bị cấp lại → conflict id_collision, rollback; projection vẫn khớp (FR-029)', () => {
+  it('reused IDs from another task cause id_collision and rollback without changing projections (FR-029)', () => {
     const A = buildTask({ id: uuidOf(11) });
     const B = buildTask({ id: uuidOf(12) });
     const d = new StoreDriver(openMemoryStore());
@@ -247,7 +247,6 @@ describe('Store.accept (T078)', () => {
     expect(d.task(B.id).status).toBe('READY');
     expect(d.store.verifyProjections().ok).toBe(true);
 
-    // Lần trước không để lại dedup: cùng khoá với ID mới chạy được.
     expect(d.deliver(startB)).toMatchObject({
       ok: true,
       value: { decision: { kind: 'accepted' } },

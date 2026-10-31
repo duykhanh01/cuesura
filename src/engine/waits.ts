@@ -8,7 +8,6 @@ import type { Ctx } from './context.ts';
 import { businessInFlight } from './effects.ts';
 import { reachSafeBoundary } from './revision.ts';
 
-/** Mọi trạng thái chờ có điều kiện tiếp tục và đường kết thúc (FR-009, SC-006). */
 export function mkWait(
   reason: WaitReason,
   code: DetailCode,
@@ -29,9 +28,8 @@ export function mkWait(
 }
 
 /**
- * Đưa task vào trạng thái chờ. Nếu đang có source drift chưa tới ranh giới an toàn và không còn effect
- * nghiệp vụ nào đang chạy, đây chính là ranh giới: task chờ người chọn revision, còn lý do chờ vừa có được
- * giữ lại để khôi phục khi chọn tiếp tục revision cũ (FR-011).
+ * If a wait reaches a safe boundary during source drift, ask for a revision choice and retain the
+ * new wait so continuing the old revision can restore it.
  */
 export function waitTask(ctx: Ctx, wait: Wait): void {
   const drift = ctx.state.source_drift;
@@ -46,7 +44,7 @@ export function waitTask(ctx: Ctx, wait: Wait): void {
   ctx.emit('TaskWaiting', { wait });
 }
 
-/** Chờ chính sách: hết lượt, hết thang, hết hạn… Chỉ amendment của admin mở lại (FR-023). */
+/** Only an admin amendment can reopen exhausted policy limits. */
 export function waitPolicy(
   ctx: Ctx,
   code: DetailCode,

@@ -3,7 +3,7 @@ import { canonicalJson } from '../shared/canonical-json.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import { rollback, writeFailure, type WriteFailure } from './accept.ts';
 
-/** One row of the CLI/application mutation ledger (contracts/cli-daemon.md "Transport và application service"). */
+/** One row of the CLI/application mutation ledger (contracts/cli-daemon.md). */
 export type CommandRecord = {
   request_id: string;
   actor: string;

@@ -1,5 +1,5 @@
 /**
- * Orchestrator commits (T039, FR-017/018, contracts/execution.md "Prepare, gate và publish"). The head
+ * Orchestrator commits (T039, FR-017/018, contracts/execution.md). The head
  * that gates and review vouched for is committed from exactly their checkpoint tree. Before the branch
  * ref moves, a commit intent (tree, parent, author/committer and their times, message, expected OID) is
  * stored durably; the commit object is reproducible from it, so recovery after a crash or timeout

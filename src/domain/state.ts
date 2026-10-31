@@ -49,7 +49,6 @@ export function isTerminal(s: TaskStatus): boolean {
   return TERMINAL_STATUSES.includes(s);
 }
 
-/** Tập `wait_reason` giữ nguyên SPEC.md §6.1. */
 export const PENDING_REASONS = [
   'confirmation',
   'needs_info',
@@ -67,7 +66,6 @@ export const WAIT_REASONS = [...PENDING_REASONS, ...WAITING_REASONS] as const;
 export type WaitReason = (typeof WAIT_REASONS)[number];
 export const WaitReasonSchema = z.enum(WAIT_REASONS);
 
-/** `detail.code` theo bảng research R-13, cộng các mã chi tiết cho PENDING/WAITING khác. */
 export const DETAIL_CODES = [
   // PENDING
   'missing_acceptance',
@@ -136,11 +134,10 @@ export const DETAIL_CODES = [
 ] as const;
 export type DetailCode = (typeof DETAIL_CODES)[number];
 
-/** Hành động tiếp tục khi điều kiện chờ được thoả. */
 export type ResumeAction =
   | { kind: 'start_attempt'; step: string; attempt_kind: AttemptKind }
   | { kind: 'enter_step'; step: string }
-  /** Chạy lại bước mà không tính lượt vào bước (sau khi người trả lời hoặc duyệt). */
+  /** Rerun without counting another step visit after a human answer or approval. */
   | { kind: 'run_step'; step: string }
   | { kind: 'route'; step: string; outcome: string }
   | { kind: 'retry_effect'; step: string }
@@ -176,7 +173,7 @@ export type Attempt = {
   effect_id: string;
   reservation_id: string;
   status: 'running' | 'finished';
-  /** Người đã yêu cầu dừng attempt; kết quả về sau không làm qua bước. */
+  /** A stopped attempt cannot advance the workflow when its result arrives. */
   stop_requested: boolean;
   outcome: {
     class: FailureClass | null;
@@ -486,7 +483,7 @@ export type PrBodyState = {
 
 export type CiWait = { started_at: number; polls: number };
 
-/** Projection `TaskState` (data-model.md). `version` tăng mỗi sự kiện (FR-028). */
+/** version increases with every event. */
 export type TaskState = {
   schema_version: number;
   id: string;

@@ -55,7 +55,7 @@ export function readClientToken(
     ? t
     : err({
         code: 'token',
-        message: `cannot use token file ${path}: ${t.error.code === 'token_file_invalid' ? t.error.reason : t.error.code}`,
+        message: `Cannot use token file ${path}: ${t.error.code === 'token_file_invalid' ? t.error.reason : t.error.code}`,
       });
 }
 
@@ -104,14 +104,15 @@ export function callDaemon(
         res.on('data', (c: Buffer) => {
           size += c.length;
           if (size > MAX_RESPONSE_BYTES)
-            req.destroy(new Error('response too large'));
+            req.destroy(new Error('Daemon response exceeds the size limit'));
           else chunks.push(c);
         });
         const cut = (): void =>
           done(
             err({
               code: 'connection',
-              message: 'daemon closed the connection before the response ended',
+              message:
+                'Daemon closed the connection before the response was complete',
             }),
           );
         res.on('aborted', cut);
@@ -129,7 +130,7 @@ export function callDaemon(
               envelope === null ||
               envelope.schema_version !== 1
             )
-              throw new Error('not an envelope');
+              throw new Error('Daemon response has an invalid result envelope');
             done(ok({ status: res.statusCode ?? 0, envelope }));
           } catch (e) {
             done(
@@ -144,7 +145,7 @@ export function callDaemon(
     );
     req.on('timeout', () =>
       req.destroy(
-        Object.assign(new Error('daemon did not answer in time'), {
+        Object.assign(new Error('Daemon request timed out'), {
           code: 'ETIMEDOUT',
         }),
       ),
@@ -162,15 +163,13 @@ export function callDaemon(
   });
 }
 
-/** `cusr status`: daemon health over the socket (read). */
 export const statusCommand: CliCommand = {
   name: 'status',
-  description:
-    'show daemon health (writer, projections, dispatch, execution slot)',
+  description: 'Show daemon health, recovery status, and execution slot',
   options: [
     {
       flags: '--data-dir <dir>',
-      description: 'daemon data directory (default $CUSR_DATA_DIR or ~/.cusr)',
+      description: 'Daemon data directory (default: $CUSR_DATA_DIR or ~/.cusr)',
     },
   ],
   async run(values, json, io) {

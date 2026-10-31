@@ -32,14 +32,12 @@ import type {
   RuntimeTool,
 } from './schema-user.ts';
 
-/** Thời lượng đã qua schema nên luôn hợp lệ. */
+/** Schema validation guarantees that durations are valid here. */
 export function ms(text: string): number {
   const r = parseDuration(text);
   if (!r.ok) throw new Error(`normalize: ${r.error}`);
   return r.value;
 }
-
-// ---------- Mặc định (contracts/config.md, research R-22, SPEC.md §9.2) ----------
 
 export const DEFAULT_BACKOFF: Limits['backoff'] = {
   rate_limit: {
@@ -65,8 +63,6 @@ export const DEFAULT_ESCALATION = {
   above: 'ask_human',
   max_escalations: 2,
 } as const;
-
-// ---------- Chuẩn hoá ----------
 
 export function normalizeRole(r: RawRole): NormalizedRole {
   return {
@@ -105,10 +101,6 @@ function normalizeStep(s: RawStep): Record<string, unknown> {
   };
 }
 
-/**
- * Mở rộng workflow: `base` được hợp nhất với tham số người dùng chỉnh theo từng bước. Trả `null` khi
- * kết quả không qua `WorkflowSchema` (bước thiếu `kind`…); validate.ts báo `schema_invalid`.
- */
 export function expandWorkflow(
   w: RawWorkflow,
 ):
@@ -227,7 +219,6 @@ export function normalizeProject(
   };
 }
 
-/** Phần người dùng trừ workflow và profile (hai phần này cần chẩn đoán riêng). */
 export function normalizeUserBase(
   u: RawUserConfig,
 ): Omit<NormalizedUser, 'workflows'> {
@@ -258,12 +249,11 @@ export function normalizeUserBase(
 
 // ---------- Runtime daemon 002 ----------
 
-/** Vị trí local và remote của một project; `null` khi chưa khai báo. */
 export type ProjectLocation = { path: string | null; repo: string | null };
 
 /**
- * `projects.<id>.path`/`repo` nằm ngoài `NormalizedUser` để `hashes.user`, `effective` và `policy_hash`
- * của cấu hình đã từng khai `repo` không đổi; runtime chụp chúng vào `FrozenRuntimeContext`.
+ * Keep project paths and remotes outside NormalizedUser to preserve existing policy/configuration
+ * hashes. Runtime snapshots capture them in FrozenRuntimeContext.
  */
 export function projectLocations(
   u: RawUserConfig,
@@ -276,15 +266,14 @@ export function projectLocations(
   );
 }
 
-/** `runtime:` đã chuẩn hoá: mặc định đã điền, tham chiếu sắp theo tên. Không chứa secret. */
 export type RuntimeConfig = {
   data_dir: string | null;
   limits: RuntimeLimits;
-  /** Công cụ không khai báo thì doctor/preflight tự tìm và ghi lại. */
+  /** Doctor and preflight resolve tools that have no explicit path. */
   tool_paths: Partial<Record<RuntimeTool, string>>;
   credential_refs: CredentialRef[];
   access_tokens: AccessTokenSpec[];
-  /** Mọi harness đã khai báo đều có mục; mặc định `internal_required`. */
+
   harness_isolation: Record<string, HarnessInnerModePolicy>;
   /** Allowed execution modes with their guidance; both when `runtime.modes` is absent. */
   modes: Partial<Record<ExecutionMode, { when_to_use: string | null }>>;
@@ -300,7 +289,7 @@ export function mergeRuntimeLimits(
   return out;
 }
 
-/** `null` khi không khai báo `runtime:`; chỉ daemon 002 bắt buộc có nó. */
+/** null when runtime is absent; only daemon execution requires it. */
 export function normalizeRuntime(
   r: RawRuntime | undefined,
   harnesses: readonly string[],

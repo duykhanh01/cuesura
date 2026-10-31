@@ -1,4 +1,4 @@
-# Cấu hình người dùng mẫu (~/.cusr/config.yaml), theo docs/architecture.md §5.2 và §5.4.
+# Example user configuration (~/.cusr/config.yaml).
 version: 1
 
 harnesses:

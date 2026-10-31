@@ -1,5 +1,5 @@
 /**
- * Effect dispatch (contracts/cli-daemon.md "Transport và application service", research R-16). The daemon
+ * Effect dispatch (contracts/cli-daemon.md, research R-16). The daemon
  * is the only writer: it claims a committed `pending` effect through the store (`EffectStarted` and the
  * operation identity commit together), and only after that commit hands the effect and its operation to
  * a handler built on the ports. A handler returns facts as trigger envelopes (the operation receipt and

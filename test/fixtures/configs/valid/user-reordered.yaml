@@ -1,4 +1,4 @@
-# Cùng nội dung với user.yaml, chỉ khác thứ tự khoá và định dạng (US1 scenario 3).
+# Semantically identical to user.yaml, with different key order and formatting.
 profiles:
   heavy:
     escalation:

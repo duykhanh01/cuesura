@@ -4,7 +4,7 @@ import { readConfigFiles } from '../../../src/config/read-files.ts';
 import { CONFIGS } from '../../support/config-fixtures.ts';
 
 describe('readConfigFiles', () => {
-  it('đọc file người dùng và cusr.yaml, giữ đúng đường dẫn caller đưa vào', async () => {
+  it('reads user and project files while preserving caller-provided paths', async () => {
     const user = join(CONFIGS, 'valid', 'user.yaml');
     const project = join(CONFIGS, 'valid', 'cusr.yaml');
     const files = await readConfigFiles({ user, project });
@@ -12,7 +12,7 @@ describe('readConfigFiles', () => {
     expect(files[1]?.text).toContain('extends: [node]');
   });
 
-  it('không có cusr.yaml thì chỉ đọc file người dùng', async () => {
+  it('reads only the user file when cusr.yaml is absent', async () => {
     expect(
       await readConfigFiles({ user: join(CONFIGS, 'valid', 'user.yaml') }),
     ).toHaveLength(1);

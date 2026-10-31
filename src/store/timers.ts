@@ -12,8 +12,8 @@ import type { TimerRow } from './projector.ts';
 import { toTimer, type Timer } from './read.ts';
 
 /**
- * Timer `armed` đã đến hạn mà chưa có tín hiệu `timer:<id>` nào được chấp nhận: mỗi timer tạo tối đa
- * một tín hiệu (FR-030), kể cả khi task đã kết thúc và timer không bao giờ chuyển sang `fired`.
+ * Select due armed timers with no accepted timer:<id> trigger, even if a terminal task never marks
+ * them fired.
  */
 export function dueTimers(db: Database, now: number, limit: number): Timer[] {
   const rows = db
@@ -27,14 +27,11 @@ export function dueTimers(db: Database, now: number, limit: number): Timer[] {
   return rows.map(toTimer);
 }
 
-/** Lỗi khi bắn timer: lỗi của timer gặp lỗi cùng các tín hiệu đã commit trước đó trong lượt này. */
 export type FireError = AcceptError & { fired: AcceptOutcome[] };
 
 /**
- * Bắn các timer đến hạn, mỗi timer một transaction `accept` với khoá `timer:<id>`; `TimerFired` nằm
- * trong cùng transaction đó. Chạy lại sau crash không tạo tín hiệu thứ hai nhờ dedup. Dừng ở lỗi đầu
- * tiên và trả lỗi đó (FR-033); timer chưa xử lý giữ `armed` cho lần sau. Thiếu ID (`id_pool_exhausted`)
- * không ghi dedup nên timer vẫn đến hạn ở lần gọi sau.
+ * One accept transaction per timer, including TimerFired. Deduplication prevents duplicate firing
+ * after a crash. Stop on the first error; ID exhaustion must leave the timer eligible for retry.
  */
 export function fireDueTimers(
   db: Database,

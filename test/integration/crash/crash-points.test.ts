@@ -18,7 +18,6 @@ import {
 import { mixedWorkload } from '../../support/store-flows.ts';
 import { dbPath, useTempDir } from '../../support/temp-db.ts';
 
-/** Dữ liệu nguồn của kho: nhật ký và tín hiệu đã chấp nhận. */
 function journal(store: Store): string {
   const db = storeDb(store);
   return canonicalJson({
@@ -31,7 +30,6 @@ function journal(store: Store): string {
   });
 }
 
-/** Chuỗi tham chiếu: thao tác, nhật ký sau mỗi thao tác, và số lần đi qua mỗi điểm ngắt. */
 function reference(): {
   ops: StoreOp[];
   prefixes: string[];
@@ -54,24 +52,23 @@ function reference(): {
   return { ops, prefixes, hits };
 }
 
-// Seed in ra khi fail để tái hiện (SC-005); CUSR_SEED ghi đè.
+// CUSR_SEED overrides the default; failure output includes the seed for reproduction.
 const SEED = Number(process.env['CUSR_SEED'] ?? 20261027);
 
 function pick(seed: number, n: number): number {
   return (Math.imul(seed ^ 0x9e3779b9, 2654435761) >>> 0) % n;
 }
 
-describe('Ngắt tiến trình tại mỗi điểm của R-08 (T084, I03)', () => {
+describe('Crash injection at every R-08 point (T084, I03)', () => {
   const tmp = useTempDir();
   const ref = reference();
 
-  it('chuỗi tham chiếu đi qua đủ bảy điểm', () => {
+  it('the reference sequence reaches all seven crash points', () => {
     for (const p of CRASH_POINTS) expect(ref.hits[p], p).toBeGreaterThan(0);
   });
 
   for (const point of CRASH_POINTS) {
-    it(`SIGKILL tại ${point}: integrity ok, đủ hoặc không có gì, projection khớp (seed ${SEED})`, () => {
-      // Ba vị trí: lần đầu, lần cuối và một lần chọn theo seed.
+    it(`SIGKILL at ${point}: integrity holds, writes are atomic, projections match (seed ${SEED})`, () => {
       const n = ref.hits[point];
       const positions = [...new Set([1, n, 1 + pick(SEED + point.length, n)])];
       for (const after of positions) {
@@ -97,12 +94,11 @@ describe('Ngắt tiến trình tại mỗi điểm của R-08 (T084, I03)', () =
         const k = ref.prefixes.indexOf(journal(store));
         expect(
           k,
-          `${where}: nhật ký không trùng tiền tố nào của chuỗi tham chiếu`,
+          `${where}: log does not match any prefix of the reference sequence`,
         ).toBeGreaterThanOrEqual(0);
         if (point === 'after_commit') expect(k, where).toBeGreaterThan(0);
         expect(store.verifyProjections().mismatches, where).toEqual([]);
 
-        // Chạy tiếp phần còn lại sau khi mở lại: kết quả cuối giống chuỗi không bị ngắt.
         for (const op of ref.ops.slice(k)) applyOp(store, op);
         expect(journal(store), where).toBe(ref.prefixes.at(-1));
         store.close();

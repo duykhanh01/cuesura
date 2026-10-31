@@ -22,12 +22,10 @@ import {
   taskOverArb,
 } from '../property/arbitraries/policies.ts';
 
-// Seed in ra trong tên mỗi test và khi fail; `pnpm test:reliability --seed <seed>` tái hiện (SC-005).
 const SEED = Number(process.env['CUSR_SEED'] ?? 20261027);
 const RUNS = Number(process.env['CUSR_CRASH_RUNS'] ?? 200);
 const WORKLOADS = 8;
 
-/** PRNG mulberry32: chọn workload, điểm và lần ngắt tất định theo seed. */
 function rng(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
@@ -39,7 +37,6 @@ function rng(seed: number): () => number {
   };
 }
 
-/** Dữ liệu nguồn của kho: nhật ký và tín hiệu đã chấp nhận. */
 function journal(store: Store): string {
   const db = storeDb(store);
   return canonicalJson({
@@ -57,21 +54,22 @@ function opsOf(sim: Sim): StoreOp[] {
     if (e.kind === 'decide') return { op: 'accept', envelope: e.envelope };
     if (e.kind === 'claim')
       return { op: 'claim', effect_id: e.effect_id, now: e.now };
-    throw new Error('drive không tạo inject');
+    throw new Error('drive does not produce injected events');
   });
 }
 
 type Workload = {
   ops: StoreOp[];
-  /** Nhật ký sau 0..n thao tác. */
+
   prefixes: string[];
-  /** Với mỗi điểm: chỉ số thao tác của lần đi qua thứ 1, 2, … */
+
   hits: Record<CrashPoint, number[]>;
 };
 
 /**
- * Hai task độc lập chạy chuỗi ngẫu nhiên, xen kẽ ngẫu nhiên giữ thứ tự trong từng task. Mỗi thao tác là
- * một transaction, nên mỗi lần ngắt có đúng một kết quả hợp lệ: trước hoặc sau thao tác đang chạy.
+ * Randomly interleave two independent tasks without changing their internal order. Each operation
+ * is one transaction, so a crash must leave exactly the state before or after the interrupted
+ * operation.
  */
 function workloads(seed: number): Workload[] {
   const arb = fc.tuple(
@@ -134,12 +132,12 @@ function plans(seed: number, ws: readonly Workload[]): Plan[] {
   });
 }
 
-describe(`R1 ${RUNS} lần SIGKILL trên SQLite WAL + synchronous=FULL (T109, SC-005, seed ${SEED})`, () => {
+describe(`R1 ${RUNS} SIGKILL runs with SQLite WAL and synchronous=FULL (T109, SC-005, seed ${SEED})`, () => {
   const tmp = useTempDir('cusr-r1-');
   const ws = workloads(SEED);
   const ps = plans(SEED, ws);
 
-  it('các lần ngắt phủ đủ bảy điểm của R-08', () => {
+  it('crashes cover all seven R-08 points', () => {
     expect(new Set(ps.map((p) => p.point))).toEqual(new Set(CRASH_POINTS));
   });
 
@@ -160,27 +158,25 @@ describe(`R1 ${RUNS} lần SIGKILL trên SQLite WAL + synchronous=FULL (T109, SC
 
       const opened = openStore(path, { busyTimeoutMs: 1_000 });
       if (!opened.ok)
-        throw new Error(`${where}: mở lại lỗi ${opened.error.code}`);
+        throw new Error(`${where}: reopening failed with ${opened.error.code}`);
       const store = opened.value;
       expect(
         storeDb(store).pragma('integrity_check', { simple: true }),
         where,
       ).toBe('ok');
 
-      // Thao tác đang chạy lúc ngắt: đã commit thì phải còn đủ, chưa commit thì không để lại gì.
       const op = w.hits[plan.point][plan.after - 1] as number;
       const k = plan.point === 'after_commit' ? op + 1 : op;
       expect(
         journal(store) === w.prefixes[k],
-        `${where}: nhật ký sau ngắt khác tiền tố ${k}`,
+        `${where}: recovered log differs from prefix ${k}`,
       ).toBe(true);
       expect(store.verifyProjections().mismatches, where).toEqual([]);
 
-      // Chạy tiếp phần còn lại sau khi mở lại: kết quả cuối giống chuỗi không bị ngắt.
       for (const o of w.ops.slice(k)) applyOp(store, o);
       expect(
         journal(store) === w.prefixes.at(-1),
-        `${where}: kết quả cuối khác chuỗi không ngắt`,
+        `${where}: final result differs from uninterrupted execution`,
       ).toBe(true);
       expect(store.verifyProjections().mismatches, where).toEqual([]);
       store.close();

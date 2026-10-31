@@ -1,5 +1,5 @@
 /**
- * Spike 0 outer sandbox prototype (T004, contracts/execution.md "Sandbox và Git boundary").
+ * Spike 0 outer sandbox prototype (T004, contracts/execution.md).
  *
  *   node scripts/spike-002/sandbox.ts argv  --layout FILE        print bwrap argv + mount table (no exec)
  *   node scripts/spike-002/sandbox.ts probe [--role R|--all] [--base DIR] [--apparmor-fixture]

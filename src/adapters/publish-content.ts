@@ -1,6 +1,5 @@
 /**
- * Worker-prepared commit message and PR title/body (T136, task-execution-modes.md "Nội dung commit và
- * PR", M05/M07). The worker writes them as JSON to a file outside the worktree; the orchestrator checks
+ * Worker-prepared commit message and PR title/body (T136, task-execution-modes.md, M05/M07). The worker writes them as JSON to a file outside the worktree; the orchestrator checks
  * schema and size, refuses anything in the control-marker namespace `<!-- cusr:` (after the same
  * normalisation the PR parser uses) and stores the accepted content by digest, outside the code that
  * gets committed. It never reads Markdown headings or rewrites the text.

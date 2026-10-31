@@ -382,7 +382,9 @@ describe('cusr-runner exec (the entrypoint a unit runs)', () => {
     expect(exit.state).toBe('valid');
     const second = exec();
     expect(second.status).toBe(2);
-    expect(second.stderr).toContain('already launched');
+    expect(second.stderr).toContain(
+      'already been launched; duplicate execution was refused',
+    );
     expect(readFileSync(marker, 'utf8')).toBe('x\n');
   });
 });

@@ -6,8 +6,8 @@ import { toEvent, type EventRow } from './read.ts';
 import { canonicalJson } from '../shared/canonical-json.ts';
 
 /**
- * Migration theo phiên bản; file SQL nằm cạnh module (được copy sang `dist` khi build). `after` chạy trong
- * cùng transaction với SQL.
+ * Migration SQL is copied beside the module during build. Run after in the same transaction as its
+ * SQL.
  */
 const MIGRATIONS: readonly {
   version: number;
@@ -68,8 +68,8 @@ function currentVersion(db: Database): number {
 }
 
 /**
- * Áp các migration còn thiếu, mỗi bản trong một transaction. DB mới hơn code → `schema_incompatible`
- * và không chạm vào file.
+ * Apply each missing migration in its own transaction; refuse newer schemas without changing the
+ * file.
  */
 export function migrate(db: Database): MigrateResult {
   const from = currentVersion(db);

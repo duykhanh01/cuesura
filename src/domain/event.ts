@@ -37,7 +37,6 @@ import type {
 
 export const EVENT_SCHEMA_VERSION = 1;
 
-/** Payload theo loại sự kiện (contracts/signals-events.md "Sự kiện"). */
 export type EventPayloads = {
   // Task
   TaskCreated: { task: CanonicalTask; needs_confirmation: boolean };
@@ -47,7 +46,7 @@ export type EventPayloads = {
   TaskPending: { wait: Wait };
   TaskWaiting: { wait: Wait };
   TaskResumed: { reason: string };
-  // Chính sách
+
   PolicyFrozen: {
     policy: FrozenPolicy;
     context: FrozenExecutionContext;
@@ -64,7 +63,7 @@ export type EventPayloads = {
     policy_version: number;
   };
   AmendmentRejected: { code: string; by: string };
-  // Bước
+
   StepEntered: {
     step: string;
     visit: number;
@@ -116,7 +115,7 @@ export type EventPayloads = {
    * through is over: these counters start again from zero (FR-019 limits apply per outage).
    */
   RetryCountersCleared: { step: string; counter_keys: string[] };
-  // Ngân sách
+
   BudgetReserved: { reservation_id: string; effect_id: string; units: number };
   BudgetConsumed: { reservation_id: string };
   BudgetReleased: { reservation_id: string };
@@ -133,7 +132,7 @@ export type EventPayloads = {
     level: Level;
     reason: 'scope_task' | 'hard';
   };
-  // Bằng chứng
+
   GateResultRecorded: {
     step: string;
     visit: number;
@@ -207,7 +206,7 @@ export type EventPayloads = {
   };
   TimerCancelled: { timer_id: string };
   TimerFired: { timer_id: string };
-  // Hỏi đáp
+
   QuestionAsked: {
     question_id: string;
     step: string | null;
@@ -238,7 +237,7 @@ export type EventPayloads = {
     prior_wait: Wait | null;
   };
   RevisionApplied: { revision: number; task: CanonicalTask };
-  // Hủy
+
   CancelRequested: {
     by: string;
     reason: string;
@@ -250,13 +249,13 @@ export type EventPayloads = {
     read_token?: string;
   };
   CancelRecordedLate: { merge_effect_id: string | null };
-  // Kết thúc
+
   TaskCompleted: { reason: string };
   TaskFailed: { reason: string };
   TaskCancelled: { reason: string };
-  // Khác
+
   SignalIgnored: { reason: string; trigger_kind: string; detail?: unknown };
-  // Runtime 002 (data-model.md "Trigger và event mới"); additive, envelope stays schema_version 1.
+
   RuntimeConfigured: { runtime: FrozenRuntimeContext; runtime_hash: string };
   ExecutionQueued: {
     request_id: string;
@@ -450,7 +449,6 @@ export const EVENT_TYPES = [
   'WorktreeChangeAccepted',
 ] as const satisfies readonly EventType[];
 
-// Bảo đảm EVENT_TYPES liệt kê đủ mọi khoá của EventPayloads.
 type _MissingEventTypes = Exclude<EventType, (typeof EVENT_TYPES)[number]>;
 const _allEventTypesListed: _MissingEventTypes extends never ? true : never =
   true;
@@ -463,7 +461,7 @@ type DraftOf<T extends EventType> = {
   payload: EventPayloads[T];
 };
 
-/** Sự kiện chưa có `seq`/`global_seq`; kho gán khi append. */
+/** The store assigns seq and global_seq when appending. */
 export type DomainEventDraft = { [T in EventType]: DraftOf<T> }[EventType];
 
 type EventOf<T extends EventType> = DraftOf<T> & {

@@ -14,7 +14,6 @@ import { authz, buildTask } from './builders.ts';
 export const FIXTURES = join(import.meta.dirname, '..', 'fixtures');
 export const CONFIGS = join(FIXTURES, 'configs');
 
-/** Đọc fixture thành `ConfigSource`; `file` là tên file để chẩn đoán ngắn gọn. */
 export function source(path: string, file = basename(path)): ConfigSource {
   return { file, text: readFileSync(join(FIXTURES, path), 'utf8') };
 }
@@ -22,11 +21,9 @@ export function source(path: string, file = basename(path)): ConfigSource {
 export const PACKS = { node: source('packs/node.yaml') };
 
 /**
- * Header của fixture invalid (các dòng `# key: value` liên tiếp ở đầu file):
- * - `expect`: `code line col` ngăn bởi `;`, đúng thứ tự `(file, line, col)`;
- * - `role`: `user` (mặc định), `project` hoặc `pack`;
- * - `with-project`: `cusr.yaml` dùng kèm khi role là `user`;
- * - `limits`, `overrides`: JSON; `caller`: vai trò của người gọi `freeze`.
+ * Invalid-fixture headers: expect lists code/line/column triples separated by semicolons; role
+ * defaults to user; with-project supplies project YAML; limits/overrides are JSON; caller selects
+ * freeze permissions.
  */
 export type FixtureHeader = {
   expect: { code: string; line: number; col: number }[];
@@ -66,13 +63,11 @@ export function parseHeader(text: string): FixtureHeader {
   };
 }
 
-/** Project dùng kèm fixture role `pack`: kế thừa pack đang kiểm và đủ gate bắt buộc. */
 const PACK_PROBE_PROJECT: ConfigSource = {
   file: 'cusr.yaml',
   text: 'version: 1\nextends: [probe]\ngates: { build: make, unit: make test }\nprofile: standard\n',
 };
 
-/** Chạy một fixture invalid và trả các lỗi `(code, line, col)` thực tế theo thứ tự. */
 export function runInvalidFixture(name: string): {
   header: FixtureHeader;
   actual: { code: string; line: number; col: number }[];
@@ -134,7 +129,6 @@ export function invalidFixtureNames(): string[] {
     .sort();
 }
 
-/** Cấu hình người dùng tối thiểu hợp lệ; test chỉnh từng phần qua `minUser`. */
 export const MIN_PARTS = {
   head: `version: 1
 harnesses: { claude: { cmd: claude, auth: subscription, pool: claude } }
@@ -171,7 +165,6 @@ export const MIN_PROJECT: ConfigSource = {
   text: 'version: 1\ngates: { build: make, unit: make test, lint: make lint }\nprofile: standard\n',
 };
 
-/** Nội dung giả cho mọi prompt và conventions mà cấu hình khai báo, để `freeze` chụp được ngữ cảnh. */
 export function docsFor(config: ValidatedConfig): {
   prompts: DocContent[];
   conventions: DocContent[];

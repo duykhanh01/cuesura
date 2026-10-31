@@ -23,9 +23,8 @@ export function levelOf(b: Binding, models: Record<string, ModelInfo>): Level {
 }
 
 /**
- * Trạng thái nấc (SPEC.md §9.3): model ngoài allowlist → `denied` (approval thường không mở được);
- * tier ≤ `auto_up_to_tier` → `auto`; cao hơn → `needs_approval` hoặc `denied` theo `above`.
- * Nấc 0 là binding khởi đầu đã được profile chấp nhận nên luôn `auto`.
+ * Allowlisted rungs up to auto_up_to_tier are automatic. Higher rungs require approval or are
+ * denied. Rung 0 is already accepted by the profile and is always automatic.
  */
 export function rungState(
   index: number,
@@ -40,7 +39,7 @@ export function rungState(
   return esc.above === 'deny' ? 'denied' : 'needs_approval';
 }
 
-/** Nấc i = nấc i−1 áp thêm bước thang i (cộng dồn). Nấc chỉ thêm context giữ mức năng lực. */
+/** Each rung cumulatively applies the next ladder change; context-only changes preserve capability. */
 export function buildLadder(
   initial: Binding,
   steps: readonly LadderStep[],
@@ -77,8 +76,8 @@ export function buildLadder(
 }
 
 /**
- * `floor_map[step]` (research R-18): với mỗi mức năng lực xuất hiện trong chính sách, nấc nhỏ nhất
- * trên thang của step có mức ≥ mức đó; không có thì là nấc cuối của thang.
+ * Map each capability floor to the first rung meeting it, or the last rung when no rung can meet
+ * it.
  */
 export function computeFloorMaps(
   ladders: Record<string, readonly Rung[]>,

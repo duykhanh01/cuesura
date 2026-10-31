@@ -37,10 +37,10 @@ function timerSignals(d: StoreDriver): number {
   ).n;
 }
 
-describe('Timer trong kho (T081)', () => {
+describe('Store timers (T081)', () => {
   const tmp = useTempDir();
 
-  it('fireDueTimers tạo đúng một tín hiệu logic; gọi lại không tạo thêm', () => {
+  it('fireDueTimers emits exactly one logical trigger across repeated calls', () => {
     const d = new StoreDriver(openMemoryStore());
     started(d);
     expect(d.fire()).toEqual([]);
@@ -63,7 +63,7 @@ describe('Timer trong kho (T081)', () => {
 
     expect(d.fire()).toEqual([]);
     expect(timerSignals(d)).toBe(1);
-    // Gửi lại thủ công cùng khoá vẫn chỉ trả kết quả cũ.
+
     const env = d.envelope(
       TASK.id,
       { kind: 'timer', timer_id: deadline?.id as never },
@@ -78,7 +78,7 @@ describe('Timer trong kho (T081)', () => {
     expect(timerSignals(d)).toBe(1);
   });
 
-  it('now lùi so với lần trước: không timer nào đến hạn sớm, không lỗi', () => {
+  it('a backward clock does not fire timers early or fail', () => {
     const d = new StoreDriver(openMemoryStore());
     started(d);
     d.now += WALL - 1;
@@ -90,7 +90,7 @@ describe('Timer trong kho (T081)', () => {
     expect(d.fire()).toHaveLength(1);
   });
 
-  it('crash ở after_commit khi bắn timer: chạy lại không tạo tín hiệu thứ hai', () => {
+  it('restarting after an after_commit crash does not fire the timer twice', () => {
     const path = dbPath(tmp());
     const d = new StoreDriver(openFileStoreForTest(path));
     started(d);
@@ -111,7 +111,7 @@ describe('Timer trong kho (T081)', () => {
     again.close();
   });
 
-  it('thiếu ID khi bắn ci_poll: không ghi dedup, timer vẫn đến hạn và bắn được khi đủ ID (FR-030)', () => {
+  it('ci_poll ID exhaustion permits retry without recording deduplication (FR-030)', () => {
     const d = new StoreDriver(openMemoryStore());
     d.must(TASK.id, { kind: 'create_task', task: TASK });
     d.must(TASK.id, {
@@ -141,7 +141,7 @@ describe('Timer trong kho (T081)', () => {
     const poll = Object.values(d.task(TASK.id).timers).find(
       (t) => t.kind === 'ci_poll',
     );
-    if (poll === undefined) throw new Error('thiếu timer ci_poll');
+    if (poll === undefined) throw new Error('ci_poll timer is missing');
     d.now = poll.due_at;
 
     const r = d.store.fireDueTimers(d.now as EpochMs, 10, () => []);
@@ -161,7 +161,7 @@ describe('Timer trong kho (T081)', () => {
     expect(d.store.verifyProjections().ok).toBe(true);
   });
 
-  it('lỗi ghi khi bắn timer → trả write_failed, rollback, timer vẫn đến hạn (FR-033)', () => {
+  it('timer write failure returns write_failed and leaves the timer due (FR-033)', () => {
     let armed = false;
     const store = openFileStoreForTest(dbPath(tmp()), {
       crash: (p: CrashPoint) => {

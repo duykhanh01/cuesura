@@ -1,5 +1,5 @@
 /**
- * Operation ownership (contracts/execution.md "Operation và runner ownership" §2). The runner starts
+ * Operation ownership (contracts/execution.md §2). The runner starts
  * under util-linux `flock`, which holds an exclusive kernel lock on DATA_DIR/locks/<operation>.lock for
  * the runner's whole life. The launch marker is data written once, after the lock and before the
  * harness spawns; it never replaces the kernel lock, and a runner that finds an old marker must not

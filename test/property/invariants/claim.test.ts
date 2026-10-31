@@ -14,7 +14,7 @@ import {
   taskOverArb,
 } from '../arbitraries/policies.ts';
 
-/** Bảng điều kiện của research R-16, theo đúng thứ tự ưu tiên lý do. */
+/** Independent claim-condition table in the documented reason-precedence order. */
 function expected(s: TaskState, e: EffectMirror, now: number): string | null {
   if (!isBusinessEffect(e.kind)) return null;
   if (isTerminal(s.status)) return 'terminal';
@@ -28,8 +28,8 @@ function expected(s: TaskState, e: EffectMirror, now: number): string | null {
   return null;
 }
 
-describe('R-16 điều kiện claim', () => {
-  it('claimable chặn effect nghiệp vụ theo R-16; không bao giờ chặn stop_attempt/reconcile; effect bị chặn vẫn pending', () => {
+describe('R-16 claim conditions', () => {
+  it('blocks business effects by R-16 while allowing service effects and preserving pending state', () => {
     fc.assert(
       fc.property(
         policyArb,
@@ -55,7 +55,7 @@ describe('R-16 điều kiện claim', () => {
               t.claim.code === 'claim_blocked'
             ) {
               blocked++;
-              // Claim bị chặn không ghi gì: effect vẫn pending, state không đổi.
+
               if (t.decision === null) expect(t.after).toEqual(t.before);
             }
           }

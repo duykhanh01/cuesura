@@ -3,10 +3,10 @@ import { openStore } from '../../../src/store/index.ts';
 import { holdStore, waitExit } from '../../support/child.ts';
 import { dbPath, useTempDir } from '../../support/temp-db.ts';
 
-describe('Một bên ghi (T082, R-06, I02)', () => {
+describe('Single writer (T082, R-06, I02)', () => {
   const tmp = useTempDir();
 
-  it('tiến trình thứ hai nhận store_locked; khoá được nhả khi tiến trình đầu bị SIGKILL', async () => {
+  it('a second process gets store_locked until SIGKILL releases the first writer', async () => {
     const path = dbPath(tmp());
     const holder = await holdStore(path);
     try {
@@ -25,7 +25,7 @@ describe('Một bên ghi (T082, R-06, I02)', () => {
     }
   });
 
-  it('trong cùng tiến trình, kết nối thứ hai cũng bị từ chối khi kho đang mở', () => {
+  it('rejects a second connection in the same process while the store is open', () => {
     const path = dbPath(tmp());
     const first = openStore(path);
     if (!first.ok) throw new Error(first.error.detail);

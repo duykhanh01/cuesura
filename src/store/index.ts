@@ -31,7 +31,6 @@ export type { QueuedRequest } from './read.ts';
 export type { Admission, CommandRecord, LedgerError } from './commands.ts';
 export type { Timer } from './read.ts';
 
-/** Kho trạng thái một bên ghi, đồng bộ (contracts/core-api.md "Kho trạng thái"). */
 export interface Store {
   accept(envelope: TriggerEnvelope): Result<AcceptOutcome, AcceptError>;
   claimEffect(
@@ -217,7 +216,6 @@ export class SqliteStore implements Store {
   }
 }
 
-/** Mở kho trên file SQLite (R-06). `CUSR_CRASH_AT` được đọc một lần ở đây (R-08). */
 export function openStore(
   path: string,
   opts: { busyTimeoutMs?: number } = {},

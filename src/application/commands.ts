@@ -7,7 +7,7 @@ import { err, ok, type Result } from '../shared/result.ts';
 import type { Admission, LedgerError, Store } from '../store/index.ts';
 import { authorize, type AuthzError, type Caller } from './authz.ts';
 
-// Mutation admission (contracts/cli-daemon.md "Transport và application service"): authz → schema →
+// Mutation admission (contracts/cli-daemon.md): authz → schema →
 // allowlist → version → dedup, all before any I/O. The ledger row with server-assigned IDs is committed
 // before preflight, so a crash between preflight and accept resumes the same command.
 

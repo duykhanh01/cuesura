@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { validateConfig } from '../../../src/config/validate.ts';
 import { PACKS, source } from '../../support/config-fixtures.ts';
 
-// SC-002: kiểm tra cấu hình mẫu 500 dòng xong dưới 1 giây (trung vị của 20 lần).
-describe('hiệu năng validateConfig', () => {
-  it('trung vị 20 lần trên large-500.yaml dưới 1 giây', () => {
+// SC-002: median validation time for the 500-line fixture over 20 runs must stay below one second.
+describe('validateConfig performance', () => {
+  it('validates large-500.yaml in under one second over 20-run medians', () => {
     const user = source('configs/valid/large-500.yaml');
     expect(user.text.split('\n').length - 1).toBe(500);
     const project = source('configs/valid/cusr.yaml', 'cusr.yaml');

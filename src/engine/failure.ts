@@ -300,7 +300,7 @@ function askAbout(
   askHuman(ctx, code, {
     step,
     attempt_id: e.attempt_id,
-    body: `${e.kind} của bước '${step}' thất bại: ${f.failure_class}${f.message ? ` (${f.message})` : ''}`,
+    body: `${e.kind} failed in step '${step}': ${f.failure_class}${f.message ? ` (${f.message})` : ''}`,
     resume,
     detail: { effect_id_failed: e.id, class: f.failure_class },
   });

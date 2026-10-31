@@ -4,7 +4,7 @@ import type { DomainEvent } from '../domain/event.ts';
 import { EXECUTION_SLOT_KEY } from '../domain/runtime.ts';
 import type { TaskState } from '../domain/state.ts';
 
-// Dòng của các bảng dẫn xuất. JSON luôn ở dạng chuẩn hoá để so khớp được từng byte (verifyProjections).
+// Store canonical JSON so projection verification can compare byte for byte.
 
 export type TaskRow = {
   id: string;
@@ -136,8 +136,8 @@ export class SlotConflict extends Error {
 }
 
 /**
- * ID cấp cho effect/timer mới đã thuộc về một dòng khác (caller cấp lại pool cũ). Tạo mới không được
- * ghi đè vòng đời của entity cũ; `accept` rollback và trả `conflict` (FR-029).
+ * Reusing an existing effect/timer ID must not overwrite its lifecycle. Roll back and return
+ * conflict.
  */
 export class IdCollision extends Error {
   readonly table: 'effects' | 'timers' | 'operations' | 'external_observations';
@@ -146,13 +146,12 @@ export class IdCollision extends Error {
     table: 'effects' | 'timers' | 'operations' | 'external_observations',
     id: string,
   ) {
-    super(`projection: ${table} đã có id ${id}`);
+    super(`projection: ${table} already contains ID ${id}`);
     this.table = table;
     this.id = id;
   }
 }
 
-/** Nơi ghi projection: SQLite khi `accept`, bộ nhớ khi `verifyProjections` dựng lại. */
 export interface ProjectionSink {
   putTask(row: TaskRow): void;
   setDeps(taskId: string, dependsOn: readonly string[]): void;
@@ -177,8 +176,8 @@ export interface ProjectionSink {
 }
 
 /**
- * Projection của task: dòng `tasks`, `task_deps` và hai bảng snapshot. `state` là state sau sự kiện cuối
- * của lô; mọi giá trị đọc từ đó nên áp theo lô hay cả nhật ký một lần đều cho cùng kết quả.
+ * Project from the final state of the batch so replaying a batch or the complete log yields the
+ * same rows.
  */
 export function projectTask(
   sink: ProjectionSink,
@@ -227,10 +226,6 @@ function policyRow(policy: {
   };
 }
 
-/**
- * Bảng `effects`: request từ `EffectRequested` (ID phải mới, nếu không ném `IdCollision`), kết quả từ
- * sự kiện cuối, status theo gương trong state.
- */
 export function projectEffects(
   sink: ProjectionSink,
   events: readonly DomainEvent[],
@@ -240,7 +235,7 @@ export function projectEffects(
   const get = (id: string): EffectRow => {
     const row = touched.get(id) ?? sink.getEffect(id);
     if (row === undefined)
-      throw new Error(`projection: effect ${id} chưa được yêu cầu`);
+      throw new Error(`projection: effect ${id} was not requested`);
     touched.set(id, row);
     return row;
   };
@@ -285,7 +280,7 @@ export function projectEffects(
   for (const row of touched.values()) {
     const mirror = state.effects[row.id];
     if (mirror === undefined)
-      throw new Error(`projection: state thiếu effect ${row.id}`);
+      throw new Error(`projection: state is missing effect ${row.id}`);
     sink.putEffect({
       ...row,
       revision: mirror.revision,
@@ -294,7 +289,6 @@ export function projectEffects(
   }
 }
 
-/** Bảng `timers`: dòng tạo từ `TimerArmed` (ID phải mới), status theo gương trong state. */
 export function projectTimers(
   sink: ProjectionSink,
   events: readonly DomainEvent[],
@@ -318,14 +312,14 @@ export function projectTimers(
       const id = e.payload.timer_id;
       const row = touched.get(id) ?? sink.getTimer(id);
       if (row === undefined)
-        throw new Error(`projection: timer ${id} chưa được hẹn`);
+        throw new Error(`projection: timer ${id} was not armed`);
       touched.set(id, row);
     }
   }
   for (const row of touched.values()) {
     const mirror = state.timers[row.id];
     if (mirror === undefined)
-      throw new Error(`projection: state thiếu timer ${row.id}`);
+      throw new Error(`projection: state is missing timer ${row.id}`);
     sink.putTimer({ ...row, status: mirror.status });
   }
 }
@@ -488,7 +482,6 @@ export function projectRuntime(
   }
 }
 
-/** Sink ghi thẳng vào SQLite; chạy bên trong transaction của `accept`/`claimEffect`. */
 export function sqliteSink(db: Database): ProjectionSink {
   const putTask = db.prepare(
     `INSERT INTO tasks (id, project, source_key, status, wait_reason, version, state_json)
@@ -509,7 +502,7 @@ export function sqliteSink(db: Database): ProjectionSink {
      VALUES (@task_id, @revision, @context_hash, @base_sha, @context_json)`,
   );
   const getEffect = db.prepare('SELECT * FROM effects WHERE id = ?');
-  // Upsert chỉ theo `id`: trùng `idem_key` với effect khác vẫn vi phạm UNIQUE (FR-016).
+  // Upsert by id only; a duplicate idem_key for another effect must still violate UNIQUE.
   const putEffect = db.prepare(
     `INSERT INTO effects (id, task_id, revision, kind, idem_key, status, request_json, result_json, reservation_id, created_seq)
      VALUES (@id, @task_id, @revision, @kind, @idem_key, @status, @request_json, @result_json, @reservation_id, @created_seq)
@@ -593,7 +586,6 @@ export function sqliteSink(db: Database): ProjectionSink {
   };
 }
 
-/** Projection dựng lại trong bộ nhớ, cùng hàm chiếu như khi ghi. */
 export class MemorySink implements ProjectionSink {
   readonly tasks = new Map<string, TaskRow>();
   readonly deps = new Map<string, string[]>();
@@ -673,13 +665,13 @@ export class MemorySink implements ProjectionSink {
   putPolicy(row: PolicyRow): void {
     const key = `${row.task_id}#${row.revision}#${row.policy_version}`;
     if (this.policies.has(key))
-      throw new Error(`frozen_policies trùng khoá ${key}`);
+      throw new Error(`frozen_policies contains duplicate key ${key}`);
     this.policies.set(key, row);
   }
   putContext(row: ContextRow): void {
     const key = `${row.task_id}#${row.revision}`;
     if (this.contexts.has(key))
-      throw new Error(`frozen_contexts trùng khoá ${key}`);
+      throw new Error(`frozen_contexts contains duplicate key ${key}`);
     this.contexts.set(key, row);
   }
   getEffect(id: string): EffectRow | undefined {

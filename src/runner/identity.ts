@@ -1,5 +1,5 @@
 /**
- * Process identity (contracts/execution.md "Operation và runner ownership" §3). A PID alone never
+ * Process identity (contracts/execution.md §3). A PID alone never
  * identifies an operation: the runner records boot_id, pid/pgid, `/proc` start ticks, the unit's
  * InvocationID/cgroup and a launch nonce, and recovery compares all of them. `CUSR_ATTEMPT_ID` in the
  * environment only helps searching; it authenticates nothing.

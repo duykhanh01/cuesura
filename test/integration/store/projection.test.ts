@@ -11,7 +11,7 @@ import { dbPath, useTempDir } from '../../support/temp-db.ts';
 describe('verifyProjections (T079, FR-029)', () => {
   const tmp = useTempDir();
 
-  it('khớp sau nhật ký nhiều task trên file thật', () => {
+  it('matches a multi-task log on a real file', () => {
     const store = openFileStoreForTest(dbPath(tmp()));
     mixedWorkload(new StoreDriver(store));
     const report = store.verifyProjections();
@@ -41,7 +41,7 @@ describe('verifyProjections (T079, FR-029)', () => {
     ['timers', `UPDATE timers SET due_at = due_at + 1`],
     ['task_deps', `DELETE FROM task_deps`],
     ['frozen_policies', `UPDATE frozen_policies SET policy_hash = 'sha256:00'`],
-  ])('phát hiện dòng %s bị sửa tay', (table, sql) => {
+  ])('detects a manually modified %s row', (table, sql) => {
     const store = openMemoryStore();
     mixedWorkload(new StoreDriver(store));
     expect(store.verifyProjections().ok).toBe(true);
@@ -51,7 +51,7 @@ describe('verifyProjections (T079, FR-029)', () => {
     expect(report.mismatches.map((m) => m.table)).toContain(table);
   });
 
-  it('phát hiện seq bị hở trong nhật ký', () => {
+  it('detects sequence gaps in the log', () => {
     const store = openMemoryStore();
     mixedWorkload(new StoreDriver(store));
     storeDb(store).exec(

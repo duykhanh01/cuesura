@@ -10,7 +10,6 @@ export type ChildRun = {
   stderr: string;
 };
 
-/** Chạy `crash-child.ts` tới khi thoát hoặc bị `SIGKILL` (R-08). */
 export function runChild(
   args: string[],
   env: Record<string, string> = {},
@@ -29,7 +28,6 @@ export function runChild(
   };
 }
 
-/** Tiến trình con giữ khoá ghi; resolve khi nó in `ready`. */
 export function holdStore(path: string): Promise<ChildProcess> {
   const child = spawn(process.execPath, [CHILD, 'hold', path], {
     env: { ...process.env, CUSR_CRASH_AT: '' },
@@ -44,7 +42,9 @@ export function holdStore(path: string): Promise<ChildProcess> {
     });
     child.on('exit', (code, signal) =>
       reject(
-        new Error(`hold thoát sớm: ${String(code)} ${String(signal)} ${out}`),
+        new Error(
+          `hold exited early: ${String(code)} ${String(signal)} ${out}`,
+        ),
       ),
     );
   });

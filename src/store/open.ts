@@ -18,7 +18,6 @@ function isBusy(e: unknown): boolean {
   );
 }
 
-/** Migration rồi `integrity_check`; dùng chung cho kho trên file và kho trong bộ nhớ. */
 export function prepareSchema(
   db: Database.Database,
 ): Result<void, StoreOpenError> {
@@ -26,7 +25,7 @@ export function prepareSchema(
   if (!m.ok)
     return err({
       code: 'schema_incompatible',
-      detail: `DB ở schema ${m.found}, code hỗ trợ tới ${SCHEMA_VERSION}`,
+      detail: `Database schema version ${m.found} is newer than the supported version ${SCHEMA_VERSION}`,
     });
   const rows = db.pragma('integrity_check') as { integrity_check: string }[];
   const msgs = rows.map((r) => r.integrity_check);
@@ -36,9 +35,8 @@ export function prepareSchema(
 }
 
 /**
- * Mở kho để ghi theo R-06: WAL, `synchronous=FULL`, khoá EXCLUSIVE giữ suốt phiên nhờ
- * `BEGIN IMMEDIATE; COMMIT` ngay khi mở. Tiến trình thứ hai nhận `SQLITE_BUSY` sau busy timeout và được trả
- * `store_locked` (FR-032); OS nhả khoá khi tiến trình chết.
+ * WAL with synchronous=FULL and a lifetime EXCLUSIVE lock. BEGIN IMMEDIATE acquires it at open; a
+ * second writer gets SQLITE_BUSY/store_locked. The OS releases the lock if the process dies.
  */
 export function openDatabase(
   path: string,

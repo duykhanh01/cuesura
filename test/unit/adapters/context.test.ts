@@ -98,7 +98,9 @@ describe('role context (T037, FR-005)', () => {
     );
     expect(v.text).toContain('Role: coder');
     expect(v.text).toContain('Step: code');
-    expect(v.text).toContain('## acceptance\n- Tìm theo tên trả kết quả đúng');
+    expect(v.text).toContain(
+      '## acceptance\n- Searching by name returns matching customers',
+    );
     expect(v.text).toContain('(q1) Use SQLite');
     expect(v.truncated).toEqual([]);
     expect(v.digest).toMatch(/^sha256:/);

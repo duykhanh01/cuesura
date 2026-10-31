@@ -1,6 +1,6 @@
 import { defineConfig } from 'vitest/config';
 
-// Tên project đang chạy quyết định file kết quả JSON mà scripts/report-invariants.ts đọc (R-14).
+// Choose the JSON result file by Vitest project for scripts/report-invariants.ts.
 function selectedProject(argv: readonly string[]): string {
   const i = argv.indexOf('--project');
   if (i >= 0 && argv[i + 1] !== undefined) return argv[i + 1] as string;
@@ -9,8 +9,7 @@ function selectedProject(argv: readonly string[]): string {
 }
 
 const project = selectedProject(process.argv);
-// `pnpm test:reliability --seed <seed>` đặt CUSR_SEED (scripts/test-reliability.ts); worker kế thừa biến
-// này, và fast-check lẫn bộ ngắt tiến trình đọc nó để tái hiện một lần chạy (T110).
+// Workers inherit CUSR_SEED so property and crash tests can reproduce the same run.
 
 export default defineConfig({
   test: {

@@ -64,8 +64,8 @@ export type ValidateInput = {
 };
 
 /**
- * `runtime` và `locations` nằm ngoài `ValidatedConfig` và ngoài `hashes`: chúng được chụp riêng vào
- * `FrozenRuntimeContext` (`runtime_hash`), nên FrozenPolicy và hash cấu hình của 001 không đổi.
+ * Runtime and locations have their own runtime_hash, preserving existing FrozenPolicy and
+ * configuration hashes.
  */
 export type Validated = {
   config: ValidatedConfig;
@@ -74,7 +74,6 @@ export type Validated = {
   locations: Record<string, ProjectLocation>;
 };
 
-/** Issue của Zod → `schema_invalid`; khoá lạ được tách thành từng chẩn đoán tại chính khoá đó. */
 export function zodDiagnostics(
   error: z.ZodError,
   at: Locator,
@@ -90,7 +89,7 @@ export function zodDiagnostics(
             'schema_invalid',
             at([...path, k]),
             [...path, k],
-            `khoá '${k}' không được hỗ trợ`,
+            `Key '${k}' is not supported`,
           ),
         );
     } else {
@@ -111,10 +110,6 @@ type AnalyzeInput = {
   maxProfileDepth: number;
 };
 
-/**
- * Phần thuần của kiểm tra trên giá trị đã parse: schema → predicate → profile → chuẩn hoá → sáu kiểm
- * tra. Dùng lại khi `freeze` áp override.
- */
 export function analyze(input: AnalyzeInput): Result<Validated, Diagnostic[]> {
   const diags: Diagnostic[] = [];
   const u = UserConfigSchema.safeParse(input.user);
@@ -174,8 +169,8 @@ export function analyze(input: AnalyzeInput): Result<Validated, Diagnostic[]> {
     user,
     profiles,
     project: normProject,
-    // Hash trên dạng đã chuẩn hoá (thời lượng là ms, mặc định đã điền) để cấu hình tương đương về
-    // ngữ nghĩa cho cùng hash (FR-004), ví dụ `max_wall: 2h` và `120m`.
+    // Hash normalized values so semantically equivalent durations such as 2h and 120m produce the same hash.
+
     hashes: {
       user: hashCanonical({ user, profiles }),
       project: normProject === null ? null : hashCanonical(normProject),
@@ -195,15 +190,14 @@ export function analyze(input: AnalyzeInput): Result<Validated, Diagnostic[]> {
 }
 
 /**
- * `validateConfig` (contracts/core-api.md): trả đủ lỗi tìm được, sắp theo `(file, line, col)`; riêng lỗi
- * cú pháp và kích thước làm tài liệu không đọc được nên dừng ở đó.
+ * Collect all diagnostics in (file, line, col) order. Syntax and size failures stop processing
+ * that document.
  */
 export function validateConfig(
   input: ValidateInput,
 ): Result<Validated, Diagnostic[]> {
   const limits: LoaderLimits = { ...DEFAULT_LIMITS, ...input.limits };
 
-  // Cú pháp: đọc mọi file trước, gom lỗi của cả bộ.
   const syntax: Diagnostic[] = [];
   const userDoc = loadYaml(input.user, limits);
   if (!userDoc.ok) syntax.push(...userDoc.error);
@@ -220,11 +214,10 @@ export function validateConfig(
 
   const diags: Diagnostic[] = [];
 
-  // Thẩm quyền theo file (FR-001).
   const userLayer = splitForbidden(
     userDoc.value,
     PROJECT_KEYS,
-    'thuộc cusr.yaml, không thuộc cấu hình người dùng',
+    'belongs in cusr.yaml, not in the user configuration',
   );
   diags.push(...userLayer.diagnostics);
   const atUser: Locator = (path) => locate(userDoc.value.located, path);
@@ -240,7 +233,7 @@ export function validateConfig(
     const projLayer = splitForbidden(
       projectDoc.value,
       USER_ONLY_KEYS,
-      'chỉ thuộc cấu hình người dùng',
+      'is only allowed in the user configuration',
     );
     diags.push(...projLayer.diagnostics);
 
@@ -257,7 +250,7 @@ export function validateConfig(
             'unknown_pack',
             locate(projectDoc.value.located, ['extends', i]),
             ['extends', i],
-            `pack '${name}' không tồn tại`,
+            `Pack '${name}' does not exist`,
           ),
         );
         return;
@@ -265,7 +258,7 @@ export function validateConfig(
       const cleaned = splitForbidden(
         pack,
         [...USER_ONLY_KEYS, ...PROJECT_ONLY_KEYS],
-        'không thuộc thẩm quyền của pack',
+        'is not allowed in a pack',
       );
       diags.push(...cleaned.diagnostics);
       const parsed = PackSchema.safeParse(cleaned.value);

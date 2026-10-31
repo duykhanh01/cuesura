@@ -25,7 +25,6 @@ import type { RawUserConfig } from './schema-user.ts';
 
 export type Locator = (path: KeyPath) => Position;
 
-/** Tiền tố hợp lệ của `profiles.<p>.overridable` (merge.ts áp override theo khoá đầu). */
 const OVERRIDE_ROOTS = [
   'roles',
   'budgets',
@@ -46,10 +45,6 @@ const OVERRIDE_ROOTS = [
 
 // ---------- Runtime daemon 002 ----------
 
-/**
- * Ràng buộc chéo của `runtime:` trên cấu hình thô đã qua schema: trần sau khi hợp nhất mặc định, token
- * trùng, token chỉ được trỏ project đã khai báo, `harness_isolation` chỉ cho harness đã khai báo.
- */
 export function checkRuntime(u: RawUserConfig, at: Locator): Diagnostic[] {
   const rt = u.runtime;
   if (rt === undefined) return [];
@@ -60,7 +55,7 @@ export function checkRuntime(u: RawUserConfig, at: Locator): Diagnostic[] {
 
   const declared = rt.limits ?? {};
   for (const issue of runtimeLimitIssues(mergeRuntimeLimits(rt.limits))) {
-    // Chỉ về khoá người dùng khai báo đầu tiên trong ràng buộc; toàn mặc định thì về `runtime.limits`.
+    // Report the first explicitly configured limit involved; fall back to runtime.limits when all values are defaults.
     const key = issue.path.find((k) => declared[k] !== undefined);
     push(
       key === undefined ? ['runtime', 'limits'] : ['runtime', 'limits', key],
@@ -74,19 +69,22 @@ export function checkRuntime(u: RawUserConfig, at: Locator): Diagnostic[] {
   (rt.access_tokens ?? []).forEach((t, i) => {
     const base: KeyPath = ['runtime', 'access_tokens', i];
     if (ids.has(t.id))
-      push([...base, 'id'], `access token '${t.id}' bị khai báo lặp`);
+      push(
+        [...base, 'id'],
+        `Access token '${t.id}' is declared more than once`,
+      );
     ids.add(t.id);
     if (files.has(t.token_file))
       push(
         [...base, 'token_file'],
-        `token_file '${t.token_file}' đã dùng cho token khác`,
+        `token_file '${t.token_file}' is already assigned to another token`,
       );
     files.add(t.token_file);
     t.projects.forEach((p, j) => {
       if (!projects.has(p))
         push(
           [...base, 'projects', j],
-          `project '${p}' chưa được khai báo trong projects`,
+          `Project '${p}' is not declared in projects`,
         );
     });
   });
@@ -96,15 +94,13 @@ export function checkRuntime(u: RawUserConfig, at: Locator): Diagnostic[] {
     if (!harnesses.has(h))
       push(
         ['runtime', 'harness_isolation', h],
-        `harness '${h}' chưa được khai báo trong harnesses`,
+        `Harness '${h}' is not declared in harnesses`,
       );
   }
   return out;
 }
 
-// ---------- Kiểm tra 6: predicate ----------
-
-/** Predicate chỉ thuộc tập định nghĩa trước (FR-003 kiểm tra 6); chạy trên cấu hình thô trước khi mở rộng. */
+/** Check raw predicates before workflow expansion so diagnostics retain their source positions. */
 export function checkPredicates(u: RawUserConfig, at: Locator): Diagnostic[] {
   const out: Diagnostic[] = [];
   const check = (
@@ -120,7 +116,7 @@ export function checkPredicates(u: RawUserConfig, at: Locator): Diagnostic[] {
             'unknown_predicate',
             at(p),
             p,
-            `predicate '${key}' không thuộc tập cho phép (${PREDICATE_KEYS.join(', ')})`,
+            `Unknown predicate '${key}'; expected one of: ${PREDICATE_KEYS.join(', ')}`,
           ),
         );
         continue;
@@ -132,7 +128,7 @@ export function checkPredicates(u: RawUserConfig, at: Locator): Diagnostic[] {
             'schema_invalid',
             at(p),
             p,
-            `giá trị predicate '${key}' không hợp lệ`,
+            `Invalid value for predicate '${key}'`,
           ),
         );
     }
@@ -150,8 +146,6 @@ export function checkPredicates(u: RawUserConfig, at: Locator): Diagnostic[] {
   }
   return out;
 }
-
-// ---------- Kiểm tra trên workflow ----------
 
 type Ctx = {
   user: NormalizedUser;
@@ -173,7 +167,6 @@ function push(
   ctx.out.push(diag(code, ctx.at(path), path, message));
 }
 
-/** Kiểm tra 1 (tham chiếu) và 2 (outcome) cho một workflow. */
 function checkRefsAndOutcomes(ctx: Ctx, wn: string, w: Workflow): void {
   const steps = w.steps;
   if (!(w.start in steps))
@@ -181,7 +174,7 @@ function checkRefsAndOutcomes(ctx: Ctx, wn: string, w: Workflow): void {
       ctx,
       'unknown_step',
       ['workflows', wn, 'start'],
-      `bước bắt đầu '${w.start}' không tồn tại`,
+      `Start step '${w.start}' does not exist`,
     );
   const pools = new Set([
     ...Object.keys(ctx.user.pools),
@@ -196,14 +189,14 @@ function checkRefsAndOutcomes(ctx: Ctx, wn: string, w: Workflow): void {
           ctx,
           'outcome_not_in_kind',
           stepPath(wn, sn, 'next', outcome),
-          `outcome '${outcome}' không thuộc loại bước '${s.kind}' (${kindOutcomes.join(', ') || 'không có'})`,
+          `Outcome '${outcome}' is not supported by step kind '${s.kind}'; expected: ${kindOutcomes.join(', ') || 'none'}`,
         );
       } else if (!(target in steps) && !isSpecialTarget(target)) {
         push(
           ctx,
           'unknown_step',
           stepPath(wn, sn, 'next', outcome),
-          `transition '${outcome}' của bước '${sn}' trỏ tới '${target}'`,
+          `Transition '${outcome}' of step '${sn}' targets unknown step '${target}'`,
         );
       }
     }
@@ -213,7 +206,7 @@ function checkRefsAndOutcomes(ctx: Ctx, wn: string, w: Workflow): void {
           ctx,
           'outcome_without_target',
           stepPath(wn, sn, 'next'),
-          `outcome '${outcome}' của bước '${sn}' không có đích`,
+          `Outcome '${outcome}' of step '${sn}' has no target`,
         );
     }
     if (s.max_visits !== undefined && s.on_exhausted === undefined) {
@@ -221,7 +214,7 @@ function checkRefsAndOutcomes(ctx: Ctx, wn: string, w: Workflow): void {
         ctx,
         'outcome_without_target',
         stepPath(wn, sn, 'max_visits'),
-        `bước '${sn}' có max_visits nhưng thiếu on_exhausted`,
+        `Step '${sn}' declares max_visits but is missing on_exhausted`,
       );
     }
     if (
@@ -233,18 +226,17 @@ function checkRefsAndOutcomes(ctx: Ctx, wn: string, w: Workflow): void {
         ctx,
         'unknown_step',
         stepPath(wn, sn, 'on_exhausted'),
-        `on_exhausted của bước '${sn}' trỏ tới '${s.on_exhausted}'`,
+        `on_exhausted of step '${sn}' targets unknown step '${s.on_exhausted}'`,
       );
     }
 
-    // Trường bắt buộc theo loại bước.
     const need = (field: keyof typeof s, cond: boolean): void => {
       if (cond && s[field] === undefined)
         push(
           ctx,
           'schema_invalid',
           stepPath(wn, sn),
-          `bước '${sn}' loại '${s.kind}' cần '${String(field)}'`,
+          `Step '${sn}' of kind '${s.kind}' requires '${String(field)}'`,
         );
     };
     need('role', isAgentStep(s));
@@ -258,7 +250,7 @@ function checkRefsAndOutcomes(ctx: Ctx, wn: string, w: Workflow): void {
         ctx,
         'unknown_role',
         stepPath(wn, sn, 'role'),
-        `role '${s.role}' của bước '${sn}' không tồn tại`,
+        `Role '${s.role}' used by step '${sn}' does not exist`,
       );
     }
     (s.uses ?? []).forEach((p, i) => {
@@ -267,7 +259,7 @@ function checkRefsAndOutcomes(ctx: Ctx, wn: string, w: Workflow): void {
           ctx,
           'unknown_pool',
           stepPath(wn, sn, 'uses', i),
-          `pool '${p}' không tồn tại`,
+          `Pool '${p}' does not exist`,
         );
     });
     (s.required ?? []).forEach((g, i) => {
@@ -276,16 +268,15 @@ function checkRefsAndOutcomes(ctx: Ctx, wn: string, w: Workflow): void {
           ctx,
           'unknown_gate',
           stepPath(wn, sn, 'required', i),
-          `gate bắt buộc '${g}' không có trong run của bước '${sn}'`,
+          `Required gate '${g}' is missing from the run list of step '${sn}'`,
         );
     });
   }
 }
 
 /**
- * Kiểm tra 3: mọi chu trình phải đi qua một bước có `max_visits` (bộ đếm không reset). Bỏ các bước có
- * giới hạn khỏi graph; phần còn lại có chu trình thì báo tại cạnh đóng chu trình. `retry` là cạnh về
- * chính bước đó; `ask`/`escalate` đi qua người nên không tạo chu trình tự động.
+ * Every automatic cycle must pass through a step with max_visits. Remove bounded steps and detect
+ * cycles in the remaining graph. retry is a self-edge; ask and escalate require human input.
  */
 function checkCycles(ctx: Ctx, wn: string, w: Workflow): void {
   const bounded = (sn: string): boolean =>
@@ -307,7 +298,7 @@ function checkCycles(ctx: Ctx, wn: string, w: Workflow): void {
           ctx,
           'unbounded_cycle',
           stepPath(wn, sn, 'next', outcome),
-          `chu trình chưa có giới hạn đếm: ${cycle.join(' → ')}`,
+          `Cycle has no visit limit: ${cycle.join(' → ')}`,
         );
       } else if (c === undefined) {
         visit(t);
@@ -320,10 +311,7 @@ function checkCycles(ctx: Ctx, wn: string, w: Workflow): void {
     if (!bounded(sn) && !color.has(sn)) visit(sn);
 }
 
-/**
- * Kiểm tra 4: nấc i cần ít nhất `2i + 1` lượt vào bước (hai thất bại cùng chữ ký mỗi nấc trước, cộng một
- * lượt ở nấc i; docs/architecture.md §5.4.1). `max_rung` vượt độ dài thang là `rung_beyond_role`.
- */
+/** Rung i needs 2i + 1 visits: two matching failures per previous rung, then one attempt at rung i. */
 function checkLadders(ctx: Ctx, wn: string, w: Workflow): void {
   for (const [sn, s] of Object.entries(w.steps)) {
     if (!isAgentStep(s) || s.role === undefined) continue;
@@ -335,7 +323,7 @@ function checkLadders(ctx: Ctx, wn: string, w: Workflow): void {
         ctx,
         'rung_beyond_role',
         stepPath(wn, sn, 'max_rung'),
-        `max_rung ${s.max_rung} của bước '${sn}' vượt thang của role '${s.role}' (nấc cuối ${lastRung})`,
+        `max_rung ${s.max_rung} of step '${sn}' exceeds the ladder of role '${s.role}' (last rung: ${lastRung})`,
       );
     }
     if (s.max_visits === undefined) continue;
@@ -347,7 +335,7 @@ function checkLadders(ctx: Ctx, wn: string, w: Workflow): void {
           ctx,
           'unreachable_rung',
           p,
-          `nấc ${i} của role '${s.role}' cần ${2 * i + 1} lượt nhưng bước '${sn}' của workflow '${wn}' chỉ có max_visits ${s.max_visits}`,
+          `Rung ${i} of role '${s.role}' requires ${2 * i + 1} visits, but step '${sn}' in workflow '${wn}' has max_visits ${s.max_visits}`,
         );
         break;
       }
@@ -365,13 +353,11 @@ function checkDecisions(ctx: Ctx, wn: string, w: Workflow): void {
         ctx,
         'decision_mode_forbidden',
         ['workflows', wn, 'decisions', point],
-        `điểm quyết định '${point}' không được giao cho decider (chế độ '${mode}')`,
+        `Decision point '${point}' requires human approval; mode '${mode}' is not allowed`,
       );
     }
   }
 }
-
-// ---------- Kiểm tra trên role, model, harness ----------
 
 function checkRolesAndModels(ctx: Ctx): void {
   const { user } = ctx;
@@ -381,7 +367,7 @@ function checkRolesAndModels(ctx: Ctx): void {
         ctx,
         'unknown_pool',
         ['harnesses', hn, 'pool'],
-        `pool '${h.pool}' của harness '${hn}' không tồn tại`,
+        `Pool '${h.pool}' used by harness '${hn}' does not exist`,
       );
   }
   for (const [mn, m] of Object.entries(user.models)) {
@@ -390,7 +376,7 @@ function checkRolesAndModels(ctx: Ctx): void {
         ctx,
         'schema_invalid',
         ['models', mn, 'harness'],
-        `harness '${m.harness}' của model '${mn}' không tồn tại`,
+        `Harness '${m.harness}' used by model '${mn}' does not exist`,
       );
   }
   for (const [rn, r] of Object.entries(user.roles)) {
@@ -400,7 +386,7 @@ function checkRolesAndModels(ctx: Ctx): void {
           ctx,
           'unknown_model',
           ['roles', rn, 'binding', i, 'model'],
-          `model '${b.model}' không tồn tại`,
+          `Model '${b.model}' does not exist`,
         );
     });
     r.ladder.forEach((s, i) => {
@@ -409,23 +395,21 @@ function checkRolesAndModels(ctx: Ctx): void {
           ctx,
           'unknown_model',
           ['roles', rn, 'escalation', 'ladder', i, 'model'],
-          `model '${s.model}' không tồn tại`,
+          `Model '${s.model}' does not exist`,
         );
       }
     });
-    // Kiểm tra 5: rule cuối không điều kiện là binding khởi đầu dự phòng; allowlist được xét lúc freeze.
+    // An unconditional binding is the initial fallback; model allowlists are applied at freeze time.
     if (r.binding.every((b) => b.when !== null)) {
       push(
         ctx,
         'no_initial_binding',
         ['roles', rn, 'binding'],
-        `role '${rn}' không có rule binding nào không điều kiện để làm binding khởi đầu`,
+        `Role '${rn}' requires an unconditional rule for its initial binding`,
       );
     }
   }
 }
-
-// ---------- Profile và project ----------
 
 function checkProfiles(
   ctx: Ctx,
@@ -439,14 +423,14 @@ function checkProfiles(
         ctx,
         'schema_invalid',
         base,
-        `profile '${pn}' không khai báo workflow`,
+        `Profile '${pn}' does not declare a workflow`,
       );
     else if (!(p.workflow in user.workflows))
       push(
         ctx,
         'schema_invalid',
         [...base, 'workflow'],
-        `workflow '${p.workflow}' của profile '${pn}' không tồn tại`,
+        `Workflow '${p.workflow}' used by profile '${pn}' does not exist`,
       );
     (p.allow_roles ?? []).forEach((r, i) => {
       if (!(r in user.roles))
@@ -454,7 +438,7 @@ function checkProfiles(
           ctx,
           'unknown_role',
           [...base, 'allow_roles', i],
-          `role '${r}' không tồn tại`,
+          `Role '${r}' does not exist`,
         );
     });
     (p.allow_models ?? []).forEach((m, i) => {
@@ -463,7 +447,7 @@ function checkProfiles(
           ctx,
           'unknown_model',
           [...base, 'allow_models', i],
-          `model '${m}' không tồn tại`,
+          `Model '${m}' does not exist`,
         );
     });
     if (p.max_agent_runs === null)
@@ -471,14 +455,14 @@ function checkProfiles(
         ctx,
         'no_task_bound',
         base,
-        `profile '${pn}' thiếu budgets.max_agent_runs`,
+        `Profile '${pn}' is missing budgets.max_agent_runs`,
       );
     if (p.max_wall_ms === null)
       push(
         ctx,
         'no_task_bound',
         base,
-        `profile '${pn}' thiếu budgets.max_wall`,
+        `Profile '${pn}' is missing budgets.max_wall`,
       );
     p.overridable.forEach((k) => {
       if (!OVERRIDE_ROOTS.includes(k.split('.')[0] as string)) {
@@ -486,14 +470,13 @@ function checkProfiles(
           ctx,
           'schema_invalid',
           [...base, 'overridable'],
-          `khoá override '${k}' không thuộc phần override được`,
+          `Override key '${k}' is not supported`,
         );
       }
     });
   }
 }
 
-/** Gate theo SPEC.md §8: gate bắt buộc phải được project khai báo; không có gate nào cần `allow_no_gates`. */
 export function gateDiagnostics(
   w: Workflow,
   project: NormalizedProject,
@@ -509,7 +492,7 @@ export function gateDiagnostics(
           'no_gates_not_allowed',
           at(['gates']),
           ['gates'],
-          'project không khai báo gate nào và profile không cho phép allow_no_gates',
+          'The project declares no gates and the profile does not enable allow_no_gates',
         ),
       );
     }
@@ -523,7 +506,7 @@ export function gateDiagnostics(
             'required_gate_missing',
             at(['gates']),
             ['gates'],
-            `gate bắt buộc '${g}' của bước '${sn}' chưa được khai báo`,
+            `Required gate '${g}' used by step '${sn}' is not declared`,
           ),
         );
     }
@@ -539,7 +522,6 @@ export type CheckInput = {
   atProject: Locator;
 };
 
-/** Sáu kiểm tra của FR-003 (trừ kiểm tra 6 chạy sớm hơn), FR-006 và gate, trên cấu hình đã hợp nhất. */
 export function runChecks(input: CheckInput): Diagnostic[] {
   const ctx: Ctx = {
     user: input.user,
@@ -564,7 +546,7 @@ export function runChecks(input: CheckInput): Diagnostic[] {
           'unknown_profile',
           input.atProject(['profile']),
           ['profile'],
-          `profile '${project.profile}' không tồn tại`,
+          `Profile '${project.profile}' does not exist`,
         ),
       );
     }

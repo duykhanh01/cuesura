@@ -1,14 +1,14 @@
 import type { FrozenPolicy } from '../../src/domain/policy.ts';
 import type { TaskState } from '../../src/domain/state.ts';
 
-/** Oracle độc lập với `src/engine/merge-guard.ts`, viết thẳng từ FR-015 và research R-10. */
+/** Independent merge oracle derived from the specification rather than the production guard. */
 export function mergeAllowed(
   s: TaskState,
   p: FrozenPolicy,
   head: string,
 ): string | null {
-  if (s.cancellation !== null) return 'đang hủy';
-  if (s.head_sha !== head) return 'head khác head hiện hành';
+  if (s.cancellation !== null) return 'cancellation requested';
+  if (s.head_sha !== head) return 'head differs from the current head';
   const rev = s.revision;
   const approval = Object.values(s.approvals).some(
     (a) =>
@@ -18,7 +18,7 @@ export function mergeAllowed(
       a.revision === rev &&
       a.head_sha === head,
   );
-  if (!approval) return 'thiếu approval merge gắn head';
+  if (!approval) return 'head-bound merge approval is missing';
   const reviews = s.evidence.reviews.filter(
     (r) => r.valid && r.revision === rev && r.head_sha === head,
   );
@@ -26,16 +26,16 @@ export function mergeAllowed(
     (r) => r.valid && r.revision === rev,
   );
   if (reviews.at(-1)?.verdict !== 'approve' && !skipped)
-    return 'thiếu review approve cho head';
+    return 'review approval for the head is missing';
   const ci = s.evidence.ci
     .filter((c) => c.valid && c.revision === rev && c.head_sha === head)
     .at(-1);
-  if (ci === undefined) return 'thiếu CI cho head';
-  if (!ci.required_set.complete) return 'required_set chưa đầy đủ';
+  if (ci === undefined) return 'CI evidence for the head is missing';
+  if (!ci.required_set.complete) return 'required_set is incomplete';
   const expected = new Set([...p.ci.required_checks, ...ci.required_set.names]);
   for (const name of expected) {
     if (ci.checks.find((c) => c.name === name)?.state !== 'success')
-      return `check ${name} chưa success`;
+      return `check ${name} has not succeeded`;
   }
   const base = s.evidence.base_relations
     .filter(
@@ -46,6 +46,7 @@ export function mergeAllowed(
         b.base_ref === s.task.base_branch,
     )
     .at(-1);
-  if (base?.head_contains_base !== true) return 'head chưa chứa base';
+  if (base?.head_contains_base !== true)
+    return 'head does not contain the base';
   return null;
 }

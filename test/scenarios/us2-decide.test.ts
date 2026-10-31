@@ -28,7 +28,6 @@ import {
 const TASK = buildTask();
 let sims: Sim[] = [];
 
-/** Mọi kịch bản tự phát lại từ đầu và phải cho cùng sự kiện, quyết định, trạng thái (SC-004). */
 afterEach(() => {
   for (const s of sims) s.replayCheck();
   sims = [];
@@ -57,7 +56,6 @@ function businessRequested(evs: DomainEventDraft[]): string[] {
   );
 }
 
-/** Đi hết luồng tới DONE. */
 function toDone(sim: Sim, head = 'head1'): void {
   toCode(sim);
   toMergeGate(sim, head);
@@ -75,8 +73,8 @@ function toDone(sim: Sim, head = 'head1'): void {
   });
 }
 
-describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất định', () => {
-  it('Scenario 1: thiếu acceptance → PENDING needs_info, không có effect khởi chạy agent', () => {
+describe('US2 - Canonical task creation and deterministic decisions', () => {
+  it('Scenario 1: missing acceptance waits in PENDING/needs_info without agent effects', () => {
     const task = buildTask({ acceptance: [] });
     const sim = track(new Sim(task.id));
     expectAccepted(sim.when({ kind: 'create_task', task }));
@@ -93,7 +91,7 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
     expect(sim.effects()).toEqual([]);
   });
 
-  it('Scenario 2: phụ thuộc task đang chạy → PENDING dependency; DONE → READY; FAILED → vẫn chờ kèm giải thích', () => {
+  it('Scenario 2: dependencies wait until DONE; FAILED dependencies retain an explanation', () => {
     const dep = uuidOf(50);
     const task = buildTask({ depends_on: [dep] });
     const sim = track(new Sim(task.id));
@@ -129,7 +127,6 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
     });
     expect(other.s.wait?.resume_when.length).toBeGreaterThan(0);
 
-    // Dependency không tồn tại, tự tham chiếu hoặc chu trình: từ chối ngay (FR-008).
     const bad = new Sim(task.id, 3);
     expect(bad.when({ kind: 'create_task', task })).toMatchObject({
       kind: 'rejected',
@@ -141,7 +138,7 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
     ).toMatchObject({ kind: 'rejected', code: 'dependency_invalid' });
   });
 
-  it('Scenario 3: agent báo done nhưng gate bắt buộc fail → không qua bước, sửa trong giới hạn lượt', () => {
+  it('Scenario 3: agent completion with failed required gates triggers bounded fixes', () => {
     // Every rung is `auto` so quality escalation does not stop the loop before `max_visits` does.
     const sim = run(TASK, { escalation: { auto_up_to_tier: 3 } });
     sim.complete(toCode(sim).id, 'succeeded', agentData('done'));
@@ -159,7 +156,6 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
     expect(sim.effects('start_agent', 'pending')).toHaveLength(1);
     expect(sim.s.step_visits['review']).toBeUndefined();
 
-    // Lỗi lặp lại: tối đa 7 lượt fix_gates rồi chờ người, không lặp vô hạn.
     const unitFails = (i: number) => ({
       results: [
         { gate: 'build', passed: true },
@@ -184,12 +180,12 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
     expect(sim.effects('start_agent', 'pending')).toEqual([]);
   });
 
-  it('Scenario 4: needs_input → WAITING human_input có câu hỏi; câu trả lời hợp lệ đầu tiên làm task tiếp tục', () => {
+  it('Scenario 4: needs_input waits for the first valid human answer', () => {
     const sim = run();
     sim.complete(
       toCode(sim).id,
       'succeeded',
-      agentData('needs_input', { questions: ['Dùng Postgres hay SQLite?'] }),
+      agentData('needs_input', { questions: ['Use PostgreSQL or SQLite?'] }),
     );
     expect(sim.s.status).toBe('WAITING');
     expect(sim.s.wait).toMatchObject({
@@ -197,7 +193,7 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
       detail: { code: 'agent_question' },
     });
     const qid = sim.openQuestion();
-    expect(sim.s.questions[qid]?.body).toBe('Dùng Postgres hay SQLite?');
+    expect(sim.s.questions[qid]?.body).toBe('Use PostgreSQL or SQLite?');
     expect(sim.s.wait?.resume_when).toEqual([`answer(${qid})`]);
 
     expectAccepted(
@@ -223,13 +219,13 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
     });
   });
 
-  it('Scenario 5: cùng trạng thái, chính sách và chuỗi tín hiệu cho cùng sự kiện, effect và trạng thái cuối', () => {
+  it('Scenario 5: identical state, policy, and triggers yield identical events, effects, and final state', () => {
     const a = run();
     toDone(a);
     const b = run();
     toDone(b);
     expect(a.s.status).toBe('DONE');
-    // Khoá dedup do caller đặt nên khác nhau; mọi thứ lõi quyết định phải trùng từng byte.
+    // Caller-provided deduplication keys differ; every core-generated value must still match byte for byte.
     expect(JSON.stringify(b.decisions)).toBe(JSON.stringify(a.decisions));
     expect(JSON.stringify(b.events.map(({ causation: _c, ...e }) => e))).toBe(
       JSON.stringify(a.events.map(({ causation: _c, ...e }) => e)),
@@ -237,13 +233,13 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
     expect(JSON.stringify(b.state)).toBe(JSON.stringify(a.state));
   });
 
-  it('Scenario 6: task đã kết thúc không mở lại; retry tạo task mới có liên kết nguồn', () => {
+  it('Scenario 6: terminal tasks stay terminal; retry creates a linked task', () => {
     const sim = run();
     toDone(sim);
     const version = sim.s.version;
     for (const t of [
-      { kind: 'cancel', reason: 'muộn' },
-      { kind: 'source_updated', task: { ...TASK, description: 'khác' } },
+      { kind: 'cancel', reason: 'late' },
+      { kind: 'source_updated', task: { ...TASK, description: 'different' } },
       { kind: 'start', freeze: freezeOk(TASK) },
     ] as const) {
       expect(types(expectAccepted(sim.when(t)))).toEqual(['SignalIgnored']);
@@ -274,12 +270,12 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
     });
   });
 
-  it('Scenario 7: hủy vô hiệu hoá effect khởi chạy agent chưa claim trong cùng lần ghi; claim sau đó không bắt đầu được', () => {
+  it('Scenario 7: cancellation atomically invalidates unclaimed agent effects and prevents later claims', () => {
     const sim = run();
     const e = toCode(sim);
     const reservation = e.reservation_id as string;
     const evs = expectAccepted(
-      sim.when({ kind: 'cancel', reason: 'không cần nữa' }),
+      sim.when({ kind: 'cancel', reason: 'No longer needed' }),
     );
     expect(types(evs)).toEqual([
       'CancelRequested',
@@ -295,10 +291,10 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
     expect(sim.s.status).toBe('CANCELLED');
   });
 
-  it('Scenario 8: effect started và effect unknown → chỉ có stop_attempt và reconcile; CANCELLED sau khi cả hai được đối chiếu', () => {
+  it('Scenario 8: started and unknown effects require stop and reconciliation before cancellation completes', () => {
     const sim = run();
-    // Publish của checkpoint trước có kết quả unknown và đã được đối chiếu là chưa chạy… rồi tạo lại:
-    // dựng trạng thái có đồng thời một effect agent `started` và một effect `unknown`.
+    // Construct simultaneous started-agent and unknown-publish effects to exercise cancellation of both.
+
     const agent = toCode(sim);
     sim.claim(agent.id);
     const unknownId = uuidOf(9_000_001);
@@ -333,7 +329,7 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
       },
     ]);
 
-    const evs = expectAccepted(sim.when({ kind: 'cancel', reason: 'dừng' }));
+    const evs = expectAccepted(sim.when({ kind: 'cancel', reason: 'stop' }));
     const kinds = evs.flatMap((e) =>
       e.type === 'EffectRequested' ? [e.payload.kind] : [],
     );
@@ -359,7 +355,7 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
     ).toEqual([]);
   });
 
-  it('Scenario 9: merge đã gửi khi hủy đến; đối chiếu xác nhận đã merge → DONE, ghi rõ hủy đến muộn, không revert', () => {
+  it('Scenario 9: a merge confirmed after cancellation remains DONE and records late cancellation', () => {
     const sim = run();
     toCode(sim);
     toMergeGate(sim, 'head9');
@@ -370,7 +366,9 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
     });
     const merge = sim.pendingOne('merge');
     sim.claim(merge.id);
-    const evs = expectAccepted(sim.when({ kind: 'cancel', reason: 'đổi ý' }));
+    const evs = expectAccepted(
+      sim.when({ kind: 'cancel', reason: 'Changed requirements' }),
+    );
     expect(businessRequested(evs)).toEqual([]);
     expect(sim.s.status).toBe('RUNNING');
 
@@ -387,14 +385,14 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
     ).toEqual([]);
   });
 
-  it('Scenario 10: sửa yêu cầu khi coder đang chạy → drift ghi ngay; attempt kết thúc; chờ người chọn, không làm tiếp revision 1', () => {
+  it('Scenario 10: edits record drift immediately, let the active attempt finish, and wait for a revision choice', () => {
     const sim = run();
     const e = toCode(sim);
     sim.claim(e.id);
     const evs = expectAccepted(
       sim.when({
         kind: 'source_updated',
-        task: { ...TASK, description: 'Tìm theo tên và email' },
+        task: { ...TASK, description: 'Search by name and email' },
       }),
     );
     expect(types(evs)).toEqual(['SourceDriftDetected']);
@@ -422,7 +420,7 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
     });
   });
 
-  it('Scenario 11: áp revision 2 khi đang chờ merge → đi lại Triage → Code → … → CI; bằng chứng revision 1 không dùng được; lượt, nấc, hạn giữ nguyên', () => {
+  it('Scenario 11: revision 2 repeats the workflow, invalidates old evidence, and preserves budgets, rungs, and deadline', () => {
     const sim = run();
     toCode(sim);
     toMergeGate(sim, 'head1');
@@ -433,7 +431,10 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
 
     const rev2 = {
       ...TASK,
-      acceptance: ['Tìm theo tên trả kết quả đúng', 'Tìm theo email'],
+      acceptance: [
+        'Searching by name returns matching customers',
+        'Search by email',
+      ],
     };
     sim.when({ kind: 'source_updated', task: rev2 });
     expect(sim.s.wait?.detail['code']).toBe('source_drift');
@@ -456,7 +457,7 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
       step: 'triage',
     });
     expect(sim.s.revision).toBe(2);
-    expect(sim.s.base_sha).toBe(PREPARE_DATA.base_sha); // diff và worktree được giữ
+    expect(sim.s.base_sha).toBe(PREPARE_DATA.base_sha);
     expect(sim.s.budget.agent_runs.used).toBe(used);
     expect(sim.s.rungs).toEqual(rungs);
     expect(sim.s.deadline_at).toBe(deadline);
@@ -464,7 +465,6 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
     expect(mergeGuard(sim.s, sim.policy!)).toMatchObject({ ok: false });
     expect(sim.s.current_step).toBe('code');
 
-    // Approval cũ không mở được merge của revision 2.
     expect(
       sim.when({
         kind: 'approve',
@@ -484,14 +484,14 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
     expect(sim.pendingOne('merge').revision).toBe(2);
   });
 
-  it('Scenario 12: chỉ còn một lượt agent sau khi áp revision mới → chờ người, không tự gia hạn hay bỏ bước', () => {
+  it('Scenario 12: insufficient runs for a new revision require human input without extending limits or skipping steps', () => {
     const sim = run(TASK, { limits: { max_agent_runs: 3 } });
     toCode(sim);
     toMergeGate(sim, 'head1');
     expect(sim.s.budget.agent_runs.limit - sim.s.budget.agent_runs.used).toBe(
       1,
     );
-    const rev2 = { ...TASK, acceptance: ['Tiêu chí mới'] };
+    const rev2 = { ...TASK, acceptance: ['New criterion'] };
     sim.when({ kind: 'source_updated', task: rev2 });
     sim.when({
       kind: 'drift_choice',
@@ -510,7 +510,7 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
     expect(sim.s.budget.agent_runs.limit).toBe(3);
   });
 
-  it('Scenario 13: publish revision 1 chưa dispatch; drift → claim bị chặn; tiếp tục revision 1 → claim được; áp revision 2 → vô hiệu hoá', () => {
+  it('Scenario 13: drift blocks revision 1 publish; continue_old permits it; revision 2 invalidates it', () => {
     function toPublish(seed: number): Sim {
       const sim = track(started(TASK, { seed }));
       sim.complete(toCode(sim).id, 'succeeded', agentData('done'));
@@ -527,7 +527,7 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
       sim.pendingOne('publish');
       sim.when({
         kind: 'source_updated',
-        task: { ...TASK, title: 'Tiêu đề mới' },
+        task: { ...TASK, title: 'Updated title' },
       });
       return sim;
     }
@@ -547,7 +547,7 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
     apply.when({
       kind: 'drift_choice',
       choice: 'apply_new',
-      freeze: freezeOk({ ...TASK, title: 'Tiêu đề mới', revision: 2 }),
+      freeze: freezeOk({ ...TASK, title: 'Updated title', revision: 2 }),
     });
     expect(apply.s.effects[pub2.id]?.status).toBe('invalidated');
     expect(apply.claim(pub2.id)).toEqual({
@@ -555,16 +555,18 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
       code: 'effect_invalidated',
     });
 
-    // Effect khởi chạy agent bị vô hiệu hoá thì giữ chỗ được trả lại.
     const agentSim = run(TASK);
     const e = toCode(agentSim);
-    agentSim.when({ kind: 'source_updated', task: { ...TASK, title: 'Khác' } });
+    agentSim.when({
+      kind: 'source_updated',
+      task: { ...TASK, title: 'Different' },
+    });
     expect(agentSim.claim(e.id)).toMatchObject({ reason: 'source_drift' });
     const evs = expectAccepted(
       agentSim.when({
         kind: 'drift_choice',
         choice: 'apply_new',
-        freeze: freezeOk({ ...TASK, title: 'Khác', revision: 2 }),
+        freeze: freezeOk({ ...TASK, title: 'Different', revision: 2 }),
       }),
     );
     expect(types(evs).slice(0, 2)).toEqual([
@@ -576,7 +578,7 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
     ).toBe('released');
   });
 
-  it('Scenario 14: tập kỳ vọng A, B mà CI chỉ có A → chờ CI; đủ A, B nhưng head chưa chứa base → không merge, chờ', () => {
+  it('Scenario 14: missing checks wait for CI; a head lacking the base tip cannot merge', () => {
     const sim = run(TASK, { required_checks: ['A', 'B'] });
     sim.complete(toCode(sim).id, 'succeeded', agentData('done'));
     sim.complete(
@@ -641,9 +643,7 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
     });
   });
 
-  // ---- Ca bổ sung của T050 ----
-
-  it('amend thiếu admin bị từ chối not_admin, không phát sự kiện nào (US1 scenario 6)', () => {
+  it('amend without admin returns not_admin without events (US1 scenario 6)', () => {
     const sim = run();
     const policy = buildPolicy({
       task_id: TASK.id,
@@ -653,7 +653,7 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
     const before = sim.events.length;
     expect(
       sim.when(
-        { kind: 'amend', policy, diff: {}, reason: 'thêm lượt' },
+        { kind: 'amend', policy, diff: {}, reason: 'Add runs' },
         { authz: authz(['operate']) },
       ),
     ).toEqual({ kind: 'rejected', code: 'not_admin' });
@@ -661,7 +661,7 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
     expect(
       expectAccepted(
         sim.when(
-          { kind: 'amend', policy, diff: {}, reason: 'thêm lượt' },
+          { kind: 'amend', policy, diff: {}, reason: 'Add runs' },
           { authz: authz(['admin']) },
         ),
       ).map((e) => e.type),
@@ -669,7 +669,7 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
     expect(sim.s.budget.agent_runs.limit).toBe(99);
   });
 
-  it('start mang lỗi freeze không phát PolicyFrozen; task PENDING needs_info với detail.code (FR-038)', () => {
+  it('freeze failure leaves PENDING/needs_info without PolicyFrozen (FR-038)', () => {
     const sim = track(new Sim(TASK.id));
     sim.when({ kind: 'create_task', task: TASK });
     const evs = expectAccepted(
@@ -687,7 +687,7 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
       detail: { code: 'config_invalid' },
     });
     expect(sim.s.policy_ref).toBeNull();
-    // Sửa cấu hình rồi start lại được.
+
     expect(
       types(
         expectAccepted(sim.when({ kind: 'start', freeze: freezeOk(TASK) })),
@@ -695,7 +695,7 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
     ).toContain('PolicyFrozen');
   });
 
-  it('timer deadline đến hạn khi task đang chờ người → WAITING policy deadline; không attempt mới (FR-023)', () => {
+  it('deadline expiry during a human wait prevents new attempts (FR-023)', () => {
     const sim = run(TASK, { limits: { max_wall_ms: 3_600_000 } });
     sim.complete(toCode(sim).id, 'succeeded', agentData('needs_input'));
     expect(sim.s.wait?.reason).toBe('human_input');
@@ -706,7 +706,7 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
       reason: 'policy',
       detail: { code: 'deadline' },
     });
-    // Trả lời câu hỏi cũ không mở được attempt mới sau hạn.
+
     sim.when({
       kind: 'answer',
       question_id: Object.keys(sim.s.questions)[0] as Uuid,
@@ -718,7 +718,7 @@ describe('US2 - Tạo task chuẩn và quyết định bước tiếp theo tất
   });
 });
 
-describe('Hồi quy review Phase 4', () => {
+describe('Phase 4 review regressions', () => {
   function toCi(
     sim: Sim,
     head = 'H',
@@ -747,7 +747,7 @@ describe('Hồi quy review Phase 4', () => {
     });
   }
 
-  it('không tự duyệt merge vào protected branch dù auto_when khớp (SPEC §14.2)', () => {
+  it('protected branches require human merge approval even when auto_when matches', () => {
     const task = buildTask({ base_branch: 'feature/release' });
     const sim = run(task, { protected_branches: ['main', 'feature/release'] });
     toCi(sim, 'H', 'feature/release');
@@ -763,7 +763,6 @@ describe('Hồi quy review Phase 4', () => {
       detail: { approval_kind: 'merge' },
     });
 
-    // Nhánh integration không được bảo vệ thì vẫn tự duyệt.
     const open = run(
       buildTask({
         id: uuidOf(3),
@@ -780,7 +779,7 @@ describe('Hồi quy review Phase 4', () => {
     expect(open.effects('merge', 'pending')).toHaveLength(1);
   });
 
-  it('không tạo attempt khi now đã vượt deadline_at mà timer deadline chưa được xử lý (FR-023)', () => {
+  it('prevents attempts past deadline_at before the deadline timer fires (FR-023)', () => {
     const sim = run(TASK, { limits: { max_wall_ms: 3_600_000 } });
     sim.complete(toCode(sim).id, 'succeeded', agentData('done'));
     const gates = sim.pendingOne('run_gates');
@@ -794,13 +793,13 @@ describe('Hồi quy review Phase 4', () => {
       reason: 'policy',
       detail: { code: 'deadline' },
     });
-    // Timer đến sau không lồng thêm lần chờ.
+
     const before = sim.s.wait;
     sim.fireDue();
     expect(sim.s.wait).toEqual(before);
   });
 
-  it('retry do needs_context bị max_visits của bước chặn (nguyên tắc III)', () => {
+  it('needs_context retries remain subject to max_visits', () => {
     const sim = run(TASK, { limits: { max_agent_runs: 40 } });
     toCode(sim);
     for (let i = 0; i < 13; i++) {
@@ -820,7 +819,7 @@ describe('Hồi quy review Phase 4', () => {
     });
   });
 
-  it('bằng chứng base của branch khác không mở được merge vào branch đích (FR-015)', () => {
+  it('base evidence for another branch cannot permit merging into the target branch (FR-015)', () => {
     const sim = run();
     toCi(sim, 'H', 'main', false);
     sim.complete(
@@ -852,13 +851,13 @@ describe('Hồi quy review Phase 4', () => {
     });
   });
 
-  it('đối chiếu not_executed khi có drift → tới ranh giới an toàn, không kẹt (FR-011)', () => {
+  it('not_executed reconciliation during drift reaches a safe boundary (FR-011)', () => {
     const sim = run();
     const prepare = sim.pendingOne('prepare');
     sim.claim(prepare.id);
     sim.when({
       kind: 'source_updated',
-      task: { ...TASK, description: 'khác' },
+      task: { ...TASK, description: 'different' },
     });
     sim.result(prepare.id, 'unknown');
     expect(sim.s.source_drift?.safe_boundary_reached).toBe(false);
@@ -873,7 +872,7 @@ describe('Hồi quy review Phase 4', () => {
     expect(sim.claim(prepare.id)).toEqual({ ok: true });
   });
 
-  it('áp revision mới có dependency không hợp lệ bị từ chối, không ghi gì (FR-008, FR-040)', () => {
+  it('invalid dependencies reject a new revision without writes (FR-008, FR-040)', () => {
     const sim = run();
     const e = toCode(sim);
     sim.complete(e.id, 'succeeded', agentData('needs_input'));
@@ -890,7 +889,7 @@ describe('Hồi quy review Phase 4', () => {
       kind: 'rejected',
       code: 'dependency_invalid',
     });
-    // Dependency tồn tại nhưng chưa DONE cũng không được áp.
+
     sim.related = {
       deps: { [uuidOf(77)]: 'RUNNING' },
       dependency_cycle: false,
@@ -909,7 +908,7 @@ describe('Hồi quy review Phase 4', () => {
     expect(sim.s.revision).toBe(1);
   });
 
-  it('ci_autofix thất bại đi theo cạnh fail sang ci_fix, không tới publish', () => {
+  it('ci_autofix failure routes to ci_fix rather than publish', () => {
     const sim = run();
     toCi(sim);
     sim.complete(
@@ -929,7 +928,7 @@ describe('Hồi quy review Phase 4', () => {
     expect(sim.effects('start_agent', 'pending')).toHaveLength(1);
   });
 
-  it('effect tạo trước hạn không claim được sau deadline_at dù timer chưa được xử lý (FR-023)', () => {
+  it('prevents claims after deadline_at even before its timer fires (FR-023)', () => {
     const sim = run(TASK, { limits: { max_wall_ms: 3_600_000 } });
     const prepare = sim.pendingOne('prepare');
     sim.advance(3_600_000);
@@ -942,7 +941,7 @@ describe('Hồi quy review Phase 4', () => {
     expect(sim.s.effects[prepare.id]?.status).toBe('pending');
   });
 
-  it('trả lời câu hỏi không vượt max_visits; hết lượt chỉ amendment cấp thêm lượt mới mở lại (§5.4.1)', () => {
+  it('answers cannot bypass max_visits; only an amendment granting visits reopens exhaustion', () => {
     const sim = run(TASK, { limits: { max_agent_runs: 40 } });
     toCode(sim);
     for (let i = 0; i < 14; i++) {
@@ -965,7 +964,7 @@ describe('Hồi quy review Phase 4', () => {
     expect(sim.s.wait?.resume_when).toEqual([
       'amend(limits.extra_visits.code)',
     ]);
-    // Không có câu hỏi mở nào để trả lời mở lại bước.
+
     expect(
       Object.values(sim.s.questions).filter((q) => q.status === 'open'),
     ).toEqual([]);
@@ -974,12 +973,17 @@ describe('Hồi quy review Phase 4', () => {
     const amended = proposeAmendment({
       current: p,
       change: { limits: { ...p.limits, extra_visits: { code: 2 } } },
-      reason: 'thêm 2 lượt',
+      reason: 'Add two visits',
       authz: authz(['admin']),
     });
     if (!amended.ok) throw new Error('amend');
     sim.when(
-      { kind: 'amend', policy: amended.value, diff: {}, reason: 'thêm 2 lượt' },
+      {
+        kind: 'amend',
+        policy: amended.value,
+        diff: {},
+        reason: 'Add two visits',
+      },
       { authz: authz(['admin']) },
     );
     expect(sim.effects('start_agent', 'pending')).toHaveLength(1);

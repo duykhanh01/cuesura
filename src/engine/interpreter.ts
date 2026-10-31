@@ -66,11 +66,9 @@ import { reusableReview, reviewInputDigest } from './review-evidence.ts';
 import { confirmedChoices } from './run-config.ts';
 import { ensureRunning, mkWait, waitPolicy, waitTask } from './waits.ts';
 
-// ---------- Điều phối hành động ----------
-
 /**
- * Điểm vào duy nhất để làm việc tiếp theo. Chặn theo thứ tự: task đã kết thúc; đang hủy (chỉ chờ effect
- * còn dở rồi kết thúc, FR-018); source drift (hoãn tới khi người chọn, FR-011); đã quá hạn (FR-023).
+ * All continuation passes through these guards: terminal state, cancellation, source drift, then
+ * deadline.
  */
 export function proceed(
   ctx: Ctx,
@@ -119,8 +117,8 @@ export function proceed(
 }
 
 /**
- * Đã quá hạn task: timer `deadline` đã bắn, hoặc `now` của tín hiệu đã vượt `deadline_at` dù timer chưa
- * kịp được xử lý (FR-023). Không được tạo việc mới trong cả hai trường hợp.
+ * The deadline applies even when its timer has not been processed; no new work may start
+ * afterward.
  */
 export function pastDeadline(ctx: Ctx): boolean {
   const s = ctx.state;
@@ -165,11 +163,9 @@ function execute(ctx: Ctx, action: ResumeAction): void {
   }
 }
 
-// ---------- Bước và transition ----------
-
 function stepDef(ctx: Ctx, step: string): StepDef {
   const def = ctx.frozen.workflow.steps[step];
-  if (def === undefined) throw new Error(`workflow không có bước '${step}'`);
+  if (def === undefined) throw new Error(`Workflow has no step '${step}'`);
   return def;
 }
 
@@ -184,7 +180,6 @@ function facts(ctx: Ctx, step: string): PredicateFacts {
   };
 }
 
-/** Outcome khi bước bị bỏ: coi như bước đã đạt. */
 const SKIP_OUTCOME: Partial<Record<StepKind, string>> = {
   agent: 'done',
   review: 'approve',
@@ -205,7 +200,6 @@ function skip(
   route(ctx, step, outcome);
 }
 
-/** Vào bước: xét `when`/`skip_when`, rồi `max_visits` (`StepExhausted` theo `on_exhausted`), rồi chạy. */
 export function enterStep(
   ctx: Ctx,
   step: string,
@@ -232,7 +226,6 @@ export function enterStep(
   runStep(ctx, step, attemptKind);
 }
 
-/** `max_visits` của bước cộng lượt admin đã cấp thêm qua amendment; `null` khi bước không giới hạn. */
 export function visitLimit(ctx: Ctx, step: string): number | null {
   const max = stepDef(ctx, step).max_visits;
   return max === undefined
@@ -240,7 +233,6 @@ export function visitLimit(ctx: Ctx, step: string): number | null {
     : max + (ctx.frozen.limits.extra_visits[step] ?? 0);
 }
 
-/** Đi theo `next[outcome]` của bước. */
 export function route(
   ctx: Ctx,
   step: string,
@@ -249,7 +241,7 @@ export function route(
 ): void {
   const target = stepDef(ctx, step).next[outcome];
   if (target === undefined)
-    throw new Error(`bước '${step}' không có transition '${outcome}'`);
+    throw new Error(`Step '${step}' has no transition for '${outcome}'`);
   goTarget(ctx, step, target, outcome, body);
 }
 
@@ -266,7 +258,7 @@ function goTarget(
   }
   const def = stepDef(ctx, from);
   if (target === 'escalate' && outcome === 'exhausted') {
-    // Hết lượt: trả lời không mở lại được bước (architecture §5.4.1); chỉ amendment cấp thêm lượt.
+    // An answer cannot reopen an exhausted step; only an amendment granting more visits can.
     waitTask(
       ctx,
       mkWait('human_input', 'loop_exhausted', {
@@ -292,7 +284,7 @@ function goTarget(
       askHuman(ctx, 'agent_question', {
         step: from,
         attempt_id: attempt,
-        body: body ?? `Bước '${from}' cần thêm thông tin`,
+        body: body ?? `Step '${from}' requires additional information`,
         resume: again,
       });
       return;
@@ -301,13 +293,14 @@ function goTarget(
         step: from,
         attempt_id: attempt,
         body:
-          body ?? `Bước '${from}' dừng với '${outcome}'; cần người quyết định`,
+          body ??
+          `Step '${from}' returned '${outcome}'; a human decision is required`,
         resume: again,
         detail: { step: from, outcome },
       });
       return;
     case 'retry':
-      // Retry tự động là một lượt vào bước mới, nên bị `max_visits` chặn như mọi vòng khác (nguyên tắc III).
+      // Automatic retry counts as another visit and remains subject to max_visits.
       enterStep(ctx, from, { step: from, outcome }, 'retry');
       return;
     case 'fail':
@@ -326,7 +319,6 @@ function visitOf(ctx: Ctx, step: string): number {
   return ctx.state.step_visits[step] ?? 0;
 }
 
-/** Diễn giải một bước theo loại (research R-11). */
 export function runStep(
   ctx: Ctx,
   step: string,
@@ -338,7 +330,6 @@ export function runStep(
   const visit = visitOf(ctx, step);
   switch (def.kind) {
     case 'triage': {
-      // Đủ lượt cho mọi bước agent còn phải đi trước khi xét merge, không thì chờ người (FR-040).
       const need = agentRunsAhead(ctx, step);
       if (available(s.budget) < need) {
         waitPolicy(
@@ -353,7 +344,6 @@ export function runStep(
       return;
     }
     case 'prepare':
-      // Revision mới dùng lại worktree và diff hiện có (FR-040).
       if (s.base_sha !== null) return skip(ctx, step, 'prepared');
       if (waitForSlot(ctx, { kind: 'run_step', step })) return;
       requestEffect(ctx, {
@@ -409,8 +399,8 @@ export function runStep(
       askHuman(ctx, 'ci_unclassified', {
         step,
         attempt_id: null,
-        body: `Check thất bại không khớp ci_rules nào: ${c.checks.join(', ')}`,
-        // Người đã xem lỗi; câu trả lời được chuyển cho bước sửa code.
+        body: `Failed checks do not match any ci_rules: ${c.checks.join(', ')}`,
+
         resume: { kind: 'route', step, outcome: 'code' },
         detail: { checks: c.checks },
       });
@@ -419,7 +409,7 @@ export function runStep(
     case 'approval': {
       // Runtime (002): the user merges on GitHub; no approval request, auto approval or merge effect.
       if (externalConfirmation(ctx)) return waitForExternalMerge(ctx, step);
-      // Merge vào protected branch luôn cần người duyệt, kể cả khi `auto_when` khớp (SPEC.md §14.2).
+      // Merging into a protected branch requires human approval even when auto_when matches.
       const protectedTarget = p.protected_branches.some((b) =>
         branchMatches(b, s.task.base_branch),
       );
@@ -537,13 +527,12 @@ function runAction(ctx: Ctx, step: string, def: StepDef, visit: number): void {
       return;
     }
     case undefined:
-      throw new Error(`bước action '${step}' thiếu action`);
+      throw new Error(`Action step '${step}' is missing action`);
     default:
       assertNever(def.action);
   }
 }
 
-/** Merge guard không đạt: không yêu cầu merge, task chờ theo research R-10. */
 function onGuardFailure(ctx: Ctx, step: string, code: GuardFailure): void {
   const recheck: ResumeAction = { kind: 'merge_check', step };
   switch (code) {
@@ -571,7 +560,7 @@ function onGuardFailure(ctx: Ctx, step: string, code: GuardFailure): void {
       askHuman(ctx, 'base_outdated', {
         step,
         attempt_id: null,
-        body: `Head ${ctx.state.head_sha ?? '?'} chưa chứa base tip; cần cập nhật branch trước khi merge`,
+        body: `Head ${ctx.state.head_sha ?? '?'} does not contain the base tip; update the branch before merging`,
         resume: recheck,
         detail: { head_sha: ctx.state.head_sha },
       });
@@ -598,8 +587,8 @@ function finish(ctx: Ctx, reason: string): void {
 }
 
 /**
- * Trước khi task kết thúc: huỷ timer còn hẹn và vô hiệu hoá mọi effect còn `pending`, kể cả effect phục vụ,
- * để không gì được claim trên một task đã kết thúc (FR-010).
+ * Cancel timers and invalidate all pending effects, including service effects, before ending the
+ * task.
  */
 export function closeOut(ctx: Ctx): void {
   cancelArmedTimers(ctx);
@@ -619,10 +608,6 @@ export function cancelArmedTimers(ctx: Ctx, keepDeadline = false): void {
   }
 }
 
-/**
- * Số lượt agent tối thiểu còn phải chạy từ `step` theo các outcome thành công tới `complete`, bỏ qua bước
- * mà predicate cho biết sẽ bị bỏ (FR-040: đi lại Code → Review trước khi xét merge).
- */
 function agentRunsAhead(ctx: Ctx, from: string): number {
   const wf = ctx.frozen.workflow;
   const SUCCESS = ['ok', 'done', 'pass', 'approve', 'approved'];
@@ -657,15 +642,18 @@ export function startAttempt(ctx: Ctx, step: string, kind: AttemptKind): void {
   const s = ctx.state;
   const sp = ctx.frozen.steps[step];
   if (sp === undefined)
-    throw new Error(`chính sách không có binding cho bước '${step}'`);
+    throw new Error(`The policy has no binding for step '${step}'`);
   const again: ResumeAction = {
     kind: 'start_attempt',
     step,
     attempt_kind: kind,
   };
   if (waitForSlot(ctx, again)) return;
-  // Điểm chung tạo attempt: mỗi lượt vào bước có tối đa một attempt. Lượt hiện tại đã có attempt (thử lại
-  // sau câu trả lời, sau khi dừng, sau lỗi…) thì phải vào lại bước, nên luôn bị `max_visits` chặn.
+  /*
+   * Each step visit has at most one attempt. Resuming after input, a stop, or failure must re-enter
+   * the step so max_visits still applies.
+   */
+
   if (
     Object.values(s.attempts).filter((a) => a.step === step).length >=
     visitOf(ctx, step)
@@ -925,9 +913,9 @@ export function waitCiExhausted(
 }
 
 /**
- * Chờ CI thêm trong giới hạn `timeout / poll` lần hỏi; hết thì đi theo outcome `timeout` (R-10). A runtime
- * task instead waits `ci/ci_wait_exhausted` once the head's window is spent: no fix, rerun or extension,
- * while the PR observation keeps running on its own schedule (FR-043.08).
+ * Legacy CI polling follows timeout/poll. Runtime tasks wait with ci_wait_exhausted when the head
+ * window is spent; independent PR observation continues without granting fixes, reruns, or
+ * extensions.
  */
 function armCiPoll(
   ctx: Ctx,
@@ -972,8 +960,6 @@ function armCiPoll(
   );
 }
 
-// ---------- Kết quả effect ----------
-
 type EffectResultTrigger = Extract<Trigger, { kind: 'effect_result' }>;
 
 function stepKindOf(ctx: Ctx, e: EffectMirror): StepKind | null {
@@ -982,7 +968,6 @@ function stepKindOf(ctx: Ctx, e: EffectMirror): StepKind | null {
     : (ctx.frozen.workflow.steps[e.step]?.kind ?? null);
 }
 
-/** Schema thành công theo loại effect (contracts/signals-events.md "Kết quả effect"). */
 export function parseSuccess(
   ctx: Ctx,
   e: EffectMirror,
@@ -1027,7 +1012,6 @@ export function parseSuccess(
       };
 }
 
-/** Tín hiệu `effect_result` (contracts/signals-events.md). */
 export function onEffectResult(ctx: Ctx, t: EffectResultTrigger): void {
   const e = ctx.state.effects[t.effect_id];
   if (e === undefined)
@@ -1056,7 +1040,7 @@ export function onEffectResult(ctx: Ctx, t: EffectResultTrigger): void {
       onEffectUnknown(ctx, e);
       return;
     case 'succeeded': {
-      // Output agent sai schema vẫn là lượt đã chạy; nó thành lỗi `invalid_output` ở bước sau (FR-014).
+      // Invalid agent output still consumes a run; classify it as invalid_output below.
       const parsed = parseSuccess(ctx, e, t.data);
       if (!parsed.ok && e.kind !== 'start_agent')
         reject('invalid_trigger', {
@@ -1103,7 +1087,10 @@ export function onEffectResult(ctx: Ctx, t: EffectResultTrigger): void {
   }
 }
 
-/** Kết quả `unknown`: giữ chỗ, yêu cầu đối chiếu, không phát lại theo phỏng đoán (FR-017, FR-022). */
+/**
+ * Unknown outcomes keep reservations and require reconciliation; never replay an effect on a
+ * guess.
+ */
 export function onEffectUnknown(ctx: Ctx, e: EffectMirror): void {
   requestReconcile(ctx, e);
   if (ctx.state.status === 'RUNNING' && ctx.state.cancellation === null) {
@@ -1116,7 +1103,6 @@ export function onEffectUnknown(ctx: Ctx, e: EffectMirror): void {
   }
 }
 
-/** Bỏ trạng thái chờ đối chiếu của chính effect này trước khi đi tiếp. */
 function resumeIfWaitingOn(ctx: Ctx, e: EffectMirror): void {
   const w = ctx.state.wait;
   if (ctx.state.status === 'WAITING' && w?.detail['effect_id'] === e.id)
@@ -1124,9 +1110,9 @@ function resumeIfWaitingOn(ctx: Ctx, e: EffectMirror): void {
 }
 
 /**
- * Xử lý dữ liệu thành công (đã kiểm schema với effect không phải agent). Dùng chung với đối chiếu (R-17).
- * Only a result that held up — no failure classified on the step while handling it — ends the step's
- * rate-limit/infra outage; a `reconcile` probe settles through `closeProbe` and never comes here.
+ * Handle validated success data for both direct results and reconciliation. Only success that
+ * survives step-level validation clears the rate-limit/infrastructure outage; probes settle
+ * through closeProbe.
  */
 export function onEffectSucceeded(
   ctx: Ctx,
@@ -1149,7 +1135,7 @@ function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
       const d = GateDataSchema.parse(data);
       if (onGateTree(ctx, e, d)) return;
       const sg = ctx.frozen.gates.by_step[step as string];
-      // Bước không khai `required` thì mọi gate đã chạy đều bắt buộc; không bao giờ đạt vì danh sách rỗng.
+      // Without an explicit required list, every executed gate is required; an empty list never passes.
       const required =
         sg !== undefined && sg.required.length > 0
           ? sg.required
@@ -1261,13 +1247,12 @@ function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
       askHuman(ctx, 'merge_not_done', {
         step,
         attempt_id: null,
-        body: 'Merge chưa thực hiện',
+        body: 'Merge has not been performed',
         resume: { kind: 'merge_check', step: step as string },
       });
       return;
     }
     case 'stop_attempt': {
-      // Attempt đã dừng: đối chiếu effect khởi chạy để biết nó kết thúc ra sao (FR-018).
       const target =
         e.target_effect_id === null
           ? undefined
@@ -1309,7 +1294,7 @@ export function onCiRecorded(
     return onRequiredNotCovered(ctx, step, required);
   const head = s.head_sha;
   const ci = head === null ? undefined : latestCi(s, head);
-  // Kết quả cho head khác head hiện hành không chứng minh gì cho head này: chờ tiếp.
+  // Evidence for another head cannot prove anything about the current head.
   const verdict =
     ci === undefined ? null : ciVerdict(ctx.frozen, ci.required_set, ci.checks);
   if (verdict?.kind === 'pass')
@@ -1441,7 +1426,6 @@ function waitTargetMismatch(
   );
 }
 
-/** Attempt của kết quả không còn là attempt hiện hành của bước: ghi nhận rồi bỏ qua (data-model "Attempt"). */
 function isStale(ctx: Ctx, attemptId: string | null): boolean {
   if (attemptId === null) return true;
   const a = ctx.state.attempts[attemptId];
@@ -1462,14 +1446,15 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
   if (invoked) consume(ctx, e.reservation_id);
   else release(ctx, e.reservation_id);
 
-  // FR-014: chỉ output đã kiểm tra schema mới làm qua bước.
   if (!parsed.success || !parsed.data.schema_checked) {
     onEffectFailed(
       ctx,
       e,
       {
         failure_class: 'invalid_output',
-        message: parsed.success ? 'schema_checked=false' : 'output sai schema',
+        message: parsed.success
+          ? 'schema_checked=false'
+          : 'Output does not match the result schema',
       },
       true,
     );
@@ -1586,8 +1571,8 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
 }
 
 /**
- * Sau khi attempt kết thúc: attempt cũ thì ghi `SignalIgnored(stale_attempt)`; attempt bị người dừng thì
- * chờ người. Trả `true` khi không được đi tiếp theo outcome.
+ * Ignore stale results and wait for input after a requested stop. true means the outcome must not
+ * advance the task.
  */
 function afterAttempt(ctx: Ctx, e: EffectMirror): boolean {
   if (isStale(ctx, e.attempt_id)) {
@@ -1604,7 +1589,7 @@ function afterAttempt(ctx: Ctx, e: EffectMirror): boolean {
     askHuman(ctx, 'attempt_stopped', {
       step: a.step,
       attempt_id: a.id,
-      body: `Attempt ${a.n} của bước '${a.step}' đã dừng theo yêu cầu`,
+      body: `Attempt ${a.n} of step '${a.step}' stopped as requested`,
       resume: {
         kind: 'start_attempt',
         step: a.step,

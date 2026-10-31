@@ -1,6 +1,5 @@
 /**
- * Reconciling open operations (T086, FR-034.01/035, contracts/execution.md "Operation và runner
- * ownership" §5). Every operation the store has not resolved is matched against the host — the unit, the
+ * Reconciling open operations (T086, FR-034.01/035, contracts/execution.md §5). Every operation the store has not resolved is matched against the host — the unit, the
  * kernel operation lock, launch.json, pid.json and exit.json — and the finding is committed as facts
  * before any work is granted:
  *

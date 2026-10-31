@@ -1,5 +1,5 @@
 /**
- * Artifact index of one run directory (T074, FR-016, contracts/execution.md "Files và output"). Lists
+ * Artifact index of one run directory (T074, FR-016, contracts/execution.md). Lists
  * the files the orchestrator ingests (event segments, stderr, exit, result) with digest, size and
  * redaction version. A path is accepted only inside the run directory, as a regular file reached
  * without a symlink, within its cap; anything else is a problem, never silently skipped or truncated.

@@ -1,4 +1,7 @@
-/** Lõi không tự sinh ID: lấy lần lượt từ `envelope.ids`, hết thì từ chối cả quyết định (research R-04). */
+/**
+ * Consume IDs from envelope.ids; exhaustion rejects the whole decision rather than generating IDs
+ * in the core.
+ */
 export class IdPoolExhausted extends Error {
   override name = 'IdPoolExhausted';
 }
@@ -15,7 +18,7 @@ export class IdPool {
     const id = this.ids[this.next];
     if (id === undefined)
       throw new IdPoolExhausted(
-        `cần ID thứ ${this.next + 1}, phong bì chỉ có ${this.ids.length}`,
+        `ID ${this.next + 1} is required, but the envelope contains only ${this.ids.length}`,
       );
     this.next++;
     return id;

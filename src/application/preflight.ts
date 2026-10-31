@@ -33,9 +33,8 @@ import {
 import type { Hash } from '../shared/brand.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 
-const RUNBOOK_CAUSES =
-  'deploy/README.md § Chuẩn bị theo hệ và cách sửa khi preflight báo `capability_missing`';
-const RUNBOOK_SYSTEMD = 'deploy/README.md § systemd và WSL2';
+const RUNBOOK_CAUSES = 'deploy/README.md#host-prerequisites';
+const RUNBOOK_SYSTEMD = 'deploy/README.md#systemd-and-wsl2';
 const PROBE_TIMEOUT_MS = 5_000;
 const GIT_TIMEOUT_MS = 10_000;
 const FETCH_TIMEOUT_MS = 60_000;

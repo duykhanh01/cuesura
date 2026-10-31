@@ -33,7 +33,7 @@ import {
 } from './result-schema.ts';
 import { tryJson, type ResultSource, type VendorFacts } from './vendor.ts';
 
-/** Result cap (contracts/execution.md "Files và output"). */
+/** Result cap (contracts/execution.md). */
 export const RESULT_MAX_BYTES = 1024 * 1024;
 
 /** The runner's exit facts the validator needs (a projection of exit.json). */

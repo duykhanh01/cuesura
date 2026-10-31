@@ -1,8 +1,6 @@
 /**
- * `cusr task logs` (T114, FR-027.01/031). Without `--follow` it prints one finite page; with it, one JSONL
- * line per record (`seq` and `cursor`), polling the daemon, until the task is finished or the session
- * limit. The last line of a session that did not reach the end names the cursor to resume from; a
- * lost connection does the same on stderr and exits 3. Logs stay on stderr, nothing is colored.
+ * Follow committed records as JSON Lines until task completion or the session limit. Return a cursor
+ * to resume interrupted sessions. Records go to stdout; connection diagnostics go to stderr.
  */
 import { join } from 'node:path';
 import { callDaemon, readClientToken, resolveDataDir } from './client.ts';
@@ -38,23 +36,23 @@ export function logsCommandWith(o: FollowOptions = {}): CliCommand {
   return {
     name: 'task logs',
     description:
-      'committed, redacted output of a task; --follow prints JSONL and can be resumed from any cursor',
+      'Show recorded, redacted task logs; --follow streams JSON Lines',
     args: ['<id>'],
     options: [
       {
         flags: '--data-dir <dir>',
         description:
-          'daemon data directory (default $CUSR_DATA_DIR or ~/.cusr)',
+          'Daemon data directory (default: $CUSR_DATA_DIR or ~/.cusr)',
       },
       {
         flags: '--after <cursor>',
-        description: 'only records after this cursor (default 0)',
+        description: 'Show records after this cursor (default: 0)',
       },
-      { flags: '--limit <n>', description: 'page size, at most 200' },
+      { flags: '--limit <n>', description: 'Page size (maximum: 200)' },
       {
         flags: '--follow',
         description:
-          'keep printing until the task ends (one session is at most 1 hour)',
+          'Stream logs until the task ends or the one-hour session limit is reached',
       },
     ],
     async run(values, json, io) {
@@ -69,7 +67,7 @@ export function logsCommandWith(o: FollowOptions = {}): CliCommand {
         return print(
           errorEnvelope({
             code: 'invalid_arguments',
-            message: '--after and --limit need whole numbers',
+            message: '--after and --limit must be integers',
             details: {},
             request_id: null,
           }),

@@ -1,4 +1,4 @@
-# cusr.yaml tối thiểu, không chỉ định profile; dùng với user-workflows.yaml.
+# Minimal project configuration without a profile; paired with user-workflows.yaml.
 version: 1
 gates:
   build: "make"

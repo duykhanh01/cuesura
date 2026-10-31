@@ -55,7 +55,6 @@ function deepFreeze<T>(v: T): T {
   return v;
 }
 
-/** `explain` chỉ đọc đầu vào: chạy trên bản đóng băng sâu, hai lần cho cùng kết quả (FR-034). */
 function explainOf(sim: Sim, now?: number) {
   const input = deepFreeze(
     structuredClone({ state: sim.s, events: sim.events, policy: sim.policy }),
@@ -73,7 +72,7 @@ function explainOf(sim: Sim, now?: number) {
     now as EpochMs | undefined,
   );
   expect(canonicalJson(a)).toBe(canonicalJson(b));
-  // Projection dựng lại từ nhật ký cho cùng câu trả lời: không có dữ liệu nào ngoài phần đã ghi.
+
   const rebuilt = replay(input.events);
   if (rebuilt === null) throw new Error('empty log');
   expect(
@@ -90,8 +89,8 @@ function bySeq(sim: Sim, seq: number): DomainEvent {
   return e;
 }
 
-describe('US5 - Giải thích trạng thái từ dữ liệu đã ghi', () => {
-  it('Scenario 1: task WAITING → lý do chờ, điều kiện tiếp tục, đường kết thúc và giới hạn còn lại', () => {
+describe('US5 - Explain task state from recorded facts', () => {
+  it('Scenario 1: explains wait reasons, resume conditions, exits, and remaining limits', () => {
     const sim = run(
       { limits: { max_agent_runs: 2, max_wall_ms: 3_600_000 } },
       XS_TASK,
@@ -135,7 +134,7 @@ describe('US5 - Giải thích trạng thái từ dữ liệu đã ghi', () => {
       pending_effects: [],
       cancellation: null,
     });
-    // Binding đã dùng khớp các AttemptRequested trong nhật ký.
+
     const requested = sim.events.flatMap((e) =>
       e.type === 'AttemptRequested' ? [e.payload] : [],
     );
@@ -148,12 +147,11 @@ describe('US5 - Giải thích trạng thái từ dữ liệu đã ghi', () => {
         invoked: 1,
       })),
     );
-    // Lượt đã dùng cộng lượt còn lại bằng trần của chính sách.
+
     expect(sim.s.budget.agent_runs.used + x.remaining.agent_runs).toBe(
       sim.policy?.limits.max_agent_runs,
     );
 
-    // Không có `now` thì không bịa thời gian còn lại; hạn đã qua thì còn 0.
     expect(explainOf(sim).remaining.wall_ms).toBeNull();
     sim.advance(3_600_000).fireDue();
     expect(explainOf(sim)).toMatchObject({
@@ -162,12 +160,12 @@ describe('US5 - Giải thích trạng thái từ dữ liệu đã ghi', () => {
     });
   });
 
-  it('Scenario 1b: chờ người trả lời và chờ rate limit đều nêu điều kiện tiếp tục; effect còn treo được liệt kê', () => {
+  it('Scenario 1b: human and rate-limit waits include resume conditions and outstanding effects', () => {
     const asked = run();
     asked.complete(
       toCode(asked).id,
       'succeeded',
-      agentData('needs_input', { questions: ['Dùng Postgres hay SQLite?'] }),
+      agentData('needs_input', { questions: ['Use PostgreSQL or SQLite?'] }),
     );
     const q = explainOf(asked);
     expect(q.wait).toMatchObject({
@@ -200,7 +198,7 @@ describe('US5 - Giải thích trạng thái từ dữ liệu đã ghi', () => {
     });
   });
 
-  it('Scenario 2: task đã nâng nấc → liệt kê mỗi lần nâng cùng chữ ký thất bại và sự kiện đã kích hoạt nó', () => {
+  it('Scenario 2: lists rung raises with failure signatures and their triggering events', () => {
     const fixer = {
       model: 'sonnet',
       effort: 'medium' as const,
@@ -211,7 +209,7 @@ describe('US5 - Giải thích trạng thái từ dữ liệu đã ghi', () => {
       scope: 'task' as const,
     };
     const sim = run({ roles: { fixer }, escalation: { auto_up_to_tier: 3 } });
-    // Coder: hai lần quality cùng chữ ký C1 → nấc 1.
+
     toCode(sim);
     fail(sim, sim.pendingOne('start_agent').id, 'quality', { signature: 'C1' });
     fail(sim, sim.pendingOne('start_agent').id, 'quality', { signature: 'C1' });
@@ -220,7 +218,7 @@ describe('US5 - Giải thích trạng thái từ dữ liệu đã ghi', () => {
       'succeeded',
       agentData('done'),
     );
-    // Fixer (scope task): hai lần quality F1 → nấc 1 và sàn task tăng; review chưa chạy khởi đầu từ sàn.
+
     sim.complete(
       sim.pendingOne('run_gates').id,
       'succeeded',
@@ -307,10 +305,12 @@ describe('US5 - Giải thích trạng thái từ dữ liệu đã ghi', () => {
     ]);
   });
 
-  it('attempt hủy trước dispatch hoặc còn unknown không được tính là đã chạy', () => {
+  it('unlaunched cancelled attempts and unknown attempts do not count as invoked', () => {
     const cancelled = run();
     toCode(cancelled);
-    expectAccepted(cancelled.when({ kind: 'cancel', reason: 'không cần nữa' }));
+    expectAccepted(
+      cancelled.when({ kind: 'cancel', reason: 'No longer needed' }),
+    );
     expect(cancelled.s.budget.agent_runs.used).toBe(0);
     expect(explainOf(cancelled).bindings_used).toEqual([
       {
@@ -329,14 +329,14 @@ describe('US5 - Giải thích trạng thái từ dữ liệu đã ghi', () => {
     ]);
   });
 
-  it('thứ tự bindings_used theo nhật ký, không theo thứ tự key của projection', () => {
+  it('bindings_used follows log order rather than projection key order', () => {
     const sim = run({ escalation: { auto_up_to_tier: 3 } });
     toCode(sim);
     fail(sim, sim.pendingOne('start_agent').id, 'quality', { signature: 'C1' });
     fail(sim, sim.pendingOne('start_agent').id, 'quality', { signature: 'C1' });
     const x = explainOf(sim);
     expect(x.bindings_used.map((b) => b.rung)).toEqual([0, 1]);
-    // Kho lưu projection dạng JSON chuẩn hoá (key sắp theo ID); đảo thứ tự key không đổi câu trả lời.
+    // Canonical storage sorts keys by ID; reversing projection key order must not change the explanation.
     const reordered = structuredClone(sim.s);
     reordered.attempts = Object.fromEntries(
       Object.entries(reordered.attempts).reverse(),
@@ -344,10 +344,10 @@ describe('US5 - Giải thích trạng thái từ dữ liệu đã ghi', () => {
     expect(explain(reordered, sim.events, sim.policy)).toEqual(x);
   });
 
-  it('hủy được ghi trong giải thích kèm thời điểm yêu cầu', () => {
+  it('records cancellation and its request time in the explanation', () => {
     const sim = run();
     toCode(sim);
-    expectAccepted(sim.when({ kind: 'cancel', reason: 'không cần nữa' }));
+    expectAccepted(sim.when({ kind: 'cancel', reason: 'No longer needed' }));
     expect(explainOf(sim)).toMatchObject({
       status: 'CANCELLED',
       wait: null,
@@ -355,9 +355,9 @@ describe('US5 - Giải thích trạng thái từ dữ liệu đã ghi', () => {
     });
   });
 
-  it('SC-006: mọi trạng thái chờ đi qua trong các kịch bản đều có resume_when và exit_paths không rỗng', () => {
-    // `Sim` kiểm SC-006 sau mỗi lần ghi (test/support/explain-check.ts), nên mọi kịch bản US2 và US4 dùng
-    // harness đã được kiểm. Ở đây xác nhận hook thật sự chạy và bắt được vi phạm.
+  it('SC-006: every scenario wait has nonempty resume_when and exit_paths', () => {
+    // Sim checks SC-006 after every write. This test verifies that the shared scenario hook actually detects violations.
+
     const sim = run();
     sim.complete(
       toCode(sim).id,
@@ -381,7 +381,7 @@ describe('US5 - Giải thích trạng thái từ dữ liệu đã ghi', () => {
     );
   });
 
-  it('task PENDING chưa có chính sách vẫn giải thích được', () => {
+  it('explains PENDING tasks before a policy exists', () => {
     const sim = new Sim(buildTask({ acceptance: [] }).id);
     sims.push(sim);
     expectAccepted(

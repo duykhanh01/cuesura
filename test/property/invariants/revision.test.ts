@@ -10,8 +10,8 @@ import {
   taskOverArb,
 } from '../arbitraries/policies.ts';
 
-describe('I08 bất biến theo revision ở mức quyết định', () => {
-  it('sau RevisionApplied: bằng chứng và approval cũ hết hiệu lực; lượt đã dùng, nấc, hạn giữ nguyên; effect nghiệp vụ pending cũ bị vô hiệu hoá', () => {
+describe('I08 decision-level revision immutability', () => {
+  it('revision changes invalidate old evidence, approvals, and pending effects while preserving budgets, rungs, and deadlines', () => {
     let applied = 0;
     fc.assert(
       fc.property(
@@ -19,7 +19,7 @@ describe('I08 bất biến theo revision ở mức quyết định', () => {
         taskOverArb,
         choicesArb(),
         (policy, over, choices) => {
-          // Sửa yêu cầu thường xuyên và luôn chọn revision tại ranh giới an toàn, để mọi lần chạy đều gặp RevisionApplied.
+          // Frequent edits and forced revision choices ensure every run reaches RevisionApplied.
           const { trace } = drive(policy, over, choices, 1, {
             driftEvery: 3,
             driftFocus: true,
@@ -70,7 +70,7 @@ describe('I08 bất biến theo revision ở mức quyết định', () => {
     expect(applied).toBeGreaterThan(0);
   });
 
-  it('drift chưa có lựa chọn mà không còn effect nghiệp vụ đang chạy thì task đã tới ranh giới an toàn (FR-011)', () => {
+  it('source drift reaches a safe boundary once no business effects are running (FR-011)', () => {
     fc.assert(
       fc.property(
         policyArb,

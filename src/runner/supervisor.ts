@@ -1,5 +1,5 @@
 /**
- * Operation supervisor (contracts/execution.md "Operation và runner ownership", ADR-0002). The daemon
+ * Operation supervisor (contracts/execution.md, ADR-0002). The daemon
  * calls {@link SystemdSupervisor.launch} only after the effect, slot, reservation and operation id are
  * committed. Each operation runs as its own transient user service `cusr-op-<operation>.service`:
  * Restart=no, KillMode=control-group, no PartOf/Requires on the daemon, and no `--collect` before the

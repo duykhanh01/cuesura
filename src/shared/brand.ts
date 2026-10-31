@@ -10,7 +10,7 @@ const HASH_RE = /^sha256:[0-9a-f]{64}$/;
 
 export const UuidSchema = z
   .string()
-  .regex(UUID_RE, 'uuid không hợp lệ')
+  .regex(UUID_RE, 'Invalid UUID')
   .transform((s) => s as Uuid);
 
 export const EpochMsSchema = z
@@ -21,7 +21,10 @@ export const EpochMsSchema = z
 
 export const HashSchema = z
   .string()
-  .regex(HASH_RE, 'hash phải có dạng sha256:<64 hex>')
+  .regex(
+    HASH_RE,
+    'Hash must have the format sha256:<64 hexadecimal characters>',
+  )
   .transform((s) => s as Hash);
 
 export function asUuid(s: string): Uuid {

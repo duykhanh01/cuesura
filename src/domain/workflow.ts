@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-/** Loại bước (research R-11). Engine diễn giải workflow theo loại, không theo tên bước. */
+/** The engine interprets step kinds rather than step names. */
 export const STEP_KINDS = [
   'triage',
   'prepare',
@@ -15,7 +15,6 @@ export const STEP_KINDS = [
 ] as const;
 export type StepKind = (typeof STEP_KINDS)[number];
 
-/** Tập outcome đóng theo từng loại bước (FR-003 kiểm tra 2). */
 export const OUTCOMES_BY_KIND = {
   triage: ['ok'],
   prepare: ['ok'],
@@ -32,11 +31,8 @@ export const OUTCOMES_BY_KIND = {
 export type Outcome = (typeof OUTCOMES_BY_KIND)[StepKind][number];
 
 /**
- * Đích đặc biệt của transition:
- * - `ask`: hỏi người (WAITING human_input) rồi chạy lại bước;
- * - `escalate`: WAITING human_input kèm tóm tắt (`loop_exhausted`);
- * - `retry`: attempt mới cùng bước;
- * - `fail`: FAILED; `cancel`: quy trình hủy (FR-018).
+ * Special targets: ask waits for input and reruns the step; escalate waits with loop_exhausted;
+ * retry creates an attempt at the same step; fail terminates; cancel starts cancellation.
  */
 export const SPECIAL_TARGETS = [
   'ask',
@@ -61,7 +57,6 @@ export type ActionName = (typeof ACTIONS)[number];
 
 export const WAIT_FOR = ['github.checks'] as const;
 
-/** Predicate cho phép (FR-003 kiểm tra 6). Không có `eval`. */
 export const PREDICATE_KEYS = [
   'flag',
   'size',
@@ -94,7 +89,7 @@ export const DECISION_MODES = [
 ] as const;
 export type DecisionMode = (typeof DECISION_MODES)[number];
 
-/** Điểm quyết định. Năm loại cuối không bao giờ được ủy quyền cho decider (FR-006). */
+/** The last five decision points always require a human decision. */
 export const DECISION_POINTS = [
   'agent_question',
   'missing_acceptance',
@@ -151,7 +146,6 @@ export const WorkflowSchema = z
   .strict();
 export type Workflow = z.infer<typeof WorkflowSchema>;
 
-/** Bước có lượt agent (tính vào ngân sách và có thang nâng cấp). */
 export function isAgentStep(step: StepDef): boolean {
   return step.kind === 'agent' || step.kind === 'review';
 }
@@ -182,12 +176,11 @@ function globMatch(pattern: string, value: string): boolean {
   return re.test(value);
 }
 
-/** Tên branch khớp mẫu glob (`feature/*`), dùng cho predicate và protected branch. */
 export function branchMatches(pattern: string, branch: string): boolean {
   return globMatch(pattern, branch);
 }
 
-/** Mọi khoá khai báo phải khớp (AND); danh sách giá trị nghĩa là một trong số đó (OR). */
+/** All declared keys must match (AND); a list matches any one of its values (OR). */
 export function evalPredicate(p: Predicate, f: PredicateFacts): boolean {
   if (p.flag !== undefined && !anyOf(p.flag).some((x) => f.labels.includes(x)))
     return false;

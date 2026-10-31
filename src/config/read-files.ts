@@ -2,8 +2,8 @@ import { readFile } from 'node:fs/promises';
 import type { ConfigSource } from './yaml-loader.ts';
 
 /**
- * Shell I/O duy nhất của config (contracts/core-api.md): đọc file cấu hình người dùng và `cusr.yaml`
- * nếu có. Mọi bước sau nhận nội dung đã đọc. `file` giữ đúng đường dẫn caller đưa vào.
+ * The configuration I/O boundary: read files here; later stages receive their contents. Preserve
+ * caller-provided paths in diagnostics.
  */
 export async function readConfigFiles(paths: {
   user: string;

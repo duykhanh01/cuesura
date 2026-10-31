@@ -29,7 +29,6 @@ import {
   type ClaimResult,
 } from '../../support/scenario.ts';
 
-/** Một lựa chọn trừu tượng; driver diễn giải theo trạng thái hiện tại để tín hiệu luôn có nghĩa. */
 export type Choice = { pick: number; variant: number; flag: number };
 
 export const choicesArb = (
@@ -55,13 +54,13 @@ export type TraceEntry = {
   claim: ClaimResult | null;
   trigger: Trigger | null;
   ids: number;
-  /** Thời điểm của harness sau hành động (thời điểm claim tiếp theo sẽ dùng). */
+
   now: number;
 };
 
 /**
- * `driftEvery`: cứ chừng ấy lựa chọn thì có một lần sửa yêu cầu (mặc định 17). `driftFocus`: tại ranh giới
- * an toàn chỉ đưa ra lựa chọn revision, để test về revision luôn gặp đủ ca.
+ * driftEvery controls edit frequency (default: 17). driftFocus forces revision choices at safe
+ * boundaries so every generated run exercises revision handling.
  */
 export type DriveOptions = {
   driftEvery?: number;
@@ -147,7 +146,6 @@ function successData(sim: Sim, e: EffectMirror, c: Choice): unknown {
       const head = c.flag % 9 === 0 ? 'stale' : (sim.s.head_sha ?? 'h1');
       const checks: Record<string, Check['state']> = {};
       CHECK_NAMES.forEach((n, i) => {
-        // Bỏ bớt check để có required check vắng mặt.
         if ((v >> i) % 7 !== 0)
           checks[n] =
             c.flag % 3 === 0
@@ -225,7 +223,7 @@ function actions(sim: Sim, run: Run, c: Choice): Action[] {
   const effects = Object.values(s.effects);
   for (const e of effects) {
     if (e.status === 'pending') {
-      // Tiến trình chính: claim rồi trả kết quả ngay; claim riêng lẻ ít hơn để có effect `started` treo.
+      // Usually claim and return immediately; occasional claim-only actions leave effects running.
       const okBelow = run.opts.failureFocus === true ? 10 : 17;
       const outcome =
         c.variant % 20 < okBelow
@@ -320,7 +318,7 @@ function actions(sim: Sim, run: Run, c: Choice): Action[] {
         }),
       });
     }
-    // Tín hiệu cũ/trùng: kết quả cho effect đã xong hoặc đã vô hiệu hoá.
+
     if (
       e.status === 'succeeded' ||
       e.status === 'failed' ||
@@ -337,7 +335,7 @@ function actions(sim: Sim, run: Run, c: Choice): Action[] {
   }
   for (const t of Object.values(s.timers)) {
     if (t.status !== 'armed') continue;
-    // Hạn task hiếm khi đến trước khi luồng chạy xong; timer khác (chờ CI) luôn sẵn.
+    // Keep the task deadline late enough to exercise the workflow while other timers remain available.
     if (t.kind === 'deadline' && c.variant % 19 !== 0) continue;
     out.push({
       label: `timer:${t.kind}`,
@@ -442,8 +440,8 @@ function actions(sim: Sim, run: Run, c: Choice): Action[] {
 }
 
 /**
- * Chạy một chuỗi lựa chọn trên task đã chốt chính sách. Mỗi lần gọi `decide` đã được `Sim` kiểm tất
- * định và không sửa đầu vào; trace giữ state trước/sau để test kiểm bất biến.
+ * Sim checks deterministic decisions and immutable inputs. Retain before/after states for
+ * invariant checks.
  */
 export function drive(
   policy: PolicyOptions,
@@ -463,7 +461,7 @@ export function drive(
     const policyBefore = sim.policy;
     const decisionsBefore = sim.decisions.length;
     const r = act.run();
-    // `advance` có thể bắn nhiều timer; trace ghi từng quyết định bằng state cuối.
+    // advance may fire several timers; each trace entry uses the final state.
     const extra = sim.decisions.length - decisionsBefore;
     run.trace.push({
       kind:
@@ -490,7 +488,6 @@ export function eventsOf(e: TraceEntry): DomainEventDraft[] {
   return e.decision?.kind === 'accepted' ? e.decision.events : [];
 }
 
-/** Duyệt nhật ký từng sự kiện với state trước và sau sự kiện đó. */
 export function walk(
   events: readonly DomainEventDraft[],
   fn: (

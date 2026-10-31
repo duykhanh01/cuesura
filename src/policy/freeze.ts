@@ -48,7 +48,6 @@ import {
 import { structureHash } from './structure-hash.ts';
 import { isSupportedStructure, unsupportedDecisionPoints } from './support.ts';
 
-/** Lỗi chốt chính sách (contracts/core-api.md). Task giữ PENDING kèm lý do. */
 export type FreezeError =
   | { code: 'config_invalid'; diagnostics: Diagnostic[] }
   | { code: 'unsupported_workflow'; workflow: string; structure_hash: Hash }
@@ -68,11 +67,11 @@ export type FreezePolicyInput = {
   base_sha: string;
   attachments: AttachmentContent[];
   /**
-   * Nội dung prompt của các role mà chính sách dùng, theo tên khai báo ở `roles.<r>.prompt`. Lõi không
-   * đọc file; caller đọc và truyền vào như attachment (FR-037).
+   * Prompt contents keyed by configured name. The caller reads files; the pure core only snapshots
+   * their contents.
    */
   prompts?: DocContent[];
-  /** Nội dung các file `conventions` của project, theo tên khai báo trong `cusr.yaml`. */
+
   conventions?: DocContent[];
   /** 002: the confirmed execution mode; the graph is then `software_dev@2:<mode>` (task-execution-modes.md). */
   mode?: ExecutionMode;
@@ -97,8 +96,8 @@ function invalid(
 }
 
 /**
- * Chụp tài liệu được tham chiếu theo tên (bỏ trùng, sắp theo tên). Thiếu nội dung thì không chốt được
- * ngữ cảnh, nên không chốt gì (FR-038).
+ * Deduplicate and sort referenced documents. Missing content prevents all snapshots from being
+ * frozen.
  */
 function snapshotDocs(
   names: readonly (string | null)[],
@@ -116,7 +115,7 @@ function snapshotDocs(
         `<${kind}>`,
         'schema_invalid',
         [kind, name],
-        `thiếu nội dung '${name}' để chụp vào ngữ cảnh`,
+        `Content for '${name}' is required to freeze the context`,
       );
     out.push({ name: doc.name, content: doc.content });
   }
@@ -164,7 +163,7 @@ function stepBinding(
 
   const model = config.user.models[chosen.rule.model];
   if (model === undefined) return noBinding;
-  // Reviewer luôn chỉ đọc (SPEC.md §9.1); cấu hình người dùng có thể hạ quyền role, không nâng.
+  // Reviewers are always read-only; user configuration can lower role permissions, never raise them.
   const readOnly =
     step.kind === 'review' ||
     role.permissions === 'read_only' ||
@@ -215,15 +214,15 @@ function gatesOf(
       file,
       'no_gates_not_allowed',
       ['gates'],
-      'project không khai báo gate nào và profile không cho phép allow_no_gates',
+      'The project declares no gates and the profile does not enable allow_no_gates',
     );
   }
   const by_step: FrozenPolicy['gates']['by_step'] = {};
   for (const [name, step] of Object.entries(w.steps)) {
     if (step.kind !== 'gate') continue;
     const run = step.run ?? [];
-    // Không khai `required` thì mọi gate trong `run` mà project có khai báo đều bắt buộc; gate chưa khai
-    // báo vẫn chỉ bị bỏ như gate optional.
+    // Without required, all declared gates in run are mandatory; undeclared gates remain optional and are skipped.
+
     const required = step.required ?? run.filter((g) => g in commands);
     const missing = required.find((g) => !(g in commands));
     if (missing !== undefined) {
@@ -231,10 +230,10 @@ function gatesOf(
         file,
         'required_gate_missing',
         ['gates'],
-        `gate bắt buộc '${missing}' của bước '${name}' chưa được khai báo`,
+        `Required gate '${missing}' used by step '${name}' is not declared`,
       );
     }
-    // Gate optional mà project không khai báo bị bỏ và được ghi lại (SPEC.md §8).
+
     by_step[name] = {
       run: run.filter((g) => g in commands),
       required,
@@ -245,9 +244,9 @@ function gatesOf(
 }
 
 /**
- * Chốt `FrozenPolicy` + `FrozenExecutionContext` cho một revision (FR-004, FR-037). Chỉ xét workflow và
- * chế độ quyết định mà task dùng (R-20). Lỗi ở bất kỳ snapshot nào thì không trả snapshot nào (FR-038).
- * Override đã được áp ở `src/config/freeze.ts` trước khi gọi hàm này.
+ * Freeze policy and execution context atomically for one revision. Only the selected workflow is
+ * checked; any snapshot failure returns neither snapshot. Configuration overrides must already be
+ * applied.
  */
 export function freezePolicy(
   input: FreezePolicyInput,
@@ -261,7 +260,7 @@ export function freezePolicy(
       userFile,
       'unknown_profile',
       ['profile'],
-      'task và project đều không chỉ định profile',
+      'Neither the task nor the project selects a profile',
     );
   const profile = config.profiles[profileName];
   if (profile === undefined)
@@ -269,7 +268,7 @@ export function freezePolicy(
       userFile,
       'unknown_profile',
       ['profiles', profileName],
-      `profile '${profileName}' không tồn tại`,
+      `Profile '${profileName}' does not exist`,
     );
   const projects = config.user.projects;
   if (projects !== null && !(task.project in projects)) {
@@ -277,7 +276,7 @@ export function freezePolicy(
       userFile,
       'schema_invalid',
       ['projects', task.project],
-      `project '${task.project}' không có trong danh sách repo được phép`,
+      `Project '${task.project}' is not in the repository allowlist`,
     );
   }
   const workflowName = profile.workflow as string;
@@ -287,7 +286,7 @@ export function freezePolicy(
       userFile,
       'schema_invalid',
       ['profiles', profileName, 'workflow'],
-      `workflow '${workflowName}' không tồn tại`,
+      `Workflow '${workflowName}' does not exist`,
     );
 
   if (!isSupportedStructure(configured)) {
@@ -303,7 +302,6 @@ export function freezePolicy(
   if (unsupported.length > 0)
     return err({ code: 'unsupported_decision_mode', points: unsupported });
 
-  // Binding và thang của từng bước agent.
   const steps: Record<string, StepPolicy> = {};
   for (const name of Object.keys(workflow.steps).sort()) {
     const step = workflow.steps[name] as StepDef;
@@ -320,7 +318,6 @@ export function freezePolicy(
   const gates = gatesOf(config, profile, workflow);
   if (!gates.ok) return gates;
 
-  // Thiếu nội dung attachment thì không chốt được ngữ cảnh, nên không chốt gì (FR-038).
   const attachments = [];
   for (const ref of task.attachments) {
     const a = input.attachments.find((x) => x.name === ref.name);
@@ -329,7 +326,7 @@ export function freezePolicy(
         '<attachments>',
         'schema_invalid',
         ['attachments', ref.name],
-        `thiếu nội dung attachment '${ref.name}'`,
+        `Attachment '${ref.name}' has no content`,
       );
     }
     attachments.push({
@@ -377,7 +374,7 @@ export function freezePolicy(
     base_sha: input.base_sha,
     project: task.project,
     profile: profileName,
-    // Tên chuẩn của workflow đã chạy được; tên người dùng đặt nằm trong config_hashes.
+
     workflow_name:
       input.mode === undefined
         ? SOFTWARE_DEV_NAME
@@ -409,8 +406,8 @@ export function freezePolicy(
     },
     policy_version: 1,
   });
-  // Kiểm tra cấu hình đã chặn mọi giá trị FrozenPolicy không nhận; lớp này giữ hợp đồng Result nếu hai
-  // bộ ràng buộc lệch nhau, thay vì ném exception.
+  // Preserve the Result contract if configuration validation and policy constraints diverge.
+
   const checked = FrozenPolicySchema.safeParse(policy);
   if (!checked.success) {
     const issue = checked.error.issues[0];
@@ -418,7 +415,7 @@ export function freezePolicy(
       userFile,
       'schema_invalid',
       (issue?.path ?? []) as (string | number)[],
-      `chính sách không hợp lệ: ${issue?.message ?? 'schema'}`,
+      `Invalid policy: ${issue?.message ?? 'schema validation failed'}`,
     );
   }
 
@@ -439,6 +436,6 @@ export function freezePolicy(
     prompt_refs: prompts.value,
     conventions: conventions.value,
   });
-  // Snapshot không dùng chung tham chiếu với task hay cấu hình: sửa nguồn sau khi chốt không đổi được nó (FR-038).
+  // Snapshots must not share mutable references with the task or configuration.
   return ok(structuredClone({ policy, context }));
 }

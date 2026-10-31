@@ -33,7 +33,6 @@ export function exitCodeForError(code: string): ExitCode {
   return ExitCode.failure;
 }
 
-/** Exit code of a command from the daemon's answer. */
 export function exitCodeFor(envelope: Envelope): ExitCode {
   return envelope.ok ? ExitCode.ok : exitCodeForError(envelope.error.code);
 }

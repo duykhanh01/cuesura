@@ -1,6 +1,6 @@
 /**
  * The only {@link SandboxProvider}: Isolated rootless bubblewrap (ADR-0004, contracts/execution.md
- * "Sandbox và Git boundary"). Promoted from the S0.1-proven prototype `scripts/spike-002/sandbox.ts`.
+ *). Promoted from the S0.1-proven prototype `scripts/spike-002/sandbox.ts`.
  * Every harness, setup, gate and autofix command runs inside it; no backend is selected by
  * configuration and no AppArmor profile name gates it.
  *

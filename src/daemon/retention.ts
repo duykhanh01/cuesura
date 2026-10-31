@@ -1,5 +1,5 @@
 /**
- * Artifact retention (T074, FR-016, contracts/execution.md "Files và output"). A run directory is
+ * Artifact retention (T074, FR-016, contracts/execution.md). A run directory is
  * removed only when all of these hold: its task is terminal, its exit.json is complete, every artifact
  * in it was committed by the store (ACK = `ArtifactIngested` for exactly that digest), and it ended
  * more than `terminal_retention_ms` (30 days) ago. What is removed leaves a tombstone with the

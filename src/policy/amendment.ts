@@ -7,7 +7,6 @@ import {
 } from '../domain/policy.ts';
 import { policyHash } from './finalize.ts';
 
-/** Phần chính sách được amendment đổi; graph workflow và danh tính revision không thuộc tập này (FR-005). */
 export const AMENDABLE_KEYS = [
   'steps',
   'ci',
@@ -21,7 +20,6 @@ export type PolicyChange = Partial<
   Pick<FrozenPolicy, (typeof AMENDABLE_KEYS)[number]>
 >;
 
-/** Khoá đổi graph workflow: v1 không cho đổi khi task đang chạy. */
 const WORKFLOW_KEYS = ['workflow', 'workflow_name', 'structure_hash'];
 
 export type AmendmentError = {
@@ -30,8 +28,8 @@ export type AmendmentError = {
 };
 
 /**
- * Đề xuất amendment (FR-005, FR-036): cần `AuthzContext` có `admin`; tên actor hay `requested_by` tự
- * khai không thay được. Không đổi đầu vào; chỉ tạo chính sách mới, có hiệu lực khi đi qua tín hiệu `amend`.
+ * Requires trusted admin authorization; an actor name alone grants nothing. Return a new policy
+ * without mutating inputs. It takes effect only after the amend trigger is accepted.
  */
 export function proposeAmendment(input: {
   current: FrozenPolicy;
@@ -49,24 +47,27 @@ export function proposeAmendment(input: {
   if (unknown.length > 0)
     return err({
       code: 'invalid',
-      detail: `không amend được: ${unknown.join(', ')}`,
+      detail: `Unsupported amendment fields: ${unknown.join(', ')}`,
     });
   if (input.reason.trim() === '')
-    return err({ code: 'invalid', detail: 'amendment cần lý do' });
+    return err({
+      code: 'invalid',
+      detail: 'A policy amendment requires a reason',
+    });
 
   const { policy_hash: _old, ...rest } = input.current;
-  // Bản sao sâu: chính sách mới không dùng chung object với `current` hay `change`, nên sửa đầu vào sau
-  // này không đổi được nó mà hash vẫn giữ nguyên (FR-005).
+  // Deep-copy so later mutations of current or change cannot alter the policy while preserving its hash.
+
   const next = structuredClone({
     ...rest,
     ...input.change,
     policy_version: input.current.policy_version + 1,
   });
-  // Feature 001 chỉ chạy chế độ `human` (FR-039).
+
   if (Object.values(next.decision_modes).some((m) => m !== 'human')) {
     return err({
       code: 'invalid',
-      detail: 'chỉ chế độ quyết định human được chốt',
+      detail: 'Only human decision mode can be frozen',
     });
   }
   const amended = { ...next, policy_hash: policyHash(next) };

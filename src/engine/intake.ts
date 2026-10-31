@@ -12,14 +12,12 @@ import {
 } from './triage.ts';
 import { mkWait } from './waits.ts';
 
-/** Task cần người xác nhận khi không do chính người dùng tạo (SPEC.md §5.2). */
 function needsConfirmation(task: CanonicalTask): boolean {
   return task.requested_by.kind !== 'human';
 }
 
 type CreateTrigger = Extract<Trigger, { kind: 'create_task' }>;
 
-/** `create_task`: dedup theo `(project, source_key)` (FR-007), kiểm dependency và retry rồi triage. */
 export function onCreateTask(ctx: Ctx, t: CreateTrigger): void {
   if (ctx.hasState) reject('task_exists', { task_id: ctx.state.id });
   const task = CanonicalTaskSchema.parse(t.task);
@@ -56,7 +54,7 @@ export function onConfirmTask(ctx: Ctx): void {
 
 type SourceUpdated = Extract<Trigger, { kind: 'source_updated' }>;
 
-/** Trước khi chạy: revision mới (`TaskRevised`). Sau khi chạy: source drift (FR-011). */
+/** Before execution, revise directly; after execution starts, record source drift. */
 export function onSourceUpdated(ctx: Ctx, t: SourceUpdated): void {
   const s = ctx.state;
   const task = CanonicalTaskSchema.parse(t.task);

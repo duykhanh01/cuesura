@@ -12,7 +12,7 @@ export type CiVerdict =
       complete: boolean;
     };
 
-/** Tập kỳ vọng = hợp `ci.required_checks` của chính sách và `required_set.names` (research R-10). */
+/** Expected checks are the union of frozen ci.required_checks and required_set.names. */
 export function expectedChecks(
   policy: FrozenPolicy,
   rs: RequiredSet,
@@ -20,10 +20,7 @@ export function expectedChecks(
   return [...new Set([...policy.ci.required_checks, ...rs.names])].sort();
 }
 
-/**
- * Chỉ `success` là đạt; tên kỳ vọng vắng trong `checks` là `missing`; `complete = false` không bao giờ
- * đạt (FR-015). Check kỳ vọng `failure` làm CI thất bại để bước phân loại xử lý.
- */
+/** Only success passes. Missing names or incomplete observations never satisfy the merge guard. */
 export function ciVerdict(
   policy: FrozenPolicy,
   rs: RequiredSet,
@@ -53,7 +50,6 @@ function latest<T>(xs: readonly T[], ok: (x: T) => boolean): T | undefined {
   return undefined;
 }
 
-/** Kết quả CI mới nhất còn hiệu lực cho đúng head của revision hiện tại. */
 export function latestCi(
   state: TaskState,
   head: string,
@@ -77,9 +73,8 @@ export type GuardResult =
   { ok: true; head_sha: string } | { ok: false; code: GuardFailure };
 
 /**
- * Điều kiện merge của SPEC.md §14.2 theo research R-10, chỉ dùng bằng chứng còn hiệu lực của revision hiện
- * tại và gắn đúng head (quan hệ base còn phải đúng branch đích): review approve (hoặc review được bỏ theo `skip_when`), CI đạt cho tập kỳ vọng đầy
- * đủ, head chứa base tip, approval merge của người cho head đó, và không có yêu cầu hủy.
+ * Merge requires current revision/head evidence: approved or skipped review, complete CI, base
+ * ancestry, human head-bound merge approval, and no cancellation.
  */
 export function mergeGuard(
   state: TaskState,
@@ -107,7 +102,7 @@ export function mergeGuard(
   if (verdict.kind === 'incomplete')
     return { ok: false, code: 'checks_incomplete' };
 
-  // Chỉ bằng chứng cho đúng cặp head và branch đích (`base_ref`) mới chứng minh head chứa base tip (FR-015).
+  // Base ancestry evidence must match both the head and target base_ref.
   const target = state.task.base_branch;
   const base = latest(
     state.evidence.base_relations,

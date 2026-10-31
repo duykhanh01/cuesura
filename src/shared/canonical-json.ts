@@ -1,6 +1,6 @@
 /**
- * JSON chuẩn hoá (research R-03): key sắp theo code point, không khoảng trắng, số theo
- * `JSON.stringify`, bỏ khoá có giá trị `undefined`, mảng giữ thứ tự. Chỉ nhận giá trị JSON.
+ * Canonical JSON sorts keys by code point, omits undefined object values, preserves array order,
+ * and uses JSON.stringify number encoding without whitespace.
  */
 export class CanonicalJsonError extends Error {
   override name = 'CanonicalJsonError';
@@ -29,21 +29,24 @@ function write(value: unknown, path: string, seen: Set<object>): string {
       return value ? 'true' : 'false';
     case 'number':
       if (!Number.isFinite(value))
-        throw new CanonicalJsonError(`${path}: số không hữu hạn`);
+        throw new CanonicalJsonError(
+          `${path}: non-finite numbers are not valid JSON`,
+        );
       return JSON.stringify(value);
     case 'bigint':
-      throw new CanonicalJsonError(`${path}: bigint không phải giá trị JSON`);
+      throw new CanonicalJsonError(`${path}: bigint is not a JSON value`);
     case 'undefined':
     case 'function':
     case 'symbol':
       throw new CanonicalJsonError(
-        `${path}: ${typeof value} không phải giá trị JSON`,
+        `${path}: ${typeof value} is not a JSON value`,
       );
     case 'object':
       break;
   }
   const obj = value;
-  if (seen.has(obj)) throw new CanonicalJsonError(`${path}: tham chiếu vòng`);
+  if (seen.has(obj))
+    throw new CanonicalJsonError(`${path}: circular reference`);
   seen.add(obj);
   try {
     if (Array.isArray(obj)) {
@@ -55,7 +58,7 @@ function write(value: unknown, path: string, seen: Set<object>): string {
     const proto: unknown = Object.getPrototypeOf(obj);
     if (proto !== Object.prototype && proto !== null) {
       throw new CanonicalJsonError(
-        `${path}: object có prototype không phải Object`,
+        `${path}: expected a plain object or an object with a null prototype`,
       );
     }
     const entries = Object.entries(obj as Record<string, unknown>)

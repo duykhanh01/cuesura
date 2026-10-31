@@ -1,4 +1,4 @@
-# Cấu hình người dùng 500 dòng cho đo SC-002 (sinh một lần, giữ cố định).
+# Fixed 500-line configuration for the SC-002 performance check.
 #
 version: 1
 harnesses:

@@ -16,11 +16,11 @@ import {
   type LocatedDoc,
 } from './positions.ts';
 
-/** Nội dung một file cấu hình đã đọc; `file` là đường dẫn caller muốn thấy trong chẩn đoán. */
+/** file is the caller-visible path used in diagnostics. */
 export type ConfigSource = { file: string; text: string };
 
 export type LoaderLimits = {
-  /** Kích thước tối đa mỗi file, tính bằng byte UTF-8. */
+  /** Maximum size in UTF-8 bytes. */
   max_file_bytes: number;
   max_aliases: number;
   max_profile_depth: number;
@@ -32,7 +32,6 @@ export const DEFAULT_LIMITS: LoaderLimits = {
   max_profile_depth: 8,
 };
 
-/** Tag được phép: chỉ các kiểu của YAML core schema (R-05). `!!binary`, `!!set`… bị từ chối. */
 const CORE_TAGS = new Set(
   ['str', 'int', 'float', 'bool', 'null', 'map', 'seq'].map(
     (t) => `tag:yaml.org,2002:${t}`,
@@ -53,10 +52,8 @@ function yamlErrorCode(e: YAMLError): DiagnosticCode {
 }
 
 /**
- * Parse một file cấu hình theo R-05. Hành vi đã kiểm chứng với `yaml` 2 (test/unit/config/loader.test.ts):
- * key trùng là `doc.errors` `DUPLICATE_KEY`; tag lạ chỉ là `doc.warnings` `TAG_RESOLVE_FAILED`; `!!binary`
- * vẫn được resolve dù dùng core schema nên phải lọc tag riêng; alias vượt giới hạn hay alias chưa khai
- * báo chỉ ném lỗi ở `toJS`, nên loader tự đếm và kiểm alias trước.
+ * yaml reports unknown tags as warnings and resolves some non-core tags, so check tags explicitly.
+ * Alias errors may appear only at toJS; validate references and counts before conversion.
  */
 export function loadYaml(
   source: ConfigSource,
@@ -70,7 +67,7 @@ export function loadYaml(
         'file_too_large',
         top,
         [],
-        `file ${bytes} byte vượt giới hạn ${limits.max_file_bytes} byte`,
+        `File size ${bytes} bytes exceeds the limit of ${limits.max_file_bytes} bytes`,
       ),
     ]);
   }
@@ -112,7 +109,7 @@ export function loadYaml(
             'alias_limit',
             nodePosition(located, n),
             [],
-            `quá ${limits.max_aliases} alias`,
+            `Alias count exceeds the limit of ${limits.max_aliases}`,
           ),
         );
       }
@@ -122,14 +119,14 @@ export function loadYaml(
             'yaml_syntax',
             nodePosition(located, n),
             [],
-            `alias '*${n.source}' chưa có anchor trước đó`,
+            `Alias '*${n.source}' has no preceding anchor`,
           ),
         );
       }
       return;
     }
     if (n.tag !== undefined && !CORE_TAGS.has(n.tag)) {
-      // Tag lạ đã có cảnh báo TAG_RESOLVE_FAILED; chỉ báo thêm tag đã resolve nhưng ngoài core.
+      // Unknown tags already have TAG_RESOLVE_FAILED warnings; add diagnostics only for resolved non-core tags.
       if (!n.tag.startsWith('!')) {
         const lp = lineCounter.linePos(
           tagStart(source.text, n.range?.[0] ?? 0),
@@ -139,7 +136,7 @@ export function loadYaml(
             'unsupported_tag',
             { file: source.file, line: lp.line, col: lp.col },
             [],
-            `tag '${n.tag}' không thuộc core schema`,
+            `Tag '${n.tag}' is not part of the YAML core schema`,
           ),
         );
       }
@@ -153,19 +150,19 @@ export function loadYaml(
     });
     return ok({ located, value });
   } catch (e) {
-    // Alias lồng nhau có thể vượt `maxAliasCount` của `yaml` dù số node alias chưa vượt giới hạn.
+    // Nested aliases can exceed maxAliasCount even when the number of alias nodes is within the limit.
     return err([
       diag(
         'alias_limit',
         top,
         [],
-        `mở rộng alias vượt giới hạn: ${(e as Error).message}`,
+        `Alias expansion exceeds the limit: ${(e as Error).message}`,
       ),
     ]);
   }
 }
 
-/** `range` của node bắt đầu ở giá trị; lùi về đầu token tag (`!!binary`) đứng trước nó. */
+/** Node ranges start at the value; find the preceding explicit tag token for its diagnostic. */
 function tagStart(text: string, valueStart: number): number {
   let i = text.lastIndexOf('!', valueStart);
   if (i < 0) return valueStart;

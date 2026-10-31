@@ -12,15 +12,11 @@ import {
   type TaskStatus,
 } from '../domain/state.ts';
 
-/** Sự kiện tạo cạnh chuyển trạng thái ngoài data-model.md "Chuyển trạng thái": lỗi lập trình. */
 export class InvalidTransition extends Error {
   override name = 'InvalidTransition';
 }
 
-/**
- * Các cạnh hợp lệ (data-model.md, FR-009). Cạnh về chính nó (`WAITING → WAITING`, `PENDING → PENDING`)
- * là cập nhật lý do chờ. DONE/FAILED/CANCELLED không có cạnh ra.
- */
+/** Self-transitions update wait reasons. Terminal states have no outgoing status transitions. */
 const EDGES: Record<TaskStatus, readonly TaskStatus[]> = {
   PENDING: ['PENDING', 'READY', 'FAILED', 'CANCELLED'],
   READY: ['PENDING', 'RUNNING', 'FAILED', 'CANCELLED'],
@@ -37,7 +33,9 @@ export function isAllowedEdge(from: TaskStatus, to: TaskStatus): boolean {
 
 function moveTo(s: TaskState, to: TaskStatus, type: string): void {
   if (!isAllowedEdge(s.status, to))
-    throw new InvalidTransition(`${type}: ${s.status} → ${to} không hợp lệ`);
+    throw new InvalidTransition(
+      `${type}: invalid transition from ${s.status} to ${to}`,
+    );
   s.status = to;
 }
 
@@ -56,7 +54,6 @@ export const POST_TERMINAL_EVENTS: readonly DomainEvent['type'][] = [
   'ExecutionReleased',
 ];
 
-/** Áp một sự kiện lên `TaskState` (contracts/core-api.md). Không đổi `state` đầu vào. */
 export function evolve(state: TaskState | null, event: AnyEvent): TaskState {
   return applyInPlace(
     state === null ? null : structuredClone(state),
@@ -65,8 +62,8 @@ export function evolve(state: TaskState | null, event: AnyEvent): TaskState {
 }
 
 /**
- * Bản sửa tại chỗ cho `decide`, vốn đã tự sao chép state một lần. Payload được giữ theo tham chiếu, nên
- * caller phải truyền bản sao riêng của sự kiện.
+ * decide already cloned the state. This mutating variant retains payload references; callers must
+ * clone events.
  */
 export function applyInPlace(
   state: TaskState | null,
@@ -74,7 +71,7 @@ export function applyInPlace(
 ): TaskState {
   if (state === null) {
     if (event.type !== 'TaskCreated')
-      throw new InvalidTransition(`${event.type} trước TaskCreated`);
+      throw new InvalidTransition(`${event.type} occurred before TaskCreated`);
     const { task, needs_confirmation } = event.payload;
     return {
       schema_version: STATE_SCHEMA_VERSION,
@@ -135,14 +132,14 @@ export function applyInPlace(
   const s = state;
   if (isTerminal(s.status) && !POST_TERMINAL_EVENTS.includes(event.type)) {
     throw new InvalidTransition(
-      `${event.type} sau khi task đã kết thúc (${s.status})`,
+      `${event.type} occurred after the task reached a terminal state (${s.status})`,
     );
   }
   s.version += 1;
 
   switch (event.type) {
     case 'TaskCreated':
-      throw new InvalidTransition('TaskCreated cho task đã tồn tại');
+      throw new InvalidTransition('TaskCreated received for an existing task');
     case 'TaskRevised':
       s.task = event.payload.task;
       s.revision = event.payload.task.revision;
@@ -165,7 +162,7 @@ export function applyInPlace(
     case 'TaskResumed':
       moveTo(s, 'RUNNING', event.type);
       s.wait = null;
-      // Chọn tiếp tục revision cũ hoặc tạo task mới khép lại source drift (research R-16).
+
       if (event.payload.reason.startsWith('drift:')) s.source_drift = null;
       break;
 
@@ -182,7 +179,7 @@ export function applyInPlace(
         hash: context.context_hash,
       };
       if (first) {
-        // Ngân sách gắn với task, không reset khi đổi revision (FR-011, FR-040).
+        // Budgets belong to the task and never reset on a revision change.
         s.budget.agent_runs.limit = policy.limits.max_agent_runs;
         s.budget.decider_calls.limit = policy.limits.max_decider_calls;
         s.budget.escalations.limit = policy.limits.max_escalations;
@@ -556,7 +553,7 @@ export function applyInPlace(
 
     case 'SourceDriftDetected': {
       const p = event.payload;
-      // Sửa yêu cầu lần nữa khi drift còn mở chỉ thay nội dung chờ áp; ranh giới an toàn giữ nguyên.
+      // Further edits during source drift replace only the pending content, preserving the safe boundary.
       s.source_drift = s.source_drift
         ? {
             ...s.source_drift,
@@ -967,7 +964,6 @@ function addBlocker(s: TaskState, b: Blocker): void {
   if (!s.blockers.some((x) => x.code === b.code)) s.blockers.push(b);
 }
 
-/** Dữ kiện mà kết quả thành công của effect để lại trên task (worktree, PR, merge). */
 /** A passing check clears the consecutive count at the step's current rung; rung and tries stay (SPEC.md §9.3). */
 function resetStreak(s: TaskState, step: string | null): void {
   if (step === null) return;
@@ -1012,7 +1008,6 @@ function applyWorktreeTree(s: TaskState, kind: string, result: unknown): void {
     s.run.worktree_tree = r['tree'];
 }
 
-/** Dựng lại state từ nhật ký (FR-029). */
 export function replay(events: readonly AnyEvent[]): TaskState | null {
   let s: TaskState | null = null;
   for (const e of events) s = applyInPlace(s, structuredClone(e));

@@ -1,5 +1,5 @@
 /**
- * Private harness home (contracts/execution.md "Sandbox và Git boundary", S0.2 `private_home_auth`).
+ * Private harness home (contracts/execution.md, S0.2 `private_home_auth`).
  * Each agent attempt gets its own home under the run directory, mounted read-write at
  * `/cusr/home` inside the sandbox. Only the selected vendor's auth files are copied in, 0600, from
  * trusted credential references; the owner's real home and other vendors' auth never enter. Auth is

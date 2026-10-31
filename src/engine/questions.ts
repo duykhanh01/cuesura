@@ -6,7 +6,6 @@ import { proceed } from './interpreter.ts';
 import { reachSafeBoundary } from './revision.ts';
 import { mkWait, waitPolicy, waitTask } from './waits.ts';
 
-/** Hỏi người: `QuestionAsked` + WAITING `human_input`; câu trả lời hợp lệ đầu tiên chạy `resume`. */
 export function askHuman(
   ctx: Ctx,
   code: DetailCode,
@@ -36,7 +35,6 @@ export function askHuman(
   );
 }
 
-/** Yêu cầu approval của người: WAITING `approval` với `approval_kind` (research R-13). */
 export function requestApproval(
   ctx: Ctx,
   o: {
@@ -87,7 +85,6 @@ export function requestApproval(
 
 type AnswerTrigger = Extract<Trigger, { kind: 'answer' }>;
 
-/** Câu trả lời hợp lệ đầu tiên thắng; câu sau nhận `AnswerRejected` (data-model "Câu hỏi"). */
 export function onAnswer(ctx: Ctx, t: AnswerTrigger): void {
   const s = ctx.state;
   const q = s.questions[t.question_id];
@@ -111,7 +108,7 @@ export function onAnswer(ctx: Ctx, t: AnswerTrigger): void {
     proceed(ctx, q.resume, `answer:${q.id}`);
     return;
   }
-  // Câu hỏi bị che bởi một lý do chờ khác (source drift, hạn): đổi việc được hoãn thành `resume` của câu hỏi.
+  // If another wait masks the question, replace its deferred action with the question resume action.
   const drift = ctx.state.source_drift;
   if (
     drift?.safe_boundary_reached &&
@@ -129,10 +126,7 @@ export function onAnswer(ctx: Ctx, t: AnswerTrigger): void {
 
 type ApprovalTrigger = Extract<Trigger, { kind: 'approve' | 'reject' }>;
 
-/**
- * Approval chỉ dùng được khi khớp task/revision và `policy_hash` (escalation, FR-021) hoặc `head_sha`
- * (merge, R-10). Không khớp → `approval_mismatch`.
- */
+/** Approvals must match task/revision and policy_hash for escalation, or head_sha for merge. */
 export function onApprovalDecision(ctx: Ctx, t: ApprovalTrigger): void {
   const s = ctx.state;
   const a = s.approvals[t.approval_request_id];

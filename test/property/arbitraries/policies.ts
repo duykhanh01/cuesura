@@ -26,8 +26,8 @@ const roleArb = (
     .map((r) => ({ model, permissions, ...r }));
 
 /**
- * Chính sách với giới hạn, thang và required checks khác nhau (T049). Thang các role khác độ dài và khác
- * binding, để bất biến về nấc không dựa vào cùng số thứ tự.
+ * Vary ladder lengths and bindings across roles so rung invariants cannot rely on matching
+ * indices.
  */
 export const policyArb: fc.Arbitrary<PolicyOptions> = fc.record({
   limits: fc.record({
@@ -84,14 +84,12 @@ export const escalationPolicyArb: fc.Arbitrary<PolicyOptions> = fc.record({
   }),
 });
 
-/** Biến thể task ảnh hưởng tới predicate: bỏ review (XS), có scout, nhánh đích tự duyệt merge. */
 export const taskOverArb: fc.Arbitrary<Partial<CanonicalTask>> = fc.record({
   size: fc.constantFrom('XS' as const, 'M' as const, 'L' as const),
   labels: fc.constantFrom([], ['needs_scout']),
   base_branch: fc.constantFrom('main', 'feature/x'),
 });
 
-/** Số lần chạy property mặc định; `CUSR_SEED` tái hiện một lần chạy (SC-003). */
 export function propertyParams(numRuns = 60): fc.Parameters<unknown> {
   const seed = process.env['CUSR_SEED'];
   const runs = process.env['CUSR_RUNS'];

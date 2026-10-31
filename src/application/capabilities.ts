@@ -1,6 +1,5 @@
 /**
- * Capability manifest admission (T070, FR-011/033, contracts/execution.md "Mode isolation và capability
- * manifest"). A manifest is environment evidence for one pinned harness binary; it is built only from
+ * Capability manifest admission (T070, FR-011/033, contracts/execution.md). A manifest is environment evidence for one pinned harness binary; it is built only from
  * experimental fixtures (T007), never from help text, and it stops being valid the moment the binary,
  * its version, the effective settings, the environment or the host policy changes. Every attempt is
  * checked again right before it starts, so a change blocks the next attempt instead of silently

@@ -3,7 +3,7 @@ import type { ReviewEvidence, TaskState } from '../domain/state.ts';
 import { hashCanonical } from '../shared/hash.ts';
 
 /**
- * Review input of a `full-review` task (task-execution-modes.md "Dùng lại kết quả review còn hiệu lực",
+ * Review input of a `full-review` task (task-execution-modes.md,
  * M03): task/revision, the base the diff is taken from, the checkpoint commit/tree/diff, the worker's
  * PR content (without the orchestrator's marker), the frozen acceptance/conventions and the review
  * policy/binding. Attempt IDs, timestamps, new gate/CI receipts or a resume log are not part of it.

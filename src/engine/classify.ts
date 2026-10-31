@@ -9,7 +9,6 @@ export type Classification =
     }
   | { kind: 'unclassified'; checks: string[] };
 
-/** Thứ tự nghiêm trọng khi nhiều check thất bại khác lớp (research R-21). */
 const SEVERITY: Record<CiClass, number> = {
   code: 3,
   autofix: 2,
@@ -21,12 +20,11 @@ function logMatches(pattern: string, log: string | undefined): boolean {
   try {
     return new RegExp(pattern).test(log);
   } catch {
-    // Loader đã kiểm cú pháp regex; chuỗi không biên dịch được thì so như chuỗi con.
+    // The loader validates regex syntax; use substring matching if compilation still fails.
     return log.includes(pattern);
   }
 }
 
-/** Mọi trường khai báo trong `match` phải khớp. */
 export function ruleMatches(rule: CiRule, c: Check): boolean {
   const m = rule.match;
   if (m.job !== undefined && m.job !== c.job) return false;
@@ -37,9 +35,8 @@ export function ruleMatches(rule: CiRule, c: Check): boolean {
 }
 
 /**
- * Áp rule đầu tiên khớp cho từng check `failure` (research R-21). Check thất bại không khớp rule nào làm
- * cả kết quả thành `unclassified` (WAITING `human_input` `ci_unclassified`); không có check thất bại nào
- * cũng là `unclassified`.
+ * The first matching rule classifies each failed check. Any unmatched failure, or no failed
+ * checks, makes the aggregate result unclassified.
  */
 export function classifyFailures(
   rules: readonly CiRule[],

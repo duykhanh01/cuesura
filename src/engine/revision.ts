@@ -14,8 +14,8 @@ export function sameContent(a: CanonicalTask, b: CanonicalTask): boolean {
 }
 
 /**
- * Sửa yêu cầu sau khi task đã chạy: ghi source drift ngay (FR-011). Attempt đang chạy được kết thúc; ranh
- * giới an toàn là khi không còn effect nghiệp vụ nào đang chạy hay `unknown`.
+ * Source drift lets active attempts finish. A safe boundary requires no running or unknown
+ * business effects.
  */
 export function onSourceDrift(ctx: Ctx, task: CanonicalTask): void {
   const s = ctx.state;
@@ -38,15 +38,14 @@ export function onSourceDrift(ctx: Ctx, task: CanonicalTask): void {
     at: ctx.now,
   });
   if (!first || businessInFlight(ctx.state.effects).length > 0) return;
-  // Không có gì đang chạy: ranh giới an toàn ngay. Task đang chờ thì giữ lại lý do chờ đó.
+
   const waiting = ctx.state.status === 'WAITING' ? ctx.state.wait : null;
   reachSafeBoundary(ctx, null, waiting);
 }
 
 /**
- * Gọi sau mỗi tín hiệu: drift chưa tới ranh giới an toàn mà không còn effect nghiệp vụ nào đang chạy hay
- * `unknown` (ví dụ đối chiếu vừa báo `not_executed` và effect về lại hàng đợi) thì đây là ranh giới; task
- * chờ người chọn revision, lý do chờ hiện có được giữ lại (FR-011).
+ * Check for a newly reached safe boundary after every trigger, including reconciliation that
+ * requeues work. Preserve any existing wait so continuing the old revision can restore it.
  */
 export function settleDrift(ctx: Ctx): void {
   const s = ctx.state;
@@ -62,13 +61,11 @@ export function settleDrift(ctx: Ctx): void {
   reachSafeBoundary(ctx, null, s.status === 'WAITING' ? s.wait : null);
 }
 
-/** Việc tiếp theo bị hoãn vì source drift (gọi từ `proceed`). */
 export function deferForDrift(ctx: Ctx, action: ResumeAction): void {
   if (businessInFlight(ctx.state.effects).length > 0) return;
   reachSafeBoundary(ctx, action, null);
 }
 
-/** `SafeBoundaryReached` + WAITING `human_input` `source_drift`: chờ người chọn revision (R-16). */
 export function reachSafeBoundary(
   ctx: Ctx,
   deferred: ResumeAction | null,
@@ -99,7 +96,6 @@ export function reachSafeBoundary(
 
 type DriftChoice = Extract<Trigger, { kind: 'drift_choice' }>;
 
-/** Lựa chọn của người tại ranh giới an toàn (FR-011, FR-040, research R-16). */
 export function onDriftChoice(ctx: Ctx, t: DriftChoice): void {
   const s = ctx.state;
   const drift = s.source_drift;
@@ -115,7 +111,6 @@ export function onDriftChoice(ctx: Ctx, t: DriftChoice): void {
       return;
     }
     case 'new_task': {
-      // Task mới do caller tạo bằng `create_task` có liên kết nguồn; task cũ đi theo quy trình hủy.
       invalidatePending(ctx, 'drift:new_task', () => true);
       ctx.emit('TaskResumed', { reason: 'drift:new_task' });
       requestCancel(ctx, 'drift:new_task');
@@ -126,8 +121,11 @@ export function onDriftChoice(ctx: Ctx, t: DriftChoice): void {
         reject('invalid_trigger', { reason: 'runtime_revision_unsupported' });
       if (t.freeze === undefined)
         reject('invalid_trigger', { reason: 'apply_new_needs_freeze' });
-      // Triage của revision mới chạy trước khi ghi gì (FR-040, FR-008): acceptance và dependency phải hợp lệ,
-      // dependency phải DONE. Task đang chạy không quay về PENDING được nên lựa chọn bị từ chối.
+      /*
+       * Validate the new revision before emitting anything. Invalid or unfinished dependencies reject it
+       * because a running task cannot return to PENDING.
+       */
+
       if (drift.task.acceptance.length === 0)
         reject('invalid_trigger', { reason: 'missing_acceptance' });
       checkDependencies(drift.task, ctx.related);
@@ -140,7 +138,7 @@ export function onDriftChoice(ctx: Ctx, t: DriftChoice): void {
           depends_on: notDone,
         });
       if (!t.freeze.ok) {
-        // Không chốt được chính sách hay ngữ cảnh mới: không ghi gì của revision mới (FR-038).
+        // Freeze failures must not leave partial events for the new revision.
         const wait = s.wait as Wait;
         ctx.emit('TaskWaiting', {
           wait: {
@@ -181,7 +179,7 @@ export function onDriftChoice(ctx: Ctx, t: DriftChoice): void {
         revision: oldRevision,
         approvals: oldApprovals,
       });
-      // Diff hiện có được giữ; đi lại từ Triage (FR-040). Qua `proceed` để hạn task vẫn chặn được.
+      // Keep the existing diff and restart from triage through proceed so the deadline guard still applies.
       proceed(ctx, { kind: 'triage' }, 'drift:apply_new');
       return;
     }

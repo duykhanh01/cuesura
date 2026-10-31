@@ -1,5 +1,5 @@
 /**
- * Runner file protocol (contracts/execution.md "Files và output", research R-11). Promoted from the
+ * Runner file protocol (contracts/execution.md, research R-11). Promoted from the
  * spike-002 runner prototype. The runner owns these files; it never touches the store or the engine.
  *
  *   DATA_DIR/runs/<attempt_id>/            DATA_DIR/operations/<operation_id>/

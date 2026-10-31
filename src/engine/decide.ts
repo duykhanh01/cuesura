@@ -46,12 +46,11 @@ import { onHeadDrift } from './head-drift.ts';
 import { onConfirmRunConfig, onProposeRunConfig } from './run-config.ts';
 
 export type DecideInput = {
-  /** `null` khi task chưa tồn tại. */
   state: TaskState | null;
-  /** Chính sách hiệu lực của revision hiện tại. */
+
   policy: FrozenPolicy | null;
   envelope: TriggerEnvelope;
-  /** Kho đọc trong cùng transaction (contracts/signals-events.md). */
+
   related: RelatedFacts;
 };
 
@@ -62,8 +61,8 @@ export type Decision =
 export type { RejectCode };
 
 /**
- * Lõi quyết định thuần (contracts/core-api.md): cùng `DecideInput` luôn cho `Decision` bằng nhau theo
- * JSON chuẩn hoá (FR-012). Không đọc đồng hồ, không sinh ID: thời điểm và ID đến từ phong bì (R-04).
+ * Pure decision core: time and IDs come from the envelope. Identical inputs produce identical
+ * canonical JSON.
  */
 export function decide(input: DecideInput): Decision {
   const ctx = new Ctx(input.state, input.policy, input.envelope, input.related);
@@ -100,11 +99,11 @@ function dispatch(ctx: Ctx, t: Trigger): void {
   if (!ctx.hasState) reject('unknown_task');
   if (ctx.state.id !== ctx.env.task_id)
     reject('invalid_trigger', { reason: 'task_id_mismatch' });
-  // `amend` thiếu admin bị từ chối trước mọi thứ khác, không phát sự kiện nào (FR-036).
+  // Reject amendments without admin authorization before emitting any events.
   if (t.kind === 'amend' && !hasRole(ctx.env.authz, 'admin'))
     reject('not_admin');
-  // Trạng thái hút: mọi tín hiệu sau đó chỉ được ghi nhận (FR-010). Riêng receipt, output và release
-  // của operation còn sống lâu hơn task vẫn được xử lý, để slot không bị giữ mãi; status không đổi.
+  // Terminal tasks still accept outstanding operation receipts and releases so they cannot retain a slot forever.
+
   if (isTerminal(ctx.state.status) && !AFTER_TERMINAL.includes(t.kind)) {
     ctx.emit('SignalIgnored', { reason: 'terminal', trigger_kind: t.kind });
     return;
@@ -226,7 +225,6 @@ function dispatch(ctx: Ctx, t: Trigger): void {
   }
 }
 
-/** Timer đến hạn (FR-030). Timer `deadline` chuyển task sang chờ chính sách (R-22, FR-023). */
 function onTimer(ctx: Ctx, timerId: string): void {
   const timer = ctx.state.timers[timerId];
   if (timer === undefined)
@@ -243,13 +241,13 @@ function onTimer(ctx: Ctx, timerId: string): void {
   const s = ctx.state;
   switch (timer.kind) {
     case 'deadline': {
-      // Đã chờ vì hạn (do `now` vượt `deadline_at` trước khi timer được xử lý): không lồng thêm lần chờ.
+      // Do not nest a deadline wait if the trigger time already caused one before the timer fired.
       if (
         s.cancellation !== null ||
         (s.wait?.reason === 'policy' && s.wait.detail.code === 'deadline')
       )
         return;
-      // Việc đang chờ được giữ lại để làm tiếp nếu admin gia hạn.
+      // Retain deferred work so an admin deadline extension can resume it.
       const resume =
         s.status === 'WAITING'
           ? (s.wait?.resume ?? { kind: 'none' })
@@ -276,8 +274,8 @@ function onTimer(ctx: Ctx, timerId: string): void {
 }
 
 /**
- * Người dừng ngay một attempt, tách khỏi source drift (FR-011). Effect chưa claim bị vô hiệu hoá và trả
- * giữ chỗ; effect đang chạy nhận effect `stop_attempt`; kết quả về sau không làm qua bước.
+ * Stopping one attempt invalidates pending launches or requests a stop for a running one. A later
+ * result from the stopped attempt must not advance the workflow.
  */
 function onStopAttempt(ctx: Ctx, attemptId: string, reason: string): void {
   const s = ctx.state;
@@ -296,13 +294,13 @@ function onStopAttempt(ctx: Ctx, attemptId: string, reason: string): void {
     return;
   }
   const e = s.effects[a.effect_id];
-  if (e === undefined) throw new Error(`attempt ${attemptId} không có effect`);
+  if (e === undefined) throw new Error(`Attempt ${attemptId} has no effect`);
   if (e.status === 'pending') {
     invalidatePending(ctx, 'attempt_stopped', (x) => x.id === e.id);
     askHuman(ctx, 'attempt_stopped', {
       step: a.step,
       attempt_id: a.id,
-      body: `Attempt ${a.n} của bước '${a.step}' đã dừng trước khi chạy: ${reason}`,
+      body: `Attempt ${a.n} of step '${a.step}' stopped before execution: ${reason}`,
       resume: {
         kind: 'start_attempt',
         step: a.step,
@@ -325,8 +323,8 @@ function onStopAttempt(ctx: Ctx, attemptId: string, reason: string): void {
 type AmendTrigger = Extract<Trigger, { kind: 'amend' }>;
 
 /**
- * Amendment của admin (FR-005, FR-036): đúng task/revision, `policy_version` tăng một, hash tự kiểm,
- * không đổi graph workflow. Task đang chờ chính sách được xét lại ngay.
+ * Amendments require the same task/revision, version + 1, a valid hash, and an unchanged workflow
+ * graph.
  */
 function onAmend(ctx: Ctx, t: AmendTrigger): void {
   const cur = ctx.frozen;
@@ -355,7 +353,7 @@ function onAmend(ctx: Ctx, t: AmendTrigger): void {
   ctx.policy = next;
 
   const s = ctx.state;
-  // Gia hạn: `deadline_at` tính lại từ thời điểm bắt đầu với `max_wall_ms` mới.
+  // Recompute an extended deadline from the original start time, not from the amendment time.
   if (
     s.deadline_at !== null &&
     next.limits.max_wall_ms !== cur.limits.max_wall_ms

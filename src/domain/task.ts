@@ -22,7 +22,6 @@ export const RequesterSchema = z
   .strict();
 export type Requester = z.infer<typeof RequesterSchema>;
 
-/** Task chuẩn (SPEC.md §5.2) cộng `source_key` (FR-007) và `retry_of` (FR-010). */
 export const CanonicalTaskSchema = z
   .object({
     schema_version: z.literal(TASK_SCHEMA_VERSION),
@@ -52,7 +51,7 @@ export const CanonicalTaskSchema = z
   .strict();
 export type CanonicalTask = z.infer<typeof CanonicalTaskSchema>;
 
-/** Phần nội dung yêu cầu dùng để so "cùng nội dung" khi dedup theo `source_key`. */
+/** Canonical request content used for source_key deduplication. */
 export function taskContent(t: CanonicalTask): unknown {
   const { id: _id, revision: _rev, schema_version: _sv, ...rest } = t;
   return rest;

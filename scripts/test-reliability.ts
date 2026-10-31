@@ -1,9 +1,6 @@
 /**
- * `pnpm test:reliability [--seed <seed>] [--kills <n>] [tham số vitest…]` (T110, T093). Vitest không nhận
- * `--seed`, nên script tách tham số này thành biến `CUSR_SEED` cho fast-check (r4-sequences), bộ ngắt
- * tiến trình (r1-crash) và crash driver runtime (runtime-crash), rồi chạy nhóm reliability với các tham
- * số còn lại. `--kills` (`CUSR_RUNTIME_KILLS`, mặc định 40) là số lần giết daemon cho mỗi nhóm của
- * runtime-crash; giảm nó chỉ để thử nhanh, bằng chứng T094 dùng mặc định.
+ * Vitest does not accept --seed. Pass it through CUSR_SEED for reproducible property and crash
+ * tests. --kills sets CUSR_RUNTIME_KILLS (default: 40); acceptance evidence uses the default.
  */
 import { spawnSync } from 'node:child_process';
 
@@ -23,11 +20,10 @@ for (let i = 0; i < args.length; i++) {
 }
 for (const [flag, name] of Object.entries(options))
   if (env[name] !== undefined && !Number.isInteger(Number(env[name]))) {
-    process.stderr.write(`${flag} phải là số nguyên: ${env[name]}\n`);
+    process.stderr.write(`${flag} must be an integer: ${env[name]}\n`);
     process.exit(2);
   }
 
-// pnpm đưa node_modules/.bin vào PATH khi chạy script.
 const r = spawnSync('vitest', ['run', '--project', 'reliability', ...rest], {
   stdio: 'inherit',
   env,

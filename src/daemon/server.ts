@@ -1,5 +1,5 @@
 /**
- * Control transport (contracts/cli-daemon.md "Transport và application service"): `node:http` over the
+ * Control transport (contracts/cli-daemon.md): `node:http` over the
  * filesystem socket DATA_DIR/control.sock (directory 0700, socket 0600; never TCP or an abstract socket).
  * GET /v1/health, POST /v1/query and POST /v1/command with a JSON body of at most 1 MiB. The caller is
  * identified only by its bearer token; authorization, schema, version and dedup belong to the handlers.

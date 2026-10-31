@@ -1,5 +1,5 @@
 /**
- * Creating or recovering the task's PR (T041, FR-017/018, contracts/github.md "Publish và đối chiếu").
+ * Creating or recovering the task's PR (T041, FR-017/018, contracts/github.md).
  * A PR belongs to the task only when repo identity, head branch, head repo, base and the marker
  * (task, revision, operation key) all agree; a title or marker alone never claims a PR. Every state is
  * queried before a create, and again after any create whose answer was not a clean 201: a 422 or a

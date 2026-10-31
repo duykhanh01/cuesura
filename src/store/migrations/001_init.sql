@@ -1,12 +1,12 @@
--- Migration 001 (data-model.md "Lưu trữ SQLite"). Nguồn sự thật: events, accepted_triggers,
--- frozen_policies, frozen_contexts. Mọi bảng còn lại là projection dựng lại được từ events.
+-- Source of truth: events, accepted_triggers, frozen_policies, and frozen_contexts.
+-- All other tables are projections that can be rebuilt from events.
 
 CREATE TABLE schema_meta (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   version INTEGER NOT NULL
 ) STRICT;
 
--- Tín hiệu đã chấp nhận, kể cả Decision.rejected (FR-026, R-19).
+-- Includes accepted triggers whose decisions were rejected.
 CREATE TABLE accepted_triggers (
   dedup_key TEXT PRIMARY KEY,
   request_hash TEXT NOT NULL,
@@ -17,7 +17,7 @@ CREATE TABLE accepted_triggers (
   global_seq_to INTEGER
 ) STRICT;
 
--- Dòng accepted_triggers được ghi cuối transaction nên FK được kiểm lúc commit.
+-- accepted_triggers is written last, so check its foreign key at commit.
 CREATE TABLE events (
   global_seq INTEGER PRIMARY KEY AUTOINCREMENT,
   task_id TEXT NOT NULL,
@@ -27,7 +27,6 @@ CREATE TABLE events (
   schema_version INTEGER NOT NULL,
   actor TEXT NOT NULL,
   dedup_key TEXT REFERENCES accepted_triggers (dedup_key) DEFERRABLE INITIALLY DEFERRED,
-  -- Effect được claim khi sự kiện do Store.claimEffect tạo (EffectStarted).
   claim TEXT,
   payload_json TEXT NOT NULL,
   UNIQUE (task_id, seq)
@@ -78,7 +77,7 @@ CREATE TABLE effects (
   request_json TEXT NOT NULL,
   result_json TEXT,
   reservation_id TEXT,
-  -- global_seq của EffectRequested: thứ tự tất định cho pendingEffects.
+  -- EffectRequested.global_seq defines deterministic pendingEffects order.
   created_seq INTEGER NOT NULL,
   UNIQUE (idem_key)
 ) STRICT;

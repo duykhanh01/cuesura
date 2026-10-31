@@ -4,7 +4,7 @@ import {
   type RequiredIdentity,
 } from '../domain/runtime.ts';
 
-// Pure required-checks evaluator (FR-042.01–09, contracts/github.md "Required checks và danh tính").
+// Pure required-checks evaluator (FR-042.01–09, contracts/github.md).
 // The snapshot is the frozen `ci.required_checks` name list; GitHub's sets are compared to it and never
 // merged into it.
 

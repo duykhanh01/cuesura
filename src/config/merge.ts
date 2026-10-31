@@ -17,7 +17,7 @@ export function isPlainObject(v: unknown): v is PlainObject {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-/** Hợp nhất hai lớp: map theo khoá (đệ quy), mảng và giá trị vô hướng bị thay thế (contracts/config.md). */
+/** Merge maps recursively; replace arrays and scalar values. */
 export function deepMerge(lower: unknown, upper: unknown): unknown {
   if (!isPlainObject(lower) || !isPlainObject(upper)) return upper;
   const out: PlainObject = { ...lower };
@@ -44,11 +44,10 @@ function hasPath(value: unknown, path: KeyPath): boolean {
 export type Layer = { located: LocatedDoc; value: unknown };
 
 /**
- * Bản đồ nguồn (R-05): vị trí của một khoá trong cấu hình đã hợp nhất là vị trí ở lớp cao nhất khai báo
- * đúng khoá đó; không lớp nào khai báo thì lùi về khoá cha gần nhất.
+ * Locate each merged key in the highest-precedence layer declaring it; otherwise use the nearest
+ * parent key.
  */
 export class SourceMap {
-  /** Lớp theo thứ tự áp dụng; lớp sau thắng. */
   private readonly layers: readonly Layer[];
   constructor(layers: readonly Layer[]) {
     this.layers = layers;
@@ -69,10 +68,6 @@ export class SourceMap {
   }
 }
 
-/**
- * Bước 1–2 của "Thứ tự hợp nhất": pack theo thứ tự `extends` (pack sau thắng pack trước), rồi
- * `cusr.yaml` ghi đè pack.
- */
 export function mergeProject(
   packs: readonly Layer[],
   project: Layer,
@@ -87,8 +82,8 @@ export function mergeProject(
 }
 
 /**
- * Tách khoá không thuộc thẩm quyền của file ra thành `forbidden_key` (FR-001) để schema strict phía
- * sau không báo trùng là khoá lạ.
+ * Remove forbidden keys before strict schema validation to avoid duplicate unknown-key
+ * diagnostics.
  */
 export function splitForbidden(
   layer: Layer,
@@ -106,7 +101,7 @@ export function splitForbidden(
           'forbidden_key',
           locate(layer.located, [k]),
           [k],
-          `khoá '${k}' ${why}`,
+          `Key '${k}' ${why}`,
         ),
       );
     } else {
@@ -118,10 +113,6 @@ export function splitForbidden(
 
 // ---------- Profile ----------
 
-/**
- * Bước 3: profile có thể `extends` profile khác; hợp nhất cha trước con, không chu trình, độ sâu tối đa
- * `maxDepth`. Trả profile đã phẳng hoá theo tên.
- */
 export function resolveProfiles(
   profiles: Record<string, RawProfile>,
   at: (path: KeyPath) => Position,
@@ -142,7 +133,7 @@ export function resolveProfiles(
             'profile_cycle',
             at(path),
             path,
-            `profile '${name}' có chu trình extends: ${[...chain, parent].join(' → ')}`,
+            `Profile '${name}' has an extends cycle: ${[...chain, parent].join(' → ')}`,
           ),
         );
         failed = true;
@@ -155,7 +146,7 @@ export function resolveProfiles(
             'unknown_profile',
             at(path),
             path,
-            `profile '${parent}' không tồn tại`,
+            `Profile '${parent}' does not exist`,
           ),
         );
         failed = true;
@@ -168,7 +159,7 @@ export function resolveProfiles(
             'profile_cycle',
             at(path),
             path,
-            `extends của profile '${name}' sâu quá ${maxDepth} cấp`,
+            `Profile '${name}' exceeds the maximum extends depth of ${maxDepth}`,
           ),
         );
         failed = true;
@@ -183,7 +174,7 @@ export function resolveProfiles(
     const { extends: _e, ...flat } = merged as RawProfile;
     out[name] = flat;
   }
-  // Chu trình được báo một lần cho mỗi profile nằm trên nó; gom về một vị trí duy nhất.
+
   const seen = new Set<string>();
   return {
     profiles: out,
@@ -196,19 +187,14 @@ export function resolveProfiles(
   };
 }
 
-// ---------- Override khi tạo task ----------
-
-/** Override: đường dẫn chấm → giá trị, ví dụ `{ 'roles.reviewer.binding': [{ model: 'sol' }] }`. */
 export type TaskOverrides = Record<string, unknown>;
 
-/** Phần cấu hình mà override chạm tới; `roles.*` thuộc người dùng, `profile.*` thuộc profile, còn lại thuộc project. */
 export type OverrideTarget = {
   roles: PlainObject;
   profile: PlainObject;
   project: PlainObject;
 };
 
-/** Khoá đầu thuộc profile; khoá khác `roles` thuộc project. */
 export const PROFILE_OVERRIDE_KEYS = [
   'budgets',
   'escalation',
@@ -219,10 +205,9 @@ export const PROFILE_OVERRIDE_KEYS = [
 ];
 
 /**
- * Đường dẫn chạm quyền: chỉ người gọi có `admin` được đổi (FR-001 "MUST NOT nới quyền vượt quyền của
- * người gọi"). Xét trên đường dẫn lá của cấu hình sau override, không trên khoá override, nên override
- * một object cha (`roles.coder`) mà đổi `permissions` bên trong cũng bị bắt. Đường dẫn là mảng khoá thật,
- * không nối bằng dấu chấm, để tên role chứa dấu chấm (`team.coder`) không lọt khỏi luật.
+ * Only admins may change permission-sensitive leaves. Compare the effective configuration rather
+ * than override names, and use key arrays so role names containing periods cannot bypass the
+ * check.
  */
 export function isPrivilegedPath(path: readonly string[]): boolean {
   const [head] = path;
@@ -236,7 +221,10 @@ export function isPrivilegedPath(path: readonly string[]): boolean {
   return head === 'roles' && path.length === 3 && path[2] === 'permissions';
 }
 
-/** Lá của cây cấu hình: chỉ đi sâu vào map; mảng và giá trị vô hướng là lá. Khoá của map là JSON của đường dẫn. */
+/**
+ * Only maps are traversed; arrays and scalars are leaves. JSON-encoded key arrays preserve literal
+ * periods in names.
+ */
 function leaves(
   value: unknown,
   prefix: string[],
@@ -250,7 +238,6 @@ function leaves(
   return out;
 }
 
-/** Khung nhìn chung của phần chạm quyền: `roles.*` của người dùng và khoá của profile. */
 function privilegeView(t: OverrideTarget): Map<string, string> {
   const all = leaves({ ...t.profile, roles: t.roles }, [], new Map());
   return new Map(
@@ -258,7 +245,6 @@ function privilegeView(t: OverrideTarget): Map<string, string> {
   );
 }
 
-/** Đường dẫn chạm quyền có giá trị khác nhau (kể cả xuất hiện hay biến mất) giữa hai cấu hình. */
 function changedPrivileged(
   before: OverrideTarget,
   after: OverrideTarget,
@@ -271,7 +257,6 @@ function changedPrivileged(
     .map((p) => JSON.parse(p) as string[]);
 }
 
-/** Một bên là tiền tố của bên kia, so theo từng khoá. */
 function related(key: readonly string[], path: readonly string[]): boolean {
   const n = Math.min(key.length, path.length);
   for (let i = 0; i < n; i++) if (key[i] !== path[i]) return false;
@@ -297,7 +282,6 @@ export type OverrideError =
   | { code: 'override_not_allowed'; diagnostics: Diagnostic[] }
   | { code: 'override_exceeds_caller'; keys: string[] };
 
-/** Bước 4: override áp sau cùng, chỉ trên khoá profile cho phép, không vượt quyền người gọi. */
 export function applyOverrides(
   target: OverrideTarget,
   overrides: TaskOverrides,
@@ -315,7 +299,7 @@ export function applyOverrides(
           'override_not_allowed',
           at,
           k.split('.'),
-          `profile không cho override '${k}'`,
+          `The profile does not allow overriding '${k}'`,
         ),
       ),
     });
@@ -328,7 +312,7 @@ export function applyOverrides(
     const path = k.split('.');
     const head = path[0] as string;
     if (head === 'roles') {
-      // Khoá `roles` trần thay cả map role; giá trị sai kiểu bị schema báo khi kiểm tra lại.
+      // A bare roles override replaces the entire map; schema validation rejects invalid values afterward.
       roles =
         path.length === 1
           ? (overrides[k] as PlainObject)
@@ -344,7 +328,7 @@ export function applyOverrides(
       const exceeds = keys.filter((k) =>
         changed.some((p) => related(k.split('.'), p)),
       );
-      // Không quy được về khoá nào thì vẫn từ chối, báo mọi khoá override.
+      // If no specific override can be identified, reject and report all override keys.
       return err({
         code: 'override_exceeds_caller',
         keys: exceeds.length > 0 ? exceeds : keys,

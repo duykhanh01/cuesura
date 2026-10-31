@@ -2,9 +2,8 @@ import type { DetailCode, TaskState } from '../domain/state.ts';
 import { runConfigConfirmed } from '../engine/run-config.ts';
 
 /**
- * Lối ra của từng wait detail theo bảng FR-029. Bảng phủ hết `DetailCode` nên mã mới không thể thiếu dòng.
- * Chỉ in thao tác feature 002 có thật: không gia hạn, không amend-policy, không kiểm lại hay chấp nhận head
- * mới, không mở thêm lượt. Recheck chỉ hiện khi `recheckTarget` nói nó làm được việc gì đó ở trạng thái này.
+ * Expose only actions implemented by the daemon. Include recheck only when recheckTarget finds
+ * useful work.
  */
 export type AllowedAction = {
   readonly action:
@@ -18,7 +17,7 @@ export type AllowedAction = {
     | 'wait'
     | 'task_add'
     | 'fix_external';
-  /** Lệnh CLI tương ứng; `null` khi đây là việc làm ngoài CLI (GitHub, cấu hình, đợi). */
+
   readonly command: string | null;
   readonly note: string;
 };
@@ -80,9 +79,8 @@ const confirm = (c: Ctx): AllowedAction => ({
 });
 
 /**
- * Bộ lựa chọn chạy chưa được xác nhận (M01/M02): scheduler không xếp hàng task này nên chờ là vô ích. Xác nhận
- * phải kèm đúng digest đang hiện; chưa có đề xuất cho revision này thì chỉ đề xuất được. Task đã start thì
- * lựa chọn đã đóng băng, engine từ chối cả hai.
+ * An unconfirmed run is never queued. Confirmation must carry the displayed digest; after start,
+ * the frozen run selection cannot be proposed or confirmed again.
  */
 const runSelection: Row = (c) => {
   if (c.s.policy_ref !== null) return [cancel(c), newTask];
@@ -105,7 +103,6 @@ const runSelection: Row = (c) => {
   ];
 };
 
-/** Hết thang/lượt/ngân sách/hạn: không mở thêm; có PR thì merge tay, chưa có thì chỉ cancel. */
 const exhausted: Row = (c) => [
   merge(c),
   recheck(c, 'Reads the PR once; it adds no attempts or time.'),
@@ -253,7 +250,7 @@ const ROWS: Readonly<Record<DetailCode, Row>> = {
     recheck(c, 'Run it once GitHub shows the merge in full.'),
     cancel(c),
   ],
-  // Cancel không bỏ qua đối chiếu và không đổi merge đã xác nhận thành CANCELLED, nên không là lối ra.
+  // Cancellation neither bypasses reconciliation nor changes a confirmed merge to CANCELLED.
   merge_cleanup_pending: (c) => [
     wait('Stopping and reconciling continues within its limits, then DONE.'),
     recheck(
@@ -292,7 +289,7 @@ export function allowedActions(
   const detail = s.wait?.detail.code;
   if (detail !== undefined)
     return ROWS[detail](c).filter((a): a is AllowedAction => a !== null);
-  // Một merge đã có proof đang drain: đường duy nhất là chờ đối chiếu xong, không cancel.
+  // Once merge is proven, completion waits only for drain and reconciliation.
   if (s.completion !== null)
     return ROWS.merge_cleanup_pending(c).filter(
       (a): a is AllowedAction => a !== null,

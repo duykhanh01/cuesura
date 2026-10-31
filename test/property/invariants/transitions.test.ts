@@ -16,8 +16,8 @@ import {
   taskOverArb,
 } from '../arbitraries/policies.ts';
 
-describe('FR-009, I12 chuyển trạng thái', () => {
-  it('chỉ có cạnh hợp lệ; trạng thái kết thúc là hút; mọi trạng thái chờ có resume_when và exit_paths (SC-006)', () => {
+describe('FR-009, I12 state transitions', () => {
+  it('permits only valid transitions, preserves terminal states, and explains every wait (SC-006)', () => {
     fc.assert(
       fc.property(
         policyArb,
@@ -52,7 +52,7 @@ describe('FR-009, I12 chuyển trạng thái', () => {
             if (isTerminal(after.status))
               expect(after.terminal?.kind).toBe(after.status);
           });
-          // Sau khi kết thúc, mọi tín hiệu chỉ được ghi nhận (hoặc bị từ chối) mà không mở lại task.
+
           let ended = false;
           for (const t of trace) {
             if (ended && t.decision?.kind === 'accepted') {

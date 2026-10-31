@@ -20,7 +20,6 @@ import {
 } from './tasks.ts';
 import type { CliCommand } from './program.ts';
 
-/** Every subcommand of `cusr` (contracts/cli-daemon.md "Lệnh và quyền"). */
 export const CUSR_COMMANDS: readonly CliCommand[] = [
   statusCommand,
   doctorCommand,

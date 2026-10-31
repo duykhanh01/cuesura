@@ -1,5 +1,5 @@
-// Fixture cho test/unit/lint/boundaries.test.ts: mỗi dòng vi phạm một luật ranh giới của lõi thuần (R-12).
-// File bị ESLint của repo bỏ qua; test chạy lại đúng luật của src/engine/** trên nó.
+// Deliberately violate each pure-core boundary. The repository lint ignores this fixture; the test reapplies engine rules.
+
 import { readFileSync } from 'node:fs';
 
 export function impure(): number {

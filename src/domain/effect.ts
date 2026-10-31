@@ -26,7 +26,7 @@ export const EFFECT_STATUSES = [
 ] as const;
 export type EffectStatus = (typeof EFFECT_STATUSES)[number];
 
-/** Effect nghiệp vụ bị chặn bởi điều kiện claim; effect phục vụ thì không (research R-16). */
+/** Claim guards block business effects; service effects remain available for recovery. */
 export const BUSINESS_EFFECTS: readonly EffectKind[] = [
   'prepare',
   'start_agent',
@@ -62,7 +62,7 @@ export function holdsSlot(kind: EffectKind): boolean {
   return SLOT_EFFECTS.includes(kind);
 }
 
-/** Effect có thể đưa lại vào hàng đợi cùng `idem_key` khi đối chiếu báo chưa thực thi. */
+/** Requeue with the same idem_key only when reconciliation proves the effect did not execute. */
 export function isRequeueSafe(kind: EffectKind): boolean {
   return kind !== 'start_agent';
 }
@@ -83,8 +83,8 @@ export const EffectSchema = z
 export type Effect = z.infer<typeof EffectSchema>;
 
 /**
- * `<kind>:<project>:<task_id>:r<revision>:<logical_id>` (data-model.md "Effect"). `logical_id` theo
- * bảng "Effect" của contracts/signals-events.md: attempt ID, `head_sha`, `step` + visit…
+ * <kind>:<project>:<task_id>:r<revision>:<logical_id>. Logical IDs identify attempts, heads, or
+ * step visits.
  */
 export function idemKey(
   kind: EffectKind,

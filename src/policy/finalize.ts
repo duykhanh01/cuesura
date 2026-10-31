@@ -13,7 +13,6 @@ export function finalizePolicy(p: UnhashedPolicy): FrozenPolicy {
   return { ...p, policy_hash: policyHash(p) };
 }
 
-/** Kiểm lại `policy_hash` của một chính sách đã chốt. */
 export function verifyPolicyHash(p: FrozenPolicy): boolean {
   const { policy_hash, ...rest } = p;
   return policyHash(rest) === policy_hash;

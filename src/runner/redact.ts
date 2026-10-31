@@ -1,6 +1,6 @@
 /**
  * Redaction applied by the runner before anything reaches the run directory (contracts/execution.md
- * "Files và output", research R-11). Artifacts record {@link REDACTION_VERSION} so a later rule change
+ *, research R-11). Artifacts record {@link REDACTION_VERSION} so a later rule change
  * is visible on every stored file.
  */
 
