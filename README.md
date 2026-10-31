@@ -35,9 +35,9 @@ Use case đầu tiên là quy trình phát triển phần mềm: code → review
 
 ## Trạng thái
 
-[Hai chế độ và xác nhận cấu hình chạy](specs/002-task-to-green-pr/task-execution-modes.md) là quyết định thiết kế mới, chưa triển khai runtime/schema/CLI.
+Feature 002 (task tới PR xanh, người dùng tự merge) đã chạy thật trên repo sandbox với Claude và Codex, gồm restart daemon, gate đỏ và merge thủ công; xem [nghiệm thu cuối](specs/002-task-to-green-pr/acceptance-report.md#nghiệm-thu-cuối-feature-002-t131t134). Giới hạn: một task chạy tại một thời điểm, giao task qua CLI, chưa soak test, chưa nghiệm thu backup/restore, và mới kiểm trên repo sandbox nhỏ với model nhẹ.
 
-Đang ở giai đoạn thiết kế. [SPEC.md](SPEC.md) là đặc tả tổng quan của dự án: phạm vi v1, mô hình miền, workflow, hợp đồng vận hành và tiêu chí nghiệm thu. [docs/architecture.md](docs/architecture.md) lưu đánh giá Build vs Buy, lập luận kiến trúc và kế hoạch ban đầu.
+[SPEC.md](SPEC.md) là đặc tả tổng quan của dự án: phạm vi v1, mô hình miền, workflow, hợp đồng vận hành và tiêu chí nghiệm thu. [docs/architecture.md](docs/architecture.md) lưu đánh giá Build vs Buy, lập luận kiến trúc và kế hoạch ban đầu.
 
 Baseline: Node 24 LTS, TypeScript strict, SQLite (`better-sqlite3`), Zod 4, Commander, `yaml`, Vitest và fast-check. Build bằng `tsc`, quản lý package bằng pnpm, lint/format bằng ESLint + typescript-eslint + Prettier. Chạy trên Ubuntu/WSL2; xem [quyết định kỹ thuật](SPEC.md#17-baseline-kỹ-thuật).
 

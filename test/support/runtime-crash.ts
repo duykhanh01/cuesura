@@ -479,6 +479,8 @@ function reached(store: Store, taskId: string, target: FlowTarget): boolean {
  * The loop cusrd runs, one round at a time: grant the slot, release dependents, run a drain round for a
  * merged task, then dispatch. Stops before dispatching once `target` holds, or after three idle rounds.
  */
+export const HELD_WAIT_MS = 60_000;
+
 export async function driveFlow(
   store: Store,
   dispatcher: Dispatcher,
@@ -486,8 +488,19 @@ export async function driveFlow(
   taskId: string,
   target: FlowTarget,
   sw: KillSwitch,
+  /**
+   * While startup left new work held, repeats recovery as the running daemon does each second, until it
+   * resolves or {@link HELD_WAIT_MS} runs out; returns whether work is still held. A process of this user
+   * that the scan cannot read (ssh, sudo) holds it only for as long as it lives.
+   */
+  followHeld?: () => Promise<boolean>,
 ): Promise<'reached' | 'idle'> {
   let idle = 0;
+  const heldUntil = Date.now() + HELD_WAIT_MS;
+  while (followHeld !== undefined && (await followHeld())) {
+    if (Date.now() >= heldUntil) return 'idle';
+    await new Promise((r) => setTimeout(r, 200));
+  }
   for (let i = 0; i < 80; i++) {
     const s = store.readTask(taskId as Uuid);
     if (s?.wait?.detail['code'] === 'execution_slot')

@@ -26,6 +26,8 @@ crash trong `test/reliability`; thực nghiệm trả phí trong `test/smoke`. `
 và cổng trước smoke. Report implementation phải bổ sung test ID/fixture/PR/receipt thật cho từng dòng,
 không lấy nội dung bảng này làm bằng chứng đã đạt.
 
+**Kết quả nghiệm thu từng dòng:** [T131 trong acceptance report](../acceptance-report.md#t131--117-nghĩa-vụ). Bảng dưới là kế hoạch, không phải bằng chứng.
+
 | FR | Lát | Module/điểm nối | Tầng bằng chứng | Scenario | SC |
 | --- | --- | --- | --- | --- | --- |
 | FR-001.01 | A/B | application/triage, dependency | property + SQLite/CLI integration | US1.2, US1.4, US6.3 | SC-001, SC-007 |

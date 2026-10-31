@@ -1,0 +1,161 @@
+{
+  "task": "T133",
+  "commit": "1b4daf4ea49f473f5c5d7050c683e7f7ce20967a",
+  "seed": 20261031,
+  "kills_per_group": 40,
+  "host": {
+    "os": "Ubuntu 24.04.5 LTS",
+    "kernel": "7.0.0-38-generic",
+    "node": "v24.22.1 (bản chép ngoài home)",
+    "pnpm": "12.15.0",
+    "git": "2.56.0",
+    "systemd": "255",
+    "bwrap": "0.9.0"
+  },
+  "commands": {
+    "typecheck": {
+      "exit": 0,
+      "duration_s": 9
+    },
+    "lint": {
+      "exit": 0,
+      "duration_s": 36
+    },
+    "test": {
+      "exit": 0,
+      "duration_s": 193
+    },
+    "build": {
+      "exit": 0,
+      "duration_s": 6
+    },
+    "reliability": {
+      "exit": 0,
+      "duration_s": 1085
+    },
+    "smoke": {
+      "exit": 0,
+      "duration_s": 40
+    },
+    "invariants": {
+      "exit": 0,
+      "duration_s": 0
+    }
+  },
+  "results": {
+    "test": "1849 pass, 0 skip",
+    "reliability": "429 pass",
+    "smoke": "35 pass, 12 skip (kịch bản thật chạy riêng, xem rerun-20261031)"
+  },
+  "crash": {
+    "total_kills": 263,
+    "runs": 220,
+    "groups": {
+      "spawn_adoption": {
+        "runs": 40,
+        "kills": 44,
+        "phases": {
+          "before_effect": 12,
+          "after_external": 11,
+          "before_ingest": 11,
+          "after_ingest": 10
+        },
+        "points": 12
+      },
+      "output_ack": {
+        "runs": 40,
+        "kills": 51,
+        "phases": {
+          "before_effect": 8,
+          "after_external": 7,
+          "before_ingest": 18,
+          "after_ingest": 18
+        },
+        "points": 25
+      },
+      "commit_push": {
+        "runs": 40,
+        "kills": 44,
+        "phases": {
+          "before_effect": 11,
+          "after_external": 11,
+          "before_ingest": 10,
+          "after_ingest": 10
+        },
+        "points": 22
+      },
+      "pr_create": {
+        "runs": 40,
+        "kills": 53,
+        "phases": {
+          "before_effect": 11,
+          "after_external": 13,
+          "before_ingest": 10,
+          "after_ingest": 18
+        },
+        "points": 10
+      },
+      "merge_drain": {
+        "runs": 40,
+        "kills": 51,
+        "phases": {
+          "before_effect": 12,
+          "after_external": 11,
+          "before_ingest": 13,
+          "after_ingest": 13
+        },
+        "points": 17
+      },
+      "h05": {
+        "runs": 20,
+        "kills": 20,
+        "phases": {
+          "before_effect": 6,
+          "after_external": 6,
+          "before_ingest": 4,
+          "after_ingest": 4
+        },
+        "points": 9
+      }
+    },
+    "counts_by_group": {
+      "spawn_adoption": {
+        "spawns": 40,
+        "launched": 40,
+        "operations": 49,
+        "not_launched": 9,
+        "records": 800
+      },
+      "output_ack": {
+        "records": 1600,
+        "batches": 400,
+        "cursor": 1600,
+        "segments": 40
+      },
+      "commit_push": {
+        "commits": 40,
+        "pushes": 40,
+        "prs": 0,
+        "operations": 201
+      },
+      "pr_create": {
+        "prs": 40,
+        "posts": 40,
+        "pushes": 40,
+        "operations": 259
+      },
+      "merge_drain": {
+        "done": 40,
+        "prs": 40,
+        "pushes": 40,
+        "drain_rounds": 6,
+        "operations": 283
+      },
+      "h05": {
+        "reviewers": 9,
+        "pushes": 7,
+        "blockers": 9
+      }
+    }
+  }
+}

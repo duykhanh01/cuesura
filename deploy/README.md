@@ -157,9 +157,15 @@ help/version của binary; manifest có rồi vẫn fail nếu hash sai, thiếu
 Settings, environment và host policy cần pin của vendor nên do preflight và từng attempt kiểm. Unit mẫu đã
 qua `systemd-analyze --user verify` (chỉ báo thiếu binary ở `ExecStart` khi chưa cài).
 
+**Lưu giữ:** thư mục run chỉ bị xoá khi task đã kết thúc, `exit.json` hoàn chỉnh, mọi artifact đã được store ghi nhận và đã qua 30 ngày;
+phần xoá để lại tombstone chứa digest. Worktree không bị xoá chỉ vì cũ: diff hoặc commit chưa có trên remote thì giữ lại.
+
+**Recovery:** khi quét process sau restart, một process cùng user không đọc được `environ` (`ssh`, `sudo`) và bắt đầu từ lúc operation chạy
+sẽ giữ claim và chặn việc mới cho tới khi process đó kết thúc; daemon tự thử lại mỗi giây.
+
 **Hạn chế hiện tại:** `cusrd` chạy task thật tới PR khi harness có bản ghi hợp lệ (mục [Harness thật](#harness-thật-pin-và-manifest)
 bên dưới); thiếu bản ghi thì task dừng ở PENDING `capability_missing`. Còn hở: task có attachment `content_ref`
-fail ở freeze vì chưa có nguồn nội dung (`cusr add` luôn tạo task không attachment).
+fail ở freeze vì chưa có nguồn nội dung (`cusr add` luôn tạo task không attachment); `lint` là gate tùy chọn của `software_dev` nên đỏ vẫn publish.
 
 ## Token và quyền
 

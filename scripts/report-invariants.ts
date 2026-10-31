@@ -5,7 +5,12 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { INVARIANTS } from '../test/invariants.map.ts';
+import {
+  INVARIANTS,
+  RELIABILITY,
+  SCENARIOS,
+  type InvariantEntry,
+} from '../test/invariants.map.ts';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const GROUPS = {
@@ -79,36 +84,64 @@ const LABEL: Record<SuiteStatus, string> = {
   missing: 'missing',
 };
 
-const rows: string[][] = [];
-for (const [id, inv] of Object.entries(INVARIANTS)) {
-  if (inv.scope === 'out_of_scope') {
-    rows.push([id, inv.title, 'out of scope', inv.layer, 'out of scope', '—']);
-    continue;
+function rowsOf(entries: Record<string, InvariantEntry>): string[][] {
+  const rows: string[][] = [];
+  for (const [id, inv] of Object.entries(entries)) {
+    if (inv.scope === 'out_of_scope') {
+      rows.push([
+        id,
+        inv.title,
+        'out of scope',
+        inv.layer,
+        'out of scope',
+        '—',
+      ]);
+      continue;
+    }
+    const records = inv.records ?? [];
+    if (inv.suites.length === 0 && records.length === 0)
+      problems.push(`${id}: in scope but has no test suites or records`);
+    const parts = inv.suites.map((s) => {
+      const r = suites.get(s);
+      const status: SuiteStatus = r?.status ?? 'missing';
+      if (status === 'missing')
+        problems.push(`${id}: ${s} is missing from the test results`);
+      return { s, status, r };
+    });
+    const recorded = records.map((f) => {
+      const present = existsSync(resolve(ROOT, f));
+      if (!present) problems.push(`${id}: record ${f} is missing`);
+      return { f, present };
+    });
+    const ok =
+      parts.length + recorded.length > 0 &&
+      parts.every((p) => p.status === 'passed') &&
+      recorded.every((r) => r.present);
+    rows.push([
+      id,
+      inv.title,
+      inv.scope === 'full' ? 'full' : 'partial',
+      inv.layer,
+      ok ? 'verified' : 'NOT VERIFIED',
+      [
+        ...parts.map(
+          (p) =>
+            `${p.s} (${p.r?.group ?? '?'}, ${p.r?.tests ?? 0} tests, ${LABEL[p.status]})`,
+        ),
+        ...recorded.map(
+          (r) => `${r.f} (real run, ${r.present ? 'recorded' : 'missing'})`,
+        ),
+      ].join('<br>'),
+    ]);
   }
-  if (inv.suites.length === 0)
-    problems.push(`${id}: in scope but has no test suites`);
-  const parts = inv.suites.map((s) => {
-    const r = suites.get(s);
-    const status: SuiteStatus = r?.status ?? 'missing';
-    if (status === 'missing')
-      problems.push(`${id}: ${s} is missing from the test results`);
-    return { s, status, r };
-  });
-  const ok = parts.length > 0 && parts.every((p) => p.status === 'passed');
-  rows.push([
-    id,
-    inv.title,
-    inv.scope === 'full' ? 'full' : 'partial',
-    inv.layer,
-    ok ? 'verified' : 'NOT VERIFIED',
-    parts
-      .map(
-        (p) =>
-          `${p.s} (${p.r?.group ?? '?'}, ${p.r?.tests ?? 0} tests, ${LABEL[p.status]})`,
-      )
-      .join('<br>'),
-  ]);
+  return rows;
 }
+
+const table = (name: string, entries: Record<string, InvariantEntry>) => [
+  `| ${name} | Name | Scope | Evidence layer | Status | Evidence |`,
+  '|---|---|---|---|---|---|',
+  ...rowsOf(entries).map((r) => `| ${r.join(' | ')} |`),
+];
 
 const when = (g: Group): string => {
   const r = reports[g];
@@ -116,13 +149,19 @@ const when = (g: Group): string => {
 };
 
 const out: string[] = [
-  '# Invariant report (SC-008)',
+  '# Invariant report (SC-009)',
   '',
   `Results for \`${GROUPS.default}\`: ${when('default')}; \`${GROUPS.reliability}\`: ${when('reliability')}.`,
   '',
-  '| Invariant | Name | Scope | Evidence layer | Status | Test suites |',
-  '|---|---|---|---|---|---|',
-  ...rows.map((r) => `| ${r.join(' | ')} |`),
+  ...table('Invariant', INVARIANTS),
+  '',
+  '## Journeys',
+  '',
+  ...table('Journey', SCENARIOS),
+  '',
+  '## Reliability',
+  '',
+  ...table('Gate', RELIABILITY),
 ];
 if (problems.length > 0)
   out.push(

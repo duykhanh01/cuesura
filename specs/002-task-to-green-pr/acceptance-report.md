@@ -941,6 +941,9 @@ trước khi daemon của lượt này khởi động. Kiểu squash đi qua dae
 rebase, source push và source delete sau merge chỉ được đối chiếu qua record thật T008 phát lại trong `manual-merge.test.ts`, không chạy
 lại trên sandbox lần này. Recheck hết hạn và cleanup không có case thật nên chưa kiểm.
 
+Sau báo cáo T131, owner merge thêm Node#1 và Python#1, hai task `full-review`, cũng qua admin: drain rồi DONE một lần, head và merge commit
+khớp GitHub. Bằng chứng ở cùng ledger. Hai lần merge này khép SC-001, vì Node#6 và Python#5 là `direct-pr`.
+
 ### Điều kiện trước T126–T130
 
 - Hai repo sandbox Node/Python đã có, nội dung từ `repo/` của fixture, required checks `build`/`test`, review bắt buộc. Repo
@@ -950,3 +953,209 @@ lại trên sandbox lần này. Recheck hết hạn và cleanup không có case 
 - Outer proof T006 thuộc host WSL2 (`/home/khanhnd1`), không mô tả host Linux hiện tại, nên phải chạy lại probe trên host này
   thay vì dùng lại hash trong fixture T007.
 - Bindings là toàn cục trong một config, nên mỗi chiều vendor cần config và data dir riêng (`CUSR_SMOKE_REAL` đã tách).
+
+# Nghiệm thu cuối feature 002 (T131–T134)
+
+Chạy ngày 2026-10-31 trên commit `1b4daf4`, host Ubuntu 24.04.5, kernel 7.0.0-38, Node 24.22.1, pnpm 12.15.0, Git 2.56.0, systemd
+255, bubblewrap 0.9.0. Node được chép ra ngoài home theo [quickstart](quickstart.md), nên các suite `bwrap` không tự skip.
+
+## T133 — cổng chất lượng
+
+| Lệnh | Exit | Thời gian | Kết quả |
+| --- | --- | --- | --- |
+| `pnpm typecheck` | 0 | 9 giây | Sạch |
+| `pnpm lint` | 0 | 36 giây | Sạch |
+| `pnpm test` | 0 | 193 giây | 1849 pass, 0 skip |
+| `pnpm build` | 0 | 6 giây | Sạch |
+| `pnpm test:reliability --seed 20261031` | 0 | 1085 giây | 429 pass |
+| `pnpm test:smoke` | 0 | 40 giây | 35 pass, 12 skip; 12 ca skip là kịch bản thật, đã chạy riêng ở T126–T130 |
+| `pnpm report:invariants` | 0 | dưới 1 giây | Không có mục `NOT VERIFIED` |
+
+Máy đọc được: [t133-gate.json](evidence/t133-gate.json), [t133-invariants.md](evidence/t133-invariants.md).
+
+**Phân bố crash (seed 20261031):** 263 lần kill qua 220 lượt, vượt ngưỡng 200 của SC-004. Sau mỗi lần kill, projection dựng lại từ
+event log được so với mọi bảng lưu và test chỉ pass khi không có chênh lệch.
+
+| Nhóm | Lượt | Kill | Trước effect | Sau effect ngoài | Trước ingest | Sau ingest | Điểm khác nhau |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| spawn/adoption | 40 | 44 | 12 | 11 | 11 | 10 | 12 |
+| output/ACK | 40 | 51 | 8 | 7 | 18 | 18 | 25 |
+| commit/push | 40 | 44 | 11 | 11 | 10 | 10 | 22 |
+| create/recover PR | 40 | 53 | 11 | 13 | 10 | 18 | 10 |
+| merge/drain | 40 | 51 | 12 | 11 | 13 | 13 | 17 |
+| H05 | 20 | 20 | 6 | 6 | 4 | 4 | 9 |
+
+**Request so với hiệu ứng:** qua 40 lượt mỗi nhóm, mỗi lượt có đúng một hiệu ứng dù có kill: commit/push 40 commit và 40 push;
+create PR 40 PR từ 40 POST; merge/drain 40 lần DONE. Spawn/adoption có 40 lần spawn trên 49 operation, 9 operation được chứng minh
+`not_launched` và không chạy lại.
+
+**Lỗi tìm thấy khi chạy cổng này.** Lượt đầu có 2/429 ca `commit_push` fail: effect giữ `started` sau restart. Tái hiện bằng cách sinh
+process non-dumpable liên tục (23/41 ca fail, cùng dấu hiệu). Nguyên nhân: quét `/proc` gặp process cùng user không đọc được `environ` và
+mới bắt đầu thì giữ claim, đúng thiết kế; daemon thật lặp lại recovery mỗi giây, còn driver test chỉ làm một lần rồi bỏ cuộc. Đã sửa
+driver, không nới assertion; cùng điều kiện gây nhiễu nhưng có khoảng nghỉ cho 41/41 pass. Không xác định được process cụ thể nào gây ra
+lần fail gốc. Trên máy có `ssh`/`sudo` chạy thường xuyên, recovery có thể giữ việc mới cho tới khi process đó kết thúc.
+
+## T132 — I01–I12, S01–S10, R1–R9
+
+Toàn bộ bảng ở [t133-invariants.md](evidence/t133-invariants.md). `verified` nghĩa là bằng chứng đã nêu đạt, trong phạm vi của dòng đó;
+`partial` không phải đạt toàn bộ yêu cầu của SPEC.
+
+| Nhóm | Toàn bộ | Một phần | Ngoài phạm vi |
+| --- | --- | --- | --- |
+| I01–I12 | I01, I10, I12 | I02–I09, I11 | |
+| S01–S10 | S03, S05 | S01, S02, S04, S06–S10 | |
+| R1–R9 | R1, R4, R8 | R2, R3, R5, R6, R9 | R7 |
+
+- I11 chỉ chứng minh Cuesura không gửi merge, không phải merge ngoài hệ thống an toàn.
+- R7: chưa chạy soak 8–12 giờ.
+- R9: chỉ kiểm doctor và migration store; backup, restore và đường lui chưa nghiệm thu.
+
+## T131 — 12 SC
+
+| SC | Kết quả | Tầng | Bằng chứng và giới hạn |
+| --- | --- | --- | --- |
+| SC-001 | Đạt | Vendor và GitHub thật | Hai chiều vendor qua code, gate, review tới PR xanh rồi DONE sau merge thủ công: Node#1 (merge commit `08135cdb79`), Python#1 (`295b70f271`), head đã kiểm khớp head đã merge, `unverified: null`. Hai task này chạy trước PR #28 nên agent chưa nhận prompt role. Merge qua admin nên review bắt buộc của GitHub bị bỏ qua; reviewer là role của Cuesura. |
+| SC-002 | Đạt | Vendor và GitHub thật | Node và Python, mỗi hệ một mẫu xanh và một mẫu đỏ: Node#4, Node#6, Python#2, Python#5. |
+| SC-003 | Đạt | Vendor và GitHub giả | `feature-002-fixes`, `cancel-drain`. Lỗi thật chỉ gặp gate đỏ; rate limit, auth, refusal thật chưa kiểm. |
+| SC-004 | Đạt | SQLite/Git/process thật | 263 kill, seed 20261031, phân bố ở T133. |
+| SC-005 | Đạt | Vendor và GitHub thật | Mỗi vendor SIGKILL và SIGTERM lúc agent chạy: Node#2, Node#3, Python#3, Python#4. Daemon chạy foreground; `systemctl stop` trên service thật chưa chạy, unit riêng kiểm ở `supervisor-systemd.test.ts`. |
+| SC-006 | Đạt | SQLite/Git/process thật | `cancel-drain`, `supervisor-systemd`, `feature-002-recovery`. |
+| SC-007 | Đạt | SQLite thật, CLI thật | `feature-002-cli`, `questions`; từng lối ra qua explain. |
+| SC-008 | Đạt | Vendor thật | Hai vendor, ba role: evidence T126 và `rerun-20261031`. Model nhẹ, effort low. Mẫu sai và secret canary kiểm ở `harness`, `harness-invocation`. |
+| SC-009 | Đạt | Báo cáo | Mục T132 và bảng dưới. |
+| SC-010 | Đạt | GitHub giả | `feature-002-fixes`, `observation-limits`, `github-observation`. Trên GitHub thật chỉ quan sát được PR xanh và đã merge. |
+| SC-011 | Đạt | SQLite thật | `scheduler`, `atomic-claims`, `runtime-slot`. |
+| SC-012 | Đạt | GitHub thật một phần | Hai merge thật ở T130; head khác head đã kiểm và sai branch đích chỉ kiểm với GitHub giả. |
+
+## T131 — 117 nghĩa vụ
+
+Bảng sinh từ `reports/vitest-*.json` của lượt T133: `đạt` chỉ khi mọi assertion đã nêu `passed`. Kết quả: **113 đạt, 4 một phần, 0 chưa
+đạt, 0 chưa kiểm.** Theo tầng cao nhất: 19 vendor và GitHub thật, 82 SQLite/Git/process thật với vendor và GitHub giả, 16 mô hình/fixture.
+
+Cách đọc:
+
+- `Đạt` nghĩa là có assertion đã pass ở tầng ghi cùng dòng, **không** nghĩa là đã kiểm trên vendor thật. Fake không thay smoke thật.
+- 45 dòng không có test nào gắn mã FR được người đối chiếu thủ công theo nghĩa của test; 72 dòng còn lại lấy theo mã FR trong tên test
+  hoặc trong file, ghi `(mức file)` khi không có assertion gắn riêng. Bảng không chứng minh mọi nhánh của từng nghĩa vụ.
+- `Tầng cao nhất` là `vendor và GitHub thật` khi task kiểm của dòng có T126–T130.
+- Trường `run.mode` trong ledger T129-red và T130 ghi `full-review` do lấy từ config chiều vendor; các task đó thật sự chạy `direct-pr`.
+
+| FR | Kết quả | Tầng cao nhất | Task kiểm | Assertion |
+| --- | --- | --- | --- | --- |
+| FR-001.01 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T028, T106, T107 | `confirm-start.test.ts`: triage blockers come first; `feature-002-cli.test.ts`: the same request replays its first result |
+| FR-001.02 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T027, T028, T084, T106 | `feature-002-cli.test.ts`: dependency recovery and queue (T119, FR-001.02/03, FR-044.06/07) a notification lost when the d; `feature-002-cli.test.ts`: dependency recovery and queue (T119, FR-001.02/03, FR-044.06/07) runs no scheduler pass while n |
+| FR-001.03 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T027, T028, T084, T094 | `scheduler.test.ts`: releases the dependent after DONE; `feature-002-cli.test.ts`: a merged, unverified prerequisite stays visible |
+| FR-002.01 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T028, T016 | `confirm-start.test.ts`: start freezes one snapshot under the slot before RUNNING (T032, FR-002.01) re-runs preflight an; `confirm-start.test.ts`: start freezes one snapshot under the slot before RUNNING (T032, FR-002.01) does not start witho |
+| FR-002.02 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T028, T106 | `confirm-start.test.ts`: task confirm runs triage, then one preflight candidate (T031, FR-002.02/03) confirms, checks co; `confirm-start.test.ts`: task confirm runs triage, then one preflight candidate (T031, FR-002.02/03) a failed check keep |
+| FR-002.03 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T028, T106 | `feature-002-cli.test.ts`: task recheck end to end |
+| FR-002.04 | đạt | mô hình/fixture | T028, T066 | `preflight.test.ts`: maps failures before RUNNING to PENDING/needs_info and after RUNNING to WAITING/policy |
+| FR-002.05 | đạt | mô hình/fixture | T028, T066, T077 | `preflight.test.ts`: preflight (T030, FR-002) what daemon 002 runs (FR-002.05: never drops a role or rebinds) never ; `preflight.test.ts`: preflight (T030, FR-002) what daemon 002 runs (FR-002.05: never drops a role or rebinds) direct |
+| FR-003 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T029, T082 | `git-worktree.test.ts`: task worktree (T036, FR-003) names the branch cusr/<task_id>-<slug> with an ASCII slug; `git-worktree.test.ts`: task worktree (T036, FR-003) creates the branch and worktree from the frozen base after writing |
+| FR-004 | đạt | vendor và GitHub thật | T029, T053, T082, T124, T129 (lượt thật) | `gates.test.ts`: setup/gate/autofix commands (T038, FR-004) a gate that rewrites the tree makes the whole set ru; `gates.test.ts`: setup/gate/autofix commands (T038, FR-004) a tree that keeps moving is reported unstable after  |
+| FR-005 | đạt | mô hình/fixture | T029, T066, T067 | `context.test.ts`: role context (T037, FR-005) puts the frozen role prompt ahead of the task and never cuts it; `context.test.ts`: role context (T037, FR-005) tells workers, whatever the prompt says, that Cuesura commits; a re |
+| FR-006 | đạt | mô hình/fixture | T016, T084, T094 | `checks.test.ts`: FR-006 and gates forbidden decision points return decision_mode_forbidden; `checks.test.ts`: FR-006 and gates required gates must be declared by the project |
+| FR-007 | đạt | vendor và GitHub thật | T006, T067, T081, T123, T128 (lượt thật) | `runner-lifecycle.test.ts` (mức file); `runner-adoption.test.ts` (mức file) |
+| FR-008 | đạt | mô hình/fixture | T067, T083, T094 | `us2-decide.test.ts`: Phase 4 review regressions invalid dependencies reject a new revision without writes (FR-008, F |
+| FR-009 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T067, T081, T096 | `cancel-drain.test.ts`: project setup running when the cancel arrives (US5.3, FR-025.02, FR-009) the running command ge; `cancel-drain.test.ts`: a gate running when the cancel arrives (US5.3, FR-025.02, FR-009) the running gate gets TERM, n |
+| FR-010 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T016, T053, T095, T096 | `cancel-drain.test.ts`: escalation approval over the control socket (T103, FR-010/FR-028) only the owner approves the o; `feature-002-fixes.test.ts`: CI classification and limits (US2.4/US2.5, FR-010/015/020) US2.4: an infra/flaky CI failure is  |
+| FR-011 | đạt | vendor và GitHub thật | T007, T066, T077, T122, T126, T127 (lượt thật) | `us2-decide.test.ts`: Phase 4 review regressions not_executed reconciliation during drift reaches a safe boundary (FR; `revision.test.ts`: I08 decision-level revision immutability source drift reaches a safe boundary once no business  |
+| FR-012 | đạt | vendor và GitHub thật | T007, T066, T077, T122, T126 (lượt thật) | `harness.test.ts`: a schema-invalid final is invalid_output; `harness.test.ts`: a semantically wrong final is invalid_output |
+| FR-013 | đạt | vendor và GitHub thật | T006, T065, T077, T126 (lượt thật) | `sandbox-permissions.test.ts` (mức file) |
+| FR-014 | đạt | vendor và GitHub thật | T050, T053, T077, T127 (lượt thật) | `evidence.test.ts`: I06, FR-014 validated execution evidence requires schema_checked, the current attempt, and pass; `runtime-evidence.test.ts`: review evidence (T050, FR-014, M03) one reviewer run per distinct input; verdicts bound to thei |
+| FR-015 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T053, T066, T096, T105 | `us2-decide.test.ts`: Phase 4 review regressions base evidence for another branch cannot permit merging into the targ; `cancel-drain.test.ts`: quota, auth and refusal wait with a reason (US5.5, FR-015) a rate limit counts the call, frees  |
+| FR-016 | đạt | vendor và GitHub thật | T066, T067, T077, T126 (lượt thật) | `spool-recovery.test.ts`: retention and ACK (FR-016, FR-031) never removes a run whose records the store has not acknowle |
+| FR-017 | đạt | vendor và GitHub thật | T029, T082, T094, T127 (lượt thật) | `git-commit.test.ts`: orchestrator commit (T039, FR-017/018) commits exactly the checkpoint tree on the task branch b; `git-commit.test.ts`: orchestrator commit (T039, FR-017/018) after a timeout, recovery finds the same OID whether or  |
+| FR-018 | đạt | mô hình/fixture | T029, T051, T082, T094 | `publish.test.ts`: after a lost answer the remote ref decides; `publish.test.ts`: recovers its own PR without sending again |
+| FR-019 | đạt | vendor và GitHub thật | T050, T051, T052, T127 (lượt thật) | `github-checks.test.ts`: green predicate of the checked head (T043, FR-019/041.06/042.08) is green only when every snaps; `github-checks.test.ts`: green predicate of the checked head (T043, FR-019/041.06/042.08) skipped is not a pass |
+| FR-020 | đạt | mô hình/fixture | T053, T064, T082 | `github-observation.test.ts`: CI rerun (T057, FR-020) maps each failing check to its workflow run of this head and posts reru; `github-observation.test.ts`: CI rerun (T057, FR-020) a lost POST answer is unknown: never sent again, and nothing after it i |
+| FR-021 | đạt | vendor và GitHub thật | T028, T106, T127, T130 (lượt thật) | `external-completion.test.ts`: external confirmation (T045, FR-021, FR-040) a green PR waits for the merge on GitHub: no appro; `external-completion.test.ts`: external confirmation (T045, FR-021, FR-040) a merge proof is recorded once, waits for cleanup  |
+| FR-022 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T016, T084, T094 | `feature-002-recovery.test.ts`: startup order (T085, FR-022, FR-036) writes its report with every step in order before anything; `feature-002-recovery.test.ts`: startup order (T085, FR-022, FR-036) a database newer than the code never starts and is left un |
+| FR-023 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T083, T084, T094 | `us2-decide.test.ts`: US2 - Canonical task creation and deterministic decisions deadline expiry during a human wait p; `us2-decide.test.ts`: Phase 4 review regressions prevents attempts past deadline_at before the deadline timer fires ( |
+| FR-024 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T095, T105, T106 | `questions.test.ts`: needs_input ends the attempt and waits for a person (US5.1, FR-024) records the question, finis; `questions.test.ts`: answer and inbox over the control socket (US5.1/US5.2, FR-024/FR-037) the inbox lists the quest |
+| FR-025.01 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T096, T105 | `cancel-drain.test.ts`: cancel before and during an attempt (US5.3, FR-025.01/02) an attempt not yet dispatched is inva; `cancel-drain.test.ts`: cancel before and during an attempt (US5.3, FR-025.01/02) a runner adopted after a restart is s |
+| FR-025.02 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T067, T096, T105 | `cancel-drain.test.ts`: cancel stops setup and gate processes (US5.3, FR-025.02) a running prepare: its tagged process ; `cancel-drain.test.ts`: project setup running when the cancel arrives (US5.3, FR-025.02, FR-009) the running command ge |
+| FR-025.03 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T096, T105 | `cancel-drain.test.ts`: cancel while a publish is unknown (US5.4, FR-025.03/05) the reconcile finds the PR that was cre; `cancel-drain.test.ts`: the cancel service reads the PR before it ends (US5.4/US5.6, FR-025.03/04/05, FR-040.15) an ope |
+| FR-025.04 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T096, T105 | `cancel-drain.test.ts`: merged before the cancel ends: DONE with the merge commit |
+| FR-025.05 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T082, T096, T105 | `cancel-drain.test.ts`: an open PR: CANCELLED after one read; PR, branch and commit are kept |
+| FR-026 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T027, T053, T084 | `feature-002-fixes.test.ts`: source drift at the runtime boundary (T063, FR-026) the drift is recorded at once, the running ; `accept.test.ts`: Store.accept (T078) replaying a key returns the original result without writes (FR-026) |
+| FR-027.01 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T106, T107, T120 | `feature-002-cli.test.ts`: commands, envelope and exit codes (US6.1/2, FR-027.01/028) walks add → list → show → explain → ; `feature-002-cli.test.ts`: commands, envelope and exit codes (US6.1/2, FR-027.01/028) pages a list by cursor, at most 100  |
+| FR-027.02 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T106, T120 | `feature-002-cli.test.ts`: doctor (T112, FR-027.02/033) reports each area on a healthy host, without a model, sudo or prov; `feature-002-cli.test.ts`: doctor (T112, FR-027.02/033) a harness whose sandbox lacks what its binary needs fails, naming  |
+| FR-027.03 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T028, T084, T106 | `feature-002-cli.test.ts`: explain from committed data (US6.1/7, FR-027.03–05, FR-029) separates the first slot wait from ; `feature-002-cli.test.ts`: explain from committed data (US6.1/7, FR-027.03–05, FR-029) a merged, unverified prerequisite s |
+| FR-027.04 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T028, T106 | `feature-002-cli.test.ts`: a merged, unverified prerequisite stays visible |
+| FR-027.05 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T084, T106 | `feature-002-cli.test.ts`: explain from committed data (US6.1/7, FR-027.03–05, FR-029) a confirmed merge still draining sh |
+| FR-028 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T028, T106, T107, T120 | `sandbox-permissions.test.ts`: control tokens stay out of a worker sandbox (T107, FR-028/032) coder has no token variable and ; `sandbox-permissions.test.ts`: control tokens stay out of a worker sandbox (T107, FR-028/032) fixer has no token variable and  |
+| FR-029 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T106, T120 | `feature-002-cli.test.ts`: explain from committed data (US6.1/7, FR-027.03–05, FR-029) separates the first slot wait from ; `feature-002-cli.test.ts`: explain from committed data (US6.1/7, FR-027.03–05, FR-029) a merged, unverified prerequisite s |
+| FR-030 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T067, T081, T083, T094 | `spool-recovery.test.ts`: spool limits (FR-030) rotates at 8 MiB and caps the spool at 64 MiB by default; `timers.test.ts`: Store timers (T081) ci_poll ID exhaustion permits retry without recording deduplication (FR-030 |
+| FR-031 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T083, T094, T106 | `runner-storage.test.ts`: spool cap (FR-031) stops the tree with artifact_backpressure at the cap, keeps every stored rec; `spool-recovery.test.ts`: ingest after a daemon outage (FR-031, FR-036) ingests what the runner wrote while no daemon ran |
+| FR-032 | đạt | mô hình/fixture | T006, T065, T107, T120 | `sandbox-permissions.test.ts`: an agent cannot push; `sandbox-permissions.test.ts`: setup/gate/autofix are refused a harness home |
+| FR-033 | đạt | vendor và GitHub thật | T006, T007, T065, T077, T126 (lượt thật) | `spool-recovery.test.ts`: store cannot write (FR-023, FR-033) SQLITE_FULL: nothing is committed, nothing acknowledged, an; `spool-recovery.test.ts`: store cannot write (FR-023, FR-033) SQLITE_IOERR_WRITE: nothing is committed, nothing acknowled |
+| FR-034.01 | đạt | vendor và GitHub thật | T081, T082, T094, T123, T128 (lượt thật) | `feature-002-recovery.test.ts`: open operations are reconciled before work is granted (T086, FR-034.01, FR-035) no marker, no u; `feature-002-recovery.test.ts`: open operations are reconciled before work is granted (T086, FR-034.01, FR-035) a live harness  |
+| FR-034.02 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T084, T094 | `feature-002-recovery.test.ts`: merge recorded before the drain finished (FR-034.02/03) after a restart the drain keeps its cla; `publish-recovery.test.ts`: merge recorded while the daemon died with work in flight (T091, FR-034.02/03, FR-040.02–09) aft |
+| FR-034.03 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T084, T094 | `feature-002-recovery.test.ts`: late results through reconcile after a restart (T091, FR-034.03, FR-040.05, H05) a push found l; `feature-002-recovery.test.ts`: late results through reconcile after a restart (T091, FR-034.03, FR-040.05, H05) a reconcile th |
+| FR-035 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T081, T084, T095 | `feature-002-recovery.test.ts`: open operations are reconciled before work is granted (T086, FR-034.01, FR-035) no marker, no u; `feature-002-recovery.test.ts`: open operations are reconciled before work is granted (T086, FR-034.01, FR-035) a live harness  |
+| FR-036 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T084, T094 | `atomic-claims.test.ts`: ingest cursor (FR-036) advances the cursor once per range and ignores a replayed range; `feature-002-recovery.test.ts`: startup order (T085, FR-022, FR-036) writes its report with every step in order before anything |
+| FR-037 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T095, T105, T106 | `questions.test.ts`: the first valid answer wins (US5.2, FR-037) a competing answer is rejected and asks for no atte; `questions.test.ts`: answer and inbox over the control socket (US5.1/US5.2, FR-024/FR-037) the inbox lists the quest |
+| FR-038 | đạt | vendor và GitHub thật | T007, T066, T095, T126 (lượt thật) | `us2-decide.test.ts`: US2 - Canonical task creation and deterministic decisions freeze failure leaves PENDING/needs_i; `feature-002-recovery.test.ts`: open operations are reconciled before work is granted (T086, FR-034.01, FR-035) a resumed run p |
+| FR-039 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T095, T105, T106 | `questions.test.ts`: needs_context and blocked wait for a person with what is missing (US5.7, FR-039) needs_context:; `questions.test.ts`: needs_context and blocked wait for a person with what is missing (US5.7, FR-039) blocked: no au |
+| FR-040.01 | đạt | vendor và GitHub thật | T027, T028, T125, T130 (lượt thật) | `external-completion.test.ts` (mức file) |
+| FR-040.02 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T027, T028, T084, T094 | `publish-recovery.test.ts`: merge recorded while the daemon died with work in flight (T091, FR-034.02/03, FR-040.02–09) aft; `publish-recovery.test.ts`: merge found by the reconcile of a lost CI read (T093, FR-040.02) the reconcile records the merg |
+| FR-040.03 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T027, T028, T084, T094 | `drain.test.ts`: a late result is recorded, not acted on |
+| FR-040.04 | đạt | vendor và GitHub thật | T027, T028, T084, T094, T125, T130 (lượt thật) | `drain.test.ts`: drain after a merge proof (T046, FR-040.04–09) with nothing in flight the task is DONE at once,; `drain.test.ts`: drain after a merge proof (T046, FR-040.04–09) work in flight keeps the task in merge_cleanup_p |
+| FR-040.05 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T028, T082, T084 | `feature-002-recovery.test.ts`: late results through reconcile after a restart (T091, FR-034.03, FR-040.05, H05) a push found l; `feature-002-recovery.test.ts`: late results through reconcile after a restart (T091, FR-034.03, FR-040.05, H05) a reconcile th |
+| FR-040.06 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T028, T082, T084, T094 | `publish-recovery.test.ts`: the local remainder is kept and recorded |
+| FR-040.07 | một phần | SQLite/Git/process thật, vendor và GitHub giả | T027, T067, T084 | `feature-002-cli.test.ts`: merge_cleanup: one bounded drain round; `feature-002-fixes.test.ts`: a paused drain runs one more bounded round. Chưa phủ: một lượt drain có giới hạn được kiểm; thời hạn tổng riêng chưa có assertion độc lập |
+| FR-040.08 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T027, T084, T106 | `drain.test.ts`: work in flight keeps the task in merge_cleanup_pending |
+| FR-040.09 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T084, T094 | `feature-002-recovery.test.ts`: after a restart the drain keeps its claim |
+| FR-040.10 | đạt | vendor và GitHub thật | T008, T027, T028, T125, T130 (lượt thật) | `external-completion.test.ts`: a merge proof is recorded once |
+| FR-040.11 | đạt | vendor và GitHub thật | T027, T028, T106, T125, T130 (lượt thật) | `external-completion.test.ts`: a merge of a head Cuesura did not check is recorded as unverified; `execution-modes.test.ts`: a merge after a recorded drift, or of another head, is unverified |
+| FR-040.12 | đạt | vendor và GitHub thật | T008, T029, T051, T125, T130 (lượt thật) | `github-observe.test.ts`: observation bundle (T044) a PR merged into another branch is target_mismatch, not a merge, on t; `feature-002-fixes.test.ts`: observation vs the CI window, merge proof and target (PR review) FR-041.01/FR-040.12: a merge s |
+| FR-040.13 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T027, T052, T084, T094 | `feature-002-fixes.test.ts`: US2.10: the task deadline while waiting for the merge |
+| FR-040.14 | đạt | vendor và GitHub thật | T008, T027, T028, T096, T125, T130 (lượt thật) | `external-completion.test.ts`: a green PR waits for the merge on GitHub: no approval request, no merge effect; `feature-002-fixes.test.ts`: US2.10: the task deadline while waiting for the merge |
+| FR-040.15 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T027, T096, T106 | `cancel-drain.test.ts`: the cancel service reads the PR before it ends (US5.4/US5.6, FR-025.03/04/05, FR-040.15) an ope; `cancel-drain.test.ts`: the cancel service reads the PR before it ends (US5.4/US5.6, FR-025.03/04/05, FR-040.15) merged |
+| FR-041.01 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T051, T052, T064 | `feature-002-fixes.test.ts`: observation vs the CI window, merge proof and target (PR review) FR-041.01/FR-040.12: a merge s; `observation-limits.test.ts`: observation service (T061) takes over from a pending CI poll that a blocker holds: an incomplet |
+| FR-041.02 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T027, T051, T064 | `feature-002-fixes.test.ts`: CI of the old head never greens the new one |
+| FR-041.03 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T008, T029, T051 | `execution-modes.test.ts`: remote head drift while the review runs (T137, FR-041.03, H01/H02/H05) H01: B observed while A ; `execution-modes.test.ts`: remote head drift while the review runs (T137, FR-041.03, H01/H02/H05) H02: an approval that en |
+| FR-041.04 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T051, T052, T064 | `feature-002-fixes.test.ts`: a base tip change alone keeps the evidence |
+| FR-041.05 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T051, T106 | `github-observe.test.ts`: observation bundle (T044) an unmerged PR retargeted to another branch is target_mismatch; nothi; `execution-modes.test.ts`: PR target (FR-041.05) CI of a PR that targets another branch is never recorded; re-observation  |
+| FR-041.06 | đạt | mô hình/fixture | T050, T051, T064 | `external-completion.test.ts`: green predicate on the checked head (FR-019, FR-041.06, FR-042.08, M08) green iff every snapsho |
+| FR-041.07 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T051, T052, T064 | `feature-002-fixes.test.ts`: US2.8: a PR closed without a merge waits as pr_closed |
+| FR-041.08 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T051, T082, T106 | `feature-002-fixes.test.ts`: a read failure waits under infra with the last observation as history; `github-observation.test.ts`: is unknown, never closed or merged |
+| FR-042.01 | đạt | mô hình/fixture | T008, T050, T051 | `required-subset.test.ts` (mức file); `github-observation.test.ts` (mức file) |
+| FR-042.02 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T050, T051, T064 | `github-observation.test.ts`: reads PR → requirements → checks → PR; `feature-002-fixes.test.ts`: GitHub A/B vs snapshot B/C |
+| FR-042.03 | đạt | mô hình/fixture | T008, T051, T064 | `required-subset.test.ts`: required checks under permutations (T050, FR-042.03) the verdict does not depend on the order G |
+| FR-042.04 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T050, T051 | `feature-002-fixes.test.ts`: GitHub A/B vs snapshot B/C; `required-subset.test.ts`: an app-pinned binding requirement is a mismatch |
+| FR-042.05 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T008, T050, T051 | `feature-002-fixes.test.ts`: github_required none with every snapshot check passing is green |
+| FR-042.06 | đạt | mô hình/fixture | T050, T051 | `github-observation.test.ts`: PR observation (FR-041/042) a rules page GitHub refuses makes the requirement unknown, not none |
+| FR-042.07 | một phần | mô hình/fixture | T050, T051 | `github-observation.test.ts`: two apps reporting the same check name are a collision; `github-checks.test.ts`: the same name from a check run and a status. Chưa phủ: kiểm check trùng tên không xanh; chưa có mẫu ánh xạ mơ hồ đi tới wait policy |
+| FR-042.08 | đạt | mô hình/fixture | T050, T051, T064 | `external-completion.test.ts`: green predicate on the checked head (FR-019, FR-041.06, FR-042.08, M08) green iff every snapsho |
+| FR-042.09 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T051, T106 | `feature-002-fixes.test.ts`: nothing is merged into the snapshot |
+| FR-043.01 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T052, T064 | `runtime-limits.test.ts` (mức file); `observation-limits.test.ts` (mức file) |
+| FR-043.02 | một phần | SQLite/Git/process thật, vendor và GitHub giả | T051, T052 | `observation-limits.test.ts`: a round is bounded in time; `gh.test.ts`: stops at the call cap and the round deadline. Chưa phủ: trần call và thời gian của lượt có kiểm; số retry transport chỉ kiểm ở prototype gh |
+| FR-043.03 | đạt | mô hình/fixture | T027, T052, T064 | `runtime-limits.test.ts`: observation cadence (FR-043.03) stays within [initial, max] and never shrinks as unchanged roun; `runtime-limits.test.ts`: observation cadence (FR-043.03) defaults: 60 s, doubling, capped at one hour |
+| FR-043.04 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T052, T064 | `feature-002-fixes.test.ts`: observation window (US2.11, FR-043.04–06, FR-046.05/06) expiry stops automatic rounds; a rechec; `feature-002-fixes.test.ts`: observation window (US2.11, FR-043.04–06, FR-046.05/06) a round of a generation that moved on i |
+| FR-043.05 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T052, T084, T106 | `feature-002-fixes.test.ts`: observation window (US2.11, FR-043.04–06, FR-046.05/06) a round of a generation that moved on i |
+| FR-043.06 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T052, T106 | `feature-002-cli.test.ts`: after observation_expired: still expired on no merge; `observation-limits.test.ts`: expires a window past its deadline without reading GitHub |
+| FR-043.07 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T096, T105 | `cancel-drain.test.ts`: the read happens even after the observation window expired |
+| FR-043.08 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T052, T053, T064 | `feature-002-fixes.test.ts`: CI and execution limits vs observation (US2.9/US2.10, FR-043.08–11) US2.9: the CI window of a h; `feature-002-fixes.test.ts`: CI and execution limits vs observation (US2.9/US2.10, FR-043.08–11) US2.10: the task deadline w |
+| FR-043.09 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T027, T028, T052, T084 | `feature-002-cli.test.ts`: separates the first slot wait from a resumed one; `scheduler.test.ts`: stays READY with no deadline |
+| FR-043.10 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T027, T052, T084 | `feature-002-fixes.test.ts`: US2.10: the task deadline while waiting for the merge; `feature-002-fixes.test.ts`: US1.9: past the task deadline a CI failure starts no fix |
+| FR-043.11 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T052, T064 | `feature-002-fixes.test.ts`: a late pass is evidence only |
+| FR-043.12 | một phần | SQLite/Git/process thật, vendor và GitHub giả | T052, T106 | `feature-002-fixes.test.ts`: a read failure waits under infra with the last observation as history. Chưa phủ: kiểm lần quan sát cuối; hạn quan sát và lịch kế tiếp chưa có assertion riêng |
+| FR-043.13 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T027, T052, T084 | `observation-limits.test.ts`: observation service (T061) a merge, or a terminal task, stops the schedule (FR-043.13) |
+| FR-044.01 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T016, T027, T028, T094 | `atomic-claims.test.ts`: execution slot grants (FR-044.01, T025) grants the single slot once, in priority then request o; `atomic-claims.test.ts`: execution slot grants (FR-044.01, T025) rejects a grant whose view of the slot is stale, and th |
+| FR-044.02 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T027, T028, T084, T094 | `scheduler.test.ts`: the engine returns the slot when nothing slot-bound is left and queues resumed work (FR-044.02/; `scheduler.test.ts`: the engine returns the slot when nothing slot-bound is left and queues resumed work (FR-044.02/ |
+| FR-044.03 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T027, T028, T084 | `atomic-claims.test.ts`: grants the single slot once, in priority then request order; `scheduler.test.ts`: starts the highest priority READY task |
+| FR-044.04 | đạt | mô hình/fixture | T027, T028 | `runtime-slot.test.ts`: never preempts |
+| FR-044.05 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T027, T028 | `scheduler.test.ts`: its next attempt waits as WAITING/policy execution_slot |
+| FR-044.06 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T084, T094, T106 | `atomic-claims.test.ts`: operation claims and slot release (T025, FR-044.06) commits the operation identity with EffectS; `atomic-claims.test.ts`: operation claims and slot release (T025, FR-044.06) refuses a second open operation for the sam |
+| FR-044.07 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T028, T084, T106 | `feature-002-cli.test.ts`: separates the first slot wait from a resumed one |
+| FR-045.01 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T106, T120 | `feature-002-cli.test.ts`: unsupported_feature |
+| FR-045.02 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T028, T106, T120 | `feature-002-cli.test.ts`: unsupported_feature |
+| FR-046.01 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T052, T106, T107 | `feature-002-cli.test.ts`: task recheck end to end (T110, FR-046.01–08) one PR read, no agent or merge, the schedule untou; `feature-002-cli.test.ts`: task recheck end to end (T110, FR-046.01–08) needs operate, and a stale version is a conflict w |
+| FR-046.02 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T052, T028, T106 | `feature-002-cli.test.ts`: task recheck end to end |
+| FR-046.03 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T052, T051, T106 | `feature-002-cli.test.ts`: one PR read, no agent or merge |
+| FR-046.04 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T052, T106, T120 | `feature-002-cli.test.ts`: one PR read, no agent or merge; `runtime-limits.test.ts`: recheck and stale rounds never count |
+| FR-046.05 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T052, T106 | `feature-002-fixes.test.ts`: observation window (US2.11, FR-043.04–06, FR-046.05/06) expiry stops automatic rounds; a rechec; `feature-002-fixes.test.ts`: observation window (US2.11, FR-043.04–06, FR-046.05/06) a round of a generation that moved on i |
+| FR-046.06 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T052, T106 | `feature-002-cli.test.ts`: after observation_expired: still expired on no merge |
+| FR-046.07 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T052, T084, T106 | `cancel-drain.test.ts`: cancel during a merge cleanup that ran out of rounds (US5.6, FR-040.15, FR-046.07) the cancel i |
+| FR-046.08 | đạt | SQLite/Git/process thật, vendor và GitHub giả | T052, T027, T106 | `feature-002-fixes.test.ts`: recheck service (T062, FR-046) engine: recheck targets must fit the state; terminal tasks only  |

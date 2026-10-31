@@ -1,10 +1,8 @@
 # Validation guide: feature 002
 
-**Trạng thái 2026-10-30:** Phase 6 đã hoàn tất review; **T080: owner chốt NO-GO**, B/C giữ đóng.
-T072/T139 và PR #19 đã merge; T078 đạt 20/20 seeds mới trên base `bc9d84a` + fixture fix của PR #19.
-Lý do NO-GO: thiếu 7 log spike gốc và chưa chứng nhận lại vendor/auth/rules live. Xem [go/no-go](go-no-go.md),
-[báo cáo T078](acceptance-report.md#t078--nghiệm-thu-lại-sau-hợp-nhất-t072-và-t139),
-[ledger T078](evidence/t078-validation.json) và [117 FR](phase6-coverage.md).
+**Trạng thái 2026-10-31:** feature 002 đã chạy thật hai chiều vendor trên sandbox Node và Python; T121–T134 xong, giới hạn ghi ở
+[nghiệm thu cuối](acceptance-report.md#nghiệm-thu-cuối-feature-002-t131t134). T080 NO-GO của Phase 6 là lịch sử; lát B/C đã mở và chạy
+sau đó, xem [go/no-go](go-no-go.md).
 
 Owner chọn Ubuntu; không yêu cầu WSL2. Typecheck/lint/build và default tests đã chạy trên Ubuntu,
 bao gồm bwrap và systemd user thật. Node ở trong home làm `harness-bwrap` tự skip: sao cùng binary
@@ -83,9 +81,9 @@ budget B/C để chủ dự án đánh giá. A chưa đạt hoặc no-go thì kh
 
 ## 3. Lát B — Recovery, queue và interaction
 
-Suite dự kiến ở `test/integration/runtime/feature-002-recovery.test.ts`,
+Suite ở `test/integration/runtime/feature-002-recovery.test.ts`,
 `test/integration/runtime/feature-002-cli.test.ts` và reliability runtime. Foreground/service-manager
-test cần runner unit riêng, không chỉ fake PID. Commands sau chỉ chạy khi suite đã được tạo:
+test cần runner unit riêng, không chỉ fake PID:
 
 ```sh
 pnpm exec vitest run --project default test/integration/runtime
@@ -120,7 +118,11 @@ Schema/auth/nesting đã có fixture từ lát 0; không đợi đầu C mới t
 opt-in để kiểm toàn luồng thực sự. Binary/auth/mount layout đổi so với manifest lát 0 phải chạy lại
 spike bị ảnh hưởng trước khi dùng; help/version không thay evidence. Ghi fixture/version/hash mới.
 
-Các lệnh dự kiến sau khi entrypoints/bin được build và config đã được chuẩn bị:
+Mỗi harness cần `pin.json` và `manifest.json`: tạo bằng `cusr-runner write-pin`, chứng minh bằng `cusr-runner prove-harness`, ghi bằng
+`cusr-runner record-manifest`, theo [runbook](../../deploy/README.md#harness-thật-pin-và-manifest). Kịch bản thật chạy qua
+`CUSR_SMOKE_REAL` trong `test/smoke/`, tốn usage.
+
+Sau khi build và chuẩn bị config:
 
 ```sh
 export CUSR_DATA_DIR=/tmp/cusr-feature-002-smoke
@@ -134,14 +136,14 @@ dưới là đường dẫn do người vận hành cung cấp, không chứa cr
 ```sh
 cusr doctor --project node-sandbox --json
 cusr status --json
-cusr task add --file "$NODE_TASK_FILE" --request-id 019a0000-0000-7000-8000-000000000201 --json
-cusr task add --file "$PYTHON_TASK_FILE" --request-id 019a0000-0000-7000-8000-000000000202 --json
+cusr task add --file "$NODE_TASK_FILE" --request-id 019a0000-0000-7000-8000-000000000201 --profile "$PROFILE" --mode full-review --worker claude/claude-worker/low --reviewer codex/codex-worker/low --reason smoke --json
+cusr task add --file "$PYTHON_TASK_FILE" --request-id 019a0000-0000-7000-8000-000000000202 --profile "$PROFILE" --mode full-review --worker codex/codex-worker/low --reviewer claude/claude-worker/low --reason smoke --json
 cusr task list --json
 ```
 
-Task file là JSON input theo CLI contract, có project, title, description và acceptance cụ thể.
-Một task Claude coder/Codex reviewer, task kia đổi vai; profile CI/gates tương ứng repo. Confirm
-nếu task cần xác nhận, dùng ID/version thực từ output. Khi chúng chạy/chờ, thao tác:
+Task file là JSON input theo CLI contract, có project, title, base_branch và acceptance cụ thể.
+Binding `harness/model/effort` phải là rule role đã khai trong user config. Task chỉ chạy sau
+`cusr task confirm` với ID, version và digest run config thực từ output. Khi chúng chạy/chờ, thao tác:
 
 ```sh
 cusr task show "$CUSR_TASK_ID" --json

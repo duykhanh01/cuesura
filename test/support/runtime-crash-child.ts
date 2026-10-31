@@ -86,6 +86,7 @@ async function flow(): Promise<void> {
   const store = guardStore(raw, sw);
   const dispatcher = flowDaemon(lay, store, sw, clock, args.task_id);
   dispatcher.hold(held);
+  let holding = held;
   const outcome = await driveFlow(
     store,
     dispatcher,
@@ -93,6 +94,27 @@ async function flow(): Promise<void> {
     args.task_id,
     args.target,
     sw,
+    async () => {
+      if (holding === null) return false;
+      const r = await recoverOperations({
+        store,
+        dataDir: lay.data,
+        redactor: new Redactor(),
+        inspect: (id) =>
+          Promise.resolve({
+            unit: unitName(id),
+            state: 'not_found',
+            invocation_id: null,
+            cgroup: null,
+          }),
+        probeLock: () => 'free',
+        now: () => clock.t,
+        newId: uuidv7,
+      });
+      holding = heldReason(r.reconcile.unresolved);
+      dispatcher.hold(holding);
+      return holding !== null;
+    },
   );
   const s = raw.readTask(args.task_id as Uuid);
   raw.close();
@@ -100,6 +122,7 @@ async function flow(): Promise<void> {
     outcome,
     status: s?.status,
     wait: s?.wait?.detail['code'] ?? null,
+    held: holding,
     effects: Object.values(s?.effects ?? {}).map((e) => [
       e.kind,
       e.step,
