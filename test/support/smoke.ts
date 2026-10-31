@@ -270,8 +270,9 @@ export abstract class SmokeDriver {
       const task = await this.show(id);
       if (done(task)) return task;
       const stuck =
-        (task['wait'] as { reason?: string } | null)?.reason === 'needs_info' ||
-        ['FAILED', 'CANCELLED'].includes(task['status'] as string);
+        ['needs_info', 'human_input'].includes(
+          (task['wait'] as { reason?: string } | null)?.reason ?? '',
+        ) || ['FAILED', 'CANCELLED'].includes(task['status'] as string);
       if (stuck || Date.now() > end)
         throw new Error(`${what}: ${JSON.stringify(task)}\n${this.logTail()}`);
       await new Promise((r) => setTimeout(r, 200));

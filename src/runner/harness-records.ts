@@ -114,10 +114,13 @@ function readTrusted(path: string): Result<unknown, string> {
   }
 }
 
-const recordDir = (dataDir: string, harness: string): string =>
+export const recordDir = (dataDir: string, harness: string): string =>
   join(dataDir, HARNESS_RECORDS_DIR, harness);
 
-function readPin(dataDir: string, harness: string): Result<VendorPin, string> {
+export function readPin(
+  dataDir: string,
+  harness: string,
+): Result<VendorPin, string> {
   const path = join(recordDir(dataDir, harness), PIN_FILE);
   const raw = readTrusted(path);
   if (!raw.ok) return raw;

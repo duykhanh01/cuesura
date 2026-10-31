@@ -1,0 +1,334 @@
+{
+  "schema_version": 1,
+  "kind": "spike-0-local-boundary",
+  "checked_at": "2026-10-31T08:51:17.673Z",
+  "scope": "Disposable live Unix socket/FD, role mounts and bounded in-sandbox symlink races only. Not a host mount-source TOCTOU proof, systemd lifetime, vendor smoke or full S0.1 pass.",
+  "node": "v24.22.1",
+  "kernel": "7.0.0-38-generic",
+  "bwrap": "bubblewrap 0.9.0",
+  "hashes": {
+    "probe": "7f69291363c6346e6150363471c257ee5d22d129fd90700149fb3313a2eaf324",
+    "sandbox": "a5d6edb7ffbff92e2aa3ae83dcc5296419726e08f408b758019ad403a1408519",
+    "bwrap": "e318903862396f96de3df57264e0158682b952fd3fb53ac23d876413e7b30f71"
+  },
+  "positive_controls": {
+    "exit": 0,
+    "signal": null,
+    "error": "",
+    "output": {
+      "checks": {
+        "host_canary_readable": true,
+        "passed_file_fd_readable": true,
+        "host_socket_usable": true
+      },
+      "passed": true
+    }
+  },
+  "roles": [
+    {
+      "role": "coder",
+      "layout_digest": "sha256:a55d3e08bb2ff210284165841637a51b05b071e423ec9ad8197ed06c3050c10e",
+      "result": {
+        "exit": 0,
+        "signal": null,
+        "error": "",
+        "output": {
+          "checks": {
+            "context_readonly": true,
+            "git_admin_readonly": true,
+            "git_common_readonly": true,
+            "gitfile_readonly": true,
+            "home_bounded_symlink_race": true,
+            "home_write_matches_role": true,
+            "host_fd_via_proc_unreadable": true,
+            "live_control_socket_unreachable": true,
+            "no_live_secret_or_socket_fd_inherited": true,
+            "outside_secret_unreadable": true,
+            "schema_readable": true,
+            "schema_readonly": true,
+            "scratch_bounded_symlink_race": true,
+            "scratch_write_matches_role": true,
+            "selected_auth_matches_role": true,
+            "system_readonly": true,
+            "tmp_bounded_symlink_race": true,
+            "tmp_write_matches_role": true,
+            "worktree_bounded_symlink_race": true,
+            "worktree_write_matches_role": true
+          },
+          "fd_leaks": [],
+          "passed": true,
+          "races": {
+            "home": {
+              "attempts": 500,
+              "errors": [],
+              "escaped": false,
+              "swaps": 494
+            },
+            "scratch": {
+              "attempts": 500,
+              "errors": [],
+              "escaped": false,
+              "swaps": 482
+            },
+            "tmp": {
+              "attempts": 500,
+              "errors": [],
+              "escaped": false,
+              "swaps": 934
+            },
+            "worktree": {
+              "attempts": 500,
+              "errors": [],
+              "escaped": false,
+              "swaps": 504
+            }
+          },
+          "role": "coder"
+        }
+      }
+    },
+    {
+      "role": "fixer",
+      "layout_digest": "sha256:4a24edc05e808fab52f802b9271b07cb969156905c5330a8c6eaa3175f127bcc",
+      "result": {
+        "exit": 0,
+        "signal": null,
+        "error": "",
+        "output": {
+          "checks": {
+            "context_readonly": true,
+            "git_admin_readonly": true,
+            "git_common_readonly": true,
+            "gitfile_readonly": true,
+            "home_bounded_symlink_race": true,
+            "home_write_matches_role": true,
+            "host_fd_via_proc_unreadable": true,
+            "live_control_socket_unreachable": true,
+            "no_live_secret_or_socket_fd_inherited": true,
+            "outside_secret_unreadable": true,
+            "schema_readable": true,
+            "schema_readonly": true,
+            "scratch_bounded_symlink_race": true,
+            "scratch_write_matches_role": true,
+            "selected_auth_matches_role": true,
+            "system_readonly": true,
+            "tmp_bounded_symlink_race": true,
+            "tmp_write_matches_role": true,
+            "worktree_bounded_symlink_race": true,
+            "worktree_write_matches_role": true
+          },
+          "fd_leaks": [],
+          "passed": true,
+          "races": {
+            "home": {
+              "attempts": 500,
+              "errors": [],
+              "escaped": false,
+              "swaps": 512
+            },
+            "scratch": {
+              "attempts": 500,
+              "errors": [],
+              "escaped": false,
+              "swaps": 440
+            },
+            "tmp": {
+              "attempts": 500,
+              "errors": [],
+              "escaped": false,
+              "swaps": 1146
+            },
+            "worktree": {
+              "attempts": 500,
+              "errors": [],
+              "escaped": false,
+              "swaps": 548
+            }
+          },
+          "role": "fixer"
+        }
+      }
+    },
+    {
+      "role": "reviewer",
+      "layout_digest": "sha256:cc901e74182d9a720de596f05c601e26a11aa37a327b0dcb811326b5db280f75",
+      "result": {
+        "exit": 0,
+        "signal": null,
+        "error": "",
+        "output": {
+          "checks": {
+            "context_readonly": true,
+            "git_admin_readonly": true,
+            "git_common_readonly": true,
+            "gitfile_readonly": true,
+            "home_bounded_symlink_race": true,
+            "home_write_matches_role": true,
+            "host_fd_via_proc_unreadable": true,
+            "live_control_socket_unreachable": true,
+            "no_live_secret_or_socket_fd_inherited": true,
+            "outside_secret_unreadable": true,
+            "schema_readable": true,
+            "schema_readonly": true,
+            "scratch_bounded_symlink_race": true,
+            "scratch_write_matches_role": true,
+            "selected_auth_matches_role": true,
+            "system_readonly": true,
+            "tmp_bounded_symlink_race": true,
+            "tmp_write_matches_role": true,
+            "worktree_write_matches_role": true
+          },
+          "fd_leaks": [],
+          "passed": true,
+          "races": {
+            "home": {
+              "attempts": 500,
+              "errors": [],
+              "escaped": false,
+              "swaps": 512
+            },
+            "scratch": {
+              "attempts": 500,
+              "errors": [],
+              "escaped": false,
+              "swaps": 456
+            },
+            "tmp": {
+              "attempts": 500,
+              "errors": [],
+              "escaped": false,
+              "swaps": 968
+            }
+          },
+          "role": "reviewer"
+        }
+      }
+    },
+    {
+      "role": "setup",
+      "layout_digest": "sha256:92ef418f4fef120ca65c8d816f085538f7d4bb199837fad75748ef67011d8bd3",
+      "result": {
+        "exit": 0,
+        "signal": null,
+        "error": "",
+        "output": {
+          "checks": {
+            "context_readonly": true,
+            "git_admin_readonly": true,
+            "git_common_readonly": true,
+            "gitfile_readonly": true,
+            "home_bounded_symlink_race": true,
+            "home_write_matches_role": true,
+            "host_fd_via_proc_unreadable": true,
+            "live_control_socket_unreachable": true,
+            "no_live_secret_or_socket_fd_inherited": true,
+            "outside_secret_unreadable": true,
+            "schema_readable": true,
+            "schema_readonly": true,
+            "scratch_bounded_symlink_race": true,
+            "scratch_write_matches_role": true,
+            "selected_auth_matches_role": true,
+            "system_readonly": true,
+            "tmp_bounded_symlink_race": true,
+            "tmp_write_matches_role": true,
+            "worktree_bounded_symlink_race": true,
+            "worktree_write_matches_role": true
+          },
+          "fd_leaks": [],
+          "passed": true,
+          "races": {
+            "home": {
+              "attempts": 500,
+              "errors": [],
+              "escaped": false,
+              "swaps": 932
+            },
+            "scratch": {
+              "attempts": 500,
+              "errors": [],
+              "escaped": false,
+              "swaps": 488
+            },
+            "tmp": {
+              "attempts": 500,
+              "errors": [],
+              "escaped": false,
+              "swaps": 986
+            },
+            "worktree": {
+              "attempts": 500,
+              "errors": [],
+              "escaped": false,
+              "swaps": 520
+            }
+          },
+          "role": "setup"
+        }
+      }
+    },
+    {
+      "role": "gate",
+      "layout_digest": "sha256:323401e88f4a07e02005c91a9ec23a8beefecba88fbc2e7c9099d01563bd6714",
+      "result": {
+        "exit": 0,
+        "signal": null,
+        "error": "",
+        "output": {
+          "checks": {
+            "context_readonly": true,
+            "git_admin_readonly": true,
+            "git_common_readonly": true,
+            "gitfile_readonly": true,
+            "home_bounded_symlink_race": true,
+            "home_write_matches_role": true,
+            "host_fd_via_proc_unreadable": true,
+            "live_control_socket_unreachable": true,
+            "no_live_secret_or_socket_fd_inherited": true,
+            "outside_secret_unreadable": true,
+            "schema_readable": true,
+            "schema_readonly": true,
+            "scratch_bounded_symlink_race": true,
+            "scratch_write_matches_role": true,
+            "selected_auth_matches_role": true,
+            "system_readonly": true,
+            "tmp_bounded_symlink_race": true,
+            "tmp_write_matches_role": true,
+            "worktree_bounded_symlink_race": true,
+            "worktree_write_matches_role": true
+          },
+          "fd_leaks": [],
+          "passed": true,
+          "races": {
+            "home": {
+              "attempts": 500,
+              "errors": [],
+              "escaped": false,
+              "swaps": 1028
+            },
+            "scratch": {
+              "attempts": 500,
+              "errors": [],
+              "escaped": false,
+              "swaps": 462
+            },
+            "tmp": {
+              "attempts": 500,
+              "errors": [],
+              "escaped": false,
+              "swaps": 930
+            },
+            "worktree": {
+              "attempts": 500,
+              "errors": [],
+              "escaped": false,
+              "swaps": 496
+            }
+          },
+          "role": "gate"
+        }
+      }
+    }
+  ],
+  "host_canary_unchanged": true,
+  "passed": true
+}

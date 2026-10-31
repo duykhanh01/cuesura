@@ -107,6 +107,98 @@ const recordManifest: CliCommand = {
   },
 };
 
+/** Owner step, never run by the daemon: without --dry-run it invokes the pinned binary and spends usage. */
+const proveHarness: CliCommand = {
+  name: 'prove-harness',
+  description: 'prove a pinned harness on this host and write its evidence',
+  options: [
+    { flags: '--config <file>', description: 'user config' },
+    { flags: '--data-dir <dir>', description: 'DATA_DIR' },
+    { flags: '--harness <name>', description: 'harness with a pin.json' },
+    { flags: '--model <id>', description: 'model every role runs on' },
+    { flags: '--effort <level>', description: 'effort every role runs at' },
+    {
+      flags: '--outer-proof <file>',
+      description: 'host boundary proof (T006)',
+    },
+    { flags: '--out <file>', description: 'evidence file to write' },
+    { flags: '--approval <text>', description: 'who approved this spend' },
+    {
+      flags: '--max-invocations <n>',
+      description: 'cap on invocations of this binary, spent ones included',
+    },
+    { flags: '--dry-run', description: 'check and report; invoke nothing' },
+  ],
+  async run(values, _json, io) {
+    const { config, dataDir, harness, model, effort, outerProof } = values;
+    const { out, approval, maxInvocations, dryRun } = values;
+    if (
+      config === undefined ||
+      harness === undefined ||
+      model === undefined ||
+      outerProof === undefined
+    ) {
+      io.stderr(
+        'prove-harness needs --config, --harness, --model and --outer-proof\n',
+      );
+      return ExitCode.usage;
+    }
+    const { loadDaemonConfig } = await import('../daemon/main.ts');
+    const proof = await import('../runner/harness-proof.ts');
+    const cfg = await loadDaemonConfig({ config, dataDir });
+    if (!cfg.ok) {
+      io.stderr(`${cfg.error}\n`);
+      return ExitCode.usage;
+    }
+    const options = {
+      dataDir: cfg.value.dataDir,
+      harness,
+      configPath: config,
+      runtime: cfg.value.runtime,
+      model,
+      effort: effort ?? null,
+      outerProofFile: outerProof,
+      runnerCommand: [process.execPath, process.argv[1] as string],
+      now: () => Date.now(),
+    };
+    if (dryRun !== undefined) {
+      const plan = proof.planProof(options);
+      if (!plan.ok) {
+        io.stderr(`${plan.error}\n`);
+        return ExitCode.failure;
+      }
+      const { pin, identity, invocations_spent } = plan.value;
+      io.stdout(
+        `${JSON.stringify({ binary: pin.binary, identity, invocations_spent, invocations_needed: proof.PROOF_ROLES.length })}\n`,
+      );
+      return ExitCode.ok;
+    }
+    const cap = Number(maxInvocations);
+    if (
+      out === undefined ||
+      approval === undefined ||
+      !Number.isInteger(cap) ||
+      cap < 1
+    ) {
+      io.stderr(
+        'a proof spends model usage: it needs --out, --approval and --max-invocations\n',
+      );
+      return ExitCode.usage;
+    }
+    const r = await proof.proveHarness({
+      ...options,
+      out,
+      budget: { approval, maxInvocations: cap },
+    });
+    if (!r.ok) {
+      io.stderr(`${r.error}\n`);
+      return ExitCode.failure;
+    }
+    io.stdout(`${r.value.evidence}\n`);
+    return ExitCode.ok;
+  },
+};
+
 process.exitCode = await runCli(
   {
     name: 'cusr-runner',
@@ -115,5 +207,5 @@ process.exitCode = await runCli(
   },
   process.argv.slice(2),
   processIo,
-  [exec, recordManifest],
+  [exec, recordManifest, proveHarness],
 );

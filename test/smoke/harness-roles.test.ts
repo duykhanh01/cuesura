@@ -2,10 +2,11 @@
  * T122 (SC-008): three roles on two vendors. Locally, the pinned adapters run each role's recorded T007
  * output inside a real task: right role and vendor, usage and provenance reported, reviewer read-only and
  * the auth canary nowhere the daemon keeps. That checks the setup before a paid invocation and
- * is not SC-008 evidence: the real invocations belong to T126, and until T126 they stay `todo` here.
+ * is not SC-008 evidence. The real invocations of T126 were run by `cusr-runner prove-harness`.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ROLE_SCHEMA_DIGESTS } from '../../src/adapters/harness/result-schema.ts';
 import { readRealJson } from '../support/harness-fixtures.ts';
@@ -22,6 +23,12 @@ afterEach(async () => {
   for (const r of live.splice(0)) await r.cleanup();
 });
 
+const PROOF = fileURLToPath(
+  new URL(
+    '../fixtures/runtime/spike-0/harness/proof-20261031/',
+    import.meta.url,
+  ),
+);
 const VENDORS = ['claude', 'codex'] as const;
 const ROLES = ['coder', 'fixer', 'reviewer'] as const;
 
@@ -104,8 +111,38 @@ describe.skipIf(!hostUsable())(
   },
 );
 
-describe('real invocations', () => {
-  it.todo(
-    'T126: coder, fixer and reviewer on each pinned binary, and an evidence file `record-manifest` accepts',
+// T126. The runs are recorded under PROOF; this checks what they showed, and proves nothing by running.
+describe('the recorded real invocations of T126', () => {
+  it.each(VENDORS)(
+    '%s: every role and capability the manifest needs',
+    (vendor) => {
+      const evidence = JSON.parse(
+        readFileSync(join(PROOF, `evidence-${vendor}.json`), 'utf8'),
+      ) as {
+        vendors: Record<
+          string,
+          {
+            native_result: string;
+            attested?: unknown;
+            capabilities: Record<string, { status: string }>;
+            runs: { role: string; kind: string }[];
+          }
+        >;
+      };
+      const e = evidence.vendors[vendor];
+      expect(e?.attested).toBeDefined();
+      expect(e?.native_result).toBe('passed');
+      expect(e?.runs.map((r) => [r.role, r.kind])).toEqual(
+        ROLES.map((r) => [r, 'result']),
+      );
+      for (const c of [
+        'structured_output',
+        'permission_denial_kept',
+        'private_home_auth',
+        'usage_report',
+        ...ROLES.map((r) => `schema_acceptance_${r}`),
+      ])
+        expect(e?.capabilities[c]?.status, c).toBe('proven');
+    },
   );
 });

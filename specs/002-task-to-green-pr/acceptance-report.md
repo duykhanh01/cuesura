@@ -848,10 +848,60 @@ giữ `started`, daemon sau nhận lại. Hủy việc vẫn dừng unit như c�
 và `runner-restart.test.ts` (bỏ bản sửa thì hai ca SIGTERM fail: unit đã `not_found` ngay sau khi dừng, và riêng phần
 đọc log cũng fail vì attempt cũ không kết thúc `done`).
 
+### T126 — chứng minh harness trên host hiện tại
+
+Chạy `cusr-runner prove-harness` ngày 2026-10-31 trên host Linux không phải WSL2, với outer proof chạy lại tại
+`test/fixtures/runtime/spike-0/host-linux-20261031/` (chỉ năm probe local, không phải toàn bộ cổng T006). Host này khác host
+WSL2 mà owner chốt là host triển khai v1 ngày 2026-10-28; bằng chứng dưới đây chỉ có giá trị cho host này.
+
+| Vendor | Binary | Kết quả | Lượt gọi |
+| --- | --- | --- | --- |
+| Codex | 0.165.0, cùng sha với T007 | Đạt: ba role có kết quả hợp lệ, lệnh probe bị từ chối, tool chạy trong PID namespace con, auth đã gỡ, `record-manifest` nhận | 9, trần tăng dần 3→6→9 |
+| Claude | 2.1.316, khác T007 (2.1.306) | Đạt: như Codex, usage có cost | 9: 3 lượt dừng trước model (0 turn, $0), 3 lượt reviewer `invalid_output`, 3 lượt đạt; trần 3→6→9 |
+
+Pin sau cùng có thêm `node`, nên hai vendor được chứng minh lại, tổng 12 lượt mỗi vendor trong ledger. Host không có `socat` mà inner sandbox Claude bắt buộc; phiên làm việc không có sudo nên `socat` 1.8.0.0 của Ubuntu được giải nén
+vào thư mục riêng và khai trong `toolchain` của pin. Cài bằng gói hệ thống thì đổi pin, phải chứng minh lại.
+
+Hai vòng Codex đầu chưa đạt vì fixer trả `blocked` mà không gọi tool nào; argv của fixer giống coder trừ đường dẫn attempt.
+Vòng ba nói rõ model có shell tool và phải dùng thì đạt, nên đây nhiều khả năng là hành vi model ở effort thấp, chưa được
+chứng minh. Công cụ giữ `permission_denial_kept` ở `unknown` trong cả hai vòng đó. `session_resume` và `cost_limit` vẫn `unknown`.
+
+Vòng reviewer `invalid_output` của Claude là do prompt yêu cầu approve khi lệnh ghi bị từ chối: model từ chối báo vậy và trả
+một finding có đường dẫn không tương đối, validator từ chối đúng. Sửa prompt, không sửa validator.
+
+SC-008 đạt trên host này cho hai vendor, ba role, model và effort đã ghi. Chưa nói gì về host WSL2. `socat` là điều kiện cài
+đặt của inner sandbox Claude mà `cusr doctor` chưa báo.
+
+### T127–T129 — chạy thật trên sandbox
+
+Host Linux hiện tại, effort low, `claude-haiku-5-5` và `gpt-6-luna`. Ledger:
+`test/fixtures/runtime/spike-0/harness/proof-20261031/smoke-ledger.jsonl`.
+
+| Task | Node (Claude coder, Codex reviewer) | Python (Codex coder, Claude reviewer) |
+| --- | --- | --- |
+| T127 | Đạt: PR#1 | Đạt: PR#1 |
+| T128 SIGKILL | **Chưa đạt**: coder `agent_blocked` | Đạt: PR#3, cùng attempt, 5/5 process còn sau khi dừng |
+| T128 SIGTERM | Đạt: PR#2, cùng attempt, 6/6 process | Đạt: PR#4, cùng attempt, 5/5 process |
+| T129 gate xanh | **Chưa đạt**: coder `agent_blocked` | Đạt: PR#2 |
+
+Đường gate đỏ thật của T129 chưa chạy. Các PR đều xanh `build`/`test`, `REVIEW_REQUIRED`, chưa merge, không có request merge từ hệ thống.
+
+### Lỗi phát hiện ở lượt thật
+
+- `src/daemon/handlers.ts:845` gán cứng `prompt: null`: prompt role đã đóng băng không tới agent ở lượt nào. Hai lượt Claude coder
+  chạy `git commit`, gặp `.git` read-only rồi báo `blocked`, trong khi `coder.md` ghi "Do not commit". Chưa kiểm rằng sửa dòng này
+  hết `blocked`.
+- Sandbox agent chỉ có `toolchain` của pin: Node qua nvm không có trong sandbox, coder báo `blocked` sau khi đã tốn lượt. Lượt thật
+  dùng bản `node` chép vào thư mục riêng trong pin. Không có khai báo toolchain theo project hay kiểm trước khi chạy.
+- `cusr doctor` không báo thiếu `socat`, điều kiện của inner sandbox Claude.
+- Nhiều binding trong một role: chỉ binding đầu được dùng, nên đổi chiều vendor phải sửa config dù `--worker`/`--reviewer` đã chọn.
+
 ### Điều kiện trước T126–T130
 
-- Hai repo sandbox Node/Python, nội dung từ `repo/` của fixture, required checks `build`/`test`, review bắt buộc. Repo
+- Hai repo sandbox Node/Python đã có, nội dung từ `repo/` của fixture, required checks `build`/`test`, review bắt buộc. Repo
   spike `cuesura-spike-002-sandbox` không có protection nên chỉ phủ trường hợp no-protection.
-- Owner duyệt budget. T126 phải chứng minh lại ít nhất Claude vì binary đã đổi (T007 là 2.1.306, host 2.1.314).
-- Công cụ sinh evidence có `attested` từ lượt chạy thật: chưa có, thuộc T126.
+- Budget: owner duyệt ngày 2026-10-31, trần ghi trong ledger từng lượt.
+- Công cụ sinh evidence có `attested`: `cusr-runner prove-harness`, đã chạy thật với hai vendor.
+- Outer proof T006 thuộc host WSL2 (`/home/khanhnd1`), không mô tả host Linux hiện tại, nên phải chạy lại probe trên host này
+  thay vì dùng lại hash trong fixture T007.
 - Bindings là toàn cục trong một config, nên mỗi chiều vendor cần config và data dir riêng (`CUSR_SMOKE_REAL` đã tách).

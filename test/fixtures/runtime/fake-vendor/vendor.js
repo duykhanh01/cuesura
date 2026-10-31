@@ -9,7 +9,10 @@
 // FAKE_VENDOR_REVIEWER_PROBE: a reviewer tries to write its worktree and exits 1 if the write lands.
 // FAKE_VENDOR_HOLD: writes running-<pid> to the scratch directory, then waits for a release file next to
 // it (at most five minutes) before replaying, so a test can stop the daemon while the agent is active.
+// FAKE_VENDOR_INNER_SANDBOX: runs a tool in a child PID namespace for two seconds, as a native inner sandbox does.
+// FAKE_VENDOR_DENY_STDERR: logs a refused exec on stderr the way codex does.
 // It never calls a model.
+import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -63,6 +66,12 @@ if (process.env.FAKE_VENDOR_HOLD) {
   const end = Date.now() + 300_000;
   while (!existsSync(join(scratch, 'release')) && Date.now() < end) await new Promise((r) => setTimeout(r, 100));
 }
+if (process.env.FAKE_VENDOR_INNER_SANDBOX)
+  spawnSync('/usr/bin/unshare', ['--user', '--map-root-user', '--pid', '--fork', '/usr/bin/sleep', '2']);
+if (process.env.FAKE_VENDOR_DENY_STDERR)
+  process.stderr.write(
+    `codex_core::tools::router: error=Rejected("\`/usr/bin/touch /cusr/scratch/permission-denied-by-rule\` rejected: blocked by policy")\n`,
+  );
 if (has('hang')) setInterval(() => {}, 1000);
 else {
   const records = readFileSync(join(replay, 'events.jsonl'), 'utf8')
