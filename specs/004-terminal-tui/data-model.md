@@ -17,7 +17,7 @@ cột mới trong `command_ledger`. Không thêm task status, event type hay l�
 | --- | --- |
 | `connection` | `connecting`, `online`, `reconnecting{attempt}`, `waiting_retry`, `stopped{reason}` |
 | `last_updated_at` | Thời điểm cập nhật thành công cuối |
-| `stale` | Đúng khi lần làm mới board hoặc health gần nhất thất bại; khóa mọi thao tác ghi mới (FR-044) |
+| `stale` | Đúng khi lần làm mới Home gần nhất thất bại ở board, health hoặc `project_list` cần đọc; khóa mọi thao tác ghi mới (FR-044) |
 | `stale_tasks` | Task có đọc chi tiết gần nhất thất bại; khóa thao tác ghi mới trên task đó (FR-044) |
 | `caller` | Actor, vai trò, phạm vi, `trusted_confirmer` từ `project_list` |
 | `screen_stack` | Màn hình đang mở, gồm các hộp thoại |

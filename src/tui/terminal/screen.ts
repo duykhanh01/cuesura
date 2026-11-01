@@ -27,10 +27,14 @@ const RESET = '\x1b[0m';
 
 type Cell = { ch: string; sgr: string };
 
-/** `NO_COLOR` set to anything but empty turns colour off (https://no-color.org). */
+/** Terminals that take no colour by name: the VT family and the `-m`, `-mono` variants. */
+const MONOCHROME_TERM = /^vt\d+|-(m|mono)$/;
+
+/** `NO_COLOR` set to anything but empty turns colour off (https://no-color.org), as does a monochrome `TERM`. */
 export function colorEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   const v = env['NO_COLOR'];
-  return v === undefined || v === '';
+  if (v !== undefined && v !== '') return false;
+  return !MONOCHROME_TERM.test(env['TERM'] ?? '');
 }
 
 function sgrOf(style: Style, color: boolean): string {

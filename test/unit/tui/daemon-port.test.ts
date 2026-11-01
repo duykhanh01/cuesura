@@ -120,6 +120,50 @@ describe('daemon port', () => {
     expect(calls[0]?.token).toBe('b'.repeat(43));
   });
 
+  it('drops the watermark and counts a change once the token file holds another token', async () => {
+    const p = port(okReply(BOARD));
+    const file = join(p.dir, 'owner.token');
+    await p.port.board({ if_changed_since: 9 }, 1);
+    expect(p.calls[0]?.body).toMatchObject({ if_changed_since: 9 });
+    expect(p.port.credentialGeneration()).toBe(0);
+
+    writeFileSync(file, `${'b'.repeat(43)}\n`, { mode: 0o600 });
+    await p.port.board({ if_changed_since: 9, limit: 5 }, 1);
+    expect(p.calls[1]).toMatchObject({
+      token: 'b'.repeat(43),
+      body: { limit: 5 },
+    });
+    expect(p.calls[1]?.body).not.toHaveProperty('if_changed_since');
+    expect(p.port.credentialGeneration()).toBe(1);
+
+    // Only the first question under the new token: the answer to it is a real read.
+    await p.port.board({ if_changed_since: 10 }, 1);
+    expect(p.calls[2]?.body).toMatchObject({ if_changed_since: 10 });
+  });
+
+  it('a change another read noticed first still drops the watermark', async () => {
+    const p = port(okReply(BOARD));
+    await p.port.board({ if_changed_since: 9 }, 1);
+    writeFileSync(join(p.dir, 'owner.token'), `${'b'.repeat(43)}\n`, {
+      mode: 0o600,
+    });
+    await p.port.projects(1);
+    await p.port.board({ if_changed_since: 9 }, 1);
+    expect(p.calls[2]?.body).not.toHaveProperty('if_changed_since');
+  });
+
+  it('a token file gone for a moment and back with the same token is no change', async () => {
+    const p = port(okReply(BOARD));
+    const file = join(p.dir, 'owner.token');
+    await p.port.board({}, 1);
+    rmSync(file);
+    expect((await p.port.board({}, 1)).ok).toBe(false);
+    writeFileSync(file, `${TOKEN}\n`, { mode: 0o600 });
+    await p.port.board({ if_changed_since: 9 }, 1);
+    expect(p.port.credentialGeneration()).toBe(0);
+    expect(p.calls.at(-1)?.body).toMatchObject({ if_changed_since: 9 });
+  });
+
   it('a token that cannot be read stops short of the socket', async () => {
     const calls: CallOptions[] = [];
     const r = await createDaemonPort({

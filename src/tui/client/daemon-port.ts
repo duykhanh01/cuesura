@@ -67,13 +67,19 @@ export type BoardQuery = {
 };
 
 export type DaemonPort = {
+  /** Counts the times the token file was found to hold another token; the token itself stays in here. */
+  credentialGeneration(): number;
   health(timeoutMs: number, signal?: AbortSignal): Promise<PortResult<Health>>;
+  /** The token is read before this returns: `credentialGeneration()` right after says which token asked. */
   board(
     q: BoardQuery,
     timeoutMs: number,
     signal?: AbortSignal,
   ): Promise<PortResult<BoardReply>>;
-  projects(timeoutMs: number): Promise<PortResult<ProjectList>>;
+  projects(
+    timeoutMs: number,
+    signal?: AbortSignal,
+  ): Promise<PortResult<ProjectList>>;
   runOptions(
     taskId: string,
     timeoutMs: number,
@@ -123,13 +129,27 @@ export function createDaemonPort(deps: PortDeps = {}): DaemonPort {
   const call = deps.call ?? callDaemon;
   const dataDir = resolveDataDir(deps.dataDir, env);
 
+  let lastToken: string | null = null;
+  let generation = 0;
+  /** The generation of the latest board request; a watermark means nothing to another token (R-02). */
+  let boardGeneration = 0;
+
+  const readToken = (): ReturnType<typeof readClientToken> => {
+    const token = readClientToken(dataDir, env);
+    if (token.ok) {
+      if (lastToken !== null && lastToken !== token.value) generation += 1;
+      lastToken = token.value;
+    }
+    return token;
+  };
+
   const send = async (
     opts: Pick<
       CallOptions,
       'method' | 'path' | 'body' | 'timeoutMs' | 'signal'
     >,
+    token: ReturnType<typeof readClientToken> = readToken(),
   ): Promise<PortResult<Envelope>> => {
-    const token = readClientToken(dataDir, env);
     if (!token.ok)
       return err({ kind: 'token', message: sanitize(token.error.message) });
     const r = await call({
@@ -174,14 +194,18 @@ export function createDaemonPort(deps: PortDeps = {}): DaemonPort {
     body: Record<string, unknown> & { kind: string },
     timeoutMs: number,
     signal?: AbortSignal,
+    token: ReturnType<typeof readClientToken> = readToken(),
   ): Promise<PortResult<z.output<T>>> => {
-    const r = await send({
-      method: 'POST',
-      path: '/v1/query',
-      body,
-      timeoutMs,
-      ...(signal === undefined ? {} : { signal }),
-    });
+    const r = await send(
+      {
+        method: 'POST',
+        path: '/v1/query',
+        body,
+        timeoutMs,
+        ...(signal === undefined ? {} : { signal }),
+      },
+      token,
+    );
     if (!r.ok) return r;
     return r.value.ok
       ? parsed(schema, r.value.data, body.kind)
@@ -194,6 +218,7 @@ export function createDaemonPort(deps: PortDeps = {}): DaemonPort {
       query(schema, { kind, task_id }, timeoutMs);
 
   return {
+    credentialGeneration: () => generation,
     async health(timeoutMs, signal) {
       const r = await send({
         method: 'GET',
@@ -219,10 +244,28 @@ export function createDaemonPort(deps: PortDeps = {}): DaemonPort {
         queue_length: data.value.queue_length,
       });
     },
-    board: (q, timeoutMs, signal) =>
-      query(BoardSchema, { kind: 'task_board', ...q }, timeoutMs, signal),
-    projects: (timeoutMs) =>
-      query(ProjectListSchema, { kind: 'project_list' }, timeoutMs),
+    board: (q, timeoutMs, signal) => {
+      // One read of the token decides both the watermark and who asks, so the two cannot disagree.
+      const token = readToken();
+      const sameToken = boardGeneration === generation;
+      boardGeneration = generation;
+      const { if_changed_since: watermark, ...view } = q;
+      return query(
+        BoardSchema,
+        {
+          kind: 'task_board',
+          ...view,
+          ...(watermark === undefined || !sameToken
+            ? {}
+            : { if_changed_since: watermark }),
+        },
+        timeoutMs,
+        signal,
+        token,
+      );
+    },
+    projects: (timeoutMs, signal) =>
+      query(ProjectListSchema, { kind: 'project_list' }, timeoutMs, signal),
     runOptions: taskQuery(RunOptionsSchema, 'run_options'),
     content: taskQuery(TaskContentSchema, 'task_content'),
     progress: taskQuery(TaskProgressSchema, 'task_progress'),

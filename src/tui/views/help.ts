@@ -5,11 +5,16 @@ import type { Body } from './layout.ts';
 const LINES = [
   'Keys',
   '',
-  '  ?        This help',
-  '  Esc      Go back',
-  '  R        Retry the daemon connection',
-  '  q        Quit; tasks and the daemon keep running',
-  '  Ctrl-C   Quit; does not cancel any task',
+  '  ↑ ↓ k j      Move',
+  '  PgUp PgDn    Scroll; at the top or end of the list, the page before or after',
+  '  g G          Top and end of the list',
+  '  Enter        On Finished: show or hide finished tasks',
+  '  f            Filter by project and status',
+  '  ?            This help',
+  '  Esc          Go back',
+  '  R            Retry the daemon connection',
+  '  q            Quit; tasks and the daemon keep running',
+  '  Ctrl-C       Quit; does not cancel any task',
 ];
 
 export const helpBody =

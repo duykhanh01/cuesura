@@ -2,22 +2,25 @@
  * The interactive interface's runtime: terminal, timers and daemon port around a pure reducer and pure views.
  * Quitting only ends this process: tasks, the daemon and runners do not depend on it (FR-004).
  */
-import {
-  DETAIL_TIMEOUT_MS,
-  RefreshScheduler,
-  singleFlight,
-  systemRefreshClock,
-} from './client/refresh.ts';
+import { RefreshScheduler, systemRefreshClock } from './client/refresh.ts';
 import { createDaemonPort } from './client/daemon-port.ts';
 import type { Effect, Message } from './model/messages.ts';
 import { reduce } from './model/reduce.ts';
-import { currentScreen, initialState, type TuiState } from './model/state.ts';
+import {
+  boardQuery,
+  boardQueryKey,
+  currentScreen,
+  initialState,
+  type TuiState,
+} from './model/state.ts';
 import { KeyDecoder } from './terminal/keys.ts';
 import { colorEnabled, diffFrames, type Frame } from './terminal/screen.ts';
 import { openTerminal } from './terminal/terminal.ts';
+import { withDisconnected } from './views/disconnected.ts';
+import { filtersBody } from './views/filters.ts';
 import { helpBody } from './views/help.ts';
-import { renderFrame } from './views/layout.ts';
-import { countsBody } from './views/placeholder.ts';
+import { homeBody } from './views/home.ts';
+import { renderFrame, type Body } from './views/layout.ts';
 
 /** Nothing following an Esc for this long means it was the key, not the start of a sequence. */
 const ESC_WAIT_MS = 30;
@@ -50,22 +53,47 @@ export function runTui(): void {
   });
 
   let state: TuiState = initialState(terminal.size());
+  /** The question the board read in progress asked, so its answer cannot land on another view. */
+  let askedKey = boardQueryKey(state);
+  let credential = port.credentialGeneration();
+
+  function noticeCredential(): void {
+    if (port.credentialGeneration() === credential) return;
+    credential = port.credentialGeneration();
+    dispatch({ type: 'credential_changed' });
+  }
 
   const scheduler = new RefreshScheduler({
     clock: systemRefreshClock,
     reads: {
       // A watermark asks "anything new?"; it means nothing for data not yet read (R-02).
-      board: (fresh, timeoutMs, signal) =>
-        port.board(
-          fresh || state.board === null
-            ? {}
-            : { if_changed_since: state.board.watermark },
+      board: (fresh, timeoutMs, signal) => {
+        askedKey = boardQueryKey(state);
+        return port.board(
+          {
+            ...boardQuery(state),
+            ...(fresh || state.board === null
+              ? {}
+              : { if_changed_since: state.board.watermark }),
+          },
           timeoutMs,
           signal,
-        ),
+        );
+      },
       health: (timeoutMs, signal) => port.health(timeoutMs, signal),
+      projects: (fresh, timeoutMs, signal) =>
+        fresh ||
+        state.caller === null ||
+        port.credentialGeneration() !== credential
+          ? port.projects(timeoutMs, signal)
+          : Promise.resolve({ ok: true, value: null }),
+    },
+    credential: {
+      generation: () => port.credentialGeneration(),
+      superseded: noticeCredential,
     },
     report(r) {
+      noticeCredential();
       dispatch(
         r.ok
           ? {
@@ -73,6 +101,8 @@ export function runTui(): void {
               board: r.board,
               health: r.health,
               at: Date.now(),
+              queryKey: askedKey,
+              ...(r.projects === undefined ? {} : { projects: r.projects }),
             }
           : { type: 'read_failed', failure: r.failure },
       );
@@ -80,17 +110,19 @@ export function runTui(): void {
     },
   });
 
-  // Only annotates the screen; if it fails the next successful read asks again.
-  const loadCaller = singleFlight(async () => {
-    const r = await port.projects(DETAIL_TIMEOUT_MS);
-    if (r.ok) dispatch({ type: 'caller_loaded', caller: r.value.caller });
-  });
+  function bodyOf(s: TuiState): Body {
+    switch (currentScreen(s)) {
+      case 'help':
+        return helpBody(s.size.cols);
+      case 'filters':
+        return filtersBody(s);
+      case 'home':
+        return homeBody(s, { color });
+    }
+  }
 
   function draw(): void {
-    const body =
-      currentScreen(state) === 'help'
-        ? helpBody(state.size.cols)
-        : countsBody(state);
+    const body = withDisconnected(state, bodyOf(state));
     const next = renderFrame(state, body, { color });
     const bytes = diffFrames(screen, next);
     screen = next;
@@ -104,10 +136,8 @@ export function runTui(): void {
         terminal.exit(effect.code);
         break;
       case 'retry_connection':
+      case 'refresh_now':
         scheduler.retry();
-        break;
-      case 'load_caller':
-        loadCaller();
         break;
     }
   }

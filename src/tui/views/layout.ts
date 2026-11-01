@@ -65,6 +65,8 @@ const NEXT_STEP: Record<StopReason['kind'], string> = {
   token: 'Next: fix the token file or CUSR_TOKEN_FILE, then press R.',
   unauthenticated:
     'Next: use a valid token (CUSR_TOKEN_FILE or the owner token), then press R.',
+  forbidden:
+    'Next: use a token that may read this, or change the filter, then press R.',
   incompatible:
     'Next: install the same version of cusr and the daemon, then press R.',
 };
@@ -102,7 +104,8 @@ export function notices(s: TuiState, cols: number, room: number): SafeText[] {
         uiText('Daemon unhealthy: '),
         s.health.reason ?? uiText('no reason given'),
       ]),
-      next: 'Next: run `cusr doctor` to see what to fix.',
+      // The daemon is healthy only while it can hand out work, so unhealthy means this (FR-010).
+      next: 'New work is not being started. Next: run `cusr doctor` to see what to fix.',
     });
   return blocks.flatMap(({ what, next }) => {
     const nextRows = wrap(uiText(next), cols);
@@ -116,7 +119,8 @@ export function notices(s: TuiState, cols: number, room: number): SafeText[] {
  * `notices` (FR-010). Only the project name, the one part of any length, gives way.
  */
 function statusBar(s: TuiState, cols: number): SafeText {
-  const h = s.health;
+  // What was read before the connection went is no answer about now: nothing here may look fine (SC-003).
+  const h = s.stale ? null : s.health;
   const daemon = h === null ? 'unknown' : h.healthy ? 'ok' : 'unhealthy';
   const slot =
     h === null
@@ -128,7 +132,7 @@ function statusBar(s: TuiState, cols: number): SafeText {
     [
       `daemon: ${daemon}`,
       `slot: ${slot}`,
-      `queue: ${s.board?.queue.length ?? h?.queue_length ?? '-'}`,
+      `queue: ${s.stale ? '-' : (s.board?.queue.length ?? h?.queue_length ?? '-')}`,
       `updated: ${lastUpdated(s)}`,
       'project: ',
     ].join('  '),
@@ -138,11 +142,30 @@ function statusBar(s: TuiState, cols: number): SafeText {
   return joinSafe([facts, truncate(project, cols - displayWidth(facts))]);
 }
 
+/** Only keys that work where the user is; a key that does nothing here is not offered (FR-033). */
 function hints(s: TuiState): SafeText {
+  const screen = currentScreen(s);
+  const waiting =
+    s.connection.kind === 'waiting_retry' || s.connection.kind === 'stopped';
+  if (screen === 'filters') {
+    const typing = s.filterDraft?.field === 'project';
+    return uiText(
+      [
+        'Esc back',
+        'Enter apply',
+        '↑↓ choose',
+        typing ? 'Tab status' : 'Tab project',
+        ...(typing ? [] : ['q quit']),
+        ...(!typing && waiting ? ['R retry connection'] : []),
+      ].join('  '),
+    );
+  }
   const keys = ['q quit', '? help'];
-  if (currentScreen(s) !== 'home') keys.unshift('Esc back');
-  if (s.connection.kind === 'waiting_retry' || s.connection.kind === 'stopped')
-    keys.push('R retry connection');
+  if (screen === 'home') {
+    const finished = s.finishedSelected ? ['Enter fold/unfold'] : [];
+    keys.unshift('↑↓ move', 'PgUp/PgDn page', ...finished, 'f filter');
+  } else keys.unshift('Esc back');
+  if (waiting) keys.push('R retry connection');
   return uiText(keys.join('  '));
 }
 

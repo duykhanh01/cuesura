@@ -1,0 +1,434 @@
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { createServer, type Server } from 'node:http';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach } from 'vitest';
+import { CUSR_COMMANDS } from '../../src/cli/commands.ts';
+import { CONTROL_SOCKET } from '../../src/cli/output.ts';
+import { runCli } from '../../src/cli/program.ts';
+import type { CanonicalTask } from '../../src/domain/task.ts';
+import { buildTask, freezeOk, uuidOf } from './builders.ts';
+import { PACKS } from './config-fixtures.ts';
+import { ControlProxy } from './control-proxy.ts';
+import { SeededDaemon, type Reply, type TokenSpec } from './daemon-task.ts';
+import {
+  fakeGit,
+  fakeGitHub,
+  fakeHost,
+  MANIFESTS,
+  userConfig,
+} from './preflight-fakes.ts';
+import { PtySession } from './pty.ts';
+import {
+  createGrantStart,
+  proposeAndConfirm,
+  selectionFor,
+} from './runtime.ts';
+import {
+  agentData,
+  ciData,
+  gatesData,
+  PREPARE_DATA,
+  publishData,
+  USAGE,
+} from './scenario.ts';
+import type { StoreDriver } from './store-driver.ts';
+import { createAndStart, toPublish, WALL } from './store-flows.ts';
+
+// What the US1 tests share: a real daemon seeded through the real store, `cusr` on a real PTY, and the CLI
+// to compare the screen with.
+
+/** Tall and wide enough that nothing a test compares scrolls away or gets cut. */
+export const ROOMY = { cols: 140, rows: 60 } as const;
+
+const HEAD = 'a'.repeat(40);
+
+type DaemonOptions = {
+  readonly tokens?: TokenSpec[];
+  /** Extra project names in the user config, next to `acme`. */
+  readonly projects?: readonly string[];
+};
+
+type CusrOptions = {
+  readonly cols?: number;
+  readonly rows?: number;
+  readonly cwd?: string;
+  readonly env?: Record<string, string | undefined>;
+};
+
+/** Registers cleanup for the file's tests and hands out what they need. */
+export function useTui() {
+  const sessions: PtySession[] = [];
+  const daemons: SeededDaemon[] = [];
+  const proxies: ControlProxy[] = [];
+  const answering: AnsweringServer[] = [];
+  afterEach(async () => {
+    for (const s of sessions.splice(0)) s.dispose();
+    for (const p of proxies.splice(0)) await p.stop();
+    for (const a of answering.splice(0)) await a.stop();
+    for (const d of daemons.splice(0)) await d.cleanup();
+  });
+  return {
+    /** A stopped daemon to seed and start. Its clock reads now, so a time in status means something. */
+    daemon(o: DaemonOptions = {}): SeededDaemon {
+      const lines = ['acme', ...(o.projects ?? [])].map(
+        (id) =>
+          `${id}: { base_branch: main, path: /srv/${id}, repo: acme/${id} }`,
+      );
+      const sd: SeededDaemon = new SeededDaemon(
+        o.tokens ?? [],
+        {},
+        (store) => ({
+          confirm: {
+            store,
+            ports: { git: fakeGit(), github: fakeGitHub(), host: fakeHost() },
+            configInputs: () =>
+              Promise.resolve({
+                user: userConfig({ project: lines.join('\n  ') }),
+                packs: PACKS,
+                manifests: MANIFESTS,
+              }),
+            now: () => sd.clock.now(),
+          },
+        }),
+      );
+      sd.now = Date.now();
+      daemons.push(sd);
+      return sd;
+    },
+    cusr(dataDir: string, o: CusrOptions = {}): PtySession {
+      const s = new PtySession({
+        cols: o.cols ?? ROOMY.cols,
+        rows: o.rows ?? ROOMY.rows,
+        ...(o.cwd === undefined ? {} : { cwd: o.cwd }),
+        env: { CUSR_DATA_DIR: dataDir, CUSR_TOKEN_FILE: undefined, ...o.env },
+      });
+      sessions.push(s);
+      return s;
+    },
+    async proxy(target: string): Promise<ControlProxy> {
+      const p = await ControlProxy.start(target);
+      proxies.push(p);
+      return p;
+    },
+    async answering(body: string): Promise<AnsweringServer> {
+      const a = await AnsweringServer.start(body);
+      answering.push(a);
+      return a;
+    },
+  };
+}
+
+/**
+ * Answers every request with the same body: a daemon of another version, which no real daemon of this one
+ * can play. A proxy retargeted here shows the client what such a daemon looks like over the socket.
+ */
+export class AnsweringServer {
+  readonly socketPath: string;
+  readonly #dir: string;
+  readonly #server: Server;
+
+  private constructor(dir: string, body: string) {
+    this.#dir = dir;
+    this.socketPath = join(dir, CONTROL_SOCKET);
+    this.#server = createServer((req, res) => {
+      req.resume();
+      req.on('end', () => {
+        res.setHeader('content-type', 'application/json');
+        res.end(body);
+      });
+    });
+  }
+
+  static async start(body: string): Promise<AnsweringServer> {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cusr-answering-')));
+    const server = new AnsweringServer(dir, body);
+    await new Promise<void>((resolve, reject) => {
+      server.#server.once('error', reject);
+      server.#server.listen(server.socketPath, resolve);
+    });
+    return server;
+  }
+
+  async stop(): Promise<void> {
+    this.#server.closeAllConnections();
+    await new Promise<void>((resolve) => this.#server.close(() => resolve()));
+    rmSync(this.#dir, { recursive: true, force: true });
+  }
+}
+
+/** The socket of a running daemon, for a proxy to point at. */
+export function daemonSocket(sd: SeededDaemon): string {
+  if (sd.daemon === null) throw new Error('daemon not running');
+  return sd.daemon.socketPath;
+}
+
+export function taskAdd(n: number, title: string): Record<string, unknown> {
+  return {
+    request_id: uuidOf(5_000 + n),
+    kind: 'task_add',
+    project: 'acme',
+    task_id: null,
+    expected_version: null,
+    payload: { task: { title, base_branch: 'main', acceptance: ['a'] } },
+  };
+}
+
+/** Cancels through the daemon, as the CLI does; the status changes by the daemon's hand. */
+export async function cancelTask(
+  sd: SeededDaemon,
+  taskId: string,
+  n: number,
+): Promise<Reply> {
+  const shown = await sd.query('owner', { kind: 'task_show', task_id: taskId });
+  return sd.command('owner', {
+    request_id: uuidOf(6_000 + n),
+    kind: 'task_cancel',
+    project: 'acme',
+    task_id: taskId,
+    expected_version: shown.envelope.data?.['version'],
+    payload: { reason: 'stop' },
+  });
+}
+
+/** The attempt in the banner, or 0 when there is none. */
+export function reconnectAttempt(screen: string): number {
+  return Number(/Reconnecting \((\d+)\/30\)/.exec(screen)?.[1] ?? 0);
+}
+
+/** `cusr` through a proxy needs this: the proxy's data dir holds only the socket. */
+export function ownerTokenEnv(sd: SeededDaemon): Record<string, string> {
+  if (sd.daemon === null) throw new Error('daemon not running');
+  return { CUSR_TOKEN_FILE: sd.daemon.ownerTokenPath };
+}
+
+export type CliRun = {
+  readonly code: number;
+  readonly envelope: {
+    readonly ok: boolean;
+    readonly data?: Record<string, unknown>;
+  };
+};
+
+/** The real CLI against the same daemon, for what the screen is compared with. */
+export async function cliJson(
+  sd: SeededDaemon,
+  ...argv: string[]
+): Promise<CliRun> {
+  let out = '';
+  const code = await runCli(
+    { name: 'cusr', description: '', version: '0' },
+    [...argv, '--data-dir', sd.dataDir, '--json'],
+    { stdout: (t) => (out += t), stderr: () => undefined },
+    CUSR_COMMANDS,
+  );
+  return { code, envelope: JSON.parse(out) as CliRun['envelope'] };
+}
+
+export async function watermark(sd: SeededDaemon): Promise<number> {
+  const r = await sd.query('owner', { kind: 'task_board', limit: 1 });
+  return r.envelope.data?.['watermark'] as number;
+}
+
+/** Tasks to fill a list with: running, so none of them belongs in `Needs you`. */
+export function seedRunning(
+  d: StoreDriver,
+  count: number,
+  over: (n: number) => Partial<CanonicalTask> = () => ({}),
+  from = 1,
+): CanonicalTask[] {
+  return Array.from({ length: count }, (_, i) => {
+    const n = from + i;
+    const t = buildTask({
+      id: uuidOf(n),
+      title: `Task ${String(n).padStart(3, '0')}`,
+      ...over(n),
+    });
+    createAndStart(d, t);
+    return t;
+  });
+}
+
+function toCode(d: StoreDriver, t: CanonicalTask): void {
+  createAndStart(d, t);
+  d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE_DATA);
+}
+
+function toGates(d: StoreDriver, t: CanonicalTask): void {
+  toCode(d, t);
+  d.complete(
+    t.id,
+    d.pendingOne(t.id, 'start_agent').id,
+    'succeeded',
+    agentData('done'),
+  );
+}
+
+function toReview(d: StoreDriver, t: CanonicalTask): void {
+  toGates(d, t);
+  d.complete(
+    t.id,
+    d.pendingOne(t.id, 'run_gates').id,
+    'succeeded',
+    gatesData({ build: true, unit: true }),
+  );
+}
+
+/** Through the execution slot up to the first read of CI. */
+function toCi(d: StoreDriver, t: CanonicalTask): void {
+  createGrantStart(d, t);
+  toPublish(d, t, HEAD);
+  d.complete(
+    t.id,
+    d.pendingOne(t.id, 'publish').id,
+    'succeeded',
+    publishData(HEAD),
+  );
+  d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
+    pr_ref: `acme#${t.id.slice(-2)}`,
+    head_sha: HEAD,
+  });
+}
+
+/** A task stopped on the agent's question: the daemon says it needs the user. */
+export function seedQuestion(d: StoreDriver, t: CanonicalTask): void {
+  toCode(d, t);
+  d.complete(
+    t.id,
+    d.pendingOne(t.id, 'start_agent').id,
+    'succeeded',
+    agentData('needs_input', { questions: ['Which database?'] }),
+  );
+}
+
+/** One task for each thing US1 scenarios 2 and 3 name. */
+export type Sample =
+  | 'coding'
+  | 'gates'
+  | 'review'
+  | 'waiting_ci'
+  | 'question'
+  | 'unconfirmed'
+  | 'escalation'
+  | 'merge'
+  | 'cooldown'
+  | 'cancelled';
+
+export function seedEveryState(
+  d: StoreDriver,
+): Readonly<Record<Sample, CanonicalTask>> {
+  const make = (n: number, title: string): CanonicalTask =>
+    buildTask({ id: uuidOf(n), title });
+  const s = {
+    coding: make(1, 'Sample coding'),
+    gates: make(2, 'Sample gates'),
+    review: make(3, 'Sample review'),
+    waiting_ci: make(4, 'Sample waiting CI'),
+    question: make(5, 'Sample question'),
+    unconfirmed: make(6, 'Sample unconfirmed'),
+    escalation: make(7, 'Sample escalation'),
+    merge: make(8, 'Sample merge'),
+    cooldown: make(9, 'Sample cooldown'),
+    cancelled: make(10, 'Sample cancelled'),
+  };
+  toCode(d, s.coding);
+  toGates(d, s.gates);
+  toReview(d, s.review);
+
+  toCi(d, s.merge);
+  d.complete(
+    s.merge.id,
+    d.pendingOne(s.merge.id, 'await_ci').id,
+    'succeeded',
+    ciData(HEAD, { build: 'success', test: 'success' }),
+  );
+
+  seedQuestion(d, s.question);
+
+  d.must(s.unconfirmed.id, { kind: 'create_task', task: s.unconfirmed });
+
+  d.must(s.escalation.id, { kind: 'create_task', task: s.escalation });
+  d.must(s.escalation.id, {
+    kind: 'start',
+    freeze: freezeOk(s.escalation, {
+      limits: { max_wall_ms: WALL },
+      roles: {
+        coder: {
+          model: 'sonnet',
+          effort: 'medium',
+          ladder: [{ model: 'opus', effort: 'high' }],
+        },
+      },
+    }),
+  });
+  d.complete(
+    s.escalation.id,
+    d.pendingOne(s.escalation.id, 'prepare').id,
+    'succeeded',
+    PREPARE_DATA,
+  );
+  for (let i = 0; i < 2; i++)
+    d.complete(
+      s.escalation.id,
+      d.pendingOne(s.escalation.id, 'start_agent').id,
+      'failed',
+      {
+        failure_class: 'quality',
+        signature: 'C1',
+        invoked: true,
+        usage: USAGE,
+      },
+    );
+
+  toCode(d, s.cooldown);
+  d.complete(
+    s.cooldown.id,
+    d.pendingOne(s.cooldown.id, 'start_agent').id,
+    'failed',
+    {
+      failure_class: 'rate_limit',
+      reset_at: d.now + 60_000,
+      invoked: true,
+      usage: USAGE,
+    },
+  );
+
+  toCi(d, s.waiting_ci);
+  d.complete(
+    s.waiting_ci.id,
+    d.pendingOne(s.waiting_ci.id, 'await_ci').id,
+    'succeeded',
+    ciData(HEAD, { build: 'pending' }),
+  );
+
+  d.must(s.cancelled.id, { kind: 'create_task', task: s.cancelled });
+  d.must(s.cancelled.id, { kind: 'cancel', reason: 'No longer needed' });
+  return s;
+}
+
+/** A task that holds the slot and one that waits for it, for the bar's slot and queue. */
+export function seedSlotAndQueue(
+  d: StoreDriver,
+  ids: { readonly holder: number; readonly queued: number },
+): { readonly holder: CanonicalTask; readonly queued: CanonicalTask } {
+  const holder = buildTask({ id: uuidOf(ids.holder), title: 'Sample holder' });
+  const queued = buildTask({ id: uuidOf(ids.queued), title: 'Sample queued' });
+  createGrantStart(d, holder);
+  d.must(queued.id, { kind: 'create_task', task: queued });
+  proposeAndConfirm(d, queued, selectionFor(queued, 'full-review'));
+  d.must(queued.id, { kind: 'request_execution' });
+  return { holder, queued };
+}
+
+/** Both screen lines of the task with this title; throws when it is not there. */
+export function rowOf(screen: string, title: string): string {
+  const lines = screen.split('\n');
+  const at = lines.findIndex((l) => l.includes(title));
+  if (at < 0) throw new Error(`no row for ${title}\n${screen}`);
+  return `${lines[at] ?? ''}\n${lines[at + 1] ?? ''}`;
+}
+
+/** The screen line carrying the selection. */
+export function selectedLine(screen: string): string {
+  return screen.split('\n').find((l) => l.startsWith('›')) ?? '';
+}

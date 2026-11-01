@@ -20,6 +20,9 @@ export class ControlProxy {
   /** Connections accepted so far, whatever the mode. */
   connections = 0;
   mode: ProxyMode;
+  /** Sees what passes in `forward`, for a test that must know what the daemon answered. */
+  tap: ((direction: 'request' | 'response', data: Buffer) => void) | null =
+    null;
   #target: string;
   readonly #server: Server;
   readonly #open = new Set<Socket>();
@@ -71,6 +74,8 @@ export class ControlProxy {
     });
     client.pipe(upstream);
     if (this.mode === 'forward') {
+      client.on('data', (b: Buffer) => this.tap?.('request', b));
+      upstream.on('data', (b: Buffer) => this.tap?.('response', b));
       upstream.pipe(client);
       upstream.on('close', () => client.destroy());
       return;

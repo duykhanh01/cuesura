@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type {
   BoardReply,
-  CallerInfo,
+  ProjectList,
   Health,
 } from '../../../src/tui/client/schemas.ts';
 import { reduce } from '../../../src/tui/model/reduce.ts';
@@ -135,7 +135,7 @@ describe('retryConnection', () => {
 });
 
 describe('reduce', () => {
-  it('a first read brings data, clears staleness and asks who the caller is', () => {
+  it('a first read brings data, clears staleness', () => {
     const r = reduce(initialState(SIZE), succeeded(5));
     expect(r.state).toMatchObject({
       connection: { kind: 'online' },
@@ -144,16 +144,24 @@ describe('reduce', () => {
       board: { watermark: 4 },
       health: HEALTH,
     });
-    expect(r.effects).toEqual([{ type: 'load_caller' }]);
+    expect(r.effects).toEqual([]);
   });
 
-  it('does not ask again once the caller is known', () => {
-    const caller = { actor: uiText('owner') } as unknown as CallerInfo;
-    const state = run(initialState(SIZE), {
-      type: 'caller_loaded',
-      caller,
-    });
-    expect(reduce(state, succeeded()).effects).toEqual([]);
+  it('loads caller and projects with the successful round', () => {
+    const projects: ProjectList = {
+      caller: {
+        actor: uiText('owner'),
+        roles: ['read'],
+        scope: 'all',
+        trusted_confirmer: false,
+      },
+      projects: [{ id: 'acme', repo: null }],
+      profiles: [],
+    };
+    const r = reduce(initialState(SIZE), { ...succeeded(), projects });
+    expect(r.state.caller).toEqual(projects.caller);
+    expect(r.state.projects).toEqual(projects.projects);
+    expect(r.effects).toEqual([]);
   });
 
   it('a failed read marks the data stale at once and keeps it', () => {
@@ -224,6 +232,56 @@ describe('reduce', () => {
     expect(state).toMatchObject({
       size: { cols: 120, rows: 40 },
       lastUpdatedAt: 5,
+    });
+  });
+
+  describe('another token', () => {
+    const CHANGED = { type: 'credential_changed' } as const;
+    const loaded: TuiState = {
+      ...run(initialState(SIZE), succeeded(5)),
+      caller: {
+        actor: uiText('owner'),
+        roles: ['read'],
+        scope: 'all',
+        trusted_confirmer: false,
+      },
+      projects: [],
+    };
+
+    it('forgets who was asking, keeping the list until the new answer', () => {
+      const r = reduce(loaded, CHANGED);
+      expect(r.effects).toEqual([]);
+      expect(r.state).toMatchObject({ caller: null, projects: null });
+      expect(r.state.board).toBe(loaded.board);
+      // Until the new token has read it, what is on screen is not current.
+      expect(r.state.stale).toBe(true);
+    });
+
+    it('leaves a page of the old list: its position means nothing to the new token', () => {
+      const r = reduce({ ...loaded, cursors: ['c1', 'c2'] }, CHANGED);
+      expect(r.state).toMatchObject({ cursors: [], board: null });
+    });
+
+    it('keeps what is being typed in the filter, but not a choice from the old list', () => {
+      const r = reduce(
+        {
+          ...loaded,
+          screens: ['home', 'filters'],
+          filterDraft: {
+            field: 'project',
+            query: 'be',
+            project: 2,
+            status: 3,
+          },
+        },
+        CHANGED,
+      );
+      expect(r.state.filterDraft).toEqual({
+        field: 'project',
+        query: 'be',
+        project: 0,
+        status: 3,
+      });
     });
   });
 

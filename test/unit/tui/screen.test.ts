@@ -95,6 +95,13 @@ describe('colorEnabled', () => {
     expect(colorEnabled({ NO_COLOR: '' })).toBe(true);
     expect(colorEnabled({ NO_COLOR: '1' })).toBe(false);
   });
+
+  it('is off for a terminal that takes no colour by name', () => {
+    for (const TERM of ['vt100', 'vt220', 'xterm-mono', 'xterm-m'])
+      expect(colorEnabled({ TERM })).toBe(false);
+    for (const TERM of ['xterm-256color', 'screen', 'tmux-256color', 'linux'])
+      expect(colorEnabled({ TERM })).toBe(true);
+  });
 });
 
 describe('diffFrames', () => {

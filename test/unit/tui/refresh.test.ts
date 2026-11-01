@@ -1,7 +1,19 @@
-import { describe, expect, it } from 'vitest';
-import type {
-  PortError,
-  PortResult,
+import {
+  mkdtempSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { ok, type Result } from '../../../src/shared/result.ts';
+import type { ClientError, DaemonReply } from '../../../src/cli/client.ts';
+import {
+  createDaemonPort,
+  type PortError,
+  type PortResult,
 } from '../../../src/tui/client/daemon-port.ts';
 import {
   BACKOFF_MAX_MS,
@@ -12,16 +24,23 @@ import {
   REFRESH_INTERVAL_MS,
   RefreshScheduler,
   RUN_OPTIONS_TIMEOUT_MS,
-  singleFlight,
   type RefreshClock,
   type RoundResult,
 } from '../../../src/tui/client/refresh.ts';
-import type { BoardReply, Health } from '../../../src/tui/client/schemas.ts';
+import type {
+  BoardReply,
+  Health,
+  ProjectList,
+} from '../../../src/tui/client/schemas.ts';
+import { reduce } from '../../../src/tui/model/reduce.ts';
 import {
+  boardQueryKey,
+  initialState,
   nextConnection,
   RECONNECT_ATTEMPTS,
   retryConnection,
   type Connection,
+  type TuiState,
 } from '../../../src/tui/model/state.ts';
 import { uiText } from '../../../src/tui/terminal/safe-text.ts';
 
@@ -76,6 +95,11 @@ function harness(
   answer: {
     board?: (fresh: boolean) => Promise<PortResult<BoardReply>>;
     health?: () => Promise<PortResult<Health>>;
+    projects?: (
+      fresh: boolean,
+      timeoutMs: number,
+      signal: AbortSignal,
+    ) => Promise<PortResult<ProjectList | null>>;
   } = {},
 ) {
   const clock = new FakeClock();
@@ -91,6 +115,7 @@ function harness(
   const scheduler = new RefreshScheduler({
     clock,
     reads: {
+      ...(answer.projects === undefined ? {} : { projects: answer.projects }),
       board: (fresh, timeoutMs, signal) => {
         boards.push({ at: clock.t, fresh, timeoutMs, signal });
         return (
@@ -345,6 +370,25 @@ describe('RefreshScheduler', () => {
     },
   );
 
+  it('a read the token may no longer make stops at once (EC-008)', async () => {
+    const message = uiText('requires project beta');
+    const h = harness({
+      board: () =>
+        Promise.resolve({
+          ok: false,
+          error: { kind: 'rejected', code: 'forbidden', message },
+        }),
+    });
+    h.scheduler.start();
+    await h.clock.advance(1);
+    expect(h.connection()).toEqual({
+      kind: 'stopped',
+      reason: { kind: 'forbidden', message },
+    });
+    await h.clock.advance(600_000);
+    expect(h.boards).toHaveLength(1);
+  });
+
   it('a rejected read may pass, so it is retried', async () => {
     const h = harness({
       board: () =>
@@ -356,6 +400,48 @@ describe('RefreshScheduler', () => {
     h.scheduler.start();
     await h.clock.advance(1);
     expect(h.connection()).toEqual({ kind: 'reconnecting', attempt: 1 });
+    h.scheduler.stop();
+  });
+
+  it('bounds project-list retries even when board and health succeed', async () => {
+    let reads = 0;
+    const h = harness({
+      projects: () => {
+        reads += 1;
+        return Promise.resolve({ ok: false, error: REFUSED });
+      },
+    });
+    h.scheduler.start();
+    await h.clock.advance(600_000);
+    expect(h.connection()).toEqual({ kind: 'waiting_retry' });
+    expect(reads).toBe(RECONNECT_ATTEMPTS + 1);
+    expect(h.boards.every((b) => b.fresh)).toBe(true);
+    await h.clock.advance(600_000);
+    expect(reads).toBe(RECONNECT_ATTEMPTS + 1);
+  });
+
+  it('cancels a stalled project read at its deadline and discards a late answer', async () => {
+    let release = (_: PortResult<ProjectList | null>): void => undefined;
+    let signal: AbortSignal | undefined;
+    const h = harness({
+      projects: (_fresh, ms, s) => {
+        expect(ms).toBe(BOARD_TIMEOUT_MS);
+        signal = s;
+        return new Promise((resolve) => {
+          release = resolve;
+        });
+      },
+    });
+    h.scheduler.start();
+    await h.clock.advance(BOARD_TIMEOUT_MS - 1);
+    expect(h.reports).toEqual([]);
+    expect(signal?.aborted).toBe(false);
+    await h.clock.advance(1);
+    expect(signal?.aborted).toBe(true);
+    expect(h.connection()).toEqual({ kind: 'reconnecting', attempt: 1 });
+    release({ ok: true, value: null });
+    await settle();
+    expect(h.reports).toHaveLength(1);
     h.scheduler.stop();
   });
 
@@ -386,23 +472,322 @@ describe('RefreshScheduler', () => {
   });
 });
 
-describe('singleFlight', () => {
-  it('drops calls while one runs, and runs again once it ended', async () => {
-    const release: (() => void)[] = [];
-    let runs = 0;
-    const load = singleFlight(() => {
-      runs += 1;
-      return new Promise<void>((r) => release.push(r));
+describe('another token while a round is out (EC-008, EC-009)', () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+
+  /** Round by round, the scheduler as `runTui` uses it, with a generation a test moves by hand. */
+  function rounds(board: () => Promise<PortResult<BoardReply>>) {
+    const clock = new FakeClock();
+    let credential = 0;
+    const fresh: boolean[] = [];
+    const reports: RoundResult[] = [];
+    let superseded = 0;
+    let onBoard = (): void => undefined;
+    let onHealth = (): void => undefined;
+    const scheduler = new RefreshScheduler({
+      clock,
+      reads: {
+        board: (f) => {
+          fresh.push(f);
+          onBoard();
+          return board();
+        },
+        health: () => {
+          onHealth();
+          return Promise.resolve({ ok: true, value: HEALTH });
+        },
+      },
+      credential: {
+        generation: () => credential,
+        superseded: () => {
+          superseded += 1;
+        },
+      },
+      report: (r) => {
+        reports.push(r);
+        return nextConnection(
+          { kind: 'online' },
+          r.ok ? { ok: true } : r.failure,
+        );
+      },
     });
-    load();
-    load();
-    load();
-    expect(runs).toBe(1);
-    release[0]?.();
+    return {
+      clock,
+      scheduler,
+      fresh,
+      reports,
+      superseded: () => superseded,
+      /** Once, on the next read of that kind, as a token file changing at that moment would. */
+      changeOn(read: 'board' | 'health') {
+        const change = (): void => {
+          credential += 1;
+          onBoard = onHealth = () => undefined;
+        };
+        if (read === 'board') onBoard = change;
+        else onHealth = change;
+      },
+      change() {
+        credential += 1;
+      },
+    };
+  }
+
+  const answer = (): Promise<PortResult<BoardReply>> =>
+    Promise.resolve({ ok: true, value: BOARD });
+
+  it('throws away a round whose board went out before the change, and reads again at once', async () => {
+    const h = rounds(answer);
+    h.changeOn('health');
+    h.scheduler.start();
     await settle();
-    load();
-    expect(runs).toBe(2);
-    release[1]?.();
+    expect(h.superseded()).toBe(1);
+    expect(h.fresh).toEqual([true, true]);
+    expect(h.reports).toHaveLength(1);
+    h.scheduler.stop();
+  });
+
+  it('keeps a round whose board is the first to see the change: the new token asked it', async () => {
+    const h = rounds(answer);
+    h.changeOn('board');
+    h.scheduler.start();
     await settle();
+    expect(h.superseded()).toBe(0);
+    expect(h.reports).toEqual([{ ok: true, board: BOARD, health: HEALTH }]);
+    h.scheduler.stop();
+  });
+
+  it('a refusal for the old token stops nothing: the new one has not been asked', async () => {
+    const forbidden: PortResult<BoardReply> = {
+      ok: false,
+      error: {
+        kind: 'rejected',
+        code: 'forbidden',
+        message: uiText('requires project beta'),
+      },
+    };
+    const replies = [forbidden, { ok: true, value: BOARD } as const];
+    const h = rounds(() =>
+      Promise.resolve(replies.shift() ?? { ok: true, value: BOARD }),
+    );
+    h.changeOn('health');
+    h.scheduler.start();
+    await settle();
+    expect(h.superseded()).toBe(1);
+    expect(h.reports).toEqual([{ ok: true, board: BOARD, health: HEALTH }]);
+    h.scheduler.stop();
+  });
+
+  it('a change while the answer is on its way throws it away too, and leaves one chain of reads', async () => {
+    let release = (_: PortResult<BoardReply>): void => undefined;
+    const held: Promise<PortResult<BoardReply>> = new Promise((r) => {
+      release = r;
+    });
+    const replies = [held];
+    const h = rounds(() => replies.shift() ?? answer());
+    h.scheduler.start();
+    await settle();
+    h.change();
+    release({ ok: true, value: BOARD });
+    await settle();
+    expect(h.superseded()).toBe(1);
+    expect(h.reports).toHaveLength(1);
+    await h.clock.advance(2_100);
+    expect(h.fresh).toHaveLength(4);
+    h.scheduler.stop();
+  });
+
+  it('nothing runs after stop', async () => {
+    let release = (_: PortResult<BoardReply>): void => undefined;
+    const h = rounds(
+      () =>
+        new Promise((r) => {
+          release = r;
+        }),
+    );
+    h.scheduler.start();
+    await settle();
+    h.change();
+    h.scheduler.stop();
+    release({ ok: true, value: BOARD });
+    await h.clock.advance(5_000);
+    expect(h.superseded()).toBe(0);
+    expect(h.fresh).toHaveLength(1);
+  });
+
+  // The real port, scheduler and reducer: the state the finding was seen in. The file is swapped from inside the
+  // board call, which is exactly between the token read for the board and the one for the health.
+  it("never shows the old token's list as current beside the new caller", async () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cusr-rotate-')));
+    dirs.push(dir);
+    const OLD = 'a'.repeat(43);
+    const NEW = 'b'.repeat(43);
+    const file = join(dir, 'owner.token');
+    const writeToken = (token: string): void => {
+      writeFileSync(`${file}.new`, `${token}\n`, { mode: 0o600 });
+      renameSync(`${file}.new`, file);
+    };
+    writeToken(OLD);
+
+    const row = (project: string) => ({
+      task_id: `019a0000-0000-7000-8000-00000000000${project === 'acme' ? 1 : 2}`,
+      project,
+      title: `In ${project}`,
+      status: 'WAITING',
+      wait_code: 'agent_question',
+      step: 'code',
+      mode: 'direct-pr',
+      status_since: 1,
+      version: 3,
+      priority: 0,
+      pr_ref: null,
+      needs_user: false,
+    });
+    const items: Record<string, unknown[]> = {
+      [OLD]: [row('acme'), row('beta')],
+      [NEW]: [row('acme')],
+    };
+    const projects: Record<string, string[]> = {
+      [OLD]: ['acme', 'beta'],
+      [NEW]: ['acme'],
+    };
+    const WATERMARK = 7;
+    let swapOnBoard = false;
+    const envelope = (data: unknown): Result<DaemonReply, ClientError> =>
+      ok({
+        status: 200,
+        envelope: { schema_version: 1, ok: true, data, error: null },
+      });
+    const port = createDaemonPort({
+      dataDir: dir,
+      env: {},
+      call: (o) => {
+        const token = o.token;
+        const body = o.body as
+          { kind: string; if_changed_since?: number } | undefined;
+        if (body === undefined)
+          return Promise.resolve(
+            envelope({
+              store: { writable: true },
+              dispatch: {},
+              slot: null,
+              queue_length: 0,
+              now: 1,
+            }),
+          );
+        if (body.kind === 'project_list')
+          return Promise.resolve(
+            envelope({
+              caller: {
+                actor: 'x',
+                roles: ['read'],
+                scope: token === NEW ? 'limited' : 'all',
+                trusted_confirmer: false,
+              },
+              projects: projects[token]?.map((id) => ({ id, repo: null })),
+              profiles: [],
+            }),
+          );
+        if (swapOnBoard) {
+          swapOnBoard = false;
+          writeToken(NEW);
+        }
+        return Promise.resolve(
+          envelope(
+            body.if_changed_since === WATERMARK
+              ? { unchanged: true, watermark: WATERMARK }
+              : {
+                  unchanged: false,
+                  watermark: WATERMARK,
+                  items: items[token],
+                  next_cursor: null,
+                  counts: { by_status: { WAITING: items[token]?.length ?? 0 } },
+                  attention: { items: [], truncated: false },
+                  queue: { length: 0 },
+                  terminal_policy: {},
+                  slot: null,
+                },
+          ),
+        );
+      },
+    });
+
+    const clock = new FakeClock();
+    let state: TuiState = initialState({ cols: 100, rows: 30 });
+    const seen: TuiState[] = [];
+    let credential = port.credentialGeneration();
+    const dispatch = (m: Parameters<typeof reduce>[1]): void => {
+      state = reduce(state, m).state;
+      seen.push(state);
+    };
+    const notice = (): void => {
+      if (port.credentialGeneration() === credential) return;
+      credential = port.credentialGeneration();
+      dispatch({ type: 'credential_changed' });
+    };
+    const scheduler = new RefreshScheduler({
+      clock,
+      reads: {
+        board: (fresh, ms, signal) =>
+          port.board(
+            fresh || state.board === null
+              ? {}
+              : { if_changed_since: state.board.watermark },
+            ms,
+            signal,
+          ),
+        health: (ms, signal) => port.health(ms, signal),
+        projects: (fresh, ms, signal) =>
+          fresh ||
+          state.caller === null ||
+          port.credentialGeneration() !== credential
+            ? port.projects(ms, signal)
+            : Promise.resolve({ ok: true, value: null }),
+      },
+      credential: {
+        generation: () => port.credentialGeneration(),
+        superseded: notice,
+      },
+      report: (r) => {
+        notice();
+        dispatch(
+          r.ok
+            ? {
+                type: 'read_succeeded',
+                board: r.board,
+                health: r.health,
+                at: clock.t,
+                queryKey: boardQueryKey(state),
+                ...(r.projects === undefined ? {} : { projects: r.projects }),
+              }
+            : { type: 'read_failed', failure: r.failure },
+        );
+        return state.connection;
+      },
+    });
+    const titles = (s: TuiState): string[] =>
+      (s.board?.items ?? []).map((t) => String(t.title));
+
+    scheduler.start();
+    await clock.advance(10);
+    expect(titles(state)).toEqual(['In acme', 'In beta']);
+    expect(state.connection.kind).toBe('online');
+
+    seen.length = 0;
+    swapOnBoard = true;
+    await clock.advance(1_000);
+    scheduler.stop();
+
+    expect(titles(state)).toEqual(['In acme']);
+    expect(state.projects?.map((p) => p.id)).toEqual(['acme']);
+    expect(state.connection.kind).toBe('online');
+    expect(state.stale).toBe(false);
+    // Not for one frame: the old list is only ever on screen marked as out of date.
+    const claimedCurrent = seen.filter(
+      (s) => titles(s).includes('In beta') && !s.stale,
+    );
+    expect(claimedCurrent).toEqual([]);
   });
 });

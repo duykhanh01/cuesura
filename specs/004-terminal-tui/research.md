@@ -37,20 +37,21 @@ Ngày đối chiếu: 2026-11-01, mã nền tại commit `0a33b84`. Thông tin p
   | Việc | Giá trị |
   | --- | --- |
   | Làm mới board và health | Mỗi 1 giây, tối đa một request đang chờ cho mỗi loại |
+  | `project_list` của Home | Lần đầu, khi kết nối lại, đổi truy vấn Home hoặc token thay đổi; dùng lại dữ liệu đã đọc trong các lượt thường |
   | `task_show`, `task_progress` của task đang mở | Khi `version` của task đổi |
   | `task_explain` của task đang mở | Khi `watermark` đổi, và ít nhất 5 giây một lần |
   | Log khi theo dõi trực tiếp | Mỗi 1 giây, mỗi lần tối đa 200 bản ghi; chỉ màn log đang mở mới poll |
-  | Timeout đọc board và health | 2 giây |
+  | Timeout đọc board, health và `project_list` | 2 giây |
   | Timeout các đọc khác | 3 giây; `run_options` 5 giây vì đọc Git cục bộ |
   | Tự đối chiếu thao tác chưa rõ | Tối đa 60 lần `request_show` và 5 lần gửi lại mỗi vòng, chỉ tính khi đang kết nối |
   | Timeout ghi | 15 giây, bằng `DEFAULT_CLIENT_TIMEOUT_MS` |
   | Backoff kết nối lại | Gấp đôi từ 250 ms, trần 5 giây, không có jitter |
   | Số lượt tự thử mỗi vòng | 30, tương đương khoảng 2 phút khi socket từ chối ngay |
 
-  Board và health quyết định trạng thái kết nối: lần đầu thất bại vì kết nối hoặc timeout thì đánh dấu dữ liệu cũ ngay. Đọc khác
+  Board, health và `project_list` khi cần đọc quyết định trạng thái kết nối: lần đầu thất bại vì kết nối hoặc timeout thì đánh dấu dữ liệu cũ. Đọc khác
   thất bại chỉ đánh dấu phần đó; nếu là dữ liệu của một task thì thao tác ghi trên task đó bị khóa theo FR-044. Mỗi lượt kết nối lại là
-  một lần đọc thật, không có probe riêng: `task_board` không kèm `if_changed_since` và `GET /v1/health` chạy song song. Lượt thành công chỉ
-  tính hai request này; dữ liệu của màn đang mở đọc đồng thời với timeout riêng và không giữ lượt lại. Hết 30 lượt thì dừng, chờ `Retry connection`; mỗi
+  một lần đọc thật, không có probe riêng: `task_board` không kèm `if_changed_since`, `GET /v1/health` và `project_list` chạy song song. Lượt thành công cần
+  cả ba request; dữ liệu chi tiết task đang mở đọc đồng thời với timeout riêng và không giữ lượt lại. Hết 30 lượt thì dừng, chờ `Retry connection`; mỗi
   lần chọn bắt đầu một vòng 30 lượt mới. Lỗi `unauthenticated`, không đọc được token hoặc schema không tương thích thì dừng ngay.
 
 - **Ngân sách SC-003:** tính từ lúc daemon sẵn sàng, tức `GET /v1/health` trả lời được, trong trường hợp xấu nhất:
@@ -59,7 +60,7 @@ Ngày đối chiếu: 2026-11-01, mã nền tại commit `0a33b84`. Thông tin p
   | --- | --- |
   | Request của lượt trước đang treo đúng lúc daemon sẵn sàng | 2 giây |
   | Chờ backoff | 5 giây |
-  | Lượt đọc thành công: board và health song song | 2 giây |
+  | Lượt đọc thành công: board, health và `project_list` song song | 2 giây |
   | Dựng và ghi frame | 0,2 giây |
   | **Tổng** | **9,2 giây, dư 0,8 giây** |
 

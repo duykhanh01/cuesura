@@ -2,7 +2,7 @@
 
 **Input**: [spec.md](spec.md), [plan.md](plan.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/](contracts/), [quickstart.md](quickstart.md)
 
-**Trạng thái**: Backlog tạo ngày 2026-11-01. Phase 1 và Phase 2 (T001–T030) đã xong, tới Checkpoint A; từ Phase 3 trở đi chưa làm. Phạm vi là mốc nghiệm thu đầu US1–US5; US6 thuộc [mốc sau](#mốc-sau-us6).
+**Trạng thái**: Backlog tạo ngày 2026-11-01. Phase 1, Phase 2 và Phase 3 (T001–T039) đã xong; checkpoint US1 đạt trên Unix socket thật, kết quả ở [báo cáo nghiệm thu](acceptance-report.md#us1-t031t039). Từ Phase 4 trở đi chưa làm. Phạm vi là mốc nghiệm thu đầu US1–US5; US6 thuộc [mốc sau](#mốc-sau-us6).
 
 **Tests**: Spec yêu cầu mọi tiêu chí được kiểm trong terminal thật hoặc pseudo-terminal với daemon thật, và hiến chương nguyên tắc VII yêu cầu bằng chứng theo tầng, nên test là bắt buộc. Viết test trước, thấy nó thất bại rồi mới triển khai. Test reducer và view thuần chỉ để hồi quy, không dùng để tuyên bố đạt SC.
 
@@ -79,20 +79,20 @@
 
 ### Tests for User Story 1
 
-- [ ] T031 [P] [US1] Test PTY tại `test/contract/tui/us1-home.test.ts`: kịch bản US1 số 1, 2, 3, 5, 9; SC-002 với 100 task; đo thời gian đọc board so với timeout 2 giây; EC-005 hơn 100 task, số đếm không theo trang; EC-009 ghi chú phạm vi token; EC-013 giữ lựa chọn theo task khi sắp xếp lại; đổi bộ lọc khi không có event mới vẫn hiện đúng dữ liệu của bộ lọc mới.
-- [ ] T032 [P] [US1] Test PTY tại `test/contract/tui/us1-live.test.ts`: US1 số 4, 6, 7, 10; SC-003 gồm đổi trạng thái trong 3 giây, daemon sẵn sàng lại trong cửa sổ tự thử, và proxy T020 giữ kết nối không trả lời rồi chuyển sang daemon thật, đo đủ 10 giây; SC-011 phần daemon chết: giao diện vẫn mở, hiện mất kết nối; EC-007, EC-008, EC-010.
-- [ ] T033 [P] [US1] Test PTY ngắn tại `test/contract/tui/us1-idle.test.ts`: phiên rảnh 30 giây tạo 0 event, 0 command và không chiếm slot; poll trả `unchanged`. Đây là kiểm tra sớm, không tuyên bố đạt SC-009.
-- [ ] T034 [P] [US1] Test thời gian thật tại `test/reliability/tui/reconnect-window.test.ts`: SC-003 phần hết 30 lượt, không tự kết nối lại, giữ nội dung đang nhập, `Retry connection` có dữ liệu trong 10 giây.
+- [X] T031 [P] [US1] Test PTY tại `test/contract/tui/us1-home.test.ts`: kịch bản US1 số 1, 2, 3, 5, 9; SC-002 với 100 task; đo thời gian đọc board so với timeout 2 giây; EC-005 hơn 100 task, số đếm không theo trang; EC-009 ghi chú phạm vi token; EC-013 giữ lựa chọn theo task khi sắp xếp lại; đổi bộ lọc khi không có event mới vẫn hiện đúng dữ liệu của bộ lọc mới.
+- [X] T032 [P] [US1] Test PTY tại `test/contract/tui/us1-live.test.ts`: US1 số 4, 6, 7, 10; SC-003 gồm đổi trạng thái trong 3 giây, daemon sẵn sàng lại trong cửa sổ tự thử, và proxy T020 giữ kết nối không trả lời rồi chuyển sang daemon thật, đo đủ 10 giây; SC-011 phần daemon chết: giao diện vẫn mở, hiện mất kết nối; EC-007, EC-008, EC-010.
+- [X] T033 [P] [US1] Test PTY ngắn tại `test/contract/tui/us1-idle.test.ts`: phiên rảnh 30 giây tạo 0 event, 0 command và không chiếm slot; poll trả `unchanged`. Đây là kiểm tra sớm, không tuyên bố đạt SC-009.
+- [X] T034 [P] [US1] Test thời gian thật tại `test/reliability/tui/reconnect-window.test.ts`: SC-003 phần hết 30 lượt, không tự kết nối lại, giữ nội dung đang nhập, `Retry connection` có dữ liệu trong 10 giây.
 
 ### Implementation for User Story 1
 
-- [ ] T035 [P] [US1] Dựng mô tả hoạt động từ `status`, `wait_code`, `step`, `mode` tại `src/tui/model/activity.ts`; mã chưa có trong bảng hiện nguyên mã, không đoán. Test tại `test/unit/tui/activity.test.ts` phủ mọi `DetailCode` (FR-006).
-- [ ] T036 [US1] Dựng màn Home tại `src/tui/views/home.ts`: thanh daemon, slot, hàng đợi và thời điểm cập nhật cuối; nhóm `Needs you` với việc cần làm và số lượng; danh sách có thời gian ở trạng thái, `status_since` là `null` thì ghi "unavailable"; task đã kết thúc thu gọn và mở ra được (FR-005, FR-006, FR-007, FR-010, EC-005).
-- [ ] T037 [US1] Thêm lọc project và status cùng phân trang tại `src/tui/model/reduce.ts` và `src/tui/views/filters.ts`: mỗi lần mở bắt đầu không lọc; bộ lọc project đang áp dụng luôn hiện; đổi `project`, `status`, `scope`, `limit` hoặc `cursor` thì bỏ `watermark` (FR-008).
-- [ ] T038 [US1] Nối làm mới, watermark, dữ liệu cũ, banner `Reconnecting (n/30)`, `Retry connection` và các lỗi dừng tại `src/tui/main.ts` và `src/tui/views/disconnected.ts`; đọc không tạo mutation (FR-009, FR-010, FR-021, EC-007, EC-008).
-- [ ] T039 [US1] Thêm thông báo cho terminal không có màu, chữ ký hiệu trạng thái và ghi chú token giới hạn tại `src/tui/views/home.ts` và `src/tui/model/activity.ts` (FR-035, EC-003, EC-009).
+- [X] T035 [P] [US1] Dựng mô tả hoạt động từ `status`, `wait_code`, `step`, `mode` tại `src/tui/model/activity.ts`; mã chưa có trong bảng hiện nguyên mã, không đoán. Test tại `test/unit/tui/activity.test.ts` phủ mọi `DetailCode` (FR-006).
+- [X] T036 [US1] Dựng màn Home tại `src/tui/views/home.ts`: thanh daemon, slot, hàng đợi và thời điểm cập nhật cuối; nhóm `Needs you` với việc cần làm và số lượng; danh sách có thời gian ở trạng thái, `status_since` là `null` thì ghi "unavailable"; task đã kết thúc thu gọn và mở ra được (FR-005, FR-006, FR-007, FR-010, EC-005).
+- [X] T037 [US1] Thêm lọc project và status cùng phân trang tại `src/tui/model/reduce.ts` và `src/tui/views/filters.ts`: mỗi lần mở bắt đầu không lọc; bộ lọc project đang áp dụng luôn hiện; đổi `project`, `status`, `scope`, `limit` hoặc `cursor` thì bỏ `watermark` (FR-008).
+- [X] T038 [US1] Nối làm mới, watermark, dữ liệu cũ, banner `Reconnecting (n/30)`, `Retry connection` và các lỗi dừng tại `src/tui/main.ts` và `src/tui/views/disconnected.ts`; đọc không tạo mutation (FR-009, FR-010, FR-021, EC-007, EC-008).
+- [X] T039 [US1] Thêm thông báo cho terminal không có màu, chữ ký hiệu trạng thái và ghi chú token giới hạn tại `src/tui/views/home.ts` và `src/tui/model/activity.ts` (FR-035, EC-003, EC-009).
 
-**Checkpoint**: US1 đạt T031, T032, T033, T034; thoát giao diện không ảnh hưởng task và daemon (FR-004).
+**Checkpoint**: US1 đạt T031, T032, T033, T034; thoát giao diện không ảnh hưởng task và daemon (FR-004). Chưa đạt, xem dòng Trạng thái đầu file.
 
 ---
 
