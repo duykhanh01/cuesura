@@ -8,6 +8,10 @@ Thuật ngữ miền dùng khi mô tả việc điều phối agent, giới hạ
 Lựa chọn cách đưa kết quả task tới PR, do người dùng xác nhận trước khi chạy. Hai chế độ là `direct-pr` và `full-review`.
 _Avoid_: Độ khó task, tự động suy chế độ từ kích thước
 
+**Quy tắc dispatch**:
+Chỉ dẫn do người dùng khai trong `runtime.dispatch` để assistant đề xuất profile, chế độ thực thi và binding cho một task. Daemon kiểm tra lựa chọn lúc nạp cấu hình nhưng không đọc điều kiện và không tự chọn; người dùng vẫn xác nhận từng lần chạy.
+_Avoid_: Định tuyến tự động, chọn model theo kích thước
+
 **Direct PR (`direct-pr`)**:
 Chế độ đưa thay đổi qua gate và công bố PR mà không gọi reviewer; các kiểm tra CI và quyền merge vẫn áp dụng.
 _Avoid_: Bỏ kiểm tra, tự merge

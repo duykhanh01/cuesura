@@ -7,6 +7,7 @@ import {
   approveCommand,
   cancelCommand,
   confirmCommand,
+  dispatchCommand,
   doctorCommand,
   explainCommand,
   historyCommand,
@@ -23,6 +24,7 @@ import type { CliCommand } from './program.ts';
 export const CUSR_COMMANDS: readonly CliCommand[] = [
   statusCommand,
   doctorCommand,
+  dispatchCommand,
   inboxCommand,
   answerCommand,
   yoloCommand,

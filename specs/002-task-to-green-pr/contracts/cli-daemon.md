@@ -33,6 +33,7 @@ qua amend-policy của feature 002; tạo task mới nếu cần đổi. Không 
 | `cusr task show/list/explain/history` | read; list có `--limit` tối đa 100 và cursor; show/explain nhận ID |
 | `cusr task logs ID --after CURSOR [--follow]` | read; snapshot hữu hạn hoặc stream JSONL có seq/cursor; một follow session tối đa 1 giờ, có thể nối lại |
 | `cusr task confirm/cancel/recheck ID` | operate; version/dedup; recheck chọn cấu hình/PR/drain/worktree theo task, không gọi agent; với `worktree_changed` thì nhận tree đã quan sát làm mốc của task rồi chạy lại bước |
+| `cusr dispatch` | read; trả `modes`, `rules`, `default` từ `runtime.dispatch`; không chứa secret, không theo project, không chọn thay người dùng |
 | `cusr inbox`, `cusr answer QUESTION --file FILE --expected-version N` | read/operate; câu trả lời đầu thắng, ràng buộc revision/version |
 | `cusr task approve ID --kind escalation --step STEP --rung N` | admin; task/revision/policy hash đúng, không cấp merge |
 | `cusr task retry/amend-policy`, merge approval, yolo | unsupported_feature, exit 2; không tạo mutation nghiệp vụ |
@@ -113,6 +114,7 @@ NormalizedUser để runtime còn biết allowlisted remote.
 | User `projects.<id>.repo` | `owner/repo` GitHub slug, immutable repo ID lấy ở preflight; khớp remote allowlist |
 | User `runtime` | Object closed: data_dir, limits, tool_paths, credential_refs, access_tokens và harness_isolation; chỉ owner sửa |
 | User `runtime.harness_isolation.<harness>` | internal_required mặc định hoặc allow_external_verified; mode sau chỉ được chọn khi S0.1 proof còn hợp lệ, không nhận từ cusr.yaml/task/agent |
+| User `runtime.dispatch` | `rules[]` gồm `when`, `why`, `profile`, `mode`, `use[]`; `default` bắt buộc, cùng các khóa trừ `when`, `why` tùy chọn. `use[]` có thứ tự, mỗi mục `{worker, reviewer?}` dạng `harness/model/effort`. Lúc nạp: profile tồn tại và cho phép, mode được phép, `worker` khớp binding của `coder` và `fixer`, `reviewer` khớp binding của `reviewer`, `full-review` phải có còn `direct-pr` không được có reviewer. Daemon không đọc `when`, không xếp `use`; không thuộc hash chính sách của task |
 | User `runtime.limits` | Các trần có default ở research R-04/R-11; số nguyên dương, hữu hạn; task mới chụp snapshot/hash |
 | User `runtime.tool_paths` | git/gh/systemd-run/bwrap/flock absolute executable; hash/version được doctor ghi |
 | User `runtime.credential_refs` | File reference cho GitHub/harness, không copy secret vào snapshot |

@@ -158,6 +158,7 @@ describe('runtime config', () => {
         'direct-pr': { when_to_use: null },
         'full-review': { when_to_use: null },
       },
+      dispatch: null,
     } satisfies RuntimeConfig);
   });
 
@@ -198,6 +199,7 @@ describe('runtime config', () => {
       modes: {
         'full-review': { when_to_use: 'changes touching auth or data' },
       },
+      dispatch: null,
     });
   });
 

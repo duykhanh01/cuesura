@@ -295,6 +295,47 @@ export const AccessTokenSchema = z
   .strict();
 export type AccessTokenSpec = z.infer<typeof AccessTokenSchema>;
 
+/** `harness/model/effort`, the form `--worker` and `--reviewer` take. */
+const RunChoiceTextSchema = z
+  .string()
+  .regex(
+    new RegExp(`^[^/\\s]+/[^/\\s]+/(${EFFORTS.join('|')})$`),
+    'Use harness/model/effort',
+  );
+
+const DispatchChoiceSchema = z
+  .object({
+    profile: z.string().min(1),
+    mode: z.enum(EXECUTION_MODES),
+    /** Ordered alternatives for the assistant to propose from; cusrd never ranks them. */
+    use: z
+      .array(
+        z
+          .object({
+            worker: RunChoiceTextSchema,
+            reviewer: RunChoiceTextSchema.optional(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(16),
+    why: z.string().min(1).max(4_000).optional(),
+  })
+  .strict();
+
+const DispatchRuleSchema = DispatchChoiceSchema.extend({
+  when: z.string().min(1).max(4_000),
+  why: z.string().min(1).max(4_000),
+}).strict();
+
+export const DispatchSchema = z
+  .object({
+    rules: z.array(DispatchRuleSchema).max(100),
+    default: DispatchChoiceSchema,
+  })
+  .strict();
+export type RawDispatch = z.infer<typeof DispatchSchema>;
+
 /** Runtime limits override defaults individually; check cross-field constraints after merging them. */
 export const RuntimeSchema = z
   .object({
@@ -318,6 +359,11 @@ export const RuntimeSchema = z
         z.object({ when_to_use: z.string().min(1).max(4_000) }).strict(),
       )
       .optional(),
+    /**
+     * Guidance for the assistant that proposes run settings, served by `cusr dispatch`. cusrd checks the
+     * choices at load and never reads `when`; the user still confirms the selection (docs/architecture.md §5.1).
+     */
+    dispatch: DispatchSchema.optional(),
   })
   .strict();
 export type RawRuntime = z.infer<typeof RuntimeSchema>;

@@ -14,6 +14,7 @@ description: >-
 cusr --help
 cusr task --help
 cusr --version --json
+cusr dispatch --help
 cusr task add --help
 cusr task propose --help
 cusr task confirm --help
@@ -40,8 +41,9 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
 # PROJECT and BASE: operator-supplied configured project ID and target branch.
 # PROFILE, WORKER, REVIEWER, FALLBACKS: operator-supplied allowed run settings,
 # matching the effective project configuration. Do not guess names or bindings.
-# This CLI has no command listing profiles/bindings or their when_to_use guidance;
-# ask the operator for missing values and guidance before proposing a run.
+# Read run-setting guidance with `cusr dispatch` before proposing a run. An empty
+# rules list with a default is valid: use the default. If default is null, ask the
+# operator for the values and guidance; do not guess.
 # TASK_ID, VERSION, RUN_DIGEST: task show -> task_id, version, run_config.digest.
 # Request IDs are UUIDs: retain one per mutation; exact delivery retries reuse it
 # with unchanged input/version. After a conflict or changed decision, reread state
@@ -130,6 +132,14 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
 ## Propose run settings
 
 ```sh
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
+  cusr dispatch --json
+# data.rules[]: {when, why, profile, mode, use[]}; data.default has the same choice
+# fields; data.modes holds when_to_use. Precedence: an explicit user instruction,
+# then the best-fit `when`, then default. You match `when`; the daemon never does.
+# use[] is ordered: propose the first unless the user or a stated reason says
+# otherwise. Copy worker/reviewer verbatim and name the matched rule in --reason.
+# A proposal is not approval: the user still confirms the digest.
 # Bindings: HARNESS/MODEL/EFFORT, from the operator's configured allowlist.
 # Set VERSION from a fresh task show before each NEW mutation.
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \

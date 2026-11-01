@@ -646,6 +646,13 @@ export const inboxCommand: CliCommand = {
     ),
 };
 
+export const dispatchCommand: CliCommand = {
+  name: 'dispatch',
+  description: 'Show the configured guidance for choosing run settings',
+  options: [DATA_DIR],
+  run: (values, json, io) => query(values, { kind: 'dispatch' }, json, io),
+};
+
 export const answerCommand: CliCommand = {
   name: 'answer',
   description:

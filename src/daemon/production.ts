@@ -485,6 +485,7 @@ export async function productionControl(opts: {
         drain: (taskId) => drainRound(drainDeps, taskId),
         confirm: { store, ports, configInputs, now },
         logs: { dataDir: opts.dataDir, redactor: opts.redactor },
+        dispatch: runtime,
         doctor: {
           dataDir: opts.dataDir,
           host,

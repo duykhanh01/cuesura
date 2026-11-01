@@ -25,6 +25,7 @@ import type {
   AccessTokenSpec,
   RawProfile,
   RawRole,
+  RawDispatch,
   RawRuntime,
   RawStep,
   RawUserConfig,
@@ -277,6 +278,7 @@ export type RuntimeConfig = {
   harness_isolation: Record<string, HarnessInnerModePolicy>;
   /** Allowed execution modes with their guidance; both when `runtime.modes` is absent. */
   modes: Partial<Record<ExecutionMode, { when_to_use: string | null }>>;
+  dispatch: RawDispatch | null;
 };
 
 export function mergeRuntimeLimits(
@@ -329,5 +331,6 @@ export function normalizeRuntime(
                 : [[m, { when_to_use: r.modes[m].when_to_use }]],
             ),
           ),
+    dispatch: r.dispatch ?? null,
   };
 }

@@ -5,6 +5,7 @@ import { err, ok, type Result } from '../shared/result.ts';
 import type { Workflow } from '../domain/workflow.ts';
 import { findUnsupported, type UnsupportedFeature } from './capabilities.ts';
 import {
+  checkDispatch,
   checkPredicates,
   checkRuntime,
   runChecks,
@@ -108,6 +109,11 @@ type AnalyzeInput = {
   files: { user: string; project: string | null };
   packHashes: Record<string, Hash>;
   maxProfileDepth: number;
+  /**
+   * `runtime.dispatch` guides proposals from the configuration as loaded. Set by `validateConfig`; a task's
+   * re-analysis after overrides leaves it out, since guidance must not constrain an allowed override.
+   */
+  checkGuidance?: boolean;
 };
 
 export function analyze(input: AnalyzeInput): Result<Validated, Diagnostic[]> {
@@ -162,6 +168,8 @@ export function analyze(input: AnalyzeInput): Result<Validated, Diagnostic[]> {
       atProject: input.atProject,
     }),
   );
+  if (input.checkGuidance === true)
+    diags.push(...checkDispatch(rawUser.runtime, user, profiles, input.atUser));
   if (diags.length > 0) return err(diags);
 
   const config: ValidatedConfig = {
@@ -292,6 +300,7 @@ export function validateConfig(
     files: { user: input.user.file, project: input.project?.file ?? null },
     packHashes,
     maxProfileDepth: limits.max_profile_depth,
+    checkGuidance: true,
   });
   if (!result.ok) diags.push(...result.error);
   if (diags.length > 0) return err(sortDiagnostics(dedupe(diags)));
