@@ -442,6 +442,7 @@ describe('daemon control socket (T026)', () => {
         `UPDATE command_ledger SET result_json = '{"cancelled":true}' WHERE request_id = ?`,
       )
       .run(cancel()['request_id']);
+    raw.exec('ALTER TABLE command_ledger DROP COLUMN project');
     raw.prepare('UPDATE schema_meta SET version = 2').run();
     raw.close();
 

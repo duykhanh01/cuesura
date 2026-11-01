@@ -879,6 +879,57 @@ async function readRepoIdentity(
   return ok(String(body.id));
 }
 
+export type LocalBaseError = {
+  /** `invalid`: the file is there and cannot be used. `unavailable`: the base could not be read. */
+  readonly kind: 'invalid' | 'unavailable';
+  readonly detail: string;
+};
+
+/**
+ * `cusr.yaml` at the base as this machine knows it, for a read that must stay quick: unlike preflight it
+ * does not fetch, so it may lag the remote. Start fetches and checks again.
+ */
+export async function readLocalBaseConfig(
+  port: GitPort,
+  path: string,
+  baseBranch: string,
+): Promise<
+  Result<
+    { readonly base_sha: string; readonly config: ConfigSource | null },
+    LocalBaseError
+  >
+> {
+  try {
+    const sha = await git(
+      port,
+      path,
+      [
+        'rev-parse',
+        '--verify',
+        '--quiet',
+        `refs/remotes/origin/${baseBranch}^{commit}`,
+      ],
+      'base',
+    );
+    if (sha.code !== 0)
+      return err({
+        kind: 'unavailable',
+        detail: `origin/${baseBranch} is not available in ${path}`,
+      });
+    const base_sha = sha.stdout.trim();
+    const config = await readProjectConfig(port, path, base_sha);
+    return config.ok
+      ? ok({ base_sha, config: config.value })
+      : err({ kind: 'invalid', detail: config.error.message });
+  } catch (e) {
+    if (e instanceof Infra)
+      return err({ kind: 'unavailable', detail: e.detail });
+    if (e instanceof GitRefused)
+      return err({ kind: 'unavailable', detail: `git refused: ${e.reason}` });
+    throw e;
+  }
+}
+
 // ---- What daemon 002 can run (software_dev@1, human decisions, external confirmation) ----
 
 /** Pure: checks the validated config as is; it never drops a role or rebinds to pass (FR-002.05). */

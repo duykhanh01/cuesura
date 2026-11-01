@@ -55,6 +55,25 @@ export const pureCoreRules = {
   'no-restricted-properties': ['error', ...pureCoreRestrictedProperties],
 };
 
+/** FR-036: the interface reaches business data only through the daemon. */
+export const tuiRestrictedImports = {
+  patterns: [
+    {
+      group: [
+        '**/store/**',
+        '**/store',
+        '**/engine/**',
+        '**/engine',
+        '**/daemon/**',
+        '**/daemon',
+        'better-sqlite3',
+      ],
+      message:
+        'The interface must not import the store, engine, daemon, or SQLite; go through the daemon port.',
+    },
+  ],
+};
+
 export const pureCoreFiles = [
   'src/engine/**/*.ts',
   'src/domain/**/*.ts',
@@ -164,6 +183,10 @@ export default tseslint.config(
         },
       ],
     },
+  },
+  {
+    files: ['src/tui/**/*.ts'],
+    rules: { 'no-restricted-imports': ['error', tuiRestrictedImports] },
   },
   {
     // Only the daemon writes to the database; runners and adapters return facts.

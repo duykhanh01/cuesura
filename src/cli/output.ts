@@ -40,6 +40,24 @@ export function errorEnvelope(error: EnvelopeError): Envelope<never> {
   return { schema_version: 1, ok: false, data: null, error };
 }
 
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** The full shape, both branches, so a caller may touch `error.code` once this says yes. */
+export function isEnvelope(v: unknown): v is Envelope {
+  if (!isRecord(v) || v['schema_version'] !== 1) return false;
+  if (v['ok'] === true) return 'data' in v;
+  if (v['ok'] !== false) return false;
+  const e = v['error'];
+  return (
+    isRecord(e) &&
+    typeof e['code'] === 'string' &&
+    typeof e['message'] === 'string' &&
+    isRecord(e['details']) &&
+    (e['request_id'] === null || typeof e['request_id'] === 'string')
+  );
+}
+
 /** One JSON object per line; finite output is exactly one such line. */
 export function renderEnvelope(envelope: Envelope): string {
   return `${JSON.stringify(envelope)}\n`;

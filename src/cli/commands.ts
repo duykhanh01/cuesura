@@ -1,18 +1,24 @@
 import { statusCommand } from './client.ts';
 import { logsCommand } from './logs.ts';
+import { projectListCommand } from './projects.ts';
+import { requestShowCommand } from './requests.ts';
 import {
   addCommand,
   amendPolicyCommand,
   answerCommand,
   approveCommand,
+  boardCommand,
   cancelCommand,
   confirmCommand,
+  contentCommand,
   dispatchCommand,
   doctorCommand,
   explainCommand,
   historyCommand,
   inboxCommand,
   listCommand,
+  optionsCommand,
+  progressCommand,
   proposeCommand,
   recheckCommand,
   retryCommand,
@@ -41,4 +47,10 @@ export const CUSR_COMMANDS: readonly CliCommand[] = [
   approveCommand,
   retryCommand,
   amendPolicyCommand,
+  requestShowCommand,
+  projectListCommand,
+  boardCommand,
+  contentCommand,
+  progressCommand,
+  optionsCommand,
 ];

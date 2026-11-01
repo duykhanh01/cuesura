@@ -9,6 +9,8 @@ export type CommandRecord = {
   actor: string;
   kind: string;
   command_hash: string;
+  /** Project the request was admitted for; null only on rows older than migration 004 with no task. */
+  project: string | null;
   task_id: string | null;
   assigned_ids: string[];
   status: 'admitted' | 'completed';
@@ -22,6 +24,7 @@ type CommandRow = {
   actor: string;
   kind: string;
   command_hash: string;
+  project: string | null;
   task_id: string | null;
   assigned_ids_json: string;
   status: 'admitted' | 'completed';
@@ -36,6 +39,7 @@ function toRecord(r: CommandRow): CommandRecord {
     actor: r.actor,
     kind: r.kind,
     command_hash: r.command_hash,
+    project: r.project,
     task_id: r.task_id,
     assigned_ids: JSON.parse(r.assigned_ids_json) as string[],
     status: r.status,
@@ -77,6 +81,7 @@ export function admitCommand(
     actor: string;
     kind: string;
     command_hash: string;
+    project?: string | null;
     task_id: string | null;
     assigned_ids: readonly string[];
     now: number;
@@ -97,13 +102,14 @@ export function admitCommand(
       return ok({ kind: 'existing', record: prior });
     }
     db.prepare(
-      `INSERT INTO command_ledger (request_id, actor, kind, command_hash, task_id, assigned_ids_json, status, admitted_at, completed_at, result_json)
-       VALUES (?, ?, ?, ?, ?, ?, 'admitted', ?, NULL, NULL)`,
+      `INSERT INTO command_ledger (request_id, actor, kind, command_hash, project, task_id, assigned_ids_json, status, admitted_at, completed_at, result_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'admitted', ?, NULL, NULL)`,
     ).run(
       input.request_id,
       input.actor,
       input.kind,
       input.command_hash,
+      input.project ?? null,
       input.task_id,
       canonicalJson(input.assigned_ids),
       input.now,

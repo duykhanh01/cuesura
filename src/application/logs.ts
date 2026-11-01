@@ -39,6 +39,7 @@ const LogsQuerySchema = z
       .min(1)
       .max(LOG_PAGE_RECORDS)
       .default(LOG_PAGE_RECORDS),
+    attempt_id: UuidSchema.optional(),
   })
   .strict();
 
@@ -47,6 +48,7 @@ export type LogEntry =
       readonly seq: number;
       readonly cursor: number;
       readonly operation_id: string;
+      readonly attempt_id: string | null;
       readonly step: string | null;
       readonly at: string;
       readonly kind: string;
@@ -56,6 +58,7 @@ export type LogEntry =
       readonly seq: number;
       readonly cursor: number;
       readonly operation_id: string;
+      readonly attempt_id: string | null;
       readonly gap: { readonly records: number; readonly reason: string };
     };
 
@@ -121,6 +124,13 @@ export function taskLogs(
     if (position <= q.data.after) continue;
     if (out.length >= q.data.limit || bytes >= LOG_PAGE_BYTES) break;
     const op = s.operations[id];
+    const attemptId = op?.attempt_id ?? null;
+    // Another attempt's records are passed over, not hidden: the cursor still counts them, so it stays the
+    // task's cursor and a reader can drop the filter and resume from the same place.
+    if (q.data.attempt_id !== undefined && attemptId !== q.data.attempt_id) {
+      cursor = position;
+      continue;
+    }
     let loaded = cache.get(id);
     if (loaded === undefined) {
       loaded = op === undefined ? 'operation unknown' : openRecords(deps, op);
@@ -134,6 +144,7 @@ export function taskLogs(
         seq: position,
         cursor: position,
         operation_id: id,
+        attempt_id: attemptId,
         gap: {
           records: position - Math.max(first - 1, q.data.after),
           reason:
@@ -155,6 +166,7 @@ export function taskLogs(
         seq,
         cursor: seq,
         operation_id: id,
+        attempt_id: attemptId,
         step,
         at: r.at,
         kind: r.kind,

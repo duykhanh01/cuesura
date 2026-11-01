@@ -6,14 +6,19 @@
  */
 import { answerQuestion } from '../application/answer.ts';
 import { approveEscalation } from '../application/approve.ts';
+import { statusSinceReader, taskBoard } from '../application/board.ts';
 import { cancelTask } from '../application/cancel.ts';
 import { runDoctor, type DoctorDeps } from '../application/doctor.ts';
 import { inbox } from '../application/inbox.ts';
 import { taskLogs, type LogsDeps } from '../application/logs.ts';
+import { taskProgress } from '../application/progress.ts';
+import { projectList } from '../application/projects.ts';
+import { runOptions } from '../application/run-options.ts';
 import {
   questionShow,
   taskAdd,
   taskConfirm,
+  taskContent,
   taskExplain,
   taskHistory,
   taskList,
@@ -57,6 +62,7 @@ export function taskControl(deps: TaskControlDeps): {
   queries: Record<string, QueryHandler>;
 } {
   const { store, logs, doctor } = deps;
+  const statusSince = statusSinceReader(store);
   return {
     commands: {
       task_add: (admitted, input, caller) =>
@@ -88,6 +94,20 @@ export function taskControl(deps: TaskControlDeps): {
       task_explain: (caller, body) =>
         reply(taskExplain(store, caller, body, deps.now())),
       question_show: (caller, body) => reply(questionShow(store, caller, body)),
+      task_board: (caller, body) =>
+        reply(taskBoard({ store, statusSince }, caller, body)),
+      task_content: (caller, body) => reply(taskContent(store, caller, body)),
+      task_progress: (caller, body) => reply(taskProgress(store, caller, body)),
+      project_list: async (caller, body) =>
+        reply(
+          await projectList(
+            { configInputs: deps.confirm.configInputs, now: deps.now },
+            caller,
+            body,
+          ),
+        ),
+      run_options: async (caller, body) =>
+        reply(await runOptions(deps.confirm, caller, body)),
       dispatch: (_caller, body) =>
         reply(dispatchGuidance(deps.dispatch ?? null, body)),
       ...(logs === undefined

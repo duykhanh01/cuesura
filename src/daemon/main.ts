@@ -34,6 +34,7 @@ import {
   type CommandInput,
   type CommandKind,
 } from '../application/commands.ts';
+import { requestShow } from '../application/requests.ts';
 import { httpStatusFor } from '../cli/errors.ts';
 import { okEnvelope } from '../cli/output.ts';
 import type { RuntimeConfig } from '../config/normalize.ts';
@@ -433,7 +434,23 @@ export async function startDaemon(
   });
   const commands = { ...opts.commands, ...extra.commands };
   const inFlight = new Map<string, Promise<Reply>>();
-  const queries = { ...opts.queries, ...extra.queries };
+  const queries: Readonly<Record<string, QueryHandler>> = {
+    ...opts.queries,
+    ...extra.queries,
+    // Here because only this scope knows which requests are running.
+    request_show: (caller, body) => {
+      const r = requestShow(
+        { store, inFlight: (id) => inFlight.has(id) },
+        caller,
+        body,
+      );
+      return Promise.resolve(
+        r.ok
+          ? { status: 200, envelope: okEnvelope(r.value) }
+          : errorReply(httpStatusFor(r.error.code), { ...r.error }),
+      );
+    },
+  };
   const handlers: ControlHandlers = {
     health(caller) {
       const allowed = authorize(caller, { role: 'read' });

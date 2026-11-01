@@ -11,6 +11,7 @@ const MISSING = [
   'task_not_found',
   'question_not_found',
   'approval_not_found',
+  'request_not_found',
 ];
 const USAGE = [
   'invalid_arguments',

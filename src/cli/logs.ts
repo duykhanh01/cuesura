@@ -50,6 +50,10 @@ export function logsCommandWith(o: FollowOptions = {}): CliCommand {
       },
       { flags: '--limit <n>', description: 'Page size (maximum: 200)' },
       {
+        flags: '--attempt <id>',
+        description: 'Filter logs by attempt ID.',
+      },
+      {
         flags: '--follow',
         description:
           'Stream logs until the task ends or the one-hour session limit is reached',
@@ -98,6 +102,9 @@ export function logsCommandWith(o: FollowOptions = {}): CliCommand {
             task_id: values['id'],
             after: cursor,
             ...(limit === undefined ? {} : { limit }),
+            ...(values['attempt'] === undefined
+              ? {}
+              : { attempt_id: values['attempt'] }),
           },
         });
       if (values['follow'] === undefined) {

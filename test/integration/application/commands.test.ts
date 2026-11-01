@@ -66,6 +66,22 @@ describe('command admission ledger (T023)', () => {
     });
   });
 
+  it('records the project at first admission without changing the command hash', () => {
+    const d = deps();
+    const first = admitCommand(d, assistant, cancel());
+    expect(first).toMatchObject({
+      ok: true,
+      value: { record: { project: 'acme' } },
+    });
+    const again = admitCommand(d, assistant, cancel());
+    expect(again).toMatchObject({
+      ok: true,
+      value: { kind: 'existing', record: { project: 'acme' } },
+    });
+    if (!first.ok || !again.ok) return;
+    expect(again.value.command_hash).toBe(first.value.command_hash);
+  });
+
   it('keeps the first result and survives a restart of the store', () => {
     const path = dbPath(tempDir());
     const d1 = deps(path);

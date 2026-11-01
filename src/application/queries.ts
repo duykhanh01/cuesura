@@ -493,6 +493,46 @@ export function taskShow(
   });
 }
 
+/**
+ * `task_content` (R-09): the request as the user must review it. One read of one state, so the content,
+ * the run config and the version belong together; a confirm sends that version, and the daemon refuses it
+ * if the task moved on. `needs_confirmation` stays true after confirming, hence `intake_pending`.
+ */
+export function taskContent(
+  store: Store,
+  caller: Caller,
+  body: Readonly<Record<string, unknown>>,
+): Result<unknown, AppError> {
+  const q = TaskQuerySchema.safeParse(body);
+  if (!q.success)
+    return err({
+      code: 'invalid_request',
+      message: 'task_id is required',
+      details: {},
+    });
+  const r = readable(store, caller, q.data.task_id);
+  if (!r.ok) return r;
+  const s = r.value;
+  const t = s.task;
+  return ok({
+    task_id: s.id,
+    project: s.project,
+    version: s.version,
+    revision: s.revision,
+    base_branch: t.base_branch,
+    title: t.title,
+    description: t.description,
+    requirements: t.requirements,
+    acceptance: t.acceptance,
+    constraints: t.constraints,
+    out_of_scope: t.out_of_scope,
+    depends_on: t.depends_on,
+    priority: t.priority,
+    intake_pending: s.needs_confirmation && !s.confirmed,
+    run_config: runConfigView(s),
+  });
+}
+
 export const TASK_LIST_LIMIT = 100;
 
 const TaskListSchema = z

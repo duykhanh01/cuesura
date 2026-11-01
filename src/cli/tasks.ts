@@ -8,19 +8,24 @@ import { v7 as uuidv7 } from 'uuid';
 import { stringify } from 'yaml';
 import {
   CONTROL_SOCKET,
+  ExitCode,
   errorEnvelope,
   renderEnvelope,
   type Envelope,
 } from './output.ts';
 import { callDaemon, readClientToken, resolveDataDir } from './client.ts';
 import { exitCodeFor } from './errors.ts';
+import { BOARD_LIMIT } from '../application/board.ts';
 import { UNSUPPORTED_GUIDANCE } from '../application/commands.ts';
 import { DOCTOR_CLIENT_TIMEOUT_MS } from '../application/doctor.ts';
+import { TASK_STATUSES } from '../domain/state.ts';
+import { UuidSchema } from '../shared/brand.ts';
 import type { CliCommand, CliIo } from './program.ts';
+import { renderBoard, renderProgress, type Render } from './render.ts';
 
 type Values = Readonly<Record<string, string | undefined>>;
 
-const DATA_DIR = {
+export const DATA_DIR = {
   flags: '--data-dir <dir>',
   description: 'Daemon data directory (default: $CUSR_DATA_DIR or ~/.cusr)',
 };
@@ -54,9 +59,14 @@ async function call(
   });
 }
 
-export function print(envelope: Envelope, json: boolean, io: CliIo): number {
+export function print(
+  envelope: Envelope,
+  json: boolean,
+  io: CliIo,
+  render: Render = stringify,
+): number {
   if (json) io.stdout(renderEnvelope(envelope));
-  else if (envelope.ok) io.stdout(stringify(envelope.data));
+  else if (envelope.ok) io.stdout(render(envelope.data));
   else {
     const id = envelope.error.request_id;
     io.stderr(
@@ -64,6 +74,9 @@ export function print(envelope: Envelope, json: boolean, io: CliIo): number {
     );
     const guidance = envelope.error.details['guidance'];
     if (typeof guidance === 'string') io.stderr(`cusr: ${guidance}\n`);
+    const issues = envelope.error.details['issues'];
+    if (Array.isArray(issues))
+      for (const issue of issues) io.stderr(`cusr: ${String(issue)}\n`);
     const checks = envelope.error.details['checks'] as
       | { name: string; status: string; detail: string; fix: string | null }[]
       | undefined;
@@ -87,6 +100,34 @@ function fail(
 
 function usage(message: string, json: boolean, io: CliIo): number {
   return print(fail('invalid_arguments', message, {}, null), json, io);
+}
+
+/** A flag this command can check itself: the message says how to fix it, with no error code in front. */
+function badFlag(
+  message: string,
+  details: Readonly<Record<string, unknown>>,
+  json: boolean,
+  io: CliIo,
+): number {
+  if (json)
+    return print(fail('invalid_arguments', message, details, null), json, io);
+  io.stderr(`cusr: ${message}\n`);
+  return ExitCode.usage;
+}
+
+function badChoice(
+  flag: string,
+  given: string,
+  valid: readonly string[],
+  json: boolean,
+  io: CliIo,
+): number {
+  return badFlag(
+    `invalid ${flag} ${JSON.stringify(given)}.\nValid values: ${valid.join(', ')}.`,
+    { valid_values: valid },
+    json,
+    io,
+  );
 }
 
 function choice(
@@ -230,17 +271,19 @@ async function mutate(
   );
 }
 
-async function query(
+export async function query(
   values: Values,
   body: Record<string, unknown>,
   json: boolean,
   io: CliIo,
   timeoutMs?: number,
+  render?: Render,
 ): Promise<number> {
   return print(
     await call(values, '/v1/query', body, null, timeoutMs),
     json,
     io,
+    render,
   );
 }
 
@@ -739,3 +782,140 @@ export const doctorCommand: CliCommand = {
       DOCTOR_CLIENT_TIMEOUT_MS,
     ),
 };
+
+const BOARD_SCOPES = ['active', 'terminal', 'all'];
+
+export const boardCommand: CliCommand = {
+  name: 'task board',
+  description: 'List tasks and highlight those that need your attention.',
+  help: `Examples:
+  cusr task board
+  cusr task board --project acme --status WAITING
+  cusr task board --scope all --limit 20
+  cusr task board --json`,
+  options: [
+    DATA_DIR,
+    { flags: '--project <id>', description: 'Only this project' },
+    {
+      flags: '--status <status>',
+      description: `Only this status, in uppercase: ${TASK_STATUSES.join(', ')}`,
+    },
+    {
+      flags: '--scope <scope>',
+      description: 'active (default), terminal or all',
+    },
+    {
+      flags: '--limit <n>',
+      description: `Page size, from 1 to ${BOARD_LIMIT}`,
+    },
+    { flags: '--cursor <id>', description: 'Show tasks after this task ID' },
+  ],
+  run(values, json, io) {
+    const { project, status, scope, cursor } = values;
+    const limit = values['limit'];
+    if (
+      limit !== undefined &&
+      (!/^\d+$/.test(limit) || Number(limit) < 1 || Number(limit) > BOARD_LIMIT)
+    )
+      return Promise.resolve(
+        badFlag(
+          `--limit must be an integer between 1 and ${BOARD_LIMIT}.`,
+          {},
+          json,
+          io,
+        ),
+      );
+    if (
+      status !== undefined &&
+      !(TASK_STATUSES as readonly string[]).includes(status)
+    )
+      return Promise.resolve(
+        badChoice('--status', status, TASK_STATUSES, json, io),
+      );
+    if (scope !== undefined && !BOARD_SCOPES.includes(scope))
+      return Promise.resolve(
+        badChoice('--scope', scope, BOARD_SCOPES, json, io),
+      );
+    if (project === '')
+      return Promise.resolve(
+        badFlag('--project must not be empty.', {}, json, io),
+      );
+    if (cursor !== undefined && !UuidSchema.safeParse(cursor).success)
+      return Promise.resolve(
+        badFlag(
+          `invalid --cursor ${JSON.stringify(cursor)}: it must be a task ID.`,
+          {},
+          json,
+          io,
+        ),
+      );
+    return query(
+      values,
+      {
+        kind: 'task_board',
+        ...(project === undefined ? {} : { project }),
+        ...(status === undefined ? {} : { status }),
+        ...(scope === undefined ? {} : { scope }),
+        ...(limit === undefined ? {} : { limit: Number(limit) }),
+        ...(cursor === undefined ? {} : { cursor }),
+      },
+      json,
+      io,
+      undefined,
+      renderBoard(
+        (
+          [
+            ['--project', project],
+            ['--status', status],
+            ['--scope', scope],
+            ['--limit', limit],
+            ['--data-dir', values['dataDir']],
+          ] as const
+        ).flatMap(([flag, value]) =>
+          value === undefined ? [] : [flag, value],
+        ),
+      ),
+    );
+  },
+};
+
+function taskRead(
+  kind: string,
+  name: string,
+  description: string,
+  render?: Render,
+): CliCommand {
+  return {
+    name,
+    description,
+    help: `Example:\n  cusr ${name} 019a0000-0000-7000-8000-000000000001`,
+    args: ['<id>'],
+    options: [DATA_DIR],
+    run: (values, json, io) =>
+      query(
+        values,
+        { kind, task_id: values['id'] },
+        json,
+        io,
+        undefined,
+        render,
+      ),
+  };
+}
+
+export const contentCommand = taskRead(
+  'task_content',
+  'task content',
+  "Show a task's request and run configuration.",
+);
+export const progressCommand = taskRead(
+  'task_progress',
+  'task progress',
+  'Show visited, current, and remaining workflow steps.',
+  renderProgress,
+);
+export const optionsCommand = taskRead(
+  'run_options',
+  'task options',
+  'List available execution modes and models for a task.',
+);

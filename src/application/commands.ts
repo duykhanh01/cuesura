@@ -184,6 +184,7 @@ export function admitCommand(
     actor,
     kind,
     command_hash,
+    project: cmd.project,
     task_id: kind === 'task_add' ? (assigned[0] as string) : cmd.task_id,
     assigned_ids: kind === 'task_add' ? assigned.slice(1) : assigned,
     now: deps.now(),

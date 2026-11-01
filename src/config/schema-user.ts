@@ -351,7 +351,8 @@ export const RuntimeSchema = z
       .optional(),
     /**
      * Execution modes the user allows, each with natural-language guidance for the assistant that
-     * proposes a mode (task-execution-modes.md). cusrd never reads the guidance; absent = both allowed.
+     * proposes a mode (task-execution-modes.md). cusrd passes the guidance on as written and never decides
+     * anything from it; absent = both allowed.
      */
     modes: z
       .partialRecord(

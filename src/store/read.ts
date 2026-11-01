@@ -94,6 +94,87 @@ export function taskIdsByStatus(
   return rows.map((r) => r.id);
 }
 
+/** Which tasks a read covers; `projects: null` is every project. */
+export type TaskFilter = {
+  readonly projects: readonly string[] | null;
+  readonly statuses: readonly TaskStatus[];
+};
+
+function filterSql(f: TaskFilter): { where: string; params: string[] } {
+  const marks = (n: number): string => Array(n).fill('?').join(', ');
+  const parts = [`status IN (${marks(f.statuses.length)})`];
+  const params: string[] = [...f.statuses];
+  if (f.projects !== null) {
+    parts.push(`project IN (${marks(f.projects.length)})`);
+    params.push(...f.projects);
+  }
+  return { where: parts.join(' AND '), params };
+}
+
+/** One page of task IDs in ID order, without reading any task's state. */
+export function taskPage(
+  db: Database,
+  f: TaskFilter & { readonly after?: string; readonly limit: number },
+): string[] {
+  const { where, params } = filterSql(f);
+  const rows = db
+    .prepare(
+      `SELECT id FROM tasks WHERE ${where}${f.after === undefined ? '' : ' AND id > ?'} ORDER BY id LIMIT ?`,
+    )
+    .all(...params, ...(f.after === undefined ? [] : [f.after]), f.limit) as {
+    id: string;
+  }[];
+  return rows.map((r) => r.id);
+}
+
+export function countTasksByStatus(
+  db: Database,
+  f: TaskFilter,
+): Partial<Record<TaskStatus, number>> {
+  const { where, params } = filterSql(f);
+  const rows = db
+    .prepare(
+      `SELECT status, COUNT(*) AS n FROM tasks WHERE ${where} GROUP BY status`,
+    )
+    .all(...params) as { status: TaskStatus; n: number }[];
+  return Object.fromEntries(rows.map((r) => [r.status, r.n]));
+}
+
+/** Requests waiting for the slot, for tasks of these projects. */
+export function queueLength(
+  db: Database,
+  projects: readonly string[] | null,
+): number {
+  const scope =
+    projects === null
+      ? ''
+      : ` AND t.project IN (${Array(projects.length).fill('?').join(', ')})`;
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM execution_queue q JOIN tasks t ON t.id = q.task_id WHERE q.status = 'queued'${scope}`,
+    )
+    .get(...(projects ?? [])) as { n: number };
+  return row.n;
+}
+
+/** Sequence number of the newest event; every change to any task moves it. */
+export function lastGlobalSeq(db: Database): number {
+  const row = db.prepare('SELECT MAX(global_seq) AS seq FROM events').get() as {
+    seq: number | null;
+  };
+  return row.seq ?? 0;
+}
+
+/** The time a trigger carried; `null` when it is unknown or older logs did not record one. */
+export function triggerTime(db: Database, dedupKey: string): number | null {
+  const row = db
+    .prepare(
+      `SELECT json_extract(envelope_json, '$.now') AS now FROM accepted_triggers WHERE dedup_key = ?`,
+    )
+    .get(dedupKey) as { now: unknown } | undefined;
+  return typeof row?.now === 'number' ? row.now : null;
+}
+
 export function readTaskStatus(
   db: Database,
   taskId: string,

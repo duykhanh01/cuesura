@@ -23,6 +23,8 @@ Quy tắc chung (FR-040):
 | `cusr task logs ID --attempt ATTEMPT_ID` | `task_logs` | read, project của task trong phạm vi |
 | `cusr request show REQUEST_ID` | `request_show` | read, đúng actor, project trong phạm vi |
 
+Không có `--json`, `task board`, `project list`, `task progress` và `request show` in bảng hoặc phần tóm tắt có nhãn cho người đọc; output này có thể đổi, automation dùng `--json`. `request show` nêu rõ kết quả ở dòng đầu, ví dụ `Request completed — operation rejected`, và vẫn exit 0. Cờ sai của `task board` được CLI kiểm trước khi gọi daemon, trả `invalid_arguments`, exit 2.
+
 `cusr` không tham số ngoài terminal, kèm `--json`, khi `TERM=dumb` hoặc không đặt `TERM` vẫn trả `not_available` với exit 2 như hiện tại.
 
 ## `project_list`
@@ -71,19 +73,20 @@ Vào: `{ kind, task_id }`. Ra:
       "reviewers": [],
       "workers": []
     }
-  ]
+  ],
+  "truncated": false
 }
 ```
 
 - `profile.source` là `task` hoặc `project`. Profile chỉ để hiển thị và được gửi nguyên trong đề xuất.
-- Danh sách tính bằng `freezePolicy` và `checkSelection` theo task ([R-07](../research.md#r-07--nguồn-của-run_options)), tối đa 64 tổ hợp.
+- Danh sách tính bằng `freezePolicy` và `checkSelection` theo task ([R-07](../research.md#r-07--nguồn-của-run_options)), tối đa 64 tổ hợp. `truncated` đúng khi có tổ hợp thực sự bị bỏ qua vì chạm trần (vừa đủ 64 tổ hợp vẫn là `false`), để giao diện không trình bày danh sách là đầy đủ.
 - Đọc `cusr.yaml` từ ref base có sẵn ở máy, không `fetch`. Đây vẫn là danh sách để chọn, không phải bằng chứng: lúc bắt đầu daemon đọc base mới nhất và kiểm lại.
 - Lỗi, không đoán lựa chọn: config không hợp lệ hoặc không xác định được profile trả `config_invalid`, exit 1; không đọc được base trả `options_unavailable`, exit
   1; task đã bắt đầu trả `conflict`, exit 6; task ngoài phạm vi trả `task_not_found`, exit 4.
 
 ## `task_board`
 
-Vào: `{ kind, project?, status?, scope?, limit?, cursor?, if_changed_since? }`; `scope` mặc định `active`; `limit` tối đa 100.
+Vào: `{ kind, project?, status?, scope?, limit?, cursor?, if_changed_since? }`; `scope` mặc định `active`, trừ khi có `status` thì mặc định `all` để không che đúng trạng thái đang hỏi; `limit` tối đa 100.
 
 `if_changed_since` chỉ có nghĩa khi các tham số khác giống lần đọc trước. Đổi `project`, `status`, `scope`, `limit` hoặc `cursor` thì client MUST bỏ
 nó, nếu không sẽ nhận `unchanged` cho dữ liệu chưa từng đọc.
@@ -108,7 +111,7 @@ Khi có thay đổi:
 }
 ```
 
-- `counts` tính trên toàn bộ phạm vi token và bộ lọc, không theo trang (EC-005).
+- `counts` tính trên toàn bộ phạm vi token và bộ lọc `project`, `status`, không theo trang (EC-005) và không theo `scope`, nên vẫn biết số task đã kết thúc khi đang xem task còn chạy.
 - `queue.length` là số request đang chờ slot trong phạm vi token. Slot và health vẫn lấy từ `GET /v1/health`.
 - `attention.items` gồm mọi task `needs_user` trong phạm vi, tối đa 200. Bộ lọc project áp dụng cả ở đây.
 - Mỗi hàng có `task_id`, `project`, `title`, `status`, `wait_code`, `step`, `mode`, `status_since`, `version`, `priority`, `pr_ref`,

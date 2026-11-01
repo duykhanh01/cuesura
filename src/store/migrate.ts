@@ -17,6 +17,7 @@ const MIGRATIONS: readonly {
   { version: 1, file: '001_init.sql' },
   { version: 2, file: '002_runtime.sql', after: rebuildForRuntime },
   { version: 3, file: '003_command_outcome.sql' },
+  { version: 4, file: '004_command_project.sql' },
 ];
 
 /**

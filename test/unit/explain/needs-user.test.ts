@@ -1,0 +1,114 @@
+import { describe, expect, it } from 'vitest';
+import {
+  DETAIL_CODES,
+  TERMINAL_STATUSES,
+  type DetailCode,
+  type TaskState,
+} from '../../../src/domain/state.ts';
+import { needsUser } from '../../../src/explain/needs-user.ts';
+
+type Input = Parameters<typeof needsUser>[0];
+
+const DIGEST = 'sha256:abc';
+const confirmedRun = {
+  proposal: { selection: { revision: 1 }, digest: DIGEST },
+  confirmation: { digest: DIGEST },
+} as unknown as TaskState['run'];
+const unconfirmedRun = {
+  proposal: { selection: { revision: 1 }, digest: DIGEST },
+  confirmation: null,
+} as unknown as TaskState['run'];
+const noRun = {
+  proposal: null,
+  confirmation: null,
+} as unknown as TaskState['run'];
+
+function state(over: Partial<Input>): Input {
+  return { status: 'WAITING', wait: null, revision: 1, run: noRun, ...over };
+}
+
+function waiting(code: DetailCode): Input {
+  return state({
+    wait: {
+      reason: 'policy',
+      detail: { code },
+      resume_when: [],
+      exit_paths: [],
+      resume: { kind: 'none' },
+    },
+  });
+}
+
+const WITHIN_LIMITS: readonly DetailCode[] = [
+  'dependency_pending',
+  'execution_slot',
+  'checks_incomplete',
+  'infra_backoff',
+  'rate_limited',
+  'effect_unknown',
+  'observation_unknown',
+  'merge_cleanup_pending',
+];
+
+describe('needsUser (FR-007)', () => {
+  it.each(TERMINAL_STATUSES)('%s never needs the user', (status) => {
+    expect(needsUser(state({ status }))).toBe(false);
+    expect(
+      needsUser({
+        ...waiting('agent_question'),
+        status,
+      }),
+    ).toBe(false);
+  });
+
+  it('READY without a confirmed run config needs the user', () => {
+    expect(needsUser(state({ status: 'READY', run: noRun }))).toBe(true);
+    expect(needsUser(state({ status: 'READY', run: unconfirmedRun }))).toBe(
+      true,
+    );
+  });
+
+  it('a confirmation of another revision does not count', () => {
+    expect(
+      needsUser(state({ status: 'READY', run: confirmedRun, revision: 2 })),
+    ).toBe(true);
+  });
+
+  it('READY with a confirmed run config does not', () => {
+    expect(needsUser(state({ status: 'READY', run: confirmedRun }))).toBe(
+      false,
+    );
+  });
+
+  it('a running task without a wait does not', () => {
+    expect(needsUser(state({ status: 'RUNNING' }))).toBe(false);
+  });
+
+  it.each(WITHIN_LIMITS)('%s is waiting within its limits', (code) => {
+    expect(needsUser(waiting(code))).toBe(false);
+  });
+
+  it.each(DETAIL_CODES.filter((c) => !WITHIN_LIMITS.includes(c)))(
+    '%s needs the user',
+    (code) => {
+      expect(needsUser(waiting(code))).toBe(true);
+    },
+  );
+
+  it('READY waiting for the slot follows the unconfirmed rule first', () => {
+    expect(
+      needsUser({
+        ...waiting('execution_slot'),
+        status: 'READY',
+        run: unconfirmedRun,
+      }),
+    ).toBe(true);
+    expect(
+      needsUser({
+        ...waiting('execution_slot'),
+        status: 'READY',
+        run: confirmedRun,
+      }),
+    ).toBe(false);
+  });
+});

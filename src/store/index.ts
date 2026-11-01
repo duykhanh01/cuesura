@@ -70,6 +70,18 @@ export interface Store {
   readTask(taskId: Uuid): TaskState | null;
   /** Task IDs in the given statuses, in ID order. */
   taskIdsByStatus(statuses: readonly TaskStatus[]): string[];
+  taskPage(
+    filter: read.TaskFilter & {
+      readonly after?: string;
+      readonly limit: number;
+    },
+  ): string[];
+  countTasksByStatus(
+    filter: read.TaskFilter,
+  ): Partial<Record<TaskStatus, number>>;
+  queueLength(projects: readonly string[] | null): number;
+  lastGlobalSeq(): number;
+  triggerTime(dedupKey: string): number | null;
   readEvents(taskId: Uuid, fromSeq?: number): DomainEvent[];
   readPolicy(
     taskId: Uuid,
@@ -167,6 +179,28 @@ export class SqliteStore implements Store {
   }
   taskIdsByStatus(statuses: readonly TaskStatus[]): string[] {
     return read.taskIdsByStatus(this.db, statuses);
+  }
+  taskPage(
+    filter: read.TaskFilter & {
+      readonly after?: string;
+      readonly limit: number;
+    },
+  ): string[] {
+    return read.taskPage(this.db, filter);
+  }
+  countTasksByStatus(
+    filter: read.TaskFilter,
+  ): Partial<Record<TaskStatus, number>> {
+    return read.countTasksByStatus(this.db, filter);
+  }
+  queueLength(projects: readonly string[] | null): number {
+    return read.queueLength(this.db, projects);
+  }
+  lastGlobalSeq(): number {
+    return read.lastGlobalSeq(this.db);
+  }
+  triggerTime(dedupKey: string): number | null {
+    return read.triggerTime(this.db, dedupKey);
   }
   readEvents(taskId: Uuid, fromSeq?: number): DomainEvent[] {
     return read.readEvents(this.db, taskId, fromSeq);

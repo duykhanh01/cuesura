@@ -26,6 +26,8 @@ export interface CliSpec {
 export interface CliCommand {
   readonly name: string;
   readonly description: string;
+  /** Printed after the options in `--help`: notes and real examples. */
+  readonly help?: string;
   readonly args?: readonly string[];
   readonly options?: readonly {
     readonly flags: string;
@@ -133,6 +135,7 @@ export async function runCli(
       .option('--json', 'Print one JSON result object to standard output');
     for (const a of c.args ?? []) sub.argument(a);
     for (const o of c.options ?? []) sub.option(o.flags, o.description);
+    if (c.help !== undefined) sub.addHelpText('after', `\n${c.help}`);
     sub.exitOverride().action(async (...given: unknown[]) => {
       const { json: subJson, ...opts } = sub.opts<
         Record<string, string | true | undefined> & { json?: true }

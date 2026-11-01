@@ -39,6 +39,65 @@ function copyFixture(): string {
   return path;
 }
 
+describe('migration 004: the project of a command', () => {
+  function atVersion3(path: string): Database.Database {
+    const raw = new Database(path);
+    raw.exec('ALTER TABLE command_ledger DROP COLUMN project');
+    raw.prepare('UPDATE schema_meta SET version = 3').run();
+    return raw;
+  }
+
+  it('backfills rows that have a task and leaves the others NULL, keeping every other column', () => {
+    const path = copyFixture();
+    openFileStoreForTest(path).close();
+    const raw = atVersion3(path);
+    const task = raw.prepare('SELECT id, project FROM tasks LIMIT 1').get() as {
+      id: string;
+      project: string;
+    };
+    const insert = raw.prepare(
+      `INSERT INTO command_ledger (request_id, actor, kind, command_hash, task_id, assigned_ids_json, status, admitted_at)
+       VALUES (?, 'owner', 'task_cancel', 'h', ?, '[]', 'admitted', 1)`,
+    );
+    insert.run('with-task', task.id);
+    insert.run('gone-task', '00000000-0000-7000-8000-00000000dead');
+    insert.run('no-task', null);
+    const before = raw
+      .prepare('SELECT * FROM command_ledger ORDER BY request_id')
+      .all();
+    raw.close();
+
+    openFileStoreForTest(path).close();
+    const after = new Database(path, { readonly: true });
+    const rows = after
+      .prepare('SELECT * FROM command_ledger ORDER BY request_id')
+      .all() as { request_id: string; project: string | null }[];
+    after.close();
+    expect(
+      Object.fromEntries(rows.map((r) => [r.request_id, r.project])),
+    ).toEqual({
+      'gone-task': null,
+      'no-task': null,
+      'with-task': task.project,
+    });
+    expect(rows.map(({ project: _p, ...rest }) => rest)).toEqual(before);
+  });
+
+  it('leaves events and triggers untouched', () => {
+    const path = copyFixture();
+    openFileStoreForTest(path).close();
+    const raw = atVersion3(path);
+    const before = Object.fromEntries(
+      SOURCE_TABLES.map((t) => [t, dump(raw, t)]),
+    );
+    raw.close();
+    openFileStoreForTest(path).close();
+    const after = new Database(path, { readonly: true });
+    for (const t of SOURCE_TABLES) expect(dump(after, t), t).toEqual(before[t]);
+    after.close();
+  });
+});
+
 describe('migration 001 → 002 on a real schema-1 database', () => {
   it('fixture is the recorded schema-1 database', () => {
     expect(
@@ -64,7 +123,7 @@ describe('migration 001 → 002 on a real schema-1 database', () => {
     expect(db.prepare('SELECT version FROM schema_meta').get()).toEqual({
       version: SCHEMA_VERSION,
     });
-    expect(SCHEMA_VERSION).toBe(3);
+    expect(SCHEMA_VERSION).toBe(4);
     for (const t of SOURCE_TABLES) expect(dump(db, t), t).toEqual(before[t]);
 
     expect(store.verifyProjections()).toMatchObject({

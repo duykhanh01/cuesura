@@ -16,6 +16,7 @@ import {
   CONTROL_SOCKET,
   ExitCode,
   errorEnvelope,
+  isEnvelope,
   renderEnvelope,
   type Envelope,
 } from './output.ts';
@@ -65,7 +66,10 @@ export type CallOptions = {
   readonly method: 'GET' | 'POST';
   readonly path: string;
   readonly body?: unknown;
+  /** The whole call, not idle time: a daemon sending a little at a time cannot hold it open (constitution III). */
   readonly timeoutMs?: number;
+  /** Gives up at once and closes the connection, for a caller that stopped waiting. */
+  readonly signal?: AbortSignal;
 };
 
 export function callDaemon(
@@ -77,8 +81,19 @@ export function callDaemon(
     const done = (r: Result<DaemonReply, ClientError>): void => {
       if (settled) return;
       settled = true;
+      clearTimeout(deadline);
+      opts.signal?.removeEventListener('abort', cancel);
       settle(r);
     };
+    const giveUp = (message: string): void => {
+      done(err({ code: 'timeout', message }));
+      req.destroy();
+    };
+    const cancel = (): void => giveUp('Daemon request was cancelled');
+    const deadline = setTimeout(
+      () => giveUp('ETIMEDOUT: Daemon request timed out'),
+      opts.timeoutMs ?? DEFAULT_CLIENT_TIMEOUT_MS,
+    );
     const payload = opts.body === undefined ? null : JSON.stringify(opts.body);
     const req = request(
       {
@@ -96,7 +111,6 @@ export function callDaemon(
                 'content-length': Buffer.byteLength(payload),
               }),
         },
-        timeout: opts.timeoutMs ?? DEFAULT_CLIENT_TIMEOUT_MS,
       },
       (res) => {
         const chunks: Buffer[] = [];
@@ -122,14 +136,10 @@ export function callDaemon(
         });
         res.on('end', () => {
           try {
-            const envelope = JSON.parse(
+            const envelope: unknown = JSON.parse(
               Buffer.concat(chunks).toString('utf8'),
-            ) as Envelope;
-            if (
-              typeof envelope !== 'object' ||
-              envelope === null ||
-              envelope.schema_version !== 1
-            )
+            );
+            if (!isEnvelope(envelope))
               throw new Error('Daemon response has an invalid result envelope');
             done(ok({ status: res.statusCode ?? 0, envelope }));
           } catch (e) {
@@ -143,21 +153,19 @@ export function callDaemon(
         });
       },
     );
-    req.on('timeout', () =>
-      req.destroy(
-        Object.assign(new Error('Daemon request timed out'), {
-          code: 'ETIMEDOUT',
-        }),
-      ),
-    );
     req.on('error', (e: NodeJS.ErrnoException) => {
       done(
         err({
-          code: e.code === 'ETIMEDOUT' ? 'timeout' : 'connection',
+          code: 'connection',
           message: `${e.code ?? 'error'}: ${e.message}`,
         }),
       );
     });
+    if (opts.signal?.aborted === true) {
+      cancel();
+      return;
+    }
+    opts.signal?.addEventListener('abort', cancel, { once: true });
     if (payload !== null) req.write(payload);
     req.end();
   });
