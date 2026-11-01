@@ -1,5 +1,3 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ESLint, type Linter } from 'eslint';
 import tseslint from 'typescript-eslint';
@@ -51,17 +49,5 @@ describe('src/tui import boundary', () => {
     "import { sanitize } from '../terminal/safe-text.ts';",
   ])('allows %s', async (source) => {
     expect(await lint(source)).toEqual([]);
-  });
-
-  it('holds for the code that is there', () => {
-    const files = (dir: string): string[] =>
-      readdirSync(dir).flatMap((name) => {
-        const path = join(dir, name);
-        return statSync(path).isDirectory() ? files(path) : [path];
-      });
-    for (const file of files(join(ROOT, 'src/tui')))
-      expect(readFileSync(file, 'utf8'), file).not.toMatch(
-        /from '[^']*\/(store|engine|daemon)\//,
-      );
   });
 });

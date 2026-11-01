@@ -79,9 +79,9 @@
 
 ### Tests for User Story 1
 
-- [X] T031 [P] [US1] Test PTY tại `test/contract/tui/us1-home.test.ts`: kịch bản US1 số 1, 2, 3, 5, 9; SC-002 với 100 task; đo thời gian đọc board so với timeout 2 giây; EC-005 hơn 100 task, số đếm không theo trang; EC-009 ghi chú phạm vi token; EC-013 giữ lựa chọn theo task khi sắp xếp lại; đổi bộ lọc khi không có event mới vẫn hiện đúng dữ liệu của bộ lọc mới.
-- [X] T032 [P] [US1] Test PTY tại `test/contract/tui/us1-live.test.ts`: US1 số 4, 6, 7, 10; SC-003 gồm đổi trạng thái trong 3 giây, daemon sẵn sàng lại trong cửa sổ tự thử, và proxy T020 giữ kết nối không trả lời rồi chuyển sang daemon thật, đo đủ 10 giây; SC-011 phần daemon chết: giao diện vẫn mở, hiện mất kết nối; EC-007, EC-008, EC-010.
-- [X] T033 [P] [US1] Test PTY ngắn tại `test/contract/tui/us1-idle.test.ts`: phiên rảnh 30 giây tạo 0 event, 0 command và không chiếm slot; poll trả `unchanged`. Đây là kiểm tra sớm, không tuyên bố đạt SC-009.
+- [X] T031 [P] [US1] Test PTY tại `test/contract/tui/us1-home.test.ts`: kịch bản US1 số 1, 2, 3, 5, 9; SC-002 với 100 task và phép đo board 2 giây ở `test/performance/tui/home.test.ts` (`pnpm test:performance`); EC-005 hơn 100 task, số đếm không theo trang; EC-009 ghi chú phạm vi token; EC-013 giữ lựa chọn theo task khi sắp xếp lại; đổi bộ lọc khi không có event mới vẫn hiện đúng dữ liệu của bộ lọc mới.
+- [X] T032 [P] [US1] Test PTY tại `test/contract/tui/us1-live.test.ts`: US1 số 4, 6, 7, 10; phép đo SC-003 (20 mẫu, 95% dưới 3 giây) ở `test/performance/tui/home.test.ts`; lượt mặc định kiểm một chuyển trạng thái không bấm phím; daemon sẵn sàng lại trong cửa sổ tự thử, và proxy T020 giữ kết nối không trả lời rồi chuyển sang daemon thật, đo đủ 10 giây; SC-011 phần daemon chết: giao diện vẫn mở, hiện mất kết nối; EC-007, EC-008, EC-010.
+- [X] T033 [P] [US1] Test PTY ngắn tại `test/performance/tui/idle-session.test.ts` (chạy `pnpm test:performance`): phiên rảnh 30 giây tạo 0 event, 0 command và không chiếm slot; poll trả `unchanged`. Đây là kiểm tra sớm, không tuyên bố đạt SC-009.
 - [X] T034 [P] [US1] Test thời gian thật tại `test/reliability/tui/reconnect-window.test.ts`: SC-003 phần hết 30 lượt, không tự kết nối lại, giữ nội dung đang nhập, `Retry connection` có dữ liệu trong 10 giây.
 
 ### Implementation for User Story 1

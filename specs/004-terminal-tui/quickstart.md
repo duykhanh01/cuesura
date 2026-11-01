@@ -27,6 +27,8 @@ pnpm build
 Kết quả mong đợi: tất cả sạch; các test CLI đã có không phải sửa (SC-006); test PTY trong `test/contract/tui/` chạy với daemon thật và
 harness giả lập.
 
+Trước khi merge thay đổi TUI/cấu hình hoặc release, chạy `pnpm test:performance`: SC-002 với 100 task, SC-003 với 20 mẫu cập nhật và kiểm tra idle 30 giây của T033. Test mặc định vẫn kiểm cập nhật màn hình bằng một lần chuyển trạng thái.
+
 Phiên dài và harness thật chạy riêng vì tốn thời gian hoặc usage:
 
 ```sh

@@ -102,7 +102,7 @@ thiếu kết quả của một trong hai nhóm hoặc có bộ bị skip/fail.
 ## Đo SC-002
 
 ```bash
-pnpm test test/unit/config/perf.test.ts
+pnpm test:performance test/performance/config/validation.test.ts
 ```
 
 Mong đợi: kiểm tra cấu hình mẫu 500 dòng xong dưới 1 giây (trung vị của 20 lần chạy).

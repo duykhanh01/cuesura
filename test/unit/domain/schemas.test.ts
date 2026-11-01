@@ -1,12 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { canonicalJson } from '../../../src/shared/canonical-json.ts';
-import { assertNever } from '../../../src/shared/assert-never.ts';
 import {
   AuthzContextSchema,
   CanonicalTaskSchema,
   DomainEventSchema,
-  EFFECT_KINDS,
-  EVENT_TYPES,
   FrozenExecutionContextSchema,
   FrozenPolicySchema,
   TriggerEnvelopeSchema,
@@ -14,8 +11,6 @@ import {
   WorkflowSchema,
   idemKey,
   type DomainEvent,
-  type EffectKind,
-  type Trigger,
 } from '../../../src/domain/index.ts';
 import { SOFTWARE_DEV } from '../../../src/engine/workflows/software-dev.ts';
 import {
@@ -105,171 +100,5 @@ describe('Schema constraints', () => {
     expect(idemKey('merge', 'acme', 't1', 2, 'abc123')).toBe(
       'merge:acme:t1:r2:abc123',
     );
-  });
-});
-
-describe('Exhaustive switches with assertNever', () => {
-  function triggerLabel(t: Trigger): string {
-    switch (t.kind) {
-      case 'create_task':
-      case 'confirm_task':
-      case 'source_updated':
-      case 'dependency_status':
-      case 'start':
-      case 'effect_result':
-      case 'effect_reconciled':
-      case 'timer':
-      case 'answer':
-      case 'approve':
-      case 'reject':
-      case 'drift_choice':
-      case 'stop_attempt':
-      case 'cancel':
-      case 'amend':
-      case 'request_execution':
-      case 'grant_execution':
-      case 'release_execution':
-      case 'operation_result':
-      case 'ingest_record':
-      case 'observation_due':
-      case 'observation_result':
-      case 'external_completion':
-      case 'drain_result':
-      case 'recheck':
-      case 'config_checked':
-      case 'propose_run_config':
-      case 'confirm_run_config':
-      case 'head_drift':
-        return t.kind;
-      default:
-        return assertNever(t);
-    }
-  }
-  function effectLabel(k: EffectKind): string {
-    switch (k) {
-      case 'prepare':
-      case 'start_agent':
-      case 'stop_attempt':
-      case 'run_gates':
-      case 'publish':
-      case 'create_pr':
-      case 'await_ci':
-      case 'rerun_ci':
-      case 'merge':
-      case 'reconcile':
-      case 'observe_external':
-        return k;
-      default:
-        return assertNever(k);
-    }
-  }
-  function eventGroup(e: DomainEvent['type']): string {
-    switch (e) {
-      case 'TaskCreated':
-      case 'TaskRevised':
-      case 'TaskConfirmed':
-      case 'TaskReady':
-      case 'TaskPending':
-      case 'TaskWaiting':
-      case 'TaskResumed':
-        return 'task';
-      case 'PolicyFrozen':
-      case 'PolicyAmended':
-      case 'AmendmentRejected':
-        return 'policy';
-      case 'StepEntered':
-      case 'StepSkipped':
-      case 'StepExhausted':
-        return 'step';
-      case 'AttemptRequested':
-      case 'AttemptFinished':
-      case 'FailureClassified':
-      case 'RetryCountersCleared':
-        return 'attempt';
-      case 'BudgetReserved':
-      case 'BudgetConsumed':
-      case 'BudgetReleased':
-        return 'budget';
-      case 'RungRaised':
-      case 'TaskFloorRaised':
-        return 'escalation';
-      case 'GateResultRecorded':
-      case 'ReviewVerdictRecorded':
-      case 'PublishRecorded':
-      case 'CiResultRecorded':
-      case 'BaseRelationRecorded':
-      case 'EvidenceInvalidated':
-        return 'evidence';
-      case 'EffectRequested':
-      case 'EffectStarted':
-      case 'EffectCompleted':
-      case 'EffectInvalidated':
-      case 'EffectReconciled':
-      case 'ReconcileIncomplete':
-        return 'effect';
-      case 'TimerArmed':
-      case 'TimerCancelled':
-      case 'TimerFired':
-        return 'timer';
-      case 'QuestionAsked':
-      case 'QuestionAnswered':
-      case 'AnswerRejected':
-      case 'ApprovalRequested':
-      case 'ApprovalGranted':
-      case 'ApprovalRejected':
-        return 'qa';
-      case 'SourceDriftDetected':
-      case 'SafeBoundaryReached':
-      case 'RevisionApplied':
-        return 'revision';
-      case 'CancelRequested':
-      case 'CancelRecordedLate':
-        return 'cancel';
-      case 'TaskCompleted':
-      case 'TaskFailed':
-      case 'TaskCancelled':
-        return 'terminal';
-      case 'SignalIgnored':
-        return 'other';
-      case 'RuntimeConfigured':
-      case 'ExecutionQueued':
-      case 'ExecutionIntentUpdated':
-      case 'ExecutionWithdrawn':
-      case 'ExecutionGranted':
-      case 'ExecutionReleased':
-        return 'execution';
-      case 'OperationRegistered':
-      case 'OperationObserved':
-      case 'OutputIngested':
-      case 'ArtifactIngested':
-        return 'operation';
-      case 'ObservationScheduled':
-      case 'ExternalStateObserved':
-      case 'ObservationExpired':
-      case 'ExternalCompletionObserved':
-      case 'DrainStarted':
-      case 'DrainProgressed':
-      case 'DrainPaused':
-      case 'DrainFinished':
-      case 'RecheckRequested':
-        return 'completion';
-      case 'RunConfigProposed':
-      case 'RunConfigConfirmed':
-      case 'CheckpointRecorded':
-      case 'PublishContentRecorded':
-      case 'ReviewReused':
-      case 'HeadDriftRecorded':
-      case 'WorktreeChangeAccepted':
-        return 'modes';
-      default:
-        return assertNever(e);
-    }
-  }
-
-  it('handles every kind', () => {
-    expect(EFFECT_KINDS.map(effectLabel)).toEqual([...EFFECT_KINDS]);
-    expect(new Set(EVENT_TYPES.map(eventGroup)).size).toBe(18);
-    expect(triggerLabel({ kind: 'cancel', reason: 'r' })).toBe('cancel');
-    expect(() => assertNever('x' as never)).toThrow();
   });
 });

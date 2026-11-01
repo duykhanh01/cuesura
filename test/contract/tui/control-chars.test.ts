@@ -60,37 +60,47 @@ function expectNoInjection(raw: string): void {
 }
 
 describe('SC-010: control characters in what daemon data carries', () => {
-  it.each(SAMPLES)(
-    'in a title (%s) neither reach the terminal nor move anything on screen',
-    async (_name, attack) => {
-      const sd = tui.daemon();
-      const title = `TITLE${attack}END`;
-      const t = buildTask({ id: uuidOf(1), title });
-      sd.seed((d) => d.must(t.id, { kind: 'create_task', task: t }));
-      await sd.start();
-      const s = tui.cusr(sd.dataDir, { cols: 140, rows: 60 });
-      await s.waitForText('TITLE');
+  it('all title samples neither reach the terminal nor move anything on screen', async () => {
+    const sd = tui.daemon();
+    const samples = SAMPLES.map(([name, attack], i) => ({
+      name,
+      marker: `TITLE${String(i).padStart(2, '0')}`,
+      task: buildTask({
+        id: uuidOf(i + 1),
+        title: `TITLE${String(i).padStart(2, '0')}${attack}END`,
+      }),
+    }));
+    sd.seed((d) => {
+      for (const { task } of samples)
+        d.must(task.id, { kind: 'create_task', task });
+    });
+    await sd.start();
+    const s = tui.cusr(sd.dataDir, { cols: 140, rows: 60 });
+    await s.waitForText(samples.at(-1)!.marker);
+    for (const { name, marker } of samples) {
       const row = s
         .screenText()
         .split('\n')
-        .findIndex((l) => l.includes('TITLE'));
-      // The row around the title holds together: the status column stays and nothing ran over the next rows.
-      expect(s.screenText().split('\n')[row]).toContain('END');
-      expect(s.screenText().split('\n')[row]).toContain('READY');
-      expect(s.screenText().split('\n')[0]).toContain('daemon:');
-      s.send('\r');
-      await s.waitForText('Task detail');
+        .find((line) => line.includes(marker));
+      // Every Home row keeps its status and end marker, including after returning from detail.
+      expect(row, name).toContain('END');
+      expect(row, name).toContain('READY');
+      expect(s.screenText().split('\n')[0], name).toContain('daemon:');
+      await openTask(s, marker);
       await s.waitForText('Ways out');
-      expect(s.screenText().split('\n')[0]).toContain('daemon:');
-      expect(s.screenText()).toContain('TITLE');
-      expect(s.screenText()).toContain('END');
-      expect(s.modes().alternateScreen).toBe(true);
-      expect(s.term.buffer.active.type).toBe('alternate');
+      expect(s.screenText().split('\n')[0], name).toContain('daemon:');
+      expect(s.screenText(), name).toContain(marker);
+      expect(s.screenText(), name).toContain('END');
+      expect(s.modes().alternateScreen, name).toBe(true);
+      expect(s.term.buffer.active.type, name).toBe('alternate');
       expectNoInjection(s.rawOutput());
-      s.send('q');
-      expect((await s.waitForExit()).status).toBe(0);
-    },
-  );
+      s.send('\x1b');
+      await s.waitFor(() => !s.screenText().includes('Task detail'));
+      await s.waitForText(marker);
+    }
+    s.send('q');
+    expect((await s.waitForExit()).status).toBe(0);
+  });
 
   it('in log records, one at a time and across lines, stay inside the log area', async () => {
     const sd = tui.daemon();

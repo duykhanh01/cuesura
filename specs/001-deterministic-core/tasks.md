@@ -61,7 +61,7 @@ WSL2/Ubuntu với Node 24 (R-15).
 - [X] T017 [P] Tạo `src/domain/event.ts`: union `DomainEvent` gồm mọi loại ở contracts/signals-events.md "Sự kiện" (kể cả `BaseRelationRecorded`, `ReconcileIncomplete`, `SignalIgnored`) và kiểu `DomainEventDraft` chưa có `seq`/`global_seq`
 - [X] T018 [P] Tạo `src/domain/effect.ts`: 10 kind effect (`prepare`, `start_agent`, `stop_attempt`, `run_gates`, `publish`, `create_pr`, `await_ci`, `rerun_ci`, `merge`, `reconcile`), status ∈ `pending`, `started`, `succeeded`, `failed`, `unknown`, `invalidated`, phân loại nghiệp vụ (`prepare`, `start_agent`, `run_gates`, `publish`, `create_pr`, `await_ci`, `rerun_ci`, `merge`) và phục vụ (`stop_attempt`, `reconcile`) theo R-16, và `idemKey()` dựng `<kind>:<project>:<task_id>:r<revision>:<logical_id>` với `logical_id` theo bảng "Effect" của contracts/signals-events.md
 - [X] T019 [P] Tạo `src/domain/state.ts`: `TaskState` theo bảng "Task (projection `TaskState`)" của data-model.md, `TaskStatus`, `WaitReason` đúng tập SPEC.md §6.1, `detail.code` theo bảng R-13, `wait` là `{ reason, detail, resume_when, exit_paths }`
-- [X] T020 Tạo `src/domain/index.ts` và test `test/unit/domain/schemas.test.ts`: mỗi schema round-trip qua JSON chuẩn hoá; một hàm `switch` mẫu trên union trigger/event/effect kết thúc bằng `assertNever` để typecheck bắt kind thiếu
+- [X] T020 Tạo `src/domain/index.ts` và test `test/unit/domain/schemas.test.ts`: mỗi schema round-trip qua JSON chuẩn hoá; typecheck kiểm các switch production kết thúc bằng `assertNever`, không dựng thêm switch mẫu chỉ trong test
 - [X] T021 Tạo `test/support/builders.ts`: builder cho `CanonicalTask`, `FrozenPolicy` (dựa trên `software_dev@1`, chỉnh được thang, giới hạn, required checks), `FrozenExecutionContext`, `TriggerEnvelope` (`now`/`ids` tất định theo seed) và `AuthzContext`, để US2–US5 chạy mà không cần loader của US1
 - [X] T022 Tạo `test/invariants.map.ts`: ánh xạ I01–I12 → `{ scope, suites: string[] }` theo bảng "Bằng chứng theo bất biến" của spec; I05 là `{ scope: 'out_of_scope' }`; `suites` để rỗng, các story điền sau
 
@@ -90,7 +90,7 @@ mong đợi và so hash của các cấu hình tương đương (`pnpm test test
 - [X] T029 [P] [US1] Viết `test/unit/policy/freeze.test.ts`: cấu hình tương đương cho cùng `policy_hash`; policy và context cùng `task_id`/`revision`/`base_sha`; `content_hash` của attachment; `floor_map` với hai thang khác độ dài và khác binding (R-18); `unsupported_workflow` qua `structure_hash`; `unsupported_decision_mode`; `no_valid_binding` khi allowlist loại hết rule; gate optional bị bỏ được ghi; một trong hai snapshot không chốt được thì `freeze` không trả snapshot nào (FR-038)
 - [X] T030 [P] [US1] Viết `test/unit/policy/amendment.test.ts`: `not_admin` khi chỉ có tên actor hoặc chỉ có quyền `operate`; `workflow_change_forbidden`; `policy_version` tăng 1; đầu vào giữ nguyên khi bị từ chối
 - [X] T031 [US1] Viết `test/scenarios/us1-config.test.ts`: 11 acceptance scenario của US1, đánh số đúng như spec (scenario 6 kiểm ở mức `proposeAmendment`; phần "không có sự kiện" được kiểm ở T050)
-- [X] T032 [P] [US1] Viết `test/unit/config/perf.test.ts`: trung vị 20 lần `validateConfig` trên `large-500.yaml` dưới 1 giây (SC-002)
+- [X] T032 [P] [US1] Viết `test/performance/config/validation.test.ts` (chạy `pnpm test:performance`): trung vị 20 lần `validateConfig` trên `large-500.yaml` dưới 1 giây (SC-002)
 
 ### Implementation for User Story 1
 

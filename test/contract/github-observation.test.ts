@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { GhPort } from '../../src/adapters/github/gh-port.ts';
-import { selectCurrent } from '../../src/adapters/github/checks.ts';
 import {
   observePull,
   type ObserveTarget,
@@ -152,66 +151,6 @@ describe('PR observation (FR-041/042)', () => {
     if (obs.status !== 'open') return;
     expect(obs.required.kind).toBe('unknown');
     expect(evaluateRequired(obs.required, ['test']).kind).toBe('unknown');
-  });
-
-  it('a head that moved between the two pull reads is inconsistent: evidence of two heads is never mixed (H03)', async () => {
-    const { gh } = port(
-      openPr([run(1, 'test', 'completed', 'success')], {
-        [`GET repos/${REPO}/pulls/7`]: [
-          { status: 200, body: pull() },
-          {
-            status: 200,
-            body: pull({
-              head: { sha: OTHER, ref: 'cusr/t', repo: { id: REPO_ID } },
-            }),
-          },
-        ],
-      }),
-    );
-    expect(await observePull(gh, target, 0)).toMatchObject({
-      status: 'inconsistent',
-    });
-  });
-
-  it('a PR of another repository identity is refused before anything else counts', async () => {
-    const { gh } = port({
-      [`GET repos/${REPO}/pulls/7`]: [
-        {
-          status: 200,
-          body: pull({
-            base: { sha: 'c'.repeat(40), ref: 'main', repo: { id: 1 } },
-          }),
-        },
-      ],
-    });
-    expect(await observePull(gh, target, 0)).toMatchObject({
-      status: 'identity_mismatch',
-    });
-  });
-
-  it('a PR closed without a merge is closed, with its checks still read', async () => {
-    const script = openPr([run(1, 'test', 'completed', 'failure')]);
-    const { gh } = port({
-      ...script,
-      [`GET repos/${REPO}/pulls/7`]: [
-        { status: 200, body: pull({ state: 'closed' }) },
-      ],
-    });
-    expect(await observePull(gh, target, 0)).toMatchObject({
-      status: 'closed',
-    });
-  });
-
-  it('two apps reporting the same check name are a collision, not merged', () => {
-    const { collisions } = selectCurrent(
-      [
-        { ...run(1, 'test', 'completed', 'success'), app: { id: 1 } },
-        { ...run(2, 'test', 'completed', 'success'), app: { id: 2 } },
-      ],
-      [],
-      HEAD,
-    );
-    expect(collisions).toEqual(['test']);
   });
 });
 

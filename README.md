@@ -76,6 +76,14 @@ pnpm test
 pnpm build
 ```
 
+Các phép đo thời gian thực chạy riêng để không kéo dài lượt test thường. Trước khi merge PR chạm TUI hoặc cấu hình, và trước mỗi release, chạy:
+
+```bash
+pnpm test:performance
+```
+
+Lệnh này giữ phép đo median cấu hình 500 dòng, màn hình 100 task, 20 mẫu cập nhật trạng thái và phiên idle 30 giây; chạy từng file tuần tự.
+
 Nhóm reliability chạy riêng vì tốn thời gian (10.000 chuỗi tín hiệu qua kho in-memory, 200 lần `SIGKILL` trên file SQLite thật). Khi fail, output in `seed`; truyền lại để tái hiện:
 
 ```bash

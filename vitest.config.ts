@@ -31,6 +31,14 @@ export default defineConfig({
       },
       {
         test: {
+          name: 'performance',
+          include: ['test/performance/**/*.test.ts'],
+          fileParallelism: false,
+          testTimeout: 60_000,
+        },
+      },
+      {
+        test: {
           name: 'reliability',
           include: ['test/reliability/**/*.test.ts'],
           testTimeout: 1_800_000,

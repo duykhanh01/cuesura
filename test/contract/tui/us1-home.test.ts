@@ -332,28 +332,6 @@ describe('US1 scenario 9 and FR-008: every project in scope', () => {
   });
 });
 
-describe('SC-002: 100 tasks', () => {
-  it('has data on the main screen within 2 seconds, and the board reads inside its timeout', async () => {
-    const sd = tui.daemon();
-    sd.seed((d) => seedRunning(d, 100));
-    await sd.start();
-    const startedAt = Date.now();
-    const s = tui.cusr(sd.dataDir);
-    await s.waitForText('Tasks: RUNNING 100', 2_000);
-    expect(Date.now() - startedAt).toBeLessThan(2_000);
-    await quit(s);
-
-    // A daemon just started has to read every task's log for `status_since`: the slowest this read gets.
-    await sd.stop();
-    await sd.start();
-    const readAt = Date.now();
-    const r = await sd.query('owner', { kind: 'task_board', limit: 100 });
-    const tookMs = Date.now() - readAt;
-    expect(r.envelope.ok).toBe(true);
-    expect(tookMs).toBeLessThan(2_000);
-  });
-});
-
 describe('EC-005: more than a page', () => {
   it('counts every task, not the page, and pages through all of them', async () => {
     const sd = tui.daemon();
