@@ -3,9 +3,10 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import * as spike from '../../../scripts/spike-002/role-schema.ts';
 import {
   ROLES,
+  SchemaPortabilityError,
+  assertPortableSchema,
   ROLE_SCHEMAS,
   ROLE_SCHEMA_DIGESTS,
   isRole,
@@ -57,7 +58,6 @@ describe('role result schemas promoted from T003 (T013, SPEC §12.3)', () => {
       expect(
         JSON.parse(readFileSync(join(SCHEMA_DIR, pinned?.file ?? ''), 'utf8')),
       ).toEqual(roleJsonSchema(role));
-      expect(roleJsonSchema(role)).toEqual(spike.roleJsonSchema(role));
     },
   );
 
@@ -93,12 +93,11 @@ describe('role result schemas promoted from T003 (T013, SPEC §12.3)', () => {
   });
 
   it.each(samples.map((s) => [s.name, s] as const))(
-    'validates like the spike prototype: %s',
+    'validates the recorded sample: %s',
     (_name, sample) => {
       expect(isRole(sample.role)).toBe(true);
       if (!isRole(sample.role)) return;
       const r = validateRoleResult(sample.role, sample.value);
-      expect(r).toEqual(spike.validateRoleResult(sample.role, sample.value));
       if (sample.expect === 'valid') expect(r.ok).toBe(true);
       else {
         expect(r.ok).toBe(false);
@@ -130,5 +129,85 @@ describe('role result schemas promoted from T003 (T013, SPEC §12.3)', () => {
         task_id: 't1',
       }).ok,
     ).toBe(false);
+  });
+});
+
+describe('role schema portability and sample coverage', () => {
+  it.each(ROLES)(
+    '%s schema is a closed root object with every key required and null for absence',
+    (role) => {
+      const s = roleJsonSchema(role);
+      expect(s['type']).toBe('object');
+      expect(s['additionalProperties']).toBe(false);
+      expect(s['required']).toEqual(Object.keys(s['properties'] as object));
+      expect(() => assertPortableSchema(s)).not.toThrow();
+    },
+  );
+
+  it('blocker and line are nullable via null, not optional', () => {
+    const coder = roleJsonSchema('coder')['properties'] as Record<
+      string,
+      unknown
+    >;
+    expect(coder['blocker']).toEqual({ type: ['string', 'null'] });
+    const findings = (
+      roleJsonSchema('reviewer')['properties'] as Record<
+        string,
+        { items: { properties: Record<string, unknown> } }
+      >
+    )['findings'];
+    expect(findings?.items.properties['line']).toEqual({
+      type: ['integer', 'null'],
+    });
+  });
+
+  it.each([
+    ['keyword outside the portable subset', { type: 'string', minLength: 1 }],
+    [
+      'open object',
+      {
+        type: 'object',
+        properties: { a: { type: 'string' } },
+        required: ['a'],
+      },
+    ],
+    [
+      'optional property',
+      {
+        type: 'object',
+        properties: { a: { type: 'string' } },
+        required: [],
+        additionalProperties: false,
+      },
+    ],
+    [
+      'nested open object',
+      {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {},
+          required: [],
+          additionalProperties: true,
+        },
+      },
+    ],
+  ])('portability check rejects %s', (_name, schema) => {
+    expect(() => assertPortableSchema(schema)).toThrow(SchemaPortabilityError);
+  });
+
+  it('covers every status, both verdicts and all three failure layers in the sample set', () => {
+    const valid = samples
+      .filter((s) => s.expect === 'valid')
+      .map((s) => s.value as Record<string, unknown>);
+    expect(new Set(valid.map((v) => v['status']).filter(Boolean))).toEqual(
+      new Set(['done', 'needs_input', 'needs_context', 'blocked']),
+    );
+    expect(new Set(valid.map((v) => v['verdict']).filter(Boolean))).toEqual(
+      new Set(['approve', 'request_changes']),
+    );
+    expect(new Set(samples.map((s) => s.expect))).toEqual(
+      new Set(['valid', 'structure', 'semantic']),
+    );
   });
 });

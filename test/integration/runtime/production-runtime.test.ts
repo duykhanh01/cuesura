@@ -1,6 +1,6 @@
 /**
  * T140: the wiring `cusrd` runs with, end to end on this host. `productionControl` under the real daemon
- * loop drives a seeded task through a transient systemd unit, real bwrap and real Git to a green PR on a
+ * loop drives a seeded task through a transient systemd unit, host launch and real Git to a green PR on a
  * bare remote, then to DONE after a merge, with nothing else calling the dispatcher, timers, observation or
  * drain. Only the vendor binary (a replay of the T007 runs, no model) and GitHub are stand-ins, and no
  * network is used. Harness records are the files an owner writes, loaded the way the daemon loads them.
@@ -19,7 +19,6 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import Database from 'better-sqlite3';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_RUNTIME_LIMITS } from '../../../src/domain/runtime.ts';
 import {
@@ -33,7 +32,6 @@ import {
   systemClock,
 } from '../../../src/daemon/main.ts';
 import {
-  knownCredentialFiles,
   productionControl,
   readPrompts,
   type ProductionSeams,
@@ -195,7 +193,7 @@ describe('harness records', () => {
           { pin: h.pin, manifest: record.value },
           {
             isolation: 'internal_required',
-            host_policy_hash: hostSandbox(h).policy_hash,
+            host_policy_hash: hostSandbox().policy_hash,
           },
         ),
       ).toBeNull();
@@ -227,7 +225,7 @@ describe('harness records', () => {
       expect(r.value.native_result).toBe('not_tried');
       const opts = {
         isolation: 'internal_required' as const,
-        host_policy_hash: hostSandbox(h).policy_hash,
+        host_policy_hash: hostSandbox().policy_hash,
       };
       expect(
         harnessRecordProblem({ pin: off, manifest: r.value }, opts),
@@ -283,7 +281,7 @@ describe('harness records', () => {
     });
     const opts = {
       isolation: 'internal_required' as const,
-      host_policy_hash: hostSandbox(h).policy_hash,
+      host_policy_hash: hostSandbox().policy_hash,
     };
     expect(harnessRecordProblem({ pin, manifest: r.value }, opts)).toBeNull();
     expect(
@@ -323,7 +321,7 @@ describe('harness records', () => {
     expect(recorded).toMatchObject({ ok: true });
     const loaded = loadHarnessRecord(h.dataDir, 'claude');
     if (!loaded.ok) throw new Error(loaded.error);
-    const sandbox = hostSandbox(h);
+    const sandbox = hostSandbox();
     const check = {
       isolation: 'internal_required' as const,
       host_policy_hash: sandbox.policy_hash,
@@ -421,14 +419,7 @@ describe('harness records', () => {
       now: 1,
     });
     if (!recorded.ok) throw new Error(recorded.error);
-    const moved = {
-      ...h.runtime,
-      credential_refs: h.runtime.credential_refs.map((r) => ({
-        ...r,
-        file: join(h.dir, 'moved', r.name),
-      })),
-    };
-    const after = hostSandbox({ ...h, runtime: moved });
+    const after = hostSandbox();
     expect(
       harnessRecordProblem(
         { pin: h.pin, manifest: recorded.value },
@@ -441,11 +432,7 @@ describe('harness records', () => {
       mkdirSync(join(h.dir, 'moved'));
       writeFileSync(join(h.dir, 'moved', '.git'), 'gitdir: /x\n');
       mkdirSync(join(h.dir, 'scratch-m'));
-      const guarded = hostSandbox({
-        ...h,
-        runtime: moved,
-        forbiddenNow: () => knownCredentialFiles(store, moved),
-      }).provider.plan(
+      const guarded = hostSandbox().provider.plan(
         {
           role: 'gate',
           worktree: join(h.dir, 'moved'),
@@ -477,7 +464,7 @@ describe('harness records', () => {
 
   it('plans a direct host command with no outer launcher or mount proof', () => {
     const h = setup();
-    const p = hostSandbox(h).provider.plan(
+    const p = hostSandbox().provider.plan(
       {
         role: 'gate',
         worktree: h.dir,
@@ -620,34 +607,6 @@ describe('production task surface', () => {
   it('doctor does not claim an outer credential or filesystem boundary', async () => {
     const h = setup();
     expect((await doctor(h)).mounts).toBeUndefined();
-  });
-
-  it('reads every reference any snapshot froze, across tasks and revisions', () => {
-    const h = setup();
-    const path = join(h.dataDir, STORE_FILE);
-    openFileStoreForTest(path).close();
-    const raw = new Database(path);
-    const insert = raw.prepare(
-      'INSERT INTO runtime_contexts (task_id, revision, runtime_hash, runtime_json) VALUES (?, ?, ?, ?)',
-    );
-    const refs = (...files: string[]) =>
-      JSON.stringify({
-        credential_refs: files.map((file, i) => ({ name: `r${i}`, file })),
-      });
-    insert.run('t1', 1, 'h', refs('/a', '/shared'));
-    insert.run('t1', 2, 'h', refs('/b'));
-    insert.run('t2', 1, 'h', refs('/shared'));
-    insert.run('t3', 1, 'h', refs());
-    raw.close();
-    const store = openFileStoreForTest(path);
-    try {
-      expect(store.frozenCredentialFiles()).toEqual(['/a', '/b', '/shared']);
-      expect(
-        knownCredentialFiles(store, { ...h.runtime, credential_refs: [] }),
-      ).toEqual(['/a', '/b', '/shared']);
-    } finally {
-      store.close();
-    }
   });
 
   it('reads role prompts next to the user config and nothing outside it', () => {

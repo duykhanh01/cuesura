@@ -36,8 +36,8 @@ Doctor/preflight chỉ kiểm executable và systemd; không còn probe userns t
 `userns_*`/`bwrap_*`. Lượt proof native sẽ fail nếu sandbox của harness không chạy hoặc không chặn probe.
 
 Profile userns cho Ubuntu 23.10/24.04+: trước khi nạp, kiểm `ls /etc/apparmor.d` xem đã có profile
-nào attach `/usr/bin/bwrap` chưa (do distro hoặc gói khác cài, hoặc [cusr-bwrap](apparmor/cusr-bwrap)
-ở mục dưới); đã có thì review profile đó thay vì nạp thêm, vì hai profile cùng attach một binary sẽ
+nào attach `/usr/bin/bwrap` chưa (do distro hoặc gói khác cài); đã có thì review profile đó thay vì nạp
+thêm, vì hai profile cùng attach một binary sẽ
 xung đột. Profile này chỉ cho bwrap tạo user namespace như trước khi Ubuntu bật hạn chế; mọi
 chương trình khác vẫn bị chặn, và mọi user trên máy dùng được bwrap.
 
@@ -57,9 +57,9 @@ bwrap --unshare-user --ro-bind / / /usr/bin/true && echo ok
 
 Gỡ: `sudo apparmor_parser -R /etc/apparmor.d/cusr-bwrap-userns && sudo rm /etc/apparmor.d/cusr-bwrap-userns`.
 
-Profile [cusr-bwrap](apparmor/cusr-bwrap) cũ là hardening tùy chọn, không phải yêu cầu cho outer
-sandbox của Cuesura. Không tự nạp/gỡ profile hoặc đổi sysctl; các lệnh provisioning trên do người vận hành
-review rồi chạy. Kiểm tra native của đúng harness bằng `prove-harness` sau provisioning.
+Không tự nạp/gỡ profile hoặc đổi sysctl; các lệnh provisioning trên do người vận hành review rồi chạy.
+Các profile/probe outer bwrap cũ đã ngừng bảo trì; xem lịch sử Git khi cần đối chiếu bằng chứng cũ.
+Kiểm tra native của đúng harness bằng `prove-harness` sau provisioning.
 
 ### Sandbox nội bộ của harness
 

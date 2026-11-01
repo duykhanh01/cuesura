@@ -24,7 +24,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { isAbsolute, join, resolve } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { z } from 'zod';
 import { claudeAdapter } from '../adapters/harness/claude.ts';
 import { codexAdapter } from '../adapters/harness/codex.ts';
@@ -58,10 +58,8 @@ import { err, ok, type Result } from '../shared/result.ts';
 import { attemptLayoutInputs } from './invocation.ts';
 import {
   HostExecutionProvider,
-  defaultHostPolicy,
   IN_SANDBOX,
   hostExecutionPath,
-  type HostPolicy,
   probeLayoutShapes,
 } from './sandbox.ts';
 
@@ -79,22 +77,13 @@ export function adapterFor(vendor: VendorPin['vendor']): VendorAdapter {
   return vendor === 'claude' ? claudeAdapter : codexAdapter;
 }
 
-/** Host execution policy and launch planner; legacy policy metadata remains available to record readers. */
-export function hostSandbox(o: {
-  readonly dataDir: string;
-  readonly configPath: string;
-  readonly runtime: RuntimeConfig;
-  /** Not part of the policy hash: it changes as tasks are frozen and only ever refuses more. */
-  readonly forbiddenNow?: () => readonly string[];
-}): {
+/** The host planner and its stable policy identity; credentials are not mount policies (ADR-0005). */
+export function hostSandbox(): {
   readonly provider: HostExecutionProvider;
-  readonly policy: HostPolicy;
   readonly policy_hash: Hash;
 } {
-  const policy = defaultHostPolicy(o.dataDir, [resolve(o.configPath)]);
   return {
     provider: new HostExecutionProvider(),
-    policy,
     policy_hash: hashCanonical({
       mode: 'native',
       provider: 'host',
@@ -246,7 +235,7 @@ export function harnessIdentity(o: {
 }): Result<HarnessIdentity, string> {
   const settings = pinSettingsHash(o.pin);
   if (!settings.ok) return settings;
-  const sandbox = hostSandbox(o);
+  const sandbox = hostSandbox();
   const shapes = probeLayoutShapes(sandbox.provider, {
     roles: ['coder', 'fixer', 'reviewer'],
     ...attemptLayoutInputs(o.pin, 'probe'),

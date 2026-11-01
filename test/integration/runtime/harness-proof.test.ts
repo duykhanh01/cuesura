@@ -171,8 +171,7 @@ function setup(
     if (!r.ok) throw new Error(r.error);
     return harnessRecordProblem(r.value, {
       isolation: 'internal_required',
-      host_policy_hash: hostSandbox({ dataDir, configPath, runtime })
-        .policy_hash,
+      host_policy_hash: hostSandbox().policy_hash,
     });
   };
   return { options, budget, out, ledger, record, problem };

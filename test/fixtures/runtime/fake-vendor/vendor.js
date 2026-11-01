@@ -72,7 +72,7 @@ if (reviewer && process.env.FAKE_VENDOR_REVIEWER_PROBE) {
 const apply = reviewer ? undefined : fixer ? process.env.FAKE_VENDOR_APPLY_FIXER : process.env.FAKE_VENDOR_APPLY_CODER;
 if (apply) cpSync(apply, process.cwd(), { recursive: true });
 if (process.env.FAKE_VENDOR_HOLD) {
-  const scratch = process.env.FAKE_SANDBOX_SCRATCH ?? '/cusr/scratch';
+  const scratch = process.env.FAKE_SANDBOX_SCRATCH ?? process.env.TMPDIR ?? '/cusr/scratch';
   writeFileSync(join(scratch, `running-${process.pid}`), '');
   const end = Date.now() + 300_000;
   while (!existsSync(join(scratch, 'release')) && Date.now() < end) await new Promise((r) => setTimeout(r, 100));

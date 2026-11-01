@@ -1,6 +1,6 @@
 /**
- * GitHub through the pinned `gh` binary (T040, contracts/github.md), promoted from the spike prototype
- * (scripts/spike-002/gh.ts). `gh api` runs by argv without a shell, with the pinned API version, an
+ * GitHub through the pinned `gh` binary (T040, contracts/github.md), checked against archived T008
+ * fixtures. `gh api` runs by argv without a shell, with the pinned API version, an
  * endpoint allowlist, and caps on time, bytes, pages, calls and sends. The credential stays in the
  * orchestrator's environment; nothing here is mounted into a sandbox.
  *

@@ -10,13 +10,7 @@
  * request and attempt is against the disk, so a changed binary stops new work at once. What an attempt
  * runs with (credential references, stop bounds, stall limit) comes from the task's frozen snapshot.
  */
-import {
-  chmodSync,
-  mkdirSync,
-  readFileSync,
-  realpathSync,
-  writeFileSync,
-} from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, extname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { GitCommandRunner } from '../adapters/git/command.ts';
@@ -99,29 +93,6 @@ function writeCredentialHelper(dataDir: string, gh: string): string {
   return path;
 }
 
-/**
- * Every credential file a task of this store froze, plus those of the running config, each also by its
- * real path. A reference replaced in the config is still a live secret of the tasks that froze it, and
- * of the account it names afterwards, so no sandbox of any task may mount it.
- */
-export function knownCredentialFiles(
-  store: Store,
-  runtime: RuntimeConfig,
-): string[] {
-  const files = new Set([
-    ...runtime.credential_refs.map((r) => r.file),
-    ...store.frozenCredentialFiles(),
-  ]);
-  for (const file of [...files]) {
-    try {
-      files.add(realpathSync(file));
-    } catch {
-      // Gone: the path itself stays forbidden in case it comes back.
-    }
-  }
-  return [...files];
-}
-
 /** The part of the runtime config this process is built on and only reads at start. */
 const hostBound = (r: RuntimeConfig): Hash =>
   hashCanonical({
@@ -176,14 +147,7 @@ export async function productionControl(opts: {
   const hooks = join(opts.dataDir, 'empty-hooks');
   mkdirSync(hooks, { recursive: true, mode: 0o700 });
   const now = (): number => opts.clock.now();
-  const sandbox =
-    runtime === null
-      ? null
-      : hostSandbox({
-          dataDir: opts.dataDir,
-          configPath: opts.configPath,
-          runtime,
-        });
+  const sandbox = runtime === null ? null : hostSandbox();
   const startedWith = runtime === null ? null : hostBound(runtime);
   const records = new Map<string, HarnessRecord>();
   const loadProblems: Record<string, string> = {};
@@ -308,15 +272,7 @@ export async function productionControl(opts: {
       redactor: opts.redactor,
     });
     const limits = runtime?.limits ?? DEFAULT_RUNTIME_LIMITS;
-    const boundary =
-      runtime === null
-        ? null
-        : hostSandbox({
-            dataDir: opts.dataDir,
-            configPath: opts.configPath,
-            runtime,
-            forbiddenNow: () => knownCredentialFiles(store, runtime),
-          }).provider;
+    const boundary = runtime === null ? null : hostSandbox().provider;
     const harnesses: Record<string, HarnessPort> = {};
     if (sandbox !== null && boundary !== null)
       for (const [h, record] of records)

@@ -24,8 +24,9 @@ import { checkHost, missingTools, type SandboxTools } from './preflight.ts';
 import type { AppError } from './queries.ts';
 
 /**
- * All host probes of one doctor share this time, the sum of their own limits (bwrap and user bus 5 seconds
- * each, unit and canary 10 each); a tools probe shares what is left. The client waits longer, so a hung probe comes back as a failed check
+ * All host probes of one doctor share this time, bounded together with the transient unit
+ * and executable checks; a tools probe shares what is left. The client waits longer, so a hung probe
+ * comes back as a failed check
  * with its fix instead of a lost connection.
  */
 export const DOCTOR_PROBE_BUDGET_MS = 30_000;

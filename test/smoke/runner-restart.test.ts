@@ -173,7 +173,8 @@ describe.skipIf(!hostUsable())('local rehearsal of a daemon stop', () => {
       await r.startDaemon();
       const id = await r.addTask();
       const active = await untilAgentActive(r, r.dataDir, id, 60_000);
-      expect(r.held()).toHaveLength(1);
+      // An active unit can precede the vendor reaching its hold marker.
+      await expect.poll(() => r.held(), { timeout: 5_000 }).toHaveLength(1);
       const before = await r.history(id);
 
       await r.stopDaemon(signal);

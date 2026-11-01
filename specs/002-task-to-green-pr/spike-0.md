@@ -29,7 +29,7 @@ hardening tùy chọn; không dùng việc thiếu profile đó để chặn m�
    không tự là fail nếu không vượt boundary. Tái sử dụng [reassessment](sandbox-reassessment.md)
    và `scripts/spike-002/reassess-sandbox.ts`; 360 checks là đầu vào, không thay các case còn thiếu.
    Giữ no-new-privileges/cap drop. Nếu host chọn hardening AppArmor, thêm fixture/audit riêng;
-   [probe child stack](../../deploy/apparmor/probe-child.py) không là gate phổ quát.
+   [probe child stack lịch sử](https://github.com/duykhanh01/cuesura/blob/63cae62/deploy/apparmor/probe-child.py) không là gate phổ quát.
 3. Trong outer sandbox đó, **vẫn thử harness với sandbox nội bộ bật** trên từng vendor/version,
    read-only và workspace-write theo role. Đo đọc/ghi thực qua tool, không chỉ startup. Ghi native
    result/argv/settings/audit thật; nesting fail vẫn ghi failed, không đổi nó thành pass khi dùng mode khác.

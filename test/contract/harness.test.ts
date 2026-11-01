@@ -734,3 +734,69 @@ describe('refusal, auth and rate limit map to failures with usage kept (syntheti
     });
   });
 });
+
+// Regression cases retained from the retired stream-summary prototype, against live adapters.
+describe('vendor usage and denial edge cases', () => {
+  it.each(['claude', 'codex'] as const)(
+    '%s distinguishes missing counters from reported zero',
+    (vendor) => {
+      const type = vendor === 'claude' ? 'result' : 'turn.completed';
+      const read = (usage: unknown) =>
+        ADAPTERS[vendor].read({
+          stdout: [{ type, usage }],
+          stderr: '',
+          truncated_records: 0,
+        });
+      for (const usage of [
+        {},
+        { input_tokens: 1 },
+        { input_tokens: '0', output_tokens: 0 },
+        { input_tokens: -1, output_tokens: 0 },
+        { input_tokens: 0, output_tokens: null },
+        {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_read_input_tokens: '0',
+          cached_input_tokens: '0',
+        },
+      ]) {
+        expect(read(usage).usage).toEqual({ basis: 'unavailable' });
+      }
+      expect(read({ input_tokens: 0, output_tokens: 0 }).usage).toMatchObject({
+        basis: 'reported',
+        tokens: 0,
+      });
+    },
+  );
+  it('Codex incomplete turn usage does not become a reported partial total', () => {
+    const facts = codexAdapter.read({
+      stdout: [
+        {
+          type: 'turn.completed',
+          usage: { input_tokens: 5, output_tokens: 2 },
+        },
+        { type: 'turn.completed', usage: {} },
+      ],
+      stderr: '',
+      truncated_records: 0,
+    });
+    expect(facts.usage).toEqual({ basis: 'unavailable' });
+  });
+  it('Codex preserves backticks in a command denied in stderr', () => {
+    const read = recordedRead('s0-codex-fixer-1793173505', 'codex');
+    const command =
+      '/usr/bin/touch `echo /cusr/scratch/permission-denied-by-rule`';
+    const stderr = read.stderr.replace(
+      '/usr/bin/touch /cusr/scratch/permission-denied-by-rule',
+      command,
+    );
+    expect(stderr).not.toBe(read.stderr);
+    expect(
+      codexAdapter.read({ ...read, stderr }).permission_denials,
+    ).toContainEqual({
+      tool: 'exec_command',
+      command: `/usr/bin/zsh -lc '${command}'`,
+      source: 'codex_stderr',
+    });
+  });
+});

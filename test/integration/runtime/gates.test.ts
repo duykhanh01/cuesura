@@ -20,11 +20,7 @@ import {
   type CommandExecutor,
 } from '../../../src/runner/commands.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
-import {
-  BWRAP,
-  BwrapSandboxProvider,
-  defaultHostPolicy,
-} from '../../../src/runner/sandbox.ts';
+import { HostExecutionProvider } from '../../../src/runner/sandbox.ts';
 import type { EpochMs } from '../../../src/shared/brand.ts';
 import { hashText } from '../../../src/shared/hash.ts';
 import { ok } from '../../../src/shared/result.ts';
@@ -312,28 +308,14 @@ describe('setup/gate/autofix commands (T038, FR-004)', () => {
   });
 });
 
-const bwrapUsable =
-  spawnSync(BWRAP, ['--unshare-user', '--ro-bind', '/', '/', '/usr/bin/true'])
-    .status === 0;
-
-describe.skipIf(!bwrapUsable)(
-  'gates inside the real bwrap sandbox (T038)',
-  () => {
-    it('a gate writes the worktree but cannot write Git metadata', async () => {
-      const provider = new BwrapSandboxProvider({
-        policy: defaultHostPolicy(join(g.base, 'cusr-data')),
-      });
-      const { deps, input, worktree } = await setup(provider);
-      writeFileSync(
-        join(worktree, 'probe.sh'),
-        'echo built > out.txt && ! (echo x >> .git) 2>/dev/null\n',
-      );
-      const r = await runGates(
-        deps,
-        input([{ name: 'build', command: 'sh probe.sh' }]),
-      );
-      expect(r.receipts[0]).toMatchObject({ status: 'passed' });
-      expect(existsSync(join(worktree, 'out.txt'))).toBe(true);
-    });
-  },
-);
+describe('gates through the production host launcher', () => {
+  it('runs the configured gate in its worktree and records the result', async () => {
+    const { deps, input, worktree } = await setup(new HostExecutionProvider());
+    const r = await runGates(
+      deps,
+      input([{ name: 'build', command: 'echo built > out.txt' }]),
+    );
+    expect(r.receipts[0]).toMatchObject({ status: 'passed' });
+    expect(existsSync(join(worktree, 'out.txt'))).toBe(true);
+  });
+});

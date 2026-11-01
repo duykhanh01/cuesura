@@ -53,7 +53,7 @@ vi phạm trust boundary thay vì dùng “namespace con bị EPERM” làm đ�
 
 ## 3. Thí nghiệm local đã chạy
 
-Script tái hiện: [reassess-sandbox.ts](../../scripts/spike-002/reassess-sandbox.ts).
+Script tái hiện: [reassess-sandbox.ts](https://github.com/duykhanh01/cuesura/blob/63cae62/scripts/spike-002/reassess-sandbox.ts).
 Kết quả đầy đủ: [sandbox-reassessment.json](evidence/sandbox-reassessment.json).
 
 ```sh

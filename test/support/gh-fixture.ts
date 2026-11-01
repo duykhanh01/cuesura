@@ -3,7 +3,7 @@ import type {
   GhExecResult,
 } from '../../src/adapters/github/gh-port.ts';
 
-// Emulates `gh api --include` from a script (ported from scripts/spike-002/gh.ts); never touches the network.
+// Emulates `gh api --include` from a script for the production GitHub port; never touches the network.
 
 export type FixtureResponse = {
   readonly status: number;

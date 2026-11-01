@@ -215,7 +215,14 @@ describe('host execution with harness-owned permissions', () => {
     'AWS_SECRET_ACCESS_KEY',
     'SSH_AUTH_SOCK',
     'GH_TOKEN',
+    'GITHUB_TOKEN',
     'CUSR_TOKEN_FILE',
+    'CUSR_ADMIN_TOKEN',
+    'CUSR_OPERATE_TOKEN',
+    'OPENAI_API_KEY',
+    'ANTHROPIC_API_KEY',
+    'DBUS_SESSION_BUS_ADDRESS',
+    'XDG_RUNTIME_DIR',
     'invalid-name',
   ])('rejects pin environment variable %s for workers and reviewers', (key) => {
     for (const role of ['coder', 'reviewer'] as const) {

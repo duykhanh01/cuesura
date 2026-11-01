@@ -28,7 +28,7 @@ import {
 import { StoreDriver } from './store-driver.ts';
 import { dbPath, useTempDir } from './temp-db.ts';
 
-/** Runs `/bin/sh -c` directly; the bwrap boundary itself is covered by the sandbox and gates suites. */
+/** Runs `/bin/sh -c` directly; the production host launcher is covered separately. */
 export const passthrough: SandboxProvider = {
   provider: 'bwrap',
   plan: (layout, command) =>

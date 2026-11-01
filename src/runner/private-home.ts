@@ -1,8 +1,7 @@
 /**
  * Private harness home (contracts/execution.md, S0.2 `private_home_auth`).
- * Each agent attempt gets its own home under the run directory, mounted read-write at
- * `/cusr/home` inside the sandbox. Only the selected vendor's auth files are copied in, 0600, from
- * trusted credential references; the owner's real home and other vendors' auth never enter. Auth is
+ * Each agent attempt gets its own home under the run directory, passed as HOME to the harness.
+ * Only the selected vendor's auth files are copied in, 0600, from trusted credential references. Auth is
  * removed again once the attempt's artifacts are archived. Setup/gate/autofix never get a home.
  */
 import { createHash } from 'node:crypto';

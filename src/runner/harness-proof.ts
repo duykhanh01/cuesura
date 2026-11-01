@@ -457,13 +457,7 @@ export async function proveHarness(
       runnerCommand: o.runnerCommand,
       redactor,
     });
-  const credentialFiles = o.runtime.credential_refs.map((r) => r.file);
-  const boundary = hostSandbox({
-    dataDir: o.dataDir,
-    configPath: o.configPath,
-    runtime: o.runtime,
-    forbiddenNow: () => credentialFiles,
-  });
+  const boundary = hostSandbox();
   const harness = new RunnerHarness({
     harness: o.harness,
     adapter: adapterFor(plan.pin.vendor),

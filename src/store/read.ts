@@ -315,18 +315,6 @@ export function readSlot(
   return row ?? null;
 }
 
-/** Every credential file any snapshot of any task and revision froze. */
-export function frozenCredentialFiles(db: Database): string[] {
-  const rows = db
-    .prepare(
-      `SELECT DISTINCT json_extract(r.value, '$.file') AS file
-       FROM runtime_contexts, json_each(runtime_json, '$.credential_refs') r
-       ORDER BY file`,
-    )
-    .all() as { file: string }[];
-  return rows.map((r) => r.file);
-}
-
 /** Every project path any snapshot froze; execution resolves a task's Git directories from it. */
 export function frozenProjectPaths(db: Database): string[] {
   const rows = db

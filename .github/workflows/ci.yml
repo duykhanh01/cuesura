@@ -23,7 +23,7 @@ jobs:
           node-version-file: .nvmrc
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
-      # Test sandbox lồng cần user namespace trong bwrap; Ubuntu 24.04 chặn bằng sysctl và profile. Máy này dùng một lần.
+      # Native sandbox probes của harness cần bwrap/userns; đây không phải outer sandbox của Cuesura.
       - run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           sudo apparmor_parser -R /etc/apparmor.d/bwrap-userns-restrict

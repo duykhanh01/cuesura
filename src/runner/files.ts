@@ -1,6 +1,6 @@
 /**
  * Runner file protocol (contracts/execution.md, research R-11). Promoted from the
- * spike-002 runner prototype. The runner owns these files; it never touches the store or the engine.
+ * archived runner protocol fixtures. The runner owns these files; it never touches the store or the engine.
  *
  *   DATA_DIR/runs/<attempt_id>/            DATA_DIR/operations/<operation_id>/
  *   ├── launch.json, invocation.json, pid.json, liveness, progress.json, exit.json, out/result.json

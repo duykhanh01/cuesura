@@ -1,8 +1,8 @@
 /**
- * Test doubles around the real {@link RunnerHarness}: a pass-through sandbox for hosts without bwrap
+ * Test doubles around the real {@link RunnerHarness}: archived-plan fixture replay
  * and an in-process process port that runs the real runner lifecycle without systemd. They exercise
  * everything the harness does around the boundary (pin, manifest, home, files, records, validation),
- * never the boundary itself: OS isolation is proven by the bwrap/systemd tests and the S0.1 fixtures.
+ * never native harness isolation itself. Host launches and systemd recovery have separate suites.
  */
 import { createHash } from 'node:crypto';
 import { cpSync, mkdtempSync, readFileSync, realpathSync } from 'node:fs';
@@ -17,7 +17,10 @@ import {
 import { claudeAdapter } from '../../src/adapters/harness/claude.ts';
 import { codexAdapter } from '../../src/adapters/harness/codex.ts';
 import { wireRoleSchema } from '../../src/adapters/harness/result-schema.ts';
-import type { VendorPin } from '../../src/adapters/harness/vendor.ts';
+import {
+  hostInnerMode,
+  type VendorPin,
+} from '../../src/adapters/harness/vendor.ts';
 import type {
   LaunchError,
   OperationLaunch,
@@ -220,8 +223,10 @@ export function evidenceManifest(
   const adapter = pin.vendor === 'claude' ? claudeAdapter : codexAdapter;
   const evidence = readRealJson<Evidence>('capability-manifest.json');
   const entry = { ...evidence.vendors[pin.vendor], ...over };
-  const inner =
-    entry.selected_inner_mode === 'external_verified'
+  const host_execution = entry.isolation_mode === 'native';
+  const inner = host_execution
+    ? hostInnerMode(pin)
+    : entry.selected_inner_mode === 'external_verified'
       ? 'external_verified'
       : 'native';
   const plan = adapter.plan(pin, {
@@ -233,6 +238,7 @@ export function evidenceManifest(
     }),
     cwd: '/w',
     paths: IN_SANDBOX,
+    host_execution,
     inner_mode: inner,
     session: null,
   });

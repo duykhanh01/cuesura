@@ -1,6 +1,6 @@
 /**
  * Shared by `test/smoke/`: the T121 fixture projects, and a local rehearsal of the path a real smoke walks.
- * The rehearsal runs the real CLI, daemon wiring, preflight, transient units, bwrap and Git. The vendor
+ * The rehearsal runs the real CLI, daemon wiring, preflight, transient units, host launches and Git. The vendor
  * binary replays T007 runs and GitHub is a fake, so it finds wiring faults before a paid run and proves
  * nothing about a real vendor or GitHub: no SC is certified from it.
  */
@@ -20,7 +20,10 @@ import {
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { VendorPin } from '../../src/adapters/harness/vendor.ts';
+import {
+  hostInnerMode,
+  type VendorPin,
+} from '../../src/adapters/harness/vendor.ts';
 import { CUSR_COMMANDS } from '../../src/cli/commands.ts';
 import { runCli } from '../../src/cli/program.ts';
 import { validateConfig } from '../../src/config/validate.ts';
@@ -28,7 +31,6 @@ import {
   harnessIdentity,
   recordManifest,
 } from '../../src/runner/harness-records.ts';
-import { BWRAP } from '../../src/runner/sandbox.ts';
 import type { FakeGitHubState } from './fake-github.ts';
 import { GIT_BIN } from './git-repo.ts';
 import { homeFileContent, REAL } from './harness-fixtures.ts';
@@ -54,10 +56,15 @@ export const taskFile = (kind: ProjectKind): string =>
 export const redGateTaskFile = (kind: ProjectKind): string =>
   join(PROJECTS_DIR, kind, 'task-red-gate.json');
 
+/** Real Claude sandbox probes in the smoke fixture still need native bwrap support. */
 export const hostUsable = (): boolean =>
-  existsSync(BWRAP) &&
-  spawnSync(BWRAP, ['--unshare-user', '--ro-bind', '/', '/', '/usr/bin/true'])
-    .status === 0 &&
+  spawnSync('/usr/bin/bwrap', [
+    '--unshare-user',
+    '--ro-bind',
+    '/',
+    '/',
+    '/usr/bin/true',
+  ]).status === 0 &&
   ['running', 'degraded'].includes(
     spawnSync('systemctl', ['--user', 'is-system-running'], {
       encoding: 'utf8',
@@ -377,7 +384,7 @@ export class Rehearsal extends SmokeDriver {
     const { kind, worker, coder, hold } = this.o;
     const bin = join(this.base, 'bin');
     mkdirSync(join(bin, 'replays'), { recursive: true });
-    // The stand-in vendor has no inner sandbox, but preflight asks a Claude pin for what the real one needs.
+    // The stand-in uses bwrap for its own native write probes, matching the current host contract.
     writeFileSync(join(bin, 'socat'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
     const replay = (vendor: 'claude' | 'codex', role: string): string => {
       const to = join(bin, 'replays', `${vendor}-${role}`);
@@ -400,6 +407,7 @@ export class Rehearsal extends SmokeDriver {
         FAKE_VENDOR_MODE:
           this.o.leakHome === true ? 'publish,print_home' : 'publish',
         FAKE_VENDOR_REVIEWER_PROBE: '1',
+        FAKE_VENDOR_INNER_SANDBOX: '1',
         FAKE_VENDOR_REPLAY: replay(vendor, 'coder'),
         FAKE_VENDOR_FIXER_REPLAY: replay(vendor, 'fixer'),
         FAKE_VENDOR_REVIEWER_REPLAY: replay(vendor, 'reviewer'),
@@ -473,8 +481,12 @@ export class Rehearsal extends SmokeDriver {
       const raw = JSON.parse(
         readFileSync(join(REAL, 'capability-manifest.json'), 'utf8'),
       ) as { vendors: Record<string, Record<string, unknown>> };
+      const inner = hostInnerMode(pin);
       raw.vendors[vendor] = {
         ...raw.vendors[vendor],
+        isolation_mode: 'native',
+        selected_inner_mode: inner === 'native' ? 'internal_required' : inner,
+        outer_proof_hash: null,
         binary: { sha256: pin.binary.sha256 },
         attested: attested.value,
       };

@@ -6,26 +6,19 @@
  * checkpoint; each attempt's manifest is the one confirmed with the task; reservations are consumed
  * only for runs that happened. This is fixture replay, not an end-to-end smoke with real vendors.
  */
+import { cpSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  writeFileSync,
-} from 'node:fs';
-import { spawnSync } from 'node:child_process';
-import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
-import {
-  BWRAP,
-  BwrapSandboxProvider,
-  defaultHostPolicy,
+  HostExecutionProvider,
   probeLayoutShapes,
 } from '../../../src/runner/sandbox.ts';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { claudeAdapter } from '../../../src/adapters/harness/claude.ts';
 import { codexAdapter } from '../../../src/adapters/harness/codex.ts';
-import type { VendorPin } from '../../../src/adapters/harness/vendor.ts';
+import {
+  hostInnerMode,
+  type VendorPin,
+} from '../../../src/adapters/harness/vendor.ts';
 import type { SandboxProvider } from '../../../src/adapters/ports.ts';
 import { Dispatcher } from '../../../src/daemon/dispatch.ts';
 import {
@@ -43,6 +36,7 @@ import { RUN_FILES, RunDir } from '../../../src/runner/files.ts';
 import {
   attemptLayoutInputs,
   RunnerHarness,
+  OUTCOME_FILE,
 } from '../../../src/runner/invocation.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
 import type { EpochMs, Hash } from '../../../src/shared/brand.ts';
@@ -79,7 +73,7 @@ afterEach(async () => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
-/** Gates run `/bin/sh -c` directly here; the bwrap boundary is covered by the sandbox suites. */
+/** Gates run `/bin/sh -c` directly here; these tests assert gate results and checkpoint ownership. */
 const gateSandbox: SandboxProvider = {
   provider: 'bwrap',
   plan: (layout, command) =>
@@ -103,7 +97,7 @@ let n = 0;
 function setup(o: {
   mode: ExecutionMode;
   sameVendor?: boolean;
-  realSandbox?: boolean;
+  hostExecution?: boolean;
   reviewerWrites?: boolean;
   confirmed?: (m: Record<string, CapabilityManifest>) => Record<string, Hash>;
 }) {
@@ -165,8 +159,6 @@ function setup(o: {
       FAKE_VENDOR_REPLAY: join(REAL, 's0-codex-reviewer-1793180367'),
     }),
   };
-  if (o.realSandbox === true)
-    pins.claude = { ...pins.claude, toolchain: [dirname(process.execPath)] };
   const credentials: Record<string, { name: string; file: string }> = {};
   for (const pin of Object.values(pins))
     for (const h of pin.home_files) {
@@ -183,19 +175,25 @@ function setup(o: {
       credentials[h.credential] = { name: h.credential, file };
     }
   const sandbox =
-    o.realSandbox === true
-      ? new BwrapSandboxProvider({
-          policy: defaultHostPolicy(join(data, 'runtime')),
-        })
+    o.hostExecution === true
+      ? new HostExecutionProvider()
       : new PassThroughSandbox();
   const manifest = (pin: VendorPin): CapabilityManifest => {
-    if (o.realSandbox !== true) return evidenceManifest(pin);
+    if (o.hostExecution !== true) return evidenceManifest(pin);
     const shapes = probeLayoutShapes(sandbox, {
       roles: ['coder', 'fixer', 'reviewer'],
       ...attemptLayoutInputs(pin, 'probe'),
     });
     if (!shapes.ok) throw new Error(shapes.error.message);
-    return evidenceManifest(pin, {}, shapes.value);
+    const inner = hostInnerMode(pin);
+    return evidenceManifest(
+      pin,
+      {
+        isolation_mode: 'native',
+        selected_inner_mode: inner === 'native' ? 'internal_required' : inner,
+      },
+      shapes.value,
+    );
   };
   const manifests = {
     claude: manifest(pins.claude),
@@ -423,64 +421,74 @@ describe('the confirmed manifest is the one in force (T070/T071)', () => {
   });
 });
 
-const isolatedUsable =
-  existsSync(BWRAP) &&
-  spawnSync(BWRAP, ['--unshare-user', '--ro-bind', '/', '/', '/usr/bin/true'])
-    .status === 0 &&
-  !dirname(process.execPath).startsWith(homedir());
-describe.skipIf(!isolatedUsable)(
-  'T139 M03 same vendor/model under real bwrap',
-  () => {
-    it('one confirmed harness serves worker and reviewer with separate homes/sessions, reviewer read-only, one PR', async () => {
-      const f = setup({
-        mode: 'full-review',
-        sameVendor: true,
-        realSandbox: true,
-      });
-      f.start();
-      await f.settle();
-      const state = f.d.task(f.task.id);
-      expect(state.wait?.detail.code, JSON.stringify(state.wait)).toBe('merge');
-      expect(f.proc.launches).toHaveLength(2);
-      const [worker, reviewer] = f.proc.launches;
-      expect(worker?.argv.join(' ')).toContain('--bind');
-      expect(reviewer?.argv.join(' ')).toContain('--ro-bind');
-      expect(reviewer?.argv).not.toContain('--resume');
-      expect(worker?.run_id).not.toBe(reviewer?.run_id);
-      const attempts = Object.values(state.attempts);
-      expect(new Set(attempts.map((a) => a.binding)).size).toBe(1);
-      const results = f.proc.launches.map((l) =>
-        RunDir.open({
-          dataDir: join(f.data, 'runtime'),
-          kind: 'runs',
-          id: l.run_id,
-          redactor: new Redactor(),
-          create: false,
-        }).readFinal(RUN_FILES.result),
-      );
-      expect(results.every((r) => r.state === 'valid')).toBe(true);
-      expect(f.github.prs).toHaveLength(1);
-      expect(state.run.reviews).toMatchObject([
-        { verdict: 'approve', sha: state.run.checkpoint?.sha },
-      ]);
-      expect(f.d.store.verifyProjections().ok).toBe(true);
+describe('T139 M03 same vendor/model through the host launcher', () => {
+  it('one confirmed harness serves worker and reviewer with separate homes/sessions, reviewer read-only, one PR', async () => {
+    const f = setup({
+      mode: 'full-review',
+      sameVendor: true,
+      hostExecution: true,
     });
+    f.start();
+    await f.settle();
+    const state = f.d.task(f.task.id);
+    expect(state.wait?.detail.code, JSON.stringify(state.wait)).toBe('merge');
+    expect(f.proc.launches).toHaveLength(2);
+    const [worker, reviewer] = f.proc.launches;
+    expect(worker?.argv[0]).toBe(reviewer?.argv[0]);
+    expect(worker?.argv).not.toContain('--bind');
+    expect(reviewer?.argv).toContain('--disallowedTools');
+    expect(reviewer?.argv).not.toContain('--resume');
+    expect(worker?.run_id).not.toBe(reviewer?.run_id);
+    const attempts = Object.values(state.attempts);
+    expect(new Set(attempts.map((a) => a.binding)).size).toBe(1);
+    const results = f.proc.launches.map((l) =>
+      RunDir.open({
+        dataDir: join(f.data, 'runtime'),
+        kind: 'runs',
+        id: l.run_id,
+        redactor: new Redactor(),
+        create: false,
+      }).readFinal(RUN_FILES.result),
+    );
+    expect(results.every((r) => r.state === 'valid')).toBe(true);
+    expect(f.github.prs).toHaveLength(1);
+    expect(state.run.reviews).toMatchObject([
+      { verdict: 'approve', sha: state.run.checkpoint?.sha },
+    ]);
+    expect(f.d.store.verifyProjections().ok).toBe(true);
+  });
 
-    it('the same-vendor reviewer write is denied by the mount and cannot produce green or a PR', async () => {
-      const f = setup({
-        mode: 'full-review',
-        sameVendor: true,
-        realSandbox: true,
-        reviewerWrites: true,
-      });
-      f.start();
-      await f.settle();
-      expect(f.proc.launches).toHaveLength(2);
-      expect(f.github.prs).toEqual([]);
-      expect(
-        f.d.task(f.task.id).run.reviews.filter((r) => r.verdict === 'approve'),
-      ).toEqual([]);
-      expect(g.sh(f.worktree, 'status', '--porcelain')).toBe('');
+  it('a same-vendor reviewer write is detected and cannot produce green or a PR', async () => {
+    const f = setup({
+      mode: 'full-review',
+      sameVendor: true,
+      hostExecution: true,
+      reviewerWrites: true,
     });
-  },
-);
+    f.start();
+    await f.settle();
+    expect(f.proc.launches).toHaveLength(2);
+    expect(f.github.prs).toEqual([]);
+    expect(
+      f.d.task(f.task.id).run.reviews.filter((r) => r.verdict === 'approve'),
+    ).toEqual([]);
+    const reviewer = f.proc.launches[1];
+    const outcome = RunDir.open({
+      dataDir: join(f.data, 'runtime'),
+      kind: 'runs',
+      id: reviewer!.run_id,
+      redactor: new Redactor(),
+      create: false,
+    }).readFinal(OUTCOME_FILE);
+    expect(outcome).toMatchObject({
+      state: 'valid',
+      value: {
+        outcome: {
+          kind: 'failure',
+          failure: 'boundary_violation',
+          detail: 'reviewer changed the read-only worktree',
+        },
+      },
+    });
+  });
+});

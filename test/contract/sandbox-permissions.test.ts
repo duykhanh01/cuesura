@@ -1,30 +1,15 @@
-/**
- * T065 permission and boundary contract (FR-013/032/033). The plan the provider builds for each role:
- * reviewer read-only, coder/fixer writable worktree only, Git metadata read-only for every role, no
- * host home/admin/operate/GitHub/socket/proc mount or variable, a private home with the selected auth
- * for agent roles only, nothing that lets an agent push. Proof side (T006/T007 evidence): the native
- * inner sandbox passed, permission rules denied independently of the outer boundary for both vendors,
- * the pinned settings hash is the one the manifest records, and external_verified changes only the
- * inner sandbox switch, never the permission rules or the approval policy.
- *
- * The real bwrap run of the same plans is in test/integration/runtime/sandbox-bwrap.test.ts (skipped
- * where bwrap is not installed).
- */
+/** Private-home auth, post-run write detection and archived permission evidence. */
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { verifyManifest } from '../../src/application/capabilities.ts';
 import { claudeAdapter } from '../../src/adapters/harness/claude.ts';
 import { codexAdapter } from '../../src/adapters/harness/codex.ts';
 import { wireRoleSchema } from '../../src/adapters/harness/result-schema.ts';
-import { SANDBOX_ROLES, type SandboxRole } from '../../src/adapters/ports.ts';
 import { RunDir } from '../../src/runner/files.ts';
 import { assertFreshHome, installAuth } from '../../src/runner/private-home.ts';
 import { Redactor } from '../../src/runner/redact.ts';
 import {
-  buildBwrap,
-  defaultHostPolicy,
   IN_SANDBOX,
   SandboxPolicyError,
   snapshotWriteZone,
@@ -61,105 +46,6 @@ function fixture(): SandboxFixture {
   fixtures.push(fx);
   return fx;
 }
-const policy = defaultHostPolicy('/var/lib/cusr-test');
-
-function mountKind(
-  plan: ReturnType<typeof buildBwrap>,
-  source: string,
-): string[] {
-  return plan.mounts.filter((m) => m.source === source).map((m) => m.kind);
-}
-
-describe('per-role mounts (reviewer ro, coder rw, Git metadata ro)', () => {
-  it.each(SANDBOX_ROLES.map((r) => [r] as const))('%s', (role: SandboxRole) => {
-    const fx = fixture();
-    const plan = buildBwrap(fixtureLayout(role, fx), policy);
-    expect(mountKind(plan, fx.worktree)).toEqual([
-      role === 'reviewer' ? 'ro' : 'rw',
-    ]);
-    expect(mountKind(plan, join(fx.worktree, '.git'))).toEqual(['ro']);
-    expect(mountKind(plan, fx.gitCommon)).toEqual(['ro']);
-    expect(mountKind(plan, fx.scratch)).toEqual(['rw']);
-    const agent = role === 'coder' || role === 'fixer' || role === 'reviewer';
-    expect(
-      plan.mounts.some((m) => m.target === IN_SANDBOX.home && m.kind === 'rw'),
-    ).toBe(agent);
-    expect(plan.bwrap_args).toEqual(
-      expect.arrayContaining([
-        '--unshare-pid',
-        '--new-session',
-        '--die-with-parent',
-      ]),
-    );
-    expect(plan.bwrap_args.join(' ')).toContain('--cap-drop ALL');
-    expect(plan.bwrap_args).toContain('--clearenv');
-    // A fresh /proc of the sandbox PID namespace, never the host /proc.
-    expect(plan.mounts.some((m) => m.source === '/proc')).toBe(false);
-  });
-
-  it('setup/gate/autofix are refused a harness home: no model auth outside agent roles', () => {
-    const fx = fixture();
-    for (const role of ['setup', 'gate', 'autofix'] as const)
-      expect(() =>
-        buildBwrap(
-          { ...fixtureLayout(role, fx), private_home: fx.home },
-          policy,
-        ),
-      ).toThrow(SandboxPolicyError);
-  });
-});
-
-describe('host, admin, operate, GitHub, socket and proc stay outside', () => {
-  const home = homedir();
-  it.each([
-    ['host home', home],
-    ['gh config', join(home, '.config/gh')],
-    ['ssh', join(home, '.ssh')],
-    ['claude auth of the owner', join(home, '.claude')],
-    ['codex auth of the owner', join(home, '.codex')],
-    ['store', '/var/lib/cusr-test/cusr.db'],
-    ['control socket', '/var/lib/cusr-test/control.sock'],
-    ['owner/operate tokens', '/var/lib/cusr-test/tokens'],
-    ['docker socket', '/var/run/docker.sock'],
-    ['host proc', '/proc'],
-  ])('%s is never mounted', (_n, path) => {
-    const fx = fixture();
-    expect(() =>
-      buildBwrap({ ...fixtureLayout('coder', fx), toolchain: [path] }, policy),
-    ).toThrow(SandboxPolicyError);
-  });
-
-  it.each([
-    ['GH_TOKEN'],
-    ['GITHUB_TOKEN'],
-    ['SSH_AUTH_SOCK'],
-    ['DBUS_SESSION_BUS_ADDRESS'],
-    ['XDG_RUNTIME_DIR'],
-    ['CUSR_ADMIN_TOKEN'],
-    ['ANTHROPIC_API_KEY'],
-    ['OPENAI_API_KEY'],
-  ])('env %s is never passed', (name) => {
-    const fx = fixture();
-    expect(() =>
-      buildBwrap(
-        { ...fixtureLayout('coder', fx), env: { [name]: 'x' } },
-        policy,
-      ),
-    ).toThrow(SandboxPolicyError);
-  });
-
-  it('an agent cannot push: no GitHub credential enters and the remote config is read-only', () => {
-    const fx = fixture();
-    const plan = buildBwrap(fixtureLayout('coder', fx), policy);
-    expect(
-      Object.keys(plan.env).some((k) =>
-        /^(GH_|GITHUB_|GIT_ASKPASS|SSH_)/.test(k),
-      ),
-    ).toBe(false);
-    expect(mountKind(plan, fx.gitCommon)).toEqual(['ro']);
-  });
-});
-
 describe('selected auth only, in a fresh home of an agent run', () => {
   it('installs only the listed files and refuses a home that is not empty', () => {
     const d = tempDir('cusr-perm-', dirs);
@@ -359,32 +245,4 @@ describe('permission rules hold independently of the outer boundary (T006/T007)'
     });
     expect(!hard.ok && hard.error.map((x) => x.check)).toEqual(['cost']);
   });
-});
-
-describe('control tokens stay out of a worker sandbox (T107, FR-028/032)', () => {
-  it.each(['coder', 'fixer', 'reviewer'] as SandboxRole[])(
-    '%s has no token variable and no mount of the data dir that holds the tokens',
-    (role) => {
-      const fx = fixture();
-      for (const key of [
-        'CUSR_TOKEN_FILE',
-        'CUSR_OPERATE_TOKEN',
-        'CUSR_ADMIN_TOKEN',
-      ])
-        expect(() =>
-          buildBwrap(
-            {
-              ...fixtureLayout(role, fx),
-              env: { [key]: '/srv/cusr/op.token' },
-            },
-            policy,
-          ),
-        ).toThrow(SandboxPolicyError);
-      const plan = buildBwrap(fixtureLayout(role, fx), policy);
-      const text = JSON.stringify(plan);
-      expect(text).not.toContain('owner.token');
-      expect(text).not.toContain('control.sock');
-      expect(text).not.toContain('.cusr');
-    },
-  );
 });

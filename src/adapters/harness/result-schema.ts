@@ -1,6 +1,6 @@
 /**
- * Role result schemas (SPEC §12.3, contracts/execution.md "Harness contract"). Promoted from the T003
- * prototype `scripts/spike-002/role-schema.ts`, whose canonical digests were accepted by both vendors
+ * Role result schemas (SPEC §12.3, contracts/execution.md "Harness contract"). Matches the archived
+ * T003 schemas in `test/fixtures/runtime/spike-0/schema/`, accepted by both vendors
  * in S0.2 (T007). Zod is the single source; the exchange JSON Schema is exported with
  * `z.toJSONSchema()` and restricted to a portable keyword subset. Length/range rules the exchange
  * schema does not carry are enforced by {@link validateRoleResult} after structural parsing.
