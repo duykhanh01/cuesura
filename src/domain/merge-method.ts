@@ -5,8 +5,8 @@ import { z } from 'zod';
  * the object or the key is absent. It is resolved from the frozen base and frozen per task; it grants
  * no merge right (yolo, approval) and is independent of the execution mode.
  *
- * Feature 002 only observes manual merges: the method is a suggestion to the person who merges, never
- * an admission check, and a manual merge with another or unknown method still completes the task.
+ * Yolo merges with this method. Otherwise it is a suggestion to the person who merges, never an
+ * admission check, and a manual merge with another or unknown method still completes the task.
  */
 export const MERGE_METHODS = ['squash', 'merge', 'rebase'] as const;
 export type MergeMethod = (typeof MERGE_METHODS)[number];

@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { findDaemonUnsupported } from '../../../src/config/capabilities.ts';
 import {
   freeze,
   freezeRuntimeContext,
@@ -450,23 +449,6 @@ describe('project merge.method (SPEC §14.2)', () => {
         empty.ok &&
         base.value.config.hashes.project === empty.value.config.hashes.project,
     ).toBe(true);
-  });
-});
-
-describe('daemon capabilities', () => {
-  it('reports user yolo as unsupported for the 002 daemon', () => {
-    const v = valid('yolo: true\n');
-    const at = () => ({ file: 'config.yaml', line: 1, col: 1 });
-    expect(findDaemonUnsupported(v.config.user, at)).toEqual([
-      {
-        code: 'unsupported_feature',
-        feature: 'yolo',
-        file: 'config.yaml',
-        line: 1,
-        col: 1,
-      },
-    ]);
-    expect(findDaemonUnsupported(valid('').config.user, at)).toEqual([]);
   });
 });
 

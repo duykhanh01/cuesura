@@ -5,8 +5,9 @@ thành việc, sửa qua chính `cusr`, rồi có hiệu lực ở release sau.
 
 ## Ranh giới
 
-- **Agent không merge.** Assistant tự xác nhận run config và chạy task; người dùng duyệt và merge mọi PR,
-  vòng cải thiện không có đường tắt nào bỏ qua bước này.
+- **Agent không merge.** Assistant tự xác nhận run config và chạy task, nhưng không gọi merge. Người dùng duyệt
+  và merge mọi PR; khi user config có `yolo: true`, chính daemon merge PR đủ điều kiện
+  ([deploy](../deploy/README.md#yolo)). Vòng cải thiện không có đường tắt nào khác.
 - **Gate lấy từ commit base.** PR sửa `cusr.yaml` hay CI không tự nới gate cho chính nó.
 - **Worker không dùng `cusr`.** Skill và token chỉ dành cho assistant caller điều phối; không truyền vào worker.
 - **Một release, một task.** V1 chạy một task tại một thời điểm.

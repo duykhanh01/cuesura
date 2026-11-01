@@ -55,6 +55,7 @@ import {
 } from './handlers.ts';
 import type { DaemonRuntime } from './main.ts';
 import { ObservationCoordinator, observationRound } from './observation.ts';
+import { yoloMerge, type YoloDeps } from './yolo.ts';
 import { Scheduler } from './scheduler.ts';
 import { taskControl } from './task-control.ts';
 
@@ -115,6 +116,7 @@ export type ProductionSeams = {
 
 export async function productionControl(opts: {
   configPath: string;
+  log?: (line: string) => void;
   dataDir: string;
   clock: Clock;
   redactor: Redactor;
@@ -266,6 +268,20 @@ export async function productionControl(opts: {
     );
     const observe = (taskId: string, ref: string) =>
       coordinator.observe(taskId, ref, 'recheck');
+    const yolo: YoloDeps = {
+      store,
+      clock: opts.clock,
+      newId: opts.newId,
+      github: newGitHub,
+      enabled: async () => {
+        const user = (
+          await readConfigFiles({ user: opts.configPath })
+        )[0] as ConfigSource;
+        const current = validateConfig({ user, packs: {} });
+        return current.ok && current.value.config.user.yolo;
+      },
+      ...(opts.log === undefined ? {} : { log: opts.log }),
+    };
     const process_ = new SystemdSupervisor({
       dataDir: opts.dataDir,
       runnerCommand: [process.execPath, RUNNER],
@@ -420,6 +436,11 @@ export async function productionControl(opts: {
             clock: opts.clock,
             coordinator,
             newId: opts.newId,
+            afterRead: async (taskId) => {
+              await yoloMerge(yolo, taskId).catch((e: unknown) => {
+                opts.log?.(`yolo ${taskId}: ${String(e)}`);
+              });
+            },
           }),
         drainAll,
       ],

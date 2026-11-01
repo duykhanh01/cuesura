@@ -209,7 +209,7 @@ export const SCENARIOS: Record<string, InvariantEntry> = {
   S08: {
     title: 'Base or head changes before the merge',
     scope: 'partial',
-    layer: 'Integration tests; no yolo or merge in 002',
+    layer: 'Integration tests',
     suites: [
       'test/integration/runtime/feature-002-fixes.test.ts',
       'test/integration/runtime/execution-modes.test.ts',

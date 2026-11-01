@@ -543,6 +543,12 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
     .strict(),
   z
     .object({
+      kind: z.literal('yolo_merge_approve'),
+      head_sha: z.string().regex(/^[0-9a-f]{40}$/),
+    })
+    .strict(),
+  z
+    .object({
       kind: z.literal('observation_result'),
       observation: ObservationSchema,
       remote_digest: HashSchema,

@@ -25,7 +25,10 @@ import {
   onSourceUpdated,
 } from './intake.ts';
 import { onDrainResult, settleCompletion } from './drain.ts';
-import { onExternalCompletion } from './external-completion.ts';
+import {
+  onExternalCompletion,
+  onYoloMergeApprove,
+} from './external-completion.ts';
 import { onObservationDue, onObservationResult } from './observation.ts';
 import { onEffectResult, proceed } from './interpreter.ts';
 import { askHuman, onAnswer, onApprovalDecision } from './questions.ts';
@@ -197,6 +200,9 @@ function dispatch(ctx: Ctx, t: Trigger): void {
       return;
     case 'external_completion':
       onExternalCompletion(ctx, t);
+      return;
+    case 'yolo_merge_approve':
+      onYoloMergeApprove(ctx, t);
       return;
     case 'observation_result':
       onObservationResult(ctx, t);

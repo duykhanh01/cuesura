@@ -453,18 +453,14 @@ describe('preflight (T030, FR-002)', () => {
       ]);
     });
 
-    it('rejects yolo and a workflow that is not software_dev@1 with human decisions', async () => {
-      expect(
-        checks(
-          failure(
-            (
-              await runPreflight({
-                user: userConfig({ extra: 'yolo: true\n' }),
-              })
-            ).result,
-          ),
-        ),
-      ).toEqual(['capability_missing:completion_mode']);
+    it('accepts yolo in the user config', async () => {
+      const { result } = await runPreflight({
+        user: userConfig({ extra: 'yolo: true\n' }),
+      });
+      expect(result.ok).toBe(true);
+    });
+
+    it('rejects a workflow that is not software_dev@1 with human decisions', async () => {
       const user = userConfig();
       user.text = user.text.replace(
         '  impl:\n    base: software_dev@1\n',

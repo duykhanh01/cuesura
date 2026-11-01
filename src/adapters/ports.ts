@@ -326,10 +326,10 @@ export interface GitPort {
   run(command: GitCommand): Promise<GitResult>;
 }
 
-// ---- GitHub (pinned gh/API, allowlisted endpoints, no merge method) ----
+// ---- GitHub (pinned gh/API, allowlisted endpoints) ----
 
 export type GitHubRequest = {
-  readonly method: 'GET' | 'POST' | 'PATCH';
+  readonly method: 'GET' | 'POST' | 'PATCH' | 'PUT';
   /** API path without host, e.g. `repos/o/r/pulls/1`; checked against the port allowlist. */
   readonly path: string;
   readonly query: Readonly<Record<string, string>>;

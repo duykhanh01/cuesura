@@ -57,6 +57,33 @@ function greenObserved(d: StoreDriver, t: CanonicalTask): void {
 }
 
 describe('observation service (T061)', () => {
+  it('runs afterRead once a read committed its facts, and not after a failed read', async () => {
+    const d = setup();
+    const t = buildTask();
+    toGreen(d, t);
+    d.must(t.id, observation(d, t, 'open', A));
+    d.now = d.task(t.id).observation?.budget.next_due_at ?? 0;
+    const after: unknown[] = [];
+    const round = (failure: string | null) =>
+      observationRound({
+        store: d.store,
+        clock: clockOf(d),
+        coordinator: fakeReads(() => ({
+          facts: failure === null ? [observation(d, t, 'open', A)] : [],
+          failure,
+        })).coordinator,
+        newId,
+        afterRead: (id) => {
+          after.push([id, d.task(t.id).observation?.budget.count]);
+          return Promise.resolve();
+        },
+      });
+    await round('unreadable');
+    expect(after).toEqual([]);
+    await round(null);
+    expect(after).toEqual([[t.id, 2]]);
+  });
+
   it('runs one automatic round per due task, never ahead of its schedule, and never while the CI wait polls', async () => {
     const d = setup();
     const t = buildTask();

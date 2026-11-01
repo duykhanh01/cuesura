@@ -69,6 +69,8 @@ export type ObservationDeps = {
   readonly newId: () => string;
   /** Tasks handled per round at most; the rest wait for the next round. */
   readonly max_tasks?: number;
+  /** Runs after a read's facts committed, one task at a time; a failure is the caller's to report. */
+  readonly afterRead?: (taskId: string) => Promise<void>;
 };
 
 const ids = (deps: { newId: () => string }): string[] =>
@@ -209,6 +211,7 @@ export async function observationRound(
       outcomes,
       failure: read.failure,
     });
+    if (read.failure === null) await deps.afterRead?.(d.id);
   }
   return reports;
 }

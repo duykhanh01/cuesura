@@ -225,6 +225,7 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${USER_TOKEN_FILE:?}" \
 ```sh
 # task retry -> task add for independent work the user actually wants.
 # task amend-policy -> cancel, then task add with updated input/configuration.
-# task approve --kind merge and yolo -> user merges on GitHub, then observation
+# task approve --kind merge and the yolo command -> with yolo on, the daemon merges by
+# itself; never call a merge yourself. Otherwise the user merges on GitHub, then observation
 # or an allowed task recheck records it. This CLI has no merge command.
 ```

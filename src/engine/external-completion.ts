@@ -1,3 +1,4 @@
+import type { TaskState } from '../domain/state.ts';
 import type { Trigger } from '../domain/trigger.ts';
 import { invalidatePending } from './cancel.ts';
 import { reject, type Ctx } from './context.ts';
@@ -16,6 +17,8 @@ import { waitObservationExpired } from './observation.ts';
  * unverified disclaimer when Cuesura did not vouch for the merged head. Completion goes before source
  * drift and the deadline; a terminal task is never reopened (the dispatcher only logs it).
  */
+
+const YOLO_APPROVER = 'policy:yolo';
 
 /** Runtime tasks complete by external confirmation only (the snapshot's completion_mode is fixed). */
 export function externalConfirmation(ctx: Ctx): boolean {
@@ -65,6 +68,61 @@ function verifiedHead(ctx: Ctx, head: string): boolean {
     ci !== undefined &&
     ciVerdict(ctx.frozen, ci.required_set, ci.checks).kind === 'pass'
   );
+}
+
+/** Whether the code recorded a yolo approval of `head` in this revision. */
+export function yoloApproved(
+  s: Pick<TaskState, 'approvals' | 'revision'>,
+  head: string,
+): boolean {
+  return Object.values(s.approvals).some(
+    (a) =>
+      a.kind === 'merge' &&
+      a.status === 'granted' &&
+      a.granted_by === YOLO_APPROVER &&
+      !a.revoked &&
+      a.revision === s.revision &&
+      a.head_sha === head,
+  );
+}
+
+type YoloMergeApprove = Extract<Trigger, { kind: 'yolo_merge_approve' }>;
+
+/**
+ * Yolo's approval of a merge the daemon is about to send: only a confirmed task waiting for its merge,
+ * with no cancel, on a head Cuesura vouches for (the review its mode requires, the gates, green CI). The
+ * daemon reads the owner's setting and GitHub's rules; this decides the rest and leaves the wait in place.
+ */
+export function onYoloMergeApprove(ctx: Ctx, t: YoloMergeApprove): void {
+  const s = ctx.state;
+  const ignored = (reason: string): void => {
+    ctx.emit('SignalIgnored', {
+      reason,
+      trigger_kind: t.kind,
+      detail: { head_sha: t.head_sha },
+    });
+  };
+  if (!externalConfirmation(ctx) || s.run.mode === null)
+    return ignored('yolo_not_runtime');
+  if (s.wait?.detail.code !== 'merge') return ignored('yolo_not_waiting');
+  if (s.cancellation !== null || s.completion !== null)
+    return ignored('yolo_not_waiting');
+  if (!verifiedHead(ctx, t.head_sha)) return ignored('yolo_head_unverified');
+  if (yoloApproved(s, t.head_sha)) return ignored('yolo_approved');
+  const id = ctx.nextId();
+  ctx.emit('ApprovalRequested', {
+    approval_id: id,
+    kind: 'merge',
+    step: s.wait.detail['step'] as string,
+    rung: null,
+    head_sha: t.head_sha,
+    policy_hash: ctx.frozen.policy_hash,
+  });
+  ctx.emit('ApprovalGranted', {
+    approval_id: id,
+    by: YOLO_APPROVER,
+    head_sha: t.head_sha,
+  });
 }
 
 type ExternalCompletion = Extract<Trigger, { kind: 'external_completion' }>;

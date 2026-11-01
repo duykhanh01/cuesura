@@ -83,7 +83,7 @@ export const UNSUPPORTED_GUIDANCE: Readonly<
     'amend-policy is not part of this version; cancel and use task add with the new config',
   merge_approve:
     'merge approval is not part of this version; merge the PR on GitHub, then wait for the observation or run task recheck',
-  yolo: 'yolo is not part of this version; merge the PR on GitHub, then wait for the observation or run task recheck',
+  yolo: 'yolo has no command: set yolo: true in the user config, or merge the PR on GitHub, then wait for the observation or run task recheck',
 };
 
 export type AdmitError =

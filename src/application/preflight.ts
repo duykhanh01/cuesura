@@ -15,7 +15,6 @@ import {
   ROLES,
   type Role,
 } from '../adapters/harness/result-schema.ts';
-import { findDaemonUnsupported } from '../config/capabilities.ts';
 import type { RuntimeConfig } from '../config/normalize.ts';
 import { validateConfig, type Validated } from '../config/validate.ts';
 import type { ConfigSource } from '../config/yaml-loader.ts';
@@ -848,14 +847,6 @@ export function checkSupport(
   const cap = (check: string, message: string): void =>
     void problems.push(problem('capability_missing', check, message));
 
-  if (
-    findDaemonUnsupported(config.user, () => ({ file: '', line: 0, col: 0 }))
-      .length > 0
-  )
-    cap(
-      'completion_mode',
-      'yolo is not supported by cusrd; completion is external confirmation only',
-    );
   if (config.project === null || config.project.required_checks.length === 0) {
     problems.push(
       problem(

@@ -72,8 +72,8 @@ comment hoặc merge đã thành công.
 - Nâng effort/model/vendor MUST đi theo thang đã duyệt trước, do code kích hoạt theo phân loại lỗi.
   Lỗi hạ tầng hoặc hết hạn mức MUST NOT kích hoạt nâng model; không hạ model ngầm.
 - Effect merge do Cuesura gửi MUST chỉ do code thực hiện sau khi kiểm tra quyền, head/base SHA,
-  gate/CI, review theo chế độ và approval cho thao tác merge. Auto-merge MUST có reviewer approve;
-  `direct-pr` không đủ điều kiện auto-merge. Decider và agent không quyết định merge. Người dùng
+  gate/CI, review theo chế độ và approval cho thao tác merge. Auto-merge của `full-review` MUST có
+  reviewer approve; `direct-pr` auto-merge khi gate và CI xanh, không có reviewer đọc diff. Decider và agent không quyết định merge. Người dùng
   có thể merge thủ công trên GitHub theo quyền/branch protection; Cuesura MUST đối chiếu bằng chứng
   thao tác bên ngoài đó, không giả approval/review và không đòi merge qua guard của effect nội bộ.
   Mặc định người duyệt từng merge vào protected branch; chế độ yolo
@@ -192,4 +192,8 @@ PR, review và gate theo chế độ, digest của run config, `max_visits`, `ta
 escalation cần duyệt. Đồng bộ SPEC §5.2, §9.4, skill `cusr`, runbook và dogfooding; các template đọc hiến
 chương hiện hành, không cần đổi cấu trúc.
 
-**Version**: 4.0.0 | **Ratified**: 2026-10-27 | **Last Amended**: 2026-11-01
+**Amendment 2026-11-01 (chủ dự án):** 4.0.0 → 5.0.0 vì cho `direct-pr` auto-merge dưới yolo, không có
+reviewer. Cuesura vẫn là code gửi merge sau khi kiểm tra; agent không gọi merge và không quyết định merge.
+Đồng bộ SPEC §14.2 và I11, runbook; các template đọc hiến chương hiện hành, không cần đổi cấu trúc.
+
+**Version**: 5.0.0 | **Ratified**: 2026-10-27 | **Last Amended**: 2026-11-01

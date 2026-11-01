@@ -223,6 +223,26 @@ Các policy/runtime snapshot của task đã chạy giữ nguyên giới hạn �
 xóa các trần trong user config và tạo lại pin/manifest theo mục bên dưới để task mới dùng cấu hình
 không giới hạn; không sửa tay snapshot hoặc manifest của task cũ.
 
+## Yolo
+
+`yolo: true` trong user config cho daemon tự merge PR của task đang chờ merge. Không bật được qua
+`cusr.yaml`. Config được đọc lại trước mỗi lần merge nên sửa về `false` có hiệu lực không cần restart;
+không chặn được request đã gửi tới GitHub.
+
+- `full-review` cần reviewer của Cuesura approve; đây không phải review trên GitHub.
+- `direct-pr` không có reviewer đọc diff: chỉ gate và CI chặn lỗi.
+- Nhánh đích cần classic branch protection: required checks, "up to date", áp dụng cho admin. Thiếu thì
+  daemon không merge và ghi lý do vào log. Không bật yêu cầu approvals nếu chỉ có một tài khoản.
+
+```sh
+gh api -X PUT repos/<owner>/<repo>/branches/main/protection --input - <<'JSON'
+{"required_status_checks":{"strict":true,"contexts":["build","test"]},"enforce_admins":true,"required_pull_request_reviews":null,"restrictions":null}
+JSON
+```
+
+Cùng UID nên assistant đọc được và sửa được user config: yolo là quy tắc vận hành, không phải ranh giới
+quyền thật ([token và quyền](#token-và-quyền)).
+
 ## Harness thật: pin và manifest
 
 `cusrd` chỉ gọi một harness khi có đủ hai bản ghi của owner tại `<DATA_DIR>/harnesses/<tên harness>/`:

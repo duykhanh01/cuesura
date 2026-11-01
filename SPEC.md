@@ -90,7 +90,7 @@ V1 không có Primary AI chạy liên tục, plugin marketplace, workflow tự s
 | I08 | Workflow, policy và đầu vào gốc bất biến theo revision. Thay đổi phải có event, actor, lý do và phiên bản mới. |
 | I09 | Mọi lần gọi agent phải thỏa role, binding, quyền, approval, pool và ngân sách đã resolve. Agent không được tự đổi những giới hạn đó. |
 | I10 | Thứ tự event lấy từ sequence đã commit; không suy ra bằng ID hay thời gian hệ thống. Trigger lặp không tạo thêm hiệu ứng logic. |
-| I11 | Effect merge do Cuesura gửi chỉ do code thực hiện sau khi kiểm quyền, head/base, gate/CI, review theo chế độ và approval cho merge; auto-merge luôn cần reviewer approve. Người dùng merge thủ công trên GitHub là thao tác bên ngoài, được đối chiếu bằng chứng riêng; không giả review/approval hoặc gọi guard để gửi merge. Decider và agent không quyết định merge. |
+| I11 | Effect merge do Cuesura gửi chỉ do code thực hiện sau khi kiểm quyền, head/base, gate/CI, review theo chế độ và approval cho merge; auto-merge của `full-review` luôn cần reviewer approve. Người dùng merge thủ công trên GitHub là thao tác bên ngoài, được đối chiếu bằng chứng riêng; không giả review/approval hoặc gọi guard để gửi merge. Decider và agent không quyết định merge. |
 | I12 | Trạng thái kết thúc không tự mở lại. Retry sau kết thúc tạo task mới có liên kết nguồn; lịch sử task cũ được giữ nguyên. |
 
 ## 5. Mô hình miền và dữ liệu
@@ -432,15 +432,17 @@ có thể đổi commit SHA mà không làm head-at-merge khác head đã kiểm
 
 Protected branches mặc định bao gồm default branch. Phần kiểm tra dưới đây chỉ áp dụng khi **Cuesura gửi effect merge**, không áp dụng để ngăn hoặc phủ nhận merge thủ công đã xảy ra trên GitHub. Mỗi branch đích có một merge queue; ngay trước effect merge phải kiểm tra:
 
-1. Head SHA đúng kết quả gate/CI và approval cho thao tác merge đang hiệu lực; reviewer approval cùng head bắt buộc khi là `full-review`. `direct-pr` không cần reviewer approval cho merge có người duyệt, nhưng không đủ điều kiện auto-merge.
+1. Head SHA đúng kết quả gate/CI và approval cho thao tác merge đang hiệu lực; reviewer approval cùng head bắt buộc khi là `full-review`. `direct-pr` không cần reviewer approval, kể cả khi auto-merge.
 2. Head đã bao gồm base tip hiện tại; base đổi thì cập nhật branch, chạy lại gate/review cần thiết và CI.
 3. Required checks đầy đủ và thành công; pending/cancelled/missing/unknown không phải pass.
-4. Auto-merge có reviewer approve và không còn finding nghiêm trọng chưa xử lý.
+4. Auto-merge của `full-review` có reviewer approve và không còn finding nghiêm trọng chưa xử lý.
 5. Quyền merge còn hiệu lực, branch protection thỏa mãn và không có yêu cầu hủy chặn effect chưa gửi.
 
 Local queue chỉ tuần tự hóa merge của Cuesura. Cần expected-head guard và branch protection yêu cầu cập nhật base để chặn race với thay đổi bên ngoài; không thể bảo đảm điều này thì auto-merge bị khóa. Conflict được giao fixer tối đa một lượt mặc định, rồi chờ người.
 
 Người dùng có thể merge thủ công cả PR `direct-pr` lẫn `full-review` trên GitHub theo quyền và branch protection. Cuesura đối chiếu repo/PR/target/head-at-merge rồi hoàn tất theo bằng chứng; không giả review/approval nội bộ hoặc gửi thêm lệnh merge. Nếu head chưa được kiểm đủ theo chế độ, ghi rõ merge chưa chứng nhận. Feature 002 chỉ có đường quan sát này, không gửi effect merge.
+
+**Yolo trong daemon:** khi `yolo: true` trong user config, sau mỗi lượt đọc PR của task đang chờ merge, daemon đọc lại config, rồi yêu cầu PR có `mergeable_state: clean` trên đúng head đã kiểm, và classic protection của nhánh đích có `strict` cùng `enforce_admins`. Engine kiểm tra task đã xác nhận chế độ, không bị hủy, head được Cuesura chứng nhận, rồi ghi approval `policy:yolo`; sau đó daemon đọc lại config lần nữa và gửi merge kèm `sha` của head đó. Task chỉ DONE khi quan sát thấy bằng chứng merge. Thiếu điều kiện thì không gửi gì và task tiếp tục chờ; người dùng vẫn merge tay được.
 
 **Protected branch có hai chế độ:** `human` duyệt từng PR/head, hoặc `auto` dựa trên quyền yolo do người dùng cấp trước cho repo. Decider không tham gia cả hai chế độ.
 

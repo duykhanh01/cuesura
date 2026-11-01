@@ -683,6 +683,7 @@ export async function daemonMain(
   };
   const control = await productionControl({
     configPath: args.config,
+    log,
     dataDir: cfg.value.dataDir,
     clock,
     redactor: new Redactor({ env: process.env }),

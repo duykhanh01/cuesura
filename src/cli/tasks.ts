@@ -659,7 +659,7 @@ export const amendPolicyCommand: CliCommand = {
 export const yoloCommand: CliCommand = {
   name: 'yolo',
   description:
-    'Unsupported; merge the pull request on GitHub, then run cusr task recheck',
+    'No command; set yolo: true in the user config, or merge the pull request on GitHub and run cusr task recheck',
   args: ['[id]'],
   options: [DATA_DIR],
   run: (_values, json, io) => unsupported('yolo', json, io),

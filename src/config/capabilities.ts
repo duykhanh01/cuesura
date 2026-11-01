@@ -1,4 +1,3 @@
-import type { NormalizedUser } from '../domain/config.ts';
 import type { Workflow } from '../domain/workflow.ts';
 import {
   isSupportedStructure,
@@ -44,24 +43,3 @@ export function findUnsupported(
 }
 
 export const DAEMON_COMPLETION_MODE = 'external_confirmation' as const;
-
-export type DaemonUnsupportedFeature = {
-  code: 'unsupported_feature';
-  feature: 'yolo';
-  file: string;
-  line: number;
-  col: number;
-};
-
-/**
- * yolo remains valid in the core schema, but the daemon rejects it because completion requires
- * external confirmation.
- */
-export function findDaemonUnsupported(
-  user: NormalizedUser,
-  at: Locator,
-): DaemonUnsupportedFeature[] {
-  return user.yolo
-    ? [{ code: 'unsupported_feature', feature: 'yolo', ...at(['yolo']) }]
-    : [];
-}

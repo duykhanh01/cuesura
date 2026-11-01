@@ -4,9 +4,9 @@
  * endpoint allowlist, and caps on time, bytes, pages, calls and sends. The credential stays in the
  * orchestrator's environment; nothing here is mounted into a sandbox.
  *
- * There is no merge method: the only writes are creating a PR and re-running failed jobs. A GET may be
- * resent inside the round window; a POST is sent once, and a POST whose outcome cannot be read back is
- * `unknown` (it may have been applied), so the caller probes before any new send.
+ * The writes are creating a PR, re-running failed jobs, editing a PR's text and yolo's merge of a named
+ * head. A GET may be resent inside the round window; a write is sent once, and a write whose outcome
+ * cannot be read back is `unknown` (it may have been applied), so the caller probes before any new send.
  */
 import { spawn } from 'node:child_process';
 import type {
@@ -68,6 +68,13 @@ export const PATCH_ENDPOINTS: readonly RegExp[] = [
   new RegExp(`^${REPO}/pulls/\\d+$`),
 ];
 const PATCH_FIELDS = new Set(['title', 'body']);
+
+/** Yolo's merge (SPEC §14.2): always of a named head, with nothing else in the request. */
+export const PUT_ENDPOINTS: readonly RegExp[] = [
+  new RegExp(`^${REPO}/pulls/\\d+/merge$`),
+];
+const MERGE_BODY =
+  /^\{"sha":"[0-9a-f]{40}","merge_method":"(squash|merge|rebase)"\}$/;
 
 const QUERY_KEYS = new Set([
   'per_page',
@@ -193,7 +200,7 @@ export function spawnGhExec(gh: string, env: NodeJS.ProcessEnv): GhExec {
 
 export type GhEvidence = {
   readonly seq: number;
-  readonly method: 'GET' | 'POST' | 'PATCH';
+  readonly method: 'GET' | 'POST' | 'PATCH' | 'PUT';
   readonly path: string;
   readonly send: number;
   readonly status: number | null;
@@ -281,7 +288,9 @@ export class GhPort implements GitHubPort {
         ? GET_ENDPOINTS
         : req.method === 'POST'
           ? POST_ENDPOINTS
-          : PATCH_ENDPOINTS
+          : req.method === 'PATCH'
+            ? PATCH_ENDPOINTS
+            : PUT_ENDPOINTS
     ).some((re) => re.test(req.path));
     if (!allowed)
       return err({
@@ -318,6 +327,13 @@ export class GhPort implements GitHubPort {
         retry_after_ms: null,
       });
     }
+    if (req.method === 'PUT' && !MERGE_BODY.test(JSON.stringify(req.body)))
+      return err({
+        reason: 'not_allowed',
+        status: null,
+        detail: 'PUT must name the head and the merge method',
+        retry_after_ms: null,
+      });
     const qs = new URLSearchParams(req.query).toString();
     const target = qs === '' ? req.path : `${req.path}?${qs}`;
     const args = [
