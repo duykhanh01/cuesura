@@ -124,16 +124,6 @@ describe('bwrap layout policy (T020)', () => {
       'policy_violation',
     ],
     [
-      'a parent of the host home',
-      () => ({ toolchain: ['/home'] }),
-      'policy_violation',
-    ],
-    [
-      'a credential directory',
-      () => ({ toolchain: [join(homedir(), '.ssh')] }),
-      'policy_violation',
-    ],
-    [
       'scratch inside the worktree',
       (fx: SandboxFixture) => {
         mkdirSync(join(fx.worktree, 'tmp'));
@@ -161,6 +151,32 @@ describe('bwrap layout policy (T020)', () => {
       expect(e).toBeInstanceOf(SandboxPolicyError);
       expect((e as SandboxPolicyError).code).toBe(code);
     }
+  });
+
+  // The host home need not exist where these run: a gate sandbox has no /home and no ~/.ssh.
+  it('refuses a parent of the host home', () => {
+    const fx = fixture();
+    const users = join(fx.base, 'users');
+    mkdirSync(join(users, 'me'), { recursive: true });
+    expect(() =>
+      buildBwrap(
+        { ...fixtureLayout('coder', fx), toolchain: [users] },
+        { ...policy, hostHome: join(users, 'me') },
+      ),
+    ).toThrow(expect.objectContaining({ code: 'policy_violation' }));
+  });
+
+  it('refuses a credential directory', () => {
+    const fx = fixture();
+    const ssh = join(fx.base, '.ssh');
+    mkdirSync(ssh);
+    expect(policy.forbidden).toContain(join(homedir(), '.ssh'));
+    expect(() =>
+      buildBwrap(
+        { ...fixtureLayout('coder', fx), toolchain: [ssh] },
+        { ...policy, forbidden: [...policy.forbidden, ssh] },
+      ),
+    ).toThrow(expect.objectContaining({ code: 'policy_violation' }));
   });
 
   it('refuses mounting the daemon DATA_DIR control files', () => {

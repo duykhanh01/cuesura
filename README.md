@@ -50,6 +50,8 @@ ngoài repo mà Cuesura giao cho worker. Không commit skill điều khiển nà
 Gói chỉ gồm file thường, không cần symlink hay source/spec của Cuesura. CLI đã cài và thông tin kết nối
 được người vận hành cung cấp riêng; agent dùng token `read/operate`, người dùng tự xác nhận run/approve.
 
+Repo này cũng tự phát triển bằng Cuesura: xem [quy trình dogfood](docs/dogfooding.md).
+
 ## Phát triển
 
 Feature đang làm là lõi điều phối tất định ([specs/001-deterministic-core](specs/001-deterministic-core/spec.md)). Hướng dẫn kiểm chứng đầy đủ, kèm kết quả mong đợi của từng lệnh, ở [quickstart.md](specs/001-deterministic-core/quickstart.md).

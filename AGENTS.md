@@ -2,6 +2,12 @@
 
 Áp dụng cho mọi agent làm việc trong repo này (Claude Code, Codex, …). `CLAUDE.md` trỏ về file này.
 
+**Worker do Cuesura khởi chạy:** làm theo prompt role và bỏ qua các mục worktree, commit, push và PR dưới đây; daemon
+lo những việc đó. Không gọi `cusr`.
+
+**Assistant làm việc tương tác:** quy trình dùng `cusr` để phát triển repo này ở
+[docs/dogfooding.md](docs/dogfooding.md). Vướng mắc khi dùng `cusr` phải ghi thành issue theo mục "Vòng tự cải thiện".
+
 ## Làm việc trên worktree riêng, xong thì tạo PR
 
 - Mọi thay đổi (code, test, tài liệu) làm trên một git worktree riêng, tạo từ `origin/main` mới nhất.

@@ -16,6 +16,18 @@ import {
 
 /** Independent claim-condition table in the documented reason-precedence order. */
 function expected(s: TaskState, e: EffectMirror, now: number): string | null {
+  if (
+    e.kind === 'reconcile' &&
+    e.target_effect_id !== null &&
+    Object.values(s.effects).some(
+      (o) =>
+        o.id !== e.id &&
+        o.kind === 'reconcile' &&
+        o.target_effect_id === e.target_effect_id &&
+        (o.status === 'started' || o.status === 'unknown'),
+    )
+  )
+    return 'probe_running';
   if (!isBusinessEffect(e.kind)) return null;
   if (isTerminal(s.status)) return 'terminal';
   if (s.cancellation !== null) return 'cancelling';
@@ -47,7 +59,9 @@ describe('R-16 claim conditions', () => {
               expect(c).toEqual(
                 want === null ? { ok: true } : { ok: false, reason: want },
               );
-              if (!isBusinessEffect(e.kind)) expect(c.ok).toBe(true);
+              // A service effect waits only for an earlier probe of the same target (FR-044.01).
+              if (!isBusinessEffect(e.kind))
+                expect(c.ok || want === 'probe_running').toBe(true);
             }
             if (
               t.claim !== null &&
