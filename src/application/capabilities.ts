@@ -127,11 +127,39 @@ export function verifyManifest(
     'permission_enforced',
     'private_home_auth',
   ] as const)
-    if (m.capabilities[k] !== 'proven')
+    if (
+      !(
+        k === 'permission_enforced' &&
+        m.provider === 'host' &&
+        m.selected_inner_mode === 'full_access'
+      ) &&
+      m.capabilities[k] !== 'proven'
+    )
       p('capability', `${k} is ${m.capabilities[k]}, not proven`);
 
   let inner: SelectedInnerMode = 'native';
-  if (m.selected_inner_mode === 'external_verified') {
+  if (m.provider === 'host') {
+    if (
+      m.isolation_mode !== 'native' ||
+      !['native', 'permissions_only', 'full_access'].includes(
+        m.selected_inner_mode ?? '',
+      )
+    )
+      p(
+        'isolation',
+        'host execution requires a pinned native, permissions-only or full-access harness',
+      );
+    if (m.selected_inner_mode === 'permissions_only') {
+      inner = 'permissions_only';
+      if (m.native_result !== 'not_tried')
+        p('isolation', 'disabled sandbox must be recorded as not_tried');
+    } else if (m.selected_inner_mode === 'full_access') {
+      inner = 'full_access';
+      if (m.native_result === 'failed')
+        p('isolation', 'native sandbox was not proven');
+    } else if (m.native_result !== 'passed')
+      p('isolation', 'native sandbox was not proven');
+  } else if (m.selected_inner_mode === 'external_verified') {
     inner = 'external_verified';
     if (needs.isolation !== 'allow_external_verified')
       p(
@@ -150,7 +178,8 @@ export function verifyManifest(
   } else if (m.native_result !== 'passed') {
     p('isolation', `native inner sandbox is ${m.native_result}, not passed`);
   }
-  if (m.outer_proof_hash === null) p('isolation', 'no outer boundary proof');
+  if (m.provider === 'bwrap' && m.outer_proof_hash === null)
+    p('isolation', 'no outer boundary proof');
   if (m.permission_policy_hash === null)
     p('isolation', 'no permission policy proof');
 
@@ -215,6 +244,9 @@ export function environmentHash(pin: VendorPin): Hash {
     env: pin.env,
     toolchain: pin.toolchain,
     home_files: pin.home_files,
+    ...(pin.permission_mode === undefined
+      ? {}
+      : { permission_mode: pin.permission_mode }),
     max_turns: pin.max_turns,
     tools: pin.tools,
   });
@@ -260,7 +292,12 @@ export function observeHarness(
 export type EvidenceEntry = {
   readonly vendor: string;
   readonly role_schemas: Readonly<Record<string, { readonly digest: string }>>;
-  readonly selected_inner_mode: 'internal_required' | 'external_verified';
+  readonly isolation_mode?: 'native';
+  readonly selected_inner_mode:
+    | 'internal_required'
+    | 'permissions_only'
+    | 'full_access'
+    | 'external_verified';
   readonly native_result: 'passed' | 'failed' | 'not_tried';
   readonly outer_proof_hash: string | null;
   readonly permission_policy_hash: string | null;
@@ -305,8 +342,9 @@ export function manifestFromEvidence(o: {
     vendor: e.vendor,
     binary: o.observed.binary,
     role_schemas: roleSchemas,
-    isolation_mode: 'isolated' as const,
-    provider: 'bwrap' as const,
+    isolation_mode: e.isolation_mode ?? 'isolated',
+    provider:
+      e.isolation_mode === 'native' ? ('host' as const) : ('bwrap' as const),
     capabilities: {
       structured_output: status(e, 'structured_output'),
       permission_enforced: status(e, 'permission_denial_kept'),
@@ -319,7 +357,11 @@ export function manifestFromEvidence(o: {
     selected_inner_mode:
       e.selected_inner_mode === 'internal_required'
         ? ('native' as const)
-        : ('external_verified' as const),
+        : e.selected_inner_mode === 'permissions_only'
+          ? ('permissions_only' as const)
+          : e.selected_inner_mode === 'full_access'
+            ? ('full_access' as const)
+            : ('external_verified' as const),
     outer_proof_hash: e.outer_proof_hash as Hash | null,
     permission_policy_hash: e.permission_policy_hash as Hash | null,
     environment_hash: o.observed.environment_hash,

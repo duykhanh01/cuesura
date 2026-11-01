@@ -465,7 +465,6 @@ export class Rehearsal extends SmokeDriver {
       });
       const attested = harnessIdentity({
         pin,
-        inner: 'native',
         dataDir: this.dataDir,
         configPath: this.configPath,
         runtime,

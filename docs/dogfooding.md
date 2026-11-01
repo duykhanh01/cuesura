@@ -8,7 +8,7 @@ thành việc, sửa qua chính `cusr`, rồi có hiệu lực ở release sau.
 - **Agent không merge.** Người dùng xác nhận run config, duyệt và merge mọi PR; vòng cải thiện không có
   đường tắt nào bỏ qua bước này.
 - **Gate lấy từ commit base.** PR sửa `cusr.yaml` hay CI không tự nới gate cho chính nó.
-- **Worker không dùng `cusr`.** Skill và token chỉ dành cho assistant caller ở ngoài sandbox.
+- **Worker không dùng `cusr`.** Skill và token chỉ dành cho assistant caller điều phối; không truyền vào worker.
 - **Một release, một task.** V1 chạy một task tại một thời điểm.
 
 ## Bố cục
@@ -23,7 +23,7 @@ Repo phát triển giữ nguyên ở `~/projects/metronome`. Phần vận hành 
 | `data/` | Data dir của daemon, gồm `owner.token`; assistant không đọc file này |
 | `access/assistant.token` | Token `read/operate`, chỉ cho project `cuesura` |
 | `config.yaml`, `prompts/` | User config và prompt role |
-| `tools/node/bin/` | Node và pnpm; sandbox chỉ thấy thư mục này và `/usr` |
+| `tools/node/bin/` | Node và pnpm của vận hành; lệnh dùng PATH host và quyền native của harness |
 
 Không chạy daemon từ repo phát triển: checkout hay build ở đó sẽ đổi code của CLI đang chạy, và worktree của
 daemon sẽ lẫn vào `git worktree list`.
@@ -50,9 +50,8 @@ assistant không đọc `owner.token` là quy tắc, không phải giới hạn 
 
    ```sh
    cd ~/cuesura-dogfood
-   OUTER=~/projects/metronome/test/fixtures/runtime/spike-0/host-linux-20261031/manifest.json
    cusr-runner prove-harness --config config.yaml --data-dir data --harness claude \
-     --model claude-opus-5-5 --effort medium --outer-proof "$OUTER" \
+     --model claude-opus-5-5 --effort medium \
      --max-invocations 9 --approval "<ai duyệt, ngày>" --out evidence-claude.json
    cusr-runner record-manifest --config config.yaml --data-dir data --harness claude \
      --evidence evidence-claude.json
@@ -94,7 +93,7 @@ Reviewer của mọi `full-review` là `codex/sol/high`.
 
 - **Vùng nhạy cảm luôn dùng mức mặc định:** `src/runner`, `src/daemon`, `src/adapters`, `cusr.yaml`, `.github`,
   `deploy` hoặc quyền, token, sandbox. Với vùng này, `full-review` là bắt buộc và người dùng chạy `pnpm test` trên host
-  trước khi merge: trong sandbox gate, 16 test cần bwrap hoặc systemd thật tự skip nên gate xanh chưa đủ.
+  trước khi merge: gate chạy trên host, còn sandbox native của worker có thể làm một số test không chạy được. Báo rõ test bị skip; không dùng lời worker thay bằng chứng test host.
 - **Giữa Terra và Sonnet:** hai model cùng mức. Có `full-review` thì ưu tiên Sonnet để reviewer Sol khác vendor;
   còn lại chọn bên còn hạn mức.
 - **Nâng mức khi vướng:** task của mức nhẹ hoặc lặt vặt dừng vì hết budget hay sửa sai hai lần thì hủy, tạo task

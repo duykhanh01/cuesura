@@ -384,6 +384,20 @@ async function guarded(
   }
 }
 
+/** Never silently execute a task frozen under the former outer-sandbox contract on the host. */
+function requireNativeExecution(deps: HandlerDeps, l: Loaded): void {
+  if (
+    deps.sandbox.provider === 'host' &&
+    (l.rt.isolation.mode !== 'native' || l.rt.isolation.provider !== 'host')
+  )
+    throw new Skip(
+      failed(
+        'auth_config',
+        'task was frozen for outer bwrap; start a new task with native execution',
+      ),
+    );
+}
+
 // ---- prepare ----
 
 async function prepare(
@@ -391,6 +405,7 @@ async function prepare(
   effect: Effect,
 ): Promise<EffectOutcome> {
   const l = load(deps, effect);
+  requireNativeExecution(deps, l);
   const base =
     typeof effect.request['base_sha'] === 'string'
       ? effect.request['base_sha']
@@ -807,6 +822,7 @@ async function startAgent(
   recovering = false,
 ): Promise<EffectOutcome> {
   const l = load(deps, effect);
+  requireNativeExecution(deps, l);
   const role = effect.request['role'];
   const binding = effect.request['binding'] as Binding | undefined;
   if (
@@ -863,7 +879,12 @@ async function startAgent(
   const agentFile =
     harness.agent_paths === undefined
       ? file
-      : join(harness.agent_paths.scratch, contentName);
+      : join(
+          typeof harness.agent_paths.scratch === 'function'
+            ? harness.agent_paths.scratch(mirror.attempt_id ?? effect.id)
+            : harness.agent_paths.scratch,
+          contentName,
+        );
   if (worker) mkdirSync(scratch, { recursive: true, mode: 0o700 });
   // Repairs cross steps: keep every answered question of this revision, not the queued step's old packet.
   const answers = Object.values(l.s.questions).flatMap((q) =>
@@ -1260,6 +1281,7 @@ async function gates(
   signal: AbortSignal,
 ): Promise<EffectOutcome> {
   const l = load(deps, effect);
+  requireNativeExecution(deps, l);
   const list = Array.isArray(effect.request['gates'])
     ? (effect.request['gates'] as { gate: string; cmd: string }[])
     : [];

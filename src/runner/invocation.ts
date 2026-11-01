@@ -9,9 +9,9 @@
  *    (application/capabilities.ts). Any mismatch is `capability_missing` before anything spawns.
  * 2. run directory: prompt, settings and schema are written read-only, the private home must start
  *    empty and receives only the selected auth files; the scratch output path must be new.
- * 3. sandbox: the bwrap plan is the only way to run; a plan error stops the attempt, there is no
- *    unsandboxed or downgraded retry. The model, vendor and inner mode are those of the binding and
- *    manifest; nothing changes them during the attempt.
+ * 3. launch plan: production runs on host, with native or explicitly full-access harness permissions.
+ *    A plan error stops the attempt; mode never changes as an error fallback. Legacy bwrap fixtures keep
+ *    their recorded path layout for replay.
  * 4. launch through the process port (one transient unit per operation), wait for exit.json, stop the
  *    unit on abort; a launch or a run whose outcome cannot be proven throws {@link InvocationUnknown}
  *    so the effect stays `started` for recovery and its reservation is neither released nor reused.
@@ -35,6 +35,10 @@ import {
 import { dirname, join } from 'node:path';
 import { z } from 'zod';
 import { UsageSchema } from '../domain/trigger.ts';
+import {
+  hostInnerMode,
+  nativeSandboxEnabled,
+} from '../adapters/harness/vendor.ts';
 import { HashSchema } from '../shared/brand.ts';
 import { readLaunchMarker } from './operation-lock.ts';
 import {
@@ -237,7 +241,7 @@ const delay = (ms: number): Promise<void> =>
 export class RunnerHarness implements HarnessPort {
   readonly harness: string;
   readonly manifest: CapabilityManifest;
-  readonly agent_paths = { scratch: IN_SANDBOX.scratch };
+  readonly agent_paths: NonNullable<HarnessPort['agent_paths']>;
   readonly #o: RunnerHarnessOptions;
 
   constructor(o: RunnerHarnessOptions) {
@@ -246,6 +250,13 @@ export class RunnerHarness implements HarnessPort {
         `adapter ${o.adapter.vendor} does not run a ${o.pin.vendor} pin`,
       );
     this.harness = o.harness;
+    this.agent_paths = {
+      scratch:
+        o.sandbox.provider === 'host'
+          ? (attemptId: string) =>
+              join(o.data_dir, 'runs', attemptId, 'scratch')
+          : IN_SANDBOX.scratch,
+    };
     // The handler resumes only on `resume: proven`; an adapter without a pinned resume form makes
     // every worker repair a new session with the reason `resume_unsupported`.
     this.manifest = o.adapter.resume_supported
@@ -306,7 +317,21 @@ export class RunnerHarness implements HarnessPort {
         `schema ${input.schema.schema_id} is not current for ${input.role}`,
       );
 
-    const inner = o.manifest.selected_inner_mode ?? 'native';
+    const hostExecution = o.sandbox.provider === 'host';
+    const inner = hostExecution
+      ? hostInnerMode(o.pin)
+      : (o.manifest.selected_inner_mode ?? 'native');
+    if (
+      hostExecution &&
+      (o.manifest.provider !== 'host' ||
+        o.manifest.selected_inner_mode !== inner ||
+        o.manifest.native_result !==
+          (nativeSandboxEnabled(o.pin) ? 'passed' : 'not_tried'))
+    )
+      return never(
+        'capability_missing',
+        'manifest must prove the host execution and permission mode of this pin',
+      );
     const ws = input.workspace ?? o.workspace?.(input) ?? null;
     if (ws === null)
       return never('capability_missing', 'no workspace for a sandboxed run');
@@ -316,7 +341,15 @@ export class RunnerHarness implements HarnessPort {
       effort: input.binding.effort,
       schema,
       cwd: ws.worktree,
-      paths: IN_SANDBOX,
+      paths: hostExecution
+        ? {
+            home: join(run.dir, 'private-home'),
+            scratch: join(run.dir, 'scratch'),
+            context: join(run.dir, 'context'),
+            schema: join(run.dir, 'schema'),
+          }
+        : IN_SANDBOX,
+      host_execution: hostExecution,
       inner_mode: inner,
       session: input.session,
     });
@@ -416,7 +449,7 @@ export class RunnerHarness implements HarnessPort {
         run_id: input.attempt_id,
         argv: sandboxed.value.argv,
         cwd: sandboxed.value.cwd,
-        // The environment the sandbox plan grants; bwrap clears and re-sets it inside as well.
+        // The execution plan supplies the environment; production never inherits all daemon variables.
         env: sandboxed.value.env,
         wall_ms: wall,
         deadline_at: input.deadline_at,

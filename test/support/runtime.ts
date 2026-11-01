@@ -31,7 +31,7 @@ export function buildRuntime(
     base_sha: 'base0000',
     completion_mode: 'external_confirmation',
     network_mode: 'internet_outbound',
-    isolation: { mode: 'isolated', provider: 'bwrap' },
+    isolation: { mode: 'native', provider: 'host' },
     project_path: '/srv/acme',
     target: {
       provider: 'github',

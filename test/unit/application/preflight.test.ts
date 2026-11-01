@@ -132,97 +132,29 @@ describe('preflight (T030, FR-002)', () => {
     });
   });
 
-  describe('host prerequisites of Isolated', () => {
-    const restricted = {
-      '/proc/sys/kernel/apparmor_restrict_unprivileged_userns': '1\n',
-    };
-
-    it('passes on a host where bwrap and the user manager work, without changing anything', async () => {
-      const host = fakeHost();
+  describe('host prerequisites for native harness execution', () => {
+    it('does not probe outer bwrap or require namespaces globally', async () => {
+      const host = fakeHost({
+        bwrap: false,
+        sysctl: { '/proc/sys/user/max_user_namespaces': '0' },
+      });
       expect(await checkHost(host, null)).toEqual([]);
       expect(host.execs).toEqual([
-        [
-          '/usr/bin/bwrap',
-          '--unshare-user',
-          '--ro-bind',
-          '/',
-          '/',
-          '/usr/bin/true',
-        ],
         ['/usr/bin/systemctl', '--user', 'show', '--property=Version'],
       ]);
     });
-
-    it.each([
-      ['bwrap_missing', { bwrap: false }],
-      [
-        'userns_apparmor_restricted',
-        {
-          bwrapExit: {
-            code: 1,
-            stderr: 'bwrap: setting up uid map: Permission denied',
-          },
-          sysctl: restricted,
-        },
-      ],
-      [
-        'userns_disabled',
-        { sysctl: { '/proc/sys/user/max_user_namespaces': '0\n' } },
-      ],
-      [
-        'userns_disabled',
-        { sysctl: { '/proc/sys/kernel/unprivileged_userns_clone': '0' } },
-      ],
-      ['systemd_user_unavailable', { userBus: false }],
-      ['systemd_user_unavailable', { systemd: false }],
-      [
-        'bwrap_probe_failed',
-        {
-          bwrapExit: {
-            code: 1,
-            stderr:
-              'bwrap: Creating new namespace failed: Operation not permitted',
-          },
-        },
-      ],
-    ] as const)('reports %s with its fix and runbook', async (cause, opts) => {
-      const problems = await checkHost(fakeHost(opts), null);
-      expect(problems.map((p) => p.cause)).toEqual([cause]);
-      const p = problems[0];
-      expect(p).toMatchObject({ code: 'capability_missing', check: 'host' });
-      expect(p?.fix).not.toBeNull();
-      expect(p?.runbook).toContain('deploy/README.md');
-    });
-
-    it('does not run bwrap when user namespaces are disabled and reports every failing prerequisite', async () => {
-      const host = fakeHost({
-        bwrap: false,
-        userBus: false,
-        sysctl: { '/proc/sys/user/max_user_namespaces': '0' },
+    it.each([{ userBus: false }, { systemd: false }])(
+      'requires a working systemd user manager',
+      async (opts) => {
+        const p = await checkHost(fakeHost(opts), null);
+        expect(p.map((x) => x.cause)).toEqual(['systemd_user_unavailable']);
+        expect(p[0]?.runbook).toContain('deploy/README.md');
+      },
+    );
+    it('rejects host problems before any Git or GitHub read', async () => {
+      const { result, ports } = await runPreflight({
+        host: { userBus: false },
       });
-      expect((await checkHost(host, null)).map((p) => p.cause)).toEqual([
-        'bwrap_missing',
-        'userns_disabled',
-        'systemd_user_unavailable',
-      ]);
-      expect(host.execs.some((a) => a[0] === '/usr/bin/bwrap')).toBe(false);
-    });
-
-    it('a uid-map failure without the AppArmor restriction is not blamed on AppArmor', async () => {
-      const problems = await checkHost(
-        fakeHost({
-          bwrapExit: {
-            code: 1,
-            stderr: 'setting up uid map: Permission denied',
-          },
-        }),
-        null,
-      );
-      expect(problems.map((p) => p.cause)).toEqual(['bwrap_probe_failed']);
-    });
-
-    it('host problems keep the task out of RUNNING before any Git or GitHub read', async () => {
-      const { result, ports } = await runPreflight({ host: { bwrap: false } });
       expect(failure(result)).toMatchObject({ code: 'capability_missing' });
       expect(ports.git.calls).toEqual([]);
       expect(ports.github.requests).toEqual([]);

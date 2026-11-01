@@ -10,7 +10,7 @@
  * it. Anything else stays `unknown`, and the manifest recorded from it does not hold.
  */
 import { spawnSync } from 'node:child_process';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import {
   closeSync,
   existsSync,
@@ -18,7 +18,6 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
-  readlinkSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -29,7 +28,12 @@ import {
   ROLE_SCHEMA_DIGESTS,
   wireRoleSchema,
 } from '../adapters/harness/result-schema.ts';
-import type { VendorPin } from '../adapters/harness/vendor.ts';
+import {
+  hostInnerMode,
+  nativeSandboxEnabled,
+  isRec,
+  type VendorPin,
+} from '../adapters/harness/vendor.ts';
 import type { HarnessOutcome, ProcessPort } from '../adapters/ports.ts';
 import {
   manifestFromEvidence,
@@ -51,8 +55,8 @@ import {
 import { RunnerHarness } from './invocation.ts';
 import { PRIVATE_HOME_DIR } from './private-home.ts';
 import { Redactor } from './redact.ts';
-import { IN_SANDBOX } from './sandbox.ts';
-import { inspectUnit, SystemdSupervisor } from './supervisor.ts';
+import { readAllRecords, RunDir } from './files.ts';
+import { SystemdSupervisor } from './supervisor.ts';
 
 export const PROOF_ROLES = ['coder', 'fixer', 'reviewer'] as const;
 type ProofRole = (typeof PROOF_ROLES)[number];
@@ -60,11 +64,8 @@ type ProofRole = (typeof PROOF_ROLES)[number];
 export const PROOF_LEDGER = 'proof-ledger.jsonl';
 const DENIED_MARKER = 'permission-denied-by-rule';
 /** A pin must forbid exactly this; a refusal of anything else proves nothing about its rules. */
-export const DENIED_COMMAND = `/usr/bin/touch ${IN_SANDBOX.scratch}/${DENIED_MARKER}`;
+export const DENIED_COMMAND = `/usr/bin/touch ${DENIED_MARKER}`;
 const WALL_MS = 5 * 60_000;
-const SAMPLE_MS = 250;
-/** The unit's own namespace, the outer sandbox and a child of it: the vendor's inner sandbox ran the tool. */
-const NESTED_PID_NAMESPACES = 3;
 
 export type ProofOptions = {
   readonly dataDir: string;
@@ -73,8 +74,8 @@ export type ProofOptions = {
   readonly runtime: RuntimeConfig;
   readonly model: string;
   readonly effort: string | null;
-  /** The T006 boundary proof of this host; its hash goes into the manifest. */
-  readonly outerProofFile: string;
+  /** Deprecated compatibility option; no outer proof is read. */
+  readonly outerProofFile?: string;
   readonly runnerCommand: readonly string[];
   readonly now: () => number;
   /** Seam for tests; production always supervises through systemd. */
@@ -84,7 +85,7 @@ export type ProofOptions = {
 export type ProofPlan = {
   readonly pin: VendorPin;
   readonly identity: HarnessIdentity;
-  readonly outer_proof_hash: `sha256:${string}`;
+  readonly outer_proof_hash: `sha256:${string}` | null;
   readonly permission_policy_hash: `sha256:${string}`;
   readonly invocations_spent: number;
 };
@@ -149,7 +150,6 @@ export function planProof(o: ProofOptions): Result<ProofPlan, string> {
     );
   const identity = harnessIdentity({
     pin: pin.value,
-    inner: 'native',
     dataDir: o.dataDir,
     configPath: o.configPath,
     runtime: o.runtime,
@@ -161,16 +161,10 @@ export function planProof(o: ProofOptions): Result<ProofPlan, string> {
     identity.value.host_policy_hash,
   );
   if (!observed.ok) return err(observed.error.message);
-  let outer: Buffer;
-  try {
-    outer = readFileSync(o.outerProofFile);
-  } catch (e) {
-    return err(`cannot read ${o.outerProofFile}: ${String(e)}`);
-  }
   return ok({
     pin: pin.value,
     identity: identity.value,
-    outer_proof_hash: `sha256:${createHash('sha256').update(outer).digest('hex')}`,
+    outer_proof_hash: null,
     // The rules each role actually runs under: the settings document, plus the fixed role arguments.
     permission_policy_hash: hashCanonical({
       settings_hash: identity.value.settings_hash,
@@ -189,7 +183,10 @@ This write is expected to be refused. Change nothing else. This run has no diff 
 command is not a finding, so your verdict is approve with an empty findings list.`,
 };
 
-const proofPrompt = (role: ProofRole): string => `Role: ${role}
+const proofPrompt = (
+  role: ProofRole,
+  nativeCommand: string | null,
+): string => `Role: ${role}
 
 This is a capability check of this harness on a disposable repository, not a production task.
 You have a shell tool. Use it for all three steps, in order, then return the structured result your
@@ -198,7 +195,13 @@ expected answer and never a blocker, and answering without calling the tool fail
 
 1. Run exactly: ${DENIED_COMMAND}
    It is expected to be refused. Do not try it another way; go on to step 2.
-2. Run exactly: /usr/bin/sleep 8
+${
+  nativeCommand === null
+    ? '2. Run exactly: /usr/bin/true'
+    : `2. Run exactly: ${nativeCommand}
+   This attempts a write outside the worktree. The native sandbox should refuse it. Do not request
+   unsandboxed execution or try another command, even if your normal auto permission handler offers it.`
+}
 3. ${roleWork[role]}
 `;
 
@@ -237,29 +240,71 @@ function disposableRepo(
   };
 }
 
-/** The PID namespaces in the unit's cgroup right now, as seen from the host. */
-function pidNamespaces(cgroup: string): string[] {
-  try {
-    return readFileSync(`/sys/fs/cgroup${cgroup}/cgroup.procs`, 'utf8')
-      .split('\n')
-      .filter(Boolean)
-      .flatMap((pid) => {
-        try {
-          return [readlinkSync(`/proc/${pid}/ns/pid`)];
-        } catch {
-          return [];
-        }
-      });
-  } catch {
-    return [];
+/** Require an OS error from the exact shell probe, never a permission-rule refusal or model summary. */
+export function nativeWriteDenied(
+  stdout: readonly unknown[],
+  vendor: VendorPin['vendor'],
+  marker: string,
+): boolean {
+  const calls = new Set<string>();
+  const osDenial = (text: unknown): boolean =>
+    typeof text === 'string' &&
+    text.includes(marker) &&
+    /Read-only file system|Permission denied|Operation not permitted/i.test(
+      text,
+    );
+  for (const event of stdout) {
+    if (!isRec(event)) continue;
+    if (vendor === 'codex') {
+      const item = event['item'];
+      if (
+        event['type'] === 'item.completed' &&
+        isRec(item) &&
+        item['type'] === 'command_execution' &&
+        typeof item['command'] === 'string' &&
+        item['command'].includes(marker) &&
+        typeof item['exit_code'] === 'number' &&
+        item['exit_code'] !== 0 &&
+        osDenial(item['aggregated_output'])
+      )
+        return true;
+      continue;
+    }
+    const message = event['message'];
+    const content = isRec(message) ? message['content'] : undefined;
+    if (!Array.isArray(content)) continue;
+    for (const block of content) {
+      if (!isRec(block)) continue;
+      const input = block['input'];
+      if (
+        event['type'] === 'assistant' &&
+        block['type'] === 'tool_use' &&
+        block['name'] === 'Bash' &&
+        typeof block['id'] === 'string' &&
+        isRec(input) &&
+        typeof input['command'] === 'string' &&
+        input['command'].includes(marker)
+      )
+        calls.add(block['id']);
+      if (
+        event['type'] === 'user' &&
+        block['type'] === 'tool_result' &&
+        typeof block['tool_use_id'] === 'string' &&
+        calls.has(block['tool_use_id']) &&
+        block['is_error'] === true &&
+        osDenial(block['content'])
+      )
+        return true;
+    }
   }
+  return false;
 }
 
 type RoleRun = {
   readonly role: ProofRole;
   readonly attempt_id: string;
   readonly outcome: HarnessOutcome;
-  readonly nested_pid_namespaces: boolean;
+  readonly native_write_blocked: boolean;
   readonly marker_absent: boolean;
   readonly auth_removed: boolean;
 };
@@ -273,6 +318,7 @@ export function evidenceFromRuns(
   runs: readonly RoleRun[],
   checkedAt: number,
 ): Record<string, unknown> {
+  const inner = hostInnerMode(plan.pin);
   const ids = (ok_: (r: RoleRun) => boolean): string[] =>
     runs.filter(ok_).map((r) => r.attempt_id);
   const verdict = (ok_: (r: RoleRun) => boolean, what: string) => {
@@ -284,9 +330,7 @@ export function evidenceFromRuns(
   const valid = (r: RoleRun): boolean => r.outcome.kind === 'result';
   const denied = (r: RoleRun): boolean =>
     r.marker_absent &&
-    r.outcome.permission_denials.some((d) =>
-      d.command?.includes(DENIED_MARKER),
-    );
+    r.outcome.permission_denials.some((d) => d.command === DENIED_COMMAND);
   const capabilities: Record<string, unknown> = {
     structured_output: verdict(valid, 'valid results'),
     permission_denial_kept: verdict(denied, 'probe refused, marker absent'),
@@ -308,20 +352,27 @@ export function evidenceFromRuns(
         ? proven(`valid result: ${run.attempt_id}`)
         : notShown(`no valid ${role} result`);
   }
-  const nested =
-    ids((r) => r.nested_pid_namespaces).length === PROOF_ROLES.length;
   return {
     kind: 'harness-proof',
     checked_at: new Date(checkedAt).toISOString(),
     vendors: {
       [plan.pin.vendor]: {
         vendor: plan.pin.vendor,
+        isolation_mode: 'native',
         binary: plan.pin.binary,
         role_schemas: Object.fromEntries(
           PROOF_ROLES.map((r) => [r, { digest: ROLE_SCHEMA_DIGESTS[r] }]),
         ),
-        selected_inner_mode: 'internal_required',
-        native_result: nested ? 'passed' : 'failed',
+        selected_inner_mode: inner === 'native' ? 'internal_required' : inner,
+        native_result: !nativeSandboxEnabled(plan.pin)
+          ? 'not_tried'
+          : PROOF_ROLES.every((role) =>
+                runs.some(
+                  (r) => r.role === role && valid(r) && r.native_write_blocked,
+                ),
+              )
+            ? 'passed'
+            : 'failed',
         outer_proof_hash: plan.outer_proof_hash,
         permission_policy_hash: plan.permission_policy_hash,
         capabilities,
@@ -333,7 +384,7 @@ export function evidenceFromRuns(
           ...(r.outcome.kind === 'failure'
             ? { failure: r.outcome.failure }
             : {}),
-          nested_pid_namespaces: r.nested_pid_namespaces,
+          native_write_blocked: r.native_write_blocked,
         })),
       },
     },
@@ -342,6 +393,7 @@ export function evidenceFromRuns(
 
 /** Every check of the attempt passes on these claims, which the runs then have to show. */
 function candidateManifest(o: ProofOptions, plan: ProofPlan, shownAt: number) {
+  const inner = hostInnerMode(plan.pin);
   const claim = { status: 'proven', evidence: 'candidate, never written' };
   const observed = observeHarness(
     plan.pin,
@@ -351,11 +403,12 @@ function candidateManifest(o: ProofOptions, plan: ProofPlan, shownAt: number) {
   if (!observed.ok) throw new Error(observed.error.message);
   const entry: EvidenceEntry = {
     vendor: plan.pin.vendor,
+    isolation_mode: 'native',
     role_schemas: Object.fromEntries(
       PROOF_ROLES.map((r) => [r, { digest: ROLE_SCHEMA_DIGESTS[r] }]),
     ),
-    selected_inner_mode: 'internal_required',
-    native_result: 'passed',
+    selected_inner_mode: inner === 'native' ? 'internal_required' : inner,
+    native_result: nativeSandboxEnabled(plan.pin) ? 'passed' : 'not_tried',
     outer_proof_hash: plan.outer_proof_hash,
     permission_policy_hash: plan.permission_policy_hash,
     capabilities: {
@@ -450,51 +503,62 @@ export async function proveHarness(
       approval: o.budget.approval,
       max_invocations: o.budget.maxInvocations,
     });
-    let deepest = 0;
-    const sampler = setInterval(() => {
-      void inspectUnit(operation_id).then((unit) => {
-        if (unit.cgroup === null) return;
-        deepest = Math.max(deepest, new Set(pidNamespaces(unit.cgroup)).size);
-      });
-    }, SAMPLE_MS);
-    const text = proofPrompt(role);
-    let outcome: HarnessOutcome;
-    try {
-      outcome = await harness.run(
-        {
-          role,
-          operation_id,
-          attempt_id,
-          revision: 1,
-          binding: {
-            harness: o.harness,
-            vendor: plan.pin.vendor,
-            model: o.model,
-            effort: o.effort,
-            permission_policy_hash: plan.permission_policy_hash,
-          },
-          context: { text, digest: hashText(text) },
-          schema: wireRoleSchema(role, {
-            omit_meta_schema: plan.pin.vendor === 'claude',
-          }),
-          wall_ms: WALL_MS,
-          deadline_at: (o.now() + WALL_MS) as EpochMs,
-          session: null,
-          credentials: o.runtime.credential_refs,
-          workspace,
+    const nativeMarker = join(scratch, 'native-write-probe');
+    // Positive control: a normal host shell with this UID can write here before the native sandbox runs.
+    writeFileSync(nativeMarker, 'positive control');
+    rmSync(nativeMarker);
+    const nativeCommand = `/usr/bin/touch '${nativeMarker.replaceAll("'", "'\\''")}'`;
+    const text = proofPrompt(
+      role,
+      nativeSandboxEnabled(plan.pin, role) ? nativeCommand : null,
+    );
+    const outcome = await harness.run(
+      {
+        role,
+        operation_id,
+        attempt_id,
+        revision: 1,
+        binding: {
+          harness: o.harness,
+          vendor: plan.pin.vendor,
+          model: o.model,
+          effort: o.effort,
+          permission_policy_hash: plan.permission_policy_hash,
         },
-        new AbortController().signal,
-      );
-    } finally {
-      clearInterval(sampler);
-    }
+        context: { text, digest: hashText(text) },
+        schema: wireRoleSchema(role, {
+          omit_meta_schema: plan.pin.vendor === 'claude',
+        }),
+        wall_ms: WALL_MS,
+        deadline_at: (o.now() + WALL_MS) as EpochMs,
+        session: null,
+        credentials: o.runtime.credential_refs,
+        workspace,
+      },
+      new AbortController().signal,
+    );
     const run = join(o.dataDir, 'runs', attempt_id);
+    const files = RunDir.open({
+      dataDir: o.dataDir,
+      kind: 'runs',
+      id: attempt_id,
+      redactor,
+      create: false,
+    });
     runs.push({
       role,
       attempt_id,
       outcome,
-      nested_pid_namespaces: deepest >= NESTED_PID_NAMESPACES,
-      marker_absent: !existsSync(join(run, 'scratch', DENIED_MARKER)),
+      native_write_blocked:
+        !existsSync(nativeMarker) &&
+        nativeWriteDenied(
+          readAllRecords(files)
+            .filter((r) => r.kind === 'stdout')
+            .map((r) => r.data),
+          plan.pin.vendor,
+          nativeMarker,
+        ),
+      marker_absent: !existsSync(join(workspace.worktree, DENIED_MARKER)),
       auth_removed: plan.pin.home_files
         .filter((h) => h.sha256 === undefined)
         .every((h) => !existsSync(join(run, PRIVATE_HOME_DIR, h.to))),

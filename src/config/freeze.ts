@@ -136,7 +136,7 @@ export function freezeRuntimeContext(
     base_sha: input.base_sha,
     completion_mode: DAEMON_COMPLETION_MODE,
     network_mode: 'internet_outbound',
-    isolation: { mode: 'isolated', provider: 'bwrap' },
+    isolation: { mode: 'native', provider: 'host' },
     project_path: input.project_path,
     target: { provider: 'github', ...input.target },
     limits: { ...input.runtime.limits },

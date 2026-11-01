@@ -31,6 +31,9 @@ import { codexAdapter } from '../adapters/harness/codex.ts';
 import { wireRoleSchema } from '../adapters/harness/result-schema.ts';
 import {
   VendorPinSchema,
+  isRec,
+  hostInnerMode,
+  nativeSandboxEnabled,
   type VendorAdapter,
   type VendorPin,
 } from '../adapters/harness/vendor.ts';
@@ -48,18 +51,16 @@ import {
   CapabilityManifestSchema,
   type CapabilityManifest,
   type HarnessInnerModePolicy,
-  type SelectedInnerMode,
 } from '../domain/runtime.ts';
 import { HashSchema, type Hash } from '../shared/brand.ts';
 import { hashCanonical } from '../shared/hash.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import { attemptLayoutInputs } from './invocation.ts';
 import {
-  BWRAP,
-  BwrapSandboxProvider,
+  HostExecutionProvider,
   defaultHostPolicy,
   IN_SANDBOX,
-  SANDBOX_SYSTEM_PATH,
+  hostExecutionPath,
   type HostPolicy,
   probeLayoutShapes,
 } from './sandbox.ts';
@@ -78,7 +79,7 @@ export function adapterFor(vendor: VendorPin['vendor']): VendorAdapter {
   return vendor === 'claude' ? claudeAdapter : codexAdapter;
 }
 
-/** The sandbox of this daemon and the hash of its policy, which a manifest pins. */
+/** Host execution policy and launch planner; legacy policy metadata remains available to record readers. */
 export function hostSandbox(o: {
   readonly dataDir: string;
   readonly configPath: string;
@@ -86,22 +87,19 @@ export function hostSandbox(o: {
   /** Not part of the policy hash: it changes as tasks are frozen and only ever refuses more. */
   readonly forbiddenNow?: () => readonly string[];
 }): {
-  readonly provider: BwrapSandboxProvider;
+  readonly provider: HostExecutionProvider;
   readonly policy: HostPolicy;
   readonly policy_hash: Hash;
 } {
-  const bwrap = o.runtime.tool_paths.bwrap ?? BWRAP;
-  // Daemon and recorder must arrive at one policy however the path was typed. Credential files are not
-  // here: a proof says nothing about where a file lives, and `forbiddenNow` guards them at each plan.
   const policy = defaultHostPolicy(o.dataDir, [resolve(o.configPath)]);
   return {
-    provider: new BwrapSandboxProvider({
-      policy,
-      bwrap,
-      ...(o.forbiddenNow === undefined ? {} : { forbiddenNow: o.forbiddenNow }),
-    }),
+    provider: new HostExecutionProvider(),
     policy,
-    policy_hash: hashCanonical({ policy, bwrap }),
+    policy_hash: hashCanonical({
+      mode: 'native',
+      provider: 'host',
+      version: 1,
+    }),
   };
 }
 
@@ -153,10 +151,7 @@ export function loadHarnessRecord(
 }
 
 /** The settings this pin runs with; the same for every role, which only adds arguments. */
-function pinSettingsHash(
-  pin: VendorPin,
-  inner: SelectedInnerMode,
-): Result<Hash, string> {
+function pinSettingsHash(pin: VendorPin): Result<Hash, string> {
   const plan = adapterFor(pin.vendor).plan(pin, {
     role: 'coder',
     model: 'probe',
@@ -166,27 +161,19 @@ function pinSettingsHash(
     }),
     cwd: '/probe',
     paths: IN_SANDBOX,
-    inner_mode: inner,
+    inner_mode: hostInnerMode(pin),
+    host_execution: true,
     session: null,
   });
   return plan.ok ? ok(plan.value.settings_hash) : err(plan.error.message);
 }
 
 /** PATH of this harness's sandbox and the commands its binary cannot start without. */
-export function harnessSandboxTools(
-  pin: VendorPin,
-  inner: SelectedInnerMode | null,
-): SandboxTools {
+export function harnessSandboxTools(pin: VendorPin): SandboxTools {
   return {
-    dirs: [
-      ...attemptLayoutInputs(pin, 'probe').toolchain,
-      ...SANDBOX_SYSTEM_PATH,
-    ],
-    // Claude's own sandbox refuses to run without them; `failIfUnavailable` is set for native mode only.
-    requires:
-      pin.vendor === 'claude' && inner !== 'external_verified'
-        ? ['bwrap', 'socat']
-        : [],
+    dirs: hostExecutionPath(attemptLayoutInputs(pin, 'probe').toolchain),
+    // Claude's reviewer keeps its native sandbox even when workers have full access.
+    requires: pin.vendor === 'claude' ? ['bwrap', 'socat'] : [],
   };
 }
 
@@ -199,10 +186,20 @@ export function harnessRecordProblem(
     readonly digest?: (path: string) => Hash;
   },
 ): string | null {
-  const settings = pinSettingsHash(
-    record.pin,
-    record.manifest.selected_inner_mode ?? 'native',
-  );
+  if (
+    record.manifest.provider !== 'host' ||
+    record.manifest.isolation_mode !== 'native'
+  )
+    return 'legacy outer sandbox manifest; prove and record this harness for native execution';
+  const expected = hostInnerMode(record.pin);
+  if (record.manifest.selected_inner_mode !== expected)
+    return 'manifest permission mode differs from the pin';
+  if (
+    record.manifest.native_result !==
+    (nativeSandboxEnabled(record.pin) ? 'passed' : 'not_tried')
+  )
+    return 'native sandbox proof differs from the pin sandbox setting';
+  const settings = pinSettingsHash(record.pin);
   if (!settings.ok) return settings.error;
   const observed = observeHarness(
     record.pin,
@@ -243,12 +240,11 @@ const EvidenceFileSchema = z.object({
 
 export function harnessIdentity(o: {
   readonly pin: VendorPin;
-  readonly inner: SelectedInnerMode;
   readonly dataDir: string;
   readonly configPath: string;
   readonly runtime: RuntimeConfig;
 }): Result<HarnessIdentity, string> {
-  const settings = pinSettingsHash(o.pin, o.inner);
+  const settings = pinSettingsHash(o.pin);
   if (!settings.ok) return settings;
   const sandbox = hostSandbox(o);
   const shapes = probeLayoutShapes(sandbox.provider, {
@@ -292,11 +288,21 @@ export function recordManifest(o: {
       `${o.evidenceFile} proves another binary (sha256 ${entry.binary.sha256}); prove ${pin.value.binary.version} first`,
     );
   const evidence = entry as unknown as EvidenceEntry;
-  const inner =
+  if (
+    evidence.isolation_mode !== 'native' ||
     evidence.selected_inner_mode === 'external_verified'
-      ? 'external_verified'
-      : 'native';
-  const identity = harnessIdentity({ ...o, pin: pin.value, inner });
+  )
+    return err(
+      'evidence must prove native host execution; outer bwrap proofs no longer apply',
+    );
+  const inner = hostInnerMode(pin.value);
+  const shownInner =
+    evidence.selected_inner_mode === 'internal_required'
+      ? 'native'
+      : evidence.selected_inner_mode;
+  if (shownInner !== inner)
+    return err('evidence sandbox or permission mode differs from the pin');
+  const identity = harnessIdentity({ ...o, pin: pin.value });
   if (!identity.ok) return identity;
   const wanted = JSON.stringify(identity.value);
   if (entry.attested === undefined)
@@ -348,12 +354,14 @@ export type WritePinInput = {
   /** Same, for a vendor rule file: its content digest is pinned, so editing it is refused at install. */
   readonly rules: readonly { credential: string; to: string }[];
   readonly settings: Record<string, unknown> | null;
+  readonly permission_mode?: VendorPin['permission_mode'];
+  readonly sandbox?: boolean;
   readonly max_turns: number | null;
   readonly tools: readonly string[] | null;
   readonly force: boolean;
 };
 
-/** Host view only; doctor and preflight ask again inside the sandbox's own mounts. */
+/** Check executable tools on the host; the harness proof separately checks native permissions. */
 export function notRunnable(
   dirs: readonly string[],
   tools: readonly string[],
@@ -378,6 +386,8 @@ const sha256File = (path: string): string =>
  * harness still needs a proof and `record-manifest`, and the old manifest stops matching a changed pin.
  */
 export function writePin(o: WritePinInput): Result<VendorPin, string> {
+  if (o.vendor !== 'claude' && o.sandbox !== undefined)
+    return err('--sandbox requires --vendor claude');
   const dir = recordDir(o.dataDir, o.harness);
   const path = join(dir, PIN_FILE);
   if (!o.force && existsSync(path))
@@ -437,7 +447,17 @@ export function writePin(o: WritePinInput): Result<VendorPin, string> {
     toolchain: [...o.toolchain],
     env: {},
     home_files,
-    settings: o.settings,
+    settings:
+      o.vendor === 'claude' && o.sandbox !== undefined
+        ? {
+            ...o.settings,
+            sandbox: {
+              ...(isRec(o.settings?.['sandbox']) ? o.settings['sandbox'] : {}),
+              enabled: o.sandbox,
+            },
+          }
+        : o.settings,
+    permission_mode: o.permission_mode ?? 'auto',
     max_turns: o.max_turns,
     tools: o.tools,
   });
@@ -447,9 +467,9 @@ export function writePin(o: WritePinInput): Result<VendorPin, string> {
     );
   const pin = parsed.data;
   // The adapter's own refusals (a bypass token, missing Claude fields) apply to the pin as written.
-  const settings = pinSettingsHash(pin, 'native');
+  const settings = pinSettingsHash(pin);
   if (!settings.ok) return settings;
-  const { dirs, requires } = harnessSandboxTools(pin, 'native');
+  const { dirs, requires } = harnessSandboxTools(pin);
   const absent = notRunnable(dirs, requires);
   if (absent.length > 0)
     return err(

@@ -151,7 +151,7 @@ describe('task confirm runs triage, then one preflight candidate (T031, FR-002.0
   });
 
   it('a failed check keeps PENDING/needs_info with the cause and fix; only a new request retries', async () => {
-    const { d, live, confirmDeps } = setup({ host: { bwrap: false } });
+    const { d, live, confirmDeps } = setup({ host: { userBus: false } });
     const task = fromAssistant();
     d.must(task.id, { kind: 'create_task', task });
     const first = confirmCmd(d, task, 1);
@@ -167,7 +167,7 @@ describe('task confirm runs triage, then one preflight candidate (T031, FR-002.0
           code: 'capability_missing',
           problems: [
             {
-              cause: 'bwrap_missing',
+              cause: 'systemd_user_unavailable',
               runbook: expect.stringContaining('deploy/README.md') as unknown,
             },
           ],

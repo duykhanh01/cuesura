@@ -2,11 +2,9 @@
 
 Nguồn: [SPEC §§12–14](../../../SPEC.md), [research R-05–R-08/R-11](../research.md).
 Giá trị giới hạn ở research được chụp vào snapshot runtime; không nâng ngầm khi restart.
-Host rootless bwrap/systemd, outer boundary và mode harness được chọn phải đạt
-[lát 0](../spike-0.md) trước A theo [runbook](../../../deploy/README.md) và
-[ADR-0004](../../../docs/adr/0004-isolated-bwrap-baseline.md). Không bắt buộc AppArmor 4 hoặc child
-stack Cuesura. Luôn thử sandbox nội bộ bật trước; external_verified chỉ hợp lệ theo ngoại lệ có
-điều kiện, không bỏ permission/approval hoặc policy host.
+Từ quyết định chủ dự án 2026-11-01, [ADR-0005](../../../docs/adr/0005-native-harness-permissions.md)
+thay baseline outer bwrap bằng chạy trực tiếp trong worktree với quyền native của harness.
+Systemd vẫn giám sát process; [runbook](../../../deploy/README.md) mô tả cấu hình và chuyển đổi.
 
 ## Operation và runner ownership
 
@@ -97,8 +95,7 @@ crash I/O rộng vẫn thuộc B; không lấy API đọc finalized review làm 
   cạnh canonical digest; inline và file phải khớp, không đổi schema v1 hoặc nới semantic validation.
 - Codex build argv `exec --json --output-schema ... --output-last-message ... --sandbox ...`, cwd
   worktree; Claude print/structured-schema/settings tương ứng manifest. Không hardcode model ID từ
-  ví dụ docs, không bypass permission. Internal OS sandbox có thể off duy nhất trong mode
-  external_verified đã kiểm; outer vẫn bắt buộc. Auth/session home riêng, không load tùy ý config user.
+  ví dụ docs. Quyền auto/full-access theo pin owner và manifest; không tự bypass để sửa một failure. Auth/session home riêng, không load tùy ý config user.
 - Fixer là vai trò sửa của worker đã code: ưu tiên resume session worker cho lỗi gate/review/CI,
   không resume session reviewer. Resume chỉ cùng harness/binding, đúng policy; nếu không còn dùng
   được thì attempt mới có lý do fallback và mang Q&A
@@ -112,60 +109,42 @@ crash I/O rộng vẫn thuộc B; không lấy API đọc finalized review làm 
   sửa code thì cập nhật mô tả khi cần. Hợp đồng output mới phải version hóa/kiểm chứng schema riêng,
   không coi schema/fixture spike hiện có đã bao phủ; xem [M01–M08](../task-execution-modes.md).
 
-## Mode isolation và capability manifest
+## Mode quyền và capability manifest
 
-Luồng tự động v1 cố định **Isolated**, provider `bwrap`; không có backend Native-only hoặc
-Container/VM. `SandboxProvider` là port nhỏ tại `src/adapters/ports.ts` để runner nhận launch plan
-(argv, layout digest và proof references); implementation duy nhất tại `src/runner/sandbox.ts`
-tái sử dụng prototype đã kiểm chứng. Runner vẫn sở hữu spawn/timeout/cgroup; provider không quản
-lý task hay credential publish. Không registry động hoặc cấu hình chọn backend chưa hỗ trợ.
+Luồng mới ghi `isolation_mode=native`, `provider=host`. Không có outer launcher, mount/PID namespace
+hoặc outer proof do Cuesura tạo. Pin mặc định `permission_mode=auto`: Claude `defaultMode=auto`,
+sandbox worker mặc định tắt khi không có `settings.sandbox.enabled`. Owner chọn độc lập bằng
+`write-pin --sandbox on|off`; khi bật thì `failIfUnavailable=true`, không retry ngoài sandbox.
+Codex `workspace-write`,
+`approval_policy=on-request`, `approvals_reviewer=auto_review`. Scratch/context/schema là đường dẫn thật
+trên host. Settings hash chuẩn hóa các đường dẫn thay đổi theo attempt; launch shape vẫn gắn với role.
 
-Các mode dưới đây chỉ chọn lớp OS sandbox **nội bộ** trong Isolated, không bỏ lớp ngoài.
-`internal_required` là mặc định. Trusted owner config có thể cho phép `allow_external_verified`
-cho từng harness; preflight chỉ chọn mode thực tế `external_verified` nếu native đã thử và outer
-proof/permission fixtures còn khớp. Repo/task/worker không được cấp quyền chọn hoặc đổi mode.
-Manifest/invocation ghi native_result, selected_inner_mode, outer_proof_hash, permission_policy_hash,
-kernel/host policy/bwrap/harness/settings/layout hashes, isolation_mode=isolated và provider=bwrap;
-snapshot pin manifest reference này. AppArmor label/profile nếu có được ghi như dữ liệu host,
-không bắt buộc khớp tên child stack Cuesura.
+Owner chọn `full-access` qua pin: worker Claude dùng `bypassPermissions`, giữ lựa chọn sandbox riêng;
+worker Codex dùng `danger-full-access` và `approval_policy=never`. Reviewer vẫn native read-only.
+Mode không tự đổi khi có lỗi và không thay `full-review`/`direct-pr`, gate, run confirmation hoặc merge.
 
-Claude candidate là `sandbox.enabled=false` với permission rules/mode không đổi; Codex dùng sandbox
-mode hỗ trợ bởi binary pinned. Không suy từ tên mode rằng permission còn giữ: S0.1 kiểm negative
-tool denial độc lập OS boundary. Không dùng --dangerously-*, ignore-rules/bypass/accept-all hay đổi
-approval policy để pass. Không có cấu hình version đó giữ hai lớp độc lập thì capability_missing.
-Nguồn bằng chứng denial theo S0.1/S0.2: Claude có event `permission_denied`; Codex 0.165.0 không
-phát event `--json` cho lệnh bị rule hoặc sandbox chặn, chỉ có dòng `Rejected` trên stderr khi rule
-chặn, nên adapter phải lưu stderr và không suy denial từ lời model.
-Settings do runner cấp read-only, validate effective config; managed sandbox requirement không bị
-ghi đè. Thay proof/config/version/layout thì manifest mất hiệu lực và chặn attempt mới tới khi kiểm
-lại; process đang chạy xử lý theo policy hiện hành, không đổi mode giữa attempt.
+Manifest phải chứng minh đúng binary, settings, environment, host launch policy, layout và role schemas;
+permission mode phải khớp pin. Full access được ghi rõ `selected_inner_mode=full_access`, không giả
+bằng chứng cưỡng chế quyền. Claude auto không sandbox ghi `selected_inner_mode=permissions_only`,
+`native_result=not_tried`, vẫn cần proof permission. Cả auto và full access có sandbox bật đều cần
+native probe đạt; sandbox tắt không được nhận proof native. Đổi sandbox làm đổi settings hash và cần
+chứng minh lại. Từ chối thực của vendor được lưu từ event Claude hoặc stderr Codex. Không suy bằng chứng từ lời model hoặc help text.
+`external_verified` là mode lịch sử cần outer bwrap, không dùng cho lần chạy host mới.
 
-## Sandbox và Git boundary
+Manifest/snapshot bwrap cũ vẫn đọc được nhưng không được dùng để chạy host dưới một cam kết cũ.
+Đang chạy thì xử lý xong bằng release cũ; task mới cần manifest và snapshot native. Không sửa tay
+snapshot để đổi mode. `prove-harness` không cần `--outer-proof`; cờ cũ được nhận nhưng không sử dụng.
 
-Mount tối thiểu bằng bubblewrap, proc/PID namespace riêng, no-new-privileges và bỏ capabilities.
-Nguồn mount được kiểm realpath lúc plan và ghi (dev, ino); trước/trong exec phải kiểm lại và fail
-closed nếu lệch, vì bwrap phân giải lại đường dẫn (S0.1 TOCTOU, `host/mount-toctou.json`).
-Không bắt buộc profile AppArmor riêng hoặc capability-denial audit trên mọi host. S0.1 kiểm
-re-exec/copy bwrap, raw userns và thử unmount/remount không mở lại host root, metadata Git hay
-vùng ghi bị cấm; ghi label/CapEff/errno thực, không dùng việc tạo namespace con thành công hoặc
-CapEff khác 0 làm đại diện cho thoát boundary. Hardening AppArmor tùy chọn cần bằng chứng riêng
-và không thay các fixture này; không nới policy host để pass.
-Nếu native bị chặn bởi nesting, chỉ chọn external_verified khi outer boundary + permission evidence
-đạt và owner đã cho phép; giữ permission/host policy, không tự retry ngoài sandbox.
-Coder/fixer rw worktree + scratch; reviewer ro worktree và rw scratch riêng; prompt/schema ro.
-Git common directory và per-worktree admin metadata ro với agent. Không mount runtime DB/socket,
-systemd bus, home chủ dự án, SSH agent socket, GitHub credential, docker socket hoặc host `/proc`.
-Mount từng toolchain directory ro; không bind nguyên `/home` để tìm runtime executable.
+## Phạm vi quyền trên host
 
-Selected harness auth là secret cần thiết cho vendor, không phải secret điều phối. Gate/setup không
-nhận nó. Network mặc định internet_outbound theo quyết định chủ dự án: share host network,
-cho DNS/registry/vendor; không egress allowlist, không hứa chặn LAN/loopback. Network mode ghi
-trong runtime snapshot; mạng không cấp thêm credential local. Doctor phải kiểm repo-script không đọc được admin/GitHub secret hoặc gọi socket,
-reviewer không sửa repo và agent không push tới remote sandbox; fixture fail thì không chạy thật.
+Setup/gate/autofix chạy trực tiếp trên host với PATH của host và toolchain đã khai. Harness nhận home/auth
+riêng và environment được lọc; token GitHub/điều phối không tự được kế thừa. Không còn lời hứa OS chặn
+mọi truy cập home, Git metadata, database hoặc socket host. Quyền native và full access có đúng phạm vi
+harness cung cấp. Canary sau chạy vẫn từ chối kết quả khi reviewer ghi worktree hoặc agent sửa Git metadata.
 
-Orchestrator Git dùng argv, env/config allowlist, hooks dir rỗng, credential helper tin cậy;
-`safe.directory` không wildcard toàn filesystem. Repo-controlled setup/gate shell chạy trong sandbox
-không có token GitHub. Config từ Git objects tại frozen base SHA, không file dirty hoặc symlink ngoài.
+Orchestrator Git giữ argv/env allowlist, hooks rỗng, credential helper tin cậy và chính sách push như cũ.
+Build/gate không có token được truyền riêng, nhưng process cùng UID không bị outer filesystem boundary
+ngăn đọc file host. Network do host và harness quyết định; không có egress firewall của Cuesura.
 
 ## Prepare, gate và publish
 
@@ -205,4 +184,6 @@ Contract dùng fake child có process con và local bare Git: daemon chết trư
 PID receipt, partial file, rotation/ACK, ENOSPC, PID reuse/sleep/UTC jump, silent-progress, descendant
 escape, worktree ownership, gate write side effects, push đã xong nhưng receipt chưa ingest.
 Có test unit daemon service stop giữ runner unit sống và kill runner dừng cả descendants. Test fake
-gồm cố đọc secret/control và sửa repo của reviewer; schema/permission/auth và nesting thật ở lát 0; full workflow smoke ở C.
+gồm kiểm environment, quyền native và canary reviewer/Git metadata; schema/permission/auth phải
+được chứng minh trên harness đã pin. Fixture outer bwrap/nesting cũ là lịch sử; không được dùng để
+khẳng định native execution che secret/control host. Full workflow smoke ở C.

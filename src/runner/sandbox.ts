@@ -1,8 +1,7 @@
 /**
- * The only {@link SandboxProvider}: Isolated rootless bubblewrap (ADR-0004, contracts/execution.md
- *). Promoted from the S0.1-proven prototype `scripts/spike-002/sandbox.ts`.
- * Every harness, setup, gate and autofix command runs inside it; no backend is selected by
- * configuration and no AppArmor profile name gates it.
+ * Legacy bwrap plans, archived proof fixtures and shared launch/write-zone helpers.
+ * Production uses HostExecutionProvider below: no outer sandbox, native harness permissions (ADR-0005).
+ * The legacy provider is retained for testing the old recorded contract, never selected by production.
  *
  * Mount sources are checked (absolute, normalised, symlink-free, not forbidden) and their (dev, ino)
  * recorded at plan time. bwrap resolves paths again at exec, so the plan runs through
@@ -751,4 +750,89 @@ export function writeZoneViolations(
   if (before.metadata !== after.metadata)
     out.push(`${before.role} run changed git metadata`);
   return out;
+}
+
+/** Shared by execution and preflight so shell/systemd PATH differences affect tool discovery consistently. */
+export function hostExecutionPath(toolchain: readonly string[]): string[] {
+  return [
+    ...toolchain,
+    ...(process.env['PATH'] ?? SANDBOX_SYSTEM_PATH.join(':')).split(':'),
+  ];
+}
+
+/** Direct host launch; this planner provides no OS isolation. The coding harness owns its sandbox. */
+export class HostExecutionProvider implements SandboxProvider {
+  readonly provider = 'host' as const;
+
+  plan(
+    layout: SandboxLayout,
+    command: readonly string[],
+  ): Result<SandboxLaunchPlan, SandboxPlanError> {
+    if (
+      !isAbsolute(layout.worktree) ||
+      !existsSync(layout.worktree) ||
+      !statSync(layout.worktree).isDirectory()
+    )
+      return err({
+        code: 'source_missing',
+        message: 'worktree is not an absolute directory',
+      });
+    if (command.length === 0)
+      return err({ code: 'policy_violation', message: 'empty command' });
+    try {
+      checkEnv(layout.env);
+    } catch (e) {
+      if (e instanceof SandboxPolicyError)
+        return err({ code: e.code, message: e.message });
+      throw e;
+    }
+    const inherited: Record<string, string> = {};
+    for (const key of [
+      'LANG',
+      'LC_ALL',
+      'TERM',
+      'XDG_RUNTIME_DIR',
+      'DBUS_SESSION_BUS_ADDRESS',
+    ]) {
+      const value = process.env[key];
+      if (value !== undefined) inherited[key] = value;
+    }
+    const env = {
+      ...inherited,
+      ...layout.env,
+      PATH: hostExecutionPath(layout.toolchain).join(':'),
+      HOME: layout.private_home ?? homedir(),
+      ...(layout.private_home === null
+        ? {}
+        : { CODEX_HOME: join(layout.private_home, '.codex') }),
+      TMPDIR: layout.scratch,
+    };
+    // Never forward orchestration credentials through a pin or the daemon environment.
+    for (const key of Object.keys(env))
+      if (
+        /^(GH_|GITHUB_|CUSR_(ADMIN|OPERATE|TOKEN)|CUSR_TOKEN_FILE$)/.test(key)
+      )
+        delete (env as Record<string, string>)[key];
+    const shape = {
+      mode: 'native',
+      provider: 'host',
+      role: layout.role,
+      toolchain: layout.toolchain,
+      env: Object.keys(layout.env).sort(),
+      home: layout.private_home === null ? 'host' : 'private',
+    };
+    return ok({
+      isolation_mode: 'native',
+      provider: 'host',
+      role: layout.role,
+      argv: [...command],
+      cwd: layout.worktree,
+      env,
+      network: layout.network,
+      mount_sources: [],
+      proof_refs: [],
+      layout_shape: hashCanonical(shape),
+      layout_digest: hashCanonical({ shape, layout }),
+    });
+  }
 }

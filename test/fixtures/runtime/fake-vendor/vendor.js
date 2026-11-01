@@ -9,7 +9,8 @@
 // FAKE_VENDOR_REVIEWER_PROBE: a reviewer tries to write its worktree and exits 1 if the write lands.
 // FAKE_VENDOR_HOLD: writes running-<pid> to the scratch directory, then waits for a release file next to
 // it (at most five minutes) before replaying, so a test can stop the daemon while the agent is active.
-// FAKE_VENDOR_INNER_SANDBOX: runs a tool in a child PID namespace for two seconds, as a native inner sandbox does.
+// FAKE_VENDOR_INNER_SANDBOX: enforces shell writes with the test harness native sandbox.
+// FAKE_VENDOR_PROOF_ALLOW_RULE: deliberately executes the command that the permission rule should deny.
 // FAKE_VENDOR_DENY_STDERR: logs a refused exec on stderr the way codex does.
 // It never calls a model.
 import { spawnSync } from 'node:child_process';
@@ -51,10 +52,20 @@ if (has('publish') && !reviewer) {
 if (has('write_worktree') && (!reviewer || process.env.FAKE_VENDOR_REVIEWER_WRITE)) writeFileSync(join(process.cwd(), 'agent-wrote.txt'), 'x');
 if (reviewer && process.env.FAKE_VENDOR_REVIEWER_PROBE) {
   let landed = true;
-  try {
-    writeFileSync(join(process.cwd(), 'reviewer-wrote.txt'), 'x');
-  } catch {
-    landed = false;
+  if (process.env.FAKE_VENDOR_INNER_SANDBOX) {
+    // Model a native harness enforcing read-only shell tools itself, without an outer wrapper.
+    const probe = spawnSync('/usr/bin/bwrap', [
+      '--unshare-user', '--ro-bind', '/', '/', '--',
+      '/usr/bin/touch', join(process.cwd(), 'reviewer-wrote.txt'),
+    ], { encoding: 'utf8' });
+    if (probe.status !== 0 && !/Read-only file system|Permission denied/.test(probe.stderr)) process.exit(2);
+    landed = probe.status === 0;
+  } else {
+    try {
+      writeFileSync(join(process.cwd(), 'reviewer-wrote.txt'), 'x');
+    } catch {
+      landed = false;
+    }
   }
   if (landed) process.exit(1);
 }
@@ -66,12 +77,24 @@ if (process.env.FAKE_VENDOR_HOLD) {
   const end = Date.now() + 300_000;
   while (!existsSync(join(scratch, 'release')) && Date.now() < end) await new Promise((r) => setTimeout(r, 100));
 }
-if (process.env.FAKE_VENDOR_INNER_SANDBOX)
-  spawnSync('/usr/bin/unshare', ['--user', '--map-root-user', '--pid', '--fork', '/usr/bin/sleep', '2']);
-if (process.env.FAKE_VENDOR_DENY_STDERR)
-  process.stderr.write(
-    `codex_core::tools::router: error=Rejected("\`/usr/bin/touch /cusr/scratch/permission-denied-by-rule\` rejected: blocked by policy")\n`,
-  );
+const deniedCommand = '/usr/bin/touch permission-denied-by-rule';
+if (process.env.FAKE_VENDOR_PROOF_ALLOW_RULE) spawnSync('/bin/sh', ['-c', deniedCommand]);
+if (process.env.FAKE_VENDOR_DENY_STDERR) {
+  process.stderr.write(`codex_core::tools::router: error=Rejected("\`${deniedCommand}\` rejected: blocked by policy")\n`);
+  if (!codex) out({type: 'system', subtype: 'permission_denied', tool_name: 'Bash', message: deniedCommand});
+}
+const nativeCommand = /^2\. Run exactly: (.+)$/m.exec(stdin)?.[1];
+if (nativeCommand) {
+  const probe = process.env.FAKE_VENDOR_INNER_SANDBOX
+    ? spawnSync('/usr/bin/bwrap', ['--unshare-user', '--ro-bind', '/', '/', '--', '/bin/sh', '-c', nativeCommand], {encoding:'utf8'})
+    : spawnSync('/bin/sh', ['-c', nativeCommand], {encoding:'utf8'});
+  if (codex) out({type: 'item.completed', item: {type: 'command_execution', command: nativeCommand, exit_code: probe.status, aggregated_output: probe.stdout + probe.stderr}});
+  else {
+    const text = probe.status === 0 ? probe.stdout : `Exit code ${probe.status}\n${probe.stderr}`;
+    out({type: 'assistant', message: {content: [{type: 'tool_use', id: 'native-probe', name: 'Bash', input: {command: nativeCommand}}]}});
+    out({type: 'user', message: {content: [{type: 'tool_result', tool_use_id: 'native-probe', is_error: probe.status !== 0, content: text}]}, tool_use_result: probe.status === 0 ? {stdout: probe.stdout, stderr: probe.stderr} : `Error: ${text}`});
+  }
+}
 if (has('hang')) setInterval(() => {}, 1000);
 else {
   const records = readFileSync(join(replay, 'events.jsonl'), 'utf8')

@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { nativeSandboxEnabled } from '../../../src/adapters/harness/vendor.ts';
 import type { RuntimeConfig } from '../../../src/config/normalize.ts';
 import {
   notRunnable,
@@ -150,6 +151,23 @@ describe('cusr-runner write-pin', () => {
     const complete = { ...claude, settings, max_turns: 8, tools: ['Bash'] };
     const r = writePin({ ...complete, toolchain: [withTools] });
     expect(r.ok, JSON.stringify(r)).toBe(true);
+    if (!r.ok) throw new Error(r.error);
+    expect(nativeSandboxEnabled(r.value)).toBe(false);
+    expect(r.value.permission_mode).toBe('auto');
+    for (const sandbox of [true, false]) {
+      const changed = writePin({
+        ...complete,
+        toolchain: [withTools],
+        sandbox,
+        force: true,
+      });
+      if (!changed.ok) throw new Error(changed.error);
+      expect(nativeSandboxEnabled(changed.value)).toBe(sandbox);
+      expect(changed.value.permission_mode).toBe('auto');
+      expect(changed.value.settings).toMatchObject({
+        sandbox: { enabled: sandbox },
+      });
+    }
   });
 
   it('--json prints one envelope on success and on refusal, and nothing else', () => {
@@ -209,6 +227,14 @@ describe('cusr-runner write-pin', () => {
       code: 1,
       stderr: '',
       body: { ok: false, error: { code: 'pin_refused' } },
+    });
+    expect(run('--sandbox', 'on')).toMatchObject({
+      code: 2,
+      body: { ok: false, error: { code: 'invalid_arguments' } },
+    });
+    expect(run('--sandbox', 'invalid')).toMatchObject({
+      code: 2,
+      body: { ok: false, error: { code: 'invalid_arguments' } },
     });
     expect(run('--max-turns', '3')).toMatchObject({
       code: 2,

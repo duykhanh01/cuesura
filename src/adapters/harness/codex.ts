@@ -42,7 +42,12 @@ const DISABLED_FEATURES = [
 const RULES_DIR = '.codex/rules/';
 
 function sandboxArgs(input: VendorPlanInput): string[] {
-  if (input.inner_mode === 'external_verified')
+  if (input.host_execution && input.role === 'reviewer')
+    return ['--sandbox', 'read-only'];
+  if (
+    input.inner_mode === 'full_access' ||
+    input.inner_mode === 'external_verified'
+  )
     return ['--sandbox', 'danger-full-access'];
   return input.role === 'reviewer'
     ? ['--sandbox', 'read-only']
@@ -55,6 +60,14 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
     error: { code: 'policy_violation', message },
   });
   if (pin.vendor !== 'codex') return fail(`pin is for ${pin.vendor}`);
+  if (
+    input.host_execution &&
+    input.inner_mode !==
+      (pin.permission_mode === 'full-access' ? 'full_access' : 'native')
+  )
+    return fail('host permission mode must match the explicit pin');
+  if (input.host_execution && input.inner_mode === 'external_verified')
+    return fail('external_verified needs the removed outer sandbox');
   if (pin.settings !== null)
     return fail('codex takes no settings document; rules go to the home');
   const unpinned = pin.home_files.find(
@@ -71,12 +84,17 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
         message: 'no resume form is pinned for this codex binary',
       },
     };
+  const auto =
+    input.host_execution &&
+    pin.permission_mode !== 'full-access' &&
+    input.role !== 'reviewer';
   const argv = [
     pin.binary.realpath,
     'exec',
     ...DISABLED_FEATURES.flatMap((f) => ['--disable', f]),
     '-c',
-    'approval_policy="never"',
+    auto ? 'approval_policy="on-request"' : 'approval_policy="never"',
+    ...(auto ? ['-c', 'approvals_reviewer="auto_review"'] : []),
     '--json',
     '--output-schema',
     `${input.paths.schema}/${input.schema.file_name}`,
@@ -101,11 +119,24 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
   // Effective permission settings for every role of this mode, so one hash covers the binary's config.
   const effective = {
     disabled: DISABLED_FEATURES,
-    approval_policy: 'never',
+    approval_policy: input.host_execution
+      ? {
+          worker:
+            pin.permission_mode === 'full-access' ? 'never' : 'on-request',
+          reviewer: 'never',
+        }
+      : 'never',
+    ...(input.host_execution ? { approvals_reviewer: 'auto_review' } : {}),
     sandbox: Object.fromEntries(
       (['coder', 'fixer', 'reviewer'] as const).map((role) => [
         role,
-        sandboxArgs({ ...input, role }),
+        sandboxArgs({
+          ...input,
+          role,
+          paths: input.host_execution
+            ? { ...input.paths, scratch: '<scratch>' }
+            : input.paths,
+        }),
       ]),
     ),
     ignore_user_config: true,

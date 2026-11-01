@@ -113,8 +113,13 @@ export const HARNESS_INNER_MODES = [
 ] as const;
 export type HarnessInnerModePolicy = (typeof HARNESS_INNER_MODES)[number];
 
-/** Inner sandbox actually selected for an attempt; the outer Isolated boundary is always on (ADR-0004). */
-export const SELECTED_INNER_MODES = ['native', 'external_verified'] as const;
+/** Harness permissions selected for an attempt; external_verified is an archived outer-sandbox mode. */
+export const SELECTED_INNER_MODES = [
+  'native',
+  'permissions_only',
+  'full_access',
+  'external_verified',
+] as const;
 export type SelectedInnerMode = (typeof SELECTED_INNER_MODES)[number];
 
 export const CredentialRefSchema = z
@@ -135,7 +140,10 @@ export const FrozenRuntimeContextSchema = z
     completion_mode: z.literal('external_confirmation'),
     network_mode: z.literal('internet_outbound'),
     isolation: z
-      .object({ mode: z.literal('isolated'), provider: z.literal('bwrap') })
+      .object({
+        mode: z.enum(['isolated', 'native']),
+        provider: z.enum(['bwrap', 'host']),
+      })
       .strict(),
     project_path: z.string().startsWith('/'),
     target: z
@@ -398,8 +406,8 @@ export const CapabilityManifestSchema = z
       })
       .strict(),
     role_schemas: z.record(z.string(), HashSchema),
-    isolation_mode: z.literal('isolated'),
-    provider: z.literal('bwrap'),
+    isolation_mode: z.enum(['isolated', 'native']),
+    provider: z.enum(['bwrap', 'host']),
     capabilities: z
       .object({
         structured_output: z.enum(['proven', 'unknown', 'unsupported']),

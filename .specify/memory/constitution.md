@@ -133,9 +133,13 @@ mỗi thành phần phải được dùng thật.
   vệ event sequence, source dedup, request ID và effect idempotency key.
 - **Môi trường v1:** một người dùng, Linux/Ubuntu hoặc WSL2, worktree và dữ liệu runtime trên
   filesystem Linux cục bộ.
-- **Trust boundary:** quyền `read`/`operate`/`admin` kiểm tra ở application service. Quyền admin
-  và secret điều phối nằm ngoài tầm truy cập của agent. Worktree không phải sandbox bảo mật; khi
-  không chứng minh được giới hạn truy cập, `doctor` phải báo và chặn chế độ tự động cần quyền đó.
+- **Trust boundary:** quyền `read`/`operate`/`admin` MUST được kiểm tra ở application service.
+  Theo quyết định chủ dự án ngày 2026-11-01 ([ADR-0005](../../docs/adr/0005-native-harness-permissions.md)),
+  Cuesura chạy harness trực tiếp trong worktree riêng, không dùng outer bwrap. Sandbox và quyền tool
+  MUST do harness quản lý: mặc định auto review/approve, full access chỉ khi owner chọn rõ trong pin.
+  Sandbox worker Claude MAY bật/tắt độc lập với permission mode, mặc định tắt; reviewer MUST giữ sandbox chỉ đọc.
+  Không hứa ngăn process cùng UID đọc home/secret hoặc truy cập socket/metadata ngoài worktree.
+  Worktree không phải sandbox bảo mật. Các quyền workflow, approval và merge MUST giữ nguyên.
 - **Secret:** che trước khi lưu hoặc xuất log. Không force-push mù; không xoá worktree còn dữ liệu
   chưa bảo toàn.
 
@@ -173,4 +177,9 @@ mỗi thành phần phải được dùng thật.
 - Hướng dẫn vận hành chi tiết nằm trong [SPEC.md](../../SPEC.md) và
   [docs/architecture.md](../../docs/architecture.md).
 
-**Version**: 2.0.0 | **Ratified**: 2026-10-27 | **Last Amended**: 2026-10-29
+**Amendment 2026-11-01 (chủ dự án):** 2.0.0 → 3.0.0 vì thay ranh giới truy cập bắt buộc
+bằng quyền native của harness, bao gồm lựa chọn full access của owner. Phạm vi là thực thi tool trên
+host; không thay nguyên tắc II/V về idempotency, quyền application, review và merge. Đồng bộ SPEC §15.2,
+hợp đồng execution và runbook; các template đọc hiến chương hiện hành, không cần đổi cấu trúc.
+
+**Version**: 3.0.0 | **Ratified**: 2026-10-27 | **Last Amended**: 2026-11-01

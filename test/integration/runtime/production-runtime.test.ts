@@ -7,7 +7,6 @@
  */
 import { spawnSync } from 'node:child_process';
 import {
-  appendFileSync,
   chmodSync,
   cpSync,
   existsSync,
@@ -21,9 +20,13 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import Database from 'better-sqlite3';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_RUNTIME_LIMITS } from '../../../src/domain/runtime.ts';
-import type { VendorPin } from '../../../src/adapters/harness/vendor.ts';
+import {
+  hostInnerMode,
+  nativeSandboxEnabled,
+  type VendorPin,
+} from '../../../src/adapters/harness/vendor.ts';
 import {
   startDaemon,
   STORE_FILE,
@@ -44,7 +47,6 @@ import {
   recordManifest,
 } from '../../../src/runner/harness-records.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
-import { BWRAP } from '../../../src/runner/sandbox.ts';
 import { openFileStoreForTest } from '../../../src/store/testing.ts';
 import { buildTask, freezeOk } from '../../support/builders.ts';
 import { FakeGitHub } from '../../support/fake-github.ts';
@@ -131,14 +133,18 @@ function setup() {
     };
     const attested = harnessIdentity({
       pin: p,
-      inner: 'native',
       dataDir,
       configPath,
       runtime,
     });
     if (!attested.ok) throw new Error(attested.error);
+    const inner = hostInnerMode(p);
     raw.vendors['claude'] = {
       ...raw.vendors['claude'],
+      isolation_mode: 'native',
+      selected_inner_mode: inner === 'native' ? 'internal_required' : inner,
+      native_result: nativeSandboxEnabled(p) ? 'passed' : 'not_tried',
+      outer_proof_hash: null,
       binary: { sha256: p.binary.sha256 },
       attested: attested.value,
     };
@@ -160,6 +166,134 @@ function setup() {
 }
 
 describe('harness records', () => {
+  it('keeps a shell proof valid when the daemon has another PATH and no terminal environment', () => {
+    const h = setup();
+    try {
+      vi.stubEnv('PATH', `${process.env['PATH'] ?? ''}:/shell/nvm/bin`);
+      vi.stubEnv('TERM', 'xterm');
+      vi.stubEnv('LANG', 'en_US.UTF-8');
+      vi.stubEnv('XDG_RUNTIME_DIR', '/run/user/1000');
+      h.writePin(h.pin);
+      const evidenceFile = h.evidenceFor(h.pin);
+      vi.stubEnv('PATH', '/usr/bin:/bin');
+      vi.stubEnv('TERM', undefined);
+      vi.stubEnv('LANG', undefined);
+      vi.stubEnv('XDG_RUNTIME_DIR', undefined);
+      vi.stubEnv('DBUS_SESSION_BUS_ADDRESS', undefined);
+      const record = recordManifest({
+        dataDir: h.dataDir,
+        harness: 'claude',
+        configPath: h.configPath,
+        runtime: h.runtime,
+        evidenceFile,
+        fixtureRef: 'shell-proof',
+        now: 1,
+      });
+      if (!record.ok) throw new Error(record.error);
+      expect(
+        harnessRecordProblem(
+          { pin: h.pin, manifest: record.value },
+          {
+            isolation: 'internal_required',
+            host_policy_hash: hostSandbox(h).policy_hash,
+          },
+        ),
+      ).toBeNull();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it.each(['auto', 'full-access'] as const)(
+    'requires a new proof when %s Claude sandbox configuration changes',
+    (permission_mode) => {
+      const h = setup();
+      const off = {
+        ...h.pin,
+        permission_mode,
+        settings: { ...h.pin.settings, sandbox: {} },
+      };
+      h.writePin(off);
+      const r = recordManifest({
+        dataDir: h.dataDir,
+        harness: 'claude',
+        configPath: h.configPath,
+        runtime: h.runtime,
+        evidenceFile: h.evidenceFor(off),
+        fixtureRef: 'test-only-permissions',
+        now: 1,
+      });
+      if (!r.ok) throw new Error(r.error);
+      expect(r.value.native_result).toBe('not_tried');
+      const opts = {
+        isolation: 'internal_required' as const,
+        host_policy_hash: hostSandbox(h).policy_hash,
+      };
+      expect(
+        harnessRecordProblem({ pin: off, manifest: r.value }, opts),
+      ).toBeNull();
+      const on = {
+        ...off,
+        settings: { ...off.settings, sandbox: { enabled: true } },
+      };
+      expect(
+        harnessRecordProblem({ pin: on, manifest: r.value }, opts),
+      ).not.toBeNull();
+      h.writePin(on);
+      const again = recordManifest({
+        dataDir: h.dataDir,
+        harness: 'claude',
+        configPath: h.configPath,
+        runtime: h.runtime,
+        evidenceFile: h.evidenceFor(on),
+        fixtureRef: 'test-only-native',
+        now: 1,
+      });
+      if (!again.ok) throw new Error(again.error);
+      expect(
+        harnessRecordProblem({ pin: on, manifest: again.value }, opts),
+      ).toBeNull();
+      expect(again.value.native_result).toBe('passed');
+    },
+  );
+
+  it('records explicit full access separately and refuses a subsequent implicit mode change', () => {
+    const h = setup();
+    const pin = {
+      ...h.pin,
+      permission_mode: 'full-access' as const,
+      settings: { ...h.pin.settings, sandbox: { enabled: false } },
+    };
+    h.writePin(pin);
+    const r = recordManifest({
+      dataDir: h.dataDir,
+      harness: 'claude',
+      configPath: h.configPath,
+      runtime: h.runtime,
+      evidenceFile: h.evidenceFor(pin),
+      fixtureRef: 'test-only-native-evidence',
+      now: 1,
+    });
+    if (!r.ok) throw new Error(r.error);
+    expect(r.value).toMatchObject({
+      provider: 'host',
+      isolation_mode: 'native',
+      selected_inner_mode: 'full_access',
+      native_result: 'not_tried',
+    });
+    const opts = {
+      isolation: 'internal_required' as const,
+      host_policy_hash: hostSandbox(h).policy_hash,
+    };
+    expect(harnessRecordProblem({ pin, manifest: r.value }, opts)).toBeNull();
+    expect(
+      harnessRecordProblem(
+        { pin: { ...pin, permission_mode: 'auto' }, manifest: r.value },
+        opts,
+      ),
+    ).toContain('permission mode differs');
+  });
+
   it('records a manifest only from evidence of the pinned binary', () => {
     const h = setup();
     h.writePin(h.pin);
@@ -274,7 +408,7 @@ describe('harness records', () => {
     expect(silent.ok ? '' : silent.error).toContain('does not attest');
   });
 
-  it('keeps a manifest valid when a credential file moves, and still guards the new path', () => {
+  it('keeps a manifest valid when a credential file moves without promising outer isolation', () => {
     const h = setup();
     h.writePin(h.pin);
     const recorded = recordManifest({
@@ -326,9 +460,8 @@ describe('harness records', () => {
         },
         ['/bin/true'],
       );
-      expect(guarded.ok ? '' : guarded.error.message).toContain(
-        `overlaps forbidden ${join(h.dir, 'moved')}`,
-      );
+      expect(guarded.ok).toBe(true);
+      if (guarded.ok) expect(guarded.value.argv).toEqual(['/bin/true']);
     } finally {
       store.close();
     }
@@ -342,44 +475,14 @@ describe('harness records', () => {
     expect(r.ok ? '' : r.error).toContain('writable by group or others');
   });
 
-  it('refuses a mount over a credential the policy was not built with, system mounts too', () => {
+  it('plans a direct host command with no outer launcher or mount proof', () => {
     const h = setup();
-    const secret = join(h.dir, 'old', 'auth.json');
-    mkdirSync(dirname(secret));
-    const plan = (forbidden: string, toolchain: string[]) =>
-      hostSandbox({ ...h, forbiddenNow: () => [forbidden] }).provider.plan(
-        {
-          role: 'gate',
-          worktree: join(h.dir, 'worktree-g'),
-          git_dirs: [],
-          scratch: join(h.dir, 'scratch-g'),
-          private_home: null,
-          context: null,
-          schema: null,
-          toolchain,
-          env: {},
-          network: 'internet_outbound',
-        },
-        ['/bin/true'],
-      );
-    mkdirSync(join(h.dir, 'worktree-g'));
-    writeFileSync(join(h.dir, 'worktree-g', '.git'), 'gitdir: /x\n');
-    mkdirSync(join(h.dir, 'scratch-g'));
-    expect(plan(join(h.dir, 'elsewhere'), [dirname(secret)]).ok).toBe(true);
-    const over = plan(secret, [dirname(secret)]);
-    expect(over.ok ? '' : over.error.message).toContain('overlaps forbidden');
-    expect(plan('/usr/share/secret', []).ok).toBe(false);
-  });
-
-  it('keeps run sandboxes away from the records and the helper', () => {
-    const h = setup();
-    const sandbox = hostSandbox(h);
-    const plan = sandbox.provider.plan(
+    const p = hostSandbox(h).provider.plan(
       {
         role: 'gate',
-        worktree: join(h.dataDir, 'harnesses'),
+        worktree: h.dir,
+        scratch: h.dir,
         git_dirs: [],
-        scratch: join(h.dir, 'scratch'),
         private_home: null,
         context: null,
         schema: null,
@@ -389,7 +492,17 @@ describe('harness records', () => {
       },
       ['/bin/true'],
     );
-    expect(plan.ok).toBe(false);
+    expect(p.ok).toBe(true);
+    if (!p.ok) return;
+    expect(p.value).toMatchObject({
+      provider: 'host',
+      isolation_mode: 'native',
+      argv: ['/bin/true'],
+      mount_sources: [],
+      proof_refs: [],
+    });
+    expect(p.value.env).not.toHaveProperty('GH_TOKEN');
+    expect(p.value.env).not.toHaveProperty('CUSR_TOKEN_FILE');
   });
 });
 
@@ -504,94 +617,9 @@ describe('production task surface', () => {
     expect(JSON.stringify(edited.check)).toContain('restart');
   });
 
-  it('doctor warns about a credential in a sandbox mount before a run is refused', async () => {
+  it('doctor does not claim an outer credential or filesystem boundary', async () => {
     const h = setup();
-    const clear = await doctor(h);
-    expect(clear.mounts?.status).toBe('ok');
-
-    // A reference only a task froze, inside a directory every worker and gate mounts.
-    const scratch = join(h.dataDir, 'scratch', 'old-auth.json');
-    const db = openFileStoreForTest(join(h.dataDir, STORE_FILE));
-    db.close();
-    const raw = new Database(join(h.dataDir, STORE_FILE));
-    raw
-      .prepare(
-        'INSERT INTO runtime_contexts (task_id, revision, runtime_hash, runtime_json) VALUES (?, ?, ?, ?)',
-      )
-      .run(
-        't',
-        1,
-        'h',
-        JSON.stringify({ credential_refs: [{ name: 'a', file: scratch }] }),
-      );
-    raw.close();
-    const clash = await doctor(h);
-    expect(clash.mounts?.status).toBe('fail');
-    expect(clash.mounts?.detail).toContain(scratch);
-  });
-
-  describe('Git directories of a linked-worktree project', () => {
-    const freeze = (h: ReturnType<typeof setup>, frozen: object): void => {
-      openFileStoreForTest(join(h.dataDir, STORE_FILE)).close();
-      const raw = new Database(join(h.dataDir, STORE_FILE));
-      raw
-        .prepare(
-          'INSERT INTO runtime_contexts (task_id, revision, runtime_hash, runtime_json) VALUES (?, ?, ?, ?)',
-        )
-        .run('t', 1, 'h', JSON.stringify(frozen));
-      raw.close();
-    };
-    const linkedWorktree = () => {
-      const main = g.repo(`linked${n++}`);
-      const linked = `${main}.linked`;
-      g.sh(main, 'worktree', 'add', '-q', '-b', 'side', linked);
-      return { main, linked, inCommon: join(main, '.git', 'old-auth.json') };
-    };
-    const addProject = (h: ReturnType<typeof setup>, path: string): void =>
-      appendFileSync(
-        h.configPath,
-        `projects:\n  app: { path: ${path}, base_branch: main }\n`,
-      );
-
-    it('warns about a credential in the common directory of a configured project', async () => {
-      const h = setup();
-      const { linked, inCommon } = linkedWorktree();
-      addProject(h, linked);
-      expect((await doctor(h)).mounts?.status).toBe('ok');
-
-      freeze(h, { credential_refs: [{ name: 'a', file: inCommon }] });
-      const clash = await doctor(h);
-      expect(clash.mounts?.status).toBe('fail');
-      expect(clash.mounts?.detail).toContain(`${inCommon} in`);
-    });
-
-    it('warns for a project only a task froze, as execution mounts it', async () => {
-      const h = setup();
-      const { linked, inCommon } = linkedWorktree();
-      freeze(h, {
-        project_path: linked,
-        credential_refs: [{ name: 'a', file: inCommon }],
-      });
-      expect((await doctor(h)).mounts?.status).toBe('fail');
-    });
-
-    it('does not count a path no run can start from, but never reports ok on a project Git refused', async () => {
-      const h = setup();
-      const gone = join(h.dir, 'gone');
-      const plain = join(h.dir, 'plain');
-      mkdirSync(plain);
-      addProject(h, gone);
-      freeze(h, { project_path: plain, credential_refs: [] });
-      expect((await doctor(h)).mounts?.status).toBe('ok');
-
-      const refused = setup();
-      const repo = g.repo(`refused${n++}`);
-      g.sh(repo, 'config', 'core.gitProxy', 'evil');
-      addProject(refused, repo);
-      const report = await doctor(refused);
-      expect(report.mounts?.status).toBe('fail');
-      expect(report.mounts?.detail).toContain(`${repo}: refused`);
-    });
+    expect((await doctor(h)).mounts).toBeUndefined();
   });
 
   it('reads every reference any snapshot froze, across tasks and revisions', () => {
@@ -637,19 +665,16 @@ describe('production task surface', () => {
   });
 });
 
-const hostUsable =
-  existsSync(BWRAP) &&
-  spawnSync(BWRAP, ['--unshare-user', '--ro-bind', '/', '/', '/usr/bin/true'])
-    .status === 0 &&
-  ['running', 'degraded'].includes(
-    spawnSync('systemctl', ['--user', 'is-system-running'], {
-      encoding: 'utf8',
-    }).stdout.trim(),
-  );
+const hostUsable = ['running', 'degraded'].includes(
+  spawnSync('systemctl', ['--user', 'is-system-running'], {
+    encoding: 'utf8',
+  }).stdout.trim(),
+);
 
 /** A task frozen and started in the store, under `productionControl` and the real daemon loop. */
 async function runSeeded(o: {
   readonly gateDir: string;
+  readonly legacyIsolation?: boolean;
   readonly setup_commands?: string[];
   readonly extraRefs?: readonly { name: string; file: string }[];
 }) {
@@ -726,6 +751,9 @@ async function runSeeded(o: {
     ...(o.setup_commands === undefined
       ? {}
       : { setup_commands: o.setup_commands }),
+    isolation: o.legacyIsolation
+      ? { mode: 'isolated', provider: 'bwrap' }
+      : { mode: 'native', provider: 'host' },
     base_sha: baseSha,
     project_path: project,
     target: {
@@ -791,6 +819,28 @@ async function runSeeded(o: {
 }
 
 describe.skipIf(!hostUsable)('productionControl on this host', () => {
+  it('refuses to execute an old outer-isolated snapshot under the host contract', async () => {
+    const { store, task, github, until, stop } = await runSeeded({
+      gateDir: gateDir(),
+      legacyIsolation: true,
+    });
+    try {
+      await until(
+        'requires a native runtime',
+        () => store.readTask(task.id)?.status === 'WAITING',
+      );
+      expect(Object.keys(store.readTask(task.id)?.attempts ?? {})).toHaveLength(
+        0,
+      );
+      expect(github.prs).toHaveLength(0);
+      expect(JSON.stringify(store.readEvents(task.id))).toContain(
+        'task was frozen for outer bwrap',
+      );
+    } finally {
+      await stop();
+    }
+  });
+
   const gateDir = (): string => {
     const dir = join(base, `gate-tools-${n++}`);
     mkdirSync(dir);
@@ -833,31 +883,20 @@ describe.skipIf(!hostUsable)('productionControl on this host', () => {
     }
   }, 180_000);
 
-  it('never lets a gate mount a credential only a frozen task still names', async () => {
-    // A → B then a restart: the config no longer names A, a task still does, and A sits under a
-    // directory gates mount. The same directory without the reference is the test above.
+  it('runs host gates without an outer mount guard', async () => {
     const dir = gateDir();
     const old = join(dir, 'old-auth.json');
-    writeFileSync(old, 'sk-ant-canary-0123456789');
+    writeFileSync(old, 'test-only-credential');
     const { github, store, task, until, stop } = await runSeeded({
       gateDir: dir,
       extraRefs: [{ name: 'old-account', file: old }],
     });
     try {
-      const gatesEnded = () =>
-        Object.values(store.readTask(task.id)?.effects ?? {}).some(
-          (e) =>
-            e.kind === 'run_gates' &&
-            e.status !== 'pending' &&
-            e.status !== 'started',
-        );
-      await until('gates refused', gatesEnded);
-      const results = store
-        .readEvents(task.id)
-        .filter((e) => e.type === 'EffectCompleted')
-        .map((e) => JSON.stringify(e.payload));
-      expect(results.join('\n')).toContain('not_launched');
-      expect(github.prs).toEqual([]);
+      await until(
+        'waiting for merge',
+        () => store.readTask(task.id)?.wait?.detail.code === 'merge',
+      );
+      expect(github.prs).toHaveLength(1);
     } finally {
       await stop();
     }

@@ -15,6 +15,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
+import { hashText } from '../../../src/shared/hash.ts';
+import { DENIED_COMMAND } from '../../../src/runner/harness-proof.ts';
 import type { VendorPin } from '../../../src/adapters/harness/vendor.ts';
 import { validateConfig } from '../../../src/config/validate.ts';
 import {
@@ -74,7 +76,7 @@ function setup(
   const replays = Object.fromEntries(
     Object.entries(REPLAYS[vendor]).map(([k, v]) => [k, join(REAL, v)]),
   );
-  const pin: VendorPin = {
+  const original: VendorPin = {
     ...fakeVendorPin(vendor, bin, {
       FAKE_VENDOR_ECHO_MODEL: '1',
       FAKE_VENDOR_REVIEWER_PROBE: '1',
@@ -83,13 +85,36 @@ function setup(
     }),
     toolchain: [dirname(process.execPath), realpathSync(REAL)],
   };
+  const rules = (h: VendorPin['home_files'][number]): string =>
+    homeFileContent(
+      h,
+      JSON.stringify({ accessToken: SMOKE_CANARY }),
+    ).replaceAll('/cusr/scratch/', '');
+  const pin: VendorPin = {
+    ...original,
+    settings:
+      vendor === 'claude'
+        ? {
+            ...original.settings,
+            permissions: {
+              ...(original.settings?.['permissions'] as Record<
+                string,
+                unknown
+              >),
+              deny: [`Bash(${DENIED_COMMAND})`],
+            },
+          }
+        : null,
+    home_files: original.home_files.map((h) =>
+      h.sha256 === undefined
+        ? h
+        : { ...h, sha256: hashText(rules(h)).slice(7) },
+    ),
+  };
   const credentialRefs: Record<string, string> = {};
   for (const h of pin.home_files) {
     const file = join(base, h.credential);
-    writeFileSync(
-      file,
-      homeFileContent(h, JSON.stringify({ accessToken: SMOKE_CANARY })),
-    );
+    writeFileSync(file, rules(h));
     credentialRefs[h.credential] = file;
   }
   const configPath = join(base, 'config.yaml');
@@ -196,15 +221,11 @@ describe('what a proof may spend', () => {
     expect(existsSync(h.out)).toBe(false);
   });
 
-  it('refuses a missing outer proof without invoking anything', async () => {
+  it('plans without an outer proof and spends no invocation', () => {
     const h = setup('claude');
-    const r = await proveHarness({
-      ...h.options,
-      outerProofFile: '/nonexistent/proof.json',
-      out: h.out,
-      budget: h.budget,
-    });
-    expect(refusal(r)).toContain('cannot read');
+    const r = planProof({ ...h.options, outerProofFile: '/missing-proof' });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.outer_proof_hash).toBeNull();
     expect(existsSync(h.ledger)).toBe(false);
   });
 });
@@ -220,7 +241,10 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
         budget: h.budget,
       });
       if (!r.ok) throw new Error(r.error);
-      expect(r.value.runs.map((x) => [x.role, x.outcome.kind])).toEqual([
+      expect(
+        r.value.runs.map((x) => [x.role, x.outcome.kind]),
+        JSON.stringify(r.value.runs),
+      ).toEqual([
         ['coder', 'result'],
         ['fixer', 'result'],
         ['reviewer', 'result'],
@@ -268,8 +292,93 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
     expect(e?.capabilities['permission_denial_kept']?.status).toBe('unknown');
     const recorded = h.record();
     if (!recorded.ok) throw new Error(recorded.error);
-    expect(h.problem()).toMatch(/permission_enforced|native inner sandbox/);
+    expect(h.problem()).toMatch(/permission_enforced|native sandbox/);
   }, 120_000);
+
+  it('proves Claude auto permissions with the worker sandbox off without claiming native enforcement', async () => {
+    const h = setup('claude');
+    const pinFile = join(h.options.dataDir, 'harnesses', 'claude', 'pin.json');
+    const pin = JSON.parse(readFileSync(pinFile, 'utf8')) as VendorPin;
+    const settings = pin.settings as Record<string, unknown>;
+    const sandbox = settings['sandbox'] as Record<string, unknown>;
+    const { enabled: _enabled, ...defaults } = sandbox;
+    writeFileSync(
+      pinFile,
+      JSON.stringify({ ...pin, settings: { ...settings, sandbox: defaults } }),
+    );
+    const r = await proveHarness({
+      ...h.options,
+      out: h.out,
+      budget: h.budget,
+    });
+    if (!r.ok) throw new Error(r.error);
+    expect(r.value.runs.map((x) => x.outcome.kind)).toEqual([
+      'result',
+      'result',
+      'result',
+    ]);
+    expect(r.value.runs.map((x) => x.native_write_blocked)).toEqual([
+      false,
+      false,
+      true,
+    ]);
+    expect(entry(h.out, 'claude')?.native_result).toBe('not_tried');
+    expect(
+      entry(h.out, 'claude')?.capabilities['permission_denial_kept']?.status,
+    ).toBe('proven');
+    const recorded = h.record();
+    if (!recorded.ok) throw new Error(recorded.error);
+    expect(recorded.value.selected_inner_mode).toBe('permissions_only');
+    expect(h.problem()).toBeNull();
+  });
+
+  it.each(['claude', 'codex'] as const)(
+    '%s: valid answers and a rule refusal do not prove native sandboxing',
+    async (vendor) => {
+      const h = setup(vendor, { FAKE_VENDOR_DENY_STDERR: '1' });
+      // Keep all roles returning valid results so missing native evidence cannot hide behind a failed reviewer.
+      const pinFile = join(h.options.dataDir, 'harnesses', vendor, 'pin.json');
+      const pin = JSON.parse(readFileSync(pinFile, 'utf8')) as VendorPin;
+      const { FAKE_VENDOR_REVIEWER_PROBE: _probe, ...env } = pin.env;
+      writeFileSync(pinFile, JSON.stringify({ ...pin, env }));
+      const r = await proveHarness({
+        ...h.options,
+        out: h.out,
+        budget: h.budget,
+      });
+      if (!r.ok) throw new Error(r.error);
+      expect(r.value.runs.map((x) => x.outcome.kind)).toEqual([
+        'result',
+        'result',
+        'result',
+      ]);
+      expect(
+        entry(h.out, vendor)?.capabilities['permission_denial_kept']?.status,
+      ).toBe('proven');
+      expect(entry(h.out, vendor)?.native_result).toBe('failed');
+    },
+  );
+
+  it.each(['claude', 'codex'] as const)(
+    '%s: detects a rule bypass at the same marker path the command writes',
+    async (vendor) => {
+      const h = setup(vendor, {
+        FAKE_VENDOR_INNER_SANDBOX: '1',
+        FAKE_VENDOR_DENY_STDERR: '1',
+        FAKE_VENDOR_PROOF_ALLOW_RULE: '1',
+      });
+      const r = await proveHarness({
+        ...h.options,
+        out: h.out,
+        budget: h.budget,
+      });
+      if (!r.ok) throw new Error(r.error);
+      expect(r.value.runs[0]?.marker_absent).toBe(false);
+      expect(
+        entry(h.out, vendor)?.capabilities['permission_denial_kept']?.status,
+      ).toBe('unknown');
+    },
+  );
 
   it('a failing binary ends the proof at its first role, counted, and proves nothing', async () => {
     const h = setup('claude', { FAKE_VENDOR_MODE: 'exit1' });

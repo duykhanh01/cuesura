@@ -1,61 +1,39 @@
 # Host prerequisites cho feature 002
 
 Đây là runbook kiểm host và provisioning khi cần; cập nhật tài liệu không tự cài hoặc gỡ policy.
-Không chạy runtime A trước khi [lát 0](../specs/002-task-to-green-pr/spike-0.md) có kết quả
-đạt. Doctor báo prerequisite thiếu kèm runbook, không tự chạy sudo hoặc sửa sysctl.
+Chứng minh harness native trên đúng binary/settings trước khi chạy task thật. Bằng chứng outer bwrap
+ở lát 0 là lịch sử. Doctor báo prerequisite thiếu, không tự chạy sudo hoặc sửa sysctl.
 
-## Baseline Isolated: rootless bwrap
+## Baseline: quyền native của harness
 
-Theo [ADR-0004](../docs/adr/0004-isolated-bwrap-baseline.md), luồng tự động v1 dùng rootless
-bwrap bọc toàn bộ harness và repo-controlled setup/gate/autofix, runner thuộc systemd user unit.
-Không bắt buộc Ubuntu 24.04, AppArmor 4 hoặc child stack Cuesura. V1 chỉ có backend bwrap qua
-port SandboxProvider nhỏ; Native-only và Container/VM chưa triển khai.
-
-Từ root repo, kiểm bằng user thường; các lệnh dưới đây không nạp profile hoặc đổi sysctl:
-
-```sh
-node --version
-bwrap --version
-bwrap --unshare-user --ro-bind / / /usr/bin/true
-systemctl --user is-system-running
-node scripts/spike-002/sandbox.ts probe --all
-node scripts/spike-002/reassess-sandbox.ts
-```
-
-Probe `ro-bind / /` chỉ kiểm namespace khởi động, không là sandbox task. Hai script dùng fixture
-tạm, kiểm mount/PID/env/secret/control và re-exec/copy/raw-userns trên layout tối thiểu. Kết quả
-local không thay full S0.1: vẫn cần FD/socket thật, mọi vùng rw/path-race, lifetime cgroup và native
-nội bộ/permission/auth của từng vendor/version/role. Ghi command/exit/version/hash và nguồn host
-vào [report](../specs/002-task-to-green-pr/spike-0-report.md). T002 đã cập nhật thông điệp prototype
-theo ADR-0004; thông điệp cũ yêu cầu child stack không phải tiêu chí pass hiện tại.
-
-Nếu host từ chối userns, doctor chặn và báo policy/prerequisite cụ thể. Quản trị viên review
-kernel/package/profile hiện có để provisioning phù hợp; không tự sudo, đổi sysctl, ghi đè profile
-managed hoặc chạy unsandboxed. Không suy failure ở host bwrap 0.9.0 trong báo cáo lịch sử thành
-failure của mọi host Ubuntu/WSL2.
+Theo [ADR-0005](../docs/adr/0005-native-harness-permissions.md), Cuesura bỏ outer bwrap và chạy
+harness trực tiếp trong worktree riêng. Setup/gate/autofix chạy trên host; systemd giám sát runner.
+Không cần outer sandbox proof của Cuesura. Sandbox native của Claude vẫn phụ thuộc policy userns/AppArmor
+của host; các fixture và ADR outer bwrap cũ là lịch sử.
 
 <a id="host-prerequisites"></a>
 
 ### Chuẩn bị theo hệ và cách sửa khi preflight báo `capability_missing`
 
-Preflight (T030) kiểm từng điều kiện dưới đây và báo đúng nguyên nhân kèm mã `cause`; nó chỉ in
-lệnh sửa, không tự chạy sudo, đổi sysctl hay nạp profile. Không có điều kiện nào được bỏ qua bằng
-cách chạy unsandboxed.
+Cài Node/pnpm và công cụ project trên PATH host. `cusr doctor` kiểm systemd, pin/manifest và công cụ
+harness cần. Claude native trên Linux vẫn có thể cần `bwrap`/`socat` cho sandbox của chính Claude;
+đây không phải outer bwrap của Cuesura. Codex dùng sandbox native của Codex.
 
-| Hệ | Cần làm |
-| --- | --- |
-| Ubuntu 22.04 (desktop/server), WSL2 | Cài `bubblewrap` nếu thiếu; server headless bật linger |
-| Debian 11/12, Fedora, RHEL/Rocky 8–9, Arch | `bubblewrap` từ gói distro; thường chạy ngay |
-| Ubuntu 23.10/24.04+ | Như trên, thêm profile AppArmor cho phép userns cho bwrap |
-| Host tắt user namespace (hardening, một số container) | Quản trị viên bật lại userns |
+### User namespace và AppArmor của sandbox native
 
-| `cause` | Dấu hiệu | Lệnh sửa (người dùng tự chạy) |
-| --- | --- | --- |
-| `bwrap_missing` | Không tìm thấy `bwrap` | `sudo apt install bubblewrap` (hoặc gói `bubblewrap` của distro) |
-| `userns_apparmor_restricted` | `bwrap --unshare-user …` lỗi `setting up uid map: Permission denied` và `kernel.apparmor_restrict_unprivileged_userns = 1` | Nạp profile userns cho bwrap, xem bên dưới |
-| `userns_disabled` | `user.max_user_namespaces = 0` hoặc `kernel.unprivileged_userns_clone = 0` | Quản trị viên review chính sách hardening của host rồi mới bật lại; Cuesura không đề xuất giá trị sysctl |
-| `systemd_user_unavailable` | Không có user bus / `systemctl --user` lỗi (server headless, phiên SSH đã thoát) | `sudo loginctl enable-linger "$USER"`; WSL2 xem mục systemd và WSL2 |
-| `bwrap_probe_failed` | `bwrap --unshare-user …` lỗi nhưng không khớp dấu hiệu nào ở trên; preflight in stderr của bwrap | Chạy các lệnh kiểm ở mục Baseline và review policy host; không chạy unsandboxed |
+Claude có sandbox bật trên Linux vẫn dùng bwrap; reviewer luôn cần sandbox dù worker chọn tắt hoặc full access. Trên host mới,
+cài `bubblewrap`/`socat` và kiểm tra bằng user chạy daemon:
+
+```sh
+bwrap --unshare-user --ro-bind / / /usr/bin/true
+sysctl user.max_user_namespaces kernel.unprivileged_userns_clone kernel.apparmor_restrict_unprivileged_userns
+```
+
+Lệnh sysctl chỉ đọc; knob nào không tồn tại phụ thuộc kernel/distro. Nếu userns bị tắt hoặc bwrap lỗi
+`setting up uid map: Permission denied`, quản trị viên review hardening và profile hiện có. Không suy
+`apparmor_restrict_unprivileged_userns=1` thành bwrap chắc chắn bị chặn: profile đã nạp có thể cho phép nó.
+Doctor/preflight chỉ kiểm executable và systemd; không còn probe userns toàn cục hay phát các cause
+`userns_*`/`bwrap_*`. Lượt proof native sẽ fail nếu sandbox của harness không chạy hoặc không chặn probe.
 
 Profile userns cho Ubuntu 23.10/24.04+: trước khi nạp, kiểm `ls /etc/apparmor.d` xem đã có profile
 nào attach `/usr/bin/bwrap` chưa (do distro hoặc gói khác cài, hoặc [cusr-bwrap](apparmor/cusr-bwrap)
@@ -79,27 +57,25 @@ bwrap --unshare-user --ro-bind / / /usr/bin/true && echo ok
 
 Gỡ: `sudo apparmor_parser -R /etc/apparmor.d/cusr-bwrap-userns && sudo rm /etc/apparmor.d/cusr-bwrap-userns`.
 
-### AppArmor: policy host và hardening tùy chọn
-
-Giữ nguyên policy host. Profile [cusr-bwrap](apparmor/cusr-bwrap) theo ABI 4.0 từ
-[quyết định cũ](../docs/adr/0003-bwrap-child-capabilities.md) được giữ như artifact hardening tùy
-chọn, không là dependency hay lệnh cài mặc định. Quản trị viên phải review attachment đúng binary,
-profile hiện có, tương thích nesting và ảnh hưởng đến mọi ứng dụng dùng `/usr/bin/bwrap` trước khi
-nạp/gỡ; lượt cập nhật này không thay policy đã cài. License profile ở [COPYING](apparmor/COPYING).
-
-Nếu chủ động chọn hardening child stack, kiểm compile/load/enforce và
-[probe-child.py](apparmor/probe-child.py) cùng audit capability denial trên host đó; đây là evidence
-bổ sung, không thay layout proof và không ép host khác phải có cùng nhãn. Không có child stack
-không tự là fail baseline; ít hardening kernel hơn không được báo tương đương về mọi threat.
+Profile [cusr-bwrap](apparmor/cusr-bwrap) cũ là hardening tùy chọn, không phải yêu cầu cho outer
+sandbox của Cuesura. Không tự nạp/gỡ profile hoặc đổi sysctl; các lệnh provisioning trên do người vận hành
+review rồi chạy. Kiểm tra native của đúng harness bằng `prove-harness` sau provisioning.
 
 ### Sandbox nội bộ của harness
 
-Trong Isolated, mặc định `internal_required`: sandbox nội bộ bật và phải thực sự dùng khi tool
-chạy, không silent retry ngoài sandbox. Chỉ xét `external_verified` theo ADR-0004 khi native đã
-thử và fail, outer boundary được chứng minh, permission/approval negative fixtures đạt, owner cho
-phép trong trusted config và hashes/version/layout còn khớp. Managed policy bắt buộc native thì
-không override; không dùng dangerously/bypass/accept-all hoặc đổi mode theo lỗi từng tool call.
-Nếu binary không tách được OS sandbox khỏi quyền/approval, binding vẫn blocked.
+`write-pin --permission-mode auto` (mặc định) chọn Claude mode `auto`, hoặc Codex `workspace-write`
+với automatic approval review. Claude worker có tùy chọn riêng `--sandbox on|off`; flag này ghi
+`settings.sandbox.enabled` vào pin, không đổi permission mode. Bỏ flag thì giữ `sandbox.enabled` trong
+file settings; nếu không khai báo thì sandbox tắt như mặc định Claude Code.
+
+| Claude worker | Sandbox tắt (mặc định) | Sandbox bật |
+| --- | --- | --- |
+| `--permission-mode auto` | Auto review quyền tool, `native_result=not_tried` | Auto review quyền tool và sandbox native, cần native proof |
+| `--permission-mode full-access` | `bypassPermissions`, không sandbox worker | `bypassPermissions` trong sandbox native, cần native proof |
+
+Reviewer luôn giữ sandbox chỉ đọc. `bwrap`/`socat` vì vậy vẫn cần cho harness Claude. Đây là quyền tool,
+không phải tự duyệt run config, review code hoặc merge. Khi đã bật sandbox, lỗi không tự chuyển sang
+tắt hoặc full access. Codex không nhận flag `--sandbox` này; chế độ sandbox Codex giữ theo permission mode.
 
 <a id="systemd-and-wsl2"></a>
 
@@ -208,8 +184,8 @@ nhận qua file, không qua argv. Connector không được thấy home owner ha
 
 **Ranh giới.** Token map **không** phải ranh giới quyền với process cùng UID có shell đầy đủ: process đó
 đọc được `owner.token`. Muốn tách quyền thật, chạy assistant bằng UID khác hoặc trong sandbox chỉ thấy
-token operate. Worker coder/fixer/reviewer không nhận token nào, kể cả operate: sandbox từ chối biến
-`CUSR_TOKEN*` và không mount data dir.
+token operate. Worker coder/fixer/reviewer không được truyền token nào, kể cả operate; environment không kế thừa
+`GH_*`, `GITHUB_*` hoặc `CUSR_TOKEN*`. Không còn outer boundary chặn process cùng UID đọc file host.
 
 ## Harness thật: pin và manifest
 
@@ -225,7 +201,7 @@ token operate. Worker coder/fixer/reviewer không nhận token nào, kể cả o
 ```sh
 cusr-runner write-pin --config ~/.cusr/config.yaml --harness claude --vendor claude \
   --binary "$(command -v claude)" --toolchain /opt/node/bin --auth claude-0:.claude/.credentials.json \
-  --settings claude-settings.json --max-turns 16 --tools Bash,Read,Edit,Write,Glob,Grep
+  --settings claude-settings.json --permission-mode auto --sandbox off --max-turns 16 --tools Bash,Read,Edit,Write,Glob,Grep
 cusr-runner record-manifest --config ~/.cusr/config.yaml --harness claude --evidence <evidence.json>
 ```
 
@@ -235,35 +211,44 @@ Lệnh so từng trường với pin và host hiện tại, lệch là từ ch�
 pin đều cần chứng minh lại (T126), và pin sửa sau khi ghi sẽ chặn request, attempt kế tiếp. Đổi đường dẫn file
 credential thì không cần: bằng chứng không phụ thuộc file nằm ở đâu. Evidence T007 không có `attested` nên không dùng được. Lệnh không gọi harness, không tốn usage.
 
-Sandbox của harness chỉ thấy `toolchain` của pin, thư mục của binary và `/usr`; Node qua nvm nằm dưới home nên
-không có trong đó. Claude ở inner mode `native` cần thêm `bwrap` và `socat`: `cusr doctor` báo ở `tools:<tên>`.
-Preflight từ chối (`capability_missing`, check `toolchain`) trước khi tốn lượt nếu sandbox worker thiếu chương
-trình mà setup/gate/autofix gọi trực tiếp hoặc `tools` của `cusr.yaml` khai báo, hoặc sandbox gate thiếu chương trình
-setup/gate gọi. Cả doctor lẫn preflight hỏi bằng `bwrap` với cùng mount hệ thống và toolchain của sandbox, nên file
-không có quyền chạy, thư mục, và symlink trỏ ra ngoài mount (kể cả qua `/etc/alternatives`) đều tính là thiếu.
-Builtin của `/bin/sh` như `umask` không cần kiểm.
+Công cụ harness được tìm trên toolchain của pin cộng PATH daemon. Setup/gate dùng thư mục Node của daemon
+cộng PATH daemon; preflight dùng đúng cùng danh sách với lệnh thực thi. Khi chạy daemon bằng systemd, đặt
+`Environment=PATH=...` trong service nếu công cụ như pnpm chỉ có ở PATH shell. PATH shell khác daemon
+không làm manifest mất hiệu lực; dependency cần thiết phải có ở môi trường thực thi. Reviewer Claude luôn cần dependency native, thường gồm `bwrap` và `socat`,
+kể cả khi worker tắt sandbox hoặc dùng full access.
+Doctor/preflight kiểm file executable trên host, không tạo outer sandbox để probe.
 
-Sau khi ghi, restart `cusrd`. `cusr doctor` báo lý do ở `manifest:<tên>` khi bản ghi thiếu hoặc không còn khớp;
-lúc đó task dừng ở `capability_missing`. Đổi `runtime.credential_refs` hoặc `tool_paths` khi daemon đang chạy
-cũng chặn việc mới tới khi restart. Task đã bắt đầu vẫn dùng credential reference đã đóng băng của nó.
-Mọi credential file mà config hiện tại hoặc bất kỳ task nào trong store từng đóng băng đều không được nằm trong
-mount của sandbox, kể cả sau khi đã thay trong config; đụng mount thì gate/agent không chạy (`not_launched`,
-`capability_missing`). Danh sách này không tự thu hẹp theo thời gian, nên đừng để credential trong thư mục toolchain
-hay repo; `cusr doctor` báo trước ở mục `credential_mounts`.
+Proof kiểm rule từ chối một lệnh ghi **trong worktree**. Role có sandbox bật còn phải chứng minh
+sandbox native chặn lệnh ghi vào đường dẫn host ở ngoài worktree; worker chọn tắt không chạy probe này. Thêm rule deny sau vào settings Claude dùng để ghi pin:
 
-Push dùng `gh auth git-credential` qua script `<DATA_DIR>/git-credential-gh` do daemon tạo; không mount vào
-sandbox. Gate chỉ thấy `/usr` và thư mục của `node` đang chạy daemon, nên công cụ cài ở nơi khác (pnpm toàn
-cục ngoài thư mục đó, Python qua pyenv) phải có trong đó hoặc gate sẽ báo không tìm thấy lệnh.
+```json
+{"permissions":{"deny":["Bash(/usr/bin/touch permission-denied-by-rule)"]}}
+```
+
+Với Codex, file `.codex/rules/` đã pin cần rule tương ứng:
+
+```python
+prefix_rule(pattern=["/usr/bin/touch", "permission-denied-by-rule"], decision="forbidden")
+```
+
+Giữ các rule owner khác khi thêm rule này. Lệnh deny dùng đường dẫn tương đối để kiểm marker ngay trong
+worktree thật; rule cũ trỏ `/cusr/scratch` không chứng minh hợp đồng host mới. Probe native chỉ đạt khi log
+**tool execution** có lỗi OS từ chối ghi và file đích không xuất hiện; trả lời hợp lệ hoặc rule từ chối tool
+không đủ. Worker Claude tắt sandbox ghi `native_result=not_tried`; auto dùng mode `permissions_only`,
+full access dùng `full_access`. Worker bật sandbox luôn cần `native_result=passed`, kể cả full access.
+Reviewer vẫn chạy probe âm native. Đổi sandbox cũng cần tạo lại proof/manifest; không nhận bằng chứng
+của lựa chọn cũ.
+
+Sau khi nâng release, tạo lại pin với `--permission-mode auto` hoặc `full-access`, chạy `prove-harness`
+không có `--outer-proof`, rồi `record-manifest` và restart daemon. Manifest cũ chứng minh outer bwrap
+không dùng được cho native execution. Task đang đóng băng theo outer bwrap phải kết thúc/hủy ở release
+cũ rồi tạo task mới; không đổi snapshot đang chạy. Đổi mode pin cũng cần proof/manifest tương ứng.
+
+Push vẫn do daemon gọi qua credential helper tin cậy. Role/model/workflow và merge giữ cùng hợp đồng.
 
 ## Network và credentials
 
-Theo quyết định chủ dự án 2026-10-28, mặc định `internet_outbound`: setup/gate/autofix và agent có
-DNS/Internet để tải package và gọi vendor. Feature 002 dùng network namespace host (không
-`--unshare-net`), không có domain allowlist/egress firewall; vì vậy cũng **không** hứa chặn LAN,
-loopback hoặc dịch vụ mạng host. Các fixture lát 0 kiểm thực tế pnpm/pip/vendor hoạt động. Đây là
-đánh đổi chức năng được chấp nhận; máy có dịch vụ nội bộ nhạy cảm cần policy mạng khác được review.
-
-Không đưa GitHub/SSH/admin token, socket điều phối, docker socket, toàn home host vào sandbox.
-Quyền đọc filesystem/PID vẫn giới hạn; mạng không tự cấp quyền GitHub. Selected model auth chỉ có
-trong home harness riêng; setup/gate không nhận model auth. Không mount credential helper hoặc
-agent-forwarding socket để làm cho git push của repo script hoạt động.
+Cuesura chạy trên host và không thêm namespace mạng hay egress firewall. Mạng của lệnh do host và
+native harness quyết định. Home/auth của harness vẫn riêng, credential được che trước khi lưu log,
+và token điều phối/GitHub không tự được đưa vào environment worker hoặc gate. Process cùng UID có
+quyền đọc file host theo OS; worktree và canary sau chạy không là ranh giới bảo mật ngăn truy cập đó.

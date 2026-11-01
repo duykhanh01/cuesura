@@ -39,7 +39,7 @@ export interface Clock {
   monotonic(): number;
 }
 
-// ---- Sandbox (one provider: rootless bwrap, ADR-0004) ----
+// ---- Launch plans (host production, archived bwrap fixtures; ADR-0005) ----
 
 export const SANDBOX_ROLES = [
   'coder',
@@ -78,8 +78,8 @@ export type MountSourceIdentity = {
 
 /** Data only: the runner spawns it under its own supervisor, timeout and cgroup. */
 export type SandboxLaunchPlan = {
-  readonly isolation_mode: 'isolated';
-  readonly provider: 'bwrap';
+  readonly isolation_mode: 'isolated' | 'native';
+  readonly provider: 'bwrap' | 'host';
   readonly role: SandboxRole;
   /** Complete argv including the wrapped command. */
   readonly argv: readonly string[];
@@ -101,7 +101,7 @@ export type SandboxPlanError = {
 };
 
 export interface SandboxProvider {
-  readonly provider: 'bwrap';
+  readonly provider: 'bwrap' | 'host';
   plan(
     layout: SandboxLayout,
     command: readonly string[],
@@ -284,8 +284,10 @@ export interface HarnessPort {
   readonly harness: string;
   /** Proven/unknown capabilities of this binary; never upgraded from help text. */
   readonly manifest: CapabilityManifest;
-  /** Where the role sees its scratch when it runs sandboxed; absent when it writes host paths (fake). */
-  readonly agent_paths?: { readonly scratch: string };
+  /** Scratch path visible to the role, optionally resolved for each attempt; absent for fakes. */
+  readonly agent_paths?: {
+    readonly scratch: string | ((attemptId: string) => string);
+  };
   run(input: HarnessInput, signal: AbortSignal): Promise<HarnessOutcome>;
   /**
    * The outcome of a run of this operation that already ended, read from what it finalized on disk;

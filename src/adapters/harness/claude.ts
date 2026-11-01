@@ -3,8 +3,8 @@
  * T007 fixtures proved (`pinned-claude.json`): print mode with stream-json, the role schema inline
  * (without the `$schema` declaration that version refuses), user/project setting sources and MCP
  * servers disabled, a read-only settings file the runner writes, and the reviewer without Edit/Write.
- * The permission mode and rules come unchanged from the pin; the only switch is `sandbox.enabled`,
- * set from the inner mode the capability manifest selected. Nothing here names a model.
+ * Production derives auto/full-access permissions from the pin and keeps reviewer writes denied.
+ * Archived outer-sandbox plans retain their recorded permission mode. Nothing here names a model.
  *
  * Facts are read from stream-json records: `system/permission_denied` events and the result record's
  * `permission_denials`, `rate_limit_event`, refusal stop reasons, `result.usage`/`total_cost_usd`, the
@@ -16,6 +16,8 @@ import type { Usage } from '../../domain/trigger.ts';
 import type { PermissionDenial } from '../ports.ts';
 import {
   bypassToken,
+  hostInnerMode,
+  nativeSandboxEnabled,
   classifyFailure,
   DETAIL_MAX,
   isRec,
@@ -35,7 +37,7 @@ export const CLAUDE_SETTINGS_FILE = 'claude-settings.json';
 export const CLAUDE_RESULT_POINTER = ['structured_output'] as const;
 const REVIEWER_DISALLOWED = 'Edit,Write';
 const EMPTY_MCP = '{"mcpServers":{}}';
-/** Permission modes that approve on the user's behalf; never produced or accepted. */
+/** Auto-approving modes rejected by the archived outer-sandbox contract. */
 const APPROVING_MODES = new Set(['bypassPermissions', 'acceptEdits', 'auto']);
 
 function settingsFor(
@@ -48,29 +50,97 @@ function settingsFor(
   const permissions = base['permissions'];
   if (!isRec(permissions))
     return { ok: false, message: 'claude settings have no permissions' };
-  const mode = permissions['defaultMode'];
-  if (typeof mode !== 'string' || APPROVING_MODES.has(mode))
+  const mode = input.host_execution
+    ? pin.permission_mode === 'full-access' && input.role !== 'reviewer'
+      ? 'bypassPermissions'
+      : 'auto'
+    : permissions['defaultMode'];
+  if (
+    typeof mode !== 'string' ||
+    (!input.host_execution && APPROVING_MODES.has(mode))
+  )
     return {
       ok: false,
       message: `claude permission mode ${String(mode)} is not allowed`,
     };
   const sandbox = isRec(base['sandbox']) ? base['sandbox'] : {};
-  if (sandbox['allowUnsandboxedCommands'] !== false)
+  if (!input.host_execution && sandbox['allowUnsandboxedCommands'] !== false)
     return {
       ok: false,
       message:
         'claude settings must set sandbox.allowUnsandboxedCommands=false',
     };
-  const native = input.inner_mode === 'native';
+  if (
+    input.host_execution &&
+    sandbox['enabled'] !== undefined &&
+    typeof sandbox['enabled'] !== 'boolean'
+  )
+    return { ok: false, message: 'sandbox.enabled must be a boolean' };
+  const filesystem = isRec(sandbox['filesystem']) ? sandbox['filesystem'] : {};
+  const allowWrite: unknown = filesystem['allowWrite'] ?? [];
+  const denyWrite: unknown = filesystem['denyWrite'] ?? [];
+  if (
+    !Array.isArray(allowWrite) ||
+    !allowWrite.every((p: unknown) => typeof p === 'string') ||
+    !Array.isArray(denyWrite) ||
+    !denyWrite.every((p: unknown) => typeof p === 'string')
+  )
+    return {
+      ok: false,
+      message: 'native filesystem rules must be arrays of paths',
+    };
+  const hostPath = (path: string): string => {
+    const entry = Object.entries(input.paths).find(
+      ([name]) => path === `/cusr/${name}` || path.startsWith(`/cusr/${name}/`),
+    );
+    return entry === undefined
+      ? path
+      : entry[1] + path.slice(`/cusr/${entry[0]}`.length);
+  };
+  const mappedAllowWrite = allowWrite.map((path: unknown) =>
+    hostPath(String(path)),
+  );
+  const mappedDenyWrite = denyWrite.map((path: unknown) =>
+    hostPath(String(path)),
+  );
+  const native = input.host_execution
+    ? nativeSandboxEnabled(pin, input.role)
+    : input.inner_mode === 'native';
+  if (input.host_execution && input.inner_mode === 'external_verified')
+    return {
+      ok: false,
+      message: 'external_verified needs the removed outer sandbox',
+    };
   return {
     ok: true,
     value: {
       ...base,
+      ...(input.host_execution
+        ? { permissions: { ...permissions, defaultMode: mode } }
+        : {}),
       sandbox: {
         ...sandbox,
         enabled: native,
         failIfUnavailable: native,
         allowUnsandboxedCommands: false,
+        ...(input.host_execution && native
+          ? {
+              filesystem: {
+                ...filesystem,
+                allowWrite: [
+                  ...new Set([
+                    ...mappedAllowWrite,
+                    input.paths.home,
+                    input.paths.scratch,
+                  ]),
+                ],
+                denyWrite: [
+                  ...mappedDenyWrite,
+                  ...(input.role === 'reviewer' ? [input.cwd] : []),
+                ],
+              },
+            }
+          : {}),
       },
     },
   };
@@ -82,12 +152,28 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
     error: { code: 'policy_violation', message },
   });
   if (pin.vendor !== 'claude') return fail(`pin is for ${pin.vendor}`);
+  if (input.host_execution && input.inner_mode !== hostInnerMode(pin))
+    return fail('host permission mode must match the explicit pin');
   if (pin.max_turns === null || pin.tools === null || pin.tools.length === 0)
     return fail('claude pin needs max_turns and tools');
   if (input.model === '') return fail('model is not configured');
   const settings = settingsFor(pin, input);
   if (!settings.ok) return fail(settings.message);
   const settingsFile = `${input.paths.context}/${CLAUDE_SETTINGS_FILE}`;
+  const stableSettings = input.host_execution
+    ? settingsFor(pin, {
+        ...input,
+        role: 'coder',
+        cwd: '<worktree>',
+        paths: {
+          home: '<home>',
+          scratch: '<scratch>',
+          context: '<context>',
+          schema: '<schema>',
+        },
+      })
+    : settings;
+  if (!stableSettings.ok) return fail(stableSettings.message);
   const argv = [
     pin.binary.realpath,
     '-p',
@@ -118,7 +204,11 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
       ? ['--disallowedTools', REVIEWER_DISALLOWED]
       : []),
   ];
-  const bypass = bypassToken([argv, settings.value, pin.env]);
+  const bypass = bypassToken(
+    input.host_execution && pin.permission_mode === 'full-access'
+      ? [pin.env]
+      : [argv, settings.value, pin.env],
+  );
   if (bypass !== null)
     return fail(`permission bypass token rejected: ${bypass}`);
   if (input.schema.schema['$schema'] !== undefined)
@@ -139,7 +229,7 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
       ],
       schema_files: [],
       result: { kind: 'stdout_json', pointer: CLAUDE_RESULT_POINTER },
-      settings_hash: hashCanonical(settings.value),
+      settings_hash: hashCanonical(stableSettings.value),
     },
   };
 }

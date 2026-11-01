@@ -42,14 +42,7 @@ const GIT_OUTPUT_BYTES = 64 * 1024;
 const PROJECT_CONFIG_BYTES = 1024 * 1024;
 const PROJECT_CONFIG_FILE = 'cusr.yaml';
 
-export const HOST_CAUSES = [
-  'bwrap_missing',
-  'userns_apparmor_restricted',
-  'userns_disabled',
-  'systemd_user_unavailable',
-  /** bwrap failed for a reason none of the known signatures explains; fail closed with its stderr. */
-  'bwrap_probe_failed',
-] as const;
+export const HOST_CAUSES = ['systemd_user_unavailable'] as const;
 export type HostCause = (typeof HOST_CAUSES)[number];
 
 export type PreflightCode = 'config_invalid' | 'capability_missing';
@@ -342,13 +335,7 @@ async function run(
   });
 }
 
-// ---- Host prerequisites of the Isolated runtime (deploy/README.md) ----
-
-const SYSCTL = {
-  maxUserNamespaces: '/proc/sys/user/max_user_namespaces',
-  unprivilegedClone: '/proc/sys/kernel/unprivileged_userns_clone',
-  apparmorRestrict: '/proc/sys/kernel/apparmor_restrict_unprivileged_userns',
-} as const;
+// ---- Host prerequisites of native execution (deploy/README.md) ----
 
 function hostProblem(
   cause: HostCause,
@@ -380,63 +367,6 @@ export async function checkHost(
 ): Promise<PreflightProblem[]> {
   const paths = runtime?.tool_paths ?? {};
   const out: PreflightProblem[] = [];
-  const knob = async (path: string): Promise<string | null> =>
-    (await host.readText(path))?.trim() ?? null;
-
-  const bwrap = await tool(host, paths.bwrap, 'bwrap');
-  const disabled =
-    (await knob(SYSCTL.maxUserNamespaces)) === '0' ||
-    (await knob(SYSCTL.unprivilegedClone)) === '0';
-  if (bwrap === null) {
-    out.push(
-      hostProblem(
-        'bwrap_missing',
-        'bwrap was not found',
-        'sudo apt install bubblewrap (or the distro `bubblewrap` package)',
-      ),
-    );
-  }
-  if (disabled) {
-    out.push(
-      hostProblem(
-        'userns_disabled',
-        `unprivileged user namespaces are disabled (${SYSCTL.maxUserNamespaces} = 0 or ${SYSCTL.unprivilegedClone} = 0)`,
-        'an administrator reviews the host hardening policy before re-enabling user namespaces',
-      ),
-    );
-  }
-  if (bwrap !== null && !disabled) {
-    const trueBin = (await host.findExecutable('true')) ?? '/usr/bin/true';
-    const r = await host.exec(
-      [bwrap, '--unshare-user', '--ro-bind', '/', '/', trueBin],
-      { timeout_ms: PROBE_TIMEOUT_MS },
-    );
-    if (r.kind !== 'exited' || r.code !== 0) {
-      const stderr =
-        r.kind === 'exited' ? r.stderr.trim().slice(0, 512) : r.kind;
-      if (
-        (await knob(SYSCTL.apparmorRestrict)) === '1' &&
-        /uid map/i.test(stderr)
-      ) {
-        out.push(
-          hostProblem(
-            'userns_apparmor_restricted',
-            `bwrap cannot create a user namespace: ${stderr} (kernel.apparmor_restrict_unprivileged_userns = 1)`,
-            'load the userns profile for bwrap described in the runbook',
-          ),
-        );
-      } else {
-        out.push(
-          hostProblem(
-            'bwrap_probe_failed',
-            `bwrap --unshare-user failed: ${stderr}`,
-            'run the runbook checks and review the host policy',
-          ),
-        );
-      }
-    }
-  }
-
   const systemdRun = await tool(host, paths['systemd-run'], 'systemd-run');
   const systemctl = await host.findExecutable('systemctl');
   const userBus =
@@ -489,12 +419,10 @@ export const TOOL_PROBE_SCRIPT =
   'dirs=$1; shift; IFS=:; for t in "$@"; do found=; for d in $dirs; do if [ -f "$d/$t" ] && [ -x "$d/$t" ]; then found=1; fi; done; [ -n "$found" ] || echo "$t"; done; exit 0';
 
 /**
- * Which `tools` a sandbox with this PATH cannot run, asked inside the same mounts: a host path says nothing
- * about the execute bit, a directory, or a symlink whose target the sandbox does not mount.
+ * Which tools the host can execute with the launcher's PATH, including symlink targets and execute bits.
  */
 export async function missingTools(
   host: HostProbePort,
-  bwrap: string,
   dirs: readonly string[],
   tools: readonly string[],
 ): Promise<
@@ -502,36 +430,8 @@ export async function missingTools(
   | { readonly ok: false; readonly detail: string }
 > {
   if (tools.length === 0) return { ok: true, missing: [] };
-  const toolchain = dirs.filter(
-    (d) => d !== '/bin' && d !== '/usr' && !d.startsWith('/usr/'),
-  );
   const r = await host.exec(
-    [
-      bwrap,
-      '--unshare-user',
-      '--ro-bind',
-      '/usr',
-      '/usr',
-      '--symlink',
-      'usr/bin',
-      '/bin',
-      '--symlink',
-      'usr/sbin',
-      '/sbin',
-      '--symlink',
-      'usr/lib',
-      '/lib',
-      '--symlink',
-      'usr/lib64',
-      '/lib64',
-      ...toolchain.flatMap((d) => ['--ro-bind-try', d, d]),
-      '/bin/sh',
-      '-c',
-      TOOL_PROBE_SCRIPT,
-      'sh',
-      dirs.join(':'),
-      ...tools,
-    ],
+    ['/bin/sh', '-c', TOOL_PROBE_SCRIPT, 'sh', dirs.join(':'), ...tools],
     { timeout_ms: PROBE_TIMEOUT_MS },
   );
   if (r.kind !== 'exited')
@@ -554,8 +454,6 @@ async function checkTools(
   validated: Validated,
   support: ReturnType<typeof checkSupport>,
 ): Promise<PreflightProblem[]> {
-  const bwrap = await tool(host, validated.runtime?.tool_paths.bwrap, 'bwrap');
-  if (bwrap === null) return [];
   const project = validated.config.project;
   const commands = [
     ...(project?.setup ?? []),
@@ -570,7 +468,7 @@ async function checkTools(
     const tools = input.harness_tools?.[h];
     if (tools === undefined) continue;
     const works = roles.includes('coder') || roles.includes('fixer');
-    const probe = await missingTools(host, bwrap, tools.dirs, [
+    const probe = await missingTools(host, tools.dirs, [
       ...new Set([...tools.requires, ...(works ? projectTools : [])]),
     ]);
     if (!probe.ok || probe.missing.length > 0)
@@ -588,7 +486,7 @@ async function checkTools(
       );
   }
   if (input.gate_path !== undefined) {
-    const probe = await missingTools(host, bwrap, input.gate_path, [
+    const probe = await missingTools(host, input.gate_path, [
       ...new Set(fromGates),
     ]);
     if (!probe.ok || probe.missing.length > 0)

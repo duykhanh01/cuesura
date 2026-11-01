@@ -553,9 +553,12 @@ describe('worker content and reviewer input (T076)', () => {
     const h = harness(e);
     const name = 'publish-op.json';
     const host = join(e.root, 'content', name);
+    const scratch = h.agent_paths.scratch;
+    if (typeof scratch !== 'string')
+      throw new Error('expected legacy fixture paths');
     const inp = input('claude', 'coder', {
       context: {
-        text: `write as JSON {"commit_message", "pr_title", "pr_body"} to ${h.agent_paths.scratch}/${name}.\n`,
+        text: `write as JSON {"commit_message", "pr_title", "pr_body"} to ${scratch}/${name}.\n`,
         digest: hashText('x'),
       },
       collect: [{ scratch_name: name, host_path: host }],

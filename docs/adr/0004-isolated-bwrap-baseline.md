@@ -1,6 +1,6 @@
 # Isolated rootless bwrap làm baseline cho feature 002
 
-**Trạng thái: được chấp nhận ngày 2026-10-28; thay [ADR-0003](0003-bwrap-child-capabilities.md) về cơ chế baseline.** Gate lát 0 vẫn BLOCKED; quyết định này đổi tiêu chí kiểm chứng, không phải bằng chứng S0.1–S0.3 đã đạt.
+**Trạng thái: được thay baseline bởi [ADR-0005](0005-native-harness-permissions.md) ngày 2026-11-01. Nội dung dưới đây là quyết định lịch sử, được chấp nhận ngày 2026-10-28; thay [ADR-0003](0003-bwrap-child-capabilities.md) về cơ chế baseline.** Gate lát 0 vẫn BLOCKED; quyết định này đổi tiêu chí kiểm chứng, không phải bằng chứng S0.1–S0.3 đã đạt.
 
 ADR-0003 biến child stack AppArmor deny capability thành điều kiện pass trên mọi host, gộp hai mục tiêu khác nhau: giữ filesystem/PID/secret của Cuesura ngoài tầm agent và giảm bề mặt kernel trong namespace con. Profile ABI 4.0 buộc Ubuntu 24.04 hoặc userspace AppArmor 4, attach `/usr/bin/bwrap` nên ảnh hưởng ứng dụng khác, và chưa compile được trên Ubuntu 22.04/WSL2 đang dùng. [Thí nghiệm 360 kiểm tra](../../specs/002-task-to-green-pr/sandbox-reassessment.md) cho thấy re-exec/copy bwrap và raw userns có CapEff khác 0 vẫn không mở lại host root, Git metadata hay vùng ro trên layout tối thiểu; đây là phản ví dụ cho giả định “capability trong namespace con đồng nghĩa thoát boundary”, không chứng minh chống kernel exploit hay tương đương hardening.
 

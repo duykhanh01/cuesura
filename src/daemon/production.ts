@@ -1,7 +1,7 @@
 /**
  * Production wiring of `cusrd` (T048, T110, T112, T114, T119, T140): real Git, gh and host probes behind
  * preflight, the user config re-read for every request so a fixed config is picked up by the next
- * confirm, the effect handlers over bwrap and transient units, the scheduler, and the rounds nothing else
+ * confirm, the host effect handlers and transient units, the scheduler, and the rounds nothing else
  * drives (due timers, PR observation, drain).
  *
  * This is what lets the daemon call a real agent, and the gate for that is the harness record: a harness
@@ -25,13 +25,7 @@ import {
   GhPort,
   spawnGhExec,
 } from '../adapters/github/gh-port.ts';
-import type {
-  Clock,
-  GitHubPort,
-  GitPort,
-  HarnessPort,
-  HostProbePort,
-} from '../adapters/ports.ts';
+import type { Clock, GitHubPort, HarnessPort } from '../adapters/ports.ts';
 import { MAX_ENVELOPE_IDS } from '../domain/trigger.ts';
 import { DEFAULT_RUNTIME_LIMITS } from '../domain/runtime.ts';
 import type { RuntimeConfig } from '../config/normalize.ts';
@@ -52,7 +46,7 @@ import { NodeHostProbe } from '../runner/host-probe.ts';
 import { RunnerHarness } from '../runner/invocation.ts';
 import { stopOperationProcesses } from '../runner/process-tag.ts';
 import type { Redactor } from '../runner/redact.ts';
-import { SANDBOX_SYSTEM_PATH } from '../runner/sandbox.ts';
+import { hostExecutionPath } from '../runner/sandbox.ts';
 import { SystemdSupervisor } from '../runner/supervisor.ts';
 import type { Hash, Uuid } from '../shared/brand.ts';
 import { hashCanonical } from '../shared/hash.ts';
@@ -126,38 +120,6 @@ export function knownCredentialFiles(
     }
   }
   return [...files];
-}
-
-/**
- * The Git directory a sandbox of each project mounts, resolved the way execution does: a linked worktree's
- * `.git` is a file pointing elsewhere, and a task worktree's admin directory lies under the common one. A
- * path gone or not a repository can start no run; a project Git could not answer for stays `unresolved`.
- */
-async function projectGitDirs(
-  git: GitPort,
-  host: HostProbePort,
-  projects: readonly string[],
-): Promise<{ dirs: string[]; unresolved: string[] }> {
-  const found = await Promise.all(
-    [...new Set(projects)].map(async (project) => {
-      if ((await host.realpath(project)) === null) return {};
-      const r = await git.run({
-        args: ['rev-parse', '--path-format=absolute', '--git-common-dir'],
-        cwd: project,
-        timeout_ms: 5_000,
-        max_output_bytes: 4096,
-        stdin: null,
-      });
-      if (r.kind !== 'exited') return { unresolved: `${project}: ${r.kind}` };
-      if (r.code !== 0) return {};
-      const dir = r.stdout.trim();
-      return { dir: (await host.realpath(dir)) ?? dir };
-    }),
-  );
-  return {
-    dirs: found.flatMap((f) => f.dir ?? []),
-    unresolved: found.flatMap((f) => f.unresolved ?? []),
-  };
 }
 
 /** The part of the runtime config this process is built on and only reads at start. */
@@ -311,10 +273,7 @@ export async function productionControl(opts: {
     ];
     const harnessTools = () =>
       Object.fromEntries(
-        [...records].map(([h, r]) => [
-          h,
-          harnessSandboxTools(r.pin, r.manifest.selected_inner_mode ?? null),
-        ]),
+        [...records].map(([h, r]) => [h, harnessSandboxTools(r.pin)]),
       );
     const configInputs = async () => {
       const user = (
@@ -325,7 +284,7 @@ export async function productionControl(opts: {
         packs: {},
         ...manifestInputs(user),
         harness_tools: harnessTools(),
-        gate_path: [...gateToolchain, ...SANDBOX_SYSTEM_PATH],
+        gate_path: hostExecutionPath(gateToolchain),
       };
     };
     const coordinator = new ObservationCoordinator((taskId, ref, source) =>
@@ -393,7 +352,7 @@ export async function productionControl(opts: {
       harnesses,
       // Without a runtime config the daemon refuses to start; no effect runs on this path.
       sandbox: boundary ?? {
-        provider: 'bwrap',
+        provider: 'host',
         plan: () => ({
           ok: false,
           error: { code: 'proof_missing', message: 'no runtime config' },
@@ -491,33 +450,6 @@ export async function productionControl(opts: {
           host,
           configInputs,
           harnessTools,
-          ...(runtime === null || sandbox === null
-            ? {}
-            : {
-                credentialMounts: async () => {
-                  const { dirs, unresolved } = await projectGitDirs(
-                    ports.git,
-                    host,
-                    [...projects, ...store.frozenProjectPaths()],
-                  );
-                  return {
-                    credentials: knownCredentialFiles(store, runtime),
-                    mounts: [
-                      ...sandbox.policy.systemRo,
-                      ...sandbox.policy.systemRoTry,
-                      ...gateToolchain,
-                      ...[...records.values()].flatMap(({ pin }) => [
-                        dirname(pin.binary.realpath),
-                        ...pin.toolchain,
-                      ]),
-                      deps.paths.worktrees,
-                      deps.paths.scratch,
-                      ...dirs,
-                    ],
-                    unresolved,
-                  };
-                },
-              }),
           health: daemon.health,
           now,
         },

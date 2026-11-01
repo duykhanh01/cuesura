@@ -502,7 +502,9 @@ Connector làm nhận → kiểm tra quyền → normalize → dedup → triage.
 
 Phân quyền `read`, `operate`, `admin` được kiểm tra ở application service, không chỉ trong CLI. Không dùng trường `requested_by`, env marker hay việc có TTY như bằng chứng duy nhất rằng người gọi là người thật. Quyền admin và secret điều phối phải nằm ngoài quyền truy cập của agent; hành động đòi người duyệt đi qua kênh đã xác thực.
 
-V1 là công cụ cá nhân cho repo đáng tin cậy; worktree không phải sandbox bảo mật ở cấp hệ điều hành. Agent và code build không được mặc định coi là vô hại. Dùng quyền harness và tách credential; nếu không chứng minh được giới hạn truy cập ở môi trường hiện tại, doctor phải báo giới hạn và chặn chế độ tự động cần quyền đó. Mô hình multi-user và cách ly đối thủ cùng OS user nằm sau v1.
+Theo quyết định chủ dự án ngày 2026-11-01 ([ADR-0005](docs/adr/0005-native-harness-permissions.md)), Cuesura chạy harness trực tiếp trong worktree riêng, bỏ outer bwrap. Mặc định worker Claude dùng mode `auto` và tắt sandbox như Claude Code; owner bật/tắt độc lập qua `--sandbox on|off` hoặc `settings.sandbox.enabled`. Sandbox bật thì native proof bắt buộc; auto tắt sandbox ghi `permissions_only`/`not_tried` và vẫn kiểm quyền tool. Codex dùng `workspace-write` với automatic approval review. Owner có thể chọn `permission_mode: full-access` trong pin; khi đó worker dùng quyền full access của chính harness. Reviewer vẫn dùng sandbox chỉ đọc. Đổi permission mode hoặc sandbox cần manifest đúng pin; không tự fallback từ sandbox lỗi sang full access.
+
+Setup/gate/autofix chạy trên host. Home/auth của harness vẫn tách riêng và environment không kế thừa token điều phối, nhưng worktree không là sandbox bảo mật: không còn cam kết che filesystem, secret hoặc socket host khỏi process cùng UID. Doctor kiểm dependency thực tế của harness và systemd, không đòi outer proof. Auto review/approve của harness không đổi workflow review, run confirmation, gate/CI hoặc quyền merge. Mô hình multi-user và cách ly đối thủ cùng OS user nằm sau v1.
 
 ## 16. Vận hành và đo lường
 

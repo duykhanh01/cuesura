@@ -187,6 +187,15 @@ const writePin: CliCommand = {
         'Comma-separated vendor rule files in credential:home-path format; their digest is pinned',
     },
     { flags: '--settings <file>', description: 'Claude settings JSON file' },
+    {
+      flags: '--permission-mode <mode>',
+      description: 'Harness permissions: auto (default) or full-access',
+    },
+    {
+      flags: '--sandbox <mode>',
+      description:
+        'Claude worker sandbox: on or off (default: Claude settings, otherwise off)',
+    },
     { flags: '--max-turns <n>', description: 'Claude turn limit' },
     {
       flags: '--tools <names>',
@@ -201,6 +210,24 @@ const writePin: CliCommand = {
     const auth = homeFiles(values['auth']);
     const rules = homeFiles(values['rules']);
     const maxTurns = values['maxTurns'];
+    const sandboxMode = values['sandbox'];
+    if (
+      sandboxMode !== undefined &&
+      sandboxMode !== 'on' &&
+      sandboxMode !== 'off'
+    )
+      return refuse(
+        'invalid_arguments',
+        '--sandbox must be on or off',
+        ExitCode.usage,
+      );
+    const permissionMode = values['permissionMode'] ?? 'auto';
+    if (permissionMode !== 'auto' && permissionMode !== 'full-access')
+      return refuse(
+        'invalid_arguments',
+        '--permission-mode must be auto or full-access',
+        ExitCode.usage,
+      );
     if (
       config === undefined ||
       harness === undefined ||
@@ -218,11 +245,14 @@ const writePin: CliCommand = {
     }
     if (
       vendor === 'codex' &&
-      (settings !== undefined || maxTurns !== undefined || tools !== undefined)
+      (settings !== undefined ||
+        maxTurns !== undefined ||
+        tools !== undefined ||
+        sandboxMode !== undefined)
     ) {
       return refuse(
         'invalid_arguments',
-        '--settings, --max-turns, and --tools require --vendor claude',
+        '--settings, --max-turns, --tools, and --sandbox require --vendor claude',
         ExitCode.usage,
       );
     }
@@ -257,6 +287,8 @@ const writePin: CliCommand = {
       auth,
       rules,
       settings: parsedSettings,
+      permission_mode: permissionMode,
+      ...(sandboxMode === undefined ? {} : { sandbox: sandboxMode === 'on' }),
       max_turns: maxTurns === undefined ? null : Number(maxTurns),
       tools: tools?.split(',') ?? null,
       force: values['force'] !== undefined,
@@ -295,7 +327,7 @@ const proveHarness: CliCommand = {
     },
     {
       flags: '--outer-proof <file>',
-      description: 'Host sandbox verification file',
+      description: 'Deprecated; outer sandbox proofs are no longer used',
     },
     { flags: '--out <file>', description: 'Output evidence file' },
     {
@@ -316,15 +348,10 @@ const proveHarness: CliCommand = {
     const refuse = refuser(json, io);
     const { config, dataDir, harness, model, effort, outerProof } = values;
     const { out, approval, maxInvocations, dryRun } = values;
-    if (
-      config === undefined ||
-      harness === undefined ||
-      model === undefined ||
-      outerProof === undefined
-    ) {
+    if (config === undefined || harness === undefined || model === undefined) {
       return refuse(
         'invalid_arguments',
-        'prove-harness requires --config, --harness, --model, and --outer-proof',
+        'prove-harness requires --config, --harness, and --model',
         ExitCode.usage,
       );
     }
@@ -341,7 +368,7 @@ const proveHarness: CliCommand = {
       runtime: cfg.value.runtime,
       model,
       effort: effort ?? null,
-      outerProofFile: outerProof,
+      ...(outerProof === undefined ? {} : { outerProofFile: outerProof }),
       runnerCommand: [process.execPath, process.argv[1] as string],
       now: () => Date.now(),
     };

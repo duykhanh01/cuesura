@@ -1392,7 +1392,6 @@ describe('doctor (T112, FR-027.02/033)', () => {
       config: 'ok',
       host: 'ok',
       systemd_unit: 'ok',
-      sandbox_canary: 'ok',
       'project:acme': 'ok',
     });
     for (const argv of host.execs)
@@ -1477,18 +1476,17 @@ describe('doctor (T112, FR-027.02/033)', () => {
         : exec(argv, o);
   };
 
-  it('probes hung past the old 15 second client limit still answer: exit 1, the failed checks and their fix', async () => {
+  it('a hung unit probe returns its failed check before the client times out', async () => {
     const { sd, host } = doctored();
     hang(host, ['--wait', '--tmpfs']);
     await sd.start();
     const started = Date.now();
     const r = await cli(sd, ['doctor']);
-    expect(Date.now() - started).toBeGreaterThan(15_000);
+    expect(Date.now() - started).toBeGreaterThan(9_000);
     expect(r.code).toBe(ExitCode.failure);
     expect(r.envelope.error.code).toBe('unhealthy');
     expect(names(r)).toMatchObject({
       systemd_unit: 'fail',
-      sandbox_canary: 'fail',
     });
     expect(JSON.stringify(r.envelope.error.details)).toContain(
       'deploy/README.md',
@@ -1507,7 +1505,6 @@ describe('doctor (T112, FR-027.02/033)', () => {
     // Out of budget, the later probes are reported, not run and not skipped.
     expect(names(r)).toMatchObject({
       systemd_unit: 'fail',
-      sandbox_canary: 'fail',
     });
   });
 
@@ -1548,7 +1545,7 @@ describe('doctor (T112, FR-027.02/033)', () => {
 
   it('a host problem or a held writer fails with the fix to run, and nothing is run for it', async () => {
     const { sd, host } = doctored({
-      host: { bwrap: false },
+      host: { userBus: false },
       health: 'dispatch blocked: x',
     });
     await sd.start();
@@ -1556,12 +1553,9 @@ describe('doctor (T112, FR-027.02/033)', () => {
     expect(r.code).toBe(ExitCode.failure);
     expect(names(r)).toMatchObject({
       writer: 'fail',
-      'host:bwrap_missing': 'fail',
-      sandbox_canary: 'fail',
+      'host:systemd_user_unavailable': 'fail',
     });
-    expect(JSON.stringify(r.envelope.error.details)).toContain(
-      'apt install bubblewrap',
-    );
+    expect(JSON.stringify(r.envelope.error.details)).toContain('enable-linger');
     expect(host.execs.flat().join(' ')).not.toContain('apt');
   });
 

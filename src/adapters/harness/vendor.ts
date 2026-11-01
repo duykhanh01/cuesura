@@ -5,10 +5,8 @@
  * never validates the role result itself; the runner ({@link ../../runner/invocation.ts}) does the I/O
  * and {@link ./validate-result.ts} decides whether a final answer is acceptable.
  *
- * Everything an adapter emits is taken from the pinned configuration that the T007 fixtures proved
- * (`test/fixtures/runtime/spike-0/harness/real-20261028/pinned-*.json`): no model is defaulted, no
- * permission bypass or approval change is ever produced, and the only switch on the inner sandbox is
- * the mode the capability manifest selected.
+ * Production permissions and sandbox choices come from the owner pin and matching capability manifest.
+ * Archived T007 fixtures keep their recorded plans. No adapter selects a model or changes modes as a retry.
  */
 import { z } from 'zod';
 import {
@@ -66,12 +64,33 @@ export const VendorPinSchema = z
     ),
     /** Claude only: the settings document (permissions/sandbox) handed read-only to the binary. */
     settings: z.record(z.string(), z.unknown()).nullable(),
+    /** Owner-selected harness permission policy; absent legacy pins default to auto on host. */
+    permission_mode: z.enum(['auto', 'full-access']).optional(),
     /** Claude only: turn cap and tool list proven by the fixtures. */
     max_turns: z.number().int().positive().nullable(),
     tools: z.array(z.string().regex(/^[A-Za-z]+$/)).nullable(),
   })
   .strict();
 export type VendorPin = z.infer<typeof VendorPinSchema>;
+
+/** Claude follows its own default (off); reviewers retain their native read-only boundary. */
+export function nativeSandboxEnabled(
+  pin: VendorPin,
+  role: Role = 'coder',
+): boolean {
+  if (role === 'reviewer') return true;
+  if (pin.vendor === 'codex') return pin.permission_mode !== 'full-access';
+  const sandbox = pin.settings?.['sandbox'];
+  return isRec(sandbox) && sandbox['enabled'] === true;
+}
+
+/** The host manifest records permissions-only execution separately from native sandbox proof. */
+export function hostInnerMode(
+  pin: VendorPin,
+): 'native' | 'permissions_only' | 'full_access' {
+  if (pin.permission_mode === 'full-access') return 'full_access';
+  return nativeSandboxEnabled(pin) ? 'native' : 'permissions_only';
+}
 
 /** Paths as the binary sees them inside the sandbox. */
 export type SandboxPaths = {
@@ -90,6 +109,8 @@ export type VendorPlanInput = {
   readonly cwd: string;
   readonly paths: SandboxPaths;
   readonly inner_mode: SelectedInnerMode;
+  /** Direct host execution: the harness owns permissions and its native sandbox. */
+  readonly host_execution?: boolean;
   /** Only passed when the manifest proved resume for this binary; see `resume_supported`. */
   readonly session: { readonly ref: string } | null;
 };

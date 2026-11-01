@@ -17,7 +17,6 @@ import { validateConfig } from '../config/validate.ts';
 import type { Uuid } from '../shared/brand.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import type { Store } from '../store/index.ts';
-import { overlaps } from '../runner/sandbox.ts';
 import { authorize, type Caller } from './authz.ts';
 import type { ConfigInputs } from './confirm.ts';
 import { binaryDigest, manifestHash } from './capabilities.ts';
@@ -185,52 +184,10 @@ function budgeted(host: HostProbePort, budgetMs: number): HostProbePort {
 }
 
 /**
- * The boundary a worker relies on, tried for real: a read-only root, and the daemon's data dir, with
- * every token in it, gone from the sandbox view.
+ * A real transient unit, completed and collected in the runner's user manager.
+ * Daemon-restart survival is covered by supervisor-systemd.test.ts.
  */
-async function sandboxCanary(
-  host: HostProbePort,
-  dataDir: string,
-  bwrap: string | null,
-): Promise<DoctorCheck> {
-  if (bwrap === null) return fail('sandbox_canary', 'bwrap was not found');
-  const script = `test ! -e "$1/owner.token" && ! touch /usr/.cusr-doctor-canary 2>/dev/null`;
-  const r = await host.exec(
-    [
-      bwrap,
-      '--unshare-user',
-      '--ro-bind',
-      '/',
-      '/',
-      '--tmpfs',
-      dataDir,
-      '/bin/sh',
-      '-c',
-      script,
-      'sh',
-      dataDir,
-    ],
-    { timeout_ms: PROBE_MS },
-  );
-  if (r.kind === 'exited' && r.code === 0)
-    return ok_(
-      'sandbox_canary',
-      'root is read-only and the data dir is hidden',
-    );
-  return fail(
-    'sandbox_canary',
-    r.kind === 'exited'
-      ? `canary exited ${r.code}: ${r.stderr.slice(0, 400)}`
-      : r.kind,
-    'see deploy/README.md; do not run unsandboxed',
-  );
-}
 
-/**
- * A real transient unit, run to completion and collected, in the user manager runners use. What `checkHost`
- * asked was only whether the manager answers. That a runner outlives the daemon needs the daemon stopped,
- * so it is shown by `supervisor-systemd.test.ts`, not here.
- */
 async function unitProbe(
   host: HostProbePort,
   systemdRun: string | null,
@@ -270,7 +227,14 @@ function manifestCheck(
     return fail(name, 'manifest fails its schema or its hash', fix);
   const missing = (
     ['structured_output', 'permission_enforced', 'private_home_auth'] as const
-  ).filter((k) => m.capabilities[k] !== 'proven');
+  ).filter(
+    (k) =>
+      !(
+        k === 'permission_enforced' &&
+        m.provider === 'host' &&
+        m.selected_inner_mode === 'full_access'
+      ) && m.capabilities[k] !== 'proven',
+  );
   if (missing.length > 0)
     return fail(name, `not proven: ${missing.join(', ')}`, fix);
   let now: string;
@@ -334,7 +298,9 @@ export async function runDoctor(
     const { runtime, locations, config } = validated.value;
     const problems = await checkHost(host, runtime);
     if (problems.length === 0)
-      checks.push(ok_('host', 'systemd and bwrap are usable'));
+      checks.push(
+        ok_('host', 'systemd user manager is usable; commands run on host'),
+      );
     for (const p of problems)
       checks.push(fail(`host:${p.cause ?? p.check}`, p.message, p.fix));
     const wsl = await host.readText('/proc/sys/kernel/osrelease');
@@ -352,13 +318,6 @@ export async function runDoctor(
           (await host.findExecutable('systemd-run')),
       ),
     );
-    checks.push(
-      await sandboxCanary(
-        host,
-        deps.dataDir,
-        runtime?.tool_paths.bwrap ?? (await host.findExecutable('bwrap')),
-      ),
-    );
     for (const ref of runtime?.credential_refs ?? []) {
       const found = await host.realpath(ref.file);
       checks.push(
@@ -369,27 +328,6 @@ export async function runDoctor(
               `create ${ref.file}`,
             )
           : ok_(`credential:${ref.name}`, 'file exists; content not read'),
-      );
-    }
-    if (deps.credentialMounts !== undefined) {
-      const { credentials, mounts, unresolved } = await deps.credentialMounts();
-      const clashes = credentials.flatMap((c) =>
-        mounts.filter((m) => overlaps(c, m)).map((m) => `${c} in ${m}`),
-      );
-      checks.push(
-        clashes.length > 0
-          ? fail(
-              'credential_mounts',
-              `every gate and agent run mounting these is refused: ${clashes.join('; ')}`,
-              'move the credential file out of that directory',
-            )
-          : unresolved.length > 0
-            ? fail(
-                'credential_mounts',
-                `Git directory not resolved, so its mount was not checked: ${unresolved.join('; ')}`,
-                'make git work in that project, then run doctor again',
-              )
-            : ok_('credential_mounts', 'no credential is in a sandbox mount'),
       );
     }
     if (project !== undefined) {
@@ -416,13 +354,7 @@ export async function runDoctor(
     )) {
       if (tools.requires.length === 0) continue;
       const fix = `install it under /usr, or add its directory to toolchain in harnesses/${h}/pin.json and prove the harness again`;
-      const bwrap =
-        runtime?.tool_paths.bwrap ?? (await host.findExecutable('bwrap'));
-      if (bwrap === null) {
-        checks.push(fail(`tools:${h}`, 'bwrap was not found', fix));
-        continue;
-      }
-      const probe = await missingTools(host, bwrap, tools.dirs, tools.requires);
+      const probe = await missingTools(host, tools.dirs, tools.requires);
       checks.push(
         !probe.ok
           ? fail(`tools:${h}`, probe.detail, 'see deploy/README.md')
