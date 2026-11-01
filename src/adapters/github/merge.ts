@@ -3,7 +3,8 @@
  * what the merge relies on: the PR is `clean` on the head the task checked, and the target's classic
  * protection requires up-to-date branches and applies to admins, since the daemon merges with the owner's
  * account. Anything unreadable or different is "not ready". The merge carries the checked head as `sha`,
- * so GitHub refuses it if the head moved; the outcome is learned from the next observation of the PR.
+ * so GitHub refuses it if the head moved, and a squash uses the worker's commit message; the outcome is
+ * learned from the next observation of the PR.
  */
 import type { MergeMethod } from '../../domain/merge-method.ts';
 import type { GitHubPort } from '../ports.ts';
@@ -65,16 +66,33 @@ export type MergeSent =
   /** The answer was lost: the merge may have happened, and only an observation can tell. */
   | { readonly kind: 'unknown'; readonly detail: string };
 
+/** A squash commit's title and message from the worker's validated commit message (SPEC §14.2). */
+export function squashMessage(message: string): {
+  commit_title: string;
+  commit_message: string;
+} {
+  const [title = '', ...rest] = message.split('\n');
+  return {
+    commit_title: title.trim(),
+    commit_message: rest.join('\n').trim(),
+  };
+}
+
 export async function sendMerge(
   port: GitHubPort,
   t: MergeTarget,
   method: MergeMethod,
+  message: string,
 ): Promise<MergeSent> {
   const r = await port.request({
     method: 'PUT',
     path: `repos/${t.repo}/pulls/${t.pr_number}/merge`,
     query: {},
-    body: { sha: t.head_sha, merge_method: method },
+    body: {
+      sha: t.head_sha,
+      merge_method: method,
+      ...(method === 'squash' ? squashMessage(message) : {}),
+    },
   });
   if (r.ok) return { kind: 'merged' };
   return r.error.reason === 'unknown'

@@ -69,12 +69,34 @@ export const PATCH_ENDPOINTS: readonly RegExp[] = [
 ];
 const PATCH_FIELDS = new Set(['title', 'body']);
 
-/** Yolo's merge (SPEC §14.2): always of a named head, with nothing else in the request. */
+/** Yolo's merge (SPEC §14.2): of a named head, with its method and squash message and nothing else. */
 export const PUT_ENDPOINTS: readonly RegExp[] = [
   new RegExp(`^${REPO}/pulls/\\d+/merge$`),
 ];
-const MERGE_BODY =
-  /^\{"sha":"[0-9a-f]{40}","merge_method":"(squash|merge|rebase)"\}$/;
+const MERGE_FIELDS = new Set([
+  'sha',
+  'merge_method',
+  'commit_title',
+  'commit_message',
+]);
+
+function validMergeBody(body: unknown): boolean {
+  if (typeof body !== 'object' || body === null) return false;
+  const b = body as Readonly<Record<string, unknown>>;
+  const squash = b['merge_method'] === 'squash';
+  return (
+    Object.keys(b).every((k) => MERGE_FIELDS.has(k)) &&
+    typeof b['sha'] === 'string' &&
+    /^[0-9a-f]{40}$/.test(b['sha']) &&
+    (squash
+      ? typeof b['commit_title'] === 'string' &&
+        b['commit_title'] !== '' &&
+        typeof b['commit_message'] === 'string'
+      : (b['merge_method'] === 'merge' || b['merge_method'] === 'rebase') &&
+        b['commit_title'] === undefined &&
+        b['commit_message'] === undefined)
+  );
+}
 
 const QUERY_KEYS = new Set([
   'per_page',
@@ -327,7 +349,7 @@ export class GhPort implements GitHubPort {
         retry_after_ms: null,
       });
     }
-    if (req.method === 'PUT' && !MERGE_BODY.test(JSON.stringify(req.body)))
+    if (req.method === 'PUT' && !validMergeBody(req.body))
       return err({
         reason: 'not_allowed',
         status: null,

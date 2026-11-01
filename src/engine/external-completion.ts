@@ -1,4 +1,4 @@
-import type { TaskState } from '../domain/state.ts';
+import type { Approval, TaskState } from '../domain/state.ts';
 import type { Trigger } from '../domain/trigger.ts';
 import { invalidatePending } from './cancel.ts';
 import { reject, type Ctx } from './context.ts';
@@ -70,12 +70,12 @@ function verifiedHead(ctx: Ctx, head: string): boolean {
   );
 }
 
-/** Whether the code recorded a yolo approval of `head` in this revision. */
-export function yoloApproved(
+/** The yolo approval of `head` in this revision, which names the content its merge uses. */
+export function yoloApproval(
   s: Pick<TaskState, 'approvals' | 'revision'>,
   head: string,
-): boolean {
-  return Object.values(s.approvals).some(
+): Approval | undefined {
+  return Object.values(s.approvals).find(
     (a) =>
       a.kind === 'merge' &&
       a.status === 'granted' &&
@@ -108,7 +108,11 @@ export function onYoloMergeApprove(ctx: Ctx, t: YoloMergeApprove): void {
   if (s.cancellation !== null || s.completion !== null)
     return ignored('yolo_not_waiting');
   if (!verifiedHead(ctx, t.head_sha)) return ignored('yolo_head_unverified');
-  if (yoloApproved(s, t.head_sha)) return ignored('yolo_approved');
+  if (yoloApproval(s, t.head_sha) !== undefined)
+    return ignored('yolo_approved');
+  const content = s.run.content;
+  if (content === null || content.revision !== s.revision)
+    return ignored('yolo_no_content');
   const id = ctx.nextId();
   ctx.emit('ApprovalRequested', {
     approval_id: id,
@@ -122,6 +126,7 @@ export function onYoloMergeApprove(ctx: Ctx, t: YoloMergeApprove): void {
     approval_id: id,
     by: YOLO_APPROVER,
     head_sha: t.head_sha,
+    content_digest: content.digest,
   });
 }
 

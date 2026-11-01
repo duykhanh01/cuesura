@@ -253,6 +253,8 @@ export type Approval = {
   status: 'requested' | 'granted' | 'rejected';
   granted_by: string | null;
   revoked: boolean;
+  /** Yolo's merge intent: the publish content whose commit message the merge uses. */
+  content_digest?: string;
 };
 
 export type FailureStreak = {

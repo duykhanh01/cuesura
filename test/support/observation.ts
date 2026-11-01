@@ -120,11 +120,12 @@ export function toGreen(
   d: StoreDriver,
   t: CanonicalTask,
   mode: 'direct-pr' | 'full-review' = 'full-review',
-  policy: Pick<PolicyOptions, 'limits'> = {},
+  policy: Pick<PolicyOptions, 'limits' | 'required_checks'> = {},
   runtime: Partial<Omit<FrozenRuntimeContext, 'runtime_hash'>> = {},
+  coder: Record<string, unknown> = {},
 ): void {
   createGrantStart(d, t, mode, policy, runtime);
-  toPublish(d, t, A);
+  toPublish(d, t, A, coder);
   d.complete(
     t.id,
     d.pendingOne(t.id, 'publish').id,

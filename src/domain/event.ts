@@ -226,7 +226,13 @@ export type EventPayloads = {
     head_sha: string | null;
     policy_hash: string;
   };
-  ApprovalGranted: { approval_id: string; by: string; head_sha: string | null };
+  ApprovalGranted: {
+    approval_id: string;
+    by: string;
+    head_sha: string | null;
+    /** Yolo's merge intent: the publish content whose commit message the merge uses. */
+    content_digest?: string;
+  };
   ApprovalRejected: { approval_id: string; by: string };
   // Revision
   SourceDriftDetected: {

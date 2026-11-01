@@ -16,6 +16,7 @@ import { buildTask, uuidOf } from '../../support/builders.ts';
 import { fixtureExec } from '../../support/gh-fixture.ts';
 import { A, merge, toGreen } from '../../support/observation.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
+import { CONTENT_DIGEST } from '../../support/store-flows.ts';
 import { dbPath, useTempDir } from '../../support/temp-db.ts';
 
 // The daemon's merge under yolo (SPEC §14.2): what must hold before anything is sent, and what is sent.
@@ -30,10 +31,16 @@ type Remote = {
   protection?: Record<string, unknown>;
   protectionStatus?: number;
   mergeStatus?: number | 'lost';
+  /** Conclusions of the head's current check runs. */
+  checks?: Record<string, string>;
 };
+
+const REQUIRED = ['build', 'test'];
+const MESSAGE = 'feat: thêm tìm kiếm\n\nGiải thích thay đổi.\n';
 
 function github(r: Remote = {}) {
   const sent: GitHubRequest[] = [];
+  const conclusions = r.checks ?? { build: 'success', test: 'success' };
   const port: GitHubPort = {
     request: (req) => {
       sent.push(req);
@@ -78,11 +85,26 @@ function github(r: Remote = {}) {
             }),
           );
         return reply({
-          required_status_checks: { strict: true },
+          url: `https://api.github.com/${req.path}`,
+          required_status_checks: { strict: true, contexts: REQUIRED },
           enforce_admins: { enabled: true },
           ...r.protection,
         });
       }
+      if (req.path.includes('/rules/branches/')) return reply([]);
+      if (req.path.includes('/branches/')) return reply({ protected: true });
+      if (req.path.endsWith('/check-runs'))
+        return reply({
+          check_runs: Object.entries(conclusions).map(([name, c], i) => ({
+            id: i + 1,
+            name,
+            head_sha: A,
+            status: 'completed',
+            conclusion: c,
+            app: { id: 1 },
+          })),
+        });
+      if (req.path.endsWith('/statuses')) return reply([]);
       return reply({
         state: 'open',
         merged: false,
@@ -104,7 +126,28 @@ function deps(d: StoreDriver, port: GitHubPort, enabled = true): YoloDeps {
     newId,
     github: () => port,
     enabled: () => Promise.resolve(enabled),
+    content: () => ({
+      commit_message: MESSAGE,
+      pr_title: 'title',
+      pr_body: 'body',
+    }),
   };
+}
+
+/** A task waiting for its merge, its policy requiring the checks the fake GitHub requires. */
+function green(
+  d: StoreDriver,
+  t: CanonicalTask,
+  mode: 'full-review' | 'direct-pr' = 'full-review',
+): void {
+  toGreen(
+    d,
+    t,
+    mode,
+    { required_checks: REQUIRED },
+    {},
+    { content: { digest: CONTENT_DIGEST, ref: '/content/a.json' } },
+  );
 }
 
 const puts = (sent: readonly GitHubRequest[]) =>
@@ -119,7 +162,7 @@ describe('yolo merge', () => {
     async (mode) => {
       const d = setup();
       const t = buildTask();
-      toGreen(d, t, mode);
+      green(d, t, mode);
       const { port, sent } = github();
 
       expect(await yoloMerge(deps(d, port), t.id)).toBe('merged');
@@ -127,9 +170,19 @@ describe('yolo merge', () => {
       const merges = puts(sent);
       expect(merges).toHaveLength(1);
       expect(merges[0]?.path).toMatch(/\/pulls\/7\/merge$/);
-      expect(merges[0]?.body).toEqual({ sha: A, merge_method: 'squash' });
+      expect(merges[0]?.body).toEqual({
+        sha: A,
+        merge_method: 'squash',
+        commit_title: 'feat: thêm tìm kiếm',
+        commit_message: 'Giải thích thay đổi.',
+      });
       expect(approvals(d, t)).toMatchObject([
-        { status: 'granted', granted_by: 'policy:yolo', head_sha: A },
+        {
+          status: 'granted',
+          granted_by: 'policy:yolo',
+          head_sha: A,
+          content_digest: d.task(t.id).run.content?.digest,
+        },
       ]);
       expect(d.task(t.id).status).toBe('WAITING');
       merge(d, t, A);
@@ -142,7 +195,7 @@ describe('yolo merge', () => {
   it('a merge whose answer was lost, or that GitHub refused, can be sent again without a second approval', async () => {
     const d = setup();
     const t = buildTask();
-    toGreen(d, t);
+    green(d, t);
     expect(
       await yoloMerge(deps(d, github({ mergeStatus: 'lost' }).port), t.id),
     ).toBe('unknown');
@@ -156,7 +209,7 @@ describe('yolo merge', () => {
   it('yolo off reads nothing from GitHub and sends nothing', async () => {
     const d = setup();
     const t = buildTask();
-    toGreen(d, t);
+    green(d, t);
     const { port, sent } = github();
     expect(await yoloMerge(deps(d, port, false), t.id)).toBe('off');
     expect(sent).toEqual([]);
@@ -166,7 +219,7 @@ describe('yolo merge', () => {
   it('yolo turned off during the reads stops the merge', async () => {
     const d = setup();
     const t = buildTask();
-    toGreen(d, t);
+    green(d, t);
     const { port, sent } = github();
     let reads = 0;
     const r = await yoloMerge(
@@ -195,7 +248,7 @@ describe('yolo merge', () => {
   ])('%s: no approval and no merge', async (_name, remote) => {
     const d = setup();
     const t = buildTask();
-    toGreen(d, t);
+    green(d, t);
     const { port, sent } = github(remote);
     expect(await yoloMerge(deps(d, port), t.id)).toBe('not_ready');
     expect(puts(sent)).toEqual([]);
@@ -203,10 +256,83 @@ describe('yolo merge', () => {
     expect(d.task(t.id).wait?.detail.code).toBe('merge');
   });
 
+  it.each(['neutral', 'skipped', 'stale'])(
+    'a check that became %s after the observation stops the merge, though GitHub says clean',
+    async (conclusion) => {
+      const d = setup();
+      const t = buildTask();
+      green(d, t);
+      const { port, sent } = github({
+        checks: { build: 'success', test: conclusion },
+      });
+      expect(await yoloMerge(deps(d, port), t.id)).toBe('not_ready');
+      expect(puts(sent)).toEqual([]);
+      expect(approvals(d, t)).toEqual([]);
+    },
+  );
+
+  it('a required check with no current run stops the merge', async () => {
+    const d = setup();
+    const t = buildTask();
+    green(d, t);
+    const { port, sent } = github({ checks: { build: 'success' } });
+    expect(await yoloMerge(deps(d, port), t.id)).toBe('not_ready');
+    expect(puts(sent)).toEqual([]);
+  });
+
+  it('a cancel recorded while the config is read for the last time stops the merge', async () => {
+    const d = setup();
+    const t = buildTask();
+    green(d, t);
+    const { port, sent } = github();
+    let reads = 0;
+    const r = await yoloMerge(
+      {
+        ...deps(d, port),
+        enabled: () => {
+          if (++reads === 2) d.must(t.id, { kind: 'cancel', reason: 'stop' });
+          return Promise.resolve(true);
+        },
+      },
+      t.id,
+    );
+    expect(d.task(t.id).cancellation).not.toBeNull();
+    expect(r).toBe('not_approved');
+    expect(puts(sent)).toEqual([]);
+  });
+
+  it('a resend uses the same message; content that cannot be read back sends nothing', async () => {
+    const d = setup();
+    const t = buildTask();
+    green(d, t);
+    const asked: string[] = [];
+    const lost = github({ mergeStatus: 'lost' });
+    await yoloMerge(
+      {
+        ...deps(d, lost.port),
+        content: (ref, digest) => {
+          asked.push(digest);
+          return deps(d, lost.port).content(ref, digest);
+        },
+      },
+      t.id,
+    );
+    const again = github();
+    await yoloMerge(deps(d, again.port), t.id);
+    expect(puts(again.sent)[0]?.body).toEqual(puts(lost.sent)[0]?.body);
+    expect(asked).toEqual([approvals(d, t)[0]?.content_digest]);
+
+    const unread = github();
+    expect(
+      await yoloMerge({ ...deps(d, unread.port), content: () => null }, t.id),
+    ).toBe('not_ready');
+    expect(puts(unread.sent)).toEqual([]);
+  });
+
   it('a cancelled task is not merged', async () => {
     const d = setup();
     const t = buildTask();
-    toGreen(d, t);
+    green(d, t);
     d.must(t.id, { kind: 'cancel', reason: 'stop' });
     const { port, sent } = github();
     expect(await yoloMerge(deps(d, port), t.id)).toBe('not_waiting');
@@ -216,7 +342,7 @@ describe('yolo merge', () => {
   it('the engine refuses a head it does not vouch for', () => {
     const d = setup();
     const t = buildTask();
-    toGreen(d, t);
+    green(d, t);
     d.must(t.id, { kind: 'yolo_merge_approve', head_sha: 'b'.repeat(40) });
     expect(approvals(d, t)).toEqual([]);
     expect(d.store.readEvents(t.id).at(-1)).toMatchObject({
@@ -225,7 +351,7 @@ describe('yolo merge', () => {
     });
   });
 
-  it('the gh port sends only a merge that names the head', async () => {
+  it('the gh port sends only a merge that names the head and, for a squash, its message', async () => {
     let t = 0;
     const exec = fixtureExec({
       'PUT repos/o/r/pulls/1/merge': [{ status: 200, body: { merged: true } }],
@@ -237,13 +363,20 @@ describe('yolo merge', () => {
     });
     const put = (path: string, body: unknown) =>
       p.request({ method: 'PUT', path, query: {}, body });
-    const good = { sha: A, merge_method: 'squash' };
+    const good = {
+      sha: A,
+      merge_method: 'squash',
+      commit_title: 'title',
+      commit_message: '',
+    };
     expect(await put('repos/o/r/pulls/1/merge', good)).toMatchObject({
       ok: true,
     });
     for (const [path, body] of [
       ['repos/o/r/pulls/1/merge', { merge_method: 'squash' }],
-      ['repos/o/r/pulls/1/merge', { ...good, commit_title: 'x' }],
+      ['repos/o/r/pulls/1/merge', { sha: A, merge_method: 'squash' }],
+      ['repos/o/r/pulls/1/merge', { ...good, delete_branch: true }],
+      ['repos/o/r/pulls/1/merge', { ...good, merge_method: 'rebase' }],
       ['repos/o/r/pulls/1', good],
       ['repos/o/r/contents/a', good],
     ] as const)

@@ -30,6 +30,7 @@ export function toPublish(
   d: StoreDriver,
   task: CanonicalTask,
   head = 'head1',
+  coder: Record<string, unknown> = {},
 ): void {
   d.complete(
     task.id,
@@ -41,7 +42,7 @@ export function toPublish(
     task.id,
     d.pendingOne(task.id, 'start_agent').id,
     'succeeded',
-    agentData('done'),
+    agentData('done', coder),
   );
   const mode = d.task(task.id).run.mode;
   d.complete(

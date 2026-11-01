@@ -544,6 +544,8 @@ export function applyInPlace(
       if (a) {
         a.status = 'granted';
         a.granted_by = event.payload.by;
+        if (event.payload.content_digest !== undefined)
+          a.content_digest = event.payload.content_digest;
       }
       break;
     }

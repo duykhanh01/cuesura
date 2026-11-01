@@ -56,6 +56,7 @@ import {
 import type { DaemonRuntime } from './main.ts';
 import { ObservationCoordinator, observationRound } from './observation.ts';
 import { yoloMerge, type YoloDeps } from './yolo.ts';
+import { FileContentStore } from '../adapters/publish-content.ts';
 import { Scheduler } from './scheduler.ts';
 import { taskControl } from './task-control.ts';
 
@@ -273,6 +274,8 @@ export async function productionControl(opts: {
       clock: opts.clock,
       newId: opts.newId,
       github: newGitHub,
+      content: (ref, digest) =>
+        new FileContentStore(dir('content')).get(ref, digest),
       enabled: async () => {
         const user = (
           await readConfigFiles({ user: opts.configPath })
