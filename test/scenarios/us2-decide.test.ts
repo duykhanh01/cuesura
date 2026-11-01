@@ -74,6 +74,62 @@ function toDone(sim: Sim, head = 'head1'): void {
 }
 
 describe('US2 - Canonical task creation and deterministic decisions', () => {
+  it('removing an expired deadline resumes the same task and survives replay', () => {
+    const sim = run();
+    toCode(sim);
+    sim.advance(7 * 3_600_000).fireDue();
+    expect(sim.s.deadline_passed).toBe(true);
+    const p = sim.policy!;
+    const amended = proposeAmendment({
+      current: p,
+      change: { limits: { ...p.limits, max_wall_ms: null } },
+      reason: 'Remove task deadline',
+      authz: authz(['admin']),
+    });
+    if (!amended.ok) throw new Error('amend');
+    expectAccepted(
+      sim.when(
+        {
+          kind: 'amend',
+          policy: amended.value,
+          diff: {},
+          reason: 'Remove task deadline',
+        },
+        { authz: authz(['admin']) },
+      ),
+    );
+    expect(sim.s.deadline_at).toBeNull();
+    expect(sim.s.deadline_passed).toBe(false);
+    expect(sim.armedTimers('deadline')).toHaveLength(0);
+    expect(sim.s.status).toBe('RUNNING');
+  });
+
+  it('adding a deadline to an unlimited task uses its original start time', () => {
+    const sim = run(TASK, { limits: { max_wall_ms: null } });
+    const startedAt = sim.now;
+    sim.advance(3_600_000);
+    const p = sim.policy!;
+    const amended = proposeAmendment({
+      current: p,
+      change: { limits: { ...p.limits, max_wall_ms: 6 * 3_600_000 } },
+      reason: 'Set task deadline',
+      authz: authz(['admin']),
+    });
+    if (!amended.ok) throw new Error('amend');
+    expectAccepted(
+      sim.when(
+        {
+          kind: 'amend',
+          policy: amended.value,
+          diff: {},
+          reason: 'Set task deadline',
+        },
+        { authz: authz(['admin']) },
+      ),
+    );
+    expect(sim.s.deadline_at).toBe(startedAt + 6 * 3_600_000);
+  });
+
   it('Scenario 1: missing acceptance waits in PENDING/needs_info without agent effects', () => {
     const task = buildTask({ acceptance: [] });
     const sim = track(new Sim(task.id));
@@ -488,9 +544,10 @@ describe('US2 - Canonical task creation and deterministic decisions', () => {
     const sim = run(TASK, { limits: { max_agent_runs: 3 } });
     toCode(sim);
     toMergeGate(sim, 'head1');
-    expect(sim.s.budget.agent_runs.limit - sim.s.budget.agent_runs.used).toBe(
-      1,
-    );
+    expect(
+      (sim.s.budget.agent_runs.limit ?? Infinity) -
+        sim.s.budget.agent_runs.used,
+    ).toBe(1);
     const rev2 = { ...TASK, acceptance: ['New criterion'] };
     sim.when({ kind: 'source_updated', task: rev2 });
     sim.when({

@@ -25,7 +25,7 @@ export type CommandSetInput = {
     readonly command: string;
   }[];
   readonly layout: CommandSpec['layout'];
-  readonly wall_ms: number;
+  readonly wall_ms: number | null;
   readonly deadline_at: EpochMs | null;
   readonly checkpoint: CheckpointSpec;
 };

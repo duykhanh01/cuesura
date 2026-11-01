@@ -179,6 +179,7 @@ export function applyInPlace(
         hash: context.context_hash,
       };
       if (first) {
+        s.started_at = event.payload.started_at ?? null;
         // Budgets belong to the task and never reset on a revision change.
         s.budget.agent_runs.limit = policy.limits.max_agent_runs;
         s.budget.decider_calls.limit = policy.limits.max_decider_calls;
@@ -197,6 +198,10 @@ export function applyInPlace(
       s.budget.agent_runs.limit = p.limits.max_agent_runs;
       s.budget.decider_calls.limit = p.limits.max_decider_calls;
       s.budget.escalations.limit = p.limits.max_escalations;
+      if (p.limits.max_wall_ms === null) {
+        s.deadline_at = null;
+        s.deadline_passed = false;
+      }
       break;
     }
     case 'AmendmentRejected':

@@ -139,6 +139,19 @@ function realFile(
 }
 
 describe('harness argv and settings follow the pinned T007 shape (T068/T069)', () => {
+  it.each([false, true])(
+    'runs Claude without a turn cap (host_execution=%s)',
+    (host_execution) => {
+      const p = claudeAdapter.plan(
+        { ...vendorPin('claude'), max_turns: null },
+        planInput('claude', 'coder', { host_execution }),
+      );
+      expect(p.ok).toBe(true);
+      if (!p.ok) return;
+      expect(p.value.argv).not.toContain('--max-turns');
+    },
+  );
+
   it.each(VALID_RUNS.map((r) => [r.attempt, r] as const))(
     '%s',
     (attempt, r) => {

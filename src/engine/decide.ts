@@ -354,23 +354,28 @@ function onAmend(ctx: Ctx, t: AmendTrigger): void {
 
   const s = ctx.state;
   // Recompute an extended deadline from the original start time, not from the amendment time.
-  if (
-    s.deadline_at !== null &&
-    next.limits.max_wall_ms !== cur.limits.max_wall_ms
-  ) {
+  if (next.limits.max_wall_ms !== cur.limits.max_wall_ms) {
+    const started =
+      s.started_at ??
+      (s.deadline_at !== null && cur.limits.max_wall_ms !== null
+        ? s.deadline_at - cur.limits.max_wall_ms
+        : ctx.now);
     const due =
-      s.deadline_at - cur.limits.max_wall_ms + next.limits.max_wall_ms;
-    if (due > ctx.now) {
+      next.limits.max_wall_ms === null
+        ? null
+        : started + next.limits.max_wall_ms;
+    if (due === null || due > ctx.now) {
       for (const tm of Object.values(s.timers)) {
-        if (tm.kind === 'deadline' && tm.status === 'armed')
+        if (tm.kind === 'deadline' && tm.status !== 'cancelled')
           ctx.emit('TimerCancelled', { timer_id: tm.id });
       }
-      ctx.emit('TimerArmed', {
-        timer_id: ctx.nextId(),
-        kind: 'deadline',
-        due_at: due,
-        payload: {},
-      });
+      if (due !== null)
+        ctx.emit('TimerArmed', {
+          timer_id: ctx.nextId(),
+          kind: 'deadline',
+          due_at: due,
+          payload: {},
+        });
     }
   }
   const w = ctx.state.wait;

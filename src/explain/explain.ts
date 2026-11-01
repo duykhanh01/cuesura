@@ -25,10 +25,10 @@ export type Explanation = {
     invoked: number;
   }[];
   remaining: {
-    agent_runs: number;
+    agent_runs: number | null;
     reserved: number;
     wall_ms: number | null;
-    escalations: number;
+    escalations: number | null;
   };
   /**
    * Rung raises follow event order. trigger_seq identifies the FailureClassified or TaskFloorRaised
@@ -75,11 +75,14 @@ export function explain(
           },
     bindings_used: bindingsUsed(state, events),
     remaining: {
-      agent_runs: available(state.budget),
+      agent_runs:
+        state.budget.agent_runs.limit === null ? null : available(state.budget),
       reserved: state.budget.agent_runs.reserved,
       wall_ms: remainingWall(state, policy, now),
       escalations:
-        state.budget.escalations.limit - state.budget.escalations.used,
+        state.budget.escalations.limit === null
+          ? null
+          : state.budget.escalations.limit - state.budget.escalations.used,
     },
     escalations: escalations(events),
     pending_effects: Object.values(state.effects)

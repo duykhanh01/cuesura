@@ -115,7 +115,7 @@ export function chooseRung(
     return null;
   }
   const esc = s.budget.escalations;
-  if (choice.raise !== null && esc.used >= esc.limit) {
+  if (choice.raise !== null && esc.limit !== null && esc.used >= esc.limit) {
     waitPolicy(ctx, 'escalations_exhausted', again, {
       step,
       from: choice.raise.from,

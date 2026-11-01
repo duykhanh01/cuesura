@@ -86,7 +86,7 @@ V1 không có Primary AI chạy liên tục, plugin marketplace, workflow tự s
 | I04 | Mỗi thao tác logic có một idempotency key ổn định. Kết quả không rõ sau timeout/crash phải được đối chiếu trước khi thử lại. |
 | I05 | Một task thực thi có một worktree và branch riêng. Trong worktree đó, mọi bước chạy tuần tự; không có hai attempt đồng thời. |
 | I06 | Exit code thành công và lời agent nói “xong” không đủ để qua bước. Kết quả phải đúng schema, đúng attempt và đạt các gate bắt buộc. |
-| I07 | Mọi vòng lặp, retry, lời gọi bên ngoài và lượt agent có giới hạn. Task chờ luôn có lý do và cách tiếp tục hoặc kết thúc. |
+| I07 | Engine tuân thủ các giới hạn đã khai báo; các trần thực thi tùy chọn có thể không giới hạn theo §9.4. Task chờ luôn có lý do và cách tiếp tục hoặc kết thúc. |
 | I08 | Workflow, policy và đầu vào gốc bất biến theo revision. Thay đổi phải có event, actor, lý do và phiên bản mới. |
 | I09 | Mọi lần gọi agent phải thỏa role, binding, quyền, approval, pool và ngân sách đã resolve. Agent không được tự đổi những giới hạn đó. |
 | I10 | Thứ tự event lấy từ sequence đã commit; không suy ra bằng ID hay thời gian hệ thống. Trigger lặp không tạo thêm hiệu ứng logic. |
@@ -206,7 +206,7 @@ Kiểm tra trước thực thi:
 
 1. Role, model, pool, gate, bước bắt đầu và đích transition đều tồn tại hoặc có quy tắc bỏ qua rõ ràng.
 2. Outcome theo step kind là tập hữu hạn; mỗi outcome và trường hợp skip/exhausted có đích xác định.
-3. Mọi chu trình đều đi qua giới hạn có bộ đếm không reset khi quay vòng; tổng lượt agent và thời gian task cũng có cận trên.
+3. Mọi chu trình đều đi qua giới hạn có bộ đếm không reset khi quay vòng. Tổng lượt agent và thời gian task là trần tùy chọn, không bắt buộc để cấu hình hợp lệ.
 4. Thang escalation tới được trong giới hạn lượt của workflow; cấu hình nấc không thể đạt phải bị báo lỗi.
 5. Mỗi bước có binding khởi đầu hợp lệ. Rule bị loại bởi allowlist được bỏ qua để thử rule kế tiếp; không còn rule thì task không được READY.
 6. Predicate chỉ lấy từ tập định nghĩa trước như flag/size/label/type/attempt/branch; không `eval` hoặc diễn giải điều kiện tự do bằng LLM.
@@ -226,7 +226,7 @@ Binding gồm harness, model, effort, quyền và các giới hạn thực tế 
 | Lớp | Mặc định xử lý | Tính vào escalation chất lượng? |
 |---|---|---|
 | Rate limit | Cooldown và timer; không tăng số thất bại chất lượng | Không |
-| Infra/transient | Retry cùng nấc, tối đa 3 lần retry có backoff | Không |
+| Infra/transient | Retry cùng nấc có backoff; mặc định không có trần số lần retry | Không |
 | Auth/config | Chờ người xử lý, không retry mù | Không |
 | Timeout/stall | Tối đa 1 lần retry; còn lỗi thì hỏi về phạm vi/thời gian | Không |
 | Invalid output | Một lượt repair ngắn, sau đó tối đa một lượt session mới; vẫn sai thì xét nấc tiếp | Có, theo thang của role |
@@ -234,7 +234,7 @@ Binding gồm harness, model, effort, quyền và các giới hạn thực tế 
 | Quality | Gate fail, review reject, CI fail do code; tính chữ ký lỗi | Có |
 | Unknown | Đối chiếu thêm hoặc WAITING; effect nguy hiểm không được phát lại theo phỏng đoán | Không |
 
-Mọi lần thật sự gọi agent, kể cả repair, resume, decider và lần bị rate limit, đều được ghi usage và tính vào `max_agent_runs`. “Không tính retry vì rate limit” chỉ có nghĩa không tăng bộ đếm thất bại chất lượng. Retry I/O cũng có giới hạn riêng và deadline task.
+Mọi lần thật sự gọi agent, kể cả repair, resume, decider và lần bị rate limit, đều được ghi usage và tính vào `max_agent_runs`. “Không tính retry vì rate limit” chỉ có nghĩa không tăng bộ đếm thất bại chất lượng. Retry I/O vẫn có giới hạn cho từng request; trần số lần retry task và deadline toàn task chỉ áp dụng khi được khai báo.
 
 ### 9.3 Thang nâng cấp
 
@@ -248,11 +248,13 @@ Mọi lần thật sự gọi agent, kể cả repair, resume, decider và lần
 
 ### 9.4 Ngân sách
 
-Giới hạn gồm số lượt agent, lượt vào step, lần retry, số lần gọi decider, wall time và chi phí khi đo được. Không bắt đầu một attempt nếu không đủ ngân sách hoặc không đáp ứng approval. Các slot và phần ngân sách cấp cho attempt đang chạy được ghi nhận trước khi spawn.
+Theo quyết định [#45](https://github.com/duykhanh01/cuesura/issues/45), các trần `max_agent_runs`, `max_wall`, `max_escalations_per_task`, `infra_retries`, backoff `max_attempts`, wall time của worker/lệnh và `max_turns` của pin Claude là tùy chọn, mặc định không giới hạn. Bỏ khóa hoặc đặt `null` để không áp trần; giá trị khai rõ vẫn có hiệu lực. `null` ở profile con xóa trần thừa kế. Không dùng một số lớn thay cho không giới hạn. Xem [cấu hình và chuyển đổi](deploy/README.md#giới-hạn-thực-thi-tùy-chọn).
 
-Wall timeout của attempt tính riêng với thời hạn toàn task. Mặc định thời hạn task bắt đầu khi workflow chạy lần đầu, gồm cả thời gian chờ; hết hạn chặn attempt mới và chuyển sang chờ quyết định của người dùng. Tăng thời hạn/ngân sách cần amendment, không tự gia hạn khi restart hay đổi revision.
+Giới hạn lượt vào step, số lần gọi decider, xử lý lỗi chất lượng, quyền, approval, pool và dung lượng I/O vẫn theo cấu hình riêng. Không bắt đầu attempt nếu vượt một trần đã khai hoặc thiếu approval. Slot và reservation vẫn được ghi trước spawn, usage vẫn được ghi đầy đủ khi không có trần.
 
-Usage phân biệt `reported`, `estimated`, `unavailable`; không ghi số 0 để thay cho dữ liệu thiếu. Chi phí subscription và chi phí API không bị đánh đồng. Giới hạn USD cứng chỉ được cam kết khi harness có cơ chế giới hạn chi phí đã kiểm chứng; ước lượng trước chạy không bảo đảm được hóa đơn cuối. Profile đòi trần chi phí cứng phải từ chối harness không đáp ứng; mọi profile vẫn có trần lượt và thời gian.
+Wall timeout của attempt tính riêng với thời hạn toàn task. Khi được khai báo, thời hạn task bắt đầu khi workflow chạy lần đầu, gồm cả thời gian chờ; hết hạn chặn attempt mới và chuyển sang chờ quyết định của người dùng. Tăng thời hạn/ngân sách cần amendment, không tự gia hạn khi restart hay đổi revision.
+
+Usage phân biệt `reported`, `estimated`, `unavailable`; không ghi số 0 để thay cho dữ liệu thiếu. Chi phí subscription và chi phí API không bị đánh đồng. Giới hạn USD cứng chỉ được cam kết khi harness có cơ chế giới hạn chi phí đã kiểm chứng; ước lượng trước chạy không bảo đảm được hóa đơn cuối. Profile đòi trần chi phí cứng phải từ chối harness không đáp ứng; profile không khai trần lượt/thời gian vẫn hợp lệ. Khi không có deadline, engine và runner không tự tạo deadline thay thế; việc hủy và phát hiện stall đã cấu hình vẫn hoạt động.
 
 ## 10. Hỏi đáp và quyết định
 

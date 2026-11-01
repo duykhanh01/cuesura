@@ -40,7 +40,7 @@ import {
 import { homeSecretValues } from '../../../src/runner/private-home.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
 import type { EpochMs } from '../../../src/shared/brand.ts';
-import { err } from '../../../src/shared/result.ts';
+import { err, ok } from '../../../src/shared/result.ts';
 import { hashCanonical, hashText } from '../../../src/shared/hash.ts';
 import {
   acceptedValue,
@@ -488,6 +488,42 @@ describe('boundary and secrets (T072)', () => {
 });
 
 describe('run outcomes', () => {
+  it('bounds the stop wait even when an unlimited run never writes its exit record', async () => {
+    const e = env('claude', 's0-claude-coder-1793172185');
+    const ac = new AbortController();
+    let mono = 0;
+    const stop = vi.fn<ProcessPort['stop']>(() => Promise.resolve('stopped'));
+    const process: ProcessPort = {
+      launch: () =>
+        Promise.resolve(ok({ unit: 'test-unit', invocation_id: null })),
+      inspect: () =>
+        Promise.resolve({
+          unit: 'test-unit',
+          state: 'active',
+          invocation_id: null,
+          cgroup: null,
+        }),
+      stop,
+    };
+    const h = harness(e, {
+      process,
+      clock: { now: () => 1000 as EpochMs, monotonic: () => mono },
+      sleep: () => {
+        mono += 10_000;
+        ac.abort();
+        return Promise.resolve();
+      },
+    });
+    await expect(
+      h.run(
+        { ...input('claude', 'coder'), wall_ms: null, deadline_at: null },
+        ac.signal,
+      ),
+    ).rejects.toThrow('stop grace');
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(mono).toBeLessThanOrEqual(50_000);
+  });
+
   it('a non-zero exit with a valid answer is process_failed', async () => {
     const e = env('claude', 's0-claude-coder-1793172185', 'exit1');
     const out = await harness(e).run(input('claude', 'coder'), signal());
@@ -504,11 +540,14 @@ describe('run outcomes', () => {
     expect(out).toMatchObject({ kind: 'failure', failure: 'missing_output' });
   });
 
-  it('abort stops the run and reports cancelled', async () => {
+  it('abort stops an unlimited run and reports cancelled', async () => {
     const e = env('claude', 's0-claude-coder-1793172185', 'hang');
     const ac = new AbortController();
     setTimeout(() => ac.abort(), 300);
-    const out = await harness(e).run(input('claude', 'coder'), ac.signal);
+    const out = await harness(e).run(
+      { ...input('claude', 'coder'), wall_ms: null, deadline_at: null },
+      ac.signal,
+    );
     expect(out).toMatchObject({
       kind: 'failure',
       failure: 'cancelled',

@@ -190,7 +190,7 @@ class Checker {
         expect(n, `${where} visits ${step}`).toBeLessThanOrEqual(max);
     }
     const b = s.budget.agent_runs;
-    expect(b.used + b.reserved, where).toBeLessThanOrEqual(b.limit);
+    expect(b.used + b.reserved, where).toBeLessThanOrEqual(b.limit ?? Infinity);
     expect(b.reserved, where).toBeGreaterThanOrEqual(0);
     const held = Object.values(s.budget.reservations)
       .filter((r) => r.status === 'held')

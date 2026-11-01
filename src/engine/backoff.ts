@@ -47,7 +47,7 @@ export function planBackoff(
   now: number,
   resetAt?: number,
 ): BackoffPlan {
-  if (attempt > cfg.max_attempts)
+  if (cfg.max_attempts !== null && attempt > cfg.max_attempts)
     return { kind: 'exhausted', reason: 'max_attempts' };
   if (resetAt !== undefined) {
     if (resetAt - now > cfg.max_ms)

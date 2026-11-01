@@ -221,12 +221,12 @@ export type Reservation = {
   status: 'held' | 'consumed' | 'released';
 };
 
-export type Counter = { limit: number; used: number; reserved: number };
+export type Counter = { limit: number | null; used: number; reserved: number };
 
 export type Budget = {
   agent_runs: Counter;
   decider_calls: Counter;
-  escalations: { limit: number; used: number };
+  escalations: { limit: number | null; used: number };
   reservations: Record<string, Reservation>;
 };
 

@@ -106,6 +106,7 @@ export function onStart(ctx: Ctx, t: StartTrigger): void {
       runtime_hash: t.runtime.runtime_hash,
     });
   ctx.emit('PolicyFrozen', {
+    started_at: ctx.now,
     policy,
     context,
     policy_hash: policy.policy_hash,
@@ -113,7 +114,7 @@ export function onStart(ctx: Ctx, t: StartTrigger): void {
     structure_hash: policy.structure_hash,
   });
   ctx.policy = policy;
-  if (ctx.state.deadline_at === null) {
+  if (ctx.state.deadline_at === null && policy.limits.max_wall_ms !== null) {
     ctx.emit('TimerArmed', {
       timer_id: ctx.nextId(),
       kind: 'deadline',

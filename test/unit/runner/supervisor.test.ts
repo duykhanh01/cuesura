@@ -107,6 +107,16 @@ const marker = (nonce = 'nonce-1'): LaunchMarker => ({
 });
 
 describe('systemd unit argv (T018, ADR-0002)', () => {
+  it('omits the systemd runtime cap for an unlimited worker', () => {
+    const argv = systemdRunArgv(
+      { ...launchSpec(), wall_ms: null, deadline_at: null },
+      '/d/lock',
+      ['/runner'],
+    );
+    expect(argv.some((a) => a.includes('RuntimeMaxSec'))).toBe(false);
+    expect(argv).toContain('--property=KillMode=control-group');
+  });
+
   it('runs the runner under flock in a transient unit that is not bound to the daemon', () => {
     const argv = systemdRunArgv(launchSpec(), '/d/locks/op-1.lock', [
       '/node',

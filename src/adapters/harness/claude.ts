@@ -154,8 +154,8 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
   if (pin.vendor !== 'claude') return fail(`pin is for ${pin.vendor}`);
   if (input.host_execution && input.inner_mode !== hostInnerMode(pin))
     return fail('host permission mode must match the explicit pin');
-  if (pin.max_turns === null || pin.tools === null || pin.tools.length === 0)
-    return fail('claude pin needs max_turns and tools');
+  if (pin.tools === null || pin.tools.length === 0)
+    return fail('claude pin needs tools');
   if (input.model === '') return fail('model is not configured');
   const settings = settingsFor(pin, input);
   if (!settings.ok) return fail(settings.message);
@@ -178,8 +178,7 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
     pin.binary.realpath,
     '-p',
     '--verbose',
-    '--max-turns',
-    String(pin.max_turns),
+    ...(pin.max_turns === null ? [] : ['--max-turns', String(pin.max_turns)]),
     '--tools',
     pin.tools.join(','),
     '--output-format',

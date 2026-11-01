@@ -14,8 +14,9 @@ const NonNegInt = z.number().int().nonnegative();
 const Sha = z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/, 'git object id');
 
 /**
- * Daemon caps captured into each task's runtime snapshot (research R-04/R-11). Every value is a finite
- * positive integer; cross-field rules live in {@link runtimeLimitIssues}.
+ * Daemon limits captured into each task's runtime snapshot (research R-04/R-11). Resource and I/O
+ * bounds are finite positive integers; command_wall_ms may be null for unlimited execution.
+ * Cross-field rules live in {@link runtimeLimitIssues}.
  */
 export const RuntimeLimitsSchema = z
   .object({
@@ -35,7 +36,7 @@ export const RuntimeLimitsSchema = z
     recheck_max_ms: PositiveInt,
     term_grace_ms: PositiveInt,
     kill_verify_ms: PositiveInt,
-    command_wall_ms: PositiveInt,
+    command_wall_ms: PositiveInt.nullable(),
     context_bytes: PositiveInt,
     review_diff_bytes: PositiveInt,
     result_bytes: PositiveInt,
@@ -68,7 +69,7 @@ export const DEFAULT_RUNTIME_LIMITS: RuntimeLimits = {
   recheck_max_ms: 60_000,
   term_grace_ms: 10_000,
   kill_verify_ms: 5_000,
-  command_wall_ms: 600_000,
+  command_wall_ms: null,
   context_bytes: 128 * KiB,
   review_diff_bytes: 64 * KiB,
   result_bytes: 1 * MiB,
@@ -84,7 +85,7 @@ export function runtimeLimitIssues(
 ): { path: (keyof RuntimeLimits)[]; message: string }[] {
   const out: { path: (keyof RuntimeLimits)[]; message: string }[] = [];
   const le = (a: keyof RuntimeLimits, b: keyof RuntimeLimits): void => {
-    if (l[a] > l[b])
+    if (l[a] !== null && l[b] !== null && l[a] > l[b])
       out.push({ path: [a, b], message: `${a} must be <= ${b}` });
   };
   le('poll_initial_ms', 'poll_max_ms');

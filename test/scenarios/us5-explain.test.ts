@@ -148,9 +148,9 @@ describe('US5 - Explain task state from recorded facts', () => {
       })),
     );
 
-    expect(sim.s.budget.agent_runs.used + x.remaining.agent_runs).toBe(
-      sim.policy?.limits.max_agent_runs,
-    );
+    expect(
+      sim.s.budget.agent_runs.used + (x.remaining.agent_runs ?? Infinity),
+    ).toBe(sim.policy?.limits.max_agent_runs);
 
     expect(explainOf(sim).remaining.wall_ms).toBeNull();
     sim.advance(3_600_000).fireDue();
@@ -285,7 +285,7 @@ describe('US5 - Explain task state from recorded facts', () => {
       }
     }
     expect(x.remaining.escalations).toBe(
-      sim.s.budget.escalations.limit - raised.length,
+      (sim.s.budget.escalations.limit ?? Infinity) - raised.length,
     );
     expect(x.bindings_used.filter((b) => b.step === 'code')).toEqual([
       {

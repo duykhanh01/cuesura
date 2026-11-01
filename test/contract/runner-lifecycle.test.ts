@@ -109,6 +109,41 @@ const pidAlive = (pid: number): boolean => {
 };
 
 describe('progress is not liveness, silence is not a stall', () => {
+  it('finishes a run without a wall cap or task deadline', async () => {
+    const run = setup('sleep 0.2; echo done', {
+      wall_ms: null,
+      deadline_at: null,
+    });
+    const exit = await exec(run);
+    expect(exit).toMatchObject({
+      outcome: 'exited',
+      exit_code: 0,
+      deadline_at: null,
+    });
+  });
+
+  it('still detects a stalled worker without a wall cap or task deadline', async () => {
+    const run = setup('sleep 30', {
+      wall_ms: null,
+      deadline_at: null,
+      stall_ms: 300,
+    });
+    const exit = await exec(run);
+    expect(exit.outcome).toBe('stalled');
+    expect(exit.termination.tree_empty_verified).toBe(true);
+  });
+
+  it('applies whichever optional time cap is present', () => {
+    const base = { start_mono: 0, now_mono: 100, now_utc: 1000 };
+    expect(remainingMs({ ...base, wall_ms: null, deadline_at: null })).toBe(
+      Infinity,
+    );
+    expect(remainingMs({ ...base, wall_ms: 500, deadline_at: null })).toBe(400);
+    expect(remainingMs({ ...base, wall_ms: null, deadline_at: 1500 })).toBe(
+      500,
+    );
+  });
+
   it('a silent CPU-busy process is not stalled', async () => {
     const run = setup(
       'end=$(($(date +%s%N)/1000000+900)); while [ $(($(date +%s%N)/1000000)) -lt $end ]; do :; done',

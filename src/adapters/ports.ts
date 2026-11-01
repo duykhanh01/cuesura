@@ -119,8 +119,8 @@ export type OperationLaunch = {
   readonly argv: readonly string[];
   readonly cwd: string;
   readonly env: Readonly<Record<string, string>>;
-  readonly wall_ms: number;
-  readonly deadline_at: EpochMs;
+  readonly wall_ms: number | null;
+  readonly deadline_at: EpochMs | null;
   /** Snapshot stop limits: SIGTERM, grace, SIGKILL, then verify the cgroup is empty. */
   readonly term_grace_ms: number;
   readonly kill_verify_ms: number;
@@ -182,8 +182,8 @@ export type HarnessInput = {
   readonly binding: HarnessBinding;
   readonly context: { readonly text: string; readonly digest: Hash };
   readonly schema: WireSchema;
-  readonly wall_ms: number;
-  readonly deadline_at: EpochMs;
+  readonly wall_ms: number | null;
+  readonly deadline_at: EpochMs | null;
   /** Resume only within the same harness/session and when policy allows it. */
   readonly session: { readonly ref: string } | null;
   /** The task's frozen references; they win over what the harness was built with (Constitution V). */

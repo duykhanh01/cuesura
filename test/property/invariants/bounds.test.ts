@@ -51,7 +51,9 @@ describe('I07 bounded execution', () => {
               expect(attempts, `attempts ${step}`).toBeLessThanOrEqual(n);
             }
             const b = after.budget.agent_runs;
-            expect(b.used + b.reserved).toBeLessThanOrEqual(b.limit);
+            expect(b.used + b.reserved).toBeLessThanOrEqual(
+              b.limit ?? Infinity,
+            );
             expect(b.reserved).toBeGreaterThanOrEqual(0);
             if (
               ev.type === 'TimerFired' &&

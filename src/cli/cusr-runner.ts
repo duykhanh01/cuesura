@@ -196,7 +196,10 @@ const writePin: CliCommand = {
       description:
         'Claude worker sandbox: on or off (default: Claude settings, otherwise off)',
     },
-    { flags: '--max-turns <n>', description: 'Claude turn limit' },
+    {
+      flags: '--max-turns <n>',
+      description: 'Optional Claude turn limit (omitted: unlimited)',
+    },
     {
       flags: '--tools <names>',
       description: 'Comma-separated Claude tool names',

@@ -53,7 +53,7 @@ describe('I09 escalation stays within the frozen ladder and its approvals', () =
                 }
               }
               expect(after.budget.escalations.used).toBeLessThanOrEqual(
-                limits.max_escalations,
+                limits.max_escalations ?? Infinity,
               );
               for (const streak of Object.values(after.failure_streaks)) {
                 expect(streak.quality_tries).toBeLessThanOrEqual(

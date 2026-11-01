@@ -141,6 +141,18 @@ describe('projects.<id>.path / repo', () => {
 });
 
 describe('runtime config', () => {
+  it('defaults to unlimited command execution and accepts an explicit null', () => {
+    expect(valid('runtime: {}\n').runtime?.limits.command_wall_ms).toBeNull();
+    expect(
+      valid('runtime: { limits: { command_wall_ms: null } }\n').runtime?.limits
+        .command_wall_ms,
+    ).toBeNull();
+    expect(
+      valid('runtime: { limits: { command_wall_ms: 1000 } }\n').runtime?.limits
+        .command_wall_ms,
+    ).toBe(1000);
+  });
+
   it('is null when runtime is not declared', () => {
     expect(valid('').runtime).toBeNull();
   });
@@ -574,7 +586,20 @@ describe('freezeRuntimeContext', () => {
 });
 
 describe('historical hashes', () => {
-  const USER_YAML = source('configs/valid/user.yaml');
+  const original = source('configs/valid/user.yaml');
+  // Make the former defaults explicit: old finite policies must retain their original hashes.
+  const USER_YAML = {
+    ...original,
+    text: original.text.replace(
+      '    overridable:',
+      `    limits:
+      classes: { infra_retries: 3 }
+      backoff:
+        infra: { base: 5s, factor: 2, max: 5m, max_attempts: 3 }
+        rate_limit: { base: 1m, factor: 2, max: 30m, max_attempts: 5 }
+    overridable:`,
+    ),
+  };
   const PROJECT_LINE = '  acme: { base_branch: main }\n';
 
   function frozenHashes(user: ConfigSource) {
@@ -623,7 +648,7 @@ describe('historical hashes', () => {
       'sha256:452fab522cb5cdb63dbf6ddf2887ca014076ed9b97c7aad73b4eea7eebeb3731',
   };
 
-  it('keeps config and policy hashes of the existing fixture', () => {
+  it('keeps historical hashes when the former finite defaults are explicit', () => {
     const h = frozenHashes(USER_YAML);
     expect(h.config).toEqual(GOLDEN.config);
     expect(h.policy).toBe(GOLDEN.policy);

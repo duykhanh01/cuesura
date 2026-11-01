@@ -25,7 +25,9 @@ describe('I09, FR-022 budget reservations', () => {
             const { sim, trace } = drive(policy, over, choices);
             walk(sim.events, (_before, _ev, after) => {
               const b = after.budget.agent_runs;
-              expect(b.used + b.reserved).toBeLessThanOrEqual(b.limit);
+              expect(b.used + b.reserved).toBeLessThanOrEqual(
+                b.limit ?? Infinity,
+              );
               expect(b.reserved).toBeGreaterThanOrEqual(0);
             });
             // Reservation and effect settle within one decision, so they are compared after each decision.

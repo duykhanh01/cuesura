@@ -537,20 +537,6 @@ function checkProfiles(
           `Model '${m}' does not exist`,
         );
     });
-    if (p.max_agent_runs === null)
-      push(
-        ctx,
-        'no_task_bound',
-        base,
-        `Profile '${pn}' is missing budgets.max_agent_runs`,
-      );
-    if (p.max_wall_ms === null)
-      push(
-        ctx,
-        'no_task_bound',
-        base,
-        `Profile '${pn}' is missing budgets.max_wall`,
-      );
     p.overridable.forEach((k) => {
       if (!OVERRIDE_ROOTS.includes(k.split('.')[0] as string)) {
         push(

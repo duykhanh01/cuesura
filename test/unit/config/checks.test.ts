@@ -4,6 +4,7 @@ import {
   MIN_PARTS,
   MIN_PROJECT,
   minUser,
+  source,
 } from '../../support/config-fixtures.ts';
 
 type Parts = Partial<typeof MIN_PARTS>;
@@ -101,6 +102,14 @@ describe('FR-003 check 2: finite outcomes with targets', () => {
 });
 
 describe('FR-003 check 3: bounded cycles and tasks', () => {
+  it('accepts the formerly rejected fixture without a wall-time cap', () => {
+    const r = validateConfig({
+      user: source('configs/valid/unlimited-task.yaml'),
+      packs: {},
+    });
+    expect(r.ok).toBe(true);
+  });
+
   it('accepts a review/fix loop bounded by max_visits', () => {
     expect(
       codes({
@@ -113,16 +122,16 @@ describe('FR-003 check 3: bounded cycles and tasks', () => {
   it('rejects an unbounded review/fix loop', () => {
     expect(codes({ workflows: LOOP('') })).toEqual(['unbounded_cycle']);
   });
-  it('rejects profiles without agent-run or wall-time caps', () => {
+  it('accepts profiles without agent-run or wall-time caps', () => {
     expect(
       codes({
         profiles:
           'profiles:\n  standard: { workflow: impl, budgets: { max_wall: 1h } }\n',
       }),
-    ).toEqual(['no_task_bound']);
+    ).toEqual([]);
     expect(
       codes({ profiles: 'profiles:\n  standard: { workflow: impl }\n' }),
-    ).toEqual(['no_task_bound', 'no_task_bound']);
+    ).toEqual([]);
   });
 });
 

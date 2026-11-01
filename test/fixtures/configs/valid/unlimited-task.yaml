@@ -1,4 +1,4 @@
-# expect: no_task_bound 14 3
+# Task budgets are optional.
 version: 1
 harnesses: { claude: { cmd: claude, auth: subscription, pool: claude } }
 pools: { claude: 1 }

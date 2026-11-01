@@ -187,6 +187,43 @@ nhận qua file, không qua argv. Connector không được thấy home owner ha
 token operate. Worker coder/fixer/reviewer không được truyền token nào, kể cả operate; environment không kế thừa
 `GH_*`, `GITHUB_*` hoặc `CUSR_TOKEN*`. Không còn outer boundary chặn process cùng UID đọc file host.
 
+## Giới hạn thực thi tùy chọn
+
+Task và worker mặc định không có trần số lượt chạy, tổng thời gian, thời gian mỗi worker/lệnh,
+số lần retry hạ tầng hoặc số lần nâng model. Bỏ khóa hoặc đặt `null` để chạy không giới hạn:
+
+```yaml
+profiles:
+  dogfood:
+    workflow: impl
+    budgets: { max_agent_runs: null, max_wall: null }
+    escalation: { max_escalations_per_task: null }
+    limits:
+      classes: { infra_retries: null }
+      backoff:
+        infra: { base: 5s, factor: 2, max: 5m, max_attempts: null }
+        rate_limit: { base: 1m, factor: 2, max: 30m, max_attempts: null }
+roles:
+  coder:
+    binding: [{ model: sonnet }]
+    limits: { wall_timeout: null, stall_timeout: 10m }
+runtime:
+  limits: { command_wall_ms: null }
+```
+
+Đây là đoạn cấu hình minh họa để ghép vào user config hiện có. Giá trị số/duration khai rõ vẫn được
+áp dụng; `null` ở profile con xóa trần thừa kế từ profile cha. Backoff vẫn tăng khoảng nghỉ giữa
+các lần retry. `stall_timeout` chỉ dừng worker không có tín hiệu tiến triển; hủy task vẫn hoạt động.
+Các giới hạn workflow (`max_visits`, thang model, xử lý lỗi chất lượng), quyền và dung lượng log/context
+vẫn theo cấu hình riêng.
+
+Claude không còn bắt buộc `--max-turns` khi tạo pin: bỏ cờ này để `max_turns` trong pin là `null`.
+Pin cũ có số turn vẫn giữ trần đã khai; tạo lại pin bằng `write-pin --force` khi muốn bỏ trần.
+
+Các policy/runtime snapshot của task đã chạy giữ nguyên giới hạn đã đóng băng. Sau khi nâng release,
+xóa các trần trong user config và tạo lại pin/manifest theo mục bên dưới để task mới dùng cấu hình
+không giới hạn; không sửa tay snapshot hoặc manifest của task cũ.
+
 ## Harness thật: pin và manifest
 
 `cusrd` chỉ gọi một harness khi có đủ hai bản ghi của owner tại `<DATA_DIR>/harnesses/<tên harness>/`:
@@ -201,7 +238,7 @@ token operate. Worker coder/fixer/reviewer không được truyền token nào, 
 ```sh
 cusr-runner write-pin --config ~/.cusr/config.yaml --harness claude --vendor claude \
   --binary "$(command -v claude)" --toolchain /opt/node/bin --auth claude-0:.claude/.credentials.json \
-  --settings claude-settings.json --permission-mode auto --sandbox off --max-turns 16 --tools Bash,Read,Edit,Write,Glob,Grep
+  --settings claude-settings.json --permission-mode auto --sandbox off --tools Bash,Read,Edit,Write,Glob,Grep
 cusr-runner record-manifest --config ~/.cusr/config.yaml --harness claude --evidence <evidence.json>
 ```
 

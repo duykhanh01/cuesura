@@ -38,7 +38,7 @@ export type NormalizedProfile = {
   allow_roles: string[] | null;
   allow_models: string[] | null;
   allow_no_gates: boolean;
-  /** null when absent; validation reports no_task_bound. */
+  /** null means the task has no cap. */
   max_agent_runs: number | null;
   max_wall_ms: number | null;
   max_decider_calls: number;
@@ -46,7 +46,7 @@ export type NormalizedProfile = {
     enabled: boolean;
     auto_up_to_tier: number;
     above: 'ask_human' | 'deny';
-    max_escalations: number;
+    max_escalations: number | null;
   };
   classes: Limits['classes'];
   backoff: Limits['backoff'];
@@ -113,7 +113,6 @@ export const DIAGNOSTIC_CODES = [
   'outcome_not_in_kind',
 
   'unbounded_cycle',
-  'no_task_bound',
   // Thang (4)
   'unreachable_rung',
   'rung_beyond_role',

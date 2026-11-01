@@ -45,13 +45,13 @@ export const DEFAULT_BACKOFF: Limits['backoff'] = {
     base_ms: 60_000,
     factor: 2,
     max_ms: 1_800_000,
-    max_attempts: 5,
+    max_attempts: null,
   },
-  infra: { base_ms: 5_000, factor: 2, max_ms: 300_000, max_attempts: 3 },
+  infra: { base_ms: 5_000, factor: 2, max_ms: 300_000, max_attempts: null },
 };
 
 export const DEFAULT_CLASSES: Limits['classes'] = {
-  infra_retries: 3,
+  infra_retries: null,
   timeout_retries: 1,
   invalid_output_repairs: 1,
   invalid_output_fresh: 1,
@@ -62,7 +62,7 @@ export const DEFAULT_ESCALATION = {
   enabled: true,
   auto_up_to_tier: 2,
   above: 'ask_human',
-  max_escalations: 2,
+  max_escalations: null,
 } as const;
 
 export function normalizeRole(r: RawRole): NormalizedRole {
@@ -80,7 +80,7 @@ export function normalizeRole(r: RawRole): NormalizedRole {
           ? ms(r.limits.stall_timeout)
           : null,
       wall_timeout_ms:
-        r.limits?.wall_timeout !== undefined ? ms(r.limits.wall_timeout) : null,
+        r.limits?.wall_timeout != null ? ms(r.limits.wall_timeout) : null,
     },
     ladder: (r.escalation?.ladder ?? []).map((s) => ({
       ...(s.effort !== undefined ? { effort: s.effort } : {}),
@@ -131,7 +131,7 @@ export function expandWorkflow(
 
 function backoff(
   b:
-    | { base: string; factor: number; max: string; max_attempts: number }
+    | { base: string; factor: number; max: string; max_attempts: number | null }
     | undefined,
   d: Backoff,
 ): Backoff {
@@ -152,8 +152,7 @@ export function normalizeProfile(p: RawProfile): NormalizedProfile {
     allow_models: p.allow_models ?? null,
     allow_no_gates: p.allow_no_gates ?? false,
     max_agent_runs: p.budgets?.max_agent_runs ?? null,
-    max_wall_ms:
-      p.budgets?.max_wall !== undefined ? ms(p.budgets.max_wall) : null,
+    max_wall_ms: p.budgets?.max_wall != null ? ms(p.budgets.max_wall) : null,
     max_decider_calls: p.budgets?.max_decider_calls ?? 0,
     escalation: {
       enabled: p.escalation?.enabled ?? DEFAULT_ESCALATION.enabled,
@@ -285,9 +284,12 @@ export function mergeRuntimeLimits(
   overrides: RawRuntime['limits'],
 ): RuntimeLimits {
   const out: RuntimeLimits = { ...DEFAULT_RUNTIME_LIMITS };
-  for (const [k, v] of Object.entries(overrides ?? {})) {
-    if (v !== undefined) out[k as keyof RuntimeLimits] = v;
-  }
+  Object.assign(
+    out,
+    Object.fromEntries(
+      Object.entries(overrides ?? {}).filter(([, v]) => v !== undefined),
+    ),
+  );
   return out;
 }
 

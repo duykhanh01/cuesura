@@ -4,7 +4,9 @@ import type { Ctx } from './context.ts';
 
 /** Available budget = limit - used - reserved. */
 export function available(b: Budget): number {
-  return b.agent_runs.limit - b.agent_runs.used - b.agent_runs.reserved;
+  return b.agent_runs.limit === null
+    ? Number.POSITIVE_INFINITY
+    : b.agent_runs.limit - b.agent_runs.used - b.agent_runs.reserved;
 }
 
 export function reserve(

@@ -82,13 +82,16 @@ export function isStalled(
 export function remainingMs(o: {
   readonly start_mono: number;
   readonly now_mono: number;
-  readonly wall_ms: number;
+  readonly wall_ms: number | null;
   readonly now_utc: number;
-  readonly deadline_at: number;
+  readonly deadline_at: number | null;
 }): number {
   return Math.max(
     0,
-    Math.min(o.start_mono + o.wall_ms - o.now_mono, o.deadline_at - o.now_utc),
+    Math.min(
+      o.wall_ms === null ? Infinity : o.start_mono + o.wall_ms - o.now_mono,
+      o.deadline_at === null ? Infinity : o.deadline_at - o.now_utc,
+    ),
   );
 }
 

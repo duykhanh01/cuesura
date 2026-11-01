@@ -48,6 +48,8 @@ export type EventPayloads = {
   TaskResumed: { reason: string };
 
   PolicyFrozen: {
+    /** First start time, absent in older event logs. */
+    started_at?: number;
     policy: FrozenPolicy;
     context: FrozenExecutionContext;
     policy_hash: string;

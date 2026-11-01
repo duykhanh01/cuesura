@@ -188,7 +188,10 @@ export function handleFailure(ctx: Ctx, e: EffectMirror, f: FailureData): void {
       );
       return;
     case 'infra':
-      if (r.count > limits.classes.infra_retries) {
+      if (
+        limits.classes.infra_retries !== null &&
+        r.count > limits.classes.infra_retries
+      ) {
         waitPolicy(ctx, 'backoff_exhausted', retry(), {
           step,
           class: cls,

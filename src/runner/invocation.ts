@@ -438,10 +438,13 @@ export class RunnerHarness implements HarnessPort {
         auth: { home: installed.home, files: [...installed.files] },
       };
       run.writeJson(LAUNCH_STATE_FILE, state);
-      const wall = Math.max(
-        1,
-        Math.min(input.wall_ms, input.deadline_at - o.clock.now()),
+      const remaining = Math.min(
+        input.wall_ms ?? Infinity,
+        input.deadline_at === null
+          ? Infinity
+          : input.deadline_at - o.clock.now(),
       );
+      const wall = Number.isFinite(remaining) ? Math.max(1, remaining) : null;
       const launched = await o.process.launch({
         operation_id: input.operation_id,
         kind: 'agent',
@@ -471,7 +474,7 @@ export class RunnerHarness implements HarnessPort {
         );
       }
 
-      const exit = await this.#wait(run, input, wall, signal);
+      const exit = await this.#wait(run, input, wall ?? Infinity, signal);
       return this.#conclude(run, input, state, exit, authRedactor, false);
     } catch (e) {
       // A run whose end is not proven may still be using its home: recovery removes the auth.
@@ -938,7 +941,7 @@ export class RunnerHarness implements HarnessPort {
     const limits = input.limits ?? o.limits;
     const grace = limits.term_grace_ms + limits.kill_verify_ms;
     const start = o.clock.monotonic();
-    let stopped = false;
+    let stoppedAt: number | null = null;
     let goneSince: number | null = null;
     for (;;) {
       const exit = run.readFinal(RUN_FILES.exit, RunnerExitSchema);
@@ -949,8 +952,11 @@ export class RunnerHarness implements HarnessPort {
       // daemon adopts the run. Stopping it here would spend the attempt and call a replacement.
       if (signal.reason instanceof DaemonStopping) throw signal.reason;
       const elapsed = o.clock.monotonic() - start;
-      if ((signal.aborted || elapsed > wall + grace + 30_000) && !stopped) {
-        stopped = true;
+      if (
+        (signal.aborted || elapsed > wall + grace + 30_000) &&
+        stoppedAt === null
+      ) {
+        stoppedAt = o.clock.monotonic();
         const r = await o.process.stop(input.operation_id, limits);
         if (r === 'unknown')
           throw new InvocationUnknown('stop outcome unknown');
@@ -964,8 +970,13 @@ export class RunnerHarness implements HarnessPort {
         if (o.clock.monotonic() - goneSince > Math.max(poll * 3, 2_000))
           throw new InvocationUnknown(`unit ${unit.state} without exit record`);
       }
-      if (elapsed > wall + 2 * grace + 60_000)
-        throw new InvocationUnknown('run outlived its wall budget and stop');
+      if (
+        elapsed > wall + 2 * grace + 60_000 ||
+        (stoppedAt !== null && o.clock.monotonic() - stoppedAt > grace + 30_000)
+      )
+        throw new InvocationUnknown(
+          'run outlived its wall budget or stop grace',
+        );
       await sleep(poll);
     }
   }

@@ -66,7 +66,7 @@ export const RunnerExitSchema = z
     started_at: z.number().int().nonnegative(),
     ended_at: z.number().int().nonnegative(),
     duration_ms: z.number().int().nonnegative(),
-    deadline_at: z.number().int().nonnegative(),
+    deadline_at: z.number().int().nonnegative().nullable(),
     termination: z
       .object({
         term_sent: z.boolean(),

@@ -1,8 +1,8 @@
 /**
  * Repo-controlled commands (T038, FR-004, contracts/execution.md): setup,
  * gates and autofix run exactly the frozen command string as `/bin/sh -c <command>` through the selected
- * launch provider (host in production). Each run is capped by the frozen command wall (10 minutes by default) and
- * by what is left of the task deadline, and always produces a receipt.
+ * launch provider (host in production). A declared command wall or task deadline caps the run; both are
+ * optional. Every run produces a receipt.
  *
  * Retry safety is declared per role. An `unknown` outcome (the process may have run and written) of a
  * command that is not declared safe must wait for a human instead of being run again.
@@ -42,7 +42,6 @@ export const RETRY_SAFETY: Readonly<Record<CommandRole, 'safe' | 'unsafe'>> = {
   autofix: 'unsafe',
 };
 
-export const DEFAULT_COMMAND_WALL_MS = 10 * 60_000;
 const OUTPUT_BYTES = 4 * 1024 * 1024;
 const TAIL_BYTES = 4 * 1024;
 
@@ -74,7 +73,7 @@ export interface CommandExecutor {
   run(
     plan: SandboxLaunchPlan,
     opts: {
-      readonly timeout_ms: number;
+      readonly timeout_ms: number | null;
       readonly max_output_bytes: number;
       /** Stop request: nothing is spawned once it fired; a running group gets TERM, then KILL. */
       readonly signal?: AbortSignal;
@@ -107,7 +106,7 @@ export type CommandReceipt = {
   readonly exit_code: number | null;
   readonly started_at: EpochMs | null;
   readonly finished_at: EpochMs;
-  readonly wall_ms: number;
+  readonly wall_ms: number | null;
   /** Redacted combined output: digest of what was captured, its tail, and whether capture was capped. */
   readonly output: {
     readonly digest: Hash;
@@ -125,7 +124,7 @@ export type CommandSpec = {
   readonly command: string;
   readonly layout: Omit<SandboxLayout, 'role' | 'private_home'>;
   /** Frozen per-command wall (runtime.limits.command_wall_ms). */
-  readonly wall_ms: number;
+  readonly wall_ms: number | null;
   readonly deadline_at: EpochMs | null;
 };
 
@@ -293,7 +292,8 @@ async function execute(
     spec.deadline_at === null
       ? Number.POSITIVE_INFINITY
       : spec.deadline_at - now;
-  const wall = Math.min(spec.wall_ms, left);
+  const remaining = Math.min(spec.wall_ms ?? Infinity, left);
+  const wall = Number.isFinite(remaining) ? remaining : null;
   const base = {
     role: spec.role,
     name: spec.name,
@@ -302,7 +302,7 @@ async function execute(
     retry: RETRY_SAFETY[spec.role],
   };
   const none = { digest: hashText(''), bytes: 0, tail: '', truncated: false };
-  if (wall <= 0) {
+  if (wall !== null && wall <= 0) {
     return {
       ...base,
       layout_digest: null,
@@ -424,7 +424,7 @@ export class SpawnExecutor implements CommandExecutor {
   run(
     plan: SandboxLaunchPlan,
     opts: {
-      readonly timeout_ms: number;
+      readonly timeout_ms: number | null;
       readonly max_output_bytes: number;
       readonly signal?: AbortSignal;
     },
@@ -480,10 +480,13 @@ export class SpawnExecutor implements CommandExecutor {
           child.kill(sig);
         }
       };
-      const timer = setTimeout(() => {
-        timedOut = true;
-        kill('SIGKILL');
-      }, opts.timeout_ms);
+      const timer =
+        opts.timeout_ms === null
+          ? undefined
+          : setTimeout(() => {
+              timedOut = true;
+              kill('SIGKILL');
+            }, opts.timeout_ms);
       let stoppedAt: number | null = null;
       let grace: NodeJS.Timeout | undefined;
       // TERM now and KILL after the grace, scheduled at the stop itself: a leader that ignores TERM

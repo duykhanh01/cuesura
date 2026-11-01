@@ -138,7 +138,7 @@ describe('cusr-runner write-pin', () => {
       writePin({ ...claude, settings, max_turns: null, tools: null }),
     ).toMatchObject({
       ok: false,
-      error: expect.stringContaining('max_turns') as string,
+      error: expect.stringContaining('tools') as string,
     });
     const fake = (name: string) => {
       const d = join(input.dataDir, '..', name);
@@ -148,7 +148,7 @@ describe('cusr-runner write-pin', () => {
     const withTools = fake('with-tools');
     writeFileSync(join(withTools, 'socat'), '', { mode: 0o755 });
     writeFileSync(join(withTools, 'bwrap'), '', { mode: 0o755 });
-    const complete = { ...claude, settings, max_turns: 8, tools: ['Bash'] };
+    const complete = { ...claude, settings, max_turns: null, tools: ['Bash'] };
     const r = writePin({ ...complete, toolchain: [withTools] });
     expect(r.ok, JSON.stringify(r)).toBe(true);
     if (!r.ok) throw new Error(r.error);

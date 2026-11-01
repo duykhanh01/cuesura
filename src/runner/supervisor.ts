@@ -123,8 +123,8 @@ export const InvocationSpecSchema = z
     argv: z.array(z.string()).min(1),
     cwd: z.string().startsWith('/'),
     env: z.record(z.string(), z.string()),
-    wall_ms: z.number().int().positive(),
-    deadline_at: z.number().int().nonnegative(),
+    wall_ms: z.number().int().positive().nullable(),
+    deadline_at: z.number().int().nonnegative().nullable(),
     term_grace_ms: z.number().int().positive(),
     kill_verify_ms: z.number().int().positive(),
     launch_nonce: z.string().min(1),
@@ -160,7 +160,9 @@ export function systemdRunArgv(
     `--property=TimeoutStopSec=${seconds(stopMs)}s`,
     '--property=SendSIGKILL=yes',
     // Backstop only: the runner enforces the wall deadline itself and finalises the outcome.
-    `--property=RuntimeMaxSec=${seconds(spec.wall_ms + stopMs) + 30}s`,
+    ...(spec.wall_ms === null
+      ? []
+      : [`--property=RuntimeMaxSec=${seconds(spec.wall_ms + stopMs) + 30}s`]),
     '--quiet',
     '--',
     '/bin/sh',

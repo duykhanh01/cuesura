@@ -97,20 +97,20 @@ export const BackoffSchema = z
     base_ms: z.number().int().positive(),
     factor: z.number().positive(),
     max_ms: z.number().int().positive(),
-    max_attempts: z.number().int().nonnegative(),
+    max_attempts: z.number().int().nonnegative().nullable(),
   })
   .strict();
 export type Backoff = z.infer<typeof BackoffSchema>;
 
 export const LimitsSchema = z
   .object({
-    max_agent_runs: z.number().int().positive(),
+    max_agent_runs: z.number().int().positive().nullable(),
     max_decider_calls: z.number().int().nonnegative(),
-    max_wall_ms: z.number().int().positive(),
-    max_escalations: z.number().int().nonnegative(),
+    max_wall_ms: z.number().int().positive().nullable(),
+    max_escalations: z.number().int().nonnegative().nullable(),
     classes: z
       .object({
-        infra_retries: z.number().int().nonnegative(),
+        infra_retries: z.number().int().nonnegative().nullable(),
         timeout_retries: z.number().int().nonnegative(),
         invalid_output_repairs: z.number().int().nonnegative(),
         invalid_output_fresh: z.number().int().nonnegative(),

@@ -92,6 +92,34 @@ function twoQualityFailures(sim: Sim, signature = 'C1'): void {
 }
 
 describe('US4 - Model escalation and budget under the approved policy', () => {
+  it('unlimited runs and infra retries continue beyond the former retry cap without a task deadline', () => {
+    const sim = run({
+      limits: {
+        max_agent_runs: null,
+        max_wall_ms: null,
+        max_escalations: null,
+        classes: { infra_retries: null },
+        backoff: {
+          infra: { base_ms: 1, factor: 2, max_ms: 100, max_attempts: null },
+        },
+      },
+    });
+    toCode(sim);
+    expect(sim.s.deadline_at).toBeNull();
+    expect(available(sim.s.budget)).toBe(Infinity);
+    sim.advance(30 * 86_400_000);
+    for (let i = 0; i < 8; i++) {
+      fail(sim, sim.pendingOne('start_agent').id, 'infra');
+      sim.advance(1000).fireDue();
+      expect(sim.s.status).toBe('RUNNING');
+    }
+    expect(sim.s.budget.agent_runs).toMatchObject({
+      limit: null,
+      used: 8,
+      reserved: 1,
+    });
+  });
+
   it('Scenario 1: two consecutive quality failures with the same signature move to the next auto rung', () => {
     const sim = run();
     toCode(sim);
@@ -500,7 +528,7 @@ describe('US4 - Model escalation and budget under the approved policy', () => {
     ran.complete(a.id, 'unknown');
     const limit = ran.s.budget.agent_runs.limit;
     expect(ran.s.budget.agent_runs).toMatchObject({ used: 0, reserved: 1 });
-    expect(available(ran.s.budget)).toBe(limit - 1);
+    expect(available(ran.s.budget)).toBe((limit ?? Infinity) - 1);
     expect(ran.s.wait).toMatchObject({
       reason: 'infra',
       detail: { code: 'effect_unknown' },

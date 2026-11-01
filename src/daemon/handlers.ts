@@ -985,7 +985,7 @@ async function startAgent(
       },
     };
   }
-  const wall = binding.limits.wall_timeout_ms ?? 45 * 60_000;
+  const wall = binding.limits.wall_timeout_ms;
   const resume = sessionFor(effect.request, harness);
   // Without a task deadline the run's is fixed by its operation, so recovery rebuilds the same input.
   const registered =
@@ -1008,7 +1008,8 @@ async function startAgent(
       context: { text: built.value.text, digest: built.value.digest },
       schema: wireRoleSchema(r, { omit_meta_schema: false }),
       wall_ms: wall,
-      deadline_at: (l.s.deadline_at ?? registered + wall) as EpochMs,
+      deadline_at: (l.s.deadline_at ??
+        (wall === null ? null : registered + wall)) as EpochMs | null,
       session: resume.session,
       credentials: l.rt.credential_refs,
       limits: {

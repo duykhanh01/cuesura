@@ -88,9 +88,9 @@ export const RoleSchema = z
     binding: z.array(BindingRuleSchema).min(1),
     limits: z
       .object({
-        max_turns: z.number().int().positive().optional(),
+        max_turns: z.number().int().positive().nullable().optional(),
         stall_timeout: DurationSchema.optional(),
-        wall_timeout: DurationSchema.optional(),
+        wall_timeout: DurationSchema.nullable().optional(),
       })
       .strict()
       .optional(),
@@ -166,7 +166,7 @@ export const BackoffInputSchema = z
     base: DurationSchema,
     factor: z.number().positive().max(100),
     max: DurationSchema,
-    max_attempts: z.number().int().nonnegative().max(1000),
+    max_attempts: z.number().int().nonnegative().max(1000).nullable(),
   })
   .strict();
 
@@ -179,8 +179,8 @@ export const ProfileSchema = z
     allow_no_gates: z.boolean().optional(),
     budgets: z
       .object({
-        max_agent_runs: z.number().int().positive().optional(),
-        max_wall: DurationSchema.optional(),
+        max_agent_runs: z.number().int().positive().nullable().optional(),
+        max_wall: DurationSchema.nullable().optional(),
         max_decider_calls: z.number().int().nonnegative().optional(),
         max_cost_usd: z.number().nonnegative().optional(),
       })
@@ -191,7 +191,12 @@ export const ProfileSchema = z
         enabled: z.boolean().optional(),
         auto_up_to_tier: z.number().int().nonnegative().optional(),
         above: z.enum(['ask_human', 'deny']).optional(),
-        max_escalations_per_task: z.number().int().nonnegative().optional(),
+        max_escalations_per_task: z
+          .number()
+          .int()
+          .nonnegative()
+          .nullable()
+          .optional(),
         trust_agent_signal: z.boolean().optional(),
       })
       .strict()
@@ -200,7 +205,7 @@ export const ProfileSchema = z
       .object({
         classes: z
           .object({
-            infra_retries: z.number().int().nonnegative().optional(),
+            infra_retries: z.number().int().nonnegative().nullable().optional(),
             timeout_retries: z.number().int().nonnegative().optional(),
             invalid_output_repairs: z.number().int().nonnegative().optional(),
             invalid_output_fresh: z.number().int().nonnegative().optional(),

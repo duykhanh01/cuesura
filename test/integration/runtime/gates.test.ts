@@ -118,6 +118,16 @@ async function setup(
 }
 
 describe('setup/gate/autofix commands (T038, FR-004)', () => {
+  it('runs a gate without an implicit command timeout', async () => {
+    const { deps, input } = await setup();
+    const r = await runGates(
+      deps,
+      input([{ name: 'unit', command: 'sleep 0.1; true' }], { wall_ms: null }),
+    );
+    expect(r.receipts).toHaveLength(1);
+    expect(r.receipts[0]).toMatchObject({ status: 'passed', wall_ms: null });
+  });
+
   it('a gate that rewrites the tree makes the whole set run again on the final tree (M06)', async () => {
     const { deps, input, worktree } = await setup();
     // A formatter normalises a file once; the second pass finds nothing to change.

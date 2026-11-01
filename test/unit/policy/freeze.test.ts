@@ -54,6 +54,37 @@ function run(
 const USER = config(source('configs/valid/user.yaml'));
 
 describe('freeze (FR-004, FR-037)', () => {
+  it('freezes unlimited defaults and lets a child profile clear inherited caps', () => {
+    const c = config(
+      minUser({
+        profiles: `profiles:
+  bounded:
+    workflow: impl
+    budgets: { max_agent_runs: 2, max_wall: 1h }
+    escalation: { max_escalations_per_task: 1 }
+  standard:
+    extends: bounded
+    budgets: { max_agent_runs: null, max_wall: null }
+    escalation: { max_escalations_per_task: null }
+`,
+      }),
+    );
+    const r = run(c);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.policy.limits).toMatchObject({
+      max_agent_runs: null,
+      max_wall_ms: null,
+      max_escalations: null,
+      classes: { infra_retries: null },
+      backoff: {
+        infra: { max_attempts: null },
+        rate_limit: { max_attempts: null },
+      },
+    });
+    expect(verifyPolicyHash(r.value.policy)).toBe(true);
+  });
+
   it('key order and formatting do not affect policy_hash', () => {
     const a = run(USER);
     const b = run(config(source('configs/valid/user-reordered.yaml')));
@@ -376,9 +407,14 @@ describe('freeze (FR-004, FR-037)', () => {
           base_ms: 60_000,
           factor: 2,
           max_ms: 1_800_000,
-          max_attempts: 5,
+          max_attempts: null,
         },
-        infra: { base_ms: 5_000, factor: 2, max_ms: 300_000, max_attempts: 3 },
+        infra: {
+          base_ms: 5_000,
+          factor: 2,
+          max_ms: 300_000,
+          max_attempts: null,
+        },
       },
     });
   });
