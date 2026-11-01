@@ -36,6 +36,6 @@ workflows:
         next: { pass: done, fail: code }
       done: { kind: complete }
 profiles:
-  prof_a: { workflow: wf_a, budgets: { max_agent_runs: 10, max_wall: 2h } }
-  prof_b: { workflow: wf_b, budgets: { max_agent_runs: 10, max_wall: 2h } }
-  prof_c: { workflow: wf_c, budgets: { max_agent_runs: 10, max_wall: 2h } }
+  prof_a: { workflow: wf_a }
+  prof_b: { workflow: wf_b }
+  prof_c: { workflow: wf_c }

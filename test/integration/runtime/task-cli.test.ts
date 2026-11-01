@@ -351,7 +351,7 @@ describe('cusr task add/show/confirm over the control socket (T048)', () => {
     expect((await cli(['task', 'confirm', 'x'])).code).toBe(ExitCode.usage);
   });
 
-  it('add carries a run selection; only the owner confirms its digest, an assistant token cannot (T048, M01/M02)', async () => {
+  it('add carries a run selection; an assistant token confirms its digest (T048, M01/M02)', async () => {
     const base = realpathSync(mkdtempSync(join(tmpdir(), 'cusr-task-run-')));
     dirs.push(base);
     const botFile = join(base, 'bot.token');
@@ -420,37 +420,7 @@ describe('cusr task add/show/confirm over the control socket (T048)', () => {
         String(r.data?.['version']),
       );
 
-    // The assistant cannot confirm the run selection, even with the right digest.
-    const byBot = await cli(
-      [
-        'task',
-        'confirm',
-        '--data-dir',
-        dataDir,
-        '--project',
-        'acme',
-        id,
-        '--expected-version',
-        await version(),
-        '--run-config',
-        digest,
-      ],
-      {
-        CUSR_TOKEN_FILE: botFile,
-      },
-    );
-    expect(byBot.code).not.toBe(ExitCode.ok);
-    expect(byBot.error).toMatchObject({
-      code: 'rejected',
-      details: { reason: 'untrusted_confirmation' },
-    });
-    expect(
-      (await cli(['task', 'show', '--data-dir', dataDir, id])).data?.[
-        'run_config'
-      ],
-    ).toMatchObject({ status: 'proposed' });
-
-    // The owner confirms intake and the selection in one interaction; a wrong digest is refused.
+    // The assistant confirms intake and the selection in one interaction; a wrong digest is refused.
     const wrong = await cli([
       'task',
       'confirm',
@@ -469,25 +439,28 @@ describe('cusr task add/show/confirm over the control socket (T048)', () => {
         detail: { reason: 'run_config_digest_mismatch', current: digest },
       },
     });
-    const owner = await cli([
-      'task',
-      'confirm',
-      '--data-dir',
-      dataDir,
-      '--project',
-      'acme',
-      id,
-      '--expected-version',
-      await version(),
-      '--run-config',
-      digest,
-    ]);
-    expect(owner).toMatchObject({
+    const byBot = await cli(
+      [
+        'task',
+        'confirm',
+        '--data-dir',
+        dataDir,
+        '--project',
+        'acme',
+        id,
+        '--expected-version',
+        await version(),
+        '--run-config',
+        digest,
+      ],
+      { CUSR_TOKEN_FILE: botFile },
+    );
+    expect(byBot).toMatchObject({
       code: ExitCode.ok,
       data: {
         status: 'READY',
         run_config_confirmation: 'confirmed',
-        run_config: { status: 'confirmed', confirmed_by: 'owner' },
+        run_config: { status: 'confirmed', confirmed_by: 'assistant' },
       },
     });
 

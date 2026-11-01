@@ -60,9 +60,8 @@ profiles:
     workflow: impl
     allow_roles: [scout, coder, reviewer, fixer]
     allow_models: [sonnet, sol, haiku]
-    budgets: { max_agent_runs: 12, max_wall: 6h }
     escalation: { auto_up_to_tier: 2, above: ask_human, max_escalations_per_task: 2 }
-    overridable: [roles.reviewer.binding, budgets.max_agent_runs, gates.lint]
+    overridable: [roles.reviewer.binding, gates.lint, escalation.max_escalations_per_task]
   heavy:
     extends: standard
     allow_models: [sonnet, sol, opus]

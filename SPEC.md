@@ -122,7 +122,7 @@ Task có `schema_version`, `id`, `title`, `type`, `project`, `base_branch`, `des
 - Dependency phải tồn tại, không tự tham chiếu và không tạo chu trình. Dependency FAILED/CANCELLED làm task phụ thuộc tiếp tục chờ có giải thích; không coi là hoàn thành.
 - Task do assistant tạo mặc định cần xác nhận ở bước intake. Auto-confirm intake và hạn mức tạo task theo client phải do người dùng cấu hình. Xác nhận intake quyết định nhận task, không thay xác nhận cấu hình chạy trước spawn.
 - Một lượt tương tác có thể xác nhận cả intake và cấu hình chạy nếu hiển thị rõ cả hai phạm vi; không bắt người dùng xác nhận hai lần khi bộ task/cấu hình đã được duyệt đầy đủ.
-- Agent nhận task có thể đọc chỉ dẫn `when to use` để đề xuất harness/model/effort và chế độ `direct-pr` hoặc `full-review`; daemon không suy chế độ từ nội dung hay kích thước task. Trước spawn đầu tiên, người dùng phải xác nhận bộ lựa chọn cụ thể, gồm reviewer nếu có. Auto-confirm intake không thay xác nhận cấu hình chạy; xem [hợp đồng chế độ](specs/002-task-to-green-pr/task-execution-modes.md).
+- Agent nhận task có thể đọc chỉ dẫn `when to use` để đề xuất harness/model/effort và chế độ `direct-pr` hoặc `full-review`; daemon không suy chế độ từ nội dung hay kích thước task. Trước spawn đầu tiên, người dùng hoặc assistant có token `operate` phải xác nhận bộ lựa chọn cụ thể theo digest, gồm reviewer nếu có. Auto-confirm intake không thay xác nhận cấu hình chạy; xem [hợp đồng chế độ](specs/002-task-to-green-pr/task-execution-modes.md).
 
 ### 5.3 Snapshot và revision
 
@@ -248,13 +248,13 @@ Mọi lần thật sự gọi agent, kể cả repair, resume, decider và lần
 
 ### 9.4 Ngân sách
 
-Theo quyết định [#45](https://github.com/duykhanh01/cuesura/issues/45), các trần `max_agent_runs`, `max_wall`, `max_escalations_per_task`, `infra_retries`, backoff `max_attempts`, wall time của worker/lệnh và `max_turns` của pin Claude là tùy chọn, mặc định không giới hạn. Bỏ khóa hoặc đặt `null` để không áp trần; giá trị khai rõ vẫn có hiệu lực. `null` ở profile con xóa trần thừa kế. Không dùng một số lớn thay cho không giới hạn. Xem [cấu hình và chuyển đổi](deploy/README.md#giới-hạn-thực-thi-tùy-chọn).
+Task không có budget: profile không còn khóa `budgets`, config cũ còn khóa này bị từ chối khi nạp. Policy mới đóng băng `max_agent_runs` và `max_wall_ms` là `null`; task cũ giữ trần đã đóng băng. Theo quyết định [#45](https://github.com/duykhanh01/cuesura/issues/45), `max_escalations_per_task`, `infra_retries`, backoff `max_attempts`, wall time của worker/lệnh và `max_turns` của pin Claude là tùy chọn, mặc định không giới hạn; bỏ khóa hoặc đặt `null` để không áp trần, giá trị khai rõ vẫn có hiệu lực.
 
 Giới hạn lượt vào step, số lần gọi decider, xử lý lỗi chất lượng, quyền, approval, pool và dung lượng I/O vẫn theo cấu hình riêng. Không bắt đầu attempt nếu vượt một trần đã khai hoặc thiếu approval. Slot và reservation vẫn được ghi trước spawn, usage vẫn được ghi đầy đủ khi không có trần.
 
-Wall timeout của attempt tính riêng với thời hạn toàn task. Khi được khai báo, thời hạn task bắt đầu khi workflow chạy lần đầu, gồm cả thời gian chờ; hết hạn chặn attempt mới và chuyển sang chờ quyết định của người dùng. Tăng thời hạn/ngân sách cần amendment, không tự gia hạn khi restart hay đổi revision.
+Wall timeout của attempt tính riêng với thời hạn toàn task. Khi được khai báo, thời hạn task bắt đầu khi workflow chạy lần đầu, gồm cả thời gian chờ; hết hạn chặn attempt mới và chuyển sang chờ quyết định của người dùng. Thời hạn này chỉ còn ở task cũ đã đóng băng; không tự gia hạn khi restart hay đổi revision.
 
-Usage phân biệt `reported`, `estimated`, `unavailable`; không ghi số 0 để thay cho dữ liệu thiếu. Chi phí subscription và chi phí API không bị đánh đồng. Giới hạn USD cứng chỉ được cam kết khi harness có cơ chế giới hạn chi phí đã kiểm chứng; ước lượng trước chạy không bảo đảm được hóa đơn cuối. Profile đòi trần chi phí cứng phải từ chối harness không đáp ứng; profile không khai trần lượt/thời gian vẫn hợp lệ. Khi không có deadline, engine và runner không tự tạo deadline thay thế; việc hủy và phát hiện stall đã cấu hình vẫn hoạt động.
+Usage phân biệt `reported`, `estimated`, `unavailable`; không ghi số 0 để thay cho dữ liệu thiếu. Chi phí subscription và chi phí API không bị đánh đồng. Cuesura không có trần chi phí. Khi không có deadline, engine và runner không tự tạo deadline thay thế; việc hủy và phát hiện stall đã cấu hình vẫn hoạt động.
 
 ## 10. Hỏi đáp và quyết định
 

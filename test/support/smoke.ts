@@ -137,7 +137,6 @@ export function smokeUserConfig(o: {
     '    workflow: smoke-flow',
     '    allow_roles: [scout, coder, fixer, reviewer]',
     '    allow_models: [claude-worker, codex-worker]',
-    '    budgets: { max_agent_runs: 6, max_wall: 1h }',
     'runtime:',
     `  data_dir: ${yaml(o.dataDir)}`,
     '  modes:',

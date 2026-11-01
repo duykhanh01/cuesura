@@ -228,7 +228,7 @@ describe('roles (US6.3, FR-028)', () => {
     ).toHaveLength(1);
   });
 
-  it('an assistant token cannot confirm a run selection; admin reaches approve and finds no such request', async () => {
+  it('an assistant token confirms a run selection; admin reaches approve and finds no such request', async () => {
     const sd = daemon();
     await sd.start();
     const add = await cli(sd, 'assistant', [
@@ -265,7 +265,8 @@ describe('roles (US6.3, FR-028)', () => {
       '--run-config',
       result.run_config?.digest as string,
     ]);
-    expect(r.code).not.toBe(ExitCode.ok);
+    expect(r.code).toBe(ExitCode.ok);
+    const confirmed = r.envelope.data['result'] as { version: number };
     const none = await cli(sd, 'owner', [
       'task',
       'approve',
@@ -277,7 +278,7 @@ describe('roles (US6.3, FR-028)', () => {
       '--rung',
       '1',
       '--expected-version',
-      String(result.version),
+      String(confirmed.version),
     ]);
     // Admin passes authz; there is simply no such request to approve.
     expect(none.code).toBe(ExitCode.missing);

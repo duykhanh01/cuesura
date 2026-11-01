@@ -557,7 +557,6 @@ profiles:
     workflow: impl
     allow_roles: [scout, coder, reviewer, fixer]
     allow_models: [sonnet, sol, haiku]       # opus không nằm trong đây → rule size L/XL bị loại NGAY LÚC TẠO TASK, rơi xuống rule kế tiếp (sonnet)
-    budgets: { max_agent_runs: 12, max_wall: 6h, max_cost_usd: 20 }
     on_policy_violation: wait_human          # hoặc fallback_to_default_binding
   heavy:
     extends: standard
@@ -619,7 +618,7 @@ Quy tắc:
 - **Repo mới:** `cusr init` phát hiện manifest (`package.json` → pack `node`, `pyproject.toml` → `python`…), đề xuất `cusr.yaml`, và bạn xác nhận trước khi giao task cho repo đó.
 
 ### 5.3 Đóng băng policy và chống tự thay đổi
-1. `cusr task create --profile standard --set roles.reviewer.binding=sol` → resolve ra **FrozenPolicy** gồm workflow đã expand, binding đã resolve, budgets, `config_sha`, `workflow_hash` và `git rev-parse HEAD` của file cấu hình. Ghi event `PolicyFrozen`.
+1. `cusr task create --profile standard --set roles.reviewer.binding=sol` → resolve ra **FrozenPolicy** gồm workflow đã expand, binding đã resolve, `config_sha`, `workflow_hash` và `git rev-parse HEAD` của file cấu hình. Ghi event `PolicyFrozen`.
 2. Engine chỉ đọc FrozenPolicy, **không đọc lại file cấu hình** cho task đang chạy. Sửa `cusr.yaml` chỉ ảnh hưởng task mới.
 3. Agent không có kênh nào để đổi workflow. Nó chỉ trả outcome trong enum. Đề xuất tự do (ví dụ "nên dùng Opus") được lưu vào `suggestions` để người xem, engine không thực thi. Nếu policy bật `trust_agent_signal`, tín hiệu `needs_stronger_model` chỉ có thể kích hoạt **nấc kế tiếp trong thang đã duyệt** (mục 5.4).
 4. Assistant bên ngoài có thể *đề xuất* `PolicyAmendment`, nhưng áp dụng thì cần `admin` (người xác nhận). Mọi amendment là event có `actor`, `reason`, `diff`.

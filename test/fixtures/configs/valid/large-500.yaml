@@ -440,61 +440,61 @@ workflows:
 profiles:
   standard:
     workflow: wf0
-    budgets: { max_agent_runs: 12, max_wall: 6h }
+    escalation: { max_escalations_per_task: 2 }
   prof0:
     workflow: wf0
-    budgets: { max_agent_runs: 10, max_wall: 6h }
+    escalation: { max_escalations_per_task: 2 }
   prof1:
     workflow: wf1
-    budgets: { max_agent_runs: 11, max_wall: 6h }
+    escalation: { max_escalations_per_task: 2 }
   prof2:
     workflow: wf2
-    budgets: { max_agent_runs: 12, max_wall: 6h }
+    escalation: { max_escalations_per_task: 2 }
   prof3:
     workflow: wf3
-    budgets: { max_agent_runs: 13, max_wall: 6h }
+    escalation: { max_escalations_per_task: 2 }
   prof4:
     workflow: wf4
-    budgets: { max_agent_runs: 14, max_wall: 6h }
+    escalation: { max_escalations_per_task: 2 }
   prof5:
     workflow: wf5
-    budgets: { max_agent_runs: 10, max_wall: 6h }
+    escalation: { max_escalations_per_task: 2 }
   prof6:
     workflow: wf0
-    budgets: { max_agent_runs: 11, max_wall: 6h }
+    escalation: { max_escalations_per_task: 2 }
   prof7:
     workflow: wf1
-    budgets: { max_agent_runs: 12, max_wall: 6h }
+    escalation: { max_escalations_per_task: 2 }
   prof8:
     workflow: wf2
-    budgets: { max_agent_runs: 13, max_wall: 6h }
+    escalation: { max_escalations_per_task: 2 }
   prof9:
     workflow: wf3
-    budgets: { max_agent_runs: 14, max_wall: 6h }
+    escalation: { max_escalations_per_task: 2 }
   prof10:
     workflow: wf4
-    budgets: { max_agent_runs: 10, max_wall: 6h }
+    escalation: { max_escalations_per_task: 2 }
   prof11:
     workflow: wf5
-    budgets: { max_agent_runs: 11, max_wall: 6h }
+    escalation: { max_escalations_per_task: 2 }
   prof12:
     workflow: wf0
-    budgets: { max_agent_runs: 12, max_wall: 6h }
+    escalation: { max_escalations_per_task: 2 }
   prof13:
     workflow: wf1
-    budgets: { max_agent_runs: 13, max_wall: 6h }
+    escalation: { max_escalations_per_task: 2 }
   prof14:
     workflow: wf2
-    budgets: { max_agent_runs: 14, max_wall: 6h }
+    escalation: { max_escalations_per_task: 2 }
   prof15:
     workflow: wf3
-    budgets: { max_agent_runs: 10, max_wall: 6h }
+    escalation: { max_escalations_per_task: 2 }
   prof16:
     workflow: wf4
-    budgets: { max_agent_runs: 11, max_wall: 6h }
+    escalation: { max_escalations_per_task: 2 }
   prof17:
     workflow: wf5
-    budgets: { max_agent_runs: 12, max_wall: 6h }
+    escalation: { max_escalations_per_task: 2 }
   prof18:
     workflow: wf0
-    budgets: { max_agent_runs: 13, max_wall: 6h }
+    escalation: { max_escalations_per_task: 2 }

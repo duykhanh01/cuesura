@@ -60,11 +60,9 @@ describe('freeze (FR-004, FR-037)', () => {
         profiles: `profiles:
   bounded:
     workflow: impl
-    budgets: { max_agent_runs: 2, max_wall: 1h }
     escalation: { max_escalations_per_task: 1 }
   standard:
     extends: bounded
-    budgets: { max_agent_runs: null, max_wall: null }
     escalation: { max_escalations_per_task: null }
 `,
       }),
@@ -118,14 +116,25 @@ describe('freeze (FR-004, FR-037)', () => {
     const r = validateConfig({
       user: {
         ...user,
-        text: user.text.replace('max_wall: 6h', 'max_wall: 0s'),
+        text: user.text.replace('wall_timeout: 45m', 'wall_timeout: 0s'),
       },
       project: CUSR,
       packs: PACKS,
     });
     expect(!r.ok && r.error.map((d) => [d.code, d.path.join('.')])).toEqual([
-      ['schema_invalid', 'profiles.standard.budgets.max_wall'],
+      ['schema_invalid', 'roles.coder.limits.wall_timeout'],
     ]);
+  });
+
+  it('refuses a profile that still declares budgets', () => {
+    const r = validateConfig({
+      user: minUser({
+        profiles:
+          'profiles:\n  standard: { workflow: impl, budgets: { max_agent_runs: 5 } }\n',
+      }),
+      packs: {},
+    });
+    expect(!r.ok && r.error.map((d) => d.code)).toEqual(['schema_invalid']);
   });
 
   it('snapshots role prompts and project conventions with content and hashes (FR-037)', () => {
@@ -316,7 +325,7 @@ describe('freeze (FR-004, FR-037)', () => {
 
   it('excluding all rules returns no_valid_binding', () => {
     const profiles =
-      'profiles:\n  standard: { workflow: impl, allow_models: [opus], budgets: { max_agent_runs: 5, max_wall: 1h } }\n';
+      'profiles:\n  standard: { workflow: impl, allow_models: [opus] }\n';
     const r = run(config(minUser({ profiles }), MIN_PROJECT));
     expect(!r.ok && r.error).toEqual({
       code: 'no_valid_binding',
@@ -399,8 +408,8 @@ describe('freeze (FR-004, FR-037)', () => {
   it('uses profile limits and default backoff (R-22)', () => {
     const r = run(USER);
     expect(r.ok && r.value.policy.limits).toMatchObject({
-      max_agent_runs: 12,
-      max_wall_ms: 6 * 3_600_000,
+      max_agent_runs: null,
+      max_wall_ms: null,
       max_escalations: 2,
       backoff: {
         rate_limit: {
@@ -459,7 +468,7 @@ describe('freeze (FR-004, FR-037)', () => {
 
   it('disabling escalation retains only the initial rung', () => {
     const profiles =
-      'profiles:\n  standard: { workflow: impl, escalation: { enabled: false }, budgets: { max_agent_runs: 5, max_wall: 1h } }\n';
+      'profiles:\n  standard: { workflow: impl, escalation: { enabled: false } }\n';
     const roles = MIN_PARTS.roles.replace(
       'coder: { binding: [{ model: sonnet }] }',
       'coder: { binding: [{ model: sonnet }], escalation: { ladder: [{ effort: high }] } }',

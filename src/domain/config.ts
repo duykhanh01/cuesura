@@ -39,9 +39,6 @@ export type NormalizedProfile = {
   allow_models: string[] | null;
   allow_no_gates: boolean;
   /** null means the task has no cap. */
-  max_agent_runs: number | null;
-  max_wall_ms: number | null;
-  max_decider_calls: number;
   escalation: {
     enabled: boolean;
     auto_up_to_tier: number;

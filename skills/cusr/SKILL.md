@@ -53,7 +53,7 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
 ## Add tasks
 
 ```sh
-# Submit -> propose run settings -> USER confirms the displayed run digest.
+# Submit -> propose run settings -> confirm the run digest with your own token.
 # A complete run_config in the add input already supplies the proposal.
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
   cusr task add --project "$PROJECT" --title "$TITLE" --base "$BASE" \
@@ -139,7 +139,7 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
 # then the best-fit `when`, then default. You match `when`; the daemon never does.
 # use[] is ordered: propose the first unless the user or a stated reason says
 # otherwise. Copy worker/reviewer verbatim and name the matched rule in --reason.
-# A proposal is not approval: the user still confirms the digest.
+# A proposal does not start the task: confirm its digest next.
 # Bindings: HARNESS/MODEL/EFFORT, from the operator's configured allowlist.
 # Set VERSION from a fresh task show before each NEW mutation.
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
@@ -158,11 +158,16 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
 
 ```sh
 # Intake/config check ONLY. This alone does not approve run settings.
-# READY can still be run_config_unconfirmed: the user must confirm the digest.
+# READY can still be run_config_unconfirmed: add --run-config to confirm the digest.
+# Follow the user's instruction if they asked to review the run settings first.
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
   cusr task confirm "$TASK_ID" --expected-version "$VERSION" \
   --request-id "$INTAKE_REQUEST_ID" --json
-# A confirm --run-config error (including untrusted_confirmation) can occur after
+# Read task show for the CURRENT version and digest, then confirm both in one call.
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
+  cusr task confirm "$TASK_ID" --run-config "$RUN_DIGEST" \
+  --expected-version "$VERSION" --request-id "$CONFIRM_REQUEST_ID" --json
+# A confirm --run-config error can occur after
 # intake changed the version. Re-read show/history; do not reuse the stale version
 # for a new command, and do not switch to the owner token to make it succeed.
 ```
@@ -195,7 +200,7 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
   cusr task cancel "$TASK_ID" --reason "$REASON" \
   --expected-version "$VERSION" --request-id "$CANCEL_REQUEST_ID" --json
-# Recheck does not replenish run/deadline budgets. Cancel does not undo a merge;
+# Recheck does not extend a deadline frozen in an older task. Cancel does not undo a merge;
 # inspect the resulting state rather than treating command exit 0 as completion.
 ```
 
@@ -205,13 +210,10 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
 # ONLY THE USER executes these in their own terminal/trusted channel, even if an
 # owner token is readable by the agent. Do not read, acquire or use that token.
 # USER_TOKEN_FILE below belongs to the user's connection, never the assistant's.
-# Present the selection/digest (or escalation reason/step/rung) and these commands.
-# The user reads show again for the CURRENT version before confirming/approving.
+# Present the escalation reason/step/rung and this command.
+# The user reads show again for the CURRENT version before approving.
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${USER_TOKEN_FILE:?}" \
   cusr task show "$TASK_ID" --json
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${USER_TOKEN_FILE:?}" \
-  cusr task confirm "$TASK_ID" --run-config "$RUN_DIGEST" \
-  --expected-version "$VERSION" --request-id "$CONFIRM_REQUEST_ID" --json
 # Escalation approval requires admin privileges; it is not run confirmation.
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${USER_TOKEN_FILE:?}" \
   cusr task approve "$TASK_ID" --kind escalation --step "$STEP" --rung "$RUNG" \
@@ -225,5 +227,4 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${USER_TOKEN_FILE:?}" \
 # task amend-policy -> cancel, then task add with updated input/configuration.
 # task approve --kind merge and yolo -> user merges on GitHub, then observation
 # or an allowed task recheck records it. This CLI has no merge command.
-# Do not create replacement tasks to evade exhausted budgets or confirmation.
 ```

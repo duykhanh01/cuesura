@@ -92,12 +92,9 @@ export const RunConfirmationSchema = z
   .strict();
 export type RunConfirmation = z.infer<typeof RunConfirmationSchema>;
 
-export const TRUSTED_CONFIRM_CHANNELS: readonly string[] = ['token:owner'];
-
+/** Any token that may operate tasks may confirm a run, the assistant's included (constitution 4.0.0). */
 export function trustedConfirmer(authz: AuthzContext | undefined): boolean {
-  return (
-    authz !== undefined && TRUSTED_CONFIRM_CHANNELS.includes(authz.issued_by)
-  );
+  return authz !== undefined && authz.roles.includes('operate');
 }
 
 /** The confirmed selection frozen into the runtime snapshot at start. */

@@ -351,9 +351,9 @@ export function freezePolicy(
   if (!conventions.ok) return conventions;
 
   const limits: Limits = {
-    max_agent_runs: profile.max_agent_runs,
-    max_decider_calls: profile.max_decider_calls,
-    max_wall_ms: profile.max_wall_ms,
+    max_agent_runs: null,
+    max_decider_calls: 0,
+    max_wall_ms: null,
     max_escalations: profile.escalation.max_escalations,
     classes: profile.classes,
     backoff: profile.backoff,

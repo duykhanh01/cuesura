@@ -53,11 +53,9 @@ profiles:
   main:
     workflow: flow
     overridable: [roles.reviewer.binding]
-    budgets: { max_agent_runs: 4, max_wall: 1h }
   limited:
     workflow: flow
     allow_models: [opus]
-    budgets: { max_agent_runs: 4, max_wall: 1h }
 runtime:
 ${modes}  dispatch:
 ${dispatchYaml(dispatch)}`,

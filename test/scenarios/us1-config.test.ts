@@ -123,7 +123,10 @@ describe('US1 - Validate configuration and freeze policy', () => {
 
     const edited = {
       ...USER,
-      text: USER.text.replace('max_agent_runs: 12', 'max_agent_runs: 30'),
+      text: USER.text.replace(
+        'max_escalations_per_task: 2',
+        'max_escalations_per_task: 30',
+      ),
     };
     const later = freezeTask(
       valid(edited),
@@ -135,8 +138,8 @@ describe('US1 - Validate configuration and freeze policy', () => {
 
     expect(first.value.policy).toEqual(frozen);
     expect(verifyPolicyHash(first.value.policy)).toBe(true);
-    expect(first.value.policy.limits.max_agent_runs).toBe(12);
-    expect(later.value.policy.limits.max_agent_runs).toBe(30);
+    expect(first.value.policy.limits.max_escalations).toBe(2);
+    expect(later.value.policy.limits.max_escalations).toBe(30);
   });
 
   it('Scenario 5: unreachable ladder rungs report an error', () => {
@@ -183,7 +186,7 @@ describe('US1 - Validate configuration and freeze policy', () => {
       policy.revision,
       policy.policy_version,
       policy.limits.max_agent_runs,
-    ]).toEqual([1, 1, 12]);
+    ]).toEqual([1, 1, null]);
   });
 
   it('Scenario 7: project overrides pack; overrides respect profile and caller permissions; forbidden keys report errors', () => {
@@ -219,11 +222,11 @@ describe('US1 - Validate configuration and freeze policy', () => {
     ).toBe('override_not_allowed');
 
     const exceeds = freezeTask(config, task, {
-      overrides: { 'budgets.max_agent_runs': 100 },
+      overrides: { 'escalation.max_escalations_per_task': 100 },
     });
     expect(!exceeds.ok && exceeds.error).toEqual({
       code: 'override_exceeds_caller',
-      keys: ['budgets.max_agent_runs'],
+      keys: ['escalation.max_escalations_per_task'],
     });
 
     const forbidden = validateConfig({

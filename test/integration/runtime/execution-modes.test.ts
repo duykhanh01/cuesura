@@ -80,12 +80,12 @@ function toCiFix(d: StoreDriver, t: CanonicalTask): void {
 }
 
 describe('run selection confirmation (T135, M01/M02)', () => {
-  it('only the owner channel confirms, only the digest that was proposed, and only before start', () => {
+  it('only an operate token confirms, only the digest that was proposed, and only before start', () => {
     const d = setup();
     const t = buildTask();
     d.must(t.id, { kind: 'create_task', task: t });
     const sel = selectionFor(t, 'direct-pr');
-    // An assistant may propose; a request field cannot make a confirmation.
+    // An assistant may propose and confirm; a token without operate cannot confirm.
     d.must(
       t.id,
       { kind: 'propose_run_config', selection: sel },
@@ -95,7 +95,7 @@ describe('run selection confirmation (T135, M01/M02)', () => {
       d.send(
         t.id,
         { kind: 'confirm_run_config', digest: selectionDigest(sel) },
-        { authz: authz(['read', 'operate', 'admin'], 'assistant') },
+        { authz: authz(['read'], 'viewer') },
       ),
     ).toMatchObject({
       ok: true,
@@ -145,12 +145,11 @@ describe('run selection confirmation (T135, M01/M02)', () => {
     d.must(
       t.id,
       { kind: 'confirm_run_config', digest: selectionDigest(sel) },
-      { authz: ownerAuthz() },
+      { authz: authz(['read', 'operate'], 'assistant') },
     );
     expect(d.task(t.id).run.confirmation).toMatchObject({
       digest: selectionDigest(sel),
-      actor: 'owner',
-      channel: 'token:owner',
+      actor: 'assistant',
     });
     // The confirmation survives a replay of the log (restart).
     expect(replay(d.store.readEvents(t.id))?.run).toEqual(d.task(t.id).run);

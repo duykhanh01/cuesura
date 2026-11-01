@@ -549,29 +549,6 @@ describe('preflight (T030, FR-002)', () => {
       });
       expect(result.ok).toBe(true);
     });
-
-    it('a cost cap needs reported cost from every harness', async () => {
-      const user = userConfig();
-      user.text = user.text.replace(
-        'budgets: { max_agent_runs: 12, max_wall: 6h }',
-        'budgets: { max_agent_runs: 12, max_wall: 6h, max_cost_usd: 5 }',
-      );
-      expect(checks(failure((await runPreflight({ user })).result))).toEqual([
-        'capability_missing:budget',
-        'capability_missing:budget',
-      ]);
-      const reported = manifest({
-        capabilities: { cost_reporting: 'reported' },
-      });
-      expect(
-        (
-          await runPreflight({
-            user,
-            manifests: { claude: reported, codex: reported },
-          })
-        ).result.ok,
-      ).toBe(true);
-    });
   });
 
   it('parses GitHub remote URLs and nothing else', () => {

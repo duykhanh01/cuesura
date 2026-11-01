@@ -9,9 +9,8 @@ profiles:
       - opus
     extends: standard
   standard:
-    overridable: [roles.reviewer.binding, budgets.max_agent_runs, gates.lint]
+    overridable: [roles.reviewer.binding, gates.lint, escalation.max_escalations_per_task]
     escalation: {max_escalations_per_task: 2, above: ask_human, auto_up_to_tier: 2}
-    budgets: {max_wall: 6h, max_agent_runs: 12}
     allow_models: [sonnet, sol, haiku]
     allow_roles: [scout, coder, reviewer, fixer]
     workflow: impl

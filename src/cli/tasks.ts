@@ -528,8 +528,7 @@ export const confirmCommand: CliCommand = {
     EXPECTED_VERSION,
     {
       flags: '--run-config <digest>',
-      description:
-        'Run configuration digest from cusr task show (owner token required)',
+      description: 'Run configuration digest from cusr task show',
     },
   ],
   run: (values, json, io) =>

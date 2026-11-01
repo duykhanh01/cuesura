@@ -76,7 +76,7 @@ describe('FR-003 check 1: references exist', () => {
     expect(
       codes({
         profiles:
-          'profiles:\n  standard: { workflow: impl, allow_roles: [coder, ghost], allow_models: [haiku], budgets: { max_agent_runs: 1, max_wall: 1h } }\n',
+          'profiles:\n  standard: { workflow: impl, allow_roles: [coder, ghost], allow_models: [haiku] }\n',
       }),
     ).toEqual(['unknown_role', 'unknown_model']);
   });
@@ -125,8 +125,7 @@ describe('FR-003 check 3: bounded cycles and tasks', () => {
   it('accepts profiles without agent-run or wall-time caps', () => {
     expect(
       codes({
-        profiles:
-          'profiles:\n  standard: { workflow: impl, budgets: { max_wall: 1h } }\n',
+        profiles: 'profiles:\n  standard: { workflow: impl }\n',
       }),
     ).toEqual([]);
     expect(
@@ -246,7 +245,7 @@ describe('FR-006 and gates', () => {
   });
   it('allow_no_gates permits a project without gates', () => {
     const profiles =
-      'profiles:\n  standard: { workflow: impl, allow_no_gates: true, budgets: { max_agent_runs: 1, max_wall: 1h } }\n';
+      'profiles:\n  standard: { workflow: impl, allow_no_gates: true }\n';
     expect(
       validateConfig({
         user: minUser({ profiles }),

@@ -5,8 +5,8 @@ thành việc, sửa qua chính `cusr`, rồi có hiệu lực ở release sau.
 
 ## Ranh giới
 
-- **Agent không merge.** Người dùng xác nhận run config, duyệt và merge mọi PR; vòng cải thiện không có
-  đường tắt nào bỏ qua bước này.
+- **Agent không merge.** Assistant tự xác nhận run config và chạy task; người dùng duyệt và merge mọi PR,
+  vòng cải thiện không có đường tắt nào bỏ qua bước này.
 - **Gate lấy từ commit base.** PR sửa `cusr.yaml` hay CI không tự nới gate cho chính nó.
 - **Worker không dùng `cusr`.** Skill và token chỉ dành cho assistant caller điều phối; không truyền vào worker.
 - **Một release, một task.** V1 chạy một task tại một thời điểm.
@@ -72,7 +72,7 @@ assistant không đọc `owner.token` là quy tắc, không phải giới hạn 
 | Bước | Ai | Việc |
 | --- | --- | --- |
 | 1. Giao | Assistant | `cusr task add` với tiêu chí nghiệm thu quan sát được, kèm đề xuất run config và lý do |
-| 2. Xác nhận | **Người dùng** | Đọc run config, chạy `cusr task confirm --run-config <digest>` |
+| 2. Xác nhận | Assistant | `cusr task confirm --run-config <digest>` bằng token của assistant |
 | 3. Chạy | Daemon, worker | Worktree riêng, coder, gate, reviewer nếu `full-review`, tạo PR, chờ CI |
 | 4. Theo dõi | Assistant | `task explain`, `task logs`, `inbox`; câu hỏi chưa rõ thì chuyển cho người dùng |
 | 5. Merge | **Người dùng** | Đọc diff, merge trên GitHub; daemon ghi nhận DONE |
@@ -80,7 +80,7 @@ assistant không đọc `owner.token` là quy tắc, không phải giới hạn 
 
 ### Chọn model
 
-Assistant đề xuất theo bảng, nêu lý do ở `--reason`; người dùng là người chốt khi xác nhận. Không chắc thì chọn
+Assistant đề xuất theo bảng, nêu lý do ở `--reason`, rồi tự xác nhận; người dùng chỉ định khác thì làm theo. Không chắc thì chọn
 mức cao hơn. Không đổi binding sau khi task đã chạy: muốn đổi thì tạo task mới.
 
 | Mức | Khi nào | `--worker` | Mode |
@@ -96,8 +96,8 @@ Reviewer của mọi `full-review` là `codex/sol/high`.
   trước khi merge: gate chạy trên host, còn sandbox native của worker có thể làm một số test không chạy được. Báo rõ test bị skip; không dùng lời worker thay bằng chứng test host.
 - **Giữa Terra và Sonnet:** hai model cùng mức. Có `full-review` thì ưu tiên Sonnet để reviewer Sol khác vendor;
   còn lại chọn bên còn hạn mức.
-- **Nâng mức khi vướng:** task của mức nhẹ hoặc lặt vặt dừng vì hết budget hay sửa sai hai lần thì hủy, tạo task
-  mới ở mức cao hơn với lý do ghi rõ. Đây là chọn lại model cho đúng việc, khác với tạo task để né budget.
+- **Nâng mức khi vướng:** task của mức nhẹ hoặc lặt vặt sửa sai hai lần thì hủy, tạo task mới ở mức cao hơn với lý
+  do ghi rõ.
 - **Gemini 3.8 Flash (`gemini-3.8-flash-high`):** cân nhắc cho việc lặt vặt, nhưng **chưa chạy được qua `cusr`** vì
   harness hiện chỉ có Claude và Codex. Trước khi có adapter, dùng `agy` thủ công trong worktree riêng theo
   [AGENTS.md](../AGENTS.md), rồi tạo PR như thường.
@@ -127,8 +127,7 @@ Dùng đường này thì vẫn tạo PR như thường và ghi rõ lý do khôn
 4. **Có hiệu lực khi nâng release.** Skill và CLI đổi cùng lúc, theo cùng SHA. Dùng lại đúng kịch bản đã ghi trong
    issue trên release mới rồi mới đóng issue.
 
-Không tính là cải thiện, và không được làm chỉ để task xanh: nới gate, bỏ test, tăng budget, đổi quyền token,
-hoặc tạo task mới để né budget đã cạn. Những thay đổi này phải là PR riêng do người dùng quyết định.
+Không tính là cải thiện, và không được làm chỉ để task xanh: nới gate, bỏ test, đổi quyền token. Những thay đổi này phải là PR riêng do người dùng quyết định.
 
 Mỗi tháng, hoặc sau 10 task, xem lại: tỉ lệ task tới PR xanh không cần sửa tay, số lần người dùng phải can thiệp,
 số lượt agent trên mỗi PR được merge, và số issue `dogfood:` mở/đóng. Chỉ số xấu đi thì sửa trước khi thêm feature.

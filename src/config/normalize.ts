@@ -151,9 +151,6 @@ export function normalizeProfile(p: RawProfile): NormalizedProfile {
     allow_roles: p.allow_roles ?? null,
     allow_models: p.allow_models ?? null,
     allow_no_gates: p.allow_no_gates ?? false,
-    max_agent_runs: p.budgets?.max_agent_runs ?? null,
-    max_wall_ms: p.budgets?.max_wall != null ? ms(p.budgets.max_wall) : null,
-    max_decider_calls: p.budgets?.max_decider_calls ?? 0,
     escalation: {
       enabled: p.escalation?.enabled ?? DEFAULT_ESCALATION.enabled,
       auto_up_to_tier:

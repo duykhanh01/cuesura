@@ -177,15 +177,6 @@ export const ProfileSchema = z
     allow_roles: nameList.optional(),
     allow_models: nameList.optional(),
     allow_no_gates: z.boolean().optional(),
-    budgets: z
-      .object({
-        max_agent_runs: z.number().int().positive().nullable().optional(),
-        max_wall: DurationSchema.nullable().optional(),
-        max_decider_calls: z.number().int().nonnegative().optional(),
-        max_cost_usd: z.number().nonnegative().optional(),
-      })
-      .strict()
-      .optional(),
     escalation: z
       .object({
         enabled: z.boolean().optional(),

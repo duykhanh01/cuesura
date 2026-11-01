@@ -196,7 +196,6 @@ export type OverrideTarget = {
 };
 
 export const PROFILE_OVERRIDE_KEYS = [
-  'budgets',
   'escalation',
   'limits',
   'allow_models',
@@ -217,7 +216,7 @@ export function isPrivilegedPath(path: readonly string[]): boolean {
     head === 'allow_no_gates'
   )
     return path.length === 1;
-  if (head === 'escalation' || head === 'budgets') return true;
+  if (head === 'escalation') return true;
   return head === 'roles' && path.length === 3 && path[2] === 'permissions';
 }
 

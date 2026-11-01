@@ -1,6 +1,6 @@
 # expect: override_exceeds_caller 1 1
 # with-project: valid/cusr.yaml
-# overrides: {"budgets.max_agent_runs": 50}
+# overrides: {"escalation.max_escalations_per_task": 50}
 # caller: operate
 version: 1
 harnesses: { claude: { cmd: claude, auth: subscription, pool: claude } }
@@ -16,5 +16,4 @@ workflows:
 profiles:
   standard:
     workflow: impl
-    budgets: { max_agent_runs: 10, max_wall: 2h }
-    overridable: [budgets.max_agent_runs, roles.reviewer.binding]
+    overridable: [roles.reviewer.binding, escalation.max_escalations_per_task]

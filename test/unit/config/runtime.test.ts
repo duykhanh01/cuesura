@@ -632,10 +632,10 @@ describe('historical hashes', () => {
     };
   }
 
-  // Captured before feature 002 config changes; must never move.
+  // Recaptured when budgets left the config (constitution 4.0.0); must never move otherwise.
   const GOLDEN = {
     config: {
-      user: 'sha256:f8ca803720f9537cfeec2a970725f2804232a76626e1294d880f87ec718f914e',
+      user: 'sha256:4f04f8a4a21205383cd7ce851eabad9e49d6da974d0899b75987cc946c0d09ad',
       project:
         'sha256:20aed651e16b81216ae85b13a4b78eae960183761c88f2fbb1dffd6059f2949f',
       packs: {
@@ -643,7 +643,7 @@ describe('historical hashes', () => {
       },
     },
     policy:
-      'sha256:dfc73ce97259386d0e22e24c90e0d3c742a67ddf6b8331d23e0137329aa5a0cd',
+      'sha256:8dc3c637bdeab67eb6c8af33f03fc2955a630f1d0a7cb3c98bdf3afedf08c752',
     context:
       'sha256:452fab522cb5cdb63dbf6ddf2887ca014076ed9b97c7aad73b4eea7eebeb3731',
   };

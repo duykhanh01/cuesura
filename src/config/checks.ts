@@ -27,7 +27,6 @@ export type Locator = (path: KeyPath) => Position;
 
 const OVERRIDE_ROOTS = [
   'roles',
-  'budgets',
   'escalation',
   'limits',
   'allow_models',

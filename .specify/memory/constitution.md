@@ -36,10 +36,11 @@ có thể phủ rộng không gian quyết định.
 **Lý do:** crash ở bất kỳ điểm nào không được làm mất trạng thái đã commit hay lặp push, PR,
 comment hoặc merge đã thành công.
 
-### III. Mọi thứ đều có giới hạn
+### III. Vòng lặp có giới hạn, task không có budget
 
-- Mọi vòng lặp, retry, lời gọi bên ngoài, lượt agent, wall time và lượt gọi decider MUST có trần.
-  Không bắt đầu attempt khi không đủ ngân sách. Khi policy yêu cầu approval (nấc
+- Vòng lặp giữa các step (`max_visits`) và lượt gọi decider MUST có trần. Lượt agent, wall time và
+  budget của task không có trần bắt buộc; retry hạ tầng dùng backoff tăng dần và trần số lần là tùy
+  chọn. Task cũ giữ trần đã đóng băng: không bắt đầu attempt khi vượt trần đó. Khi policy yêu cầu approval (nấc
   `needs_approval`), attempt MUST NOT bắt đầu nếu chưa có approval hợp lệ, tức gắn đúng
   task/revision, step, nấc và policy hash. Nấc `auto` không chờ duyệt.
 - Task đang chờ MUST có lý do, điều kiện tiếp tục và đường kết thúc. Trạng thái kết thúc không tự
@@ -47,12 +48,13 @@ comment hoặc merge đã thành công.
 - Usage MUST phân biệt `reported`, `estimated`, `unavailable`; không ghi 0 thay cho dữ liệu thiếu.
   Không cam kết trần USD cứng với harness chưa kiểm chứng được cơ chế giới hạn chi phí.
 
-**Lý do:** chi phí và thời gian phải dự đoán được; không task nào kẹt vô hạn hay đốt token âm thầm.
+**Lý do:** dừng worker giữa việc vì hết budget tốn hơn là để nó làm xong; workflow vẫn kết thúc nhờ
+`max_visits`, còn usage vẫn được ghi để người dùng thấy và hủy khi cần.
 
 ### IV. Bằng chứng, không phải lời agent
 
 - Exit code thành công hay việc agent nói "xong" MUST NOT đủ để qua bước. Kết quả phải đúng schema,
-  đúng attempt và đạt mọi gate bắt buộc theo policy/chế độ đã được người dùng xác nhận.
+  đúng attempt và đạt mọi gate bắt buộc theo policy/chế độ đã được xác nhận.
   `full-review` MUST có review; `direct-pr` không yêu cầu review, không giả bằng chứng approve
   và không miễn gate/CI hoặc cấp quyền merge.
 - Required checks ở trạng thái pending, cancelled, missing hoặc unknown MUST NOT được coi là pass.
@@ -65,7 +67,8 @@ comment hoặc merge đã thành công.
 
 - Workflow, policy, role/model binding và input gốc MUST bất biến theo revision. Thay đổi cần
   event, actor, lý do và revision mới. Agent MUST NOT tự đổi role, quyền, binding, approval, pool
-  hay ngân sách của mình.
+  hay ngân sách của mình. Assistant caller có token `operate` được xác nhận run config của task nó
+  điều phối, theo digest và có ghi actor; worker không có token và không gọi `cusr`.
 - Nâng effort/model/vendor MUST đi theo thang đã duyệt trước, do code kích hoạt theo phân loại lỗi.
   Lỗi hạ tầng hoặc hết hạn mức MUST NOT kích hoạt nâng model; không hạ model ngầm.
 - Effect merge do Cuesura gửi MUST chỉ do code thực hiện sau khi kiểm tra quyền, head/base SHA,
@@ -182,4 +185,11 @@ bằng quyền native của harness, bao gồm lựa chọn full access của ow
 host; không thay nguyên tắc II/V về idempotency, quyền application, review và merge. Đồng bộ SPEC §15.2,
 hợp đồng execution và runbook; các template đọc hiến chương hiện hành, không cần đổi cấu trúc.
 
-**Version**: 3.0.0 | **Ratified**: 2026-10-27 | **Last Amended**: 2026-11-01
+**Amendment 2026-11-01 (chủ dự án):** 3.0.0 → 4.0.0 vì định nghĩa lại nguyên tắc III và nới xác nhận
+run config ở nguyên tắc V: bỏ trần bắt buộc với lượt agent, wall time và budget của task, kể cả trần số
+lần của retry hạ tầng đã bỏ ở #47; token `operate` được xác nhận run config. Giữ nguyên: người dùng merge
+PR, review và gate theo chế độ, digest của run config, `max_visits`, `task approve` của admin cho nấc
+escalation cần duyệt. Đồng bộ SPEC §5.2, §9.4, skill `cusr`, runbook và dogfooding; các template đọc hiến
+chương hiện hành, không cần đổi cấu trúc.
+
+**Version**: 4.0.0 | **Ratified**: 2026-10-27 | **Last Amended**: 2026-11-01

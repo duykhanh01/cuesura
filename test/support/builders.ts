@@ -66,7 +66,7 @@ export function authz(
   return { actor, roles, issued_by: 'test-daemon', issued_at: T0 };
 }
 
-/** The owner's own token: the trusted channel that may confirm a run selection. */
+/** The owner's own token. */
 export function ownerAuthz(): AuthzContext {
   return {
     actor: 'owner',

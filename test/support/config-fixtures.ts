@@ -145,7 +145,7 @@ models: { sonnet: { harness: claude, id: sonnet, tier: 2 }, opus: { harness: cla
   impl: { base: software_dev@1 }
 `,
   profiles: `profiles:
-  standard: { workflow: impl, budgets: { max_agent_runs: 10, max_wall: 2h } }
+  standard: { workflow: impl }
 `,
 };
 

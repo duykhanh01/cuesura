@@ -929,10 +929,6 @@ export function checkSupport(
       );
   }
 
-  const costCap = (
-    config.raw.profiles[profileName ?? '']?.budgets as
-      { max_cost_usd?: unknown } | undefined
-  )?.max_cost_usd;
   for (const role of [...roles].sort()) {
     for (const h of roleHarnesses(validated, role, profile.allow_models))
       harness_roles[h] = [...(harness_roles[h] ?? []), role];
@@ -968,12 +964,6 @@ export function checkSupport(
       cap(
         'harness',
         `harness '${h}' only runs with external_verified, but runtime.harness_isolation.${h} is internal_required`,
-      );
-    }
-    if (costCap !== undefined && m.capabilities.cost_reporting !== 'reported') {
-      cap(
-        'budget',
-        `profile '${profileName ?? ''}' caps cost but harness '${h}' cost reporting is ${m.capabilities.cost_reporting}`,
       );
     }
     if (problems.length === before) capability_refs[h] = m.manifest_hash;

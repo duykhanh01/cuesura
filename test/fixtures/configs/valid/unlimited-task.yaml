@@ -1,4 +1,4 @@
-# Task budgets are optional.
+# A task has no agent-run or wall budget.
 version: 1
 harnesses: { claude: { cmd: claude, auth: subscription, pool: claude } }
 pools: { claude: 1 }
@@ -11,4 +11,4 @@ roles:
 workflows:
   impl: { base: software_dev@1 }
 profiles:
-  standard: { workflow: impl, budgets: { max_agent_runs: 10 } }
+  standard: { workflow: impl }

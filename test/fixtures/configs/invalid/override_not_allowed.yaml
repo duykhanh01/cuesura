@@ -1,6 +1,6 @@
 # expect: override_not_allowed 1 1
 # with-project: valid/cusr.yaml
-# overrides: {"budgets.max_wall": "9h"}
+# overrides: {"escalation.enabled": false}
 # caller: operate
 version: 1
 harnesses: { claude: { cmd: claude, auth: subscription, pool: claude } }
@@ -16,5 +16,4 @@ workflows:
 profiles:
   standard:
     workflow: impl
-    budgets: { max_agent_runs: 10, max_wall: 2h }
-    overridable: [budgets.max_agent_runs, roles.reviewer.binding]
+    overridable: [roles.reviewer.binding]

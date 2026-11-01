@@ -196,7 +196,6 @@ số lần retry hạ tầng hoặc số lần nâng model. Bỏ khóa hoặc đ
 profiles:
   dogfood:
     workflow: impl
-    budgets: { max_agent_runs: null, max_wall: null }
     escalation: { max_escalations_per_task: null }
     limits:
       classes: { infra_retries: null }
@@ -211,7 +210,7 @@ runtime:
   limits: { command_wall_ms: null }
 ```
 
-Đây là đoạn cấu hình minh họa để ghép vào user config hiện có. Giá trị số/duration khai rõ vẫn được
+Profile không còn khóa `budgets`: xóa khóa này khỏi user config trước khi nâng release, nếu không config sẽ bị từ chối khi nạp. Đây là đoạn cấu hình minh họa để ghép vào user config hiện có. Giá trị số/duration khai rõ vẫn được
 áp dụng; `null` ở profile con xóa trần thừa kế từ profile cha. Backoff vẫn tăng khoảng nghỉ giữa
 các lần retry. `stall_timeout` chỉ dừng worker không có tín hiệu tiến triển; hủy task vẫn hoạt động.
 Các giới hạn workflow (`max_visits`, thang model, xử lý lỗi chất lượng), quyền và dung lượng log/context

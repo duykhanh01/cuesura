@@ -1,4 +1,4 @@
-# expect: schema_invalid 17 26
+# expect: schema_invalid 16 26
 version: 1
 harnesses: { claude: { cmd: claude, auth: subscription, pool: claude } }
 pools: { claude: 1 }
@@ -13,5 +13,4 @@ workflows:
 profiles:
   standard:
     workflow: impl
-    budgets: { max_agent_runs: 10, max_wall: 2h }
     limits: { classes: { quality_tries_per_rung: 5 } }

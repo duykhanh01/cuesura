@@ -143,7 +143,6 @@ describe('profile', () => {
     expect(r.ok && r.value.config.profiles.heavy).toMatchObject({
       workflow: 'impl',
       allow_models: ['sonnet', 'sol', 'opus'],
-      max_agent_runs: 12,
       escalation: {
         auto_up_to_tier: 3,
         above: 'ask_human',
@@ -156,7 +155,7 @@ describe('profile', () => {
     const r = validateConfig({
       user: minUser({
         profiles:
-          'profiles:\n  standard: { workflow: impl, budgets: { max_agent_runs: 1, max_wall: 1h }, extends: x }\n  x: { extends: standard }\n',
+          'profiles:\n  standard: { workflow: impl, extends: x }\n  x: { extends: standard }\n',
       }),
       packs: {},
     });
@@ -170,7 +169,7 @@ describe('profile', () => {
       { length: 4 },
       (_, i) => `  p${i}: { extends: p${i + 1} }\n`,
     ).join('');
-    const profiles = `profiles:\n  standard: { workflow: impl, budgets: { max_agent_runs: 1, max_wall: 1h } }\n${chain}  p4: { extends: standard }\n`;
+    const profiles = `profiles:\n  standard: { workflow: impl }\n${chain}  p4: { extends: standard }\n`;
     const r = validateConfig({
       user: minUser({ profiles }),
       packs: {},
@@ -226,7 +225,7 @@ describe('Task-creation overrides (stage 4)', () => {
   });
 
   it('disallowed keys return override_not_allowed', () => {
-    const r = run({ 'budgets.max_wall': '9h' }, ['admin']);
+    const r = run({ 'escalation.enabled': false }, ['admin']);
     expect(
       !r.ok &&
         r.error.code === 'config_invalid' &&
@@ -235,16 +234,16 @@ describe('Task-creation overrides (stage 4)', () => {
   });
 
   it('operate-only callers cannot widen permissions through overrides', () => {
-    const r = run({ 'budgets.max_agent_runs': 50 }, ['operate']);
+    const r = run({ 'escalation.max_escalations_per_task': 50 }, ['operate']);
     expect(!r.ok && r.error).toEqual({
       code: 'override_exceeds_caller',
-      keys: ['budgets.max_agent_runs'],
+      keys: ['escalation.max_escalations_per_task'],
     });
   });
 
-  it('admins may increase budgets through overrides', () => {
-    const r = run({ 'budgets.max_agent_runs': 50 }, ['admin']);
-    expect(r.ok && r.value.policy.limits.max_agent_runs).toBe(50);
+  it('admins may raise the escalation cap through overrides', () => {
+    const r = run({ 'escalation.max_escalations_per_task': 50 }, ['admin']);
+    expect(r.ok && r.value.policy.limits.max_escalations).toBe(50);
   });
 
   it('read-only callers cannot apply overrides', () => {
@@ -265,7 +264,7 @@ describe('Task-creation overrides (stage 4)', () => {
       roles: {
         coder: { permissions: 'read_only', binding: [{ model: 'sonnet' }] },
       },
-      profile: { budgets: { max_agent_runs: 10 } },
+      profile: { escalation: { max_escalations_per_task: 10 } },
       project: {},
     };
     const operate = authz(['operate']);
@@ -326,26 +325,26 @@ describe('Task-creation overrides (stage 4)', () => {
       expect(r.ok).toBe(true);
     });
 
-    it('checks whole roles and budgets overrides through parent objects', () => {
+    it('checks whole roles and escalation overrides through parent objects', () => {
       const roles = applyOverrides(
         target,
         { roles: { coder: { permissions: 'write', binding: [] } } },
         ['roles'],
         operate,
       );
-      const budgets = applyOverrides(
+      const escalation = applyOverrides(
         target,
-        { budgets: { max_agent_runs: 99 } },
-        ['budgets'],
+        { escalation: { max_escalations_per_task: 99 } },
+        ['escalation'],
         operate,
       );
       expect(!roles.ok && roles.error).toEqual({
         code: 'override_exceeds_caller',
         keys: ['roles'],
       });
-      expect(!budgets.ok && budgets.error).toEqual({
+      expect(!escalation.ok && escalation.error).toEqual({
         code: 'override_exceeds_caller',
-        keys: ['budgets'],
+        keys: ['escalation'],
       });
       expect(
         applyOverrides(
@@ -363,7 +362,7 @@ describe('Task-creation overrides (stage 4)', () => {
         'coder: { permissions: read_only, binding: [{ model: sonnet }] }',
       );
       const profiles =
-        'profiles:\n  standard: { workflow: impl, overridable: [roles.coder], budgets: { max_agent_runs: 5, max_wall: 1h } }\n';
+        'profiles:\n  standard: { workflow: impl, overridable: [roles.coder] }\n';
       const r = validateConfig({
         user: minUser({ roles, profiles }),
         project: MIN_PROJECT,
@@ -436,7 +435,7 @@ describe('Task-creation overrides (stage 4)', () => {
     it('freeze blocks permission upgrades through a full roles-map override (FR-001)', () => {
       const roles = `${MIN_PARTS.roles}  team.coder: { permissions: read_only, binding: [{ model: sonnet }] }\n`;
       const profiles =
-        'profiles:\n  standard: { workflow: impl, overridable: [roles], budgets: { max_agent_runs: 5, max_wall: 1h } }\n';
+        'profiles:\n  standard: { workflow: impl, overridable: [roles] }\n';
       const r = validateConfig({
         user: minUser({ roles, profiles }),
         project: MIN_PROJECT,
