@@ -6,6 +6,8 @@ import type {
   ProjectList,
 } from '../client/schemas.ts';
 import type { SafeText } from '../terminal/safe-text.ts';
+import type { TaskDetail } from './detail.ts';
+import type { LogState } from './logs.ts';
 
 /** Automatic reconnect attempts in one round; after these the session waits for the user (FR-009). */
 export const RECONNECT_ATTEMPTS = 30;
@@ -57,7 +59,7 @@ export function retryConnection(c: Connection): Connection | null {
   return null;
 }
 
-export type Screen = 'home' | 'help' | 'filters';
+export type Screen = 'home' | 'help' | 'filters' | 'detail' | 'logs';
 
 export type Filters = {
   readonly project: string | null;
@@ -116,6 +118,15 @@ export type TuiState = {
   readonly board: BoardData | null;
   readonly health: Health | null;
   readonly size: Size;
+  /** The open Task detail; only while it is on the screen stack. */
+  readonly detail: TaskDetail | null;
+  /** The open Logs; only while it is on the screen stack. */
+  readonly logs: LogState | null;
+  /**
+   * Counts every opening of Task detail or Logs and every change of token. Each screen keeps the value it got, so
+   * an answer to a read of a former one can never pass for its own.
+   */
+  readonly screenSession: number;
 };
 
 export function initialState(size: Size): TuiState {
@@ -139,6 +150,9 @@ export function initialState(size: Size): TuiState {
     board: null,
     health: null,
     size,
+    detail: null,
+    logs: null,
+    screenSession: 0,
   };
 }
 

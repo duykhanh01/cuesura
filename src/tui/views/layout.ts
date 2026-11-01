@@ -162,9 +162,22 @@ function hints(s: TuiState): SafeText {
   }
   const keys = ['q quit', '? help'];
   if (screen === 'home') {
-    const finished = s.finishedSelected ? ['Enter fold/unfold'] : [];
-    keys.unshift('↑↓ move', 'PgUp/PgDn page', ...finished, 'f filter');
-  } else keys.unshift('Esc back');
+    const enter = s.finishedSelected
+      ? ['Enter fold/unfold']
+      : s.selectedTaskId === null
+        ? []
+        : ['Enter open'];
+    keys.unshift('↑↓ move', 'PgUp/PgDn page', ...enter, 'f filter');
+  } else if (screen === 'detail')
+    keys.unshift('Esc back', '↑↓ scroll', 'PgUp/PgDn', 'g/G top/end', 'l logs');
+  else if (screen === 'logs')
+    keys.unshift(
+      'Esc back',
+      ...(s.logs?.picker === null
+        ? ['↑↓ PgUp/PgDn scroll', 'Space pause', 'F live', 't attempt']
+        : ['↑↓ choose', 'Enter open']),
+    );
+  else keys.unshift('Esc back');
   if (waiting) keys.push('R retry connection');
   return uiText(keys.join('  '));
 }

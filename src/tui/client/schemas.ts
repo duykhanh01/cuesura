@@ -134,6 +134,8 @@ const RunConfigSchema = z.looseObject({
     reviewer: ChoiceSchema.nullable(),
     fallbacks: z.array(ChoiceSchema),
   }),
+  // What the mode means for review, by the daemon's word; absent or `null` before the run is frozen.
+  review: safe.nullable().optional(),
 });
 
 export const TaskContentSchema = z.looseObject({
@@ -243,6 +245,31 @@ export const TaskShowSchema = z.looseObject({
   head_sha: safe.nullable(),
   step: safe.nullable(),
   run_config: RunConfigSchema.nullable(),
+  completion: z
+    .looseObject({
+      merged_head_sha: safe,
+      checked_head_sha: safe.nullable(),
+      merge_commit_sha: safe.nullable(),
+      unverified: z.looseObject({ reason: safe }).nullable(),
+      finalized_at: z.number().nullable(),
+    })
+    .nullable(),
+  provenance: z.looseObject({
+    usage: z.array(
+      z.looseObject({
+        attempt_id: z.string(),
+        step: safe,
+        binding: safe,
+        usage: z
+          .looseObject({
+            basis: z.enum(['reported', 'estimated', 'unavailable']),
+            tokens: z.number().optional(),
+            cost: z.number().optional(),
+          })
+          .nullable(),
+      }),
+    ),
+  }),
 });
 export type TaskShow = z.infer<typeof TaskShowSchema>;
 
@@ -266,6 +293,112 @@ export const TaskExplainSchema = z.looseObject({
       note: safeBlock,
     }),
   ),
+  limits_frozen: z.boolean(),
+  bindings_used: z.array(
+    z.looseObject({
+      step: safe,
+      rung: z.number().int(),
+      binding: safe,
+      requested: z.number().int(),
+      invoked: z.number().int(),
+    }),
+  ),
+  remaining: z.looseObject({
+    agent_runs: z.number(),
+    reserved: z.number(),
+    escalations: z.number(),
+  }),
+  escalations: z.array(
+    z.looseObject({
+      step: safe,
+      from: z.number().int(),
+      to: z.number().int(),
+      reason: safe,
+      signature: safe.nullable(),
+    }),
+  ),
+  pending_effects: z.array(z.looseObject({ kind: safe, status: safe })),
+  cancellation: z
+    .looseObject({ requested_at: z.number(), late: z.boolean() })
+    .nullable(),
+  blockers: z.array(z.looseObject({ code: safe, source: safe })),
+  pr: z.looseObject({
+    ref: safe.nullable(),
+    head_sha: safe.nullable(),
+    base_sha: safe.nullable(),
+    observed: z
+      .looseObject({ status: safe, observed_head: safe.nullable() })
+      .nullable(),
+    observation_expired: z.boolean(),
+  }),
+  deadline: z.looseObject({
+    state: z.enum(['not_started', 'running', 'passed']),
+    remaining_ms: z.number().nullable(),
+    max_wall_ms: z.number().nullable(),
+  }),
+  slot: z.looseObject({
+    holding: z.boolean(),
+    queued: z.looseObject({ position: z.number().nullable() }).nullable(),
+    initial_wait_ms: z.number(),
+    resumed_wait_ms: z.number(),
+  }),
+  prerequisites: z.array(
+    z.looseObject({
+      task_id: z.string(),
+      status: safe,
+      unverified: z.looseObject({ reason: safe }).nullable(),
+      merged_head_sha: safe.nullable(),
+      checked_head_sha: safe.nullable(),
+    }),
+  ),
+  merge_cleanup: z
+    .looseObject({
+      merged_head_sha: safe,
+      pending_operations: z.array(z.looseObject({ kind: safe, status: safe })),
+    })
+    .nullable(),
+  merge: z
+    .looseObject({
+      method: safe.nullable(),
+      proposed: z.looseObject({ title: safe, message: safeBlock }).nullable(),
+      observed_method: safe.nullable(),
+    })
+    .nullable(),
+  evidence: z.looseObject({
+    gates: z.array(
+      z.looseObject({
+        revision: z.number().int(),
+        step: safe,
+        visit: z.number().int(),
+        passed: z.boolean(),
+        valid: z.boolean(),
+        failed: z
+          .array(
+            z.looseObject({ gate: safe, log_excerpt: safeBlock.nullable() }),
+          )
+          .optional(),
+      }),
+    ),
+    reviews: z.array(
+      z.looseObject({
+        revision: z.number().int(),
+        head_sha: safe,
+        verdict: safe,
+        valid: z.boolean(),
+      }),
+    ),
+    review_skipped: z.array(
+      z.looseObject({ revision: z.number().int(), valid: z.boolean() }),
+    ),
+    ci: z.array(
+      z.looseObject({
+        revision: z.number().int(),
+        head_sha: safe,
+        checks: z.array(z.looseObject({ name: safe, state: safe })),
+        valid: z.boolean(),
+      }),
+    ),
+  }),
 });
 export type TaskExplain = z.infer<typeof TaskExplainSchema>;
 

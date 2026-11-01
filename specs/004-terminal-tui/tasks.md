@@ -2,7 +2,7 @@
 
 **Input**: [spec.md](spec.md), [plan.md](plan.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/](contracts/), [quickstart.md](quickstart.md)
 
-**Trạng thái**: Backlog tạo ngày 2026-11-01. Phase 1, Phase 2 và Phase 3 (T001–T039) đã xong; checkpoint US1 đạt trên Unix socket thật, kết quả ở [báo cáo nghiệm thu](acceptance-report.md#us1-t031t039). Từ Phase 4 trở đi chưa làm. Phạm vi là mốc nghiệm thu đầu US1–US5; US6 thuộc [mốc sau](#mốc-sau-us6).
+**Trạng thái**: Backlog tạo ngày 2026-11-01. Phase 1, Phase 2 và Phase 3 (T001–T039) đã xong; checkpoint US1 đạt trên Unix socket thật, kết quả ở [báo cáo nghiệm thu](acceptance-report.md#us1-t031t039). Phase 4 (T040–T048) đã xong và đạt checkpoint trên Unix socket thật, xem [báo cáo nghiệm thu](acceptance-report.md#us2-t040t048). Từ Phase 5 trở đi chưa làm. Phạm vi là mốc nghiệm thu đầu US1–US5; US6 thuộc [mốc sau](#mốc-sau-us6).
 
 **Tests**: Spec yêu cầu mọi tiêu chí được kiểm trong terminal thật hoặc pseudo-terminal với daemon thật, và hiến chương nguyên tắc VII yêu cầu bằng chứng theo tầng, nên test là bắt buộc. Viết test trước, thấy nó thất bại rồi mới triển khai. Test reducer và view thuần chỉ để hồi quy, không dùng để tuyên bố đạt SC.
 
@@ -104,18 +104,18 @@
 
 ### Tests for User Story 2
 
-- [ ] T040 [P] [US2] Test PTY tại `test/contract/tui/us2-detail.test.ts`: US2 số 1, 2, 3, 5, 6, 7, 8; SC-001 đối chiếu `task explain` ở 100% mẫu; `review` của `direct-pr` không hiện như đã đạt; usage thiếu ghi `unavailable`, không ghi 0.
-- [ ] T041 [P] [US2] Test PTY tại `test/contract/tui/us2-explain-refresh.test.ts`: vị trí hàng đợi đổi và prerequisite hoàn tất trong khi `version` của task đang mở không đổi thì `task_explain` được đọc lại; có thời điểm đọc; phần phụ thuộc thời gian cập nhật trong 5 giây (FR-012).
-- [ ] T042 [P] [US2] Test PTY tại `test/contract/tui/us2-logs.test.ts`: US2 số 4, 9, 10; khoảng trống hiển thị rõ; phiên theo dõi nối lại đúng vị trí; EC-011 log dồn dập không treo phím; bộ đệm không vượt trần.
-- [ ] T043 [P] [US2] Test an toàn nội dung tại `test/contract/tui/control-chars.test.ts`: bộ mẫu có ký tự điều khiển và điều khiển hướng chữ trong tiêu đề, log, nội dung PR; đối chiếu từng ô; không gửi được lệnh tới terminal (SC-010, EC-001, FR-037). Kiểm không lộ secret (FR-038). US4 thêm mẫu câu hỏi ở T054.
+- [X] T040 [P] [US2] Test PTY tại `test/contract/tui/us2-detail.test.ts`: US2 số 1, 2, 3, 5, 6, 7, 8; SC-001 đối chiếu `task explain` ở 100% mẫu; `review` của `direct-pr` không hiện như đã đạt; usage thiếu ghi `unavailable`, không ghi 0.
+- [X] T041 [P] [US2] Test PTY tại `test/contract/tui/us2-explain-refresh.test.ts`: vị trí hàng đợi đổi và prerequisite hoàn tất trong khi `version` của task đang mở không đổi thì `task_explain` được đọc lại; có thời điểm đọc; phần phụ thuộc thời gian cập nhật trong 5 giây (FR-012).
+- [X] T042 [P] [US2] Test PTY tại `test/contract/tui/us2-logs.test.ts`: US2 số 4, 9, 10; khoảng trống hiển thị rõ; phiên theo dõi nối lại đúng vị trí; EC-011 log dồn dập không treo phím; bộ đệm không vượt trần.
+- [X] T043 [P] [US2] Test an toàn nội dung tại `test/contract/tui/control-chars.test.ts`: bộ mẫu có ký tự điều khiển và điều khiển hướng chữ trong tiêu đề, log, nội dung PR; đối chiếu từng ô; không gửi được lệnh tới terminal (SC-010, EC-001, FR-037). Kiểm không lộ secret (FR-038). US4 thêm mẫu câu hỏi ở T054.
 
 ### Implementation for User Story 2
 
-- [ ] T044 [US2] Nối làm mới màn chi tiết tại `src/tui/client/refresh.ts`: `task_show` và `task_progress` đọc lại khi `version` đổi; `task_explain` đọc lại khi `watermark` đổi và ít nhất 5 giây một lần, không tự đếm ngược (FR-012, R-03).
-- [ ] T045 [US2] Dựng màn Task detail tại `src/tui/views/task-detail.ts`: tiến trình bước; lý do, điều kiện tiếp tục, lối ra, blocker và giới hạn từ `task_explain`, không có logic riêng; harness, model, effort theo bước, lượt, escalation, usage phân biệt `reported`, `estimated`, `unavailable` (FR-011, FR-012, FR-013).
-- [ ] T046 [US2] Thêm phần PR và bằng chứng vào `src/tui/views/task-detail.ts`: lịch sử event theo thứ tự commit, head, base, gate, CI, review theo chế độ, hiệu lực xanh, method và nội dung merge đề xuất, `merged_head_unverified`, yêu cầu hủy đến quá muộn; không hứa tự merge và không hiện task là xong khi chờ merge (FR-015).
-- [ ] T047 [US2] Triển khai trạng thái log tại `src/tui/model/logs.ts` theo [data model](data-model.md#trạng-thái-log): `mode` là `live` hoặc `paused`; `buffer` "Tối đa 5.000 bản ghi hoặc 8 MiB"; `paused` hoặc có lọc attempt chỉ đánh dấu `new_activity`, không đưa bản ghi vào bộ đệm. Test tại `test/unit/tui/logs.test.ts` (FR-014, FR-039).
-- [ ] T048 [US2] Dựng màn Logs tại `src/tui/views/logs.ts`: dòng phân cách khi `(step, attempt_id)` đổi, chọn attempt, khoảng trống từ `gap`, báo có hoạt động mới; chỉ màn đang mở mới poll; theo dõi log không chiếm slot (FR-014, EC-011).
+- [X] T044 [US2] Nối làm mới màn chi tiết tại `src/tui/client/refresh.ts`: `task_show` và `task_progress` đọc lại khi `version` đổi; `task_explain` đọc lại khi `watermark` đổi và ít nhất 5 giây một lần, không tự đếm ngược (FR-012, R-03).
+- [X] T045 [US2] Dựng màn Task detail tại `src/tui/views/task-detail.ts`: tiến trình bước; lý do, điều kiện tiếp tục, lối ra, blocker và giới hạn từ `task_explain`, không có logic riêng; harness, model, effort theo bước, lượt, escalation, usage phân biệt `reported`, `estimated`, `unavailable` (FR-011, FR-012, FR-013).
+- [X] T046 [US2] Thêm phần PR và bằng chứng vào `src/tui/views/task-detail.ts`: lịch sử event theo thứ tự commit, head, base, gate, CI, review theo chế độ, hiệu lực xanh, method và nội dung merge đề xuất, `merged_head_unverified`, yêu cầu hủy đến quá muộn; không hứa tự merge và không hiện task là xong khi chờ merge (FR-015).
+- [X] T047 [US2] Triển khai trạng thái log tại `src/tui/model/logs.ts` theo [data model](data-model.md#trạng-thái-log): `mode` là `live` hoặc `paused`; `buffer` "Tối đa 5.000 bản ghi hoặc 8 MiB"; `paused` hoặc có lọc attempt chỉ đánh dấu `new_activity`, không đưa bản ghi vào bộ đệm. Test tại `test/unit/tui/logs.test.ts` (FR-014, FR-039).
+- [X] T048 [US2] Dựng màn Logs tại `src/tui/views/logs.ts`: dòng phân cách khi `(step, attempt_id)` đổi, chọn attempt, khoảng trống từ `gap`, báo có hoạt động mới; chỉ màn đang mở mới poll; theo dõi log không chiếm slot (FR-014, EC-011).
 
 **Checkpoint**: US1 và US2 là bản theo dõi chỉ đọc đầy đủ, nhưng chưa đạt mốc đầu.
 

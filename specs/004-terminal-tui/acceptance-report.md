@@ -200,3 +200,64 @@ Home từng bỏ qua mọi lỗi đọc `project_list`: schema không tương th
 | `pnpm vitest run --project reliability test/reliability/tui/reconnect-window.test.ts` | 1/1 đạt, 426 giây |
 
 Đã kiểm liên kết nội bộ của các tài liệu sửa, bảng Markdown và `git diff --check`. Chưa chạy toàn bộ project `reliability`; chỉ chạy cửa sổ reconnect nêu trên.
+
+## US2 (T040–T048)
+
+**Kết quả: cả chín task đạt test và đạt checkpoint Phase 4, sau khi rebase lên Phase 3 đã nghiệm thu (`ef737d2`); chưa đạt mốc đầu vì chưa có US3–US5.** Mọi lần chạy trong bảng dưới trên host thật, Unix socket thật, không nạp shim, trên code của commit chứa dòng này; sau các lần chạy đó commit chỉ sửa tài liệu.
+
+| Task | Lệnh hoặc nơi kiểm | Kết quả |
+| --- | --- | --- |
+| T040 | `test/contract/tui/us2-detail.test.ts` | 20/20 đạt |
+| T041 | `test/contract/tui/us2-explain-refresh.test.ts` | 5/5 đạt |
+| T042 | `test/contract/tui/us2-logs.test.ts` | 11/11 đạt |
+| T043 | `test/contract/tui/control-chars.test.ts` | 16/16 đạt |
+| T044 | `test/unit/tui/screen-reads.test.ts` 18/18, cùng T041 | Đạt |
+| T045, T046 | T040, T043 | Đạt |
+| T047 | `test/unit/tui/logs.test.ts` | 23/23 đạt |
+| T048 | T042, T043 | Đạt |
+| Sửa theo review | `test/unit/tui/screen-sessions.test.ts` | 13/13 đạt |
+
+Test T040–T043 được viết trước. Trước khi triển khai chỉ chạy một mẫu 5 test đại diện cho cả bốn file, cả 5 thất bại vì chưa có màn chi tiết; không chạy toàn bộ test ở bước đó. Test unit T044, T047 được viết cùng lúc với model, không qua bước thấy thất bại.
+
+| Gate | Kết quả |
+| --- | --- |
+| `pnpm typecheck` | Sạch |
+| `pnpm lint` | Sạch |
+| `pnpm build` | Đạt |
+| `pnpm test` | 164 file đạt, 1 bỏ qua; 2561 test đạt, 4 bỏ qua, chạy 1 lần sau rebase. Các file Phase 4 chạy riêng thêm 1 lần: 7 file, 106/106 đạt |
+| `pnpm vitest run --project reliability test/reliability/tui/reconnect-window.test.ts` | 1/1 đạt, 426 giây, chạy 1 lần, vì nhánh này sửa `main.ts` |
+
+**SC-001, phần tự động:** với đủ 46 `DetailCode`, đối chiếu màn chi tiết với `task explain` của chính task đó (lý do, mã, chi tiết, từng `allowed_actions` với `note` và `command`, giới hạn) đều khớp. Cách dựng mẫu: `wait` được ghi thẳng vào projection vì nhiều mã cần chuỗi lỗi dài mới tới được, nên đây là bằng chứng về cách daemon giải thích và giao diện hiển thị, không phải về đường engine tới mã đó. Hai mẫu đi qua engine thật: câu hỏi và escalation. SC-001 còn cần phần "không chạy lệnh nào khác" ở tay người dùng, chưa kiểm.
+
+**SC-010:** 12 mẫu ký tự điều khiển trong tiêu đề, trong log (chuỗi, object, nhiều dòng), trong tiêu đề PR và nội dung merge; kiểm byte ra terminal, chế độ alternate screen và từng ô. Mọi mẫu đạt.
+
+**Phát hiện khi test và đã sửa:**
+
+| Phát hiện | Sửa |
+| --- | --- |
+| `wrap` bỏ khoảng trắng đầu dòng nên mất thụt lề của bước | Thụt lề được giữ ở `views/task-detail.ts`, không đổi `width.ts` |
+| Tám ký tự đầu của attempt ID đều giống nhau với UUIDv7 tạo gần nhau, dòng phân cách không phân biệt được attempt | Dùng tám ký tự cuối |
+| `cancellation.late` chỉ đúng sau `CancelRecordedLate`, nên hủy đến trong lúc drain sẽ hiện như còn đang hủy dù merge đã được chứng minh | Có `completion` thì hiện "too late" luôn |
+| Câu trả lời đang trên đường cho lần hỏi lúc tạm dừng có thể bật "New activity" hoặc chèn trang cũ sau khi bấm `F` | `followLogs` luôn tăng `generation` |
+
+**Giới hạn của bằng chứng:**
+
+- Đọc log tối đa 200 bản ghi mỗi giây theo R-03, bắt đầu từ đầu log. Task có nhiều log phải chờ khá lâu mới tới phần cuối: 5.300 bản ghi mất khoảng 27 giây.
+- Trần bộ đệm trong PTY được đối chiếu qua số hiển thị `Records: a–b`, không đo bộ nhớ process. Trần 8 MiB chỉ có test unit. SC-013 phiên 8 giờ thuộc T078.
+- Thời gian phản hồi phím trong test log dồn dập chỉ kiểm dưới 1 giây ở 8 lần bấm, không phải số 200 ms của SC-013.
+- Log đọc dồn dập trong test là log đã có sẵn; chỉ các test nhỏ mới ghi log trong lúc màn hình đang mở.
+- `merged_head_unverified` và hủy quá muộn có test PTY. Trạng thái trung gian (hủy trong lúc drain, chưa DONE) chưa có test PTY riêng.
+- Phản hồi cũ đến sau khi đổi token chỉ có test ở mức reducer và `ScreenReads`; test PTY đổi token kiểm kết quả trên màn hình, không ép được đúng thời điểm đó.
+
+**Sửa theo review commit Phase 4:** test tái hiện được viết trước, và đã thấy thất bại trên code cũ, trừ phần ghi rõ.
+
+| Phát hiện | Sửa | Test |
+| --- | --- | --- |
+| Đổi token khi đang đọc chi tiết: phản hồi của token cũ qua được guard theo task ID và điền lại màn hình | Mỗi lần mở màn và mỗi lần đổi token có `screenSession` riêng; phản hồi khác session bị bỏ. `ScreenReads` dùng lại `RefreshCredential` của Phase 3: phản hồi hỏi bằng token đã đổi báo `credential_changed` trước khi tới reducer | `screen-sessions.test.ts`, `screen-reads.test.ts`, test PTY đổi token trong `us2-detail.test.ts` và `us2-logs.test.ts` |
+| Đổi token vẫn để lại tiêu đề đọc bằng token cũ, ở cả Task detail và Logs. Phát hiện khi viết test của dòng trên | Tiêu đề thay bằng task ID cho tới khi đọc lại | Như trên |
+| Đóng rồi mở lại Logs của cùng task: phản hồi của màn cũ được nhận vì trùng `generation`, nên mất các bản ghi trước đó | Như dòng đầu: session duy nhất qua các lần mở, Task detail cũng vậy | `screen-sessions.test.ts` |
+| `F` sau khi đọc attempt, trên log không còn bản ghi mới: màn hình trống và không cuộn được | Đọc lại một cửa sổ lịch sử rồi đọc tiếp từ đúng cursor; `↑` trên buffer rỗng cũng xin phần cũ | `screen-sessions.test.ts`, test PTY trong `us2-logs.test.ts` |
+| Paused giữa bản ghi xuống dòng rồi nới rộng terminal: `anchor.row` vượt số dòng mới nên bản ghi bị bỏ qua | Kẹp về dòng cuối của bản ghi đó khi vẽ và khi cuộn; vị trí vì vậy có thể lệch trong bản ghi, không mất bản ghi | `screen-sessions.test.ts`, test PTY trong `us2-logs.test.ts` |
+| Chu kỳ `task_explain` tính từ lúc nhận phản hồi, nên phản hồi 1 giây tạo chu kỳ 5,5 giây | Chu kỳ tính từ lúc hỏi; `Read at` vẫn là lúc có phản hồi | `screen-sessions.test.ts` |
+
+Riêng Logs khi đổi token: `forgetLogs` đã tăng `generation` nên phản hồi cũ vốn bị bỏ; trên code cũ test chỉ thất bại ở tiêu đề.

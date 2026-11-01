@@ -8,6 +8,19 @@ import { CONTROL_SOCKET } from '../../src/cli/output.ts';
 import { runCli } from '../../src/cli/program.ts';
 import type { CanonicalTask } from '../../src/domain/task.ts';
 import { buildTask, freezeOk, uuidOf } from './builders.ts';
+import { FileContentStore } from '../../src/adapters/publish-content.ts';
+import { ingestOperationSpool } from '../../src/daemon/ingest.ts';
+import { runLocation } from '../../src/daemon/retention.ts';
+import { DETAIL_CODES, type OperationMirror } from '../../src/domain/state.ts';
+import {
+  EventLogWriter,
+  RunDir,
+  type FileLimits,
+} from '../../src/runner/files.ts';
+import { Redactor } from '../../src/runner/redact.ts';
+import type { EpochMs, Uuid } from '../../src/shared/brand.ts';
+import { openFileStoreForTest, storeDb } from '../../src/store/testing.ts';
+import { STORE_FILE } from '../../src/daemon/main.ts';
 import { PACKS } from './config-fixtures.ts';
 import { ControlProxy } from './control-proxy.ts';
 import { SeededDaemon, type Reply, type TokenSpec } from './daemon-task.ts';
@@ -18,7 +31,7 @@ import {
   MANIFESTS,
   userConfig,
 } from './preflight-fakes.ts';
-import { PtySession } from './pty.ts';
+import { KEY, PtySession } from './pty.ts';
 import {
   createGrantStart,
   proposeAndConfirm,
@@ -30,10 +43,17 @@ import {
   gatesData,
   PREPARE_DATA,
   publishData,
+  reviewData,
   USAGE,
 } from './scenario.ts';
 import type { StoreDriver } from './store-driver.ts';
-import { createAndStart, toPublish, WALL } from './store-flows.ts';
+import {
+  checkpointGates,
+  createAndStart,
+  currentReviewInput,
+  toPublish,
+  WALL,
+} from './store-flows.ts';
 
 // What the US1 tests share: a real daemon seeded through the real store, `cusr` on a real PTY, and the CLI
 // to compare the screen with.
@@ -79,6 +99,7 @@ export function useTui() {
         o.tokens ?? [],
         {},
         (store) => ({
+          logs: { dataDir: sd.dataDir, redactor: new Redactor() },
           confirm: {
             store,
             ports: { git: fakeGit(), github: fakeGitHub(), host: fakeHost() },
@@ -431,4 +452,230 @@ export function rowOf(screen: string, title: string): string {
 /** The screen line carrying the selection. */
 export function selectedLine(screen: string): string {
   return screen.split('\n').find((l) => l.startsWith('›')) ?? '';
+}
+
+// What the US2 tests add.
+
+/**
+ * One task per detail code of FR-029 feature 002. Most of these take a long failure story to reach, and what
+ * is compared is what the daemon explains from the state, so the wait goes straight into the projection.
+ */
+export function seedEveryDetailCode(sd: SeededDaemon): readonly string[] {
+  sd.seed((d) => {
+    DETAIL_CODES.forEach((code, i) => {
+      const t = buildTask({ id: uuidOf(100 + i), title: `Code ${code}` });
+      d.must(t.id, { kind: 'create_task', task: t });
+    });
+  });
+  const store = openFileStoreForTest(join(sd.dataDir, STORE_FILE));
+  const db = storeDb(store);
+  try {
+    DETAIL_CODES.forEach((code, i) => {
+      const id = uuidOf(100 + i);
+      const row = db
+        .prepare('SELECT state_json FROM tasks WHERE id = ?')
+        .get(id) as { state_json: string };
+      const state = {
+        ...(JSON.parse(row.state_json) as Record<string, unknown>),
+        status: 'WAITING',
+        wait: {
+          reason: 'policy',
+          detail: { code, because: `detail of ${code}` },
+          resume_when: [],
+          exit_paths: [],
+          resume: { kind: 'none' },
+        },
+      };
+      db.prepare(
+        'UPDATE tasks SET state_json = ?, status = ? WHERE id = ?',
+      ).run(JSON.stringify(state), 'WAITING', id);
+    });
+  } finally {
+    store.close();
+  }
+  return DETAIL_CODES;
+}
+
+/** A task through an agent run that reports this usage; `null` leaves the attempt running, so none is known. */
+export function seedAgentUsage(
+  d: StoreDriver,
+  t: CanonicalTask,
+  usage: Record<string, unknown> | null,
+): void {
+  toCode(d, t);
+  if (usage === null) return;
+  d.complete(
+    t.id,
+    d.pendingOne(t.id, 'start_agent').id,
+    'succeeded',
+    agentData('needs_input', { questions: ['More?'], usage }),
+  );
+}
+
+const GREEN_HEAD = 'a'.repeat(40);
+
+/** Up to a green PR waiting for the user's merge, with what the worker proposed for its merge. */
+export function seedGreenPr(
+  d: StoreDriver,
+  sd: SeededDaemon,
+  t: CanonicalTask,
+  mode: 'direct-pr' | 'full-review',
+  content: { readonly title: string; readonly message: string },
+): void {
+  createGrantStart(d, t, mode, {}, { merge_method: 'squash' });
+  const stored = new FileContentStore(join(sd.base, 'content')).put({
+    pr_title: content.title,
+    pr_body: 'body',
+    commit_message: content.message,
+  });
+  d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE_DATA);
+  d.complete(
+    t.id,
+    d.pendingOne(t.id, 'start_agent').id,
+    'succeeded',
+    agentData('done', { content: stored }),
+  );
+  d.complete(
+    t.id,
+    d.pendingOne(t.id, 'run_gates').id,
+    'succeeded',
+    checkpointGates(GREEN_HEAD),
+  );
+  if (mode === 'full-review')
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      reviewData('approve', GREEN_HEAD, {
+        input_digest: currentReviewInput(d, t.id),
+      }),
+    );
+  d.complete(
+    t.id,
+    d.pendingOne(t.id, 'publish').id,
+    'succeeded',
+    publishData(GREEN_HEAD),
+  );
+  d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
+    pr_ref: 'acme#7',
+    head_sha: GREEN_HEAD,
+  });
+  d.complete(
+    t.id,
+    d.pendingOne(t.id, 'await_ci').id,
+    'succeeded',
+    ciData(
+      GREEN_HEAD,
+      { build: 'success', test: 'success' },
+      {},
+      {
+        required: {
+          kind: 'covered',
+          github_required: 'none',
+          github: [],
+          snapshot_only: [],
+        },
+      },
+    ),
+  );
+}
+
+const LOG_LIMITS: FileLimits = {
+  log_record_bytes: 256 * 1024,
+  result_bytes: 2048,
+  log_segment_bytes: 1024 * 1024,
+  spool_bytes: 64 * 1024 * 1024,
+};
+
+/**
+ * Writes the records of one operation as a runner would and ingests them, so `task_logs` serves them for
+ * real. Works on the seeding store and on the running daemon's store alike, so a test can feed an open log.
+ */
+export class LogFeed {
+  readonly #sd: SeededDaemon;
+  #ids = 90_000;
+
+  constructor(sd: SeededDaemon) {
+    this.#sd = sd;
+  }
+
+  /** Claims the effect for operation `op`, once, and appends these records. */
+  write(
+    d: StoreDriver,
+    taskId: string,
+    effectId: string,
+    op: string,
+    kind: 'setup' | 'agent',
+    records: readonly unknown[],
+  ): void {
+    const redactor = new Redactor();
+    const known = d.task(taskId).operations[op];
+    if (known === undefined) {
+      const claimed = d.store.claimEffect(effectId as Uuid, d.now as EpochMs, {
+        require_runtime: true,
+        operation: {
+          operation_id: op,
+          kind,
+          launch_nonce: `nonce-${op}`,
+          unit: `cusr-${op}.service`,
+          holds_slot: true,
+        },
+      });
+      if (!claimed.ok) throw new Error(JSON.stringify(claimed.error));
+    }
+    const dir = RunDir.open({
+      dataDir: this.#sd.dataDir,
+      ...runLocation(d.task(taskId).operations[op] as OperationMirror),
+      redactor,
+      limits: LOG_LIMITS,
+    });
+    const log = EventLogWriter.open(dir, op);
+    for (const r of records) {
+      const appended = log.append('progress', r);
+      if (!appended.ok) throw new Error(appended.error.code);
+    }
+    log.sync();
+    const ingested = ingestOperationSpool(
+      {
+        store: d.store,
+        dataDir: this.#sd.dataDir,
+        redactor,
+        limits: LOG_LIMITS,
+        now: () => d.now,
+        newId: () => uuidOf(this.#ids++),
+      },
+      taskId,
+      op,
+    );
+    if (ingested.status !== 'ingested')
+      throw new Error(`ingest of ${op}: ${JSON.stringify(ingested)}`);
+  }
+}
+
+/** Selects the task with this title on Home and opens it. */
+export async function openTask(s: PtySession, title: string): Promise<void> {
+  await s.waitForText(title);
+  for (let i = 0; i < 400; i++) {
+    if (selectedLine(s.screenText()).includes(title)) break;
+    const before = selectedLine(s.screenText());
+    s.send(KEY.down);
+    await s.waitFor(() => selectedLine(s.screenText()) !== before, 3_000);
+  }
+  s.send(KEY.enter);
+  await detailRead(s);
+}
+
+/** Task detail is on screen with the first reads of what the screen shows in. */
+export async function detailRead(s: PtySession): Promise<void> {
+  await s.waitForText('Task detail');
+  await s.waitFor(
+    () =>
+      s.screenText().includes('Progress') &&
+      !s.screenText().includes('Reading…'),
+  );
+}
+
+/** The screen as one line, so text that wrapped still compares whole. */
+export function flat(screen: string): string {
+  return screen.replace(/\s+/g, ' ');
 }

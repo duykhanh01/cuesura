@@ -6,7 +6,7 @@
 import { RECONNECT_ATTEMPTS, type TuiState } from '../model/state.ts';
 import { joinSafe, uiText, type SafeText } from '../terminal/safe-text.ts';
 import { truncate, wrap } from '../terminal/width.ts';
-import type { Body } from './layout.ts';
+import { notices, staleBanner, type Body } from './layout.ts';
 
 const LABEL = 'Disconnected: ';
 
@@ -66,3 +66,14 @@ export const withDisconnected =
     );
     body(frame, top + rows.length, height - rows.length);
   };
+
+/** The rows a screen's own body gets now: what `renderFrame` and `withDisconnected` leave of the terminal. */
+export function contentHeight(s: TuiState): number {
+  const { cols, rows } = s.size;
+  const room = Math.floor((rows - 2) / 2);
+  const top = 1 + staleBanner(s).length + notices(s, cols, room).length;
+  const height = rows - top - 1;
+  return (
+    height - Math.min(disconnectedRows(s, cols).length, Math.floor(height / 2))
+  );
+}

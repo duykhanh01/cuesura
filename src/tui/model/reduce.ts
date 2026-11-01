@@ -4,6 +4,14 @@
  */
 import type { Key, KeyName } from '../terminal/keys.ts';
 import {
+  forgetScreens,
+  onDetailKey,
+  onLogsKey,
+  onLogsRead,
+  openDetail,
+} from './detail-keys.ts';
+import { onDetailRead } from './detail.ts';
+import {
   homeRows,
   keepSelection,
   selectRow,
@@ -43,6 +51,7 @@ export function reduce(state: TuiState, message: Message): Reduced {
           stale: true,
           caller: null,
           projects: null,
+          ...forgetScreens(state),
           // Positions in the old list: the new token's list may not have them.
           cursors: [],
           ...(state.cursors.length > 0
@@ -93,6 +102,10 @@ export function reduce(state: TuiState, message: Message): Reduced {
         stale: true,
         lastError: message.failure.message ?? state.lastError,
       });
+    case 'detail_read':
+      return same(onDetailRead(state, message));
+    case 'logs_read':
+      return same(onLogsRead(state, message));
     case 'key':
       return onKey(state, message.key);
   }
@@ -115,6 +128,10 @@ function onKey(given: TuiState, key: Key): Reduced {
       return onHomeKey(state, key);
     case 'help':
       return common(state, key);
+    case 'detail':
+      return onDetailKey(state, key) ?? common(state, key);
+    case 'logs':
+      return onLogsKey(state, key) ?? common(state, key);
   }
 }
 
@@ -201,7 +218,7 @@ function onHomeKey(state: TuiState, key: Key): Reduced {
           { finishedOpen: !state.finishedOpen, cursors: [] },
           { keepSelection: true },
         );
-      return same(state);
+      return openDetail(state, rows[at]);
     default:
       return common(state, key);
   }

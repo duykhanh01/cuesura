@@ -4,6 +4,7 @@
  */
 import { RefreshScheduler, systemRefreshClock } from './client/refresh.ts';
 import { createDaemonPort } from './client/daemon-port.ts';
+import { planScreenReads, ScreenReads } from './client/screen-reads.ts';
 import type { Effect, Message } from './model/messages.ts';
 import { reduce } from './model/reduce.ts';
 import {
@@ -21,6 +22,8 @@ import { filtersBody } from './views/filters.ts';
 import { helpBody } from './views/help.ts';
 import { homeBody } from './views/home.ts';
 import { renderFrame, type Body } from './views/layout.ts';
+import { logsBody } from './views/logs.ts';
+import { detailBody } from './views/task-detail.ts';
 
 /** Nothing following an Esc for this long means it was the key, not the start of a sequence. */
 const ESC_WAIT_MS = 30;
@@ -110,6 +113,16 @@ export function runTui(): void {
     },
   });
 
+  const screenReads = new ScreenReads({
+    clock: systemRefreshClock,
+    plan: (now) => planScreenReads(state, port, systemRefreshClock, now),
+    report: (message) => dispatch(message),
+    credential: {
+      generation: () => port.credentialGeneration(),
+      superseded: noticeCredential,
+    },
+  });
+
   function bodyOf(s: TuiState): Body {
     switch (currentScreen(s)) {
       case 'help':
@@ -118,6 +131,10 @@ export function runTui(): void {
         return filtersBody(s);
       case 'home':
         return homeBody(s, { color });
+      case 'detail':
+        return detailBody(s);
+      case 'logs':
+        return logsBody(s);
     }
   }
 
@@ -133,11 +150,15 @@ export function runTui(): void {
     switch (effect.type) {
       case 'quit':
         scheduler.stop();
+        screenReads.stop();
         terminal.exit(effect.code);
         break;
       case 'retry_connection':
       case 'refresh_now':
         scheduler.retry();
+        break;
+      case 'read_screen':
+        screenReads.kick();
         break;
     }
   }
@@ -151,4 +172,5 @@ export function runTui(): void {
 
   draw();
   scheduler.start();
+  screenReads.start();
 }

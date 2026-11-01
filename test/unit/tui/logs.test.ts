@@ -1,0 +1,410 @@
+import { describe, expect, it } from 'vitest';
+import type { TaskLogs } from '../../../src/tui/client/schemas.ts';
+import {
+  applyLogPage,
+  failLogRead,
+  filterAttempt,
+  followLogs,
+  initialLogs,
+  LOG_BUFFER_BYTES,
+  LOG_BUFFER_RECORDS,
+  LOG_PAGE_RECORDS,
+  logDue,
+  logsEnd,
+  logsTop,
+  pauseLogs,
+  requestAttempt,
+  scrollLogs,
+  toEntry,
+  visibleRows,
+  type LogState,
+} from '../../../src/tui/model/logs.ts';
+import { sanitize, uiText } from '../../../src/tui/terminal/safe-text.ts';
+
+// T047: the rules of the log's state, without a terminal. These only guard against regressions; US2 is judged
+// by the PTY tests.
+const TASK = '00000000-0000-7000-8000-000000000001';
+const ATTEMPT = '00000000-0000-7000-8000-000000000a01';
+const COLS = 60;
+const HEIGHT = 5;
+
+type Rec = TaskLogs['records'][number];
+
+function record(
+  seq: number,
+  text = `line ${seq}`,
+  attempt: string | null = ATTEMPT,
+  step: string | null = 'code',
+): Rec {
+  return {
+    seq,
+    cursor: seq,
+    operation_id: 'op',
+    attempt_id: attempt,
+    step: step === null ? null : sanitize(step),
+    at: sanitize('2026-11-01T10:20:30.000Z'),
+    kind: sanitize('progress'),
+    data: text,
+  };
+}
+
+function page(
+  records: readonly Rec[],
+  next: number,
+  complete = false,
+): TaskLogs {
+  return {
+    task_id: TASK,
+    records: [...records],
+    next_cursor: next,
+    complete,
+  } as TaskLogs;
+}
+
+const start = (): LogState => initialLogs(TASK, uiText('Task'), 1);
+const forward = (after: number) => ({ kind: 'forward', after }) as const;
+const probe = (after: number) => ({ kind: 'probe', after }) as const;
+
+/** Reads `count` records from `from` on, in pages as the daemon gives them. */
+function fed(
+  s: LogState,
+  from: number,
+  count: number,
+  text?: (n: number) => string,
+): LogState {
+  let next = s;
+  for (let at = from; at < from + count; at += LOG_PAGE_RECORDS) {
+    const end = Math.min(at + LOG_PAGE_RECORDS, from + count);
+    const records = Array.from({ length: end - at }, (_, i) =>
+      record(at + i, text?.(at + i)),
+    );
+    next = applyLogPage(
+      next,
+      forward(next.nextCursor),
+      page(records, end - 1),
+      0,
+    );
+  }
+  return next;
+}
+
+const screenTexts = (s: LogState): string[] =>
+  visibleRows(s, COLS, HEIGHT).map((r) => r.text);
+
+describe('the buffer (FR-039)', () => {
+  it('never holds more than 5,000 records, and knows where the window starts', () => {
+    const s = fed(start(), 1, LOG_BUFFER_RECORDS + 450);
+    expect(s.buffer).toHaveLength(LOG_BUFFER_RECORDS);
+    expect(s.buffer[0]?.seq).toBe(451);
+    expect(s.windowStart).toBe(450);
+    expect(s.nextCursor).toBe(LOG_BUFFER_RECORDS + 450);
+  });
+
+  it('never holds more than 8 MiB, whatever the number of records', () => {
+    const big = 'x'.repeat(15 * 1024);
+    const s = fed(start(), 1, 1_000, () => big);
+    expect(s.bufferBytes).toBeLessThanOrEqual(LOG_BUFFER_BYTES);
+    expect(s.buffer.length).toBeLessThan(1_000);
+    expect(s.windowStart).toBe((s.buffer[0]?.seq ?? 0) - 1);
+    expect(s.bufferBytes).toBe(s.buffer.reduce((n, e) => n + e.bytes, 0));
+  });
+
+  it('cuts one enormous record for showing, and says how much', () => {
+    const entry = toEntry(record(1, 'y'.repeat(256 * 1024)));
+    expect(entry.text.length).toBeLessThan(17 * 1024);
+    expect(entry.text).toMatch(/more characters: see cusr task logs/);
+  });
+});
+
+describe('live, paused and an attempt (data-model.md)', () => {
+  it('live reads what comes next at most once a second', () => {
+    const s = applyLogPage(start(), forward(0), page([record(1)], 1), 1_000);
+    expect(logDue(s, 1_500)).toBeNull();
+    expect(logDue(s, 2_000)).toEqual(forward(1));
+  });
+
+  it('paused only notes that there is something new, and nothing enters the buffer', () => {
+    const live = fed(start(), 1, 10);
+    const paused = pauseLogs(live, COLS, HEIGHT);
+    expect(logDue(paused, 5_000)).toEqual(probe(10));
+    const told = applyLogPage(paused, probe(10), page([record(11)], 11), 5_000);
+    expect(told.newActivity).toBe(true);
+    expect(told.buffer).toHaveLength(10);
+    expect(told.nextCursor).toBe(10);
+    // Known already: it stops asking until the reader comes back.
+    expect(logDue(told, 9_000)).toBeNull();
+  });
+
+  it('a read on its way when the user paused adds nothing either', () => {
+    const live = fed(start(), 1, 10);
+    const paused = pauseLogs(live, COLS, HEIGHT);
+    const after = applyLogPage(paused, forward(10), page([record(11)], 11), 1);
+    expect(after.buffer).toHaveLength(10);
+    expect(after.nextCursor).toBe(10);
+    expect(after.newActivity).toBe(true);
+  });
+
+  it('following again turns away the answer to a question asked while paused', () => {
+    const paused = pauseLogs(fed(start(), 1, 10), COLS, HEIGHT);
+    expect(followLogs(paused).generation).toBeGreaterThan(paused.generation);
+  });
+
+  it('nothing new is no activity', () => {
+    const paused = pauseLogs(fed(start(), 1, 3), COLS, HEIGHT);
+    expect(applyLogPage(paused, probe(3), page([], 3), 1).newActivity).toBe(
+      false,
+    );
+  });
+
+  it('following again goes on from the same cursor, so nothing is lost or repeated', () => {
+    const paused = pauseLogs(fed(start(), 1, 10), COLS, HEIGHT);
+    const told = applyLogPage(paused, probe(10), page([record(11)], 11), 1);
+    const live = followLogs(told);
+    expect(live.mode).toBe('live');
+    expect(live.newActivity).toBe(false);
+    expect(logDue(live, 10_000)).toEqual(forward(10));
+    const more = applyLogPage(
+      live,
+      forward(10),
+      page([record(11)], 11),
+      10_000,
+    );
+    expect(more.buffer.map((e) => e.seq)).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+    ]);
+  });
+
+  it('an attempt is read from its start, then only watched; the whole log is kept for coming back', () => {
+    const live = fed(start(), 1, 50);
+    const s = filterAttempt(live, ATTEMPT);
+    expect(s.mode).toBe('paused');
+    expect(s.buffer).toEqual([]);
+    const first = logDue(s, 0);
+    expect(first).toEqual(forward(0));
+    expect(requestAttempt(s, forward(0))).toBe(ATTEMPT);
+    const read = applyLogPage(
+      s,
+      forward(0),
+      page([record(3), record(4)], 10),
+      0,
+    );
+    expect(read.buffer).toHaveLength(2);
+    expect(read.filling).toBe(true);
+    const done = applyLogPage(read, forward(10), page([], 50), 0);
+    expect(done.filling).toBe(false);
+
+    // Watching looks at the whole log from where following stopped.
+    const watch = logDue(done, 5_000);
+    expect(watch).toEqual(probe(50));
+    expect(requestAttempt(done, probe(50))).toBeNull();
+    const told = applyLogPage(done, probe(50), page([record(51)], 51), 5_000);
+    expect(told.newActivity).toBe(true);
+    expect(told.buffer).toHaveLength(2);
+
+    const back = followLogs(told);
+    expect(back.attemptFilter).toBeNull();
+    // The window it had is gone: a piece is read back first, then following goes on from the same place.
+    expect(logDue(back, 9_000)).toEqual({ kind: 'older', after: 0 });
+    expect(back.nextCursor).toBe(50);
+    expect(back.generation).toBeGreaterThan(told.generation);
+  });
+
+  it('an attempt longer than the buffer stops at the cap and goes on when the reader gets to the end', () => {
+    let s = filterAttempt(start(), ATTEMPT);
+    for (let at = 1; at <= LOG_BUFFER_RECORDS; at += LOG_PAGE_RECORDS) {
+      const records = Array.from({ length: LOG_PAGE_RECORDS }, (_, i) =>
+        record(at + i),
+      );
+      s = applyLogPage(
+        s,
+        forward(s.nextCursor),
+        page(records, at + LOG_PAGE_RECORDS - 1),
+        0,
+      );
+    }
+    expect(s.buffer).toHaveLength(LOG_BUFFER_RECORDS);
+    s = applyLogPage(
+      s,
+      forward(s.nextCursor),
+      page([record(LOG_BUFFER_RECORDS + 1)], LOG_BUFFER_RECORDS + 1),
+      0,
+    );
+    expect(s.filling).toBe(false);
+    expect(s.moreForward).toBe(true);
+    expect(s.buffer).toHaveLength(LOG_BUFFER_RECORDS);
+
+    const atEnd = logsEnd(s, COLS, HEIGHT);
+    expect(atEnd.wantForward).toBe(true);
+    expect(logDue(atEnd, 0)).toEqual(forward(LOG_BUFFER_RECORDS));
+  });
+
+  it('a finished task with nothing left stops being read', () => {
+    const s = applyLogPage(start(), forward(0), page([record(1)], 1, true), 0);
+    expect(s.complete).toBe(true);
+    expect(logDue(s, 60_000)).toBeNull();
+  });
+
+  it('a failed read waits a second and keeps what was read', () => {
+    const s = failLogRead(fed(start(), 1, 3), sanitize('gone'), 1_000);
+    expect(s.buffer).toHaveLength(3);
+    expect(s.error).toBe('gone');
+    expect(logDue(s, 1_500)).toBeNull();
+    expect(logDue(s, 2_000)).toEqual(forward(3));
+  });
+});
+
+describe('scrolling keeps the place', () => {
+  it('going up from live pauses, on the rows just shown', () => {
+    const live = fed(start(), 1, 30);
+    expect(screenTexts(live).at(-1)).toContain('line 30');
+    const s = scrollLogs(live, COLS, HEIGHT, -1);
+    expect(s.mode).toBe('paused');
+    expect(screenTexts(s).at(-1)).toContain('line 29');
+  });
+
+  it('going down stops at the end, without leaving empty rows', () => {
+    const paused = pauseLogs(fed(start(), 1, 30), COLS, HEIGHT);
+    const s = scrollLogs(paused, COLS, HEIGHT, 50);
+    expect(screenTexts(s).at(-1)).toContain('line 30');
+    expect(screenTexts(s)).toHaveLength(HEIGHT);
+  });
+
+  it('holds while a resize wraps the rows differently', () => {
+    const s = scrollLogs(fed(start(), 1, 30), COLS, HEIGHT, -10);
+    const narrow = visibleRows(s, 20, HEIGHT);
+    expect(narrow.map((r) => r.text).join(' ')).toContain('line 16');
+    expect(visibleRows(s, COLS, HEIGHT)[0]?.text).toBe(screenTexts(s)[0]);
+  });
+
+  it('up at the top asks for what left the buffer, reads it and keeps the place', () => {
+    const live = fed(start(), 1, LOG_BUFFER_RECORDS + 450);
+    const top = logsTop(live);
+    expect(screenTexts(top)[1]).toContain('line 451');
+    const asking = scrollLogs(top, COLS, HEIGHT, -1);
+    expect(asking.wantOlder).toBe(true);
+    const due = logDue(asking, 0);
+    expect(due).toEqual({ kind: 'older', after: 450 - LOG_PAGE_RECORDS });
+    const records = Array.from({ length: LOG_PAGE_RECORDS }, (_, i) =>
+      record(251 + i),
+    );
+    const got = applyLogPage(asking, due as never, page(records, 450), 0);
+    expect(got.older).toBeNull();
+    expect(got.wantOlder).toBe(false);
+    expect(got.windowStart).toBe(250);
+    expect(got.buffer[0]?.seq).toBe(251);
+    // The cap still holds: the newest went, and forward reading goes back for them.
+    expect(got.buffer).toHaveLength(LOG_BUFFER_RECORDS);
+    expect(got.moreForward).toBe(true);
+    expect(got.nextCursor).toBe(got.buffer.at(-1)?.seq);
+    // Still where the reader was; one more row up is now there.
+    const up = scrollLogs(got, COLS, HEIGHT, -1);
+    expect(screenTexts(up)[0]).toContain('line 450');
+  });
+
+  it('a page of older records cut short by its bytes is read on to where the buffer starts', () => {
+    const live = fed(start(), 1, LOG_BUFFER_RECORDS + 200);
+    const asking = scrollLogs(logsTop(live), COLS, HEIGHT, -1);
+    const first = applyLogPage(
+      asking,
+      { kind: 'older', after: 0 },
+      page([record(1), record(2)], 2),
+      0,
+    );
+    expect(first.older).not.toBeNull();
+    expect(first.buffer[0]?.seq).toBe(201);
+    expect(logDue(first, 0)).toEqual({ kind: 'older', after: 2 });
+    const records = Array.from({ length: 198 }, (_, i) => record(3 + i));
+    const second = applyLogPage(
+      first,
+      { kind: 'older', after: 2 },
+      page(records, 200),
+      0,
+    );
+    expect(second.older).toBeNull();
+    expect(second.buffer[0]?.seq).toBe(1);
+    expect(second.windowStart).toBe(0);
+  });
+});
+
+describe('what is on screen', () => {
+  it('puts a separator where step or attempt changes, naming both', () => {
+    const other = '00000000-0000-7000-8000-000000000a02';
+    const s = applyLogPage(
+      start(),
+      forward(0),
+      page(
+        [
+          record(1, 'a'),
+          record(2, 'b'),
+          record(3, 'c', other, 'fix'),
+          record(4, 'd', null, null),
+        ],
+        4,
+      ),
+      0,
+    );
+    const rows = visibleRows(s, COLS, 10);
+    expect(
+      rows.filter((r) => r.kind === 'separator').map((r) => r.text),
+    ).toEqual([
+      '── code · attempt 00000a01 ──',
+      '── fix · attempt 00000a02 ──',
+      '── outside any step ──',
+    ]);
+    expect(rows[0]?.kind).toBe('separator');
+  });
+
+  it('an attempt ID is daemon data like any other', () => {
+    const s = applyLogPage(
+      start(),
+      forward(0),
+      page([record(1, 'a', '\x1b[2J\x1b]0;x\x07')], 1),
+      0,
+    );
+    const text = visibleRows(s, COLS, 3)[0]?.text ?? '';
+    // eslint-disable-next-line no-control-regex -- the point of the check.
+    expect(text).not.toMatch(/[\x00-\x1f]/);
+  });
+
+  it('shows a gap as a gap of that size', () => {
+    const gap = {
+      seq: 7,
+      cursor: 7,
+      operation_id: 'op',
+      attempt_id: ATTEMPT,
+      gap: { records: 3, reason: sanitize('files are gone') },
+    } as Rec;
+    const s = applyLogPage(start(), forward(0), page([gap], 7), 0);
+    const rows = visibleRows(s, COLS, 3);
+    expect(rows[0]).toEqual({
+      kind: 'gap',
+      text: 'Gap: 3 records unavailable — files are gone',
+    });
+    expect(s.nextCursor).toBe(7);
+  });
+
+  it('wraps a long record without losing any of it', () => {
+    const s = applyLogPage(
+      start(),
+      forward(0),
+      page([record(1, 'z'.repeat(200), null, null)], 1),
+      0,
+    );
+    const rows = visibleRows(s, COLS, 10);
+    expect(rows.length).toBeGreaterThan(3);
+    expect(rows.map((r) => r.text).join('')).toContain('z'.repeat(200));
+  });
+
+  it('control characters in a record stay as visible stand-ins', () => {
+    const s = applyLogPage(
+      start(),
+      forward(0),
+      page([record(1, 'a\x1b[2Jb‮c', null, null)], 1),
+      0,
+    );
+    const text = visibleRows(s, COLS, 3)[0]?.text ?? '';
+    expect(text).toContain('a␛[2Jb�c');
+    // eslint-disable-next-line no-control-regex -- the point of the check.
+    expect(text).not.toMatch(/[\x00-\x09\x0b-\x1f‪-‮]/);
+  });
+});
