@@ -19,7 +19,6 @@ export type Role = (typeof ROLES)[number];
 
 export const SUMMARY_MAX = 4_000;
 export const TEXT_MAX = 2_000;
-export const QUESTIONS_MAX = 10;
 export const OPTIONS_MAX = 10;
 export const FINDINGS_MAX = 100;
 
@@ -224,12 +223,6 @@ function textIssue(
 function coderSemantics(r: CoderResult): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   textIssue(issues, 'summary', r.summary, SUMMARY_MAX);
-  if (r.questions.length > QUESTIONS_MAX)
-    issues.push({
-      layer: 'semantic',
-      path: 'questions',
-      message: `more than ${QUESTIONS_MAX}`,
-    });
   r.questions.forEach((q, i) => {
     textIssue(issues, `questions[${i}].question`, q.question, TEXT_MAX);
     if (q.options.length > OPTIONS_MAX)

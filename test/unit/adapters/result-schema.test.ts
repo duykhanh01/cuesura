@@ -12,6 +12,7 @@ import {
   isRole,
   roleJsonSchema,
   roleSchemaDigest,
+  TEXT_MAX,
   validateRoleResult,
   wireRoleSchema,
 } from '../../../src/adapters/harness/result-schema.ts';
@@ -209,5 +210,24 @@ describe('role schema portability and sample coverage', () => {
     expect(new Set(samples.map((s) => s.expect))).toEqual(
       new Set(['valid', 'structure', 'semantic']),
     );
+  });
+});
+
+describe('number of questions', () => {
+  it('accepts any number of questions and still bounds the size of each', () => {
+    const result = (text: string, count: number) => ({
+      schema_version: 1,
+      status: 'needs_input',
+      summary: 'Needs answers',
+      questions: Array.from({ length: count }, () => ({
+        question: text,
+        options: [],
+      })),
+      blocker: null,
+    });
+    expect(validateRoleResult('coder', result('Which one?', 50)).ok).toBe(true);
+    expect(
+      validateRoleResult('coder', result('x'.repeat(TEXT_MAX + 1), 1)).ok,
+    ).toBe(false);
   });
 });
