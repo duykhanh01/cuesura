@@ -1,7 +1,7 @@
 import { assertNever } from '../shared/assert-never.ts';
 import type { DomainEvent, DomainEventDraft } from '../domain/event.ts';
 import type { Hash } from '../shared/brand.ts';
-import { cancelReadRef } from '../domain/runtime.ts';
+import { BaseUpdateSchema, cancelReadRef } from '../domain/runtime.ts';
 import {
   isTerminal,
   STATE_SCHEMA_VERSION,
@@ -419,6 +419,9 @@ export function applyInPlace(
         attempt_id: p.attempt_id,
         reservation_id: p.reservation_id,
         target_effect_id: p.target_effect_id,
+        ...(p.request['base_update'] === undefined
+          ? {}
+          : { base_update: BaseUpdateSchema.parse(p.request['base_update']) }),
       };
       if (p.kind === 'await_ci') {
         s.ci_polls += 1;
@@ -917,6 +920,9 @@ export function applyInPlace(
       s.run.content = event.payload.content;
       break;
     case 'ReviewReused':
+      break;
+    case 'BaseUpdateRecorded':
+      s.run.base_update = event.payload.update;
       break;
     case 'HeadDriftRecorded':
       s.run.head_drift = event.payload.drift;

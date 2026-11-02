@@ -11,7 +11,8 @@ import type { RequiredVerdict } from './required-checks.ts';
  * - the latest gate run of the revision passed; with a confirmed mode it passed on the checkpoint tree
  *   of this very head (M06);
  * - `full-review` (and legacy tasks): a review approving this head is still valid; `direct-pr`: no
- *   review is required and none is made up, the verdict says so (M08).
+ *   review is required and none is made up, the verdict says so (M08). A head-specific base integration
+ *   certificate can exempt a new review only under SPEC §14.2.
  * A different observed head never becomes the checked head here: it is `head_changed`, and neither the
  * expected head nor the CI budget moves because of it.
  */
@@ -141,12 +142,36 @@ export function headVerdict(
 /**
  * Review requirement of `head`: `direct-pr` needs none; a confirmed `full-review` needs the latest
  * verdict recorded for that commit in this revision to be an approval; a legacy task keeps the old rule.
+ * A certified base integration is the narrow exception: no conflict or only conflict files changed.
  */
 export function reviewOf(
   state: Pick<TaskState, 'revision' | 'evidence' | 'run'>,
   head: string,
 ): ReviewRequirement {
   const rev = state.revision;
+  const update = state.run.base_update;
+  if (
+    update?.revision === rev &&
+    update.certificate?.head_sha === head &&
+    update.certificate.tree === state.run.checkpoint?.tree &&
+    state.run.checkpoint.sha === head &&
+    state.run.checkpoint.revision === rev &&
+    (update.conflict === undefined || update.scope !== undefined) &&
+    (update.scope === undefined ||
+      update.scope.tree === update.certificate.tree) &&
+    update.scope?.unresolved !== true &&
+    ((update.scope?.unchanged_conflicts?.length ?? 0) === 0 ||
+      update.manual_resolution !== undefined) &&
+    (update.scope?.outside_files.length ?? 0) === 0
+  )
+    return 'not_required';
+  if (
+    update?.revision === rev &&
+    update.scope !== undefined &&
+    update.scope.outside_files.length > 0 &&
+    state.run.mode === 'direct-pr'
+  )
+    return 'missing';
   if (state.run.mode === 'direct-pr') return 'not_required';
   if (state.run.mode === 'full-review') {
     const last = state.run.reviews

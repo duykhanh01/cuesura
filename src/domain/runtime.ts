@@ -13,6 +13,36 @@ const PositiveInt = z.number().int().positive();
 const NonNegInt = z.number().int().nonnegative();
 const Sha = z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/, 'git object id');
 
+export const BaseUpdateSchema = z
+  .object({ head_sha: Sha, base_sha: Sha })
+  .strict();
+export type BaseUpdate = z.infer<typeof BaseUpdateSchema>;
+
+export const BaseConflictSchema = z
+  .object({ tree: Sha, files: z.array(z.string().min(1)).min(1) })
+  .strict();
+export type BaseConflict = z.infer<typeof BaseConflictSchema>;
+export const BaseRepairScopeSchema = z
+  .object({
+    tree: Sha,
+    outside_files: z.array(z.string()),
+    unresolved: z.boolean(),
+    unchanged_conflicts: z.array(z.string()).optional(),
+    markers: z.boolean().optional(),
+    problem: z.string().optional(),
+  })
+  .strict();
+export type BaseRepairScope = z.infer<typeof BaseRepairScopeSchema>;
+export type BaseUpdateRun = BaseUpdate & {
+  revision: number;
+  gate_step: string;
+  conflict?: BaseConflict;
+  fixer_attempt_id?: string;
+  scope?: BaseRepairScope;
+  manual_resolution?: { by: string; at: number };
+  certificate?: { head_sha: string; tree: string };
+};
+
 /**
  * Daemon limits captured into each task's runtime snapshot (research R-04/R-11). Resource and I/O
  * bounds are finite positive integers; command_wall_ms may be null for unlimited execution.

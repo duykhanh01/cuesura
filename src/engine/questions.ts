@@ -98,6 +98,18 @@ export function onAnswer(ctx: Ctx, t: AnswerTrigger): void {
     });
     return;
   }
+  if (
+    q.resume.kind === 'repair_base' &&
+    !['continue', 'retry fixer'].includes(t.answer.trim().toLowerCase())
+  )
+    reject('invalid_trigger', {
+      reason: 'base_repair_answer_must_be_continue_or_retry_fixer',
+    });
+  const resume =
+    q.resume.kind === 'repair_base' &&
+    t.answer.trim().toLowerCase() === 'retry fixer'
+      ? { ...q.resume, mode: 'retry_fixer' as const }
+      : q.resume;
   ctx.emit('QuestionAnswered', {
     question_id: q.id,
     answer: t.answer,
@@ -105,7 +117,7 @@ export function onAnswer(ctx: Ctx, t: AnswerTrigger): void {
   });
   const w = ctx.state.wait;
   if (ctx.state.status === 'WAITING' && w?.detail['question_id'] === q.id) {
-    proceed(ctx, q.resume, `answer:${q.id}`);
+    proceed(ctx, resume, `answer:${q.id}`);
     return;
   }
   // If another wait masks the question, replace its deferred action with the question resume action.
@@ -114,11 +126,11 @@ export function onAnswer(ctx: Ctx, t: AnswerTrigger): void {
     drift?.safe_boundary_reached &&
     drift.prior_wait?.detail['question_id'] === q.id
   ) {
-    reachSafeBoundary(ctx, q.resume, null);
+    reachSafeBoundary(ctx, resume, null);
     return;
   }
   if (w?.reason === 'policy' && w.detail['code'] === 'deadline') {
-    waitPolicy(ctx, 'deadline', q.resume, {
+    waitPolicy(ctx, 'deadline', resume, {
       deadline_at: ctx.state.deadline_at,
     });
   }

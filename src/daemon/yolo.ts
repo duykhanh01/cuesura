@@ -1,6 +1,7 @@
 /**
- * Yolo merges (SPEC §14.2). After a read of the task's PR, a task waiting for its merge is merged by this
- * code when the owner's user config has `yolo: true` right now, its head contains the latest target tip,
+ * PR maintenance and yolo merges (SPEC §14.2). Base integration is independent of yolo.
+ * Only the final merge requires the owner to enable yolo. After a PR read, a task waiting for merge
+ * is merged when the owner's user config has `yolo: true` right now, its head contains the latest target tip,
  * and the checks GitHub reports meet the union of policy and binding GitHub names, including pinned
  * app identities. An empty required list never permits merge; it does not change the engine's CI wait.
  * Protection is optional; without enforcement, a target/check change before merge remains a race.
@@ -46,6 +47,7 @@ export type YoloOutcome =
   | 'not_waiting'
   | 'off'
   | 'not_ready'
+  | 'updating_base'
   | 'not_approved'
   | 'merged'
   | 'refused'
@@ -105,7 +107,7 @@ async function currentChecksProblem(
   return ci.kind === 'pass' ? null : `checks ${ci.kind}`;
 }
 
-export async function yoloMerge(
+export async function advanceTaskPr(
   deps: YoloDeps,
   taskId: string,
 ): Promise<YoloOutcome> {
@@ -120,8 +122,6 @@ export async function yoloMerge(
     s.policy_ref.version,
   );
   if (pr === null || rt === null || policy === null) return 'not_waiting';
-  if (!(await deps.enabled())) return 'off';
-
   const target: MergeTarget = {
     repo: rt.target.repo,
     pr_number: Number(pr[1]),
@@ -143,7 +143,44 @@ export async function yoloMerge(
     return 'not_ready';
   };
   const ready = await readMergeReadiness(port, target);
-  if (!ready.ready) return notReady(ready.reason);
+  if (!ready.ready && ready.base_sha === undefined)
+    return (await deps.enabled()) ? notReady(ready.reason) : 'off';
+  if (!ready.ready && ready.base_sha !== undefined) {
+    const updated = submit(deps.store, {
+      task_id: taskId,
+      dedup_key: `base-update:${taskId}:${target.head_sha}:${ready.base_sha}:${s.version}`,
+      trigger: {
+        kind: 'update_base',
+        head_sha: target.head_sha,
+        base_sha: ready.base_sha,
+      },
+      now: deps.clock.now(),
+      ids: Array.from({ length: MAX_ENVELOPE_IDS }, () => deps.newId()),
+      expected_version: s.version,
+    });
+    if (!updated.ok) return 'not_approved';
+    const after = deps.store.readTask(id);
+    const waiting = after?.wait;
+    const queued =
+      waiting?.detail.code === 'execution_slot' &&
+      'base_update' in waiting.resume &&
+      waiting.resume.base_update?.head_sha === target.head_sha &&
+      waiting.resume.base_update.base_sha === ready.base_sha;
+    const pending = Object.values(after?.effects ?? {}).some(
+      (e) =>
+        e.kind === 'run_gates' &&
+        (e.status === 'pending' || e.status === 'started') &&
+        e.base_update?.head_sha === target.head_sha &&
+        e.base_update.base_sha === ready.base_sha,
+    );
+    if (!queued && !pending) return 'not_approved';
+    deps.log?.(
+      `task ${taskId}: updating base to ${ready.base_sha}; gates, conflict scope and CI must pass on the new head`,
+    );
+    return 'updating_base';
+  }
+
+  if (!(await deps.enabled())) return 'off';
   // `clean` accepts a skipped or neutral check and the engine holds the CI seen earlier: read what is true now.
   const problem = await currentChecksProblem(
     port,

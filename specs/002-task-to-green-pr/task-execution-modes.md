@@ -149,7 +149,7 @@ base dùng tính diff, checkpoint SHA/tree/diff digest, title/description cần 
 Attempt ID, timestamp, receipt gate/CI mới hoặc log resume không tự làm đổi đầu vào review.
 Chỉ dùng lại kết quả đã validate và ghi bền, còn hiệu lực, khi mọi đầu vào trên khớp;
 không suy từ việc worker nói không sửa.
-Code hoặc nội dung PR đổi thì review lại; acceptance/policy/base dùng tính diff đổi thì không được
+Trừ ngoại lệ tích hợp base bên dưới, code hoặc nội dung PR đổi thì review lại; acceptance/policy/base dùng tính diff đổi thì không được
 dùng kết quả cũ. Base tip ngoài frozen base chỉ đổi không tự thay đầu vào, theo FR-041.04.
 Chỉ việc worker chạy không tự vô hiệu evidence; phải đối chiếu tree/diff/body thực tế với checkpoint.
 
@@ -163,6 +163,20 @@ Chỉ việc worker chạy không tự vô hiệu evidence; phải đối chiế
 Không áp dụng cache qua task/revision khác và không chuyển approval sang SHA khác theo phỏng đoán.
 Mất hoặc chưa rõ receipt của lượt review phải reconcile kết quả đã finalize trước khi quyết định
 gọi lại; việc dùng lại evidence có provenance, không ghi một lượt reviewer/usage không thực sự xảy ra.
+
+## Ngoại lệ review khi tích hợp base (quyết định 2026-11-02)
+
+Áp dụng cả khi bật/tắt yolo; không đổi yêu cầu review ban đầu của `full-review`.
+PR đang chờ merge tụt sau target được tích hợp qua execution slot và gate/publish/CI trên head mới.
+Không conflict thì không gọi fixer/reviewer mới. Có conflict thì fixer sửa đúng một lượt; host so
+với tree conflict và danh sách file do Git báo. Mỗi file conflict phải đổi so với tree conflict và qua gate thì miễn review mới; markerless no-op chưa đạt.
+File ngoài phạm vi đổi (kể cả rename/file mới) phải review; `direct-pr` không có reviewer đóng băng
+thì chờ người quyết định. Fixer lỗi/chưa xong, gate fail hoặc conflict lần sau mở question; answer `continue`
+sau sửa tay tiếp tục gate/publish/CI, hoặc đúng `retry fixer` mới cấp thêm lượt worker. Markerless
+no-op cần người xác nhận phiên bản đã chọn. Không tự retry fixer hoặc reset giới hạn.
+Chứng nhận phạm vi gắn đúng head/tree/revision, có provenance trong `BaseUpdateRecorded`, không giả
+reviewer approve hoặc dùng bằng chứng head cũ cho head mới. Xem [SPEC §14.2](../../SPEC.md#142-merge).
+M03/M06 áp dụng ngoại lệ hẹp này; code/nội dung khác vẫn phải xét review theo quy tắc trên.
 
 ## Remote đổi head khi review còn chạy
 

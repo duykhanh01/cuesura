@@ -17,6 +17,8 @@ import type {
 } from './trigger.ts';
 import type {
   Artifact,
+  BaseUpdate,
+  BaseUpdateRun,
   ExecutionGroup,
   ExternalSubject,
   MergeProof,
@@ -137,11 +139,12 @@ export type DetailCode = (typeof DETAIL_CODES)[number];
 
 export type ResumeAction =
   | { kind: 'start_attempt'; step: string; attempt_kind: AttemptKind }
-  | { kind: 'enter_step'; step: string }
+  | { kind: 'enter_step'; step: string; base_update?: BaseUpdate }
   /** Rerun without counting another step visit after a human answer or approval. */
-  | { kind: 'run_step'; step: string }
+  | { kind: 'run_step'; step: string; base_update?: BaseUpdate }
+  | { kind: 'repair_base'; mode: 'manual' | 'retry_fixer' }
   | { kind: 'route'; step: string; outcome: string }
-  | { kind: 'retry_effect'; step: string }
+  | { kind: 'retry_effect'; step: string; base_update?: BaseUpdate }
   | { kind: 'poll_ci'; step: string }
   | { kind: 'merge_check'; step: string }
   | { kind: 'triage' }
@@ -198,6 +201,7 @@ export type EffectMirror = {
   attempt_id: string | null;
   reservation_id: string | null;
   target_effect_id: string | null;
+  base_update?: BaseUpdate;
 };
 
 export const TIMER_KINDS = [
@@ -450,6 +454,7 @@ export type HeadDrift = {
 };
 
 export type RunState = {
+  base_update?: BaseUpdateRun;
   proposal: {
     selection: RunSelection;
     digest: string;

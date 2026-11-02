@@ -8,14 +8,15 @@ import { ci, observation } from '../../support/observation.ts';
 import { observeTaskPr } from '../../../src/daemon/handlers.ts';
 import { createGrantStart } from '../../support/runtime.ts';
 import { publishData } from '../../support/scenario.ts';
-import { toPublish } from '../../support/store-flows.ts';
+import { toPublish, checkpointGates } from '../../support/store-flows.ts';
+import { readMergeReadiness } from '../../../src/adapters/github/merge.ts';
 import { GhPort } from '../../../src/adapters/github/gh-port.ts';
 import type {
   Clock,
   GitHubPort,
   GitHubRequest,
 } from '../../../src/adapters/ports.ts';
-import { yoloMerge, type YoloDeps } from '../../../src/daemon/yolo.ts';
+import { advanceTaskPr, type YoloDeps } from '../../../src/daemon/yolo.ts';
 import type { CanonicalTask } from '../../../src/domain/task.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
 import type { EpochMs } from '../../../src/shared/brand.ts';
@@ -41,6 +42,9 @@ type Remote = {
   protection?: Record<string, unknown>;
   protectionStatus?: number;
   protected?: boolean;
+  targetSha?: string;
+  targetStatus?: number;
+  targetBody?: unknown;
   compare?: Record<string, unknown>;
   compareStatus?: number;
   rulesStatus?: number;
@@ -140,7 +144,14 @@ function github(r: Remote = {}) {
       if (req.path.includes('/rules/branches/'))
         return r.rulesStatus === undefined ? reply([]) : failure(r.rulesStatus);
       if (req.path.includes('/branches/'))
-        return reply({ protected: r.protected ?? true });
+        return r.targetStatus === undefined
+          ? reply(
+              r.targetBody ?? {
+                protected: r.protected ?? true,
+                commit: { sha: r.targetSha ?? 'b'.repeat(40) },
+              },
+            )
+          : failure(r.targetStatus);
       if (req.path.endsWith('/check-runs'))
         return reply(
           r.checkRuns ?? {
@@ -219,7 +230,7 @@ describe('yolo merge', () => {
     });
     const log: string[] = [];
     expect(
-      await yoloMerge(
+      await advanceTaskPr(
         { ...deps(d, port), log: (line) => log.push(line) },
         t.id,
       ),
@@ -300,7 +311,7 @@ describe('yolo merge', () => {
           { name: 'test', app: 15368 },
         ],
       });
-      expect(await yoloMerge(deps(d, port, enabled), t.id)).toBe(
+      expect(await advanceTaskPr(deps(d, port, enabled), t.id)).toBe(
         enabled ? 'merged' : 'off',
       );
       expect(puts(sent)).toHaveLength(enabled ? 1 : 0);
@@ -403,7 +414,7 @@ describe('yolo merge', () => {
         expect(d.task(t.id).wait?.detail.code).toBe('merge');
         expect(d.pending(t.id, 'start_agent')).toEqual([]);
         expect(d.pending(t.id, 'await_ci')).toEqual([]);
-        expect(await yoloMerge(deps(d, port, enabled), t.id)).toBe(
+        expect(await advanceTaskPr(deps(d, port, enabled), t.id)).toBe(
           enabled ? 'not_ready' : 'off',
         );
       }
@@ -426,7 +437,7 @@ describe('yolo merge', () => {
       });
       const log: string[] = [];
       expect(
-        await yoloMerge(
+        await advanceTaskPr(
           { ...deps(d, port), log: (line) => log.push(line) },
           t.id,
         ),
@@ -449,7 +460,7 @@ describe('yolo merge', () => {
       checks: {},
       statuses: REQUIRED.map((context) => ({ context, state: 'success' })),
     });
-    expect(await yoloMerge(deps(d, port), t.id)).toBe('not_ready');
+    expect(await advanceTaskPr(deps(d, port), t.id)).toBe('not_ready');
     expect(puts(sent)).toEqual([]);
   });
 
@@ -585,7 +596,7 @@ describe('yolo merge', () => {
       green(d, t, mode);
       const { port, sent } = github();
 
-      expect(await yoloMerge(deps(d, port), t.id)).toBe('merged');
+      expect(await advanceTaskPr(deps(d, port), t.id)).toBe('merged');
 
       const merges = puts(sent);
       expect(merges).toHaveLength(1);
@@ -617,22 +628,27 @@ describe('yolo merge', () => {
     const t = buildTask();
     green(d, t);
     expect(
-      await yoloMerge(deps(d, github({ mergeStatus: 'lost' }).port), t.id),
+      await advanceTaskPr(deps(d, github({ mergeStatus: 'lost' }).port), t.id),
     ).toBe('unknown');
     expect(
-      await yoloMerge(deps(d, github({ mergeStatus: 405 }).port), t.id),
+      await advanceTaskPr(deps(d, github({ mergeStatus: 405 }).port), t.id),
     ).toBe('refused');
-    expect(await yoloMerge(deps(d, github().port), t.id)).toBe('merged');
+    expect(await advanceTaskPr(deps(d, github().port), t.id)).toBe('merged');
     expect(approvals(d, t)).toHaveLength(1);
   });
 
-  it('yolo off reads nothing from GitHub and sends nothing', async () => {
+  it('yolo off still checks base freshness but sends no merge', async () => {
     const d = setup();
     const t = buildTask();
     green(d, t);
     const { port, sent } = github();
-    expect(await yoloMerge(deps(d, port, false), t.id)).toBe('off');
-    expect(sent).toEqual([]);
+    expect(await advanceTaskPr(deps(d, port, false), t.id)).toBe('off');
+    expect(sent.map((request) => request.method)).toEqual([
+      'GET',
+      'GET',
+      'GET',
+    ]);
+    expect(puts(sent)).toEqual([]);
     expect(approvals(d, t)).toEqual([]);
   });
 
@@ -642,7 +658,7 @@ describe('yolo merge', () => {
     green(d, t);
     const { port, sent } = github();
     let reads = 0;
-    const r = await yoloMerge(
+    const r = await advanceTaskPr(
       { ...deps(d, port), enabled: () => Promise.resolve(reads++ === 0) },
       t.id,
     );
@@ -658,7 +674,9 @@ describe('yolo merge', () => {
     ['closed', { pull: { state: 'closed' } }],
     ['blocked', { pull: { mergeable_state: 'blocked' } }],
     ['dirty', { pull: { mergeable_state: 'dirty' } }],
-    ['behind despite clean PR', { compare: { ahead_by: 1, behind_by: 0 } }],
+    ['target tip missing', { targetBody: {}, compare: { ahead_by: 1 } }],
+    ['target tip unreadable', { targetStatus: 403 }],
+    ['target tip invalid', { targetBody: { commit: { sha: 'invalid' } } }],
     ['unreadable compare', { compareStatus: 403 }],
     ['missing ahead_by', { compare: { behind_by: 0 } }],
     ['non-numeric ahead_by', { compare: { ahead_by: '0' } }],
@@ -678,7 +696,7 @@ describe('yolo merge', () => {
     const t = buildTask();
     green(d, t);
     const { port, sent } = github(remote);
-    expect(await yoloMerge(deps(d, port), t.id)).toBe('not_ready');
+    expect(await advanceTaskPr(deps(d, port), t.id)).toBe('not_ready');
     expect(puts(sent)).toEqual([]);
     expect(approvals(d, t)).toEqual([]);
     expect(d.task(t.id).wait?.detail.code).toBe('merge');
@@ -717,12 +735,12 @@ describe('yolo merge', () => {
       const t = buildTask();
       green(d, t, 'direct-pr', required);
       const { port, sent } = github(remote);
-      expect(await yoloMerge(deps(d, port), t.id)).toBe('merged');
+      expect(await advanceTaskPr(deps(d, port), t.id)).toBe('merged');
       expect(puts(sent)).toHaveLength(1);
       expect(sent).toContainEqual({
         method: 'GET',
-        path: `repos/acme/app/compare/${A}...main`,
-        query: {},
+        path: `repos/acme/app/compare/${A}...${'b'.repeat(40)}`,
+        query: { per_page: '1', page: '2' },
         body: null,
       });
       if (remote.protected === false)
@@ -749,7 +767,7 @@ describe('yolo merge', () => {
       const { port, sent } = github({ protected: false, checks });
       const log: string[] = [];
       expect(
-        await yoloMerge(
+        await advanceTaskPr(
           { ...deps(d, port), log: (line) => log.push(line) },
           t.id,
         ),
@@ -772,11 +790,228 @@ describe('yolo merge', () => {
     const log: string[] = [];
     const options = { ...deps(d, port), log: (line: string) => log.push(line) };
     for (let i = 0; i < 3; i++)
-      expect(await yoloMerge(options, t.id)).toBe('not_ready');
+      expect(await advanceTaskPr(options, t.id)).toBe('not_ready');
     expect(log).toHaveLength(1);
     expect(log[0]).toContain('ci.required_checks in cusr.yaml');
     expect(d.task(t.id).wait?.detail.code).toBe('merge');
     expect(puts(sent)).toEqual([]);
+  });
+
+  it('reads an encoded target branch and compares to its immutable SHA', async () => {
+    const { port, sent } = github({
+      pull: { base: { ref: 'release/v1', sha: A } },
+      targetSha: 'b'.repeat(40),
+      compare: { ahead_by: 1 },
+    });
+    expect(
+      await readMergeReadiness(port, {
+        repo: 'acme/app',
+        pr_number: 7,
+        target: 'release/v1',
+        head_sha: A,
+      }),
+    ).toMatchObject({ ready: false, base_sha: 'b'.repeat(40) });
+    expect(sent.map((r) => r.path)).toEqual([
+      'repos/acme/app/pulls/7',
+      'repos/acme/app/branches/release%2Fv1',
+      `repos/acme/app/compare/${A}...${'b'.repeat(40)}`,
+    ]);
+  });
+
+  it('updates to the freshly read target tip when pull.base.sha is an old ancestor', async () => {
+    const d = setup();
+    const t = buildTask();
+    green(d, t);
+    const { port, sent } = github({
+      pull: { base: { ref: 'main', sha: A } },
+      targetSha: 'b'.repeat(40),
+      compare: { ahead_by: 1 },
+    });
+    expect(await advanceTaskPr(deps(d, port, false), t.id)).toBe(
+      'updating_base',
+    );
+    expect(d.task(t.id).run.base_update?.base_sha).toBe('b'.repeat(40));
+    expect(
+      sent.some((request) =>
+        request.path.endsWith(`/compare/${A}...${'b'.repeat(40)}`),
+      ),
+    ).toBe(true);
+    expect(puts(sent)).toEqual([]);
+  });
+
+  it.each(['clean', 'behind', 'dirty'])(
+    'a stale checked head (%s) queues base integration and fresh gates',
+    async (mergeable_state) => {
+      const d = setup();
+      const t = buildTask();
+      green(d, t);
+      const { port, sent } = github({
+        pull: { mergeable_state },
+        compare: { ahead_by: 1 },
+      });
+      expect(await advanceTaskPr(deps(d, port), t.id)).toBe('updating_base');
+      expect(puts(sent)).toEqual([]);
+      expect(approvals(d, t)).toEqual([]);
+      expect(d.task(t.id).head_sha).toBe(A);
+      expect(d.task(t.id).wait?.detail.code).toBe('execution_slot');
+      const grant = d.store.grantNext(
+        d.now as EpochMs,
+        Array.from({ length: 8 }, newId),
+      );
+      expect(grant).toMatchObject({
+        ok: true,
+        value: { kind: 'decided', outcome: { decision: { kind: 'accepted' } } },
+      });
+      expect(d.pendingOne(t.id, 'run_gates').request).toMatchObject({
+        base_update: { head_sha: A, base_sha: 'b'.repeat(40) },
+      });
+      expect(await advanceTaskPr(deps(d, port), t.id)).toBe('not_waiting');
+    },
+  );
+
+  it.each(['direct-pr', 'full-review'] as const)(
+    '%s: a clean base update reruns gates and CI, without another reviewer',
+    async (mode) => {
+      const d = setup();
+      const t = buildTask();
+      green(d, t, mode);
+      const oldReviews = d.task(t.id).run.reviews.length;
+      const stale = github({ compare: { ahead_by: 1 } });
+      expect(await advanceTaskPr(deps(d, stale.port), t.id)).toBe(
+        'updating_base',
+      );
+      expect(
+        d.store.grantNext(d.now as EpochMs, Array.from({ length: 8 }, newId)),
+      ).toMatchObject({
+        ok: true,
+        value: { kind: 'decided', outcome: { decision: { kind: 'accepted' } } },
+      });
+      const fresh = 'c'.repeat(40);
+      d.complete(
+        t.id,
+        d.pendingOne(t.id, 'run_gates').id,
+        'succeeded',
+        checkpointGates(fresh),
+      );
+      expect(d.pending(t.id, 'start_agent')).toEqual([]);
+      expect(d.task(t.id).run.reviews).toHaveLength(oldReviews);
+      expect(d.task(t.id).run.base_update?.certificate?.head_sha).toBe(fresh);
+      expect(d.pendingOne(t.id, 'publish').request).toMatchObject({
+        sha: fresh,
+      });
+      expect(await advanceTaskPr(deps(d, github().port), t.id)).toBe(
+        'not_waiting',
+      );
+      d.complete(
+        t.id,
+        d.pendingOne(t.id, 'publish').id,
+        'succeeded',
+        publishData(fresh),
+      );
+      expect(d.pendingOne(t.id, 'await_ci').request).toMatchObject({
+        head_sha: fresh,
+      });
+      expect(await advanceTaskPr(deps(d, github().port), t.id)).toBe(
+        'not_waiting',
+      );
+      d.complete(
+        t.id,
+        d.pendingOne(t.id, 'await_ci').id,
+        'succeeded',
+        ci(fresh, { build: 'success', test: 'success' }),
+      );
+      expect(d.task(t.id).wait?.detail.code).toBe('merge');
+      // A current read now agrees with the newly certified head and reports successful current checks.
+      const remote = github({
+        pull: { head: { sha: fresh } },
+        checkRuns: {
+          check_runs: REQUIRED.map((name, i) => ({
+            id: i + 1,
+            name,
+            head_sha: fresh,
+            status: 'completed',
+            conclusion: 'success',
+            app: { id: 15368 },
+          })),
+        },
+      });
+      expect(await advanceTaskPr(deps(d, remote.port), t.id)).toBe('merged');
+      expect(puts(remote.sent)[0]?.body).toMatchObject({ sha: fresh });
+      expect(replay(d.store.readEvents(t.id))).toEqual(d.task(t.id));
+    },
+  );
+
+  it('a base-update retry retains its durable head/base intent and remains subject to cancellation', async () => {
+    const d = setup();
+    const t = buildTask();
+    green(d, t);
+    expect(
+      await advanceTaskPr(
+        deps(d, github({ compare: { ahead_by: 1 } }).port),
+        t.id,
+      ),
+    ).toBe('updating_base');
+    d.store.grantNext(d.now as EpochMs, Array.from({ length: 8 }, newId));
+    const gate = d.pendingOne(t.id, 'run_gates');
+    d.complete(t.id, gate.id, 'failed', {
+      failure_class: 'infra',
+      message: 'temporary fetch failure',
+    });
+    const timer = Object.values(d.task(t.id).timers).find(
+      (entry) => entry.kind === 'backoff' && entry.status === 'armed',
+    );
+    expect(timer?.payload.resume).toMatchObject({
+      base_update: { head_sha: A, base_sha: 'b'.repeat(40) },
+    });
+    expect(replay(d.store.readEvents(t.id))).toEqual(d.task(t.id));
+    d.must(t.id, { kind: 'cancel', reason: 'stop' });
+    if (timer !== undefined) {
+      d.now = timer.due_at;
+      d.fire();
+    }
+    expect(d.pending(t.id, 'run_gates')).toEqual([]);
+  });
+
+  it.each(['clean', 'behind', 'dirty'])(
+    'yolo off still integrates a stale/conflicted PR (%s), without approving a merge',
+    async (mergeable_state) => {
+      const d = setup();
+      const t = buildTask();
+      green(d, t);
+      const { port, sent } = github({
+        pull: { mergeable_state },
+        compare: { ahead_by: 1 },
+      });
+      const enabled = () => {
+        throw new Error('base maintenance must not read yolo config');
+      };
+      expect(
+        await advanceTaskPr({ ...deps(d, port, false), enabled }, t.id),
+      ).toBe('updating_base');
+      expect(d.task(t.id).wait?.detail.code).toBe('execution_slot');
+      expect(approvals(d, t)).toEqual([]);
+      expect(puts(sent)).toEqual([]);
+    },
+  );
+
+  it('cancellation while reading the base prevents maintenance', async () => {
+    const d = setup();
+    const t = buildTask();
+    green(d, t);
+    const remote = github({ compare: { ahead_by: 1 } });
+    const port: GitHubPort = {
+      request: async (request) => {
+        const result = await remote.port.request(request);
+        if (request.path.includes('/compare/'))
+          d.must(t.id, { kind: 'cancel', reason: 'stop' });
+        return result;
+      },
+    };
+    expect(await advanceTaskPr(deps(d, port, false), t.id)).toBe(
+      'not_approved',
+    );
+    expect(d.pending(t.id, 'run_gates')).toEqual([]);
+    expect(puts(remote.sent)).toEqual([]);
   });
 
   it('an additional GitHub requirement still has to pass', async () => {
@@ -788,7 +1023,7 @@ describe('yolo merge', () => {
         required_status_checks: { contexts: [...REQUIRED, 'security'] },
       },
     });
-    expect(await yoloMerge(deps(d, port), t.id)).toBe('not_ready');
+    expect(await advanceTaskPr(deps(d, port), t.id)).toBe('not_ready');
     expect(puts(sent)).toEqual([]);
   });
 
@@ -848,7 +1083,7 @@ describe('yolo merge', () => {
       const { port, sent } = github({
         checks: { build: 'success', test: conclusion },
       });
-      expect(await yoloMerge(deps(d, port), t.id)).toBe('not_ready');
+      expect(await advanceTaskPr(deps(d, port), t.id)).toBe('not_ready');
       expect(puts(sent)).toEqual([]);
       expect(approvals(d, t)).toEqual([]);
     },
@@ -859,7 +1094,7 @@ describe('yolo merge', () => {
     const t = buildTask();
     green(d, t);
     const { port, sent } = github({ checks: { build: 'success' } });
-    expect(await yoloMerge(deps(d, port), t.id)).toBe('not_ready');
+    expect(await advanceTaskPr(deps(d, port), t.id)).toBe('not_ready');
     expect(puts(sent)).toEqual([]);
   });
 
@@ -869,7 +1104,7 @@ describe('yolo merge', () => {
     green(d, t);
     const { port, sent } = github();
     let reads = 0;
-    const r = await yoloMerge(
+    const r = await advanceTaskPr(
       {
         ...deps(d, port),
         enabled: () => {
@@ -890,7 +1125,7 @@ describe('yolo merge', () => {
     green(d, t);
     const asked: string[] = [];
     const lost = github({ mergeStatus: 'lost' });
-    await yoloMerge(
+    await advanceTaskPr(
       {
         ...deps(d, lost.port),
         content: (ref, digest) => {
@@ -901,13 +1136,16 @@ describe('yolo merge', () => {
       t.id,
     );
     const again = github();
-    await yoloMerge(deps(d, again.port), t.id);
+    await advanceTaskPr(deps(d, again.port), t.id);
     expect(puts(again.sent)[0]?.body).toEqual(puts(lost.sent)[0]?.body);
     expect(asked).toEqual([approvals(d, t)[0]?.content_digest]);
 
     const unread = github();
     expect(
-      await yoloMerge({ ...deps(d, unread.port), content: () => null }, t.id),
+      await advanceTaskPr(
+        { ...deps(d, unread.port), content: () => null },
+        t.id,
+      ),
     ).toBe('not_ready');
     expect(puts(unread.sent)).toEqual([]);
   });
@@ -918,7 +1156,7 @@ describe('yolo merge', () => {
     green(d, t);
     d.must(t.id, { kind: 'cancel', reason: 'stop' });
     const { port, sent } = github();
-    expect(await yoloMerge(deps(d, port), t.id)).toBe('not_waiting');
+    expect(await advanceTaskPr(deps(d, port), t.id)).toBe('not_waiting');
     expect(sent).toEqual([]);
   });
 

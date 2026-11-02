@@ -90,7 +90,7 @@ V1 không có Primary AI chạy liên tục, plugin marketplace, workflow tự s
 | I08 | Workflow, policy và đầu vào gốc bất biến theo revision. Thay đổi phải có event, actor, lý do và phiên bản mới. |
 | I09 | Mọi lần gọi agent phải thỏa role, binding, quyền, approval, pool và ngân sách đã resolve. Agent không được tự đổi những giới hạn đó. |
 | I10 | Thứ tự event lấy từ sequence đã commit; không suy ra bằng ID hay thời gian hệ thống. Trigger lặp không tạo thêm hiệu ứng logic. |
-| I11 | Effect merge do Cuesura gửi chỉ do code thực hiện sau khi kiểm quyền, head/base, gate/CI, review theo chế độ và approval cho merge; auto-merge của `full-review` luôn cần reviewer approve. Người dùng merge thủ công trên GitHub là thao tác bên ngoài, được đối chiếu bằng chứng riêng; không giả review/approval hoặc gọi guard để gửi merge. Decider và agent không quyết định merge. |
+| I11 | Effect merge do Cuesura gửi chỉ do code thực hiện sau khi kiểm quyền, head/base, gate/CI, review theo chế độ và approval cho merge; `full-review` cần reviewer approve, trừ lượt tích hợp base có chứng nhận phạm vi theo §14.2. Người dùng merge thủ công trên GitHub là thao tác bên ngoài, được đối chiếu bằng chứng riêng; không giả review/approval hoặc gọi guard để gửi merge. Decider và agent không quyết định merge. |
 | I12 | Trạng thái kết thúc không tự mở lại. Retry sau kết thúc tạo task mới có liên kết nguồn; lịch sử task cũ được giữ nguyên. |
 
 ## 5. Mô hình miền và dữ liệu
@@ -182,11 +182,11 @@ Một lần hủy chưa thành CANCELLED khi process hoặc merge request vẫn 
 | Merge | Tuần tự hóa theo branch đích, kiểm tra lại mọi điều kiện | Cập nhật base và chạy lại kiểm tra, hoặc WAITING |
 | Complete | Xác nhận merge, lưu artifact/usage, đồng bộ nguồn | Dọn dẹp có điều kiện; lỗi thông báo không làm lặp merge |
 
-Có hai chế độ do người dùng xác nhận trước khi chạy: `direct-pr` không gọi reviewer; `full-review` bắt buộc review trước publish. Không tự chọn theo size XS và không bắt buộc khác vendor/model. Reviewer dùng session riêng, chỉ đọc; approval gắn base SHA/commit SHA cụ thể. Thay đổi code sau review phải gates, commit mới và review lại; publish không commit thêm code sau approval.
+Có hai chế độ do người dùng xác nhận trước khi chạy: `direct-pr` không gọi reviewer; `full-review` bắt buộc review trước publish. Không tự chọn theo size XS và không bắt buộc khác vendor/model. Reviewer dùng session riêng, chỉ đọc; approval gắn base SHA/commit SHA cụ thể. Thay đổi code sau review phải gates, commit mới và review lại, trừ ngoại lệ tích hợp base có chứng nhận phạm vi tại §14.2; publish không commit thêm code sau approval.
 
 Nếu remote branch task đổi sang B khi đang review A, kết quả A đến muộn chỉ thuộc A và không gỡ `head_changed` hoặc chứng nhận B. Approve đến trước khi quan sát drift vẫn phải qua guard remote expected-old trước publish; restart giữ blocker và receipt. Chỉ base tip đổi không tự làm review A mất hiệu lực. Xem [H01–H06](specs/002-task-to-green-pr/task-execution-modes.md#remote-đổi-head-khi-review-còn-chạy).
 
-Hết quota thì chờ hoặc đề xuất lựa chọn khác để người dùng duyệt, không tự đổi chế độ/binding ngoài bộ đã duyệt. Các vòng sửa trong giới hạn không hỏi lại; đổi chế độ làm thay đổi graph của task đã chạy nên cần task mới trong toàn bộ v1 theo §5.3. `direct-pr` không cấp quyền merge: mọi chế độ auto-merge trong v1 vẫn cần review approve; feature 002 chỉ quan sát merge thủ công. Xem [hợp đồng chi tiết và tiêu chí kiểm chứng](specs/002-task-to-green-pr/task-execution-modes.md).
+Hết quota thì chờ hoặc đề xuất lựa chọn khác để người dùng duyệt, không tự đổi chế độ/binding ngoài bộ đã duyệt. Các vòng sửa trong giới hạn không hỏi lại; đổi chế độ làm thay đổi graph của task đã chạy nên cần task mới trong toàn bộ v1 theo §5.3. `direct-pr` không tự cấp quyền merge: daemon chỉ gửi merge khi yolo hiện hành cho phép và đủ điều kiện §14.2. Xem [hợp đồng chi tiết và tiêu chí kiểm chứng](specs/002-task-to-green-pr/task-execution-modes.md).
 
 Mỗi lần resume worker sửa MUST có packet mới ghi nguyên nhân, log/findings, checkpoint/worktree/diff, nội dung PR và Q&A hiện hành. Trong cùng task/revision, review chỉ được gọi lại khi cần: approve/findings còn hiệu lực và toàn bộ đầu vào review không đổi thì dùng lại evidence; worker no-op không tạo commit mới hoặc hỏi lại reviewer. Xem [điều kiện reuse](specs/002-task-to-green-pr/task-execution-modes.md#dùng-lại-kết-quả-review-còn-hiệu-lực).
 
@@ -432,21 +432,71 @@ có thể đổi commit SHA mà không làm head-at-merge khác head đã kiểm
 
 Protected branches mặc định bao gồm default branch. Phần kiểm tra dưới đây chỉ áp dụng khi **Cuesura gửi effect merge**, không áp dụng để ngăn hoặc phủ nhận merge thủ công đã xảy ra trên GitHub. Mỗi branch đích có một merge queue; ngay trước effect merge phải kiểm tra:
 
-1. Head SHA đúng kết quả gate/CI và approval cho thao tác merge đang hiệu lực; reviewer approval cùng head bắt buộc khi là `full-review`. `direct-pr` không cần reviewer approval, kể cả khi auto-merge.
+1. Head SHA đúng kết quả gate/CI và approval cho thao tác merge đang hiệu lực; reviewer approval cùng head bắt buộc khi là `full-review`, trừ lượt tích hợp base có chứng nhận phạm vi bên dưới. `direct-pr` không cần reviewer approval, kể cả khi auto-merge.
 2. Head đã bao gồm base tip hiện tại; base đổi thì cập nhật branch, chạy lại gate/review cần thiết và CI.
 3. Required checks đầy đủ và thành công; pending/cancelled/missing/unknown không phải pass.
-4. Auto-merge của `full-review` có reviewer approve và không còn finding nghiêm trọng chưa xử lý.
+4. Auto-merge của `full-review` có reviewer approve hoặc chứng nhận phạm vi tích hợp base bên dưới; không còn finding nghiêm trọng chưa xử lý.
 5. Quyền merge còn hiệu lực, các quy tắc GitHub hiện có được GitHub thực thi và không có yêu cầu hủy chặn effect chưa gửi; không bắt buộc bật branch protection.
 
-Local queue chỉ tuần tự hóa merge của Cuesura. Daemon kiểm tra head chứa base tip hiện tại bằng compare `head...target` (`ahead_by === 0`) và gửi expected-head `sha`. Branch protection là tùy chọn, khuyến nghị bật như lớp chặn thêm do GitHub thực thi. Không có protection thì GitHub không chặn race khi nhánh đích có commit mới hoặc check đổi kết quả giữa lúc daemon đọc và lúc merge; expected-head chỉ chặn PR head đổi. Conflict được giao fixer tối đa một lượt mặc định, rồi chờ người.
+Local queue chỉ tuần tự hóa merge của Cuesura. Daemon kiểm tra head chứa base tip hiện tại bằng compare `head...target_tip_sha` (`ahead_by === 0`) và gửi expected-head `sha`. Branch protection là tùy chọn, khuyến nghị bật như lớp chặn thêm do GitHub thực thi. Không có protection thì GitHub không chặn race khi nhánh đích có commit mới hoặc check đổi kết quả giữa lúc daemon đọc và lúc merge; expected-head chỉ chặn PR head đổi.
 
-Người dùng có thể merge thủ công cả PR `direct-pr` lẫn `full-review` trên GitHub theo quyền và branch protection. Cuesura đối chiếu repo/PR/target/head-at-merge rồi hoàn tất theo bằng chứng; không giả review/approval nội bộ hoặc gửi thêm lệnh merge. Nếu head chưa được kiểm đủ theo chế độ, ghi rõ merge chưa chứng nhận. Feature 002 chỉ có đường quan sát này, không gửi effect merge.
+Người dùng có thể merge thủ công cả PR `direct-pr` lẫn `full-review` trên GitHub theo quyền và branch protection. Cuesura đối chiếu repo/PR/target/head-at-merge rồi hoàn tất theo bằng chứng; không giả review/approval nội bộ hoặc gửi thêm lệnh merge. Nếu head chưa được kiểm đủ theo chế độ, ghi rõ merge chưa chứng nhận.
 
-**Yolo trong daemon:** khi `yolo: true` trong user config, sau mỗi lượt đọc PR của task đang chờ merge, daemon đọc lại config, yêu cầu PR đang mở, đúng target, có `mergeable_state: clean` trên đúng head đã kiểm và compare `head...target` trả `ahead_by === 0`. Chiều này có diff rỗng khi head đã chứa tip, tránh tải diff lớn của PR. Không đọc được hoặc thiếu `ahead_by` thì tiếp tục chờ. Không bắt buộc protection, `strict` hay `enforce_admins`; nếu có thì GitHub thực thi các luật đó khi nhận lệnh merge.
+**Yolo trong daemon:** khi `yolo: true` trong user config, sau mỗi lượt đọc PR của task đang chờ merge, daemon đọc lại config, yêu cầu PR đang mở, đúng target, có `mergeable_state: clean` trên đúng head đã kiểm và compare `head...target_tip_sha` trả `ahead_by === 0`. Compare lấy `per_page=1&page=2` để chỉ đọc tổng ahead/behind và bỏ danh sách diff ở trang 1, kể cả khi PR tụt sau target. Không đọc được hoặc thiếu `ahead_by` thì tiếp tục chờ. Không bắt buộc protection, `strict` hay `enforce_admins`; nếu có thì GitHub thực thi các luật đó khi nhận lệnh merge.
 
 Danh sách check phải chờ ở cả CI, quan sát và yolo là hợp của `policy.ci.required_checks` đã đóng băng và tên mọi check bắt buộc đang có hiệu lực trên GitHub, kể cả check ngoài policy và ghim app. `evaluateRequired` tính phần hợp ở mỗi lượt đọc, lưu tên/app trong evidence, không sửa FrozenPolicy và không phụ thuộc cờ yolo (FR-042). Không tạo `required_checks_mismatch` mới chỉ vì check ngoài policy hoặc ghim app; wait/event cũ vẫn replay được và được đối chiếu lại ở lượt quan sát tiếp theo trong cửa sổ CI.
 
 Evidence `unknown`, dữ liệu check không đầy đủ, thiếu quyền hoặc collision đều chưa đạt. Mọi check trong hợp phải `success`; `pending`, `skipped`, `neutral`, `cancelled`, `failure` hay `unknown` đều không đạt. Khi gửi merge, daemon còn yêu cầu check ghim app có kết quả `success` từ đúng `app_id`; không dựa vào GitHub vì token admin có thể bypass protection. Nếu hợp rỗng, observation giữ hành vi cũ: task vào chờ merge, bỏ qua check không bắt buộc; riêng yolo không merge và log một lần mỗi task trong vòng đời daemon, hướng dẫn khai `ci.required_checks` trong `cusr.yaml`. Không dùng fallback mọi check đang thấy trên head vì có job chưa kịp xuất hiện. Điều kiện `clean` vẫn được giữ thận trọng: check không bắt buộc đỏ có thể khiến GitHub trả `unstable` và chặn yolo dù hợp check bắt buộc đã xanh. Lỗi đọc/validate user config được ghi log và coi yolo là tắt; không đổi evidence hoặc trạng thái quan sát.
+
+**Tích hợp base, không phụ thuộc yolo:** sau lượt quan sát, task đang chờ merge trên head đã
+chứng nhận được cập nhật nếu PR còn mở, đúng head/target, trạng thái `clean`, `behind` hoặc `dirty`,
+daemon đọc tip qua `GET branches/{target}` rồi compare `head...target_tip_sha` xác nhận
+`ahead_by > 0`. Không dùng `pull.base.sha`: đó có thể là snapshot cũ của PR. SHA tip vừa đọc
+được dùng nhất quán cho compare và Git fetch/merge; không đọc được tip thì không cập nhật. Task xin lại execution slot, dùng workflow,
+FrozenPolicy và giới hạn visit/deadline hiện có. Cờ yolo chỉ quyết định gửi merge, không quyết định
+cập nhật base hoặc sửa conflict. Chưa chứng nhận head, PR đóng, drift hoặc hủy thì không cập nhật.
+
+| Tình huống | Xử lý | Review mới |
+|---|---|---|
+| Tụt sau target, không conflict | Daemon tích hợp base, chạy gate, publish, chờ CI trên head mới; không gọi fixer | Không |
+| Có conflict lần đầu | Một lượt fixer, kiểm tra phạm vi bằng Git trên host, chạy gate, publish, chờ CI | Không nếu chỉ sửa file conflict |
+| Fixer sửa cả file ngoài danh sách conflict | Qua review trước publish | Có; `direct-pr` không có reviewer đóng băng thì chờ người quyết định |
+| Fixer lỗi, bị chặn, chưa xong, gate fail hoặc conflict lại sau lượt đó | Chờ người, không gọi thêm fixer tự động | Người quyết định |
+
+Handler fetch đúng base SHA và dùng `merge-tree --write-tree --name-only -z`. Không conflict thì
+merge commit hai parent có durable intent và CAS từ head cũ. Có conflict thì lưu tree và danh sách
+file conflict trong intent, checkout tree này cho fixer nhưng giữ HEAD cũ; không áp dụng/push commit
+chứa marker. Host so tree sau fixer và sau gate với tree conflict ban đầu, dùng diff không suy đoán
+rename: thay đổi tự động từ base không bị tính là fixer sửa ngoài phạm vi; file mới/đổi tên ngoài
+danh sách được tính. Mỗi file conflict phải khác tree conflict ban đầu; báo `done` mà không đổi
+file (kể cả modify/delete hoặc binary không có marker) không được chứng nhận tự động. Dùng
+`git grep -I -q` chỉ trên file conflict để tìm marker mở/đóng, không coi một dòng Markdown
+`=======` là marker. Không xuất toàn bộ diff/diagnostic ra port; lỗi/cắt ngắn/timeout khi đọc scope
+trả evidence chưa đạt, không throw để effect kẹt `started`. Còn marker hoặc tree đổi ngoài dự kiến thì dừng. Commit cuối có hai parent
+chỉ được áp dụng sau khi gate đạt. Branch/worktree bị đổi ngoài dự kiến được giữ lại để đối chiếu.
+
+`BaseUpdateRecorded` lưu head/base, revision, conflict, lượt fixer, phạm vi và chứng nhận đúng
+head/tree sau gate. Chứng nhận này miễn review mới riêng lượt tích hợp base sạch hoặc chỉ sửa file
+conflict; không giả reviewer approve hay dùng approval của head cũ cho head mới. Đổi head/tree/revision
+khác làm chứng nhận không áp dụng. Sửa ngoài phạm vi trong `full-review` dùng reviewer đã đóng băng;
+review không chấp thuận thì chờ người, không mở lượt fixer thứ hai cho conflict này.
+
+**Tiếp tục sau khi chờ người:** lỗi sửa conflict, gate fail, conflict lần nữa hoặc sửa ngoài phạm vi
+mở question qua luồng `answer` hiện có, thay vì wait `refused` chỉ chờ amend. Người dùng có thể sửa
+tay trong worktree, trả lời đúng `continue` để xác nhận các phiên bản đã chọn và chạy lại gate/publish/CI; với conflict
+không marker, câu trả lời ghi actor/time xác nhận cả lựa chọn giữ nguyên file. Trả lời chính xác
+`retry fixer` cấp phép một lượt worker nữa; timer/observation không tự cấp lượt này. Cả hai đường
+vẫn đi qua slot, visit, budget, deadline và remote expected-old guard; không reset giới hạn. Sửa
+ngoài file conflict vẫn cần review; `direct-pr` có thể hoàn nguyên phần đó rồi tiếp tục, hoặc tạo task
+mới có reviewer. Gate flaky sau một merge local sạch retry từ cùng durable intent/OID, không tạo
+merge commit rỗng. Nếu người dùng sửa code sau một merge sạch, scope được so với tree trong
+durable intent; sửa thêm ngoài file conflict phải review như thường. Git còn chặn tạo merge mới nếu base được yêu cầu đã nằm trong head. Wait
+`policy/refused` của phiên bản cũ chuyển thành question khi người dùng `task recheck`.
+
+Push dùng expected-old guard và fast-forward; gate/CI phải đạt trên head mới, rồi task lại chờ merge.
+Compare trước merge vẫn đọc tip hiện tại nên target tiến tiếp có thể cần cập nhật nữa; nếu lần sau
+conflict thì không gọi fixer thứ hai. Intent/event/effect/resume giữ head/base và ngân sách một lượt
+fixer qua chờ slot, retry, replay và restart. FrozenPolicy và base snapshot lấy policy/review giữ nguyên.
 
 Engine kiểm tra task đã xác nhận chế độ, không bị hủy, head được Cuesura chứng nhận, rồi ghi approval `policy:yolo` kèm digest của publish content; sau đó daemon đọc lại config, đọc lại trạng thái task và gửi merge kèm `sha` của head đó, với squash thì kèm commit message của đúng content ấy đã validate. Task chỉ DONE khi quan sát thấy bằng chứng merge. Thiếu điều kiện thì không gửi gì và task tiếp tục chờ; GitHub từ chối vẫn xử lý `refused`, người dùng vẫn merge tay được.
 

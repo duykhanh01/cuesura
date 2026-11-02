@@ -14,6 +14,12 @@
  * `reconcile` (T090) probes the effect it targets by kind before anything is sent again; see
  * {@link reconcileEffect}.
  */
+import {
+  updateBase,
+  baseRepairScope,
+  baseUpdateIntentKey,
+} from '../adapters/git/update-base.ts';
+import { BaseUpdateSchema } from '../domain/runtime.ts';
 import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -535,6 +541,23 @@ function failuresFor(s: TaskState): {
   const ci = s.evidence.ci.filter((c) => c.valid && c.revision === rev).at(-1);
   const cp = s.run.checkpoint?.sha ?? null;
   const step = s.current_step ?? '';
+  if (
+    step === 'fix_gates' &&
+    s.run.base_update?.conflict !== undefined &&
+    s.run.base_update.certificate === undefined
+  ) {
+    return {
+      cause: 'gate',
+      failures: [
+        {
+          source: 'gate',
+          name: 'base-conflict',
+          sha: s.run.base_update.head_sha,
+          detail: `Resolve this merge conflict in one attempt. Conflicting files: ${s.run.base_update.conflict.files.join(', ')}. Keep both task and base behavior. Changes outside these files require review. Do not run git commit or push.`,
+        },
+      ],
+    };
+  }
   if (step === 'fix_gates' && gate !== undefined && !gate.passed) {
     const failed = gate.failed ?? [];
     const list =
@@ -1077,7 +1100,30 @@ async function startAgent(
   // What the attempt left is now the task's tree; an attempt never invoked changed nothing.
   if (out.kind === 'failure' && out.invoked === false) return accepted;
   const after = await worktreeTree(deps, l);
-  return after.ok ? withWorktreeTree(accepted, after.tree) : accepted;
+  if (!after.ok) return accepted;
+  const recorded = withWorktreeTree(accepted, after.tree);
+  const update = l.s.run.base_update;
+  if (
+    update?.conflict !== undefined &&
+    update.fixer_attempt_id === mirror.attempt_id &&
+    recorded.outcome === 'succeeded'
+  ) {
+    const scope = await baseRepairScope(
+      deps.git,
+      where(deps, l).worktree,
+      update.head_sha,
+      update.conflict,
+      after.tree,
+    );
+    return {
+      ...recorded,
+      data: {
+        ...(recorded.data as Record<string, unknown>),
+        base_repair: scope,
+      },
+    };
+  }
+  return recorded;
 }
 
 /** The task worktree and the Git dirs a sandboxed role sees read-only (common dir, worktree admin dir). */
@@ -1210,7 +1256,12 @@ async function checkpointCommit(
   const head = await headOf(deps, spec.worktree_path);
   let sha = head.sha;
   let committed = false;
-  if (tree !== head.tree) {
+  if (
+    tree !== head.tree ||
+    (l.s.run.base_update?.conflict !== undefined &&
+      l.s.run.base_update.certificate === undefined &&
+      head.sha === l.s.run.base_update.head_sha)
+  ) {
     const intents = new FileCommitIntentStore(deps.paths.intents);
     const key = commitKey(l.s, effect.id);
     // A recovered run commits the same tree on the same parent: it reuses the stored times, so the
@@ -1228,6 +1279,11 @@ async function checkpointCommit(
       branch: spec.branch,
       tree,
       parent: cp.value.parent_oid,
+      ...(l.s.run.base_update?.conflict !== undefined &&
+      l.s.run.base_update.certificate === undefined &&
+      cp.value.parent_oid === l.s.run.base_update.head_sha
+        ? { merge_parent: l.s.run.base_update.base_sha }
+        : {}),
       author: { ...deps.committer, at },
       committer: { ...deps.committer, at },
       message: content.commit_message,
@@ -1289,6 +1345,100 @@ async function gates(
     ? (effect.request['required'] as string[])
     : [];
   const spec = await checkpointSpec(deps, l);
+  const update = l.s.run.base_update;
+  let manualClean: { tree: string; files: string[] } | undefined;
+  if (
+    update?.manual_resolution !== undefined &&
+    update.conflict === undefined
+  ) {
+    const plan = new FileCommitIntentStore(deps.paths.intents).load(
+      baseUpdateIntentKey(spec, update),
+    );
+    if (plan !== null && plan.conflict_files === undefined) {
+      const head = await headOf(deps, spec.worktree_path);
+      if (
+        plan.parent !== update.head_sha ||
+        plan.merge_parent !== update.base_sha ||
+        plan.branch !== spec.branch ||
+        plan.worktree_path !== spec.worktree_path ||
+        (head.sha !== plan.oid && head.sha !== l.s.run.checkpoint?.sha)
+      )
+        return failed(
+          'refused',
+          'local head does not match the durable base update',
+        );
+      manualClean = { tree: plan.tree, files: [] };
+    }
+  }
+  if (
+    effect.request['base_update'] !== undefined &&
+    manualClean === undefined
+  ) {
+    const update = BaseUpdateSchema.safeParse(effect.request['base_update']);
+    if (!update.success)
+      return failed('auth_config', 'invalid base update request');
+    const result = await updateBase(
+      deps.git,
+      new FileCommitIntentStore(deps.paths.intents),
+      {
+        ...update.data,
+        checkpoint: spec,
+        remote: deps.remoteUrl(l.rt.target.repo),
+        identity: deps.committer,
+        at: deps.clock.now(),
+      },
+    );
+    if (result.kind === 'conflict')
+      return {
+        outcome: 'succeeded',
+        data: {
+          results: [],
+          tree: result.tree,
+          stable: true,
+          base_conflict: { tree: result.tree, files: result.files },
+        },
+      };
+    if (result.kind !== 'updated')
+      return result.kind === 'unknown'
+        ? unknown(result.detail)
+        : failed('refused', result.detail);
+  }
+  const repairScope = async (tree: string) => {
+    const baseline = update?.conflict ?? manualClean;
+    if (baseline === undefined || update === undefined) return undefined;
+    const scope = await baseRepairScope(
+      deps.git,
+      spec.worktree_path,
+      update.head_sha,
+      baseline,
+      tree,
+    );
+    return update.manual_resolution !== undefined &&
+      scope.markers === false &&
+      scope.problem === undefined
+      ? { ...scope, unresolved: false }
+      : scope;
+  };
+  if (update?.conflict !== undefined && update.certificate === undefined) {
+    const before = await worktreeTree(deps, l);
+    if (!before.ok) return before.outcome;
+    const head = await headOf(deps, spec.worktree_path);
+    // Recovery may change files, never accept an unrelated local commit silently.
+    if (head.sha !== update.head_sha && head.sha !== l.s.run.checkpoint?.sha)
+      return failed('refused', 'local head changed during conflict repair');
+    if (
+      update.manual_resolution === undefined &&
+      update.scope !== undefined &&
+      before.tree !== update.scope.tree
+    )
+      return failed('refused', 'worktree changed after conflict scope check');
+    const scope = await repairScope(before.tree);
+    if (scope?.unresolved)
+      return failed(
+        'refused',
+        scope.problem ?? 'conflict paths unchanged or markers remain',
+      );
+  }
   const input = {
     commands: list.map((g) => ({ name: g.gate, command: g.cmd })),
     layout: commandLayout(deps, l, spec),
@@ -1316,10 +1466,20 @@ async function gates(
     must.every((g) => data.results.some((x) => x.gate === g && x.passed));
   if (!passed || !data.stable || !commitStep(l.policy, step))
     return { outcome: 'succeeded', data };
+  const scope =
+    update !== undefined && update.certificate === undefined
+      ? await repairScope(data.tree)
+      : undefined;
+  if (scope?.unresolved)
+    return failed(
+      'refused',
+      'gate left conflict markers; no checkpoint applied',
+    );
   return {
     outcome: 'succeeded',
     data: {
       ...data,
+      ...(scope === undefined ? {} : { base_scope: scope }),
       checkpoint: await checkpointCommit(deps, l, effect, data.tree),
     },
   };

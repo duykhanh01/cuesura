@@ -255,16 +255,38 @@ không giới hạn; không sửa tay snapshot hoặc manifest của task cũ.
 `cusr.yaml`. Config được đọc lại trước mỗi lần merge nên sửa về `false` có hiệu lực không cần restart;
 không chặn được request đã gửi tới GitHub.
 
-- `full-review` cần reviewer của Cuesura approve; đây không phải review trên GitHub.
+- `full-review` cần reviewer của Cuesura approve, trừ lượt tích hợp base có chứng nhận phạm vi dưới đây; đây không phải review trên GitHub.
 - `direct-pr` không có reviewer đọc diff: chỉ gate và CI chặn lỗi.
 - Branch protection là tùy chọn, khuyến nghị bật required checks, "up to date" và áp dụng cho admin
   như lớp chặn thêm do GitHub thực thi. Không bật yêu cầu approvals nếu chỉ có một tài khoản.
-- Daemon yêu cầu PR `clean`, đúng head/target, và compare `head...target` trả `ahead_by === 0`.
-  Khi head chứa tip, chiều compare này có diff rỗng, tránh phản hồi quá lớn. Giữ điều kiện `clean`
+- Daemon đọc tip mới qua `GET branches/{target}`, không dùng `pull.base.sha` (có thể cũ).
+  PR phải `clean`, đúng head/target, và compare `head...target_tip_sha` trả `ahead_by === 0`.
+  Compare lấy trang 2, một commit/trang để tránh tải danh sách diff ở trang 1, kể cả khi head tụt sau target. Giữ điều kiện `clean`
   thận trọng: check không bắt buộc đỏ có thể làm GitHub trả `unstable` và chặn yolo.
 - Cả CI và observation chờ `ci.required_checks` đóng băng hợp với tên check GitHub đang bắt buộc,
   kể cả check ngoài policy/ghim app; không phụ thuộc cờ yolo và không sửa FrozenPolicy. Tên/app được
   lưu trong evidence. Không đọc đủ luật/check, thiếu quyền hoặc có collision thì chưa đạt.
+- Cập nhật base và sửa conflict áp dụng cả khi **tắt yolo**. PR đang chờ merge tụt sau target
+  được cập nhật trong execution slot của task, theo policy và giới hạn visit/deadline đã đóng băng.
+  Git cần hỗ trợ `merge-tree --write-tree` (2.38 trở lên). Với nhiều PR cùng chờ merge, PR sau tự
+  cập nhật khi PR trước làm target tiến lên.
+  - Không conflict: không gọi fixer/reviewer mới; chạy gate, publish và chờ CI trên head mới.
+  - Conflict lần đầu: gọi fixer đúng một lượt. Host kiểm tra diff so với tree conflict ban đầu;
+    mỗi file conflict phải được đổi so với tree ban đầu và qua gate thì publish/chờ CI, không review mới.
+    Binary/modify-delete không có marker nhưng fixer không đổi file vẫn bị chặn.
+  - Sửa file ngoài danh sách conflict (kể cả file mới/rename): phải review. `full-review` dùng
+    reviewer hiện có; `direct-pr` chờ người vì snapshot không có reviewer được xác nhận.
+  - Fixer lỗi/bị chặn/chưa xong, còn marker, gate fail hoặc conflict lại: mở question để người quyết định.
+    Sửa tay rồi trả lời đúng `continue` để chạy lại gate/publish/CI; với conflict không marker, câu trả lời xác nhận
+    lựa chọn giữ nguyên phiên bản file. Trả lời đúng `retry fixer` cho phép thêm một lượt worker.
+    Poll không tự gọi thêm fixer; slot/visit/budget/deadline giữ nguyên. Gate flaky sau merge sạch
+    dùng lại local commit đã có. Wait refused cũ có thể mở question bằng `cusr task recheck`.
+    Trả lời qua lệnh có sẵn: `cusr answer <question-id> --file <answer.txt> --expected-version <version>`.
+    `direct-pr` sửa ngoài phạm vi phải hoàn nguyên phần đó hoặc tạo task mới có reviewer.
+  - Marker chỉ được tìm trên file conflict bằng phép đọc im lặng; heading Markdown `=======`
+    ngoài/ở trong file không tự bị coi là marker. Lỗi đọc scope giữ task chờ có question, không kẹt effect.
+  - Branch/worktree đổi ngoài dự kiến cũng dừng để đối chiếu. Durable intent và chứng nhận đúng
+    head/tree/revision giữ an toàn khi retry/restart; không push commit còn marker.
 - Trước merge, daemon tự yêu cầu check ghim app có `success` đúng `app_id`; không tin rằng GitHub
   sẽ chặn hộ, vì admin có thể bypass nếu protection không áp dụng cho admin.
 - Khuyến nghị khai `ci.required_checks`. Nếu hợp danh sách rỗng, task vẫn vào chờ merge như cũ;

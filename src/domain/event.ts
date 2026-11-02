@@ -25,6 +25,7 @@ import type {
 } from './trigger.ts';
 import type {
   Artifact,
+  BaseUpdateRun,
   ExecutionGroup,
   ExternalSubject,
   FrozenRuntimeContext,
@@ -366,6 +367,7 @@ export type EventPayloads = {
     verdict: 'approve' | 'request_changes';
     input_digest: string;
   };
+  BaseUpdateRecorded: { update: BaseUpdateRun };
   HeadDriftRecorded: { drift: HeadDrift };
   /** The person took the changed worktree as the task's own; the next worker attempt starts from it (T072). */
   WorktreeChangeAccepted: {
@@ -455,6 +457,7 @@ export const EVENT_TYPES = [
   'CheckpointRecorded',
   'PublishContentRecorded',
   'ReviewReused',
+  'BaseUpdateRecorded',
   'HeadDriftRecorded',
   'WorktreeChangeAccepted',
 ] as const satisfies readonly EventType[];

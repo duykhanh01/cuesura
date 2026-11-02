@@ -1,3 +1,4 @@
+import { onUpdateBase } from './base-update.ts';
 import { assertNever } from '../shared/assert-never.ts';
 import { canonicalJson } from '../shared/canonical-json.ts';
 import type { DomainEventDraft } from '../domain/event.ts';
@@ -200,6 +201,10 @@ function dispatch(ctx: Ctx, t: Trigger): void {
       return;
     case 'external_completion':
       onExternalCompletion(ctx, t);
+      return;
+    case 'update_base':
+    case 'yolo_update_base':
+      onUpdateBase(ctx, t);
       return;
     case 'yolo_merge_approve':
       onYoloMergeApprove(ctx, t);

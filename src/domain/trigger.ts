@@ -16,6 +16,9 @@ import { RunSelectionSchema } from './run-config.ts';
 import type { TaskStatus } from './state.ts';
 import {
   ArtifactSchema,
+  BaseUpdateSchema,
+  BaseConflictSchema,
+  BaseRepairScopeSchema,
   ExternalSubjectSchema,
   FrozenRuntimeContextSchema,
   MergeProofSchema,
@@ -118,6 +121,7 @@ export const AgentDataSchema = z
     resume_fallback: z.string().min(1).optional(),
     // The worktree tree after this worker attempt (T072); additive.
     worktree_tree: z.string().min(1).optional(),
+    base_repair: BaseRepairScopeSchema.optional(),
   })
   .strict();
 
@@ -179,6 +183,8 @@ export const GateDataSchema = z
     tree: z.string().min(1).optional(),
     stable: z.boolean().optional(),
     checkpoint: CheckpointDataSchema.optional(),
+    base_conflict: BaseConflictSchema.optional(),
+    base_scope: BaseRepairScopeSchema.optional(),
   })
   .strict();
 
@@ -544,6 +550,9 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
       subject: ExternalSubjectSchema.optional(),
     })
     .strict(),
+  // Keep the old trigger readable for existing durable envelopes.
+  BaseUpdateSchema.extend({ kind: z.literal('yolo_update_base') }).strict(),
+  BaseUpdateSchema.extend({ kind: z.literal('update_base') }).strict(),
   z
     .object({
       kind: z.literal('yolo_merge_approve'),

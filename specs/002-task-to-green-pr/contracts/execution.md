@@ -157,7 +157,7 @@ ngăn đọc file host. Network do host và harness quyết định; không có 
 - Ghi tree/digest trước/sau mỗi gate. Mọi gate bắt buộc phải đạt trên tree code cuối cùng; nếu gate
   hoặc formatter sửa code thì chạy lại tập gate theo policy/retry safety và giới hạn hiện có. Không
   chứng minh cùng tree cuối hoặc writer còn chạy thì chặn commit/publish, không lặp vô hạn.
-- Coder/fixer đổi code → invalidate gate/review/CI bị ảnh hưởng. Chạy gates rồi orchestrator commit
+- Coder/fixer đổi code → invalidate gate/review/CI bị ảnh hưởng (ngoại lệ review mới cho tích hợp base bên dưới). Chạy gates rồi orchestrator commit
   trước review (`full-review`); `direct-pr` đi thẳng publish sau commit. Commit dùng message worker
   chuẩn bị; evidence gắn đúng tree/base SHA/commit SHA. Orchestrator khóa công việc worktree, đối
   chiếu process/ref/tree/worktree trước publish và push đúng SHA đã lưu. Drift chặn publish để
@@ -167,7 +167,22 @@ ngăn đọc file host. Network do host và harness quyết định; không có 
   không đổi thì dùng lại approve hoặc findings còn hiệu lực, không gọi lại agent. No-op giữ checkpoint;
   findings cũ dẫn tới xử lý giới hạn sửa, không hỏi lại cùng diff. Reconcile receipt trước retry review.
 - Commit intent lưu tree/parent/author/committer timestamps/message/OID dự kiến trước cập nhật ref.
-  Recovery nhận lại OID đó, không tạo commit khác; unknown không reset HEAD theo phỏng đoán.
+  Với cập nhật base, intent có thêm `merge_parent` optional (base tip), giữ nguyên input/OID cũ.
+  Không phụ thuộc yolo: PR chờ merge tụt sau target được tích hợp qua execution slot và `run_gates`/
+  resume/retry. `merge-tree --write-tree --name-only -z` lấy tree và file conflict. Không conflict
+  thì không gọi fixer/reviewer mới. Conflict lưu `conflict_files` cùng tree trong intent, giữ HEAD
+  cũ và chỉ checkout tree để fixer sửa đúng một lượt; không áp dụng/push commit chứa marker.
+  Host so tree sau fixer/gate với tree conflict, không rename detection: chỉ file conflict đổi
+  (mỗi file phải khác tree conflict ban đầu) và hết marker thì chứng nhận phạm vi theo SPEC.md §14.2, miễn review mới trên đúng head/tree/
+  revision đó. File ngoài phạm vi đổi phải review; `direct-pr` thiếu reviewer thì chờ người.
+  Fixer lỗi/bị chặn/chưa xong, gate fail hoặc conflict lần hai mở question, không tự lặp fixer.
+  Answer `continue` sau sửa tay chạy gate/publish/CI và ghi actor/time xác nhận lựa chọn file; với markerless
+  no-op cần xác nhận này. Answer đúng `retry fixer` cấp phép thêm một lượt. Không reset giới hạn.
+  Wait refused cũ được task recheck mở question. Quiet grep chỉ tìm marker mở/đóng ở file conflict,
+  không đọc diagnostic diff toàn base; scope unreadable là evidence chưa đạt, không throw khỏi effect.
+  Gate đạt mới commit hai parent và publish/chờ CI head mới. CAS/checkout không ghi đè thay đổi
+  ngoài dự kiến. FrozenPolicy/base snapshot giữ nguyên; recovery nhận lại cùng intent/OID, không
+  reset HEAD theo phỏng đoán, không giả approval của reviewer.
 - Push kiểm remote expected old SHA, chỉ fast-forward; remote khác dự kiến chờ head_changed,
   không force-push. Local git ref cập nhật cũng compare-and-swap old OID. Remote push đã gửi có
   thể xong sau merge; drain ghi đúng thực tế, không tạo retry hoặc push local remainder.

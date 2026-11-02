@@ -1,3 +1,5 @@
+import { reviewOf } from './head-evidence.ts';
+import type { BaseUpdate } from '../domain/runtime.ts';
 import type { z } from 'zod';
 import { assertNever } from '../shared/assert-never.ts';
 import { sameChoice } from '../domain/run-config.ts';
@@ -129,13 +131,63 @@ export function pastDeadline(ctx: Ctx): boolean {
 
 function execute(ctx: Ctx, action: ResumeAction): void {
   switch (action.kind) {
+    case 'repair_base': {
+      const update = ctx.state.run.base_update;
+      if (update === undefined) return;
+      const {
+        scope: _scope,
+        certificate: _certificate,
+        manual_resolution: _manual,
+        fixer_attempt_id: _fixer,
+        ...previous
+      } = update;
+      if (action.mode === 'retry_fixer') {
+        if (update.conflict === undefined)
+          return waitBaseRepair(ctx, 'no conflict fixer to retry');
+        ctx.emit('BaseUpdateRecorded', { update: previous });
+        const fix = ctx.frozen.workflow.steps[update.gate_step]?.next['fail'];
+        if (fix === undefined)
+          return waitBaseRepair(ctx, 'missing conflict fixer step');
+        enterStep(
+          ctx,
+          fix,
+          { step: update.gate_step, outcome: 'fail' },
+          'retry',
+        );
+      } else {
+        ctx.emit('BaseUpdateRecorded', {
+          update: {
+            ...previous,
+            ...(update.fixer_attempt_id === undefined
+              ? {}
+              : { fixer_attempt_id: update.fixer_attempt_id }),
+            manual_resolution: { by: ctx.actor, at: ctx.now },
+          },
+        });
+        enterStep(
+          ctx,
+          update.gate_step,
+          {
+            step: ctx.state.current_step ?? update.gate_step,
+            outcome: 'manual_repair',
+          },
+          'initial',
+          update.conflict === undefined
+            ? { head_sha: update.head_sha, base_sha: update.base_sha }
+            : undefined,
+        );
+      }
+      return;
+    }
     case 'start_attempt':
       startAttempt(ctx, action.step, action.attempt_kind);
       return;
     case 'enter_step':
-      enterStep(ctx, action.step, null);
+      enterStep(ctx, action.step, null, 'initial', action.base_update);
       return;
     case 'run_step':
+      runStep(ctx, action.step, 'initial', action.base_update);
+      return;
     case 'merge_check':
       runStep(ctx, action.step);
       return;
@@ -148,6 +200,7 @@ function execute(ctx: Ctx, action: ResumeAction): void {
         action.step,
         { step: action.step, outcome: 'retry' },
         'retry',
+        action.base_update,
       );
       return;
     case 'poll_ci':
@@ -205,6 +258,7 @@ export function enterStep(
   step: string,
   from: { step: string; outcome: string } | null,
   attemptKind: AttemptKind = 'initial',
+  baseUpdate?: BaseUpdate,
 ): void {
   const def = stepDef(ctx, step);
   if (def.when !== undefined && !evalPredicate(def.when, facts(ctx, step)))
@@ -223,7 +277,7 @@ export function enterStep(
     return;
   }
   ctx.emit('StepEntered', { step, visit: visits + 1, from });
-  runStep(ctx, step, attemptKind);
+  runStep(ctx, step, attemptKind, baseUpdate);
 }
 
 export function visitLimit(ctx: Ctx, step: string): number | null {
@@ -323,6 +377,7 @@ export function runStep(
   ctx: Ctx,
   step: string,
   attemptKind: AttemptKind = 'initial',
+  baseUpdate?: BaseUpdate,
 ): void {
   const def = stepDef(ctx, step);
   const s = ctx.state;
@@ -357,6 +412,14 @@ export function runStep(
       startAttempt(ctx, step, attemptKind);
       return;
     case 'review':
+      if (
+        s.run.base_update?.certificate?.head_sha === s.run.checkpoint?.sha &&
+        s.run.checkpoint !== null &&
+        reviewOf(s, s.run.checkpoint.sha) === 'not_required'
+      ) {
+        route(ctx, step, 'approve');
+        return;
+      }
       if (reuseReview(ctx, step)) return;
       startAttempt(ctx, step, attemptKind);
       return;
@@ -364,7 +427,14 @@ export function runStep(
       const gates = p.gates.by_step[step];
       const run = gates?.run ?? [];
       if (run.length === 0) return skip(ctx, step, 'no_gates');
-      if (waitForSlot(ctx, { kind: 'run_step', step })) return;
+      if (
+        waitForSlot(ctx, {
+          kind: 'run_step',
+          step,
+          ...(baseUpdate === undefined ? {} : { base_update: baseUpdate }),
+        })
+      )
+        return;
       requestEffect(ctx, {
         kind: 'run_gates',
         logical_id: `${step}#${visit}`,
@@ -372,6 +442,7 @@ export function runStep(
         request: {
           gates: run.map((g) => ({ gate: g, cmd: p.gates.commands[g] ?? '' })),
           required: gates?.required ?? [],
+          ...(baseUpdate === undefined ? {} : { base_update: baseUpdate }),
         },
       });
       return;
@@ -681,7 +752,18 @@ export function startAttempt(ctx: Ctx, step: string, kind: AttemptKind): void {
   }
   applyRaise(ctx, step, sp, choice);
 
+  const baseUpdate = s.run.base_update;
+  const baseFix =
+    baseUpdate?.conflict !== undefined &&
+    baseUpdate.certificate === undefined &&
+    step === ctx.frozen.workflow.steps[baseUpdate.gate_step]?.next['fail'];
+  if (baseFix && baseUpdate?.fixer_attempt_id !== undefined)
+    return waitBaseRepair(ctx, 'single conflict fixer attempt already used');
   const attemptId = ctx.nextId();
+  if (baseFix && baseUpdate !== undefined)
+    ctx.emit('BaseUpdateRecorded', {
+      update: { ...baseUpdate, fixer_attempt_id: attemptId },
+    });
   const effectId = ctx.nextId();
   const reservationId = ctx.nextId();
   const n = Object.values(s.attempts).filter((a) => a.step === step).length + 1;
@@ -1133,6 +1215,25 @@ function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
       return;
     case 'run_gates': {
       const d = GateDataSchema.parse(data);
+      const baseUpdate = ctx.state.run.base_update;
+      if (d.base_conflict !== undefined) {
+        if (
+          baseUpdate === undefined ||
+          e.base_update === undefined ||
+          d.tree !== d.base_conflict.tree
+        )
+          return waitBaseRepair(ctx, 'unbound base conflict');
+        ctx.emit('BaseUpdateRecorded', {
+          update: { ...baseUpdate, conflict: d.base_conflict },
+        });
+        if (baseUpdate.fixer_attempt_id !== undefined)
+          return waitBaseRepair(
+            ctx,
+            'conflict returned after the single fixer attempt',
+          );
+        proceed(ctx, { kind: 'route', step: step as string, outcome: 'fail' });
+        return;
+      }
       if (onGateTree(ctx, e, d)) return;
       const sg = ctx.frozen.gates.by_step[step as string];
       // Without an explicit required list, every executed gate is required; an empty list never passes.
@@ -1158,6 +1259,15 @@ function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
       });
       if (!passed) recordCheckFailure(ctx, signature);
       if (
+        !passed &&
+        baseUpdate !== undefined &&
+        baseUpdate.certificate === undefined
+      )
+        return waitBaseRepair(
+          ctx,
+          'base update gates failed; no additional automatic fixer attempt',
+        );
+      if (
         passed &&
         d.checkpoint === undefined &&
         commitsCheckpoint(ctx, step as string)
@@ -1170,6 +1280,41 @@ function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
       }
       if (passed && d.checkpoint !== undefined)
         recordCheckpoint(ctx, step as string, d.checkpoint);
+      if (
+        passed &&
+        d.checkpoint !== undefined &&
+        baseUpdate !== undefined &&
+        baseUpdate.certificate === undefined
+      ) {
+        const scope = d.base_scope ?? baseUpdate.scope;
+        if (
+          baseUpdate.conflict !== undefined &&
+          (scope === undefined ||
+            scope.unresolved ||
+            ((scope.unchanged_conflicts?.length ?? 0) > 0 &&
+              baseUpdate.manual_resolution === undefined) ||
+            scope.tree !== d.checkpoint.tree)
+        )
+          return waitBaseRepair(ctx, 'conflict resolution is not verified');
+        const outside = scope?.outside_files ?? [];
+        ctx.emit('BaseUpdateRecorded', {
+          update: {
+            ...baseUpdate,
+            ...(scope === undefined ? {} : { scope }),
+            // Gate certification closes base repair; only reviewOf may exempt a new review,
+            // and it also requires the recorded scope to contain no outside changes.
+            certificate: {
+              head_sha: d.checkpoint.sha,
+              tree: d.checkpoint.tree,
+            },
+          },
+        });
+        if (outside.length > 0 && ctx.state.run.mode === 'direct-pr')
+          return waitBaseRepair(
+            ctx,
+            'review required for changes outside conflict files; this direct-pr snapshot has no reviewer',
+          );
+      }
       proceed(ctx, {
         kind: 'route',
         step: step as string,
@@ -1479,6 +1624,26 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
     });
   }
   if (afterAttempt(ctx, e)) return;
+  const baseUpdate = ctx.state.run.base_update;
+  if (
+    !('verdict' in d) &&
+    baseUpdate?.fixer_attempt_id === e.attempt_id &&
+    baseUpdate.certificate === undefined
+  ) {
+    if (
+      d.status !== 'done' ||
+      d.base_repair === undefined ||
+      d.base_repair.unresolved ||
+      d.base_repair.tree !== d.worktree_tree
+    )
+      return waitBaseRepair(
+        ctx,
+        'single conflict fixer attempt did not resolve the conflict',
+      );
+    ctx.emit('BaseUpdateRecorded', {
+      update: { ...baseUpdate, scope: d.base_repair },
+    });
+  }
   if (!('verdict' in d) && d.content !== undefined) {
     ctx.emit('PublishContentRecorded', {
       content: {
@@ -1525,6 +1690,11 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
         : { input_digest: input, findings: d.findings.slice(0, MAX_FINDINGS) }),
     });
     if (!approved) recordCheckFailure(ctx, signature);
+    if (!approved && ctx.state.run.base_update?.scope?.outside_files.length)
+      return waitBaseRepair(
+        ctx,
+        'review rejected changes outside conflict files; conflict fixer attempt already used',
+      );
     proceed(ctx, { kind: 'route', step, outcome: d.verdict });
     return;
   }
@@ -1631,6 +1801,22 @@ export function onEffectFailed(
     });
     if (afterAttempt(ctx, e)) return;
   }
+  if (
+    agent &&
+    s.run.base_update?.fixer_attempt_id === e.attempt_id &&
+    s.run.base_update.certificate === undefined &&
+    s.cancellation === null
+  )
+    return waitBaseRepair(ctx, 'single conflict fixer attempt failed');
+  if (
+    !agent &&
+    e.kind === 'run_gates' &&
+    s.run.base_update !== undefined &&
+    s.run.base_update.certificate === undefined &&
+    s.cancellation === null &&
+    (f.failure_class === 'refused' || f.failure_class === 'auth_config')
+  )
+    return waitBaseRepair(ctx, `base gates failed: ${f.message}`);
   // The worktree is not the tree the task last left: someone else changed it, and it is not the
   // attempt's to take (T072). A person looks first; `recheck` takes the observed tree as the task's.
   if (
@@ -1657,6 +1843,16 @@ export function onEffectFailed(
     return;
   }
   handleFailure(ctx, e, f);
+  if (
+    e.kind === 'run_gates' &&
+    s.run.base_update?.certificate === undefined &&
+    s.run.base_update !== undefined &&
+    ctx.state.wait?.detail.code === 'backoff_exhausted'
+  )
+    waitBaseRepair(
+      ctx,
+      'base update retries exhausted; inspect and answer to continue',
+    );
 }
 
 // ---------- Execution modes (task-execution-modes.md) ----------
@@ -1759,5 +1955,16 @@ function recordCheckpoint(
       ...c,
       gate_visit: visitOf(ctx, step),
     },
+  });
+}
+
+/** A bounded operator decision, using the existing public question/answer path. */
+export function waitBaseRepair(ctx: Ctx, reason: string): void {
+  askHuman(ctx, 'refused', {
+    step: ctx.state.current_step,
+    attempt_id: null,
+    body: `${reason}. Inspect the task worktree and resolve conflicts (or revert changes outside conflict files), then answer exactly "continue" to rerun gates and publish. For markerless conflicts, "continue" explicitly confirms the selected file versions. Answer exactly "retry fixer" to authorize another worker attempt instead. No automatic retry or budget/deadline reset.`,
+    resume: { kind: 'repair_base', mode: 'manual' },
+    detail: { reason, files: ctx.state.run.base_update?.conflict?.files ?? [] },
   });
 }

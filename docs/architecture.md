@@ -863,13 +863,23 @@ profiles:
   - **Ai bật:** chỉ bạn, theo từng repo, qua `cusr repo yolo on <repo>` có xác nhận TTY, hoặc qua `~/.cusr/config.yaml`. **Không bật được qua `cusr.yaml` trong repo**, vì agent có thể sửa file đó trong branch. Agent và assistant không bật được. Mọi lần bật/tắt là một event có actor.
   - **Không đóng băng theo task:** yolo là thiết lập của repo, không nằm trong FrozenPolicy, và được đọc *tại thời điểm merge*. Tắt yolo có hiệu lực ngay với mọi task đang chạy.
   - **Điều kiện cứng, kể cả khi yolo:**
-    - Required checks xanh trên head đã chứa tip mới nhất của `main` (compare `head...target` trả `ahead_by === 0`).
+    - Required checks xanh trên head đã chứa tip mới nhất của `main` (compare `head...target_tip_sha` trả `ahead_by === 0`).
       CI/observation luôn chờ hợp tên check policy và yêu cầu GitHub đang có hiệu lực, kể cả check
       ngoài policy và ghim app, không phụ thuộc yolo hay sửa snapshot. Daemon kiểm tra đúng app khi
       gửi merge. Hợp rỗng vẫn vào chờ merge; riêng yolo không merge và log hướng dẫn khai
       `ci.required_checks`. Điều kiện `clean` có thể chặn yolo khi check không bắt buộc đỏ
       (SPEC.md §14.2).
-    - Với `full-review`, reviewer đã approve, không còn finding mức cao chưa xử lý; `direct-pr` không cần reviewer.
+      Khi PR tụt sau target, daemon xếp lại execution slot cả khi tắt yolo để tích hợp base,
+      chạy gate rồi publish/chờ CI trên head mới. Không conflict không gọi fixer/reviewer mới.
+      Tip lấy từ GET branches/{target}, không phải pull.base.sha; compare dùng chính SHA tip đó.
+      Conflict có đúng một lượt fixer: mỗi file conflict phải đổi, host xác nhận chỉ sửa file conflict thì miễn review mới;
+      sửa ngoài phạm vi phải review (`direct-pr` thiếu reviewer thì chờ người). Fixer không xong,
+      gate fail hoặc conflict lần nữa thì mở question. Người dùng sửa tay rồi answer `continue` để tiếp tục gate,
+      hoặc trả lời đúng `retry fixer` để cho phép thêm một lượt; không reset giới hạn/poll tự sửa.
+      Conflict không marker mà không đổi file cần người xác nhận lựa chọn. Marker chỉ quét file
+      conflict, không dùng diff --check trên toàn base. Intent, chứng nhận head/tree/revision và
+      expected-old guard giữ an toàn qua retry/restart; xem SPEC.md §14.2.
+    - Với `full-review`, reviewer đã approve hoặc có chứng nhận phạm vi tích hợp base theo SPEC.md §14.2; không còn finding mức cao chưa xử lý; `direct-pr` không cần reviewer.
     - Merge được tuần tự hoá.
     - Không có kết quả CI nào ở trạng thái không xác định.
   - **Thiếu bất kỳ điều kiện nào** thì task chuyển `WAITING(approval)`, `approval_kind=merge`, đúng như chế độ `human`. Branch protection trên GitHub yêu cầu review của người thì cũng chặn tự merge theo cách tương tự.

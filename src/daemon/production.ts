@@ -56,7 +56,7 @@ import {
 } from './handlers.ts';
 import type { DaemonRuntime } from './main.ts';
 import { ObservationCoordinator, observationRound } from './observation.ts';
-import { yoloMerge, type YoloDeps } from './yolo.ts';
+import { advanceTaskPr, type YoloDeps } from './yolo.ts';
 import { FileContentStore } from '../adapters/publish-content.ts';
 import { Scheduler } from './scheduler.ts';
 import { taskControl } from './task-control.ts';
@@ -478,8 +478,8 @@ export async function productionControl(opts: {
             coordinator,
             newId: opts.newId,
             afterRead: async (taskId) => {
-              await yoloMerge(yolo, taskId).catch((e: unknown) => {
-                opts.log?.(`yolo ${taskId}: ${String(e)}`);
+              await advanceTaskPr(yolo, taskId).catch((e: unknown) => {
+                opts.log?.(`PR maintenance ${taskId}: ${String(e)}`);
               });
             },
           }),

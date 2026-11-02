@@ -510,7 +510,7 @@ nhóm bao gồm toàn bộ các mục con, không thay thế việc kiểm chứ
   approve hoặc suy skip từ size; publish cả hai mode MUST khớp checkpoint. Gate/formatter sửa code MUST
   kiểm lại tập gate bắt buộc trên tree cuối trong giới hạn retry an toàn. Trong cùng task/revision,
   approve/findings còn hiệu lực và mọi đầu vào review không đổi MUST được dùng lại, không gọi reviewer
-  hoặc tạo commit mới chỉ vì worker no-op; đầu vào đổi MUST xét review mới theo M03/M06. Xem M01–M08.
+  hoặc tạo commit mới chỉ vì worker no-op; đầu vào đổi MUST xét review mới theo M03/M06, trừ chứng nhận phạm vi tích hợp base theo SPEC.md §14.2. Xem M01–M08.
 - **FR-015**: Mọi thất bại MUST được phân loại theo SPEC.md §9.2 và áp đúng giới hạn kế thừa từ feature
   001: infra tối đa 3 retry; timeout/stall tối đa 1 retry; invalid output tối đa 1 repair và 1 session
   mới mỗi nấc trước khi xét nâng; auth/refusal chờ người. Rate limit/infra MUST không nâng model vì
@@ -665,7 +665,7 @@ nhóm bao gồm toàn bộ các mục con, không thay thế việc kiểm chứ
   | **FR-041.01** | Hệ thống MUST quan sát PR theo lịch hữu hạn FR-043, kể cả PR xanh/đóng chưa merge hoặc hết deadline thực thi; merge đã xác nhận chuyển sang FR-040. |
   | **FR-041.02** | Bằng chứng xanh MUST gắn revision, head SHA, tập checks và thời điểm đối chiếu. |
   | **FR-041.03** | Head bị bên ngoài đổi MUST thu hồi xanh và chuyển WAITING/policy với head_changed; không tự nhận head mới, sửa code hoặc ghi đè remote. Khi review A còn chạy mà branch task bị push thành B ngoài dự kiến, approve/result A đến muộn MUST chỉ được ghi đúng provenance, không gỡ blocker, chuyển evidence sang B hoặc tiếp tục publish. Approve đến trước fact drift vẫn MUST qua guard remote/blocker trước publish; restart giữ fact/blocker và intent/receipt. Kiểm H01–H06 trong hợp đồng chế độ. |
-  | **FR-041.04** | Chỉ base tip đổi MUST giữ bằng chứng theo head và trạng thái task; không tự cập nhật/rebase, gọi fixer hoặc chạy lại gate/review. Cập nhật base thuộc phần merge ngoài phạm vi. |
+  | **FR-041.04** | Chỉ base tip đổi MUST giữ bằng chứng theo head và trạng thái task; không tự cập nhật/rebase, gọi fixer hoặc chạy lại gate/review. Riêng task đang chờ merge có thể chủ động tích hợp base qua execution slot, cả khi tắt yolo, rồi gate/publish/CI trên head mới theo SPEC.md §14.2. Không conflict hoặc một lượt fixer chỉ sửa file conflict được miễn review mới; ngoài phạm vi phải review, chưa xong/conflict lại chờ người. FrozenPolicy không đổi. |
   | **FR-041.05** | Branch đích khác snapshot MUST chuyển WAITING/policy với target_mismatch. |
   | **FR-041.06** | Check bắt buộc pending/fail trên head hợp lệ MUST thu hồi xanh và xử lý CI trong giới hạn; danh sách hợp snapshot/GitHub theo FR-042. |
   | **FR-041.07** | PR đóng chưa merge MUST chuyển WAITING/policy với pr_closed và được quan sát trong hạn; mở lại thì đối chiếu lại, merge thì FR-040. |

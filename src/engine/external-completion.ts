@@ -52,7 +52,7 @@ export function waitForExternalMerge(ctx: Ctx, step: string): void {
  * `full-review` (and a legacy task) needs the review approving it, `direct-pr` needs none; and the latest
  * CI evidence for it passed. Anything else is merged but unverified.
  */
-function verifiedHead(ctx: Ctx, head: string): boolean {
+export function verifiedHead(ctx: Ctx, head: string): boolean {
   const s = ctx.state;
   if (s.head_sha !== head || s.run.head_drift !== null) return false;
   if (

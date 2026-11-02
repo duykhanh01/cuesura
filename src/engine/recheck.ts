@@ -2,7 +2,7 @@ import { hasRole } from '../domain/policy.ts';
 import { FREEZE_PENDING_CODES } from './start.ts';
 import type { Trigger } from '../domain/trigger.ts';
 import { reject, type Ctx } from './context.ts';
-import { proceed } from './interpreter.ts';
+import { proceed, waitBaseRepair } from './interpreter.ts';
 
 /**
  * `recheck` (T062, FR-046.01–08). The engine only records that one bounded check was asked for and
@@ -84,6 +84,17 @@ export function onRecheck(ctx: Ctx, t: RecheckTrigger): void {
     target: t.target,
     at: ctx.now,
   });
+  if (
+    t.target === 'observation' &&
+    s.run.base_update !== undefined &&
+    s.run.base_update.certificate === undefined &&
+    s.wait?.reason === 'policy' &&
+    s.wait.detail.code === 'refused'
+  )
+    return waitBaseRepair(
+      ctx,
+      'base repair was held by an older daemon; choose how to continue',
+    );
   if (t.target === 'worktree') {
     const w = s.wait as NonNullable<typeof s.wait>;
     ctx.emit('WorktreeChangeAccepted', {

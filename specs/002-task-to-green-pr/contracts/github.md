@@ -106,11 +106,16 @@ FR-040.12, không thay bằng HEAD hiện tại hoặc suy từ merge commit squ
 - Hợp rỗng: observation vẫn vào chờ merge, không chờ check tùy chọn; yolo không merge và log một lần
   hướng dẫn khai `ci.required_checks`. Không lấy mọi check đang thấy trên head làm fallback.
 - Trước merge phải success đúng app_id của mọi check được pin; token admin có thể bypass protection.
-  Compare dùng `head...target` và `ahead_by === 0`, để diff rỗng khi head đã chứa tip.
+  Đọc tip hiện tại bằng GET branches/{target}, không dùng pull.base.sha.
+  Compare dùng `head...target_tip_sha`, `per_page=1&page=2` và `ahead_by === 0`; trang 2 tránh tải diff.
+  Nếu ahead_by > 0 và biết base SHA, daemon yêu cầu engine cập nhật local cả khi tắt yolo qua gate/publish/CI;
+  không gửi merge trước khi head mới được chứng nhận. Cập nhật dùng Git, giữ endpoint merge gác sha.
 - Chỉ success đạt; neutral/skipped/pending/cancelled/missing/unknown không đủ theo spec này.
-  Gate snapshot cùng head luôn bắt buộc; review cùng head bắt buộc trong `full-review`.
+  Gate snapshot cùng head luôn bắt buộc; review cùng head bắt buộc trong `full-review`, trừ
+  chứng nhận phạm vi tích hợp base theo SPEC.md §14.2: không conflict hoặc một lượt fixer chỉ sửa
+  file conflict thì không review mới; ngoài phạm vi phải review, chưa xong/conflict lại chờ người.
   `direct-pr` ghi rõ review không được yêu cầu theo mode đã xác nhận, không giả approve; GitHub
-  no-protection không miễn gate/CI hoặc review của `full-review`.
+  no-protection không miễn gate/CI hoặc review ngoài ngoại lệ phạm vi trên.
 
 Review callback không xác nhận remote head hiện tại: khi reviewer A đang chạy mà branch task
 bị push thành B ngoài dự kiến, observation ghi head_changed và chặn business dispatch; approve A
@@ -137,7 +142,8 @@ observation là observation_expired, không tự poll lại. Recheck quan sát m
 merge giữ exhausted; thấy merge thì drain theo FR-040, không DONE trước dừng/đối chiếu.
 
 Head ngoài dự kiến, target mismatch, PR đóng, CI rerun và base tip thay đổi tuân FR-041. Chỉ base
-tip đổi không tự sửa/rebase/thu hồi evidence theo head. Lỗi read ghi unknown, lần quan sát cuối
+tip đổi không thu hồi evidence theo head; task chờ merge tích hợp base theo ngoại lệ SPEC.md §14.2,
+không phụ thuộc yolo. Lỗi read ghi unknown, lần quan sát cuối
 là lịch sử; explain chỉ rõ freshness và allowed actions, không hứa head mới đã được kiểm.
 
 ## Contract fixtures và smoke

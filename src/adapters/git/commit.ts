@@ -37,6 +37,8 @@ export const CommitIntentSchema = z
     branch: z.string().min(1),
     tree: Oid,
     parent: Oid,
+    merge_parent: Oid.optional(),
+    conflict_files: z.array(z.string().min(1)).optional(),
     author: Identity,
     committer: Identity,
     message: z
@@ -98,7 +100,12 @@ export class FileCommitIntentStore implements CommitIntentStore {
 
 export type CommitOutcome =
   /** The branch now points at the intent's OID (`recovered`: it already did). */
-  | { readonly kind: 'committed' | 'recovered'; readonly intent: CommitIntent }
+  | {
+      readonly kind: 'committed' | 'recovered';
+      readonly intent: CommitIntent;
+    }
+  /** Durable conflict plan only; no ref is moved. */
+  | { readonly kind: 'prepared'; readonly intent: CommitIntent }
   /** The branch is at neither the parent nor the intended commit; nothing was moved. */
   | {
       readonly kind: 'head_changed';
@@ -172,7 +179,15 @@ async function writeCommit(port: GitPort, i: CommitInput): Promise<string> {
   const r = await git(
     port,
     i.worktree_path,
-    ['commit-tree', i.tree, '-p', i.parent, '-F', '-'],
+    [
+      'commit-tree',
+      i.tree,
+      '-p',
+      i.parent,
+      ...(i.merge_parent === undefined ? [] : ['-p', i.merge_parent]),
+      '-F',
+      '-',
+    ],
     { stdin: i.message, env: commitEnv(i) },
   );
   if (r.code !== 0)
@@ -185,6 +200,8 @@ const sameInput = (a: CommitIntent, b: CommitInput): boolean =>
   a.branch === b.branch &&
   a.tree === b.tree &&
   a.parent === b.parent &&
+  a.merge_parent === b.merge_parent &&
+  JSON.stringify(a.conflict_files) === JSON.stringify(b.conflict_files) &&
   a.message === b.message &&
   JSON.stringify(a.author) === JSON.stringify(b.author) &&
   JSON.stringify(a.committer) === JSON.stringify(b.committer);
@@ -193,6 +210,7 @@ export async function commitCheckpoint(
   port: GitPort,
   store: CommitIntentStore,
   input: CommitInput,
+  prepareOnly = false,
 ): Promise<CommitOutcome> {
   let intent: CommitIntent | null = store.load(input.key);
   try {
@@ -219,7 +237,9 @@ export async function commitCheckpoint(
         intent = candidate;
       }
     }
-    return await applyIntent(port, intent);
+    return prepareOnly
+      ? { kind: 'prepared', intent }
+      : await applyIntent(port, intent);
   } catch (e) {
     if (e instanceof Unknown)
       return { kind: 'unknown', intent, detail: e.message };

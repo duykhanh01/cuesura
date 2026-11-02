@@ -174,7 +174,13 @@ export function handleFailure(ctx: Ctx, e: EffectMirror, f: FailureData): void {
   const retry = (kind: AttemptKind = 'retry'): ResumeAction =>
     agent
       ? { kind: 'start_attempt', step, attempt_kind: kind }
-      : { kind: 'retry_effect', step };
+      : {
+          kind: 'retry_effect',
+          step,
+          ...(e.base_update === undefined
+            ? {}
+            : { base_update: e.base_update }),
+        };
   switch (cls) {
     case 'rate_limit':
       scheduleRetry(
