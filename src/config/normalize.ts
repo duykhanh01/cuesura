@@ -27,6 +27,7 @@ import type {
   RawRole,
   RawDispatch,
   RawRuntime,
+  RuntimeTerminal,
   RawStep,
   RawUserConfig,
   RawWorkflow,
@@ -269,6 +270,7 @@ export type RuntimeConfig = {
   /** Doctor and preflight resolve tools that have no explicit path. */
   tool_paths: Partial<Record<RuntimeTool, string>>;
   credential_refs: CredentialRef[];
+  terminal: RuntimeTerminal;
   access_tokens: AccessTokenSpec[];
 
   harness_isolation: Record<string, HarnessInnerModePolicy>;
@@ -310,6 +312,7 @@ export function normalizeRuntime(
     credential_refs: Object.entries(r.credential_refs ?? {})
       .sort(byName)
       .map(([name, file]) => ({ name, file })),
+    terminal: r.terminal ?? { backend: 'background' },
     access_tokens: [...(r.access_tokens ?? [])]
       .map((t) => ({
         ...t,

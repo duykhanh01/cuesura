@@ -14,6 +14,7 @@ Systemd vẫn giám sát process; [runbook](../../../deploy/README.md) mô tả 
 2. Runner khởi chạy dưới util-linux `flock` giữ khóa kernel độc quyền của operation; marker là dữ liệu, không thay khóa kernel.
    Marker/manifest/fsync ghi trước harness spawn. Runner gặp marker cũ phải nhận lại kết quả/process
    hoặc báo unknown/lost; không spawn lại operation đó, kể cả marker tồn tại nhưng không thấy PID.
+   Trước khi báo `not_launched`, daemon ghi marker `fence` để runner đến muộn không spawn ([ADR-0006](../../../docs/adr/0006-terminal-view-backend.md)).
 3. Unit riêng sống khi daemon foreground chết hoặc daemon service stop/restart. Runner ghi identity
    gồm boot_id, unit InvocationID/cgroup, pid/pgid và `/proc` start ticks, launch nonce. Marker env
    `CUSR_ATTEMPT_ID` chỉ hỗ trợ tìm kiếm, không xác thực process.

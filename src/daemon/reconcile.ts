@@ -3,8 +3,8 @@
  * kernel operation lock, launch.json, pid.json and exit.json — and the finding is committed as facts
  * before any work is granted:
  *
- * - no launch marker, no live unit, lock free: the harness never spawned (`not_launched`); the agent
- *   effect is reconciled `not_executed`, which returns its reservation;
+ * - no launch marker, no live unit, lock free: the harness never spawned (`not_launched`), and the marker is
+ *   taken so that it never will; the agent effect is reconciled `not_executed`, which returns its reservation;
  * - the runner or its harness is alive (same boot, pid and start ticks, or the lock still held): adopted
  *   as `running`, never spawned again;
  * - exit.json final: `finished` with the runner's outcome; reading the result is the effect's own
@@ -49,6 +49,7 @@ import { RunnerExitSchema, type RunnerExit } from '../runner/lifecycle.ts';
 import {
   lockFilePath,
   probeOperationLock,
+  fenceLaunch,
   readLaunchMarker,
   type LockProbe,
 } from '../runner/operation-lock.ts';
@@ -253,6 +254,16 @@ export async function observeRunnerOperation(
     return unknown(`launch marker invalid: ${marker.reason}`, unit);
   if (marker.value.operation_id !== op.id)
     return unknown('launch marker belongs to another operation', unit);
+  if (marker.value.fence === true)
+    return {
+      status: 'not_launched',
+      outcome: null,
+      invocation_id: null,
+      processes: [],
+      started_at: null,
+      finished_at: null,
+      reason: 'fenced: a late runner refuses to start',
+    };
   const nonce = marker.value.launch_nonce;
 
   const pid = run.readFinal(RUN_FILES.pid, PidRecordSchema);
@@ -315,6 +326,40 @@ export async function observeRunnerOperation(
       return unknown(seen.reason, unit);
     default:
       return unknown(`launch state ${seen.state} without exit.json`, unit);
+  }
+}
+
+/**
+ * `not_launched` releases the effect and lets the engine start a replacement, so it must also be true later:
+ * a command still queued in a terminal's shell shows nothing on the host until it runs (ADR-0006). The run
+ * directory holds what that command needs; without one there is nothing it could start.
+ */
+async function fencedRunnerOperation(
+  deps: ReconcileDeps,
+  op: Pick<OperationMirror, 'id' | 'attempt_id'>,
+): Promise<OperationFinding> {
+  const found = await observeRunnerOperation(deps, op);
+  if (found.status !== 'not_launched') return found;
+  try {
+    const run = RunDir.open({
+      dataDir: deps.dataDir,
+      ...runLocation(op),
+      redactor: deps.redactor,
+      create: false,
+    });
+    const claim = fenceLaunch(run, {
+      operation_id: op.id,
+      attempt_id: op.attempt_id ?? null,
+      at: new Date(deps.now()).toISOString(),
+    });
+    // Either the marker was already there (this finding read it) or a runner just took it: read again.
+    return claim.state === 'claimed' ? found : observeRunnerOperation(deps, op);
+  } catch (e) {
+    if (e instanceof RunnerFileError && e.code === 'not_found') return found;
+    return unknown(
+      `cannot fence the operation: ${e instanceof Error ? e.message : String(e)}`,
+      { unit: '', state: 'unknown', invocation_id: null, cgroup: null },
+    );
   }
 }
 
@@ -536,7 +581,7 @@ export async function reconcileOperations(
     // An in-process operation already recorded lost has nothing new to show.
     if (!runner && op.status === 'lost') continue;
     const finding = runner
-      ? await observeRunnerOperation(deps, op)
+      ? await fencedRunnerOperation(deps, op)
       : await interrupted(deps, op);
     // Probes yield: a handler that started meanwhile, or a receipt that arrived, wins.
     const current = deps.store.readTask(row.task_id as Uuid)?.operations[op.id];

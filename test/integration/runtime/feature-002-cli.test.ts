@@ -1466,6 +1466,7 @@ describe('doctor (T112, FR-027.02/033)', () => {
       digest?: (path: string) => string;
       probeBudgetMs?: number;
       harnessTools?: Record<string, { dirs: string[]; requires: string[] }>;
+      runtime?: string;
     } = {},
   ) {
     const host = fakeHost(o.host);
@@ -1475,7 +1476,9 @@ describe('doctor (T112, FR-027.02/033)', () => {
         host,
         configInputs: () =>
           Promise.resolve({
-            user: userConfig(),
+            user: userConfig(
+              o.runtime === undefined ? {} : { runtime: o.runtime },
+            ),
             packs: PACKS,
             manifests: (o.manifests ?? PROVEN) as typeof MANIFESTS,
           }),
@@ -1538,6 +1541,28 @@ describe('doctor (T112, FR-027.02/033)', () => {
       expect(argv.join(' ')).not.toMatch(
         /\bsudo\b|sysctl -w|apparmor_parser|claude|codex/,
       );
+  });
+
+  it('checks a terminal backend it found outside PATH', async () => {
+    const { sd, host } = doctored({
+      runtime: 'runtime: { terminal: { backend: herdr } }',
+    });
+    const find = host.findExecutable.bind(host);
+    host.findExecutable = (name, extraDirs) =>
+      name === 'herdr'
+        ? Promise.resolve(extraDirs?.length === 1 ? '/usr/bin/herdr' : null)
+        : find(name, extraDirs);
+    await sd.start();
+    const found = names(await cli(sd, ['doctor']));
+    expect(found['terminal']).toBeDefined();
+    expect(host.execs).toContainEqual(['/usr/bin/herdr', 'workspace', 'list']);
+  });
+
+  it('does not look for a terminal backend by default', async () => {
+    const { sd, host } = doctored();
+    await sd.start();
+    expect(names(await cli(sd, ['doctor']))['terminal']).toBeUndefined();
+    expect(host.execs.flat()).not.toContain('workspace');
   });
 
   it('claims shares recovery findings instead of failing on a live operation', async () => {

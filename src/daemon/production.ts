@@ -41,7 +41,8 @@ import { RunnerHarness } from '../runner/invocation.ts';
 import { stopOperationProcesses } from '../runner/process-tag.ts';
 import type { Redactor } from '../runner/redact.ts';
 import { hostExecutionPath } from '../runner/sandbox.ts';
-import { SystemdSupervisor } from '../runner/supervisor.ts';
+import { SystemdSupervisor, spawnCommand } from '../runner/supervisor.ts';
+import { findTerminalBin, terminalHost } from '../runner/terminal-host.ts';
 import type { Hash, Uuid } from '../shared/brand.ts';
 import { hashCanonical } from '../shared/hash.ts';
 import type { Store } from '../store/index.ts';
@@ -100,6 +101,7 @@ const hostBound = (r: RuntimeConfig): Hash =>
   hashCanonical({
     credential_refs: r.credential_refs,
     tool_paths: r.tool_paths,
+    terminal: r.terminal,
   });
 
 /** The runner next to this module, whichever of source or build is running. */
@@ -147,6 +149,15 @@ export async function productionControl(opts: {
     : [];
   const git = runtime?.tool_paths.git ?? (await host.findExecutable('git'));
   const gh = runtime?.tool_paths.gh ?? (await host.findExecutable('gh'));
+  const terminal = runtime?.terminal ?? { backend: 'background' as const };
+  const terminalBin =
+    terminal.backend === 'background'
+      ? null
+      : await findTerminalBin(terminal, runtime?.tool_paths ?? {}, host);
+  if (terminal.backend !== 'background' && terminalBin === null)
+    opts.log?.(
+      `${terminal.backend} was not found; agents run in the background`,
+    );
   const hooks = join(opts.dataDir, 'empty-hooks');
   mkdirSync(hooks, { recursive: true, mode: 0o700 });
   const now = (): number => opts.clock.now();
@@ -172,7 +183,7 @@ export async function productionControl(opts: {
       hostBound(current.value.runtime) !== startedWith;
     for (const [h, record] of records) {
       const problem = stale
-        ? 'runtime.credential_refs or tool_paths changed since cusrd started; restart it'
+        ? 'runtime.credential_refs, tool_paths or terminal changed since cusrd started; restart it'
         : runtime === null || sandbox === null
           ? 'no runtime config'
           : harnessRecordProblem(record, {
@@ -302,6 +313,16 @@ export async function productionControl(opts: {
       dataDir: opts.dataDir,
       runnerCommand: [process.execPath, RUNNER],
       redactor: opts.redactor,
+      clock: opts.clock,
+      ...(opts.log === undefined ? {} : { log: opts.log }),
+      ...(terminal.backend === 'background' || terminalBin === null
+        ? {}
+        : {
+            terminal: terminalHost(terminal, {
+              bin: terminalBin,
+              exec: spawnCommand,
+            }),
+          }),
     });
     const limits = runtime?.limits ?? DEFAULT_RUNTIME_LIMITS;
     const boundary = runtime === null ? null : hostSandbox().provider;

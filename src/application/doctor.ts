@@ -22,6 +22,8 @@ import type { ConfigInputs } from './confirm.ts';
 import { binaryDigest, manifestHash } from './capabilities.ts';
 import { checkHost, missingTools, type SandboxTools } from './preflight.ts';
 import type { AppError } from './queries.ts';
+import type { AttachedTerminal } from '../config/schema-user.ts';
+import { findTerminalBin, terminalProbeArgs } from '../runner/terminal-host.ts';
 
 /**
  * All host probes of one doctor share this time, bounded together with the transient unit
@@ -199,7 +201,7 @@ function pathChecks(dataDir: string): DoctorCheck[] {
 function budgeted(host: HostProbePort, budgetMs: number): HostProbePort {
   const deadline = performance.now() + budgetMs;
   return {
-    findExecutable: (name) => host.findExecutable(name),
+    findExecutable: (name, extraDirs) => host.findExecutable(name, extraDirs),
     realpath: (path) => host.realpath(path),
     readText: (path) => host.readText(path),
     exec: (argv, o) => {
@@ -215,6 +217,31 @@ function budgeted(host: HostProbePort, budgetMs: number): HostProbePort {
  * A real transient unit, completed and collected in the runner's user manager.
  * Daemon-restart survival is covered by supervisor-systemd.test.ts.
  */
+
+/** Read-only. Agents still run without a reachable server, but nobody sees them; hence a fix, not a guess. */
+async function terminalProbe(
+  host: HostProbePort,
+  terminal: AttachedTerminal,
+  bin: string | null,
+): Promise<DoctorCheck> {
+  const name = terminal.backend;
+  if (bin === null)
+    return fail(
+      'terminal',
+      `${name} was not found; agents run in the background`,
+      `install ${name} or set runtime.tool_paths.${name}`,
+    );
+  const r = await host.exec([bin, ...terminalProbeArgs(terminal)], {
+    timeout_ms: PROBE_MS,
+  });
+  return r.kind === 'exited' && r.code === 0
+    ? ok_('terminal', `${name} server is reachable`)
+    : fail(
+        'terminal',
+        `${name} server is not reachable; agents run in the background`,
+        `start ${name}, or set runtime.terminal.backend: background`,
+      );
+}
 
 async function unitProbe(
   host: HostProbePort,
@@ -346,6 +373,14 @@ export async function runDoctor(
           (await host.findExecutable('systemd-run')),
       ),
     );
+    if (runtime !== null && runtime.terminal.backend !== 'background')
+      checks.push(
+        await terminalProbe(
+          host,
+          runtime.terminal,
+          await findTerminalBin(runtime.terminal, runtime.tool_paths, host),
+        ),
+      );
     for (const ref of runtime?.credential_refs ?? []) {
       const found = await host.realpath(ref.file);
       checks.push(

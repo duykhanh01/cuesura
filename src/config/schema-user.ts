@@ -262,6 +262,7 @@ export const RUNTIME_TOOLS = [
   'systemd-run',
   'bwrap',
   'flock',
+  'herdr',
 ] as const;
 export type RuntimeTool = (typeof RUNTIME_TOOLS)[number];
 
@@ -332,6 +333,26 @@ export const DispatchSchema = z
   .strict();
 export type RawDispatch = z.infer<typeof DispatchSchema>;
 
+/**
+ * Where agent operations are shown (ADR-0006); only ever a view, the unit stays under systemd. A new backend
+ * is one variant here and one case in `terminalHost`; its binary is the tool of the same name.
+ */
+export const RuntimeTerminalSchema = z.discriminatedUnion('backend', [
+  z.object({ backend: z.literal('background') }).strict(),
+  z
+    .object({
+      backend: z.literal('herdr'),
+      /** Named herdr session; the default session, the one in daily use, when absent. */
+      session: RefNameSchema.optional(),
+    })
+    .strict(),
+]);
+export type RuntimeTerminal = z.infer<typeof RuntimeTerminalSchema>;
+export type AttachedTerminal = Exclude<
+  RuntimeTerminal,
+  { backend: 'background' }
+>;
+
 /** Runtime limits override defaults individually; check cross-field constraints after merging them. */
 export const RuntimeSchema = z
   .object({
@@ -341,6 +362,7 @@ export const RuntimeSchema = z
       .partialRecord(z.enum(RUNTIME_TOOLS), AbsolutePathSchema)
       .optional(),
     credential_refs: z.record(RefNameSchema, AbsolutePathSchema).optional(),
+    terminal: RuntimeTerminalSchema.optional(),
     access_tokens: z.array(AccessTokenSchema).optional(),
     harness_isolation: z
       .record(z.string().min(1), z.enum(HARNESS_INNER_MODES))

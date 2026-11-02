@@ -17,6 +17,7 @@ import {
   type RunDir,
   type WrittenFile,
 } from './files.ts';
+import { bootId } from './identity.ts';
 
 export const FLOCK = '/usr/bin/flock';
 /** flock exit code when another runner already holds the operation lock. */
@@ -98,6 +99,8 @@ export const LaunchMarkerSchema = z
     boot_id: z.string().min(1),
     runner_pid: z.number().int().positive(),
     at: z.string().min(1),
+    /** Written by the daemon, not a runner: this operation never spawned and now never will. */
+    fence: z.literal(true).optional(),
   })
   .strict();
 export type LaunchMarker = z.infer<typeof LaunchMarkerSchema>;
@@ -117,6 +120,32 @@ export function claimLaunch(run: RunDir, marker: LaunchMarker): LaunchClaim {
   return file === null
     ? { state: 'marker_exists' }
     : { state: 'claimed', file };
+}
+
+/**
+ * Takes the marker on behalf of a runner that may still arrive, before the operation is reported as never
+ * launched. A command queued in a terminal outlives the daemon (ADR-0006); once this wins, that runner gets
+ * `marker_exists` and spawns nothing, so a replacement attempt cannot run beside it. The same atomic file
+ * decides the race: `marker_exists` here means a runner got there first, and it is not "never launched".
+ */
+export function fenceLaunch(
+  run: RunDir,
+  o: {
+    readonly operation_id: string;
+    readonly attempt_id: string | null;
+    readonly at: string;
+  },
+): LaunchClaim {
+  return claimLaunch(run, {
+    schema_version: 1,
+    operation_id: o.operation_id,
+    attempt_id: o.attempt_id,
+    launch_nonce: 'fence',
+    boot_id: bootId(),
+    runner_pid: process.pid,
+    at: o.at,
+    fence: true,
+  });
 }
 
 export function readLaunchMarker(run: RunDir): FinalRead<LaunchMarker> {

@@ -32,10 +32,18 @@ import type {
   ProcessIdentity,
 } from '../../../src/domain/runtime.ts';
 import type { CanonicalTask } from '../../../src/domain/task.ts';
-import { EventLogWriter, RunDir } from '../../../src/runner/files.ts';
+import {
+  EventLogWriter,
+  RUN_FILES,
+  RunDir,
+} from '../../../src/runner/files.ts';
 import { taskLogs } from '../../../src/application/logs.ts';
 import type { IdentityProbe, PidRecord } from '../../../src/runner/identity.ts';
-import type { RunnerExit } from '../../../src/runner/lifecycle.ts';
+import {
+  execOperation,
+  type RunnerExit,
+} from '../../../src/runner/lifecycle.ts';
+import { fenceLaunch } from '../../../src/runner/operation-lock.ts';
 import {
   FLOCK,
   lockFilePath,
@@ -499,6 +507,52 @@ describe('open operations are reconciled before work is granted (T086, FR-034.01
     expect(next).toHaveLength(1);
     expect(s.effects[next[0]?.id ?? '']?.attempt_id).not.toBe(attemptId);
     expect(f.d.store.verifyProjections().ok).toBe(true);
+  });
+
+  it('a runner still queued in a terminal cannot start once recovery reported it never launched (ADR-0006)', async () => {
+    const f = fixture();
+    const { task, attemptId } = toAgent(f);
+    const run = runDir(f, attemptId);
+    const spawned = join(f.dir, 'spawned');
+    run.writeJson(RUN_FILES.invocation, {
+      schema_version: 1,
+      operation_id: OP,
+      kind: 'agent',
+      run_dir_kind: 'runs',
+      run_id: attemptId,
+      argv: ['/bin/sh', '-c', `touch ${spawned}`],
+      cwd: f.dir,
+      env: { PATH: '/usr/bin:/bin' },
+      wall_ms: null,
+      deadline_at: null,
+      term_grace_ms: 300,
+      kill_verify_ms: 2_000,
+      launch_nonce: 'nonce-1',
+    });
+    const report = await restart(f);
+    expect(report.operations).toMatchObject([
+      { finding: { status: 'not_launched' }, effect: 'not_executed' },
+    ]);
+    expect(f.d.pending(task.id, 'start_agent')).toHaveLength(1);
+    // The shell gets to the command only now.
+    expect(await execOperation(run, { onStop: () => () => undefined })).toEqual(
+      { state: 'marker_exists' },
+    );
+    expect(existsSync(spawned)).toBe(false);
+  });
+
+  it('a crash between the fence and the commit reads as never launched again (ADR-0006)', async () => {
+    const f = fixture();
+    const { attemptId } = toAgent(f);
+    fenceLaunch(runDir(f, attemptId), {
+      operation_id: OP,
+      attempt_id: attemptId,
+      at: new Date(0).toISOString(),
+    });
+    const report = await restart(f);
+    expect(report.operations).toMatchObject([
+      { finding: { status: 'not_launched' }, effect: 'not_executed' },
+    ]);
   });
 
   it('a live harness is adopted, never spawned again; its later exit makes the effect unknown with the reservation kept', async () => {

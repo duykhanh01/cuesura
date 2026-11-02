@@ -143,6 +143,26 @@ sẽ giữ claim và chặn việc mới cho tới khi process đó kết thúc;
 bên dưới); thiếu bản ghi thì task dừng ở PENDING `capability_missing`. Còn hở: task có attachment `content_ref`
 fail ở freeze vì chưa có nguồn nội dung (`cusr add` luôn tạo task không attachment); `lint` là gate tùy chọn của `software_dev` nên đỏ vẫn publish.
 
+### Xem agent trong herdr
+
+Mặc định agent chạy nền (`background`). Muốn xem trực tiếp trong [herdr](https://herdr.dev), thêm vào
+`runtime` rồi restart `cusrd`:
+
+```yaml
+runtime:
+  terminal:
+    backend: herdr # background là mặc định
+    # session: cusr  # bỏ trống = session herdr mặc định
+```
+
+Cuesura tự tìm `herdr` trên PATH của daemon rồi trong `~/.local/bin`. Chỉ cần `tool_paths.herdr` khi cài ở
+nơi khác.
+
+Agent hiện ở các tab nền trong workspace `cuesura`, không chiếm focus; tab tự đóng khi xong, log vẫn đọc bằng
+`cusr task logs`. Pane chỉ để xem: Ctrl-C, đóng pane hoặc dừng herdr không dừng agent; hủy bằng `cusr`. herdr
+không chạy thì agent chạy nền, `cusr doctor` báo check `terminal`. Xem
+[ADR-0006](../docs/adr/0006-terminal-view-backend.md).
+
 ## Token và quyền
 
 Quyền chỉ lấy từ bearer token map phía server: `read`, `operate`, `admin` kèm danh sách project. Tên

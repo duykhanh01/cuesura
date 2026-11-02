@@ -119,6 +119,8 @@ export type LifecycleDeps = {
   readonly sample_ms?: number;
   /** Subscribes to the runner's own stop signal; returns an unsubscribe. */
   readonly onStop?: (stop: () => void) => () => void;
+  /** Each stored stdout record, for a terminal showing this run; must not throw or block. */
+  readonly onRecord?: (data: unknown) => void;
 };
 
 export type ExecResult =
@@ -408,7 +410,10 @@ export async function execOperation(
       } catch {
         data = { text };
       }
-      if (append('stdout', data, line.length)) records++;
+      if (append('stdout', data, line.length)) {
+        records++;
+        deps.onRecord?.(data);
+      }
     },
   );
   // Both streams are buffered into whole lines, so log.seq misses output that has not ended a line

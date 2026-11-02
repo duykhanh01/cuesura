@@ -9,8 +9,11 @@
  * existing marker or loaded unit is `marker_exists` (recover it, do not spawn again).
  */
 import { spawn } from 'node:child_process';
+import { basename } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
 import type {
+  Clock,
   LaunchError,
   OperationLaunch,
   ProcessPort,
@@ -18,6 +21,7 @@ import type {
   UnitObservation,
 } from '../adapters/ports.ts';
 import { RelativePathSchema } from '../domain/runtime.ts';
+import { asEpochMs } from '../shared/brand.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import { RUN_FILES, RunDir, RunnerFileError, isSafeId } from './files.ts';
 import {
@@ -29,12 +33,14 @@ import {
   type IdentityProbe,
 } from './identity.ts';
 import {
+  fenceLaunch,
   flockArgv,
   lockFilePath,
   readLaunchMarker,
   type LockProbe,
 } from './operation-lock.ts';
 import { Redactor } from './redact.ts';
+import { shellJoin, type TerminalHost } from './terminal-host.ts';
 
 export const SYSTEMD_RUN = '/usr/bin/systemd-run';
 export const SYSTEMCTL = '/usr/bin/systemctl';
@@ -144,11 +150,16 @@ function seconds(ms: number): number {
  * Transient unit argv. flock is the main process and ignores SIGTERM so that, when systemd stops the
  * whole cgroup, the runner can stop the harness group and finalise exit.json before the unit ends;
  * the runner installs its own handler, and spawned children get default dispositions.
+ *
+ * `pty` attaches the unit to the terminal of the `systemd-run` client (ADR-0006). The unit is the same
+ * service; flock then also ignores what the terminal can send, so that Ctrl-C or the terminal going away
+ * cannot end the main process and with it the whole cgroup.
  */
 export function systemdRunArgv(
   spec: OperationLaunch,
   lockFile: string,
   runnerCommand: readonly string[],
+  opts: { readonly pty?: boolean } = {},
 ): string[] {
   const stopMs = spec.term_grace_ms + spec.kill_verify_ms;
   return [
@@ -164,10 +175,13 @@ export function systemdRunArgv(
       ? []
       : [`--property=RuntimeMaxSec=${seconds(spec.wall_ms + stopMs) + 30}s`]),
     '--quiet',
+    ...(opts.pty === true ? ['--pty'] : []),
     '--',
     '/bin/sh',
     '-c',
-    'trap "" TERM; exec "$@"',
+    opts.pty === true
+      ? 'trap "" TERM INT HUP; exec "$@"'
+      : 'trap "" TERM; exec "$@"',
     'sh',
     ...flockArgv(lockFile, runnerCommand),
   ];
@@ -234,13 +248,31 @@ export type SupervisorOptions = {
   readonly runnerCommand: readonly string[];
   readonly exec?: CommandExec;
   readonly redactor?: Redactor;
+  /** Shows agent operations in a multiplexer; absent or unavailable, they run in the background. */
+  readonly terminal?: TerminalHost;
+  /** How long a terminal may take to start the unit before the launch goes on without it. */
+  readonly terminalWaitMs?: number;
+  readonly log?: (line: string) => void;
+  readonly clock?: Clock;
 };
+
+const SYSTEM_CLOCK: Clock = {
+  now: () => asEpochMs(Date.now()),
+  monotonic: () => performance.now(),
+};
+
+const TERMINAL_WAIT_MS = 15_000;
+const TERMINAL_POLL_MS = 100;
 
 export class SystemdSupervisor implements ProcessPort {
   readonly #dataDir: string;
   readonly #runner: readonly string[];
   readonly #exec: CommandExec;
   readonly #redactor: Redactor;
+  readonly #terminal: TerminalHost | null;
+  readonly #terminalWaitMs: number;
+  readonly #log: (line: string) => void;
+  readonly #clock: Clock;
 
   constructor(opts: SupervisorOptions) {
     if (opts.runnerCommand.length === 0)
@@ -249,6 +281,55 @@ export class SystemdSupervisor implements ProcessPort {
     this.#runner = opts.runnerCommand;
     this.#exec = opts.exec ?? spawnCommand;
     this.#redactor = opts.redactor ?? new Redactor();
+    this.#terminal = opts.terminal ?? null;
+    this.#terminalWaitMs = opts.terminalWaitMs ?? TERMINAL_WAIT_MS;
+    this.#log = opts.log ?? (() => undefined);
+    this.#clock = opts.clock ?? SYSTEM_CLOCK;
+  }
+
+  /**
+   * Starts the unit from a terminal. `null` means it was not seen to start and the caller launches it in the
+   * background: the unit name, the operation lock and the launch marker refuse a second run of this
+   * operation, even if the command typed here runs after all. A replacement attempt is another operation;
+   * `fenceLaunch` is what stops this command then.
+   */
+  async #launchInTerminal(
+    terminal: TerminalHost,
+    spec: OperationLaunch,
+    lock: string,
+    command: readonly string[],
+    run: RunDir,
+  ): Promise<{ unit: string; invocation_id: string | null } | null> {
+    const unit = unitName(spec.operation_id);
+    const argv = systemdRunArgv(spec, lock, command, { pty: true });
+    const opened = await terminal.open({
+      label: basename(spec.cwd).slice(0, 32),
+      // Not the worktree: this shell runs the user's hooks in the directory it starts in.
+      cwd: this.#dataDir,
+      // The leading space keeps it out of a shell history that honours it.
+      command: ` ${shellJoin(argv)}; exit`,
+    });
+    if (!opened.ok) {
+      this.#log(
+        `${terminal.name} unavailable, ${unit} runs in the background: ${opened.error}`,
+      );
+      return null;
+    }
+    const deadline = this.#clock.monotonic() + this.#terminalWaitMs;
+    for (;;) {
+      const seen = await this.inspect(spec.operation_id);
+      if (seen.state !== 'not_found' && seen.state !== 'unknown')
+        return { unit, invocation_id: seen.invocation_id };
+      if (readLaunchMarker(run).state !== 'missing')
+        return { unit, invocation_id: null };
+      if (this.#clock.monotonic() >= deadline) break;
+      await delay(TERMINAL_POLL_MS);
+    }
+    this.#log(
+      `${terminal.name} did not start ${unit} in time, it runs in the background`,
+    );
+    await opened.value.close();
+    return null;
   }
 
   async launch(
@@ -318,6 +399,17 @@ export class SystemdSupervisor implements ProcessPort {
       '--id',
       spec.run_id,
     ];
+    const viaTerminal = this.#terminal !== null && spec.kind === 'agent';
+    if (this.#terminal !== null && viaTerminal) {
+      const shown = await this.#launchInTerminal(
+        this.#terminal,
+        spec,
+        lock,
+        command,
+        run,
+      );
+      if (shown !== null) return ok(shown);
+    }
     const argv = systemdRunArgv(spec, lock, command);
     const r = await this.#exec(argv[0] as string, argv.slice(1), {
       timeout_ms: 30_000,
@@ -333,6 +425,19 @@ export class SystemdSupervisor implements ProcessPort {
       r.error === null &&
       readLaunchMarker(run).state === 'missing'
     ) {
+      // `spawn_failed` lets a new attempt start; a command left in the terminal must not start beside it.
+      if (
+        viaTerminal &&
+        fenceLaunch(run, {
+          operation_id: spec.operation_id,
+          attempt_id: spec.run_dir_kind === 'runs' ? spec.run_id : null,
+          at: new Date(this.#clock.now()).toISOString(),
+        }).state === 'marker_exists'
+      )
+        return err({
+          code: 'unknown',
+          message: `${unit} was started from the terminal after all`,
+        });
       return err({
         code: 'spawn_failed',
         message: `systemd-run exit ${String(r.code)}: ${r.stderr.trim()}`,
@@ -394,6 +499,8 @@ export function observeLaunch(
 ): LaunchState {
   const marker = readLaunchMarker(run);
   if (marker.state === 'missing') return { state: 'not_launched' };
+  if (marker.state === 'valid' && marker.value.fence === true)
+    return { state: 'not_launched' };
   if (marker.state === 'invalid')
     return {
       state: 'unknown',

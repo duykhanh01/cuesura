@@ -5,6 +5,11 @@ import { execOperation } from '../runner/lifecycle.ts';
 import { homeSecretValues, readInstalledAuth } from '../runner/private-home.ts';
 import { Redactor } from '../runner/redact.ts';
 import {
+  formatRecord,
+  openStdoutEcho,
+  terminalStop,
+} from '../runner/terminal-echo.ts';
+import {
   errorEnvelope,
   ExitCode,
   okEnvelope,
@@ -71,7 +76,20 @@ const exec: CliCommand = {
       redactor,
       create: false,
     });
-    const r = await execOperation(run);
+    // A terminal means the unit was started from a multiplexer (ADR-0006); otherwise stdout goes to the journal.
+    const echo = process.stdout.isTTY ? openStdoutEcho() : null;
+    const r = await execOperation(
+      run,
+      process.stdout.isTTY
+        ? {
+            onStop: terminalStop,
+            onRecord: (data) => {
+              const line = formatRecord(redactor.value(data));
+              if (line !== null) echo?.write(line);
+            },
+          }
+        : {},
+    );
     if (r.state === 'finished') return ExitCode.ok;
     io.stderr(
       r.state === 'marker_exists'

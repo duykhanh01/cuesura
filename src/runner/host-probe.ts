@@ -17,8 +17,14 @@ export class NodeHostProbe implements HostProbePort {
     this.env = env;
   }
 
-  async findExecutable(name: string): Promise<string | null> {
-    for (const dir of (this.env.PATH ?? '').split(delimiter)) {
+  async findExecutable(
+    name: string,
+    extraDirs: readonly string[] = [],
+  ): Promise<string | null> {
+    for (const dir of [
+      ...(this.env.PATH ?? '').split(delimiter),
+      ...extraDirs,
+    ]) {
       if (!isAbsolute(dir)) continue;
       const candidate = join(dir, name);
       try {

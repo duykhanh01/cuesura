@@ -382,8 +382,11 @@ export type HostExecResult =
   | { readonly kind: 'spawn_failed'; readonly message: string };
 
 export interface HostProbePort {
-  /** Absolute realpath of an executable found on PATH, or null. */
-  findExecutable(name: string): Promise<string | null>;
+  /** Absolute realpath of an executable found on PATH, then in `extraDirs`, or null. */
+  findExecutable(
+    name: string,
+    extraDirs?: readonly string[],
+  ): Promise<string | null>;
   /** Realpath of an existing path, or null when it does not exist. */
   realpath(path: string): Promise<string | null>;
   /** Small text file such as a `/proc/sys` knob; null when it does not exist or cannot be read. */

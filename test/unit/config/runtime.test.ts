@@ -170,6 +170,7 @@ describe('runtime config', () => {
         'full-review': { when_to_use: null },
       },
       dispatch: null,
+      terminal: { backend: 'background' },
     } satisfies RuntimeConfig);
   });
 
@@ -183,9 +184,11 @@ describe('runtime config', () => {
     - { id: assistant-work, actor: assistant, roles: [operate, read], projects: [acme], token_file: /srv/access/a.token }
   harness_isolation: { claude: allow_external_verified }
   modes: { full-review: { when_to_use: "changes touching auth or data" } }
+  terminal: { backend: herdr, session: cusr }
 `);
     expect(v.runtime).toEqual({
       data_dir: '/var/lib/cusr',
+      terminal: { backend: 'herdr', session: 'cusr' },
       limits: {
         ...DEFAULT_RUNTIME_LIMITS,
         poll_initial_ms: 30_000,
