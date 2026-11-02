@@ -12,7 +12,6 @@ export const AMENDABLE_KEYS = [
   'ci',
   'gates',
   'limits',
-  'decision_modes',
   'permissions',
   'protected_branches',
 ] as const;
@@ -64,12 +63,6 @@ export function proposeAmendment(input: {
     policy_version: input.current.policy_version + 1,
   });
 
-  if (Object.values(next.decision_modes).some((m) => m !== 'human')) {
-    return err({
-      code: 'invalid',
-      detail: 'Only human decision mode can be frozen',
-    });
-  }
   const amended = { ...next, policy_hash: policyHash(next) };
   const parsed = FrozenPolicySchema.safeParse(amended);
   if (!parsed.success)

@@ -118,7 +118,6 @@ export const DIAGNOSTIC_CODES = [
   // Predicate (6)
   'unknown_predicate',
 
-  'decision_mode_forbidden',
   // Gate
   'required_gate_missing',
   'no_gates_not_allowed',

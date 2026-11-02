@@ -17,10 +17,7 @@ import {
 } from '../domain/policy.ts';
 import type { CanonicalTask } from '../domain/task.ts';
 import {
-  DECISION_POINTS,
   isAgentStep,
-  type DecisionMode,
-  type DecisionPoint,
   type StepDef,
   type Workflow,
 } from '../domain/workflow.ts';
@@ -46,12 +43,11 @@ import {
   type EscalationPolicy,
 } from './ladder.ts';
 import { structureHash } from './structure-hash.ts';
-import { isSupportedStructure, unsupportedDecisionPoints } from './support.ts';
+import { isSupportedStructure } from './support.ts';
 
 export type FreezeError =
   | { code: 'config_invalid'; diagnostics: Diagnostic[] }
   | { code: 'unsupported_workflow'; workflow: string; structure_hash: Hash }
-  | { code: 'unsupported_decision_mode'; points: string[] }
   | { code: 'no_valid_binding'; step: string; role: string }
   | { code: 'override_exceeds_caller'; keys: string[] };
 
@@ -298,9 +294,6 @@ export function freezePolicy(
   }
   const workflow =
     input.mode === undefined ? configured : modeGraph(configured, input.mode);
-  const unsupported = unsupportedDecisionPoints(workflow);
-  if (unsupported.length > 0)
-    return err({ code: 'unsupported_decision_mode', points: unsupported });
 
   const steps: Record<string, StepPolicy> = {};
   for (const name of Object.keys(workflow.steps).sort()) {
@@ -352,17 +345,12 @@ export function freezePolicy(
 
   const limits: Limits = {
     max_agent_runs: null,
-    max_decider_calls: 0,
     max_wall_ms: null,
     max_escalations: profile.escalation.max_escalations,
     classes: profile.classes,
     backoff: profile.backoff,
     extra_visits: {},
   };
-  const decision_modes = Object.fromEntries(
-    DECISION_POINTS.map((p) => [p, 'human']),
-  ) as Record<DecisionPoint, DecisionMode>;
-  Object.assign(decision_modes, workflow.decisions);
   const permissions: Record<string, Binding['permissions']> = {};
   for (const s of Object.values(steps))
     permissions[s.role] = s.binding.permissions;
@@ -388,7 +376,6 @@ export function freezePolicy(
     },
     gates: gates.value,
     limits,
-    decision_modes,
     permissions,
     protected_branches: projects?.[task.project]?.protected_branches ?? [
       task.base_branch,

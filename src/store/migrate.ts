@@ -4,6 +4,7 @@ import { replay } from '../engine/evolve.ts';
 import { projectRuntime, sqliteSink } from './projector.ts';
 import { toEvent, type EventRow } from './read.ts';
 import { canonicalJson } from '../shared/canonical-json.ts';
+import type { DomainEvent } from '../domain/event.ts';
 
 /**
  * Migration SQL is copied beside the module during build. Run after in the same transaction as its
@@ -18,6 +19,7 @@ const MIGRATIONS: readonly {
   { version: 2, file: '002_runtime.sql', after: rebuildForRuntime },
   { version: 3, file: '003_command_outcome.sql' },
   { version: 4, file: '004_command_project.sql' },
+  { version: 5, file: '005_drop_decider_budget.sql', after: rewriteTaskStates },
 ];
 
 /**
@@ -25,6 +27,11 @@ const MIGRATIONS: readonly {
  * tables in global order. Raw events, accepted triggers and frozen snapshots are left byte-for-byte intact.
  */
 function rebuildForRuntime(db: Database): void {
+  projectRuntime(sqliteSink(db), rewriteTaskStates(db));
+}
+
+/** Rewrites each `tasks.state_json` from a full replay; raw events and frozen snapshots stay intact. */
+function rewriteTaskStates(db: Database): DomainEvent[] {
   const rows = db
     .prepare('SELECT * FROM events ORDER BY global_seq')
     .all() as EventRow[];
@@ -46,7 +53,7 @@ function rebuildForRuntime(db: Database): void {
       taskId,
     );
   }
-  projectRuntime(sqliteSink(db), events);
+  return events;
 }
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

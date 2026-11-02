@@ -28,7 +28,7 @@ Use case đầu tiên là quy trình phát triển phần mềm: code → review
    - Method mặc định là squash merge, đổi được bằng `merge.method` trong `cusr.yaml`; không bật yolo thì method chỉ là đề xuất cho người merge thủ công (`cusr show`).
    - Merge an toàn. Mặc định bạn duyệt từng lần merge vào `main`. Chế độ yolo (chỉ bạn bật được, theo từng repo) cho phép code tự merge khi đủ điều kiện cứng. Agent không bao giờ quyết định merge.
 4. **Role và model cấu hình được,** đóng băng theo từng task, kèm thang nâng effort/model theo chữ ký lỗi.
-5. **Chế độ quyết định:** người quyết, hoặc agent `decider` quyết và ghi lại để có thể lật lại.
+5. **Người quyết định:** task chờ khi cần bạn trả lời, và mọi câu trả lời đều được ghi lại.
 6. **Hỏi đáp bất đồng bộ** qua `cusr inbox`, Telegram bot, hoặc comment GitHub.
 7. **CLI `--json`** cho AI assistant bên ngoài truy vấn và điều khiển.
 8. **Đo lường:** token / task được chấp nhận, số lần chạy lãng phí, time to green, số lần bạn phải can thiệp, tỉ lệ khôi phục thành công.

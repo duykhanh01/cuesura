@@ -18,13 +18,12 @@ describe('structure_hash (R-11)', () => {
     expect(structureHash(SOFTWARE_DEV)).toBe(SOFTWARE_DEV_STRUCTURE);
   });
 
-  it('ignores visits, gates, skip_when, durations, and decision parameters', () => {
+  it('ignores visits, gates, skip_when, and durations', () => {
     const w = edit((x) => {
       x.steps.code!.max_visits = 3;
       x.steps.gates!.run = ['build'];
       x.steps.review!.skip_when = { size: ['XS', 'S'] };
       x.steps.ci!.poll = 1_000;
-      x.decisions = {};
     });
     expect(structureHash(w)).toBe(SOFTWARE_DEV_STRUCTURE);
   });

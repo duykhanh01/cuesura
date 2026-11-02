@@ -1,14 +1,10 @@
 import type { Workflow } from '../domain/workflow.ts';
-import {
-  isSupportedStructure,
-  unsupportedDecisionPoints,
-} from '../policy/support.ts';
+import { isSupportedStructure } from '../policy/support.ts';
 import type { Locator } from './checks.ts';
 
 export type UnsupportedFeature = {
-  code: 'decision_mode_unsupported' | 'unsupported_workflow';
+  code: 'unsupported_workflow';
   workflow: string;
-  points?: string[];
   file: string;
   line: number;
   col: number;
@@ -27,15 +23,6 @@ export function findUnsupported(
         code: 'unsupported_workflow',
         workflow: wn,
         ...at(['workflows', wn]),
-      });
-    }
-    const points = unsupportedDecisionPoints(w);
-    if (points.length > 0) {
-      out.push({
-        code: 'decision_mode_unsupported',
-        workflow: wn,
-        points,
-        ...at(['workflows', wn, 'decisions', points[0] as string]),
       });
     }
   }

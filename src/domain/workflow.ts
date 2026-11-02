@@ -81,37 +81,6 @@ export const PredicateSchema = z
   .strict();
 export type Predicate = z.infer<typeof PredicateSchema>;
 
-export const DECISION_MODES = [
-  'human',
-  'agent',
-  'agent_if_confident',
-  'agent_review',
-] as const;
-export type DecisionMode = (typeof DECISION_MODES)[number];
-
-/** The last five decision points always require a human decision. */
-export const DECISION_POINTS = [
-  'agent_question',
-  'missing_acceptance',
-  'source_drift',
-  'escalation_approval',
-  'loop_exhausted',
-  'merge_to_main',
-  'policy_change',
-  'budget_increase',
-  'secret_handling',
-  'data_deletion',
-] as const;
-export type DecisionPoint = (typeof DECISION_POINTS)[number];
-
-export const FORBIDDEN_DECIDER_POINTS: readonly DecisionPoint[] = [
-  'merge_to_main',
-  'policy_change',
-  'budget_increase',
-  'secret_handling',
-  'data_deletion',
-];
-
 export const StepSchema = z
   .object({
     kind: z.enum(STEP_KINDS),
@@ -139,9 +108,8 @@ export const WorkflowSchema = z
   .object({
     start: z.string().min(1),
     steps: z.record(z.string(), StepSchema),
-    decisions: z
-      .partialRecord(z.enum(DECISION_POINTS), z.enum(DECISION_MODES))
-      .default({}),
+    /** Read-only: snapshots frozen before decider support was removed carry this and hash over it. */
+    decisions: z.record(z.string(), z.literal('human')).optional(),
   })
   .strict();
 export type Workflow = z.infer<typeof WorkflowSchema>;

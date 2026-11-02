@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { proposeAmendment } from '../../../src/policy/amendment.ts';
-import { verifyPolicyHash } from '../../../src/policy/finalize.ts';
+import { FrozenPolicySchema } from '../../../src/domain/policy.ts';
+import { policyHash, verifyPolicyHash } from '../../../src/policy/finalize.ts';
 import { authz, buildPolicy } from '../../support/builders.ts';
 
 const reason = 'Increase the agent-run budget for a larger task';
@@ -68,12 +69,10 @@ describe('proposeAmendment (FR-005, FR-036)', () => {
     expect(verifyPolicyHash(r.value)).toBe(true);
   });
 
-  it('rejects non-human decision modes (FR-039)', () => {
+  it('decision modes cannot be amended (FR-039)', () => {
     const r = proposeAmendment({
       current,
-      change: {
-        decision_modes: { ...current.decision_modes, agent_question: 'agent' },
-      },
+      change: { decision_modes: { agent_question: 'agent' } } as never,
       reason,
       authz: authz(['admin']),
     });
@@ -102,5 +101,39 @@ describe('proposeAmendment (FR-005, FR-036)', () => {
     proposeAmendment({ current, change, reason, authz: authz(['operate']) });
     proposeAmendment({ current, change, reason, authz: authz(['admin']) });
     expect(current).toEqual(snapshot);
+  });
+});
+
+describe('policies frozen before decider support was removed', () => {
+  const legacy = () => {
+    const { policy_hash: _hash, ...rest } = buildPolicy();
+    const old = {
+      ...rest,
+      limits: { ...rest.limits, max_decider_calls: 0 },
+      decision_modes: { agent_question: 'human' as const },
+      workflow: {
+        ...rest.workflow,
+        decisions: { merge_to_main: 'human' as const },
+      },
+    };
+    return { ...old, policy_hash: policyHash(old) };
+  };
+
+  it('still parse, verify, and amend with their old fields kept', () => {
+    const old = FrozenPolicySchema.parse(legacy());
+    expect(verifyPolicyHash(old)).toBe(true);
+    const r = proposeAmendment({
+      current: old,
+      change: { protected_branches: ['main'] },
+      reason: 'test',
+      authz: authz(['admin']),
+    });
+    expect(r.ok && r.value.limits.max_decider_calls).toBe(0);
+    expect(r.ok && verifyPolicyHash(r.value)).toBe(true);
+  });
+
+  it('reject a non-human mode', () => {
+    const bad = { ...legacy(), decision_modes: { agent_question: 'agent' } };
+    expect(FrozenPolicySchema.safeParse(bad).success).toBe(false);
   });
 });

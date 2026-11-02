@@ -222,13 +222,13 @@ describe('FR-003 check 6: predefined predicates', () => {
 });
 
 describe('FR-006 and gates', () => {
-  it('forbidden decision points return decision_mode_forbidden', () => {
+  it('rejects decision modes: every decision point is human', () => {
     expect(
       codes({
         workflows:
           'workflows:\n  impl:\n    base: software_dev@1\n    decisions: { budget_increase: agent_if_confident }\n',
       }),
-    ).toEqual(['decision_mode_forbidden']);
+    ).toEqual(['schema_invalid']);
   });
   it('required gates must be declared by the project', () => {
     const r = validateConfig({

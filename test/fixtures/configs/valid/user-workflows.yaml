@@ -1,5 +1,4 @@
-# A uses human decisions; B uses agents; C is valid but differs from software_dev@1.
-# (US1 scenario 9, 10, 11).
+# A extends software_dev@1; C is valid but differs from it (US1 scenario 10, 11).
 version: 1
 harnesses:
   claude: { cmd: claude, auth: subscription, pool: claude }
@@ -14,10 +13,6 @@ roles:
 workflows:
   wf_a:
     base: software_dev@1
-    decisions: { agent_question: human }
-  wf_b:
-    base: software_dev@1
-    decisions: { agent_question: agent, missing_acceptance: agent_review }
   wf_c:
     start: code
     steps:
@@ -37,5 +32,4 @@ workflows:
       done: { kind: complete }
 profiles:
   prof_a: { workflow: wf_a }
-  prof_b: { workflow: wf_b }
   prof_c: { workflow: wf_c }

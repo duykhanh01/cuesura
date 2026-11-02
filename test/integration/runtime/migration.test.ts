@@ -123,7 +123,7 @@ describe('migration 001 → 002 on a real schema-1 database', () => {
     expect(db.prepare('SELECT version FROM schema_meta').get()).toEqual({
       version: SCHEMA_VERSION,
     });
-    expect(SCHEMA_VERSION).toBe(4);
+    expect(SCHEMA_VERSION).toBe(5);
     for (const t of SOURCE_TABLES) expect(dump(db, t), t).toEqual(before[t]);
 
     expect(store.verifyProjections()).toMatchObject({
@@ -222,5 +222,25 @@ describe('migration 001 → 002 on a real schema-1 database', () => {
       version: SCHEMA_VERSION + 1,
     });
     after.close();
+  });
+});
+
+describe('migration 005: the decider budget', () => {
+  it('rewrites task state without decider_calls and keeps the event log and snapshots', () => {
+    const path = copyFixture();
+    const before = new Database(path);
+    const source = SOURCE_TABLES.map((t) => dump(before, t));
+    before.close();
+
+    const opened = openFileStoreForTest(path);
+    const db = storeDb(opened);
+    const rows = db.prepare('SELECT state_json FROM tasks').all() as {
+      state_json: string;
+    }[];
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) expect(r.state_json).not.toContain('decider_calls');
+    expect(SOURCE_TABLES.map((t) => dump(db, t))).toEqual(source);
+    expect(opened.verifyProjections().mismatches).toEqual([]);
+    opened.close();
   });
 });

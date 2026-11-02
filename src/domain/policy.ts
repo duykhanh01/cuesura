@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { HashSchema } from '../shared/brand.ts';
-import { DECISION_MODES, DECISION_POINTS, WorkflowSchema } from './workflow.ts';
+import { WorkflowSchema } from './workflow.ts';
 
 export const POLICY_SCHEMA_VERSION = 1;
 
@@ -105,7 +105,8 @@ export type Backoff = z.infer<typeof BackoffSchema>;
 export const LimitsSchema = z
   .object({
     max_agent_runs: z.number().int().positive().nullable(),
-    max_decider_calls: z.number().int().nonnegative(),
+    /** Read-only: present in snapshots frozen before decider support was removed. */
+    max_decider_calls: z.number().int().nonnegative().optional(),
     max_wall_ms: z.number().int().positive().nullable(),
     max_escalations: z.number().int().nonnegative().nullable(),
     classes: z
@@ -179,10 +180,8 @@ export const FrozenPolicySchema = z
       .strict(),
     gates: GatePolicySchema,
     limits: LimitsSchema,
-    decision_modes: z.partialRecord(
-      z.enum(DECISION_POINTS),
-      z.enum(DECISION_MODES),
-    ),
+    /** Read-only: present in snapshots frozen before decider support was removed. */
+    decision_modes: z.record(z.string(), z.literal('human')).optional(),
     permissions: z.record(z.string(), z.enum(['read_only', 'write'])),
     protected_branches: z.array(z.string()),
     config_hashes: ConfigHashesSchema,

@@ -398,13 +398,6 @@ describe('freeze (FR-004, FR-037)', () => {
     });
   });
 
-  it('freezes all decision points in human mode (FR-039)', () => {
-    const r = run(USER);
-    expect(
-      r.ok && new Set(Object.values(r.value.policy.decision_modes)),
-    ).toEqual(new Set(['human']));
-  });
-
   it('uses profile limits and default backoff (R-22)', () => {
     const r = run(USER);
     expect(r.ok && r.value.policy.limits).toMatchObject({
@@ -447,18 +440,6 @@ describe('freeze (FR-004, FR-037)', () => {
     expect(
       !r.ok && r.error.code === 'unsupported_workflow' && r.error.workflow,
     ).toBe('wf_c');
-  });
-
-  it('decider workflows return unsupported_decision_mode (FR-039)', () => {
-    const c = config(
-      source('configs/valid/user-workflows.yaml'),
-      source('configs/valid/cusr-minimal.yaml', 'cusr.yaml'),
-    );
-    const r = run(c, buildTask({ profile: 'prof_b' }));
-    expect(!r.ok && r.error).toEqual({
-      code: 'unsupported_decision_mode',
-      points: ['agent_question', 'missing_acceptance'],
-    });
   });
 
   it('rejects tasks outside the project allowlist', () => {

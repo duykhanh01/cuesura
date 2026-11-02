@@ -25,10 +25,7 @@ import type { CanonicalTask } from '../domain/task.ts';
 import { evalPredicate, type StepDef } from '../domain/workflow.ts';
 import { modeGraph } from '../engine/workflows/software-dev.ts';
 import { bindingFacts } from '../policy/binding.ts';
-import {
-  isSupportedStructure,
-  unsupportedDecisionPoints,
-} from '../policy/support.ts';
+import { isSupportedStructure } from '../policy/support.ts';
 import type { Hash } from '../shared/brand.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 
@@ -882,9 +879,6 @@ export function checkSupport(
     cap('workflow', `workflow '${workflowName ?? ''}' is not software_dev@1`);
     return { problems, capability_refs, harness_roles };
   }
-  const points = unsupportedDecisionPoints(workflow);
-  if (points.length > 0)
-    cap('decision_mode', `decision points must be human: ${points.join(', ')}`);
   if (mode !== null && validated.runtime?.modes[mode] === undefined) {
     problems.push(
       problem(

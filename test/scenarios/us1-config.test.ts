@@ -277,28 +277,6 @@ describe('US1 - Validate configuration and freeze policy', () => {
     );
   });
 
-  it('Scenario 9: agent_review is unsupported and freeze rejects it without switching to human', () => {
-    const user = source('configs/valid/user-workflows.yaml');
-    const project = source('configs/valid/cusr-minimal.yaml', 'cusr.yaml');
-    const r = validateConfig({ user, project, packs: {} });
-    if (!r.ok) throw new Error('validate');
-    expect(
-      r.value.unsupported.find((u) => u.workflow === 'wf_b'),
-    ).toMatchObject({
-      code: 'decision_mode_unsupported',
-      points: ['agent_question', 'missing_acceptance'],
-      file: 'user-workflows.yaml',
-    });
-    const f = freezeTask(r.value.config, buildTask({ profile: 'prof_b' }));
-    expect(f).toEqual({
-      ok: false,
-      error: {
-        code: 'unsupported_decision_mode',
-        points: ['agent_question', 'missing_acceptance'],
-      },
-    });
-  });
-
   it('Scenario 10: valid custom workflows validate but cannot be frozen', () => {
     const r = validateConfig({
       user: source('configs/valid/user-workflows.yaml'),
@@ -314,7 +292,7 @@ describe('US1 - Validate configuration and freeze policy', () => {
     expect('value' in f).toBe(false);
   });
 
-  it('Scenario 11: human-only workflow A freezes; agent workflow B is rejected with a reason', () => {
+  it('Scenario 11: workflow A freezes; the custom workflow is rejected with a reason', () => {
     const r = validateConfig({
       user: source('configs/valid/user-workflows.yaml'),
       project: source('configs/valid/cusr-minimal.yaml', 'cusr.yaml'),
@@ -322,12 +300,10 @@ describe('US1 - Validate configuration and freeze policy', () => {
     });
     if (!r.ok) throw new Error('validate');
     expect(r.value.unsupported.map((u) => [u.code, u.workflow])).toEqual([
-      ['decision_mode_unsupported', 'wf_b'],
       ['unsupported_workflow', 'wf_c'],
     ]);
-    const a = freezeTask(r.value.config, buildTask({ profile: 'prof_a' }));
-    const b = freezeTask(r.value.config, buildTask({ profile: 'prof_b' }));
-    expect(a.ok).toBe(true);
-    expect(!b.ok && b.error.code).toBe('unsupported_decision_mode');
+    expect(
+      freezeTask(r.value.config, buildTask({ profile: 'prof_a' })).ok,
+    ).toBe(true);
   });
 });

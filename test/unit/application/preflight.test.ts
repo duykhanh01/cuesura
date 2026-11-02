@@ -460,17 +460,6 @@ describe('preflight (T030, FR-002)', () => {
       expect(result.ok).toBe(true);
     });
 
-    it('rejects a workflow that is not software_dev@1 with human decisions', async () => {
-      const user = userConfig();
-      user.text = user.text.replace(
-        '  impl:\n    base: software_dev@1\n',
-        '  impl:\n    base: software_dev@1\n    decisions: { agent_question: agent }\n',
-      );
-      expect(checks(failure((await runPreflight({ user })).result))).toEqual([
-        'capability_missing:decision_mode',
-      ]);
-    });
-
     it('requires a usable manifest for every harness a used role can reach', async () => {
       expect(
         checks(

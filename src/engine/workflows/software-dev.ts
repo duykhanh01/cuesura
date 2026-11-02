@@ -142,14 +142,6 @@ const RAW = {
     },
     complete: { kind: 'complete', next: {} },
   },
-  decisions: {
-    agent_question: 'human',
-    missing_acceptance: 'human',
-    source_drift: 'human',
-    escalation_approval: 'human',
-    loop_exhausted: 'human',
-    merge_to_main: 'human',
-  },
 };
 
 export const SOFTWARE_DEV: Workflow = WorkflowSchema.parse(RAW);

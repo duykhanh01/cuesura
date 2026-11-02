@@ -7,13 +7,7 @@ import {
 } from '../domain/policy.ts';
 import { HARNESS_INNER_MODES, RuntimeLimitsSchema } from '../domain/runtime.ts';
 import { EXECUTION_MODES } from '../domain/run-config.ts';
-import {
-  ACTIONS,
-  DECISION_MODES,
-  DECISION_POINTS,
-  STEP_KINDS,
-  WAIT_FOR,
-} from '../domain/workflow.ts';
+import { ACTIONS, STEP_KINDS, WAIT_FOR } from '../domain/workflow.ts';
 import { SOFTWARE_DEV_NAME } from '../engine/workflows/software-dev.ts';
 
 /**
@@ -139,9 +133,6 @@ export const UserWorkflowSchema = z
     base: z.literal(SOFTWARE_DEV_NAME).optional(),
     start: z.string().min(1).optional(),
     steps: z.record(z.string(), UserStepSchema).optional(),
-    decisions: z
-      .partialRecord(z.enum(DECISION_POINTS), z.enum(DECISION_MODES))
-      .optional(),
   })
   .strict()
   .superRefine((w, ctx) => {

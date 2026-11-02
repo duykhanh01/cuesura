@@ -343,9 +343,9 @@ Chạy mỗi lần `cusrd` khởi động, trước scheduler. Thuật toán ở
    - Orchestrator tạo (không phải agent) khi task bắt đầu, từ `base_sha` đã đóng băng.
    - Đường dẫn: `~/.cusr/worktrees/<repo>/<task_id>`.
    - Branch: `cusr/<task_id>-<slug>`.
-2. **Mọi bước của cùng một task dùng chung worktree đó, và chạy tuần tự:** coder, gate, fixer, reviewer, ci_fix, decider.
+2. **Mọi bước của cùng một task dùng chung worktree đó, và chạy tuần tự:** coder, gate, fixer, reviewer, ci_fix.
    - Có khoá theo worktree. Không bao giờ có hai agent cùng *ghi* vào một worktree.
-   - Reviewer, scout và decider chạy ở chế độ chỉ đọc.
+   - Reviewer và scout chạy ở chế độ chỉ đọc.
 3. **Hai task khác nhau không bao giờ dùng chung worktree.** Song song chỉ xảy ra *giữa* các task, mỗi task trong worktree của nó.
 4. **Agent bị giới hạn trong worktree:**
    - Kiểm tra cwd trước khi spawn.
@@ -711,7 +711,6 @@ Xử lý theo chữ ký:
 | coder / fixer (sửa gate, review, CI) | sonnet, effort medium | sonnet, effort high | opus, effort high (*cần duyệt* ở profile `standard`) | Đổi vendor: codex, effort high, session mới kèm hồ sơ thất bại | Điểm quyết định `loop_exhausted` (mục 5.5) |
 | reviewer | sol, effort medium | sol, effort high (chỉ khi `invalid_output`) | — | — | Bỏ review, chờ người |
 | scout | sol, effort medium | sol, effort high | — | — | Chạy tiếp mà không có báo cáo scout |
-| decider | opus, effort high | — | — | — | Chờ người |
 
 Lưu ý: review *reject* không phải thất bại của reviewer. Đó là thất bại `quality` của coder.
 
@@ -742,7 +741,7 @@ Lưu ý: review *reject* không phải thất bại của reviewer. Đó là th�
 #1 sonnet/medium  → fail  test: CustomerRepoTest.search   (sig A)
 #2 sonnet/medium  → fail  sig A (lặp lại)                  → nâng nấc 1
 #3 sonnet/high    → fail  sig A                            → effort không giúp, nhảy sang nấc 2
-   opus/high cần duyệt → điểm quyết định escalation_approval (mode agent_if_confident → decider đồng ý, conf 0.8)
+   opus/high cần duyệt → điểm quyết định escalation_approval (bạn duyệt)
 #4 opus/high      → fail  compile error ở file khác (sig B, đang tiến triển) → cho thêm 1 lần
 #5 opus/high      → pass  → fix_gates giữ nấc 2: nếu workflow quay lại fix_gates, nó chạy tiếp ở opus/high (đã duyệt)
                             fix_review, ci_fix… dùng thang riêng, bắt đầu từ nấc 0 (task chưa bị gắn cờ hard: mới có 1 bước phải nâng)
@@ -792,7 +791,7 @@ lần kiểm tra trả outcome o; S = bước agent sửa code gần nhất; r =
 - Bernstein tự nâng lên opus/max ở mọi retry chưa pin model, kể cả lỗi không liên quan đến chất lượng.
 - Cezar cho agent tự chọn model cho task con.
 
-### 5.5 Chế độ quyết định: người quyết hay agent quyết
+### 5.5 Điểm quyết định
 
 **Điểm quyết định** là lúc workflow không tự đi tiếp được bằng dữ liệu. Ví dụ:
 - Agent hỏi (`needs_input`).
@@ -802,56 +801,9 @@ lần kiểm tra trả outcome o; S = bước agent sửa code gần nhất; r =
 - Hết thang hoặc hết số vòng (`escalate`).
 - Merge.
 
-Mỗi *loại* điểm quyết định có một chế độ, cấu hình theo profile và đóng băng cùng FrozenPolicy:
-
-| Chế độ | Hành vi |
-|---|---|
-| `human` | Task chờ (`WAITING`). Bạn trả lời qua kênh của task |
-| `agent` | Role `decider` (model cao) quyết định ngay, ghi lại, task chạy tiếp |
-| `agent_review` | Agent quyết định và task chạy tiếp, nhưng quyết định được đăng để bạn xem. Bạn có thể **lật lại** trong một khoảng thời gian; khi đó task quay về checkpoint trước quyết định |
-| `agent_if_confident` | Agent quyết định khi `confidence ≥ ngưỡng`, ngược lại chuyển sang `human` |
-
-```yaml
-roles:
-  decider:
-    prompt: prompts/decider.md
-    binding: [{ model: opus, effort: high }]     # model cao, gọi hiếm nên chi phí thấp
-    permissions: read_only                       # chỉ đọc repo, không sửa code
-    output_schema: schemas/decision.json
-
-profiles:
-  standard:
-    decisions:
-      agent_question:   agent_if_confident       # ngưỡng 0.7
-      missing_acceptance: agent_review
-      source_drift:     human
-      escalation_approval: agent_if_confident    # vẫn trong ngân sách của task
-      loop_exhausted:   human
-      merge_to_main:    human                    # human | auto; auto chỉ có hiệu lực khi repo đang bật yolo (xem dưới)
-    decider: { confidence_threshold: 0.7, max_calls_per_task: 3, review_window: 24h }
-```
-
-**Decider chạy như thế nào.** Decider không phải Primary AI: code gọi nó **một lần cho mỗi điểm quyết định**, rồi nó kết thúc. Nó nhận một *gói quyết định* do code dựng:
-- Câu hỏi và các lựa chọn.
-- Yêu cầu task (`acceptance`, `constraints`).
-- Bằng chứng liên quan: diff, log đã lọc, findings của review.
-- Các quyết định trước đó của cùng task.
-
-Đầu ra theo schema:
-```json
-{ "choice": "B", "rationale": "…", "confidence": 0.82,
-  "assumptions": ["…"], "reversible": true, "follow_up": null }
-```
-
-**Ghi lại ở đâu:**
-- **SQLite là nơi lưu chính.** Bảng `decisions` gồm `id`, `task_id`, `point_type`, `question`, `options`, `choice`, `rationale`, `confidence`, `decided_by` (`human` hoặc `agent:decider/<model>`), `mode`, `evidence_refs`, `checkpoint_sha`, `status` (`active`, `overturned`), `created_at`. Mỗi quyết định cũng tạo event `DecisionMade` trong event log.
-- **Đăng lại vào kênh của task** (ví dụ comment GitHub có marker). Bạn thấy ngay trên điện thoại và trả lời `/cusr overturn D-17 "…"` để lật lại.
-- **Đưa vào context của bước sau** qua `task_messages`, để agent làm tiếp theo đúng quyết định.
-- Tuỳ chọn: tóm tắt các quyết định vào mô tả PR, để reviewer và bạn thấy *vì sao* code như vậy.
-- `cusr decisions list --by agent --since 7d` để rà lại. Báo cáo cho biết tỉ lệ quyết định bị bạn lật lại theo từng loại. Tỉ lệ cao thì chuyển loại đó về `human`.
+Mọi điểm quyết định đều chờ bạn (`WAITING`): bạn trả lời qua kênh của task, câu trả lời được ghi vào event log và đưa vào context của bước sau. Không agent nào tự quyết thay.
 
 **Rào chắn:**
-- **Không ủy quyền được cho agent**, bất kể cấu hình: sửa policy hoặc thang nâng model, vượt ngân sách task, xoá dữ liệu, thao tác liên quan đến secrets, **merge vào `main`**. Loader từ chối cấu hình đặt các loại này sang `agent`, `agent_review` hoặc `agent_if_confident`.
 - **Merge vào `main` có đúng hai chế độ, và không chế độ nào để agent quyết.** Ở đây `main` nghĩa là mọi nhánh trong `protected_branches` của repo, mặc định là nhánh mặc định.
 
   | Chế độ | Ai cho phép merge | Áp dụng khi |
@@ -859,7 +811,7 @@ profiles:
   | `human` (mặc định) | Bạn duyệt **từng PR**, approval gắn với head SHA | Yolo tắt |
   | `auto` (yolo) | Bạn cho phép **trước, một lần cho cả repo** bằng việc bật yolo. Từng lần merge do **code** quyết khi đủ mọi điều kiện cứng | Yolo đang bật |
 
-  Yolo **không** phải "agent tự merge": decider không tham gia, và không LLM nào quyết định merge. Đó là một approval thường trực do chính bạn cấp, được thực thi bằng kiểm tra tất định. Vì vậy yolo không mâu thuẫn với các quy tắc "merge vào `main` cần người duyệt" ở chỗ khác: người vẫn là bên cho phép, chỉ khác là cho phép trước.
+  Yolo **không** phải "agent tự merge": không LLM nào quyết định merge. Đó là một approval thường trực do chính bạn cấp, được thực thi bằng kiểm tra tất định. Vì vậy yolo không mâu thuẫn với các quy tắc "merge vào `main` cần người duyệt" ở chỗ khác: người vẫn là bên cho phép, chỉ khác là cho phép trước.
   - **Ai bật:** chỉ bạn, theo từng repo, qua `cusr repo yolo on <repo>` có xác nhận TTY, hoặc qua `~/.cusr/config.yaml`. **Không bật được qua `cusr.yaml` trong repo**, vì agent có thể sửa file đó trong branch. Agent và assistant không bật được. Mọi lần bật/tắt là một event có actor.
   - **Không đóng băng theo task:** yolo là thiết lập của repo, không nằm trong FrozenPolicy, và được đọc *tại thời điểm merge*. Tắt yolo có hiệu lực ngay với mọi task đang chạy.
   - **Điều kiện cứng, kể cả khi yolo:**
@@ -888,9 +840,6 @@ profiles:
     expected-head `sha` chỉ chặn PR head đổi.
   - **Sau merge:** nếu CI trên `main` đỏ, tự tạo PR revert và báo bạn. Không tự force-push.
 - **Merge vào nhánh không được bảo vệ** (integration `group/*`, `feature/*`) tự động khi đủ điều kiện cứng, theo `auto_when` của bước `merge_gate`. Không cần yolo.
-- **Decider độc lập với agent đang hỏi:** session mới, chỉ đọc. Nên dùng model hoặc vendor khác với coder.
-- **Giới hạn số lần gọi** decider mỗi task. Quyết định có `reversible: false` luôn chuyển sang `human`.
-- **Lật lại là thao tác an toàn:** task quay về `checkpoint_sha` của quyết định đó, qua cùng cơ chế recovery và idempotency (mục 6).
 
 ---
 
@@ -1015,7 +964,7 @@ Mục tiêu là tối ưu **tổng chi phí để hoàn thành một task đư�
 
 | Chỉ số | Định nghĩa | Phát hiện điều gì |
 |---|---|---|
-| **Token / task được chấp nhận** | Tổng token của mọi attempt, kể cả attempt thất bại, decider và refiner, chia cho số task được chấp nhận. Tách theo role và harness | Tổng tiêu thụ thật |
+| **Token / task được chấp nhận** | Tổng token của mọi attempt, kể cả attempt thất bại và refiner, chia cho số task được chấp nhận. Tách theo role và harness | Tổng tiêu thụ thật |
 | **Agent runs / task** | Số lần gọi agent cho mỗi task được chấp nhận | Workflow gọi agent quá nhiều |
 | **Wasted runs** | Attempt không đóng góp vào kết quả cuối: fail rồi bị bỏ, bị reset về checkpoint, output sai schema, bị kill vì stall. Tính theo tỉ lệ và theo token | Lãng phí, lý do hàng đầu cần sửa |
 | **Time to green** | Từ READY đến lúc CI xanh lần đầu; tách riêng thời gian chờ người và chờ rate limit | Tốc độ, và nút thắt nằm ở đâu |
@@ -1025,7 +974,6 @@ Mục tiêu là tối ưu **tổng chi phí để hoàn thành một task đư�
 | **Recovery success rate** | Tỉ lệ crash hoặc restart mà task khôi phục đúng, không có side effect trùng | Độ tin cậy trong vận hành thật, bổ sung cho Reliability Gate |
 | **Rate-limit wait** | Tổng thời gian và số lần chờ hạn mức gói, theo harness | Hạn mức subscription có phải nút thắt không |
 | **Escalation / rescue rate** | Tỉ lệ phải nâng nấc, và tỉ lệ nâng xong thì qua (mục 5.4) | Có nên đổi binding mặc định |
-| **Decision overturn rate** | Tỉ lệ quyết định của agent bị bạn lật lại, theo loại (mục 5.5) | Loại quyết định nào nên trả về `human` |
 | **Escaped defects** | Task đã merge nhưng bị revert, mở lại, hoặc sinh task bugfix liên quan trong 14 ngày | Chất lượng sau merge, thứ CI và review không bắt được |
 
 `coordination tokens` (token dùng cho việc điều phối) luôn bằng 0 theo thiết kế, vì không có Primary. Nếu khác 0 thì đó là bug. Token mà bạn tiêu khi hỏi assistant bên ngoài được đo riêng.
@@ -1336,7 +1284,7 @@ Tiền đề không đổi: 1 developer, có AI hỗ trợ, khoảng 6 giờ t�
 | Tầng | Kỹ thuật | Kịch bản bắt buộc |
 |---|---|---|
 | **Workflow engine (thuần)** | Test bảng kịch bản: `given(events) when(trigger) then(events, commands)`; đồng hồ giả | Happy path; reject → fix → approve; reject ×3 → escalate; gate fail ×3 → escalate; CI fail → fix → pass; policy chặn model; huỷ giữa chừng; `needs_input` → answer → resume |
-| **Bất biến** | Property-based (`fast-check`): sinh chuỗi trigger ngẫu nhiên | Không bước nào vượt `max_visits`. Trạng thái kết thúc là hút (không thoát ra được). Không có 2 effect cùng `idem_key`. Không `start_agent` nào vi phạm policy. Tổng `agent_runs` ≤ budget. **Nâng model:** không bao giờ dùng nấc ngoài thang đã đóng băng. Không bao giờ nâng vì outcome hạ tầng (rate limit, timeout, crash). Cùng chữ ký lỗi hai lần liên tiếp thì luôn rời nấc hiện tại. Mỗi nấc ≤ 3 lần thử. `rung` của mỗi cặp (task, bước) và sàn của task không bao giờ giảm; mọi `start_agent` dùng nấc ≥ `max(rung, floor)`. Nấc `needs_approval` không bao giờ chạy khi chưa có event duyệt. Số lần nâng ≤ `max_escalations_per_task`. **Quyết định:** loại không ủy quyền được không bao giờ được quyết bởi agent. Merge vào `main` chỉ xảy ra khi có event duyệt gắn với đúng head SHA, hoặc khi yolo đang bật và mọi điều kiện cứng thỏa; không bao giờ qua decider. Quyết định `agent_if_confident` dưới ngưỡng luôn chờ người. Số lần gọi decider ≤ giới hạn |
+| **Bất biến** | Property-based (`fast-check`): sinh chuỗi trigger ngẫu nhiên | Không bước nào vượt `max_visits`. Trạng thái kết thúc là hút (không thoát ra được). Không có 2 effect cùng `idem_key`. Không `start_agent` nào vi phạm policy. Tổng `agent_runs` ≤ budget. **Nâng model:** không bao giờ dùng nấc ngoài thang đã đóng băng. Không bao giờ nâng vì outcome hạ tầng (rate limit, timeout, crash). Cùng chữ ký lỗi hai lần liên tiếp thì luôn rời nấc hiện tại. Mỗi nấc ≤ 3 lần thử. `rung` của mỗi cặp (task, bước) và sàn của task không bao giờ giảm; mọi `start_agent` dùng nấc ≥ `max(rung, floor)`. Nấc `needs_approval` không bao giờ chạy khi chưa có event duyệt. Số lần nâng ≤ `max_escalations_per_task`. **Quyết định:** merge vào `main` chỉ xảy ra khi có event duyệt gắn với đúng head SHA, hoặc khi yolo đang bật và mọi điều kiện cứng thỏa |
 | **Loader cấu hình** | Unit | Từ chối: outcome thiếu transition, chu trình không có `max_visits`, role hoặc model không tồn tại, profile mâu thuẫn, `cusr.yaml` không có gate nào mà profile không cho phép. Toolchain pack được merge và override đúng |
 | **Adapter** | Contract test với **fixture JSONL ghi từ CLI thật** (ngày 1) | Parse thành công, lỗi, rate limit, output bị cắt cụt, dòng không phải JSON. `classify` đúng |
 | **Runner + lifecycle** | `fake-agent` (script nhận kịch bản: ngủ, ghi file, phát JSONL, treo, exit code, hỏi người, JSON hỏng) | Stall timeout, wall timeout, kill cả process group (không để process con mồ côi), tái sử dụng PID (giả lập `start_ticks` khác) |

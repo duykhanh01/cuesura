@@ -230,7 +230,6 @@ export type Counter = { limit: number | null; used: number; reserved: number };
 
 export type Budget = {
   agent_runs: Counter;
-  decider_calls: Counter;
   escalations: { limit: number | null; used: number };
   reservations: Record<string, Reservation>;
 };

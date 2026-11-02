@@ -116,7 +116,6 @@ export function expandWorkflow(
   const declared: Record<string, unknown> = {
     ...(w.start !== undefined ? { start: w.start } : {}),
     steps,
-    ...(w.decisions !== undefined ? { decisions: w.decisions } : {}),
   };
   const raw =
     w.base !== undefined ? deepMerge(SOFTWARE_DEV, declared) : declared;

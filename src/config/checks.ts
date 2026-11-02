@@ -1,11 +1,9 @@
 import {
-  FORBIDDEN_DECIDER_POINTS,
   isAgentStep,
   isSpecialTarget,
   OUTCOMES_BY_KIND,
   PREDICATE_KEYS,
   PredicateSchema,
-  type DecisionPoint,
   type Workflow,
 } from '../domain/workflow.ts';
 import {
@@ -436,22 +434,6 @@ function checkLadders(ctx: Ctx, wn: string, w: Workflow): void {
   }
 }
 
-function checkDecisions(ctx: Ctx, wn: string, w: Workflow): void {
-  for (const [point, mode] of Object.entries(w.decisions)) {
-    if (
-      mode !== 'human' &&
-      FORBIDDEN_DECIDER_POINTS.includes(point as DecisionPoint)
-    ) {
-      push(
-        ctx,
-        'decision_mode_forbidden',
-        ['workflows', wn, 'decisions', point],
-        `Decision point '${point}' requires human approval; mode '${mode}' is not allowed`,
-      );
-    }
-  }
-}
-
 function checkRolesAndModels(ctx: Ctx): void {
   const { user } = ctx;
   for (const [hn, h] of Object.entries(user.harnesses)) {
@@ -613,7 +595,6 @@ export function runChecks(input: CheckInput): Diagnostic[] {
     checkRefsAndOutcomes(ctx, wn, w);
     checkCycles(ctx, wn, w);
     checkLadders(ctx, wn, w);
-    checkDecisions(ctx, wn, w);
   }
   checkProfiles(ctx, input.profiles);
 

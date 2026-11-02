@@ -28,7 +28,7 @@ Giá trị cần đạt:
 - Giữ quyền kiểm soát policy, chi phí, quyền ghi và merge ở người dùng.
 - Dùng được trên nhiều repo và hệ sinh thái mà không sửa engine.
 
-Chuyển trạng thái thông thường không gọi LLM. Token của coder, reviewer, scout, refiner và decider vẫn được tính đầy đủ; tuyên bố “0 token điều phối” chỉ áp dụng cho state machine và scheduler.
+Chuyển trạng thái thông thường không gọi LLM. Token của coder, reviewer, scout và refiner vẫn được tính đầy đủ; tuyên bố “0 token điều phối” chỉ áp dụng cho state machine và scheduler.
 
 ## 2. Phạm vi
 
@@ -47,7 +47,7 @@ V1 phục vụ một người dùng trên một máy Linux/Ubuntu hoặc WSL2, c
 | GitHub | Commit/push/PR/comment, chờ CI, phân loại lỗi, sửa CI, merge gắn SHA và tuần tự hóa |
 | Người dùng | Inbox, trả lời, duyệt, hủy; Telegram là kênh hỏi đáp/duyệt mặc định, GitHub cho task từ issue |
 | Giao diện terminal | `cusr` mở giao diện tương tác để theo dõi, tạo task, xác nhận cấu hình và xử lý việc đang chờ, qua cùng dịch vụ và quyền như CLI; chi tiết ở [spec 004](specs/004-terminal-tui/spec.md) |
-| Quyết định | Human và decider có giới hạn; ghi nhận, giải thích và lật lại trong phạm vi còn đảo ngược được |
+| Quyết định | Người có quyền quyết định; ghi nhận và giải thích được |
 | Nhóm task | Nhóm tạo thủ công, dependency, integration branch tùy chọn, task tích hợp và nghiệm thu cấp nhóm |
 | Vận hành | Recovery, backup/restore, migration, doctor, health, history và báo cáo sử dụng |
 
@@ -90,7 +90,7 @@ V1 không có Primary AI chạy liên tục, plugin marketplace, workflow tự s
 | I08 | Workflow, policy và đầu vào gốc bất biến theo revision. Thay đổi phải có event, actor, lý do và phiên bản mới. |
 | I09 | Mọi lần gọi agent phải thỏa role, binding, quyền, approval, pool và ngân sách đã resolve. Agent không được tự đổi những giới hạn đó. |
 | I10 | Thứ tự event lấy từ sequence đã commit; không suy ra bằng ID hay thời gian hệ thống. Trigger lặp không tạo thêm hiệu ứng logic. |
-| I11 | Effect merge do Cuesura gửi chỉ do code thực hiện sau khi kiểm quyền, head/base, gate/CI, review theo chế độ và approval cho merge; `full-review` cần reviewer approve, trừ lượt tích hợp base có chứng nhận phạm vi theo §14.2. Người dùng merge thủ công trên GitHub là thao tác bên ngoài, được đối chiếu bằng chứng riêng; không giả review/approval hoặc gọi guard để gửi merge. Decider và agent không quyết định merge. |
+| I11 | Effect merge do Cuesura gửi chỉ do code thực hiện sau khi kiểm quyền, head/base, gate/CI, review theo chế độ và approval cho merge; `full-review` cần reviewer approve, trừ lượt tích hợp base có chứng nhận phạm vi theo §14.2. Người dùng merge thủ công trên GitHub là thao tác bên ngoài, được đối chiếu bằng chứng riêng; không giả review/approval hoặc gọi guard để gửi merge. Agent không quyết định merge. |
 | I12 | Trạng thái kết thúc không tự mở lại. Retry sau kết thúc tạo task mới có liên kết nguồn; lịch sử task cũ được giữ nguyên. |
 
 ## 5. Mô hình miền và dữ liệu
@@ -217,7 +217,7 @@ Gate project không khai báo chỉ được bỏ qua theo quy tắc optional v�
 
 ### 9.1 Role và quyền
 
-Daemon tạo branch/worktree; coder/fixer được ghi code, không có quyền publish. Fixer là vai trò sửa của worker đã tạo thay đổi: lỗi gate/review/CI ưu tiên resume session worker đó theo binding đã resolve, không tạo worker mới chỉ vì đổi tên step. Reviewer/scout/decider chỉ đọc; reviewer luôn tách session khỏi worker. Refiner đề xuất acceptance tối đa một lượt khi profile cho phép; planner tự tách epic nằm sau v1.
+Daemon tạo branch/worktree; coder/fixer được ghi code, không có quyền publish. Fixer là vai trò sửa của worker đã tạo thay đổi: lỗi gate/review/CI ưu tiên resume session worker đó theo binding đã resolve, không tạo worker mới chỉ vì đổi tên step. Reviewer/scout chỉ đọc; reviewer luôn tách session khỏi worker. Refiner đề xuất acceptance tối đa một lượt khi profile cho phép; planner tự tách epic nằm sau v1.
 
 Binding gồm harness, model, effort, quyền và các giới hạn thực tế được hỗ trợ. Tên model/CLI flag nằm trong cấu hình adapter, không gắn cứng trong engine. Resume chỉ dùng khi cùng harness, session còn hợp lệ và policy cho phép; nếu không thì session mới với context packet có giới hạn.
 
@@ -234,7 +234,7 @@ Binding gồm harness, model, effort, quyền và các giới hạn thực tế 
 | Quality | Gate fail, review reject, CI fail do code; tính chữ ký lỗi | Có |
 | Unknown | Đối chiếu thêm hoặc WAITING; effect nguy hiểm không được phát lại theo phỏng đoán | Không |
 
-Mọi lần thật sự gọi agent, kể cả repair, resume, decider và lần bị rate limit, đều được ghi usage và tính vào `max_agent_runs`. “Không tính retry vì rate limit” chỉ có nghĩa không tăng bộ đếm thất bại chất lượng. Retry I/O vẫn có giới hạn cho từng request; trần số lần retry task và deadline toàn task chỉ áp dụng khi được khai báo.
+Mọi lần thật sự gọi agent, kể cả repair, resume và lần bị rate limit, đều được ghi usage và tính vào `max_agent_runs`. “Không tính retry vì rate limit” chỉ có nghĩa không tăng bộ đếm thất bại chất lượng. Retry I/O vẫn có giới hạn cho từng request; trần số lần retry task và deadline toàn task chỉ áp dụng khi được khai báo.
 
 ### 9.3 Thang nâng cấp
 
@@ -250,7 +250,7 @@ Mọi lần thật sự gọi agent, kể cả repair, resume, decider và lần
 
 Task không có budget: profile không còn khóa `budgets`, config cũ còn khóa này bị từ chối khi nạp. Policy mới đóng băng `max_agent_runs` và `max_wall_ms` là `null`; task cũ giữ trần đã đóng băng. Theo quyết định [#45](https://github.com/duykhanh01/cuesura/issues/45), `max_escalations_per_task`, `infra_retries`, backoff `max_attempts`, wall time của worker/lệnh và `max_turns` của pin Claude là tùy chọn, mặc định không giới hạn; bỏ khóa hoặc đặt `null` để không áp trần, giá trị khai rõ vẫn có hiệu lực.
 
-Giới hạn lượt vào step, số lần gọi decider, xử lý lỗi chất lượng, quyền, approval, pool và dung lượng I/O vẫn theo cấu hình riêng. Không bắt đầu attempt nếu vượt một trần đã khai hoặc thiếu approval. Slot và reservation vẫn được ghi trước spawn, usage vẫn được ghi đầy đủ khi không có trần.
+Giới hạn lượt vào step, xử lý lỗi chất lượng, quyền, approval, pool và dung lượng I/O vẫn theo cấu hình riêng. Không bắt đầu attempt nếu vượt một trần đã khai hoặc thiếu approval. Slot và reservation vẫn được ghi trước spawn, usage vẫn được ghi đầy đủ khi không có trần.
 
 Wall timeout của attempt tính riêng với thời hạn toàn task. Khi được khai báo, thời hạn task bắt đầu khi workflow chạy lần đầu, gồm cả thời gian chờ; hết hạn chặn attempt mới và chuyển sang chờ quyết định của người dùng. Thời hạn này chỉ còn ở task cũ đã đóng băng; không tự gia hạn khi restart hay đổi revision.
 
@@ -262,18 +262,7 @@ Usage phân biệt `reported`, `estimated`, `unavailable`; không ghi số 0 đ�
 
 Câu trả lời từ Telegram, GitHub hay CLI quy về cùng một question. Kiểm tra quyền và revision, dedup theo message/request; câu trả lời hợp lệ đầu tiên thắng, câu trả lời cạnh tranh nhận conflict. Sau đó resume hoặc tạo attempt mới, đưa Q&A vào context và cập nhật các kênh còn lại.
 
-| Mode | Ngữ nghĩa |
-|---|---|
-| `human` | Chờ người có quyền |
-| `agent` | Gọi decider một lượt cho điểm quyết định được ủy quyền |
-| `agent_if_confident` | Chỉ áp dụng kết quả hợp lệ khi confidence đạt ngưỡng; không đạt thì chờ người |
-| `agent_review` | Áp dụng quyết định có thể đảo ngược, công bố bằng chứng và thời hạn lật lại |
-
-Decider chạy session độc lập, chỉ đọc, không tự gọi tiếp chính nó. Kết quả có choice, rationale, confidence, assumptions và bằng chứng; hệ thống kiểm tra khả năng đảo ngược, không chỉ tin cờ `reversible` do agent trả về. Confidence là tín hiệu của model, không phải bảo đảm xác suất đúng.
-
-Không ủy quyền cho agent việc sửa policy/thang, tăng ngân sách, xử lý secrets, xóa dữ liệu ngoài cơ chế dọn dẹp đã cho phép, hoặc merge vào protected branch. Loader từ chối mode agent cho các loại đó.
-
-Lật lại quyết định phải dừng bước phụ thuộc đang chạy, bảo toàn thay đổi hiện có, vô hiệu hóa kết quả/approval bị ảnh hưởng và ghi event bù. Chỉ quay về checkpoint khi còn an toàn. Nếu đã push/merge hay có hiệu ứng không thể hoàn tác tại chỗ, tạo quy trình bù như PR revert và xin quyết định; không dùng reset local để tuyên bố đã hoàn tác bên ngoài.
+Mọi điểm quyết định đều chờ người có quyền trả lời; không agent nào tự quyết thay.
 
 ## 11. Kiến trúc thực thi
 
@@ -343,7 +332,7 @@ Coder/fixer trả `status` thuộc `done | needs_input | needs_context | blocked
 
 Coder/fixer sẽ chuẩn bị thêm commit message, PR title và description theo template từ frozen base, dưới dạng artifact ngoài code; orchestrator dùng nội dung đó để publish. Đây là hợp đồng bổ sung cần version hóa/kiểm chứng schema, chưa có trong ví dụ schema hiện tại.
 
-Reviewer có verdict `approve | request_changes`, summary và findings có severity/file/line/message. Decider có hợp đồng ở §10. Mỗi role có schema được version hóa; metadata task/attempt và provenance do orchestrator gắn, không tin ID mà agent tự khai.
+Reviewer có verdict `approve | request_changes`, summary và findings có severity/file/line/message. Mỗi role có schema được version hóa; metadata task/attempt và provenance do orchestrator gắn, không tin ID mà agent tự khai.
 
 Nguồn ưu tiên là structured final response của harness. Adapter chuẩn hóa response, orchestrator validate rồi lưu `out/result.json`. Cờ structured output không mặc nhiên validate file tùy ý do agent tạo. File fallback chỉ dùng khi adapter khai báo rõ, có đường dẫn riêng theo attempt và được kiểm tra tương đương. Không đọc nhầm `result.json` cũ từ bước trước.
 
@@ -394,7 +383,7 @@ Không được reset worktree chỉ vì HEAD khác checkpoint: có thể commit
 
 Orchestrator tạo và sở hữu worktree tại `~/.cusr/worktrees/<project>/<task_id>`, branch theo task. Không dùng cơ chế worktree tự quản của harness. Setup chạy khi chuẩn bị môi trường và chỉ chạy lại theo hợp đồng retry của project.
 
-Context/output tạm phải được loại khỏi git. Cwd và đường dẫn ghi được kiểm tra trước khi chạy; reviewer/scout/decider chỉ đọc. Phát hiện thay đổi ngoài vùng được phép phải dừng để đối chiếu, không tự quy mọi thay đổi của người dùng ở repo gốc thành hành vi của agent.
+Context/output tạm phải được loại khỏi git. Cwd và đường dẫn ghi được kiểm tra trước khi chạy; reviewer/scout chỉ đọc. Phát hiện thay đổi ngoài vùng được phép phải dừng để đối chiếu, không tự quy mọi thay đổi của người dùng ở repo gốc thành hành vi của agent.
 
 Checkpoint trước bước có thể ghi; orchestrator commit thay đổi sau bước thành công. Worktree mất được phục hồi từ branch/checkpoint khi đủ bằng chứng. Dọn dẹp chỉ sau khi hoàn tất và hết thời gian giữ; có thay đổi chưa commit hoặc commit chưa push thì bảo toàn, không xóa.
 
@@ -500,7 +489,7 @@ fixer qua chờ slot, retry, replay và restart. FrozenPolicy và base snapshot 
 
 Engine kiểm tra task đã xác nhận chế độ, không bị hủy, head được Cuesura chứng nhận, rồi ghi approval `policy:yolo` kèm digest của publish content; sau đó daemon đọc lại config, đọc lại trạng thái task và gửi merge kèm `sha` của head đó, với squash thì kèm commit message của đúng content ấy đã validate. Task chỉ DONE khi quan sát thấy bằng chứng merge. Thiếu điều kiện thì không gửi gì và task tiếp tục chờ; GitHub từ chối vẫn xử lý `refused`, người dùng vẫn merge tay được.
 
-**Protected branch có hai chế độ:** `human` duyệt từng PR/head, hoặc `auto` dựa trên quyền yolo do người dùng cấp trước cho repo. Decider không tham gia cả hai chế độ.
+**Protected branch có hai chế độ:** `human` duyệt từng PR/head, hoặc `auto` dựa trên quyền yolo do người dùng cấp trước cho repo. Agent không tham gia cả hai chế độ.
 
 Yolo chỉ bật bởi người dùng có quyền quản trị, qua kênh xác nhận tin cậy hoặc cấu hình người dùng. Không bật qua `cusr.yaml` của repo. Đây là quyền hiện hành, không đóng băng trong task: kiểm tra lại ở thời điểm dispatch merge. Tắt yolo chặn các merge chưa gửi, nhưng không hứa thu hồi được request remote đã nhận. Mọi thay đổi quyền có audit.
 
@@ -527,7 +516,7 @@ Nhóm chỉ DONE khi kết quả tích hợp được merge vào branch đích c
 | `cusr project list`, `cusr task board/content/progress/options` | Dữ liệu chỉ đọc cho giao diện terminal; output `--json` như mọi lệnh ([hợp đồng feature 004](specs/004-terminal-tui/contracts/cli-daemon.md)) |
 | `cusr request show` | Tra kết quả mutation theo request ID, chỉ đọc |
 | `cusr inbox`, `cusr answer` | Liệt kê và trả lời câu hỏi |
-| `cusr group status`, `cusr decisions list/overturn` | Tiến độ nhóm và lịch sử quyết định |
+| `cusr group status` | Tiến độ nhóm |
 | `cusr repo yolo on/off`, `cusr task amend-policy` | Quản trị có xác nhận tin cậy và audit |
 | `cusr report`, `cusr admin verify-projections/backup/restore` | Báo cáo, đối chiếu và bảo trì trong chế độ thích hợp |
 
@@ -575,7 +564,7 @@ Setup/gate/autofix chạy trên host. Home/auth của harness vẫn tách riêng
 - `status --health` có thể phát hiện daemon mất heartbeat, orphan step, timer quá hạn và attempt không tiến triển; task chờ người hợp lệ không tự là lỗi sức khỏe.
 - Usage/report được dựng bằng code từ dữ liệu đã ghi, không gọi LLM để tóm tắt trạng thái thông thường.
 
-Chỉ số gồm token và agent runs/task được chấp nhận, wasted runs, time to green, thời gian chờ người/rate limit, first-pass rate, số lần can thiệp, escalation/rescue rate, decision overturn rate, recovery success và escaped defects. Task “được chấp nhận” là PR đã merge và không bị revert/mở lại trong 14 ngày; cohort chưa đủ 14 ngày phải được đánh dấu chưa trưởng thành.
+Chỉ số gồm token và agent runs/task được chấp nhận, wasted runs, time to green, thời gian chờ người/rate limit, first-pass rate, số lần can thiệp, escalation/rescue rate, recovery success và escaped defects. Task “được chấp nhận” là PR đã merge và không bị revert/mở lại trong 14 ngày; cohort chưa đủ 14 ngày phải được đánh dấu chưa trưởng thành.
 
 ## 17. Baseline kỹ thuật
 

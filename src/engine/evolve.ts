@@ -98,7 +98,6 @@ export function applyInPlace(
       last_fix_step: null,
       budget: {
         agent_runs: { limit: 0, used: 0, reserved: 0 },
-        decider_calls: { limit: 0, used: 0, reserved: 0 },
         escalations: { limit: 0, used: 0 },
         reservations: {},
       },
@@ -182,7 +181,6 @@ export function applyInPlace(
         s.started_at = event.payload.started_at ?? null;
         // Budgets belong to the task and never reset on a revision change.
         s.budget.agent_runs.limit = policy.limits.max_agent_runs;
-        s.budget.decider_calls.limit = policy.limits.max_decider_calls;
         s.budget.escalations.limit = policy.limits.max_escalations;
       }
       if (s.status === 'READY') moveTo(s, 'RUNNING', event.type);
@@ -196,7 +194,6 @@ export function applyInPlace(
         version: p.policy_version,
       };
       s.budget.agent_runs.limit = p.limits.max_agent_runs;
-      s.budget.decider_calls.limit = p.limits.max_decider_calls;
       s.budget.escalations.limit = p.limits.max_escalations;
       if (p.limits.max_wall_ms === null) {
         s.deadline_at = null;

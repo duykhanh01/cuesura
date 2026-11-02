@@ -153,7 +153,6 @@ export const DEFAULT_ROLES: Record<string, RoleSpec> = {
 
 export const DEFAULT_LIMITS: Limits = {
   max_agent_runs: 30,
-  max_decider_calls: 0,
   max_wall_ms: 6 * 3_600_000,
   max_escalations: 4,
   extra_visits: {},
@@ -295,7 +294,6 @@ export function buildPolicy(o: PolicyOptions = {}): FrozenPolicy {
     },
     gates: { commands, by_step },
     limits,
-    decision_modes: workflow.decisions,
     permissions,
     protected_branches: o.protected_branches ?? ['main'],
     config_hashes: { user: h, project: h, packs: {}, effective: h },
