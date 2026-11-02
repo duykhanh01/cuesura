@@ -58,6 +58,8 @@ import {
   writeOperationMark,
 } from '../runner/process-tag.ts';
 import { healthProblem, healthReply } from './health.ts';
+import { ingestOperationSpool, type SpoolIngestReport } from './ingest.ts';
+import type { IngestPosition } from '../runner/files.ts';
 import type { LockInspector, UnitInspector } from './reconcile.ts';
 import { productionControl } from './production.ts';
 import {
@@ -104,6 +106,8 @@ export type QueryHandler = (
 /** What the daemon offers the handlers built over its store. */
 export type DaemonRuntime = {
   readonly health: () => string | null;
+  readonly recoveryClaims: () => StartupReport['unresolved'];
+  readonly spoolProblems: () => readonly SpoolIngestReport[];
   readonly abort: (effectId: string) => boolean;
   readonly settled: (effectId: string) => Promise<void>;
   /** The store refused a write: nothing new is claimed until a restart proves it again (FR-023). */
@@ -302,6 +306,7 @@ export async function startDaemon(
     );
 
   const recovery = {
+    probeCursors: new Map<string, IngestPosition>(),
     dataDir: opts.dataDir,
     redactor,
     inspect: opts.inspectUnit ?? ((id: string) => inspectUnit(id)),
@@ -329,6 +334,8 @@ export async function startDaemon(
   const extra: ReturnType<NonNullable<DaemonOptions['control']>> =
     opts.control?.(store, {
       health: () => healthProblem(dispatcher),
+      recoveryClaims: () => currentClaims(),
+      spoolProblems: () => [...spoolProblems.values()],
       abort: (id) => dispatcher.abort(id),
       settled: (id) => dispatcher.settled(id),
       latch: (reason) => dispatcher.latch(reason),
@@ -356,6 +363,45 @@ export async function startDaemon(
   if (startup.held !== null)
     log(`startup recovery: new work held: ${startup.held}`);
   let unresolved = startup.unresolved;
+  const spoolProblems = new Map<string, SpoolIngestReport>();
+  const reportIngest = (reports: readonly SpoolIngestReport[]): void => {
+    for (const report of reports) {
+      if (report.status === 'unreadable' || report.status === 'rejected') {
+        const previous = spoolProblems.get(report.operation_id);
+        if (
+          previous?.status !== report.status ||
+          previous.detail !== report.detail
+        )
+          log(
+            `spool ${report.operation_id}: ${report.status}: ${report.detail ?? ''}`,
+          );
+        spoolProblems.set(report.operation_id, report);
+      } else if (report.status !== 'write_failed')
+        spoolProblems.delete(report.operation_id);
+    }
+  };
+  reportIngest(startup.ingest);
+  const currentClaims = (): StartupReport['unresolved'] => {
+    const open = store.unresolvedOperations();
+    const reported = new Map(unresolved.map((o) => [o.operation_id, o]));
+    const untrusted =
+      dispatcher.blockedReason !== null || dispatcher.latchedReason !== null;
+    return open.flatMap((o) => {
+      if (!untrusted && o.status === 'lost' && !reported.has(o.id)) return [];
+      if (!untrusted && dispatcher.isInFlight(o.effect_id)) return [];
+      if (!untrusted && o.status === 'running' && !reported.has(o.id))
+        return [];
+      return [
+        reported.get(o.id) ?? {
+          task_id: o.task_id,
+          operation_id: o.id,
+          reason: untrusted
+            ? 'recovery is blocked; claim not verified'
+            : 'awaiting recovery',
+        },
+      ];
+    });
+  };
 
   // Operations no handler owns are followed until they resolve; a pass never overlaps the previous one.
   let recovering: Promise<void> | null = null;
@@ -370,6 +416,23 @@ export async function startDaemon(
         store,
         inFlight: (id) => dispatcher.isInFlight(id),
       });
+      const retried = [...r.ingest];
+      const seen = new Set(retried.map((i) => i.operation_id));
+      if (
+        !r.reconcile.write_failed &&
+        !retried.some((i) => i.status === 'write_failed')
+      )
+        for (const problem of spoolProblems.values()) {
+          if (seen.has(problem.operation_id)) continue;
+          const retry = ingestOperationSpool(
+            { ...recovery, store, finalOnly: true },
+            problem.task_id,
+            problem.operation_id,
+          );
+          retried.push(retry);
+          if (retry.status === 'write_failed') break;
+        }
+      reportIngest(retried);
       for (const o of r.reconcile.operations)
         if (o.from !== o.finding.status || o.effect !== 'kept')
           log(
@@ -377,16 +440,22 @@ export async function startDaemon(
           );
       if (
         r.reconcile.write_failed ||
-        r.ingest.some((i) => i.status === 'write_failed')
+        retried.some((i) => i.status === 'write_failed')
       ) {
         dispatcher.latch('store write failed during recovery');
         return;
       }
       unresolved = r.reconcile.unresolved;
       dispatcher.hold(heldReason(unresolved));
-    })().finally(() => {
-      recovering = null;
-    });
+    })()
+      .catch((e: unknown) => {
+        const reason = `recovery failed: ${e instanceof Error ? e.message : String(e)}`;
+        log(reason);
+        dispatcher.hold(reason);
+      })
+      .finally(() => {
+        recovering = null;
+      });
     return recovering;
   };
   let scheduling: Promise<void> | null = null;
@@ -459,7 +528,8 @@ export async function startDaemon(
         store,
         dispatcher,
         startup,
-        unresolved,
+        unresolved: currentClaims(),
+        spoolProblems: [...spoolProblems.values()],
         now: clock.now(),
       });
     },
@@ -584,7 +654,7 @@ export async function startDaemon(
     void schedule();
     for (const round of rounds) round();
     dispatcher.tick();
-    if (store.unresolvedOperations().length > 0) void recover();
+    void recover();
   }, opts.dispatchIntervalMs ?? 1_000);
   interval.unref();
   dispatcher.tick();

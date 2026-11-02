@@ -19,6 +19,7 @@ import {
   readRecords,
   RUN_FILES,
   RunDir,
+  RunnerFileError,
   type FileLimits,
   type IngestPosition,
 } from '../runner/files.ts';
@@ -53,6 +54,7 @@ export type EffectOutcome =
         readonly invoked?: boolean;
         readonly usage?: Usage;
         readonly reset_at?: number;
+        readonly session_ref?: string | null;
         /** Worker effects (T072): the tree the attempt left, or the change found before it. */
         readonly worktree_tree?: string;
         readonly worktree?: {
@@ -101,6 +103,10 @@ export type SpoolIngestDeps = {
   readonly newId: () => string;
   /** Records per `ingest_record`; one batch is one store transaction. */
   readonly batchRecords?: number;
+  /** Live output is read from the spool by task_logs; only finalized runs enter the domain log. */
+  readonly finalOnly?: boolean;
+  /** In-memory validation position; never enters task.version or the event log. */
+  readonly probeCursors?: Map<string, IngestPosition>;
 };
 
 export type SpoolIngestStatus =
@@ -130,6 +136,24 @@ export type SpoolIngestReport = {
 export const DEFAULT_INGEST_BATCH = 1_000;
 const MAX_TRIGGER_ARTIFACTS = 16;
 
+class SpoolReadError extends Error {}
+function spoolIoError(e: unknown): boolean {
+  return (
+    e instanceof RunnerFileError ||
+    /^E[A-Z0-9_]+$/.test(
+      String((e as NodeJS.ErrnoException | null)?.code ?? ''),
+    )
+  );
+}
+function readSpool<T>(read: () => T): T {
+  try {
+    return read();
+  } catch (e) {
+    if (!spoolIoError(e)) throw e;
+    throw new SpoolReadError(e instanceof Error ? e.message : String(e));
+  }
+}
+
 /** Effects whose result is final: nothing re-reads their run from the first record any more. */
 const RESOLVED_EFFECTS: readonly EffectStatus[] = [
   'succeeded',
@@ -157,6 +181,28 @@ export function ingestOperationSpool(
   taskId: string,
   operationId: string,
 ): SpoolIngestReport {
+  try {
+    return ingestSpool(deps, taskId, operationId);
+  } catch (e) {
+    if (!(e instanceof SpoolReadError)) throw e;
+    deps.probeCursors?.delete(operationId);
+    return {
+      task_id: taskId,
+      operation_id: operationId,
+      status: 'unreadable',
+      records: 0,
+      torn: 0,
+      acked: [],
+      detail: deps.redactor.text(e instanceof Error ? e.message : String(e)),
+    };
+  }
+}
+
+function ingestSpool(
+  deps: SpoolIngestDeps,
+  taskId: string,
+  operationId: string,
+): SpoolIngestReport {
   const base = { task_id: taskId, operation_id: operationId };
   const state = deps.store.readTask(taskId as Uuid);
   const op = state?.operations[operationId];
@@ -179,9 +225,13 @@ export function ingestOperationSpool(
       create: false,
     });
   } catch (e) {
+    if (!spoolIoError(e)) throw e;
     return {
       ...base,
-      status: 'no_run_dir',
+      status:
+        e instanceof RunnerFileError && e.code === 'not_found'
+          ? 'no_run_dir'
+          : 'unreadable',
       records: 0,
       torn: 0,
       acked: [],
@@ -197,8 +247,37 @@ export function ingestOperationSpool(
   let detail: string | undefined;
   // Once exit.json is final no writer will complete a partial last record: it is torn, not pending.
   const final =
-    run.readFinal(RUN_FILES.exit, RunnerExitSchema).state === 'valid';
-  let artifacts = pendingArtifacts(run, state, op.id);
+    readSpool(() => run.readFinal(RUN_FILES.exit, RunnerExitSchema)).state ===
+      'valid' || RESOLVED_OPERATIONS.includes(op.status);
+  if (deps.finalOnly && !final) {
+    let checked = deps.probeCursors?.get(op.id) ?? cursor;
+    for (;;) {
+      const probe = readSpool(() =>
+        readRecords(run, op.id, checked, {
+          maxRecords: deps.batchRecords ?? DEFAULT_INGEST_BATCH,
+        }),
+      );
+      if (!probe.ok) {
+        deps.probeCursors?.delete(op.id);
+        return {
+          ...base,
+          status: 'unreadable',
+          records: 0,
+          torn: 0,
+          acked: [],
+          detail: JSON.stringify(probe.error),
+        };
+      }
+      if (probe.value.cursor !== null) {
+        checked = probe.value.cursor;
+        deps.probeCursors?.set(op.id, checked);
+      }
+      if (probe.value.records.length === 0) break;
+    }
+    return { ...base, status: 'up_to_date', records: 0, torn: 0, acked: [] };
+  }
+  deps.probeCursors?.delete(op.id);
+  let artifacts = readSpool(() => pendingArtifacts(run, state, op.id));
   /** Accepts one `ingest_record`; false (with status and detail set) when the store did not take it. */
   const submit = (trigger: IngestTrigger, key: string): boolean => {
     const accepted = deps.store.accept(
@@ -223,10 +302,12 @@ export function ingestOperationSpool(
   };
   let failed = false;
   for (;;) {
-    const batch = readRecords(run, op.id, cursor, {
-      maxRecords: deps.batchRecords ?? DEFAULT_INGEST_BATCH,
-      final,
-    });
+    const batch = readSpool(() =>
+      readRecords(run, op.id, cursor, {
+        maxRecords: deps.batchRecords ?? DEFAULT_INGEST_BATCH,
+        final,
+      }),
+    );
     if (!batch.ok) {
       status = 'unreadable';
       detail = JSON.stringify(batch.error);
@@ -288,7 +369,9 @@ export function ingestOperationSpool(
   // Nothing is deleted while a final file the store has not committed is still on disk.
   const fresh = deps.store.readTask(taskId as Uuid);
   const unacked =
-    failed || fresh === null ? null : pendingArtifacts(run, fresh, op.id);
+    failed || fresh === null
+      ? null
+      : readSpool(() => pendingArtifacts(run, fresh, op.id));
   const acked: Result<string[], string> =
     unacked === null || unacked.length > 0
       ? { ok: true, value: [] }
@@ -355,6 +438,7 @@ function ackResolved(
     const r = ackThrough(run, op.id, { operation_id: op.id, ...op.cursor });
     return r.ok ? r : { ok: false, error: JSON.stringify(r.error) };
   } catch (e) {
+    if (!spoolIoError(e)) throw e;
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 }

@@ -513,6 +513,8 @@ describe('production task surface', () => {
       });
       const surface = control(store, {
         health: () => null,
+        recoveryClaims: () => [],
+        spoolProblems: () => [],
         abort: () => false,
         settled: () => Promise.resolve(),
         latch: () => undefined,

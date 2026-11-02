@@ -7,17 +7,29 @@
  * has not acknowledged.
  */
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, readdirSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { v7 as uuidv7 } from 'uuid';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   ingestOperationSpool,
   type SpoolIngestDeps,
   type SpoolIngestReport,
 } from '../../../src/daemon/ingest.ts';
-import { STORE_FILE, startDaemon } from '../../../src/daemon/main.ts';
+import {
+  STORE_FILE,
+  startDaemon,
+  type DaemonRuntime,
+} from '../../../src/daemon/main.ts';
+import { recoverOperations } from '../../../src/daemon/startup.ts';
 import { sweepRetention } from '../../../src/daemon/retention.ts';
 import { DEFAULT_RUNTIME_LIMITS } from '../../../src/domain/runtime.ts';
 import {
@@ -28,6 +40,7 @@ import {
   segmentFileName,
   spoolUsage,
   type FileLimits,
+  type IngestPosition,
 } from '../../../src/runner/files.ts';
 import type { RunnerExit } from '../../../src/runner/lifecycle.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
@@ -560,6 +573,125 @@ describe('retention and ACK (FR-016, FR-031)', () => {
 });
 
 describe('daemon startup (FR-022, FR-036)', () => {
+  it('validates beyond the first live record and resumes its in-memory probe after repair', () => {
+    const f = setup();
+    write(f, 1);
+    const version = f.d.task(f.taskId).version;
+    const probeCursors = new Map<string, IngestPosition>();
+    const probe = () =>
+      ingestOperationSpool(
+        { ...deps(f, 1), finalOnly: true, probeCursors },
+        f.taskId,
+        OP,
+      );
+    expect(probe().status).toBe('up_to_date');
+    expect(probeCursors.get(OP)?.last_record_seq).toBe(1);
+    const path = f.run.resolve('events.jsonl');
+    const original = readFileSync(path);
+    appendFileSync(path, 'corrupt second record\n');
+    expect(probe()).toMatchObject({ status: 'unreadable' });
+    expect(probeCursors.has(OP)).toBe(false);
+    writeFileSync(path, original);
+    write(f, 1);
+    expect(probe().status).toBe('up_to_date');
+    expect(probeCursors.get(OP)?.last_record_seq).toBe(2);
+    expect(f.d.task(f.taskId).version).toBe(version);
+    f.log.close();
+  });
+
+  it.each(['readTask', 'accept'] as const)(
+    'does not disguise unexpected store %s exceptions as spool faults',
+    (method) => {
+      const f = setup();
+      write(f, 1);
+      finish(f);
+      for (const failure of [
+        Object.assign(new Error('database corrupt'), {
+          code: 'SQLITE_CORRUPT',
+        }),
+        new TypeError('programming error'),
+      ]) {
+        const fault = vi.spyOn(f.d.store, method).mockImplementation(() => {
+          throw failure;
+        });
+        try {
+          expect(() => ingest(f)).toThrow(failure);
+        } finally {
+          fault.mockRestore();
+        }
+      }
+    },
+  );
+
+  it('live output does not grow the event log or stale an operator cancellation', async () => {
+    const f = setup();
+    const version = f.d.task(f.taskId).version;
+    const count = f.d.store.readEvents(f.taskId as Uuid).length;
+    write(f, 7);
+    const recover = () =>
+      recoverOperations({
+        ...deps(f),
+        inFlight: (id) => id === f.effectId,
+        inspect: () => {
+          throw new Error('must not reconcile a live handler');
+        },
+      });
+    expect((await recover()).ingest).toMatchObject([{ records: 0, acked: [] }]);
+    write(f, 2);
+    expect((await recover()).ingest).toMatchObject([{ records: 0, acked: [] }]);
+    expect(f.d.task(f.taskId).operations[OP]?.status).toBe('registered');
+    expect(f.d.task(f.taskId).version).toBe(version);
+    expect(f.d.store.readEvents(f.taskId as Uuid)).toHaveLength(count);
+    expect(
+      f.d.must(
+        f.taskId,
+        { kind: 'cancel', reason: 'stop now' },
+        { expected_version: version },
+      ).decision.kind,
+    ).toBe('accepted');
+    f.log.close();
+  });
+
+  it('reports a symlinked spool without a rejected recovery promise; reports clear after repair', async () => {
+    const f = setup();
+    write(f, 3);
+    finish(f);
+    const spool = join(f.run.dir, SPOOL_DIR);
+    const original = readdirSync(spool).map((name) => ({
+      name,
+      text: readFileSync(join(spool, name)),
+    }));
+    rmSync(spool, { recursive: true });
+    symlinkSync('/tmp', spool);
+    expect(ingest(f)).toMatchObject({ status: 'unreadable', records: 0 });
+    f.d.store.close();
+    let runtime: DaemonRuntime | undefined;
+    const started = await startDaemon({
+      dataDir: f.dir,
+      accessTokens: [],
+      dispatchIntervalMs: 60_000,
+      control: (_store, rt) => {
+        runtime = rt;
+        return {};
+      },
+    });
+    if (!started.ok) throw new Error(started.error.detail);
+    try {
+      await expect(started.value.recover()).resolves.toBeUndefined();
+      expect(runtime?.spoolProblems()).toMatchObject([
+        { operation_id: OP, status: 'unreadable' },
+      ]);
+      rmSync(spool);
+      f.run.ensureDir(SPOOL_DIR);
+      for (const file of original)
+        writeFileSync(join(spool, file.name), file.text);
+      await started.value.recover();
+      expect(runtime?.spoolProblems()).toEqual([]);
+    } finally {
+      await started.value.stop();
+    }
+  });
+
   it('ingests and acknowledges what runners left before anything is dispatched', async () => {
     const f = setup();
     write(f, 15);

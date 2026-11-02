@@ -141,7 +141,9 @@ export function toEntry(record: TaskLogs['records'][number]): LogEntry {
     };
     const text = joinSafe([
       uiText(
-        `Gap: ${records} ${records === 1 ? 'record' : 'records'} unavailable — `,
+        records === 0
+          ? 'Log temporarily unavailable — '
+          : `Gap: ${records} ${records === 1 ? 'record' : 'records'} unavailable — `,
       ),
       reason,
     ]);
@@ -188,8 +190,12 @@ function excessFromStart(entries: readonly LogEntry[], bytes: number): number {
 
 /** New records at the end; the oldest leave, and are read again by position if asked for. */
 function appendEntries(s: LogState, entries: readonly LogEntry[]): LogState {
-  const all = [...s.buffer, ...entries];
-  const bytes = s.bufferBytes + sumBytes(entries);
+  // Replace a non-advancing diagnostic gap when it repeats or real records arrive after repair.
+  const all = [
+    ...s.buffer.filter((e) => !(e.gap && e.seq > s.nextCursor)),
+    ...entries,
+  ];
+  const bytes = sumBytes(all);
   const drop = excessFromStart(all, bytes);
   if (drop === 0) return { ...s, buffer: all, bufferBytes: bytes };
   const kept = all.slice(drop);
@@ -273,7 +279,7 @@ function applyForward(
     ...next,
     nextCursor: page.next_cursor,
     complete: page.complete,
-    filling: s.filling && entries.length > 0,
+    filling: s.filling && entries.length > 0 && page.next_cursor > s.nextCursor,
     wantForward: false,
     moreForward: s.wantForward ? entries.length > 0 : s.moreForward,
   };
@@ -295,7 +301,7 @@ function applyOlder(
     ...reading.collected,
     ...entries.filter((e) => e.seq <= reading.upTo),
   ];
-  const stuck = page.next_cursor <= reading.cursor && entries.length === 0;
+  const stuck = page.next_cursor <= reading.cursor;
   if (page.next_cursor < reading.upTo && !stuck)
     return {
       ...s,

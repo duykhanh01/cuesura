@@ -37,7 +37,10 @@ import {
   OUTCOME_FILE,
   RunnerHarness,
 } from '../../../src/runner/invocation.ts';
-import { homeSecretValues } from '../../../src/runner/private-home.ts';
+import {
+  homeSecretValues,
+  readInstalledAuth,
+} from '../../../src/runner/private-home.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
 import type { EpochMs } from '../../../src/shared/brand.ts';
 import { err, ok } from '../../../src/shared/result.ts';
@@ -183,6 +186,47 @@ function input(
 }
 
 const signal = (): AbortSignal => new AbortController().signal;
+
+it.each(['run', 'transcript'])(
+  'a missing previous %s falls back to a fresh session and remains recoverable',
+  async (missing) => {
+    const e = env('claude', 's0-claude-fixer-1793173414');
+    const from = 'previous-attempt';
+    if (missing === 'transcript')
+      RunDir.open({
+        dataDir: e.data,
+        kind: 'runs',
+        id: from,
+        redactor: new Redactor(),
+      });
+    const inp = input('claude', 'fixer', {
+      session: {
+        ref: '0192aaaa-0000-7000-8000-000000000001',
+        from_attempt_id: from,
+      },
+    });
+    const h = harness(e, {
+      manifest: evidenceManifest(e.pin, {
+        capabilities: {
+          ...evidenceManifestEntry('claude').capabilities,
+          session_resume: { status: 'proven', evidence: 'test-only' },
+        },
+      }),
+    });
+    const out = await h.run(inp, signal());
+    expect(out).toMatchObject({
+      kind: 'result',
+      resumed: false,
+      resume_fallback: 'session_missing',
+    });
+    expect(e.proc.launches[0]?.argv).not.toContain('--resume');
+    expect(h.recover(inp)).toMatchObject({
+      kind: 'result',
+      resumed: false,
+      resume_fallback: 'session_missing',
+    });
+  },
+);
 
 function runDirFiles(e: Env, attempt: string): string {
   const base = join(e.data, 'runs', attempt);
@@ -792,7 +836,7 @@ describe('T139 M07 finalized reviewer recovery', () => {
       expect(run.readFinal(RUN_FILES.result).state).toBe('valid');
       expect(run.readFinal(OUTCOME_FILE).state).toBe('valid');
       // Concluded: the auth leaves the home, and the stored outcome answers from now on.
-      expect(homeSecretValues(join(run.dir, 'private-home'))).toEqual([]);
+      expect(homeSecretValues(readInstalledAuth(run))).toEqual([]);
       expect(harness(e, { credentials: {} }).recover(inp)).toEqual(recovered);
       expect(e.proc.launches).toHaveLength(1);
     },
@@ -814,7 +858,7 @@ describe('T139 M07 finalized reviewer recovery', () => {
       const inp = input('codex', role);
       const run = await orphaned(e, inp);
       const home = join(run.dir, 'private-home');
-      const auth = homeSecretValues(home);
+      const auth = homeSecretValues(readInstalledAuth(run));
       expect(auth.length).toBeGreaterThan(0);
       const writeJson = run.writeJson.bind(run);
       const write = vi
@@ -834,7 +878,7 @@ describe('T139 M07 finalized reviewer recovery', () => {
         expect(run.readFinal(OUTCOME_FILE).state).toBe(
           at === 'before' ? 'missing' : 'valid',
         );
-        expect(homeSecretValues(home)).toEqual(auth);
+        expect(homeSecretValues(readInstalledAuth(run))).toEqual(auth);
         expect(
           e.pin.home_files.every((f) => existsSync(join(home, f.to))),
         ).toBe(true);
@@ -848,7 +892,7 @@ describe('T139 M07 finalized reviewer recovery', () => {
       expect(run.readFinal(OUTCOME_FILE).state).toBe(
         role === 'reviewer' && at === 'before' ? 'missing' : 'valid',
       );
-      expect(homeSecretValues(home)).toEqual([]);
+      expect(homeSecretValues(readInstalledAuth(run))).toEqual([]);
       expect(harness(e, { credentials: {} }).recover(inp)).toEqual(recovered);
       for (const file of [RUN_FILES.result, OUTCOME_FILE]) {
         if (run.readFinal(file).state === 'missing') continue;

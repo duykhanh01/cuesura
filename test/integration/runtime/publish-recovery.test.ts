@@ -296,6 +296,7 @@ function world(task: CanonicalTask, o: { required?: string[] } = {}) {
   const live = (store: Store): void => {
     const clock = { now: () => d.now as EpochMs, monotonic: () => d.now };
     const deps: HandlerDeps = {
+      dataDir: data,
       store,
       git,
       github: () => githubPort,

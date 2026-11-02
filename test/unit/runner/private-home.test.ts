@@ -9,7 +9,13 @@ import {
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { RunDir } from '../../../src/runner/files.ts';
-import { installAuth, removeAuth } from '../../../src/runner/private-home.ts';
+import {
+  copySession,
+  installAuth,
+  homeSecretValues,
+  readInstalledAuth,
+  removeAuth,
+} from '../../../src/runner/private-home.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
 import { tempDir } from '../../support/runner-harness.ts';
 const dirs: string[] = [];
@@ -19,6 +25,100 @@ afterEach(() => {
 const fixture = () => ({ base: tempDir('cusr-home-', dirs) });
 
 describe('private home auth', () => {
+  it.each([0, 1024 * 1024 + 1])(
+    'redacts only installed files, regardless of transcript size %i',
+    (padding) => {
+      const { base } = fixture();
+      const run = RunDir.open({
+        dataDir: base,
+        kind: 'runs',
+        id: 'selected-auth',
+        redactor: new Redactor(),
+      });
+      const auth = join(base, 'auth.json');
+      writeFileSync(
+        auth,
+        JSON.stringify({ accessToken: 'actual-secret-value-123456' }),
+      );
+      const installed = installAuth(run, [
+        {
+          ref: { name: 'claude', file: auth },
+          to: '.claude/.credentials.json',
+        },
+      ]);
+      const ordinary = 'Ordinary summary and commit message';
+      const session = '0192aaaa-0000-7000-8000-000000000001';
+      run.ensureDir('private-home/.claude/projects/-worktree');
+      writeFileSync(
+        run.resolve('private-home/.claude/projects/-worktree/session.jsonl'),
+        JSON.stringify({
+          summary: ordinary,
+          session_id: session,
+          padding: 'x'.repeat(padding),
+        }),
+      );
+      run.writeJson('launch-state.json', { auth: installed });
+      expect(homeSecretValues(readInstalledAuth(run))).toEqual(
+        homeSecretValues(installed),
+      );
+      const redactor = new Redactor({ values: homeSecretValues(installed) });
+      expect(redactor.text(`${ordinary} ${session}`)).toBe(
+        `${ordinary} ${session}`,
+      );
+      expect(redactor.text('actual-secret-value-123456')).toBe('[REDACTED]');
+    },
+  );
+
+  it('carries only one session and its tool data; never auth, settings, or another session', () => {
+    const { base } = fixture();
+    const run = (id: string) =>
+      RunDir.open({
+        dataDir: base,
+        kind: 'runs',
+        id,
+        redactor: new Redactor(),
+      });
+    const previous = run('first');
+    const next = run('next');
+    const id = '0192aaaa-0000-7000-8000-000000000001';
+    const prefix = 'private-home/.claude/projects/-worktree';
+    previous.writeText(`${prefix}/${id}.jsonl`, 'conversation\n');
+    previous.writeText(`${prefix}/${id}/tool-results/one.txt`, 'result');
+    previous.writeText(`${prefix}/other.jsonl`, 'another session');
+    previous.writeText('private-home/.claude/.credentials.json', 'secret');
+    previous.writeText('private-home/.claude/settings.json', 'settings');
+    copySession(previous, next, id);
+    expect(readFileSync(next.resolve(`${prefix}/${id}.jsonl`), 'utf8')).toBe(
+      'conversation\n',
+    );
+    expect(
+      readFileSync(
+        next.resolve(`${prefix}/${id}/tool-results/one.txt`),
+        'utf8',
+      ),
+    ).toBe('result');
+    for (const rel of [
+      `${prefix}/other.jsonl`,
+      'private-home/.claude/.credentials.json',
+      'private-home/.claude/settings.json',
+    ])
+      expect(() => statSync(next.resolve(rel))).toThrow();
+    expect(() => copySession(previous, run('bad'), '../escape')).toThrow(
+      /session ID/,
+    );
+    const missing = '0192aaaa-0000-7000-8000-000000000002';
+    expect(() => copySession(previous, run('missing'), missing)).toThrow(
+      /missing/,
+    );
+    symlinkSync(
+      join(base, 'outside'),
+      previous.resolve(`${prefix}/${id}/link`),
+    );
+    expect(() => copySession(previous, run('symlink'), id)).toThrow(
+      /non-regular/,
+    );
+  });
+
   it('copies only the selected credential files 0600 and removes them after archive', () => {
     const fx = fixture();
     const cred = join(fx.base, 'claude-credentials.json');

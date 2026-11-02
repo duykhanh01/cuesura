@@ -225,6 +225,7 @@ function setup(o: {
   const newId = (): string => uuidOf(ids++);
   let dispatcher: Dispatcher | null = null;
   const deps: HandlerDeps = {
+    dataDir: join(data, 'runtime'),
     store: d.store,
     git: g.runner(),
     github: () => github,
@@ -436,6 +437,8 @@ describe('T139 M03 same vendor/model through the host launcher', () => {
     const [worker, reviewer] = f.proc.launches;
     expect(worker?.argv[0]).toBe(reviewer?.argv[0]);
     expect(worker?.argv).not.toContain('--bind');
+    expect(worker?.argv).toContain('--no-session-persistence');
+    expect(reviewer?.argv).toContain('--no-session-persistence');
     expect(reviewer?.argv).toContain('--disallowedTools');
     expect(reviewer?.argv).not.toContain('--resume');
     expect(worker?.run_id).not.toBe(reviewer?.run_id);

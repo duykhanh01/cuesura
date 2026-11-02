@@ -40,6 +40,13 @@ export type DoctorDeps = {
   readonly configInputs: ConfigInputs;
   /** Why the daemon hands out no work right now (`healthProblem`), or null. */
   readonly health: () => string | null;
+  /** Claims recovery could not establish, shared with status; live operations are healthy. */
+  readonly recoveryClaims?: () => readonly { readonly operation_id: string }[];
+  readonly spoolProblems?: () => readonly {
+    readonly operation_id: string;
+    readonly status: string;
+    readonly detail?: string;
+  }[];
   readonly now: () => number;
   /** Digest of a harness binary; reads the file by default. */
   readonly digest?: (path: string) => string;
@@ -108,23 +115,43 @@ function storeChecks(deps: DoctorDeps): DoctorCheck[] {
           `${replay.mismatches.length} projection rows differ from the event log`,
         ),
   );
-  const unresolved = store.unresolvedOperations();
+  const open = store.unresolvedOperations();
+  const ids = new Set(open.map((o) => o.id));
+  const untrusted =
+    health?.startsWith('dispatch blocked:') === true ||
+    health?.startsWith('store unwritable:') === true;
+  const unresolved =
+    (untrusted ? undefined : deps.recoveryClaims?.())?.filter((o) =>
+      ids.has(o.operation_id),
+    ) ?? open.map((o) => ({ operation_id: o.id }));
   out.push(
     unresolved.length === 0
       ? ok_('claims', 'no unresolved operation')
       : fail(
           'claims',
-          `${unresolved.length} operations unresolved: ${unresolved.map((o) => o.id).join(', ')}`,
+          `${unresolved.length} operations unresolved: ${unresolved.map((o) => o.operation_id).join(', ')}`,
           'recovery keeps following them; see cusr status',
+        ),
+  );
+  const spool = deps.spoolProblems?.() ?? [];
+  out.push(
+    spool.length === 0
+      ? ok_('spools', 'no spool read or ingestion failure')
+      : fail(
+          'spools',
+          spool
+            .map((r) => `${r.operation_id}: ${r.status}: ${r.detail ?? ''}`)
+            .join('; '),
+          'see daemon journal and cusr status recovery.spool_problems',
         ),
   );
   // How far each open operation's output is committed; recovery ingests the rest before any dispatch.
   out.push(
     ok_(
       'cursors',
-      unresolved.length === 0
+      open.length === 0
         ? 'no open operation'
-        : unresolved
+        : open
             .map((o) => {
               const c = store.readTask(o.task_id as Uuid)?.operations[o.id]
                 ?.cursor;

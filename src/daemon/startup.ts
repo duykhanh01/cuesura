@@ -32,6 +32,7 @@ import {
   ingestAllSpools,
   ingestOperationSpool,
   type SpoolIngestReport,
+  type SpoolIngestDeps,
 } from './ingest.ts';
 import {
   reconcileOperations,
@@ -84,7 +85,8 @@ export type StartupReport = {
   readonly held: string | null;
 };
 
-export type RecoveryDeps = Omit<ReconcileDeps, 'store'>;
+export type RecoveryDeps = Omit<ReconcileDeps, 'store'> &
+  Pick<SpoolIngestDeps, 'probeCursors'>;
 
 export type StartupDeps = RecoveryDeps & {
   /** The store file inside `dataDir`. */
@@ -102,18 +104,26 @@ export function heldReason(
 }
 
 /** Reconcile, then ingest what the reconciled runners wrote (the daemon repeats this while it runs). */
-export async function recoverOperations(deps: ReconcileDeps): Promise<{
+export async function recoverOperations(
+  deps: ReconcileDeps & Pick<SpoolIngestDeps, 'probeCursors'>,
+): Promise<{
   readonly reconcile: ReconcileReport;
   readonly ingest: readonly SpoolIngestReport[];
 }> {
+  // Reconciliation skips handlers owned by this daemon; their live output still needs ingesting.
+  const open = deps.store.unresolvedOperations();
   const reconcile = await reconcileOperations(deps);
   const ingest: SpoolIngestReport[] = [];
-  if (!reconcile.write_failed)
-    for (const r of reconcile.operations) {
-      const i = ingestOperationSpool(deps, r.task_id, r.operation_id);
+  if (!reconcile.write_failed) {
+    const operations = new Map(open.map((o) => [o.id, o.task_id]));
+    for (const o of reconcile.operations)
+      operations.set(o.operation_id, o.task_id);
+    for (const [id, taskId] of operations) {
+      const i = ingestOperationSpool({ ...deps, finalOnly: true }, taskId, id);
       ingest.push(i);
       if (i.status === 'write_failed') break;
     }
+  }
   return { reconcile, ingest };
 }
 
@@ -194,7 +204,10 @@ export async function recoverStore(
     { step: 'writer_lock', status: 'ok' },
     { step: 'schema_integrity', status: 'ok' },
   ];
-  const full: ReconcileDeps = { ...deps, store };
+  const full: ReconcileDeps & Pick<SpoolIngestDeps, 'probeCursors'> = {
+    ...deps,
+    store,
+  };
 
   const verify = store.verifyProjections();
   let blocked: string | null = null;
@@ -227,7 +240,7 @@ export async function recoverStore(
         status: 'ok',
         detail: `${operations.length} reconciled, ${unresolved.length} unresolved`,
       });
-      ingest = ingestAllSpools(full).filter(
+      ingest = ingestAllSpools({ ...full, finalOnly: true }).filter(
         (i) => i.status !== 'up_to_date' && i.status !== 'no_run_dir',
       );
       const failed = ingest.find((i) => i.status === 'write_failed');

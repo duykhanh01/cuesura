@@ -17,7 +17,7 @@ import {
 import { recheckTarget } from '../../../src/application/recheck.ts';
 import { CUSR_COMMANDS } from '../../../src/cli/commands.ts';
 import { logsCommandWith } from '../../../src/cli/logs.ts';
-import { ExitCode } from '../../../src/cli/output.ts';
+import { ExitCode, okEnvelope } from '../../../src/cli/output.ts';
 import { runCli } from '../../../src/cli/program.ts';
 import { ingestOperationSpool } from '../../../src/daemon/ingest.ts';
 import { ObservationCoordinator } from '../../../src/daemon/observation.ts';
@@ -1271,6 +1271,134 @@ describe('logs (T114, US6.2, FR-027.01/031)', () => {
     expect(more).toEqual([{ end: 'session_limit', cursor: 3 }]);
   });
 
+  it('--follow sleeps when a transient gap leaves the cursor unchanged', async () => {
+    const t = buildTask();
+    let calls = 0;
+    const sd = new SeededDaemon([], {
+      control: () => ({
+        queries: {
+          task_logs: () => {
+            calls++;
+            return Promise.resolve({
+              status: 200,
+              envelope: okEnvelope({
+                records: [
+                  {
+                    seq: 1,
+                    cursor: 0,
+                    gap: { records: 0, reason: 'unreadable spool' },
+                  },
+                ],
+                next_cursor: 0,
+                complete: calls > 3,
+              }),
+            });
+          },
+        },
+      }),
+    });
+    live.push(sd);
+    await sd.start();
+    let now = 0;
+    let sleeps = 0;
+    const follow = logsCommandWith({
+      now: () => now,
+      maxSessionMs: 1,
+      sleep: () => {
+        sleeps++;
+        now++;
+        return Promise.resolve();
+      },
+    });
+    const r = await raw(sd, ['task', 'logs', t.id, '--follow'], {
+      commands: [follow],
+      json: false,
+    });
+    expect(r.code).toBe(ExitCode.ok);
+    expect(sleeps).toBe(1);
+    expect(calls).toBe(2);
+    expect(JSON.parse(r.out.trimEnd().split('\n').at(-1)!)).toEqual({
+      end: 'session_limit',
+      cursor: 0,
+    });
+  });
+
+  it.each([false, true])(
+    '--follow deduplicates diagnostics without consuming a record seq (json=%s)',
+    async (json) => {
+      const t = buildTask();
+      const operation = uuidOf(901);
+      const attempt = uuidOf(902);
+      const gap = (cursor: number, reason: string) => ({
+        seq: cursor + 1,
+        cursor,
+        operation_id: operation,
+        attempt_id: attempt,
+        gap: { records: 0, reason },
+      });
+      const record = (seq: number) => ({
+        seq,
+        cursor: seq,
+        data: `recovered ${seq}`,
+      });
+      const pages = [
+        { records: [gap(0, 'unreadable')], next_cursor: 0 },
+        { records: [gap(0, 'unreadable')], next_cursor: 0 },
+        { records: [gap(0, 'changed reason')], next_cursor: 0 },
+        { records: [record(1)], next_cursor: 1 },
+        { records: [gap(1, 'changed reason')], next_cursor: 1 },
+        { records: [gap(1, 'changed reason')], next_cursor: 1 },
+        { records: [record(2)], next_cursor: 2 },
+      ];
+      const cursors: unknown[] = [];
+      const sd = new SeededDaemon([], {
+        control: () => ({
+          queries: {
+            task_logs: (_caller, body) => {
+              const page = pages[cursors.length];
+              cursors.push(body['after']);
+              return Promise.resolve({
+                status: 200,
+                envelope: okEnvelope({
+                  ...page,
+                  complete: cursors.length >= pages.length,
+                }),
+              });
+            },
+          },
+        }),
+      });
+      live.push(sd);
+      await sd.start();
+      const follow = logsCommandWith({ sleep: () => Promise.resolve() });
+      const r = await raw(sd, ['task', 'logs', t.id, '--follow'], {
+        commands: [follow],
+        json,
+      });
+      expect(r.code).toBe(ExitCode.ok);
+      expect(cursors).toEqual([0, 0, 0, 0, 1, 1, 1]);
+      const diagnostic = (cursor: number, reason: string) => ({
+        diagnostic: 'log_gap',
+        cursor,
+        operation_id: operation,
+        attempt_id: attempt,
+        reason,
+      });
+      const output = r.out
+        .trimEnd()
+        .split('\n')
+        .map((line) => JSON.parse(line) as unknown);
+      expect(output).toEqual([
+        diagnostic(0, 'unreadable'),
+        diagnostic(0, 'changed reason'),
+        record(1),
+        diagnostic(1, 'changed reason'),
+        record(2),
+        { end: 'task_finished', cursor: 2 },
+      ]);
+    },
+  );
+
   it('--follow ends on its own once a finished task has nothing more', async () => {
     const sd = daemon(() => ({
       logs: { dataDir: sd.dataDir, redactor: new Redactor() },
@@ -1329,6 +1457,12 @@ describe('doctor (T112, FR-027.02/033)', () => {
       manifests?: Record<string, unknown>;
       host?: Parameters<typeof fakeHost>[0];
       health?: string | null;
+      recoveryClaims?: () => readonly { operation_id: string }[];
+      spoolProblems?: () => readonly {
+        operation_id: string;
+        status: string;
+        detail?: string;
+      }[];
       digest?: (path: string) => string;
       probeBudgetMs?: number;
       harnessTools?: Record<string, { dirs: string[]; requires: string[] }>;
@@ -1346,6 +1480,12 @@ describe('doctor (T112, FR-027.02/033)', () => {
             manifests: (o.manifests ?? PROVEN) as typeof MANIFESTS,
           }),
         health: () => (o.health === undefined ? rt.health() : o.health),
+        ...(o.recoveryClaims === undefined
+          ? {}
+          : { recoveryClaims: o.recoveryClaims }),
+        ...(o.spoolProblems === undefined
+          ? {}
+          : { spoolProblems: o.spoolProblems }),
         // The fixture's binaries are not on disk: unless told otherwise each is what its manifest says.
         digest:
           o.digest ??
@@ -1398,6 +1538,68 @@ describe('doctor (T112, FR-027.02/033)', () => {
       expect(argv.join(' ')).not.toMatch(
         /\bsudo\b|sysctl -w|apparmor_parser|claude|codex/,
       );
+  });
+
+  it('claims shares recovery findings instead of failing on a live operation', async () => {
+    let claims: { operation_id: string }[] = [];
+    const options = {
+      health: null as string | null,
+      recoveryClaims: () => claims,
+    };
+    const { sd } = doctored(options);
+    const daemon = await sd.start();
+    const d = new StoreDriver(daemon.store);
+    const t = buildTask({ id: uuidOf(4040) });
+    createGrantStart(d, t);
+    const op = uuidOf(4041);
+    const claimed = d.store.claimEffect(
+      d.pendingOne(t.id, 'prepare').id as Uuid,
+      d.now as EpochMs,
+      {
+        require_runtime: true,
+        operation: {
+          operation_id: op,
+          kind: 'setup',
+          launch_nonce: 'live',
+          unit: 'live.service',
+          holds_slot: true,
+        },
+      },
+    );
+    expect(claimed.ok).toBe(true);
+    expect(names(await cli(sd, ['doctor']))['claims']).toBe('ok');
+    for (const health of [
+      'dispatch blocked: verify failed',
+      'store unwritable: disk full',
+    ]) {
+      options.health = health;
+      expect(names(await cli(sd, ['doctor']))['claims']).toBe('fail');
+    }
+    options.health = null;
+    claims = [{ operation_id: op }];
+    expect(names(await cli(sd, ['doctor']))['claims']).toBe('fail');
+    d.must(t.id, {
+      kind: 'operation_result',
+      operation_id: op,
+      status: 'finished',
+      outcome: 'succeeded',
+      invocation_id: null,
+      processes: [],
+      started_at: d.now as EpochMs,
+      finished_at: d.now as EpochMs,
+      receipt_digest: `sha256:${'a'.repeat(64)}`,
+    });
+    expect(names(await cli(sd, ['doctor']))['claims']).toBe('ok');
+  });
+
+  it('reports spool errors instead of presenting a silent worker stall, and clears after recovery', async () => {
+    const problems: { operation_id: string; status: string; detail: string }[] =
+      [{ operation_id: uuidOf(4141), status: 'unreadable', detail: 'EIO' }];
+    const { sd } = doctored({ spoolProblems: () => problems });
+    await sd.start();
+    expect(names(await cli(sd, ['doctor']))['spools']).toBe('fail');
+    problems.splice(0);
+    expect(names(await cli(sd, ['doctor']))['spools']).toBe('ok');
   });
 
   it('a harness whose sandbox lacks what its binary needs fails, naming the tool and the fix', async () => {

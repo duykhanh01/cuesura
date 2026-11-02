@@ -77,7 +77,24 @@ assistant không đọc `owner.token` là quy tắc, không phải giới hạn 
 | 3. Chạy | Daemon, worker | Worktree riêng, coder, gate, reviewer nếu `full-review`, tạo PR, chờ CI |
 | 4. Theo dõi | Assistant | `task explain`, `task logs`, `inbox`; câu hỏi chưa rõ thì chuyển cho người dùng |
 | 5. Merge | **Người dùng** | Đọc diff, merge trên GitHub; daemon ghi nhận DONE |
-| 6. Cập nhật | Người dùng | Theo mục [Nâng và lùi release](#nâng-và-lùi-release) khi có thay đổi cần dùng |
+| 6. Cập nhật | Assistant | Kiểm tra task, backup, nâng release và restart theo mục [Nâng và lùi release](#nâng-và-lùi-release) khi có thay đổi cần dùng |
+
+`task logs` đọc phần đuôi đã redacted từ spool của worker đang chạy. Phần live này không tăng
+`task.version` hay ghi event theo từng tick, nên không làm stale version vừa đọc để hủy task. Khi run kết
+thúc, ingest giữ nguyên thứ tự/cursor của các record đã xem. Các thay đổi trạng thái thật vẫn tăng version.
+Lỗi spool xuất hiện trong journal, `status.recovery.spool_problems` và check `spools` của `doctor`;
+daemon kiểm tra tiếp từ vị trí đã đọc trong bộ nhớ, rồi xóa báo lỗi khi spool được khôi phục.
+Nếu đuôi live hỏng, `task logs` vẫn trả các batch đã commit đọc được, kèm gap có `records: 0`;
+gap này không tăng cursor. CLI/TUI chờ lần đọc tiếp theo tại cùng cursor. Log live của attempt sau
+chờ ingest xong phần còn thiếu của attempt trước để cursor không lệch khi retry thành công.
+Nếu spool vẫn hỏng khi worker kết thúc, kết quả không được commit và operation ở `unknown`.
+Người vận hành cần kiểm tra journal và sửa/khôi phục spool trước khi recovery có thể tiếp tục;
+daemon không tự bỏ qua log hỏng để chấp nhận kết quả.
+
+Trong JSONL của `task logs --follow`, gap tạm thời là thông báo `diagnostic: "log_gap"`
+có `cursor`, `operation_id`, `attempt_id`, `reason` và không có `seq`. CLI chỉ in lại khi operation
+hoặc lý do thay đổi, hoặc lỗi xuất hiện lại sau khi đã hết. Record thật sau khi khôi phục vẫn giữ
+`seq` ban đầu. TUI hiện `Log temporarily unavailable` thay vì báo mất 0 record.
 
 ### Chọn model
 
@@ -104,7 +121,9 @@ Reviewer của mọi `full-review` là `codex/sol/high`.
   [AGENTS.md](../AGENTS.md), rồi tạo PR như thường.
 
 Muốn thêm hoặc đổi model: sửa `models` và `binding` của `coder`, `fixer`, `reviewer` trong `config.yaml`, sửa bảng
-trên, rồi restart daemon. `--worker` phải khớp đúng một binding đã khai, theo dạng `harness/tên-model/effort`.
+trên. Assistant kiểm tra không còn task đang chạy hoặc chờ sửa, rồi restart daemon và chạy `doctor`;
+người dùng không cần chép lệnh dài hay đưa owner token. `--worker` phải khớp đúng một binding đã khai,
+theo dạng `harness/tên-model/effort`.
 
 Làm tay theo [AGENTS.md](../AGENTS.md) thay vì qua `cusr` khi:
 
@@ -136,6 +155,20 @@ số lượt agent trên mỗi PR được merge, và số issue `dogfood:` mở
 ## Nâng và lùi release
 
 Chỉ nâng khi `cusr task list` không còn task đang chạy hoặc chờ sửa.
+
+Assistant được thực hiện bước nâng/restart khi người dùng đã giao việc vận hành. Trước khi đổi config,
+pin hoặc release: kiểm tra cả `task list` và `status` (không còn operation in-flight hay slot đang giữ).
+Nếu còn việc thì hoãn cập nhật, không tự hủy task. Dừng service và backup DB/config/pin trước khi nâng;
+sau khi tạo lại manifest và restart, kiểm tra lại `doctor`, `status` và chạy task nghiệm thu.
+
+Config được đọc lại khi xác nhận task mới; `yolo` được đọc lại trước khi daemon xét merge. Thay đổi
+token, công cụ, credential reference, pin/manifest hay binary cần restart để các thành phần trong process
+dùng cùng cấu hình. Không thay snapshot của task cũ. Escalation vẫn cần người dùng chạy `task approve`
+bằng quyền admin; token assistant chỉ có read/operate.
+
+Profile mới không còn `budgets`: task mới không có trần số lượt agent hoặc deadline chung, nên không
+cần `amend-policy` để tăng budget. Giữ lịch sử/snapshot của task cũ nguyên trạng. Giới hạn retry theo
+loại lỗi, stall timeout và lệnh hủy vẫn áp dụng.
 
 ```sh
 ~/projects/metronome/scripts/dogfood/install-release.sh        # origin/main, hoặc truyền SHA

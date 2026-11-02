@@ -32,7 +32,8 @@ import type {
   ProcessIdentity,
 } from '../../../src/domain/runtime.ts';
 import type { CanonicalTask } from '../../../src/domain/task.ts';
-import { RunDir } from '../../../src/runner/files.ts';
+import { EventLogWriter, RunDir } from '../../../src/runner/files.ts';
+import { taskLogs } from '../../../src/application/logs.ts';
 import type { IdentityProbe, PidRecord } from '../../../src/runner/identity.ts';
 import type { RunnerExit } from '../../../src/runner/lifecycle.ts';
 import {
@@ -274,6 +275,63 @@ const types = (f: Fixture, taskId: string): string[] =>
   f.d.store.readEvents(taskId as Uuid).map((e) => e.type);
 
 describe('startup order (T085, FR-022, FR-036)', () => {
+  it.each(['exit', 'lost'] as const)(
+    'keeps a live log cursor through restart and %s without per-tick events',
+    async (completion) => {
+      const f = fixture();
+      const { task, attemptId } = toAgent(f);
+      const run = launched(f, attemptId);
+      f.host.ticks.set(PID, TICKS);
+      f.host.unit = 'active';
+      const log = EventLogWriter.open(run, OP);
+      const logs = (after: number) =>
+        taskLogs(
+          { store: f.d.store, dataDir: f.dir, redactor: new Redactor() },
+          {
+            grant: {
+              id: 'reader',
+              actor: 'reader',
+              roles: ['read'],
+              projects: ['acme'],
+            },
+          },
+          { kind: 'task_logs', task_id: task.id, after },
+        );
+      for (let i = 0; i < 3; i++) log.append('progress', { i });
+      log.sync();
+      expect(logs(0)).toMatchObject({
+        ok: true,
+        value: {
+          next_cursor: 3,
+          records: [{ data: { i: 0 } }, { data: { i: 1 } }, { data: { i: 2 } }],
+        },
+      });
+      for (let i = 3; i < 5; i++) log.append('progress', { i });
+      log.sync();
+      await restart(f);
+      expect(types(f, task.id)).not.toContain('OutputIngested');
+      expect(logs(3)).toMatchObject({
+        ok: true,
+        value: {
+          next_cursor: 5,
+          records: [{ data: { i: 3 } }, { data: { i: 4 } }],
+        },
+      });
+      log.close();
+      if (completion === 'exit') exited(f, run, attemptId);
+      f.host.ticks.clear();
+      f.host.unit = completion === 'exit' ? 'exited' : 'not_found';
+      await restart(f);
+      expect(logs(5)).toMatchObject({
+        ok: true,
+        value: { next_cursor: 5, records: [] },
+      });
+      expect(
+        types(f, task.id).filter((t) => t === 'OutputIngested'),
+      ).toHaveLength(1);
+    },
+  );
+
   it('writes its report with every step in order before anything is granted; a second writer is refused', async () => {
     const f = fixture();
     toAgent(f);

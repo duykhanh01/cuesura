@@ -37,7 +37,7 @@ import { RUN_FILES, RunDir } from '../../src/runner/files.ts';
 import { execOperation } from '../../src/runner/lifecycle.ts';
 import {
   homeSecretValues,
-  PRIVATE_HOME_DIR,
+  readInstalledAuth,
 } from '../../src/runner/private-home.ts';
 import { Redactor } from '../../src/runner/redact.ts';
 import { IN_SANDBOX } from '../../src/runner/sandbox.ts';
@@ -157,7 +157,7 @@ export class InlineProcessPort implements ProcessPort {
       kind: spec.run_dir_kind,
       id: spec.run_id,
       redactor: new Redactor({
-        values: homeSecretValues(join(probe.dir, PRIVATE_HOME_DIR)),
+        values: homeSecretValues(readInstalledAuth(probe)),
       }),
     });
     const entry = { done: false, stop: (): void => undefined };

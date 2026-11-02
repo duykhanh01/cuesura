@@ -219,6 +219,12 @@ vẫn theo cấu hình riêng.
 Claude không còn bắt buộc `--max-turns` khi tạo pin: bỏ cờ này để `max_turns` trong pin là `null`.
 Pin cũ có số turn vẫn giữ trần đã khai; tạo lại pin bằng `write-pin --force` khi muốn bỏ trần.
 
+Với Claude, `roles.<role>.limits.max_turns` được áp dụng cùng trần trong pin: nếu cả hai có số thì dùng
+số nhỏ hơn. Bỏ cả hai để không giới hạn. Cap turn này chỉ áp dụng cho Claude;
+dùng wall/stall timeout cho binding Codex. Hết turn là `timeout`, dùng cơ chế retry/hỏi người vận hành của
+timeout, không tiêu lượt retry infra. Worker host chỉ bật persistence khi manifest có `resume: proven`;
+khi chưa chứng minh resume thì dùng `--no-session-persistence`. Reviewer luôn dùng phiên mới và tắt persistence.
+
 Các policy/runtime snapshot của task đã chạy giữ nguyên giới hạn đã đóng băng. Sau khi nâng release,
 xóa các trần trong user config và tạo lại pin/manifest theo mục bên dưới để task mới dùng cấu hình
 không giới hạn; không sửa tay snapshot hoặc manifest của task cũ.
@@ -260,6 +266,16 @@ cusr-runner write-pin --config ~/.cusr/config.yaml --harness claude --vendor cla
   --settings claude-settings.json --permission-mode auto --sandbox off --tools Bash,Read,Edit,Write,Glob,Grep
 cusr-runner record-manifest --config ~/.cusr/config.yaml --harness claude --evidence <evidence.json>
 ```
+
+Để bật resume cho Claude, thêm `--prove-resume` vào `prove-harness`. Probe này cần thêm một invocation
+ngoài ba role (dry-run hiển thị tổng số cần), rồi thử tiếp tục bằng private home mới và nhớ lại một nonce
+chỉ có trong hội thoại trước. Chỉ bằng chứng probe đạt mới ghi `session_resume: proven`; sau đó ghi lại
+manifest và restart. Resume chỉ mang transcript/tool data của đúng session, không mang auth/settings của
+attempt cũ. Codex hiện chưa có resume được hỗ trợ; daemon ghi lý do và dùng phiên mới cùng context đầy đủ.
+
+Nếu transcript/run cũ đã mất, worker dùng phiên mới với context đầy đủ và ghi `resume_fallback: session_missing`;
+không chờ người vận hành chỉ để khôi phục hội thoại. Evidence của `--prove-resume` có `resume_probe` ghi
+outcome và nguyên nhân cụ thể, kể cả khi coder thất bại hoặc không trả session nên probe chưa được chạy.
 
 Mỗi vendor trong evidence phải có `binary.sha256` và `attested` gồm `settings_hash`, `environment_hash`
 (env, toolchain, `home_files`, `max_turns`, `tools`), `host_policy_hash`, `layout_shapes` của lượt chứng minh.

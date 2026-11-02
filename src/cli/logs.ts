@@ -14,7 +14,12 @@ export const FOLLOW_SESSION_MS = 3_600_000;
 const FOLLOW_POLL_MS = 1_000;
 
 type Page = {
-  readonly records: readonly unknown[];
+  readonly records: readonly {
+    readonly cursor: number;
+    readonly operation_id: string;
+    readonly attempt_id: string | null;
+    readonly gap?: { readonly records: number; readonly reason: string };
+  }[];
   readonly next_cursor: number;
   readonly complete: boolean;
 };
@@ -124,6 +129,7 @@ export function logsCommandWith(o: FollowOptions = {}): CliCommand {
       }
       const started = now();
       let cursor = after;
+      let lastDiagnostic: string | null = null;
       for (;;) {
         const r = await fetch(cursor);
         if (!r.ok) {
@@ -141,7 +147,28 @@ export function logsCommandWith(o: FollowOptions = {}): CliCommand {
           return exitCodeFor(envelope);
         }
         const page = envelope.data as Page;
-        for (const rec of page.records) io.stdout(`${JSON.stringify(rec)}\n`);
+        let diagnostic: string | null = null;
+        for (const rec of page.records) {
+          if (rec.gap?.records === 0) {
+            diagnostic = JSON.stringify([
+              rec.operation_id,
+              rec.attempt_id,
+              rec.gap.reason,
+            ]);
+            if (diagnostic !== lastDiagnostic)
+              io.stdout(
+                `${JSON.stringify({
+                  diagnostic: 'log_gap',
+                  cursor: rec.cursor,
+                  operation_id: rec.operation_id,
+                  attempt_id: rec.attempt_id,
+                  reason: rec.gap.reason,
+                })}\n`,
+              );
+          } else io.stdout(`${JSON.stringify(rec)}\n`);
+        }
+        lastDiagnostic = diagnostic;
+        const advanced = page.next_cursor > cursor;
         cursor = page.next_cursor;
         if (page.complete) {
           io.stdout(`${JSON.stringify({ end: 'task_finished', cursor })}\n`);
@@ -151,7 +178,7 @@ export function logsCommandWith(o: FollowOptions = {}): CliCommand {
           io.stdout(`${JSON.stringify({ end: 'session_limit', cursor })}\n`);
           return ExitCode.ok;
         }
-        if (page.records.length === 0) await sleep(pollMs);
+        if (!advanced) await sleep(pollMs);
       }
     },
   };

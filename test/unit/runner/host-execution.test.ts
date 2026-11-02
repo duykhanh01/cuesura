@@ -77,6 +77,48 @@ function claude(
 }
 
 describe('host execution with harness-owned permissions', () => {
+  it.each([
+    [null, 7, 7],
+    [20, 7, 7],
+    [3, 7, 3],
+    [null, null, null],
+  ] as const)(
+    'uses the stricter pin %s and role %s turn cap',
+    (pinCap, roleCap, expected) => {
+      const pin = { ...vendorPin('claude'), max_turns: pinCap };
+      const p = claudeAdapter.plan(pin, {
+        ...input('claude'),
+        max_turns: roleCap,
+      });
+      if (!p.ok) throw new Error(p.error.message);
+      const at = p.value.argv.indexOf('--max-turns');
+      expect(at === -1 ? null : Number(p.value.argv[at + 1])).toBe(expected);
+      expect(p.value.argv).toContain('--no-session-persistence');
+    },
+  );
+
+  it('keeps reviewer session persistence disabled', () => {
+    expect(claude('auto', 'reviewer').plan.argv).toContain(
+      '--no-session-persistence',
+    );
+  });
+
+  it.each(['coder', 'fixer', 'reviewer'] as const)(
+    'gates fresh %s persistence on proven resume',
+    (role) => {
+      for (const capability of ['unknown', 'unsupported', 'proven']) {
+        const p = claudeAdapter.plan(vendorPin('claude'), {
+          ...input('claude', role),
+          resume_proven: capability === 'proven',
+        });
+        if (!p.ok) throw new Error(p.error.message);
+        expect(p.value.argv.includes('--no-session-persistence')).toBe(
+          role === 'reviewer' || capability !== 'proven',
+        );
+      }
+    },
+  );
+
   it('uses native Claude sandbox when enabled, with host scratch paths', () => {
     const { plan, settings } = claude('auto', 'coder', true);
     expect(settings.permissions.defaultMode).toBe('auto');

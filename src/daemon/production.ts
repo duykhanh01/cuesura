@@ -321,6 +321,8 @@ export async function productionControl(opts: {
       opts.seams?.remoteUrl ?? ((repo) => `https://github.com/${repo}.git`);
     const dir = (name: string): string => join(opts.dataDir, name);
     const deps: HandlerDeps = {
+      dataDir: opts.dataDir,
+      latch: daemon.latch,
       store,
       git: ports.git,
       github: newGitHub,
@@ -426,6 +428,8 @@ export async function productionControl(opts: {
           configInputs,
           harnessTools,
           health: daemon.health,
+          recoveryClaims: daemon.recoveryClaims,
+          spoolProblems: daemon.spoolProblems,
           now,
         },
       }),

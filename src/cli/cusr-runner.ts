@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { RUN_DIR_KINDS, RunDir, type RunDirKind } from '../runner/files.ts';
 import { execOperation } from '../runner/lifecycle.ts';
-import { homeSecretValues, PRIVATE_HOME_DIR } from '../runner/private-home.ts';
+import { homeSecretValues, readInstalledAuth } from '../runner/private-home.ts';
 import { Redactor } from '../runner/redact.ts';
 import {
   errorEnvelope,
@@ -62,7 +61,7 @@ const exec: CliCommand = {
       create: false,
     });
     const redactor = new Redactor({
-      values: homeSecretValues(join(probe.dir, PRIVATE_HOME_DIR)),
+      values: homeSecretValues(readInstalledAuth(probe)),
       env: process.env,
     });
     const run = RunDir.open({
@@ -346,6 +345,10 @@ const proveHarness: CliCommand = {
       flags: '--dry-run',
       description: 'Show the verification plan without invoking the model',
     },
+    {
+      flags: '--prove-resume',
+      description: 'Verify Claude resume with one additional invocation',
+    },
   ],
   async run(values, json, io) {
     const refuse = refuser(json, io);
@@ -371,6 +374,7 @@ const proveHarness: CliCommand = {
       runtime: cfg.value.runtime,
       model,
       effort: effort ?? null,
+      proveResume: values['proveResume'] !== undefined,
       ...(outerProof === undefined ? {} : { outerProofFile: outerProof }),
       runnerCommand: [process.execPath, process.argv[1] as string],
       now: () => Date.now(),
@@ -385,7 +389,8 @@ const proveHarness: CliCommand = {
         binary: pin.binary,
         identity,
         invocations_spent,
-        invocations_needed: proof.PROOF_ROLES.length,
+        invocations_needed:
+          proof.PROOF_ROLES.length + (options.proveResume ? 1 : 0),
       };
       io.stdout(
         json

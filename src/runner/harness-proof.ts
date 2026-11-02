@@ -78,6 +78,8 @@ export type ProofOptions = {
   readonly outerProofFile?: string;
   readonly runnerCommand: readonly string[];
   readonly now: () => number;
+  /** One additional invocation verifies Claude resume across fresh private homes. */
+  readonly proveResume?: boolean;
   /** Seam for tests; production always supervises through systemd. */
   readonly process?: ProcessPort;
 };
@@ -144,6 +146,8 @@ function deniesProbe(pin: VendorPin): boolean {
 export function planProof(o: ProofOptions): Result<ProofPlan, string> {
   const pin = readPin(o.dataDir, o.harness);
   if (!pin.ok) return pin;
+  if (o.proveResume && pin.value.vendor !== 'claude')
+    return err('resume proof is only supported for Claude');
   if (!deniesProbe(pin.value))
     return err(
       `the pin does not deny ${DENIED_COMMAND}; nothing could be shown`,
@@ -311,12 +315,19 @@ type RoleRun = {
 
 const proven = (evidence: string) => ({ status: 'proven', evidence });
 const notShown = (evidence: string) => ({ status: 'unknown', evidence });
+type ResumeProof = {
+  attempt_id: string | null;
+  remembered: boolean;
+  reason: string;
+  outcome?: HarnessOutcome;
+};
 
 /** What the runs showed, in the form `record-manifest` reads. Nothing here is taken from the vendor's word. */
 export function evidenceFromRuns(
   plan: ProofPlan,
   runs: readonly RoleRun[],
   checkedAt: number,
+  resume?: ResumeProof,
 ): Record<string, unknown> {
   const inner = hostInnerMode(plan.pin);
   const ids = (ok_: (r: RoleRun) => boolean): string[] =>
@@ -342,7 +353,13 @@ export function evidenceFromRuns(
       (r) => valid(r) && r.outcome.usage.basis !== 'unavailable',
       'usage reported',
     ),
-    session_resume: notShown('this proof runs no resume'),
+    session_resume: resume?.remembered
+      ? proven(
+          `resumed across private homes and recalled a transcript-only nonce: ${resume.attempt_id}`,
+        )
+      : notShown(
+          resume === undefined ? 'this proof runs no resume' : resume.reason,
+        ),
     cost_limit: notShown('no hard USD cap is exercised'),
   };
   for (const role of PROOF_ROLES) {
@@ -377,6 +394,7 @@ export function evidenceFromRuns(
         permission_policy_hash: plan.permission_policy_hash,
         capabilities,
         attested: plan.identity,
+        ...(resume === undefined ? {} : { resume_probe: resume }),
         runs: runs.map((r) => ({
           role: r.role,
           attempt_id: r.attempt_id,
@@ -416,6 +434,7 @@ function candidateManifest(o: ProofOptions, plan: ProofPlan, shownAt: number) {
       permission_denial_kept: claim,
       private_home_auth: claim,
       usage_report: claim,
+      ...(o.proveResume ? { session_resume: claim } : {}),
       ...Object.fromEntries(
         PROOF_ROLES.map((r) => [`schema_acceptance_${r}`, claim]),
       ),
@@ -443,10 +462,11 @@ export async function proveHarness(
   const planned = planProof(o);
   if (!planned.ok) return planned;
   const plan = planned.value;
-  const needed = plan.invocations_spent + PROOF_ROLES.length;
+  const invocations = PROOF_ROLES.length + (o.proveResume ? 1 : 0);
+  const needed = plan.invocations_spent + invocations;
   if (needed > o.budget.maxInvocations)
     return err(
-      `${plan.invocations_spent} invocations already spent on this binary; ${PROOF_ROLES.length} more exceed the cap of ${o.budget.maxInvocations}`,
+      `${plan.invocations_spent} invocations already spent on this binary; ${invocations} more exceed the cap of ${o.budget.maxInvocations}`,
     );
 
   const redactor = new Redactor({ values: [] });
@@ -482,6 +502,13 @@ export async function proveHarness(
   });
 
   const runs: RoleRun[] = [];
+  let resume: ResumeProof | undefined = o.proveResume
+    ? {
+        attempt_id: null,
+        remembered: false,
+        reason: 'resume requested; coder has not completed',
+      }
+    : undefined;
   for (const role of PROOF_ROLES) {
     const attempt_id = randomUUID();
     const operation_id = randomUUID();
@@ -502,10 +529,15 @@ export async function proveHarness(
     writeFileSync(nativeMarker, 'positive control');
     rmSync(nativeMarker);
     const nativeCommand = `/usr/bin/touch '${nativeMarker.replaceAll("'", "'\\''")}'`;
-    const text = proofPrompt(
-      role,
-      nativeSandboxEnabled(plan.pin, role) ? nativeCommand : null,
-    );
+    const nonce = randomUUID();
+    const text =
+      proofPrompt(
+        role,
+        nativeSandboxEnabled(plan.pin, role) ? nativeCommand : null,
+      ) +
+      (o.proveResume && role === 'coder'
+        ? `\nRemember this nonce for a later continuation: ${nonce}. Do not write it to a file.`
+        : '');
     const outcome = await harness.run(
       {
         role,
@@ -557,6 +589,95 @@ export async function proveHarness(
         .filter((h) => h.sha256 === undefined)
         .every((h) => !existsSync(join(run, PRIVATE_HOME_DIR, h.to))),
     });
+    if (o.proveResume && role === 'coder') {
+      resume = {
+        attempt_id: null,
+        remembered: false,
+        reason:
+          outcome.kind === 'failure'
+            ? `coder failed: ${outcome.failure}: ${outcome.detail}`
+            : outcome.kind === 'invalid_output'
+              ? `coder invalid output: ${JSON.stringify(outcome.issues)}`
+              : 'coder returned no session reference',
+        outcome,
+      };
+    }
+    if (
+      o.proveResume &&
+      role === 'coder' &&
+      outcome.kind === 'result' &&
+      outcome.session_ref !== null
+    ) {
+      const nextId = randomUUID();
+      reserve(o.dataDir, o.harness, {
+        at: new Date(o.now()).toISOString(),
+        harness: o.harness,
+        binary_sha256: plan.pin.binary.sha256,
+        role: 'fixer',
+        attempt_id: nextId,
+        model: o.model,
+        approval: o.budget.approval,
+        max_invocations: o.budget.maxInvocations,
+      });
+      const prompt =
+        'Return a done result whose summary is exactly the nonce I asked you to remember in the previous conversation. Do not read any files or call tools.';
+      try {
+        const resumed = await harness.run(
+          {
+            role: 'fixer',
+            operation_id: randomUUID(),
+            attempt_id: nextId,
+            revision: 1,
+            binding: {
+              harness: o.harness,
+              vendor: plan.pin.vendor,
+              model: o.model,
+              effort: o.effort,
+              permission_policy_hash: plan.permission_policy_hash,
+            },
+            context: { text: prompt, digest: hashText(prompt) },
+            schema: wireRoleSchema('fixer', { omit_meta_schema: true }),
+            wall_ms: WALL_MS,
+            deadline_at: (o.now() + WALL_MS) as EpochMs,
+            session: { ref: outcome.session_ref, from_attempt_id: attempt_id },
+            credentials: o.runtime.credential_refs,
+            workspace,
+          },
+          new AbortController().signal,
+        );
+        const remembered =
+          resumed.kind === 'result' &&
+          resumed.resumed !== false &&
+          'status' in resumed.value &&
+          resumed.value.status === 'done' &&
+          resumed.value.summary.trim() === nonce &&
+          resumed.session_ref === outcome.session_ref;
+        resume = {
+          attempt_id: nextId,
+          outcome: resumed,
+          reason: remembered
+            ? 'resumed the same session and recalled its transcript-only nonce'
+            : resumed.kind === 'failure'
+              ? `${resumed.failure}: ${resumed.detail}`
+              : resumed.kind === 'invalid_output'
+                ? `invalid output: ${JSON.stringify(resumed.issues)}`
+                : resumed.resume_fallback !== undefined
+                  ? `resume fallback: ${resumed.resume_fallback}`
+                  : resumed.session_ref !== outcome.session_ref
+                    ? 'resume returned a different session'
+                    : 'resume did not recall the transcript-only nonce in a done result',
+          remembered,
+        };
+      } catch (e) {
+        resume = {
+          attempt_id: nextId,
+          remembered: false,
+          reason: redactor.text(
+            `resume probe threw: ${e instanceof Error ? e.message : String(e)}`,
+          ),
+        };
+      }
+    }
     rmSync(scratch, { recursive: true, force: true });
     // The next role would hit the same fault and spend for nothing.
     if (outcome.kind === 'failure') break;
@@ -565,7 +686,7 @@ export async function proveHarness(
   const tmp = `${o.out}.${process.pid}.tmp`;
   writeFileSync(
     tmp,
-    `${JSON.stringify(evidenceFromRuns(plan, runs, o.now()), null, 2)}\n`,
+    `${JSON.stringify(evidenceFromRuns(plan, runs, o.now(), resume), null, 2)}\n`,
     { mode: 0o600 },
   );
   renameSync(tmp, o.out);

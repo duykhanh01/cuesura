@@ -216,6 +216,7 @@ export function flowEnv(prefix: string) {
     let dispatcher: Dispatcher | null = null;
     const git = g.runner();
     const deps: HandlerDeps = {
+      dataDir: data,
       store: d.store,
       git: {
         run: async (req) => {

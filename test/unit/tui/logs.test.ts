@@ -366,6 +366,40 @@ describe('what is on screen', () => {
     expect(text).not.toMatch(/[\x00-\x1f]/);
   });
 
+  it('replaces a transient gap after repair and does not keep filling at an unchanged cursor', () => {
+    const gap = {
+      seq: 1,
+      cursor: 0,
+      operation_id: 'op',
+      attempt_id: ATTEMPT,
+      gap: { records: 0, reason: sanitize('live tail unreadable') },
+    };
+    const s = applyLogPage(start(), forward(0), page([gap], 0), 0);
+    expect(screenTexts(s)).toContain(
+      'Log temporarily unavailable — live tail unreadable',
+    );
+    expect(s.filling).toBe(false);
+    const repeated = applyLogPage(s, forward(0), page([gap], 0), 1);
+    expect(repeated.buffer).toHaveLength(1);
+    const repaired = applyLogPage(
+      repeated,
+      forward(0),
+      page([record(1)], 1),
+      2,
+    );
+    expect(repaired.buffer).toHaveLength(1);
+    expect(repaired.buffer[0]?.gap).toBe(false);
+    expect(repaired.nextCursor).toBe(1);
+    const older = applyLogPage(
+      { ...start(), windowStart: 10, nextCursor: 10, filling: false },
+      { kind: 'older', after: 0 },
+      page([gap], 0),
+      0,
+    );
+    expect(older.older).toBeNull();
+    expect(logDue(older, 0)).toBeNull();
+  });
+
   it('shows a gap as a gap of that size', () => {
     const gap = {
       seq: 7,

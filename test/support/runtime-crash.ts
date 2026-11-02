@@ -432,6 +432,7 @@ export function flowDaemon(
   const c = { now: () => clock.t as EpochMs, monotonic: () => clock.t };
   let dispatcher: Dispatcher | null = null;
   const handlers = buildHandlers({
+    dataDir: lay.data,
     store,
     git,
     github: () => fileGitHub(lay, sw),

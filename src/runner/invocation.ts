@@ -30,6 +30,7 @@ import {
   mkdirSync,
   openSync,
   readSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -83,13 +84,21 @@ import {
 import { collectArtifacts } from './artifacts.ts';
 import type { EpochMs, Hash } from '../shared/brand.ts';
 import { hashCanonical } from '../shared/hash.ts';
-import { RUN_FILES, RunDir, readRecords, type FileLimits } from './files.ts';
+import {
+  RUN_FILES,
+  RunDir,
+  RunnerFileError,
+  readRecords,
+  type FileLimits,
+} from './files.ts';
 import { newLaunchNonce } from './identity.ts';
 import { RunnerExitSchema, type RunnerExit } from './lifecycle.ts';
 import {
   assertFreshHome,
   homeSecretValues,
+  LAUNCH_STATE_FILE,
   installAuth,
+  copySession,
   removeAuth,
   type InstalledAuth,
 } from './private-home.ts';
@@ -133,11 +142,13 @@ const FinalizedReviewSchema = z.strictObject({
 });
 
 /** Written before the spawn: what concluding the run needs beyond the run's own files. */
-export const LAUNCH_STATE_FILE = 'launch-state.json';
+export { LAUNCH_STATE_FILE } from './private-home.ts';
 
 const LaunchStateSchema = z.strictObject({
   schema_version: z.literal(1),
   input_digest: HashSchema,
+  resumed: z.boolean().optional(),
+  resume_fallback: z.string().optional(),
   launch_nonce: z.string().min(1),
   result_source: z.discriminatedUnion('kind', [
     z.strictObject({
@@ -335,6 +346,39 @@ export class RunnerHarness implements HarnessPort {
     const ws = input.workspace ?? o.workspace?.(input) ?? null;
     if (ws === null)
       return never('capability_missing', 'no workspace for a sandboxed run');
+    let session = input.session;
+    let resumeFallback: string | undefined;
+    try {
+      assertFreshHome(run);
+      if (o.pin.vendor === 'claude' && session?.from_attempt_id !== undefined) {
+        try {
+          const previous = RunDir.open({
+            dataDir: o.data_dir,
+            kind: 'runs',
+            id: session.from_attempt_id,
+            redactor: o.redactor,
+            create: false,
+          });
+          copySession(previous, run, session.ref);
+        } catch (e) {
+          const missing =
+            (e instanceof RunnerFileError && e.code === 'not_found') ||
+            (e instanceof SandboxPolicyError && e.code === 'source_missing') ||
+            (e as NodeJS.ErrnoException).code === 'ENOENT';
+          if (!missing) throw e;
+          rmSync(run.resolve('private-home/.claude'), {
+            recursive: true,
+            force: true,
+          });
+          session = null;
+          resumeFallback = 'session_missing';
+        }
+      }
+    } catch (e) {
+      if (e instanceof SandboxPolicyError || e instanceof RunnerFileError)
+        return never('capability_missing', e.message);
+      throw e;
+    }
     const planned = o.adapter.plan(o.pin, {
       role: input.role,
       model: input.binding.model,
@@ -350,8 +394,10 @@ export class RunnerHarness implements HarnessPort {
           }
         : IN_SANDBOX,
       host_execution: hostExecution,
+      resume_proven: this.manifest.capabilities.resume === 'proven',
       inner_mode: inner,
-      session: input.session,
+      session,
+      ...(input.max_turns === undefined ? {} : { max_turns: input.max_turns }),
     });
     if (!planned.ok) return never('capability_missing', planned.error.message);
     const plan = planned.value;
@@ -368,11 +414,11 @@ export class RunnerHarness implements HarnessPort {
       roles: [input.role],
       isolation: o.isolation,
       cost: 'none',
-      resume: input.session !== null,
+      resume: session !== null,
     });
     if (!verified.ok)
       return never('capability_missing', problemText(verified.error));
-    if (input.session !== null && !verified.value.resume)
+    if (session !== null && !verified.value.resume)
       return never(
         'capability_missing',
         `resume requested but ${verified.value.resume_fallback ?? 'not proven'}`,
@@ -380,12 +426,12 @@ export class RunnerHarness implements HarnessPort {
 
     let installed: InstalledAuth | null = null;
     try {
-      const layout = this.#prepare(run, input, plan, ws);
+      const layout = this.#prepare(run, input, plan, ws, session);
       if (!layout.ok) return never('capability_missing', layout.error);
       installed = layout.installed;
       // Auth values are known only once installed; content copied out never carries them.
       const authRedactor = new Redactor({
-        values: homeSecretValues(installed.home),
+        values: homeSecretValues(installed),
       });
       const present = (name: string): boolean =>
         existsSync(join(layout.scratch, name));
@@ -419,6 +465,10 @@ export class RunnerHarness implements HarnessPort {
       const state: LaunchState = {
         schema_version: 1,
         input_digest: hashCanonical(input),
+        ...(input.session === null ? {} : { resumed: session !== null }),
+        ...(resumeFallback === undefined
+          ? {}
+          : { resume_fallback: resumeFallback }),
         launch_nonce: nonce,
         result_source: plan.result,
         settings_hash: plan.settings_hash,
@@ -572,7 +622,7 @@ export class RunnerHarness implements HarnessPort {
       );
     // Keep the auth available for another recovery until the redacted outcome is durably stored.
     const authRedactor = new Redactor({
-      values: homeSecretValues(st.auth.home),
+      values: homeSecretValues(st.auth),
     });
     const outcome = this.#conclude(run, input, st, e, authRedactor, true);
     removeAuth(st.auth);
@@ -717,7 +767,13 @@ export class RunnerHarness implements HarnessPort {
     outcome: HarnessOutcome,
     redact: <T>(x: T) => T,
   ): HarnessOutcome {
-    const safe = redact(outcome);
+    const safe = redact({
+      ...outcome,
+      ...(st.resumed === undefined ? {} : { resumed: st.resumed }),
+      ...(st.resume_fallback === undefined
+        ? {}
+        : { resume_fallback: st.resume_fallback }),
+    });
     const { ingest: _ingest, ...kept } = safe;
     try {
       run.writeJson(OUTCOME_FILE, {
@@ -853,6 +909,7 @@ export class RunnerHarness implements HarnessPort {
     input: HarnessInput,
     plan: VendorPlan,
     ws: Workspace,
+    session: HarnessInput['session'],
   ):
     | {
         ok: true;
@@ -872,7 +929,6 @@ export class RunnerHarness implements HarnessPort {
       run.writeText(`schema/${f.name}`, f.content);
     let installed: InstalledAuth;
     try {
-      assertFreshHome(run);
       const frozen = input.credentials ?? [];
       const files = o.pin.home_files.map((h) => {
         const ref =
@@ -907,7 +963,7 @@ export class RunnerHarness implements HarnessPort {
       argv_digest: hashCanonical(plan.argv),
       settings_hash: plan.settings_hash,
       manifest_hash: o.manifest.manifest_hash,
-      session: input.session === null ? null : 'resumed',
+      session: session === null ? null : 'resumed',
       deadline_at: input.deadline_at,
     });
     return {

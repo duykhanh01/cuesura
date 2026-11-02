@@ -139,6 +139,33 @@ function realFile(
 }
 
 describe('harness argv and settings follow the pinned T007 shape (T068/T069)', () => {
+  it('reports max-turn exhaustion independently of infrastructure errors', () => {
+    const read = claudeAdapter.read({
+      stdout: [
+        {
+          type: 'result',
+          subtype: 'error_max_turns',
+          is_error: true,
+          session_id: 'continued-session',
+        },
+      ],
+      stderr: '',
+      truncated_records: 0,
+    });
+    expect(read.failure?.kind).toBe('turn_limit');
+    expect(read.session_ref).toBe('continued-session');
+    const e = expected('claude', 'coder');
+    expect(
+      validateResult({
+        expected: e,
+        exit: exitOf(e),
+        facts: read,
+        source: { kind: 'stdout_json', pointer: ['structured_output'] },
+        file: null,
+      }).outcome,
+    ).toMatchObject({ kind: 'failure', failure: 'turn_limit' });
+  });
+
   it.each([false, true])(
     'runs Claude without a turn cap (host_execution=%s)',
     (host_execution) => {

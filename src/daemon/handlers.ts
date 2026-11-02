@@ -95,7 +95,6 @@ import type {
 } from '../domain/policy.ts';
 import {
   AGENT_LOST_SIGNATURE,
-  cursorAfter,
   type FrozenRuntimeContext,
   type Observation,
 } from '../domain/runtime.ts';
@@ -128,10 +127,17 @@ import { reviewInputDigest } from '../engine/review-evidence.ts';
 import type { Store } from '../store/index.ts';
 import type { EffectHandler, EffectHandlers } from './dispatch.ts';
 import { DRAIN_KILL_VERIFY_MS, DRAIN_TERM_GRACE_MS } from './drain.ts';
-import { resultEnvelopes, type EffectOutcome } from './ingest.ts';
+import {
+  ingestOperationSpool,
+  resultEnvelopes,
+  type EffectOutcome,
+} from './ingest.ts';
 import { isUnresolved } from '../engine/runtime.ts';
 
 export type HandlerDeps = {
+  /** Runner spool directory shared by execution and ingestion. */
+  readonly dataDir: string;
+  readonly latch?: (reason: string) => void;
   readonly store: Store;
   readonly git: GitPort;
   /** A fresh GitHub port per effect: call caps and the round window count per round. */
@@ -635,6 +641,7 @@ const HARNESS_FAILURE_CLASS: Record<HarnessFailure, FailureClass> = {
   auth: 'auth_config',
   refusal: 'refused',
   vendor_error: 'infra',
+  turn_limit: 'timeout',
   timeout: 'timeout',
   process_failed: 'infra',
   missing_output: 'invalid_output',
@@ -659,6 +666,7 @@ function agentOutcome(
         // The reservation is released only when the harness provably never ran (FR-010/016).
         invoked: o.invoked,
         usage: o.usage,
+        ...(o.failure === 'turn_limit' ? { session_ref: o.session_ref } : {}),
         ...(o.reset_at === null ? {} : { reset_at: o.reset_at }),
       },
     };
@@ -1011,6 +1019,7 @@ async function startAgent(
       deadline_at: (l.s.deadline_at ??
         (wall === null ? null : registered + wall)) as EpochMs | null,
       session: resume.session,
+      max_turns: binding.limits.max_turns,
       credentials: l.rt.credential_refs,
       limits: {
         term_grace_ms: l.rt.limits.term_grace_ms,
@@ -1033,10 +1042,32 @@ async function startAgent(
     if (e instanceof InvocationUnknown) return unknown(e.message);
     throw e;
   }
-  // The run's records and files go into the store with the result; that commit is their ACK.
+  // Commit finalized records and artifacts through the same cursor-based ingester in every runtime.
+  // ACK remains gated on both the operation and its effect being resolved.
   if (out.ingest !== undefined) {
-    const t = ingestTrigger(deps, effect.task_id, out.ingest);
-    if (t !== null) extra.push(t);
+    const report = ingestOperationSpool(
+      {
+        store: deps.store,
+        dataDir: deps.dataDir,
+        redactor: deps.redactor,
+        now: () => deps.clock.now(),
+        newId: deps.newId,
+      },
+      effect.task_id,
+      out.ingest.operation_id,
+    );
+    if (
+      report.status === 'write_failed' ||
+      report.status === 'rejected' ||
+      report.status === 'unreadable' ||
+      report.status === 'no_run_dir'
+    ) {
+      if (report.status === 'write_failed')
+        deps.latch?.(
+          `store write failed during spool ingest: ${report.detail ?? ''}`,
+        );
+      return unknown(`spool ingest ${report.status}: ${report.detail ?? ''}`);
+    }
   }
   const plain = agentOutcome(r, out, review?.sha ?? null, inputDigest);
   // Sessions are a worker concern: a reviewer always runs in its own new, read-only session.
@@ -1047,50 +1078,6 @@ async function startAgent(
   if (out.kind === 'failure' && out.invoked === false) return accepted;
   const after = await worktreeTree(deps, l);
   return after.ok ? withWorktreeTree(accepted, after.tree) : accepted;
-}
-
-/**
- * The ingest the run's outcome carries. Records the store already committed (startup ingest got there
- * first, then recovery read the run again) would be a stale cursor, dropping the artifacts with them:
- * those artifacts go alone, at the committed cursor. Null when nothing is new.
- */
-function ingestTrigger(
-  deps: HandlerDeps,
-  taskId: string,
-  ingest: NonNullable<HarnessOutcome['ingest']>,
-): Extract<Trigger, { kind: 'ingest_record' }> | null {
-  const s = deps.store.readTask(taskId as Uuid);
-  const committed = s?.operations[ingest.operation_id]?.cursor ?? null;
-  const base = {
-    kind: 'ingest_record' as const,
-    operation_id: ingest.operation_id as Uuid,
-  };
-  if (
-    committed === null ||
-    cursorAfter(
-      { operation_id: ingest.operation_id, ...ingest.cursor },
-      { operation_id: ingest.operation_id, ...committed },
-    )
-  )
-    return {
-      ...base,
-      cursor: ingest.cursor,
-      records: ingest.records,
-      digest: ingest.digest,
-      artifacts: [...ingest.artifacts],
-    };
-  const fresh = ingest.artifacts.filter(
-    (a) => s?.artifacts[a.artifact_id] === undefined,
-  );
-  return fresh.length === 0
-    ? null
-    : {
-        ...base,
-        cursor: { ...committed },
-        records: 0,
-        digest: hashCanonical([]),
-        artifacts: fresh,
-      };
 }
 
 /** The task worktree and the Git dirs a sandboxed role sees read-only (common dir, worktree admin dir). */
@@ -1110,7 +1097,7 @@ async function workspaceOf(
 }
 
 type ResumeChoice = {
-  readonly session: { readonly ref: string } | null;
+  readonly session: HarnessInput['session'];
   readonly fallback: string | null;
   readonly asked: boolean;
 };
@@ -1124,7 +1111,7 @@ export function sessionFor(
   harness: HarnessPort,
 ): ResumeChoice {
   const plan = request['resume'] as
-    { session_ref?: unknown } | null | undefined;
+    { session_ref?: unknown; from_attempt_id?: unknown } | null | undefined;
   const reason =
     typeof request['resume_reason'] === 'string'
       ? request['resume_reason']
@@ -1141,7 +1128,16 @@ export function sessionFor(
       fallback: `resume_${harness.manifest.capabilities.resume}`,
       asked: true,
     };
-  return { session: { ref: plan.session_ref }, fallback: null, asked: true };
+  return {
+    session: {
+      ref: plan.session_ref,
+      ...(typeof plan.from_attempt_id === 'string'
+        ? { from_attempt_id: plan.from_attempt_id }
+        : {}),
+    },
+    fallback: null,
+    asked: true,
+  };
 }
 
 function withSession(
@@ -1150,10 +1146,13 @@ function withSession(
   r: ResumeChoice,
 ): EffectOutcome {
   if (out.outcome !== 'succeeded') return out;
+  const fallback = o.resume_fallback ?? r.fallback;
   const extra = {
     session_ref: o.session_ref,
-    ...(r.asked || r.fallback !== null ? { resumed: r.session !== null } : {}),
-    ...(r.fallback === null ? {} : { resume_fallback: r.fallback }),
+    ...(r.asked || fallback !== null
+      ? { resumed: o.resumed ?? r.session !== null }
+      : {}),
+    ...(fallback === null ? {} : { resume_fallback: fallback }),
   };
   return {
     outcome: 'succeeded',

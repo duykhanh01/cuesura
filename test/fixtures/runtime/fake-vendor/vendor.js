@@ -14,7 +14,7 @@
 // FAKE_VENDOR_DENY_STDERR: logs a refused exec on stderr the way codex does.
 // It never calls a model.
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const argv = process.argv.slice(2);
@@ -105,6 +105,26 @@ else {
     .map((r) => r.data);
   // The stand-in reports the model it was asked for, as the real binary does in system/init.
   const model = argv[argv.indexOf('--model') + 1];
+  const resumeMode = process.env.FAKE_VENDOR_RESUME;
+  if (!codex && resumeMode) {
+    const session = records.find((r) => r.type === 'result')?.session_id;
+    const projects = join(process.env.HOME, '.claude/projects', process.cwd().replace(/[^a-zA-Z0-9]/g, '-'));
+    const nonce = /Remember this nonce for a later continuation: ([0-9a-f-]+)\./.exec(stdin)?.[1];
+    if (nonce && resumeMode !== 'missing') {
+      mkdirSync(projects, { recursive: true });
+      writeFileSync(join(projects, `${session}.jsonl`), JSON.stringify({ nonce }));
+    }
+    if (argv.includes('--resume')) {
+      const id = argv[argv.indexOf('--resume') + 1];
+      const remembered = JSON.parse(readFileSync(join(projects, `${id}.jsonl`), 'utf8')).nonce;
+      const final = records.find((r) => r.type === 'result');
+      out({ ...final, session_id: id, ...(resumeMode === 'failure'
+        ? { is_error: true, subtype: 'resume_fixture_failed', result: 'fixture resume service unavailable', structured_output: undefined }
+        : { structured_output: { schema_version: 1, status: 'done', summary: remembered, questions: [], blocker: null } }) });
+      process.exit(0);
+    }
+    if (resumeMode === 'no_session') for (const r of records) delete r.session_id;
+  }
   for (const r of records)
     out(r.type === 'system' && r.subtype === 'init' && process.env.FAKE_VENDOR_ECHO_MODEL ? { ...r, model } : r);
   if (codex && !has('no_output')) {

@@ -1,15 +1,20 @@
 /**
- * `task logs` (T114, FR-027.01/028/031). The stream is what the store committed: each `OutputIngested`
- * event names how many records of an operation it covers and their digest, so a record is served only
- * once it is ingested, and it was redacted before it reached the spool. The cursor counts committed
- * records in event order, which rotation and restart do not change, so a follower resumes with no
+ * `task logs` (T114, FR-027.01/028/031). OutputIngested events authenticate the committed prefix; the
+ * active worker's durable, redacted spool extends it without a domain write or version change. Final
+ * ingestion keeps the same order. Rotation and restart do not change cursors, so a follower resumes with no
  * record repeated or lost. A batch whose files are gone (retention) or no longer match their digest is
  * reported as a gap of that size, never skipped silently.
  */
 import { z } from 'zod';
 import type { DomainEvent } from '../domain/event.ts';
 import type { TaskState } from '../domain/state.ts';
-import { readAllRecords, RunDir, type LogRecord } from '../runner/files.ts';
+import {
+  readAllRecords,
+  readRecords,
+  RunDir,
+  RunnerFileError,
+  type LogRecord,
+} from '../runner/files.ts';
 import { runLocation } from '../daemon/retention.ts';
 import type { Redactor } from '../runner/redact.ts';
 import { UuidSchema, type Uuid } from '../shared/brand.ts';
@@ -113,10 +118,102 @@ export function taskLogs(
   const events = deps.store
     .readEvents(s.id as Uuid)
     .filter((e): e is OutputEvent => e.type === 'OutputIngested');
-  for (const e of events) total += e.payload.records;
+  const batches = events.map((e) => e.payload);
+  let diagnostic: {
+    op: TaskState['operations'][string];
+    reason: string;
+  } | null = null;
+  const workers = Object.values(s.operations).filter((o) => o.kind === 'agent');
+  const active = workers.at(-1);
+  if (
+    active !== undefined &&
+    ['registered', 'running', 'unknown'].includes(active.status)
+  ) {
+    // Do not expose B's uncommitted tail while A can still append records to the committed prefix.
+    // Otherwise a later successful ingest of A would change the cursors already handed out for B.
+    for (const previous of workers.slice(0, -1)) {
+      if (previous.status === 'not_launched') continue;
+      try {
+        if (!['finished', 'lost'].includes(previous.status)) {
+          diagnostic = {
+            op: previous,
+            reason:
+              'earlier worker is not resolved; live output waits for its ingestion',
+          };
+          break;
+        }
+        const run = RunDir.open({
+          dataDir: deps.dataDir,
+          ...runLocation(previous),
+          redactor: deps.redactor,
+          create: false,
+        });
+        const tail = readRecords(
+          run,
+          previous.id,
+          previous.cursor === null
+            ? null
+            : { operation_id: previous.id, ...previous.cursor },
+          { maxRecords: 1, final: true },
+        );
+        if (!tail.ok || tail.value.records.length > 0) {
+          diagnostic = {
+            op: previous,
+            reason: tail.ok
+              ? 'earlier worker has uncommitted output; later live output waits'
+              : `earlier spool is unreadable: ${JSON.stringify(tail.error)}`,
+          };
+          break;
+        }
+      } catch (e) {
+        diagnostic = {
+          op: previous,
+          reason: `earlier spool is unavailable: ${e instanceof Error ? e.message : String(e)}`,
+        };
+        break;
+      }
+    }
+    if (diagnostic === null) {
+      try {
+        const run = RunDir.open({
+          dataDir: deps.dataDir,
+          ...runLocation(active),
+          redactor: deps.redactor,
+          create: false,
+        });
+        const live = readRecords(run, active.id, null);
+        if (!live.ok)
+          diagnostic = {
+            op: active,
+            reason: `live spool is unreadable: ${JSON.stringify(live.error)}`,
+          };
+        else {
+          cache.set(active.id, [...live.value.records]);
+          const committed = batches
+            .filter((b) => b.operation_id === active.id)
+            .reduce((n, b) => n + b.records, 0);
+          const tail = live.value.records.slice(committed);
+          if (tail.length > 0 && live.value.cursor !== null)
+            batches.push({
+              operation_id: active.id,
+              records: tail.length,
+              digest: hashCanonical(tail),
+              cursor: { ...live.value.cursor },
+            });
+        }
+      } catch (e) {
+        if (!(e instanceof RunnerFileError && e.code === 'not_found'))
+          diagnostic = {
+            op: active,
+            reason: `live spool is unreadable: ${e instanceof Error ? e.message : String(e)}`,
+          };
+      }
+    }
+  }
+  for (const b of batches) total += b.records;
 
-  for (const e of events) {
-    const { operation_id: id, records: count, digest } = e.payload;
+  for (const b of batches) {
+    const { operation_id: id, records: count, digest } = b;
     const from = offsets.get(id) ?? 0;
     offsets.set(id, from + count);
     const first = position + 1;
@@ -176,11 +273,27 @@ export function taskLogs(
       cursor = seq;
     }
   }
+  if (
+    diagnostic !== null &&
+    cursor >= total &&
+    out.length < q.data.limit &&
+    bytes < LOG_PAGE_BYTES
+  ) {
+    // A transient gap has no known record count and must not consume/rewind the cursor. Once repaired,
+    // the same --after resumes real records at their original positions.
+    out.push({
+      seq: Math.max(position, cursor) + 1,
+      cursor,
+      operation_id: diagnostic.op.id,
+      attempt_id: diagnostic.op.attempt_id,
+      gap: { records: 0, reason: diagnostic.reason },
+    });
+  }
   return ok({
     task_id: s.id,
     records: out,
     next_cursor: cursor,
     // A finished task whose committed records were all read: a follower may stop here.
-    complete: s.terminal !== null && cursor >= total,
+    complete: diagnostic === null && s.terminal !== null && cursor >= total,
   });
 }

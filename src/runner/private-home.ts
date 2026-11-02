@@ -9,6 +9,7 @@ import {
   chmodSync,
   constants,
   copyFileSync,
+  cpSync,
   lstatSync,
   mkdirSync,
   readdirSync,
@@ -16,12 +17,15 @@ import {
   rmSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { z } from 'zod';
+import { UuidSchema } from '../shared/brand.ts';
 import { RelativePathSchema, type CredentialRef } from '../domain/runtime.ts';
 import type { RunDir } from './files.ts';
 import { secretValuesFromText } from './redact.ts';
 import { SandboxPolicyError } from './sandbox.ts';
 
 export const PRIVATE_HOME_DIR = 'private-home';
+export const LAUNCH_STATE_FILE = 'launch-state.json';
 
 /**
  * One credential reference copied to a path relative to the private home, e.g. `.claude/.credentials.json`.
@@ -40,6 +44,56 @@ export type InstalledAuth = {
 
 export function privateHome(run: RunDir): string {
   return run.ensureDir(PRIVATE_HOME_DIR);
+}
+
+/** Carry only the selected Claude transcript into a fresh attempt, never auth or settings. */
+export function copySession(
+  previous: RunDir,
+  run: RunDir,
+  session: string,
+): void {
+  if (!UuidSchema.safeParse(session).success)
+    throw new SandboxPolicyError(
+      'policy_violation',
+      'invalid Claude session ID',
+    );
+  const projects = previous.resolve(`${PRIVATE_HOME_DIR}/.claude/projects`);
+  const st = lstatSync(projects, { throwIfNoEntry: false });
+  if (st?.isDirectory())
+    for (const project of readdirSync(projects)) {
+      const base = `${PRIVATE_HOME_DIR}/.claude/projects/${project}`;
+      if (!lstatSync(previous.resolve(base)).isDirectory()) continue;
+      const transcript = previous.resolve(`${base}/${session}.jsonl`);
+      if (!lstatSync(transcript, { throwIfNoEntry: false })?.isFile()) continue;
+      const destination = run.resolve(base);
+      mkdirSync(destination, { recursive: true, mode: 0o700 });
+      copyFileSync(
+        transcript,
+        join(destination, `${session}.jsonl`),
+        constants.COPYFILE_EXCL,
+      );
+      const data = previous.resolve(`${base}/${session}`);
+      if (lstatSync(data, { throwIfNoEntry: false }) !== undefined)
+        cpSync(data, join(destination, session), {
+          recursive: true,
+          force: false,
+          errorOnExist: true,
+          filter: (path) => {
+            const entry = lstatSync(path);
+            if (!entry.isDirectory() && !entry.isFile())
+              throw new SandboxPolicyError(
+                'policy_violation',
+                'session contains a non-regular entry',
+              );
+            return true;
+          },
+        });
+      return;
+    }
+  throw new SandboxPolicyError(
+    'source_missing',
+    `Claude session ${session} is missing`,
+  );
 }
 
 /**
@@ -154,23 +208,64 @@ export function assertFreshHome(run: RunDir): string {
 }
 
 /**
- * Literal secret values of every file in the private home (the installed auth), so the runner's
- * redactor masks them in output even when a vendor prints them. Symlinks are not followed.
+ * Literal secret values from the selected installed auth files. Transcripts, settings and all other
+ * home files are excluded, regardless of their size. Symlinked auth paths are refused.
  */
-export function homeSecretValues(home: string, depth = 0): string[] {
-  if (depth > 4) return [];
-  let names: string[];
-  try {
-    names = readdirSync(home);
-  } catch {
-    return [];
-  }
-  return names.flatMap((n) => {
-    const p = join(home, n);
-    const st = lstatSync(p, { throwIfNoEntry: false });
-    if (st === undefined || st.isSymbolicLink()) return [];
-    if (st.isDirectory()) return homeSecretValues(p, depth + 1);
-    if (!st.isFile() || st.size > 1024 * 1024) return [];
-    return secretValuesFromText(readFileSync(p, 'utf8'));
+export function homeSecretValues(installed: InstalledAuth): string[] {
+  const home = lstatSync(installed.home, { throwIfNoEntry: false });
+  if (home === undefined) return [];
+  if (!home.isDirectory())
+    throw new SandboxPolicyError(
+      'policy_violation',
+      'auth home is not a plain directory',
+    );
+  return installed.files.flatMap((rel) => {
+    if (!RelativePathSchema.safeParse(rel).success)
+      throw new SandboxPolicyError(
+        'policy_violation',
+        'auth path must stay inside the home',
+      );
+    let path = installed.home;
+    const parts = rel.split('/');
+    for (const [i, part] of parts.entries()) {
+      path = join(path, part);
+      const st = lstatSync(path, { throwIfNoEntry: false });
+      if (st === undefined) return [];
+      if (st.isSymbolicLink() || (i < parts.length - 1 && !st.isDirectory()))
+        throw new SandboxPolicyError(
+          'policy_violation',
+          'auth path contains a symlink or non-directory',
+        );
+      if (i === parts.length - 1 && (!st.isFile() || st.size > 1024 * 1024))
+        return [];
+    }
+    return secretValuesFromText(readFileSync(path, 'utf8'));
   });
+}
+
+/** The runner child uses the same selected file list as its parent, never scans transcripts. */
+export function readInstalledAuth(run: RunDir): InstalledAuth {
+  const state = run.readFinal(
+    LAUNCH_STATE_FILE,
+    z.object({ auth: z.object({ files: z.array(RelativePathSchema) }) }),
+  );
+  if (state.state === 'invalid')
+    throw new SandboxPolicyError(
+      'policy_violation',
+      'invalid launch auth file list',
+    );
+  const home = run.resolve(PRIVATE_HOME_DIR);
+  if (
+    state.state === 'missing' &&
+    lstatSync(home, { throwIfNoEntry: false })?.isDirectory() &&
+    readdirSync(home).length > 0
+  )
+    throw new SandboxPolicyError(
+      'source_missing',
+      'installed auth file list was not recorded',
+    );
+  return {
+    home,
+    files: state.state === 'valid' ? state.value.auth.files : [],
+  };
 }

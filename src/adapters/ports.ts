@@ -185,7 +185,12 @@ export type HarnessInput = {
   readonly wall_ms: number | null;
   readonly deadline_at: EpochMs | null;
   /** Resume only within the same harness/session and when policy allows it. */
-  readonly session: { readonly ref: string } | null;
+  readonly session: {
+    readonly ref: string;
+    readonly from_attempt_id?: string;
+  } | null;
+  /** Optional role turn cap, applied together with the pinned harness cap. */
+  readonly max_turns?: number | null;
   /** The task's frozen references; they win over what the harness was built with (Constitution V). */
   readonly credentials?: readonly CredentialRef[];
   /** The task's frozen stop bounds; `stall_ms` is the role's, null disables stall checks. */
@@ -223,6 +228,7 @@ export const HARNESS_FAILURES = [
   'auth',
   'refusal',
   'vendor_error',
+  'turn_limit',
   'timeout',
   'process_failed',
   'missing_output',
@@ -236,6 +242,8 @@ export type HarnessFailure = (typeof HARNESS_FAILURES)[number];
 
 /** Facts shared by every outcome; the orchestrator attaches provenance, never the model. */
 type OutcomeFacts = {
+  readonly resumed?: boolean;
+  readonly resume_fallback?: string;
   readonly role: Role;
   readonly usage: Usage;
   readonly session_ref: string | null;

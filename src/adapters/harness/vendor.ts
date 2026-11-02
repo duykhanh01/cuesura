@@ -111,8 +111,11 @@ export type VendorPlanInput = {
   readonly inner_mode: SelectedInnerMode;
   /** Direct host execution: the harness owns permissions and its native sandbox. */
   readonly host_execution?: boolean;
+  /** Enables persistence for fresh host workers only when the manifest proved resume. */
+  readonly resume_proven?: boolean;
   /** Only passed when the manifest proved resume for this binary; see `resume_supported`. */
   readonly session: { readonly ref: string } | null;
+  readonly max_turns?: number | null;
 };
 
 /** Where the final structured answer comes from; the source is fixed per vendor, never a fallback. */
@@ -150,6 +153,7 @@ export const FAILURE_KINDS = [
   'auth',
   'refusal',
   'vendor_error',
+  'turn_limit',
 ] as const;
 export type FailureKind = (typeof FAILURE_KINDS)[number];
 

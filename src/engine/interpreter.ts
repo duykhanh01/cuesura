@@ -1626,6 +1626,7 @@ export function onEffectFailed(
       class: f.failure_class,
       signature: f.signature ?? null,
       usage: usageOf(f.usage),
+      ...(f.session_ref === undefined ? {} : { session_ref: f.session_ref }),
     });
     if (afterAttempt(ctx, e)) return;
   }

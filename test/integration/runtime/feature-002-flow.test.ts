@@ -1,13 +1,15 @@
 import { spawnSync } from 'node:child_process';
 import {
   existsSync,
+  appendFileSync,
   mkdirSync,
   readFileSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import * as spoolIngest from '../../../src/daemon/ingest.ts';
 import {
   MAX_CONTENT_FILE_BYTES,
   readStoredContent,
@@ -24,18 +26,341 @@ import type { CanonicalTask } from '../../../src/domain/task.ts';
 import { InvocationUnknown } from '../../../src/runner/invocation.ts';
 import { canonicalJson } from '../../../src/shared/canonical-json.ts';
 import type { EpochMs } from '../../../src/shared/brand.ts';
-import { hashText } from '../../../src/shared/hash.ts';
+import { hashCanonical } from '../../../src/shared/hash.ts';
 import type { Uuid } from '../../../src/shared/brand.ts';
 import { injectEvents } from '../../../src/store/testing.ts';
 import { buildTask, uuidOf } from '../../support/builders.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 import { CONTENT, flowEnv, type Content } from '../../support/flow-env.ts';
+import { recoverOperations } from '../../../src/daemon/startup.ts';
+import { taskLogs } from '../../../src/application/logs.ts';
+import {
+  EventLogWriter,
+  readRecords,
+  RunDir,
+} from '../../../src/runner/files.ts';
+import { runExit } from '../../support/run-exit.ts';
 
 // US1 baseline (T028/T047): real Git worktree and bare remote, fake harnesses and GitHub, Clock driven
 // by the test. One task, one branch, one PR, green CI, zero merge requests, then the user's merge.
 
 const { g, setup } = flowEnv('cusr-flow-');
 let n = 0;
+
+it('keeps committed history and holds B live output until a corrupt, partially ingested A is repaired', async () => {
+  const task = buildTask();
+  const f = setup(task, {
+    mode: 'direct-pr',
+    askFirst: true,
+    runs: [CONTENT, CONTENT],
+  });
+  const original = f.coder.run.bind(f.coder);
+  const read = (after: number) =>
+    taskLogs(
+      { store: f.d.store, dataDir: f.deps.dataDir, redactor: f.deps.redactor },
+      {
+        grant: {
+          id: 'reader',
+          actor: 'reader',
+          roles: ['read'],
+          projects: ['acme'],
+        },
+      },
+      { kind: 'task_logs', task_id: task.id, after },
+    );
+  const commit = (operation: string) =>
+    spoolIngest.ingestOperationSpool(
+      {
+        store: f.d.store,
+        dataDir: f.deps.dataDir,
+        redactor: f.deps.redactor,
+        now: () => f.d.now,
+        newId: f.newId,
+      },
+      task.id,
+      operation,
+    );
+  let prior: { files: RunDir; operation: string; good: Buffer } | null = null;
+  f.coder.run = async (input, signal) => {
+    const files = RunDir.open({
+      dataDir: f.deps.dataDir,
+      kind: 'runs',
+      id: input.attempt_id,
+      redactor: f.deps.redactor,
+    });
+    const writer = EventLogWriter.open(files, input.operation_id);
+    if (prior === null) {
+      writer.append('progress', { attempt: 'A', i: 1 });
+      writer.sync();
+      expect(commit(input.operation_id).records).toBe(1);
+      writer.append('progress', { attempt: 'A', i: 2 });
+      writer.close();
+      expect(read(0)).toMatchObject({ ok: true, value: { next_cursor: 2 } });
+      files.writeExit(runExit(input.operation_id, f.d.now));
+      const good = readFileSync(files.resolve('events.jsonl'));
+      const firstLine = good.indexOf(10) + 1;
+      writeFileSync(files.resolve('events.jsonl'), good.subarray(0, firstLine));
+      appendFileSync(files.resolve('events.jsonl'), 'corrupt second record\n');
+      expect(read(0)).toMatchObject({
+        ok: true,
+        value: {
+          next_cursor: 1,
+          records: [{ data: { attempt: 'A', i: 1 } }, { gap: { records: 0 } }],
+        },
+      });
+      prior = { files, operation: input.operation_id, good };
+      // Reproduce a legacy resolved attempt whose last output never made it into the store.
+      return original(input, signal);
+    }
+    writer.append('progress', { attempt: 'B', i: 1 });
+    writer.append('progress', { attempt: 'B', i: 2 });
+    writer.sync();
+    expect(read(0)).toMatchObject({
+      ok: true,
+      value: {
+        next_cursor: 1,
+        records: [{ data: { attempt: 'A', i: 1 } }, { gap: { records: 0 } }],
+      },
+    });
+    expect(read(2)).toMatchObject({
+      ok: true,
+      value: { next_cursor: 2, records: [{ gap: { records: 0 } }] },
+    });
+    writeFileSync(prior.files.resolve('events.jsonl'), prior.good);
+    expect(commit(prior.operation).status).toBe('ingested');
+    expect(read(2)).toMatchObject({
+      ok: true,
+      value: {
+        next_cursor: 4,
+        records: [
+          { data: { attempt: 'B', i: 1 } },
+          { data: { attempt: 'B', i: 2 } },
+        ],
+      },
+    });
+    writer.close();
+    files.writeExit(runExit(input.operation_id, f.d.now));
+    const batch = readRecords(files, input.operation_id, null, { final: true });
+    if (!batch.ok || batch.value.cursor === null)
+      throw new Error('missing B spool');
+    return {
+      ...(await original(input, signal)),
+      ingest: {
+        operation_id: input.operation_id,
+        cursor: batch.value.cursor,
+        records: batch.value.records.length,
+        digest: hashCanonical(batch.value.records),
+        artifacts: [],
+      },
+    };
+  };
+  f.d.must(task.id, { kind: 'create_task', task });
+  f.start();
+  await f.settle();
+  const question = Object.values(f.d.task(task.id).questions).find(
+    (q) => q.status === 'open',
+  );
+  if (question === undefined) throw new Error('missing worker question');
+  f.d.must(task.id, {
+    kind: 'answer',
+    question_id: question.id as Uuid,
+    answer: 'UTF-8',
+  });
+  await settleWithSlot(f.d, f.settle);
+  expect(f.coder.calls).toHaveLength(2);
+  expect(read(4)).toMatchObject({
+    ok: true,
+    value: { next_cursor: 4, records: [] },
+  });
+});
+
+it('turn exhaustion uses timeout handling, preserving the worker session for continuation', async () => {
+  const task = buildTask();
+  const f = setup(task, { mode: 'direct-pr', resume: true });
+  const seen: HarnessInput[] = [];
+  f.coder.run = (input) => {
+    seen.push(input);
+    return Promise.resolve({
+      kind: 'failure',
+      failure: 'turn_limit',
+      detail: 'error_max_turns',
+      role: input.role,
+      usage: { basis: 'unavailable' },
+      session_ref: 'continued-session',
+      permission_denials: [],
+      invoked: true,
+      reset_at: null,
+    });
+  };
+  f.d.must(task.id, { kind: 'create_task', task });
+  f.start();
+  await f.settle();
+  expect(
+    f.d.store
+      .readEvents(task.id)
+      .filter((e) => e.type === 'FailureClassified')
+      .map((e) => e.payload['class']),
+  ).toEqual(['timeout', 'timeout']);
+  expect(seen).toHaveLength(2);
+  expect(seen[1]?.session).toMatchObject({
+    ref: 'continued-session',
+    from_attempt_id: seen[0]?.attempt_id,
+  });
+  expect(f.d.task(task.id).wait?.detail.code).toBe('timeout');
+});
+
+it('final handler ingestion adds only the tail after live output, with no duplicate records or gaps', async () => {
+  const task = buildTask();
+  const f = setup(task, { mode: 'direct-pr' });
+  const dataDir = f.deps.dataDir;
+  const original = f.coder.run.bind(f.coder);
+  f.coder.run = async (input, signal) => {
+    const run = RunDir.open({
+      dataDir,
+      kind: 'runs',
+      id: input.attempt_id,
+      redactor: f.deps.redactor,
+    });
+    const log = EventLogWriter.open(run, input.operation_id);
+    for (let i = 0; i < 3; i++) log.append('progress', { i });
+    log.sync();
+    const before = f.d.task(task.id).version;
+    const eventCount = f.d.store.readEvents(task.id).length;
+    const live = (after = 0) =>
+      taskLogs(
+        { store: f.d.store, dataDir, redactor: f.deps.redactor },
+        {
+          grant: {
+            id: 'reader',
+            actor: 'reader',
+            roles: ['read'],
+            projects: ['acme'],
+          },
+        },
+        { kind: 'task_logs', task_id: task.id, after },
+      );
+    expect(live()).toMatchObject({
+      ok: true,
+      value: {
+        next_cursor: 3,
+        records: [{ data: { i: 0 } }, { data: { i: 1 } }, { data: { i: 2 } }],
+      },
+    });
+    await recoverOperations({
+      store: f.d.store,
+      dataDir,
+      redactor: f.deps.redactor,
+      now: () => f.d.now,
+      newId: f.deps.newId,
+      inFlight: () => true,
+      inspect: () => {
+        throw new Error('live handler must not be reconciled');
+      },
+    });
+    expect(f.d.task(task.id).version).toBe(before);
+    expect(f.d.store.readEvents(task.id)).toHaveLength(eventCount);
+    for (let i = 3; i < 5; i++) log.append('progress', { i });
+    log.sync();
+    expect(live(3)).toMatchObject({
+      ok: true,
+      value: {
+        next_cursor: 5,
+        records: [{ data: { i: 3 } }, { data: { i: 4 } }],
+      },
+    });
+    log.close();
+    run.writeExit(runExit(input.operation_id, f.d.now));
+    const batch = readRecords(run, input.operation_id, null, { final: true });
+    if (!batch.ok || batch.value.cursor === null)
+      throw new Error('missing log batch');
+    return {
+      ...(await original(input, signal)),
+      ingest: {
+        operation_id: input.operation_id,
+        cursor: batch.value.cursor,
+        records: batch.value.records.length,
+        digest: hashCanonical(batch.value.records),
+        artifacts: [],
+      },
+    };
+  };
+  f.d.must(task.id, { kind: 'create_task', task });
+  f.start();
+  await f.settle();
+  const logs = taskLogs(
+    { store: f.d.store, dataDir, redactor: f.deps.redactor },
+    {
+      grant: {
+        id: 'reader',
+        actor: 'reader',
+        roles: ['read'],
+        projects: ['acme'],
+      },
+    },
+    { kind: 'task_logs', task_id: task.id },
+  );
+  expect(logs.ok).toBe(true);
+  if (logs.ok)
+    expect(logs.value).toMatchObject({
+      next_cursor: 5,
+      records: Array.from({ length: 5 }, (_, i) => ({ data: { i } })),
+    });
+});
+
+it.each(['unreadable', 'rejected', 'write_failed', 'no_run_dir'] as const)(
+  'a final spool %s produces an unknown receipt/result; only write failure latches',
+  async (status) => {
+    const task = buildTask();
+    const f = setup(task, { mode: 'direct-pr' });
+    const latch = vi.fn();
+    Object.assign(f.deps, { latch });
+    const original = f.coder.run.bind(f.coder);
+    f.coder.run = async (input, signal) => ({
+      ...(await original(input, signal)),
+      ingest: {
+        operation_id: input.operation_id,
+        cursor: {
+          generation: 0,
+          segment: 0,
+          byte_offset: 1,
+          last_record_seq: 1,
+        },
+        records: 1,
+        digest: hashCanonical([]),
+        artifacts: [],
+      },
+    });
+    const ingest = vi
+      .spyOn(spoolIngest, 'ingestOperationSpool')
+      .mockImplementation((_deps, taskId, operationId) => ({
+        task_id: taskId,
+        operation_id: operationId,
+        status,
+        records: 0,
+        torn: 0,
+        acked: [],
+        detail: 'injected spool fault',
+      }));
+    try {
+      f.d.must(task.id, { kind: 'create_task', task });
+      f.start();
+      await f.tick();
+      await f.tick();
+      const s = f.d.task(task.id);
+      const worker = Object.values(s.effects).find(
+        (e) => e.kind === 'start_agent',
+      );
+      expect(worker?.status).toBe('unknown');
+      expect(
+        Object.values(s.operations).find((o) => o.effect_id === worker?.id)
+          ?.status,
+      ).toBe('unknown');
+      expect(latch).toHaveBeenCalledTimes(status === 'write_failed' ? 1 : 0);
+    } finally {
+      ingest.mockRestore();
+    }
+  },
+);
 
 const types = (d: StoreDriver, t: CanonicalTask) =>
   d.store.readEvents(t.id).map((e) => e.type);
@@ -731,7 +1056,10 @@ describe.each(['full-review', 'direct-pr'] as const)(
             (p) => p.effect_id === fix?.effect_id && p.result !== undefined,
           );
         if (resume) {
-          expect(coder.calls[1]?.session).toEqual({ ref: 'sess-1' });
+          expect(coder.calls[1]?.session).toEqual({
+            ref: 'sess-1',
+            from_attempt_id: coder.calls[0]?.attempt_id,
+          });
           expect(fixEffect?.result).toMatchObject({
             resumed: true,
             session_ref: 'sess-2',
@@ -953,7 +1281,7 @@ describe.each(['coder', 'reviewer'] as const)(
           if (r === undefined)
             throw new InvocationUnknown('no finished run for this input');
           // Recovery reads the run from its first record; its result file is new.
-          return { ...r.out, ingest: { ...ingest, artifacts: [log, result] } };
+          return { ...r.out, ingest };
         },
       });
       d.must(task.id, { kind: 'create_task', task });
@@ -971,37 +1299,42 @@ describe.each(['coder', 'reviewer'] as const)(
       );
       if (op === undefined) throw new Error('no operation');
 
-      // Startup ingest already committed the run's records and its log before recovery reads it.
-      const artifact = (kind: 'events' | 'result', path: string) => ({
-        artifact_id: `${op.id}:${path}`,
-        operation_id: op.id,
-        kind,
-        relative_path: path,
-        digest: hashText(path),
-        bytes: 10,
-        redaction_version: 2,
-        finalized: true,
-        acked: false,
+      // Use real spool files and the production ingester before recovering the finished run.
+      const files = RunDir.open({
+        dataDir: deps.dataDir,
+        kind: 'runs',
+        id: op.attempt_id!,
+        redactor: deps.redactor,
       });
-      const log = artifact('events', 'events.jsonl');
-      const result = artifact('result', 'out/result.json');
+      const writer = EventLogWriter.open(files, op.id);
+      for (let i = 0; i < 3; i++) writer.append('progress', { i });
+      writer.close();
+      files.writeExit(runExit(op.id, d.now));
+      const batch = readRecords(files, op.id, null, { final: true });
+      if (!batch.ok || batch.value.cursor === null)
+        throw new Error('missing spool');
       const ingest = {
         operation_id: op.id,
-        cursor: {
-          generation: 1,
-          segment: 1,
-          byte_offset: 120,
-          last_record_seq: 3,
-        },
-        records: 3,
-        digest: hashText('records'),
-        artifacts: [log],
+        cursor: batch.value.cursor,
+        records: batch.value.records.length,
+        digest: hashCanonical(batch.value.records),
+        artifacts: [],
       };
-      d.must(task.id, {
-        kind: 'ingest_record',
-        ...ingest,
-        operation_id: op.id as Uuid,
-      });
+      const committed = spoolIngest.ingestOperationSpool(
+        {
+          store: d.store,
+          dataDir: deps.dataDir,
+          redactor: deps.redactor,
+          now: () => d.now,
+          newId: deps.newId,
+        },
+        task.id,
+        op.id,
+      );
+      expect(committed).toMatchObject({ status: 'ingested', records: 3 });
+      // The result becomes available only after that first ingest, so recovery must index it alone.
+      files.writeResult({ schema_version: 1, outcome: finished[0]?.out });
+      const resultId = `${op.id}:out/result.json`;
 
       // What restart commits for a runner whose exit.json is final (T086): finished, effect unknown.
       d.must(task.id, {
@@ -1030,7 +1363,7 @@ describe.each(['coder', 'reviewer'] as const)(
       const s = d.task(task.id);
       expect(s.effects[agent.id]?.status).toBe('succeeded');
       // The result file is indexed alone at the committed cursor, the records are not counted twice.
-      expect(s.artifacts[result.artifact_id]).toMatchObject({ kind: 'result' });
+      expect(s.artifacts[resultId]).toMatchObject({ kind: 'result' });
       expect(
         d.store.readEvents(task.id).filter((e) => e.type === 'OutputIngested'),
       ).toHaveLength(1);

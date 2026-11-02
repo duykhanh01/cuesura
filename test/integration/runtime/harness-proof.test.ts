@@ -194,6 +194,22 @@ const entry = (out: string, vendor: string) =>
   ).vendors[vendor];
 
 describe('what a proof may spend', () => {
+  it('reserves a fourth invocation for resume and refuses unsupported vendors', async () => {
+    const h = setup('claude');
+    const refused = await proveHarness({
+      ...h.options,
+      proveResume: true,
+      out: h.out,
+      budget: h.budget,
+    });
+    expect(refusal(refused)).toContain('4 more exceed the cap');
+    expect(existsSync(h.ledger)).toBe(false);
+    const codex = setup('codex');
+    expect(
+      refusal(planProof({ ...codex.options, proveResume: true })),
+    ).toContain('only supported for Claude');
+  });
+
   it('a dry run reports the plan and leaves no trace', () => {
     const h = setup('claude');
     const plan = planProof(h.options);
@@ -230,6 +246,83 @@ describe('what a proof may spend', () => {
 });
 
 describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
+  it('records why a requested resume was not attempted after coder failure', async () => {
+    const h = setup('claude', { FAKE_VENDOR_MODE: 'exit1' });
+    const r = await proveHarness({
+      ...h.options,
+      proveResume: true,
+      out: h.out,
+      budget: { ...h.budget, maxInvocations: 4 },
+    });
+    expect(r.ok).toBe(true);
+    const raw = readFileSync(h.out, 'utf8');
+    expect(raw).toContain('coder failed: process_failed');
+    expect(raw).not.toContain('this proof runs no resume');
+  }, 120_000);
+
+  it.each(['success', 'failure', 'no_session', 'missing'])(
+    'records the real resume probe outcome: %s',
+    async (mode) => {
+      const h = setup('claude', {
+        FAKE_VENDOR_INNER_SANDBOX: '1',
+        FAKE_VENDOR_DENY_STDERR: '1',
+        FAKE_VENDOR_RESUME: mode,
+      });
+      const r = await proveHarness({
+        ...h.options,
+        proveResume: true,
+        out: h.out,
+        budget: { ...h.budget, maxInvocations: 4 },
+      });
+      if (!r.ok) throw new Error(r.error);
+      const raw = JSON.parse(readFileSync(h.out, 'utf8')) as {
+        vendors: {
+          claude: {
+            resume_probe: {
+              attempt_id: string | null;
+              reason: string;
+              outcome?: { kind: string; resume_fallback?: string };
+            };
+            capabilities: Record<string, { status: string; evidence: string }>;
+          };
+        };
+      };
+      const e = raw.vendors.claude;
+      expect(e.capabilities['session_resume']?.status).toBe(
+        mode === 'success' ? 'proven' : 'unknown',
+      );
+      if (mode === 'success') {
+        expect(e.resume_probe.outcome?.kind).toBe('result');
+        const seed = r.value.runs[0];
+        if (seed === undefined) throw new Error('missing seed attempt');
+        const launch = JSON.parse(
+          readFileSync(
+            join(h.options.dataDir, 'runs', seed.attempt_id, 'invocation.json'),
+            'utf8',
+          ),
+        ) as { argv: string[] };
+        expect(launch.argv).not.toContain('--no-session-persistence');
+        expect(h.record().ok).toBe(true);
+        expect(h.problem()).toBeNull();
+      }
+      if (mode === 'failure')
+        expect(e.resume_probe.reason).toContain(
+          'fixture resume service unavailable',
+        );
+      if (mode === 'no_session') {
+        expect(e.resume_probe.attempt_id).toBeNull();
+        expect(e.resume_probe.reason).toContain('no session reference');
+      }
+      if (mode === 'missing')
+        expect(e.resume_probe.outcome?.resume_fallback).toBe('session_missing');
+      if (mode !== 'success')
+        expect(e.capabilities['session_resume']?.evidence).not.toContain(
+          'this proof runs no resume',
+        );
+    },
+    120_000,
+  );
+
   it.each(['claude', 'codex'] as const)(
     '%s: three roles, evidence record-manifest takes, a record that holds',
     async (vendor) => {

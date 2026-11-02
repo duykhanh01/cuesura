@@ -9,6 +9,7 @@ import type { Dispatcher } from './dispatch.ts';
 import { errorReply, type Reply } from './server.ts';
 import { okEnvelope } from '../cli/output.ts';
 import { STARTUP_REPORT_FILE, type StartupReport } from './startup.ts';
+import type { SpoolIngestReport } from './ingest.ts';
 
 export type HealthInput = {
   readonly store: Store;
@@ -16,6 +17,7 @@ export type HealthInput = {
   readonly startup: StartupReport;
   readonly unresolved: StartupReport['unresolved'];
   readonly now: number;
+  readonly spoolProblems?: readonly SpoolIngestReport[];
 };
 
 /** The first problem that stops work from being handed out, most fundamental first; null when none. */
@@ -44,6 +46,7 @@ export function healthReply(h: HealthInput): Reply {
       report: STARTUP_REPORT_FILE,
       steps: startup.steps,
       unresolved: h.unresolved,
+      spool_problems: h.spoolProblems ?? [],
       legacy_read_only: startup.legacy_read_only,
       timers: startup.timers,
     },

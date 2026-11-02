@@ -174,11 +174,15 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
       })
     : settings;
   if (!stableSettings.ok) return fail(stableSettings.message);
+  const caps = [input.max_turns, pin.max_turns].filter(
+    (v): v is number => typeof v === 'number',
+  );
+  const maxTurns = caps.length === 0 ? null : Math.min(...caps);
   const argv = [
     pin.binary.realpath,
     '-p',
     '--verbose',
-    ...(pin.max_turns === null ? [] : ['--max-turns', String(pin.max_turns)]),
+    ...(maxTurns === null ? [] : ['--max-turns', String(maxTurns)]),
     '--tools',
     pin.tools.join(','),
     '--output-format',
@@ -191,7 +195,11 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
     '--settings',
     settingsFile,
     ...(input.session === null
-      ? ['--no-session-persistence']
+      ? input.host_execution &&
+        input.role !== 'reviewer' &&
+        input.resume_proven === true
+        ? []
+        : ['--no-session-persistence']
       : ['--resume', input.session.ref]),
     '--setting-sources',
     '',
@@ -354,7 +362,10 @@ function read(input: VendorRead): VendorFacts {
             0,
             DETAIL_MAX,
           );
-        const kind = classifyFailure(detail, status);
+        const kind =
+          p['subtype'] === 'error_max_turns'
+            ? 'turn_limit'
+            : classifyFailure(detail, status);
         failure = {
           kind,
           detail,

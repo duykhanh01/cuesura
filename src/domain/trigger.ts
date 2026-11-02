@@ -299,6 +299,8 @@ export const FailureDataSchema = z
     usage: UsageSchema.optional(),
     invoked: z.boolean().optional(),
     message: z.string().optional(),
+    // A turn-limited worker can continue its persisted transcript on the next attempt.
+    session_ref: z.string().min(1).nullable().optional(),
     // T072, additive: the worktree tree after a worker attempt, or the change found before one.
     worktree_tree: z.string().min(1).optional(),
     worktree: z
