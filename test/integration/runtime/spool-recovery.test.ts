@@ -43,6 +43,7 @@ import {
   type IngestPosition,
 } from '../../../src/runner/files.ts';
 import type { RunnerExit } from '../../../src/runner/lifecycle.ts';
+import { claimLaunch } from '../../../src/runner/operation-lock.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
 import type { EpochMs, Uuid } from '../../../src/shared/brand.ts';
 import {
@@ -241,6 +242,71 @@ function runChild(
 }
 
 describe('spool limits (FR-030)', () => {
+  it('an operation sharing the attempt of another run does not read that run as its own', () => {
+    const dir = tempDir();
+    const attempt = uuidOf(950);
+    const owner = uuidOf(951);
+    const stopper = uuidOf(952);
+    const run = RunDir.open({
+      dataDir: dir,
+      kind: 'runs',
+      id: attempt,
+      redactor: new Redactor(),
+      limits: LIMITS,
+    });
+    claimLaunch(run, {
+      schema_version: 1,
+      operation_id: owner,
+      attempt_id: attempt,
+      launch_nonce: 'nonce-1',
+      boot_id: 'boot',
+      runner_pid: 1,
+      at: new Date(0).toISOString(),
+    });
+    EventLogWriter.open(run, owner).append('stdout', { line: 'of the owner' });
+    const store = {
+      readTask: () => ({
+        operations: { [stopper]: { id: stopper, attempt_id: attempt } },
+      }),
+    } as unknown as SpoolIngestDeps['store'];
+    expect(
+      ingestOperationSpool(
+        {
+          store,
+          dataDir: dir,
+          redactor: new Redactor(),
+          limits: LIMITS,
+          now: () => 0,
+          newId: uuidv7,
+        },
+        uuidOf(1),
+        stopper,
+      ),
+    ).toMatchObject({
+      status: 'no_run_dir',
+      records: 0,
+      detail: `the run belongs to operation ${owner}`,
+    });
+  });
+
+  it('an operation still ingests the run it launched itself', () => {
+    const f = setup();
+    claimLaunch(f.run, {
+      schema_version: 1,
+      operation_id: OP,
+      attempt_id: null,
+      launch_nonce: 'nonce-1',
+      boot_id: 'boot',
+      runner_pid: 1,
+      at: new Date(0).toISOString(),
+    });
+    f.log.append('stdout', { line: 'own' });
+    expect(ingestOperationSpool(deps(f), f.taskId, OP)).toMatchObject({
+      status: 'ingested',
+      records: 1,
+    });
+  });
+
   it('rotates at 8 MiB and caps the spool at 64 MiB by default', () => {
     expect(DEFAULT_RUNTIME_LIMITS.log_segment_bytes).toBe(8 * 1024 * 1024);
     expect(DEFAULT_RUNTIME_LIMITS.spool_bytes).toBe(64 * 1024 * 1024);

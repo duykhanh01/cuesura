@@ -24,6 +24,7 @@ import {
   type IngestPosition,
 } from '../runner/files.ts';
 import { RunnerExitSchema } from '../runner/lifecycle.ts';
+import { readLaunchMarker } from '../runner/operation-lock.ts';
 import type { Redactor } from '../runner/redact.ts';
 import type { Result } from '../shared/result.ts';
 import type { Store } from '../store/index.ts';
@@ -216,6 +217,7 @@ function ingestSpool(
       detail: 'unknown operation',
     };
   let run: RunDir;
+  let marker: ReturnType<typeof readLaunchMarker>;
   try {
     run = RunDir.open({
       dataDir: deps.dataDir,
@@ -224,6 +226,7 @@ function ingestSpool(
       ...(deps.limits === undefined ? {} : { limits: deps.limits }),
       create: false,
     });
+    marker = readLaunchMarker(run);
   } catch (e) {
     if (!spoolIoError(e)) throw e;
     return {
@@ -238,6 +241,17 @@ function ingestSpool(
       detail: e instanceof Error ? e.message : String(e),
     };
   }
+  // Effects such as stop_attempt carry the attempt of the agent they act on, without launching a run of
+  // their own. The directory's records are the launching operation's, not corrupt ones of this operation.
+  if (marker.state === 'valid' && marker.value.operation_id !== op.id)
+    return {
+      ...base,
+      status: 'no_run_dir',
+      records: 0,
+      torn: 0,
+      acked: [],
+      detail: `the run belongs to operation ${marker.value.operation_id}`,
+    };
 
   let cursor: IngestPosition | null =
     op.cursor === null ? null : { operation_id: op.id, ...op.cursor };
