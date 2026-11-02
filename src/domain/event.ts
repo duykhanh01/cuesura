@@ -13,6 +13,7 @@ import type {
   TimerKind,
   Wait,
 } from './state.ts';
+import type { DeciderRun } from './state.ts';
 import type { RunConfirmation, RunSelection } from './run-config.ts';
 import type { StepKind } from './workflow.ts';
 import type {
@@ -221,6 +222,7 @@ export type EventPayloads = {
   };
   QuestionAnswered: { question_id: string; answer: string; by: string };
   AnswerRejected: { question_id: string; by: string; reason: string };
+  DeciderRan: DeciderRun & { attempt_id: string };
   ApprovalRequested: {
     approval_id: string;
     kind: 'escalation' | 'merge';
@@ -421,6 +423,7 @@ export const EVENT_TYPES = [
   'QuestionAsked',
   'QuestionAnswered',
   'AnswerRejected',
+  'DeciderRan',
   'ApprovalRequested',
   'ApprovalGranted',
   'ApprovalRejected',

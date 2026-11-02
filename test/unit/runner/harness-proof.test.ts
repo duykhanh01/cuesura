@@ -151,7 +151,7 @@ describe('what a proof reports as failed', () => {
       marker_absent: true,
       auth_removed: true,
     }) as never;
-  const all = [run('coder'), run('fixer'), run('reviewer')];
+  const all = [run('coder'), run('fixer'), run('reviewer'), run('decider')];
 
   it('is empty when everything a manifest needs was shown', () => {
     expect(proofFailures(pin('auto'), evidence(), all)).toEqual([]);
@@ -189,6 +189,7 @@ describe('what a proof reports as failed', () => {
         run('coder'),
         run('fixer', false),
         run('reviewer', false),
+        run('decider'),
       ]),
     ).toEqual(['native sandbox refusal not shown (fixer, reviewer)']);
   });
@@ -201,7 +202,7 @@ describe('what a proof reports as failed', () => {
     } as never;
     expect(proofFailures(pin('auto'), evidence(), [failed])).toEqual([
       'coder: auth: expired',
-      'stopped after 1 of 3 roles',
+      'stopped after 1 of 4 roles',
     ]);
   });
 });

@@ -401,6 +401,31 @@ describe('admission before every attempt (T070)', () => {
     });
   });
 
+  it('knows whether an attempt ever got as far as a launch', async () => {
+    const e = env('claude', attempt);
+    const h = harness(e);
+    const i = input('claude', 'coder');
+    expect(h.started(i.attempt_id)).toBe(false);
+    await h.run(i, signal());
+    expect(h.started(i.attempt_id)).toBe(true);
+  });
+
+  it('a manifest proven before the decider refuses it without launching, and keeps its worker role', async () => {
+    const e = env('claude', 's0-claude-coder-1793172185');
+    const decider = await harness(e).run(input('claude', 'decider'), signal());
+    expect(decider).toMatchObject({
+      kind: 'failure',
+      failure: 'capability_missing',
+      invoked: false,
+    });
+    expect(decider.kind === 'failure' && decider.detail).toContain(
+      'no proof for the current decider result schema',
+    );
+    expect(e.proc.launches).toHaveLength(0);
+    const coder = await harness(e).run(input('claude', 'coder'), signal());
+    expect(coder.kind).not.toBe('failure');
+  });
+
   it('a manifest without proven structured output or permission enforcement is refused', async () => {
     const e = env('codex', 's0-codex-coder-1793178479');
     const m = evidenceManifest(e.pin, {

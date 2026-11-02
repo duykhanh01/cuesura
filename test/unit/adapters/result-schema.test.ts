@@ -231,3 +231,21 @@ describe('number of questions', () => {
     ).toBe(false);
   });
 });
+
+describe('decider result', () => {
+  it('keeps its pinned digest and stays out of the step roles', () => {
+    expect(ROLE_SCHEMA_DIGESTS.decider).toBe(roleSchemaDigest('decider'));
+    expect((ROLES as readonly string[]).includes('decider')).toBe(false);
+  });
+
+  it('accepts an answer with a reason and refuses an empty one', () => {
+    const value = { schema_version: 1, answer: 'UTF-8', reason: 'default' };
+    expect(validateRoleResult('decider', value).ok).toBe(true);
+    expect(validateRoleResult('decider', { ...value, answer: ' ' }).ok).toBe(
+      false,
+    );
+    expect(validateRoleResult('decider', { ...value, extra: 1 }).ok).toBe(
+      false,
+    );
+  });
+});

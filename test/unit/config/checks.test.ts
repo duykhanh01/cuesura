@@ -272,3 +272,10 @@ describe('returns all errors sorted by file, line, and column', () => {
     ]);
   });
 });
+
+describe('autonomous', () => {
+  it('needs a decider role', () => {
+    expect(codes({}, 'autonomous: true\n')).toEqual(['schema_invalid']);
+    expect(codes({})).toEqual([]);
+  });
+});

@@ -136,6 +136,8 @@ export type DaemonOptions = {
      * overlapping itself (timers, PR observation, drain). They start after the first request can arrive.
      */
     readonly rounds?: readonly (() => Promise<unknown>)[];
+    /** Ends what a round is still waiting on; called before `stop` waits for the rounds. */
+    readonly abortRounds?: () => void;
     /**
      * One scheduler pass (dependency notifications, queue, grant, start). It runs once before the first
      * request and then on the dispatch interval, never overlapping itself and never while new work is
@@ -671,6 +673,7 @@ export async function startDaemon(
       recover,
       async stop() {
         clearInterval(interval);
+        extra.abortRounds?.();
         await recovering;
         await scheduling;
         await Promise.all(running);

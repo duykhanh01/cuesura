@@ -86,6 +86,8 @@ export type NormalizedUser = {
   > | null;
   permissions: Record<string, Binding['permissions']>;
   yolo: boolean;
+  /** Present only when on, so tasks frozen without it keep their config hash. */
+  autonomous?: true;
 };
 
 export const DIAGNOSTIC_CODES = [

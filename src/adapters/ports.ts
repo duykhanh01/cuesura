@@ -307,6 +307,8 @@ export interface HarnessPort {
    * never launches. Throws when the outcome cannot be proven for this exact input.
    */
   recover?(input: HarnessInput): HarnessOutcome;
+  /** Whether this attempt got as far as a launch; false proves nothing was ever spawned for it. */
+  started?(attemptId: string): boolean;
 }
 
 // ---- Git (orchestrator-side argv only; repo config/hooks/executables are not trusted) ----

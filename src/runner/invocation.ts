@@ -38,6 +38,7 @@ import { z } from 'zod';
 import { UsageSchema } from '../domain/trigger.ts';
 import {
   hostInnerMode,
+  boundaryRole,
   nativeSandboxEnabled,
 } from '../adapters/harness/vendor.ts';
 import { HashSchema } from '../shared/brand.ts';
@@ -320,7 +321,7 @@ export class RunnerHarness implements HarnessPort {
 
     if (signal.aborted) return never('cancelled', 'aborted before start');
     // A reviewer always runs in its own new, read-only session (contracts/execution.md).
-    if (input.role === 'reviewer' && input.session !== null)
+    if (boundaryRole(input.role) === 'reviewer' && input.session !== null)
       return never('capability_missing', 'a reviewer never resumes a session');
 
     // The wire form is the vendor's; the canonical schema digest must be the role's current one.
@@ -389,7 +390,7 @@ export class RunnerHarness implements HarnessPort {
     }
     const shortTmp = this.#tmpDir(run);
     const planned = o.adapter.plan(o.pin, {
-      role: input.role,
+      role: boundaryRole(input.role),
       model: input.binding.model,
       effort: input.binding.effort,
       schema,
@@ -463,7 +464,7 @@ export class RunnerHarness implements HarnessPort {
         );
       const layoutProblem = verifyLayout(
         o.manifest,
-        input.role,
+        boundaryRole(input.role),
         sandboxed.value.layout_shape,
       );
       if (layoutProblem !== null)
@@ -527,7 +528,7 @@ export class RunnerHarness implements HarnessPort {
         stdin: PROMPT_FILE,
         stall_ms: limits.stall_ms,
         watch:
-          input.role === 'reviewer'
+          boundaryRole(input.role) === 'reviewer'
             ? [layout.scratch, ...tmpWatch]
             : [ws.worktree, layout.scratch, ...tmpWatch],
       });
@@ -553,6 +554,28 @@ export class RunnerHarness implements HarnessPort {
         removeTmpDir(this.#tmpDir(run));
       }
     }
+  }
+
+  started(attemptId: string): boolean {
+    const o = this.#o;
+    let run: RunDir;
+    try {
+      run = RunDir.open({
+        dataDir: o.data_dir,
+        kind: 'runs',
+        id: attemptId,
+        redactor: o.redactor,
+        create: false,
+        ...(o.file_limits === undefined ? {} : { limits: o.file_limits }),
+      });
+    } catch (e) {
+      if (e instanceof RunnerFileError && e.code === 'not_found') return false;
+      throw e;
+    }
+    return (
+      run.readFinal(LAUNCH_STATE_FILE).state !== 'missing' ||
+      run.readFinal(RUN_FILES.launch).state !== 'missing'
+    );
   }
 
   /**
@@ -1002,7 +1025,7 @@ export class RunnerHarness implements HarnessPort {
       installed,
       scratch,
       layout: {
-        role: input.role,
+        role: boundaryRole(input.role),
         worktree: ws.worktree,
         git_dirs: ws.git_dirs,
         scratch,

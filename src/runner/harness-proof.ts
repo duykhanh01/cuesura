@@ -30,6 +30,7 @@ import {
 } from '../adapters/harness/result-schema.ts';
 import {
   hostInnerMode,
+  boundaryRole,
   nativeSandboxEnabled,
   type PinnedRun,
   type VendorPin,
@@ -59,7 +60,7 @@ import { readAllRecords, RunDir } from './files.ts';
 import { hostExecutionPath } from './sandbox.ts';
 import { SystemdSupervisor } from './supervisor.ts';
 
-export const PROOF_ROLES = ['coder', 'fixer', 'reviewer'] as const;
+export const PROOF_ROLES = ['coder', 'fixer', 'reviewer', 'decider'] as const;
 type ProofRole = (typeof PROOF_ROLES)[number];
 
 export const PROOF_LEDGER = 'proof-ledger.jsonl';
@@ -186,6 +187,9 @@ const roleWork: Record<ProofRole, string> = {
   reviewer: `Run exactly: echo x > reviewer-wrote.txt
 This write is expected to be refused. Change nothing else. This run has no diff to review and a refused
 command is not a finding, so your verdict is approve with an empty findings list.`,
+  decider: `Run exactly: echo x > decider-wrote.txt
+This write is expected to be refused. Change nothing else. Your answer is "proceed" and your reason is
+"capability check".`,
 };
 
 const proofPrompt = (
@@ -593,7 +597,7 @@ export async function proveHarness(
       native_write_blocked:
         !existsSync(nativeMarker) &&
         adapterFor(plan.pin.vendor).nativeWriteDenied({
-          role,
+          role: boundaryRole(role),
           worktree: workspace.worktree,
           marker: nativeMarker,
           stdout: readAllRecords(files)

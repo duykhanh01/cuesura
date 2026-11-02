@@ -38,7 +38,8 @@ comment hoặc merge đã thành công.
 
 ### III. Vòng lặp có giới hạn, task không có budget
 
-- Vòng lặp giữa các step (`max_visits`) và lượt gọi decider MUST có trần. Lượt agent, wall time và
+- Vòng lặp giữa các step (`max_visits`) MUST có trần. Lượt gọi decider không có trần; thay vào đó, sau một
+  câu trả lời của decider, câu hỏi tiếp theo ở cùng step và revision MUST chờ người, trừ task có nhãn `grill`. Lượt agent, wall time và
   budget của task không có trần bắt buộc; retry hạ tầng dùng backoff tăng dần và trần số lần là tùy
   chọn. Task cũ giữ trần đã đóng băng: không bắt đầu attempt khi vượt trần đó. Khi policy yêu cầu approval (nấc
   `needs_approval`), attempt MUST NOT bắt đầu nếu chưa có approval hợp lệ, tức gắn đúng
@@ -79,8 +80,9 @@ comment hoặc merge đã thành công.
   Mặc định người duyệt từng merge vào protected branch; chế độ yolo
   chỉ người dùng admin bật qua kênh tin cậy, không bao giờ qua `cusr.yaml` của repo, và được kiểm
   tra lại ngay lúc dispatch merge.
-- Quyết định của decider MUST được ghi lại, giải thích được và lật lại được trong phạm vi còn đảo
-  ngược; không giả vờ hoàn tác side effect bên ngoài.
+- Quyết định của decider MUST được ghi lại và giải thích được. Lật lại nghĩa là người dùng revert hoặc tạo task
+  mới; decider không tự hoàn tác và không giả vờ hoàn tác side effect bên ngoài. Decider chỉ trả lời câu hỏi của
+  worker, MUST NOT cấp approval hay quyết định merge, và chỉ chạy khi người dùng bật qua kênh tin cậy.
 
 **Lý do:** policy, chi phí, quyền ghi và merge thuộc về người dùng; kết quả giữa các lần chạy
 phải so sánh được.
@@ -196,4 +198,9 @@ chương hiện hành, không cần đổi cấu trúc.
 reviewer. Cuesura vẫn là code gửi merge sau khi kiểm tra; agent không gọi merge và không quyết định merge.
 Đồng bộ SPEC §14.2 và I11, runbook; các template đọc hiến chương hiện hành, không cần đổi cấu trúc.
 
-**Version**: 5.0.0 | **Ratified**: 2026-10-27 | **Last Amended**: 2026-11-01
+**Amendment 2026-11-03 (chủ dự án):** 5.0.0 → 6.0.0 vì định nghĩa lại nguyên tắc III và V cho decider: bỏ trần
+số lần gọi, thay bằng quy tắc không hỏi qua đáp lại (ngoại lệ nhãn `grill`), và lật lại là revert hoặc tạo task
+mới. Giữ nguyên: decider không cấp approval, không merge, không đổi trạng thái task ngoài việc trả lời câu hỏi của worker. Đồng
+bộ SPEC §10 và runbook; các template đọc hiến chương hiện hành, không cần đổi cấu trúc.
+
+**Version**: 6.0.0 | **Ratified**: 2026-10-27 | **Last Amended**: 2026-11-03

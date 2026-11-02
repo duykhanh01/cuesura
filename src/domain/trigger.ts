@@ -458,6 +458,35 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('timer'), timer_id: UuidSchema }).strict(),
   z
     .object({
+      kind: z.literal('decider_start'),
+      question_id: UuidSchema,
+      /** Also the run's reservation, so `decider_ran` settles it without another ID. */
+      attempt_id: z.string().min(1),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('decider_ran'),
+      question_id: UuidSchema,
+      attempt_id: z.string().min(1),
+      usage: UsageSchema,
+      invoked: z.boolean(),
+      decision: z
+        .object({
+          answer: z.string().min(1),
+          reason: z.string(),
+          /** What the worker is told about this answer, after the answer itself. */
+          note: z.string().min(1),
+        })
+        .strict()
+        .nullable(),
+      /** The owner's setting allowed this answer when the run ended; usage is recorded regardless. */
+      apply: z.boolean(),
+      failure: z.string().nullable(),
+    })
+    .strict(),
+  z
+    .object({
       kind: z.literal('answer'),
       question_id: UuidSchema,
       answer: z.string().min(1),

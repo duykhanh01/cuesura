@@ -215,7 +215,7 @@ function writeTempIn(dir: string, name: string, data: Buffer): string {
 }
 
 /** temp → fsync → rename → fsync directory. */
-function writeAtomicIn(dir: string, name: string, data: Buffer): void {
+export function writeAtomicIn(dir: string, name: string, data: Buffer): void {
   const tmp = writeTempIn(dir, name, data);
   try {
     renameSync(tmp, join(dir, name));

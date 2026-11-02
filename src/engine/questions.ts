@@ -1,8 +1,9 @@
 import { hasRole } from '../domain/policy.ts';
-import type { DetailCode, ResumeAction } from '../domain/state.ts';
+import type { DetailCode, ResumeAction, TaskState } from '../domain/state.ts';
 import type { Trigger } from '../domain/trigger.ts';
+import { available, consume, release, reserve } from './budget.ts';
 import { reject, type Ctx } from './context.ts';
-import { proceed } from './interpreter.ts';
+import { pastDeadline, proceed } from './interpreter.ts';
 import { reachSafeBoundary } from './revision.ts';
 import { mkWait, waitPolicy, waitTask } from './waits.ts';
 
@@ -85,7 +86,80 @@ export function requestApproval(
 
 type AnswerTrigger = Extract<Trigger, { kind: 'answer' }>;
 
-export function onAnswer(ctx: Ctx, t: AnswerTrigger): void {
+/** Who answered when the decider did; only {@link onDeciderRan} records it. */
+export const DECIDER_ACTOR = 'agent:decider';
+/** The waits a decider may end: its worker asked. Approvals and every other wait stay with a person. */
+export const WORKER_WAITS: readonly string[] = [
+  'agent_question',
+  'agent_needs_context',
+  'agent_blocked',
+];
+
+function waitsOnWorker(s: TaskState, questionId: string): boolean {
+  return (
+    s.status === 'WAITING' &&
+    s.cancellation === null &&
+    s.questions[questionId]?.status === 'open' &&
+    s.wait?.detail['question_id'] === questionId &&
+    WORKER_WAITS.includes(s.wait.detail.code)
+  );
+}
+
+/** Holds one agent run for the decider before it spawns, under the same limits as any attempt. */
+export function onDeciderStart(
+  ctx: Ctx,
+  t: Extract<Trigger, { kind: 'decider_start' }>,
+): void {
+  if (!waitsOnWorker(ctx.state, t.question_id))
+    reject('invalid_trigger', { reason: 'question_not_waiting' });
+  if (available(ctx.state.budget) < 1)
+    reject('invalid_trigger', { reason: 'no_agent_runs_left' });
+  if (pastDeadline(ctx))
+    reject('invalid_trigger', { reason: 'task_deadline_passed' });
+  reserve(ctx, t.attempt_id, t.attempt_id);
+}
+
+/**
+ * One decider run ended. Its usage and reason are recorded whatever happened, in the same accept as the
+ * answer, and its reservation is settled like an attempt's. The answer applies only while the task still
+ * waits on this worker question, so it can never override a person, a newer revision or a cancel.
+ */
+export function onDeciderRan(
+  ctx: Ctx,
+  t: Extract<Trigger, { kind: 'decider_ran' }>,
+): void {
+  const applied =
+    t.apply && t.decision !== null && waitsOnWorker(ctx.state, t.question_id);
+  ctx.emit('DeciderRan', {
+    attempt_id: t.attempt_id,
+    question_id: t.question_id,
+    usage: t.usage,
+    invoked: t.invoked,
+    answer: t.decision?.answer ?? null,
+    reason: t.decision?.reason ?? null,
+    failure: t.failure,
+    applied,
+    at: ctx.now,
+  });
+  if (t.invoked) consume(ctx, t.attempt_id);
+  else release(ctx, t.attempt_id);
+  if (applied && t.decision !== null)
+    onAnswer(
+      ctx,
+      {
+        kind: 'answer',
+        question_id: t.question_id,
+        answer: `${t.decision.answer}\n\n${t.decision.note}`,
+      },
+      DECIDER_ACTOR,
+    );
+}
+
+export function onAnswer(
+  ctx: Ctx,
+  t: AnswerTrigger,
+  by: string = ctx.actor,
+): void {
   const s = ctx.state;
   const q = s.questions[t.question_id];
   if (q === undefined || q.status === 'withdrawn')
@@ -93,7 +167,7 @@ export function onAnswer(ctx: Ctx, t: AnswerTrigger): void {
   if (q.status === 'answered') {
     ctx.emit('AnswerRejected', {
       question_id: q.id,
-      by: ctx.actor,
+      by,
       reason: 'already_answered',
     });
     return;
@@ -113,7 +187,7 @@ export function onAnswer(ctx: Ctx, t: AnswerTrigger): void {
   ctx.emit('QuestionAnswered', {
     question_id: q.id,
     answer: t.answer,
-    by: ctx.actor,
+    by,
   });
   const w = ctx.state.wait;
   if (ctx.state.status === 'WAITING' && w?.detail['question_id'] === q.id) {

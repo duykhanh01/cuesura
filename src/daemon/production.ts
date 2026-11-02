@@ -50,12 +50,14 @@ import { startTask } from '../application/start.ts';
 import { drainingTasks, drainRound } from './drain.ts';
 import {
   buildHandlers,
+  taskWorkspace,
   localRemainderOf,
   observeTaskPr,
   type HandlerDeps,
 } from './handlers.ts';
 import type { DaemonRuntime } from './main.ts';
 import { ObservationCoordinator, observationRound } from './observation.ts';
+import { createDecider } from './decider.ts';
 import { advanceTaskPr, type YoloDeps } from './yolo.ts';
 import { FileContentStore } from '../adapters/publish-content.ts';
 import { Scheduler } from './scheduler.ts';
@@ -133,6 +135,7 @@ export async function productionControl(opts: {
     readonly schedule: () => Promise<unknown>;
     readonly effects: ReturnType<typeof buildHandlers>;
     readonly rounds: readonly (() => Promise<unknown>)[];
+    readonly abortRounds: () => void;
   }
 > {
   const host = new NodeHostProbe();
@@ -280,6 +283,27 @@ export async function productionControl(opts: {
     );
     const observe = (taskId: string, ref: string) =>
       coordinator.observe(taskId, ref, 'recheck');
+    /** The user config as it is now; a config that cannot be read turns `what` off. */
+    const currentUser = async (what: string) => {
+      try {
+        const user = (
+          await readConfigFiles({ user: opts.configPath })
+        )[0] as ConfigSource;
+        const current = validateConfig({ user, packs: {} });
+        if (!current.ok) {
+          opts.log?.(
+            `${what} disabled: config invalid: ${current.error.map((d) => `${d.code} at ${d.line}:${d.col}`).join(', ')}`,
+          );
+          return null;
+        }
+        return current.value.config.user;
+      } catch (error) {
+        opts.log?.(
+          `${what} disabled: config unreadable: ${opts.redactor.text(String(error))}`,
+        );
+        return null;
+      }
+    };
     const yolo: YoloDeps = {
       store,
       clock: opts.clock,
@@ -287,26 +311,7 @@ export async function productionControl(opts: {
       github: newGitHub,
       content: (ref, digest) =>
         new FileContentStore(dir('content')).get(ref, digest),
-      enabled: async () => {
-        try {
-          const user = (
-            await readConfigFiles({ user: opts.configPath })
-          )[0] as ConfigSource;
-          const current = validateConfig({ user, packs: {} });
-          if (!current.ok) {
-            opts.log?.(
-              `yolo disabled: config invalid: ${current.error.map((d) => `${d.code} at ${d.line}:${d.col}`).join(', ')}`,
-            );
-            return false;
-          }
-          return current.value.config.user.yolo;
-        } catch (error) {
-          opts.log?.(
-            `yolo disabled: config unreadable: ${opts.redactor.text(String(error))}`,
-          );
-          return false;
-        }
-      },
+      enabled: async () => (await currentUser('yolo'))?.yolo ?? false,
       ...(opts.log === undefined ? {} : { log: opts.log }),
     };
     const process_ = new SystemdSupervisor({
@@ -391,6 +396,35 @@ export async function productionControl(opts: {
       stopLocal: (operationId) =>
         stopOperationProcesses(opts.dataDir, operationId),
     };
+    const decider = createDecider({
+      store,
+      clock: opts.clock,
+      newId: opts.newId,
+      harnesses,
+      workspace: (taskId) => taskWorkspace(deps, taskId),
+      decisionsFile: join(opts.dataDir, 'decisions.md'),
+      recordsDir: dir('decider'),
+      redactor: opts.redactor,
+      setting: async () => {
+        const user = await currentUser('autonomous');
+        if (user?.autonomous !== true) return null;
+        const role = user.roles['decider'];
+        const rule = role?.binding[0];
+        const model = rule === undefined ? undefined : user.models[rule.model];
+        if (role === undefined || rule === undefined || model === undefined)
+          return null;
+        return {
+          harness: model.harness,
+          model: rule.model,
+          model_id: model.id,
+          effort: rule.effort,
+          max_turns: role.limits.max_turns,
+          stall_ms: role.limits.stall_timeout_ms,
+          wall_ms: role.limits.wall_timeout_ms,
+        };
+      },
+      ...(opts.log === undefined ? {} : { log: opts.log }),
+    });
     const drainDeps = {
       store,
       process: process_,
@@ -484,7 +518,11 @@ export async function productionControl(opts: {
             },
           }),
         drainAll,
+        () => decider.round(),
       ],
+      abortRounds: () => {
+        decider.abort();
+      },
     };
   };
 }

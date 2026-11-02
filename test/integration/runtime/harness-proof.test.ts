@@ -155,7 +155,7 @@ function setup(
     runnerCommand: [process.execPath, RUNNER],
     now: () => Date.now(),
   };
-  const budget = { approval: 'owner, test', maxInvocations: 3 };
+  const budget = { approval: 'owner, test', maxInvocations: 4 };
   const ledger = join(records, PROOF_LEDGER);
   const record = () =>
     recordManifest({
@@ -203,7 +203,7 @@ describe('what a proof may spend', () => {
       out: h.out,
       budget: h.budget,
     });
-    expect(refusal(refused)).toContain('4 more exceed the cap');
+    expect(refusal(refused)).toContain('5 more exceed the cap');
     expect(existsSync(h.ledger)).toBe(false);
     const codex = setup('codex');
     expect(
@@ -219,18 +219,18 @@ describe('what a proof may spend', () => {
     expect(existsSync(h.ledger)).toBe(false);
   });
 
-  it('refuses before the first spawn without an approval or a cap for all three roles', async () => {
+  it('refuses before the first spawn without an approval or a cap for all four roles', async () => {
     const h = setup('claude');
     const none = await proveHarness({
       ...h.options,
       out: h.out,
-      budget: { approval: ' ', maxInvocations: 3 },
+      budget: { approval: ' ', maxInvocations: 4 },
     });
     expect(refusal(none)).toContain('approval');
     const low = await proveHarness({
       ...h.options,
       out: h.out,
-      budget: { approval: 'owner', maxInvocations: 2 },
+      budget: { approval: 'owner', maxInvocations: 3 },
     });
     expect(refusal(low)).toContain('exceed the cap');
     expect(existsSync(h.ledger)).toBe(false);
@@ -253,7 +253,7 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
       ...h.options,
       proveResume: true,
       out: h.out,
-      budget: { ...h.budget, maxInvocations: 4 },
+      budget: { ...h.budget, maxInvocations: 5 },
     });
     expect(r.ok).toBe(true);
     const raw = readFileSync(h.out, 'utf8');
@@ -273,7 +273,7 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
         ...h.options,
         proveResume: true,
         out: h.out,
-        budget: { ...h.budget, maxInvocations: 4 },
+        budget: { ...h.budget, maxInvocations: 5 },
       });
       if (!r.ok) throw new Error(r.error);
       const raw = JSON.parse(readFileSync(h.out, 'utf8')) as {
@@ -325,7 +325,7 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
   );
 
   it.each(['claude', 'codex'] as const)(
-    '%s: three roles, evidence record-manifest takes, a record that holds',
+    '%s: four roles, evidence record-manifest takes, a record that holds',
     async (vendor) => {
       const h = setup(vendor);
       const r = await proveHarness({
@@ -341,6 +341,7 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
         ['coder', 'result'],
         ['fixer', 'result'],
         ['reviewer', 'result'],
+        ['decider', 'result'],
       ]);
       const e = entry(h.out, vendor);
       expect(e?.native_result).toBe('passed');
@@ -352,6 +353,7 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
         'schema_acceptance_coder',
         'schema_acceptance_fixer',
         'schema_acceptance_reviewer',
+        'schema_acceptance_decider',
       ])
         expect(e?.capabilities[c]?.status, c).toBe('proven');
       expect(e?.capabilities['session_resume']?.status).toBe('unknown');
@@ -359,9 +361,9 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
       if (!recorded.ok) throw new Error(recorded.error);
       expect(h.problem()).toBeNull();
       expect(readFileSync(h.out, 'utf8')).not.toContain(SMOKE_CANARY);
-      expect(readFileSync(h.ledger, 'utf8').trim().split('\n')).toHaveLength(3);
+      expect(readFileSync(h.ledger, 'utf8').trim().split('\n')).toHaveLength(4);
 
-      // The next proof of this binary counts the three already spent.
+      // The next proof of this binary counts the four already spent.
       const again = await proveHarness({
         ...h.options,
         out: h.out,
@@ -475,10 +477,12 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
       'result',
       'result',
       'result',
+      'result',
     ]);
     expect(r.value.runs.map((x) => x.native_write_blocked)).toEqual([
       false,
       false,
+      true,
       true,
     ]);
     expect(entry(h.out, 'claude')?.native_result).toBe('not_tried');
@@ -507,6 +511,7 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
       });
       if (!r.ok) throw new Error(r.error);
       expect(r.value.runs.map((x) => x.outcome.kind)).toEqual([
+        'result',
         'result',
         'result',
         'result',

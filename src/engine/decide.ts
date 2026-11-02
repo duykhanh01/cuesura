@@ -32,7 +32,13 @@ import {
 } from './external-completion.ts';
 import { onObservationDue, onObservationResult } from './observation.ts';
 import { onEffectResult, proceed } from './interpreter.ts';
-import { askHuman, onAnswer, onApprovalDecision } from './questions.ts';
+import {
+  askHuman,
+  onAnswer,
+  onApprovalDecision,
+  onDeciderRan,
+  onDeciderStart,
+} from './questions.ts';
 import { onReconciled } from './reconcile.ts';
 import { onDriftChoice, settleDrift } from './revision.ts';
 import {
@@ -93,6 +99,7 @@ const AFTER_TERMINAL: readonly Trigger['kind'][] = [
   'operation_result',
   'ingest_record',
   'release_execution',
+  'decider_ran',
 ];
 
 function dispatch(ctx: Ctx, t: Trigger): void {
@@ -160,6 +167,12 @@ function dispatch(ctx: Ctx, t: Trigger): void {
       return;
     case 'answer':
       onAnswer(ctx, t);
+      return;
+    case 'decider_start':
+      onDeciderStart(ctx, t);
+      return;
+    case 'decider_ran':
+      onDeciderRan(ctx, t);
       return;
     case 'approve':
     case 'reject':

@@ -457,6 +457,7 @@ function provenance(s: TaskState): Record<string, unknown> {
         reservation: s.budget.reservations[a.reservation_id]?.status ?? null,
         usage: a.usage,
       })),
+    ...(s.decider_runs === undefined ? {} : { decider_runs: s.decider_runs }),
     budget: {
       agent_runs: s.budget.agent_runs,
       escalations: s.budget.escalations,

@@ -58,7 +58,7 @@ assistant không đọc `owner.token` là quy tắc, không phải giới hạn 
      --evidence evidence-claude.json
    ```
 
-   Lặp lại cho `--harness codex --model gpt-6.1-sol --effort high`. Manifest gắn với binary và pin, không gắn với
+   Bước này tốn 4 lượt model cho mỗi harness (coder, fixer, reviewer, decider). Lặp lại cho `--harness codex --model gpt-6.1-sol --effort high`. Manifest gắn với binary và pin, không gắn với
    model, nên các model còn lại trong bảng [Chọn model](#chọn-model) chạy được mà chưa có lượt chứng minh riêng.
    Coi task đầu tiên của mỗi model là lần kiểm thật của nó.
 

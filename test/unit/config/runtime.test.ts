@@ -379,6 +379,12 @@ describe('project file authority', () => {
     ).toEqual([['schema_invalid', key]]);
   });
 
+  it('cannot enable autonomous', () => {
+    expect(
+      errors('', project('autonomous: true\n')).map((e) => [e.code, e.path]),
+    ).toEqual([['forbidden_key', 'autonomous']]);
+  });
+
   it('cannot enable yolo', () => {
     expect(
       errors('', project('yolo: true\n')).map((e) => [e.code, e.path]),

@@ -265,6 +265,45 @@ Các policy/runtime snapshot của task đã chạy giữ nguyên giới hạn �
 xóa các trần trong user config và tạo lại pin/manifest theo mục bên dưới để task mới dùng cấu hình
 không giới hạn; không sửa tay snapshot hoặc manifest của task cũ.
 
+## Autonomous
+
+`autonomous: true` trong user config cho một agent cấp cao trả lời thay khi bạn vắng mặt, ví dụ lúc đi ngủ.
+Giống yolo, khóa này không bật được qua `cusr.yaml` và được đọc lại lúc chạy (chậm nhất 30 giây sau khi đổi),
+không cần restart. Hai cờ độc lập: decider không merge, yolo không trả lời câu hỏi.
+
+```yaml
+autonomous: true
+roles:
+  decider:
+    binding:
+      - { model: opus, effort: high }
+```
+
+Decider dùng binding đầu tiên của role `decider`, thiếu role này thì config bị từ chối. Nó chạy phiên mới, chỉ
+đọc, trong cùng ranh giới với reviewer. Role mới cần một lần `prove-harness` và `record-manifest` (mỗi lần chứng
+minh giờ tốn 4 lượt thay vì 3). Manifest cũ vẫn chạy được coder, fixer, reviewer; khi đó decider báo
+`capability_missing` trong log và câu hỏi vẫn mở.
+
+- **Trả lời gì:** câu hỏi khiến task dừng ở `agent_question`, `agent_needs_context`, `agent_blocked`. Mọi câu hỏi
+  trong một kết quả của worker đi cùng một lượt. Approval, merge và các loại chờ khác vẫn thuộc về người.
+- **Không có trần số lần gọi,** nhưng không hỏi qua đáp lại: sau khi decider đã trả lời ở một step của một revision,
+  câu hỏi tiếp theo ở step đó chờ người. Task có nhãn `grill` được hỏi đáp nhiều lượt và không có điểm dừng tự động.
+- **Ghi lại:** event `DeciderRan` lưu câu trả lời, lý do và usage trong cùng giao dịch với `QuestionAnswered`
+  (`by: agent:decider`). `<data dir>/decisions.md` được sinh lại toàn bộ từ event nên không sửa tay; crash hoặc lỗi
+  ghi file không để lại mục dở.
+- **Usage:** mỗi lượt giữ một reservation của `budget.agent_runs` trước khi khởi chạy. Task cũ có trần hoặc deadline đã
+  đóng băng mà hết lượt hoặc quá hạn thì decider không chạy, câu hỏi chờ người. Lượt chạy không vượt quá deadline của task. Lượt đã gọi model được tính, kể cả khi lỗi, và hiện trong
+  `decider_runs` của `task explain`. Lượt decider không phải attempt.
+- **Tắt cờ:** daemon đọc lại cờ ngay trước khi nhận kết quả. Lượt đang chạy vẫn chạy hết và được tính usage, nhưng
+  câu trả lời không được dùng và câu hỏi vẫn mở.
+- **Restart:** ID và input của lượt chạy nằm ở `<data dir>/decider/` trước khi khởi chạy. Daemon mới chờ runner cũ kết
+  thúc rồi đọc kết quả, không chạy lượt thứ hai cho cùng câu hỏi. Lượt chưa kịp khởi chạy thì bị bỏ, không khởi chạy khi
+  cờ đã tắt. Không kết luận được thì log một lần và câu hỏi chờ người.
+- **Khi lỗi:** câu hỏi vẫn mở, lý do nằm trong log, không gọi lại câu đó cho tới lần restart daemon. Một lượt không
+  khai `wall_timeout` dừng sau 30 phút. Người trả lời trước thì câu của người thắng.
+- **Lật lại:** decider không hoàn tác được gì. Xem `decisions.md` rồi revert hoặc tạo task mới. Run directory
+  của decider không gắn với operation nào trong store nên retention không dọn.
+
 ## Yolo
 
 `yolo: true` trong user config cho daemon tự merge PR của task đang chờ merge. Không bật được qua

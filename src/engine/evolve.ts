@@ -526,6 +526,11 @@ export function applyInPlace(
     }
     case 'AnswerRejected':
       break;
+    case 'DeciderRan': {
+      const { attempt_id, ...run } = event.payload;
+      s.decider_runs = { ...s.decider_runs, [attempt_id]: run };
+      break;
+    }
     case 'ApprovalRequested': {
       const p = event.payload;
       s.approvals[p.approval_id] = {

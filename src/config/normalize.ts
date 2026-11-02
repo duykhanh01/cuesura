@@ -243,6 +243,7 @@ export function normalizeUserBase(
     projects,
     permissions: u.permissions ?? {},
     yolo: u.yolo ?? false,
+    ...(u.autonomous === true ? { autonomous: true as const } : {}),
   };
 }
 

@@ -15,7 +15,8 @@ import type { Hash } from '../../shared/brand.ts';
 import { hashCanonical } from '../../shared/hash.ts';
 
 export const ROLES = ['coder', 'fixer', 'reviewer'] as const;
-export type Role = (typeof ROLES)[number];
+/** `decider` runs outside the task graph: no workflow step can name it, so it stays out of {@link ROLES}. */
+export type Role = (typeof ROLES)[number] | 'decider';
 
 export const SUMMARY_MAX = 4_000;
 export const TEXT_MAX = 2_000;
@@ -52,13 +53,21 @@ export const ReviewerResultSchema = z.strictObject({
 });
 export type ReviewerResult = z.infer<typeof ReviewerResultSchema>;
 
-export type RoleResult = CoderResult | ReviewerResult;
+export const DeciderResultSchema = z.strictObject({
+  schema_version: z.literal(1),
+  answer: z.string(),
+  reason: z.string(),
+});
+export type DeciderResult = z.infer<typeof DeciderResultSchema>;
+
+export type RoleResult = CoderResult | ReviewerResult | DeciderResult;
 
 /** Coder and fixer share one versioned schema; the reviewer has its own verdict schema. */
 export const ROLE_SCHEMAS = {
   coder: { id: 'cusr.role.coder-fixer.v1', schema: CoderResultSchema },
   fixer: { id: 'cusr.role.coder-fixer.v1', schema: CoderResultSchema },
   reviewer: { id: 'cusr.role.reviewer.v1', schema: ReviewerResultSchema },
+  decider: { id: 'cusr.role.decider.v1', schema: DeciderResultSchema },
 } as const;
 export type RoleSchemaId = (typeof ROLE_SCHEMAS)[Role]['id'];
 
@@ -73,6 +82,8 @@ export const ROLE_SCHEMA_DIGESTS: Readonly<Record<Role, Hash>> = {
     'sha256:0c1592471ef20ca5a8043c0c24c01b8f9b08593dc65be3686c427ba72e3023f4',
   reviewer:
     'sha256:0ff4669a1cfda8e2208448032c76fd3428f55124fe5eb3e3e423cbb96ed1c57e',
+  decider:
+    'sha256:4fd09a7720ba5291314e9866a50e89c9f9c9f5d276c411a0541e2681fe634c0e',
 };
 
 /** Keywords the exported schema may use; anything else needs new S0.2-grade evidence first. */
@@ -322,6 +333,24 @@ function reviewerSemantics(r: ReviewerResult): ValidationIssue[] {
 
 /** Structural (closed schema) then semantic validation. Provenance is checked by the caller. */
 export function validateRoleResult(role: Role, value: unknown): RoleValidation {
+  if (role === 'decider') {
+    const parsed = DeciderResultSchema.safeParse(value);
+    if (!parsed.success)
+      return { ok: false, role, issues: structureIssues(parsed.error) };
+    return parsed.data.answer.trim() === ''
+      ? {
+          ok: false,
+          role,
+          issues: [
+            {
+              layer: 'semantic',
+              path: 'answer',
+              message: 'answer must not be empty',
+            },
+          ],
+        }
+      : { ok: true, role, value: parsed.data };
+  }
   if (role === 'reviewer') {
     const parsed = ReviewerResultSchema.safeParse(value);
     if (!parsed.success)

@@ -88,6 +88,8 @@ export type ContextInput = {
   readonly publish?: PublishBrief | null;
   /** Reviewer of a `full-review` task: the PR content it checks with the diff. */
   readonly pr_content?: PublishContent | null;
+  /** Decider: what the worker is waiting on, every question of its result together. */
+  readonly question?: string;
   readonly limits: {
     readonly context_bytes: number;
     readonly review_diff_bytes: number;
@@ -169,6 +171,10 @@ function marker(t: Truncation): string {
 const list = (xs: readonly string[]): string =>
   xs.map((x) => `- ${x}`).join('\n');
 
+const DECIDER_RULES = `You decide for the project owner, who is away and cannot be asked. A worker stopped on the question below.
+Read the worktree if that helps, but change nothing. Choose what best serves the task and its acceptance criteria, preferring the conventional, reversible choice. Never refuse to decide and never ask back: state any assumption you make.
+Return \`answer\`, telling the worker what to do and covering every question listed, and \`reason\`, one or two sentences the owner reads later.`;
+
 export function buildRoleContext(
   input: ContextInput,
 ): { ok: true; value: RoleContext } | { ok: false; error: NeedsContext } {
@@ -239,6 +245,16 @@ export function buildRoleContext(
         ]),
     ...(input.role === 'coder' || input.role === 'fixer'
       ? [{ name: 'worker_rules', body: WORKER_RULES, required: true }]
+      : []),
+    ...(input.role === 'decider'
+      ? [
+          { name: 'decider_rules', body: DECIDER_RULES, required: true },
+          {
+            name: 'question',
+            body: clean(input.question ?? ''),
+            required: true,
+          },
+        ]
       : []),
     { name: 'title', body: clean(c.request.title), required: true },
     { name: 'acceptance', body: list(c.acceptance.map(clean)), required: true },

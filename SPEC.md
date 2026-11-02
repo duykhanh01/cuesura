@@ -264,6 +264,8 @@ Câu trả lời từ Telegram, GitHub hay CLI quy về cùng một question. Ki
 
 Mọi điểm quyết định đều chờ người có quyền trả lời; không agent nào tự quyết thay.
 
+**Autonomous.** `autonomous: true` trong user config thay người trả lời câu hỏi của worker bằng role `decider`: phiên mới, chỉ đọc, kết quả ghi bằng trigger `decider_ran` và event `DeciderRan`, câu trả lời mang `by: agent:decider`, `<data dir>/decisions.md` được ghi từ event. Không có trần số lần gọi, confidence hay lượt duyệt; approval và merge không thuộc phạm vi này. Sau một câu trả lời của decider, câu hỏi tiếp theo ở cùng step và revision chờ người, trừ task có nhãn `grill`. Chi tiết vận hành ở [deploy](deploy/README.md#autonomous). Với chế độ này, trần decider và điều kiện lật lại trong phạm vi còn đảo ngược ở các mục trên không áp dụng.
+
 ## 11. Kiến trúc thực thi
 
 ```mermaid

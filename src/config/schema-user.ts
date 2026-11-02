@@ -397,6 +397,7 @@ export const UserConfigSchema = z
       .record(z.string(), z.enum(['read_only', 'write']))
       .optional(),
     yolo: z.boolean().optional(),
+    autonomous: z.boolean().optional(),
     runtime: RuntimeSchema.optional(),
   })
   .strict();
@@ -411,5 +412,6 @@ export const USER_ONLY_KEYS = [
   'projects',
   'permissions',
   'yolo',
+  'autonomous',
   'runtime',
 ] as const;

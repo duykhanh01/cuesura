@@ -73,12 +73,20 @@ export const VendorPinSchema = z
   .strict();
 export type VendorPin = z.infer<typeof VendorPinSchema>;
 
+/**
+ * The boundary a role runs under. The decider only reads, like a reviewer, and uses that same boundary, so
+ * adding it changed no settings hash or layout shape of a proven harness.
+ */
+export function boundaryRole(role: Role): Exclude<Role, 'decider'> {
+  return role === 'decider' ? 'reviewer' : role;
+}
+
 /** Claude follows its own default (off); reviewers retain their native read-only boundary. */
 export function nativeSandboxEnabled(
   pin: VendorPin,
   role: Role = 'coder',
 ): boolean {
-  if (role === 'reviewer') return true;
+  if (boundaryRole(role) === 'reviewer') return true;
   if (pin.vendor === 'codex') return pin.permission_mode !== 'full-access';
   const sandbox = pin.settings?.['sandbox'];
   return isRec(sandbox) && sandbox['enabled'] === true;

@@ -32,7 +32,10 @@ const modes = (process.env.FAKE_VENDOR_MODE ?? '').split(',');
 const has = (m) => modes.includes(m);
 const stdin = readFileSync(0, 'utf8');
 // Optional role routing lets one pinned binary/settings run both roles, as a real vendor does.
-const reviewer = !!process.env.FAKE_VENDOR_REVIEWER_REPLAY && /^Role: reviewer$/m.test(stdin);
+// A decider replays the reviewer's run with its own answer: same read-only boundary, its own schema.
+const decider = /^Role: decider$/m.test(stdin);
+const DECIDER_ANSWER = { schema_version: 1, answer: 'proceed', reason: 'capability check' };
+const reviewer = !!process.env.FAKE_VENDOR_REVIEWER_REPLAY && (decider || /^Role: reviewer$/m.test(stdin));
 const fixer = /^Role: fixer$/m.test(stdin);
 const replay = reviewer
   ? process.env.FAKE_VENDOR_REVIEWER_REPLAY
@@ -116,7 +119,14 @@ else {
     .filter((l) => l.trim() !== '')
     .map((l) => JSON.parse(l))
     .filter((r) => r.kind === 'stdout')
-    .map((r) => r.data);
+    .map((r) => r.data)
+    .map((r) => {
+      if (!decider) return r;
+      if (r.type === 'result') return { ...r, structured_output: DECIDER_ANSWER };
+      if (r.type === 'item.completed' && r.item?.type === 'agent_message')
+        return { ...r, item: { ...r.item, text: JSON.stringify(DECIDER_ANSWER) } };
+      return r;
+    });
   // The stand-in reports the model it was asked for, as the real binary does in system/init.
   const model = argv[argv.indexOf('--model') + 1];
   const resumeMode = process.env.FAKE_VENDOR_RESUME;

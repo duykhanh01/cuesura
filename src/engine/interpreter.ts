@@ -1726,7 +1726,8 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
       {
         step,
         attempt_id: e.attempt_id,
-        body: `${d.status}: ${reported}`,
+        // A worker may list questions with its blocker; whoever answers needs them too.
+        body: [`${d.status}: ${reported}`, ...(d.questions ?? [])].join('\n'),
         resume: { kind: 'start_attempt', step, attempt_kind: 'retry' },
         detail: { step, reported },
       },

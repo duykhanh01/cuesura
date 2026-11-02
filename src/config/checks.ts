@@ -454,6 +454,13 @@ function checkRolesAndModels(ctx: Ctx): void {
         `Harness '${m.harness}' used by model '${mn}' does not exist`,
       );
   }
+  if (user.autonomous === true && !('decider' in user.roles))
+    push(
+      ctx,
+      'schema_invalid',
+      ['autonomous'],
+      "autonomous: true needs a 'decider' role with a binding",
+    );
   for (const [rn, r] of Object.entries(user.roles)) {
     r.binding.forEach((b, i) => {
       if (!(b.model in user.models))

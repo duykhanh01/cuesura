@@ -718,6 +718,8 @@ function agentOutcome(
         };
   }
   const v = o.value;
+  if ('answer' in v)
+    return failed('auth_config', 'a decider result is not an attempt outcome');
   if ('verdict' in v) {
     return {
       outcome: 'succeeded',
@@ -742,7 +744,11 @@ function agentOutcome(
       schema_checked: true,
       status: v.status,
       summary: v.summary,
-      questions: v.questions.map((q) => q.question),
+      questions: v.questions.map((q) =>
+        q.options.length === 0
+          ? q.question
+          : `${q.question}\nOptions: ${q.options.join(' | ')}`,
+      ),
       ...(v.blocker === null ? {} : { blocker: v.blocker }),
       usage: o.usage,
       invoked: true,
@@ -1124,6 +1130,14 @@ async function startAgent(
     };
   }
   return recorded;
+}
+
+/** Where a role outside the attempt flow runs on this task. */
+export function taskWorkspace(
+  deps: HandlerDeps,
+  taskId: string,
+): Promise<{ worktree: string; git_dirs: string[] }> {
+  return workspaceOf(deps, load(deps, { task_id: taskId } as Effect));
 }
 
 /** The task worktree and the Git dirs a sandboxed role sees read-only (common dir, worktree admin dir). */

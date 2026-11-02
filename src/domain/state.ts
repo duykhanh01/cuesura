@@ -492,6 +492,18 @@ export type PrBodyState = {
 export type CiWait = { started_at: number; polls: number };
 
 /** version increases with every event. */
+/** One decider run on this task: what it cost, what it said and whether that answered the question. */
+export type DeciderRun = {
+  question_id: string;
+  usage: Usage;
+  invoked: boolean;
+  answer: string | null;
+  reason: string | null;
+  failure: string | null;
+  applied: boolean;
+  at: number;
+};
+
 export type TaskState = {
   schema_version: number;
   id: string;
@@ -519,6 +531,8 @@ export type TaskState = {
   effects: Record<string, EffectMirror>;
   timers: Record<string, TimerMirror>;
   questions: Record<string, Question>;
+  /** Absent until the decider first runs, so tasks without it replay to the same state. */
+  decider_runs?: Record<string, DeciderRun>;
   approvals: Record<string, Approval>;
   evidence: Evidence;
   head_sha: string | null;
