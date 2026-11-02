@@ -522,7 +522,7 @@ export type CheckEnforcement = (typeof CHECK_ENFORCEMENTS)[number];
 
 /**
  * One required check as GitHub names it. `app: 'any'` when GitHub does not pin an app (absent, null or
- * -1 in the pinned response schema); a number is a pinned app, which a name-only snapshot never covers.
+ * -1 in the pinned response schema); a number is a pinned app, recorded in evidence and verified before merge.
  * Lives in observation evidence only, never in FrozenPolicy.
  */
 export const RequiredIdentitySchema = z

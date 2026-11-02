@@ -237,8 +237,25 @@ không chặn được request đã gửi tới GitHub.
 
 - `full-review` cần reviewer của Cuesura approve; đây không phải review trên GitHub.
 - `direct-pr` không có reviewer đọc diff: chỉ gate và CI chặn lỗi.
-- Nhánh đích cần classic branch protection: required checks, "up to date", áp dụng cho admin. Thiếu thì
-  daemon không merge và ghi lý do vào log. Không bật yêu cầu approvals nếu chỉ có một tài khoản.
+- Branch protection là tùy chọn, khuyến nghị bật required checks, "up to date" và áp dụng cho admin
+  như lớp chặn thêm do GitHub thực thi. Không bật yêu cầu approvals nếu chỉ có một tài khoản.
+- Daemon yêu cầu PR `clean`, đúng head/target, và compare `head...target` trả `ahead_by === 0`.
+  Khi head chứa tip, chiều compare này có diff rỗng, tránh phản hồi quá lớn. Giữ điều kiện `clean`
+  thận trọng: check không bắt buộc đỏ có thể làm GitHub trả `unstable` và chặn yolo.
+- Cả CI và observation chờ `ci.required_checks` đóng băng hợp với tên check GitHub đang bắt buộc,
+  kể cả check ngoài policy/ghim app; không phụ thuộc cờ yolo và không sửa FrozenPolicy. Tên/app được
+  lưu trong evidence. Không đọc đủ luật/check, thiếu quyền hoặc có collision thì chưa đạt.
+- Trước merge, daemon tự yêu cầu check ghim app có `success` đúng `app_id`; không tin rằng GitHub
+  sẽ chặn hộ, vì admin có thể bypass nếu protection không áp dụng cho admin.
+- Khuyến nghị khai `ci.required_checks`. Nếu hợp danh sách rỗng, task vẫn vào chờ merge như cũ;
+  yolo không merge và log một lần mỗi task trong vòng đời daemon, hướng dẫn khai danh sách này.
+  Không dùng mọi check đang thấy trên head làm fallback vì workflow khác có thể chưa kịp tạo check.
+  Job `skipped` chỉ chặn khi thuộc hợp check bắt buộc.
+- Lỗi đọc hoặc validate user config được ghi log và coi yolo là tắt; không tác động CI/observation.
+- Không có protection, GitHub không chặn race nếu nhánh đích có commit mới hoặc check đổi kết quả giữa
+  lúc daemon đọc và lúc merge. `sha` chỉ chặn PR head đổi, không khóa tip nhánh đích hay kết quả check.
+
+Ví dụ protection được khuyến nghị (không bắt buộc):
 
 ```sh
 gh api -X PUT repos/<owner>/<repo>/branches/main/protection --input - <<'JSON'

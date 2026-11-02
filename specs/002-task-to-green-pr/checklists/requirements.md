@@ -74,6 +74,8 @@
 - Review 2026-10-28: Internet outbound mặc định (Q19), snapshot checks giữ string[]/policy+event v1;
   GitHub ghim app cụ thể là mismatch. Giữ gh port và file attempt chuẩn; systemd supervision được
   ghi ADR-0002 và sửa SPEC. Có go/no-go sau A/ngày 10 và token operate riêng cho assistant.
+- Cập nhật 2026-11-02 thay quy tắc mismatch của review trên: chờ hợp tên snapshot/GitHub mỗi lượt
+  đọc; app cụ thể lưu evidence và kiểm trước merge, không tạo mismatch mới. Giữ replay lịch sử.
 - ADR-0004 thay baseline AppArmor của ADR-0003 bằng Isolated rootless bwrap; không bắt buộc
   AppArmor 4/child stack, không giảm trust boundary. S0.1 kiểm FD/socket, re-exec/copy/raw-userns,
   mount/PID/secret/ro/rw và lifetime thật; thử sandbox nội bộ bật trước. External_verified chỉ sau

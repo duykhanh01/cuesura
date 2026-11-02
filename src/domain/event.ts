@@ -20,6 +20,7 @@ import type {
   Check,
   FailureClass,
   RequiredSet,
+  RequiredCheckVerdict,
   Usage,
 } from './trigger.ts';
 import type {
@@ -165,6 +166,7 @@ export type EventPayloads = {
     head_sha: string;
     required_set: RequiredSet;
     checks: Check[];
+    required?: RequiredCheckVerdict;
     resets_streak_of: string | null;
   };
   BaseRelationRecorded: { relation: BaseRelation };

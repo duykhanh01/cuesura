@@ -1,10 +1,10 @@
 /**
- * The daemon's merge of a yolo task's PR (SPEC §14.2). Two reads say whether GitHub itself would enforce
- * what the merge relies on: the PR is `clean` on the head the task checked, and the target's classic
- * protection requires up-to-date branches and applies to admins, since the daemon merges with the owner's
- * account. Anything unreadable or different is "not ready". The merge carries the checked head as `sha`,
- * so GitHub refuses it if the head moved, and a squash uses the worker's commit message; the outcome is
- * learned from the next observation of the PR.
+ * Yolo merge readiness (SPEC §14.2): an open PR on the checked head and target must be `clean`,
+ * and a fresh head...target comparison must report ahead_by === 0. Protection is optional:
+ * GitHub may enforce additional rules at merge time; the daemon checks CI and pinned apps itself.
+ * The request carries the checked
+ * head as `sha` and the worker's validated squash message; the next observation learns the outcome.
+ * Without protection, target/check changes between the reads and merge remain a race.
  */
 import type { MergeMethod } from '../../domain/merge-method.ts';
 import type { GitHubPort } from '../ports.ts';
@@ -44,19 +44,16 @@ export async function readMergeReadiness(
   const state = obj(pull.value.body)['mergeable_state'];
   if (state !== 'clean') return notReady(`mergeable_state ${String(state)}`);
 
-  const protection = await port.request({
+  const comparison = await port.request({
     method: 'GET',
-    path: `repos/${t.repo}/branches/${encodeURIComponent(t.target)}/protection`,
+    path: `repos/${t.repo}/compare/${t.head_sha}...${encodeURIComponent(t.target)}`,
     query: {},
     body: null,
   });
-  if (!protection.ok)
-    return notReady(`protection unreadable: ${protection.error.detail}`);
-  const body = obj(protection.value.body);
-  if (obj(body['required_status_checks'])['strict'] !== true)
-    return notReady('protection does not require up-to-date branches');
-  if (obj(body['enforce_admins'])['enabled'] !== true)
-    return notReady('protection does not apply to admins');
+  if (!comparison.ok)
+    return notReady(`compare unreadable: ${comparison.error.detail}`);
+  const ahead = obj(comparison.value.body)['ahead_by'];
+  if (ahead !== 0) return notReady(`compare ahead_by ${String(ahead)}`);
   return { ready: true };
 }
 

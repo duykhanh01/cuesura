@@ -863,11 +863,19 @@ profiles:
   - **Ai bật:** chỉ bạn, theo từng repo, qua `cusr repo yolo on <repo>` có xác nhận TTY, hoặc qua `~/.cusr/config.yaml`. **Không bật được qua `cusr.yaml` trong repo**, vì agent có thể sửa file đó trong branch. Agent và assistant không bật được. Mọi lần bật/tắt là một event có actor.
   - **Không đóng băng theo task:** yolo là thiết lập của repo, không nằm trong FrozenPolicy, và được đọc *tại thời điểm merge*. Tắt yolo có hiệu lực ngay với mọi task đang chạy.
   - **Điều kiện cứng, kể cả khi yolo:**
-    - Required checks xanh trên head đã chứa tip mới nhất của `main` (mục 8.8).
-    - Reviewer đã approve, không còn finding mức cao chưa xử lý.
+    - Required checks xanh trên head đã chứa tip mới nhất của `main` (compare `head...target` trả `ahead_by === 0`).
+      CI/observation luôn chờ hợp tên check policy và yêu cầu GitHub đang có hiệu lực, kể cả check
+      ngoài policy và ghim app, không phụ thuộc yolo hay sửa snapshot. Daemon kiểm tra đúng app khi
+      gửi merge. Hợp rỗng vẫn vào chờ merge; riêng yolo không merge và log hướng dẫn khai
+      `ci.required_checks`. Điều kiện `clean` có thể chặn yolo khi check không bắt buộc đỏ
+      (SPEC.md §14.2).
+    - Với `full-review`, reviewer đã approve, không còn finding mức cao chưa xử lý; `direct-pr` không cần reviewer.
     - Merge được tuần tự hoá.
     - Không có kết quả CI nào ở trạng thái không xác định.
   - **Thiếu bất kỳ điều kiện nào** thì task chuyển `WAITING(approval)`, `approval_kind=merge`, đúng như chế độ `human`. Branch protection trên GitHub yêu cầu review của người thì cũng chặn tự merge theo cách tương tự.
+  - Branch protection là tùy chọn, khuyến nghị bật như lớp chặn thêm do GitHub thực thi. Không có
+    protection, GitHub không chặn nhánh đích có commit mới hay check đổi kết quả giữa lúc đọc và merge;
+    expected-head `sha` chỉ chặn PR head đổi.
   - **Sau merge:** nếu CI trên `main` đỏ, tự tạo PR revert và báo bạn. Không tự force-push.
 - **Merge vào nhánh không được bảo vệ** (integration `group/*`, `feature/*`) tự động khi đủ điều kiện cứng, theo `auto_when` của bước `merge_gate`. Không cần yolo.
 - **Decider độc lập với agent đang hỏi:** session mới, chỉ đọc. Nên dùng model hoặc vendor khác với coder.

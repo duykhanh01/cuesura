@@ -1,9 +1,12 @@
 /**
  * Yolo merges (SPEC §14.2). After a read of the task's PR, a task waiting for its merge is merged by this
- * code when the owner's user config has `yolo: true` right now and GitHub would enforce what the merge
- * relies on, and the checks it reports now meet the frozen policy. The engine decides eligibility and
- * records the `policy:yolo` approval with the content digest before anything is sent; the merge names the
- * checked head and that content's commit message, so a resend after a lost answer is the same request, and
+ * code when the owner's user config has `yolo: true` right now, its head contains the latest target tip,
+ * and the checks GitHub reports meet the union of policy and binding GitHub names, including pinned
+ * app identities. An empty required list never permits merge; it does not change the engine's CI wait.
+ * Protection is optional; without enforcement, a target/check change before merge remains a race.
+ * The engine decides eligibility and records the `policy:yolo` approval with the content digest before
+ * anything is sent. The merge names the checked head and that content's commit message, so a resend
+ * after a lost answer is the same request, and
  * the next observation completes the task from its proof. No agent takes part. Anything else leaves the wait as
  * it is, so the user can still merge on GitHub.
  */
@@ -48,6 +51,11 @@ export type YoloOutcome =
   | 'refused'
   | 'unknown';
 
+const NO_REQUIRED_CHECKS =
+  'no required CI checks; declare ci.required_checks in cusr.yaml';
+// One warning per task in this daemon/store lifetime, rather than one on every observation poll.
+const emptyCheckWarnings = new WeakMap<Store, Set<string>>();
+
 function mergeWait(s: TaskState | null): s is TaskState {
   return (
     s !== null &&
@@ -69,8 +77,22 @@ async function currentChecksProblem(
   const required = await readRequirements(port, t.repo, t.target, now);
   const verdict = evaluateRequired(required, policy.ci.required_checks);
   if (verdict.kind !== 'covered') return `required checks ${verdict.kind}`;
+  if (policy.ci.required_checks.length === 0 && verdict.github.length === 0)
+    return NO_REQUIRED_CHECKS;
   const checks = await readHeadChecks(port, t.repo, t.head_sha);
   if (!checks.ok) return `checks unreadable: ${checks.error.detail}`;
+  for (const identity of verdict.app_pinned ?? []) {
+    if (
+      !checks.value.checks.some(
+        (check) =>
+          check.name === identity.name &&
+          check.source === 'check_run' &&
+          check.app_id === identity.app &&
+          check.state === 'success',
+      )
+    )
+      return `required check ${identity.name} from app ${identity.app} is not successful`;
+  }
   const ci = ciVerdict(
     policy,
     {
@@ -108,6 +130,15 @@ export async function yoloMerge(
   };
   const port = deps.github();
   const notReady = (reason: string): YoloOutcome => {
+    if (reason === NO_REQUIRED_CHECKS) {
+      let warned = emptyCheckWarnings.get(deps.store);
+      if (warned === undefined) {
+        warned = new Set<string>();
+        emptyCheckWarnings.set(deps.store, warned);
+      }
+      if (warned.has(taskId)) return 'not_ready';
+      warned.add(taskId);
+    }
     deps.log?.(`yolo ${taskId}: not merged: ${reason}`);
     return 'not_ready';
   };

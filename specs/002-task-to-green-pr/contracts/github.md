@@ -96,16 +96,17 @@ FR-040.12, không thay bằng HEAD hiện tại hoặc suy từ merge commit squ
 - Protected branch cần đọc được cả classic protection và active rules áp dụng từ repo/org; rule
   API không thay classic protection. Missing permission/feature response hoặc truncated pages
   không được coi empty. Non-check rules ghi lại nhưng không tuyên bố PR đủ điều kiện merge.
-- Project snapshot giữ `string[]` tên check. GitHub không ghim app (absent/null/-1 theo response
-  schema được pin) dùng any-app và được bao phủ khi cùng tên có trong snapshot. App ID cụ thể luôn
-  required_checks_mismatch; ghi tên/app trong evidence, không thêm FrozenPolicy v2 hoặc key app_id
-  vào cusr.yaml. Chỉ người dùng tự đổi rule GitHub thành any-app nếu chấp nhận; Cuesura không tự nới.
-- Hai required sets GitHub được hợp để mô tả đầy đủ yêu cầu GitHub; **không** hợp chúng vào snapshot.
-  Core kiểm `G ⊆ S` khi G chỉ any-app; phần `G \ S` hoặc app-pinned → required_checks_mismatch. Snapshot thêm
-  check vẫn phải pass; không chỉ chạy các check GitHub yêu cầu.
-- Check runs và commit statuses cùng được đọc theo đúng SHA. Chọn attempt/generation hiện hành,
-  status mới nhất của cùng identity; pending/failure của rerun không được che bằng success cũ.
-  Cùng tên nhiều nguồn không ánh xạ rõ hoặc status/check collision không giải được → policy.
+- Project snapshot giữ `string[]` tên check; không thêm key app_id hay sửa FrozenPolicy/hash.
+  Mỗi lượt đọc tính hợp snapshot và tên mọi check đang bắt buộc trên GitHub, kể cả app-pinned,
+  không phụ thuộc yolo. Lưu `github` và `app_pinned` (name/app/source/ruleset) trong verdict/CI evidence.
+- Check ngoài snapshot hoặc ghim app không tạo required_checks_mismatch mới. Schema và wait lịch sử
+  giữ nguyên; quan sát tiếp theo áp dụng hợp tên để đi tiếp trong hạn CI, hết hạn thì ci_wait_exhausted.
+- GitHub `none` là evidence dương; unknown/thiếu quyền/đọc thiếu không fallback. Cùng tên nhiều nguồn
+  không ánh xạ rõ hoặc status/check collision không giải được vẫn chờ policy.
+- Hợp rỗng: observation vẫn vào chờ merge, không chờ check tùy chọn; yolo không merge và log một lần
+  hướng dẫn khai `ci.required_checks`. Không lấy mọi check đang thấy trên head làm fallback.
+- Trước merge phải success đúng app_id của mọi check được pin; token admin có thể bypass protection.
+  Compare dùng `head...target` và `ahead_by === 0`, để diff rỗng khi head đã chứa tip.
 - Chỉ success đạt; neutral/skipped/pending/cancelled/missing/unknown không đủ theo spec này.
   Gate snapshot cùng head luôn bắt buộc; review cùng head bắt buộc trong `full-review`.
   `direct-pr` ghi rõ review không được yêu cầu theo mode đã xác nhận, không giả approve; GitHub

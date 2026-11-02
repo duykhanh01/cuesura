@@ -430,8 +430,16 @@ function onOpenCi(ctx: Ctx, t: ObservationResult, step: string | null): void {
   const prior = latestCi(s, ci.head_sha);
   const same =
     prior !== undefined &&
-    canonicalJson({ r: prior.required_set, c: prior.checks }) ===
-      canonicalJson({ r: ci.required_set, c: ci.checks });
+    canonicalJson({
+      r: prior.required_set,
+      c: prior.checks,
+      required: prior.required ?? null,
+    }) ===
+      canonicalJson({
+        r: ci.required_set,
+        c: ci.checks,
+        required: ci.required ?? null,
+      });
   const required = ci.required;
   const covered = required === undefined || required.kind === 'covered';
   if (same && covered && code !== 'required_checks_mismatch') return;
@@ -440,6 +448,7 @@ function onOpenCi(ctx: Ctx, t: ObservationResult, step: string | null): void {
       head_sha: ci.head_sha,
       required_set: ci.required_set,
       checks: ci.checks,
+      ...(ci.required === undefined ? {} : { required: ci.required }),
       resets_streak_of: null,
     });
   // Still not covered while already waiting on it: nothing changed for the task.

@@ -9,8 +9,8 @@ import {
 import { evaluateRequired } from '../../../src/engine/required-checks.ts';
 import { propertyParams } from '../arbitraries/policies.ts';
 
-// FR-042.01–09: G ⊆ S by name for any-app requirements; app-pinned is always a mismatch; `none` differs
-// from `unknown`; the snapshot is never widened or reordered by the comparison.
+// FR-042.01–09: the runtime waits for the union of snapshot and binding GitHub names; pinned apps
+// are evidence, none differs from unknown, and the snapshot is never widened or reordered.
 
 const NAMES = ['build', 'test', 'lint', 'ci/a', 'ci/b'] as const;
 const nameArb = fc.constantFrom(...NAMES);
@@ -56,26 +56,30 @@ const knownOrNoneArb: fc.Arbitrary<RequiredEvidence> = fc
 const snapshotArb = fc.uniqueArray(nameArb, { maxLength: NAMES.length });
 
 /** Oracle from the contract text, independent of the evaluator. */
-function oracle(
-  ev: RequiredEvidence,
-  snapshot: readonly string[],
-): 'covered' | 'required_checks_mismatch' | 'unknown' {
-  if (ev.kind === 'unknown') return 'unknown';
-  const g = ev.identities.filter(
-    (i) => i.enforcement === 'classic' || i.enforcement === 'active',
-  );
-  if (g.some((i) => i.app !== 'any')) return 'required_checks_mismatch';
-  return g.every((i) => snapshot.includes(i.name))
-    ? 'covered'
-    : 'required_checks_mismatch';
+function oracle(ev: RequiredEvidence): 'covered' | 'unknown' {
+  return ev.kind === 'unknown' ? 'unknown' : 'covered';
 }
 
-describe('required checks subset G ⊆ S (FR-042)', () => {
+describe('required check names and app evidence (FR-042)', () => {
   it('generated evidence is schema-valid and the verdict matches the contract oracle', () => {
     fc.assert(
       fc.property(knownOrNoneArb, snapshotArb, (ev, snapshot) => {
         expect(RequiredEvidenceSchema.safeParse(ev).success).toBe(true);
-        expect(evaluateRequired(ev, snapshot).kind).toBe(oracle(ev, snapshot));
+        const verdict = evaluateRequired(ev, snapshot);
+        expect(verdict.kind).toBe(oracle(ev));
+        if (verdict.kind === 'covered' && ev.kind !== 'unknown') {
+          const names = ev.identities
+            .filter(
+              (i) => i.enforcement === 'classic' || i.enforcement === 'active',
+            )
+            .map((i) => i.name);
+          expect([...new Set([...snapshot, ...verdict.github])].sort()).toEqual(
+            [...new Set([...snapshot, ...names])].sort(),
+          );
+          expect(verdict.snapshot_only).toEqual(
+            snapshot.filter((n) => !names.includes(n)).sort(),
+          );
+        }
       }),
       propertyParams(300),
     );
@@ -101,7 +105,7 @@ describe('required checks subset G ⊆ S (FR-042)', () => {
     );
   });
 
-  it('an app-pinned binding requirement is a mismatch even when its name is in the snapshot', () => {
+  it('an app-pinned binding requirement contributes its name and app even outside the snapshot', () => {
     fc.assert(
       fc.property(
         knownOrNoneArb,
@@ -123,9 +127,9 @@ describe('required checks subset G ⊆ S (FR-042)', () => {
               },
             ],
           };
-          const v = evaluateRequired(pinned, NAMES);
-          expect(v.kind).toBe('required_checks_mismatch');
-          if (v.kind === 'required_checks_mismatch')
+          const v = evaluateRequired(pinned, []);
+          expect(v.kind).toBe('covered');
+          if (v.kind === 'covered')
             expect(v.app_pinned).toContainEqual({
               name,
               app,

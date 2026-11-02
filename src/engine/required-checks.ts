@@ -5,8 +5,7 @@ import {
 } from '../domain/runtime.ts';
 
 // Pure required-checks evaluator (FR-042.01–09, contracts/github.md).
-// The snapshot is the frozen `ci.required_checks` name list; GitHub's sets are compared to it and never
-// merged into it.
+// The snapshot stays frozen; each read supplies the binding GitHub names for the effective union.
 
 export type PinnedRequirement = Pick<
   RequiredIdentity,
@@ -15,14 +14,17 @@ export type PinnedRequirement = Pick<
 
 export type RequiredVerdict =
   | {
-      /** G ⊆ S: every binding any-app GitHub requirement is named in the snapshot. */
+      /** All binding GitHub names are accepted, including those outside the snapshot and pinned apps. */
       readonly kind: 'covered';
       readonly github_required: 'known' | 'none';
       readonly github: readonly string[];
+      /** Additive evidence; absent in older verdicts. App identity is enforced again before merge. */
+      readonly app_pinned?: readonly PinnedRequirement[];
       /** Snapshot checks GitHub does not require: still required, listed for explain. */
       readonly snapshot_only: readonly string[];
     }
   | {
+      /** Historical verdict: retained for old triggers/events and replay; no longer produced. */
       readonly kind: 'required_checks_mismatch';
       /** Any-app GitHub requirements absent from the snapshot (G \ S). */
       readonly missing_from_snapshot: readonly string[];
@@ -49,25 +51,16 @@ export function evaluateRequired(
   if ((evidence.kind === 'known') !== binding.length > 0)
     return { kind: 'unknown', basis: `inconsistent ${evidence.kind} evidence` };
   const snap = new Set(snapshot);
-  const anyApp = [
-    ...new Set(binding.filter((i) => i.app === 'any').map((i) => i.name)),
-  ].sort(byName);
+  const github = [...new Set(binding.map((i) => i.name))].sort(byName);
   const pinned = dedupePinned(binding.filter((i) => i.app !== 'any'));
-  const required = new Set([...anyApp, ...pinned.map((p) => p.name)]);
-  const snapshotOnly = [...snap].filter((n) => !required.has(n)).sort(byName);
-  const missing = anyApp.filter((n) => !snap.has(n));
-  if (missing.length > 0 || pinned.length > 0) {
-    return {
-      kind: 'required_checks_mismatch',
-      missing_from_snapshot: missing,
-      app_pinned: pinned,
-      snapshot_only: snapshotOnly,
-    };
-  }
+  const snapshotOnly = [...snap]
+    .filter((n) => !github.includes(n))
+    .sort(byName);
   return {
     kind: 'covered',
     github_required: evidence.kind,
-    github: anyApp,
+    github,
+    app_pinned: pinned,
     snapshot_only: snapshotOnly,
   };
 }

@@ -219,6 +219,15 @@ export const CreatePrDataSchema = z
   })
   .strict();
 
+const PinnedRequirementSchema = z
+  .object({
+    name: z.string(),
+    app: z.union([z.literal('any'), z.number().int().positive()]),
+    source: z.enum(['classic', 'rules']),
+    ruleset_id: z.number().int().positive().nullable(),
+  })
+  .strict();
+
 /** Result of comparing GitHub's required checks with the snapshot (engine/required-checks.ts). */
 export const RequiredCheckVerdictSchema = z.discriminatedUnion('kind', [
   z
@@ -226,6 +235,7 @@ export const RequiredCheckVerdictSchema = z.discriminatedUnion('kind', [
       kind: z.literal('covered'),
       github_required: z.enum(['known', 'none']),
       github: z.array(z.string()),
+      app_pinned: z.array(PinnedRequirementSchema).optional(),
       snapshot_only: z.array(z.string()),
     })
     .strict(),
@@ -233,16 +243,7 @@ export const RequiredCheckVerdictSchema = z.discriminatedUnion('kind', [
     .object({
       kind: z.literal('required_checks_mismatch'),
       missing_from_snapshot: z.array(z.string()),
-      app_pinned: z.array(
-        z
-          .object({
-            name: z.string(),
-            app: z.union([z.literal('any'), z.number().int().positive()]),
-            source: z.enum(['classic', 'rules']),
-            ruleset_id: z.number().int().positive().nullable(),
-          })
-          .strict(),
-      ),
+      app_pinned: z.array(PinnedRequirementSchema),
       snapshot_only: z.array(z.string()),
     })
     .strict(),

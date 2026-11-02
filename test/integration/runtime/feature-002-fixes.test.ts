@@ -525,7 +525,7 @@ describe('required checks (US2.6, FR-042)', () => {
     });
   }
 
-  it('GitHub A/B vs snapshot B/C: required_checks_mismatch names both sides even when every check passes; nothing is merged into the snapshot', () => {
+  it('a legacy GitHub A/B vs snapshot B/C mismatch result remains readable and names both sides', () => {
     const d = setup();
     const t = buildTask();
     toCi(d, t);
@@ -658,7 +658,7 @@ describe('green PR under observation (US2.7/US2.8, US1.7, FR-041)', () => {
     });
   });
 
-  it('US2.7: GitHub starting to require an uncovered check withdraws green; once covered again, green returns', () => {
+  it('a legacy mismatch verdict withdraws green; a fresh covered observation restores it', () => {
     const d = setup();
     const t = buildTask();
     toGreen(d, t);

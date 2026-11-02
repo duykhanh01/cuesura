@@ -120,7 +120,7 @@ NormalizedUser để runtime còn biết allowlisted remote.
 | User `runtime.credential_refs` | File reference cho GitHub/harness, không copy secret vào snapshot |
 | User `roles.<role>.prompt` | Đường dẫn tương đối tính từ thư mục user config; không nhận đường dẫn tuyệt đối hoặc `..`; thiếu hoặc quá 1 MiB thì freeze báo config_invalid |
 | `<DATA_DIR>/harnesses/<harness>/pin.json`, `manifest.json` | Bản ghi owner, không chứa secret, không mount vào sandbox; phải là file thường của owner, không cho group/other ghi. Thiếu hoặc không còn khớp host thì harness capability_missing. Đọc lúc daemon khởi động, đổi bản ghi cần restart |
-| Project `ci.required_checks[]` | Giữ string[] schema v1; không thêm key app_id; GitHub ghim app cụ thể trả required_checks_mismatch |
+| Project `ci.required_checks[]` | Giữ string[] schema v1/hash; hợp tên GitHub ở mỗi lượt đọc, app_id ở evidence và được kiểm trước merge; giữ replay mismatch lịch sử |
 | Project `merge.method` | `squash` mặc định, enum `squash`/`merge`/`rebase`; object `merge` closed chỉ có method; resolve từ frozen base và đóng băng theo task, không cấp quyền merge/yolo |
 
 `merge` vắng hoặc object rỗng thì resolve method=`squash`; sai kiểu/enum hoặc key không biết trong

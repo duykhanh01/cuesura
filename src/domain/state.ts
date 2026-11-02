@@ -12,6 +12,7 @@ import type {
   Check,
   FailureClass,
   RequiredSet,
+  RequiredCheckVerdict,
   Usage,
 } from './trigger.ts';
 import type {
@@ -291,6 +292,7 @@ export type Evidence = {
     head_sha: string;
     required_set: RequiredSet;
     checks: Check[];
+    required?: RequiredCheckVerdict;
     valid: boolean;
   }[];
   base_relations: (BaseRelation & { revision: number; valid: boolean })[];

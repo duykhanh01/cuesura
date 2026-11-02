@@ -259,6 +259,31 @@ describe('green predicate of the checked head (T043, FR-019/041.06/042.08)', () 
     });
   });
 
+  it('waits for binding GitHub names outside the frozen snapshot', () => {
+    expect(
+      headVerdict(
+        state(),
+        SNAPSHOT,
+        SHA,
+        { ...COVERED, github: ['build', 'security'] },
+        ok(c('build', 'success'), c('test', 'success')),
+      ),
+    ).toMatchObject({ kind: 'not_green', missing: ['security'] });
+    expect(
+      headVerdict(
+        state(),
+        SNAPSHOT,
+        SHA,
+        { ...COVERED, github: ['build', 'security'] },
+        ok(
+          c('build', 'success'),
+          c('test', 'success'),
+          c('security', 'success'),
+        ),
+      ),
+    ).toMatchObject({ kind: 'green' });
+  });
+
   it.each(['skipped', 'pending', 'cancelled', 'unknown'] as const)(
     '%s is not a pass',
     (s) => {

@@ -40,6 +40,8 @@ export type GhLimits = {
 
 const SEG = '[A-Za-z0-9_.-]+';
 const BRANCH = '[A-Za-z0-9_.%/-]+';
+// The exact checked commit SHA, followed by one encoded branch name. No raw path separators.
+const COMPARE_BRANCH = '(?!\\.)(?:[A-Za-z0-9_-]|\\.(?!\\.)|%[0-9A-Fa-f]{2})+';
 const REPO = `repos/${SEG}/${SEG}`;
 
 /** Read endpoints. Nothing else is reachable with GET, whatever the caller passes. */
@@ -54,6 +56,7 @@ export const GET_ENDPOINTS: readonly RegExp[] = [
   new RegExp(`^${REPO}/rules/branches/${BRANCH}$`),
   new RegExp(`^${REPO}/rulesets/\\d+$`),
   new RegExp(`^${REPO}/commits/[0-9a-f]{40}/(check-runs|statuses)$`),
+  new RegExp(`^${REPO}/compare/[0-9a-f]{40}\\.\\.\\.${COMPARE_BRANCH}$`),
   new RegExp(`^${REPO}/actions/runs/\\d+$`),
 ];
 

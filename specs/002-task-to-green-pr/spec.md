@@ -80,6 +80,15 @@ permission/approval được kiểm chứng, owner cho phép tường minh; khô
 
 ## Clarifications
 
+### Session 2026-11-02 — thay thế Q5/Q12 và quy tắc subset của FR-042
+
+- Required checks là hợp snapshot và mọi tên check GitHub đang bắt buộc, kể cả check ngoài policy/ghim
+  app, áp dụng cả khi yolo bật/tắt. Tên/app được lưu trong CI evidence; snapshot giữ nguyên.
+- Không có check bắt buộc: observation vẫn vào chờ merge; riêng yolo không merge và log hướng dẫn
+  khai `ci.required_checks`, không fallback sang mọi check trên head.
+- Merge tự kiểm tra đúng app được pin và compare `head...target` có `ahead_by === 0`; giữ replay
+  schema/event/wait mismatch cũ. Chi tiết hiện hành ở FR-042 và SPEC.md §14.2.
+
 ### Session 2026-10-27
 
 - Q: Feature 2 bao gồm toàn bộ luồng tới PR xanh hay chỉ runner/harness? → A: Toàn bộ luồng tới PR xanh
@@ -227,11 +236,10 @@ code; kiểm tra vòng sửa, bằng chứng mới và số lượt. Tách mẫu
 5. **Given** đã hết lượt, thời hạn, ngân sách hoặc thiếu approval cho nấc tiếp, **When** cần gọi agent,
    **Then** không bắt đầu attempt; task chờ quyết định, hiển thị giới hạn đã chạm và cách kết thúc.
 6. **Given** GitHub yêu cầu A/B và CI rules đã đóng băng yêu cầu B/C, **When** xác định PR xanh,
-   **Then** task WAITING/policy với required_checks_mismatch, nêu A chỉ có ở GitHub và C chỉ có ở
-   snapshot; không tự lấy hợp A/B/C, sửa snapshot hay báo xanh dù cả ba check pass. Không đọc được
-   đầy đủ GitHub thì kết quả đối chiếu unknown và chờ infra. Nếu GitHub chỉ yêu cầu B hoặc xác nhận
-   không có quy tắc, đối chiếu đạt nhưng vẫn cần cả B/C pass cùng gate/review; trường hợp không có
-   quy tắc ghi github_required: none, không nhầm lỗi đọc/thiếu quyền thành tập rỗng.
+   **Then** chờ hợp A/B/C trên đúng head; cả ba success và gate/review hợp lệ thì xanh, không sửa snapshot.
+   Ghi tên và app của yêu cầu GitHub vào evidence. Không đọc đủ GitHub thì unknown và chờ infra.
+   Nếu GitHub chỉ yêu cầu B hoặc xác nhận không có quy tắc, vẫn cần B/C pass.
+
 7. **Given** PR đang xanh và chờ merge, **When** head hoặc tập required checks thay đổi,
    **Then** head do người ngoài đẩy làm thu hồi xanh/chờ policy để người quyết định, không tự sửa
    hoặc ghi đè remote; GitHub yêu cầu check không được snapshot bao phủ làm thu hồi xanh/chờ policy. Nếu chỉ base
@@ -583,7 +591,7 @@ nhóm bao gồm toàn bộ các mục con, không thay thế việc kiểm chứ
   | policy / task_deadline; ci / ci_wait_exhausted; hết thang/lượt/ngân sách | Không mở thêm lượt/gia hạn; có PR thì merge thủ công → xác nhận → DONE, hoặc cancel. Chưa có PR thì chỉ cancel; muốn làm lại dùng task add độc lập. |
   | policy / head_changed | Người dùng trả branch về head đã kiểm → đối chiếu lại trong giới hạn; hoặc merge thủ công → DONE theo FR-040; đóng PR → pr_closed; hoặc cancel. Không có lệnh kiểm lại/chấp nhận head mới. |
   | policy / target_mismatch | Trước merge: đổi base về branch đích trong snapshot → đối chiếu lại, hoặc cancel. Merge sai branch không đủ bằng chứng DONE vào đích yêu cầu. |
-  | policy / required_checks_mismatch | Điều chỉnh yêu cầu GitHub để được snapshot bao phủ → đối chiếu lại; hoặc merge thủ công → DONE theo FR-040; hoặc cancel rồi task add với cấu hình mới. Không sửa snapshot tại chỗ. |
+  | policy / required_checks_mismatch | Wait lịch sử vẫn replay được; lượt quan sát sau đối chiếu theo hợp tên mới và tự đi tiếp, hoặc ci_wait_exhausted nếu cửa sổ CI đã hết. Không sửa snapshot tại chỗ; merge thủ công/cancel vẫn hợp lệ. |
   | policy / pr_closed | Mở lại PR → đối chiếu lại trong giới hạn; hoặc cancel. Đóng PR chưa phải terminal. |
   | policy / observation_expired | Recheck hữu hạn để cập nhật bằng chứng; xác nhận merge thì DONE theo FR-040. Chưa merge thì merge thủ công rồi recheck, hoặc cancel; không tự bật lại poll/gia hạn. |
   | policy / merge_cleanup_pending | Hoàn tất dừng/đối chiếu trong giới hạn → DONE; hết giới hạn thì người dùng xử lý phần chưa rõ được explain chỉ ra rồi recheck một lượt hữu hạn. Cancel không bỏ qua đối chiếu hoặc đổi merge đã xác nhận thành CANCELLED; không tiếp tục workflow/publish. |
@@ -659,7 +667,7 @@ nhóm bao gồm toàn bộ các mục con, không thay thế việc kiểm chứ
   | **FR-041.03** | Head bị bên ngoài đổi MUST thu hồi xanh và chuyển WAITING/policy với head_changed; không tự nhận head mới, sửa code hoặc ghi đè remote. Khi review A còn chạy mà branch task bị push thành B ngoài dự kiến, approve/result A đến muộn MUST chỉ được ghi đúng provenance, không gỡ blocker, chuyển evidence sang B hoặc tiếp tục publish. Approve đến trước fact drift vẫn MUST qua guard remote/blocker trước publish; restart giữ fact/blocker và intent/receipt. Kiểm H01–H06 trong hợp đồng chế độ. |
   | **FR-041.04** | Chỉ base tip đổi MUST giữ bằng chứng theo head và trạng thái task; không tự cập nhật/rebase, gọi fixer hoặc chạy lại gate/review. Cập nhật base thuộc phần merge ngoài phạm vi. |
   | **FR-041.05** | Branch đích khác snapshot MUST chuyển WAITING/policy với target_mismatch. |
-  | **FR-041.06** | Check pending/fail trên head hợp lệ MUST thu hồi xanh và xử lý CI trong giới hạn; tập yêu cầu GitHub không được snapshot bao phủ xử lý theo FR-042. |
+  | **FR-041.06** | Check bắt buộc pending/fail trên head hợp lệ MUST thu hồi xanh và xử lý CI trong giới hạn; danh sách hợp snapshot/GitHub theo FR-042. |
   | **FR-041.07** | PR đóng chưa merge MUST chuyển WAITING/policy với pr_closed và được quan sát trong hạn; mở lại thì đối chiếu lại, merge thì FR-040. |
   | **FR-041.08** | Lỗi đọc remote MUST trả unknown, WAITING/infra và hiển thị lần quan sát cuối như lịch sử; chỉ lên lịch lần sau khi còn hạn FR-043, không suy ra chưa merge. |
 
@@ -667,15 +675,15 @@ nhóm bao gồm toàn bộ các mục con, không thay thế việc kiểm chứ
 
   | Mã | Yêu cầu |
   | --- | --- |
-  | **FR-042.01** | Danh sách required checks MUST lấy từ `ci.required_checks` của `cusr.yaml` đã đóng băng theo revision; sửa file local không thay snapshot. |
-  | **FR-042.02** | Trước báo xanh và trong khi theo dõi, hệ thống MUST đối chiếu snapshot với toàn bộ branch protection/rulesets GitHub áp dụng cho branch đích. |
-  | **FR-042.03** | Đối chiếu MUST chấp nhận khi tập yêu cầu GitHub nằm gọn trong snapshot theo danh tính check; feature 002 giữ snapshot chuỗi tên, chỉ bao phủ yêu cầu GitHub không ghim app cụ thể. Thứ tự khác và snapshot có thêm check không là lệch. |
-  | **FR-042.04** | Yêu cầu GitHub không được snapshot bao phủ hoặc ghim app cụ thể MUST thu hồi xanh và chuyển WAITING/policy với required_checks_mismatch, nêu tên/app và chênh lệch hai phía; hỗ trợ snapshot app binding dành cho feature sau. |
-  | **FR-042.05** | GitHub xác nhận không có quy tắc áp dụng MUST được ghi github_required: none; tập rỗng này hợp lệ theo FR-042.03, không miễn checks snapshot/gate/review. |
+  | **FR-042.01** | `ci.required_checks` MUST được đóng băng từ `cusr.yaml` theo revision; sửa file local không thay snapshot. |
+  | **FR-042.02** | Mỗi lượt chờ CI/quan sát MUST đọc đầy đủ branch protection/rulesets đang có hiệu lực trên branch đích, không phụ thuộc cờ yolo. |
+  | **FR-042.03** | Danh sách phải chờ MUST là hợp tên check trong snapshot và mọi check GitHub đang bắt buộc, kể cả ngoài snapshot và ghim app; thứ tự/duplicate không làm thay đổi kết quả. |
+  | **FR-042.04** | Check ngoài snapshot hoặc ghim app MUST NOT tạo required_checks_mismatch mới; MUST lưu tên/app trong evidence. Schema/event/wait cũ MUST vẫn replay được; task ở wait cũ tự đối chiếu và đi tiếp ở lượt quan sát sau, hoặc ci_wait_exhausted nếu cửa sổ CI đã hết. |
+  | **FR-042.05** | GitHub xác nhận không có quy tắc MUST ghi github_required: none; vẫn chờ check snapshot/gate/review. Hợp rỗng ở observation giữ hành vi cũ: vào chờ merge, không dùng mọi check trên head làm fallback; riêng yolo không merge và log một lần hướng dẫn khai ci.required_checks. |
   | **FR-042.06** | Không đọc đầy đủ GitHub hoặc thiếu quyền MUST trả unknown, WAITING/infra; không ghi none, coi là khớp hay fallback sang chỉ project. |
   | **FR-042.07** | Ánh xạ check mơ hồ MUST chờ policy. |
-  | **FR-042.08** | Hệ thống MUST chỉ xét xanh khi quan hệ tập con đã xác nhận và mọi check snapshot đạt cho đúng head, cùng gate/review hợp lệ theo FR-019. |
-  | **FR-042.09** | Hệ thống MUST NOT tự lấy hợp hoặc sửa FrozenPolicy; lối ra là điều chỉnh yêu cầu GitHub để snapshot bao phủ rồi đối chiếu lại, hoặc cancel/task add với cấu hình mới theo FR-029. |
+  | **FR-042.08** | Chỉ xanh khi mọi check trong hợp đạt success trên đúng head, cùng gate/review hợp lệ theo FR-019. Trước effect merge, check ghim app MUST success từ đúng app_id; không dựa vào GitHub thực thi vì admin có thể bypass. |
+  | **FR-042.09** | Phần hợp MUST được tính lại ở mỗi lượt đọc; MUST NOT sửa FrozenPolicy/schema/hash snapshot. Bật/tắt yolo hay lỗi đọc user config MUST NOT đổi danh sách CI/observation; config lỗi chỉ tắt merge và ghi log theo SPEC.md §14.2. |
 
 - **FR-043**: Giới hạn CI, thực thi và quan sát. Các nghĩa vụ độc lập:
 

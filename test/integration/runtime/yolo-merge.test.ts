@@ -1,4 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import { writeFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { FileContentStore } from '../../../src/adapters/publish-content.ts';
+import { productionControl } from '../../../src/daemon/production.ts';
+import { replay } from '../../../src/engine/evolve.ts';
+import { ci, observation } from '../../support/observation.ts';
+import { observeTaskPr } from '../../../src/daemon/handlers.ts';
+import { createGrantStart } from '../../support/runtime.ts';
+import { publishData } from '../../support/scenario.ts';
+import { toPublish } from '../../support/store-flows.ts';
 import { GhPort } from '../../../src/adapters/github/gh-port.ts';
 import type {
   Clock,
@@ -30,12 +40,35 @@ type Remote = {
   pull?: Record<string, unknown>;
   protection?: Record<string, unknown>;
   protectionStatus?: number;
+  protected?: boolean;
+  compare?: Record<string, unknown>;
+  compareStatus?: number;
+  rulesStatus?: number;
+  checkRuns?: unknown;
+  checkAppId?: number | null;
+  statuses?: unknown;
   mergeStatus?: number | 'lost';
   /** Conclusions of the head's current check runs. */
   checks?: Record<string, string>;
 };
 
 const REQUIRED = ['build', 'test'];
+const PINNED = {
+  strict: true,
+  contexts: REQUIRED,
+  checks: [
+    { context: 'build', app_id: 15368 },
+    { context: 'test', app_id: 15368 },
+  ],
+};
+const OBS_RUNTIME = {
+  target: {
+    provider: 'github' as const,
+    repo: 'acme/app',
+    immutable_repo_id: '1',
+    base_ref: 'main',
+  },
+};
 const MESSAGE = 'feat: thêm tìm kiếm\n\nGiải thích thay đổi.\n';
 
 function github(r: Remote = {}) {
@@ -74,6 +107,19 @@ function github(r: Remote = {}) {
           );
         return reply({ merged: true });
       }
+      const failure = (status: number) =>
+        Promise.resolve(
+          err({
+            reason: 'http_error' as const,
+            status,
+            detail: 'unreadable',
+            retry_after_ms: null,
+          }),
+        );
+      if (req.path.includes('/compare/'))
+        return r.compareStatus === undefined
+          ? reply(r.compare ?? { ahead_by: 0, behind_by: 1 })
+          : failure(r.compareStatus);
       if (req.path.endsWith('/protection')) {
         if (r.protectionStatus !== undefined)
           return Promise.resolve(
@@ -91,26 +137,32 @@ function github(r: Remote = {}) {
           ...r.protection,
         });
       }
-      if (req.path.includes('/rules/branches/')) return reply([]);
-      if (req.path.includes('/branches/')) return reply({ protected: true });
+      if (req.path.includes('/rules/branches/'))
+        return r.rulesStatus === undefined ? reply([]) : failure(r.rulesStatus);
+      if (req.path.includes('/branches/'))
+        return reply({ protected: r.protected ?? true });
       if (req.path.endsWith('/check-runs'))
-        return reply({
-          check_runs: Object.entries(conclusions).map(([name, c], i) => ({
-            id: i + 1,
-            name,
-            head_sha: A,
-            status: 'completed',
-            conclusion: c,
-            app: { id: 1 },
-          })),
-        });
-      if (req.path.endsWith('/statuses')) return reply([]);
+        return reply(
+          r.checkRuns ?? {
+            check_runs: Object.entries(conclusions).map(([name, c], i) => ({
+              id: i + 1,
+              name,
+              head_sha: A,
+              status: c === 'pending' ? 'in_progress' : 'completed',
+              conclusion: c === 'pending' ? null : c,
+              app: { id: r.checkAppId === undefined ? 15368 : r.checkAppId },
+            })),
+          },
+        );
+      if (req.path.endsWith('/statuses')) return reply(r.statuses ?? []);
       return reply({
+        id: 700,
+        number: 7,
         state: 'open',
         merged: false,
         mergeable_state: 'clean',
-        head: { sha: A },
-        base: { ref: 'main' },
+        head: { sha: A, ref: 'cusr/t' },
+        base: { ref: 'main', sha: 'b'.repeat(40), repo: { id: 1 } },
         ...r.pull,
       });
     },
@@ -139,12 +191,13 @@ function green(
   d: StoreDriver,
   t: CanonicalTask,
   mode: 'full-review' | 'direct-pr' = 'full-review',
+  required: string[] = REQUIRED,
 ): void {
   toGreen(
     d,
     t,
     mode,
-    { required_checks: REQUIRED },
+    { required_checks: required },
     {},
     { content: { digest: CONTENT_DIGEST, ref: '/content/a.json' } },
   );
@@ -157,6 +210,373 @@ const approvals = (d: StoreDriver, t: CanonicalTask) =>
   Object.values(d.task(t.id).approvals).filter((a) => a.kind === 'merge');
 
 describe('yolo merge', () => {
+  it('classic checks pinned to app_id 15368 merge when the checks pass', async () => {
+    const d = setup();
+    const t = buildTask();
+    green(d, t);
+    const { port, sent } = github({
+      protection: { required_status_checks: PINNED },
+    });
+    const log: string[] = [];
+    expect(
+      await yoloMerge(
+        { ...deps(d, port), log: (line) => log.push(line) },
+        t.id,
+      ),
+      log.join('\n'),
+    ).toBe('merged');
+    expect(puts(sent)).toHaveLength(1);
+  });
+
+  it.each([
+    ['ci', false],
+    ['observation', false],
+    ['ci', true],
+    ['observation', true],
+  ] as const)(
+    'app_id requirements on the %s path, yolo=%s',
+    async (path, enabled) => {
+      const d = setup();
+      const t = buildTask();
+      const runtime = OBS_RUNTIME;
+      if (path === 'observation') {
+        toGreen(d, t, 'direct-pr', { required_checks: REQUIRED }, runtime, {
+          content: { digest: CONTENT_DIGEST, ref: '/content/a.json' },
+        });
+      } else {
+        createGrantStart(
+          d,
+          t,
+          'direct-pr',
+          { required_checks: REQUIRED },
+          runtime,
+        );
+        toPublish(d, t, A, {
+          content: { digest: CONTENT_DIGEST, ref: '/content/a.json' },
+        });
+        d.complete(
+          t.id,
+          d.pendingOne(t.id, 'publish').id,
+          'succeeded',
+          publishData(A),
+        );
+        d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
+          pr_ref: 'acme#7',
+          head_sha: A,
+        });
+      }
+      const { port, sent } = github({
+        protection: { required_status_checks: PINNED },
+      });
+      const read = await observeTaskPr(
+        deps(d, port),
+        t.id,
+        'app-id-repro',
+        'timer',
+      );
+      expect(read.failure).toBeNull();
+      expect(read.ci?.required).toMatchObject({
+        kind: 'covered',
+        github: REQUIRED,
+        app_pinned: [
+          { name: 'build', app: 15368 },
+          { name: 'test', app: 15368 },
+        ],
+      });
+      if (path === 'observation') {
+        for (const fact of read.facts) d.must(t.id, fact);
+      } else {
+        d.complete(
+          t.id,
+          d.pendingOne(t.id, 'await_ci').id,
+          'succeeded',
+          read.ci,
+        );
+      }
+      expect(d.task(t.id).wait?.detail.code).toBe('merge');
+      expect(d.task(t.id).evidence.ci.at(-1)?.required).toMatchObject({
+        app_pinned: [
+          { name: 'build', app: 15368 },
+          { name: 'test', app: 15368 },
+        ],
+      });
+      expect(await yoloMerge(deps(d, port, enabled), t.id)).toBe(
+        enabled ? 'merged' : 'off',
+      );
+      expect(puts(sent)).toHaveLength(enabled ? 1 : 0);
+      expect(d.store.readPolicy(t.id, 1, 1)?.ci.required_checks).toEqual(
+        REQUIRED,
+      );
+    },
+  );
+
+  it.each(['ci', 'observation'] as const)(
+    'the %s path waits for GitHub checks outside policy without changing the snapshot',
+    async (path) => {
+      const d = setup();
+      const t = buildTask();
+      const policy = { required_checks: ['build'] };
+      if (path === 'ci') {
+        createGrantStart(d, t, 'direct-pr', policy, OBS_RUNTIME);
+        toPublish(d, t, A);
+        d.complete(
+          t.id,
+          d.pendingOne(t.id, 'publish').id,
+          'succeeded',
+          publishData(A),
+        );
+        d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
+          pr_ref: 'acme#7',
+          head_sha: A,
+        });
+      } else toGreen(d, t, 'direct-pr', policy, OBS_RUNTIME);
+      const { port } = github({
+        checks: {
+          build: 'success',
+          security: 'success',
+          'codecov/patch': 'failure',
+        },
+        protection: {
+          required_status_checks: {
+            checks: [{ context: 'security', app_id: 15368 }],
+          },
+        },
+      });
+      const read = await observeTaskPr(
+        deps(d, port),
+        t.id,
+        'extra-required',
+        'timer',
+      );
+      expect(read.ci?.required_set).toEqual({
+        names: ['security'],
+        source: 'branch_protection',
+        complete: true,
+      });
+      if (path === 'ci')
+        d.complete(
+          t.id,
+          d.pendingOne(t.id, 'await_ci').id,
+          'succeeded',
+          read.ci,
+        );
+      else for (const fact of read.facts) d.must(t.id, fact);
+      expect(d.task(t.id).wait?.detail.code).toBe('merge');
+      expect(d.task(t.id).evidence.ci.at(-1)?.required).toMatchObject({
+        kind: 'covered',
+        github: ['security'],
+        app_pinned: [{ name: 'security', app: 15368 }],
+      });
+      expect(d.store.readPolicy(t.id, 1, 1)?.ci.required_checks).toEqual([
+        'build',
+      ]);
+      expect(d.pending(t.id, 'start_agent')).toEqual([]);
+    },
+  );
+
+  it.each([
+    {},
+    { 'codecov/patch': 'failure' },
+    { test: 'pending' },
+    { test: 'skipped' },
+    { GitGuardian: 'success' },
+  ])(
+    'empty policy leaves engine CI unchanged when yolo toggles, checks=%j',
+    async (checks) => {
+      const d = setup();
+      const t = buildTask();
+      toGreen(d, t, 'direct-pr', { required_checks: [] }, OBS_RUNTIME);
+      const { port, sent } = github({ protected: false, checks });
+      for (const enabled of [false, true, false, true]) {
+        const read = await observeTaskPr(
+          deps(d, port),
+          t.id,
+          'no-fallback',
+          'recheck',
+        );
+        expect(read.ci?.required_set).toEqual({
+          names: [],
+          source: 'branch_protection',
+          complete: true,
+        });
+        for (const fact of read.facts) d.must(t.id, fact);
+        expect(d.task(t.id).wait?.detail.code).toBe('merge');
+        expect(d.pending(t.id, 'start_agent')).toEqual([]);
+        expect(d.pending(t.id, 'await_ci')).toEqual([]);
+        expect(await yoloMerge(deps(d, port, enabled), t.id)).toBe(
+          enabled ? 'not_ready' : 'off',
+        );
+      }
+      expect(puts(sent)).toEqual([]);
+    },
+  );
+
+  it.each([15369, null])(
+    'a successful check from app %s cannot satisfy app_id 15368 when admin bypass is allowed',
+    async (checkAppId) => {
+      const d = setup();
+      const t = buildTask();
+      green(d, t);
+      const { port, sent } = github({
+        checkAppId,
+        protection: {
+          required_status_checks: PINNED,
+          enforce_admins: { enabled: false },
+        },
+      });
+      const log: string[] = [];
+      expect(
+        await yoloMerge(
+          { ...deps(d, port), log: (line) => log.push(line) },
+          t.id,
+        ),
+      ).toBe('not_ready');
+      expect(log.join('\n')).toContain('app 15368');
+      expect(puts(sent)).toEqual([]);
+      expect(approvals(d, t)).toEqual([]);
+    },
+  );
+
+  it('a commit status with the same name cannot satisfy an app-pinned check', async () => {
+    const d = setup();
+    const t = buildTask();
+    green(d, t);
+    const { port, sent } = github({
+      protection: {
+        required_status_checks: PINNED,
+        enforce_admins: { enabled: false },
+      },
+      checks: {},
+      statuses: REQUIRED.map((context) => ({ context, state: 'success' })),
+    });
+    expect(await yoloMerge(deps(d, port), t.id)).toBe('not_ready');
+    expect(puts(sent)).toEqual([]);
+  });
+
+  it.each([false, true])(
+    'a historical required_checks_mismatch resumes on observation (CI window spent=%s), and replays',
+    async (spent) => {
+      const d = setup();
+      const t = buildTask();
+      toGreen(d, t, 'direct-pr', { required_checks: REQUIRED }, OBS_RUNTIME);
+      d.must(
+        t.id,
+        observation(d, t, 'open', A, {
+          ci: ci(
+            A,
+            { build: 'success', test: 'success' },
+            {
+              kind: 'required_checks_mismatch',
+              missing_from_snapshot: [],
+              app_pinned: [
+                {
+                  name: 'build',
+                  app: 15368,
+                  source: 'classic',
+                  ruleset_id: null,
+                },
+              ],
+              snapshot_only: [],
+            },
+          ),
+        }),
+      );
+      expect(d.task(t.id).wait?.detail.code).toBe('required_checks_mismatch');
+      expect(replay(d.store.readEvents(t.id))).toEqual(d.task(t.id));
+      const historical = d.store
+        .readEvents(t.id)
+        .map((event) => structuredClone(event));
+      for (const event of historical)
+        if (event.type === 'CiResultRecorded') delete event.payload.required;
+      const old = replay(historical);
+      expect(old?.wait?.detail.code).toBe('required_checks_mismatch');
+      expect(
+        old?.evidence.ci.every((entry) => !Object.hasOwn(entry, 'required')),
+      ).toBe(true);
+      if (spent) d.now += 3_600_001;
+      const { port } = github({
+        protection: { required_status_checks: PINNED },
+      });
+      const read = await observeTaskPr(
+        deps(d, port),
+        t.id,
+        'legacy-mismatch',
+        'timer',
+      );
+      for (const fact of read.facts) d.must(t.id, fact);
+      expect(d.task(t.id).wait?.detail.code).toBe(
+        spent ? 'ci_wait_exhausted' : 'merge',
+      );
+      expect(replay(d.store.readEvents(t.id))).toEqual(d.task(t.id));
+    },
+  );
+
+  it('invalid or unreadable config logs an error and stops merge without changing observation evidence', async () => {
+    const d = setup();
+    const t = buildTask();
+    const dataDir = tempDir();
+    const content = new FileContentStore(join(dataDir, 'content')).put({
+      commit_message: MESSAGE,
+      pr_title: 'title',
+      pr_body: 'body',
+    });
+    toGreen(d, t, 'direct-pr', { required_checks: REQUIRED }, OBS_RUNTIME, {
+      content,
+    });
+    const { port, sent } = github({
+      protection: { required_status_checks: PINNED },
+    });
+    const first = await observeTaskPr(deps(d, port), t.id, 'initial', 'timer');
+    for (const fact of first.facts) d.must(t.id, fact);
+    const configPath = join(dataDir, 'config.yaml');
+    const valid = 'version: 1\nyolo: true\n';
+    writeFileSync(configPath, valid);
+    const log: string[] = [];
+    const control = await productionControl({
+      configPath,
+      dataDir,
+      clock: deps(d, port).clock,
+      redactor: new Redactor(),
+      newId,
+      log: (line) => log.push(line),
+      seams: { github: () => port },
+    });
+    const surface = control(d.store, {
+      health: () => null,
+      recoveryClaims: () => [],
+      spoolProblems: () => [],
+      abort: () => false,
+      settled: () => Promise.resolve(),
+      latch: () => undefined,
+    });
+    for (const config of [
+      valid,
+      'version: 1\nyolo: [',
+      'version: 1\nyolo: "true"\n',
+      null,
+      valid,
+    ]) {
+      if (config === null) rmSync(configPath);
+      else writeFileSync(configPath, config);
+      d.now = d.task(t.id).observation?.budget.next_due_at ?? d.now;
+      const before = puts(sent).length;
+      await surface.rounds[1]?.();
+      expect(puts(sent), log.join('\n')).toHaveLength(
+        before + (config === valid ? 1 : 0),
+      );
+      expect(d.task(t.id).wait?.detail.code).toBe('merge');
+      expect(d.task(t.id).evidence.ci.at(-1)?.required).toEqual(
+        first.ci?.required,
+      );
+    }
+    expect(
+      log.filter((line) => line.includes('yolo disabled: config invalid')),
+    ).toHaveLength(2);
+    expect(
+      log.some((line) => line.includes('yolo disabled: config unreadable')),
+    ).toBe(true);
+  });
+
   it.each(['full-review', 'direct-pr'] as const)(
     '%s: records the approval first, merges the checked head, and leaves completion to the observation',
     async (mode) => {
@@ -236,14 +656,22 @@ describe('yolo merge', () => {
     ['another head', { pull: { head: { sha: 'b'.repeat(40) } } }],
     ['another target', { pull: { base: { ref: 'dev' } } }],
     ['closed', { pull: { state: 'closed' } }],
-    ['no protection', { protectionStatus: 404 }],
+    ['blocked', { pull: { mergeable_state: 'blocked' } }],
+    ['dirty', { pull: { mergeable_state: 'dirty' } }],
+    ['behind despite clean PR', { compare: { ahead_by: 1, behind_by: 0 } }],
+    ['unreadable compare', { compareStatus: 403 }],
+    ['missing ahead_by', { compare: { behind_by: 0 } }],
+    ['non-numeric ahead_by', { compare: { ahead_by: '0' } }],
+    ['protected but protection unreadable', { protectionStatus: 403 }],
+    ['protected but rules unreadable', { rulesStatus: 403 }],
     [
-      'protection that allows a stale branch',
-      { protection: { required_status_checks: { strict: false } } },
+      'unprotected but rules unreadable',
+      { protected: false, rulesStatus: 403 },
     ],
+    ['incomplete check data', { checkRuns: {} }],
     [
-      'protection that admins bypass',
-      { protection: { enforce_admins: { enabled: false } } },
+      'check name collision',
+      { statuses: [{ context: 'build', state: 'success' }] },
     ],
   ])('%s: no approval and no merge', async (_name, remote) => {
     const d = setup();
@@ -254,6 +682,161 @@ describe('yolo merge', () => {
     expect(puts(sent)).toEqual([]);
     expect(approvals(d, t)).toEqual([]);
     expect(d.task(t.id).wait?.detail.code).toBe('merge');
+  });
+
+  it.each<[string, Remote, string[]]>([
+    ['no protection, declared checks', { protected: false }, REQUIRED],
+    [
+      'protection allows stale branches',
+      {
+        protection: {
+          required_status_checks: { strict: false, contexts: REQUIRED },
+        },
+      },
+      REQUIRED,
+    ],
+    [
+      'protection allows admin bypass',
+      { protection: { enforce_admins: { enabled: false } } },
+      REQUIRED,
+    ],
+    [
+      'GitHub check absent from policy',
+      {
+        checks: { build: 'success', test: 'success', security: 'success' },
+        protection: {
+          required_status_checks: { contexts: [...REQUIRED, 'security'] },
+        },
+      },
+      REQUIRED,
+    ],
+  ])(
+    '%s: merges when current checks pass and head contains the target',
+    async (_name, remote, required) => {
+      const d = setup();
+      const t = buildTask();
+      green(d, t, 'direct-pr', required);
+      const { port, sent } = github(remote);
+      expect(await yoloMerge(deps(d, port), t.id)).toBe('merged');
+      expect(puts(sent)).toHaveLength(1);
+      expect(sent).toContainEqual({
+        method: 'GET',
+        path: `repos/acme/app/compare/${A}...main`,
+        query: {},
+        body: null,
+      });
+      if (remote.protected === false)
+        expect(sent.some((req) => req.path.endsWith('/protection'))).toBe(
+          false,
+        );
+    },
+  );
+
+  it.each([
+    {},
+    { test: 'pending' },
+    { test: 'skipped' },
+    { test: 'failure' },
+    { test: 'neutral' },
+    { build: 'success', test: 'success' },
+    { GitGuardian: 'success' },
+  ])(
+    'no protection and empty policy cannot merge with checks %j',
+    async (checks) => {
+      const d = setup();
+      const t = buildTask();
+      green(d, t, 'direct-pr', []);
+      const { port, sent } = github({ protected: false, checks });
+      const log: string[] = [];
+      expect(
+        await yoloMerge(
+          { ...deps(d, port), log: (line) => log.push(line) },
+          t.id,
+        ),
+      ).toBe('not_ready');
+      expect(puts(sent)).toEqual([]);
+      expect(approvals(d, t)).toEqual([]);
+      expect(log.join('\n')).toContain('ci.required_checks in cusr.yaml');
+      expect(d.task(t.id).wait?.detail.code).toBe('merge');
+    },
+  );
+
+  it('an empty required list logs the configuration hint only once per task and stays at merge wait', async () => {
+    const d = setup();
+    const t = buildTask();
+    green(d, t, 'direct-pr', []);
+    const { port, sent } = github({
+      protected: false,
+      checks: { GitGuardian: 'success' },
+    });
+    const log: string[] = [];
+    const options = { ...deps(d, port), log: (line: string) => log.push(line) };
+    for (let i = 0; i < 3; i++)
+      expect(await yoloMerge(options, t.id)).toBe('not_ready');
+    expect(log).toHaveLength(1);
+    expect(log[0]).toContain('ci.required_checks in cusr.yaml');
+    expect(d.task(t.id).wait?.detail.code).toBe('merge');
+    expect(puts(sent)).toEqual([]);
+  });
+
+  it('an additional GitHub requirement still has to pass', async () => {
+    const d = setup();
+    const t = buildTask();
+    green(d, t);
+    const { port, sent } = github({
+      protection: {
+        required_status_checks: { contexts: [...REQUIRED, 'security'] },
+      },
+    });
+    expect(await yoloMerge(deps(d, port), t.id)).toBe('not_ready');
+    expect(puts(sent)).toEqual([]);
+  });
+
+  it('the compare allowlist accepts only a full head SHA and an encoded target branch', async () => {
+    let tick = 0;
+    const valid = [
+      `repos/o/r/compare/${A}...main`,
+      `repos/o/r/compare/${A}...release%2Fv1.0`,
+    ];
+    const calls: string[] = [];
+    const exec = fixtureExec(
+      Object.fromEntries(
+        valid.map((path) => [
+          `GET ${path}`,
+          [{ status: 200, body: { ahead_by: 0 } }],
+        ]),
+      ),
+    );
+    const port = new GhPort({
+      exec: (args, opts) => {
+        calls.push(args.join(' '));
+        return exec(args, opts);
+      },
+      clock: { now: () => tick as EpochMs, monotonic: () => tick++ },
+      redactor: new Redactor({ values: [] }),
+    });
+    for (const path of valid)
+      expect(
+        await port.request({ method: 'GET', path, query: {}, body: null }),
+      ).toMatchObject({ ok: true });
+    for (const path of [
+      `repos/o/r/compare/${A}..main`,
+      `repos/o/r/compare/${A}....main`,
+      `repos/o/r/compare/${A.slice(1)}...main`,
+      'repos/o/r/compare/branch...main',
+      `repos/o/r/compare/${A}...release/v1`,
+      `repos/o/r/compare/${A}...main/files`,
+      `repos/o/r/compare/${A}...main?page=1`,
+      `repos/o/r/compare/${A}...main#x`,
+      `repos/o/r/compare/${A}...main%2`,
+      `repos/o/r/compare/${A}...`,
+      `repos/o/r/compare/${A.toUpperCase()}...main`,
+      `repos/o/r/compare/main...${A}`,
+    ])
+      expect(
+        await port.request({ method: 'GET', path, query: {}, body: null }),
+      ).toMatchObject({ ok: false, error: { reason: 'not_allowed' } });
+    expect(calls).toHaveLength(valid.length);
   });
 
   it.each(['neutral', 'skipped', 'stale'])(

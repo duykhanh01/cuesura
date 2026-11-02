@@ -30,7 +30,7 @@ v1 bên dưới mô tả nền đã có, không tự có các trường mới ch
 | --- | --- | --- |
 | Task | TaskState hiện có + runtime_ref, execution_request, observation, completion, ingest | Không đổi input/revision/deadline do recheck hoặc remote push |
 | FrozenRuntimeContext v1 | task_id, revision, base_sha, completion_mode=external_confirmation, network_mode=internet_outbound, limits, capability_refs, project_path, target identity, runtime_hash | Ghi cùng PolicyFrozen/context trước RUNNING; chỉ reference credential, không secret; không thay hash snapshot lịch sử |
-| FrozenPolicy v1 | required_checks: string[] giữ nguyên | Không thêm app_id; giữ nguyên schema/hash lịch sử, app-pinned GitHub bị mismatch |
+| FrozenPolicy v1 | required_checks: string[] giữ nguyên | Không thêm app_id; giữ schema/hash lịch sử, hợp tên và app-pinned GitHub chỉ lưu trong evidence |
 | WorktreeCheckpoint | task/revision, project realpath, common_git_dir, worktree path, branch, base_sha, tree_oid, parent_oid, diff_digest, owner_marker | Không nhận lại theo tên path đơn thuần; SHA/tree/ownership phải đối chiếu |
 | ExecutionRequest | task_id, request_id, requested_at, request_global_seq, group=fresh/resumed, priority, resume_action, accumulated_wait_ms | Priority số lớn trước, default 0 theo SPEC §6.2; một yêu cầu đang chờ/task; grant/withdraw đóng đoạn chờ, không dùng created_at thay requested_at |
 | ExecutionSlot | key=execution, holder_task_id, request_id, claimed_at, active_operation_ids | Singleton toàn daemon; một holder, có thể nhiều operation phục vụ dừng/đối chiếu cùng task |
@@ -64,9 +64,13 @@ file không được coi là caller bị giới hạn chỉ nhờ token operate.
 | ObservationBudget | started_at, deadline_at, count, max_count, next_due_at, cadence_index, generation, last_remote_digest, exhausted |
 | CiBudget | head_sha, started_at, deadline_at, poll_count, exhausted; giữ bản ghi theo từng head |
 
-`none` có evidence dương đầy đủ; `unknown` không được chuẩn hóa thành mảng rỗng. Core so quan hệ
-subset theo tên và yêu cầu success của mọi check snapshot khi GitHub dùng any-app; App ID cụ thể
-trả required_checks_mismatch, nguồn/tên mơ hồ không được gộp. Head remote do người ngoài đổi không thay expected/checked
+`none` có evidence dương đầy đủ; `unknown` không được chuẩn hóa thành mảng rỗng. Mỗi lượt đọc,
+core chờ hợp tên snapshot và mọi check GitHub đang bắt buộc, không phụ thuộc yolo. CI evidence/event
+mới có thêm `required` chứa `github` và `app_pinned` (name/app/source/ruleset); trường optional để
+không đổi projection khi replay event cũ. App được kiểm tra đúng `app_id` ngay trước merge; nguồn/tên
+mơ hồ không được gộp. Hợp rỗng vẫn vào chờ merge, riêng yolo không gửi merge và hướng dẫn khai
+`ci.required_checks`. Không sinh mismatch mới chỉ vì ngoài policy hoặc ghim app; wait/event lịch sử
+vẫn replay và được quan sát lại trong hạn CI. Head remote do người ngoài đổi không thay expected/checked
 head hoặc CiBudget cũ. Không dùng event đến muộn của generation/head cũ làm xanh head mới.
 
 Trong một lượt quan sát, fact merge có thể đủ dù rules/CI không đọc được: merge proof và chứng nhận
@@ -164,7 +168,7 @@ ci_wait_exhausted hoặc source drift trong explain. Bảng lối ra FR-029 vẫ
 
 ## Bằng chứng dữ liệu
 
-Property test bao phủ selector, completion/drain precedence, no reopening, subset/check generation,
+Property test bao phủ selector, completion/drain precedence, no reopening, union/check generation,
 deadline/slot và approval/budget kế thừa. Integration test dùng SQLite file thật cho unique grant,
 ingest atomicity, migration v1 và replay global order; crash tại từng commit boundary. Contract test
 kiểm receipt của process/Git thật, missing artifact, partial record, ENOSPC và late result. Chi tiết

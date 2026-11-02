@@ -373,6 +373,9 @@ export function applyInPlace(
         head_sha: event.payload.head_sha,
         required_set: event.payload.required_set,
         checks: event.payload.checks,
+        ...(event.payload.required === undefined
+          ? {}
+          : { required: event.payload.required }),
         valid: true,
       });
       resetStreak(s, event.payload.resets_streak_of);

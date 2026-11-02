@@ -1226,6 +1226,7 @@ function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
         head_sha: d.head_sha,
         required_set: d.required_set,
         checks: d.checks,
+        ...(d.required === undefined ? {} : { required: d.required }),
         resets_streak_of: green ? ctx.state.last_fix_step : null,
       });
       if (d.base_relation !== undefined)

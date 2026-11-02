@@ -5,9 +5,9 @@ import type { RequiredVerdict } from './required-checks.ts';
 /**
  * Green predicate of one head (T043, FR-019, FR-041.06, FR-042.08). A head is green only when, for the
  * head this task checked:
- * - the GitHub requirement is covered by the frozen snapshot (FR-042);
- * - check runs and statuses were read completely, and no snapshot name has an unresolved collision;
- * - every snapshot check is `success` (neutral, skipped, pending, cancelled, missing and unknown are not);
+ * - the complete GitHub requirement list is known (FR-042);
+ * - check runs and statuses were read completely, and no required name has an unresolved collision;
+ * - every check in the snapshot/GitHub union is `success` (neutral, skipped, pending, cancelled, missing and unknown are not);
  * - the latest gate run of the revision passed; with a confirmed mode it passed on the checkpoint tree
  *   of this very head (M06);
  * - `full-review` (and legacy tasks): a review approving this head is still valid; `direct-pr`: no
@@ -19,7 +19,7 @@ import type { RequiredVerdict } from './required-checks.ts';
 export type ObservedChecks = {
   readonly head_sha: string;
   readonly checks: readonly Check[];
-  /** Snapshot names with more than one source/identity that could not be told apart. */
+  /** Names with more than one source/identity that could not be told apart. */
   readonly collisions: readonly string[];
   readonly complete: boolean;
 };
@@ -63,17 +63,22 @@ export function headVerdict(
       expected: expectedHead,
       observed: observed.head_sha,
     };
+  const names = [
+    ...new Set([
+      ...snapshot,
+      ...(required.kind === 'covered' ? required.github : []),
+    ]),
+  ].sort();
   const rev = state.revision;
   const byName = new Map<string, Check[]>();
   for (const c of observed.checks)
     byName.set(c.name, [...(byName.get(c.name) ?? []), c]);
   const collisions = [
     ...new Set([
-      ...observed.collisions.filter((n) => snapshot.includes(n)),
-      ...snapshot.filter((n) => (byName.get(n)?.length ?? 0) > 1),
+      ...observed.collisions.filter((n) => names.includes(n)),
+      ...names.filter((n) => (byName.get(n)?.length ?? 0) > 1),
     ]),
   ].sort();
-  const names = [...new Set(snapshot)].sort();
   const missing = names.filter((n) => !byName.has(n));
   const single = (n: string): Check | undefined =>
     collisions.includes(n) ? undefined : byName.get(n)?.[0];

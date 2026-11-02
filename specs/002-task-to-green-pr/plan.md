@@ -82,7 +82,7 @@ cho thiết kế cập nhật; bằng chứng Phase 0/1 cũ vẫn giữ provenan
 | V — Quyền kiểm soát | Đạt về thiết kế, cần bằng chứng xác nhận | Giữ xác nhận intake và cấu hình chạy riêng; snapshot/binding bất biến; chỉ quan sát merge ngoài hệ thống; secret ngoài sandbox |
 | VI — Trung lập domain/vendor | Đạt | Core nhận fact/command typed generic; GitHub/harness/toolchain ở adapter |
 | VII — Kiểm chứng trung thực | Cần bằng chứng spike | Gate feasibility hiện BLOCKED; phải chạy lát 0 trước A, không lấy docs/help/fake thay kết quả thật |
-| VIII — Đơn giản | Đạt về thiết kế | Snapshot/event envelope v1 giữ nguyên; app-pinned chặn mismatch; port SandboxProvider nhỏ, duy nhất backend bwrap, không registry/Native/Container trong v1 |
+| VIII — Đơn giản | Đạt về thiết kế | Snapshot/event envelope v1 giữ nguyên; app-pinned lưu evidence và kiểm app trước merge; port SandboxProvider nhỏ, duy nhất backend bwrap, không registry/Native/Container trong v1 |
 
 Không cần miễn MUST. Merge thủ công trên GitHub là hành động ngoài Cuesura; agent/decider vẫn không được thực thi merge. I11 ở đây chỉ chứng minh không gửi merge, không chứng nhận thao tác người dùng. Giữ regression lõi cũ; daemon 002 không dispatch task legacy thiếu snapshot runtime. Điều chỉnh supervision đã ghi SPEC §§12.1/17.2 và [ADR-0002](../../docs/adr/0002-systemd-runner-lifetime.md); gh/file protocol giữ baseline. Gate feasibility chưa đạt nên không tuyên bố plan ready-to-implement.
 
@@ -138,7 +138,7 @@ scripts/                        # validation/report, giữ script nền 001
 | engine/interpreter, merge-guard | External-confirmation mode chờ tại merge gate; PR xanh không đòi base tip mới; không giả approval/effect merge | FR-040.01–15, FR-041.02/04 |
 | engine/cancel, claim | Drain generic gồm agent/setup/gate/publish; chặn pending/claim nghiệp vụ, cho stop/reconcile sau hạn | FR-025.01–05, FR-040.02–09 |
 | domain/effect, engine/proceed | Observation service có gate riêng, thay business await_ci sau deadline; kết quả muộn không resume | FR-034.03, FR-043.01–13 |
-| merge-guard.expectedChecks | Subset identity cho mode 002 thay union tên; snapshot string[]; GitHub app cụ thể → mismatch; regression legacy | FR-042.01–09 |
+| merge-guard.expectedChecks | Hợp tên snapshot/GitHub ở mỗi lượt đọc, độc lập yolo; app cụ thể lưu evidence và kiểm trước merge; giữ replay mismatch lịch sử | FR-042.01–09 |
 | config/freeze, engine/start | Đọc base commit mới nhất; freeze policy/context/runtime cùng lúc; retry PENDING không bỏ triage | FR-002.01–05, FR-046.02 |
 | store/accept, claim, projector, verify | Slot/queue/cursor/runtime projection, claim cùng transaction; replay liên task theo global_seq | FR-006, FR-036, FR-044.01–07 |
 | explain, relatedFacts | Prerequisite chưa chứng nhận, thời gian chờ slot/drain; dependency dựa DONE | FR-001.02/03, FR-027.03–05 |

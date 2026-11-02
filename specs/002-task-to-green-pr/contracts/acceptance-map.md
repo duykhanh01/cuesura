@@ -108,15 +108,15 @@ không lấy nội dung bảng này làm bằng chứng đã đạt.
 | FR-041.06 | 0/A/B/C | engine/observation evidence | fake HTTP/Clock contract + real PR behavior fixture | US2.7, US2.8 | SC-010 |
 | FR-041.07 | 0/A/B/C | engine/observation evidence | fake HTTP/Clock contract + real PR behavior fixture | US2.8 | SC-010 |
 | FR-041.08 | 0/A/B/C | engine/observation evidence | fake HTTP/Clock contract + real PR behavior fixture | US3.4, US2.11 | SC-010 |
-| FR-042.01 | 0/A/C | engine/subset + github normalization | string-subset property + gh-port fixtures; app-pinned mismatch; spike 0 | US2.6, EC-006 | SC-010 |
-| FR-042.02 | 0/A/C | engine/subset + github normalization | string-subset property + gh-port fixtures; app-pinned mismatch; spike 0 | US2.6, US2.7 | SC-010 |
-| FR-042.03 | 0/A/C | engine/subset + github normalization | string-subset property + gh-port fixtures; app-pinned mismatch; spike 0 | US2.6 | SC-010 |
-| FR-042.04 | 0/A/C | engine/subset + github normalization | string-subset property + gh-port fixtures; app-pinned mismatch; spike 0 | US2.6, US2.7 | SC-010 |
-| FR-042.05 | 0/A/C | engine/subset + github normalization | string-subset property + gh-port fixtures; app-pinned mismatch; spike 0 | US2.6, EC-006 | SC-010 |
-| FR-042.06 | 0/A/C | engine/subset + github normalization | string-subset property + gh-port fixtures; app-pinned mismatch; spike 0 | US2.6, EC-006 | SC-010 |
-| FR-042.07 | 0/A/C | engine/subset + github normalization | string-subset property + gh-port fixtures; app-pinned mismatch; spike 0 | EC-006 | SC-010 |
-| FR-042.08 | 0/A/C | engine/subset + github normalization | string-subset property + gh-port fixtures; app-pinned mismatch; spike 0 | US2.6, EC-006 | SC-003, SC-010 |
-| FR-042.09 | 0/A/C | engine/subset + github normalization | string-subset property + gh-port fixtures; app-pinned mismatch; spike 0 | US6.7 | SC-007, SC-010 |
+| FR-042.01 | 0/A/C | engine/required-checks + github normalization | union-name property + gh-port fixtures; app evidence/merge identity; legacy mismatch replay | US2.6, EC-006 | SC-010 |
+| FR-042.02 | 0/A/C | engine/required-checks + github normalization | union-name property + gh-port fixtures; app evidence/merge identity; legacy mismatch replay | US2.6, US2.7 | SC-010 |
+| FR-042.03 | 0/A/C | engine/required-checks + github normalization | union-name property + gh-port fixtures; app evidence/merge identity; legacy mismatch replay | US2.6 | SC-010 |
+| FR-042.04 | 0/A/C | engine/required-checks + github normalization | union-name property + gh-port fixtures; app evidence/merge identity; legacy mismatch replay | US2.6, US2.7 | SC-010 |
+| FR-042.05 | 0/A/C | engine/required-checks + github normalization | union-name property + gh-port fixtures; app evidence/merge identity; legacy mismatch replay | US2.6, EC-006 | SC-010 |
+| FR-042.06 | 0/A/C | engine/required-checks + github normalization | union-name property + gh-port fixtures; app evidence/merge identity; legacy mismatch replay | US2.6, EC-006 | SC-010 |
+| FR-042.07 | 0/A/C | engine/required-checks + github normalization | union-name property + gh-port fixtures; app evidence/merge identity; legacy mismatch replay | EC-006 | SC-010 |
+| FR-042.08 | 0/A/C | engine/required-checks + github normalization | union-name property + gh-port fixtures; app evidence/merge identity; legacy mismatch replay | US2.6, EC-006 | SC-003, SC-010 |
+| FR-042.09 | 0/A/C | engine/required-checks + github normalization | union-name property + gh-port fixtures; app evidence/merge identity; legacy mismatch replay | US6.7 | SC-007, SC-010 |
 | FR-043.01 | A/B | engine timers, observation limits | Clock property + restart/SQLite integration | US2.9, US2.10 | SC-010 |
 | FR-043.02 | A/B | engine timers, observation limits | Clock property + restart/SQLite integration | US2.11, US3.4 | SC-010 |
 | FR-043.03 | A/B | engine timers, observation limits | Clock property + restart/SQLite integration | US2.9, US2.11 | SC-010, SC-011 |

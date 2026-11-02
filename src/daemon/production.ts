@@ -277,11 +277,24 @@ export async function productionControl(opts: {
       content: (ref, digest) =>
         new FileContentStore(dir('content')).get(ref, digest),
       enabled: async () => {
-        const user = (
-          await readConfigFiles({ user: opts.configPath })
-        )[0] as ConfigSource;
-        const current = validateConfig({ user, packs: {} });
-        return current.ok && current.value.config.user.yolo;
+        try {
+          const user = (
+            await readConfigFiles({ user: opts.configPath })
+          )[0] as ConfigSource;
+          const current = validateConfig({ user, packs: {} });
+          if (!current.ok) {
+            opts.log?.(
+              `yolo disabled: config invalid: ${current.error.map((d) => `${d.code} at ${d.line}:${d.col}`).join(', ')}`,
+            );
+            return false;
+          }
+          return current.value.config.user.yolo;
+        } catch (error) {
+          opts.log?.(
+            `yolo disabled: config unreadable: ${opts.redactor.text(String(error))}`,
+          );
+          return false;
+        }
       },
       ...(opts.log === undefined ? {} : { log: opts.log }),
     };

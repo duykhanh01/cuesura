@@ -1808,6 +1808,9 @@ export function requiredData(v: RequiredVerdict): RequiredCheckVerdict {
         kind: 'covered',
         github_required: v.github_required,
         github: [...v.github],
+        ...(v.app_pinned === undefined
+          ? {}
+          : { app_pinned: v.app_pinned.map((p) => ({ ...p })) }),
         snapshot_only: [...v.snapshot_only],
       };
     case 'required_checks_mismatch':

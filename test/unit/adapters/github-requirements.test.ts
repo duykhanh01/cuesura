@@ -8,7 +8,7 @@ import {
   type GhRead,
   type RequirementReads,
 } from '../../../src/adapters/github/requirements.ts';
-import { RequiredEvidenceSchema } from '../../../src/domain/runtime.ts';
+import { binds, RequiredEvidenceSchema } from '../../../src/domain/runtime.ts';
 import { evaluateRequired } from '../../../src/engine/required-checks.ts';
 
 // Live S0.3 reads (T008, 2026-10-28) replayed through the promoted normalizer, then edge cases carried
@@ -83,14 +83,14 @@ function readsFromEvidence(evidence: readonly Evidence[]): RequirementReads {
 
 const VERDICT = {
   covered: 'covered',
-  required_checks_mismatch: 'required_checks_mismatch',
+  required_checks_mismatch: 'covered',
   unknown: 'unknown',
 } as const;
 const KIND = { required: 'known', none: 'none', unknown: 'unknown' } as const;
 
 describe('GitHub required-check normalizer on live S0.3 reads', () => {
   it.each([1, 2, 3, 4, 5, 6, 7])(
-    'case %i matches the recorded prototype result',
+    'case %i preserves the recorded identities with the current union rule',
     (n) => {
       const c = LIVE(n);
       const reads = readsFromEvidence(c.evidence);
@@ -106,15 +106,13 @@ describe('GitHub required-check normalizer on live S0.3 reads', () => {
 
       const v = evaluateRequired(ev, c.snapshot);
       expect(v.kind).toBe(VERDICT[c.comparison.verdict]);
-      if (v.kind === 'covered')
-        expect(v.github).toEqual(c.comparison['github']);
-      if (v.kind === 'required_checks_mismatch') {
-        expect(v.missing_from_snapshot).toEqual(
-          c.comparison['missing_from_snapshot'],
+      if (v.kind === 'covered' && ev.kind !== 'unknown') {
+        expect(v.github).toEqual(
+          [...new Set(ev.identities.filter(binds).map((i) => i.name))].sort(),
         );
         expect(
-          v.app_pinned.map((p) => `${p.name}@app:${String(p.app)}`),
-        ).toEqual(c.comparison['app_pinned']);
+          v.app_pinned?.map((p) => `${p.name}@app:${String(p.app)}`),
+        ).toEqual(c.comparison['app_pinned'] ?? []);
       }
     },
   );
@@ -255,7 +253,8 @@ describe('GitHub required-check normalizer edge cases', () => {
       identities: [{ app: 15368 }],
     });
     expect(evaluateRequired(pinned, ['build'])).toMatchObject({
-      kind: 'required_checks_mismatch',
+      kind: 'covered',
+      github: ['build'],
       app_pinned: [{ name: 'build', app: 15368 }],
     });
   });
@@ -446,8 +445,8 @@ describe('GitHub required-check normalizer edge cases', () => {
       provenance: { classic: 'read_no_status_checks' },
     });
     expect(evaluateRequired(known, [])).toMatchObject({
-      kind: 'required_checks_mismatch',
-      missing_from_snapshot: ['test'],
+      kind: 'covered',
+      github: ['test'],
     });
   });
 

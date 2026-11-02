@@ -71,8 +71,8 @@ một PR, zero merge request, đầy đủ SHA/binding/usage/evidence. Gây lầ
 CI code/infra/flaky/auth/refusal/invalid output để kiểm giới hạn và reviewer vendor. Kiểm worktree
 ownership, fake process im lặng nhưng có progress, reviewer write denied và canary không lọt log.
 
-Matrix bắt buộc gồm GitHub yêu cầu A/B còn snapshot B/C (mismatch), chỉ yêu cầu B (đạt nếu B/C
-success), no-rule none, 403/404 unknown, GitHub app-pinned luôn mismatch với snapshot string[], pending/cancelled/missing/unknown, rerun
+Matrix bắt buộc gồm GitHub yêu cầu A/B còn snapshot B/C (chờ A/B/C, không đổi snapshot), chỉ yêu cầu B (đạt nếu B/C
+success), no-rule none, 403/404 unknown, hợp tên snapshot/GitHub và evidence app-pinned, kiểm đúng app trước merge, replay mismatch lịch sử, pending/cancelled/missing/unknown, rerun
 pending che success cũ. Base tip đổi chỉ ghi thông tin; head người ngoài đổi thu hồi xanh.
 
 Sau A, dừng ở [go/no-go và mốc ngày 10](plan.md). Chạy 20 seeds của
