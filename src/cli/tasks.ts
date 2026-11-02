@@ -691,8 +691,16 @@ export const inboxCommand: CliCommand = {
 export const dispatchCommand: CliCommand = {
   name: 'dispatch',
   description: 'Show the configured guidance for choosing run settings',
-  options: [DATA_DIR],
-  run: (values, json, io) => query(values, { kind: 'dispatch' }, json, io),
+  options: [DATA_DIR, { flags: '--project <id>', description: 'Project ID' }],
+  run: (values, json, io) =>
+    values['project'] === undefined
+      ? Promise.resolve(usage('dispatch requires --project', json, io))
+      : query(
+          values,
+          { kind: 'dispatch', project: values['project'] },
+          json,
+          io,
+        ),
 };
 
 export const answerCommand: CliCommand = {

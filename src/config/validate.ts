@@ -29,7 +29,9 @@ import {
   normalizeProject,
   normalizeRuntime,
   normalizeUserBase,
+  projectDispatch,
   projectLocations,
+  type NormalizedDispatch,
   type ProjectLocation,
   type RuntimeConfig,
 } from './normalize.ts';
@@ -73,6 +75,8 @@ export type Validated = {
   unsupported: UnsupportedFeature[];
   runtime: RuntimeConfig | null;
   locations: Record<string, ProjectLocation>;
+  /** Each project's own guidance. Kept out of `config` like the locations: never part of a policy hash. */
+  projectDispatch: Record<string, NormalizedDispatch>;
 };
 
 export function zodDiagnostics(
@@ -169,7 +173,7 @@ export function analyze(input: AnalyzeInput): Result<Validated, Diagnostic[]> {
     }),
   );
   if (input.checkGuidance === true)
-    diags.push(...checkDispatch(rawUser.runtime, user, profiles, input.atUser));
+    diags.push(...checkDispatch(rawUser, user, profiles, input.atUser));
   if (diags.length > 0) return err(diags);
 
   const config: ValidatedConfig = {
@@ -194,6 +198,7 @@ export function analyze(input: AnalyzeInput): Result<Validated, Diagnostic[]> {
       Object.keys(rawUser.harnesses ?? {}),
     ),
     locations: projectLocations(rawUser),
+    projectDispatch: projectDispatch(rawUser),
   });
 }
 

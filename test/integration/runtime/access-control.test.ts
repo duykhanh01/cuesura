@@ -103,7 +103,12 @@ describe('roles (US6.3, FR-028)', () => {
       ExitCode.ok,
     );
     expect((await cli(sd, 'reader', ['inbox'])).code).toBe(ExitCode.ok);
-    expect((await cli(sd, 'reader', ['dispatch'])).code).toBe(ExitCode.ok);
+    expect(
+      (await cli(sd, 'reader', ['dispatch', '--project', 'acme'])).code,
+    ).toBe(ExitCode.ok);
+    expect(
+      (await cli(sd, 'reader', ['dispatch', '--project', 'elsewhere'])).code,
+    ).not.toBe(ExitCode.ok);
     const before = running.store.readEvents(t.id).length;
     const v = String(running.store.readTask(t.id)?.version);
     for (const argv of [

@@ -247,12 +247,56 @@ export const RepoSlugSchema = z
     { message: 'repo must be a GitHub repository in owner/repo format' },
   );
 
+const DispatchNameSchema = z.string().regex(/^[^/\s]+$/, {
+  message: 'Must not be empty or contain `/` or whitespace',
+});
+
+/** One concrete agent to run: joined into the `harness/model/effort` that `--worker` and `--reviewer` take. */
+const DispatchAgentSchema = z
+  .object({
+    harness: DispatchNameSchema,
+    model: DispatchNameSchema,
+    effort: z.enum(EFFORTS),
+  })
+  .strict();
+export type RawDispatchAgent = z.infer<typeof DispatchAgentSchema>;
+
+const DispatchChoiceSchema = z
+  .object({
+    /** One agent or ordered alternatives for the assistant to propose from; cusrd never ranks them. */
+    use: z.union([
+      DispatchAgentSchema,
+      z.array(DispatchAgentSchema).min(1).max(16),
+    ]),
+    /** Present means `full-review`, absent means `direct-pr`, so the two can never disagree. */
+    reviewer: DispatchAgentSchema.optional(),
+    why: z.string().min(1).max(4_000).optional(),
+  })
+  .strict();
+export type RawDispatchChoice = z.infer<typeof DispatchChoiceSchema>;
+
+const DispatchRuleSchema = DispatchChoiceSchema.extend({
+  when: z.string().min(1).max(4_000),
+  why: z.string().min(1).max(4_000),
+}).strict();
+
+export const DispatchSchema = z
+  .object({
+    profile: z.string().min(1),
+    rules: z.array(DispatchRuleSchema).max(100).default([]),
+    default: DispatchChoiceSchema,
+  })
+  .strict();
+export type RawDispatch = z.infer<typeof DispatchSchema>;
+
 export const ProjectEntrySchema = z
   .object({
     path: AbsolutePathSchema.optional(),
     repo: RepoSlugSchema.optional(),
     base_branch: z.string().min(1),
     protected_branches: nameList.optional(),
+    /** Replaces `runtime.dispatch` as a whole for this project; rule lists are never merged. */
+    dispatch: DispatchSchema.optional(),
   })
   .strict();
 
@@ -292,47 +336,6 @@ export const AccessTokenSchema = z
   })
   .strict();
 export type AccessTokenSpec = z.infer<typeof AccessTokenSchema>;
-
-/** `harness/model/effort`, the form `--worker` and `--reviewer` take. */
-const RunChoiceTextSchema = z
-  .string()
-  .regex(
-    new RegExp(`^[^/\\s]+/[^/\\s]+/(${EFFORTS.join('|')})$`),
-    'Use harness/model/effort',
-  );
-
-const DispatchChoiceSchema = z
-  .object({
-    profile: z.string().min(1),
-    mode: z.enum(EXECUTION_MODES),
-    /** Ordered alternatives for the assistant to propose from; cusrd never ranks them. */
-    use: z
-      .array(
-        z
-          .object({
-            worker: RunChoiceTextSchema,
-            reviewer: RunChoiceTextSchema.optional(),
-          })
-          .strict(),
-      )
-      .min(1)
-      .max(16),
-    why: z.string().min(1).max(4_000).optional(),
-  })
-  .strict();
-
-const DispatchRuleSchema = DispatchChoiceSchema.extend({
-  when: z.string().min(1).max(4_000),
-  why: z.string().min(1).max(4_000),
-}).strict();
-
-export const DispatchSchema = z
-  .object({
-    rules: z.array(DispatchRuleSchema).max(100),
-    default: DispatchChoiceSchema,
-  })
-  .strict();
-export type RawDispatch = z.infer<typeof DispatchSchema>;
 
 /**
  * Where agent operations are shown (ADR-0006); only ever a view, the unit stays under systemd. A new backend
@@ -381,8 +384,8 @@ export const RuntimeSchema = z
       )
       .optional(),
     /**
-     * Guidance for the assistant that proposes run settings, served by `cusr dispatch`. cusrd checks the
-     * choices at load and never reads `when`; the user still confirms the selection (docs/architecture.md §5.1).
+     * Guidance for projects without their own `projects.<id>.dispatch`, served by `cusr dispatch`. cusrd checks
+     * the choices at load and never reads `when`; the user still confirms the selection (docs/architecture.md §5.1).
      */
     dispatch: DispatchSchema.optional(),
   })

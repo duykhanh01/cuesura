@@ -23,6 +23,8 @@ import { deepMerge } from './merge.ts';
 import type { RawProjectConfig } from './schema-project.ts';
 import type {
   AccessTokenSpec,
+  RawDispatchAgent,
+  RawDispatchChoice,
   RawProfile,
   RawRole,
   RawDispatch,
@@ -264,6 +266,70 @@ export function projectLocations(
   );
 }
 
+export type DispatchRun = {
+  readonly worker: string;
+  readonly reviewer?: string;
+};
+export type DispatchChoice = {
+  readonly profile: string;
+  readonly mode: ExecutionMode;
+  readonly use: readonly DispatchRun[];
+  readonly why?: string;
+};
+export type DispatchRule = DispatchChoice & {
+  readonly when: string;
+  readonly why: string;
+};
+/** What `cusr dispatch` serves: the values `cusr task propose` takes, ready to copy. */
+export type NormalizedDispatch = {
+  readonly rules: readonly DispatchRule[];
+  readonly default: DispatchChoice;
+};
+
+export function dispatchMode(c: RawDispatchChoice): ExecutionMode {
+  return c.reviewer === undefined ? 'direct-pr' : 'full-review';
+}
+
+const agentText = (a: RawDispatchAgent): string =>
+  `${a.harness}/${a.model}/${a.effort}`;
+
+function normalizeChoice(
+  profile: string,
+  c: RawDispatchChoice,
+): DispatchChoice {
+  const reviewer = c.reviewer === undefined ? null : agentText(c.reviewer);
+  return {
+    profile,
+    mode: dispatchMode(c),
+    use: (Array.isArray(c.use) ? c.use : [c.use]).map((u) => ({
+      worker: agentText(u),
+      ...(reviewer === null ? {} : { reviewer }),
+    })),
+    ...(c.why === undefined ? {} : { why: c.why }),
+  };
+}
+
+export function normalizeDispatch(d: RawDispatch): NormalizedDispatch {
+  return {
+    rules: d.rules.map((r) => ({
+      ...normalizeChoice(d.profile, r),
+      when: r.when,
+      why: r.why,
+    })),
+    default: normalizeChoice(d.profile, d.default),
+  };
+}
+
+export function projectDispatch(
+  u: RawUserConfig,
+): Record<string, NormalizedDispatch> {
+  return Object.fromEntries(
+    Object.entries(u.projects ?? {}).flatMap(([id, p]) =>
+      p.dispatch === undefined ? [] : [[id, normalizeDispatch(p.dispatch)]],
+    ),
+  );
+}
+
 export type RuntimeConfig = {
   data_dir: string | null;
   limits: RuntimeLimits;
@@ -276,7 +342,7 @@ export type RuntimeConfig = {
   harness_isolation: Record<string, HarnessInnerModePolicy>;
   /** Allowed execution modes with their guidance; both when `runtime.modes` is absent. */
   modes: Partial<Record<ExecutionMode, { when_to_use: string | null }>>;
-  dispatch: RawDispatch | null;
+  dispatch: NormalizedDispatch | null;
 };
 
 export function mergeRuntimeLimits(
@@ -333,6 +399,6 @@ export function normalizeRuntime(
                 : [[m, { when_to_use: r.modes[m].when_to_use }]],
             ),
           ),
-    dispatch: r.dispatch ?? null,
+    dispatch: r.dispatch === undefined ? null : normalizeDispatch(r.dispatch),
   };
 }

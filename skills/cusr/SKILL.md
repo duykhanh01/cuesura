@@ -133,9 +133,10 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
 
 ```sh
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
-  cusr dispatch --json
+  cusr dispatch --project "$PROJECT" --json
 # data.rules[]: {when, why, profile, mode, use[]}; data.default has the same choice
-# fields; data.modes holds when_to_use. Precedence: an explicit user instruction,
+# fields; data.modes holds when_to_use; data.source says whose rules these are:
+# project, global (the shared fallback) or none. Precedence: an explicit user instruction,
 # then the best-fit `when`, then default. You match `when`; the daemon never does.
 # use[] is ordered: propose the first unless the user or a stated reason says
 # otherwise. Copy worker/reviewer verbatim and name the matched rule in --reason.

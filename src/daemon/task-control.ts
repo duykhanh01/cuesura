@@ -30,7 +30,6 @@ import {
 } from '../application/queries.ts';
 import { dispatchGuidance } from '../application/dispatch.ts';
 import { httpStatusFor } from '../cli/errors.ts';
-import type { RuntimeConfig } from '../config/normalize.ts';
 import { okEnvelope } from '../cli/output.ts';
 import type { Result } from '../shared/result.ts';
 import { errorReply, type Reply } from './server.ts';
@@ -46,7 +45,6 @@ const reply = (r: Result<unknown, AppError>): Promise<Reply> =>
 export type TaskControlDeps = TaskServiceDeps & {
   readonly logs?: Omit<LogsDeps, 'store'>;
   readonly doctor?: Omit<DoctorDeps, 'store'>;
-  readonly dispatch?: Pick<RuntimeConfig, 'modes' | 'dispatch'> | null;
 };
 
 export function taskControl(deps: TaskControlDeps): {
@@ -108,8 +106,8 @@ export function taskControl(deps: TaskControlDeps): {
         ),
       run_options: async (caller, body) =>
         reply(await runOptions(deps.confirm, caller, body)),
-      dispatch: (_caller, body) =>
-        reply(dispatchGuidance(deps.dispatch ?? null, body)),
+      dispatch: async (caller, body) =>
+        reply(await dispatchGuidance(deps.confirm, caller, body)),
       ...(logs === undefined
         ? {}
         : {

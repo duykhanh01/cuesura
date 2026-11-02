@@ -21,7 +21,13 @@ import type {
 } from '../domain/config.ts';
 import { runtimeLimitIssues } from '../domain/runtime.ts';
 import { mergeRuntimeLimits } from './normalize.ts';
-import type { RawDispatch, RawUserConfig } from './schema-user.ts';
+import { dispatchMode } from './normalize.ts';
+import type {
+  RawDispatch,
+  RawDispatchAgent,
+  RawDispatchChoice,
+  RawUserConfig,
+} from './schema-user.ts';
 
 export type Locator = (path: KeyPath) => Position;
 
@@ -99,90 +105,91 @@ export function checkRuntime(u: RawUserConfig, at: Locator): Diagnostic[] {
   return out;
 }
 
-/** A proposal from `runtime.dispatch` must be one the user could confirm: declared, allowed and complete. */
+/** A proposal from a dispatch block must be one the user could confirm: declared, allowed and complete. */
 export function checkDispatch(
-  runtime: RawUserConfig['runtime'],
+  raw: RawUserConfig,
   user: NormalizedUser,
   profiles: Record<string, NormalizedProfile>,
   at: Locator,
 ): Diagnostic[] {
-  const dispatch = runtime?.dispatch;
-  if (dispatch === undefined) return [];
   const out: Diagnostic[] = [];
   const bad = (path: KeyPath, message: string): void => {
     out.push(diag('schema_invalid', at(path), path, message));
   };
-  const checkBinding = (
-    path: KeyPath,
-    text: string,
-    roles: readonly string[],
-    profileName: string,
-  ): void => {
-    const [harness, model, effort] = text.split('/');
-    const profile = Object.hasOwn(profiles, profileName)
-      ? profiles[profileName]
-      : undefined;
-    if (
-      profile?.allow_models != null &&
-      !profile.allow_models.includes(model as string)
-    )
-      bad(path, `Profile '${profileName}' does not allow model '${model}'`);
-    for (const roleName of roles) {
-      if (
-        profile?.allow_roles != null &&
-        !profile.allow_roles.includes(roleName)
-      )
-        bad(path, `Profile '${profileName}' does not allow role '${roleName}'`);
-      const declared = user.roles[roleName]?.binding.some(
-        (b) =>
-          b.model === model &&
-          b.effort === effort &&
-          user.models[b.model]?.harness === harness,
-      );
-      if (declared !== true)
-        bad(path, `Role '${roleName}' does not declare a binding for ${text}`);
-    }
-  };
-  const checkChoice = (base: KeyPath, c: RawDispatch['default']): void => {
-    if (!Object.hasOwn(profiles, c.profile))
+  const checkBlock = (root: KeyPath, dispatch: RawDispatch): void => {
+    const known = Object.hasOwn(profiles, dispatch.profile);
+    if (!known)
       out.push(
         diag(
           'unknown_profile',
-          at([...base, 'profile']),
-          [...base, 'profile'],
-          `Profile '${c.profile}' does not exist`,
+          at([...root, 'profile']),
+          [...root, 'profile'],
+          `Profile '${dispatch.profile}' does not exist`,
         ),
       );
-    if (runtime?.modes !== undefined && runtime.modes[c.mode] === undefined)
-      bad(
-        [...base, 'mode'],
-        `Mode '${c.mode}' is not allowed by runtime.modes`,
-      );
-    c.use.forEach((u, i) => {
-      const path: KeyPath = [...base, 'use', i];
-      checkBinding(
-        [...path, 'worker'],
-        u.worker,
-        ['coder', 'fixer'],
-        c.profile,
-      );
-      if (c.mode === 'direct-pr' && u.reviewer !== undefined)
-        bad([...path, 'reviewer'], 'direct-pr must not name a reviewer');
-      if (c.mode === 'full-review' && u.reviewer === undefined)
-        bad(path, 'full-review requires a reviewer');
-      if (u.reviewer !== undefined)
-        checkBinding(
-          [...path, 'reviewer'],
-          u.reviewer,
-          ['reviewer'],
-          c.profile,
+    const profile = known ? profiles[dispatch.profile] : undefined;
+    const checkAgent = (
+      path: KeyPath,
+      agent: RawDispatchAgent,
+      roles: readonly string[],
+    ): void => {
+      const { harness, model, effort } = agent;
+      if (
+        profile?.allow_models != null &&
+        !profile.allow_models.includes(model)
+      )
+        bad(
+          path,
+          `Profile '${dispatch.profile}' does not allow model '${model}'`,
         );
+      for (const roleName of roles) {
+        if (
+          profile?.allow_roles != null &&
+          !profile.allow_roles.includes(roleName)
+        )
+          bad(
+            path,
+            `Profile '${dispatch.profile}' does not allow role '${roleName}'`,
+          );
+        const declared = user.roles[roleName]?.binding.some(
+          (b) =>
+            b.model === model &&
+            b.effort === effort &&
+            user.models[b.model]?.harness === harness,
+        );
+        if (declared !== true)
+          bad(
+            path,
+            `Role '${roleName}' does not declare a binding for ${harness}/${model}/${effort}`,
+          );
+      }
+    };
+    const checkChoice = (base: KeyPath, c: RawDispatchChoice): void => {
+      const mode = dispatchMode(c);
+      const modes = raw.runtime?.modes;
+      if (modes !== undefined && modes[mode] === undefined)
+        bad(
+          mode === 'full-review' ? [...base, 'reviewer'] : [...base, 'use'],
+          `Mode '${mode}' is not allowed by runtime.modes`,
+        );
+      if (Array.isArray(c.use))
+        c.use.forEach((u, i) => {
+          checkAgent([...base, 'use', i], u, ['coder', 'fixer']);
+        });
+      else checkAgent([...base, 'use'], c.use, ['coder', 'fixer']);
+      if (c.reviewer !== undefined)
+        checkAgent([...base, 'reviewer'], c.reviewer, ['reviewer']);
+    };
+    dispatch.rules.forEach((r, i) => {
+      checkChoice([...root, 'rules', i], r);
     });
+    checkChoice([...root, 'default'], dispatch.default);
   };
-  dispatch.rules.forEach((r, i) => {
-    checkChoice(['runtime', 'dispatch', 'rules', i], r);
-  });
-  checkChoice(['runtime', 'dispatch', 'default'], dispatch.default);
+  if (raw.runtime?.dispatch !== undefined)
+    checkBlock(['runtime', 'dispatch'], raw.runtime.dispatch);
+  for (const [id, project] of Object.entries(raw.projects ?? {}))
+    if (project.dispatch !== undefined)
+      checkBlock(['projects', id, 'dispatch'], project.dispatch);
   return out;
 }
 

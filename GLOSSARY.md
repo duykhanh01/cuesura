@@ -9,7 +9,7 @@ Lựa chọn cách đưa kết quả task tới PR, do người dùng xác nhậ
 _Avoid_: Độ khó task, tự động suy chế độ từ kích thước
 
 **Quy tắc dispatch**:
-Chỉ dẫn do người dùng khai trong `runtime.dispatch` để assistant đề xuất profile, chế độ thực thi và binding cho một task. Daemon kiểm tra lựa chọn lúc nạp cấu hình nhưng không đọc điều kiện và không tự chọn; người dùng vẫn xác nhận từng lần chạy.
+Chỉ dẫn do người dùng khai trong `projects.<id>.dispatch` (hoặc `runtime.dispatch` cho project không khai riêng) để assistant đề xuất profile, chế độ thực thi và binding cho một task. Daemon kiểm tra lựa chọn lúc nạp cấu hình nhưng không đọc điều kiện và không tự chọn; người dùng vẫn xác nhận từng lần chạy.
 _Avoid_: Định tuyến tự động, chọn model theo kích thước
 
 **Direct PR (`direct-pr`)**:
