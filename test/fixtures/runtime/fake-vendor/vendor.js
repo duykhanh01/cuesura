@@ -12,12 +12,21 @@
 // FAKE_VENDOR_INNER_SANDBOX: enforces shell writes with the test harness native sandbox.
 // FAKE_VENDOR_PROOF_ALLOW_RULE: deliberately executes the command that the permission rule should deny.
 // FAKE_VENDOR_DENY_STDERR: logs a refused exec on stderr the way codex does.
+// FAKE_VENDOR_HIDE_REFUSAL: a Codex stream shows nothing for a refused command, as real 0.166 does.
+// `sandbox ... -- COMMAND` runs COMMAND the way `codex sandbox` does.
 // It never calls a model.
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const argv = process.argv.slice(2);
+if (argv[0] === 'sandbox') {
+  const command = argv.slice(argv.indexOf('--') + 1);
+  const r = process.env.FAKE_VENDOR_INNER_SANDBOX
+    ? spawnSync('/usr/bin/bwrap', ['--unshare-user', '--ro-bind', '/', '/', '--', ...command], { stdio: 'inherit' })
+    : spawnSync(command[0], command.slice(1), { stdio: 'inherit' });
+  process.exit(r.status ?? 1);
+}
 const codex = argv[0] === 'exec';
 const modes = (process.env.FAKE_VENDOR_MODE ?? '').split(',');
 const has = (m) => modes.includes(m);
@@ -80,15 +89,20 @@ if (process.env.FAKE_VENDOR_HOLD) {
 const deniedCommand = '/usr/bin/touch permission-denied-by-rule';
 if (process.env.FAKE_VENDOR_PROOF_ALLOW_RULE) spawnSync('/bin/sh', ['-c', deniedCommand]);
 if (process.env.FAKE_VENDOR_DENY_STDERR) {
-  process.stderr.write(`codex_core::tools::router: error=Rejected("\`${deniedCommand}\` rejected: blocked by policy")\n`);
-  if (!codex) out({type: 'system', subtype: 'permission_denied', tool_name: 'Bash', message: deniedCommand});
+  process.stderr.write(`codex_core::tools::router: error=Rejected("\`/usr/bin/zsh -lc '${deniedCommand}'\` rejected: blocked by policy")\n`);
+  if (!codex) {
+    out({type: 'assistant', message: {content: [{type: 'tool_use', id: 'rule-probe', name: 'Bash', input: {command: deniedCommand}}]}});
+    out({type: 'system', subtype: 'permission_denied', tool_name: 'Bash', tool_use_id: 'rule-probe', message: `Permission to use Bash with command ${deniedCommand} has been denied.`});
+  }
 }
 const nativeCommand = /^2\. Run exactly: (.+)$/m.exec(stdin)?.[1];
 if (nativeCommand) {
   const probe = process.env.FAKE_VENDOR_INNER_SANDBOX
     ? spawnSync('/usr/bin/bwrap', ['--unshare-user', '--ro-bind', '/', '/', '--', '/bin/sh', '-c', nativeCommand], {encoding:'utf8'})
     : spawnSync('/bin/sh', ['-c', nativeCommand], {encoding:'utf8'});
-  if (codex) out({type: 'item.completed', item: {type: 'command_execution', command: nativeCommand, exit_code: probe.status, aggregated_output: probe.stdout + probe.stderr}});
+  if (codex && process.env.FAKE_VENDOR_HIDE_REFUSAL && probe.status !== 0) {
+    // Nothing on stdout: the refusal is visible only to the model.
+  } else if (codex) out({type: 'item.completed', item: {type: 'command_execution', command: nativeCommand, exit_code: probe.status, aggregated_output: probe.stdout + probe.stderr}});
   else {
     const text = probe.status === 0 ? probe.stdout : `Exit code ${probe.status}\n${probe.stderr}`;
     out({type: 'assistant', message: {content: [{type: 'tool_use', id: 'native-probe', name: 'Bash', input: {command: nativeCommand}}]}});

@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
@@ -317,5 +317,28 @@ describe('gates through the production host launcher', () => {
     );
     expect(r.receipts[0]).toMatchObject({ status: 'passed' });
     expect(existsSync(join(worktree, 'out.txt'))).toBe(true);
+  });
+
+  it('gives a gate a usable temp directory under a long data dir', async () => {
+    const { deps, input, worktree } = await setup(new HostExecutionProvider());
+    const base = input([
+      {
+        name: 'build',
+        command:
+          'f=$(mktemp) && echo "$f" > out.txt && echo "$TMPDIR" >> out.txt',
+      },
+    ]);
+    const scratch = join(base.layout.scratch, 'x'.repeat(80));
+    mkdirSync(scratch, { recursive: true });
+    const r = await runGates(deps, {
+      ...base,
+      layout: { ...base.layout, scratch },
+    });
+    expect(r.receipts[0]).toMatchObject({ status: 'passed' });
+    const [file, tmp] = readFileSync(join(worktree, 'out.txt'), 'utf8')
+      .trim()
+      .split('\n');
+    expect(tmp).toBe(scratch);
+    expect(file?.startsWith(`${scratch}/`)).toBe(true);
   });
 });

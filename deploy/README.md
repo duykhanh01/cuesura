@@ -378,6 +378,9 @@ Với Codex, file `.codex/rules/` đã pin cần rule tương ứng:
 prefix_rule(pattern=["/usr/bin/touch", "permission-denied-by-rule"], decision="forbidden")
 ```
 
+Với Codex, `prove-harness` chạy thêm `codex sandbox` trực tiếp, không gọi model, vì `exec --json` không có sự
+kiện cho lệnh bị sandbox từ chối. Lệnh `/usr/bin/true` phải chạy được, còn lệnh ghi phải bị hệ điều hành từ chối.
+
 Giữ các rule owner khác khi thêm rule này. Lệnh deny dùng đường dẫn tương đối để kiểm marker ngay trong
 worktree thật; rule cũ trỏ `/cusr/scratch` không chứng minh hợp đồng host mới. Probe native chỉ đạt khi log
 **tool execution** có lỗi OS từ chối ghi và file đích không xuất hiện; trả lời hợp lệ hoặc rule từ chối tool
@@ -385,6 +388,15 @@ không đủ. Worker Claude tắt sandbox ghi `native_result=not_tried`; auto d�
 full access dùng `full_access`. Worker bật sandbox luôn cần `native_result=passed`, kể cả full access.
 Reviewer vẫn chạy probe âm native. Đổi sandbox cũng cần tạo lại proof/manifest; không nhận bằng chứng
 của lựa chọn cũ.
+
+`prove-harness` trả mã lỗi và nêu lý do khi bằng chứng chưa đủ tạo manifest dùng được, dù vẫn ghi file evidence
+để đọc lại. `record-manifest` từ chối evidence đó bằng đúng phép kiểm daemon dùng khi nạp record.
+`cusr-runner check-records --config <file> --data-dir <dir>` kiểm config và mọi harness record với release đang chạy
+lệnh, không gọi model; nên chạy bằng release mới trước khi đổi sang nó.
+
+Claude cần `TMPDIR` đủ ngắn cho Unix socket của sandbox (đường dẫn tối đa 108 byte), nên mỗi lượt chạy Claude có thư
+mục riêng 0700 `/tmp/cusr-<hash>`, xóa khi lượt kết thúc. Với host có `/tmp` là tmpfs nhỏ, việc ghi file tạm lớn trong
+lượt chạy agent sẽ chiếm chỗ ở đó. Setup, gate, autofix và Codex vẫn dùng scratch của mình làm `TMPDIR`.
 
 Sau khi nâng release, tạo lại pin với `--permission-mode auto` hoặc `full-access`, chạy `prove-harness`
 không có `--outer-proof`, rồi `record-manifest` và restart daemon. Manifest cũ chứng minh outer bwrap

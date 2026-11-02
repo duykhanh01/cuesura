@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { isAbsolute, join, sep } from 'node:path';
+import { dirname, isAbsolute, join, sep } from 'node:path';
 import type {
   SandboxLaunchPlan,
   SandboxLayout,
@@ -20,7 +20,7 @@ import type {
   SandboxRole,
 } from '../adapters/ports.ts';
 import type { Hash } from '../shared/brand.ts';
-import { hashCanonical } from '../shared/hash.ts';
+import { hashCanonical, hashText } from '../shared/hash.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 
 /** Fallback PATH when the host environment has none. */
@@ -185,6 +185,8 @@ function fingerprint(paths: readonly string[]): string {
 /** Snapshot before and after an agent run; any change in a read-only zone is a boundary violation. */
 export function snapshotWriteZone(
   layout: Pick<SandboxLayout, 'role' | 'worktree' | 'git_dirs'>,
+  /** The adapter's `worktree_state`. */
+  harnessState: readonly string[] = [],
 ): WriteZoneSnapshot {
   const meta = [
     join(layout.worktree, '.git'),
@@ -193,21 +195,35 @@ export function snapshotWriteZone(
   return {
     role: layout.role,
     worktree: READ_ONLY_REPO_ROLES.has(layout.role)
-      ? fingerprintTree(layout.worktree)
+      ? fingerprintTree(layout.worktree, harnessState)
       : null,
     metadata: fingerprint(meta),
   };
 }
 
-function fingerprintTree(dir: string): string {
+/**
+ * `harnessState` directories count as absent while they are empty. Their parents' own size and time are left out
+ * too, since making one moves them; a parent's other entries are all recorded separately.
+ */
+function fingerprintTree(dir: string, harnessState: readonly string[]): string {
+  const state = new Set(harnessState.map((p) => join(dir, p)));
+  const parents = new Set(
+    [...state].flatMap((p) => {
+      const out: string[] = [];
+      for (let up = dirname(p); up !== dir; up = dirname(up)) out.push(up);
+      return out;
+    }),
+  );
   const entries: [string, number, number][] = [];
   const walk = (d: string): void => {
     for (const n of readdirSync(d).sort()) {
       if (n === '.git') continue;
       const p = join(d, n);
       const st = lstatSync(p);
-      entries.push([p, st.size, st.mtimeMs]);
-      if (st.isDirectory() && !st.isSymbolicLink()) walk(p);
+      const isDir = st.isDirectory() && !st.isSymbolicLink();
+      if (isDir && state.has(p) && readdirSync(p).length === 0) continue;
+      if (!(isDir && parents.has(p))) entries.push([p, st.size, st.mtimeMs]);
+      if (isDir) walk(p);
     }
   };
   walk(dir);
@@ -224,6 +240,29 @@ export function writeZoneViolations(
   if (before.metadata !== after.metadata)
     out.push(`${before.role} run changed git metadata`);
   return out;
+}
+
+/**
+ * The TMPDIR of a run whose binary needs a short one. Named from the scratch dir, so a retry or a recovery of the
+ * same run finds the same directory.
+ */
+export function shortTmpDir(scratch: string): string {
+  return `/tmp/cusr-${hashText(scratch).slice('sha256:'.length, 'sha256:'.length + 16)}`;
+}
+
+/** /tmp is shared, so an existing entry counts only if it is this user's own private directory. */
+export function ensurePrivateTmpDir(dir: string): void {
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const st = lstatSync(dir);
+  if (
+    !st.isDirectory() ||
+    st.uid !== process.getuid?.() ||
+    (st.mode & 0o077) !== 0
+  )
+    throw new SandboxPolicyError(
+      'policy_violation',
+      `${dir} is not a private directory of this user`,
+    );
 }
 
 /** Shared by execution and preflight so shell/systemd PATH differences affect tool discovery consistently. */
@@ -279,7 +318,7 @@ export class HostExecutionProvider implements SandboxProvider {
       ...(layout.private_home === null
         ? {}
         : { CODEX_HOME: join(layout.private_home, '.codex') }),
-      TMPDIR: layout.scratch,
+      TMPDIR: layout.tmp_dir ?? layout.scratch,
     };
     // Never forward orchestration credentials through a pin or the daemon environment.
     for (const key of Object.keys(env))

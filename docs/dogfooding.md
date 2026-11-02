@@ -177,6 +177,9 @@ cusr doctor --project cuesura --json
 ```
 
 Script xây release mới, đổi `current` một lần và chép skill; process đang chạy vẫn giữ code cũ tới khi restart.
+Trước khi đổi `current`, script chạy `cusr-runner check-records` của release mới. Release mới từ chối config hoặc
+harness record thì script dừng và `current` giữ nguyên: sửa config, hoặc chạy `prove-harness` và `record-manifest`
+bằng `releases/<sha>/dist/cli/cusr-runner.js` rồi chạy lại script. `--allow-unproven` đổi `current` dù task mới sẽ bị chặn.
 Script lấy code từ `repo/`, không từ repo phát triển.
 
 `doctor` báo `manifest:*` thì pin hoặc layout đã đổi: chứng minh lại harness trước khi chạy task. Không sửa tay

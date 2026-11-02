@@ -104,8 +104,10 @@ import {
 } from './private-home.ts';
 import { Redactor } from './redact.ts';
 import {
+  ensurePrivateTmpDir,
   IN_SANDBOX,
   SandboxPolicyError,
+  shortTmpDir,
   snapshotWriteZone,
   writeZoneViolations,
 } from './sandbox.ts';
@@ -163,6 +165,8 @@ const LaunchStateSchema = z.strictObject({
   inner_mode: z.string().min(1),
   layout_digest: HashSchema,
   scratch: z.string().min(1),
+  /** Absent in a state written before runs had their own TMPDIR. */
+  tmp_dir: z.string().min(1).optional(),
   /** The layout fields the write-zone snapshot reads. */
   zone: z.strictObject({
     role: z.enum(SANDBOX_ROLES),
@@ -245,6 +249,10 @@ export type RunnerHarnessOptions = {
   readonly digest?: (path: string) => Hash;
   readonly sleep?: (ms: number) => Promise<void>;
 };
+
+function removeTmpDir(dir: string | undefined): void {
+  if (dir !== undefined) rmSync(dir, { recursive: true, force: true });
+}
 
 const delay = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
@@ -379,6 +387,7 @@ export class RunnerHarness implements HarnessPort {
         return never('capability_missing', e.message);
       throw e;
     }
+    const shortTmp = this.#tmpDir(run);
     const planned = o.adapter.plan(o.pin, {
       role: input.role,
       model: input.binding.model,
@@ -391,6 +400,7 @@ export class RunnerHarness implements HarnessPort {
             scratch: join(run.dir, 'scratch'),
             context: join(run.dir, 'context'),
             schema: join(run.dir, 'schema'),
+            ...(shortTmp === undefined ? {} : { tmp: shortTmp }),
           }
         : IN_SANDBOX,
       host_execution: hostExecution,
@@ -442,7 +452,7 @@ export class RunnerHarness implements HarnessPort {
           .filter((c) => present(c.scratch_name))
           .map((c) => c.scratch_name),
       );
-      const before = snapshotWriteZone(layout.layout);
+      const before = snapshotWriteZone(layout.layout, o.adapter.worktree_state);
 
       const sandboxed = o.sandbox.plan(layout.layout, plan.argv);
       // No unsandboxed or weaker fallback: a boundary that cannot be planned blocks the attempt.
@@ -477,6 +487,9 @@ export class RunnerHarness implements HarnessPort {
         inner_mode: verified.value.inner_mode,
         layout_digest: sandboxed.value.layout_digest,
         scratch: layout.scratch,
+        ...(layout.layout.tmp_dir === undefined
+          ? {}
+          : { tmp_dir: layout.layout.tmp_dir }),
         zone: {
           role: layout.layout.role,
           worktree: layout.layout.worktree,
@@ -495,6 +508,8 @@ export class RunnerHarness implements HarnessPort {
           : input.deadline_at - o.clock.now(),
       );
       const wall = Number.isFinite(remaining) ? Math.max(1, remaining) : null;
+      const tmpWatch =
+        layout.layout.tmp_dir === undefined ? [] : [layout.layout.tmp_dir];
       const launched = await o.process.launch({
         operation_id: input.operation_id,
         kind: 'agent',
@@ -513,8 +528,8 @@ export class RunnerHarness implements HarnessPort {
         stall_ms: limits.stall_ms,
         watch:
           input.role === 'reviewer'
-            ? [layout.scratch]
-            : [ws.worktree, layout.scratch],
+            ? [layout.scratch, ...tmpWatch]
+            : [ws.worktree, layout.scratch, ...tmpWatch],
       });
       if (!launched.ok) {
         if (launched.error.code === 'spawn_failed')
@@ -533,7 +548,10 @@ export class RunnerHarness implements HarnessPort {
       throw e;
     } finally {
       // Auth leaves the home once the run's artifacts are on disk, whatever the outcome.
-      if (installed !== null) removeAuth(installed);
+      if (installed !== null) {
+        removeAuth(installed);
+        removeTmpDir(this.#tmpDir(run));
+      }
     }
   }
 
@@ -613,6 +631,7 @@ export class RunnerHarness implements HarnessPort {
       const outcome = stored.value.outcome as HarnessOutcome;
       const ingest = ingestOf(run, input.operation_id, records.value);
       removeAuth(st.auth);
+      removeTmpDir(st.tmp_dir);
       return ingest === null ? outcome : { ...outcome, ingest };
     }
     // Raw output is concluded only while every auth file is still there to redact it with.
@@ -626,6 +645,7 @@ export class RunnerHarness implements HarnessPort {
     });
     const outcome = this.#conclude(run, input, st, e, authRedactor, true);
     removeAuth(st.auth);
+    removeTmpDir(st.tmp_dir);
     return outcome;
   }
 
@@ -700,7 +720,7 @@ export class RunnerHarness implements HarnessPort {
     });
     const violations = writeZoneViolations(
       st.before,
-      snapshotWriteZone(st.zone),
+      snapshotWriteZone(st.zone, this.#o.adapter.worktree_state),
     );
     if (violations.length > 0 && recovering)
       throw new InvocationUnknown(
@@ -838,8 +858,10 @@ export class RunnerHarness implements HarnessPort {
       state.value.input_digest === p.recovery.input_digest &&
       state.value.launch_nonce === p.launch_nonce &&
       state.value.manifest_hash === p.manifest_hash
-    )
+    ) {
       removeAuth(state.value.auth);
+      removeTmpDir(state.value.tmp_dir);
+    }
     return {
       kind: 'result',
       role: 'reviewer',
@@ -922,6 +944,15 @@ export class RunnerHarness implements HarnessPort {
     const context = run.ensureDir('context');
     const schemaDir = run.ensureDir('schema');
     const scratch = run.ensureDir(SCRATCH);
+    const tmpDir = this.#tmpDir(run);
+    if (tmpDir !== undefined)
+      try {
+        ensurePrivateTmpDir(tmpDir);
+      } catch (e) {
+        if (e instanceof SandboxPolicyError)
+          return { ok: false, error: e.message };
+        throw e;
+      }
     run.writeText(PROMPT_FILE, input.context.text);
     for (const f of plan.context_files)
       run.writeText(`context/${f.name}`, f.content);
@@ -975,6 +1006,7 @@ export class RunnerHarness implements HarnessPort {
         worktree: ws.worktree,
         git_dirs: ws.git_dirs,
         scratch,
+        ...(tmpDir === undefined ? {} : { tmp_dir: tmpDir }),
         private_home: installed.home,
         context,
         schema: schemaDir,
@@ -982,6 +1014,14 @@ export class RunnerHarness implements HarnessPort {
         network: 'internet_outbound',
       },
     };
+  }
+
+  /** The run's own TMPDIR, when this binary needs one other than scratch. */
+  #tmpDir(run: RunDir): string | undefined {
+    const o = this.#o;
+    return o.sandbox.provider === 'host' && o.adapter.needs_short_tmpdir
+      ? shortTmpDir(run.resolve(SCRATCH))
+      : undefined;
   }
 
   /** Waits for exit.json; on abort stops the unit and keeps waiting for the runner's record. */

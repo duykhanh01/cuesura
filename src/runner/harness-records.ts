@@ -166,6 +166,26 @@ export function harnessSandboxTools(pin: VendorPin): SandboxTools {
   };
 }
 
+/** Every configured harness whose record would not hold for this release, with the reason. */
+export function harnessRecordProblems(o: {
+  readonly dataDir: string;
+  readonly harnesses: readonly string[];
+  readonly runtime: RuntimeConfig;
+}): { readonly harness: string; readonly problem: string }[] {
+  const host_policy_hash = hostSandbox().policy_hash;
+  return [...o.harnesses].sort().flatMap((harness) => {
+    const record = loadHarnessRecord(o.dataDir, harness);
+    const problem = record.ok
+      ? harnessRecordProblem(record.value, {
+          isolation:
+            o.runtime.harness_isolation[harness] ?? 'internal_required',
+          host_policy_hash,
+        })
+      : record.error;
+    return problem === null ? [] : [{ harness, problem }];
+  });
+}
+
 /** Why this record does not hold on this host right now, or null when it does. */
 export function harnessRecordProblem(
   record: HarnessRecord,
@@ -323,6 +343,16 @@ export function recordManifest(o: {
     fixture_refs: [o.fixtureRef],
     checked_at: o.now,
   });
+  // The same judgement the daemon applies when it loads the record, so a useless manifest is never written.
+  const problem = harnessRecordProblem(
+    { pin: pin.value, manifest },
+    {
+      isolation: o.runtime.harness_isolation[o.harness] ?? 'internal_required',
+      host_policy_hash: identity.value.host_policy_hash,
+    },
+  );
+  if (problem !== null)
+    return err(`${o.evidenceFile} does not make a usable manifest: ${problem}`);
   const dir = recordDir(o.dataDir, o.harness);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const tmp = join(dir, `${MANIFEST_FILE}.${process.pid}.tmp`);

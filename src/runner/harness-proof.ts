@@ -31,7 +31,7 @@ import {
 import {
   hostInnerMode,
   nativeSandboxEnabled,
-  isRec,
+  type PinnedRun,
   type VendorPin,
 } from '../adapters/harness/vendor.ts';
 import type { HarnessOutcome, ProcessPort } from '../adapters/ports.ts';
@@ -56,6 +56,7 @@ import { RunnerHarness } from './invocation.ts';
 import { PRIVATE_HOME_DIR } from './private-home.ts';
 import { Redactor } from './redact.ts';
 import { readAllRecords, RunDir } from './files.ts';
+import { hostExecutionPath } from './sandbox.ts';
 import { SystemdSupervisor } from './supervisor.ts';
 
 export const PROOF_ROLES = ['coder', 'fixer', 'reviewer'] as const;
@@ -244,64 +245,27 @@ function disposableRepo(
   };
 }
 
-/** Require an OS error from the exact shell probe, never a permission-rule refusal or model summary. */
-export function nativeWriteDenied(
-  stdout: readonly unknown[],
-  vendor: VendorPin['vendor'],
-  marker: string,
-): boolean {
-  const calls = new Set<string>();
-  const osDenial = (text: unknown): boolean =>
-    typeof text === 'string' &&
-    text.includes(marker) &&
-    /Read-only file system|Permission denied|Operation not permitted/i.test(
-      text,
-    );
-  for (const event of stdout) {
-    if (!isRec(event)) continue;
-    if (vendor === 'codex') {
-      const item = event['item'];
-      if (
-        event['type'] === 'item.completed' &&
-        isRec(item) &&
-        item['type'] === 'command_execution' &&
-        typeof item['command'] === 'string' &&
-        item['command'].includes(marker) &&
-        typeof item['exit_code'] === 'number' &&
-        item['exit_code'] !== 0 &&
-        osDenial(item['aggregated_output'])
-      )
-        return true;
-      continue;
-    }
-    const message = event['message'];
-    const content = isRec(message) ? message['content'] : undefined;
-    if (!Array.isArray(content)) continue;
-    for (const block of content) {
-      if (!isRec(block)) continue;
-      const input = block['input'];
-      if (
-        event['type'] === 'assistant' &&
-        block['type'] === 'tool_use' &&
-        block['name'] === 'Bash' &&
-        typeof block['id'] === 'string' &&
-        isRec(input) &&
-        typeof input['command'] === 'string' &&
-        input['command'].includes(marker)
-      )
-        calls.add(block['id']);
-      if (
-        event['type'] === 'user' &&
-        block['type'] === 'tool_result' &&
-        typeof block['tool_use_id'] === 'string' &&
-        calls.has(block['tool_use_id']) &&
-        block['is_error'] === true &&
-        osDenial(block['content'])
-      )
-        return true;
-    }
-  }
-  return false;
+/** Runs the pinned binary with an empty home: the user's own config must not shape what it proves. */
+function pinnedRunner(
+  pin: VendorPin,
+  scratch: string,
+): (argv: readonly string[]) => PinnedRun {
+  const home = join(scratch, 'pinned-run-home');
+  mkdirSync(home, { recursive: true, mode: 0o700 });
+  return (argv) => {
+    const r = spawnSync(pin.binary.realpath, argv, {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 30_000,
+      env: {
+        ...pin.env,
+        PATH: hostExecutionPath(pin.toolchain).join(':'),
+        HOME: home,
+        CODEX_HOME: home,
+      },
+    });
+    return { status: r.status, output: `${r.stdout}${r.stderr}` };
+  };
 }
 
 type RoleRun = {
@@ -409,6 +373,47 @@ export function evidenceFromRuns(
   };
 }
 
+/** Readable reasons for a proof that ran but did not show what a manifest needs. */
+export function proofFailures(
+  pin: VendorPin,
+  evidence: Record<string, unknown>,
+  runs: readonly RoleRun[],
+): string[] {
+  const vendors = evidence['vendors'] as Record<
+    string,
+    {
+      native_result: string;
+      capabilities: Record<string, { status: string; evidence: string }>;
+    }
+  >;
+  const entry = vendors[pin.vendor];
+  if (entry === undefined) return [`no evidence for ${pin.vendor}`];
+  const out: string[] = [];
+  for (const r of runs)
+    if (r.outcome.kind !== 'result')
+      out.push(
+        `${r.role}: ${r.outcome.kind === 'failure' ? `${r.outcome.failure}: ${r.outcome.detail}` : r.outcome.kind}`,
+      );
+  if (runs.length < PROOF_ROLES.length)
+    out.push(`stopped after ${runs.length} of ${PROOF_ROLES.length} roles`);
+  if (entry.native_result === 'failed')
+    out.push(
+      `native sandbox refusal not shown (${runs
+        .filter((r) => !r.native_write_blocked)
+        .map((r) => r.role)
+        .join(', ')})`,
+    );
+  const needed = ['structured_output', 'private_home_auth'];
+  if (pin.permission_mode !== 'full-access')
+    needed.push('permission_denial_kept');
+  for (const name of needed) {
+    const c = entry.capabilities[name];
+    if (c?.status !== 'proven')
+      out.push(`${name}: ${c?.evidence ?? 'not shown'}`);
+  }
+  return out;
+}
+
 /** Every check of the attempt passes on these claims, which the runs then have to show. */
 function candidateManifest(o: ProofOptions, plan: ProofPlan, shownAt: number) {
   const inner = hostInnerMode(plan.pin);
@@ -456,7 +461,17 @@ function candidateManifest(o: ProofOptions, plan: ProofPlan, shownAt: number) {
  */
 export async function proveHarness(
   o: ProofOptions & { readonly budget: ProofBudget; readonly out: string },
-): Promise<Result<{ evidence: string; runs: readonly RoleRun[] }, string>> {
+): Promise<
+  Result<
+    {
+      evidence: string;
+      runs: readonly RoleRun[];
+      /** Why the evidence would not make a usable manifest; empty when it would. */
+      failures: readonly string[];
+    },
+    string
+  >
+> {
   if (o.budget.approval.trim() === '')
     return err('a proof spends model usage and needs an approval');
   const planned = planProof(o);
@@ -577,13 +592,15 @@ export async function proveHarness(
       outcome,
       native_write_blocked:
         !existsSync(nativeMarker) &&
-        nativeWriteDenied(
-          readAllRecords(files)
+        adapterFor(plan.pin.vendor).nativeWriteDenied({
+          role,
+          worktree: workspace.worktree,
+          marker: nativeMarker,
+          stdout: readAllRecords(files)
             .filter((r) => r.kind === 'stdout')
             .map((r) => r.data),
-          plan.pin.vendor,
-          nativeMarker,
-        ),
+          runPinned: pinnedRunner(plan.pin, scratch),
+        }),
       marker_absent: !existsSync(join(workspace.worktree, DENIED_MARKER)),
       auth_removed: plan.pin.home_files
         .filter((h) => h.sha256 === undefined)
@@ -684,11 +701,12 @@ export async function proveHarness(
   }
 
   const tmp = `${o.out}.${process.pid}.tmp`;
-  writeFileSync(
-    tmp,
-    `${JSON.stringify(evidenceFromRuns(plan, runs, o.now(), resume), null, 2)}\n`,
-    { mode: 0o600 },
-  );
+  const evidence = evidenceFromRuns(plan, runs, o.now(), resume);
+  writeFileSync(tmp, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
   renameSync(tmp, o.out);
-  return ok({ evidence: o.out, runs });
+  return ok({
+    evidence: o.out,
+    runs,
+    failures: proofFailures(plan.pin, evidence, runs),
+  });
 }

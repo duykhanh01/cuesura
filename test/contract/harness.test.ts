@@ -391,7 +391,8 @@ describe('six role × vendor fixtures normalise to the accepted result (T066)', 
     expect(c.outcome.permission_denials).toEqual([
       {
         tool: 'Bash',
-        command:
+        command: '/usr/bin/touch /cusr/scratch/permission-denied-by-rule',
+        message:
           'Permission to use Bash with command /usr/bin/touch /cusr/scratch/permission-denied-by-rule has been denied.',
         source: 'claude_event',
       },
@@ -820,10 +821,72 @@ describe('vendor usage and denial edge cases', () => {
     expect(stderr).not.toBe(read.stderr);
     expect(
       codexAdapter.read({ ...read, stderr }).permission_denials,
-    ).toContainEqual({
-      tool: 'exec_command',
-      command: `/usr/bin/zsh -lc '${command}'`,
-      source: 'codex_stderr',
+    ).toContainEqual(
+      expect.objectContaining({
+        tool: 'exec_command',
+        command,
+        source: 'codex_stderr',
+      }),
+    );
+  });
+
+  it.each([
+    ['the login shell', `/usr/bin/zsh -lc 'touch x'`, 'touch x'],
+    ['another shell', `/bin/bash -c 'touch x'`, 'touch x'],
+    ['a bare shell name', `sh -c 'touch x'`, 'touch x'],
+    ['a command logged as it is', 'touch x', 'touch x'],
+    [
+      'a command with its own quotes, which stays as logged',
+      `/bin/zsh -lc 'echo '"'"'a'"'"''`,
+      `/bin/zsh -lc 'echo '"'"'a'"'"''`,
+    ],
+    [
+      'something before the shell',
+      `sudo sh -c 'touch x'`,
+      `sudo sh -c 'touch x'`,
+    ],
+    [
+      'a program that is not a shell',
+      `/usr/bin/env -c 'touch x'`,
+      `/usr/bin/env -c 'touch x'`,
+    ],
+  ])('Codex reports the command itself for %s', (_name, logged, command) => {
+    const facts = codexAdapter.read({
+      stdout: [],
+      stderr: `codex_core::tools::router: error=Rejected("\`${logged}\` rejected: policy forbids it")`,
+      truncated_records: 0,
     });
+    expect(facts.permission_denials).toEqual([
+      {
+        tool: 'exec_command',
+        command,
+        message: 'policy forbids it',
+        source: 'codex_stderr',
+      },
+    ]);
+  });
+
+  it('Claude leaves the command unknown when a refusal names no tool call it saw', () => {
+    const facts = claudeAdapter.read({
+      stdout: [
+        {
+          type: 'system',
+          subtype: 'permission_denied',
+          tool_name: 'Bash',
+          tool_use_id: 'unseen',
+          message: 'Permission to use Bash with command x has been denied.',
+        },
+      ],
+      stderr: '',
+      truncated_records: 0,
+    });
+    expect(facts.permission_denials).toEqual([
+      {
+        tool: 'Bash',
+        command: null,
+        message: 'Permission to use Bash with command x has been denied.',
+        source: 'claude_event',
+      },
+    ]);
   });
 });

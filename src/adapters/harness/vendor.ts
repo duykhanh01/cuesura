@@ -98,6 +98,8 @@ export type SandboxPaths = {
   readonly scratch: string;
   readonly context: string;
   readonly schema: string;
+  /** The run's TMPDIR when the adapter asked for a short one. */
+  readonly tmp?: string;
 };
 
 export type VendorPlanInput = {
@@ -193,8 +195,45 @@ export interface VendorAdapter {
   readonly vendor: Vendor;
   /** Whether the adapter knows a resume argv for this pinned binary; the manifest must still prove it. */
   readonly resume_supported: boolean;
+  /** Whether the binary needs a TMPDIR short enough for its Unix sockets, whatever the data dir is. */
+  readonly needs_short_tmpdir: boolean;
+  /**
+   * Directories under its cwd that the binary itself creates, empty, before any tool runs. They are not a
+   * write by the agent; a file inside one still is.
+   */
+  readonly worktree_state: readonly string[];
   plan(pin: VendorPin, input: VendorPlanInput): PlanResult;
   read(input: VendorRead): VendorFacts;
+  /** What this binary shows when its native sandbox refused the probe; never the model's own words. */
+  nativeWriteDenied(check: NativeWriteCheck): boolean;
+}
+
+/** A command the pinned binary runs on the host, without a model. */
+export type PinnedRun = {
+  readonly status: number | null;
+  readonly output: string;
+};
+
+export type NativeWriteCheck = {
+  readonly role: Role;
+  readonly worktree: string;
+  /** Absolute path outside the worktree that the probe tried to create. */
+  readonly marker: string;
+  /** The vendor records of the run. */
+  readonly stdout: readonly unknown[];
+  readonly runPinned: (argv: readonly string[]) => PinnedRun;
+};
+
+const OS_WRITE_DENIAL =
+  /Read-only file system|Permission denied|Operation not permitted/i;
+
+/** The operating system's refusal of a write to `marker`, as opposed to a rule or the model declining. */
+export function osDeniedWrite(text: unknown, marker: string): boolean {
+  return (
+    typeof text === 'string' &&
+    text.includes(marker) &&
+    OS_WRITE_DENIAL.test(text)
+  );
 }
 
 export type PlanResult =

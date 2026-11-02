@@ -1,6 +1,6 @@
 /**
- * Codex CLI adapter (T069, FR-011/012/033). Argv follows the pinned 0.165.0 shape the T007 fixtures
- * proved (`pinned-codex.json`): `exec --json` with the role schema file and `--output-last-message`
+ * Codex CLI adapter (T069, FR-011/012/033). Argv follows the shape the T007 fixtures proved on 0.165.0
+ * (`pinned-codex.json`) and `prove-harness` re-proves for each pinned binary: `exec --json` with the role schema file and `--output-last-message`
  * into a per-operation scratch file, apps/plugins/MCP installs disabled, `approval_policy="never"`,
  * user config ignored, an ephemeral session and cwd pinned to the worktree. Coder/fixer get
  * `workspace-write` plus scratch, the reviewer `read-only`; the inner sandbox is only switched off in
@@ -11,6 +11,7 @@
  * own words (T006/T007 evidence). Usage is the sum of `turn.completed.usage`; Codex reports no cost.
  * No resume argv is pinned for this binary, so a session is never passed.
  */
+import { existsSync } from 'node:fs';
 import { hashCanonical } from '../../shared/hash.ts';
 import type { Usage } from '../../domain/trigger.ts';
 import type { PermissionDenial } from '../ports.ts';
@@ -19,8 +20,11 @@ import {
   classifyFailure,
   DETAIL_MAX,
   isRec,
+  osDeniedWrite,
   str,
   validCounters,
+  type NativeWriteCheck,
+  type PinnedRun,
   type PlanResult,
   type VendorAdapter,
   type VendorFacts,
@@ -166,6 +170,13 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
 const CODEX_REJECTED =
   /codex_core::tools::router: .*Rejected\(\\?"`(.*)` rejected: ([^\\"]*)/;
 
+/** Codex runs a command through the login shell and logs it that way; a command with its own quotes stays as logged. */
+const SHELL_WRAPPER = /^(?:\S*\/)?(?:ba|da|z)?sh -l?c '([^']*)'$/;
+
+function unwrapShell(logged: string): string {
+  return SHELL_WRAPPER.exec(logged)?.[1] ?? logged;
+}
+
 function failureOf(detail: string): NonNullable<VendorFacts['failure']> {
   const d = detail.slice(0, DETAIL_MAX);
   return { kind: classifyFailure(d, null), detail: d, reset_at: null };
@@ -227,7 +238,8 @@ function read(input: VendorRead): VendorFacts {
     if (m !== null)
       denials.push({
         tool: 'exec_command',
-        command: m[1] ?? null,
+        command: m[1] === undefined ? null : unwrapShell(m[1]),
+        ...(m[2] === undefined ? {} : { message: m[2] }),
         source: 'codex_stderr',
       });
   }
@@ -252,9 +264,39 @@ function read(input: VendorRead): VendorFacts {
   };
 }
 
+/**
+ * `exec --json` has no event for a command the sandbox refused, so a run shows only the model's word. The sandbox
+ * of the pinned binary is run directly instead, with no model: a harmless command must pass, which shows the
+ * sandbox itself starts, and the write must fail with an OS error and leave nothing behind.
+ */
+function nativeWriteDenied(check: NativeWriteCheck): boolean {
+  const profile = check.role === 'reviewer' ? ':read-only' : ':workspace';
+  const inSandbox = (...command: string[]): PinnedRun =>
+    check.runPinned([
+      'sandbox',
+      '--permission-profile',
+      profile,
+      '-C',
+      check.worktree,
+      '--',
+      ...command,
+    ]);
+  if (inSandbox('/usr/bin/true').status !== 0) return false;
+  const write = inSandbox('/usr/bin/touch', check.marker);
+  return (
+    write.status !== 0 &&
+    write.status !== null &&
+    osDeniedWrite(write.output, check.marker) &&
+    !existsSync(check.marker)
+  );
+}
+
 export const codexAdapter: VendorAdapter = {
   vendor: 'codex',
   resume_supported: false,
+  needs_short_tmpdir: false,
+  worktree_state: [],
+  nativeWriteDenied,
   plan,
   read,
 };

@@ -21,8 +21,10 @@ import {
   classifyFailure,
   DETAIL_MAX,
   isRec,
+  osDeniedWrite,
   str,
   validCounters,
+  type NativeWriteCheck,
   type PlanResult,
   type Rec,
   type StreamFinal,
@@ -132,6 +134,7 @@ function settingsFor(
                     ...mappedAllowWrite,
                     input.paths.home,
                     input.paths.scratch,
+                    ...(input.paths.tmp === undefined ? [] : [input.paths.tmp]),
                   ]),
                 ],
                 denyWrite: [
@@ -170,6 +173,7 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
           scratch: '<scratch>',
           context: '<context>',
           schema: '<schema>',
+          tmp: '<tmp>',
         },
       })
     : settings;
@@ -290,16 +294,30 @@ function read(input: VendorRead): VendorFacts {
   let model: string | null = null;
   let resetAt: EpochMs | null = null;
   const records = input.stdout.filter(isRec);
+  /** What each tool call asked for; a refusal event only carries a sentence and the call's ID. */
+  const requested = new Map<string, string>();
   for (const p of records) {
     session = str(p['session_id']) ?? session;
+    if (p['type'] === 'assistant')
+      for (const block of contentBlocks(p)) {
+        const id = str(block['id']);
+        const toolInput = block['input'];
+        if (block['type'] === 'tool_use' && id !== null && isRec(toolInput)) {
+          const asked =
+            str(toolInput['command']) ?? str(toolInput['file_path']);
+          if (asked !== null) requested.set(id, asked);
+        }
+      }
     if (p['type'] === 'system' && p['subtype'] === 'init')
       model = str(p['model']) ?? model;
     if (p['type'] === 'system' && p['subtype'] === 'permission_denied') {
       const id = str(p['tool_use_id']);
       if (id !== null) seen.add(id);
+      const message = str(p['message']);
       denials.push({
         tool: str(p['tool_name']) ?? 'unknown',
-        command: str(p['message']),
+        command: id === null ? null : (requested.get(id) ?? null),
+        ...(message === null ? {} : { message }),
         source: 'claude_event',
       });
     } else if (
@@ -390,9 +408,52 @@ function read(input: VendorRead): VendorFacts {
   };
 }
 
+function contentBlocks(
+  record: Record<string, unknown>,
+): Record<string, unknown>[] {
+  const message = record['message'];
+  const content = isRec(message) ? message['content'] : undefined;
+  return Array.isArray(content) ? content.filter(isRec) : [];
+}
+
+/** A sandbox refusal is a failed Bash result for the call that named the marker. */
+function nativeWriteDenied(check: NativeWriteCheck): boolean {
+  const calls = new Set<string>();
+  for (const event of check.stdout) {
+    if (!isRec(event)) continue;
+    for (const block of contentBlocks(event)) {
+      const input = block['input'];
+      if (
+        event['type'] === 'assistant' &&
+        block['type'] === 'tool_use' &&
+        block['name'] === 'Bash' &&
+        typeof block['id'] === 'string' &&
+        isRec(input) &&
+        typeof input['command'] === 'string' &&
+        input['command'].includes(check.marker)
+      )
+        calls.add(block['id']);
+      if (
+        event['type'] === 'user' &&
+        block['type'] === 'tool_result' &&
+        typeof block['tool_use_id'] === 'string' &&
+        calls.has(block['tool_use_id']) &&
+        block['is_error'] === true &&
+        osDeniedWrite(block['content'], check.marker)
+      )
+        return true;
+    }
+  }
+  return false;
+}
+
 export const claudeAdapter: VendorAdapter = {
   vendor: 'claude',
   resume_supported: true,
+  // The sandbox makes its bridge sockets directly under os.tmpdir(), and a socket path holds 108 bytes.
+  needs_short_tmpdir: true,
+  worktree_state: ['.claude/.cc-writes'],
+  nativeWriteDenied,
   plan,
   read,
 };

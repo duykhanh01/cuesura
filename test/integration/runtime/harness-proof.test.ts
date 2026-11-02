@@ -25,6 +25,7 @@ import {
   proveHarness,
 } from '../../../src/runner/harness-proof.ts';
 import {
+  harnessRecordProblems,
   harnessRecordProblem,
   hostSandbox,
   loadHarnessRecord,
@@ -371,7 +372,75 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
     120_000,
   );
 
-  it('no inner sandbox and no refusal: both stay unproven and the record does not hold', async () => {
+  it.each([
+    ['claude', true],
+    ['codex', false],
+  ] as const)(
+    '%s: TMPDIR follows what the adapter asks for and is gone after the run',
+    async (vendor, short) => {
+      const h = setup(vendor);
+      const r = await proveHarness({
+        ...h.options,
+        out: h.out,
+        budget: h.budget,
+      });
+      if (!r.ok) throw new Error(r.error);
+      expect(r.value.failures).toEqual([]);
+      for (const { attempt_id } of r.value.runs) {
+        const run = join(h.options.dataDir, 'runs', attempt_id);
+        const { env } = JSON.parse(
+          readFileSync(join(run, 'invocation.json'), 'utf8'),
+        ) as { env: Record<string, string> };
+        const tmp = env['TMPDIR'] as string;
+        if (!short) {
+          expect(tmp).toBe(join(run, 'scratch'));
+          continue;
+        }
+        expect(tmp.length).toBeLessThan(40);
+        expect(existsSync(tmp)).toBe(false);
+        expect(
+          readFileSync(join(run, 'context', 'claude-settings.json'), 'utf8'),
+        ).toContain(tmp);
+      }
+    },
+    120_000,
+  );
+
+  it('a proof without a usable result names why, and its evidence is refused', async () => {
+    const h = setup('codex', {});
+    const r = await proveHarness({
+      ...h.options,
+      out: h.out,
+      budget: h.budget,
+    });
+    if (!r.ok) throw new Error(r.error);
+    expect(r.value.failures.join('; ')).toContain('native sandbox refusal');
+    expect(refusal(h.record())).toContain('does not make a usable manifest');
+    expect(
+      harnessRecordProblems({
+        dataDir: h.options.dataDir,
+        harnesses: ['codex'],
+        runtime: h.options.runtime,
+      }).map((p) => p.harness),
+    ).toEqual(['codex']);
+  });
+
+  it('Codex proves the sandbox directly when its stream hides the refused command', async () => {
+    const h = setup('codex', {
+      FAKE_VENDOR_INNER_SANDBOX: '1',
+      FAKE_VENDOR_DENY_STDERR: '1',
+      FAKE_VENDOR_HIDE_REFUSAL: '1',
+    });
+    const r = await proveHarness({
+      ...h.options,
+      out: h.out,
+      budget: h.budget,
+    });
+    expect(r.ok).toBe(true);
+    expect(entry(h.out, 'codex')?.native_result).toBe('passed');
+  });
+
+  it('no inner sandbox and no refusal: both stay unproven and the evidence is refused', async () => {
     const h = setup('codex', {});
     const r = await proveHarness({
       ...h.options,
@@ -382,9 +451,7 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
     const e = entry(h.out, 'codex');
     expect(e?.native_result).toBe('failed');
     expect(e?.capabilities['permission_denial_kept']?.status).toBe('unknown');
-    const recorded = h.record();
-    if (!recorded.ok) throw new Error(recorded.error);
-    expect(h.problem()).toMatch(/permission_enforced|native sandbox/);
+    expect(refusal(h.record())).toMatch(/permission_enforced|native sandbox/);
   }, 120_000);
 
   it('proves Claude auto permissions with the worker sandbox off without claiming native enforcement', async () => {

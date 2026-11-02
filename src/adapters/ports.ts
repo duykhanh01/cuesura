@@ -58,6 +58,8 @@ export type SandboxLayout = {
   /** Git common dir and per-worktree admin dir; read-only for every role. */
   readonly git_dirs: readonly string[];
   readonly scratch: string;
+  /** TMPDIR when it must not be `scratch`; the caller creates and removes it. */
+  readonly tmp_dir?: string;
   /** Private harness home for agent roles; setup/gate/autofix never receive model auth. */
   readonly private_home: string | null;
   readonly context: string | null;
@@ -217,7 +219,10 @@ export type HarnessInput = {
 
 export type PermissionDenial = {
   readonly tool: string;
+  /** The command as the agent asked for it, with no vendor wording or shell wrapper; null when not known. */
   readonly command: string | null;
+  /** The vendor's own account of the refusal, for a human reading it. */
+  readonly message?: string;
   readonly source: string;
 };
 

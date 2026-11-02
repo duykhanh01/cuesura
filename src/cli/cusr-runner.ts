@@ -438,12 +438,57 @@ const proveHarness: CliCommand = {
     if (!r.ok) {
       return refuse('proof_refused', r.error, ExitCode.failure);
     }
-    const { evidence } = r.value;
+    const { evidence, failures } = r.value;
+    if (failures.length > 0)
+      return refuse(
+        'proof_failed',
+        `the proof did not show what a manifest needs (evidence: ${evidence}): ${failures.join('; ')}`,
+        ExitCode.failure,
+      );
     io.stdout(
       json
         ? renderEnvelope(okEnvelope({ harness, evidence }))
         : `${evidence}\n`,
     );
+    return ExitCode.ok;
+  },
+};
+
+const checkRecords: CliCommand = {
+  name: 'check-records',
+  description:
+    'Check that this release accepts the config and every harness record, without calling a model',
+  options: [
+    { flags: '--config <file>', description: 'User configuration file' },
+    { flags: '--data-dir <dir>', description: 'Daemon data directory' },
+  ],
+  run: async (values, json, io) => {
+    const refuse = refuser(json, io);
+    const { config, dataDir } = values;
+    if (config === undefined)
+      return refuse(
+        'invalid_arguments',
+        'check-records requires --config',
+        ExitCode.usage,
+      );
+    const { loadDaemonConfig } = await import('../daemon/main.ts');
+    const { harnessRecordProblems } =
+      await import('../runner/harness-records.ts');
+    const cfg = await loadDaemonConfig({ config, dataDir });
+    if (!cfg.ok) return refuse('config_invalid', cfg.error, ExitCode.failure);
+    const problems = harnessRecordProblems({
+      dataDir: cfg.value.dataDir,
+      // The runtime lists every configured harness here, each with its isolation.
+      harnesses: Object.keys(cfg.value.runtime.harness_isolation),
+      runtime: cfg.value.runtime,
+    });
+    if (problems.length > 0)
+      return refuse(
+        'harness_records_invalid',
+        problems.map((p) => `${p.harness}: ${p.problem}`).join('; '),
+        ExitCode.failure,
+      );
+    io.stdout(json ? renderEnvelope(okEnvelope({ problems })) : 'ok\n');
     return ExitCode.ok;
   },
 };
@@ -456,5 +501,5 @@ process.exitCode = await runCli(
   },
   process.argv.slice(2),
   processIo,
-  [exec, recordManifest, writePin, proveHarness],
+  [exec, recordManifest, writePin, proveHarness, checkRecords],
 );
