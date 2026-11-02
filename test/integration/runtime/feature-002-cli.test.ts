@@ -1558,6 +1558,21 @@ describe('doctor (T112, FR-027.02/033)', () => {
     expect(host.execs).toContainEqual(['/usr/bin/herdr', 'workspace', 'list']);
   });
 
+  it('checks orca with a command that fails when its runtime is down', async () => {
+    const { sd, host } = doctored({
+      runtime:
+        'runtime: { terminal: { backend: orca }, tool_paths: { orca: /usr/bin/orca } }',
+    });
+    await sd.start();
+    expect(names(await cli(sd, ['doctor']))['terminal']).toBeDefined();
+    expect(host.execs).toContainEqual([
+      '/usr/bin/orca',
+      'repo',
+      'list',
+      '--json',
+    ]);
+  });
+
   it('does not look for a terminal backend by default', async () => {
     const { sd, host } = doctored();
     await sd.start();

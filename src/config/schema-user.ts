@@ -263,6 +263,7 @@ export const RUNTIME_TOOLS = [
   'bwrap',
   'flock',
   'herdr',
+  'orca',
 ] as const;
 export type RuntimeTool = (typeof RUNTIME_TOOLS)[number];
 
@@ -346,6 +347,7 @@ export const RuntimeTerminalSchema = z.discriminatedUnion('backend', [
       session: RefNameSchema.optional(),
     })
     .strict(),
+  z.object({ backend: z.literal('orca') }).strict(),
 ]);
 export type RuntimeTerminal = z.infer<typeof RuntimeTerminalSchema>;
 export type AttachedTerminal = Exclude<

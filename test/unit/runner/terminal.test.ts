@@ -31,6 +31,8 @@ import { NodeHostProbe } from '../../../src/runner/host-probe.ts';
 import { RuntimeTerminalSchema } from '../../../src/config/schema-user.ts';
 import {
   HerdrTerminal,
+  ORCA_PROJECT_DIR,
+  OrcaTerminal,
   findTerminalBin,
   shellJoin,
   terminalHost,
@@ -101,7 +103,7 @@ function herdrCli(labels: string[]): CommandExec & { calls: string[][] } {
 const request: TerminalRequest = { label: 'T1', cwd: '/d', command: 'run it' };
 
 describe('terminal config (ADR-0006)', () => {
-  it('takes the background default and herdr, and refuses a backend that does not exist', () => {
+  it('takes the background default, herdr and orca, and refuses a backend that does not exist', () => {
     expect(
       RuntimeTerminalSchema.safeParse({ backend: 'background' }).success,
     ).toBe(true);
@@ -109,6 +111,13 @@ describe('terminal config (ADR-0006)', () => {
       RuntimeTerminalSchema.safeParse({ backend: 'herdr', session: 'cusr' })
         .success,
     ).toBe(true);
+    expect(RuntimeTerminalSchema.safeParse({ backend: 'orca' }).success).toBe(
+      true,
+    );
+    expect(
+      RuntimeTerminalSchema.safeParse({ backend: 'orca', session: 'x' })
+        .success,
+    ).toBe(false);
     expect(RuntimeTerminalSchema.safeParse({ backend: 'screen' }).success).toBe(
       false,
     );
@@ -122,7 +131,7 @@ describe('terminal config (ADR-0006)', () => {
     const exec = herdrCli(['cuesura']);
     const host = terminalHost(
       { backend: 'herdr', session: 'cusr' },
-      { bin: '/h', exec },
+      { bin: '/h', git: null, exec },
     );
     expect(host.name).toBe('herdr');
     await host.open(request);
@@ -131,14 +140,22 @@ describe('terminal config (ADR-0006)', () => {
       'workspace',
       'list',
     ]);
+    expect(
+      terminalHost({ backend: 'orca' }, { bin: '/o', git: null, exec }).name,
+    ).toBe('orca');
+    expect(terminalProbeArgs({ backend: 'orca' })).toEqual([
+      'repo',
+      'list',
+      '--json',
+    ]);
   });
 });
 
 describe('finding the terminal binary (ADR-0006)', () => {
   const herdr = { backend: 'herdr' } as const;
-  function installed(dir: string): string {
+  function installed(dir: string, name = 'herdr'): string {
     mkdirSync(dir, { recursive: true });
-    const bin = join(dir, 'herdr');
+    const bin = join(dir, name);
     writeFileSync(bin, '');
     chmodSync(bin, 0o755);
     return bin;
@@ -160,6 +177,16 @@ describe('finding the terminal binary (ADR-0006)', () => {
     expect(await findTerminalBin(herdr, { herdr: '/x/h' }, host, home)).toBe(
       '/x/h',
     );
+  });
+
+  it('finds orca in the directory its installer uses', async () => {
+    const home = dataDir();
+    const bin = installed(join(home, '.config/orca/cli/bin'), 'orca');
+    const host = new NodeHostProbe({ PATH: '/nonexistent' });
+    expect(await findTerminalBin({ backend: 'orca' }, {}, host, home)).toBe(
+      bin,
+    );
+    expect(await findTerminalBin(herdr, {}, host, home)).toBeNull();
   });
 
   it('reports a backend that is not installed', async () => {
@@ -222,6 +249,187 @@ describe('HerdrTerminal (ADR-0006)', () => {
     const r = await new HerdrTerminal({ bin: '/h', exec }).open(request);
     expect(r.ok).toBe(false);
     expect(inner.calls.at(-1)).toEqual(['tab', 'close', 'w9:t2']);
+  });
+});
+
+/** An Orca that answers as it does on a real host: a failed call exits 1 and still prints JSON on stdout. */
+function orcaCli(
+  registered = true,
+  override: (args: readonly string[]) => CommandResult | null = () => null,
+): CommandExec & { calls: string[][] } {
+  const calls: string[][] = [];
+  let known = registered;
+  const failure = (code: string, message = code): CommandResult =>
+    result({
+      code: 1,
+      stdout: JSON.stringify({ ok: false, error: { code, message } }),
+    });
+  const exec: CommandExec = (file, args) => {
+    calls.push([file, ...args]);
+    const given = override(args);
+    if (given !== null) return Promise.resolve(given);
+    if (file === '/g') return Promise.resolve(result());
+    const verb = args.slice(0, 2).join(' ');
+    if (verb === 'repo add') {
+      known = true;
+      return Promise.resolve(result({ stdout: '{"ok":true,"result":{}}' }));
+    }
+    if (verb === 'terminal create')
+      return Promise.resolve(
+        known
+          ? result({
+              stdout: JSON.stringify({
+                ok: true,
+                result: { terminal: { handle: 'term_1' } },
+              }),
+            })
+          : failure('selector_not_found'),
+      );
+    return Promise.resolve(result({ stdout: '{"ok":true,"result":{}}' }));
+  };
+  return Object.assign(exec, { calls });
+}
+
+describe('OrcaTerminal (ADR-0006)', () => {
+  const project = join('/d', ORCA_PROJECT_DIR);
+  const createCall = [
+    '/o',
+    'terminal',
+    'create',
+    '--worktree',
+    `path:${project}`,
+    '--title',
+    'T1',
+    '--command',
+    'run it',
+    '--json',
+  ];
+
+  it('opens an unfocused tab in the project of its own, away from the worktree', async () => {
+    const exec = orcaCli();
+    const r = await new OrcaTerminal({ bin: '/o', git: '/g', exec }).open(
+      request,
+    );
+    expect(r.ok).toBe(true);
+    expect(exec.calls).toEqual([createCall]);
+  });
+
+  it('registers the project the first time, then opens the tab', async () => {
+    const exec = orcaCli(false);
+    const r = await new OrcaTerminal({ bin: '/o', git: '/g', exec }).open(
+      request,
+    );
+    expect(r.ok).toBe(true);
+    expect(exec.calls).toEqual([
+      createCall,
+      ['/g', 'init', '--quiet', '--template=', project],
+      ['/o', 'repo', 'add', '--path', project, '--json'],
+      createCall,
+    ]);
+  });
+
+  it('registers the project once when the first launches arrive together', async () => {
+    const exec = orcaCli(false);
+    const t = new OrcaTerminal({ bin: '/o', git: '/g', exec });
+    const opened = await Promise.all([t.open(request), t.open(request)]);
+    expect(opened.map((r) => r.ok)).toEqual([true, true]);
+    expect(exec.calls.filter((c) => c[0] === '/g')).toHaveLength(1);
+    expect(exec.calls.filter((c) => c[1] === 'repo')).toHaveLength(1);
+  });
+
+  it('tries the registration again after it failed', async () => {
+    let refuse = true;
+    const exec = orcaCli(false, (args) =>
+      args[0] === 'repo' && refuse
+        ? result({
+            code: 1,
+            stdout: '{"ok":false,"error":{"code":"x","message":"refused"}}',
+          })
+        : null,
+    );
+    const t = new OrcaTerminal({ bin: '/o', git: '/g', exec });
+    expect((await t.open(request)).ok).toBe(false);
+    refuse = false;
+    expect((await t.open(request)).ok).toBe(true);
+    expect(exec.calls.filter((c) => c[1] === 'repo')).toHaveLength(2);
+  });
+
+  it('reports a project it cannot register, without trying the tab again', async () => {
+    const noGit = orcaCli(false);
+    expect(
+      await new OrcaTerminal({ bin: '/o', git: null, exec: noGit }).open(
+        request,
+      ),
+    ).toEqual(err('git was not found'));
+    expect(noGit.calls).toEqual([createCall]);
+
+    const refused = orcaCli(false, (args) =>
+      args[0] === 'repo'
+        ? result({
+            code: 1,
+            stdout: '{"ok":false,"error":{"code":"x","message":"refused"}}',
+          })
+        : null,
+    );
+    expect(
+      await new OrcaTerminal({ bin: '/o', git: '/g', exec: refused }).open(
+        request,
+      ),
+    ).toEqual(err('orca repo add: refused'));
+    expect(refused.calls.filter((c) => c[1] === 'terminal')).toHaveLength(1);
+  });
+
+  it('reports a runtime it cannot reach and does not touch the project', async () => {
+    const exec = orcaCli(true, () =>
+      result({
+        code: 1,
+        stdout:
+          '{"ok":false,"error":{"code":"runtime_unavailable","message":"start Orca"}}',
+      }),
+    );
+    expect(
+      await new OrcaTerminal({ bin: '/o', git: '/g', exec }).open(request),
+    ).toEqual(err('orca terminal create: start Orca'));
+    expect(exec.calls).toHaveLength(1);
+  });
+
+  it('reports output that is not what the CLI promises', async () => {
+    const open = (over: Partial<CommandResult>) =>
+      new OrcaTerminal({
+        bin: '/o',
+        git: '/g',
+        exec: () => Promise.resolve(result(over)),
+      }).open(request);
+    expect(await open({ stdout: 'hello' })).toEqual(
+      err('orca terminal create: output is not JSON'),
+    );
+    expect(await open({ stdout: '{"ok":true}' })).toEqual(
+      err('orca terminal create: unexpected shape'),
+    );
+    expect(await open({ code: 2, stderr: 'boom' })).toEqual(
+      err('orca terminal create: exit 2: boom'),
+    );
+    expect(await open({ timed_out: true, code: null })).toEqual(
+      err('orca terminal create: timed out'),
+    );
+  });
+
+  it('closes the whole tab it opened', async () => {
+    const exec = orcaCli();
+    const r = await new OrcaTerminal({ bin: '/o', git: '/g', exec }).open(
+      request,
+    );
+    if (!r.ok) throw new Error(r.error);
+    await r.value.close();
+    expect(exec.calls.at(-1)).toEqual([
+      '/o',
+      'terminal',
+      'close',
+      '--terminal',
+      'term_1',
+      '--tab',
+      '--json',
+    ]);
   });
 });
 

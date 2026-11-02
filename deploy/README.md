@@ -163,6 +163,22 @@ Agent hiện ở các tab nền trong workspace `cuesura`, không chiếm focus;
 không chạy thì agent chạy nền, `cusr doctor` báo check `terminal`. Xem
 [ADR-0006](../docs/adr/0006-terminal-view-backend.md).
 
+### Xem agent trong Orca
+
+Tương tự herdr, nhưng dùng [Orca](https://github.com/stablyai/orca):
+
+```yaml
+runtime:
+  terminal:
+    backend: orca
+```
+
+Cuesura tự tìm `orca` trên PATH của daemon, rồi trong `~/.config/orca/cli/bin` và `~/.local/bin`; cài ở nơi khác
+thì đặt `tool_paths.orca`. Lần đầu có agent chạy, Cuesura tạo repo git rỗng `<data dir>/cuesura` và thêm nó vào
+Orca thành project `cuesura`, vì terminal của Orca phải thuộc một project. Agent hiện ở các tab trong project đó,
+không chiếm focus, và tab tự đóng khi xong. Gỡ project khỏi Orca thì lần chạy sau nó được thêm lại. Pane chỉ để
+xem như với herdr; Orca không chạy thì agent chạy nền và `cusr doctor` báo check `terminal`.
+
 ## Token và quyền
 
 Quyền chỉ lấy từ bearer token map phía server: `read`, `operate`, `admin` kèm danh sách project. Tên

@@ -320,6 +320,7 @@ export async function productionControl(opts: {
         : {
             terminal: terminalHost(terminal, {
               bin: terminalBin,
+              git,
               exec: spawnCommand,
             }),
           }),

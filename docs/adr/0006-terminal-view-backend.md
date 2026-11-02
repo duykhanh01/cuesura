@@ -3,7 +3,8 @@
 Mặc định `runtime.terminal.backend` là `background`: agent chạy nền trong unit systemd như
 [ADR-0002](0002-systemd-runner-lifetime.md). Chọn `herdr` thì mỗi operation `agent` được khởi động từ một
 tab nền trong workspace `cuesura`, bằng đúng lệnh `systemd-run` cộng thêm `--pty`. Đổi backend chỉ cần đổi
-config và restart `cusrd`. Thêm backend mới (tmux) là một biến thể schema và một `TerminalHost`.
+config và restart `cusrd`. Chọn `orca` cũng vậy, chỉ khác nơi hiện tab (xem dưới). Thêm backend mới (tmux) là
+một biến thể schema và một `TerminalHost`.
 
 Vẫn là service `cusr-op-<operation>.service` nên inspect, stop, cgroup và recovery không đổi; terminal chỉ giữ
 đầu pty. Phương án bị loại: `systemd-run --scope` trong pane (đã thử: scope chết cùng herdr server, vi phạm
@@ -22,3 +23,9 @@ có dấu vết gì. Trong cùng operation, tên unit, operation lock và launch
 thế là operation khác, nên trước khi báo `not_launched` daemon chiếm `launch.json` bằng marker `fence`: ghi
 marker là thao tác nguyên tử, runner đến muộn gặp `marker_exists` và không spawn gì. `cusr doctor` báo backend không tới được. Shell của pane chạy ở data dir, không ở worktree, để hook
 của shell không chạy trong worktree. Tab tự đóng khi operation xong; xem lại bằng `cusr task logs`.
+
+Orca không có workspace tự do: terminal nào cũng thuộc một project, và CLI chỉ đăng ký được repo git. Vì vậy
+Cuesura tạo repo rỗng `<data dir>/cuesura`, đăng ký nó khi `terminal create` báo chưa có project, và shell chạy
+trong repo đó. Phương án bị loại: mở tab trong worktree của task (vi phạm quy tắc shell không ở worktree, và
+worktree của Cuesura không do Orca quản lý); `orca agent launch` (cùng lý do với `herdr agent start`). Đã thử trên
+Orca 1.4.246 với runtime tách riêng: đóng tab, Ctrl-C và dừng hẳn server Orca không dừng unit.

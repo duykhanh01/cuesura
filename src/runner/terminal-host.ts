@@ -1,7 +1,7 @@
 /**
  * A terminal multiplexer that shows an agent operation (ADR-0006). The host only holds the terminal end: the
  * operation stays a transient systemd service, so its lifetime, stop and recovery do not depend on the host,
- * and a second backend (tmux) only has to implement `TerminalHost`.
+ * and another backend only has to implement `TerminalHost`.
  */
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -156,12 +156,142 @@ export class HerdrTerminal implements TerminalHost {
   }
 }
 
+const OrcaReplySchema = z.object({
+  error: z.object({ code: z.string(), message: z.string() }).optional(),
+});
+const OrcaCreatedSchema = z.object({
+  result: z.object({ terminal: z.object({ handle: z.string() }) }),
+});
+
+/** Names the project in Orca's sidebar: Orca titles a project after its directory. */
+export const ORCA_PROJECT_DIR = 'cuesura';
+const ORCA_TIMEOUT_MS = 15_000;
+const ORCA_NO_WORKSPACE = 'selector_not_found';
+
+type OrcaFailure = { readonly code: string | null; readonly message: string };
+
+export type OrcaTerminalOptions = {
+  /** Absolute path of the orca command. */
+  readonly bin: string;
+  /** Orca's CLI only registers git repositories, so the project needs one. */
+  readonly git: string | null;
+  readonly exec: CommandExec;
+};
+
+/**
+ * One `cuesura` project, one tab per operation; a tab created without `--focus` does not take the user's focus.
+ * Every Orca terminal belongs to a project, and the project is an empty repository of its own so that the shell
+ * still never starts in a worktree.
+ */
+export class OrcaTerminal implements TerminalHost {
+  readonly name = 'orca';
+  readonly #bin: string;
+  readonly #git: string | null;
+  readonly #exec: CommandExec;
+  /** The first launches arrive together and concurrent `git init`s of one directory can fail; they share one. */
+  #registering: Promise<Result<null, string>> | null = null;
+
+  constructor(opts: OrcaTerminalOptions) {
+    this.#bin = opts.bin;
+    this.#git = opts.git;
+    this.#exec = opts.exec;
+  }
+
+  async #cli(args: readonly string[]): Promise<Result<unknown, OrcaFailure>> {
+    const r = await this.#exec(this.#bin, [...args, '--json'], {
+      timeout_ms: ORCA_TIMEOUT_MS,
+    });
+    const verb = args.slice(0, 2).join(' ');
+    const failure = (message: string, code: string | null = null) =>
+      err({ code, message: `orca ${verb}: ${message}` });
+    if (r.error !== null) return failure(r.error);
+    if (r.timed_out) return failure('timed out');
+    let reply: unknown;
+    try {
+      reply = JSON.parse(r.stdout) as unknown;
+    } catch {
+      return failure(
+        r.code === 0
+          ? 'output is not JSON'
+          : `exit ${String(r.code)}: ${r.stderr.trim()}`,
+      );
+    }
+    if (r.code === 0) return ok(reply);
+    // A failed call still answers in JSON, on stdout.
+    const parsed = OrcaReplySchema.safeParse(reply);
+    const error = parsed.success ? parsed.data.error : undefined;
+    return error === undefined
+      ? failure(`exit ${String(r.code)}`)
+      : failure(error.message, error.code);
+  }
+
+  /** Cleared when done: a project removed from Orca later is registered again. */
+  #registerOnce(dir: string): Promise<Result<null, string>> {
+    this.#registering ??= this.#registerProject(dir).finally(() => {
+      this.#registering = null;
+    });
+    return this.#registering;
+  }
+
+  /** Safe to repeat in sequence: `git init` and `repo add` both leave an existing registration as it is. */
+  async #registerProject(dir: string): Promise<Result<null, string>> {
+    if (this.#git === null) return err('git was not found');
+    const init = await this.#exec(
+      this.#git,
+      ['init', '--quiet', '--template=', dir],
+      { timeout_ms: ORCA_TIMEOUT_MS },
+    );
+    if (init.error !== null || init.timed_out || init.code !== 0)
+      return err(
+        `git init: ${init.error ?? (init.timed_out ? 'timed out' : init.stderr.trim())}`,
+      );
+    const added = await this.#cli(['repo', 'add', '--path', dir]);
+    return added.ok ? ok(null) : err(added.error.message);
+  }
+
+  async open(req: TerminalRequest): Promise<Result<TerminalHandle, string>> {
+    const dir = join(req.cwd, ORCA_PROJECT_DIR);
+    const create = () =>
+      this.#cli([
+        'terminal',
+        'create',
+        '--worktree',
+        `path:${dir}`,
+        '--title',
+        req.label,
+        '--command',
+        req.command,
+      ]);
+    let created = await create();
+    if (!created.ok && created.error.code === ORCA_NO_WORKSPACE) {
+      const registered = await this.#registerOnce(dir);
+      if (!registered.ok) return registered;
+      created = await create();
+    }
+    if (!created.ok) return err(created.error.message);
+    const parsed = OrcaCreatedSchema.safeParse(created.value);
+    if (!parsed.success) return err('orca terminal create: unexpected shape');
+    const { handle } = parsed.data.result.terminal;
+    return ok({
+      close: async () => {
+        await this.#cli(['terminal', 'close', '--terminal', handle, '--tab']);
+      },
+    });
+  }
+}
+
 /** The only place that knows the backends; the config value picks one, nothing else changes. */
 export function terminalHost(
   config: AttachedTerminal,
-  deps: { readonly bin: string; readonly exec: CommandExec },
+  deps: {
+    readonly bin: string;
+    readonly git: string | null;
+    readonly exec: CommandExec;
+  },
 ): TerminalHost {
   switch (config.backend) {
+    case 'orca':
+      return new OrcaTerminal(deps);
     case 'herdr':
       return new HerdrTerminal({
         ...deps,
@@ -173,6 +303,8 @@ export function terminalHost(
 /** A read-only command that succeeds when the backend's server can take a terminal. */
 export function terminalProbeArgs(config: AttachedTerminal): string[] {
   switch (config.backend) {
+    case 'orca':
+      return ['repo', 'list', '--json'];
     case 'herdr':
       return [
         ...(config.session === undefined ? [] : ['--session', config.session]),
@@ -182,10 +314,16 @@ export function terminalProbeArgs(config: AttachedTerminal): string[] {
   }
 }
 
-/**
- * The backend's binary without configuration: `tool_paths` wins, then PATH, then the per-user directory
- * installers use, which a service's PATH often lacks.
- */
+/** Per-user directories installers use, relative to home; a service's PATH often lacks them. */
+const TERMINAL_INSTALL_DIRS: Record<
+  AttachedTerminal['backend'],
+  readonly string[]
+> = {
+  herdr: ['.local/bin'],
+  orca: ['.config/orca/cli/bin', '.local/bin'],
+};
+
+/** The backend's binary without configuration: `tool_paths` wins, then PATH, then the install directories. */
 export async function findTerminalBin(
   config: AttachedTerminal,
   toolPaths: Partial<Record<AttachedTerminal['backend'], string>>,
@@ -199,6 +337,9 @@ export async function findTerminalBin(
 ): Promise<string | null> {
   return (
     toolPaths[config.backend] ??
-    host.findExecutable(config.backend, [join(home, '.local/bin')])
+    host.findExecutable(
+      config.backend,
+      TERMINAL_INSTALL_DIRS[config.backend].map((dir) => join(home, dir)),
+    )
   );
 }
