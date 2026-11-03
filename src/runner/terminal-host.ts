@@ -3,6 +3,7 @@
  * operation stays a transient systemd service, so its lifetime, stop and recovery do not depend on the host,
  * and another backend only has to implement `TerminalHost`.
  */
+import { mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -280,6 +281,119 @@ export class OrcaTerminal implements TerminalHost {
   }
 }
 
+const PaseoErrorSchema = z.object({
+  error: z.object({ code: z.string(), message: z.string() }),
+});
+const PaseoCreatedSchema = z.object({ id: z.string().min(1) });
+
+/** Names the project in Paseo's app: Paseo titles a workspace's project after its directory. */
+export const PASEO_WORKSPACE_DIR = 'cuesura';
+const PASEO_TIMEOUT_MS = 15_000;
+
+export type PaseoTerminalOptions = {
+  /** The paseo CLI script. */
+  readonly bin: string;
+  /** Runs the script: its `env node` shebang finds nothing on the minimal PATH of `exec`. */
+  readonly node: string;
+  readonly exec: CommandExec;
+  readonly mkdir?: (dir: string) => Promise<unknown>;
+};
+
+/**
+ * One terminal per operation in a `cuesura` workspace of the local Paseo daemon, which also shows it in Paseo's
+ * apps. The workspace's directory is the data dir's `cuesura`, so the shell never starts in a worktree.
+ */
+export class PaseoTerminal implements TerminalHost {
+  readonly name = 'paseo';
+  readonly #bin: string;
+  readonly #node: string;
+  readonly #exec: CommandExec;
+  readonly #mkdir: (dir: string) => Promise<unknown>;
+  /** Concurrent creates for one new directory each open a separate workspace. */
+  #queue: Promise<unknown> = Promise.resolve();
+
+  constructor(opts: PaseoTerminalOptions) {
+    this.#bin = opts.bin;
+    this.#node = opts.node;
+    this.#exec = opts.exec;
+    this.#mkdir =
+      opts.mkdir ?? ((dir) => mkdir(dir, { recursive: true, mode: 0o700 }));
+  }
+
+  async #cli(args: readonly string[]): Promise<Result<unknown, string>> {
+    const r = await this.#exec(this.#node, [this.#bin, ...args, '--json'], {
+      timeout_ms: PASEO_TIMEOUT_MS,
+    });
+    const verb = args.slice(0, 2).join(' ');
+    if (r.error !== null) return err(`paseo ${verb}: ${r.error}`);
+    if (r.timed_out) return err(`paseo ${verb}: timed out`);
+    let reply: unknown;
+    try {
+      reply = JSON.parse(r.stdout) as unknown;
+    } catch {
+      return err(
+        r.code === 0
+          ? `paseo ${verb}: output is not JSON`
+          : `paseo ${verb}: exit ${String(r.code)}: ${r.stderr.trim()}`,
+      );
+    }
+    if (r.code === 0) return ok(reply);
+    // A failed call still answers in JSON, on stdout.
+    const failure = PaseoErrorSchema.safeParse(reply);
+    return err(
+      failure.success
+        ? `paseo ${verb}: ${failure.data.error.message}`
+        : `paseo ${verb}: exit ${String(r.code)}`,
+    );
+  }
+
+  async #create(req: TerminalRequest): Promise<Result<string, string>> {
+    const dir = join(req.cwd, PASEO_WORKSPACE_DIR);
+    try {
+      await this.#mkdir(dir);
+    } catch (e) {
+      return err(`paseo workspace directory: ${String(e)}`);
+    }
+    const created = await this.#cli([
+      'terminal',
+      'create',
+      '--cwd',
+      dir,
+      '--name',
+      req.label,
+    ]);
+    if (!created.ok) return created;
+    const parsed = PaseoCreatedSchema.safeParse(created.value);
+    return parsed.success
+      ? ok(parsed.data.id)
+      : err('paseo terminal create: unexpected shape');
+  }
+
+  open(req: TerminalRequest): Promise<Result<TerminalHandle, string>> {
+    const created = this.#queue.then(() => this.#create(req));
+    this.#queue = created.catch(() => undefined);
+    return created.then(async (id) => {
+      if (!id.ok) return id;
+      const close = async (): Promise<void> => {
+        await this.#cli(['terminal', 'kill', id.value]);
+      };
+      // The carriage return submits the line, as Enter would.
+      const sent = await this.#cli([
+        'terminal',
+        'send-keys',
+        '--literal',
+        id.value,
+        `${req.command}\r`,
+      ]);
+      if (!sent.ok) {
+        await close();
+        return sent;
+      }
+      return ok({ close });
+    });
+  }
+}
+
 /** The only place that knows the backends; the config value picks one, nothing else changes. */
 export function terminalHost(
   config: AttachedTerminal,
@@ -287,9 +401,16 @@ export function terminalHost(
     readonly bin: string;
     readonly git: string | null;
     readonly exec: CommandExec;
+    readonly node?: string;
   },
 ): TerminalHost {
   switch (config.backend) {
+    case 'paseo':
+      return new PaseoTerminal({
+        bin: deps.bin,
+        node: deps.node ?? process.execPath,
+        exec: deps.exec,
+      });
     case 'orca':
       return new OrcaTerminal(deps);
     case 'herdr':
@@ -303,6 +424,8 @@ export function terminalHost(
 /** A read-only command that succeeds when the backend's server can take a terminal. */
 export function terminalProbeArgs(config: AttachedTerminal): string[] {
   switch (config.backend) {
+    case 'paseo':
+      return ['workspace', 'ls', '--json'];
     case 'orca':
       return ['repo', 'list', '--json'];
     case 'herdr':
@@ -321,7 +444,17 @@ const TERMINAL_INSTALL_DIRS: Record<
 > = {
   herdr: ['.local/bin'],
   orca: ['.config/orca/cli/bin', '.local/bin'],
+  paseo: ['.local/bin'],
 };
+
+/** The argv prefix that runs the backend's binary; Paseo's CLI is a Node script without a node on PATH. */
+export function terminalArgv(
+  config: AttachedTerminal,
+  bin: string,
+  node: string = process.execPath,
+): string[] {
+  return config.backend === 'paseo' ? [node, bin] : [bin];
+}
 
 /** The backend's binary without configuration: `tool_paths` wins, then PATH, then the install directories. */
 export async function findTerminalBin(

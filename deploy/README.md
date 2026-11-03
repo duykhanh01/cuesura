@@ -179,6 +179,22 @@ Orca thành project `cuesura`, vì terminal của Orca phải thuộc một proj
 không chiếm focus, và tab tự đóng khi xong. Gỡ project khỏi Orca thì lần chạy sau nó được thêm lại. Pane chỉ để
 xem như với herdr; Orca không chạy thì agent chạy nền và `cusr doctor` báo check `terminal`.
 
+### Xem agent trong Paseo
+
+Tương tự herdr, nhưng dùng [Paseo](https://github.com/getpaseo/paseo); agent hiện cả trong app Paseo trên điện thoại:
+
+```yaml
+runtime:
+  terminal:
+    backend: paseo
+```
+
+Cần daemon Paseo đang chạy (`paseo daemon start`) với home mặc định `~/.paseo`. Cuesura tìm `paseo` trên PATH của
+daemon rồi trong `~/.local/bin`; cài bằng `npm i -g` qua nvm thì đặt `tool_paths.paseo` tới script CLI, ví dụ
+`~/.nvm/versions/node/<bản>/bin/paseo`. Cuesura chạy script đó bằng node của `cusrd`. Agent hiện ở các terminal
+trong project `cuesura` (thư mục `<data dir>/cuesura`), terminal tự đóng khi xong. Pane chỉ để xem như với herdr;
+daemon Paseo không chạy thì agent chạy nền và `cusr doctor` báo check `terminal`.
+
 ## Token và quyền
 
 Quyền chỉ lấy từ bearer token map phía server: `read`, `operate`, `admin` kèm danh sách project. Tên

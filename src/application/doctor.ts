@@ -23,7 +23,11 @@ import { binaryDigest, manifestHash } from './capabilities.ts';
 import { checkHost, missingTools, type SandboxTools } from './preflight.ts';
 import type { AppError } from './queries.ts';
 import type { AttachedTerminal } from '../config/schema-user.ts';
-import { findTerminalBin, terminalProbeArgs } from '../runner/terminal-host.ts';
+import {
+  findTerminalBin,
+  terminalArgv,
+  terminalProbeArgs,
+} from '../runner/terminal-host.ts';
 
 /**
  * All host probes of one doctor share this time, bounded together with the transient unit
@@ -231,9 +235,12 @@ async function terminalProbe(
       `${name} was not found; agents run in the background`,
       `install ${name} or set runtime.tool_paths.${name}`,
     );
-  const r = await host.exec([bin, ...terminalProbeArgs(terminal)], {
-    timeout_ms: PROBE_MS,
-  });
+  const r = await host.exec(
+    [...terminalArgv(terminal, bin), ...terminalProbeArgs(terminal)],
+    {
+      timeout_ms: PROBE_MS,
+    },
+  );
   return r.kind === 'exited' && r.code === 0
     ? ok_('terminal', `${name} server is reachable`)
     : fail(

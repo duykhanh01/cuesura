@@ -1573,6 +1573,22 @@ describe('doctor (T112, FR-027.02/033)', () => {
     ]);
   });
 
+  it('checks paseo by running its CLI script with the daemon node', async () => {
+    const { sd, host } = doctored({
+      runtime:
+        'runtime: { terminal: { backend: paseo }, tool_paths: { paseo: /usr/bin/paseo } }',
+    });
+    await sd.start();
+    expect(names(await cli(sd, ['doctor']))['terminal']).toBeDefined();
+    expect(host.execs).toContainEqual([
+      process.execPath,
+      '/usr/bin/paseo',
+      'workspace',
+      'ls',
+      '--json',
+    ]);
+  });
+
   it('does not look for a terminal backend by default', async () => {
     const { sd, host } = doctored();
     await sd.start();

@@ -3,8 +3,8 @@
 Mặc định `runtime.terminal.backend` là `background`: agent chạy nền trong unit systemd như
 [ADR-0002](0002-systemd-runner-lifetime.md). Chọn `herdr` thì mỗi operation `agent` được khởi động từ một
 tab nền trong workspace `cuesura`, bằng đúng lệnh `systemd-run` cộng thêm `--pty`. Đổi backend chỉ cần đổi
-config và restart `cusrd`. Chọn `orca` cũng vậy, chỉ khác nơi hiện tab (xem dưới). Thêm backend mới (tmux) là
-một biến thể schema và một `TerminalHost`.
+config và restart `cusrd`. Chọn `orca` hoặc `paseo` cũng vậy, chỉ khác nơi hiện tab (xem dưới). Thêm backend mới
+(tmux) là một biến thể schema và một `TerminalHost`.
 
 Vẫn là service `cusr-op-<operation>.service` nên inspect, stop, cgroup và recovery không đổi; terminal chỉ giữ
 đầu pty. Phương án bị loại: `systemd-run --scope` trong pane (đã thử: scope chết cùng herdr server, vi phạm
@@ -29,3 +29,11 @@ Cuesura tạo repo rỗng `<data dir>/cuesura`, đăng ký nó khi `terminal cre
 trong repo đó. Phương án bị loại: mở tab trong worktree của task (vi phạm quy tắc shell không ở worktree, và
 worktree của Cuesura không do Orca quản lý); `orca agent launch` (cùng lý do với `herdr agent start`). Đã thử trên
 Orca 1.4.246 với runtime tách riêng: đóng tab, Ctrl-C và dừng hẳn server Orca không dừng unit.
+
+Paseo cũng gắn terminal với một workspace, nhưng workspace mở được ở thư mục bất kỳ, không cần git: Cuesura tạo
+`<data dir>/cuesura` và mở terminal ở đó, app Paseo hiện nó trong project `cuesura`. Các lệnh `terminal create`
+đồng thời vào một thư mục mới tạo ra nhiều workspace, nên Cuesura tạo lần lượt từng terminal. CLI của Paseo là
+script Node gọi `env node`, mà lệnh ngoài của daemon chạy với PATH tối giản, nên Cuesura chạy nó bằng chính node
+của daemon. Phương án bị loại: `paseo run` (cùng lý do với `herdr agent start`; agent còn thành process con của
+daemon Paseo, mất unit systemd, pin và proof của harness). Đã thử trên Paseo 0.13.0: kill terminal và dừng hẳn
+daemon Paseo không dừng unit.

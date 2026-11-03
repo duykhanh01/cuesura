@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   realpathSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -33,8 +34,11 @@ import {
   HerdrTerminal,
   ORCA_PROJECT_DIR,
   OrcaTerminal,
+  PASEO_WORKSPACE_DIR,
+  PaseoTerminal,
   findTerminalBin,
   shellJoin,
+  terminalArgv,
   terminalHost,
   terminalProbeArgs,
   type TerminalHost,
@@ -118,6 +122,9 @@ describe('terminal config (ADR-0006)', () => {
       RuntimeTerminalSchema.safeParse({ backend: 'orca', session: 'x' })
         .success,
     ).toBe(false);
+    expect(RuntimeTerminalSchema.safeParse({ backend: 'paseo' }).success).toBe(
+      true,
+    );
     expect(RuntimeTerminalSchema.safeParse({ backend: 'screen' }).success).toBe(
       false,
     );
@@ -148,6 +155,22 @@ describe('terminal config (ADR-0006)', () => {
       'list',
       '--json',
     ]);
+    expect(
+      terminalHost({ backend: 'paseo' }, { bin: '/p', git: null, exec }).name,
+    ).toBe('paseo');
+    expect(terminalProbeArgs({ backend: 'paseo' })).toEqual([
+      'workspace',
+      'ls',
+      '--json',
+    ]);
+  });
+
+  it('runs the Paseo CLI script with a node, since the service PATH has none', () => {
+    expect(terminalArgv({ backend: 'paseo' }, '/p', '/n/node')).toEqual([
+      '/n/node',
+      '/p',
+    ]);
+    expect(terminalArgv({ backend: 'orca' }, '/o', '/n/node')).toEqual(['/o']);
   });
 });
 
@@ -428,6 +451,176 @@ describe('OrcaTerminal (ADR-0006)', () => {
       '--terminal',
       'term_1',
       '--tab',
+      '--json',
+    ]);
+  });
+});
+
+/** A Paseo daemon that creates terminals in order; `override` answers a call first when it returns a result. */
+function paseoCli(
+  override: (args: readonly string[]) => CommandResult | null = () => null,
+): CommandExec & { calls: string[][] } {
+  const calls: string[][] = [];
+  let next = 0;
+  const exec: CommandExec = (file, args) => {
+    calls.push([file, ...args]);
+    const given = override(args.slice(1));
+    if (given !== null) return Promise.resolve(given);
+    if (args.slice(1, 3).join(' ') === 'terminal create')
+      return Promise.resolve(
+        result({ stdout: JSON.stringify({ id: `t${String(++next)}` }) }),
+      );
+    return Promise.resolve(result({ stdout: '{"success":true}' }));
+  };
+  return Object.assign(exec, { calls });
+}
+
+describe('PaseoTerminal (ADR-0006)', () => {
+  const workspace = join('/d', PASEO_WORKSPACE_DIR);
+  const made: string[] = [];
+  const paseo = (exec: CommandExec) =>
+    new PaseoTerminal({
+      bin: '/p',
+      node: '/n',
+      exec,
+      mkdir: (dir) => {
+        made.push(dir);
+        return Promise.resolve();
+      },
+    });
+  afterEach(() => made.splice(0));
+
+  it('opens a terminal in a workspace of its own, away from the worktree, and runs the line', async () => {
+    const exec = paseoCli();
+    expect((await paseo(exec).open(request)).ok).toBe(true);
+    expect(made).toEqual([workspace]);
+    expect(exec.calls).toEqual([
+      [
+        '/n',
+        '/p',
+        'terminal',
+        'create',
+        '--cwd',
+        workspace,
+        '--name',
+        'T1',
+        '--json',
+      ],
+      [
+        '/n',
+        '/p',
+        'terminal',
+        'send-keys',
+        '--literal',
+        't1',
+        'run it\r',
+        '--json',
+      ],
+    ]);
+  });
+
+  it('creates one terminal at a time, so launches arriving together share the workspace', async () => {
+    let inFlight = 0;
+    let most = 0;
+    const exec: CommandExec = async (_file, args) => {
+      if (args[2] !== 'create') return result({ stdout: '{}' });
+      most = Math.max(most, ++inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight--;
+      return result({ stdout: '{"id":"t"}' });
+    };
+    const t = paseo(exec);
+    const opened = await Promise.all([t.open(request), t.open(request)]);
+    expect(opened.map((r) => r.ok)).toEqual([true, true]);
+    expect(most).toBe(1);
+  });
+
+  it('reports a daemon it cannot reach', async () => {
+    const exec = paseoCli(() =>
+      result({
+        code: 1,
+        stdout: JSON.stringify({
+          error: { code: 'DAEMON_NOT_RUNNING', message: 'start Paseo' },
+        }),
+      }),
+    );
+    expect(await paseo(exec).open(request)).toEqual(
+      err('paseo terminal create: start Paseo'),
+    );
+    expect(exec.calls).toHaveLength(1);
+  });
+
+  it('reports a workspace directory it cannot make, without calling Paseo', async () => {
+    const exec = paseoCli();
+    const r = await new PaseoTerminal({
+      bin: '/p',
+      node: '/n',
+      exec,
+      mkdir: () => Promise.reject(new Error('EACCES')),
+    }).open(request);
+    expect(r).toEqual(err('paseo workspace directory: Error: EACCES'));
+    expect(exec.calls).toEqual([]);
+  });
+
+  it('makes the workspace directory when it is missing', async () => {
+    const d = dataDir();
+    const exec = paseoCli();
+    const r = await new PaseoTerminal({ bin: '/p', node: '/n', exec }).open({
+      ...request,
+      cwd: d,
+    });
+    expect(r.ok).toBe(true);
+    expect(statSync(join(d, PASEO_WORKSPACE_DIR)).isDirectory()).toBe(true);
+  });
+
+  it('reports output that is not what the CLI promises', async () => {
+    const open = (over: Partial<CommandResult>) =>
+      paseo(() => Promise.resolve(result(over))).open(request);
+    expect(await open({ stdout: 'hello' })).toEqual(
+      err('paseo terminal create: output is not JSON'),
+    );
+    expect(await open({ stdout: '{}' })).toEqual(
+      err('paseo terminal create: unexpected shape'),
+    );
+    expect(await open({ code: 2, stderr: 'boom' })).toEqual(
+      err('paseo terminal create: exit 2: boom'),
+    );
+    expect(await open({ timed_out: true, code: null })).toEqual(
+      err('paseo terminal create: timed out'),
+    );
+  });
+
+  it('kills the terminal it opened when the line cannot be sent, and when asked to close', async () => {
+    const failing = paseoCli((args) =>
+      args[1] === 'send-keys'
+        ? result({
+            code: 1,
+            stdout: '{"error":{"code":"x","message":"gone"}}',
+          })
+        : null,
+    );
+    expect(await paseo(failing).open(request)).toEqual(
+      err('paseo terminal send-keys: gone'),
+    );
+    expect(failing.calls.at(-1)).toEqual([
+      '/n',
+      '/p',
+      'terminal',
+      'kill',
+      't1',
+      '--json',
+    ]);
+
+    const exec = paseoCli();
+    const r = await paseo(exec).open(request);
+    if (!r.ok) throw new Error(r.error);
+    await r.value.close();
+    expect(exec.calls.at(-1)).toEqual([
+      '/n',
+      '/p',
+      'terminal',
+      'kill',
+      't1',
       '--json',
     ]);
   });
