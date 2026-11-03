@@ -100,6 +100,24 @@ export type ProofBudget = {
   readonly maxInvocations: number;
 };
 
+/** Shared by setup preflight and the proof itself; every real proof rechecks the live ledger. */
+export function checkProofBudget(
+  plan: ProofPlan,
+  budget: ProofBudget,
+  proveResume = false,
+): Result<void, string> {
+  if (budget.approval.trim() === '')
+    return err('a proof spends model usage and needs an approval');
+  if (!Number.isInteger(budget.maxInvocations) || budget.maxInvocations < 1)
+    return err('a proof needs a positive integer --max-invocations');
+  const invocations = PROOF_ROLES.length + (proveResume ? 1 : 0);
+  if (plan.invocations_spent + invocations > budget.maxInvocations)
+    return err(
+      `${plan.invocations_spent} invocations already spent on this binary; ${invocations} more exceed the cap of ${budget.maxInvocations}`,
+    );
+  return ok(undefined);
+}
+
 type LedgerRow = {
   readonly at: string;
   readonly harness: string;
@@ -145,8 +163,15 @@ function deniesProbe(pin: VendorPin): boolean {
 }
 
 /** Everything a proof depends on, checked without invoking anything. */
-export function planProof(o: ProofOptions): Result<ProofPlan, string> {
-  const pin = readPin(o.dataDir, o.harness);
+export function planProof(
+  o: ProofOptions,
+  candidatePin?: VendorPin,
+): Result<ProofPlan, string> {
+  // Setup can preview a validated candidate; real proofs always read the trusted pin on disk.
+  const pin =
+    candidatePin === undefined
+      ? readPin(o.dataDir, o.harness)
+      : ok(candidatePin);
   if (!pin.ok) return pin;
   if (o.proveResume && pin.value.vendor !== 'claude')
     return err('resume proof is only supported for Claude');
@@ -476,17 +501,11 @@ export async function proveHarness(
     string
   >
 > {
-  if (o.budget.approval.trim() === '')
-    return err('a proof spends model usage and needs an approval');
   const planned = planProof(o);
   if (!planned.ok) return planned;
   const plan = planned.value;
-  const invocations = PROOF_ROLES.length + (o.proveResume ? 1 : 0);
-  const needed = plan.invocations_spent + invocations;
-  if (needed > o.budget.maxInvocations)
-    return err(
-      `${plan.invocations_spent} invocations already spent on this binary; ${invocations} more exceed the cap of ${o.budget.maxInvocations}`,
-    );
+  const budget = checkProofBudget(plan, o.budget, o.proveResume);
+  if (!budget.ok) return budget;
 
   const redactor = new Redactor({ values: [] });
   const supervisor =

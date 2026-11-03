@@ -59,7 +59,7 @@ Gỡ: `sudo apparmor_parser -R /etc/apparmor.d/cusr-bwrap-userns && sudo rm /etc
 
 Không tự nạp/gỡ profile hoặc đổi sysctl; các lệnh provisioning trên do người vận hành review rồi chạy.
 Các profile/probe outer bwrap cũ đã ngừng bảo trì; xem lịch sử Git khi cần đối chiếu bằng chứng cũ.
-Kiểm tra native của đúng harness bằng `prove-harness` sau provisioning.
+Setup và kiểm tra native của đúng harness bằng `setup-harness` sau provisioning.
 
 ### Sandbox nội bộ của harness
 
@@ -375,17 +375,69 @@ quyền thật ([token và quyền](#token-và-quyền)).
 - `manifest.json`, chỉ ghi bằng lệnh dưới đây, từ evidence của **đúng binary và cấu hình đó**:
 
 ```sh
+cusr-runner setup-harness --config ~/.cusr/config.yaml --harness claude --vendor claude \
+  --binary "$(command -v claude)" --toolchain /opt/node/bin --auth claude-0:.claude/.credentials.json \
+  --settings claude-settings.json --permission-mode auto --sandbox off --tools Bash,Read,Edit,Write,Glob,Grep \
+  --model <model-id> --effort <effort> --max-invocations 9 --approval "<ai duyệt, ngày>" \
+  --out evidence-claude.json
+```
+
+`setup-harness` dùng cùng code của ba lệnh `write-pin`, `prove-harness`, `record-manifest`.
+Config được nạp một lần cho cả luồng. Trước khi ghi pin, lệnh bắt buộc có `--model`, kiểm pin dự kiến
+qua `planProof` (deny-probe, identity, khả năng resume) và kiểm tổng usage đã tốn + số lượt cần với cap.
+Preflight từ chối thì pin/manifest/ledger hiện có vẫn nguyên vẹn, kể cả khi truyền `--force`.
+Các tham số pin/proof giữ nguyên tên; `--out` vừa là file evidence xuất ra vừa là đầu vào cho manifest.
+Lượt chạy có proof thật bắt buộc có `--approval` (không rỗng) và `--max-invocations` là số nguyên dương;
+giới hạn tính cả usage đã ghi trong ledger cho cùng binary, kể cả lượt thất bại. Pin đã tồn tại cần
+`--force` để ghi đè. Bước nào lỗi thì dừng ngay, giữ mã lỗi và nêu tên bước (JSON có `error.details.step`);
+proof thất bại không được ghi manifest. Pin hoặc evidence đã ghi trước lỗi vẫn được giữ để gỡ lỗi.
+
+Thêm `--dry-run` để xem `invocations_spent` (đã tốn) và `invocations_needed` (cần thêm), không gọi model
+và không ghi pin, evidence, manifest hay ledger. Dry-run kiểm pin dự kiến theo cùng quy tắc `write-pin`,
+không cần `--force`, approval hoặc cap để xem kế hoạch. Báo cáo có `pin_exists`: nếu là `true`,
+lượt chạy thật bắt đầu từ `write-pin` cần `--force` để thay pin; `--from prove-harness` dùng lại pin nên
+không cần cờ này. Các probe version/host vẫn chạy.
+
+Preflight là kiểm tra tại thời điểm lập kế hoạch. Proof thật vẫn đọc lại ledger: nếu một proof khác tiêu
+usage sau preflight, proof có thể bị từ chối dù pin đã được ghi. Khi đó chạy tiếp bằng
+`--from prove-harness` với cap tổng được duyệt lại, không ghi lại pin. Lệnh không tự tăng cap.
+
+Khi một bước thực thi lỗi, chạy tiếp bằng `--from` để dùng pin/evidence đã ghi:
+
+```sh
+# Proof lỗi: dùng pin đã ghi, không cần --vendor/--binary/--force.
+# Proof chạy lại đủ các role; cap vẫn tính cả các lượt đã tốn.
+cusr-runner setup-harness --from prove-harness --config ~/.cusr/config.yaml --harness claude \
+  --model <model-id> --effort <effort> --max-invocations <cap-tổng> --approval "<ai duyệt, ngày>" \
+  --out evidence-claude.json
+# Chỉ manifest lỗi: kiểm evidence khớp pin hiện tại rồi ghi manifest, không gọi model.
+# Không cần --model, --approval, --max-invocations hay --force.
+cusr-runner setup-harness --from record-manifest --config ~/.cusr/config.yaml --harness claude \
+  --out evidence-claude.json
+```
+
+`--from record-manifest --dry-run` kiểm evidence/pin/quyền như khi ghi thật, báo `invocations_needed: 0`
+và không ghi manifest. Evidence không đạt hoặc không khớp pin vẫn bị từ chối. Nếu đã có evidence hợp lệ,
+`record-manifest --evidence <file>` cũng sửa được manifest mà không tốn model; gợi ý của doctor ưu tiên
+cách này. Ba lệnh riêng vẫn được giữ để gỡ lỗi:
+
+```sh
 cusr-runner write-pin --config ~/.cusr/config.yaml --harness claude --vendor claude \
   --binary "$(command -v claude)" --toolchain /opt/node/bin --auth claude-0:.claude/.credentials.json \
   --settings claude-settings.json --permission-mode auto --sandbox off --tools Bash,Read,Edit,Write,Glob,Grep
-cusr-runner record-manifest --config ~/.cusr/config.yaml --harness claude --evidence <evidence.json>
+cusr-runner prove-harness --config ~/.cusr/config.yaml --harness claude \
+  --model <model-id> --effort <effort> --max-invocations 9 --approval "<ai duyệt, ngày>" \
+  --out evidence-claude.json
+cusr-runner record-manifest --config ~/.cusr/config.yaml --harness claude --evidence evidence-claude.json
 ```
 
-Để bật resume cho Claude, thêm `--prove-resume` vào `prove-harness`. Probe này cần thêm một invocation
-ngoài ba role (dry-run hiển thị tổng số cần), rồi thử tiếp tục bằng private home mới và nhớ lại một nonce
-chỉ có trong hội thoại trước. Chỉ bằng chứng probe đạt mới ghi `session_resume: proven`; sau đó ghi lại
-manifest và restart. Resume chỉ mang transcript/tool data của đúng session, không mang auth/settings của
-attempt cũ. Codex hiện chưa có resume được hỗ trợ; daemon ghi lý do và dùng phiên mới cùng context đầy đủ.
+Để bật resume cho Claude, thêm `--prove-resume` vào `setup-harness` (hoặc lệnh riêng `prove-harness`).
+Probe này cần thêm một invocation ngoài các role `coder`, `fixer`, `reviewer`, `decider` trong `PROOF_ROLES`:
+hiện là 5 lượt tổng cộng, thay vì 4 (dry-run hiển thị số cần). Probe thử tiếp tục bằng private home mới
+và nhớ lại một nonce chỉ có trong hội thoại trước. Chỉ bằng chứng probe đạt mới ghi `session_resume: proven`;
+sau setup thành công, restart daemon. Resume chỉ mang transcript/tool data của đúng session,
+không mang auth/settings của attempt cũ. Codex hiện chưa có resume được hỗ trợ; daemon ghi lý do và
+sử dụng phiên mới cùng context đầy đủ.
 
 Nếu transcript/run cũ đã mất, worker dùng phiên mới với context đầy đủ và ghi `resume_fallback: session_missing`;
 không chờ người vận hành chỉ để khôi phục hội thoại. Evidence của `--prove-resume` có `resume_probe` ghi
@@ -395,7 +447,7 @@ Mỗi vendor trong evidence phải có `binary.sha256` và `attested` gồm `set
 (env, toolchain, `home_files`, `max_turns`, `tools`), `host_policy_hash`, `layout_shapes` của lượt chứng minh.
 Lệnh so từng trường với pin và host hiện tại, lệch là từ chối và in giá trị cần có; đổi bất kỳ trường nào của
 pin đều cần chứng minh lại (T126), và pin sửa sau khi ghi sẽ chặn request, attempt kế tiếp. Đổi đường dẫn file
-credential thì không cần: bằng chứng không phụ thuộc file nằm ở đâu. Evidence T007 không có `attested` nên không dùng được. Lệnh không gọi harness, không tốn usage.
+credential thì không cần: bằng chứng không phụ thuộc file nằm ở đâu. Evidence T007 không có `attested` nên không dùng được. `record-manifest` không gọi harness, không tốn usage; bước proof của `setup-harness` có gọi model.
 
 Công cụ harness được tìm trên toolchain của pin cộng PATH daemon. Setup/gate dùng thư mục Node của daemon
 cộng PATH daemon; preflight dùng đúng cùng danh sách với lệnh thực thi. Khi chạy daemon bằng systemd, đặt
@@ -437,8 +489,8 @@ Claude cần `TMPDIR` đủ ngắn cho Unix socket của sandbox (đường dẫ
 mục riêng 0700 `/tmp/cusr-<hash>`, xóa khi lượt kết thúc. Với host có `/tmp` là tmpfs nhỏ, việc ghi file tạm lớn trong
 lượt chạy agent sẽ chiếm chỗ ở đó. Setup, gate, autofix và Codex vẫn dùng scratch của mình làm `TMPDIR`.
 
-Sau khi nâng release, tạo lại pin với `--permission-mode auto` hoặc `full-access`, chạy `prove-harness`
-không có `--outer-proof`, rồi `record-manifest` và restart daemon. Manifest cũ chứng minh outer bwrap
+Sau khi nâng release, chạy `setup-harness --force` với các tham số pin/proof đầy đủ,
+`--permission-mode auto` hoặc `full-access`, không cần `--outer-proof`, rồi restart daemon. Manifest cũ chứng minh outer bwrap
 không dùng được cho native execution. Task đang đóng băng theo outer bwrap phải kết thúc/hủy ở release
 cũ rồi tạo task mới; không đổi snapshot đang chạy. Đổi mode pin cũng cần proof/manifest tương ứng.
 

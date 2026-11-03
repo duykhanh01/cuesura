@@ -118,8 +118,8 @@ Schema/auth/nesting đã có fixture từ lát 0; không đợi đầu C mới t
 opt-in để kiểm toàn luồng thực sự. Binary/auth/mount layout đổi so với manifest lát 0 phải chạy lại
 spike bị ảnh hưởng trước khi dùng; help/version không thay evidence. Ghi fixture/version/hash mới.
 
-Mỗi harness cần `pin.json` và `manifest.json`: tạo bằng `cusr-runner write-pin`, chứng minh bằng `cusr-runner prove-harness`, ghi bằng
-`cusr-runner record-manifest`, theo [runbook](../../deploy/README.md#harness-thật-pin-và-manifest). Kịch bản thật chạy qua
+Mỗi harness cần `pin.json` và `manifest.json`: tạo pin, chứng minh và ghi manifest bằng một lệnh
+`cusr-runner setup-harness`, theo [runbook](../../deploy/README.md#harness-thật-pin-và-manifest). Kịch bản thật chạy qua
 `CUSR_SMOKE_REAL` trong `test/smoke/`, tốn usage.
 
 Sau khi build và chuẩn bị config:

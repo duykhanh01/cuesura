@@ -437,7 +437,7 @@ export async function runDoctor(
           ? fail(
               `manifest:${h}`,
               `${inputs.manifest_problems?.[h] ?? 'no capability manifest recorded'}; bindings of this harness stay capability_missing`,
-              'run cusr-runner prove-harness, then record-manifest (deploy/README.md); a help or version output is not proof',
+              'if matching evidence exists, run cusr-runner record-manifest --evidence <file> to repair the manifest without model usage; otherwise see cusr-runner setup-harness in deploy/README.md; a help or version output is not proof',
             )
           : manifestCheck(`manifest:${h}`, m, deps.digest ?? binaryDigest),
       );

@@ -12,6 +12,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -362,6 +363,62 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
       expect(h.problem()).toBeNull();
       expect(readFileSync(h.out, 'utf8')).not.toContain(SMOKE_CANARY);
       expect(readFileSync(h.ledger, 'utf8').trim().split('\n')).toHaveLength(4);
+
+      // A failed manifest write can be retried without pin flags, approval, or another model invocation.
+      const manifestPath = join(
+        h.options.dataDir,
+        'harnesses',
+        vendor,
+        'manifest.json',
+      );
+      const ledgerBefore = readFileSync(h.ledger, 'utf8');
+      const pinPath = join(h.options.dataDir, 'harnesses', vendor, 'pin.json');
+      const pinBefore = readFileSync(pinPath, 'utf8');
+      rmSync(manifestPath);
+      const retry = (...extra: string[]) => {
+        const cli = spawnSync(
+          process.execPath,
+          [
+            RUNNER,
+            'setup-harness',
+            '--json',
+            '--from',
+            'record-manifest',
+            '--config',
+            h.options.configPath,
+            '--data-dir',
+            h.options.dataDir,
+            '--harness',
+            vendor,
+            '--out',
+            h.out,
+            ...extra,
+          ],
+          { encoding: 'utf8' },
+        );
+        return { code: cli.status, body: JSON.parse(cli.stdout) as unknown };
+      };
+      expect(retry('--dry-run')).toMatchObject({
+        code: 0,
+        body: { data: { invocations_needed: 0, pin_exists: true } },
+      });
+      expect(existsSync(manifestPath)).toBe(false);
+      expect(retry()).toMatchObject({ code: 0, body: { ok: true } });
+      expect(h.problem()).toBeNull();
+      const manifestBefore = readFileSync(manifestPath, 'utf8');
+      writeFileSync(h.out, '{}');
+      expect(retry()).toMatchObject({
+        code: 1,
+        body: {
+          error: {
+            code: 'manifest_refused',
+            details: { step: 'record-manifest' },
+          },
+        },
+      });
+      expect(readFileSync(manifestPath, 'utf8')).toBe(manifestBefore);
+      expect(readFileSync(pinPath, 'utf8')).toBe(pinBefore);
+      expect(readFileSync(h.ledger, 'utf8')).toBe(ledgerBefore);
 
       // The next proof of this binary counts the four already spent.
       const again = await proveHarness({

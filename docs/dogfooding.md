@@ -47,20 +47,43 @@ assistant không đọc `owner.token` là quy tắc, không phải giới hạn 
 
 ## Cài đặt lần đầu (người dùng)
 
-1. Chứng minh harness. Bước này gọi model thật và tốn usage:
+1. Setup từng harness: ghi pin, chứng minh rồi ghi manifest bằng một lệnh. Bước chứng minh gọi model thật
+   và tốn usage; chuẩn bị credential/rule/settings theo [runbook](../deploy/README.md#harness-thật-pin-và-manifest):
 
    ```sh
    cd ~/cuesura-dogfood
-   cusr-runner prove-harness --config config.yaml --data-dir data --harness claude \
-     --model claude-opus-5-5 --effort medium \
+   cusr-runner setup-harness --config config.yaml --data-dir data --harness claude \
+     --vendor claude --binary "$(command -v claude)" \
+     --toolchain "$PWD/tools/node/bin" --auth claude-0:.claude/.credentials.json \
+     --settings claude-settings.json --permission-mode auto --sandbox off \
+     --tools Bash,Read,Edit,Write,Glob,Grep --model claude-opus-5-5 --effort medium \
      --max-invocations 9 --approval "<ai duyệt, ngày>" --out evidence-claude.json
-   cusr-runner record-manifest --config config.yaml --data-dir data --harness claude \
-     --evidence evidence-claude.json
    ```
 
-   Bước này tốn 4 lượt model cho mỗi harness (coder, fixer, reviewer, decider). Lặp lại cho `--harness codex --model gpt-6.1-sol --effort high`. Manifest gắn với binary và pin, không gắn với
-   model, nên các model còn lại trong bảng [Chọn model](#chọn-model) chạy được mà chưa có lượt chứng minh riêng.
-   Coi task đầu tiên của mỗi model là lần kiểm thật của nó.
+   Thay `claude-0` bằng tên credential đã khai trong config và dùng đường dẫn toolchain canonical trên host.
+   Thêm `--dry-run` để xem `invocations_spent` và `invocations_needed`, không gọi model hoặc ghi pin,
+   evidence, manifest hay ledger. Lượt proof thật bắt buộc có `--approval` và `--max-invocations`;
+   giới hạn tính cả lượt đã ghi trong ledger cho cùng binary. Lệnh kiểm đầy đủ kế hoạch proof và cap
+   trước khi ghi pin; preflight bị từ chối giữ nguyên pin/manifest cũ, kể cả có `--force`.
+   Pin đã có cần `--force` để thay thế khi chạy thật; dry-run không cần cờ này và báo `pin_exists`
+   để biết trước trạng thái pin. Proof vẫn kiểm lại ledger nếu usage thay đổi sau preflight.
+   Bước nào lỗi thì dừng ngay và nêu tên bước; proof thất bại không ghi manifest.
+   Dùng `--from prove-harness` để chạy lại proof với pin đã ghi, không pin lại;
+   dùng `--from record-manifest --out <evidence.json>` nếu chỉ bước ghi manifest lỗi. Bước này kiểm
+   evidence có sẵn, không gọi model và không cần model/approval/cap/force. Config được nạp một lần
+   cho cả luồng để các bước dùng cùng cấu hình.
+
+   Proof chạy bốn role `coder`, `fixer`, `reviewer`, `decider`, tốn 4 lượt cho mỗi harness
+   (thêm `--prove-resume` cho Claude thì cần 5 lượt).
+
+   Lặp lại cho Codex với `--harness codex --vendor codex --binary "$(command -v codex)"`,
+   `--model gpt-6.1-sol --effort high`, auth/rules Codex tương ứng và `--out evidence-codex.json`;
+   bỏ các cờ riêng Claude (`--settings`, `--sandbox`, `--tools`). Manifest gắn với binary và pin, không gắn
+   với model, nên các model còn lại trong bảng [Chọn model](#chọn-model) chạy được mà chưa có lượt chứng minh
+   riêng. Coi task đầu tiên của mỗi model là lần kiểm thật của nó.
+
+   Ba lệnh `write-pin`, `prove-harness`, `record-manifest` vẫn dùng được riêng để gỡ lỗi hoặc chạy lại
+   từ bước lỗi; xem [runbook](../deploy/README.md#harness-thật-pin-và-manifest).
 
 2. Bật daemon theo [mẫu service](../deploy/README.md#chạy-daemon-foreground-hoặc-service), với `ExecStart`
    trỏ tới `~/cuesura-dogfood/config.yaml` và `~/cuesura-dogfood/data`, thêm
@@ -178,8 +201,8 @@ cusr doctor --project cuesura --json
 
 Script xây release mới, đổi `current` một lần và chép skill; process đang chạy vẫn giữ code cũ tới khi restart.
 Trước khi đổi `current`, script chạy `cusr-runner check-records` của release mới. Release mới từ chối config hoặc
-harness record thì script dừng và `current` giữ nguyên: sửa config, hoặc chạy `prove-harness` và `record-manifest`
-bằng `releases/<sha>/dist/cli/cusr-runner.js` rồi chạy lại script. `--allow-unproven` đổi `current` dù task mới sẽ bị chặn.
+harness record thì script dừng và `current` giữ nguyên: sửa config, hoặc chạy `setup-harness --force`
+với các tham số pin/proof như khi cài đặt bằng `node releases/<sha>/dist/cli/cusr-runner.js` rồi chạy lại script. `--allow-unproven` đổi `current` dù task mới sẽ bị chặn.
 Script lấy code từ `repo/`, không từ repo phát triển.
 
 `doctor` báo `manifest:*` thì pin hoặc layout đã đổi: chứng minh lại harness trước khi chạy task. Không sửa tay

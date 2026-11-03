@@ -1679,6 +1679,17 @@ describe('doctor (T112, FR-027.02/033)', () => {
         .filter(([k]) => k.startsWith('manifest:'))
         .every(([, v]) => v === 'fail'),
     ).toBe(true);
+    const repairs = (
+      r.envelope.error.details['checks'] as {
+        name: string;
+        fix: string | null;
+      }[]
+    ).filter((check) => check.name.startsWith('manifest:'));
+    expect(repairs.length).toBeGreaterThan(0);
+    for (const check of repairs) {
+      expect(check.fix).toContain('record-manifest --evidence');
+      expect(check.fix).not.toContain('--force');
+    }
   });
 
   it('a transient unit that cannot run fails, even when the user manager answers', async () => {

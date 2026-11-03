@@ -278,6 +278,7 @@ export function recordManifest(o: {
   readonly evidenceFile: string;
   readonly fixtureRef: string;
   readonly now: number;
+  readonly dryRun?: boolean;
 }): Result<CapabilityManifest, string> {
   const pin = readPin(o.dataDir, o.harness);
   if (!pin.ok) return pin;
@@ -353,6 +354,7 @@ export function recordManifest(o: {
   );
   if (problem !== null)
     return err(`${o.evidenceFile} does not make a usable manifest: ${problem}`);
+  if (o.dryRun) return ok(manifest);
   const dir = recordDir(o.dataDir, o.harness);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const tmp = join(dir, `${MANIFEST_FILE}.${process.pid}.tmp`);
@@ -378,6 +380,8 @@ export type WritePinInput = {
   readonly max_turns: number | null;
   readonly tools: readonly string[] | null;
   readonly force: boolean;
+  /** Validate and return the candidate pin without writing it. */
+  readonly dryRun?: boolean;
 };
 
 /** Check executable tools on the host; the harness proof separately checks native permissions. */
@@ -409,7 +413,7 @@ export function writePin(o: WritePinInput): Result<VendorPin, string> {
     return err('--sandbox requires --vendor claude');
   const dir = recordDir(o.dataDir, o.harness);
   const path = join(dir, PIN_FILE);
-  if (!o.force && existsSync(path))
+  if (!o.dryRun && !o.force && existsSync(path))
     return err(`${path} exists; pass --force to replace it`);
   let real: string;
   let version: string;
@@ -494,6 +498,18 @@ export function writePin(o: WritePinInput): Result<VendorPin, string> {
     return err(
       `${pin.vendor} needs ${absent.join(', ')} in its sandbox: install under /usr or add the directory to --toolchain`,
     );
+  return o.dryRun ? ok(pin) : commitPin(o, pin);
+}
+
+/** Persist a pin returned by writePin's dry-run after the caller has checked its proof plan. */
+export function commitPin(
+  o: Pick<WritePinInput, 'dataDir' | 'harness' | 'force'>,
+  pin: VendorPin,
+): Result<VendorPin, string> {
+  const dir = recordDir(o.dataDir, o.harness);
+  const path = join(dir, PIN_FILE);
+  if (!o.force && existsSync(path))
+    return err(`${path} exists; pass --force to replace it`);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const tmp = join(dir, `${PIN_FILE}.${process.pid}.tmp`);
   writeFileSync(tmp, `${JSON.stringify(pin, null, 2)}\n`, { mode: 0o600 });
