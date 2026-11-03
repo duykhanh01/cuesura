@@ -12,6 +12,7 @@ import {
 import { HostExecutionProvider } from '../../../src/runner/sandbox.ts';
 import { SpawnExecutor } from '../../../src/runner/commands.ts';
 import { harnessSandboxTools } from '../../../src/runner/harness-records.ts';
+import { attemptLayoutInputs } from '../../../src/runner/invocation.ts';
 import { vendorPin } from '../../support/harness-fixtures.ts';
 
 const dirs: string[] = [];
@@ -77,6 +78,58 @@ function claude(
 }
 
 describe('host execution with harness-owned permissions', () => {
+  it.each([
+    ['claude', undefined, 'cuesura'],
+    ['claude', 'sdk-cli', 'cuesura'],
+    ['codex', undefined, undefined],
+    ['codex', 'custom', 'custom'],
+  ] as const)(
+    'passes the expected entrypoint to a %s process with pin value %s',
+    async (vendor, entrypoint, expected) => {
+      vi.stubEnv('CLAUDE_CODE_ENTRYPOINT', 'sdk-cli');
+      const dir = mkdtempSync(join(tmpdir(), 'cusr-entrypoint-'));
+      dirs.push(dir);
+      const pin = {
+        ...vendorPin(vendor),
+        env:
+          entrypoint === undefined
+            ? {}
+            : { CLAUDE_CODE_ENTRYPOINT: entrypoint },
+      };
+      const plan = new HostExecutionProvider().plan(
+        {
+          role: 'coder',
+          worktree: dir,
+          git_dirs: [],
+          scratch: dir,
+          private_home: dir,
+          context: null,
+          schema: null,
+          ...attemptLayoutInputs(pin, 'entrypoint-test'),
+          network: 'internet_outbound',
+        },
+        [
+          process.execPath,
+          '-e',
+          'process.stdout.write(JSON.stringify({entrypoint: process.env.CLAUDE_CODE_ENTRYPOINT, attempt: process.env.CUSR_ATTEMPT_ID}))',
+        ],
+      );
+      if (!plan.ok) throw new Error(plan.error.message);
+      const result = await new SpawnExecutor().run(plan.value, {
+        timeout_ms: 5_000,
+        max_output_bytes: 4096,
+      });
+      expect(result).toMatchObject({
+        kind: 'exited',
+        code: 0,
+        output: JSON.stringify({
+          entrypoint: expected,
+          attempt: 'entrypoint-test',
+        }),
+      });
+    },
+  );
+
   it.each([
     [null, 7, 7],
     [20, 7, 7],

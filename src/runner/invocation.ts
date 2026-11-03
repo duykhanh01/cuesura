@@ -213,7 +213,12 @@ export function attemptLayoutInputs(
 ): { toolchain: string[]; env: Record<string, string> } {
   return {
     toolchain: [...new Set([dirname(pin.binary.realpath), ...pin.toolchain])],
-    env: { ...pin.env, CUSR_ATTEMPT_ID: attemptId },
+    env: {
+      ...pin.env,
+      // Label our headless Claude sessions explicitly: anthropics/claude-code#97074.
+      ...(pin.vendor === 'claude' ? { CLAUDE_CODE_ENTRYPOINT: 'cuesura' } : {}),
+      CUSR_ATTEMPT_ID: attemptId,
+    },
   };
 }
 

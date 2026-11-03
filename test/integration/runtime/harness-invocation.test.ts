@@ -249,6 +249,9 @@ describe('six role × vendor runs through the real runner lifecycle', () => {
       if (out.kind !== 'result') throw new Error(JSON.stringify(out));
       expect(out.value).toEqual(acceptedValue(attempt));
       expect(out.usage.basis).toBe('reported');
+      expect(e.proc.launches[0]?.env['CLAUDE_CODE_ENTRYPOINT']).toBe(
+        r.vendor === 'claude' ? 'cuesura' : undefined,
+      );
 
       const run = RunDir.open({
         dataDir: e.data,
