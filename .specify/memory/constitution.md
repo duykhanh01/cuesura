@@ -29,6 +29,11 @@ có thể phủ rộng không gian quyết định.
 - Mọi thao tác logic MUST có idempotency key ổn định. Kết quả không rõ sau timeout/crash MUST được
   probe đối chiếu trước khi thử lại; probe thiếu bằng chứng trả `unknown`, không coi là
   "chưa xảy ra".
+- Ngoại lệ duy nhất cho điều trên: gửi hoặc sửa thông báo tới kênh không có idempotency hay probe tin
+  cậy (SPEC.md §13.2) MAY được thử lại sau kết quả `unknown`, chấp nhận người dùng thấy bản trùng. Mọi
+  bản trùng MUST mang cùng mã thông báo, câu hỏi hoặc yêu cầu, và thao tác qua bất kỳ bản nào MUST quy
+  về cùng một đối tượng. Ngoại lệ MUST NOT áp cho quyết định, approval, merge hay effect nào làm đổi
+  trạng thái bên ngoài ngoài việc hiển thị tin.
 - Khởi động lại MUST nhận lại attempt, PR và effect đang dở thay vì tạo bản thứ hai; không spawn
   thay thế khi chưa chứng minh attempt cũ đã kết thúc; không reset worktree chỉ vì HEAD lệch
   checkpoint.
@@ -203,4 +208,10 @@ số lần gọi, thay bằng quy tắc không hỏi qua đáp lại (ngoại l�
 mới. Giữ nguyên: decider không cấp approval, không merge, không đổi trạng thái task ngoài việc trả lời câu hỏi của worker. Đồng
 bộ SPEC §10 và runbook; các template đọc hiến chương hiện hành, không cần đổi cấu trúc.
 
-**Version**: 6.0.0 | **Ratified**: 2026-10-27 | **Last Amended**: 2026-11-03
+**Amendment 2026-11-03 (chủ dự án):** 6.0.0 → 6.1.0 vì đưa vào nguyên tắc II ngoại lệ đã có ở SPEC §13.2: thông
+báo tới kênh không probe được (Telegram) được gửi lại sau kết quả `unknown` với cùng mã, chấp nhận bản trùng. Giữ
+nguyên: mọi thao tác khác vẫn phải probe trước khi thử lại; quyết định, approval và merge không bao giờ được lặp vì tin
+trùng. SPEC.md không đổi vì §13.2 đã nêu đúng quy tắc này; plan của feature 003 dẫn điều khoản mới; các template đọc
+hiến chương hiện hành, không cần đổi cấu trúc.
+
+**Version**: 6.1.0 | **Ratified**: 2026-10-27 | **Last Amended**: 2026-11-03

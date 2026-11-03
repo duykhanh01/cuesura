@@ -8,6 +8,13 @@ lo những việc đó. Không gọi `cusr`.
 **Assistant làm việc tương tác:** quy trình dùng `cusr` để phát triển repo này ở
 [docs/dogfooding.md](docs/dogfooding.md). Vướng mắc khi dùng `cusr` phải ghi thành issue theo mục "Vòng tự cải thiện".
 
+## Comment trong code
+
+Áp dụng cho cả worker do Cuesura khởi chạy.
+
+- Chỉ comment khi cần thiết: lý do, ràng buộc hoặc hành vi mà đọc code không thấy. Không comment lặp lại điều code đã nói.
+- Comment viết bằng tiếng Anh.
+
 ## Làm việc trên worktree riêng, xong thì tạo PR
 
 - Mọi thay đổi (code, test, tài liệu) làm trên một git worktree riêng, tạo từ `origin/main` mới nhất.

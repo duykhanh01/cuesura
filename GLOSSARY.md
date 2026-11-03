@@ -64,6 +64,26 @@ _Avoid_: Một task chưa kết thúc, giữ slot suốt vòng đời task, nh�
 Head SHA của PR mà Cuesura đã có đủ gate, CI và review nếu được yêu cầu bởi chế độ đã xác nhận cho revision hiện tại. Head này không tự đổi theo push bên ngoài.
 _Avoid_: Head hiện tại của PR, head mới nhất trên remote
 
+**Thông báo logic**:
+Một việc cần báo cho người dùng, như một câu hỏi chờ người hay một task vừa kết thúc. Thông báo giữ nguyên danh tính qua mọi lần thử lại, phục hồi và restart, nên cùng một việc không bao giờ thành hai thông báo.
+_Avoid_: Tin nhắn, mỗi lần gửi là một thông báo
+
+**Đợt gửi**:
+Nhóm các lượt gửi của một thông báo logic dùng chung một giới hạn số lần thử và một thời hạn. Hết đợt mà chưa gửi được thì thông báo được ghi là thất bại; chỉ khi kênh hồi phục mới mở đợt mới.
+_Avoid_: Một lần thử, thử lại không giới hạn
+
+**Lượt gửi**:
+Một lần thử chuyển nội dung của một thông báo logic tới kênh. Lượt gửi có thể thành công, thất bại hoặc không rõ kết quả.
+_Avoid_: Đợt gửi, bản tin
+
+**Bản tin**:
+Một bản cụ thể của thông báo logic đang hiện trên kênh, ví dụ một tin Telegram. Lượt gửi không rõ kết quả rồi gửi lại có thể tạo nhiều bản tin cho cùng một thông báo; mọi bản tin đều quy về cùng câu hỏi hay yêu cầu.
+_Avoid_: Thông báo logic, mỗi bản tin là một việc riêng
+
+**Đồng bộ trạng thái cuối**:
+Nghĩa vụ sửa các bản tin đã hiện trên kênh cho khớp kết quả xử lý (đã trả lời, đã duyệt, hết hiệu lực), kể cả khi câu hỏi hay yêu cầu đã đóng. Nghĩa vụ này độc lập với việc gửi thông báo mới.
+_Avoid_: Gửi lại thông báo, thông báo kết quả
+
 **Merge chưa chứng nhận**:
 Merge thủ công được xác nhận ở một head khác head đã kiểm, hoặc khi chưa có head đã kiểm. Task vẫn DONE vì merge đã xảy ra, nhưng Cuesura không chứng nhận chất lượng của head đã merge.
 _Avoid_: Merge lỗi, task thất bại, PR xanh
