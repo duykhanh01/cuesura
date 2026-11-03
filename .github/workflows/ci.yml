@@ -1,8 +1,14 @@
 name: ci
 on:
   pull_request:
+    # closed chỉ để hủy run cũ của PR qua concurrency; mọi job bỏ qua sự kiện này.
+    types: [opened, synchronize, reopened, closed]
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 jobs:
   build:
+    if: github.event.action != 'closed'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -15,6 +21,7 @@ jobs:
       - run: pnpm lint
       - run: pnpm build
   test:
+    if: github.event.action != 'closed'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
