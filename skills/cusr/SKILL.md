@@ -185,6 +185,17 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
   --expected-version "$VERSION" --request-id "$ANSWER_REQUEST_ID" --json
 ```
 
+## Report
+
+```sh
+# What happened since a moment, per project: finished tasks (PR, reason, usage),
+# tasks waiting for the user with their open questions, running tasks and decider answers.
+# Built from the event log, no model. --since takes 30m, 8h, 2d or an ISO time (default 24h).
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
+  cusr report --project "$PROJECT" --since 24h --json
+# Present it to the user as is; do not act on needs_you items without the user.
+```
+
 ## Recheck and cancel
 
 ```sh

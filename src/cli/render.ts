@@ -4,6 +4,7 @@
  * as the interface, so it is sanitized here too; a reply that does not match falls back to plain YAML.
  */
 import { stringify } from 'yaml';
+import { z } from 'zod';
 import {
   BoardSchema,
   ProjectListSchema,
@@ -193,5 +194,178 @@ export const renderRequest: Render = (data) => {
       ['Next step', q.next_step],
     ]),
   ];
+  return `${lines.join('\n')}\n`;
+};
+
+const ReportSection = <T extends z.ZodType>(item: T) =>
+  z.object({ items: z.array(item), truncated: z.boolean() });
+const ReportMetric = z.object({ sum: z.number(), missing: z.number() });
+const ReportUsage = z.object({
+  agent_runs: z.number(),
+  basis: z.object({
+    reported: z.number(),
+    estimated: z.number(),
+    unavailable: z.number(),
+  }),
+  tokens: ReportMetric,
+  cost: ReportMetric,
+});
+type ReportUsage = z.infer<typeof ReportUsage>;
+
+/** A metric no run gave is unavailable, never 0; a partial sum says how many runs it leaves out. */
+function metric(
+  m: z.infer<typeof ReportMetric>,
+  runs: number,
+  unit: string,
+): string {
+  if (m.missing >= runs) return `${unit} unavailable`;
+  const value = unit === 'tokens' ? `${m.sum} tokens` : `cost ${m.sum}`;
+  return m.missing === 0
+    ? value
+    : `${value} (${m.missing} of ${runs} runs not included)`;
+}
+
+function usageLine(u: ReportUsage): string {
+  if (u.agent_runs === 0) return 'Usage of finished tasks: no agent runs.';
+  const basis = (['reported', 'estimated', 'unavailable'] as const)
+    .filter((b) => u.basis[b] > 0)
+    .map((b) => `${u.basis[b]} ${b}`)
+    .join(', ');
+  return `Usage of finished tasks: ${metric(u.tokens, u.agent_runs, 'tokens')}, ${metric(u.cost, u.agent_runs, 'cost')}; ${u.agent_runs} agent runs (${basis}).`;
+}
+const ReportBase = {
+  task_id: z.string(),
+  title: z.string(),
+  status: z.string(),
+  pr_ref: z.string().nullable(),
+};
+const ReportSchema = z.object({
+  since: z.number(),
+  until: z.number(),
+  projects: z.array(
+    z.object({
+      project: z.string(),
+      finished: ReportSection(
+        z.object({
+          ...ReportBase,
+          reason: z.string().nullable(),
+          merged: z.boolean(),
+          unverified: z.string().nullable(),
+          finished_at: z.number(),
+        }),
+      ),
+      needs_you: ReportSection(
+        z.object({
+          ...ReportBase,
+          wait_code: z.string().nullable(),
+          questions: z.array(z.string()),
+        }),
+      ),
+      running: ReportSection(
+        z.object({
+          ...ReportBase,
+          step: z.string().nullable(),
+          wait_code: z.string().nullable(),
+        }),
+      ),
+      decisions: ReportSection(
+        z.object({
+          task_id: z.string(),
+          title: z.string(),
+          question: z.string().nullable(),
+          answer: z.string().nullable(),
+          reason: z.string().nullable(),
+          applied: z.boolean(),
+          failure: z.string().nullable(),
+        }),
+      ),
+      usage: ReportUsage,
+    }),
+  ),
+});
+
+function heading(
+  label: string,
+  s: { items: readonly unknown[]; truncated: boolean },
+): string {
+  return `${label} (${s.items.length}${s.truncated ? '+' : ''})`;
+}
+
+/** One line of a longer text, so a decider's answer does not break the layout. */
+const oneLine = (text: string): string => sanitize(text.replace(/\s+/g, ' '));
+
+export const renderReport: Render = (data) => {
+  const r = ReportSchema.safeParse(data);
+  if (!r.success) return stringify(data);
+  const { since, until, projects } = r.data;
+  const lines = [`Report from ${when(since)} to ${when(until)}`];
+  if (projects.length === 0) lines.push('', 'Nothing to report.');
+  for (const p of projects) {
+    lines.push('', `Project ${sanitize(p.project)}`);
+    const { finished, needs_you, running, decisions, usage } = p;
+    if (finished.items.length > 0)
+      lines.push(
+        heading('Finished', finished),
+        ...table(
+          ['ID', 'STATUS', 'PR', 'TITLE'],
+          finished.items.map((t) => [
+            t.task_id,
+            t.status === 'DONE' && t.unverified !== null
+              ? 'DONE (unverified)'
+              : t.status,
+            sanitize(t.pr_ref ?? '-'),
+            sanitize(t.title),
+          ]),
+        ),
+        ...finished.items.flatMap((t) =>
+          t.status !== 'DONE' && t.reason !== null
+            ? [`  ${t.task_id}: ${oneLine(t.reason)}`]
+            : [],
+        ),
+      );
+    if (needs_you.items.length > 0)
+      lines.push(
+        heading('Needs you', needs_you),
+        ...table(
+          ['ID', 'STATUS', 'WAITING ON', 'TITLE'],
+          needs_you.items.map((t) => [
+            t.task_id,
+            t.status,
+            sanitize(t.wait_code ?? '-'),
+            sanitize(t.title),
+          ]),
+        ),
+        ...needs_you.items.flatMap((t) =>
+          t.questions.map((q) => `  ${t.task_id} asks: ${oneLine(q)}`),
+        ),
+      );
+    if (running.items.length > 0)
+      lines.push(
+        heading('Running', running),
+        ...table(
+          ['ID', 'STATUS', 'ACTIVITY', 'TITLE'],
+          running.items.map((t) => [
+            t.task_id,
+            t.status,
+            sanitize(t.wait_code ?? t.step ?? '-'),
+            sanitize(t.title),
+          ]),
+        ),
+      );
+    if (decisions.items.length > 0)
+      lines.push(
+        heading('Decider answers', decisions),
+        ...decisions.items.flatMap((d) => [
+          `- ${d.task_id} ${oneLine(d.title)}`,
+          ...(d.question === null ? [] : [`  Q: ${oneLine(d.question)}`]),
+          ...(d.answer === null ? [] : [`  A: ${oneLine(d.answer)}`]),
+          ...(d.reason === null ? [] : [`  Why: ${oneLine(d.reason)}`]),
+          d.applied
+            ? '  Applied.'
+            : `  Not applied${d.failure === null ? '' : `: ${oneLine(d.failure)}`}.`,
+        ]),
+      );
+    if (finished.items.length > 0) lines.push(usageLine(usage));
+  }
   return `${lines.join('\n')}\n`;
 };

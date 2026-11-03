@@ -13,6 +13,7 @@ import { inbox } from '../application/inbox.ts';
 import { taskLogs, type LogsDeps } from '../application/logs.ts';
 import { taskProgress } from '../application/progress.ts';
 import { projectList } from '../application/projects.ts';
+import { report } from '../application/report.ts';
 import { runOptions } from '../application/run-options.ts';
 import {
   questionShow,
@@ -94,6 +95,8 @@ export function taskControl(deps: TaskControlDeps): {
       question_show: (caller, body) => reply(questionShow(store, caller, body)),
       task_board: (caller, body) =>
         reply(taskBoard({ store, statusSince }, caller, body)),
+      report: (caller, body) =>
+        reply(report({ store, statusSince, now: deps.now }, caller, body)),
       task_content: (caller, body) => reply(taskContent(store, caller, body)),
       task_progress: (caller, body) => reply(taskProgress(store, caller, body)),
       project_list: async (caller, body) =>

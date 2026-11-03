@@ -103,7 +103,7 @@ function usage(message: string, json: boolean, io: CliIo): number {
 }
 
 /** A flag this command can check itself: the message says how to fix it, with no error code in front. */
-function badFlag(
+export function badFlag(
   message: string,
   details: Readonly<Record<string, unknown>>,
   json: boolean,

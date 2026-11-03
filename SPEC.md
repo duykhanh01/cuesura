@@ -520,7 +520,7 @@ Nhóm chỉ DONE khi kết quả tích hợp được merge vào branch đích c
 | `cusr inbox`, `cusr answer` | Liệt kê và trả lời câu hỏi |
 | `cusr group status` | Tiến độ nhóm |
 | `cusr repo yolo on/off`, `cusr task amend-policy` | Quản trị có xác nhận tin cậy và audit |
-| `cusr report`, `cusr admin verify-projections/backup/restore` | Báo cáo, đối chiếu và bảo trì trong chế độ thích hợp |
+| `cusr report`, `cusr admin verify-projections/backup/restore` | Báo cáo theo project từ một mốc thời gian (task đã kết thúc, việc chờ người, câu decider đã trả lời, usage), đối chiếu và bảo trì trong chế độ thích hợp |
 
 `--json` là tùy chọn chung; output có `schema_version`. Lệnh hữu hạn trả một JSON object vào stdout, kể cả lỗi có thể xử lý. Log/chẩn đoán đi stderr; không ANSI, spinner hoặc prompt trộn vào stdout. Lệnh streaming như `logs -f --json` dùng JSONL, mỗi record có version và cursor/sequence để nối lại.
 

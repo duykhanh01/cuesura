@@ -1112,6 +1112,8 @@ Triage do code xác định, không phải Primary AI. Sự kiện thô nằm tr
 
 Ngoài ra, mọi câu hỏi đều nằm trong `cusr inbox`. Khi bạn mở lại agent (ví dụ trong Paseo) và hỏi "có gì đang chờ tôi không?", agent chạy `cusr inbox --json` rồi giúp bạn trả lời bằng `cusr answer`.
 
+Muốn biết cả ngày đã làm được gì, chạy `cusr report` (mặc định 24 giờ qua, `--since 8h`, `--project <id>`): theo từng project, báo cáo liệt kê task đã kết thúc kèm PR, lý do và usage, task đang chờ bạn kèm câu hỏi còn mở, task đang chạy và các câu decider đã tự trả lời. Báo cáo dựng bằng code từ event log, không gọi model.
+
 **Chọn kênh mặc định:**
 
 | Kênh | Ưu | Nhược | Gợi ý |

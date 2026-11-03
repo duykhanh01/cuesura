@@ -1,6 +1,7 @@
 import { statusCommand } from './client.ts';
 import { logsCommand } from './logs.ts';
 import { projectListCommand } from './projects.ts';
+import { reportCommand } from './report.ts';
 import { requestShowCommand } from './requests.ts';
 import {
   addCommand,
@@ -50,6 +51,7 @@ export const CUSR_COMMANDS: readonly CliCommand[] = [
   requestShowCommand,
   projectListCommand,
   boardCommand,
+  reportCommand,
   contentCommand,
   progressCommand,
   optionsCommand,
