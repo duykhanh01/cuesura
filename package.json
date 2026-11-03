@@ -20,6 +20,7 @@
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
     "test": "vitest run --project default",
+    "test:changed": "vitest run --project default --changed origin/main",
     "test:performance": "vitest run --project performance",
     "test:reliability": "node scripts/test-reliability.ts",
     "test:smoke": "vitest run --project smoke --passWithNoTests",

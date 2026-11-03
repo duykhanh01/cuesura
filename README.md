@@ -76,6 +76,8 @@ pnpm test
 pnpm build
 ```
 
+Khi đang phát triển, `pnpm test:changed` chỉ chạy các test phụ thuộc vào file đã đổi so với `origin/main`; `pnpm test` đầy đủ do CI chạy cho mọi PR.
+
 Các phép đo thời gian thực chạy riêng để không kéo dài lượt test thường. Trước khi merge PR chạm TUI hoặc cấu hình, và trước mỗi release, chạy:
 
 ```bash

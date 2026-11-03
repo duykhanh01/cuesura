@@ -26,9 +26,13 @@ lo những việc đó. Không gọi `cusr`.
     và tính nhất quán; rà thủ công heading, bảng và code fence Markdown. `.prettierignore` bỏ qua
     Markdown nên `pnpm lint`/Prettier không phải bằng chứng định dạng tài liệu. Không chạy
     `pnpm typecheck`, `pnpm lint`, `pnpm test` hoặc `pnpm build` chỉ vì tài liệu thay đổi.
-  - Có sửa code, test hoặc cấu hình thực thi: `pnpm typecheck`, `pnpm lint`, `pnpm test` phải sạch;
-    chạy thêm các kiểm tra bắt buộc theo phạm vi thay đổi và hướng dẫn của repo. `pnpm lint` gồm ESLint
-    và `prettier --check`; sửa định dạng bằng `pnpm format`.
+  - Có sửa code, test hoặc cấu hình thực thi: `pnpm typecheck`, `pnpm lint` và `pnpm test:changed` phải
+    sạch; chạy thêm các kiểm tra bắt buộc theo phạm vi thay đổi và hướng dẫn của repo. `pnpm lint` gồm
+    ESLint và `prettier --check`; sửa định dạng bằng `pnpm format`.
+  - `pnpm test:changed` chỉ chạy các test phụ thuộc vào file đã đổi so với `origin/main` (gồm cả thay
+    đổi chưa commit); khi đang sửa, chạy trực tiếp file test liên quan bằng `pnpm vitest run <file>`.
+    Không chạy `pnpm test` đầy đủ trên máy: CI chạy nó cho mọi PR. Test đầy đủ của CI phải xanh trước
+    khi người dùng merge; CI đỏ thì sửa và push lại, test hỏng có sẵn trên `main` thì ghi vào PR.
 - PR sửa quy tắc kiểm tra vẫn áp dụng quy tắc đã có trên `main` cho đến khi merge, trừ chỉ dẫn trực
   tiếp của người dùng; không tự dùng quy tắc mới trong PR để miễn kiểm tra cho chính PR đó.
 - Làm xong: commit, push nhánh và tạo PR vào `main`. Agent không tự merge PR; người dùng merge.
