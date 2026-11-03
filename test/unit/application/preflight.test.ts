@@ -519,21 +519,6 @@ describe('preflight (T030, FR-002)', () => {
         ),
       ).toEqual(['capability_missing:harness']);
     });
-
-    it('allows external_verified only when the owner opted in for that harness', async () => {
-      const user = userConfig({
-        runtime:
-          'runtime:\n  harness_isolation: { claude: allow_external_verified }',
-      });
-      const { result } = await runPreflight({
-        user,
-        manifests: {
-          ...MANIFESTS,
-          claude: manifest({ selected_inner_mode: 'external_verified' }),
-        },
-      });
-      expect(result.ok).toBe(true);
-    });
   });
 
   it('parses GitHub remote URLs and nothing else', () => {

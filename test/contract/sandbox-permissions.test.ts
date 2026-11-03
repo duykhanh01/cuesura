@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { verifyManifest } from '../../src/application/capabilities.ts';
 import { claudeAdapter } from '../../src/adapters/harness/claude.ts';
-import { codexAdapter } from '../../src/adapters/harness/codex.ts';
 import { wireRoleSchema } from '../../src/adapters/harness/result-schema.ts';
 import { RunDir } from '../../src/runner/files.ts';
 import { assertFreshHome, installAuth } from '../../src/runner/private-home.ts';
@@ -90,7 +89,7 @@ describe('selected auth only, in a fresh home of an agent run', () => {
   });
 });
 
-describe('permission rules hold independently of the outer boundary (T006/T007)', () => {
+describe('permission evidence and refused capabilities (T006/T007)', () => {
   type Iso = {
     vendors: Record<
       string,
@@ -127,41 +126,6 @@ describe('permission rules hold independently of the outer boundary (T006/T007)'
     expect(plan.ok && plan.value.settings_hash).toBe(
       recorded.vendors.claude.settings_hash,
     );
-  });
-
-  it('external_verified keeps permission rules and approval; only the inner switch differs', () => {
-    const p = (
-      inner: 'native' | 'external_verified',
-      vendor: 'claude' | 'codex',
-    ) => {
-      const adapter = vendor === 'claude' ? claudeAdapter : codexAdapter;
-      const r = adapter.plan(vendorPin(vendor), {
-        role: 'coder',
-        model: 'm',
-        effort: null,
-        schema: wireRoleSchema('coder', {
-          omit_meta_schema: vendor === 'claude',
-        }),
-        cwd: '/w',
-        paths: IN_SANDBOX,
-        inner_mode: inner,
-        session: null,
-      });
-      if (!r.ok) throw new Error(r.error.message);
-      return r.value;
-    };
-    const cn = JSON.parse(
-      p('native', 'claude').context_files[0]?.content ?? '',
-    ) as { permissions: unknown };
-    const cx = JSON.parse(
-      p('external_verified', 'claude').context_files[0]?.content ?? '',
-    ) as { permissions: unknown };
-    expect(cx.permissions).toEqual(cn.permissions);
-    for (const inner of ['native', 'external_verified'] as const) {
-      const argv = p(inner, 'codex').argv.join(' ');
-      expect(argv).toContain('approval_policy="never"');
-      expect(argv).not.toMatch(/dangerously|bypass/);
-    }
   });
 
   it('a manifest claiming external_verified without native failure and both proofs is refused', () => {

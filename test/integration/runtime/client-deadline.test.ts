@@ -144,6 +144,12 @@ describe('daemon port on a real socket', () => {
   it.each([
     ['{"schema_version":1}'],
     ['{"schema_version":1,"ok":false,"error":null}'],
+    // These variants need the real parser/port, not a separate PTY and retry window each.
+    ['{"schema_version":1,"ok":true,"data":{"unchanged":false,"tasks_v9":[]}}'],
+    ['{"hello":"world"}'],
+    [
+      '{"schema_version":1,"ok":false,"error":{"code":"not_available","message":"no such query"}}',
+    ],
   ])('%s is incompatible and does not throw', async (reply) => {
     const d = await daemon((_p, _b, res) => res.end(reply));
     const port = createDaemonPort({ dataDir: d.dir, env: {} });

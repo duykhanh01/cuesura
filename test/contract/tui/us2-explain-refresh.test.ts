@@ -148,10 +148,9 @@ describe('T041: reading `task_explain` again while the version stands still', ()
     );
 
     const explainsBefore = count('task_explain');
-    await new Promise((r) => setTimeout(r, 11_000));
-    const explains = count('task_explain') - explainsBefore;
-    expect(explains).toBeGreaterThanOrEqual(2);
-    expect(explains).toBeLessThanOrEqual(3);
+    // One automatic refresh proves the PTY wiring. Exact intervals and repeated
+    // refreshes are covered by unit/tui/screen-reads.test.ts with a controlled clock.
+    await s.waitFor(() => count('task_explain') > explainsBefore, 5_500);
     expect(count('task_show')).toBe(1);
     expect(count('task_progress')).toBe(1);
 

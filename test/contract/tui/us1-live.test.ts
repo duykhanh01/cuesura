@@ -404,55 +404,35 @@ describe('EC-008 and EC-009: another token with nothing new in the daemon', () =
 });
 
 describe('US1 scenario 10 and EC-010: a daemon of another version', () => {
-  it.each([
-    [
-      'data in a shape this client does not know',
-      JSON.stringify({
-        schema_version: 1,
-        ok: true,
-        data: { unchanged: false, tasks_v9: [] },
-      }),
-    ],
-    ['a body that is no envelope', JSON.stringify({ hello: 'world' })],
-    ['a body that is not JSON', 'upgrade required'],
-    [
-      'a query it does not have',
-      JSON.stringify({
-        schema_version: 1,
-        ok: false,
-        error: { code: 'not_available', message: 'no such query' },
-      }),
-    ],
-  ])(
-    '%s: says it is incompatible, guesses nothing, and waits for the user',
-    async (_what, body) => {
-      const sd = tui.daemon();
-      seedReady(sd, 1);
-      await sd.start();
-      const { s, proxy } = await throughProxy(sd);
-      await s.waitForText('Tasks: READY 1');
+  // Shape/envelope/query variants use real sockets in integration/runtime/client-deadline.test.ts.
+  // Keep the real socket -> parser -> stopped UI -> manual retry path once.
+  it('an unreadable daemon response stops refresh until the user retries', async () => {
+    const sd = tui.daemon();
+    seedReady(sd, 1);
+    await sd.start();
+    const { s, proxy } = await throughProxy(sd);
+    await s.waitForText('Tasks: READY 1');
 
-      const other = await tui.answering(body);
-      proxy.retarget(other.socketPath);
-      await s.waitForText('Stopped:');
-      const screen = s.screenText();
-      expect(screen).toContain('Next: install the same version');
-      expect(screen).toContain('Data may be out of date');
-      expect(screen).not.toContain('Reconnecting');
-      expect(screen.split('\n')[0]).toContain('daemon: unknown');
-      await expectNoNewConnections(proxy, 2_000);
+    const other = await tui.answering('upgrade required');
+    proxy.retarget(other.socketPath);
+    await s.waitForText('Stopped:');
+    const screen = s.screenText();
+    expect(screen).toContain('Next: install the same version');
+    expect(screen).toContain('Data may be out of date');
+    expect(screen).not.toContain('Reconnecting');
+    expect(screen.split('\n')[0]).toContain('daemon: unknown');
+    await expectNoNewConnections(proxy, 2_000);
 
-      proxy.retarget(daemonSocket(sd));
-      await expectNoNewConnections(proxy, 1_500);
-      expect(s.screenText()).toContain('Stopped:');
-      s.send('R');
-      await s.waitFor(
-        () => !s.screenText().includes('Data may be out of date'),
-        10_000,
-      );
-      expect(s.screenText()).toContain('Tasks: READY 1');
-      s.send('q');
-      expect((await s.waitForExit()).status).toBe(0);
-    },
-  );
+    proxy.retarget(daemonSocket(sd));
+    await expectNoNewConnections(proxy, 1_500);
+    expect(s.screenText()).toContain('Stopped:');
+    s.send('R');
+    await s.waitFor(
+      () => !s.screenText().includes('Data may be out of date'),
+      10_000,
+    );
+    expect(s.screenText()).toContain('Tasks: READY 1');
+    s.send('q');
+    expect((await s.waitForExit()).status).toBe(0);
+  });
 });

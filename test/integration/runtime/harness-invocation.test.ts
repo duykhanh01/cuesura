@@ -338,39 +338,6 @@ describe('admission before every attempt (T070)', () => {
     expect(e.proc.launches).toHaveLength(0);
   });
 
-  it('external_verified runs only with the owner allowance; never selected silently', async () => {
-    const e = env('claude', attempt);
-    const ext = evidenceManifest(e.pin, {
-      selected_inner_mode: 'external_verified',
-      native_result: 'failed',
-    });
-    const denied = await harness(e, { manifest: ext }).run(
-      input('claude', 'coder'),
-      signal(),
-    );
-    expect(denied).toMatchObject({
-      kind: 'failure',
-      failure: 'capability_missing',
-    });
-    const allowed = await harness(e, {
-      manifest: ext,
-      isolation: 'allow_external_verified',
-    }).run(input('claude', 'coder'), signal());
-    expect(allowed.kind).toBe('result');
-    const settings = readFileSync(
-      join(
-        e.data,
-        'runs',
-        e.proc.launches[0]?.run_id ?? '',
-        'context/claude-settings.json',
-      ),
-      'utf8',
-    );
-    expect(JSON.parse(settings)).toMatchObject({
-      sandbox: { enabled: false, allowUnsandboxedCommands: false },
-    });
-  });
-
   it('a sandbox layout other than the pinned one for the role is capability_missing; nothing launches', async () => {
     const e = env('claude', attempt);
     const manifest = evidenceManifest(

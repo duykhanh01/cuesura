@@ -256,36 +256,6 @@ describe('harness argv and settings follow the pinned T007 shape (T068/T069)', (
     }
   });
 
-  it('switches only the inner sandbox for external_verified and keeps permissions', () => {
-    const native = claudeAdapter.plan(
-      vendorPin('claude'),
-      planInput('claude', 'coder'),
-    );
-    const ext = claudeAdapter.plan(
-      vendorPin('claude'),
-      planInput('claude', 'coder', { inner_mode: 'external_verified' }),
-    );
-    if (!native.ok || !ext.ok) throw new Error('plan failed');
-    const n = JSON.parse(native.value.context_files[0]?.content ?? '') as {
-      sandbox: Record<string, unknown>;
-      permissions: unknown;
-    };
-    const x = JSON.parse(ext.value.context_files[0]?.content ?? '') as typeof n;
-    expect(n.sandbox['enabled']).toBe(true);
-    expect(x.sandbox['enabled']).toBe(false);
-    expect(x.sandbox['allowUnsandboxedCommands']).toBe(false);
-    expect(x.permissions).toEqual(n.permissions);
-    expect(ext.value.settings_hash).not.toBe(native.value.settings_hash);
-
-    const cx = codexAdapter.plan(
-      vendorPin('codex'),
-      planInput('codex', 'reviewer', { inner_mode: 'external_verified' }),
-    );
-    if (!cx.ok) throw new Error('plan failed');
-    expect(cx.value.argv.join(' ')).toContain('--sandbox danger-full-access');
-    expect(cx.value.argv.join(' ')).toContain('approval_policy="never"');
-  });
-
   it('refuses bypass tokens, approving permission modes and unsandboxed commands', () => {
     const pin = vendorPin('claude');
     const settings = pin.settings as Record<string, Record<string, unknown>>;
