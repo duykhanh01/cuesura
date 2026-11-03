@@ -144,6 +144,9 @@ export function probeLayoutShapes(
 const GIT_METADATA = [
   'HEAD',
   'config',
+  'config.worktree',
+  'branches',
+  'remotes',
   'packed-refs',
   'refs',
   'hooks',
@@ -159,7 +162,15 @@ export type WriteZoneSnapshot = {
   readonly metadata: string;
 };
 
-function fingerprint(paths: readonly string[]): string {
+/**
+ * `state` entries count as absent while empty. Their parents' own size and time are left out too, since making one
+ * moves them; a parent's other entries are all recorded separately.
+ */
+function fingerprint(
+  paths: readonly string[],
+  state: ReadonlySet<string> = new Set(),
+  parents: ReadonlySet<string> = new Set(),
+): string {
   const entries: [string, number, number, string][] = [];
   const walk = (p: string, depth: number): void => {
     let st;
@@ -174,7 +185,16 @@ function fingerprint(paths: readonly string[]): string {
       : st.isDirectory()
         ? 'dir'
         : 'file';
-    entries.push([p, st.size, st.mtimeMs, type]);
+    if (
+      state.has(p) &&
+      ((type === 'dir' && readdirSync(p).length === 0) ||
+        (type === 'file' && st.size === 0))
+    ) {
+      if (depth === 0) entries.push([p, -1, 0, 'missing']);
+      return;
+    }
+    if (!(type === 'dir' && parents.has(p)))
+      entries.push([p, st.size, st.mtimeMs, type]);
     if (type === 'dir' && depth < 8)
       for (const n of readdirSync(p).sort()) walk(join(p, n), depth + 1);
   };
@@ -187,17 +207,27 @@ export function snapshotWriteZone(
   layout: Pick<SandboxLayout, 'role' | 'worktree' | 'git_dirs'>,
   /** The adapter's `worktree_state`. */
   harnessState: readonly string[] = [],
+  /** The adapter's `git_dir_state`. */
+  gitDirState: readonly string[] = [],
 ): WriteZoneSnapshot {
   const meta = [
     join(layout.worktree, '.git'),
     ...layout.git_dirs.flatMap((g) => GIT_METADATA.map((n) => join(g, n))),
   ];
+  const state = new Set<string>();
+  const parents = new Set<string>();
+  for (const g of layout.git_dirs)
+    for (const rel of gitDirState) {
+      const p = join(g, rel);
+      state.add(p);
+      for (let up = dirname(p); up !== g; up = dirname(up)) parents.add(up);
+    }
   return {
     role: layout.role,
     worktree: READ_ONLY_REPO_ROLES.has(layout.role)
       ? fingerprintTree(layout.worktree, harnessState)
       : null,
-    metadata: fingerprint(meta),
+    metadata: fingerprint(meta, state, parents),
   };
 }
 

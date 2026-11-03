@@ -296,6 +296,7 @@ export const codexAdapter: VendorAdapter = {
   resume_supported: false,
   needs_short_tmpdir: false,
   worktree_state: [],
+  git_dir_state: [],
   nativeWriteDenied,
   plan,
   read,

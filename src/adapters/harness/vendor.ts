@@ -210,6 +210,11 @@ export interface VendorAdapter {
    * write by the agent; a file inside one still is.
    */
   readonly worktree_state: readonly string[];
+  /**
+   * Paths, relative to each git dir, that the binary's native sandbox creates empty as mount points for what it
+   * protects, and leaves behind. They are not a change to git metadata; any content in one still is.
+   */
+  readonly git_dir_state: readonly string[];
   plan(pin: VendorPin, input: VendorPlanInput): PlanResult;
   read(input: VendorRead): VendorFacts;
   /** What this binary shows when its native sandbox refused the probe; never the model's own words. */

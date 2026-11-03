@@ -177,3 +177,83 @@ describe('the read-only worktree of a reviewer', () => {
     ).toHaveLength(1);
   });
 });
+
+describe('the git metadata of a run', () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+  /** A main git dir and the admin dir of one linked worktree, as a proof or task lays them out. */
+  const layout = () => {
+    const root = mkdtempSync(join(tmpdir(), 'cusr-meta-'));
+    dirs.push(root);
+    const common = join(root, 'repo', '.git');
+    const admin = join(common, 'worktrees', 'worktree');
+    for (const d of [join(common, 'info'), join(common, 'refs'), admin])
+      mkdirSync(d, { recursive: true });
+    writeFileSync(join(common, 'HEAD'), 'ref: refs/heads/main\n');
+    writeFileSync(join(common, 'config'), '[core]\n');
+    writeFileSync(join(common, 'info', 'exclude'), '');
+    writeFileSync(join(admin, 'HEAD'), 'ref: refs/heads/worktree\n');
+    const worktree = join(root, 'worktree');
+    mkdirSync(worktree);
+    writeFileSync(join(worktree, '.git'), `gitdir: ${admin}\n`);
+    return {
+      common,
+      admin,
+      zone: {
+        role: 'reviewer' as const,
+        worktree,
+        git_dirs: [common, admin],
+      },
+    };
+  };
+  const changes = (
+    zone: ReturnType<typeof layout>['zone'],
+    adapter: typeof claudeAdapter,
+    act: () => void,
+  ): string[] => {
+    const snap = () =>
+      snapshotWriteZone(zone, adapter.worktree_state, adapter.git_dir_state);
+    const before = snap();
+    act();
+    return writeZoneViolations(before, snap());
+  };
+  const mountPoints = (common: string, admin: string) => () => {
+    mkdirSync(join(common, 'branches'));
+    mkdirSync(join(common, 'remotes'));
+    writeFileSync(join(common, 'config.worktree'), '');
+    mkdirSync(join(common, 'info', '.claude-sandbox-noreplace'));
+    writeFileSync(join(admin, 'config.worktree'), '');
+  };
+
+  it('ignores the empty mount points the Claude sandbox leaves in each git dir', () => {
+    const { common, admin, zone } = layout();
+    expect(changes(zone, claudeAdapter, mountPoints(common, admin))).toEqual(
+      [],
+    );
+  });
+
+  it.each([
+    ['a file inside an ignored directory', 'info/.claude-sandbox-noreplace/x'],
+    ['content in an ignored file', 'config.worktree'],
+    ['another file under info', 'info/attributes'],
+    ['a changed exclude file', 'info/exclude'],
+    ['a new remote', 'remotes/origin'],
+  ])('reports %s', (_name, file) => {
+    const { common, zone } = layout();
+    expect(
+      changes(zone, claudeAdapter, () => {
+        mkdirSync(dirname(join(common, file)), { recursive: true });
+        writeFileSync(join(common, file), 'x');
+      }),
+    ).toEqual(['reviewer run changed git metadata']);
+  });
+
+  it('reports the mount points for a binary that does not declare them', () => {
+    const { common, admin, zone } = layout();
+    expect(changes(zone, codexAdapter, mountPoints(common, admin))).toEqual([
+      'reviewer run changed git metadata',
+    ]);
+  });
+});

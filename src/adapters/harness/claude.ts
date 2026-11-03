@@ -453,6 +453,12 @@ export const claudeAdapter: VendorAdapter = {
   // The sandbox makes its bridge sockets directly under os.tmpdir(), and a socket path holds 108 bytes.
   needs_short_tmpdir: true,
   worktree_state: ['.claude/.cc-writes'],
+  git_dir_state: [
+    'branches',
+    'remotes',
+    'config.worktree',
+    'info/.claude-sandbox-noreplace',
+  ],
   nativeWriteDenied,
   plan,
   read,

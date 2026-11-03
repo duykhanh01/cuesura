@@ -453,7 +453,11 @@ export class RunnerHarness implements HarnessPort {
           .filter((c) => present(c.scratch_name))
           .map((c) => c.scratch_name),
       );
-      const before = snapshotWriteZone(layout.layout, o.adapter.worktree_state);
+      const before = snapshotWriteZone(
+        layout.layout,
+        o.adapter.worktree_state,
+        o.adapter.git_dir_state,
+      );
 
       const sandboxed = o.sandbox.plan(layout.layout, plan.argv);
       // No unsandboxed or weaker fallback: a boundary that cannot be planned blocks the attempt.
@@ -743,7 +747,11 @@ export class RunnerHarness implements HarnessPort {
     });
     const violations = writeZoneViolations(
       st.before,
-      snapshotWriteZone(st.zone, this.#o.adapter.worktree_state),
+      snapshotWriteZone(
+        st.zone,
+        this.#o.adapter.worktree_state,
+        this.#o.adapter.git_dir_state,
+      ),
     );
     if (violations.length > 0 && recovering)
       throw new InvocationUnknown(
