@@ -12,6 +12,8 @@ import {
 } from '../../src/policy/finalize.ts';
 import type { ConfigSource } from '../../src/config/yaml-loader.ts';
 import type { CanonicalTask } from '../../src/domain/task.ts';
+import { SOFTWARE_DEV } from '../../src/engine/workflows/software-dev.ts';
+import { structureHash } from '../../src/policy/structure-hash.ts';
 import { authz, buildTask } from '../support/builders.ts';
 import {
   docsFor,
@@ -67,15 +69,15 @@ function freezeTask(
 }
 
 describe('US1 - Validate configuration and freeze policy', () => {
-  it('Scenario 1: unknown transition targets report the source file, line, column, and step', () => {
+  it('Scenario 1: a graph key in user config names the key to remove, with its position', () => {
     const workflows =
       'workflows:\n  impl:\n    base: software_dev@1\n    steps:\n      gates:\n        next: { pass: review, fail: fixx }\n';
     expect(errorsOf(minUser({ workflows }))).toEqual([
-      "config.yaml:15:31 unknown_step: Transition 'fail' of step 'gates' targets unknown step 'fixx'",
+      "config.yaml:15:9 workflow_key_removed: 'next' can no longer be set: the software_dev@1 graph is fixed in code; remove workflows.impl.steps.gates.next (docs/config-upgrade.md)",
     ]);
   });
 
-  it('Scenario 2: an unbounded review/fix cycle is rejected with its path', () => {
+  it('Scenario 2: a workflow declaring its own graph is rejected key by key', () => {
     const workflows = `workflows:
   impl: { base: software_dev@1 }
   loop:
@@ -86,22 +88,27 @@ describe('US1 - Validate configuration and freeze policy', () => {
         role: coder
         max_visits: 5
         on_exhausted: escalate
-        next: { done: review, needs_input: ask, needs_context: retry, blocked: escalate }
-      review:
-        kind: review
-        role: reviewer
-        next: { approve: finish, request_changes: fix }
-      fix:
-        kind: agent
-        role: fixer
-        next: { done: review, needs_input: ask, needs_context: review, blocked: escalate }
+        next: { done: finish, needs_input: ask, needs_context: retry, blocked: escalate }
       finish: { kind: complete }
 `;
     const errs = errorsOf(minUser({ workflows }));
-    expect(errs).toHaveLength(1);
-    expect(errs[0]).toMatch(
-      /^config\.yaml:\d+:\d+ unbounded_cycle: Cycle has no visit limit: fix → review → fix$/,
+    expect(errs.map((e) => e.replace(/^config\.yaml:\d+:\d+ /, ''))).toEqual([
+      'schema_invalid: base is required and must be software_dev@1',
+    ]);
+    const based = workflows.replace(
+      '  loop:\n',
+      '  loop:\n    base: software_dev@1\n',
     );
+    expect(
+      errorsOf(minUser({ workflows: based })).map((e) => e.split(' ')[1]),
+    ).toEqual([
+      'workflow_key_removed:',
+      'workflow_key_removed:',
+      'workflow_key_removed:',
+      'workflow_key_removed:',
+      'workflow_key_removed:',
+      'unknown_step:',
+    ]);
   });
 
   it('Scenario 3: key order and formatting do not change the policy hash', () => {
@@ -277,31 +284,34 @@ describe('US1 - Validate configuration and freeze policy', () => {
     );
   });
 
-  it('Scenario 10: valid custom workflows validate but cannot be frozen', () => {
+  it('Scenario 10: tunables reach the frozen graph; the graph stays software_dev@1', () => {
     const r = validateConfig({
       user: source('configs/valid/user-workflows.yaml'),
       project: source('configs/valid/cusr-minimal.yaml', 'cusr.yaml'),
       packs: {},
     });
-    if (!r.ok) throw new Error('validate');
-    expect(r.value.unsupported.find((u) => u.workflow === 'wf_c')?.code).toBe(
-      'unsupported_workflow',
-    );
-    const f = freezeTask(r.value.config, buildTask({ profile: 'prof_c' }));
-    expect(!f.ok && f.error.code).toBe('unsupported_workflow');
-    expect('value' in f).toBe(false);
+    if (!r.ok) throw new Error(r.error.map(formatDiagnostic).join('\n'));
+    const f = freezeTask(r.value.config, buildTask({ profile: 'prof_t' }));
+    if (!f.ok) throw new Error(JSON.stringify(f.error));
+    const w = f.value.policy.workflow;
+    expect(w.steps['code']?.max_visits).toBe(3);
+    expect(w.steps['gates']).toMatchObject({
+      run: ['build', 'unit'],
+      required: ['unit'],
+      max_visits: 4,
+    });
+    expect(w.steps['ci']).toMatchObject({ poll: 120_000, timeout: 5_400_000 });
+    expect(f.value.policy.structure_hash).toBe(structureHash(SOFTWARE_DEV));
   });
 
-  it('Scenario 11: workflow A freezes; the custom workflow is rejected with a reason', () => {
+  it('Scenario 11: a workflow with only a base freezes the built-in graph unchanged', () => {
     const r = validateConfig({
       user: source('configs/valid/user-workflows.yaml'),
       project: source('configs/valid/cusr-minimal.yaml', 'cusr.yaml'),
       packs: {},
     });
     if (!r.ok) throw new Error('validate');
-    expect(r.value.unsupported.map((u) => [u.code, u.workflow])).toEqual([
-      ['unsupported_workflow', 'wf_c'],
-    ]);
+    expect(r.value.config.user.workflows['wf_a']).toEqual(SOFTWARE_DEV);
     expect(
       freezeTask(r.value.config, buildTask({ profile: 'prof_a' })).ok,
     ).toBe(true);

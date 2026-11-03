@@ -1,4 +1,4 @@
-# A extends software_dev@1; C is valid but differs from it (US1 scenario 10, 11).
+# US1 scenario 10, 11.
 version: 1
 harnesses:
   claude: { cmd: claude, auth: subscription, pool: claude }
@@ -13,23 +13,12 @@ roles:
 workflows:
   wf_a:
     base: software_dev@1
-  wf_c:
-    start: code
+  wf_t:
+    base: software_dev@1
     steps:
-      code:
-        kind: agent
-        role: coder
-        max_visits: 3
-        on_exhausted: escalate
-        next: { done: gates, needs_input: ask, needs_context: retry, blocked: escalate }
-      gates:
-        kind: gate
-        run: [unit]
-        required: [unit]
-        max_visits: 3
-        on_exhausted: escalate
-        next: { pass: done, fail: code }
-      done: { kind: complete }
+      code: { max_visits: 3, max_rung: 0 }
+      gates: { run: [build, unit], required: [unit], max_visits: 4 }
+      ci: { poll: 2m, timeout: 90m }
 profiles:
   prof_a: { workflow: wf_a }
-  prof_c: { workflow: wf_c }
+  prof_t: { workflow: wf_t }

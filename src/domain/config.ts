@@ -107,11 +107,7 @@ export const DIAGNOSTIC_CODES = [
   'unknown_gate',
   'unknown_step',
   'unknown_profile',
-  // Outcome (2)
-  'outcome_without_target',
-  'outcome_not_in_kind',
-
-  'unbounded_cycle',
+  'workflow_key_removed',
   // Thang (4)
   'unreachable_rung',
   'rung_beyond_role',

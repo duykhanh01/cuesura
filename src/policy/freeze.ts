@@ -1,4 +1,3 @@
-import type { Hash } from '../shared/brand.ts';
 import { hashCanonical } from '../shared/hash.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import type {
@@ -43,11 +42,9 @@ import {
   type EscalationPolicy,
 } from './ladder.ts';
 import { structureHash } from './structure-hash.ts';
-import { isSupportedStructure } from './support.ts';
 
 export type FreezeError =
   | { code: 'config_invalid'; diagnostics: Diagnostic[] }
-  | { code: 'unsupported_workflow'; workflow: string; structure_hash: Hash }
   | { code: 'no_valid_binding'; step: string; role: string }
   | { code: 'override_exceeds_caller'; keys: string[] };
 
@@ -285,13 +282,6 @@ export function freezePolicy(
       `Workflow '${workflowName}' does not exist`,
     );
 
-  if (!isSupportedStructure(configured)) {
-    return err({
-      code: 'unsupported_workflow',
-      workflow: workflowName,
-      structure_hash: structureHash(configured),
-    });
-  }
   const workflow =
     input.mode === undefined ? configured : modeGraph(configured, input.mode);
 

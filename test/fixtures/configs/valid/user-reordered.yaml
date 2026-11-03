@@ -17,9 +17,6 @@ profiles:
 projects: {acme: {base_branch: main}}
 workflows:
   impl:
-    steps:
-      gates: {uses: [build]}
-      code: {uses: [claude]}
     base: "software_dev@1"
 roles:
   scout: {binding: [{model: sol}], permissions: read_only, prompt: prompts/scout.md}

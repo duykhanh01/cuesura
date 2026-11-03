@@ -623,10 +623,10 @@ describe('historical hashes', () => {
     };
   }
 
-  // Recaptured when decision modes left the workflow; must never move otherwise.
+  // Recaptured when decision modes left the workflow and when user.yaml dropped `uses`; must never move otherwise.
   const GOLDEN = {
     config: {
-      user: 'sha256:e2fce7508c083d03b1992f8f4a1774c97a0e39f3355918d65c43d27cbad9d1ad',
+      user: 'sha256:ad2bd8f7dfebc4e4670a600f8ee72eee13d348baf032d9ca955796122eaa7da4',
       project:
         'sha256:20aed651e16b81216ae85b13a4b78eae960183761c88f2fbb1dffd6059f2949f',
       packs: {
@@ -634,7 +634,7 @@ describe('historical hashes', () => {
       },
     },
     policy:
-      'sha256:02a0d08261a893ce02421c457269746a77f34a8b47dfc71ae829dcaeef3a157a',
+      'sha256:bffd04158f0a9056bb674ea4655644a33f98ae26044aaa9aeba330031116383b',
     context:
       'sha256:452fab522cb5cdb63dbf6ddf2887ca014076ed9b97c7aad73b4eea7eebeb3731',
   };

@@ -1,4 +1,4 @@
-# expect: unknown_role 15 15
+# expect: unknown_role 16 26
 version: 1
 harnesses: { claude: { cmd: claude, auth: subscription, pool: claude } }
 pools: { claude: 1 }
@@ -9,9 +9,8 @@ roles:
   reviewer: { permissions: read_only, binding: [{ model: sonnet }] }
   scout: { permissions: read_only, binding: [{ model: sonnet }] }
 workflows:
-  impl:
-    base: software_dev@1
-    steps:
-      code: { role: builder }
+  impl: { base: software_dev@1 }
 profiles:
-  standard: { workflow: impl }
+  standard:
+    workflow: impl
+    allow_roles: [scout, builder]

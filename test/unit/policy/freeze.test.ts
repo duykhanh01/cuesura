@@ -421,27 +421,6 @@ describe('freeze (FR-004, FR-037)', () => {
     });
   });
 
-  it('a different structure_hash returns unsupported_workflow (FR-041)', () => {
-    const c = config(
-      source('configs/valid/user-workflows.yaml'),
-      source('configs/valid/cusr-minimal.yaml', 'cusr.yaml'),
-    );
-    const r = run(
-      {
-        ...c,
-        profiles: {
-          ...c.profiles,
-          prof_c: { ...c.profiles.prof_c!, allow_no_gates: true },
-        },
-      },
-      buildTask({ profile: 'prof_c' }),
-    );
-    expect(!r.ok && r.error.code).toBe('unsupported_workflow');
-    expect(
-      !r.ok && r.error.code === 'unsupported_workflow' && r.error.workflow,
-    ).toBe('wf_c');
-  });
-
   it('rejects tasks outside the project allowlist', () => {
     const r = run(USER, buildTask({ project: 'other' }));
     expect(!r.ok && r.error.code).toBe('config_invalid');

@@ -9,7 +9,6 @@ export {
 } from './config/validate.ts';
 export { freeze, type FreezeInput } from './config/freeze.ts';
 export type { ConfigSource, LoaderLimits } from './config/yaml-loader.ts';
-export type { UnsupportedFeature } from './config/capabilities.ts';
 export type { TaskOverrides } from './config/merge.ts';
 export { formatDiagnostic } from './config/positions.ts';
 export type {

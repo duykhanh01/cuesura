@@ -21,7 +21,7 @@
 
 Kiến trúc tóm gọn trong một câu:
 
-> *Một state machine thuần (workflow là dữ liệu YAML có vòng lặp giới hạn, kiểm tra tĩnh) quyết định mọi bước. Agent là các lần gọi **headless CLI một lần** (`claude -p`, `codex exec`, `pi --mode rpc/json`), trả kết quả qua **JSON có schema**. Mọi side effect (push, PR, comment, merge) đi qua **outbox có idempotency key và bước "probe" trước khi làm lại**. Trạng thái nằm trong SQLite với event log append-only.*
+> *Một state machine thuần (graph workflow dựng sẵn có vòng lặp giới hạn, kiểm tra tĩnh bằng test; YAML chỉ chỉnh tham số) quyết định mọi bước. Agent là các lần gọi **headless CLI một lần** (`claude -p`, `codex exec`, `pi --mode rpc/json`), trả kết quả qua **JSON có schema**. Mọi side effect (push, PR, comment, merge) đi qua **outbox có idempotency key và bước "probe" trước khi làm lại**. Trạng thái nằm trong SQLite với event log append-only.*
 
 **Lý do (dựa trên mã nguồn, mục 2):**
 1. **Không ứng viên nào có đủ ba thứ làm nên khác biệt của bạn:**
@@ -526,31 +526,12 @@ gates:               # thuộc cusr.yaml của project (mục 5.2b); ví dụ ch
 
 workflows:
   impl:
-    start: scout
+    base: software_dev@1
     steps:
-      scout:      { kind: agent, role: scout, when: { flag: needs_scout }, max_visits: 1, next: { ok: code } }
-      code:       { kind: agent, role: coder, uses: [claude],
-                    next: { done: gates, needs_input: ask, needs_context: scout, failed: retry } }
-      gates:      { kind: gate, run: [build, unit, lint], uses: [build],
-                    next: { pass: review, fail: fix_gates } }
-      fix_gates:  { kind: agent, role: fixer, max_visits: 3, on_exhausted: escalate, next: { done: gates } }
-      review:     { kind: agent, role: reviewer, skip_when: { size: [XS] },
-                    next: { approve: push, request_changes: fix_review } }
-      fix_review: { kind: agent, role: fixer, max_visits: 2, on_exhausted: escalate, next: { done: gates } }
-      push:       { kind: action, action: git.push, next: { ok: pr } }
-      pr:         { kind: action, action: github.create_pr, next: { ok: ci } }
-      ci:         { kind: wait, for: github.checks, poll: 60s, timeout: 60m,
-                    next: { pass: merge_gate, fail: ci_triage, timeout: escalate } }
-      rerun_ci:   { kind: action, action: github.rerun_failed, max_visits: 2, next: { ok: ci } }
-      ci_triage:  { kind: classify, rules: ci_rules,           # code: phân loại lỗi CI trước khi gọi agent
-                    next: { flaky_or_infra: rerun_ci, autofix: ci_autofix, code: ci_fix } }
-      ci_autofix: { kind: gate, run: [format_fix], next: { pass: push, fail: ci_fix } }   # formatter của project
-      ci_fix:     { kind: agent, role: coder, session: resume_coder_if_same_harness,      # chính agent code tự sửa
-                    context: [ci_failure_excerpt, diff_stat], max_visits: 3, on_exhausted: escalate,
-                    next: { done: gates } }                    # sửa xong chạy lại gate local rồi mới push
-      merge_gate: { kind: approval, auto_when: { target_branch: "feature/*" },   # merge vào feature branch: tự động
-                    next: { approved: merge, rejected: cancel } }
-      merge:      { kind: action, action: github.merge, next: { ok: done } }
+      code:      { max_visits: 12, max_rung: 2 }
+      fix_gates: { max_visits: 7 }
+      gates:     { run: [build, unit, lint], required: [build, unit] }
+      ci:        { poll: 60s, timeout: 60m }
 
 profiles:
   standard:
@@ -565,7 +546,8 @@ profiles:
 
 Ghi chú thiết kế:
 - **Ngôn ngữ điều kiện có chủ đích rất hạn chế.** Chỉ có các predicate cố định (`flag`, `size`, `label`, `task_type`, `attempt_gte`, `target_branch`), không có `eval`. Ngôn ngữ biểu thức tổng quát là con đường dẫn đến workflow không kiểm chứng được.
-- **Outcome là enum đóng** theo từng `kind`. Engine kiểm tra lúc load rằng mọi outcome đều có transition và mọi vòng lặp đều có `max_visits`. Workflow có chu trình mà không có giới hạn sẽ bị từ chối lúc load. Đây là cách chặn vòng lặp vô hạn *một cách tĩnh*.
+- **Graph nằm trong code, không trong config.** Bản thiết kế đầu cho người dùng khai cả graph (bước, `kind`, `next`, `on_exhausted`) trong YAML. Daemon chỉ chạy được đúng một graph (mọi graph khác bị từ chối qua `structure_hash`), nên user config chỉ còn chọn `base: software_dev@1` và chỉnh tham số daemon có đọc: `max_visits`, `max_rung`, `run`/`required` của gate, `poll`/`timeout` của CI. Khóa graph cũ bị từ chối với `workflow_key_removed`; xem [hướng dẫn nâng cấp](config-upgrade.md).
+- **Outcome là enum đóng** theo từng `kind`. Test của code kiểm graph dựng sẵn và từng graph theo chế độ: mọi outcome đều có transition và mọi vòng lặp đều đi qua bước có `max_visits`; property test kiểm mọi bộ tham số hợp lệ giữ nguyên `structure_hash`. Đây là cách chặn vòng lặp vô hạn *một cách tĩnh*. Workflow mới là preset mới trong code, kèm test đó.
 - `escalate` = `WAITING(human_input)` kèm bản tóm tắt tự động. `retry` = attempt mới cùng bước, có backoff, tính vào `max_agent_runs`.
 
 **Kiểm tra binding ngay lúc tạo task, không đợi tới giữa workflow.** Khi resolve FrozenPolicy, mọi binding của mọi bước được đối chiếu với `allow_models`:

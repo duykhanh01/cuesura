@@ -304,6 +304,32 @@ minh giờ tốn 4 lượt thay vì 3). Manifest cũ vẫn chạy được coder
 - **Lật lại:** decider không hoàn tác được gì. Xem `decisions.md` rồi revert hoặc tạo task mới. Run directory
   của decider không gắn với operation nào trong store nên retention không dọn.
 
+## Workflow trong user config
+
+Graph workflow cố định trong code (`software_dev@1`). User config chỉ chọn graph đó (`base`, bắt buộc)
+và chỉnh tham số của từng bước (`steps`, tùy chọn):
+
+```yaml
+workflows:
+  impl:
+    base: software_dev@1
+    steps:
+      code: { max_visits: 12, max_rung: 2 }
+      gates: { run: [build, unit, lint], required: [build, unit] }
+      ci: { poll: 1m, timeout: 1h }
+```
+
+Khai bước, `start`, `kind`, `role`, `next`, `on_exhausted`, `uses`, `when`/`skip_when`/`auto_when` hay
+`decisions` thì daemon từ chối nạp config với `workflow_key_removed` và đường dẫn khóa cần bỏ. Config chỉ
+có `base: software_dev@1` (như config dogfood) không cần sửa. Cách nâng cấp config cũ và danh sách tham
+số theo bước: [docs/config-upgrade.md](../docs/config-upgrade.md).
+
+Task cũ giữ graph đã đóng băng trong policy snapshot: chúng vẫn chạy, replay và verify hash như trước,
+các kiểm tra store của `cusr doctor` (schema, integrity, replay) vẫn sạch trên DB cũ. Không cần migration.
+User config còn khóa cũ thì `cusrd` không khởi động, in từng lỗi dạng
+`config.yaml:<dòng>:<cột> workflow_key_removed: ...`, còn `cusr doctor` báo check `config` thất bại;
+sửa config theo hướng dẫn rồi khởi động lại daemon.
+
 ## Yolo
 
 `yolo: true` trong user config cho daemon tự merge PR của task đang chờ merge. Không bật được qua

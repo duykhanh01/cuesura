@@ -18,7 +18,7 @@ Cuesura là workflow engine tất định, hướng sự kiện, điều phối 
 
 Tên **Cuesura** kết hợp **Cue** (tín hiệu bắt đầu) và **Caesura** (khoảng ngắt có chủ đích trong âm nhạc hoặc thơ). Khoảng chờ là một phần có trạng thái và lý do của workflow: hệ thống tiếp tục theo dõi điều kiện cần thiết mà không giữ agent chạy chỉ để chờ. CLI dùng tên ngắn **`cusr`**.
 
-Use case đầu tiên là phát triển phần mềm: nhận task → code → gate → review → PR → CI → merge. Lõi engine không chứa kiến thức về ngôn ngữ lập trình, build tool, nhà cung cấp model hay kênh nhận task. Mục tiêu dài hạn là hỗ trợ các workflow khác bằng cấu hình và adapter có hợp đồng rõ ràng.
+Use case đầu tiên là phát triển phần mềm: nhận task → code → gate → review → PR → CI → merge. Lõi engine không chứa kiến thức về ngôn ngữ lập trình, build tool, nhà cung cấp model hay kênh nhận task. Mục tiêu dài hạn là hỗ trợ các workflow khác qua adapter có hợp đồng rõ ràng; mỗi workflow mới là một preset trong code, có test cho graph của nó, không phải graph do người dùng tự khai.
 
 Giá trị cần đạt:
 
@@ -39,7 +39,7 @@ V1 phục vụ một người dùng trên một máy Linux/Ubuntu hoặc WSL2, c
 | Nhóm | Phạm vi v1 |
 |---|---|
 | Nguồn task | CLI, assistant qua CLI, GitHub issue/comment bằng polling; chuẩn hóa và dedup về một format |
-| Workflow | Graph khai báo, điều kiện hữu hạn, vòng lặp có giới hạn; preset phát triển phần mềm |
+| Workflow | Graph `software_dev@1` cố định trong code, điều kiện hữu hạn, vòng lặp có giới hạn; user config chỉ chỉnh tham số (§8) |
 | Agent | Claude Code và Codex CLI chạy headless; fake harness cho kiểm thử |
 | Policy | Role/model/profile, snapshot, ngân sách, thang nâng effort/model/vendor có giới hạn |
 | Thực thi | Runner độc lập, worktree riêng, setup, gate, context theo role, log và artifact |
@@ -194,7 +194,7 @@ Setup, formatter và gate là lệnh từ cấu hình project đáng tin cậy, 
 
 ## 8. Cấu hình và loader
 
-- `~/.cusr/config.yaml`: harness, model alias, role, workflow, profile, pool chung và cấu hình quản trị repo.
+- `~/.cusr/config.yaml`: harness, model alias, role, workflow, profile, pool chung và cấu hình quản trị repo. Workflow chỉ chọn graph dựng sẵn (`base: software_dev@1`, bắt buộc) và chỉnh tham số của bước: `max_visits` (bước đã có giới hạn lượt), `max_rung` (bước agent/review), `run`/`required` (bước gate), `poll`/`timeout` (bước CI). Không khai được bước, `start`, `kind`, role, action, predicate, cạnh hay outcome; config cũ còn các khóa này bị từ chối với `workflow_key_removed` kèm đường dẫn khóa cần bỏ ([hướng dẫn nâng cấp](docs/config-upgrade.md)).
 - `cusr.yaml` trong repo: setup, gates, autofix, log digest, failure signature, CI rules, pool riêng, hotspots và conventions.
 - Toolchain pack là dữ liệu preset. Thứ tự áp dụng: pack → cấu hình project; profile → override được cho phép khi tạo task. Override không được nới quyền vượt quyền của người gọi.
 - Cấu hình project được đọc từ revision đã chọn. Agent sửa `cusr.yaml` trong task không làm đổi gate của chính task đó.
@@ -204,10 +204,10 @@ Loader dùng package `yaml` của eemeli, core schema, không custom tag; giữ 
 
 Kiểm tra trước thực thi:
 
-1. Role, model, pool, gate, bước bắt đầu và đích transition đều tồn tại hoặc có quy tắc bỏ qua rõ ràng.
-2. Outcome theo step kind là tập hữu hạn; mỗi outcome và trường hợp skip/exhausted có đích xác định.
-3. Mọi chu trình đều đi qua giới hạn có bộ đếm không reset khi quay vòng. Tổng lượt agent và thời gian task là trần tùy chọn, không bắt buộc để cấu hình hợp lệ.
-4. Thang escalation tới được trong giới hạn lượt của workflow; cấu hình nấc không thể đạt phải bị báo lỗi.
+1. Role, model, pool và gate được tham chiếu đều tồn tại; bước được chỉnh có trong `software_dev@1` và nhận tham số đó; gate `required` nằm trong `run` của bước.
+2. Graph trong code: bước bắt đầu và đích transition tồn tại, outcome theo step kind là tập hữu hạn, mỗi outcome và trường hợp skip/exhausted có đích xác định. Graph cố định nên điều này được kiểm bằng test của code cho `software_dev@1` và từng graph theo chế độ, cùng property test rằng mọi bộ tham số hợp lệ không đổi `structure_hash`.
+3. Mọi chu trình của graph đều đi qua giới hạn có bộ đếm không reset khi quay vòng; kiểm như mục 2. Tổng lượt agent và thời gian task là trần tùy chọn, không bắt buộc để cấu hình hợp lệ.
+4. Thang escalation tới được trong giới hạn lượt của bước đã chỉnh; cấu hình nấc không thể đạt phải bị báo lỗi.
 5. Mỗi bước có binding khởi đầu hợp lệ. Rule bị loại bởi allowlist được bỏ qua để thử rule kế tiếp; không còn rule thì task không được READY.
 6. Predicate chỉ lấy từ tập định nghĩa trước như flag/size/label/type/attempt/branch; không `eval` hoặc diễn giải điều kiện tự do bằng LLM.
 

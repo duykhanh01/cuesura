@@ -1,11 +1,13 @@
 import {
   isAgentStep,
-  isSpecialTarget,
-  OUTCOMES_BY_KIND,
   PREDICATE_KEYS,
   PredicateSchema,
   type Workflow,
 } from '../domain/workflow.ts';
+import {
+  SOFTWARE_DEV,
+  SOFTWARE_DEV_NAME,
+} from '../engine/workflows/software-dev.ts';
 import {
   diag,
   type Diagnostic,
@@ -20,11 +22,14 @@ import type {
 import { runtimeLimitIssues } from '../domain/runtime.ts';
 import { mergeRuntimeLimits } from './normalize.ts';
 import { dispatchMode } from './normalize.ts';
-import type {
-  RawDispatch,
-  RawDispatchAgent,
-  RawDispatchChoice,
-  RawUserConfig,
+import {
+  REMOVED_STEP_KEYS,
+  REMOVED_WORKFLOW_KEYS,
+  tunablesOf,
+  type RawDispatch,
+  type RawDispatchAgent,
+  type RawDispatchChoice,
+  type RawUserConfig,
 } from './schema-user.ts';
 
 export type Locator = (path: KeyPath) => Position;
@@ -229,10 +234,56 @@ export function checkPredicates(u: RawUserConfig, at: Locator): Diagnostic[] {
       check(b.when, ['roles', rn, 'binding', i, 'when']),
     );
   }
+  return out;
+}
+
+/** Runs on the raw config so positions point at the offending key. */
+export function checkWorkflowKeys(u: RawUserConfig, at: Locator): Diagnostic[] {
+  const out: Diagnostic[] = [];
+  const removed = (p: KeyPath, key: string): void =>
+    void out.push(
+      diag(
+        'workflow_key_removed',
+        at(p),
+        p,
+        `'${key}' can no longer be set: the ${SOFTWARE_DEV_NAME} graph is fixed in code; remove ${p.join('.')} (docs/config-upgrade.md)`,
+      ),
+    );
+  const unknown = (p: KeyPath, message: string): void =>
+    void out.push(diag('schema_invalid', at(p), p, message));
   for (const [wn, wf] of Object.entries(u.workflows ?? {})) {
-    for (const [sn, s] of Object.entries(wf.steps ?? {})) {
-      for (const f of ['when', 'skip_when', 'auto_when'] as const)
-        check(s[f], ['workflows', wn, 'steps', sn, f]);
+    for (const key of Object.keys(wf)) {
+      if (key === 'base' || key === 'steps') continue;
+      const p: KeyPath = ['workflows', wn, key];
+      if ((REMOVED_WORKFLOW_KEYS as readonly string[]).includes(key))
+        removed(p, key);
+      else unknown(p, `Key '${key}' is not supported; expected: base, steps`);
+    }
+    for (const [sn, step] of Object.entries(wf.steps ?? {})) {
+      const builtIn = SOFTWARE_DEV.steps[sn];
+      if (builtIn === undefined) {
+        const p: KeyPath = ['workflows', wn, 'steps', sn];
+        out.push(
+          diag(
+            'unknown_step',
+            at(p),
+            p,
+            `Step '${sn}' does not exist in ${SOFTWARE_DEV_NAME}; steps can no longer be added, remove ${p.join('.')}`,
+          ),
+        );
+        continue;
+      }
+      const accepted = tunablesOf(builtIn);
+      for (const key of Object.keys(step)) {
+        const p: KeyPath = ['workflows', wn, 'steps', sn, key];
+        if ((REMOVED_STEP_KEYS as readonly string[]).includes(key))
+          removed(p, key);
+        else if (!(accepted as readonly string[]).includes(key))
+          unknown(
+            p,
+            `Step '${sn}' does not take '${key}'; accepted: ${accepted.join(', ') || 'none'}`,
+          );
+      }
     }
   }
   return out;
@@ -258,101 +309,8 @@ function push(
   ctx.out.push(diag(code, ctx.at(path), path, message));
 }
 
-function checkRefsAndOutcomes(ctx: Ctx, wn: string, w: Workflow): void {
-  const steps = w.steps;
-  if (!(w.start in steps))
-    push(
-      ctx,
-      'unknown_step',
-      ['workflows', wn, 'start'],
-      `Start step '${w.start}' does not exist`,
-    );
-  const pools = new Set([
-    ...Object.keys(ctx.user.pools),
-    ...Object.keys(ctx.project?.pools ?? {}),
-  ]);
-
-  for (const [sn, s] of Object.entries(steps)) {
-    const kindOutcomes = OUTCOMES_BY_KIND[s.kind] as readonly string[];
-    for (const [outcome, target] of Object.entries(s.next)) {
-      if (!kindOutcomes.includes(outcome)) {
-        push(
-          ctx,
-          'outcome_not_in_kind',
-          stepPath(wn, sn, 'next', outcome),
-          `Outcome '${outcome}' is not supported by step kind '${s.kind}'; expected: ${kindOutcomes.join(', ') || 'none'}`,
-        );
-      } else if (!(target in steps) && !isSpecialTarget(target)) {
-        push(
-          ctx,
-          'unknown_step',
-          stepPath(wn, sn, 'next', outcome),
-          `Transition '${outcome}' of step '${sn}' targets unknown step '${target}'`,
-        );
-      }
-    }
-    for (const outcome of kindOutcomes) {
-      if (!(outcome in s.next))
-        push(
-          ctx,
-          'outcome_without_target',
-          stepPath(wn, sn, 'next'),
-          `Outcome '${outcome}' of step '${sn}' has no target`,
-        );
-    }
-    if (s.max_visits !== undefined && s.on_exhausted === undefined) {
-      push(
-        ctx,
-        'outcome_without_target',
-        stepPath(wn, sn, 'max_visits'),
-        `Step '${sn}' declares max_visits but is missing on_exhausted`,
-      );
-    }
-    if (
-      s.on_exhausted !== undefined &&
-      !(s.on_exhausted in steps) &&
-      !isSpecialTarget(s.on_exhausted)
-    ) {
-      push(
-        ctx,
-        'unknown_step',
-        stepPath(wn, sn, 'on_exhausted'),
-        `on_exhausted of step '${sn}' targets unknown step '${s.on_exhausted}'`,
-      );
-    }
-
-    const need = (field: keyof typeof s, cond: boolean): void => {
-      if (cond && s[field] === undefined)
-        push(
-          ctx,
-          'schema_invalid',
-          stepPath(wn, sn),
-          `Step '${sn}' of kind '${s.kind}' requires '${String(field)}'`,
-        );
-    };
-    need('role', isAgentStep(s));
-    need('action', s.kind === 'action');
-    need('for', s.kind === 'wait');
-    need('rules', s.kind === 'classify');
-    need('run', s.kind === 'gate');
-
-    if (s.role !== undefined && !(s.role in ctx.user.roles)) {
-      push(
-        ctx,
-        'unknown_role',
-        stepPath(wn, sn, 'role'),
-        `Role '${s.role}' used by step '${sn}' does not exist`,
-      );
-    }
-    (s.uses ?? []).forEach((p, i) => {
-      if (!pools.has(p))
-        push(
-          ctx,
-          'unknown_pool',
-          stepPath(wn, sn, 'uses', i),
-          `Pool '${p}' does not exist`,
-        );
-    });
+function checkGateLists(ctx: Ctx, wn: string, w: Workflow): void {
+  for (const [sn, s] of Object.entries(w.steps)) {
     (s.required ?? []).forEach((g, i) => {
       if (!(s.run ?? []).includes(g))
         push(
@@ -363,43 +321,6 @@ function checkRefsAndOutcomes(ctx: Ctx, wn: string, w: Workflow): void {
         );
     });
   }
-}
-
-/**
- * Every automatic cycle must pass through a step with max_visits. Remove bounded steps and detect
- * cycles in the remaining graph. retry is a self-edge; ask and escalate require human input.
- */
-function checkCycles(ctx: Ctx, wn: string, w: Workflow): void {
-  const bounded = (sn: string): boolean =>
-    w.steps[sn]?.max_visits !== undefined;
-  const edges = (sn: string): [string, string][] =>
-    Object.entries(w.steps[sn]?.next ?? {})
-      .map(([o, t]): [string, string] => [o, t === 'retry' ? sn : t])
-      .filter(([, t]) => t in w.steps && !bounded(t));
-  const color = new Map<string, 'grey' | 'black'>();
-  const stack: string[] = [];
-  const visit = (sn: string): void => {
-    color.set(sn, 'grey');
-    stack.push(sn);
-    for (const [outcome, t] of edges(sn)) {
-      const c = color.get(t);
-      if (c === 'grey') {
-        const cycle = [...stack.slice(stack.indexOf(t)), t];
-        push(
-          ctx,
-          'unbounded_cycle',
-          stepPath(wn, sn, 'next', outcome),
-          `Cycle has no visit limit: ${cycle.join(' → ')}`,
-        );
-      } else if (c === undefined) {
-        visit(t);
-      }
-    }
-    stack.pop();
-    color.set(sn, 'black');
-  };
-  for (const sn of Object.keys(w.steps).sort())
-    if (!bounded(sn) && !color.has(sn)) visit(sn);
 }
 
 /** Rung i needs 2i + 1 visits: two matching failures per previous rung, then one attempt at rung i. */
@@ -599,8 +520,7 @@ export function runChecks(input: CheckInput): Diagnostic[] {
   };
   checkRolesAndModels(ctx);
   for (const [wn, w] of Object.entries(input.user.workflows)) {
-    checkRefsAndOutcomes(ctx, wn, w);
-    checkCycles(ctx, wn, w);
+    checkGateLists(ctx, wn, w);
     checkLadders(ctx, wn, w);
   }
   checkProfiles(ctx, input.profiles);

@@ -25,7 +25,6 @@ import type { CanonicalTask } from '../domain/task.ts';
 import { evalPredicate, type StepDef } from '../domain/workflow.ts';
 import { modeGraph } from '../engine/workflows/software-dev.ts';
 import { bindingFacts } from '../policy/binding.ts';
-import { isSupportedStructure } from '../policy/support.ts';
 import type { Hash } from '../shared/brand.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 
@@ -824,7 +823,7 @@ export async function readLocalBaseConfig(
   }
 }
 
-// ---- What daemon 002 can run (software_dev@1, human decisions, external confirmation) ----
+// ---- What daemon 002 can run (the software_dev@1 graph, external confirmation) ----
 
 /** Pure: checks the validated config as is; it never drops a role or rebinds to pass (FR-002.05). */
 export function checkSupport(
@@ -873,10 +872,6 @@ export function checkSupport(
           : `profile '${profileName}' or its workflow does not exist`,
       ),
     );
-    return { problems, capability_refs, harness_roles };
-  }
-  if (!isSupportedStructure(workflow)) {
-    cap('workflow', `workflow '${workflowName ?? ''}' is not software_dev@1`);
     return { problems, capability_refs, harness_roles };
   }
   if (mode !== null && validated.runtime?.modes[mode] === undefined) {

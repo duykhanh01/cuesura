@@ -7,7 +7,7 @@ import {
 } from '../domain/policy.ts';
 import { HARNESS_INNER_MODES, RuntimeLimitsSchema } from '../domain/runtime.ts';
 import { EXECUTION_MODES } from '../domain/run-config.ts';
-import { ACTIONS, STEP_KINDS, WAIT_FOR } from '../domain/workflow.ts';
+import { isAgentStep, type StepDef } from '../domain/workflow.ts';
 import { SOFTWARE_DEV_NAME } from '../engine/workflows/software-dev.ts';
 
 /**
@@ -101,55 +101,58 @@ export const RoleSchema = z
   .strict();
 export type RawRole = z.infer<typeof RoleSchema>;
 
-export const UserStepSchema = z
-  .object({
-    kind: z.enum(STEP_KINDS).optional(),
-    role: z.string().min(1).optional(),
-    run: nameList.optional(),
-    required: nameList.optional(),
-    action: z.enum(ACTIONS).optional(),
-    for: z.enum(WAIT_FOR).optional(),
-    rules: z.literal('ci_rules').optional(),
-    poll: DurationSchema.optional(),
-    timeout: DurationSchema.optional(),
-    uses: nameList.optional(),
-    max_visits: z.number().int().positive().optional(),
-    max_rung: z.number().int().nonnegative().optional(),
-    on_exhausted: z.string().min(1).optional(),
-    when: RawPredicateSchema.optional(),
-    skip_when: RawPredicateSchema.optional(),
-    auto_when: RawPredicateSchema.optional(),
-    next: z.record(z.string(), z.string().min(1)).optional(),
-  })
-  .strict();
+export const STEP_TUNABLES = [
+  'max_visits',
+  'max_rung',
+  'run',
+  'required',
+  'poll',
+  'timeout',
+] as const;
+export type StepTunable = (typeof STEP_TUNABLES)[number];
+
+/** `max_visits` only where the built-in step has one, so every bounded step keeps its `on_exhausted`. */
+export function tunablesOf(step: StepDef): readonly StepTunable[] {
+  const out: StepTunable[] = [];
+  if (step.max_visits !== undefined) out.push('max_visits');
+  if (isAgentStep(step)) out.push('max_rung');
+  if (step.kind === 'gate') out.push('run', 'required');
+  if (step.kind === 'wait') out.push('poll', 'timeout');
+  return out;
+}
+
+export const REMOVED_WORKFLOW_KEYS = ['start', 'decisions'] as const;
+export const REMOVED_STEP_KEYS = [
+  'kind',
+  'role',
+  'action',
+  'for',
+  'rules',
+  'uses',
+  'on_exhausted',
+  'when',
+  'skip_when',
+  'auto_when',
+  'next',
+] as const;
+
+/** Loose so `checkWorkflowKeys` can report other keys with a precise message. */
+export const UserStepSchema = z.looseObject({
+  max_visits: z.number().int().positive().optional(),
+  max_rung: z.number().int().nonnegative().optional(),
+  run: nameList.optional(),
+  required: nameList.optional(),
+  poll: DurationSchema.optional(),
+  timeout: DurationSchema.optional(),
+});
 export type RawStep = z.infer<typeof UserStepSchema>;
 
-/**
- * A workflow either extends software_dev@1 or declares a complete graph. A changed built-in graph
- * gets a different structure_hash and is rejected at freeze time.
- */
-export const UserWorkflowSchema = z
-  .object({
-    base: z.literal(SOFTWARE_DEV_NAME).optional(),
-    start: z.string().min(1).optional(),
-    steps: z.record(z.string(), UserStepSchema).optional(),
-  })
-  .strict()
-  .superRefine((w, ctx) => {
-    if (w.base !== undefined) return;
-    if (w.start === undefined)
-      ctx.addIssue({
-        code: 'custom',
-        path: ['start'],
-        message: 'A workflow without a base requires start',
-      });
-    if (w.steps === undefined)
-      ctx.addIssue({
-        code: 'custom',
-        path: ['steps'],
-        message: 'A workflow without a base requires steps',
-      });
-  });
+export const UserWorkflowSchema = z.looseObject({
+  base: z.literal(SOFTWARE_DEV_NAME, {
+    message: `base is required and must be ${SOFTWARE_DEV_NAME}`,
+  }),
+  steps: z.record(z.string(), UserStepSchema).optional(),
+});
 export type RawWorkflow = z.infer<typeof UserWorkflowSchema>;
 
 export const BackoffInputSchema = z

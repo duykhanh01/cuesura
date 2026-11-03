@@ -48,9 +48,6 @@ roles:
 workflows:
   impl:
     base: software_dev@1
-    steps:
-      code: { uses: [claude] }
-      gates: { uses: [build] }
 
 projects:
   acme: { base_branch: main }

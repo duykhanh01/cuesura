@@ -1,4 +1,4 @@
-# expect: unknown_step 16 31
+# expect: unknown_step 15 7
 version: 1
 harnesses: { claude: { cmd: claude, auth: subscription, pool: claude } }
 pools: { claude: 1 }
@@ -12,7 +12,6 @@ workflows:
   impl:
     base: software_dev@1
     steps:
-      gates:
-        next: { pass: review, fail: fixx }
+      lint_docs: { max_visits: 2 }
 profiles:
   standard: { workflow: impl }

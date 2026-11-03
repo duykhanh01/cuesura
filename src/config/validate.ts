@@ -3,11 +3,11 @@ import type { Hash } from '../shared/brand.ts';
 import { hashCanonical } from '../shared/hash.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import type { Workflow } from '../domain/workflow.ts';
-import { findUnsupported, type UnsupportedFeature } from './capabilities.ts';
 import {
   checkDispatch,
   checkPredicates,
   checkRuntime,
+  checkWorkflowKeys,
   runChecks,
   type Locator,
 } from './checks.ts';
@@ -72,7 +72,6 @@ export type ValidateInput = {
  */
 export type Validated = {
   config: ValidatedConfig;
-  unsupported: UnsupportedFeature[];
   runtime: RuntimeConfig | null;
   locations: Record<string, ProjectLocation>;
   /** Each project's own guidance. Kept out of `config` like the locations: never part of a policy hash. */
@@ -134,6 +133,7 @@ export function analyze(input: AnalyzeInput): Result<Validated, Diagnostic[]> {
   const rawUser = u.data;
 
   diags.push(...checkPredicates(rawUser, input.atUser));
+  diags.push(...checkWorkflowKeys(rawUser, input.atUser));
   diags.push(...checkRuntime(rawUser, input.atUser));
 
   const workflows: Record<string, Workflow> = {};
@@ -192,7 +192,6 @@ export function analyze(input: AnalyzeInput): Result<Validated, Diagnostic[]> {
   };
   return ok({
     config,
-    unsupported: findUnsupported(workflows, input.atUser),
     runtime: normalizeRuntime(
       rawUser.runtime,
       Object.keys(rawUser.harnesses ?? {}),

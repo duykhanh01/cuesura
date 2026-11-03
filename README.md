@@ -8,7 +8,7 @@ Cuesura là một **workflow engine tất định, hướng sự kiện, dành c
 
 **Tên CLI: `cusr`** — rút gọn từ **CUeSuRa**. Ví dụ lệnh dự kiến: `cusr task add`, `cusr status`, `cusr inbox`.
 
-Use case đầu tiên là quy trình phát triển phần mềm: code → review → PR → CI → merge. Mục tiêu dài hạn là một nền tảng workflow tổng quát. Workflow, role, nguồn task và kênh liên lạc đều là dữ liệu và plugin, không gắn cứng vào việc viết code.
+Use case đầu tiên là quy trình phát triển phần mềm: code → review → PR → CI → merge. Mục tiêu dài hạn là một nền tảng workflow tổng quát. Graph workflow là preset trong code (v1 có `software_dev@1`), người dùng chỉ chỉnh tham số như số lượt tối đa của từng bước; role, nguồn task và kênh liên lạc là dữ liệu và adapter, không gắn cứng vào việc viết code. Nâng cấp config cũ: [docs/config-upgrade.md](docs/config-upgrade.md).
 
 - **Không có Primary AI chạy liên tục.** Một state machine thuần quyết định mọi bước, nên việc điều phối tốn 0 token.
 - **Agent là các lần gọi headless một lần cho mỗi bước:** Claude Code, Codex CLI, sau này có Pi.

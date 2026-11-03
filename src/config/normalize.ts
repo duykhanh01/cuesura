@@ -97,9 +97,12 @@ export function normalizeRole(r: RawRole): NormalizedRole {
 }
 
 function normalizeStep(s: RawStep): Record<string, unknown> {
-  const { poll, timeout, ...rest } = s;
+  const { max_visits, max_rung, run, required, poll, timeout } = s;
   return {
-    ...rest,
+    ...(max_visits !== undefined ? { max_visits } : {}),
+    ...(max_rung !== undefined ? { max_rung } : {}),
+    ...(run !== undefined ? { run } : {}),
+    ...(required !== undefined ? { required } : {}),
     ...(poll !== undefined ? { poll: ms(poll) } : {}),
     ...(timeout !== undefined ? { timeout: ms(timeout) } : {}),
   };
@@ -112,14 +115,8 @@ export function expandWorkflow(
   | { issues: { path: (string | number)[]; message: string }[] } {
   const steps: Record<string, unknown> = {};
   for (const [name, s] of Object.entries(w.steps ?? {}))
-    steps[name] = normalizeStep(s);
-  const declared: Record<string, unknown> = {
-    ...(w.start !== undefined ? { start: w.start } : {}),
-    steps,
-  };
-  const raw =
-    w.base !== undefined ? deepMerge(SOFTWARE_DEV, declared) : declared;
-  const parsed = WorkflowSchema.safeParse(raw);
+    if (name in SOFTWARE_DEV.steps) steps[name] = normalizeStep(s);
+  const parsed = WorkflowSchema.safeParse(deepMerge(SOFTWARE_DEV, { steps }));
   if (!parsed.success) {
     return {
       issues: parsed.error.issues.map((i) => ({

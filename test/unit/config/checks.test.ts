@@ -18,51 +18,76 @@ function codes(parts: Parts, extra = ''): string[] {
   return r.ok ? [] : r.error.map((d) => d.code);
 }
 
-const LOOP = (fixVisits: string) => `workflows:
-  impl: { base: software_dev@1 }
-  loop:
-    start: code
-    steps:
-      code:
-        kind: agent
-        role: coder
-        max_visits: 5
-        on_exhausted: escalate
-        next: { done: review, needs_input: ask, needs_context: retry, blocked: escalate }
-      review:
-        kind: review
-        role: reviewer
-        next: { approve: finish, request_changes: fix }
-      fix:
-        kind: agent
-        role: fixer${fixVisits}
-        next: { done: review, needs_input: ask, needs_context: review, blocked: escalate }
-      finish: { kind: complete }
-`;
-
 const coderLadder = (ladder: string) =>
   MIN_PARTS.roles.replace(
     'coder: { binding: [{ model: sonnet }] }',
     `coder:\n    binding: [{ model: sonnet }]\n    escalation:\n      ladder: ${ladder}`,
   );
 
-describe('FR-003 check 1: references exist', () => {
+const wf = (steps: string, extra = '') =>
+  `workflows:\n  impl:\n    base: software_dev@1\n${extra}    steps:\n${steps}`;
+
+describe('FR-003 check 1: workflows only tune the built-in graph', () => {
   it('accepts minimal configuration', () => expect(codes({})).toEqual([]));
-  it('rejects transitions to unknown steps', () => {
+  it('accepts every tunable on the steps that take it', () => {
     expect(
       codes({
-        workflows:
-          'workflows:\n  impl:\n    base: software_dev@1\n    steps:\n      gates: { next: { fail: fixx } }\n',
+        workflows: wf(
+          '      code: { max_visits: 9, max_rung: 0 }\n      gates: { run: [build, unit], required: [build], max_visits: 3 }\n      ci: { poll: 30s, timeout: 2h, max_visits: 4 }\n      review: { max_visits: 2 }\n',
+        ),
       }),
+    ).toEqual([]);
+  });
+  it('requires base', () => {
+    expect(codes({ workflows: 'workflows:\n  impl: {}\n' })).toEqual([
+      'schema_invalid',
+    ]);
+  });
+  it.each([
+    'kind: agent',
+    'role: builder',
+    'next: { done: gates }',
+    'on_exhausted: fail',
+    'uses: [gpu]',
+    'when: { flag: hot }',
+    'skip_when: { size: [XS] }',
+  ])('names the former graph key %s for removal', (key) => {
+    expect(codes({ workflows: wf(`      code: { ${key} }\n`) })).toEqual([
+      'workflow_key_removed',
+    ]);
+  });
+  it('names start and decisions for removal', () => {
+    expect(
+      codes({
+        workflows: wf(
+          '      code: { max_visits: 3 }\n',
+          '    start: code\n    decisions: { agent_question: human }\n',
+        ),
+      }),
+    ).toEqual(['workflow_key_removed', 'workflow_key_removed']);
+  });
+  it('rejects a step the built-in graph lacks', () => {
+    expect(
+      codes({ workflows: wf('      deploy: { max_visits: 2 }\n') }),
     ).toEqual(['unknown_step']);
   });
-  it('rejects unknown roles, models, and pools', () => {
+  it('rejects a tunable the step does not take', () => {
     expect(
       codes({
-        workflows:
-          'workflows:\n  impl:\n    base: software_dev@1\n    steps:\n      code: { role: builder, uses: [gpu] }\n',
+        workflows: wf(
+          '      complete: { max_visits: 2 }\n      gates: { max_rung: 1 }\n      code: { poll: 1m }\n',
+        ),
       }),
-    ).toEqual(['unknown_role', 'unknown_pool']);
+    ).toEqual(['schema_invalid', 'schema_invalid', 'schema_invalid']);
+  });
+  it('rejects a required gate missing from the run list', () => {
+    expect(
+      codes({
+        workflows: wf('      gates: { run: [build], required: [unit] }\n'),
+      }),
+    ).toEqual(['unknown_gate']);
+  });
+  it('rejects unknown models and pools of roles and harnesses', () => {
     expect(
       codes({
         roles: MIN_PARTS.roles.replace(
@@ -82,26 +107,7 @@ describe('FR-003 check 1: references exist', () => {
   });
 });
 
-describe('FR-003 check 2: finite outcomes with targets', () => {
-  it('every software_dev@1 outcome has a target', () =>
-    expect(codes({})).toEqual([]));
-  it('rejects outcomes unsupported by the step kind', () => {
-    expect(
-      codes({
-        workflows:
-          'workflows:\n  impl:\n    base: software_dev@1\n    steps:\n      gates: { next: { flaky: gates } }\n',
-      }),
-    ).toEqual(['outcome_not_in_kind']);
-  });
-  it('rejects outcomes without targets', () => {
-    const wf = LOOP(
-      '\n        max_visits: 3\n        on_exhausted: escalate',
-    ).replace(', blocked: escalate }\n      review', ' }\n      review');
-    expect(codes({ workflows: wf })).toEqual(['outcome_without_target']);
-  });
-});
-
-describe('FR-003 check 3: bounded cycles and tasks', () => {
+describe('FR-003 check 3: tasks without caps', () => {
   it('accepts the formerly rejected fixture without a wall-time cap', () => {
     const r = validateConfig({
       user: source('configs/valid/unlimited-task.yaml'),
@@ -109,27 +115,11 @@ describe('FR-003 check 3: bounded cycles and tasks', () => {
     });
     expect(r.ok).toBe(true);
   });
-
-  it('accepts a review/fix loop bounded by max_visits', () => {
-    expect(
-      codes({
-        workflows: LOOP(
-          '\n        max_visits: 3\n        on_exhausted: escalate',
-        ),
-      }),
-    ).toEqual([]);
-  });
-  it('rejects an unbounded review/fix loop', () => {
-    expect(codes({ workflows: LOOP('') })).toEqual(['unbounded_cycle']);
-  });
   it('accepts profiles without agent-run or wall-time caps', () => {
     expect(
       codes({
         profiles: 'profiles:\n  standard: { workflow: impl }\n',
       }),
-    ).toEqual([]);
-    expect(
-      codes({ profiles: 'profiles:\n  standard: { workflow: impl }\n' }),
     ).toEqual([]);
   });
 });
@@ -222,13 +212,13 @@ describe('FR-003 check 6: predefined predicates', () => {
 });
 
 describe('FR-006 and gates', () => {
-  it('rejects decision modes: every decision point is human', () => {
+  it('decision modes are not configurable: every decision point is human', () => {
     expect(
       codes({
         workflows:
           'workflows:\n  impl:\n    base: software_dev@1\n    decisions: { budget_increase: agent_if_confident }\n',
       }),
-    ).toEqual(['schema_invalid']);
+    ).toEqual(['workflow_key_removed']);
   });
   it('required gates must be declared by the project', () => {
     const r = validateConfig({
@@ -261,14 +251,14 @@ describe('returns all errors sorted by file, line, and column', () => {
     const r = validateConfig({
       user: minUser({
         workflows:
-          'workflows:\n  impl:\n    base: software_dev@1\n    steps:\n      gates: { next: { fail: fixx } }\n      code: { role: builder }\n',
+          'workflows:\n  impl:\n    base: software_dev@1\n    steps:\n      gates: { next: { fail: fixx } }\n      deploy: { max_visits: 2 }\n',
       }),
       project: MIN_PROJECT,
       packs: {},
     });
     expect(!r.ok && r.error.map((d) => [d.code, d.line])).toEqual([
-      ['unknown_step', 14],
-      ['unknown_role', 15],
+      ['workflow_key_removed', 14],
+      ['unknown_step', 15],
     ]);
   });
 });

@@ -416,27 +416,27 @@ workflows:
   wf0:
     base: software_dev@1
     steps:
-      code: { uses: [p0] }
+      code: { max_visits: 10 }
   wf1:
     base: software_dev@1
     steps:
-      code: { uses: [p1] }
+      code: { max_visits: 11 }
   wf2:
     base: software_dev@1
     steps:
-      code: { uses: [p2] }
+      code: { max_visits: 12 }
   wf3:
     base: software_dev@1
     steps:
-      code: { uses: [p3] }
+      code: { max_visits: 13 }
   wf4:
     base: software_dev@1
     steps:
-      code: { uses: [p0] }
+      code: { max_visits: 10 }
   wf5:
     base: software_dev@1
     steps:
-      code: { uses: [p1] }
+      code: { max_visits: 11 }
 profiles:
   standard:
     workflow: wf0
