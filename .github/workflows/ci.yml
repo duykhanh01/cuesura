@@ -7,8 +7,32 @@ concurrency:
   group: ci-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 jobs:
-  build:
+  # build và test là check bắt buộc: PR chỉ sửa tài liệu vẫn có hai job này, ở trạng thái skipped.
+  changes:
     if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.files.outputs.code }}
+    steps:
+      - id: files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        # Markdown ngoài src/ và test/ là tài liệu. Không đọc được danh sách file thì coi như có code.
+        run: |
+          if ! files=$(gh pr diff "$PR" --repo "$GITHUB_REPOSITORY" --name-only); then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf '%s\n' "$files"
+          code=$(printf '%s\n' "$files" | awk 'NF && (!/\.md$/ || /^(src|test)\//) { c = 1 } END { print c ? "true" : "false" }')
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+  build:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,7 +45,8 @@ jobs:
       - run: pnpm lint
       - run: pnpm build
   test:
-    if: github.event.action != 'closed'
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

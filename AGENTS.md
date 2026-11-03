@@ -26,6 +26,7 @@ lo những việc đó. Không gọi `cusr`.
     và tính nhất quán; rà thủ công heading, bảng và code fence Markdown. `.prettierignore` bỏ qua
     Markdown nên `pnpm lint`/Prettier không phải bằng chứng định dạng tài liệu. Không chạy
     `pnpm typecheck`, `pnpm lint`, `pnpm test` hoặc `pnpm build` chỉ vì tài liệu thay đổi.
+    CI cũng bỏ qua `build` và `test` khi PR chỉ đổi file Markdown ngoài `src/` và `test/`.
   - Có sửa code, test hoặc cấu hình thực thi: `pnpm typecheck`, `pnpm lint` và `pnpm test:changed` phải
     sạch; chạy thêm các kiểm tra bắt buộc theo phạm vi thay đổi và hướng dẫn của repo. `pnpm lint` gồm
     ESLint và `prettier --check`; sửa định dạng bằng `pnpm format`.
