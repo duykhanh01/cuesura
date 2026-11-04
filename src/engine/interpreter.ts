@@ -284,7 +284,9 @@ export function visitLimit(ctx: Ctx, step: string): number | null {
   const max = stepDef(ctx, step).max_visits;
   return max === undefined
     ? null
-    : max + (ctx.frozen.limits.extra_visits[step] ?? 0);
+    : max +
+        (ctx.frozen.limits.extra_visits[step] ?? 0) +
+        (ctx.state.visit_credits?.[step]?.visits ?? 0);
 }
 
 export function route(
@@ -1840,6 +1842,26 @@ export function onEffectFailed(
     (f.failure_class === 'refused' || f.failure_class === 'auth_config')
   )
     return waitBaseRepair(ctx, `base gates failed: ${f.message}`);
+  // An expired or refused login fails every retry the same way, so none is scheduled: the task waits
+  // for a person to sign in again, and `recheck` gives the visit back and runs the same step (#97).
+  if (
+    agent &&
+    f.auth !== undefined &&
+    s.cancellation === null &&
+    step !== null
+  ) {
+    waitPolicy(
+      ctx,
+      'harness_auth',
+      { kind: 'run_step', step },
+      {
+        step,
+        harness: f.auth.harness,
+        ...(f.message === undefined ? {} : { message: f.message }),
+      },
+    );
+    return;
+  }
   // The worktree is not the tree the task last left: someone else changed it, and it is not the
   // attempt's to take (T072). A person looks first; `recheck` takes the observed tree as the task's.
   if (

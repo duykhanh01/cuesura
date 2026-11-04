@@ -221,6 +221,13 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
 # For WAITING/manifest_changed, the harness was re-proved after the task started:
 # recheck only when the user approved that re-proof (setup-harness --approval);
 # it switches the task to the manifest in force and reruns the step.
+# For WAITING/harness_auth, the harness login expired or was refused: the user
+# signs in again on the daemon host (the file runtime.credential_refs names);
+# recheck only after they say so. It reruns the same step; a login still broken
+# waits again. Never retry it in a loop.
+# For loop_exhausted, explain offers recheck only when the step's latest attempts
+# failed on infrastructure, rate limit or login; it gives those visits back. Ask
+# the user to fix the cause first.
 # allowed_actions describes available commands, not permission to accept changes.
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
   cusr task explain "$TASK_ID" --json

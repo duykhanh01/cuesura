@@ -545,3 +545,31 @@ Cuesura chạy trên host và không thêm namespace mạng hay egress firewall.
 native harness quyết định. Home/auth của harness vẫn riêng, credential được che trước khi lưu log,
 và token điều phối/GitHub không tự được đưa vào environment worker hoặc gate. Process cùng UID có
 quyền đọc file host theo OS; worktree và canary sau chạy không là ranh giới bảo mật ngăn truy cập đó.
+
+### Phiên đăng nhập harness
+
+Mỗi attempt nhận bản sao file đăng nhập (`--auth`) trong private home. Harness đăng nhập bằng OAuth
+(Claude, Codex) tự refresh phiên khi access token hết hạn và nhà cung cấp thường đổi luôn refresh
+token; bản sao bị xóa sau attempt nên trước đây refresh token mới mất theo, file gốc giữ token cũ đã bị
+thu hồi, và mọi attempt sau báo `Failed to authenticate: OAuth session expired and could not be
+refreshed`. Nay trước khi xóa, daemon ghi bản sao đã refresh về file gốc (ghi file tạm rồi rename,
+giữ quyền file) khi đủ cả ba điều kiện: bản sao đã đổi, file gốc vẫn đúng nội dung lúc chép, và bản
+sao vẫn là JSON cùng cấu trúc khóa với file gốc. File gốc đã đổi (người dùng vừa đăng nhập lại, hoặc
+attempt khác ghi trước) thì giữ file gốc. File `--rule` có sha256 trong pin không bao giờ bị ghi lại.
+Worker vẫn đọc được token trong home của nó như trước; việc ghi lại chỉ giữ cho phiên còn dùng được.
+
+Khi harness báo lỗi đăng nhập, task không retry mà chờ `WAITING/policy harness_auth` ở đúng bước.
+Đăng nhập lại harness trên host, bằng đúng file mà `runtime.credential_refs` trỏ tới (vd
+`~/.claude/.credentials.json`; đăng nhập trong một profile Claude khác không đổi file này), rồi chạy
+`cusr task recheck <id>`: bước đó chạy lại, giữ worktree, review và gate, và lượt lỗi đăng nhập được
+trả lại visit. Đăng nhập vẫn hỏng thì lượt mới lại chờ `harness_auth`.
+
+Task `loop_exhausted` mà các lượt cuối của bước đều lỗi hạ tầng, rate limit hoặc đăng nhập (vd task
+chạy trên release cũ, khi lỗi OAuth còn bị xếp `infra`): sửa nguyên nhân rồi `cusr task recheck <id>`
+trả lại visit của chuỗi lượt đó và chạy lại bước. Lượt lỗi chất lượng không bao giờ được trả; ngân sách lượt
+agent, deadline và thang model giữ nguyên. `task explain` chỉ đưa `recheck` khi điều kiện này đúng.
+
+`cusr doctor` đọc file đăng nhập chỉ để lấy hạn refresh token (`refreshTokenExpiresAt` của Claude),
+không in giá trị token: quá hạn thì `credential:*` báo lỗi. Hạn còn không chứng minh nhà cung cấp còn
+chấp nhận phiên (token có thể đã bị thu hồi); file không có trường này (Codex, API key) chỉ được kiểm
+tra là tồn tại.

@@ -181,7 +181,20 @@ const LaunchStateSchema = z.strictObject({
   }),
   preexisted: z.boolean(),
   collect_before: z.array(z.string()),
-  auth: z.strictObject({ home: z.string().min(1), files: z.array(z.string()) }),
+  auth: z.strictObject({
+    home: z.string().min(1),
+    files: z.array(z.string()),
+    // Absent in launches recorded before refreshed logins were written back.
+    synced: z
+      .array(
+        z.strictObject({
+          to: z.string(),
+          source: z.string().min(1),
+          sha256: z.string().min(1),
+        }),
+      )
+      .optional(),
+  }),
 });
 type LaunchState = z.infer<typeof LaunchStateSchema>;
 
@@ -512,7 +525,13 @@ export class RunnerHarness implements HarnessPort {
         before,
         preexisted,
         collect_before: [...collectBefore],
-        auth: { home: installed.home, files: [...installed.files] },
+        auth: {
+          home: installed.home,
+          files: [...installed.files],
+          ...(installed.synced === undefined
+            ? {}
+            : { synced: [...installed.synced] }),
+        },
       };
       run.writeJson(LAUNCH_STATE_FILE, state);
       const remaining = Math.min(

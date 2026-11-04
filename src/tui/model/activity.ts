@@ -119,6 +119,10 @@ const WAITS: Readonly<Record<DetailCode, WaitWords>> = {
     doing: 'Worktree changed outside the task',
     todo: 'Recheck to accept the tree, or cancel',
   },
+  harness_auth: {
+    doing: 'Harness login expired or was refused',
+    todo: 'Sign in again, then recheck, or cancel',
+  },
   manifest_changed: {
     doing: 'Harness was re-proved after the task started',
     todo: 'Recheck to run with the new manifest, or cancel',

@@ -1,6 +1,7 @@
 import { hasRole } from '../domain/policy.ts';
+import type { Attempt, TaskState } from '../domain/state.ts';
 import { FREEZE_PENDING_CODES } from './start.ts';
-import type { Trigger } from '../domain/trigger.ts';
+import type { FailureClass, Trigger } from '../domain/trigger.ts';
 import { reject, type Ctx } from './context.ts';
 import { proceed, waitBaseRepair } from './interpreter.ts';
 
@@ -21,7 +22,58 @@ import { proceed, waitBaseRepair } from './interpreter.ts';
  * - `manifest`: a task waiting on `manifest_changed` (harness re-proved after its snapshot froze) takes
  *   the manifest in force as its own and runs the step again; a manifest that moved since is caught by
  *   the next attempt's own check.
+ * - `auth`: a task waiting on `harness_auth` (the harness login expired or was refused) runs the step
+ *   again once the person signed in; the attempts that failed before doing any work give their visits
+ *   back. The next attempt is the check: a login still broken waits here again.
+ * - `visits`: a task whose step ran out of visits while its latest attempts failed that way
+ *   (infrastructure, rate limit, login) gets the visits of those attempts back and runs the step again.
+ *   Quality failures are never credited, and budget, deadline and rung limits stay as they are.
  */
+
+/** Classes that say nothing about the work: the harness failed before or instead of doing it. */
+const CREDITABLE: readonly FailureClass[] = [
+  'infra',
+  'rate_limit',
+  'auth_config',
+];
+
+/**
+ * The step's latest finished attempts of this revision, newest first, that failed with a creditable
+ * class and were not credited before. Any other attempt ends the run.
+ */
+export function creditableAttempts(s: TaskState, step: string): Attempt[] {
+  const through = s.visit_credits?.[step]?.through ?? 0;
+  const mine = Object.values(s.attempts)
+    .filter((a) => a.step === step && a.revision === s.revision)
+    .sort((a, b) => b.n - a.n);
+  const out: Attempt[] = [];
+  for (const a of mine) {
+    const cls = a.outcome?.class ?? null;
+    if (
+      a.n <= through ||
+      a.status !== 'finished' ||
+      cls === null ||
+      !CREDITABLE.includes(cls)
+    )
+      break;
+    out.push(a);
+  }
+  return out;
+}
+
+/** The step a `visits` recheck would reopen: exhausted, and its latest attempts are creditable. */
+export function exhaustedByInfra(s: TaskState): string | null {
+  const w = s.wait;
+  const step = w?.detail['step'];
+  if (
+    s.status !== 'WAITING' ||
+    w?.detail.code !== 'loop_exhausted' ||
+    w.detail['outcome'] !== 'exhausted' ||
+    typeof step !== 'string'
+  )
+    return null;
+  return creditableAttempts(s, step).length > 0 ? step : null;
+}
 
 type RecheckTrigger = Extract<Trigger, { kind: 'recheck' }>;
 
@@ -92,6 +144,20 @@ export function onRecheck(ctx: Ctx, t: RecheckTrigger): void {
         });
       break;
     }
+    case 'auth':
+      if (s.status !== 'WAITING' || s.wait?.detail.code !== 'harness_auth')
+        reject('invalid_trigger', {
+          reason: 'recheck_not_applicable',
+          target: t.target,
+        });
+      break;
+    case 'visits':
+      if (exhaustedByInfra(s) === null)
+        reject('invalid_trigger', {
+          reason: 'recheck_not_applicable',
+          target: t.target,
+        });
+      break;
     default: {
       const never: never = t.target;
       throw new Error(`unknown recheck target ${String(never)}`);
@@ -135,5 +201,25 @@ export function onRecheck(ctx: Ctx, t: RecheckTrigger): void {
     });
     ctx.emit('TaskResumed', { reason: 'manifest_accepted' });
     proceed(ctx, w.resume, 'manifest_accepted');
+  }
+  if (t.target === 'auth' || t.target === 'visits') {
+    const w = s.wait as NonNullable<typeof s.wait>;
+    const step = w.detail['step'] as string;
+    const credited = creditableAttempts(s, step);
+    if (credited.length > 0)
+      ctx.emit('VisitsCredited', {
+        step,
+        attempt_ids: credited.map((a) => a.id),
+        by: ctx.actor,
+        at: ctx.now,
+      });
+    ctx.emit('TaskResumed', {
+      reason: t.target === 'auth' ? 'auth_rechecked' : 'visits_credited',
+    });
+    proceed(
+      ctx,
+      w.resume,
+      t.target === 'auth' ? 'auth_rechecked' : 'visits_credited',
+    );
   }
 }

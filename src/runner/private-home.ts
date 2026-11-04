@@ -3,18 +3,27 @@
  * Each agent attempt gets its own home under the run directory, passed as HOME to the harness.
  * Only the selected vendor's auth files are copied in, 0600, from trusted credential references. Auth is
  * removed again once the attempt's artifacts are archived. Setup/gate/autofix never get a home.
+ *
+ * A login the harness refreshed inside the home (OAuth providers rotate the refresh token, so the old
+ * one in the source stops working) is written back to its source before removal, but only while the
+ * source still holds what was copied and the refreshed file keeps the source's JSON shape (#97).
  */
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import {
   chmodSync,
+  closeSync,
   constants,
   copyFileSync,
   cpSync,
+  fsyncSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
+  writeSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { z } from 'zod';
@@ -37,9 +46,17 @@ export type AuthFile = {
   readonly sha256?: string;
 };
 
+/** An unpinned auth file whose refreshed copy may go back to `source` (sha256 of what was copied). */
+export type SyncedAuth = {
+  readonly to: string;
+  readonly source: string;
+  readonly sha256: string;
+};
+
 export type InstalledAuth = {
   readonly home: string;
   readonly files: readonly string[];
+  readonly synced?: readonly SyncedAuth[] | undefined;
 };
 
 export function privateHome(run: RunDir): string {
@@ -124,6 +141,7 @@ export function installAuth(
   }
   const home = privateHome(run);
   const installed: string[] = [];
+  const synced: SyncedAuth[] = [];
   for (const f of files) {
     // RunDir.resolve refuses symlinked components below the run directory.
     const target = run.resolve(`${PRIVATE_HOME_DIR}/${f.to}`);
@@ -131,20 +149,98 @@ export function installAuth(
     copyFileSync(f.ref.file, target, constants.COPYFILE_EXCL);
     chmodSync(target, 0o600);
     installed.push(f.to);
+    const digest = sha256(readFileSync(target));
     // Checked on the copy the binary will read, so a source edited after confirmation never runs.
-    if (
-      f.sha256 !== undefined &&
-      createHash('sha256').update(readFileSync(target)).digest('hex') !==
-        f.sha256
-    ) {
+    if (f.sha256 !== undefined && digest !== f.sha256) {
       removeAuth({ home, files: installed });
       throw new SandboxPolicyError(
         'policy_violation',
         `${f.to} differs from its pinned sha256`,
       );
     }
+    // A pinned file is a rule, never a login: it is never written back.
+    if (f.sha256 === undefined)
+      synced.push({ to: f.to, source: f.ref.file, sha256: digest });
   }
-  return { home, files: installed };
+  return { home, files: installed, synced };
+}
+
+const sha256 = (b: Buffer): string =>
+  createHash('sha256').update(b).digest('hex');
+
+const MAX_AUTH_BYTES = 1024 * 1024;
+
+/** Keys and value kinds, recursively; values themselves are not compared. */
+function shapeOf(v: unknown): unknown {
+  if (Array.isArray(v)) return 'array';
+  if (typeof v === 'object' && v !== null)
+    return Object.fromEntries(
+      Object.keys(v)
+        .sort()
+        .map((k) => [k, shapeOf((v as Record<string, unknown>)[k])]),
+    );
+  return v === null ? 'null' : typeof v;
+}
+
+function jsonObject(b: Buffer): unknown {
+  try {
+    const v = JSON.parse(b.toString('utf8')) as unknown;
+    return typeof v === 'object' && v !== null && !Array.isArray(v)
+      ? v
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Writes the refreshed copy at `copy` back to `s.source`. Skipped when the copy is unchanged, not a
+ * JSON object of the source's shape, or the source changed since it was copied (a new login, or another
+ * attempt wrote back first: theirs wins). Atomic rename in the source's directory; never throws.
+ */
+function writeBack(copy: string, s: SyncedAuth): boolean {
+  try {
+    const cst = lstatSync(copy, { throwIfNoEntry: false });
+    if (cst === undefined || !cst.isFile() || cst.size > MAX_AUTH_BYTES)
+      return false;
+    const next = readFileSync(copy);
+    if (sha256(next) === s.sha256) return false;
+    const sst = lstatSync(s.source, { throwIfNoEntry: false });
+    if (sst === undefined || !sst.isFile() || sst.size > MAX_AUTH_BYTES)
+      return false;
+    const current = readFileSync(s.source);
+    if (sha256(current) !== s.sha256) return false;
+    const before = jsonObject(current);
+    const after = jsonObject(next);
+    if (
+      before === undefined ||
+      after === undefined ||
+      JSON.stringify(shapeOf(before)) !== JSON.stringify(shapeOf(after))
+    )
+      return false;
+    const tmp = join(
+      dirname(s.source),
+      `.cusr-auth-${randomBytes(8).toString('hex')}.tmp`,
+    );
+    const fd = openSync(tmp, 'wx', 0o600);
+    try {
+      writeSync(fd, next);
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+    try {
+      chmodSync(tmp, sst.mode & 0o777);
+      renameSync(tmp, s.source);
+    } catch (e) {
+      rmSync(tmp, { force: true });
+      throw e;
+    }
+    return true;
+  } catch {
+    // Best effort: a login left stale fails the next attempt as `harness_auth`, never silently.
+    return false;
+  }
 }
 
 /**
@@ -174,6 +270,8 @@ export function removeAuth(installed: InstalledAuth): void {
       }
     }
     const target = join(dir, parts[parts.length - 1] as string);
+    const sync = installed.synced?.find((s) => s.to === rel);
+    if (sync !== undefined) writeBack(target, sync);
     // rmSync unlinks a symlink itself, never its target, and refuses a directory without `recursive`.
     if (lstatSync(target, { throwIfNoEntry: false }) !== undefined)
       rmSync(target, { force: true });

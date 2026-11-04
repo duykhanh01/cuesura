@@ -209,6 +209,37 @@ it('turn exhaustion uses timeout handling, preserving the worker session for con
   expect(f.d.task(task.id).wait?.detail.code).toBe('timeout');
 });
 
+it('an expired harness login stops at once instead of spending retries and visits (#97)', async () => {
+  const task = buildTask();
+  const f = setup(task, { mode: 'direct-pr' });
+  let runs = 0;
+  f.coder.run = (input) => {
+    runs++;
+    return Promise.resolve({
+      kind: 'failure',
+      failure: 'auth',
+      detail:
+        'success: Failed to authenticate: OAuth session expired and could not be refreshed',
+      role: input.role,
+      usage: { basis: 'unavailable' },
+      session_ref: null,
+      permission_denials: [],
+      invoked: true,
+      reset_at: null,
+    });
+  };
+  f.d.must(task.id, { kind: 'create_task', task });
+  f.start();
+  await f.settle();
+  expect(runs).toBe(1);
+  const s = f.d.task(task.id);
+  expect(s.wait).toMatchObject({
+    reason: 'policy',
+    detail: { code: 'harness_auth', step: 'code', harness: 'claude' },
+  });
+  expect(s.step_visits['code']).toBe(1);
+});
+
 it('final handler ingestion adds only the tail after live output, with no duplicate records or gaps', async () => {
   const task = buildTask();
   const f = setup(task, { mode: 'direct-pr' });

@@ -1,11 +1,12 @@
 /**
  * `cusr doctor` (T112, FR-027.02/032/033, contracts/cli-daemon.md). Read-only probes with no model call,
  * sudo or provisioning: the writer and store, what recovery has not resolved, the host's systemd and
- * sandbox, paths, credentials (presence only, never content) and the capability manifests. A binding is
+ * sandbox, paths, credentials (presence, plus a login's expiry date; token values are never read out)
+ * and the capability manifests. A binding is
  * reported proven only from a recorded manifest, never from a binary's help; a failed check is a failed
  * doctor (exit 1), and it names the fix for the operator to run.
  */
-import { lstatSync, unlinkSync, writeFileSync } from 'node:fs';
+import { lstatSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import type { HostProbePort } from '../adapters/ports.ts';
@@ -92,6 +93,53 @@ const fail = (
   detail: string,
   fix: string | null = null,
 ): DoctorCheck => ({ name, status: 'fail', detail, fix });
+
+/**
+ * The earliest refresh-token expiry (`refreshTokenExpiresAt`, epoch ms) in an OAuth login file, as the
+ * Claude CLI writes it; null when the file has none or cannot be read. Only that date leaves this
+ * function. A date in the future does not prove the provider still honours the login.
+ */
+export function loginExpiry(file: string): number | null {
+  let v: unknown;
+  try {
+    const st = lstatSync(file);
+    if (!st.isFile() || st.size > 1024 * 1024) return null;
+    v = JSON.parse(readFileSync(file, 'utf8')) as unknown;
+  } catch {
+    return null;
+  }
+  if (typeof v !== 'object' || v === null) return null;
+  const dates = Object.values(v).flatMap((x: unknown) => {
+    const at =
+      typeof x === 'object' && x !== null
+        ? (x as Record<string, unknown>)['refreshTokenExpiresAt']
+        : undefined;
+    return typeof at === 'number' && Number.isFinite(at) ? [at] : [];
+  });
+  return dates.length === 0 ? null : Math.min(...dates);
+}
+
+function credentialCheck(
+  ref: { readonly name: string; readonly file: string },
+  found: string | null,
+  now: number,
+): DoctorCheck {
+  const name = `credential:${ref.name}`;
+  if (found === null)
+    return fail(name, 'file does not exist', `create ${ref.file}`);
+  const expires = loginExpiry(found);
+  if (expires === null) return ok_(name, 'file exists; content not checked');
+  if (expires <= now)
+    return fail(
+      name,
+      `login expired at ${new Date(expires).toISOString()}`,
+      `sign in to the harness again so ${ref.file} holds a new login`,
+    );
+  return ok_(
+    name,
+    `file exists; login valid until ${new Date(expires).toISOString()} unless revoked`,
+  );
+}
 
 function storeChecks(deps: DoctorDeps): DoctorCheck[] {
   const { store } = deps;
@@ -388,18 +436,10 @@ export async function runDoctor(
           await findTerminalBin(runtime.terminal, runtime.tool_paths, host),
         ),
       );
-    for (const ref of runtime?.credential_refs ?? []) {
-      const found = await host.realpath(ref.file);
+    for (const ref of runtime?.credential_refs ?? [])
       checks.push(
-        found === null
-          ? fail(
-              `credential:${ref.name}`,
-              'file does not exist',
-              `create ${ref.file}`,
-            )
-          : ok_(`credential:${ref.name}`, 'file exists; content not read'),
+        credentialCheck(ref, await host.realpath(ref.file), deps.now()),
       );
-    }
     if (project !== undefined) {
       const loc = locations[project];
       if (loc === undefined)

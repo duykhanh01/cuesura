@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto';
 import {
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
@@ -23,6 +25,96 @@ afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 const fixture = () => ({ base: tempDir('cusr-home-', dirs) });
+
+describe('refreshed login goes back to its source (#97)', () => {
+  const login = (refresh: string) =>
+    JSON.stringify({
+      claudeAiOauth: {
+        accessToken: `access-${refresh}`,
+        refreshToken: refresh,
+        expiresAt: 1,
+        scopes: ['user:inference'],
+      },
+    });
+  const setup = (o: { pinned?: boolean } = {}) => {
+    const { base } = fixture();
+    const run = RunDir.open({
+      dataDir: base,
+      kind: 'runs',
+      id: 'refresh',
+      redactor: new Redactor(),
+    });
+    const source = join(base, 'credentials.json');
+    writeFileSync(source, login('refresh-token-one-123456'), { mode: 0o600 });
+    const pin =
+      o.pinned === true
+        ? {
+            sha256: createHash('sha256')
+              .update(readFileSync(source))
+              .digest('hex'),
+          }
+        : {};
+    const installed = installAuth(run, [
+      {
+        ref: { name: 'claude', file: source },
+        to: '.claude/.credentials.json',
+        ...pin,
+      },
+    ]);
+    const copy = join(installed.home, '.claude/.credentials.json');
+    return { base, source, installed, copy };
+  };
+
+  it('writes the refreshed copy back atomically, keeping the mode', () => {
+    const { base, source, installed, copy } = setup();
+    writeFileSync(copy, login('refresh-token-two-654321'));
+    removeAuth(installed);
+    expect(readFileSync(source, 'utf8')).toBe(
+      login('refresh-token-two-654321'),
+    );
+    expect(statSync(source).mode & 0o777).toBe(0o600);
+    expect(readdirSync(base).filter((n) => n.endsWith('.tmp'))).toEqual([]);
+  });
+
+  it('leaves a source that changed since the copy: a new login wins', () => {
+    const { source, installed, copy } = setup();
+    writeFileSync(copy, login('refresh-token-two-654321'));
+    writeFileSync(source, login('signed-in-again-000000'));
+    removeAuth(installed);
+    expect(readFileSync(source, 'utf8')).toBe(login('signed-in-again-000000'));
+  });
+
+  it.each([
+    ['not JSON', 'garbage'],
+    ['another shape', JSON.stringify({ apiKey: 'x' })],
+  ])('never writes back a copy that is %s', (_name, content) => {
+    const { source, installed, copy } = setup();
+    writeFileSync(copy, content);
+    removeAuth(installed);
+    expect(readFileSync(source, 'utf8')).toBe(
+      login('refresh-token-one-123456'),
+    );
+  });
+
+  it('never writes back a pinned file or through a symlinked copy', () => {
+    const pinned = setup({ pinned: true });
+    writeFileSync(pinned.copy, login('refresh-token-two-654321'));
+    removeAuth(pinned.installed);
+    expect(readFileSync(pinned.source, 'utf8')).toBe(
+      login('refresh-token-one-123456'),
+    );
+
+    const linked = setup();
+    const elsewhere = join(linked.base, 'elsewhere.json');
+    writeFileSync(elsewhere, login('refresh-token-two-654321'));
+    rmSync(linked.copy);
+    symlinkSync(elsewhere, linked.copy);
+    removeAuth(linked.installed);
+    expect(readFileSync(linked.source, 'utf8')).toBe(
+      login('refresh-token-one-123456'),
+    );
+  });
+});
 
 describe('private home auth', () => {
   it.each([0, 1024 * 1024 + 1])(

@@ -13,7 +13,7 @@ import type { Uuid } from '../../../src/shared/brand.ts';
 import { replay } from '../../../src/engine/evolve.ts';
 import { hashCanonical } from '../../../src/shared/hash.ts';
 import { openFileStoreForTest } from '../../../src/store/testing.ts';
-import { buildTask, uuidOf } from '../../support/builders.ts';
+import { buildTask, DEFAULT_LIMITS, uuidOf } from '../../support/builders.ts';
 import { createGrantStart } from '../../support/runtime.ts';
 import {
   agentData,
@@ -1637,6 +1637,144 @@ describe('harness re-proved after the task started', () => {
     const again = d.pendingOne(t.id, 'start_agent');
     expect(again.id).not.toBe(coder.id);
     expect(again.request).toMatchObject({ role: 'coder' });
+  });
+});
+
+describe('harness login expired (#97)', () => {
+  const AUTH = {
+    failure_class: 'auth_config',
+    message:
+      'success: Failed to authenticate: OAuth session expired and could not be refreshed',
+    invoked: true,
+    auth: { harness: 'claude' },
+  };
+  const INFRA = { failure_class: 'infra', message: 'exit 1', invoked: true };
+  const unlimited = {
+    limits: {
+      max_agent_runs: null,
+      max_wall_ms: null,
+      classes: { ...DEFAULT_LIMITS.classes, infra_retries: null },
+      backoff: {
+        ...DEFAULT_LIMITS.backoff,
+        infra: { base_ms: 1000, factor: 2, max_ms: 60_000, max_attempts: null },
+      },
+    },
+  };
+
+  it('waits without a retry; recheck after signing in runs the same step and gives the visit back', () => {
+    const d = setup();
+    const t = buildTask();
+    createGrantStart(d, t, 'full-review');
+    d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE);
+    expect(d.send(t.id, { kind: 'recheck', target: 'auth' })).toMatchObject({
+      ok: true,
+      value: {
+        decision: {
+          kind: 'rejected',
+          detail: { reason: 'recheck_not_applicable' },
+        },
+      },
+    });
+    const first = d.pendingOne(t.id, 'start_agent');
+    d.complete(t.id, first.id, 'failed', AUTH);
+    const s = d.task(t.id);
+    expect(s.status).toBe('WAITING');
+    expect(s.wait).toMatchObject({
+      reason: 'policy',
+      detail: { code: 'harness_auth', step: 'code', harness: 'claude' },
+    });
+    // No backoff timer: nothing runs again until a person acts.
+    expect(Object.values(s.timers).filter((x) => x.kind === 'backoff')).toEqual(
+      [],
+    );
+    expect(d.pending(t.id, 'start_agent')).toEqual([]);
+
+    d.must(t.id, { kind: 'recheck', target: 'auth' });
+    expect(d.task(t.id).visit_credits).toEqual({
+      code: { visits: 1, through: 1 },
+    });
+    expect(code(d, t)).toBe('execution_slot');
+    grant(d);
+    const again = d.pendingOne(t.id, 'start_agent');
+    expect(again.id).not.toBe(first.id);
+    expect(stepOf(d, t, again)).toBe('code');
+    expect(d.task(t.id).step_visits['code']).toBe(2);
+
+    // A login still broken waits again; only the new attempt is credited.
+    d.complete(t.id, again.id, 'failed', AUTH);
+    expect(code(d, t)).toBe('harness_auth');
+    d.must(t.id, { kind: 'recheck', target: 'auth' });
+    expect(d.task(t.id).visit_credits).toEqual({
+      code: { visits: 2, through: 2 },
+    });
+  });
+
+  it('a step out of visits only on infrastructure failures gets them back on recheck', () => {
+    const d = setup();
+    const t = buildTask();
+    createGrantStart(d, t, 'full-review', unlimited);
+    d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE);
+    for (let i = 0; i < 12; i++) {
+      d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'failed', INFRA);
+      expect(code(d, t)).toBe('infra_backoff');
+      d.now += DAY;
+      d.fire();
+      grant(d);
+    }
+    const s = d.task(t.id);
+    expect(s.wait?.detail).toMatchObject({
+      code: 'loop_exhausted',
+      step: 'code',
+      visits: 12,
+    });
+    expect(d.pending(t.id, 'start_agent')).toEqual([]);
+
+    d.must(t.id, { kind: 'recheck', target: 'visits' });
+    expect(d.task(t.id).visit_credits).toEqual({
+      code: { visits: 12, through: 12 },
+    });
+    expect(code(d, t)).toBe('execution_slot');
+    grant(d);
+    const next = d.pendingOne(t.id, 'start_agent');
+    expect(stepOf(d, t, next)).toBe('code');
+    expect(d.task(t.id).step_visits['code']).toBe(13);
+    // Nothing is left to credit: the same attempts are never counted twice.
+    expect(d.send(t.id, { kind: 'recheck', target: 'visits' })).toMatchObject({
+      ok: true,
+      value: { decision: { kind: 'rejected' } },
+    });
+  });
+
+  it('a step out of visits on its own work is not reopened by recheck', () => {
+    const d = setup();
+    const t = buildTask();
+    createGrantStart(d, t, 'full-review', unlimited);
+    d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE);
+    for (let i = 0; i < 12; i++) {
+      const a = d.pendingOne(t.id, 'start_agent');
+      if (i === 11) {
+        d.complete(t.id, a.id, 'failed', {
+          failure_class: 'quality',
+          signature: 'q1',
+          invoked: true,
+        });
+        break;
+      }
+      d.complete(t.id, a.id, 'failed', INFRA);
+      d.now += DAY;
+      d.fire();
+      grant(d);
+    }
+    expect(code(d, t)).toBe('loop_exhausted');
+    expect(d.send(t.id, { kind: 'recheck', target: 'visits' })).toMatchObject({
+      ok: true,
+      value: {
+        decision: {
+          kind: 'rejected',
+          detail: { reason: 'recheck_not_applicable' },
+        },
+      },
+    });
   });
 });
 

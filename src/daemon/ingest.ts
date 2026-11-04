@@ -68,6 +68,8 @@ export type EffectOutcome =
           readonly known: string;
           readonly observed: string;
         };
+        /** The harness ran and its login was refused or expired. */
+        readonly auth?: { readonly harness: string };
       };
     }
   | { readonly outcome: 'unknown'; readonly detail: string };

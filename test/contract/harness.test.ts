@@ -705,6 +705,35 @@ describe('refusal, auth and rate limit map to failures with usage kept (syntheti
     expect(classifyFailure('connection reset', 400)).toBe('vendor_error');
   });
 
+  it('an expired or revoked login is auth, not a vendor error to retry (#97)', () => {
+    // The record Claude printed when its OAuth refresh failed, without an HTTP status.
+    const read = claudeAdapter.read({
+      stdout: [
+        {
+          type: 'result',
+          subtype: 'success',
+          is_error: true,
+          result:
+            'Failed to authenticate: OAuth session expired and could not be refreshed',
+        },
+      ],
+      stderr: '',
+      truncated_records: 0,
+    });
+    expect(read.failure?.kind).toBe('auth');
+    for (const detail of [
+      'Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again.',
+      'authentication_error: invalid x-api-key',
+      'Token has expired',
+      'invalid_grant',
+      'Please run /login',
+    ])
+      expect(classifyFailure(detail, null)).toBe('auth');
+    expect(classifyFailure('connection reset by peer', null)).toBe(
+      'vendor_error',
+    );
+  });
+
   it('codex keeps a recovered reconnect as a warning, not a failure', () => {
     const facts = codexAdapter.read({
       stdout: [

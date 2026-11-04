@@ -676,6 +676,7 @@ const HARNESS_FAILURE_CLASS: Record<HarnessFailure, FailureClass> = {
 
 function agentOutcome(
   role: Role,
+  harness: string,
   o: HarnessOutcome,
   head: string | null,
   inputDigest: string | null,
@@ -685,6 +686,7 @@ function agentOutcome(
       outcome: 'failed',
       data: {
         failure_class: HARNESS_FAILURE_CLASS[o.failure],
+        ...(o.failure === 'auth' ? { auth: { harness } } : {}),
         message: o.detail,
         // The reservation is released only when the harness provably never ran (FR-010/016).
         invoked: o.invoked,
@@ -1108,7 +1110,13 @@ async function startAgent(
       return unknown(`spool ingest ${report.status}: ${report.detail ?? ''}`);
     }
   }
-  const plain = agentOutcome(r, out, review?.sha ?? null, inputDigest);
+  const plain = agentOutcome(
+    r,
+    binding.harness,
+    out,
+    review?.sha ?? null,
+    inputDigest,
+  );
   // Sessions are a worker concern: a reviewer always runs in its own new, read-only session.
   const outcome = worker ? withSession(plain, out, resume) : plain;
   if (!worker) return outcome;

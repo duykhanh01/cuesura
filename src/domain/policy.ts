@@ -126,8 +126,8 @@ export const LimitsSchema = z
       .object({ rate_limit: BackoffSchema, infra: BackoffSchema })
       .strict(),
     /**
-     * Only admin amendments add visits. This is the only way to reopen an exhausted step without
-     * changing its graph.
+     * Only admin amendments add visits here. A `recheck` may also give back visits spent on attempts
+     * that failed before doing any work (`TaskState.visit_credits`); quality failures never.
      */
     extra_visits: z.record(z.string(), z.number().int().nonnegative()),
   })

@@ -215,6 +215,11 @@ Task đã bắt đầu giữ hash manifest trong snapshot, nên lượt agent k�
 (harness, hash cũ, hash mới). Kiểm tra manifest mới là lượt proof mình đã duyệt, rồi chạy
 `cusr task recheck <id>`: task nhận manifest mới và chạy lại bước đó, không cần hủy hay tạo lại task.
 
+Lỗi đăng nhập harness (`WAITING/policy harness_auth`): đăng nhập lại vào đúng file trong
+`runtime.credential_refs` (Claude: `~/.claude/.credentials.json`, không phải profile Claude đang dùng
+để phát triển) rồi `cusr task recheck <id>`. Task `loop_exhausted` mà các lượt cuối đều lỗi hạ tầng hoặc đăng nhập
+cũng dùng `recheck` để lấy lại visit; xem [Phiên đăng nhập harness](../deploy/README.md#phiên-đăng-nhập-harness).
+
 Lùi: truyền SHA cũ cho script rồi restart. Nếu release mới đã migrate DB, bản cũ có thể không mở được DB: dừng
 daemon và chép `data/cusr.db` trước mỗi lần nâng có migration. Backup/restore chưa được nghiệm thu, nên coi đây là
 biện pháp tốt nhất hiện có, không phải bảo đảm.

@@ -895,6 +895,18 @@ export function applyInPlace(
     case 'WorktreeChangeAccepted':
       s.run.worktree_tree = event.payload.tree;
       break;
+    case 'VisitsCredited': {
+      const prev = s.visit_credits?.[event.payload.step];
+      const ns = event.payload.attempt_ids.map((id) => s.attempts[id]?.n ?? 0);
+      s.visit_credits = {
+        ...s.visit_credits,
+        [event.payload.step]: {
+          visits: (prev?.visits ?? 0) + event.payload.attempt_ids.length,
+          through: Math.max(prev?.through ?? 0, ...ns),
+        },
+      };
+      break;
+    }
     case 'ManifestChangeAccepted':
       s.run.manifest_refs = {
         ...s.run.manifest_refs,

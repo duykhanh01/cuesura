@@ -1,4 +1,5 @@
 import type { DetailCode, TaskState } from '../domain/state.ts';
+import { exhaustedByInfra } from '../engine/recheck.ts';
 import { runConfigConfirmed } from '../engine/run-config.ts';
 
 /**
@@ -169,7 +170,16 @@ const ROWS: Readonly<Record<DetailCode, Row>> = {
   merge_not_done: stuck,
   gate_tree_unstable: stuck,
   publish_content_invalid: stuck,
-  loop_exhausted: exhausted,
+  loop_exhausted: (c) =>
+    exhaustedByInfra(c.s) === null
+      ? exhausted(c)
+      : [
+          recheck(
+            c,
+            'The latest visits were spent on infrastructure, rate-limit or login failures: gives those back and runs the step again. Fix the cause first.',
+          ),
+          cancel(c),
+        ],
   ladder_exhausted: exhausted,
   agent_runs_exhausted: exhausted,
   agent_runs_insufficient: exhausted,
@@ -262,6 +272,16 @@ const ROWS: Readonly<Record<DetailCode, Row>> = {
     recheck(
       c,
       'Takes the observed tree as the task’s own (recorded as your change) and runs the step again.',
+    ),
+    cancel(c),
+  ],
+  harness_auth: (c) => [
+    external(
+      `Sign in to the ${typeof c.s.wait?.detail['harness'] === 'string' ? `${c.s.wait.detail['harness']} ` : ''}harness again on the daemon host, in the credential file runtime.credential_refs names.`,
+    ),
+    recheck(
+      c,
+      'Runs the same step again; the attempts that failed on the login give their visits back.',
     ),
     cancel(c),
   ],

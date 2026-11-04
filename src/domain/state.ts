@@ -123,6 +123,8 @@ export const DETAIL_CODES = [
   'worktree_changed',
   // The harness manifest was re-proved after the task froze its runtime snapshot; additive only.
   'manifest_changed',
+  // The harness ran but its login was refused or expired; additive only.
+  'harness_auth',
   'publish_content_invalid',
   // PR retargeted away from the task's base branch (FR-041.05); additive only.
   'target_mismatch',
@@ -527,6 +529,11 @@ export type TaskState = {
   context_ref: { revision: number; hash: string } | null;
   current_step: string | null;
   step_visits: Record<string, number>;
+  /**
+   * Visits given back per step (`VisitsCredited`): `visits` extends the step's limit and `through` is
+   * the highest attempt number credited, so no attempt is credited twice. Absent until the first.
+   */
+  visit_credits?: Record<string, { visits: number; through: number }>;
   attempts: Record<string, Attempt>;
   current_attempt: Record<string, string>;
   rungs: { by_step: Record<string, number>; floor_level: Level | null };

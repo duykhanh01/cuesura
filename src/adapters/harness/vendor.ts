@@ -294,8 +294,9 @@ export function validCounters(
 
 const OVERLOADED_STATUS = new Set([500, 502, 503, 504, 529]);
 const RATE_LIMITED_TEXT = /\b429\b|rate.?limit|too many requests/i;
+// An expired or revoked login is a person's fix, never a retry: each retry fails the same way.
 const AUTH_TEXT =
-  /\b40[13]\b|unauthori[sz]ed|forbidden|not logged in|invalid api key/i;
+  /\b40[13]\b|unauthori[sz]ed|forbidden|not logged in|invalid api key|failed to authenticate|authentication[ _](?:failed|error|required)|oauth (?:session|token)|(?:session|token) (?:has )?expired|could not be refreshed|refresh token|invalid_grant|please (?:run \/login|log ?in|sign in)/i;
 const OVERLOADED_TEXT =
   /\b(?:50[0234]|529)\b|overloaded|at capacity|server is busy|temporarily unavailable|service unavailable|internal server error|bad gateway|gateway time-?out/i;
 

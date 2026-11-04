@@ -349,7 +349,14 @@ export type EventPayloads = {
   DrainFinished: { at: number };
   RecheckRequested: {
     request_id: string;
-    target: 'config' | 'observation' | 'drain' | 'worktree' | 'manifest';
+    target:
+      | 'config'
+      | 'observation'
+      | 'drain'
+      | 'worktree'
+      | 'manifest'
+      | 'auth'
+      | 'visits';
     at: number;
   };
   // Execution modes (task-execution-modes.md)
@@ -383,6 +390,16 @@ export type EventPayloads = {
     harness: string;
     manifest_hash: string;
     previous: string;
+    by: string;
+    at: number;
+  };
+  /**
+   * A person gave a step back the visits its attempts spent on failures that say nothing about the work
+   * (infrastructure, rate limit, login); the step's limit grows by one per attempt listed.
+   */
+  VisitsCredited: {
+    step: string;
+    attempt_ids: string[];
     by: string;
     at: number;
   };
@@ -472,6 +489,7 @@ export const EVENT_TYPES = [
   'HeadDriftRecorded',
   'WorktreeChangeAccepted',
   'ManifestChangeAccepted',
+  'VisitsCredited',
 ] as const satisfies readonly EventType[];
 
 type _MissingEventTypes = Exclude<EventType, (typeof EVENT_TYPES)[number]>;

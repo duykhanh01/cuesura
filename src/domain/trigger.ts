@@ -323,6 +323,11 @@ export const FailureDataSchema = z
       })
       .strict()
       .optional(),
+    // Additive: the harness ran and its login was refused or expired; a person signs in again.
+    auth: z
+      .object({ harness: z.string().min(1) })
+      .strict()
+      .optional(),
   })
   .strict();
 export type FailureData = z.infer<typeof FailureDataSchema>;
@@ -644,6 +649,8 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
         'drain',
         'worktree',
         'manifest',
+        'auth',
+        'visits',
       ]),
     })
     .strict(),
