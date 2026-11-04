@@ -74,7 +74,9 @@ assistant không đọc `owner.token` là quy tắc, không phải giới hạn 
    cho cả luồng để các bước dùng cùng cấu hình.
 
    Proof chạy bốn role `coder`, `fixer`, `reviewer`, `decider`, tốn 4 lượt cho mỗi harness
-   (thêm `--prove-resume` cho Claude thì cần 5 lượt).
+   (thêm `--prove-resume` cho Claude thì cần 5 lượt). `--model` và `--effort` áp dụng chung cho cả bốn role.
+   Proof chỉ kiểm sandbox layout, xác thực và các thao tác cơ học của role, không kiểm chất lượng code,
+   nên dùng model rẻ nhất với effort `low`; model của proof không cần trùng model role dùng khi chạy task.
 
    Lặp lại cho Codex với `--harness codex --vendor codex --binary "$(command -v codex)"`,
    `--model gpt-6-luna --effort low`, auth/rules Codex tương ứng và `--out evidence-codex.json`;
@@ -207,6 +209,11 @@ Script lấy code từ `repo/`, không từ repo phát triển.
 
 `doctor` báo `manifest:*` thì pin hoặc layout đã đổi: chứng minh lại harness trước khi chạy task. Không sửa tay
 `manifest.json`.
+
+Mỗi lần chứng minh lại sinh manifest mới với hash mới. Task đã xác nhận giữ hash manifest lúc xác nhận, nên
+lượt agent kế tiếp bị chặn với `auth_config (harness <tên> manifest changed since the run was confirmed)`.
+Task đó không tự chạy tiếp được: hủy rồi tạo lại task (digest run config đổi) và xác nhận lại. Vì vậy chứng
+minh lại harness trước khi giao task mới, không làm giữa lúc còn task đã xác nhận nhưng chưa xong.
 
 Lùi: truyền SHA cũ cho script rồi restart. Nếu release mới đã migrate DB, bản cũ có thể không mở được DB: dừng
 daemon và chép `data/cusr.db` trước mỗi lần nâng có migration. Backup/restore chưa được nghiệm thu, nên coi đây là
