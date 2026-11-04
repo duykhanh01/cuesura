@@ -38,7 +38,6 @@ import {
 export const CLAUDE_SETTINGS_FILE = 'claude-settings.json';
 export const CLAUDE_RESULT_POINTER = ['structured_output'] as const;
 const REVIEWER_DISALLOWED = 'Edit,Write';
-const EMPTY_MCP = '{"mcpServers":{}}';
 /** Auto-approving modes rejected by the archived outer-sandbox contract. */
 const APPROVING_MODES = new Set(['bypassPermissions', 'acceptEdits', 'auto']);
 
@@ -199,12 +198,6 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
     '--settings',
     settingsFile,
     ...(input.session === null ? [] : ['--resume', input.session.ref]),
-    '--setting-sources',
-    '',
-    '--safe-mode',
-    '--strict-mcp-config',
-    '--mcp-config',
-    EMPTY_MCP,
     ...(input.role === 'reviewer'
       ? ['--disallowedTools', REVIEWER_DISALLOWED]
       : []),

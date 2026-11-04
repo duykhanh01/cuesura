@@ -188,9 +188,18 @@ describe('harness argv and settings follow the pinned T007 shape (T068/T069)', (
       );
       expect(plan.ok).toBe(true);
       if (!plan.ok) return;
-      // The archived runs predate dropping --no-session-persistence.
+      // The archived runs predate dropping --no-session-persistence and the Claude isolation flags.
+      const dropped = new Set([
+        '--no-session-persistence',
+        '--safe-mode',
+        '--strict-mcp-config',
+      ]);
+      const withValue = new Set(['--setting-sources', '--mcp-config']);
       const recorded = recordedHarnessArgv(attempt).filter(
-        (a) => a !== '--no-session-persistence',
+        (a, i, all) =>
+          !dropped.has(a) &&
+          !withValue.has(a) &&
+          !withValue.has(all[i - 1] ?? ''),
       );
       // The archived claude reviewer run predates --disallowedTools for reviewers; see below.
       const ours = [...plan.value.argv];
@@ -203,6 +212,8 @@ describe('harness argv and settings follow the pinned T007 shape (T068/T069)', (
       }
       expect(ours.slice(0, recorded.length)).toEqual(recorded);
       if (r.vendor === 'claude') {
+        for (const flag of [...dropped, ...withValue])
+          expect(plan.value.argv).not.toContain(flag);
         expect(plan.value.context_files).toHaveLength(1);
         expect(JSON.parse(plan.value.context_files[0]?.content ?? '')).toEqual(
           JSON.parse(readReal(`${attempt}/context/claude-settings.json`)),
