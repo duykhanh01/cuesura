@@ -16,8 +16,7 @@ type Obj = Record<string, unknown>;
 const obj = (v: unknown): Obj =>
   typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Obj) : {};
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
-const num = (v: unknown): number | null =>
-  typeof v === 'number' && Number.isFinite(v) ? v : null;
+const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 export type PullFacts = {
   readonly id: number | null;
@@ -84,16 +83,11 @@ export async function readMergeCommit(
   const listed = await listAll(port, `repos/${repo}/issues/${n}/events`, (b) =>
     Array.isArray(b) ? b : null,
   );
-  if (!listed.ok)
-    return fact('unknown', `issue events unreadable: ${listed.error.detail}`);
-  if (!listed.value.complete)
-    return fact('unknown', 'issue events truncated by page cap');
-  const merged = listed.value.items
-    .map(obj)
-    .filter((e) => e['event'] === 'merged');
+  if (!listed.ok) return fact('unknown', `issue events unreadable: ${listed.error.detail}`);
+  if (!listed.value.complete) return fact('unknown', 'issue events truncated by page cap');
+  const merged = listed.value.items.map(obj).filter((e) => e['event'] === 'merged');
   if (merged.length === 0) return fact('missing', 'no merged event');
-  if (merged.length > 1)
-    return fact('conflict', `${merged.length} merged events`);
+  if (merged.length > 1) return fact('conflict', `${merged.length} merged events`);
   const e = merged[0] as Obj;
   const at = { event_id: num(e['id']) };
   const sha = e['commit_id'];
@@ -102,11 +96,7 @@ export async function readMergeCommit(
   if (typeof sha !== 'string' || !SHA_RE.test(sha))
     return fact('invalid', 'merged event commit_id is not a 40-hex SHA', at);
   if (sha === pull.head.sha || sha === pull.base.sha)
-    return fact(
-      'conflict',
-      'merged event commit_id equals the PR head or base SHA',
-      at,
-    );
+    return fact('conflict', 'merged event commit_id equals the PR head or base SHA', at);
   let url: URL;
   try {
     const u = e['commit_url'];
@@ -128,11 +118,7 @@ export async function readMergeCommit(
     url.hash !== '' ||
     url.pathname.toLowerCase() !== `/repos/${repo}/commits/${sha}`.toLowerCase()
   ) {
-    return fact(
-      'conflict',
-      'merged event commit_url points outside this repository',
-      at,
-    );
+    return fact('conflict', 'merged event commit_url points outside this repository', at);
   }
   if (str(e['created_at']) === null || e['created_at'] !== pull.merged_at)
     return fact('conflict', 'merged event time differs from merged_at', at);
@@ -152,8 +138,7 @@ export type MergeEvidence = {
   /** `pulls.head.sha`, shown by T008 to equal the head at merge across merge/squash/rebase. */
   readonly head_at_merge: string | null;
   readonly merge_commit: MergeCommitFact;
-  readonly merge_endpoint:
-    'merged_204' | 'not_merged_404_unconfirmed' | 'unknown';
+  readonly merge_endpoint: 'merged_204' | 'not_merged_404_unconfirmed' | 'unknown';
   readonly completeness: 'complete' | 'incomplete';
   readonly gaps: readonly string[];
 };
@@ -194,8 +179,7 @@ export async function readMergeEvidence(
   if (pull.head.sha === null || !SHA_RE.test(pull.head.sha))
     gaps.push('head sha missing or invalid');
   if (endpoint !== 'merged_204') gaps.push(`merge endpoint ${endpoint}`);
-  if (commit.status !== 'found')
-    gaps.push(`merge commit ${commit.status}: ${commit.basis}`);
+  if (commit.status !== 'found') gaps.push(`merge commit ${commit.status}: ${commit.basis}`);
   if (!again.ok) gaps.push(`pull re-read failed: ${again.error.detail}`);
   else {
     const p = pullFacts(again.value.body);

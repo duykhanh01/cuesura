@@ -25,33 +25,18 @@ export const LOCK_CONFLICT_EXIT = 75;
 export const LOCKS_DIR = 'locks';
 
 /** Absolute lock file path; creates DATA_DIR/locks (0700) when asked. */
-export function lockFilePath(
-  dataDir: string,
-  operationId: string,
-  create = false,
-): string {
+export function lockFilePath(dataDir: string, operationId: string, create = false): string {
   if (!isAbsolute(dataDir))
-    throw new RunnerFileError(
-      'unsafe_path',
-      `data dir ${dataDir} must be absolute`,
-    );
+    throw new RunnerFileError('unsafe_path', `data dir ${dataDir} must be absolute`);
   if (!isSafeId(operationId))
-    throw new RunnerFileError(
-      'unsafe_id',
-      `unsafe operation id ${JSON.stringify(operationId)}`,
-    );
-  if (create)
-    mkdirSync(join(dataDir, LOCKS_DIR), { recursive: true, mode: 0o700 });
+    throw new RunnerFileError('unsafe_id', `unsafe operation id ${JSON.stringify(operationId)}`);
+  if (create) mkdirSync(join(dataDir, LOCKS_DIR), { recursive: true, mode: 0o700 });
   return join(realpathSync(dataDir), LOCKS_DIR, `${operationId}.lock`);
 }
 
 /** Runs `command` while holding the exclusive lock; a held lock exits {@link LOCK_CONFLICT_EXIT} without running it. */
-export function flockArgv(
-  lockFile: string,
-  command: readonly string[],
-): string[] {
-  if (command.length === 0)
-    throw new RunnerFileError('invalid_argument', 'empty command');
+export function flockArgv(lockFile: string, command: readonly string[]): string[] {
+  if (command.length === 0) throw new RunnerFileError('invalid_argument', 'empty command');
   return [
     FLOCK,
     '--exclusive',
@@ -117,9 +102,7 @@ export type LaunchClaim =
 export function claimLaunch(run: RunDir, marker: LaunchMarker): LaunchClaim {
   const parsed = LaunchMarkerSchema.parse(marker);
   const file = run.createLaunchMarker(parsed);
-  return file === null
-    ? { state: 'marker_exists' }
-    : { state: 'claimed', file };
+  return file === null ? { state: 'marker_exists' } : { state: 'claimed', file };
 }
 
 /**

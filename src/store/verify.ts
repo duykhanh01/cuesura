@@ -31,9 +31,7 @@ export type VerifyReport = {
  * canonical JSON.
  */
 export function verifyProjections(db: Database): VerifyReport {
-  const rows = db
-    .prepare('SELECT * FROM events ORDER BY global_seq')
-    .all() as EventRow[];
+  const rows = db.prepare('SELECT * FROM events ORDER BY global_seq').all() as EventRow[];
   const byTask = new Map<string, DomainEvent[]>();
   for (const r of rows) {
     const list = byTask.get(r.task_id) ?? [];
@@ -93,13 +91,7 @@ export function verifyProjections(db: Database): VerifyReport {
     });
   }
 
-  compare(
-    mismatches,
-    'tasks',
-    sink.tasks,
-    db.prepare('SELECT * FROM tasks').all(),
-    (r) => r['id'],
-  );
+  compare(mismatches, 'tasks', sink.tasks, db.prepare('SELECT * FROM tasks').all(), (r) => r['id']);
   const deps = new Map<string, unknown>();
   for (const [t, ds] of sink.deps)
     for (const d of ds) deps.set(`${t}#${d}`, { task_id: t, depends_on: d });
@@ -129,8 +121,7 @@ export function verifyProjections(db: Database): VerifyReport {
     'frozen_policies',
     sink.policies,
     db.prepare('SELECT * FROM frozen_policies').all(),
-    (r) =>
-      `${String(r['task_id'])}#${String(r['revision'])}#${String(r['policy_version'])}`,
+    (r) => `${String(r['task_id'])}#${String(r['revision'])}#${String(r['policy_version'])}`,
   );
   compare(
     mismatches,
@@ -158,13 +149,7 @@ export function verifyProjections(db: Database): VerifyReport {
     ['external_observations', sink.observations, (r) => r['observation_id']],
   ];
   for (const [table, expected, key] of runtimeTables)
-    compare(
-      mismatches,
-      table,
-      expected,
-      db.prepare(`SELECT * FROM ${table}`).all(),
-      key,
-    );
+    compare(mismatches, table, expected, db.prepare(`SELECT * FROM ${table}`).all(), key);
 
   return {
     ok: mismatches.length === 0,
@@ -182,16 +167,11 @@ function compare(
   key: (r: Record<string, unknown>) => unknown,
 ): void {
   const actual = new Map<string, unknown>();
-  for (const r of actualRows as Record<string, unknown>[])
-    actual.set(String(key(r)), { ...r });
+  for (const r of actualRows as Record<string, unknown>[]) actual.set(String(key(r)), { ...r });
   for (const k of new Set([...expected.keys(), ...actual.keys()])) {
     const e = expected.get(k);
     const a = actual.get(k);
-    if (
-      e === undefined ||
-      a === undefined ||
-      canonicalJson(e) !== canonicalJson(a)
-    ) {
+    if (e === undefined || a === undefined || canonicalJson(e) !== canonicalJson(a)) {
       out.push({ table, key: k, expected: e ?? null, actual: a ?? null });
     }
   }

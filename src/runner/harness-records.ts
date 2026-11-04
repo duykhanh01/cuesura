@@ -97,8 +97,7 @@ function readTrusted(path: string): Result<unknown, string> {
   try {
     const st = lstatSync(path);
     if (!st.isFile()) return err(`${path} is not a regular file`);
-    if ((st.mode & 0o022) !== 0)
-      return err(`${path} is writable by group or others`);
+    if ((st.mode & 0o022) !== 0) return err(`${path} is writable by group or others`);
     if (typeof process.getuid === 'function' && st.uid !== process.getuid())
       return err(`${path} is owned by another user`);
     if (st.size > RECORD_BYTES) return err(`${path} is too large`);
@@ -113,10 +112,7 @@ function readTrusted(path: string): Result<unknown, string> {
 export const recordDir = (dataDir: string, harness: string): string =>
   join(dataDir, HARNESS_RECORDS_DIR, harness);
 
-export function readPin(
-  dataDir: string,
-  harness: string,
-): Result<VendorPin, string> {
+export function readPin(dataDir: string, harness: string): Result<VendorPin, string> {
   const path = join(recordDir(dataDir, harness), PIN_FILE);
   const raw = readTrusted(path);
   if (!raw.ok) return raw;
@@ -124,10 +120,7 @@ export function readPin(
   return pin.success ? ok(pin.data) : err(`${path} fails its schema`);
 }
 
-export function loadHarnessRecord(
-  dataDir: string,
-  harness: string,
-): Result<HarnessRecord, string> {
+export function loadHarnessRecord(dataDir: string, harness: string): Result<HarnessRecord, string> {
   const pin = readPin(dataDir, harness);
   if (!pin.ok) return pin;
   const path = join(recordDir(dataDir, harness), MANIFEST_FILE);
@@ -177,8 +170,7 @@ export function harnessRecordProblems(o: {
     const record = loadHarnessRecord(o.dataDir, harness);
     const problem = record.ok
       ? harnessRecordProblem(record.value, {
-          isolation:
-            o.runtime.harness_isolation[harness] ?? 'internal_required',
+          isolation: o.runtime.harness_isolation[harness] ?? 'internal_required',
           host_policy_hash,
         })
       : record.error;
@@ -197,18 +189,12 @@ export function harnessRecordProblem(
     readonly layout_shapes?: Readonly<Record<string, Hash>>;
   },
 ): string | null {
-  if (
-    record.manifest.provider !== 'host' ||
-    record.manifest.isolation_mode !== 'native'
-  )
+  if (record.manifest.provider !== 'host' || record.manifest.isolation_mode !== 'native')
     return 'legacy outer sandbox manifest; prove and record this harness for native execution';
   const expected = hostInnerMode(record.pin);
   if (record.manifest.selected_inner_mode !== expected)
     return 'manifest permission mode differs from the pin';
-  if (
-    record.manifest.native_result !==
-    (nativeSandboxEnabled(record.pin) ? 'passed' : 'not_tried')
-  )
+  if (record.manifest.native_result !== (nativeSandboxEnabled(record.pin) ? 'passed' : 'not_tried'))
     return 'native sandbox proof differs from the pin sandbox setting';
   const settings = pinSettingsHash(record.pin);
   if (!settings.ok) return settings.error;
@@ -227,10 +213,7 @@ export function harnessRecordProblem(
   });
   if (!verified.ok) return verified.error.map((p) => p.message).join('; ');
   // A new release can change the layout an attempt launches with while every hash above still matches.
-  const shapes =
-    o.layout_shapes === undefined
-      ? layoutShapes(record.pin)
-      : ok(o.layout_shapes);
+  const shapes = o.layout_shapes === undefined ? layoutShapes(record.pin) : ok(o.layout_shapes);
   if (!shapes.ok) return shapes.error;
   const changed = Object.entries(shapes.value)
     .filter(([role, shape]) => record.manifest.layout_shapes[role] !== shape)
@@ -319,39 +302,25 @@ export function recordManifest(o: {
   const file = EvidenceFileSchema.safeParse(parsed);
   if (!file.success) return err(`${o.evidenceFile} fails its schema`);
   const entry = file.data.vendors[pin.value.vendor];
-  if (entry === undefined)
-    return err(`${o.evidenceFile} has no evidence for ${pin.value.vendor}`);
+  if (entry === undefined) return err(`${o.evidenceFile} has no evidence for ${pin.value.vendor}`);
   if (entry.binary.sha256 !== pin.value.binary.sha256)
     return err(
       `${o.evidenceFile} proves another binary (sha256 ${entry.binary.sha256}); prove ${pin.value.binary.version} first`,
     );
   const evidence = entry as unknown as EvidenceEntry;
-  if (
-    evidence.isolation_mode !== 'native' ||
-    evidence.selected_inner_mode === 'external_verified'
-  )
-    return err(
-      'evidence must prove native host execution; outer bwrap proofs no longer apply',
-    );
+  if (evidence.isolation_mode !== 'native' || evidence.selected_inner_mode === 'external_verified')
+    return err('evidence must prove native host execution; outer bwrap proofs no longer apply');
   const inner = hostInnerMode(pin.value);
   const shownInner =
-    evidence.selected_inner_mode === 'internal_required'
-      ? 'native'
-      : evidence.selected_inner_mode;
-  if (shownInner !== inner)
-    return err('evidence sandbox or permission mode differs from the pin');
+    evidence.selected_inner_mode === 'internal_required' ? 'native' : evidence.selected_inner_mode;
+  if (shownInner !== inner) return err('evidence sandbox or permission mode differs from the pin');
   const identity = harnessIdentity({ ...o, pin: pin.value });
   if (!identity.ok) return identity;
   const wanted = JSON.stringify(identity.value);
   if (entry.attested === undefined)
-    return err(
-      `${o.evidenceFile} does not attest what it proved; a proof must run with ${wanted}`,
-    );
-  const differing = (
-    Object.keys(identity.value) as (keyof HarnessIdentity)[]
-  ).filter(
-    (k) =>
-      hashCanonical(entry.attested?.[k]) !== hashCanonical(identity.value[k]),
+    return err(`${o.evidenceFile} does not attest what it proved; a proof must run with ${wanted}`);
+  const differing = (Object.keys(identity.value) as (keyof HarnessIdentity)[]).filter(
+    (k) => hashCanonical(entry.attested?.[k]) !== hashCanonical(identity.value[k]),
   );
   if (differing.length > 0)
     return err(
@@ -380,8 +349,7 @@ export function recordManifest(o: {
       host_policy_hash: identity.value.host_policy_hash,
     },
   );
-  if (problem !== null)
-    return err(`${o.evidenceFile} does not make a usable manifest: ${problem}`);
+  if (problem !== null) return err(`${o.evidenceFile} does not make a usable manifest: ${problem}`);
   if (o.dryRun) return ok(manifest);
   const dir = recordDir(o.dataDir, o.harness);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -413,10 +381,7 @@ export type WritePinInput = {
 };
 
 /** Check executable tools on the host; the harness proof separately checks native permissions. */
-export function notRunnable(
-  dirs: readonly string[],
-  tools: readonly string[],
-): string[] {
+export function notRunnable(dirs: readonly string[], tools: readonly string[]): string[] {
   const runnable = (file: string): boolean => {
     try {
       accessSync(file, constants.X_OK);
@@ -459,11 +424,9 @@ export function writePin(o: WritePinInput): Result<VendorPin, string> {
   for (const d of o.toolchain) {
     if (!isAbsolute(d)) return err(`toolchain ${d} is not an absolute path`);
     try {
-      if (!statSync(d).isDirectory())
-        return err(`toolchain ${d} is not a directory`);
+      if (!statSync(d).isDirectory()) return err(`toolchain ${d} is not a directory`);
       // The sandbox refuses a symlinked mount source at every plan; say so now.
-      if (realpathSync(d) !== d)
-        return err(`toolchain ${d} is a symlink; use ${realpathSync(d)}`);
+      if (realpathSync(d) !== d) return err(`toolchain ${d} is a symlink; use ${realpathSync(d)}`);
     } catch {
       return err(`toolchain ${d} does not exist on this host`);
     }
@@ -536,8 +499,7 @@ export function commitPin(
 ): Result<VendorPin, string> {
   const dir = recordDir(o.dataDir, o.harness);
   const path = join(dir, PIN_FILE);
-  if (!o.force && existsSync(path))
-    return err(`${path} exists; pass --force to replace it`);
+  if (!o.force && existsSync(path)) return err(`${path} exists; pass --force to replace it`);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const tmp = join(dir, `${PIN_FILE}.${process.pid}.tmp`);
   writeFileSync(tmp, `${JSON.stringify(pin, null, 2)}\n`, { mode: 0o600 });

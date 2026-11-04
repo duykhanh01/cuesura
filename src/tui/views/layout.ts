@@ -11,19 +11,9 @@ import {
   type StopReason,
   type TuiState,
 } from '../model/state.ts';
-import {
-  joinSafe,
-  sanitize,
-  uiText,
-  type SafeText,
-} from '../terminal/safe-text.ts';
+import { joinSafe, sanitize, uiText, type SafeText } from '../terminal/safe-text.ts';
 import { Frame, type Style } from '../terminal/screen.ts';
-import {
-  displayWidth,
-  truncate,
-  truncateMiddle,
-  wrap,
-} from '../terminal/width.ts';
+import { displayWidth, truncate, truncateMiddle, wrap } from '../terminal/width.ts';
 import { DIM, putSegs, seg, segsWidth, ui, type Seg } from './ink.ts';
 
 export function clockTime(at: number): string {
@@ -47,13 +37,9 @@ export function staleBanner(s: TuiState): readonly SafeText[] {
     case 'online':
       return s.stale ? [uiText(base)] : [];
     case 'connecting':
-      return [
-        uiText(s.stale ? `${base} — Connecting` : 'Connecting to the daemon'),
-      ];
+      return [uiText(s.stale ? `${base} — Connecting` : 'Connecting to the daemon')];
     case 'reconnecting':
-      return [
-        uiText(`${base} — Reconnecting (${c.attempt}/${RECONNECT_ATTEMPTS})`),
-      ];
+      return [uiText(`${base} — Reconnecting (${c.attempt}/${RECONNECT_ATTEMPTS})`)];
     case 'waiting_retry':
       return [uiText(`${base} — Retry connection (R)`)];
     case 'stopped':
@@ -63,12 +49,9 @@ export function staleBanner(s: TuiState): readonly SafeText[] {
 
 const NEXT_STEP: Record<StopReason['kind'], string> = {
   token: 'Next: fix the token file or CUSR_TOKEN_FILE, then press R.',
-  unauthenticated:
-    'Next: use a valid token (CUSR_TOKEN_FILE or the owner token), then press R.',
-  forbidden:
-    'Next: use a token that may read this, or change the filter, then press R.',
-  incompatible:
-    'Next: install the same version of cusr and the daemon, then press R.',
+  unauthenticated: 'Next: use a valid token (CUSR_TOKEN_FILE or the owner token), then press R.',
+  forbidden: 'Next: use a token that may read this, or change the filter, then press R.',
+  incompatible: 'Next: install the same version of cusr and the daemon, then press R.',
 };
 
 /** Wraps `text` in at most `rows` rows. Past that its middle goes, since a reason ends with its cause. */
@@ -100,10 +83,7 @@ export function notices(s: TuiState, cols: number, room: number): SafeText[] {
     });
   if (s.health?.healthy === false && c.kind === 'online')
     blocks.push({
-      what: joinSafe([
-        uiText('Daemon unhealthy: '),
-        s.health.reason ?? uiText('no reason given'),
-      ]),
+      what: joinSafe([uiText('Daemon unhealthy: '), s.health.reason ?? uiText('no reason given')]),
       // The daemon is healthy only while it can hand out work, so unhealthy means this (FR-010).
       next: 'New work is not being started. Next: run `cusr doctor` to see what to fix.',
     });
@@ -116,10 +96,7 @@ export function notices(s: TuiState, cols: number, room: number): SafeText[] {
 
 /** The task holding the slot by title when the board lists it, else by the start of its ID. */
 function slotHolder(s: TuiState, id: string): SafeText {
-  const listed = [
-    ...(s.board?.items ?? []),
-    ...(s.board?.attention.items ?? []),
-  ];
+  const listed = [...(s.board?.items ?? []), ...(s.board?.attention.items ?? [])];
   const task = listed.find((t) => t.task_id === id);
   return task === undefined ? uiText(id.slice(0, 8)) : truncate(task.title, 28);
 }
@@ -132,19 +109,15 @@ function statusBar(s: TuiState, cols: number): Seg[] {
   // What was read before the connection went is no answer about now: nothing here may look fine (SC-003).
   const h = s.stale ? null : s.health;
   const daemon = h === null ? 'unknown' : h.healthy ? 'ok' : 'unhealthy';
-  const dot: Style =
-    h === null ? DIM : h.healthy ? { fg: 'green' } : { fg: 'red', bold: true };
+  const dot: Style = h === null ? DIM : h.healthy ? { fg: 'green' } : { fg: 'red', bold: true };
   const slot =
     h === null
       ? uiText('-')
       : h.slot === null
         ? uiText('free')
         : slotHolder(s, h.slot.holder_task_id);
-  const queue = s.stale
-    ? '-'
-    : String(s.board?.queue.length ?? h?.queue_length ?? '-');
-  const project =
-    s.filters.project === null ? uiText('all') : sanitize(s.filters.project);
+  const queue = s.stale ? '-' : String(s.board?.queue.length ?? h?.queue_length ?? '-');
+  const project = s.filters.project === null ? uiText('all') : sanitize(s.filters.project);
   const right = ui(`updated: ${lastUpdated(s)} `, DIM);
   // Narrower terminals lose the brand and the wide separators before they lose any fact.
   for (const [wide, brand] of [
@@ -160,17 +133,9 @@ function statusBar(s: TuiState, cols: number): Seg[] {
   // (FR-008); the time stays (FR-009).
   const rest = `  queue: ${queue}  updated: ${lastUpdated(s)}  project: `;
   const fixed = ` daemon: ${daemon}  slot: ${rest}`;
-  const slotRoom = Math.max(
-    8,
-    cols - displayWidth(fixed) - Math.min(displayWidth(project), 16),
-  );
-  const facts = uiText(
-    ` daemon: ${daemon}  slot: ${truncate(slot, slotRoom)}${rest}`,
-  );
-  return [
-    seg(facts),
-    seg(truncate(project, Math.max(1, cols - displayWidth(facts)))),
-  ];
+  const slotRoom = Math.max(8, cols - displayWidth(fixed) - Math.min(displayWidth(project), 16));
+  const facts = uiText(` daemon: ${daemon}  slot: ${truncate(slot, slotRoom)}${rest}`);
+  return [seg(facts), seg(truncate(project, Math.max(1, cols - displayWidth(facts))))];
 }
 
 function barSegs(
@@ -184,9 +149,7 @@ function barSegs(
 ): Seg[] {
   const sep = ui(wide ? '  │  ' : ' │ ', DIM);
   return [
-    ...(brand
-      ? [ui(' cuesura', { bold: true, fg: 'cyan' }), ui(wide ? '   ' : ' ')]
-      : [ui(' ')]),
+    ...(brand ? [ui(' cuesura', { bold: true, fg: 'cyan' }), ui(wide ? '   ' : ' ')] : [ui(' ')]),
     ui('● ', dot),
     ui(`daemon: ${daemon}`),
     sep,
@@ -212,19 +175,14 @@ export function scrollOffset(
   const last = count - height;
   const clamped = Math.min(Math.max(0, offset), last);
   if (selected < clamped) return Math.max(0, selected);
-  if (selected >= clamped + height)
-    return Math.min(last, selected - height + 1);
+  if (selected >= clamped + height) return Math.min(last, selected - height + 1);
   return clamped;
 }
 
 /** Text of an area with rows of its own; rows outside it are dropped, never drawn over the frame. */
 export type Body = (frame: Frame, top: number, height: number) => void;
 
-export function renderFrame(
-  s: TuiState,
-  body: Body,
-  opts: { color: boolean },
-): Frame {
+export function renderFrame(s: TuiState, body: Body, opts: { color: boolean }): Frame {
   const { cols, rows } = s.size;
   const frame = new Frame(cols, rows, opts);
   if (tooSmall(s.size)) {

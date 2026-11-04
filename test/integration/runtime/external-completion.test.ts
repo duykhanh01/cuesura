@@ -5,12 +5,7 @@ import type { Uuid } from '../../../src/shared/brand.ts';
 import { openFileStoreForTest } from '../../../src/store/testing.ts';
 import { buildTask, uuidOf } from '../../support/builders.ts';
 import { createGrantStart } from '../../support/runtime.ts';
-import {
-  agentData,
-  ciData,
-  PREPARE_DATA,
-  publishData,
-} from '../../support/scenario.ts';
+import { agentData, ciData, PREPARE_DATA, publishData } from '../../support/scenario.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 import { cancelRef, observation } from '../../support/observation.ts';
 import { toPublish, reviewToCi } from '../../support/store-flows.ts';
@@ -47,12 +42,7 @@ function setup() {
 function toMergeGate(d: StoreDriver, task: CanonicalTask): void {
   createGrantStart(d, task);
   toPublish(d, task, HEAD);
-  d.complete(
-    task.id,
-    d.pendingOne(task.id, 'publish').id,
-    'succeeded',
-    publishData(HEAD),
-  );
+  d.complete(task.id, d.pendingOne(task.id, 'publish').id, 'succeeded', publishData(HEAD));
   d.complete(task.id, d.pendingOne(task.id, 'create_pr').id, 'succeeded', {
     pr_ref: 'acme#7',
     head_sha: HEAD,
@@ -87,11 +77,7 @@ function observeMerged(d: StoreDriver, t: CanonicalTask, id = 'obs-1'): void {
   });
 }
 
-function complete(
-  d: StoreDriver,
-  t: CanonicalTask,
-  over: Partial<MergeProof> = {},
-) {
+function complete(d: StoreDriver, t: CanonicalTask, over: Partial<MergeProof> = {}) {
   return d.must(t.id, {
     kind: 'external_completion',
     proof: proof(over),
@@ -99,8 +85,7 @@ function complete(
   });
 }
 
-const types = (d: StoreDriver, t: CanonicalTask) =>
-  d.store.readEvents(t.id).map((e) => e.type);
+const types = (d: StoreDriver, t: CanonicalTask) => d.store.readEvents(t.id).map((e) => e.type);
 
 describe('external confirmation (T045, FR-021, FR-040)', () => {
   it('a green PR waits for the merge on GitHub: no approval request, no merge effect, no base-tip demand', () => {
@@ -138,17 +123,12 @@ describe('external confirmation (T045, FR-021, FR-040)', () => {
       'DrainFinished',
       'TaskCompleted',
     ].map((x) => seen.indexOf(x));
-    expect(
-      order.every(
-        (i, k) => i >= 0 && (k === 0 || i > (order[k - 1] as number)),
-      ),
-    ).toBe(true);
+    expect(order.every((i, k) => i >= 0 && (k === 0 || i > (order[k - 1] as number)))).toBe(true);
     const cleanup = d.store
       .readEvents(t.id)
       .find(
         (e) =>
-          e.type === 'TaskWaiting' &&
-          JSON.stringify(e.payload).includes('merge_cleanup_pending'),
+          e.type === 'TaskWaiting' && JSON.stringify(e.payload).includes('merge_cleanup_pending'),
       );
     expect(cleanup?.payload).toMatchObject({
       wait: {
@@ -161,15 +141,11 @@ describe('external confirmation (T045, FR-021, FR-040)', () => {
       proof: { merged_head_sha: HEAD, checked_head_sha: HEAD },
       unverified: null,
     });
-    expect(Object.values(s.timers).filter((x) => x.status === 'armed')).toEqual(
-      [],
-    );
+    expect(Object.values(s.timers).filter((x) => x.status === 'armed')).toEqual([]);
 
     // The same proof again is logged, never recorded twice.
     complete(d, t);
-    expect(
-      types(d, t).filter((x) => x === 'ExternalCompletionObserved'),
-    ).toHaveLength(1);
+    expect(types(d, t).filter((x) => x === 'ExternalCompletionObserved')).toHaveLength(1);
   });
 
   it('a merge of a head Cuesura did not check is recorded as unverified, without asking for approval', () => {
@@ -188,12 +164,7 @@ describe('external confirmation (T045, FR-021, FR-040)', () => {
     const d = setup();
     const t = buildTask();
     createGrantStart(d, t);
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'prepare').id,
-      'succeeded',
-      PREPARE_DATA,
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE_DATA);
     const agent = d.pendingOne(t.id, 'start_agent');
     expect(d.claim(agent.id).ok).toBe(true);
     // Fake a PR to merge: the user merged a PR opened earlier for this task.

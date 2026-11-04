@@ -59,26 +59,14 @@ function explainOf(sim: Sim, now?: number) {
   const input = deepFreeze(
     structuredClone({ state: sim.s, events: sim.events, policy: sim.policy }),
   );
-  const a = explain(
-    input.state,
-    input.events,
-    input.policy,
-    now as EpochMs | undefined,
-  );
-  const b = explain(
-    input.state,
-    input.events,
-    input.policy,
-    now as EpochMs | undefined,
-  );
+  const a = explain(input.state, input.events, input.policy, now as EpochMs | undefined);
+  const b = explain(input.state, input.events, input.policy, now as EpochMs | undefined);
   expect(canonicalJson(a)).toBe(canonicalJson(b));
 
   const rebuilt = replay(input.events);
   if (rebuilt === null) throw new Error('empty log');
   expect(
-    canonicalJson(
-      explain(rebuilt, input.events, input.policy, now as EpochMs | undefined),
-    ),
+    canonicalJson(explain(rebuilt, input.events, input.policy, now as EpochMs | undefined)),
   ).toBe(canonicalJson(a));
   return a;
 }
@@ -91,21 +79,14 @@ function bySeq(sim: Sim, seq: number): DomainEvent {
 
 describe('US5 - Explain task state from recorded facts', () => {
   it('Scenario 1: explains wait reasons, resume conditions, exits, and remaining limits', () => {
-    const sim = run(
-      { limits: { max_agent_runs: 2, max_wall_ms: 3_600_000 } },
-      XS_TASK,
-    );
+    const sim = run({ limits: { max_agent_runs: 2, max_wall_ms: 3_600_000 } }, XS_TASK);
     sim.complete(toCode(sim).id, 'succeeded', agentData('done'));
     sim.complete(
       sim.pendingOne('run_gates').id,
       'succeeded',
       gatesData({ build: true, unit: false }),
     );
-    sim.complete(
-      sim.pendingOne('start_agent').id,
-      'succeeded',
-      agentData('done'),
-    );
+    sim.complete(sim.pendingOne('start_agent').id, 'succeeded', agentData('done'));
     sim.complete(
       sim.pendingOne('run_gates').id,
       'succeeded',
@@ -135,9 +116,7 @@ describe('US5 - Explain task state from recorded facts', () => {
       cancellation: null,
     });
 
-    const requested = sim.events.flatMap((e) =>
-      e.type === 'AttemptRequested' ? [e.payload] : [],
-    );
+    const requested = sim.events.flatMap((e) => (e.type === 'AttemptRequested' ? [e.payload] : []));
     expect(x.bindings_used).toEqual(
       requested.map((p) => ({
         step: p.step,
@@ -148,9 +127,9 @@ describe('US5 - Explain task state from recorded facts', () => {
       })),
     );
 
-    expect(
-      sim.s.budget.agent_runs.used + (x.remaining.agent_runs ?? Infinity),
-    ).toBe(sim.policy?.limits.max_agent_runs);
+    expect(sim.s.budget.agent_runs.used + (x.remaining.agent_runs ?? Infinity)).toBe(
+      sim.policy?.limits.max_agent_runs,
+    );
 
     expect(explainOf(sim).remaining.wall_ms).toBeNull();
     sim.advance(3_600_000).fireDue();
@@ -202,10 +181,7 @@ describe('US5 - Explain task state from recorded facts', () => {
     const fixer = {
       model: 'sonnet',
       effort: 'medium' as const,
-      ladder: [
-        { effort: 'high' as const },
-        { model: 'opus', effort: 'high' as const },
-      ],
+      ladder: [{ effort: 'high' as const }, { model: 'opus', effort: 'high' as const }],
       scope: 'task' as const,
     };
     const sim = run({ roles: { fixer }, escalation: { auto_up_to_tier: 3 } });
@@ -213,11 +189,7 @@ describe('US5 - Explain task state from recorded facts', () => {
     toCode(sim);
     fail(sim, sim.pendingOne('start_agent').id, 'quality', { signature: 'C1' });
     fail(sim, sim.pendingOne('start_agent').id, 'quality', { signature: 'C1' });
-    sim.complete(
-      sim.pendingOne('start_agent').id,
-      'succeeded',
-      agentData('done'),
-    );
+    sim.complete(sim.pendingOne('start_agent').id, 'succeeded', agentData('done'));
 
     sim.complete(
       sim.pendingOne('run_gates').id,
@@ -226,11 +198,7 @@ describe('US5 - Explain task state from recorded facts', () => {
     );
     fail(sim, sim.pendingOne('start_agent').id, 'quality', { signature: 'F1' });
     fail(sim, sim.pendingOne('start_agent').id, 'quality', { signature: 'F1' });
-    sim.complete(
-      sim.pendingOne('start_agent').id,
-      'succeeded',
-      agentData('done'),
-    );
+    sim.complete(sim.pendingOne('start_agent').id, 'succeeded', agentData('done'));
     sim.complete(
       sim.pendingOne('run_gates').id,
       'succeeded',
@@ -246,9 +214,7 @@ describe('US5 - Explain task state from recorded facts', () => {
 
     const x = explainOf(sim);
     const raised = sim.events.filter((e) => e.type === 'RungRaised');
-    expect(x.escalations.map((e) => e.event_seq)).toEqual(
-      raised.map((e) => e.seq),
-    );
+    expect(x.escalations.map((e) => e.event_seq)).toEqual(raised.map((e) => e.seq));
     expect(
       x.escalations.map(({ step, from, to, reason, signature }) => ({
         step,
@@ -308,9 +274,7 @@ describe('US5 - Explain task state from recorded facts', () => {
   it('unlaunched cancelled attempts and unknown attempts do not count as invoked', () => {
     const cancelled = run();
     toCode(cancelled);
-    expectAccepted(
-      cancelled.when({ kind: 'cancel', reason: 'No longer needed' }),
-    );
+    expectAccepted(cancelled.when({ kind: 'cancel', reason: 'No longer needed' }));
     expect(cancelled.s.budget.agent_runs.used).toBe(0);
     expect(explainOf(cancelled).bindings_used).toEqual([
       {
@@ -338,9 +302,7 @@ describe('US5 - Explain task state from recorded facts', () => {
     expect(x.bindings_used.map((b) => b.rung)).toEqual([0, 1]);
     // Canonical storage sorts keys by ID; reversing projection key order must not change the explanation.
     const reordered = structuredClone(sim.s);
-    reordered.attempts = Object.fromEntries(
-      Object.entries(reordered.attempts).reverse(),
-    );
+    reordered.attempts = Object.fromEntries(Object.entries(reordered.attempts).reverse());
     expect(explain(reordered, sim.events, sim.policy)).toEqual(x);
   });
 
@@ -359,11 +321,7 @@ describe('US5 - Explain task state from recorded facts', () => {
     // Sim checks SC-006 after every write. This test verifies that the shared scenario hook actually detects violations.
 
     const sim = run();
-    sim.complete(
-      toCode(sim).id,
-      'succeeded',
-      agentData('needs_input', { questions: ['?'] }),
-    );
+    sim.complete(toCode(sim).id, 'succeeded', agentData('needs_input', { questions: ['?'] }));
     expect(sim.waits.length).toBeGreaterThan(0);
     for (const w of sim.waits) {
       expect(w.wait?.resume_when.length).toBeGreaterThan(0);
@@ -372,21 +330,15 @@ describe('US5 - Explain task state from recorded facts', () => {
     const broken = structuredClone(sim.s);
     if (broken.wait === null) throw new Error('expected a wait');
     broken.wait.exit_paths = [];
-    expect(() => checkWaitExplained(broken, sim.events, sim.policy)).toThrow(
-      /exit_paths/,
-    );
+    expect(() => checkWaitExplained(broken, sim.events, sim.policy)).toThrow(/exit_paths/);
     broken.wait = null;
-    expect(() => checkWaitExplained(broken, sim.events, sim.policy)).toThrow(
-      /SC-006/,
-    );
+    expect(() => checkWaitExplained(broken, sim.events, sim.policy)).toThrow(/SC-006/);
   });
 
   it('explains PENDING tasks before a policy exists', () => {
     const sim = new Sim(buildTask({ acceptance: [] }).id);
     sims.push(sim);
-    expectAccepted(
-      sim.when({ kind: 'create_task', task: buildTask({ acceptance: [] }) }),
-    );
+    expectAccepted(sim.when({ kind: 'create_task', task: buildTask({ acceptance: [] }) }));
     const x = explainOf(sim);
     expect(sim.policy).toBeNull();
     expect(x).toMatchObject({

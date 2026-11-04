@@ -9,11 +9,7 @@ import { logDue, requestAttempt, LOG_PAGE_RECORDS } from '../model/logs.ts';
 import type { Message } from '../model/messages.ts';
 import { currentScreen, type TuiState } from '../model/state.ts';
 import type { DaemonPort } from './daemon-port.ts';
-import {
-  DETAIL_TIMEOUT_MS,
-  type RefreshClock,
-  type RefreshCredential,
-} from './refresh.ts';
+import { DETAIL_TIMEOUT_MS, type RefreshClock, type RefreshCredential } from './refresh.ts';
 
 export type ScreenRead = {
   /** At most one read with the same key runs at a time. */
@@ -78,8 +74,7 @@ export class ScreenReads {
         this.#running.delete(read.key);
         if (this.#stopped) return;
         // The screen learns of the new token first, so an answer of the old one finds it moved on and is dropped.
-        if (askedAs !== this.#credential?.generation())
-          this.#credential?.superseded();
+        if (askedAs !== this.#credential?.generation()) this.#credential?.superseded();
         this.#report(message);
         this.#begin();
       });
@@ -142,11 +137,7 @@ function detailRead(
         run: async () => ({
           ...common,
           part,
-          result: await port.history(
-            d.taskId,
-            d.history.next,
-            DETAIL_TIMEOUT_MS,
-          ),
+          result: await port.history(d.taskId, d.history.next, DETAIL_TIMEOUT_MS),
           at: clock.now(),
         }),
       };
@@ -234,8 +225,7 @@ export function planScreenReads(
           (p) => p !== 'history',
         );
         if (s.detail.showWanted && !due.includes('show')) due.push('show');
-        for (const part of due)
-          reads.push(detailRead(s, port, clock, part, now));
+        for (const part of due) reads.push(detailRead(s, port, clock, part, now));
       }
       break;
     case 'actions':

@@ -3,13 +3,7 @@ import { hashCanonical } from '../../src/shared/hash.ts';
 import { reviewInputDigest } from '../../src/engine/review-evidence.ts';
 import type { CanonicalTask } from '../../src/domain/task.ts';
 import { buildTask, freezeOk, uuidOf } from './builders.ts';
-import {
-  agentData,
-  gatesData,
-  PREPARE_DATA,
-  publishData,
-  reviewData,
-} from './scenario.ts';
+import { agentData, gatesData, PREPARE_DATA, publishData, reviewData } from './scenario.ts';
 import type { StoreDriver } from './store-driver.ts';
 
 export const WALL = 3_600_000;
@@ -33,12 +27,7 @@ export function toPublish(
   head = 'head1',
   coder: Record<string, unknown> = {},
 ): void {
-  d.complete(
-    task.id,
-    d.pendingOne(task.id, 'prepare').id,
-    'succeeded',
-    PREPARE_DATA,
-  );
+  d.complete(task.id, d.pendingOne(task.id, 'prepare').id, 'succeeded', PREPARE_DATA);
   d.complete(
     task.id,
     d.pendingOne(task.id, 'start_agent').id,
@@ -50,9 +39,7 @@ export function toPublish(
     task.id,
     d.pendingOne(task.id, 'run_gates').id,
     'succeeded',
-    mode === null
-      ? gatesData({ build: true, unit: true })
-      : checkpointGates(head),
+    mode === null ? gatesData({ build: true, unit: true }) : checkpointGates(head),
   );
   if (mode !== null) return;
   d.complete(
@@ -88,17 +75,8 @@ export function completePost(
  * hand the review the slot. Stops with the reviewer's start_agent pending, or wherever the task stopped
  * instead.
  */
-export function publishToReview(
-  d: StoreDriver,
-  taskId: string,
-  head: string,
-): void {
-  d.complete(
-    taskId,
-    d.pendingOne(taskId, 'publish').id,
-    'succeeded',
-    publishData(head),
-  );
+export function publishToReview(d: StoreDriver, taskId: string, head: string): void {
+  d.complete(taskId, d.pendingOne(taskId, 'publish').id, 'succeeded', publishData(head));
   const pr = d.pending(taskId, 'create_pr');
   if (pr.length === 1)
     d.complete(taskId, pr[0]!.id, 'succeeded', {
@@ -169,11 +147,8 @@ export function currentReviewInput(d: StoreDriver, taskId: string): string {
   const s = d.task(taskId);
   const ref = s.policy_ref;
   const policy =
-    ref === null
-      ? null
-      : d.store.readPolicy(taskId as Uuid, ref.revision, ref.version);
-  const digest =
-    policy === null ? null : reviewInputDigest(s, policy, 'review');
+    ref === null ? null : d.store.readPolicy(taskId as Uuid, ref.revision, ref.version);
+  const digest = policy === null ? null : reviewInputDigest(s, policy, 'review');
   if (digest === null) throw new Error('no review input');
   return digest;
 }
@@ -198,17 +173,8 @@ export function mixedWorkload(d: StoreDriver): CanonicalTask[] {
 
   const last = d.ops.findLast((o) => o.op === 'accept');
   if (last?.op === 'accept') d.deliver(last.envelope);
-  d.send(
-    b.id,
-    { kind: 'cancel', reason: 'stale request' },
-    { expected_version: 0 },
-  );
-  d.complete(
-    a.id,
-    d.pendingOne(a.id, 'publish').id,
-    'succeeded',
-    publishData('head1'),
-  );
+  d.send(b.id, { kind: 'cancel', reason: 'stale request' }, { expected_version: 0 });
+  d.complete(a.id, d.pendingOne(a.id, 'publish').id, 'succeeded', publishData('head1'));
   d.must(b.id, {
     kind: 'start',
     freeze: freezeOk(b, { limits: { max_wall_ms: WALL } }),

@@ -5,12 +5,7 @@
  */
 import { join } from 'node:path';
 import type { z } from 'zod';
-import {
-  callDaemon,
-  readClientToken,
-  resolveDataDir,
-  type CallOptions,
-} from '../../cli/client.ts';
+import { callDaemon, readClientToken, resolveDataDir, type CallOptions } from '../../cli/client.ts';
 import { CONTROL_SOCKET, isEnvelope, type Envelope } from '../../cli/output.ts';
 import { err, ok, type Result } from '../../shared/result.ts';
 import { sanitize, type SafeText } from '../terminal/safe-text.ts';
@@ -71,31 +66,14 @@ export type DaemonPort = {
   credentialGeneration(): number;
   health(timeoutMs: number, signal?: AbortSignal): Promise<PortResult<Health>>;
   /** The token is read before this returns: `credentialGeneration()` right after says which token asked. */
-  board(
-    q: BoardQuery,
-    timeoutMs: number,
-    signal?: AbortSignal,
-  ): Promise<PortResult<BoardReply>>;
-  projects(
-    timeoutMs: number,
-    signal?: AbortSignal,
-  ): Promise<PortResult<ProjectList>>;
-  runOptions(
-    taskId: string,
-    timeoutMs: number,
-  ): Promise<PortResult<RunOptions>>;
+  board(q: BoardQuery, timeoutMs: number, signal?: AbortSignal): Promise<PortResult<BoardReply>>;
+  projects(timeoutMs: number, signal?: AbortSignal): Promise<PortResult<ProjectList>>;
+  runOptions(taskId: string, timeoutMs: number): Promise<PortResult<RunOptions>>;
   content(taskId: string, timeoutMs: number): Promise<PortResult<TaskContent>>;
-  progress(
-    taskId: string,
-    timeoutMs: number,
-  ): Promise<PortResult<TaskProgress>>;
+  progress(taskId: string, timeoutMs: number): Promise<PortResult<TaskProgress>>;
   show(taskId: string, timeoutMs: number): Promise<PortResult<TaskShow>>;
   explain(taskId: string, timeoutMs: number): Promise<PortResult<TaskExplain>>;
-  history(
-    taskId: string,
-    after: number,
-    timeoutMs: number,
-  ): Promise<PortResult<TaskHistory>>;
+  history(taskId: string, after: number, timeoutMs: number): Promise<PortResult<TaskHistory>>;
   logs(
     q: { taskId: string; after: number; attemptId?: string; limit?: number },
     timeoutMs: number,
@@ -144,14 +122,10 @@ export function createDaemonPort(deps: PortDeps = {}): DaemonPort {
   };
 
   const send = async (
-    opts: Pick<
-      CallOptions,
-      'method' | 'path' | 'body' | 'timeoutMs' | 'signal'
-    >,
+    opts: Pick<CallOptions, 'method' | 'path' | 'body' | 'timeoutMs' | 'signal'>,
     token: ReturnType<typeof readClientToken> = readToken(),
   ): Promise<PortResult<Envelope>> => {
-    if (!token.ok)
-      return err({ kind: 'token', message: sanitize(token.error.message) });
+    if (!token.ok) return err({ kind: 'token', message: sanitize(token.error.message) });
     const r = await call({
       socketPath: join(dataDir, CONTROL_SOCKET),
       token: token.value,
@@ -183,9 +157,7 @@ export function createDaemonPort(deps: PortDeps = {}): DaemonPort {
     return r.success
       ? ok(r.data)
       : err(
-          incompatible(
-            `The daemon's ${what} response has a shape this cusr does not understand`,
-          ),
+          incompatible(`The daemon's ${what} response has a shape this cusr does not understand`),
         );
   };
 
@@ -255,9 +227,7 @@ export function createDaemonPort(deps: PortDeps = {}): DaemonPort {
         {
           kind: 'task_board',
           ...view,
-          ...(watermark === undefined || !sameToken
-            ? {}
-            : { if_changed_since: watermark }),
+          ...(watermark === undefined || !sameToken ? {} : { if_changed_since: watermark }),
         },
         timeoutMs,
         signal,
@@ -272,11 +242,7 @@ export function createDaemonPort(deps: PortDeps = {}): DaemonPort {
     show: taskQuery(TaskShowSchema, 'task_show'),
     explain: taskQuery(TaskExplainSchema, 'task_explain'),
     history: (task_id, after, timeoutMs) =>
-      query(
-        TaskHistorySchema,
-        { kind: 'task_history', task_id, after },
-        timeoutMs,
-      ),
+      query(TaskHistorySchema, { kind: 'task_history', task_id, after }, timeoutMs),
     logs: ({ taskId, after, attemptId, limit }, timeoutMs) =>
       query(
         TaskLogsSchema,

@@ -3,9 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { PtySession, seededKeys, KEY } from '../../support/pty.ts';
 
 // The terminal half of SC-011: every exit path returns the terminal to its initial state.
-const PROBE = fileURLToPath(
-  new URL('../../fixtures/tui/terminal-probe.ts', import.meta.url),
-);
+const PROBE = fileURLToPath(new URL('../../fixtures/tui/terminal-probe.ts', import.meta.url));
 
 const INITIAL_MODES = {
   alternateScreen: false,
@@ -77,18 +75,15 @@ describe('terminal restore through a real PTY', () => {
   it.each([
     ['an uncaught exception', 'x', 'probe: internal error'],
     ['an unhandled rejection', 'r', 'probe: rejected'],
-  ] as const)(
-    'restores after %s and reports it on the normal screen',
-    async (_n, key, text) => {
-      const { s } = await start();
-      s.send(key);
-      const exit = await s.waitForExit();
-      expect(exit.status).toBe(1);
-      expect(exit.sttyAfter).toBe(exit.sttyBefore);
-      expect(s.modes()).toEqual(INITIAL_MODES);
-      expect(s.screenText()).toContain(text);
-    },
-  );
+  ] as const)('restores after %s and reports it on the normal screen', async (_n, key, text) => {
+    const { s } = await start();
+    s.send(key);
+    const exit = await s.waitForExit();
+    expect(exit.status).toBe(1);
+    expect(exit.sttyAfter).toBe(exit.sttyBefore);
+    expect(s.modes()).toEqual(INITIAL_MODES);
+    expect(s.screenText()).toContain(text);
+  });
 
   it('restores after a stdout write error', async () => {
     const { s } = await start();

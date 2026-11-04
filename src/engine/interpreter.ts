@@ -43,10 +43,7 @@ import {
 import { available, consume, release, reserve, usageOf } from './budget.ts';
 import { maybeFinishCancel, requestCancel } from './cancel.ts';
 import { classifyFailures } from './classify.ts';
-import {
-  externalConfirmation,
-  waitForExternalMerge,
-} from './external-completion.ts';
+import { externalConfirmation, waitForExternalMerge } from './external-completion.ts';
 import { settleExecutionOnClose, waitForSlot } from './runtime.ts';
 import { reject, type Ctx } from './context.ts';
 import { requestEffect, requestReconcile } from './effects.ts';
@@ -57,12 +54,7 @@ import {
   recordCheckFailure,
   reviewSignature,
 } from './failure.ts';
-import {
-  ciVerdict,
-  latestCi,
-  mergeGuard,
-  type GuardFailure,
-} from './merge-guard.ts';
+import { ciVerdict, latestCi, mergeGuard, type GuardFailure } from './merge-guard.ts';
 import { askHuman, requestApproval } from './questions.ts';
 import { settleUnderDrift } from './head-drift.ts';
 import { deferForDrift } from './revision.ts';
@@ -75,11 +67,7 @@ import { ensureRunning, mkWait, waitPolicy, waitTask } from './waits.ts';
  * All continuation passes through these guards: terminal state, cancellation, source drift, then
  * deadline.
  */
-export function proceed(
-  ctx: Ctx,
-  action: ResumeAction,
-  reason = 'continue',
-): void {
+export function proceed(ctx: Ctx, action: ResumeAction, reason = 'continue'): void {
   const s = ctx.state;
   if (isTerminal(s.status)) return;
   if (s.cancellation !== null) {
@@ -102,10 +90,7 @@ export function proceed(
   }
   // GitHub reported a merge whose proof was not accepted: nothing resumes until it is reconciled, even
   // after a later read failed or showed something else (FR-040.12).
-  if (
-    s.runtime_ref !== null &&
-    s.blockers.some((b) => b.code === 'merge_evidence_incomplete')
-  ) {
+  if (s.runtime_ref !== null && s.blockers.some((b) => b.code === 'merge_evidence_incomplete')) {
     waitMergeEvidence(ctx, action);
     return;
   }
@@ -127,9 +112,7 @@ export function proceed(
  */
 export function pastDeadline(ctx: Ctx): boolean {
   const s = ctx.state;
-  return (
-    s.deadline_passed || (s.deadline_at !== null && ctx.now >= s.deadline_at)
-  );
+  return s.deadline_passed || (s.deadline_at !== null && ctx.now >= s.deadline_at);
 }
 
 function execute(ctx: Ctx, action: ResumeAction): void {
@@ -145,18 +128,11 @@ function execute(ctx: Ctx, action: ResumeAction): void {
         ...previous
       } = update;
       if (action.mode === 'retry_fixer') {
-        if (update.conflict === undefined)
-          return waitBaseRepair(ctx, 'no conflict fixer to retry');
+        if (update.conflict === undefined) return waitBaseRepair(ctx, 'no conflict fixer to retry');
         ctx.emit('BaseUpdateRecorded', { update: previous });
         const fix = ctx.frozen.workflow.steps[update.gate_step]?.next['fail'];
-        if (fix === undefined)
-          return waitBaseRepair(ctx, 'missing conflict fixer step');
-        enterStep(
-          ctx,
-          fix,
-          { step: update.gate_step, outcome: 'fail' },
-          'retry',
-        );
+        if (fix === undefined) return waitBaseRepair(ctx, 'missing conflict fixer step');
+        enterStep(ctx, fix, { step: update.gate_step, outcome: 'fail' }, 'retry');
       } else {
         ctx.emit('BaseUpdateRecorded', {
           update: {
@@ -262,10 +238,7 @@ export function enterStep(
   const def = stepDef(ctx, step);
   if (def.when !== undefined && !evalPredicate(def.when, facts(ctx, step)))
     return skip(ctx, step, 'when');
-  if (
-    def.skip_when !== undefined &&
-    evalPredicate(def.skip_when, facts(ctx, step))
-  )
+  if (def.skip_when !== undefined && evalPredicate(def.skip_when, facts(ctx, step)))
     return skip(ctx, step, 'skip_when');
   const visits = ctx.state.step_visits[step] ?? 0;
   const limit = visitLimit(ctx, step);
@@ -288,25 +261,13 @@ export function visitLimit(ctx: Ctx, step: string): number | null {
         (ctx.state.visit_credits?.[step]?.visits ?? 0);
 }
 
-export function route(
-  ctx: Ctx,
-  step: string,
-  outcome: string,
-  body?: string,
-): void {
+export function route(ctx: Ctx, step: string, outcome: string, body?: string): void {
   const target = stepDef(ctx, step).next[outcome];
-  if (target === undefined)
-    throw new Error(`Step '${step}' has no transition for '${outcome}'`);
+  if (target === undefined) throw new Error(`Step '${step}' has no transition for '${outcome}'`);
   goTarget(ctx, step, target, outcome, body);
 }
 
-function goTarget(
-  ctx: Ctx,
-  from: string,
-  target: string,
-  outcome: string,
-  body?: string,
-): void {
+function goTarget(ctx: Ctx, from: string, target: string, outcome: string, body?: string): void {
   if (!isSpecialTarget(target)) {
     enterStep(ctx, target, { step: from, outcome });
     return;
@@ -347,9 +308,7 @@ function goTarget(
       askHuman(ctx, 'loop_exhausted', {
         step: from,
         attempt_id: attempt,
-        body:
-          body ??
-          `Step '${from}' returned '${outcome}'; a human decision is required`,
+        body: body ?? `Step '${from}' returned '${outcome}'; a human decision is required`,
         resume: again,
         detail: { step: from, outcome },
       });
@@ -580,16 +539,11 @@ function runAction(ctx: Ctx, step: string, def: StepDef, visit: number): void {
       });
       return;
     case 'github.post_review': {
-      const reviews = s.run.reviews.filter(
-        (r) => r.valid && r.revision === s.revision,
-      );
+      const reviews = s.run.reviews.filter((r) => r.valid && r.revision === s.revision);
       // The verdict the review step routed on, a reused one included; never merely the latest recorded.
-      const at = reviews.findIndex(
-        (r) => r.attempt_id === s.run.verdict_attempt_id,
-      );
+      const at = reviews.findIndex((r) => r.attempt_id === s.run.verdict_attempt_id);
       const review = reviews[at];
-      if (review === undefined || s.pr_ref === null)
-        return skip(ctx, step, 'no_review');
+      if (review === undefined || s.pr_ref === null) return skip(ctx, step, 'no_review');
       if (s.run.posted_reviews?.includes(review.attempt_id) === true)
         return skip(ctx, step, 'review_posted');
       requestEffect(ctx, {
@@ -606,9 +560,7 @@ function runAction(ctx: Ctx, step: string, def: StepDef, visit: number): void {
     }
     case 'github.rerun_failed': {
       const ci = s.head_sha === null ? undefined : latestCi(s, s.head_sha);
-      const failed = (ci?.checks ?? [])
-        .filter((c) => c.state === 'failure')
-        .map((c) => c.name);
+      const failed = (ci?.checks ?? []).filter((c) => c.state === 'failure').map((c) => c.name);
       requestEffect(ctx, {
         kind: 'rerun_ci',
         logical_id: `${s.head_sha ?? 'none'}#${visit}`,
@@ -646,9 +598,7 @@ function onGuardFailure(ctx: Ctx, step: string, code: GuardFailure): void {
       return;
     case 'checks_incomplete':
     case 'checks_failed': {
-      const ci = Object.entries(ctx.frozen.workflow.steps).find(
-        ([, d]) => d.kind === 'wait',
-      )?.[0];
+      const ci = Object.entries(ctx.frozen.workflow.steps).find(([, d]) => d.kind === 'wait')?.[0];
       if (ci !== undefined && code === 'checks_incomplete') {
         armCiPoll(ctx, ci, { kind: 'poll_ci', step: ci }, { guard: code });
         return;
@@ -729,9 +679,7 @@ function agentRunsAhead(ctx: Ctx, from: string): number {
       (def.when !== undefined && !evalPredicate(def.when, f)) ||
       (def.skip_when !== undefined && evalPredicate(def.skip_when, f));
     if (isAgentStep(def) && !skipped) n++;
-    const out: string | undefined = SUCCESS.find(
-      (o) => def.next[o] !== undefined,
-    );
+    const out: string | undefined = SUCCESS.find((o) => def.next[o] !== undefined);
     cur = out === undefined ? undefined : def.next[out];
   }
   return n;
@@ -747,8 +695,7 @@ function agentRunsAhead(ctx: Ctx, from: string): number {
 export function startAttempt(ctx: Ctx, step: string, kind: AttemptKind): void {
   const s = ctx.state;
   const sp = ctx.frozen.steps[step];
-  if (sp === undefined)
-    throw new Error(`The policy has no binding for step '${step}'`);
+  if (sp === undefined) throw new Error(`The policy has no binding for step '${step}'`);
   const again: ResumeAction = {
     kind: 'start_attempt',
     step,
@@ -760,19 +707,14 @@ export function startAttempt(ctx: Ctx, step: string, kind: AttemptKind): void {
    * the step so max_visits still applies.
    */
 
-  if (
-    Object.values(s.attempts).filter((a) => a.step === step).length >=
-    visitOf(ctx, step)
-  ) {
+  if (Object.values(s.attempts).filter((a) => a.step === step).length >= visitOf(ctx, step)) {
     enterStep(ctx, step, { step, outcome: 'resume' }, kind);
     return;
   }
   const choice = chooseRung(ctx, step, sp, again);
   if (choice === null) return;
-  if (pastDeadline(ctx))
-    return waitPolicy(ctx, 'deadline', again, { deadline_at: s.deadline_at });
-  if (available(s.budget) < 1)
-    return waitPolicy(ctx, 'agent_runs_exhausted', again, { step });
+  if (pastDeadline(ctx)) return waitPolicy(ctx, 'deadline', again, { deadline_at: s.deadline_at });
+  if (available(s.budget) < 1) return waitPolicy(ctx, 'agent_runs_exhausted', again, { step });
   const rungIndex = choice.rung;
   const rung = sp.ladder[rungIndex] as (typeof sp.ladder)[number];
   // A binding outside the confirmed selection, worker or reviewer, needs a new confirmation, never a silent switch (M02).
@@ -805,14 +747,7 @@ export function startAttempt(ctx: Ctx, step: string, kind: AttemptKind): void {
   const resume: Partial<ReturnType<typeof resumePlan>> =
     s.runtime_ref === null
       ? {}
-      : resumePlan(
-          ctx,
-          step,
-          sp.role,
-          bindingName(rung.binding),
-          kind,
-          attemptId,
-        );
+      : resumePlan(ctx, step, sp.role, bindingName(rung.binding), kind, attemptId);
   ensureRunning(ctx, 'attempt');
   reserve(ctx, reservationId, effectId);
   ctx.emit('AttemptRequested', {
@@ -824,15 +759,10 @@ export function startAttempt(ctx: Ctx, step: string, kind: AttemptKind): void {
     binding: bindingName(rung.binding),
     effect_id: effectId,
     reservation_id: reservationId,
-    ...(resume.resume == null
-      ? {}
-      : { resumed_from: resume.resume.from_attempt_id }),
+    ...(resume.resume == null ? {} : { resumed_from: resume.resume.from_attempt_id }),
   });
   const answers = Object.values(ctx.state.questions)
-    .filter(
-      (q) =>
-        q.step === step && q.status === 'answered' && q.revision === s.revision,
-    )
+    .filter((q) => q.step === step && q.status === 'answered' && q.revision === s.revision)
     .map((q) => ({ question_id: q.id, answer: q.answer }));
   requestEffect(ctx, {
     kind: 'start_agent',
@@ -872,8 +802,7 @@ function resumePlan(
   resume: { session_ref: string; from_attempt_id: string } | null;
   resume_reason: string | null;
 } {
-  if (role !== 'coder' && role !== 'fixer')
-    return { resume: null, resume_reason: null };
+  if (role !== 'coder' && role !== 'fixer') return { resume: null, resume_reason: null };
   const s = ctx.state;
   const answered = Object.values(s.questions).some(
     (q) =>
@@ -884,21 +813,18 @@ function resumePlan(
   );
   const repair = step !== 'code' || kind !== 'initial' || answered;
   if (!repair) return { resume: null, resume_reason: null };
-  if (kind === 'fresh_session')
-    return { resume: null, resume_reason: 'fresh_session_requested' };
+  if (kind === 'fresh_session') return { resume: null, resume_reason: 'fresh_session_requested' };
   const workers = Object.values(s.attempts).filter(
     (a) =>
       a.id !== self &&
       a.revision === s.revision &&
       a.status === 'finished' &&
-      (ctx.frozen.steps[a.step]?.role === 'coder' ||
-        ctx.frozen.steps[a.step]?.role === 'fixer'),
+      (ctx.frozen.steps[a.step]?.role === 'coder' || ctx.frozen.steps[a.step]?.role === 'fixer'),
   );
   // Attempts keep their request order in state.
   const last = workers.filter((a) => typeof a.session_ref === 'string').at(-1);
   if (last === undefined) return { resume: null, resume_reason: 'no_session' };
-  if (last.binding !== binding)
-    return { resume: null, resume_reason: 'binding_changed' };
+  if (last.binding !== binding) return { resume: null, resume_reason: 'binding_changed' };
   const spent = Object.values(s.attempts).some(
     (a) =>
       a.id !== self &&
@@ -963,8 +889,7 @@ export function ciWindow(
   const def = ctx.frozen.workflow.steps[step];
   const poll = def?.poll ?? 60_000;
   const timeout = def?.timeout ?? 3_600_000;
-  const cap =
-    ctx.state.run.limits?.ci_max_polls_per_head ?? Number.POSITIVE_INFINITY;
+  const cap = ctx.state.run.limits?.ci_max_polls_per_head ?? Number.POSITIVE_INFINITY;
   const maxPolls = Math.min(cap, Math.max(1, Math.ceil(timeout / poll)));
   const w = head === null ? undefined : ctx.state.run.ci_wait[head];
   if (w === undefined)
@@ -985,19 +910,13 @@ export function ciWindow(
 }
 
 /** Whether the head's CI window is spent: every poll used, or its time passed (FR-043.08). */
-export function ciSpent(
-  ctx: Pick<Ctx, 'state' | 'frozen' | 'now'>,
-  step: string,
-): boolean {
+export function ciSpent(ctx: Pick<Ctx, 'state' | 'frozen' | 'now'>, step: string): boolean {
   const w = ciWindow(ctx, step, ctx.state.head_sha);
   return w.exhausted || (w.until !== null && ctx.now > w.until);
 }
 
 /** Whether the time of the head's CI window has passed; the last poll's own answer still counts within it. */
-function ciClosed(
-  ctx: Pick<Ctx, 'state' | 'frozen' | 'now'>,
-  step: string,
-): boolean {
+function ciClosed(ctx: Pick<Ctx, 'state' | 'frozen' | 'now'>, step: string): boolean {
   const w = ciWindow(ctx, step, ctx.state.head_sha);
   return w.until !== null && ctx.now > w.until;
 }
@@ -1051,10 +970,7 @@ function armCiPoll(
     if (w.exhausted || (w.until !== null && ctx.now + poll > w.until))
       return waitCiExhausted(ctx, step, resume, detail);
   } else {
-    const maxPolls =
-      def.timeout !== undefined
-        ? Math.max(1, Math.ceil(def.timeout / poll))
-        : 1;
+    const maxPolls = def.timeout !== undefined ? Math.max(1, Math.ceil(def.timeout / poll)) : 1;
     if (ctx.state.ci_polls >= maxPolls && ctx.state.current_step === step) {
       route(ctx, step, 'timeout');
       return;
@@ -1080,9 +996,7 @@ function armCiPoll(
 type EffectResultTrigger = Extract<Trigger, { kind: 'effect_result' }>;
 
 function stepKindOf(ctx: Ctx, e: EffectMirror): StepKind | null {
-  return e.step === null
-    ? null
-    : (ctx.frozen.workflow.steps[e.step]?.kind ?? null);
+  return e.step === null ? null : (ctx.frozen.workflow.steps[e.step]?.kind ?? null);
 }
 
 export function parseSuccess(
@@ -1235,11 +1149,7 @@ function resumeIfWaitingOn(ctx: Ctx, e: EffectMirror): void {
  * survives step-level validation clears the rate-limit/infrastructure outage; probes settle
  * through closeProbe.
  */
-export function onEffectSucceeded(
-  ctx: Ctx,
-  e: EffectMirror,
-  data: unknown,
-): void {
+export function onEffectSucceeded(ctx: Ctx, e: EffectMirror, data: unknown): void {
   const since = ctx.events.length;
   routeSuccess(ctx, e, data);
   clearRetryCounters(ctx, e.step, since);
@@ -1266,10 +1176,7 @@ function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
           update: { ...baseUpdate, conflict: d.base_conflict },
         });
         if (baseUpdate.fixer_attempt_id !== undefined)
-          return waitBaseRepair(
-            ctx,
-            'conflict returned after the single fixer attempt',
-          );
+          return waitBaseRepair(ctx, 'conflict returned after the single fixer attempt');
         proceed(ctx, { kind: 'route', step: step as string, outcome: 'fail' });
         return;
       }
@@ -1297,28 +1204,19 @@ function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
         resets_streak_of: passed ? ctx.state.last_fix_step : null,
       });
       if (!passed) recordCheckFailure(ctx, signature);
-      if (
-        !passed &&
-        baseUpdate !== undefined &&
-        baseUpdate.certificate === undefined
-      )
+      if (!passed && baseUpdate !== undefined && baseUpdate.certificate === undefined)
         return waitBaseRepair(
           ctx,
           'base update gates failed; no additional automatic fixer attempt',
         );
-      if (
-        passed &&
-        d.checkpoint === undefined &&
-        commitsCheckpoint(ctx, step as string)
-      ) {
+      if (passed && d.checkpoint === undefined && commitsCheckpoint(ctx, step as string)) {
         onEffectFailed(ctx, e, {
           failure_class: 'infra',
           message: 'gates passed without a checkpoint commit',
         });
         return;
       }
-      if (passed && d.checkpoint !== undefined)
-        recordCheckpoint(ctx, step as string, d.checkpoint);
+      if (passed && d.checkpoint !== undefined) recordCheckpoint(ctx, step as string, d.checkpoint);
       if (
         passed &&
         d.checkpoint !== undefined &&
@@ -1389,20 +1287,11 @@ function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
     case 'await_ci': {
       const d = AwaitCiDataSchema.parse(data);
       // CI of a PR that targets another branch is not recorded: it proves nothing for this target.
-      if (
-        d.target_ref !== undefined &&
-        d.target_ref !== ctx.state.task.base_branch
-      )
-        return waitTargetMismatch(
-          ctx,
-          step as string,
-          d.target_ref,
-          d.target_merged === true,
-        );
+      if (d.target_ref !== undefined && d.target_ref !== ctx.state.task.base_branch)
+        return waitTargetMismatch(ctx, step as string, d.target_ref, d.target_merged === true);
       // A closed PR yields no CI evidence; the task waits for it to be reopened (FR-041.07).
       if (d.pr_state === 'closed') {
-        if (ctx.state.cancellation !== null)
-          return proceed(ctx, { kind: 'none' });
+        if (ctx.state.cancellation !== null) return proceed(ctx, { kind: 'none' });
         return waitPrClosed(ctx, { kind: 'poll_ci', step: step as string });
       }
       const green =
@@ -1417,11 +1306,7 @@ function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
       });
       if (d.base_relation !== undefined)
         ctx.emit('BaseRelationRecorded', { relation: d.base_relation });
-      onCiRecorded(
-        ctx,
-        step as string,
-        d.head_sha === ctx.state.head_sha ? d.required : undefined,
-      );
+      onCiRecorded(ctx, step as string, d.head_sha === ctx.state.head_sha ? d.required : undefined);
       return;
     }
     case 'merge': {
@@ -1441,11 +1326,8 @@ function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
     }
     case 'stop_attempt': {
       const target =
-        e.target_effect_id === null
-          ? undefined
-          : ctx.state.effects[e.target_effect_id];
-      if (target !== undefined && target.status === 'started')
-        requestReconcile(ctx, target);
+        e.target_effect_id === null ? undefined : ctx.state.effects[e.target_effect_id];
+      if (target !== undefined && target.status === 'started') requestReconcile(ctx, target);
       return;
     }
     // Observation facts arrive through `observation_result`, not through this effect's own result.
@@ -1457,39 +1339,21 @@ function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
   }
 }
 
-export function onCiRecorded(
-  ctx: Ctx,
-  step: string,
-  required?: RequiredCheckVerdict,
-): void {
+export function onCiRecorded(ctx: Ctx, step: string, required?: RequiredCheckVerdict): void {
   const s = ctx.state;
-  if (s.cancellation !== null || isTerminal(s.status))
-    return proceed(ctx, { kind: 'none' });
+  if (s.cancellation !== null || isTerminal(s.status)) return proceed(ctx, { kind: 'none' });
   // A result that lands after the head's CI window closed is evidence only, even for a poll sent in time (FR-043.08).
   if (s.runtime_ref !== null && ciClosed(ctx, step))
-    return waitCiExhausted(
-      ctx,
-      step,
-      { kind: 'poll_ci', step },
-      { late_result: true },
-    );
-  if (
-    required !== undefined &&
-    required.kind !== 'covered' &&
-    s.runtime_ref !== null
-  )
+    return waitCiExhausted(ctx, step, { kind: 'poll_ci', step }, { late_result: true });
+  if (required !== undefined && required.kind !== 'covered' && s.runtime_ref !== null)
     return onRequiredNotCovered(ctx, step, required);
   const head = s.head_sha;
   const ci = head === null ? undefined : latestCi(s, head);
   // Evidence for another head cannot prove anything about the current head.
-  const verdict =
-    ci === undefined ? null : ciVerdict(ctx.frozen, ci.required_set, ci.checks);
-  if (verdict?.kind === 'pass')
-    return proceed(ctx, { kind: 'route', step, outcome: 'pass' });
-  if (verdict?.kind === 'fail')
-    return proceed(ctx, { kind: 'route', step, outcome: 'fail' });
-  if (s.source_drift !== null || pastDeadline(ctx))
-    return proceed(ctx, { kind: 'poll_ci', step });
+  const verdict = ci === undefined ? null : ciVerdict(ctx.frozen, ci.required_set, ci.checks);
+  if (verdict?.kind === 'pass') return proceed(ctx, { kind: 'route', step, outcome: 'pass' });
+  if (verdict?.kind === 'fail') return proceed(ctx, { kind: 'route', step, outcome: 'fail' });
+  if (s.source_drift !== null || pastDeadline(ctx)) return proceed(ctx, { kind: 'poll_ci', step });
   armCiPoll(
     ctx,
     step,
@@ -1516,8 +1380,7 @@ function onRequiredNotCovered(
   v: Exclude<RequiredCheckVerdict, { kind: 'covered' }>,
 ): void {
   const s = ctx.state;
-  if (s.source_drift !== null || pastDeadline(ctx))
-    return proceed(ctx, { kind: 'poll_ci', step });
+  if (s.source_drift !== null || pastDeadline(ctx)) return proceed(ctx, { kind: 'poll_ci', step });
   if (v.kind === 'unknown') {
     armCiPoll(
       ctx,
@@ -1555,21 +1418,14 @@ function onRequiredNotCovered(
  * cannot be retargeted, so it waits for a person with no timer (FR-040.12). No CI result or merge
  * evidence is taken from the other branch.
  */
-function waitTargetMismatch(
-  ctx: Ctx,
-  step: string,
-  observed: string,
-  merged: boolean,
-): void {
+function waitTargetMismatch(ctx: Ctx, step: string, observed: string, merged: boolean): void {
   const s = ctx.state;
-  if (s.cancellation !== null || isTerminal(s.status))
-    return proceed(ctx, { kind: 'none' });
+  if (s.cancellation !== null || isTerminal(s.status)) return proceed(ctx, { kind: 'none' });
   const resume: ResumeAction = { kind: 'poll_ci', step };
   const detail = { step, expected: s.task.base_branch, observed, merged };
   const def = stepDef(ctx, step);
   const poll = def.poll ?? 60_000;
-  const maxPolls =
-    def.timeout !== undefined ? Math.max(1, Math.ceil(def.timeout / poll)) : 1;
+  const maxPolls = def.timeout !== undefined ? Math.max(1, Math.ceil(def.timeout / poll)) : 1;
   if (merged) {
     waitTask(
       ctx,
@@ -1626,9 +1482,9 @@ function isStale(ctx: Ctx, attemptId: string | null): boolean {
 function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
   const step = e.step as string;
   const review = stepKindOf(ctx, e) === 'review';
-  const parsed = (
-    review ? ReviewDataSchema.or(ReviewRefusedSchema) : AgentDataSchema
-  ).safeParse(data);
+  const parsed = (review ? ReviewDataSchema.or(ReviewRefusedSchema) : AgentDataSchema).safeParse(
+    data,
+  );
   const invoked = parsed.success ? parsed.data.invoked !== false : true;
   if (invoked) consume(ctx, e.reservation_id);
   else release(ctx, e.reservation_id);
@@ -1651,9 +1507,7 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
   const status = 'verdict' in d ? d.verdict : d.status;
   if (e.attempt_id !== null) {
     const session =
-      'session_ref' in d && d.session_ref !== undefined
-        ? { session_ref: d.session_ref }
-        : {};
+      'session_ref' in d && d.session_ref !== undefined ? { session_ref: d.session_ref } : {};
     ctx.emit('AttemptFinished', {
       attempt_id: e.attempt_id,
       step,
@@ -1677,10 +1531,7 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
       d.base_repair.unresolved ||
       d.base_repair.tree !== d.worktree_tree
     )
-      return waitBaseRepair(
-        ctx,
-        'single conflict fixer attempt did not resolve the conflict',
-      );
+      return waitBaseRepair(ctx, 'single conflict fixer attempt did not resolve the conflict');
     ctx.emit('BaseUpdateRecorded', {
       update: { ...baseUpdate, scope: d.base_repair },
     });
@@ -1698,15 +1549,11 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
   if ('verdict' in d) {
     const approved = d.verdict === 'approve';
     const signature = approved ? null : reviewSignature(d.findings);
-    const input = modeReview(ctx)
-      ? reviewInputDigest(ctx.state, ctx.frozen, step)
-      : null;
+    const input = modeReview(ctx) ? reviewInputDigest(ctx.state, ctx.frozen, step) : null;
     // A mode-aware review approves the checkpoint commit and the input it was given, nothing else (M03).
     if (
       modeReview(ctx) &&
-      (input === null ||
-        d.head_sha !== ctx.state.run.checkpoint?.sha ||
-        d.input_digest !== input)
+      (input === null || d.head_sha !== ctx.state.run.checkpoint?.sha || d.input_digest !== input)
     ) {
       onEffectFailed(
         ctx,
@@ -1743,11 +1590,7 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
     return;
   }
   // Context refused before launch is a human wait, never another automatic model attempt.
-  if (
-    ctx.state.runtime_ref !== null &&
-    d.status === 'needs_context' &&
-    d.invoked === false
-  ) {
+  if (ctx.state.runtime_ref !== null && d.status === 'needs_context' && d.invoked === false) {
     askHuman(ctx, 'agent_question', {
       step,
       attempt_id: e.attempt_id,
@@ -1758,24 +1601,17 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
   }
   // An invoked worker that lacks context or is blocked waits for a person with what it reported; the
   // next attempt runs only on an answer, under the usual slot/budget checks (FR-039).
-  if (
-    ctx.state.runtime_ref !== null &&
-    (d.status === 'needs_context' || d.status === 'blocked')
-  ) {
+  if (ctx.state.runtime_ref !== null && (d.status === 'needs_context' || d.status === 'blocked')) {
     if (ctx.state.cancellation !== null) return proceed(ctx, { kind: 'none' });
     const reported = d.blocker ?? d.summary;
-    askHuman(
-      ctx,
-      d.status === 'blocked' ? 'agent_blocked' : 'agent_needs_context',
-      {
-        step,
-        attempt_id: e.attempt_id,
-        // A worker may list questions with its blocker; whoever answers needs them too.
-        body: [`${d.status}: ${reported}`, ...(d.questions ?? [])].join('\n'),
-        resume: { kind: 'start_attempt', step, attempt_kind: 'retry' },
-        detail: { step, reported },
-      },
-    );
+    askHuman(ctx, d.status === 'blocked' ? 'agent_blocked' : 'agent_needs_context', {
+      step,
+      attempt_id: e.attempt_id,
+      // A worker may list questions with its blocker; whoever answers needs them too.
+      body: [`${d.status}: ${reported}`, ...(d.questions ?? [])].join('\n'),
+      resume: { kind: 'start_attempt', step, attempt_kind: 'retry' },
+      detail: { step, reported },
+    });
     return;
   }
   if (d.status === 'needs_input') {
@@ -1849,21 +1685,14 @@ export function onEffectFailed(
   // The harness was re-proved after the task froze its snapshot. Never a silent switch (T070/T071):
   // a person takes the new manifest with `recheck`, then the same step runs again. Nothing was
   // invoked, so a conflict fixer blocked here keeps its one attempt: it resumes as a fixer retry.
-  if (
-    agent &&
-    f.manifest !== undefined &&
-    s.cancellation === null &&
-    step !== null
-  ) {
+  if (agent && f.manifest !== undefined && s.cancellation === null && step !== null) {
     const baseFixer =
       s.run.base_update?.fixer_attempt_id === e.attempt_id &&
       s.run.base_update.certificate === undefined;
     waitPolicy(
       ctx,
       'manifest_changed',
-      baseFixer
-        ? { kind: 'repair_base', mode: 'retry_fixer' }
-        : { kind: 'run_step', step },
+      baseFixer ? { kind: 'repair_base', mode: 'retry_fixer' } : { kind: 'run_step', step },
       { step, ...f.manifest },
     );
     return;
@@ -1886,12 +1715,7 @@ export function onEffectFailed(
     return waitBaseRepair(ctx, `base gates failed: ${f.message}`);
   // An expired or refused login fails every retry the same way, so none is scheduled: the task waits
   // for a person to sign in again, and `recheck` gives the visit back and runs the same step (#97).
-  if (
-    agent &&
-    f.auth !== undefined &&
-    s.cancellation === null &&
-    step !== null
-  ) {
+  if (agent && f.auth !== undefined && s.cancellation === null && step !== null) {
     waitPolicy(
       ctx,
       'harness_auth',
@@ -1906,12 +1730,7 @@ export function onEffectFailed(
   }
   // The worktree is not the tree the task last left: someone else changed it, and it is not the
   // attempt's to take (T072). A person looks first; `recheck` takes the observed tree as the task's.
-  if (
-    agent &&
-    f.worktree !== undefined &&
-    s.cancellation === null &&
-    step !== null
-  ) {
+  if (agent && f.worktree !== undefined && s.cancellation === null && step !== null) {
     waitPolicy(
       ctx,
       'worktree_changed',
@@ -1936,10 +1755,7 @@ export function onEffectFailed(
     s.run.base_update !== undefined &&
     ctx.state.wait?.detail.code === 'backoff_exhausted'
   )
-    waitBaseRepair(
-      ctx,
-      'base update retries exhausted; inspect and answer to continue',
-    );
+    waitBaseRepair(ctx, 'base update retries exhausted; inspect and answer to continue');
 }
 
 // ---------- Execution modes (task-execution-modes.md) ----------
@@ -1978,8 +1794,7 @@ function reuseReview(ctx: Ctx, step: string): boolean {
     verdict: prior.verdict,
     input_digest: input,
   });
-  if (prior.verdict === 'request_changes')
-    recordCheckFailure(ctx, prior.signature);
+  if (prior.verdict === 'request_changes') recordCheckFailure(ctx, prior.signature);
   route(ctx, step, prior.verdict);
   return true;
 }
@@ -2002,11 +1817,7 @@ function publishRequest(ctx: Ctx, visit: number): Record<string, unknown> {
  * and a passing run of the commit gate step must come with the checkpoint commit of that same tree.
  * Returns true when the result was handled here.
  */
-function onGateTree(
-  ctx: Ctx,
-  e: EffectMirror,
-  d: z.infer<typeof GateDataSchema>,
-): boolean {
+function onGateTree(ctx: Ctx, e: EffectMirror, d: z.infer<typeof GateDataSchema>): boolean {
   if (ctx.state.run.mode === null) return false;
   const step = e.step as string;
   if (d.stable === false) {
@@ -2031,21 +1842,14 @@ function onGateTree(
 }
 
 /** The gate step whose pass leads to review or publish ends with the checkpoint commit in a mode task. */
-export function commitsCheckpoint(
-  ctx: Pick<Ctx, 'state' | 'frozen'>,
-  step: string,
-): boolean {
+export function commitsCheckpoint(ctx: Pick<Ctx, 'state' | 'frozen'>, step: string): boolean {
   if (ctx.state.run.mode === null) return false;
   const pass = ctx.frozen.workflow.steps[step]?.next['pass'];
   const next = pass === undefined ? undefined : ctx.frozen.workflow.steps[pass];
   return next?.kind === 'review' || next?.action === 'git.publish';
 }
 
-function recordCheckpoint(
-  ctx: Ctx,
-  step: string,
-  c: z.infer<typeof CheckpointDataSchema>,
-): void {
+function recordCheckpoint(ctx: Ctx, step: string, c: z.infer<typeof CheckpointDataSchema>): void {
   ctx.emit('CheckpointRecorded', {
     checkpoint: {
       revision: ctx.state.revision,

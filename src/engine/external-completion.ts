@@ -28,8 +28,7 @@ export function externalConfirmation(ctx: Ctx): boolean {
 /** The merge gate of a runtime task: wait for the merge on GitHub; no approval request, no merge effect. */
 export function waitForExternalMerge(ctx: Ctx, step: string): void {
   // With the observation window spent, nothing would notice the merge: only a recheck observes (FR-043.06).
-  if (ctx.state.observation?.expired === true)
-    return waitObservationExpired(ctx, null);
+  if (ctx.state.observation?.expired === true) return waitObservationExpired(ctx, null);
   waitTask(
     ctx,
     mkWait('approval', 'merge', {
@@ -102,17 +101,13 @@ export function onYoloMergeApprove(ctx: Ctx, t: YoloMergeApprove): void {
       detail: { head_sha: t.head_sha },
     });
   };
-  if (!externalConfirmation(ctx) || s.run.mode === null)
-    return ignored('yolo_not_runtime');
+  if (!externalConfirmation(ctx) || s.run.mode === null) return ignored('yolo_not_runtime');
   if (s.wait?.detail.code !== 'merge') return ignored('yolo_not_waiting');
-  if (s.cancellation !== null || s.completion !== null)
-    return ignored('yolo_not_waiting');
+  if (s.cancellation !== null || s.completion !== null) return ignored('yolo_not_waiting');
   if (!verifiedHead(ctx, t.head_sha)) return ignored('yolo_head_unverified');
-  if (yoloApproval(s, t.head_sha) !== undefined)
-    return ignored('yolo_approved');
+  if (yoloApproval(s, t.head_sha) !== undefined) return ignored('yolo_approved');
   const content = s.run.content;
-  if (content === null || content.revision !== s.revision)
-    return ignored('yolo_no_content');
+  if (content === null || content.revision !== s.revision) return ignored('yolo_no_content');
   const id = ctx.nextId();
   ctx.emit('ApprovalRequested', {
     approval_id: id,
@@ -143,11 +138,7 @@ export function onExternalCompletion(ctx: Ctx, t: ExternalCompletion): void {
       target: t.proof.subject.target_ref,
     });
   const last = s.observation?.last ?? null;
-  if (
-    last === null ||
-    last.observation_id !== t.proof.observation_id ||
-    last.status !== 'merged'
-  ) {
+  if (last === null || last.observation_id !== t.proof.observation_id || last.status !== 'merged') {
     reject('invalid_trigger', {
       reason: 'observation_missing',
       observation_id: t.proof.observation_id,
@@ -168,9 +159,7 @@ export function onExternalCompletion(ctx: Ctx, t: ExternalCompletion): void {
   const checked = s.head_sha;
   const unverified =
     t.unverified_reason ??
-    (verifiedHead(ctx, t.proof.merged_head_sha)
-      ? null
-      : 'merged_head_unverified');
+    (verifiedHead(ctx, t.proof.merged_head_sha) ? null : 'merged_head_unverified');
   ctx.emit('ExternalCompletionObserved', {
     proof: { ...t.proof, checked_head_sha: checked },
     unverified_reason: unverified,
@@ -181,8 +170,7 @@ export function onExternalCompletion(ctx: Ctx, t: ExternalCompletion): void {
   // already started keep running until the drain stops or reconciles them (FR-040.04–06).
   invalidatePending(ctx, 'merged', () => true);
   for (const timer of Object.values(ctx.state.timers)) {
-    if (timer.status === 'armed')
-      ctx.emit('TimerCancelled', { timer_id: timer.id });
+    if (timer.status === 'armed') ctx.emit('TimerCancelled', { timer_id: timer.id });
   }
   const r = ctx.state.execution.request;
   if (r !== null)

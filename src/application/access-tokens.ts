@@ -1,13 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import {
-  closeSync,
-  constants,
-  fstatSync,
-  lstatSync,
-  openSync,
-  readSync,
-  writeSync,
-} from 'node:fs';
+import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AuthzRole } from '../domain/policy.ts';
 import type { AccessTokenSpec } from '../config/schema-user.ts';
@@ -55,10 +47,7 @@ export function tokenDigest(token: string): string {
  * Reads one token file: a regular file (no symlink), owned by this UID, not readable by group/other,
  * holding exactly one well-formed token.
  */
-export function readTokenFile(
-  path: string,
-  id: string,
-): Result<string, TokenError> {
+export function readTokenFile(path: string, id: string): Result<string, TokenError> {
   const bad = (reason: string): Result<string, TokenError> =>
     err({ code: 'token_file_invalid', id, reason });
   let fd: number;
@@ -94,15 +83,11 @@ export function ensureOwnerToken(
   try {
     fd = openSync(
       path,
-      constants.O_WRONLY |
-        constants.O_CREAT |
-        constants.O_EXCL |
-        constants.O_NOFOLLOW,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
       0o600,
     );
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'EEXIST')
-      return ok({ path, created: false });
+    if ((e as NodeJS.ErrnoException).code === 'EEXIST') return ok({ path, created: false });
     return err({
       code: 'token_file_invalid',
       id: 'owner',
@@ -154,8 +139,7 @@ export function loadTokenMap(
   for (const { grant, token } of entries) {
     const d = tokenDigest(token);
     const prior = byDigest.get(d);
-    if (prior !== undefined)
-      return err({ code: 'token_duplicate', ids: [prior.id, grant.id] });
+    if (prior !== undefined) return err({ code: 'token_duplicate', ids: [prior.id, grant.id] });
     byDigest.set(d, grant);
   }
   const audit = entries.map(({ grant, token }) => ({

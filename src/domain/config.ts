@@ -74,18 +74,12 @@ export type NormalizedProject = {
 };
 
 export type NormalizedUser = {
-  harnesses: Record<
-    string,
-    { cmd: string; auth: 'subscription' | 'api_key'; pool: string }
-  >;
+  harnesses: Record<string, { cmd: string; auth: 'subscription' | 'api_key'; pool: string }>;
   pools: Record<string, number>;
   models: Record<string, ModelInfo>;
   roles: Record<string, NormalizedRole>;
   workflows: Record<string, Workflow>;
-  projects: Record<
-    string,
-    { base_branch: string; protected_branches: string[] }
-  > | null;
+  projects: Record<string, { base_branch: string; protected_branches: string[] }> | null;
   permissions: Record<string, Binding['permissions']>;
   yolo: boolean;
   /** Present only when on, so tasks frozen without it keep their config hash. */

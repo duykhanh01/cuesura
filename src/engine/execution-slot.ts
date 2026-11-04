@@ -6,12 +6,7 @@ import type { ExecutionRequest } from '../domain/runtime.ts';
 /** The fields selection may look at: never `created_at` or the insertion order of the rows. */
 export type SlotCandidate = Pick<
   ExecutionRequest,
-  | 'request_id'
-  | 'task_id'
-  | 'group'
-  | 'priority'
-  | 'requested_at'
-  | 'request_global_seq'
+  'request_id' | 'task_id' | 'group' | 'priority' | 'requested_at' | 'request_global_seq'
 >;
 
 export type SlotHolder = {
@@ -46,12 +41,8 @@ export function selectNext<R extends SlotCandidate>(
   queue: readonly R[],
   slot: SlotHolder | null,
 ): SlotSelection<R> {
-  if (slot !== null)
-    return { kind: 'busy', holder_task_id: slot.holder_task_id };
+  if (slot !== null) return { kind: 'busy', holder_task_id: slot.holder_task_id };
   let best: R | undefined;
-  for (const r of queue)
-    if (best === undefined || compareRequests(r, best) < 0) best = r;
-  return best === undefined
-    ? { kind: 'empty' }
-    : { kind: 'grant', request: best };
+  for (const r of queue) if (best === undefined || compareRequests(r, best) < 0) best = r;
+  return best === undefined ? { kind: 'empty' } : { kind: 'grant', request: best };
 }

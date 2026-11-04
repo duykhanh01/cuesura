@@ -83,13 +83,7 @@ export const pureCoreFiles = [
 
 export default tseslint.config(
   {
-    ignores: [
-      'node_modules/',
-      'dist/',
-      'coverage/',
-      'reports/',
-      'test/fixtures/lint/**',
-    ],
+    ignores: ['node_modules/', 'dist/', 'coverage/', 'reports/', 'test/fixtures/lint/**'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
@@ -138,9 +132,7 @@ export default tseslint.config(
               group: ['node:*', '!node:crypto'],
               message: 'hash.ts may only import node:crypto.',
             },
-            ...pureCoreRestrictedImports.patterns.filter(
-              (p) => !p.group.includes('node:*'),
-            ),
+            ...pureCoreRestrictedImports.patterns.filter((p) => !p.group.includes('node:*')),
           ],
         },
       ],
@@ -172,11 +164,7 @@ export default tseslint.config(
           patterns: [
             {
               // NodeNext also resolves .js imports to testing.ts.
-              group: [
-                '**/store/testing',
-                '**/store/testing.ts',
-                '**/store/testing.js',
-              ],
+              group: ['**/store/testing', '**/store/testing.ts', '**/store/testing.js'],
               message: 'testing.ts is restricted to tests.',
             },
           ],
@@ -197,13 +185,7 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: [
-                '**/store/**',
-                '**/store',
-                '**/daemon/**',
-                '**/daemon',
-                'better-sqlite3',
-              ],
+              group: ['**/store/**', '**/store', '**/daemon/**', '**/daemon', 'better-sqlite3'],
               message:
                 'Runners and adapters must not import the store, daemon, or SQLite; return facts through files or ports.',
             },

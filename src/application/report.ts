@@ -6,12 +6,7 @@
  * `statusSince`), so the first report after a restart reads every terminal task of the projects.
  */
 import { z } from 'zod';
-import {
-  TASK_STATUSES,
-  TERMINAL_STATUSES,
-  isTerminal,
-  type TaskState,
-} from '../domain/state.ts';
+import { TASK_STATUSES, TERMINAL_STATUSES, isTerminal, type TaskState } from '../domain/state.ts';
 import type { Usage } from '../domain/trigger.ts';
 import { needsUser } from '../explain/needs-user.ts';
 import type { Uuid } from '../shared/brand.ts';
@@ -96,15 +91,13 @@ function addUsage(total: UsageTotal, u: Usage | null): void {
 export function taskUsage(s: TaskState): UsageTotal {
   const total = emptyUsage();
   for (const a of Object.values(s.attempts)) addUsage(total, a.usage);
-  for (const r of Object.values(s.decider_runs ?? {}))
-    if (r.invoked) addUsage(total, r.usage);
+  for (const r of Object.values(s.decider_runs ?? {})) if (r.invoked) addUsage(total, r.usage);
   return total;
 }
 
 function sumInto(total: UsageTotal, u: UsageTotal): void {
   total.agent_runs += u.agent_runs;
-  for (const b of Object.keys(u.basis) as Usage['basis'][])
-    total.basis[b] += u.basis[b];
+  for (const b of Object.keys(u.basis) as Usage['basis'][]) total.basis[b] += u.basis[b];
   for (const m of ['tokens', 'cost'] as const) {
     total[m].sum += u[m].sum;
     total[m].missing += u[m].missing;
@@ -122,8 +115,7 @@ export function addToReport(
   window: { readonly since: number; readonly until: number },
   finishedAt: number | null,
 ): void {
-  const inWindow = (t: number): boolean =>
-    t >= window.since && t <= window.until;
+  const inWindow = (t: number): boolean => t >= window.since && t <= window.until;
   const base = { task_id: s.id, title: s.task.title };
   if (isTerminal(s.status)) {
     if (finishedAt !== null && inWindow(finishedAt)) {
@@ -159,9 +151,7 @@ export function addToReport(
       pr_ref: s.pr_ref,
     });
   }
-  for (const d of Object.values(s.decider_runs ?? {}).sort(
-    (a, b) => a.at - b.at,
-  )) {
+  for (const d of Object.values(s.decider_runs ?? {}).sort((a, b) => a.at - b.at)) {
     if (!d.invoked || !inWindow(d.at)) continue;
     push(r.decisions, {
       ...base,
@@ -240,20 +230,13 @@ export function report(
         r = emptyReport(s.project);
         byProject.set(s.project, r);
       }
-      addToReport(
-        r,
-        s,
-        { since, until },
-        isTerminal(s.status) ? statusSince(s) : null,
-      );
+      addToReport(r, s, { since, until }, isTerminal(s.status) ? statusSince(s) : null);
     }
   }
 
   const at = (key: string) => (x: Record<string, unknown>) => x[key] as number;
   for (const r of byProject.values()) {
-    r.finished.items.sort(
-      (a, b) => at('finished_at')(a) - at('finished_at')(b),
-    );
+    r.finished.items.sort((a, b) => at('finished_at')(a) - at('finished_at')(b));
     r.decisions.items.sort((a, b) => at('at')(a) - at('at')(b));
   }
 

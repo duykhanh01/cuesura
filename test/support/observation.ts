@@ -1,10 +1,7 @@
 import { expect } from 'vitest';
 import type { MergeProof, Observation } from '../../src/domain/runtime.ts';
 import type { CanonicalTask } from '../../src/domain/task.ts';
-import type {
-  RequiredCheckVerdict,
-  Trigger,
-} from '../../src/domain/trigger.ts';
+import type { RequiredCheckVerdict, Trigger } from '../../src/domain/trigger.ts';
 import { hashCanonical } from '../../src/shared/hash.ts';
 import type { FrozenRuntimeContext } from '../../src/domain/runtime.ts';
 import type { PolicyOptions } from './builders.ts';
@@ -67,8 +64,7 @@ export function observation(
       requested_at: d.now,
       observed_at: d.now,
       generation:
-        o.generation ??
-        (source === 'timer' ? (s.observation?.budget.generation ?? 0) : 0),
+        o.generation ?? (source === 'timer' ? (s.observation?.budget.generation ?? 0) : 0),
       subject: s.observation?.subject ?? SUBJECT,
       status,
       observed_head: head,
@@ -78,8 +74,7 @@ export function observation(
         quality: status === 'open',
       },
     },
-    remote_digest: (o.digest ??
-      hashCanonical({ status, head, ci: o.ci ?? null })) as never,
+    remote_digest: (o.digest ?? hashCanonical({ status, head, ci: o.ci ?? null })) as never,
     ...(o.ci === undefined ? {} : { ci: o.ci as never }),
     ...(o.target === undefined ? {} : { target: o.target }),
   };
@@ -101,8 +96,7 @@ export function merge(
 ): void {
   const trig = observation(d, t, 'merged', head, { source });
   d.must(t.id, trig);
-  const id =
-    trig.kind === 'observation_result' ? trig.observation.observation_id : '';
+  const id = trig.kind === 'observation_result' ? trig.observation.observation_id : '';
   const proof: MergeProof = {
     subject: d.task(t.id).observation?.subject ?? SUBJECT,
     merged_at: d.now,
@@ -126,12 +120,7 @@ export function toGreen(
 ): void {
   createGrantStart(d, t, mode, policy, runtime);
   toPublish(d, t, A, coder);
-  d.complete(
-    t.id,
-    d.pendingOne(t.id, 'publish').id,
-    'succeeded',
-    publishData(A),
-  );
+  d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
   d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
     pr_ref: 'acme#7',
     head_sha: A,

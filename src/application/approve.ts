@@ -42,15 +42,11 @@ function approveSync(
   const { step, rung } = input.payload as { step: string; rung: number };
   const matching = Object.values(s.approvals).filter(
     (a) =>
-      a.kind === 'escalation' &&
-      a.step === step &&
-      a.rung === rung &&
-      a.revision === s.revision,
+      a.kind === 'escalation' && a.step === step && a.rung === rung && a.revision === s.revision,
   );
   // The open one if any; else the newest, so a replay or a second request meets the engine's verdict.
   const target: Approval | undefined =
-    matching.find((a) => a.status === 'requested' && !a.revoked) ??
-    matching.at(-1);
+    matching.find((a) => a.status === 'requested' && !a.revoked) ?? matching.at(-1);
   if (target === undefined)
     return err({
       code: 'approval_not_found',

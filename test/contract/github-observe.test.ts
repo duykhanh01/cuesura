@@ -12,11 +12,7 @@ import type { ExternalSubject } from '../../src/domain/runtime.ts';
 import { evaluateRequired } from '../../src/engine/required-checks.ts';
 import { Redactor } from '../../src/runner/redact.ts';
 import type { EpochMs } from '../../src/shared/brand.ts';
-import {
-  fixtureExec,
-  type FixtureResponse,
-  type FixtureScript,
-} from '../support/gh-fixture.ts';
+import { fixtureExec, type FixtureResponse, type FixtureScript } from '../support/gh-fixture.ts';
 
 // Live T008/S0.3 evidence (2026-10-28) replayed through the production port, then edge cases.
 const REPO = 'duykhanh01/cuesura-spike-002-sandbox';
@@ -28,14 +24,10 @@ type Evidence = {
   readonly headers?: Record<string, string>;
   readonly body_redacted: string;
 };
-const load = (
-  rel: string,
-): { evidence: Evidence[] } & Record<string, unknown> =>
+const load = (rel: string): { evidence: Evidence[] } & Record<string, unknown> =>
   JSON.parse(
     readFileSync(
-      fileURLToPath(
-        new URL(`../fixtures/runtime/spike-0/github/${rel}`, import.meta.url),
-      ),
+      fileURLToPath(new URL(`../fixtures/runtime/spike-0/github/${rel}`, import.meta.url)),
       'utf8',
     ),
   ) as { evidence: Evidence[] };
@@ -55,9 +47,7 @@ function scriptFrom(evidence: readonly Evidence[]): FixtureScript {
     (out[key] ??= []).push({
       status: e.status,
       ...(e.headers === undefined ? {} : { headers: e.headers }),
-      ...(e.body_redacted === ''
-        ? {}
-        : { body: JSON.parse(e.body_redacted) as unknown }),
+      ...(e.body_redacted === '' ? {} : { body: JSON.parse(e.body_redacted) as unknown }),
     });
   }
   return out;
@@ -70,10 +60,7 @@ const port = (script: FixtureScript) =>
     redactor: new Redactor(),
   });
 
-function pull(
-  n: number,
-  over: Record<string, unknown> = {},
-): Record<string, unknown> {
+function pull(n: number, over: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     id: 5_000 + n,
     number: n,
@@ -194,12 +181,7 @@ describe('required checks from live S0.3 evidence', () => {
         snapshot: string[];
         comparison: { verdict: string };
       };
-      const required = await readRequirements(
-        port(scriptFrom(fx.evidence)),
-        REPO,
-        'master',
-        0,
-      );
+      const required = await readRequirements(port(scriptFrom(fx.evidence)), REPO, 'master', 0);
       expect(evaluateRequired(required, fx.snapshot).kind).toBe(
         fx.comparison.verdict === 'unknown' ? 'unknown' : 'covered',
       );
@@ -216,32 +198,28 @@ describe('observation bundle (T044)', () => {
     target: 'master',
   };
   const base = (over: FixtureScript = {}): FixtureScript => ({
-    'GET repos/acme/app/branches/master': [
-      { status: 200, body: { protected: false } },
+    'GET repos/acme/app/branches/master': [{ status: 200, body: { protected: false } }],
+    'GET repos/acme/app/rules/branches/master?per_page=100&page=1': [{ status: 200, body: [] }],
+    [`GET repos/acme/app/commits/${'a'.repeat(40)}/check-runs?per_page=100&page=1`]: [
+      {
+        status: 200,
+        body: {
+          check_runs: [
+            {
+              id: 1,
+              name: 'build',
+              status: 'completed',
+              conclusion: 'success',
+              head_sha: 'a'.repeat(40),
+              app: { id: 1 },
+            },
+          ],
+        },
+      },
     ],
-    'GET repos/acme/app/rules/branches/master?per_page=100&page=1': [
+    [`GET repos/acme/app/commits/${'a'.repeat(40)}/statuses?per_page=100&page=1`]: [
       { status: 200, body: [] },
     ],
-    [`GET repos/acme/app/commits/${'a'.repeat(40)}/check-runs?per_page=100&page=1`]:
-      [
-        {
-          status: 200,
-          body: {
-            check_runs: [
-              {
-                id: 1,
-                name: 'build',
-                status: 'completed',
-                conclusion: 'success',
-                head_sha: 'a'.repeat(40),
-                app: { id: 1 },
-              },
-            ],
-          },
-        },
-      ],
-    [`GET repos/acme/app/commits/${'a'.repeat(40)}/statuses?per_page=100&page=1`]:
-      [{ status: 200, body: [] }],
     ...over,
   });
 
@@ -318,9 +296,7 @@ describe('observation bundle (T044)', () => {
   it('another repo or PR identity is rejected before anything else is read', async () => {
     const other = await observePull(
       port({
-        'GET repos/acme/app/pulls/7': [
-          { status: 200, body: pull(7, { id: 1 }) },
-        ],
+        'GET repos/acme/app/pulls/7': [{ status: 200, body: pull(7, { id: 1 }) }],
       }),
       target,
       0,
@@ -355,9 +331,7 @@ describe('observation bundle (T044)', () => {
     for (const state of ['open', 'closed']) {
       const obs = await observePull(
         port({
-          'GET repos/acme/app/pulls/7': [
-            { status: 200, body: { ...retargeted, state } },
-          ],
+          'GET repos/acme/app/pulls/7': [{ status: 200, body: { ...retargeted, state } }],
         }),
         target,
         0,
@@ -423,9 +397,7 @@ describe('observation bundle (T044)', () => {
       await observePull(
         port(
           base({
-            'GET repos/acme/app/pulls/7': [
-              { status: 200, body: pull(7, { state: 'closed' }) },
-            ],
+            'GET repos/acme/app/pulls/7': [{ status: 200, body: pull(7, { state: 'closed' }) }],
           }),
         ),
         target,
@@ -435,11 +407,7 @@ describe('observation bundle (T044)', () => {
       status: 'closed',
     });
     expect(
-      await observePull(
-        port({ 'GET repos/acme/app/pulls/7': [{ status: 502 }] }),
-        target,
-        0,
-      ),
+      await observePull(port({ 'GET repos/acme/app/pulls/7': [{ status: 502 }] }), target, 0),
     ).toMatchObject({ status: 'unknown' });
   });
 });

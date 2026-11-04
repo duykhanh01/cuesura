@@ -6,13 +6,7 @@
  */
 import { LOG_POLL_INTERVAL_MS } from '../client/refresh.ts';
 import type { TaskLogs } from '../client/schemas.ts';
-import {
-  joinSafe,
-  sanitize,
-  sanitizeLines,
-  uiText,
-  type SafeText,
-} from '../terminal/safe-text.ts';
+import { joinSafe, sanitize, sanitizeLines, uiText, type SafeText } from '../terminal/safe-text.ts';
 import { displayWidth, wrap } from '../terminal/width.ts';
 import { stepWords } from './activity.ts';
 import { describeRecord, type Tone } from './log-text.ts';
@@ -113,11 +107,7 @@ export type LogState = {
  */
 export const shortAttempt = (id: string): SafeText => sanitize(id.slice(-8));
 
-export function initialLogs(
-  taskId: string,
-  title: SafeText,
-  session: number,
-): LogState {
+export function initialLogs(taskId: string, title: SafeText, session: number): LogState {
   return {
     taskId,
     title,
@@ -154,9 +144,7 @@ function capped(whole: string): SafeText {
   if (whole.length <= LOG_TEXT_CHARS) return sanitizeLines(whole);
   return joinSafe([
     sanitizeLines(whole.slice(0, LOG_TEXT_CHARS)),
-    uiText(
-      `… ${whole.length - LOG_TEXT_CHARS} more characters: see cusr task logs`,
-    ),
+    uiText(`… ${whole.length - LOG_TEXT_CHARS} more characters: see cusr task logs`),
   ]);
 }
 
@@ -186,13 +174,11 @@ export function toEntry(record: TaskLogs['records'][number]): LogEntry | null {
       bytes: Buffer.byteLength(text) + ENTRY_OVERHEAD_BYTES,
     };
   }
-  const lines: LogLine[] = describeRecord(record.kind, record.data).map(
-    (d) => ({
-      label: sanitize(d.label),
-      body: capped(d.body),
-      tone: d.tone,
-    }),
-  );
+  const lines: LogLine[] = describeRecord(record.kind, record.data).map((d) => ({
+    label: sanitize(d.label),
+    body: capped(d.body),
+    tone: d.tone,
+  }));
   if (lines.length === 0) return null;
   const time = shortTime(record.at);
   const text = joinSafe([
@@ -211,8 +197,7 @@ export function toEntry(record: TaskLogs['records'][number]): LogEntry | null {
   };
 }
 
-const sumBytes = (entries: readonly LogEntry[]): number =>
-  entries.reduce((n, e) => n + e.bytes, 0);
+const sumBytes = (entries: readonly LogEntry[]): number => entries.reduce((n, e) => n + e.bytes, 0);
 
 /** How many entries from the start of `entries` must go for the rest to fit. */
 function excessFromStart(entries: readonly LogEntry[], bytes: number): number {
@@ -229,10 +214,7 @@ function excessFromStart(entries: readonly LogEntry[], bytes: number): number {
 /** New records at the end; the oldest leave, and are read again by position if asked for. */
 function appendEntries(s: LogState, entries: readonly LogEntry[]): LogState {
   // Replace a non-advancing diagnostic gap when it repeats or real records arrive after repair.
-  const all = [
-    ...s.buffer.filter((e) => !(e.gap && e.seq > s.nextCursor)),
-    ...entries,
-  ];
+  const all = [...s.buffer.filter((e) => !(e.gap && e.seq > s.nextCursor)), ...entries];
   const bytes = sumBytes(all);
   const drop = excessFromStart(all, bytes);
   if (drop === 0) return { ...s, buffer: all, bufferBytes: bytes };
@@ -277,8 +259,7 @@ export type LogRequest =
 
 /** What to read now, if anything. Never more than one a second unless the user just asked for something. */
 export function logDue(s: LogState, now: number): LogRequest | null {
-  const rested =
-    s.lastReadAt === null || now - s.lastReadAt >= LOG_POLL_INTERVAL_MS;
+  const rested = s.lastReadAt === null || now - s.lastReadAt >= LOG_POLL_INTERVAL_MS;
   // A read that failed waits its turn, whatever it was for.
   if (s.error !== null && !rested) return null;
   if (s.older !== null) return { kind: 'older', after: s.older.cursor };
@@ -287,8 +268,7 @@ export function logDue(s: LogState, now: number): LogRequest | null {
       kind: 'older',
       after: Math.max(0, s.windowStart - LOG_PAGE_RECORDS),
     };
-  if (s.filling || s.wantForward)
-    return { kind: 'forward', after: s.nextCursor };
+  if (s.filling || s.wantForward) return { kind: 'forward', after: s.nextCursor };
   if (!rested || s.complete) return null;
   if (s.mode === 'live') return { kind: 'forward', after: s.nextCursor };
   if (s.newActivity) return null;
@@ -296,10 +276,8 @@ export function logDue(s: LogState, now: number): LogRequest | null {
 }
 
 /** The attempt filter a request travels with; a probe looks at the whole log. */
-export const requestAttempt = (
-  s: LogState,
-  request: LogRequest,
-): string | null => (request.kind === 'probe' ? null : s.attemptFilter);
+export const requestAttempt = (s: LogState, request: LogRequest): string | null =>
+  request.kind === 'probe' ? null : s.attemptFilter;
 
 function applyForward(
   s: LogState,
@@ -311,8 +289,7 @@ function applyForward(
   // Paused while this read was on its way: it says there is more, and nothing goes in (FR-014).
   if (s.mode !== 'live' && !asked)
     return { ...s, newActivity: s.newActivity || entries.length > 0 };
-  if (s.filling && wouldOverflow(s, entries))
-    return { ...s, filling: false, moreForward: true };
+  if (s.filling && wouldOverflow(s, entries)) return { ...s, filling: false, moreForward: true };
   const next = appendEntries(s, entries);
   return {
     ...next,
@@ -336,10 +313,7 @@ function applyOlder(
     cursor: request.after,
     collected: [],
   };
-  const collected = [
-    ...reading.collected,
-    ...entries.filter((e) => e.seq <= reading.upTo),
-  ];
+  const collected = [...reading.collected, ...entries.filter((e) => e.seq <= reading.upTo)];
   const stuck = page.next_cursor <= reading.cursor;
   if (page.next_cursor < reading.upTo && !stuck)
     return {
@@ -382,11 +356,7 @@ export function applyLogPage(
   }
 }
 
-export function failLogRead(
-  s: LogState,
-  error: SafeText,
-  at: number,
-): LogState {
+export function failLogRead(s: LogState, error: SafeText, at: number): LogState {
   return { ...s, error, lastReadAt: at };
 }
 
@@ -487,17 +457,12 @@ function textRows(entry: LogEntry, cols: number): LogRow[] {
   return rows;
 }
 
-function separator(
-  entry: LogEntry,
-  prev: LogEntry | undefined,
-): SafeText | null {
+function separator(entry: LogEntry, prev: LogEntry | undefined): SafeText | null {
   if (entry.gap) return null;
   const same =
     prev === undefined
       ? entry.step === null && entry.attemptId === null
-      : !prev.gap &&
-        prev.step === entry.step &&
-        prev.attemptId === entry.attemptId;
+      : !prev.gap && prev.step === entry.step && prev.attemptId === entry.attemptId;
   if (same) return null;
   // A gap has no step to compare with; only a change of attempt after one is news.
   const words = entry.step === null ? null : stepWords(entry.step);
@@ -505,19 +470,11 @@ function separator(
     uiText('── '),
     entry.step ?? uiText('outside any step'),
     uiText(words === null ? '' : ` · ${words}`),
-    uiText(
-      entry.attemptId === null
-        ? ' ──'
-        : ` · attempt ${shortAttempt(entry.attemptId)} ──`,
-    ),
+    uiText(entry.attemptId === null ? ' ──' : ` · attempt ${shortAttempt(entry.attemptId)} ──`),
   ]);
 }
 
-function entryRows(
-  entry: LogEntry,
-  prev: LogEntry | undefined,
-  cols: number,
-): LogRow[] {
+function entryRows(entry: LogEntry, prev: LogEntry | undefined, cols: number): LogRow[] {
   const sep = separator(entry, prev);
   const rows = textRows(entry, cols);
   return sep === null ? rows : [{ kind: 'separator', text: sep }, ...rows];
@@ -555,18 +512,10 @@ function rowsFrom(
 }
 
 /** Where a window of `height` rows ending at the buffer's end starts. */
-function lastScreen(
-  s: LogState,
-  cols: number,
-  height: number,
-): { index: number; row: number } {
+function lastScreen(s: LogState, cols: number, height: number): { index: number; row: number } {
   let needed = height;
   for (let i = s.buffer.length - 1; i >= 0; i--) {
-    const count = entryRows(
-      s.buffer[i] as LogEntry,
-      s.buffer[i - 1],
-      cols,
-    ).length;
+    const count = entryRows(s.buffer[i] as LogEntry, s.buffer[i - 1], cols).length;
     if (count >= needed) return { index: i, row: count - needed };
     needed -= count;
   }
@@ -580,11 +529,7 @@ function topOf(s: LogState): { index: number; row: number } {
 }
 
 /** What fills the log area now. */
-export function visibleRows(
-  s: LogState,
-  cols: number,
-  height: number,
-): readonly LogRow[] {
+export function visibleRows(s: LogState, cols: number, height: number): readonly LogRow[] {
   if (height <= 0 || s.buffer.length === 0) return [];
   const from = s.mode === 'live' ? lastScreen(s, cols, height) : topOf(s);
   return rowsFrom(s, from, cols, height).map((r) => r.row);
@@ -599,16 +544,9 @@ const anchored = (
 });
 
 /** Scrolls by rows; going up pauses, because the place being read must then hold (data-model.md). */
-export function scrollLogs(
-  given: LogState,
-  cols: number,
-  height: number,
-  delta: number,
-): LogState {
+export function scrollLogs(given: LogState, cols: number, height: number, delta: number): LogState {
   if (given.buffer.length === 0)
-    return delta < 0 && given.windowStart > 0
-      ? { ...given, wantOlder: true }
-      : given;
+    return delta < 0 && given.windowStart > 0 ? { ...given, wantOlder: true } : given;
   if (given.mode === 'live' && delta >= 0) return given;
   const s: LogState =
     given.mode === 'live'
@@ -628,17 +566,11 @@ export function scrollLogs(
       ...s,
       wantForward: s.wantForward || atEnd,
       anchor:
-        target === undefined
-          ? s.anchor
-          : anchored(s, { index: target.index, row: target.inner }),
+        target === undefined ? s.anchor : anchored(s, { index: target.index, row: target.inner }),
     };
   }
   let { index, row } = topOf(s);
-  row = Math.min(
-    row,
-    entryRows(s.buffer[index] as LogEntry, s.buffer[index - 1], cols).length -
-      1,
-  );
+  row = Math.min(row, entryRows(s.buffer[index] as LogEntry, s.buffer[index - 1], cols).length - 1);
   let left = -delta;
   while (left > 0) {
     if (row >= left) {
@@ -652,9 +584,7 @@ export function scrollLogs(
       }
       index -= 1;
       left -= 1;
-      row =
-        entryRows(s.buffer[index] as LogEntry, s.buffer[index - 1], cols)
-          .length - 1;
+      row = entryRows(s.buffer[index] as LogEntry, s.buffer[index - 1], cols).length - 1;
       if (left === 0) break;
     }
   }
@@ -687,8 +617,7 @@ export function pauseLogs(s: LogState, cols: number, height: number): LogState {
   return {
     ...s,
     mode: 'paused',
-    anchor:
-      s.buffer.length === 0 ? null : anchored(s, lastScreen(s, cols, height)),
+    anchor: s.buffer.length === 0 ? null : anchored(s, lastScreen(s, cols, height)),
   };
 }
 

@@ -13,12 +13,7 @@ import type { TaskState } from '../../../src/domain/state.ts';
 import { decide } from '../../../src/engine/decide.ts';
 import { emptyRuntime, replay } from '../../../src/engine/evolve.ts';
 import { claimable } from '../../../src/engine/claim.ts';
-import {
-  buildTask,
-  envelope,
-  freezeOk,
-  uuidOf,
-} from '../../support/builders.ts';
+import { buildTask, envelope, freezeOk, uuidOf } from '../../support/builders.ts';
 import {
   buildRuntime,
   confirmedRuntime,
@@ -41,23 +36,18 @@ const HASH = `sha256:${'b'.repeat(64)}`;
 
 describe('runtime limits', () => {
   it('defaults are valid finite positive integers with consistent cross-field caps', () => {
-    expect(RuntimeLimitsSchema.parse(DEFAULT_RUNTIME_LIMITS)).toEqual(
-      DEFAULT_RUNTIME_LIMITS,
-    );
+    expect(RuntimeLimitsSchema.parse(DEFAULT_RUNTIME_LIMITS)).toEqual(DEFAULT_RUNTIME_LIMITS);
     expect(runtimeLimitIssues(DEFAULT_RUNTIME_LIMITS)).toEqual([]);
   });
 
-  it.each([0, -1, 1.5, Number.POSITIVE_INFINITY, Number.NaN])(
-    'rejects %s as a cap',
-    (v) => {
-      expect(
-        RuntimeLimitsSchema.safeParse({
-          ...DEFAULT_RUNTIME_LIMITS,
-          spool_bytes: v,
-        }).success,
-      ).toBe(false);
-    },
-  );
+  it.each([0, -1, 1.5, Number.POSITIVE_INFINITY, Number.NaN])('rejects %s as a cap', (v) => {
+    expect(
+      RuntimeLimitsSchema.safeParse({
+        ...DEFAULT_RUNTIME_LIMITS,
+        spool_bytes: v,
+      }).success,
+    ).toBe(false);
+  });
 
   it('reports initial > max, segment > spool and TERM+KILL beyond drain/recheck', () => {
     const issues = runtimeLimitIssues({
@@ -83,16 +73,11 @@ describe('runtime snapshot and entities', () => {
     const rt = buildRuntime(buildTask());
     expect(FrozenRuntimeContextSchema.parse(rt)).toEqual(rt);
     expect(verifyRuntimeHash(rt)).toBe(true);
-    expect(verifyRuntimeHash({ ...rt, project_path: '/srv/other' })).toBe(
+    expect(verifyRuntimeHash({ ...rt, project_path: '/srv/other' })).toBe(false);
+    expect(FrozenRuntimeContextSchema.safeParse({ ...rt, completion_mode: 'merge' }).success).toBe(
       false,
     );
-    expect(
-      FrozenRuntimeContextSchema.safeParse({ ...rt, completion_mode: 'merge' })
-        .success,
-    ).toBe(false);
-    expect(
-      FrozenRuntimeContextSchema.safeParse({ ...rt, token: 'x' }).success,
-    ).toBe(false);
+    expect(FrozenRuntimeContextSchema.safeParse({ ...rt, token: 'x' }).success).toBe(false);
   });
 
   it.each(['/etc/passwd', '../x', 'a/../b', 'a//b', './a', 'a/.'])(
@@ -196,9 +181,7 @@ describe('replay defaults and pure runtime decisions', () => {
     if (d.kind !== 'accepted') throw new Error(JSON.stringify(d));
     const types = d.events.map((e) => e.type);
     expect(types.indexOf('RuntimeConfigured')).toBeGreaterThanOrEqual(0);
-    expect(types.indexOf('RuntimeConfigured')).toBeLessThan(
-      types.indexOf('PolicyFrozen'),
-    );
+    expect(types.indexOf('RuntimeConfigured')).toBeLessThan(types.indexOf('PolicyFrozen'));
   });
 
   it('a runtime snapshot for another base is rejected', () => {
@@ -275,12 +258,13 @@ describe('replay defaults and pure runtime decisions', () => {
       pending_operations: [],
       finalized_at: null,
     };
-    expect(
-      claimable(s, { id: 'e', kind: 'start_agent', revision: s.revision }, 0),
-    ).toEqual({ ok: false, reason: 'completion' });
-    expect(
-      claimable(s, { id: 'e', kind: 'stop_attempt', revision: s.revision }, 0),
-    ).toEqual({ ok: true });
+    expect(claimable(s, { id: 'e', kind: 'start_agent', revision: s.revision }, 0)).toEqual({
+      ok: false,
+      reason: 'completion',
+    });
+    expect(claimable(s, { id: 'e', kind: 'stop_attempt', revision: s.revision }, 0)).toEqual({
+      ok: true,
+    });
     expect(
       claimable(
         s,

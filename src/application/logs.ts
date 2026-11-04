@@ -38,12 +38,7 @@ const LogsQuerySchema = z
     kind: z.literal('task_logs'),
     task_id: UuidSchema,
     after: z.number().int().nonnegative().default(0),
-    limit: z
-      .number()
-      .int()
-      .min(1)
-      .max(LOG_PAGE_RECORDS)
-      .default(LOG_PAGE_RECORDS),
+    limit: z.number().int().min(1).max(LOG_PAGE_RECORDS).default(LOG_PAGE_RECORDS),
     attempt_id: UuidSchema.optional(),
   })
   .strict();
@@ -69,10 +64,7 @@ export type LogEntry =
 
 type OutputEvent = Extract<DomainEvent, { type: 'OutputIngested' }>;
 
-function openRecords(
-  deps: LogsDeps,
-  op: TaskState['operations'][string],
-): LogRecord[] | string {
+function openRecords(deps: LogsDeps, op: TaskState['operations'][string]): LogRecord[] | string {
   try {
     const run = RunDir.open({
       dataDir: deps.dataDir,
@@ -125,10 +117,7 @@ export function taskLogs(
   } | null = null;
   const workers = Object.values(s.operations).filter((o) => o.kind === 'agent');
   const active = workers.at(-1);
-  if (
-    active !== undefined &&
-    ['registered', 'running', 'unknown'].includes(active.status)
-  ) {
+  if (active !== undefined && ['registered', 'running', 'unknown'].includes(active.status)) {
     // Do not expose B's uncommitted tail while A can still append records to the committed prefix.
     // Otherwise a later successful ingest of A would change the cursors already handed out for B.
     for (const previous of workers.slice(0, -1)) {
@@ -137,8 +126,7 @@ export function taskLogs(
         if (!['finished', 'lost'].includes(previous.status)) {
           diagnostic = {
             op: previous,
-            reason:
-              'earlier worker is not resolved; live output waits for its ingestion',
+            reason: 'earlier worker is not resolved; live output waits for its ingestion',
           };
           break;
         }
@@ -151,9 +139,7 @@ export function taskLogs(
         const tail = readRecords(
           run,
           previous.id,
-          previous.cursor === null
-            ? null
-            : { operation_id: previous.id, ...previous.cursor },
+          previous.cursor === null ? null : { operation_id: previous.id, ...previous.cursor },
           { maxRecords: 1, final: true },
         );
         if (!tail.ok || tail.value.records.length > 0) {
@@ -233,8 +219,7 @@ export function taskLogs(
       loaded = op === undefined ? 'operation unknown' : openRecords(deps, op);
       cache.set(id, loaded);
     }
-    const batch =
-      typeof loaded === 'string' ? null : loaded.slice(from, from + count);
+    const batch = typeof loaded === 'string' ? null : loaded.slice(from, from + count);
     if (batch === null || hashCanonical(batch) !== digest) {
       // Taken whole: a gap has no records to page through, and the cursor must still move past it.
       out.push({
@@ -253,8 +238,7 @@ export function taskLogs(
       cursor = position;
       continue;
     }
-    const step =
-      op?.attempt_id == null ? null : (s.attempts[op.attempt_id]?.step ?? null);
+    const step = op?.attempt_id == null ? null : (s.attempts[op.attempt_id]?.step ?? null);
     for (const [i, r] of batch.entries()) {
       const seq = first + i;
       if (seq <= q.data.after) continue;

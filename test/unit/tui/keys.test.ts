@@ -75,11 +75,7 @@ describe('KeyDecoder', () => {
   });
 
   it('ignores unknown sequences and control characters', () => {
-    expect(decode('\x1b[99~a\x1b[Xb\x01c')).toEqual([
-      char('a'),
-      char('b'),
-      char('c'),
-    ]);
+    expect(decode('\x1b[99~a\x1b[Xb\x01c')).toEqual([char('a'), char('b'), char('c')]);
   });
 
   it('drops a sequence that never ends, so it cannot block input forever', () => {
@@ -100,9 +96,7 @@ describe('KeyDecoder', () => {
     for (let i = 1; i < text.length; i++) {
       const d = new KeyDecoder();
       const keys = [...d.feed(text.slice(0, i)), ...d.feed(text.slice(i))];
-      expect(keys, `split at ${i}`).toEqual([
-        { kind: 'paste', text: 'abc\ndef' },
-      ]);
+      expect(keys, `split at ${i}`).toEqual([{ kind: 'paste', text: 'abc\ndef' }]);
     }
   });
 
@@ -114,10 +108,7 @@ describe('KeyDecoder', () => {
   });
 
   it('keys after a paste are read as keys again', () => {
-    expect(decode('\x1b[200~a\x1b[201~q')).toEqual([
-      { kind: 'paste', text: 'a' },
-      char('q'),
-    ]);
+    expect(decode('\x1b[200~a\x1b[201~q')).toEqual([{ kind: 'paste', text: 'a' }, char('q')]);
   });
 
   it('never throws, and gives the same keys however the input is split', () => {

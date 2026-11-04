@@ -5,12 +5,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ExitCode } from '../../../src/cli/output.ts';
 import { runCli } from '../../../src/cli/program.ts';
-import {
-  addCommand,
-  confirmCommand,
-  proposeCommand,
-  showCommand,
-} from '../../../src/cli/tasks.ts';
+import { addCommand, confirmCommand, proposeCommand, showCommand } from '../../../src/cli/tasks.ts';
 import { startDaemon, type RunningDaemon } from '../../../src/daemon/main.ts';
 import { taskControl } from '../../../src/daemon/task-control.ts';
 import { asEpochMs } from '../../../src/shared/brand.ts';
@@ -32,8 +27,7 @@ afterEach(async () => {
 
 const clock = { now: () => asEpochMs(1_800_000_000_000), monotonic: () => 0 };
 let seq = 0;
-const newId = (): string =>
-  `00000000-0000-7000-8000-${String(++seq).padStart(12, '0')}`;
+const newId = (): string => `00000000-0000-7000-8000-${String(++seq).padStart(12, '0')}`;
 
 async function daemon(
   accessTokens: {
@@ -172,20 +166,12 @@ describe('cusr task add/show/confirm over the control socket (T048)', () => {
     ]);
     expect(changed.code).toBe(ExitCode.conflict);
 
-    expect(
-      await cli(['task', 'show', '--data-dir', dataDir, id]),
-    ).toMatchObject({
+    expect(await cli(['task', 'show', '--data-dir', dataDir, id])).toMatchObject({
       code: ExitCode.ok,
       data: { task_id: id, status: 'READY' },
     });
     expect(
-      await cli([
-        'task',
-        'show',
-        '--data-dir',
-        dataDir,
-        '0190e9a0-0000-7000-8000-00000000ffff',
-      ]),
+      await cli(['task', 'show', '--data-dir', dataDir, '0190e9a0-0000-7000-8000-00000000ffff']),
     ).toMatchObject({ code: ExitCode.missing });
   });
 
@@ -318,36 +304,21 @@ describe('cusr task add/show/confirm over the control socket (T048)', () => {
       'a',
     ]);
     const other = await cli(
-      [
-        'task',
-        'show',
-        '--data-dir',
-        scoped.dataDir,
-        mine.data?.['task_id'] as string,
-      ],
+      ['task', 'show', '--data-dir', scoped.dataDir, mine.data?.['task_id'] as string],
       { CUSR_TOKEN_FILE: otherFile },
     );
     expect(other.code).toBe(ExitCode.missing);
     expect(
-      await cli(
-        [
-          'task',
-          'show',
-          '--data-dir',
-          scoped.dataDir,
-          mine.data?.['task_id'] as string,
-        ],
-        { CUSR_TOKEN_FILE: readerFile },
-      ),
+      await cli(['task', 'show', '--data-dir', scoped.dataDir, mine.data?.['task_id'] as string], {
+        CUSR_TOKEN_FILE: readerFile,
+      }),
     ).toMatchObject({
       code: ExitCode.ok,
     });
   });
 
   it('refuses incomplete arguments locally with usage exit', async () => {
-    expect((await cli(['task', 'add', '--project', 'acme'])).code).toBe(
-      ExitCode.usage,
-    );
+    expect((await cli(['task', 'add', '--project', 'acme'])).code).toBe(ExitCode.usage);
     expect((await cli(['task', 'confirm', 'x'])).code).toBe(ExitCode.usage);
   });
 
@@ -416,9 +387,7 @@ describe('cusr task add/show/confirm over the control socket (T048)', () => {
     const id = added.data?.['task_id'] as string;
     const digest = (added.data?.['run_config'] as { digest: string }).digest;
     const version = () =>
-      cli(['task', 'show', '--data-dir', dataDir, id]).then((r) =>
-        String(r.data?.['version']),
-      );
+      cli(['task', 'show', '--data-dir', dataDir, id]).then((r) => String(r.data?.['version']));
 
     // The assistant confirms intake and the selection in one interaction; a wrong digest is refused.
     const wrong = await cli([

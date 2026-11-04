@@ -1,10 +1,6 @@
 import { isBusinessEffect, type EffectKind } from '../domain/effect.ts';
 import { cancelReadRef } from '../domain/runtime.ts';
-import {
-  isTerminal,
-  type EffectMirror,
-  type TaskState,
-} from '../domain/state.ts';
+import { isTerminal, type EffectMirror, type TaskState } from '../domain/state.ts';
 import { release, usageOf } from './budget.ts';
 import type { Ctx } from './context.ts';
 import { inFlight, requestEffect, requestReconcile } from './effects.ts';
@@ -34,11 +30,7 @@ export function requestCancel(ctx: Ctx, reason: string): void {
   });
   invalidatePending(ctx, 'cancelled', () => true);
   for (const e of Object.values(ctx.state.effects)) {
-    if (
-      e.status === 'started' &&
-      e.kind === 'start_agent' &&
-      e.attempt_id !== null
-    ) {
+    if (e.status === 'started' && e.kind === 'start_agent' && e.attempt_id !== null) {
       requestEffect(ctx, {
         kind: 'stop_attempt',
         logical_id: e.attempt_id,
@@ -70,8 +62,7 @@ export function invalidatePending(
   filter: (e: EffectMirror) => boolean,
 ): void {
   for (const e of Object.values(ctx.state.effects)) {
-    if (e.status !== 'pending' || !isBusinessEffect(e.kind) || !filter(e))
-      continue;
+    if (e.status !== 'pending' || !isBusinessEffect(e.kind) || !filter(e)) continue;
     ctx.emit('EffectInvalidated', { effect_id: e.id, reason });
     release(ctx, e.reservation_id);
     if (
@@ -128,10 +119,7 @@ export function cancelNeedsPrRead(s: TaskState): boolean {
   if (c.read_token === undefined) return false;
   // A merge was shown, or its evidence is incomplete or contradicts: wait for reconciliation, whatever
   // any read said before or after (FR-040.12).
-  if (
-    c.merge_seen !== undefined ||
-    s.blockers.some((b) => b.code === 'merge_evidence_incomplete')
-  )
+  if (c.merge_seen !== undefined || s.blockers.some((b) => b.code === 'merge_evidence_incomplete'))
     return true;
   const r = c.pr_read;
   return !(r !== undefined && (r.status === 'open' || r.status === 'closed'));
@@ -145,8 +133,7 @@ export function cancelReadEvidence(s: TaskState): string | null {
 
 function waitCancelReconcile(ctx: Ctx): void {
   const s = ctx.state;
-  if (s.status === 'WAITING' && s.wait?.detail.code === 'cancel_reconcile')
-    return;
+  if (s.status === 'WAITING' && s.wait?.detail.code === 'cancel_reconcile') return;
   ctx.emit('TaskWaiting', {
     wait: mkWait('policy', 'cancel_reconcile', {
       resume_when: ['observation(after cancel)', 'recheck(observation)'],

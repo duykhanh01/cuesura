@@ -14,11 +14,7 @@ import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, extname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { GitCommandRunner } from '../adapters/git/command.ts';
-import {
-  GH_ENV_PASS,
-  GhPort,
-  spawnGhExec,
-} from '../adapters/github/gh-port.ts';
+import { GH_ENV_PASS, GhPort, spawnGhExec } from '../adapters/github/gh-port.ts';
 import type { Clock, GitHubPort, HarnessPort } from '../adapters/ports.ts';
 import { MAX_ENVELOPE_IDS } from '../domain/trigger.ts';
 import { DEFAULT_RUNTIME_LIMITS } from '../domain/runtime.ts';
@@ -69,17 +65,13 @@ const PROMPT_BYTES = 1024 * 1024;
  * `roles.<role>.prompt` names a file relative to the user config, which only the owner edits. A missing
  * or oversize one is left out; freeze then reports it as config_invalid.
  */
-export function readPrompts(
-  configPath: string,
-  names: readonly string[],
-): DocContent[] {
+export function readPrompts(configPath: string, names: readonly string[]): DocContent[] {
   const out: DocContent[] = [];
   for (const name of names) {
     if (isAbsolute(name) || name.split('/').includes('..')) continue;
     try {
       const content = readFileSync(join(dirname(configPath), name), 'utf8');
-      if (Buffer.byteLength(content) <= PROMPT_BYTES)
-        out.push({ name, content });
+      if (Buffer.byteLength(content) <= PROMPT_BYTES) out.push({ name, content });
     } catch {
       // Left out, as above.
     }
@@ -146,9 +138,7 @@ export async function productionControl(opts: {
   });
   const runtime = validated.ok ? validated.value.runtime : null;
   const projects = validated.ok
-    ? Object.values(validated.value.locations).flatMap((l) =>
-        l.path === null ? [] : [l.path],
-      )
+    ? Object.values(validated.value.locations).flatMap((l) => (l.path === null ? [] : [l.path]))
     : [];
   const git = runtime?.tool_paths.git ?? (await host.findExecutable('git'));
   const gh = runtime?.tool_paths.gh ?? (await host.findExecutable('gh'));
@@ -158,9 +148,7 @@ export async function productionControl(opts: {
       ? null
       : await findTerminalBin(terminal, runtime?.tool_paths ?? {}, host);
   if (terminal.backend !== 'background' && terminalBin === null)
-    opts.log?.(
-      `${terminal.backend} was not found; agents run in the background`,
-    );
+    opts.log?.(`${terminal.backend} was not found; agents run in the background`);
   const hooks = join(opts.dataDir, 'empty-hooks');
   mkdirSync(hooks, { recursive: true, mode: 0o700 });
   const now = (): number => opts.clock.now();
@@ -218,8 +206,7 @@ export async function productionControl(opts: {
           clock: opts.clock,
           redactor: opts.redactor,
         }));
-  const credentialHelper =
-    gh === null ? null : writeCredentialHelper(opts.dataDir, gh);
+  const credentialHelper = gh === null ? null : writeCredentialHelper(opts.dataDir, gh);
   return (store, daemon) => {
     const ports = {
       git:
@@ -244,22 +231,15 @@ export async function productionControl(opts: {
             }),
       // A port's call cap and round window count from its creation, so each request gets its own.
       github: {
-        request: (req: Parameters<GitHubPort['request']>[0]) =>
-          newGitHub().request(req),
+        request: (req: Parameters<GitHubPort['request']>[0]) => newGitHub().request(req),
       },
       host,
     };
-    const gateToolchain = opts.seams?.gateToolchain ?? [
-      dirname(process.execPath),
-    ];
+    const gateToolchain = opts.seams?.gateToolchain ?? [dirname(process.execPath)];
     const harnessTools = () =>
-      Object.fromEntries(
-        [...records].map(([h, r]) => [h, harnessSandboxTools(r.pin)]),
-      );
+      Object.fromEntries([...records].map(([h, r]) => [h, harnessSandboxTools(r.pin)]));
     const configInputs = async () => {
-      const user = (
-        await readConfigFiles({ user: opts.configPath })
-      )[0] as ConfigSource;
+      const user = (await readConfigFiles({ user: opts.configPath }))[0] as ConfigSource;
       return {
         user,
         packs: {},
@@ -281,14 +261,11 @@ export async function productionControl(opts: {
         source,
       ),
     );
-    const observe = (taskId: string, ref: string) =>
-      coordinator.observe(taskId, ref, 'recheck');
+    const observe = (taskId: string, ref: string) => coordinator.observe(taskId, ref, 'recheck');
     /** The user config as it is now; a config that cannot be read turns `what` off. */
     const currentUser = async (what: string) => {
       try {
-        const user = (
-          await readConfigFiles({ user: opts.configPath })
-        )[0] as ConfigSource;
+        const user = (await readConfigFiles({ user: opts.configPath }))[0] as ConfigSource;
         const current = validateConfig({ user, packs: {} });
         if (!current.ok) {
           opts.log?.(
@@ -298,9 +275,7 @@ export async function productionControl(opts: {
         }
         return current.value.config.user;
       } catch (error) {
-        opts.log?.(
-          `${what} disabled: config unreadable: ${opts.redactor.text(String(error))}`,
-        );
+        opts.log?.(`${what} disabled: config unreadable: ${opts.redactor.text(String(error))}`);
         return null;
       }
     };
@@ -309,8 +284,7 @@ export async function productionControl(opts: {
       clock: opts.clock,
       newId: opts.newId,
       github: newGitHub,
-      content: (ref, digest) =>
-        new FileContentStore(dir('content')).get(ref, digest),
+      content: (ref, digest) => new FileContentStore(dir('content')).get(ref, digest),
       enabled: async () => (await currentUser('yolo'))?.yolo ?? false,
       ...(opts.log === undefined ? {} : { log: opts.log }),
     };
@@ -357,8 +331,7 @@ export async function productionControl(opts: {
             stall_ms: null,
           },
         });
-    const remoteUrl =
-      opts.seams?.remoteUrl ?? ((repo) => `https://github.com/${repo}.git`);
+    const remoteUrl = opts.seams?.remoteUrl ?? ((repo) => `https://github.com/${repo}.git`);
     const dir = (name: string): string => join(opts.dataDir, name);
     const deps: HandlerDeps = {
       dataDir: opts.dataDir,
@@ -393,8 +366,7 @@ export async function productionControl(opts: {
       abort: daemon.abort,
       settled: daemon.settled,
       process: process_,
-      stopLocal: (operationId) =>
-        stopOperationProcesses(opts.dataDir, operationId),
+      stopLocal: (operationId) => stopOperationProcesses(opts.dataDir, operationId),
     };
     const decider = createDecider({
       store,
@@ -411,8 +383,7 @@ export async function productionControl(opts: {
         const role = user.roles['decider'];
         const rule = role?.binding[0];
         const model = rule === undefined ? undefined : user.models[rule.model];
-        if (role === undefined || rule === undefined || model === undefined)
-          return null;
+        if (role === undefined || rule === undefined || model === undefined) return null;
         return {
           harness: model.harness,
           model: rule.model,
@@ -442,8 +413,7 @@ export async function productionControl(opts: {
             ports,
             configInputs,
             docs: {
-              prompts: (names) =>
-                Promise.resolve(readPrompts(opts.configPath, names)),
+              prompts: (names) => Promise.resolve(readPrompts(opts.configPath, names)),
               // `cusr add` creates tasks without attachments and no spec defines what a content_ref
               // points at; a task that names one fails its freeze instead of reading a path it chose.
               attachments: () => Promise.resolve([]),
@@ -459,8 +429,7 @@ export async function productionControl(opts: {
         Array.from({ length: MAX_ENVELOPE_IDS }, () => opts.newId() as Uuid),
       );
       if (r.ok) return Promise.resolve();
-      if (r.error.code === 'write_failed')
-        daemon.latch(`store write failed: ${r.error.cause}`);
+      if (r.error.code === 'write_failed') daemon.latch(`store write failed: ${r.error.cause}`);
       return Promise.reject(new Error(`timers: ${r.error.code}`));
     };
     // The engine allows few drain rounds per merge, so they are spread over its time window instead of
@@ -468,15 +437,10 @@ export async function productionControl(opts: {
     const lastDrain = new Map<string, number>();
     const drainAll = async (): Promise<void> => {
       for (const id of drainingTasks(store)) {
-        const l =
-          store.readTask(id as Uuid)?.run.limits ?? DEFAULT_RUNTIME_LIMITS;
+        const l = store.readTask(id as Uuid)?.run.limits ?? DEFAULT_RUNTIME_LIMITS;
         const last = lastDrain.get(id);
         const at = opts.clock.now();
-        if (
-          last !== undefined &&
-          at - last < l.drain_max_ms / l.drain_max_rounds
-        )
-          continue;
+        if (last !== undefined && at - last < l.drain_max_ms / l.drain_max_rounds) continue;
         lastDrain.set(id, at);
         await drainRound(drainDeps, id);
       }

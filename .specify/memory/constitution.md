@@ -136,7 +136,7 @@ mỗi thành phần phải được dùng thật.
 - **Stack baseline:** Node 24 LTS, TypeScript strict (`noUncheckedIndexedAccess`,
   `exactOptionalPropertyTypes`, `noFallthroughCasesInSwitch`, `noEmitOnError`), ESM build bằng
   `tsc`, SQLite qua `better-sqlite3` sau một module store mỏng, Zod 4, Commander, `yaml`, Vitest,
-  fast-check, pnpm với lockfile frozen, ESLint + typescript-eslint + Prettier. Đổi baseline cần
+  fast-check, pnpm với lockfile frozen, ESLint + typescript-eslint + Oxfmt. Đổi baseline cần
   amendment của SPEC.md §17.
 - **Exhaustiveness:** switch trên domain union kết thúc bằng `assertNever`; không cast sang `never`.
 - **SQLite:** WAL, `synchronous=FULL`, foreign keys, busy timeout hữu hạn; unique constraint bảo
@@ -214,4 +214,13 @@ nguyên: mọi thao tác khác vẫn phải probe trước khi thử lại; quy�
 trùng. SPEC.md không đổi vì §13.2 đã nêu đúng quy tắc này; plan của feature 003 dẫn điều khoản mới; các template đọc
 hiến chương hiện hành, không cần đổi cấu trúc.
 
-**Version**: 6.1.0 | **Ratified**: 2026-10-27 | **Last Amended**: 2026-11-03
+**Amendment 2026-11-04 (chủ dự án):** 6.1.0 → 6.1.1 thay Prettier bằng Oxfmt trong
+stack baseline để thống nhất formatter và kiểm tra định dạng. SPEC §17 được đồng bộ; các template
+Spec Kit không chỉ định formatter và tiếp tục đọc hiến chương hiện hành, nên không cần sửa.
+Các gate typecheck, lint, test và build vẫn bắt buộc.
+
+**Sync Impact Report 2026-11-04:** baseline kỹ thuật đổi Prettier → Oxfmt; không đổi nguyên tắc
+I–VIII. SPEC §17 và hướng dẫn formatter được cập nhật; template Spec Kit đã kiểm tra, không cần
+thay đổi. Không có mục đồng bộ còn chờ.
+
+**Version**: 6.1.1 | **Ratified**: 2026-10-27 | **Last Amended**: 2026-11-04

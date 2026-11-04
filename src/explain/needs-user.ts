@@ -64,9 +64,7 @@ const NEEDS_USER: Record<DetailCode, boolean> = {
   cancel_reconcile: true,
 };
 
-export function needsUser(
-  s: Pick<TaskState, 'status' | 'wait' | 'revision' | 'run'>,
-): boolean {
+export function needsUser(s: Pick<TaskState, 'status' | 'wait' | 'revision' | 'run'>): boolean {
   if (isTerminal(s.status)) return false;
   if (s.status === 'READY' && !runConfigConfirmed(s)) return true;
   return s.wait === null ? false : NEEDS_USER[s.wait.detail.code];

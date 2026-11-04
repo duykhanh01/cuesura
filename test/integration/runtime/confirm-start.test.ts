@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Caller } from '../../../src/application/authz.ts';
-import {
-  confirmTask,
-  type ConfirmDeps,
-} from '../../../src/application/confirm.ts';
+import { confirmTask, type ConfirmDeps } from '../../../src/application/confirm.ts';
 import { startTask, type StartDeps } from '../../../src/application/start.ts';
 import type { CanonicalTask } from '../../../src/domain/task.ts';
 import type { EpochMs } from '../../../src/shared/brand.ts';
@@ -91,10 +88,7 @@ function setup(env: Env = {}) {
     ...base,
     ports: ports(),
     docs: {
-      prompts: (names) =>
-        Promise.resolve(
-          names.map((name) => ({ name, content: `# ${name}\n` })),
-        ),
+      prompts: (names) => Promise.resolve(names.map((name) => ({ name, content: `# ${name}\n` }))),
       attachments: () => Promise.resolve([]),
     },
     newId: () => uuidOf(ids++),
@@ -124,8 +118,7 @@ const fromAssistant = (over: Partial<CanonicalTask> = {}) =>
 function grant(d: StoreDriver, task: CanonicalTask): string {
   d.must(task.id, { kind: 'request_execution' });
   const g = d.store.grantNext(d.now as EpochMs);
-  if (!g.ok || g.value.kind !== 'decided')
-    throw new Error(`grant failed: ${JSON.stringify(g)}`);
+  if (!g.ok || g.value.kind !== 'decided') throw new Error(`grant failed: ${JSON.stringify(g)}`);
   return g.value.request_id;
 }
 
@@ -190,9 +183,7 @@ describe('task confirm runs triage, then one preflight candidate (T031, FR-002.0
     expect(d.task(task.id).version).toBe(version);
 
     // A new request re-reads the base and the host and moves the task to READY.
-    expect(
-      await confirmTask(confirmDeps(), OWNER, confirmCmd(d, task, 2)),
-    ).toMatchObject({
+    expect(await confirmTask(confirmDeps(), OWNER, confirmCmd(d, task, 2))).toMatchObject({
       ok: true,
       value: { status: 'READY', config_check: 'checked' },
     });
@@ -205,9 +196,7 @@ describe('task confirm runs triage, then one preflight candidate (T031, FR-002.0
     const task = buildTask();
     d.must(task.id, { kind: 'create_task', task });
     expect(d.task(task.id).status).toBe('READY');
-    expect(
-      await confirmTask(confirmDeps(), OWNER, confirmCmd(d, task, 1)),
-    ).toMatchObject({
+    expect(await confirmTask(confirmDeps(), OWNER, confirmCmd(d, task, 1))).toMatchObject({
       ok: true,
       value: {
         status: 'PENDING',
@@ -224,9 +213,7 @@ describe('task confirm runs triage, then one preflight candidate (T031, FR-002.0
       acceptance: [],
     });
     d.must(noAcceptance.id, { kind: 'create_task', task: noAcceptance });
-    expect(
-      await confirmTask(confirmDeps(), OWNER, confirmCmd(d, noAcceptance, 1)),
-    ).toMatchObject({
+    expect(await confirmTask(confirmDeps(), OWNER, confirmCmd(d, noAcceptance, 1))).toMatchObject({
       ok: true,
       value: {
         status: 'PENDING',
@@ -243,9 +230,7 @@ describe('task confirm runs triage, then one preflight candidate (T031, FR-002.0
       depends_on: [dep.id],
     });
     d.must(child.id, { kind: 'create_task', task: child });
-    expect(
-      await confirmTask(confirmDeps(), OWNER, confirmCmd(d, child, 2)),
-    ).toMatchObject({
+    expect(await confirmTask(confirmDeps(), OWNER, confirmCmd(d, child, 2))).toMatchObject({
       ok: true,
       value: {
         status: 'PENDING',
@@ -281,28 +266,18 @@ describe('task confirm runs triage, then one preflight candidate (T031, FR-002.0
     const { d, confirmDeps } = setup();
     const task = fromAssistant();
     d.must(task.id, { kind: 'create_task', task });
+    expect(await confirmTask(confirmDeps(), OTHER, confirmCmd(d, task, 1))).toMatchObject({
+      ok: false,
+      error: { code: 'forbidden', reason: 'project' },
+    });
     expect(
-      await confirmTask(confirmDeps(), OTHER, confirmCmd(d, task, 1)),
+      await confirmTask(confirmDeps(), OWNER, confirmCmd(d, task, 2, { project: 'elsewhere' })),
     ).toMatchObject({
       ok: false,
       error: { code: 'forbidden', reason: 'project' },
     });
     expect(
-      await confirmTask(
-        confirmDeps(),
-        OWNER,
-        confirmCmd(d, task, 2, { project: 'elsewhere' }),
-      ),
-    ).toMatchObject({
-      ok: false,
-      error: { code: 'forbidden', reason: 'project' },
-    });
-    expect(
-      await confirmTask(
-        confirmDeps(),
-        OWNER,
-        confirmCmd(d, task, 3, { expected_version: 99 }),
-      ),
+      await confirmTask(confirmDeps(), OWNER, confirmCmd(d, task, 3, { expected_version: 99 })),
     ).toMatchObject({
       ok: false,
       error: { code: 'conflict', reason: 'stale_version' },
@@ -323,9 +298,7 @@ describe('start freezes one snapshot under the slot before RUNNING (T032, FR-002
     expect(r).toMatchObject({ kind: 'submitted', frozen: true });
     const s = d.task(task.id);
     expect(s.status).toBe('RUNNING');
-    const configured = d.store
-      .readEvents(task.id)
-      .find((e) => e.type === 'RuntimeConfigured');
+    const configured = d.store.readEvents(task.id).find((e) => e.type === 'RuntimeConfigured');
     expect(configured?.payload).toMatchObject({
       runtime: {
         base_sha: SHA,
@@ -349,14 +322,10 @@ describe('start freezes one snapshot under the slot before RUNNING (T032, FR-002
         review_template: { path: DEFAULT_REVIEW_TEMPLATE_PATH },
       },
     });
-    expect(d.store.readPolicy(task.id, 1)?.workflow_name).toBe(
-      'software_dev@2:full-review',
-    );
+    expect(d.store.readPolicy(task.id, 1)?.workflow_name).toBe('software_dev@2:full-review');
     expect(s.run.mode).toBe('full-review');
     const types = eventTypes(d, task);
-    expect(types.indexOf('RuntimeConfigured')).toBeLessThan(
-      types.indexOf('PolicyFrozen'),
-    );
+    expect(types.indexOf('RuntimeConfigured')).toBeLessThan(types.indexOf('PolicyFrozen'));
     expect(d.store.readPolicy(task.id, 1)?.base_sha).toBe(SHA);
     expect(d.pending(task.id, 'prepare')).toHaveLength(1);
 
@@ -365,9 +334,7 @@ describe('start freezes one snapshot under the slot before RUNNING (T032, FR-002
       kind: 'not_startable',
       reason: 'already_started',
     });
-    expect(
-      eventTypes(d, task).filter((t) => t === 'PolicyFrozen'),
-    ).toHaveLength(1);
+    expect(eventTypes(d, task).filter((t) => t === 'PolicyFrozen')).toHaveLength(1);
   });
 
   it('does not start without the slot', async () => {
@@ -485,8 +452,7 @@ describe('start freezes one snapshot under the slot before RUNNING (T032, FR-002
       ...sel,
       worker: {
         ...sel.worker,
-        effort:
-          sel.worker.effort === 'high' ? ('low' as const) : ('high' as const),
+        effort: sel.worker.effort === 'high' ? ('low' as const) : ('high' as const),
       },
     };
     proposeAndConfirm(d, task, wrong);
@@ -525,14 +491,10 @@ describe('start freezes one snapshot under the slot before RUNNING (T032, FR-002
     });
     const policy = d.store.readPolicy(task.id, 1);
     expect(policy?.workflow_name).toBe('software_dev@2:direct-pr');
-    expect(
-      Object.values(policy?.workflow.steps ?? {}).some(
-        (st) => st.kind === 'review',
-      ),
-    ).toBe(false);
-    expect(
-      Object.values(policy?.steps ?? {}).map((st) => st.role),
-    ).not.toContain('reviewer');
+    expect(Object.values(policy?.workflow.steps ?? {}).some((st) => st.kind === 'review')).toBe(
+      false,
+    );
+    expect(Object.values(policy?.steps ?? {}).map((st) => st.role)).not.toContain('reviewer');
     expect(policy?.workflow.steps['gates']?.next['pass']).toBe('publish');
     expect(d.task(task.id).run.mode).toBe('direct-pr');
   });
@@ -556,9 +518,7 @@ describe('start freezes one snapshot under the slot before RUNNING (T032, FR-002
     const policy = d.store.readPolicy(task.id, 1);
     expect(policy?.steps['code']?.binding.model).toBe('sonnet');
     // Read from the project config at the frozen base.
-    expect(d.store.readRuntimeContext(task.id, 1)?.setup_commands).toEqual([
-      'npm ci',
-    ]);
+    expect(d.store.readRuntimeContext(task.id, 1)?.setup_commands).toEqual(['npm ci']);
     expect(d.store.readRuntimeContext(task.id, 1)?.role_prompts).toMatchObject({
       coder: 'prompts/coder.md',
       fixer: 'prompts/fixer.md',
@@ -573,9 +533,7 @@ describe('start freezes one snapshot under the slot before RUNNING (T032, FR-002
     grant(d, task);
     const docs = {
       prompts: (names: readonly string[]) =>
-        Promise.resolve(
-          names.map((name) => ({ name, content: 'x'.repeat(200 * 1024) })),
-        ),
+        Promise.resolve(names.map((name) => ({ name, content: 'x'.repeat(200 * 1024) }))),
       attachments: () => Promise.resolve([]),
     };
     await startTask(startDeps({ docs }), task.id);
@@ -591,11 +549,7 @@ describe('start freezes one snapshot under the slot before RUNNING (T032, FR-002
       const env = setup(cusr === undefined ? {} : { git: { cusr } });
       const task = buildTask();
       env.d.must(task.id, { kind: 'create_task', task });
-      proposeAndConfirm(
-        env.d,
-        task,
-        await configuredSelection(task, 'direct-pr'),
-      );
+      proposeAndConfirm(env.d, task, await configuredSelection(task, 'direct-pr'));
       grant(env.d, task);
       const r = await startTask(env.startDeps(), task.id);
       return {
@@ -628,11 +582,7 @@ describe('start freezes one snapshot under the slot before RUNNING (T032, FR-002
       });
       const task = buildTask();
       f.d.must(task.id, { kind: 'create_task', task });
-      proposeAndConfirm(
-        f.d,
-        task,
-        await configuredSelection(task, 'direct-pr'),
-      );
+      proposeAndConfirm(f.d, task, await configuredSelection(task, 'direct-pr'));
       grant(f.d, task);
       const deps = f.startDeps();
       const github = deps.ports.github;
@@ -672,9 +622,10 @@ describe('start freezes one snapshot under the slot before RUNNING (T032, FR-002
       const reopened = openFileStoreForTest(f.path);
       try {
         expect(reopened.readRuntimeContext(task.id, 1)).toEqual(before);
-        expect(
-          await startTask({ ...f.startDeps(), store: reopened }, task.id),
-        ).toEqual({ kind: 'not_startable', reason: 'already_started' });
+        expect(await startTask({ ...f.startDeps(), store: reopened }, task.id)).toEqual({
+          kind: 'not_startable',
+          reason: 'already_started',
+        });
         expect(reopened.readRuntimeContext(task.id, 1)).toEqual(before);
         expect(reopened.verifyProjections().ok).toBe(true);
       } finally {
@@ -693,11 +644,7 @@ describe('start freezes one snapshot under the slot before RUNNING (T032, FR-002
     });
     const task = buildTask();
     one.d.must(task.id, { kind: 'create_task', task });
-    proposeAndConfirm(
-      one.d,
-      task,
-      await configuredSelection(task, 'direct-pr'),
-    );
+    proposeAndConfirm(one.d, task, await configuredSelection(task, 'direct-pr'));
     grant(one.d, task);
     expect(await startTask(one.startDeps(), task.id)).toMatchObject({
       kind: 'submitted',
@@ -718,11 +665,7 @@ describe('start freezes one snapshot under the slot before RUNNING (T032, FR-002
       },
     });
     many.d.must(task.id, { kind: 'create_task', task });
-    proposeAndConfirm(
-      many.d,
-      task,
-      await configuredSelection(task, 'direct-pr'),
-    );
+    proposeAndConfirm(many.d, task, await configuredSelection(task, 'direct-pr'));
     grant(many.d, task);
     expect(await startTask(many.startDeps(), task.id)).toMatchObject({
       kind: 'submitted',
@@ -757,8 +700,9 @@ describe('start freezes one snapshot under the slot before RUNNING (T032, FR-002
       kind: 'submitted',
       frozen: true,
     });
-    expect(f.d.store.readRuntimeContext(task.id, 1)?.pr_template).toMatchObject(
-      { path: chosen, content: '# Detail\nKeep acceptance and tests.\n' },
-    );
+    expect(f.d.store.readRuntimeContext(task.id, 1)?.pr_template).toMatchObject({
+      path: chosen,
+      content: '# Detail\nKeep acceptance and tests.\n',
+    });
   });
 });

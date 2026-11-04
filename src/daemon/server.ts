@@ -5,21 +5,11 @@
  * identified only by its bearer token; authorization, schema, version and dedup belong to the handlers.
  */
 import { chmodSync, lstatSync, unlinkSync } from 'node:fs';
-import {
-  createServer,
-  type IncomingMessage,
-  type Server,
-  type ServerResponse,
-} from 'node:http';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
 import { authenticate, type Caller } from '../application/authz.ts';
 import type { TokenMap } from '../application/access-tokens.ts';
-import {
-  CONTROL_SOCKET,
-  errorEnvelope,
-  type Envelope,
-  type EnvelopeError,
-} from '../cli/output.ts';
+import { CONTROL_SOCKET, errorEnvelope, type Envelope, type EnvelopeError } from '../cli/output.ts';
 
 export const MAX_BODY_BYTES = 1024 * 1024;
 /** sun_path holds 108 bytes on Linux, including the terminating NUL. */
@@ -57,17 +47,13 @@ function send(res: ServerResponse, reply: Reply): void {
 
 function bearer(req: IncomingMessage): string | null {
   const h = req.headers.authorization;
-  return typeof h === 'string' && h.startsWith('Bearer ')
-    ? h.slice(7).trim()
-    : null;
+  return typeof h === 'string' && h.startsWith('Bearer ') ? h.slice(7).trim() : null;
 }
 
 async function readBody(
   req: IncomingMessage,
 ): Promise<{ ok: true; value: unknown } | { ok: false; reply: Reply }> {
-  if (
-    req.headers['content-type']?.split(';')[0]?.trim() !== 'application/json'
-  ) {
+  if (req.headers['content-type']?.split(';')[0]?.trim() !== 'application/json') {
     return {
       ok: false,
       reply: errorReply(415, {
@@ -135,8 +121,7 @@ export function createControlServer(
             }),
           );
         const route = `${req.method ?? ''} ${req.url ?? ''}`;
-        if (route === 'GET /v1/health')
-          return send(res, handlers.health(caller));
+        if (route === 'GET /v1/health') return send(res, handlers.health(caller));
         if (route !== 'POST /v1/query' && route !== 'POST /v1/command') {
           return send(
             res,
@@ -156,9 +141,7 @@ export function createControlServer(
             : await handlers.command(caller, body.value),
         );
       })().catch((e: unknown) => {
-        log(
-          `control request failed: ${e instanceof Error ? e.message : String(e)}`,
-        );
+        log(`control request failed: ${e instanceof Error ? e.message : String(e)}`);
         if (!res.headersSent)
           send(
             res,
@@ -179,10 +162,7 @@ export function createControlServer(
  * Listens on DATA_DIR/control.sock. The caller already holds the store's exclusive lock, so a socket
  * file left there belongs to a dead daemon and is replaced; any other file type is refused.
  */
-export async function listenControlSocket(
-  server: Server,
-  dataDir: string,
-): Promise<string> {
+export async function listenControlSocket(server: Server, dataDir: string): Promise<string> {
   const path = join(dataDir, CONTROL_SOCKET);
   const bytes = Buffer.byteLength(path);
   if (bytes > MAX_SOCKET_PATH_BYTES)

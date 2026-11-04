@@ -63,12 +63,10 @@ export function acceptRuntime(
   policy: { revision: number; base_sha: string },
 ): void {
   const s = ctx.state;
-  if (rt.task_id !== s.id)
-    reject('invalid_trigger', { reason: 'runtime_task_mismatch' });
+  if (rt.task_id !== s.id) reject('invalid_trigger', { reason: 'runtime_task_mismatch' });
   if (rt.revision !== policy.revision || rt.base_sha !== policy.base_sha)
     reject('invalid_trigger', { reason: 'runtime_freeze_mismatch' });
-  if (!verifyRuntimeHash(rt))
-    reject('invalid_trigger', { reason: 'runtime_hash_mismatch' });
+  if (!verifyRuntimeHash(rt)) reject('invalid_trigger', { reason: 'runtime_hash_mismatch' });
   if (rt.target.base_ref !== s.task.base_branch)
     reject('invalid_trigger', { reason: 'runtime_base_ref_mismatch' });
 }
@@ -89,11 +87,7 @@ export function onRequestExecution(ctx: Ctx): void {
     return;
   }
   const fresh = s.policy_ref === null;
-  if (
-    fresh
-      ? s.status !== 'READY'
-      : s.status !== 'WAITING' && s.status !== 'RUNNING'
-  ) {
+  if (fresh ? s.status !== 'READY' : s.status !== 'WAITING' && s.status !== 'RUNNING') {
     reject('invalid_trigger', { reason: 'not_queueable', status: s.status });
   }
   const resume: ResumeAction | null =
@@ -101,10 +95,7 @@ export function onRequestExecution(ctx: Ctx): void {
   const priority = s.task.priority;
   const open = s.execution.request;
   if (open !== null) {
-    if (
-      open.priority === priority &&
-      canonicalJson(open.resume_action) === canonicalJson(resume)
-    ) {
+    if (open.priority === priority && canonicalJson(open.resume_action) === canonicalJson(resume)) {
       ctx.emit('SignalIgnored', {
         reason: 'already_queued',
         trigger_kind: 'request_execution',
@@ -132,10 +123,7 @@ export function onRequestExecution(ctx: Ctx): void {
  * Grant the slot to this task's open request. The store reads the slot holder and queue head inside the
  * same BEGIN IMMEDIATE transaction; a stale view is rejected rather than granting twice.
  */
-export function onGrantExecution(
-  ctx: Ctx,
-  t: TriggerOf<'grant_execution'>,
-): void {
+export function onGrantExecution(ctx: Ctx, t: TriggerOf<'grant_execution'>): void {
   const s = ctx.state;
   const r = s.execution.request;
   if (r === null || r.request_id !== t.request_id) {
@@ -155,8 +143,7 @@ export function onGrantExecution(
     return;
   }
   const facts = ctx.related.execution;
-  if (facts === undefined)
-    reject('invalid_trigger', { reason: 'missing_execution_facts' });
+  if (facts === undefined) reject('invalid_trigger', { reason: 'missing_execution_facts' });
   if (facts.slot !== null)
     reject('invalid_trigger', {
       reason: 'slot_held',
@@ -170,8 +157,7 @@ export function onGrantExecution(
   ctx.emit('ExecutionGranted', {
     request_id: r.request_id,
     at: ctx.now,
-    waited_ms:
-      s.execution.accumulated_wait_ms + Math.max(0, ctx.now - r.requested_at),
+    waited_ms: s.execution.accumulated_wait_ms + Math.max(0, ctx.now - r.requested_at),
   });
   // A started task waiting for the slot resumes the step it stopped at; a fresh one waits for its start.
   const w = ctx.state.wait;
@@ -208,9 +194,7 @@ export function waitForSlot(ctx: Ctx, resume: ResumeAction): boolean {
 export function hasSlotWork(s: TaskState): boolean {
   if (slotBoundOperations(s).length > 0) return true;
   return Object.values(s.effects).some(
-    (e) =>
-      (holdsSlot(e.kind) || slotProbe(s, e.id)) &&
-      (e.status === 'pending' || inFlight(e)),
+    (e) => (holdsSlot(e.kind) || slotProbe(s, e.id)) && (e.status === 'pending' || inFlight(e)),
   );
 }
 
@@ -246,10 +230,7 @@ export function settleSlot(ctx: Ctx): void {
 }
 
 /** Release only after every slot-bound operation is resolved; an unresolved claim keeps the slot. */
-export function onReleaseExecution(
-  ctx: Ctx,
-  t: TriggerOf<'release_execution'>,
-): void {
+export function onReleaseExecution(ctx: Ctx, t: TriggerOf<'release_execution'>): void {
   const h = ctx.state.execution.holding;
   if (h === null || h.request_id !== t.request_id) {
     ctx.emit('SignalIgnored', {
@@ -292,10 +273,7 @@ export function settleExecutionOnClose(ctx: Ctx): void {
   }
 }
 
-const NEXT_STATUS: Record<
-  OperationMirror['status'],
-  readonly OperationMirror['status'][]
-> = {
+const NEXT_STATUS: Record<OperationMirror['status'], readonly OperationMirror['status'][]> = {
   registered: ['running', 'finished', 'not_launched', 'unknown', 'lost'],
   running: ['running', 'finished', 'unknown', 'lost'],
   unknown: ['running', 'finished', 'not_launched', 'unknown', 'lost'],
@@ -305,10 +283,7 @@ const NEXT_STATUS: Record<
 };
 
 /** Normalized receipt from the runner files. A late receipt for a resolved operation only gets logged. */
-export function onOperationResult(
-  ctx: Ctx,
-  t: TriggerOf<'operation_result'>,
-): void {
+export function onOperationResult(ctx: Ctx, t: TriggerOf<'operation_result'>): void {
   const o = ctx.state.operations[t.operation_id];
   if (o === undefined)
     reject('invalid_trigger', {
@@ -334,10 +309,7 @@ export function onOperationResult(
   if (t.status !== 'finished' && t.outcome !== null)
     reject('invalid_trigger', { reason: 'outcome_before_finish' });
   // "Not launched" is a claim that nothing ran: it must not carry any process identity.
-  if (
-    t.status === 'not_launched' &&
-    (t.processes.length > 0 || t.started_at !== null)
-  )
+  if (t.status === 'not_launched' && (t.processes.length > 0 || t.started_at !== null))
     reject('invalid_trigger', { reason: 'not_launched_with_process' });
   const before = o.status;
   ctx.emit('OperationObserved', {
@@ -354,19 +326,11 @@ export function onOperationResult(
   // not see its processes gone ended still_unknown): probe again now. Bounded, as it follows only a
   // change of the operation's status, and every probe checks the processes first (Constitution III).
   const e = ctx.state.effects[o.effect_id];
-  if (
-    !isTerminal(ctx.state.status) &&
-    t.status !== before &&
-    e?.status === 'unknown'
-  )
+  if (!isTerminal(ctx.state.status) && t.status !== before && e?.status === 'unknown')
     requestReconcile(ctx, e, { afterRunning: true });
   // A task that ended while this operation was unresolved kept the slot for it; free it with the last one.
   const h = ctx.state.execution.holding;
-  if (
-    isTerminal(ctx.state.status) &&
-    h !== null &&
-    slotBoundOperations(ctx.state).length === 0
-  ) {
+  if (isTerminal(ctx.state.status) && h !== null && slotBoundOperations(ctx.state).length === 0) {
     ctx.emit('ExecutionReleased', {
       request_id: h.request_id,
       reason: 'task_ended',
@@ -395,8 +359,7 @@ export function onIngestRecord(ctx: Ctx, t: TriggerOf<'ingest_record'>): void {
     t.artifacts.some((a) => ctx.state.artifacts[a.artifact_id] === undefined);
   if (
     !artifactsOnly &&
-    (t.cursor === null ||
-      !cursorAfter({ operation_id: o.id, ...t.cursor }, prev))
+    (t.cursor === null || !cursorAfter({ operation_id: o.id, ...t.cursor }, prev))
   ) {
     ctx.emit('SignalIgnored', {
       reason: 'stale_cursor',
@@ -439,7 +402,9 @@ export type OperationClaim = {
 };
 
 export type OperationClaimError =
-  'slot_not_held' | 'operation_exists' | 'effect_has_open_operation';
+  | 'slot_not_held'
+  | 'operation_exists'
+  | 'effect_has_open_operation';
 
 /**
  * Drafts registering an operation in the same transaction as `EffectStarted`, so its identity is
@@ -450,20 +415,12 @@ export function registerOperation(
   effect: { id: string; attempt_id: string | null },
   op: OperationClaim,
   now: number,
-):
-  | { ok: true; events: DomainEventDraft[] }
-  | { ok: false; reason: OperationClaimError } {
-  if (s.operations[op.operation_id] !== undefined)
-    return { ok: false, reason: 'operation_exists' };
-  if (
-    Object.values(s.operations).some(
-      (o) => o.effect_id === effect.id && isUnresolved(o),
-    )
-  ) {
+): { ok: true; events: DomainEventDraft[] } | { ok: false; reason: OperationClaimError } {
+  if (s.operations[op.operation_id] !== undefined) return { ok: false, reason: 'operation_exists' };
+  if (Object.values(s.operations).some((o) => o.effect_id === effect.id && isUnresolved(o))) {
     return { ok: false, reason: 'effect_has_open_operation' };
   }
-  if (op.holds_slot && s.execution.holding === null)
-    return { ok: false, reason: 'slot_not_held' };
+  if (op.holds_slot && s.execution.holding === null) return { ok: false, reason: 'slot_not_held' };
   return {
     ok: true,
     events: [
@@ -488,7 +445,5 @@ export function registerOperation(
 
 /** Whether `s` can still be granted work by the 002 daemon at all (used by queue selection and health). */
 export function executable(s: TaskState): boolean {
-  return (
-    !isTerminal(s.status) && s.cancellation === null && s.completion === null
-  );
+  return !isTerminal(s.status) && s.cancellation === null && s.completion === null;
 }

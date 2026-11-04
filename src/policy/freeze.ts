@@ -15,32 +15,16 @@ import {
   type StepPolicy,
 } from '../domain/policy.ts';
 import type { CanonicalTask } from '../domain/task.ts';
-import {
-  isAgentStep,
-  type StepDef,
-  type Workflow,
-} from '../domain/workflow.ts';
-import {
-  sameChoice,
-  type ExecutionMode,
-  type RunSelection,
-} from '../domain/run-config.ts';
+import { isAgentStep, type StepDef, type Workflow } from '../domain/workflow.ts';
+import { sameChoice, type ExecutionMode, type RunSelection } from '../domain/run-config.ts';
 import {
   modeGraph,
   modeWorkflowName,
   SOFTWARE_DEV_NAME,
 } from '../engine/workflows/software-dev.ts';
 import { bindingFacts, resolveBinding } from './binding.ts';
-import {
-  finalizeContext,
-  finalizePolicy,
-  type DocContent,
-} from './finalize.ts';
-import {
-  buildLadder,
-  computeFloorMaps,
-  type EscalationPolicy,
-} from './ladder.ts';
+import { finalizeContext, finalizePolicy, type DocContent } from './finalize.ts';
+import { buildLadder, computeFloorMaps, type EscalationPolicy } from './ladder.ts';
 import { structureHash } from './structure-hash.ts';
 
 export type FreezeError =
@@ -82,9 +66,7 @@ function invalid(
 ): Result<never, FreezeError> {
   return err({
     code: 'config_invalid',
-    diagnostics: [
-      { code, severity: 'error', file, line: 1, col: 1, path, message },
-    ],
+    diagnostics: [{ code, severity: 'error', file, line: 1, col: 1, path, message }],
   });
 }
 
@@ -97,9 +79,7 @@ function snapshotDocs(
   provided: readonly DocContent[],
   kind: 'prompts' | 'conventions',
 ): Result<DocContent[], FreezeError> {
-  const wanted = [
-    ...new Set(names.filter((n): n is string => n !== null)),
-  ].sort();
+  const wanted = [...new Set(names.filter((n): n is string => n !== null))].sort();
   const out: DocContent[] = [];
   for (const name of wanted) {
     const doc = provided.find((d) => d.name === name);
@@ -131,8 +111,7 @@ function stepBinding(
     role: roleName,
   });
   if (role === undefined) return noBinding;
-  if (profile.allow_roles !== null && !profile.allow_roles.includes(roleName))
-    return noBinding;
+  if (profile.allow_roles !== null && !profile.allow_roles.includes(roleName)) return noBinding;
   const facts = bindingFacts(task);
   const wanted =
     roleName === 'coder' || roleName === 'fixer'
@@ -199,10 +178,7 @@ function gatesOf(
     ...(project?.gates ?? {}),
     ...(project?.autofix ?? {}),
   };
-  if (
-    Object.keys(project?.gates ?? {}).length === 0 &&
-    !profile.allow_no_gates
-  ) {
+  if (Object.keys(project?.gates ?? {}).length === 0 && !profile.allow_no_gates) {
     return invalid(
       file,
       'no_gates_not_allowed',
@@ -241,9 +217,7 @@ function gatesOf(
  * checked; any snapshot failure returns neither snapshot. Configuration overrides must already be
  * applied.
  */
-export function freezePolicy(
-  input: FreezePolicyInput,
-): Result<Frozen, FreezeError> {
+export function freezePolicy(input: FreezePolicyInput): Result<Frozen, FreezeError> {
   const { config, task } = input;
   const userFile = config.files.user;
 
@@ -282,8 +256,7 @@ export function freezePolicy(
       `Workflow '${workflowName}' does not exist`,
     );
 
-  const workflow =
-    input.mode === undefined ? configured : modeGraph(configured, input.mode);
+  const workflow = input.mode === undefined ? configured : modeGraph(configured, input.mode);
 
   const steps: Record<string, StepPolicy> = {};
   for (const name of Object.keys(workflow.steps).sort()) {
@@ -319,9 +292,7 @@ export function freezePolicy(
     });
   }
   const prompts = snapshotDocs(
-    Object.values(steps).map(
-      (st) => config.user.roles[st.role]?.prompt ?? null,
-    ),
+    Object.values(steps).map((st) => config.user.roles[st.role]?.prompt ?? null),
     input.prompts ?? [],
     'prompts',
   );
@@ -342,8 +313,7 @@ export function freezePolicy(
     extra_visits: {},
   };
   const permissions: Record<string, Binding['permissions']> = {};
-  for (const s of Object.values(steps))
-    permissions[s.role] = s.binding.permissions;
+  for (const s of Object.values(steps)) permissions[s.role] = s.binding.permissions;
 
   const policy = finalizePolicy({
     schema_version: 1,
@@ -353,10 +323,7 @@ export function freezePolicy(
     project: task.project,
     profile: profileName,
 
-    workflow_name:
-      input.mode === undefined
-        ? SOFTWARE_DEV_NAME
-        : modeWorkflowName(input.mode),
+    workflow_name: input.mode === undefined ? SOFTWARE_DEV_NAME : modeWorkflowName(input.mode),
     workflow,
     structure_hash: structureHash(workflow),
     steps,
@@ -367,9 +334,7 @@ export function freezePolicy(
     gates: gates.value,
     limits,
     permissions,
-    protected_branches: projects?.[task.project]?.protected_branches ?? [
-      task.base_branch,
-    ],
+    protected_branches: projects?.[task.project]?.protected_branches ?? [task.base_branch],
     config_hashes: {
       user: config.hashes.user,
       project: config.hashes.project,

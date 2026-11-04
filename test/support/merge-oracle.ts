@@ -2,11 +2,7 @@ import type { FrozenPolicy } from '../../src/domain/policy.ts';
 import type { TaskState } from '../../src/domain/state.ts';
 
 /** Independent merge oracle derived from the specification rather than the production guard. */
-export function mergeAllowed(
-  s: TaskState,
-  p: FrozenPolicy,
-  head: string,
-): string | null {
+export function mergeAllowed(s: TaskState, p: FrozenPolicy, head: string): string | null {
   if (s.cancellation !== null) return 'cancellation requested';
   if (s.head_sha !== head) return 'head differs from the current head';
   const rev = s.revision;
@@ -22,9 +18,7 @@ export function mergeAllowed(
   const reviews = s.evidence.reviews.filter(
     (r) => r.valid && r.revision === rev && r.head_sha === head,
   );
-  const skipped = s.evidence.review_skipped.some(
-    (r) => r.valid && r.revision === rev,
-  );
+  const skipped = s.evidence.review_skipped.some((r) => r.valid && r.revision === rev);
   if (reviews.at(-1)?.verdict !== 'approve' && !skipped)
     return 'review approval for the head is missing';
   const ci = s.evidence.ci
@@ -40,13 +34,9 @@ export function mergeAllowed(
   const base = s.evidence.base_relations
     .filter(
       (b) =>
-        b.valid &&
-        b.revision === rev &&
-        b.head_sha === head &&
-        b.base_ref === s.task.base_branch,
+        b.valid && b.revision === rev && b.head_sha === head && b.base_ref === s.task.base_branch,
     )
     .at(-1);
-  if (base?.head_contains_base !== true)
-    return 'head does not contain the base';
+  if (base?.head_contains_base !== true) return 'head does not contain the base';
   return null;
 }

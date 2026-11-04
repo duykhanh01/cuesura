@@ -4,13 +4,7 @@
  * and the remote are stand-ins. The fake GitHub keeps its state in a file this process alone writes; the
  * test asks for a merge or check result by dropping a file next to it.
  */
-import {
-  existsSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { dirname } from 'node:path';
 import type { GitHubPort, GitHubRequest } from '../../src/adapters/ports.ts';
@@ -29,26 +23,20 @@ export type SmokeDaemonArgs = {
   readonly ci: readonly ('success' | 'failure')[];
 };
 
-const args = JSON.parse(
-  readFileSync(process.argv[2] as string, 'utf8'),
-) as SmokeDaemonArgs;
+const args = JSON.parse(readFileSync(process.argv[2] as string, 'utf8')) as SmokeDaemonArgs;
 
 const github = new FakeGitHub(args.repo);
 if (existsSync(args.state))
-  github.restore(
-    JSON.parse(readFileSync(args.state, 'utf8')) as FakeGitHubState,
-  );
+  github.restore(JSON.parse(readFileSync(args.state, 'utf8')) as FakeGitHubState);
 github.headOf = (branch) => {
-  const r = spawnSync(
-    'git',
-    ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`],
-    { cwd: args.remote, encoding: 'utf8' },
-  );
+  const r = spawnSync('git', ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], {
+    cwd: args.remote,
+    encoding: 'utf8',
+  });
   if (r.status !== 0) return null;
   const sha = r.stdout.trim();
   if (!github.checks.has(sha)) {
-    const conclusion =
-      args.ci[Math.min(github.checks.size, args.ci.length - 1)] ?? 'success';
+    const conclusion = args.ci[Math.min(github.checks.size, args.ci.length - 1)] ?? 'success';
     github.checks.set(sha, { build: 'success', test: conclusion });
   }
   return sha;

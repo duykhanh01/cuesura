@@ -20,10 +20,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { claudeAdapter } from '../../../src/adapters/harness/claude.ts';
 import { codexAdapter } from '../../../src/adapters/harness/codex.ts';
-import {
-  wireRoleSchema,
-  type Role,
-} from '../../../src/adapters/harness/result-schema.ts';
+import { wireRoleSchema, type Role } from '../../../src/adapters/harness/result-schema.ts';
 import type { VendorPin } from '../../../src/adapters/harness/vendor.ts';
 import {
   DaemonStopping,
@@ -32,15 +29,8 @@ import {
 } from '../../../src/adapters/ports.ts';
 import { sessionFor } from '../../../src/daemon/handlers.ts';
 import { RUN_FILES, RunDir } from '../../../src/runner/files.ts';
-import {
-  InvocationUnknown,
-  OUTCOME_FILE,
-  RunnerHarness,
-} from '../../../src/runner/invocation.ts';
-import {
-  homeSecretValues,
-  readInstalledAuth,
-} from '../../../src/runner/private-home.ts';
+import { InvocationUnknown, OUTCOME_FILE, RunnerHarness } from '../../../src/runner/invocation.ts';
+import { homeSecretValues, readInstalledAuth } from '../../../src/runner/private-home.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
 import type { EpochMs } from '../../../src/shared/brand.ts';
 import { err, ok } from '../../../src/shared/result.ts';
@@ -82,22 +72,14 @@ type Env = {
   credentials: Record<string, { name: string; file: string }>;
 };
 
-function env(
-  vendor: 'claude' | 'codex',
-  attempt: string,
-  mode = '',
-  secret = CANARY,
-): Env {
+function env(vendor: 'claude' | 'codex', attempt: string, mode = '', secret = CANARY): Env {
   const root = tempDir('cusr-invocation-', dirs);
   const data = join(root, 'data');
   const worktree = join(root, 'wt');
   const gitDir = join(root, 'git');
   mkdirSync(worktree);
   mkdirSync(join(gitDir, 'refs'), { recursive: true });
-  writeFileSync(
-    join(worktree, 'calc.py'),
-    'def add(a, b):\n    return a + b\n',
-  );
+  writeFileSync(join(worktree, 'calc.py'), 'def add(a, b):\n    return a + b\n');
   writeFileSync(join(gitDir, 'HEAD'), 'ref: refs/heads/main\n');
   writeFileSync(join(gitDir, 'config'), '[core]\n');
   const credDir = join(root, 'cred');
@@ -109,10 +91,7 @@ function env(
   const credentials: Env['credentials'] = {};
   pin.home_files.forEach((h, i) => {
     const file = join(credDir, `${h.credential}.json`);
-    writeFileSync(
-      file,
-      homeFileContent(h, JSON.stringify({ accessToken: `${secret}${i}` })),
-    );
+    writeFileSync(file, homeFileContent(h, JSON.stringify({ accessToken: `${secret}${i}` })));
     credentials[h.credential] = { name: h.credential, file };
   });
   return {
@@ -232,62 +211,53 @@ function runDirFiles(e: Env, attempt: string): string {
   const base = join(e.data, 'runs', attempt);
   const walk = (d: string): string[] =>
     readdirSync(d, { withFileTypes: true }).flatMap((n) =>
-      n.isDirectory()
-        ? walk(join(d, n.name))
-        : [readFileSync(join(d, n.name), 'utf8')],
+      n.isDirectory() ? walk(join(d, n.name)) : [readFileSync(join(d, n.name), 'utf8')],
     );
   return walk(base).join('\n');
 }
 
 describe('six role × vendor runs through the real runner lifecycle', () => {
-  it.each(VALID_RUNS.map((r) => [r.attempt, r] as const))(
-    '%s',
-    async (attempt, r) => {
-      const e = env(r.vendor, attempt);
-      const inp = input(r.vendor, r.role);
-      const out = await harness(e).run(inp, signal());
-      if (out.kind !== 'result') throw new Error(JSON.stringify(out));
-      expect(out.value).toEqual(acceptedValue(attempt));
-      expect(out.usage.basis).toBe('reported');
-      expect(e.proc.launches[0]?.env['CLAUDE_CODE_ENTRYPOINT']).toBe(
-        r.vendor === 'claude' ? 'cuesura' : undefined,
-      );
+  it.each(VALID_RUNS.map((r) => [r.attempt, r] as const))('%s', async (attempt, r) => {
+    const e = env(r.vendor, attempt);
+    const inp = input(r.vendor, r.role);
+    const out = await harness(e).run(inp, signal());
+    if (out.kind !== 'result') throw new Error(JSON.stringify(out));
+    expect(out.value).toEqual(acceptedValue(attempt));
+    expect(out.usage.basis).toBe('reported');
+    expect(e.proc.launches[0]?.env['CLAUDE_CODE_ENTRYPOINT']).toBe(
+      r.vendor === 'claude' ? 'cuesura' : undefined,
+    );
 
-      const run = RunDir.open({
-        dataDir: e.data,
-        kind: 'runs',
-        id: inp.attempt_id,
-        redactor: new Redactor(),
-        create: false,
+    const run = RunDir.open({
+      dataDir: e.data,
+      kind: 'runs',
+      id: inp.attempt_id,
+      redactor: new Redactor(),
+      create: false,
+    });
+    const result = run.readFinal(RUN_FILES.result);
+    expect(result.state).toBe('valid');
+    if (result.state === 'valid')
+      expect((result.value as { provenance: Record<string, unknown> }).provenance).toMatchObject({
+        operation_id: inp.operation_id,
+        attempt_id: inp.attempt_id,
+        role: r.role,
+        manifest_hash: evidenceManifest(e.pin).manifest_hash,
+        inner_mode: 'native',
+        context_digest: inp.context.digest,
       });
-      const result = run.readFinal(RUN_FILES.result);
-      expect(result.state).toBe('valid');
-      if (result.state === 'valid')
-        expect(
-          (result.value as { provenance: Record<string, unknown> }).provenance,
-        ).toMatchObject({
-          operation_id: inp.operation_id,
-          attempt_id: inp.attempt_id,
-          role: r.role,
-          manifest_hash: evidenceManifest(e.pin).manifest_hash,
-          inner_mode: 'native',
-          context_digest: inp.context.digest,
-        });
-      // The prompt went in on stdin from the read-only context file.
-      expect(readFileSync(join(run.dir, 'context/prompt.md'), 'utf8')).toBe(
-        inp.context.text,
-      );
-      // Only the selected auth was installed, and it is gone again.
-      const layout = e.sandbox.plans[0];
-      expect(layout?.role).toBe(r.role);
-      expect(
-        readdirSync(join(run.dir, 'private-home'), { recursive: true }).filter(
-          (p) => String(p).endsWith('.json'),
-        ),
-      ).toEqual([]);
-      expect(runDirFiles(e, inp.attempt_id)).not.toContain(CANARY);
-    },
-  );
+    // The prompt went in on stdin from the read-only context file.
+    expect(readFileSync(join(run.dir, 'context/prompt.md'), 'utf8')).toBe(inp.context.text);
+    // Only the selected auth was installed, and it is gone again.
+    const layout = e.sandbox.plans[0];
+    expect(layout?.role).toBe(r.role);
+    expect(
+      readdirSync(join(run.dir, 'private-home'), { recursive: true }).filter((p) =>
+        String(p).endsWith('.json'),
+      ),
+    ).toEqual([]);
+    expect(runDirFiles(e, inp.attempt_id)).not.toContain(CANARY);
+  });
 });
 
 describe('admission before every attempt (T070)', () => {
@@ -350,10 +320,7 @@ describe('admission before every attempt (T070)', () => {
         coder: hashText('another layout'),
       },
     );
-    const out = await harness(e, { manifest }).run(
-      input('claude', 'coder'),
-      signal(),
-    );
+    const out = await harness(e, { manifest }).run(input('claude', 'coder'), signal());
     expect(out).toMatchObject({
       kind: 'failure',
       failure: 'capability_missing',
@@ -361,10 +328,7 @@ describe('admission before every attempt (T070)', () => {
       invoked: false,
     });
     expect(e.proc.launches).toHaveLength(0);
-    const reviewer = await harness(e, { manifest }).run(
-      input('claude', 'reviewer'),
-      signal(),
-    );
+    const reviewer = await harness(e, { manifest }).run(input('claude', 'reviewer'), signal());
     expect(reviewer).toMatchObject({
       failure: 'capability_missing',
       detail: 'no proven sandbox layout for reviewer',
@@ -403,10 +367,7 @@ describe('admission before every attempt (T070)', () => {
         structured_output: { status: 'unknown', evidence: null },
       },
     });
-    const out = await harness(e, { manifest: m }).run(
-      input('codex', 'coder'),
-      signal(),
-    );
+    const out = await harness(e, { manifest: m }).run(input('codex', 'coder'), signal());
     expect(out).toMatchObject({
       kind: 'failure',
       failure: 'capability_missing',
@@ -431,10 +392,7 @@ describe('admission before every attempt (T070)', () => {
 
   it('a missing credential reference is capability_missing', async () => {
     const e = env('codex', 's0-codex-coder-1793178479');
-    const out = await harness(e, { credentials: {} }).run(
-      input('codex', 'coder'),
-      signal(),
-    );
+    const out = await harness(e, { credentials: {} }).run(input('codex', 'coder'), signal());
     expect(out).toMatchObject({
       kind: 'failure',
       failure: 'capability_missing',
@@ -461,10 +419,7 @@ describe('boundary and secrets (T072)', () => {
     if (out.kind !== 'result') throw new Error(JSON.stringify(out));
     expect(JSON.stringify(out)).not.toContain(secret);
     expect(JSON.stringify(out)).toContain('[REDACTED]');
-    const result = readFileSync(
-      join(e.data, 'runs', inp.attempt_id, 'out/result.json'),
-      'utf8',
-    );
+    const result = readFileSync(join(e.data, 'runs', inp.attempt_id, 'out/result.json'), 'utf8');
     expect(result).toContain('[REDACTED]');
     expect(result).not.toContain(secret);
   });
@@ -507,14 +462,7 @@ describe('boundary and secrets (T072)', () => {
       recursive: true,
     });
     writeFileSync(
-      join(
-        e.data,
-        'runs',
-        inp.attempt_id,
-        'private-home',
-        '.claude',
-        'settings.json',
-      ),
+      join(e.data, 'runs', inp.attempt_id, 'private-home', '.claude', 'settings.json'),
       '{"hooks":{}}',
     );
     const out = await harness(e).run(inp, signal());
@@ -533,8 +481,7 @@ describe('run outcomes', () => {
     let mono = 0;
     const stop = vi.fn<ProcessPort['stop']>(() => Promise.resolve('stopped'));
     const process: ProcessPort = {
-      launch: () =>
-        Promise.resolve(ok({ unit: 'test-unit', invocation_id: null })),
+      launch: () => Promise.resolve(ok({ unit: 'test-unit', invocation_id: null })),
       inspect: () =>
         Promise.resolve({
           unit: 'test-unit',
@@ -554,10 +501,7 @@ describe('run outcomes', () => {
       },
     });
     await expect(
-      h.run(
-        { ...input('claude', 'coder'), wall_ms: null, deadline_at: null },
-        ac.signal,
-      ),
+      h.run({ ...input('claude', 'coder'), wall_ms: null, deadline_at: null }, ac.signal),
     ).rejects.toThrow('stop grace');
     expect(stop).toHaveBeenCalledTimes(1);
     expect(mono).toBeLessThanOrEqual(50_000);
@@ -605,9 +549,7 @@ describe('run outcomes', () => {
     };
     const ac = new AbortController();
     setTimeout(() => ac.abort(new DaemonStopping()), 300);
-    await expect(harness(e).run(inp, ac.signal)).rejects.toBeInstanceOf(
-      DaemonStopping,
-    );
+    await expect(harness(e).run(inp, ac.signal)).rejects.toBeInstanceOf(DaemonStopping);
     expect(stops).toEqual([]);
     expect(e.proc.launches).toHaveLength(1);
     expect((await e.proc.inspect(inp.operation_id)).state).toBe('active');
@@ -639,8 +581,7 @@ describe('worker content and reviewer input (T076)', () => {
     const name = 'publish-op.json';
     const host = join(e.root, 'content', name);
     const scratch = h.agent_paths.scratch;
-    if (typeof scratch !== 'string')
-      throw new Error('expected legacy fixture paths');
+    if (typeof scratch !== 'string') throw new Error('expected legacy fixture paths');
     const inp = input('claude', 'coder', {
       context: {
         text: `write as JSON {"commit_message", "pr_title", "pr_body"} to ${scratch}/${name}.\n`,
@@ -726,10 +667,7 @@ describe('sessions (T138)', () => {
       fallback: 'resume_unsupported',
       asked: true,
     });
-    const out = await h.run(
-      input('codex', 'fixer', { session: { ref: 't-1' } }),
-      signal(),
-    );
+    const out = await h.run(input('codex', 'fixer', { session: { ref: 't-1' } }), signal());
     expect(out).toMatchObject({
       kind: 'failure',
       failure: 'capability_missing',
@@ -741,16 +679,11 @@ describe('sessions (T138)', () => {
 function evidenceManifestEntry(vendor: 'claude' | 'codex'): {
   capabilities: Record<string, { status: string; evidence: string | null }>;
 } {
-  const all = JSON.parse(
-    readFileSync(join(REAL, 'capability-manifest.json'), 'utf8'),
-  ) as {
+  const all = JSON.parse(readFileSync(join(REAL, 'capability-manifest.json'), 'utf8')) as {
     vendors: Record<
       string,
       {
-        capabilities: Record<
-          string,
-          { status: string; evidence: string | null }
-        >;
+        capabilities: Record<string, { status: string; evidence: string | null }>;
       }
     >;
   };
@@ -769,9 +702,9 @@ async function orphaned(e: Env, inp: HarnessInput): Promise<RunDir> {
     inspect: (id) => e.proc.inspect(id),
     stop: (id) => e.proc.stop(id),
   };
-  await expect(
-    harness(e, { process: dying }).run(inp, signal()),
-  ).rejects.toThrow(InvocationUnknown);
+  await expect(harness(e, { process: dying }).run(inp, signal())).rejects.toThrow(
+    InvocationUnknown,
+  );
   const run = RunDir.open({
     dataDir: e.data,
     kind: 'runs',
@@ -779,11 +712,7 @@ async function orphaned(e: Env, inp: HarnessInput): Promise<RunDir> {
     redactor: new Redactor(),
     create: false,
   });
-  for (
-    let i = 0;
-    i < 250 && run.readFinal(RUN_FILES.exit).state !== 'valid';
-    i++
-  )
+  for (let i = 0; i < 250 && run.readFinal(RUN_FILES.exit).state !== 'valid'; i++)
     await new Promise((r) => setTimeout(r, 20));
   return run;
 }
@@ -796,10 +725,7 @@ describe('T139 M07 finalized reviewer recovery', () => {
     expect(first.kind).toBe('result');
     const stopped = new AbortController();
     stopped.abort();
-    const recovered = await harness(e, { credentials: {} }).run(
-      inp,
-      stopped.signal,
-    );
+    const recovered = await harness(e, { credentials: {} }).run(inp, stopped.signal);
     expect(recovered).toEqual(first);
     expect(e.proc.launches).toHaveLength(1);
   });
@@ -811,9 +737,7 @@ describe('T139 M07 finalized reviewer recovery', () => {
     const fresh = harness(e, { credentials: {} });
     expect(fresh.recover(inp)).toEqual(first);
     // The terminal view came later and is display only: a run launched without it still recovers.
-    expect(
-      fresh.recover({ ...inp, view: { project: 'p', title: 'coder: t' } }),
-    ).toEqual(first);
+    expect(fresh.recover({ ...inp, view: { project: 'p', title: 'coder: t' } })).toEqual(first);
     expect(() =>
       fresh.recover({
         ...inp,
@@ -821,9 +745,7 @@ describe('T139 M07 finalized reviewer recovery', () => {
       }),
     ).toThrow(InvocationUnknown);
     // No run directory at all: nothing to read, and still nothing launched.
-    expect(() => fresh.recover({ ...inp, attempt_id: randomUUID() })).toThrow(
-      InvocationUnknown,
-    );
+    expect(() => fresh.recover({ ...inp, attempt_id: randomUUID() })).toThrow(InvocationUnknown);
     expect(e.proc.launches).toHaveLength(1);
   });
 
@@ -857,9 +779,7 @@ describe('T139 M07 finalized reviewer recovery', () => {
     async ({ role, at }) => {
       const secret = 'plain-auth-value-0123456789';
       const scenario =
-        role === 'coder'
-          ? 's0-codex-coder-1793178479'
-          : 's0-codex-reviewer-1793180367';
+        role === 'coder' ? 's0-codex-coder-1793178479' : 's0-codex-reviewer-1793180367';
       const e = env('codex', scenario, 'leak_summary', secret);
       const inp = input('codex', role);
       const run = await orphaned(e, inp);
@@ -873,21 +793,16 @@ describe('T139 M07 finalized reviewer recovery', () => {
           if (rel === OUTCOME_FILE && at === 'before')
             throw Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' });
           const written = writeJson(rel, value, maxBytes);
-          if (rel === OUTCOME_FILE)
-            throw Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' });
+          if (rel === OUTCOME_FILE) throw Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' });
           return written;
         });
       try {
         expect(() => harness(e, { credentials: {} }).recover(inp)).toThrow(
           new InvocationUnknown('outcome not stored: ENOSPC'),
         );
-        expect(run.readFinal(OUTCOME_FILE).state).toBe(
-          at === 'before' ? 'missing' : 'valid',
-        );
+        expect(run.readFinal(OUTCOME_FILE).state).toBe(at === 'before' ? 'missing' : 'valid');
         expect(homeSecretValues(readInstalledAuth(run))).toEqual(auth);
-        expect(
-          e.pin.home_files.every((f) => existsSync(join(home, f.to))),
-        ).toBe(true);
+        expect(e.pin.home_files.every((f) => existsSync(join(home, f.to)))).toBe(true);
       } finally {
         write.mockRestore();
       }
@@ -928,9 +843,7 @@ describe('T139 M07 finalized reviewer recovery', () => {
       create: false,
     });
     rmSync(run.resolve(OUTCOME_FILE));
-    expect(() => harness(e, { credentials: {} }).recover(inp)).toThrow(
-      InvocationUnknown,
-    );
+    expect(() => harness(e, { credentials: {} }).recover(inp)).toThrow(InvocationUnknown);
     expect(e.proc.launches).toHaveLength(1);
   });
 
@@ -939,9 +852,7 @@ describe('T139 M07 finalized reviewer recovery', () => {
     const inp = input('claude', 'reviewer');
     await orphaned(e, inp);
     writeFileSync(join(e.worktree, 'later.txt'), 'edited by someone\n');
-    expect(() => harness(e, { credentials: {} }).recover(inp)).toThrow(
-      InvocationUnknown,
-    );
+    expect(() => harness(e, { credentials: {} }).recover(inp)).toThrow(InvocationUnknown);
     expect(e.proc.launches).toHaveLength(1);
   });
 

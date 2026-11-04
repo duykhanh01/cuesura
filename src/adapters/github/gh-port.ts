@@ -9,13 +9,7 @@
  * cannot be read back is `unknown` (it may have been applied), so the caller probes before any new send.
  */
 import { spawn } from 'node:child_process';
-import type {
-  Clock,
-  GitHubFailure,
-  GitHubPort,
-  GitHubRequest,
-  GitHubResponse,
-} from '../ports.ts';
+import type { Clock, GitHubFailure, GitHubPort, GitHubRequest, GitHubResponse } from '../ports.ts';
 import { operationEnv } from '../../runner/process-tag.ts';
 import type { Redactor } from '../../runner/redact.ts';
 import type { Hash } from '../../shared/brand.ts';
@@ -88,9 +82,7 @@ function validReviewBody(body: unknown): boolean {
     typeof b['body'] === 'string' &&
     (comments === undefined ||
       (Array.isArray(comments) &&
-        comments.every((c) =>
-          Object.keys(obj(c)).every((k) => REVIEW_COMMENT_FIELDS.has(k)),
-        )))
+        comments.every((c) => Object.keys(obj(c)).every((k) => REVIEW_COMMENT_FIELDS.has(k)))))
   );
 }
 
@@ -113,21 +105,12 @@ function obj(v: unknown): Readonly<Record<string, unknown>> {
 }
 
 /** The one edit: title/description of a PR (M05/M07); never state, base, head or merge settings. */
-export const PATCH_ENDPOINTS: readonly RegExp[] = [
-  new RegExp(`^${REPO}/pulls/\\d+$`),
-];
+export const PATCH_ENDPOINTS: readonly RegExp[] = [new RegExp(`^${REPO}/pulls/\\d+$`)];
 const PATCH_FIELDS = new Set(['title', 'body']);
 
 /** Yolo's merge (SPEC §14.2): of a named head, with its method and squash message and nothing else. */
-export const PUT_ENDPOINTS: readonly RegExp[] = [
-  new RegExp(`^${REPO}/pulls/\\d+/merge$`),
-];
-const MERGE_FIELDS = new Set([
-  'sha',
-  'merge_method',
-  'commit_title',
-  'commit_message',
-]);
+export const PUT_ENDPOINTS: readonly RegExp[] = [new RegExp(`^${REPO}/pulls/\\d+/merge$`)];
+const MERGE_FIELDS = new Set(['sha', 'merge_method', 'commit_title', 'commit_message']);
 
 function validMergeBody(body: unknown): boolean {
   if (typeof body !== 'object' || body === null) return false;
@@ -147,15 +130,7 @@ function validMergeBody(body: unknown): boolean {
   );
 }
 
-const QUERY_KEYS = new Set([
-  'per_page',
-  'page',
-  'state',
-  'head',
-  'base',
-  'sort',
-  'direction',
-]);
+const QUERY_KEYS = new Set(['per_page', 'page', 'state', 'head', 'base', 'sort', 'direction']);
 const KEEP_HEADERS = new Set([
   'etag',
   'link',
@@ -196,8 +171,7 @@ export const GH_ENV_PASS = [
 
 /** Real gh via spawn (no shell), its process group killed on timeout or overflow. */
 export function spawnGhExec(gh: string, env: NodeJS.ProcessEnv): GhExec {
-  if (!gh.startsWith('/'))
-    throw new Error(`gh must be an absolute path: ${gh}`);
+  if (!gh.startsWith('/')) throw new Error(`gh must be an absolute path: ${gh}`);
   const childEnv: Record<string, string> = {
     GH_PROMPT_DISABLED: '1',
     GH_PAGER: 'cat',
@@ -298,8 +272,7 @@ function parseIncluded(
   const headers: Record<string, string> = {};
   for (const line of text.slice(m[0].length, sep).split(/\r?\n/)) {
     const i = line.indexOf(':');
-    if (i > 0)
-      headers[line.slice(0, i).trim().toLowerCase()] = line.slice(i + 1).trim();
+    if (i > 0) headers[line.slice(0, i).trim().toLowerCase()] = line.slice(i + 1).trim();
   }
   return {
     status: Number(m[1]),
@@ -339,9 +312,7 @@ export class GhPort implements GitHubPort {
   }
 
   #remaining(): number {
-    return (
-      this.#limits.round_ms - (this.#o.clock.monotonic() - this.#roundStart)
-    );
+    return this.#limits.round_ms - (this.#o.clock.monotonic() - this.#roundStart);
   }
 
   #record(e: Omit<GhEvidence, 'seq'>): GhEvidence {
@@ -351,9 +322,7 @@ export class GhPort implements GitHubPort {
     return full;
   }
 
-  async request(
-    req: GitHubRequest,
-  ): Promise<Result<GitHubResponse, GitHubFailure>> {
+  async request(req: GitHubRequest): Promise<Result<GitHubResponse, GitHubFailure>> {
     const allowed = (
       req.method === 'GET'
         ? GET_ENDPOINTS
@@ -561,10 +530,7 @@ export class GhPort implements GitHubPort {
       const retryAfter = Number(headers['retry-after'] ?? '0') * 1000;
       let errorBody: unknown;
       try {
-        errorBody =
-          parsed.body === ''
-            ? undefined
-            : (JSON.parse(body_redacted) as unknown);
+        errorBody = parsed.body === '' ? undefined : (JSON.parse(body_redacted) as unknown);
       } catch {
         errorBody = undefined;
       }
@@ -575,8 +541,7 @@ export class GhPort implements GitHubPort {
         retry_after_ms: retryAfter > 0 ? retryAfter : null,
         ...(errorBody === undefined ? {} : { body: errorBody }),
       };
-      const retryable =
-        req.method === 'GET' && (parsed.status >= 500 || parsed.status === 429);
+      const retryable = req.method === 'GET' && (parsed.status >= 500 || parsed.status === 429);
       if (!retryable) return err(last);
       if (retryAfter > this.#remaining())
         return err({
@@ -585,8 +550,7 @@ export class GhPort implements GitHubPort {
           detail: `retry-after ${retryAfter} ms beyond the round window`,
           retry_after_ms: retryAfter,
         });
-      if (retryAfter > 0)
-        await new Promise((res) => setTimeout(res, retryAfter));
+      if (retryAfter > 0) await new Promise((res) => setTimeout(res, retryAfter));
     }
     // A POST that got no readable answer may have been applied; that is unknown, never "failed".
     return err(last);
@@ -633,10 +597,7 @@ export async function listAll(
         retry_after_ms: null,
       });
     items.push(...got);
-    if (
-      got.length < perPage &&
-      !/rel="next"/.test(r.value.headers['link'] ?? '')
-    )
+    if (got.length < perPage && !/rel="next"/.test(r.value.headers['link'] ?? ''))
       return ok({
         items,
         complete: true,

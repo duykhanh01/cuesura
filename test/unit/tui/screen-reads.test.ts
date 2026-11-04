@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type {
-  DaemonPort,
-  PortResult,
-} from '../../../src/tui/client/daemon-port.ts';
+import type { DaemonPort, PortResult } from '../../../src/tui/client/daemon-port.ts';
 import {
   planScreenReads,
   ScreenReads,
@@ -63,12 +60,7 @@ const open = (over: Partial<TuiState> = {}): TuiState => ({
 const base = { type: 'detail_read', taskId: TASK, session: 1 } as const;
 
 /** Everything read once at `at`, under this watermark and version. */
-function read(
-  s: TuiState,
-  at: number,
-  watermark: number,
-  version: number,
-): TuiState {
+function read(s: TuiState, at: number, watermark: number, version: number): TuiState {
   const common = { ...base, at, askedAt: at, watermark, version };
   const messages: DetailMessage[] = [
     { ...common, part: 'explain', result: explain(version) },
@@ -83,12 +75,7 @@ const detail = (s: TuiState): TaskDetail => s.detail as TaskDetail;
 
 describe('T044: when Task detail reads (R-03)', () => {
   it('reads everything on opening', () => {
-    expect(detailDue(detail(open()), WM, 0)).toEqual([
-      'explain',
-      'show',
-      'progress',
-      'history',
-    ]);
+    expect(detailDue(detail(open()), WM, 0)).toEqual(['explain', 'show', 'progress', 'history']);
   });
 
   it('then nothing, while nothing moved and 5 seconds have not passed', () => {
@@ -127,11 +114,7 @@ describe('T044: when Task detail reads (R-03)', () => {
       part: 'explain',
       result: explain(8),
     });
-    expect(detailDue(detail(moved), WM + 1, 1_300)).toEqual([
-      'show',
-      'progress',
-      'history',
-    ]);
+    expect(detailDue(detail(moved), WM + 1, 1_300)).toEqual(['show', 'progress', 'history']);
   });
 
   it('a read that failed is tried again every 5 seconds, not every tick, and locks the task', () => {
@@ -214,9 +197,7 @@ const stoppedClock: RefreshClock = {
 };
 
 const plan = (s: TuiState): string[] =>
-  planScreenReads(s, fakePort([]), stoppedClock, 0).map(
-    (r: ScreenRead) => r.key,
-  );
+  planScreenReads(s, fakePort([]), stoppedClock, 0).map((r: ScreenRead) => r.key);
 
 describe('only the open screen reads (R-03)', () => {
   it('Home reads nothing of its own', () => {
@@ -267,9 +248,7 @@ describe('ScreenReads', () => {
         run: () => {
           runs += 1;
           return new Promise((resolve) =>
-            answers.push(() =>
-              resolve({ type: 'resize', size: { cols: 1, rows: 1 } }),
-            ),
+            answers.push(() => resolve({ type: 'resize', size: { cols: 1, rows: 1 } })),
           );
         },
       },
@@ -313,8 +292,7 @@ describe('ScreenReads', () => {
                 key: 'a',
                 run: () =>
                   new Promise((resolve) => {
-                    answer = () =>
-                      resolve({ type: 'resize', size: { cols: 1, rows: 1 } });
+                    answer = () => resolve({ type: 'resize', size: { cols: 1, rows: 1 } });
                   }),
               },
             ],
@@ -345,8 +323,7 @@ describe('ScreenReads', () => {
                 key: 'a',
                 run: () =>
                   new Promise((resolve) => {
-                    answer = () =>
-                      resolve({ type: 'resize', size: { cols: 1, rows: 1 } });
+                    answer = () => resolve({ type: 'resize', size: { cols: 1, rows: 1 } });
                   }),
               },
             ],
@@ -369,9 +346,7 @@ describe('ScreenReads', () => {
           key: 'a',
           run: () =>
             new Promise(
-              (resolve) =>
-                (answer = () =>
-                  resolve({ type: 'resize', size: { cols: 1, rows: 1 } })),
+              (resolve) => (answer = () => resolve({ type: 'resize', size: { cols: 1, rows: 1 } })),
             ),
         },
       ],

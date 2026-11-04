@@ -19,7 +19,6 @@ export function parseDuration(text: string): Result<number, string> {
   const n = Number(m[1]);
   const unit = UNIT_MS[m[2] as string] as number;
   const ms = n * unit;
-  if (!Number.isSafeInteger(ms))
-    return err(`Duration '${text}' exceeds the safe integer range`);
+  if (!Number.isSafeInteger(ms)) return err(`Duration '${text}' exceeds the safe integer range`);
   return ok(ms);
 }

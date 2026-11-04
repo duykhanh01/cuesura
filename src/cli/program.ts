@@ -1,11 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { Command, CommanderError } from 'commander';
-import {
-  ExitCode,
-  errorEnvelope,
-  okEnvelope,
-  renderEnvelope,
-} from './output.ts';
+import { ExitCode, errorEnvelope, okEnvelope, renderEnvelope } from './output.ts';
 
 export interface CliIo {
   readonly stdout: (text: string) => void;
@@ -55,9 +50,7 @@ export function packageVersion(): string {
     readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
   );
   const version =
-    typeof raw === 'object' && raw !== null
-      ? (raw as { version?: unknown }).version
-      : undefined;
+    typeof raw === 'object' && raw !== null ? (raw as { version?: unknown }).version : undefined;
   if (typeof version !== 'string' || version === '')
     throw new Error('package.json is missing a valid version');
   return version;
@@ -95,19 +88,11 @@ export async function runCli(
       const opts = program.opts<{ version?: true; json?: true }>();
       if (opts.version === true) {
         io.stdout(
-          json
-            ? renderEnvelope(okEnvelope({ version: spec.version }))
-            : `${spec.version}\n`,
+          json ? renderEnvelope(okEnvelope({ version: spec.version })) : `${spec.version}\n`,
         );
         return;
       }
-      exitCode = notAvailable(
-        spec.name,
-        program.args,
-        json,
-        io,
-        commands.length > 0,
-      );
+      exitCode = notAvailable(spec.name, program.args, json, io, commands.length > 0);
     });
   if (commands.length === 0)
     program.addHelpText('after', '\nNo commands are available in this build.');
@@ -120,12 +105,7 @@ export async function runCli(
     if (words.length > 1) {
       const name = words[0] as string;
       const known = groups.get(name);
-      parent =
-        known ??
-        program
-          .command(name)
-          .description(`Commands for ${name}`)
-          .exitOverride();
+      parent = known ?? program.command(name).description(`Commands for ${name}`).exitOverride();
       groups.set(name, parent);
     }
     const sub = parent
@@ -141,8 +121,7 @@ export async function runCli(
         Record<string, string | true | undefined> & { json?: true }
       >();
       const values: Record<string, string | undefined> = {};
-      for (const [k, v] of Object.entries(opts))
-        values[k] = v === true ? 'true' : v;
+      for (const [k, v] of Object.entries(opts)) values[k] = v === true ? 'true' : v;
       (c.args ?? []).forEach((a, i) => {
         values[a.replace(/[<>[\]]/g, '')] = given[i] as string | undefined;
       });

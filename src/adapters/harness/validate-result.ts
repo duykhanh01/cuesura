@@ -17,12 +17,7 @@ import type { Usage } from '../../domain/trigger.ts';
 import type { EpochMs, Hash } from '../../shared/brand.ts';
 import { hashText } from '../../shared/hash.ts';
 import type { RunOutcome } from '../../runner/lifecycle.ts';
-import type {
-  HarnessBinding,
-  HarnessFailure,
-  HarnessOutcome,
-  PermissionDenial,
-} from '../ports.ts';
+import type { HarnessBinding, HarnessFailure, HarnessOutcome, PermissionDenial } from '../ports.ts';
 import {
   ROLE_SCHEMA_DIGESTS,
   validateRoleResult,
@@ -138,16 +133,13 @@ export function readFreshFile(
   } catch (e) {
     const code = (e as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') return { kind: 'missing' };
-    if (code === 'ELOOP')
-      return { kind: 'invalid', reason: 'output is a symlink' };
+    if (code === 'ELOOP') return { kind: 'invalid', reason: 'output is a symlink' };
     return { kind: 'invalid', reason: `output unreadable: ${String(code)}` };
   }
   try {
     const st = fstatSync(fd);
-    if (!st.isFile())
-      return { kind: 'invalid', reason: 'output is not a regular file' };
-    if (st.size > max)
-      return { kind: 'invalid', reason: `output exceeds ${max} bytes` };
+    if (!st.isFile()) return { kind: 'invalid', reason: 'output is not a regular file' };
+    if (st.size > max) return { kind: 'invalid', reason: `output exceeds ${max} bytes` };
     // One second of slack for filesystems with coarse timestamps.
     if (st.mtimeMs < o.launched_at - 1_000)
       return { kind: 'invalid', reason: 'output older than launch' };
@@ -169,10 +161,7 @@ export function readFreshFile(
 }
 
 function checkExpected(e: Expected): void {
-  if (
-    e.schema.role !== e.role ||
-    e.schema.digest !== ROLE_SCHEMA_DIGESTS[e.role]
-  )
+  if (e.schema.role !== e.role || e.schema.digest !== ROLE_SCHEMA_DIGESTS[e.role])
     throw new ProvenanceError(
       `schema ${e.schema.schema_id} is not the current schema of role ${e.role}`,
     );
@@ -191,13 +180,8 @@ export function validateResult(input: {
 }): Validated {
   const { expected: e, exit, facts } = input;
   checkExpected(e);
-  if (
-    exit.operation_id !== e.operation_id ||
-    exit.launch_nonce !== e.launch_nonce
-  )
-    throw new ProvenanceError(
-      'exit record belongs to another operation or launch',
-    );
+  if (exit.operation_id !== e.operation_id || exit.launch_nonce !== e.launch_nonce)
+    throw new ProvenanceError('exit record belongs to another operation or launch');
   const base = {
     role: e.role,
     usage: facts.usage,
@@ -246,8 +230,7 @@ export function validateResult(input: {
     return failure(kind, f.detail, true, f.reset_at);
   }
   const byOutcome = FAILURE_OF_OUTCOME[exit.outcome];
-  if (byOutcome !== undefined)
-    return failure(byOutcome, `runner outcome ${exit.outcome}`, true);
+  if (byOutcome !== undefined) return failure(byOutcome, `runner outcome ${exit.outcome}`, true);
   if (exit.exit_code !== 0)
     // A schema-valid answer from a failed process is never accepted.
     return failure('process_failed', `exit ${String(exit.exit_code)}`, true);
@@ -256,18 +239,15 @@ export function validateResult(input: {
   let value: unknown;
   if (input.source.kind === 'file') {
     const f = input.file;
-    if (f === null)
-      throw new ProvenanceError('file source validated without a file read');
-    if (f.kind === 'missing')
-      return failure('missing_output', 'no output file', true);
+    if (f === null) throw new ProvenanceError('file source validated without a file read');
+    if (f.kind === 'missing') return failure('missing_output', 'no output file', true);
     if (f.kind === 'invalid') return invalid([f.reason], null);
     raw = f.raw;
     value = tryJson(raw);
     if (value === undefined) return invalid(['output is not JSON'], raw);
   } else {
     if (facts.final.kind !== 'found') {
-      const reason =
-        facts.final.kind === 'missing' ? facts.final.reason : 'no final record';
+      const reason = facts.final.kind === 'missing' ? facts.final.reason : 'no final record';
       return facts.truncated_records > 0
         ? invalid([`truncated stream: ${reason}`], null)
         : failure('missing_output', reason, true);
@@ -279,9 +259,7 @@ export function validateResult(input: {
     return invalid([`result exceeds ${RESULT_MAX_BYTES} bytes`], raw);
   if (facts.reported_model !== null && facts.reported_model !== e.binding.model)
     return invalid(
-      [
-        `harness reported model ${facts.reported_model}, binding is ${e.binding.model}`,
-      ],
+      [`harness reported model ${facts.reported_model}, binding is ${e.binding.model}`],
       raw,
     );
   const checked = validateRoleResult(e.role, value);

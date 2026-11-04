@@ -15,12 +15,7 @@ import {
   openDetail,
 } from './detail-keys.ts';
 import { onDetailRead } from './detail.ts';
-import {
-  homeRows,
-  keepSelection,
-  selectRow,
-  selectedRowIndex,
-} from './home-rows.ts';
+import { homeRows, keepSelection, selectRow, selectedRowIndex } from './home-rows.ts';
 import { commandFor, keyContext, type Command } from './keymap.ts';
 import type { Effect, Message } from './messages.ts';
 import {
@@ -64,10 +59,7 @@ export function reduce(state: TuiState, message: Message): Reduced {
           ...(state.cursors.length > 0
             ? { board: null, selectedTaskId: null, selectedIndex: 0 }
             : {}),
-          filterDraft:
-            state.filterDraft === null
-              ? null
-              : { ...state.filterDraft, project: 0 },
+          filterDraft: state.filterDraft === null ? null : { ...state.filterDraft, project: 0 },
         },
         effects: [],
       };
@@ -87,10 +79,7 @@ export function reduce(state: TuiState, message: Message): Reduced {
             }),
       };
       // Asked before the view changed: the connection is fine, the board is not this view's.
-      if (
-        message.queryKey !== undefined &&
-        message.queryKey !== boardQueryKey(state)
-      )
+      if (message.queryKey !== undefined && message.queryKey !== boardQueryKey(state))
         return same(online);
       return {
         state: keepSelection({
@@ -123,10 +112,7 @@ export function reduce(state: TuiState, message: Message): Reduced {
 function onKey(given: TuiState, key: Key): Reduced {
   const command = commandFor(given, key);
   // Any other key puts the question about quitting away.
-  const state =
-    given.quitArmed && command !== 'quit'
-      ? { ...given, quitArmed: false }
-      : given;
+  const state = given.quitArmed && command !== 'quit' ? { ...given, quitArmed: false } : given;
   if (command === null) return onText(state, key);
   switch (command) {
     case 'quit':
@@ -272,8 +258,7 @@ function changeView(
   };
   return {
     state: next,
-    effects:
-      state.connection.kind === 'online' ? [{ type: 'refresh_now' }] : [],
+    effects: state.connection.kind === 'online' ? [{ type: 'refresh_now' }] : [],
   };
 }
 
@@ -334,11 +319,7 @@ function onFilterCommand(state: TuiState, command: Command): Reduced {
   }
 }
 
-function moveChoice(
-  state: TuiState,
-  draft: FilterDraft,
-  direction: 'up' | 'down',
-): Reduced {
+function moveChoice(state: TuiState, draft: FilterDraft, direction: 'up' | 'down'): Reduced {
   const step = direction === 'down' ? 1 : -1;
   const count =
     draft.field === 'project'
@@ -359,8 +340,7 @@ function applyFilters(state: TuiState, draft: FilterDraft): Reduced {
   const project = choices[draft.project] ?? null;
   const status = STATUS_CHOICES[draft.status] ?? null;
   const closed = closeFilters(state);
-  if (project === state.filters.project && status === state.filters.status)
-    return same(closed);
+  if (project === state.filters.project && status === state.filters.status) return same(closed);
   return changeView(closed, {
     filters: { project, status },
     finishedOpen: false,

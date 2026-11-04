@@ -10,10 +10,7 @@ export type ChildRun = {
   stderr: string;
 };
 
-export function runChild(
-  args: string[],
-  env: Record<string, string> = {},
-): ChildRun {
+export function runChild(args: string[], env: Record<string, string> = {}): ChildRun {
   const r = spawnSync(process.execPath, [CHILD, ...args], {
     env: { ...process.env, CUSR_CRASH_AT: '', CUSR_CRASH_AFTER: '', ...env },
     encoding: 'utf8',
@@ -41,17 +38,12 @@ export function holdStore(path: string): Promise<ChildProcess> {
       if (out.includes('open_failed')) reject(new Error(out));
     });
     child.on('exit', (code, signal) =>
-      reject(
-        new Error(
-          `hold exited early: ${String(code)} ${String(signal)} ${out}`,
-        ),
-      ),
+      reject(new Error(`hold exited early: ${String(code)} ${String(signal)} ${out}`)),
     );
   });
 }
 
 export function waitExit(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null)
-    return Promise.resolve();
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
   return new Promise((resolve) => child.once('exit', () => resolve()));
 }

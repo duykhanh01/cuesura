@@ -191,10 +191,7 @@ describe('daemon port', () => {
   });
 
   it('sanitizes error messages too', async () => {
-    const r = await port(errorReply('conflict', 'bad\x1b[Kthing')).port.board(
-      {},
-      1,
-    );
+    const r = await port(errorReply('conflict', 'bad\x1b[Kthing')).port.board({}, 1);
     expect(r).toMatchObject({
       ok: false,
       error: { kind: 'rejected', code: 'conflict', message: 'bad␛[Kthing' },
@@ -223,9 +220,7 @@ describe('daemon port', () => {
   });
 
   it('an envelope the client cannot read is incompatible', async () => {
-    const r = await port(
-      err({ code: 'protocol', message: 'bad envelope' }),
-    ).port.board({}, 1);
+    const r = await port(err({ code: 'protocol', message: 'bad envelope' })).port.board({}, 1);
     expect(r).toMatchObject({ ok: false, error: { kind: 'incompatible' } });
   });
 
@@ -234,10 +229,7 @@ describe('daemon port', () => {
     [{ schema_version: 1, ok: false, error: null }],
     [{ schema_version: 1, ok: false, error: { code: 1 } }],
   ])('a transport that lets %j through is still incompatible', async (bad) => {
-    const reply = ok({ status: 200, envelope: bad }) as unknown as Result<
-      DaemonReply,
-      ClientError
-    >;
+    const reply = ok({ status: 200, envelope: bad }) as unknown as Result<DaemonReply, ClientError>;
     const p = port(reply).port;
     expect(await p.board({}, 1)).toMatchObject({
       ok: false,
@@ -259,16 +251,16 @@ describe('daemon port', () => {
 
   it('tells connection, timeout and revocation apart', async () => {
     expect(
-      await port(
-        err({ code: 'connection', message: 'ECONNREFUSED' }),
-      ).port.board({}, 1),
+      await port(err({ code: 'connection', message: 'ECONNREFUSED' })).port.board({}, 1),
     ).toMatchObject({ ok: false, error: { kind: 'connection' } });
-    expect(
-      await port(err({ code: 'timeout', message: 'slow' })).port.board({}, 1),
-    ).toMatchObject({ ok: false, error: { kind: 'timeout' } });
-    expect(
-      await port(errorReply('unauthenticated')).port.board({}, 1),
-    ).toMatchObject({ ok: false, error: { kind: 'unauthenticated' } });
+    expect(await port(err({ code: 'timeout', message: 'slow' })).port.board({}, 1)).toMatchObject({
+      ok: false,
+      error: { kind: 'timeout' },
+    });
+    expect(await port(errorReply('unauthenticated')).port.board({}, 1)).toMatchObject({
+      ok: false,
+      error: { kind: 'unauthenticated' },
+    });
   });
 
   describe('health', () => {
@@ -375,9 +367,7 @@ describe('daemon port', () => {
   });
 
   it('asks for logs of one attempt with the cursor of the task', async () => {
-    const p = port(
-      okReply({ task_id: TASK, records: [], next_cursor: 3, complete: false }),
-    );
+    const p = port(okReply({ task_id: TASK, records: [], next_cursor: 3, complete: false }));
     await p.port.logs({ taskId: TASK, after: 3, attemptId: TASK }, 1);
     expect(p.calls[0]?.body).toEqual({
       kind: 'task_logs',

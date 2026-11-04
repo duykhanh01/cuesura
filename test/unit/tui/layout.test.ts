@@ -3,12 +3,7 @@ import type { Uuid } from '../../../src/shared/brand.ts';
 import { initialState, type TuiState } from '../../../src/tui/model/state.ts';
 import { uiText } from '../../../src/tui/terminal/safe-text.ts';
 import { displayWidth } from '../../../src/tui/terminal/width.ts';
-import {
-  notices,
-  renderFrame,
-  scrollOffset,
-  staleBanner,
-} from '../../../src/tui/views/layout.ts';
+import { notices, renderFrame, scrollOffset, staleBanner } from '../../../src/tui/views/layout.ts';
 
 const state = (over: Partial<TuiState> = {}): TuiState => ({
   ...initialState({ cols: 100, rows: 30 }),
@@ -29,17 +24,11 @@ describe('staleBanner', () => {
           lastUpdatedAt: new Date(2026, 10, 1, 9, 5, 7).getTime(),
         }),
       ),
-    ).toEqual([
-      'Data may be out of date — last updated 09:05:07 — Reconnecting (3/30)',
-    ]);
+    ).toEqual(['Data may be out of date — last updated 09:05:07 — Reconnecting (3/30)']);
   });
 
   it('asks for the user once the attempts ran out', () => {
-    expect(
-      staleBanner(
-        state({ connection: { kind: 'waiting_retry' }, stale: true }),
-      ),
-    ).toEqual([
+    expect(staleBanner(state({ connection: { kind: 'waiting_retry' }, stale: true }))).toEqual([
       'Data may be out of date — last updated never — Retry connection (R)',
     ]);
   });
@@ -55,9 +44,7 @@ describe('staleBanner', () => {
           stale: true,
         }),
       ),
-    ).toEqual([
-      'Data may be out of date — last updated never — Retry connection (R)',
-    ]);
+    ).toEqual(['Data may be out of date — last updated never — Retry connection (R)']);
   });
 });
 
@@ -73,20 +60,15 @@ describe('notices', () => {
 
   it('keeps the whole reason at 80 columns, then the next step', () => {
     const rows = notices(stopped('token'), 80, 11);
-    expect(rows.join(' ').replaceAll(' ', '')).toContain(
-      LONG.replaceAll(' ', ''),
-    );
+    expect(rows.join(' ').replaceAll(' ', '')).toContain(LONG.replaceAll(' ', ''));
     expect(rows.at(-1)).toContain('Next:');
     expect(rows.at(-1)).toContain('press R');
     expect(rows.every((r) => displayWidth(r) <= 80)).toBe(true);
   });
 
-  it.each(['token', 'unauthenticated', 'incompatible'] as const)(
-    '%s says what to do',
-    (kind) => {
-      expect(notices(stopped(kind), 80, 11).at(-1)).toContain('Next:');
-    },
-  );
+  it.each(['token', 'unauthenticated', 'incompatible'] as const)('%s says what to do', (kind) => {
+    expect(notices(stopped(kind), 80, 11).at(-1)).toContain('Next:');
+  });
 
   it('cuts only the reason when it has no room; the next step stays', () => {
     const rows = notices(stopped('token'), 40, 3);
@@ -122,11 +104,7 @@ describe('notices', () => {
   });
 
   it('after the attempts ran out says what happened and what to do', () => {
-    const rows = notices(
-      state({ connection: { kind: 'waiting_retry' }, stale: true }),
-      80,
-      11,
-    );
+    const rows = notices(state({ connection: { kind: 'waiting_retry' }, stale: true }), 80, 11);
     expect(rows).toEqual([
       'Cannot reach the daemon.',
       'Next: check that the daemon is running, then press R.',
@@ -152,9 +130,7 @@ describe('notices', () => {
   });
 
   it('says nothing when all is well', () => {
-    expect(notices(state({ connection: { kind: 'online' } }), 80, 11)).toEqual(
-      [],
-    );
+    expect(notices(state({ connection: { kind: 'online' } }), 80, 11)).toEqual([]);
   });
 });
 
@@ -255,9 +231,7 @@ describe('renderFrame', () => {
       { color: true },
     );
     expect(called).toBe(false);
-    expect(f.rowBytes(0)).toContain(
-      'Resize your terminal to at least 80×24. Current size: 79×24.',
-    );
+    expect(f.rowBytes(0)).toContain('Resize your terminal to at least 80×24. Current size: 79×24.');
     expect(f.rowBytes(1)).toContain('q quit');
   });
 
@@ -267,8 +241,6 @@ describe('renderFrame', () => {
       { cols: 0, rows: 0 },
       { cols: 200, rows: 1 },
     ])
-      expect(() =>
-        renderFrame(state({ size }), () => undefined, { color: true }),
-      ).not.toThrow();
+      expect(() => renderFrame(state({ size }), () => undefined, { color: true })).not.toThrow();
   });
 });

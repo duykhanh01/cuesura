@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildTask, uuidOf } from '../../support/builders.ts';
-import {
-  createGrantStart,
-  proposeAndConfirm,
-  selectionFor,
-} from '../../support/runtime.ts';
+import { createGrantStart, proposeAndConfirm, selectionFor } from '../../support/runtime.ts';
 import {
   cancelTask,
   cliJson,
@@ -47,10 +43,7 @@ describe('T041: reading `task_explain` again while the version stands still', ()
     await cancelTask(sd, first.id, 1);
     // Sooner than the 5-second read: the watermark moved.
     const from = Date.now();
-    await s.waitFor(
-      () => flat(s.screenText()).includes('Queue position 1'),
-      4_500,
-    );
+    await s.waitFor(() => flat(s.screenText()).includes('Queue position 1'), 4_500);
     expect(Date.now() - from).toBeLessThan(4_500);
     expect(await versionOf(sd, second.id)).toBe(version);
     s.send('q');
@@ -72,16 +65,11 @@ describe('T041: reading `task_explain` again while the version stands still', ()
     await sd.start();
     const s = tui.cusr(sd.dataDir, TALL);
     await openTask(s, 'Dependent');
-    await s.waitFor(() =>
-      /Prerequisite [0-9a-f-]+ · (READY|PENDING)/.test(flat(s.screenText())),
-    );
+    await s.waitFor(() => /Prerequisite [0-9a-f-]+ · (READY|PENDING)/.test(flat(s.screenText())));
     const version = await versionOf(sd, dep.id);
 
     await cancelTask(sd, pre.id, 2);
-    await s.waitFor(
-      () => flat(s.screenText()).includes(`${pre.id} · CANCELLED`),
-      4_500,
-    );
+    await s.waitFor(() => flat(s.screenText()).includes(`${pre.id} · CANCELLED`), 4_500);
     expect(await versionOf(sd, dep.id)).toBe(version);
     s.send('q');
     await s.waitForExit();
@@ -96,8 +84,7 @@ describe('T041: reading `task_explain` again while the version stands still', ()
     await openTask(s, 'Timed task');
     await s.waitFor(() => flat(s.screenText()).includes('Time left 1h 0m 0s'));
     await s.waitFor(() => /Read at\s+\d\d:\d\d:\d\d/.test(s.screenText()));
-    const readAt = (): string =>
-      /Read at\s+(\d\d:\d\d:\d\d)/.exec(s.screenText())?.[1] ?? '';
+    const readAt = (): string => /Read at\s+(\d\d:\d\d:\d\d)/.exec(s.screenText())?.[1] ?? '';
     const first = readAt();
     const version = await versionOf(sd, t.id);
 
@@ -105,10 +92,7 @@ describe('T041: reading `task_explain` again while the version stands still', ()
     sd.now += 600_000;
     const from = Date.now();
     // 5 seconds, and half a second for the answer to reach the screen and this test.
-    await s.waitFor(
-      () => flat(s.screenText()).includes('Time left 50m 0s'),
-      5_500,
-    );
+    await s.waitFor(() => flat(s.screenText()).includes('Time left 50m 0s'), 5_500);
     expect(Date.now() - from).toBeLessThan(5_500);
     expect(readAt()).not.toBe(first);
     expect(await versionOf(sd, t.id)).toBe(version);
@@ -147,11 +131,8 @@ describe('T041: reading `task_explain` again while the version stands still', ()
     };
     const s = tui.cusr(proxy.dataDir, { ...TALL, env: ownerTokenEnv(sd) });
     await openTask(s, 'Watched');
-    const count = (kind: string): number =>
-      requests.filter((r) => r.includes(`"${kind}"`)).length;
-    await s.waitFor(
-      () => count('task_show') === 1 && count('task_progress') === 1,
-    );
+    const count = (kind: string): number => requests.filter((r) => r.includes(`"${kind}"`)).length;
+    await s.waitFor(() => count('task_show') === 1 && count('task_progress') === 1);
 
     const explainsBefore = count('task_explain');
     // One automatic refresh proves the PTY wiring. Exact intervals and repeated
@@ -169,10 +150,7 @@ describe('T041: reading `task_explain` again while the version stands still', ()
 
     // Its own event moves the version: show and progress follow.
     await cancelTask(sd, t.id, 4);
-    await s.waitFor(
-      () => count('task_show') === 2 && count('task_progress') === 2,
-      4_000,
-    );
+    await s.waitFor(() => count('task_show') === 2 && count('task_progress') === 2, 4_000);
     await s.waitFor(() => flat(s.screenText()).includes('CANCELLED ·'));
 
     // Back on Home, this screen reads nothing any more (R-03).

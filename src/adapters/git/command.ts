@@ -51,13 +51,7 @@ export const GIT_SUBCOMMANDS = [
   'write-tree',
 ] as const;
 
-const CONFIG_READ_FLAGS = [
-  '--get',
-  '--get-all',
-  '--get-regexp',
-  '--list',
-  '-l',
-];
+const CONFIG_READ_FLAGS = ['--get', '--get-all', '--get-regexp', '--list', '-l'];
 
 /** The only per-call environment: who made a commit and when, so a commit OID is reproducible. */
 export const COMMIT_ENV = [
@@ -139,34 +133,19 @@ export function configNames(out: string): string[] | null {
 }
 
 export function untrustedConfigKeys(names: readonly string[]): string[] {
-  return names.filter((n) =>
-    UNTRUSTED_CONFIG.some((r) => r.test(n.toLowerCase())),
-  );
+  return names.filter((n) => UNTRUSTED_CONFIG.some((r) => r.test(n.toLowerCase())));
 }
 
 /** Why `args` may not run, or null. */
 export function refuseArgs(args: readonly string[]): string | null {
   const [sub, ...rest] = args;
-  if (
-    sub === undefined ||
-    !(GIT_SUBCOMMANDS as readonly string[]).includes(sub)
-  )
+  if (sub === undefined || !(GIT_SUBCOMMANDS as readonly string[]).includes(sub))
     return `subcommand ${sub ?? '(none)'} is not allowed`;
   if (sub === 'config' && !rest.some((a) => CONFIG_READ_FLAGS.includes(a)))
     return 'git config may only read';
   if (
     sub === 'config' &&
-    rest.some((a) =>
-      [
-        '--global',
-        '--system',
-        '--file',
-        '-f',
-        '--blob',
-        '--edit',
-        '-e',
-      ].includes(a),
-    )
+    rest.some((a) => ['--global', '--system', '--file', '-f', '--blob', '--edit', '-e'].includes(a))
   )
     return 'git config may only read repo config';
   return null;
@@ -192,9 +171,7 @@ export class GitCommandRunner implements GitPort {
       );
     for (const d of o.safeDirectories) {
       if (!cleanAbsolute(d) || d === '/')
-        throw new GitConfigError(
-          `safe.directory must be a specific absolute path, not ${d}`,
-        );
+        throw new GitConfigError(`safe.directory must be a specific absolute path, not ${d}`);
     }
     this.#o = o;
     this.#config = [
@@ -209,9 +186,7 @@ export class GitCommandRunner implements GitPort {
       'tag.gpgSign=false',
       'protocol.ext.allow=never',
       'credential.helper=',
-      ...(o.credentialHelper === null
-        ? []
-        : [`credential.helper=${o.credentialHelper}`]),
+      ...(o.credentialHelper === null ? [] : [`credential.helper=${o.credentialHelper}`]),
       'safe.directory=',
       ...o.safeDirectories.map((d) => `safe.directory=${d}`),
     ];
@@ -359,9 +334,7 @@ export class GitCommandRunner implements GitPort {
           errBytes += Math.min(b.length, room);
         }
       });
-      child.on('error', (e) =>
-        done({ kind: 'spawn_failed', message: e.message }),
-      );
+      child.on('error', (e) => done({ kind: 'spawn_failed', message: e.message }));
       child.on('close', (code) => {
         if (timedOut) return done({ kind: 'timeout' });
         done({

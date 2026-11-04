@@ -36,10 +36,7 @@ const LIVE = (n: number): LiveCase =>
   JSON.parse(
     readFileSync(
       fileURLToPath(
-        new URL(
-          `../../fixtures/runtime/spike-0/github/live-rules/case-${n}.json`,
-          import.meta.url,
-        ),
+        new URL(`../../fixtures/runtime/spike-0/github/live-rules/case-${n}.json`, import.meta.url),
       ),
       'utf8',
     ),
@@ -47,8 +44,7 @@ const LIVE = (n: number): LiveCase =>
 
 function read(e: Evidence | undefined): GhRead | null {
   if (e === undefined) return null;
-  const body: unknown =
-    e.body_redacted === '' ? null : JSON.parse(e.body_redacted);
+  const body: unknown = e.body_redacted === '' ? null : JSON.parse(e.body_redacted);
   return e.status >= 200 && e.status < 300
     ? { ok: true, status: e.status, body }
     : { ok: false, status: e.status, body, reason: `HTTP ${e.status}` };
@@ -56,8 +52,7 @@ function read(e: Evidence | undefined): GhRead | null {
 
 /** Rebuilds the port's reads from the recorded evidence, in the order the observe step makes them. */
 function readsFromEvidence(evidence: readonly Evidence[]): RequirementReads {
-  const find = (suffix: RegExp): Evidence | undefined =>
-    evidence.find((e) => suffix.test(e.path));
+  const find = (suffix: RegExp): Evidence | undefined => evidence.find((e) => suffix.test(e.path));
   const branch = read(find(/\/branches\/master$/)) as GhRead;
   const rulesEvidence = find(/\/rules\/branches\/master\?/);
   const rulesRead = read(rulesEvidence);
@@ -95,9 +90,7 @@ describe('GitHub required-check normalizer on live S0.3 reads', () => {
       const c = LIVE(n);
       const reads = readsFromEvidence(c.evidence);
       if (reads.rules !== null)
-        expect(rulesetIdsToRead(reads.rules)).toEqual([
-          ...reads.rulesets.keys(),
-        ]);
+        expect(rulesetIdsToRead(reads.rules)).toEqual([...reads.rulesets.keys()]);
       const ev = normalizeRequirements(reads, 1_000);
       expect(RequiredEvidenceSchema.safeParse(ev).success).toBe(true);
       expect(ev.kind).toBe(KIND[c.required.status]);
@@ -110,18 +103,15 @@ describe('GitHub required-check normalizer on live S0.3 reads', () => {
         expect(v.github).toEqual(
           [...new Set(ev.identities.filter(binds).map((i) => i.name))].sort(),
         );
-        expect(
-          v.app_pinned?.map((p) => `${p.name}@app:${String(p.app)}`),
-        ).toEqual(c.comparison['app_pinned'] ?? []);
+        expect(v.app_pinned?.map((p) => `${p.name}@app:${String(p.app)}`)).toEqual(
+          c.comparison['app_pinned'] ?? [],
+        );
       }
     },
   );
 
   it('case 6 (unprotected, no rules) is none with positive provenance, not an empty known list', () => {
-    const ev = normalizeRequirements(
-      readsFromEvidence(LIVE(6).evidence),
-      1_000,
-    );
+    const ev = normalizeRequirements(readsFromEvidence(LIVE(6).evidence), 1_000);
     expect(ev).toMatchObject({
       kind: 'none',
       identities: [],
@@ -134,10 +124,7 @@ describe('GitHub required-check normalizer on live S0.3 reads', () => {
   });
 
   it('case 3 (ruleset only) reads classic as "not protected" and records the ruleset', () => {
-    const ev = normalizeRequirements(
-      readsFromEvidence(LIVE(3).evidence),
-      1_000,
-    );
+    const ev = normalizeRequirements(readsFromEvidence(LIVE(3).evidence), 1_000);
     expect(ev).toMatchObject({
       kind: 'known',
       provenance: {
@@ -150,11 +137,9 @@ describe('GitHub required-check normalizer on live S0.3 reads', () => {
 });
 
 const ok = (body: unknown): GhRead => ({ ok: true, status: 200, body });
-const PROT_URL =
-  'https://api.github.com/repos/octo/repo/branches/main/protection';
+const PROT_URL = 'https://api.github.com/repos/octo/repo/branches/main/protection';
 /** A 200 protection body for `octo/repo` `main`, as GitHub returns it with its own `url`. */
-const prot = (body: Record<string, unknown>): GhRead =>
-  ok({ url: PROT_URL, ...body });
+const prot = (body: Record<string, unknown>): GhRead => ok({ url: PROT_URL, ...body });
 const fail = (status: number | null, body: unknown = null): GhRead => ({
   ok: false,
   status,
@@ -276,14 +261,8 @@ describe('GitHub required-check normalizer edge cases', () => {
   it.each<[string, Partial<RequirementReads>]>([
     ['branch read failed', { branch: fail(500) }],
     ['branch flag missing', { branch: ok({}) }],
-    [
-      'protection 403',
-      { protection: fail(403, { message: 'Resource not accessible' }) },
-    ],
-    [
-      'protection bare 404',
-      { protection: fail(404, { message: 'Not Found' }) },
-    ],
+    ['protection 403', { protection: fail(403, { message: 'Resource not accessible' }) }],
+    ['protection bare 404', { protection: fail(404, { message: 'Not Found' }) }],
     ['protection timeout', { protection: fail(null) }],
     ['protection not read', { protection: null }],
     ['classic section absent, no url', { protection: ok({}) }],
@@ -311,10 +290,7 @@ describe('GitHub required-check normalizer edge cases', () => {
         }),
       },
     ],
-    [
-      'classic null, no url',
-      { protection: ok({ required_status_checks: null }) },
-    ],
+    ['classic null, no url', { protection: ok({ required_status_checks: null }) }],
     [
       'classic null, other repo',
       {
@@ -343,14 +319,8 @@ describe('GitHub required-check normalizer edge cases', () => {
         }),
       },
     ],
-    [
-      'classic section {}',
-      { protection: prot({ required_status_checks: {} }) },
-    ],
-    [
-      'classic section []',
-      { protection: prot({ required_status_checks: [] }) },
-    ],
+    ['classic section {}', { protection: prot({ required_status_checks: {} }) }],
+    ['classic section []', { protection: prot({ required_status_checks: [] }) }],
     [
       'classic checks invalid',
       {
@@ -363,10 +333,7 @@ describe('GitHub required-check normalizer edge cases', () => {
       'classic contexts [null]',
       { protection: prot({ required_status_checks: { contexts: [null] } }) },
     ],
-    [
-      'classic check {}',
-      { protection: prot({ required_status_checks: { checks: [{}] } }) },
-    ],
+    ['classic check {}', { protection: prot({ required_status_checks: { checks: [{}] } }) }],
     [
       'classic app id string',
       {
@@ -381,29 +348,18 @@ describe('GitHub required-check normalizer edge cases', () => {
     ['rules not read', { rules: null }],
     ['rules truncated', { rules: rulesOf([], false) }],
     ['rule type missing', { rules: rulesOf([{ parameters: {} }]) }],
-    [
-      'rule without ruleset id',
-      { rules: rulesOf([rule({ required_status_checks: [] }, null)]) },
-    ],
+    ['rule without ruleset id', { rules: rulesOf([rule({ required_status_checks: [] }, null)]) }],
     ['ruleset unreadable', { rulesets: new Map([[9, fail(403)]]) }],
     ['ruleset not read', { rulesets: new Map() }],
-    [
-      'ruleset enforcement odd',
-      { rulesets: new Map([[9, ok({ enforcement: 'classic' })]]) },
-    ],
+    ['ruleset enforcement odd', { rulesets: new Map([[9, ok({ enforcement: 'classic' })]]) }],
     ['rule parameters {}', { rules: rulesOf([rule({})]) }],
-    [
-      'rule check {}',
-      { rules: rulesOf([rule({ required_status_checks: [{}] })]) },
-    ],
+    ['rule check {}', { rules: rulesOf([rule({ required_status_checks: [{}] })]) }],
     [
       'rule app id string',
       {
         rules: rulesOf([
           rule({
-            required_status_checks: [
-              { context: 'test', integration_id: '15368' },
-            ],
+            required_status_checks: [{ context: 'test', integration_id: '15368' }],
           }),
         ]),
       },
@@ -428,10 +384,7 @@ describe('GitHub required-check normalizer edge cases', () => {
       url: 'https://api.github.com/repos/Octo/Repo/branches/main/protection',
       required_pull_request_reviews: { required_approving_review_count: 1 },
     };
-    const none = normalizeRequirements(
-      reads({ protection: ok(body), rules: rulesOf([]) }),
-      5,
-    );
+    const none = normalizeRequirements(reads({ protection: ok(body), rules: rulesOf([]) }), 5);
     expect(none).toMatchObject({
       kind: 'none',
       identities: [],

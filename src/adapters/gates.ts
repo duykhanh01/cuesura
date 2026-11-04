@@ -109,9 +109,7 @@ export const gateResultOf = (r: CommandReceipt): GateResult =>
         gate: r.name,
         passed: false,
         signature: failureSignature(r),
-        ...(r.output.tail === ''
-          ? {}
-          : { log_excerpt: r.output.tail.slice(-4_096) }),
+        ...(r.output.tail === '' ? {} : { log_excerpt: r.output.tail.slice(-4_096) }),
       };
 
 /**
@@ -198,9 +196,7 @@ export async function runGates(
 export async function runSetup(
   deps: CommandSetDeps,
   input: CommandSetInput,
-): Promise<
-  CommandSetOutcome & { readonly setup?: { ran: boolean; passed: boolean } }
-> {
+): Promise<CommandSetOutcome & { readonly setup?: { ran: boolean; passed: boolean } }> {
   if (input.commands.length === 0) {
     const cp = await takeCheckpoint(deps.git, input.checkpoint);
     if (!cp.ok)

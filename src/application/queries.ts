@@ -4,11 +4,7 @@
  * Queries read the projection and the event log only: no LLM and no external I/O (FR-027.01/02).
  */
 import { z } from 'zod';
-import {
-  CanonicalTaskSchema,
-  TASK_SCHEMA_VERSION,
-  type CanonicalTask,
-} from '../domain/task.ts';
+import { CanonicalTaskSchema, TASK_SCHEMA_VERSION, type CanonicalTask } from '../domain/task.ts';
 import type { TaskState } from '../domain/state.ts';
 import type { FrozenRuntimeContext } from '../domain/runtime.ts';
 import type { PublishContent } from '../adapters/context.ts';
@@ -108,8 +104,7 @@ export function runConfigView(s: TaskState): Record<string, unknown> | null {
     mode: p.selection.mode,
     selection: p.selection,
     proposed_by: p.by,
-    confirmed_by:
-      status === 'confirmed' ? (s.run.confirmation?.actor ?? null) : null,
+    confirmed_by: status === 'confirmed' ? (s.run.confirmation?.actor ?? null) : null,
     frozen_mode: s.run.mode,
     review:
       s.run.mode === 'direct-pr'
@@ -134,8 +129,7 @@ export function mergeView(
 ): Record<string, unknown> | null {
   if (rt === null) return null;
   const c = s.run.content;
-  const content =
-    c === null || c.revision !== s.revision ? null : read(c.ref, c.digest);
+  const content = c === null || c.revision !== s.revision ? null : read(c.ref, c.digest);
   return {
     method: rt.merge_method ?? null,
     proposed:
@@ -195,9 +189,7 @@ export function buildNewTask(
       code: 'invalid_command',
       message: 'invalid task',
       details: {
-        issues: parsed.error.issues.map(
-          (i) => `task.${i.path.join('.')}: ${i.message}`,
-        ),
+        issues: parsed.error.issues.map((i) => `task.${i.path.join('.')}: ${i.message}`),
       },
     });
   const id = admitted.record.task_id as string;
@@ -268,8 +260,7 @@ export function taskAdd(
         details: { detail: r.value.decision.detail ?? null },
       }),
     );
-  const proposal = (input.payload as { run_config?: RunProposal } | null)
-    ?.run_config;
+  const proposal = (input.payload as { run_config?: RunProposal } | null)?.run_config;
   if (proposal !== undefined) {
     const p = proposeRun(
       deps,
@@ -309,17 +300,9 @@ export function taskProposeRun(
       }),
     );
   const proposal = (input.payload as { run_config: RunProposal }).run_config;
-  const r = proposeRun(
-    deps,
-    s,
-    `cmd:${admitted.record.request_id}:run`,
-    proposal,
-    caller,
-  );
+  const r = proposeRun(deps, s, `cmd:${admitted.record.request_id}:run`, proposal, caller);
   if (!r.ok) return Promise.resolve(r);
-  return Promise.resolve(
-    ok(taskView(deps.store.readTask(s.id as Uuid) as TaskState)),
-  );
+  return Promise.resolve(ok(taskView(deps.store.readTask(s.id as Uuid) as TaskState)));
 }
 
 export async function taskConfirm(
@@ -334,12 +317,10 @@ export async function taskConfirm(
     task_id: input.task_id as string,
     expected_version: input.expected_version as number,
     assigned_ids: admitted.record.assigned_ids,
-    ...((input.payload as { run_config_digest?: string } | null)
-      ?.run_config_digest === undefined
+    ...((input.payload as { run_config_digest?: string } | null)?.run_config_digest === undefined
       ? {}
       : {
-          run_config_digest: (input.payload as { run_config_digest: string })
-            .run_config_digest,
+          run_config_digest: (input.payload as { run_config_digest: string }).run_config_digest,
         }),
   });
   if (!r.ok) {
@@ -411,29 +392,20 @@ const notFound = (id: string): AppError => ({
  * The task as this caller may see it. A task outside the caller's projects is reported as missing, not
  * as forbidden, so IDs do not leak.
  */
-function readable(
-  store: Store,
-  caller: Caller,
-  id: string,
-): Result<TaskState, AppError> {
+function readable(store: Store, caller: Caller, id: string): Result<TaskState, AppError> {
   const s = store.readTask(id as Uuid);
-  return s === null ||
-    !authorize(caller, { role: 'read', project: s.project }).ok
+  return s === null || !authorize(caller, { role: 'read', project: s.project }).ok
     ? err(notFound(id))
     : ok(s);
 }
 
 function mergeOf(store: Store, s: TaskState): Record<string, unknown> | null {
   const rt =
-    s.runtime_ref === null
-      ? null
-      : store.readRuntimeContext(s.id as Uuid, s.runtime_ref.revision);
+    s.runtime_ref === null ? null : store.readRuntimeContext(s.id as Uuid, s.runtime_ref.revision);
   return mergeView(s, rt, readStoredContent);
 }
 
-const TaskQuerySchema = z
-  .object({ kind: z.string(), task_id: UuidSchema })
-  .strict();
+const TaskQuerySchema = z.object({ kind: z.string(), task_id: UuidSchema }).strict();
 
 /**
  * Where each fact on `task show` came from (FR-027.01): the observation behind the PR and head, the
@@ -539,12 +511,7 @@ export const TASK_LIST_LIMIT = 100;
 const TaskListSchema = z
   .object({
     kind: z.literal('task_list'),
-    limit: z
-      .number()
-      .int()
-      .min(1)
-      .max(TASK_LIST_LIMIT)
-      .default(TASK_LIST_LIMIT),
+    limit: z.number().int().min(1).max(TASK_LIST_LIMIT).default(TASK_LIST_LIMIT),
     cursor: UuidSchema.optional(),
     project: z.string().min(1).optional(),
     status: z.enum(TASK_STATUSES).optional(),
@@ -575,16 +542,10 @@ export function taskList(
   }
   const items: Record<string, unknown>[] = [];
   let next: string | null = null;
-  const ascending = store.taskIdsByStatus(
-    status === undefined ? TASK_STATUSES : [status],
-  );
+  const ascending = store.taskIdsByStatus(status === undefined ? TASK_STATUSES : [status]);
   const ids = order === 'newest' ? [...ascending].reverse() : ascending;
   for (const id of ids) {
-    if (
-      cursor !== undefined &&
-      (order === 'newest' ? id >= cursor : id <= cursor)
-    )
-      continue;
+    if (cursor !== undefined && (order === 'newest' ? id >= cursor : id <= cursor)) continue;
     const s = store.readTask(id as Uuid);
     if (s === null) continue;
     if (project !== undefined && s.project !== project) continue;
@@ -672,16 +633,12 @@ export function taskExplain(
   const r = readable(store, caller, q.data.task_id);
   if (!r.ok) return r;
   const s = r.value;
-  const position = store
-    .readQueue(Number.MAX_SAFE_INTEGER)
-    .findIndex((x) => x.task_id === s.id);
+  const position = store.readQueue(Number.MAX_SAFE_INTEGER).findIndex((x) => x.task_id === s.id);
   return ok(
     explainRuntime(
       s,
       store.readEvents(s.id as Uuid),
-      s.policy_ref === null
-        ? null
-        : store.readPolicy(s.id as Uuid, s.policy_ref.revision),
+      s.policy_ref === null ? null : store.readPolicy(s.id as Uuid, s.policy_ref.revision),
       {
         now: asEpochMs(now),
         recheckable: recheckTarget(s) !== null,

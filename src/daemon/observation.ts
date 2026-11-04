@@ -92,10 +92,7 @@ function ciWaitPolling(s: TaskState, now: number): boolean {
           }).ok)),
   );
   return (
-    awaiting ||
-    Object.values(s.timers).some(
-      (t) => t.kind === 'ci_poll' && t.status === 'armed',
-    )
+    awaiting || Object.values(s.timers).some((t) => t.kind === 'ci_poll' && t.status === 'armed')
   );
 }
 
@@ -117,11 +114,7 @@ export function observationDue(s: TaskState, now: number): DueKind | null {
   if (b.next_due_at === null || b.next_due_at > now) return null;
   if (ciWaitPolling(s, now)) return null;
   // Merged into another branch: final, nothing left to observe (FR-040.12).
-  if (
-    s.wait?.detail.code === 'target_mismatch' &&
-    s.wait.detail['merged'] === true
-  )
-    return null;
+  if (s.wait?.detail.code === 'target_mismatch' && s.wait.detail['merged'] === true) return null;
   return 'observe';
 }
 
@@ -137,24 +130,18 @@ export type ObservationRoundReport = {
 };
 
 /** Tasks with an automatic round due now, oldest due first. */
-export function dueTasks(
-  store: Store,
-  now: number,
-): { id: string; kind: DueKind; due: number }[] {
+export function dueTasks(store: Store, now: number): { id: string; kind: DueKind; due: number }[] {
   const out: { id: string; kind: DueKind; due: number }[] = [];
   for (const id of store.taskIdsByStatus(['RUNNING', 'WAITING'])) {
     const s = store.readTask(id as Uuid);
     if (s === null) continue;
     const kind = observationDue(s, now);
-    if (kind !== null)
-      out.push({ id, kind, due: s.observation?.budget.next_due_at ?? now });
+    if (kind !== null) out.push({ id, kind, due: s.observation?.budget.next_due_at ?? now });
   }
   return out.sort((a, b) => a.due - b.due || (a.id < b.id ? -1 : 1));
 }
 
-export async function observationRound(
-  deps: ObservationDeps,
-): Promise<ObservationRoundReport[]> {
+export async function observationRound(deps: ObservationDeps): Promise<ObservationRoundReport[]> {
   const started = deps.clock.now();
   const reports: ObservationRoundReport[] = [];
   const due = dueTasks(deps.store, started).slice(0, deps.max_tasks ?? 100);
@@ -162,8 +149,7 @@ export async function observationRound(
     const s = deps.store.readTask(d.id as Uuid);
     if (s === null || s.observation === null) continue;
     const roundMs =
-      s.run.limits?.observation_round_ms ??
-      DEFAULT_RUNTIME_LIMITS.observation_round_ms;
+      s.run.limits?.observation_round_ms ?? DEFAULT_RUNTIME_LIMITS.observation_round_ms;
     if (deps.clock.now() - started >= roundMs) break;
     const generation = s.observation.budget.generation;
     if (d.kind === 'expire') {
@@ -185,13 +171,8 @@ export async function observationRound(
       continue;
     }
     if (deps.coordinator.busy(d.id)) continue;
-    const read = await deps.coordinator.observe(
-      d.id,
-      `observe:${d.id}:g${generation}`,
-      'timer',
-    );
-    const outcomes: { kind: Trigger['kind']; outcome: AcceptOutcome | null }[] =
-      [];
+    const read = await deps.coordinator.observe(d.id, `observe:${d.id}:g${generation}`, 'timer');
+    const outcomes: { kind: Trigger['kind']; outcome: AcceptOutcome | null }[] = [];
     read.facts.forEach((fact, i) => {
       const cur = deps.store.readTask(d.id as Uuid);
       const r = submit(deps.store, {

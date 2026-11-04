@@ -106,16 +106,11 @@ function waitsOnWorker(s: TaskState, questionId: string): boolean {
 }
 
 /** Holds one agent run for the decider before it spawns, under the same limits as any attempt. */
-export function onDeciderStart(
-  ctx: Ctx,
-  t: Extract<Trigger, { kind: 'decider_start' }>,
-): void {
+export function onDeciderStart(ctx: Ctx, t: Extract<Trigger, { kind: 'decider_start' }>): void {
   if (!waitsOnWorker(ctx.state, t.question_id))
     reject('invalid_trigger', { reason: 'question_not_waiting' });
-  if (available(ctx.state.budget) < 1)
-    reject('invalid_trigger', { reason: 'no_agent_runs_left' });
-  if (pastDeadline(ctx))
-    reject('invalid_trigger', { reason: 'task_deadline_passed' });
+  if (available(ctx.state.budget) < 1) reject('invalid_trigger', { reason: 'no_agent_runs_left' });
+  if (pastDeadline(ctx)) reject('invalid_trigger', { reason: 'task_deadline_passed' });
   reserve(ctx, t.attempt_id, t.attempt_id);
 }
 
@@ -124,12 +119,8 @@ export function onDeciderStart(
  * answer, and its reservation is settled like an attempt's. The answer applies only while the task still
  * waits on this worker question, so it can never override a person, a newer revision or a cancel.
  */
-export function onDeciderRan(
-  ctx: Ctx,
-  t: Extract<Trigger, { kind: 'decider_ran' }>,
-): void {
-  const applied =
-    t.apply && t.decision !== null && waitsOnWorker(ctx.state, t.question_id);
+export function onDeciderRan(ctx: Ctx, t: Extract<Trigger, { kind: 'decider_ran' }>): void {
+  const applied = t.apply && t.decision !== null && waitsOnWorker(ctx.state, t.question_id);
   ctx.emit('DeciderRan', {
     attempt_id: t.attempt_id,
     question_id: t.question_id,
@@ -155,11 +146,7 @@ export function onDeciderRan(
     );
 }
 
-export function onAnswer(
-  ctx: Ctx,
-  t: AnswerTrigger,
-  by: string = ctx.actor,
-): void {
+export function onAnswer(ctx: Ctx, t: AnswerTrigger, by: string = ctx.actor): void {
   const s = ctx.state;
   const q = s.questions[t.question_id];
   if (q === undefined || q.status === 'withdrawn')
@@ -180,8 +167,7 @@ export function onAnswer(
       reason: 'base_repair_answer_must_be_continue_or_retry_fixer',
     });
   const resume =
-    q.resume.kind === 'repair_base' &&
-    t.answer.trim().toLowerCase() === 'retry fixer'
+    q.resume.kind === 'repair_base' && t.answer.trim().toLowerCase() === 'retry fixer'
       ? { ...q.resume, mode: 'retry_fixer' as const }
       : q.resume;
   ctx.emit('QuestionAnswered', {
@@ -196,10 +182,7 @@ export function onAnswer(
   }
   // If another wait masks the question, replace its deferred action with the question resume action.
   const drift = ctx.state.source_drift;
-  if (
-    drift?.safe_boundary_reached &&
-    drift.prior_wait?.detail['question_id'] === q.id
-  ) {
+  if (drift?.safe_boundary_reached && drift.prior_wait?.detail['question_id'] === q.id) {
     reachSafeBoundary(ctx, resume, null);
     return;
   }
@@ -216,12 +199,7 @@ type ApprovalTrigger = Extract<Trigger, { kind: 'approve' | 'reject' }>;
 export function onApprovalDecision(ctx: Ctx, t: ApprovalTrigger): void {
   const s = ctx.state;
   const a = s.approvals[t.approval_request_id];
-  if (
-    a === undefined ||
-    a.status !== 'requested' ||
-    a.revoked ||
-    a.revision !== s.revision
-  ) {
+  if (a === undefined || a.status !== 'requested' || a.revoked || a.revision !== s.revision) {
     reject('approval_mismatch', {
       approval_id: t.approval_request_id,
       reason: 'not_open',
@@ -232,39 +210,27 @@ export function onApprovalDecision(ctx: Ctx, t: ApprovalTrigger): void {
   }
   if (
     a.kind === 'merge' &&
-    (t.head_sha === undefined ||
-      t.head_sha !== a.head_sha ||
-      t.head_sha !== s.head_sha)
+    (t.head_sha === undefined || t.head_sha !== a.head_sha || t.head_sha !== s.head_sha)
   ) {
     reject('approval_mismatch', { approval_id: a.id, reason: 'head_sha' });
   }
   if (a.kind === 'escalation' && a.policy_hash !== s.policy_ref?.hash) {
     reject('approval_mismatch', { approval_id: a.id, reason: 'policy_hash' });
   }
-  const waiting =
-    s.status === 'WAITING' && s.wait?.detail['approval_id'] === a.id;
+  const waiting = s.status === 'WAITING' && s.wait?.detail['approval_id'] === a.id;
   if (t.kind === 'approve') {
     ctx.emit('ApprovalGranted', {
       approval_id: a.id,
       by: ctx.actor,
       head_sha: a.head_sha,
     });
-    if (waiting)
-      proceed(
-        ctx,
-        (s.wait as NonNullable<typeof s.wait>).resume,
-        `approve:${a.id}`,
-      );
+    if (waiting) proceed(ctx, (s.wait as NonNullable<typeof s.wait>).resume, `approve:${a.id}`);
     return;
   }
   ctx.emit('ApprovalRejected', { approval_id: a.id, by: ctx.actor });
   if (!waiting) return;
   if (a.kind === 'merge' && a.step !== null) {
-    proceed(
-      ctx,
-      { kind: 'route', step: a.step, outcome: 'rejected' },
-      `reject:${a.id}`,
-    );
+    proceed(ctx, { kind: 'route', step: a.step, outcome: 'rejected' }, `reject:${a.id}`);
     return;
   }
   waitPolicy(

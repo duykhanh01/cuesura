@@ -54,17 +54,16 @@ describe('role context (T037, FR-005)', () => {
     });
     const v = ok(buildRoleContext(input({ context, prompt: 'coder.md' })));
     expect(v.text).toContain('## prompt:coder.md\nDo not commit.');
-    expect(v.text.indexOf('## prompt:coder.md')).toBeLessThan(
-      v.text.indexOf('## title'),
-    );
+    expect(v.text.indexOf('## prompt:coder.md')).toBeLessThan(v.text.indexOf('## title'));
     expect(v.truncated.map((t) => t.section)).not.toContain('prompt:coder.md');
     // A prompt too large for the budget stops the run instead of reaching the agent cut.
     const huge = withContext({
       prompt_refs: [{ name: 'coder.md', content: 'x'.repeat(200 * 1024) }],
     });
-    expect(
-      buildRoleContext(input({ context: huge, prompt: 'coder.md' })),
-    ).toMatchObject({ ok: false, error: { missing: ['context_budget'] } });
+    expect(buildRoleContext(input({ context: huge, prompt: 'coder.md' }))).toMatchObject({
+      ok: false,
+      error: { missing: ['context_budget'] },
+    });
   });
 
   it('tells workers, whatever the prompt says, that Cuesura commits; a reviewer is not told', () => {
@@ -92,15 +91,11 @@ describe('role context (T037, FR-005)', () => {
 
   it('carries the immutable request, acceptance, binding and step, with a digest of the text', () => {
     const v = ok(
-      buildRoleContext(
-        input({ answers: [{ question_id: 'q1', answer: 'Use SQLite' }] }),
-      ),
+      buildRoleContext(input({ answers: [{ question_id: 'q1', answer: 'Use SQLite' }] })),
     );
     expect(v.text).toContain('Role: coder');
     expect(v.text).toContain('Step: code');
-    expect(v.text).toContain(
-      '## acceptance\n- Searching by name returns matching customers',
-    );
+    expect(v.text).toContain('## acceptance\n- Searching by name returns matching customers');
     expect(v.text).toContain('(q1) Use SQLite');
     expect(v.truncated).toEqual([]);
     expect(v.digest).toMatch(/^sha256:/);
@@ -108,22 +103,16 @@ describe('role context (T037, FR-005)', () => {
 
   it('asks for context instead of calling the agent when a required part is missing', () => {
     expect(
-      buildRoleContext(
-        input({ context: buildContext(buildTask({ acceptance: [] })) }),
-      ),
+      buildRoleContext(input({ context: buildContext(buildTask({ acceptance: [] })) })),
     ).toEqual({
       ok: false,
       error: { kind: 'needs_context', missing: ['acceptance'] },
     });
-    expect(
-      buildRoleContext(input({ role: 'fixer', step: 'fix_gates' })),
-    ).toEqual({
+    expect(buildRoleContext(input({ role: 'fixer', step: 'fix_gates' }))).toEqual({
       ok: false,
       error: { kind: 'needs_context', missing: ['failures'] },
     });
-    expect(
-      buildRoleContext(input({ role: 'reviewer', step: 'review' })),
-    ).toEqual({
+    expect(buildRoleContext(input({ role: 'reviewer', step: 'review' }))).toEqual({
       ok: false,
       error: { kind: 'needs_context', missing: ['diff'] },
     });
@@ -131,9 +120,7 @@ describe('role context (T037, FR-005)', () => {
       ok: false,
       error: { missing: ['context_revision'] },
     });
-    expect(
-      buildRoleContext(input({ prompt: 'prompts/coder.md' })),
-    ).toMatchObject({
+    expect(buildRoleContext(input({ prompt: 'prompts/coder.md' }))).toMatchObject({
       ok: false,
       error: { missing: ['prompt:prompts/coder.md'] },
     });
@@ -145,9 +132,7 @@ describe('role context (T037, FR-005)', () => {
         input({
           role: 'fixer',
           step: 'fix_gates',
-          failures: [
-            { source: 'gate', name: 'unit', detail: 'expected 2, got 3' },
-          ],
+          failures: [{ source: 'gate', name: 'unit', detail: 'expected 2, got 3' }],
         }),
       ),
     );
@@ -159,19 +144,14 @@ describe('role context (T037, FR-005)', () => {
       from: 'a'.repeat(40),
       to: 'b'.repeat(40),
     };
-    const reviewer = ok(
-      buildRoleContext(input({ role: 'reviewer', step: 'review', diff })),
-    );
+    const reviewer = ok(buildRoleContext(input({ role: 'reviewer', step: 'review', diff })));
     expect(reviewer.diff).toMatchObject({ paths: ['x', 'y'] });
     expect(reviewer.text).toContain('Changed paths (2):\n- x\n- y');
     expect(reviewer.text).toContain(`Digest: ${reviewer.diff?.digest ?? ''}`);
   });
 
   it('cuts a large diff at 64 KiB with a marker but keeps every path', () => {
-    const big = Array.from(
-      { length: 5_000 },
-      (_, i) => `+line ${i} ${'x'.repeat(20)}`,
-    ).join('\n');
+    const big = Array.from({ length: 5_000 }, (_, i) => `+line ${i} ${'x'.repeat(20)}`).join('\n');
     const paths = Array.from({ length: 300 }, (_, i) => `src/file${i}.ts`);
     const v = ok(
       buildRoleContext(
@@ -270,16 +250,12 @@ describe('repair packet, template and PR content (T037/T136, M04/M05)', () => {
   });
 
   it('a repair without its failures or its current state is needs_context, never a bare "continue"', () => {
-    expect(
-      buildRoleContext(input({ step: 'ci_fix', failures: [], repair })),
-    ).toEqual({
+    expect(buildRoleContext(input({ step: 'ci_fix', failures: [], repair }))).toEqual({
       ok: false,
       error: { kind: 'needs_context', missing: ['failures'] },
     });
     expect(
-      buildRoleContext(
-        input({ role: 'fixer', step: 'fix_gates', failures, repair: null }),
-      ),
+      buildRoleContext(input({ role: 'fixer', step: 'fix_gates', failures, repair: null })),
     ).toEqual({
       ok: false,
       error: { kind: 'needs_context', missing: ['repair_state'] },
@@ -304,9 +280,7 @@ describe('repair packet, template and PR content (T037/T136, M04/M05)', () => {
     );
     expect(withTemplate.text).toContain(`to ${file}.`);
     expect(withTemplate.text).toContain('## Summary\n## Risk');
-    expect(withTemplate.text).toContain(
-      'Do not add <!-- cusr: ... --> markers',
-    );
+    expect(withTemplate.text).toContain('Do not add <!-- cusr: ... --> markers');
     const plain = ok(
       buildRoleContext(
         input({
@@ -334,9 +308,7 @@ describe('repair packet, template and PR content (T037/T136, M04/M05)', () => {
       to: 'c'.repeat(40),
     };
     expect(
-      buildRoleContext(
-        input({ role: 'reviewer', step: 'review', diff, pr_content: null }),
-      ),
+      buildRoleContext(input({ role: 'reviewer', step: 'review', diff, pr_content: null })),
     ).toEqual({
       ok: false,
       error: { kind: 'needs_context', missing: ['pr_content'] },

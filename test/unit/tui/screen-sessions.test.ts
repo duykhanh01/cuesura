@@ -1,15 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type {
-  TaskExplain,
-  TaskLogs,
-  TaskShow,
-} from '../../../src/tui/client/schemas.ts';
+import type { TaskExplain, TaskLogs, TaskShow } from '../../../src/tui/client/schemas.ts';
 import type { LogsMessage } from '../../../src/tui/model/detail-keys.ts';
-import {
-  detailDue,
-  initialDetail,
-  type DetailMessage,
-} from '../../../src/tui/model/detail.ts';
+import { detailDue, initialDetail, type DetailMessage } from '../../../src/tui/model/detail.ts';
 import {
   applyLogPage,
   filterAttempt,
@@ -30,15 +22,10 @@ import { sanitize, uiText } from '../../../src/tui/terminal/safe-text.ts';
 const TASK = '00000000-0000-7000-8000-000000000001';
 const ATTEMPT = '00000000-0000-7000-8000-000000000a01';
 
-const key = (name: 'esc') =>
-  ({ type: 'key', key: { kind: 'key', name } }) as const;
-const char = (text: string) =>
-  ({ type: 'key', key: { kind: 'char', text } }) as const;
+const key = (name: 'esc') => ({ type: 'key', key: { kind: 'key', name } }) as const;
+const char = (text: string) => ({ type: 'key', key: { kind: 'char', text } }) as const;
 
-function record(
-  seq: number,
-  text = `line ${seq}`,
-): TaskLogs['records'][number] {
+function record(seq: number, text = `line ${seq}`): TaskLogs['records'][number] {
   return {
     seq,
     cursor: seq,
@@ -83,11 +70,7 @@ function showAnswer(s: TuiState, title: string): DetailMessage {
   } as DetailMessage;
 }
 
-function logsAnswer(
-  s: TuiState,
-  request: LogRequest,
-  logPage: TaskLogs,
-): LogsMessage {
+function logsAnswer(s: TuiState, request: LogRequest, logPage: TaskLogs): LogsMessage {
   const logs = s.logs as LogState;
   return {
     type: 'logs_read',
@@ -125,19 +108,11 @@ describe('finding 1: a change of token while a read is on its way', () => {
 
   it('Logs drops the answer asked under the old token, and forgets what it held', () => {
     const open = reduce(detailOpen(), char('l')).state;
-    const answer = logsAnswer(
-      open,
-      { kind: 'forward', after: 0 },
-      page([record(1)], 1),
-    );
+    const answer = logsAnswer(open, { kind: 'forward', after: 0 }, page([record(1)], 1));
     const held = reduce(open, answer).state;
     expect(held.logs?.buffer).toHaveLength(1);
 
-    const second = logsAnswer(
-      held,
-      { kind: 'forward', after: 1 },
-      page([record(2)], 2),
-    );
+    const second = logsAnswer(held, { kind: 'forward', after: 1 }, page([record(2)], 2));
     const after = reduce(held, { type: 'credential_changed' }).state;
     expect(after.logs?.buffer).toEqual([]);
     expect(after.logs?.nextCursor).toBe(0);
@@ -167,11 +142,7 @@ describe('finding 2: Logs closed and opened again on the same task', () => {
       ...first,
       logs: followLogs(filterAttempt(first.logs as LogState, ATTEMPT)),
     };
-    const stale = logsAnswer(
-      first,
-      { kind: 'forward', after: 7 },
-      page([record(8)], 8),
-    );
+    const stale = logsAnswer(first, { kind: 'forward', after: 7 }, page([record(8)], 8));
     let again = reduce(reduce(first, char('d')).state, char('l')).state;
     again = {
       ...again,

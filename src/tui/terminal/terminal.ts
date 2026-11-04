@@ -65,17 +65,11 @@ export function openTerminal(options: TerminalOptions): Terminal {
   /** A failure or signal: the session ends here, but pending notices must still reach the user. */
   const abort = (code: number, message: string | null): never => {
     const extra = options.exitNotice?.() ?? null;
-    return exit(
-      code,
-      `${message === null ? '' : `${message}\n`}${extra === null ? '' : extra}`,
-    );
+    return exit(code, `${message === null ? '' : `${message}\n`}${extra === null ? '' : extra}`);
   };
 
   const fail = (cause: unknown): never =>
-    abort(
-      1,
-      `cusr: internal error: ${cause instanceof Error ? cause.message : String(cause)}`,
-    );
+    abort(1, `cusr: internal error: ${cause instanceof Error ? cause.message : String(cause)}`);
 
   for (const [signal, number] of Object.entries(SIGNAL_NUMBERS))
     process.on(signal, () => abort(128 + number, null));

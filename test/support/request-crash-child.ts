@@ -6,13 +6,7 @@
 import { startDaemon } from '../../src/daemon/main.ts';
 import { taskControl } from '../../src/daemon/task-control.ts';
 import { PACKS } from './config-fixtures.ts';
-import {
-  fakeGit,
-  fakeGitHub,
-  fakeHost,
-  MANIFESTS,
-  userConfig,
-} from './preflight-fakes.ts';
+import { fakeGit, fakeGitHub, fakeHost, MANIFESTS, userConfig } from './preflight-fakes.ts';
 
 const dataDir = process.argv[2];
 if (dataDir === undefined) throw new Error('missing data dir');

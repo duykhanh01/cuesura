@@ -318,17 +318,13 @@ export const TaskExplainSchema = z.looseObject({
     }),
   ),
   pending_effects: z.array(z.looseObject({ kind: safe, status: safe })),
-  cancellation: z
-    .looseObject({ requested_at: z.number(), late: z.boolean() })
-    .nullable(),
+  cancellation: z.looseObject({ requested_at: z.number(), late: z.boolean() }).nullable(),
   blockers: z.array(z.looseObject({ code: safe, source: safe })),
   pr: z.looseObject({
     ref: safe.nullable(),
     head_sha: safe.nullable(),
     base_sha: safe.nullable(),
-    observed: z
-      .looseObject({ status: safe, observed_head: safe.nullable() })
-      .nullable(),
+    observed: z.looseObject({ status: safe, observed_head: safe.nullable() }).nullable(),
     observation_expired: z.boolean(),
   }),
   deadline: z.looseObject({
@@ -373,9 +369,7 @@ export const TaskExplainSchema = z.looseObject({
         passed: z.boolean(),
         valid: z.boolean(),
         failed: z
-          .array(
-            z.looseObject({ gate: safe, log_excerpt: safeBlock.nullable() }),
-          )
+          .array(z.looseObject({ gate: safe, log_excerpt: safeBlock.nullable() }))
           .optional(),
       }),
     ),
@@ -387,9 +381,7 @@ export const TaskExplainSchema = z.looseObject({
         valid: z.boolean(),
       }),
     ),
-    review_skipped: z.array(
-      z.looseObject({ revision: z.number().int(), valid: z.boolean() }),
-    ),
+    review_skipped: z.array(z.looseObject({ revision: z.number().int(), valid: z.boolean() })),
     ci: z.array(
       z.looseObject({
         revision: z.number().int(),

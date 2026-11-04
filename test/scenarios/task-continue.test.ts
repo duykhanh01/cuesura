@@ -2,13 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { streakKey, type Attempt } from '../../src/domain/state.ts';
 import type { FailureClass } from '../../src/domain/trigger.ts';
 import { authz, buildTask, type PolicyOptions } from '../support/builders.ts';
-import {
-  expectAccepted,
-  Sim,
-  started,
-  toCode,
-  USAGE,
-} from '../support/scenario.ts';
+import { expectAccepted, Sim, started, toCode, USAGE } from '../support/scenario.ts';
 
 let sims: Sim[] = [];
 
@@ -112,8 +106,7 @@ describe('task continue (issue #101)', () => {
       limits: { classes: { quality_tries_per_rung: 100 } },
     });
     toCode(sim);
-    for (let i = 0; sim.s.status === 'RUNNING'; i++)
-      fail(sim, 'quality', `C${i}`);
+    for (let i = 0; sim.s.status === 'RUNNING'; i++) fail(sim, 'quality', `C${i}`);
     expect(sim.s.wait).toMatchObject({
       detail: { code: 'loop_exhausted', step: 'code', outcome: 'exhausted' },
     });

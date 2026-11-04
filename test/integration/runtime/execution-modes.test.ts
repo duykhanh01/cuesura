@@ -8,25 +8,14 @@ import { replay } from '../../../src/engine/evolve.ts';
 import { headVerdict } from '../../../src/engine/head-evidence.ts';
 import { hashCanonical } from '../../../src/shared/hash.ts';
 import { openFileStoreForTest } from '../../../src/store/testing.ts';
-import {
-  authz,
-  buildTask,
-  freezeOk,
-  ownerAuthz,
-  uuidOf,
-} from '../../support/builders.ts';
+import { authz, buildTask, freezeOk, ownerAuthz, uuidOf } from '../../support/builders.ts';
 import {
   confirmedRuntime,
   createGrantStart,
   proposeAndConfirm,
   selectionFor,
 } from '../../support/runtime.ts';
-import {
-  agentData,
-  ciData,
-  publishData,
-  reviewData,
-} from '../../support/scenario.ts';
+import { agentData, ciData, publishData, reviewData } from '../../support/scenario.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 import {
   checkpointGates,
@@ -48,22 +37,15 @@ const B = 'b'.repeat(40);
 const C = 'c'.repeat(40);
 
 const setup = () => new StoreDriver(openFileStoreForTest(dbPath(tempDir())));
-const types = (d: StoreDriver, t: CanonicalTask) =>
-  d.store.readEvents(t.id).map((e) => e.type);
+const types = (d: StoreDriver, t: CanonicalTask) => d.store.readEvents(t.id).map((e) => e.type);
 const reviewerRuns = (d: StoreDriver, t: CanonicalTask) =>
-  Object.values(d.task(t.id).effects).filter(
-    (e) => e.kind === 'start_agent' && e.step === 'review',
-  ).length;
+  Object.values(d.task(t.id).effects).filter((e) => e.kind === 'start_agent' && e.step === 'review')
+    .length;
 const posted = (d: StoreDriver, t: CanonicalTask) => completePost(d, t.id);
 
 /** Publish A, open the PR, and get a failing CI on A so the worker is called to fix it. */
 function toCiFix(d: StoreDriver, t: CanonicalTask): void {
-  d.complete(
-    t.id,
-    d.pendingOne(t.id, 'publish').id,
-    'succeeded',
-    publishData(A),
-  );
+  d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
   d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
     pr_ref: 'acme#7',
     head_sha: A,
@@ -76,12 +58,7 @@ function toCiFix(d: StoreDriver, t: CanonicalTask): void {
     ciData(A, { build: 'success', test: 'failure' }),
   );
   // The slot went back while CI ran; the fix resumes under a new grant.
-  const g = d.store.grantNext(d.now as never, [
-    uuidOf(990),
-    uuidOf(991),
-    uuidOf(992),
-    uuidOf(993),
-  ]);
+  const g = d.store.grantNext(d.now as never, [uuidOf(990), uuidOf(991), uuidOf(992), uuidOf(993)]);
   if (!g.ok) throw new Error(JSON.stringify(g));
 }
 
@@ -249,11 +226,7 @@ describe('run selection confirmation (T135, M01/M02)', () => {
         detail: { code: 'run_config_unconfirmed', step: 'code' },
       },
     });
-    expect(
-      Object.values(d.task(t.id).effects).filter(
-        (e) => e.kind === 'start_agent',
-      ),
-    ).toEqual([]);
+    expect(Object.values(d.task(t.id).effects).filter((e) => e.kind === 'start_agent')).toEqual([]);
   });
 
   it('a reviewer binding raised by the task floor waits for a new confirmation instead of running', () => {
@@ -297,18 +270,8 @@ describe('run selection confirmation (T135, M01/M02)', () => {
       });
     }
     expect(d.task(t.id).rungs.floor_level).not.toBeNull();
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'start_agent').id,
-      'succeeded',
-      agentData('done'),
-    );
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'run_gates').id,
-      'succeeded',
-      checkpointGates(A),
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(A));
     publishToReview(d, t.id, A);
     // The floor maps the reviewer onto sol/high, which the user never confirmed.
     expect(d.task(t.id)).toMatchObject({
@@ -332,12 +295,7 @@ describe('PR target (FR-041.05)', () => {
     const t = buildTask();
     createGrantStart(d, t, 'direct-pr');
     toPublish(d, t, A);
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'publish').id,
-      'succeeded',
-      publishData(A),
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
     d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
       pr_ref: 'acme#7',
       head_sha: A,
@@ -411,12 +369,7 @@ describe('direct-pr and full-review graphs (T137, M03/M08)', () => {
     toPublish(d, t, A);
     expect(d.pendingOne(t.id, 'publish').request).toMatchObject({ sha: A });
     expect(reviewerRuns(d, t)).toBe(0);
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'publish').id,
-      'succeeded',
-      publishData(A),
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
     expect(d.pendingOne(t.id, 'create_pr').request).toMatchObject({
       draft: true,
     });
@@ -434,12 +387,8 @@ describe('direct-pr and full-review graphs (T137, M03/M08)', () => {
       reviewData('approve', A, { input_digest: input, summary: 'Looks good' }),
     );
     const ev = types(d, t);
-    expect(ev.indexOf('CheckpointRecorded')).toBeLessThan(
-      ev.indexOf('PublishRecorded'),
-    );
-    expect(ev.indexOf('PublishRecorded')).toBeLessThan(
-      ev.indexOf('ReviewVerdictRecorded'),
-    );
+    expect(ev.indexOf('CheckpointRecorded')).toBeLessThan(ev.indexOf('PublishRecorded'));
+    expect(ev.indexOf('PublishRecorded')).toBeLessThan(ev.indexOf('ReviewVerdictRecorded'));
     expect(d.task(t.id).run.reviews).toMatchObject([
       {
         verdict: 'approve',
@@ -493,18 +442,8 @@ describe('direct-pr and full-review graphs (T137, M03/M08)', () => {
       branch: 'b',
       setup: { ran: false, passed: true },
     });
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'start_agent').id,
-      'succeeded',
-      agentData('done'),
-    );
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'run_gates').id,
-      'succeeded',
-      checkpointGates(A),
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(A));
     publishToReview(d, t.id, A);
     d.complete(
       t.id,
@@ -531,12 +470,7 @@ describe('direct-pr and full-review graphs (T137, M03/M08)', () => {
         branch: 'b',
         setup: { ran: false, passed: true },
       });
-      d.complete(
-        t.id,
-        d.pendingOne(t.id, 'start_agent').id,
-        'succeeded',
-        agentData('done'),
-      );
+      d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
       d.complete(
         t.id,
         d.pendingOne(t.id, 'run_gates').id,
@@ -548,9 +482,7 @@ describe('direct-pr and full-review graphs (T137, M03/M08)', () => {
         status: 'WAITING',
         wait: { reason: 'policy' },
       });
-      expect(['gate_tree_unstable', 'worktree_changed']).toContain(
-        s.wait?.detail.code,
-      );
+      expect(['gate_tree_unstable', 'worktree_changed']).toContain(s.wait?.detail.code);
       expect(s.run.checkpoint).toBeNull();
       expect(d.pending(t.id, 'publish')).toEqual([]);
     }
@@ -678,12 +610,7 @@ describe('review evidence reuse (T137, M03)', () => {
     createGrantStart(d, t, 'full-review');
     toPublish(d, t, A);
     toCiFix(d, t);
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'start_agent').id,
-      'succeeded',
-      agentData('done'),
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
     d.complete(
       t.id,
       d.pendingOne(t.id, 'run_gates').id,
@@ -700,12 +627,7 @@ describe('review evidence reuse (T137, M03)', () => {
       committed: false,
     });
     expect(d.pendingOne(t.id, 'publish').request).toMatchObject({ sha: A });
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'publish').id,
-      'succeeded',
-      publishData(A),
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
     expect(types(d, t)).toContain('ReviewReused');
     expect(reviewerRuns(d, t)).toBe(1);
     // The reused verdict is the one already on the PR: it is not posted again.
@@ -759,18 +681,8 @@ describe('review evidence reuse (T137, M03)', () => {
       branch: 'b',
       setup: { ran: false, passed: true },
     });
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'start_agent').id,
-      'succeeded',
-      agentData('done'),
-    );
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'run_gates').id,
-      'succeeded',
-      checkpointGates(A),
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(A));
     publishToReview(d, t.id, A);
     const findings = [
       {
@@ -789,18 +701,11 @@ describe('review evidence reuse (T137, M03)', () => {
         input_digest: currentReviewInput(d, t.id),
       }),
     );
-    expect(d.task(t.id).run.reviews).toMatchObject([
-      { verdict: 'request_changes', findings },
-    ]);
+    expect(d.task(t.id).run.reviews).toMatchObject([{ verdict: 'request_changes', findings }]);
     posted(d, t);
     if (d.task(t.id).wait?.detail['code'] === 'execution_slot') d.grantNext();
     // The fixer changes nothing: same checkpoint, same input, the findings stand without a reviewer call.
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'start_agent').id,
-      'succeeded',
-      agentData('done'),
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
     d.complete(
       t.id,
       d.pendingOne(t.id, 'run_gates').id,
@@ -812,24 +717,15 @@ describe('review evidence reuse (T137, M03)', () => {
         },
       }),
     );
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'publish').id,
-      'succeeded',
-      publishData(A),
-    );
-    const reused = d.store
-      .readEvents(t.id)
-      .filter((e) => e.type === 'ReviewReused');
-    expect(
-      reused.map((e) => (e.payload as { verdict: string }).verdict),
-    ).toEqual(['request_changes']);
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
+    const reused = d.store.readEvents(t.id).filter((e) => e.type === 'ReviewReused');
+    expect(reused.map((e) => (e.payload as { verdict: string }).verdict)).toEqual([
+      'request_changes',
+    ]);
     expect(reviewerRuns(d, t)).toBe(1);
     // The reused findings count against the fixer with the same signature the reviewer produced.
     const streaks = d.task(t.id).failure_streaks;
-    expect(streaks['fix_review#0']?.signature).toBe(
-      streaks['code#0']?.signature,
-    );
+    expect(streaks['fix_review#0']?.signature).toBe(streaks['code#0']?.signature);
     expect(d.task(t.id).current_step).toBe('fix_review');
   });
 });
@@ -853,18 +749,8 @@ describe('remote head drift while the review runs (T137, FR-041.03, H01/H02/H05)
       branch: 'b',
       setup: { ran: false, passed: true },
     });
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'start_agent').id,
-      'succeeded',
-      agentData('done'),
-    );
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'run_gates').id,
-      'succeeded',
-      checkpointGates(A),
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(A));
     publishToReview(d, t.id, A);
     const review = d.pendingOne(t.id, 'start_agent');
     d.claim(review.id);
@@ -911,11 +797,7 @@ describe('remote head drift while the review runs (T137, FR-041.03, H01/H02/H05)
       }),
     ).toEqual({ ok: false, reason: 'head_changed' });
     // A later fact or timer does not reopen the publish path.
-    d.send(
-      t.id,
-      { kind: 'cancel', reason: 'noop-check' },
-      { authz: authz(['operate']) },
-    );
+    d.send(t.id, { kind: 'cancel', reason: 'noop-check' }, { authz: authz(['operate']) });
     expect(d.pending(t.id, 'publish')).toEqual([]);
   });
 
@@ -983,19 +865,10 @@ describe('merged head verification by mode (T045, M08)', () => {
     });
   }
 
-  function green(
-    d: StoreDriver,
-    t: CanonicalTask,
-    mode: 'direct-pr' | 'full-review',
-  ): void {
+  function green(d: StoreDriver, t: CanonicalTask, mode: 'direct-pr' | 'full-review'): void {
     createGrantStart(d, t, mode);
     toPublish(d, t, A);
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'publish').id,
-      'succeeded',
-      publishData(A),
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
     d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
       pr_ref: 'acme#7',
       head_sha: A,

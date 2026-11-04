@@ -1,16 +1,9 @@
-import {
-  binds,
-  type RequiredEvidence,
-  type RequiredIdentity,
-} from '../domain/runtime.ts';
+import { binds, type RequiredEvidence, type RequiredIdentity } from '../domain/runtime.ts';
 
 // Pure required-checks evaluator (FR-042.01–09, contracts/github.md).
 // The snapshot stays frozen; each read supplies the binding GitHub names for the effective union.
 
-export type PinnedRequirement = Pick<
-  RequiredIdentity,
-  'name' | 'app' | 'source' | 'ruleset_id'
->;
+export type PinnedRequirement = Pick<RequiredIdentity, 'name' | 'app' | 'source' | 'ruleset_id'>;
 
 export type RequiredVerdict =
   | {
@@ -44,8 +37,7 @@ export function evaluateRequired(
   evidence: RequiredEvidence,
   snapshot: readonly string[],
 ): RequiredVerdict {
-  if (evidence.kind === 'unknown')
-    return { kind: 'unknown', basis: evidence.basis };
+  if (evidence.kind === 'unknown') return { kind: 'unknown', basis: evidence.basis };
   const binding = evidence.identities.filter(binds);
   // A `known` without a binding identity or a `none` with one is not evidence the schema allows.
   if ((evidence.kind === 'known') !== binding.length > 0)
@@ -53,9 +45,7 @@ export function evaluateRequired(
   const snap = new Set(snapshot);
   const github = [...new Set(binding.map((i) => i.name))].sort(byName);
   const pinned = dedupePinned(binding.filter((i) => i.app !== 'any'));
-  const snapshotOnly = [...snap]
-    .filter((n) => !github.includes(n))
-    .sort(byName);
+  const snapshotOnly = [...snap].filter((n) => !github.includes(n)).sort(byName);
   return {
     kind: 'covered',
     github_required: evidence.kind,

@@ -17,12 +17,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { DaemonStopping, type Clock } from '../adapters/ports.ts';
-import {
-  holdsSlot,
-  isBusinessEffect,
-  type Effect,
-  type EffectKind,
-} from '../domain/effect.ts';
+import { holdsSlot, isBusinessEffect, type Effect, type EffectKind } from '../domain/effect.ts';
 import type { OperationKind } from '../domain/runtime.ts';
 import type { TriggerEnvelope } from '../domain/trigger.ts';
 import { isUnresolved, type OperationClaim } from '../engine/runtime.ts';
@@ -39,9 +34,7 @@ export type EffectHandler = (
 ) => Promise<TriggerEnvelope | readonly TriggerEnvelope[]>;
 
 /** `merge` cannot be given a handler: the type excludes it and the constructor refuses it at runtime. */
-export type EffectHandlers = Partial<
-  Record<Exclude<EffectKind, 'merge'>, EffectHandler>
->;
+export type EffectHandlers = Partial<Record<Exclude<EffectKind, 'merge'>, EffectHandler>>;
 
 export type SkipReason =
   | 'merge_refused'
@@ -129,10 +122,7 @@ export class Dispatcher {
   readonly #batch: number;
   readonly #newId: () => string;
   readonly #marks: DispatcherOptions['marks'];
-  readonly #inFlight = new Map<
-    string,
-    { abort: AbortController; done: Promise<void> }
-  >();
+  readonly #inFlight = new Map<string, { abort: AbortController; done: Promise<void> }>();
   #blocked: string | null = null;
   #held: string | null = null;
   #latched: string | null = null;
@@ -243,15 +233,13 @@ export class Dispatcher {
       unit: unitName(operationId),
       holds_slot: holdsSlot(kind),
     };
-    const claimed = this.#store.claimEffect(
-      effect.id as Uuid,
-      this.#clock.now(),
-      { require_runtime: true, operation },
-    );
+    const claimed = this.#store.claimEffect(effect.id as Uuid, this.#clock.now(), {
+      require_runtime: true,
+      operation,
+    });
     if (!claimed.ok) {
       const e = claimed.error;
-      if (e.code === 'write_failed')
-        this.latch(`store write failed: ${e.cause}`);
+      if (e.code === 'write_failed') this.latch(`store write failed: ${e.cause}`);
       const r =
         e.code === 'claim_blocked'
           ? (`claim_blocked:${e.reason}` as const)
@@ -262,11 +250,7 @@ export class Dispatcher {
       return;
     }
     // Only now, after EffectStarted and the operation are committed, may anything outside the store happen.
-    this.#start(
-      claimed.value,
-      operation,
-      this.#handlers[kind] as EffectHandler,
-    );
+    this.#start(claimed.value, operation, this.#handlers[kind] as EffectHandler);
     started.push(effect.id);
   }
 
@@ -274,17 +258,12 @@ export class Dispatcher {
     if (effect.kind === 'merge') return 'merge_refused';
     if (this.#latched !== null) return 'store_unwritable';
     if (this.#blocked !== null) return 'dispatch_blocked';
-    if (this.#held !== null && isBusinessEffect(effect.kind))
-      return 'dispatch_held';
+    if (this.#held !== null && isBusinessEffect(effect.kind)) return 'dispatch_held';
     if (this.#inFlight.has(effect.id)) return 'in_flight';
     return this.#handlers[effect.kind] === undefined ? 'no_handler' : null;
   }
 
-  #start(
-    effect: Effect,
-    operation: OperationClaim,
-    handler: EffectHandler,
-  ): void {
+  #start(effect: Effect, operation: OperationClaim, handler: EffectHandler): void {
     const abort = new AbortController();
     const run = async (): Promise<void> => {
       try {
@@ -304,9 +283,7 @@ export class Dispatcher {
         const result = await runInOperation(operation.operation_id, () =>
           handler(effect, abort.signal, operation),
         );
-        const envelopes = (
-          Array.isArray(result) ? result : [result]
-        ) as readonly TriggerEnvelope[];
+        const envelopes = (Array.isArray(result) ? result : [result]) as readonly TriggerEnvelope[];
         for (const envelope of envelopes) {
           if (this.#stopped) {
             this.#log({
@@ -332,9 +309,7 @@ export class Dispatcher {
         }
         // The mark goes only with a resolved operation: one left unknown may still have processes, and
         // a missing mark would read as "nothing was spawned" to every later scan (FR-034.01).
-        const op = this.#store.readTask(effect.task_id as Uuid)?.operations[
-          operation.operation_id
-        ];
+        const op = this.#store.readTask(effect.task_id as Uuid)?.operations[operation.operation_id];
         if (op !== undefined && !isUnresolved(op))
           try {
             this.#marks?.clear(operation.operation_id);
@@ -358,8 +333,7 @@ export class Dispatcher {
     entry.done = Promise.resolve()
       .then(run)
       .finally(() => {
-        if (this.#inFlight.get(effect.id) === entry)
-          this.#inFlight.delete(effect.id);
+        if (this.#inFlight.get(effect.id) === entry) this.#inFlight.delete(effect.id);
       });
   }
 
@@ -376,8 +350,7 @@ export class Dispatcher {
    */
   async stop(graceMs = DEFAULT_STOP_GRACE_MS): Promise<string[]> {
     this.#blocked ??= 'stopping';
-    for (const f of this.#inFlight.values())
-      f.abort.abort(new DaemonStopping());
+    for (const f of this.#inFlight.values()) f.abort.abort(new DaemonStopping());
     let timer: NodeJS.Timeout | undefined;
     const expired = new Promise<void>((r) => (timer = setTimeout(r, graceMs)));
     await Promise.race([this.settle(), expired]);

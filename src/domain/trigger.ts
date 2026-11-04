@@ -1,17 +1,8 @@
 import { z } from 'zod';
-import {
-  EpochMsSchema,
-  HashSchema,
-  UuidSchema,
-  type Hash,
-} from '../shared/brand.ts';
+import { EpochMsSchema, HashSchema, UuidSchema, type Hash } from '../shared/brand.ts';
 import { hashCanonical } from '../shared/hash.ts';
 import { CanonicalTaskSchema } from './task.ts';
-import {
-  AuthzContextSchema,
-  FrozenExecutionContextSchema,
-  FrozenPolicySchema,
-} from './policy.ts';
+import { AuthzContextSchema, FrozenExecutionContextSchema, FrozenPolicySchema } from './policy.ts';
 import { RunSelectionSchema } from './run-config.ts';
 import type { TaskStatus } from './state.ts';
 import {
@@ -51,14 +42,9 @@ export const UsageSchema = z
     cost: z.number().nonnegative().optional(),
   })
   .strict()
-  .refine(
-    (u) =>
-      u.basis !== 'unavailable' ||
-      (u.tokens === undefined && u.cost === undefined),
-    {
-      message: 'Unavailable usage must not include numeric metrics',
-    },
-  );
+  .refine((u) => u.basis !== 'unavailable' || (u.tokens === undefined && u.cost === undefined), {
+    message: 'Unavailable usage must not include numeric metrics',
+  });
 export type Usage = z.infer<typeof UsageSchema>;
 
 export const BaseRelationSchema = z
@@ -423,26 +409,14 @@ export const FreezeResultSchema = z.union([
 ]);
 
 export const TriggerSchema = z.discriminatedUnion('kind', [
-  z
-    .object({ kind: z.literal('create_task'), task: CanonicalTaskSchema })
-    .strict(),
+  z.object({ kind: z.literal('create_task'), task: CanonicalTaskSchema }).strict(),
   z.object({ kind: z.literal('confirm_task') }).strict(),
-  z
-    .object({ kind: z.literal('source_updated'), task: CanonicalTaskSchema })
-    .strict(),
+  z.object({ kind: z.literal('source_updated'), task: CanonicalTaskSchema }).strict(),
   z
     .object({
       kind: z.literal('dependency_status'),
       depends_on: UuidSchema,
-      status: z.enum([
-        'PENDING',
-        'READY',
-        'RUNNING',
-        'WAITING',
-        'DONE',
-        'FAILED',
-        'CANCELLED',
-      ]),
+      status: z.enum(['PENDING', 'READY', 'RUNNING', 'WAITING', 'DONE', 'FAILED', 'CANCELLED']),
       // 002, additive: what the prerequisite's terminal record showed, kept with the trigger for explain.
       provenance: z
         .object({
@@ -474,12 +448,7 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
     .object({
       kind: z.literal('effect_reconciled'),
       effect_id: UuidSchema,
-      finding: z.enum([
-        'executed_succeeded',
-        'executed_failed',
-        'not_executed',
-        'still_unknown',
-      ]),
+      finding: z.enum(['executed_succeeded', 'executed_failed', 'not_executed', 'still_unknown']),
       data: z.unknown().optional(),
       failure_class: z.enum(FAILURE_CLASSES).optional(),
       signature: z.string().optional(),
@@ -569,9 +538,7 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
     .strict(),
 
   z.object({ kind: z.literal('request_execution') }).strict(),
-  z
-    .object({ kind: z.literal('grant_execution'), request_id: UuidSchema })
-    .strict(),
+  z.object({ kind: z.literal('grant_execution'), request_id: UuidSchema }).strict(),
   z
     .object({
       kind: z.literal('release_execution'),
@@ -667,15 +634,7 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
   z
     .object({
       kind: z.literal('recheck'),
-      target: z.enum([
-        'config',
-        'observation',
-        'drain',
-        'worktree',
-        'manifest',
-        'auth',
-        'visits',
-      ]),
+      target: z.enum(['config', 'observation', 'drain', 'worktree', 'manifest', 'auth', 'visits']),
     })
     .strict(),
   // An operator keeps the task on its current model after its quality loop ran out (issue #101).
@@ -687,9 +646,7 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
       selection: RunSelectionSchema,
     })
     .strict(),
-  z
-    .object({ kind: z.literal('confirm_run_config'), digest: HashSchema })
-    .strict(),
+  z.object({ kind: z.literal('confirm_run_config'), digest: HashSchema }).strict(),
   // A remote head nobody in this task pushed (FR-041.03, H01–H05), from an observation or a publish probe.
   z
     .object({

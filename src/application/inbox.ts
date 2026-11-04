@@ -54,8 +54,7 @@ export function openQuestions(s: TaskState): InboxItem[] {
       step: q.step,
       attempt_id: q.attempt_id,
       body: q.body,
-      blocking:
-        s.status === 'WAITING' && s.wait?.detail['question_id'] === q.id,
+      blocking: s.status === 'WAITING' && s.wait?.detail['question_id'] === q.id,
       wait_code: s.wait?.detail.code ?? null,
       task_version: s.version,
     }));
@@ -86,10 +85,7 @@ export function inbox(
       message: 'inbox not readable',
       details: { ...allowed.error },
     });
-  const ids =
-    q.data.task_id === undefined
-      ? store.taskIdsByStatus(LIVE)
-      : [q.data.task_id];
+  const ids = q.data.task_id === undefined ? store.taskIdsByStatus(LIVE) : [q.data.task_id];
   const items: InboxItem[] = [];
   for (const id of ids) {
     const s = store.readTask(id as Uuid);
@@ -100,9 +96,7 @@ export function inbox(
     items.push(...openQuestions(s));
   }
   items.sort(
-    (a, b) =>
-      a.task_id.localeCompare(b.task_id) ||
-      a.question_id.localeCompare(b.question_id),
+    (a, b) => a.task_id.localeCompare(b.task_id) || a.question_id.localeCompare(b.question_id),
   );
   const limit = q.data.limit ?? INBOX_LIMIT;
   return ok({ items: items.slice(0, limit), truncated: items.length > limit });

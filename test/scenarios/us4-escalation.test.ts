@@ -5,11 +5,7 @@ import type { Attempt } from '../../src/domain/state.ts';
 import { FrozenPolicySchema } from '../../src/domain/policy.ts';
 import { UsageSchema, type FailureClass } from '../../src/domain/trigger.ts';
 import { available } from '../../src/engine/budget.ts';
-import {
-  buildPolicy,
-  buildTask,
-  type PolicyOptions,
-} from '../support/builders.ts';
+import { buildPolicy, buildTask, type PolicyOptions } from '../support/builders.ts';
 import {
   agentData,
   gatesData,
@@ -71,10 +67,8 @@ function eventsOf<T extends DomainEventDraft['type']>(
   return sim.events
     .slice(from)
     .filter(
-      (
-        e,
-      ): e is Extract<DomainEventDraft, { type: T }> &
-        (typeof sim.events)[number] => e.type === type,
+      (e): e is Extract<DomainEventDraft, { type: T }> & (typeof sim.events)[number] =>
+        e.type === type,
     );
 }
 
@@ -186,9 +180,7 @@ describe('US4 - Model escalation and budget under the approved policy', () => {
       reason: 'rate_limit',
       detail: { code: 'rate_limited', due_at: resetAt },
     });
-    expect(limited.armedTimers('backoff').map((t) => t.due_at)).toEqual([
-      resetAt,
-    ]);
+    expect(limited.armedTimers('backoff').map((t) => t.due_at)).toEqual([resetAt]);
     expect(limited.s.failure_streaks).toEqual({});
     expect(limited.effects('start_agent', 'pending')).toEqual([]);
     limited.advance(120_000).fireDue();
@@ -230,11 +222,7 @@ describe('US4 - Model escalation and budget under the approved policy', () => {
       'code#rate_limit': 1,
     });
     sim.advance(10 * 60_000).fireDue();
-    sim.complete(
-      sim.pendingOne('start_agent').id,
-      'succeeded',
-      agentData('done'),
-    );
+    sim.complete(sim.pendingOne('start_agent').id, 'succeeded', agentData('done'));
     expect(sim.s.class_counters['code#infra']).toBeUndefined();
     expect(sim.s.class_counters['code#rate_limit']).toBeUndefined();
   });
@@ -284,11 +272,7 @@ describe('US4 - Model escalation and budget under the approved policy', () => {
       'succeeded',
       gatesData({ build: true, unit: false }),
     );
-    sim.complete(
-      sim.pendingOne('start_agent').id,
-      'succeeded',
-      agentData('done'),
-    );
+    sim.complete(sim.pendingOne('start_agent').id, 'succeeded', agentData('done'));
     sim.complete(
       sim.pendingOne('run_gates').id,
       'succeeded',
@@ -312,10 +296,7 @@ describe('US4 - Model escalation and budget under the approved policy', () => {
     const fixer = {
       model: 'sonnet',
       effort: 'medium' as const,
-      ladder: [
-        { effort: 'high' as const },
-        { model: 'opus', effort: 'high' as const },
-      ],
+      ladder: [{ effort: 'high' as const }, { model: 'opus', effort: 'high' as const }],
       scope: 'task' as const,
     };
     const sim = run({ roles: { fixer }, escalation: { auto_up_to_tier: 3 } });
@@ -330,11 +311,7 @@ describe('US4 - Model escalation and budget under the approved policy', () => {
     expect(latest(sim, 'fix_gates').rung).toBe(1);
     expect(sim.s.rungs.floor_level).toEqual({ tier: 2, effort_rank: 2 });
 
-    sim.complete(
-      sim.pendingOne('start_agent').id,
-      'succeeded',
-      agentData('done'),
-    );
+    sim.complete(sim.pendingOne('start_agent').id, 'succeeded', agentData('done'));
     sim.complete(
       sim.pendingOne('run_gates').id,
       'succeeded',
@@ -360,19 +337,13 @@ describe('US4 - Model escalation and budget under the approved policy', () => {
     });
 
     const before = sim.events.length;
-    sim.complete(
-      sim.pendingOne('start_agent').id,
-      'succeeded',
-      agentData('done'),
-    );
+    sim.complete(sim.pendingOne('start_agent').id, 'succeeded', agentData('done'));
     sim.complete(
       sim.pendingOne('run_gates').id,
       'succeeded',
       gatesData({ build: true, unit: false }),
     );
-    expect(attemptsOf(sim, 'fix_gates').map((a) => a.rung)).toEqual([
-      0, 0, 1, 1,
-    ]);
+    expect(attemptsOf(sim, 'fix_gates').map((a) => a.rung)).toEqual([0, 0, 1, 1]);
     expect(eventsOf(sim, 'RungRaised', before)).toEqual([]);
     expect(sim.s.rungs.by_step).toEqual({
       fix_gates: 1,
@@ -399,12 +370,8 @@ describe('US4 - Model escalation and budget under the approved policy', () => {
       agentData('done', { usage: { basis: 'unavailable' } }),
     );
     expect(latest(sim, 'code').usage).toEqual({ basis: 'unavailable' });
-    expect(
-      UsageSchema.safeParse({ basis: 'unavailable', tokens: 0 }).success,
-    ).toBe(false);
-    expect(
-      UsageSchema.safeParse({ basis: 'unavailable', cost: 0 }).success,
-    ).toBe(false);
+    expect(UsageSchema.safeParse({ basis: 'unavailable', tokens: 0 }).success).toBe(false);
+    expect(UsageSchema.safeParse({ basis: 'unavailable', cost: 0 }).success).toBe(false);
   });
 
   it.each(['auth_config', 'refused'] as const)(
@@ -463,9 +430,9 @@ describe('US4 - Model escalation and budget under the approved policy', () => {
 
     const before = sim.events.length;
     fail(sim, sim.pendingOne('start_agent').id, 'invalid_output');
-    expect(
-      eventsOf(sim, 'RungRaised', before).map((e) => e.payload),
-    ).toMatchObject([{ step: 'code', from: 0, to: 1, reason: 'quality' }]);
+    expect(eventsOf(sim, 'RungRaised', before).map((e) => e.payload)).toMatchObject([
+      { step: 'code', from: 0, to: 1, reason: 'quality' },
+    ]);
     expect(attemptsOf(sim, 'code').map((a) => [a.kind, a.rung])).toEqual([
       ['initial', 0],
       ['repair', 0],
@@ -513,9 +480,7 @@ describe('US4 - Model escalation and budget under the approved policy', () => {
     sim.when({ kind: 'cancel', reason: 'no longer needed' });
     expect(sim.s.effects[agent.id]?.status).toBe('invalidated');
     expect(sim.s.budget.agent_runs).toMatchObject({ used: 0, reserved: 0 });
-    expect(
-      Object.values(sim.s.budget.reservations).map((r) => r.status),
-    ).toEqual(['released']);
+    expect(Object.values(sim.s.budget.reservations).map((r) => r.status)).toEqual(['released']);
     expect(sim.s.status).toBe('CANCELLED');
   });
 
@@ -531,18 +496,14 @@ describe('US4 - Model escalation and budget under the approved policy', () => {
       detail: { code: 'effect_unknown' },
     });
     ran.reconciled(a.id, 'executed_succeeded', { data: agentData('done') });
-    expect(ran.s.budget.reservations[a.reservation_id as string]?.status).toBe(
-      'consumed',
-    );
+    expect(ran.s.budget.reservations[a.reservation_id as string]?.status).toBe('consumed');
     expect(ran.s.budget.agent_runs).toMatchObject({ used: 1 });
 
     const notRun = run();
     const b = toCode(notRun);
     notRun.complete(b.id, 'unknown');
     notRun.reconciled(b.id, 'not_executed');
-    expect(
-      notRun.s.budget.reservations[b.reservation_id as string]?.status,
-    ).toBe('released');
+    expect(notRun.s.budget.reservations[b.reservation_id as string]?.status).toBe('released');
     expect(notRun.s.budget.agent_runs.used).toBe(0);
   });
 
@@ -566,28 +527,21 @@ describe('US4 - Model escalation and budget under the approved policy', () => {
 
   it('FR-020: quality tries per rung follow the configured value, with no hard cap', () => {
     const limits = { classes: { quality_tries_per_rung: 7 } };
-    expect(FrozenPolicySchema.safeParse(buildPolicy({ limits })).success).toBe(
-      true,
-    );
+    expect(FrozenPolicySchema.safeParse(buildPolicy({ limits })).success).toBe(true);
     const sim = run({ limits });
     toCode(sim);
     for (let i = 0; i < 7; i++)
       fail(sim, sim.pendingOne('start_agent').id, 'quality', {
         signature: `Q${i}`,
       });
-    expect(attemptsOf(sim, 'code').map((a) => a.rung)).toEqual([
-      0, 0, 0, 0, 0, 0, 0, 1,
-    ]);
+    expect(attemptsOf(sim, 'code').map((a) => a.rung)).toEqual([0, 0, 0, 0, 0, 0, 0, 1]);
   });
 
   describe('Scenario 13: the task floor maps onto the reviewer ladder and still passes every check', () => {
     const coder = {
       model: 'sonnet',
       effort: 'medium' as const,
-      ladder: [
-        { effort: 'high' as const },
-        { model: 'opus', effort: 'high' as const },
-      ],
+      ladder: [{ effort: 'high' as const }, { model: 'opus', effort: 'high' as const }],
       scope: 'task' as const,
     };
     const terraReviewer = {
@@ -606,11 +560,7 @@ describe('US4 - Model escalation and budget under the approved policy', () => {
         sim.when({ kind: 'approve', approval_request_id: approvalId(sim) });
       expect(latest(sim, 'code').rung).toBe(2);
       expect(sim.s.rungs.floor_level).toEqual({ tier: 3, effort_rank: 2 });
-      sim.complete(
-        sim.pendingOne('start_agent').id,
-        'succeeded',
-        agentData('done'),
-      );
+      sim.complete(sim.pendingOne('start_agent').id, 'succeeded', agentData('done'));
       sim.complete(
         sim.pendingOne('run_gates').id,
         'succeeded',

@@ -12,16 +12,8 @@ import {
   type CommitInput,
 } from '../../src/adapters/git/commit.ts';
 import { probeCommit, probePush } from '../../src/adapters/git/reconcile.ts';
-import {
-  bodyDigest,
-  finalBody,
-  type PrSpec,
-} from '../../src/adapters/github/publish.ts';
-import {
-  probeDescription,
-  probePr,
-  probeRerun,
-} from '../../src/adapters/github/reconcile.ts';
+import { bodyDigest, finalBody, type PrSpec } from '../../src/adapters/github/publish.ts';
+import { probeDescription, probePr, probeRerun } from '../../src/adapters/github/reconcile.ts';
 import type {
   GitCommand,
   GitHubFailure,
@@ -98,9 +90,7 @@ describe('commit probe: the stored intent decides, never a guess', () => {
     // The intent is stored and the object written, the ref CAS never ran.
     const lost: GitPort = {
       run: (req) =>
-        req.args[0] === 'update-ref'
-          ? Promise.resolve({ kind: 'timeout' })
-          : r.git.run(req),
+        req.args[0] === 'update-ref' ? Promise.resolve({ kind: 'timeout' }) : r.git.run(req),
     };
     const first = await commitCheckpoint(lost, store, i);
     expect(first).toMatchObject({ kind: 'unknown' });
@@ -151,15 +141,16 @@ describe('push probe: remote ref against expected old and new SHA', () => {
       remote_sha: c1,
     });
     const c2 = r.commit('b.txt');
-    expect(
-      await probePush(r.git, { ...spec, expected_old: c1, new_sha: c2 }),
-    ).toEqual({ kind: 'not_pushed' });
+    expect(await probePush(r.git, { ...spec, expected_old: c1, new_sha: c2 })).toEqual({
+      kind: 'not_pushed',
+    });
     const theirs = g.repo(`theirs${n++}`, { 'x.txt': 'theirs\n' });
     g.sh(theirs, 'push', '-qf', r.remote, `HEAD:refs/heads/${BRANCH}`);
     const remoteNow = g.sh(r.remote, 'rev-parse', BRANCH);
-    expect(
-      await probePush(r.git, { ...spec, expected_old: c1, new_sha: c2 }),
-    ).toEqual({ kind: 'head_changed', remote_sha: remoteNow });
+    expect(await probePush(r.git, { ...spec, expected_old: c1, new_sha: c2 })).toEqual({
+      kind: 'head_changed',
+      remote_sha: remoteNow,
+    });
     expect(await probePush(offline, spec)).toMatchObject({ kind: 'unknown' });
     expect(r.argv.filter((a) => a !== 'ls-remote')).toEqual([]);
     expect(g.sh(r.remote, 'rev-parse', BRANCH)).toBe(remoteNow);

@@ -15,9 +15,7 @@ export const AMENDABLE_KEYS = [
   'permissions',
   'protected_branches',
 ] as const;
-export type PolicyChange = Partial<
-  Pick<FrozenPolicy, (typeof AMENDABLE_KEYS)[number]>
->;
+export type PolicyChange = Partial<Pick<FrozenPolicy, (typeof AMENDABLE_KEYS)[number]>>;
 
 const WORKFLOW_KEYS = ['workflow', 'workflow_name', 'structure_hash'];
 
@@ -40,9 +38,7 @@ export function proposeAmendment(input: {
   const keys = Object.keys(input.change);
   if (keys.some((k) => WORKFLOW_KEYS.includes(k)))
     return err({ code: 'workflow_change_forbidden' });
-  const unknown = keys.filter(
-    (k) => !(AMENDABLE_KEYS as readonly string[]).includes(k),
-  );
+  const unknown = keys.filter((k) => !(AMENDABLE_KEYS as readonly string[]).includes(k));
   if (unknown.length > 0)
     return err({
       code: 'invalid',

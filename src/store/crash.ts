@@ -18,9 +18,7 @@ export const NO_CRASH: CrashHook = () => {};
  * Read crash settings once at store open. CUSR_CRASH_AFTER selects the nth visit (default: 1).
  * SIGKILL skips handlers and flushing, approximating sudden power loss.
  */
-export function crashHookFromEnv(
-  env: NodeJS.ProcessEnv = process.env,
-): CrashHook {
+export function crashHookFromEnv(env: NodeJS.ProcessEnv = process.env): CrashHook {
   const at = env['CUSR_CRASH_AT'];
   if (at === undefined || at === '') return NO_CRASH;
   if (!(CRASH_POINTS as readonly string[]).includes(at))

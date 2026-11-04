@@ -1,12 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Caller } from '../../../src/application/authz.ts';
 import { statusSinceReader } from '../../../src/application/board.ts';
-import {
-  REPORT_LIMIT,
-  addToReport,
-  emptyReport,
-  report,
-} from '../../../src/application/report.ts';
+import { REPORT_LIMIT, addToReport, emptyReport, report } from '../../../src/application/report.ts';
 import type { TaskState } from '../../../src/domain/state.ts';
 import type { CanonicalTask } from '../../../src/domain/task.ts';
 import { openFileStoreForTest } from '../../../src/store/testing.ts';
@@ -113,12 +108,8 @@ describe('report', () => {
     const { d, read, run } = setup();
     add(d, { project: 'acme' });
     add(d, { project: 'beta' });
-    expect(
-      read({ since: 0, project: 'beta' }).projects.map((p) => p.project),
-    ).toEqual(['beta']);
-    expect(
-      read({ since: 0 }, ACME_ONLY).projects.map((p) => p.project),
-    ).toEqual(['acme']);
+    expect(read({ since: 0, project: 'beta' }).projects.map((p) => p.project)).toEqual(['beta']);
+    expect(read({ since: 0 }, ACME_ONLY).projects.map((p) => p.project)).toEqual(['acme']);
     const denied = run({ since: 0, project: 'beta' }, ACME_ONLY);
     expect(denied.ok).toBe(false);
     if (!denied.ok) expect(denied.error.code).toBe('forbidden');
@@ -140,9 +131,7 @@ describe('report', () => {
       expect(r.envelope.data).toMatchObject({
         since,
         until: sd.now,
-        projects: [
-          { project: 'acme', finished: { items: [{ task_id: t.id }] } },
-        ],
+        projects: [{ project: 'acme', finished: { items: [{ task_id: t.id }] } }],
       });
     } finally {
       await sd.cleanup();

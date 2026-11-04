@@ -99,21 +99,15 @@ export function onConfirmRunConfig(ctx: Ctx, t: Confirm): void {
 }
 
 /** The current proposal of this revision, confirmed by digest. */
-export function runConfigConfirmed(
-  s: Pick<TaskState, 'revision' | 'run'>,
-): boolean {
+export function runConfigConfirmed(s: Pick<TaskState, 'revision' | 'run'>): boolean {
   const p = s.run.proposal;
   return (
-    p !== null &&
-    p.selection.revision === s.revision &&
-    s.run.confirmation?.digest === p.digest
+    p !== null && p.selection.revision === s.revision && s.run.confirmation?.digest === p.digest
   );
 }
 
 /** Worker bindings the confirmation covers: the chosen one and the allowed fallbacks. */
-export function confirmedWorkerChoices(
-  s: Pick<TaskState, 'run'>,
-): readonly RunChoice[] {
+export function confirmedWorkerChoices(s: Pick<TaskState, 'run'>): readonly RunChoice[] {
   const p = s.run.proposal;
   return p === null ? [] : [p.selection.worker, ...p.selection.fallbacks];
 }
@@ -123,10 +117,7 @@ export function confirmedWorkerChoices(
  * binding (none with `direct-pr`): worker fallbacks never apply to it, and a raised task floor or an
  * escalation that moves it elsewhere needs a new confirmation (M02).
  */
-export function confirmedChoices(
-  s: Pick<TaskState, 'run'>,
-  role: string,
-): readonly RunChoice[] {
+export function confirmedChoices(s: Pick<TaskState, 'run'>, role: string): readonly RunChoice[] {
   if (role !== 'reviewer') return confirmedWorkerChoices(s);
   const reviewer = s.run.proposal?.selection.reviewer ?? null;
   return reviewer === null ? [] : [reviewer];

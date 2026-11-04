@@ -60,10 +60,7 @@ const hooks = join(base, 'empty-hooks');
 mkdirSync(hooks);
 const home = join(base, 'home');
 mkdirSync(home);
-writeFileSync(
-  join(home, '.gitconfig'),
-  '[user]\n\tsecret = from-global\n[alias]\n\tst = status\n',
-);
+writeFileSync(join(home, '.gitconfig'), '[user]\n\tsecret = from-global\n[alias]\n\tst = status\n');
 
 function runner(o: Partial<GitRunnerOptions> = {}): GitCommandRunner {
   return new GitCommandRunner({
@@ -77,11 +74,7 @@ function runner(o: Partial<GitRunnerOptions> = {}): GitCommandRunner {
   });
 }
 
-const cmd = (
-  cwd: string,
-  args: string[],
-  over: Partial<GitCommand> = {},
-): GitCommand => ({
+const cmd = (cwd: string, args: string[], over: Partial<GitCommand> = {}): GitCommand => ({
   args,
   cwd,
   timeout_ms: 10_000,
@@ -104,21 +97,18 @@ describe('GitCommandRunner (T035)', () => {
     const dir = repo();
     const r = await runner().run(cmd(dir, ['rev-parse', 'HEAD']));
     expect(r).toMatchObject({ kind: 'exited', code: 0, truncated: false });
-    expect(r.kind === 'exited' && r.stdout.trim()).toBe(
-      sh(dir, 'rev-parse', 'HEAD'),
-    );
+    expect(r.kind === 'exited' && r.stdout.trim()).toBe(sh(dir, 'rev-parse', 'HEAD'));
     expect(
-      await runner().run(
-        cmd(dir, ['rev-parse', '--verify', '--quiet', 'refs/heads/nope']),
-      ),
+      await runner().run(cmd(dir, ['rev-parse', '--verify', '--quiet', 'refs/heads/nope'])),
     ).toMatchObject({ kind: 'exited', code: 1 });
   });
 
   it('ignores global config and the caller environment', async () => {
     const dir = repo();
-    expect(
-      await runner().run(cmd(dir, ['config', '--get', 'user.secret'])),
-    ).toMatchObject({ kind: 'exited', code: 1 });
+    expect(await runner().run(cmd(dir, ['config', '--get', 'user.secret']))).toMatchObject({
+      kind: 'exited',
+      code: 1,
+    });
     const r = await runner({
       env: { ...process.env, CUSR_LEAK: 'x' },
       passEnv: ['CUSR_LEAK', 'GIT_DIR'],
@@ -142,9 +132,10 @@ describe('GitCommandRunner (T035)', () => {
     chmodSync(join(dir, '.git', 'hooks', 'reference-transaction'), 0o755);
     sh(dir, 'config', 'core.hooksPath', '.husky');
     const head = sh(dir, 'rev-parse', 'HEAD');
-    expect(
-      await runner().run(cmd(dir, ['update-ref', 'refs/heads/copy', head])),
-    ).toMatchObject({ kind: 'exited', code: 0 });
+    expect(await runner().run(cmd(dir, ['update-ref', 'refs/heads/copy', head]))).toMatchObject({
+      kind: 'exited',
+      code: 0,
+    });
     expect(sh(dir, 'rev-parse', 'refs/heads/copy')).toBe(head);
     expect(existsSync(hook.marker)).toBe(false);
     // Control: plain git on the same repo does run the hook.
@@ -156,9 +147,10 @@ describe('GitCommandRunner (T035)', () => {
     const dir = repo();
     const fsm = trap('fsmonitor');
     sh(dir, 'config', 'core.fsmonitor', fsm.path);
-    expect(
-      await runner().run(cmd(dir, ['status', '--porcelain'])),
-    ).toMatchObject({ kind: 'exited', code: 0 });
+    expect(await runner().run(cmd(dir, ['status', '--porcelain']))).toMatchObject({
+      kind: 'exited',
+      code: 0,
+    });
     expect(existsSync(fsm.marker)).toBe(false);
     // Control: plain git runs the configured fsmonitor program.
     spawnSync('git', ['status', '--porcelain'], { cwd: dir, env: SETUP_ENV });
@@ -176,9 +168,7 @@ describe('GitCommandRunner (T035)', () => {
   ])('refuses a repo with %s set', async (key, value) => {
     const dir = repo();
     sh(dir, 'config', key, value);
-    expect(
-      await runner().run(cmd(dir, ['status', '--porcelain'])),
-    ).toMatchObject({
+    expect(await runner().run(cmd(dir, ['status', '--porcelain']))).toMatchObject({
       kind: 'refused',
       reason: expect.stringContaining('untrusted repo config') as unknown,
     });
@@ -187,10 +177,7 @@ describe('GitCommandRunner (T035)', () => {
   it('refuses a repo whose config is too large to scan in full, even when the bad key comes last', async () => {
     const dir = repo();
     const t = trap('filter-after-padding');
-    const padding = Array.from(
-      { length: 80_000 },
-      (_, i) => `\tk${i} = v\n`,
-    ).join('');
+    const padding = Array.from({ length: 80_000 }, (_, i) => `\tk${i} = v\n`).join('');
     writeFileSync(
       join(dir, '.git', 'config'),
       `${readFileSync(join(dir, '.git', 'config'), 'utf8')}[pad]\n${padding}[filter "evil"]\n\tclean = ${t.path}\n`,
@@ -207,17 +194,13 @@ describe('GitCommandRunner (T035)', () => {
   it('refuses a key hidden behind a tab in its subsection and a repo config git cannot parse', async () => {
     const dir = repo();
     sh(dir, 'config', 'filter.a\tb.clean', 'cat');
-    expect(
-      await runner().run(cmd(dir, ['status', '--porcelain'])),
-    ).toMatchObject({
+    expect(await runner().run(cmd(dir, ['status', '--porcelain']))).toMatchObject({
       kind: 'refused',
       reason: expect.stringContaining('untrusted repo config') as unknown,
     });
     const broken = repo();
     writeFileSync(join(broken, '.git', 'config'), '[core\n');
-    expect(
-      await runner().run(cmd(broken, ['status', '--porcelain'])),
-    ).toMatchObject({
+    expect(await runner().run(cmd(broken, ['status', '--porcelain']))).toMatchObject({
       kind: 'refused',
       reason: expect.stringContaining('scan failed') as unknown,
     });
@@ -225,9 +208,9 @@ describe('GitCommandRunner (T035)', () => {
 
   it('parses only whole scope/name pairs from the config scan', () => {
     expect(configNames('')).toEqual([]);
-    expect(
-      configNames('command\0core.pager\0local\0filter.a\tb.clean\0'),
-    ).toEqual(['filter.a\tb.clean']);
+    expect(configNames('command\0core.pager\0local\0filter.a\tb.clean\0')).toEqual([
+      'filter.a\tb.clean',
+    ]);
     expect(configNames('local\0core.bare')).toBeNull();
     expect(configNames('local\0')).toBeNull();
   });
@@ -237,19 +220,17 @@ describe('GitCommandRunner (T035)', () => {
     expect(await runner().run(cmd(dir, ['gc']))).toMatchObject({
       kind: 'refused',
     });
-    expect(
-      await runner().run(cmd(dir, ['-c', 'core.hooksPath=/x', 'status'])),
-    ).toMatchObject({ kind: 'refused' });
+    expect(await runner().run(cmd(dir, ['-c', 'core.hooksPath=/x', 'status']))).toMatchObject({
+      kind: 'refused',
+    });
     expect(await runner().run(cmd(dir, ['st']))).toMatchObject({
       kind: 'refused',
     });
+    expect(await runner().run(cmd(dir, ['config', 'user.name', 'x']))).toMatchObject({
+      kind: 'refused',
+    });
     expect(
-      await runner().run(cmd(dir, ['config', 'user.name', 'x'])),
-    ).toMatchObject({ kind: 'refused' });
-    expect(
-      await runner().run(
-        cmd(dir, ['config', '--global', '--get', 'user.name']),
-      ),
+      await runner().run(cmd(dir, ['config', '--global', '--get', 'user.name'])),
     ).toMatchObject({ kind: 'refused' });
     expect(refuseArgs(['config', '--get', 'remote.origin.url'])).toBeNull();
   });
@@ -266,40 +247,26 @@ describe('GitCommandRunner (T035)', () => {
     );
     expect(r).toMatchObject({ kind: 'exited', code: 0, truncated: true });
     expect(r.kind === 'exited' && r.stdout.length).toBe(1_000);
-    expect(
-      await runner().run(cmd(dir, ['log', '--all'], { timeout_ms: 1 })),
-    ).toEqual({ kind: 'timeout' });
+    expect(await runner().run(cmd(dir, ['log', '--all'], { timeout_ms: 1 }))).toEqual({
+      kind: 'timeout',
+    });
   });
 
   it('passes stdin and fetches only over allowed transports', async () => {
     const dir = repo();
-    const r = await runner().run(
-      cmd(dir, ['hash-object', '--stdin'], { stdin: 'hello\n' }),
-    );
-    expect(r.kind === 'exited' && r.stdout.trim()).toBe(
-      sh(dir, 'rev-parse', 'HEAD:a.txt'),
-    );
+    const r = await runner().run(cmd(dir, ['hash-object', '--stdin'], { stdin: 'hello\n' }));
+    expect(r.kind === 'exited' && r.stdout.trim()).toBe(sh(dir, 'rev-parse', 'HEAD:a.txt'));
 
     const remote = join(base, `remote${n++}.git`);
     sh(base, 'clone', '-q', '--bare', dir, remote);
     const clone = repo();
     expect(
       await runner().run(
-        cmd(clone, [
-          'fetch',
-          '--quiet',
-          remote,
-          '+refs/heads/main:refs/remotes/r/main',
-        ]),
+        cmd(clone, ['fetch', '--quiet', remote, '+refs/heads/main:refs/remotes/r/main']),
       ),
     ).toMatchObject({ kind: 'exited', code: 0 });
     const blocked = await runner({ protocols: ['https'] }).run(
-      cmd(clone, [
-        'fetch',
-        '--quiet',
-        `file://${remote}`,
-        '+refs/heads/main:refs/remotes/r2/main',
-      ]),
+      cmd(clone, ['fetch', '--quiet', `file://${remote}`, '+refs/heads/main:refs/remotes/r2/main']),
     );
     expect(blocked).toMatchObject({ kind: 'exited' });
     expect(blocked.kind === 'exited' && blocked.code).not.toBe(0);
@@ -309,15 +276,9 @@ describe('GitCommandRunner (T035)', () => {
     expect(() => runner({ safeDirectories: ['*'] })).toThrow(GitConfigError);
     expect(() => runner({ safeDirectories: ['/'] })).toThrow(GitConfigError);
     expect(() => runner({ safeDirectories: ['repo'] })).toThrow(GitConfigError);
-    expect(() => runner({ credentialHelper: '!sh -c evil' })).toThrow(
-      GitConfigError,
-    );
-    expect(
-      untrustedConfigKeys([
-        'core.hookspath',
-        'user.name',
-        'Filter.LFS.Process',
-      ]),
-    ).toEqual(['Filter.LFS.Process']);
+    expect(() => runner({ credentialHelper: '!sh -c evil' })).toThrow(GitConfigError);
+    expect(untrustedConfigKeys(['core.hookspath', 'user.name', 'Filter.LFS.Process'])).toEqual([
+      'Filter.LFS.Process',
+    ]);
   });
 });

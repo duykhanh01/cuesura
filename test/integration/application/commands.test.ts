@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  admitCommand,
-  type CommandDeps,
-} from '../../../src/application/commands.ts';
+import { admitCommand, type CommandDeps } from '../../../src/application/commands.ts';
 import type { Caller } from '../../../src/application/authz.ts';
 import { openFileStoreForTest } from '../../../src/store/testing.ts';
 import type { EpochMs } from '../../../src/shared/brand.ts';
@@ -55,12 +52,8 @@ describe('command admission ledger (T023)', () => {
     const again = admitCommand(d, assistant, cancel());
     expect(again).toMatchObject({ ok: true, value: { kind: 'existing' } });
     if (!first.ok || !again.ok) return;
-    expect(again.value.record.assigned_ids).toEqual(
-      first.value.record.assigned_ids,
-    );
-    expect(
-      admitCommand(d, assistant, cancel({ payload: { reason: 'other' } })),
-    ).toMatchObject({
+    expect(again.value.record.assigned_ids).toEqual(first.value.record.assigned_ids);
+    expect(admitCommand(d, assistant, cancel({ payload: { reason: 'other' } }))).toMatchObject({
       ok: false,
       error: { code: 'conflict', reason: 'command_mismatch' },
     });
@@ -89,22 +82,12 @@ describe('command admission ledger (T023)', () => {
     if (!first.ok) throw new Error('admit');
     d1.store.close();
     const d2 = deps(path);
-    expect(d2.store.pendingCommands(10).map((c) => c.request_id)).toEqual([
-      uuidOf(500),
-    ]);
+    expect(d2.store.pendingCommands(10).map((c) => c.request_id)).toEqual([uuidOf(500)]);
     expect(
-      d2.store.completeCommand(
-        uuidOf(500),
-        { task_version: 4 },
-        2_000 as EpochMs,
-      ),
+      d2.store.completeCommand(uuidOf(500), { task_version: 4 }, 2_000 as EpochMs),
     ).toMatchObject({ ok: true, value: { status: 'completed' } });
     expect(
-      d2.store.completeCommand(
-        uuidOf(500),
-        { task_version: 5 },
-        3_000 as EpochMs,
-      ),
+      d2.store.completeCommand(uuidOf(500), { task_version: 5 }, 3_000 as EpochMs),
     ).toMatchObject({ ok: false, error: { reason: 'result_mismatch' } });
     expect(admitCommand(d2, assistant, cancel())).toMatchObject({
       ok: true,
@@ -147,9 +130,7 @@ describe('command admission ledger (T023)', () => {
       ok: false,
       error: { code: 'forbidden', reason: 'role' },
     });
-    expect(
-      admitCommand(d, assistant, cancel({ project: 'other' })),
-    ).toMatchObject({
+    expect(admitCommand(d, assistant, cancel({ project: 'other' }))).toMatchObject({
       ok: false,
       error: { code: 'forbidden', reason: 'project' },
     });
@@ -166,28 +147,25 @@ describe('command admission ledger (T023)', () => {
       ok: false,
       error: { code: 'forbidden', reason: 'role' },
     });
-    expect(
-      admitCommand(d, reader, cancel({ kind: 'task_continue', payload: {} })),
-    ).toMatchObject({
+    expect(admitCommand(d, reader, cancel({ kind: 'task_continue', payload: {} }))).toMatchObject({
       ok: false,
       error: { code: 'forbidden', reason: 'role' },
     });
+    expect(admitCommand(d, assistant, cancel({ expected_version: null }))).toMatchObject({
+      ok: false,
+      error: { code: 'invalid_command' },
+    });
     expect(
-      admitCommand(d, assistant, cancel({ expected_version: null })),
+      admitCommand(d, assistant, cancel({ payload: { reason: 'x', actor: 'owner' } })),
     ).toMatchObject({ ok: false, error: { code: 'invalid_command' } });
-    expect(
-      admitCommand(
-        d,
-        assistant,
-        cancel({ payload: { reason: 'x', actor: 'owner' } }),
-      ),
-    ).toMatchObject({ ok: false, error: { code: 'invalid_command' } });
-    expect(
-      admitCommand(d, assistant, cancel({ kind: 'task_retry' })),
-    ).toMatchObject({ ok: false, error: { code: 'unsupported_feature' } });
-    expect(
-      admitCommand(d, assistant, { ...cancel(), actor: 'owner' }),
-    ).toMatchObject({ ok: false, error: { code: 'invalid_command' } });
+    expect(admitCommand(d, assistant, cancel({ kind: 'task_retry' }))).toMatchObject({
+      ok: false,
+      error: { code: 'unsupported_feature' },
+    });
+    expect(admitCommand(d, assistant, { ...cancel(), actor: 'owner' })).toMatchObject({
+      ok: false,
+      error: { code: 'invalid_command' },
+    });
     expect(d.store.pendingCommands(10)).toEqual([]);
   });
 });

@@ -31,11 +31,7 @@ import { proceed, waitBaseRepair } from './interpreter.ts';
  */
 
 /** Classes that say nothing about the work: the harness failed before or instead of doing it. */
-const CREDITABLE: readonly FailureClass[] = [
-  'infra',
-  'rate_limit',
-  'auth_config',
-];
+const CREDITABLE: readonly FailureClass[] = ['infra', 'rate_limit', 'auth_config'];
 
 /**
  * The step's latest finished attempts of this revision, newest first, that failed with a creditable
@@ -49,12 +45,7 @@ export function creditableAttempts(s: TaskState, step: string): Attempt[] {
   const out: Attempt[] = [];
   for (const a of mine) {
     const cls = a.outcome?.class ?? null;
-    if (
-      a.n <= through ||
-      a.status !== 'finished' ||
-      cls === null ||
-      !CREDITABLE.includes(cls)
-    )
+    if (a.n <= through || a.status !== 'finished' || cls === null || !CREDITABLE.includes(cls))
       break;
     out.push(a);
   }
@@ -175,10 +166,7 @@ export function onRecheck(ctx: Ctx, t: RecheckTrigger): void {
     s.wait?.reason === 'policy' &&
     s.wait.detail.code === 'refused'
   )
-    return waitBaseRepair(
-      ctx,
-      'base repair was held by an older daemon; choose how to continue',
-    );
+    return waitBaseRepair(ctx, 'base repair was held by an older daemon; choose how to continue');
   if (t.target === 'worktree') {
     const w = s.wait as NonNullable<typeof s.wait>;
     ctx.emit('WorktreeChangeAccepted', {
@@ -216,10 +204,6 @@ export function onRecheck(ctx: Ctx, t: RecheckTrigger): void {
     ctx.emit('TaskResumed', {
       reason: t.target === 'auth' ? 'auth_rechecked' : 'visits_credited',
     });
-    proceed(
-      ctx,
-      w.resume,
-      t.target === 'auth' ? 'auth_rechecked' : 'visits_credited',
-    );
+    proceed(ctx, w.resume, t.target === 'auth' ? 'auth_rechecked' : 'visits_credited');
   }
 }

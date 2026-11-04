@@ -25,9 +25,7 @@ describe('clip', () => {
       `${'x'.repeat(SUMMARY_TEXT_LIMIT)}… [${5_000 - SUMMARY_TEXT_LIMIT} more characters; use --full]`,
     );
     expect(cut).toMatchObject({ b: 'short', n: 3, z: null });
-    expect(clip('x'.repeat(SUMMARY_TEXT_LIMIT))).toBe(
-      'x'.repeat(SUMMARY_TEXT_LIMIT),
-    );
+    expect(clip('x'.repeat(SUMMARY_TEXT_LIMIT))).toBe('x'.repeat(SUMMARY_TEXT_LIMIT));
   });
 });
 
@@ -262,9 +260,7 @@ describe('logsSummary', () => {
       complete: false,
     }) as { records: { cursor: number; data: { text: string } }[] };
     expect(s.records[0]?.cursor).toBe(1);
-    expect(s.records[0]?.data.text.startsWith('x'.repeat(LOG_TEXT_LIMIT))).toBe(
-      true,
-    );
+    expect(s.records[0]?.data.text.startsWith('x'.repeat(LOG_TEXT_LIMIT))).toBe(true);
     expect(s.records[0]?.data.text.length).toBeLessThan(LOG_TEXT_LIMIT + 60);
   });
 });

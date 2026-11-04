@@ -10,12 +10,7 @@ import {
   type Trigger,
   type TriggerEnvelope,
 } from '../../src/domain/trigger.ts';
-import type {
-  AcceptError,
-  AcceptOutcome,
-  ClaimError,
-  Store,
-} from '../../src/store/index.ts';
+import type { AcceptError, AcceptOutcome, ClaimError, Store } from '../../src/store/index.ts';
 import { authz, envelope, IdSource, T0 } from './builders.ts';
 
 export type StoreOp =
@@ -66,11 +61,7 @@ export class StoreDriver {
     return s;
   }
 
-  envelope(
-    taskId: string,
-    trigger: Trigger,
-    o: DriverSend = {},
-  ): TriggerEnvelope {
+  envelope(taskId: string, trigger: Trigger, o: DriverSend = {}): TriggerEnvelope {
     const human = HUMAN_TRIGGERS.includes(trigger.kind);
     const a = o.authz ?? (human ? authz(['operate']) : undefined);
     return envelope(taskId, trigger, {
@@ -81,9 +72,7 @@ export class StoreDriver {
       ...(human
         ? {
             expected_version:
-              o.expected_version ??
-              this.store.readTask(taskId as Uuid)?.version ??
-              0,
+              o.expected_version ?? this.store.readTask(taskId as Uuid)?.version ?? 0,
           }
         : {}),
     });
@@ -91,12 +80,8 @@ export class StoreDriver {
 
   /** Grants the slot to the next queued request, with IDs for the step it resumes. */
   grantNext(): void {
-    const g = this.store.grantNext(
-      this.now as EpochMs,
-      this.idSource.take(MAX_ENVELOPE_IDS),
-    );
-    if (!g.ok || g.value.kind !== 'decided')
-      throw new Error(`grant failed: ${JSON.stringify(g)}`);
+    const g = this.store.grantNext(this.now as EpochMs, this.idSource.take(MAX_ENVELOPE_IDS));
+    if (!g.ok || g.value.kind !== 'decided') throw new Error(`grant failed: ${JSON.stringify(g)}`);
   }
 
   deliver(env: TriggerEnvelope): Result<AcceptOutcome, AcceptError> {
@@ -104,11 +89,7 @@ export class StoreDriver {
     return this.store.accept(env);
   }
 
-  send(
-    taskId: string,
-    trigger: Trigger,
-    o: DriverSend = {},
-  ): Result<AcceptOutcome, AcceptError> {
+  send(taskId: string, trigger: Trigger, o: DriverSend = {}): Result<AcceptOutcome, AcceptError> {
     return this.deliver(this.envelope(taskId, trigger, o));
   }
 
@@ -128,25 +109,20 @@ export class StoreDriver {
   fire(): AcceptOutcome[] {
     this.ops.push({ op: 'fire', now: this.now });
     const r = this.store.fireDueTimers(this.now as EpochMs, 100, timerIds);
-    if (!r.ok)
-      throw new Error(`fireDueTimers failed: ${JSON.stringify(r.error)}`);
+    if (!r.ok) throw new Error(`fireDueTimers failed: ${JSON.stringify(r.error)}`);
     return r.value;
   }
 
   pending(taskId: string, kind?: EffectKind): Effect[] {
     return this.store
       .pendingEffects(1000)
-      .filter(
-        (e) => e.task_id === taskId && (kind === undefined || e.kind === kind),
-      );
+      .filter((e) => e.task_id === taskId && (kind === undefined || e.kind === kind));
   }
 
   pendingOne(taskId: string, kind: EffectKind): Effect {
     const xs = this.pending(taskId, kind);
     if (xs.length !== 1)
-      throw new Error(
-        `Expected exactly one pending ${kind} effect; found ${xs.length}`,
-      );
+      throw new Error(`Expected exactly one pending ${kind} effect; found ${xs.length}`);
     return xs[0] as Effect;
   }
 

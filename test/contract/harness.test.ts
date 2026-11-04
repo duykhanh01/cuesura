@@ -10,10 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { claudeAdapter } from '../../src/adapters/harness/claude.ts';
 import { codexAdapter } from '../../src/adapters/harness/codex.ts';
 import { FakeHarness } from '../../src/adapters/harness/fake.ts';
-import {
-  wireRoleSchema,
-  type Role,
-} from '../../src/adapters/harness/result-schema.ts';
+import { wireRoleSchema, type Role } from '../../src/adapters/harness/result-schema.ts';
 import {
   ProvenanceError,
   validateResult,
@@ -66,11 +63,7 @@ function planInput(
   };
 }
 
-function expected(
-  vendor: 'claude' | 'codex',
-  role: Role,
-  attempt = 'a-1',
-): Expected {
+function expected(vendor: 'claude' | 'codex', role: Role, attempt = 'a-1'): Expected {
   const s = spikePin(vendor);
   return {
     operation_id: `op-${attempt}`,
@@ -131,10 +124,7 @@ function fileOf(raw: string): FileRead {
   return { kind: 'read', raw, bytes: Buffer.byteLength(raw) };
 }
 
-function realFile(
-  attempt: string,
-  vendor: 'claude' | 'codex',
-): FileRead | null {
+function realFile(attempt: string, vendor: 'claude' | 'codex'): FileRead | null {
   return vendor === 'codex' ? fileOf(codexLastMessage(attempt)) : null;
 }
 
@@ -166,87 +156,61 @@ describe('harness argv and settings follow the pinned T007 shape (T068/T069)', (
     ).toMatchObject({ kind: 'failure', failure: 'turn_limit' });
   });
 
-  it.each([false, true])(
-    'runs Claude without a turn cap (host_execution=%s)',
-    (host_execution) => {
-      const p = claudeAdapter.plan(
-        { ...vendorPin('claude'), max_turns: null },
-        planInput('claude', 'coder', { host_execution }),
-      );
-      expect(p.ok).toBe(true);
-      if (!p.ok) return;
-      expect(p.value.argv).not.toContain('--max-turns');
-    },
-  );
+  it.each([false, true])('runs Claude without a turn cap (host_execution=%s)', (host_execution) => {
+    const p = claudeAdapter.plan(
+      { ...vendorPin('claude'), max_turns: null },
+      planInput('claude', 'coder', { host_execution }),
+    );
+    expect(p.ok).toBe(true);
+    if (!p.ok) return;
+    expect(p.value.argv).not.toContain('--max-turns');
+  });
 
-  it.each(VALID_RUNS.map((r) => [r.attempt, r] as const))(
-    '%s',
-    (attempt, r) => {
-      const plan = ADAPTERS[r.vendor].plan(
-        vendorPin(r.vendor),
-        planInput(r.vendor, r.role),
+  it.each(VALID_RUNS.map((r) => [r.attempt, r] as const))('%s', (attempt, r) => {
+    const plan = ADAPTERS[r.vendor].plan(vendorPin(r.vendor), planInput(r.vendor, r.role));
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    // The archived runs predate dropping --no-session-persistence and the Claude isolation flags.
+    const dropped = new Set(['--no-session-persistence', '--safe-mode', '--strict-mcp-config']);
+    const withValue = new Set(['--setting-sources', '--mcp-config']);
+    const recorded = recordedHarnessArgv(attempt).filter(
+      (a, i, all) => !dropped.has(a) && !withValue.has(a) && !withValue.has(all[i - 1] ?? ''),
+    );
+    // The archived claude reviewer run predates --disallowedTools for reviewers; see below.
+    const ours = [...plan.value.argv];
+    if (r.vendor === 'claude') {
+      const i = ours.indexOf('--json-schema');
+      expect(JSON.parse(ours[i + 1] as string)).toEqual(JSON.parse(recorded[i + 1] as string));
+      ours[i + 1] = recorded[i + 1] as string;
+    }
+    expect(ours.slice(0, recorded.length)).toEqual(recorded);
+    if (r.vendor === 'claude') {
+      for (const flag of [...dropped, ...withValue]) expect(plan.value.argv).not.toContain(flag);
+      expect(plan.value.context_files).toHaveLength(1);
+      expect(JSON.parse(plan.value.context_files[0]?.content ?? '')).toEqual(
+        JSON.parse(readReal(`${attempt}/context/claude-settings.json`)),
       );
-      expect(plan.ok).toBe(true);
-      if (!plan.ok) return;
-      // The archived runs predate dropping --no-session-persistence and the Claude isolation flags.
-      const dropped = new Set([
-        '--no-session-persistence',
-        '--safe-mode',
-        '--strict-mcp-config',
-      ]);
-      const withValue = new Set(['--setting-sources', '--mcp-config']);
-      const recorded = recordedHarnessArgv(attempt).filter(
-        (a, i, all) =>
-          !dropped.has(a) &&
-          !withValue.has(a) &&
-          !withValue.has(all[i - 1] ?? ''),
+      expect(plan.value.result).toEqual({
+        kind: 'stdout_json',
+        pointer: ['structured_output'],
+      });
+    } else {
+      expect(plan.value.schema_files[0]?.content).toBe(
+        readReal(`${attempt}/schema/${plan.value.schema_files[0]?.name ?? ''}`),
       );
-      // The archived claude reviewer run predates --disallowedTools for reviewers; see below.
-      const ours = [...plan.value.argv];
-      if (r.vendor === 'claude') {
-        const i = ours.indexOf('--json-schema');
-        expect(JSON.parse(ours[i + 1] as string)).toEqual(
-          JSON.parse(recorded[i + 1] as string),
-        );
-        ours[i + 1] = recorded[i + 1] as string;
-      }
-      expect(ours.slice(0, recorded.length)).toEqual(recorded);
-      if (r.vendor === 'claude') {
-        for (const flag of [...dropped, ...withValue])
-          expect(plan.value.argv).not.toContain(flag);
-        expect(plan.value.context_files).toHaveLength(1);
-        expect(JSON.parse(plan.value.context_files[0]?.content ?? '')).toEqual(
-          JSON.parse(readReal(`${attempt}/context/claude-settings.json`)),
-        );
-        expect(plan.value.result).toEqual({
-          kind: 'stdout_json',
-          pointer: ['structured_output'],
-        });
-      } else {
-        expect(plan.value.schema_files[0]?.content).toBe(
-          readReal(
-            `${attempt}/schema/${plan.value.schema_files[0]?.name ?? ''}`,
-          ),
-        );
-        expect(plan.value.result).toEqual({
-          kind: 'file',
-          scratch_name: 'final-response.json',
-        });
-      }
-    },
-  );
+      expect(plan.value.result).toEqual({
+        kind: 'file',
+        scratch_name: 'final-response.json',
+      });
+    }
+  });
 
   it('the claude reviewer never gets Edit/Write and the worker roles keep them', () => {
     const argv = (role: Role): readonly string[] => {
-      const p = claudeAdapter.plan(
-        vendorPin('claude'),
-        planInput('claude', role),
-      );
+      const p = claudeAdapter.plan(vendorPin('claude'), planInput('claude', role));
       return p.ok ? p.value.argv : [];
     };
-    expect(argv('reviewer').join(' ')).toContain(
-      '--disallowedTools Edit,Write',
-    );
+    expect(argv('reviewer').join(' ')).toContain('--disallowedTools Edit,Write');
     expect(argv('coder')).not.toContain('--disallowedTools');
     expect(argv('fixer')).not.toContain('--disallowedTools');
   });
@@ -305,16 +269,11 @@ describe('harness argv and settings follow the pinned T007 shape (T068/T069)', (
       { ...pin, settings: null },
     ];
     for (const c of cases)
-      expect(claudeAdapter.plan(c, planInput('claude', 'coder')).ok).toBe(
-        false,
-      );
+      expect(claudeAdapter.plan(c, planInput('claude', 'coder')).ok).toBe(false);
     const cx = vendorPin('codex');
-    expect(
-      codexAdapter.plan(
-        { ...cx, env: { A: 'yolo' } },
-        planInput('codex', 'coder'),
-      ).ok,
-    ).toBe(false);
+    expect(codexAdapter.plan({ ...cx, env: { A: 'yolo' } }, planInput('codex', 'coder')).ok).toBe(
+      false,
+    );
   });
 
   it('passes a session only where a resume form is pinned; codex refuses it', () => {
@@ -338,40 +297,32 @@ describe('harness argv and settings follow the pinned T007 shape (T068/T069)', (
 });
 
 describe('six role × vendor fixtures normalise to the accepted result (T066)', () => {
-  it.each(VALID_RUNS.map((r) => [r.attempt, r] as const))(
-    '%s',
-    (attempt, r) => {
-      const v = replay(r.vendor, r.role, recordedRead(attempt, r.vendor), {
-        file: realFile(attempt, r.vendor),
-      });
-      expect(v.outcome.kind).toBe('result');
-      if (v.outcome.kind !== 'result' || v.record === null) return;
-      expect(v.outcome.value).toEqual(acceptedValue(attempt));
-      expect(v.outcome.usage.basis).toBe('reported');
-      expect(v.outcome.usage.tokens).toBeGreaterThan(0);
-      if (r.vendor === 'claude')
-        expect(v.outcome.usage.cost).toBeGreaterThan(0);
-      else expect(v.outcome.usage.cost).toBeUndefined();
-      expect(v.outcome.session_ref).not.toBeNull();
-      // Provenance is the orchestrator's launch, never something the model wrote.
-      expect(v.record.provenance).toMatchObject({
-        operation_id: 'op-a-1',
-        attempt_id: 'a-1',
-        revision: 1,
-        role: r.role,
-        launch_nonce: 'nonce-1',
-        source: r.vendor === 'claude' ? 'stdout_json' : 'file',
-        raw_digest: v.outcome.raw_digest,
-      });
-    },
-  );
+  it.each(VALID_RUNS.map((r) => [r.attempt, r] as const))('%s', (attempt, r) => {
+    const v = replay(r.vendor, r.role, recordedRead(attempt, r.vendor), {
+      file: realFile(attempt, r.vendor),
+    });
+    expect(v.outcome.kind).toBe('result');
+    if (v.outcome.kind !== 'result' || v.record === null) return;
+    expect(v.outcome.value).toEqual(acceptedValue(attempt));
+    expect(v.outcome.usage.basis).toBe('reported');
+    expect(v.outcome.usage.tokens).toBeGreaterThan(0);
+    if (r.vendor === 'claude') expect(v.outcome.usage.cost).toBeGreaterThan(0);
+    else expect(v.outcome.usage.cost).toBeUndefined();
+    expect(v.outcome.session_ref).not.toBeNull();
+    // Provenance is the orchestrator's launch, never something the model wrote.
+    expect(v.record.provenance).toMatchObject({
+      operation_id: 'op-a-1',
+      attempt_id: 'a-1',
+      revision: 1,
+      role: r.role,
+      launch_nonce: 'nonce-1',
+      source: r.vendor === 'claude' ? 'stdout_json' : 'file',
+      raw_digest: v.outcome.raw_digest,
+    });
+  });
 
   it('keeps permission denials from the vendor record, not from the model text', () => {
-    const c = replay(
-      'claude',
-      'coder',
-      recordedRead('s0-claude-coder-1793172185', 'claude'),
-    );
+    const c = replay('claude', 'coder', recordedRead('s0-claude-coder-1793172185', 'claude'));
     expect(c.outcome.permission_denials).toEqual([
       {
         tool: 'Bash',
@@ -381,16 +332,11 @@ describe('six role × vendor fixtures normalise to the accepted result (T066)', 
         source: 'claude_event',
       },
     ]);
-    const x = replay(
-      'codex',
-      'fixer',
-      recordedRead('s0-codex-fixer-1793173505', 'codex'),
-      { file: realFile('s0-codex-fixer-1793173505', 'codex') },
-    );
+    const x = replay('codex', 'fixer', recordedRead('s0-codex-fixer-1793173505', 'codex'), {
+      file: realFile('s0-codex-fixer-1793173505', 'codex'),
+    });
     expect(x.outcome.permission_denials.length).toBeGreaterThan(0);
-    expect(
-      x.outcome.permission_denials.every((d) => d.source === 'codex_stderr'),
-    ).toBe(true);
+    expect(x.outcome.permission_denials.every((d) => d.source === 'codex_stderr')).toBe(true);
     // Without stderr there is no denial, whatever the model claimed in its summary.
     const silent = replay(
       'codex',
@@ -470,14 +416,9 @@ describe('a final answer is accepted only when every layer holds (T075)', () => 
       summary: 'no',
       findings: [],
     });
-    const v = replay(
-      'codex',
-      'reviewer',
-      recordedRead('s0-codex-reviewer-1793180367', 'codex'),
-      {
-        file: fileOf(raw),
-      },
-    );
+    const v = replay('codex', 'reviewer', recordedRead('s0-codex-reviewer-1793180367', 'codex'), {
+      file: fileOf(raw),
+    });
     expect(v.outcome).toMatchObject({
       kind: 'invalid_output',
       raw_digest: hashText(raw),
@@ -640,21 +581,14 @@ describe('refusal, auth and rate limit map to failures with usage kept (syntheti
       JSON.parse(
         readFileSync(
           fileURLToPath(
-            new URL(
-              `../fixtures/runtime/spike-0/harness-stream/${name}`,
-              import.meta.url,
-            ),
+            new URL(`../fixtures/runtime/spike-0/harness-stream/${name}`, import.meta.url),
           ),
           'utf8',
         ),
       ) as { cases: SyntheticCase[] }
     ).cases;
-  const cases = [
-    ...read('cases.synthetic.json'),
-    ...read('cases.capacity.synthetic.json'),
-  ].filter(
-    (c): c is SyntheticCase & { vendor: 'claude' | 'codex' } =>
-      c.vendor !== 'fixture',
+  const cases = [...read('cases.synthetic.json'), ...read('cases.capacity.synthetic.json')].filter(
+    (c): c is SyntheticCase & { vendor: 'claude' | 'codex' } => c.vendor !== 'fixture',
   );
   const FAILURE: Record<string, string> = {
     rate_limited: 'rate_limited',
@@ -670,9 +604,7 @@ describe('refusal, auth and rate limit map to failures with usage kept (syntheti
       truncated_records: 0,
     });
     expect(facts.failure?.kind ?? null).toBe(c.expect.failure);
-    expect(facts.usage.basis).toBe(
-      c.expect.usage === 'reported' ? 'reported' : 'unavailable',
-    );
+    expect(facts.usage.basis).toBe(c.expect.usage === 'reported' ? 'reported' : 'unavailable');
     expect(facts.permission_denials).toHaveLength(c.expect.denials);
     if (c.expect.failure !== null) {
       const v = replay(
@@ -693,12 +625,8 @@ describe('refusal, auth and rate limit map to failures with usage kept (syntheti
 
   it('an HTTP status decides before the wording; overload wording alone is enough', () => {
     expect(classifyFailure('Overloaded', 401)).toBe('auth');
-    expect(classifyFailure('API Error: 429 rate_limit_error', 529)).toBe(
-      'overloaded',
-    );
-    expect(classifyFailure('rate limited while overloaded', null)).toBe(
-      'rate_limited',
-    );
+    expect(classifyFailure('API Error: 429 rate_limit_error', 529)).toBe('overloaded');
+    expect(classifyFailure('rate limited while overloaded', null)).toBe('rate_limited');
     expect(classifyFailure('502 Bad Gateway', null)).toBe('overloaded');
     expect(classifyFailure('Gateway Timeout', null)).toBe('overloaded');
     expect(classifyFailure('connection reset', null)).toBe('vendor_error');
@@ -713,8 +641,7 @@ describe('refusal, auth and rate limit map to failures with usage kept (syntheti
           type: 'result',
           subtype: 'success',
           is_error: true,
-          result:
-            'Failed to authenticate: OAuth session expired and could not be refreshed',
+          result: 'Failed to authenticate: OAuth session expired and could not be refreshed',
         },
       ],
       stderr: '',
@@ -729,9 +656,7 @@ describe('refusal, auth and rate limit map to failures with usage kept (syntheti
       'Please run /login',
     ])
       expect(classifyFailure(detail, null)).toBe('auth');
-    expect(classifyFailure('connection reset by peer', null)).toBe(
-      'vendor_error',
-    );
+    expect(classifyFailure('connection reset by peer', null)).toBe('vendor_error');
   });
 
   it('codex keeps a recovered reconnect as a warning, not a failure', () => {
@@ -749,9 +674,7 @@ describe('refusal, auth and rate limit map to failures with usage kept (syntheti
     });
     expect(facts.failure).toBeNull();
     expect(facts.final).toEqual({ kind: 'file' });
-    expect(facts.warnings).toEqual([
-      'recovered: Reconnecting... 1/5 (stream disconnected)',
-    ]);
+    expect(facts.warnings).toEqual(['recovered: Reconnecting... 1/5 (stream disconnected)']);
   });
 
   it('a rate limit keeps the vendor reset time', () => {
@@ -825,16 +748,13 @@ describe('vendor usage and denial edge cases', () => {
   });
   it('Codex preserves backticks in a command denied in stderr', () => {
     const read = recordedRead('s0-codex-fixer-1793173505', 'codex');
-    const command =
-      '/usr/bin/touch `echo /cusr/scratch/permission-denied-by-rule`';
+    const command = '/usr/bin/touch `echo /cusr/scratch/permission-denied-by-rule`';
     const stderr = read.stderr.replace(
       '/usr/bin/touch /cusr/scratch/permission-denied-by-rule',
       command,
     );
     expect(stderr).not.toBe(read.stderr);
-    expect(
-      codexAdapter.read({ ...read, stderr }).permission_denials,
-    ).toContainEqual(
+    expect(codexAdapter.read({ ...read, stderr }).permission_denials).toContainEqual(
       expect.objectContaining({
         tool: 'exec_command',
         command,
@@ -853,16 +773,8 @@ describe('vendor usage and denial edge cases', () => {
       `/bin/zsh -lc 'echo '"'"'a'"'"''`,
       `/bin/zsh -lc 'echo '"'"'a'"'"''`,
     ],
-    [
-      'something before the shell',
-      `sudo sh -c 'touch x'`,
-      `sudo sh -c 'touch x'`,
-    ],
-    [
-      'a program that is not a shell',
-      `/usr/bin/env -c 'touch x'`,
-      `/usr/bin/env -c 'touch x'`,
-    ],
+    ['something before the shell', `sudo sh -c 'touch x'`, `sudo sh -c 'touch x'`],
+    ['a program that is not a shell', `/usr/bin/env -c 'touch x'`, `/usr/bin/env -c 'touch x'`],
   ])('Codex reports the command itself for %s', (_name, logged, command) => {
     const facts = codexAdapter.read({
       stdout: [],

@@ -7,24 +7,16 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import type {
-  VendorPin,
-  VendorRead,
-} from '../../src/adapters/harness/vendor.ts';
+import type { VendorPin, VendorRead } from '../../src/adapters/harness/vendor.ts';
 import type { Role } from '../../src/adapters/harness/result-schema.ts';
 import { recordedCodexStderr } from './spike-stderr.ts';
 
 export const REAL = fileURLToPath(
-  new URL(
-    '../fixtures/runtime/spike-0/harness/real-20261028/',
-    import.meta.url,
-  ),
+  new URL('../fixtures/runtime/spike-0/harness/real-20261028/', import.meta.url),
 );
 
-export const readReal = (rel: string): string =>
-  readFileSync(`${REAL}${rel}`, 'utf8');
-export const readRealJson = <T = unknown>(rel: string): T =>
-  JSON.parse(readReal(rel)) as T;
+export const readReal = (rel: string): string => readFileSync(`${REAL}${rel}`, 'utf8');
+export const readRealJson = <T = unknown>(rel: string): T => JSON.parse(readReal(rel)) as T;
 
 type SpikePin = {
   vendor: 'claude' | 'codex';
@@ -47,10 +39,7 @@ export const SPIKE_RULES =
   'prefix_rule(pattern=["touch", "/cusr/scratch/permission-denied-by-rule"], decision="forbidden")\n';
 
 /** What a test writes for a home file: the pinned rules for a rule file, `auth` otherwise. */
-export function homeFileContent(
-  h: VendorPin['home_files'][number],
-  auth: string,
-): string {
+export function homeFileContent(h: VendorPin['home_files'][number], auth: string): string {
   return h.sha256 === undefined ? auth : SPIKE_RULES;
 }
 
@@ -120,10 +109,7 @@ export function recordedStdout(attempt: string): unknown[] {
 }
 
 /** stderr as the runner kept it; for Codex only the router lines survive (see spike-stderr.ts). */
-export function recordedRead(
-  attempt: string,
-  vendor: 'claude' | 'codex',
-): VendorRead {
+export function recordedRead(attempt: string, vendor: 'claude' | 'codex'): VendorRead {
   return {
     stdout: recordedStdout(attempt),
     truncated_records: 0,
@@ -162,9 +148,7 @@ export function acceptedValue(attempt: string): unknown {
 
 /** The harness argv of the archived run (after the bwrap `--`). */
 export function recordedHarnessArgv(attempt: string): string[] {
-  const inv = readRealJson<{ spec: { command: string[] } }>(
-    `${attempt}/invocation.json`,
-  );
+  const inv = readRealJson<{ spec: { command: string[] } }>(`${attempt}/invocation.json`);
   const c = inv.spec.command;
   return c.slice(c.indexOf('--') + 1);
 }

@@ -8,9 +8,7 @@ const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 
 async function tuiImportRule(): Promise<Linter.RuleEntry> {
   const eslint = new ESLint({ cwd: ROOT });
-  const config = (await eslint.calculateConfigForFile(
-    'src/tui/main.ts',
-  )) as Linter.Config;
+  const config = (await eslint.calculateConfigForFile('src/tui/main.ts')) as Linter.Config;
   return config.rules?.['no-restricted-imports'] as Linter.RuleEntry;
 }
 

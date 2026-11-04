@@ -16,12 +16,7 @@ import type { Usage } from '../domain/trigger.ts';
 import type { RunDirKind } from '../runner/files.ts';
 import type { EpochMs, Hash } from '../shared/brand.ts';
 import type { Result } from '../shared/result.ts';
-import type {
-  Role,
-  RoleResult,
-  ValidationIssue,
-  WireSchema,
-} from './harness/result-schema.ts';
+import type { Role, RoleResult, ValidationIssue, WireSchema } from './harness/result-schema.ts';
 
 // ---- Clock ----
 
@@ -41,14 +36,7 @@ export interface Clock {
 
 // ---- Launch plans (host production, archived bwrap fixtures; ADR-0005) ----
 
-export const SANDBOX_ROLES = [
-  'coder',
-  'fixer',
-  'reviewer',
-  'setup',
-  'gate',
-  'autofix',
-] as const;
+export const SANDBOX_ROLES = ['coder', 'fixer', 'reviewer', 'setup', 'gate', 'autofix'] as const;
 export type SandboxRole = (typeof SANDBOX_ROLES)[number];
 
 /** Host paths a launch needs; the provider checks them against host policy and pins their identity. */
@@ -97,8 +85,7 @@ export type SandboxLaunchPlan = {
 };
 
 export type SandboxPlanError = {
-  readonly code:
-    'policy_violation' | 'source_missing' | 'source_symlink' | 'proof_missing';
+  readonly code: 'policy_violation' | 'source_missing' | 'source_symlink' | 'proof_missing';
   readonly message: string;
 };
 
@@ -160,12 +147,7 @@ export type StopOutcome = 'stopped' | 'not_running' | 'unknown';
 export interface ProcessPort {
   launch(
     spec: OperationLaunch,
-  ): Promise<
-    Result<
-      { readonly unit: string; readonly invocation_id: string | null },
-      LaunchError
-    >
-  >;
+  ): Promise<Result<{ readonly unit: string; readonly invocation_id: string | null }, LaunchError>>;
   inspect(operationId: string): Promise<UnitObservation>;
   stop(
     operationId: string,
@@ -399,16 +381,10 @@ export type HostExecResult =
 
 export interface HostProbePort {
   /** Absolute realpath of an executable found on PATH, then in `extraDirs`, or null. */
-  findExecutable(
-    name: string,
-    extraDirs?: readonly string[],
-  ): Promise<string | null>;
+  findExecutable(name: string, extraDirs?: readonly string[]): Promise<string | null>;
   /** Realpath of an existing path, or null when it does not exist. */
   realpath(path: string): Promise<string | null>;
   /** Small text file such as a `/proc/sys` knob; null when it does not exist or cannot be read. */
   readText(path: string): Promise<string | null>;
-  exec(
-    argv: readonly string[],
-    opts: { readonly timeout_ms: number },
-  ): Promise<HostExecResult>;
+  exec(argv: readonly string[], opts: { readonly timeout_ms: number }): Promise<HostExecResult>;
 }

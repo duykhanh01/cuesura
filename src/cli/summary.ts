@@ -25,9 +25,7 @@ export function clip(v: unknown, limit = SUMMARY_TEXT_LIMIT): unknown {
       : `${v.slice(0, limit)}… [${v.length - limit} more characters; use --full]`;
   if (Array.isArray(v)) return v.map((x) => clip(x, limit));
   if (isRecord(v))
-    return Object.fromEntries(
-      Object.entries(v).map(([k, x]) => [k, clip(x, limit)]),
-    );
+    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, clip(x, limit)]));
   return v;
 }
 
@@ -57,10 +55,7 @@ function failures(evidence: unknown): Data {
   const review = record(list(e['reviews']).at(-1));
   const ci = record(list(e['ci']).at(-1));
   return compact({
-    gates:
-      gate['passed'] === false
-        ? list(gate['failed']).map((f) => record(f)['gate'])
-        : null,
+    gates: gate['passed'] === false ? list(gate['failed']).map((f) => record(f)['gate']) : null,
     ci: list(ci['checks'])
       .map(record)
       .filter((c) => c['state'] === 'failure')
@@ -99,15 +94,12 @@ export function explainSummary(data: unknown): unknown {
     step: data['step'],
     wait: clip(data['wait'] ?? null),
     blockers: clip(data['blockers'] ?? []),
-    running: list(data['running']).map((r) =>
-      pick(record(r), ['step', 'binding']),
-    ),
+    running: list(data['running']).map((r) => pick(record(r), ['step', 'binding'])),
     queue_position: 'position' in queued ? queued['position'] : null,
     pr: hasPr ? { ref: pr['ref'], head_sha: pr['head_sha'] } : null,
     merge: hasPr ? mergeSummary(data['merge']) : null,
     failed: failures(data['evidence']),
-    deadline_ms:
-      deadline['state'] === 'running' ? deadline['remaining_ms'] : null,
+    deadline_ms: deadline['state'] === 'running' ? deadline['remaining_ms'] : null,
     prerequisites: list(data['prerequisites'])
       .map(record)
       .filter((p) => p['status'] !== 'DONE' || p['unverified'] !== null)
@@ -131,9 +123,7 @@ export function showSummary(data: unknown): unknown {
     status: data['status'],
     step: data['step'],
     version: data['version'],
-    wait: isRecord(data['wait'])
-      ? clip(pick(data['wait'], ['reason', 'detail']))
-      : null,
+    wait: isRecord(data['wait']) ? clip(pick(data['wait'], ['reason', 'detail'])) : null,
     blockers: clip(data['blockers'] ?? []),
     pr_ref: data['pr_ref'],
     run_config: compact(pick(run, ['status', 'digest', 'mode'])),
@@ -162,16 +152,13 @@ export function historySummary(data: unknown): unknown {
   if (!isRecord(data) || !Array.isArray(data['events'])) return data;
   return {
     ...data,
-    events: data['events'].map((e) =>
-      pick(record(e), ['seq', 'type', 'revision', 'actor']),
-    ),
+    events: data['events'].map((e) => pick(record(e), ['seq', 'type', 'revision', 'actor'])),
     details: `cusr task history ${String(data['task_id'])} --full`,
   };
 }
 
 /** One log record with each long string cut; cursors and IDs are short and stay exact. */
-export const logRecordSummary = (r: unknown): unknown =>
-  clip(r, LOG_TEXT_LIMIT);
+export const logRecordSummary = (r: unknown): unknown => clip(r, LOG_TEXT_LIMIT);
 
 /** `task logs` snapshot: the page with every record cut. */
 export function logsSummary(data: unknown): unknown {

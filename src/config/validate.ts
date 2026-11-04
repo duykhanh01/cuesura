@@ -11,18 +11,8 @@ import {
   runChecks,
   type Locator,
 } from './checks.ts';
-import {
-  mergeProject,
-  resolveProfiles,
-  SourceMap,
-  splitForbidden,
-  type Layer,
-} from './merge.ts';
-import type {
-  NormalizedProfile,
-  NormalizedUser,
-  ValidatedConfig,
-} from '../domain/config.ts';
+import { mergeProject, resolveProfiles, SourceMap, splitForbidden, type Layer } from './merge.ts';
+import type { NormalizedProfile, NormalizedUser, ValidatedConfig } from '../domain/config.ts';
 import {
   expandWorkflow,
   normalizeProfile,
@@ -35,13 +25,7 @@ import {
   type ProjectLocation,
   type RuntimeConfig,
 } from './normalize.ts';
-import {
-  diag,
-  locate,
-  sortDiagnostics,
-  type Diagnostic,
-  type KeyPath,
-} from './positions.ts';
+import { diag, locate, sortDiagnostics, type Diagnostic, type KeyPath } from './positions.ts';
 import {
   PackSchema,
   PROJECT_KEYS,
@@ -52,12 +36,7 @@ import {
 
 export type { ValidatedConfig };
 import { USER_ONLY_KEYS, UserConfigSchema } from './schema-user.ts';
-import {
-  DEFAULT_LIMITS,
-  loadYaml,
-  type ConfigSource,
-  type LoaderLimits,
-} from './yaml-loader.ts';
+import { DEFAULT_LIMITS, loadYaml, type ConfigSource, type LoaderLimits } from './yaml-loader.ts';
 
 export type ValidateInput = {
   user: ConfigSource;
@@ -78,23 +57,14 @@ export type Validated = {
   projectDispatch: Record<string, NormalizedDispatch>;
 };
 
-export function zodDiagnostics(
-  error: z.ZodError,
-  at: Locator,
-  prefix: KeyPath = [],
-): Diagnostic[] {
+export function zodDiagnostics(error: z.ZodError, at: Locator, prefix: KeyPath = []): Diagnostic[] {
   const out: Diagnostic[] = [];
   for (const issue of error.issues) {
     const path = [...prefix, ...(issue.path as KeyPath)];
     if (issue.code === 'unrecognized_keys') {
       for (const k of issue.keys)
         out.push(
-          diag(
-            'schema_invalid',
-            at([...path, k]),
-            [...path, k],
-            `Key '${k}' is not supported`,
-          ),
+          diag('schema_invalid', at([...path, k]), [...path, k], `Key '${k}' is not supported`),
         );
     } else {
       out.push(diag('schema_invalid', at(path), path, issue.message));
@@ -149,18 +119,13 @@ export function analyze(input: AnalyzeInput): Result<Validated, Diagnostic[]> {
     }
   }
 
-  const resolved = resolveProfiles(
-    rawUser.profiles ?? {},
-    input.atUser,
-    input.maxProfileDepth,
-  );
+  const resolved = resolveProfiles(rawUser.profiles ?? {}, input.atUser, input.maxProfileDepth);
   diags.push(...resolved.diagnostics);
   if (diags.length > 0) return err(diags);
 
   const user: NormalizedUser = { ...normalizeUserBase(rawUser), workflows };
   const profiles: Record<string, NormalizedProfile> = {};
-  for (const [pn, p] of Object.entries(resolved.profiles))
-    profiles[pn] = normalizeProfile(p);
+  for (const [pn, p] of Object.entries(resolved.profiles)) profiles[pn] = normalizeProfile(p);
   const normProject = normalizeProject(project);
 
   diags.push(
@@ -192,10 +157,7 @@ export function analyze(input: AnalyzeInput): Result<Validated, Diagnostic[]> {
   };
   return ok({
     config,
-    runtime: normalizeRuntime(
-      rawUser.runtime,
-      Object.keys(rawUser.harnesses ?? {}),
-    ),
+    runtime: normalizeRuntime(rawUser.runtime, Object.keys(rawUser.harnesses ?? {})),
     locations: projectLocations(rawUser),
     projectDispatch: projectDispatch(rawUser),
   });
@@ -205,9 +167,7 @@ export function analyze(input: AnalyzeInput): Result<Validated, Diagnostic[]> {
  * Collect all diagnostics in (file, line, col) order. Syntax and size failures stop processing
  * that document.
  */
-export function validateConfig(
-  input: ValidateInput,
-): Result<Validated, Diagnostic[]> {
+export function validateConfig(input: ValidateInput): Result<Validated, Diagnostic[]> {
   const limits: LoaderLimits = { ...DEFAULT_LIMITS, ...input.limits };
 
   const syntax: Diagnostic[] = [];
@@ -275,14 +235,10 @@ export function validateConfig(
       diags.push(...cleaned.diagnostics);
       const parsed = PackSchema.safeParse(cleaned.value);
       if (!parsed.success) {
-        diags.push(
-          ...zodDiagnostics(parsed.error, (p) => locate(pack.located, p)),
-        );
+        diags.push(...zodDiagnostics(parsed.error, (p) => locate(pack.located, p)));
         return;
       }
-      packHashes[name] = hashCanonical(
-        normalizeProject({ ...parsed.data, version: 1 }),
-      );
+      packHashes[name] = hashCanonical(normalizeProject({ ...parsed.data, version: 1 }));
       const { version: _v, ...preset } = parsed.data;
       packLayers.push({ located: pack.located, value: preset });
     });

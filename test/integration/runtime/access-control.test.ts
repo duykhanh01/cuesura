@@ -6,10 +6,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import {
-  loadTokenMap,
-  readTokenFile,
-} from '../../../src/application/access-tokens.ts';
+import { loadTokenMap, readTokenFile } from '../../../src/application/access-tokens.ts';
 import { CUSR_COMMANDS } from '../../../src/cli/commands.ts';
 import { ExitCode } from '../../../src/cli/output.ts';
 import { runCli } from '../../../src/cli/program.ts';
@@ -53,9 +50,7 @@ async function cli(sd: SeededDaemon, token: string, argv: string[]) {
   const out: string[] = [];
   const saved = process.env['CUSR_TOKEN_FILE'];
   process.env['CUSR_TOKEN_FILE'] =
-    token === 'owner'
-      ? join(sd.dataDir, 'owner.token')
-      : join(sd.base, `${token}.token`);
+    token === 'owner' ? join(sd.dataDir, 'owner.token') : join(sd.base, `${token}.token`);
   try {
     const code = await runCli(
       { name: 'cusr', description: 'test', version: '0' },
@@ -99,16 +94,12 @@ describe('roles (US6.3, FR-028)', () => {
     const t = buildTask();
     sd.seed((d) => toGreen(d, t));
     const running = await sd.start();
-    expect((await cli(sd, 'reader', ['task', 'show', t.id])).code).toBe(
+    expect((await cli(sd, 'reader', ['task', 'show', t.id])).code).toBe(ExitCode.ok);
+    expect((await cli(sd, 'reader', ['inbox'])).code).toBe(ExitCode.ok);
+    expect((await cli(sd, 'reader', ['dispatch', '--project', 'acme'])).code).toBe(ExitCode.ok);
+    expect((await cli(sd, 'reader', ['dispatch', '--project', 'elsewhere'])).code).not.toBe(
       ExitCode.ok,
     );
-    expect((await cli(sd, 'reader', ['inbox'])).code).toBe(ExitCode.ok);
-    expect(
-      (await cli(sd, 'reader', ['dispatch', '--project', 'acme'])).code,
-    ).toBe(ExitCode.ok);
-    expect(
-      (await cli(sd, 'reader', ['dispatch', '--project', 'elsewhere'])).code,
-    ).not.toBe(ExitCode.ok);
     const before = running.store.readEvents(t.id).length;
     const v = String(running.store.readTask(t.id)?.version);
     for (const argv of [
@@ -197,12 +188,7 @@ describe('roles (US6.3, FR-028)', () => {
           },
         },
       } as never);
-      d.complete(
-        t.id,
-        d.pendingOne(t.id, 'prepare').id,
-        'succeeded',
-        PREPARE_DATA,
-      );
+      d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE_DATA);
       for (let i = 0; i < 2; i++) {
         if (d.task(t.id).wait?.detail.code === 'execution_slot')
           d.store.grantNext(d.now as EpochMs);
@@ -226,11 +212,9 @@ describe('roles (US6.3, FR-028)', () => {
     expect(argv).toContain('--rung');
     expect((await cli(sd, 'assistant', argv)).code).toBe(ExitCode.forbidden);
     expect((await cli(sd, 'owner', argv)).code).toBe(ExitCode.ok);
-    expect(
-      running.store
-        .readEvents(t.id)
-        .filter((e) => e.type === 'ApprovalGranted'),
-    ).toHaveLength(1);
+    expect(running.store.readEvents(t.id).filter((e) => e.type === 'ApprovalGranted')).toHaveLength(
+      1,
+    );
   });
 
   it('an assistant token confirms a run selection; admin reaches approve and finds no such request', async () => {
@@ -299,14 +283,9 @@ describe('project scope (FR-028/032)', () => {
     const v = running.store.readTask(t.id)?.version as number;
     const before = running.store.readEvents(t.id).length;
     // Naming the real project: forbidden. Naming its own: the task is not there.
-    expect(
-      (
-        await sd.command(
-          'outsider',
-          command(t, 'task_cancel', v, { reason: 'x' }),
-        )
-      ).code,
-    ).toBe(ExitCode.forbidden);
+    expect((await sd.command('outsider', command(t, 'task_cancel', v, { reason: 'x' }))).code).toBe(
+      ExitCode.forbidden,
+    );
     expect(
       (
         await sd.command(
@@ -317,21 +296,15 @@ describe('project scope (FR-028/032)', () => {
         )
       ).code,
     ).toBe(ExitCode.missing);
-    expect((await cli(sd, 'outsider', ['task', 'show', t.id])).code).toBe(
+    expect((await cli(sd, 'outsider', ['task', 'show', t.id])).code).toBe(ExitCode.missing);
+    expect((await cli(sd, 'outsider', ['task', 'explain', t.id, '--full'])).code).toBe(
       ExitCode.missing,
     );
-    expect(
-      (await cli(sd, 'outsider', ['task', 'explain', t.id, '--full'])).code,
-    ).toBe(ExitCode.missing);
-    expect((await cli(sd, 'outsider', ['task', 'history', t.id])).code).toBe(
-      ExitCode.missing,
+    expect((await cli(sd, 'outsider', ['task', 'history', t.id])).code).toBe(ExitCode.missing);
+    expect((await cli(sd, 'outsider', ['task', 'list'])).envelope.data['items']).toEqual([]);
+    expect((await cli(sd, 'outsider', ['task', 'list', '--project', 'acme'])).code).toBe(
+      ExitCode.forbidden,
     );
-    expect(
-      (await cli(sd, 'outsider', ['task', 'list'])).envelope.data['items'],
-    ).toEqual([]);
-    expect(
-      (await cli(sd, 'outsider', ['task', 'list', '--project', 'acme'])).code,
-    ).toBe(ExitCode.forbidden);
     expect(
       (
         await cli(sd, 'outsider', [
@@ -369,9 +342,7 @@ describe('tokens (T117, FR-028/032)', () => {
   it('an unknown or missing token is exit 5; a token file with loose permissions is refused locally', async () => {
     const sd = daemon();
     await sd.start();
-    expect((await sd.query('A'.repeat(43), { kind: 'task_list' })).code).toBe(
-      ExitCode.forbidden,
-    );
+    expect((await sd.query('A'.repeat(43), { kind: 'task_list' })).code).toBe(ExitCode.forbidden);
     const missing = await cli(sd, 'nobody', ['task', 'list']);
     expect(missing.code).toBe(ExitCode.usage);
     expect(missing.envelope.error.code).toBe('token_unavailable');
@@ -408,10 +379,9 @@ describe('tokens (T117, FR-028/032)', () => {
       expect(r.code).toBe(ExitCode.forbidden);
       expect(r.envelope.error?.['code']).toBe('unauthenticated');
       const events = started.value.store.readEvents(t.id);
-      expect(
-        events.find((e) => e.type === 'CancelRequested')?.actor ??
-          events.at(-1)?.actor,
-      ).toBe('assistant');
+      expect(events.find((e) => e.type === 'CancelRequested')?.actor ?? events.at(-1)?.actor).toBe(
+        'assistant',
+      );
       expect(started.value.store.readCommand(req)?.actor).toBe('assistant');
     } finally {
       await sd.stop();
@@ -426,9 +396,7 @@ describe('tokens (T117, FR-028/032)', () => {
     const owner = readTokenFile(running.ownerTokenPath, 'owner');
     if (!owner.ok) throw new Error('owner token');
     const text = logs.join('\n');
-    expect(text).toContain(
-      'token assistant actor=assistant roles=read,operate projects=acme',
-    );
+    expect(text).toContain('token assistant actor=assistant roles=read,operate projects=acme');
     expect(text).toContain('token config hash');
     expect(text).not.toContain(owner.value);
     expect(text).not.toContain(sd.tokens['assistant']);
@@ -436,9 +404,7 @@ describe('tokens (T117, FR-028/032)', () => {
       running.ownerTokenPath,
       SPECS.map((s) => ({ ...s, token_file: join(sd.base, `${s.id}.token`) })),
     );
-    expect(
-      map.ok && map.value.audit.find((a) => a.id === 'assistant'),
-    ).toMatchObject({
+    expect(map.ok && map.value.audit.find((a) => a.id === 'assistant')).toMatchObject({
       roles: ['read', 'operate'],
       projects: ['acme'],
     });
@@ -454,8 +420,6 @@ describe('tokens (T117, FR-028/032)', () => {
     expect(existsSync(join(sd.dataDir, 'owner.token'))).toBe(true);
     const leak = JSON.stringify(running.store.taskIdsByStatus(['READY']));
     expect(leak).not.toContain(owner.value);
-    expect(
-      readFileSync(join(sd.base, 'assistant.token'), 'utf8'),
-    ).not.toContain(owner.value);
+    expect(readFileSync(join(sd.base, 'assistant.token'), 'utf8')).not.toContain(owner.value);
   });
 });

@@ -15,13 +15,7 @@
  * Both are health failures with their reason. A task without a runtime snapshot (001) stays read-only.
  * The report is written to DATA_DIR before any work is granted.
  */
-import {
-  closeSync,
-  fsyncSync,
-  openSync,
-  renameSync,
-  writeFileSync,
-} from 'node:fs';
+import { closeSync, fsyncSync, openSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isTerminal, TASK_STATUSES } from '../domain/state.ts';
 import { canonicalJson } from '../shared/canonical-json.ts';
@@ -85,8 +79,7 @@ export type StartupReport = {
   readonly held: string | null;
 };
 
-export type RecoveryDeps = Omit<ReconcileDeps, 'store'> &
-  Pick<SpoolIngestDeps, 'probeCursors'>;
+export type RecoveryDeps = Omit<ReconcileDeps, 'store'> & Pick<SpoolIngestDeps, 'probeCursors'>;
 
 export type StartupDeps = RecoveryDeps & {
   /** The store file inside `dataDir`. */
@@ -95,12 +88,8 @@ export type StartupDeps = RecoveryDeps & {
 };
 
 /** Reason new work is held, or null when every claim is resolved. */
-export function heldReason(
-  unresolved: ReconcileReport['unresolved'],
-): string | null {
-  return unresolved.length === 0
-    ? null
-    : `unresolved claims (${unresolved.length})`;
+export function heldReason(unresolved: ReconcileReport['unresolved']): string | null {
+  return unresolved.length === 0 ? null : `unresolved claims (${unresolved.length})`;
 }
 
 /** Reconcile, then ingest what the reconciled runners wrote (the daemon repeats this while it runs). */
@@ -116,8 +105,7 @@ export async function recoverOperations(
   const ingest: SpoolIngestReport[] = [];
   if (!reconcile.write_failed) {
     const operations = new Map(open.map((o) => [o.id, o.task_id]));
-    for (const o of reconcile.operations)
-      operations.set(o.operation_id, o.task_id);
+    for (const o of reconcile.operations) operations.set(o.operation_id, o.task_id);
     for (const [id, taskId] of operations) {
       const i = ingestOperationSpool({ ...deps, finalOnly: true }, taskId, id);
       ingest.push(i);
@@ -155,22 +143,14 @@ function writeReport(dataDir: string, report: StartupReport): string | null {
 function committedState(
   store: Store,
   now: number,
-): Pick<
-  StartupReport,
-  'slot' | 'queue_length' | 'timers' | 'legacy_read_only'
-> {
+): Pick<StartupReport, 'slot' | 'queue_length' | 'timers' | 'legacy_read_only'> {
   let armed = 0;
   let overdue = 0;
   const legacy: string[] = [];
   for (const id of store.taskIdsByStatus(TASK_STATUSES)) {
     const s = store.readTask(id as Uuid);
     if (s === null) continue;
-    if (
-      s.policy_ref !== null &&
-      s.runtime_ref === null &&
-      !isTerminal(s.status)
-    )
-      legacy.push(id);
+    if (s.policy_ref !== null && s.runtime_ref === null && !isTerminal(s.status)) legacy.push(id);
     for (const t of Object.values(s.timers)) {
       if (t.status !== 'armed') continue;
       armed += 1;
@@ -194,9 +174,7 @@ export async function recoverStore(
 ): Promise<Result<{ store: Store; report: StartupReport }, StoreOpenError>> {
   const opened = openStore(
     deps.path,
-    deps.busyTimeoutMs === undefined
-      ? {}
-      : { busyTimeoutMs: deps.busyTimeoutMs },
+    deps.busyTimeoutMs === undefined ? {} : { busyTimeoutMs: deps.busyTimeoutMs },
   );
   if (!opened.ok) return opened;
   const store = opened.value;

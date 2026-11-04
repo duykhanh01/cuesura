@@ -9,10 +9,7 @@
  * Archived T007 fixtures keep their recorded plans. No adapter selects a model or changes modes as a retry.
  */
 import { z } from 'zod';
-import {
-  RelativePathSchema,
-  type SelectedInnerMode,
-} from '../../domain/runtime.ts';
+import { RelativePathSchema, type SelectedInnerMode } from '../../domain/runtime.ts';
 import type { Usage } from '../../domain/trigger.ts';
 import type { EpochMs, Hash } from '../../shared/brand.ts';
 import type { PermissionDenial } from '../ports.ts';
@@ -82,10 +79,7 @@ export function boundaryRole(role: Role): Exclude<Role, 'decider'> {
 }
 
 /** Claude follows its own default (off); reviewers retain their native read-only boundary. */
-export function nativeSandboxEnabled(
-  pin: VendorPin,
-  role: Role = 'coder',
-): boolean {
+export function nativeSandboxEnabled(pin: VendorPin, role: Role = 'coder'): boolean {
   if (boundaryRole(role) === 'reviewer') return true;
   if (pin.vendor === 'codex') return pin.permission_mode !== 'full-access';
   const sandbox = pin.settings?.['sandbox'];
@@ -93,9 +87,7 @@ export function nativeSandboxEnabled(
 }
 
 /** The host manifest records permissions-only execution separately from native sandbox proof. */
-export function hostInnerMode(
-  pin: VendorPin,
-): 'native' | 'permissions_only' | 'full_access' {
+export function hostInnerMode(pin: VendorPin): 'native' | 'permissions_only' | 'full_access' {
   if (pin.permission_mode === 'full-access') return 'full_access';
   return nativeSandboxEnabled(pin) ? 'native' : 'permissions_only';
 }
@@ -235,16 +227,11 @@ export type NativeWriteCheck = {
   readonly runPinned: (argv: readonly string[]) => PinnedRun;
 };
 
-const OS_WRITE_DENIAL =
-  /Read-only file system|Permission denied|Operation not permitted/i;
+const OS_WRITE_DENIAL = /Read-only file system|Permission denied|Operation not permitted/i;
 
 /** The operating system's refusal of a write to `marker`, as opposed to a rule or the model declining. */
 export function osDeniedWrite(text: unknown, marker: string): boolean {
-  return (
-    typeof text === 'string' &&
-    text.includes(marker) &&
-    OS_WRITE_DENIAL.test(text)
-  );
+  return typeof text === 'string' && text.includes(marker) && OS_WRITE_DENIAL.test(text);
 }
 
 export type PlanResult =
@@ -274,8 +261,7 @@ export type Rec = Record<string, unknown>;
 
 export const isRec = (v: unknown): v is Rec =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
-export const str = (v: unknown): string | null =>
-  typeof v === 'string' ? v : null;
+export const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 export const counter = (n: unknown): n is number =>
   typeof n === 'number' && Number.isSafeInteger(n) && n >= 0;
 
@@ -301,10 +287,7 @@ const OVERLOADED_TEXT =
   /\b(?:50[0234]|529)\b|overloaded|at capacity|server is busy|temporarily unavailable|service unavailable|internal server error|bad gateway|gateway time-?out/i;
 
 /** HTTP status first, then the vendor's own wording; anything else is a vendor error. */
-export function classifyFailure(
-  detail: string,
-  status: number | null,
-): FailureKind {
+export function classifyFailure(detail: string, status: number | null): FailureKind {
   if (status === 429) return 'rate_limited';
   if (status === 401 || status === 403) return 'auth';
   if (status !== null && OVERLOADED_STATUS.has(status)) return 'overloaded';

@@ -12,12 +12,7 @@ import {
 import { release, usageOf } from './budget.ts';
 import { reject, type Ctx } from './context.ts';
 import { settleUnderDrift } from './head-drift.ts';
-import {
-  onEffectFailed,
-  onEffectSucceeded,
-  parseSuccess,
-  proceed,
-} from './interpreter.ts';
+import { onEffectFailed, onEffectSucceeded, parseSuccess, proceed } from './interpreter.ts';
 
 type Reconciled = Extract<Trigger, { kind: 'effect_reconciled' }>;
 
@@ -58,9 +53,7 @@ function successIssues(ctx: Ctx, e: EffectMirror, data: unknown): string[] {
     ).parse(data);
     const issues: string[] = [];
     if (!d.schema_checked)
-      issues.push(
-        'schema_checked: output has not been validated against its schema',
-      );
+      issues.push('schema_checked: output has not been validated against its schema');
     if (d.invoked === undefined) issues.push('invoked is required');
     return issues;
   }
@@ -89,8 +82,7 @@ export function onReconciled(ctx: Ctx, t: Reconciled): void {
         ctx.emit('ReconcileIncomplete', { effect_id: e.id, issues });
         return;
       }
-      const data = (parseSuccess(ctx, e, t.data) as { ok: true; data: unknown })
-        .data;
+      const data = (parseSuccess(ctx, e, t.data) as { ok: true; data: unknown }).data;
       ctx.emit('EffectReconciled', {
         effect_id: e.id,
         finding: t.finding,
@@ -102,11 +94,7 @@ export function onReconciled(ctx: Ctx, t: Reconciled): void {
       if (ctx.state.completion !== null) return;
       // Under a recorded head drift a late result is history of its own operation (H01/H05): no route.
       if (ctx.state.run.head_drift !== null)
-        return settleUnderDrift(
-          ctx,
-          e,
-          (data as { invoked?: boolean } | null)?.invoked !== false,
-        );
+        return settleUnderDrift(ctx, e, (data as { invoked?: boolean } | null)?.invoked !== false);
       onEffectSucceeded(ctx, e, data);
       return;
     }
@@ -135,8 +123,7 @@ export function onReconciled(ctx: Ctx, t: Reconciled): void {
           : [];
       if (
         t.signature === AGENT_LOST_SIGNATURE &&
-        (lost.length === 0 ||
-          lost.some((o) => o.status !== 'lost' && isUnresolved(o)))
+        (lost.length === 0 || lost.some((o) => o.status !== 'lost' && isUnresolved(o)))
       ) {
         ctx.emit('ReconcileIncomplete', {
           effect_id: e.id,
@@ -170,8 +157,7 @@ export function onReconciled(ctx: Ctx, t: Reconciled): void {
       });
       closeProbe(ctx, e, probeResult(t));
       if (ctx.state.completion !== null) return;
-      if (ctx.state.run.head_drift !== null)
-        return settleUnderDrift(ctx, e, true);
+      if (ctx.state.run.head_drift !== null) return settleUnderDrift(ctx, e, true);
       onEffectFailed(ctx, e, f);
       return;
     }
@@ -196,10 +182,7 @@ export function onReconciled(ctx: Ctx, t: Reconciled): void {
         result: null,
       });
       closeProbe(ctx, e, probeResult(t));
-      if (
-        ctx.state.status === 'WAITING' &&
-        ctx.state.wait?.detail['effect_id'] === e.id
-      ) {
+      if (ctx.state.status === 'WAITING' && ctx.state.wait?.detail['effect_id'] === e.id) {
         ctx.emit('TaskResumed', { reason: `effect:${e.id}` });
       }
       if (probe) return;

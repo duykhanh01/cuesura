@@ -1,11 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import {
-  chmodSync,
-  readFileSync,
-  statSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { chmodSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
@@ -23,11 +17,7 @@ import { useTempDir } from '../../support/temp-db.ts';
 
 const tempDir = useTempDir('cusr-authz-');
 
-function tokenFile(
-  dir: string,
-  name: string,
-  mode = 0o600,
-): { path: string; token: string } {
+function tokenFile(dir: string, name: string, mode = 0o600): { path: string; token: string } {
   const token = randomBytes(32).toString('base64url');
   const path = join(dir, name);
   writeFileSync(path, `${token}\n`, { mode });
@@ -75,9 +65,10 @@ describe('access tokens', () => {
 
   it('refuses token files that are group-readable, symlinked or malformed', () => {
     const dir = tempDir();
-    expect(
-      readTokenFile(tokenFile(dir, 'open', 0o644).path, 'x'),
-    ).toMatchObject({ ok: false, error: { reason: 'mode_too_open' } });
+    expect(readTokenFile(tokenFile(dir, 'open', 0o644).path, 'x')).toMatchObject({
+      ok: false,
+      error: { reason: 'mode_too_open' },
+    });
     const good = tokenFile(dir, 'good');
     symlinkSync(good.path, join(dir, 'link'));
     expect(readTokenFile(join(dir, 'link'), 'x')).toMatchObject({
@@ -143,9 +134,7 @@ describe('server-side authorization', () => {
     expect(authorize(a, { role: 'operate', project: 'node-sandbox' })).toEqual({
       ok: true,
     });
-    expect(
-      authorize(a, { role: 'admin', project: 'node-sandbox' }),
-    ).toMatchObject({
+    expect(authorize(a, { role: 'admin', project: 'node-sandbox' })).toMatchObject({
       ok: false,
       error: { code: 'forbidden', reason: 'role' },
     });
@@ -153,12 +142,12 @@ describe('server-side authorization', () => {
       ok: false,
       error: { code: 'forbidden', reason: 'project' },
     });
-    expect(
-      visibleProjects(a as NonNullable<typeof a>, ['other', 'node-sandbox']),
-    ).toEqual(['node-sandbox']);
-    expect(
-      authorize(authenticate(map, owner), { role: 'admin', project: 'other' }),
-    ).toEqual({ ok: true });
+    expect(visibleProjects(a as NonNullable<typeof a>, ['other', 'node-sandbox'])).toEqual([
+      'node-sandbox',
+    ]);
+    expect(authorize(authenticate(map, owner), { role: 'admin', project: 'other' })).toEqual({
+      ok: true,
+    });
     expect(authorize(null, { role: 'read' })).toMatchObject({
       ok: false,
       error: { code: 'unauthenticated' },

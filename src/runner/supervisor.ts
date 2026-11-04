@@ -39,11 +39,7 @@ import {
   type LockProbe,
 } from './operation-lock.ts';
 import { Redactor } from './redact.ts';
-import {
-  shellJoin,
-  terminalLabel,
-  type TerminalHost,
-} from './terminal-host.ts';
+import { shellJoin, terminalLabel, type TerminalHost } from './terminal-host.ts';
 
 export const SYSTEMD_RUN = '/usr/bin/systemd-run';
 export const SYSTEMCTL = '/usr/bin/systemctl';
@@ -100,21 +96,13 @@ export const spawnCommand: CommandExec = (file, args, opts) =>
         error: e.message,
       }),
     );
-    child.once('close', (code) =>
-      done({ code, stdout, stderr, timed_out: timedOut, error: null }),
-    );
+    child.once('close', (code) => done({ code, stdout, stderr, timed_out: timedOut, error: null }));
   });
 
 /** systemctl/systemd-run --user need only the user bus address, never the daemon's full environment. */
 function userBusEnv(): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const k of [
-    'XDG_RUNTIME_DIR',
-    'DBUS_SESSION_BUS_ADDRESS',
-    'HOME',
-    'USER',
-    'LANG',
-  ]) {
+  for (const k of ['XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS', 'HOME', 'USER', 'LANG']) {
     const v = process.env[k];
     if (v !== undefined) out[k] = v;
   }
@@ -182,21 +170,13 @@ export function systemdRunArgv(
     '--',
     '/bin/sh',
     '-c',
-    opts.pty === true
-      ? 'trap "" TERM INT HUP; exec "$@"'
-      : 'trap "" TERM; exec "$@"',
+    opts.pty === true ? 'trap "" TERM INT HUP; exec "$@"' : 'trap "" TERM; exec "$@"',
     'sh',
     ...flockArgv(lockFile, runnerCommand),
   ];
 }
 
-const ACTIVE_STATES = new Set([
-  'active',
-  'activating',
-  'deactivating',
-  'reloading',
-  'refreshing',
-]);
+const ACTIVE_STATES = new Set(['active', 'activating', 'deactivating', 'reloading', 'refreshing']);
 
 export function parseUnitShow(unit: string, stdout: string): UnitObservation {
   const props = new Map<string, string>();
@@ -214,8 +194,7 @@ export function parseUnitShow(unit: string, stdout: string): UnitObservation {
     cgroup: cgroup === '' ? null : cgroup,
   };
   if (load === 'not-found') return { ...facts, state: 'not_found' };
-  if (load !== 'loaded' || active === undefined)
-    return { ...facts, state: 'unknown' };
+  if (load !== 'loaded' || active === undefined) return { ...facts, state: 'unknown' };
   if (ACTIVE_STATES.has(active)) return { ...facts, state: 'active' };
   if (active === 'failed') return { ...facts, state: 'failed' };
   if (active === 'inactive') return { ...facts, state: 'exited' };
@@ -314,9 +293,7 @@ export class SystemdSupervisor implements ProcessPort {
       command: ` ${shellJoin(argv)}; exit`,
     });
     if (!opened.ok) {
-      this.#log(
-        `${terminal.name} unavailable, ${unit} runs in the background: ${opened.error}`,
-      );
+      this.#log(`${terminal.name} unavailable, ${unit} runs in the background: ${opened.error}`);
       return null;
     }
     const deadline = this.#clock.monotonic() + this.#terminalWaitMs;
@@ -324,14 +301,11 @@ export class SystemdSupervisor implements ProcessPort {
       const seen = await this.inspect(spec.operation_id);
       if (seen.state !== 'not_found' && seen.state !== 'unknown')
         return { unit, invocation_id: seen.invocation_id };
-      if (readLaunchMarker(run).state !== 'missing')
-        return { unit, invocation_id: null };
+      if (readLaunchMarker(run).state !== 'missing') return { unit, invocation_id: null };
       if (this.#clock.monotonic() >= deadline) break;
       await delay(TERMINAL_POLL_MS);
     }
-    this.#log(
-      `${terminal.name} did not start ${unit} in time, it runs in the background`,
-    );
+    this.#log(`${terminal.name} did not start ${unit} in time, it runs in the background`);
     await opened.value.close();
     return null;
   }
@@ -339,10 +313,7 @@ export class SystemdSupervisor implements ProcessPort {
   async launch(
     spec: OperationLaunch,
   ): Promise<
-    Result<
-      { readonly unit: string; readonly invocation_id: string | null },
-      LaunchError
-    >
+    Result<{ readonly unit: string; readonly invocation_id: string | null }, LaunchError>
   > {
     if (!isSafeId(spec.operation_id) || !isSafeId(spec.run_id))
       return err({
@@ -405,13 +376,7 @@ export class SystemdSupervisor implements ProcessPort {
     ];
     const viaTerminal = this.#terminal !== null && spec.kind === 'agent';
     if (this.#terminal !== null && viaTerminal) {
-      const shown = await this.#launchInTerminal(
-        this.#terminal,
-        spec,
-        lock,
-        command,
-        run,
-      );
+      const shown = await this.#launchInTerminal(this.#terminal, spec, lock, command, run);
       if (shown !== null) return ok(shown);
     }
     const argv = systemdRunArgv(spec, lock, command);
@@ -476,11 +441,9 @@ export class SystemdSupervisor implements ProcessPort {
 
   /** Releases a failed unit's record; only after its result was ingested and acknowledged. */
   async collect(operationId: string): Promise<boolean> {
-    const r = await this.#exec(
-      SYSTEMCTL,
-      ['--user', 'reset-failed', unitName(operationId)],
-      { timeout_ms: 15_000 },
-    );
+    const r = await this.#exec(SYSTEMCTL, ['--user', 'reset-failed', unitName(operationId)], {
+      timeout_ms: 15_000,
+    });
     return r.code === 0;
   }
 }
@@ -503,8 +466,7 @@ export function observeLaunch(
 ): LaunchState {
   const marker = readLaunchMarker(run);
   if (marker.state === 'missing') return { state: 'not_launched' };
-  if (marker.state === 'valid' && marker.value.fence === true)
-    return { state: 'not_launched' };
+  if (marker.state === 'valid' && marker.value.fence === true) return { state: 'not_launched' };
   if (marker.state === 'invalid')
     return {
       state: 'unknown',
@@ -521,10 +483,8 @@ export function observeLaunch(
         reason: 'pid receipt nonce differs from launch marker',
       };
     const check = checkIdentity(toProcessIdentity(pid.value), probe);
-    if (check === 'alive')
-      return { state: 'running', reason: 'pid and start ticks match' };
-    if (check === 'unknown')
-      return { state: 'unknown', reason: 'process identity unreadable' };
+    if (check === 'alive') return { state: 'running', reason: 'pid and start ticks match' };
+    if (check === 'unknown') return { state: 'unknown', reason: 'process identity unreadable' };
     if (lockState === 'held')
       return {
         state: 'running',
@@ -538,9 +498,7 @@ export function observeLaunch(
     return {
       state: 'lost',
       reason:
-        check === 'other_boot'
-          ? 'recorded on another boot'
-          : 'process identity no longer present',
+        check === 'other_boot' ? 'recorded on another boot' : 'process identity no longer present',
     };
   }
   if (lockState === 'held')

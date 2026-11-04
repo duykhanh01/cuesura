@@ -21,10 +21,7 @@ const SCHEMA_DIR = fileURLToPath(
   new URL('../../fixtures/runtime/spike-0/schema/', import.meta.url),
 );
 const HARNESS_MANIFEST = fileURLToPath(
-  new URL(
-    '../../fixtures/runtime/spike-0/harness/real-20261028/manifest.json',
-    import.meta.url,
-  ),
+  new URL('../../fixtures/runtime/spike-0/harness/real-20261028/manifest.json', import.meta.url),
 );
 
 type Sample = {
@@ -34,13 +31,11 @@ type Sample = {
   value: unknown;
 };
 const samples = (
-  JSON.parse(
-    readFileSync(join(SCHEMA_DIR, 'samples.synthetic.json'), 'utf8'),
-  ) as { cases: Sample[] }
+  JSON.parse(readFileSync(join(SCHEMA_DIR, 'samples.synthetic.json'), 'utf8')) as {
+    cases: Sample[];
+  }
 ).cases;
-const manifest = JSON.parse(
-  readFileSync(join(SCHEMA_DIR, 'manifest.json'), 'utf8'),
-) as {
+const manifest = JSON.parse(readFileSync(join(SCHEMA_DIR, 'manifest.json'), 'utf8')) as {
   roles: Record<string, { schema_id: string; file: string; digest: string }>;
 };
 
@@ -49,18 +44,15 @@ function sha256(text: string): string {
 }
 
 describe('role result schemas promoted from T003 (T013, SPEC §12.3)', () => {
-  it.each(ROLES)(
-    '%s keeps the schema id, canonical digest and file proven in S0.2',
-    (role) => {
-      const pinned = manifest.roles[role];
-      expect(ROLE_SCHEMAS[role].id).toBe(pinned?.schema_id);
-      expect(roleSchemaDigest(role)).toBe(pinned?.digest);
-      expect(ROLE_SCHEMA_DIGESTS[role]).toBe(pinned?.digest);
-      expect(
-        JSON.parse(readFileSync(join(SCHEMA_DIR, pinned?.file ?? ''), 'utf8')),
-      ).toEqual(roleJsonSchema(role));
-    },
-  );
+  it.each(ROLES)('%s keeps the schema id, canonical digest and file proven in S0.2', (role) => {
+    const pinned = manifest.roles[role];
+    expect(ROLE_SCHEMAS[role].id).toBe(pinned?.schema_id);
+    expect(roleSchemaDigest(role)).toBe(pinned?.digest);
+    expect(ROLE_SCHEMA_DIGESTS[role]).toBe(pinned?.digest);
+    expect(JSON.parse(readFileSync(join(SCHEMA_DIR, pinned?.file ?? ''), 'utf8'))).toEqual(
+      roleJsonSchema(role),
+    );
+  });
 
   it('wire schema files match, byte for byte, the files sent to both vendors in T007', () => {
     const recorded = new Set(
@@ -102,8 +94,7 @@ describe('role result schemas promoted from T003 (T013, SPEC §12.3)', () => {
       if (sample.expect === 'valid') expect(r.ok).toBe(true);
       else {
         expect(r.ok).toBe(false);
-        if (!r.ok)
-          expect(r.issues.every((i) => i.layer === sample.expect)).toBe(true);
+        if (!r.ok) expect(r.issues.every((i) => i.layer === sample.expect)).toBe(true);
       }
     },
   );
@@ -146,10 +137,7 @@ describe('role schema portability and sample coverage', () => {
   );
 
   it('blocker and line are nullable via null, not optional', () => {
-    const coder = roleJsonSchema('coder')['properties'] as Record<
-      string,
-      unknown
-    >;
+    const coder = roleJsonSchema('coder')['properties'] as Record<string, unknown>;
     expect(coder['blocker']).toEqual({ type: ['string', 'null'] });
     const findings = (
       roleJsonSchema('reviewer')['properties'] as Record<
@@ -226,9 +214,7 @@ describe('number of questions', () => {
       blocker: null,
     });
     expect(validateRoleResult('coder', result('Which one?', 50)).ok).toBe(true);
-    expect(
-      validateRoleResult('coder', result('x'.repeat(TEXT_MAX + 1), 1)).ok,
-    ).toBe(false);
+    expect(validateRoleResult('coder', result('x'.repeat(TEXT_MAX + 1), 1)).ok).toBe(false);
   });
 });
 
@@ -241,11 +227,7 @@ describe('decider result', () => {
   it('accepts an answer with a reason and refuses an empty one', () => {
     const value = { schema_version: 1, answer: 'UTF-8', reason: 'default' };
     expect(validateRoleResult('decider', value).ok).toBe(true);
-    expect(validateRoleResult('decider', { ...value, answer: ' ' }).ok).toBe(
-      false,
-    );
-    expect(validateRoleResult('decider', { ...value, extra: 1 }).ok).toBe(
-      false,
-    );
+    expect(validateRoleResult('decider', { ...value, answer: ' ' }).ok).toBe(false);
+    expect(validateRoleResult('decider', { ...value, extra: 1 }).ok).toBe(false);
   });
 });

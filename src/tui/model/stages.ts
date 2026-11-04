@@ -55,8 +55,7 @@ const STAGE_OF: Readonly<Record<string, StageName>> = {
 };
 
 /** `failed` and `stopped` mark where a task that ended badly was. */
-export type StageState =
-  'done' | 'current' | 'todo' | 'skipped' | 'failed' | 'stopped';
+export type StageState = 'done' | 'current' | 'todo' | 'skipped' | 'failed' | 'stopped';
 
 export type Stage = {
   readonly name: StageName;
@@ -70,8 +69,7 @@ export function stageOf(step: string | null): StageName | null {
   return STAGE_OF[step] ?? null;
 }
 
-const endState = (status: TaskStatus): StageState =>
-  status === 'FAILED' ? 'failed' : 'stopped';
+const endState = (status: TaskStatus): StageState => (status === 'FAILED' ? 'failed' : 'stopped');
 
 /**
  * Stages for a board row, which knows only its current step and mode. `null` when the step belongs to a
@@ -82,15 +80,12 @@ export function rowStages(row: {
   readonly step: string | null;
   readonly mode: string | null;
 }): readonly Stage[] | null {
-  const skip = (name: StageName): boolean =>
-    name === 'review' && row.mode === 'direct-pr';
+  const skip = (name: StageName): boolean => name === 'review' && row.mode === 'direct-pr';
   const at = stageOf(row.step);
   if (row.step !== null && at === null) return null;
   const here = at === null ? -1 : STAGES.indexOf(at);
   const terminal =
-    row.status === 'FAILED' || row.status === 'CANCELLED'
-      ? endState(row.status)
-      : null;
+    row.status === 'FAILED' || row.status === 'CANCELLED' ? endState(row.status) : null;
   return STAGES.map((name, i) => {
     let state: StageState;
     if (skip(name)) state = 'skipped';
@@ -127,18 +122,11 @@ export function progressStages(
     const own = members.find((s) => s.name === name) ?? members[0];
     const runs = own?.visits ?? 0;
     let state: StageState;
-    if (
-      members.length === 0 ||
-      members.every((s) => s.state === 'not_required')
-    )
-      state = 'skipped';
+    if (members.length === 0 || members.every((s) => s.state === 'not_required')) state = 'skipped';
     // A finished task still names its last step (`complete`); nothing of a DONE task is under way.
     else if (status === 'DONE') state = 'done';
     else if (i === current)
-      state =
-        status === 'FAILED' || status === 'CANCELLED'
-          ? endState(status)
-          : 'current';
+      state = status === 'FAILED' || status === 'CANCELLED' ? endState(status) : 'current';
     else if (current >= 0 && i > current) state = 'todo';
     else if (members.some((s) => s.state === 'past')) state = 'done';
     else state = 'todo';

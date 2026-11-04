@@ -1,10 +1,4 @@
-import {
-  mkdtempSync,
-  realpathSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { mkdtempSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -27,11 +21,7 @@ import {
   type RefreshClock,
   type RoundResult,
 } from '../../../src/tui/client/refresh.ts';
-import type {
-  BoardReply,
-  Health,
-  ProjectList,
-} from '../../../src/tui/client/schemas.ts';
+import type { BoardReply, Health, ProjectList } from '../../../src/tui/client/schemas.ts';
 import { reduce } from '../../../src/tui/model/reduce.ts';
 import {
   boardQueryKey,
@@ -118,15 +108,11 @@ function harness(
       ...(answer.projects === undefined ? {} : { projects: answer.projects }),
       board: (fresh, timeoutMs, signal) => {
         boards.push({ at: clock.t, fresh, timeoutMs, signal });
-        return (
-          answer.board?.(fresh) ?? Promise.resolve({ ok: true, value: BOARD })
-        );
+        return answer.board?.(fresh) ?? Promise.resolve({ ok: true, value: BOARD });
       },
       health: (timeoutMs) => {
         healths.push({ at: clock.t, timeoutMs });
-        return (
-          answer.health?.() ?? Promise.resolve({ ok: true, value: HEALTH })
-        );
+        return answer.health?.() ?? Promise.resolve({ ok: true, value: HEALTH });
       },
     },
     report: (r) => {
@@ -275,8 +261,7 @@ describe('RefreshScheduler', () => {
   it('counts a success only when both reads succeed, and a retry reads for real', async () => {
     let up = false;
     const h = harness({
-      board: () =>
-        up ? Promise.resolve({ ok: true, value: BOARD }) : refused(),
+      board: () => (up ? Promise.resolve({ ok: true, value: BOARD }) : refused()),
     });
     h.scheduler.start();
     await h.clock.advance(1);
@@ -307,9 +292,7 @@ describe('RefreshScheduler', () => {
     expect(h.boards).toHaveLength(RECONNECT_ATTEMPTS + 1);
     expect(h.healths).toHaveLength(RECONNECT_ATTEMPTS + 1);
     const gaps = h.boards.slice(1).map((b, i) => b.at - (h.boards[i]?.at ?? 0));
-    expect(gaps.slice(0, 7)).toEqual([
-      250, 500, 1_000, 2_000, 4_000, 5_000, 5_000,
-    ]);
+    expect(gaps.slice(0, 7)).toEqual([250, 500, 1_000, 2_000, 4_000, 5_000, 5_000]);
     expect(Math.max(...gaps)).toBe(5_000);
     const total = h.boards.at(-1)?.at ?? 0;
     expect(total).toBeGreaterThan(110_000);
@@ -334,8 +317,7 @@ describe('RefreshScheduler', () => {
   it('retry reads at once and goes online when the daemon is back', async () => {
     let up = false;
     const h = harness({
-      board: () =>
-        up ? Promise.resolve({ ok: true, value: BOARD }) : refused(),
+      board: () => (up ? Promise.resolve({ ok: true, value: BOARD }) : refused()),
     });
     h.scheduler.start();
     await h.clock.advance(600_000);
@@ -508,10 +490,7 @@ describe('another token while a round is out (EC-008, EC-009)', () => {
       },
       report: (r) => {
         reports.push(r);
-        return nextConnection(
-          { kind: 'online' },
-          r.ok ? { ok: true } : r.failure,
-        );
+        return nextConnection({ kind: 'online' }, r.ok ? { ok: true } : r.failure);
       },
     });
     return {
@@ -535,8 +514,7 @@ describe('another token while a round is out (EC-008, EC-009)', () => {
     };
   }
 
-  const answer = (): Promise<PortResult<BoardReply>> =>
-    Promise.resolve({ ok: true, value: BOARD });
+  const answer = (): Promise<PortResult<BoardReply>> => Promise.resolve({ ok: true, value: BOARD });
 
   it('throws away a round whose board went out before the change, and reads again at once', async () => {
     const h = rounds(answer);
@@ -569,9 +547,7 @@ describe('another token while a round is out (EC-008, EC-009)', () => {
       },
     };
     const replies = [forbidden, { ok: true, value: BOARD } as const];
-    const h = rounds(() =>
-      Promise.resolve(replies.shift() ?? { ok: true, value: BOARD }),
-    );
+    const h = rounds(() => Promise.resolve(replies.shift() ?? { ok: true, value: BOARD }));
     h.changeOn('health');
     h.scheduler.start();
     await settle();
@@ -665,8 +641,7 @@ describe('another token while a round is out (EC-008, EC-009)', () => {
       env: {},
       call: (o) => {
         const token = o.token;
-        const body = o.body as
-          { kind: string; if_changed_since?: number } | undefined;
+        const body = o.body as { kind: string; if_changed_since?: number } | undefined;
         if (body === undefined)
           return Promise.resolve(
             envelope({
@@ -732,17 +707,13 @@ describe('another token while a round is out (EC-008, EC-009)', () => {
       reads: {
         board: (fresh, ms, signal) =>
           port.board(
-            fresh || state.board === null
-              ? {}
-              : { if_changed_since: state.board.watermark },
+            fresh || state.board === null ? {} : { if_changed_since: state.board.watermark },
             ms,
             signal,
           ),
         health: (ms, signal) => port.health(ms, signal),
         projects: (fresh, ms, signal) =>
-          fresh ||
-          state.caller === null ||
-          port.credentialGeneration() !== credential
+          fresh || state.caller === null || port.credentialGeneration() !== credential
             ? port.projects(ms, signal)
             : Promise.resolve({ ok: true, value: null }),
       },
@@ -767,8 +738,7 @@ describe('another token while a round is out (EC-008, EC-009)', () => {
         return state.connection;
       },
     });
-    const titles = (s: TuiState): string[] =>
-      (s.board?.items ?? []).map((t) => String(t.title));
+    const titles = (s: TuiState): string[] => (s.board?.items ?? []).map((t) => String(t.title));
 
     scheduler.start();
     await clock.advance(10);
@@ -785,9 +755,7 @@ describe('another token while a round is out (EC-008, EC-009)', () => {
     expect(state.connection.kind).toBe('online');
     expect(state.stale).toBe(false);
     // Not for one frame: the old list is only ever on screen marked as out of date.
-    const claimedCurrent = seen.filter(
-      (s) => titles(s).includes('In beta') && !s.stale,
-    );
+    const claimedCurrent = seen.filter((s) => titles(s).includes('In beta') && !s.stale);
     expect(claimedCurrent).toEqual([]);
   });
 });

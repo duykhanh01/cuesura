@@ -1,10 +1,6 @@
 /** Integrate a known target tip locally; the normal gate/review/publish path certifies it afterwards. */
 import type { GitPort } from '../ports.ts';
-import type {
-  BaseUpdate,
-  BaseConflict,
-  BaseRepairScope,
-} from '../../domain/runtime.ts';
+import type { BaseUpdate, BaseConflict, BaseRepairScope } from '../../domain/runtime.ts';
 import { takeCheckpoint, type CheckpointSpec } from './checkpoint.ts';
 import { commitCheckpoint, type CommitIntentStore } from './commit.ts';
 
@@ -18,8 +14,7 @@ class Blocked extends Error {}
 export const baseUpdateIntentKey = (
   spec: Pick<CheckpointSpec, 'task_id' | 'revision'>,
   update: BaseUpdate,
-): string =>
-  `base-update:${spec.task_id}:r${spec.revision}:${update.head_sha}:${update.base_sha}`;
+): string => `base-update:${spec.task_id}:r${spec.revision}:${update.head_sha}:${update.base_sha}`;
 
 export async function updateBase(
   port: GitPort,
@@ -63,35 +58,18 @@ export async function updateBase(
     const before = await checkpoint();
     const headTree = await git(['rev-parse', `${input.head_sha}^{tree}`]);
     if (headTree.code !== 0) throw new Error('checked head tree unreadable');
-    if (
-      before.parent_oid !== input.head_sha &&
-      before.parent_oid !== prior?.oid
-    )
+    if (before.parent_oid !== input.head_sha && before.parent_oid !== prior?.oid)
       throw new Blocked('task branch moved before base update');
-    if (
-      before.tree_oid !== headTree.stdout.trim() &&
-      before.tree_oid !== prior?.tree
-    )
+    if (before.tree_oid !== headTree.stdout.trim() && before.tree_oid !== prior?.tree)
       throw new Blocked('worktree changed before base update; kept as is');
     let tree = prior?.tree;
     let conflicts = prior?.conflict_files ?? [];
     if (tree === undefined) {
-      const fetched = await git(
-        ['fetch', '--no-tags', '--', input.remote, input.base_sha],
-        60_000,
-      );
-      if (fetched.code !== 0)
-        throw new Error(`base fetch failed: ${fetched.stderr.slice(0, 512)}`);
-      const contains = await git([
-        'merge-base',
-        '--is-ancestor',
-        input.base_sha,
-        input.head_sha,
-      ]);
+      const fetched = await git(['fetch', '--no-tags', '--', input.remote, input.base_sha], 60_000);
+      if (fetched.code !== 0) throw new Error(`base fetch failed: ${fetched.stderr.slice(0, 512)}`);
+      const contains = await git(['merge-base', '--is-ancestor', input.base_sha, input.head_sha]);
       if (contains.code === 0)
-        throw new Blocked(
-          'base is already contained in the checked head; no merge commit created',
-        );
+        throw new Blocked('base is already contained in the checked head; no merge commit created');
       if (contains.code !== 1) throw new Error('base ancestry unreadable');
       const merged = await git([
         'merge-tree',
@@ -107,8 +85,7 @@ export async function updateBase(
       tree = parts.shift()?.trim();
       if (merged.code === 1) {
         const end = parts.indexOf('');
-        if (end < 0 || end === 0)
-          throw new Error('merge-tree conflict paths unreadable');
+        if (end < 0 || end === 0) throw new Error('merge-tree conflict paths unreadable');
         conflicts = [...new Set(parts.slice(0, end))].sort();
       }
       if (tree === undefined || !/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(tree))
@@ -135,22 +112,12 @@ export async function updateBase(
     if (committed.kind === 'unknown') throw new Error(committed.detail);
     if (committed.kind === 'prepared') {
       // The unresolved tree is a durable worktree plan only. Never commit it to the task branch.
-      const checkout = await git([
-        'read-tree',
-        '-m',
-        '-u',
-        input.head_sha,
-        tree,
-      ]);
+      const checkout = await git(['read-tree', '-m', '-u', input.head_sha, tree]);
       if (checkout.code !== 0)
-        throw new Error(
-          `conflict checkout failed: ${checkout.stderr.slice(0, 512)}`,
-        );
+        throw new Error(`conflict checkout failed: ${checkout.stderr.slice(0, 512)}`);
       const after = await checkpoint();
       if (after.parent_oid !== input.head_sha || after.tree_oid !== tree)
-        throw new Blocked(
-          'conflict worktree differs from its plan; kept as is',
-        );
+        throw new Blocked('conflict worktree differs from its plan; kept as is');
       return { kind: 'conflict', tree, files: conflicts };
     }
 
@@ -163,17 +130,9 @@ export async function updateBase(
     if (current.tree_oid !== tree) {
       if (current.tree_oid !== headTree.stdout.trim())
         throw new Blocked('worktree changed during base update; kept as is');
-      const checkout = await git([
-        'read-tree',
-        '-m',
-        '-u',
-        input.head_sha,
-        committed.intent.oid,
-      ]);
+      const checkout = await git(['read-tree', '-m', '-u', input.head_sha, committed.intent.oid]);
       if (checkout.code !== 0)
-        throw new Error(
-          `base checkout failed: ${checkout.stderr.slice(0, 512)}`,
-        );
+        throw new Error(`base checkout failed: ${checkout.stderr.slice(0, 512)}`);
     }
     const after = await checkpoint();
     if (after.parent_oid !== committed.intent.oid || after.tree_oid !== tree)
@@ -203,19 +162,11 @@ export async function baseRepairScope(
       max_output_bytes: 1024 * 1024,
       stdin: null,
     });
-    if (r.kind !== 'exited' || r.truncated)
-      throw new Error('base repair scope unreadable');
+    if (r.kind !== 'exited' || r.truncated) throw new Error('base repair scope unreadable');
     return r;
   };
   try {
-    const diff = await run([
-      'diff',
-      '--no-renames',
-      '--name-only',
-      '-z',
-      conflict.tree,
-      tree,
-    ]);
+    const diff = await run(['diff', '--no-renames', '--name-only', '-z', conflict.tree, tree]);
     if (diff.code !== 0) throw new Error('base repair paths unreadable');
     const files = diff.stdout.split('\0').filter((file) => file !== '');
     const unchanged = conflict.files.filter((file) => !files.includes(file));
@@ -238,9 +189,7 @@ export async function baseRepairScope(
       throw new Error('base repair marker check unreadable');
     return {
       tree,
-      outside_files: files
-        .filter((file) => !conflict.files.includes(file))
-        .sort(),
+      outside_files: files.filter((file) => !conflict.files.includes(file)).sort(),
       unchanged_conflicts: unchanged,
       markers: check.code === 0,
       unresolved: check.code === 0 || unchanged.length > 0,

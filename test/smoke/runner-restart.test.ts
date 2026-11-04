@@ -22,10 +22,8 @@ afterEach(async () => {
   for (const r of live.splice(0)) await r.cleanup();
 });
 
-const ofType = (
-  events: readonly HistoryEvent[],
-  type: string,
-): HistoryEvent[] => events.filter((e) => e.type === type);
+const ofType = (events: readonly HistoryEvent[], type: string): HistoryEvent[] =>
+  events.filter((e) => e.type === type);
 
 type UnitProcess = { readonly pid: number; readonly start_ticks: number };
 
@@ -37,8 +35,7 @@ type ActiveAgent = {
   readonly processes: readonly UnitProcess[];
 };
 
-const operationId = (a: ActiveAgent): string =>
-  a.operation.payload['operation_id'] as string;
+const operationId = (a: ActiveAgent): string => a.operation.payload['operation_id'] as string;
 
 function unitProcesses(cgroup: string): UnitProcess[] {
   return readFileSync(`/sys/fs/cgroup${cgroup}/cgroup.procs`, 'utf8')
@@ -73,17 +70,10 @@ async function untilAgentActive(
       const attempt = ofType(events, 'AttemptRequested').find(
         (e) => e.payload['attempt_id'] === operation.payload['attempt_id'],
       );
-      if (
-        attempt === undefined ||
-        !agentWrote(dataDir, attempt.payload['attempt_id'] as string)
-      )
+      if (attempt === undefined || !agentWrote(dataDir, attempt.payload['attempt_id'] as string))
         continue;
       const unit = await inspectUnit(operation_id);
-      if (
-        unit.state === 'active' &&
-        unit.invocation_id !== null &&
-        unit.cgroup !== null
-      )
+      if (unit.state === 'active' && unit.invocation_id !== null && unit.cgroup !== null)
         return {
           attempt,
           operation,
@@ -121,13 +111,10 @@ function expectSameAttemptCompleted(
 ): void {
   const attemptId = active.attempt.payload['attempt_id'];
   const requested = ofType(before, 'AttemptRequested');
-  expect(ofType(after, 'AttemptRequested').slice(0, requested.length)).toEqual(
-    requested,
-  );
+  expect(ofType(after, 'AttemptRequested').slice(0, requested.length)).toEqual(requested);
   expect(
     ofType(after, 'OperationRegistered').filter(
-      (e) =>
-        e.payload['attempt_id'] === attemptId && e.payload['kind'] === 'agent',
+      (e) => e.payload['attempt_id'] === attemptId && e.payload['kind'] === 'agent',
     ),
   ).toEqual([active.operation]);
   const finished = ofType(after, 'AttemptFinished').filter(
@@ -137,9 +124,7 @@ function expectSameAttemptCompleted(
   expect(finished[0]?.payload).toMatchObject({ status: 'done', class: null });
   const reservation = active.attempt.payload['reservation_id'];
   const ofReservation = (type: string): HistoryEvent[] =>
-    ofType(after, type).filter(
-      (e) => e.payload['reservation_id'] === reservation,
-    );
+    ofType(after, type).filter((e) => e.payload['reservation_id'] === reservation);
   expect(ofReservation('BudgetConsumed')).toHaveLength(1);
   expect(ofReservation('BudgetReleased')).toEqual([]);
   const observed = ofType(after, 'OperationObserved').filter(
@@ -190,9 +175,7 @@ describe.skipIf(!hostUsable())('local rehearsal of a daemon stop', () => {
 
       const after = await r.history(id);
       expectSameAttemptCompleted(before, after, active, stoppedAt);
-      expect(ofType(after, 'AttemptRequested')).toEqual(
-        ofType(before, 'AttemptRequested'),
-      );
+      expect(ofType(after, 'AttemptRequested')).toEqual(ofType(before, 'AttemptRequested'));
       expect(ofType(after, 'BudgetConsumed')).toHaveLength(1);
       expect(r.held()).toHaveLength(1);
       expect(r.github().prs).toHaveLength(1);
@@ -204,51 +187,41 @@ describe.skipIf(!hostUsable())('local rehearsal of a daemon stop', () => {
 
 // T128. Needs CUSR_SMOKE_REAL and a build; kills the daemon around a real paid attempt, once per signal.
 const real = loadRealSmoke();
-describe.skipIf(real === null).each(PROJECT_KINDS)(
-  'real restart on the %s sandbox',
-  (kind) => {
-    it.each(['SIGKILL', 'SIGTERM'] as const)(
-      '%s while the agent runs: the same attempt goes on to a green PR',
-      async (signal) => {
-        const r = new RealRun(real as NonNullable<typeof real>, kind);
+describe.skipIf(real === null).each(PROJECT_KINDS)('real restart on the %s sandbox', (kind) => {
+  it.each(['SIGKILL', 'SIGTERM'] as const)(
+    '%s while the agent runs: the same attempt goes on to a green PR',
+    async (signal) => {
+      const r = new RealRun(real as NonNullable<typeof real>, kind);
+      await r.startDaemon();
+      try {
+        const id = await r.addTask();
+        const active = await untilAgentActive(r, r.direction.data_dir, id, 600_000);
+        const before = await r.history(id);
+        await r.stopDaemon(signal);
+        const stoppedAt = Date.now();
+        // A real agent's tool processes come and go, so only part of the snapshot has to remain.
+        const survivors = await expectStillRunning(active);
         await r.startDaemon();
-        try {
-          const id = await r.addTask();
-          const active = await untilAgentActive(
-            r,
-            r.direction.data_dir,
-            id,
-            600_000,
-          );
-          const before = await r.history(id);
-          await r.stopDaemon(signal);
-          const stoppedAt = Date.now();
-          // A real agent's tool processes come and go, so only part of the snapshot has to remain.
-          const survivors = await expectStillRunning(active);
-          await r.startDaemon();
-          const waiting = await r.untilMergeWait(id, 3_600_000);
-          const after = await r.history(id);
-          expectSameAttemptCompleted(before, after, active, stoppedAt);
-          r.record('T128', {
-            task_id: id,
-            signal,
-            attempt_id: active.attempt.payload['attempt_id'],
-            unit: active.operation.payload['unit'],
-            invocation_id: active.invocation_id,
-            processes_at_stop: active.processes,
-            processes_surviving: survivors,
-            pr_ref: waiting['pr_ref'],
-            head_sha: waiting['head_sha'],
-            attempts: ofType(after, 'AttemptRequested').map((e) => e.payload),
-            operations: ofType(after, 'OperationRegistered').map(
-              (e) => e.payload,
-            ),
-          });
-        } finally {
-          await r.stopDaemon('SIGTERM');
-        }
-      },
-      3_700_000,
-    );
-  },
-);
+        const waiting = await r.untilMergeWait(id, 3_600_000);
+        const after = await r.history(id);
+        expectSameAttemptCompleted(before, after, active, stoppedAt);
+        r.record('T128', {
+          task_id: id,
+          signal,
+          attempt_id: active.attempt.payload['attempt_id'],
+          unit: active.operation.payload['unit'],
+          invocation_id: active.invocation_id,
+          processes_at_stop: active.processes,
+          processes_surviving: survivors,
+          pr_ref: waiting['pr_ref'],
+          head_sha: waiting['head_sha'],
+          attempts: ofType(after, 'AttemptRequested').map((e) => e.payload),
+          operations: ofType(after, 'OperationRegistered').map((e) => e.payload),
+        });
+      } finally {
+        await r.stopDaemon('SIGTERM');
+      }
+    },
+    3_700_000,
+  );
+});

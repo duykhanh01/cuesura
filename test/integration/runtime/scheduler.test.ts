@@ -4,11 +4,7 @@ import type { StartResult } from '../../../src/application/start.ts';
 import { Scheduler } from '../../../src/daemon/scheduler.ts';
 import type { CanonicalTask } from '../../../src/domain/task.ts';
 import type { EpochMs, Uuid } from '../../../src/shared/brand.ts';
-import {
-  injectEvents,
-  openFileStoreForTest,
-  storeDb,
-} from '../../../src/store/testing.ts';
+import { injectEvents, openFileStoreForTest, storeDb } from '../../../src/store/testing.ts';
 import { buildTask, uuidOf } from '../../support/builders.ts';
 import { PACKS } from '../../support/config-fixtures.ts';
 import {
@@ -43,9 +39,7 @@ function setup(start?: (taskId: string) => Promise<StartResult>) {
           }),
         docs: {
           prompts: (names) =>
-            Promise.resolve(
-              names.map((name) => ({ name, content: `# ${name}\n` })),
-            ),
+            Promise.resolve(names.map((name) => ({ name, content: `# ${name}\n` }))),
           attachments: () => Promise.resolve([]),
         },
         now: () => d.now,
@@ -73,8 +67,7 @@ async function confirmed(d: StoreDriver, t: CanonicalTask): Promise<void> {
   proposeAndConfirm(d, t, await configuredSelection(t, 'full-review'));
 }
 
-const slotHolder = (d: StoreDriver) =>
-  d.store.readSlot()?.holder_task_id ?? null;
+const slotHolder = (d: StoreDriver) => d.store.readSlot()?.holder_task_id ?? null;
 
 /** Started under the slot, then asks a question: the attempt is over, so nothing slot-bound is left. */
 function startedAndAsking(d: StoreDriver, t: CanonicalTask): string {
@@ -249,12 +242,7 @@ describe('the engine returns the slot when nothing slot-bound is left and queues
     d.must(c.id, { kind: 'request_execution' });
 
     // b finishes its slot work by asking a question too, which frees the slot.
-    d.complete(
-      b.id,
-      d.pendingOne(b.id, 'prepare').id,
-      'succeeded',
-      PREPARE_DATA,
-    );
+    d.complete(b.id, d.pendingOne(b.id, 'prepare').id, 'succeeded', PREPARE_DATA);
     d.complete(
       b.id,
       d.pendingOne(b.id, 'start_agent').id,
@@ -317,9 +305,7 @@ describe('dependencies are satisfied only by a recorded terminal status (T034, F
     ]);
     expect(d.task(child.id).status).toBe('READY');
     const env = storeDb(d.store)
-      .prepare(
-        'SELECT envelope_json FROM accepted_triggers WHERE dedup_key = ?',
-      )
+      .prepare('SELECT envelope_json FROM accepted_triggers WHERE dedup_key = ?')
       .get(`dep:${child.id}:${pre.id}:DONE`) as {
       envelope_json: string;
     };

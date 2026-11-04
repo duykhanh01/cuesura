@@ -138,9 +138,10 @@ describe('gh port (T040, contracts/github.md)', () => {
       { ...ready, variables: { id: 'PR_1', other: 1 } },
       { ...ready, operationName: 'x' },
     ])
-      expect(
-        await p.request({ method: 'POST', path: 'graphql', query: {}, body }),
-      ).toMatchObject({ ok: false, error: { reason: 'not_allowed' } });
+      expect(await p.request({ method: 'POST', path: 'graphql', query: {}, body })).toMatchObject({
+        ok: false,
+        error: { reason: 'not_allowed' },
+      });
     expect(exec.calls).toEqual([]);
     expect(
       await p.request({
@@ -184,9 +185,7 @@ describe('gh port (T040, contracts/github.md)', () => {
     expect(created.exec.calls[0]?.args).toContain('--input');
 
     const rejected = port({
-      'POST repos/o/r/pulls': [
-        { status: 422, body: { message: 'A pull request already exists' } },
-      ],
+      'POST repos/o/r/pulls': [{ status: 422, body: { message: 'A pull request already exists' } }],
     });
     expect(
       await rejected.p.request({
@@ -201,9 +200,7 @@ describe('gh port (T040, contracts/github.md)', () => {
     });
 
     const lost = port({
-      'POST repos/o/r/actions/runs/5/rerun-failed-jobs': [
-        { status: 0, transport: 'timeout' },
-      ],
+      'POST repos/o/r/actions/runs/5/rerun-failed-jobs': [{ status: 0, transport: 'timeout' }],
     });
     expect(
       await lost.p.request({
@@ -305,12 +302,10 @@ describe('gh port (T040, contracts/github.md)', () => {
       'GET repos/o/r/issues/1/events?per_page=2&page=2': [page(2, 2)],
     });
     expect(
-      await listAll(
-        capped.p,
-        'repos/o/r/issues/1/events',
-        (b) => (Array.isArray(b) ? b : null),
-        { per_page: 2, max_pages: 2 },
-      ),
+      await listAll(capped.p, 'repos/o/r/issues/1/events', (b) => (Array.isArray(b) ? b : null), {
+        per_page: 2,
+        max_pages: 2,
+      }),
     ).toMatchObject({
       ok: true,
       value: { complete: false },

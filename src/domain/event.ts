@@ -202,11 +202,7 @@ export type EventPayloads = {
   EffectInvalidated: { effect_id: string; reason: string };
   EffectReconciled: {
     effect_id: string;
-    finding:
-      | 'executed_succeeded'
-      | 'executed_failed'
-      | 'not_executed'
-      | 'still_unknown';
+    finding: 'executed_succeeded' | 'executed_failed' | 'not_executed' | 'still_unknown';
     status: 'succeeded' | 'failed' | 'unknown' | 'pending';
     result: unknown;
   };
@@ -357,14 +353,7 @@ export type EventPayloads = {
   DrainFinished: { at: number };
   RecheckRequested: {
     request_id: string;
-    target:
-      | 'config'
-      | 'observation'
-      | 'drain'
-      | 'worktree'
-      | 'manifest'
-      | 'auth'
-      | 'visits';
+    target: 'config' | 'observation' | 'drain' | 'worktree' | 'manifest' | 'auth' | 'visits';
     at: number;
   };
   // Execution modes (task-execution-modes.md)
@@ -514,8 +503,7 @@ export const EVENT_TYPES = [
 ] as const satisfies readonly EventType[];
 
 type _MissingEventTypes = Exclude<EventType, (typeof EVENT_TYPES)[number]>;
-const _allEventTypesListed: _MissingEventTypes extends never ? true : never =
-  true;
+const _allEventTypesListed: _MissingEventTypes extends never ? true : never = true;
 void _allEventTypesListed;
 
 type DraftOf<T extends EventType> = {

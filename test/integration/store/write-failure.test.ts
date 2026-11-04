@@ -1,11 +1,7 @@
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 import { canonicalJson } from '../../../src/shared/canonical-json.ts';
-import {
-  openFileStoreForTest,
-  storeDb,
-  type CrashPoint,
-} from '../../../src/store/testing.ts';
+import { openFileStoreForTest, storeDb, type CrashPoint } from '../../../src/store/testing.ts';
 import { buildTask, freezeOk } from '../../support/builders.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 import { dbPath, useTempDir } from '../../support/temp-db.ts';
@@ -16,14 +12,7 @@ function snapshot(d: StoreDriver): string {
   const db = storeDb(d.store);
   const all = (t: string): unknown[] => db.prepare(`SELECT * FROM ${t}`).all();
   return canonicalJson(
-    [
-      'events',
-      'tasks',
-      'effects',
-      'timers',
-      'accepted_triggers',
-      'frozen_policies',
-    ].map(all),
+    ['events', 'tasks', 'effects', 'timers', 'accepted_triggers', 'frozen_policies'].map(all),
   );
 }
 
@@ -57,11 +46,7 @@ describe('Write failures return write_failed without state changes (T083, FR-033
   });
 
   it('a busy error injected during a transaction rolls back all writes', () => {
-    for (const point of [
-      'after_events',
-      'after_effects',
-      'before_commit',
-    ] as CrashPoint[]) {
+    for (const point of ['after_events', 'after_effects', 'before_commit'] as CrashPoint[]) {
       let armed = false;
       const store = openFileStoreForTest(dbPath(tmp()), {
         crash: (p) => {
@@ -73,10 +58,7 @@ describe('Write failures return write_failed without state changes (T083, FR-033
       d.must(TASK.id, { kind: 'create_task', task: TASK });
       const before = snapshot(d);
       armed = true;
-      expect(
-        d.send(TASK.id, { kind: 'start', freeze: freezeOk(TASK) }),
-        point,
-      ).toEqual({
+      expect(d.send(TASK.id, { kind: 'start', freeze: freezeOk(TASK) }), point).toEqual({
         ok: false,
         error: { code: 'write_failed', cause: 'busy' },
       });

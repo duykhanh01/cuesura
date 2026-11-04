@@ -15,22 +15,11 @@
  * from it as a whole, so a crash or a failed write leaves nothing half done.
  * A run that fails leaves the question open and is not tried again until the daemon restarts.
  */
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { buildRoleContext } from '../adapters/context.ts';
 import { wireRoleSchema } from '../adapters/harness/result-schema.ts';
-import type {
-  Clock,
-  HarnessInput,
-  HarnessOutcome,
-  HarnessPort,
-} from '../adapters/ports.ts';
+import type { Clock, HarnessInput, HarnessOutcome, HarnessPort } from '../adapters/ports.ts';
 import { openQuestions, type InboxItem } from '../application/inbox.ts';
 import { submit } from '../application/triage.ts';
 import { TASK_STATUSES, type TaskState } from '../domain/state.ts';
@@ -105,9 +94,7 @@ export function deciderQuestion(s: TaskState): InboxItem | null {
   if (s.task.labels.includes(GRILL_LABEL)) return q;
   const decided = Object.values(s.questions).some(
     (other) =>
-      other.revision === s.revision &&
-      other.step === q.step &&
-      other.answered_by === DECIDER_ACTOR,
+      other.revision === s.revision && other.step === q.step && other.answered_by === DECIDER_ACTOR,
   );
   return decided ? null : q;
 }
@@ -126,8 +113,7 @@ export function createDecider(deps: DeciderDeps): Decider {
   const controller = new AbortController();
   let offUntil = 0;
   let notesBehind = true;
-  const log = (line: string): void =>
-    deps.log?.(`decider: ${deps.redactor.text(line)}`);
+  const log = (line: string): void => deps.log?.(`decider: ${deps.redactor.text(line)}`);
 
   /** Rewrites `decisions.md` from the event log, whole or not at all; a failure stays due for the next round. */
   const catchUpNotes = (): void => {
@@ -143,9 +129,7 @@ export function createDecider(deps: DeciderDeps): Decider {
                 .filter(([, run]) => run.applied)
                 .map(([attempt, run]) => ({ s, attempt, run }));
         })
-        .sort(
-          (a, b) => a.run.at - b.run.at || (a.attempt < b.attempt ? -1 : 1),
-        );
+        .sort((a, b) => a.run.at - b.run.at || (a.attempt < b.attempt ? -1 : 1));
       const text = entries
         .map(({ s, run }) => {
           const q = s.questions[run.question_id];
@@ -180,17 +164,12 @@ export function createDecider(deps: DeciderDeps): Decider {
   };
 
   /** Records how a run ended; the record goes only once that is committed. */
-  const conclude = async (
-    record: RunRecord,
-    out: HarnessOutcome,
-  ): Promise<void> => {
-    const value =
-      out.kind === 'result' && 'answer' in out.value ? out.value : null;
+  const conclude = async (record: RunRecord, out: HarnessOutcome): Promise<void> => {
+    const value = out.kind === 'result' && 'answer' in out.value ? out.value : null;
     const setting = value === null ? null : await deps.setting();
     // No await from here to the submit: what is checked is what the answer is taken on.
     const now = deps.store.readTask(record.task_id as Uuid);
-    const waiting =
-      now !== null && deciderQuestion(now)?.question_id === record.question_id;
+    const waiting = now !== null && deciderQuestion(now)?.question_id === record.question_id;
     const grill = now?.task.labels.includes(GRILL_LABEL) ?? false;
     const at = deps.clock.now();
     const failure =
@@ -223,12 +202,9 @@ export function createDecider(deps: DeciderDeps): Decider {
       ids: Array.from({ length: MAX_ENVELOPE_IDS }, () => deps.newId()),
     });
     if (!r.ok) throw new Error(`decider_ran: ${r.error.code}`);
-    if (failure !== null)
-      log(`task ${record.task_id}: no decision: ${failure}`);
-    else if (setting === null)
-      log(`task ${record.task_id}: autonomous is off, answer not taken`);
-    else if (!waiting)
-      log(`task ${record.task_id}: ${record.question_id} no longer waits`);
+    if (failure !== null) log(`task ${record.task_id}: no decision: ${failure}`);
+    else if (setting === null) log(`task ${record.task_id}: autonomous is off, answer not taken`);
+    else if (!waiting) log(`task ${record.task_id}: ${record.question_id} no longer waits`);
     notesBehind = true;
     catchUpNotes();
   };
@@ -262,8 +238,7 @@ export function createDecider(deps: DeciderDeps): Decider {
    */
   const adoptOne = async (record: RunRecord): Promise<void> => {
     const attempt = record.input.attempt_id;
-    const committed = deps.store.readTask(record.task_id as Uuid)
-      ?.decider_runs?.[attempt];
+    const committed = deps.store.readTask(record.task_id as Uuid)?.decider_runs?.[attempt];
     if (committed !== undefined) {
       forget(record);
       return;
@@ -291,9 +266,7 @@ export function createDecider(deps: DeciderDeps): Decider {
       return;
     }
     if (harness.recover === undefined)
-      throw new InvocationUnknown(
-        'autonomous is off and this run cannot be recovered',
-      );
+      throw new InvocationUnknown('autonomous is off and this run cannot be recovered');
     const recover = harness.recover.bind(harness);
     await execute(record, () => recover(record.input));
   };
@@ -309,9 +282,7 @@ export function createDecider(deps: DeciderDeps): Decider {
         .map(async (qid) => {
           try {
             await adoptOne(
-              JSON.parse(
-                readFileSync(join(deps.recordsDir, `${qid}.json`), 'utf8'),
-              ) as RunRecord,
+              JSON.parse(readFileSync(join(deps.recordsDir, `${qid}.json`), 'utf8')) as RunRecord,
             );
           } catch (e) {
             nextAdopt.set(qid, deps.clock.now() + ADOPT_RECHECK_MS);
@@ -326,11 +297,7 @@ export function createDecider(deps: DeciderDeps): Decider {
     );
   };
 
-  const start = async (
-    setting: DeciderSetting,
-    s: TaskState,
-    q: InboxItem,
-  ): Promise<void> => {
+  const start = async (setting: DeciderSetting, s: TaskState, q: InboxItem): Promise<void> => {
     const harness = deps.harnesses[setting.harness];
     if (harness === undefined) {
       log(`task ${s.id}: no harness ${setting.harness}`);
@@ -355,9 +322,7 @@ export function createDecider(deps: DeciderDeps): Decider {
       },
       prompt: null,
       answers: Object.values(s.questions).flatMap((other) =>
-        other.revision === s.revision &&
-        other.status === 'answered' &&
-        other.answer !== null
+        other.revision === s.revision && other.status === 'answered' && other.answer !== null
           ? [
               {
                 question_id: other.id,
@@ -380,10 +345,7 @@ export function createDecider(deps: DeciderDeps): Decider {
       log(`task ${s.id}: missing ${built.error.missing.join(', ')}`);
       return;
     }
-    const workspace =
-      harness.agent_paths === undefined
-        ? undefined
-        : await deps.workspace(s.id);
+    const workspace = harness.agent_paths === undefined ? undefined : await deps.workspace(s.id);
     const wall = setting.wall_ms ?? DEFAULT_WALL_MS;
     const record: RunRecord = {
       task_id: s.id,
@@ -398,8 +360,7 @@ export function createDecider(deps: DeciderDeps): Decider {
           vendor: harness.manifest.vendor,
           model: setting.model_id,
           effort: setting.effort,
-          permission_policy_hash:
-            harness.manifest.permission_policy_hash ?? hashCanonical('none'),
+          permission_policy_hash: harness.manifest.permission_policy_hash ?? hashCanonical('none'),
         },
         context: { text: built.value.text, digest: built.value.digest },
         schema: wireRoleSchema('decider', { omit_meta_schema: false }),
@@ -422,11 +383,7 @@ export function createDecider(deps: DeciderDeps): Decider {
       },
     };
     mkdirSync(deps.recordsDir, { recursive: true, mode: 0o700 });
-    writeAtomicIn(
-      deps.recordsDir,
-      `${q.question_id}.json`,
-      Buffer.from(JSON.stringify(record)),
-    );
+    writeAtomicIn(deps.recordsDir, `${q.question_id}.json`, Buffer.from(JSON.stringify(record)));
     // After the record, so that a held reservation always has a record to settle it.
     const held = submit(deps.store, {
       task_id: s.id,

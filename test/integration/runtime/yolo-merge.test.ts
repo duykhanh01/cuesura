@@ -8,18 +8,10 @@ import { ci, observation } from '../../support/observation.ts';
 import { observeTaskPr } from '../../../src/daemon/handlers.ts';
 import { createGrantStart } from '../../support/runtime.ts';
 import { publishData } from '../../support/scenario.ts';
-import {
-  toPublish,
-  checkpointGates,
-  reviewToCi,
-} from '../../support/store-flows.ts';
+import { toPublish, checkpointGates, reviewToCi } from '../../support/store-flows.ts';
 import { readMergeReadiness } from '../../../src/adapters/github/merge.ts';
 import { GhPort } from '../../../src/adapters/github/gh-port.ts';
-import type {
-  Clock,
-  GitHubPort,
-  GitHubRequest,
-} from '../../../src/adapters/ports.ts';
+import type { Clock, GitHubPort, GitHubRequest } from '../../../src/adapters/ports.ts';
 import { advanceTaskPr, type YoloDeps } from '../../../src/daemon/yolo.ts';
 import type { CanonicalTask } from '../../../src/domain/task.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
@@ -218,8 +210,7 @@ function green(
   );
 }
 
-const puts = (sent: readonly GitHubRequest[]) =>
-  sent.filter((r) => r.method === 'PUT');
+const puts = (sent: readonly GitHubRequest[]) => sent.filter((r) => r.method === 'PUT');
 
 const approvals = (d: StoreDriver, t: CanonicalTask) =>
   Object.values(d.task(t.id).approvals).filter((a) => a.kind === 'merge');
@@ -234,10 +225,7 @@ describe('yolo merge', () => {
     });
     const log: string[] = [];
     expect(
-      await advanceTaskPr(
-        { ...deps(d, port), log: (line) => log.push(line) },
-        t.id,
-      ),
+      await advanceTaskPr({ ...deps(d, port), log: (line) => log.push(line) }, t.id),
       log.join('\n'),
     ).toBe('merged');
     expect(puts(sent)).toHaveLength(1);
@@ -248,83 +236,55 @@ describe('yolo merge', () => {
     ['observation', false],
     ['ci', true],
     ['observation', true],
-  ] as const)(
-    'app_id requirements on the %s path, yolo=%s',
-    async (path, enabled) => {
-      const d = setup();
-      const t = buildTask();
-      const runtime = OBS_RUNTIME;
-      if (path === 'observation') {
-        toGreen(d, t, 'direct-pr', { required_checks: REQUIRED }, runtime, {
-          content: { digest: CONTENT_DIGEST, ref: '/content/a.json' },
-        });
-      } else {
-        createGrantStart(
-          d,
-          t,
-          'direct-pr',
-          { required_checks: REQUIRED },
-          runtime,
-        );
-        toPublish(d, t, A, {
-          content: { digest: CONTENT_DIGEST, ref: '/content/a.json' },
-        });
-        d.complete(
-          t.id,
-          d.pendingOne(t.id, 'publish').id,
-          'succeeded',
-          publishData(A),
-        );
-        d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
-          pr_ref: 'acme#7',
-          head_sha: A,
-        });
-        reviewToCi(d, t.id);
-      }
-      const { port, sent } = github({
-        protection: { required_status_checks: PINNED },
+  ] as const)('app_id requirements on the %s path, yolo=%s', async (path, enabled) => {
+    const d = setup();
+    const t = buildTask();
+    const runtime = OBS_RUNTIME;
+    if (path === 'observation') {
+      toGreen(d, t, 'direct-pr', { required_checks: REQUIRED }, runtime, {
+        content: { digest: CONTENT_DIGEST, ref: '/content/a.json' },
       });
-      const read = await observeTaskPr(
-        deps(d, port),
-        t.id,
-        'app-id-repro',
-        'timer',
-      );
-      expect(read.failure).toBeNull();
-      expect(read.ci?.required).toMatchObject({
-        kind: 'covered',
-        github: REQUIRED,
-        app_pinned: [
-          { name: 'build', app: 15368 },
-          { name: 'test', app: 15368 },
-        ],
+    } else {
+      createGrantStart(d, t, 'direct-pr', { required_checks: REQUIRED }, runtime);
+      toPublish(d, t, A, {
+        content: { digest: CONTENT_DIGEST, ref: '/content/a.json' },
       });
-      if (path === 'observation') {
-        for (const fact of read.facts) d.must(t.id, fact);
-      } else {
-        d.complete(
-          t.id,
-          d.pendingOne(t.id, 'await_ci').id,
-          'succeeded',
-          read.ci,
-        );
-      }
-      expect(d.task(t.id).wait?.detail.code).toBe('merge');
-      expect(d.task(t.id).evidence.ci.at(-1)?.required).toMatchObject({
-        app_pinned: [
-          { name: 'build', app: 15368 },
-          { name: 'test', app: 15368 },
-        ],
+      d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
+      d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
+        pr_ref: 'acme#7',
+        head_sha: A,
       });
-      expect(await advanceTaskPr(deps(d, port, enabled), t.id)).toBe(
-        enabled ? 'merged' : 'off',
-      );
-      expect(puts(sent)).toHaveLength(enabled ? 1 : 0);
-      expect(d.store.readPolicy(t.id, 1, 1)?.ci.required_checks).toEqual(
-        REQUIRED,
-      );
-    },
-  );
+      reviewToCi(d, t.id);
+    }
+    const { port, sent } = github({
+      protection: { required_status_checks: PINNED },
+    });
+    const read = await observeTaskPr(deps(d, port), t.id, 'app-id-repro', 'timer');
+    expect(read.failure).toBeNull();
+    expect(read.ci?.required).toMatchObject({
+      kind: 'covered',
+      github: REQUIRED,
+      app_pinned: [
+        { name: 'build', app: 15368 },
+        { name: 'test', app: 15368 },
+      ],
+    });
+    if (path === 'observation') {
+      for (const fact of read.facts) d.must(t.id, fact);
+    } else {
+      d.complete(t.id, d.pendingOne(t.id, 'await_ci').id, 'succeeded', read.ci);
+    }
+    expect(d.task(t.id).wait?.detail.code).toBe('merge');
+    expect(d.task(t.id).evidence.ci.at(-1)?.required).toMatchObject({
+      app_pinned: [
+        { name: 'build', app: 15368 },
+        { name: 'test', app: 15368 },
+      ],
+    });
+    expect(await advanceTaskPr(deps(d, port, enabled), t.id)).toBe(enabled ? 'merged' : 'off');
+    expect(puts(sent)).toHaveLength(enabled ? 1 : 0);
+    expect(d.store.readPolicy(t.id, 1, 1)?.ci.required_checks).toEqual(REQUIRED);
+  });
 
   it.each(['ci', 'observation'] as const)(
     'the %s path waits for GitHub checks outside policy without changing the snapshot',
@@ -335,12 +295,7 @@ describe('yolo merge', () => {
       if (path === 'ci') {
         createGrantStart(d, t, 'direct-pr', policy, OBS_RUNTIME);
         toPublish(d, t, A);
-        d.complete(
-          t.id,
-          d.pendingOne(t.id, 'publish').id,
-          'succeeded',
-          publishData(A),
-        );
+        d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
         d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
           pr_ref: 'acme#7',
           head_sha: A,
@@ -359,24 +314,13 @@ describe('yolo merge', () => {
           },
         },
       });
-      const read = await observeTaskPr(
-        deps(d, port),
-        t.id,
-        'extra-required',
-        'timer',
-      );
+      const read = await observeTaskPr(deps(d, port), t.id, 'extra-required', 'timer');
       expect(read.ci?.required_set).toEqual({
         names: ['security'],
         source: 'branch_protection',
         complete: true,
       });
-      if (path === 'ci')
-        d.complete(
-          t.id,
-          d.pendingOne(t.id, 'await_ci').id,
-          'succeeded',
-          read.ci,
-        );
+      if (path === 'ci') d.complete(t.id, d.pendingOne(t.id, 'await_ci').id, 'succeeded', read.ci);
       else for (const fact of read.facts) d.must(t.id, fact);
       expect(d.task(t.id).wait?.detail.code).toBe('merge');
       expect(d.task(t.id).evidence.ci.at(-1)?.required).toMatchObject({
@@ -384,9 +328,7 @@ describe('yolo merge', () => {
         github: ['security'],
         app_pinned: [{ name: 'security', app: 15368 }],
       });
-      expect(d.store.readPolicy(t.id, 1, 1)?.ci.required_checks).toEqual([
-        'build',
-      ]);
+      expect(d.store.readPolicy(t.id, 1, 1)?.ci.required_checks).toEqual(['build']);
       expect(d.pending(t.id, 'start_agent')).toEqual([]);
     },
   );
@@ -397,36 +339,26 @@ describe('yolo merge', () => {
     { test: 'pending' },
     { test: 'skipped' },
     { GitGuardian: 'success' },
-  ])(
-    'empty policy leaves engine CI unchanged when yolo toggles, checks=%j',
-    async (checks) => {
-      const d = setup();
-      const t = buildTask();
-      toGreen(d, t, 'direct-pr', { required_checks: [] }, OBS_RUNTIME);
-      const { port, sent } = github({ protected: false, checks });
-      for (const enabled of [false, true, false, true]) {
-        const read = await observeTaskPr(
-          deps(d, port),
-          t.id,
-          'no-fallback',
-          'recheck',
-        );
-        expect(read.ci?.required_set).toEqual({
-          names: [],
-          source: 'branch_protection',
-          complete: true,
-        });
-        for (const fact of read.facts) d.must(t.id, fact);
-        expect(d.task(t.id).wait?.detail.code).toBe('merge');
-        expect(d.pending(t.id, 'start_agent')).toEqual([]);
-        expect(d.pending(t.id, 'await_ci')).toEqual([]);
-        expect(await advanceTaskPr(deps(d, port, enabled), t.id)).toBe(
-          enabled ? 'not_ready' : 'off',
-        );
-      }
-      expect(puts(sent)).toEqual([]);
-    },
-  );
+  ])('empty policy leaves engine CI unchanged when yolo toggles, checks=%j', async (checks) => {
+    const d = setup();
+    const t = buildTask();
+    toGreen(d, t, 'direct-pr', { required_checks: [] }, OBS_RUNTIME);
+    const { port, sent } = github({ protected: false, checks });
+    for (const enabled of [false, true, false, true]) {
+      const read = await observeTaskPr(deps(d, port), t.id, 'no-fallback', 'recheck');
+      expect(read.ci?.required_set).toEqual({
+        names: [],
+        source: 'branch_protection',
+        complete: true,
+      });
+      for (const fact of read.facts) d.must(t.id, fact);
+      expect(d.task(t.id).wait?.detail.code).toBe('merge');
+      expect(d.pending(t.id, 'start_agent')).toEqual([]);
+      expect(d.pending(t.id, 'await_ci')).toEqual([]);
+      expect(await advanceTaskPr(deps(d, port, enabled), t.id)).toBe(enabled ? 'not_ready' : 'off');
+    }
+    expect(puts(sent)).toEqual([]);
+  });
 
   it.each([15369, null])(
     'a successful check from app %s cannot satisfy app_id 15368 when admin bypass is allowed',
@@ -442,12 +374,9 @@ describe('yolo merge', () => {
         },
       });
       const log: string[] = [];
-      expect(
-        await advanceTaskPr(
-          { ...deps(d, port), log: (line) => log.push(line) },
-          t.id,
-        ),
-      ).toBe('not_ready');
+      expect(await advanceTaskPr({ ...deps(d, port), log: (line) => log.push(line) }, t.id)).toBe(
+        'not_ready',
+      );
       expect(log.join('\n')).toContain('app 15368');
       expect(puts(sent)).toEqual([]);
       expect(approvals(d, t)).toEqual([]);
@@ -500,30 +429,19 @@ describe('yolo merge', () => {
       );
       expect(d.task(t.id).wait?.detail.code).toBe('required_checks_mismatch');
       expect(replay(d.store.readEvents(t.id))).toEqual(d.task(t.id));
-      const historical = d.store
-        .readEvents(t.id)
-        .map((event) => structuredClone(event));
+      const historical = d.store.readEvents(t.id).map((event) => structuredClone(event));
       for (const event of historical)
         if (event.type === 'CiResultRecorded') delete event.payload.required;
       const old = replay(historical);
       expect(old?.wait?.detail.code).toBe('required_checks_mismatch');
-      expect(
-        old?.evidence.ci.every((entry) => !Object.hasOwn(entry, 'required')),
-      ).toBe(true);
+      expect(old?.evidence.ci.every((entry) => !Object.hasOwn(entry, 'required'))).toBe(true);
       if (spent) d.now += 3_600_001;
       const { port } = github({
         protection: { required_status_checks: PINNED },
       });
-      const read = await observeTaskPr(
-        deps(d, port),
-        t.id,
-        'legacy-mismatch',
-        'timer',
-      );
+      const read = await observeTaskPr(deps(d, port), t.id, 'legacy-mismatch', 'timer');
       for (const fact of read.facts) d.must(t.id, fact);
-      expect(d.task(t.id).wait?.detail.code).toBe(
-        spent ? 'ci_wait_exhausted' : 'merge',
-      );
+      expect(d.task(t.id).wait?.detail.code).toBe(spent ? 'ci_wait_exhausted' : 'merge');
       expect(replay(d.store.readEvents(t.id))).toEqual(d.task(t.id));
     },
   );
@@ -578,20 +496,12 @@ describe('yolo merge', () => {
       d.now = d.task(t.id).observation?.budget.next_due_at ?? d.now;
       const before = puts(sent).length;
       await surface.rounds[1]?.();
-      expect(puts(sent), log.join('\n')).toHaveLength(
-        before + (config === valid ? 1 : 0),
-      );
+      expect(puts(sent), log.join('\n')).toHaveLength(before + (config === valid ? 1 : 0));
       expect(d.task(t.id).wait?.detail.code).toBe('merge');
-      expect(d.task(t.id).evidence.ci.at(-1)?.required).toEqual(
-        first.ci?.required,
-      );
+      expect(d.task(t.id).evidence.ci.at(-1)?.required).toEqual(first.ci?.required);
     }
-    expect(
-      log.filter((line) => line.includes('yolo disabled: config invalid')),
-    ).toHaveLength(2);
-    expect(
-      log.some((line) => line.includes('yolo disabled: config unreadable')),
-    ).toBe(true);
+    expect(log.filter((line) => line.includes('yolo disabled: config invalid'))).toHaveLength(2);
+    expect(log.some((line) => line.includes('yolo disabled: config unreadable'))).toBe(true);
   });
 
   it.each(['full-review', 'direct-pr'] as const)(
@@ -633,12 +543,10 @@ describe('yolo merge', () => {
     const d = setup();
     const t = buildTask();
     green(d, t);
-    expect(
-      await advanceTaskPr(deps(d, github({ mergeStatus: 'lost' }).port), t.id),
-    ).toBe('unknown');
-    expect(
-      await advanceTaskPr(deps(d, github({ mergeStatus: 405 }).port), t.id),
-    ).toBe('refused');
+    expect(await advanceTaskPr(deps(d, github({ mergeStatus: 'lost' }).port), t.id)).toBe(
+      'unknown',
+    );
+    expect(await advanceTaskPr(deps(d, github({ mergeStatus: 405 }).port), t.id)).toBe('refused');
     expect(await advanceTaskPr(deps(d, github().port), t.id)).toBe('merged');
     expect(approvals(d, t)).toHaveLength(1);
   });
@@ -649,11 +557,7 @@ describe('yolo merge', () => {
     green(d, t);
     const { port, sent } = github();
     expect(await advanceTaskPr(deps(d, port, false), t.id)).toBe('off');
-    expect(sent.map((request) => request.method)).toEqual([
-      'GET',
-      'GET',
-      'GET',
-    ]);
+    expect(sent.map((request) => request.method)).toEqual(['GET', 'GET', 'GET']);
     expect(puts(sent)).toEqual([]);
     expect(approvals(d, t)).toEqual([]);
   });
@@ -688,15 +592,9 @@ describe('yolo merge', () => {
     ['non-numeric ahead_by', { compare: { ahead_by: '0' } }],
     ['protected but protection unreadable', { protectionStatus: 403 }],
     ['protected but rules unreadable', { rulesStatus: 403 }],
-    [
-      'unprotected but rules unreadable',
-      { protected: false, rulesStatus: 403 },
-    ],
+    ['unprotected but rules unreadable', { protected: false, rulesStatus: 403 }],
     ['incomplete check data', { checkRuns: {} }],
-    [
-      'check name collision',
-      { statuses: [{ context: 'build', state: 'success' }] },
-    ],
+    ['check name collision', { statuses: [{ context: 'build', state: 'success' }] }],
   ])('%s: no approval and no merge', async (_name, remote) => {
     const d = setup();
     const t = buildTask();
@@ -750,9 +648,7 @@ describe('yolo merge', () => {
         body: null,
       });
       if (remote.protected === false)
-        expect(sent.some((req) => req.path.endsWith('/protection'))).toBe(
-          false,
-        );
+        expect(sent.some((req) => req.path.endsWith('/protection'))).toBe(false);
     },
   );
 
@@ -764,26 +660,20 @@ describe('yolo merge', () => {
     { test: 'neutral' },
     { build: 'success', test: 'success' },
     { GitGuardian: 'success' },
-  ])(
-    'no protection and empty policy cannot merge with checks %j',
-    async (checks) => {
-      const d = setup();
-      const t = buildTask();
-      green(d, t, 'direct-pr', []);
-      const { port, sent } = github({ protected: false, checks });
-      const log: string[] = [];
-      expect(
-        await advanceTaskPr(
-          { ...deps(d, port), log: (line) => log.push(line) },
-          t.id,
-        ),
-      ).toBe('not_ready');
-      expect(puts(sent)).toEqual([]);
-      expect(approvals(d, t)).toEqual([]);
-      expect(log.join('\n')).toContain('ci.required_checks in cusr.yaml');
-      expect(d.task(t.id).wait?.detail.code).toBe('merge');
-    },
-  );
+  ])('no protection and empty policy cannot merge with checks %j', async (checks) => {
+    const d = setup();
+    const t = buildTask();
+    green(d, t, 'direct-pr', []);
+    const { port, sent } = github({ protected: false, checks });
+    const log: string[] = [];
+    expect(await advanceTaskPr({ ...deps(d, port), log: (line) => log.push(line) }, t.id)).toBe(
+      'not_ready',
+    );
+    expect(puts(sent)).toEqual([]);
+    expect(approvals(d, t)).toEqual([]);
+    expect(log.join('\n')).toContain('ci.required_checks in cusr.yaml');
+    expect(d.task(t.id).wait?.detail.code).toBe('merge');
+  });
 
   it('an empty required list logs the configuration hint only once per task and stays at merge wait', async () => {
     const d = setup();
@@ -795,8 +685,7 @@ describe('yolo merge', () => {
     });
     const log: string[] = [];
     const options = { ...deps(d, port), log: (line: string) => log.push(line) };
-    for (let i = 0; i < 3; i++)
-      expect(await advanceTaskPr(options, t.id)).toBe('not_ready');
+    for (let i = 0; i < 3; i++) expect(await advanceTaskPr(options, t.id)).toBe('not_ready');
     expect(log).toHaveLength(1);
     expect(log[0]).toContain('ci.required_checks in cusr.yaml');
     expect(d.task(t.id).wait?.detail.code).toBe('merge');
@@ -833,15 +722,11 @@ describe('yolo merge', () => {
       targetSha: 'b'.repeat(40),
       compare: { ahead_by: 1 },
     });
-    expect(await advanceTaskPr(deps(d, port, false), t.id)).toBe(
-      'updating_base',
-    );
+    expect(await advanceTaskPr(deps(d, port, false), t.id)).toBe('updating_base');
     expect(d.task(t.id).run.base_update?.base_sha).toBe('b'.repeat(40));
-    expect(
-      sent.some((request) =>
-        request.path.endsWith(`/compare/${A}...${'b'.repeat(40)}`),
-      ),
-    ).toBe(true);
+    expect(sent.some((request) => request.path.endsWith(`/compare/${A}...${'b'.repeat(40)}`))).toBe(
+      true,
+    );
     expect(puts(sent)).toEqual([]);
   });
 
@@ -860,10 +745,7 @@ describe('yolo merge', () => {
       expect(approvals(d, t)).toEqual([]);
       expect(d.task(t.id).head_sha).toBe(A);
       expect(d.task(t.id).wait?.detail.code).toBe('execution_slot');
-      const grant = d.store.grantNext(
-        d.now as EpochMs,
-        Array.from({ length: 8 }, newId),
-      );
+      const grant = d.store.grantNext(d.now as EpochMs, Array.from({ length: 8 }, newId));
       expect(grant).toMatchObject({
         ok: true,
         value: { kind: 'decided', outcome: { decision: { kind: 'accepted' } } },
@@ -883,37 +765,21 @@ describe('yolo merge', () => {
       green(d, t, mode);
       const oldReviews = d.task(t.id).run.reviews.length;
       const stale = github({ compare: { ahead_by: 1 } });
-      expect(await advanceTaskPr(deps(d, stale.port), t.id)).toBe(
-        'updating_base',
-      );
-      expect(
-        d.store.grantNext(d.now as EpochMs, Array.from({ length: 8 }, newId)),
-      ).toMatchObject({
+      expect(await advanceTaskPr(deps(d, stale.port), t.id)).toBe('updating_base');
+      expect(d.store.grantNext(d.now as EpochMs, Array.from({ length: 8 }, newId))).toMatchObject({
         ok: true,
         value: { kind: 'decided', outcome: { decision: { kind: 'accepted' } } },
       });
       const fresh = 'c'.repeat(40);
-      d.complete(
-        t.id,
-        d.pendingOne(t.id, 'run_gates').id,
-        'succeeded',
-        checkpointGates(fresh),
-      );
+      d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(fresh));
       expect(d.pending(t.id, 'start_agent')).toEqual([]);
       expect(d.task(t.id).run.reviews).toHaveLength(oldReviews);
       expect(d.task(t.id).run.base_update?.certificate?.head_sha).toBe(fresh);
       expect(d.pendingOne(t.id, 'publish').request).toMatchObject({
         sha: fresh,
       });
-      expect(await advanceTaskPr(deps(d, github().port), t.id)).toBe(
-        'not_waiting',
-      );
-      d.complete(
-        t.id,
-        d.pendingOne(t.id, 'publish').id,
-        'succeeded',
-        publishData(fresh),
-      );
+      expect(await advanceTaskPr(deps(d, github().port), t.id)).toBe('not_waiting');
+      d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(fresh));
       if (mode === 'full-review') {
         // The certified update needs no new review: the approval already on the PR is not posted again,
         // and the PR stays ready.
@@ -926,9 +792,7 @@ describe('yolo merge', () => {
       expect(d.pendingOne(t.id, 'await_ci').request).toMatchObject({
         head_sha: fresh,
       });
-      expect(await advanceTaskPr(deps(d, github().port), t.id)).toBe(
-        'not_waiting',
-      );
+      expect(await advanceTaskPr(deps(d, github().port), t.id)).toBe('not_waiting');
       d.complete(
         t.id,
         d.pendingOne(t.id, 'await_ci').id,
@@ -960,12 +824,9 @@ describe('yolo merge', () => {
     const d = setup();
     const t = buildTask();
     green(d, t);
-    expect(
-      await advanceTaskPr(
-        deps(d, github({ compare: { ahead_by: 1 } }).port),
-        t.id,
-      ),
-    ).toBe('updating_base');
+    expect(await advanceTaskPr(deps(d, github({ compare: { ahead_by: 1 } }).port), t.id)).toBe(
+      'updating_base',
+    );
     d.store.grantNext(d.now as EpochMs, Array.from({ length: 8 }, newId));
     const gate = d.pendingOne(t.id, 'run_gates');
     d.complete(t.id, gate.id, 'failed', {
@@ -1000,9 +861,7 @@ describe('yolo merge', () => {
       const enabled = () => {
         throw new Error('base maintenance must not read yolo config');
       };
-      expect(
-        await advanceTaskPr({ ...deps(d, port, false), enabled }, t.id),
-      ).toBe('updating_base');
+      expect(await advanceTaskPr({ ...deps(d, port, false), enabled }, t.id)).toBe('updating_base');
       expect(d.task(t.id).wait?.detail.code).toBe('execution_slot');
       expect(approvals(d, t)).toEqual([]);
       expect(puts(sent)).toEqual([]);
@@ -1017,14 +876,11 @@ describe('yolo merge', () => {
     const port: GitHubPort = {
       request: async (request) => {
         const result = await remote.port.request(request);
-        if (request.path.includes('/compare/'))
-          d.must(t.id, { kind: 'cancel', reason: 'stop' });
+        if (request.path.includes('/compare/')) d.must(t.id, { kind: 'cancel', reason: 'stop' });
         return result;
       },
     };
-    expect(await advanceTaskPr(deps(d, port, false), t.id)).toBe(
-      'not_approved',
-    );
+    expect(await advanceTaskPr(deps(d, port, false), t.id)).toBe('not_approved');
     expect(d.pending(t.id, 'run_gates')).toEqual([]);
     expect(puts(remote.sent)).toEqual([]);
   });
@@ -1044,17 +900,11 @@ describe('yolo merge', () => {
 
   it('the compare allowlist accepts only a full head SHA and an encoded target branch', async () => {
     let tick = 0;
-    const valid = [
-      `repos/o/r/compare/${A}...main`,
-      `repos/o/r/compare/${A}...release%2Fv1.0`,
-    ];
+    const valid = [`repos/o/r/compare/${A}...main`, `repos/o/r/compare/${A}...release%2Fv1.0`];
     const calls: string[] = [];
     const exec = fixtureExec(
       Object.fromEntries(
-        valid.map((path) => [
-          `GET ${path}`,
-          [{ status: 200, body: { ahead_by: 0 } }],
-        ]),
+        valid.map((path) => [`GET ${path}`, [{ status: 200, body: { ahead_by: 0 } }]]),
       ),
     );
     const port = new GhPort({
@@ -1066,9 +916,9 @@ describe('yolo merge', () => {
       redactor: new Redactor({ values: [] }),
     });
     for (const path of valid)
-      expect(
-        await port.request({ method: 'GET', path, query: {}, body: null }),
-      ).toMatchObject({ ok: true });
+      expect(await port.request({ method: 'GET', path, query: {}, body: null })).toMatchObject({
+        ok: true,
+      });
     for (const path of [
       `repos/o/r/compare/${A}..main`,
       `repos/o/r/compare/${A}....main`,
@@ -1083,9 +933,10 @@ describe('yolo merge', () => {
       `repos/o/r/compare/${A.toUpperCase()}...main`,
       `repos/o/r/compare/main...${A}`,
     ])
-      expect(
-        await port.request({ method: 'GET', path, query: {}, body: null }),
-      ).toMatchObject({ ok: false, error: { reason: 'not_allowed' } });
+      expect(await port.request({ method: 'GET', path, query: {}, body: null })).toMatchObject({
+        ok: false,
+        error: { reason: 'not_allowed' },
+      });
     expect(calls).toHaveLength(valid.length);
   });
 
@@ -1156,12 +1007,9 @@ describe('yolo merge', () => {
     expect(asked).toEqual([approvals(d, t)[0]?.content_digest]);
 
     const unread = github();
-    expect(
-      await advanceTaskPr(
-        { ...deps(d, unread.port), content: () => null },
-        t.id,
-      ),
-    ).toBe('not_ready');
+    expect(await advanceTaskPr({ ...deps(d, unread.port), content: () => null }, t.id)).toBe(
+      'not_ready',
+    );
     expect(puts(unread.sent)).toEqual([]);
   });
 

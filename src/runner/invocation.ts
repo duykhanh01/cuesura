@@ -36,11 +36,7 @@ import {
 import { dirname, join } from 'node:path';
 import { z } from 'zod';
 import { UsageSchema } from '../domain/trigger.ts';
-import {
-  hostInnerMode,
-  boundaryRole,
-  nativeSandboxEnabled,
-} from '../adapters/harness/vendor.ts';
+import { hostInnerMode, boundaryRole, nativeSandboxEnabled } from '../adapters/harness/vendor.ts';
 import { HashSchema } from '../shared/brand.ts';
 import { readLaunchMarker } from './operation-lock.ts';
 import {
@@ -65,11 +61,7 @@ import {
   validateRoleResult,
   wireRoleSchema,
 } from '../adapters/harness/result-schema.ts';
-import type {
-  VendorAdapter,
-  VendorPin,
-  VendorPlan,
-} from '../adapters/harness/vendor.ts';
+import type { VendorAdapter, VendorPin, VendorPlan } from '../adapters/harness/vendor.ts';
 import {
   DaemonStopping,
   SANDBOX_ROLES,
@@ -85,13 +77,7 @@ import {
 import { collectArtifacts } from './artifacts.ts';
 import type { EpochMs, Hash } from '../shared/brand.ts';
 import { hashCanonical } from '../shared/hash.ts';
-import {
-  RUN_FILES,
-  RunDir,
-  RunnerFileError,
-  readRecords,
-  type FileLimits,
-} from './files.ts';
+import { RUN_FILES, RunDir, RunnerFileError, readRecords, type FileLimits } from './files.ts';
 import { newLaunchNonce } from './identity.ts';
 import { RunnerExitSchema, type RunnerExit } from './lifecycle.ts';
 import {
@@ -278,8 +264,7 @@ function removeTmpDir(dir: string | undefined): void {
   if (dir !== undefined) rmSync(dir, { recursive: true, force: true });
 }
 
-const delay = (ms: number): Promise<void> =>
-  new Promise((r) => setTimeout(r, ms));
+const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 export class RunnerHarness implements HarnessPort {
   readonly harness: string;
@@ -289,15 +274,12 @@ export class RunnerHarness implements HarnessPort {
 
   constructor(o: RunnerHarnessOptions) {
     if (o.adapter.vendor !== o.pin.vendor)
-      throw new Error(
-        `adapter ${o.adapter.vendor} does not run a ${o.pin.vendor} pin`,
-      );
+      throw new Error(`adapter ${o.adapter.vendor} does not run a ${o.pin.vendor} pin`);
     this.harness = o.harness;
     this.agent_paths = {
       scratch:
         o.sandbox.provider === 'host'
-          ? (attemptId: string) =>
-              join(o.data_dir, 'runs', attemptId, 'scratch')
+          ? (attemptId: string) => join(o.data_dir, 'runs', attemptId, 'scratch')
           : IN_SANDBOX.scratch,
     };
     // The handler resumes only on `resume: proven`; an adapter without a pinned resume form makes
@@ -320,10 +302,7 @@ export class RunnerHarness implements HarnessPort {
       session_ref: null,
       permission_denials: [],
     };
-    const never = (
-      failure: HarnessFailure,
-      detail: string,
-    ): HarnessOutcome => ({
+    const never = (failure: HarnessFailure, detail: string): HarnessOutcome => ({
       ...base,
       kind: 'failure',
       failure,
@@ -339,8 +318,7 @@ export class RunnerHarness implements HarnessPort {
       ...(o.file_limits === undefined ? {} : { limits: o.file_limits }),
     });
     // A repeated call for a launched operation concludes what is on disk; it never launches again.
-    if (run.readFinal(RUN_FILES.launch).state !== 'missing')
-      return this.recover(input);
+    if (run.readFinal(RUN_FILES.launch).state !== 'missing') return this.recover(input);
 
     if (signal.aborted) return never('cancelled', 'aborted before start');
     // A reviewer always runs in its own new, read-only session (contracts/execution.md).
@@ -351,10 +329,7 @@ export class RunnerHarness implements HarnessPort {
     const schema = wireRoleSchema(input.role, {
       omit_meta_schema: o.adapter.vendor === 'claude',
     });
-    if (
-      input.schema.digest !== schema.digest ||
-      schema.digest !== ROLE_SCHEMA_DIGESTS[input.role]
-    )
+    if (input.schema.digest !== schema.digest || schema.digest !== ROLE_SCHEMA_DIGESTS[input.role])
       return never(
         'capability_missing',
         `schema ${input.schema.schema_id} is not current for ${input.role}`,
@@ -368,16 +343,14 @@ export class RunnerHarness implements HarnessPort {
       hostExecution &&
       (o.manifest.provider !== 'host' ||
         o.manifest.selected_inner_mode !== inner ||
-        o.manifest.native_result !==
-          (nativeSandboxEnabled(o.pin) ? 'passed' : 'not_tried'))
+        o.manifest.native_result !== (nativeSandboxEnabled(o.pin) ? 'passed' : 'not_tried'))
     )
       return never(
         'capability_missing',
         'manifest must prove the host execution and permission mode of this pin',
       );
     const ws = input.workspace ?? o.workspace?.(input) ?? null;
-    if (ws === null)
-      return never('capability_missing', 'no workspace for a sandboxed run');
+    if (ws === null) return never('capability_missing', 'no workspace for a sandboxed run');
     let session = input.session;
     let resumeFallback: string | undefined;
     try {
@@ -435,22 +408,15 @@ export class RunnerHarness implements HarnessPort {
     if (!planned.ok) return never('capability_missing', planned.error.message);
     const plan = planned.value;
 
-    const observed = observeHarness(
-      o.pin,
-      plan.settings_hash,
-      o.host_policy_hash,
-      o.digest,
-    );
-    if (!observed.ok)
-      return never('capability_missing', problemText([observed.error]));
+    const observed = observeHarness(o.pin, plan.settings_hash, o.host_policy_hash, o.digest);
+    if (!observed.ok) return never('capability_missing', problemText([observed.error]));
     const verified = verifyManifest(o.manifest, observed.value, {
       roles: [input.role],
       isolation: o.isolation,
       cost: 'none',
       resume: session !== null,
     });
-    if (!verified.ok)
-      return never('capability_missing', problemText(verified.error));
+    if (!verified.ok) return never('capability_missing', problemText(verified.error));
     if (session !== null && !verified.value.resume)
       return never(
         'capability_missing',
@@ -466,14 +432,10 @@ export class RunnerHarness implements HarnessPort {
       const authRedactor = new Redactor({
         values: homeSecretValues(installed),
       });
-      const present = (name: string): boolean =>
-        existsSync(join(layout.scratch, name));
-      const preexisted =
-        plan.result.kind === 'file' && present(plan.result.scratch_name);
+      const present = (name: string): boolean => existsSync(join(layout.scratch, name));
+      const preexisted = plan.result.kind === 'file' && present(plan.result.scratch_name);
       const collectBefore = new Set(
-        (input.collect ?? [])
-          .filter((c) => present(c.scratch_name))
-          .map((c) => c.scratch_name),
+        (input.collect ?? []).filter((c) => present(c.scratch_name)).map((c) => c.scratch_name),
       );
       const before = snapshotWriteZone(
         layout.layout,
@@ -493,8 +455,7 @@ export class RunnerHarness implements HarnessPort {
         boundaryRole(input.role),
         sandboxed.value.layout_shape,
       );
-      if (layoutProblem !== null)
-        return never('capability_missing', layoutProblem.message);
+      if (layoutProblem !== null) return never('capability_missing', layoutProblem.message);
 
       const nonce = newLaunchNonce();
       // Everything the conclusion needs that only exists before launch is on disk before the spawn,
@@ -503,9 +464,7 @@ export class RunnerHarness implements HarnessPort {
         schema_version: 1,
         input_digest: inputDigest(input),
         ...(input.session === null ? {} : { resumed: session !== null }),
-        ...(resumeFallback === undefined
-          ? {}
-          : { resume_fallback: resumeFallback }),
+        ...(resumeFallback === undefined ? {} : { resume_fallback: resumeFallback }),
         launch_nonce: nonce,
         result_source: plan.result,
         settings_hash: plan.settings_hash,
@@ -514,9 +473,7 @@ export class RunnerHarness implements HarnessPort {
         inner_mode: verified.value.inner_mode,
         layout_digest: sandboxed.value.layout_digest,
         scratch: layout.scratch,
-        ...(layout.layout.tmp_dir === undefined
-          ? {}
-          : { tmp_dir: layout.layout.tmp_dir }),
+        ...(layout.layout.tmp_dir === undefined ? {} : { tmp_dir: layout.layout.tmp_dir }),
         zone: {
           role: layout.layout.role,
           worktree: layout.layout.worktree,
@@ -528,21 +485,16 @@ export class RunnerHarness implements HarnessPort {
         auth: {
           home: installed.home,
           files: [...installed.files],
-          ...(installed.synced === undefined
-            ? {}
-            : { synced: [...installed.synced] }),
+          ...(installed.synced === undefined ? {} : { synced: [...installed.synced] }),
         },
       };
       run.writeJson(LAUNCH_STATE_FILE, state);
       const remaining = Math.min(
         input.wall_ms ?? Infinity,
-        input.deadline_at === null
-          ? Infinity
-          : input.deadline_at - o.clock.now(),
+        input.deadline_at === null ? Infinity : input.deadline_at - o.clock.now(),
       );
       const wall = Number.isFinite(remaining) ? Math.max(1, remaining) : null;
-      const tmpWatch =
-        layout.layout.tmp_dir === undefined ? [] : [layout.layout.tmp_dir];
+      const tmpWatch = layout.layout.tmp_dir === undefined ? [] : [layout.layout.tmp_dir];
       const launched = await o.process.launch({
         operation_id: input.operation_id,
         kind: 'agent',
@@ -568,17 +520,14 @@ export class RunnerHarness implements HarnessPort {
       if (!launched.ok) {
         if (launched.error.code === 'spawn_failed')
           return never('process_failed', launched.error.message);
-        throw new InvocationUnknown(
-          `launch ${launched.error.code}: ${launched.error.message}`,
-        );
+        throw new InvocationUnknown(`launch ${launched.error.code}: ${launched.error.message}`);
       }
 
       const exit = await this.#wait(run, input, wall ?? Infinity, signal);
       return this.#conclude(run, input, state, exit, authRedactor, false);
     } catch (e) {
       // A run whose end is not proven may still be using its home: recovery removes the auth.
-      if (e instanceof InvocationUnknown || e instanceof DaemonStopping)
-        installed = null;
+      if (e instanceof InvocationUnknown || e instanceof DaemonStopping) installed = null;
       throw e;
     } finally {
       // Auth leaves the home once the run's artifacts are on disk, whatever the outcome.
@@ -637,19 +586,12 @@ export class RunnerHarness implements HarnessPort {
       );
     }
     // A review the daemon finalized stands or falls with its proof; it is never re-derived.
-    if (
-      input.role === 'reviewer' &&
-      run.readFinal(RUN_FILES.result).state !== 'missing'
-    )
+    if (input.role === 'reviewer' && run.readFinal(RUN_FILES.result).state !== 'missing')
       return this.#recoverReview(run, input);
     const state = run.readFinal(LAUNCH_STATE_FILE, LaunchStateSchema);
     const exit = run.readFinal(RUN_FILES.exit, RunnerExitSchema);
     const marker = readLaunchMarker(run);
-    if (
-      state.state !== 'valid' ||
-      exit.state !== 'valid' ||
-      marker.state !== 'valid'
-    )
+    if (state.state !== 'valid' || exit.state !== 'valid' || marker.state !== 'valid')
       throw new InvocationUnknown(
         'no launch state, exit record and marker to conclude the run from',
       );
@@ -664,9 +606,7 @@ export class RunnerHarness implements HarnessPort {
       e.operation_id !== input.operation_id ||
       e.run_id !== input.attempt_id
     )
-      throw new InvocationUnknown(
-        'launch state does not match this invocation',
-      );
+      throw new InvocationUnknown('launch state does not match this invocation');
     // Concluded before: the stored outcome was redacted with the auth values, which may be gone now.
     const stored = run.readFinal(OUTCOME_FILE, StoredOutcomeSchema);
     if (stored.state === 'invalid')
@@ -680,10 +620,7 @@ export class RunnerHarness implements HarnessPort {
       const records = readRecords(run, input.operation_id, null, {
         final: true,
       });
-      if (!records.ok)
-        throw new InvocationUnknown(
-          `event log unreadable: ${records.error.code}`,
-        );
+      if (!records.ok) throw new InvocationUnknown(`event log unreadable: ${records.error.code}`);
       const outcome = stored.value.outcome as HarnessOutcome;
       const ingest = ingestOf(run, input.operation_id, records.value);
       removeAuth(st.auth);
@@ -729,17 +666,11 @@ export class RunnerHarness implements HarnessPort {
     const records = readRecords(run, input.operation_id, null, {
       final: true,
     });
-    if (!records.ok)
-      throw new InvocationUnknown(
-        `event log unreadable: ${records.error.code}`,
-      );
-    const stdout = records.value.records
-      .filter((r) => r.kind === 'stdout')
-      .map((r) => r.data);
+    if (!records.ok) throw new InvocationUnknown(`event log unreadable: ${records.error.code}`);
+    const stdout = records.value.records.filter((r) => r.kind === 'stdout').map((r) => r.data);
     const facts = o.adapter.read({
       stdout,
-      truncated_records:
-        exit.artifacts.truncated_records + records.value.torn.length,
+      truncated_records: exit.artifacts.truncated_records + records.value.torn.length,
       stderr: readStderr(run),
     });
     const file: FileRead | null =
@@ -776,11 +707,7 @@ export class RunnerHarness implements HarnessPort {
     });
     const violations = writeZoneViolations(
       st.before,
-      snapshotWriteZone(
-        st.zone,
-        this.#o.adapter.worktree_state,
-        this.#o.adapter.git_dir_state,
-      ),
+      snapshotWriteZone(st.zone, this.#o.adapter.worktree_state, this.#o.adapter.git_dir_state),
     );
     if (violations.length > 0 && recovering)
       throw new InvocationUnknown(
@@ -795,8 +722,7 @@ export class RunnerHarness implements HarnessPort {
       (t) => authRedactor.text(o.redactor.text(t)),
     );
     // The result is stored and returned with the auth values redacted too, not only the run's rules.
-    const redactAuth = <T>(x: T): T =>
-      authRedactor.value(o.redactor.value(x)) as T;
+    const redactAuth = <T>(x: T): T => authRedactor.value(o.redactor.value(x)) as T;
     if (violations.length > 0) {
       const ingest = ingestOf(run, input.operation_id, records.value);
       return this.#store(
@@ -829,12 +755,7 @@ export class RunnerHarness implements HarnessPort {
       recovering,
     );
     const ingest = ingestOf(run, input.operation_id, records.value);
-    return this.#store(
-      run,
-      st,
-      ingest === null ? outcome : { ...outcome, ingest },
-      redactAuth,
-    );
+    return this.#store(run, st, ingest === null ? outcome : { ...outcome, ingest }, redactAuth);
   }
 
   /**
@@ -850,9 +771,7 @@ export class RunnerHarness implements HarnessPort {
     const safe = redact({
       ...outcome,
       ...(st.resumed === undefined ? {} : { resumed: st.resumed }),
-      ...(st.resume_fallback === undefined
-        ? {}
-        : { resume_fallback: st.resume_fallback }),
+      ...(st.resume_fallback === undefined ? {} : { resume_fallback: st.resume_fallback }),
     });
     const { ingest: _ingest, ...kept } = safe;
     try {
@@ -904,12 +823,9 @@ export class RunnerHarness implements HarnessPort {
       p.schema_digest !== input.schema.digest ||
       !validateRoleResult('reviewer', result.value.value).ok
     )
-      throw new InvocationUnknown(
-        'finalized review provenance does not match this invocation',
-      );
+      throw new InvocationUnknown('finalized review provenance does not match this invocation');
     const records = readRecords(run, input.operation_id, null);
-    if (!records.ok)
-      throw new InvocationUnknown('finalized review records unreadable');
+    if (!records.ok) throw new InvocationUnknown('finalized review records unreadable');
     const ingest = ingestOf(run, input.operation_id, records.value);
     // The finalized proof is sufficient even if the later outcome write failed or state is absent.
     const state = run.readFinal(LAUNCH_STATE_FILE, LaunchStateSchema);
@@ -949,8 +865,7 @@ export class RunnerHarness implements HarnessPort {
   ): HarnessOutcome {
     if (v.record === null) return v.outcome;
     // Finalized before the daemon died: the file may already be committed as an artifact, keep it.
-    if (recovering && run.readFinal(RUN_FILES.result).state === 'valid')
-      return v.outcome;
+    if (recovering && run.readFinal(RUN_FILES.result).state === 'valid') return v.outcome;
     const written = run.writeResult(
       redact({
         ...v.record,
@@ -1009,22 +924,17 @@ export class RunnerHarness implements HarnessPort {
       try {
         ensurePrivateTmpDir(tmpDir);
       } catch (e) {
-        if (e instanceof SandboxPolicyError)
-          return { ok: false, error: e.message };
+        if (e instanceof SandboxPolicyError) return { ok: false, error: e.message };
         throw e;
       }
     run.writeText(PROMPT_FILE, input.context.text);
-    for (const f of plan.context_files)
-      run.writeText(`context/${f.name}`, f.content);
-    for (const f of plan.schema_files)
-      run.writeText(`schema/${f.name}`, f.content);
+    for (const f of plan.context_files) run.writeText(`context/${f.name}`, f.content);
+    for (const f of plan.schema_files) run.writeText(`schema/${f.name}`, f.content);
     let installed: InstalledAuth;
     try {
       const frozen = input.credentials ?? [];
       const files = o.pin.home_files.map((h) => {
-        const ref =
-          frozen.find((c) => c.name === h.credential) ??
-          o.credentials[h.credential];
+        const ref = frozen.find((c) => c.name === h.credential) ?? o.credentials[h.credential];
         if (ref === undefined)
           throw new SandboxPolicyError(
             'source_missing',
@@ -1038,8 +948,7 @@ export class RunnerHarness implements HarnessPort {
       });
       installed = installAuth(run, files);
     } catch (e) {
-      if (e instanceof SandboxPolicyError)
-        return { ok: false, error: e.message };
+      if (e instanceof SandboxPolicyError) return { ok: false, error: e.message };
       throw e;
     }
     run.writeJson('invocation-plan.json', {
@@ -1108,18 +1017,13 @@ export class RunnerHarness implements HarnessPort {
       // daemon adopts the run. Stopping it here would spend the attempt and call a replacement.
       if (signal.reason instanceof DaemonStopping) throw signal.reason;
       const elapsed = o.clock.monotonic() - start;
-      if (
-        (signal.aborted || elapsed > wall + grace + 30_000) &&
-        stoppedAt === null
-      ) {
+      if ((signal.aborted || elapsed > wall + grace + 30_000) && stoppedAt === null) {
         stoppedAt = o.clock.monotonic();
         const r = await o.process.stop(input.operation_id, limits);
-        if (r === 'unknown')
-          throw new InvocationUnknown('stop outcome unknown');
+        if (r === 'unknown') throw new InvocationUnknown('stop outcome unknown');
       }
       const unit = await o.process.inspect(input.operation_id);
-      if (unit.state === 'unknown')
-        throw new InvocationUnknown('unit state unknown');
+      if (unit.state === 'unknown') throw new InvocationUnknown('unit state unknown');
       if (unit.state !== 'active') {
         // The unit ended; give the final rename a moment, then the run is lost, not failed.
         goneSince ??= o.clock.monotonic();
@@ -1130,9 +1034,7 @@ export class RunnerHarness implements HarnessPort {
         elapsed > wall + 2 * grace + 60_000 ||
         (stoppedAt !== null && o.clock.monotonic() - stoppedAt > grace + 30_000)
       )
-        throw new InvocationUnknown(
-          'run outlived its wall budget or stop grace',
-        );
+        throw new InvocationUnknown('run outlived its wall budget or stop grace');
       await sleep(poll);
     }
   }

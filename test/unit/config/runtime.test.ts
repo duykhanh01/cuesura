@@ -5,10 +5,7 @@ import {
   type RuntimeFreezeInput,
 } from '../../../src/config/freeze.ts';
 import type { RuntimeConfig } from '../../../src/config/normalize.ts';
-import {
-  validateConfig,
-  type Validated,
-} from '../../../src/config/validate.ts';
+import { validateConfig, type Validated } from '../../../src/config/validate.ts';
 import type { ConfigSource } from '../../../src/config/yaml-loader.ts';
 import {
   DEFAULT_RUNTIME_LIMITS,
@@ -18,13 +15,7 @@ import {
 import { resolveMergeMethod } from '../../../src/domain/merge-method.ts';
 import { hashCanonical } from '../../../src/shared/hash.ts';
 import { authz, buildTask } from '../../support/builders.ts';
-import {
-  docsFor,
-  MIN_PROJECT,
-  minUser,
-  PACKS,
-  source,
-} from '../../support/config-fixtures.ts';
+import { docsFor, MIN_PROJECT, minUser, PACKS, source } from '../../support/config-fixtures.ts';
 
 const PROJECTS = `projects:
   acme: { base_branch: main, path: /srv/acme, repo: acme/app }
@@ -97,58 +88,39 @@ describe('projects.<id>.path / repo', () => {
     expect(r.ok && r.value.locations).toEqual({});
   });
 
-  it.each([
-    'srv/acme',
-    '/srv/../etc',
-    '/srv/./acme',
-    '/srv//acme',
-    '/srv/acme/',
-    '/',
-  ])('rejects non-canonical path %s', (p) => {
-    const r = validateConfig({
-      user: minUser(
-        {},
-        `projects: { acme: { base_branch: main, path: "${p}" } }\n`,
-      ),
-      project: MIN_PROJECT,
-      packs: PACKS,
-    });
-    expect(r.ok ? [] : r.error.map((d) => d.path.join('.'))).toEqual([
-      'projects.acme.path',
-    ]);
-  });
+  it.each(['srv/acme', '/srv/../etc', '/srv/./acme', '/srv//acme', '/srv/acme/', '/'])(
+    'rejects non-canonical path %s',
+    (p) => {
+      const r = validateConfig({
+        user: minUser({}, `projects: { acme: { base_branch: main, path: "${p}" } }\n`),
+        project: MIN_PROJECT,
+        packs: PACKS,
+      });
+      expect(r.ok ? [] : r.error.map((d) => d.path.join('.'))).toEqual(['projects.acme.path']);
+    },
+  );
 
-  it.each([
-    'acme',
-    'acme/app/x',
-    'https://github.com/acme/app',
-    'acme/..',
-    '-acme/app',
-  ])('rejects repo slug %s', (repo) => {
-    const r = validateConfig({
-      user: minUser(
-        {},
-        `projects: { acme: { base_branch: main, repo: "${repo}" } }\n`,
-      ),
-      project: MIN_PROJECT,
-      packs: PACKS,
-    });
-    expect(r.ok ? [] : r.error.map((d) => d.path.join('.'))).toEqual([
-      'projects.acme.repo',
-    ]);
-  });
+  it.each(['acme', 'acme/app/x', 'https://github.com/acme/app', 'acme/..', '-acme/app'])(
+    'rejects repo slug %s',
+    (repo) => {
+      const r = validateConfig({
+        user: minUser({}, `projects: { acme: { base_branch: main, repo: "${repo}" } }\n`),
+        project: MIN_PROJECT,
+        packs: PACKS,
+      });
+      expect(r.ok ? [] : r.error.map((d) => d.path.join('.'))).toEqual(['projects.acme.repo']);
+    },
+  );
 });
 
 describe('runtime config', () => {
   it('defaults to unlimited command execution and accepts an explicit null', () => {
     expect(valid('runtime: {}\n').runtime?.limits.command_wall_ms).toBeNull();
     expect(
-      valid('runtime: { limits: { command_wall_ms: null } }\n').runtime?.limits
-        .command_wall_ms,
+      valid('runtime: { limits: { command_wall_ms: null } }\n').runtime?.limits.command_wall_ms,
     ).toBeNull();
     expect(
-      valid('runtime: { limits: { command_wall_ms: 1000 } }\n').runtime?.limits
-        .command_wall_ms,
+      valid('runtime: { limits: { command_wall_ms: 1000 } }\n').runtime?.limits.command_wall_ms,
     ).toBe(1000);
   });
 
@@ -225,12 +197,10 @@ describe('runtime config', () => {
         message: "Key 'backend' is not supported",
       },
     ]);
-    expect(paths('runtime: { limits: { poll_ms: 1 } }\n')).toEqual([
-      'runtime.limits.poll_ms',
+    expect(paths('runtime: { limits: { poll_ms: 1 } }\n')).toEqual(['runtime.limits.poll_ms']);
+    expect(paths('runtime: { tool_paths: { curl: /usr/bin/curl } }\n')).toEqual([
+      'runtime.tool_paths.curl',
     ]);
-    expect(paths('runtime: { tool_paths: { curl: /usr/bin/curl } }\n')).toEqual(
-      ['runtime.tool_paths.curl'],
-    );
   });
 
   it.each([
@@ -242,22 +212,20 @@ describe('runtime config', () => {
     ['unsafe integer', '9007199254740993'],
     ['string', '"60s"'],
   ])('rejects a %s limit', (_label, value) => {
-    expect(
-      paths(`runtime: { limits: { poll_initial_ms: ${value} } }\n`),
-    ).toEqual(['runtime.limits.poll_initial_ms']);
+    expect(paths(`runtime: { limits: { poll_initial_ms: ${value} } }\n`)).toEqual([
+      'runtime.limits.poll_initial_ms',
+    ]);
   });
 
   it('reports cross-field limit violations after merging defaults', () => {
+    expect(paths('runtime: { limits: { poll_initial_ms: 7200000 } }\n')).toEqual([
+      'runtime.limits.poll_initial_ms',
+    ]);
+    expect(paths('runtime: { limits: { log_segment_bytes: 134217728 } }\n')).toEqual([
+      'runtime.limits.log_segment_bytes',
+    ]);
     expect(
-      paths('runtime: { limits: { poll_initial_ms: 7200000 } }\n'),
-    ).toEqual(['runtime.limits.poll_initial_ms']);
-    expect(
-      paths('runtime: { limits: { log_segment_bytes: 134217728 } }\n'),
-    ).toEqual(['runtime.limits.log_segment_bytes']);
-    expect(
-      errors(
-        'runtime: { limits: { term_grace_ms: 290000, kill_verify_ms: 20000 } }\n',
-      ),
+      errors('runtime: { limits: { term_grace_ms: 290000, kill_verify_ms: 20000 } }\n'),
     ).toEqual([
       {
         code: 'schema_invalid',
@@ -282,11 +250,7 @@ describe('runtime config', () => {
 
   it.each([
     ['data_dir', 'runtime: { data_dir: var/lib/cusr }\n', 'runtime.data_dir'],
-    [
-      'tool path',
-      'runtime: { tool_paths: { gh: bin/gh } }\n',
-      'runtime.tool_paths.gh',
-    ],
+    ['tool path', 'runtime: { tool_paths: { gh: bin/gh } }\n', 'runtime.tool_paths.gh'],
     [
       'credential ref',
       'runtime: { credential_refs: { github: ../gh.token } }\n',
@@ -304,9 +268,7 @@ describe('runtime config', () => {
   it('validates access token roles and projects', () => {
     const token = (fields: string): string =>
       `runtime: { access_tokens: [{ id: a, actor: x, token_file: /srv/a.token, ${fields} }] }\n`;
-    expect(paths(token('roles: [], projects: [acme]'))).toEqual([
-      'runtime.access_tokens.0.roles',
-    ]);
+    expect(paths(token('roles: [], projects: [acme]'))).toEqual(['runtime.access_tokens.0.roles']);
     expect(paths(token('roles: [read, owner], projects: [acme]'))).toEqual([
       'runtime.access_tokens.0.roles.1',
     ]);
@@ -320,9 +282,7 @@ describe('runtime config', () => {
       'runtime.access_tokens.0.projects.1',
     ]);
     expect(
-      paths(
-        'runtime: { access_tokens: [{ id: a, actor: x, roles: [read], projects: [acme] }] }\n',
-      ),
+      paths('runtime: { access_tokens: [{ id: a, actor: x, roles: [read], projects: [acme] }] }\n'),
     ).toEqual(['runtime.access_tokens.0.token_file']);
   });
 
@@ -340,12 +300,12 @@ describe('runtime config', () => {
   });
 
   it('rejects isolation modes for undeclared harnesses and unknown modes', () => {
-    expect(
-      paths('runtime: { harness_isolation: { codex: internal_required } }\n'),
-    ).toEqual(['runtime.harness_isolation.codex']);
-    expect(paths('runtime: { harness_isolation: { claude: none } }\n')).toEqual(
-      ['runtime.harness_isolation.claude'],
-    );
+    expect(paths('runtime: { harness_isolation: { codex: internal_required } }\n')).toEqual([
+      'runtime.harness_isolation.codex',
+    ]);
+    expect(paths('runtime: { harness_isolation: { claude: none } }\n')).toEqual([
+      'runtime.harness_isolation.claude',
+    ]);
   });
 });
 
@@ -374,28 +334,26 @@ describe('project file authority', () => {
     'merge: true',
   ])('cannot declare %s', (line) => {
     const key = line.split(':')[0] as string;
-    expect(
-      errors('', project(`${line}\n`)).map((e) => [e.code, e.path]),
-    ).toEqual([['schema_invalid', key]]);
+    expect(errors('', project(`${line}\n`)).map((e) => [e.code, e.path])).toEqual([
+      ['schema_invalid', key],
+    ]);
   });
 
   it('cannot enable autonomous', () => {
-    expect(
-      errors('', project('autonomous: true\n')).map((e) => [e.code, e.path]),
-    ).toEqual([['forbidden_key', 'autonomous']]);
+    expect(errors('', project('autonomous: true\n')).map((e) => [e.code, e.path])).toEqual([
+      ['forbidden_key', 'autonomous'],
+    ]);
   });
 
   it('cannot enable yolo', () => {
-    expect(
-      errors('', project('yolo: true\n')).map((e) => [e.code, e.path]),
-    ).toEqual([['forbidden_key', 'yolo']]);
+    expect(errors('', project('yolo: true\n')).map((e) => [e.code, e.path])).toEqual([
+      ['forbidden_key', 'yolo'],
+    ]);
   });
 
   it('cannot add app_id to required checks', () => {
     const p = project('ci: { required_checks: [build], app_id: 15368 }\n');
-    expect(errors('', p).map((e) => [e.code, e.path])).toEqual([
-      ['schema_invalid', 'ci.app_id'],
-    ]);
+    expect(errors('', p).map((e) => [e.code, e.path])).toEqual([['schema_invalid', 'ci.app_id']]);
   });
 });
 
@@ -439,24 +397,22 @@ describe('project merge.method (SPEC §14.2)', () => {
     ['merge: { method: [squash] }', 'merge.method'],
     ['merge: { method: squash, auto: true }', 'merge.auto'],
   ])('%s is invalid config, never a silent default', (line, path) => {
-    expect(
-      errors('', project(`${line}\n`)).map((e) => [e.code, e.path]),
-    ).toEqual([['schema_invalid', path]]);
+    expect(errors('', project(`${line}\n`)).map((e) => [e.code, e.path])).toEqual([
+      ['schema_invalid', path],
+    ]);
   });
 
   it('belongs to cusr.yaml only, never to the user config', () => {
-    expect(
-      errors('merge: { method: rebase }\n').map((e) => [e.code, e.path]),
-    ).toEqual([['forbidden_key', 'merge']]);
+    expect(errors('merge: { method: rebase }\n').map((e) => [e.code, e.path])).toEqual([
+      ['forbidden_key', 'merge'],
+    ]);
   });
 
   it('not declaring it leaves the project hash as it was', () => {
     const base = validate('', project(''));
     const empty = validate('', project('merge: {}\n'));
     expect(
-      base.ok &&
-        empty.ok &&
-        base.value.config.hashes.project === empty.value.config.hashes.project,
+      base.ok && empty.ok && base.value.config.hashes.project === empty.value.config.hashes.project,
     ).toBe(true);
   });
 });
@@ -485,17 +441,13 @@ describe('freezeRuntimeContext', () => {
     const ctx = r.value;
     expect(FrozenRuntimeContextSchema.safeParse(ctx).success).toBe(true);
     expect(ctx.completion_mode).toBe('external_confirmation');
-    expect(ctx.credential_refs).toEqual([
-      { name: 'github', file: '/srv/cred/gh.token' },
-    ]);
+    expect(ctx.credential_refs).toEqual([{ name: 'github', file: '/srv/cred/gh.token' }]);
     const { runtime_hash, ...rest } = ctx;
     expect(runtime_hash).toBe(hashCanonical(rest));
     expect(verifyRuntimeHash(ctx)).toBe(true);
     // Any field change must change the hash.
     for (const key of Object.keys(rest) as (keyof typeof rest)[]) {
-      expect(
-        verifyRuntimeHash({ ...ctx, [key]: key === 'revision' ? 2 : 'x' }),
-      ).toBe(false);
+      expect(verifyRuntimeHash({ ...ctx, [key]: key === 'revision' ? 2 : 'x' })).toBe(false);
     }
   });
 
@@ -510,9 +462,7 @@ describe('freezeRuntimeContext', () => {
         repo: 'acme/app',
       },
     });
-    expect(a.ok && b.ok && a.value.runtime_hash === b.value.runtime_hash).toBe(
-      true,
-    );
+    expect(a.ok && b.ok && a.value.runtime_hash === b.value.runtime_hash).toBe(true);
     const c = freezeRuntimeContext({
       ...INPUT,
       runtime: {
@@ -520,9 +470,7 @@ describe('freezeRuntimeContext', () => {
         limits: { ...RUNTIME.limits, poll_max_ms: 1_800_000 },
       },
     });
-    expect(a.ok && c.ok && a.value.runtime_hash !== c.value.runtime_hash).toBe(
-      true,
-    );
+    expect(a.ok && c.ok && a.value.runtime_hash !== c.value.runtime_hash).toBe(true);
   });
 
   it('does not capture tokens, tool paths or data dir', () => {
@@ -535,9 +483,7 @@ describe('freezeRuntimeContext', () => {
       },
     });
     const s = freezeRuntimeContext(INPUT);
-    expect(r.ok && s.ok && r.value.runtime_hash === s.value.runtime_hash).toBe(
-      true,
-    );
+    expect(r.ok && s.ok && r.value.runtime_hash === s.value.runtime_hash).toBe(true);
   });
 
   it('freezes the merge method only when given; a snapshot without it keeps its hash', () => {
@@ -548,11 +494,8 @@ describe('freezeRuntimeContext', () => {
     expect('merge_method' in plain.value).toBe(false);
     expect(squash.value.merge_method).toBe('squash');
     expect(
-      new Set([
-        plain.value.runtime_hash,
-        squash.value.runtime_hash,
-        rebase.value.runtime_hash,
-      ]).size,
+      new Set([plain.value.runtime_hash, squash.value.runtime_hash, rebase.value.runtime_hash])
+        .size,
     ).toBe(3);
     expect(verifyRuntimeHash(squash.value)).toBe(true);
     expect(
@@ -627,16 +570,13 @@ describe('historical hashes', () => {
   const GOLDEN = {
     config: {
       user: 'sha256:ad2bd8f7dfebc4e4670a600f8ee72eee13d348baf032d9ca955796122eaa7da4',
-      project:
-        'sha256:20aed651e16b81216ae85b13a4b78eae960183761c88f2fbb1dffd6059f2949f',
+      project: 'sha256:20aed651e16b81216ae85b13a4b78eae960183761c88f2fbb1dffd6059f2949f',
       packs: {
         node: 'sha256:dc2a20df419481471b5e3cbb2efc284701c47f5395e127910c07a0ffe091e003',
       },
     },
-    policy:
-      'sha256:bffd04158f0a9056bb674ea4655644a33f98ae26044aaa9aeba330031116383b',
-    context:
-      'sha256:452fab522cb5cdb63dbf6ddf2887ca014076ed9b97c7aad73b4eea7eebeb3731',
+    policy: 'sha256:bffd04158f0a9056bb674ea4655644a33f98ae26044aaa9aeba330031116383b',
+    context: 'sha256:452fab522cb5cdb63dbf6ddf2887ca014076ed9b97c7aad73b4eea7eebeb3731',
   };
 
   it('keeps historical hashes when the former finite defaults are explicit', () => {

@@ -13,10 +13,7 @@ import type { AcceptOutcome, Store } from '../store/index.ts';
 import { submit } from './triage.ts';
 
 const TERMINAL: readonly TaskStatus[] = ['DONE', 'FAILED', 'CANCELLED'];
-const DEPENDENCY_WAITS: readonly string[] = [
-  'dependency_pending',
-  'dependency_failed',
-];
+const DEPENDENCY_WAITS: readonly string[] = ['dependency_pending', 'dependency_failed'];
 
 export type DependencyNotice = {
   readonly task_id: string;
@@ -34,10 +31,7 @@ function waitingOnDependencies(s: TaskState): boolean {
 }
 
 /** Sends `dependency_status` for every prerequisite that ended since its dependent last saw it. */
-export function notifyDependents(
-  store: Store,
-  now: number,
-): DependencyNotice[] {
+export function notifyDependents(store: Store, now: number): DependencyNotice[] {
   const out: DependencyNotice[] = [];
   for (const id of store.taskIdsByStatus(['PENDING'])) {
     const s = store.readTask(id as Uuid);

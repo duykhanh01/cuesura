@@ -4,12 +4,7 @@
  */
 import type { PortResult } from '../client/daemon-port.ts';
 import { EXPLAIN_REFRESH_MS } from '../client/refresh.ts';
-import type {
-  TaskExplain,
-  TaskHistory,
-  TaskProgress,
-  TaskShow,
-} from '../client/schemas.ts';
+import type { TaskExplain, TaskHistory, TaskProgress, TaskShow } from '../client/schemas.ts';
 import { sanitize, type SafeText } from '../terminal/safe-text.ts';
 import type { TuiState } from './state.ts';
 
@@ -70,11 +65,7 @@ export type TaskDetail = {
   readonly top: number;
 };
 
-export function initialDetail(
-  taskId: string,
-  title: SafeText,
-  session: number,
-): TaskDetail {
+export function initialDetail(taskId: string, title: SafeText, session: number): TaskDetail {
   return {
     taskId,
     session,
@@ -167,11 +158,7 @@ export type DetailMessage = {
   | { readonly part: 'history'; readonly result: PortResult<TaskHistory> }
 );
 
-function answered<T>(
-  part: Part<T>,
-  r: PortResult<T>,
-  m: DetailMessage,
-): Part<T> {
+function answered<T>(part: Part<T>, r: PortResult<T>, m: DetailMessage): Part<T> {
   return r.ok
     ? { data: r.value, error: null, attemptAt: m.askedAt, readAt: m.at }
     : { ...part, error: r.error.message, attemptAt: m.askedAt };
@@ -179,9 +166,7 @@ function answered<T>(
 
 function payloadText(payload: unknown): SafeText {
   const whole = JSON.stringify(payload) ?? '';
-  return sanitize(
-    whole.length > PAYLOAD_CHARS ? `${whole.slice(0, PAYLOAD_CHARS)}…` : whole,
-  );
+  return sanitize(whole.length > PAYLOAD_CHARS ? `${whole.slice(0, PAYLOAD_CHARS)}…` : whole);
 }
 
 function withHistory(
@@ -232,8 +217,7 @@ function partFailed(d: TaskDetail): boolean {
 /** A read of the open task came back; one for a task no longer open is dropped. */
 export function onDetailRead(state: TuiState, m: DetailMessage): TuiState {
   const d = state.detail;
-  if (d === null || d.taskId !== m.taskId || d.session !== m.session)
-    return state;
+  if (d === null || d.taskId !== m.taskId || d.session !== m.session) return state;
   let next: TaskDetail;
   switch (m.part) {
     case 'show':

@@ -7,22 +7,13 @@ import type {
   HostProbePort,
 } from '../../src/adapters/ports.ts';
 import type { PreflightPorts } from '../../src/application/preflight.ts';
-import {
-  CapabilityManifestSchema,
-  type CapabilityManifest,
-} from '../../src/domain/runtime.ts';
+import { CapabilityManifestSchema, type CapabilityManifest } from '../../src/domain/runtime.ts';
 import type { ConfigSource } from '../../src/config/yaml-loader.ts';
 import { hashCanonical } from '../../src/shared/hash.ts';
 import { err, ok } from '../../src/shared/result.ts';
-import {
-  preflight,
-  TOOL_PROBE_SCRIPT,
-} from '../../src/application/preflight.ts';
+import { preflight, TOOL_PROBE_SCRIPT } from '../../src/application/preflight.ts';
 import { freeze } from '../../src/config/freeze.ts';
-import type {
-  ExecutionMode,
-  RunSelection,
-} from '../../src/domain/run-config.ts';
+import type { ExecutionMode, RunSelection } from '../../src/domain/run-config.ts';
 import type { CanonicalTask } from '../../src/domain/task.ts';
 import { PACKS, source } from './config-fixtures.ts';
 import { selectionFor } from './runtime.ts';
@@ -37,15 +28,9 @@ export const CUSR = source('configs/valid/cusr.yaml', 'cusr.yaml').text;
 export function userConfig(
   opts: { project?: string; runtime?: string | null; extra?: string } = {},
 ): ConfigSource {
-  const project =
-    opts.project ??
-    `acme: { base_branch: main, path: ${REPO}, repo: acme/app }`;
+  const project = opts.project ?? `acme: { base_branch: main, path: ${REPO}, repo: acme/app }`;
   const runtime =
-    opts.runtime === undefined
-      ? 'runtime: {}\n'
-      : opts.runtime === null
-        ? ''
-        : `${opts.runtime}\n`;
+    opts.runtime === undefined ? 'runtime: {}\n' : opts.runtime === null ? '' : `${opts.runtime}\n`;
   const text =
     BASE_USER.text.replace('  acme: { base_branch: main }', `  ${project}`) +
     runtime +
@@ -61,9 +46,7 @@ export type HostOpts = {
   userBus?: boolean;
 };
 
-export function fakeHost(
-  o: HostOpts = {},
-): HostProbePort & { execs: string[][] } {
+export function fakeHost(o: HostOpts = {}): HostProbePort & { execs: string[][] } {
   const execs: string[][] = [];
   const bins: Record<string, string | null> = {
     bwrap: o.bwrap === false ? null : '/usr/bin/bwrap',
@@ -75,11 +58,7 @@ export function fakeHost(
     execs,
     findExecutable: (name) => Promise.resolve(bins[name] ?? null),
     realpath: (p) =>
-      Promise.resolve(
-        p === REPO || p === `${REPO}/.git` || p.startsWith('/usr/bin/')
-          ? p
-          : null,
-      ),
+      Promise.resolve(p === REPO || p === `${REPO}/.git` || p.startsWith('/usr/bin/') ? p : null),
     readText: (p) => Promise.resolve(o.sysctl?.[p] ?? null),
     exec: (argv): Promise<HostExecResult> => {
       execs.push([...argv]);
@@ -124,9 +103,7 @@ export type GitOpts = {
   templates?: Record<string, string>;
 };
 
-export function fakeGit(
-  o: GitOpts = {},
-): PreflightPorts['git'] & { calls: string[][] } {
+export function fakeGit(o: GitOpts = {}): PreflightPorts['git'] & { calls: string[][] } {
   const calls: string[][] = [];
   const exited = (stdout: string, code = 0, stderr = ''): GitResult => ({
     kind: 'exited',
@@ -149,41 +126,31 @@ export function fakeGit(
               : exited(`${SHA}\n`),
           );
         case 'config':
-          return Promise.resolve(
-            exited(`${o.remote ?? 'git@github.com:acme/app.git'}\n`),
-          );
+          return Promise.resolve(exited(`${o.remote ?? 'git@github.com:acme/app.git'}\n`));
         case 'check-ref-format':
           return Promise.resolve(exited(''));
         case 'fetch':
           return Promise.resolve(
-            o.fetch === undefined
-              ? exited('')
-              : exited('', o.fetch.code, o.fetch.stderr),
+            o.fetch === undefined ? exited('') : exited('', o.fetch.code, o.fetch.stderr),
           );
         case 'ls-tree':
           // `ls-tree -r --name-only -z <base>` lists the tree for the PR template lookup.
           if (c.args.includes('--name-only'))
             return Promise.resolve(
               exited(
-                [
-                  ...(cusr === null ? [] : ['cusr.yaml']),
-                  ...Object.keys(o.templates ?? {}),
-                ]
+                [...(cusr === null ? [] : ['cusr.yaml']), ...Object.keys(o.templates ?? {})]
                   .map((f) => `${f}\0`)
                   .join(''),
               ),
             );
           return Promise.resolve(
             exited(
-              cusr === null
-                ? ''
-                : `${o.mode ?? '100644'} blob ${'b'.repeat(40)}\tcusr.yaml\n`,
+              cusr === null ? '' : `${o.mode ?? '100644'} blob ${'b'.repeat(40)}\tcusr.yaml\n`,
             ),
           );
         case 'cat-file': {
           const path = (c.args.at(-1) ?? '').split(':').slice(1).join(':');
-          if (o.templates?.[path] !== undefined)
-            return Promise.resolve(exited(o.templates[path]));
+          if (o.templates?.[path] !== undefined) return Promise.resolve(exited(o.templates[path]));
           return Promise.resolve(exited(cusr ?? ''));
         }
         default:
@@ -274,8 +241,7 @@ export async function configuredSelection(
     { git: fakeGit(), github: fakeGitHub(), host: fakeHost() },
     { task, user, packs: PACKS, manifests: MANIFESTS, mode },
   );
-  if (!pre.ok)
-    throw new Error(`preflight failed: ${JSON.stringify(pre.error)}`);
+  if (!pre.ok) throw new Error(`preflight failed: ${JSON.stringify(pre.error)}`);
   const config = pre.value.validated.config;
   const prompts = Object.values(config.user.roles).flatMap((r) =>
     r.prompt === null ? [] : [{ name: r.prompt, content: `# ${r.prompt}\n` }],
@@ -298,7 +264,6 @@ export async function configuredSelection(
     })),
     mode,
   });
-  if (!frozen.ok)
-    throw new Error(`freeze failed: ${JSON.stringify(frozen.error)}`);
+  if (!frozen.ok) throw new Error(`freeze failed: ${JSON.stringify(frozen.error)}`);
   return selectionFor(task, mode, frozen.value.policy);
 }

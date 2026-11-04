@@ -39,9 +39,7 @@ export function toEvent(r: EventRow): DomainEvent {
     revision: r.revision,
     actor: r.actor,
     causation:
-      r.claim === null
-        ? { dedup_key: r.dedup_key }
-        : { dedup_key: r.dedup_key, claim: r.claim },
+      r.claim === null ? { dedup_key: r.dedup_key } : { dedup_key: r.dedup_key, claim: r.claim },
     payload: JSON.parse(r.payload_json) as unknown,
   } as DomainEvent;
 }
@@ -55,9 +53,7 @@ export function toEffect(r: EffectRow): Effect {
     idem_key: r.idem_key,
     status: r.status as Effect['status'],
     request: JSON.parse(r.request_json) as Record<string, unknown>,
-    ...(r.result_json !== null
-      ? { result: JSON.parse(r.result_json) as unknown }
-      : {}),
+    ...(r.result_json !== null ? { result: JSON.parse(r.result_json) as unknown } : {}),
     reservation_id: r.reservation_id,
   };
 }
@@ -74,17 +70,14 @@ export function toTimer(r: TimerRow): Timer {
 }
 
 export function readTask(db: Database, taskId: string): TaskState | null {
-  const row = db
-    .prepare('SELECT state_json FROM tasks WHERE id = ?')
-    .get(taskId) as { state_json: string } | undefined;
+  const row = db.prepare('SELECT state_json FROM tasks WHERE id = ?').get(taskId) as
+    | { state_json: string }
+    | undefined;
   return row === undefined ? null : (JSON.parse(row.state_json) as TaskState);
 }
 
 /** Task IDs in the given statuses, in ID order. */
-export function taskIdsByStatus(
-  db: Database,
-  statuses: readonly TaskStatus[],
-): string[] {
+export function taskIdsByStatus(db: Database, statuses: readonly TaskStatus[]): string[] {
   if (statuses.length === 0) return [];
   const rows = db
     .prepare(
@@ -133,22 +126,15 @@ export function countTasksByStatus(
 ): Partial<Record<TaskStatus, number>> {
   const { where, params } = filterSql(f);
   const rows = db
-    .prepare(
-      `SELECT status, COUNT(*) AS n FROM tasks WHERE ${where} GROUP BY status`,
-    )
+    .prepare(`SELECT status, COUNT(*) AS n FROM tasks WHERE ${where} GROUP BY status`)
     .all(...params) as { status: TaskStatus; n: number }[];
   return Object.fromEntries(rows.map((r) => [r.status, r.n]));
 }
 
 /** Requests waiting for the slot, for tasks of these projects. */
-export function queueLength(
-  db: Database,
-  projects: readonly string[] | null,
-): number {
+export function queueLength(db: Database, projects: readonly string[] | null): number {
   const scope =
-    projects === null
-      ? ''
-      : ` AND t.project IN (${Array(projects.length).fill('?').join(', ')})`;
+    projects === null ? '' : ` AND t.project IN (${Array(projects.length).fill('?').join(', ')})`;
   const row = db
     .prepare(
       `SELECT COUNT(*) AS n FROM execution_queue q JOIN tasks t ON t.id = q.task_id WHERE q.status = 'queued'${scope}`,
@@ -175,21 +161,14 @@ export function triggerTime(db: Database, dedupKey: string): number | null {
   return typeof row?.now === 'number' ? row.now : null;
 }
 
-export function readTaskStatus(
-  db: Database,
-  taskId: string,
-): TaskStatus | 'missing' {
-  const row = db
-    .prepare('SELECT status FROM tasks WHERE id = ?')
-    .get(taskId) as { status: TaskStatus } | undefined;
+export function readTaskStatus(db: Database, taskId: string): TaskStatus | 'missing' {
+  const row = db.prepare('SELECT status FROM tasks WHERE id = ?').get(taskId) as
+    | { status: TaskStatus }
+    | undefined;
   return row?.status ?? 'missing';
 }
 
-export function readEvents(
-  db: Database,
-  taskId: string,
-  fromSeq = 1,
-): DomainEvent[] {
+export function readEvents(db: Database, taskId: string, fromSeq = 1): DomainEvent[] {
   const rows = db
     .prepare('SELECT * FROM events WHERE task_id = ? AND seq >= ? ORDER BY seq')
     .all(taskId, fromSeq) as EventRow[];
@@ -215,9 +194,7 @@ export function readPolicy(
           )
           .get(taskId, revision, policyVersion)
   ) as { policy_json: string } | undefined;
-  return row === undefined
-    ? null
-    : (JSON.parse(row.policy_json) as FrozenPolicy);
+  return row === undefined ? null : (JSON.parse(row.policy_json) as FrozenPolicy);
 }
 
 export function readContext(
@@ -226,26 +203,16 @@ export function readContext(
   revision: number,
 ): FrozenExecutionContext | null {
   const row = db
-    .prepare(
-      'SELECT context_json FROM frozen_contexts WHERE task_id = ? AND revision = ?',
-    )
+    .prepare('SELECT context_json FROM frozen_contexts WHERE task_id = ? AND revision = ?')
     .get(taskId, revision) as { context_json: string } | undefined;
-  return row === undefined
-    ? null
-    : (JSON.parse(row.context_json) as FrozenExecutionContext);
+  return row === undefined ? null : (JSON.parse(row.context_json) as FrozenExecutionContext);
 }
 
-export function pendingEffects(
-  db: Database,
-  limit: number,
-  after?: string,
-): Effect[] {
+export function pendingEffects(db: Database, limit: number, after?: string): Effect[] {
   const rows = (
     after === undefined
       ? db
-          .prepare(
-            `SELECT * FROM effects WHERE status = 'pending' ORDER BY created_seq LIMIT ?`,
-          )
+          .prepare(`SELECT * FROM effects WHERE status = 'pending' ORDER BY created_seq LIMIT ?`)
           .all(limit)
       : db
           .prepare(
@@ -258,8 +225,7 @@ export function pendingEffects(
 
 /** One effect with its request, whatever its status (reconcile reads the effect it probes). */
 export function readEffect(db: Database, id: string): Effect | null {
-  const row = db.prepare(`SELECT * FROM effects WHERE id = ?`).get(id) as
-    EffectRow | undefined;
+  const row = db.prepare(`SELECT * FROM effects WHERE id = ?`).get(id) as EffectRow | undefined;
   return row === undefined ? null : toEffect(row);
 }
 
@@ -269,9 +235,7 @@ export function readExecutionFacts(db: Database): {
   queue_head: string | null;
 } {
   const slot = db
-    .prepare(
-      `SELECT holder_task_id, request_id FROM execution_slot WHERE key = 'execution'`,
-    )
+    .prepare(`SELECT holder_task_id, request_id FROM execution_slot WHERE key = 'execution'`)
     .get() as { holder_task_id: string; request_id: string } | undefined;
   const head = readQueue(db, 1)[0];
   return { slot: slot ?? null, queue_head: head?.request_id ?? null };
@@ -287,19 +251,13 @@ export type QueuedRequest = {
 };
 
 /** Open requests in the selector's order (`orderQueue`); at most one per task, so the whole queue is small. */
-export function readQueue(
-  db: Database,
-  limit = Number.MAX_SAFE_INTEGER,
-): QueuedRequest[] {
+export function readQueue(db: Database, limit = Number.MAX_SAFE_INTEGER): QueuedRequest[] {
   const rows = db
     .prepare(
       `SELECT request_id, task_id, grp, priority, requested_at, request_global_seq FROM execution_queue WHERE status = 'queued'`,
     )
     .all() as (Omit<QueuedRequest, 'group'> & { grp: 'fresh' | 'resumed' })[];
-  return orderQueue(rows.map(({ grp, ...r }) => ({ ...r, group: grp }))).slice(
-    0,
-    limit,
-  );
+  return orderQueue(rows.map(({ grp, ...r }) => ({ ...r, group: grp }))).slice(0, limit);
 }
 
 export function readSlot(
@@ -309,9 +267,7 @@ export function readSlot(
     .prepare(
       `SELECT holder_task_id, request_id, claimed_at FROM execution_slot WHERE key = 'execution'`,
     )
-    .get() as
-    | { holder_task_id: string; request_id: string; claimed_at: number }
-    | undefined;
+    .get() as { holder_task_id: string; request_id: string; claimed_at: number } | undefined;
   return row ?? null;
 }
 
@@ -334,13 +290,9 @@ export function readRuntimeContext(
   revision: number,
 ): FrozenRuntimeContext | null {
   const row = db
-    .prepare(
-      'SELECT runtime_json FROM runtime_contexts WHERE task_id = ? AND revision = ?',
-    )
+    .prepare('SELECT runtime_json FROM runtime_contexts WHERE task_id = ? AND revision = ?')
     .get(taskId, revision) as { runtime_json: string } | undefined;
-  return row === undefined
-    ? null
-    : (JSON.parse(row.runtime_json) as FrozenRuntimeContext);
+  return row === undefined ? null : (JSON.parse(row.runtime_json) as FrozenRuntimeContext);
 }
 
 export type UnresolvedOperation = {

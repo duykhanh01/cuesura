@@ -9,11 +9,6 @@ export async function readConfigFiles(paths: {
   user: string;
   project?: string;
 }): Promise<ConfigSource[]> {
-  const list = [
-    paths.user,
-    ...(paths.project !== undefined ? [paths.project] : []),
-  ];
-  return Promise.all(
-    list.map(async (file) => ({ file, text: await readFile(file, 'utf8') })),
-  );
+  const list = [paths.user, ...(paths.project !== undefined ? [paths.project] : [])];
+  return Promise.all(list.map(async (file) => ({ file, text: await readFile(file, 'utf8') })));
 }

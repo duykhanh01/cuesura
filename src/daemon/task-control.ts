@@ -66,27 +66,18 @@ export function taskControl(deps: TaskControlDeps): {
   const statusSince = statusSinceReader(store);
   return {
     commands: {
-      task_add: (admitted, input, caller) =>
-        taskAdd(deps, admitted, input, caller),
-      task_confirm: (admitted, input, caller) =>
-        taskConfirm(deps, admitted, input, caller),
-      task_propose_run: (admitted, input, caller) =>
-        taskProposeRun(deps, admitted, input, caller),
-      answer: (admitted, input, caller) =>
-        answerQuestion(deps, admitted, input, caller),
-      task_cancel: (admitted, input, caller) =>
-        cancelTask(deps, admitted, input, caller),
+      task_add: (admitted, input, caller) => taskAdd(deps, admitted, input, caller),
+      task_confirm: (admitted, input, caller) => taskConfirm(deps, admitted, input, caller),
+      task_propose_run: (admitted, input, caller) => taskProposeRun(deps, admitted, input, caller),
+      answer: (admitted, input, caller) => answerQuestion(deps, admitted, input, caller),
+      task_cancel: (admitted, input, caller) => cancelTask(deps, admitted, input, caller),
       approve_escalation: (admitted, input, caller) =>
         approveEscalation(deps, admitted, input, caller),
-      task_continue: (admitted, input, caller) =>
-        continueTask(deps, admitted, input, caller),
-      ...(deps.observe === undefined ||
-      deps.drain === undefined ||
-      deps.newId === undefined
+      task_continue: (admitted, input, caller) => continueTask(deps, admitted, input, caller),
+      ...(deps.observe === undefined || deps.drain === undefined || deps.newId === undefined
         ? {}
         : {
-            task_recheck: (admitted, input, caller) =>
-              taskRecheck(deps, admitted, input, caller),
+            task_recheck: (admitted, input, caller) => taskRecheck(deps, admitted, input, caller),
           }),
     },
     queries: {
@@ -94,13 +85,10 @@ export function taskControl(deps: TaskControlDeps): {
       task_show: (caller, body) => reply(taskShow(store, caller, body)),
       task_list: (caller, body) => reply(taskList(store, caller, body)),
       task_history: (caller, body) => reply(taskHistory(store, caller, body)),
-      task_explain: (caller, body) =>
-        reply(taskExplain(store, caller, body, deps.now())),
+      task_explain: (caller, body) => reply(taskExplain(store, caller, body, deps.now())),
       question_show: (caller, body) => reply(questionShow(store, caller, body)),
-      task_board: (caller, body) =>
-        reply(taskBoard({ store, statusSince }, caller, body)),
-      report: (caller, body) =>
-        reply(report({ store, statusSince, now: deps.now }, caller, body)),
+      task_board: (caller, body) => reply(taskBoard({ store, statusSince }, caller, body)),
+      report: (caller, body) => reply(report({ store, statusSince, now: deps.now }, caller, body)),
       task_content: (caller, body) => reply(taskContent(store, caller, body)),
       task_progress: (caller, body) => reply(taskProgress(store, caller, body)),
       project_list: async (caller, body) =>
@@ -111,15 +99,12 @@ export function taskControl(deps: TaskControlDeps): {
             body,
           ),
         ),
-      run_options: async (caller, body) =>
-        reply(await runOptions(deps.confirm, caller, body)),
-      dispatch: async (caller, body) =>
-        reply(await dispatchGuidance(deps.confirm, caller, body)),
+      run_options: async (caller, body) => reply(await runOptions(deps.confirm, caller, body)),
+      dispatch: async (caller, body) => reply(await dispatchGuidance(deps.confirm, caller, body)),
       ...(logs === undefined
         ? {}
         : {
-            task_logs: (caller, body) =>
-              reply(taskLogs({ store, ...logs }, caller, body)),
+            task_logs: (caller, body) => reply(taskLogs({ store, ...logs }, caller, body)),
           }),
       ...(doctor === undefined
         ? {}

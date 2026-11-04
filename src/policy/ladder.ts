@@ -32,8 +32,7 @@ export function rungState(
   level: Level,
   esc: EscalationPolicy,
 ): RungState {
-  if (esc.allow_models !== null && !esc.allow_models.includes(b.model))
-    return 'denied';
+  if (esc.allow_models !== null && !esc.allow_models.includes(b.model)) return 'denied';
   if (index === 0) return 'auto';
   if (level.tier <= esc.auto_up_to_tier) return 'auto';
   return esc.above === 'deny' ? 'denied' : 'needs_approval';
@@ -66,9 +65,7 @@ export function buildLadder(
       harness: info?.harness ?? cur.harness,
       model_id: info?.id ?? cur.model_id,
       effort: s.effort ?? cur.effort,
-      add_context: s.add_context
-        ? [...cur.add_context, ...s.add_context]
-        : cur.add_context,
+      add_context: s.add_context ? [...cur.add_context, ...s.add_context] : cur.add_context,
     };
     push(cur);
   }

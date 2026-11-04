@@ -12,19 +12,12 @@ import { closeSync, constants, fstatSync, openSync, readSync } from 'node:fs';
 import type { Artifact, ArtifactKind } from '../domain/runtime.ts';
 import type { Hash } from '../shared/brand.ts';
 import { err, ok, type Result } from '../shared/result.ts';
-import {
-  listSegments,
-  RUN_FILES,
-  RunnerFileError,
-  SPOOL_DIR,
-  type RunDir,
-} from './files.ts';
+import { listSegments, RUN_FILES, RunnerFileError, SPOOL_DIR, type RunDir } from './files.ts';
 import { RunnerExitSchema } from './lifecycle.ts';
 
 export type ArtifactProblem = {
   readonly path: string;
-  readonly reason:
-    'symlink' | 'not_regular_file' | 'unsafe_path' | 'oversize' | 'unreadable';
+  readonly reason: 'symlink' | 'not_regular_file' | 'unsafe_path' | 'oversize' | 'unreadable';
   readonly detail: string;
 };
 
@@ -57,10 +50,7 @@ function digestFile(
   }
   let fd: number;
   try {
-    fd = openSync(
-      path,
-      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
-    );
+    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   } catch (e) {
     const code = (e as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') return ok(null);
@@ -121,8 +111,7 @@ export function collectArtifacts(
     { path: RUN_FILES.exit, kind: 'exit', cap: limits.result_bytes },
     { path: RUN_FILES.result, kind: 'result', cap: limits.result_bytes },
   ];
-  const finalized =
-    run.readFinal(RUN_FILES.exit, RunnerExitSchema).state === 'valid';
+  const finalized = run.readFinal(RUN_FILES.exit, RunnerExitSchema).state === 'valid';
   const out: Artifact[] = [];
   const problems: ArtifactProblem[] = [];
   for (const c of candidates) {

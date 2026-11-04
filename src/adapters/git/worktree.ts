@@ -8,14 +8,7 @@
  * base ancestry must all agree. Anything else is reported as a mismatch and left as found: nothing here
  * removes, resets or force-moves a worktree, a branch or the original repo.
  */
-import {
-  closeSync,
-  fsyncSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  writeSync,
-} from 'node:fs';
+import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, writeSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { z } from 'zod';
 import type { GitPort, GitResult } from '../ports.ts';
@@ -92,10 +85,7 @@ export function markerPath(markersDir: string, taskId: string): string {
   return join(markersDir, `${taskId}.json`);
 }
 
-export function readMarker(
-  markersDir: string,
-  taskId: string,
-): OwnerMarker | 'corrupt' | null {
+export function readMarker(markersDir: string, taskId: string): OwnerMarker | 'corrupt' | null {
   let text: string;
   try {
     text = readFileSync(markerPath(markersDir, taskId), 'utf8');
@@ -153,24 +143,16 @@ async function git(
   });
   if (r.kind === 'exited') return r;
   throw new GitUnknown(
-    r.kind === 'refused'
-      ? `refused: ${r.reason}`
-      : r.kind === 'spawn_failed'
-        ? r.message
-        : r.kind,
+    r.kind === 'refused' ? `refused: ${r.reason}` : r.kind === 'spawn_failed' ? r.message : r.kind,
   );
 }
 
 type Registered = { path: string; head: string | null; branch: string | null };
 
 /** `git worktree list --porcelain` of the project. */
-export async function listWorktrees(
-  port: GitPort,
-  project: string,
-): Promise<Registered[]> {
+export async function listWorktrees(port: GitPort, project: string): Promise<Registered[]> {
   const r = await git(port, project, ['worktree', 'list', '--porcelain']);
-  if (r.code !== 0)
-    throw new GitUnknown(`worktree list failed: ${r.stderr.trim()}`);
+  if (r.code !== 0) throw new GitUnknown(`worktree list failed: ${r.stderr.trim()}`);
   const out: Registered[] = [];
   for (const block of r.stdout.split('\n\n')) {
     const lines = block.split('\n');
@@ -185,17 +167,8 @@ export async function listWorktrees(
   return out;
 }
 
-async function refOid(
-  port: GitPort,
-  cwd: string,
-  ref: string,
-): Promise<string | null> {
-  const r = await git(port, cwd, [
-    'rev-parse',
-    '--verify',
-    '--quiet',
-    `${ref}^{commit}`,
-  ]);
+async function refOid(port: GitPort, cwd: string, ref: string): Promise<string | null> {
+  const r = await git(port, cwd, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
   return r.code === 0 ? r.stdout.trim() : null;
 }
 
@@ -203,10 +176,7 @@ async function refOid(
  * Creates the task worktree from the frozen base, or adopts the one this task created before. Never
  * removes or resets anything; a mismatch is returned for the engine to wait on.
  */
-export async function ensureWorktree(
-  port: GitPort,
-  spec: WorktreeSpec,
-): Promise<WorktreeOutcome> {
+export async function ensureWorktree(port: GitPort, spec: WorktreeSpec): Promise<WorktreeOutcome> {
   try {
     return await ensure(port, spec);
   } catch (e) {
@@ -215,10 +185,7 @@ export async function ensureWorktree(
   }
 }
 
-async function ensure(
-  port: GitPort,
-  spec: WorktreeSpec,
-): Promise<WorktreeOutcome> {
+async function ensure(port: GitPort, spec: WorktreeSpec): Promise<WorktreeOutcome> {
   const branch = taskBranch(spec.task_id, spec.title);
   const path = join(spec.worktrees_root, spec.task_id);
   const project = spec.project_realpath;
@@ -261,8 +228,7 @@ async function ensure(
     };
   }
 
-  const registered =
-    (await listWorktrees(port, project)).find((w) => w.path === path) ?? null;
+  const registered = (await listWorktrees(port, project)).find((w) => w.path === path) ?? null;
   const branchOid = await refOid(port, project, `refs/heads/${branch}`);
 
   if (registered === null && branchOid === null) {
@@ -318,11 +284,7 @@ async function ensure(
       reason: 'branch_mismatch',
       detail: `worktree is on ${registered.branch ?? 'a detached HEAD'}`,
     };
-  const common = await git(port, path, [
-    'rev-parse',
-    '--path-format=absolute',
-    '--git-common-dir',
-  ]);
+  const common = await git(port, path, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
   if (common.code !== 0 || common.stdout.trim() !== spec.common_git_dir) {
     return {
       kind: 'mismatch',
@@ -331,14 +293,8 @@ async function ensure(
     };
   }
   const head = await refOid(port, path, 'HEAD');
-  if (head === null)
-    return { kind: 'unknown', detail: 'worktree HEAD does not resolve' };
-  const ancestor = await git(port, path, [
-    'merge-base',
-    '--is-ancestor',
-    marker.base_sha,
-    head,
-  ]);
+  if (head === null) return { kind: 'unknown', detail: 'worktree HEAD does not resolve' };
+  const ancestor = await git(port, path, ['merge-base', '--is-ancestor', marker.base_sha, head]);
   if (ancestor.code !== 0)
     return {
       kind: 'mismatch',

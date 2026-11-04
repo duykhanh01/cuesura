@@ -115,9 +115,7 @@ export const LimitsSchema = z
         quality_tries_per_rung: z.number().int().positive(),
       })
       .strict(),
-    backoff: z
-      .object({ rate_limit: BackoffSchema, infra: BackoffSchema })
-      .strict(),
+    backoff: z.object({ rate_limit: BackoffSchema, infra: BackoffSchema }).strict(),
     /**
      * Only admin amendments add visits here. A `recheck` may also give back visits spent on attempts
      * that failed before doing any work (`TaskState.visit_credits`); quality failures never.
@@ -226,9 +224,7 @@ export const FrozenExecutionContextSchema = z
     context_hash: HashSchema,
   })
   .strict();
-export type FrozenExecutionContext = z.infer<
-  typeof FrozenExecutionContextSchema
->;
+export type FrozenExecutionContext = z.infer<typeof FrozenExecutionContextSchema>;
 
 export const AUTHZ_ROLES = ['read', 'operate', 'admin'] as const;
 export type AuthzRole = (typeof AUTHZ_ROLES)[number];
@@ -243,9 +239,6 @@ export const AuthzContextSchema = z
   .strict();
 export type AuthzContext = z.infer<typeof AuthzContextSchema>;
 
-export function hasRole(
-  a: AuthzContext | null | undefined,
-  role: AuthzRole,
-): boolean {
+export function hasRole(a: AuthzContext | null | undefined, role: AuthzRole): boolean {
   return a !== null && a !== undefined && a.roles.includes(role);
 }

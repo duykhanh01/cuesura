@@ -69,8 +69,7 @@ export async function cancelTask(
       message: d.code,
       details: { reason: d.code, detail: d.detail ?? null },
     });
-  const ignored =
-    d.events.find((e) => e.type === 'SignalIgnored')?.payload ?? null;
+  const ignored = d.events.find((e) => e.type === 'SignalIgnored')?.payload ?? null;
 
   let pr: PrRead | null = null;
   const now = read();
@@ -84,9 +83,7 @@ export async function cancelTask(
         dedup_key: `cmd:${admitted.record.request_id}:fact:${i}`,
         trigger: fact,
         now: deps.now(),
-        ids: Array.from({ length: MAX_ENVELOPE_IDS }, () =>
-          (deps.newId as () => string)(),
-        ),
+        ids: Array.from({ length: MAX_ENVELOPE_IDS }, () => (deps.newId as () => string)()),
         ...(cur === null ? {} : { expected_version: cur.version }),
       });
       return {

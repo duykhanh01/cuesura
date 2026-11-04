@@ -103,10 +103,7 @@ export class FakeGitHub implements GitHubPort {
 
   request(req: GitHubRequest): Promise<Result<GitHubResponse, GitHubFailure>> {
     this.calls.push(`${req.method} ${req.path}`);
-    const reply = (
-      status: number,
-      body: unknown,
-    ): Promise<Result<GitHubResponse, GitHubFailure>> =>
+    const reply = (status: number, body: unknown): Promise<Result<GitHubResponse, GitHubFailure>> =>
       Promise.resolve(
         ok({
           status,
@@ -153,8 +150,7 @@ export class FakeGitHub implements GitHubPort {
     if (req.method === 'POST' && req.path === 'graphql') {
       const id = (req.body as { variables: { id: string } }).variables.id;
       const p = this.prs.find((x) => `PR_${x.id}` === id);
-      if (p === undefined)
-        return reply(200, { errors: [{ message: 'not found' }] });
+      if (p === undefined) return reply(200, { errors: [{ message: 'not found' }] });
       if (p.draft === true) {
         p.draft = false;
         p.ready_at = '2026-10-29T11:00:00Z';
@@ -178,8 +174,7 @@ export class FakeGitHub implements GitHubPort {
           }),
         );
       p.reviews ??= [];
-      if (req.method === 'GET')
-        return reply(200, req.query['page'] === '1' ? p.reviews : []);
+      if (req.method === 'GET') return reply(200, req.query['page'] === '1' ? p.reviews : []);
       const b = req.body as Omit<FakeReview, 'id'>;
       const review: FakeReview = {
         id: 9000 + p.reviews.length,
@@ -191,8 +186,7 @@ export class FakeGitHub implements GitHubPort {
       p.reviews.push(review);
       return reply(200, review);
     }
-    const patch =
-      req.method === 'PATCH' ? /\/pulls\/(\d+)$/.exec(req.path) : null;
+    const patch = req.method === 'PATCH' ? /\/pulls\/(\d+)$/.exec(req.path) : null;
     if (patch !== null) {
       const p = this.prs.find((x) => x.number === Number(patch[1]));
       if (p === undefined)
@@ -218,16 +212,13 @@ export class FakeGitHub implements GitHubPort {
           retry_after_ms: null,
         }),
       );
-    if (req.path === r)
-      return reply(200, { id: this.repoId, full_name: this.repo });
+    if (req.path === r) return reply(200, { id: this.repoId, full_name: this.repo });
     if (req.path === `${r}/pulls`) {
       const head = (req.query['head'] ?? '').split(':')[1];
       return reply(
         200,
         req.query['page'] === '1'
-          ? this.prs
-              .filter((p) => p.head.ref === head)
-              .map((p) => this.#pull(p))
+          ? this.prs.filter((p) => p.head.ref === head).map((p) => this.#pull(p))
           : [],
       );
     }
@@ -244,8 +235,7 @@ export class FakeGitHub implements GitHubPort {
           }),
         );
       // Keep the head in step with pushes until the PR is merged.
-      if (p.merged_at === null)
-        p.head.sha = this.headOf(p.head.ref) ?? p.head.sha;
+      if (p.merged_at === null) p.head.sha = this.headOf(p.head.ref) ?? p.head.sha;
       if (pull[2] !== undefined)
         return p.merged_at === null
           ? Promise.resolve(
@@ -281,21 +271,18 @@ export class FakeGitHub implements GitHubPort {
       return reply(200, req.query['page'] === '1' ? [...ready, ...merged] : []);
     }
     if (/\/rules\/branches\//.test(req.path)) return reply(200, []);
-    if (/\/branches\/[^/]+$/.test(req.path))
-      return reply(200, { protected: false });
+    if (/\/branches\/[^/]+$/.test(req.path)) return reply(200, { protected: false });
     const runs = /\/commits\/([0-9a-f]{40})\/check-runs$/.exec(req.path);
     if (runs !== null) {
       const sha = runs[1] as string;
-      const list = Object.entries(this.checks.get(sha) ?? {}).map(
-        ([name, conclusion], i) => ({
-          id: i + 1,
-          name,
-          status: 'completed',
-          conclusion,
-          head_sha: sha,
-          app: { id: 15368 },
-        }),
-      );
+      const list = Object.entries(this.checks.get(sha) ?? {}).map(([name, conclusion], i) => ({
+        id: i + 1,
+        name,
+        status: 'completed',
+        conclusion,
+        head_sha: sha,
+        app: { id: 15368 },
+      }));
       return reply(200, {
         total_count: list.length,
         check_runs: req.query['page'] === '1' ? list : [],

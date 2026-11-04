@@ -14,9 +14,7 @@ import type { Store } from '../store/index.ts';
 import { authorize, type Caller } from './authz.ts';
 import type { AppError } from './queries.ts';
 
-const QuerySchema = z
-  .object({ kind: z.literal('task_progress'), task_id: UuidSchema })
-  .strict();
+const QuerySchema = z.object({ kind: z.literal('task_progress'), task_id: UuidSchema }).strict();
 
 /** Depth first from the start, following outcomes in declared order: the straight path comes first. */
 function walk(w: Workflow): string[] {
@@ -25,8 +23,7 @@ function walk(w: Workflow): string[] {
     const step = w.steps[name];
     if (step === undefined || seen.has(name)) return;
     seen.add(name);
-    for (const target of Object.values(step.next))
-      if (!isSpecialTarget(target)) visit(target);
+    for (const target of Object.values(step.next)) if (!isSpecialTarget(target)) visit(target);
   };
   visit(w.start);
   return [...seen];
@@ -40,10 +37,7 @@ function stepsOf(s: TaskState, frozen: Workflow) {
   const names =
     s.run.mode === null
       ? reachable
-      : [
-          ...FULL_REVIEW_STEPS,
-          ...reachable.filter((n) => !FULL_REVIEW_STEPS.includes(n)),
-        ];
+      : [...FULL_REVIEW_STEPS, ...reachable.filter((n) => !FULL_REVIEW_STEPS.includes(n))];
   return names.map((name) => {
     const visits = s.step_visits[name] ?? 0;
     return {
@@ -71,7 +65,8 @@ function worktreePath(store: Store, s: TaskState): string | null {
     )
       continue;
     const result = store.readEffect(mirror.id)?.result as
-      { readonly worktree_ref?: unknown } | undefined;
+      | { readonly worktree_ref?: unknown }
+      | undefined;
     const ref = result?.worktree_ref;
     if (typeof ref === 'string') return ref;
   }
@@ -98,9 +93,7 @@ export function taskProgress(
       details: {},
     });
   const policy =
-    s.policy_ref === null
-      ? null
-      : store.readPolicy(s.id as Uuid, s.policy_ref.revision);
+    s.policy_ref === null ? null : store.readPolicy(s.id as Uuid, s.policy_ref.revision);
   return ok({
     task_id: s.id,
     version: s.version,

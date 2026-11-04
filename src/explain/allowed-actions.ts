@@ -93,8 +93,7 @@ const runSelection: Row = (c) => {
     note: 'Name the mode and bindings; the task does not queue until a selection is confirmed.',
   };
   const p = c.s.run.proposal;
-  if (p === null || p.selection.revision !== c.s.revision)
-    return [propose, cancel(c)];
+  if (p === null || p.selection.revision !== c.s.revision) return [propose, cancel(c)];
   return [
     {
       action: 'confirm',
@@ -136,24 +135,13 @@ const reconnect: Row = (c) => [
   recheck(c, 'Reads the PR once.'),
   cancel(c),
 ];
-const stuck: Row = (c) => [
-  merge(c),
-  recheck(c, 'Reads the PR once.'),
-  cancel(c),
-  newTask,
-];
+const stuck: Row = (c) => [merge(c), recheck(c, 'Reads the PR once.'), cancel(c), newTask];
 
 const ROWS: Readonly<Record<DetailCode, Row>> = {
-  missing_acceptance: (c) => [
-    external('Add a task with acceptance criteria.'),
-    cancel(c),
-    newTask,
-  ],
+  missing_acceptance: (c) => [external('Add a task with acceptance criteria.'), cancel(c), newTask],
   needs_confirmation: (c) => [confirm(c), cancel(c)],
   dependency_pending: (c) => [
-    wait(
-      'Starts its own checks once every prerequisite has a terminal status.',
-    ),
+    wait('Starts its own checks once every prerequisite has a terminal status.'),
     cancel(c),
   ],
   dependency_failed: (c) => [cancel(c), newTask],
@@ -203,10 +191,7 @@ const ROWS: Readonly<Record<DetailCode, Row>> = {
   ci_wait_exhausted: exhausted,
   escalation: (c) => {
     const open = Object.values(c.s.approvals).find(
-      (x) =>
-        x.kind === 'escalation' &&
-        x.status === 'requested' &&
-        x.revision === c.s.revision,
+      (x) => x.kind === 'escalation' && x.status === 'requested' && x.revision === c.s.revision,
     );
     return [
       {
@@ -218,11 +203,7 @@ const ROWS: Readonly<Record<DetailCode, Row>> = {
     ];
   },
   merge: (c) => [merge(c), recheck(c, 'Reads the PR once.'), cancel(c)],
-  checks_incomplete: (c) => [
-    wait('CI is being observed within its limits.'),
-    merge(c),
-    cancel(c),
-  ],
+  checks_incomplete: (c) => [wait('CI is being observed within its limits.'), merge(c), cancel(c)],
   execution_slot: (c) => [
     wait(
       'Waits for the execution slot by priority, resumed before fresh, then request order (FR-044).',
@@ -305,10 +286,7 @@ const ROWS: Readonly<Record<DetailCode, Row>> = {
     cancel(c),
   ],
   cancel_reconcile: (c) => [
-    recheck(
-      c,
-      'The cancel ends only after a read of the PR made after the request.',
-    ),
+    recheck(c, 'The cancel ends only after a read of the PR made after the request.'),
     merge(c),
   ],
 };
@@ -326,13 +304,10 @@ export function allowedActions(
   };
   if (s.terminal !== null) return [newTask];
   const detail = s.wait?.detail.code;
-  if (detail !== undefined)
-    return ROWS[detail](c).filter((a): a is AllowedAction => a !== null);
+  if (detail !== undefined) return ROWS[detail](c).filter((a): a is AllowedAction => a !== null);
   // Once merge is proven, completion waits only for drain and reconciliation.
   if (s.completion !== null)
-    return ROWS.merge_cleanup_pending(c).filter(
-      (a): a is AllowedAction => a !== null,
-    );
+    return ROWS.merge_cleanup_pending(c).filter((a): a is AllowedAction => a !== null);
   if (s.status === 'READY')
     return runConfigConfirmed(s)
       ? [wait('Waits for its turn at the execution slot.'), cancel(c)]

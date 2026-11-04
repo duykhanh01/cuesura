@@ -35,9 +35,7 @@ export function envelope(e: EnvelopeInput): TriggerEnvelope {
   const base = {
     task_id: e.task_id,
     trigger: e.trigger,
-    ...(e.expected_version === undefined
-      ? {}
-      : { expected_version: e.expected_version }),
+    ...(e.expected_version === undefined ? {} : { expected_version: e.expected_version }),
     ...(e.authz === undefined ? {} : { authz: e.authz }),
   };
   return {
@@ -50,10 +48,7 @@ export function envelope(e: EnvelopeInput): TriggerEnvelope {
   } as TriggerEnvelope;
 }
 
-export function submit(
-  store: Store,
-  e: EnvelopeInput,
-): Result<AcceptOutcome, AcceptError> {
+export function submit(store: Store, e: EnvelopeInput): Result<AcceptOutcome, AcceptError> {
   return store.accept(envelope(e));
 }
 

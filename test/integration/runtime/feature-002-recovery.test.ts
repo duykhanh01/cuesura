@@ -17,62 +17,30 @@ import { notifyDependents } from '../../../src/application/dependency.ts';
 import { callDaemon } from '../../../src/cli/client.ts';
 import { drainRound } from '../../../src/daemon/drain.ts';
 import { STORE_FILE, startDaemon } from '../../../src/daemon/main.ts';
-import {
-  reconcileOperations,
-  type ReconcileDeps,
-} from '../../../src/daemon/reconcile.ts';
+import { reconcileOperations, type ReconcileDeps } from '../../../src/daemon/reconcile.ts';
 import {
   STARTUP_REPORT_FILE,
   STARTUP_STEPS,
   recoverStore,
   type StartupDeps,
 } from '../../../src/daemon/startup.ts';
-import type {
-  MergeProof,
-  ProcessIdentity,
-} from '../../../src/domain/runtime.ts';
+import type { MergeProof, ProcessIdentity } from '../../../src/domain/runtime.ts';
 import type { CanonicalTask } from '../../../src/domain/task.ts';
-import {
-  EventLogWriter,
-  RUN_FILES,
-  RunDir,
-} from '../../../src/runner/files.ts';
+import { EventLogWriter, RUN_FILES, RunDir } from '../../../src/runner/files.ts';
 import { taskLogs } from '../../../src/application/logs.ts';
 import type { IdentityProbe, PidRecord } from '../../../src/runner/identity.ts';
-import {
-  execOperation,
-  type RunnerExit,
-} from '../../../src/runner/lifecycle.ts';
+import { execOperation, type RunnerExit } from '../../../src/runner/lifecycle.ts';
 import { fenceLaunch } from '../../../src/runner/operation-lock.ts';
-import {
-  FLOCK,
-  lockFilePath,
-  type LockProbe,
-} from '../../../src/runner/operation-lock.ts';
-import {
-  readOperationMark,
-  writeOperationMark,
-} from '../../../src/runner/process-tag.ts';
+import { FLOCK, lockFilePath, type LockProbe } from '../../../src/runner/operation-lock.ts';
+import { readOperationMark, writeOperationMark } from '../../../src/runner/process-tag.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
 import type { EpochMs, Uuid } from '../../../src/shared/brand.ts';
 import { SCHEMA_VERSION } from '../../../src/store/migrate.ts';
 import { openFileStoreForTest, storeDb } from '../../../src/store/testing.ts';
 import { buildTask, freezeOk, uuidOf } from '../../support/builders.ts';
-import {
-  createGrantStart,
-  proposeAndConfirm,
-  selectionFor,
-} from '../../support/runtime.ts';
-import {
-  agentData,
-  ciData,
-  PREPARE_DATA,
-  publishData,
-} from '../../support/scenario.ts';
-import {
-  buildHandlers,
-  type HandlerDeps,
-} from '../../../src/daemon/handlers.ts';
+import { createGrantStart, proposeAndConfirm, selectionFor } from '../../support/runtime.ts';
+import { agentData, ciData, PREPARE_DATA, publishData } from '../../support/scenario.ts';
+import { buildHandlers, type HandlerDeps } from '../../../src/daemon/handlers.ts';
 import type { TriggerEnvelope } from '../../../src/domain/trigger.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 import { toPublish, reviewToCi } from '../../support/store-flows.ts';
@@ -180,12 +148,7 @@ function toAgent(
   before?: (t: CanonicalTask) => void,
 ): { task: CanonicalTask; effectId: string; attemptId: string } {
   createGrantStart(f.d, t);
-  f.d.complete(
-    t.id,
-    f.d.pendingOne(t.id, 'prepare').id,
-    'succeeded',
-    PREPARE_DATA,
-  );
+  f.d.complete(t.id, f.d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE_DATA);
   before?.(t);
   const e = f.d.pendingOne(t.id, 'start_agent');
   const claimed = f.d.store.claimEffect(e.id as Uuid, f.d.now as EpochMs, {
@@ -334,9 +297,7 @@ describe('startup order (T085, FR-022, FR-036)', () => {
         ok: true,
         value: { next_cursor: 5, records: [] },
       });
-      expect(
-        types(f, task.id).filter((t) => t === 'OutputIngested'),
-      ).toHaveLength(1);
+      expect(types(f, task.id).filter((t) => t === 'OutputIngested')).toHaveLength(1);
     },
   );
 
@@ -348,9 +309,7 @@ describe('startup order (T085, FR-022, FR-036)', () => {
     expect(report.steps.map((s) => s.step)).toEqual([...STARTUP_STEPS]);
     expect(report.steps.every((s) => s.status === 'ok')).toBe(true);
     expect(report).toMatchObject({ blocked: null, held: null });
-    const file = JSON.parse(
-      readFileSync(join(f.dir, STARTUP_REPORT_FILE), 'utf8'),
-    ) as unknown;
+    const file = JSON.parse(readFileSync(join(f.dir, STARTUP_REPORT_FILE), 'utf8')) as unknown;
     expect(file).toEqual(JSON.parse(JSON.stringify(report)));
 
     const second = await recoverStore({
@@ -384,9 +343,7 @@ describe('startup order (T085, FR-022, FR-036)', () => {
   it('a projection that no longer replays blocks dispatch before reconcile or ingest touch anything', async () => {
     const f = fixture();
     const { task } = toAgent(f);
-    storeDb(f.d.store)
-      .prepare('UPDATE execution_slot SET claimed_at = claimed_at + 1')
-      .run();
+    storeDb(f.d.store).prepare('UPDATE execution_slot SET claimed_at = claimed_at + 1').run();
     f.d.store.close();
     const started = await startDaemon({
       dataDir: f.dir,
@@ -409,9 +366,7 @@ describe('startup order (T085, FR-022, FR-036)', () => {
         { step: 'schedule', status: 'skipped' },
       ]);
       // The operation would be provably not launched, yet nothing is reconciled on a mismatched store.
-      expect(
-        started.value.store.readTask(task.id)?.operations[OP]?.status,
-      ).toBe('registered');
+      expect(started.value.store.readTask(task.id)?.operations[OP]?.status).toBe('registered');
       const owner = readTokenFile(started.value.ownerTokenPath, 'owner');
       if (!owner.ok) throw new Error('owner token');
       const health = await callDaemon({
@@ -535,9 +490,9 @@ describe('open operations are reconciled before work is granted (T086, FR-034.01
     ]);
     expect(f.d.pending(task.id, 'start_agent')).toHaveLength(1);
     // The shell gets to the command only now.
-    expect(await execOperation(run, { onStop: () => () => undefined })).toEqual(
-      { state: 'marker_exists' },
-    );
+    expect(await execOperation(run, { onStop: () => () => undefined })).toEqual({
+      state: 'marker_exists',
+    });
     expect(existsSync(spawned)).toBe(false);
   });
 
@@ -562,9 +517,7 @@ describe('open operations are reconciled before work is granted (T086, FR-034.01
     f.host.ticks.set(PID, TICKS);
     f.host.unit = 'active';
     const report = await restart(f);
-    expect(report.operations).toMatchObject([
-      { finding: { status: 'running' }, effect: 'kept' },
-    ]);
+    expect(report.operations).toMatchObject([{ finding: { status: 'running' }, effect: 'kept' }]);
     expect(report.held).toBeNull();
     let s = f.d.task(task.id);
     expect(s.operations[OP]).toMatchObject({
@@ -595,9 +548,7 @@ describe('open operations are reconciled before work is granted (T086, FR-034.01
     s = f.d.task(task.id);
     expect(s.effects[effectId]?.status).toBe('unknown');
     expect(f.d.pending(task.id, 'reconcile')).toHaveLength(1);
-    expect(
-      s.budget.reservations[s.effects[effectId]?.reservation_id ?? '']?.status,
-    ).toBe('held');
+    expect(s.budget.reservations[s.effects[effectId]?.reservation_id ?? '']?.status).toBe('held');
     expect(f.d.store.verifyProjections().ok).toBe(true);
   });
 
@@ -619,9 +570,7 @@ describe('open operations are reconciled before work is granted (T086, FR-034.01
     const s = f.d.task(task.id);
     expect(s.operations[OP]?.status).toBe('lost');
     expect(s.effects[effectId]?.status).toBe('unknown');
-    expect(
-      s.budget.reservations[s.effects[effectId]?.reservation_id ?? '']?.status,
-    ).toBe('held');
+    expect(s.budget.reservations[s.effects[effectId]?.reservation_id ?? '']?.status).toBe('held');
     expect(f.d.store.readSlot()?.holder_task_id).toBe(task.id);
     expect(f.d.pending(task.id, 'start_agent')).toEqual([]);
     expect(report.held).toBeNull();
@@ -663,11 +612,7 @@ describe('open operations are reconciled before work is granted (T086, FR-034.01
 
   let recN = 61_000;
   /** Runs the daemon's reconcile handler on the pending probe; `prefix` envelopes reach the store. */
-  async function reconcileOnce(
-    f: Fixture,
-    taskId: string,
-    prefix = Infinity,
-  ): Promise<number> {
+  async function reconcileOnce(f: Fixture, taskId: string, prefix = Infinity): Promise<number> {
     const rec = f.d.pending(taskId, 'reconcile')[0];
     if (rec === undefined) throw new Error('no reconcile pending');
     const handlers = buildHandlers({
@@ -701,10 +646,7 @@ describe('open operations are reconciled before work is granted (T086, FR-034.01
   }
 
   /** After the lost run is settled: one counted failure, then a new session that carries the answer. */
-  function expectFallback(
-    f: Fixture,
-    l: Awaited<ReturnType<typeof lostResume>>,
-  ): void {
+  function expectFallback(f: Fixture, l: Awaited<ReturnType<typeof lostResume>>): void {
     const s = f.d.task(l.task.id);
     expect(s.effects[l.effectId]?.status).toBe('failed');
     expect(s.operations[OP]?.status).toBe('finished');
@@ -713,15 +655,10 @@ describe('open operations are reconciled before work is granted (T086, FR-034.01
       outcome: { class: 'infra' },
     });
     expect(s.budget.agent_runs.used).toBe(l.used + 1);
-    expect(
-      s.budget.reservations[s.effects[l.effectId]?.reservation_id ?? '']
-        ?.status,
-    ).toBe('consumed');
-    for (
-      let i = 0;
-      i < 4 && f.d.pending(l.task.id, 'start_agent').length === 0;
-      i++
-    ) {
+    expect(s.budget.reservations[s.effects[l.effectId]?.reservation_id ?? '']?.status).toBe(
+      'consumed',
+    );
+    for (let i = 0; i < 4 && f.d.pending(l.task.id, 'start_agent').length === 0; i++) {
       f.d.now += 600_000;
       f.d.fire();
       if (f.d.task(l.task.id).wait?.detail.code === 'execution_slot')
@@ -737,9 +674,7 @@ describe('open operations are reconciled before work is granted (T086, FR-034.01
       answers: [{ question_id: l.question, answer: 'UTF-8' }],
     });
     const after = f.d.task(l.task.id);
-    expect(
-      after.attempts[after.effects[next.id]?.attempt_id ?? '']?.resumed_from,
-    ).toBeUndefined();
+    expect(after.attempts[after.effects[next.id]?.attempt_id ?? '']?.resumed_from).toBeUndefined();
     expect(f.d.store.verifyProjections().ok).toBe(true);
   }
 
@@ -753,11 +688,7 @@ describe('open operations are reconciled before work is granted (T086, FR-034.01
   it('the daemon dying between the reconcile facts never loses the evidence that the run is lost', async () => {
     // How many facts the handler sends, so every crash point between them is tried.
     const probe = fixture();
-    const total = await reconcileOnce(
-      probe,
-      (await lostResume(probe)).task.id,
-      0,
-    );
+    const total = await reconcileOnce(probe, (await lostResume(probe)).task.id, 0);
     expect(total).toBeGreaterThan(1);
     for (let prefix = 0; prefix < total; prefix++) {
       const f = fixture();
@@ -814,9 +745,7 @@ describe('open operations are reconciled before work is granted (T086, FR-034.01
         { operation_id: OP, reason: 'process identity unreadable' },
       ]);
       expect(d.dispatcher.heldReason).toBe('unresolved claims (1)');
-      expect(d.store.readTask(task.id)?.effects[effectId]?.status).toBe(
-        'unknown',
-      );
+      expect(d.store.readTask(task.id)?.effects[effectId]?.status).toBe('unknown');
       // Business work waits; the effect's own reconcile is a service effect and still runs.
       const tick = d.dispatcher.tick();
       expect(tick.started).toEqual([]);
@@ -838,9 +767,7 @@ describe('open operations are reconciled before work is granted (T086, FR-034.01
       f.host.ticks.delete(PID);
       await d.recover();
       expect(d.dispatcher.heldReason).toBeNull();
-      expect(d.store.readTask(task.id)?.operations[OP]?.status).toBe(
-        'finished',
-      );
+      expect(d.store.readTask(task.id)?.operations[OP]?.status).toBe('finished');
     } finally {
       await started.value.stop();
     }
@@ -851,12 +778,7 @@ describe('open operations are reconciled before work is granted (T086, FR-034.01
     const t = buildTask({ id: uuidOf(1) });
     createGrantStart(f.d, t);
     toPublish(f.d, t, HEAD);
-    f.d.complete(
-      t.id,
-      f.d.pendingOne(t.id, 'publish').id,
-      'succeeded',
-      publishData(HEAD),
-    );
+    f.d.complete(t.id, f.d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(HEAD));
     const pr = f.d.pendingOne(t.id, 'create_pr');
     f.d.store.claimEffect(pr.id as Uuid, f.d.now as EpochMs, {
       require_runtime: true,
@@ -869,9 +791,7 @@ describe('open operations are reconciled before work is granted (T086, FR-034.01
       },
     });
     const report = await restart(f);
-    expect(report.operations).toMatchObject([
-      { finding: { status: 'lost' }, effect: 'unknown' },
-    ]);
+    expect(report.operations).toMatchObject([{ finding: { status: 'lost' }, effect: 'unknown' }]);
     expect(f.d.task(t.id).effects[pr.id]?.status).toBe('unknown');
     expect(f.d.pending(t.id, 'create_pr')).toEqual([]);
     expect(f.d.pending(t.id, 'reconcile')).toHaveLength(1);
@@ -886,12 +806,7 @@ describe('open operations are reconciled before work is granted (T086, FR-034.01
     const t = buildTask({ id: uuidOf(1) });
     createGrantStart(f.d, t);
     toPublish(f.d, t, HEAD);
-    f.d.complete(
-      t.id,
-      f.d.pendingOne(t.id, 'publish').id,
-      'succeeded',
-      publishData(HEAD),
-    );
+    f.d.complete(t.id, f.d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(HEAD));
     const pr = f.d.pendingOne(t.id, 'create_pr');
     f.d.store.claimEffect(pr.id as Uuid, f.d.now as EpochMs, {
       require_runtime: true,
@@ -919,9 +834,7 @@ describe('open operations are reconciled before work is granted (T086, FR-034.01
     // A process that may be the operation's but cannot be read proves nothing: held, not probed.
     f.host.tagged = 'unreadable';
     report = await restart(f);
-    expect(report.operations).toMatchObject([
-      { finding: { status: 'unknown' }, effect: 'kept' },
-    ]);
+    expect(report.operations).toMatchObject([{ finding: { status: 'unknown' }, effect: 'kept' }]);
     expect(report.unresolved).toHaveLength(1);
     expect(f.d.task(t.id).effects[pr.id]?.status).toBe('started');
     expect(f.d.pending(t.id, 'reconcile')).toEqual([]);
@@ -931,9 +844,7 @@ describe('open operations are reconciled before work is granted (T086, FR-034.01
     mkdirSync(join(f.dir, 'process-marks'), { recursive: true });
     writeFileSync(join(f.dir, 'process-marks', `${OP}.json`), '{');
     report = await restart(f);
-    expect(report.operations).toMatchObject([
-      { finding: { status: 'unknown' }, effect: 'kept' },
-    ]);
+    expect(report.operations).toMatchObject([{ finding: { status: 'unknown' }, effect: 'kept' }]);
 
     // Once a stop takes it down, the operation is lost and its effect goes to reconcile.
     writeOperationMark(f.dir, OP);
@@ -944,9 +855,7 @@ describe('open operations are reconciled before work is granted (T086, FR-034.01
       {
         finding: {
           status: 'lost',
-          reason: expect.stringContaining(
-            '1 surviving processes stopped',
-          ) as unknown,
+          reason: expect.stringContaining('1 surviving processes stopped') as unknown,
         },
         effect: 'unknown',
       },
@@ -962,12 +871,7 @@ describe('open operations are reconciled before work is granted (T086, FR-034.01
     const t = buildTask({ id: uuidOf(1) });
     createGrantStart(f.d, t);
     toPublish(f.d, t, HEAD);
-    f.d.complete(
-      t.id,
-      f.d.pendingOne(t.id, 'publish').id,
-      'succeeded',
-      publishData(HEAD),
-    );
+    f.d.complete(t.id, f.d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(HEAD));
     const pr = f.d.pendingOne(t.id, 'create_pr');
     f.d.store.claimEffect(pr.id as Uuid, f.d.now as EpochMs, {
       require_runtime: true,
@@ -995,9 +899,7 @@ describe('open operations are reconciled before work is granted (T086, FR-034.01
 
     const report = await restart(f);
     expect(report.operations).toEqual([]);
-    expect(report.orphaned).toEqual([
-      { task_id: t.id, effect_id: pr.id, effect: 'unknown' },
-    ]);
+    expect(report.orphaned).toEqual([{ task_id: t.id, effect_id: pr.id, effect: 'unknown' }]);
     expect(f.d.task(t.id).effects[pr.id]?.status).toBe('unknown');
     expect(f.d.pending(t.id, 'reconcile')).toHaveLength(1);
     expect(f.d.pending(t.id, 'create_pr')).toEqual([]);
@@ -1011,12 +913,7 @@ describe('open operations are reconciled before work is granted (T086, FR-034.01
     const t = buildTask({ id: uuidOf(1) });
     createGrantStart(f.d, t);
     toPublish(f.d, t, HEAD);
-    f.d.complete(
-      t.id,
-      f.d.pendingOne(t.id, 'publish').id,
-      'succeeded',
-      publishData(HEAD),
-    );
+    f.d.complete(t.id, f.d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(HEAD));
     const pr = f.d.pendingOne(t.id, 'create_pr');
     const orphan = async (op: Uuid): Promise<void> => {
       const claimed = f.d.store.claimEffect(pr.id as Uuid, f.d.now as EpochMs, {
@@ -1043,9 +940,7 @@ describe('open operations are reconciled before work is granted (T086, FR-034.01
         receipt_digest: `sha256:${'c'.repeat(64)}`,
       });
       const report = await restart(f);
-      expect(report.orphaned).toEqual([
-        { task_id: t.id, effect_id: pr.id, effect: 'unknown' },
-      ]);
+      expect(report.orphaned).toEqual([{ task_id: t.id, effect_id: pr.id, effect: 'unknown' }]);
       expect(f.d.task(t.id).effects[pr.id]?.status).toBe('unknown');
     };
     await orphan(OP);
@@ -1082,9 +977,9 @@ describe('open operations are reconciled before work is granted (T086, FR-034.01
       { task_id: task.id, effect_id: effectId, effect: 'not_executed' },
     ]);
     const s = f.d.task(task.id);
-    expect(
-      s.budget.reservations[s.effects[effectId]?.reservation_id ?? '']?.status,
-    ).not.toBe('held');
+    expect(s.budget.reservations[s.effects[effectId]?.reservation_id ?? '']?.status).not.toBe(
+      'held',
+    );
     expect(f.d.pending(task.id, 'start_agent')).toHaveLength(1);
     expect(f.d.store.verifyProjections().ok).toBe(true);
   });
@@ -1102,19 +997,12 @@ describe('open operations are reconciled before work is granted (T086, FR-034.01
     try {
       // Wait until the child really holds the lock.
       for (let i = 0; i < 100; i++) {
-        const probe = spawnSync(FLOCK, [
-          '--exclusive',
-          '--nonblock',
-          lock,
-          'true',
-        ]);
+        const probe = spawnSync(FLOCK, ['--exclusive', '--nonblock', lock, 'true']);
         if (probe.status !== 0) break;
         await new Promise((r) => setTimeout(r, 20));
       }
       const report = await restart(f, true);
-      expect(report.operations).toMatchObject([
-        { finding: { status: 'running' } },
-      ]);
+      expect(report.operations).toMatchObject([{ finding: { status: 'running' } }]);
     } finally {
       const exit = new Promise((r) => holder.once('exit', r));
       process.kill(-(holder.pid ?? 0), 'SIGKILL');
@@ -1157,12 +1045,7 @@ describe('merge recorded before the drain finished (FR-034.02/03)', () => {
     });
     createGrantStart(f.d, t);
     toPublish(f.d, t, HEAD);
-    f.d.complete(
-      t.id,
-      f.d.pendingOne(t.id, 'publish').id,
-      'succeeded',
-      publishData(HEAD),
-    );
+    f.d.complete(t.id, f.d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(HEAD));
     f.d.complete(t.id, f.d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
       pr_ref: 'acme#7',
       head_sha: HEAD,
@@ -1252,9 +1135,7 @@ describe('late results through reconcile after a restart (T091, FR-034.03, FR-04
   const HEAD = 'a'.repeat(40);
   /** A task whose publish of HEAD ended unknown: the shape a lost publish has after recovery. */
   function publishUnknown() {
-    const d = new StoreDriver(
-      openFileStoreForTest(join(tempDir(), STORE_FILE)),
-    );
+    const d = new StoreDriver(openFileStoreForTest(join(tempDir(), STORE_FILE)));
     const t = buildTask();
     createGrantStart(d, t);
     toPublish(d, t, HEAD);
@@ -1366,9 +1247,7 @@ describe('late results through reconcile after a restart (T091, FR-034.03, FR-04
         },
       },
     ]);
-    expect(
-      Object.values(d.task(t.id).effects).filter((e) => e.kind === 'publish'),
-    ).toHaveLength(1);
+    expect(Object.values(d.task(t.id).effects).filter((e) => e.kind === 'publish')).toHaveLength(1);
     expect(d.pending(t.id, 'create_pr')).toHaveLength(1);
   });
 });

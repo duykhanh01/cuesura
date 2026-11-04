@@ -15,10 +15,7 @@ export const UNIT_PREFIX = 'cusr-op-';
 /** Same operation, same unit: the name is derived from the operation id and nothing else. */
 export function unitName(operationId: string): string {
   if (!isSafeId(operationId))
-    throw new RunnerFileError(
-      'unsafe_id',
-      `unsafe operation id ${JSON.stringify(operationId)}`,
-    );
+    throw new RunnerFileError('unsafe_id', `unsafe operation id ${JSON.stringify(operationId)}`);
   return `${UNIT_PREFIX}${operationId}.service`;
 }
 
@@ -106,9 +103,7 @@ export function captureIdentity(
     runner_pid: process.pid,
     runner_start_ticks: startTicks(process.pid),
     invocation_id:
-      invocation !== undefined && /^[0-9a-f]{32}$/.test(invocation)
-        ? invocation
-        : null,
+      invocation !== undefined && /^[0-9a-f]{32}$/.test(invocation) ? invocation : null,
     cgroup: ownCgroup(),
   };
 }

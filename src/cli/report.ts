@@ -11,11 +11,7 @@ function realDay(text: string): boolean {
   if (m === null) return false;
   const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
   const day = new Date(Date.UTC(y, mo - 1, d));
-  return (
-    day.getUTCFullYear() === y &&
-    day.getUTCMonth() === mo - 1 &&
-    day.getUTCDate() === d
-  );
+  return day.getUTCFullYear() === y && day.getUTCMonth() === mo - 1 && day.getUTCDate() === d;
 }
 
 /** `8h`, `2d`, `30m` back from `now`, or an ISO date or time; `null` when it is neither or in the future. */
@@ -49,9 +45,7 @@ export const reportCommand: CliCommand = {
   run(values, json, io) {
     const { project } = values;
     if (project === '')
-      return Promise.resolve(
-        badFlag('--project must not be empty.', {}, json, io),
-      );
+      return Promise.resolve(badFlag('--project must not be empty.', {}, json, io));
     const given = values['since'] ?? DEFAULT_SINCE;
     const since = parseSince(given, Date.now());
     if (since === null)

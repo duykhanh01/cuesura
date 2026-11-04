@@ -3,10 +3,7 @@ import { ExitCode } from '../../../src/cli/output.ts';
 import type { Caller } from '../../../src/application/authz.ts';
 import { inbox } from '../../../src/application/inbox.ts';
 import type { EpochMs, Uuid } from '../../../src/shared/brand.ts';
-import {
-  injectEvents,
-  openFileStoreForTest,
-} from '../../../src/store/testing.ts';
+import { injectEvents, openFileStoreForTest } from '../../../src/store/testing.ts';
 import { SeededDaemon } from '../../support/daemon-task.ts';
 import { buildTask, uuidOf } from '../../support/builders.ts';
 import { createGrantStart } from '../../support/runtime.ts';
@@ -53,9 +50,7 @@ function started(path = dbPath(tempDir())) {
 }
 
 function openQuestion(d: StoreDriver, taskId: string) {
-  const q = Object.values(d.task(taskId).questions).find(
-    (x) => x.status === 'open',
-  );
+  const q = Object.values(d.task(taskId).questions).find((x) => x.status === 'open');
   if (q === undefined) throw new Error('no open question');
   return q;
 }
@@ -82,9 +77,7 @@ describe('needs_input ends the attempt and waits for a person (US5.1, FR-024)', 
       wait: { reason: 'human_input', detail: { code: 'agent_question' } },
     });
     // No agent kept alive to wait: the attempt is finished and nothing is in flight or holding the slot.
-    expect(Object.values(s.attempts).map((a) => a.status)).toEqual([
-      'finished',
-    ]);
+    expect(Object.values(s.attempts).map((a) => a.status)).toEqual(['finished']);
     expect(d.store.pendingEffects(100)).toEqual([]);
     expect(d.store.readSlot()).toBeNull();
     expect(s.execution).toMatchObject({ holding: null, request: null });
@@ -107,9 +100,10 @@ describe('needs_input ends the attempt and waits for a person (US5.1, FR-024)', 
     // A caller scoped to another project does not see it; a project it may not read is refused.
     const other = inbox(reopened, OTHER_PROJECT, {});
     expect(other.ok && other.value.items).toEqual([]);
-    expect(
-      inbox(reopened, OTHER_PROJECT, { project: t.project }),
-    ).toMatchObject({ ok: false, error: { code: 'forbidden' } });
+    expect(inbox(reopened, OTHER_PROJECT, { project: t.project })).toMatchObject({
+      ok: false,
+      error: { code: 'forbidden' },
+    });
     reopened.close();
   });
 });
@@ -154,8 +148,7 @@ describe('the first valid answer wins (US5.2, FR-037)', () => {
       answer: 'Latin-1',
     });
     expect(
-      competing.decision.kind === 'accepted' &&
-        competing.decision.events.map((e) => e.type),
+      competing.decision.kind === 'accepted' && competing.decision.events.map((e) => e.type),
     ).toEqual(['AnswerRejected']);
     const s = d.task(t.id);
     expect(s.questions[q.id]).toMatchObject({
@@ -163,9 +156,7 @@ describe('the first valid answer wins (US5.2, FR-037)', () => {
       answer: 'UTF-8',
     });
     expect(Object.keys(s.attempts)).toEqual(Object.keys(after.attempts));
-    expect(s.execution.request?.request_id).toBe(
-      after.execution.request?.request_id,
-    );
+    expect(s.execution.request?.request_id).toBe(after.execution.request?.request_id);
   });
 });
 
@@ -267,9 +258,7 @@ describe('needs_context and blocked wait for a person with what is missing (US5.
       expect(d.store.pendingEffects(100)).toEqual([]);
       expect(Object.keys(s.attempts)).toHaveLength(1);
       // No other role is called on the worker's behalf.
-      expect(
-        d.store.readEvents(t.id).filter((e) => e.type === 'AttemptRequested'),
-      ).toHaveLength(1);
+      expect(d.store.readEvents(t.id).filter((e) => e.type === 'AttemptRequested')).toHaveLength(1);
       const q = openQuestion(d, t.id);
       expect(q.body).toBe(`${status}: ${blocker}`);
       d.must(t.id, {
@@ -292,12 +281,7 @@ describe('needs_context and blocked wait for a person with what is missing (US5.
     const d = new StoreDriver(openFileStoreForTest(dbPath(tempDir())));
     const t = buildTask();
     createGrantStart(d, t, 'direct-pr', { limits: { max_agent_runs: 1 } });
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'prepare').id,
-      'succeeded',
-      PREPARE_DATA,
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE_DATA);
     d.complete(
       t.id,
       d.pendingOne(t.id, 'start_agent').id,
@@ -347,12 +331,7 @@ describe('answer and inbox over the control socket (US5.1/US5.2, FR-024/FR-037)'
     const { t, q } = sd.seed((d) => {
       const t = buildTask();
       createGrantStart(d, t, 'direct-pr');
-      d.complete(
-        t.id,
-        d.pendingOne(t.id, 'prepare').id,
-        'succeeded',
-        PREPARE_DATA,
-      );
+      d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE_DATA);
       d.complete(
         t.id,
         d.pendingOne(t.id, 'start_agent').id,
@@ -362,8 +341,7 @@ describe('answer and inbox over the control socket (US5.1/US5.2, FR-024/FR-037)'
       return { t, q: openQuestion(d, t.id) };
     });
     await sd.start();
-    const store = () =>
-      sd.daemon?.store as NonNullable<typeof sd.daemon>['store'];
+    const store = () => sd.daemon?.store as NonNullable<typeof sd.daemon>['store'];
     const version = () => store().readTask(t.id)?.version ?? -1;
     const answer = (
       request: number,
@@ -389,9 +367,7 @@ describe('answer and inbox over the control socket (US5.1/US5.2, FR-024/FR-037)'
     const list = async (token: string) => {
       const r = await sd.query(token, { kind: 'inbox' });
       expect(r.code).toBe(ExitCode.ok);
-      return (r.envelope.data?.['items'] as { question_id: string }[]).map(
-        (i) => i.question_id,
-      );
+      return (r.envelope.data?.['items'] as { question_id: string }[]).map((i) => i.question_id);
     };
     expect(await list('assistant')).toEqual([q.id]);
     expect(await list('outsider')).toEqual([]);
@@ -423,24 +399,18 @@ describe('answer and inbox over the control socket (US5.1/US5.2, FR-024/FR-037)'
       for (const r of again) {
         expect(r.code).toBe(ExitCode.ok);
         expect(r.envelope.data?.['replayed']).toBe(true);
-        expect(r.envelope.data?.['result']).toEqual(
-          first.envelope.data?.['result'],
-        );
+        expect(r.envelope.data?.['result']).toEqual(first.envelope.data?.['result']);
       }
       expect(events('QuestionAnswered')).toHaveLength(1);
       expect(events('ExecutionQueued').length).toBeGreaterThan(0);
-      expect(Object.keys(store().readTask(t.id)?.attempts ?? {})).toEqual(
-        attempts,
-      );
+      expect(Object.keys(store().readTask(t.id)?.attempts ?? {})).toEqual(attempts);
     },
   );
 
   it('racing answers from different requests: exactly one wins, the others are conflicts', async () => {
     const { sd, answer, events } = await asking();
     const bodies = [1, 2, 3, 4, 5].map((i) => answer(i, `answer ${i}`));
-    const replies = await Promise.all(
-      bodies.map((b) => sd.command('owner', b)),
-    );
+    const replies = await Promise.all(bodies.map((b) => sd.command('owner', b)));
     expect(replies.filter((r) => r.code === ExitCode.ok)).toHaveLength(1);
     expect(replies.filter((r) => r.code === ExitCode.conflict)).toHaveLength(4);
     expect(events('QuestionAnswered')).toHaveLength(1);
@@ -458,9 +428,7 @@ describe('answer and inbox over the control socket (US5.1/US5.2, FR-024/FR-037)'
     });
     expect(events('AnswerRejected')).toHaveLength(1);
     const after = store().readTask(t.id);
-    expect(Object.keys(after?.attempts ?? {})).toEqual(
-      Object.keys(before?.attempts ?? {}),
-    );
+    expect(Object.keys(after?.attempts ?? {})).toEqual(Object.keys(before?.attempts ?? {}));
     expect(after?.questions).toEqual(before?.questions);
     // A stale version is a conflict before anything is recorded.
     const stale = await sd.command('owner', answer(3, 'x', { version: 1 }));
@@ -470,20 +438,14 @@ describe('answer and inbox over the control socket (US5.1/US5.2, FR-024/FR-037)'
 
   it('scope and role: another project, a read token and an unknown question change nothing', async () => {
     const { sd, answer, events } = await asking();
-    expect((await sd.command('outsider', answer(1))).code).toBe(
-      ExitCode.forbidden,
+    expect((await sd.command('outsider', answer(1))).code).toBe(ExitCode.forbidden);
+    expect((await sd.command('outsider', answer(2, 'x', { project: 'elsewhere' }))).code).toBe(
+      ExitCode.missing,
     );
-    expect(
-      (await sd.command('outsider', answer(2, 'x', { project: 'elsewhere' })))
-        .code,
-    ).toBe(ExitCode.missing);
-    expect((await sd.command('reader', answer(3))).code).toBe(
-      ExitCode.forbidden,
+    expect((await sd.command('reader', answer(3))).code).toBe(ExitCode.forbidden);
+    expect((await sd.command('owner', answer(4, 'x', { question: uuidOf(99_999) }))).code).toBe(
+      ExitCode.missing,
     );
-    expect(
-      (await sd.command('owner', answer(4, 'x', { question: uuidOf(99_999) })))
-        .code,
-    ).toBe(ExitCode.missing);
     expect(events('QuestionAnswered')).toEqual([]);
   });
 

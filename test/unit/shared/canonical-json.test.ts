@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  canonicalJson,
-  CanonicalJsonError,
-} from '../../../src/shared/canonical-json.ts';
+import { canonicalJson, CanonicalJsonError } from '../../../src/shared/canonical-json.ts';
 
 describe('canonicalJson (R-03)', () => {
   it('sorts keys by code point without whitespace', () => {
@@ -13,15 +10,13 @@ describe('canonicalJson (R-03)', () => {
 
   it('compares code points rather than UTF-16 code units', () => {
     // U+FF61 < U+1F600 by code point, but surrogate 0xD83D < 0xFF61 by code unit.
-    expect(canonicalJson({ '\u{1F600}': 1, '｡': 2 })).toBe(
-      '{"｡":2,"\u{1F600}":1}',
-    );
+    expect(canonicalJson({ '\u{1F600}': 1, '｡': 2 })).toBe('{"｡":2,"\u{1F600}":1}');
   });
 
   it('omits undefined keys, preserves array order, and uses JSON.stringify number encoding', () => {
-    expect(
-      canonicalJson({ x: undefined, y: [2, 1], z: 1e21, w: -0, v: 0.1 }),
-    ).toBe('{"v":0.1,"w":0,"y":[2,1],"z":1e+21}');
+    expect(canonicalJson({ x: undefined, y: [2, 1], z: 1e21, w: -0, v: 0.1 })).toBe(
+      '{"v":0.1,"w":0,"y":[2,1],"z":1e+21}',
+    );
   });
 
   it.each([
@@ -44,9 +39,7 @@ describe('canonicalJson (R-03)', () => {
 
   it('rejects cycles while allowing repeated non-circular references', () => {
     const shared = { k: 1 };
-    expect(canonicalJson({ a: shared, b: shared })).toBe(
-      '{"a":{"k":1},"b":{"k":1}}',
-    );
+    expect(canonicalJson({ a: shared, b: shared })).toBe('{"a":{"k":1},"b":{"k":1}}');
     const loop: Record<string, unknown> = {};
     loop['self'] = loop;
     expect(() => canonicalJson(loop)).toThrow(CanonicalJsonError);

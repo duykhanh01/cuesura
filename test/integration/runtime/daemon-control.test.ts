@@ -1,22 +1,11 @@
 import { randomBytes } from 'node:crypto';
-import {
-  chmodSync,
-  mkdtempSync,
-  realpathSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs';
+import { chmodSync, mkdtempSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { readTokenFile } from '../../../src/application/access-tokens.ts';
-import {
-  callDaemon,
-  exitCodeFor,
-  statusCommand,
-} from '../../../src/cli/client.ts';
+import { callDaemon, exitCodeFor, statusCommand } from '../../../src/cli/client.ts';
 import { ExitCode } from '../../../src/cli/output.ts';
 import Database from 'better-sqlite3';
 import {
@@ -49,8 +38,7 @@ function tokenFile(dir: string, name: string): { path: string; token: string } {
 
 const clock = { now: () => asEpochMs(1_800_000_000_000), monotonic: () => 0 };
 let seq = 0;
-const newId = (): string =>
-  `00000000-0000-7000-8000-${String(++seq).padStart(12, '0')}`;
+const newId = (): string => `00000000-0000-7000-8000-${String(++seq).padStart(12, '0')}`;
 
 function io(): {
   stdout: (t: string) => void;
@@ -63,9 +51,7 @@ function io(): {
   return { stdout: (t) => out.push(t), stderr: (t) => err.push(t), out, err };
 }
 
-const cancel = (
-  over: Record<string, unknown> = {},
-): Record<string, unknown> => ({
+const cancel = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
   request_id: '11111111-1111-4111-8111-111111111111',
   kind: 'task_cancel',
   project: 'p1',
@@ -94,9 +80,7 @@ describe('daemon control socket (T026)', () => {
     const term = io();
     process.env['CUSR_TOKEN_FILE'] = started.value.ownerTokenPath;
     try {
-      expect(await statusCommand.run({ dataDir: dir }, true, term)).toBe(
-        ExitCode.ok,
-      );
+      expect(await statusCommand.run({ dataDir: dir }, true, term)).toBe(ExitCode.ok);
     } finally {
       delete process.env['CUSR_TOKEN_FILE'];
     }
@@ -121,9 +105,7 @@ describe('daemon control socket (T026)', () => {
       path: '/v1/health',
     });
     expect(anon.ok && anon.value.status).toBe(401);
-    expect(anon.ok && exitCodeFor(anon.value.envelope)).toBe(
-      ExitCode.forbidden,
-    );
+    expect(anon.ok && exitCodeFor(anon.value.envelope)).toBe(ExitCode.forbidden);
   });
 
   it('is the only writer: a second daemon on the same data dir is refused', async () => {
@@ -159,9 +141,10 @@ describe('daemon control socket (T026)', () => {
     if (!started.ok) throw new Error(started.error.detail);
     await started.value.stop();
     chmodSync(dir, 0o755);
-    expect(
-      await startDaemon({ dataDir: dir, accessTokens: [], clock, newId }),
-    ).toMatchObject({ ok: false, error: { code: 'data_dir_insecure' } });
+    expect(await startDaemon({ dataDir: dir, accessTokens: [], clock, newId })).toMatchObject({
+      ok: false,
+      error: { code: 'data_dir_insecure' },
+    });
   });
 
   it('admits commands server-side: authz from the token, unavailable kinds leave no ledger row, replay and conflict by request id', async () => {
@@ -207,9 +190,7 @@ describe('daemon control socket (T026)', () => {
     };
 
     // A read-only token cannot mutate, whatever actor the body claims.
-    expect(await code(reader.token, { ...cancel(), actor: 'owner' })).toBe(
-      ExitCode.forbidden,
-    );
+    expect(await code(reader.token, { ...cancel(), actor: 'owner' })).toBe(ExitCode.forbidden);
     expect(await code(reader.token, cancel())).toBe(ExitCode.forbidden);
     // Supported kind with no handler in this build: refused before admission.
     const confirm = cancel({
@@ -218,9 +199,7 @@ describe('daemon control socket (T026)', () => {
       payload: {},
     });
     expect(await code(owner.value, confirm)).toBe(ExitCode.usage);
-    expect(
-      started.value.store.readCommand('33333333-3333-4333-8333-333333333333'),
-    ).toBeNull();
+    expect(started.value.store.readCommand('33333333-3333-4333-8333-333333333333')).toBeNull();
     expect(
       await code(
         owner.value,
@@ -243,9 +222,9 @@ describe('daemon control socket (T026)', () => {
       data: { replayed: true, result: { cancelled: true } },
     });
     expect(runs).toBe(1);
-    expect(
-      await code(owner.value, cancel({ payload: { reason: 'different' } })),
-    ).toBe(ExitCode.conflict);
+    expect(await code(owner.value, cancel({ payload: { reason: 'different' } }))).toBe(
+      ExitCode.conflict,
+    );
 
     const query = await callDaemon({
       socketPath: sock,
@@ -315,9 +294,9 @@ describe('daemon control socket (T026)', () => {
       status: 422,
       envelope: { ok: false, error: { code: 'task_not_cancellable' } },
     });
-    expect(
-      started.value.store.readCommand('55555555-5555-4555-8555-555555555555'),
-    ).toMatchObject({ status: 'completed' });
+    expect(started.value.store.readCommand('55555555-5555-4555-8555-555555555555')).toMatchObject({
+      status: 'completed',
+    });
     const again = await post(refused);
     expect(again.ok && again.value).toMatchObject({
       status: 422,
@@ -358,9 +337,7 @@ describe('daemon control socket (T026)', () => {
     const lines: string[] = [];
     let leak = '';
     const handler: CommandHandler = () =>
-      Promise.reject(
-        new Error(`upstream said: token ${leak} and ghp_${'a'.repeat(36)}`),
-      );
+      Promise.reject(new Error(`upstream said: token ${leak} and ghp_${'a'.repeat(36)}`));
     const started = await startDaemon({
       dataDir: dir,
       accessTokens: [],
@@ -392,9 +369,7 @@ describe('daemon control socket (T026)', () => {
     const term = io();
     process.env['CUSR_TOKEN_FILE'] = started.value.ownerTokenPath;
     try {
-      expect(await statusCommand.run({ dataDir: dir }, true, term)).toBe(
-        ExitCode.failure,
-      );
+      expect(await statusCommand.run({ dataDir: dir }, true, term)).toBe(ExitCode.failure);
     } finally {
       delete process.env['CUSR_TOKEN_FILE'];
     }
@@ -438,9 +413,7 @@ describe('daemon control socket (T026)', () => {
     // Rewrite the row as a schema-2 daemon stored it: the bare handler value.
     const raw = new Database(join(dir, STORE_FILE));
     raw
-      .prepare(
-        `UPDATE command_ledger SET result_json = '{"cancelled":true}' WHERE request_id = ?`,
-      )
+      .prepare(`UPDATE command_ledger SET result_json = '{"cancelled":true}' WHERE request_id = ?`)
       .run(cancel()['request_id']);
     raw.exec('ALTER TABLE command_ledger DROP COLUMN project');
     raw.prepare('UPDATE schema_meta SET version = 2').run();
@@ -479,9 +452,7 @@ describe('daemon control socket (T026)', () => {
     const term = io();
     process.env['CUSR_TOKEN_FILE'] = started.value.ownerTokenPath;
     try {
-      expect(await statusCommand.run({ dataDir: dir }, true, term)).toBe(
-        ExitCode.connection,
-      );
+      expect(await statusCommand.run({ dataDir: dir }, true, term)).toBe(ExitCode.connection);
     } finally {
       delete process.env['CUSR_TOKEN_FILE'];
     }
@@ -505,8 +476,6 @@ describe('control socket path', () => {
       ok: false,
       error: { code: 'listen_failed' },
     });
-    expect(!started.ok && started.error.detail).toMatch(
-      /Unix sockets allow 107/,
-    );
+    expect(!started.ok && started.error.detail).toMatch(/Unix sockets allow 107/);
   });
 });

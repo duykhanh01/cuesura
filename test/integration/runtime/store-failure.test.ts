@@ -61,9 +61,7 @@ describe('store failure latch (T092, FR-023)', () => {
     try {
       await daemon.dispatcher.settle();
       expect(calls).toBe(1);
-      expect(daemon.dispatcher.latchedReason).toBe(
-        'filesystem write failed: ENOSPC',
-      );
+      expect(daemon.dispatcher.latchedReason).toBe('filesystem write failed: ENOSPC');
       expect(logs.some((l) => l.includes('dispatch store_latched'))).toBe(true);
 
       const token = readTokenFile(daemon.ownerTokenPath, 'owner');
@@ -91,9 +89,9 @@ describe('store failure latch (T092, FR-023)', () => {
 
       const ledger = (): number =>
         (
-          storeDb(daemon.store)
-            .prepare('SELECT COUNT(*) AS n FROM command_ledger')
-            .get() as { n: number }
+          storeDb(daemon.store).prepare('SELECT COUNT(*) AS n FROM command_ledger').get() as {
+            n: number;
+          }
         ).n;
       const before = ledger();
       const command = await callDaemon({
@@ -124,9 +122,7 @@ describe('store failure latch (T092, FR-023)', () => {
       await daemon.recover();
       expect(accepted).toBe(0);
       expect(daemon.dispatcher.tick()).toEqual({ started: [], skipped: [] });
-      expect(daemon.store.readTask(t.id)?.effects[prepare.id]?.status).toBe(
-        'started',
-      );
+      expect(daemon.store.readTask(t.id)?.effects[prepare.id]?.status).toBe('started');
 
       const second = await startDaemon({ ...base });
       expect(second.ok ? null : second.error.code).toBe('store_locked');

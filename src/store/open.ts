@@ -3,8 +3,7 @@ import { err, ok, type Result } from '../shared/result.ts';
 import { migrate, SCHEMA_VERSION } from './migrate.ts';
 
 export type StoreOpenError = {
-  code:
-    'store_locked' | 'schema_incompatible' | 'integrity_failed' | 'io_error';
+  code: 'store_locked' | 'schema_incompatible' | 'integrity_failed' | 'io_error';
   detail: string;
 };
 
@@ -13,14 +12,11 @@ export const DEFAULT_BUSY_TIMEOUT_MS = 5_000;
 function isBusy(e: unknown): boolean {
   const code = (e as { code?: unknown } | null)?.code;
   return (
-    typeof code === 'string' &&
-    (code.startsWith('SQLITE_BUSY') || code.startsWith('SQLITE_LOCKED'))
+    typeof code === 'string' && (code.startsWith('SQLITE_BUSY') || code.startsWith('SQLITE_LOCKED'))
   );
 }
 
-export function prepareSchema(
-  db: Database.Database,
-): Result<void, StoreOpenError> {
+export function prepareSchema(db: Database.Database): Result<void, StoreOpenError> {
   const m = migrate(db);
   if (!m.ok)
     return err({

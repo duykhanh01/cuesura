@@ -23,9 +23,7 @@ vi.mock('../../../src/daemon/main.ts', () => ({
   loadDaemonConfig: mocks.load,
 }));
 vi.mock('../../../src/runner/harness-records.ts', async (original) => ({
-  ...(await original<
-    typeof import('../../../src/runner/harness-records.ts')
-  >()),
+  ...(await original<typeof import('../../../src/runner/harness-records.ts')>()),
   writePin: mocks.write,
   commitPin: mocks.commit,
   recordManifest: mocks.record,
@@ -52,10 +50,7 @@ const values = {
   approval: 'owner, test',
   maxInvocations: '10',
 };
-async function run(
-  extra: Record<string, string | undefined> = {},
-  json = true,
-) {
+async function run(extra: Record<string, string | undefined> = {}, json = true) {
   let stdout = '';
   let stderr = '';
   const io: CliIo = {
@@ -159,9 +154,7 @@ describe('setup-harness composition', () => {
   });
 
   it('proves without an approval text or a cap, recording a default approval', async () => {
-    expect(
-      (await run({ approval: undefined, maxInvocations: undefined })).code,
-    ).toBe(ExitCode.ok);
+    expect((await run({ approval: undefined, maxInvocations: undefined })).code).toBe(ExitCode.ok);
     expect(mocks.prove).toHaveBeenCalledWith(
       expect.objectContaining({
         budget: { approval: 'owner command', maxInvocations: null },
@@ -169,11 +162,7 @@ describe('setup-harness composition', () => {
     );
   });
 
-  it.each([
-    { maxInvocations: '0' },
-    { maxInvocations: '1.5' },
-    { out: undefined },
-  ])(
+  it.each([{ maxInvocations: '0' }, { maxInvocations: '1.5' }, { out: undefined }])(
     'refuses invalid proof arguments before writing a pin: %j',
     async (extra) => {
       expect(await run(extra)).toMatchObject({
@@ -278,9 +267,7 @@ describe('setup-harness composition', () => {
           data: { invocations_spent: 6, invocations_needed: needed },
         },
       });
-      expect(mocks.write).toHaveBeenCalledWith(
-        expect.objectContaining({ dryRun: true }),
-      );
+      expect(mocks.write).toHaveBeenCalledWith(expect.objectContaining({ dryRun: true }));
       expect(mocks.plan).toHaveBeenCalledWith(expect.anything(), candidatePin);
       expect(mocks.prove).not.toHaveBeenCalled();
       expect(mocks.record).not.toHaveBeenCalled();
@@ -303,21 +290,18 @@ describe('setup-harness composition', () => {
     'pin does not deny the probe',
     'harnessIdentity mismatch',
     'resume proof is only supported for Claude',
-  ])(
-    'does not replace a pin after a failed proof preflight: %s',
-    async (error) => {
-      mocks.plan.mockReturnValue({ ok: false, error });
-      expect(await run({ force: 'true' })).toMatchObject({
-        code: ExitCode.failure,
-        body: {
-          error: { code: 'proof_refused', details: { step: 'prove-harness' } },
-        },
-      });
-      expect(mocks.commit).not.toHaveBeenCalled();
-      expect(mocks.prove).not.toHaveBeenCalled();
-      expect(mocks.record).not.toHaveBeenCalled();
-    },
-  );
+  ])('does not replace a pin after a failed proof preflight: %s', async (error) => {
+    mocks.plan.mockReturnValue({ ok: false, error });
+    expect(await run({ force: 'true' })).toMatchObject({
+      code: ExitCode.failure,
+      body: {
+        error: { code: 'proof_refused', details: { step: 'prove-harness' } },
+      },
+    });
+    expect(mocks.commit).not.toHaveBeenCalled();
+    expect(mocks.prove).not.toHaveBeenCalled();
+    expect(mocks.record).not.toHaveBeenCalled();
+  });
 
   it('checks spent plus needed against the cap before committing even with --force', async () => {
     expect(await run({ force: 'true', maxInvocations: '8' })).toMatchObject({
@@ -325,9 +309,7 @@ describe('setup-harness composition', () => {
       body: {
         error: {
           code: 'proof_refused',
-          message: expect.stringContaining(
-            '6 invocations already spent',
-          ) as string,
+          message: expect.stringContaining('6 invocations already spent') as string,
         },
       },
     });
@@ -351,25 +333,22 @@ describe('setup-harness composition', () => {
     [ExitCode.usage, '', 'plain error'],
     [ExitCode.forbidden, 'invalid JSON', ''],
     [ExitCode.conflict, '{"partial":true}', ''],
-  ])(
-    'retains exit %s when a command does not emit an envelope',
-    async (exit, stdout, stderr) => {
-      const cmd = mocks.commands.find((c) => c.name === 'prove-harness');
-      if (cmd === undefined) throw new Error('proof command missing');
-      vi.spyOn(cmd, 'run').mockImplementation((_values, _json, io) => {
-        io.stdout(stdout);
-        io.stderr(stderr);
-        return Promise.resolve(exit);
-      });
-      expect(await run()).toMatchObject({
-        code: exit,
-        body: {
-          error: { code: 'setup_failed', details: { step: 'prove-harness' } },
-        },
-      });
-      expect(mocks.record).not.toHaveBeenCalled();
-    },
-  );
+  ])('retains exit %s when a command does not emit an envelope', async (exit, stdout, stderr) => {
+    const cmd = mocks.commands.find((c) => c.name === 'prove-harness');
+    if (cmd === undefined) throw new Error('proof command missing');
+    vi.spyOn(cmd, 'run').mockImplementation((_values, _json, io) => {
+      io.stdout(stdout);
+      io.stderr(stderr);
+      return Promise.resolve(exit);
+    });
+    expect(await run()).toMatchObject({
+      code: exit,
+      body: {
+        error: { code: 'setup_failed', details: { step: 'prove-harness' } },
+      },
+    });
+    expect(mocks.record).not.toHaveBeenCalled();
+  });
 
   it('retries after the ledger changes between preflight and proof without rewriting the pin', async () => {
     mocks.prove.mockResolvedValueOnce({
@@ -425,9 +404,7 @@ describe('setup-harness composition', () => {
       code: ExitCode.ok,
       body: { data: { invocations_needed: 0 } },
     });
-    expect(mocks.record).toHaveBeenCalledWith(
-      expect.objectContaining({ dryRun: true }),
-    );
+    expect(mocks.record).toHaveBeenCalledWith(expect.objectContaining({ dryRun: true }));
     expect(mocks.write).not.toHaveBeenCalled();
     expect(mocks.commit).not.toHaveBeenCalled();
     expect(mocks.plan).not.toHaveBeenCalled();
@@ -458,9 +435,7 @@ describe('setup-harness composition', () => {
         expect.objectContaining({ runtime: original }),
         ...(mock === mocks.plan ? [candidatePin] : []),
       );
-    expect(mocks.record).toHaveBeenCalledWith(
-      expect.objectContaining({ dataDir: '/data' }),
-    );
+    expect(mocks.record).toHaveBeenCalledWith(expect.objectContaining({ dataDir: '/data' }));
   });
 
   it('rejects an unknown --from without loading configuration or spending', async () => {
@@ -468,9 +443,7 @@ describe('setup-harness composition', () => {
     expect(mocks.load).not.toHaveBeenCalled();
   });
   it('an observation callback does not imply dry-run for write-pin', async () => {
-    const cmd = mocks.commands.find(
-      (c) => c.name === 'write-pin',
-    ) as CliCommand & {
+    const cmd = mocks.commands.find((c) => c.name === 'write-pin') as CliCommand & {
       run(
         values: Record<string, string>,
         json: boolean,
@@ -480,16 +453,9 @@ describe('setup-harness composition', () => {
     };
     const observer = vi.fn();
     expect(
-      await cmd.run(
-        values,
-        true,
-        { stdout: () => {}, stderr: () => {} },
-        { onPin: observer },
-      ),
+      await cmd.run(values, true, { stdout: () => {}, stderr: () => {} }, { onPin: observer }),
     ).toBe(ExitCode.ok);
-    expect(mocks.write).toHaveBeenCalledWith(
-      expect.objectContaining({ dryRun: false }),
-    );
+    expect(mocks.write).toHaveBeenCalledWith(expect.objectContaining({ dryRun: false }));
     expect(observer).toHaveBeenCalledWith(candidatePin);
   });
 });

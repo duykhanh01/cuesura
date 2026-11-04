@@ -18,8 +18,7 @@ export const LABEL_WIDTH = 7;
 
 type Obj = Readonly<Record<string, unknown>>;
 
-const isObj = (v: unknown): v is Obj =>
-  typeof v === 'object' && v !== null && !Array.isArray(v);
+const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 
@@ -63,17 +62,13 @@ function toolTarget(name: string, input: unknown): string {
     const v = str(input[key]);
     if (v !== null) return oneLine(v, 300);
   }
-  return name === 'StructuredOutput'
-    ? 'final answer'
-    : oneLine(compact(input), 200);
+  return name === 'StructuredOutput' ? 'final answer' : oneLine(compact(input), 200);
 }
 
 function toolResultText(content: unknown): string {
   if (typeof content === 'string') return content;
   if (Array.isArray(content))
-    return content
-      .map((c) => (isObj(c) ? (str(c['text']) ?? '') : ''))
-      .join('\n');
+    return content.map((c) => (isObj(c) ? (str(c['text']) ?? '') : '')).join('\n');
   return compact(content);
 }
 
@@ -88,9 +83,10 @@ const TOOL_LABELS: Readonly<Record<string, string>> = {
 };
 
 function toolLabel(name: string): string {
-  return (
-    Object.hasOwn(TOOL_LABELS, name) ? (TOOL_LABELS[name] ?? name) : name
-  ).slice(0, LABEL_WIDTH);
+  return (Object.hasOwn(TOOL_LABELS, name) ? (TOOL_LABELS[name] ?? name) : name).slice(
+    0,
+    LABEL_WIDTH,
+  );
 }
 
 /** A worker's final answer is JSON with a summary; that summary is what a person wants to read. */
@@ -150,16 +146,12 @@ function claude(d: Obj): Described[] | null {
       const status = str(info['status']);
       if (status === 'allowed') return [];
       if (status === null) return null;
-      return [
-        { label: 'Limit', body: `Rate limited (${status})`, tone: 'warn' },
-      ];
+      return [{ label: 'Limit', body: `Rate limited (${status})`, tone: 'warn' }];
     }
     case 'assistant':
     case 'user': {
       const message = isObj(d['message']) ? d['message'] : {};
-      const content = Array.isArray(message['content'])
-        ? message['content']
-        : [];
+      const content = Array.isArray(message['content']) ? message['content'] : [];
       const user = type === 'user';
       return content.flatMap((c): Described[] => {
         if (!isObj(c)) return [unknown('content', c)];
@@ -192,8 +184,7 @@ function claude(d: Obj): Described[] | null {
           }
           case 'tool_result': {
             const text = excerpt(toolResultText(c['content']));
-            if (c['is_error'] === true)
-              return [{ label: 'Error', body: text, tone: 'error' }];
+            if (c['is_error'] === true) return [{ label: 'Error', body: text, tone: 'error' }];
             return [
               {
                 label: 'Result',
@@ -211,9 +202,7 @@ function claude(d: Obj): Described[] | null {
       const parts = [
         typeof d['num_turns'] === 'number' ? `${d['num_turns']} turns` : null,
         seconds(d['duration_ms']),
-        typeof d['total_cost_usd'] === 'number'
-          ? `$${d['total_cost_usd'].toFixed(2)}`
-          : null,
+        typeof d['total_cost_usd'] === 'number' ? `$${d['total_cost_usd'].toFixed(2)}` : null,
       ].filter((p) => p !== null);
       const failed = d['is_error'] === true;
       const out: Described[] = [
@@ -310,9 +299,7 @@ function codex(d: Obj): Described[] | null {
       return [];
     case 'item.started':
     case 'item.updated':
-      return isObj(d['item']) && type === 'item.started'
-        ? codexItem(d['item'], false)
-        : [];
+      return isObj(d['item']) && type === 'item.started' ? codexItem(d['item'], false) : [];
     case 'item.completed':
       return isObj(d['item']) ? codexItem(d['item'], true) : [];
     case 'turn.completed': {
@@ -359,7 +346,5 @@ export function describeRecord(kind: string, data: unknown): Described[] {
     const known = claude(data) ?? codex(data);
     if (known !== null) return known;
   }
-  return [
-    { label: kind.slice(0, LABEL_WIDTH), body: compact(data), tone: 'info' },
-  ];
+  return [{ label: kind.slice(0, LABEL_WIDTH), body: compact(data), tone: 'info' }];
 }

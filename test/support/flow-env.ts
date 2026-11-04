@@ -20,11 +20,7 @@ import { finalizeContext } from '../../src/policy/finalize.ts';
 import { freezeOk, uuidOf } from './builders.ts';
 import { FakeGitHub } from './fake-github.ts';
 import { gitSandbox } from './git-repo.ts';
-import {
-  confirmedRuntime,
-  proposeAndConfirm,
-  selectionFor,
-} from './runtime.ts';
+import { confirmedRuntime, proposeAndConfirm, selectionFor } from './runtime.ts';
 import { StoreDriver } from './store-driver.ts';
 import { dbPath, useTempDir } from './temp-db.ts';
 
@@ -115,13 +111,7 @@ export function flowEnv(prefix: string) {
     const github = new FakeGitHub();
     github.headOf = (branch) => {
       try {
-        const sha = g.sh(
-          remote,
-          'rev-parse',
-          '--verify',
-          '--quiet',
-          `refs/heads/${branch}`,
-        );
+        const sha = g.sh(remote, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`);
         // Checks of whatever head gets pushed come back green, unless the test scripted them per push.
         if (!github.checks.has(sha))
           github.checks.set(
@@ -152,9 +142,7 @@ export function flowEnv(prefix: string) {
         status: o.askFirst === true && i === 0 ? 'needs_input' : 'done',
         summary: i === 0 ? 'added search' : `fix ${i}`,
         questions:
-          o.askFirst === true && i === 0
-            ? [{ question: 'Which encoding?', options: [] }]
-            : [],
+          o.askFirst === true && i === 0 ? [{ question: 'Which encoding?', options: [] }] : [],
         blocker: null,
       },
       ...(o.resume === true ? { session_ref: `sess-${i + 1}` } : {}),
@@ -175,13 +163,9 @@ export function flowEnv(prefix: string) {
             join(paths.worktrees, task.id, 'search.ts'),
             `export const search = (q: string) => q;${k === 0 ? '' : ` // fix ${k}`}\n`,
           );
-        if (typeof o.content === 'function')
-          o.content(contentFile(input.context.text));
+        if (typeof o.content === 'function') o.content(contentFile(input.context.text));
         else if (o.content !== null)
-          writeFileSync(
-            contentFile(input.context.text),
-            JSON.stringify(runs[k] ?? runs.at(-1)),
-          );
+          writeFileSync(contentFile(input.context.text), JSON.stringify(runs[k] ?? runs.at(-1)));
         return coder.run(input, signal);
       },
     };
@@ -197,20 +181,15 @@ export function flowEnv(prefix: string) {
     const reviewer = new FakeHarness(
       {
         reviewer:
-          o.mode === 'full-review'
-            ? Array.from({ length: o.reviews ?? 1 }, () => approve)
-            : [],
+          o.mode === 'full-review' ? Array.from({ length: o.reviews ?? 1 }, () => approve) : [],
       },
       'codex',
     );
     const codex = Object.assign(reviewer, {
-      run: (
-        (orig) =>
-        (input: Parameters<HarnessPort['run']>[0], signal: AbortSignal) => {
-          o.duringReview?.(remote);
-          return orig(input, signal);
-        }
-      )(reviewer.run.bind(reviewer)),
+      run: ((orig) => (input: Parameters<HarnessPort['run']>[0], signal: AbortSignal) => {
+        o.duringReview?.(remote);
+        return orig(input, signal);
+      })(reviewer.run.bind(reviewer)),
     });
     let ids = 20_000;
     const clock = { now: () => d.now as EpochMs, monotonic: () => d.now };
@@ -271,15 +250,10 @@ export function flowEnv(prefix: string) {
             : [{ name: 'prompts/reviewer.md', content: o.reviewerPrompt }]),
         ],
       });
-      proposeAndConfirm(
-        d,
-        task,
-        selectionFor(task, o.mode, frozen.value.policy),
-      );
+      proposeAndConfirm(d, task, selectionFor(task, o.mode, frozen.value.policy));
       d.must(task.id, { kind: 'request_execution' });
       const granted = d.store.grantNext(d.now as EpochMs, [newId()]);
-      if (!granted.ok || granted.value.kind !== 'decided')
-        throw new Error(JSON.stringify(granted));
+      if (!granted.ok || granted.value.kind !== 'decided') throw new Error(JSON.stringify(granted));
       const template =
         o.template === undefined
           ? null
@@ -306,9 +280,7 @@ export function flowEnv(prefix: string) {
               },
             }
           : {}),
-        ...(o.setup_commands === undefined
-          ? {}
-          : { setup_commands: o.setup_commands }),
+        ...(o.setup_commands === undefined ? {} : { setup_commands: o.setup_commands }),
         ...(o.command_wall_ms === undefined
           ? {}
           : {
@@ -319,13 +291,9 @@ export function flowEnv(prefix: string) {
             }),
         role_prompts: {
           coder: 'prompts/coder.md',
-          ...(o.reviewerPrompt === undefined
-            ? {}
-            : { reviewer: 'prompts/reviewer.md' }),
+          ...(o.reviewerPrompt === undefined ? {} : { reviewer: 'prompts/reviewer.md' }),
         },
-        ...(o.merge_method === undefined
-          ? {}
-          : { merge_method: o.merge_method }),
+        ...(o.merge_method === undefined ? {} : { merge_method: o.merge_method }),
       });
       d.must(task.id, { kind: 'start', freeze: frozen, runtime });
     };
@@ -336,10 +304,8 @@ export function flowEnv(prefix: string) {
      */
     const tick = async (): Promise<number> => {
       const queued =
-        d.task(task.id).wait?.detail.code === 'execution_slot' &&
-        d.store.readSlot() === null;
-      if (queued)
-        d.store.grantNext(d.now as EpochMs, Array.from({ length: 8 }, newId));
+        d.task(task.id).wait?.detail.code === 'execution_slot' && d.store.readSlot() === null;
+      if (queued) d.store.grantNext(d.now as EpochMs, Array.from({ length: 8 }, newId));
       const r = dispatcher.tick();
       await dispatcher.settle();
       d.now += 1_000;

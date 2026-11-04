@@ -18,8 +18,7 @@ type HeadDriftTrigger = Extract<Trigger, { kind: 'head_drift' }>;
 
 export function onHeadDrift(ctx: Ctx, t: HeadDriftTrigger): void {
   const s = ctx.state;
-  if (s.runtime_ref === null)
-    reject('invalid_trigger', { reason: 'not_runtime_task' });
+  if (s.runtime_ref === null) reject('invalid_trigger', { reason: 'not_runtime_task' });
   if (isTerminal(s.status) || s.completion !== null) {
     ctx.emit('SignalIgnored', {
       reason: s.completion !== null ? 'completion_recorded' : 'terminal',
@@ -62,11 +61,7 @@ export function onHeadDrift(ctx: Ctx, t: HeadDriftTrigger): void {
 }
 
 /** Under a recorded drift a late result is history only: settle its budget, route nothing. */
-export function settleUnderDrift(
-  ctx: Ctx,
-  e: EffectMirror,
-  invoked: boolean,
-): void {
+export function settleUnderDrift(ctx: Ctx, e: EffectMirror, invoked: boolean): void {
   if (e.kind !== 'start_agent') return;
   if (invoked) consume(ctx, e.reservation_id);
   else release(ctx, e.reservation_id);

@@ -16,11 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { nativeSandboxEnabled } from '../../../src/adapters/harness/vendor.ts';
 import type { RuntimeConfig } from '../../../src/config/normalize.ts';
-import {
-  notRunnable,
-  writePin,
-  type WritePinInput,
-} from '../../../src/runner/harness-records.ts';
+import { notRunnable, writePin, type WritePinInput } from '../../../src/runner/harness-records.ts';
 
 function setup() {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cusr-write-pin-')));
@@ -61,10 +57,7 @@ describe('cusr-runner write-pin', () => {
     const { binary, tools, rule, input, path } = setup();
     const r = writePin(input);
     expect(r.ok, JSON.stringify(r)).toBe(true);
-    const pin = JSON.parse(readFileSync(path, 'utf8')) as Record<
-      string,
-      unknown
-    >;
+    const pin = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
     expect(pin).toMatchObject({
       vendor: 'codex',
       binary: {
@@ -101,10 +94,7 @@ describe('cusr-runner write-pin', () => {
     const link = join(dir, 'tools-link');
     symlinkSync(tools, link);
     for (const [change, message] of [
-      [
-        { toolchain: ['/tmp/no-such-old-machine/lib'] },
-        'does not exist on this host',
-      ],
+      [{ toolchain: ['/tmp/no-such-old-machine/lib'] }, 'does not exist on this host'],
       [{ toolchain: [link] }, `use ${tools}`],
       [{ binary: join(dir, 'missing') }, 'cannot run'],
       [{ auth: [{ credential: 'nope', to: '.a' }] }, 'credential_refs'],
@@ -122,9 +112,11 @@ describe('cusr-runner write-pin', () => {
     writeFileSync(join(tools, 'no-exec'), '');
     writeFileSync(join(tools, 'good'), '', { mode: 0o755 });
     mkdirSync(join(tools, 'a-directory'));
-    expect(
-      notRunnable([tools], ['good', 'no-exec', 'a-directory', 'absent']),
-    ).toEqual(['no-exec', 'a-directory', 'absent']);
+    expect(notRunnable([tools], ['good', 'no-exec', 'a-directory', 'absent'])).toEqual([
+      'no-exec',
+      'a-directory',
+      'absent',
+    ]);
   });
 
   it('refuses a claude pin without its fields, and writes one with them', () => {
@@ -134,9 +126,7 @@ describe('cusr-runner write-pin', () => {
       sandbox: { allowUnsandboxedCommands: false },
     };
     const claude = { ...input, harness: 'claude', vendor: 'claude' as const };
-    expect(
-      writePin({ ...claude, settings, max_turns: null, tools: null }),
-    ).toMatchObject({
+    expect(writePin({ ...claude, settings, max_turns: null, tools: null })).toMatchObject({
       ok: false,
       error: expect.stringContaining('tools') as string,
     });
@@ -193,9 +183,7 @@ describe('cusr-runner write-pin', () => {
       const r = spawnSync(
         process.execPath,
         [
-          fileURLToPath(
-            new URL('../../../src/cli/cusr-runner.ts', import.meta.url),
-          ),
+          fileURLToPath(new URL('../../../src/cli/cusr-runner.ts', import.meta.url)),
           'write-pin',
           '--config',
           config,
@@ -243,63 +231,46 @@ describe('cusr-runner write-pin', () => {
   });
 
   it.each([
-    [
-      'record-manifest',
-      'manifest_refused',
-      ['--harness', 'h', '--evidence', 'nope.json'],
-    ],
+    ['record-manifest', 'manifest_refused', ['--harness', 'h', '--evidence', 'nope.json']],
     [
       'prove-harness',
       'proof_refused',
-      [
-        '--harness',
-        'h',
-        '--model',
-        'm',
-        '--outer-proof',
-        'nope.json',
-        '--dry-run',
-      ],
+      ['--harness', 'h', '--model', 'm', '--outer-proof', 'nope.json', '--dry-run'],
     ],
-  ])(
-    '%s --json refuses with one envelope, spending nothing',
-    (command, code, args) => {
-      const { dir, input } = setup();
-      const config = join(dir, 'config.yaml');
-      writeFileSync(
-        config,
-        `version: 1\nharnesses:\n  h: { cmd: h, auth: subscription, pool: p }\npools: { p: 1 }\nruntime:\n  data_dir: ${input.dataDir}\n`,
+  ])('%s --json refuses with one envelope, spending nothing', (command, code, args) => {
+    const { dir, input } = setup();
+    const config = join(dir, 'config.yaml');
+    writeFileSync(
+      config,
+      `version: 1\nharnesses:\n  h: { cmd: h, auth: subscription, pool: p }\npools: { p: 1 }\nruntime:\n  data_dir: ${input.dataDir}\n`,
+    );
+    mkdirSync(input.dataDir, { mode: 0o700 });
+    const run = (...rest: string[]) => {
+      const r = spawnSync(
+        process.execPath,
+        [
+          fileURLToPath(new URL('../../../src/cli/cusr-runner.ts', import.meta.url)),
+          command,
+          '--json',
+          ...rest,
+        ],
+        { encoding: 'utf8' },
       );
-      mkdirSync(input.dataDir, { mode: 0o700 });
-      const run = (...rest: string[]) => {
-        const r = spawnSync(
-          process.execPath,
-          [
-            fileURLToPath(
-              new URL('../../../src/cli/cusr-runner.ts', import.meta.url),
-            ),
-            command,
-            '--json',
-            ...rest,
-          ],
-          { encoding: 'utf8' },
-        );
-        return {
-          code: r.status,
-          stderr: r.stderr,
-          body: JSON.parse(r.stdout) as unknown,
-        };
+      return {
+        code: r.status,
+        stderr: r.stderr,
+        body: JSON.parse(r.stdout) as unknown,
       };
-      expect(run()).toMatchObject({
-        code: 2,
-        stderr: '',
-        body: { ok: false, error: { code: 'invalid_arguments' } },
-      });
-      expect(run('--config', config, ...args)).toMatchObject({
-        code: 1,
-        stderr: '',
-        body: { ok: false, error: { code } },
-      });
-    },
-  );
+    };
+    expect(run()).toMatchObject({
+      code: 2,
+      stderr: '',
+      body: { ok: false, error: { code: 'invalid_arguments' } },
+    });
+    expect(run('--config', config, ...args)).toMatchObject({
+      code: 1,
+      stderr: '',
+      body: { ok: false, error: { code } },
+    });
+  });
 });

@@ -6,10 +6,7 @@ const JITTER_FRACTION = 0.1;
 
 /** Deterministic value in [0, 1) derived from the effect key and attempt number (FR-012). */
 function jitterRatio(idemKey: string, attempt: number): number {
-  const hex = hashText(`${idemKey}#${attempt}`).slice(
-    'sha256:'.length,
-    'sha256:'.length + 8,
-  );
+  const hex = hashText(`${idemKey}#${attempt}`).slice('sha256:'.length, 'sha256:'.length + 8);
   return Number.parseInt(hex, 16) / 0x1_0000_0000;
 }
 
@@ -17,15 +14,8 @@ function jitterRatio(idemKey: string, attempt: number): number {
  * Delay before retry number `attempt` (1-based): `base_ms * factor^(attempt - 1)` plus up to 10% jitter,
  * capped at `max_ms` (research R-22).
  */
-export function backoffDelay(
-  cfg: Backoff,
-  attempt: number,
-  idemKey: string,
-): number {
-  const base = Math.min(
-    cfg.max_ms,
-    cfg.base_ms * cfg.factor ** Math.max(0, attempt - 1),
-  );
+export function backoffDelay(cfg: Backoff, attempt: number, idemKey: string): number {
+  const base = Math.min(cfg.max_ms, cfg.base_ms * cfg.factor ** Math.max(0, attempt - 1));
   return Math.min(
     cfg.max_ms,
     Math.floor(base + base * JITTER_FRACTION * jitterRatio(idemKey, attempt)),
@@ -50,8 +40,7 @@ export function planBackoff(
   if (cfg.max_attempts !== null && attempt > cfg.max_attempts)
     return { kind: 'exhausted', reason: 'max_attempts' };
   if (resetAt !== undefined) {
-    if (resetAt - now > cfg.max_ms)
-      return { kind: 'exhausted', reason: 'reset_too_far' };
+    if (resetAt - now > cfg.max_ms) return { kind: 'exhausted', reason: 'reset_too_far' };
     return { kind: 'wait', due_at: Math.max(now, resetAt) };
   }
   return { kind: 'wait', due_at: now + backoffDelay(cfg, attempt, idemKey) };

@@ -14,10 +14,7 @@ import {
   MAX_CONTENT_FILE_BYTES,
   readStoredContent,
 } from '../../../src/adapters/publish-content.ts';
-import type {
-  HarnessInput,
-  HarnessOutcome,
-} from '../../../src/adapters/ports.ts';
+import type { HarnessInput, HarnessOutcome } from '../../../src/adapters/ports.ts';
 import { notifyDependents } from '../../../src/application/dependency.ts';
 import { observeTask } from '../../../src/daemon/handlers.ts';
 import { mergeView } from '../../../src/application/queries.ts';
@@ -34,11 +31,7 @@ import { StoreDriver } from '../../support/store-driver.ts';
 import { CONTENT, flowEnv, type Content } from '../../support/flow-env.ts';
 import { recoverOperations } from '../../../src/daemon/startup.ts';
 import { taskLogs } from '../../../src/application/logs.ts';
-import {
-  EventLogWriter,
-  readRecords,
-  RunDir,
-} from '../../../src/runner/files.ts';
+import { EventLogWriter, readRecords, RunDir } from '../../../src/runner/files.ts';
 import { runExit } from '../../support/run-exit.ts';
 
 // US1 baseline (T028/T047): real Git worktree and bare remote, fake harnesses and GitHub, Clock driven
@@ -132,17 +125,13 @@ it('keeps committed history and holds B live output until a corrupt, partially i
       ok: true,
       value: {
         next_cursor: 4,
-        records: [
-          { data: { attempt: 'B', i: 1 } },
-          { data: { attempt: 'B', i: 2 } },
-        ],
+        records: [{ data: { attempt: 'B', i: 1 } }, { data: { attempt: 'B', i: 2 } }],
       },
     });
     writer.close();
     files.writeExit(runExit(input.operation_id, f.d.now));
     const batch = readRecords(files, input.operation_id, null, { final: true });
-    if (!batch.ok || batch.value.cursor === null)
-      throw new Error('missing B spool');
+    if (!batch.ok || batch.value.cursor === null) throw new Error('missing B spool');
     return {
       ...(await original(input, signal)),
       ingest: {
@@ -157,9 +146,7 @@ it('keeps committed history and holds B live output until a corrupt, partially i
   f.d.must(task.id, { kind: 'create_task', task });
   f.start();
   await f.settle();
-  const question = Object.values(f.d.task(task.id).questions).find(
-    (q) => q.status === 'open',
-  );
+  const question = Object.values(f.d.task(task.id).questions).find((q) => q.status === 'open');
   if (question === undefined) throw new Error('missing worker question');
   f.d.must(task.id, {
     kind: 'answer',
@@ -218,8 +205,7 @@ it('an expired harness login stops at once instead of spending retries and visit
     return Promise.resolve({
       kind: 'failure',
       failure: 'auth',
-      detail:
-        'success: Failed to authenticate: OAuth session expired and could not be refreshed',
+      detail: 'success: Failed to authenticate: OAuth session expired and could not be refreshed',
       role: input.role,
       usage: { basis: 'unavailable' },
       session_ref: null,
@@ -302,8 +288,7 @@ it('final handler ingestion adds only the tail after live output, with no duplic
     log.close();
     run.writeExit(runExit(input.operation_id, f.d.now));
     const batch = readRecords(run, input.operation_id, null, { final: true });
-    if (!batch.ok || batch.value.cursor === null)
-      throw new Error('missing log batch');
+    if (!batch.ok || batch.value.cursor === null) throw new Error('missing log batch');
     return {
       ...(await original(input, signal)),
       ingest: {
@@ -378,14 +363,11 @@ it.each(['unreadable', 'rejected', 'write_failed', 'no_run_dir'] as const)(
       await f.tick();
       await f.tick();
       const s = f.d.task(task.id);
-      const worker = Object.values(s.effects).find(
-        (e) => e.kind === 'start_agent',
-      );
+      const worker = Object.values(s.effects).find((e) => e.kind === 'start_agent');
       expect(worker?.status).toBe('unknown');
-      expect(
-        Object.values(s.operations).find((o) => o.effect_id === worker?.id)
-          ?.status,
-      ).toBe('unknown');
+      expect(Object.values(s.operations).find((o) => o.effect_id === worker?.id)?.status).toBe(
+        'unknown',
+      );
       expect(latch).toHaveBeenCalledTimes(status === 'write_failed' ? 1 : 0);
     } finally {
       ingest.mockRestore();
@@ -393,8 +375,7 @@ it.each(['unreadable', 'rejected', 'write_failed', 'no_run_dir'] as const)(
   },
 );
 
-const types = (d: StoreDriver, t: CanonicalTask) =>
-  d.store.readEvents(t.id).map((e) => e.type);
+const types = (d: StoreDriver, t: CanonicalTask) => d.store.readEvents(t.id).map((e) => e.type);
 const MARKER = /<!-- cusr:task=\S+ revision=1 op=\S+ -->\n$/;
 
 describe.each(['full-review', 'direct-pr'] as const)(
@@ -408,8 +389,10 @@ describe.each(['full-review', 'direct-pr'] as const)(
         depends_on: [task.id],
       });
       const template = '## Summary\n\n## Tests\n';
-      const { d, deps, github, remote, start, settle, codex, coder, worktree } =
-        setup(task, { mode, template });
+      const { d, deps, github, remote, start, settle, codex, coder, worktree } = setup(task, {
+        mode,
+        template,
+      });
       d.must(task.id, { kind: 'create_task', task });
       d.must(child.id, { kind: 'create_task', task: child });
       start();
@@ -427,9 +410,7 @@ describe.each(['full-review', 'direct-pr'] as const)(
       // The worker saw the frozen template and where to write its content.
       expect(coder.calls[0]?.context.text).toContain('## Summary');
       // The prompt frozen for the role reached the agent, and so did the rule that Cuesura commits.
-      expect(coder.calls[0]?.context.text).toContain(
-        '## prompt:prompts/coder.md',
-      );
+      expect(coder.calls[0]?.context.text).toContain('## prompt:prompts/coder.md');
       expect(coder.calls[0]?.context.text).toContain('## worker_rules');
       expect(coder.calls[0]?.view).toEqual({
         project: s.project,
@@ -450,17 +431,13 @@ describe.each(['full-review', 'direct-pr'] as const)(
       );
       expect(branches.split('\n')).toHaveLength(1);
       expect(g.sh(remote, 'rev-parse', branches)).toBe(cp?.sha);
-      expect(g.sh(worktree, 'show', `${cp?.sha ?? ''}:search.ts`)).toContain(
-        'search',
-      );
+      expect(g.sh(worktree, 'show', `${cp?.sha ?? ''}:search.ts`)).toContain('search');
       if (mode === 'full-review') {
         // The reviewer read the fixed base..checkpoint diff and the PR content, and approved that input.
         expect(codex.remaining('reviewer')).toBe(0);
         expect(codex.calls[0]?.context.text).toContain(CONTENT.pr_title);
         expect(codex.calls[0]?.context.text).toContain(`..${cp?.sha ?? ''}`);
-        expect(s.run.reviews).toMatchObject([
-          { verdict: 'approve', sha: cp?.sha },
-        ]);
+        expect(s.run.reviews).toMatchObject([{ verdict: 'approve', sha: cp?.sha }]);
         // The PR opened as a draft; the verdict was posted on it as one COMMENT review, then it turned
         // ready, and CI was read only after that.
         const pr = github.prs[0];
@@ -479,9 +456,9 @@ describe.each(['full-review', 'direct-pr'] as const)(
         expect(calls.indexOf(`POST repos/${github.repo}/pulls`)).toBeLessThan(
           calls.indexOf(`POST repos/${github.repo}/pulls/7/reviews`),
         );
-        expect(
-          calls.indexOf(`POST repos/${github.repo}/pulls/7/reviews`),
-        ).toBeLessThan(calls.indexOf('POST graphql'));
+        expect(calls.indexOf(`POST repos/${github.repo}/pulls/7/reviews`)).toBeLessThan(
+          calls.indexOf('POST graphql'),
+        );
         expect(calls.indexOf('POST graphql')).toBeLessThan(
           calls.findIndex((c) => c.endsWith('/check-runs')),
         );
@@ -505,14 +482,8 @@ describe.each(['full-review', 'direct-pr'] as const)(
       expect(github.prs[0]?.body.startsWith(CONTENT.pr_body)).toBe(true);
       expect(github.prs[0]?.body).toMatch(MARKER);
       expect(github.prs[0]?.body.match(/<!-- cusr:/g)).toHaveLength(1);
-      expect(
-        github.calls.filter(
-          (c) => c.includes('/merge') && !c.startsWith('GET'),
-        ),
-      ).toEqual([]);
-      expect(
-        Object.values(s.effects).filter((e) => e.kind === 'merge'),
-      ).toEqual([]);
+      expect(github.calls.filter((c) => c.includes('/merge') && !c.startsWith('GET'))).toEqual([]);
+      expect(Object.values(s.effects).filter((e) => e.kind === 'merge')).toEqual([]);
       expect(types(d, task)).not.toContain('ApprovalRequested');
       expect(d.store.readSlot()).toBeNull();
       expect(d.task(child.id).status).toBe('PENDING');
@@ -533,9 +504,7 @@ describe.each(['full-review', 'direct-pr'] as const)(
           },
         },
       });
-      expect(types(d, task).filter((x) => x === 'TaskCompleted')).toHaveLength(
-        1,
-      );
+      expect(types(d, task).filter((x) => x === 'TaskCompleted')).toHaveLength(1);
       notifyDependents(d.store, d.now);
       expect(d.task(child.id).status).toBe('READY');
     });
@@ -590,10 +559,7 @@ describe.each(['full-review', 'direct-pr'] as const)(
       const request = github.request.bind(github);
       github.request = async (req) => {
         const r = await request(req);
-        if (
-          req.method === 'POST' &&
-          req.path === `repos/${github.repo}/pulls`
-        ) {
+        if (req.method === 'POST' && req.path === `repos/${github.repo}/pulls`) {
           for (const p of github.prs) p.base = 'other';
           github.merge(7, 'e'.repeat(40));
         }
@@ -621,18 +587,14 @@ describe.each(['full-review', 'direct-pr'] as const)(
       expect(s.observation?.last?.status).toBe('unknown');
       expect(types(d, task)).not.toContain('CiResultRecorded');
       expect(
-        Object.values(s.timers).filter(
-          (t) => t.status === 'armed' && t.kind === 'ci_poll',
-        ),
+        Object.values(s.timers).filter((t) => t.status === 'armed' && t.kind === 'ci_poll'),
       ).toEqual([]);
       // A later observation still reports the mismatch, never a merge proof for the task's target.
       const again = await observeTask(deps, task.id, 'obs:2');
       expect(again.extra).toMatchObject([
         { kind: 'observation_result', target: { ref: 'other', merged: true } },
       ]);
-      expect(again.extra.map((f) => f.kind)).not.toContain(
-        'external_completion',
-      );
+      expect(again.extra.map((f) => f.kind)).not.toContain('external_completion');
       expect(again.outcome).toMatchObject({
         outcome: 'succeeded',
         data: { target_ref: 'other', target_merged: true },
@@ -667,15 +629,14 @@ describe.each(['full-review', 'direct-pr'] as const)(
         });
         // A snapshot frozen before merge.method existed shows no method rather than a back-filled default.
         const { merge_method: _m, ...legacy } = rt as NonNullable<typeof rt>;
-        expect(
-          mergeView(s, legacy as typeof rt, readStoredContent),
-        ).toMatchObject({ method: null });
+        expect(mergeView(s, legacy as typeof rt, readStoredContent)).toMatchObject({
+          method: null,
+        });
         expect(mergeView(s, null, readStoredContent)).toBeNull();
 
         // The user merges by some method 002 cannot prove: DONE, head still certified, method unknown.
         github.merge(7, 'e'.repeat(40));
-        for (const t of (await observeTask(deps, task.id, 'obs:1')).extra)
-          d.must(task.id, t);
+        for (const t of (await observeTask(deps, task.id, 'obs:1')).extra) d.must(task.id, t);
         const done = d.task(task.id);
         expect(done).toMatchObject({
           status: 'DONE',
@@ -709,9 +670,7 @@ describe.each(['full-review', 'direct-pr'] as const)(
           expect(s.run.checkpoint).toBeNull();
           expect(github.prs).toEqual([]);
           expect(
-            Object.values(s.effects).filter(
-              (e) => e.kind === 'publish' || e.kind === 'create_pr',
-            ),
+            Object.values(s.effects).filter((e) => e.kind === 'publish' || e.kind === 'create_pr'),
           ).toEqual([]);
         }
     });
@@ -769,15 +728,10 @@ describe.each(['full-review', 'direct-pr'] as const)(
 
 describe('project setup in prepare', () => {
   const prepareResult = (f: ReturnType<typeof setup>, id: Uuid): unknown => {
-    const effect = Object.values(f.d.task(id).effects).find(
-      (e) => e.kind === 'prepare',
-    );
+    const effect = Object.values(f.d.task(id).effects).find((e) => e.kind === 'prepare');
     const done = f.d.store
       .readEvents(id)
-      .find(
-        (e) =>
-          e.type === 'EffectCompleted' && e.payload['effect_id'] === effect?.id,
-      );
+      .find((e) => e.type === 'EffectCompleted' && e.payload['effect_id'] === effect?.id);
     return (done?.payload as Record<string, unknown> | undefined)?.['result'];
   };
 
@@ -812,9 +766,7 @@ describe('project setup in prepare', () => {
     await f.settle();
     const events = f.d.store.readEvents(task.id);
     expect(
-      events
-        .filter((e) => e.type === 'FailureClassified')
-        .map((e) => e.payload['class']),
+      events.filter((e) => e.type === 'FailureClassified').map((e) => e.payload['class']),
     ).toEqual(['timeout', 'timeout']);
     const s = f.d.task(task.id);
     expect(s.status).toBe('WAITING');
@@ -837,17 +789,13 @@ describe('project setup in prepare', () => {
     await f.tick();
     expect(f.coder.calls).toEqual([]);
     expect(existsSync(join(f.worktree, 'setup-never'))).toBe(false);
-    const failure = f.d.store
-      .readEvents(task.id)
-      .find((e) => e.type === 'FailureClassified');
+    const failure = f.d.store.readEvents(task.id).find((e) => e.type === 'FailureClassified');
     expect(failure?.payload).toMatchObject({ class: 'infra' });
     // A command that exits with an error takes the infra backoff, not the one timeout retry.
     expect(f.d.task(task.id).wait?.detail.code).toBe('infra_backoff');
     expect(prepareResult(f, task.id)).toMatchObject({
       failure_class: 'infra',
-      message: expect.stringContaining(
-        'setup_failed: setup:setup-1:exit_7',
-      ) as string,
+      message: expect.stringContaining('setup_failed: setup:setup-1:exit_7') as string,
     });
   });
 });
@@ -869,15 +817,12 @@ it('T139 M03: missing reviewer diff never launches or consumes a reviewer run', 
   expect(f.github.prs[0]?.reviews ?? []).toEqual([]);
 });
 
-async function settleWithSlot(
-  d: StoreDriver,
-  settle: () => Promise<void>,
-): Promise<void> {
+async function settleWithSlot(d: StoreDriver, settle: () => Promise<void>): Promise<void> {
   for (let i = 0; i < 6; i++) {
     await settle();
     if (
-      d.task(d.store.taskIdsByStatus(['WAITING', 'RUNNING'])[0] as never)?.wait
-        ?.detail.code !== 'execution_slot'
+      d.task(d.store.taskIdsByStatus(['WAITING', 'RUNNING'])[0] as never)?.wait?.detail.code !==
+      'execution_slot'
     )
       return;
     d.store.grantNext(d.now as EpochMs, [
@@ -950,21 +895,13 @@ describe('worktree changed by someone else before the worker (T072, real Git)', 
     expect(s.run.worktree_tree).toBe(prepared);
 
     d.must(task.id, { kind: 'recheck', target: 'worktree' });
-    const accepted = d.store
-      .readEvents(task.id)
-      .find((e) => e.type === 'WorktreeChangeAccepted');
+    const accepted = d.store.readEvents(task.id).find((e) => e.type === 'WorktreeChangeAccepted');
     expect(accepted?.payload).toMatchObject({
       previous: prepared,
       tree: s.wait?.detail['observed'],
     });
-    const granted = d.store.grantNext(d.now as EpochMs, [
-      newId(),
-      newId(),
-      newId(),
-      newId(),
-    ]);
-    if (!granted.ok || granted.value.kind !== 'decided')
-      throw new Error(JSON.stringify(granted));
+    const granted = d.store.grantNext(d.now as EpochMs, [newId(), newId(), newId(), newId()]);
+    if (!granted.ok || granted.value.kind !== 'decided') throw new Error(JSON.stringify(granted));
     await settle();
     expect(coder.calls).toHaveLength(1);
     expect(d.task(task.id).wait?.detail.code).toBe('merge');
@@ -986,13 +923,7 @@ describe('remote drift while the reviewer reads A (T137, H01/H03, real Git)', ()
         g.sh(other, 'add', 'b.txt');
         g.sh(other, 'commit', '-qm', 'b');
         pushedB = g.sh(other, 'rev-parse', 'HEAD');
-        g.sh(
-          other,
-          'push',
-          '-q',
-          'origin',
-          `HEAD:refs/heads/${taskBranch(task.id, task.title)}`,
-        );
+        g.sh(other, 'push', '-q', 'origin', `HEAD:refs/heads/${taskBranch(task.id, task.title)}`);
       },
     });
     d.must(task.id, { kind: 'create_task', task });
@@ -1012,13 +943,9 @@ describe('remote drift while the reviewer reads A (T137, H01/H03, real Git)', ()
       },
     });
     expect(s.run.head_drift).toMatchObject({ expected: a, observed: pushedB });
-    expect(
-      g.sh(
-        remote,
-        'rev-parse',
-        `refs/heads/${taskBranch(task.id, task.title)}`,
-      ),
-    ).toBe(pushedB);
+    expect(g.sh(remote, 'rev-parse', `refs/heads/${taskBranch(task.id, task.title)}`)).toBe(
+      pushedB,
+    );
     expect(github.prs).toMatchObject([{ draft: true }]);
     expect(types(d, task)).not.toContain('CiResultRecorded');
   });
@@ -1041,17 +968,7 @@ describe.each(['full-review', 'direct-pr'] as const)(
       'CI code failure → fix on the same worktree → same PR updated → green on the new head (resume proven: %s)',
       async (resume) => {
         const task = buildTask();
-        const {
-          d,
-          deps,
-          github,
-          remote,
-          start,
-          settle,
-          codex,
-          coder,
-          worktree,
-        } = setup(task, {
+        const { d, deps, github, remote, start, settle, codex, coder, worktree } = setup(task, {
           mode,
           reviews: 2,
           runs: [CONTENT, FIXED],
@@ -1076,13 +993,7 @@ describe.each(['full-review', 'direct-pr'] as const)(
         expect(second).toBe(s.run.checkpoint?.sha);
         expect(second).not.toBe(first);
         // Fast-forward only: the first head is an ancestor of the second; one branch, one PR.
-        g.sh(
-          worktree,
-          'merge-base',
-          '--is-ancestor',
-          first ?? '',
-          second ?? '',
-        );
+        g.sh(worktree, 'merge-base', '--is-ancestor', first ?? '', second ?? '');
         const branches = g.sh(
           remote,
           'for-each-ref',
@@ -1091,16 +1002,10 @@ describe.each(['full-review', 'direct-pr'] as const)(
         );
         expect(branches.split('\n')).toHaveLength(1);
         expect(g.sh(remote, 'rev-parse', branches)).toBe(second);
-        expect(g.sh(worktree, 'log', '-1', '--format=%B', second ?? '')).toBe(
-          FIXED.commit_message,
-        );
+        expect(g.sh(worktree, 'log', '-1', '--format=%B', second ?? '')).toBe(FIXED.commit_message);
         expect(github.prs).toHaveLength(1);
-        expect(
-          github.calls.filter((c) => c === `POST repos/${github.repo}/pulls`),
-        ).toHaveLength(1);
-        expect(github.calls.filter((c) => c.startsWith('PATCH '))).toHaveLength(
-          1,
-        );
+        expect(github.calls.filter((c) => c === `POST repos/${github.repo}/pulls`)).toHaveLength(1);
+        expect(github.calls.filter((c) => c.startsWith('PATCH '))).toHaveLength(1);
         expect(github.prs[0]).toMatchObject({
           title: FIXED.pr_title,
           head: { sha: second },
@@ -1116,9 +1021,7 @@ describe.each(['full-review', 'direct-pr'] as const)(
         const fixEffect = d.store
           .readEvents(task.id)
           .map((e) => e.payload as { effect_id?: string; result?: unknown })
-          .find(
-            (p) => p.effect_id === fix?.effect_id && p.result !== undefined,
-          );
+          .find((p) => p.effect_id === fix?.effect_id && p.result !== undefined);
         if (resume) {
           expect(coder.calls[1]?.session).toEqual({
             ref: 'sess-1',
@@ -1136,11 +1039,10 @@ describe.each(['full-review', 'direct-pr'] as const)(
           });
         }
         if (mode === 'full-review')
-          expect(
-            s.run.reviews
-              .filter((r) => r.verdict === 'approve')
-              .map((r) => r.sha),
-          ).toEqual([first, second]);
+          expect(s.run.reviews.filter((r) => r.verdict === 'approve').map((r) => r.sha)).toEqual([
+            first,
+            second,
+          ]);
         else expect(codex.calls).toEqual([]);
         // CI of the old head is history; the merge of the new head is verified.
         github.merge(7, 'e'.repeat(40));
@@ -1169,9 +1071,7 @@ describe.each(['full-review', 'direct-pr'] as const)(
       f.d.must(task.id, { kind: 'create_task', task });
       f.start();
       await f.settle();
-      const question = Object.values(f.d.task(task.id).questions).find(
-        (q) => q.status === 'open',
-      );
+      const question = Object.values(f.d.task(task.id).questions).find((q) => q.status === 'open');
       if (question === undefined) throw new Error('no worker question');
       f.d.must(task.id, {
         kind: 'answer',
@@ -1224,9 +1124,7 @@ describe.each(['full-review', 'direct-pr'] as const)(
       await settleWithSlot(f.d, f.settle);
       expect(drifted).toBe(true);
       expect(f.coder.calls).toHaveLength(1);
-      expect(f.d.task(task.id).blockers.map((b) => b.code)).toContain(
-        'head_changed',
-      );
+      expect(f.d.task(task.id).blockers.map((b) => b.code)).toContain('head_changed');
       expect(f.github.prs).toHaveLength(1);
       expect(f.github.calls.filter((c) => c.startsWith('PATCH '))).toEqual([]);
     });
@@ -1287,12 +1185,8 @@ describe.each(['full-review', 'direct-pr'] as const)(
         expect(changes).toBe(maxChanges);
         if (maxChanges === 1) {
           expect(f.coder.calls).toHaveLength(2);
-          expect(f.coder.calls[1]?.context.text).toContain(
-            'Fresh encoding question 1',
-          );
-          expect(f.coder.calls[1]?.context.text).toContain(
-            'UTF-8 generation 1',
-          );
+          expect(f.coder.calls[1]?.context.text).toContain('Fresh encoding question 1');
+          expect(f.coder.calls[1]?.context.text).toContain('UTF-8 generation 1');
           expect(f.d.task(task.id).wait?.detail.code).toBe('merge');
         } else {
           expect(f.coder.calls).toHaveLength(1);
@@ -1302,9 +1196,7 @@ describe.each(['full-review', 'direct-pr'] as const)(
               (q) => q.status === 'open' && q.body.startsWith('needs_context:'),
             ),
           ).toBe(true);
-          expect(f.github.calls.filter((c) => c.startsWith('PATCH '))).toEqual(
-            [],
-          );
+          expect(f.github.calls.filter((c) => c.startsWith('PATCH '))).toEqual([]);
         }
         expect(f.d.store.verifyProjections().ok).toBe(true);
       },
@@ -1339,11 +1231,8 @@ describe.each(['coder', 'reviewer'] as const)(
       Object.assign(harness, {
         recover: (input: HarnessInput): HarnessOutcome => {
           recovered.push(input);
-          const r = finished.find(
-            (f) => canonicalJson(f.input) === canonicalJson(input),
-          );
-          if (r === undefined)
-            throw new InvocationUnknown('no finished run for this input');
+          const r = finished.find((f) => canonicalJson(f.input) === canonicalJson(input));
+          if (r === undefined) throw new InvocationUnknown('no finished run for this input');
           // Recovery reads the run from its first record; its result file is new.
           return { ...r.out, ingest };
         },
@@ -1351,16 +1240,12 @@ describe.each(['coder', 'reviewer'] as const)(
       d.must(task.id, { kind: 'create_task', task });
       start();
       await settle();
-      const open = Object.values(d.task(task.id).effects).filter(
-        (e) => e.status === 'started',
-      );
+      const open = Object.values(d.task(task.id).effects).filter((e) => e.status === 'started');
       expect(open).toHaveLength(1);
       const agent = open[0];
       if (agent === undefined) throw new Error('no agent effect');
       expect(agent.kind).toBe('start_agent');
-      const op = Object.values(d.task(task.id).operations).find(
-        (o) => o.effect_id === agent.id,
-      );
+      const op = Object.values(d.task(task.id).operations).find((o) => o.effect_id === agent.id);
       if (op === undefined) throw new Error('no operation');
 
       // Use real spool files and the production ingester before recovering the finished run.
@@ -1375,8 +1260,7 @@ describe.each(['coder', 'reviewer'] as const)(
       writer.close();
       files.writeExit(runExit(op.id, d.now));
       const batch = readRecords(files, op.id, null, { final: true });
-      if (!batch.ok || batch.value.cursor === null)
-        throw new Error('missing spool');
+      if (!batch.ok || batch.value.cursor === null) throw new Error('missing spool');
       const ingest = {
         operation_id: op.id,
         cursor: batch.value.cursor,
@@ -1415,9 +1299,7 @@ describe.each(['coder', 'reviewer'] as const)(
       d.must(task.id, {
         kind: 'effect_result',
         effect_id: agent.id as Uuid,
-        ...(agent.attempt_id === null
-          ? {}
-          : { attempt_id: agent.attempt_id as Uuid }),
+        ...(agent.attempt_id === null ? {} : { attempt_id: agent.attempt_id as Uuid }),
         outcome: 'unknown',
       });
       await settle();
@@ -1428,12 +1310,10 @@ describe.each(['coder', 'reviewer'] as const)(
       expect(s.effects[agent.id]?.status).toBe('succeeded');
       // The result file is indexed alone at the committed cursor, the records are not counted twice.
       expect(s.artifacts[resultId]).toMatchObject({ kind: 'result' });
-      expect(
-        d.store.readEvents(task.id).filter((e) => e.type === 'OutputIngested'),
-      ).toHaveLength(1);
-      expect(s.run.reviews).toMatchObject([
-        { verdict: 'approve', sha: s.run.checkpoint?.sha },
-      ]);
+      expect(d.store.readEvents(task.id).filter((e) => e.type === 'OutputIngested')).toHaveLength(
+        1,
+      );
+      expect(s.run.reviews).toMatchObject([{ verdict: 'approve', sha: s.run.checkpoint?.sha }]);
       expect(github.prs).toHaveLength(1);
       expect(d.store.verifyProjections().ok).toBe(true);
     });

@@ -7,12 +7,7 @@ import { ingestOperationSpool } from '../../../src/daemon/ingest.ts';
 import { STORE_FILE } from '../../../src/daemon/main.ts';
 import { runLocation } from '../../../src/daemon/retention.ts';
 import type { OperationMirror } from '../../../src/domain/state.ts';
-import {
-  EventLogWriter,
-  RunDir,
-  SPOOL_DIR,
-  type FileLimits,
-} from '../../../src/runner/files.ts';
+import { EventLogWriter, RunDir, SPOOL_DIR, type FileLimits } from '../../../src/runner/files.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
 import type { EpochMs, Uuid } from '../../../src/shared/brand.ts';
 import { openFileStoreForTest } from '../../../src/store/testing.ts';
@@ -60,12 +55,7 @@ function scenario() {
   const t = buildTask();
   createGrantStart(d, t, 'direct-pr');
   let ids = 800;
-  const run = (
-    effectId: string,
-    op: string,
-    kind: 'setup' | 'agent',
-    records: number,
-  ) => {
+  const run = (effectId: string, op: string, kind: 'setup' | 'agent', records: number) => {
     const claimed = d.store.claimEffect(effectId as Uuid, d.now as EpochMs, {
       require_runtime: true,
       operation: {
@@ -131,13 +121,7 @@ describe('task_logs by attempt (FR-014)', () => {
   it('names the attempt of each record, null for operations outside any attempt', () => {
     const { attempt, logs } = scenario();
     const page = logs();
-    expect(page.records.map((r) => r.attempt_id)).toEqual([
-      null,
-      null,
-      attempt,
-      attempt,
-      attempt,
-    ]);
+    expect(page.records.map((r) => r.attempt_id)).toEqual([null, null, attempt, attempt, attempt]);
     expect(page.records.at(-1)?.step).toBe('code');
   });
 

@@ -1,18 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { canonicalJson } from '../../../src/shared/canonical-json.ts';
 import { computeRequestHash } from '../../../src/domain/trigger.ts';
-import {
-  openFileStoreForTest,
-  openMemoryStore,
-  storeDb,
-} from '../../../src/store/testing.ts';
-import {
-  authz,
-  buildTask,
-  envelope,
-  freezeOk,
-  uuidOf,
-} from '../../support/builders.ts';
+import { openFileStoreForTest, openMemoryStore, storeDb } from '../../../src/store/testing.ts';
+import { authz, buildTask, envelope, freezeOk, uuidOf } from '../../support/builders.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 import { dbPath, useTempDir } from '../../support/temp-db.ts';
 
@@ -44,13 +34,11 @@ describe('Store.accept (T078)', () => {
     expect(r.task_version).toBe(s.version);
     expect(r.global_seq_range).not.toBeNull();
     expect(store.readPolicy(TASK.id, 1)?.policy_hash).toBe(s.policy_ref?.hash);
-    expect(store.readContext(TASK.id, 1)?.context_hash).toBe(
-      s.context_ref?.hash,
-    );
+    expect(store.readContext(TASK.id, 1)?.context_hash).toBe(s.context_ref?.hash);
     expect(d.pendingOne(TASK.id, 'prepare').status).toBe('pending');
-    expect(
-      store.dueTimers(Number.MAX_SAFE_INTEGER as never, 10).map((t) => t.kind),
-    ).toContain('deadline');
+    expect(store.dueTimers(Number.MAX_SAFE_INTEGER as never, 10).map((t) => t.kind)).toContain(
+      'deadline',
+    );
     expect(store.verifyProjections()).toMatchObject({
       ok: true,
       mismatches: [],
@@ -75,9 +63,7 @@ describe('Store.accept (T078)', () => {
     expect(first.ok && second.ok).toBe(true);
     if (!first.ok || !second.ok) return;
     expect(second.value.duplicate).toBe(true);
-    expect(canonicalJson({ ...second.value, duplicate: false })).toBe(
-      canonicalJson(first.value),
-    );
+    expect(canonicalJson({ ...second.value, duplicate: false })).toBe(canonicalJson(first.value));
     expect(counts(d)).toEqual(before);
   });
 
@@ -253,9 +239,7 @@ describe('Store.accept (T078)', () => {
     });
     const db = storeDb(d.store);
     for (const t of ['effects', 'timers']) {
-      const rows = db
-        .prepare(`SELECT task_id, count(*) AS n FROM ${t} GROUP BY task_id`)
-        .all();
+      const rows = db.prepare(`SELECT task_id, count(*) AS n FROM ${t} GROUP BY task_id`).all();
       expect(rows, t).toHaveLength(2);
     }
     expect(d.store.verifyProjections().ok).toBe(true);

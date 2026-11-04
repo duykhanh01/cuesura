@@ -1,13 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type {
-  GitCommand,
-  GitPort,
-  GitResult,
-} from '../../../src/adapters/ports.ts';
-import {
-  readPrTemplate,
-  readReviewTemplate,
-} from '../../../src/application/run-config.ts';
+import type { GitCommand, GitPort, GitResult } from '../../../src/adapters/ports.ts';
+import { readPrTemplate, readReviewTemplate } from '../../../src/application/run-config.ts';
 import {
   DEFAULT_PR_TEMPLATE,
   DEFAULT_PR_TEMPLATE_PATH,
@@ -60,12 +53,7 @@ describe('review template at the frozen base', () => {
     });
     const t = '## {{verdict}} ({{round}})\n{{summary}}\n{{findings}}\n';
     expect(
-      await readReviewTemplate(
-        base({ '.cusr/review.md': t }),
-        '/p',
-        'b',
-        '.cusr/review.md',
-      ),
+      await readReviewTemplate(base({ '.cusr/review.md': t }), '/p', 'b', '.cusr/review.md'),
     ).toMatchObject({
       ok: true,
       value: { path: '.cusr/review.md', content: t },
@@ -74,21 +62,12 @@ describe('review template at the frozen base', () => {
 
   it('refuses a missing file, unknown placeholders and control markers before anything runs', async () => {
     const read = (content: string | undefined) =>
-      readReviewTemplate(
-        base(content === undefined ? {} : { 'r.md': content }),
-        '/p',
-        'b',
-        'r.md',
-      );
+      readReviewTemplate(base(content === undefined ? {} : { 'r.md': content }), '/p', 'b', 'r.md');
     const missing = await read(undefined);
     expect(!missing.ok && missing.error.check).toBe('review_template');
-    expect(!missing.ok && missing.error.message).toContain(
-      'not in the base commit',
-    );
+    expect(!missing.ok && missing.error.message).toContain('not in the base commit');
     const unknown = await read('{{verdict}} by {{author}}');
-    expect(!unknown.ok && unknown.error.message).toContain(
-      'unknown placeholders: author',
-    );
+    expect(!unknown.ok && unknown.error.message).toContain('unknown placeholders: author');
     expect(await read('{{verdict}} <!-- cusr:review -->')).toMatchObject({
       ok: false,
       error: { check: 'review_template' },

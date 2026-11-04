@@ -1,13 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  FakeHarness,
-  FakeHarnessError,
-  FAKE_VENDOR,
-} from '../../../src/adapters/harness/fake.ts';
-import {
-  wireRoleSchema,
-  type Role,
-} from '../../../src/adapters/harness/result-schema.ts';
+import { FakeHarness, FakeHarnessError, FAKE_VENDOR } from '../../../src/adapters/harness/fake.ts';
+import { wireRoleSchema, type Role } from '../../../src/adapters/harness/result-schema.ts';
 import type { HarnessInput } from '../../../src/adapters/ports.ts';
 import { CapabilityManifestSchema } from '../../../src/domain/runtime.ts';
 import { asEpochMs } from '../../../src/shared/brand.ts';
@@ -48,9 +41,7 @@ describe('FakeHarness (T013)', () => {
     const h = new FakeHarness({});
     expect(CapabilityManifestSchema.parse(h.manifest)).toEqual(h.manifest);
     expect(h.manifest.vendor).toBe(FAKE_VENDOR);
-    expect(
-      Object.values(h.manifest.capabilities).every((c) => c === 'unknown'),
-    ).toBe(true);
+    expect(Object.values(h.manifest.capabilities).every((c) => c === 'unknown')).toBe(true);
     expect(h.manifest.native_result).toBe('not_tried');
     expect(h.manifest.selected_inner_mode).toBeNull();
   });
@@ -164,11 +155,7 @@ describe('FakeHarness (T013)', () => {
 
   it('rejects a schema of another role and an exhausted script', async () => {
     const h = new FakeHarness({ reviewer: [] });
-    await expect(h.run(input('reviewer', 'coder'), live())).rejects.toThrow(
-      FakeHarnessError,
-    );
-    await expect(h.run(input('reviewer'), live())).rejects.toThrow(
-      /no scripted step/,
-    );
+    await expect(h.run(input('reviewer', 'coder'), live())).rejects.toThrow(FakeHarnessError);
+    await expect(h.run(input('reviewer'), live())).rejects.toThrow(/no scripted step/);
   });
 });

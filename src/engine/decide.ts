@@ -4,17 +4,9 @@ import { canonicalJson } from '../shared/canonical-json.ts';
 import type { DomainEventDraft } from '../domain/event.ts';
 import { hasRole, type FrozenPolicy } from '../domain/policy.ts';
 import { isTerminal, type TaskState } from '../domain/state.ts';
-import type {
-  RelatedFacts,
-  Trigger,
-  TriggerEnvelope,
-} from '../domain/trigger.ts';
+import type { RelatedFacts, Trigger, TriggerEnvelope } from '../domain/trigger.ts';
 import { verifyPolicyHash } from '../policy/finalize.ts';
-import {
-  invalidatePending,
-  maybeFinishCancel,
-  requestCancel,
-} from './cancel.ts';
+import { invalidatePending, maybeFinishCancel, requestCancel } from './cancel.ts';
 import { Ctx, reject, Rejection, type RejectCode } from './context.ts';
 import { requestEffect, requestReconcile } from './effects.ts';
 import { IdPoolExhausted } from './ids.ts';
@@ -26,10 +18,7 @@ import {
   onSourceUpdated,
 } from './intake.ts';
 import { onDrainResult, settleCompletion } from './drain.ts';
-import {
-  onExternalCompletion,
-  onYoloMergeApprove,
-} from './external-completion.ts';
+import { onExternalCompletion, onYoloMergeApprove } from './external-completion.ts';
 import { onObservationDue, onObservationResult } from './observation.ts';
 import { onEffectResult, proceed } from './interpreter.ts';
 import {
@@ -89,8 +78,7 @@ export function decide(input: DecideInput): Decision {
       return e.detail === undefined
         ? { kind: 'rejected', code: e.code }
         : { kind: 'rejected', code: e.code, detail: e.detail };
-    if (e instanceof IdPoolExhausted)
-      return { kind: 'rejected', code: 'id_pool_exhausted' };
+    if (e instanceof IdPoolExhausted) return { kind: 'rejected', code: 'id_pool_exhausted' };
     throw e;
   }
   return { kind: 'accepted', events: ctx.events };
@@ -109,11 +97,9 @@ function dispatch(ctx: Ctx, t: Trigger): void {
     return;
   }
   if (!ctx.hasState) reject('unknown_task');
-  if (ctx.state.id !== ctx.env.task_id)
-    reject('invalid_trigger', { reason: 'task_id_mismatch' });
+  if (ctx.state.id !== ctx.env.task_id) reject('invalid_trigger', { reason: 'task_id_mismatch' });
   // Reject amendments without admin authorization before emitting any events.
-  if (t.kind === 'amend' && !hasRole(ctx.env.authz, 'admin'))
-    reject('not_admin');
+  if (t.kind === 'amend' && !hasRole(ctx.env.authz, 'admin')) reject('not_admin');
   // Terminal tasks still accept outstanding operation receipts and releases so they cannot retain a slot forever.
 
   if (isTerminal(ctx.state.status) && !AFTER_TERMINAL.includes(t.kind)) {
@@ -277,9 +263,7 @@ function onTimer(ctx: Ctx, timerId: string): void {
         return;
       // Retain deferred work so an admin deadline extension can resume it.
       const resume =
-        s.status === 'WAITING'
-          ? (s.wait?.resume ?? { kind: 'none' })
-          : { kind: 'none' as const };
+        s.status === 'WAITING' ? (s.wait?.resume ?? { kind: 'none' }) : { kind: 'none' as const };
       const prior = s.status === 'WAITING' ? s.wait : null;
       waitPolicy(ctx, 'deadline', resume, {
         deadline_at: s.deadline_at,
@@ -290,8 +274,7 @@ function onTimer(ctx: Ctx, timerId: string): void {
     case 'ci_poll':
     case 'ci_timeout':
     case 'backoff': {
-      const waitingOnThis =
-        s.status === 'WAITING' && s.wait?.detail['timer_id'] === timerId;
+      const waitingOnThis = s.status === 'WAITING' && s.wait?.detail['timer_id'] === timerId;
       if (waitingOnThis && timer.payload.resume !== undefined)
         proceed(ctx, timer.payload.resume, `timer:${timerId}`);
       return;
@@ -367,8 +350,7 @@ function onAmend(ctx: Ctx, t: AmendTrigger): void {
   }
   if (next.policy_version !== cur.policy_version + 1)
     reject('invalid_trigger', { reason: 'policy_version' });
-  if (!verifyPolicyHash(next))
-    reject('invalid_trigger', { reason: 'policy_hash' });
+  if (!verifyPolicyHash(next)) reject('invalid_trigger', { reason: 'policy_hash' });
 
   ctx.emit('PolicyAmended', {
     policy: next,
@@ -388,10 +370,7 @@ function onAmend(ctx: Ctx, t: AmendTrigger): void {
       (s.deadline_at !== null && cur.limits.max_wall_ms !== null
         ? s.deadline_at - cur.limits.max_wall_ms
         : ctx.now);
-    const due =
-      next.limits.max_wall_ms === null
-        ? null
-        : started + next.limits.max_wall_ms;
+    const due = next.limits.max_wall_ms === null ? null : started + next.limits.max_wall_ms;
     if (due === null || due > ctx.now) {
       for (const tm of Object.values(s.timers)) {
         if (tm.kind === 'deadline' && tm.status !== 'cancelled')
@@ -408,10 +387,8 @@ function onAmend(ctx: Ctx, t: AmendTrigger): void {
   }
   const w = ctx.state.wait;
   const reopened =
-    w?.detail.code === 'loop_exhausted' &&
-    w.resume_when.some((r) => r.startsWith('amend('));
-  if (ctx.state.status !== 'WAITING' || (w?.reason !== 'policy' && !reopened))
-    return;
+    w?.detail.code === 'loop_exhausted' && w.resume_when.some((r) => r.startsWith('amend('));
+  if (ctx.state.status !== 'WAITING' || (w?.reason !== 'policy' && !reopened)) return;
   const prior = w.detail['prior_wait'] as typeof w | undefined;
   if (!ctx.state.deadline_passed && prior !== undefined) {
     ctx.emit('TaskWaiting', { wait: prior });

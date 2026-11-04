@@ -125,9 +125,9 @@ describe('US2 scenario 4: following a log', () => {
     await s.waitForText('coder line 3');
     expect(s.screenText()).toContain('Mode: live');
 
-    const agent = (
-      await sd.query('owner', { kind: 'task_show', task_id: t.id })
-    ).envelope.data as { status: string };
+    const agent = (await sd.query('owner', { kind: 'task_show', task_id: t.id })).envelope.data as {
+      status: string;
+    };
     expect(agent.status).toBe('RUNNING');
     const effect = CODER;
     feed.write(live(sd), t.id, '', effect, 'agent', lines(4, 5, 'coder line'));
@@ -155,14 +155,7 @@ describe('US2 scenario 4: following a log', () => {
     const feed = new LogFeed(sd);
     sd.seed((d) => {
       createGrantStart(d, t, 'direct-pr');
-      feed.write(
-        d,
-        t.id,
-        d.pendingOne(t.id, 'prepare').id,
-        SETUP,
-        'setup',
-        lines(1, 60, 'line'),
-      );
+      feed.write(d, t.id, d.pendingOne(t.id, 'prepare').id, SETUP, 'setup', lines(1, 60, 'line'));
     });
     await sd.start();
     const s = tui.cusr(sd.dataDir, { cols: 100, rows: 24 });
@@ -183,9 +176,7 @@ describe('US2 scenario 4: following a log', () => {
     const t = task();
     const feed = new LogFeed(sd);
     seedCoding(sd, t, feed);
-    const gone = sd.seed(
-      (d) => d.task(t.id).operations[SETUP] as OperationMirror,
-    );
+    const gone = sd.seed((d) => d.task(t.id).operations[SETUP] as OperationMirror);
     const run = RunDir.open({
       dataDir: sd.dataDir,
       ...runLocation(gone),
@@ -213,32 +204,19 @@ describe('US2 scenario 4: following a log', () => {
 
     await sd.stop();
     await s.waitForText('Data may be out of date', 5_000);
-    sd.seed((d) =>
-      feed.write(d, t.id, '', CODER, 'agent', lines(4, 6, 'coder line')),
-    );
+    sd.seed((d) => feed.write(d, t.id, '', CODER, 'agent', lines(4, 6, 'coder line')));
     await sd.start();
     await s.waitForText('coder line 6', 15_000);
     const screen = s.screenText();
     const shown = screen.split('\n').filter((l) => /coder line \d$/.test(l));
-    expect(shown.map((l) => l.slice(-1))).toEqual([
-      '1',
-      '2',
-      '3',
-      '4',
-      '5',
-      '6',
-    ]);
+    expect(shown.map((l) => l.slice(-1))).toEqual(['1', '2', '3', '4', '5', '6']);
     expect(screen).toContain('Mode: live');
     await quit(s);
   }, 60_000);
 });
 
 describe('US2 scenarios 9 and 10: when the workflow moves to a new step', () => {
-  function toFixerAttempt(
-    sd: SeededDaemon,
-    t: CanonicalTask,
-    feed: LogFeed,
-  ): string {
+  function toFixerAttempt(sd: SeededDaemon, t: CanonicalTask, feed: LogFeed): string {
     return sd.seed((d) => {
       const first = Object.values(d.task(t.id).attempts)[0]?.id as string;
       d.must(t.id, {
@@ -279,9 +257,7 @@ describe('US2 scenarios 9 and 10: when the workflow moves to a new step', () => 
     await openLogs(s);
     await s.waitForText('fixer line 2');
     const screen = s.screenText();
-    expect(screen).toContain(
-      `── code · Writing code · attempt ${coder?.id.slice(-8)}`,
-    );
+    expect(screen).toContain(`── code · Writing code · attempt ${coder?.id.slice(-8)}`);
     expect(screen).toContain(`── ${second?.step} · `);
     expect(screen).toContain(`attempt ${second?.id.slice(-8)} ──`);
     expect(screen.indexOf('coder line 3')).toBeLessThan(
@@ -370,17 +346,13 @@ describe('review findings, on a real PTY', () => {
   it('another token that may not read the task: nothing of the old one stays in Logs', async () => {
     const sd = tui.daemon({
       projects: ['beta'],
-      tokens: [
-        { id: 'acme', actor: 'acme', roles: ['read'], projects: ['acme'] },
-      ],
+      tokens: [{ id: 'acme', actor: 'acme', roles: ['read'], projects: ['acme'] }],
     });
     const t = buildTask({ id: uuidOf(1), title: 'Beta log', project: 'beta' });
     const feed = new LogFeed(sd);
     sd.seed((d) => {
       createGrantStart(d, t, 'direct-pr');
-      feed.write(d, t.id, d.pendingOne(t.id, 'prepare').id, SETUP, 'setup', [
-        'beta line 1',
-      ]);
+      feed.write(d, t.id, d.pendingOne(t.id, 'prepare').id, SETUP, 'setup', ['beta line 1']);
     });
     await sd.start();
     const tokenFile = join(sd.base, 'client.token');
@@ -462,8 +434,7 @@ describe('EC-011 and FR-039: a log in full flow', () => {
     await s.waitForText('Mode: paused');
     await s.waitForText(`flood ${Number(m?.[1])}`);
     // The first `↑` at the top fetches and holds the place; the next one goes there.
-    const window = (): string =>
-      /Records: \d+–\d+/.exec(s.screenText())?.[0] ?? '';
+    const window = (): string => /Records: \d+–\d+/.exec(s.screenText())?.[0] ?? '';
     const before = window();
     s.send(KEY.up);
     await s.waitFor(() => window() !== before, 5_000);
@@ -471,9 +442,7 @@ describe('EC-011 and FR-039: a log in full flow', () => {
     s.send(KEY.up);
     await s.waitForText(`flood ${Number(m?.[1]) - 1}`, 5_000);
     const after = /Records: (\d+)–(\d+)/.exec(s.screenText());
-    expect(Number(after?.[2]) - Number(after?.[1]) + 1).toBeLessThanOrEqual(
-      5_000,
-    );
+    expect(Number(after?.[2]) - Number(after?.[1]) + 1).toBeLessThanOrEqual(5_000);
     await quit(s);
   }, 60_000);
 
@@ -493,8 +462,7 @@ describe('EC-011 and FR-039: a log in full flow', () => {
       rows: 24,
       env: ownerTokenEnv(sd),
     });
-    const count = (): number =>
-      requests.filter((r) => r.includes('"task_logs"')).length;
+    const count = (): number => requests.filter((r) => r.includes('"task_logs"')).length;
     // Opening a task passes through Logs; once on Task detail, nothing reads the log.
     await openTask(s, 'Logged task');
     await new Promise((r) => setTimeout(r, 300));

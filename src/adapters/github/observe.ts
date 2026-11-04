@@ -9,12 +9,7 @@ import type { RequiredEvidence } from '../../domain/runtime.ts';
 import type { GitHubPort } from '../ports.ts';
 import { readHeadChecks, type HeadChecks } from './checks.ts';
 import { listAll } from './gh-port.ts';
-import {
-  pullFacts,
-  readMergeEvidence,
-  type MergeEvidence,
-  type PullFacts,
-} from './merge-proof.ts';
+import { pullFacts, readMergeEvidence, type MergeEvidence, type PullFacts } from './merge-proof.ts';
 import {
   normalizeRequirements,
   rulesetIdsToRead,
@@ -84,18 +79,15 @@ export async function readRequirements(
   const b = encodeURIComponent(branch);
   const branchRead = await read(port, `repos/${repo}/branches/${b}`);
   const isProtected =
-    branchRead.ok &&
-    (branchRead.body as { protected?: unknown } | null)?.protected === true;
+    branchRead.ok && (branchRead.body as { protected?: unknown } | null)?.protected === true;
   const protection = isProtected
     ? await read(port, `repos/${repo}/branches/${b}/protection`)
     : null;
   let rules: GhList | null = null;
   const rulesets = new Map<number, GhRead>();
   if (branchRead.ok) {
-    const listed = await listAll(
-      port,
-      `repos/${repo}/rules/branches/${b}`,
-      (body) => (Array.isArray(body) ? body : null),
+    const listed = await listAll(port, `repos/${repo}/rules/branches/${b}`, (body) =>
+      Array.isArray(body) ? body : null,
     );
     rules = listed.ok
       ? { ok: true, items: listed.value.items, complete: listed.value.complete }
@@ -148,8 +140,7 @@ export async function observePull(
       pull,
       reasons: ['repo/PR identity does not match the task'],
     };
-  const reasons =
-    pull.base.ref === t.target ? [] : ['target does not match the task'];
+  const reasons = pull.base.ref === t.target ? [] : ['target does not match the task'];
   // Checked before the merge branch: a PR merged into another branch is a target mismatch, not a merge.
   if (pull.base.ref !== null && pull.base.ref !== t.target)
     return { status: 'target_mismatch', pull, reasons };
@@ -158,14 +149,7 @@ export async function observePull(
     return {
       status: 'merged',
       pull,
-      merge: await readMergeEvidence(
-        port,
-        t.repo,
-        t.pr_number,
-        pull,
-        pull.base.repo_id,
-        t.target,
-      ),
+      merge: await readMergeEvidence(port, t.repo, t.pr_number, pull, pull.base.repo_id, t.target),
       reasons,
     };
   if (
@@ -177,19 +161,9 @@ export async function observePull(
     return { status: 'unknown', pull, reasons: ['pull facts incomplete'] };
   }
 
-  const required = await readRequirements(
-    port,
-    t.repo,
-    pull.base.ref,
-    observedAt,
-  );
+  const required = await readRequirements(port, t.repo, pull.base.ref, observedAt);
   const checks = /^[0-9a-f]{40}$/.test(pull.head.sha)
-    ? await readHeadChecks(
-        port,
-        t.repo,
-        pull.head.sha,
-        t.skipped_before ?? null,
-      )
+    ? await readHeadChecks(port, t.repo, pull.head.sha, t.skipped_before ?? null)
     : null;
   const second = await port.request({
     method: 'GET',
@@ -215,10 +189,7 @@ export async function observePull(
       return {
         status: 'target_mismatch',
         pull: again,
-        reasons: [
-          'target does not match the task',
-          'merged during observation',
-        ],
+        reasons: ['target does not match the task', 'merged during observation'],
       };
     return {
       status: 'merged',

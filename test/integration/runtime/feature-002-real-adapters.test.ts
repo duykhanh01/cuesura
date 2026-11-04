@@ -8,27 +8,15 @@
  */
 import { cpSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import {
-  HostExecutionProvider,
-  probeLayoutShapes,
-} from '../../../src/runner/sandbox.ts';
+import { HostExecutionProvider, probeLayoutShapes } from '../../../src/runner/sandbox.ts';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { claudeAdapter } from '../../../src/adapters/harness/claude.ts';
 import { codexAdapter } from '../../../src/adapters/harness/codex.ts';
-import {
-  hostInnerMode,
-  type VendorPin,
-} from '../../../src/adapters/harness/vendor.ts';
+import { hostInnerMode, type VendorPin } from '../../../src/adapters/harness/vendor.ts';
 import type { SandboxProvider } from '../../../src/adapters/ports.ts';
 import { Dispatcher } from '../../../src/daemon/dispatch.ts';
-import {
-  planRetention,
-  taskRunEntries,
-} from '../../../src/daemon/retention.ts';
-import {
-  buildHandlers,
-  type HandlerDeps,
-} from '../../../src/daemon/handlers.ts';
+import { planRetention, taskRunEntries } from '../../../src/daemon/retention.ts';
+import { buildHandlers, type HandlerDeps } from '../../../src/daemon/handlers.ts';
 import type { CapabilityManifest } from '../../../src/domain/runtime.ts';
 import type { ExecutionMode } from '../../../src/domain/run-config.ts';
 import { SpawnExecutor } from '../../../src/runner/commands.ts';
@@ -55,11 +43,7 @@ import {
   PassThroughSandbox,
   tempDir,
 } from '../../support/runner-harness.ts';
-import {
-  confirmedRuntime,
-  proposeAndConfirm,
-  selectionFor,
-} from '../../support/runtime.ts';
+import { confirmedRuntime, proposeAndConfirm, selectionFor } from '../../support/runtime.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 import { dbPath, useTempDir } from '../../support/temp-db.ts';
 
@@ -111,15 +95,8 @@ function setup(o: {
   const github = new FakeGitHub();
   github.headOf = (branch) => {
     try {
-      const sha = g.sh(
-        remote,
-        'rev-parse',
-        '--verify',
-        '--quiet',
-        `refs/heads/${branch}`,
-      );
-      if (!github.checks.has(sha))
-        github.checks.set(sha, { build: 'success', test: 'success' });
+      const sha = g.sh(remote, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`);
+      if (!github.checks.has(sha)) github.checks.set(sha, { build: 'success', test: 'success' });
       return sha;
     } catch {
       return null;
@@ -140,17 +117,13 @@ function setup(o: {
   cpSync(join(REAL, 's0-claude-coder-1793172185'), join(replay, 'worker'), {
     recursive: true,
   });
-  cpSync(
-    join(REAL, 's0-claude-reviewer-1793180331'),
-    join(replay, 'reviewer'),
-    { recursive: true },
-  );
+  cpSync(join(REAL, 's0-claude-reviewer-1793180331'), join(replay, 'reviewer'), {
+    recursive: true,
+  });
   const pins: Record<'claude' | 'codex', VendorPin> = {
     claude: fakeVendorPin('claude', bin, {
       FAKE_VENDOR_REPLAY: join(replay, 'worker'),
-      ...(o.sameVendor === true
-        ? { FAKE_VENDOR_REVIEWER_REPLAY: join(replay, 'reviewer') }
-        : {}),
+      ...(o.sameVendor === true ? { FAKE_VENDOR_REVIEWER_REPLAY: join(replay, 'reviewer') } : {}),
       ...(o.reviewerWrites === true ? { FAKE_VENDOR_REVIEWER_WRITE: '1' } : {}),
       FAKE_VENDOR_MODE: 'publish,write_worktree',
       FAKE_VENDOR_ECHO_MODEL: '1',
@@ -174,10 +147,7 @@ function setup(o: {
       );
       credentials[h.credential] = { name: h.credential, file };
     }
-  const sandbox =
-    o.hostExecution === true
-      ? new HostExecutionProvider()
-      : new PassThroughSandbox();
+  const sandbox = o.hostExecution === true ? new HostExecutionProvider() : new PassThroughSandbox();
   const manifest = (pin: VendorPin): CapabilityManifest => {
     if (o.hostExecution !== true) return evidenceManifest(pin);
     const shapes = probeLayoutShapes(sandbox, {
@@ -272,8 +242,7 @@ function setup(o: {
     proposeAndConfirm(d, task, selectionFor(task, o.mode, frozen.value.policy));
     d.must(task.id, { kind: 'request_execution' });
     const granted = d.store.grantNext(d.now as EpochMs, [newId()]);
-    if (!granted.ok || granted.value.kind !== 'decided')
-      throw new Error(JSON.stringify(granted));
+    if (!granted.ok || granted.value.kind !== 'decided') throw new Error(JSON.stringify(granted));
     const runtime = confirmedRuntime(d, task, {
       base_sha: base,
       project_path: project,
@@ -295,15 +264,8 @@ function setup(o: {
   const settle = async (max = 40): Promise<void> => {
     for (let i = 0; i < max; i++) {
       const queued =
-        d.task(task.id).wait?.detail.code === 'execution_slot' &&
-        d.store.readSlot() === null;
-      if (queued)
-        d.store.grantNext(d.now as EpochMs, [
-          newId(),
-          newId(),
-          newId(),
-          newId(),
-        ]);
+        d.task(task.id).wait?.detail.code === 'execution_slot' && d.store.readSlot() === null;
+      if (queued) d.store.grantNext(d.now as EpochMs, [newId(), newId(), newId(), newId()]);
       const r = dispatcher.tick();
       await dispatcher.settle();
       d.now = Math.max(d.now + 1_000, Date.now());
@@ -312,12 +274,7 @@ function setup(o: {
     throw new Error('flow did not settle');
   };
   const grant = () => {
-    const r = d.store.grantNext(d.now as EpochMs, [
-      newId(),
-      newId(),
-      newId(),
-      newId(),
-    ]);
+    const r = d.store.grantNext(d.now as EpochMs, [newId(), newId(), newId(), newId()]);
     return r.ok ? r.value.kind : r.error;
   };
   return {
@@ -352,9 +309,9 @@ describe.each(['full-review', 'direct-pr'] as const)(
       // The worker's edit is in the checkpoint commit the PR carries.
       const cp = s.run.checkpoint;
       expect(cp).not.toBeNull();
-      expect(
-        g.sh(f.worktree, 'show', '--name-only', '--format=', cp?.sha ?? ''),
-      ).toContain('agent-wrote.txt');
+      expect(g.sh(f.worktree, 'show', '--name-only', '--format=', cp?.sha ?? '')).toContain(
+        'agent-wrote.txt',
+      );
       expect(
         g.sh(
           f.remote,
@@ -382,14 +339,10 @@ describe.each(['full-review', 'direct-pr'] as const)(
         expect(files.filter((p) => p.endsWith('.json'))).toEqual([]);
       }
       const ev = types(f);
-      expect(ev.filter((t) => t === 'BudgetConsumed')).toHaveLength(
-        roles.length,
-      );
+      expect(ev.filter((t) => t === 'BudgetConsumed')).toHaveLength(roles.length);
       expect(ev).not.toContain('BudgetReleased');
       // Records and files of each run were committed with its result: that commit is their ACK.
-      expect(ev.filter((t) => t === 'OutputIngested')).toHaveLength(
-        roles.length,
-      );
+      expect(ev.filter((t) => t === 'OutputIngested')).toHaveLength(roles.length);
       expect(Object.values(s.artifacts).map((a) => a.kind)).toEqual(
         expect.arrayContaining(['events', 'exit', 'result']),
       );
@@ -509,9 +462,7 @@ describe('T139 M03 same vendor/model through the host launcher', () => {
     // The PR opened before the review stays a draft without a posted review.
     expect(f.github.prs).toMatchObject([{ draft: true }]);
     expect(f.github.prs[0]?.reviews ?? []).toEqual([]);
-    expect(
-      f.d.task(f.task.id).run.reviews.filter((r) => r.verdict === 'approve'),
-    ).toEqual([]);
+    expect(f.d.task(f.task.id).run.reviews.filter((r) => r.verdict === 'approve')).toEqual([]);
     const reviewer = f.proc.launches[1];
     const outcome = RunDir.open({
       dataDir: join(f.data, 'runtime'),

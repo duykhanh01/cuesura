@@ -16,11 +16,7 @@ import type { Sim } from '../support/scenario.ts';
 import { applyOp, type StoreOp } from '../support/store-driver.ts';
 import { dbPath, useTempDir } from '../support/temp-db.ts';
 import { choicesArb, drive } from '../property/arbitraries/signals.ts';
-import {
-  escalationPolicyArb,
-  policyArb,
-  taskOverArb,
-} from '../property/arbitraries/policies.ts';
+import { escalationPolicyArb, policyArb, taskOverArb } from '../property/arbitraries/policies.ts';
 
 const SEED = Number(process.env['CUSR_SEED'] ?? 20261027);
 const RUNS = Number(process.env['CUSR_CRASH_RUNS'] ?? 200);
@@ -52,8 +48,7 @@ function journal(store: Store): string {
 function opsOf(sim: Sim): StoreOp[] {
   return sim.log.map((e): StoreOp => {
     if (e.kind === 'decide') return { op: 'accept', envelope: e.envelope };
-    if (e.kind === 'claim')
-      return { op: 'claim', effect_id: e.effect_id, now: e.now };
+    if (e.kind === 'claim') return { op: 'claim', effect_id: e.effect_id, now: e.now };
     throw new Error('drive does not produce injected events');
   });
 }
@@ -72,39 +67,27 @@ type Workload = {
  * operation.
  */
 function workloads(seed: number): Workload[] {
-  const arb = fc.tuple(
-    fc.oneof(policyArb, escalationPolicyArb),
-    taskOverArb,
-    choicesArb(120, 30),
-  );
-  const samples = fc.sample(
-    fc.tuple(arb, arb, fc.array(fc.boolean(), { maxLength: 400 })),
-    {
-      numRuns: WORKLOADS,
-      seed,
-    },
-  );
+  const arb = fc.tuple(fc.oneof(policyArb, escalationPolicyArb), taskOverArb, choicesArb(120, 30));
+  const samples = fc.sample(fc.tuple(arb, arb, fc.array(fc.boolean(), { maxLength: 400 })), {
+    numRuns: WORKLOADS,
+    seed,
+  });
   return samples.map(([[p1, o1, c1], [p2, o2, c2], mix]) => {
-    const a = opsOf(
-      drive(p1, { ...o1, id: uuidOf(201), source_key: 'cli:r1-a' }, c1, 1).sim,
-    );
-    const b = opsOf(
-      drive(p2, { ...o2, id: uuidOf(202), source_key: 'cli:r1-b' }, c2, 2).sim,
-    );
+    const a = opsOf(drive(p1, { ...o1, id: uuidOf(201), source_key: 'cli:r1-a' }, c1, 1).sim);
+    const b = opsOf(drive(p2, { ...o2, id: uuidOf(202), source_key: 'cli:r1-b' }, c2, 2).sim);
     const ops: StoreOp[] = [];
     let i = 0;
     let j = 0;
     let m = 0;
     while (i < a.length || j < b.length) {
-      const takeA =
-        j >= b.length ||
-        (i < a.length && (mix[m++ % Math.max(mix.length, 1)] ?? true));
+      const takeA = j >= b.length || (i < a.length && (mix[m++ % Math.max(mix.length, 1)] ?? true));
       ops.push((takeA ? a[i++] : b[j++]) as StoreOp);
     }
 
-    const hits = Object.fromEntries(
-      CRASH_POINTS.map((p) => [p, [] as number[]]),
-    ) as Record<CrashPoint, number[]>;
+    const hits = Object.fromEntries(CRASH_POINTS.map((p) => [p, [] as number[]])) as Record<
+      CrashPoint,
+      number[]
+    >;
     let current = 0;
     const store = openMemoryStore({ crash: (p) => void hits[p].push(current) });
     const prefixes = [journal(store)];
@@ -157,13 +140,9 @@ describe(`R1 ${RUNS} SIGKILL runs with SQLite WAL and synchronous=FULL (T109, SC
       expect(run.signal, `${where} ${run.stderr}`).toBe('SIGKILL');
 
       const opened = openStore(path, { busyTimeoutMs: 1_000 });
-      if (!opened.ok)
-        throw new Error(`${where}: reopening failed with ${opened.error.code}`);
+      if (!opened.ok) throw new Error(`${where}: reopening failed with ${opened.error.code}`);
       const store = opened.value;
-      expect(
-        storeDb(store).pragma('integrity_check', { simple: true }),
-        where,
-      ).toBe('ok');
+      expect(storeDb(store).pragma('integrity_check', { simple: true }), where).toBe('ok');
 
       const op = w.hits[plan.point][plan.after - 1] as number;
       const k = plan.point === 'after_commit' ? op + 1 : op;

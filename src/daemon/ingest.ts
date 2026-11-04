@@ -6,11 +6,7 @@
  * committed cursor and acknowledged only after that commit (T087).
  */
 import type { EffectStatus } from '../domain/effect.ts';
-import type {
-  Artifact,
-  OperationOutcome,
-  OperationStatus,
-} from '../domain/runtime.ts';
+import type { Artifact, OperationOutcome, OperationStatus } from '../domain/runtime.ts';
 import { TASK_STATUSES, type TaskState } from '../domain/state.ts';
 import type { Usage } from '../domain/trigger.ts';
 import { collectArtifacts } from '../runner/artifacts.ts';
@@ -149,9 +145,7 @@ class SpoolReadError extends Error {}
 function spoolIoError(e: unknown): boolean {
   return (
     e instanceof RunnerFileError ||
-    /^E[A-Z0-9_]+$/.test(
-      String((e as NodeJS.ErrnoException | null)?.code ?? ''),
-    )
+    /^E[A-Z0-9_]+$/.test(String((e as NodeJS.ErrnoException | null)?.code ?? ''))
   );
 }
 function readSpool<T>(read: () => T): T {
@@ -164,16 +158,8 @@ function readSpool<T>(read: () => T): T {
 }
 
 /** Effects whose result is final: nothing re-reads their run from the first record any more. */
-const RESOLVED_EFFECTS: readonly EffectStatus[] = [
-  'succeeded',
-  'failed',
-  'invalidated',
-];
-const RESOLVED_OPERATIONS: readonly OperationStatus[] = [
-  'finished',
-  'not_launched',
-  'lost',
-];
+const RESOLVED_EFFECTS: readonly EffectStatus[] = ['succeeded', 'failed', 'invalidated'];
+const RESOLVED_OPERATIONS: readonly OperationStatus[] = ['finished', 'not_launched', 'lost'];
 
 /**
  * Ingests what one operation's runner wrote past the committed cursor (FR-031, FR-036). Each batch of
@@ -239,10 +225,7 @@ function ingestSpool(
     if (!spoolIoError(e)) throw e;
     return {
       ...base,
-      status:
-        e instanceof RunnerFileError && e.code === 'not_found'
-          ? 'no_run_dir'
-          : 'unreadable',
+      status: e instanceof RunnerFileError && e.code === 'not_found' ? 'no_run_dir' : 'unreadable',
       records: 0,
       torn: 0,
       acked: [],
@@ -269,8 +252,8 @@ function ingestSpool(
   let detail: string | undefined;
   // Once exit.json is final no writer will complete a partial last record: it is torn, not pending.
   const final =
-    readSpool(() => run.readFinal(RUN_FILES.exit, RunnerExitSchema)).state ===
-      'valid' || RESOLVED_OPERATIONS.includes(op.status);
+    readSpool(() => run.readFinal(RUN_FILES.exit, RunnerExitSchema)).state === 'valid' ||
+    RESOLVED_OPERATIONS.includes(op.status);
   if (deps.finalOnly && !final) {
     let checked = deps.probeCursors?.get(op.id) ?? cursor;
     for (;;) {
@@ -310,8 +293,7 @@ function ingestSpool(
       }),
     );
     if (!accepted.ok) {
-      status =
-        accepted.error.code === 'write_failed' ? 'write_failed' : 'rejected';
+      status = accepted.error.code === 'write_failed' ? 'write_failed' : 'rejected';
       detail = JSON.stringify(accepted.error);
       return false;
     }
@@ -336,8 +318,7 @@ function ingestSpool(
       failed = true;
       break;
     }
-    for (const t of batch.value.torn)
-      torn.add(`${t.generation}.${t.segment}.${t.byte_offset}`);
+    for (const t of batch.value.torn) torn.add(`${t.generation}.${t.segment}.${t.byte_offset}`);
     const next = batch.value.cursor;
     if (batch.value.records.length === 0 || next === null) break;
     const pos = positionOf(next);
@@ -391,9 +372,7 @@ function ingestSpool(
   // Nothing is deleted while a final file the store has not committed is still on disk.
   const fresh = deps.store.readTask(taskId as Uuid);
   const unacked =
-    failed || fresh === null
-      ? null
-      : readSpool(() => pendingArtifacts(run, fresh, op.id));
+    failed || fresh === null ? null : readSpool(() => pendingArtifacts(run, fresh, op.id));
   const acked: Result<string[], string> =
     unacked === null || unacked.length > 0
       ? { ok: true, value: [] }
@@ -424,18 +403,11 @@ function positionOf(c: IngestPosition): NonNullable<IngestTrigger['cursor']> {
 }
 
 /** Final artifacts the store has not committed with exactly this digest yet. */
-function pendingArtifacts(
-  run: RunDir,
-  state: TaskState,
-  operationId: string,
-): Artifact[] {
-  if (run.readFinal(RUN_FILES.exit, RunnerExitSchema).state !== 'valid')
-    return [];
+function pendingArtifacts(run: RunDir, state: TaskState, operationId: string): Artifact[] {
+  if (run.readFinal(RUN_FILES.exit, RunnerExitSchema).state !== 'valid') return [];
   const arts = collectArtifacts(run, operationId);
   if (!arts.ok) return [];
-  return arts.value.filter(
-    (a) => state.artifacts[a.artifact_id]?.digest !== a.digest,
-  );
+  return arts.value.filter((a) => state.artifacts[a.artifact_id]?.digest !== a.digest);
 }
 
 /** ACK from the cursor as committed in the store, never from what this pass merely read. */
@@ -447,8 +419,7 @@ function ackResolved(
 ): Result<string[], string> {
   const s = deps.store.readTask(taskId as Uuid);
   const op = s?.operations[operationId];
-  if (s === null || op === undefined || op.cursor === null)
-    return { ok: true, value: [] };
+  if (s === null || op === undefined || op.cursor === null) return { ok: true, value: [] };
   const effect = s.effects[op.effect_id];
   if (
     !RESOLVED_OPERATIONS.includes(op.status) ||
@@ -531,9 +502,7 @@ export function resultEnvelopes(
   };
   return [
     factEnvelope(effect.task_id, `op:${op.operation_id}:receipt`, receipt, ctx),
-    ...extra.map((t, i) =>
-      factEnvelope(effect.task_id, `op:${op.operation_id}:fact:${i}`, t, ctx),
-    ),
+    ...extra.map((t, i) => factEnvelope(effect.task_id, `op:${op.operation_id}:fact:${i}`, t, ctx)),
     factEnvelope(effect.task_id, `effect:${effect.id}:result`, result, ctx),
   ];
 }

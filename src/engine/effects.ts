@@ -1,8 +1,4 @@
-import {
-  idemKey,
-  isBusinessEffect,
-  type EffectKind,
-} from '../domain/effect.ts';
+import { idemKey, isBusinessEffect, type EffectKind } from '../domain/effect.ts';
 import type { EffectMirror } from '../domain/state.ts';
 import type { Ctx } from './context.ts';
 
@@ -23,10 +19,7 @@ export function findByIdemKey(ctx: Ctx, key: string): EffectMirror | undefined {
 }
 
 /** Reuse an existing effect with the same idempotency key; the store also enforces uniqueness. */
-export function requestEffect(
-  ctx: Ctx,
-  spec: EffectSpec,
-): { id: string; created: boolean } {
+export function requestEffect(ctx: Ctx, spec: EffectSpec): { id: string; created: boolean } {
   const s = ctx.state;
   const key = idemKey(spec.kind, s.project, s.id, s.revision, spec.logical_id);
   const existing = findByIdemKey(ctx, key);
@@ -72,8 +65,7 @@ export function requestReconcile(
     return;
   requestEffect(ctx, {
     kind: 'reconcile',
-    logical_id:
-      probes.length === 0 ? target.id : `${target.id}:${probes.length}`,
+    logical_id: probes.length === 0 ? target.id : `${target.id}:${probes.length}`,
     step: target.step,
     attempt_id: target.attempt_id,
     target_effect_id: target.id,
@@ -85,10 +77,6 @@ export function requestReconcile(
   });
 }
 
-export function businessInFlight(
-  effects: Record<string, EffectMirror>,
-): EffectMirror[] {
-  return Object.values(effects).filter(
-    (e) => isBusinessEffect(e.kind) && inFlight(e),
-  );
+export function businessInFlight(effects: Record<string, EffectMirror>): EffectMirror[] {
+  return Object.values(effects).filter((e) => isBusinessEffect(e.kind) && inFlight(e));
 }

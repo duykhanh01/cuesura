@@ -38,11 +38,7 @@ type Reduced = {
 export const CHANGED_NOTICE =
   'The task changed while this menu was open; its actions were read again.';
 
-export function openActions(
-  state: TuiState,
-  taskId: string,
-  title: SafeText,
-): Reduced {
+export function openActions(state: TuiState, taskId: string, title: SafeText): Reduced {
   const session = state.screenSession + 1;
   return {
     state: {
@@ -74,10 +70,7 @@ export function leaveActions(state: TuiState): TuiState {
 }
 
 /** A change of token: what the menu was read with belongs to the old one, so it is read again. */
-export const forgetActions = (
-  m: ActionsMenu,
-  session: number,
-): ActionsMenu => ({
+export const forgetActions = (m: ActionsMenu, session: number): ActionsMenu => ({
   ...m,
   // The title was read under the old token too; the ID is what the user chose (EC-009).
   title: sanitize(m.taskId),
@@ -88,11 +81,7 @@ export const forgetActions = (
 });
 
 /** Read when opened, after anything in the daemon moved, and again a while after a failure. */
-export function actionsDue(
-  m: ActionsMenu,
-  watermark: number | null,
-  now: number,
-): boolean {
+export function actionsDue(m: ActionsMenu, watermark: number | null, now: number): boolean {
   const asked = m.explain.attemptAt;
   if (asked === null) return true;
   if (m.explain.error !== null) return now - asked >= EXPLAIN_READ_MS;
@@ -111,8 +100,7 @@ export type ActionsMessage = {
 
 export function onActionsRead(state: TuiState, m: ActionsMessage): TuiState {
   const menu = state.actions;
-  if (menu === null || menu.taskId !== m.taskId || menu.session !== m.session)
-    return state;
+  if (menu === null || menu.taskId !== m.taskId || menu.session !== m.session) return state;
   if (!m.result.ok)
     return {
       ...state,
@@ -131,22 +119,16 @@ export function onActionsRead(state: TuiState, m: ActionsMessage): TuiState {
   const changed = before !== null && before.version !== after.version;
   // The selection follows the action, not the row, so a new list cannot move it onto another (EC-013).
   const was =
-    before === null
-      ? undefined
-      : actionItems(before, state.caller)[menu.selected]?.action;
+    before === null ? undefined : actionItems(before, state.caller)[menu.selected]?.action;
   const items = actionItems(after, state.caller);
-  const found =
-    was === undefined ? -1 : items.findIndex((i) => i.action === was);
+  const found = was === undefined ? -1 : items.findIndex((i) => i.action === was);
   return {
     ...state,
     actions: {
       ...menu,
       explain: { data: after, error: null, attemptAt: m.askedAt, readAt: m.at },
       watermark: m.watermark,
-      selected:
-        found >= 0
-          ? found
-          : Math.min(menu.selected, Math.max(0, items.length - 1)),
+      selected: found >= 0 ? found : Math.min(menu.selected, Math.max(0, items.length - 1)),
       changed: menu.changed || changed,
       notice: changed ? null : menu.notice,
     },
@@ -154,16 +136,10 @@ export function onActionsRead(state: TuiState, m: ActionsMessage): TuiState {
 }
 
 /** `null`: not a command of this screen. */
-export function onActionsCommand(
-  state: TuiState,
-  command: Command,
-): Reduced | null {
+export function onActionsCommand(state: TuiState, command: Command): Reduced | null {
   const menu = state.actions;
   if (menu === null) return null;
-  const items =
-    menu.explain.data === null
-      ? []
-      : actionItems(menu.explain.data, state.caller);
+  const items = menu.explain.data === null ? [] : actionItems(menu.explain.data, state.caller);
   const put = (change: Partial<ActionsMenu>): Reduced => ({
     state: { ...state, actions: { ...menu, ...change } },
     effects: [],
@@ -194,9 +170,7 @@ export function onActionsCommand(
     }
     case 'open': {
       const item = items[menu.selected];
-      return item === undefined
-        ? put({})
-        : put({ notice: uiText(enterNotice(item)) });
+      return item === undefined ? put({}) : put({ notice: uiText(enterNotice(item)) });
     }
     default:
       return null;

@@ -72,9 +72,7 @@ export function runTui(): void {
         return port.board(
           {
             ...boardQuery(state),
-            ...(fresh || state.board === null
-              ? {}
-              : { if_changed_since: state.board.watermark }),
+            ...(fresh || state.board === null ? {} : { if_changed_since: state.board.watermark }),
           },
           timeoutMs,
           signal,
@@ -82,9 +80,7 @@ export function runTui(): void {
       },
       health: (timeoutMs, signal) => port.health(timeoutMs, signal),
       projects: (fresh, timeoutMs, signal) =>
-        fresh ||
-        state.caller === null ||
-        port.credentialGeneration() !== credential
+        fresh || state.caller === null || port.credentialGeneration() !== credential
           ? port.projects(timeoutMs, signal)
           : Promise.resolve({ ok: true, value: null }),
     },

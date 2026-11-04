@@ -7,11 +7,7 @@
  */
 import type { GitPort } from '../adapters/ports.ts';
 import type { FrozenPolicy } from '../domain/policy.ts';
-import {
-  sameChoice,
-  type PrTemplate,
-  type RunSelection,
-} from '../domain/run-config.ts';
+import { sameChoice, type PrTemplate, type RunSelection } from '../domain/run-config.ts';
 import {
   defaultPrTemplate,
   defaultReviewTemplate,
@@ -30,19 +26,14 @@ export type SelectionProblem = {
 
 const WORKER_ROLES = ['coder', 'fixer'];
 
-export function checkSelection(
-  policy: FrozenPolicy,
-  sel: RunSelection,
-): SelectionProblem[] {
+export function checkSelection(policy: FrozenPolicy, sel: RunSelection): SelectionProblem[] {
   const out: SelectionProblem[] = [];
   if (sel.profile !== policy.profile)
     out.push({
       check: 'profile',
       message: `confirmed profile '${sel.profile}' but the task resolves to '${policy.profile}'`,
     });
-  const steps = Object.entries(policy.steps).sort(([a], [b]) =>
-    a < b ? -1 : 1,
-  );
+  const steps = Object.entries(policy.steps).sort(([a], [b]) => (a < b ? -1 : 1));
   const ladders: { harness: string; model: string; effort: string }[] = [];
   for (const [name, sp] of steps) {
     if (WORKER_ROLES.includes(sp.role)) {
@@ -65,10 +56,7 @@ export function checkSelection(
         });
     }
   }
-  if (
-    sel.mode === 'full-review' &&
-    !steps.some(([, sp]) => sp.role === 'reviewer')
-  )
+  if (sel.mode === 'full-review' && !steps.some(([, sp]) => sp.role === 'reviewer'))
     out.push({
       check: 'reviewer',
       message: 'full-review but the graph has no review step',

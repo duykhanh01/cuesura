@@ -55,10 +55,7 @@ export function workflowRunOf(checkRun: unknown): number | null {
   return m === null ? null : Number(m[1]);
 }
 
-export async function rerunFailedJobs(
-  port: GitHubPort,
-  req: RerunRequest,
-): Promise<RerunResult> {
+export async function rerunFailedJobs(port: GitHubPort, req: RerunRequest): Promise<RerunResult> {
   if (!/^[0-9a-f]{40}$/.test(req.head_sha))
     return {
       kind: 'nothing_to_rerun',
@@ -91,16 +88,12 @@ export async function rerunFailedJobs(
     )
       continue;
     const prev = current.get(o['name']);
-    if (prev === undefined || (prev['id'] as number) < o['id'])
-      current.set(o['name'], o);
+    if (prev === undefined || (prev['id'] as number) < o['id']) current.set(o['name'], o);
   }
   const byRun = new Map<number, string[]>();
   for (const name of [...new Set(req.checks)].sort()) {
     const run = current.get(name);
-    if (
-      run === undefined ||
-      checkRunState(run['status'], run['conclusion']) !== 'failure'
-    )
+    if (run === undefined || checkRunState(run['status'], run['conclusion']) !== 'failure')
       continue;
     const id = workflowRunOf(run);
     if (id === null) continue;
@@ -134,8 +127,7 @@ export async function rerunFailedJobs(
       };
     runs.push({
       run_id: id,
-      attempt:
-        typeof body['run_attempt'] === 'number' ? body['run_attempt'] : null,
+      attempt: typeof body['run_attempt'] === 'number' ? body['run_attempt'] : null,
       checks,
     });
   }

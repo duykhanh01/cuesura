@@ -34,11 +34,7 @@ export function drainPending(s: TaskState): string[] {
 /** Starts the drain right after the proof is recorded. */
 export function startDrain(ctx: Ctx): void {
   for (const e of Object.values(ctx.state.effects)) {
-    if (
-      e.status === 'started' &&
-      e.kind === 'start_agent' &&
-      e.attempt_id !== null
-    ) {
+    if (e.status === 'started' && e.kind === 'start_agent' && e.attempt_id !== null) {
       requestEffect(ctx, {
         kind: 'stop_attempt',
         logical_id: e.attempt_id,
@@ -79,8 +75,7 @@ export function settleCompletion(ctx: Ctx): void {
   if (drainPending(s).length > 0) return;
   ctx.emit('DrainFinished', { at: ctx.now });
   closeOut(ctx);
-  if (ctx.state.cancellation !== null)
-    ctx.emit('CancelRecordedLate', { merge_effect_id: null });
+  if (ctx.state.cancellation !== null) ctx.emit('CancelRecordedLate', { merge_effect_id: null });
   ctx.emit('TaskCompleted', {
     reason:
       ctx.state.completion?.unverified === null
@@ -112,18 +107,13 @@ export function onDrainResult(ctx: Ctx, t: DrainResult): void {
     round,
     pending_operations: [...t.pending_operations].sort(),
     // The worktree as the round found it: recorded, never cleaned up to match the merge (FR-040.06).
-    ...(t.local === undefined
-      ? {}
-      : { local: { ...t.local, observed_at: ctx.now } }),
+    ...(t.local === undefined ? {} : { local: { ...t.local, observed_at: ctx.now } }),
   });
   settleCompletion(ctx);
   const after = ctx.state.completion;
   if (after === null || after.finalized_at !== null) return;
   if (round >= after.drain.max_rounds)
     ctx.emit('DrainPaused', { at: ctx.now, reason: 'round_limit' });
-  else if (
-    after.drain.deadline_at !== null &&
-    ctx.now >= after.drain.deadline_at
-  )
+  else if (after.drain.deadline_at !== null && ctx.now >= after.drain.deadline_at)
     ctx.emit('DrainPaused', { at: ctx.now, reason: 'deadline' });
 }

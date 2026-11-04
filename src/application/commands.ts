@@ -26,9 +26,7 @@ export const COMMAND_PAYLOADS = {
   task_cancel: z.object({ reason: Reason }).strict(),
   task_recheck: z.object({}).strict(),
   task_continue: z.object({}).strict(),
-  answer: z
-    .object({ question_id: UuidSchema, answer: z.string().min(1).max(65_536) })
-    .strict(),
+  answer: z.object({ question_id: UuidSchema, answer: z.string().min(1).max(65_536) }).strict(),
   approve_escalation: z
     .object({ step: z.string().min(1), rung: z.number().int().nonnegative() })
     .strict(),
@@ -76,17 +74,15 @@ export const CommandSchema = z
 export type CommandInput = z.input<typeof CommandSchema>;
 
 /** What to do instead of an unsupported command (FR-021, FR-045.01/02). */
-export const UNSUPPORTED_GUIDANCE: Readonly<
-  Record<(typeof UNSUPPORTED_COMMANDS)[number], string>
-> = {
-  task_retry:
-    'task retry is not part of this version; use task add for an independent task',
-  task_amend_policy:
-    'amend-policy is not part of this version; cancel and use task add with the new config',
-  merge_approve:
-    'merge approval is not part of this version; merge the PR on GitHub, then wait for the observation or run task recheck',
-  yolo: 'yolo has no command: set yolo: true in the user config, or merge the PR on GitHub, then wait for the observation or run task recheck',
-};
+export const UNSUPPORTED_GUIDANCE: Readonly<Record<(typeof UNSUPPORTED_COMMANDS)[number], string>> =
+  {
+    task_retry: 'task retry is not part of this version; use task add for an independent task',
+    task_amend_policy:
+      'amend-policy is not part of this version; cancel and use task add with the new config',
+    merge_approve:
+      'merge approval is not part of this version; merge the PR on GitHub, then wait for the observation or run task recheck',
+    yolo: 'yolo has no command: set yolo: true in the user config, or merge the PR on GitHub, then wait for the observation or run task recheck',
+  };
 
 export type AdmitError =
   | AuthzError
@@ -129,9 +125,7 @@ export function admitCommand(
   if (!parsed.success)
     return err({
       code: 'invalid_command',
-      issues: parsed.error.issues.map(
-        (i) => `${i.path.join('.')}: ${i.message}`,
-      ),
+      issues: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`),
     });
   const cmd = parsed.data;
   if ((UNSUPPORTED_COMMANDS as readonly string[]).includes(cmd.kind))
@@ -154,20 +148,16 @@ export function admitCommand(
   if (!payload.success)
     return err({
       code: 'invalid_command',
-      issues: payload.error.issues.map(
-        (i) => `payload.${i.path.join('.')}: ${i.message}`,
-      ),
+      issues: payload.error.issues.map((i) => `payload.${i.path.join('.')}: ${i.message}`),
     });
   const issues: string[] = [];
   if (cmd.project === null) issues.push('project: required');
   if (kind === 'task_add') {
     if (cmd.task_id !== null) issues.push('task_id: assigned by the server');
-    if (cmd.expected_version !== null)
-      issues.push('expected_version: not used by task_add');
+    if (cmd.expected_version !== null) issues.push('expected_version: not used by task_add');
   } else {
     if (cmd.task_id === null) issues.push('task_id: required');
-    if (cmd.expected_version === null)
-      issues.push('expected_version: required');
+    if (cmd.expected_version === null) issues.push('expected_version: required');
   }
   if (issues.length > 0) return err({ code: 'invalid_command', issues });
 

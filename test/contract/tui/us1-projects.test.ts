@@ -2,11 +2,7 @@ import { request, createServer, type Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { join } from 'node:path';
 import { KEY } from '../../support/pty.ts';
-import {
-  daemonSocket,
-  ownerTokenEnv,
-  useTui,
-} from '../../support/tui-fixtures.ts';
+import { daemonSocket, ownerTokenEnv, useTui } from '../../support/tui-fixtures.ts';
 
 const tui = useTui();
 const servers: Server[] = [];
@@ -32,10 +28,7 @@ async function projectServer(target: string) {
         res.destroy();
         return;
       }
-      if (
-        body !== '' &&
-        (JSON.parse(body) as { kind?: string }).kind === 'project_list'
-      ) {
+      if (body !== '' && (JSON.parse(body) as { kind?: string }).kind === 'project_list') {
         projectReads += 1;
         if (failures > 0) {
           failures -= 1;
@@ -112,30 +105,25 @@ describe('US1: project-list failures', () => {
       data: null,
       error: { code: 'not_available', message: 'project_list unavailable' },
     },
-  ])(
-    'stops on incompatible project data until the user retries',
-    async (reply) => {
-      const sd = tui.daemon();
-      await sd.start();
-      const endpoint = await projectServer(daemonSocket(sd));
-      endpoint.reply(reply);
-      const s = tui.cusr(endpoint.dataDir, { env: ownerTokenEnv(sd) });
-      await s.waitForText('Stopped:', 3_000);
-      expect(s.screenText()).toContain('Next: install the same version');
-      expect(s.screenText()).toContain('daemon: unknown');
-      const reads = endpoint.reads();
-      endpoint.reply(null);
-      await new Promise((resolve) => setTimeout(resolve, 1_500));
-      expect(endpoint.reads()).toBe(reads);
-      s.send('R');
-      await s.waitForText('Projects: acme');
-      await s.waitFor(
-        () => !s.screenText().includes('Data may be out of date'),
-      );
-      s.send('q');
-      expect((await s.waitForExit()).status).toBe(0);
-    },
-  );
+  ])('stops on incompatible project data until the user retries', async (reply) => {
+    const sd = tui.daemon();
+    await sd.start();
+    const endpoint = await projectServer(daemonSocket(sd));
+    endpoint.reply(reply);
+    const s = tui.cusr(endpoint.dataDir, { env: ownerTokenEnv(sd) });
+    await s.waitForText('Stopped:', 3_000);
+    expect(s.screenText()).toContain('Next: install the same version');
+    expect(s.screenText()).toContain('daemon: unknown');
+    const reads = endpoint.reads();
+    endpoint.reply(null);
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    expect(endpoint.reads()).toBe(reads);
+    s.send('R');
+    await s.waitForText('Projects: acme');
+    await s.waitFor(() => !s.screenText().includes('Data may be out of date'));
+    s.send('q');
+    expect((await s.waitForExit()).status).toBe(0);
+  });
 
   it('retries a failed project reload after reconnect even with cached caller data', async () => {
     const sd = tui.daemon();

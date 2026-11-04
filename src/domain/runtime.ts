@@ -13,9 +13,7 @@ const PositiveInt = z.number().int().positive();
 const NonNegInt = z.number().int().nonnegative();
 const Sha = z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/, 'git object id');
 
-export const BaseUpdateSchema = z
-  .object({ head_sha: Sha, base_sha: Sha })
-  .strict();
+export const BaseUpdateSchema = z.object({ head_sha: Sha, base_sha: Sha }).strict();
 export type BaseUpdate = z.infer<typeof BaseUpdateSchema>;
 
 export const BaseConflictSchema = z
@@ -138,10 +136,7 @@ export function runtimeLimitIssues(
   return out;
 }
 
-export const HARNESS_INNER_MODES = [
-  'internal_required',
-  'allow_external_verified',
-] as const;
+export const HARNESS_INNER_MODES = ['internal_required', 'allow_external_verified'] as const;
 export type HarnessInnerModePolicy = (typeof HARNESS_INNER_MODES)[number];
 
 /** Harness permissions selected for an attempt; external_verified is an archived outer-sandbox mode. */
@@ -210,9 +205,7 @@ export const FrozenRuntimeContextSchema = z
 export type FrozenRuntimeContext = z.infer<typeof FrozenRuntimeContextSchema>;
 
 /** `runtime_hash` covers every other field of the snapshot. */
-export function computeRuntimeHash(
-  rt: Omit<FrozenRuntimeContext, 'runtime_hash'>,
-): Hash {
+export function computeRuntimeHash(rt: Omit<FrozenRuntimeContext, 'runtime_hash'>): Hash {
   const { runtime_hash: _ignored, ...rest } = rt as FrozenRuntimeContext;
   return hashCanonical(rest);
 }
@@ -300,10 +293,7 @@ export const OPERATION_STATUSES = [
   'lost',
 ] as const;
 export type OperationStatus = (typeof OPERATION_STATUSES)[number];
-export const RESOLVED_OPERATION_STATUSES: readonly OperationStatus[] = [
-  'finished',
-  'not_launched',
-];
+export const RESOLVED_OPERATION_STATUSES: readonly OperationStatus[] = ['finished', 'not_launched'];
 
 export const OPERATION_OUTCOMES = [
   'succeeded',
@@ -372,13 +362,9 @@ export function cursorAfter(
   prev: Omit<IngestCursor, 'acked_at'> | null,
 ): boolean {
   if (prev === null) return true;
-  if (next.generation !== prev.generation)
-    return next.generation > prev.generation;
+  if (next.generation !== prev.generation) return next.generation > prev.generation;
   if (next.segment !== prev.segment) return next.segment > prev.segment;
-  return (
-    next.byte_offset > prev.byte_offset &&
-    next.last_record_seq >= prev.last_record_seq
-  );
+  return next.byte_offset > prev.byte_offset && next.last_record_seq >= prev.last_record_seq;
 }
 
 export const ARTIFACT_KINDS = [
@@ -447,12 +433,7 @@ export const CapabilityManifestSchema = z
         structured_output: z.enum(['proven', 'unknown', 'unsupported']),
         permission_enforced: z.enum(['proven', 'unknown', 'unsupported']),
         private_home_auth: z.enum(['proven', 'unknown', 'unsupported']),
-        cost_reporting: z.enum([
-          'reported',
-          'estimated',
-          'unavailable',
-          'unknown',
-        ]),
+        cost_reporting: z.enum(['reported', 'estimated', 'unavailable', 'unknown']),
         resume: z.enum(['proven', 'unknown', 'unsupported']),
       })
       .strict(),
@@ -500,18 +481,8 @@ export const ExternalSubjectSchema = z
   .strict();
 export type ExternalSubject = z.infer<typeof ExternalSubjectSchema>;
 
-export const OBSERVATION_SOURCES = [
-  'timer',
-  'recheck',
-  'recovery',
-  'cancel',
-] as const;
-export const SUBJECT_STATUSES = [
-  'open',
-  'closed',
-  'merged',
-  'unknown',
-] as const;
+export const OBSERVATION_SOURCES = ['timer', 'recheck', 'recovery', 'cancel'] as const;
+export const SUBJECT_STATUSES = ['open', 'closed', 'merged', 'unknown'] as const;
 
 export const ObservationSchema = z
   .object({
@@ -524,9 +495,7 @@ export const ObservationSchema = z
     status: z.enum(SUBJECT_STATUSES),
     observed_head: z.string().min(1).nullable(),
     raw_evidence_ref: z.string().min(1),
-    completeness: z
-      .object({ merge_proof: z.boolean(), quality: z.boolean() })
-      .strict(),
+    completeness: z.object({ merge_proof: z.boolean(), quality: z.boolean() }).strict(),
   })
   .strict();
 export type Observation = z.infer<typeof ObservationSchema>;
@@ -545,12 +514,7 @@ export const MergeProofSchema = z
 export type MergeProof = z.infer<typeof MergeProofSchema>;
 
 /** `classic` is branch protection; ruleset enforcements as GitHub reports them. Only classic/active bind. */
-export const CHECK_ENFORCEMENTS = [
-  'classic',
-  'active',
-  'evaluate',
-  'disabled',
-] as const;
+export const CHECK_ENFORCEMENTS = ['classic', 'active', 'evaluate', 'disabled'] as const;
 export type CheckEnforcement = (typeof CHECK_ENFORCEMENTS)[number];
 
 /**
@@ -580,12 +544,7 @@ export function binds(i: RequiredIdentity): boolean {
 export const RequiredProvenanceSchema = z
   .object({
     branch_protected: z.boolean(),
-    classic: z.enum([
-      'read',
-      'read_no_status_checks',
-      'not_protected',
-      'unprotected_branch',
-    ]),
+    classic: z.enum(['read', 'read_no_status_checks', 'not_protected', 'unprotected_branch']),
     ruleset_ids: z.array(PositiveInt),
   })
   .strict();

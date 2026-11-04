@@ -8,11 +8,7 @@ import {
   type EffectHandlers,
 } from '../../../src/daemon/dispatch.ts';
 import type { Effect } from '../../../src/domain/effect.ts';
-import {
-  asEpochMs,
-  type EpochMs,
-  type Uuid,
-} from '../../../src/shared/brand.ts';
+import { asEpochMs, type EpochMs, type Uuid } from '../../../src/shared/brand.ts';
 import type { Store } from '../../../src/store/index.ts';
 import { openMemoryStore } from '../../../src/store/testing.ts';
 import { buildTask, freezeOk, uuidOf } from '../../support/builders.ts';
@@ -23,11 +19,7 @@ import { StoreDriver } from '../../support/store-driver.ts';
 const HASH = `sha256:${'a'.repeat(64)}` as const;
 
 /** The store with one write method answering `write_failed`; `calls` counts the refused writes. */
-function refusing(
-  store: Store,
-  method: 'accept' | 'claimEffect',
-  calls: { n: number },
-): Store {
+function refusing(store: Store, method: 'accept' | 'claimEffect', calls: { n: number }): Store {
   return new Proxy(store, {
     get(target, prop) {
       if (prop === method)
@@ -36,9 +28,7 @@ function refusing(
           { ok: false, error: { code: 'write_failed', cause: 'disk_full' } }
         );
       const v = Reflect.get(target, prop, target) as unknown;
-      return typeof v === 'function'
-        ? (v as (...a: unknown[]) => unknown).bind(target)
-        : v;
+      return typeof v === 'function' ? (v as (...a: unknown[]) => unknown).bind(target) : v;
     },
   });
 }
@@ -62,9 +52,7 @@ describe('Dispatcher (T026)', () => {
     const handlers: EffectHandlers = {
       prepare: (effect) => {
         // The claim is committed before the handler runs.
-        seen.push(
-          d.store.readTask(t.id)?.effects[effect.id]?.status ?? 'missing',
-        );
+        seen.push(d.store.readTask(t.id)?.effects[effect.id]?.status ?? 'missing');
         return Promise.resolve(
           d.envelope(t.id, {
             kind: 'effect_result',
@@ -127,10 +115,7 @@ describe('Dispatcher (T026)', () => {
     let claims = 0;
     const store = {
       pendingEffects: () => [merge],
-      claimEffect: () => (
-        claims++,
-        { ok: false, error: { code: 'not_found' } }
-      ),
+      claimEffect: () => (claims++, { ok: false, error: { code: 'not_found' } }),
     } as unknown as Store;
     expect(
       () =>
@@ -142,9 +127,9 @@ describe('Dispatcher (T026)', () => {
           } as EffectHandlers,
         }),
     ).toThrow(DispatchConfigError);
-    expect(
-      new Dispatcher({ store, clock, handlers: {} }).tick().skipped,
-    ).toEqual([{ effect_id: 'm1', reason: 'merge_refused' }]);
+    expect(new Dispatcher({ store, clock, handlers: {} }).tick().skipped).toEqual([
+      { effect_id: 'm1', reason: 'merge_refused' },
+    ]);
     expect(claims).toBe(0);
   });
 
@@ -304,9 +289,7 @@ describe('Dispatcher (T026)', () => {
     });
     const report = disp.tick();
     expect(report.started).toEqual([prepare.id]);
-    expect(
-      report.skipped.filter((s) => s.reason === 'claim_blocked:legacy_task'),
-    ).toHaveLength(3);
+    expect(report.skipped.filter((s) => s.reason === 'claim_blocked:legacy_task')).toHaveLength(3);
   });
 
   it('forgets an in-flight handler that throws synchronously', async () => {
@@ -438,14 +421,8 @@ describe('process marks (FR-034.01)', () => {
     });
     disp.tick();
     await disp.settle();
-    const op = Object.values(d.task(t.id).operations).find(
-      (o) => o.effect_id === prepare.id,
-    );
-    expect(log).toEqual([
-      `write:${op?.id}`,
-      `handler:${op?.id}`,
-      `clear:${op?.id}`,
-    ]);
+    const op = Object.values(d.task(t.id).operations).find((o) => o.effect_id === prepare.id);
+    expect(log).toEqual([`write:${op?.id}`, `handler:${op?.id}`, `clear:${op?.id}`]);
   });
 
   it('keeps the mark of an operation left unknown: its processes may still run (FR-034.01)', async () => {
@@ -473,9 +450,7 @@ describe('process marks (FR-034.01)', () => {
     });
     disp.tick();
     await disp.settle();
-    const op = Object.values(d.task(t.id).operations).find(
-      (o) => o.effect_id === prepare.id,
-    );
+    const op = Object.values(d.task(t.id).operations).find((o) => o.effect_id === prepare.id);
     expect(op?.status).toBe('unknown');
     expect(log).toEqual([`write:${op?.id}`]);
   });
@@ -536,9 +511,7 @@ describe('store failure latch (T092, FR-023)', () => {
 
     disp.block('stopping');
     disp.hold(null);
-    expect(disp.tick().skipped).toEqual([
-      { effect_id: prepare.id, reason: 'store_unwritable' },
-    ]);
+    expect(disp.tick().skipped).toEqual([{ effect_id: prepare.id, reason: 'store_unwritable' }]);
     expect(calls.n).toBe(1);
     expect(d.pendingOne(t.id, 'prepare').status).toBe('pending');
   });
@@ -560,8 +533,7 @@ describe('store failure latch (T092, FR-023)', () => {
       store: refusing(d.store, 'accept', calls),
       clock,
       handlers: {
-        prepare: (effect) =>
-          Promise.resolve([result(effect.id), result(effect.id)]),
+        prepare: (effect) => Promise.resolve([result(effect.id), result(effect.id)]),
       },
     });
     expect(disp.tick().started).toEqual([prepare.id]);

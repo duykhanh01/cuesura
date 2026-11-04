@@ -84,12 +84,8 @@ describe('a code this version does not know', () => {
   });
 
   it('a step this version does not know shows by its name', () => {
-    expect(
-      activity(row({ status: 'RUNNING', step: sanitize('new_step') })),
-    ).toBe('new_step');
-    expect(
-      activity(row({ status: 'RUNNING', step: sanitize('constructor') })),
-    ).toBe('constructor');
+    expect(activity(row({ status: 'RUNNING', step: sanitize('new_step') }))).toBe('new_step');
+    expect(activity(row({ status: 'RUNNING', step: sanitize('constructor') }))).toBe('constructor');
   });
 
   it('is sanitized, so it cannot reach the terminal as a control sequence', () => {
@@ -101,12 +97,8 @@ describe('a code this version does not know', () => {
 
 describe('what a task is doing without a wait', () => {
   it('names the step in words while it runs', () => {
-    expect(activity(row({ status: 'RUNNING', step: sanitize('code') }))).toBe(
-      'Writing code',
-    );
-    expect(activity(row({ status: 'RUNNING', step: sanitize('gates') }))).toBe(
-      'Running gates',
-    );
+    expect(activity(row({ status: 'RUNNING', step: sanitize('code') }))).toBe('Writing code');
+    expect(activity(row({ status: 'RUNNING', step: sanitize('gates') }))).toBe('Running gates');
     expect(activity(row({ status: 'RUNNING' }))).toBe('Running');
   });
 
@@ -120,17 +112,14 @@ describe('what a task is doing without a wait', () => {
     expect(activity(row({ status: 'READY', needs_user: true }))).toBe(
       'Run configuration not confirmed',
     );
-    expect(activity(row({ status: 'READY' }))).toBe(
-      'Queued for the execution slot',
-    );
+    expect(activity(row({ status: 'READY' }))).toBe('Queued for the execution slot');
     expect(todo(row({ status: 'READY', needs_user: true }))).toBe(
       'Propose or confirm a run configuration',
     );
   });
 
   it('never returns only the raw status', () => {
-    for (const status of TASK_STATUSES)
-      expect(activity(row({ status }))).not.toBe(status);
+    for (const status of TASK_STATUSES) expect(activity(row({ status }))).not.toBe(status);
   });
 
   it('does not put a task in the group on its own account', () => {
@@ -153,11 +142,8 @@ describe('what a task is doing without a wait', () => {
 describe('status without colour (FR-035, EC-003)', () => {
   it('gives each status its own mark, beside its name', () => {
     const marks = TASK_STATUSES.map((s) => statusMark(s).text as string);
-    for (const [i, status] of TASK_STATUSES.entries())
-      expect(marks[i]).toContain(status);
-    expect(new Set(marks.map((m) => m.split(' ')[0])).size).toBe(
-      TASK_STATUSES.length,
-    );
+    for (const [i, status] of TASK_STATUSES.entries()) expect(marks[i]).toContain(status);
+    expect(new Set(marks.map((m) => m.split(' ')[0])).size).toBe(TASK_STATUSES.length);
   });
 
   it('explains the marks to a terminal without colour', () => {

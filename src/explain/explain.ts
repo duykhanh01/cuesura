@@ -75,8 +75,7 @@ export function explain(
           },
     bindings_used: bindingsUsed(state, events),
     remaining: {
-      agent_runs:
-        state.budget.agent_runs.limit === null ? null : available(state.budget),
+      agent_runs: state.budget.agent_runs.limit === null ? null : available(state.budget),
       reserved: state.budget.agent_runs.reserved,
       wall_ms: remainingWall(state, policy, now),
       escalations:
@@ -87,9 +86,7 @@ export function explain(
     escalations: escalations(events),
     pending_effects: Object.values(state.effects)
       .flatMap((e) =>
-        e.status === 'pending' ||
-        e.status === 'started' ||
-        e.status === 'unknown'
+        e.status === 'pending' || e.status === 'started' || e.status === 'unknown'
           ? [{ id: e.id as Uuid, kind: e.kind, status: e.status }]
           : [],
       )
@@ -116,10 +113,8 @@ function bindingsUsed(
   for (const e of events) {
     if (e.type !== 'AttemptRequested') continue;
     const p = e.payload;
-    const reservation =
-      state.attempts[p.attempt_id]?.reservation_id ?? p.reservation_id;
-    const invoked =
-      state.budget.reservations[reservation]?.status === 'consumed' ? 1 : 0;
+    const reservation = state.attempts[p.attempt_id]?.reservation_id ?? p.reservation_id;
+    const invoked = state.budget.reservations[reservation]?.status === 'consumed' ? 1 : 0;
     const key = `${p.step}#${p.rung}#${p.binding}`;
     const g = groups.get(key);
     if (g === undefined)
@@ -149,28 +144,19 @@ function remainingWall(
   return Math.max(0, state.deadline_at - now);
 }
 
-function escalations(
-  events: readonly DomainEvent[],
-): Explanation['escalations'] {
+function escalations(events: readonly DomainEvent[]): Explanation['escalations'] {
   const out: Explanation['escalations'] = [];
 
   const asks = new Map<string, number>();
   let floorSeq: number | null = null;
   for (const e of events) {
-    if (
-      e.type === 'FailureClassified' &&
-      e.payload.escalate &&
-      e.payload.rung !== null
-    ) {
+    if (e.type === 'FailureClassified' && e.payload.escalate && e.payload.rung !== null) {
       asks.set(`${e.payload.step}#${e.payload.rung}`, e.seq);
     } else if (e.type === 'TaskFloorRaised') {
       floorSeq = e.seq;
     } else if (e.type === 'RungRaised') {
       const p = e.payload;
-      const trigger =
-        p.reason === 'floor'
-          ? floorSeq
-          : (asks.get(`${p.step}#${p.from}`) ?? null);
+      const trigger = p.reason === 'floor' ? floorSeq : (asks.get(`${p.step}#${p.from}`) ?? null);
       out.push({
         step: p.step,
         from: p.from,
@@ -284,8 +270,7 @@ function slotWaits(
     else waits.resumed += ms;
   };
   for (const e of events) {
-    if (e.type === 'ExecutionQueued')
-      groups.set(e.payload.request_id, e.payload.group);
+    if (e.type === 'ExecutionQueued') groups.set(e.payload.request_id, e.payload.group);
     else if (e.type === 'ExecutionGranted')
       add(groups.get(e.payload.request_id), e.payload.waited_ms);
   }
@@ -311,10 +296,7 @@ export function explainRuntime(
     version: state.version,
     revision: state.revision,
     limits_frozen: policy !== null,
-    wait:
-      state.wait === null
-        ? null
-        : { reason: state.wait.reason, detail: state.wait.detail },
+    wait: state.wait === null ? null : { reason: state.wait.reason, detail: state.wait.detail },
     allowed_actions: allowedActions(state, { recheckable: input.recheckable }),
     blockers: state.blockers.filter((b) => b.until === null),
     running: Object.values(state.attempts)

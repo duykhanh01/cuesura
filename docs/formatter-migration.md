@@ -1,0 +1,5 @@
+# Chuyển formatter sang Oxfmt
+
+Chủ dự án trực tiếp phê duyệt ngày 2026-11-04 ngoại lệ riêng cho PR này đối với quy tắc kiểm tra `prettier --check` trên base: dùng ESLint (`pnpm lint`) và `oxfmt --check` (`pnpm format:check`) thay thế. Prettier và Oxfmt có khác biệt định dạng ở 19 file; chạy cả hai formatter không tạo được baseline chung. Ngoại lệ chỉ áp dụng cho PR chuyển formatter này và kết thúc khi PR được merge hoặc hủy. Các gate typecheck, lint, test và build, cùng CI, vẫn bắt buộc.
+
+Rủi ro là Oxfmt có thể định dạng khác hoặc mở rộng phạm vi so với Prettier. Biện pháp bù: giữ các tùy chọn và ignore cũ, rà diff 19 file và chạy kiểm tra Oxfmt. Với các canary JSON chưa định dạng trong bản sao cấu hình và `.gitignore`, `oxfmt --list-different .` chỉ báo file đối chứng ở gốc; các canary trong `node_modules`, `dist`, `coverage`, `reports`, `specs`, `docs`, `test/fixtures`, `scripts/spike-002/config`, `.agents`, `.claude`, `.specify`, Markdown ở gốc và thư mục lồng, cùng `pnpm-lock.yaml`, đều được bỏ qua. Kiểm tra này không chứng minh mọi trường hợp glob có thể phát sinh.

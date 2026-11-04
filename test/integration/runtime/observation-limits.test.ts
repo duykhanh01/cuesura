@@ -12,13 +12,7 @@ import type { CanonicalTask } from '../../../src/domain/task.ts';
 import type { EpochMs } from '../../../src/shared/brand.ts';
 import { openFileStoreForTest } from '../../../src/store/testing.ts';
 import { buildTask, uuidOf } from '../../support/builders.ts';
-import {
-  A,
-  ci,
-  merge,
-  observation,
-  toGreen,
-} from '../../support/observation.ts';
+import { A, ci, merge, observation, toGreen } from '../../support/observation.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 import { dbPath, useTempDir } from '../../support/temp-db.ts';
 
@@ -161,18 +155,12 @@ describe('observation service (T061)', () => {
     d.now += 60_000;
     d.fire();
     const poll = d.pendingOne(t.id, 'await_ci');
-    d.must(
-      t.id,
-      observation(d, t, 'merged', A, { source: 'recheck', merge_proof: false }),
-    );
+    d.must(t.id, observation(d, t, 'merged', A, { source: 'recheck', merge_proof: false }));
     expect(d.claim(poll.id)).toMatchObject({
       ok: false,
       error: { reason: 'merge_evidence_incomplete' },
     });
-    d.now = Math.max(
-      d.now,
-      d.task(t.id).observation?.budget.next_due_at ?? d.now,
-    );
+    d.now = Math.max(d.now, d.task(t.id).observation?.budget.next_due_at ?? d.now);
     expect(observationDue(d.task(t.id), d.now)).toBe('observe');
     const { calls, coordinator } = fakeReads(() => ({
       facts: [],
@@ -223,9 +211,7 @@ describe('observation service (T061)', () => {
       newId,
     });
     expect(calls).toEqual([]);
-    expect(reports).toMatchObject([
-      { kind: 'expire', outcomes: [{ kind: 'observation_due' }] },
-    ]);
+    expect(reports).toMatchObject([{ kind: 'expire', outcomes: [{ kind: 'observation_due' }] }]);
     expect(d.task(t.id)).toMatchObject({
       status: 'WAITING',
       wait: { reason: 'policy', detail: { code: 'observation_expired' } },

@@ -27,15 +27,9 @@ export const CiRuleInputSchema = z
           .optional(),
       })
       .strict()
-      .refine(
-        (m) =>
-          m.job !== undefined ||
-          m.check !== undefined ||
-          m.log_pattern !== undefined,
-        {
-          message: 'match requires at least one of: job, check, log_pattern',
-        },
-      ),
+      .refine((m) => m.job !== undefined || m.check !== undefined || m.log_pattern !== undefined, {
+        message: 'match requires at least one of: job, check, log_pattern',
+      }),
     class: z.enum(CI_CLASSES),
   })
   .strict();

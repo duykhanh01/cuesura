@@ -38,19 +38,10 @@ const proof: MergeProof = {
   evidence_ref: 'ev-1',
 };
 
-function toCi(
-  d: StoreDriver,
-  t: CanonicalTask,
-  mode: ExecutionMode = 'full-review',
-): void {
+function toCi(d: StoreDriver, t: CanonicalTask, mode: ExecutionMode = 'full-review'): void {
   createGrantStart(d, t, mode);
   toPublish(d, t, HEAD);
-  d.complete(
-    t.id,
-    d.pendingOne(t.id, 'publish').id,
-    'succeeded',
-    publishData(HEAD),
-  );
+  d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(HEAD));
   d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
     pr_ref: 'acme#7',
     head_sha: HEAD,
@@ -79,14 +70,7 @@ function observeMerged(d: StoreDriver, t: CanonicalTask): void {
 
 type Step = 'merge' | 'drain' | 'cancel' | 'ci_result' | 'ci_unknown' | 'tick';
 const stepArb = fc.array(
-  fc.constantFrom<Step>(
-    'merge',
-    'drain',
-    'cancel',
-    'ci_result',
-    'ci_unknown',
-    'tick',
-  ),
+  fc.constantFrom<Step>('merge', 'drain', 'cancel', 'ci_result', 'ci_unknown', 'tick'),
   { minLength: 1, maxLength: 10 },
 );
 
@@ -154,19 +138,15 @@ describe('external completion (FR-040, FR-001.02/03)', () => {
             const after = d.task(t.id);
             const events = d.store.readEvents(t.id).map((e) => e.type);
             // At most one TaskCompleted, ever.
-            expect(
-              events.filter((e) => e === 'TaskCompleted').length,
-            ).toBeLessThanOrEqual(1);
+            expect(events.filter((e) => e === 'TaskCompleted').length).toBeLessThanOrEqual(1);
             // Terminal states stay terminal.
             if (['DONE', 'FAILED', 'CANCELLED'].includes(before.status))
               expect(after.status).toBe(before.status);
             if (after.completion !== null) {
               // A recorded merge never ends CANCELLED, and DONE only with nothing pending.
               expect(after.status).not.toBe('CANCELLED');
-              if (after.status === 'DONE')
-                expect(drainPending(after)).toEqual([]);
-              if (after.status !== 'DONE')
-                expect(after.completion.finalized_at).toBeNull();
+              if (after.status === 'DONE') expect(drainPending(after)).toEqual([]);
+              if (after.status !== 'DONE') expect(after.completion.finalized_at).toBeNull();
               // No business effect waits to be claimed after the proof.
               expect(
                 Object.values(after.effects).filter(
@@ -190,44 +170,39 @@ describe('external completion (FR-040, FR-001.02/03)', () => {
 
   it('a dependent is released only after its prerequisite recorded DONE', () => {
     fc.assert(
-      fc.property(
-        fc.constantFrom('done', 'draining', 'cancelled', 'running'),
-        (fate) => {
-          const d = new StoreDriver(openMemoryStore());
-          const pre = buildTask();
-          toCi(d, pre);
-          const child = buildTask({
-            id: uuidOf(2),
-            source_key: 'cli:2',
-            depends_on: [pre.id],
+      fc.property(fc.constantFrom('done', 'draining', 'cancelled', 'running'), (fate) => {
+        const d = new StoreDriver(openMemoryStore());
+        const pre = buildTask();
+        toCi(d, pre);
+        const child = buildTask({
+          id: uuidOf(2),
+          source_key: 'cli:2',
+          depends_on: [pre.id],
+        });
+        d.must(child.id, { kind: 'create_task', task: child });
+        const ci = d.pendingOne(pre.id, 'await_ci');
+        if (fate === 'done' || fate === 'draining') {
+          if (fate === 'draining') d.claim(ci.id);
+          else
+            d.complete(
+              pre.id,
+              ci.id,
+              'succeeded',
+              ciData(HEAD, { build: 'success', test: 'success' }),
+            );
+          observeMerged(d, pre);
+          d.must(pre.id, {
+            kind: 'external_completion',
+            proof,
+            unverified_reason: null,
           });
-          d.must(child.id, { kind: 'create_task', task: child });
-          const ci = d.pendingOne(pre.id, 'await_ci');
-          if (fate === 'done' || fate === 'draining') {
-            if (fate === 'draining') d.claim(ci.id);
-            else
-              d.complete(
-                pre.id,
-                ci.id,
-                'succeeded',
-                ciData(HEAD, { build: 'success', test: 'success' }),
-              );
-            observeMerged(d, pre);
-            d.must(pre.id, {
-              kind: 'external_completion',
-              proof,
-              unverified_reason: null,
-            });
-          }
-          if (fate === 'cancelled')
-            d.must(pre.id, { kind: 'cancel', reason: 'dropped' });
-          notifyDependents(d.store, d.now);
-          const status = d.task(child.id).status;
-          expect(status === 'READY').toBe(d.task(pre.id).status === 'DONE');
-          if (fate === 'draining')
-            expect(d.task(pre.id).completion).not.toBeNull();
-        },
-      ),
+        }
+        if (fate === 'cancelled') d.must(pre.id, { kind: 'cancel', reason: 'dropped' });
+        notifyDependents(d.store, d.now);
+        const status = d.task(child.id).status;
+        expect(status === 'READY').toBe(d.task(pre.id).status === 'DONE');
+        if (fate === 'draining') expect(d.task(pre.id).completion).not.toBeNull();
+      }),
       propertyParams(12),
     );
   });
@@ -266,17 +241,7 @@ describe('green predicate on the checked head (FR-019, FR-041.06, FR-042.08, M08
         ),
         fc.boolean(),
         fc.boolean(),
-        (
-          mode,
-          snapshot,
-          checks,
-          covered,
-          complete,
-          gatePassed,
-          review,
-          sameHead,
-          onCheckpoint,
-        ) => {
+        (mode, snapshot, checks, covered, complete, gatePassed, review, sameHead, onCheckpoint) => {
           const head = 'a'.repeat(40);
           const cpSha = onCheckpoint ? head : 'c'.repeat(40);
           const run = {
@@ -371,15 +336,10 @@ describe('green predicate on the checked head (FR-019, FR-041.06, FR-042.08, M08
             complete &&
             gateOk &&
             reviewOk &&
-            snapshot.every(
-              (n) =>
-                single(n).length === 1 && single(n)[0]?.state === 'success',
-            );
+            snapshot.every((n) => single(n).length === 1 && single(n)[0]?.state === 'success');
           expect(v.kind === 'green').toBe(oracle);
           if (v.kind === 'green')
-            expect(v.review).toBe(
-              mode === 'direct-pr' ? 'not_required' : 'approved',
-            );
+            expect(v.review).toBe(mode === 'direct-pr' ? 'not_required' : 'approved');
           if (!sameHead) expect(v.kind).toBe('head_changed');
         },
       ),

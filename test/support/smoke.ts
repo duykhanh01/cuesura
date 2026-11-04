@@ -20,17 +20,11 @@ import {
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  hostInnerMode,
-  type VendorPin,
-} from '../../src/adapters/harness/vendor.ts';
+import { hostInnerMode, type VendorPin } from '../../src/adapters/harness/vendor.ts';
 import { CUSR_COMMANDS } from '../../src/cli/commands.ts';
 import { runCli } from '../../src/cli/program.ts';
 import { validateConfig } from '../../src/config/validate.ts';
-import {
-  harnessIdentity,
-  recordManifest,
-} from '../../src/runner/harness-records.ts';
+import { harnessIdentity, recordManifest } from '../../src/runner/harness-records.ts';
 import type { FakeGitHubState } from './fake-github.ts';
 import { GIT_BIN } from './git-repo.ts';
 import { homeFileContent, REAL } from './harness-fixtures.ts';
@@ -46,25 +40,18 @@ export const SANDBOX_PROJECT: Record<ProjectKind, string> = {
   node: 'node-sandbox',
   python: 'python-sandbox',
 };
-export const repoDir = (kind: ProjectKind): string =>
-  join(PROJECTS_DIR, kind, 'repo');
+export const repoDir = (kind: ProjectKind): string => join(PROJECTS_DIR, kind, 'repo');
 export const variantDir = (kind: ProjectKind, v: 'pass' | 'fail'): string =>
   join(PROJECTS_DIR, kind, 'variants', v);
-export const taskFile = (kind: ProjectKind): string =>
-  join(PROJECTS_DIR, kind, 'task.json');
+export const taskFile = (kind: ProjectKind): string => join(PROJECTS_DIR, kind, 'task.json');
 /** A task whose verbatim code fails its verbatim test, so the required unit gate goes red (T129). */
 export const redGateTaskFile = (kind: ProjectKind): string =>
   join(PROJECTS_DIR, kind, 'task-red-gate.json');
 
 /** Real Claude sandbox probes in the smoke fixture still need native bwrap support. */
 export const hostUsable = (): boolean =>
-  spawnSync('/usr/bin/bwrap', [
-    '--unshare-user',
-    '--ro-bind',
-    '/',
-    '/',
-    '/usr/bin/true',
-  ]).status === 0 &&
+  spawnSync('/usr/bin/bwrap', ['--unshare-user', '--ro-bind', '/', '/', '/usr/bin/true']).status ===
+    0 &&
   ['running', 'degraded'].includes(
     spawnSync('systemctl', ['--user', 'is-system-running'], {
       encoding: 'utf8',
@@ -89,9 +76,7 @@ export const SMOKE_CANARY = 'smoke-canary-0123456789abcdef';
 /** A user config for the given projects, as an owner would write it; credentials are references only. */
 export function smokeUserConfig(o: {
   readonly dataDir: string;
-  readonly projects: Readonly<
-    Record<string, { readonly path: string; readonly repo: string }>
-  >;
+  readonly projects: Readonly<Record<string, { readonly path: string; readonly repo: string }>>;
   readonly credentialRefs: Readonly<Record<string, string>>;
   readonly toolPaths?: Readonly<Record<string, string>>;
   readonly limits?: Readonly<Record<string, number>>;
@@ -129,8 +114,7 @@ export function smokeUserConfig(o: {
     '  smoke-flow: { base: software_dev@1 }',
     'projects:',
     ...Object.entries(o.projects).map(
-      ([id, p]) =>
-        `  ${id}: { base_branch: main, path: ${yaml(p.path)}, repo: ${yaml(p.repo)} }`,
+      ([id, p]) => `  ${id}: { base_branch: main, path: ${yaml(p.path)}, repo: ${yaml(p.repo)} }`,
     ),
     'profiles:',
     '  smoke:',
@@ -144,18 +128,10 @@ export function smokeUserConfig(o: {
     '    full-review: { when_to_use: "changes that also need a reviewer" }',
     ...(o.toolPaths === undefined
       ? []
-      : [
-          '  tool_paths:',
-          ...Object.entries(o.toolPaths).map(
-            ([k, v]) => `    ${k}: ${yaml(v)}`,
-          ),
-        ]),
+      : ['  tool_paths:', ...Object.entries(o.toolPaths).map(([k, v]) => `    ${k}: ${yaml(v)}`)]),
     ...(o.limits === undefined
       ? []
-      : [
-          '  limits:',
-          ...Object.entries(o.limits).map(([k, v]) => `    ${k}: ${v}`),
-        ]),
+      : ['  limits:', ...Object.entries(o.limits).map(([k, v]) => `    ${k}: ${v}`)]),
     '  credential_refs:',
     ...Object.entries(o.credentialRefs).map(([k, v]) => `    ${k}: ${yaml(v)}`),
     '',
@@ -177,8 +153,7 @@ const gitEnv = {
 };
 export function git(cwd: string, ...args: string[]): string {
   const r = spawnSync('git', args, { cwd, env: gitEnv, encoding: 'utf8' });
-  if (r.status !== 0)
-    throw new Error(`git ${args.join(' ')}: ${r.stderr.trim()}`);
+  if (r.status !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr.trim()}`);
   return r.stdout.trim();
 }
 
@@ -213,8 +188,7 @@ export abstract class SmokeDriver {
 
   async must(...argv: string[]): Promise<Record<string, unknown>> {
     const { code, env } = await this.cli(...argv);
-    if (code !== 0)
-      throw new Error(`cusr ${argv.join(' ')}: ${JSON.stringify(env.error)}`);
+    if (code !== 0) throw new Error(`cusr ${argv.join(' ')}: ${JSON.stringify(env.error)}`);
     return env.data;
   }
 
@@ -314,14 +288,14 @@ export type RehearsalOptions = {
 
 const replayOf = (vendor: 'claude' | 'codex', role: string): string =>
   (
-    ({
+    {
       'claude:coder': 's0-claude-coder-1793172185',
       'claude:fixer': 's0-claude-fixer-1793173414',
       'claude:reviewer': 's0-claude-reviewer-1793180331',
       'codex:coder': 's0-codex-coder-1793178479',
       'codex:fixer': 's0-codex-fixer-1793173505',
       'codex:reviewer': 's0-codex-reviewer-1793180367',
-    }) as Record<string, string>
+    } as Record<string, string>
   )[`${vendor}:${role}`] as string;
 
 const REPO_SLUG = (kind: ProjectKind): string => `acme/${kind}-sandbox`;
@@ -371,13 +345,7 @@ export class Rehearsal extends SmokeDriver {
     git(this.project, 'add', '-A');
     git(this.project, 'commit', '-qm', 'initial');
     git(this.base, 'clone', '-q', '--bare', this.project, this.remote);
-    git(
-      this.project,
-      'remote',
-      'add',
-      'origin',
-      `https://github.com/${REPO_SLUG(kind)}.git`,
-    );
+    git(this.project, 'remote', 'add', 'origin', `https://github.com/${REPO_SLUG(kind)}.git`);
   }
 
   #prepareHarnesses(): void {
@@ -404,8 +372,7 @@ export class Rehearsal extends SmokeDriver {
       mkdirSync(dir);
       const pin = fakeVendorPin(vendor, dir, {
         FAKE_VENDOR_ECHO_MODEL: '1',
-        FAKE_VENDOR_MODE:
-          this.o.leakHome === true ? 'publish,print_home' : 'publish',
+        FAKE_VENDOR_MODE: this.o.leakHome === true ? 'publish,print_home' : 'publish',
         FAKE_VENDOR_REVIEWER_PROBE: '1',
         FAKE_VENDOR_INNER_SANDBOX: '1',
         FAKE_VENDOR_REPLAY: replay(vendor, 'coder'),
@@ -423,10 +390,7 @@ export class Rehearsal extends SmokeDriver {
       pins[vendor] = withTools;
       for (const h of withTools.home_files) {
         const file = join(this.base, `${vendor}.${h.credential}`);
-        writeFileSync(
-          file,
-          homeFileContent(h, JSON.stringify({ accessToken: SMOKE_CANARY })),
-        );
+        writeFileSync(file, homeFileContent(h, JSON.stringify({ accessToken: SMOKE_CANARY })));
         credentialRefs[h.credential] = file;
       }
     }
@@ -478,9 +442,9 @@ export class Rehearsal extends SmokeDriver {
         runtime,
       });
       if (!attested.ok) throw new Error(attested.error);
-      const raw = JSON.parse(
-        readFileSync(join(REAL, 'capability-manifest.json'), 'utf8'),
-      ) as { vendors: Record<string, Record<string, unknown>> };
+      const raw = JSON.parse(readFileSync(join(REAL, 'capability-manifest.json'), 'utf8')) as {
+        vendors: Record<string, Record<string, unknown>>;
+      };
       const inner = hostInnerMode(pin);
       raw.vendors[vendor] = {
         ...raw.vendors[vendor],
@@ -508,10 +472,7 @@ export class Rehearsal extends SmokeDriver {
   async startDaemon(): Promise<void> {
     const child = spawn(
       process.execPath,
-      [
-        fileURLToPath(new URL('./smoke-daemon-child.ts', import.meta.url)),
-        this.#args,
-      ],
+      [fileURLToPath(new URL('./smoke-daemon-child.ts', import.meta.url)), this.#args],
       { stdio: ['ignore', 'pipe', 'pipe'] },
     );
     this.#child = child;
@@ -520,9 +481,7 @@ export class Rehearsal extends SmokeDriver {
       child.stdout?.on('data', (d: Buffer) => {
         if (d.toString().includes('ready')) resolve();
       });
-      child.once('exit', (code) =>
-        reject(new Error(`daemon exited ${code}: ${this.#stderr}`)),
-      );
+      child.once('exit', (code) => reject(new Error(`daemon exited ${code}: ${this.#stderr}`)));
     });
   }
 
@@ -546,9 +505,7 @@ export class Rehearsal extends SmokeDriver {
   }
 
   /** The real CLI, over the real socket, as the owner. */
-  override async cli(
-    ...argv: string[]
-  ): Promise<{ code: number; env: Envelope }> {
+  override async cli(...argv: string[]): Promise<{ code: number; env: Envelope }> {
     const out: string[] = [];
     const code = await runCli(
       { name: 'cusr', description: 'smoke', version: '0' },
@@ -571,10 +528,7 @@ export class Rehearsal extends SmokeDriver {
       profile: 'smoke',
       mode,
       worker: `${worker}/${worker}-worker/${SMOKE_EFFORT}`,
-      reviewer:
-        mode === 'full-review'
-          ? `${reviewer}/${reviewer}-worker/${SMOKE_EFFORT}`
-          : null,
+      reviewer: mode === 'full-review' ? `${reviewer}/${reviewer}-worker/${SMOKE_EFFORT}` : null,
     });
   }
 

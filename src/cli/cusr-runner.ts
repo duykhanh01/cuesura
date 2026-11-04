@@ -9,11 +9,7 @@ import { RUN_DIR_KINDS, RunDir, type RunDirKind } from '../runner/files.ts';
 import { execOperation } from '../runner/lifecycle.ts';
 import { homeSecretValues, readInstalledAuth } from '../runner/private-home.ts';
 import { Redactor } from '../runner/redact.ts';
-import {
-  formatRecord,
-  openStdoutEcho,
-  terminalStop,
-} from '../runner/terminal-echo.ts';
+import { formatRecord, openStdoutEcho, terminalStop } from '../runner/terminal-echo.ts';
 import {
   errorEnvelope,
   ExitCode,
@@ -22,13 +18,7 @@ import {
   isEnvelope,
   type Envelope,
 } from './output.ts';
-import {
-  packageVersion,
-  processIo,
-  runCli,
-  type CliCommand,
-  type CliIo,
-} from './program.ts';
+import { packageVersion, processIo, runCli, type CliCommand, type CliIo } from './program.ts';
 
 function refuser(json: boolean, io: CliIo) {
   return (
@@ -38,11 +28,7 @@ function refuser(json: boolean, io: CliIo) {
     details: Readonly<Record<string, unknown>> = {},
   ): number => {
     if (json)
-      io.stdout(
-        renderEnvelope(
-          errorEnvelope({ code, message, details, request_id: null }),
-        ),
-      );
+      io.stdout(renderEnvelope(errorEnvelope({ code, message, details, request_id: null })));
     else io.stderr(`${message}\n`);
     return exit;
   };
@@ -61,8 +47,7 @@ type OwnerCommandContext = {
 
 const exec: CliCommand = {
   name: 'exec',
-  description:
-    'Run an operation from its run directory within its service unit',
+  description: 'Run an operation from its run directory within its service unit',
   options: [
     { flags: '--data-dir <dir>', description: 'Daemon data directory' },
     {
@@ -139,19 +124,10 @@ const recordManifest = {
       description: 'Evidence file for the pinned harness binary',
     },
   ],
-  async run(
-    values: Values,
-    json: boolean,
-    io: CliIo,
-    context: OwnerCommandContext = {},
-  ) {
+  async run(values: Values, json: boolean, io: CliIo, context: OwnerCommandContext = {}) {
     const refuse = refuser(json, io);
     const { config, dataDir, harness, evidence } = values;
-    if (
-      config === undefined ||
-      harness === undefined ||
-      evidence === undefined
-    ) {
+    if (config === undefined || harness === undefined || evidence === undefined) {
       return refuse(
         'invalid_arguments',
         'record-manifest requires --config, --harness, and --evidence',
@@ -160,8 +136,7 @@ const recordManifest = {
     }
     // Load configuration only for owner commands; exec stays independent of the store.
     const { loadDaemonConfig } = await import('../daemon/main.ts');
-    const { recordManifest: record } =
-      await import('../runner/harness-records.ts');
+    const { recordManifest: record } = await import('../runner/harness-records.ts');
     const cfg =
       context.config === undefined
         ? await loadDaemonConfig({ config, dataDir })
@@ -183,18 +158,12 @@ const recordManifest = {
       return refuse('manifest_refused', r.error, ExitCode.failure);
     }
     const { manifest_hash } = r.value;
-    io.stdout(
-      json
-        ? renderEnvelope(okEnvelope({ harness, manifest_hash }))
-        : `${manifest_hash}\n`,
-    );
+    io.stdout(json ? renderEnvelope(okEnvelope({ harness, manifest_hash })) : `${manifest_hash}\n`);
     return ExitCode.ok;
   },
 } satisfies CliCommand;
 
-function homeFiles(
-  value: string | undefined,
-): { credential: string; to: string }[] | null {
+function homeFiles(value: string | undefined): { credential: string; to: string }[] | null {
   const out: { credential: string; to: string }[] = [];
   for (const entry of value === undefined ? [] : value.split(',')) {
     const at = entry.indexOf(':');
@@ -225,13 +194,11 @@ const writePin = {
     },
     {
       flags: '--toolchain <dirs>',
-      description:
-        'Comma-separated canonical directory paths mounted read-only and added to PATH',
+      description: 'Comma-separated canonical directory paths mounted read-only and added to PATH',
     },
     {
       flags: '--auth <files>',
-      description:
-        'Comma-separated authentication files in credential:home-path format',
+      description: 'Comma-separated authentication files in credential:home-path format',
     },
     {
       flags: '--rules <files>',
@@ -245,8 +212,7 @@ const writePin = {
     },
     {
       flags: '--sandbox <mode>',
-      description:
-        'Claude worker sandbox: on or off (default: Claude settings, otherwise off)',
+      description: 'Claude worker sandbox: on or off (default: Claude settings, otherwise off)',
     },
     {
       flags: '--max-turns <n>',
@@ -265,22 +231,13 @@ const writePin = {
     context: OwnerCommandContext = {},
   ) {
     const refuse = refuser(json, io);
-    const { config, dataDir, harness, vendor, binary, settings, tools } =
-      values;
+    const { config, dataDir, harness, vendor, binary, settings, tools } = values;
     const auth = homeFiles(values['auth']);
     const rules = homeFiles(values['rules']);
     const maxTurns = values['maxTurns'];
     const sandboxMode = values['sandbox'];
-    if (
-      sandboxMode !== undefined &&
-      sandboxMode !== 'on' &&
-      sandboxMode !== 'off'
-    )
-      return refuse(
-        'invalid_arguments',
-        '--sandbox must be on or off',
-        ExitCode.usage,
-      );
+    if (sandboxMode !== undefined && sandboxMode !== 'on' && sandboxMode !== 'off')
+      return refuse('invalid_arguments', '--sandbox must be on or off', ExitCode.usage);
     const permissionMode = values['permissionMode'] ?? 'auto';
     if (permissionMode !== 'auto' && permissionMode !== 'full-access')
       return refuse(
@@ -319,16 +276,9 @@ const writePin = {
     let parsedSettings: Record<string, unknown> | null = null;
     if (settings !== undefined) {
       try {
-        parsedSettings = JSON.parse(readFileSync(settings, 'utf8')) as Record<
-          string,
-          unknown
-        >;
+        parsedSettings = JSON.parse(readFileSync(settings, 'utf8')) as Record<string, unknown>;
       } catch (e) {
-        return refuse(
-          'invalid_arguments',
-          `Cannot read ${settings}: ${String(e)}`,
-          ExitCode.usage,
-        );
+        return refuse('invalid_arguments', `Cannot read ${settings}: ${String(e)}`, ExitCode.usage);
       }
     }
     const { loadDaemonConfig } = await import('../daemon/main.ts');
@@ -379,8 +329,7 @@ type ProofUsage = {
 /** The owner runs this command themselves; the approval text and the cap are optional records of that. */
 function proofUsage(values: Values): Result<ProofUsage, string> {
   const { out, approval, maxInvocations } = values;
-  if (out === undefined)
-    return err('Harness verification consumes model usage; specify --out');
+  if (out === undefined) return err('Harness verification consumes model usage; specify --out');
   const cap = maxInvocations === undefined ? null : Number(maxInvocations);
   if (cap !== null && (!Number.isInteger(cap) || cap < 1))
     return err('--max-invocations must be a positive integer');
@@ -388,17 +337,9 @@ function proofUsage(values: Values): Result<ProofUsage, string> {
   return ok({ out, approval: text === '' ? 'owner command' : text, cap });
 }
 
-function proofOptions(
-  values: Values,
-  cfg: OwnerConfig,
-): Result<ProofOptions, string> {
+function proofOptions(values: Values, cfg: OwnerConfig): Result<ProofOptions, string> {
   const { config, harness, model, effort, outerProof } = values;
-  if (
-    config === undefined ||
-    harness === undefined ||
-    model === undefined ||
-    model.trim() === ''
-  )
+  if (config === undefined || harness === undefined || model === undefined || model.trim() === '')
     return err('prove-harness requires --config, --harness, and --model');
   return ok({
     dataDir: cfg.dataDir,
@@ -492,8 +433,7 @@ const proveHarness = {
       return refuse('config_invalid', cfg.error, ExitCode.usage);
     }
     const prepared = proofOptions(values, cfg.value);
-    if (!prepared.ok)
-      return refuse('invalid_arguments', prepared.error, ExitCode.usage);
+    if (!prepared.ok) return refuse('invalid_arguments', prepared.error, ExitCode.usage);
     const options = prepared.value;
     if (dryRun !== undefined) {
       const plan = proof.planProof(options);
@@ -504,16 +444,11 @@ const proveHarness = {
         plan.value,
         proof.PROOF_ROLES.length + (options.proveResume ? 1 : 0),
       );
-      io.stdout(
-        json
-          ? renderEnvelope(okEnvelope(report))
-          : `${JSON.stringify(report)}\n`,
-      );
+      io.stdout(json ? renderEnvelope(okEnvelope(report)) : `${JSON.stringify(report)}\n`);
       return ExitCode.ok;
     }
     const usage = proofUsage(values);
-    if (!usage.ok)
-      return refuse('invalid_arguments', usage.error, ExitCode.usage);
+    if (!usage.ok) return refuse('invalid_arguments', usage.error, ExitCode.usage);
     const { out, approval, cap } = usage.value;
     const r = await proof.proveHarness({
       ...options,
@@ -530,11 +465,7 @@ const proveHarness = {
         `the proof did not show what a manifest needs (evidence: ${evidence}): ${failures.join('; ')}`,
         ExitCode.failure,
       );
-    io.stdout(
-      json
-        ? renderEnvelope(okEnvelope({ harness, evidence }))
-        : `${evidence}\n`,
-    );
+    io.stdout(json ? renderEnvelope(okEnvelope({ harness, evidence })) : `${evidence}\n`);
     return ExitCode.ok;
   },
 } satisfies CliCommand;
@@ -542,18 +473,17 @@ const proveHarness = {
 /** Compose the owner commands, with preflight before committing the candidate pin. */
 const setupHarness: CliCommand = {
   name: 'setup-harness',
-  description:
-    'Write a pin, prove the harness, and record its capability manifest',
+  description: 'Write a pin, prove the harness, and record its capability manifest',
   options: [
     ...new Map(
-      [...(writePin.options ?? []), ...(proveHarness.options ?? [])].map(
-        (option) => [option.flags, option],
-      ),
+      [...(writePin.options ?? []), ...(proveHarness.options ?? [])].map((option) => [
+        option.flags,
+        option,
+      ]),
     ).values(),
     {
       flags: '--from <step>',
-      description:
-        'Start at write-pin (default), prove-harness, or record-manifest',
+      description: 'Start at write-pin (default), prove-harness, or record-manifest',
     },
   ],
   help:
@@ -564,12 +494,7 @@ const setupHarness: CliCommand = {
     const refuse = refuser(json, io);
     const fail = (step: string, error: Envelope, code: number): number => {
       if (error.ok)
-        return refuse(
-          'setup_failed',
-          `${step}: step returned exit ${code}`,
-          code,
-          { step },
-        );
+        return refuse('setup_failed', `${step}: step returned exit ${code}`, code, { step });
       return refuse(error.error.code, `${step}: ${error.error.message}`, code, {
         ...error.error.details,
         step,
@@ -600,9 +525,7 @@ const setupHarness: CliCommand = {
       const cfg = await loadDaemonConfig({ config, dataDir });
       if (!cfg.ok) return reject('config_invalid', cfg.error, ExitCode.usage);
       const { recordDir } = await import('../runner/harness-records.ts');
-      const pinExists = existsSync(
-        join(recordDir(cfg.value.dataDir, harness), 'pin.json'),
-      );
+      const pinExists = existsSync(join(recordDir(cfg.value.dataDir, harness), 'pin.json'));
       const context = { config: cfg.value };
       let result: Envelope = okEnvelope({});
       const runStep = async (
@@ -647,8 +570,7 @@ const setupHarness: CliCommand = {
       if (from !== 'record-manifest') {
         step = 'prove-harness';
         const options = proofOptions(values, cfg.value);
-        if (!options.ok)
-          return reject('invalid_arguments', options.error, ExitCode.usage);
+        if (!options.ok) return reject('invalid_arguments', options.error, ExitCode.usage);
         const usage = dryRun ? null : proofUsage(values);
         if (usage !== null && !usage.ok)
           return reject('invalid_arguments', usage.error, ExitCode.usage);
@@ -665,16 +587,14 @@ const setupHarness: CliCommand = {
         step = 'prove-harness';
         const proof = await import('../runner/harness-proof.ts');
         const planned = proof.planProof(options.value, candidatePin);
-        if (!planned.ok)
-          return reject('proof_refused', planned.error, ExitCode.failure);
+        if (!planned.ok) return reject('proof_refused', planned.error, ExitCode.failure);
         if (usage !== null && usage.ok) {
           const budget = proof.checkProofBudget(
             planned.value,
             { approval: usage.value.approval, maxInvocations: usage.value.cap },
             options.value.proveResume,
           );
-          if (!budget.ok)
-            return reject('proof_refused', budget.error, ExitCode.failure);
+          if (!budget.ok) return reject('proof_refused', budget.error, ExitCode.failure);
         }
         if (dryRun) {
           const report = {
@@ -684,21 +604,13 @@ const setupHarness: CliCommand = {
             ),
             pin_exists: pinExists,
           };
-          io.stdout(
-            json
-              ? renderEnvelope(okEnvelope(report))
-              : `${JSON.stringify(report)}\n`,
-          );
+          io.stdout(json ? renderEnvelope(okEnvelope(report)) : `${JSON.stringify(report)}\n`);
           return ExitCode.ok;
         }
         if (from === 'write-pin') {
           step = 'write-pin';
           if (candidatePin === undefined)
-            return reject(
-              'setup_failed',
-              'Pin preview returned no candidate',
-              ExitCode.failure,
-            );
+            return reject('setup_failed', 'Pin preview returned no candidate', ExitCode.failure);
           const { commitPin } = await import('../runner/harness-records.ts');
           const committed = commitPin(
             {
@@ -708,8 +620,7 @@ const setupHarness: CliCommand = {
             },
             candidatePin,
           );
-          if (!committed.ok)
-            return reject('pin_refused', committed.error, ExitCode.failure);
+          if (!committed.ok) return reject('pin_refused', committed.error, ExitCode.failure);
         }
         const code = await runStep(proveHarness, values);
         if (code !== ExitCode.ok) return code;
@@ -726,9 +637,7 @@ const setupHarness: CliCommand = {
           invocations_needed: 0,
           pin_exists: pinExists,
         });
-      io.stdout(
-        json ? renderEnvelope(result) : `${JSON.stringify(result.data)}\n`,
-      );
+      io.stdout(json ? renderEnvelope(result) : `${JSON.stringify(result.data)}\n`);
       return ExitCode.ok;
     } catch (error) {
       return reject('setup_failed', String(error), ExitCode.failure);
@@ -748,14 +657,9 @@ const checkRecords: CliCommand = {
     const refuse = refuser(json, io);
     const { config, dataDir } = values;
     if (config === undefined)
-      return refuse(
-        'invalid_arguments',
-        'check-records requires --config',
-        ExitCode.usage,
-      );
+      return refuse('invalid_arguments', 'check-records requires --config', ExitCode.usage);
     const { loadDaemonConfig } = await import('../daemon/main.ts');
-    const { harnessRecordProblems } =
-      await import('../runner/harness-records.ts');
+    const { harnessRecordProblems } = await import('../runner/harness-records.ts');
     const cfg = await loadDaemonConfig({ config, dataDir });
     if (!cfg.ok) return refuse('config_invalid', cfg.error, ExitCode.failure);
     const problems = harnessRecordProblems({

@@ -27,11 +27,7 @@ const identityArb: fc.Arbitrary<RequiredIdentity> = fc.oneof(
     name: nameArb,
     app: fc.oneof(fc.constant('any' as const), fc.constantFrom(15368, 42)),
     source: fc.constant('rules' as const),
-    enforcement: fc.constantFrom(
-      'active' as const,
-      'evaluate' as const,
-      'disabled' as const,
-    ),
+    enforcement: fc.constantFrom('active' as const, 'evaluate' as const, 'disabled' as const),
     ruleset_id: fc.constantFrom(9, 26029694),
   }),
 );
@@ -69,16 +65,12 @@ describe('required check names and app evidence (FR-042)', () => {
         expect(verdict.kind).toBe(oracle(ev));
         if (verdict.kind === 'covered' && ev.kind !== 'unknown') {
           const names = ev.identities
-            .filter(
-              (i) => i.enforcement === 'classic' || i.enforcement === 'active',
-            )
+            .filter((i) => i.enforcement === 'classic' || i.enforcement === 'active')
             .map((i) => i.name);
           expect([...new Set([...snapshot, ...verdict.github])].sort()).toEqual(
             [...new Set([...snapshot, ...names])].sort(),
           );
-          expect(verdict.snapshot_only).toEqual(
-            snapshot.filter((n) => !names.includes(n)).sort(),
-          );
+          expect(verdict.snapshot_only).toEqual(snapshot.filter((n) => !names.includes(n)).sort());
         }
       }),
       propertyParams(300),
@@ -87,57 +79,46 @@ describe('required check names and app evidence (FR-042)', () => {
 
   it('snapshot order and extra snapshot checks never change the verdict; extras are reported, still required', () => {
     fc.assert(
-      fc.property(
-        knownOrNoneArb,
-        snapshotArb,
-        snapshotArb,
-        (ev, snapshot, more) => {
-          const v = evaluateRequired(ev, snapshot);
-          expect(evaluateRequired(ev, [...snapshot].reverse())).toEqual(v);
-          const wider = [...new Set([...snapshot, ...more])];
-          const w = evaluateRequired(ev, wider);
-          if (v.kind === 'covered') expect(w.kind).toBe('covered');
-          if (w.kind !== 'unknown')
-            for (const n of w.snapshot_only) expect(wider).toContain(n);
-        },
-      ),
+      fc.property(knownOrNoneArb, snapshotArb, snapshotArb, (ev, snapshot, more) => {
+        const v = evaluateRequired(ev, snapshot);
+        expect(evaluateRequired(ev, [...snapshot].reverse())).toEqual(v);
+        const wider = [...new Set([...snapshot, ...more])];
+        const w = evaluateRequired(ev, wider);
+        if (v.kind === 'covered') expect(w.kind).toBe('covered');
+        if (w.kind !== 'unknown') for (const n of w.snapshot_only) expect(wider).toContain(n);
+      }),
       propertyParams(200),
     );
   });
 
   it('an app-pinned binding requirement contributes its name and app even outside the snapshot', () => {
     fc.assert(
-      fc.property(
-        knownOrNoneArb,
-        nameArb,
-        fc.constantFrom(15368, 42),
-        (ev, name, app) => {
-          if (ev.kind === 'unknown') return;
-          const pinned: RequiredEvidence = {
-            ...ev,
-            kind: 'known',
-            identities: [
-              ...ev.identities,
-              {
-                name,
-                app,
-                source: 'classic',
-                enforcement: 'classic',
-                ruleset_id: null,
-              },
-            ],
-          };
-          const v = evaluateRequired(pinned, []);
-          expect(v.kind).toBe('covered');
-          if (v.kind === 'covered')
-            expect(v.app_pinned).toContainEqual({
+      fc.property(knownOrNoneArb, nameArb, fc.constantFrom(15368, 42), (ev, name, app) => {
+        if (ev.kind === 'unknown') return;
+        const pinned: RequiredEvidence = {
+          ...ev,
+          kind: 'known',
+          identities: [
+            ...ev.identities,
+            {
               name,
               app,
               source: 'classic',
+              enforcement: 'classic',
               ruleset_id: null,
-            });
-        },
-      ),
+            },
+          ],
+        };
+        const v = evaluateRequired(pinned, []);
+        expect(v.kind).toBe('covered');
+        if (v.kind === 'covered')
+          expect(v.app_pinned).toContainEqual({
+            name,
+            app,
+            source: 'classic',
+            ruleset_id: null,
+          });
+      }),
       propertyParams(100),
     );
   });
@@ -153,10 +134,7 @@ describe('required check names and app evidence (FR-042)', () => {
           const nonBinding = extra.filter((i) => !binds(i));
           const v = evaluateRequired(ev, snapshot);
           expect(
-            evaluateRequired(
-              { ...ev, identities: [...ev.identities, ...nonBinding] },
-              snapshot,
-            ),
+            evaluateRequired({ ...ev, identities: [...ev.identities, ...nonBinding] }, snapshot),
           ).toEqual(v);
         },
       ),
@@ -166,34 +144,30 @@ describe('required check names and app evidence (FR-042)', () => {
 
   it('none is covered for every snapshot, including the empty one; unknown is unknown for every snapshot and partial list', () => {
     fc.assert(
-      fc.property(
-        fc.array(identityArb, { maxLength: 4 }),
-        snapshotArb,
-        (ids, snapshot) => {
-          const none: RequiredEvidence = {
-            kind: 'none',
-            identities: ids.filter((i) => !binds(i)),
-            provenance,
-            basis: 'test',
-            observed_at: 1,
-          };
-          expect(evaluateRequired(none, snapshot)).toMatchObject({
-            kind: 'covered',
-            github_required: 'none',
-            github: [],
-          });
-          const unknown: RequiredEvidence = {
-            kind: 'unknown',
-            partial: ids,
-            basis: 'rules truncated',
-            observed_at: 1,
-          };
-          expect(evaluateRequired(unknown, snapshot)).toEqual({
-            kind: 'unknown',
-            basis: 'rules truncated',
-          });
-        },
-      ),
+      fc.property(fc.array(identityArb, { maxLength: 4 }), snapshotArb, (ids, snapshot) => {
+        const none: RequiredEvidence = {
+          kind: 'none',
+          identities: ids.filter((i) => !binds(i)),
+          provenance,
+          basis: 'test',
+          observed_at: 1,
+        };
+        expect(evaluateRequired(none, snapshot)).toMatchObject({
+          kind: 'covered',
+          github_required: 'none',
+          github: [],
+        });
+        const unknown: RequiredEvidence = {
+          kind: 'unknown',
+          partial: ids,
+          basis: 'rules truncated',
+          observed_at: 1,
+        };
+        expect(evaluateRequired(unknown, snapshot)).toEqual({
+          kind: 'unknown',
+          basis: 'rules truncated',
+        });
+      }),
       propertyParams(100),
     );
   });

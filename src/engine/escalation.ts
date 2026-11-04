@@ -1,14 +1,5 @@
-import {
-  compareLevel,
-  levelKey,
-  type Level,
-  type StepPolicy,
-} from '../domain/policy.ts';
-import {
-  streakKey,
-  type ResumeAction,
-  type TaskState,
-} from '../domain/state.ts';
+import { compareLevel, levelKey, type Level, type StepPolicy } from '../domain/policy.ts';
+import { streakKey, type ResumeAction, type TaskState } from '../domain/state.ts';
 import type { Ctx } from './context.ts';
 import { requestApproval } from './questions.ts';
 import { waitPolicy } from './waits.ts';
@@ -38,11 +29,7 @@ export function floorRung(sp: StepPolicy, floor: Level | null): number {
  * Target rung = `max(rung[step], floor_map[step][floor_level], proposed)`, where `proposed` is the next rung
  * once the failure streak at the current rung asks for escalation (FR-020, research R-18).
  */
-export function targetRung(
-  s: TaskState,
-  sp: StepPolicy,
-  step: string,
-): RungChoice {
+export function targetRung(s: TaskState, sp: StepPolicy, step: string): RungChoice {
   const current = s.rungs.by_step[step] ?? 0;
   const streak = s.failure_streaks[streakKey(step, current)];
   const proposed = streak?.escalate === true ? current + 1 : current;
@@ -61,11 +48,7 @@ export function targetRung(
   };
 }
 
-export function hasEscalationApproval(
-  ctx: Ctx,
-  step: string,
-  rung: number,
-): boolean {
+export function hasEscalationApproval(ctx: Ctx, step: string, rung: number): boolean {
   const s = ctx.state;
   return Object.values(s.approvals).some(
     (a) =>
@@ -101,10 +84,7 @@ export function chooseRung(
     waitPolicy(ctx, 'rung_denied', again, { step, rung: choice.rung });
     return null;
   }
-  if (
-    rung.state === 'needs_approval' &&
-    !hasEscalationApproval(ctx, step, choice.rung)
-  ) {
+  if (rung.state === 'needs_approval' && !hasEscalationApproval(ctx, step, choice.rung)) {
     requestApproval(ctx, {
       kind: 'escalation',
       step,
@@ -129,12 +109,7 @@ export function chooseRung(
 }
 
 /** Records the raise; a quality raise on a `scope: task` role also lifts the task floor (SPEC.md §9.3). */
-export function applyRaise(
-  ctx: Ctx,
-  step: string,
-  sp: StepPolicy,
-  choice: RungChoice,
-): void {
+export function applyRaise(ctx: Ctx, step: string, sp: StepPolicy, choice: RungChoice): void {
   const r = choice.raise;
   if (r === null) return;
   ctx.emit('RungRaised', {
@@ -147,10 +122,7 @@ export function applyRaise(
   if (r.reason !== 'quality' || sp.escalation_scope !== 'task') return;
   const level = sp.ladder[r.to]?.level;
   const floor = ctx.state.rungs.floor_level;
-  if (
-    level !== undefined &&
-    (floor === null || compareLevel(level, floor) > 0)
-  ) {
+  if (level !== undefined && (floor === null || compareLevel(level, floor) > 0)) {
     ctx.emit('TaskFloorRaised', { step, level, reason: 'scope_task' });
   }
 }

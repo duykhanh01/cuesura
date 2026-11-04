@@ -1,10 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Caller } from '../../../src/application/authz.ts';
-import {
-  ATTENTION_LIMIT,
-  statusSinceReader,
-  taskBoard,
-} from '../../../src/application/board.ts';
+import { ATTENTION_LIMIT, statusSinceReader, taskBoard } from '../../../src/application/board.ts';
 import type { CanonicalTask } from '../../../src/domain/task.ts';
 import { openFileStoreForTest, storeDb } from '../../../src/store/testing.ts';
 import { buildTask, ownerAuthz, uuidOf } from '../../support/builders.ts';
@@ -54,10 +50,7 @@ type Board = {
 function setup() {
   const d = new StoreDriver(openFileStoreForTest(dbPath(tempDir())));
   const since = statusSinceReader(d.store);
-  const board = (
-    body: Record<string, unknown> = {},
-    caller: Caller = OWNER,
-  ): Board => {
+  const board = (body: Record<string, unknown> = {}, caller: Caller = OWNER): Board => {
     const r = taskBoard({ store: d.store, statusSince: since }, caller, {
       kind: 'task_board',
       ...body,
@@ -136,13 +129,8 @@ describe('task_board', () => {
     const r = board();
     expect(r.items?.map((i) => i.task_id)).toEqual([active.id]);
     expect(r.counts?.by_status).toEqual({ READY: 1, CANCELLED: 1 });
-    expect(board({ scope: 'terminal' }).items?.map((i) => i.task_id)).toEqual([
-      done.id,
-    ]);
-    expect(board({ scope: 'all' }).items?.map((i) => i.task_id)).toEqual([
-      active.id,
-      done.id,
-    ]);
+    expect(board({ scope: 'terminal' }).items?.map((i) => i.task_id)).toEqual([done.id]);
+    expect(board({ scope: 'all' }).items?.map((i) => i.task_id)).toEqual([active.id, done.id]);
   });
 
   it('a status filter without a scope reaches every status', () => {
@@ -166,11 +154,10 @@ describe('task_board', () => {
     expect(second.next_cursor).toBeNull();
     expect(second.counts?.by_status).toEqual({ READY: 105 });
     expect(board({ limit: 2 }).items).toHaveLength(2);
-    const r = taskBoard(
-      { store: d.store, statusSince: statusSinceReader(d.store) },
-      OWNER,
-      { kind: 'task_board', limit: 101 },
-    );
+    const r = taskBoard({ store: d.store, statusSince: statusSinceReader(d.store) }, OWNER, {
+      kind: 'task_board',
+      limit: 101,
+    });
     expect(r).toMatchObject({ ok: false, error: { code: 'invalid_request' } });
   });
 
@@ -203,10 +190,7 @@ describe('task_board', () => {
     expect(r.items?.map((i) => i.task_id)).toEqual([o.id]);
     expect(r.counts?.by_status).toEqual({ READY: 1 });
     expect(r.attention?.items.map((i) => i.task_id)).toEqual([o.id]);
-    expect(board().attention?.items.map((i) => i.task_id)).toEqual([
-      a.id,
-      o.id,
-    ]);
+    expect(board().attention?.items.map((i) => i.task_id)).toEqual([a.id, o.id]);
   });
 
   it('attention holds only tasks that need the user, up to its limit', () => {
@@ -238,11 +222,7 @@ describe('task_board', () => {
     const { d, board } = setup();
     const t = add(d);
     const sel = selectionFor(t, 'direct-pr');
-    d.must(
-      t.id,
-      { kind: 'propose_run_config', selection: sel },
-      { authz: ownerAuthz() },
-    );
+    d.must(t.id, { kind: 'propose_run_config', selection: sel }, { authz: ownerAuthz() });
     d.must(t.id, { kind: 'request_execution' });
     expect(board().queue?.length).toBe(1);
     const elsewhere: Caller = {
@@ -266,11 +246,9 @@ describe('task_board', () => {
         return Reflect.get(target, prop, receiver) as unknown;
       },
     });
-    const r = taskBoard(
-      { store, statusSince: statusSinceReader(store) },
-      OWNER,
-      { kind: 'task_board' },
-    );
+    const r = taskBoard({ store, statusSince: statusSinceReader(store) }, OWNER, {
+      kind: 'task_board',
+    });
     expect(r.ok).toBe(true);
     expect([...new Set(read)]).toEqual([active.id]);
   });
@@ -279,8 +257,7 @@ describe('task_board', () => {
     const { d, board } = setup();
     add(d);
     const db = storeDb(d.store);
-    const n = () =>
-      (db.prepare('SELECT COUNT(*) AS n FROM events').get() as { n: number }).n;
+    const n = () => (db.prepare('SELECT COUNT(*) AS n FROM events').get() as { n: number }).n;
     const before = n();
     board();
     board({ scope: 'all' });
@@ -289,11 +266,10 @@ describe('task_board', () => {
 
   it('rejects unknown fields', () => {
     const { d } = setup();
-    const r = taskBoard(
-      { store: d.store, statusSince: statusSinceReader(d.store) },
-      OWNER,
-      { kind: 'task_board', extra: 1 },
-    );
+    const r = taskBoard({ store: d.store, statusSince: statusSinceReader(d.store) }, OWNER, {
+      kind: 'task_board',
+      extra: 1,
+    });
     expect(r).toMatchObject({ ok: false, error: { code: 'invalid_request' } });
   });
 });
@@ -312,11 +288,7 @@ describe('status_since (R-06)', () => {
     expect(confirmedAt).toBeGreaterThan(created);
     d.now += 1_000;
     const sel = selectionFor(t, 'direct-pr');
-    d.must(
-      t.id,
-      { kind: 'propose_run_config', selection: sel },
-      { authz: ownerAuthz() },
-    );
+    d.must(t.id, { kind: 'propose_run_config', selection: sel }, { authz: ownerAuthz() });
     expect(d.task(t.id).status).toBe(statusAfterConfirm);
     expect(board().items?.[0]?.status_since).toBe(confirmedAt);
   });
@@ -335,9 +307,7 @@ describe('status_since (R-06)', () => {
     const { d, board } = setup();
     add(d);
     storeDb(d.store)
-      .prepare(
-        `UPDATE accepted_triggers SET envelope_json = json_remove(envelope_json, '$.now')`,
-      )
+      .prepare(`UPDATE accepted_triggers SET envelope_json = json_remove(envelope_json, '$.now')`)
       .run();
     expect(board().items?.[0]?.status_since).toBeNull();
   });
@@ -360,8 +330,7 @@ describe('status_since (R-06)', () => {
       sd.now += 60_000;
       await sd.start();
       const read = async () =>
-        (await sd.query('owner', { kind: 'task_board' })).envelope
-          .data as Board;
+        (await sd.query('owner', { kind: 'task_board' })).envelope.data as Board;
       expect((await read()).items?.[0]?.status_since).toBe(at);
       await sd.stop();
       await sd.start();

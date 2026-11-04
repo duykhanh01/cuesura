@@ -23,97 +23,73 @@ describe('I09 escalation stays within the frozen ladder and its approvals', () =
     'rungs never drop, attempts stay on allowed rungs, and only quality failures escalate within the limits',
     () => {
       fc.assert(
-        fc.property(
-          anyPolicyArb,
-          taskOverArb,
-          choicesArb(160, 60),
-          (policyOpts, over, choices) => {
-            const { sim } = drive(policyOpts, over, choices, 1, {
-              failureFocus: true,
-            });
-            const policy = sim.policy!;
-            const limits = policy.limits;
-            walk(sim.events, (before, ev, after) => {
-              if (before !== null) {
-                for (const [step, r] of Object.entries(before.rungs.by_step))
-                  expect(
-                    after.rungs.by_step[step],
-                    step,
-                  ).toBeGreaterThanOrEqual(r);
-                if (before.rungs.floor_level !== null) {
-                  expect(after.rungs.floor_level).not.toBeNull();
-                  expect(
-                    compareLevel(
-                      after.rungs.floor_level!,
-                      before.rungs.floor_level,
-                    ),
-                  ).toBeGreaterThanOrEqual(0);
-                }
-              }
-              expect(after.budget.escalations.used).toBeLessThanOrEqual(
-                limits.max_escalations ?? Infinity,
-              );
-              for (const streak of Object.values(after.failure_streaks)) {
-                expect(streak.quality_tries).toBeLessThanOrEqual(
-                  limits.classes.quality_tries_per_rung,
-                );
-              }
-
-              if (ev.type === 'AttemptRequested') {
-                const { step, rung } = ev.payload;
-                const ladder = policy.steps[step]!.ladder;
-                expect(rung).toBeLessThan(ladder.length);
-                const state = ladder[rung]!.state;
-                expect(state).not.toBe('denied');
-                if (state === 'needs_approval') {
-                  const granted = Object.values(after.approvals).some(
-                    (a) =>
-                      a.kind === 'escalation' &&
-                      a.status === 'granted' &&
-                      !a.revoked &&
-                      a.step === step &&
-                      a.rung === rung &&
-                      a.revision === after.revision &&
-                      a.policy_hash === after.policy_ref?.hash,
-                  );
-                  expect(granted, `approval for ${step}#${rung}`).toBe(true);
-                }
-                // No new attempt on a rung whose streak already asked for escalation.
+        fc.property(anyPolicyArb, taskOverArb, choicesArb(160, 60), (policyOpts, over, choices) => {
+          const { sim } = drive(policyOpts, over, choices, 1, {
+            failureFocus: true,
+          });
+          const policy = sim.policy!;
+          const limits = policy.limits;
+          walk(sim.events, (before, ev, after) => {
+            if (before !== null) {
+              for (const [step, r] of Object.entries(before.rungs.by_step))
+                expect(after.rungs.by_step[step], step).toBeGreaterThanOrEqual(r);
+              if (before.rungs.floor_level !== null) {
+                expect(after.rungs.floor_level).not.toBeNull();
                 expect(
-                  before?.failure_streaks[streakKey(step, rung)]?.escalate ??
-                    false,
-                ).toBe(false);
+                  compareLevel(after.rungs.floor_level!, before.rungs.floor_level),
+                ).toBeGreaterThanOrEqual(0);
               }
+            }
+            expect(after.budget.escalations.used).toBeLessThanOrEqual(
+              limits.max_escalations ?? Infinity,
+            );
+            for (const streak of Object.values(after.failure_streaks)) {
+              expect(streak.quality_tries).toBeLessThanOrEqual(
+                limits.classes.quality_tries_per_rung,
+              );
+            }
 
-              if (ev.type === 'RungRaised') {
-                const { step, from, to, reason } = ev.payload;
-                expect(to).toBeGreaterThan(from);
-                if (reason === 'quality') {
-                  expect(to).toBe(from + 1);
-                  expect(
-                    before?.failure_streaks[streakKey(step, from)]?.escalate,
-                  ).toBe(true);
-                } else {
-                  expect(reason).toBe('floor');
-                  expect(to).toBe(
-                    floorRung(
-                      policy.steps[step]!,
-                      before?.rungs.floor_level ?? null,
-                    ),
-                  );
-                }
+            if (ev.type === 'AttemptRequested') {
+              const { step, rung } = ev.payload;
+              const ladder = policy.steps[step]!.ladder;
+              expect(rung).toBeLessThan(ladder.length);
+              const state = ladder[rung]!.state;
+              expect(state).not.toBe('denied');
+              if (state === 'needs_approval') {
+                const granted = Object.values(after.approvals).some(
+                  (a) =>
+                    a.kind === 'escalation' &&
+                    a.status === 'granted' &&
+                    !a.revoked &&
+                    a.step === step &&
+                    a.rung === rung &&
+                    a.revision === after.revision &&
+                    a.policy_hash === after.policy_ref?.hash,
+                );
+                expect(granted, `approval for ${step}#${rung}`).toBe(true);
               }
+              // No new attempt on a rung whose streak already asked for escalation.
+              expect(before?.failure_streaks[streakKey(step, rung)]?.escalate ?? false).toBe(false);
+            }
 
-              if (
-                ev.type === 'FailureClassified' &&
-                !countsTowardQuality(ev.payload.class)
-              ) {
-                expect(after.failure_streaks).toEqual(before?.failure_streaks);
-                expect(ev.payload.escalate).toBe(false);
+            if (ev.type === 'RungRaised') {
+              const { step, from, to, reason } = ev.payload;
+              expect(to).toBeGreaterThan(from);
+              if (reason === 'quality') {
+                expect(to).toBe(from + 1);
+                expect(before?.failure_streaks[streakKey(step, from)]?.escalate).toBe(true);
+              } else {
+                expect(reason).toBe('floor');
+                expect(to).toBe(floorRung(policy.steps[step]!, before?.rungs.floor_level ?? null));
               }
-            });
-          },
-        ),
+            }
+
+            if (ev.type === 'FailureClassified' && !countsTowardQuality(ev.payload.class)) {
+              expect(after.failure_streaks).toEqual(before?.failure_streaks);
+              expect(ev.payload.escalate).toBe(false);
+            }
+          });
+        }),
         propertyParams(150),
       );
     },

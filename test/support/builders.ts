@@ -1,9 +1,4 @@
-import {
-  asEpochMs,
-  asUuid,
-  type EpochMs,
-  type Uuid,
-} from '../../src/shared/brand.ts';
+import { asEpochMs, asUuid, type EpochMs, type Uuid } from '../../src/shared/brand.ts';
 import type { CanonicalTask } from '../../src/domain/task.ts';
 import type {
   AuthzContext,
@@ -59,10 +54,7 @@ export const T0 = asEpochMs(1_800_000_000_000);
 
 // ---------- Authz ----------
 
-export function authz(
-  roles: AuthzRole[] = ['operate'],
-  actor = 'owner',
-): AuthzContext {
+export function authz(roles: AuthzRole[] = ['operate'], actor = 'owner'): AuthzContext {
   return { actor, roles, issued_by: 'test-daemon', issued_at: T0 };
 }
 
@@ -273,8 +265,7 @@ export function buildPolicy(o: PolicyOptions = {}): FrozenPolicy {
     backoff: { ...DEFAULT_LIMITS.backoff, ...o.limits?.backoff },
   };
   const permissions: Record<string, 'read_only' | 'write'> = {};
-  for (const [r, spec] of Object.entries(roles))
-    permissions[r] = spec.permissions ?? 'write';
+  for (const [r, spec] of Object.entries(roles)) permissions[r] = spec.permissions ?? 'write';
   const h = hashCanonical('fixture');
   return finalizePolicy({
     schema_version: 1,
@@ -283,8 +274,7 @@ export function buildPolicy(o: PolicyOptions = {}): FrozenPolicy {
     base_sha: o.base_sha ?? 'base0000',
     project: o.project ?? 'acme',
     profile: 'standard',
-    workflow_name:
-      o.mode === undefined ? SOFTWARE_DEV_NAME : modeWorkflowName(o.mode),
+    workflow_name: o.mode === undefined ? SOFTWARE_DEV_NAME : modeWorkflowName(o.mode),
     workflow,
     structure_hash: structureHash(workflow),
     steps,
@@ -369,9 +359,7 @@ export function envelope(
     now: (o.now ?? T0) as EpochMs,
     ids: o.ids ?? [],
     ...(o.authz !== undefined ? { authz: o.authz } : {}),
-    ...(o.expected_version !== undefined
-      ? { expected_version: o.expected_version }
-      : {}),
+    ...(o.expected_version !== undefined ? { expected_version: o.expected_version } : {}),
   };
   return { ...env, request_hash: computeRequestHash(env) };
 }

@@ -24,11 +24,7 @@ import { hashCanonical, hashText } from '../shared/hash.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 
 /** Fallback PATH when the host environment has none. */
-export const SANDBOX_SYSTEM_PATH: readonly string[] = [
-  '/usr/local/bin',
-  '/usr/bin',
-  '/bin',
-];
+export const SANDBOX_SYSTEM_PATH: readonly string[] = ['/usr/local/bin', '/usr/bin', '/bin'];
 
 /** Paths in archived T007 plans; retained for fixture replay and historical record readers. */
 export const IN_SANDBOX = {
@@ -38,11 +34,7 @@ export const IN_SANDBOX = {
   schema: '/cusr/schema',
 } as const;
 
-const AGENT_ROLES: ReadonlySet<SandboxRole> = new Set([
-  'coder',
-  'fixer',
-  'reviewer',
-]);
+const AGENT_ROLES: ReadonlySet<SandboxRole> = new Set(['coder', 'fixer', 'reviewer']);
 const READ_ONLY_REPO_ROLES: ReadonlySet<SandboxRole> = new Set(['reviewer']);
 
 export class SandboxPolicyError extends Error {
@@ -57,8 +49,7 @@ export class SandboxPolicyError extends Error {
 
 const FORBIDDEN_ENV =
   /^(GH_|GITHUB_|SSH_AUTH_SOCK$|DBUS_|XDG_RUNTIME_DIR$|DOCKER_|CUSR_(ADMIN|OPERATE|TOKEN))/;
-const SECRET_ENV =
-  /(TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|APIKEY|CREDENTIAL|PRIVATE_KEY|AUTH)/i;
+const SECRET_ENV = /(TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|APIKEY|CREDENTIAL|PRIVATE_KEY|AUTH)/i;
 
 /** One path equals or contains the other. */
 export function overlaps(a: string, b: string): boolean {
@@ -66,30 +57,21 @@ export function overlaps(a: string, b: string): boolean {
 }
 
 function within(child: string, parent: string): boolean {
-  return (
-    child === parent ||
-    child.startsWith(parent.endsWith(sep) ? parent : parent + sep)
-  );
+  return child === parent || child.startsWith(parent.endsWith(sep) ? parent : parent + sep);
 }
 
 /** Model auth lives only in the private home; orchestration/control secrets never enter. */
 function checkEnv(env: Readonly<Record<string, string>>): void {
   for (const key of Object.keys(env)) {
     if (!/^[A-Z_][A-Z0-9_]*$/.test(key))
-      throw new SandboxPolicyError(
-        'policy_violation',
-        `env ${key}: invalid name`,
-      );
+      throw new SandboxPolicyError('policy_violation', `env ${key}: invalid name`);
     if (FORBIDDEN_ENV.test(key))
       throw new SandboxPolicyError(
         'policy_violation',
         `env ${key}: orchestration/control secret is never passed`,
       );
     if (SECRET_ENV.test(key))
-      throw new SandboxPolicyError(
-        'policy_violation',
-        `env ${key}: secret-like variable rejected`,
-      );
+      throw new SandboxPolicyError('policy_violation', `env ${key}: secret-like variable rejected`);
   }
 }
 
@@ -180,21 +162,15 @@ function fingerprint(
       entries.push([p, -1, 0, 'missing']);
       return;
     }
-    const type = st.isSymbolicLink()
-      ? 'link'
-      : st.isDirectory()
-        ? 'dir'
-        : 'file';
+    const type = st.isSymbolicLink() ? 'link' : st.isDirectory() ? 'dir' : 'file';
     if (
       state.has(p) &&
-      ((type === 'dir' && readdirSync(p).length === 0) ||
-        (type === 'file' && st.size === 0))
+      ((type === 'dir' && readdirSync(p).length === 0) || (type === 'file' && st.size === 0))
     ) {
       if (depth === 0) entries.push([p, -1, 0, 'missing']);
       return;
     }
-    if (!(type === 'dir' && parents.has(p)))
-      entries.push([p, st.size, st.mtimeMs, type]);
+    if (!(type === 'dir' && parents.has(p))) entries.push([p, st.size, st.mtimeMs, type]);
     if (type === 'dir' && depth < 8)
       for (const n of readdirSync(p).sort()) walk(join(p, n), depth + 1);
   };
@@ -260,15 +236,10 @@ function fingerprintTree(dir: string, harnessState: readonly string[]): string {
   return hashCanonical(entries);
 }
 
-export function writeZoneViolations(
-  before: WriteZoneSnapshot,
-  after: WriteZoneSnapshot,
-): string[] {
+export function writeZoneViolations(before: WriteZoneSnapshot, after: WriteZoneSnapshot): string[] {
   const out: string[] = [];
-  if (before.worktree !== after.worktree)
-    out.push(`${before.role} changed the read-only worktree`);
-  if (before.metadata !== after.metadata)
-    out.push(`${before.role} run changed git metadata`);
+  if (before.worktree !== after.worktree) out.push(`${before.role} changed the read-only worktree`);
+  if (before.metadata !== after.metadata) out.push(`${before.role} run changed git metadata`);
   return out;
 }
 
@@ -284,11 +255,7 @@ export function shortTmpDir(scratch: string): string {
 export function ensurePrivateTmpDir(dir: string): void {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const st = lstatSync(dir);
-  if (
-    !st.isDirectory() ||
-    st.uid !== process.getuid?.() ||
-    (st.mode & 0o077) !== 0
-  )
+  if (!st.isDirectory() || st.uid !== process.getuid?.() || (st.mode & 0o077) !== 0)
     throw new SandboxPolicyError(
       'policy_violation',
       `${dir} is not a private directory of this user`,
@@ -297,10 +264,7 @@ export function ensurePrivateTmpDir(dir: string): void {
 
 /** Shared by execution and preflight so shell/systemd PATH differences affect tool discovery consistently. */
 export function hostExecutionPath(toolchain: readonly string[]): string[] {
-  return [
-    ...toolchain,
-    ...(process.env['PATH'] ?? SANDBOX_SYSTEM_PATH.join(':')).split(':'),
-  ];
+  return [...toolchain, ...(process.env['PATH'] ?? SANDBOX_SYSTEM_PATH.join(':')).split(':')];
 }
 
 /** Direct host launch; this planner provides no OS isolation. The coding harness owns its sandbox. */
@@ -320,23 +284,15 @@ export class HostExecutionProvider implements SandboxProvider {
         code: 'source_missing',
         message: 'worktree is not an absolute directory',
       });
-    if (command.length === 0)
-      return err({ code: 'policy_violation', message: 'empty command' });
+    if (command.length === 0) return err({ code: 'policy_violation', message: 'empty command' });
     try {
       checkEnv(layout.env);
     } catch (e) {
-      if (e instanceof SandboxPolicyError)
-        return err({ code: e.code, message: e.message });
+      if (e instanceof SandboxPolicyError) return err({ code: e.code, message: e.message });
       throw e;
     }
     const inherited: Record<string, string> = {};
-    for (const key of [
-      'LANG',
-      'LC_ALL',
-      'TERM',
-      'XDG_RUNTIME_DIR',
-      'DBUS_SESSION_BUS_ADDRESS',
-    ]) {
+    for (const key of ['LANG', 'LC_ALL', 'TERM', 'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS']) {
       const value = process.env[key];
       if (value !== undefined) inherited[key] = value;
     }
@@ -345,16 +301,12 @@ export class HostExecutionProvider implements SandboxProvider {
       ...layout.env,
       PATH: hostExecutionPath(layout.toolchain).join(':'),
       HOME: layout.private_home ?? homedir(),
-      ...(layout.private_home === null
-        ? {}
-        : { CODEX_HOME: join(layout.private_home, '.codex') }),
+      ...(layout.private_home === null ? {} : { CODEX_HOME: join(layout.private_home, '.codex') }),
       TMPDIR: layout.tmp_dir ?? layout.scratch,
     };
     // Never forward orchestration credentials through a pin or the daemon environment.
     for (const key of Object.keys(env))
-      if (
-        /^(GH_|GITHUB_|CUSR_(ADMIN|OPERATE|TOKEN)|CUSR_TOKEN_FILE$)/.test(key)
-      )
+      if (/^(GH_|GITHUB_|CUSR_(ADMIN|OPERATE|TOKEN)|CUSR_TOKEN_FILE$)/.test(key))
         delete (env as Record<string, string>)[key];
     const shape = {
       mode: 'native',

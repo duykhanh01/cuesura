@@ -32,13 +32,10 @@ function rebuildForRuntime(db: Database): void {
 
 /** Rewrites each `tasks.state_json` from a full replay; raw events and frozen snapshots stay intact. */
 function rewriteTaskStates(db: Database): DomainEvent[] {
-  const rows = db
-    .prepare('SELECT * FROM events ORDER BY global_seq')
-    .all() as EventRow[];
+  const rows = db.prepare('SELECT * FROM events ORDER BY global_seq').all() as EventRow[];
   const events = rows.map(toEvent);
   const byTask = new Map<string, typeof events>();
-  for (const e of events)
-    byTask.set(e.task_id, [...(byTask.get(e.task_id) ?? []), e]);
+  for (const e of events) byTask.set(e.task_id, [...(byTask.get(e.task_id) ?? []), e]);
   const update = db.prepare(
     'UPDATE tasks SET status = ?, wait_reason = ?, version = ?, state_json = ? WHERE id = ?',
   );
@@ -64,14 +61,12 @@ export type MigrateResult =
 
 function currentVersion(db: Database): number {
   const meta = db
-    .prepare(
-      `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_meta'`,
-    )
+    .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_meta'`)
     .get();
   if (meta === undefined) return 0;
-  const row = db
-    .prepare('SELECT version FROM schema_meta WHERE id = 1')
-    .get() as { version: number } | undefined;
+  const row = db.prepare('SELECT version FROM schema_meta WHERE id = 1').get() as
+    | { version: number }
+    | undefined;
   return row?.version ?? 0;
 }
 
@@ -81,14 +76,10 @@ function currentVersion(db: Database): number {
  */
 export function migrate(db: Database): MigrateResult {
   const from = currentVersion(db);
-  if (from > SCHEMA_VERSION)
-    return { ok: false, code: 'schema_incompatible', found: from };
+  if (from > SCHEMA_VERSION) return { ok: false, code: 'schema_incompatible', found: from };
   for (const m of MIGRATIONS) {
     if (m.version <= from) continue;
-    const sql = readFileSync(
-      new URL(`./migrations/${m.file}`, import.meta.url),
-      'utf8',
-    );
+    const sql = readFileSync(new URL(`./migrations/${m.file}`, import.meta.url), 'utf8');
     db.transaction(() => {
       db.exec(sql);
       m.after?.(db);

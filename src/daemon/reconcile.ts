@@ -26,16 +26,8 @@
  */
 import { existsSync } from 'node:fs';
 import type { UnitObservation } from '../adapters/ports.ts';
-import type {
-  OperationOutcome,
-  OperationStatus,
-  ProcessIdentity,
-} from '../domain/runtime.ts';
-import {
-  isTerminal,
-  TASK_STATUSES,
-  type OperationMirror,
-} from '../domain/state.ts';
+import type { OperationOutcome, OperationStatus, ProcessIdentity } from '../domain/runtime.ts';
+import { isTerminal, TASK_STATUSES, type OperationMirror } from '../domain/state.ts';
 import type { Trigger } from '../domain/trigger.ts';
 import { isUnresolved } from '../engine/runtime.ts';
 import { RUN_FILES, RunDir, RunnerFileError } from '../runner/files.ts';
@@ -160,10 +152,7 @@ export function hostLockProbe(dataDir: string): LockInspector {
   };
 }
 
-const unknown = (
-  reason: string,
-  unit: UnitObservation | null = null,
-): OperationFinding => ({
+const unknown = (reason: string, unit: UnitObservation | null = null): OperationFinding => ({
   status: 'unknown',
   outcome: null,
   invocation_id: unit?.invocation_id ?? null,
@@ -191,10 +180,7 @@ function runOutcome(x: RunnerExit): OperationOutcome {
 }
 
 /** No launch marker: the runner never reached the harness spawn, unless it is still on its way there. */
-function beforeMarker(
-  unit: UnitObservation,
-  lock: () => LockProbe,
-): OperationFinding {
+function beforeMarker(unit: UnitObservation, lock: () => LockProbe): OperationFinding {
   if (unit.state === 'unknown') return unknown('unit state unreadable');
   const base = {
     outcome: null,
@@ -230,8 +216,7 @@ export async function observeRunnerOperation(
   op: Pick<OperationMirror, 'id' | 'attempt_id'>,
 ): Promise<OperationFinding> {
   const unit = await deps.inspect(op.id);
-  const lock = (): LockProbe =>
-    (deps.probeLock ?? hostLockProbe(deps.dataDir))(op.id);
+  const lock = (): LockProbe => (deps.probeLock ?? hostLockProbe(deps.dataDir))(op.id);
   let run: RunDir | null = null;
   try {
     run = RunDir.open({
@@ -250,8 +235,7 @@ export async function observeRunnerOperation(
   if (run === null) return beforeMarker(unit, lock);
   const marker = readLaunchMarker(run);
   if (marker.state === 'missing') return beforeMarker(unit, lock);
-  if (marker.state === 'invalid')
-    return unknown(`launch marker invalid: ${marker.reason}`, unit);
+  if (marker.state === 'invalid') return unknown(`launch marker invalid: ${marker.reason}`, unit);
   if (marker.value.operation_id !== op.id)
     return unknown('launch marker belongs to another operation', unit);
   if (marker.value.fence === true)
@@ -268,9 +252,7 @@ export async function observeRunnerOperation(
 
   const pid = run.readFinal(RUN_FILES.pid, PidRecordSchema);
   const receipt =
-    pid.state === 'valid' &&
-    pid.value.operation_id === op.id &&
-    pid.value.launch_nonce === nonce
+    pid.state === 'valid' && pid.value.operation_id === op.id && pid.value.launch_nonce === nonce
       ? pid.value
       : null;
   const processes = receipt === null ? [] : [toProcessIdentity(receipt)];
@@ -279,8 +261,7 @@ export async function observeRunnerOperation(
   const startedAt = Number.isSafeInteger(launchedAt) ? launchedAt : null;
 
   const exit = run.readFinal(RUN_FILES.exit, RunnerExitSchema);
-  if (exit.state === 'invalid')
-    return unknown(`exit.json invalid: ${exit.reason}`, unit);
+  if (exit.state === 'invalid') return unknown(`exit.json invalid: ${exit.reason}`, unit);
   if (exit.state === 'valid') {
     const x = exit.value;
     if (x.operation_id !== op.id || x.launch_nonce !== nonce)
@@ -356,10 +337,12 @@ async function fencedRunnerOperation(
     return claim.state === 'claimed' ? found : observeRunnerOperation(deps, op);
   } catch (e) {
     if (e instanceof RunnerFileError && e.code === 'not_found') return found;
-    return unknown(
-      `cannot fence the operation: ${e instanceof Error ? e.message : String(e)}`,
-      { unit: '', state: 'unknown', invocation_id: null, cgroup: null },
-    );
+    return unknown(`cannot fence the operation: ${e instanceof Error ? e.message : String(e)}`, {
+      unit: '',
+      state: 'unknown',
+      invocation_id: null,
+      cgroup: null,
+    });
   }
 }
 
@@ -377,8 +360,7 @@ async function interrupted(
 ): Promise<OperationFinding> {
   const mark = readOperationMark(deps.dataDir, op.id);
   if (!mark.ok) return unknown(mark.detail);
-  const scan = (): ReturnType<TaggedProbe> =>
-    (deps.tagged ?? findTagged)(op.id, mark.mark);
+  const scan = (): ReturnType<TaggedProbe> => (deps.tagged ?? findTagged)(op.id, mark.mark);
   let found = scan();
   let stopped = 0;
   const end = Date.now() + (deps.killVerifyMs ?? KILL_VERIFY_MS);
@@ -426,12 +408,7 @@ function changed(op: OperationMirror, f: OperationFinding): boolean {
 
 type Submitted = { ok: true } | { ok: false; error: string };
 
-function submitFact(
-  deps: ReconcileDeps,
-  taskId: string,
-  key: string,
-  trigger: Trigger,
-): Submitted {
+function submitFact(deps: ReconcileDeps, taskId: string, key: string, trigger: Trigger): Submitted {
   const now = deps.now();
   const r = deps.store.accept(
     factEnvelope(taskId, key, trigger, {
@@ -443,10 +420,7 @@ function submitFact(
   if (!r.ok)
     return {
       ok: false,
-      error:
-        r.error.code === 'write_failed'
-          ? 'write_failed'
-          : JSON.stringify(r.error),
+      error: r.error.code === 'write_failed' ? 'write_failed' : JSON.stringify(r.error),
     };
   return r.value.decision.kind === 'accepted'
     ? { ok: true }
@@ -485,22 +459,17 @@ function commit(
     error,
   });
   if (changed(op, finding)) {
-    const r = submitFact(
-      deps,
-      taskId,
-      `recover:${op.id}:${hashCanonical(finding)}`,
-      {
-        kind: 'operation_result',
-        operation_id: op.id as Uuid,
-        status: finding.status,
-        outcome: finding.outcome,
-        invocation_id: finding.invocation_id,
-        processes: [...finding.processes],
-        started_at: finding.started_at as never,
-        finished_at: finding.finished_at as never,
-        receipt_digest: hashCanonical({ operation: op.id, finding }),
-      },
-    );
+    const r = submitFact(deps, taskId, `recover:${op.id}:${hashCanonical(finding)}`, {
+      kind: 'operation_result',
+      operation_id: op.id as Uuid,
+      status: finding.status,
+      outcome: finding.outcome,
+      invocation_id: finding.invocation_id,
+      processes: [...finding.processes],
+      started_at: finding.started_at as never,
+      finished_at: finding.finished_at as never,
+      receipt_digest: hashCanonical({ operation: op.id, finding }),
+    });
     if (!r.ok) return fail(r.error);
   }
 
@@ -529,9 +498,7 @@ function commit(
       const r = submitFact(deps, taskId, `recover:${op.id}:effect_unknown`, {
         kind: 'effect_result',
         effect_id: effect.id as Uuid,
-        ...(effect.attempt_id === null
-          ? {}
-          : { attempt_id: effect.attempt_id as Uuid }),
+        ...(effect.attempt_id === null ? {} : { attempt_id: effect.attempt_id as Uuid }),
         outcome: 'unknown',
       });
       if (!r.ok) return fail(r.error);
@@ -562,9 +529,7 @@ function commit(
  * One pass over every unresolved operation not owned by a running handler. At startup it runs before
  * ingest and dispatch; the daemon repeats it to follow adopted runners and retry unreadable probes.
  */
-export async function reconcileOperations(
-  deps: ReconcileDeps,
-): Promise<ReconcileReport> {
+export async function reconcileOperations(deps: ReconcileDeps): Promise<ReconcileReport> {
   const operations: OperationReconcile[] = [];
   const unresolved: {
     task_id: string;
@@ -576,20 +541,13 @@ export async function reconcileOperations(
     const s = deps.store.readTask(row.task_id as Uuid);
     const op = s?.operations[row.id];
     if (s === null || s === undefined || op === undefined) continue;
-    const runner =
-      op.kind === 'agent' && s.effects[op.effect_id]?.kind === 'start_agent';
+    const runner = op.kind === 'agent' && s.effects[op.effect_id]?.kind === 'start_agent';
     // An in-process operation already recorded lost has nothing new to show.
     if (!runner && op.status === 'lost') continue;
-    const finding = runner
-      ? await fencedRunnerOperation(deps, op)
-      : await interrupted(deps, op);
+    const finding = runner ? await fencedRunnerOperation(deps, op) : await interrupted(deps, op);
     // Probes yield: a handler that started meanwhile, or a receipt that arrived, wins.
     const current = deps.store.readTask(row.task_id as Uuid)?.operations[op.id];
-    if (
-      deps.inFlight?.(row.effect_id) === true ||
-      current === undefined ||
-      !isUnresolved(current)
-    )
+    if (deps.inFlight?.(row.effect_id) === true || current === undefined || !isUnresolved(current))
       continue;
     const r = commit(deps, row.task_id, current, finding, runner);
     operations.push(r);
@@ -618,18 +576,10 @@ export async function reconcileOperations(
   };
 }
 
-const SETTLED: readonly OperationStatus[] = [
-  'finished',
-  'not_launched',
-  'lost',
-];
+const SETTLED: readonly OperationStatus[] = ['finished', 'not_launched', 'lost'];
 
 /** The operation the effect registered last, in commit order. */
-function lastRegistered(
-  store: Store,
-  taskId: string,
-  effectId: string,
-): string | null {
+function lastRegistered(store: Store, taskId: string, effectId: string): string | null {
   let last: string | null = null;
   for (const ev of store.readEvents(taskId as Uuid))
     if (ev.type === 'OperationRegistered' && ev.payload.effect_id === effectId)
@@ -652,14 +602,9 @@ function settleOrphans(deps: ReconcileDeps): OrphanedEffect[] {
     if (s === null) continue;
     for (const e of Object.values(s.effects)) {
       if (e.status !== 'started' || deps.inFlight?.(e.id) === true) continue;
-      const ops = Object.values(s.operations).filter(
-        (o) => o.effect_id === e.id,
-      );
-      if (ops.length === 0 || ops.some((o) => !SETTLED.includes(o.status)))
-        continue;
-      const never =
-        e.kind === 'start_agent' &&
-        ops.every((o) => o.status === 'not_launched');
+      const ops = Object.values(s.operations).filter((o) => o.effect_id === e.id);
+      if (ops.length === 0 || ops.some((o) => !SETTLED.includes(o.status))) continue;
+      const never = e.kind === 'start_agent' && ops.every((o) => o.status === 'not_launched');
       // Keyed by the execution, not the effect: a requeued effect runs again under a new operation and
       // may be orphaned again; a key reused from the earlier run would only return its cached answer.
       // The latest execution is the last one registered in the committed log, never the clock's pick.
@@ -675,9 +620,7 @@ function settleOrphans(deps: ReconcileDeps): OrphanedEffect[] {
         : submitFact(deps, taskId, `${key}:effect_unknown`, {
             kind: 'effect_result',
             effect_id: e.id as Uuid,
-            ...(e.attempt_id === null
-              ? {}
-              : { attempt_id: e.attempt_id as Uuid }),
+            ...(e.attempt_id === null ? {} : { attempt_id: e.attempt_id as Uuid }),
             outcome: 'unknown',
           });
       out.push({

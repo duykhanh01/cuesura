@@ -4,11 +4,7 @@ import { STORE_FILE } from '../../../src/daemon/main.ts';
 import { openFileStoreForTest, storeDb } from '../../../src/store/testing.ts';
 import { buildTask, uuidOf } from '../../support/builders.ts';
 import type { SeededDaemon } from '../../support/daemon-task.ts';
-import {
-  daemonSocket,
-  ownerTokenEnv,
-  useTui,
-} from '../../support/tui-fixtures.ts';
+import { daemonSocket, ownerTokenEnv, useTui } from '../../support/tui-fixtures.ts';
 
 // T033: an early check on an idle session, on a real PTY and a real daemon, through a proxy that sees every
 // byte. Thirty seconds says nothing about an hour: this does not claim SC-009.
@@ -56,9 +52,7 @@ describe('T033: an idle session', () => {
     const requests: string[] = [];
     const responses: string[] = [];
     proxy.tap = (direction, data) =>
-      (direction === 'request' ? requests : responses).push(
-        data.toString('utf8'),
-      );
+      (direction === 'request' ? requests : responses).push(data.toString('utf8'));
 
     const s = tui.cusr(proxy.dataDir, { env: ownerTokenEnv(sd) });
     await s.waitForText('Sitting here');
@@ -72,9 +66,7 @@ describe('T033: an idle session', () => {
     expect((await s.waitForExit()).status).toBe(0);
 
     const boardReads = requests.filter((r) => r.includes('"task_board"'));
-    const asksWatermark = boardReads.filter((r) =>
-      r.includes('"if_changed_since"'),
-    );
+    const asksWatermark = boardReads.filter((r) => r.includes('"if_changed_since"'));
     const unchanged = responses.filter((r) => r.includes('"unchanged":true'));
 
     // Only the first read brings data; each one after it asks "anything new?" and hears "no".
@@ -85,9 +77,7 @@ describe('T033: an idle session', () => {
 
     // The client sent no command, and the board and health are all it polled.
     expect(requests.filter((r) => r.includes('/v1/command'))).toEqual([]);
-    expect(requests.filter((r) => r.includes('"project_list"'))).toHaveLength(
-      1,
-    );
+    expect(requests.filter((r) => r.includes('"project_list"'))).toHaveLength(1);
 
     await sd.stop();
     expect(countRows(sd)).toEqual(before);

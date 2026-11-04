@@ -1,15 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import {
-  validateConfig,
-  type ValidatedConfig,
-} from '../../src/config/validate.ts';
+import { validateConfig, type ValidatedConfig } from '../../src/config/validate.ts';
 import { freeze } from '../../src/config/freeze.ts';
 import { formatDiagnostic } from '../../src/config/positions.ts';
 import { proposeAmendment } from '../../src/policy/amendment.ts';
-import {
-  verifyContextHash,
-  verifyPolicyHash,
-} from '../../src/policy/finalize.ts';
+import { verifyContextHash, verifyPolicyHash } from '../../src/policy/finalize.ts';
 import type { ConfigSource } from '../../src/config/yaml-loader.ts';
 import type { CanonicalTask } from '../../src/domain/task.ts';
 import { SOFTWARE_DEV } from '../../src/engine/workflows/software-dev.ts';
@@ -37,10 +31,7 @@ function valid(
   return r.value.config;
 }
 
-function errorsOf(
-  user: ConfigSource,
-  project: ConfigSource | undefined = MIN_PROJECT,
-): string[] {
+function errorsOf(user: ConfigSource, project: ConfigSource | undefined = MIN_PROJECT): string[] {
   const r = validateConfig({
     user,
     ...(project ? { project } : {}),
@@ -95,13 +86,8 @@ describe('US1 - Validate configuration and freeze policy', () => {
     expect(errs.map((e) => e.replace(/^config\.yaml:\d+:\d+ /, ''))).toEqual([
       'schema_invalid: base is required and must be software_dev@1',
     ]);
-    const based = workflows.replace(
-      '  loop:\n',
-      '  loop:\n    base: software_dev@1\n',
-    );
-    expect(
-      errorsOf(minUser({ workflows: based })).map((e) => e.split(' ')[1]),
-    ).toEqual([
+    const based = workflows.replace('  loop:\n', '  loop:\n    base: software_dev@1\n');
+    expect(errorsOf(minUser({ workflows: based })).map((e) => e.split(' ')[1])).toEqual([
       'workflow_key_removed:',
       'workflow_key_removed:',
       'workflow_key_removed:',
@@ -114,13 +100,8 @@ describe('US1 - Validate configuration and freeze policy', () => {
   it('Scenario 3: key order and formatting do not change the policy hash', () => {
     const task = buildTask();
     const a = freezeTask(valid(USER), task);
-    const b = freezeTask(
-      valid(source('configs/valid/user-reordered.yaml')),
-      task,
-    );
-    expect(
-      a.ok && b.ok && a.value.policy.policy_hash === b.value.policy.policy_hash,
-    ).toBe(true);
+    const b = freezeTask(valid(source('configs/valid/user-reordered.yaml')), task);
+    expect(a.ok && b.ok && a.value.policy.policy_hash === b.value.policy.policy_hash).toBe(true);
   });
 
   it('Scenario 4: later configuration edits do not change a frozen policy', () => {
@@ -130,10 +111,7 @@ describe('US1 - Validate configuration and freeze policy', () => {
 
     const edited = {
       ...USER,
-      text: USER.text.replace(
-        'max_escalations_per_task: 2',
-        'max_escalations_per_task: 30',
-      ),
+      text: USER.text.replace('max_escalations_per_task: 2', 'max_escalations_per_task: 30'),
     };
     const later = freezeTask(
       valid(edited),
@@ -189,11 +167,11 @@ describe('US1 - Validate configuration and freeze policy', () => {
       error: { code: 'not_admin' },
     });
     expect(policy).toEqual(before);
-    expect([
-      policy.revision,
-      policy.policy_version,
-      policy.limits.max_agent_runs,
-    ]).toEqual([1, 1, null]);
+    expect([policy.revision, policy.policy_version, policy.limits.max_agent_runs]).toEqual([
+      1,
+      1,
+      null,
+    ]);
   });
 
   it('Scenario 7: project overrides pack; overrides respect profile and caller permissions; forbidden keys report errors', () => {
@@ -215,9 +193,7 @@ describe('US1 - Validate configuration and freeze policy', () => {
     const allowed = freezeTask(config, task, {
       overrides: { 'gates.lint': 'npm run lint:ci' },
     });
-    expect(allowed.ok && allowed.value.policy.gates.commands.lint).toBe(
-      'npm run lint:ci',
-    );
+    expect(allowed.ok && allowed.value.policy.gates.commands.lint).toBe('npm run lint:ci');
 
     const notAllowed = freezeTask(config, task, {
       overrides: { 'gates.unit': 'true' },
@@ -259,9 +235,7 @@ describe('US1 - Validate configuration and freeze policy', () => {
         },
       ],
     });
-    const attachments = [
-      { name: 'spec.md', media_type: 'text/markdown', content: 'v1' },
-    ];
+    const attachments = [{ name: 'spec.md', media_type: 'text/markdown', content: 'v1' }];
     const r = freezeTask(valid(USER), task, { attachments });
     if (!r.ok) throw new Error('freeze');
     const context = r.value.context;
@@ -274,14 +248,8 @@ describe('US1 - Validate configuration and freeze policy', () => {
     expect(context).toEqual(before);
     expect(verifyContextHash(context)).toBe(true);
 
-    const next = freezeTask(
-      valid(USER),
-      { ...task, revision: 2 },
-      { attachments },
-    );
-    expect(next.ok && next.value.context.context_hash).not.toBe(
-      context.context_hash,
-    );
+    const next = freezeTask(valid(USER), { ...task, revision: 2 }, { attachments });
+    expect(next.ok && next.value.context.context_hash).not.toBe(context.context_hash);
   });
 
   it('Scenario 10: tunables reach the frozen graph; the graph stays software_dev@1', () => {
@@ -312,8 +280,6 @@ describe('US1 - Validate configuration and freeze policy', () => {
     });
     if (!r.ok) throw new Error('validate');
     expect(r.value.config.user.workflows['wf_a']).toEqual(SOFTWARE_DEV);
-    expect(
-      freezeTask(r.value.config, buildTask({ profile: 'prof_a' })).ok,
-    ).toBe(true);
+    expect(freezeTask(r.value.config, buildTask({ profile: 'prof_a' })).ok).toBe(true);
   });
 });

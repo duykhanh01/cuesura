@@ -68,13 +68,9 @@ export type ContentProblem = {
 };
 
 /** Parses and checks the worker's file; a marker anywhere in any field refuses the whole content. */
-export function validateContent(
-  raw: string,
-): Result<PublishContent, ContentProblem[]> {
+export function validateContent(raw: string): Result<PublishContent, ContentProblem[]> {
   if (Buffer.byteLength(raw, 'utf8') > MAX_CONTENT_FILE_BYTES)
-    return err([
-      { field: 'file', message: `larger than ${MAX_CONTENT_FILE_BYTES} bytes` },
-    ]);
+    return err([{ field: 'file', message: `larger than ${MAX_CONTENT_FILE_BYTES} bytes` }]);
   let json: unknown;
   try {
     json = JSON.parse(raw);
@@ -103,29 +99,21 @@ export function validateContent(
  * regular file within {@link MAX_CONTENT_FILE_BYTES} is read, never more than that many bytes plus one.
  * `ok(null)` means no file was written.
  */
-export function readContentFile(
-  path: string,
-): Result<string | null, ContentProblem[]> {
+export function readContentFile(path: string): Result<string | null, ContentProblem[]> {
   const bad = (message: string): Result<string | null, ContentProblem[]> =>
     err([{ field: 'file', message }]);
   let fd: number;
   try {
-    fd = openSync(
-      path,
-      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
-    );
+    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   } catch (e) {
     const code = (e as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') return ok(null);
-    return bad(
-      code === 'ELOOP' ? 'is a symlink' : `unreadable (${code ?? 'error'})`,
-    );
+    return bad(code === 'ELOOP' ? 'is a symlink' : `unreadable (${code ?? 'error'})`);
   }
   try {
     const st = fstatSync(fd);
     if (!st.isFile()) return bad('not a regular file');
-    if (st.size > MAX_CONTENT_FILE_BYTES)
-      return bad(`larger than ${MAX_CONTENT_FILE_BYTES} bytes`);
+    if (st.size > MAX_CONTENT_FILE_BYTES) return bad(`larger than ${MAX_CONTENT_FILE_BYTES} bytes`);
     const buf = Buffer.alloc(MAX_CONTENT_FILE_BYTES + 1);
     let off = 0;
     while (off < buf.length) {
@@ -133,8 +121,7 @@ export function readContentFile(
       if (n === 0) break;
       off += n;
     }
-    if (off > MAX_CONTENT_FILE_BYTES)
-      return bad(`larger than ${MAX_CONTENT_FILE_BYTES} bytes`);
+    if (off > MAX_CONTENT_FILE_BYTES) return bad(`larger than ${MAX_CONTENT_FILE_BYTES} bytes`);
     return ok(buf.subarray(0, off).toString('utf8'));
   } catch (e) {
     return bad(`unreadable (${(e as NodeJS.ErrnoException).code ?? 'error'})`);
@@ -148,10 +135,7 @@ export function contentDigest(c: PublishContent): Hash {
 }
 
 /** Content the daemon stored at `ref` (a path it recorded), only if it still hashes to `digest`. */
-export function readStoredContent(
-  ref: string,
-  digest: string,
-): PublishContent | null {
+export function readStoredContent(ref: string, digest: string): PublishContent | null {
   try {
     const c = PublishContentSchema.parse(JSON.parse(readFileSync(ref, 'utf8')));
     return contentDigest(c) === digest ? c : null;
@@ -175,10 +159,7 @@ export class FileContentStore {
     try {
       const fd = openSync(
         ref,
-        constants.O_WRONLY |
-          constants.O_CREAT |
-          constants.O_EXCL |
-          constants.O_NOFOLLOW,
+        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
         0o600,
       );
       try {

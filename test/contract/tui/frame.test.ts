@@ -82,9 +82,7 @@ describe('cusr at a terminal', () => {
     const exit = await s.waitForExit();
     expect(exit.status).toBe(0);
     expect(exit.sttyAfter).toBe(exit.sttyBefore);
-    expect((await sd.query('owner', { kind: 'task_list' })).envelope.ok).toBe(
-      true,
-    );
+    expect((await sd.query('owner', { kind: 'task_list' })).envelope.ok).toBe(true);
   });
 
   it('opens without a daemon, says so, and still quits', async () => {
@@ -116,10 +114,7 @@ describe('cusr at a terminal', () => {
     expect(s.screenText()).toContain('◇ 2 ready');
     expect(s.modes()).toEqual(OPEN);
     await sd.start();
-    await s.waitFor(
-      () => !s.screenText().includes('Data may be out of date'),
-      15_000,
-    );
+    await s.waitFor(() => !s.screenText().includes('Data may be out of date'), 15_000);
     expect(s.screenText()).toContain('◇ 2 ready');
     s.send('q');
     await s.waitForExit();

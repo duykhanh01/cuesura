@@ -1237,7 +1237,7 @@ Tiền đề không đổi: 1 developer, có AI hỗ trợ, khoảng 6 giờ t�
 2. Không merge tính năng nào thiếu fault test tương ứng.
 3. Mọi lời gọi ra ngoài (harness, `git`, `gh`, shell) đều có timeout, phân loại lỗi và giới hạn retry.
 
-**Stack đã chốt:** Node 24 LTS, TypeScript strict, `better-sqlite3`, Zod 4, Commander, `yaml`, `uuid`, Vitest và fast-check. Runner dùng `node:child_process.spawn`; gate/git/gh có thể dùng `execa`. Build bằng `tsc`, package manager pnpm, lint/format bằng ESLint + typescript-eslint + Prettier. Các cờ compiler, hợp đồng schema và giới hạn module được quy định tại [SPEC §17](../SPEC.md#17-baseline-kỹ-thuật). Không dùng framework workflow.
+**Stack đã chốt:** Node 24 LTS, TypeScript strict, `better-sqlite3`, Zod 4, Commander, `yaml`, `uuid`, Vitest và fast-check. Runner dùng `node:child_process.spawn`; gate/git/gh có thể dùng `execa`. Build bằng `tsc`, package manager pnpm, lint bằng ESLint + typescript-eslint, format bằng Oxfmt. Các cờ compiler, hợp đồng schema và giới hạn module được quy định tại [SPEC §17](../SPEC.md#17-baseline-kỹ-thuật). Không dùng framework workflow.
 
 ---
 

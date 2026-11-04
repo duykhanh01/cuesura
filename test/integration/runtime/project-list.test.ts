@@ -2,11 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { SeededDaemon, type TokenSpec } from '../../support/daemon-task.ts';
 import { userConfig } from '../../support/preflight-fakes.ts';
 import { PACKS } from '../../support/config-fixtures.ts';
-import {
-  fakeGit,
-  fakeGitHub,
-  fakeHost,
-} from '../../support/preflight-fakes.ts';
+import { fakeGit, fakeGitHub, fakeHost } from '../../support/preflight-fakes.ts';
 
 const TOKENS: TokenSpec[] = [
   { id: 'reader', actor: 'viewer', roles: ['read'], projects: ['acme'] },
@@ -68,14 +64,11 @@ describe('project_list', () => {
       confirm: {
         store,
         ports: { git: fakeGit(), github: fakeGitHub(), host: fakeHost() },
-        configInputs: () =>
-          Promise.resolve({ user, packs: PACKS, manifests: {} }),
+        configInputs: () => Promise.resolve({ user, packs: PACKS, manifests: {} }),
         now: () => 0,
       },
     }));
-    const text = JSON.stringify(
-      (await sd.query('owner', { kind: 'project_list' })).envelope,
-    );
+    const text = JSON.stringify((await sd.query('owner', { kind: 'project_list' })).envelope);
     expect(text).not.toContain('/secret/');
     expect(text).not.toContain(sd.tokens['owner']);
     expect(text).not.toContain('.token');

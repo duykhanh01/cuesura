@@ -25,11 +25,7 @@ const TRANSIENT_CLASSES: readonly FailureClass[] = ['infra', 'rate_limit'];
  * Emits `RetryCountersCleared` for `step` when its transient counters are set and no failure was
  * classified on the step among the events emitted since `since`.
  */
-export function clearRetryCounters(
-  ctx: Ctx,
-  step: string | null,
-  since: number,
-): void {
+export function clearRetryCounters(ctx: Ctx, step: string | null, since: number): void {
   // A finished task keeps its counters as history; nothing is retried any more.
   if (step === null || isTerminal(ctx.state.status)) return;
   const failed = ctx.events
@@ -39,15 +35,11 @@ export function clearRetryCounters(
   const keys = TRANSIENT_CLASSES.map((c) => counterKey(step, c)).filter(
     (k) => ctx.state.class_counters[k] !== undefined,
   );
-  if (keys.length > 0)
-    ctx.emit('RetryCountersCleared', { step, counter_keys: keys });
+  if (keys.length > 0) ctx.emit('RetryCountersCleared', { step, counter_keys: keys });
 }
 
 /** Only these classes feed quality escalation (FR-019). */
-export const QUALITY_CLASSES: readonly FailureClass[] = [
-  'quality',
-  'invalid_output',
-];
+export const QUALITY_CLASSES: readonly FailureClass[] = ['quality', 'invalid_output'];
 
 export function countsTowardQuality(c: FailureClass): boolean {
   return QUALITY_CLASSES.includes(c);
@@ -84,16 +76,13 @@ export function recordFailure(
   if (countsTowardQuality(o.class) && o.rung !== null) {
     const prev = s.failure_streaks[streakKey(o.step, o.rung)];
     consecutive =
-      o.signature !== null && prev?.signature === o.signature
-        ? prev.consecutive + 1
-        : 1;
+      o.signature !== null && prev?.signature === o.signature ? prev.consecutive + 1 : 1;
     const tries = (prev?.quality_tries ?? 0) + 1;
     escalate =
       prev?.escalate === true ||
       tries >= c.quality_tries_per_rung ||
       (o.class === 'quality' && consecutive >= 2) ||
-      (o.class === 'invalid_output' &&
-        count > c.invalid_output_repairs + c.invalid_output_fresh);
+      (o.class === 'invalid_output' && count > c.invalid_output_repairs + c.invalid_output_fresh);
   }
   ctx.emit('FailureClassified', {
     ...o,
@@ -134,16 +123,13 @@ export function reviewSignature(
 ): string | null {
   if (findings.length === 0) return null;
   // Code-unit order, independent of the host locale, so replay yields the same signature.
-  const key = findings
-    .map((f) => [f.severity, f.file ?? '', f.msg].join('\0'))
-    .sort();
+  const key = findings.map((f) => [f.severity, f.file ?? '', f.msg].join('\0')).sort();
   return `review:${hashCanonical(key).slice('sha256:'.length, 'sha256:'.length + 16)}`;
 }
 
 function invalidOutputKind(c: Limits['classes'], count: number): AttemptKind {
   if (count <= c.invalid_output_repairs) return 'repair';
-  if (count <= c.invalid_output_repairs + c.invalid_output_fresh)
-    return 'fresh_session';
+  if (count <= c.invalid_output_repairs + c.invalid_output_fresh) return 'fresh_session';
   return 'retry';
 }
 
@@ -154,10 +140,7 @@ function invalidOutputKind(c: Limits['classes'], count: number): AttemptKind {
 export function handleFailure(ctx: Ctx, e: EffectMirror, f: FailureData): void {
   const step = e.step as string;
   const agent = e.kind === 'start_agent';
-  const attempt =
-    agent && e.attempt_id !== null
-      ? ctx.state.attempts[e.attempt_id]
-      : undefined;
+  const attempt = agent && e.attempt_id !== null ? ctx.state.attempts[e.attempt_id] : undefined;
   const cls = f.failure_class;
   const r = recordFailure(ctx, {
     step,
@@ -173,27 +156,14 @@ export function handleFailure(ctx: Ctx, e: EffectMirror, f: FailureData): void {
       : {
           kind: 'retry_effect',
           step,
-          ...(e.base_update === undefined
-            ? {}
-            : { base_update: e.base_update }),
+          ...(e.base_update === undefined ? {} : { base_update: e.base_update }),
         };
   switch (cls) {
     case 'rate_limit':
-      scheduleRetry(
-        ctx,
-        e,
-        cls,
-        limits.backoff.rate_limit,
-        r.count,
-        retry(),
-        f.reset_at,
-      );
+      scheduleRetry(ctx, e, cls, limits.backoff.rate_limit, r.count, retry(), f.reset_at);
       return;
     case 'infra':
-      if (
-        limits.classes.infra_retries !== null &&
-        r.count > limits.classes.infra_retries
-      ) {
+      if (limits.classes.infra_retries !== null && r.count > limits.classes.infra_retries) {
         waitPolicy(ctx, 'backoff_exhausted', retry(), {
           step,
           class: cls,
@@ -222,11 +192,7 @@ export function handleFailure(ctx: Ctx, e: EffectMirror, f: FailureData): void {
       }
       proceed(
         ctx,
-        retry(
-          cls === 'invalid_output'
-            ? invalidOutputKind(limits.classes, r.count)
-            : 'retry',
-        ),
+        retry(cls === 'invalid_output' ? invalidOutputKind(limits.classes, r.count) : 'retry'),
         cls,
       );
       return;

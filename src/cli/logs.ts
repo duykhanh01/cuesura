@@ -39,12 +39,10 @@ export function logsCommandWith(o: FollowOptions = {}): CliCommand {
   const pollMs = o.pollMs ?? FOLLOW_POLL_MS;
   const now = o.now ?? Date.now;
   const sleep =
-    o.sleep ??
-    ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+    o.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   return {
     name: 'task logs',
-    description:
-      'Show recorded, redacted task logs; --follow streams JSON Lines',
+    description: 'Show recorded, redacted task logs; --follow streams JSON Lines',
     help: `Continue a snapshot with --after set to next_cursor until complete is true.
 
 Examples:
@@ -55,8 +53,7 @@ Examples:
     options: [
       {
         flags: '--data-dir <dir>',
-        description:
-          'Daemon data directory (default: $CUSR_DATA_DIR or ~/.cusr)',
+        description: 'Daemon data directory (default: $CUSR_DATA_DIR or ~/.cusr)',
       },
       {
         flags: '--after <cursor>',
@@ -76,8 +73,7 @@ Examples:
       },
       {
         flags: '--follow',
-        description:
-          'Stream logs until the task ends or the one-hour session limit is reached',
+        description: 'Stream logs until the task ends or the one-hour session limit is reached',
       },
     ],
     async run(values, json, io) {
@@ -128,9 +124,7 @@ Examples:
             task_id: values['id'],
             after: cursor,
             ...(limit === undefined ? {} : { limit }),
-            ...(values['attempt'] === undefined
-              ? {}
-              : { attempt_id: values['attempt'] }),
+            ...(values['attempt'] === undefined ? {} : { attempt_id: values['attempt'] }),
           },
         });
       if (values['follow'] === undefined) {
@@ -148,9 +142,7 @@ Examples:
           );
         const { envelope } = r.value;
         return print(
-          envelope.ok && !full
-            ? { ...envelope, data: logsSummary(envelope.data) }
-            : envelope,
+          envelope.ok && !full ? { ...envelope, data: logsSummary(envelope.data) } : envelope,
           json,
           io,
         );
@@ -161,9 +153,7 @@ Examples:
       for (;;) {
         const r = await fetch(cursor);
         if (!r.ok) {
-          io.stderr(
-            `cusr: ${r.error.message}; resume with --after ${cursor}\n`,
-          );
+          io.stderr(`cusr: ${r.error.message}; resume with --after ${cursor}\n`);
           return ExitCode.connection;
         }
         const { envelope } = r.value;
@@ -178,11 +168,7 @@ Examples:
         let diagnostic: string | null = null;
         for (const rec of page.records) {
           if (rec.gap?.records === 0) {
-            diagnostic = JSON.stringify([
-              rec.operation_id,
-              rec.attempt_id,
-              rec.gap.reason,
-            ]);
+            diagnostic = JSON.stringify([rec.operation_id, rec.attempt_id, rec.gap.reason]);
             if (diagnostic !== lastDiagnostic)
               io.stdout(
                 `${JSON.stringify({
@@ -193,10 +179,7 @@ Examples:
                   reason: rec.gap.reason,
                 })}\n`,
               );
-          } else
-            io.stdout(
-              `${JSON.stringify(full ? rec : logRecordSummary(rec))}\n`,
-            );
+          } else io.stdout(`${JSON.stringify(full ? rec : logRecordSummary(rec))}\n`);
         }
         lastDiagnostic = diagnostic;
         const advanced = page.next_cursor > cursor;

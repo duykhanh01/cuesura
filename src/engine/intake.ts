@@ -4,12 +4,7 @@ import type { Trigger } from '../domain/trigger.ts';
 import { reject, type Ctx } from './context.ts';
 import { onSourceDrift, sameContent } from './revision.ts';
 import { FREEZE_PENDING_CODES } from './start.ts';
-import {
-  checkDependencies,
-  checkRetryOf,
-  pendingWait,
-  retriage,
-} from './triage.ts';
+import { checkDependencies, checkRetryOf, pendingWait, retriage } from './triage.ts';
 import { mkWait } from './waits.ts';
 
 function needsConfirmation(task: CanonicalTask): boolean {
@@ -21,8 +16,7 @@ type CreateTrigger = Extract<Trigger, { kind: 'create_task' }>;
 export function onCreateTask(ctx: Ctx, t: CreateTrigger): void {
   if (ctx.hasState) reject('task_exists', { task_id: ctx.state.id });
   const task = CanonicalTaskSchema.parse(t.task);
-  if (task.id !== ctx.env.task_id)
-    reject('invalid_trigger', { reason: 'task_id_mismatch' });
+  if (task.id !== ctx.env.task_id) reject('invalid_trigger', { reason: 'task_id_mismatch' });
   const existing = ctx.related.source_task;
   if (existing !== undefined && existing.task_id !== task.id) {
     reject('task_exists', {
@@ -58,11 +52,7 @@ type SourceUpdated = Extract<Trigger, { kind: 'source_updated' }>;
 export function onSourceUpdated(ctx: Ctx, t: SourceUpdated): void {
   const s = ctx.state;
   const task = CanonicalTaskSchema.parse(t.task);
-  if (
-    task.id !== s.id ||
-    task.project !== s.project ||
-    task.source_key !== s.source_key
-  ) {
+  if (task.id !== s.id || task.project !== s.project || task.source_key !== s.source_key) {
     reject('invalid_trigger', { reason: 'task_identity_mismatch' });
   }
   if (s.policy_ref !== null) {

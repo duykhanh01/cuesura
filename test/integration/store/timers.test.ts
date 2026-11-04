@@ -30,9 +30,7 @@ function started(d: StoreDriver): void {
 function timerSignals(d: StoreDriver): number {
   return (
     storeDb(d.store)
-      .prepare(
-        `SELECT count(*) AS n FROM accepted_triggers WHERE dedup_key LIKE 'timer:%'`,
-      )
+      .prepare(`SELECT count(*) AS n FROM accepted_triggers WHERE dedup_key LIKE 'timer:%'`)
       .get() as { n: number }
   ).n;
 }
@@ -69,9 +67,7 @@ describe('Store timers (T081)', () => {
       { kind: 'timer', timer_id: deadline?.id as never },
       { dedup_key: `timer:${deadline?.id}` },
     );
-    expect(
-      d.deliver({ ...env, ids: timerIds(deadline?.id ?? '') }),
-    ).toMatchObject({
+    expect(d.deliver({ ...env, ids: timerIds(deadline?.id ?? '') })).toMatchObject({
       ok: true,
       value: { duplicate: true },
     });
@@ -122,12 +118,7 @@ describe('Store timers (T081)', () => {
       }),
     });
     toPublish(d, TASK, 'H');
-    d.complete(
-      TASK.id,
-      d.pendingOne(TASK.id, 'publish').id,
-      'succeeded',
-      publishData('H'),
-    );
+    d.complete(TASK.id, d.pendingOne(TASK.id, 'publish').id, 'succeeded', publishData('H'));
     d.complete(TASK.id, d.pendingOne(TASK.id, 'create_pr').id, 'succeeded', {
       pr_ref: 'acme#1',
       head_sha: 'H',
@@ -139,9 +130,7 @@ describe('Store timers (T081)', () => {
       'succeeded',
       ciData('H', { A: 'success' }, { names: ['A'] }),
     );
-    const poll = Object.values(d.task(TASK.id).timers).find(
-      (t) => t.kind === 'ci_poll',
-    );
+    const poll = Object.values(d.task(TASK.id).timers).find((t) => t.kind === 'ci_poll');
     if (poll === undefined) throw new Error('ci_poll timer is missing');
     d.now = poll.due_at;
 
@@ -151,9 +140,7 @@ describe('Store timers (T081)', () => {
       value: [{ decision: { kind: 'rejected', code: 'id_pool_exhausted' } }],
     });
     expect(timerSignals(d)).toBe(0);
-    expect(d.store.dueTimers(d.now as EpochMs, 10).map((t) => t.id)).toEqual([
-      poll.id,
-    ]);
+    expect(d.store.dueTimers(d.now as EpochMs, 10).map((t) => t.id)).toEqual([poll.id]);
 
     expect(d.fire()).toMatchObject([{ decision: { kind: 'accepted' } }]);
     expect(timerSignals(d)).toBe(1);

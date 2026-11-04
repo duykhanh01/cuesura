@@ -15,9 +15,7 @@ export function openMemoryStore(opts: { crash?: CrashHook } = {}): SqliteStore {
   db.pragma('foreign_keys = ON');
   const prepared = prepareSchema(db);
   if (!prepared.ok)
-    throw new Error(
-      `openMemoryStore: ${prepared.error.code} ${prepared.error.detail}`,
-    );
+    throw new Error(`openMemoryStore: ${prepared.error.code} ${prepared.error.detail}`);
   return new SqliteStore(db, opts.crash ?? NO_CRASH);
 }
 
@@ -26,10 +24,7 @@ export function openFileStoreForTest(
   opts: { busyTimeoutMs?: number; crash?: CrashHook } = {},
 ): SqliteStore {
   const db = openDatabase(path, opts);
-  if (!db.ok)
-    throw new Error(
-      `openFileStoreForTest: ${db.error.code} ${db.error.detail}`,
-    );
+  if (!db.ok) throw new Error(`openFileStoreForTest: ${db.error.code} ${db.error.detail}`);
   return new SqliteStore(db.value, opts.crash ?? NO_CRASH);
 }
 
@@ -41,21 +36,14 @@ export function injectEvents(
 ): void {
   const db = storeDb(store);
   db.transaction(() => {
-    const { state, events } = appendEvents(
-      db,
-      taskId,
-      readTask(db, taskId),
-      drafts,
-      {
-        dedup_key: null,
-      },
-    );
+    const { state, events } = appendEvents(db, taskId, readTask(db, taskId), drafts, {
+      dedup_key: null,
+    });
     project(db, events, state, NO_CRASH);
   }).immediate();
 }
 
 export function storeDb(store: Store): Database.Database {
-  if (!(store instanceof SqliteStore))
-    throw new Error('storeDb: expected a SqliteStore instance');
+  if (!(store instanceof SqliteStore)) throw new Error('storeDb: expected a SqliteStore instance');
   return store.db;
 }

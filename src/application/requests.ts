@@ -21,9 +21,7 @@ export type RequestsDeps = {
   readonly inFlight: (requestId: string) => boolean;
 };
 
-const QuerySchema = z
-  .object({ kind: z.literal('request_show'), request_id: UuidSchema })
-  .strict();
+const QuerySchema = z.object({ kind: z.literal('request_show'), request_id: UuidSchema }).strict();
 
 const NOT_FOUND: AppError = {
   code: 'request_not_found',
@@ -39,11 +37,7 @@ function readable(caller: Caller, r: CommandRecord): boolean {
     : authorize(caller, { role: 'read', project: r.project }).ok;
 }
 
-function nextStep(
-  state: RequestState,
-  kind: string,
-  taskId: string | null,
-): string | null {
+function nextStep(state: RequestState, kind: string, taskId: string | null): string | null {
   if (state !== 'interrupted') return null;
   return taskId === null
     ? `The daemon stopped before this ${kind} request finished and no task exists for it. Send a new request to do it again.`
@@ -74,9 +68,7 @@ export function requestShow(
         : 'interrupted';
   // `task_add` is assigned its ID at admission, before any task exists: only a real task is named.
   const taskId =
-    r.task_id !== null && deps.store.readTask(r.task_id as Uuid) !== null
-      ? r.task_id
-      : null;
+    r.task_id !== null && deps.store.readTask(r.task_id as Uuid) !== null ? r.task_id : null;
   return ok({
     request_id: r.request_id,
     kind: r.kind,

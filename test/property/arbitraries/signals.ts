@@ -12,11 +12,7 @@ import {
 } from '../../../src/domain/trigger.ts';
 import type { Decision } from '../../../src/engine/decide.ts';
 import { evolve } from '../../../src/engine/evolve.ts';
-import {
-  buildTask,
-  freezeOk,
-  type PolicyOptions,
-} from '../../support/builders.ts';
+import { buildTask, freezeOk, type PolicyOptions } from '../../support/builders.ts';
 import {
   agentData,
   ciData,
@@ -31,10 +27,7 @@ import {
 
 export type Choice = { pick: number; variant: number; flag: number };
 
-export const choicesArb = (
-  maxLength = 120,
-  minLength = 1,
-): fc.Arbitrary<Choice[]> =>
+export const choicesArb = (maxLength = 120, minLength = 1): fc.Arbitrary<Choice[]> =>
   fc.array(
     fc.record({
       pick: fc.nat(10_000),
@@ -101,8 +94,7 @@ function successData(sim: Sim, e: EffectMirror, c: Choice): unknown {
   const v = c.variant;
   switch (e.kind) {
     case 'start_agent': {
-      const review =
-        sim.policy?.workflow.steps[e.step ?? '']?.kind === 'review';
+      const review = sim.policy?.workflow.steps[e.step ?? '']?.kind === 'review';
       if (v % 13 === 12) return agentData('done', { schema_checked: false });
       if (review)
         return reviewData(
@@ -159,9 +151,7 @@ function successData(sim: Sim, e: EffectMirror, c: Choice): unknown {
         if ((v >> i) % 7 !== 0)
           checks[n] =
             c.flag % 3 === 0
-              ? (CHECK_STATES[
-                  (v + i * 3) % CHECK_STATES.length
-                ] as Check['state'])
+              ? (CHECK_STATES[(v + i * 3) % CHECK_STATES.length] as Check['state'])
               : 'success';
       });
       const complete = c.flag % 6 !== 0;
@@ -176,12 +166,7 @@ function successData(sim: Sim, e: EffectMirror, c: Choice): unknown {
               },
             }
           : {};
-      return ciData(
-        head,
-        checks,
-        { names: Object.keys(checks).slice(0, v % 3), complete },
-        extra,
-      );
+      return ciData(head, checks, { names: Object.keys(checks).slice(0, v % 3), complete }, extra);
     }
     case 'merge':
       return { merged: v % 5 !== 0, merge_sha: 'm1' };
@@ -213,10 +198,7 @@ function failureData(c: Choice, focus = false): Record<string, unknown> {
     c.flag % 5 === 0
       ? {}
       : {
-          usage:
-            c.flag % 2 === 0
-              ? { basis: 'unavailable' }
-              : { basis: 'reported', tokens: 10 },
+          usage: c.flag % 2 === 0 ? { basis: 'unavailable' } : { basis: 'reported', tokens: 10 },
         };
   return {
     failure_class: cls,
@@ -236,11 +218,7 @@ function actions(sim: Sim, run: Run, c: Choice): Action[] {
       // Usually claim and return immediately; occasional claim-only actions leave effects running.
       const okBelow = run.opts.failureFocus === true ? 10 : 17;
       const outcome =
-        c.variant % 20 < okBelow
-          ? 'succeeded'
-          : c.variant % 20 < 19
-            ? 'failed'
-            : 'unknown';
+        c.variant % 20 < okBelow ? 'succeeded' : c.variant % 20 < 19 ? 'failed' : 'unknown';
       const step = (): { decision?: Decision; claim: ClaimResult } => {
         const claim = sim.claim(e.id);
         if (!claim.ok) return { claim };
@@ -279,11 +257,7 @@ function actions(sim: Sim, run: Run, c: Choice): Action[] {
       out.push({
         label: `fail:${e.kind}`,
         run: () => ({
-          decision: sim.result(
-            e.id,
-            'failed',
-            failureData(c, run.opts.failureFocus),
-          ),
+          decision: sim.result(e.id, 'failed', failureData(c, run.opts.failureFocus)),
         }),
       });
       if (c.flag % 2 === 0)
@@ -292,10 +266,7 @@ function actions(sim: Sim, run: Run, c: Choice): Action[] {
           run: () => ({ decision: sim.result(e.id, 'unknown') }),
         });
     }
-    if (
-      e.status === 'unknown' ||
-      (e.status === 'started' && c.flag % 7 === 0)
-    ) {
+    if (e.status === 'unknown' || (e.status === 'started' && c.flag % 7 === 0)) {
       const findings = [
         'executed_succeeded',
         'executed_succeeded',
@@ -303,9 +274,7 @@ function actions(sim: Sim, run: Run, c: Choice): Action[] {
         'not_executed',
         'still_unknown',
       ] as const;
-      const f = findings[
-        c.variant % findings.length
-      ] as (typeof findings)[number];
+      const f = findings[c.variant % findings.length] as (typeof findings)[number];
       out.push({
         label: `reconcile:${e.kind}:${f}`,
         run: () => ({
@@ -318,9 +287,7 @@ function actions(sim: Sim, run: Run, c: Choice): Action[] {
                 : { data: successData(sim, e, c) }
               : f === 'executed_failed'
                 ? {
-                    failure_class: FAILURE_CLASSES[
-                      c.variant % 8
-                    ] as FailureClass,
+                    failure_class: FAILURE_CLASSES[c.variant % 8] as FailureClass,
                     ...(c.flag % 2 === 0 ? { signature: 's' } : {}),
                   }
                 : {},
@@ -329,11 +296,7 @@ function actions(sim: Sim, run: Run, c: Choice): Action[] {
       });
     }
 
-    if (
-      e.status === 'succeeded' ||
-      e.status === 'failed' ||
-      e.status === 'invalidated'
-    ) {
+    if (e.status === 'succeeded' || e.status === 'failed' || e.status === 'invalidated') {
       if (c.flag % 11 === 0)
         out.push({
           label: `stale:${e.kind}`,
@@ -403,9 +366,9 @@ function actions(sim: Sim, run: Run, c: Choice): Action[] {
   }
   if (s.source_drift?.safe_boundary_reached) {
     if (run.opts.driftFocus === true) out.length = 0;
-    const choice = (
-      ['continue_old', 'apply_new', 'apply_new', 'new_task'] as const
-    )[c.variant % 4] as 'continue_old' | 'apply_new' | 'new_task';
+    const choice = (['continue_old', 'apply_new', 'apply_new', 'new_task'] as const)[
+      c.variant % 4
+    ] as 'continue_old' | 'apply_new' | 'new_task';
     const drift = s.source_drift;
     out.push({
       label: `drift:${choice}`,
@@ -413,9 +376,7 @@ function actions(sim: Sim, run: Run, c: Choice): Action[] {
         decision: sim.when({
           kind: 'drift_choice',
           choice,
-          ...(choice === 'apply_new'
-            ? { freeze: freezeOk(drift.task, run.policy) }
-            : {}),
+          ...(choice === 'apply_new' ? { freeze: freezeOk(drift.task, run.policy) } : {}),
         }),
       }),
     });
@@ -474,8 +435,7 @@ export function drive(
     // advance may fire several timers; each trace entry uses the final state.
     const extra = sim.decisions.length - decisionsBefore;
     run.trace.push({
-      kind:
-        r.claim !== undefined && r.decision === undefined ? 'claim' : 'decide',
+      kind: r.claim !== undefined && r.decision === undefined ? 'claim' : 'decide',
       label: act.label,
       before,
       policyBefore,
@@ -484,8 +444,7 @@ export function drive(
       claim: r.claim ?? null,
       trigger:
         extra === 1
-          ? ((sim.log.at(-1) as { envelope?: { trigger: Trigger } }).envelope
-              ?.trigger ?? null)
+          ? ((sim.log.at(-1) as { envelope?: { trigger: Trigger } }).envelope?.trigger ?? null)
           : null,
       ids: 8,
       now: sim.now,
@@ -500,12 +459,7 @@ export function eventsOf(e: TraceEntry): DomainEventDraft[] {
 
 export function walk(
   events: readonly DomainEventDraft[],
-  fn: (
-    before: TaskState | null,
-    ev: DomainEventDraft,
-    after: TaskState,
-    i: number,
-  ) => void,
+  fn: (before: TaskState | null, ev: DomainEventDraft, after: TaskState, i: number) => void,
 ): void {
   let s: TaskState | null = null;
   events.forEach((ev, i) => {

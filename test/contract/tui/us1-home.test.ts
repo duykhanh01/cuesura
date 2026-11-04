@@ -5,11 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { ATTENTION_LIMIT } from '../../../src/application/board.ts';
 import { STORE_FILE } from '../../../src/daemon/main.ts';
 import { openFileStoreForTest, storeDb } from '../../../src/store/testing.ts';
-import {
-  activity,
-  statusGlyph,
-  todo,
-} from '../../../src/tui/model/activity.ts';
+import { activity, statusGlyph, todo } from '../../../src/tui/model/activity.ts';
 import type { TaskStatus } from '../../../src/domain/state.ts';
 import { buildTask, uuidOf } from '../../support/builders.ts';
 import { KEY, type PtySession } from '../../support/pty.ts';
@@ -79,9 +75,7 @@ describe('US1 scenario 1: the main screen, with no arguments', () => {
     expect(bar).toMatch(/updated: \d\d:\d\d:\d\d/);
     expect(bar).toContain('project: all');
     expect(screen).toContain('Task 003');
-    expect(rowOf(screen, 'Sample queued')).toContain(
-      'Queued for the execution slot',
-    );
+    expect(rowOf(screen, 'Sample queued')).toContain('Queued for the execution slot');
     await quit(s);
   });
 
@@ -105,9 +99,8 @@ describe('US1 scenario 1: the main screen, with no arguments', () => {
       const row = rowOf(screen, item.title);
       // A row carries its status as the status's own mark (FR-035).
       expect(row).toContain(statusGlyph(item.status as TaskStatus).mark);
-      const explained = (
-        await cliJson(sd, 'task', 'explain', item.task_id, '--full')
-      ).envelope.data as unknown as Explained;
+      const explained = (await cliJson(sd, 'task', 'explain', item.task_id, '--full')).envelope
+        .data as unknown as Explained;
       expect(explained.status).toBe(item.status);
       if (explained.wait !== null)
         expect(row).toContain(
@@ -137,9 +130,7 @@ describe('US1 scenario 1: the main screen, with no arguments', () => {
     // A log old enough for its trigger to carry no time.
     const store = openFileStoreForTest(join(sd.dataDir, STORE_FILE));
     storeDb(store)
-      .prepare(
-        `UPDATE accepted_triggers SET envelope_json = json_remove(envelope_json, '$.now')`,
-      )
+      .prepare(`UPDATE accepted_triggers SET envelope_json = json_remove(envelope_json, '$.now')`)
       .run();
     store.close();
     await sd.start();
@@ -199,11 +190,7 @@ describe('US1 scenario 3 and FR-007: what needs the user', () => {
     ] as const)
       expect(rowOf(group, title)).toContain(`→ ${action}`);
     // Waiting within its limits is not the user's to solve.
-    for (const title of [
-      'Sample waiting CI',
-      'Sample cooldown',
-      'Sample coding',
-    ]) {
+    for (const title of ['Sample waiting CI', 'Sample cooldown', 'Sample coding']) {
       expect(group).not.toContain(title);
       expect(lines.slice(tasks).join('\n')).toContain(title);
     }
@@ -214,14 +201,13 @@ describe('US1 scenario 3 and FR-007: what needs the user', () => {
     const sd = tui.daemon();
     sd.seed((d) => seedEveryState(d));
     await sd.start();
-    const board = (await sd.query('owner', { kind: 'task_board' })).envelope
-      .data as { attention: { items: AttentionRow[] } };
+    const board = (await sd.query('owner', { kind: 'task_board' })).envelope.data as {
+      attention: { items: AttentionRow[] };
+    };
     const s = tui.cusr(sd.dataDir);
     await s.waitForText(`Needs you (${board.attention.items.length})`);
     for (const row of board.attention.items)
-      expect(rowOf(s.screenText(), row.title)).toContain(
-        todo(row) as unknown as string,
-      );
+      expect(rowOf(s.screenText(), row.title)).toContain(todo(row) as unknown as string);
     await quit(s);
   });
 });
@@ -234,18 +220,14 @@ describe('FR-007 and EC-005: more tasks need the user than the daemon lists', ()
         const t = buildTask({ id: uuidOf(n), title: `Unconfirmed ${n}` });
         d.must(t.id, { kind: 'create_task', task: t });
       }
-      seedQuestion(
-        d,
-        buildTask({ id: uuidOf(ATTENTION_LIMIT + 1), title: 'Past the cap' }),
-      );
+      seedQuestion(d, buildTask({ id: uuidOf(ATTENTION_LIMIT + 1), title: 'Past the cap' }));
     });
     await sd.start();
-    const board = (await sd.query('owner', { kind: 'task_board' })).envelope
-      .data as { attention: { items: AttentionRow[]; truncated: boolean } };
+    const board = (await sd.query('owner', { kind: 'task_board' })).envelope.data as {
+      attention: { items: AttentionRow[]; truncated: boolean };
+    };
     expect(board.attention.truncated).toBe(true);
-    expect(board.attention.items.map((i) => i.title)).not.toContain(
-      'Past the cap',
-    );
+    expect(board.attention.items.map((i) => i.title)).not.toContain('Past the cap');
 
     const s = tui.cusr(sd.dataDir);
     await s.waitForText(`Needs you (${ATTENTION_LIMIT}+)`);
@@ -387,9 +369,7 @@ describe('EC-009: a token limited to some projects', () => {
   it('shows only what it may read, and says this is the scope of the token', async () => {
     const sd = tui.daemon({
       projects: ['beta'],
-      tokens: [
-        { id: 'viewer', actor: 'viewer', roles: ['read'], projects: ['acme'] },
-      ],
+      tokens: [{ id: 'viewer', actor: 'viewer', roles: ['read'], projects: ['acme'] }],
     });
     sd.seed((d) => {
       seedRunning(d, 1, () => ({ title: 'In acme' }), 1);
@@ -617,27 +597,24 @@ describe('T039 and FR-035: no colour, and the smallest terminal', () => {
   it.each([
     ['NO_COLOR', { NO_COLOR: '1' }],
     ['a terminal with no colours', { TERM: 'vt100' }],
-  ] as const)(
-    '%s: says so, marks each status, writes no colour',
-    async (_what, env) => {
-      const sd = tui.daemon();
-      sd.seed((d) => {
-        seedRunning(d, 1);
-        const t = buildTask({ id: uuidOf(50), title: 'Unconfirmed one' });
-        d.must(t.id, { kind: 'create_task', task: t });
-      });
-      await sd.start();
-      const s = tui.cusr(sd.dataDir, { env });
-      await s.waitForText('Unconfirmed one');
-      const screen = s.screenText();
-      expect(screen).toContain('No colour:');
-      expect(rowOf(screen, 'Task 001')).toContain('▶ Task 001');
-      expect(rowOf(screen, 'Unconfirmed one')).toContain('◇ Unconfirmed one');
-      // eslint-disable-next-line no-control-regex -- the colour escapes are what this looks for.
-      expect(s.rawOutput()).not.toMatch(/\x1b\[[0-9;]*3[0-7][0-9;]*m/);
-      await quit(s);
-    },
-  );
+  ] as const)('%s: says so, marks each status, writes no colour', async (_what, env) => {
+    const sd = tui.daemon();
+    sd.seed((d) => {
+      seedRunning(d, 1);
+      const t = buildTask({ id: uuidOf(50), title: 'Unconfirmed one' });
+      d.must(t.id, { kind: 'create_task', task: t });
+    });
+    await sd.start();
+    const s = tui.cusr(sd.dataDir, { env });
+    await s.waitForText('Unconfirmed one');
+    const screen = s.screenText();
+    expect(screen).toContain('No colour:');
+    expect(rowOf(screen, 'Task 001')).toContain('▶ Task 001');
+    expect(rowOf(screen, 'Unconfirmed one')).toContain('◇ Unconfirmed one');
+    // eslint-disable-next-line no-control-regex -- the colour escapes are what this looks for.
+    expect(s.rawOutput()).not.toMatch(/\x1b\[[0-9;]*3[0-7][0-9;]*m/);
+    await quit(s);
+  });
 
   it('a terminal with colour gets no such notice', async () => {
     const sd = tui.daemon();

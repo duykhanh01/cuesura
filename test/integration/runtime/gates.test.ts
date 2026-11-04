@@ -9,21 +9,11 @@ import {
   type CommandSetDeps,
   type CommandSetInput,
 } from '../../../src/adapters/gates.ts';
-import {
-  ensureWorktree,
-  markerPath,
-} from '../../../src/adapters/git/worktree.ts';
+import { ensureWorktree, markerPath } from '../../../src/adapters/git/worktree.ts';
 import type { SandboxProvider } from '../../../src/adapters/ports.ts';
-import {
-  RETRY_SAFETY,
-  SpawnExecutor,
-  type CommandExecutor,
-} from '../../../src/runner/commands.ts';
+import { RETRY_SAFETY, SpawnExecutor, type CommandExecutor } from '../../../src/runner/commands.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
-import {
-  HostExecutionProvider,
-  shortTmpDir,
-} from '../../../src/runner/sandbox.ts';
+import { HostExecutionProvider, shortTmpDir } from '../../../src/runner/sandbox.ts';
 import type { EpochMs } from '../../../src/shared/brand.ts';
 import { hashText } from '../../../src/shared/hash.ts';
 import { ok } from '../../../src/shared/result.ts';
@@ -151,10 +141,7 @@ describe('setup/gate/autofix commands (T038, FR-004)', () => {
 
   it('a tree that keeps moving is reported unstable after a bounded number of passes', async () => {
     const { deps, input, worktree } = await setup();
-    const r = await runGates(
-      deps,
-      input([{ name: 'churn', command: 'date +%s%N >> churn.txt' }]),
-    );
+    const r = await runGates(deps, input([{ name: 'churn', command: 'date +%s%N >> churn.txt' }]));
     expect(r.data?.stable).toBe(false);
     expect(g.sh(worktree, 'show', ':churn.txt').split('\n')).toHaveLength(3);
   });
@@ -175,18 +162,12 @@ describe('setup/gate/autofix commands (T038, FR-004)', () => {
       {
         gate: 'unit',
         passed: false,
-        signature: expect.stringMatching(
-          /^gate:unit:exit_3:[0-9a-f]{12}$/,
-        ) as unknown,
+        signature: expect.stringMatching(/^gate:unit:exit_3:[0-9a-f]{12}$/) as unknown,
         log_excerpt: '1 failing\n',
       },
       { gate: 'lint', passed: true },
     ]);
-    expect(r.receipts.map((x) => x.status)).toEqual([
-      'passed',
-      'failed',
-      'passed',
-    ]);
+    expect(r.receipts.map((x) => x.status)).toEqual(['passed', 'failed', 'passed']);
     expect(r.receipts[1]?.output.tail).toContain('1 failing');
   });
 
@@ -283,12 +264,14 @@ describe('setup/gate/autofix commands (T038, FR-004)', () => {
       gate: 'safe',
       autofix: 'unsafe',
     });
-    expect(
-      await runAutofix(deps, input([{ name: 'format_fix', command: 'x' }])),
-    ).toMatchObject({ kind: 'unknown', retry_allowed: false });
-    expect(
-      await runGates(deps, input([{ name: 'unit', command: 'x' }])),
-    ).toMatchObject({ kind: 'unknown', retry_allowed: true });
+    expect(await runAutofix(deps, input([{ name: 'format_fix', command: 'x' }]))).toMatchObject({
+      kind: 'unknown',
+      retry_allowed: false,
+    });
+    expect(await runGates(deps, input([{ name: 'unit', command: 'x' }]))).toMatchObject({
+      kind: 'unknown',
+      retry_allowed: true,
+    });
   });
 
   it('a sandbox plan that is refused never launches the command', async () => {
@@ -300,10 +283,7 @@ describe('setup/gate/autofix commands (T038, FR-004)', () => {
       }),
     };
     const { deps, input } = await setup(refusing);
-    const r = await runGates(
-      deps,
-      input([{ name: 'unit', command: 'touch ran.txt' }]),
-    );
+    const r = await runGates(deps, input([{ name: 'unit', command: 'touch ran.txt' }]));
     expect(r.receipts[0]).toMatchObject({
       status: 'not_launched',
       detail: 'policy_violation: no',
@@ -314,10 +294,7 @@ describe('setup/gate/autofix commands (T038, FR-004)', () => {
 describe('gates through the production host launcher', () => {
   it('runs the configured gate in its worktree and records the result', async () => {
     const { deps, input, worktree } = await setup(new HostExecutionProvider());
-    const r = await runGates(
-      deps,
-      input([{ name: 'build', command: 'echo built > out.txt' }]),
-    );
+    const r = await runGates(deps, input([{ name: 'build', command: 'echo built > out.txt' }]));
     expect(r.receipts[0]).toMatchObject({ status: 'passed' });
     expect(existsSync(join(worktree, 'out.txt'))).toBe(true);
   });
@@ -327,8 +304,7 @@ describe('gates through the production host launcher', () => {
     const base = input([
       {
         name: 'build',
-        command:
-          'f=$(mktemp) && echo "$f" > out.txt && echo "$TMPDIR" >> out.txt',
+        command: 'f=$(mktemp) && echo "$f" > out.txt && echo "$TMPDIR" >> out.txt',
       },
     ]);
     const scratch = join(base.layout.scratch, 'x'.repeat(80));
@@ -338,9 +314,7 @@ describe('gates through the production host launcher', () => {
       layout: { ...base.layout, scratch },
     });
     expect(r.receipts[0]).toMatchObject({ status: 'passed' });
-    const [file, tmp] = readFileSync(join(worktree, 'out.txt'), 'utf8')
-      .trim()
-      .split('\n');
+    const [file, tmp] = readFileSync(join(worktree, 'out.txt'), 'utf8').trim().split('\n');
     // A Unix socket path holds 108 bytes; the scratch dir alone leaves no room for one.
     expect(tmp).toBe(shortTmpDir(scratch));
     expect(`${tmp}/cusr-deadline-XXXXXX/control.sock`.length).toBeLessThan(108);

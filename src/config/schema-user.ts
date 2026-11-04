@@ -56,16 +56,9 @@ export const LadderStepSchema = z
     add_context: nameList.min(1).optional(),
   })
   .strict()
-  .refine(
-    (s) =>
-      s.effort !== undefined ||
-      s.model !== undefined ||
-      s.add_context !== undefined,
-    {
-      message:
-        'A ladder rung must change at least one of: effort, model, add_context',
-    },
-  );
+  .refine((s) => s.effort !== undefined || s.model !== undefined || s.add_context !== undefined, {
+    message: 'A ladder rung must change at least one of: effort, model, add_context',
+  });
 
 export const RoleSchema = z
   .object({
@@ -172,12 +165,7 @@ export const ProfileSchema = z
         enabled: z.boolean().optional(),
         auto_up_to_tier: z.number().int().nonnegative().optional(),
         above: z.enum(['ask_human', 'deny']).optional(),
-        max_escalations_per_task: z
-          .number()
-          .int()
-          .nonnegative()
-          .nullable()
-          .optional(),
+        max_escalations_per_task: z.number().int().nonnegative().nullable().optional(),
         trust_agent_signal: z.boolean().optional(),
       })
       .strict()
@@ -227,10 +215,9 @@ export const AbsolutePathSchema = z.string().refine(isCleanAbsolutePath, {
 
 export const RepoSlugSchema = z
   .string()
-  .regex(
-    /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/(?!\.\.?$)[A-Za-z0-9._-]{1,100}$/,
-    { message: 'repo must be a GitHub repository in owner/repo format' },
-  );
+  .regex(/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/(?!\.\.?$)[A-Za-z0-9._-]{1,100}$/, {
+    message: 'repo must be a GitHub repository in owner/repo format',
+  });
 
 const DispatchNameSchema = z.string().regex(/^[^/\s]+$/, {
   message: 'Must not be empty or contain `/` or whitespace',
@@ -249,10 +236,7 @@ export type RawDispatchAgent = z.infer<typeof DispatchAgentSchema>;
 const DispatchChoiceSchema = z
   .object({
     /** One agent or ordered alternatives for the assistant to propose from; cusrd never ranks them. */
-    use: z.union([
-      DispatchAgentSchema,
-      z.array(DispatchAgentSchema).min(1).max(16),
-    ]),
+    use: z.union([DispatchAgentSchema, z.array(DispatchAgentSchema).min(1).max(16)]),
     /** Present means `full-review`, absent means `direct-pr`, so the two can never disagree. */
     reviewer: DispatchAgentSchema.optional(),
     why: z.string().min(1).max(4_000).optional(),
@@ -340,25 +324,18 @@ export const RuntimeTerminalSchema = z.discriminatedUnion('backend', [
   z.object({ backend: z.literal('paseo') }).strict(),
 ]);
 export type RuntimeTerminal = z.infer<typeof RuntimeTerminalSchema>;
-export type AttachedTerminal = Exclude<
-  RuntimeTerminal,
-  { backend: 'background' }
->;
+export type AttachedTerminal = Exclude<RuntimeTerminal, { backend: 'background' }>;
 
 /** Runtime limits override defaults individually; check cross-field constraints after merging them. */
 export const RuntimeSchema = z
   .object({
     data_dir: AbsolutePathSchema.optional(),
     limits: RuntimeLimitsSchema.partial().optional(),
-    tool_paths: z
-      .partialRecord(z.enum(RUNTIME_TOOLS), AbsolutePathSchema)
-      .optional(),
+    tool_paths: z.partialRecord(z.enum(RUNTIME_TOOLS), AbsolutePathSchema).optional(),
     credential_refs: z.record(RefNameSchema, AbsolutePathSchema).optional(),
     terminal: RuntimeTerminalSchema.optional(),
     access_tokens: z.array(AccessTokenSchema).optional(),
-    harness_isolation: z
-      .record(z.string().min(1), z.enum(HARNESS_INNER_MODES))
-      .optional(),
+    harness_isolation: z.record(z.string().min(1), z.enum(HARNESS_INNER_MODES)).optional(),
     /**
      * Execution modes the user allows, each with natural-language guidance for the assistant that
      * proposes a mode (task-execution-modes.md). cusrd passes the guidance on as written and never decides
@@ -389,9 +366,7 @@ export const UserConfigSchema = z
     workflows: z.record(z.string(), UserWorkflowSchema).optional(),
     profiles: z.record(z.string(), ProfileSchema).optional(),
     projects: z.record(z.string(), ProjectEntrySchema).optional(),
-    permissions: z
-      .record(z.string(), z.enum(['read_only', 'write']))
-      .optional(),
+    permissions: z.record(z.string(), z.enum(['read_only', 'write'])).optional(),
     yolo: z.boolean().optional(),
     autonomous: z.boolean().optional(),
     runtime: RuntimeSchema.optional(),

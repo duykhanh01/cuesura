@@ -9,12 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { validateConfig } from '../../src/config/validate.ts';
-import {
-  loadRealSmoke,
-  REAL_KINDS,
-  RealRun,
-  RealSmokeSchema,
-} from '../support/smoke-real.ts';
+import { loadRealSmoke, REAL_KINDS, RealRun, RealSmokeSchema } from '../support/smoke-real.ts';
 import {
   filesUnder,
   git,
@@ -29,9 +24,7 @@ import {
   waitCode,
 } from '../support/smoke.ts';
 
-const BUILT_CUSRD = fileURLToPath(
-  new URL('../../dist/cli/cusrd.js', import.meta.url),
-);
+const BUILT_CUSRD = fileURLToPath(new URL('../../dist/cli/cusrd.js', import.meta.url));
 const live: Rehearsal[] = [];
 afterEach(async () => {
   for (const r of live.splice(0)) await r.cleanup();
@@ -61,15 +54,12 @@ describe.each(PROJECT_KINDS)('%s fixture project', (kind) => {
   });
 
   it('requires a nonempty set of checks, each a job of its CI workflow', () => {
-    const required = (parse(cusr) as { ci: { required_checks: string[] } }).ci
-      .required_checks;
+    const required = (parse(cusr) as { ci: { required_checks: string[] } }).ci.required_checks;
     const workflow = parse(
       readFileSync(join(repoDir(kind), '.github/workflows/ci.yml'), 'utf8'),
     ) as { on: unknown; jobs: Record<string, unknown> };
     expect(required.length).toBeGreaterThan(0);
-    expect(Object.keys(workflow.jobs)).toEqual(
-      expect.arrayContaining(required),
-    );
+    expect(Object.keys(workflow.jobs)).toEqual(expect.arrayContaining(required));
     expect(workflow.on).toHaveProperty('pull_request');
   });
 
@@ -89,9 +79,7 @@ it('keeps secrets out of the fixtures and credentials as references in the confi
   const secretLike =
     /(sk-ant-|gh[opsu]_[A-Za-z0-9]{8}|github_pat_|"?(accessToken|refresh_token|api_key)"?\s*[:=])/;
   for (const f of filesUnder(PROJECTS_DIR))
-    expect(readFileSync(join(PROJECTS_DIR, f), 'utf8'), f).not.toMatch(
-      secretLike,
-    );
+    expect(readFileSync(join(PROJECTS_DIR, f), 'utf8'), f).not.toMatch(secretLike);
   const refs = (
     parse(userConfig('node')) as {
       runtime: { credential_refs: Record<string, string> };
@@ -129,11 +117,10 @@ describe.skipIf(!hostUsable())('local rehearsal through the CLI', () => {
         name: string;
         status: string;
       }[];
-      expect(
-        manifests
-          .filter((c) => c.name.startsWith('manifest:'))
-          .map((c) => c.status),
-      ).toEqual(['ok', 'ok']);
+      expect(manifests.filter((c) => c.name.startsWith('manifest:')).map((c) => c.status)).toEqual([
+        'ok',
+        'ok',
+      ]);
 
       const id = await r.addTask();
       const waiting = await r.untilMergeWait(id);
@@ -152,12 +139,8 @@ describe.skipIf(!hostUsable())('local rehearsal through the CLI', () => {
         expect.stringMatching(/^POST repos\/.*\/pulls$/),
       ]);
       // The pushed head holds the agent's work, on the remote, with nothing typed by hand.
-      expect(git(r.remote, 'rev-parse', `refs/heads/${pr.head.ref}`)).toBe(
-        pr.head.sha,
-      );
-      expect(git(r.remote, 'log', '--format=%an', '-1', pr.head.sha)).toBe(
-        'Cuesura',
-      );
+      expect(git(r.remote, 'rev-parse', `refs/heads/${pr.head.ref}`)).toBe(pr.head.sha);
+      expect(git(r.remote, 'log', '--format=%an', '-1', pr.head.sha)).toBe('Cuesura');
 
       const explain = await r.must('task', 'explain', id);
       expect(explain['allowed_actions']).toContainEqual(
@@ -222,36 +205,33 @@ describe.skipIf(!hostUsable() || !existsSync(BUILT_CUSRD))(
 
 // T127. Needs CUSR_SMOKE_REAL and a build; spends model usage and opens one PR on each sandbox.
 const real = loadRealSmoke();
-describe.skipIf(real === null).each(REAL_KINDS)(
-  'real run on the %s sandbox',
-  (kind) => {
-    it('reaches one green PR through the CLI and stays unmerged until a person merges', async () => {
-      const r = new RealRun(real as NonNullable<typeof real>, kind);
-      await r.startDaemon();
-      try {
-        const id = await r.addTask();
-        const waiting = await r.untilMergeWait(id, 3_600_000);
-        expect(waiting['completion']).toBeNull();
-        const prRef = waiting['pr_ref'] as string;
-        const pull = r.pull(prRef);
-        expect(pull).toMatchObject({
-          state: 'open',
-          merged: false,
-          head_sha: waiting['head_sha'],
-        });
-        expect(waitCode(waiting)).toBe('merge');
-        r.record('T127', {
-          task_id: id,
-          pr_ref: prRef,
-          head_sha: waiting['head_sha'],
-          provenance: waiting['provenance'],
-          cusr_version: spawnSync('git', ['rev-parse', 'HEAD'], {
-            encoding: 'utf8',
-          }).stdout.trim(),
-        });
-      } finally {
-        await r.stopDaemon('SIGTERM');
-      }
-    }, 3_700_000);
-  },
-);
+describe.skipIf(real === null).each(REAL_KINDS)('real run on the %s sandbox', (kind) => {
+  it('reaches one green PR through the CLI and stays unmerged until a person merges', async () => {
+    const r = new RealRun(real as NonNullable<typeof real>, kind);
+    await r.startDaemon();
+    try {
+      const id = await r.addTask();
+      const waiting = await r.untilMergeWait(id, 3_600_000);
+      expect(waiting['completion']).toBeNull();
+      const prRef = waiting['pr_ref'] as string;
+      const pull = r.pull(prRef);
+      expect(pull).toMatchObject({
+        state: 'open',
+        merged: false,
+        head_sha: waiting['head_sha'],
+      });
+      expect(waitCode(waiting)).toBe('merge');
+      r.record('T127', {
+        task_id: id,
+        pr_ref: prRef,
+        head_sha: waiting['head_sha'],
+        provenance: waiting['provenance'],
+        cusr_version: spawnSync('git', ['rev-parse', 'HEAD'], {
+          encoding: 'utf8',
+        }).stdout.trim(),
+      });
+    } finally {
+      await r.stopDaemon('SIGTERM');
+    }
+  }, 3_700_000);
+});

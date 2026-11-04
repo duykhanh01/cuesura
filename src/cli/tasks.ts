@@ -28,12 +28,7 @@ import {
   renderTaskList,
   type Render,
 } from './render.ts';
-import {
-  explainSummary,
-  historySummary,
-  listSummary,
-  showSummary,
-} from './summary.ts';
+import { explainSummary, historySummary, listSummary, showSummary } from './summary.ts';
 
 type Values = Readonly<Record<string, string | undefined>>;
 
@@ -63,8 +58,7 @@ async function call(
     : token;
   if (reply.ok) return reply.value.envelope;
   return errorEnvelope({
-    code:
-      reply.error.code === 'token' ? 'token_unavailable' : 'daemon_unreachable',
+    code: reply.error.code === 'token' ? 'token_unavailable' : 'daemon_unreachable',
     message: reply.error.message,
     details: {},
     request_id: requestId,
@@ -87,16 +81,13 @@ export function print(
     const guidance = envelope.error.details['guidance'];
     if (typeof guidance === 'string') io.stderr(`cusr: ${guidance}\n`);
     const issues = envelope.error.details['issues'];
-    if (Array.isArray(issues))
-      for (const issue of issues) io.stderr(`cusr: ${String(issue)}\n`);
+    if (Array.isArray(issues)) for (const issue of issues) io.stderr(`cusr: ${String(issue)}\n`);
     const checks = envelope.error.details['checks'] as
       | { name: string; status: string; detail: string; fix: string | null }[]
       | undefined;
     for (const c of checks ?? [])
       if (c.status === 'fail')
-        io.stderr(
-          `cusr: ${c.name}: ${c.detail}${c.fix === null ? '' : `; fix: ${c.fix}`}\n`,
-        );
+        io.stderr(`cusr: ${c.name}: ${c.detail}${c.fix === null ? '' : `; fix: ${c.fix}`}\n`);
   }
   return exitCodeFor(envelope);
 }
@@ -121,8 +112,7 @@ export function badFlag(
   json: boolean,
   io: CliIo,
 ): number {
-  if (json)
-    return print(fail('invalid_arguments', message, details, null), json, io);
+  if (json) return print(fail('invalid_arguments', message, details, null), json, io);
   io.stderr(`cusr: ${message}\n`);
   return ExitCode.usage;
 }
@@ -147,9 +137,7 @@ function choice(
 ): { harness: string; model: string; effort: string } | null | undefined {
   if (v === undefined) return undefined;
   const [harness, model, effort, ...rest] = v.split('/');
-  return harness && model && effort && rest.length === 0
-    ? { harness, model, effort }
-    : null;
+  return harness && model && effort && rest.length === 0 ? { harness, model, effort } : null;
 }
 
 const RUN_OPTIONS = [
@@ -167,13 +155,11 @@ const RUN_OPTIONS = [
   },
   {
     flags: '--reviewer <h/m/e>',
-    description:
-      'Reviewer binding in harness/model/effort format (full-review only)',
+    description: 'Reviewer binding in harness/model/effort format (full-review only)',
   },
   {
     flags: '--fallback <list>',
-    description:
-      'Comma-separated fallback bindings in harness/model/effort format',
+    description: 'Comma-separated fallback bindings in harness/model/effort format',
   },
   {
     flags: '--reason <text>',
@@ -182,11 +168,8 @@ const RUN_OPTIONS = [
 ];
 
 /** The run selection from flags; undefined when none given, a string when malformed. */
-function runProposal(
-  values: Values,
-): Record<string, unknown> | string | undefined {
-  if (values['mode'] === undefined && values['worker'] === undefined)
-    return undefined;
+function runProposal(values: Values): Record<string, unknown> | string | undefined {
+  if (values['mode'] === undefined && values['worker'] === undefined) return undefined;
   const worker = choice(values['worker']);
   const reviewer = choice(values['reviewer']);
   const fallbacks = (values['fallback'] ?? '')
@@ -214,8 +197,7 @@ function runProposal(
 
 const REQUEST_ID = {
   flags: '--request-id <uuid>',
-  description:
-    'Request ID for safe retries (default: a new UUIDv7, included in the result)',
+  description: 'Request ID for safe retries (default: a new UUIDv7, included in the result)',
 };
 const EXPECTED_VERSION = {
   flags: '--expected-version <n>',
@@ -242,11 +224,7 @@ async function mutate(
 ): Promise<number> {
   const expected = version(values);
   if (expected === null)
-    return usage(
-      `${kind} requires --expected-version with a non-negative integer`,
-      json,
-      io,
-    );
+    return usage(`${kind} requires --expected-version with a non-negative integer`, json, io);
   const requestId = values['requestId'] ?? uuidv7();
   let project = values['project'];
   if (project === undefined) {
@@ -257,11 +235,7 @@ async function mutate(
       requestId,
     );
     if (!shown.ok)
-      return print(
-        { ...shown, error: { ...shown.error, request_id: requestId } },
-        json,
-        io,
-      );
+      return print({ ...shown, error: { ...shown.error, request_id: requestId } }, json, io);
     project = (shown.data as { project: string }).project;
   }
   return print(
@@ -295,9 +269,7 @@ export async function query(
 ): Promise<number> {
   const reply = await call(values, '/v1/query', body, null, timeoutMs);
   return print(
-    reply.ok && view !== undefined
-      ? { ...reply, data: view(reply.data) }
-      : reply,
+    reply.ok && view !== undefined ? { ...reply, data: view(reply.data) } : reply,
     json,
     io,
     render,
@@ -306,16 +278,14 @@ export async function query(
 
 const FULL = {
   flags: '--full',
-  description:
-    'Print the complete reply, including evidence, log excerpts and provenance',
+  description: 'Print the complete reply, including evidence, log excerpts and provenance',
 };
 
 /** The summary view unless `--full` asked for the complete reply. */
 const unlessFull = (
   values: Values,
   summary: (data: unknown) => unknown,
-): ((data: unknown) => unknown) | undefined =>
-  values['full'] === undefined ? summary : undefined;
+): ((data: unknown) => unknown) | undefined => (values['full'] === undefined ? summary : undefined);
 
 /** The JSON task input of `task add --file` (contracts/cli-daemon.md); the daemon validates its fields. */
 function readJsonFile(path: string): Record<string, unknown> | string {
@@ -337,8 +307,7 @@ export const addCommand: CliCommand = {
     REQUEST_ID,
     {
       flags: '--file <file>',
-      description:
-        'JSON task file containing project, title, base_branch, and acceptance',
+      description: 'JSON task file containing project, title, base_branch, and acceptance',
     },
     {
       flags: '--project <id>',
@@ -373,19 +342,11 @@ export const addCommand: CliCommand = {
       fileRun = run_config;
       task = rest;
       if (project === undefined)
-        return usage(
-          'task add requires a project in the JSON file or --project',
-          json,
-          io,
-        );
+        return usage('task add requires a project in the JSON file or --project', json, io);
     } else {
       const { title, base } = values;
       if (project === undefined || title === undefined || base === undefined)
-        return usage(
-          'task add requires --file or all of --project, --title, and --base',
-          json,
-          io,
-        );
+        return usage('task add requires --file or all of --project, --title, and --base', json, io);
       task = {
         title,
         base_branch: base,
@@ -398,9 +359,7 @@ export const addCommand: CliCommand = {
           .split(',')
           .map((s) => s.trim())
           .filter((s) => s !== ''),
-        ...(values['priority'] === undefined
-          ? {}
-          : { priority: Number(values['priority']) }),
+        ...(values['priority'] === undefined ? {} : { priority: Number(values['priority']) }),
       };
     }
     const flagged = runProposal(values);
@@ -429,8 +388,7 @@ export const addCommand: CliCommand = {
 
 export const showCommand: CliCommand = {
   name: 'task show',
-  description:
-    'Show task status, step, wait, pull request, version and run configuration digest',
+  description: 'Show task status, step, wait, pull request, version and run configuration digest',
   help: `By default: identity, status, step, wait, PR, version and run_config digest for mutations.
 --full adds provenance, usage, merge, deadline and execution details.
 
@@ -491,9 +449,7 @@ Examples:
       return Promise.resolve(usage('--limit must be an integer', json, io));
     const order = values['order'] ?? 'newest';
     if (!LIST_ORDERS.includes(order))
-      return Promise.resolve(
-        badChoice('--order', order, LIST_ORDERS, json, io),
-      );
+      return Promise.resolve(badChoice('--order', order, LIST_ORDERS, json, io));
     const filters = (
       [
         ['--project', values['project']],
@@ -510,9 +466,7 @@ Examples:
         limit,
         order,
         ...(values['cursor'] === undefined ? {} : { cursor: values['cursor'] }),
-        ...(values['project'] === undefined
-          ? {}
-          : { project: values['project'] }),
+        ...(values['project'] === undefined ? {} : { project: values['project'] }),
         ...(values['status'] === undefined ? {} : { status: values['status'] }),
       },
       json,
@@ -577,16 +531,10 @@ Examples:
     },
   ],
   run(values, json, io) {
-    const after =
-      values['after'] === undefined ? undefined : Number(values['after']);
+    const after = values['after'] === undefined ? undefined : Number(values['after']);
     const limit = Number(values['limit'] ?? HISTORY_DEFAULT_LIMIT);
-    if (
-      (after !== undefined && !Number.isInteger(after)) ||
-      !Number.isInteger(limit)
-    )
-      return Promise.resolve(
-        usage('--after and --limit must be integers', json, io),
-      );
+    if ((after !== undefined && !Number.isInteger(after)) || !Number.isInteger(limit))
+      return Promise.resolve(usage('--after and --limit must be integers', json, io));
     return query(
       values,
       {
@@ -606,19 +554,14 @@ Examples:
 
 export const proposeCommand: CliCommand = {
   name: 'task propose',
-  description:
-    'Propose a task execution mode and model bindings for confirmation',
+  description: 'Propose a task execution mode and model bindings for confirmation',
   args: ['<id>'],
   options: [DATA_DIR, REQUEST_ID, PROJECT, EXPECTED_VERSION, ...RUN_OPTIONS],
   run(values, json, io) {
     const run = runProposal(values);
     if (run === undefined || typeof run === 'string')
       return Promise.resolve(
-        usage(
-          run ?? 'task propose requires --profile, --mode, and --worker',
-          json,
-          io,
-        ),
+        usage(run ?? 'task propose requires --profile, --mode, and --worker', json, io),
       );
     return mutate(
       values,
@@ -651,9 +594,7 @@ export const confirmCommand: CliCommand = {
       values,
       'task_confirm',
       values['id'] as string,
-      values['runConfig'] === undefined
-        ? {}
-        : { run_config_digest: values['runConfig'] },
+      values['runConfig'] === undefined ? {} : { run_config_digest: values['runConfig'] },
       json,
       io,
     ),
@@ -661,8 +602,7 @@ export const confirmCommand: CliCommand = {
 
 export const cancelCommand: CliCommand = {
   name: 'task cancel',
-  description:
-    'Request task cancellation; completed external actions are preserved',
+  description: 'Request task cancellation; completed external actions are preserved',
   args: ['<id>'],
   options: [
     DATA_DIR,
@@ -691,18 +631,15 @@ export const recheckCommand: CliCommand = {
     'Recheck task configuration, pull request, drain, or worktree based on its current state',
   args: ['<id>'],
   options: [DATA_DIR, REQUEST_ID, PROJECT, EXPECTED_VERSION],
-  run: (values, json, io) =>
-    mutate(values, 'task_recheck', values['id'] as string, {}, json, io),
+  run: (values, json, io) => mutate(values, 'task_recheck', values['id'] as string, {}, json, io),
 };
 
 export const continueCommand: CliCommand = {
   name: 'task continue',
-  description:
-    'Keep a task on its current model after its quality loop ran out',
+  description: 'Keep a task on its current model after its quality loop ran out',
   args: ['<id>'],
   options: [DATA_DIR, REQUEST_ID, PROJECT, EXPECTED_VERSION],
-  run: (values, json, io) =>
-    mutate(values, 'task_continue', values['id'] as string, {}, json, io),
+  run: (values, json, io) => mutate(values, 'task_continue', values['id'] as string, {}, json, io),
 };
 
 function unsupported(
@@ -738,20 +675,11 @@ export const approveCommand: CliCommand = {
     { flags: '--rung <n>', description: 'Requested escalation rung' },
   ],
   run(values, json, io) {
-    if (values['kind'] === 'merge')
-      return unsupported('merge_approve', json, io);
+    if (values['kind'] === 'merge') return unsupported('merge_approve', json, io);
     const rung = values['rung'] === undefined ? NaN : Number(values['rung']);
-    if (
-      values['kind'] !== 'escalation' ||
-      values['step'] === undefined ||
-      !Number.isInteger(rung)
-    )
+    if (values['kind'] !== 'escalation' || values['step'] === undefined || !Number.isInteger(rung))
       return Promise.resolve(
-        usage(
-          'task approve requires --kind escalation, --step, and an integer --rung',
-          json,
-          io,
-        ),
+        usage('task approve requires --kind escalation, --step, and an integer --rung', json, io),
       );
     return mutate(
       values,
@@ -774,8 +702,7 @@ export const retryCommand: CliCommand = {
 
 export const amendPolicyCommand: CliCommand = {
   name: 'task amend-policy',
-  description:
-    'Unsupported; cancel the task and create one with the updated configuration',
+  description: 'Unsupported; cancel the task and create one with the updated configuration',
   args: ['[id]'],
   options: [DATA_DIR, REQUEST_ID, EXPECTED_VERSION],
   run: (_values, json, io) => unsupported('task_amend_policy', json, io),
@@ -803,9 +730,7 @@ export const inboxCommand: CliCommand = {
       values,
       {
         kind: 'inbox',
-        ...(values['project'] === undefined
-          ? {}
-          : { project: values['project'] }),
+        ...(values['project'] === undefined ? {} : { project: values['project'] }),
         ...(values['task'] === undefined ? {} : { task_id: values['task'] }),
       },
       json,
@@ -820,18 +745,12 @@ export const dispatchCommand: CliCommand = {
   run: (values, json, io) =>
     values['project'] === undefined
       ? Promise.resolve(usage('dispatch requires --project', json, io))
-      : query(
-          values,
-          { kind: 'dispatch', project: values['project'] },
-          json,
-          io,
-        ),
+      : query(values, { kind: 'dispatch', project: values['project'] }, json, io),
 };
 
 export const answerCommand: CliCommand = {
   name: 'answer',
-  description:
-    'Answer a question from a text file; the first valid answer is accepted',
+  description: 'Answer a question from a text file; the first valid answer is accepted',
   args: ['<question>'],
   options: [
     DATA_DIR,
@@ -866,11 +785,7 @@ export const answerCommand: CliCommand = {
       requestId,
     );
     if (!where.ok)
-      return print(
-        { ...where, error: { ...where.error, request_id: requestId } },
-        json,
-        io,
-      );
+      return print({ ...where, error: { ...where.error, request_id: requestId } }, json, io);
     const found = where.data as { task_id: string; project: string };
     return print(
       await call(
@@ -894,20 +809,14 @@ export const answerCommand: CliCommand = {
 
 export const doctorCommand: CliCommand = {
   name: 'doctor',
-  description:
-    'Check daemon health, host prerequisites, credentials, and harness capabilities',
-  options: [
-    DATA_DIR,
-    { flags: '--project <id>', description: 'Include checks for this project' },
-  ],
+  description: 'Check daemon health, host prerequisites, credentials, and harness capabilities',
+  options: [DATA_DIR, { flags: '--project <id>', description: 'Include checks for this project' }],
   run: (values, json, io) =>
     query(
       values,
       {
         kind: 'doctor',
-        ...(values['project'] === undefined
-          ? {}
-          : { project: values['project'] }),
+        ...(values['project'] === undefined ? {} : { project: values['project'] }),
       },
       json,
       io,
@@ -950,36 +859,17 @@ export const boardCommand: CliCommand = {
       (!/^\d+$/.test(limit) || Number(limit) < 1 || Number(limit) > BOARD_LIMIT)
     )
       return Promise.resolve(
-        badFlag(
-          `--limit must be an integer between 1 and ${BOARD_LIMIT}.`,
-          {},
-          json,
-          io,
-        ),
+        badFlag(`--limit must be an integer between 1 and ${BOARD_LIMIT}.`, {}, json, io),
       );
-    if (
-      status !== undefined &&
-      !(TASK_STATUSES as readonly string[]).includes(status)
-    )
-      return Promise.resolve(
-        badChoice('--status', status, TASK_STATUSES, json, io),
-      );
+    if (status !== undefined && !(TASK_STATUSES as readonly string[]).includes(status))
+      return Promise.resolve(badChoice('--status', status, TASK_STATUSES, json, io));
     if (scope !== undefined && !BOARD_SCOPES.includes(scope))
-      return Promise.resolve(
-        badChoice('--scope', scope, BOARD_SCOPES, json, io),
-      );
+      return Promise.resolve(badChoice('--scope', scope, BOARD_SCOPES, json, io));
     if (project === '')
-      return Promise.resolve(
-        badFlag('--project must not be empty.', {}, json, io),
-      );
+      return Promise.resolve(badFlag('--project must not be empty.', {}, json, io));
     if (cursor !== undefined && !UuidSchema.safeParse(cursor).success)
       return Promise.resolve(
-        badFlag(
-          `invalid --cursor ${JSON.stringify(cursor)}: it must be a task ID.`,
-          {},
-          json,
-          io,
-        ),
+        badFlag(`invalid --cursor ${JSON.stringify(cursor)}: it must be a task ID.`, {}, json, io),
       );
     return query(
       values,
@@ -1003,20 +893,13 @@ export const boardCommand: CliCommand = {
             ['--limit', limit],
             ['--data-dir', values['dataDir']],
           ] as const
-        ).flatMap(([flag, value]) =>
-          value === undefined ? [] : [flag, value],
-        ),
+        ).flatMap(([flag, value]) => (value === undefined ? [] : [flag, value])),
       ),
     );
   },
 };
 
-function taskRead(
-  kind: string,
-  name: string,
-  description: string,
-  render?: Render,
-): CliCommand {
+function taskRead(kind: string, name: string, description: string, render?: Render): CliCommand {
   return {
     name,
     description,
@@ -1024,14 +907,7 @@ function taskRead(
     args: ['<id>'],
     options: [DATA_DIR],
     run: (values, json, io) =>
-      query(
-        values,
-        { kind, task_id: values['id'] },
-        json,
-        io,
-        undefined,
-        render,
-      ),
+      query(values, { kind, task_id: values['id'] }, json, io, undefined, render),
   };
 }
 

@@ -25,30 +25,25 @@ function graphProblems(w: Workflow): string[] {
       if (!outcomes.includes(o)) out.push(`${sn}: outcome '${o}' not in kind`);
       else if (!known(t)) out.push(`${sn}: '${o}' targets unknown '${t}'`);
     }
-    for (const o of outcomes)
-      if (!(o in s.next)) out.push(`${sn}: outcome '${o}' has no target`);
+    for (const o of outcomes) if (!(o in s.next)) out.push(`${sn}: outcome '${o}' has no target`);
     if (s.max_visits !== undefined && s.on_exhausted === undefined)
       out.push(`${sn}: max_visits without on_exhausted`);
     if (s.on_exhausted !== undefined && !known(s.on_exhausted))
       out.push(`${sn}: on_exhausted targets unknown '${s.on_exhausted}'`);
     if (isAgentStep(s) && s.role === undefined) out.push(`${sn}: no role`);
-    if (s.kind === 'action' && s.action === undefined)
-      out.push(`${sn}: no action`);
+    if (s.kind === 'action' && s.action === undefined) out.push(`${sn}: no action`);
     if (s.kind === 'wait' && s.for === undefined) out.push(`${sn}: no for`);
-    if (s.kind === 'classify' && s.rules === undefined)
-      out.push(`${sn}: no rules`);
+    if (s.kind === 'classify' && s.rules === undefined) out.push(`${sn}: no rules`);
     if (s.kind === 'gate' && s.run === undefined) out.push(`${sn}: no run`);
     for (const g of s.required ?? [])
-      if (!(s.run ?? []).includes(g))
-        out.push(`${sn}: required '${g}' not in run`);
+      if (!(s.run ?? []).includes(g)) out.push(`${sn}: required '${g}' not in run`);
   }
   return out;
 }
 
 /** `retry` is a self-edge; `ask` and `escalate` wait for a human, so they end a cycle. */
 function unboundedCycles(w: Workflow): string[][] {
-  const bounded = (sn: string): boolean =>
-    w.steps[sn]?.max_visits !== undefined;
+  const bounded = (sn: string): boolean => w.steps[sn]?.max_visits !== undefined;
   const edges = (sn: string): string[] =>
     Object.values(w.steps[sn]?.next ?? {})
       .map((t) => (t === 'retry' ? sn : t))
@@ -60,15 +55,13 @@ function unboundedCycles(w: Workflow): string[][] {
     color.set(sn, 'grey');
     stack.push(sn);
     for (const t of edges(sn)) {
-      if (color.get(t) === 'grey')
-        found.push([...stack.slice(stack.indexOf(t)), t]);
+      if (color.get(t) === 'grey') found.push([...stack.slice(stack.indexOf(t)), t]);
       else if (!color.has(t)) visit(t);
     }
     stack.pop();
     color.set(sn, 'black');
   };
-  for (const sn of Object.keys(w.steps).sort())
-    if (!bounded(sn) && !color.has(sn)) visit(sn);
+  for (const sn of Object.keys(w.steps).sort()) if (!bounded(sn) && !color.has(sn)) visit(sn);
   return found;
 }
 
@@ -79,9 +72,8 @@ const GRAPHS: [string, Workflow][] = [
 ];
 
 describe('the software_dev graph in code', () => {
-  it.each(GRAPHS)(
-    '%s: every reference exists and every outcome has a target',
-    (_, w) => expect(graphProblems(w)).toEqual([]),
+  it.each(GRAPHS)('%s: every reference exists and every outcome has a target', (_, w) =>
+    expect(graphProblems(w)).toEqual([]),
   );
 
   it.each(GRAPHS)('%s: every cycle has a visit limit', (_, w) =>
@@ -89,9 +81,7 @@ describe('the software_dev graph in code', () => {
   );
 
   it.each(GRAPHS)('%s: decides nothing but by a human', (_, w) =>
-    expect(Object.values(w.decisions ?? {}).every((m) => m === 'human')).toBe(
-      true,
-    ),
+    expect(Object.values(w.decisions ?? {}).every((m) => m === 'human')).toBe(true),
   );
 
   it('the checks catch a broken graph', () => {
@@ -104,9 +94,7 @@ describe('the software_dev graph in code', () => {
     if (review === undefined) throw new Error('review');
     delete review.max_visits;
     review.next = { approve: 'publsh', request_changes: 'fix_review' };
-    expect(graphProblems(broken)).toEqual([
-      "review: 'approve' targets unknown 'publsh'",
-    ]);
+    expect(graphProblems(broken)).toEqual(["review: 'approve' targets unknown 'publsh'"]);
     expect(unboundedCycles(broken)).toEqual([['fix_review', 'fix_review']]);
   });
 });
@@ -116,20 +104,14 @@ const tunables = (step: string) => {
   if (def === undefined) throw new Error(step);
   const keys = tunablesOf(def);
   const arb: Record<string, fc.Arbitrary<unknown>> = {};
-  if (keys.includes('max_visits'))
-    arb['max_visits'] = fc.integer({ min: 1, max: 50 });
-  if (keys.includes('max_rung'))
-    arb['max_rung'] = fc.integer({ min: 0, max: 3 });
+  if (keys.includes('max_visits')) arb['max_visits'] = fc.integer({ min: 1, max: 50 });
+  if (keys.includes('max_rung')) arb['max_rung'] = fc.integer({ min: 0, max: 3 });
   if (keys.includes('run'))
-    arb['run'] = fc.uniqueArray(
-      fc.constantFrom('build', 'unit', 'lint', 'e2e'),
-      {
-        minLength: 1,
-      },
-    );
+    arb['run'] = fc.uniqueArray(fc.constantFrom('build', 'unit', 'lint', 'e2e'), {
+      minLength: 1,
+    });
   if (keys.includes('poll')) arb['poll'] = fc.constantFrom('30s', '1m', '5m');
-  if (keys.includes('timeout'))
-    arb['timeout'] = fc.constantFrom('10m', '1h', '6h');
+  if (keys.includes('timeout')) arb['timeout'] = fc.constantFrom('10m', '1h', '6h');
   return fc.record(arb, { requiredKeys: [] });
 };
 
@@ -152,9 +134,7 @@ describe('tunables never change the graph', () => {
           expect(unboundedCycles(w)).toEqual([]);
           for (const mode of ['full-review', 'direct-pr'] as const) {
             const g = modeGraph(w, mode);
-            expect(structureHash(g)).toBe(
-              structureHash(modeGraph(SOFTWARE_DEV, mode)),
-            );
+            expect(structureHash(g)).toBe(structureHash(modeGraph(SOFTWARE_DEV, mode)));
             expect(unboundedCycles(g)).toEqual([]);
           }
         },

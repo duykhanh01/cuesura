@@ -13,10 +13,7 @@ export type CiVerdict =
     };
 
 /** Expected checks are the union of frozen ci.required_checks and required_set.names. */
-export function expectedChecks(
-  policy: FrozenPolicy,
-  rs: RequiredSet,
-): string[] {
+export function expectedChecks(policy: FrozenPolicy, rs: RequiredSet): string[] {
   return [...new Set([...policy.ci.required_checks, ...rs.names])].sort();
 }
 
@@ -31,9 +28,7 @@ export function ciVerdict(
   const failed = expected.filter((n) => byName.get(n)?.state === 'failure');
   if (failed.length > 0) return { kind: 'fail', failed };
   const missing = expected.filter((n) => !byName.has(n));
-  const notPassed = expected.filter(
-    (n) => byName.has(n) && byName.get(n)?.state !== 'success',
-  );
+  const notPassed = expected.filter((n) => byName.has(n) && byName.get(n)?.state !== 'success');
   if (!rs.complete || missing.length > 0 || notPassed.length > 0) {
     return {
       kind: 'incomplete',
@@ -50,10 +45,7 @@ function latest<T>(xs: readonly T[], ok: (x: T) => boolean): T | undefined {
   return undefined;
 }
 
-export function latestCi(
-  state: TaskState,
-  head: string,
-): Evidence['ci'][number] | undefined {
+export function latestCi(state: TaskState, head: string): Evidence['ci'][number] | undefined {
   return latest(
     state.evidence.ci,
     (c) => c.valid && c.revision === state.revision && c.head_sha === head,
@@ -69,17 +61,13 @@ export type GuardFailure =
   | 'base_outdated'
   | 'approval_missing';
 
-export type GuardResult =
-  { ok: true; head_sha: string } | { ok: false; code: GuardFailure };
+export type GuardResult = { ok: true; head_sha: string } | { ok: false; code: GuardFailure };
 
 /**
  * Merge requires current revision/head evidence: approved or skipped review, complete CI, base
  * ancestry, human head-bound merge approval, and no cancellation.
  */
-export function mergeGuard(
-  state: TaskState,
-  policy: FrozenPolicy,
-): GuardResult {
+export function mergeGuard(state: TaskState, policy: FrozenPolicy): GuardResult {
   if (state.cancellation !== null) return { ok: false, code: 'cancelling' };
   const head = state.head_sha;
   if (head === null) return { ok: false, code: 'no_head' };
@@ -89,31 +77,22 @@ export function mergeGuard(
     state.evidence.reviews,
     (r) => r.valid && r.revision === rev && r.head_sha === head,
   );
-  const skipped = state.evidence.review_skipped.some(
-    (r) => r.valid && r.revision === rev,
-  );
-  if (review?.verdict !== 'approve' && !skipped)
-    return { ok: false, code: 'review_missing' };
+  const skipped = state.evidence.review_skipped.some((r) => r.valid && r.revision === rev);
+  if (review?.verdict !== 'approve' && !skipped) return { ok: false, code: 'review_missing' };
 
   const ci = latestCi(state, head);
   if (ci === undefined) return { ok: false, code: 'checks_incomplete' };
   const verdict = ciVerdict(policy, ci.required_set, ci.checks);
   if (verdict.kind === 'fail') return { ok: false, code: 'checks_failed' };
-  if (verdict.kind === 'incomplete')
-    return { ok: false, code: 'checks_incomplete' };
+  if (verdict.kind === 'incomplete') return { ok: false, code: 'checks_incomplete' };
 
   // Base ancestry evidence must match both the head and target base_ref.
   const target = state.task.base_branch;
   const base = latest(
     state.evidence.base_relations,
-    (b) =>
-      b.valid &&
-      b.revision === rev &&
-      b.head_sha === head &&
-      b.base_ref === target,
+    (b) => b.valid && b.revision === rev && b.head_sha === head && b.base_ref === target,
   );
-  if (base?.head_contains_base !== true)
-    return { ok: false, code: 'base_outdated' };
+  if (base?.head_contains_base !== true) return { ok: false, code: 'base_outdated' };
 
   const approved = Object.values(state.approvals).some(
     (a) =>

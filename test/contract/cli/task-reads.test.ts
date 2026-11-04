@@ -75,15 +75,15 @@ describe('cusr task board', () => {
         },
       },
     });
-    expect(
-      await json(sd, 'task', 'board', '--scope', 'terminal'),
-    ).toMatchObject({ envelope: { data: { items: [{ task_id: b.id }] } } });
-    expect(
-      await json(sd, 'task', 'board', '--status', 'READY', '--limit', '1'),
-    ).toMatchObject({ envelope: { data: { items: [{ task_id: a.id }] } } });
-    expect(
-      await json(sd, 'task', 'board', '--cursor', a.id, '--scope', 'all'),
-    ).toMatchObject({ envelope: { data: { items: [{ task_id: b.id }] } } });
+    expect(await json(sd, 'task', 'board', '--scope', 'terminal')).toMatchObject({
+      envelope: { data: { items: [{ task_id: b.id }] } },
+    });
+    expect(await json(sd, 'task', 'board', '--status', 'READY', '--limit', '1')).toMatchObject({
+      envelope: { data: { items: [{ task_id: a.id }] } },
+    });
+    expect(await json(sd, 'task', 'board', '--cursor', a.id, '--scope', 'all')).toMatchObject({
+      envelope: { data: { items: [{ task_id: b.id }] } },
+    });
     expect(await json(sd, 'task', 'board', '--project', 'nope')).toMatchObject({
       envelope: { data: { items: [] } },
     });
@@ -93,12 +93,8 @@ describe('cusr task board', () => {
     const sd = daemon();
     await sd.start();
     await sd.stop();
-    expect((await json(sd, 'task', 'board', '--limit', 'many')).code).toBe(
-      ExitCode.usage,
-    );
-    expect((await json(sd, 'task', 'board', '--scope', 'some')).code).toBe(
-      ExitCode.usage,
-    );
+    expect((await json(sd, 'task', 'board', '--limit', 'many')).code).toBe(ExitCode.usage);
+    expect((await json(sd, 'task', 'board', '--scope', 'some')).code).toBe(ExitCode.usage);
   });
 
   it('exits 3 without a daemon', async () => {
@@ -118,19 +114,13 @@ describe('cusr task board', () => {
     for (const limit of ['0', '101', '1.5', 'many', '-1']) {
       const bad = await cli(sd, 'task', 'board', `--limit=${limit}`);
       expect(bad.code).toBe(ExitCode.usage);
-      expect(bad.err).toBe(
-        'cusr: --limit must be an integer between 1 and 100.\n',
-      );
+      expect(bad.err).toBe('cusr: --limit must be an integer between 1 and 100.\n');
     }
     expect((await cli(sd, 'task', 'board', '--scope', 'x')).err).toContain(
       'Valid values: active, terminal, all.',
     );
-    expect((await cli(sd, 'task', 'board', '--cursor', 'x')).err).toContain(
-      'must be a task ID',
-    );
-    expect(
-      await json(sd, 'task', 'board', '--status', 'running'),
-    ).toMatchObject({
+    expect((await cli(sd, 'task', 'board', '--cursor', 'x')).err).toContain('must be a task ID');
+    expect(await json(sd, 'task', 'board', '--status', 'running')).toMatchObject({
       code: ExitCode.usage,
       envelope: {
         error: {
@@ -175,15 +165,7 @@ describe('cusr task board', () => {
       }
     });
     await sd.start();
-    const first = await cli(
-      sd,
-      'task',
-      'board',
-      '--scope',
-      'terminal',
-      '--limit',
-      '1',
-    );
+    const first = await cli(sd, 'task', 'board', '--scope', 'terminal', '--limit', '1');
     const more = first.out.split('\n').find((l) => l.startsWith('More: '));
     expect(more).toBe(
       `More: cusr task board --scope terminal --limit 1 --data-dir ${sd.dataDir} --cursor ${uuidOf(1)}`,
@@ -202,9 +184,7 @@ describe('cusr task board', () => {
       'in uppercase: PENDING, READY, RUNNING, WAITING, DONE, FAILED, CANCELLED',
     );
     expect(r.out).toContain('cusr task board --project acme --status WAITING');
-    expect(r.out).toContain(
-      'List tasks and highlight those that need your attention.',
-    );
+    expect(r.out).toContain('List tasks and highlight those that need your attention.');
   });
 });
 
@@ -275,9 +255,7 @@ describe('cusr task options', () => {
           configInputs: () =>
             Promise.resolve({
               user:
-                opts.user === undefined
-                  ? userConfig()
-                  : { file: 'config.yaml', text: opts.user },
+                opts.user === undefined ? userConfig() : { file: 'config.yaml', text: opts.user },
               packs: PACKS,
               manifests: MANIFESTS,
             }),

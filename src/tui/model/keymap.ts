@@ -78,8 +78,7 @@ const ENDS: Binding['press'] = [
 ];
 const END_KEYS = 'g G Home End';
 
-const onTask = (s: TuiState): boolean =>
-  s.selectedTaskId !== null && !s.finishedSelected;
+const onTask = (s: TuiState): boolean => s.selectedTaskId !== null && !s.finishedSelected;
 
 const waiting = (s: TuiState): boolean =>
   s.connection.kind === 'waiting_retry' || s.connection.kind === 'stopped';
@@ -470,9 +469,7 @@ export function keyContext(s: TuiState): Context {
     case 'actions':
       return 'actions';
     case 'filters':
-      return s.filterDraft?.field === 'project'
-        ? 'filter_text'
-        : 'filter_choice';
+      return s.filterDraft?.field === 'project' ? 'filter_text' : 'filter_choice';
     case 'help':
       return 'help';
   }
@@ -480,27 +477,19 @@ export function keyContext(s: TuiState): Context {
 
 /** The bindings of `ctx` in the order the bar shows them, whether they apply now or not. */
 export function bindings(ctx: Context): readonly Binding[] {
-  return [
-    ...GLOBAL_LEAD,
-    ...KEYS[ctx],
-    ...(typing(ctx) ? TYPING_TAIL : GLOBAL_TAIL),
-  ];
+  return [...GLOBAL_LEAD, ...KEYS[ctx], ...(typing(ctx) ? TYPING_TAIL : GLOBAL_TAIL)];
 }
 
 /** The bindings of a context of its own, without those of every screen: for Help. */
 export const ownBindings = (ctx: Context): readonly Binding[] => KEYS[ctx];
-export const globalBindings = (): readonly Binding[] => [
-  ...GLOBAL_LEAD,
-  ...GLOBAL_TAIL,
-];
+export const globalBindings = (): readonly Binding[] => [...GLOBAL_LEAD, ...GLOBAL_TAIL];
 
 function matches(p: Press, key: Key): boolean {
   if ('name' in p) return key.kind === 'key' && key.name === p.name;
   return key.kind === 'char' && key.text === p.char;
 }
 
-const applies = (b: Binding, s: TuiState): boolean =>
-  b.when === undefined || b.when(s);
+const applies = (b: Binding, s: TuiState): boolean => b.when === undefined || b.when(s);
 
 /** What `key` means where the user is; `null`: nothing, or text for the field being typed in. */
 export function commandFor(s: TuiState, key: Key): Command | null {
@@ -511,19 +500,15 @@ export function commandFor(s: TuiState, key: Key): Command | null {
   return null;
 }
 
-const label = (b: Binding): string =>
-  b.hint === '' ? b.keys : `${b.keys} ${b.hint}`;
+const label = (b: Binding): string => (b.hint === '' ? b.keys : `${b.keys} ${b.hint}`);
 
 /**
  * The bar of the keys that work now, `cols` wide at most. What does not fit goes from the end, but going back,
  * help, quitting and retrying stay; Help still lists the rest.
  */
 export function hintBar(s: TuiState, cols: number): string {
-  const shown = bindings(keyContext(s)).filter(
-    (b) => b.hint !== null && applies(b, s),
-  );
-  const width = (bs: readonly Binding[]): number =>
-    displayWidth(bs.map(label).join('  '));
+  const shown = bindings(keyContext(s)).filter((b) => b.hint !== null && applies(b, s));
+  const width = (bs: readonly Binding[]): number => displayWidth(bs.map(label).join('  '));
   let kept = shown;
   while (width(kept) > cols) {
     const drop = kept.findLastIndex((b) => b.essential !== true);

@@ -17,14 +17,8 @@ export class NodeHostProbe implements HostProbePort {
     this.env = env;
   }
 
-  async findExecutable(
-    name: string,
-    extraDirs: readonly string[] = [],
-  ): Promise<string | null> {
-    for (const dir of [
-      ...(this.env.PATH ?? '').split(delimiter),
-      ...extraDirs,
-    ]) {
+  async findExecutable(name: string, extraDirs: readonly string[] = []): Promise<string | null> {
+    for (const dir of [...(this.env.PATH ?? '').split(delimiter), ...extraDirs]) {
       if (!isAbsolute(dir)) continue;
       const candidate = join(dir, name);
       try {
@@ -54,20 +48,11 @@ export class NodeHostProbe implements HostProbePort {
     }
   }
 
-  exec(
-    argv: readonly string[],
-    opts: { readonly timeout_ms: number },
-  ): Promise<HostExecResult> {
+  exec(argv: readonly string[], opts: { readonly timeout_ms: number }): Promise<HostExecResult> {
     const [file, ...args] = argv;
-    if (file === undefined)
-      return Promise.resolve({ kind: 'spawn_failed', message: 'empty argv' });
+    if (file === undefined) return Promise.resolve({ kind: 'spawn_failed', message: 'empty argv' });
     const env: NodeJS.ProcessEnv = {};
-    for (const k of [
-      'PATH',
-      'HOME',
-      'XDG_RUNTIME_DIR',
-      'DBUS_SESSION_BUS_ADDRESS',
-    ]) {
+    for (const k of ['PATH', 'HOME', 'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS']) {
       if (this.env[k] !== undefined) env[k] = this.env[k];
     }
     return new Promise((resolve) => {
@@ -81,8 +66,7 @@ export class NodeHostProbe implements HostProbePort {
           encoding: 'utf8',
         },
         (error, stdout, stderr) => {
-          if (error === null)
-            return resolve({ kind: 'exited', code: 0, stdout, stderr });
+          if (error === null) return resolve({ kind: 'exited', code: 0, stdout, stderr });
           const e = error as NodeJS.ErrnoException & {
             killed?: boolean;
             code?: number | string;

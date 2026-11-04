@@ -1,10 +1,5 @@
 import { TASK_STATUSES, type TaskStatus } from '../../domain/state.ts';
-import type {
-  BoardData,
-  CallerInfo,
-  Health,
-  ProjectList,
-} from '../client/schemas.ts';
+import type { BoardData, CallerInfo, Health, ProjectList } from '../client/schemas.ts';
 import type { SafeText } from '../terminal/safe-text.ts';
 import type { ActionsMenu } from './actions.ts';
 import type { TaskDetail } from './detail.ts';
@@ -60,8 +55,7 @@ export function retryConnection(c: Connection): Connection | null {
   return null;
 }
 
-export type Screen =
-  'home' | 'help' | 'filters' | 'detail' | 'logs' | 'actions';
+export type Screen = 'home' | 'help' | 'filters' | 'detail' | 'logs' | 'actions';
 
 export type Filters = {
   readonly project: string | null;
@@ -78,10 +72,7 @@ export type FilterDraft = {
   readonly status: number;
 };
 
-export const STATUS_CHOICES: readonly (TaskStatus | null)[] = [
-  null,
-  ...TASK_STATUSES,
-];
+export const STATUS_CHOICES: readonly (TaskStatus | null)[] = [null, ...TASK_STATUSES];
 
 /** A daemon page; also its largest (`task_board`). */
 export const PAGE_LIMIT = 100;
@@ -209,8 +200,7 @@ export function boardQuery(s: TuiState): ViewQuery {
   };
 }
 
-export const boardQueryKey = (s: TuiState): string =>
-  JSON.stringify(boardQuery(s));
+export const boardQueryKey = (s: TuiState): string => JSON.stringify(boardQuery(s));
 
 /** `All projects` first, or the projects whose name contains what was typed. */
 export function projectChoices(
@@ -218,8 +208,6 @@ export function projectChoices(
   query: string,
 ): readonly (string | null)[] {
   const q = query.toLowerCase();
-  const names = (projects ?? [])
-    .map((p) => p.id)
-    .filter((id) => id.toLowerCase().includes(q));
+  const names = (projects ?? []).map((p) => p.id).filter((id) => id.toLowerCase().includes(q));
   return q === '' ? [null, ...names] : names;
 }

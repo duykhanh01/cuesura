@@ -20,11 +20,7 @@ import { hashText } from '../../../src/shared/hash.ts';
 import { DENIED_COMMAND } from '../../../src/runner/harness-proof.ts';
 import type { VendorPin } from '../../../src/adapters/harness/vendor.ts';
 import { validateConfig } from '../../../src/config/validate.ts';
-import {
-  planProof,
-  PROOF_LEDGER,
-  proveHarness,
-} from '../../../src/runner/harness-proof.ts';
+import { planProof, PROOF_LEDGER, proveHarness } from '../../../src/runner/harness-proof.ts';
 import {
   harnessRecordProblems,
   harnessRecordProblem,
@@ -34,16 +30,9 @@ import {
 } from '../../../src/runner/harness-records.ts';
 import { homeFileContent, REAL } from '../../support/harness-fixtures.ts';
 import { fakeVendorPin } from '../../support/runner-harness.ts';
-import {
-  copyPrompts,
-  hostUsable,
-  smokeUserConfig,
-  SMOKE_CANARY,
-} from '../../support/smoke.ts';
+import { copyPrompts, hostUsable, smokeUserConfig, SMOKE_CANARY } from '../../support/smoke.ts';
 
-const RUNNER = fileURLToPath(
-  new URL('../../../src/cli/cusr-runner.ts', import.meta.url),
-);
+const RUNNER = fileURLToPath(new URL('../../../src/cli/cusr-runner.ts', import.meta.url));
 const dirs: string[] = [];
 afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
@@ -88,10 +77,10 @@ function setup(
     toolchain: [dirname(process.execPath), realpathSync(REAL)],
   };
   const rules = (h: VendorPin['home_files'][number]): string =>
-    homeFileContent(
-      h,
-      JSON.stringify({ accessToken: SMOKE_CANARY }),
-    ).replaceAll('/cusr/scratch/', '');
+    homeFileContent(h, JSON.stringify({ accessToken: SMOKE_CANARY })).replaceAll(
+      '/cusr/scratch/',
+      '',
+    );
   const pin: VendorPin = {
     ...original,
     settings:
@@ -99,18 +88,13 @@ function setup(
         ? {
             ...original.settings,
             permissions: {
-              ...(original.settings?.['permissions'] as Record<
-                string,
-                unknown
-              >),
+              ...(original.settings?.['permissions'] as Record<string, unknown>),
               deny: [`Bash(${DENIED_COMMAND})`],
             },
           }
         : null,
     home_files: original.home_files.map((h) =>
-      h.sha256 === undefined
-        ? h
-        : { ...h, sha256: hashText(rules(h)).slice(7) },
+      h.sha256 === undefined ? h : { ...h, sha256: hashText(rules(h)).slice(7) },
     ),
   };
   const credentialRefs: Record<string, string> = {};
@@ -207,9 +191,9 @@ describe('what a proof may spend', () => {
     expect(refusal(refused)).toContain('5 more exceed the cap');
     expect(existsSync(h.ledger)).toBe(false);
     const codex = setup('codex');
-    expect(
-      refusal(planProof({ ...codex.options, proveResume: true })),
-    ).toContain('only supported for Claude');
+    expect(refusal(planProof({ ...codex.options, proveResume: true }))).toContain(
+      'only supported for Claude',
+    );
   });
 
   it('a dry run reports the plan and leaves no trace', () => {
@@ -298,19 +282,14 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
         const seed = r.value.runs[0];
         if (seed === undefined) throw new Error('missing seed attempt');
         const launch = JSON.parse(
-          readFileSync(
-            join(h.options.dataDir, 'runs', seed.attempt_id, 'invocation.json'),
-            'utf8',
-          ),
+          readFileSync(join(h.options.dataDir, 'runs', seed.attempt_id, 'invocation.json'), 'utf8'),
         ) as { argv: string[] };
         expect(launch.argv).not.toContain('--no-session-persistence');
         expect(h.record().ok).toBe(true);
         expect(h.problem()).toBeNull();
       }
       if (mode === 'failure')
-        expect(e.resume_probe.reason).toContain(
-          'fixture resume service unavailable',
-        );
+        expect(e.resume_probe.reason).toContain('fixture resume service unavailable');
       if (mode === 'no_session') {
         expect(e.resume_probe.attempt_id).toBeNull();
         expect(e.resume_probe.reason).toContain('no session reference');
@@ -365,12 +344,7 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
       expect(readFileSync(h.ledger, 'utf8').trim().split('\n')).toHaveLength(4);
 
       // A failed manifest write can be retried without pin flags, approval, or another model invocation.
-      const manifestPath = join(
-        h.options.dataDir,
-        'harnesses',
-        vendor,
-        'manifest.json',
-      );
+      const manifestPath = join(h.options.dataDir, 'harnesses', vendor, 'manifest.json');
       const ledgerBefore = readFileSync(h.ledger, 'utf8');
       const pinPath = join(h.options.dataDir, 'harnesses', vendor, 'pin.json');
       const pinBefore = readFileSync(pinPath, 'utf8');
@@ -447,9 +421,9 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
       expect(r.value.failures).toEqual([]);
       for (const { attempt_id } of r.value.runs) {
         const run = join(h.options.dataDir, 'runs', attempt_id);
-        const { env } = JSON.parse(
-          readFileSync(join(run, 'invocation.json'), 'utf8'),
-        ) as { env: Record<string, string> };
+        const { env } = JSON.parse(readFileSync(join(run, 'invocation.json'), 'utf8')) as {
+          env: Record<string, string>;
+        };
         const tmp = env['TMPDIR'] as string;
         if (!short) {
           expect(tmp).toBe(join(run, 'scratch'));
@@ -457,9 +431,7 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
         }
         expect(tmp.length).toBeLessThan(40);
         expect(existsSync(tmp)).toBe(false);
-        expect(
-          readFileSync(join(run, 'context', 'claude-settings.json'), 'utf8'),
-        ).toContain(tmp);
+        expect(readFileSync(join(run, 'context', 'claude-settings.json'), 'utf8')).toContain(tmp);
       }
     },
     120_000,
@@ -536,16 +508,9 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
       'result',
       'result',
     ]);
-    expect(r.value.runs.map((x) => x.native_write_blocked)).toEqual([
-      false,
-      false,
-      true,
-      true,
-    ]);
+    expect(r.value.runs.map((x) => x.native_write_blocked)).toEqual([false, false, true, true]);
     expect(entry(h.out, 'claude')?.native_result).toBe('not_tried');
-    expect(
-      entry(h.out, 'claude')?.capabilities['permission_denial_kept']?.status,
-    ).toBe('proven');
+    expect(entry(h.out, 'claude')?.capabilities['permission_denial_kept']?.status).toBe('proven');
     const recorded = h.record();
     if (!recorded.ok) throw new Error(recorded.error);
     expect(recorded.value.selected_inner_mode).toBe('permissions_only');
@@ -573,9 +538,7 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
         'result',
         'result',
       ]);
-      expect(
-        entry(h.out, vendor)?.capabilities['permission_denial_kept']?.status,
-      ).toBe('proven');
+      expect(entry(h.out, vendor)?.capabilities['permission_denial_kept']?.status).toBe('proven');
       expect(entry(h.out, vendor)?.native_result).toBe('failed');
     },
   );
@@ -595,9 +558,7 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
       });
       if (!r.ok) throw new Error(r.error);
       expect(r.value.runs[0]?.marker_absent).toBe(false);
-      expect(
-        entry(h.out, vendor)?.capabilities['permission_denial_kept']?.status,
-      ).toBe('unknown');
+      expect(entry(h.out, vendor)?.capabilities['permission_denial_kept']?.status).toBe('unknown');
     },
   );
 
@@ -611,9 +572,7 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
     if (!r.ok) throw new Error(r.error);
     expect(r.value.runs.map((x) => x.outcome.kind)).toEqual(['failure']);
     for (const c of ['structured_output', 'usage_report'])
-      expect(entry(h.out, 'claude')?.capabilities[c]?.status, c).toBe(
-        'unknown',
-      );
+      expect(entry(h.out, 'claude')?.capabilities[c]?.status, c).toBe('unknown');
     expect(readFileSync(h.ledger, 'utf8').trim().split('\n')).toHaveLength(1);
   }, 120_000);
 });

@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Terminal } from '@xterm/headless';
 import { sanitize, uiText } from '../../../src/tui/terminal/safe-text.ts';
-import {
-  colorEnabled,
-  diffFrames,
-  Frame,
-} from '../../../src/tui/terminal/screen.ts';
+import { colorEnabled, diffFrames, Frame } from '../../../src/tui/terminal/screen.ts';
 
 function show(frames: Frame[], cols = 10, rows = 3): Promise<string[]> {
   const term = new Terminal({ cols, rows, allowProposedApi: true });
@@ -19,9 +15,7 @@ function show(frames: Frame[], cols = 10, rows = 3): Promise<string[]> {
     term.write(bytes, () => {
       const lines: string[] = [];
       for (let y = 0; y < rows; y++)
-        lines.push(
-          term.buffer.active.getLine(y)?.translateToString(true) ?? '',
-        );
+        lines.push(term.buffer.active.getLine(y)?.translateToString(true) ?? '');
       term.dispose();
       resolve(lines);
     });

@@ -102,9 +102,7 @@ function readingLines(cols: number): Line[] {
   ]);
   out.push([
     ui('  Stages'.padEnd(15), DIM),
-    ui(
-      'triage, prepare, code, gates, review, PR, CI, merge: one dot each on Home',
-    ),
+    ui('triage, prepare, code, gates, review, PR, CI, merge: one dot each on Home'),
   ]);
   out.push([ui(''.padEnd(15)), ...STAGE_KEY]);
   out.push([
@@ -125,8 +123,7 @@ export const helpBody =
     const lines = helpLines(s);
     const from = Math.min(s.helpTop, Math.max(0, lines.length - height));
     lines.slice(from, from + height).forEach((line, i) => {
-      if (line.segs !== undefined)
-        putSegs(frame, 0, top + i, line.segs, s.size.cols);
+      if (line.segs !== undefined) putSegs(frame, 0, top + i, line.segs, s.size.cols);
       else frame.put(0, top + i, truncate(line.text, s.size.cols), line.style);
     });
   };

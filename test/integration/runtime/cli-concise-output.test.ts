@@ -38,10 +38,7 @@ async function run(
   return { code, out: out.join('') };
 }
 
-async function data(
-  sd: SeededDaemon,
-  argv: string[],
-): Promise<Record<string, unknown>> {
+async function data(sd: SeededDaemon, argv: string[]): Promise<Record<string, unknown>> {
   const r = await run(sd, argv);
   const envelope = JSON.parse(r.out) as {
     ok: boolean;
@@ -61,18 +58,8 @@ function failedGate(sd: SeededDaemon) {
   const t = buildTask();
   sd.seed((d) => {
     createGrantStart(d, t, 'direct-pr');
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'prepare').id,
-      'succeeded',
-      PREPARE_DATA,
-    );
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'start_agent').id,
-      'succeeded',
-      agentData('done'),
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE_DATA);
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
     d.complete(
       t.id,
       d.pendingOne(t.id, 'run_gates').id,
@@ -120,23 +107,11 @@ describe('task list', () => {
     ]);
     const full = await data(sd, ['task', 'list', '--full', '--limit', '1']);
     expect((full['items'] as object[])[0]).toHaveProperty('version');
-    const second = await data(sd, [
-      'task',
-      'list',
-      '--cursor',
-      first['next_cursor'] as string,
-    ]);
+    const second = await data(sd, ['task', 'list', '--cursor', first['next_cursor'] as string]);
     expect(ids(second)).toEqual(newest.slice(20));
     expect(second['next_cursor']).toBeNull();
 
-    const oldest = await data(sd, [
-      'task',
-      'list',
-      '--order',
-      'oldest',
-      '--limit',
-      '2',
-    ]);
+    const oldest = await data(sd, ['task', 'list', '--order', 'oldest', '--limit', '2']);
     expect(ids(oldest)).toEqual([tasks[0]?.id, tasks[1]?.id]);
     const next = await data(sd, [
       'task',
@@ -162,11 +137,7 @@ describe('task list', () => {
       }
     });
     await sd.start();
-    const r = await run(
-      sd,
-      ['task', 'list', '--limit', '2', '--project', 'acme'],
-      false,
-    );
+    const r = await run(sd, ['task', 'list', '--limit', '2', '--project', 'acme'], false);
     const lines = r.out.trimEnd().split('\n');
     expect(lines[0]).toMatch(/^ID\s+PROJECT\s+STATUS\s+ACTIVITY\s+PR\s+TITLE$/);
     expect(lines[1]).toContain('task 2');
@@ -210,9 +181,7 @@ describe('task explain and task show', () => {
       expect(why).not.toHaveProperty(k);
     expect(JSON.stringify(why).length).toBeLessThan(1_500);
     expect(JSON.stringify(why)).not.toContain('stack line');
-    expect(why['allowed_actions']).toContainEqual(
-      expect.objectContaining({ action: 'cancel' }),
-    );
+    expect(why['allowed_actions']).toContainEqual(expect.objectContaining({ action: 'cancel' }));
 
     const full = await data(sd, ['task', 'explain', t.id, '--full']);
     expect(full).not.toHaveProperty('details');
@@ -233,9 +202,7 @@ describe('task explain and task show', () => {
       details: `cusr task show ${t.id} --full`,
     });
     expect(typeof show['version']).toBe('number');
-    expect(typeof (show['run_config'] as { digest: unknown }).digest).toBe(
-      'string',
-    );
+    expect(typeof (show['run_config'] as { digest: unknown }).digest).toBe('string');
     for (const k of ['provenance', 'execution', 'merge', 'revision'])
       expect(show).not.toHaveProperty(k);
     const full = await data(sd, ['task', 'show', t.id, '--full']);
@@ -254,9 +221,7 @@ describe('task explain and task show', () => {
       merge: { method: 'rebase' },
       pr: { ref: 'acme#7', head_sha: A },
     });
-    expect(why['allowed_actions']).toContainEqual(
-      expect.objectContaining({ action: 'cancel' }),
-    );
+    expect(why['allowed_actions']).toContainEqual(expect.objectContaining({ action: 'cancel' }));
   });
 });
 
@@ -268,22 +233,13 @@ describe('task history', () => {
     const page = await data(sd, ['task', 'history', t.id]);
     const events = page['events'] as Record<string, unknown>[];
     expect(events.length).toBeLessThanOrEqual(50);
-    expect(Object.keys(events[0] ?? {})).toEqual([
-      'seq',
-      'type',
-      'revision',
-      'actor',
-    ]);
+    expect(Object.keys(events[0] ?? {})).toEqual(['seq', 'type', 'revision', 'actor']);
     expect(page['details']).toBe(`cusr task history ${t.id} --full`);
     expect(JSON.stringify(page)).not.toContain('stack line');
     const full = await data(sd, ['task', 'history', t.id, '--full']);
     expect(JSON.stringify(full)).toContain('stack line');
 
-    const human = await run(
-      sd,
-      ['task', 'history', t.id, '--limit', '2'],
-      false,
-    );
+    const human = await run(sd, ['task', 'history', t.id, '--limit', '2'], false);
     const lines = human.out.trimEnd().split('\n');
     expect(lines[0]).toMatch(/^SEQ\s+REVISION\s+ACTOR\s+TYPE$/);
     expect(lines[1]).toMatch(/TaskCreated$/);

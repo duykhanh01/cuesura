@@ -69,16 +69,12 @@ describe.skipIf(!hostUsable())('local rehearsal of the manual merge', () => {
       merge_commit_sha: MERGE_COMMIT,
       unverified: null,
     });
-    const once = (await r.history(id)).filter(
-      (e) => e.type === 'TaskCompleted',
-    );
+    const once = (await r.history(id)).filter((e) => e.type === 'TaskCompleted');
     expect(once).toHaveLength(1);
     await r.stopDaemon('SIGTERM');
     await r.startDaemon();
     await new Promise((res) => setTimeout(res, 2_000));
-    expect(
-      (await r.history(id)).filter((e) => e.type === 'TaskCompleted'),
-    ).toEqual(once);
+    expect((await r.history(id)).filter((e) => e.type === 'TaskCompleted')).toEqual(once);
     noMergeSent(r.github().calls);
   }, 180_000);
 
@@ -100,15 +96,7 @@ describe.skipIf(!hostUsable())('local rehearsal of the manual merge', () => {
           r.remote,
           'update-ref',
           ref,
-          git(
-            r.remote,
-            'commit-tree',
-            `${head}^{tree}`,
-            '-p',
-            head,
-            '-m',
-            'late',
-          ),
+          git(r.remote, 'commit-tree', `${head}^{tree}`, '-p', head, '-m', 'late'),
         );
       const done = await r.untilDone(id);
       expect(done['completion']).toMatchObject({
@@ -130,17 +118,13 @@ type Evidence = {
 const recorded = (rel: string) =>
   JSON.parse(
     readFileSync(
-      fileURLToPath(
-        new URL(`../fixtures/runtime/spike-0/github/${rel}`, import.meta.url),
-      ),
+      fileURLToPath(new URL(`../fixtures/runtime/spike-0/github/${rel}`, import.meta.url)),
       'utf8',
     ),
   ) as { evidence: Evidence[] };
 
 describe('the T008 records of a real merge through the production proof', () => {
-  const manifest = recorded(
-    'real-20261028-merge-event/manifest.json',
-  ) as unknown as {
+  const manifest = recorded('real-20261028-merge-event/manifest.json') as unknown as {
     results: {
       pr: number;
       merge_commit_sha: string;
@@ -148,58 +132,52 @@ describe('the T008 records of a real merge through the production proof', () => 
     }[];
   };
 
-  it.each([1, 2, 3])(
-    'PR %i proves its merge commit and head at merge',
-    async (n) => {
-      const fx = recorded(`real-20261028-merge-event/port-pr-${n}.json`);
-      const script: Record<string, FixtureResponse[]> = {};
-      for (const e of fx.evidence)
-        (script[`GET ${e.path}`] ??= []).push({
-          status: e.status,
-          ...(e.headers === undefined ? {} : { headers: e.headers }),
-          ...(e.body_redacted === ''
-            ? {}
-            : { body: JSON.parse(e.body_redacted) as unknown }),
-        });
-      const port = new GhPort({
-        exec: fixtureExec(script),
-        clock: { now: () => 0 as EpochMs, monotonic: () => 0 },
-        redactor: new Redactor(),
+  it.each([1, 2, 3])('PR %i proves its merge commit and head at merge', async (n) => {
+    const fx = recorded(`real-20261028-merge-event/port-pr-${n}.json`);
+    const script: Record<string, FixtureResponse[]> = {};
+    for (const e of fx.evidence)
+      (script[`GET ${e.path}`] ??= []).push({
+        status: e.status,
+        ...(e.headers === undefined ? {} : { headers: e.headers }),
+        ...(e.body_redacted === '' ? {} : { body: JSON.parse(e.body_redacted) as unknown }),
       });
-      const want = manifest.results.find((x) => x.pr === n);
-      const pull = (fx as unknown as { observation: { pull: { id: number } } })
-        .observation.pull;
-      const observed = await observePull(
-        port,
+    const port = new GhPort({
+      exec: fixtureExec(script),
+      clock: { now: () => 0 as EpochMs, monotonic: () => 0 },
+      redactor: new Redactor(),
+    });
+    const want = manifest.results.find((x) => x.pr === n);
+    const pull = (fx as unknown as { observation: { pull: { id: number } } }).observation.pull;
+    const observed = await observePull(
+      port,
+      {
+        repo: 'duykhanh01/cuesura-spike-002-sandbox',
+        immutable_repo_id: '1436664345',
+        pr_number: n,
+        pr_id: String(pull.id),
+        target: 'master',
+      },
+      0,
+    );
+    if (observed.status !== 'merged') throw new Error(observed.status);
+    expect(
+      toMergeProof(
+        observed.merge,
         {
-          repo: 'duykhanh01/cuesura-spike-002-sandbox',
+          provider: 'github',
           immutable_repo_id: '1436664345',
-          pr_number: n,
-          pr_id: String(pull.id),
-          target: 'master',
+          subject_id: String(pull.id),
+          target_ref: 'master',
+          head_ref: 'x',
         },
-        0,
-      );
-      if (observed.status !== 'merged') throw new Error(observed.status);
-      expect(
-        toMergeProof(
-          observed.merge,
-          {
-            provider: 'github',
-            immutable_repo_id: '1436664345',
-            subject_id: String(pull.id),
-            target_ref: 'master',
-            head_ref: 'x',
-          },
-          null,
-          { observation_id: 'o1', evidence_ref: 'ev1' },
-        ),
-      ).toMatchObject({
-        merged_head_sha: want?.head_at_merge_candidate,
-        merge_commit_sha: want?.merge_commit_sha,
-      });
-    },
-  );
+        null,
+        { observation_id: 'o1', evidence_ref: 'ev1' },
+      ),
+    ).toMatchObject({
+      merged_head_sha: want?.head_at_merge_candidate,
+      merge_commit_sha: want?.merge_commit_sha,
+    });
+  });
 });
 
 // T130. Needs CUSR_SMOKE_REAL, a build, and the owner merging the PRs T127 left open on GitHub by hand.
@@ -218,9 +196,7 @@ describe.skipIf(real === null).each(PROJECT_KINDS)(
           );
         const done = await r.untilDone(id, 86_400_000);
         const events = await r.history(id);
-        expect(events.filter((e) => e.type === 'TaskCompleted')).toHaveLength(
-          1,
-        );
+        expect(events.filter((e) => e.type === 'TaskCompleted')).toHaveLength(1);
         r.record('T130', {
           task_id: id,
           pr_ref: done['pr_ref'],

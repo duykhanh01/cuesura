@@ -41,23 +41,14 @@ export type DrainRound = {
 export function drainingTasks(store: Store): string[] {
   return store.taskIdsByStatus(['WAITING', 'RUNNING']).filter((id) => {
     const c = store.readTask(id as Uuid)?.completion ?? null;
-    return (
-      c !== null &&
-      c.finalized_at === null &&
-      c.drain.started_at !== null &&
-      !c.drain.paused
-    );
+    return c !== null && c.finalized_at === null && c.drain.started_at !== null && !c.drain.paused;
   });
 }
 
-export async function drainRound(
-  deps: DrainDeps,
-  taskId: string,
-): Promise<DrainRound | null> {
+export async function drainRound(deps: DrainDeps, taskId: string): Promise<DrainRound | null> {
   const s = deps.store.readTask(taskId as Uuid);
   const c = s?.completion ?? null;
-  if (s === null || c === null || c.finalized_at !== null || c.drain.paused)
-    return null;
+  if (s === null || c === null || c.finalized_at !== null || c.drain.paused) return null;
   const stops: {
     operation_id: string;
     outcome: StopOutcome | 'not_running';

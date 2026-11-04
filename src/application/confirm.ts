@@ -9,12 +9,7 @@ import type { TaskState, Wait } from '../domain/state.ts';
 import { FREEZE_PENDING_CODES } from '../engine/start.ts';
 import type { Hash, Uuid } from '../shared/brand.ts';
 import type { AcceptError, Store } from '../store/index.ts';
-import {
-  authorize,
-  authzContext,
-  type AuthzError,
-  type Caller,
-} from './authz.ts';
+import { authorize, authzContext, type AuthzError, type Caller } from './authz.ts';
 import type { PreflightInput, PreflightPorts } from './preflight.ts';
 import { checkConfig, submit } from './triage.ts';
 
@@ -48,7 +43,11 @@ export type ConfirmCommand = {
  * during preflight. `recorded_earlier`: a replay of this request; its first candidate stands.
  */
 export type ConfigCheckStatus =
-  'checked' | 'skipped' | 'unavailable' | 'stale' | 'recorded_earlier';
+  | 'checked'
+  | 'skipped'
+  | 'unavailable'
+  | 'stale'
+  | 'recorded_earlier';
 
 export type ConfirmResult = {
   readonly task_id: string;
@@ -116,10 +115,7 @@ export async function recordConfigCheck(
     expected_version: state.version,
   });
   if (!r.ok) {
-    if (
-      r.error.code === 'conflict' &&
-      r.error.reason === 'request_hash_mismatch'
-    )
+    if (r.error.code === 'conflict' && r.error.reason === 'request_hash_mismatch')
       return { status: 'recorded_earlier', unavailable: null };
     if (r.error.code === 'conflict' && r.error.reason === 'stale_version')
       return { status: 'stale', unavailable: null };
@@ -135,9 +131,7 @@ export async function confirmTask(
   deps: ConfirmDeps,
   caller: Caller,
   cmd: ConfirmCommand,
-): Promise<
-  { ok: true; value: ConfirmResult } | { ok: false; error: ConfirmError }
-> {
+): Promise<{ ok: true; value: ConfirmResult } | { ok: false; error: ConfirmError }> {
   const allowed = authorize(caller, { role: 'operate', project: cmd.project });
   if (!allowed.ok) return allowed;
   const before = deps.store.readTask(cmd.task_id as Uuid);
@@ -187,13 +181,7 @@ export async function confirmTask(
       expected_version: mid.version,
       authz: authzContext(caller, deps.now()),
     });
-    if (
-      !run.ok &&
-      !(
-        run.error.code === 'conflict' &&
-        run.error.reason === 'request_hash_mismatch'
-      )
-    )
+    if (!run.ok && !(run.error.code === 'conflict' && run.error.reason === 'request_hash_mismatch'))
       return run;
     if (run.ok && run.value.decision.kind === 'rejected') {
       const d2 = run.value.decision;
@@ -208,11 +196,7 @@ export async function confirmTask(
     }
   }
   const after = deps.store.readTask(cmd.task_id as Uuid) as TaskState;
-  const check = await recordConfigCheck(
-    deps,
-    after,
-    `cmd:${cmd.request_id}:config`,
-  );
+  const check = await recordConfigCheck(deps, after, `cmd:${cmd.request_id}:config`);
   const s = deps.store.readTask(cmd.task_id as Uuid) as TaskState;
   return {
     ok: true,
@@ -222,8 +206,7 @@ export async function confirmTask(
       status: s.status,
       wait: s.wait,
       config_check: check.status,
-      run_config:
-        cmd.run_config_digest === undefined ? 'not_requested' : 'confirmed',
+      run_config: cmd.run_config_digest === undefined ? 'not_requested' : 'confirmed',
       unavailable: check.unavailable,
     },
   };

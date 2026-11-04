@@ -14,8 +14,7 @@ const HEADING: Style = { bold: true };
 /** `**bold**`, `` `code` ``, `*em*` and `[text](url)` within a line; the markers themselves go. */
 export function inline(text: string, base: Style = {}): Seg[] {
   const out: Seg[] = [];
-  const re =
-    /(\*\*[^*]+\*\*|__[^_]+__|`[^`]+`|\[[^\]]+\]\([^)]+\)|\*[^*\s][^*]*\*)/g;
+  const re = /(\*\*[^*]+\*\*|__[^_]+__|`[^`]+`|\[[^\]]+\]\([^)]+\)|\*[^*\s][^*]*\*)/g;
   let at = 0;
   for (const m of text.matchAll(re)) {
     const i = m.index;
@@ -23,12 +22,9 @@ export function inline(text: string, base: Style = {}): Seg[] {
     const token = m[0];
     if (token.startsWith('**') || token.startsWith('__'))
       out.push(seg(uiText(token.slice(2, -2)), { ...base, bold: true }));
-    else if (token.startsWith('`'))
-      out.push(seg(uiText(token.slice(1, -1)), { ...base, ...CODE }));
+    else if (token.startsWith('`')) out.push(seg(uiText(token.slice(1, -1)), { ...base, ...CODE }));
     else if (token.startsWith('['))
-      out.push(
-        seg(uiText(token.slice(1, token.indexOf(']'))), { ...base, ...CODE }),
-      );
+      out.push(seg(uiText(token.slice(1, token.indexOf(']'))), { ...base, ...CODE }));
     else out.push(seg(uiText(token.slice(1, -1)), base));
     at = i + token.length;
   }
@@ -36,8 +32,7 @@ export function inline(text: string, base: Style = {}): Seg[] {
   return out;
 }
 
-const plainWidth = (text: string): number =>
-  displayWidth(text.replace(/\*\*|__|`/g, ''));
+const plainWidth = (text: string): number => displayWidth(text.replace(/\*\*|__|`/g, ''));
 
 function cells(line: string): string[] {
   return line
@@ -59,8 +54,7 @@ function table(lines: readonly string[], cols: number): Seg[][] {
     Math.max(1, ...rows.map((r) => plainWidth(r[i] ?? ''))),
   );
   const total = widths.reduce((n, w) => n + w + 3, 1);
-  if (total > cols)
-    return rows.flatMap((r) => wrapSegs(inline(r.join(' · ')), cols, 2));
+  if (total > cols) return rows.flatMap((r) => wrapSegs(inline(r.join(' · ')), cols, 2));
   const rule = (l: string, m: string, r: string): Seg[] => [
     ui(`${l}${widths.map((w) => '─'.repeat(w + 2)).join(m)}${r}`, DIM),
   ];
@@ -116,13 +110,7 @@ export function markdownRows(text: SafeText, cols: number): Seg[][] {
       const depth = Math.min(6, (item[1] ?? '').length);
       const marker = /\d/.test(item[2] ?? '') ? `${item[2]} ` : '• ';
       const lead = ' '.repeat(depth) + marker;
-      out.push(
-        ...wrapSegs(
-          [ui(lead), ...inline(item[3] ?? '')],
-          cols,
-          displayWidth(lead),
-        ),
-      );
+      out.push(...wrapSegs([ui(lead), ...inline(item[3] ?? '')], cols, displayWidth(lead)));
       continue;
     }
     if (/^\s*([-*_])\s*\1\s*\1[\s\-*_]*$/.test(line)) {
@@ -131,9 +119,7 @@ export function markdownRows(text: SafeText, cols: number): Seg[][] {
     }
     const quote = /^\s*>\s?(.*)$/.exec(line);
     if (quote !== null) {
-      out.push(
-        ...wrapSegs([ui('│ ', DIM), ...inline(quote[1] ?? '', DIM)], cols, 2),
-      );
+      out.push(...wrapSegs([ui('│ ', DIM), ...inline(quote[1] ?? '', DIM)], cols, 2));
       continue;
     }
     out.push(...wrapSegs(inline(line), cols));

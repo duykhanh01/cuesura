@@ -1,11 +1,4 @@
-import {
-  isMap,
-  isSeq,
-  isScalar,
-  type Document,
-  type LineCounter,
-  type Node,
-} from 'yaml';
+import { isMap, isSeq, isScalar, type Document, type LineCounter, type Node } from 'yaml';
 
 export {
   DIAGNOSTIC_CODES,
@@ -37,9 +30,7 @@ export function locate(src: LocatedDoc, path: KeyPath): Position {
   let best = 0;
   for (const seg of path) {
     if (isMap(node)) {
-      const pair = node.items.find(
-        (p) => (isScalar(p.key) ? p.key.value : p.key) === seg,
-      );
+      const pair = node.items.find((p) => (isScalar(p.key) ? p.key.value : p.key) === seg);
       if (!pair) break;
       best = offsetOf(pair.key) ?? best;
       node = pair.value;
@@ -56,10 +47,7 @@ export function locate(src: LocatedDoc, path: KeyPath): Position {
   return { file: src.file, line, col };
 }
 
-export function nodePosition(
-  src: LocatedDoc,
-  node: Node | null | undefined,
-): Position {
+export function nodePosition(src: LocatedDoc, node: Node | null | undefined): Position {
   const { line, col } = src.lineCounter.linePos(offsetOf(node) ?? 0);
   return { file: src.file, line, col };
 }

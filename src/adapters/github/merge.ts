@@ -42,8 +42,7 @@ export async function readMergeReadiness(
   });
   if (!pull.ok) return notReady(`pull unreadable: ${pull.error.detail}`);
   const facts = pullFacts(pull.value.body);
-  if (facts.state !== 'open' || facts.merged !== false)
-    return notReady('pull is not open');
+  if (facts.state !== 'open' || facts.merged !== false) return notReady('pull is not open');
   if (facts.base.ref !== t.target) return notReady('target does not match');
   if (facts.head.sha !== t.head_sha) return notReady('head does not match');
   const state = obj(pull.value.body)['mergeable_state'];
@@ -57,8 +56,7 @@ export async function readMergeReadiness(
     query: {},
     body: null,
   });
-  if (!branch.ok)
-    return notReady(`target tip unreadable: ${branch.error.detail}`);
+  if (!branch.ok) return notReady(`target tip unreadable: ${branch.error.detail}`);
   const tip = obj(obj(branch.value.body)['commit'])['sha'];
   if (typeof tip !== 'string' || !/^[0-9a-f]{40}$/.test(tip))
     return notReady('target tip missing or invalid');
@@ -70,8 +68,7 @@ export async function readMergeReadiness(
     query: { per_page: '1', page: '2' },
     body: null,
   });
-  if (!comparison.ok)
-    return notReady(`compare unreadable: ${comparison.error.detail}`);
+  if (!comparison.ok) return notReady(`compare unreadable: ${comparison.error.detail}`);
   const ahead = obj(comparison.value.body)['ahead_by'];
   if (typeof ahead === 'number' && Number.isSafeInteger(ahead) && ahead > 0)
     return {

@@ -33,9 +33,7 @@ export function isAllowedEdge(from: TaskStatus, to: TaskStatus): boolean {
 
 function moveTo(s: TaskState, to: TaskStatus, type: string): void {
   if (!isAllowedEdge(s.status, to))
-    throw new InvalidTransition(
-      `${type}: invalid transition from ${s.status} to ${to}`,
-    );
+    throw new InvalidTransition(`${type}: invalid transition from ${s.status} to ${to}`);
   s.status = to;
 }
 
@@ -55,20 +53,14 @@ export const POST_TERMINAL_EVENTS: readonly DomainEvent['type'][] = [
 ];
 
 export function evolve(state: TaskState | null, event: AnyEvent): TaskState {
-  return applyInPlace(
-    state === null ? null : structuredClone(state),
-    structuredClone(event),
-  );
+  return applyInPlace(state === null ? null : structuredClone(state), structuredClone(event));
 }
 
 /**
  * decide already cloned the state. This mutating variant retains payload references; callers must
  * clone events.
  */
-export function applyInPlace(
-  state: TaskState | null,
-  event: AnyEvent,
-): TaskState {
+export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskState {
   if (state === null) {
     if (event.type !== 'TaskCreated')
       throw new InvalidTransition(`${event.type} occurred before TaskCreated`);
@@ -233,9 +225,7 @@ export function applyInPlace(
         stop_requested: false,
         outcome: null,
         usage: null,
-        ...(p.resumed_from === undefined
-          ? {}
-          : { resumed_from: p.resumed_from }),
+        ...(p.resumed_from === undefined ? {} : { resumed_from: p.resumed_from }),
       };
       s.current_attempt[p.step] = p.attempt_id;
       break;
@@ -250,8 +240,7 @@ export function applyInPlace(
           signature: event.payload.signature,
         };
         a.usage = event.payload.usage;
-        if (event.payload.session_ref !== undefined)
-          a.session_ref = event.payload.session_ref;
+        if (event.payload.session_ref !== undefined) a.session_ref = event.payload.session_ref;
       }
       if (event.payload.status === 'done') s.last_fix_step = event.payload.step;
       break;
@@ -263,10 +252,7 @@ export function applyInPlace(
       const p = event.payload;
       s.class_counters[p.counter_key] = p.count;
       // Only quality classes touch the escalation streak (FR-019).
-      if (
-        p.rung !== null &&
-        (p.class === 'quality' || p.class === 'invalid_output')
-      ) {
+      if (p.rung !== null && (p.class === 'quality' || p.class === 'invalid_output')) {
         const k = streakKey(p.step, p.rung);
         const prev = s.failure_streaks[k];
         s.failure_streaks[k] = {
@@ -351,9 +337,7 @@ export function applyInPlace(
           input_digest: event.payload.input_digest,
           signature: event.payload.signature,
           findings: event.payload.findings ?? [],
-          ...(event.payload.summary === undefined
-            ? {}
-            : { summary: event.payload.summary }),
+          ...(event.payload.summary === undefined ? {} : { summary: event.payload.summary }),
           valid: true,
         });
         s.run.verdict_attempt_id = event.payload.attempt_id;
@@ -374,9 +358,7 @@ export function applyInPlace(
         head_sha: event.payload.head_sha,
         required_set: event.payload.required_set,
         checks: event.payload.checks,
-        ...(event.payload.required === undefined
-          ? {}
-          : { required: event.payload.required }),
+        ...(event.payload.required === undefined ? {} : { required: event.payload.required }),
         valid: true,
       });
       resetStreak(s, event.payload.resets_streak_of);
@@ -430,8 +412,7 @@ export function applyInPlace(
         if (s.runtime_ref !== null && typeof head === 'string') {
           const w = s.run.ci_wait[head];
           s.run.ci_wait[head] = {
-            started_at:
-              w?.started_at ?? (p.request['at'] as number | undefined) ?? 0,
+            started_at: w?.started_at ?? (p.request['at'] as number | undefined) ?? 0,
             polls: (w?.polls ?? 0) + 1,
           };
         }
@@ -602,8 +583,7 @@ export function applyInPlace(
       s.source_drift = null;
       s.current_attempt = {};
       s.ci_polls = 0;
-      for (const q of Object.values(s.questions))
-        if (q.status === 'open') q.status = 'withdrawn';
+      for (const q of Object.values(s.questions)) if (q.status === 'open') q.status = 'withdrawn';
       break;
 
     case 'CancelRequested':
@@ -612,12 +592,9 @@ export function applyInPlace(
         by: event.payload.by,
         reason: event.payload.reason,
         late: false,
-        ...(event.payload.read_token === undefined
-          ? {}
-          : { read_token: event.payload.read_token }),
+        ...(event.payload.read_token === undefined ? {} : { read_token: event.payload.read_token }),
         // A merge already shown before the cancel counts the same as one shown after it.
-        ...(event.payload.read_token !== undefined &&
-        s.observation?.last?.status === 'merged'
+        ...(event.payload.read_token !== undefined && s.observation?.last?.status === 'merged'
           ? { merge_seen: s.observation.last.observation_id }
           : {}),
       };
@@ -679,10 +656,7 @@ export function applyInPlace(
     case 'ExecutionWithdrawn': {
       const r = s.execution.request;
       if (r?.request_id === event.payload.request_id) {
-        s.execution.accumulated_wait_ms += Math.max(
-          0,
-          event.payload.at - r.requested_at,
-        );
+        s.execution.accumulated_wait_ms += Math.max(0, event.payload.at - r.requested_at);
         s.execution.request = null;
       }
       break;
@@ -690,10 +664,7 @@ export function applyInPlace(
     case 'ExecutionGranted': {
       const r = s.execution.request;
       if (r?.request_id === event.payload.request_id) {
-        s.execution.accumulated_wait_ms += Math.max(
-          0,
-          event.payload.at - r.requested_at,
-        );
+        s.execution.accumulated_wait_ms += Math.max(0, event.payload.at - r.requested_at);
         s.execution.request = null;
       }
       s.execution.holding = {
@@ -703,8 +674,7 @@ export function applyInPlace(
       break;
     }
     case 'ExecutionReleased':
-      if (s.execution.holding?.request_id === event.payload.request_id)
-        s.execution.holding = null;
+      if (s.execution.holding?.request_id === event.payload.request_id) s.execution.holding = null;
       break;
     case 'OperationRegistered': {
       const p = event.payload;
@@ -751,8 +721,7 @@ export function applyInPlace(
       const a = event.payload.artifact;
       s.artifacts[a.artifact_id] = a;
       const o = s.operations[a.operation_id];
-      if (o && !o.artifact_ids.includes(a.artifact_id))
-        o.artifact_ids.push(a.artifact_id);
+      if (o && !o.artifact_ids.includes(a.artifact_id)) o.artifact_ids.push(a.artifact_id);
       break;
     }
     case 'ObservationScheduled': {
@@ -808,10 +777,7 @@ export function applyInPlace(
         };
       }
       // A merge GitHub reported holds the task until its proof is accepted, whatever later reads show (FR-040.12).
-      if (
-        event.payload.observation.status === 'merged' &&
-        s.completion === null
-      ) {
+      if (event.payload.observation.status === 'merged' && s.completion === null) {
         addBlocker(s, {
           code: 'merge_evidence_incomplete',
           source: 'observation',
@@ -854,9 +820,7 @@ export function applyInPlace(
         finalized_at: null,
       };
       s.merged = true;
-      s.blockers = s.blockers.filter(
-        (b) => b.code !== 'merge_evidence_incomplete',
-      );
+      s.blockers = s.blockers.filter((b) => b.code !== 'merge_evidence_incomplete');
       break;
     case 'DrainStarted':
       if (s.completion) {
@@ -878,15 +842,13 @@ export function applyInPlace(
         s.completion.drain.count = event.payload.round;
         s.completion.drain.paused = false;
         s.completion.pending_operations = event.payload.pending_operations;
-        if (event.payload.local !== undefined)
-          s.completion.local_remainder = event.payload.local;
+        if (event.payload.local !== undefined) s.completion.local_remainder = event.payload.local;
       }
       break;
     case 'DrainPaused':
       if (s.completion) {
         s.completion.drain.paused = true;
-        if (event.payload.reason === 'round_limit')
-          s.completion.drain.auto_exhausted = true;
+        if (event.payload.reason === 'round_limit') s.completion.drain.auto_exhausted = true;
       }
       break;
     case 'DrainFinished':
@@ -1038,19 +1000,13 @@ function applySuccessFacts(s: TaskState, kind: string, result: unknown): void {
   const r = (result ?? {}) as Record<string, unknown>;
   // `base_sha` marks a usable worktree; a failed setup leaves prepare to be retried.
   const setup = r['setup'] as { passed?: unknown } | undefined;
-  if (
-    kind === 'prepare' &&
-    typeof r['base_sha'] === 'string' &&
-    setup?.passed === true
-  )
+  if (kind === 'prepare' && typeof r['base_sha'] === 'string' && setup?.passed === true)
     s.base_sha = r['base_sha'];
-  if (kind === 'create_pr' && typeof r['pr_ref'] === 'string')
-    s.pr_ref = r['pr_ref'];
+  if (kind === 'create_pr' && typeof r['pr_ref'] === 'string') s.pr_ref = r['pr_ref'];
   const body = r['pr_body'] as PrBodyState | undefined;
   if (kind === 'create_pr' && body !== undefined) s.run.pr_body = body;
   if (kind === 'merge' && r['merged'] === true) s.merged = true;
-  if (kind === 'mark_ready' && typeof r['ready_at'] === 'number')
-    s.run.pr_ready_at = r['ready_at'];
+  if (kind === 'mark_ready' && typeof r['ready_at'] === 'number') s.run.pr_ready_at = r['ready_at'];
   if (
     kind === 'post_review' &&
     typeof r['attempt_id'] === 'string' &&
@@ -1067,8 +1023,7 @@ function applySuccessFacts(s: TaskState, kind: string, result: unknown): void {
 function applyWorktreeTree(s: TaskState, kind: string, result: unknown): void {
   const r = (result ?? {}) as Record<string, unknown>;
   if (kind === 'prepare' || kind === 'start_agent') {
-    if (typeof r['worktree_tree'] === 'string')
-      s.run.worktree_tree = r['worktree_tree'];
+    if (typeof r['worktree_tree'] === 'string') s.run.worktree_tree = r['worktree_tree'];
     return;
   }
   if (kind !== 'run_gates' || typeof r['tree'] !== 'string') return;

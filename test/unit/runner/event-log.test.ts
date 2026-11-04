@@ -1,16 +1,7 @@
-import {
-  appendFileSync,
-  readFileSync,
-  readdirSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs';
+import { appendFileSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import {
-  IngestCursorSchema,
-  cursorAfter,
-} from '../../../src/domain/runtime.ts';
+import { IngestCursorSchema, cursorAfter } from '../../../src/domain/runtime.ts';
 import {
   EventLogWriter,
   LogRecordSchema,
@@ -83,9 +74,7 @@ describe('EventLogWriter', () => {
       ok: true,
       value: { seq: 2 },
     });
-    const lines = readFileSync(join(run.dir, RUN_FILES.events), 'utf8')
-      .trimEnd()
-      .split('\n');
+    const lines = readFileSync(join(run.dir, RUN_FILES.events), 'utf8').trimEnd().split('\n');
     expect(lines).toHaveLength(2);
     const first = LogRecordSchema.parse(JSON.parse(lines[0] ?? ''));
     expect(first).toEqual({
@@ -97,17 +86,13 @@ describe('EventLogWriter', () => {
       kind: 'stdout',
       data: { msg: `token ${REDACTED}` },
     });
-    expect(readFileSync(join(run.dir, RUN_FILES.events), 'utf8')).not.toContain(
-      SECRET,
-    );
+    expect(readFileSync(join(run.dir, RUN_FILES.events), 'utf8')).not.toContain(SECRET);
   });
 
   it('creates events.jsonl and stderr.log on open, as a link to the first spool segment', () => {
     const { run } = setup();
     const events = statSync(join(run.dir, RUN_FILES.events));
-    expect(events.ino).toBe(
-      statSync(join(run.dir, 'spool', segmentFileName(0, 0))).ino,
-    );
+    expect(events.ino).toBe(statSync(join(run.dir, 'spool', segmentFileName(0, 0))).ino);
     expect(statSync(join(run.dir, RUN_FILES.stderr)).size).toBe(0);
   });
 
@@ -140,10 +125,7 @@ describe('EventLogWriter', () => {
       redactor: new Redactor(),
       limits: LIMITS,
     });
-    expect(
-      EventLogWriter.open(plain, OP, { now: () => AT }).append('stdout', data)
-        .ok,
-    ).toBe(true);
+    expect(EventLogWriter.open(plain, OP, { now: () => AT }).append('stdout', data).ok).toBe(true);
     const run = RunDir.open({
       dataDir: tempDir(),
       kind: 'operations',
@@ -151,9 +133,10 @@ describe('EventLogWriter', () => {
       redactor: new Redactor({ values: [short] }),
       limits: LIMITS,
     });
-    expect(
-      EventLogWriter.open(run, OP, { now: () => AT }).append('stdout', data),
-    ).toMatchObject({ ok: false, error: { code: 'record_too_large' } });
+    expect(EventLogWriter.open(run, OP, { now: () => AT }).append('stdout', data)).toMatchObject({
+      ok: false,
+      error: { code: 'record_too_large' },
+    });
   });
 
   it('rotates into a new spool segment before exceeding log_segment_bytes', () => {
@@ -161,17 +144,14 @@ describe('EventLogWriter', () => {
     appendN(log, 20);
     const segs = listSegments(run);
     expect(segs.length).toBeGreaterThan(1);
-    for (const s of segs)
-      expect(s.bytes).toBeLessThanOrEqual(LIMITS.log_segment_bytes);
+    for (const s of segs) expect(s.bytes).toBeLessThanOrEqual(LIMITS.log_segment_bytes);
     expect(segs.map((s) => s.segment)).toEqual(segs.map((_, i) => i));
     expect(segs.every((s) => s.generation === 0)).toBe(true);
     const last = segs.at(-1);
     expect(statSync(join(run.dir, RUN_FILES.events)).ino).toBe(
       statSync(join(run.dir, 'spool', last?.name ?? '')).ino,
     );
-    expect(readAll(run).seqs).toEqual(
-      Array.from({ length: 20 }, (_, i) => i + 1),
-    );
+    expect(readAll(run).seqs).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
   });
 
   it('returns artifact_backpressure at the spool cap and keeps what was written', () => {
@@ -209,12 +189,10 @@ describe('EventLogWriter', () => {
       ok: true,
       value: 0,
     });
-    expect(
-      log.appendStderr(Buffer.from(`${SECRET.slice(5)} end\npartial`)),
-    ).toMatchObject({ ok: true });
-    expect(readFileSync(join(run.dir, RUN_FILES.stderr), 'utf8')).toBe(
-      `warn ${REDACTED} end\n`,
-    );
+    expect(log.appendStderr(Buffer.from(`${SECRET.slice(5)} end\npartial`))).toMatchObject({
+      ok: true,
+    });
+    expect(readFileSync(join(run.dir, RUN_FILES.stderr), 'utf8')).toBe(`warn ${REDACTED} end\n`);
     expect(log.flushStderr()).toMatchObject({ ok: true });
     expect(readFileSync(join(run.dir, RUN_FILES.stderr), 'utf8')).toBe(
       `warn ${REDACTED} end\npartial`,
@@ -250,8 +228,7 @@ describe('readRecords', () => {
     const { run, log } = setup();
     appendN(log, 2, 10);
     const events = join(run.dir, RUN_FILES.events);
-    const partial =
-      '{"schema_version":1,"operation_id":"op-1","generation":0,"seq":3';
+    const partial = '{"schema_version":1,"operation_id":"op-1","generation":0,"seq":3';
     appendFileSync(events, partial);
     const first = readRecords(run, OP, null);
     expect(first.ok && first.value.records.map((r) => r.seq)).toEqual([1, 2]);
@@ -263,14 +240,9 @@ describe('readRecords', () => {
       last_record_seq: 2,
     });
     expect(cursor?.byte_offset).toBe(statSync(events).size - partial.length);
-    appendFileSync(
-      events,
-      `,"at":"${AT.toISOString()}","kind":"stdout","data":"late"}\n`,
-    );
+    appendFileSync(events, `,"at":"${AT.toISOString()}","kind":"stdout","data":"late"}\n`);
     const next = readRecords(run, OP, cursor);
-    expect(next.ok && next.value.records.map((r) => [r.seq, r.data])).toEqual([
-      [3, 'late'],
-    ]);
+    expect(next.ok && next.value.records.map((r) => [r.seq, r.data])).toEqual([[3, 'late']]);
   });
 
   it('is idempotent from the same cursor and produces cursors that only move forward', () => {
@@ -285,9 +257,7 @@ describe('readRecords', () => {
     expect(b1.ok && b1.value.records.map((r) => r.seq)).toEqual([3, 4]);
     const end = b1.ok ? b1.value.cursor : null;
     expect(cursorAfter(end as IngestPosition, cursor)).toBe(true);
-    expect(
-      IngestCursorSchema.safeParse({ ...end, acked_at: null }).success,
-    ).toBe(true);
+    expect(IngestCursorSchema.safeParse({ ...end, acked_at: null }).success).toBe(true);
     const c = readRecords(run, OP, end);
     expect(c.ok && c.value.records).toEqual([]);
     expect(c.ok && c.value.cursor).toEqual(end);
@@ -360,16 +330,18 @@ describe('readRecords', () => {
       byte_offset: 0,
       last_record_seq: 0,
     };
-    expect(
-      readRecords(run, OP, { ...base, operation_id: 'op-2' }),
-    ).toMatchObject({ ok: false, error: { code: 'cursor_mismatch' } });
+    expect(readRecords(run, OP, { ...base, operation_id: 'op-2' })).toMatchObject({
+      ok: false,
+      error: { code: 'cursor_mismatch' },
+    });
     expect(readRecords(run, OP, { ...base, segment: 7 })).toMatchObject({
       ok: false,
       error: { code: 'cursor_not_found' },
     });
-    expect(
-      readRecords(run, OP, { ...base, byte_offset: 1_000_000 }),
-    ).toMatchObject({ ok: false, error: { code: 'cursor_not_found' } });
+    expect(readRecords(run, OP, { ...base, byte_offset: 1_000_000 })).toMatchObject({
+      ok: false,
+      error: { code: 'cursor_not_found' },
+    });
   });
 });
 

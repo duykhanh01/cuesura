@@ -6,9 +6,7 @@ function errors(
   limits = DEFAULT_LIMITS,
 ): { code: string; line: number; col: number }[] {
   const r = loadYaml({ file: 'cusr.yaml', text }, limits);
-  return r.ok
-    ? []
-    : r.error.map((d) => ({ code: d.code, line: d.line, col: d.col }));
+  return r.ok ? [] : r.error.map((d) => ({ code: d.code, line: d.line, col: d.col }));
 }
 
 describe('loader YAML (R-05)', () => {
@@ -27,18 +25,12 @@ describe('loader YAML (R-05)', () => {
   });
 
   it('yaml_syntax reports the correct line and column', () => {
-    expect(errors('a: [1, 2\nb: 3\n')).toEqual([
-      { code: 'yaml_syntax', line: 2, col: 1 },
-    ]);
-    expect(errors('a:\n\tb: 1\n')).toEqual([
-      { code: 'yaml_syntax', line: 2, col: 1 },
-    ]);
+    expect(errors('a: [1, 2\nb: 3\n')).toEqual([{ code: 'yaml_syntax', line: 2, col: 1 }]);
+    expect(errors('a:\n\tb: 1\n')).toEqual([{ code: 'yaml_syntax', line: 2, col: 1 }]);
   });
 
   it('yaml_syntax rejects multiple documents in one file', () => {
-    expect(errors('a: 1\n---\nb: 2\n')).toEqual([
-      { code: 'yaml_syntax', line: 2, col: 1 },
-    ]);
+    expect(errors('a: 1\n---\nb: 2\n')).toEqual([{ code: 'yaml_syntax', line: 2, col: 1 }]);
   });
 
   it('duplicate_key reports DUPLICATE_KEY at the repeated key', () => {
@@ -48,9 +40,7 @@ describe('loader YAML (R-05)', () => {
   });
 
   it('unsupported_tag rejects unknown tags despite TAG_RESOLVE_FAILED being a warning', () => {
-    expect(errors('a: !foo bar\n')).toEqual([
-      { code: 'unsupported_tag', line: 1, col: 4 },
-    ]);
+    expect(errors('a: !foo bar\n')).toEqual([{ code: 'unsupported_tag', line: 1, col: 4 }]);
   });
 
   it('unsupported_tag rejects !!binary even when yaml resolves it', () => {
@@ -76,9 +66,7 @@ describe('loader YAML (R-05)', () => {
   });
 
   it('an alias without a preceding anchor is a syntax error', () => {
-    expect(errors('a: *nope\n')).toEqual([
-      { code: 'yaml_syntax', line: 1, col: 4 },
-    ]);
+    expect(errors('a: *nope\n')).toEqual([{ code: 'yaml_syntax', line: 1, col: 4 }]);
   });
 
   it('file_too_large rejects files over 256 KiB before parsing', () => {

@@ -22,10 +22,7 @@ export type AnswerDeps = {
 export type AnswerPayload = { question_id: string; answer: string };
 
 /** The task of a command in the caller's project, or `task_not_found` without saying which one exists. */
-export function taskInProject(
-  store: Store,
-  input: CommandInput,
-): Result<TaskState, AppError> {
+export function taskInProject(store: Store, input: CommandInput): Result<TaskState, AppError> {
   const s = store.readTask(input.task_id as Uuid);
   if (s === null || s.project !== input.project)
     return err({
@@ -58,9 +55,7 @@ export function acceptError(
 }
 
 function eventTypes(o: AcceptOutcome): string[] {
-  return o.decision.kind === 'accepted'
-    ? o.decision.events.map((e) => e.type)
-    : [];
+  return o.decision.kind === 'accepted' ? o.decision.events.map((e) => e.type) : [];
 }
 
 export function answerQuestion(

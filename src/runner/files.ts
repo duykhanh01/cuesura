@@ -121,21 +121,12 @@ export function fileLimits(l: FileLimits = DEFAULT_RUNTIME_LIMITS): FileLimits {
   };
   for (const [k, v] of Object.entries(out)) {
     if (!Number.isSafeInteger(v) || v <= 0)
-      throw new RunnerFileError(
-        'invalid_limits',
-        `${k} must be a positive integer`,
-      );
+      throw new RunnerFileError('invalid_limits', `${k} must be a positive integer`);
   }
   if (out.log_record_bytes > out.log_segment_bytes)
-    throw new RunnerFileError(
-      'invalid_limits',
-      'log_record_bytes must be <= log_segment_bytes',
-    );
+    throw new RunnerFileError('invalid_limits', 'log_record_bytes must be <= log_segment_bytes');
   if (out.log_segment_bytes > out.spool_bytes)
-    throw new RunnerFileError(
-      'invalid_limits',
-      'log_segment_bytes must be <= spool_bytes',
-    );
+    throw new RunnerFileError('invalid_limits', 'log_segment_bytes must be <= spool_bytes');
   return out;
 }
 
@@ -155,10 +146,7 @@ function lstatOrNull(p: string): Stats | null {
 }
 
 function fsyncDir(dir: string): void {
-  const fd = openSync(
-    dir,
-    constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
-  );
+  const fd = openSync(dir, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
   try {
     fsyncSync(fd);
   } finally {
@@ -187,20 +175,13 @@ function sha256(buf: Buffer): Hash {
 }
 
 const O_CREATE_EXCL =
-  constants.O_WRONLY |
-  constants.O_CREAT |
-  constants.O_EXCL |
-  constants.O_NOFOLLOW;
-const O_APPEND_EXISTING =
-  constants.O_WRONLY | constants.O_APPEND | constants.O_NOFOLLOW;
+  constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW;
+const O_APPEND_EXISTING = constants.O_WRONLY | constants.O_APPEND | constants.O_NOFOLLOW;
 const O_READ = constants.O_RDONLY | constants.O_NOFOLLOW;
 
 /** Writes `data` to a fresh, fsynced temp file next to `name`; returns its path. */
 function writeTempIn(dir: string, name: string, data: Buffer): string {
-  const tmp = join(
-    dir,
-    `.${name}.tmp-${process.pid}-${randomBytes(6).toString('hex')}`,
-  );
+  const tmp = join(dir, `.${name}.tmp-${process.pid}-${randomBytes(6).toString('hex')}`);
   const fd = openSync(tmp, O_CREATE_EXCL, FILE_MODE);
   try {
     writeAll(fd, data);
@@ -254,10 +235,8 @@ function plainDir(parent: string, name: string, create: boolean): string {
     }
     st = lstatSync(p);
   }
-  if (st.isSymbolicLink())
-    throw new RunnerFileError('symlink', `${p} is a symlink`);
-  if (!st.isDirectory())
-    throw new RunnerFileError('not_directory', `${p} is not a directory`);
+  if (st.isSymbolicLink()) throw new RunnerFileError('symlink', `${p} is a symlink`);
+  if (!st.isDirectory()) throw new RunnerFileError('not_directory', `${p} is not a directory`);
   return p;
 }
 
@@ -327,20 +306,11 @@ export class RunDir {
   static open(opts: OpenRunDirOptions): RunDir {
     const create = opts.create ?? true;
     if (!isAbsolute(opts.dataDir))
-      throw new RunnerFileError(
-        'unsafe_path',
-        `data dir ${opts.dataDir} must be absolute`,
-      );
+      throw new RunnerFileError('unsafe_path', `data dir ${opts.dataDir} must be absolute`);
     if (!(RUN_DIR_KINDS as readonly string[]).includes(opts.kind))
-      throw new RunnerFileError(
-        'invalid_argument',
-        `unknown run dir kind ${opts.kind}`,
-      );
+      throw new RunnerFileError('invalid_argument', `unknown run dir kind ${opts.kind}`);
     if (!isSafeId(opts.id))
-      throw new RunnerFileError(
-        'unsafe_id',
-        `unsafe id ${JSON.stringify(opts.id)}`,
-      );
+      throw new RunnerFileError('unsafe_id', `unsafe id ${JSON.stringify(opts.id)}`);
     const limits = fileLimits(opts.limits);
     if (create) mkdirSync(opts.dataDir, { recursive: true, mode: DIR_MODE });
     let root: string;
@@ -348,18 +318,12 @@ export class RunDir {
       root = realpathSync(opts.dataDir);
     } catch (e) {
       if (errno(e) === 'ENOENT')
-        throw new RunnerFileError(
-          'not_found',
-          `data dir ${opts.dataDir} does not exist`,
-        );
+        throw new RunnerFileError('not_found', `data dir ${opts.dataDir} does not exist`);
       throw e;
     }
     const dir = plainDir(plainDir(root, opts.kind, create), opts.id, create);
     if (realpathSync(dir) !== dir)
-      throw new RunnerFileError(
-        'escapes_root',
-        `${dir} resolves outside ${root}`,
-      );
+      throw new RunnerFileError('escapes_root', `${dir} resolves outside ${root}`);
     if (create) for (const sub of RUN_SUBDIRS) plainDir(dir, sub, true);
     return new RunDir(root, opts.kind, opts.id, dir, opts.redactor, limits);
   }
@@ -370,18 +334,14 @@ export class RunDir {
    */
   resolve(rel: string): string {
     if (!RelativePathSchema.safeParse(rel).success || rel.includes('\\'))
-      throw new RunnerFileError(
-        'unsafe_path',
-        `unsafe relative path ${JSON.stringify(rel)}`,
-      );
+      throw new RunnerFileError('unsafe_path', `unsafe relative path ${JSON.stringify(rel)}`);
     const parts = rel.split('/');
     let p = this.dir;
     for (let i = 0; i < parts.length; i++) {
       p = join(p, parts[i] as string);
       const st = lstatOrNull(p);
       if (st === null) break;
-      if (st.isSymbolicLink())
-        throw new RunnerFileError('symlink', `symlink in path ${rel}`);
+      if (st.isSymbolicLink()) throw new RunnerFileError('symlink', `symlink in path ${rel}`);
       if (i < parts.length - 1 && !st.isDirectory())
         throw new RunnerFileError(
           'not_directory',
@@ -409,15 +369,9 @@ export class RunDir {
   }
 
   #encodeJson(value: unknown, maxBytes: number, rel: string): Buffer {
-    const buf = Buffer.from(
-      `${JSON.stringify(this.redactor.value(value))}\n`,
-      'utf8',
-    );
+    const buf = Buffer.from(`${JSON.stringify(this.redactor.value(value))}\n`, 'utf8');
     if (buf.length > maxBytes)
-      throw new RunnerFileError(
-        'too_large',
-        `${rel} is ${buf.length} bytes, limit ${maxBytes}`,
-      );
+      throw new RunnerFileError('too_large', `${rel} is ${buf.length} bytes, limit ${maxBytes}`);
     return buf;
   }
 
@@ -431,11 +385,7 @@ export class RunDir {
   }
 
   /** Redacted JSON, written atomically. Control files are bounded by `result_bytes`. */
-  writeJson(
-    rel: string,
-    value: unknown,
-    maxBytes: number = this.limits.result_bytes,
-  ): WrittenFile {
+  writeJson(rel: string, value: unknown, maxBytes: number = this.limits.result_bytes): WrittenFile {
     const buf = this.#encodeJson(value, maxBytes, rel);
     const { dir, name } = this.#parentOf(rel);
     writeAtomicIn(dir, name, buf);
@@ -443,17 +393,10 @@ export class RunDir {
   }
 
   /** Redacted text, written atomically. */
-  writeText(
-    rel: string,
-    text: string,
-    maxBytes: number = this.limits.result_bytes,
-  ): WrittenFile {
+  writeText(rel: string, text: string, maxBytes: number = this.limits.result_bytes): WrittenFile {
     const buf = Buffer.from(this.redactor.text(text), 'utf8');
     if (buf.length > maxBytes)
-      throw new RunnerFileError(
-        'too_large',
-        `${rel} is ${buf.length} bytes, limit ${maxBytes}`,
-      );
+      throw new RunnerFileError('too_large', `${rel} is ${buf.length} bytes, limit ${maxBytes}`);
     const { dir, name } = this.#parentOf(rel);
     writeAtomicIn(dir, name, buf);
     return this.#written(rel, buf);
@@ -480,10 +423,7 @@ export class RunDir {
 
   /** out/result.json; a result over `result_bytes` after redaction is rejected, never truncated. */
   writeResult(value: unknown): Result<WrittenFile, ResultTooLarge> {
-    const buf = Buffer.from(
-      `${JSON.stringify(this.redactor.value(value))}\n`,
-      'utf8',
-    );
+    const buf = Buffer.from(`${JSON.stringify(this.redactor.value(value))}\n`, 'utf8');
     if (buf.length > this.limits.result_bytes)
       return err({
         code: 'result_too_large',
@@ -504,8 +444,7 @@ export class RunDir {
     try {
       path = this.resolve(rel);
     } catch (e) {
-      if (e instanceof RunnerFileError)
-        return { state: 'invalid', reason: e.message };
+      if (e instanceof RunnerFileError) return { state: 'invalid', reason: e.message };
       throw e;
     }
     let fd: number;
@@ -513,15 +452,13 @@ export class RunDir {
       fd = openSync(path, O_READ);
     } catch (e) {
       if (errno(e) === 'ENOENT') return { state: 'missing' };
-      if (errno(e) === 'ELOOP')
-        return { state: 'invalid', reason: `${rel} is a symlink` };
+      if (errno(e) === 'ELOOP') return { state: 'invalid', reason: `${rel} is a symlink` };
       throw e;
     }
     let buf: Buffer;
     try {
       const st = fstatSync(fd);
-      if (!st.isFile())
-        return { state: 'invalid', reason: `${rel} is not a regular file` };
+      if (!st.isFile()) return { state: 'invalid', reason: `${rel} is not a regular file` };
       if (st.size > this.limits.result_bytes)
         return {
           state: 'invalid',
@@ -535,9 +472,7 @@ export class RunDir {
       return { state: 'invalid', reason: `${rel} is incomplete` };
     let parsed: unknown;
     try {
-      parsed = JSON.parse(
-        new TextDecoder('utf-8', { fatal: true }).decode(buf),
-      );
+      parsed = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(buf));
     } catch {
       return { state: 'invalid', reason: `${rel} is not valid JSON` };
     }
@@ -635,15 +570,9 @@ export function listSegments(run: RunDir): SegmentInfo[] {
     if (m === null) continue;
     const st = lstatSync(join(spool, name));
     if (st.isSymbolicLink())
-      throw new RunnerFileError(
-        'symlink',
-        `spool segment ${name} is a symlink`,
-      );
+      throw new RunnerFileError('symlink', `spool segment ${name} is a symlink`);
     if (!st.isFile())
-      throw new RunnerFileError(
-        'not_regular_file',
-        `spool segment ${name} is not a regular file`,
-      );
+      throw new RunnerFileError('not_regular_file', `spool segment ${name} is not a regular file`);
     out.push({
       generation: Number(m[1]),
       segment: Number(m[2]),
@@ -680,10 +609,7 @@ function readSegment(run: RunDir, name: string, from: number): Buffer | null {
   } catch (e) {
     if (errno(e) === 'ENOENT') return null;
     if (errno(e) === 'ELOOP')
-      throw new RunnerFileError(
-        'symlink',
-        `spool segment ${name} is a symlink`,
-      );
+      throw new RunnerFileError('symlink', `spool segment ${name} is a symlink`);
     throw e;
   }
   try {
@@ -781,25 +707,15 @@ export class EventLogWriter {
     this.#usage = spoolUsage(run);
   }
 
-  static open(
-    run: RunDir,
-    operationId: string,
-    opts: EventLogWriterOptions = {},
-  ): EventLogWriter {
+  static open(run: RunDir, operationId: string, opts: EventLogWriterOptions = {}): EventLogWriter {
     if (!isSafeId(operationId))
-      throw new RunnerFileError(
-        'unsafe_id',
-        `unsafe operation id ${JSON.stringify(operationId)}`,
-      );
+      throw new RunnerFileError('unsafe_id', `unsafe operation id ${JSON.stringify(operationId)}`);
     const now = opts.now ?? ((): Date => new Date());
     const segments = listSegments(run);
     const last = segments.at(-1);
     if (last === undefined) {
       if (lstatOrNull(run.resolve(RUN_FILES.events)) !== null)
-        throw new RunnerFileError(
-          'layout_mismatch',
-          'events.jsonl exists without a spool segment',
-        );
+        throw new RunnerFileError('layout_mismatch', 'events.jsonl exists without a spool segment');
       const fd = createSegment(run, 0, 0, Buffer.alloc(0));
       return new EventLogWriter(run, operationId, now, {
         generation: 0,
@@ -836,8 +752,7 @@ export class EventLogWriter {
   }
 
   #ensureUsable(): void {
-    if (this.#closed)
-      throw new RunnerFileError('writer_failed', 'event log writer is closed');
+    if (this.#closed) throw new RunnerFileError('writer_failed', 'event log writer is closed');
     if (this.#failed)
       throw new RunnerFileError(
         'writer_failed',
@@ -863,10 +778,7 @@ export class EventLogWriter {
   append(kind: string, data: unknown): Result<AppendedRecord, AppendError> {
     this.#ensureUsable();
     if (!KindSchema.safeParse(kind).success)
-      throw new RunnerFileError(
-        'invalid_argument',
-        `invalid record kind ${JSON.stringify(kind)}`,
-      );
+      throw new RunnerFileError('invalid_argument', `invalid record kind ${JSON.stringify(kind)}`);
     const limits = this.#run.limits;
     const seq = this.#seq + 1;
     const record: LogRecord = {
@@ -888,8 +800,7 @@ export class EventLogWriter {
     const full = this.#reserve(line.length);
     if (full !== null) return err(full);
     const needsNew =
-      this.#fd === null ||
-      (this.#size > 0 && this.#size + line.length > limits.log_segment_bytes);
+      this.#fd === null || (this.#size > 0 && this.#size + line.length > limits.log_segment_bytes);
     let offset: number;
     try {
       if (needsNew) {
@@ -924,14 +835,10 @@ export class EventLogWriter {
    * is flushed up to a cut no secret can straddle (see {@link Redactor.safeCut}); the remainder stays
    * buffered. On backpressure the text stays buffered and is reported, not dropped.
    */
-  appendStderr(
-    chunk: string | Uint8Array,
-  ): Result<number, ArtifactBackpressure> {
+  appendStderr(chunk: string | Uint8Array): Result<number, ArtifactBackpressure> {
     this.#ensureUsable();
     this.#stderrPending +=
-      typeof chunk === 'string'
-        ? chunk
-        : this.#decoder.write(Buffer.from(chunk));
+      typeof chunk === 'string' ? chunk : this.#decoder.write(Buffer.from(chunk));
     return this.#drainStderr(false);
   }
 
@@ -950,11 +857,7 @@ export class EventLogWriter {
     if (!final) {
       const line = pending.lastIndexOf('\n') + 1;
       const force = Buffer.byteLength(pending.slice(line)) > cap;
-      cut = redactor.safeCut(
-        pending,
-        force ? pending.length : line,
-        2 * redactor.carry + cap,
-      );
+      cut = redactor.safeCut(pending, force ? pending.length : line, 2 * redactor.carry + cap);
     }
     if (cut === 0) return ok(0);
     const buf = Buffer.from(redactor.text(pending.slice(0, cut)), 'utf8');
@@ -1005,19 +908,11 @@ function linkEvents(run: RunDir, segmentName: string): void {
  * Creates a segment already holding `initial` (fsynced before it becomes visible, so a rotated segment
  * is never empty), switches events.jsonl to it and returns an append fd.
  */
-function createSegment(
-  run: RunDir,
-  generation: number,
-  segment: number,
-  initial: Buffer,
-): number {
+function createSegment(run: RunDir, generation: number, segment: number, initial: Buffer): number {
   const spool = run.ensureDir(SPOOL_DIR);
   const name = segmentFileName(generation, segment);
   if (!createOnceIn(spool, name, initial))
-    throw new RunnerFileError(
-      'layout_mismatch',
-      `spool segment ${name} already exists`,
-    );
+    throw new RunnerFileError('layout_mismatch', `spool segment ${name} already exists`);
   linkEvents(run, name);
   return openSync(join(spool, name), O_APPEND_EXISTING);
 }
@@ -1082,9 +977,7 @@ export function readRecords(
   if (segments.length === 0) return ok({ records: [], cursor: from, torn: [] });
   let i = 0;
   if (from !== null) {
-    i = segments.findIndex(
-      (s) => s.generation === from.generation && s.segment === from.segment,
-    );
+    i = segments.findIndex((s) => s.generation === from.generation && s.segment === from.segment);
     if (i < 0)
       return err({
         code: 'cursor_not_found',
@@ -1115,8 +1008,7 @@ export function readRecords(
         segment: seg.segment,
         byte_offset: offset + pos,
       };
-      if (typeof rec === 'string')
-        return err({ code: 'corrupt_record', ...at, reason: rec });
+      if (typeof rec === 'string') return err({ code: 'corrupt_record', ...at, reason: rec });
       if (rec.operation_id !== operationId)
         return err({
           code: 'corrupt_record',
@@ -1232,8 +1124,7 @@ export function readAllRecords(run: RunDir): LogRecord[] {
     }
     for (const name of names) {
       const m = SEGMENT_RE.exec(name);
-      if (m !== null)
-        files.push({ path: join(dir, name), segment: Number(m[2]) });
+      if (m !== null) files.push({ path: join(dir, name), segment: Number(m[2]) });
     }
   }
   files.sort((a, b) => a.segment - b.segment);

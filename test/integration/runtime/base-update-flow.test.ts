@@ -123,22 +123,15 @@ async function conflictFlow(
         join(f.worktree, 'search.ts'),
         'export const search = (q: string) => q.trim();\n',
       );
-    if (behavior === 'gate-failed')
-      writeFileSync(join(f.worktree, 'gate-failed'), 'fail gate');
+    if (behavior === 'gate-failed') writeFileSync(join(f.worktree, 'gate-failed'), 'fail gate');
     if (behavior === 'outside')
-      writeFileSync(
-        join(f.worktree, 'extra.ts'),
-        'export const extra = true;\n',
-      );
-    if (behavior === 'rename')
-      g.sh(f.worktree, 'mv', 'search.ts', 'renamed.ts');
+      writeFileSync(join(f.worktree, 'extra.ts'), 'export const extra = true;\n');
+    if (behavior === 'rename') g.sh(f.worktree, 'mv', 'search.ts', 'renamed.ts');
     if (behavior === 'failed' || (behavior === 'rate-limited' && calls === 1))
       return Promise.resolve({
         kind: 'failure' as const,
         failure:
-          behavior === 'rate-limited'
-            ? ('rate_limited' as const)
-            : ('process_failed' as const),
+          behavior === 'rate-limited' ? ('rate_limited' as const) : ('process_failed' as const),
         detail: 'worker failed',
         role: 'fixer' as const,
         usage: { basis: 'unavailable' as const },
@@ -152,11 +145,7 @@ async function conflictFlow(
   const originalGit = f.deps.git.run.bind(f.deps.git);
   if (behavior === 'scope-unreadable')
     f.deps.git.run = async (command) => {
-      if (
-        command.args[0] === 'diff' &&
-        command.args.includes('--no-renames') &&
-        calls > 0
-      )
+      if (command.args[0] === 'diff' && command.args.includes('--no-renames') && calls > 0)
         return {
           kind: 'exited',
           code: 0,
@@ -175,14 +164,9 @@ async function conflictFlow(
   g.sh(g.base, 'clone', '-q', f.remote, external);
   writeFileSync(
     join(external, 'search.ts'),
-    behavior === 'markerless'
-      ? Buffer.from([0, 3, 4])
-      : 'conflicting implementation\n',
+    behavior === 'markerless' ? Buffer.from([0, 3, 4]) : 'conflicting implementation\n',
   );
-  writeFileSync(
-    join(external, 'base-auto.txt'),
-    'automatic non-conflict base change\n',
-  );
+  writeFileSync(join(external, 'base-auto.txt'), 'automatic non-conflict base change\n');
   g.sh(external, 'add', '-A');
   g.sh(external, 'commit', '-qm', 'conflict on main');
   g.sh(external, 'push', '-q', 'origin', 'main');
@@ -197,17 +181,12 @@ async function conflictFlow(
   const finish = async () => {
     for (let i = 0; i < 6; i++) {
       if (f.d.task(task.id).wait?.detail.code === 'execution_slot')
-        f.d.store.grantNext(
-          f.d.now as EpochMs,
-          Array.from({ length: 8 }, f.newId),
-        );
+        f.d.store.grantNext(f.d.now as EpochMs, Array.from({ length: 8 }, f.newId));
       await f.settle();
       if (f.d.task(task.id).wait?.detail.code !== 'execution_slot') break;
     }
   };
-  expect(await requestBaseWithoutYolo(f.deps, task.id, head, base)).toBe(
-    'updating_base',
-  );
+  expect(await requestBaseWithoutYolo(f.deps, task.id, head, base)).toBe('updating_base');
   await finish();
   return { ...f, task, head, base, external, finish, fixes: () => calls };
 }
@@ -227,10 +206,7 @@ describe('base integration through the real gate/review/publish handlers', () =>
       const policy = previous.policy_ref;
       const external = join(g.base, `base-writer-${seq++}`);
       g.sh(g.base, 'clone', '-q', f.remote, external);
-      writeFileSync(
-        join(external, 'base.txt'),
-        'change from the preceding task\n',
-      );
+      writeFileSync(join(external, 'base.txt'), 'change from the preceding task\n');
       g.sh(external, 'add', '-A');
       g.sh(external, 'commit', '-qm', 'main advanced');
       g.sh(external, 'push', '-q', 'origin', 'main');
@@ -241,19 +217,12 @@ describe('base integration through the real gate/review/publish handlers', () =>
         base_sha: base,
       });
       expect(f.d.task(task.id).wait?.detail.code).toBe('execution_slot');
-      expect(
-        g.sh(
-          f.remote,
-          'rev-parse',
-          g.sh(f.worktree, 'symbolic-ref', '--short', 'HEAD'),
-        ),
-      ).toBe(head);
+      expect(g.sh(f.remote, 'rev-parse', g.sh(f.worktree, 'symbolic-ref', '--short', 'HEAD'))).toBe(
+        head,
+      );
       for (let i = 0; i < 6; i++) {
         if (f.d.task(task.id).wait?.detail.code === 'execution_slot')
-          f.d.store.grantNext(
-            f.d.now as EpochMs,
-            Array.from({ length: 8 }, f.newId),
-          );
+          f.d.store.grantNext(f.d.now as EpochMs, Array.from({ length: 8 }, f.newId));
         await f.settle();
         if (f.d.task(task.id).wait?.detail.code === 'merge') break;
       }
@@ -262,25 +231,15 @@ describe('base integration through the real gate/review/publish handlers', () =>
       expect(after.head_sha).not.toBe(head);
       expect(g.sh(f.worktree, 'rev-parse', 'HEAD^1')).toBe(head);
       expect(g.sh(f.worktree, 'rev-parse', 'HEAD^2')).toBe(base);
-      expect(
-        g.sh(
-          f.worktree,
-          'merge-base',
-          '--is-ancestor',
-          base,
-          after.head_sha as string,
-        ),
-      ).toBe('');
+      expect(g.sh(f.worktree, 'merge-base', '--is-ancestor', base, after.head_sha as string)).toBe(
+        '',
+      );
       expect(readFileSync(join(f.worktree, 'base.txt'), 'utf8')).toBe(
         'change from the preceding task\n',
       );
-      expect(
-        g.sh(
-          f.remote,
-          'rev-parse',
-          g.sh(f.worktree, 'symbolic-ref', '--short', 'HEAD'),
-        ),
-      ).toBe(after.head_sha);
+      expect(g.sh(f.remote, 'rev-parse', g.sh(f.worktree, 'symbolic-ref', '--short', 'HEAD'))).toBe(
+        after.head_sha,
+      );
       expect(f.github.prs).toHaveLength(1);
       expect(f.coder.calls).toHaveLength(1);
       expect(f.codex.calls).toHaveLength(mode === 'full-review' ? 1 : 0);
@@ -334,23 +293,15 @@ describe('base integration through the real gate/review/publish handlers', () =>
       const head = f.d.task(task.id).head_sha as string;
       const external = join(g.base, `base-writer-${seq++}`);
       g.sh(g.base, 'clone', '-q', f.remote, external);
-      writeFileSync(
-        join(external, 'search.ts'),
-        'conflicting implementation\n',
-      );
+      writeFileSync(join(external, 'search.ts'), 'conflicting implementation\n');
       g.sh(external, 'add', '-A');
       g.sh(external, 'commit', '-qm', 'conflict on main');
       g.sh(external, 'push', '-q', 'origin', 'main');
       const base = g.sh(external, 'rev-parse', 'HEAD');
-      expect(await requestBaseWithoutYolo(f.deps, task.id, head, base)).toBe(
-        'updating_base',
-      );
+      expect(await requestBaseWithoutYolo(f.deps, task.id, head, base)).toBe('updating_base');
       for (let i = 0; i < 6; i++) {
         if (f.d.task(task.id).wait?.detail.code === 'execution_slot')
-          f.d.store.grantNext(
-            f.d.now as EpochMs,
-            Array.from({ length: 8 }, f.newId),
-          );
+          f.d.store.grantNext(f.d.now as EpochMs, Array.from({ length: 8 }, f.newId));
         await f.settle();
         if (f.d.task(task.id).wait?.detail.code === 'merge') break;
       }
@@ -361,13 +312,9 @@ describe('base integration through the real gate/review/publish handlers', () =>
       expect(g.sh(f.worktree, 'rev-parse', 'HEAD^1')).toBe(head);
       expect(g.sh(f.worktree, 'rev-parse', 'HEAD^2')).toBe(base);
       expect(after.evidence.ci.at(-1)?.head_sha).toBe(after.head_sha);
-      expect(
-        g.sh(
-          f.remote,
-          'rev-parse',
-          g.sh(f.worktree, 'symbolic-ref', '--short', 'HEAD'),
-        ),
-      ).toBe(after.head_sha);
+      expect(g.sh(f.remote, 'rev-parse', g.sh(f.worktree, 'symbolic-ref', '--short', 'HEAD'))).toBe(
+        after.head_sha,
+      );
       expect(replay(f.d.store.readEvents(task.id))).toEqual(after);
     },
   );
@@ -378,9 +325,7 @@ describe('base integration through the real gate/review/publish handlers', () =>
       const after = f.d.task(f.task.id);
       expect(f.fixes()).toBe(1);
       expect(after.run.base_update?.scope?.outside_files).toEqual(['extra.ts']);
-      expect(after.run.base_update?.certificate?.head_sha).toBe(
-        after.run.checkpoint?.sha,
-      );
+      expect(after.run.base_update?.certificate?.head_sha).toBe(after.run.checkpoint?.sha);
       if (mode === 'full-review') {
         expect(f.codex.calls).toHaveLength(2);
         expect(after.wait?.detail.code).toBe('merge');
@@ -390,11 +335,7 @@ describe('base integration through the real gate/review/publish handlers', () =>
         expect(after.wait?.detail.code).toBe('refused');
         expect(after.wait?.detail['reason']).toContain('review required');
         expect(
-          g.sh(
-            f.remote,
-            'rev-parse',
-            g.sh(f.worktree, 'symbolic-ref', '--short', 'HEAD'),
-          ),
+          g.sh(f.remote, 'rev-parse', g.sh(f.worktree, 'symbolic-ref', '--short', 'HEAD')),
         ).toBe(f.head);
       }
       expect(replay(f.d.store.readEvents(f.task.id))).toEqual(after);
@@ -416,28 +357,20 @@ describe('base integration through the real gate/review/publish handlers', () =>
       expect(f.fixes()).toBe(1);
       expect(after.wait?.detail.code).toBe('refused');
       expect(after.run.base_update?.certificate).toBeUndefined();
-      expect(
-        g.sh(
-          f.remote,
-          'rev-parse',
-          g.sh(f.worktree, 'symbolic-ref', '--short', 'HEAD'),
-        ),
-      ).toBe(f.head);
+      expect(g.sh(f.remote, 'rev-parse', g.sh(f.worktree, 'symbolic-ref', '--short', 'HEAD'))).toBe(
+        f.head,
+      );
       expect(f.codex.calls).toHaveLength(1);
       expect(f.d.pending(f.task.id, 'start_agent')).toEqual([]);
       expect(f.d.pending(f.task.id, 'publish')).toEqual([]);
-      expect(
-        Object.values(after.effects).some(
-          (effect) => effect.status === 'started',
-        ),
-      ).toBe(false);
+      expect(Object.values(after.effects).some((effect) => effect.status === 'started')).toBe(
+        false,
+      );
       f.d.now += 60_000;
       f.d.fire();
       await f.finish();
       expect(f.fixes()).toBe(1);
-      expect(replay(f.d.store.readEvents(f.task.id))).toEqual(
-        f.d.task(f.task.id),
-      );
+      expect(replay(f.d.store.readEvents(f.task.id))).toEqual(f.d.task(f.task.id));
     },
   );
 
@@ -447,9 +380,7 @@ describe('base integration through the real gate/review/publish handlers', () =>
       const f = await conflictFlow('full-review', behavior);
       const waiting = f.d.task(f.task.id);
       expect(waiting.wait?.reason).toBe('human_input');
-      const question = Object.values(waiting.questions).find(
-        (q) => q.status === 'open',
-      );
+      const question = Object.values(waiting.questions).find((q) => q.status === 'open');
       expect(question).toBeDefined();
       if (question === undefined) throw new Error('no repair question');
       writeFileSync(
@@ -467,9 +398,7 @@ describe('base integration through the real gate/review/publish handlers', () =>
       await f.finish();
       expect(f.d.task(f.task.id).wait?.detail.code).toBe('merge');
       expect(f.fixes()).toBe(1);
-      expect(replay(f.d.store.readEvents(f.task.id))).toEqual(
-        f.d.task(f.task.id),
-      );
+      expect(replay(f.d.store.readEvents(f.task.id))).toEqual(f.d.task(f.task.id));
     },
   );
 
@@ -477,9 +406,7 @@ describe('base integration through the real gate/review/publish handlers', () =>
     const f = await conflictFlow('full-review', 'markerless');
     const waiting = f.d.task(f.task.id);
     expect(waiting.run.base_update?.certificate).toBeUndefined();
-    const question = Object.values(waiting.questions).find(
-      (q) => q.status === 'open',
-    );
+    const question = Object.values(waiting.questions).find((q) => q.status === 'open');
     if (question === undefined) throw new Error('no repair question');
     const rejected = f.d.send(f.task.id, {
       kind: 'answer',
@@ -498,9 +425,7 @@ describe('base integration through the real gate/review/publish handlers', () =>
     const after = f.d.task(f.task.id);
     expect(after.wait?.detail.code).toBe('merge');
     expect(after.run.base_update?.manual_resolution).toBeDefined();
-    expect(after.run.base_update?.scope?.unchanged_conflicts).toEqual([
-      'search.ts',
-    ]);
+    expect(after.run.base_update?.scope?.unchanged_conflicts).toEqual(['search.ts']);
     expect(f.fixes()).toBe(1);
     expect(replay(f.d.store.readEvents(f.task.id))).toEqual(after);
   });
@@ -532,16 +457,11 @@ describe('base integration through the real gate/review/publish handlers', () =>
       g.sh(external, 'push', '-q', 'origin', 'main');
       const base = g.sh(external, 'rev-parse', 'HEAD');
       writeFileSync(flag, 'temporary failure');
-      expect(await requestBaseWithoutYolo(f.deps, task.id, head, base)).toBe(
-        'updating_base',
-      );
+      expect(await requestBaseWithoutYolo(f.deps, task.id, head, base)).toBe('updating_base');
       const finish = async () => {
         for (let i = 0; i < 6; i++) {
           if (f.d.task(task.id).wait?.detail.code === 'execution_slot')
-            f.d.store.grantNext(
-              f.d.now as EpochMs,
-              Array.from({ length: 8 }, f.newId),
-            );
+            f.d.store.grantNext(f.d.now as EpochMs, Array.from({ length: 8 }, f.newId));
           await f.settle();
           if (f.d.task(task.id).wait?.detail.code !== 'execution_slot') break;
         }
@@ -549,16 +469,10 @@ describe('base integration through the real gate/review/publish handlers', () =>
       await finish();
       const local = g.sh(f.worktree, 'rev-parse', 'HEAD');
       expect(local).not.toBe(head);
-      const question = Object.values(f.d.task(task.id).questions).find(
-        (q) => q.status === 'open',
-      );
+      const question = Object.values(f.d.task(task.id).questions).find((q) => q.status === 'open');
       if (question === undefined) throw new Error('no gate recovery question');
       rmSync(flag);
-      if (manualEdit)
-        writeFileSync(
-          join(f.worktree, 'manual.txt'),
-          'manual integration repair\n',
-        );
+      if (manualEdit) writeFileSync(join(f.worktree, 'manual.txt'), 'manual integration repair\n');
       f.d.must(task.id, {
         kind: 'answer',
         question_id: question.id as Uuid,
@@ -568,9 +482,7 @@ describe('base integration through the real gate/review/publish handlers', () =>
       expect(f.d.task(task.id).wait?.detail.code).toBe('merge');
       if (manualEdit) {
         expect(f.d.task(task.id).head_sha).not.toBe(local);
-        expect(f.d.task(task.id).run.base_update?.scope?.outside_files).toEqual(
-          ['manual.txt'],
-        );
+        expect(f.d.task(task.id).run.base_update?.scope?.outside_files).toEqual(['manual.txt']);
       } else expect(f.d.task(task.id).head_sha).toBe(local);
       expect(f.codex.calls).toHaveLength(manualEdit ? 2 : 1);
       expect(replay(f.d.store.readEvents(task.id))).toEqual(f.d.task(task.id));
@@ -580,10 +492,7 @@ describe('base integration through the real gate/review/publish handlers', () =>
   it.each([false, true])(
     'recheck offers legacy base repair only when not certified, certified=%s',
     async (certified) => {
-      const f = await conflictFlow(
-        'full-review',
-        certified ? 'done' : 'unresolved',
-      );
+      const f = await conflictFlow('full-review', certified ? 'done' : 'unresolved');
       const state = structuredClone(f.d.task(f.task.id));
       if (state.wait === null) throw new Error('no wait');
       state.wait = {
@@ -598,12 +507,7 @@ describe('base integration through the real gate/review/publish handlers', () =>
       };
       state.questions = {};
       const trigger = { kind: 'recheck', target: 'observation' } as const;
-      const ctx = new Ctx(
-        state,
-        null,
-        f.d.envelope(f.task.id, trigger),
-        EMPTY_RELATED,
-      );
+      const ctx = new Ctx(state, null, f.d.envelope(f.task.id, trigger), EMPTY_RELATED);
       onRecheck(ctx, trigger);
       if (certified) {
         expect(ctx.state.wait).toEqual(state.wait);
@@ -611,9 +515,7 @@ describe('base integration through the real gate/review/publish handlers', () =>
       } else {
         expect(ctx.state.wait?.reason).toBe('human_input');
         expect(ctx.state.wait?.resume.kind).toBe('repair_base');
-        expect(
-          Object.values(ctx.state.questions).some((q) => q.status === 'open'),
-        ).toBe(true);
+        expect(Object.values(ctx.state.questions).some((q) => q.status === 'open')).toBe(true);
       }
       expect(ctx.events.some((e) => e.type === 'EffectRequested')).toBe(false);
     },
@@ -648,11 +550,9 @@ describe('base integration through the real gate/review/publish handlers', () =>
         answer: 'retry fixer',
       });
       const deferred = f.d.task(f.task.id);
-      expect(
-        mask === 'deadline'
-          ? deferred.wait?.resume
-          : deferred.source_drift?.deferred,
-      ).toEqual({ kind: 'repair_base', mode: 'retry_fixer' });
+      expect(mask === 'deadline' ? deferred.wait?.resume : deferred.source_drift?.deferred).toEqual(
+        { kind: 'repair_base', mode: 'retry_fixer' },
+      );
       expect(deferred.run.base_update?.manual_resolution).toBeUndefined();
       expect(f.d.pending(f.task.id, 'publish')).toEqual([]);
       expect(f.fixes()).toBe(1);
@@ -660,30 +560,20 @@ describe('base integration through the real gate/review/publish handlers', () =>
         f.d.must(f.task.id, { kind: 'drift_choice', choice: 'continue_old' });
         await f.finish();
         expect(f.fixes()).toBe(2);
-        expect(
-          f.d.task(f.task.id).run.base_update?.manual_resolution,
-        ).toBeUndefined();
-        expect(
-          f.d.task(f.task.id).run.base_update?.certificate,
-        ).toBeUndefined();
+        expect(f.d.task(f.task.id).run.base_update?.manual_resolution).toBeUndefined();
+        expect(f.d.task(f.task.id).run.base_update?.certificate).toBeUndefined();
         expect(f.d.pending(f.task.id, 'publish')).toEqual([]);
       }
-      expect(replay(f.d.store.readEvents(f.task.id))).toEqual(
-        f.d.task(f.task.id),
-      );
+      expect(replay(f.d.store.readEvents(f.task.id))).toEqual(f.d.task(f.task.id));
     },
   );
 
   it('a rate-limited fixer can be retried only by an explicit operator answer', async () => {
     const f = await conflictFlow('full-review', 'rate-limited');
     const waiting = f.d.task(f.task.id);
-    const question = Object.values(waiting.questions).find(
-      (q) => q.status === 'open',
-    );
+    const question = Object.values(waiting.questions).find((q) => q.status === 'open');
     if (question === undefined) throw new Error('no retry question');
-    expect(
-      Object.values(waiting.effects).some((e) => e.status === 'started'),
-    ).toBe(false);
+    expect(Object.values(waiting.effects).some((e) => e.status === 'started')).toBe(false);
     f.d.must(f.task.id, {
       kind: 'answer',
       question_id: question.id as Uuid,
@@ -692,9 +582,7 @@ describe('base integration through the real gate/review/publish handlers', () =>
     await f.finish();
     expect(f.fixes()).toBe(2);
     expect(f.d.task(f.task.id).wait?.detail.code).toBe('merge');
-    expect(replay(f.d.store.readEvents(f.task.id))).toEqual(
-      f.d.task(f.task.id),
-    );
+    expect(replay(f.d.store.readEvents(f.task.id))).toEqual(f.d.task(f.task.id));
   });
 
   it('a re-proved harness before the conflict fixer waits on manifest_changed; recheck keeps the one fixer attempt', async () => {
@@ -717,17 +605,13 @@ describe('base integration through the real gate/review/publish handlers', () =>
     await f.finish();
     expect(f.fixes()).toBe(1);
     expect(f.d.task(f.task.id).wait?.detail.code).toBe('merge');
-    expect(replay(f.d.store.readEvents(f.task.id))).toEqual(
-      f.d.task(f.task.id),
-    );
+    expect(replay(f.d.store.readEvents(f.task.id))).toEqual(f.d.task(f.task.id));
   });
 
   it('renaming a conflict file into a different path requires review', async () => {
     const f = await conflictFlow('full-review', 'rename');
     expect(f.fixes()).toBe(1);
-    expect(f.d.task(f.task.id).run.base_update?.scope?.outside_files).toEqual([
-      'renamed.ts',
-    ]);
+    expect(f.d.task(f.task.id).run.base_update?.scope?.outside_files).toEqual(['renamed.ts']);
     expect(f.codex.calls).toHaveLength(2);
   });
 
@@ -747,19 +631,12 @@ describe('base integration through the real gate/review/publish handlers', () =>
     await f.finish();
     expect(f.fixes()).toBe(1);
     expect(f.d.task(f.task.id).wait?.detail.code).toBe('refused');
-    expect(
-      g.sh(
-        f.remote,
-        'rev-parse',
-        g.sh(f.worktree, 'symbolic-ref', '--short', 'HEAD'),
-      ),
-    ).toBe(head);
-    expect(f.codex.calls).toHaveLength(1);
-    const question = Object.values(f.d.task(f.task.id).questions).find(
-      (q) => q.status === 'open',
+    expect(g.sh(f.remote, 'rev-parse', g.sh(f.worktree, 'symbolic-ref', '--short', 'HEAD'))).toBe(
+      head,
     );
-    if (question === undefined)
-      throw new Error('no repeated-conflict question');
+    expect(f.codex.calls).toHaveLength(1);
+    const question = Object.values(f.d.task(f.task.id).questions).find((q) => q.status === 'open');
+    if (question === undefined) throw new Error('no repeated-conflict question');
     writeFileSync(
       join(f.worktree, 'search.ts'),
       'export const search = (q: string) => q.trim();\n',

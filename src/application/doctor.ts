@@ -10,10 +10,7 @@ import { lstatSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import type { HostProbePort } from '../adapters/ports.ts';
-import {
-  CapabilityManifestSchema,
-  type CapabilityManifest,
-} from '../domain/runtime.ts';
+import { CapabilityManifestSchema, type CapabilityManifest } from '../domain/runtime.ts';
 import { validateConfig } from '../config/validate.ts';
 import type { Uuid } from '../shared/brand.ts';
 import { err, ok, type Result } from '../shared/result.ts';
@@ -24,11 +21,7 @@ import { binaryDigest, manifestHash } from './capabilities.ts';
 import { checkHost, missingTools, type SandboxTools } from './preflight.ts';
 import type { AppError } from './queries.ts';
 import type { AttachedTerminal } from '../config/schema-user.ts';
-import {
-  findTerminalBin,
-  terminalArgv,
-  terminalProbeArgs,
-} from '../runner/terminal-host.ts';
+import { findTerminalBin, terminalArgv, terminalProbeArgs } from '../runner/terminal-host.ts';
 
 /**
  * All host probes of one doctor share this time, bounded together with the transient unit
@@ -88,11 +81,12 @@ const ok_ = (name: string, detail: string): DoctorCheck => ({
   detail,
   fix: null,
 });
-const fail = (
-  name: string,
-  detail: string,
-  fix: string | null = null,
-): DoctorCheck => ({ name, status: 'fail', detail, fix });
+const fail = (name: string, detail: string, fix: string | null = null): DoctorCheck => ({
+  name,
+  status: 'fail',
+  detail,
+  fix,
+});
 
 /**
  * The earliest refresh-token expiry (`refreshTokenExpiresAt`, epoch ms) in an OAuth login file, as the
@@ -125,8 +119,7 @@ function credentialCheck(
   now: number,
 ): DoctorCheck {
   const name = `credential:${ref.name}`;
-  if (found === null)
-    return fail(name, 'file does not exist', `create ${ref.file}`);
+  if (found === null) return fail(name, 'file does not exist', `create ${ref.file}`);
   const expires = loginExpiry(found);
   if (expires === null) return ok_(name, 'file exists; content not checked');
   if (expires <= now)
@@ -160,14 +153,8 @@ function storeChecks(deps: DoctorDeps): DoctorCheck[] {
   const replay = store.verifyProjections();
   out.push(
     replay.ok
-      ? ok_(
-          'replay',
-          `${replay.events} events replay onto ${replay.tasks} tasks`,
-        )
-      : fail(
-          'replay',
-          `${replay.mismatches.length} projection rows differ from the event log`,
-        ),
+      ? ok_('replay', `${replay.events} events replay onto ${replay.tasks} tasks`)
+      : fail('replay', `${replay.mismatches.length} projection rows differ from the event log`),
   );
   const open = store.unresolvedOperations();
   const ids = new Set(open.map((o) => o.id));
@@ -175,9 +162,8 @@ function storeChecks(deps: DoctorDeps): DoctorCheck[] {
     health?.startsWith('dispatch blocked:') === true ||
     health?.startsWith('store unwritable:') === true;
   const unresolved =
-    (untrusted ? undefined : deps.recoveryClaims?.())?.filter((o) =>
-      ids.has(o.operation_id),
-    ) ?? open.map((o) => ({ operation_id: o.id }));
+    (untrusted ? undefined : deps.recoveryClaims?.())?.filter((o) => ids.has(o.operation_id)) ??
+    open.map((o) => ({ operation_id: o.id }));
   out.push(
     unresolved.length === 0
       ? ok_('claims', 'no unresolved operation')
@@ -193,9 +179,7 @@ function storeChecks(deps: DoctorDeps): DoctorCheck[] {
       ? ok_('spools', 'no spool read or ingestion failure')
       : fail(
           'spools',
-          spool
-            .map((r) => `${r.operation_id}: ${r.status}: ${r.detail ?? ''}`)
-            .join('; '),
+          spool.map((r) => `${r.operation_id}: ${r.status}: ${r.detail ?? ''}`).join('; '),
           'see daemon journal and cusr status recovery.spool_problems',
         ),
   );
@@ -207,17 +191,14 @@ function storeChecks(deps: DoctorDeps): DoctorCheck[] {
         ? 'no open operation'
         : open
             .map((o) => {
-              const c = store.readTask(o.task_id as Uuid)?.operations[o.id]
-                ?.cursor;
+              const c = store.readTask(o.task_id as Uuid)?.operations[o.id]?.cursor;
               return `${o.id}: record ${c?.last_record_seq ?? 0}`;
             })
             .join(', '),
     ),
   );
   const slot = store.readSlot();
-  out.push(
-    ok_('slot', slot === null ? 'free' : `held by task ${slot.holder_task_id}`),
-  );
+  out.push(ok_('slot', slot === null ? 'free' : `held by task ${slot.holder_task_id}`));
   return out;
 }
 
@@ -283,12 +264,9 @@ async function terminalProbe(
       `${name} was not found; agents run in the background`,
       `install ${name} or set runtime.tool_paths.${name}`,
     );
-  const r = await host.exec(
-    [...terminalArgv(terminal, bin), ...terminalProbeArgs(terminal)],
-    {
-      timeout_ms: PROBE_MS,
-    },
-  );
+  const r = await host.exec([...terminalArgv(terminal, bin), ...terminalProbeArgs(terminal)], {
+    timeout_ms: PROBE_MS,
+  });
   return r.kind === 'exited' && r.code === 0
     ? ok_('terminal', `${name} server is reachable`)
     : fail(
@@ -298,23 +276,16 @@ async function terminalProbe(
       );
 }
 
-async function unitProbe(
-  host: HostProbePort,
-  systemdRun: string | null,
-): Promise<DoctorCheck> {
-  if (systemdRun === null)
-    return fail('systemd_unit', 'systemd-run was not found');
-  const r = await host.exec(
-    [systemdRun, '--user', '--wait', '--collect', '--quiet', '/bin/true'],
-    { timeout_ms: PROBE_MS },
-  );
+async function unitProbe(host: HostProbePort, systemdRun: string | null): Promise<DoctorCheck> {
+  if (systemdRun === null) return fail('systemd_unit', 'systemd-run was not found');
+  const r = await host.exec([systemdRun, '--user', '--wait', '--collect', '--quiet', '/bin/true'], {
+    timeout_ms: PROBE_MS,
+  });
   return r.kind === 'exited' && r.code === 0
     ? ok_('systemd_unit', 'a transient user unit ran and was collected')
     : fail(
         'systemd_unit',
-        r.kind === 'exited'
-          ? `probe unit exited ${r.code}: ${r.stderr.slice(0, 400)}`
-          : r.kind,
+        r.kind === 'exited' ? `probe unit exited ${r.code}: ${r.stderr.slice(0, 400)}` : r.kind,
         'see deploy/README.md, systemd and WSL2',
       );
 }
@@ -330,10 +301,7 @@ function manifestCheck(
   digest: (path: string) => string,
 ): DoctorCheck {
   const fix = 'record a new manifest from experimental fixtures';
-  if (
-    !CapabilityManifestSchema.safeParse(m).success ||
-    manifestHash(m) !== m.manifest_hash
-  )
+  if (!CapabilityManifestSchema.safeParse(m).success || manifestHash(m) !== m.manifest_hash)
     return fail(name, 'manifest fails its schema or its hash', fix);
   const missing = (
     ['structured_output', 'permission_enforced', 'private_home_auth'] as const
@@ -345,8 +313,7 @@ function manifestCheck(
         m.selected_inner_mode === 'full_access'
       ) && m.capabilities[k] !== 'proven',
   );
-  if (missing.length > 0)
-    return fail(name, `not proven: ${missing.join(', ')}`, fix);
+  if (missing.length > 0) return fail(name, `not proven: ${missing.join(', ')}`, fix);
   let now: string;
   try {
     now = digest(m.binary.realpath);
@@ -389,10 +356,7 @@ export async function runDoctor(
     });
 
   const checks = [...storeChecks(deps), ...pathChecks(deps.dataDir)];
-  const host = budgeted(
-    deps.host,
-    deps.probeBudgetMs ?? DOCTOR_PROBE_BUDGET_MS,
-  );
+  const host = budgeted(deps.host, deps.probeBudgetMs ?? DOCTOR_PROBE_BUDGET_MS);
   const inputs = await deps.configInputs();
   const validated = validateConfig({ user: inputs.user, packs: inputs.packs });
   if (!validated.ok) {
@@ -408,24 +372,17 @@ export async function runDoctor(
     const { runtime, locations, config } = validated.value;
     const problems = await checkHost(host, runtime);
     if (problems.length === 0)
-      checks.push(
-        ok_('host', 'systemd user manager is usable; commands run on host'),
-      );
-    for (const p of problems)
-      checks.push(fail(`host:${p.cause ?? p.check}`, p.message, p.fix));
+      checks.push(ok_('host', 'systemd user manager is usable; commands run on host'));
+    for (const p of problems) checks.push(fail(`host:${p.cause ?? p.check}`, p.message, p.fix));
     const wsl = await host.readText('/proc/sys/kernel/osrelease');
     if (wsl !== null && /microsoft/i.test(wsl))
       checks.push(
-        ok_(
-          'wsl2',
-          'WSL2 host; the user-manager unit probe above is what counts, not PID 1',
-        ),
+        ok_('wsl2', 'WSL2 host; the user-manager unit probe above is what counts, not PID 1'),
       );
     checks.push(
       await unitProbe(
         host,
-        runtime?.tool_paths['systemd-run'] ??
-          (await host.findExecutable('systemd-run')),
+        runtime?.tool_paths['systemd-run'] ?? (await host.findExecutable('systemd-run')),
       ),
     );
     if (runtime !== null && runtime.terminal.backend !== 'background')
@@ -437,9 +394,7 @@ export async function runDoctor(
         ),
       );
     for (const ref of runtime?.credential_refs ?? [])
-      checks.push(
-        credentialCheck(ref, await host.realpath(ref.file), deps.now()),
-      );
+      checks.push(credentialCheck(ref, await host.realpath(ref.file), deps.now()));
     if (project !== undefined) {
       const loc = locations[project];
       if (loc === undefined)
@@ -459,8 +414,8 @@ export async function runDoctor(
           : ok_(`project:${project}`, path),
       );
     }
-    for (const [h, tools] of Object.entries(deps.harnessTools?.() ?? {}).sort(
-      ([a], [b]) => (a < b ? -1 : 1),
+    for (const [h, tools] of Object.entries(deps.harnessTools?.() ?? {}).sort(([a], [b]) =>
+      a < b ? -1 : 1,
     )) {
       if (tools.requires.length === 0) continue;
       const fix = `install it under /usr, or add its directory to toolchain in harnesses/${h}/pin.json and prove the harness again`;

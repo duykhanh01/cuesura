@@ -2,10 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { validateConfig } from '../../src/config/validate.ts';
 import { freeze } from '../../src/config/freeze.ts';
-import type {
-  ConfigSource,
-  LoaderLimits,
-} from '../../src/config/yaml-loader.ts';
+import type { ConfigSource, LoaderLimits } from '../../src/config/yaml-loader.ts';
 import type { AuthzRole } from '../../src/domain/policy.ts';
 import type { ValidatedConfig } from '../../src/domain/config.ts';
 import type { DocContent } from '../../src/policy/finalize.ts';
@@ -53,12 +50,8 @@ export function parseHeader(text: string): FixtureHeader {
     expect,
     role: (meta.role as FixtureHeader['role'] | undefined) ?? 'user',
     withProject: meta['with-project'] ?? null,
-    limits: meta.limits
-      ? (JSON.parse(meta.limits) as Partial<LoaderLimits>)
-      : {},
-    overrides: meta.overrides
-      ? (JSON.parse(meta.overrides) as Record<string, unknown>)
-      : null,
+    limits: meta.limits ? (JSON.parse(meta.limits) as Partial<LoaderLimits>) : {},
+    overrides: meta.overrides ? (JSON.parse(meta.overrides) as Record<string, unknown>) : null,
     caller: meta.caller ? (meta.caller.split(',') as AuthzRole[]) : ['operate'],
   };
 }
@@ -75,8 +68,7 @@ export function runInvalidFixture(name: string): {
   const path = join('configs', 'invalid', name);
   const fixture = source(path);
   const header = parseHeader(fixture.text);
-  const user =
-    header.role === 'user' ? fixture : source('configs/valid/user.yaml');
+  const user = header.role === 'user' ? fixture : source('configs/valid/user.yaml');
   const project =
     header.role === 'project'
       ? fixture
@@ -149,10 +141,7 @@ models: { sonnet: { harness: claude, id: sonnet, tier: 2 }, opus: { harness: cla
 `,
 };
 
-export function minUser(
-  parts: Partial<typeof MIN_PARTS> = {},
-  extra = '',
-): ConfigSource {
+export function minUser(parts: Partial<typeof MIN_PARTS> = {}, extra = ''): ConfigSource {
   const p = { ...MIN_PARTS, ...parts };
   return {
     file: 'config.yaml',

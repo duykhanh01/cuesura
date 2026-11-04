@@ -10,12 +10,5 @@ export const projectListCommand: CliCommand = {
   cusr project list --json`,
   options: [DATA_DIR],
   run: (values, json, io) =>
-    query(
-      values,
-      { kind: 'project_list' },
-      json,
-      io,
-      undefined,
-      renderProjects,
-    ),
+    query(values, { kind: 'project_list' }, json, io, undefined, renderProjects),
 };

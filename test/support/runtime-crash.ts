@@ -45,10 +45,7 @@ import type { EffectKind } from '../../src/domain/effect.ts';
 import type { TaskStatus } from '../../src/domain/state.ts';
 import type { CanonicalTask } from '../../src/domain/task.ts';
 import { RUN_FILES, type FileLimits } from '../../src/runner/files.ts';
-import {
-  SpawnExecutor,
-  type CommandExecutor,
-} from '../../src/runner/commands.ts';
+import { SpawnExecutor, type CommandExecutor } from '../../src/runner/commands.ts';
 import { Redactor } from '../../src/runner/redact.ts';
 import type { EpochMs, Uuid } from '../../src/shared/brand.ts';
 import { canonicalJson } from '../../src/shared/canonical-json.ts';
@@ -68,12 +65,7 @@ export const GROUPS = [
 ] as const;
 export type Group = (typeof GROUPS)[number];
 
-export const PHASES = [
-  'before_effect',
-  'after_external',
-  'before_ingest',
-  'after_ingest',
-] as const;
+export const PHASES = ['before_effect', 'after_external', 'before_ingest', 'after_ingest'] as const;
 export type Phase = (typeof PHASES)[number];
 
 export type KillPoint = { readonly key: string; readonly occurrence: number };
@@ -138,9 +130,7 @@ export function guardStore(store: Store, sw: KillSwitch): Store {
           return r;
         };
       const v: unknown = Reflect.get(target, key, target);
-      return typeof v === 'function'
-        ? (v as (...a: unknown[]) => unknown).bind(target)
-        : v;
+      return typeof v === 'function' ? (v as (...a: unknown[]) => unknown).bind(target) : v;
     },
   });
 }
@@ -218,21 +208,21 @@ export function sh(lay: Layout, cwd: string, ...args: string[]): string {
 }
 
 export function remoteHead(lay: Layout, branch: string): string | null {
-  const r = spawnSync(
-    'git',
-    ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`],
-    { cwd: lay.remote, env: gitEnv(lay.root), encoding: 'utf8' },
-  );
+  const r = spawnSync('git', ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], {
+    cwd: lay.remote,
+    env: gitEnv(lay.root),
+    encoding: 'utf8',
+  });
   return r.status === 0 ? r.stdout.trim() : null;
 }
 
 /** Ref updates of `branch` on the bare remote: one per push that moved it. */
 export function remotePushes(lay: Layout, branch: string): number {
-  const r = spawnSync(
-    'git',
-    ['reflog', 'show', '--format=%H', `refs/heads/${branch}`, '--'],
-    { cwd: lay.remote, env: gitEnv(lay.root), encoding: 'utf8' },
-  );
+  const r = spawnSync('git', ['reflog', 'show', '--format=%H', `refs/heads/${branch}`, '--'], {
+    cwd: lay.remote,
+    env: gitEnv(lay.root),
+    encoding: 'utf8',
+  });
   return r.status === 0
     ? r.stdout
         .trim()
@@ -339,11 +329,7 @@ const passthrough: SandboxProvider = {
 
 const SEARCH_TS = 'export const search = (q: string) => q;\n';
 
-function harnesses(
-  lay: Layout,
-  taskId: string,
-  sw: KillSwitch,
-): Record<string, HarnessPort> {
+function harnesses(lay: Layout, taskId: string, sw: KillSwitch): Record<string, HarnessPort> {
   const coder = new FakeHarness(
     {
       coder: [

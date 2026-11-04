@@ -219,10 +219,7 @@ export const SCENARIOS: Record<string, InvariantEntry> = {
     title: 'Changed request gets a new revision',
     scope: 'partial',
     layer: 'Unit and integration tests',
-    suites: [
-      'test/unit/policy/amendment.test.ts',
-      'test/property/invariants/revision.test.ts',
-    ],
+    suites: ['test/unit/policy/amendment.test.ts', 'test/property/invariants/revision.test.ts'],
   },
   S10: {
     title: 'Status and evidence read through the CLI',
@@ -238,10 +235,7 @@ export const RELIABILITY: Record<string, InvariantEntry> = {
     title: 'At least 200 seeded daemon kills, full projection replay',
     scope: 'full',
     layer: 'Crash injection',
-    suites: [
-      'test/reliability/r1-crash.test.ts',
-      'test/reliability/runtime-crash.test.ts',
-    ],
+    suites: ['test/reliability/r1-crash.test.ts', 'test/reliability/runtime-crash.test.ts'],
   },
   R2: {
     title: 'Crash matrix around commit, push and PR; no doubled effect',
@@ -306,8 +300,7 @@ export const RELIABILITY: Record<string, InvariantEntry> = {
   R9: {
     title: 'Backup, restore, migration and doctor',
     scope: 'partial',
-    layer:
-      'Doctor and store migration; backup, restore and rollback not accepted',
+    layer: 'Doctor and store migration; backup, restore and rollback not accepted',
     suites: [
       'test/integration/runtime/feature-002-cli.test.ts',
       'test/integration/runtime/migration.test.ts',

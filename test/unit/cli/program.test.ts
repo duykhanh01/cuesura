@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  packageVersion,
-  runCli,
-  type CliSpec,
-} from '../../../src/cli/program.ts';
+import { packageVersion, runCli, type CliSpec } from '../../../src/cli/program.ts';
 
 const spec: CliSpec = {
   name: 'cusr',
@@ -11,9 +7,7 @@ const spec: CliSpec = {
   version: '1.2.3',
 };
 
-async function run(
-  argv: string[],
-): Promise<{ code: number; stdout: string; stderr: string }> {
+async function run(argv: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
   let stdout = '';
   let stderr = '';
   const code = await runCli(spec, argv, {

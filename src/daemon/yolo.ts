@@ -11,11 +11,7 @@
  * the next observation completes the task from its proof. No agent takes part. Anything else leaves the wait as
  * it is, so the user can still merge on GitHub.
  */
-import {
-  readMergeReadiness,
-  sendMerge,
-  type MergeTarget,
-} from '../adapters/github/merge.ts';
+import { readMergeReadiness, sendMerge, type MergeTarget } from '../adapters/github/merge.ts';
 import { readHeadChecks } from '../adapters/github/checks.ts';
 import { readRequirements } from '../adapters/github/observe.ts';
 import type { Clock, GitHubPort } from '../adapters/ports.ts';
@@ -53,8 +49,7 @@ export type YoloOutcome =
   | 'refused'
   | 'unknown';
 
-const NO_REQUIRED_CHECKS =
-  'no required CI checks; declare ci.required_checks in cusr.yaml';
+const NO_REQUIRED_CHECKS = 'no required CI checks; declare ci.required_checks in cusr.yaml';
 // One warning per task in this daemon/store lifetime, rather than one on every observation poll.
 const emptyCheckWarnings = new WeakMap<Store, Set<string>>();
 
@@ -108,20 +103,13 @@ async function currentChecksProblem(
   return ci.kind === 'pass' ? null : `checks ${ci.kind}`;
 }
 
-export async function advanceTaskPr(
-  deps: YoloDeps,
-  taskId: string,
-): Promise<YoloOutcome> {
+export async function advanceTaskPr(deps: YoloDeps, taskId: string): Promise<YoloOutcome> {
   const id = taskId as Uuid;
   const s = deps.store.readTask(id);
   if (!mergeWait(s) || s.policy_ref === null) return 'not_waiting';
   const pr = /#(\d+)$/.exec(s.pr_ref ?? '');
   const rt = deps.store.readRuntimeContext(id, s.revision);
-  const policy = deps.store.readPolicy(
-    id,
-    s.policy_ref.revision,
-    s.policy_ref.version,
-  );
+  const policy = deps.store.readPolicy(id, s.policy_ref.revision, s.policy_ref.version);
   if (pr === null || rt === null || policy === null) return 'not_waiting';
   const target: MergeTarget = {
     repo: rt.target.repo,
@@ -205,15 +193,10 @@ export async function advanceTaskPr(
 
   // Last, with nothing awaited before the send: a cancel or a new head recorded by now stops the merge.
   const now = deps.store.readTask(id);
-  if (!mergeWait(now) || now.head_sha !== target.head_sha)
-    return 'not_approved';
+  if (!mergeWait(now) || now.head_sha !== target.head_sha) return 'not_approved';
   const intent = yoloApproval(now, target.head_sha);
   const content = now.run.content;
-  if (
-    intent === undefined ||
-    content === null ||
-    content.digest !== intent.content_digest
-  )
+  if (intent === undefined || content === null || content.digest !== intent.content_digest)
     return 'not_approved';
   const message = deps.content(content.ref, content.digest);
   if (message === null) return notReady('publish content unreadable');

@@ -29,8 +29,7 @@ export function ruleMatches(rule: CiRule, c: Check): boolean {
   const m = rule.match;
   if (m.job !== undefined && m.job !== c.job) return false;
   if (m.check !== undefined && m.check !== c.name) return false;
-  if (m.log_pattern !== undefined && !logMatches(m.log_pattern, c.log_excerpt))
-    return false;
+  if (m.log_pattern !== undefined && !logMatches(m.log_pattern, c.log_excerpt)) return false;
   return true;
 }
 
@@ -52,8 +51,6 @@ export function classifyFailures(
   }
   if (failures.length === 0 || unmatched.length > 0)
     return { kind: 'unclassified', checks: unmatched };
-  const worst = byCheck.reduce((a, b) =>
-    SEVERITY[b.class] > SEVERITY[a.class] ? b : a,
-  );
+  const worst = byCheck.reduce((a, b) => (SEVERITY[b.class] > SEVERITY[a.class] ? b : a));
   return { kind: 'class', class: worst.class, by_check: byCheck };
 }

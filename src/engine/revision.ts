@@ -105,8 +105,7 @@ export function onDriftChoice(ctx: Ctx, t: DriftChoice): void {
   switch (t.choice) {
     case 'continue_old': {
       ctx.emit('TaskResumed', { reason: 'drift:continue_old' });
-      if (drift.prior_wait !== null)
-        ctx.emit('TaskWaiting', { wait: drift.prior_wait });
+      if (drift.prior_wait !== null) ctx.emit('TaskWaiting', { wait: drift.prior_wait });
       else proceed(ctx, drift.deferred ?? { kind: 'none' });
       return;
     }
@@ -119,8 +118,7 @@ export function onDriftChoice(ctx: Ctx, t: DriftChoice): void {
     case 'apply_new': {
       if (s.runtime_ref !== null)
         reject('invalid_trigger', { reason: 'runtime_revision_unsupported' });
-      if (t.freeze === undefined)
-        reject('invalid_trigger', { reason: 'apply_new_needs_freeze' });
+      if (t.freeze === undefined) reject('invalid_trigger', { reason: 'apply_new_needs_freeze' });
       /*
        * Validate the new revision before emitting anything. Invalid or unfinished dependencies reject it
        * because a running task cannot return to PENDING.
@@ -129,9 +127,7 @@ export function onDriftChoice(ctx: Ctx, t: DriftChoice): void {
       if (drift.task.acceptance.length === 0)
         reject('invalid_trigger', { reason: 'missing_acceptance' });
       checkDependencies(drift.task, ctx.related);
-      const notDone = drift.task.depends_on.filter(
-        (d) => ctx.related.deps[d] !== 'DONE',
-      );
+      const notDone = drift.task.depends_on.filter((d) => ctx.related.deps[d] !== 'DONE');
       if (notDone.length > 0)
         reject('dependency_invalid', {
           reason: 'dependency_not_done',
@@ -148,20 +144,12 @@ export function onDriftChoice(ctx: Ctx, t: DriftChoice): void {
         });
         return;
       }
-      const { policy, context } = acceptFrozen(
-        ctx,
-        t.freeze.value,
-        drift.pending_revision,
-      );
+      const { policy, context } = acceptFrozen(ctx, t.freeze.value, drift.pending_revision);
       const oldRevision = s.revision;
       const oldApprovals = Object.values(s.approvals)
         .filter((a) => a.revision === oldRevision)
         .map((a) => a.id);
-      invalidatePending(
-        ctx,
-        'revision_applied',
-        (e) => e.revision === oldRevision,
-      );
+      invalidatePending(ctx, 'revision_applied', (e) => e.revision === oldRevision);
       cancelArmedTimers(ctx, true);
       ctx.emit('RevisionApplied', {
         revision: drift.pending_revision,

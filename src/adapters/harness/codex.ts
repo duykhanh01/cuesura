@@ -46,12 +46,8 @@ const DISABLED_FEATURES = [
 const RULES_DIR = '.codex/rules/';
 
 function sandboxArgs(input: VendorPlanInput): string[] {
-  if (input.host_execution && input.role === 'reviewer')
-    return ['--sandbox', 'read-only'];
-  if (
-    input.inner_mode === 'full_access' ||
-    input.inner_mode === 'external_verified'
-  )
+  if (input.host_execution && input.role === 'reviewer') return ['--sandbox', 'read-only'];
+  if (input.inner_mode === 'full_access' || input.inner_mode === 'external_verified')
     return ['--sandbox', 'danger-full-access'];
   return input.role === 'reviewer'
     ? ['--sandbox', 'read-only']
@@ -66,19 +62,14 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
   if (pin.vendor !== 'codex') return fail(`pin is for ${pin.vendor}`);
   if (
     input.host_execution &&
-    input.inner_mode !==
-      (pin.permission_mode === 'full-access' ? 'full_access' : 'native')
+    input.inner_mode !== (pin.permission_mode === 'full-access' ? 'full_access' : 'native')
   )
     return fail('host permission mode must match the explicit pin');
   if (input.host_execution && input.inner_mode === 'external_verified')
     return fail('external_verified needs the removed outer sandbox');
-  if (pin.settings !== null)
-    return fail('codex takes no settings document; rules go to the home');
-  const unpinned = pin.home_files.find(
-    (f) => f.to.startsWith(RULES_DIR) && f.sha256 === undefined,
-  );
-  if (unpinned !== undefined)
-    return fail(`rule file ${unpinned.to} has no pinned sha256`);
+  if (pin.settings !== null) return fail('codex takes no settings document; rules go to the home');
+  const unpinned = pin.home_files.find((f) => f.to.startsWith(RULES_DIR) && f.sha256 === undefined);
+  if (unpinned !== undefined) return fail(`rule file ${unpinned.to} has no pinned sha256`);
   if (input.model === '') return fail('model is not configured');
   if (input.session !== null)
     return {
@@ -89,9 +80,7 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
       },
     };
   const auto =
-    input.host_execution &&
-    pin.permission_mode !== 'full-access' &&
-    input.role !== 'reviewer';
+    input.host_execution && pin.permission_mode !== 'full-access' && input.role !== 'reviewer';
   const argv = [
     pin.binary.realpath,
     'exec',
@@ -106,9 +95,7 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
     `${input.paths.scratch}/${CODEX_OUTPUT_FILE}`,
     '--model',
     input.model,
-    ...(input.effort === null
-      ? []
-      : ['-c', `model_reasoning_effort="${input.effort}"`]),
+    ...(input.effort === null ? [] : ['-c', `model_reasoning_effort="${input.effort}"`]),
     '--ignore-user-config',
     '--ephemeral',
     '-C',
@@ -118,15 +105,13 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
   ];
   // `danger-full-access` is the sandbox switch itself, allowed only in external_verified (above).
   const bypass = bypassToken([argv, pin.env]);
-  if (bypass !== null)
-    return fail(`permission bypass token rejected: ${bypass}`);
+  if (bypass !== null) return fail(`permission bypass token rejected: ${bypass}`);
   // Effective permission settings for every role of this mode, so one hash covers the binary's config.
   const effective = {
     disabled: DISABLED_FEATURES,
     approval_policy: input.host_execution
       ? {
-          worker:
-            pin.permission_mode === 'full-access' ? 'never' : 'on-request',
+          worker: pin.permission_mode === 'full-access' ? 'never' : 'on-request',
           reviewer: 'never',
         }
       : 'never',
@@ -137,9 +122,7 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
         sandboxArgs({
           ...input,
           role,
-          paths: input.host_execution
-            ? { ...input.paths, scratch: '<scratch>' }
-            : input.paths,
+          paths: input.host_execution ? { ...input.paths, scratch: '<scratch>' } : input.paths,
         }),
       ]),
     ),
@@ -157,9 +140,7 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
       argv,
       stdin: 'prompt',
       context_files: [],
-      schema_files: [
-        { name: input.schema.file_name, content: input.schema.file_content },
-      ],
+      schema_files: [{ name: input.schema.file_name, content: input.schema.file_content }],
       result: { kind: 'file', scratch_name: CODEX_OUTPUT_FILE },
       settings_hash: hashCanonical(effective),
     },
@@ -167,8 +148,7 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
 }
 
 // codex_core::tools::router logs the refused exec on stderr; exec --json has no event for it.
-const CODEX_REJECTED =
-  /codex_core::tools::router: .*Rejected\(\\?"`(.*)` rejected: ([^\\"]*)/;
+const CODEX_REJECTED = /codex_core::tools::router: .*Rejected\(\\?"`(.*)` rejected: ([^\\"]*)/;
 
 /** Codex runs a command through the login shell and logs it that way; a command with its own quotes stays as logged. */
 const SHELL_WRAPPER = /^(?:\S*\/)?(?:ba|da|z)?sh -l?c '([^']*)'$/;
@@ -193,8 +173,7 @@ function read(input: VendorRead): VendorFacts {
   let tokens = 0;
   let session: string | null = null;
   for (const p of input.stdout.filter(isRec)) {
-    if (p['type'] === 'thread.started')
-      session = str(p['thread_id']) ?? session;
+    if (p['type'] === 'thread.started') session = str(p['thread_id']) ?? session;
     else if (p['type'] === 'turn.completed') {
       if (pending !== null) {
         warnings.push(`recovered: ${pending.detail}`.slice(0, DETAIL_MAX));
@@ -215,10 +194,7 @@ function read(input: VendorRead): VendorFacts {
       tokens += (u['input_tokens'] as number) + (u['output_tokens'] as number);
       turns++;
     } else if (p['type'] === 'turn.failed') {
-      failed = failureOf(
-        (isRec(p['error']) ? str(p['error']['message']) : null) ??
-          'turn.failed',
-      );
+      failed = failureOf((isRec(p['error']) ? str(p['error']['message']) : null) ?? 'turn.failed');
     } else if (p['type'] === 'error') {
       pending = failureOf(str(p['message']) ?? 'error');
     } else if (
@@ -226,9 +202,7 @@ function read(input: VendorRead): VendorFacts {
       isRec(p['item']) &&
       p['item']['type'] === 'error'
     ) {
-      warnings.push(
-        (str(p['item']['message']) ?? 'item error').slice(0, DETAIL_MAX),
-      );
+      warnings.push((str(p['item']['message']) ?? 'item error').slice(0, DETAIL_MAX));
     }
   }
   const failure = failed ?? pending;
@@ -244,13 +218,10 @@ function read(input: VendorRead): VendorFacts {
       });
   }
   const usage: Usage =
-    turns === 0 || incomplete
-      ? { basis: 'unavailable' }
-      : { basis: 'reported', tokens };
+    turns === 0 || incomplete ? { basis: 'unavailable' } : { basis: 'reported', tokens };
   return {
     usage,
-    usage_source:
-      usage.basis === 'reported' ? 'codex turn.completed.usage' : null,
+    usage_source: usage.basis === 'reported' ? 'codex turn.completed.usage' : null,
     permission_denials: denials,
     failure,
     session_ref: session,

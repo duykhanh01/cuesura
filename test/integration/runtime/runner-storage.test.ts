@@ -15,15 +15,9 @@ import {
   spoolUsage,
   type FileLimits,
 } from '../../../src/runner/files.ts';
-import {
-  execOperation,
-  type RunnerExit,
-} from '../../../src/runner/lifecycle.ts';
+import { execOperation, type RunnerExit } from '../../../src/runner/lifecycle.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
-import {
-  InvocationSpecSchema,
-  type InvocationSpec,
-} from '../../../src/runner/supervisor.ts';
+import { InvocationSpecSchema, type InvocationSpec } from '../../../src/runner/supervisor.ts';
 
 /** Paths whose writes fail with ENOSPC; null = the disk has room. */
 const disk = vi.hoisted(() => ({

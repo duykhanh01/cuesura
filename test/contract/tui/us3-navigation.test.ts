@@ -29,8 +29,7 @@ type Explained = {
 };
 
 async function explainOf(sd: SeededDaemon, id: string): Promise<Explained> {
-  return (await cliJson(sd, 'task', 'explain', id)).envelope
-    .data as unknown as Explained;
+  return (await cliJson(sd, 'task', 'explain', id)).envelope.data as unknown as Explained;
 }
 
 async function eventCount(sd: SeededDaemon, id: string): Promise<number> {
@@ -121,12 +120,9 @@ describe('US3 scenario 1: every screen says which keys work, how to go back and 
     for (const [screen, bar] of Object.entries(bars)) {
       expect(bar.length, screen).toBeLessThanOrEqual(SMALL.cols);
       // Quitting is always on the bar; inside a text field q is text, so Ctrl-C is.
-      expect(bar, screen).toMatch(
-        screen === 'filter_text' ? /Ctrl-C quit/ : /q quit/,
-      );
+      expect(bar, screen).toMatch(screen === 'filter_text' ? /Ctrl-C quit/ : /q quit/);
       if (screen !== 'home') expect(bar, screen).toContain('Esc back');
-      if (screen !== 'help' && screen !== 'filter_text')
-        expect(bar, screen).toContain('? help');
+      if (screen !== 'help' && screen !== 'filter_text') expect(bar, screen).toContain('? help');
     }
     expect(bars['home']).toContain('a actions');
     expect(bars['detail']).toContain('a actions');
@@ -172,10 +168,7 @@ describe('US3 scenario 2: the Actions menu of the selected task', () => {
     sd.seed((d) => seedQuestion(d, t));
     await sd.start();
     const explained = await explainOf(sd, t.id);
-    expect(explained.allowed_actions.map((a) => a.action)).toEqual([
-      'answer',
-      'cancel',
-    ]);
+    expect(explained.allowed_actions.map((a) => a.action)).toEqual(['answer', 'cancel']);
     const s = tui.cusr(sd.dataDir);
     await s.waitForText('Asks a question');
     s.send('a');
@@ -204,9 +197,7 @@ describe('US3 scenario 2: the Actions menu of the selected task', () => {
 
   it('dims what the token may not do, saying why, and sends nothing for it', async () => {
     const sd = tui.daemon({
-      tokens: [
-        { id: 'viewer', actor: 'viewer', roles: ['read'], projects: ['acme'] },
-      ],
+      tokens: [{ id: 'viewer', actor: 'viewer', roles: ['read'], projects: ['acme'] }],
     });
     const t = buildTask({ id: uuidOf(1), title: 'Asks a question' });
     sd.seed((d) => seedQuestion(d, t));
@@ -220,9 +211,7 @@ describe('US3 scenario 2: the Actions menu of the selected task', () => {
     await s.waitForText('Actions — Asks a question');
     await s.waitForText('needs the operate role');
     const screen = s.screenText();
-    expect(screen).toMatch(
-      /Not available: needs the operate role; this token has: read/,
-    );
+    expect(screen).toMatch(/Not available: needs the operate role; this token has: read/);
     s.send(KEY.enter);
     await s.waitForText('Nothing was sent');
     expect(await eventCount(sd, t.id)).toBe(before);
@@ -241,11 +230,7 @@ describe('US3 scenario 2: the Actions menu of the selected task', () => {
     await s.waitForText('Not to cancel');
     s.send('a');
     await s.waitForText('Cancel task');
-    for (
-      let i = 0;
-      i < 10 && !selectedLine(s.screenText()).includes('Cancel task');
-      i++
-    ) {
+    for (let i = 0; i < 10 && !selectedLine(s.screenText()).includes('Cancel task'); i++) {
       const was = selectedLine(s.screenText());
       s.send(KEY.down);
       await s.waitFor(() => selectedLine(s.screenText()) !== was, 3_000);
@@ -279,9 +264,7 @@ describe('US3 scenario 2: the Actions menu of the selected task', () => {
     );
     // The menu is the daemon's new list, not the one it opened with.
     await s.waitFor(() =>
-      after.allowed_actions.every((a) =>
-        flat(s.screenText()).includes(flat(a.note)),
-      ),
+      after.allowed_actions.every((a) => flat(s.screenText()).includes(flat(a.note))),
     );
     expect(flat(s.screenText())).toContain(`version ${after.version}`);
     await quit(s);

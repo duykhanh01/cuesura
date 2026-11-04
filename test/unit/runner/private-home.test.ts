@@ -49,9 +49,7 @@ describe('refreshed login goes back to its source (#97)', () => {
     const pin =
       o.pinned === true
         ? {
-            sha256: createHash('sha256')
-              .update(readFileSync(source))
-              .digest('hex'),
+            sha256: createHash('sha256').update(readFileSync(source)).digest('hex'),
           }
         : {};
     const installed = installAuth(run, [
@@ -69,9 +67,7 @@ describe('refreshed login goes back to its source (#97)', () => {
     const { base, source, installed, copy } = setup();
     writeFileSync(copy, login('refresh-token-two-654321'));
     removeAuth(installed);
-    expect(readFileSync(source, 'utf8')).toBe(
-      login('refresh-token-two-654321'),
-    );
+    expect(readFileSync(source, 'utf8')).toBe(login('refresh-token-two-654321'));
     expect(statSync(source).mode & 0o777).toBe(0o600);
     expect(readdirSync(base).filter((n) => n.endsWith('.tmp'))).toEqual([]);
   });
@@ -91,18 +87,14 @@ describe('refreshed login goes back to its source (#97)', () => {
     const { source, installed, copy } = setup();
     writeFileSync(copy, content);
     removeAuth(installed);
-    expect(readFileSync(source, 'utf8')).toBe(
-      login('refresh-token-one-123456'),
-    );
+    expect(readFileSync(source, 'utf8')).toBe(login('refresh-token-one-123456'));
   });
 
   it('never writes back a pinned file or through a symlinked copy', () => {
     const pinned = setup({ pinned: true });
     writeFileSync(pinned.copy, login('refresh-token-two-654321'));
     removeAuth(pinned.installed);
-    expect(readFileSync(pinned.source, 'utf8')).toBe(
-      login('refresh-token-one-123456'),
-    );
+    expect(readFileSync(pinned.source, 'utf8')).toBe(login('refresh-token-one-123456'));
 
     const linked = setup();
     const elsewhere = join(linked.base, 'elsewhere.json');
@@ -110,9 +102,7 @@ describe('refreshed login goes back to its source (#97)', () => {
     rmSync(linked.copy);
     symlinkSync(elsewhere, linked.copy);
     removeAuth(linked.installed);
-    expect(readFileSync(linked.source, 'utf8')).toBe(
-      login('refresh-token-one-123456'),
-    );
+    expect(readFileSync(linked.source, 'utf8')).toBe(login('refresh-token-one-123456'));
   });
 });
 
@@ -128,10 +118,7 @@ describe('private home auth', () => {
         redactor: new Redactor(),
       });
       const auth = join(base, 'auth.json');
-      writeFileSync(
-        auth,
-        JSON.stringify({ accessToken: 'actual-secret-value-123456' }),
-      );
+      writeFileSync(auth, JSON.stringify({ accessToken: 'actual-secret-value-123456' }));
       const installed = installAuth(run, [
         {
           ref: { name: 'claude', file: auth },
@@ -150,13 +137,9 @@ describe('private home auth', () => {
         }),
       );
       run.writeJson('launch-state.json', { auth: installed });
-      expect(homeSecretValues(readInstalledAuth(run))).toEqual(
-        homeSecretValues(installed),
-      );
+      expect(homeSecretValues(readInstalledAuth(run))).toEqual(homeSecretValues(installed));
       const redactor = new Redactor({ values: homeSecretValues(installed) });
-      expect(redactor.text(`${ordinary} ${session}`)).toBe(
-        `${ordinary} ${session}`,
-      );
+      expect(redactor.text(`${ordinary} ${session}`)).toBe(`${ordinary} ${session}`);
       expect(redactor.text('actual-secret-value-123456')).toBe('[REDACTED]');
     },
   );
@@ -180,35 +163,21 @@ describe('private home auth', () => {
     previous.writeText('private-home/.claude/.credentials.json', 'secret');
     previous.writeText('private-home/.claude/settings.json', 'settings');
     copySession(previous, next, id);
-    expect(readFileSync(next.resolve(`${prefix}/${id}.jsonl`), 'utf8')).toBe(
-      'conversation\n',
+    expect(readFileSync(next.resolve(`${prefix}/${id}.jsonl`), 'utf8')).toBe('conversation\n');
+    expect(readFileSync(next.resolve(`${prefix}/${id}/tool-results/one.txt`), 'utf8')).toBe(
+      'result',
     );
-    expect(
-      readFileSync(
-        next.resolve(`${prefix}/${id}/tool-results/one.txt`),
-        'utf8',
-      ),
-    ).toBe('result');
     for (const rel of [
       `${prefix}/other.jsonl`,
       'private-home/.claude/.credentials.json',
       'private-home/.claude/settings.json',
     ])
       expect(() => statSync(next.resolve(rel))).toThrow();
-    expect(() => copySession(previous, run('bad'), '../escape')).toThrow(
-      /session ID/,
-    );
+    expect(() => copySession(previous, run('bad'), '../escape')).toThrow(/session ID/);
     const missing = '0192aaaa-0000-7000-8000-000000000002';
-    expect(() => copySession(previous, run('missing'), missing)).toThrow(
-      /missing/,
-    );
-    symlinkSync(
-      join(base, 'outside'),
-      previous.resolve(`${prefix}/${id}/link`),
-    );
-    expect(() => copySession(previous, run('symlink'), id)).toThrow(
-      /non-regular/,
-    );
+    expect(() => copySession(previous, run('missing'), missing)).toThrow(/missing/);
+    symlinkSync(join(base, 'outside'), previous.resolve(`${prefix}/${id}/link`));
+    expect(() => copySession(previous, run('symlink'), id)).toThrow(/non-regular/);
   });
 
   it('copies only the selected credential files 0600 and removes them after archive', () => {
@@ -256,9 +225,7 @@ describe('private home auth', () => {
     symlinkSync(host, join(installed.home, '.codex'));
     expect(() => removeAuth(installed)).toThrow(/leave the private home/);
     expect(readFileSync(canary, 'utf8')).toBe('host credential');
-    expect(() =>
-      statSync(join(installed.home, '.claude/.credentials.json')),
-    ).toThrow();
+    expect(() => statSync(join(installed.home, '.claude/.credentials.json'))).toThrow();
     // A leaf symlink is unlinked, its target kept.
     const leaf = installAuth(
       RunDir.open({
@@ -294,9 +261,7 @@ describe('private home auth', () => {
       ]),
     ).toThrow(/symlinks refused/);
     expect(() =>
-      installAuth(run, [
-        { ref: { name: 'a', file: real }, to: '../escape.json' },
-      ]),
+      installAuth(run, [{ ref: { name: 'a', file: real }, to: '../escape.json' }]),
     ).toThrow(/inside the private home/);
     expect(() => statSync(join(run.dir, 'private-home', 'ok.json'))).toThrow();
   });

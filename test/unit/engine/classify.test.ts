@@ -36,17 +36,17 @@ describe('R-21 CI failure classification', () => {
       kind: 'class',
       class: 'flaky_or_infra',
     });
-    expect(
-      classifyFailures(RULES, [fail('fmt', { job: 'format' })]),
-    ).toMatchObject({ kind: 'class', class: 'autofix' });
-    expect(
-      classifyFailures(RULES, [fail('unit', { job: 'test' })]),
-    ).toMatchObject({ kind: 'class', class: 'code' });
+    expect(classifyFailures(RULES, [fail('fmt', { job: 'format' })])).toMatchObject({
+      kind: 'class',
+      class: 'autofix',
+    });
+    expect(classifyFailures(RULES, [fail('unit', { job: 'test' })])).toMatchObject({
+      kind: 'class',
+      class: 'code',
+    });
 
     expect(
-      classifyFailures(RULES, [
-        fail('fmt', { job: 'format', log_excerpt: 'runner lost' }),
-      ]),
+      classifyFailures(RULES, [fail('fmt', { job: 'format', log_excerpt: 'runner lost' })]),
     ).toMatchObject({ class: 'flaky_or_infra' });
   });
 
@@ -75,10 +75,7 @@ describe('R-21 CI failure classification', () => {
 
   it('unmatched failed checks are unclassified; successful checks are ignored', () => {
     expect(
-      classifyFailures(RULES, [
-        fail('fmt', { job: 'format' }),
-        fail('docs', { job: 'docs' }),
-      ]),
+      classifyFailures(RULES, [fail('fmt', { job: 'format' }), fail('docs', { job: 'docs' })]),
     ).toEqual({ kind: 'unclassified', checks: ['docs'] });
     expect(
       classifyFailures(RULES, [
@@ -97,30 +94,18 @@ describe('R-21 CI failure classification', () => {
       'succeeded',
       gatesData({ build: true, unit: true }),
     );
-    sim.complete(
-      sim.pendingOne('start_agent').id,
-      'succeeded',
-      reviewData('approve', 'H'),
-    );
+    sim.complete(sim.pendingOne('start_agent').id, 'succeeded', reviewData('approve', 'H'));
     sim.complete(sim.pendingOne('publish').id, 'succeeded', publishData('H'));
     sim.complete(sim.pendingOne('create_pr').id, 'succeeded', {
       pr_ref: 'acme#1',
       head_sha: 'H',
     });
 
-    sim.complete(
-      sim.pendingOne('await_ci').id,
-      'succeeded',
-      ciData('OLD', { docs: 'failure' }),
-    );
+    sim.complete(sim.pendingOne('await_ci').id, 'succeeded', ciData('OLD', { docs: 'failure' }));
     expect(sim.s.current_step).toBe('ci');
     const timer = sim.armedTimers('ci_poll')[0]!;
     sim.advance(60_000).fire(timer.id);
-    sim.complete(
-      sim.pendingOne('await_ci').id,
-      'succeeded',
-      ciData('H', { docs: 'failure' }),
-    );
+    sim.complete(sim.pendingOne('await_ci').id, 'succeeded', ciData('H', { docs: 'failure' }));
     expect(sim.s.wait).toMatchObject({
       reason: 'human_input',
       detail: { code: 'ci_unclassified', checks: ['docs'] },

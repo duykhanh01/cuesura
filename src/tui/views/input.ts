@@ -5,12 +5,7 @@
  */
 import { fieldCommand, type FieldCommand } from '../model/keymap.ts';
 import type { Key } from '../terminal/keys.ts';
-import {
-  joinSafe,
-  sanitize,
-  uiText,
-  type SafeText,
-} from '../terminal/safe-text.ts';
+import { joinSafe, sanitize, uiText, type SafeText } from '../terminal/safe-text.ts';
 import type { Frame } from '../terminal/screen.ts';
 import { displayWidth, graphemes } from '../terminal/width.ts';
 
@@ -36,10 +31,7 @@ export function textField(
 }
 
 /** What a key that is not text asks of the form around the field. Submitting is only ever Ctrl-S. */
-export type FieldSignal = Extract<
-  FieldCommand,
-  'next' | 'previous' | 'submit' | 'leave'
->;
+export type FieldSignal = Extract<FieldCommand, 'next' | 'previous' | 'submit' | 'leave'>;
 
 export type Edited = {
   readonly field: TextField;
@@ -54,9 +46,7 @@ export type Edited = {
  */
 function pasted(kind: FieldKind, text: string): string {
   const lines = text.replace(/\r\n?/g, '\n');
-  return kind === 'multi'
-    ? lines
-    : lines.replace(/\n+$/, '').replace(/[\n\t]+/g, ' ');
+  return kind === 'multi' ? lines : lines.replace(/\n+$/, '').replace(/[\n\t]+/g, ' ');
 }
 
 function insert(f: TextField, text: string): TextField {
@@ -66,8 +56,7 @@ function insert(f: TextField, text: string): TextField {
   const add = graphemes(text);
   // The limit counts the joined text: a mark or skin tone typed after the last character takes no room.
   const fits = (n: number): boolean =>
-    f.max === null ||
-    graphemes(head + add.slice(0, n).join('') + tail).length <= f.max;
+    f.max === null || graphemes(head + add.slice(0, n).join('') + tail).length <= f.max;
   let taken = add.length;
   if (!fits(taken)) {
     // Taking more never makes the joined text shorter, so the most that fits is found by halving: one
@@ -120,8 +109,7 @@ function lineOf(f: TextField): {
   });
   ends.push(gs.length);
   let line = 0;
-  while (line + 1 < starts.length && (starts[line + 1] as number) <= f.cursor)
-    line += 1;
+  while (line + 1 < starts.length && (starts[line + 1] as number) <= f.cursor) line += 1;
   return { starts, ends, line };
 }
 
@@ -139,11 +127,7 @@ function moveLine(f: TextField, step: number, width: number): TextField {
 }
 
 /** `width`: the cells the field is drawn in, so ↑ and ↓ follow its wrapped rows. */
-export function editField(
-  f: TextField,
-  key: Key,
-  width = Number.POSITIVE_INFINITY,
-): Edited {
+export function editField(f: TextField, key: Key, width = Number.POSITIVE_INFINITY): Edited {
   const kept = (field: TextField): Edited => ({
     field,
     signal: null,
@@ -282,11 +266,7 @@ export type FieldView = {
  * What a field shows in a box `width` × `height`. A one-line field shows the part around the cursor; a
  * multi-line field wraps and scrolls so the row of the cursor stays in view.
  */
-export function fieldRows(
-  f: TextField,
-  width: number,
-  height: number,
-): FieldView {
+export function fieldRows(f: TextField, width: number, height: number): FieldView {
   if (width <= 0 || height <= 0) return { rows: [], cursor: null };
   if (f.kind === 'line') {
     const cells = graphemes(f.text).map((g) => {
@@ -313,13 +293,8 @@ export function fieldRows(
     };
   }
   const { rows, cursor } = layoutRows(f, width);
-  const top = Math.max(
-    0,
-    Math.min(cursor.row - height + 1, rows.length - height),
-  );
-  const shown = rows
-    .slice(top, top + height)
-    .map((r) => uiText(r.map((c) => c.text).join('')));
+  const top = Math.max(0, Math.min(cursor.row - height + 1, rows.length - height));
+  const shown = rows.slice(top, top + height).map((r) => uiText(r.map((c) => c.text).join('')));
   // A character wider than the box can still push the cursor past it; it never leaves the box.
   return {
     rows: shown,
@@ -335,12 +310,7 @@ export type Box = {
 };
 
 /** Draws `f` in `box`; the terminal cursor stays hidden, so a focused field marks its cursor cell itself. */
-export function drawField(
-  frame: Frame,
-  box: Box,
-  f: TextField,
-  focused: boolean,
-): void {
+export function drawField(frame: Frame, box: Box, f: TextField, focused: boolean): void {
   const view = fieldRows(f, box.width, box.height);
   view.rows.forEach((row, i) => {
     let col = 0;
@@ -379,8 +349,7 @@ function boxCells(row: SafeText, width: number): Cell[] {
     const w = displayWidth(g);
     if (w === 0) {
       const last = cells.at(-1);
-      if (last !== undefined)
-        cells[cells.length - 1] = { ...last, text: joinSafe([last.text, g]) };
+      if (last !== undefined) cells[cells.length - 1] = { ...last, text: joinSafe([last.text, g]) };
       continue;
     }
     if (used + w > width) {

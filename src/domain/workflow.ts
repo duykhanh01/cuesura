@@ -34,13 +34,7 @@ export type Outcome = (typeof OUTCOMES_BY_KIND)[StepKind][number];
  * Special targets: ask waits for input and reruns the step; escalate waits with loop_exhausted;
  * retry creates an attempt at the same step; fail terminates; cancel starts cancellation.
  */
-export const SPECIAL_TARGETS = [
-  'ask',
-  'escalate',
-  'retry',
-  'fail',
-  'cancel',
-] as const;
+export const SPECIAL_TARGETS = ['ask', 'escalate', 'retry', 'fail', 'cancel'] as const;
 export type SpecialTarget = (typeof SPECIAL_TARGETS)[number];
 
 export function isSpecialTarget(t: string): t is SpecialTarget {
@@ -152,20 +146,10 @@ export function branchMatches(pattern: string, branch: string): boolean {
 
 /** All declared keys must match (AND); a list matches any one of its values (OR). */
 export function evalPredicate(p: Predicate, f: PredicateFacts): boolean {
-  if (p.flag !== undefined && !anyOf(p.flag).some((x) => f.labels.includes(x)))
-    return false;
-  if (
-    p.label !== undefined &&
-    !anyOf(p.label).some((x) => f.labels.includes(x))
-  )
-    return false;
-  if (
-    p.size !== undefined &&
-    (f.size === null || !anyOf(p.size).includes(f.size))
-  )
-    return false;
-  if (p.task_type !== undefined && !anyOf(p.task_type).includes(f.task_type))
-    return false;
+  if (p.flag !== undefined && !anyOf(p.flag).some((x) => f.labels.includes(x))) return false;
+  if (p.label !== undefined && !anyOf(p.label).some((x) => f.labels.includes(x))) return false;
+  if (p.size !== undefined && (f.size === null || !anyOf(p.size).includes(f.size))) return false;
+  if (p.task_type !== undefined && !anyOf(p.task_type).includes(f.task_type)) return false;
   if (p.attempt_gte !== undefined && f.attempt < p.attempt_gte) return false;
   if (
     p.target_branch !== undefined &&

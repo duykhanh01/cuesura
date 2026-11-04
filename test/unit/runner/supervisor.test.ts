@@ -83,14 +83,10 @@ function scripted(
   run: CommandResult = result(),
 ): CommandExec & { calls: string[][] } {
   const calls: string[][] = [];
-  const exec = (
-    file: string,
-    args: readonly string[],
-  ): Promise<CommandResult> => {
+  const exec = (file: string, args: readonly string[]): Promise<CommandResult> => {
     calls.push([file, ...args]);
     if (file === SYSTEMD_RUN) return Promise.resolve(run);
-    if (args[1] === 'show')
-      return Promise.resolve(shows.shift() ?? show('loaded', 'active'));
+    if (args[1] === 'show') return Promise.resolve(shows.shift() ?? show('loaded', 'active'));
     return Promise.resolve(result());
   };
   return Object.assign(exec, { calls });
@@ -108,11 +104,9 @@ const marker = (nonce = 'nonce-1'): LaunchMarker => ({
 
 describe('systemd unit argv (T018, ADR-0002)', () => {
   it('omits the systemd runtime cap for an unlimited worker', () => {
-    const argv = systemdRunArgv(
-      { ...launchSpec(), wall_ms: null, deadline_at: null },
-      '/d/lock',
-      ['/runner'],
-    );
+    const argv = systemdRunArgv({ ...launchSpec(), wall_ms: null, deadline_at: null }, '/d/lock', [
+      '/runner',
+    ]);
     expect(argv.some((a) => a.includes('RuntimeMaxSec'))).toBe(false);
     expect(argv).toContain('--property=KillMode=control-group');
   });
@@ -123,17 +117,11 @@ describe('systemd unit argv (T018, ADR-0002)', () => {
       '/cusr-runner.js',
       'exec',
     ]);
-    expect(argv.slice(0, 3)).toEqual([
-      SYSTEMD_RUN,
-      '--user',
-      '--unit=cusr-op-op-1.service',
-    ]);
+    expect(argv.slice(0, 3)).toEqual([SYSTEMD_RUN, '--user', '--unit=cusr-op-op-1.service']);
     expect(argv).toContain('--property=Restart=no');
     expect(argv).toContain('--property=KillMode=control-group');
     expect(argv).toContain('--property=TimeoutStopSec=15s');
-    expect(argv.join(' ')).not.toMatch(
-      /PartOf|Requires|BindsTo|--collect|--scope/,
-    );
+    expect(argv.join(' ')).not.toMatch(/PartOf|Requires|BindsTo|--collect|--scope/);
     const flock = argv.indexOf(FLOCK);
     expect(argv.slice(flock)).toEqual(
       flockArgv('/d/locks/op-1.lock', ['/node', '/cusr-runner.js', 'exec']),
@@ -244,9 +232,7 @@ describe('SystemdSupervisor with scripted systemctl', () => {
       ok: false,
       error: { code: 'unknown' },
     });
-    expect(
-      [...loaded.calls, ...broken.calls].some((c) => c[0] === SYSTEMD_RUN),
-    ).toBe(false);
+    expect([...loaded.calls, ...broken.calls].some((c) => c[0] === SYSTEMD_RUN)).toBe(false);
   });
 
   it('reports spawn_failed only when no unit exists after a failed systemd-run, unknown on timeout', async () => {
@@ -298,16 +284,8 @@ describe('SystemdSupervisor with scripted systemctl', () => {
         exec: ok,
       }).stop('op-1', stop),
     ).toBe('stopped');
-    expect(ok.calls).toContainEqual([
-      SYSTEMCTL,
-      '--user',
-      'stop',
-      'cusr-op-op-1.service',
-    ]);
-    const stuck = scripted([
-      show('loaded', 'active'),
-      show('loaded', 'active'),
-    ]);
+    expect(ok.calls).toContainEqual([SYSTEMCTL, '--user', 'stop', 'cusr-op-op-1.service']);
+    const stuck = scripted([show('loaded', 'active'), show('loaded', 'active')]);
     expect(
       await new SystemdSupervisor({
         dataDir: dataDir(),
@@ -329,12 +307,8 @@ describe('process identity and launch recovery view', () => {
     if (rec === null) return;
     expect(rec.start_ticks).toBe(startTicks(process.pid));
     expect(checkIdentity(rec)).toBe('alive');
-    expect(checkIdentity({ ...rec, start_ticks: rec.start_ticks + 1 })).toBe(
-      'gone',
-    );
-    expect(checkIdentity({ ...rec, boot_id: 'another-boot' })).toBe(
-      'other_boot',
-    );
+    expect(checkIdentity({ ...rec, start_ticks: rec.start_ticks + 1 })).toBe('gone');
+    expect(checkIdentity({ ...rec, boot_id: 'another-boot' })).toBe('other_boot');
   });
 
   it('observes not_launched, running, lost and finished without ever offering a respawn', () => {

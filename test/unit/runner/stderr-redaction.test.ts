@@ -1,12 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import {
-  EventLogWriter,
-  RUN_FILES,
-  RunDir,
-  type FileLimits,
-} from '../../../src/runner/files.ts';
+import { EventLogWriter, RUN_FILES, RunDir, type FileLimits } from '../../../src/runner/files.ts';
 import {
   PATTERN_SPAN,
   REDACTED,
@@ -47,11 +42,7 @@ function setup(
 }
 
 /** Feeds `chunks`, recording every individual write so each flushed piece can be checked on its own. */
-function feed(
-  log: EventLogWriter,
-  stderr: () => string,
-  chunks: readonly string[],
-): string[] {
+function feed(log: EventLogWriter, stderr: () => string, chunks: readonly string[]): string[] {
   const pieces: string[] = [];
   let seen = 0;
   const record = (): void => {
@@ -90,9 +81,7 @@ describe('stderr redaction across forced flush cuts', () => {
       expect(pieces[0]).toBe(lead);
       for (const p of pieces)
         for (let n = 3; n <= SECRET.length; n++)
-          expect(p.endsWith(SECRET.slice(0, n)) || p.includes(SECRET)).toBe(
-            false,
-          );
+          expect(p.endsWith(SECRET.slice(0, n)) || p.includes(SECRET)).toBe(false);
       expect(stderr()).toBe(
         `${lead}${REDACTED}${'b'.repeat(redactor.carry - SECRET.length + k)}${'c'.repeat(200)}`,
       );
@@ -116,10 +105,7 @@ describe('stderr redaction across forced flush cuts', () => {
   );
 
   it('keeps the default carry window behind a forced cut', () => {
-    const { log, redactor, stderr } = setup(
-      {},
-      { ...LIMITS, log_record_bytes: 512 },
-    );
+    const { log, redactor, stderr } = setup({}, { ...LIMITS, log_record_bytes: 512 });
     expect(redactor.carry).toBe(PATTERN_SPAN - 1);
     expect(log.appendStderr('a'.repeat(20_000)).ok).toBe(true);
     expect(stderr().length).toBe(20_000 - redactor.carry);
@@ -156,8 +142,7 @@ describe('stderr redaction across line cuts', () => {
       '-----END RSA PRIVATE KEY-----\n',
       'after\n',
     ];
-    for (const l of lines.slice(0, 4))
-      expect(log.appendStderr(l).ok).toBe(true);
+    for (const l of lines.slice(0, 4)) expect(log.appendStderr(l).ok).toBe(true);
     expect(stderr()).toBe('before\n');
     feed(log, stderr, lines.slice(4));
     expect(stderr()).toBe(`before\n${REDACTED}\nafter\n`);

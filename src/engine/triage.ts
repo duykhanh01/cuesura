@@ -5,19 +5,11 @@ import type { RelatedFacts } from '../domain/trigger.ts';
 import { reject, type Ctx } from './context.ts';
 import { mkWait } from './waits.ts';
 
-export function checkDependencies(
-  task: CanonicalTask,
-  related: RelatedFacts,
-): void {
-  if (task.depends_on.includes(task.id))
-    reject('dependency_invalid', { reason: 'self_reference' });
-  const missing = task.depends_on.filter(
-    (d) => (related.deps[d] ?? 'missing') === 'missing',
-  );
-  if (missing.length > 0)
-    reject('dependency_invalid', { reason: 'missing', depends_on: missing });
-  if (related.dependency_cycle)
-    reject('dependency_invalid', { reason: 'dependency_cycle' });
+export function checkDependencies(task: CanonicalTask, related: RelatedFacts): void {
+  if (task.depends_on.includes(task.id)) reject('dependency_invalid', { reason: 'self_reference' });
+  const missing = task.depends_on.filter((d) => (related.deps[d] ?? 'missing') === 'missing');
+  if (missing.length > 0) reject('dependency_invalid', { reason: 'missing', depends_on: missing });
+  if (related.dependency_cycle) reject('dependency_invalid', { reason: 'dependency_cycle' });
 }
 
 export function checkRetryOf(task: CanonicalTask, related: RelatedFacts): void {
@@ -32,10 +24,7 @@ export function checkRetryOf(task: CanonicalTask, related: RelatedFacts): void {
   }
 }
 
-export function pendingWait(
-  ctx: Ctx,
-  deps: Record<string, TaskStatus | 'missing'>,
-): Wait | null {
+export function pendingWait(ctx: Ctx, deps: Record<string, TaskStatus | 'missing'>): Wait | null {
   const s = ctx.state;
   if (s.needs_confirmation && !s.confirmed) {
     return mkWait('confirmation', 'needs_confirmation', {
@@ -49,9 +38,7 @@ export function pendingWait(
       resume_when: ['source_updated(acceptance)'],
     });
   }
-  const status = s.task.depends_on.map(
-    (d) => [d, deps[d] ?? 'missing'] as const,
-  );
+  const status = s.task.depends_on.map((d) => [d, deps[d] ?? 'missing'] as const);
   const failed = status.filter(
     ([, st]) => st === 'FAILED' || st === 'CANCELLED' || st === 'missing',
   );
@@ -73,10 +60,7 @@ export function pendingWait(
   return null;
 }
 
-export function retriage(
-  ctx: Ctx,
-  deps: Record<string, TaskStatus | 'missing'>,
-): void {
+export function retriage(ctx: Ctx, deps: Record<string, TaskStatus | 'missing'>): void {
   const s = ctx.state;
   if (s.status !== 'PENDING' && s.status !== 'READY') return;
   const wait = pendingWait(ctx, deps);
@@ -84,7 +68,6 @@ export function retriage(
     if (s.status !== 'READY') ctx.emit('TaskReady', {});
     return;
   }
-  if (s.status === 'PENDING' && canonicalJson(s.wait) === canonicalJson(wait))
-    return;
+  if (s.status === 'PENDING' && canonicalJson(s.wait) === canonicalJson(wait)) return;
   ctx.emit('TaskPending', { wait });
 }

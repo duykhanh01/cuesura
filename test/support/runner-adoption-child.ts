@@ -33,10 +33,7 @@ const file = process.argv[2];
 if (file === undefined) throw new Error('missing args file');
 const args = JSON.parse(readFileSync(file, 'utf8')) as AdoptionChildArgs;
 const log = (entry: Record<string, unknown>): void =>
-  appendFileSync(
-    args.log,
-    `${JSON.stringify({ pid: process.pid, ...entry })}\n`,
-  );
+  appendFileSync(args.log, `${JSON.stringify({ pid: process.pid, ...entry })}\n`);
 const hang = (): void => {
   setInterval(() => undefined, 60_000);
 };
@@ -67,32 +64,25 @@ log({
 
 const effect = store.readTask(args.task_id as Uuid)?.effects[args.effect_id];
 if (effect?.status !== 'pending') {
-  const op = store.readTask(args.task_id as Uuid)?.operations[
-    args.operation_id
-  ];
+  const op = store.readTask(args.task_id as Uuid)?.operations[args.operation_id];
   log({ step: 'adopted', effect: effect?.status, operation: op?.status });
   hang();
 } else {
-  const claimed = store.claimEffect(
-    args.effect_id as Uuid,
-    asEpochMs(args.now),
-    {
-      require_runtime: true,
-      operation: {
-        operation_id: args.operation_id,
-        kind: 'agent',
-        launch_nonce: 'dispatch-1',
-        unit: unitName(args.operation_id),
-        holds_slot: true,
-      },
+  const claimed = store.claimEffect(args.effect_id as Uuid, asEpochMs(args.now), {
+    require_runtime: true,
+    operation: {
+      operation_id: args.operation_id,
+      kind: 'agent',
+      launch_nonce: 'dispatch-1',
+      unit: unitName(args.operation_id),
+      holds_slot: true,
     },
-  );
+  });
   if (!claimed.ok) {
     log({ step: 'claim_failed', error: claimed.error });
     process.exit(4);
   }
-  const attempt = store.readTask(args.task_id as Uuid)?.effects[args.effect_id]
-    ?.attempt_id;
+  const attempt = store.readTask(args.task_id as Uuid)?.effects[args.effect_id]?.attempt_id;
   log({ step: 'claimed', attempt });
   if (args.stop_after_claim || attempt == null) hang();
   else {

@@ -41,8 +41,7 @@ const READ: readonly Effect[] = [{ type: 'read_screen' }];
 
 /** Enter opens the task's stages and log; its details sit underneath, one `d` away. */
 export function openDetail(state: TuiState, row: HomeRow | undefined): Reduced {
-  if (row === undefined || row.kind === 'finished_toggle')
-    return { state, effects: [] };
+  if (row === undefined || row.kind === 'finished_toggle') return { state, effects: [] };
   const session = state.screenSession + 1;
   return {
     state: {
@@ -83,31 +82,22 @@ export function forgetScreens(
   return {
     detail: state.detail === null ? null : forgetDetail(state.detail, session),
     logs: state.logs === null ? null : forgetLogs(state.logs, session),
-    actions:
-      state.actions === null ? null : forgetActions(state.actions, session),
+    actions: state.actions === null ? null : forgetActions(state.actions, session),
     screenSession: session,
   };
 }
 
 /** `null`: not a command of this screen. */
-export function onDetailCommand(
-  state: TuiState,
-  command: Command,
-): Reduced | null {
+export function onDetailCommand(state: TuiState, command: Command): Reduced | null {
   const d = state.detail;
   if (d === null) return null;
-  if (command === 'actions')
-    return openActions(state, d.taskId, d.show.data?.title ?? d.title);
+  if (command === 'actions') return openActions(state, d.taskId, d.show.data?.title ?? d.title);
   if (command === 'logs')
     return {
       state: {
         ...state,
         screens: [...state.screens, 'logs'],
-        logs: initialLogs(
-          d.taskId,
-          d.show.data?.title ?? d.title,
-          state.screenSession + 1,
-        ),
+        logs: initialLogs(d.taskId, d.show.data?.title ?? d.title, state.screenSession + 1),
         screenSession: state.screenSession + 1,
       },
       effects: READ,
@@ -168,11 +158,7 @@ export function attemptChoices(s: TuiState): readonly AttemptChoice[] {
   ];
 }
 
-function onPickerCommand(
-  state: TuiState,
-  logs: LogState,
-  command: Command,
-): Reduced | null {
+function onPickerCommand(state: TuiState, logs: LogState, command: Command): Reduced | null {
   const picker = logs.picker as number;
   const choices = attemptChoices(state);
   const put = (next: LogState, effects: readonly Effect[] = []): Reduced => ({
@@ -191,10 +177,7 @@ function onPickerCommand(
       return put({ ...logs, picker: Math.max(0, picker - 1) });
     case 'open': {
       const chosen = choices[picker]?.attemptId ?? null;
-      return put(
-        chosen === null ? followLogs(logs) : filterAttempt(logs, chosen),
-        READ,
-      );
+      return put(chosen === null ? followLogs(logs) : filterAttempt(logs, chosen), READ);
     }
     default:
       return null;
@@ -202,10 +185,7 @@ function onPickerCommand(
 }
 
 /** `null`: not a command of this screen. */
-export function onLogsCommand(
-  state: TuiState,
-  command: Command,
-): Reduced | null {
+export function onLogsCommand(state: TuiState, command: Command): Reduced | null {
   const logs = state.logs;
   if (logs === null) return null;
   if (logs.picker !== null) return onPickerCommand(state, logs, command);
@@ -213,14 +193,11 @@ export function onLogsCommand(
   const height = Math.max(1, contentHeight(state) - LOG_HEADER_ROWS);
   const put = (next: LogState): Reduced => ({
     state: { ...state, logs: next },
-    effects:
-      next.wantOlder || next.wantForward || next.mode !== logs.mode ? READ : [],
+    effects: next.wantOlder || next.wantForward || next.mode !== logs.mode ? READ : [],
   });
   switch (command) {
     case 'pause':
-      return put(
-        logs.mode === 'live' ? pauseLogs(logs, cols, height) : followLogs(logs),
-      );
+      return put(logs.mode === 'live' ? pauseLogs(logs, cols, height) : followLogs(logs));
     case 'follow':
       return put(followLogs(logs));
     case 'attempts':
@@ -229,9 +206,7 @@ export function onLogsCommand(
         state: {
           ...state,
           logs: { ...logs, picker: 0 },
-          ...(state.detail === null
-            ? {}
-            : { detail: { ...state.detail, showWanted: true } }),
+          ...(state.detail === null ? {} : { detail: { ...state.detail, showWanted: true } }),
         },
         effects: READ,
       };

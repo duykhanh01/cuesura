@@ -23,11 +23,7 @@ import {
   type FileLimits,
   type RunDirKind,
 } from '../../../src/runner/files.ts';
-import {
-  REDACTED,
-  REDACTION_VERSION,
-  Redactor,
-} from '../../../src/runner/redact.ts';
+import { REDACTED, REDACTION_VERSION, Redactor } from '../../../src/runner/redact.ts';
 import { useTempDir } from '../../support/temp-db.ts';
 
 const tempDir = useTempDir('cusr-runner-files-');
@@ -61,9 +57,7 @@ function code(fn: () => unknown): string | undefined {
 }
 
 function tempFiles(dir: string): string[] {
-  return readdirSync(dir, { recursive: true, encoding: 'utf8' }).filter((f) =>
-    f.includes('.tmp-'),
-  );
+  return readdirSync(dir, { recursive: true, encoding: 'utf8' }).filter((f) => f.includes('.tmp-'));
 }
 
 describe('run directory layout', () => {
@@ -198,17 +192,12 @@ describe('path and id guards', () => {
     ).toBe('unsafe_path');
   });
 
-  it.each([
-    '/etc/passwd',
-    '../escape',
-    'out/../../x',
-    'a//b',
-    './x',
-    'a\\..\\b',
-    'nul\0byte',
-  ])('rejects traversal path %j', (rel) => {
-    expect(code(() => open().resolve(rel))).toBe('unsafe_path');
-  });
+  it.each(['/etc/passwd', '../escape', 'out/../../x', 'a//b', './x', 'a\\..\\b', 'nul\0byte'])(
+    'rejects traversal path %j',
+    (rel) => {
+      expect(code(() => open().resolve(rel))).toBe('unsafe_path');
+    },
+  );
 
   it('refuses a symlinked kind directory that would escape the data dir', () => {
     const dataDir = tempDir();
@@ -222,18 +211,14 @@ describe('path and id guards', () => {
     const dataDir = tempDir();
     mkdirSync(join(dataDir, 'runs'));
     symlinkSync(tempDir(), join(dataDir, 'runs', 'attempt-1'));
-    expect(code(() => open({ dataDir, kind: 'runs', id: 'attempt-1' }))).toBe(
-      'symlink',
-    );
+    expect(code(() => open({ dataDir, kind: 'runs', id: 'attempt-1' }))).toBe('symlink');
   });
 
   it('accepts a data dir that is itself a symlink', () => {
     const real = tempDir();
     const link = join(tempDir(), 'data');
     symlinkSync(real, link);
-    expect(open({ dataDir: link }).dir).toBe(
-      join(realpathSync(real), 'operations', 'op-1'),
-    );
+    expect(open({ dataDir: link }).dir).toBe(join(realpathSync(real), 'operations', 'op-1'));
   });
 
   it('refuses to write through a symlinked file or directory component', () => {
@@ -288,39 +273,31 @@ describe('atomic writes', () => {
     const run = open();
     run.writeJson(RUN_FILES.progress, { n: 1 });
     run.writeJson(RUN_FILES.progress, { n: 2 });
-    expect(
-      JSON.parse(readFileSync(join(run.dir, 'progress.json'), 'utf8')),
-    ).toEqual({ n: 2 });
+    expect(JSON.parse(readFileSync(join(run.dir, 'progress.json'), 'utf8'))).toEqual({ n: 2 });
     expect(tempFiles(run.dir)).toEqual([]);
   });
 
   it('redacts plain text such as liveness and supplementary files', () => {
     const run = open();
     run.writeLiveness(new Date(Date.UTC(2026, 0, 2, 3, 4, 5)));
-    expect(readFileSync(join(run.dir, 'liveness'), 'utf8')).toBe(
-      '2026-01-02T03:04:05.000Z\n',
-    );
+    expect(readFileSync(join(run.dir, 'liveness'), 'utf8')).toBe('2026-01-02T03:04:05.000Z\n');
     run.writeText('context/prompt.md', `use ${SECRET}`);
-    expect(readFileSync(join(run.dir, 'context', 'prompt.md'), 'utf8')).toBe(
-      `use ${REDACTED}`,
-    );
+    expect(readFileSync(join(run.dir, 'context', 'prompt.md'), 'utf8')).toBe(`use ${REDACTED}`);
   });
 
   it('writes the launch marker only once', () => {
     const run = open();
     expect(run.createLaunchMarker({ nonce: 'a' })).not.toBeNull();
     expect(run.createLaunchMarker({ nonce: 'b' })).toBeNull();
-    expect(
-      JSON.parse(readFileSync(join(run.dir, 'launch.json'), 'utf8')),
-    ).toEqual({ nonce: 'a' });
+    expect(JSON.parse(readFileSync(join(run.dir, 'launch.json'), 'utf8'))).toEqual({ nonce: 'a' });
     expect(tempFiles(run.dir)).toEqual([]);
   });
 
   it('rejects an oversize control file instead of truncating it', () => {
     const run = open();
-    expect(
-      code(() => run.writeJson(RUN_FILES.pid, { pad: 'x'.repeat(100) }, 64)),
-    ).toBe('too_large');
+    expect(code(() => run.writeJson(RUN_FILES.pid, { pad: 'x'.repeat(100) }, 64))).toBe(
+      'too_large',
+    );
     expect(existsSync(join(run.dir, 'pid.json'))).toBe(false);
   });
 });
@@ -352,9 +329,7 @@ describe('final files', () => {
       state: 'valid',
       value: { status: 'done', summary: `used ${REDACTED}` },
     });
-    expect(res.ok && back.state === 'valid' && back.digest).toBe(
-      res.ok && res.value.digest,
-    );
+    expect(res.ok && back.state === 'valid' && back.digest).toBe(res.ok && res.value.digest);
   });
 
   it('rejects a result over result_bytes and leaves no file behind', () => {
@@ -385,10 +360,7 @@ describe('final files', () => {
 
   it('reads an oversize or symlinked final file as invalid', () => {
     const run = open({ limits });
-    writeFileSync(
-      join(run.dir, 'exit.json'),
-      `${JSON.stringify({ pad: 'x'.repeat(4096) })}\n`,
-    );
+    writeFileSync(join(run.dir, 'exit.json'), `${JSON.stringify({ pad: 'x'.repeat(4096) })}\n`);
     expect(run.readFinal(RUN_FILES.exit).state).toBe('invalid');
     const target = join(tempDir(), 'r.json');
     writeFileSync(target, '{"status":"done","summary":"s"}\n');
@@ -401,9 +373,9 @@ describe('module boundary', () => {
   it('src/runner imports neither the store nor the engine', () => {
     const dir = fileURLToPath(new URL('../../../src/runner/', import.meta.url));
     for (const f of readdirSync(dir).filter((x) => x.endsWith('.ts'))) {
-      const imports = [
-        ...readFileSync(join(dir, f), 'utf8').matchAll(/from\s+'([^']+)'/g),
-      ].map((m) => m[1] ?? '');
+      const imports = [...readFileSync(join(dir, f), 'utf8').matchAll(/from\s+'([^']+)'/g)].map(
+        (m) => m[1] ?? '',
+      );
       expect(
         imports.filter((i) => /\/(store|engine)(\/|$)/.test(i)),
         f,

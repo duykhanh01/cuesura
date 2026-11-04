@@ -43,12 +43,7 @@ const queueArb = fc
 
 /** Oracle written from the spec's tuple, independent of `compareRequests`. */
 function key(r: SlotCandidate): [number, number, number, number] {
-  return [
-    -r.priority,
-    r.group === 'resumed' ? 0 : 1,
-    r.requested_at,
-    r.request_global_seq,
-  ];
+  return [-r.priority, r.group === 'resumed' ? 0 : 1, r.requested_at, r.request_global_seq];
 }
 function oracleFirst(q: readonly SlotCandidate[]): SlotCandidate | undefined {
   return [...q].sort((a, b) => {
@@ -67,9 +62,7 @@ describe('execution slot selector (FR-044.01–07)', () => {
         const s = selectNext(q, null);
         const want = oracleFirst(q);
         expect(s).toEqual(
-          want === undefined
-            ? { kind: 'empty' }
-            : { kind: 'grant', request: want },
+          want === undefined ? { kind: 'empty' } : { kind: 'grant', request: want },
         );
       }),
       propertyParams(200),
@@ -96,9 +89,7 @@ describe('execution slot selector (FR-044.01–07)', () => {
               if (a === b) expect(compareRequests(a, b)).toBe(0);
               else {
                 expect(compareRequests(a, b)).not.toBe(0);
-                expect(Math.sign(compareRequests(a, b))).toBe(
-                  -Math.sign(compareRequests(b, a)),
-                );
+                expect(Math.sign(compareRequests(a, b))).toBe(-Math.sign(compareRequests(b, a)));
               }
             }
           }

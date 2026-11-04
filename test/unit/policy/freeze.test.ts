@@ -1,14 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import {
-  validateConfig,
-  type ValidatedConfig,
-} from '../../../src/config/validate.ts';
+import { validateConfig, type ValidatedConfig } from '../../../src/config/validate.ts';
 import { freeze } from '../../../src/config/freeze.ts';
 import { hashText } from '../../../src/shared/hash.ts';
-import {
-  verifyContextHash,
-  verifyPolicyHash,
-} from '../../../src/policy/finalize.ts';
+import { verifyContextHash, verifyPolicyHash } from '../../../src/policy/finalize.ts';
 import type { ConfigSource } from '../../../src/config/yaml-loader.ts';
 import type { CanonicalTask } from '../../../src/domain/task.ts';
 import { authz, buildTask } from '../../support/builders.ts';
@@ -23,10 +17,7 @@ import {
 
 const CUSR = source('configs/valid/cusr.yaml', 'cusr.yaml');
 
-function config(
-  user: ConfigSource,
-  project: ConfigSource | undefined = CUSR,
-): ValidatedConfig {
+function config(user: ConfigSource, project: ConfigSource | undefined = CUSR): ValidatedConfig {
   const r = validateConfig({
     user,
     ...(project ? { project } : {}),
@@ -104,9 +95,7 @@ describe('freeze (FR-004, FR-037)', () => {
     );
     expect(a.ok && b.ok).toBe(true);
     if (a.ok && b.ok) {
-      expect(b.value.policy.config_hashes).toEqual(
-        a.value.policy.config_hashes,
-      );
+      expect(b.value.policy.config_hashes).toEqual(a.value.policy.config_hashes);
       expect(b.value.policy.policy_hash).toBe(a.value.policy.policy_hash);
     }
   });
@@ -129,8 +118,7 @@ describe('freeze (FR-004, FR-037)', () => {
   it('refuses a profile that still declares budgets', () => {
     const r = validateConfig({
       user: minUser({
-        profiles:
-          'profiles:\n  standard: { workflow: impl, budgets: { max_agent_runs: 5 } }\n',
+        profiles: 'profiles:\n  standard: { workflow: impl, budgets: { max_agent_runs: 5 } }\n',
       }),
       packs: {},
     });
@@ -181,11 +169,9 @@ describe('freeze (FR-004, FR-037)', () => {
         p.name === 'prompts/coder.md' ? { ...p, content: 'different' } : p,
       ),
     });
-    expect(
-      a.ok &&
-        b.ok &&
-        a.value.context.context_hash !== b.value.context.context_hash,
-    ).toBe(true);
+    expect(a.ok && b.ok && a.value.context.context_hash !== b.value.context.context_hash).toBe(
+      true,
+    );
   });
 
   it('missing prompt content prevents all snapshots (FR-038)', () => {
@@ -215,11 +201,7 @@ describe('freeze (FR-004, FR-037)', () => {
       context.revision,
       context.base_sha,
     ]);
-    expect([policy.revision, policy.base_sha, policy.policy_version]).toEqual([
-      3,
-      'cafe1234',
-      1,
-    ]);
+    expect([policy.revision, policy.base_sha, policy.policy_version]).toEqual([3, 'cafe1234', 1]);
     expect(verifyPolicyHash(policy) && verifyContextHash(context)).toBe(true);
   });
 
@@ -231,10 +213,7 @@ describe('freeze (FR-004, FR-037)', () => {
       required: ['format_fix'],
       skipped: [],
     });
-    expect(withAutofix.value.policy.gates.by_step['gates']?.required).toEqual([
-      'build',
-      'unit',
-    ]);
+    expect(withAutofix.value.policy.gates.by_step['gates']?.required).toEqual(['build', 'unit']);
     // Undeclared format_fix is optional and skipped; it must not become required_gate_missing.
     const minimal = run(config(minUser(), MIN_PROJECT));
     if (!minimal.ok) throw new Error(JSON.stringify(minimal.error));
@@ -287,21 +266,15 @@ describe('freeze (FR-004, FR-037)', () => {
   it('selects the first matching allowlisted binding rule', () => {
     const large = run(USER, buildTask({ size: 'L', profile: 'standard' }));
     const heavy = run(USER, buildTask({ size: 'L', profile: 'heavy' }));
-    expect(large.ok && large.value.policy.steps.code?.binding.model).toBe(
-      'sonnet',
-    );
-    expect(heavy.ok && heavy.value.policy.steps.code?.binding.model).toBe(
-      'opus',
-    );
+    expect(large.ok && large.value.policy.steps.code?.binding.model).toBe('sonnet');
+    expect(heavy.ok && heavy.value.policy.steps.code?.binding.model).toBe('opus');
   });
 
   it('confirmed bindings select matching role rules and preserve the first rule if none match', () => {
     const task = buildTask({ size: 'L', profile: 'heavy' });
     const frozen = (model: string) => {
       const harness = USER.user.models[model]?.harness ?? '';
-      const rule = USER.user.roles.coder?.binding.find(
-        (b) => b.model === model,
-      );
+      const rule = USER.user.roles.coder?.binding.find((b) => b.model === model);
       const r = freeze({
         config: USER,
         task,
@@ -324,8 +297,7 @@ describe('freeze (FR-004, FR-037)', () => {
   });
 
   it('excluding all rules returns no_valid_binding', () => {
-    const profiles =
-      'profiles:\n  standard: { workflow: impl, allow_models: [opus] }\n';
+    const profiles = 'profiles:\n  standard: { workflow: impl, allow_models: [opus] }\n';
     const r = run(config(minUser({ profiles }), MIN_PROJECT));
     expect(!r.ok && r.error).toEqual({
       code: 'no_valid_binding',
@@ -337,12 +309,16 @@ describe('freeze (FR-004, FR-037)', () => {
   it('rung status follows the allowlist and auto_up_to_tier', () => {
     const std = run(USER, buildTask({ profile: 'standard' }));
     const heavy = run(USER, buildTask({ profile: 'heavy' }));
-    expect(
-      std.ok && std.value.policy.steps.code?.ladder.map((r) => r.state),
-    ).toEqual(['auto', 'auto', 'denied']);
-    expect(
-      heavy.ok && heavy.value.policy.steps.code?.ladder.map((r) => r.state),
-    ).toEqual(['auto', 'auto', 'auto']);
+    expect(std.ok && std.value.policy.steps.code?.ladder.map((r) => r.state)).toEqual([
+      'auto',
+      'auto',
+      'denied',
+    ]);
+    expect(heavy.ok && heavy.value.policy.steps.code?.ladder.map((r) => r.state)).toEqual([
+      'auto',
+      'auto',
+      'auto',
+    ]);
   });
 
   it('floor_map handles ladders with different lengths and bindings (R-18)', () => {
@@ -362,9 +338,7 @@ describe('freeze (FR-004, FR-037)', () => {
 
   it('reviewers are always read-only', () => {
     const r = run(USER);
-    expect(r.ok && r.value.policy.steps.review?.binding.permissions).toBe(
-      'read_only',
-    );
+    expect(r.ok && r.value.policy.steps.review?.binding.permissions).toBe('read_only');
     expect(r.ok && r.value.policy.permissions).toMatchObject({
       reviewer: 'read_only',
       coder: 'write',
@@ -427,8 +401,7 @@ describe('freeze (FR-004, FR-037)', () => {
   });
 
   it('disabling escalation retains only the initial rung', () => {
-    const profiles =
-      'profiles:\n  standard: { workflow: impl, escalation: { enabled: false } }\n';
+    const profiles = 'profiles:\n  standard: { workflow: impl, escalation: { enabled: false } }\n';
     const roles = MIN_PARTS.roles.replace(
       'coder: { binding: [{ model: sonnet }] }',
       'coder: { binding: [{ model: sonnet }], escalation: { ladder: [{ effort: high }] } }',

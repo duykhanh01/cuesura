@@ -1,13 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { GhPort } from '../../src/adapters/github/gh-port.ts';
-import {
-  observePull,
-  type ObserveTarget,
-} from '../../src/adapters/github/observe.ts';
-import {
-  rerunFailedJobs,
-  workflowRunOf,
-} from '../../src/adapters/github/rerun.ts';
+import { observePull, type ObserveTarget } from '../../src/adapters/github/observe.ts';
+import { rerunFailedJobs, workflowRunOf } from '../../src/adapters/github/rerun.ts';
 import { evaluateRequired } from '../../src/engine/required-checks.ts';
 import { Redactor } from '../../src/runner/redact.ts';
 import type { EpochMs } from '../../src/shared/brand.ts';
@@ -72,27 +66,18 @@ const run = (
 });
 
 /** An open PR whose branch is unprotected and has no rules: GitHub requires nothing (`none`). */
-function openPr(
-  checkRuns: unknown[],
-  extra: FixtureScript = {},
-): FixtureScript {
+function openPr(checkRuns: unknown[], extra: FixtureScript = {}): FixtureScript {
   return {
     [`GET repos/${REPO}/pulls/7`]: [{ status: 200, body: pull() }],
-    [`GET repos/${REPO}/branches/main`]: [
-      { status: 200, body: { protected: false } },
-    ],
-    [`GET repos/${REPO}/rules/branches/main${page}`]: [
-      { status: 200, body: [] },
-    ],
+    [`GET repos/${REPO}/branches/main`]: [{ status: 200, body: { protected: false } }],
+    [`GET repos/${REPO}/rules/branches/main${page}`]: [{ status: 200, body: [] }],
     [`GET repos/${REPO}/commits/${HEAD}/check-runs${page}`]: [
       {
         status: 200,
         body: { total_count: checkRuns.length, check_runs: checkRuns },
       },
     ],
-    [`GET repos/${REPO}/commits/${HEAD}/statuses${page}`]: [
-      { status: 200, body: [] },
-    ],
+    [`GET repos/${REPO}/commits/${HEAD}/statuses${page}`]: [{ status: 200, body: [] }],
     ...extra,
   };
 }
@@ -100,10 +85,7 @@ function openPr(
 describe('PR observation (FR-041/042)', () => {
   it('reads PR → requirements → checks → PR; none is positive evidence and a pending rerun hides the old success', async () => {
     const { gh } = port(
-      openPr([
-        run(1, 'test', 'completed', 'success'),
-        run(2, 'test', 'in_progress', null),
-      ]),
+      openPr([run(1, 'test', 'completed', 'success'), run(2, 'test', 'in_progress', null)]),
     );
     const obs = await observePull(gh, target, 0);
     expect(obs.status).toBe('open');
@@ -113,9 +95,7 @@ describe('PR observation (FR-041/042)', () => {
       kind: 'covered',
       github_required: 'none',
     });
-    expect(obs.checks?.checks).toMatchObject([
-      { name: 'test', state: 'pending' },
-    ]);
+    expect(obs.checks?.checks).toMatchObject([{ name: 'test', state: 'pending' }]);
   });
 
   it.each([
@@ -124,16 +104,13 @@ describe('PR observation (FR-041/042)', () => {
     ['404', { status: 404 }],
     ['5xx', { status: 502 }],
     ['timeout', { status: 200, transport: 'timeout' as const }],
-  ])(
-    'a pull read failing with %s is unknown, never closed or merged',
-    async (_n, answer) => {
-      const { gh } = port({ [`GET repos/${REPO}/pulls/7`]: [answer] });
-      expect(await observePull(gh, target, 0)).toMatchObject({
-        status: 'unknown',
-        pull: null,
-      });
-    },
-  );
+  ])('a pull read failing with %s is unknown, never closed or merged', async (_n, answer) => {
+    const { gh } = port({ [`GET repos/${REPO}/pulls/7`]: [answer] });
+    expect(await observePull(gh, target, 0)).toMatchObject({
+      status: 'unknown',
+      pull: null,
+    });
+  });
 
   it('a rules page GitHub refuses makes the requirement unknown, not none (FR-042.06)', async () => {
     const { gh } = port(
@@ -160,9 +137,7 @@ describe('CI rerun (T057, FR-020)', () => {
     run(12, 'lint', 'completed', 'failure', 902),
     run(13, 'build', 'completed', 'success', 901),
   ];
-  const script = (
-    post: FixtureScript[string] = [{ status: 201, body: {} }],
-  ): FixtureScript => ({
+  const script = (post: FixtureScript[string] = [{ status: 201, body: {} }]): FixtureScript => ({
     [`GET repos/${REPO}/commits/${HEAD}/check-runs${page}`]: [
       { status: 200, body: { total_count: runs.length, check_runs: runs } },
     ],
@@ -173,9 +148,7 @@ describe('CI rerun (T057, FR-020)', () => {
       { status: 200, body: { id: 902, head_sha: HEAD, run_attempt: 2 } },
     ],
     [`POST repos/${REPO}/actions/runs/901/rerun-failed-jobs`]: post,
-    [`POST repos/${REPO}/actions/runs/902/rerun-failed-jobs`]: [
-      { status: 201, body: {} },
-    ],
+    [`POST repos/${REPO}/actions/runs/902/rerun-failed-jobs`]: [{ status: 201, body: {} }],
   });
 
   it('maps each failing check to its workflow run of this head and posts rerun-failed-jobs once per run', async () => {
@@ -193,9 +166,7 @@ describe('CI rerun (T057, FR-020)', () => {
       ],
       checks: ['lint', 'test'],
     });
-    expect(
-      calls.filter((c) => c.method === 'POST').map((c) => c.target),
-    ).toEqual([
+    expect(calls.filter((c) => c.method === 'POST').map((c) => c.target)).toEqual([
       `repos/${REPO}/actions/runs/901/rerun-failed-jobs`,
       `repos/${REPO}/actions/runs/902/rerun-failed-jobs`,
     ]);
@@ -213,9 +184,7 @@ describe('CI rerun (T057, FR-020)', () => {
   });
 
   it('a refused POST is failed, so a person looks at it', async () => {
-    const { gh } = port(
-      script([{ status: 403, body: { message: 'Must have admin rights' } }]),
-    );
+    const { gh } = port(script([{ status: 403, body: { message: 'Must have admin rights' } }]));
     expect(
       await rerunFailedJobs(gh, {
         repo: REPO,
@@ -226,14 +195,10 @@ describe('CI rerun (T057, FR-020)', () => {
   });
 
   it('a check not made by Actions, a passing check, or a run of another head is never rerun', async () => {
-    expect(
-      workflowRunOf({ details_url: 'https://ci.example.com/build/1' }),
-    ).toBeNull();
+    expect(workflowRunOf({ details_url: 'https://ci.example.com/build/1' })).toBeNull();
     const { gh, calls } = port({
       ...script(),
-      [`GET repos/${REPO}/actions/runs/901`]: [
-        { status: 200, body: { id: 901, head_sha: OTHER } },
-      ],
+      [`GET repos/${REPO}/actions/runs/901`]: [{ status: 200, body: { id: 901, head_sha: OTHER } }],
     });
     expect(
       await rerunFailedJobs(gh, {

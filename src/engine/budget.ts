@@ -9,21 +9,13 @@ export function available(b: Budget): number {
     : b.agent_runs.limit - b.agent_runs.used - b.agent_runs.reserved;
 }
 
-export function reserve(
-  ctx: Ctx,
-  reservation_id: string,
-  effect_id: string,
-): void {
+export function reserve(ctx: Ctx, reservation_id: string, effect_id: string): void {
   ctx.emit('BudgetReserved', { reservation_id, effect_id, units: 1 });
 }
 
-function held(
-  ctx: Ctx,
-  reservation_id: string | null,
-): reservation_id is string {
+function held(ctx: Ctx, reservation_id: string | null): reservation_id is string {
   return (
-    reservation_id !== null &&
-    ctx.state.budget.reservations[reservation_id]?.status === 'held'
+    reservation_id !== null && ctx.state.budget.reservations[reservation_id]?.status === 'held'
   );
 }
 

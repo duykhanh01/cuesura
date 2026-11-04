@@ -31,10 +31,7 @@ export type HeadChecks = {
 };
 
 /** Check run → state. `neutral` and `stale` are not success; anything unrecognized is unknown. */
-export function checkRunState(
-  status: unknown,
-  conclusion: unknown,
-): CheckState {
+export function checkRunState(status: unknown, conclusion: unknown): CheckState {
   if (status !== 'completed')
     return status === 'queued' ||
       status === 'in_progress' ||
@@ -103,10 +100,7 @@ export function selectCurrent(
       skippedWhileDraft(o, skippedBefore)
     )
       continue;
-    const appId =
-      typeof obj(o['app'])['id'] === 'number'
-        ? (obj(o['app'])['id'] as number)
-        : null;
+    const appId = typeof obj(o['app'])['id'] === 'number' ? (obj(o['app'])['id'] as number) : null;
     const key = `run\u0000${o['name']}\u0000${appId ?? ''}`;
     const prev = current.get(key);
     if (prev !== undefined && (prev.generation as number) > o['id']) continue;
@@ -142,8 +136,7 @@ export function selectCurrent(
     });
   }
   const byName = new Map<string, SourcedCheck[]>();
-  for (const c of current.values())
-    byName.set(c.name, [...(byName.get(c.name) ?? []), c]);
+  for (const c of current.values()) byName.set(c.name, [...(byName.get(c.name) ?? []), c]);
   const collisions = [...byName]
     .filter(([, cs]) => cs.length > 1)
     .map(([n]) => n)
@@ -159,9 +152,7 @@ export async function readHeadChecks(
   repo: string,
   sha: string,
   skippedBefore: number | null = null,
-): Promise<
-  { ok: true; value: HeadChecks } | { ok: false; error: GitHubFailure }
-> {
+): Promise<{ ok: true; value: HeadChecks } | { ok: false; error: GitHubFailure }> {
   if (!/^[0-9a-f]{40}$/.test(sha))
     return {
       ok: false,
@@ -172,19 +163,13 @@ export async function readHeadChecks(
         retry_after_ms: null,
       },
     };
-  const runs = await listAll(
-    port,
-    `repos/${repo}/commits/${sha}/check-runs`,
-    (b) => {
-      const list = obj(b)['check_runs'];
-      return Array.isArray(list) ? list : null;
-    },
-  );
+  const runs = await listAll(port, `repos/${repo}/commits/${sha}/check-runs`, (b) => {
+    const list = obj(b)['check_runs'];
+    return Array.isArray(list) ? list : null;
+  });
   if (!runs.ok) return runs;
-  const statuses = await listAll(
-    port,
-    `repos/${repo}/commits/${sha}/statuses`,
-    (b) => (Array.isArray(b) ? b : null),
+  const statuses = await listAll(port, `repos/${repo}/commits/${sha}/statuses`, (b) =>
+    Array.isArray(b) ? b : null,
   );
   if (!statuses.ok) return statuses;
   const { checks, collisions } = selectCurrent(

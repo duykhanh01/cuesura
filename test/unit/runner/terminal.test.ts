@@ -24,10 +24,7 @@ import {
   type CommandExec,
   type CommandResult,
 } from '../../../src/runner/supervisor.ts';
-import {
-  formatRecord,
-  terminalEcho,
-} from '../../../src/runner/terminal-echo.ts';
+import { formatRecord, terminalEcho } from '../../../src/runner/terminal-echo.ts';
 import { NodeHostProbe } from '../../../src/runner/host-probe.ts';
 import { RuntimeTerminalSchema } from '../../../src/config/schema-user.ts';
 import {
@@ -98,9 +95,7 @@ function herdrCli(labels: string[]): CommandExec & { calls: string[][] } {
       return Promise.resolve(result({ stdout: JSON.stringify(created(true)) }));
     }
     if (verb === 'tab create')
-      return Promise.resolve(
-        result({ stdout: JSON.stringify(created(false)) }),
-      );
+      return Promise.resolve(result({ stdout: JSON.stringify(created(false)) }));
     return Promise.resolve(result({ stdout: '{"result":{}}' }));
   };
   return Object.assign(exec, { calls });
@@ -110,30 +105,17 @@ const request: TerminalRequest = { label: 'T1', cwd: '/d', command: 'run it' };
 
 describe('terminal config (ADR-0006)', () => {
   it('takes the background default, herdr and orca, and refuses a backend that does not exist', () => {
-    expect(
-      RuntimeTerminalSchema.safeParse({ backend: 'background' }).success,
-    ).toBe(true);
-    expect(
-      RuntimeTerminalSchema.safeParse({ backend: 'herdr', session: 'cusr' })
-        .success,
-    ).toBe(true);
-    expect(RuntimeTerminalSchema.safeParse({ backend: 'orca' }).success).toBe(
+    expect(RuntimeTerminalSchema.safeParse({ backend: 'background' }).success).toBe(true);
+    expect(RuntimeTerminalSchema.safeParse({ backend: 'herdr', session: 'cusr' }).success).toBe(
       true,
     );
-    expect(
-      RuntimeTerminalSchema.safeParse({ backend: 'orca', session: 'x' })
-        .success,
-    ).toBe(false);
-    expect(RuntimeTerminalSchema.safeParse({ backend: 'paseo' }).success).toBe(
-      true,
-    );
-    expect(RuntimeTerminalSchema.safeParse({ backend: 'screen' }).success).toBe(
+    expect(RuntimeTerminalSchema.safeParse({ backend: 'orca' }).success).toBe(true);
+    expect(RuntimeTerminalSchema.safeParse({ backend: 'orca', session: 'x' }).success).toBe(false);
+    expect(RuntimeTerminalSchema.safeParse({ backend: 'paseo' }).success).toBe(true);
+    expect(RuntimeTerminalSchema.safeParse({ backend: 'screen' }).success).toBe(false);
+    expect(RuntimeTerminalSchema.safeParse({ backend: 'background', session: 'x' }).success).toBe(
       false,
     );
-    expect(
-      RuntimeTerminalSchema.safeParse({ backend: 'background', session: 'x' })
-        .success,
-    ).toBe(false);
   });
 
   it('builds the backend the config names', async () => {
@@ -145,33 +127,15 @@ describe('terminal config (ADR-0006)', () => {
     expect(host.name).toBe('herdr');
     await host.open(request);
     expect(exec.calls[0]?.slice(0, 2)).toEqual(['--session', 'cusr']);
-    expect(terminalProbeArgs({ backend: 'herdr' })).toEqual([
-      'workspace',
-      'list',
-    ]);
-    expect(
-      terminalHost({ backend: 'orca' }, { bin: '/o', git: null, exec }).name,
-    ).toBe('orca');
-    expect(terminalProbeArgs({ backend: 'orca' })).toEqual([
-      'repo',
-      'list',
-      '--json',
-    ]);
-    expect(
-      terminalHost({ backend: 'paseo' }, { bin: '/p', git: null, exec }).name,
-    ).toBe('paseo');
-    expect(terminalProbeArgs({ backend: 'paseo' })).toEqual([
-      'workspace',
-      'ls',
-      '--json',
-    ]);
+    expect(terminalProbeArgs({ backend: 'herdr' })).toEqual(['workspace', 'list']);
+    expect(terminalHost({ backend: 'orca' }, { bin: '/o', git: null, exec }).name).toBe('orca');
+    expect(terminalProbeArgs({ backend: 'orca' })).toEqual(['repo', 'list', '--json']);
+    expect(terminalHost({ backend: 'paseo' }, { bin: '/p', git: null, exec }).name).toBe('paseo');
+    expect(terminalProbeArgs({ backend: 'paseo' })).toEqual(['workspace', 'ls', '--json']);
   });
 
   it('runs the Paseo CLI script with a node, since the service PATH has none', () => {
-    expect(terminalArgv({ backend: 'paseo' }, '/p', '/n/node')).toEqual([
-      '/n/node',
-      '/p',
-    ]);
+    expect(terminalArgv({ backend: 'paseo' }, '/p', '/n/node')).toEqual(['/n/node', '/p']);
     expect(terminalArgv({ backend: 'orca' }, '/o', '/n/node')).toEqual(['/o']);
   });
 });
@@ -199,18 +163,14 @@ describe('finding the terminal binary (ADR-0006)', () => {
     const onPath = installed(join(home, 'path'));
     const host = new NodeHostProbe({ PATH: join(home, 'path') });
     expect(await findTerminalBin(herdr, {}, host, home)).toBe(onPath);
-    expect(await findTerminalBin(herdr, { herdr: '/x/h' }, host, home)).toBe(
-      '/x/h',
-    );
+    expect(await findTerminalBin(herdr, { herdr: '/x/h' }, host, home)).toBe('/x/h');
   });
 
   it('finds orca in the directory its installer uses', async () => {
     const home = dataDir();
     const bin = installed(join(home, '.config/orca/cli/bin'), 'orca');
     const host = new NodeHostProbe({ PATH: '/nonexistent' });
-    expect(await findTerminalBin({ backend: 'orca' }, {}, host, home)).toBe(
-      bin,
-    );
+    expect(await findTerminalBin({ backend: 'orca' }, {}, host, home)).toBe(bin);
     expect(await findTerminalBin(herdr, {}, host, home)).toBeNull();
   });
 
@@ -222,9 +182,7 @@ describe('finding the terminal binary (ADR-0006)', () => {
 
 describe('HerdrTerminal (ADR-0006)', () => {
   it('quotes a command for the shell it is typed into', () => {
-    expect(shellJoin(['/a b', `it's`, '$HOME'])).toBe(
-      `'/a b' 'it'\\''s' '$HOME'`,
-    );
+    expect(shellJoin(['/a b', `it's`, '$HOME'])).toBe(`'/a b' 'it'\\''s' '$HOME'`);
   });
 
   it('opens a background tab in the existing workspace and leaves other workspaces alone', async () => {
@@ -233,17 +191,7 @@ describe('HerdrTerminal (ADR-0006)', () => {
     expect(r.ok).toBe(true);
     expect(exec.calls).toEqual([
       ['workspace', 'list'],
-      [
-        'tab',
-        'create',
-        '--workspace',
-        'w2',
-        '--cwd',
-        '/d',
-        '--label',
-        'T1',
-        '--no-focus',
-      ],
+      ['tab', 'create', '--workspace', 'w2', '--cwd', '/d', '--label', 'T1', '--no-focus'],
       ['pane', 'run', 'w9:p2', 'run it'],
     ]);
   });
@@ -259,8 +207,7 @@ describe('HerdrTerminal (ADR-0006)', () => {
   });
 
   it('reports a server it cannot reach instead of throwing', async () => {
-    const exec: CommandExec = () =>
-      Promise.resolve(result({ code: 1, stderr: 'no socket' }));
+    const exec: CommandExec = () => Promise.resolve(result({ code: 1, stderr: 'no socket' }));
     const r = await new HerdrTerminal({ bin: '/h', exec }).open(request);
     expect(r).toEqual(err('herdr workspace list: exit 1: no socket'));
   });
@@ -332,18 +279,14 @@ describe('OrcaTerminal (ADR-0006)', () => {
 
   it('opens an unfocused tab in the project of its own, away from the worktree', async () => {
     const exec = orcaCli();
-    const r = await new OrcaTerminal({ bin: '/o', git: '/g', exec }).open(
-      request,
-    );
+    const r = await new OrcaTerminal({ bin: '/o', git: '/g', exec }).open(request);
     expect(r.ok).toBe(true);
     expect(exec.calls).toEqual([createCall]);
   });
 
   it('registers the project the first time, then opens the tab', async () => {
     const exec = orcaCli(false);
-    const r = await new OrcaTerminal({ bin: '/o', git: '/g', exec }).open(
-      request,
-    );
+    const r = await new OrcaTerminal({ bin: '/o', git: '/g', exec }).open(request);
     expect(r.ok).toBe(true);
     expect(exec.calls).toEqual([
       createCall,
@@ -381,11 +324,9 @@ describe('OrcaTerminal (ADR-0006)', () => {
 
   it('reports a project it cannot register, without trying the tab again', async () => {
     const noGit = orcaCli(false);
-    expect(
-      await new OrcaTerminal({ bin: '/o', git: null, exec: noGit }).open(
-        request,
-      ),
-    ).toEqual(err('git was not found'));
+    expect(await new OrcaTerminal({ bin: '/o', git: null, exec: noGit }).open(request)).toEqual(
+      err('git was not found'),
+    );
     expect(noGit.calls).toEqual([createCall]);
 
     const refused = orcaCli(false, (args) =>
@@ -396,11 +337,9 @@ describe('OrcaTerminal (ADR-0006)', () => {
           })
         : null,
     );
-    expect(
-      await new OrcaTerminal({ bin: '/o', git: '/g', exec: refused }).open(
-        request,
-      ),
-    ).toEqual(err('orca repo add: refused'));
+    expect(await new OrcaTerminal({ bin: '/o', git: '/g', exec: refused }).open(request)).toEqual(
+      err('orca repo add: refused'),
+    );
     expect(refused.calls.filter((c) => c[1] === 'terminal')).toHaveLength(1);
   });
 
@@ -408,13 +347,12 @@ describe('OrcaTerminal (ADR-0006)', () => {
     const exec = orcaCli(true, () =>
       result({
         code: 1,
-        stdout:
-          '{"ok":false,"error":{"code":"runtime_unavailable","message":"start Orca"}}',
+        stdout: '{"ok":false,"error":{"code":"runtime_unavailable","message":"start Orca"}}',
       }),
     );
-    expect(
-      await new OrcaTerminal({ bin: '/o', git: '/g', exec }).open(request),
-    ).toEqual(err('orca terminal create: start Orca'));
+    expect(await new OrcaTerminal({ bin: '/o', git: '/g', exec }).open(request)).toEqual(
+      err('orca terminal create: start Orca'),
+    );
     expect(exec.calls).toHaveLength(1);
   });
 
@@ -441,9 +379,7 @@ describe('OrcaTerminal (ADR-0006)', () => {
 
   it('closes the whole tab it opened', async () => {
     const exec = orcaCli();
-    const r = await new OrcaTerminal({ bin: '/o', git: '/g', exec }).open(
-      request,
-    );
+    const r = await new OrcaTerminal({ bin: '/o', git: '/g', exec }).open(request);
     if (!r.ok) throw new Error(r.error);
     await r.value.close();
     expect(exec.calls.at(-1)).toEqual([
@@ -469,9 +405,7 @@ function paseoCli(
     const given = override(args.slice(1));
     if (given !== null) return Promise.resolve(given);
     if (args.slice(1, 3).join(' ') === 'terminal create')
-      return Promise.resolve(
-        result({ stdout: JSON.stringify({ id: `t${String(++next)}` }) }),
-      );
+      return Promise.resolve(result({ stdout: JSON.stringify({ id: `t${String(++next)}` }) }));
     return Promise.resolve(result({ stdout: '{"success":true}' }));
   };
   return Object.assign(exec, { calls });
@@ -494,12 +428,8 @@ describe('terminal naming (ADR-0006)', () => {
   });
 
   it('gives each project its own Paseo directory, apart from one the user opened', () => {
-    expect(paseoWorkspaceDir('/d', 'metronome')).toBe(
-      '/d/paseo/cuesura-metronome',
-    );
-    expect(paseoWorkspaceDir('/d', '../a b/c')).toBe(
-      '/d/paseo/cuesura-..-a-b-c',
-    );
+    expect(paseoWorkspaceDir('/d', 'metronome')).toBe('/d/paseo/cuesura-metronome');
+    expect(paseoWorkspaceDir('/d', '../a b/c')).toBe('/d/paseo/cuesura-..-a-b-c');
     expect(paseoWorkspaceDir('/d')).toBe(join('/d', PASEO_WORKSPACE_DIR));
   });
 });
@@ -524,35 +454,14 @@ describe('PaseoTerminal (ADR-0006)', () => {
     expect((await paseo(exec).open(request)).ok).toBe(true);
     expect(made).toEqual([workspace]);
     expect(exec.calls).toEqual([
-      [
-        '/n',
-        '/p',
-        'terminal',
-        'create',
-        '--cwd',
-        workspace,
-        '--name',
-        'T1',
-        '--json',
-      ],
-      [
-        '/n',
-        '/p',
-        'terminal',
-        'send-keys',
-        '--literal',
-        't1',
-        'run it\r',
-        '--json',
-      ],
+      ['/n', '/p', 'terminal', 'create', '--cwd', workspace, '--name', 'T1', '--json'],
+      ['/n', '/p', 'terminal', 'send-keys', '--literal', 't1', 'run it\r', '--json'],
     ]);
   });
 
   it('opens the terminal in the directory of its project', async () => {
     const exec = paseoCli();
-    expect(
-      (await paseo(exec).open({ ...request, project: 'metronome' })).ok,
-    ).toBe(true);
+    expect((await paseo(exec).open({ ...request, project: 'metronome' })).ok).toBe(true);
     expect(made).toEqual(['/d/paseo/cuesura-metronome']);
     expect(exec.calls[0]).toContain('/d/paseo/cuesura-metronome');
   });
@@ -582,9 +491,7 @@ describe('PaseoTerminal (ADR-0006)', () => {
         }),
       }),
     );
-    expect(await paseo(exec).open(request)).toEqual(
-      err('paseo terminal create: start Paseo'),
-    );
+    expect(await paseo(exec).open(request)).toEqual(err('paseo terminal create: start Paseo'));
     expect(exec.calls).toHaveLength(1);
   });
 
@@ -617,9 +524,7 @@ describe('PaseoTerminal (ADR-0006)', () => {
     expect(await open({ stdout: 'hello' })).toEqual(
       err('paseo terminal create: output is not JSON'),
     );
-    expect(await open({ stdout: '{}' })).toEqual(
-      err('paseo terminal create: unexpected shape'),
-    );
+    expect(await open({ stdout: '{}' })).toEqual(err('paseo terminal create: unexpected shape'));
     expect(await open({ code: 2, stderr: 'boom' })).toEqual(
       err('paseo terminal create: exit 2: boom'),
     );
@@ -637,30 +542,14 @@ describe('PaseoTerminal (ADR-0006)', () => {
           })
         : null,
     );
-    expect(await paseo(failing).open(request)).toEqual(
-      err('paseo terminal send-keys: gone'),
-    );
-    expect(failing.calls.at(-1)).toEqual([
-      '/n',
-      '/p',
-      'terminal',
-      'kill',
-      't1',
-      '--json',
-    ]);
+    expect(await paseo(failing).open(request)).toEqual(err('paseo terminal send-keys: gone'));
+    expect(failing.calls.at(-1)).toEqual(['/n', '/p', 'terminal', 'kill', 't1', '--json']);
 
     const exec = paseoCli();
     const r = await paseo(exec).open(request);
     if (!r.ok) throw new Error(r.error);
     await r.value.close();
-    expect(exec.calls.at(-1)).toEqual([
-      '/n',
-      '/p',
-      'terminal',
-      'kill',
-      't1',
-      '--json',
-    ]);
+    expect(exec.calls.at(-1)).toEqual(['/n', '/p', 'terminal', 'kill', 't1', '--json']);
   });
 });
 
@@ -705,8 +594,7 @@ function systemd(afterShows: number): CommandExec & { direct: string[][] } {
 }
 
 function terminal(
-  open: TerminalHost['open'] = () =>
-    Promise.resolve(ok({ close: () => Promise.resolve() })),
+  open: TerminalHost['open'] = () => Promise.resolve(ok({ close: () => Promise.resolve() })),
 ): TerminalHost & { requests: TerminalRequest[] } {
   const requests: TerminalRequest[] = [];
   return {
@@ -744,15 +632,11 @@ describe('agent launch through a terminal (ADR-0006)', () => {
       terminal: host,
     });
     const r = await s.launch(agentSpec());
-    expect(r).toEqual(
-      ok({ unit: 'cusr-op-op-1.service', invocation_id: 'inv' }),
-    );
+    expect(r).toEqual(ok({ unit: 'cusr-op-op-1.service', invocation_id: 'inv' }));
     expect(exec.direct).toEqual([]);
     expect(host.requests[0]).toMatchObject({ label: 'T1', cwd: dir });
     expect(host.requests[0]?.project).toBeUndefined();
-    expect(host.requests[0]?.command).toMatch(
-      /^ '.*systemd-run'.*'--pty'.*; exit$/,
-    );
+    expect(host.requests[0]?.command).toMatch(/^ '.*systemd-run'.*'--pty'.*; exit$/);
   });
 
   it('names the terminal after the run and passes its project on', async () => {
@@ -764,9 +648,7 @@ describe('agent launch through a terminal (ADR-0006)', () => {
       exec: systemd(1),
       terminal: host,
     });
-    await s.launch(
-      agentSpec({ view: { project: 'metronome', title: 'coder: Add X' } }),
-    );
+    await s.launch(agentSpec({ view: { project: 'metronome', title: 'coder: Add X' } }));
     expect(host.requests[0]).toMatchObject({
       label: 'coder: Add X',
       project: 'metronome',
@@ -860,9 +742,9 @@ describe('agent launch through a terminal (ADR-0006)', () => {
       redactor: new Redactor(),
       create: false,
     });
-    expect(await execOperation(run, { onStop: () => () => undefined })).toEqual(
-      { state: 'marker_exists' },
-    );
+    expect(await execOperation(run, { onStop: () => () => undefined })).toEqual({
+      state: 'marker_exists',
+    });
     expect(observeLaunch(run, () => 'free').state).toBe('not_launched');
   });
 
@@ -875,9 +757,7 @@ describe('agent launch through a terminal (ADR-0006)', () => {
       exec,
       terminal: host,
     });
-    await s.launch(
-      agentSpec({ kind: 'gate', run_dir_kind: 'operations', run_id: 'op-1' }),
-    );
+    await s.launch(agentSpec({ kind: 'gate', run_dir_kind: 'operations', run_id: 'op-1' }));
     expect(host.requests).toEqual([]);
     expect(exec.direct).toHaveLength(1);
   });
@@ -911,9 +791,7 @@ describe('terminal echo (ADR-0006)', () => {
   });
 
   it('never passes escape sequences to the terminal', () => {
-    expect(formatRecord({ text: 'a\u001b]0;pwned\u0007b\u009bc' })).toBe(
-      'a]0;pwnedbc\n',
-    );
+    expect(formatRecord({ text: 'a\u001b]0;pwned\u0007b\u009bc' })).toBe('a]0;pwnedbc\n');
   });
 
   it('drops a line for a stalled terminal and goes on', () => {

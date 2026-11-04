@@ -69,13 +69,10 @@ export class Redactor {
   readonly #span: number;
 
   constructor(opts: RedactorOptions = {}) {
-    const all = [
-      ...(opts.values ?? []),
-      ...secretValuesFromEnv(opts.env ?? {}),
-    ];
-    this.#values = [
-      ...new Set(all.filter((v) => v.length >= MIN_SECRET_LENGTH)),
-    ].sort((a, b) => b.length - a.length);
+    const all = [...(opts.values ?? []), ...secretValuesFromEnv(opts.env ?? {})];
+    this.#values = [...new Set(all.filter((v) => v.length >= MIN_SECRET_LENGTH))].sort(
+      (a, b) => b.length - a.length,
+    );
     this.#multiline = this.#values.filter((v) => v.includes('\n'));
     this.#span = opts.patternSpan ?? PATTERN_SPAN;
   }
@@ -97,11 +94,7 @@ export class Redactor {
    * When that would hold back more than `maxHold` chars (one pathological match), only values keep
    * their guarantee.
    */
-  safeCut(
-    text: string,
-    preferred: number,
-    maxHold = Number.POSITIVE_INFINITY,
-  ): number {
+  safeCut(text: string, preferred: number, maxHold = Number.POSITIVE_INFINITY): number {
     if (preferred <= 0) return 0;
     const atLine = text.charCodeAt(preferred - 1) === 0x0a;
     const reach = atLine ? (this.#multiline[0]?.length ?? 1) - 1 : this.carry;
@@ -113,19 +106,11 @@ export class Redactor {
     const open = this.#openKeyBlock(text);
     if (open !== null && open < c) c = this.#adjust(text, open, valueSpans);
     if (text.length - c > maxHold)
-      c = this.#adjust(
-        text,
-        Math.min(preferred, text.length - this.carry),
-        valueSpans,
-      );
+      c = this.#adjust(text, Math.min(preferred, text.length - this.carry), valueSpans);
     return c;
   }
 
-  #adjust(
-    text: string,
-    start: number,
-    spans: readonly (readonly [number, number])[],
-  ): number {
+  #adjust(text: string, start: number, spans: readonly (readonly [number, number])[]): number {
     let c = Math.max(0, start);
     for (let moved = true; moved && c > 0;) {
       moved = false;
@@ -143,16 +128,14 @@ export class Redactor {
   #valueSpans(text: string): [number, number][] {
     const out: [number, number][] = [];
     for (const v of this.#values)
-      for (let i = text.indexOf(v); i >= 0; i = text.indexOf(v, i + 1))
-        out.push([i, i + v.length]);
+      for (let i = text.indexOf(v); i >= 0; i = text.indexOf(v, i + 1)) out.push([i, i + v.length]);
     return out;
   }
 
   #patternSpans(text: string): [number, number][] {
     const out: [number, number][] = [];
     for (const p of SECRET_PATTERNS)
-      for (const m of text.matchAll(p))
-        out.push([m.index, m.index + m[0].length]);
+      for (const m of text.matchAll(p)) out.push([m.index, m.index + m[0].length]);
     return out;
   }
 
@@ -161,20 +144,17 @@ export class Redactor {
     let lastBegin: number | null = null;
     for (const m of text.matchAll(PRIVATE_KEY_BEGIN)) lastBegin = m.index;
     if (lastBegin === null) return null;
-    for (const m of text.matchAll(PRIVATE_KEY_END))
-      if (m.index > lastBegin) return null;
+    for (const m of text.matchAll(PRIVATE_KEY_END)) if (m.index > lastBegin) return null;
     return lastBegin;
   }
 
   text(input: string): string {
     let out = input;
-    for (const v of this.#values)
-      if (out.includes(v)) out = out.split(v).join(REDACTED);
+    for (const v of this.#values) if (out.includes(v)) out = out.split(v).join(REDACTED);
     for (const p of SECRET_PATTERNS) {
       out = out.replace(
         p,
-        (_m, prefix?: unknown) =>
-          `${typeof prefix === 'string' ? prefix : ''}${REDACTED}`,
+        (_m, prefix?: unknown) => `${typeof prefix === 'string' ? prefix : ''}${REDACTED}`,
       );
     }
     return out;
@@ -186,34 +166,27 @@ export class Redactor {
    */
   value(input: unknown): unknown {
     const json = JSON.stringify(input);
-    if (typeof json !== 'string')
-      throw new TypeError('value is not JSON-serializable');
+    if (typeof json !== 'string') throw new TypeError('value is not JSON-serializable');
     return this.#walk(JSON.parse(json) as unknown, null);
   }
 
   #walk(v: unknown, key: string | null): unknown {
     if (typeof v === 'string')
-      return key !== null && isSecretName(key) && v !== ''
-        ? REDACTED
-        : this.text(v);
+      return key !== null && isSecretName(key) && v !== '' ? REDACTED : this.text(v);
     if (Array.isArray(v)) return v.map((x) => this.#walk(x, key));
     if (typeof v === 'object' && v !== null) {
       const out: Record<string, unknown> = {};
-      for (const [k, x] of Object.entries(v))
-        out[this.text(k)] = this.#walk(x, k);
+      for (const [k, x] of Object.entries(v)) out[this.text(k)] = this.#walk(x, k);
       return out;
     }
     return v;
   }
 }
 
-export function secretValuesFromEnv(
-  env: Readonly<Record<string, string | undefined>>,
-): string[] {
+export function secretValuesFromEnv(env: Readonly<Record<string, string | undefined>>): string[] {
   const out: string[] = [];
   for (const [name, value] of Object.entries(env))
-    if (value !== undefined && value !== '' && isSecretName(name))
-      out.push(value);
+    if (value !== undefined && value !== '' && isSecretName(name)) out.push(value);
   return out;
 }
 
@@ -227,8 +200,7 @@ export function secretValuesFromText(text: string): string[] {
     if (typeof v === 'string') {
       if (v.length >= 12) values.push(v);
     } else if (Array.isArray(v)) v.forEach(walk);
-    else if (typeof v === 'object' && v !== null)
-      Object.values(v).forEach(walk);
+    else if (typeof v === 'object' && v !== null) Object.values(v).forEach(walk);
   };
   try {
     walk(JSON.parse(text));

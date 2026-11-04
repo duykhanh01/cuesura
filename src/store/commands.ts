@@ -45,8 +45,7 @@ function toRecord(r: CommandRow): CommandRecord {
     status: r.status,
     admitted_at: r.admitted_at,
     completed_at: r.completed_at,
-    result:
-      r.result_json === null ? null : (JSON.parse(r.result_json) as unknown),
+    result: r.result_json === null ? null : (JSON.parse(r.result_json) as unknown),
   };
 }
 
@@ -59,13 +58,10 @@ export type LedgerError =
     }
   | WriteFailure;
 
-export function readCommand(
-  db: Database,
-  requestId: string,
-): CommandRecord | null {
-  const row = db
-    .prepare('SELECT * FROM command_ledger WHERE request_id = ?')
-    .get(requestId) as CommandRow | undefined;
+export function readCommand(db: Database, requestId: string): CommandRecord | null {
+  const row = db.prepare('SELECT * FROM command_ledger WHERE request_id = ?').get(requestId) as
+    | CommandRow
+    | undefined;
   return row === undefined ? null : toRecord(row);
 }
 

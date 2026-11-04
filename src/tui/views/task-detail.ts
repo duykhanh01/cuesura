@@ -11,26 +11,11 @@ import { shortAttempt } from '../model/logs.ts';
 import { progressStages } from '../model/stages.ts';
 import type { TuiState } from '../model/state.ts';
 import type { TaskExplain, TaskProgress, TaskShow } from '../client/schemas.ts';
-import {
-  joinSafe,
-  sanitize,
-  sanitizeLines,
-  uiText,
-  type SafeText,
-} from '../terminal/safe-text.ts';
+import { joinSafe, sanitize, sanitizeLines, uiText, type SafeText } from '../terminal/safe-text.ts';
 import type { Style } from '../terminal/screen.ts';
 import { displayWidth } from '../terminal/width.ts';
 import { clockTime, type Body } from './layout.ts';
-import {
-  BOLD,
-  DIM,
-  putSegs,
-  ruleHeading,
-  seg,
-  ui,
-  wrapSegs,
-  type Seg,
-} from './ink.ts';
+import { BOLD, DIM, putSegs, ruleHeading, seg, ui, wrapSegs, type Seg } from './ink.ts';
 import { stepper } from './stepper.ts';
 
 const WARN: Style = { fg: 'yellow', bold: true };
@@ -58,9 +43,7 @@ export function usageWords(usage: Usage): string {
     ...(usage.tokens === undefined ? [] : [`${usage.tokens} tokens`]),
     ...(usage.cost === undefined ? [] : [`cost ${usage.cost}`]),
   ];
-  return parts.length === 0
-    ? `${usage.basis}, no figures`
-    : `${usage.basis} ${parts.join(', ')}`;
+  return parts.length === 0 ? `${usage.basis}, no figures` : `${usage.basis} ${parts.join(', ')}`;
 }
 
 const choice = (c: {
@@ -69,8 +52,7 @@ const choice = (c: {
   readonly effort: SafeText;
 }): SafeText => joinSafe([c.harness, c.model, c.effort], '/');
 
-const short = (sha: SafeText): SafeText =>
-  sha.length > 12 ? uiText(`${sha.slice(0, 12)}…`) : sha;
+const short = (sha: SafeText): SafeText => (sha.length > 12 ? uiText(`${sha.slice(0, 12)}…`) : sha);
 
 /** Rows of styled segments, wrapped to the screen as they are added. */
 class Rows {
@@ -94,18 +76,11 @@ class Rows {
   }
 
   /** A label in a column of its own and the daemon's value beside it, wrapping under itself. */
-  field(
-    label: string,
-    value: readonly Seg[] | SafeText,
-    labelStyle = DIM,
-  ): void {
+  field(label: string, value: readonly Seg[] | SafeText, labelStyle = DIM): void {
     const segs = typeof value === 'string' ? [seg(value)] : value;
     // A label longer than its column still keeps a space before the value.
     const head = `  ${label}`.padEnd(LABEL + 2);
-    this.line(
-      [ui(head.endsWith(' ') ? head : `${head} `, labelStyle), ...segs],
-      LABEL + 2,
-    );
+    this.line([ui(head.endsWith(' ') ? head : `${head} `, labelStyle), ...segs], LABEL + 2);
   }
 
   heading(text: string, style: Style = BOLD): void {
@@ -126,18 +101,13 @@ function aboutRows(out: Rows, d: TaskDetail, stale: boolean): void {
   const crumb = 'Task detail';
   const room = out.width - displayWidth(title) - crumb.length;
   out.line(
-    room >= 4
-      ? [seg(title, BOLD), ui(' '.repeat(room)), ui(crumb, DIM)]
-      : [seg(title, BOLD)],
+    room >= 4 ? [seg(title, BOLD), ui(' '.repeat(room)), ui(crumb, DIM)] : [seg(title, BOLD)],
   );
   const status = explain?.status ?? show?.status;
   const facts: Seg[] = [];
-  if (status !== undefined)
-    facts.push(seg(statusMark(status).text, statusStyle(status)));
-  if (show !== null)
-    facts.push(ui(' · ', DIM), seg(sanitize(show.project), DIM));
-  const mode =
-    d.progress.data?.mode ?? show?.run_config?.selection.mode ?? null;
+  if (status !== undefined) facts.push(seg(statusMark(status).text, statusStyle(status)));
+  if (show !== null) facts.push(ui(' · ', DIM), seg(sanitize(show.project), DIM));
+  const mode = d.progress.data?.mode ?? show?.run_config?.selection.mode ?? null;
   if (mode !== null) facts.push(ui(' · ', DIM), seg(mode, DIM));
   out.line(facts);
   const problems: readonly (readonly [string, SafeText | null])[] = [
@@ -147,8 +117,7 @@ function aboutRows(out: Rows, d: TaskDetail, stale: boolean): void {
     ['the history', d.history.error],
   ];
   for (const [what, error] of problems)
-    if (error !== null)
-      out.line([ui(`Could not read ${what}: `, WARN), seg(error, WARN)]);
+    if (error !== null) out.line([ui(`Could not read ${what}: `, WARN), seg(error, WARN)]);
   if (stale) out.say('What is shown here may be out of date.', WARN);
 }
 
@@ -198,18 +167,12 @@ function progressRows(out: Rows, d: TaskDetail): void {
     out.field('Now', [seg(activity(row), BOLD)]);
     const action = todo(row);
     if (action !== null)
-      out.field(
-        'Needs you',
-        [seg(joinSafe([uiText('→ '), action]), WARN)],
-        WARN,
-      );
+      out.field('Needs you', [seg(joinSafe([uiText('→ '), action]), WARN)], WARN);
   }
 }
 
 function valueText(value: unknown): SafeText {
-  return sanitizeLines(
-    typeof value === 'string' ? value : (JSON.stringify(value) ?? 'null'),
-  );
+  return sanitizeLines(typeof value === 'string' ? value : (JSON.stringify(value) ?? 'null'));
 }
 
 function whyRows(out: Rows, explain: TaskExplain): void {
@@ -221,8 +184,7 @@ function whyRows(out: Rows, explain: TaskExplain): void {
     out.field('Code', sanitize(wait.detail.code));
     // The rest of the detail is for whoever digs in: there, but faint.
     for (const [key, value] of Object.entries(wait.detail))
-      if (key !== 'code')
-        out.field(sanitize(key), [seg(valueText(value), DIM)]);
+      if (key !== 'code') out.field(sanitize(key), [seg(valueText(value), DIM)]);
   }
   for (const b of explain.blockers)
     out.field('Blocker', [seg(b.code, BAD), ui(' from ', DIM), seg(b.source)]);
@@ -247,32 +209,21 @@ function exitRows(out: Rows, explain: TaskExplain): void {
   for (const a of explain.allowed_actions) {
     out.field(actionName(a.action), a.note, { fg: 'cyan', bold: true });
     if (a.command !== null)
-      out.line(
-        [ui(''.padEnd(LABEL + 2)), ui('$ ', DIM), seg(a.command, DIM)],
-        LABEL + 4,
-      );
+      out.line([ui(''.padEnd(LABEL + 2)), ui('$ ', DIM), seg(a.command, DIM)], LABEL + 4);
   }
   if (explain.allowed_actions.length === 0) out.say('  None right now.', DIM);
 }
 
 function checkStyle(state: string): Style {
   if (/^(success|passed?|ok|neutral|skipped)$/i.test(state)) return GOOD;
-  if (/^(failure|failed|fail|error|cancelled|timed_out)$/i.test(state))
-    return BAD;
+  if (/^(failure|failed|fail|error|cancelled|timed_out)$/i.test(state)) return BAD;
   return { fg: 'yellow' };
 }
 
-function evidenceRows(
-  out: Rows,
-  explain: TaskExplain,
-  show: TaskShow | null,
-): void {
+function evidenceRows(out: Rows, explain: TaskExplain, show: TaskShow | null): void {
   const { pr, evidence } = explain;
   out.heading('Pull request and checks');
-  out.field(
-    'PR',
-    pr.ref === null ? [ui('none yet', DIM)] : [seg(pr.ref, BOLD)],
-  );
+  out.field('PR', pr.ref === null ? [ui('none yet', DIM)] : [seg(pr.ref, BOLD)]);
   if (pr.head_sha !== null || pr.base_sha !== null) {
     out.field('Head', pr.head_sha ?? uiText('none yet'));
     out.field('Base', pr.base_sha ?? uiText('unknown'));
@@ -282,15 +233,12 @@ function evidenceRows(
       seg(pr.observed.status),
       ui(' at head ', DIM),
       seg(
-        pr.observed.observed_head === null
-          ? uiText('unknown')
-          : short(pr.observed.observed_head),
+        pr.observed.observed_head === null ? uiText('unknown') : short(pr.observed.observed_head),
       ),
     ]);
   if (pr.observation_expired)
     out.say('  Watching this PR has expired; a recheck reads it again.', WARN);
-  const stale = (valid: boolean): Seg[] =>
-    valid ? [] : [ui(' (no longer valid)', DIM)];
+  const stale = (valid: boolean): Seg[] => (valid ? [] : [ui(' (no longer valid)', DIM)]);
 
   if (evidence.gates.length === 0) out.field('Gates', [ui('none yet', DIM)]);
   for (const g of evidence.gates) {
@@ -304,10 +252,7 @@ function evidenceRows(
     for (const f of g.failed ?? []) {
       out.field('', [ui('✗ ', BAD), seg(f.gate)]);
       if (f.log_excerpt !== null)
-        out.line(
-          [ui(''.padEnd(LABEL + 4)), seg(f.log_excerpt, DIM)],
-          LABEL + 4,
-        );
+        out.line([ui(''.padEnd(LABEL + 4)), seg(f.log_excerpt, DIM)], LABEL + 4);
     }
   }
   if (evidence.ci.length === 0) out.field('CI', [ui('nothing read yet', DIM)]);
@@ -328,14 +273,8 @@ function evidenceRows(
   const config = show?.run_config ?? null;
   const review = config?.review ?? null;
   if (review === 'not_run_by_mode' && config !== null)
-    out.field('Review', [
-      ui('not required by ', DIM),
-      seg(config.selection.mode, DIM),
-    ]);
-  else
-    out.field('Review', [
-      ui(review === 'required' ? 'required' : 'not decided yet', DIM),
-    ]);
+    out.field('Review', [ui('not required by ', DIM), seg(config.selection.mode, DIM)]);
+  else out.field('Review', [ui(review === 'required' ? 'required' : 'not decided yet', DIM)]);
   for (const r of evidence.reviews)
     out.field('', [
       seg(r.verdict, BOLD),
@@ -346,10 +285,7 @@ function evidenceRows(
 
   const { wait } = explain;
   // The daemon waits for a merge only once the head is green; this says what it holds, it decides nothing.
-  if (
-    wait?.detail.code === 'merge' &&
-    typeof wait.detail['head_sha'] === 'string'
-  )
+  if (wait?.detail.code === 'merge' && typeof wait.detail['head_sha'] === 'string')
     out.line([
       ui('  Green on head ', GOOD),
       seg(sanitize(wait.detail['head_sha']), GOOD),
@@ -357,21 +293,13 @@ function evidenceRows(
     ]);
 }
 
-function agentRows(
-  out: Rows,
-  explain: TaskExplain,
-  show: TaskShow | null,
-): void {
+function agentRows(out: Rows, explain: TaskExplain, show: TaskShow | null): void {
   out.heading('Agents and usage');
-  if (explain.bindings_used.length === 0)
-    out.say('  No attempts requested yet.', DIM);
+  if (explain.bindings_used.length === 0) out.say('  No attempts requested yet.', DIM);
   for (const b of explain.bindings_used)
     out.field(b.step, [
       seg(b.binding),
-      ui(
-        ` · rung ${b.rung} · requested ${b.requested} · invoked ${b.invoked}`,
-        DIM,
-      ),
+      ui(` · rung ${b.rung} · requested ${b.requested} · invoked ${b.invoked}`, DIM),
     ]);
   for (const e of explain.escalations)
     out.field(
@@ -407,18 +335,11 @@ function runConfigRows(out: Rows, show: TaskShow | null): void {
   out.field(
     'Reviewer',
     selection.reviewer === null
-      ? [
-          ui('none, ', DIM),
-          seg(selection.mode, DIM),
-          ui(' has no reviewer', DIM),
-        ]
+      ? [ui('none, ', DIM), seg(selection.mode, DIM), ui(' has no reviewer', DIM)]
       : [seg(choice(selection.reviewer))],
   );
   if (selection.fallbacks.length > 0)
-    out.field(
-      'Fallbacks',
-      joinSafe(selection.fallbacks.map(choice), uiText(', ')),
-    );
+    out.field('Fallbacks', joinSafe(selection.fallbacks.map(choice), uiText(', ')));
 }
 
 function limitRows(out: Rows, explain: TaskExplain): void {
@@ -432,15 +353,10 @@ function limitRows(out: Rows, explain: TaskExplain): void {
   ]);
   out.field('Escalations', [ui(`${remaining.escalations} left`)]);
   if (explain.blockers.length === 0) out.field('Blockers', [ui('none', DIM)]);
-  if (deadline.state === 'passed')
-    out.field('Time left', [ui('none, the deadline passed', BAD)]);
+  if (deadline.state === 'passed') out.field('Time left', [ui('none, the deadline passed', BAD)]);
   else if (deadline.state === 'running')
     out.field('Time left', [
-      ui(
-        deadline.remaining_ms === null
-          ? 'unavailable'
-          : formatDuration(deadline.remaining_ms),
-      ),
+      ui(deadline.remaining_ms === null ? 'unavailable' : formatDuration(deadline.remaining_ms)),
     ]);
   else
     out.field('Time limit', [
@@ -454,16 +370,12 @@ function limitRows(out: Rows, explain: TaskExplain): void {
     ui(
       `${formatDuration(slot.initial_wait_ms)} first, ${formatDuration(slot.resumed_wait_ms)} resumed`,
     ),
-    ...(slot.holding
-      ? [ui(' · holds the execution slot', { fg: 'cyan' })]
-      : []),
+    ...(slot.holding ? [ui(' · holds the execution slot', { fg: 'cyan' })] : []),
   ]);
   if (slot.queued !== null)
     out.field('Queue', [
       ui(
-        slot.queued.position === null
-          ? 'position unavailable'
-          : `position ${slot.queued.position}`,
+        slot.queued.position === null ? 'position unavailable' : `position ${slot.queued.position}`,
       ),
     ]);
   for (const p of explain.prerequisites)
@@ -471,29 +383,15 @@ function limitRows(out: Rows, explain: TaskExplain): void {
       seg(sanitize(p.task_id), DIM),
       ui(' · '),
       seg(p.status),
-      ...(p.unverified === null
-        ? []
-        : [ui(' · '), seg(p.unverified.reason, WARN)]),
+      ...(p.unverified === null ? [] : [ui(' · '), seg(p.unverified.reason, WARN)]),
     ]);
 }
 
-function mergeRows(
-  out: Rows,
-  explain: TaskExplain,
-  show: TaskShow | null,
-): void {
+function mergeRows(out: Rows, explain: TaskExplain, show: TaskShow | null): void {
   const { merge, cancellation, merge_cleanup: cleanup } = explain;
   const completion = show?.completion ?? null;
-  const manual = explain.allowed_actions.some(
-    (a) => a.action === 'merge_manually',
-  );
-  if (
-    merge === null &&
-    completion === null &&
-    cancellation === null &&
-    !manual &&
-    cleanup === null
-  )
+  const manual = explain.allowed_actions.some((a) => a.action === 'merge_manually');
+  if (merge === null && completion === null && cancellation === null && !manual && cleanup === null)
     return;
   out.heading('Merge');
   if (manual)
@@ -512,8 +410,7 @@ function mergeRows(
       out.field('Title', merge.proposed.title);
       out.field('Message', merge.proposed.message);
     }
-    if (merge.observed_method !== null)
-      out.field('Method used', merge.observed_method);
+    if (merge.observed_method !== null) out.field('Method used', merge.observed_method);
   }
   if (completion !== null) {
     out.field('Merged head', completion.merged_head_sha);
@@ -557,22 +454,17 @@ function referenceRows(out: Rows, d: TaskDetail): void {
   out.field('ID', sanitize(d.taskId));
   const version = explain?.version ?? show?.version;
   const revision = explain?.revision ?? show?.revision;
-  if (version !== undefined)
-    out.field('Version', [ui(`${version} · revision ${revision}`)]);
+  if (version !== undefined) out.field('Version', [ui(`${version} · revision ${revision}`)]);
   const worktree = d.progress.data?.worktree_path ?? null;
   if (worktree !== null) out.field('Worktree', worktree);
-  if (d.explain.readAt !== null)
-    out.field('Read at', [ui(clockTime(d.explain.readAt))]);
+  if (d.explain.readAt !== null) out.field('Read at', [ui(clockTime(d.explain.readAt))]);
 }
 
 function historyRows(out: Rows, d: TaskDetail): void {
   const h = d.history;
   out.heading('History', DIM);
   if (h.dropped > 0)
-    out.say(
-      `  ${h.dropped} earlier events are not kept here: see cusr task history`,
-      DIM,
-    );
+    out.say(`  ${h.dropped} earlier events are not kept here: see cusr task history`, DIM);
   if (h.events.length === 0 && h.attemptAt === null) out.say('  Reading…', DIM);
   // One row each however long the payload, cut when drawn: a long history must not cost a wrap per frame.
   for (const e of h.events)
@@ -593,13 +485,8 @@ let memo: {
   readonly rows: readonly Seg[][];
 } | null = null;
 
-function detailRows(
-  d: TaskDetail,
-  cols: number,
-  stale: boolean,
-): readonly Seg[][] {
-  if (memo?.d === d && memo.cols === cols && memo.stale === stale)
-    return memo.rows;
+function detailRows(d: TaskDetail, cols: number, stale: boolean): readonly Seg[][] {
+  if (memo?.d === d && memo.cols === cols && memo.stale === stale) return memo.rows;
   const out = new Rows(cols);
   aboutRows(out, d, stale);
   progressRows(out, d);
@@ -625,18 +512,13 @@ function detailRows(
 export const detailRowCount = (s: TuiState): number =>
   s.detail === null
     ? 0
-    : detailRows(s.detail, s.size.cols, s.staleTasks.has(s.detail.taskId))
-        .length;
+    : detailRows(s.detail, s.size.cols, s.staleTasks.has(s.detail.taskId)).length;
 
 export const detailBody =
   (s: TuiState): Body =>
   (frame, top, height) => {
     if (s.detail === null || height <= 0) return;
-    const rows = detailRows(
-      s.detail,
-      s.size.cols,
-      s.staleTasks.has(s.detail.taskId),
-    );
+    const rows = detailRows(s.detail, s.size.cols, s.staleTasks.has(s.detail.taskId));
     const first = Math.min(s.detail.top, Math.max(0, rows.length - height));
     rows.slice(first, first + height).forEach((row, i) => {
       putSegs(frame, MARGIN, top + i, row, s.size.cols - MARGIN);

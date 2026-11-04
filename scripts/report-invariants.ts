@@ -5,12 +5,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  INVARIANTS,
-  RELIABILITY,
-  SCENARIOS,
-  type InvariantEntry,
-} from '../test/invariants.map.ts';
+import { INVARIANTS, RELIABILITY, SCENARIOS, type InvariantEntry } from '../test/invariants.map.ts';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const GROUPS = {
@@ -49,8 +44,7 @@ function readReport(group: Group): Report | null {
 
 function suiteStatus(f: FileResult): SuiteStatus {
   const xs = f.assertionResults;
-  if (f.status === 'failed' || xs.some((a) => a.status === 'failed'))
-    return 'failed';
+  if (f.status === 'failed' || xs.some((a) => a.status === 'failed')) return 'failed';
   if (xs.length === 0) return 'missing';
   if (xs.some((a) => a.status !== 'passed')) return 'skipped';
   return 'passed';
@@ -88,14 +82,7 @@ function rowsOf(entries: Record<string, InvariantEntry>): string[][] {
   const rows: string[][] = [];
   for (const [id, inv] of Object.entries(entries)) {
     if (inv.scope === 'out_of_scope') {
-      rows.push([
-        id,
-        inv.title,
-        'out of scope',
-        inv.layer,
-        'out of scope',
-        '—',
-      ]);
+      rows.push([id, inv.title, 'out of scope', inv.layer, 'out of scope', '—']);
       continue;
     }
     const records = inv.records ?? [];
@@ -104,8 +91,7 @@ function rowsOf(entries: Record<string, InvariantEntry>): string[][] {
     const parts = inv.suites.map((s) => {
       const r = suites.get(s);
       const status: SuiteStatus = r?.status ?? 'missing';
-      if (status === 'missing')
-        problems.push(`${id}: ${s} is missing from the test results`);
+      if (status === 'missing') problems.push(`${id}: ${s} is missing from the test results`);
       return { s, status, r };
     });
     const recorded = records.map((f) => {
@@ -125,12 +111,9 @@ function rowsOf(entries: Record<string, InvariantEntry>): string[][] {
       ok ? 'verified' : 'NOT VERIFIED',
       [
         ...parts.map(
-          (p) =>
-            `${p.s} (${p.r?.group ?? '?'}, ${p.r?.tests ?? 0} tests, ${LABEL[p.status]})`,
+          (p) => `${p.s} (${p.r?.group ?? '?'}, ${p.r?.tests ?? 0} tests, ${LABEL[p.status]})`,
         ),
-        ...recorded.map(
-          (r) => `${r.f} (real run, ${r.present ? 'recorded' : 'missing'})`,
-        ),
+        ...recorded.map((r) => `${r.f} (real run, ${r.present ? 'recorded' : 'missing'})`),
       ].join('<br>'),
     ]);
   }
@@ -164,11 +147,6 @@ const out: string[] = [
   ...table('Gate', RELIABILITY),
 ];
 if (problems.length > 0)
-  out.push(
-    '',
-    '## Unverified invariants',
-    '',
-    ...problems.map((p) => `- ${p}`),
-  );
+  out.push('', '## Unverified invariants', '', ...problems.map((p) => `- ${p}`));
 process.stdout.write(`${out.join('\n')}\n`);
 process.exitCode = problems.length > 0 ? 1 : 0;

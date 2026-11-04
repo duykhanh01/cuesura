@@ -2,11 +2,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type {
-  GitHubPort,
-  ProcessPort,
-  StopOutcome,
-} from '../../../src/adapters/ports.ts';
+import type { GitHubPort, ProcessPort, StopOutcome } from '../../../src/adapters/ports.ts';
 import type { Caller } from '../../../src/application/authz.ts';
 import { cancelTask } from '../../../src/application/cancel.ts';
 import type { Admitted } from '../../../src/application/commands.ts';
@@ -33,26 +29,13 @@ import { isUnresolved } from '../../../src/engine/runtime.ts';
 import { reconcileOperations } from '../../../src/daemon/reconcile.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
 import type { EpochMs, Uuid } from '../../../src/shared/brand.ts';
-import {
-  injectEvents,
-  openFileStoreForTest,
-} from '../../../src/store/testing.ts';
+import { injectEvents, openFileStoreForTest } from '../../../src/store/testing.ts';
 import { buildTask, uuidOf } from '../../support/builders.ts';
 import { flowEnv } from '../../support/flow-env.ts';
 import { createGrantStart } from '../../support/runtime.ts';
-import {
-  agentData,
-  PREPARE_DATA,
-  publishData,
-} from '../../support/scenario.ts';
+import { agentData, PREPARE_DATA, publishData } from '../../support/scenario.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
-import {
-  A,
-  ci,
-  merge,
-  observation,
-  toGreen,
-} from '../../support/observation.ts';
+import { A, ci, merge, observation, toGreen } from '../../support/observation.ts';
 import { toPublish } from '../../support/store-flows.ts';
 import { dbPath, useTempDir } from '../../support/temp-db.ts';
 import { SeededDaemon } from '../../support/daemon-task.ts';
@@ -73,8 +56,7 @@ const OWNER: Caller = {
   },
 };
 
-const types = (d: StoreDriver, t: CanonicalTask) =>
-  d.store.readEvents(t.id).map((e) => e.type);
+const types = (d: StoreDriver, t: CanonicalTask) => d.store.readEvents(t.id).map((e) => e.type);
 
 let req = 0;
 function admitted(): Admitted {
@@ -88,9 +70,7 @@ function admitted(): Admitted {
       kind: 'task_cancel',
       command_hash: `sha256:${'0'.repeat(64)}`,
       task_id: null,
-      assigned_ids: Array.from({ length: 8 }, (_, i) =>
-        uuidOf(80_000 + req * 10 + i),
-      ),
+      assigned_ids: Array.from({ length: 8 }, (_, i) => uuidOf(80_000 + req * 10 + i)),
       status: 'admitted',
       result: null,
       admitted_at: 0,
@@ -125,40 +105,27 @@ describe('cancel before and during an attempt (US5.3, FR-025.01/02)', () => {
     const d = new StoreDriver(openFileStoreForTest(dbPath(tempDir())));
     const t = buildTask();
     createGrantStart(d, t, 'direct-pr');
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'prepare').id,
-      'succeeded',
-      PREPARE_DATA,
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE_DATA);
     const agent = d.pendingOne(t.id, 'start_agent');
     d.must(t.id, { kind: 'cancel', reason: 'stop' });
     const s = d.task(t.id);
     expect(s.status).toBe('CANCELLED');
     expect(s.effects[agent.id]?.status).toBe('invalidated');
-    expect(Object.values(s.attempts).map((a) => a.outcome?.status)).toEqual([
-      'not_started',
-    ]);
+    expect(Object.values(s.attempts).map((a) => a.outcome?.status)).toEqual(['not_started']);
     expect(d.store.pendingEffects(100)).toEqual([]);
     expect(d.store.readSlot()).toBeNull();
     // Nothing reopens a terminal task.
     const again = d.must(t.id, { kind: 'cancel', reason: 'again' });
-    expect(
-      again.decision.kind === 'accepted' &&
-        again.decision.events.map((e) => e.type),
-    ).toEqual(['SignalIgnored']);
+    expect(again.decision.kind === 'accepted' && again.decision.events.map((e) => e.type)).toEqual([
+      'SignalIgnored',
+    ]);
   });
 
   it('a runner adopted after a restart is stopped as a process group and verified; slot and claim stay until the attempt result', async () => {
     const d = new StoreDriver(openFileStoreForTest(dbPath(tempDir())));
     const t = buildTask();
     createGrantStart(d, t, 'direct-pr');
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'prepare').id,
-      'succeeded',
-      PREPARE_DATA,
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE_DATA);
     const agent = d.pendingOne(t.id, 'start_agent');
     const opId = uuidOf(91_000);
     const claim = d.store.claimEffect(agent.id as Uuid, d.now as EpochMs, {
@@ -177,10 +144,7 @@ describe('cancel before and during an attempt (US5.3, FR-025.01/02)', () => {
     const pidFile = join(tempDir(), 'pids');
     const tree = spawn(
       '/bin/sh',
-      [
-        '-c',
-        `sleep 300 & a=$!; sleep 300 & b=$!; echo "$a $b" > ${pidFile}; wait`,
-      ],
+      ['-c', `sleep 300 & a=$!; sleep 300 & b=$!; echo "$a $b" > ${pidFile}; wait`],
       { detached: true, stdio: 'ignore' },
     );
     const pgid = tree.pid as number;
@@ -223,9 +187,7 @@ describe('cancel before and during an attempt (US5.3, FR-025.01/02)', () => {
     d.must(t.id, { kind: 'cancel', reason: 'stop' });
     expect(d.task(t.id).status).not.toBe('CANCELLED');
     // No business effect is created or claimable while the cancel is open.
-    expect(d.store.pendingEffects(100).map((e) => e.kind)).toEqual([
-      'stop_attempt',
-    ]);
+    expect(d.store.pendingEffects(100).map((e) => e.kind)).toEqual(['stop_attempt']);
     expect(d.store.readSlot()?.holder_task_id).toBe(t.id);
 
     const stop = d.pendingOne(t.id, 'stop_attempt');
@@ -254,11 +216,7 @@ describe('cancel before and during an attempt (US5.3, FR-025.01/02)', () => {
     if (!claimed.ok) throw new Error(JSON.stringify(claimed.error));
     const run = handlers.stop_attempt;
     if (run === undefined) throw new Error('no stop_attempt handler');
-    const envelopes = await run(
-      claimed.value,
-      new AbortController().signal,
-      stopClaim,
-    );
+    const envelopes = await run(claimed.value, new AbortController().signal, stopClaim);
     const list: readonly TriggerEnvelope[] = Array.isArray(envelopes)
       ? envelopes
       : [envelopes as TriggerEnvelope];
@@ -320,10 +278,7 @@ describe('cancel stops setup and gate processes (US5.3, FR-025.02)', () => {
     const pidFile = join(dataDir, 'pids');
     const tree = spawn(
       '/bin/sh',
-      [
-        '-c',
-        `sleep 300 & a=$!; sleep 300 & b=$!; echo "$a $b" > ${pidFile}; wait`,
-      ],
+      ['-c', `sleep 300 & a=$!; sleep 300 & b=$!; echo "$a $b" > ${pidFile}; wait`],
       {
         detached: true,
         stdio: 'ignore',
@@ -333,15 +288,10 @@ describe('cancel stops setup and gate processes (US5.3, FR-025.02)', () => {
     const pgid = tree.pid as number;
     for (let i = 0; i < 100 && !existsSync(pidFile); i++)
       await new Promise((r) => setTimeout(r, 20));
-    const all = [
-      pgid,
-      ...readFileSync(pidFile, 'utf8').trim().split(' ').map(Number),
-    ];
+    const all = [pgid, ...readFileSync(pidFile, 'utf8').trim().split(' ').map(Number)];
     const alive = (pid: number): boolean => {
       try {
-        return (
-          readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1]?.[0] !== 'Z'
-        );
+        return readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1]?.[0] !== 'Z';
       } catch {
         return false;
       }
@@ -380,11 +330,7 @@ describe('cancel stops setup and gate processes (US5.3, FR-025.02)', () => {
       if (!claimed.ok) throw new Error(JSON.stringify(claimed.error));
       const run = handlers.stop_attempt;
       if (run === undefined) throw new Error('no stop_attempt handler');
-      const out = await run(
-        claimed.value,
-        new AbortController().signal,
-        stopClaim,
-      );
+      const out = await run(claimed.value, new AbortController().signal, stopClaim);
       for (const env of Array.isArray(out) ? out : [out as TriggerEnvelope]) {
         const r = d.store.accept(env as TriggerEnvelope);
         expect(r.ok && r.value.decision.kind).toBe('accepted');
@@ -411,8 +357,7 @@ describe('cancel stops setup and gate processes (US5.3, FR-025.02)', () => {
         outcome: 'failed',
         data: { failure_class: 'infra', message: 'setup stopped by cancel' },
       });
-      for (const rec of d.pending(t.id, 'reconcile'))
-        d.complete(t.id, rec.id, 'succeeded');
+      for (const rec of d.pending(t.id, 'reconcile')) d.complete(t.id, rec.id, 'succeeded');
       expect(d.task(t.id).status).toBe('CANCELLED');
       expect(d.store.readSlot()).toBeNull();
     } finally {
@@ -441,16 +386,13 @@ describe('project setup running when the cancel arrives (US5.3, FR-025.02, FR-00
     f.start();
     const prepare = f.d.pendingOne(task.id, 'prepare');
     f.dispatch();
-    for (let i = 0; i < 200 && !existsSync(log); i++)
-      await new Promise((r) => setTimeout(r, 25));
+    for (let i = 0; i < 200 && !existsSync(log); i++) await new Promise((r) => setTimeout(r, 25));
     await new Promise((r) => setTimeout(r, 100));
     expect(readFileSync(log, 'utf8')).toBe('one\n');
 
     f.d.must(task.id, { kind: 'cancel', reason: 'stop' });
     const stop = f.d.pendingOne(task.id, 'stop_attempt');
-    expect(f.d.task(task.id).effects[stop.id]?.target_effect_id).toBe(
-      prepare.id,
-    );
+    expect(f.d.task(task.id).effects[stop.id]?.target_effect_id).toBe(prepare.id);
     f.dispatch();
     await f.drain();
     expect(readFileSync(log, 'utf8')).toBe('one\none:term\n');
@@ -480,16 +422,10 @@ describe('a gate running when the cancel arrives (US5.3, FR-025.02, FR-009)', ()
     f.d.must(task.id, { kind: 'create_task', task });
     f.start();
     // Settle each round until the gates are next, then start them without waiting for them.
-    for (
-      let i = 0;
-      i < 20 && f.d.pending(task.id, 'run_gates').length === 0;
-      i++
-    )
-      await f.tick();
+    for (let i = 0; i < 20 && f.d.pending(task.id, 'run_gates').length === 0; i++) await f.tick();
     const gate = f.d.pendingOne(task.id, 'run_gates');
     f.dispatch();
-    for (let i = 0; i < 200 && !existsSync(log); i++)
-      await new Promise((r) => setTimeout(r, 25));
+    for (let i = 0; i < 200 && !existsSync(log); i++) await new Promise((r) => setTimeout(r, 25));
     await new Promise((r) => setTimeout(r, 100));
     expect(readFileSync(log, 'utf8')).toBe('build\n');
 
@@ -544,9 +480,7 @@ describe('a stopped command group: TERM, grace, KILL for every member (FR-009, F
     const child = Number(readFileSync(pidFile, 'utf8').trim());
     const alive = (pid: number): boolean => {
       try {
-        return (
-          readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1]?.[0] !== 'Z'
-        );
+        return readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1]?.[0] !== 'Z';
       } catch {
         return false;
       }
@@ -632,11 +566,7 @@ describe('a stop that cannot see the handler return is not done (FR-025.02)', ()
     d.must(t.id, { kind: 'cancel', reason: 'stop' });
     return { d, t, prep };
   }
-  function runStop(
-    d: StoreDriver,
-    t: CanonicalTask,
-    deps: Partial<HandlerDeps>,
-  ) {
+  function runStop(d: StoreDriver, t: CanonicalTask, deps: Partial<HandlerDeps>) {
     const stop = d.pendingOne(t.id, 'stop_attempt');
     const handlers = buildHandlers({
       store: d.store,
@@ -752,17 +682,11 @@ describe('gates are guarded at the moment they run (FR-025.01/02)', () => {
     const f = setup(task, { mode: 'direct-pr', gates: SLOW(log) });
     f.d.must(task.id, { kind: 'create_task', task });
     f.start();
-    for (
-      let i = 0;
-      i < 20 && f.d.pending(task.id, 'run_gates').length === 0;
-      i++
-    )
-      await f.tick();
+    for (let i = 0; i < 20 && f.d.pending(task.id, 'run_gates').length === 0; i++) await f.tick();
     return { f, task, gate: f.d.pendingOne(task.id, 'run_gates') };
   }
   const waitFor = async (file: string) => {
-    for (let i = 0; i < 200 && !existsSync(file); i++)
-      await new Promise((r) => setTimeout(r, 25));
+    for (let i = 0; i < 200 && !existsSync(file); i++) await new Promise((r) => setTimeout(r, 25));
     await new Promise((r) => setTimeout(r, 100));
   };
 
@@ -966,9 +890,7 @@ describe('gates are guarded at the moment they run (FR-025.01/02)', () => {
       const out = await pending;
       for (const env of Array.isArray(out) ? out : [out as TriggerEnvelope])
         expect(f.d.store.accept(env as TriggerEnvelope).ok).toBe(true);
-      expect(f.d.task(task.id).operations[recOp.operation_id]?.status).toBe(
-        'unknown',
-      );
+      expect(f.d.task(task.id).operations[recOp.operation_id]?.status).toBe('unknown');
 
       // The probe of that reconcile: its processes are checked by tag first, every time.
       const checked: string[] = [];
@@ -1059,18 +981,8 @@ describe('a probe that cannot see processes gone is not the end of the road (Con
       const dataDir = tempDir();
       const t = buildTask();
       createGrantStart(d, t, 'direct-pr');
-      d.complete(
-        t.id,
-        d.pendingOne(t.id, 'prepare').id,
-        'succeeded',
-        PREPARE_DATA,
-      );
-      d.complete(
-        t.id,
-        d.pendingOne(t.id, 'start_agent').id,
-        'succeeded',
-        agentData('done'),
-      );
+      d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE_DATA);
+      d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
       const gate = d.pendingOne(t.id, 'run_gates');
       const gateOp = uuidOf(99_100);
       const c = d.store.claimEffect(gate.id as Uuid, d.now as EpochMs, {
@@ -1094,10 +1006,7 @@ describe('a probe that cannot see processes gone is not the end of the road (Con
       const pgid = proc.pid as number;
       const alive = (): boolean => {
         try {
-          return (
-            readFileSync(`/proc/${pgid}/stat`, 'utf8').split(') ')[1]?.[0] !==
-            'Z'
-          );
+          return readFileSync(`/proc/${pgid}/stat`, 'utf8').split(') ')[1]?.[0] !== 'Z';
         } catch {
           return false;
         }
@@ -1128,9 +1037,7 @@ describe('a probe that cannot see processes gone is not the end of the road (Con
         const checkStarted = new Promise<void>((r) => (checking = r));
         let release: () => void = () => undefined;
         const released =
-          when === 'while'
-            ? new Promise<void>((r) => (release = r))
-            : Promise.resolve();
+          when === 'while' ? new Promise<void>((r) => (release = r)) : Promise.resolve();
         const clock = { now: () => d.now as EpochMs, monotonic: () => d.now };
         let n = 99_200;
         const newId = (): string => uuidOf(n++);
@@ -1182,8 +1089,7 @@ describe('a probe that cannot see processes gone is not the end of the road (Con
           });
         const die = async (): Promise<void> => {
           process.kill(-pgid, 'SIGKILL');
-          for (let i = 0; i < 100 && alive(); i++)
-            await new Promise((r) => setTimeout(r, 20));
+          for (let i = 0; i < 100 && alive(); i++) await new Promise((r) => setTimeout(r, 20));
         };
         if (when === 'after') {
           expect(await round()).toBeGreaterThan(0);
@@ -1221,8 +1127,7 @@ describe('a probe that cannot see processes gone is not the end of the road (Con
         }
         // That evidence asks for a new probe at once; it runs and the cancel ends.
         expect(d.pending(t.id, 'reconcile')).toHaveLength(1);
-        for (let i = 0; i < 5 && d.task(t.id).status !== 'CANCELLED'; i++)
-          await round();
+        for (let i = 0; i < 5 && d.task(t.id).status !== 'CANCELLED'; i++) await round();
         const s = d.task(t.id);
         expect(s.effects[gate.id]?.status).toBe('failed');
         expect(s.operations[gateOp]?.status).toBe('finished');
@@ -1257,12 +1162,7 @@ describe('a probe left unknown holds the slot and every later probe of its effec
     });
     f.d.must(task.id, { kind: 'create_task', task });
     f.start();
-    for (
-      let i = 0;
-      i < 20 && f.d.pending(task.id, 'run_gates').length === 0;
-      i++
-    )
-      await f.tick();
+    for (let i = 0; i < 20 && f.d.pending(task.id, 'run_gates').length === 0; i++) await f.tick();
     const gate = f.d.pendingOne(task.id, 'run_gates');
     const gateOp = uuidOf(99_500);
     const c = f.d.store.claimEffect(gate.id as Uuid, f.d.now as EpochMs, {
@@ -1299,9 +1199,7 @@ describe('a probe left unknown holds the slot and every later probe of its effec
     const alive = (): boolean => {
       if (pid === 0) return false;
       try {
-        return (
-          readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1]?.[0] !== 'Z'
-        );
+        return readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1]?.[0] !== 'Z';
       } catch {
         return false;
       }
@@ -1343,8 +1241,7 @@ describe('a probe left unknown holds the slot and every later probe of its effec
                 () =>
                   resolve({
                     kind: 'unknown',
-                    message:
-                      'stopped on request; process group not verified gone',
+                    message: 'stopped on request; process group not verified gone',
                     output: '',
                     stop: 'unverified',
                   }),
@@ -1375,17 +1272,13 @@ describe('a probe left unknown holds the slot and every later probe of its effec
       });
       const r2 = f.d
         .pending(task.id, 'reconcile')
-        .find(
-          (e) => f.d.task(task.id).effects[e.id]?.target_effect_id === gate.id,
-        );
+        .find((e) => f.d.task(task.id).effects[e.id]?.target_effect_id === gate.id);
       expect(r2).toBeDefined();
       // The cancel stops R1's rerun; its group is not seen gone, so R1 ends unknown, its process alive.
       f.d.must(task.id, { kind: 'cancel', reason: 'stop' });
       await disp.settle();
       let s = f.d.task(task.id);
-      const r1Op = Object.values(s.operations).find(
-        (o) => o.effect_id === r1.id,
-      );
+      const r1Op = Object.values(s.operations).find((o) => o.effect_id === r1.id);
       expect(s.effects[r1.id]?.status).toBe('unknown');
       expect(r1Op?.status).toBe('unknown');
       expect(alive()).toBe(true);
@@ -1420,9 +1313,7 @@ describe('a probe left unknown holds the slot and every later probe of its effec
         newId,
         inFlight: (id) => disp?.isInFlight(id) ?? false,
       });
-      expect(
-        rep.operations.find((o) => o.operation_id === r1Op?.id)?.finding.status,
-      ).toBe('lost');
+      expect(rep.operations.find((o) => o.operation_id === r1Op?.id)?.finding.status).toBe('lost');
       expect(alive()).toBe(false);
       for (let i = 0; i < 10 && f.d.task(task.id).status !== 'CANCELLED'; i++) {
         disp.tick();
@@ -1431,9 +1322,7 @@ describe('a probe left unknown holds the slot and every later probe of its effec
       s = f.d.task(task.id);
       expect(s.status).toBe('CANCELLED');
       expect(s.effects[gate.id]?.status).toBe('failed');
-      expect(
-        Object.values(s.operations).filter((o) => isUnresolved(o)),
-      ).toEqual([]);
+      expect(Object.values(s.operations).filter((o) => isUnresolved(o))).toEqual([]);
       expect(f.d.store.readSlot()).toBeNull();
       expect(s.run.checkpoint).toBeNull();
     } finally {
@@ -1447,25 +1336,10 @@ describe('a probe of slot-bound work binds the slot itself (FR-044.01)', () => {
     const d = new StoreDriver(openFileStoreForTest(dbPath(tempDir())));
     const t = buildTask();
     createGrantStart(d, t, 'direct-pr');
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'prepare').id,
-      'succeeded',
-      PREPARE_DATA,
-    );
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'start_agent').id,
-      'succeeded',
-      agentData('done'),
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE_DATA);
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
     const gate = d.pendingOne(t.id, 'run_gates');
-    const claimOp = (
-      effectId: string,
-      id: string,
-      kind: 'gate' | 'github',
-      slot: boolean,
-    ) => {
+    const claimOp = (effectId: string, id: string, kind: 'gate' | 'github', slot: boolean) => {
       const c = d.store.claimEffect(effectId as Uuid, d.now as EpochMs, {
         require_runtime: true,
         operation: {
@@ -1546,35 +1420,21 @@ describe('recovery after a cancel never runs setup or gates again (FR-025.01)', 
       const t = buildTask();
       createGrantStart(d, t, 'direct-pr');
       if (kind === 'run_gates') {
-        d.complete(
-          t.id,
-          d.pendingOne(t.id, 'prepare').id,
-          'succeeded',
-          PREPARE_DATA,
-        );
-        d.complete(
-          t.id,
-          d.pendingOne(t.id, 'start_agent').id,
-          'succeeded',
-          agentData('done'),
-        );
+        d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE_DATA);
+        d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
       }
       const target = d.pendingOne(t.id, kind);
       const localOp = uuidOf(kind === 'prepare' ? 96_950 : 96_960);
-      const claimedTarget = d.store.claimEffect(
-        target.id as Uuid,
-        d.now as EpochMs,
-        {
-          require_runtime: true,
-          operation: {
-            operation_id: localOp,
-            kind: kind === 'prepare' ? 'setup' : 'gate',
-            launch_nonce: newLaunchNonce(),
-            unit: unitName(localOp),
-            holds_slot: true,
-          },
+      const claimedTarget = d.store.claimEffect(target.id as Uuid, d.now as EpochMs, {
+        require_runtime: true,
+        operation: {
+          operation_id: localOp,
+          kind: kind === 'prepare' ? 'setup' : 'gate',
+          launch_nonce: newLaunchNonce(),
+          unit: unitName(localOp),
+          holds_slot: true,
         },
-      );
+      });
       if (!claimedTarget.ok) throw new Error(JSON.stringify(claimedTarget));
       d.must(t.id, { kind: 'cancel', reason: 'stop' });
       // The daemon died before the stopped effect's result: recovery left it unknown.
@@ -1674,9 +1534,7 @@ describe('stopping local processes by their tag: TERM, grace, KILL (FR-009, FR-0
   }
   const gone = (pid: number): boolean => {
     try {
-      return (
-        readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1]?.[0] === 'Z'
-      );
+      return readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1]?.[0] === 'Z';
     } catch {
       return true;
     }
@@ -1724,12 +1582,7 @@ describe('cancel while a publish is unknown (US5.4, FR-025.03/05)', () => {
     const head = 'a'.repeat(40);
     createGrantStart(d, t, 'direct-pr');
     toPublish(d, t, head);
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'publish').id,
-      'succeeded',
-      publishData(head),
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(head));
     const pr = d.pendingOne(t.id, 'create_pr');
     d.complete(t.id, pr.id, 'unknown');
     d.must(t.id, { kind: 'cancel', reason: 'stop' });
@@ -1749,9 +1602,7 @@ describe('cancel while a publish is unknown (US5.4, FR-025.03/05)', () => {
       status: 'WAITING',
       wait: { reason: 'policy', detail: { code: 'cancel_reconcile' } },
     });
-    expect(
-      d.store.pendingEffects(100).filter((e) => e.kind !== 'reconcile'),
-    ).toEqual([]);
+    expect(d.store.pendingEffects(100).filter((e) => e.kind !== 'reconcile')).toEqual([]);
   });
 });
 
@@ -1787,9 +1638,7 @@ describe('the cancel service reads the PR before it ends (US5.4/US5.6, FR-025.03
           now: () => f.d.now,
           newId,
           observe: observeWith(
-            o.github === undefined
-              ? f.deps
-              : { ...f.deps, github: () => o.github as GitHubPort },
+            o.github === undefined ? f.deps : { ...f.deps, github: () => o.github as GitHubPort },
           ),
         },
         admitted(),
@@ -1815,16 +1664,9 @@ describe('the cancel service reads the PR before it ends (US5.4/US5.6, FR-025.03
     expect(s.status).toBe('CANCELLED');
     expect(s.pr_ref).not.toBeNull();
     // Only reads went to GitHub; the PR stays open, the branch and the commit stay where they were.
-    expect(f.github.calls.slice(before).every((c) => c.startsWith('GET'))).toBe(
-      true,
-    );
+    expect(f.github.calls.slice(before).every((c) => c.startsWith('GET'))).toBe(true);
     expect(f.github.prs[0]?.state).toBe('open');
-    const branch = g.sh(
-      f.remote,
-      'for-each-ref',
-      '--format=%(refname:short)',
-      'refs/heads/cusr/',
-    );
+    const branch = g.sh(f.remote, 'for-each-ref', '--format=%(refname:short)', 'refs/heads/cusr/');
     expect(g.sh(f.remote, 'rev-parse', branch)).toBe(cp);
     expect(g.sh(f.worktree, 'rev-parse', 'HEAD')).toBe(cp);
     // A merge seen after CANCELLED is history only.
@@ -1858,11 +1700,7 @@ describe('the cancel service reads the PR before it ends (US5.4/US5.6, FR-025.03
     expect(f.d.task(f.task.id).status).toBe('DONE');
     expect(types(f.d, f.task)).toContain('CancelRecordedLate');
     expect(types(f.d, f.task)).not.toContain('TaskCancelled');
-    expect(
-      f.github.calls.filter(
-        (c) => c.includes('/merge') && !c.startsWith('GET'),
-      ),
-    ).toEqual([]);
+    expect(f.github.calls.filter((c) => c.includes('/merge') && !c.startsWith('GET'))).toEqual([]);
   });
 
   it('an unreadable PR keeps the task waiting for reconciliation; a recheck once GitHub answers ends it', async () => {
@@ -1929,9 +1767,7 @@ describe('the cancel service reads the PR before it ends (US5.4/US5.6, FR-025.03
       value: { status: 'CANCELLED', pr_read: null },
     });
     expect(f.github.calls.length).toBe(calls);
-    expect(
-      types(f.d, f.task).filter((x) => x === 'CancelRequested'),
-    ).toHaveLength(1);
+    expect(types(f.d, f.task).filter((x) => x === 'CancelRequested')).toHaveLength(1);
   });
 });
 
@@ -1940,12 +1776,7 @@ describe('agent result after the cancel', () => {
     const d = new StoreDriver(openFileStoreForTest(dbPath(tempDir())));
     const t = buildTask();
     createGrantStart(d, t, 'direct-pr');
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'prepare').id,
-      'succeeded',
-      PREPARE_DATA,
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE_DATA);
     const agent = d.pendingOne(t.id, 'start_agent');
     d.claim(agent.id);
     d.must(t.id, { kind: 'cancel', reason: 'stop' });
@@ -1979,8 +1810,7 @@ describe('cancel during a merge cleanup that ran out of rounds (US5.6, FR-040.15
     const poll = d.pendingOne(t.id, 'await_ci');
     d.claim(poll.id);
     merge(d, t, A);
-    for (let i = 0; i < 3; i++)
-      d.must(t.id, { kind: 'drain_result', pending_operations: [] });
+    for (let i = 0; i < 3; i++) d.must(t.id, { kind: 'drain_result', pending_operations: [] });
     expect(d.task(t.id).completion?.drain).toMatchObject({ paused: true });
 
     d.must(t.id, { kind: 'cancel', reason: 'too late' });
@@ -2043,12 +1873,7 @@ describe('quota, auth and refusal wait with a reason (US5.5, FR-015)', () => {
     const d = new StoreDriver(openFileStoreForTest(dbPath(tempDir())));
     const t = buildTask();
     createGrantStart(d, t, 'direct-pr', { limits });
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'prepare').id,
-      'succeeded',
-      PREPARE_DATA,
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE_DATA);
     return { d, t };
   }
   const fail = (
@@ -2180,12 +2005,7 @@ describe('escalation approval over the control socket (T103, FR-010/FR-028)', ()
           },
         },
       } as never);
-      d.complete(
-        t.id,
-        d.pendingOne(t.id, 'prepare').id,
-        'succeeded',
-        PREPARE_DATA,
-      );
+      d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE_DATA);
       for (let i = 0; i < 2; i++) {
         if (d.task(t.id).wait?.detail.code === 'execution_slot')
           d.store.grantNext(d.now as EpochMs);
@@ -2203,13 +2023,10 @@ describe('escalation approval over the control socket (T103, FR-010/FR-028)', ()
       });
     });
     await sd.start();
-    const store = () =>
-      sd.daemon?.store as NonNullable<typeof sd.daemon>['store'];
+    const store = () => sd.daemon?.store as NonNullable<typeof sd.daemon>['store'];
     const version = () => store().readTask(t.id)?.version ?? -1;
     let n = 0;
-    const body = (
-      o: { kind?: string; rung?: number; request?: number } = {},
-    ) => ({
+    const body = (o: { kind?: string; rung?: number; request?: number } = {}) => ({
       request_id: `0192dddd-0000-7000-8000-${String(o.request ?? ++n).padStart(12, '0')}`,
       kind: o.kind ?? 'approve_escalation',
       project: 'acme',
@@ -2222,17 +2039,11 @@ describe('escalation approval over the control socket (T103, FR-010/FR-028)', ()
         .readEvents(t.id)
         .filter((e) => e.type === 'ApprovalGranted');
 
-    expect((await sd.command('assistant', body())).code).toBe(
-      ExitCode.forbidden,
-    );
+    expect((await sd.command('assistant', body())).code).toBe(ExitCode.forbidden);
     expect((await sd.command('reader', body())).code).toBe(ExitCode.forbidden);
-    expect((await sd.command('owner', body({ rung: 2 }))).code).toBe(
-      ExitCode.missing,
-    );
+    expect((await sd.command('owner', body({ rung: 2 }))).code).toBe(ExitCode.missing);
     for (const kind of ['merge_approve', 'yolo'])
-      expect((await sd.command('owner', body({ kind }))).code).toBe(
-        ExitCode.usage,
-      );
+      expect((await sd.command('owner', body({ kind }))).code).toBe(ExitCode.usage);
     expect(granted()).toEqual([]);
 
     const first = body({ request: 500 });
@@ -2244,9 +2055,8 @@ describe('escalation approval over the control socket (T103, FR-010/FR-028)', ()
     // A second request for the same rung finds the request already decided.
     expect((await sd.command('owner', body())).code).toBe(ExitCode.conflict);
     expect(granted()).toHaveLength(1);
-    expect(store().readTask(t.id)?.approvals).toSatisfy(
-      (a: Record<string, { kind: string }>) =>
-        Object.values(a).every((x) => x.kind === 'escalation'),
+    expect(store().readTask(t.id)?.approvals).toSatisfy((a: Record<string, { kind: string }>) =>
+      Object.values(a).every((x) => x.kind === 'escalation'),
     );
   });
 });

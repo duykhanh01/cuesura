@@ -1,24 +1,7 @@
-import {
-  isAgentStep,
-  PREDICATE_KEYS,
-  PredicateSchema,
-  type Workflow,
-} from '../domain/workflow.ts';
-import {
-  SOFTWARE_DEV,
-  SOFTWARE_DEV_NAME,
-} from '../engine/workflows/software-dev.ts';
-import {
-  diag,
-  type Diagnostic,
-  type KeyPath,
-  type Position,
-} from './positions.ts';
-import type {
-  NormalizedProfile,
-  NormalizedProject,
-  NormalizedUser,
-} from '../domain/config.ts';
+import { isAgentStep, PREDICATE_KEYS, PredicateSchema, type Workflow } from '../domain/workflow.ts';
+import { SOFTWARE_DEV, SOFTWARE_DEV_NAME } from '../engine/workflows/software-dev.ts';
+import { diag, type Diagnostic, type KeyPath, type Position } from './positions.ts';
+import type { NormalizedProfile, NormalizedProject, NormalizedUser } from '../domain/config.ts';
 import { runtimeLimitIssues } from '../domain/runtime.ts';
 import { mergeRuntimeLimits } from './normalize.ts';
 import { dispatchMode } from './normalize.ts';
@@ -65,10 +48,7 @@ export function checkRuntime(u: RawUserConfig, at: Locator): Diagnostic[] {
   for (const issue of runtimeLimitIssues(mergeRuntimeLimits(rt.limits))) {
     // Report the first explicitly configured limit involved; fall back to runtime.limits when all values are defaults.
     const key = issue.path.find((k) => declared[k] !== undefined);
-    push(
-      key === undefined ? ['runtime', 'limits'] : ['runtime', 'limits', key],
-      issue.message,
-    );
+    push(key === undefined ? ['runtime', 'limits'] : ['runtime', 'limits', key], issue.message);
   }
 
   const projects = new Set(Object.keys(u.projects ?? {}));
@@ -76,11 +56,7 @@ export function checkRuntime(u: RawUserConfig, at: Locator): Diagnostic[] {
   const files = new Set<string>();
   (rt.access_tokens ?? []).forEach((t, i) => {
     const base: KeyPath = ['runtime', 'access_tokens', i];
-    if (ids.has(t.id))
-      push(
-        [...base, 'id'],
-        `Access token '${t.id}' is declared more than once`,
-      );
+    if (ids.has(t.id)) push([...base, 'id'], `Access token '${t.id}' is declared more than once`);
     ids.add(t.id);
     if (files.has(t.token_file))
       push(
@@ -90,20 +66,14 @@ export function checkRuntime(u: RawUserConfig, at: Locator): Diagnostic[] {
     files.add(t.token_file);
     t.projects.forEach((p, j) => {
       if (!projects.has(p))
-        push(
-          [...base, 'projects', j],
-          `Project '${p}' is not declared in projects`,
-        );
+        push([...base, 'projects', j], `Project '${p}' is not declared in projects`);
     });
   });
 
   const harnesses = new Set(Object.keys(u.harnesses ?? {}));
   for (const h of Object.keys(rt.harness_isolation ?? {})) {
     if (!harnesses.has(h))
-      push(
-        ['runtime', 'harness_isolation', h],
-        `Harness '${h}' is not declared in harnesses`,
-      );
+      push(['runtime', 'harness_isolation', h], `Harness '${h}' is not declared in harnesses`);
   }
   return out;
 }
@@ -131,34 +101,16 @@ export function checkDispatch(
         ),
       );
     const profile = known ? profiles[dispatch.profile] : undefined;
-    const checkAgent = (
-      path: KeyPath,
-      agent: RawDispatchAgent,
-      roles: readonly string[],
-    ): void => {
+    const checkAgent = (path: KeyPath, agent: RawDispatchAgent, roles: readonly string[]): void => {
       const { harness, model, effort } = agent;
-      if (
-        profile?.allow_models != null &&
-        !profile.allow_models.includes(model)
-      )
-        bad(
-          path,
-          `Profile '${dispatch.profile}' does not allow model '${model}'`,
-        );
+      if (profile?.allow_models != null && !profile.allow_models.includes(model))
+        bad(path, `Profile '${dispatch.profile}' does not allow model '${model}'`);
       for (const roleName of roles) {
-        if (
-          profile?.allow_roles != null &&
-          !profile.allow_roles.includes(roleName)
-        )
-          bad(
-            path,
-            `Profile '${dispatch.profile}' does not allow role '${roleName}'`,
-          );
+        if (profile?.allow_roles != null && !profile.allow_roles.includes(roleName))
+          bad(path, `Profile '${dispatch.profile}' does not allow role '${roleName}'`);
         const declared = user.roles[roleName]?.binding.some(
           (b) =>
-            b.model === model &&
-            b.effort === effort &&
-            user.models[b.model]?.harness === harness,
+            b.model === model && b.effort === effort && user.models[b.model]?.harness === harness,
         );
         if (declared !== true)
           bad(
@@ -180,8 +132,7 @@ export function checkDispatch(
           checkAgent([...base, 'use', i], u, ['coder', 'fixer']);
         });
       else checkAgent([...base, 'use'], c.use, ['coder', 'fixer']);
-      if (c.reviewer !== undefined)
-        checkAgent([...base, 'reviewer'], c.reviewer, ['reviewer']);
+      if (c.reviewer !== undefined) checkAgent([...base, 'reviewer'], c.reviewer, ['reviewer']);
     };
     dispatch.rules.forEach((r, i) => {
       checkChoice([...root, 'rules', i], r);
@@ -191,18 +142,14 @@ export function checkDispatch(
   if (raw.runtime?.dispatch !== undefined)
     checkBlock(['runtime', 'dispatch'], raw.runtime.dispatch);
   for (const [id, project] of Object.entries(raw.projects ?? {}))
-    if (project.dispatch !== undefined)
-      checkBlock(['projects', id, 'dispatch'], project.dispatch);
+    if (project.dispatch !== undefined) checkBlock(['projects', id, 'dispatch'], project.dispatch);
   return out;
 }
 
 /** Check raw predicates before workflow expansion so diagnostics retain their source positions. */
 export function checkPredicates(u: RawUserConfig, at: Locator): Diagnostic[] {
   const out: Diagnostic[] = [];
-  const check = (
-    pred: Record<string, unknown> | undefined,
-    path: KeyPath,
-  ): void => {
+  const check = (pred: Record<string, unknown> | undefined, path: KeyPath): void => {
     if (pred === undefined) return;
     for (const key of Object.keys(pred)) {
       const p = [...path, key];
@@ -219,20 +166,11 @@ export function checkPredicates(u: RawUserConfig, at: Locator): Diagnostic[] {
       }
       const r = PredicateSchema.safeParse({ [key]: pred[key] });
       if (!r.success)
-        out.push(
-          diag(
-            'schema_invalid',
-            at(p),
-            p,
-            `Invalid value for predicate '${key}'`,
-          ),
-        );
+        out.push(diag('schema_invalid', at(p), p, `Invalid value for predicate '${key}'`));
     }
   };
   for (const [rn, role] of Object.entries(u.roles ?? {})) {
-    role.binding.forEach((b, i) =>
-      check(b.when, ['roles', rn, 'binding', i, 'when']),
-    );
+    role.binding.forEach((b, i) => check(b.when, ['roles', rn, 'binding', i, 'when']));
   }
   return out;
 }
@@ -255,8 +193,7 @@ export function checkWorkflowKeys(u: RawUserConfig, at: Locator): Diagnostic[] {
     for (const key of Object.keys(wf)) {
       if (key === 'base' || key === 'steps') continue;
       const p: KeyPath = ['workflows', wn, key];
-      if ((REMOVED_WORKFLOW_KEYS as readonly string[]).includes(key))
-        removed(p, key);
+      if ((REMOVED_WORKFLOW_KEYS as readonly string[]).includes(key)) removed(p, key);
       else unknown(p, `Key '${key}' is not supported; expected: base, steps`);
     }
     for (const [sn, step] of Object.entries(wf.steps ?? {})) {
@@ -276,8 +213,7 @@ export function checkWorkflowKeys(u: RawUserConfig, at: Locator): Diagnostic[] {
       const accepted = tunablesOf(builtIn);
       for (const key of Object.keys(step)) {
         const p: KeyPath = ['workflows', wn, 'steps', sn, key];
-        if ((REMOVED_STEP_KEYS as readonly string[]).includes(key))
-          removed(p, key);
+        if ((REMOVED_STEP_KEYS as readonly string[]).includes(key)) removed(p, key);
         else if (!(accepted as readonly string[]).includes(key))
           unknown(
             p,
@@ -300,12 +236,7 @@ function stepPath(wn: string, sn: string, ...rest: KeyPath): KeyPath {
   return ['workflows', wn, 'steps', sn, ...rest];
 }
 
-function push(
-  ctx: Ctx,
-  code: Diagnostic['code'],
-  path: KeyPath,
-  message: string,
-): void {
+function push(ctx: Ctx, code: Diagnostic['code'], path: KeyPath, message: string): void {
   ctx.out.push(diag(code, ctx.at(path), path, message));
 }
 
@@ -414,20 +345,12 @@ function checkRolesAndModels(ctx: Ctx): void {
   }
 }
 
-function checkProfiles(
-  ctx: Ctx,
-  profiles: Record<string, NormalizedProfile>,
-): void {
+function checkProfiles(ctx: Ctx, profiles: Record<string, NormalizedProfile>): void {
   const { user } = ctx;
   for (const [pn, p] of Object.entries(profiles)) {
     const base: KeyPath = ['profiles', pn];
     if (p.workflow === null)
-      push(
-        ctx,
-        'schema_invalid',
-        base,
-        `Profile '${pn}' does not declare a workflow`,
-      );
+      push(ctx, 'schema_invalid', base, `Profile '${pn}' does not declare a workflow`);
     else if (!(p.workflow in user.workflows))
       push(
         ctx,
@@ -437,21 +360,11 @@ function checkProfiles(
       );
     (p.allow_roles ?? []).forEach((r, i) => {
       if (!(r in user.roles))
-        push(
-          ctx,
-          'unknown_role',
-          [...base, 'allow_roles', i],
-          `Role '${r}' does not exist`,
-        );
+        push(ctx, 'unknown_role', [...base, 'allow_roles', i], `Role '${r}' does not exist`);
     });
     (p.allow_models ?? []).forEach((m, i) => {
       if (!(m in user.models))
-        push(
-          ctx,
-          'unknown_model',
-          [...base, 'allow_models', i],
-          `Model '${m}' does not exist`,
-        );
+        push(ctx, 'unknown_model', [...base, 'allow_models', i], `Model '${m}' does not exist`);
     });
     p.overridable.forEach((k) => {
       if (!OVERRIDE_ROOTS.includes(k.split('.')[0] as string)) {
@@ -537,14 +450,9 @@ export function runChecks(input: CheckInput): Diagnostic[] {
         ),
       );
     }
-    const profile =
-      project.profile !== null
-        ? (input.profiles[project.profile] ?? null)
-        : null;
+    const profile = project.profile !== null ? (input.profiles[project.profile] ?? null) : null;
     const wfNames =
-      profile?.workflow != null
-        ? [profile.workflow]
-        : Object.keys(input.user.workflows);
+      profile?.workflow != null ? [profile.workflow] : Object.keys(input.user.workflows);
     const seen = new Set<string>();
     for (const wn of wfNames) {
       const w = input.user.workflows[wn];

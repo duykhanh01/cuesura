@@ -1,11 +1,6 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import {
-  joinSafe,
-  sanitize,
-  sanitizeLines,
-  uiText,
-} from '../../../src/tui/terminal/safe-text.ts';
+import { joinSafe, sanitize, sanitizeLines, uiText } from '../../../src/tui/terminal/safe-text.ts';
 
 // eslint-disable-next-line no-control-regex -- the test looks for exactly these.
 const FORBIDDEN = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f‪-‮⁦-⁩]/;
@@ -23,11 +18,12 @@ describe('sanitize', () => {
     expect(sanitize('a\x85b')).toBe('a�b');
   });
 
-  it.each([
-    0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2066, 0x2067, 0x2068, 0x2069,
-  ])('replaces the bidi control U+%s', (code) => {
-    expect(sanitize(`a${String.fromCodePoint(code)}b`)).toBe('a�b');
-  });
+  it.each([0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2066, 0x2067, 0x2068, 0x2069])(
+    'replaces the bidi control U+%s',
+    (code) => {
+      expect(sanitize(`a${String.fromCodePoint(code)}b`)).toBe('a�b');
+    },
+  );
 
   it('turns a tab into a space', () => {
     expect(sanitize('a\tb')).toBe('a b');

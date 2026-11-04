@@ -6,12 +6,7 @@
 import type { ActionsMenu } from '../model/actions.ts';
 import { CHANGED_NOTICE } from '../model/actions.ts';
 import type { CallerInfo, TaskExplain } from '../client/schemas.ts';
-import {
-  joinSafe,
-  sanitize,
-  uiText,
-  type SafeText,
-} from '../terminal/safe-text.ts';
+import { joinSafe, sanitize, uiText, type SafeText } from '../terminal/safe-text.ts';
 import type { Style } from '../terminal/screen.ts';
 import { truncate, wrap } from '../terminal/width.ts';
 import type { Body } from './layout.ts';
@@ -58,10 +53,7 @@ export type ActionItem = {
 /** The merge method and the proposed title and message, for the one who merges on GitHub. */
 function mergeGuide(merge: TaskExplain['merge']): SafeText[] {
   const lines = [
-    joinSafe([
-      uiText('Merge method: '),
-      merge?.method ?? uiText('not given by the daemon'),
-    ]),
+    joinSafe([uiText('Merge method: '), merge?.method ?? uiText('not given by the daemon')]),
   ];
   if (merge === null || merge.proposed === null)
     return [...lines, uiText('No proposed title or message.')];
@@ -73,16 +65,12 @@ function mergeGuide(merge: TaskExplain['merge']): SafeText[] {
   ];
 }
 
-function unavailable(
-  role: Known['role'],
-  caller: CallerInfo | null,
-): string | null {
+function unavailable(role: Known['role'], caller: CallerInfo | null): string | null {
   if (role === undefined) return null;
   if (caller === null) return 'this token’s permissions are not read yet';
   if (caller.roles.includes(role)) return null;
   // Role names come from the daemon like any other text.
-  const has =
-    caller.roles.length === 0 ? 'no role' : sanitize(caller.roles.join(', '));
+  const has = caller.roles.length === 0 ? 'no role' : sanitize(caller.roles.join(', '));
   return `needs the ${role} role; this token has: ${has}`;
 }
 
@@ -106,8 +94,7 @@ export function actionItems(
 
 /** What Enter on `item` says. Nothing is ever sent from the menu itself. */
 export function enterNotice(item: ActionItem): string {
-  if (item.unavailable !== null)
-    return `Nothing was sent: ${item.label} ${item.unavailable}.`;
+  if (item.unavailable !== null) return `Nothing was sent: ${item.label} ${item.unavailable}.`;
   if (item.kind === 'dialog')
     return `Nothing was sent: the ${item.label} dialog comes in a later version. The CLI command is listed with it.`;
   if (item.guide.length > 0)
@@ -123,12 +110,7 @@ type Row = {
 
 const LATER = ' · dialog in a later version';
 
-function itemRows(
-  item: ActionItem,
-  index: number,
-  on: boolean,
-  cols: number,
-): Row[] {
+function itemRows(item: ActionItem, index: number, on: boolean, cols: number): Row[] {
   const dim = item.unavailable !== null;
   const indent = (t: SafeText, style: Style): Row[] =>
     wrap(t, cols - 4).map((r) => ({
@@ -171,13 +153,10 @@ function headRows(s: { menu: ActionsMenu; cols: number }): Row[] {
     },
   ];
   const at = (text: string, style: Style = {}): void => {
-    for (const r of wrap(uiText(text), cols))
-      rows.push({ text: r, style, item: null });
+    for (const r of wrap(uiText(text), cols)) rows.push({ text: r, style, item: null });
   };
   if (e.readAt !== null && e.data !== null)
-    at(
-      `Read at ${clockTime(e.readAt)} · ${e.data.status} · version ${e.data.version}`,
-    );
+    at(`Read at ${clockTime(e.readAt)} · ${e.data.status} · version ${e.data.version}`);
   if (menu.changed) at(CHANGED_NOTICE, { fg: 'yellow', bold: true });
   if (e.error !== null)
     rows.push(
@@ -213,11 +192,8 @@ type MenuState = {
 function menuLayout(s: MenuState, menu: ActionsMenu, height: number) {
   const cols = s.size.cols;
   const head = headRows({ menu, cols });
-  const items =
-    menu.explain.data === null ? [] : actionItems(menu.explain.data, s.caller);
-  const list = items.flatMap((item, i) =>
-    itemRows(item, i, i === menu.selected, cols),
-  );
+  const items = menu.explain.data === null ? [] : actionItems(menu.explain.data, s.caller);
+  const list = items.flatMap((item, i) => itemRows(item, i, i === menu.selected, cols));
   const room = Math.max(1, height - head.length);
   const first = list.findIndex((r) => r.item === menu.selected);
   const end = list.findLastIndex((r) => r.item === menu.selected);
@@ -242,11 +218,7 @@ export const actionsBody =
     const menu = s.actions;
     if (menu === null || height <= 0) return;
     const cols = s.size.cols;
-    const { head, list, room, first, end, lastScroll } = menuLayout(
-      s,
-      menu,
-      height,
-    );
+    const { head, list, room, first, end, lastScroll } = menuLayout(s, menu, height);
     // The head stays; the list scrolls so the chosen entry is in view, from its first row when it is long.
     const offset =
       first < 0
@@ -256,7 +228,5 @@ export const actionsBody =
           : Math.max(0, Math.min(first, end - room + 1));
     [...head, ...list.slice(offset, offset + room)]
       .slice(0, height)
-      .forEach((row, i) =>
-        frame.put(0, top + i, truncate(row.text, cols), row.style),
-      );
+      .forEach((row, i) => frame.put(0, top + i, truncate(row.text, cols), row.style));
   };

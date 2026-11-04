@@ -53,10 +53,7 @@ export type StatusSince = (s: TaskState) => number | null;
  * its answer; a restart only makes the first read slower.
  */
 export function statusSinceReader(store: Store): StatusSince {
-  const known = new Map<
-    string,
-    { readonly version: number; readonly since: number | null }
-  >();
+  const known = new Map<string, { readonly version: number; readonly since: number | null }>();
   return (s) => {
     const cached = known.get(s.id);
     if (cached?.version === s.version) return cached.since;
@@ -127,10 +124,8 @@ export function taskBoard(
   const token = caller.grant.projects === '*' ? null : caller.grant.projects;
   const projects = project === undefined ? token : [project];
   // A status names what the caller wants to see; the default scope must not hide it.
-  const inScope: readonly TaskStatus[] =
-    SCOPES[scope ?? (status === undefined ? 'active' : 'all')];
-  const statuses =
-    status === undefined ? inScope : inScope.filter((x) => x === status);
+  const inScope: readonly TaskStatus[] = SCOPES[scope ?? (status === undefined ? 'active' : 'all')];
+  const statuses = status === undefined ? inScope : inScope.filter((x) => x === status);
 
   const page = store.taskPage({
     projects,

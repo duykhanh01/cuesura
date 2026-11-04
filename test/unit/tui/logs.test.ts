@@ -48,11 +48,7 @@ function record(
   };
 }
 
-function page(
-  records: readonly Rec[],
-  next: number,
-  complete = false,
-): TaskLogs {
+function page(records: readonly Rec[], next: number, complete = false): TaskLogs {
   return {
     task_id: TASK,
     records: [...records],
@@ -66,30 +62,17 @@ const forward = (after: number) => ({ kind: 'forward', after }) as const;
 const probe = (after: number) => ({ kind: 'probe', after }) as const;
 
 /** Reads `count` records from `from` on, in pages as the daemon gives them. */
-function fed(
-  s: LogState,
-  from: number,
-  count: number,
-  text?: (n: number) => string,
-): LogState {
+function fed(s: LogState, from: number, count: number, text?: (n: number) => string): LogState {
   let next = s;
   for (let at = from; at < from + count; at += LOG_PAGE_RECORDS) {
     const end = Math.min(at + LOG_PAGE_RECORDS, from + count);
-    const records = Array.from({ length: end - at }, (_, i) =>
-      record(at + i, text?.(at + i)),
-    );
-    next = applyLogPage(
-      next,
-      forward(next.nextCursor),
-      page(records, end - 1),
-      0,
-    );
+    const records = Array.from({ length: end - at }, (_, i) => record(at + i, text?.(at + i)));
+    next = applyLogPage(next, forward(next.nextCursor), page(records, end - 1), 0);
   }
   return next;
 }
 
-const screenTexts = (s: LogState): string[] =>
-  visibleRows(s, COLS, HEIGHT).map((r) => r.text);
+const screenTexts = (s: LogState): string[] => visibleRows(s, COLS, HEIGHT).map((r) => r.text);
 
 describe('the buffer (FR-039)', () => {
   it('never holds more than 5,000 records, and knows where the window starts', () => {
@@ -151,9 +134,7 @@ describe('live, paused and an attempt (data-model.md)', () => {
 
   it('nothing new is no activity', () => {
     const paused = pauseLogs(fed(start(), 1, 3), COLS, HEIGHT);
-    expect(applyLogPage(paused, probe(3), page([], 3), 1).newActivity).toBe(
-      false,
-    );
+    expect(applyLogPage(paused, probe(3), page([], 3), 1).newActivity).toBe(false);
   });
 
   it('following again goes on from the same cursor, so nothing is lost or repeated', () => {
@@ -163,15 +144,8 @@ describe('live, paused and an attempt (data-model.md)', () => {
     expect(live.mode).toBe('live');
     expect(live.newActivity).toBe(false);
     expect(logDue(live, 10_000)).toEqual(forward(10));
-    const more = applyLogPage(
-      live,
-      forward(10),
-      page([record(11)], 11),
-      10_000,
-    );
-    expect(more.buffer.map((e) => e.seq)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
-    ]);
+    const more = applyLogPage(live, forward(10), page([record(11)], 11), 10_000);
+    expect(more.buffer.map((e) => e.seq)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
   });
 
   it('an attempt is read from its start, then only watched; the whole log is kept for coming back', () => {
@@ -182,12 +156,7 @@ describe('live, paused and an attempt (data-model.md)', () => {
     const first = logDue(s, 0);
     expect(first).toEqual(forward(0));
     expect(requestAttempt(s, forward(0))).toBe(ATTEMPT);
-    const read = applyLogPage(
-      s,
-      forward(0),
-      page([record(3), record(4)], 10),
-      0,
-    );
+    const read = applyLogPage(s, forward(0), page([record(3), record(4)], 10), 0);
     expect(read.buffer).toHaveLength(2);
     expect(read.filling).toBe(true);
     const done = applyLogPage(read, forward(10), page([], 50), 0);
@@ -212,15 +181,8 @@ describe('live, paused and an attempt (data-model.md)', () => {
   it('an attempt longer than the buffer stops at the cap and goes on when the reader gets to the end', () => {
     let s = filterAttempt(start(), ATTEMPT);
     for (let at = 1; at <= LOG_BUFFER_RECORDS; at += LOG_PAGE_RECORDS) {
-      const records = Array.from({ length: LOG_PAGE_RECORDS }, (_, i) =>
-        record(at + i),
-      );
-      s = applyLogPage(
-        s,
-        forward(s.nextCursor),
-        page(records, at + LOG_PAGE_RECORDS - 1),
-        0,
-      );
+      const records = Array.from({ length: LOG_PAGE_RECORDS }, (_, i) => record(at + i));
+      s = applyLogPage(s, forward(s.nextCursor), page(records, at + LOG_PAGE_RECORDS - 1), 0);
     }
     expect(s.buffer).toHaveLength(LOG_BUFFER_RECORDS);
     s = applyLogPage(
@@ -284,9 +246,7 @@ describe('scrolling keeps the place', () => {
     expect(asking.wantOlder).toBe(true);
     const due = logDue(asking, 0);
     expect(due).toEqual({ kind: 'older', after: 450 - LOG_PAGE_RECORDS });
-    const records = Array.from({ length: LOG_PAGE_RECORDS }, (_, i) =>
-      record(251 + i),
-    );
+    const records = Array.from({ length: LOG_PAGE_RECORDS }, (_, i) => record(251 + i));
     const got = applyLogPage(asking, due as never, page(records, 450), 0);
     expect(got.older).toBeNull();
     expect(got.wantOlder).toBe(false);
@@ -314,12 +274,7 @@ describe('scrolling keeps the place', () => {
     expect(first.buffer[0]?.seq).toBe(201);
     expect(logDue(first, 0)).toEqual({ kind: 'older', after: 2 });
     const records = Array.from({ length: 198 }, (_, i) => record(3 + i));
-    const second = applyLogPage(
-      first,
-      { kind: 'older', after: 2 },
-      page(records, 200),
-      0,
-    );
+    const second = applyLogPage(first, { kind: 'older', after: 2 }, page(records, 200), 0);
     expect(second.older).toBeNull();
     expect(second.buffer[0]?.seq).toBe(1);
     expect(second.windowStart).toBe(0);
@@ -333,20 +288,13 @@ describe('what is on screen', () => {
       start(),
       forward(0),
       page(
-        [
-          record(1, 'a'),
-          record(2, 'b'),
-          record(3, 'c', other, 'fix'),
-          record(4, 'd', null, null),
-        ],
+        [record(1, 'a'), record(2, 'b'), record(3, 'c', other, 'fix'), record(4, 'd', null, null)],
         4,
       ),
       0,
     );
     const rows = visibleRows(s, COLS, 10);
-    expect(
-      rows.filter((r) => r.kind === 'separator').map((r) => r.text),
-    ).toEqual([
+    expect(rows.filter((r) => r.kind === 'separator').map((r) => r.text)).toEqual([
       '── code · Writing code · attempt 00000a01 ──',
       '── fix · attempt 00000a02 ──',
       '── outside any step ──',
@@ -375,18 +323,11 @@ describe('what is on screen', () => {
       gap: { records: 0, reason: sanitize('live tail unreadable') },
     };
     const s = applyLogPage(start(), forward(0), page([gap], 0), 0);
-    expect(screenTexts(s)).toContain(
-      'Log temporarily unavailable — live tail unreadable',
-    );
+    expect(screenTexts(s)).toContain('Log temporarily unavailable — live tail unreadable');
     expect(s.filling).toBe(false);
     const repeated = applyLogPage(s, forward(0), page([gap], 0), 1);
     expect(repeated.buffer).toHaveLength(1);
-    const repaired = applyLogPage(
-      repeated,
-      forward(0),
-      page([record(1)], 1),
-      2,
-    );
+    const repaired = applyLogPage(repeated, forward(0), page([record(1)], 1), 2);
     expect(repaired.buffer).toHaveLength(1);
     expect(repaired.buffer[0]?.gap).toBe(false);
     expect(repaired.nextCursor).toBe(1);
@@ -427,18 +368,11 @@ describe('what is on screen', () => {
     const rows = visibleRows(s, COLS, 10);
     expect(rows.length).toBeGreaterThan(3);
     // Wrapped rows stay under the text, past the two cells of the mark.
-    expect(rows.map((r) => r.text.slice(2)).join('')).toContain(
-      'z'.repeat(200),
-    );
+    expect(rows.map((r) => r.text.slice(2)).join('')).toContain('z'.repeat(200));
   });
 
   it('control characters in a record stay as visible stand-ins', () => {
-    const s = applyLogPage(
-      start(),
-      forward(0),
-      page([record(1, 'a\x1b[2Jb‮c', null, null)], 1),
-      0,
-    );
+    const s = applyLogPage(start(), forward(0), page([record(1, 'a\x1b[2Jb‮c', null, null)], 1), 0);
     const text = visibleRows(s, COLS, 3)[0]?.text ?? '';
     expect(text).toContain('a␛[2Jb�c');
     // eslint-disable-next-line no-control-regex -- the point of the check.
@@ -479,9 +413,7 @@ describe('records in words', () => {
       claude({
         type: 'user',
         message: {
-          content: [
-            { type: 'tool_result', content: 'ok\nmore', is_error: true },
-          ],
+          content: [{ type: 'tool_result', content: 'ok\nmore', is_error: true }],
         },
       }),
     );
@@ -492,9 +424,7 @@ describe('records in words', () => {
   });
 
   it('leaves out bookkeeping with nothing to read, and keeps what it does not know', () => {
-    expect(
-      toEntry(claude({ type: 'system', subtype: 'thinking_tokens' })),
-    ).toBeNull();
+    expect(toEntry(claude({ type: 'system', subtype: 'thinking_tokens' }))).toBeNull();
     expect(
       toEntry(
         claude({
@@ -503,9 +433,7 @@ describe('records in words', () => {
         }),
       ),
     ).toBeNull();
-    expect(toEntry(claude({ type: 'something_new', x: 1 }))?.text).toContain(
-      '"something_new"',
-    );
+    expect(toEntry(claude({ type: 'something_new', x: 1 }))?.text).toContain('"something_new"');
   });
 
   it("shows a worker's final JSON answer by its summary", () => {
@@ -534,10 +462,9 @@ describe('records in words', () => {
   });
 
   it('keeps a system record or a content block it does not know, as JSON', () => {
-    expect(
-      toEntry(claude({ type: 'system', subtype: 'hook_response', id: 7 }))
-        ?.text,
-    ).toContain('"hook_response"');
+    expect(toEntry(claude({ type: 'system', subtype: 'hook_response', id: 7 }))?.text).toContain(
+      '"hook_response"',
+    );
     const block = toEntry(
       claude({
         type: 'assistant',
@@ -545,9 +472,7 @@ describe('records in words', () => {
       }),
     );
     expect(block?.text).toContain('"server_tool_use"');
-    expect(
-      toEntry(claude({ type: 'system', subtype: 'ui_invalidate' })),
-    ).toBeNull();
+    expect(toEntry(claude({ type: 'system', subtype: 'ui_invalidate' }))).toBeNull();
   });
 
   it('a page of bookkeeping only still moves the cursor', () => {

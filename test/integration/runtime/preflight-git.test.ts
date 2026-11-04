@@ -1,22 +1,12 @@
 import { execFile, spawnSync } from 'node:child_process';
-import {
-  mkdirSync,
-  mkdtempSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { GitCommandRunner } from '../../../src/adapters/git/command.ts';
 import { checkHost, preflight } from '../../../src/application/preflight.ts';
 import { fakeCapabilityManifest } from '../../../src/adapters/harness/fake.ts';
-import type {
-  GitPort,
-  GitResult,
-  HostProbePort,
-} from '../../../src/adapters/ports.ts';
+import type { GitPort, GitResult, HostProbePort } from '../../../src/adapters/ports.ts';
 import { NodeHostProbe } from '../../../src/runner/host-probe.ts';
 import { hashCanonical } from '../../../src/shared/hash.ts';
 import { ok } from '../../../src/shared/result.ts';
@@ -84,13 +74,9 @@ const testGit: GitPort = {
 const passingHost: HostProbePort = {
   findExecutable: (n) => Promise.resolve(`/usr/bin/${n}`),
   realpath: (p) =>
-    Promise.resolve(
-      spawnSync('realpath', ['-e', p], { encoding: 'utf8' }).stdout.trim() ||
-        null,
-    ),
+    Promise.resolve(spawnSync('realpath', ['-e', p], { encoding: 'utf8' }).stdout.trim() || null),
   readText: () => Promise.resolve(null),
-  exec: () =>
-    Promise.resolve({ kind: 'exited', code: 0, stdout: '', stderr: '' }),
+  exec: () => Promise.resolve({ kind: 'exited', code: 0, stdout: '', stderr: '' }),
 };
 
 const github = {
@@ -122,12 +108,7 @@ describe('preflight on real Git objects (T030)', () => {
   sh(seed, 'push', '-q', 'origin', 'main');
   sh(base, 'clone', '-q', remote, repo);
   sh(repo, 'remote', 'set-url', 'origin', 'https://github.com/acme/app.git');
-  sh(
-    repo,
-    'config',
-    `url.${remote}.insteadOf`,
-    'https://github.com/acme/app.git',
-  );
+  sh(repo, 'config', `url.${remote}.insteadOf`, 'https://github.com/acme/app.git');
 
   const user = source('configs/valid/user.yaml');
   user.text = `${user.text.replace('  acme: { base_branch: main }', `  acme: { base_branch: main, path: ${repo}, repo: acme/app }`)}runtime: {}\n`;
@@ -136,10 +117,7 @@ describe('preflight on real Git objects (T030)', () => {
     // A newer commit on origin that the local clone has not fetched, and a dirty local cusr.yaml.
     writeFileSync(
       join(seed, 'cusr.yaml'),
-      CUSR.replace(
-        'required_checks: [build, test]',
-        'required_checks: [build, test, e2e]',
-      ),
+      CUSR.replace('required_checks: [build, test]', 'required_checks: [build, test, e2e]'),
     );
     sh(seed, 'commit', '-qam', 'newer config');
     sh(seed, 'push', '-q', 'origin', 'main');
@@ -153,11 +131,7 @@ describe('preflight on real Git objects (T030)', () => {
     if (!r.ok) throw new Error(JSON.stringify(r.error));
     expect(r.value.base_sha).toBe(newest);
     expect(r.value.common_git_dir).toBe(join(repo, '.git'));
-    expect(r.value.validated.config.project?.required_checks).toEqual([
-      'build',
-      'test',
-      'e2e',
-    ]);
+    expect(r.value.validated.config.project?.required_checks).toEqual(['build', 'test', 'e2e']);
     expect(r.value.target).toEqual({
       repo: 'acme/app',
       immutable_repo_id: '77',
@@ -204,10 +178,7 @@ describe('preflight on real Git objects (T030)', () => {
         task: buildTask({ base_branch: 'release' }),
         user: {
           ...user,
-          text: user.text.replace(
-            'base_branch: main, path',
-            'base_branch: release, path',
-          ),
+          text: user.text.replace('base_branch: main, path', 'base_branch: release, path'),
         },
         packs: PACKS,
         manifests,
@@ -222,16 +193,11 @@ describe('preflight on real Git objects (T030)', () => {
 
 const host = new NodeHostProbe();
 const bwrapUsable =
-  spawnSync('bwrap', ['--unshare-user', '--ro-bind', '/', '/', '/usr/bin/true'])
-    .status === 0;
-const userBus =
-  spawnSync('systemctl', ['--user', 'show', '--property=Version']).status === 0;
+  spawnSync('bwrap', ['--unshare-user', '--ro-bind', '/', '/', '/usr/bin/true']).status === 0;
+const userBus = spawnSync('systemctl', ['--user', 'show', '--property=Version']).status === 0;
 
-describe.skipIf(!bwrapUsable || !userBus)(
-  'host probe on this host (T030)',
-  () => {
-    it('finds no missing prerequisite where bwrap and the user manager already work', async () => {
-      expect(await checkHost(host, null)).toEqual([]);
-    });
-  },
-);
+describe.skipIf(!bwrapUsable || !userBus)('host probe on this host (T030)', () => {
+  it('finds no missing prerequisite where bwrap and the user manager already work', async () => {
+    expect(await checkHost(host, null)).toEqual([]);
+  });
+});

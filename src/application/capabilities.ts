@@ -19,10 +19,7 @@ import {
   type HarnessInnerModePolicy,
   type SelectedInnerMode,
 } from '../domain/runtime.ts';
-import {
-  ROLE_SCHEMA_DIGESTS,
-  type Role,
-} from '../adapters/harness/result-schema.ts';
+import { ROLE_SCHEMA_DIGESTS, type Role } from '../adapters/harness/result-schema.ts';
 import type { VendorPin } from '../adapters/harness/vendor.ts';
 import type { Hash } from '../shared/brand.ts';
 import { hashCanonical } from '../shared/hash.ts';
@@ -75,9 +72,7 @@ export type VerifiedCapability = {
   readonly cost_reporting: CapabilityManifest['capabilities']['cost_reporting'];
 };
 
-export function manifestHash(
-  m: Omit<CapabilityManifest, 'manifest_hash'>,
-): Hash {
+export function manifestHash(m: Omit<CapabilityManifest, 'manifest_hash'>): Hash {
   const { manifest_hash: _ignored, ...rest } = m as CapabilityManifest;
   return hashCanonical(rest);
 }
@@ -102,15 +97,9 @@ export function verifyManifest(
   if (m.vendor !== observed.vendor)
     p('binary', `manifest is for ${m.vendor}, binary is ${observed.vendor}`);
   if (m.binary.realpath !== observed.binary.realpath)
-    p(
-      'binary',
-      `binary moved: ${observed.binary.realpath} is not ${m.binary.realpath}`,
-    );
+    p('binary', `binary moved: ${observed.binary.realpath} is not ${m.binary.realpath}`);
   if (m.binary.version !== observed.binary.version)
-    p(
-      'binary',
-      `binary version ${observed.binary.version} is not the proven ${m.binary.version}`,
-    );
+    p('binary', `binary version ${observed.binary.version} is not the proven ${m.binary.version}`);
   if (m.binary.digest !== observed.binary.digest)
     p('binary', 'binary digest changed since the proof');
   if (m.settings_hash !== observed.settings_hash)
@@ -122,11 +111,7 @@ export function verifyManifest(
   for (const role of needs.roles)
     if (m.role_schemas[role] !== ROLE_SCHEMA_DIGESTS[role])
       p('schema', `no proof for the current ${role} result schema`);
-  for (const k of [
-    'structured_output',
-    'permission_enforced',
-    'private_home_auth',
-  ] as const)
+  for (const k of ['structured_output', 'permission_enforced', 'private_home_auth'] as const)
     if (
       !(
         k === 'permission_enforced' &&
@@ -141,9 +126,7 @@ export function verifyManifest(
   if (m.provider === 'host') {
     if (
       m.isolation_mode !== 'native' ||
-      !['native', 'permissions_only', 'full_access'].includes(
-        m.selected_inner_mode ?? '',
-      )
+      !['native', 'permissions_only', 'full_access'].includes(m.selected_inner_mode ?? '')
     )
       p(
         'isolation',
@@ -155,39 +138,27 @@ export function verifyManifest(
         p('isolation', 'disabled sandbox must be recorded as not_tried');
     } else if (m.selected_inner_mode === 'full_access') {
       inner = 'full_access';
-      if (m.native_result === 'failed')
-        p('isolation', 'native sandbox was not proven');
-    } else if (m.native_result !== 'passed')
-      p('isolation', 'native sandbox was not proven');
+      if (m.native_result === 'failed') p('isolation', 'native sandbox was not proven');
+    } else if (m.native_result !== 'passed') p('isolation', 'native sandbox was not proven');
   } else if (m.selected_inner_mode === 'external_verified') {
     inner = 'external_verified';
     if (needs.isolation !== 'allow_external_verified')
-      p(
-        'isolation',
-        'manifest needs external_verified but the owner did not allow it',
-      );
+      p('isolation', 'manifest needs external_verified but the owner did not allow it');
     if (
       m.native_result !== 'failed' ||
       m.outer_proof_hash === null ||
       m.permission_policy_hash === null
     )
-      p(
-        'isolation',
-        'external_verified without native failure, outer and permission proofs',
-      );
+      p('isolation', 'external_verified without native failure, outer and permission proofs');
   } else if (m.native_result !== 'passed') {
     p('isolation', `native inner sandbox is ${m.native_result}, not passed`);
   }
   if (m.provider === 'bwrap' && m.outer_proof_hash === null)
     p('isolation', 'no outer boundary proof');
-  if (m.permission_policy_hash === null)
-    p('isolation', 'no permission policy proof');
+  if (m.permission_policy_hash === null) p('isolation', 'no permission policy proof');
 
   if (needs.cost === 'hard_cap')
-    p(
-      'cost',
-      'no pinned harness proves a hard USD cap; an estimate is not a cap',
-    );
+    p('cost', 'no pinned harness proves a hard USD cap; an estimate is not a cap');
   if (needs.cost === 'reported' && m.capabilities.cost_reporting !== 'reported')
     p('cost', `cost reporting is ${m.capabilities.cost_reporting}`);
 
@@ -197,8 +168,7 @@ export function verifyManifest(
     manifest_hash: m.manifest_hash,
     inner_mode: inner,
     resume,
-    resume_fallback:
-      needs.resume && !resume ? `resume_${m.capabilities.resume}` : null,
+    resume_fallback: needs.resume && !resume ? `resume_${m.capabilities.resume}` : null,
     cost_reporting: m.capabilities.cost_reporting,
   });
 }
@@ -244,9 +214,7 @@ export function environmentHash(pin: VendorPin): Hash {
     env: pin.env,
     toolchain: pin.toolchain,
     home_files: pin.home_files,
-    ...(pin.permission_mode === undefined
-      ? {}
-      : { permission_mode: pin.permission_mode }),
+    ...(pin.permission_mode === undefined ? {} : { permission_mode: pin.permission_mode }),
     max_turns: pin.max_turns,
     tools: pin.tools,
   });
@@ -302,19 +270,12 @@ export type EvidenceEntry = {
   readonly outer_proof_hash: string | null;
   readonly permission_policy_hash: string | null;
   readonly capabilities: Readonly<
-    Record<
-      string,
-      { readonly status: string; readonly evidence: string | null }
-    >
+    Record<string, { readonly status: string; readonly evidence: string | null }>
   >;
 };
 
 const status = (e: EvidenceEntry, ...names: string[]): 'proven' | 'unknown' =>
-  names.every(
-    (n) =>
-      e.capabilities[n]?.status === 'proven' &&
-      e.capabilities[n]?.evidence !== null,
-  )
+  names.every((n) => e.capabilities[n]?.status === 'proven' && e.capabilities[n]?.evidence !== null)
     ? 'proven'
     : 'unknown';
 
@@ -335,22 +296,19 @@ export function manifestFromEvidence(o: {
   const e = o.entry;
   const roleSchemas: Record<string, Hash> = {};
   for (const [role, s] of Object.entries(e.role_schemas))
-    if (status(e, `schema_acceptance_${role}`) === 'proven')
-      roleSchemas[role] = s.digest as Hash;
+    if (status(e, `schema_acceptance_${role}`) === 'proven') roleSchemas[role] = s.digest as Hash;
   const body = {
     schema_version: RUNTIME_SCHEMA_VERSION,
     vendor: e.vendor,
     binary: o.observed.binary,
     role_schemas: roleSchemas,
     isolation_mode: e.isolation_mode ?? 'isolated',
-    provider:
-      e.isolation_mode === 'native' ? ('host' as const) : ('bwrap' as const),
+    provider: e.isolation_mode === 'native' ? ('host' as const) : ('bwrap' as const),
     capabilities: {
       structured_output: status(e, 'structured_output'),
       permission_enforced: status(e, 'permission_denial_kept'),
       private_home_auth: status(e, 'private_home_auth'),
-      cost_reporting:
-        status(e, 'usage_report') === 'proven' ? o.cost : ('unknown' as const),
+      cost_reporting: status(e, 'usage_report') === 'proven' ? o.cost : ('unknown' as const),
       resume: status(e, 'session_resume'),
     },
     native_result: e.native_result,

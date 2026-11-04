@@ -74,10 +74,7 @@ describe('SC-003: after the automatic attempts run out', () => {
     await s.waitForText('R retry connection');
     s.send('R');
     const retriedAt = Date.now();
-    await s.waitFor(
-      () => !s.screenText().includes('Data may be out of date'),
-      RETRY_BUDGET_MS,
-    );
+    await s.waitFor(() => !s.screenText().includes('Data may be out of date'), RETRY_BUDGET_MS);
     expect(s.screenText().split('\n')[0]).toContain('daemon: ok');
     expect(s.screenText()).toContain('Find project: half typed');
 

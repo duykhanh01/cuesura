@@ -133,10 +133,7 @@ export class KeyDecoder {
       const params = s.slice(2, 2 + end);
       const final = s[2 + end] as string;
       this.#input = s.slice(3 + end);
-      const name =
-        final === '~'
-          ? CSI_TILDE[params.split(';')[0] as string]
-          : CSI_LETTERS[final];
+      const name = final === '~' ? CSI_TILDE[params.split(';')[0] as string] : CSI_LETTERS[final];
       if (name !== undefined) keys.push({ kind: 'key', name });
       return true;
     }

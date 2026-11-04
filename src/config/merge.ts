@@ -21,8 +21,7 @@ export function isPlainObject(v: unknown): v is PlainObject {
 export function deepMerge(lower: unknown, upper: unknown): unknown {
   if (!isPlainObject(lower) || !isPlainObject(upper)) return upper;
   const out: PlainObject = { ...lower };
-  for (const [k, v] of Object.entries(upper))
-    out[k] = k in lower ? deepMerge(lower[k], v) : v;
+  for (const [k, v] of Object.entries(upper)) out[k] = k in lower ? deepMerge(lower[k], v) : v;
   return out;
 }
 
@@ -62,9 +61,7 @@ export class SourceMap {
       }
     }
     const last = this.layers[this.layers.length - 1];
-    return last
-      ? locate(last.located, [])
-      : { file: '<unknown>', line: 1, col: 1 };
+    return last ? locate(last.located, []) : { file: '<unknown>', line: 1, col: 1 };
   }
 }
 
@@ -90,20 +87,12 @@ export function splitForbidden(
   forbidden: readonly string[],
   why: string,
 ): { value: unknown; diagnostics: Diagnostic[] } {
-  if (!isPlainObject(layer.value))
-    return { value: layer.value, diagnostics: [] };
+  if (!isPlainObject(layer.value)) return { value: layer.value, diagnostics: [] };
   const value: PlainObject = {};
   const diagnostics: Diagnostic[] = [];
   for (const [k, v] of Object.entries(layer.value)) {
     if (forbidden.includes(k)) {
-      diagnostics.push(
-        diag(
-          'forbidden_key',
-          locate(layer.located, [k]),
-          [k],
-          `Key '${k}' ${why}`,
-        ),
-      );
+      diagnostics.push(diag('forbidden_key', locate(layer.located, [k]), [k], `Key '${k}' ${why}`));
     } else {
       value[k] = v;
     }
@@ -142,12 +131,7 @@ export function resolveProfiles(
       const next = profiles[parent];
       if (next === undefined) {
         diagnostics.push(
-          diag(
-            'unknown_profile',
-            at(path),
-            path,
-            `Profile '${parent}' does not exist`,
-          ),
+          diag('unknown_profile', at(path), path, `Profile '${parent}' does not exist`),
         );
         failed = true;
         break;
@@ -169,8 +153,7 @@ export function resolveProfiles(
     }
     if (failed) continue;
     let merged: unknown = {};
-    for (const p of [...chain].reverse())
-      merged = deepMerge(merged, profiles[p]);
+    for (const p of [...chain].reverse()) merged = deepMerge(merged, profiles[p]);
     const { extends: _e, ...flat } = merged as RawProfile;
     out[name] = flat;
   }
@@ -210,11 +193,7 @@ export const PROFILE_OVERRIDE_KEYS = [
  */
 export function isPrivilegedPath(path: readonly string[]): boolean {
   const [head] = path;
-  if (
-    head === 'allow_models' ||
-    head === 'allow_roles' ||
-    head === 'allow_no_gates'
-  )
+  if (head === 'allow_models' || head === 'allow_roles' || head === 'allow_no_gates')
     return path.length === 1;
   if (head === 'escalation') return true;
   return head === 'roles' && path.length === 3 && path[2] === 'permissions';
@@ -224,11 +203,7 @@ export function isPrivilegedPath(path: readonly string[]): boolean {
  * Only maps are traversed; arrays and scalars are leaves. JSON-encoded key arrays preserve literal
  * periods in names.
  */
-function leaves(
-  value: unknown,
-  prefix: string[],
-  out: Map<string, string>,
-): Map<string, string> {
+function leaves(value: unknown, prefix: string[], out: Map<string, string>): Map<string, string> {
   if (isPlainObject(value) && Object.keys(value).length > 0) {
     for (const [k, v] of Object.entries(value)) leaves(v, [...prefix, k], out);
   } else if (prefix.length > 0) {
@@ -239,15 +214,10 @@ function leaves(
 
 function privilegeView(t: OverrideTarget): Map<string, string> {
   const all = leaves({ ...t.profile, roles: t.roles }, [], new Map());
-  return new Map(
-    [...all].filter(([p]) => isPrivilegedPath(JSON.parse(p) as string[])),
-  );
+  return new Map([...all].filter(([p]) => isPrivilegedPath(JSON.parse(p) as string[])));
 }
 
-function changedPrivileged(
-  before: OverrideTarget,
-  after: OverrideTarget,
-): string[][] {
+function changedPrivileged(before: OverrideTarget, after: OverrideTarget): string[][] {
   const a = privilegeView(before);
   const b = privilegeView(after);
   return [...new Set([...a.keys(), ...b.keys()])]
@@ -316,17 +286,14 @@ export function applyOverrides(
         path.length === 1
           ? (overrides[k] as PlainObject)
           : setIn(roles, path.slice(1), overrides[k]);
-    } else if (PROFILE_OVERRIDE_KEYS.includes(head))
-      profile = setIn(profile, path, overrides[k]);
+    } else if (PROFILE_OVERRIDE_KEYS.includes(head)) profile = setIn(profile, path, overrides[k]);
     else project = setIn(project, path, overrides[k]);
   }
 
   if (!hasRole(caller, 'admin')) {
     const changed = changedPrivileged(target, { roles, profile, project });
     if (changed.length > 0) {
-      const exceeds = keys.filter((k) =>
-        changed.some((p) => related(k.split('.'), p)),
-      );
+      const exceeds = keys.filter((k) => changed.some((p) => related(k.split('.'), p)));
       // If no specific override can be identified, reject and report all override keys.
       return err({
         code: 'override_exceeds_caller',

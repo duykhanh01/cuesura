@@ -2,14 +2,7 @@
  * Command journal (T090, FR-004): `started` is durable before a repo command can spawn and its receipt
  * after it ended; recovery tells "never spawned" from "may have run and written" by reading it back.
  */
-import {
-  chmodSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -135,8 +128,7 @@ describe('command journal', () => {
     expect(receipt.detail).toBe('lost pipe after curl -H [REDACTED]');
     // The digest still names the frozen command, so recovery can match it.
     expect(receipt.command_digest).toBe(hashText(`deploy --token ${token}`));
-    for (const f of readdirSync(d))
-      expect(readFileSync(join(d, f), 'utf8')).not.toContain(token);
+    for (const f of readdirSync(d)) expect(readFileSync(join(d, f), 'utf8')).not.toContain(token);
   });
 
   it('a command past the deadline never spawns: a receipt without started', async () => {
@@ -152,9 +144,7 @@ describe('command journal', () => {
     expect(spawned).toBe(0);
     expect(j.read()).toMatchObject({
       ok: true,
-      commands: [
-        { name: 'late', started: false, receipt: { status: 'deadline' } },
-      ],
+      commands: [{ name: 'late', started: false, receipt: { status: 'deadline' } }],
     });
   });
 
@@ -170,9 +160,7 @@ describe('command journal', () => {
     });
     expect(j.read()).toEqual({
       ok: true,
-      commands: [
-        { name: 'fmt', role: 'autofix', started: true, receipt: null },
-      ],
+      commands: [{ name: 'fmt', role: 'autofix', started: true, receipt: null }],
     });
     // A crash in the middle of the next write leaves a record that does not parse: unreadable.
     writeFileSync(join(d, '000001.json'), '');

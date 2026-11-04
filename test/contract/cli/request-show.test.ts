@@ -22,14 +22,7 @@ async function cli(sd: SeededDaemon, id: string, json = true) {
   let errors = '';
   const code = await runCli(
     { name: 'cusr', description: '', version: '0' },
-    [
-      'request',
-      'show',
-      id,
-      '--data-dir',
-      sd.dataDir,
-      ...(json ? ['--json'] : []),
-    ],
+    ['request', 'show', id, '--data-dir', sd.dataDir, ...(json ? ['--json'] : [])],
     { stdout: (t) => (out += t), stderr: (t) => (errors += t) },
     CUSR_COMMANDS,
   );
@@ -73,9 +66,7 @@ describe('cusr request show', () => {
     });
     const text = await cli(sd, uuidOf(2), false);
     expect(text.code).toBe(ExitCode.ok);
-    expect(text.out.split('\n')[0]).toBe(
-      'Request completed — operation rejected',
-    );
+    expect(text.out.split('\n')[0]).toBe('Request completed — operation rejected');
     expect(text.out).toContain('Reason: ');
   });
 

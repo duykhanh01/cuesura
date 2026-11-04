@@ -7,10 +7,7 @@
 import { request } from 'node:http';
 import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
-import {
-  OWNER_TOKEN_FILE,
-  readTokenFile,
-} from '../application/access-tokens.ts';
+import { OWNER_TOKEN_FILE, readTokenFile } from '../application/access-tokens.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import {
   CONTROL_SOCKET,
@@ -72,9 +69,7 @@ export type CallOptions = {
   readonly signal?: AbortSignal;
 };
 
-export function callDaemon(
-  opts: CallOptions,
-): Promise<Result<DaemonReply, ClientError>> {
+export function callDaemon(opts: CallOptions): Promise<Result<DaemonReply, ClientError>> {
   return new Promise((settle) => {
     // Settles once: a response cut mid-body fires `error`/`aborted`/`close` after or instead of `end`.
     let settled = false;
@@ -125,8 +120,7 @@ export function callDaemon(
           done(
             err({
               code: 'connection',
-              message:
-                'Daemon closed the connection before the response was complete',
+              message: 'Daemon closed the connection before the response was complete',
             }),
           );
         res.on('aborted', cut);
@@ -136,9 +130,7 @@ export function callDaemon(
         });
         res.on('end', () => {
           try {
-            const envelope: unknown = JSON.parse(
-              Buffer.concat(chunks).toString('utf8'),
-            );
+            const envelope: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
             if (!isEnvelope(envelope))
               throw new Error('Daemon response has an invalid result envelope');
             done(ok({ status: res.statusCode ?? 0, envelope }));
@@ -192,13 +184,9 @@ export const statusCommand: CliCommand = {
         })
       : token;
     if (!reply.ok) {
-      const code =
-        reply.error.code === 'token' ? ExitCode.usage : ExitCode.connection;
+      const code = reply.error.code === 'token' ? ExitCode.usage : ExitCode.connection;
       const envelope = errorEnvelope({
-        code:
-          reply.error.code === 'token'
-            ? 'token_unavailable'
-            : 'daemon_unreachable',
+        code: reply.error.code === 'token' ? 'token_unavailable' : 'daemon_unreachable',
         message: reply.error.message,
         details: {},
         request_id: null,
@@ -209,8 +197,7 @@ export const statusCommand: CliCommand = {
     }
     const { envelope } = reply.value;
     if (json) io.stdout(renderEnvelope(envelope));
-    else if (envelope.ok)
-      io.stdout(`${JSON.stringify(envelope.data, null, 2)}\n`);
+    else if (envelope.ok) io.stdout(`${JSON.stringify(envelope.data, null, 2)}\n`);
     else io.stderr(`cusr: ${envelope.error.code}: ${envelope.error.message}\n`);
     return exitCodeFor(envelope);
   },

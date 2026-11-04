@@ -49,12 +49,7 @@ export async function probeCommit(
   }
   if (intent === null) return { kind: 'no_intent' };
   const r = await port.run({
-    args: [
-      'rev-parse',
-      '--verify',
-      '--quiet',
-      `refs/heads/${intent.branch}^{commit}`,
-    ],
+    args: ['rev-parse', '--verify', '--quiet', `refs/heads/${intent.branch}^{commit}`],
     cwd: intent.worktree_path,
     timeout_ms: PROBE_TIMEOUT_MS,
     max_output_bytes: 64 * 1024,
@@ -81,10 +76,7 @@ export type PushProbe =
   | { readonly kind: 'unknown'; readonly detail: string };
 
 /** Where the push identified by repo, branch, expected old and new SHA stands; one `ls-remote`. */
-export async function probePush(
-  port: GitPort,
-  spec: PushSpec,
-): Promise<PushProbe> {
+export async function probePush(port: GitPort, spec: PushSpec): Promise<PushProbe> {
   const ref = await probeRemote(port, spec.cwd, spec.remote_url, spec.branch);
   if (ref.kind === 'unknown') return { kind: 'unknown', detail: ref.detail };
   switch (classifyRemote(ref, spec)) {
@@ -133,8 +125,7 @@ export async function probeLocalRemainder(
     });
   const why: string[] = [];
   const head = await run(['rev-parse', '--verify', '--quiet', 'HEAD']);
-  const local =
-    head.kind === 'exited' && head.code === 0 ? head.stdout.trim() : null;
+  const local = head.kind === 'exited' && head.code === 0 ? head.stdout.trim() : null;
   if (local === null) why.push('worktree HEAD unreadable');
   const status = await run([
     'status',
@@ -142,29 +133,19 @@ export async function probeLocalRemainder(
     '--untracked-files=all',
     '--ignore-submodules=none',
   ]);
-  const dirty =
-    status.kind === 'exited' && status.code === 0
-      ? status.stdout.trim() !== ''
-      : null;
+  const dirty = status.kind === 'exited' && status.code === 0 ? status.stdout.trim() !== '' : null;
   if (dirty === null) why.push('worktree status unreadable');
-  const ref = await probeRemote(
-    port,
-    spec.worktree,
-    spec.remote_url,
-    spec.branch,
-  );
+  const ref = await probeRemote(port, spec.worktree, spec.remote_url, spec.branch);
   const remote = ref.kind === 'at' ? ref.sha : null;
   if (ref.kind === 'unknown') why.push(`remote: ${ref.detail}`);
   let unpushed: boolean | null = null;
-  if (local !== null && ref.kind === 'absent')
-    unpushed = local !== spec.base_sha;
+  if (local !== null && ref.kind === 'absent') unpushed = local !== spec.base_sha;
   else if (local !== null && remote !== null) {
     if (local === remote) unpushed = false;
     else {
       const ff = await run(['merge-base', '--is-ancestor', local, remote]);
       // Exit 1: HEAD is not on the remote branch. Anything else (remote object not local) is unknown.
-      if (ff.kind === 'exited' && (ff.code === 0 || ff.code === 1))
-        unpushed = ff.code === 1;
+      if (ff.kind === 'exited' && (ff.code === 0 || ff.code === 1)) unpushed = ff.code === 1;
       else why.push('ancestry of HEAD and the remote branch unreadable');
     }
   }

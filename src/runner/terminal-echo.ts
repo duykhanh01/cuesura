@@ -15,9 +15,7 @@ function clean(text: string): string {
 }
 
 const record = (v: unknown): Record<string, unknown> | null =>
-  typeof v === 'object' && v !== null && !Array.isArray(v)
-    ? (v as Record<string, unknown>)
-    : null;
+  typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 
 function claudeBlocks(message: unknown): string[] {
@@ -27,9 +25,7 @@ function claudeBlocks(message: unknown): string[] {
     const block = record(b);
     if (block?.['type'] === 'text') return [str(block['text']) ?? ''];
     if (block?.['type'] === 'tool_use')
-      return [
-        `▸ ${str(block['name']) ?? 'tool'} ${JSON.stringify(block['input'] ?? {})}`,
-      ];
+      return [`▸ ${str(block['name']) ?? 'tool'} ${JSON.stringify(block['input'] ?? {})}`];
     return [];
   });
 }
@@ -37,8 +33,7 @@ function claudeBlocks(message: unknown): string[] {
 function codexItem(item: unknown): string[] {
   const i = record(item);
   if (i?.['type'] === 'agent_message') return [str(i['text']) ?? ''];
-  if (i?.['type'] === 'command_execution')
-    return [`▸ ${str(i['command']) ?? 'command'}`];
+  if (i?.['type'] === 'command_execution') return [`▸ ${str(i['command']) ?? 'command'}`];
   return [];
 }
 

@@ -35,12 +35,8 @@ export interface TerminalHost {
 const LABEL_MAX = 40;
 
 /** The run's title, or its worktree when it has none; a multiplexer shows it as typed, controls included. */
-export function terminalLabel(
-  spec: Pick<OperationLaunch, 'cwd' | 'view'>,
-): string {
-  const text = (spec.view?.title ?? basename(spec.cwd))
-    .replace(/[\p{Cc}\s]+/gu, ' ')
-    .trim();
+export function terminalLabel(spec: Pick<OperationLaunch, 'cwd' | 'view'>): string {
+  const text = (spec.view?.title ?? basename(spec.cwd)).replace(/[\p{Cc}\s]+/gu, ' ').trim();
   return [...text].slice(0, LABEL_MAX).join('').trimEnd();
 }
 
@@ -51,9 +47,7 @@ export function shellJoin(argv: readonly string[]): string {
 
 const WorkspaceListSchema = z.object({
   result: z.object({
-    workspaces: z.array(
-      z.object({ workspace_id: z.string(), label: z.string().nullish() }),
-    ),
+    workspaces: z.array(z.object({ workspace_id: z.string(), label: z.string().nullish() })),
   }),
 });
 const CreatedSchema = z.object({
@@ -86,8 +80,7 @@ export class HerdrTerminal implements TerminalHost {
 
   constructor(opts: HerdrTerminalOptions) {
     this.#bin = opts.bin;
-    this.#session =
-      opts.session === undefined ? [] : ['--session', opts.session];
+    this.#session = opts.session === undefined ? [] : ['--session', opts.session];
     this.#exec = opts.exec;
   }
 
@@ -98,8 +91,7 @@ export class HerdrTerminal implements TerminalHost {
     const verb = args.slice(0, 2).join(' ');
     if (r.error !== null) return err(`herdr ${verb}: ${r.error}`);
     if (r.timed_out) return err(`herdr ${verb}: timed out`);
-    if (r.code !== 0)
-      return err(`herdr ${verb}: exit ${String(r.code)}: ${r.stderr.trim()}`);
+    if (r.code !== 0) return err(`herdr ${verb}: exit ${String(r.code)}: ${r.stderr.trim()}`);
     try {
       return ok(r.stdout === '' ? null : (JSON.parse(r.stdout) as unknown));
     } catch {
@@ -113,22 +105,13 @@ export class HerdrTerminal implements TerminalHost {
     const list = await this.#cli(['workspace', 'list']);
     if (!list.ok) return list;
     const workspaces = WorkspaceListSchema.safeParse(list.value);
-    if (!workspaces.success)
-      return err('herdr workspace list: unexpected shape');
+    if (!workspaces.success) return err('herdr workspace list: unexpected shape');
     const existing = workspaces.data.result.workspaces.find(
       (w) => w.label === HERDR_WORKSPACE_LABEL,
     );
     const created = await this.#cli(
       existing === undefined
-        ? [
-            'workspace',
-            'create',
-            '--cwd',
-            req.cwd,
-            '--label',
-            HERDR_WORKSPACE_LABEL,
-            '--no-focus',
-          ]
+        ? ['workspace', 'create', '--cwd', req.cwd, '--label', HERDR_WORKSPACE_LABEL, '--no-focus']
         : [
             'tab',
             'create',
@@ -143,9 +126,7 @@ export class HerdrTerminal implements TerminalHost {
     );
     if (!created.ok) return created;
     const parsed = CreatedSchema.safeParse(created.value);
-    return parsed.success
-      ? ok(parsed.data.result)
-      : err('herdr tab create: unexpected shape');
+    return parsed.success ? ok(parsed.data.result) : err('herdr tab create: unexpected shape');
   }
 
   open(req: TerminalRequest): Promise<Result<TerminalHandle, string>> {
@@ -160,8 +141,7 @@ export class HerdrTerminal implements TerminalHost {
       const close = async (): Promise<void> => {
         await this.#cli(['tab', 'close', tab_id]);
       };
-      if (tab.value.workspace !== undefined)
-        await this.#cli(['tab', 'rename', tab_id, req.label]);
+      if (tab.value.workspace !== undefined) await this.#cli(['tab', 'rename', tab_id, req.label]);
       const run = await this.#cli(['pane', 'run', pane_id, req.command]);
       if (!run.ok) {
         await close();
@@ -227,9 +207,7 @@ export class OrcaTerminal implements TerminalHost {
       reply = JSON.parse(r.stdout) as unknown;
     } catch {
       return failure(
-        r.code === 0
-          ? 'output is not JSON'
-          : `exit ${String(r.code)}: ${r.stderr.trim()}`,
+        r.code === 0 ? 'output is not JSON' : `exit ${String(r.code)}: ${r.stderr.trim()}`,
       );
     }
     if (r.code === 0) return ok(reply);
@@ -252,15 +230,11 @@ export class OrcaTerminal implements TerminalHost {
   /** Safe to repeat in sequence: `git init` and `repo add` both leave an existing registration as it is. */
   async #registerProject(dir: string): Promise<Result<null, string>> {
     if (this.#git === null) return err('git was not found');
-    const init = await this.#exec(
-      this.#git,
-      ['init', '--quiet', '--template=', dir],
-      { timeout_ms: ORCA_TIMEOUT_MS },
-    );
+    const init = await this.#exec(this.#git, ['init', '--quiet', '--template=', dir], {
+      timeout_ms: ORCA_TIMEOUT_MS,
+    });
     if (init.error !== null || init.timed_out || init.code !== 0)
-      return err(
-        `git init: ${init.error ?? (init.timed_out ? 'timed out' : init.stderr.trim())}`,
-      );
+      return err(`git init: ${init.error ?? (init.timed_out ? 'timed out' : init.stderr.trim())}`);
     const added = await this.#cli(['repo', 'add', '--path', dir]);
     return added.ok ? ok(null) : err(added.error.message);
   }
@@ -341,8 +315,7 @@ export class PaseoTerminal implements TerminalHost {
     this.#bin = opts.bin;
     this.#node = opts.node;
     this.#exec = opts.exec;
-    this.#mkdir =
-      opts.mkdir ?? ((dir) => mkdir(dir, { recursive: true, mode: 0o700 }));
+    this.#mkdir = opts.mkdir ?? ((dir) => mkdir(dir, { recursive: true, mode: 0o700 }));
   }
 
   async #cli(args: readonly string[]): Promise<Result<unknown, string>> {
@@ -379,19 +352,10 @@ export class PaseoTerminal implements TerminalHost {
     } catch (e) {
       return err(`paseo workspace directory: ${String(e)}`);
     }
-    const created = await this.#cli([
-      'terminal',
-      'create',
-      '--cwd',
-      dir,
-      '--name',
-      req.label,
-    ]);
+    const created = await this.#cli(['terminal', 'create', '--cwd', dir, '--name', req.label]);
     if (!created.ok) return created;
     const parsed = PaseoCreatedSchema.safeParse(created.value);
-    return parsed.success
-      ? ok(parsed.data.id)
-      : err('paseo terminal create: unexpected shape');
+    return parsed.success ? ok(parsed.data.id) : err('paseo terminal create: unexpected shape');
   }
 
   open(req: TerminalRequest): Promise<Result<TerminalHandle, string>> {
@@ -463,10 +427,7 @@ export function terminalProbeArgs(config: AttachedTerminal): string[] {
 }
 
 /** Per-user directories installers use, relative to home; a service's PATH often lacks them. */
-const TERMINAL_INSTALL_DIRS: Record<
-  AttachedTerminal['backend'],
-  readonly string[]
-> = {
+const TERMINAL_INSTALL_DIRS: Record<AttachedTerminal['backend'], readonly string[]> = {
   herdr: ['.local/bin'],
   orca: ['.config/orca/cli/bin', '.local/bin'],
   paseo: ['.local/bin'],
@@ -486,10 +447,7 @@ export async function findTerminalBin(
   config: AttachedTerminal,
   toolPaths: Partial<Record<AttachedTerminal['backend'], string>>,
   host: {
-    findExecutable(
-      name: string,
-      extraDirs?: readonly string[],
-    ): Promise<string | null>;
+    findExecutable(name: string, extraDirs?: readonly string[]): Promise<string | null>;
   },
   home: string = homedir(),
 ): Promise<string | null> {

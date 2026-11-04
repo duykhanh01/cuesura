@@ -177,14 +177,8 @@ export class CommandJournal {
 
   append(entry: JournalEntry): void {
     mkdirSync(this.#dir, { recursive: true, mode: 0o700 });
-    const seq = readdirSync(this.#dir).filter((f) =>
-      f.endsWith('.json'),
-    ).length;
-    const fd = openSync(
-      join(this.#dir, `${String(seq).padStart(6, '0')}.json`),
-      'wx',
-      0o600,
-    );
+    const seq = readdirSync(this.#dir).filter((f) => f.endsWith('.json')).length;
+    const fd = openSync(join(this.#dir, `${String(seq).padStart(6, '0')}.json`), 'wx', 0o600);
     try {
       writeSync(fd, `${JSON.stringify(entry)}\n`);
       fsyncSync(fd);
@@ -206,8 +200,7 @@ export class CommandJournal {
         .filter((f) => f.endsWith('.json'))
         .sort();
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === 'ENOENT')
-        return { ok: true, commands: [] };
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { ok: true, commands: [] };
       return { ok: false, detail: `journal unreadable: ${String(e)}` };
     }
     const commands: {
@@ -219,9 +212,7 @@ export class CommandJournal {
     for (const f of files) {
       let e: JournalEntry;
       try {
-        e = JSON.parse(
-          readFileSync(join(this.#dir, f), 'utf8'),
-        ) as JournalEntry;
+        e = JSON.parse(readFileSync(join(this.#dir, f), 'utf8')) as JournalEntry;
       } catch (err) {
         return { ok: false, detail: `journal record ${f}: ${String(err)}` };
       }
@@ -236,11 +227,7 @@ export class CommandJournal {
       }
       const open = commands.at(-1);
       // A receipt closes its own started record; one without (deadline, refused plan) never spawned.
-      if (
-        open !== undefined &&
-        open.receipt === null &&
-        open.name === e.receipt.name
-      )
+      if (open !== undefined && open.receipt === null && open.name === e.receipt.name)
         open.receipt = e.receipt;
       else
         commands.push({
@@ -270,10 +257,7 @@ export function mayRetry(r: CommandReceipt): boolean {
   return r.status === 'unknown' ? r.retry === 'safe' : true;
 }
 
-export async function runCommand(
-  deps: CommandDeps,
-  spec: CommandSpec,
-): Promise<CommandReceipt> {
+export async function runCommand(deps: CommandDeps, spec: CommandSpec): Promise<CommandReceipt> {
   const raw = await execute(deps, spec);
   // The receipt is journaled and reported: the command line and diagnostics may carry a secret.
   const receipt: CommandReceipt = {
@@ -289,10 +273,7 @@ export async function runCommand(
  * A host command gets a short private TMPDIR: the scratch dir under a long data dir leaves no room for a Unix
  * socket path (108 bytes) that a test makes under it. Commands of one scratch run one at a time.
  */
-async function execute(
-  deps: CommandDeps,
-  spec: CommandSpec,
-): Promise<CommandReceipt> {
+async function execute(deps: CommandDeps, spec: CommandSpec): Promise<CommandReceipt> {
   if (deps.sandbox.provider !== 'host' || spec.layout.tmp_dir !== undefined)
     return executeIn(deps, spec);
   const tmp = shortTmpDir(spec.layout.scratch);
@@ -326,15 +307,9 @@ async function execute(
   }
 }
 
-async function executeIn(
-  deps: CommandDeps,
-  spec: CommandSpec,
-): Promise<CommandReceipt> {
+async function executeIn(deps: CommandDeps, spec: CommandSpec): Promise<CommandReceipt> {
   const now = deps.clock.now();
-  const left =
-    spec.deadline_at === null
-      ? Number.POSITIVE_INFINITY
-      : spec.deadline_at - now;
+  const left = spec.deadline_at === null ? Number.POSITIVE_INFINITY : spec.deadline_at - now;
   const remaining = Math.min(spec.wall_ms ?? Infinity, left);
   const wall = Number.isFinite(remaining) ? remaining : null;
   const base = {
@@ -358,10 +333,11 @@ async function executeIn(
       detail: 'task deadline reached before the command started',
     };
   }
-  const plan = deps.sandbox.plan(
-    { ...spec.layout, role: spec.role, private_home: null },
-    ['/bin/sh', '-c', spec.command],
-  );
+  const plan = deps.sandbox.plan({ ...spec.layout, role: spec.role, private_home: null }, [
+    '/bin/sh',
+    '-c',
+    spec.command,
+  ]);
   if (!plan.ok) {
     return {
       ...base,
@@ -473,8 +449,7 @@ export class SpawnExecutor implements CommandExecutor {
     },
   ): Promise<ExecOutcome> {
     const [file, ...args] = plan.argv;
-    if (file === undefined)
-      return Promise.resolve({ kind: 'not_launched', message: 'empty argv' });
+    if (file === undefined) return Promise.resolve({ kind: 'not_launched', message: 'empty argv' });
     if (opts.signal?.aborted === true)
       return Promise.resolve({
         kind: 'not_launched',
@@ -556,10 +531,8 @@ export class SpawnExecutor implements CommandExecutor {
         }
       };
       const endStop = async (at: number): Promise<boolean> => {
-        const pause = (): Promise<void> =>
-          new Promise((r) => setTimeout(r, 50));
-        while (groupAlive() && Date.now() < at + this.#termGraceMs)
-          await pause();
+        const pause = (): Promise<void> => new Promise((r) => setTimeout(r, 50));
+        while (groupAlive() && Date.now() < at + this.#termGraceMs) await pause();
         clearTimeout(grace);
         if (groupAlive()) kill('SIGKILL');
         const until = Date.now() + STOP_KILL_VERIFY_MS;

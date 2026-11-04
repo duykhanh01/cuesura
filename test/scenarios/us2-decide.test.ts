@@ -160,9 +160,7 @@ describe('US2 - Canonical task creation and deterministic decisions', () => {
     });
 
     sim.related = { deps: { [dep]: 'DONE' }, dependency_cycle: false };
-    expectAccepted(
-      sim.when({ kind: 'dependency_status', depends_on: dep, status: 'DONE' }),
-    );
+    expectAccepted(sim.when({ kind: 'dependency_status', depends_on: dep, status: 'DONE' }));
     expect(sim.s.status).toBe('READY');
 
     const other = track(new Sim(task.id, 2));
@@ -189,9 +187,10 @@ describe('US2 - Canonical task creation and deterministic decisions', () => {
       code: 'dependency_invalid',
     });
     const self = buildTask({ depends_on: [TASK.id] });
-    expect(
-      new Sim(self.id, 4).when({ kind: 'create_task', task: self }),
-    ).toMatchObject({ kind: 'rejected', code: 'dependency_invalid' });
+    expect(new Sim(self.id, 4).when({ kind: 'create_task', task: self })).toMatchObject({
+      kind: 'rejected',
+      code: 'dependency_invalid',
+    });
   });
 
   it('Scenario 3: agent completion with failed required gates triggers bounded fixes', () => {
@@ -205,9 +204,10 @@ describe('US2 - Canonical task creation and deterministic decisions', () => {
         gatesData({ build: true, unit: false, lint: true }),
       ),
     );
-    expect(
-      evs.find((e) => e.type === 'GateResultRecorded')?.payload,
-    ).toMatchObject({ passed: false, signature: 'unit:E1' });
+    expect(evs.find((e) => e.type === 'GateResultRecorded')?.payload).toMatchObject({
+      passed: false,
+      signature: 'unit:E1',
+    });
     expect(sim.s.current_step).toBe('fix_gates');
     expect(sim.effects('start_agent', 'pending')).toHaveLength(1);
     expect(sim.s.step_visits['review']).toBeUndefined();
@@ -219,11 +219,7 @@ describe('US2 - Canonical task creation and deterministic decisions', () => {
       ],
     });
     for (let i = 0; i < 7; i++) {
-      sim.complete(
-        sim.pendingOne('start_agent').id,
-        'succeeded',
-        agentData('done'),
-      );
+      sim.complete(sim.pendingOne('start_agent').id, 'succeeded', agentData('done'));
       sim.complete(sim.pendingOne('run_gates').id, 'succeeded', unitFails(i));
     }
     expect(sim.s.step_visits['fix_gates']).toBe(7);
@@ -330,9 +326,7 @@ describe('US2 - Canonical task creation and deterministic decisions', () => {
     const sim = run();
     const e = toCode(sim);
     const reservation = e.reservation_id as string;
-    const evs = expectAccepted(
-      sim.when({ kind: 'cancel', reason: 'No longer needed' }),
-    );
+    const evs = expectAccepted(sim.when({ kind: 'cancel', reason: 'No longer needed' }));
     expect(types(evs)).toEqual([
       'CancelRequested',
       'EffectInvalidated',
@@ -386,9 +380,7 @@ describe('US2 - Canonical task creation and deterministic decisions', () => {
     ]);
 
     const evs = expectAccepted(sim.when({ kind: 'cancel', reason: 'stop' }));
-    const kinds = evs.flatMap((e) =>
-      e.type === 'EffectRequested' ? [e.payload.kind] : [],
-    );
+    const kinds = evs.flatMap((e) => (e.type === 'EffectRequested' ? [e.payload.kind] : []));
     expect(kinds.sort()).toEqual(['reconcile', 'stop_attempt']);
     expect(sim.s.status).not.toBe('CANCELLED');
 
@@ -397,18 +389,14 @@ describe('US2 - Canonical task creation and deterministic decisions', () => {
     });
     expect(sim.s.status).not.toBe('CANCELLED');
     const probes = sim.effects('reconcile', 'pending');
-    expect(probes.map((p) => p.target_effect_id).sort()).toEqual(
-      [agent.id, unknownId].sort(),
-    );
+    expect(probes.map((p) => p.target_effect_id).sort()).toEqual([agent.id, unknownId].sort());
     sim.reconciled(unknownId, 'not_executed');
     expect(sim.s.status).not.toBe('CANCELLED');
     sim.reconciled(agent.id, 'executed_failed', { failure_class: 'refused' });
     expect(sim.s.status).toBe('CANCELLED');
-    expect(
-      sim
-        .effects()
-        .filter((e) => e.status === 'started' || e.status === 'unknown'),
-    ).toEqual([]);
+    expect(sim.effects().filter((e) => e.status === 'started' || e.status === 'unknown')).toEqual(
+      [],
+    );
   });
 
   it('Scenario 9: a merge confirmed after cancellation remains DONE and records late cancellation', () => {
@@ -422,9 +410,7 @@ describe('US2 - Canonical task creation and deterministic decisions', () => {
     });
     const merge = sim.pendingOne('merge');
     sim.claim(merge.id);
-    const evs = expectAccepted(
-      sim.when({ kind: 'cancel', reason: 'Changed requirements' }),
-    );
+    const evs = expectAccepted(sim.when({ kind: 'cancel', reason: 'Changed requirements' }));
     expect(businessRequested(evs)).toEqual([]);
     expect(sim.s.status).toBe('RUNNING');
 
@@ -436,9 +422,7 @@ describe('US2 - Canonical task creation and deterministic decisions', () => {
     expect(sim.s.status).toBe('DONE');
     expect(sim.s.cancellation?.late).toBe(true);
     expect(sim.eventTypes(before)).toContain('CancelRecordedLate');
-    expect(
-      businessRequested(sim.events.slice(before) as DomainEventDraft[]),
-    ).toEqual([]);
+    expect(businessRequested(sim.events.slice(before) as DomainEventDraft[])).toEqual([]);
   });
 
   it('Scenario 10: edits record drift immediately, let the active attempt finish, and wait for a revision choice', () => {
@@ -466,9 +450,7 @@ describe('US2 - Canonical task creation and deterministic decisions', () => {
       detail: { code: 'source_drift' },
     });
     expect(sim.s.wait?.exit_paths).toContain('drift_choice(new_task)');
-    expect(
-      businessRequested(sim.events.slice(after) as DomainEventDraft[]),
-    ).toEqual([]);
+    expect(businessRequested(sim.events.slice(after) as DomainEventDraft[])).toEqual([]);
     expect(sim.s.source_drift?.deferred).toEqual({
       kind: 'route',
       step: 'code',
@@ -487,10 +469,7 @@ describe('US2 - Canonical task creation and deterministic decisions', () => {
 
     const rev2 = {
       ...TASK,
-      acceptance: [
-        'Searching by name returns matching customers',
-        'Search by email',
-      ],
+      acceptance: ['Searching by name returns matching customers', 'Search by email'],
     };
     sim.when({ kind: 'source_updated', task: rev2 });
     expect(sim.s.wait?.detail['code']).toBe('source_drift');
@@ -502,12 +481,7 @@ describe('US2 - Canonical task creation and deterministic decisions', () => {
       }),
     );
     const t = types(evs);
-    for (const x of [
-      'RevisionApplied',
-      'PolicyFrozen',
-      'EvidenceInvalidated',
-      'StepEntered',
-    ])
+    for (const x of ['RevisionApplied', 'PolicyFrozen', 'EvidenceInvalidated', 'StepEntered'])
       expect(t).toContain(x);
     expect(evs.find((e) => e.type === 'StepEntered')?.payload).toMatchObject({
       step: 'triage',
@@ -544,19 +518,13 @@ describe('US2 - Canonical task creation and deterministic decisions', () => {
     const sim = run(TASK, { limits: { max_agent_runs: 3 } });
     toCode(sim);
     toMergeGate(sim, 'head1');
-    expect(
-      (sim.s.budget.agent_runs.limit ?? Infinity) -
-        sim.s.budget.agent_runs.used,
-    ).toBe(1);
+    expect((sim.s.budget.agent_runs.limit ?? Infinity) - sim.s.budget.agent_runs.used).toBe(1);
     const rev2 = { ...TASK, acceptance: ['New criterion'] };
     sim.when({ kind: 'source_updated', task: rev2 });
     sim.when({
       kind: 'drift_choice',
       choice: 'apply_new',
-      freeze: freezeOk(
-        { ...rev2, revision: 2 },
-        { limits: { max_agent_runs: 3 } },
-      ),
+      freeze: freezeOk({ ...rev2, revision: 2 }, { limits: { max_agent_runs: 3 } }),
     });
     expect(sim.s.status).toBe('WAITING');
     expect(sim.s.wait).toMatchObject({
@@ -576,11 +544,7 @@ describe('US2 - Canonical task creation and deterministic decisions', () => {
         'succeeded',
         gatesData({ build: true, unit: true }),
       );
-      sim.complete(
-        sim.pendingOne('start_agent').id,
-        'succeeded',
-        reviewData('approve', 'head1'),
-      );
+      sim.complete(sim.pendingOne('start_agent').id, 'succeeded', reviewData('approve', 'head1'));
       sim.pendingOne('publish');
       sim.when({
         kind: 'source_updated',
@@ -626,13 +590,8 @@ describe('US2 - Canonical task creation and deterministic decisions', () => {
         freeze: freezeOk({ ...TASK, title: 'Different', revision: 2 }),
       }),
     );
-    expect(types(evs).slice(0, 2)).toEqual([
-      'EffectInvalidated',
-      'BudgetReleased',
-    ]);
-    expect(
-      agentSim.s.budget.reservations[e.reservation_id as string]?.status,
-    ).toBe('released');
+    expect(types(evs).slice(0, 2)).toEqual(['EffectInvalidated', 'BudgetReleased']);
+    expect(agentSim.s.budget.reservations[e.reservation_id as string]?.status).toBe('released');
   });
 
   it('Scenario 14: missing checks wait for CI; a head lacking the base tip cannot merge', () => {
@@ -643,11 +602,7 @@ describe('US2 - Canonical task creation and deterministic decisions', () => {
       'succeeded',
       gatesData({ build: true, unit: true }),
     );
-    sim.complete(
-      sim.pendingOne('start_agent').id,
-      'succeeded',
-      reviewData('approve', 'H'),
-    );
+    sim.complete(sim.pendingOne('start_agent').id, 'succeeded', reviewData('approve', 'H'));
     sim.complete(sim.pendingOne('publish').id, 'succeeded', publishData('H'));
     sim.complete(sim.pendingOne('create_pr').id, 'succeeded', {
       pr_ref: 'acme#1',
@@ -745,11 +700,9 @@ describe('US2 - Canonical task creation and deterministic decisions', () => {
     });
     expect(sim.s.policy_ref).toBeNull();
 
-    expect(
-      types(
-        expectAccepted(sim.when({ kind: 'start', freeze: freezeOk(TASK) })),
-      ),
-    ).toContain('PolicyFrozen');
+    expect(types(expectAccepted(sim.when({ kind: 'start', freeze: freezeOk(TASK) })))).toContain(
+      'PolicyFrozen',
+    );
   });
 
   it('deadline expiry during a human wait prevents new attempts (FR-023)', () => {
@@ -776,28 +729,15 @@ describe('US2 - Canonical task creation and deterministic decisions', () => {
 });
 
 describe('Phase 4 review regressions', () => {
-  function toCi(
-    sim: Sim,
-    head = 'H',
-    base_ref = 'main',
-    contains = true,
-  ): void {
+  function toCi(sim: Sim, head = 'H', base_ref = 'main', contains = true): void {
     sim.complete(toCode(sim).id, 'succeeded', agentData('done'));
     sim.complete(
       sim.pendingOne('run_gates').id,
       'succeeded',
       gatesData({ build: true, unit: true, lint: true }),
     );
-    sim.complete(
-      sim.pendingOne('start_agent').id,
-      'succeeded',
-      reviewData('approve', head),
-    );
-    sim.complete(
-      sim.pendingOne('publish').id,
-      'succeeded',
-      publishData(head, contains, base_ref),
-    );
+    sim.complete(sim.pendingOne('start_agent').id, 'succeeded', reviewData('approve', head));
+    sim.complete(sim.pendingOne('publish').id, 'succeeded', publishData(head, contains, base_ref));
     sim.complete(sim.pendingOne('create_pr').id, 'succeeded', {
       pr_ref: 'acme#1',
       head_sha: head,
@@ -808,11 +748,7 @@ describe('Phase 4 review regressions', () => {
     const task = buildTask({ base_branch: 'feature/release' });
     const sim = run(task, { protected_branches: ['main', 'feature/release'] });
     toCi(sim, 'H', 'feature/release');
-    sim.complete(
-      sim.pendingOne('await_ci').id,
-      'succeeded',
-      ciData('H', { build: 'success' }),
-    );
+    sim.complete(sim.pendingOne('await_ci').id, 'succeeded', ciData('H', { build: 'success' }));
     expect(sim.eventTypes()).not.toContain('ApprovalGranted');
     expect(sim.effects('merge')).toEqual([]);
     expect(sim.s.wait).toMatchObject({
@@ -828,11 +764,7 @@ describe('Phase 4 review regressions', () => {
       }),
     );
     toCi(open, 'H', 'feature/x');
-    open.complete(
-      open.pendingOne('await_ci').id,
-      'succeeded',
-      ciData('H', { build: 'success' }),
-    );
+    open.complete(open.pendingOne('await_ci').id, 'succeeded', ciData('H', { build: 'success' }));
     expect(open.effects('merge', 'pending')).toHaveLength(1);
   });
 
@@ -864,9 +796,7 @@ describe('Phase 4 review regressions', () => {
       if (e === undefined) break;
       sim.complete(e.id, 'succeeded', agentData('needs_context'));
     }
-    const codeAttempts = Object.values(sim.s.attempts).filter(
-      (a) => a.step === 'code',
-    );
+    const codeAttempts = Object.values(sim.s.attempts).filter((a) => a.step === 'code');
     expect(codeAttempts).toHaveLength(12);
     expect(sim.s.step_visits['code']).toBe(12);
     expect(sim.eventTypes()).toContain('StepExhausted');
@@ -968,18 +898,10 @@ describe('Phase 4 review regressions', () => {
   it('ci_autofix failure routes to ci_fix rather than publish', () => {
     const sim = run();
     toCi(sim);
-    sim.complete(
-      sim.pendingOne('await_ci').id,
-      'succeeded',
-      ciData('H', { format: 'failure' }),
-    );
+    sim.complete(sim.pendingOne('await_ci').id, 'succeeded', ciData('H', { format: 'failure' }));
     expect(sim.s.current_step).toBe('ci_autofix');
     const publishes = sim.effects('publish').length;
-    sim.complete(
-      sim.pendingOne('run_gates').id,
-      'succeeded',
-      gatesData({ format_fix: false }),
-    );
+    sim.complete(sim.pendingOne('run_gates').id, 'succeeded', gatesData({ format_fix: false }));
     expect(sim.s.current_step).toBe('ci_fix');
     expect(sim.effects('publish')).toHaveLength(publishes);
     expect(sim.effects('start_agent', 'pending')).toHaveLength(1);
@@ -1011,20 +933,14 @@ describe('Phase 4 review regressions', () => {
         answer: `a${i}`,
       });
     }
-    expect(
-      Object.values(sim.s.attempts).filter((a) => a.step === 'code'),
-    ).toHaveLength(12);
+    expect(Object.values(sim.s.attempts).filter((a) => a.step === 'code')).toHaveLength(12);
     expect(sim.s.wait).toMatchObject({
       reason: 'human_input',
       detail: { code: 'loop_exhausted' },
     });
-    expect(sim.s.wait?.resume_when).toEqual([
-      'amend(limits.extra_visits.code)',
-    ]);
+    expect(sim.s.wait?.resume_when).toEqual(['amend(limits.extra_visits.code)']);
 
-    expect(
-      Object.values(sim.s.questions).filter((q) => q.status === 'open'),
-    ).toEqual([]);
+    expect(Object.values(sim.s.questions).filter((q) => q.status === 'open')).toEqual([]);
 
     const p = sim.policy!;
     const amended = proposeAmendment({

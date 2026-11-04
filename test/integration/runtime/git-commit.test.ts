@@ -8,10 +8,7 @@ import {
   type CommitInput,
 } from '../../../src/adapters/git/commit.ts';
 import { probeCommit } from '../../../src/adapters/git/reconcile.ts';
-import {
-  ensureWorktree,
-  markerPath,
-} from '../../../src/adapters/git/worktree.ts';
+import { ensureWorktree, markerPath } from '../../../src/adapters/git/worktree.ts';
 import type { GitPort } from '../../../src/adapters/ports.ts';
 import { uuidOf } from '../../support/builders.ts';
 import { gitSandbox } from '../../support/git-repo.ts';
@@ -92,9 +89,7 @@ describe('orchestrator commit (T039, FR-017/018)', () => {
     expect(g.sh(wt.worktree_path, 'rev-parse', 'HEAD')).toBe(r.intent.oid);
     expect(g.sh(wt.worktree_path, 'rev-parse', 'HEAD^{tree}')).toBe(input.tree);
     expect(g.sh(wt.worktree_path, 'rev-parse', 'HEAD^')).toBe(input.parent);
-    expect(
-      g.sh(wt.worktree_path, 'log', '-1', '--format=%an <%ae> %at %cn %ct%n%B'),
-    ).toBe(
+    expect(g.sh(wt.worktree_path, 'log', '-1', '--format=%an <%ae> %at %cn %ct%n%B')).toBe(
       'Cuesura <cusr@invalid> 1800000000 Cuesura 1800000000\nfeat: add feature\n\nTask 1 revision 1',
     );
     expect(store.load(input.key)).toEqual(r.intent);
@@ -104,22 +99,16 @@ describe('orchestrator commit (T039, FR-017/018)', () => {
       kind: 'recovered',
       intent: { oid: r.intent.oid },
     });
-    expect(
-      g.sh(wt.worktree_path, 'rev-list', '--count', `${input.parent}..HEAD`),
-    ).toBe('1');
+    expect(g.sh(wt.worktree_path, 'rev-list', '--count', `${input.parent}..HEAD`)).toBe('1');
   });
 
   it('after a timeout, recovery finds the same OID whether or not the ref moved', async () => {
     const lost = await setup();
-    const first = await commitCheckpoint(
-      flakyUpdateRef(lost.git, false),
-      lost.store,
-      lost.input,
-    );
+    const first = await commitCheckpoint(flakyUpdateRef(lost.git, false), lost.store, lost.input);
     expect(first).toMatchObject({ kind: 'unknown' });
-    expect(
-      await probeCommit(lost.git, lost.store, lost.input.key),
-    ).toMatchObject({ kind: 'not_applied' });
+    expect(await probeCommit(lost.git, lost.store, lost.input.key)).toMatchObject({
+      kind: 'not_applied',
+    });
     const again = await commitCheckpoint(lost.git, lost.store, lost.input);
     expect(again).toMatchObject({
       kind: 'committed',
@@ -133,9 +122,7 @@ describe('orchestrator commit (T039, FR-017/018)', () => {
       applied.input,
     );
     expect(r.kind).toBe('committed');
-    expect(
-      await probeCommit(applied.git, applied.store, applied.input.key),
-    ).toMatchObject({
+    expect(await probeCommit(applied.git, applied.store, applied.input.key)).toMatchObject({
       kind: 'committed',
       intent: { oid: r.kind === 'committed' ? r.intent.oid : '' },
     });

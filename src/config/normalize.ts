@@ -13,11 +13,7 @@ import {
   type HarnessInnerModePolicy,
   type RuntimeLimits,
 } from '../domain/runtime.ts';
-import {
-  WorkflowSchema,
-  type Predicate,
-  type Workflow,
-} from '../domain/workflow.ts';
+import { WorkflowSchema, type Predicate, type Workflow } from '../domain/workflow.ts';
 import { SOFTWARE_DEV } from '../engine/workflows/software-dev.ts';
 import { deepMerge } from './merge.ts';
 import type { RawProjectConfig } from './schema-project.ts';
@@ -78,12 +74,8 @@ export function normalizeRole(r: RawRole): NormalizedRole {
     })),
     limits: {
       max_turns: r.limits?.max_turns ?? null,
-      stall_timeout_ms:
-        r.limits?.stall_timeout !== undefined
-          ? ms(r.limits.stall_timeout)
-          : null,
-      wall_timeout_ms:
-        r.limits?.wall_timeout != null ? ms(r.limits.wall_timeout) : null,
+      stall_timeout_ms: r.limits?.stall_timeout !== undefined ? ms(r.limits.stall_timeout) : null,
+      wall_timeout_ms: r.limits?.wall_timeout != null ? ms(r.limits.wall_timeout) : null,
     },
     ladder: (r.escalation?.ladder ?? []).map((s) => ({
       ...(s.effort !== undefined ? { effort: s.effort } : {}),
@@ -110,9 +102,7 @@ function normalizeStep(s: RawStep): Record<string, unknown> {
 
 export function expandWorkflow(
   w: RawWorkflow,
-):
-  | { workflow: Workflow }
-  | { issues: { path: (string | number)[]; message: string }[] } {
+): { workflow: Workflow } | { issues: { path: (string | number)[]; message: string }[] } {
   const steps: Record<string, unknown> = {};
   for (const [name, s] of Object.entries(w.steps ?? {}))
     if (name in SOFTWARE_DEV.steps) steps[name] = normalizeStep(s);
@@ -129,9 +119,7 @@ export function expandWorkflow(
 }
 
 function backoff(
-  b:
-    | { base: string; factor: number; max: string; max_attempts: number | null }
-    | undefined,
+  b: { base: string; factor: number; max: string; max_attempts: number | null } | undefined,
   d: Backoff,
 ): Backoff {
   return b === undefined
@@ -152,12 +140,9 @@ export function normalizeProfile(p: RawProfile): NormalizedProfile {
     allow_no_gates: p.allow_no_gates ?? false,
     escalation: {
       enabled: p.escalation?.enabled ?? DEFAULT_ESCALATION.enabled,
-      auto_up_to_tier:
-        p.escalation?.auto_up_to_tier ?? DEFAULT_ESCALATION.auto_up_to_tier,
+      auto_up_to_tier: p.escalation?.auto_up_to_tier ?? DEFAULT_ESCALATION.auto_up_to_tier,
       above: p.escalation?.above ?? DEFAULT_ESCALATION.above,
-      max_escalations:
-        p.escalation?.max_escalations_per_task ??
-        DEFAULT_ESCALATION.max_escalations,
+      max_escalations: p.escalation?.max_escalations_per_task ?? DEFAULT_ESCALATION.max_escalations,
     },
     classes: Object.fromEntries(
       Object.entries(DEFAULT_CLASSES).map(([k, d]) => [
@@ -166,28 +151,18 @@ export function normalizeProfile(p: RawProfile): NormalizedProfile {
       ]),
     ) as Limits['classes'],
     backoff: {
-      rate_limit: backoff(
-        p.limits?.backoff?.rate_limit,
-        DEFAULT_BACKOFF.rate_limit,
-      ),
+      rate_limit: backoff(p.limits?.backoff?.rate_limit, DEFAULT_BACKOFF.rate_limit),
       infra: backoff(p.limits?.backoff?.infra, DEFAULT_BACKOFF.infra),
     },
     overridable: [...(p.overridable ?? [])].sort(),
   };
 }
 
-export function normalizeProject(
-  p: RawProjectConfig | null,
-): NormalizedProject | null {
+export function normalizeProject(p: RawProjectConfig | null): NormalizedProject | null {
   if (p === null) return null;
   return {
     extends: p.extends ?? [],
-    setup:
-      p.setup === undefined
-        ? []
-        : typeof p.setup === 'string'
-          ? [p.setup]
-          : p.setup,
+    setup: p.setup === undefined ? [] : typeof p.setup === 'string' ? [p.setup] : p.setup,
     // Only when declared: the hashes of a config without it must not change.
     ...(p.tools === undefined ? {} : { tools: p.tools }),
     gates: p.gates ?? {},
@@ -198,9 +173,7 @@ export function normalizeProject(
       match: {
         ...(r.match.job !== undefined ? { job: r.match.job } : {}),
         ...(r.match.check !== undefined ? { check: r.match.check } : {}),
-        ...(r.match.log_pattern !== undefined
-          ? { log_pattern: r.match.log_pattern }
-          : {}),
+        ...(r.match.log_pattern !== undefined ? { log_pattern: r.match.log_pattern } : {}),
       },
       class: r.class,
     })),
@@ -211,19 +184,14 @@ export function normalizeProject(
     profile: p.profile ?? null,
     // Only when declared, so the normalized project (and its historical hash) is unchanged otherwise.
     ...(p.pr_template === undefined ? {} : { pr_template: p.pr_template }),
-    ...(p.review_template === undefined
-      ? {}
-      : { review_template: p.review_template }),
+    ...(p.review_template === undefined ? {} : { review_template: p.review_template }),
     ...(p.merge?.method === undefined ? {} : { merge_method: p.merge.method }),
   };
 }
 
-export function normalizeUserBase(
-  u: RawUserConfig,
-): Omit<NormalizedUser, 'workflows'> {
+export function normalizeUserBase(u: RawUserConfig): Omit<NormalizedUser, 'workflows'> {
   const roles: Record<string, NormalizedRole> = {};
-  for (const [name, r] of Object.entries(u.roles ?? {}))
-    roles[name] = normalizeRole(r);
+  for (const [name, r] of Object.entries(u.roles ?? {})) roles[name] = normalizeRole(r);
   const projects = u.projects
     ? Object.fromEntries(
         Object.entries(u.projects).map(([k, v]) => [
@@ -255,9 +223,7 @@ export type ProjectLocation = { path: string | null; repo: string | null };
  * Keep project paths and remotes outside NormalizedUser to preserve existing policy/configuration
  * hashes. Runtime snapshots capture them in FrozenRuntimeContext.
  */
-export function projectLocations(
-  u: RawUserConfig,
-): Record<string, ProjectLocation> {
+export function projectLocations(u: RawUserConfig): Record<string, ProjectLocation> {
   return Object.fromEntries(
     Object.entries(u.projects ?? {}).map(([k, v]) => [
       k,
@@ -290,13 +256,9 @@ export function dispatchMode(c: RawDispatchChoice): ExecutionMode {
   return c.reviewer === undefined ? 'direct-pr' : 'full-review';
 }
 
-const agentText = (a: RawDispatchAgent): string =>
-  `${a.harness}/${a.model}/${a.effort}`;
+const agentText = (a: RawDispatchAgent): string => `${a.harness}/${a.model}/${a.effort}`;
 
-function normalizeChoice(
-  profile: string,
-  c: RawDispatchChoice,
-): DispatchChoice {
+function normalizeChoice(profile: string, c: RawDispatchChoice): DispatchChoice {
   const reviewer = c.reviewer === undefined ? null : agentText(c.reviewer);
   return {
     profile,
@@ -320,9 +282,7 @@ export function normalizeDispatch(d: RawDispatch): NormalizedDispatch {
   };
 }
 
-export function projectDispatch(
-  u: RawUserConfig,
-): Record<string, NormalizedDispatch> {
+export function projectDispatch(u: RawUserConfig): Record<string, NormalizedDispatch> {
   return Object.fromEntries(
     Object.entries(u.projects ?? {}).flatMap(([id, p]) =>
       p.dispatch === undefined ? [] : [[id, normalizeDispatch(p.dispatch)]],
@@ -345,15 +305,11 @@ export type RuntimeConfig = {
   dispatch: NormalizedDispatch | null;
 };
 
-export function mergeRuntimeLimits(
-  overrides: RawRuntime['limits'],
-): RuntimeLimits {
+export function mergeRuntimeLimits(overrides: RawRuntime['limits']): RuntimeLimits {
   const out: RuntimeLimits = { ...DEFAULT_RUNTIME_LIMITS };
   Object.assign(
     out,
-    Object.fromEntries(
-      Object.entries(overrides ?? {}).filter(([, v]) => v !== undefined),
-    ),
+    Object.fromEntries(Object.entries(overrides ?? {}).filter(([, v]) => v !== undefined)),
   );
   return out;
 }
@@ -372,9 +328,7 @@ export function normalizeRuntime(
   return {
     data_dir: r.data_dir ?? null,
     limits: mergeRuntimeLimits(r.limits),
-    tool_paths: Object.fromEntries(
-      Object.entries(r.tool_paths ?? {}).sort(byName),
-    ),
+    tool_paths: Object.fromEntries(Object.entries(r.tool_paths ?? {}).sort(byName)),
     credential_refs: Object.entries(r.credential_refs ?? {})
       .sort(byName)
       .map(([name, file]) => ({ name, file })),
@@ -389,14 +343,10 @@ export function normalizeRuntime(
     harness_isolation: isolation,
     modes:
       r.modes === undefined
-        ? Object.fromEntries(
-            EXECUTION_MODES.map((m) => [m, { when_to_use: null }]),
-          )
+        ? Object.fromEntries(EXECUTION_MODES.map((m) => [m, { when_to_use: null }]))
         : Object.fromEntries(
             EXECUTION_MODES.flatMap((m) =>
-              r.modes?.[m] === undefined
-                ? []
-                : [[m, { when_to_use: r.modes[m].when_to_use }]],
+              r.modes?.[m] === undefined ? [] : [[m, { when_to_use: r.modes[m].when_to_use }]],
             ),
           ),
     dispatch: r.dispatch === undefined ? null : normalizeDispatch(r.dispatch),

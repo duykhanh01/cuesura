@@ -51,10 +51,7 @@ export type OperationMark = {
   readonly ticks: number;
 };
 
-export type TaggedProbe = (
-  operationId: string,
-  mark: OperationMark | null,
-) => TaggedScan;
+export type TaggedProbe = (operationId: string, mark: OperationMark | null) => TaggedScan;
 
 /** /proc start times are in USER_HZ ticks, fixed at 100 by the kernel ABI. */
 const USER_HZ = 100;
@@ -63,8 +60,7 @@ const START_SLACK_TICKS = 2 * USER_HZ;
 const MARK_DIR = 'process-marks';
 
 function markFile(dataDir: string, operationId: string): string {
-  if (!isSafeId(operationId))
-    throw new Error(`unsafe operation id ${JSON.stringify(operationId)}`);
+  if (!isSafeId(operationId)) throw new Error(`unsafe operation id ${JSON.stringify(operationId)}`);
   return join(dataDir, MARK_DIR, `${operationId}.json`);
 }
 
@@ -101,16 +97,12 @@ export type MarkRead =
   | { readonly ok: true; readonly mark: OperationMark | null }
   | { readonly ok: false; readonly detail: string };
 
-export function readOperationMark(
-  dataDir: string,
-  operationId: string,
-): MarkRead {
+export function readOperationMark(dataDir: string, operationId: string): MarkRead {
   let text: string;
   try {
     text = readFileSync(markFile(dataDir, operationId), 'utf8');
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT')
-      return { ok: true, mark: null };
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { ok: true, mark: null };
     return { ok: false, detail: `process mark unreadable: ${String(e)}` };
   }
   try {
@@ -174,15 +166,10 @@ export function findTagged(
     names = readdirSync(procRoot);
     boot = bootId();
   } catch (e) {
-    return fail(
-      `${procRoot} unreadable: ${e instanceof Error ? e.message : String(e)}`,
-    );
+    return fail(`${procRoot} unreadable: ${e instanceof Error ? e.message : String(e)}`);
   }
   // A mark of another boot: none of the operation's processes can still exist.
-  const since =
-    mark === null || mark.boot_id !== boot
-      ? null
-      : mark.ticks - START_SLACK_TICKS;
+  const since = mark === null || mark.boot_id !== boot ? null : mark.ticks - START_SLACK_TICKS;
   const uid = process.getuid?.() ?? null;
   const entry = `${OPERATION_ENV}=${operationId}`;
   const processes: ProcessIdentity[] = [];
@@ -244,8 +231,7 @@ export function stopTagged(
   const own = self.ok ? Number(statFields(self.text)[2]) : null;
   for (const p of processes) {
     const stat = read(`${procRoot}/${p.pid}/stat`, 'utf8');
-    if (!stat.ok || Number(statFields(stat.text)[19]) !== p.start_ticks)
-      continue;
+    if (!stat.ok || Number(statFields(stat.text)[19]) !== p.start_ticks) continue;
     // Never this daemon's own group, whatever a stale record says.
     const group = p.pgid > 1 && p.pgid !== own ? [-p.pgid] : [];
     for (const target of [...group, p.pid])
@@ -277,8 +263,7 @@ export async function stopOperationProcesses(
   const mark = readOperationMark(dataDir, operationId);
   if (!mark.ok) return 'unknown';
   if (mark.mark === null) return 'not_running';
-  const scan = (): TaggedScan =>
-    (o.probe ?? findTagged)(operationId, mark.mark);
+  const scan = (): TaggedScan => (o.probe ?? findTagged)(operationId, mark.mark);
   const stop = o.stopper ?? stopTagged;
   const wait = (): Promise<void> => new Promise((r) => setTimeout(r, 50));
   let found = scan();

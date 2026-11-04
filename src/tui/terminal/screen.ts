@@ -131,8 +131,7 @@ export class Frame {
  * column the cursor sits on it, and clearing to the end of the line would erase that cell.
  */
 export function diffFrames(prev: Frame | null, next: Frame): string {
-  const full =
-    prev === null || prev.cols !== next.cols || prev.rows !== next.rows;
+  const full = prev === null || prev.cols !== next.cols || prev.rows !== next.rows;
   let out = '';
   for (let y = 0; y < next.rows; y++) {
     const bytes = next.rowBytes(y);

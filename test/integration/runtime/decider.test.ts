@@ -1,16 +1,7 @@
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import {
-  FakeHarness,
-  type FakeScript,
-} from '../../../src/adapters/harness/fake.ts';
+import { FakeHarness, type FakeScript } from '../../../src/adapters/harness/fake.ts';
 import type { Clock, HarnessPort } from '../../../src/adapters/ports.ts';
 import {
   createDecider,
@@ -50,10 +41,7 @@ const decision = (answer: string) => ({
 let dir = '';
 const decisionsFile = () => join(dir, 'decisions.md');
 
-function waiting(
-  labels: string[] = [],
-  limits: { max_agent_runs?: number } = {},
-) {
+function waiting(labels: string[] = [], limits: { max_agent_runs?: number } = {}) {
   dir = tempDir();
   const d = new StoreDriver(openFileStoreForTest(dbPath(dir)));
   const t = buildTask({ labels });
@@ -64,10 +52,7 @@ function waiting(
 }
 
 function grant(d: StoreDriver): void {
-  const g = d.store.grantNext(
-    d.now as EpochMs,
-    Array.from({ length: 4 }, newId),
-  );
+  const g = d.store.grantNext(d.now as EpochMs, Array.from({ length: 4 }, newId));
   if (!g.ok) throw new Error(JSON.stringify(g));
 }
 
@@ -95,8 +80,7 @@ function decider(
     clock,
     newId,
     harnesses: { fake: harness },
-    setting: () =>
-      Promise.resolve(typeof setting === 'function' ? setting() : setting),
+    setting: () => Promise.resolve(typeof setting === 'function' ? setting() : setting),
     workspace: () => Promise.resolve(undefined),
     decisionsFile: over.decisionsFile ?? decisionsFile(),
     recordsDir: join(dir, 'decider'),
@@ -105,10 +89,8 @@ function decider(
   });
 }
 
-const fake = (steps: FakeScript['decider']) =>
-  new FakeHarness({ decider: steps ?? [] });
-const questions = (d: StoreDriver, id: string) =>
-  Object.values(d.task(id).questions);
+const fake = (steps: FakeScript['decider']) => new FakeHarness({ decider: steps ?? [] });
+const questions = (d: StoreDriver, id: string) => Object.values(d.task(id).questions);
 
 describe('the decider answers for an absent owner', () => {
   it('runs nothing while autonomous is off', async () => {
@@ -157,10 +139,7 @@ describe('the decider answers for an absent owner', () => {
     await decider(d, h).round();
 
     expect(h.calls).toHaveLength(1);
-    expect(questions(d, t.id).map((q) => q.status)).toEqual([
-      'answered',
-      'open',
-    ]);
+    expect(questions(d, t.id).map((q) => q.status)).toEqual(['answered', 'open']);
   });
 
   it('keeps going on a task labelled grill', async () => {
@@ -179,10 +158,7 @@ describe('the decider answers for an absent owner', () => {
 
   it('leaves the question open after a failed run and tries it again only after a restart', async () => {
     const { d, t } = waiting();
-    const h = fake([
-      { kind: 'failure', failure: 'rate_limited' },
-      decision('UTF-8'),
-    ]);
+    const h = fake([{ kind: 'failure', failure: 'rate_limited' }, decision('UTF-8')]);
     const one = decider(d, h);
     await one.round();
     await one.round();
@@ -265,9 +241,7 @@ describe('the decider answers for an absent owner', () => {
     const s = d.task(t.id);
     expect(questions(d, t.id)[0]?.status).toBe('open');
     expect(s.status).toBe('WAITING');
-    expect(Object.values(s.decider_runs ?? {})).toMatchObject([
-      { applied: false, invoked: true },
-    ]);
+    expect(Object.values(s.decider_runs ?? {})).toMatchObject([{ applied: false, invoked: true }]);
     expect(existsSync(decisionsFile())).toBe(false);
   });
 
@@ -302,9 +276,7 @@ describe('the decider answers for an absent owner', () => {
     expect(inner.calls).toHaveLength(1);
     // Recovery compares this digest with the one taken at launch.
     const input = inner.calls[0];
-    expect(hashCanonical(JSON.parse(JSON.stringify(input)))).toBe(
-      hashCanonical(input),
-    );
+    expect(hashCanonical(JSON.parse(JSON.stringify(input)))).toBe(hashCanonical(input));
     expect(questions(d, t.id)[0]?.answered_by).toBe(DECIDER_ACTOR);
     expect(readdirSync(join(dir, 'decider'))).toEqual([]);
   });
@@ -335,9 +307,7 @@ describe('the decider answers for an absent owner', () => {
     expect(inner.calls).toEqual([]);
     live = false;
     await decider(d, h, null).round();
-    expect(Object.values(d.task(t.id).decider_runs ?? {})).toMatchObject([
-      { applied: false },
-    ]);
+    expect(Object.values(d.task(t.id).decider_runs ?? {})).toMatchObject([{ applied: false }]);
     expect(questions(d, t.id)[0]?.status).toBe('open');
   });
 

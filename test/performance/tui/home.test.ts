@@ -40,9 +40,7 @@ describe('US1 scenario 4 and SC-003: a change shows by itself', () => {
       await s.waitForText(`CANCELLED ${i + 1}`, 10_000);
       tookMs.push(Date.now() - changedAt);
       await s.waitForText(`Finished (${i + 1})`);
-      expect(s.screenText()).not.toContain(
-        `Ready ${String(i + 1).padStart(2, '0')}`,
-      );
+      expect(s.screenText()).not.toContain(`Ready ${String(i + 1).padStart(2, '0')}`);
     }
     const inTime = tookMs.filter((ms) => ms < 3_000).length;
     expect(inTime, `took ${tookMs.join(', ')} ms`).toBeGreaterThanOrEqual(

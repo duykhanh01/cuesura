@@ -30,8 +30,7 @@ import { SpawnExecutor } from '../../../src/runner/commands.ts';
 import { uuidOf } from '../../support/builders.ts';
 
 const linux = existsSync('/proc/self/environ');
-const python =
-  ['/usr/bin/python3', '/bin/python3'].find((p) => existsSync(p)) ?? null;
+const python = ['/usr/bin/python3', '/bin/python3'].find((p) => existsSync(p)) ?? null;
 
 /** A mark taken now, on the boot clock the scanner compares start times with. */
 function markNow(): OperationMark {
@@ -172,9 +171,9 @@ describe('operation process tag', () => {
           detail: `pid ${child.pid}: environment unreadable`,
         });
         // Started well before the operation's mark: it cannot be one of its processes.
-        expect(
-          findTagged(id, { ...markNow(), ticks: markNow().ticks + 6_000 }),
-        ).toMatchObject({ ok: true });
+        expect(findTagged(id, { ...markNow(), ticks: markNow().ticks + 6_000 })).toMatchObject({
+          ok: true,
+        });
       } finally {
         process.kill(-(child.pid as number), 'SIGKILL');
       }
@@ -187,19 +186,16 @@ describe('operation process tag', () => {
     });
   });
 
-  it.runIf(linux)(
-    'a mark is durable, read back, and absent before it is written',
-    () => {
-      const dir = mkdtempSync(join(tmpdir(), 'cusr-mark-'));
-      const id = uuidOf(7010);
-      expect(readOperationMark(dir, id)).toEqual({ ok: true, mark: null });
-      writeOperationMark(dir, id);
-      const r = readOperationMark(dir, id);
-      expect(r.ok && r.mark?.boot_id).toBe(bootId());
-      writeFileSync(join(dir, 'process-marks', `${id}.json`), '{');
-      expect(readOperationMark(dir, id)).toMatchObject({ ok: false });
-    },
-  );
+  it.runIf(linux)('a mark is durable, read back, and absent before it is written', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cusr-mark-'));
+    const id = uuidOf(7010);
+    expect(readOperationMark(dir, id)).toEqual({ ok: true, mark: null });
+    writeOperationMark(dir, id);
+    const r = readOperationMark(dir, id);
+    expect(r.ok && r.mark?.boot_id).toBe(bootId());
+    writeFileSync(join(dir, 'process-marks', `${id}.json`), '{');
+    expect(readOperationMark(dir, id)).toMatchObject({ ok: false });
+  });
 
   it.runIf(linux && process.getuid?.() !== 0)(
     'dates an unreadable process by boot ticks against the mark; the wall clock and btime play no part',
@@ -210,10 +206,7 @@ describe('operation process tag', () => {
         writeFileSync(join(root, 'stat'), `cpu 0\nbtime ${btime}\n`);
         const d = join(root, '4242');
         mkdirSync(d, { recursive: true });
-        writeFileSync(
-          join(d, 'status'),
-          `Name:\tssh\nUid:\t${uid}\t${uid}\t${uid}\t${uid}\n`,
-        );
+        writeFileSync(join(d, 'status'), `Name:\tssh\nUid:\t${uid}\t${uid}\t${uid}\t${uid}\n`);
         const fields = Array.from({ length: 50 }, () => '0');
         fields[2] = '4242';
         fields[6] = String(flags);

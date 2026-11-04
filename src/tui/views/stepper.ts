@@ -66,9 +66,7 @@ export function stepper(stages: readonly Stage[], status: TaskStatus): Seg[] {
     if (i > 0) out.push(ui(' ─ ', DIM));
     const runs = s.runs > 1 ? `\u00a0×${s.runs}` : '';
     const label =
-      s.state === 'skipped'
-        ? `${STAGE_LABEL[s.name]}\u00a0skipped`
-        : STAGE_LABEL[s.name];
+      s.state === 'skipped' ? `${STAGE_LABEL[s.name]}\u00a0skipped` : STAGE_LABEL[s.name];
     out.push(ui(`${label}\u00a0${mark}${runs}`, style));
   });
   return out;

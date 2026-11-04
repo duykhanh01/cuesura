@@ -1,11 +1,4 @@
-import {
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  statSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -159,10 +152,7 @@ describe('the read-only worktree of a reviewer', () => {
     const before = snapshotWriteZone(zone, codexAdapter.worktree_state);
     mkdirSync(join(dir, '.claude', '.cc-writes'), { recursive: true });
     expect(
-      writeZoneViolations(
-        before,
-        snapshotWriteZone(zone, codexAdapter.worktree_state),
-      ),
+      writeZoneViolations(before, snapshotWriteZone(zone, codexAdapter.worktree_state)),
     ).toHaveLength(1);
   });
 
@@ -213,8 +203,7 @@ describe('the git metadata of a run', () => {
     adapter: typeof claudeAdapter,
     act: () => void,
   ): string[] => {
-    const snap = () =>
-      snapshotWriteZone(zone, adapter.worktree_state, adapter.git_dir_state);
+    const snap = () => snapshotWriteZone(zone, adapter.worktree_state, adapter.git_dir_state);
     const before = snap();
     act();
     return writeZoneViolations(before, snap());
@@ -229,9 +218,7 @@ describe('the git metadata of a run', () => {
 
   it('ignores the empty mount points the Claude sandbox leaves in each git dir', () => {
     const { common, admin, zone } = layout();
-    expect(changes(zone, claudeAdapter, mountPoints(common, admin))).toEqual(
-      [],
-    );
+    expect(changes(zone, claudeAdapter, mountPoints(common, admin))).toEqual([]);
   });
 
   it.each([

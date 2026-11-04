@@ -30,13 +30,13 @@ lo những việc đó. Không gọi `cusr`.
 - Việc cần code của một PR chưa merge: hỏi người dùng trước, không tự tạo nhánh từ nhánh chưa merge.
 - Kiểm tra phù hợp với thay đổi:
   - Chỉ sửa tài liệu: chạy `git diff --check` cho diff đang sửa và diff của PR, kiểm tra liên kết nội bộ
-    và tính nhất quán; rà thủ công heading, bảng và code fence Markdown. `.prettierignore` bỏ qua
-    Markdown nên `pnpm lint`/Prettier không phải bằng chứng định dạng tài liệu. Không chạy
+    và tính nhất quán; rà thủ công heading, bảng và code fence Markdown. `.oxfmtrc.jsonc` bỏ qua
+    Markdown nên `pnpm format:check`/Oxfmt không phải bằng chứng định dạng tài liệu. Không chạy
     `pnpm typecheck`, `pnpm lint`, `pnpm test` hoặc `pnpm build` chỉ vì tài liệu thay đổi.
     CI cũng bỏ qua `build` và `test` khi PR chỉ đổi file Markdown ngoài `src/` và `test/`.
-  - Có sửa code, test hoặc cấu hình thực thi: `pnpm typecheck`, `pnpm lint` và `pnpm test:changed` phải
-    sạch; chạy thêm các kiểm tra bắt buộc theo phạm vi thay đổi và hướng dẫn của repo. `pnpm lint` gồm
-    ESLint và `prettier --check`; sửa định dạng bằng `pnpm format`.
+  - Có sửa code, test hoặc cấu hình thực thi: `pnpm typecheck`, `pnpm lint`, `pnpm format:check` và `pnpm test:changed` phải
+    sạch; chạy thêm các kiểm tra bắt buộc theo phạm vi thay đổi và hướng dẫn của repo. `pnpm lint` chạy
+    ESLint, `pnpm format:check` chạy `oxfmt --check`; sửa định dạng bằng `pnpm format`.
   - `pnpm test:changed` chỉ chạy các test phụ thuộc vào file đã đổi so với `origin/main` (gồm cả thay
     đổi chưa commit); khi đang sửa, chạy trực tiếp file test liên quan bằng `pnpm vitest run <file>`.
     Không chạy `pnpm test` đầy đủ trên máy: CI chạy nó cho mọi PR. Test đầy đủ của CI phải xanh trước

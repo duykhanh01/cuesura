@@ -11,12 +11,7 @@ import {
   type RunSelection,
 } from '../../src/domain/run-config.ts';
 import type { Hash, Uuid } from '../../src/shared/brand.ts';
-import {
-  buildPolicy,
-  freezeOk,
-  ownerAuthz,
-  type PolicyOptions,
-} from './builders.ts';
+import { buildPolicy, freezeOk, ownerAuthz, type PolicyOptions } from './builders.ts';
 import type { StoreDriver } from './store-driver.ts';
 
 /** A valid 002 runtime snapshot for `task`, matching `freezeOk(task)` (base `base0000`). */
@@ -87,10 +82,7 @@ export function selectionFor(
     mode,
     reason: 'test',
     worker,
-    reviewer:
-      mode === 'full-review' && review !== undefined
-        ? pick(review.binding)
-        : null,
+    reviewer: mode === 'full-review' && review !== undefined ? pick(review.binding) : null,
     fallbacks,
   };
 }
@@ -103,11 +95,7 @@ export function proposeAndConfirm(
 ): string {
   d.must(task.id, { kind: 'propose_run_config', selection });
   const digest = selectionDigest(selection);
-  d.must(
-    task.id,
-    { kind: 'confirm_run_config', digest },
-    { authz: ownerAuthz() },
-  );
+  d.must(task.id, { kind: 'confirm_run_config', digest }, { authz: ownerAuthz() });
   return digest;
 }
 
@@ -145,11 +133,7 @@ export function createGrantStart(
   proposeAndConfirm(d, task, selectionFor(task, mode));
   d.must(task.id, { kind: 'request_execution' });
   const g = d.store.grantNext(d.now as never);
-  if (
-    !g.ok ||
-    g.value.kind !== 'decided' ||
-    g.value.outcome.decision.kind !== 'accepted'
-  )
+  if (!g.ok || g.value.kind !== 'decided' || g.value.outcome.decision.kind !== 'accepted')
     throw new Error(`grant failed: ${JSON.stringify(g)}`);
   d.must(task.id, {
     kind: 'start',

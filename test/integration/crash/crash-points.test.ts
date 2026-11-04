@@ -10,11 +10,7 @@ import {
   type CrashPoint,
 } from '../../../src/store/testing.ts';
 import { runChild } from '../../support/child.ts';
-import {
-  applyOp,
-  StoreDriver,
-  type StoreOp,
-} from '../../support/store-driver.ts';
+import { applyOp, StoreDriver, type StoreOp } from '../../support/store-driver.ts';
 import { mixedWorkload } from '../../support/store-flows.ts';
 import { dbPath, useTempDir } from '../../support/temp-db.ts';
 
@@ -39,10 +35,7 @@ function reference(): {
   mixedWorkload(recorder);
   const ops = recorder.ops;
 
-  const hits = Object.fromEntries(CRASH_POINTS.map((p) => [p, 0])) as Record<
-    CrashPoint,
-    number
-  >;
+  const hits = Object.fromEntries(CRASH_POINTS.map((p) => [p, 0])) as Record<CrashPoint, number>;
   const replayStore = openMemoryStore({ crash: (p) => void hits[p]++ });
   const prefixes = [journal(replayStore)];
   for (const op of ops) {
@@ -87,10 +80,7 @@ describe('Crash injection at every R-08 point (T084, I03)', () => {
         expect(opened.ok, where).toBe(true);
         if (!opened.ok) continue;
         const store = opened.value;
-        expect(
-          storeDb(store).pragma('integrity_check', { simple: true }),
-          where,
-        ).toBe('ok');
+        expect(storeDb(store).pragma('integrity_check', { simple: true }), where).toBe('ok');
         const k = ref.prefixes.indexOf(journal(store));
         expect(
           k,

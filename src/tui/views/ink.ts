@@ -12,8 +12,7 @@ export const seg = (text: SafeText, style?: Style): Seg =>
   style === undefined ? { text } : { text, style };
 
 /** Fixed text of the interface. */
-export const ui = (text: string, style?: Style): Seg =>
-  seg(uiText(text), style);
+export const ui = (text: string, style?: Style): Seg => seg(uiText(text), style);
 
 export const DIM: Style = { dim: true };
 export const BOLD: Style = { bold: true };
@@ -72,11 +71,7 @@ export function putSegs(
  * Breaks segments into rows of `cols` cells at spaces, keeping each piece's style; a line feed always
  * breaks. Rows after the first start with `indent` spaces, so a value wraps under itself, not its label.
  */
-export function wrapSegs(
-  segs: readonly Seg[],
-  cols: number,
-  indent = 0,
-): Seg[][] {
+export function wrapSegs(segs: readonly Seg[], cols: number, indent = 0): Seg[][] {
   const lead = indent > 0 && indent < cols ? indent : 0;
   const rows: Seg[][] = [];
   let row: Seg[] = [];
@@ -122,13 +117,7 @@ export function wrapSegs(
 }
 
 /** A section title followed by a faint rule to the edge. */
-export function ruleHeading(
-  title: string,
-  cols: number,
-  style: Style = BOLD,
-): Seg[] {
+export function ruleHeading(title: string, cols: number, style: Style = BOLD): Seg[] {
   const room = cols - displayWidth(title) - 1;
-  return room > 0
-    ? [ui(title, style), ui(` ${'─'.repeat(room)}`, DIM)]
-    : [ui(title, style)];
+  return room > 0 ? [ui(title, style), ui(` ${'─'.repeat(room)}`, DIM)] : [ui(title, style)];
 }

@@ -1,23 +1,13 @@
 import type { Database } from 'better-sqlite3';
 import { err, ok, type Result } from '../shared/result.ts';
 import type { Effect } from '../domain/effect.ts';
-import {
-  claimable,
-  type ClaimBlockReason,
-  type ClaimOptions,
-} from '../engine/claim.ts';
+import { claimable, type ClaimBlockReason, type ClaimOptions } from '../engine/claim.ts';
 import {
   registerOperation,
   type OperationClaim,
   type OperationClaimError,
 } from '../engine/runtime.ts';
-import {
-  appendEvents,
-  project,
-  rollback,
-  writeFailure,
-  type WriteFailure,
-} from './accept.ts';
+import { appendEvents, project, rollback, writeFailure, type WriteFailure } from './accept.ts';
 import type { CrashHook } from './crash.ts';
 import type { EffectRow } from './projector.ts';
 import { readTask, toEffect } from './read.ts';
@@ -45,22 +35,19 @@ export function claimEffect(
   let effect: Effect;
   try {
     db.exec('BEGIN IMMEDIATE');
-    const row = db
-      .prepare('SELECT * FROM effects WHERE id = ?')
-      .get(effectId) as EffectRow | undefined;
+    const row = db.prepare('SELECT * FROM effects WHERE id = ?').get(effectId) as
+      | EffectRow
+      | undefined;
     const fail = (e: ClaimError): Result<Effect, ClaimError> => {
       rollback(db);
       return err(e);
     };
     if (row === undefined) return fail({ code: 'not_found' });
-    if (row.status === 'invalidated')
-      return fail({ code: 'effect_invalidated' });
+    if (row.status === 'invalidated') return fail({ code: 'effect_invalidated' });
     if (row.status !== 'pending') return fail({ code: 'not_pending' });
     const state = readTask(db, row.task_id);
     if (state === null)
-      throw new Error(
-        `Effect ${effectId} references a missing task: ${row.task_id}`,
-      );
+      throw new Error(`Effect ${effectId} references a missing task: ${row.task_id}`);
     const c = claimable(
       state,
       { id: row.id, kind: row.kind as Effect['kind'], revision: row.revision },
@@ -80,8 +67,7 @@ export function claimEffect(
             req.operation,
             now,
           );
-    if (op !== null && !op.ok)
-      return fail({ code: 'operation_rejected', reason: op.reason });
+    if (op !== null && !op.ok) return fail({ code: 'operation_rejected', reason: op.reason });
 
     const started = {
       type: 'EffectStarted' as const,
@@ -90,23 +76,13 @@ export function claimEffect(
       payload: { effect_id: effectId, at: now },
     };
     const drafts = op === null ? [started] : [started, ...op.events];
-    const { state: next, events } = appendEvents(
-      db,
-      row.task_id,
-      state,
-      drafts,
-      {
-        dedup_key: null,
-        claim: effectId,
-      },
-    );
+    const { state: next, events } = appendEvents(db, row.task_id, state, drafts, {
+      dedup_key: null,
+      claim: effectId,
+    });
     crash('after_events');
     project(db, events, next, crash);
-    effect = toEffect(
-      db
-        .prepare('SELECT * FROM effects WHERE id = ?')
-        .get(effectId) as EffectRow,
-    );
+    effect = toEffect(db.prepare('SELECT * FROM effects WHERE id = ?').get(effectId) as EffectRow);
     crash('before_commit');
     db.exec('COMMIT');
   } catch (e) {

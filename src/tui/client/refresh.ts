@@ -40,11 +40,7 @@ export const systemRefreshClock: RefreshClock = {
 /** The signal fires when the scheduler stops waiting; the read must close its connection then. */
 export type RefreshReads = {
   /** `fresh`: no watermark, after a failure the data must be read for real. */
-  board(
-    fresh: boolean,
-    timeoutMs: number,
-    signal: AbortSignal,
-  ): Promise<PortResult<BoardReply>>;
+  board(fresh: boolean, timeoutMs: number, signal: AbortSignal): Promise<PortResult<BoardReply>>;
   health(timeoutMs: number, signal: AbortSignal): Promise<PortResult<Health>>;
   /** Read metadata on first load, reconnect or credential change; otherwise reuse the cached value. */
   projects?(
@@ -79,9 +75,7 @@ function stopReason(e: PortError): StopReason | null {
   // The token may no longer read this: asking again gets the same answer until someone changes that (EC-008).
   if (e.kind === 'rejected' && e.code === 'forbidden')
     return { kind: 'forbidden', message: e.message };
-  return e.kind === 'token' ||
-    e.kind === 'unauthenticated' ||
-    e.kind === 'incompatible'
+  return e.kind === 'token' || e.kind === 'unauthenticated' || e.kind === 'incompatible'
     ? { kind: e.kind, message: e.message }
     : null;
 }
@@ -185,15 +179,11 @@ export class RefreshScheduler {
     const metadata =
       projects === undefined
         ? Promise.resolve({ ok: true, value: null } as const)
-        : this.#bounded(
-            (signal) => projects(fresh, BOARD_TIMEOUT_MS, signal),
-            BOARD_TIMEOUT_MS,
-          );
+        : this.#bounded((signal) => projects(fresh, BOARD_TIMEOUT_MS, signal), BOARD_TIMEOUT_MS);
     void Promise.all([board, health, metadata]).then(([b, h, p]) => {
       this.#reading = false;
       if (this.#stopped) return;
-      if (askedAs === this.#credential?.generation())
-        this.#finish(b, h, p, startedAt);
+      if (askedAs === this.#credential?.generation()) this.#finish(b, h, p, startedAt);
       else this.#supersede();
     });
   }
@@ -225,11 +215,8 @@ export class RefreshScheduler {
       return;
     }
     if (connection.kind === 'online')
-      this.#schedule(
-        Math.max(0, startedAt + REFRESH_INTERVAL_MS - this.#clock.now()),
-      );
-    else if (connection.kind === 'reconnecting')
-      this.#schedule(backoffMs(connection.attempt));
+      this.#schedule(Math.max(0, startedAt + REFRESH_INTERVAL_MS - this.#clock.now()));
+    else if (connection.kind === 'reconnecting') this.#schedule(backoffMs(connection.attempt));
     // `waiting_retry` and `stopped` wait for `retry()`: nothing starts a new round on its own.
   }
 
@@ -253,11 +240,8 @@ function toResult(
       health: health.value,
       ...(projects.value === null ? {} : { projects: projects.value }),
     };
-  const errors = [board, health, projects].flatMap((r) =>
-    r.ok ? [] : [r.error],
-  );
-  const permanent =
-    errors.map(stopReason).find((reason) => reason !== null) ?? null;
+  const errors = [board, health, projects].flatMap((r) => (r.ok ? [] : [r.error]));
+  const permanent = errors.map(stopReason).find((reason) => reason !== null) ?? null;
   const message = errors[0]?.message;
   return {
     ok: false,

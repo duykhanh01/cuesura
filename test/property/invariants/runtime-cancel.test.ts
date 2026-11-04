@@ -8,14 +8,7 @@ import type { CanonicalTask } from '../../../src/domain/task.ts';
 import { inFlight } from '../../../src/engine/effects.ts';
 import { openMemoryStore } from '../../../src/store/testing.ts';
 import { buildTask } from '../../support/builders.ts';
-import {
-  A,
-  cancelRef,
-  ci,
-  merge,
-  observation,
-  toGreen,
-} from '../../support/observation.ts';
+import { A, cancelRef, ci, merge, observation, toGreen } from '../../support/observation.ts';
 import type { Uuid } from '../../../src/shared/brand.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 import { propertyParams } from '../arbitraries/policies.ts';
@@ -59,13 +52,7 @@ const stepArb = fc.array(
   { minLength: 1, maxLength: 12 },
 );
 
-function apply(
-  d: StoreDriver,
-  t: CanonicalTask,
-  step: Step,
-  clock: number,
-  n: number,
-): void {
+function apply(d: StoreDriver, t: CanonicalTask, step: Step, clock: number, n: number): void {
   d.now += clock;
   const token = d.task(t.id).cancellation?.read_token;
   switch (step) {
@@ -81,8 +68,7 @@ function apply(
     case 'cancel_open':
     case 'cancel_closed':
     case 'cancel_unknown': {
-      const status = step.slice('cancel_'.length) as
-        'open' | 'closed' | 'unknown';
+      const status = step.slice('cancel_'.length) as 'open' | 'closed' | 'unknown';
       d.send(
         t.id,
         observation(d, t, status, A, {
@@ -99,17 +85,12 @@ function apply(
       const proof: MergeProof = {
         subject:
           s.observation?.subject ??
-          (trig.kind === 'observation_result'
-            ? trig.observation.subject
-            : (null as never)),
+          (trig.kind === 'observation_result' ? trig.observation.subject : (null as never)),
         merged_at: d.now,
         merged_head_sha: A,
         checked_head_sha: null,
         merge_commit_sha: 'd'.repeat(40),
-        observation_id:
-          trig.kind === 'observation_result'
-            ? trig.observation.observation_id
-            : '',
+        observation_id: trig.kind === 'observation_result' ? trig.observation.observation_id : '',
         evidence_ref: 'ev-merge',
       };
       d.send(t.id, {
@@ -121,10 +102,7 @@ function apply(
     }
     case 'merged_unproven':
       // GitHub shows a merge whose evidence is incomplete: no proof follows.
-      d.send(
-        t.id,
-        observation(d, t, 'merged', A, { source: 'timer', merge_proof: false }),
-      );
+      d.send(t.id, observation(d, t, 'merged', A, { source: 'timer', merge_proof: false }));
       return;
     case 'drain':
       if (d.task(t.id).completion !== null)
@@ -137,29 +115,22 @@ function apply(
   }
 }
 
-function check(
-  s: TaskState,
-  events: readonly DomainEvent[],
-  before: TaskState,
-): void {
+function check(s: TaskState, events: readonly DomainEvent[], before: TaskState): void {
   const types = events.map((e) => e.type);
   // A terminal task never moves again.
   if (isTerminal(before.status)) {
     expect(s.status).toBe(before.status);
-    expect(s.completion?.finalized_at ?? null).toBe(
-      before.completion?.finalized_at ?? null,
-    );
+    expect(s.completion?.finalized_at ?? null).toBe(before.completion?.finalized_at ?? null);
   }
-  expect(
-    types.filter((x) => x === 'TaskCancelled' || x === 'TaskCompleted'),
-  ).toHaveLength(isTerminal(s.status) ? 1 : 0);
+  expect(types.filter((x) => x === 'TaskCancelled' || x === 'TaskCompleted')).toHaveLength(
+    isTerminal(s.status) ? 1 : 0,
+  );
   if (s.status === 'CANCELLED') {
     // FR-025.03/04: a clear read made for this cancel, logged after it, no merge proof, nothing in flight.
     expect(s.completion).toBeNull();
     const read = s.cancellation?.pr_read;
     expect(['open', 'closed']).toContain(read?.status);
-    const seq = (pred: (e: DomainEvent) => boolean) =>
-      events.find(pred)?.seq ?? -1;
+    const seq = (pred: (e: DomainEvent) => boolean) => events.find(pred)?.seq ?? -1;
     const cancelSeq = seq((e) => e.type === 'CancelRequested');
     const readSeq = seq(
       (e) =>
@@ -184,14 +155,11 @@ function check(
     expect(Object.values(s.effects).some(inFlight)).toBe(false);
     expect(s.pr_ref).not.toBeNull();
   }
-  if (s.status === 'DONE' && s.cancellation !== null)
-    expect(types).toContain('CancelRecordedLate');
+  if (s.status === 'DONE' && s.cancellation !== null) expect(types).toContain('CancelRecordedLate');
   // FR-025.01: once the cancel is recorded, no business effect waits to be dispatched.
   if (s.cancellation !== null)
     expect(
-      Object.values(s.effects).filter(
-        (e) => e.status === 'pending' && isBusinessEffect(e.kind),
-      ),
+      Object.values(s.effects).filter((e) => e.status === 'pending' && isBusinessEffect(e.kind)),
     ).toEqual([]);
 }
 
@@ -235,10 +203,7 @@ describe('cancel of a task with a PR (FR-025.01–05)', () => {
     d.claim(poll.id);
     d.must(t.id, { kind: 'cancel', reason: 'stop' });
     const ref = cancelRef(d, t);
-    d.must(
-      t.id,
-      observation(d, t, 'merged', A, { source: 'timer', merge_proof: false }),
-    );
+    d.must(t.id, observation(d, t, 'merged', A, { source: 'timer', merge_proof: false }));
     // The cancel's own read was sent first and answers last: open.
     d.must(t.id, observation(d, t, 'open', A, { source: 'recheck', ref }));
     d.must(t.id, {
@@ -281,10 +246,7 @@ describe('cancel of a task with a PR (FR-025.01–05)', () => {
         ref: cancelRef(d, t),
       }),
     );
-    d.must(
-      t.id,
-      observation(d, t, 'merged', A, { source: 'timer', merge_proof: false }),
-    );
+    d.must(t.id, observation(d, t, 'merged', A, { source: 'timer', merge_proof: false }));
     d.must(t.id, {
       kind: 'effect_result',
       effect_id: poll.id as Uuid,

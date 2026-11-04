@@ -4,17 +4,8 @@
  * of the Isolated runtime and what daemon 002 can run. It only reports: it never changes the host, the
  * config or the task's bindings, and its result is a candidate; the single snapshot is frozen at start.
  */
-import type {
-  GitHubPort,
-  GitPort,
-  GitResult,
-  HostProbePort,
-} from '../adapters/ports.ts';
-import {
-  ROLE_SCHEMA_DIGESTS,
-  ROLES,
-  type Role,
-} from '../adapters/harness/result-schema.ts';
+import type { GitHubPort, GitPort, GitResult, HostProbePort } from '../adapters/ports.ts';
+import { ROLE_SCHEMA_DIGESTS, ROLES, type Role } from '../adapters/harness/result-schema.ts';
 import type { RuntimeConfig } from '../config/normalize.ts';
 import { validateConfig, type Validated } from '../config/validate.ts';
 import type { ConfigSource } from '../config/yaml-loader.ts';
@@ -226,21 +217,15 @@ async function run(
   const problems: PreflightProblem[] = [];
   if (runtime === null)
     problems.push(
-      problem(
-        'config_invalid',
-        'runtime',
-        'the `runtime:` section is required by cusrd',
-        { fix: 'add `runtime:` to the user config' },
-      ),
+      problem('config_invalid', 'runtime', 'the `runtime:` section is required by cusrd', {
+        fix: 'add `runtime:` to the user config',
+      }),
     );
   if (location === undefined) {
     problems.push(
-      problem(
-        'config_invalid',
-        'project',
-        `project '${task.project}' is not in the allowlist`,
-        { fix: `add projects.${task.project} to the user config` },
-      ),
+      problem('config_invalid', 'project', `project '${task.project}' is not in the allowlist`, {
+        fix: `add projects.${task.project} to the user config`,
+      }),
     );
   } else {
     if (location.path === null)
@@ -270,19 +255,10 @@ async function run(
   )
     return err(failed(problems));
 
-  const repo = await checkProjectRepo(
-    ports,
-    location.path,
-    location.repo,
-    task.base_branch,
-  );
+  const repo = await checkProjectRepo(ports, location.path, location.repo, task.base_branch);
   if (!repo.ok) return err(failed(repo.error));
 
-  const config = await readProjectConfig(
-    ports.git,
-    location.path,
-    repo.value.base_sha,
-  );
+  const config = await readProjectConfig(ports.git, location.path, repo.value.base_sha);
   if (!config.ok) return err(failed([config.error]));
   const validated = validateConfig({
     user: input.user,
@@ -301,19 +277,11 @@ async function run(
       ]),
     );
 
-  const support = checkSupport(
-    validated.value,
-    task,
-    input.manifests,
-    input.mode ?? null,
-  );
-  support.problems.push(
-    ...(await checkTools(ports.host, input, validated.value, support)),
-  );
+  const support = checkSupport(validated.value, task, input.manifests, input.mode ?? null);
+  support.problems.push(...(await checkTools(ports.host, input, validated.value, support)));
   const remote = await readRepoIdentity(ports.github, location.repo);
   if (!remote.ok) support.problems.push(remote.error);
-  if (support.problems.length > 0 || !remote.ok)
-    return err(failed(support.problems));
+  if (support.problems.length > 0 || !remote.ok) return err(failed(support.problems));
 
   return ok({
     base_sha: repo.value.base_sha,
@@ -350,9 +318,7 @@ async function tool(
   configured: string | undefined,
   name: string,
 ): Promise<string | null> {
-  return configured === undefined
-    ? host.findExecutable(name)
-    : host.realpath(configured);
+  return configured === undefined ? host.findExecutable(name) : host.realpath(configured);
 }
 
 /** Probes only; never runs sudo, changes a sysctl, loads a profile or falls back to unsandboxed. */
@@ -395,18 +361,14 @@ export async function checkHost(
 const SHELL_WORDS: ReadonlySet<string> = new Set(
   `! { } . : [ alias bg break case cd chdir command continue do done echo elif else esac eval exec exit export
    false fc fg fi for getopts hash if in jobs kill local printf pwd read readonly return set shift source test
-   then time times trap true type ulimit umask unalias unset until wait while`.split(
-    /\s+/,
-  ),
+   then time times trap true type ulimit umask unalias unset until wait while`.split(/\s+/),
 );
 
 /** The program a plain `/bin/sh -c` command starts, or null for a path, a keyword or shell syntax. */
 export function commandTool(command: string): string | null {
   const words = command.trim().split(/\s+/);
   const first = words.find((w) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(w)) ?? '';
-  return /^[A-Za-z0-9._+-]+$/.test(first) && !SHELL_WORDS.has(first)
-    ? first
-    : null;
+  return /^[A-Za-z0-9._+-]+$/.test(first) && !SHELL_WORDS.has(first) ? first : null;
 }
 
 /** Prints each tool (`$2…`) that no directory of `$1` holds as a runnable file. */
@@ -425,12 +387,10 @@ export async function missingTools(
   | { readonly ok: false; readonly detail: string }
 > {
   if (tools.length === 0) return { ok: true, missing: [] };
-  const r = await host.exec(
-    ['/bin/sh', '-c', TOOL_PROBE_SCRIPT, 'sh', dirs.join(':'), ...tools],
-    { timeout_ms: PROBE_TIMEOUT_MS },
-  );
-  if (r.kind !== 'exited')
-    return { ok: false, detail: `the sandbox probe ended: ${r.kind}` };
+  const r = await host.exec(['/bin/sh', '-c', TOOL_PROBE_SCRIPT, 'sh', dirs.join(':'), ...tools], {
+    timeout_ms: PROBE_TIMEOUT_MS,
+  });
+  if (r.kind !== 'exited') return { ok: false, detail: `the sandbox probe ended: ${r.kind}` };
   if (r.code !== 0)
     return {
       ok: false,
@@ -457,8 +417,8 @@ async function checkTools(
   const fromGates = commands.flatMap((c) => commandTool(c) ?? []);
   const projectTools = [...new Set([...(project?.tools ?? []), ...fromGates])];
   const out: PreflightProblem[] = [];
-  for (const [h, roles] of Object.entries(support.harness_roles).sort(
-    ([a], [b]) => (a < b ? -1 : 1),
+  for (const [h, roles] of Object.entries(support.harness_roles).sort(([a], [b]) =>
+    a < b ? -1 : 1,
   )) {
     const tools = input.harness_tools?.[h];
     if (tools === undefined) continue;
@@ -481,9 +441,7 @@ async function checkTools(
       );
   }
   if (input.gate_path !== undefined) {
-    const probe = await missingTools(host, input.gate_path, [
-      ...new Set(fromGates),
-    ]);
+    const probe = await missingTools(host, input.gate_path, [...new Set(fromGates)]);
     if (!probe.ok || probe.missing.length > 0)
       out.push(
         problem(
@@ -517,10 +475,8 @@ async function git(
     max_output_bytes: opts.max_output_bytes ?? GIT_OUTPUT_BYTES,
     stdin: null,
   });
-  if (r.kind === 'timeout')
-    throw new Infra(check, `git ${args[0] ?? ''} timed out`);
-  if (r.kind === 'spawn_failed')
-    throw new Infra(check, `git could not be started: ${r.message}`);
+  if (r.kind === 'timeout') throw new Infra(check, `git ${args[0] ?? ''} timed out`);
+  if (r.kind === 'spawn_failed') throw new Infra(check, `git could not be started: ${r.message}`);
   if (r.kind === 'refused') throw new GitRefused(check, r.reason);
   return r;
 }
@@ -539,9 +495,7 @@ async function checkProjectRepo(
   path: string,
   slug: string,
   baseBranch: string,
-): Promise<
-  Result<{ base_sha: string; common_git_dir: string }, PreflightProblem[]>
-> {
+): Promise<Result<{ base_sha: string; common_git_dir: string }, PreflightProblem[]>> {
   const real = await ports.host.realpath(path);
   if (real !== path) {
     return err([
@@ -557,22 +511,13 @@ async function checkProjectRepo(
   const top = await git(
     ports.git,
     path,
-    [
-      'rev-parse',
-      '--path-format=absolute',
-      '--show-toplevel',
-      '--git-common-dir',
-    ],
+    ['rev-parse', '--path-format=absolute', '--show-toplevel', '--git-common-dir'],
     'project_path',
   );
   const [toplevel, commonDir] = top.stdout.split('\n');
   if (top.code !== 0 || toplevel === undefined || commonDir === undefined) {
     return err([
-      problem(
-        'config_invalid',
-        'project_path',
-        `project path ${path} is not a Git repository`,
-      ),
+      problem('config_invalid', 'project_path', `project path ${path} is not a Git repository`),
     ]);
   }
   if (toplevel !== path)
@@ -586,21 +531,11 @@ async function checkProjectRepo(
   const common = await ports.host.realpath(commonDir);
   if (common === null)
     return err([
-      problem(
-        'config_invalid',
-        'project_path',
-        `Git common dir ${commonDir} does not exist`,
-      ),
+      problem('config_invalid', 'project_path', `Git common dir ${commonDir} does not exist`),
     ]);
 
-  const remote = await git(
-    ports.git,
-    path,
-    ['config', '--get', 'remote.origin.url'],
-    'remote',
-  );
-  const remoteSlug =
-    remote.code === 0 ? githubSlugFromRemote(remote.stdout) : null;
+  const remote = await git(ports.git, path, ['config', '--get', 'remote.origin.url'], 'remote');
+  const remoteSlug = remote.code === 0 ? githubSlugFromRemote(remote.stdout) : null;
   if (remoteSlug === null || remoteSlug.toLowerCase() !== slug.toLowerCase()) {
     const seen = remote.code === 0 ? remote.stdout.trim() : 'none';
     return err([
@@ -623,11 +558,7 @@ async function checkProjectRepo(
   );
   if (baseBranch.startsWith('-') || refOk.code !== 0)
     return err([
-      problem(
-        'config_invalid',
-        'base',
-        `base branch '${baseBranch}' is not a valid branch name`,
-      ),
+      problem('config_invalid', 'base', `base branch '${baseBranch}' is not a valid branch name`),
     ]);
   const tracking = `refs/remotes/origin/${baseBranch}`;
   const fetch = await git(
@@ -647,16 +578,9 @@ async function checkProjectRepo(
   if (fetch.code !== 0) {
     if (/couldn't find remote ref/i.test(fetch.stderr))
       return err([
-        problem(
-          'config_invalid',
-          'base',
-          `base branch '${baseBranch}' does not exist on origin`,
-        ),
+        problem('config_invalid', 'base', `base branch '${baseBranch}' does not exist on origin`),
       ]);
-    throw new Infra(
-      'base',
-      `git fetch failed: ${fetch.stderr.trim().slice(0, 512)}`,
-    );
+    throw new Infra('base', `git fetch failed: ${fetch.stderr.trim().slice(0, 512)}`);
   }
   const sha = await git(
     ports.git,
@@ -664,8 +588,7 @@ async function checkProjectRepo(
     ['rev-parse', '--verify', '--quiet', `${tracking}^{commit}`],
     'base',
   );
-  if (sha.code !== 0)
-    throw new Infra('base', `fetched ${tracking} does not resolve to a commit`);
+  if (sha.code !== 0) throw new Infra('base', `fetched ${tracking} does not resolve to a commit`);
   return ok({ base_sha: sha.stdout.trim(), common_git_dir: common });
 }
 
@@ -682,10 +605,7 @@ async function readProjectConfig(
     'project_config',
   );
   if (entry.code !== 0)
-    throw new Infra(
-      'project_config',
-      `git ls-tree failed: ${entry.stderr.trim().slice(0, 512)}`,
-    );
+    throw new Infra('project_config', `git ls-tree failed: ${entry.stderr.trim().slice(0, 512)}`);
   const line = entry.stdout.trim();
   if (line === '') return ok(null);
   const mode = line.split(' ')[0];
@@ -706,10 +626,7 @@ async function readProjectConfig(
     { max_output_bytes: PROJECT_CONFIG_BYTES },
   );
   if (blob.code !== 0)
-    throw new Infra(
-      'project_config',
-      `git cat-file failed: ${blob.stderr.trim().slice(0, 512)}`,
-    );
+    throw new Infra('project_config', `git cat-file failed: ${blob.stderr.trim().slice(0, 512)}`);
   if (blob.truncated)
     return err(
       problem(
@@ -733,8 +650,7 @@ async function readRepoIdentity(
     body: null,
   });
   if (!r.ok) {
-    if (r.error.reason === 'unknown')
-      throw new Infra('github_repo', r.error.detail);
+    if (r.error.reason === 'unknown') throw new Infra('github_repo', r.error.detail);
     if (r.error.status === 404)
       return err(
         problem(
@@ -787,21 +703,13 @@ export async function readLocalBaseConfig(
   path: string,
   baseBranch: string,
 ): Promise<
-  Result<
-    { readonly base_sha: string; readonly config: ConfigSource | null },
-    LocalBaseError
-  >
+  Result<{ readonly base_sha: string; readonly config: ConfigSource | null }, LocalBaseError>
 > {
   try {
     const sha = await git(
       port,
       path,
-      [
-        'rev-parse',
-        '--verify',
-        '--quiet',
-        `refs/remotes/origin/${baseBranch}^{commit}`,
-      ],
+      ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${baseBranch}^{commit}`],
       'base',
     );
     if (sha.code !== 0)
@@ -815,8 +723,7 @@ export async function readLocalBaseConfig(
       ? ok({ base_sha, config: config.value })
       : err({ kind: 'invalid', detail: config.error.message });
   } catch (e) {
-    if (e instanceof Infra)
-      return err({ kind: 'unavailable', detail: e.detail });
+    if (e instanceof Infra) return err({ kind: 'unavailable', detail: e.detail });
     if (e instanceof GitRefused)
       return err({ kind: 'unavailable', detail: `git refused: ${e.reason}` });
     throw e;
@@ -857,11 +764,9 @@ export function checkSupport(
   }
 
   const profileName = task.profile ?? config.project?.profile ?? null;
-  const profile =
-    profileName === null ? undefined : config.profiles[profileName];
+  const profile = profileName === null ? undefined : config.profiles[profileName];
   const workflowName = profile?.workflow ?? null;
-  const workflow =
-    workflowName === null ? undefined : config.user.workflows[workflowName];
+  const workflow = workflowName === null ? undefined : config.user.workflows[workflowName];
   if (profile === undefined || workflow === undefined) {
     problems.push(
       problem(
@@ -876,12 +781,9 @@ export function checkSupport(
   }
   if (mode !== null && validated.runtime?.modes[mode] === undefined) {
     problems.push(
-      problem(
-        'config_invalid',
-        'mode',
-        `mode '${mode}' is not allowed by runtime.modes`,
-        { fix: `add runtime.modes.${mode} or propose another mode` },
-      ),
+      problem('config_invalid', 'mode', `mode '${mode}' is not allowed by runtime.modes`, {
+        fix: `add runtime.modes.${mode} or propose another mode`,
+      }),
     );
   }
   // The graph of the mode; before a mode is chosen only what both modes need (no reviewer) is checked.
@@ -895,10 +797,7 @@ export function checkSupport(
     if (!activeAgentStep(step, facts)) continue;
     const role = step.role ?? '';
     if (!(ROLES as readonly string[]).includes(role)) {
-      cap(
-        'role',
-        `step '${name}' needs role '${role}', which cusrd does not run`,
-      );
+      cap('role', `step '${name}' needs role '${role}', which cusrd does not run`);
       continue;
     }
     roles.add(role as Role);
@@ -913,9 +812,7 @@ export function checkSupport(
     for (const h of roleHarnesses(validated, role, profile.allow_models))
       harness_roles[h] = [...(harness_roles[h] ?? []), role];
   }
-  for (const [h, hRoles] of Object.entries(harness_roles).sort(([a], [b]) =>
-    a < b ? -1 : 1,
-  )) {
+  for (const [h, hRoles] of Object.entries(harness_roles).sort(([a], [b]) => (a < b ? -1 : 1))) {
     const before = problems.length;
     const m = manifests[h] ?? null;
     if (m === null) {
@@ -924,16 +821,9 @@ export function checkSupport(
     }
     for (const role of hRoles) {
       if (m.role_schemas[role] !== ROLE_SCHEMA_DIGESTS[role])
-        cap(
-          'harness',
-          `harness '${h}' manifest has no current ${role} result schema`,
-        );
+        cap('harness', `harness '${h}' manifest has no current ${role} result schema`);
     }
-    for (const k of [
-      'structured_output',
-      'permission_enforced',
-      'private_home_auth',
-    ] as const) {
+    for (const k of ['structured_output', 'permission_enforced', 'private_home_auth'] as const) {
       if (m.capabilities[k] === 'unsupported')
         cap('harness', `harness '${h}' does not support ${k}`);
     }
@@ -952,10 +842,7 @@ export function checkSupport(
 }
 
 /** Agent/review steps that run for this task; a `when` that does not match leaves the step out. */
-function activeAgentStep(
-  step: StepDef,
-  facts: ReturnType<typeof bindingFacts>,
-): boolean {
+function activeAgentStep(step: StepDef, facts: ReturnType<typeof bindingFacts>): boolean {
   if (step.kind !== 'agent' && step.kind !== 'review') return false;
   return step.when === undefined || evalPredicate(step.when, facts);
 }

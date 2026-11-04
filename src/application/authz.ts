@@ -10,12 +10,8 @@ export type AuthzError =
   | { code: 'unauthenticated' }
   | { code: 'forbidden'; reason: 'role' | 'project'; required: string };
 
-export function authenticate(
-  tokens: TokenMap,
-  bearer: string | null | undefined,
-): Caller | null {
-  if (typeof bearer !== 'string' || bearer.length === 0 || bearer.length > 256)
-    return null;
+export function authenticate(tokens: TokenMap, bearer: string | null | undefined): Caller | null {
+  if (typeof bearer !== 'string' || bearer.length === 0 || bearer.length > 256) return null;
   const grant = tokens.byDigest.get(tokenDigest(bearer));
   return grant === undefined ? null : { grant };
 }
@@ -47,10 +43,7 @@ export function authorize(
 }
 
 /** Projects a caller may see in list/status queries. */
-export function visibleProjects(
-  caller: Caller,
-  all: readonly string[],
-): string[] {
+export function visibleProjects(caller: Caller, all: readonly string[]): string[] {
   return caller.grant.projects === '*'
     ? [...all]
     : all.filter((p) => caller.grant.projects.includes(p));

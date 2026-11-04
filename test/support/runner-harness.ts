@@ -17,10 +17,7 @@ import {
 import { claudeAdapter } from '../../src/adapters/harness/claude.ts';
 import { codexAdapter } from '../../src/adapters/harness/codex.ts';
 import { wireRoleSchema } from '../../src/adapters/harness/result-schema.ts';
-import {
-  hostInnerMode,
-  type VendorPin,
-} from '../../src/adapters/harness/vendor.ts';
+import { hostInnerMode, type VendorPin } from '../../src/adapters/harness/vendor.ts';
 import type {
   LaunchError,
   OperationLaunch,
@@ -35,10 +32,7 @@ import type {
 import type { CapabilityManifest } from '../../src/domain/runtime.ts';
 import { RUN_FILES, RunDir } from '../../src/runner/files.ts';
 import { execOperation } from '../../src/runner/lifecycle.ts';
-import {
-  homeSecretValues,
-  readInstalledAuth,
-} from '../../src/runner/private-home.ts';
+import { homeSecretValues, readInstalledAuth } from '../../src/runner/private-home.ts';
 import { Redactor } from '../../src/runner/redact.ts';
 import { IN_SANDBOX } from '../../src/runner/sandbox.ts';
 import { InvocationSpecSchema } from '../../src/runner/supervisor.ts';
@@ -61,10 +55,7 @@ export function passThroughShape(role: string): Hash {
 }
 
 const PASS_THROUGH_SHAPES: Readonly<Record<string, Hash>> = Object.fromEntries(
-  (['coder', 'fixer', 'reviewer'] as const).map((r) => [
-    r,
-    passThroughShape(r),
-  ]),
+  (['coder', 'fixer', 'reviewer'] as const).map((r) => [r, passThroughShape(r)]),
 );
 
 export class PassThroughSandbox implements SandboxProvider {
@@ -85,10 +76,7 @@ export class PassThroughSandbox implements SandboxProvider {
       [IN_SANDBOX.home, layout.private_home],
     ];
     const rewrite = (a: string): string =>
-      map.reduce(
-        (s, [from, to]) => (to === null ? s : s.split(from).join(to)),
-        a,
-      );
+      map.reduce((s, [from, to]) => (to === null ? s : s.split(from).join(to)), a);
     return ok({
       isolation_mode: 'isolated',
       provider: 'bwrap',
@@ -121,9 +109,7 @@ export class InlineProcessPort implements ProcessPort {
 
   launch(
     spec: OperationLaunch,
-  ): Promise<
-    Result<{ unit: string; invocation_id: string | null }, LaunchError>
-  > {
+  ): Promise<Result<{ unit: string; invocation_id: string | null }, LaunchError>> {
     this.launches.push(spec);
     const probe = RunDir.open({
       dataDir: this.dataDir,
@@ -169,9 +155,7 @@ export class InlineProcessPort implements ProcessPort {
         return () => undefined;
       },
     }).finally(() => (entry.done = true));
-    return Promise.resolve(
-      ok({ unit: `inline-${spec.operation_id}`, invocation_id: null }),
-    );
+    return Promise.resolve(ok({ unit: `inline-${spec.operation_id}`, invocation_id: null }));
   }
 
   inspect(operationId: string): Promise<UnitObservation> {
@@ -243,20 +227,14 @@ export function evidenceManifest(
     session: null,
   });
   if (!plan.ok) throw new Error(plan.error.message);
-  const observed = observeHarness(
-    pin,
-    plan.value.settings_hash,
-    HOST_POLICY_HASH,
-  );
+  const observed = observeHarness(pin, plan.value.settings_hash, HOST_POLICY_HASH);
   if (!observed.ok) throw new Error(observed.error.message);
   return manifestFromEvidence({
     entry,
     observed: observed.value,
     cost: pin.vendor === 'claude' ? 'reported' : 'unavailable',
     layout_shapes: layoutShapes,
-    fixture_refs: [
-      'test/fixtures/runtime/spike-0/harness/real-20261028/capability-manifest.json',
-    ],
+    fixture_refs: ['test/fixtures/runtime/spike-0/harness/real-20261028/capability-manifest.json'],
     checked_at: 0,
   });
 }

@@ -49,10 +49,7 @@ import {
   type FileLimits,
 } from '../../src/runner/files.ts';
 import { unitName } from '../../src/runner/identity.ts';
-import {
-  RunnerExitSchema,
-  type RunnerExit,
-} from '../../src/runner/lifecycle.ts';
+import { RunnerExitSchema, type RunnerExit } from '../../src/runner/lifecycle.ts';
 import { FLOCK } from '../../src/runner/operation-lock.ts';
 import { Redactor } from '../../src/runner/redact.ts';
 import type { EpochMs, Uuid } from '../../src/shared/brand.ts';
@@ -95,8 +92,7 @@ const SEED = Number(process.env['CUSR_SEED'] ?? 20261028);
 const KILLS = Number(process.env['CUSR_RUNTIME_KILLS'] ?? 40);
 const H05_KILLS = Math.max(2, Math.ceil(KILLS / 2));
 
-const path = (rel: string): string =>
-  fileURLToPath(new URL(rel, import.meta.url));
+const path = (rel: string): string => fileURLToPath(new URL(rel, import.meta.url));
 const CHILD = path('../support/runtime-crash-child.ts');
 const RUNNER = path('../../src/cli/cusr-runner.ts');
 
@@ -185,11 +181,10 @@ const eventsOf = (d: StoreDriver, taskId: string, type: string) =>
   d.store.readEvents(taskId as Uuid).filter((e) => e.type === type);
 
 function commitsOn(lay: Layout, base: string, branch: string): number {
-  const r = spawnSync(
-    'git',
-    ['rev-list', '--count', `${base}..refs/heads/${branch}`],
-    { cwd: lay.project, encoding: 'utf8' },
-  );
+  const r = spawnSync('git', ['rev-list', '--count', `${base}..refs/heads/${branch}`], {
+    cwd: lay.project,
+    encoding: 'utf8',
+  });
   return r.status === 0 ? Number(r.stdout.trim()) : 0;
 }
 
@@ -224,22 +219,11 @@ type GroupDef = {
     life: number,
   ): Omit<LifeArgs, 'root' | 'life' | 'now' | 'kill' | 'group'>;
   /** Between lives, as the outside world moves while no daemon runs; true asks for another life. */
-  between?(
-    lay: Layout,
-    t: Template,
-    variant: string,
-    life: number,
-    killed: boolean,
-  ): boolean;
+  between?(lay: Layout, t: Template, variant: string, life: number, killed: boolean): boolean;
   /** Holds after every kill. */
   invariant(lay: Layout, t: Template, variant: string): void;
   /** Holds once a life reached the target; returns the counts the report keeps. */
-  final(
-    lay: Layout,
-    t: Template,
-    variant: string,
-    ledger: readonly Hit[],
-  ): Record<string, number>;
+  final(lay: Layout, t: Template, variant: string, ledger: readonly Hit[]): Record<string, number>;
   cleanup?(lay: Layout, t: Template): void;
 };
 
@@ -260,8 +244,7 @@ async function flowTemplate(
   const dependent = withDependent
     ? buildTask({ id: uuidOf(2), source_key: 'cli:2', depends_on: [task.id] })
     : null;
-  if (dependent !== null)
-    d.must(dependent.id, { kind: 'create_task', task: dependent });
+  if (dependent !== null) d.must(dependent.id, { kind: 'create_task', task: dependent });
   const frozen = freezeOk(task, {
     base_sha: base,
     gates: GATES,
@@ -272,8 +255,7 @@ async function flowTemplate(
   proposeAndConfirm(d, task, selectionFor(task, mode, frozen.value.policy));
   d.must(task.id, { kind: 'request_execution' });
   const granted = d.store.grantNext(d.now as EpochMs, [uuidv7()]);
-  if (!granted.ok || granted.value.kind !== 'decided')
-    throw new Error(JSON.stringify(granted));
+  if (!granted.ok || granted.value.kind !== 'decided') throw new Error(JSON.stringify(granted));
   const runtime = confirmedRuntime(d, task, {
     base_sha: base,
     project_path: lay.project,
@@ -296,8 +278,7 @@ async function flowTemplate(
     sw,
   );
   d.store.close();
-  if (outcome !== 'reached')
-    throw new Error(`template never reached ${JSON.stringify(until)}`);
+  if (outcome !== 'reached') throw new Error(`template never reached ${JSON.stringify(until)}`);
   return {
     task,
     dependent,
@@ -337,9 +318,7 @@ const commitPush: GroupDef = {
       expect(remoteHead(lay, t.branch)).toBe(sha);
       expect(remotePushes(lay, t.branch)).toBe(1);
       expect(s.head_sha).toBe(sha);
-      const publishes = Object.values(s.effects).filter(
-        (e) => e.kind === 'publish',
-      );
+      const publishes = Object.values(s.effects).filter((e) => e.kind === 'publish');
       expect(publishes.map((e) => e.status)).toEqual(['succeeded']);
       return {
         commits: 1,
@@ -370,9 +349,7 @@ const prCreate: GroupDef = {
       expect(github(lay)).toEqual({ prs: 1, posts: 1 });
       expect(s.pr_ref).toBe('acme/app#7');
       expect(remotePushes(lay, t.branch)).toBe(1);
-      const creates = Object.values(s.effects).filter(
-        (e) => e.kind === 'create_pr',
-      );
+      const creates = Object.values(s.effects).filter((e) => e.kind === 'create_pr');
       expect(creates.map((e) => e.status)).toEqual(['succeeded']);
       return {
         prs: 1,
@@ -391,12 +368,7 @@ const mergeDrain: GroupDef = {
   kills: KILLS,
   variants: ['direct-pr'],
   async template(lay) {
-    const t = await flowTemplate(
-      lay,
-      'direct-pr',
-      { pending: 'await_ci' },
-      true,
-    );
+    const t = await flowTemplate(lay, 'direct-pr', { pending: 'await_ci' }, true);
     // The user merges while the PR waits for its CI read.
     const gh = loadGitHub(lay);
     gh.merge(7, MERGE);
@@ -443,9 +415,7 @@ const h05: GroupDef = {
     flowTemplate(
       lay,
       'full-review',
-      v === 'review'
-        ? { pending: 'start_agent', step: 'review' }
-        : { pending: 'publish' },
+      v === 'review' ? { pending: 'start_agent', step: 'review' } : { pending: 'publish' },
     ),
   life: (_lay, t, v, life) => ({
     task_id: t.task.id,
@@ -479,9 +449,7 @@ const h05: GroupDef = {
     expect(github(lay).prs).toBe(0);
   },
   final(lay, t, v, ledger) {
-    const reviewers = ledger.filter(
-      (h) => h.key === 'harness:codex:before',
-    ).length;
+    const reviewers = ledger.filter((h) => h.key === 'harness:codex:before').length;
     if (ledger.some((h) => h.life > 1) === false)
       return { reviewers, pushes: remotePushes(lay, t.branch) };
     return withStore(lay, (d) => {
@@ -489,14 +457,11 @@ const h05: GroupDef = {
       expect(s.run.head_drift).toMatchObject({ observed: B });
       expect(s.blockers.map((b) => b.code)).toContain('head_changed');
       expect(github(lay).prs).toBe(0);
-      expect(
-        Object.values(s.effects).filter((e) => e.kind === 'create_pr'),
-      ).toEqual([]);
+      expect(Object.values(s.effects).filter((e) => e.kind === 'create_pr')).toEqual([]);
       expect(reviewers).toBeLessThanOrEqual(1);
       expect(
-        Object.values(s.effects).filter(
-          (e) => e.kind === 'start_agent' && e.step === 'review',
-        ).length,
+        Object.values(s.effects).filter((e) => e.kind === 'start_agent' && e.step === 'review')
+          .length,
       ).toBeLessThanOrEqual(1);
       const pushes = remotePushes(lay, t.branch);
       if (v === 'review') expect(pushes).toBe(0);
@@ -584,13 +549,10 @@ function finishSpool(lay: Layout, t: Template, now: number): void {
 function spoolCounts(lay: Layout, taskId: string) {
   return withStore(lay, (d) => {
     const ingested = eventsOf(d, taskId, 'OutputIngested').map(
-      (e) =>
-        e.payload as { records: number; cursor: { last_record_seq: number } },
+      (e) => e.payload as { records: number; cursor: { last_record_seq: number } },
     );
     const cursor = (storeDb(d.store)
-      .prepare(
-        'SELECT last_record_seq FROM ingest_cursors WHERE operation_id = ?',
-      )
+      .prepare('SELECT last_record_seq FROM ingest_cursors WHERE operation_id = ?')
       .get(OP) ?? { last_record_seq: 0 }) as { last_record_seq: number };
     return {
       records: ingested.reduce((a, b) => a + b.records, 0),
@@ -688,12 +650,7 @@ const spawnAdoption: GroupDef = {
     const d = new StoreDriver(openFileStoreForTest(lay.store));
     const task = buildTask({ id: uuidOf(1) });
     createGrantStart(d, task);
-    d.complete(
-      task.id,
-      d.pendingOne(task.id, 'prepare').id,
-      'succeeded',
-      PREPARE_DATA,
-    );
+    d.complete(task.id, d.pendingOne(task.id, 'prepare').id, 'succeeded', PREPARE_DATA);
     const t = { task, dependent: null, base: '', branch: '', now: d.now };
     d.store.close();
     return t;
@@ -748,9 +705,7 @@ const spawnAdoption: GroupDef = {
     });
   },
   cleanup(lay, t) {
-    const ops = withStore(lay, (d) =>
-      Object.keys(d.task(t.task.id).operations),
-    );
+    const ops = withStore(lay, (d) => Object.keys(d.task(t.task.id).operations));
     for (const op of ops) {
       spawnSync('systemctl', ['--user', 'stop', unitName(op)]);
       spawnSync('systemctl', ['--user', 'reset-failed', unitName(op)]);
@@ -771,8 +726,7 @@ function spawns(lay: Layout): number {
 function launched(lay: Layout): number {
   const runs = join(lay.data, 'runs');
   return existsSync(runs)
-    ? readdirSync(runs).filter((r) => existsSync(join(runs, r, 'launch.json')))
-        .length
+    ? readdirSync(runs).filter((r) => existsSync(join(runs, r, 'launch.json'))).length
     : 0;
 }
 
@@ -786,11 +740,7 @@ type Plan = { readonly variant: string; readonly kills: readonly KillPoint[] };
  * recovering life at a point it may pass (a read or probe included). Plans depend on the seed and the
  * calibration ledger only.
  */
-function planFor(
-  def: GroupDef,
-  n: number,
-  hits: ReadonlyMap<string, readonly Hit[]>,
-): Plan {
+function planFor(def: GroupDef, n: number, hits: ReadonlyMap<string, readonly Hit[]>): Plan {
   const next = rng(SEED ^ (GROUPS.indexOf(def.group) * 0x9e3779b1) ^ n);
   const variants = def.variants.length;
   const variant = def.variants[n % variants] as string;
@@ -865,8 +815,7 @@ function execute(
   expect(end.integrity, where).toBe('ok');
   expect(end.verified, where).toBe(true);
   // Nothing a dead daemon committed is lost or rewritten by a later life.
-  for (const s of snapshots)
-    expect(end.events.slice(0, s.events.length), where).toEqual(s.events);
+  for (const s of snapshots) expect(end.events.slice(0, s.events.length), where).toEqual(s.events);
   return { happened, ledger: readLedger(lay.ledger), end, lives: life };
 }
 
@@ -933,16 +882,10 @@ function crashGroup(def: GroupDef): void {
         });
 
       it('the kills cover before the effect, after the external success and before the durable ingest', () => {
-        const kills = runs
-          .filter((r) => r.group === def.group)
-          .flatMap((r) => r.kills);
+        const kills = runs.filter((r) => r.group === def.group).flatMap((r) => r.kills);
         expect(kills.length).toBeGreaterThanOrEqual(def.kills);
         if (def.kills >= PHASES.length * def.variants.length)
-          for (const p of [
-            'before_effect',
-            'after_external',
-            'before_ingest',
-          ] as const)
+          for (const p of ['before_effect', 'after_external', 'before_ingest'] as const)
             expect(
               kills.some((k) => k.phase === p),
               p,
@@ -960,16 +903,13 @@ crashGroup(mergeDrain);
 crashGroup(h05);
 
 describe('runtime crash totals', () => {
-  it.skipIf(!SYSTEMD)(
-    `at least 5 × ${KILLS} kills across the five groups, plus H05`,
-    () => {
-      const kills = runs.flatMap((r) => r.kills);
-      expect(kills.length).toBeGreaterThanOrEqual(5 * KILLS + H05_KILLS);
-      for (const g of GROUPS.filter((x) => x !== 'h05'))
-        expect(
-          runs.filter((r) => r.group === g).flatMap((r) => r.kills).length,
-          g,
-        ).toBeGreaterThanOrEqual(KILLS);
-    },
-  );
+  it.skipIf(!SYSTEMD)(`at least 5 × ${KILLS} kills across the five groups, plus H05`, () => {
+    const kills = runs.flatMap((r) => r.kills);
+    expect(kills.length).toBeGreaterThanOrEqual(5 * KILLS + H05_KILLS);
+    for (const g of GROUPS.filter((x) => x !== 'h05'))
+      expect(
+        runs.filter((r) => r.group === g).flatMap((r) => r.kills).length,
+        g,
+      ).toBeGreaterThanOrEqual(KILLS);
+  });
 });

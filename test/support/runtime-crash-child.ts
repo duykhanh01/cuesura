@@ -48,9 +48,7 @@ const done = (code: number, summary: Record<string, unknown>): never => {
  * Startup recovery. The host probes are the real ones (systemd, the kernel lock, /proc) only where a
  * real unit can exist; operations of the flow groups run inside the daemon and have none.
  */
-async function recover(
-  host: boolean,
-): Promise<{ store: Store; held: string | null }> {
+async function recover(host: boolean): Promise<{ store: Store; held: string | null }> {
   const base: StartupDeps = {
     path: lay.store,
     dataDir: lay.data,
@@ -75,8 +73,7 @@ async function recover(
         },
   );
   if (!r.ok) return done(3, { open_failed: r.error });
-  if (r.value.report.blocked !== null)
-    done(4, { blocked: r.value.report.blocked });
+  if (r.value.report.blocked !== null) done(4, { blocked: r.value.report.blocked });
   return { store: r.value.store, held: r.value.report.held };
 }
 
@@ -123,11 +120,7 @@ async function flow(): Promise<void> {
     status: s?.status,
     wait: s?.wait?.detail['code'] ?? null,
     held: holding,
-    effects: Object.values(s?.effects ?? {}).map((e) => [
-      e.kind,
-      e.step,
-      e.status,
-    ]),
+    effects: Object.values(s?.effects ?? {}).map((e) => [e.kind, e.step, e.status]),
   });
 }
 
@@ -159,23 +152,18 @@ async function spawn(): Promise<void> {
     );
     if (pending !== undefined && held === null) {
       const op = uuidv7();
-      const claimed = store.claimEffect(
-        pending.id as Uuid,
-        asEpochMs(clock.t),
-        {
-          require_runtime: true,
-          operation: {
-            operation_id: op,
-            kind: 'agent',
-            launch_nonce: `dispatch-${op}`,
-            unit: unitName(op),
-            holds_slot: true,
-          },
+      const claimed = store.claimEffect(pending.id as Uuid, asEpochMs(clock.t), {
+        require_runtime: true,
+        operation: {
+          operation_id: op,
+          kind: 'agent',
+          launch_nonce: `dispatch-${op}`,
+          unit: unitName(op),
+          holds_slot: true,
         },
-      );
+      });
       if (!claimed.ok) done(6, { claim_failed: claimed.error });
-      const attempt = store.readTask(args.task_id as Uuid)?.effects[pending.id]
-        ?.attempt_id;
+      const attempt = store.readTask(args.task_id as Uuid)?.effects[pending.id]?.attempt_id;
       if (attempt == null) done(6, { no_attempt: pending.id });
       sw.hit('spawn:launch:before', 'before_effect');
       const launched = await new SystemdSupervisor({
@@ -199,9 +187,7 @@ async function spawn(): Promise<void> {
       sw.hit('spawn:launch:after', 'after_external');
       continue;
     }
-    const open = Object.values(s.operations).filter(
-      (o) => o.kind === 'agent' && isUnresolved(o),
-    );
+    const open = Object.values(s.operations).filter((o) => o.kind === 'agent' && isUnresolved(o));
     if (open.length === 0) break;
     // The pass runs only once each open run has exited or its unit is gone, so the exit receipt is
     // always seen (and its kill point passed) before the pass ingests it.
@@ -215,11 +201,7 @@ async function spawn(): Promise<void> {
           seen.add(`${o.id}:${f}`);
           sw.hit(`spawn:${f}:after`, 'after_external');
         }
-      if (
-        !seen.has(`${o.id}:exit`) &&
-        (await inspectUnit(o.id)).state === 'active'
-      )
-        ready = false;
+      if (!seen.has(`${o.id}:exit`) && (await inspectUnit(o.id)).state === 'active') ready = false;
     }
     if (!ready) {
       await new Promise((r) => setTimeout(r, 100));

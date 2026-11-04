@@ -18,28 +18,19 @@ import { displayWidth, padEnd } from '../tui/terminal/width.ts';
 
 export type Render = (data: unknown) => string;
 
-function table(
-  header: readonly string[],
-  rows: readonly (readonly string[])[],
-): string[] {
+function table(header: readonly string[], rows: readonly (readonly string[])[]): string[] {
   const widths = header.map((h, i) =>
     Math.max(displayWidth(h), ...rows.map((r) => displayWidth(r[i] as string))),
   );
   return [header, ...rows].map((row) =>
     row
-      .map((cell, i) =>
-        i === row.length - 1 ? cell : padEnd(uiText(cell), widths[i] as number),
-      )
+      .map((cell, i) => (i === row.length - 1 ? cell : padEnd(uiText(cell), widths[i] as number)))
       .join('  '),
   );
 }
 
-function labelled(
-  pairs: readonly (readonly [string, string | null])[],
-): string[] {
-  return pairs.flatMap(([label, value]) =>
-    value === null ? [] : [`${label}: ${value}`],
-  );
+function labelled(pairs: readonly (readonly [string, string | null])[]): string[] {
+  return pairs.flatMap(([label, value]) => (value === null ? [] : [`${label}: ${value}`]));
 }
 
 const when = (ms: number): string => new Date(ms).toISOString();
@@ -59,9 +50,7 @@ function taskTable(rows: readonly BoardRow[]): string[] {
 
 /** Quoted only when it has to be, so a suggested command can be pasted as it is. */
 function shellWord(word: string): string {
-  return /^[\w@%+=:,./-]+$/.test(word)
-    ? word
-    : `'${word.replaceAll("'", "'\\''")}'`;
+  return /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`;
 }
 
 /** `flags`: what this board was asked with, so the next page shows the same list. */
@@ -94,9 +83,7 @@ export const renderBoard =
     if (b.next_cursor !== null)
       lines.push(
         `More: ${sanitize(
-          ['cusr', 'task', 'board', ...flags, '--cursor', b.next_cursor]
-            .map(shellWord)
-            .join(' '),
+          ['cusr', 'task', 'board', ...flags, '--cursor', b.next_cursor].map(shellWord).join(' '),
         )}`,
       );
     return `${lines.join('\n')}\n`;
@@ -141,9 +128,7 @@ export const renderTaskList =
       lines.push(
         '',
         `More: ${sanitize(
-          ['cusr', 'task', 'list', ...flags, '--cursor', next_cursor]
-            .map(shellWord)
-            .join(' '),
+          ['cusr', 'task', 'list', ...flags, '--cursor', next_cursor].map(shellWord).join(' '),
         )}`,
       );
     return `${lines.join('\n')}\n`;
@@ -166,8 +151,7 @@ const HistorySchema = z.object({
 /** Summary pages only: a `--full` page has payloads, which a table cannot show, so it stays YAML. */
 export const renderHistory: Render = (data) => {
   const r = HistorySchema.safeParse(data);
-  if (!r.success || (data as { details?: unknown }).details === undefined)
-    return stringify(data);
+  if (!r.success || (data as { details?: unknown }).details === undefined) return stringify(data);
   const { task_id, events, next_cursor, more } = r.data;
   const lines =
     events.length === 0
@@ -177,9 +161,7 @@ export const renderHistory: Render = (data) => {
           events.map((e) => [
             String(e.seq),
             String(e.revision),
-            sanitize(
-              typeof e.actor === 'string' ? e.actor : JSON.stringify(e.actor),
-            ),
+            sanitize(typeof e.actor === 'string' ? e.actor : JSON.stringify(e.actor)),
             sanitize(e.type),
           ]),
         );
@@ -217,10 +199,7 @@ export const renderProjects: Render = (data) => {
 };
 
 /** `past` only says a step ran, not that it passed: a failed gate is `past` too, on its way to a fix. */
-const STEP_STATE: Record<
-  NonNullable<TaskProgress['steps']>[number]['state'],
-  string
-> = {
+const STEP_STATE: Record<NonNullable<TaskProgress['steps']>[number]['state'], string> = {
   past: 'visited',
   current: 'current',
   remaining: 'next',
@@ -276,9 +255,7 @@ export const renderRequest: Render = (data) => {
       ['Completed', q.completed_at === null ? null : when(q.completed_at)],
       [
         'Reason',
-        q.outcome?.ok === false
-          ? `${q.outcome.error.code}: ${q.outcome.error.message}`
-          : null,
+        q.outcome?.ok === false ? `${q.outcome.error.code}: ${q.outcome.error.message}` : null,
       ],
       ['Next step', q.next_step],
     ]),
@@ -302,16 +279,10 @@ const ReportUsage = z.object({
 type ReportUsage = z.infer<typeof ReportUsage>;
 
 /** A metric no run gave is unavailable, never 0; a partial sum says how many runs it leaves out. */
-function metric(
-  m: z.infer<typeof ReportMetric>,
-  runs: number,
-  unit: string,
-): string {
+function metric(m: z.infer<typeof ReportMetric>, runs: number, unit: string): string {
   if (m.missing >= runs) return `${unit} unavailable`;
   const value = unit === 'tokens' ? `${m.sum} tokens` : `cost ${m.sum}`;
-  return m.missing === 0
-    ? value
-    : `${value} (${m.missing} of ${runs} runs not included)`;
+  return m.missing === 0 ? value : `${value} (${m.missing} of ${runs} runs not included)`;
 }
 
 function usageLine(u: ReportUsage): string {
@@ -373,10 +344,7 @@ const ReportSchema = z.object({
   ),
 });
 
-function heading(
-  label: string,
-  s: { items: readonly unknown[]; truncated: boolean },
-): string {
+function heading(label: string, s: { items: readonly unknown[]; truncated: boolean }): string {
   return `${label} (${s.items.length}${s.truncated ? '+' : ''})`;
 }
 
@@ -399,17 +367,13 @@ export const renderReport: Render = (data) => {
           ['ID', 'STATUS', 'PR', 'TITLE'],
           finished.items.map((t) => [
             t.task_id,
-            t.status === 'DONE' && t.unverified !== null
-              ? 'DONE (unverified)'
-              : t.status,
+            t.status === 'DONE' && t.unverified !== null ? 'DONE (unverified)' : t.status,
             sanitize(t.pr_ref ?? '-'),
             sanitize(t.title),
           ]),
         ),
         ...finished.items.flatMap((t) =>
-          t.status !== 'DONE' && t.reason !== null
-            ? [`  ${t.task_id}: ${oneLine(t.reason)}`]
-            : [],
+          t.status !== 'DONE' && t.reason !== null ? [`  ${t.task_id}: ${oneLine(t.reason)}`] : [],
         ),
       );
     if (needs_you.items.length > 0)

@@ -142,10 +142,7 @@ export class SlotConflict extends Error {
 export class IdCollision extends Error {
   readonly table: 'effects' | 'timers' | 'operations' | 'external_observations';
   readonly id: string;
-  constructor(
-    table: 'effects' | 'timers' | 'operations' | 'external_observations',
-    id: string,
-  ) {
+  constructor(table: 'effects' | 'timers' | 'operations' | 'external_observations', id: string) {
     super(`projection: ${table} already contains ID ${id}`);
     this.table = table;
     this.id = id;
@@ -234,8 +231,7 @@ export function projectEffects(
   const touched = new Map<string, EffectRow>();
   const get = (id: string): EffectRow => {
     const row = touched.get(id) ?? sink.getEffect(id);
-    if (row === undefined)
-      throw new Error(`projection: effect ${id} was not requested`);
+    if (row === undefined) throw new Error(`projection: effect ${id} was not requested`);
     touched.set(id, row);
     return row;
   };
@@ -243,10 +239,7 @@ export function projectEffects(
     switch (e.type) {
       case 'EffectRequested': {
         const p = e.payload;
-        if (
-          touched.has(p.effect_id) ||
-          sink.getEffect(p.effect_id) !== undefined
-        )
+        if (touched.has(p.effect_id) || sink.getEffect(p.effect_id) !== undefined)
           throw new IdCollision('effects', p.effect_id);
         touched.set(p.effect_id, {
           id: p.effect_id,
@@ -269,9 +262,7 @@ export function projectEffects(
       case 'EffectCompleted':
       case 'EffectReconciled':
         get(e.payload.effect_id).result_json =
-          e.payload.result === undefined
-            ? null
-            : canonicalJson(e.payload.result);
+          e.payload.result === undefined ? null : canonicalJson(e.payload.result);
         break;
       default:
         break;
@@ -279,8 +270,7 @@ export function projectEffects(
   }
   for (const row of touched.values()) {
     const mirror = state.effects[row.id];
-    if (mirror === undefined)
-      throw new Error(`projection: state is missing effect ${row.id}`);
+    if (mirror === undefined) throw new Error(`projection: state is missing effect ${row.id}`);
     sink.putEffect({
       ...row,
       revision: mirror.revision,
@@ -311,23 +301,18 @@ export function projectTimers(
     } else if (e.type === 'TimerCancelled' || e.type === 'TimerFired') {
       const id = e.payload.timer_id;
       const row = touched.get(id) ?? sink.getTimer(id);
-      if (row === undefined)
-        throw new Error(`projection: timer ${id} was not armed`);
+      if (row === undefined) throw new Error(`projection: timer ${id} was not armed`);
       touched.set(id, row);
     }
   }
   for (const row of touched.values()) {
     const mirror = state.timers[row.id];
-    if (mirror === undefined)
-      throw new Error(`projection: state is missing timer ${row.id}`);
+    if (mirror === undefined) throw new Error(`projection: state is missing timer ${row.id}`);
     sink.putTimer({ ...row, status: mirror.status });
   }
 }
 
-function subjectKey(sub: {
-  immutable_repo_id: string;
-  subject_id: string;
-}): string {
+function subjectKey(sub: { immutable_repo_id: string; subject_id: string }): string {
   return `${sub.immutable_repo_id}#${sub.subject_id}`;
 }
 
@@ -335,10 +320,7 @@ function subjectKey(sub: {
  * Runtime tables, driven by events alone. The execution slot is shared by all tasks, so callers must feed
  * events in global_seq order across tasks (verify replays the whole log in that order).
  */
-export function projectRuntime(
-  sink: ProjectionSink,
-  events: readonly DomainEvent[],
-): void {
+export function projectRuntime(sink: ProjectionSink, events: readonly DomainEvent[]): void {
   for (const e of events) {
     switch (e.type) {
       case 'RuntimeConfigured': {
@@ -368,9 +350,7 @@ export function projectRuntime(
       case 'ExecutionIntentUpdated': {
         const row = sink.getQueue(e.payload.request_id);
         if (row === undefined)
-          throw new Error(
-            `projection: queue request ${e.payload.request_id} missing`,
-          );
+          throw new Error(`projection: queue request ${e.payload.request_id} missing`);
         sink.putQueue({ ...row, priority: e.payload.priority });
         break;
       }
@@ -378,9 +358,7 @@ export function projectRuntime(
       case 'ExecutionGranted': {
         const row = sink.getQueue(e.payload.request_id);
         if (row === undefined)
-          throw new Error(
-            `projection: queue request ${e.payload.request_id} missing`,
-          );
+          throw new Error(`projection: queue request ${e.payload.request_id} missing`);
         sink.putQueue({
           ...row,
           status: e.type === 'ExecutionGranted' ? 'granted' : 'withdrawn',
@@ -424,8 +402,7 @@ export function projectRuntime(
       case 'OperationObserved': {
         const { operation_id, status, outcome, ...receipt } = e.payload;
         const row = sink.getOperation(operation_id);
-        if (row === undefined)
-          throw new Error(`projection: operation ${operation_id} missing`);
+        if (row === undefined) throw new Error(`projection: operation ${operation_id} missing`);
         sink.putOperation({
           ...row,
           status,
@@ -470,9 +447,7 @@ export function projectRuntime(
         const proof = e.payload.proof;
         const row = sink.getObservation(proof.observation_id);
         if (row === undefined)
-          throw new Error(
-            `projection: proof observation ${proof.observation_id} missing`,
-          );
+          throw new Error(`projection: proof observation ${proof.observation_id} missing`);
         sink.putObservation({ ...row, proof_key: subjectKey(proof.subject) });
         break;
       }
@@ -490,9 +465,7 @@ export function sqliteSink(db: Database): ProjectionSink {
        wait_reason = excluded.wait_reason, version = excluded.version, state_json = excluded.state_json`,
   );
   const delDeps = db.prepare('DELETE FROM task_deps WHERE task_id = ?');
-  const insDep = db.prepare(
-    'INSERT INTO task_deps (task_id, depends_on) VALUES (?, ?)',
-  );
+  const insDep = db.prepare('INSERT INTO task_deps (task_id, depends_on) VALUES (?, ?)');
   const putPolicy = db.prepare(
     `INSERT INTO frozen_policies (task_id, revision, policy_version, policy_hash, policy_json)
      VALUES (@task_id, @revision, @policy_version, @policy_hash, @policy_json)`,
@@ -517,23 +490,17 @@ export function sqliteSink(db: Database): ProjectionSink {
   const putRuntimeContext = db.prepare(
     `INSERT INTO runtime_contexts (task_id, revision, runtime_hash, runtime_json) VALUES (@task_id, @revision, @runtime_hash, @runtime_json)`,
   );
-  const getQueue = db.prepare(
-    'SELECT * FROM execution_queue WHERE request_id = ?',
-  );
+  const getQueue = db.prepare('SELECT * FROM execution_queue WHERE request_id = ?');
   const putQueue = db.prepare(
     `INSERT INTO execution_queue (request_id, task_id, grp, priority, requested_at, request_global_seq, status, closed_at)
      VALUES (@request_id, @task_id, @grp, @priority, @requested_at, @request_global_seq, @status, @closed_at)
      ON CONFLICT (request_id) DO UPDATE SET priority = excluded.priority, status = excluded.status, closed_at = excluded.closed_at`,
   );
-  const getSlot = db.prepare(
-    `SELECT * FROM execution_slot WHERE key = '${EXECUTION_SLOT_KEY}'`,
-  );
+  const getSlot = db.prepare(`SELECT * FROM execution_slot WHERE key = '${EXECUTION_SLOT_KEY}'`);
   const putSlot = db.prepare(
     'INSERT INTO execution_slot (key, holder_task_id, request_id, claimed_at) VALUES (@key, @holder_task_id, @request_id, @claimed_at)',
   );
-  const clearSlot = db.prepare(
-    'DELETE FROM execution_slot WHERE request_id = ?',
-  );
+  const clearSlot = db.prepare('DELETE FROM execution_slot WHERE request_id = ?');
   const getOperation = db.prepare('SELECT * FROM operations WHERE id = ?');
   const putOperation = db.prepare(
     `INSERT INTO operations (id, task_id, effect_id, attempt_id, kind, revision, launch_nonce, unit, holds_slot, status, outcome, receipt_json)
@@ -550,9 +517,7 @@ export function sqliteSink(db: Database): ProjectionSink {
     `INSERT INTO artifacts (artifact_id, operation_id, kind, relative_path, digest, bytes, redaction_version, finalized, acked)
      VALUES (@artifact_id, @operation_id, @kind, @relative_path, @digest, @bytes, @redaction_version, @finalized, @acked)`,
   );
-  const getObservation = db.prepare(
-    'SELECT * FROM external_observations WHERE observation_id = ?',
-  );
+  const getObservation = db.prepare('SELECT * FROM external_observations WHERE observation_id = ?');
   const putObservation = db.prepare(
     `INSERT INTO external_observations (observation_id, task_id, subject_key, generation, status, observed_at, proof_key, observation_json)
      VALUES (@observation_id, @task_id, @subject_key, @generation, @status, @observed_at, @proof_key, @observation_json)
@@ -569,8 +534,7 @@ export function sqliteSink(db: Database): ProjectionSink {
     putOperation: (row) => void putOperation.run(row),
     putCursor: (row) => void putCursor.run(row),
     putArtifact: (row) => void putArtifact.run(row),
-    getObservation: (id) =>
-      getObservation.get(id) as ObservationRow | undefined,
+    getObservation: (id) => getObservation.get(id) as ObservationRow | undefined,
     putObservation: (row) => void putObservation.run(row),
     putTask: (row) => void putTask.run(row),
     setDeps: (taskId, dependsOn) => {
@@ -603,8 +567,7 @@ export class MemorySink implements ProjectionSink {
 
   putRuntimeContext(row: RuntimeContextRow): void {
     const key = `${row.task_id}#${row.revision}`;
-    if (this.runtimeContexts.has(key))
-      throw new Error(`runtime_contexts duplicate key ${key}`);
+    if (this.runtimeContexts.has(key)) throw new Error(`runtime_contexts duplicate key ${key}`);
     this.runtimeContexts.set(key, row);
   }
   getQueue(requestId: string): QueueRow | undefined {
@@ -612,15 +575,10 @@ export class MemorySink implements ProjectionSink {
   }
   putQueue(row: QueueRow): void {
     const open = [...this.queue.values()].find(
-      (q) =>
-        q.task_id === row.task_id &&
-        q.status === 'queued' &&
-        q.request_id !== row.request_id,
+      (q) => q.task_id === row.task_id && q.status === 'queued' && q.request_id !== row.request_id,
     );
     if (row.status === 'queued' && open !== undefined)
-      throw new Error(
-        `execution_queue: second open request for ${row.task_id}`,
-      );
+      throw new Error(`execution_queue: second open request for ${row.task_id}`);
     this.queue.set(row.request_id, row);
   }
   getSlot(): SlotRow | undefined {
@@ -664,14 +622,12 @@ export class MemorySink implements ProjectionSink {
   }
   putPolicy(row: PolicyRow): void {
     const key = `${row.task_id}#${row.revision}#${row.policy_version}`;
-    if (this.policies.has(key))
-      throw new Error(`frozen_policies contains duplicate key ${key}`);
+    if (this.policies.has(key)) throw new Error(`frozen_policies contains duplicate key ${key}`);
     this.policies.set(key, row);
   }
   putContext(row: ContextRow): void {
     const key = `${row.task_id}#${row.revision}`;
-    if (this.contexts.has(key))
-      throw new Error(`frozen_contexts contains duplicate key ${key}`);
+    if (this.contexts.has(key)) throw new Error(`frozen_contexts contains duplicate key ${key}`);
     this.contexts.set(key, row);
   }
   getEffect(id: string): EffectRow | undefined {

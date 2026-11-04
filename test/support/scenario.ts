@@ -3,11 +3,7 @@ import type { Uuid } from '../../src/shared/brand.ts';
 import type { DomainEvent, DomainEventDraft } from '../../src/domain/event.ts';
 import type { AuthzContext, FrozenPolicy } from '../../src/domain/policy.ts';
 import type { EffectKind } from '../../src/domain/effect.ts';
-import type {
-  EffectMirror,
-  TaskState,
-  TimerMirror,
-} from '../../src/domain/state.ts';
+import type { EffectMirror, TaskState, TimerMirror } from '../../src/domain/state.ts';
 import type { CanonicalTask } from '../../src/domain/task.ts';
 import {
   EMPTY_RELATED,
@@ -24,14 +20,7 @@ import {
 import { decide, type Decision } from '../../src/engine/decide.ts';
 import { applyInPlace, replay } from '../../src/engine/evolve.ts';
 import { claimable, type ClaimBlockReason } from '../../src/engine/claim.ts';
-import {
-  authz,
-  envelope,
-  freezeOk,
-  IdSource,
-  T0,
-  type PolicyOptions,
-} from './builders.ts';
+import { authz, envelope, freezeOk, IdSource, T0, type PolicyOptions } from './builders.ts';
 import { checkWaitExplained } from './explain-check.ts';
 import type { Explanation } from '../../src/explain/explain.ts';
 
@@ -116,23 +105,15 @@ export class Sim {
       now: this.now,
       ids: this.idSource.take(o.ids ?? MAX_ENVELOPE_IDS),
       ...(a !== undefined ? { authz: a } : {}),
-      ...(human
-        ? { expected_version: o.expected_version ?? this.state?.version ?? 0 }
-        : {}),
+      ...(human ? { expected_version: o.expected_version ?? this.state?.version ?? 0 } : {}),
     });
   }
 
   when(trigger: Trigger, o: SendOptions = {}): Decision {
-    return this.deliver(
-      this.buildEnvelope(trigger, o),
-      o.related ?? this.related,
-    );
+    return this.deliver(this.buildEnvelope(trigger, o), o.related ?? this.related);
   }
 
-  deliver(
-    env: TriggerEnvelope,
-    related: RelatedFacts = this.related,
-  ): Decision {
+  deliver(env: TriggerEnvelope, related: RelatedFacts = this.related): Decision {
     const input = {
       state: this.state,
       policy: this.policy,
@@ -145,8 +126,7 @@ export class Sim {
     const d2 = decide(structuredClone(input));
     if (canonicalJson(d1) !== canonicalJson(d2))
       throw new Error('decide is not deterministic for identical inputs');
-    if (canonicalJson(input) !== frozen)
-      throw new Error('decide mutated its input');
+    if (canonicalJson(input) !== frozen) throw new Error('decide mutated its input');
     this.log.push({ kind: 'decide', envelope: env, related });
     this.decisions.push(d1);
     if (d1.kind === 'accepted') this.append(d1.events, env.dedup_key);
@@ -166,10 +146,7 @@ export class Sim {
         task_id: this.taskId,
         seq,
         global_seq: ++this.globalSeq,
-        causation:
-          claim === undefined
-            ? { dedup_key: dedupKey }
-            : { dedup_key: dedupKey, claim },
+        causation: claim === undefined ? { dedup_key: dedupKey } : { dedup_key: dedupKey, claim },
       } as DomainEvent;
       this.events.push(ev);
       this.state = applyInPlace(
@@ -187,8 +164,7 @@ export class Sim {
   claim(effectId: string): ClaimResult {
     const e = this.state?.effects[effectId];
     if (e === undefined) return { ok: false, code: 'not_found' };
-    if (e.status === 'invalidated')
-      return { ok: false, code: 'effect_invalidated' };
+    if (e.status === 'invalidated') return { ok: false, code: 'effect_invalidated' };
     if (e.status !== 'pending') return { ok: false, code: 'not_pending' };
     const c = claimable(this.s, e, this.now);
     if (!c.ok) return { ok: false, code: 'claim_blocked', reason: c.reason };
@@ -217,17 +193,14 @@ export class Sim {
   effects(kind?: EffectKind, status?: EffectMirror['status']): EffectMirror[] {
     return Object.values(this.state?.effects ?? {}).filter(
       (e) =>
-        (kind === undefined || e.kind === kind) &&
-        (status === undefined || e.status === status),
+        (kind === undefined || e.kind === kind) && (status === undefined || e.status === status),
     );
   }
 
   pendingOne(kind: EffectKind): EffectMirror {
     const xs = this.effects(kind, 'pending');
     if (xs.length !== 1)
-      throw new Error(
-        `Expected exactly one pending ${kind} effect; found ${xs.length}`,
-      );
+      throw new Error(`Expected exactly one pending ${kind} effect; found ${xs.length}`);
     return xs[0] as EffectMirror;
   }
 
@@ -259,17 +232,11 @@ export class Sim {
   ): Decision {
     const c = this.claim(effectId);
     if (!c.ok)
-      throw new Error(
-        `claim ${effectId}: ${c.code}${'reason' in c ? `/${c.reason}` : ''}`,
-      );
+      throw new Error(`claim ${effectId}: ${c.code}${'reason' in c ? `/${c.reason}` : ''}`);
     return this.result(effectId, outcome, data);
   }
 
-  result(
-    effectId: string,
-    outcome: 'succeeded' | 'failed' | 'unknown',
-    data?: unknown,
-  ): Decision {
+  result(effectId: string, outcome: 'succeeded' | 'failed' | 'unknown', data?: unknown): Decision {
     return this.when({
       kind: 'effect_result',
       effect_id: effectId as Uuid,
@@ -280,11 +247,7 @@ export class Sim {
 
   reconciled(
     effectId: string,
-    finding:
-      | 'executed_succeeded'
-      | 'executed_failed'
-      | 'not_executed'
-      | 'still_unknown',
+    finding: 'executed_succeeded' | 'executed_failed' | 'not_executed' | 'still_unknown',
     extra: {
       data?: unknown;
       failure_class?: FailureClass;
@@ -321,8 +284,7 @@ export class Sim {
       } else {
         again.now = entry.now;
         const r = again.claim(entry.effect_id);
-        if (!r.ok)
-          throw new Error(`replayed claim ${entry.effect_id}: ${r.code}`);
+        if (!r.ok) throw new Error(`replayed claim ${entry.effect_id}: ${r.code}`);
       }
     }
     if (canonicalJson(again.events) !== canonicalJson(this.events))
@@ -368,9 +330,7 @@ export function reviewData(
   };
 }
 
-export function gatesData(
-  results: Record<string, boolean>,
-): Record<string, unknown> {
+export function gatesData(results: Record<string, boolean>): Record<string, unknown> {
   return {
     results: Object.entries(results).map(([gate, passed]) => ({
       gate,
@@ -467,28 +427,15 @@ export function toMergeGate(
     test: 'success',
   },
 ): void {
-  sim.complete(
-    sim.pendingOne('start_agent').id,
-    'succeeded',
-    agentData('done'),
-  );
+  sim.complete(sim.pendingOne('start_agent').id, 'succeeded', agentData('done'));
   sim.complete(
     sim.pendingOne('run_gates').id,
     'succeeded',
     gatesData({ build: true, unit: true, lint: true }),
   );
-  sim.complete(
-    sim.pendingOne('start_agent').id,
-    'succeeded',
-    reviewData('approve', head),
-  );
+  sim.complete(sim.pendingOne('start_agent').id, 'succeeded', reviewData('approve', head));
   sim.complete(sim.pendingOne('publish').id, 'succeeded', publishData(head));
   const pr = sim.effects('create_pr', 'pending')[0];
-  if (pr !== undefined)
-    sim.complete(pr.id, 'succeeded', { pr_ref: 'acme#1', head_sha: head });
-  sim.complete(
-    sim.pendingOne('await_ci').id,
-    'succeeded',
-    ciData(head, checks),
-  );
+  if (pr !== undefined) sim.complete(pr.id, 'succeeded', { pr_ref: 'acme#1', head_sha: head });
+  sim.complete(sim.pendingOne('await_ci').id, 'succeeded', ciData(head, checks));
 }

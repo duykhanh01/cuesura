@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { validateConfig } from '../../../src/config/validate.ts';
-import {
-  MIN_PARTS,
-  MIN_PROJECT,
-  minUser,
-  source,
-} from '../../support/config-fixtures.ts';
+import { MIN_PARTS, MIN_PROJECT, minUser, source } from '../../support/config-fixtures.ts';
 
 type Parts = Partial<typeof MIN_PARTS>;
 
@@ -39,9 +34,7 @@ describe('FR-003 check 1: workflows only tune the built-in graph', () => {
     ).toEqual([]);
   });
   it('requires base', () => {
-    expect(codes({ workflows: 'workflows:\n  impl: {}\n' })).toEqual([
-      'schema_invalid',
-    ]);
+    expect(codes({ workflows: 'workflows:\n  impl: {}\n' })).toEqual(['schema_invalid']);
   });
   it.each([
     'kind: agent',
@@ -52,9 +45,7 @@ describe('FR-003 check 1: workflows only tune the built-in graph', () => {
     'when: { flag: hot }',
     'skip_when: { size: [XS] }',
   ])('names the former graph key %s for removal', (key) => {
-    expect(codes({ workflows: wf(`      code: { ${key} }\n`) })).toEqual([
-      'workflow_key_removed',
-    ]);
+    expect(codes({ workflows: wf(`      code: { ${key} }\n`) })).toEqual(['workflow_key_removed']);
   });
   it('names start and decisions for removal', () => {
     expect(
@@ -67,9 +58,7 @@ describe('FR-003 check 1: workflows only tune the built-in graph', () => {
     ).toEqual(['workflow_key_removed', 'workflow_key_removed']);
   });
   it('rejects a step the built-in graph lacks', () => {
-    expect(
-      codes({ workflows: wf('      deploy: { max_visits: 2 }\n') }),
-    ).toEqual(['unknown_step']);
+    expect(codes({ workflows: wf('      deploy: { max_visits: 2 }\n') })).toEqual(['unknown_step']);
   });
   it('rejects a tunable the step does not take', () => {
     expect(
@@ -172,16 +161,14 @@ describe('FR-003 check 5: initial binding', () => {
   it('accepts conditional rules with an unconditional fallback', () => {
     expect(
       codes({
-        roles: roles(
-          '[{ when: { size: [L] }, model: opus }, { model: sonnet }]',
-        ),
+        roles: roles('[{ when: { size: [L] }, model: opus }, { model: sonnet }]'),
       }),
     ).toEqual([]);
   });
   it('rejects bindings with only conditional rules', () => {
-    expect(
-      codes({ roles: roles('[{ when: { size: [L] }, model: opus }]') }),
-    ).toEqual(['no_initial_binding']);
+    expect(codes({ roles: roles('[{ when: { size: [L] }, model: opus }]') })).toEqual([
+      'no_initial_binding',
+    ]);
   });
 });
 
@@ -201,13 +188,9 @@ describe('FR-003 check 6: predefined predicates', () => {
     ).toEqual([]);
   });
   it('rejects unknown predicates', () =>
-    expect(codes({ roles: roles('{ priority: high }') })).toEqual([
-      'unknown_predicate',
-    ]));
+    expect(codes({ roles: roles('{ priority: high }') })).toEqual(['unknown_predicate']));
   it('invalid types for known predicates return schema_invalid', () => {
-    expect(codes({ roles: roles('{ attempt_gte: two }') })).toEqual([
-      'schema_invalid',
-    ]);
+    expect(codes({ roles: roles('{ attempt_gte: two }') })).toEqual(['schema_invalid']);
   });
 });
 
@@ -229,13 +212,10 @@ describe('FR-006 and gates', () => {
       },
       packs: {},
     });
-    expect(!r.ok && r.error.map((d) => d.code)).toEqual([
-      'required_gate_missing',
-    ]);
+    expect(!r.ok && r.error.map((d) => d.code)).toEqual(['required_gate_missing']);
   });
   it('allow_no_gates permits a project without gates', () => {
-    const profiles =
-      'profiles:\n  standard: { workflow: impl, allow_no_gates: true }\n';
+    const profiles = 'profiles:\n  standard: { workflow: impl, allow_no_gates: true }\n';
     expect(
       validateConfig({
         user: minUser({ profiles }),

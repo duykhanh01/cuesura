@@ -7,12 +7,7 @@
 import type { DetailCode, TaskStatus } from '../../domain/state.ts';
 import type { BoardRow } from '../client/schemas.ts';
 import type { Color } from '../terminal/screen.ts';
-import {
-  joinSafe,
-  sanitize,
-  uiText,
-  type SafeText,
-} from '../terminal/safe-text.ts';
+import { joinSafe, sanitize, uiText, type SafeText } from '../terminal/safe-text.ts';
 
 /** `todo` is what going on needs from the user; `null` while the task waits within its limits. */
 type WaitWords = { readonly doing: string; readonly todo: string | null };
@@ -175,10 +170,7 @@ export function stepWords(step: string): string | null {
   return Object.hasOwn(STEPS, step) ? (STEPS[step] ?? null) : null;
 }
 
-export type ActivityRow = Pick<
-  BoardRow,
-  'status' | 'wait_code' | 'step' | 'mode' | 'needs_user'
->;
+export type ActivityRow = Pick<BoardRow, 'status' | 'wait_code' | 'step' | 'mode' | 'needs_user'>;
 
 const waitWords = (code: string): WaitWords | null =>
   Object.hasOwn(WAITS, code) ? WAITS[code as DetailCode] : null;
@@ -196,8 +188,7 @@ export function activity(row: ActivityRow): SafeText {
       break;
   }
   // The same order as the daemon's `needsUser`: an unconfirmed READY task is that first.
-  if (row.status === 'READY' && row.needs_user)
-    return uiText(UNCONFIRMED.doing);
+  if (row.status === 'READY' && row.needs_user) return uiText(UNCONFIRMED.doing);
   if (row.wait_code !== null) {
     const words = waitWords(row.wait_code);
     return words === null ? sanitize(row.wait_code) : uiText(words.doing);
@@ -223,9 +214,7 @@ export function todo(row: ActivityRow): SafeText | null {
 }
 
 /** Activity, then mode and PR when they exist (FR-006), for one row. */
-export function activityLine(
-  row: ActivityRow & Pick<BoardRow, 'pr_ref'>,
-): SafeText {
+export function activityLine(row: ActivityRow & Pick<BoardRow, 'pr_ref'>): SafeText {
   const parts = [activity(row)];
   if (row.mode !== null) parts.push(row.mode);
   if (row.pr_ref !== null) parts.push(row.pr_ref);
@@ -233,9 +222,7 @@ export function activityLine(
 }
 
 /** Each status has a mark of its own and its name, so nothing depends on colour (FR-035, EC-003). */
-const MARKS: Readonly<
-  Record<TaskStatus, { mark: string; color: Color | undefined }>
-> = {
+const MARKS: Readonly<Record<TaskStatus, { mark: string; color: Color | undefined }>> = {
   PENDING: { mark: '○', color: 'blue' },
   READY: { mark: '◇', color: 'magenta' },
   RUNNING: { mark: '▶', color: 'cyan' },
@@ -283,11 +270,7 @@ export function duration(ms: number): string | null {
 }
 
 /** Time in the current status, up to the last read, so old data does not look like it is still counting. */
-export function timeInStatus(
-  row: Pick<BoardRow, 'status_since'>,
-  readAt: number | null,
-): SafeText {
-  if (row.status_since === null || readAt === null)
-    return uiText('unavailable');
+export function timeInStatus(row: Pick<BoardRow, 'status_since'>, readAt: number | null): SafeText {
+  if (row.status_since === null || readAt === null) return uiText('unavailable');
   return uiText(duration(readAt - row.status_since) ?? 'unavailable');
 }

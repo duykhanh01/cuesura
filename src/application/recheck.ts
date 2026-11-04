@@ -25,12 +25,7 @@ import type { TaskState, Wait } from '../domain/state.ts';
 import { MAX_ENVELOPE_IDS, type Trigger } from '../domain/trigger.ts';
 import type { Uuid } from '../shared/brand.ts';
 import type { AcceptError } from '../store/index.ts';
-import {
-  authorize,
-  authzContext,
-  type AuthzError,
-  type Caller,
-} from './authz.ts';
+import { authorize, authzContext, type AuthzError, type Caller } from './authz.ts';
 import {
   needsConfigCheck,
   recordConfigCheck,
@@ -110,8 +105,7 @@ export type RecheckError =
 /** What a recheck of `s` does, from committed state only. */
 export function recheckTarget(s: TaskState): RecheckTarget | 'terminal' | null {
   if (s.terminal !== null) return 'terminal';
-  if (s.completion !== null)
-    return s.completion.finalized_at === null ? 'drain' : null;
+  if (s.completion !== null) return s.completion.finalized_at === null ? 'drain' : null;
   if (needsConfigCheck(s) && s.status === 'PENDING') return 'config';
   if (
     s.status === 'WAITING' &&
@@ -119,10 +113,8 @@ export function recheckTarget(s: TaskState): RecheckTarget | 'terminal' | null {
     typeof s.wait.detail['observed'] === 'string'
   )
     return 'worktree';
-  if (s.status === 'WAITING' && s.wait?.detail.code === 'manifest_changed')
-    return 'manifest';
-  if (s.status === 'WAITING' && s.wait?.detail.code === 'harness_auth')
-    return 'auth';
+  if (s.status === 'WAITING' && s.wait?.detail.code === 'manifest_changed') return 'manifest';
+  if (s.status === 'WAITING' && s.wait?.detail.code === 'harness_auth') return 'auth';
   if (exhaustedByInfra(s) !== null) return 'visits';
   if (s.pr_ref !== null && s.policy_ref !== null) return 'observation';
   return null;
@@ -132,9 +124,7 @@ export async function recheckTask(
   deps: RecheckDeps,
   caller: Caller,
   cmd: RecheckCommand,
-): Promise<
-  { ok: true; value: RecheckResult } | { ok: false; error: RecheckError }
-> {
+): Promise<{ ok: true; value: RecheckResult } | { ok: false; error: RecheckError }> {
   const allowed = authorize(caller, { role: 'operate', project: cmd.project });
   if (!allowed.ok) return allowed;
   const before = deps.store.readTask(cmd.task_id as Uuid);
@@ -180,8 +170,7 @@ export async function recheckTask(
       },
     };
   const performed = !accepted.value.duplicate && target !== 'terminal';
-  const facts: { kind: Trigger['kind']; accepted: boolean; reason?: string }[] =
-    [];
+  const facts: { kind: Trigger['kind']; accepted: boolean; reason?: string }[] = [];
   let configCheck: ConfigCheckStatus | null = null;
   let unavailable: string | null = null;
 
@@ -192,10 +181,7 @@ export async function recheckTask(
       `cmd:${cmd.request_id}:config`,
     );
     configCheck = r.status;
-    unavailable =
-      r.unavailable === null
-        ? null
-        : `${r.unavailable.check}: ${r.unavailable.detail}`;
+    unavailable = r.unavailable === null ? null : `${r.unavailable.check}: ${r.unavailable.detail}`;
   } else if (performed && target === 'observation') {
     // While a cancel waits for its read, this read is the one that counts for it (FR-025.03).
     const r = await deps.observe(

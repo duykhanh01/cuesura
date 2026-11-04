@@ -1,22 +1,10 @@
-import {
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-} from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { buildTask, uuidOf } from '../../support/builders.ts';
 import { createGrantStart } from '../../support/runtime.ts';
-import {
-  flat,
-  LogFeed,
-  openTask,
-  seedGreenPr,
-  useTui,
-} from '../../support/tui-fixtures.ts';
+import { flat, LogFeed, openTask, seedGreenPr, useTui } from '../../support/tui-fixtures.ts';
 
 // T043: what an agent or a repo wrote must not be able to command the terminal or fake the screen (SC-010,
 // EC-001, FR-037), checked in the bytes that leave the program and cell by cell.
@@ -71,8 +59,7 @@ describe('SC-010: control characters in what daemon data carries', () => {
       }),
     }));
     sd.seed((d) => {
-      for (const { task } of samples)
-        d.must(task.id, { kind: 'create_task', task });
+      for (const { task } of samples) d.must(task.id, { kind: 'create_task', task });
     });
     await sd.start();
     const s = tui.cusr(sd.dataDir, { cols: 140, rows: 60 });
@@ -108,18 +95,11 @@ describe('SC-010: control characters in what daemon data carries', () => {
     const feed = new LogFeed(sd);
     sd.seed((d) => {
       createGrantStart(d, t, 'direct-pr');
-      feed.write(
-        d,
-        t.id,
-        d.pendingOne(t.id, 'prepare').id,
-        uuidOf(700),
-        'setup',
-        [
-          ...SAMPLES.map(([name, attack]) => `LOG ${name} ${attack} END`),
-          { nested: `OBJ\x1b]52;c;cHduZWQ=\x07END` },
-          `MULTI\nLINE\x1b[2J\nEND`,
-        ],
-      );
+      feed.write(d, t.id, d.pendingOne(t.id, 'prepare').id, uuidOf(700), 'setup', [
+        ...SAMPLES.map(([name, attack]) => `LOG ${name} ${attack} END`),
+        { nested: `OBJ\x1b]52;c;cHduZWQ=\x07END` },
+        `MULTI\nLINE\x1b[2J\nEND`,
+      ]);
     });
     await sd.start();
     const s = tui.cusr(sd.dataDir, { cols: 140, rows: 60 });
@@ -186,20 +166,13 @@ describe('FR-038: nothing secret on the screen or in a file', () => {
     const secret = `ghp_${'a1B2c3D4'.repeat(5)}`;
     sd.seed((d) => {
       createGrantStart(d, t, 'direct-pr');
-      feed.write(
-        d,
-        t.id,
-        d.pendingOne(t.id, 'prepare').id,
-        uuidOf(700),
-        'setup',
-        [`CANARY token is ${secret} here`, { password: 'hunter2hunter2' }],
-      );
+      feed.write(d, t.id, d.pendingOne(t.id, 'prepare').id, uuidOf(700), 'setup', [
+        `CANARY token is ${secret} here`,
+        { password: 'hunter2hunter2' },
+      ]);
     });
     await sd.start();
-    const owner = readFileSync(
-      sd.daemon?.ownerTokenPath as string,
-      'utf8',
-    ).trim();
+    const owner = readFileSync(sd.daemon?.ownerTokenPath as string, 'utf8').trim();
     const cwd = realpathSync(mkdtempSync(join(tmpdir(), 'cusr-tui-cwd-')));
     try {
       const s = tui.cusr(sd.dataDir, { cols: 140, rows: 60, cwd });

@@ -64,16 +64,9 @@ export function privateHome(run: RunDir): string {
 }
 
 /** Carry only the selected Claude transcript into a fresh attempt, never auth or settings. */
-export function copySession(
-  previous: RunDir,
-  run: RunDir,
-  session: string,
-): void {
+export function copySession(previous: RunDir, run: RunDir, session: string): void {
   if (!UuidSchema.safeParse(session).success)
-    throw new SandboxPolicyError(
-      'policy_violation',
-      'invalid Claude session ID',
-    );
+    throw new SandboxPolicyError('policy_violation', 'invalid Claude session ID');
   const projects = previous.resolve(`${PRIVATE_HOME_DIR}/.claude/projects`);
   const st = lstatSync(projects, { throwIfNoEntry: false });
   if (st?.isDirectory())
@@ -84,11 +77,7 @@ export function copySession(
       if (!lstatSync(transcript, { throwIfNoEntry: false })?.isFile()) continue;
       const destination = run.resolve(base);
       mkdirSync(destination, { recursive: true, mode: 0o700 });
-      copyFileSync(
-        transcript,
-        join(destination, `${session}.jsonl`),
-        constants.COPYFILE_EXCL,
-      );
+      copyFileSync(transcript, join(destination, `${session}.jsonl`), constants.COPYFILE_EXCL);
       const data = previous.resolve(`${base}/${session}`);
       if (lstatSync(data, { throwIfNoEntry: false }) !== undefined)
         cpSync(data, join(destination, session), {
@@ -107,20 +96,14 @@ export function copySession(
         });
       return;
     }
-  throw new SandboxPolicyError(
-    'source_missing',
-    `Claude session ${session} is missing`,
-  );
+  throw new SandboxPolicyError('source_missing', `Claude session ${session} is missing`);
 }
 
 /**
  * Copies the selected auth files into the private home. A source must be a regular file (no symlink)
  * and a target must stay inside the home. Fails closed before copying anything on a bad entry.
  */
-export function installAuth(
-  run: RunDir,
-  files: readonly AuthFile[],
-): InstalledAuth {
+export function installAuth(run: RunDir, files: readonly AuthFile[]): InstalledAuth {
   for (const f of files) {
     if (!RelativePathSchema.safeParse(f.to).success)
       throw new SandboxPolicyError(
@@ -129,10 +112,7 @@ export function installAuth(
       );
     const st = lstatSync(f.ref.file, { throwIfNoEntry: false });
     if (st === undefined)
-      throw new SandboxPolicyError(
-        'source_missing',
-        `credential ${f.ref.name} is missing`,
-      );
+      throw new SandboxPolicyError('source_missing', `credential ${f.ref.name} is missing`);
     if (!st.isFile())
       throw new SandboxPolicyError(
         'policy_violation',
@@ -153,20 +133,15 @@ export function installAuth(
     // Checked on the copy the binary will read, so a source edited after confirmation never runs.
     if (f.sha256 !== undefined && digest !== f.sha256) {
       removeAuth({ home, files: installed });
-      throw new SandboxPolicyError(
-        'policy_violation',
-        `${f.to} differs from its pinned sha256`,
-      );
+      throw new SandboxPolicyError('policy_violation', `${f.to} differs from its pinned sha256`);
     }
     // A pinned file is a rule, never a login: it is never written back.
-    if (f.sha256 === undefined)
-      synced.push({ to: f.to, source: f.ref.file, sha256: digest });
+    if (f.sha256 === undefined) synced.push({ to: f.to, source: f.ref.file, sha256: digest });
   }
   return { home, files: installed, synced };
 }
 
-const sha256 = (b: Buffer): string =>
-  createHash('sha256').update(b).digest('hex');
+const sha256 = (b: Buffer): string => createHash('sha256').update(b).digest('hex');
 
 const MAX_AUTH_BYTES = 1024 * 1024;
 
@@ -185,9 +160,7 @@ function shapeOf(v: unknown): unknown {
 function jsonObject(b: Buffer): unknown {
   try {
     const v = JSON.parse(b.toString('utf8')) as unknown;
-    return typeof v === 'object' && v !== null && !Array.isArray(v)
-      ? v
-      : undefined;
+    return typeof v === 'object' && v !== null && !Array.isArray(v) ? v : undefined;
   } catch {
     return undefined;
   }
@@ -201,13 +174,11 @@ function jsonObject(b: Buffer): unknown {
 function writeBack(copy: string, s: SyncedAuth): boolean {
   try {
     const cst = lstatSync(copy, { throwIfNoEntry: false });
-    if (cst === undefined || !cst.isFile() || cst.size > MAX_AUTH_BYTES)
-      return false;
+    if (cst === undefined || !cst.isFile() || cst.size > MAX_AUTH_BYTES) return false;
     const next = readFileSync(copy);
     if (sha256(next) === s.sha256) return false;
     const sst = lstatSync(s.source, { throwIfNoEntry: false });
-    if (sst === undefined || !sst.isFile() || sst.size > MAX_AUTH_BYTES)
-      return false;
+    if (sst === undefined || !sst.isFile() || sst.size > MAX_AUTH_BYTES) return false;
     const current = readFileSync(s.source);
     if (sha256(current) !== s.sha256) return false;
     const before = jsonObject(current);
@@ -218,10 +189,7 @@ function writeBack(copy: string, s: SyncedAuth): boolean {
       JSON.stringify(shapeOf(before)) !== JSON.stringify(shapeOf(after))
     )
       return false;
-    const tmp = join(
-      dirname(s.source),
-      `.cusr-auth-${randomBytes(8).toString('hex')}.tmp`,
-    );
+    const tmp = join(dirname(s.source), `.cusr-auth-${randomBytes(8).toString('hex')}.tmp`);
     const fd = openSync(tmp, 'wx', 0o600);
     try {
       writeSync(fd, next);
@@ -273,8 +241,7 @@ export function removeAuth(installed: InstalledAuth): void {
     const sync = installed.synced?.find((s) => s.to === rel);
     if (sync !== undefined) writeBack(target, sync);
     // rmSync unlinks a symlink itself, never its target, and refuses a directory without `recursive`.
-    if (lstatSync(target, { throwIfNoEntry: false }) !== undefined)
-      rmSync(target, { force: true });
+    if (lstatSync(target, { throwIfNoEntry: false }) !== undefined) rmSync(target, { force: true });
   }
   // The other files are already removed; the swapped paths were left untouched on purpose.
   if (escaped.length > 0)
@@ -313,16 +280,10 @@ export function homeSecretValues(installed: InstalledAuth): string[] {
   const home = lstatSync(installed.home, { throwIfNoEntry: false });
   if (home === undefined) return [];
   if (!home.isDirectory())
-    throw new SandboxPolicyError(
-      'policy_violation',
-      'auth home is not a plain directory',
-    );
+    throw new SandboxPolicyError('policy_violation', 'auth home is not a plain directory');
   return installed.files.flatMap((rel) => {
     if (!RelativePathSchema.safeParse(rel).success)
-      throw new SandboxPolicyError(
-        'policy_violation',
-        'auth path must stay inside the home',
-      );
+      throw new SandboxPolicyError('policy_violation', 'auth path must stay inside the home');
     let path = installed.home;
     const parts = rel.split('/');
     for (const [i, part] of parts.entries()) {
@@ -334,8 +295,7 @@ export function homeSecretValues(installed: InstalledAuth): string[] {
           'policy_violation',
           'auth path contains a symlink or non-directory',
         );
-      if (i === parts.length - 1 && (!st.isFile() || st.size > 1024 * 1024))
-        return [];
+      if (i === parts.length - 1 && (!st.isFile() || st.size > 1024 * 1024)) return [];
     }
     return secretValuesFromText(readFileSync(path, 'utf8'));
   });
@@ -348,20 +308,14 @@ export function readInstalledAuth(run: RunDir): InstalledAuth {
     z.object({ auth: z.object({ files: z.array(RelativePathSchema) }) }),
   );
   if (state.state === 'invalid')
-    throw new SandboxPolicyError(
-      'policy_violation',
-      'invalid launch auth file list',
-    );
+    throw new SandboxPolicyError('policy_violation', 'invalid launch auth file list');
   const home = run.resolve(PRIVATE_HOME_DIR);
   if (
     state.state === 'missing' &&
     lstatSync(home, { throwIfNoEntry: false })?.isDirectory() &&
     readdirSync(home).length > 0
   )
-    throw new SandboxPolicyError(
-      'source_missing',
-      'installed auth file list was not recorded',
-    );
+    throw new SandboxPolicyError('source_missing', 'installed auth file list was not recorded');
   return {
     home,
     files: state.state === 'valid' ? state.value.auth.files : [],

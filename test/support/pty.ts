@@ -1,11 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-} from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -146,9 +140,7 @@ export class PtySession {
     const buffer = this.term.buffer.active;
     const lines: string[] = [];
     for (let y = 0; y < this.term.rows; y++)
-      lines.push(
-        buffer.getLine(buffer.viewportY + y)?.translateToString(true) ?? '',
-      );
+      lines.push(buffer.getLine(buffer.viewportY + y)?.translateToString(true) ?? '');
     return lines.join('\n');
   }
 
@@ -291,8 +283,7 @@ function ptyEnv(
     ...process.env,
     ...env,
     CUSR_PTY_DIR: dir,
-    CUSR_PTY_TERM:
-      'TERM' in env ? (env['TERM'] ?? UNSET_TERM) : 'xterm-256color',
+    CUSR_PTY_TERM: 'TERM' in env ? (env['TERM'] ?? UNSET_TERM) : 'xterm-256color',
   };
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(merged)) if (v !== undefined) out[k] = v;

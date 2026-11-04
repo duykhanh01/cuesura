@@ -40,15 +40,7 @@ describe('what host PATH can run', () => {
     const r = await missingTools(
       new NodeHostProbe(),
       [tools, join(base, 'gone'), ...SANDBOX_SYSTEM_PATH],
-      [
-        'good',
-        'inside-link',
-        'sh',
-        'no-exec',
-        'a-directory',
-        'outside-link',
-        'absent',
-      ],
+      ['good', 'inside-link', 'sh', 'no-exec', 'a-directory', 'outside-link', 'absent'],
     );
     expect(r).toEqual({
       ok: true,
@@ -79,9 +71,10 @@ describe('what host PATH can run', () => {
         env: {},
         network: 'internet_outbound' as const,
       };
-      expect(
-        await missingTools(host, hostExecutionPath([]), ['pnpm', 'sh']),
-      ).toEqual({ ok: true, missing: ['sh'] });
+      expect(await missingTools(host, hostExecutionPath([]), ['pnpm', 'sh'])).toEqual({
+        ok: true,
+        missing: ['sh'],
+      });
       const run = async (command: string) => {
         const p = provider.plan(layout, ['/bin/sh', '-c', command]);
         if (!p.ok) throw new Error(p.error.message);

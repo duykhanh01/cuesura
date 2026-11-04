@@ -21,9 +21,10 @@ describe('proposeAmendment (FR-005, FR-036)', () => {
       ok: false,
       error: { code: 'not_admin' },
     });
-    expect(
-      proposeAmendment({ current, change, reason, authz: undefined }),
-    ).toEqual({ ok: false, error: { code: 'not_admin' } });
+    expect(proposeAmendment({ current, change, reason, authz: undefined })).toEqual({
+      ok: false,
+      error: { code: 'not_admin' },
+    });
   });
 
   it('operate-only authorization returns not_admin', () => {
@@ -62,9 +63,7 @@ describe('proposeAmendment (FR-005, FR-036)', () => {
     });
     if (!r.ok) throw new Error(JSON.stringify(r.error));
     expect(r.value.policy_version).toBe(current.policy_version + 1);
-    expect(r.value.limits.max_agent_runs).toBe(
-      (current.limits.max_agent_runs ?? 0) + 10,
-    );
+    expect(r.value.limits.max_agent_runs).toBe((current.limits.max_agent_runs ?? 0) + 10);
     expect(r.value.policy_hash).not.toBe(current.policy_hash);
     expect(verifyPolicyHash(r.value)).toBe(true);
   });

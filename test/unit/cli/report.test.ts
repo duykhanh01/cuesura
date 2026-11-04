@@ -13,9 +13,7 @@ describe('parseSince', () => {
   });
 
   it('reads an ISO date or time', () => {
-    expect(parseSince('2026-11-02T22:00:00Z', NOW)).toBe(
-      Date.parse('2026-11-02T22:00:00Z'),
-    );
+    expect(parseSince('2026-11-02T22:00:00Z', NOW)).toBe(Date.parse('2026-11-02T22:00:00Z'));
     expect(parseSince('2026-11-02', NOW)).toBe(Date.parse('2026-11-02'));
   });
 

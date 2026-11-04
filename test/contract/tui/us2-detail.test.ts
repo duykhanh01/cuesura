@@ -3,13 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { DETAIL_CODES } from '../../../src/domain/state.ts';
 import { buildTask, freezeOk, uuidOf } from '../../support/builders.ts';
-import {
-  A,
-  ci,
-  merge,
-  observation,
-  toGreen,
-} from '../../support/observation.ts';
+import { A, ci, merge, observation, toGreen } from '../../support/observation.ts';
 import { KEY, type PtySession } from '../../support/pty.ts';
 import { createGrantStart } from '../../support/runtime.ts';
 import { agentData, PREPARE_DATA } from '../../support/scenario.ts';
@@ -28,11 +22,7 @@ import {
   selectedLine,
   useTui,
 } from '../../support/tui-fixtures.ts';
-import {
-  STAGE_LABEL,
-  STAGES,
-  type StageName,
-} from '../../../src/tui/model/stages.ts';
+import { STAGE_LABEL, STAGES, type StageName } from '../../../src/tui/model/stages.ts';
 import { actionName } from '../../../src/tui/views/task-detail.ts';
 
 // T040: Task detail on a real PTY against a real daemon, compared with what the CLI says of the same task.
@@ -53,12 +43,8 @@ type Explained = {
   blockers: { code: string }[];
 };
 
-async function explainOf(
-  sd: Parameters<typeof cliJson>[0],
-  id: string,
-): Promise<Explained> {
-  return (await cliJson(sd, 'task', 'explain', id, '--full')).envelope
-    .data as unknown as Explained;
+async function explainOf(sd: Parameters<typeof cliJson>[0], id: string): Promise<Explained> {
+  return (await cliJson(sd, 'task', 'explain', id, '--full')).envelope.data as unknown as Explained;
 }
 
 async function quit(s: PtySession): Promise<void> {
@@ -77,19 +63,13 @@ describe('US2 scenario 1: the steps of the workflow', () => {
     const t = buildTask({ id: uuidOf(1), title: 'Running task' });
     sd.seed((d) => {
       createGrantStart(d, t, 'full-review');
-      d.complete(
-        t.id,
-        d.pendingOne(t.id, 'prepare').id,
-        'succeeded',
-        PREPARE_DATA,
-      );
+      d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE_DATA);
     });
     await sd.start();
     const s = tui.cusr(sd.dataDir, TALL);
     await openTask(s, 'Running task');
     await s.waitForText('Progress');
-    const progress = (await cliJson(sd, 'task', 'progress', t.id)).envelope
-      .data as {
+    const progress = (await cliJson(sd, 'task', 'progress', t.id)).envelope.data as {
       steps: { name: string; state: string; visits: number }[];
     };
     // The stage line may render after its heading: wait for it.
@@ -102,9 +82,7 @@ describe('US2 scenario 1: the steps of the workflow', () => {
       not_required: 'skipped –',
     } as const;
     // Each stage's own step as `task progress` gives it; fix and retry steps fold into their stage.
-    const own = progress.steps.filter((p) =>
-      (STAGES as readonly string[]).includes(p.name),
-    );
+    const own = progress.steps.filter((p) => (STAGES as readonly string[]).includes(p.name));
     expect(own.length).toBeGreaterThan(2);
     for (const step of own)
       expect(line).toContain(
@@ -162,28 +140,19 @@ describe('US2 scenario 2 and SC-001: why it waits and how out, as `task explain`
       expect(screen).toContain(`Code ${code}`);
       expect(screen).toContain(`because detail of ${code}`);
       // Some codes leave nothing when, as here, there is no PR to read or merge.
-      if (explained.allowed_actions.length === 0)
-        expect(screen).toContain('None right now');
+      if (explained.allowed_actions.length === 0) expect(screen).toContain('None right now');
       for (const a of explained.allowed_actions) {
         expect(screen).toContain(`${actionName(a.action)} ${flat(a.note)}`);
         if (a.command !== null) expect(screen).toContain(a.command);
       }
-      expect(screen).toContain(
-        `Agent runs ${explained.remaining.agent_runs} left`,
-      );
-      expect(screen).toContain(
-        `Escalations ${explained.remaining.escalations} left`,
-      );
+      expect(screen).toContain(`Agent runs ${explained.remaining.agent_runs} left`);
+      expect(screen).toContain(`Escalations ${explained.remaining.escalations} left`);
       seen.add(code);
       s.send(KEY.esc);
-      await s.waitFor(() =>
-        selectedLine(s.screenText()).includes(`Code ${code} `),
-      );
+      await s.waitFor(() => selectedLine(s.screenText()).includes(`Code ${code} `));
       s.send(KEY.down);
       if (i < codes.length - 1)
-        await s.waitFor(
-          () => !selectedLine(s.screenText()).includes(`Code ${code} `),
-        );
+        await s.waitFor(() => !selectedLine(s.screenText()).includes(`Code ${code} `));
     }
     expect(seen.size).toBe(DETAIL_CODES.length);
     await quit(s);
@@ -200,9 +169,7 @@ describe('US2 scenario 2 and SC-001: why it waits and how out, as `task explain`
       const explained = await explainOf(sd, task?.id as string);
       for (const a of explained.allowed_actions)
         expect(flat(s.screenText())).toContain(flat(a.note));
-      expect(flat(s.screenText())).toContain(
-        `Reason ${explained.wait?.reason}`,
-      );
+      expect(flat(s.screenText())).toContain(`Reason ${explained.wait?.reason}`);
       s.send(KEY.esc);
       await s.waitForText('Needs you');
     }
@@ -238,8 +205,7 @@ describe('US2 scenario 3: attempts, limits and usage', () => {
     const s = tui.cusr(sd.dataDir, TALL);
     await openTask(s, 'Tried task');
     await s.waitForText('requested');
-    const explained = (await cliJson(sd, 'task', 'explain', t.id, '--full'))
-      .envelope.data as {
+    const explained = (await cliJson(sd, 'task', 'explain', t.id, '--full')).envelope.data as {
       bindings_used: {
         step: string;
         binding: string;
@@ -250,9 +216,7 @@ describe('US2 scenario 3: attempts, limits and usage', () => {
     const screen = s.screenText();
     expect(explained.bindings_used.length).toBeGreaterThan(0);
     for (const b of explained.bindings_used) {
-      const line = screen
-        .split('\n')
-        .find((l) => l.includes(b.binding) && l.includes('requested'));
+      const line = screen.split('\n').find((l) => l.includes(b.binding) && l.includes('requested'));
       expect(line).toContain(b.step);
       expect(line).toContain(`requested ${b.requested}`);
       expect(line).toContain(`invoked ${b.invoked}`);
@@ -267,8 +231,7 @@ describe('US2 scenario 3: attempts, limits and usage', () => {
     const t = buildTask({ id: uuidOf(1), title: 'Direct config' });
     sd.seed((d) => createGrantStart(d, t, 'direct-pr'));
     await sd.start();
-    const shown = (await cliJson(sd, 'task', 'show', t.id, '--full')).envelope
-      .data as {
+    const shown = (await cliJson(sd, 'task', 'show', t.id, '--full')).envelope.data as {
       run_config: {
         selection: { worker: { harness: string; model: string } };
       };
@@ -315,12 +278,7 @@ function seedAttempts(
   id: string,
 ): void {
   d.complete(id, d.pendingOne(id, 'prepare').id, 'succeeded', PREPARE_DATA);
-  d.complete(
-    id,
-    d.pendingOne(id, 'start_agent').id,
-    'succeeded',
-    agentData('done'),
-  );
+  d.complete(id, d.pendingOne(id, 'start_agent').id, 'succeeded', agentData('done'));
 }
 
 describe('US2 scenarios 5 and 6: the PR and the merge left to the user', () => {
@@ -340,8 +298,7 @@ describe('US2 scenarios 5 and 6: the PR and the merge left to the user', () => {
       await openTask(s, 'Green task');
       await s.waitForText('Pull request');
       await s.waitForText('Gates ');
-      const explained = (await cliJson(sd, 'task', 'explain', t.id, '--full'))
-        .envelope.data as {
+      const explained = (await cliJson(sd, 'task', 'explain', t.id, '--full')).envelope.data as {
         pr: { ref: string; head_sha: string; base_sha: string | null };
         merge: { method: string };
       };
@@ -431,8 +388,7 @@ describe('US2 scenario 7: a DONE that needs reading closely', () => {
       const poll = d.pendingOne(t.id, 'await_ci');
       d.claim(poll.id);
       merge(d, t, A);
-      for (let i = 0; i < 3; i++)
-        d.must(t.id, { kind: 'drain_result', pending_operations: [] });
+      for (let i = 0; i < 3; i++) d.must(t.id, { kind: 'drain_result', pending_operations: [] });
       d.must(t.id, { kind: 'cancel', reason: 'too late' });
       d.must(t.id, { kind: 'drain_result', pending_operations: [] });
       d.must(t.id, {
@@ -443,8 +399,7 @@ describe('US2 scenario 7: a DONE that needs reading closely', () => {
       });
     });
     await sd.start();
-    const explained = (await cliJson(sd, 'task', 'explain', t.id, '--full'))
-      .envelope.data as {
+    const explained = (await cliJson(sd, 'task', 'explain', t.id, '--full')).envelope.data as {
       cancellation: { late: boolean } | null;
       status: string;
     };
@@ -475,11 +430,10 @@ describe('US2 scenario 8: a finished task', () => {
     await s.waitForText('Sample cancelled');
     await openTask(s, 'Sample cancelled');
     const explained = await explainOf(sd, samples.cancelled.id);
-    expect(explained.allowed_actions.map((a) => a.action)).toEqual([
-      'task_add',
-    ]);
-    const history = (await cliJson(sd, 'task', 'history', samples.cancelled.id))
-      .envelope.data as { events: { seq: number; type: string }[] };
+    expect(explained.allowed_actions.map((a) => a.action)).toEqual(['task_add']);
+    const history = (await cliJson(sd, 'task', 'history', samples.cancelled.id)).envelope.data as {
+      events: { seq: number; type: string }[];
+    };
     const screen = s.screenText();
     expect(flat(screen)).toContain('CANCELLED ·');
     for (const e of history.events) {
@@ -489,9 +443,7 @@ describe('US2 scenario 8: a finished task', () => {
     // In the order they were committed.
     const at = history.events.map((e) => screen.indexOf(`#${e.seq} `));
     expect(at).toEqual([...at].sort((a, b) => a - b));
-    expect(flat(screen)).toContain(
-      'To do the work again, add an independent task',
-    );
+    expect(flat(screen)).toContain('To do the work again, add an independent task');
     expect(flat(screen)).not.toMatch(/\b(retry|reopen)\b/i);
     await quit(s);
   });
@@ -501,9 +453,7 @@ describe('EC-008 and EC-009: another token while Task detail is open', () => {
   it('leaves nothing of the old token on screen, and reads it back when allowed again', async () => {
     const sd = tui.daemon({
       projects: ['beta'],
-      tokens: [
-        { id: 'acme', actor: 'acme', roles: ['read'], projects: ['acme'] },
-      ],
+      tokens: [{ id: 'acme', actor: 'acme', roles: ['read'], projects: ['acme'] }],
     });
     const t = buildTask({
       id: uuidOf(1),

@@ -54,8 +54,7 @@ export type PrOutcome =
   | { readonly kind: 'head_changed'; readonly pr: PrFact }
   | {
       readonly kind: 'conflict';
-      readonly reason:
-        'multiple' | 'not_ours' | 'marker_forged' | 'body_changed';
+      readonly reason: 'multiple' | 'not_ours' | 'marker_forged' | 'body_changed';
       readonly prs: readonly number[];
     }
   | {
@@ -66,9 +65,7 @@ export type PrOutcome =
   | { readonly kind: 'unknown'; readonly detail: string };
 
 /** Marker line that ties a PR to one task revision and publish operation. */
-export function prMarker(
-  s: Pick<PrSpec, 'task_id' | 'revision' | 'operation_key'>,
-): string {
+export function prMarker(s: Pick<PrSpec, 'task_id' | 'revision' | 'operation_key'>): string {
   return `<!-- cusr:task=${s.task_id} revision=${s.revision} op=${s.operation_key} -->`;
 }
 
@@ -89,15 +86,10 @@ export function bodyDigest(body: string): string {
  * Ownership by marker: exactly one marker in the normalised body, that marker is ours, at the very end.
  * Anything else is `forged`; ours but with other text than we sent is `changed`.
  */
-function markerVerdict(
-  body: string,
-  s: PrSpec,
-): 'ours' | 'none' | 'forged' | 'changed' {
+function markerVerdict(body: string, s: PrSpec): 'ours' | 'none' | 'forged' | 'changed' {
   const n = markerCount(body);
   if (n === 0) return 'none';
-  const tail = normalizeForMarker(canon(body)).endsWith(
-    normalizeForMarker(prMarker(s)),
-  );
+  const tail = normalizeForMarker(canon(body)).endsWith(normalizeForMarker(prMarker(s)));
   if (n !== 1 || !tail || !canon(body).endsWith(prMarker(s))) return 'forged';
   return bodyDigest(body) === bodyDigest(finalBody(s)) ? 'ours' : 'changed';
 }
@@ -151,28 +143,16 @@ export type FoundPr =
       readonly pr: PrFact;
       readonly body_digest: string;
     }
-  | Extract<
-      PrOutcome,
-      { kind: 'closed' | 'head_changed' | 'conflict' | 'unknown' }
-    >;
+  | Extract<PrOutcome, { kind: 'closed' | 'head_changed' | 'conflict' | 'unknown' }>;
 
 /** Reads every PR on the task's head/base tuple (all states) and judges ownership; sends nothing. */
-export async function findTaskPr(
-  port: GitHubPort,
-  s: PrSpec,
-): Promise<FoundPr | null> {
+export async function findTaskPr(port: GitHubPort, s: PrSpec): Promise<FoundPr | null> {
   const owner = s.repo.split('/')[0] as string;
-  const r = await listAll(
-    port,
-    `repos/${s.repo}/pulls`,
-    (b) => (Array.isArray(b) ? b : null),
-    {
-      query: { state: 'all', head: `${owner}:${s.head_branch}`, base: s.base },
-    },
-  );
+  const r = await listAll(port, `repos/${s.repo}/pulls`, (b) => (Array.isArray(b) ? b : null), {
+    query: { state: 'all', head: `${owner}:${s.head_branch}`, base: s.base },
+  });
   if (!r.ok) return { kind: 'unknown', detail: `probe: ${r.error.detail}` };
-  if (!r.value.complete)
-    return { kind: 'unknown', detail: 'probe: PR listing incomplete' };
+  if (!r.value.complete) return { kind: 'unknown', detail: 'probe: PR listing incomplete' };
   const found = r.value.items.filter((p) => sameTuple(p, s));
   if (found.length === 0) return null;
   if (found.length > 1)
@@ -183,30 +163,20 @@ export async function findTaskPr(
     };
   const p = found[0];
   const f = fact(p);
-  if (f === null)
-    return { kind: 'unknown', detail: 'probe: unexpected PR shape' };
-  const body =
-    typeof obj(p)['body'] === 'string' ? (obj(p)['body'] as string) : '';
+  if (f === null) return { kind: 'unknown', detail: 'probe: unexpected PR shape' };
+  const body = typeof obj(p)['body'] === 'string' ? (obj(p)['body'] as string) : '';
   const verdict = markerVerdict(body, s);
-  if (verdict === 'none')
-    return { kind: 'conflict', reason: 'not_ours', prs: [f.number] };
-  if (verdict === 'forged')
-    return { kind: 'conflict', reason: 'marker_forged', prs: [f.number] };
-  if (verdict === 'changed')
-    return { kind: 'conflict', reason: 'body_changed', prs: [f.number] };
+  if (verdict === 'none') return { kind: 'conflict', reason: 'not_ours', prs: [f.number] };
+  if (verdict === 'forged') return { kind: 'conflict', reason: 'marker_forged', prs: [f.number] };
+  if (verdict === 'changed') return { kind: 'conflict', reason: 'body_changed', prs: [f.number] };
   if (f.state === 'closed') return { kind: 'closed', pr: f };
   if (f.head_sha !== s.head_sha) return { kind: 'head_changed', pr: f };
   return { kind: 'recovered', pr: f, body_digest: bodyDigest(body) };
 }
 
-export async function createOrRecoverPr(
-  port: GitHubPort,
-  s: PrSpec,
-): Promise<PrOutcome> {
-  if (markerCount(s.title) > 0)
-    return { kind: 'content_rejected', field: 'title' };
-  if (markerCount(s.body) > 0)
-    return { kind: 'content_rejected', field: 'body' };
+export async function createOrRecoverPr(port: GitHubPort, s: PrSpec): Promise<PrOutcome> {
+  if (markerCount(s.title) > 0) return { kind: 'content_rejected', field: 'title' };
+  if (markerCount(s.body) > 0) return { kind: 'content_rejected', field: 'body' };
   const existing = await findTaskPr(port, s);
   if (existing !== null) return existing;
 
@@ -234,15 +204,8 @@ export async function createOrRecoverPr(
   // Anything but a clean, matching 201 is checked against GitHub before deciding.
   const after = await findTaskPr(port, s);
   if (after !== null)
-    return after.kind === 'recovered' && r.ok
-      ? { ...after, kind: 'created' }
-      : after;
-  if (
-    !r.ok &&
-    r.error.reason === 'http_error' &&
-    r.error.status !== null &&
-    r.error.status < 500
-  )
+    return after.kind === 'recovered' && r.ok ? { ...after, kind: 'created' } : after;
+  if (!r.ok && r.error.reason === 'http_error' && r.error.status !== null && r.error.status < 500)
     return { kind: 'rejected', status: r.error.status, detail: r.error.detail };
   return {
     kind: 'unknown',
@@ -255,10 +218,7 @@ export type DescriptionUpdate = {
   readonly pr_number: number;
   /** Digest of the body this task last sent (or recovered); anything else on GitHub is someone's edit. */
   readonly expected_body_digest: string;
-  readonly spec: Pick<
-    PrSpec,
-    'title' | 'body' | 'task_id' | 'revision' | 'operation_key'
-  >;
+  readonly spec: Pick<PrSpec, 'title' | 'body' | 'task_id' | 'revision' | 'operation_key'>;
 };
 
 export type DescriptionOutcome =
@@ -307,20 +267,16 @@ export async function updatePrDescription(
   port: GitHubPort,
   u: DescriptionUpdate,
 ): Promise<DescriptionOutcome> {
-  if (markerCount(u.spec.title) > 0)
-    return { kind: 'content_rejected', field: 'title' };
-  if (markerCount(u.spec.body) > 0)
-    return { kind: 'content_rejected', field: 'body' };
+  if (markerCount(u.spec.title) > 0) return { kind: 'content_rejected', field: 'title' };
+  if (markerCount(u.spec.body) > 0) return { kind: 'content_rejected', field: 'body' };
   const next = finalBody(u.spec);
   const want = bodyDigest(next);
   const before = await readPrBody(port, u.repo, u.pr_number);
-  if (typeof before === 'string')
-    return { kind: 'unknown', detail: `read: ${before}` };
+  if (typeof before === 'string') return { kind: 'unknown', detail: `read: ${before}` };
   const current = bodyDigest(before.body);
   if (current === want && before.title === u.spec.title)
     return { kind: 'already_current', body_digest: want };
-  if (current !== u.expected_body_digest)
-    return { kind: 'body_changed', observed_digest: current };
+  if (current !== u.expected_body_digest) return { kind: 'body_changed', observed_digest: current };
   const r = await port.request({
     method: 'PATCH',
     path: `repos/${u.repo}/pulls/${u.pr_number}`,
@@ -336,13 +292,8 @@ export async function updatePrDescription(
     };
   const seen = bodyDigest(after.body);
   if (seen === want) return { kind: 'updated', body_digest: want };
-  if (seen !== u.expected_body_digest)
-    return { kind: 'body_changed', observed_digest: seen };
-  if (
-    r.error.reason === 'http_error' &&
-    r.error.status !== null &&
-    r.error.status < 500
-  )
+  if (seen !== u.expected_body_digest) return { kind: 'body_changed', observed_digest: seen };
+  if (r.error.reason === 'http_error' && r.error.status !== null && r.error.status < 500)
     return { kind: 'rejected', status: r.error.status, detail: r.error.detail };
   return { kind: 'unknown', detail: r.error.detail };
 }

@@ -19,9 +19,7 @@ describe('backoff (research R-22)', () => {
 
   it('derives jitter from the key, so the same input gives the same delay', () => {
     expect(backoffDelay(CFG, 2, 'k1')).toBe(backoffDelay(CFG, 2, 'k1'));
-    const delays = new Set(
-      ['k1', 'k2', 'k3', 'k4', 'k5'].map((k) => backoffDelay(CFG, 2, k)),
-    );
+    const delays = new Set(['k1', 'k2', 'k3', 'k4', 'k5'].map((k) => backoffDelay(CFG, 2, k)));
     expect(delays.size).toBeGreaterThan(1);
   });
 

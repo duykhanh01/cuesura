@@ -66,10 +66,7 @@ export type StartResult =
   | { readonly kind: 'conflict'; readonly error: AcceptError };
 
 /** `conventions` of the frozen project config, read from the base commit like `cusr.yaml`. */
-async function readConventions(
-  git: GitPort,
-  candidate: PreflightCandidate,
-): Promise<DocContent[]> {
+async function readConventions(git: GitPort, candidate: PreflightCandidate): Promise<DocContent[]> {
   const out: DocContent[] = [];
   for (const name of candidate.validated.config.project?.conventions ?? []) {
     const r = await git.run({
@@ -80,8 +77,7 @@ async function readConventions(
       stdin: null,
     });
     // A missing or oversize document is left out; freeze then reports it as config_invalid.
-    if (r.kind === 'exited' && r.code === 0 && !r.truncated)
-      out.push({ name, content: r.stdout });
+    if (r.kind === 'exited' && r.code === 0 && !r.truncated) out.push({ name, content: r.stdout });
   }
   return out;
 }
@@ -98,11 +94,7 @@ const unconfirmed = (problems: SelectionProblem[]) => ({
   error: { code: 'run_config_unconfirmed' as const, problems },
 });
 
-async function freezeFor(
-  deps: StartDeps,
-  s: TaskState,
-  candidate: PreflightCandidate,
-) {
+async function freezeFor(deps: StartDeps, s: TaskState, candidate: PreflightCandidate) {
   const { config } = candidate.validated;
   const proposal = s.run.proposal as NonNullable<TaskState['run']['proposal']>;
   const confirmation = s.run.confirmation as RunConfirmation;
@@ -121,8 +113,7 @@ async function freezeFor(
     mode: sel.mode,
     selection: sel,
   });
-  if (!frozen.ok)
-    return { ok: false as const, error: frozen.error as FreezeError };
+  if (!frozen.ok) return { ok: false as const, error: frozen.error as FreezeError };
   const mismatch = checkSelection(frozen.value.policy, sel);
   if (mismatch.length > 0) return unconfirmed(mismatch);
   // Frozen it could never fit: refused here, while editing the file still helps this task.
@@ -197,9 +188,7 @@ async function freezeFor(
   return { ok: true as const, policy: frozen.value, runtime: runtime.value };
 }
 
-function templateInvalid(
-  e: TemplateError | { readonly check: 'git'; readonly message: string },
-) {
+function templateInvalid(e: TemplateError | { readonly check: 'git'; readonly message: string }) {
   return {
     ok: false as const,
     error: {
@@ -216,19 +205,13 @@ function templateInvalid(
   };
 }
 
-export async function startTask(
-  deps: StartDeps,
-  taskId: string,
-): Promise<StartResult> {
+export async function startTask(deps: StartDeps, taskId: string): Promise<StartResult> {
   const s = deps.store.readTask(taskId as Uuid);
   if (s === null) return { kind: 'not_startable', reason: 'unknown_task' };
-  if (s.policy_ref !== null)
-    return { kind: 'not_startable', reason: 'already_started' };
-  if (s.status !== 'READY')
-    return { kind: 'not_startable', reason: `status_${s.status}` };
+  if (s.policy_ref !== null) return { kind: 'not_startable', reason: 'already_started' };
+  if (s.status !== 'READY') return { kind: 'not_startable', reason: `status_${s.status}` };
   const holding = s.execution.holding;
-  if (holding === null)
-    return { kind: 'not_startable', reason: 'slot_not_held' };
+  if (holding === null) return { kind: 'not_startable', reason: 'slot_not_held' };
   const dedup = `start:${s.id}:r${s.revision}:${holding.request_id}`;
   const release = (reason: string) => {
     const r = submit(deps.store, {

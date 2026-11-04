@@ -63,11 +63,8 @@ export async function probeRemote(
     max_output_bytes: 64 * 1024,
     stdin: null,
   });
-  if (r.kind !== 'exited' || r.code !== 0)
-    return { kind: 'unknown', detail: describe(r) };
-  const line = r.stdout
-    .split('\n')
-    .find((l) => l.endsWith(`\trefs/heads/${branch}`));
+  if (r.kind !== 'exited' || r.code !== 0) return { kind: 'unknown', detail: describe(r) };
+  const line = r.stdout.split('\n').find((l) => l.endsWith(`\trefs/heads/${branch}`));
   return line === undefined
     ? { kind: 'absent' }
     : { kind: 'at', sha: line.split('\t')[0] as string };
@@ -85,21 +82,11 @@ export function classifyRemote(
   return matches(ref, spec.expected_old) ? 'at_old' : 'elsewhere';
 }
 
-export async function pushBranch(
-  port: GitPort,
-  spec: PushSpec,
-): Promise<PushOutcome> {
-  const before = await probeRemote(
-    port,
-    spec.cwd,
-    spec.remote_url,
-    spec.branch,
-  );
-  if (before.kind === 'unknown')
-    return { kind: 'unknown', detail: `probe: ${before.detail}` };
+export async function pushBranch(port: GitPort, spec: PushSpec): Promise<PushOutcome> {
+  const before = await probeRemote(port, spec.cwd, spec.remote_url, spec.branch);
+  if (before.kind === 'unknown') return { kind: 'unknown', detail: `probe: ${before.detail}` };
   const seen = classifyRemote(before, spec);
-  if (seen === 'at_new')
-    return { kind: 'already_pushed', remote_sha: spec.new_sha };
+  if (seen === 'at_new') return { kind: 'already_pushed', remote_sha: spec.new_sha };
   if (seen === 'elsewhere')
     return {
       kind: 'head_changed',
@@ -114,8 +101,7 @@ export async function pushBranch(
       max_output_bytes: 1024,
       stdin: null,
     });
-    if (ff.kind !== 'exited')
-      return { kind: 'unknown', detail: `ancestry: ${describe(ff)}` };
+    if (ff.kind !== 'exited') return { kind: 'unknown', detail: `ancestry: ${describe(ff)}` };
     if (ff.code !== 0)
       return {
         kind: 'not_fast_forward',
@@ -140,8 +126,7 @@ export async function pushBranch(
     stdin: null,
   });
   if (r.kind === 'refused') return { kind: 'not_pushed', detail: describe(r) };
-  if (r.kind === 'exited' && r.code === 0)
-    return { kind: 'pushed', remote_sha: spec.new_sha };
+  if (r.kind === 'exited' && r.code === 0) return { kind: 'pushed', remote_sha: spec.new_sha };
 
   // Failed, timed out or lost: the remote decides what happened.
   const after = await probeRemote(port, spec.cwd, spec.remote_url, spec.branch);

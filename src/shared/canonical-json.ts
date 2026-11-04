@@ -29,24 +29,19 @@ function write(value: unknown, path: string, seen: Set<object>): string {
       return value ? 'true' : 'false';
     case 'number':
       if (!Number.isFinite(value))
-        throw new CanonicalJsonError(
-          `${path}: non-finite numbers are not valid JSON`,
-        );
+        throw new CanonicalJsonError(`${path}: non-finite numbers are not valid JSON`);
       return JSON.stringify(value);
     case 'bigint':
       throw new CanonicalJsonError(`${path}: bigint is not a JSON value`);
     case 'undefined':
     case 'function':
     case 'symbol':
-      throw new CanonicalJsonError(
-        `${path}: ${typeof value} is not a JSON value`,
-      );
+      throw new CanonicalJsonError(`${path}: ${typeof value} is not a JSON value`);
     case 'object':
       break;
   }
   const obj = value;
-  if (seen.has(obj))
-    throw new CanonicalJsonError(`${path}: circular reference`);
+  if (seen.has(obj)) throw new CanonicalJsonError(`${path}: circular reference`);
   seen.add(obj);
   try {
     if (Array.isArray(obj)) {
@@ -64,9 +59,7 @@ function write(value: unknown, path: string, seen: Set<object>): string {
     const entries = Object.entries(obj as Record<string, unknown>)
       .filter(([, v]) => v !== undefined)
       .sort(([a], [b]) => compareCodePoints(a, b));
-    const body = entries.map(
-      ([k, v]) => `${JSON.stringify(k)}:${write(v, `${path}.${k}`, seen)}`,
-    );
+    const body = entries.map(([k, v]) => `${JSON.stringify(k)}:${write(v, `${path}.${k}`, seen)}`);
     return `{${body.join(',')}}`;
   } finally {
     seen.delete(obj);

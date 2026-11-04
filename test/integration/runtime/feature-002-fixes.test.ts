@@ -1,26 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import {
-  recheckTask,
-  type RecheckDeps,
-} from '../../../src/application/recheck.ts';
+import { recheckTask, type RecheckDeps } from '../../../src/application/recheck.ts';
 import type { Caller } from '../../../src/application/authz.ts';
 import type { CanonicalTask } from '../../../src/domain/task.ts';
-import type {
-  RequiredCheckVerdict,
-  Trigger,
-} from '../../../src/domain/trigger.ts';
+import type { RequiredCheckVerdict, Trigger } from '../../../src/domain/trigger.ts';
 import type { Uuid } from '../../../src/shared/brand.ts';
 import { replay } from '../../../src/engine/evolve.ts';
 import { hashCanonical } from '../../../src/shared/hash.ts';
 import { openFileStoreForTest } from '../../../src/store/testing.ts';
 import { buildTask, DEFAULT_LIMITS, uuidOf } from '../../support/builders.ts';
 import { createGrantStart } from '../../support/runtime.ts';
-import {
-  agentData,
-  ciData,
-  publishData,
-  reviewData,
-} from '../../support/scenario.ts';
+import { agentData, ciData, publishData, reviewData } from '../../support/scenario.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 import {
   checkpointGates,
@@ -31,14 +20,7 @@ import {
   completePost,
 } from '../../support/store-flows.ts';
 import { dbPath, useTempDir } from '../../support/temp-db.ts';
-import {
-  A,
-  ci,
-  COVERED,
-  merge,
-  observation,
-  toGreen,
-} from '../../support/observation.ts';
+import { A, ci, COVERED, merge, observation, toGreen } from '../../support/observation.ts';
 
 // US2 repair loops, CI limits and PR observation at the engine/SQLite boundary (T053, US2.1–11, SC-003,
 // US1.7/US1.9/US1.11, H01–H03/H05). Facts are injected the way the daemon handlers and the observation
@@ -57,31 +39,19 @@ const PREPARE = {
 };
 
 const setup = () => new StoreDriver(openFileStoreForTest(dbPath(tempDir())));
-const types = (d: StoreDriver, t: CanonicalTask) =>
-  d.store.readEvents(t.id).map((e) => e.type);
-const effects = (
-  d: StoreDriver,
-  t: CanonicalTask,
-  kind: string,
-  step?: string,
-) =>
+const types = (d: StoreDriver, t: CanonicalTask) => d.store.readEvents(t.id).map((e) => e.type);
+const effects = (d: StoreDriver, t: CanonicalTask, kind: string, step?: string) =>
   Object.values(d.task(t.id).effects).filter(
     (e) => e.kind === kind && (step === undefined || e.step === step),
   );
-const code = (d: StoreDriver, t: CanonicalTask) =>
-  d.task(t.id).wait?.detail.code;
+const code = (d: StoreDriver, t: CanonicalTask) => d.task(t.id).wait?.detail.code;
 const stepOf = (d: StoreDriver, t: CanonicalTask, e: { id: string }) =>
   d.task(t.id).effects[e.id]?.step;
 
 let grantSeq = 900;
 /** The slot went back while CI ran or the task waited; work resumes under a new grant. */
 function grant(d: StoreDriver): void {
-  const ids = [
-    uuidOf(grantSeq++),
-    uuidOf(grantSeq++),
-    uuidOf(grantSeq++),
-    uuidOf(grantSeq++),
-  ];
+  const ids = [uuidOf(grantSeq++), uuidOf(grantSeq++), uuidOf(grantSeq++), uuidOf(grantSeq++)];
   const g = d.store.grantNext(d.now as never, ids);
   if (!g.ok) throw new Error(JSON.stringify(g));
 }
@@ -92,12 +62,7 @@ describe('repair loops (US2.1–US2.3, M03/M04/M06)', () => {
     const t = buildTask();
     createGrantStart(d, t, 'full-review');
     d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE);
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'start_agent').id,
-      'succeeded',
-      agentData('done'),
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
     d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', {
       results: [
         { gate: 'build', passed: true },
@@ -127,21 +92,11 @@ describe('repair loops (US2.1–US2.3, M03/M04/M06)', () => {
       role: 'fixer',
     });
     expect(effects(d, t, 'publish')).toEqual([]);
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'start_agent').id,
-      'succeeded',
-      agentData('done'),
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
     // Gates again, on the fixed tree, before anything is published or reviewed.
     expect(stepOf(d, t, d.pendingOne(t.id, 'run_gates'))).toBe('gates');
     expect(effects(d, t, 'start_agent', 'review')).toEqual([]);
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'run_gates').id,
-      'succeeded',
-      checkpointGates(A),
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(A));
     expect(d.pendingOne(t.id, 'publish').request).toMatchObject({ sha: A });
     expect(effects(d, t, 'start_agent', 'review')).toEqual([]);
   });
@@ -151,18 +106,8 @@ describe('repair loops (US2.1–US2.3, M03/M04/M06)', () => {
     const t = buildTask();
     createGrantStart(d, t, 'full-review');
     d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE);
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'start_agent').id,
-      'succeeded',
-      agentData('done'),
-    );
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'run_gates').id,
-      'succeeded',
-      checkpointGates(A),
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(A));
     publishToReview(d, t.id, A);
     d.complete(
       t.id,
@@ -179,18 +124,8 @@ describe('repair loops (US2.1–US2.3, M03/M04/M06)', () => {
     expect(d.pendingOne(t.id, 'start_agent').request).toMatchObject({
       role: 'fixer',
     });
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'start_agent').id,
-      'succeeded',
-      agentData('done'),
-    );
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'run_gates').id,
-      'succeeded',
-      checkpointGates(C),
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(C));
     expect(d.pendingOne(t.id, 'publish').request).toMatchObject({ sha: C });
     publishToReview(d, t.id, C);
     // A new commit is a new review input: the reviewer runs again (separate session, read only).
@@ -225,18 +160,8 @@ describe('repair loops (US2.1–US2.3, M03/M04/M06)', () => {
       'succeeded',
       agentData('done', { content: content('v1') }),
     );
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'run_gates').id,
-      'succeeded',
-      checkpointGates(A),
-    );
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'publish').id,
-      'succeeded',
-      publishData(A),
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(A));
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
     const prBody = {
       content_digest: hashCanonical('v1'),
       body_digest: 'sha256:body1',
@@ -266,18 +191,8 @@ describe('repair loops (US2.1–US2.3, M03/M04/M06)', () => {
       'succeeded',
       agentData('done', { content: content('v2') }),
     );
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'run_gates').id,
-      'succeeded',
-      checkpointGates(B),
-    );
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'publish').id,
-      'succeeded',
-      publishData(B),
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(B));
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(B));
     // The same PR gets the newer title/body; no second PR is created.
     const describe = d.pendingOne(t.id, 'create_pr');
     expect(describe.request).toMatchObject({
@@ -334,26 +249,15 @@ describe('CI classification and limits (US2.4/US2.5, FR-010/015/020)', () => {
     const t = buildTask();
     createGrantStart(d, t, 'direct-pr');
     toPublish(d, t, A);
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'publish').id,
-      'succeeded',
-      publishData(A),
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
     d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
       pr_ref: 'acme#7',
       head_sha: A,
     });
     reviewToCi(d, t.id);
-    const flaky = ciData(
-      A,
-      { build: 'success', test: 'failure' },
-      {},
-      { required: COVERED },
-    );
-    (
-      flaky['checks'] as { name: string; log_excerpt?: string }[]
-    )[1]!.log_excerpt = 'ETIMEDOUT talking to runner';
+    const flaky = ciData(A, { build: 'success', test: 'failure' }, {}, { required: COVERED });
+    (flaky['checks'] as { name: string; log_excerpt?: string }[])[1]!.log_excerpt =
+      'ETIMEDOUT talking to runner';
     for (let round = 0; round < 3; round++) {
       d.complete(t.id, d.pendingOne(t.id, 'await_ci').id, 'succeeded', flaky);
       if (round < 2) {
@@ -384,12 +288,7 @@ describe('CI classification and limits (US2.4/US2.5, FR-010/015/020)', () => {
     const t = buildTask();
     createGrantStart(d, t, 'direct-pr');
     toPublish(d, t, A);
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'publish').id,
-      'succeeded',
-      publishData(A),
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
     d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
       pr_ref: 'acme#7',
       head_sha: A,
@@ -413,12 +312,7 @@ describe('CI classification and limits (US2.4/US2.5, FR-010/015/020)', () => {
     const t = buildTask();
     createGrantStart(d, t, 'direct-pr', { limits: { max_agent_runs: 2 } });
     d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE);
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'start_agent').id,
-      'succeeded',
-      agentData('done'),
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
     d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', {
       results: [
         { gate: 'build', passed: false, signature: 'build:E1' },
@@ -427,12 +321,7 @@ describe('CI classification and limits (US2.4/US2.5, FR-010/015/020)', () => {
       tree: 'e'.repeat(40),
       stable: true,
     });
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'start_agent').id,
-      'succeeded',
-      agentData('done'),
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
     d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', {
       results: [
         { gate: 'build', passed: false, signature: 'build:E2' },
@@ -470,9 +359,7 @@ describe('CI classification and limits (US2.4/US2.5, FR-010/015/020)', () => {
         'succeeded',
         agentData('done', { schema_checked: false }),
       );
-      kinds.push(
-        String(d.pendingOne(t.id, 'start_agent').request['attempt_kind']),
-      );
+      kinds.push(String(d.pendingOne(t.id, 'start_agent').request['attempt_kind']));
     }
     expect(kinds).toEqual(['repair', 'fresh_session']);
     expect(types(d, t)).not.toContain('RungRaised');
@@ -517,12 +404,7 @@ describe('required checks (US2.6, FR-042)', () => {
   function toCi(d: StoreDriver, t: CanonicalTask): void {
     createGrantStart(d, t, 'direct-pr');
     toPublish(d, t, A);
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'publish').id,
-      'succeeded',
-      publishData(A),
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
     d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
       pr_ref: 'acme#7',
       head_sha: A,
@@ -568,11 +450,7 @@ describe('required checks (US2.6, FR-042)', () => {
       t.id,
       d.pendingOne(t.id, 'await_ci').id,
       'succeeded',
-      ci(
-        A,
-        { build: 'success' },
-        { kind: 'unknown', basis: 'rules page 3 unreadable' },
-      ),
+      ci(A, { build: 'success' }, { kind: 'unknown', basis: 'rules page 3 unreadable' }),
     );
     const s = d.task(t.id);
     expect(s).toMatchObject({
@@ -583,9 +461,7 @@ describe('required checks (US2.6, FR-042)', () => {
       },
     });
     expect(
-      Object.values(s.timers).filter(
-        (x) => x.kind === 'ci_poll' && x.status === 'armed',
-      ),
+      Object.values(s.timers).filter((x) => x.kind === 'ci_poll' && x.status === 'armed'),
     ).toHaveLength(1);
   });
 
@@ -789,12 +665,7 @@ describe('CI and execution limits vs observation (US2.9/US2.10, FR-043.08–11)'
     const t = buildTask();
     createGrantStart(d, t, 'direct-pr', { limits: { max_wall_ms: 6 * HOUR } });
     toPublish(d, t, A);
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'publish').id,
-      'succeeded',
-      publishData(A),
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
     d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
       pr_ref: 'acme#7',
       head_sha: A,
@@ -822,9 +693,7 @@ describe('CI and execution limits vs observation (US2.9/US2.10, FR-043.08–11)'
     expect(s.run.ci_wait[A]?.polls).toBeLessThanOrEqual(60);
     expect(effects(d, t, 'await_ci').length).toBe(s.run.ci_wait[A]?.polls);
     expect(
-      Object.values(s.timers).filter(
-        (x) => x.status === 'armed' && x.kind === 'ci_poll',
-      ),
+      Object.values(s.timers).filter((x) => x.status === 'armed' && x.kind === 'ci_poll'),
     ).toEqual([]);
     // The observation keeps watching; a late pass is recorded and changes nothing else.
     d.must(
@@ -835,10 +704,7 @@ describe('CI and execution limits vs observation (US2.9/US2.10, FR-043.08–11)'
     );
     const after = d.task(t.id);
     expect(after.wait?.detail.code).toBe('ci_wait_exhausted');
-    expect(after.evidence.ci.at(-1)?.checks.map((c) => c.state)).toEqual([
-      'success',
-      'success',
-    ]);
+    expect(after.evidence.ci.at(-1)?.checks.map((c) => c.state)).toEqual(['success', 'success']);
     expect(d.pending(t.id)).toEqual([]);
     // A merge still completes the task.
     merge(d, t, A);
@@ -882,12 +748,7 @@ describe('CI and execution limits vs observation (US2.9/US2.10, FR-043.08–11)'
     const t = buildTask();
     createGrantStart(d, t, 'direct-pr');
     toPublish(d, t, A);
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'publish').id,
-      'succeeded',
-      publishData(A),
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
     d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
       pr_ref: 'acme#7',
       head_sha: A,
@@ -906,9 +767,7 @@ describe('CI and execution limits vs observation (US2.9/US2.10, FR-043.08–11)'
       wait: { reason: 'policy', detail: { code: 'deadline' } },
     });
     // The CI poll of a business wait is refused past the deadline; the observation still reads the PR.
-    expect(d.pending(t.id, 'await_ci').every((e) => !d.claim(e.id).ok)).toBe(
-      true,
-    );
+    expect(d.pending(t.id, 'await_ci').every((e) => !d.claim(e.id).ok)).toBe(true);
     d.must(
       t.id,
       observation(d, t, 'open', A, {
@@ -995,12 +854,7 @@ describe('observation vs the CI window, merge proof and target (PR review)', () 
     const t = buildTask();
     createGrantStart(d, t, 'direct-pr', LONG);
     toPublish(d, t, A);
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'publish').id,
-      'succeeded',
-      publishData(A),
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
     d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
       pr_ref: 'acme#7',
       head_sha: A,
@@ -1016,10 +870,7 @@ describe('observation vs the CI window, merge proof and target (PR review)', () 
     const fixer = d.pendingOne(t.id, 'start_agent');
     expect(stepOf(d, t, fixer)).toBe('ci_fix');
     expect(d.claim(fixer.id).ok).toBe(true);
-    d.must(
-      t.id,
-      observation(d, t, 'merged', A, { source: 'recheck', merge_proof: false }),
-    );
+    d.must(t.id, observation(d, t, 'merged', A, { source: 'recheck', merge_proof: false }));
     d.must(t.id, {
       kind: 'effect_result',
       effect_id: fixer.id as Uuid,
@@ -1038,12 +889,7 @@ describe('observation vs the CI window, merge proof and target (PR review)', () 
     const t = buildTask();
     createGrantStart(d, t, 'direct-pr', LONG);
     toPublish(d, t, A);
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'publish').id,
-      'succeeded',
-      publishData(A),
-    );
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
     d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
       pr_ref: 'acme#7',
       head_sha: A,
@@ -1057,10 +903,7 @@ describe('observation vs the CI window, merge proof and target (PR review)', () 
     );
     grant(d);
     const fixer = d.pendingOne(t.id, 'start_agent');
-    d.must(
-      t.id,
-      observation(d, t, 'merged', A, { source: 'recheck', merge_proof: false }),
-    );
+    d.must(t.id, observation(d, t, 'merged', A, { source: 'recheck', merge_proof: false }));
     expect(d.claim(fixer.id)).toEqual({
       ok: false,
       error: { code: 'claim_blocked', reason: 'merge_evidence_incomplete' },
@@ -1081,12 +924,7 @@ describe('observation vs the CI window, merge proof and target (PR review)', () 
       const t = buildTask();
       createGrantStart(d, t, 'direct-pr', LONG);
       toPublish(d, t, A);
-      d.complete(
-        t.id,
-        d.pendingOne(t.id, 'publish').id,
-        'succeeded',
-        publishData(A),
-      );
+      d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
       d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
         pr_ref: 'acme#7',
         head_sha: A,
@@ -1114,9 +952,7 @@ describe('observation vs the CI window, merge proof and target (PR review)', () 
           source: 'recheck',
         }),
       );
-      expect(d.task(t.id).blockers.map((b) => b.code)).toContain(
-        'merge_evidence_incomplete',
-      );
+      expect(d.task(t.id).blockers.map((b) => b.code)).toContain('merge_evidence_incomplete');
       d.must(t.id, {
         kind: 'effect_result',
         effect_id: fixer.id as Uuid,
@@ -1125,17 +961,11 @@ describe('observation vs the CI window, merge proof and target (PR review)', () 
       });
       expect(d.pending(t.id, 'run_gates')).toEqual([]);
       expect(
-        d
-          .pending(t.id)
-          .filter((e) => e.kind !== 'stop_attempt' && e.kind !== 'reconcile'),
+        d.pending(t.id).filter((e) => e.kind !== 'stop_attempt' && e.kind !== 'reconcile'),
       ).toEqual([]);
-      expect(replay(d.store.readEvents(t.id))?.blockers).toEqual(
-        d.task(t.id).blockers,
-      );
+      expect(replay(d.store.readEvents(t.id))?.blockers).toEqual(d.task(t.id).blockers);
       merge(d, t, A, 'recheck');
-      expect(d.task(t.id).blockers.map((b) => b.code)).not.toContain(
-        'merge_evidence_incomplete',
-      );
+      expect(d.task(t.id).blockers.map((b) => b.code)).not.toContain('merge_evidence_incomplete');
       expect(d.task(t.id).completion).not.toBeNull();
     },
   );
@@ -1147,12 +977,7 @@ describe('observation vs the CI window, merge proof and target (PR review)', () 
       const t = buildTask();
       createGrantStart(d, t, 'direct-pr', LONG);
       toPublish(d, t, A);
-      d.complete(
-        t.id,
-        d.pendingOne(t.id, 'publish').id,
-        'succeeded',
-        publishData(A),
-      );
+      d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
       d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
         pr_ref: 'acme#7',
         head_sha: A,
@@ -1320,17 +1145,12 @@ describe('observation window (US2.11, FR-043.04–06, FR-046.05/06)', () => {
     const t = buildTask();
     toGreen(d, t);
     for (let i = 0; i < 4; i++) {
-      d.must(
-        t.id,
-        observation(d, t, 'open', A, { digest: hashCanonical('same') }),
-      );
+      d.must(t.id, observation(d, t, 'open', A, { digest: hashCanonical('same') }));
       d.now += 60_000;
     }
     const s = d.task(t.id);
     expect(s.observation?.budget).toMatchObject({ count: 4, cadence_index: 3 });
-    expect(replay(d.store.readEvents(t.id))?.observation).toEqual(
-      s.observation,
-    );
+    expect(replay(d.store.readEvents(t.id))?.observation).toEqual(s.observation);
   });
 });
 
@@ -1430,8 +1250,7 @@ describe('recheck service (T062, FR-046)', () => {
     const poll = d.pendingOne(t.id, 'await_ci');
     d.claim(poll.id);
     merge(d, t, A);
-    for (let i = 0; i < 3; i++)
-      d.must(t.id, { kind: 'drain_result', pending_operations: [] });
+    for (let i = 0; i < 3; i++) d.must(t.id, { kind: 'drain_result', pending_operations: [] });
     expect(d.task(t.id).completion?.drain).toMatchObject({
       paused: true,
       auto_exhausted: true,
@@ -1515,17 +1334,15 @@ describe('worktree changed outside the task (T072, SPEC §14.1)', () => {
     });
     expect(d.task(t.id).run.worktree_tree).toBe(T0);
     // Nothing to accept yet: recheck has no worktree to take.
-    expect(d.send(t.id, { kind: 'recheck', target: 'worktree' })).toMatchObject(
-      {
-        ok: true,
-        value: {
-          decision: {
-            kind: 'rejected',
-            detail: { reason: 'recheck_not_applicable' },
-          },
+    expect(d.send(t.id, { kind: 'recheck', target: 'worktree' })).toMatchObject({
+      ok: true,
+      value: {
+        decision: {
+          kind: 'rejected',
+          detail: { reason: 'recheck_not_applicable' },
         },
       },
-    );
+    });
     const coder = d.pendingOne(t.id, 'start_agent');
     d.complete(t.id, coder.id, 'failed', {
       failure_class: 'unknown',
@@ -1541,16 +1358,12 @@ describe('worktree changed outside the task (T072, SPEC §14.1)', () => {
       known: T0,
       observed: T1,
     });
-    expect(
-      effects(d, t, 'start_agent').filter((e) => e.status === 'pending'),
-    ).toEqual([]);
+    expect(effects(d, t, 'start_agent').filter((e) => e.status === 'pending')).toEqual([]);
     // The change was not the agent's: the baseline stays until a person takes it.
     expect(s.run.worktree_tree).toBe(T0);
 
     d.must(t.id, { kind: 'recheck', target: 'worktree' });
-    const accepted = d.store
-      .readEvents(t.id)
-      .find((e) => e.type === 'WorktreeChangeAccepted');
+    const accepted = d.store.readEvents(t.id).find((e) => e.type === 'WorktreeChangeAccepted');
     expect(accepted?.payload).toMatchObject({ tree: T1, previous: T0 });
     expect(d.task(t.id).run.worktree_tree).toBe(T1);
     // The step runs again once the task gets an execution slot back.
@@ -1604,17 +1417,15 @@ describe('harness re-proved after the task started', () => {
     const t = buildTask();
     createGrantStart(d, t, 'full-review');
     d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE);
-    expect(d.send(t.id, { kind: 'recheck', target: 'manifest' })).toMatchObject(
-      {
-        ok: true,
-        value: {
-          decision: {
-            kind: 'rejected',
-            detail: { reason: 'recheck_not_applicable' },
-          },
+    expect(d.send(t.id, { kind: 'recheck', target: 'manifest' })).toMatchObject({
+      ok: true,
+      value: {
+        decision: {
+          kind: 'rejected',
+          detail: { reason: 'recheck_not_applicable' },
         },
       },
-    );
+    });
     const coder = d.pendingOne(t.id, 'start_agent');
     d.complete(t.id, coder.id, 'failed', {
       failure_class: 'auth_config',
@@ -1634,9 +1445,7 @@ describe('harness re-proved after the task started', () => {
     expect(s.run.manifest_refs).toBeUndefined();
 
     d.must(t.id, { kind: 'recheck', target: 'manifest' });
-    const accepted = d.store
-      .readEvents(t.id)
-      .find((e) => e.type === 'ManifestChangeAccepted');
+    const accepted = d.store.readEvents(t.id).find((e) => e.type === 'ManifestChangeAccepted');
     expect(accepted?.payload).toMatchObject({
       harness: 'claude',
       manifest_hash: M1,
@@ -1654,8 +1463,7 @@ describe('harness re-proved after the task started', () => {
 describe('harness login expired (#97)', () => {
   const AUTH = {
     failure_class: 'auth_config',
-    message:
-      'success: Failed to authenticate: OAuth session expired and could not be refreshed',
+    message: 'success: Failed to authenticate: OAuth session expired and could not be refreshed',
     invoked: true,
     auth: { harness: 'claude' },
   };
@@ -1695,9 +1503,7 @@ describe('harness login expired (#97)', () => {
       detail: { code: 'harness_auth', step: 'code', harness: 'claude' },
     });
     // No backoff timer: nothing runs again until a person acts.
-    expect(Object.values(s.timers).filter((x) => x.kind === 'backoff')).toEqual(
-      [],
-    );
+    expect(Object.values(s.timers).filter((x) => x.kind === 'backoff')).toEqual([]);
     expect(d.pending(t.id, 'start_agent')).toEqual([]);
 
     d.must(t.id, { kind: 'recheck', target: 'auth' });
@@ -1827,9 +1633,7 @@ describe('source drift at the runtime boundary (T063, FR-026)', () => {
     expect(d.pending(t.id, 'run_gates')).toEqual([]);
     expect(s.deadline_at).toBe(before.deadline_at);
     expect(s.budget.agent_runs.used).toBe(1);
-    expect(
-      d.send(t.id, { kind: 'drift_choice', choice: 'apply_new' }),
-    ).toMatchObject({
+    expect(d.send(t.id, { kind: 'drift_choice', choice: 'apply_new' })).toMatchObject({
       ok: true,
       value: {
         decision: {

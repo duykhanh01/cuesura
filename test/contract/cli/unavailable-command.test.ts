@@ -15,9 +15,8 @@ import { describe, expect, it } from 'vitest';
 
 // Runs the source entrypoints as real processes (Node strips types) against contracts/cli-daemon.md.
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url));
-const VERSION = (
-  JSON.parse(readFileSync(`${ROOT}package.json`, 'utf8')) as { version: string }
-).version;
+const VERSION = (JSON.parse(readFileSync(`${ROOT}package.json`, 'utf8')) as { version: string })
+  .version;
 const BINARIES = ['cusr', 'cusrd', 'cusr-runner'] as const;
 
 function exec(

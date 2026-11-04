@@ -14,11 +14,7 @@ import {
 import type { GitPort } from '../../src/adapters/ports.ts';
 import { Redactor } from '../../src/runner/redact.ts';
 import type { EpochMs } from '../../src/shared/brand.ts';
-import {
-  fixtureExec,
-  type FixtureResponse,
-  type FixtureScript,
-} from '../support/gh-fixture.ts';
+import { fixtureExec, type FixtureResponse, type FixtureScript } from '../support/gh-fixture.ts';
 import { gitSandbox } from '../support/git-repo.ts';
 
 const g = gitSandbox('cusr-publish-');
@@ -261,9 +257,7 @@ describe('create or recover the PR (T041)', () => {
   it('a 422 or a lost answer is probed before any decision', async () => {
     const after422 = gh({
       [LIST]: [list(), list(pr())],
-      'POST repos/acme/app/pulls': [
-        { status: 422, body: { message: 'exists' } },
-      ],
+      'POST repos/acme/app/pulls': [{ status: 422, body: { message: 'exists' } }],
     });
     expect(await createOrRecoverPr(after422.port, SPEC)).toMatchObject({
       kind: 'recovered',
@@ -315,11 +309,7 @@ describe('create or recover the PR (T041)', () => {
       prs: [7, 8],
     });
     const fork = gh({
-      [LIST]: [
-        list(
-          pr({ head: { ref: BRANCH, sha: SPEC.head_sha, repo: { id: 999 } } }),
-        ),
-      ],
+      [LIST]: [list(pr({ head: { ref: BRANCH, sha: SPEC.head_sha, repo: { id: 999 } } }))],
       'POST repos/acme/app/pulls': [{ status: 201, body: pr() }],
     });
     expect(await createOrRecoverPr(fork.port, SPEC)).toMatchObject({
@@ -330,10 +320,7 @@ describe('create or recover the PR (T041)', () => {
 
   it('reports a closed PR or one whose head is not the pushed SHA', async () => {
     expect(
-      await createOrRecoverPr(
-        gh({ [LIST]: [list(pr({ state: 'closed' }))] }).port,
-        SPEC,
-      ),
+      await createOrRecoverPr(gh({ [LIST]: [list(pr({ state: 'closed' }))] }).port, SPEC),
     ).toMatchObject({ kind: 'closed' });
     expect(
       await createOrRecoverPr(
@@ -400,9 +387,7 @@ describe('worker content and the canonical marker (T136, M05/M07)', () => {
   it('sends the worker body with one marker block at the end and records the final body digest', async () => {
     const { port, posts } = gh({
       [LIST]: [list()],
-      'POST repos/acme/app/pulls': [
-        { status: 201, body: pr({ body: finalBody(SPEC) }) },
-      ],
+      'POST repos/acme/app/pulls': [{ status: 201, body: pr({ body: finalBody(SPEC) }) }],
     });
     const r = await createOrRecoverPr(port, SPEC);
     expect(r).toMatchObject({
@@ -547,9 +532,7 @@ describe('updating the PR description after a fix (T136, M05/M07)', () => {
     expect(await updatePrDescription(applied.port, update)).toMatchObject({
       kind: 'updated',
     });
-    expect(applied.exec.calls.filter((c) => c.method === 'PATCH')).toHaveLength(
-      1,
-    );
+    expect(applied.exec.calls.filter((c) => c.method === 'PATCH')).toHaveLength(1);
     const forged = gh({});
     expect(
       await updatePrDescription(forged.port, {

@@ -26,10 +26,7 @@ export function reviewInputDigest(
     diff_digest: cp.diff_digest,
     content_digest: s.run.content?.digest ?? cp.content_digest,
     context_hash: s.context_ref?.hash ?? null,
-    review:
-      sp === undefined
-        ? null
-        : { role: sp.role, binding: sp.binding, ladder: sp.ladder },
+    review: sp === undefined ? null : { role: sp.role, binding: sp.binding, ladder: sp.ladder },
     structure_hash: policy.structure_hash,
   });
 }
@@ -40,8 +37,6 @@ export function reusableReview(
   digest: string,
 ): ReviewEvidence | undefined {
   return s.run.reviews
-    .filter(
-      (r) => r.valid && r.revision === s.revision && r.input_digest === digest,
-    )
+    .filter((r) => r.valid && r.revision === s.revision && r.input_digest === digest)
     .at(-1);
 }

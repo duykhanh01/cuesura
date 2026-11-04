@@ -6,14 +6,7 @@
  * finds the same OID instead of making a second commit. The ref moves by compare-and-swap from the
  * parent; a ref that is neither the parent nor the expected OID is reported, never reset.
  */
-import {
-  closeSync,
-  fsyncSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  writeSync,
-} from 'node:fs';
+import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import type { GitPort, GitResult } from '../ports.ts';
@@ -139,11 +132,7 @@ async function git(
   });
   if (r.kind === 'exited') return r;
   throw new Unknown(
-    r.kind === 'refused'
-      ? `refused: ${r.reason}`
-      : r.kind === 'spawn_failed'
-        ? r.message
-        : r.kind,
+    r.kind === 'refused' ? `refused: ${r.reason}` : r.kind === 'spawn_failed' ? r.message : r.kind,
   );
 }
 
@@ -160,11 +149,7 @@ function commitEnv(i: CommitInput): Record<string, string> {
   };
 }
 
-async function branchOid(
-  port: GitPort,
-  cwd: string,
-  branch: string,
-): Promise<string | null> {
+async function branchOid(port: GitPort, cwd: string, branch: string): Promise<string | null> {
   const r = await git(port, cwd, [
     'rev-parse',
     '--verify',
@@ -190,8 +175,7 @@ async function writeCommit(port: GitPort, i: CommitInput): Promise<string> {
     ],
     { stdin: i.message, env: commitEnv(i) },
   );
-  if (r.code !== 0)
-    throw new Unknown(`commit-tree failed: ${r.stderr.trim().slice(0, 512)}`);
+  if (r.code !== 0) throw new Unknown(`commit-tree failed: ${r.stderr.trim().slice(0, 512)}`);
   return r.stdout.trim();
 }
 
@@ -218,8 +202,7 @@ export async function commitCheckpoint(
       return { kind: 'intent_conflict', stored: intent };
     if (intent === null) {
       const current = await branchOid(port, input.worktree_path, input.branch);
-      if (current !== input.parent)
-        return { kind: 'head_changed', intent: null, found: current };
+      if (current !== input.parent) return { kind: 'head_changed', intent: null, found: current };
       const oid = await writeCommit(port, input);
       const candidate = CommitIntentSchema.parse({
         schema_version: 1,
@@ -237,25 +220,18 @@ export async function commitCheckpoint(
         intent = candidate;
       }
     }
-    return prepareOnly
-      ? { kind: 'prepared', intent }
-      : await applyIntent(port, intent);
+    return prepareOnly ? { kind: 'prepared', intent } : await applyIntent(port, intent);
   } catch (e) {
-    if (e instanceof Unknown)
-      return { kind: 'unknown', intent, detail: e.message };
+    if (e instanceof Unknown) return { kind: 'unknown', intent, detail: e.message };
     throw e;
   }
 }
 
 /** Moves the branch to the intent's OID by CAS from its parent, or recognizes that it already did. */
-async function applyIntent(
-  port: GitPort,
-  intent: CommitIntent,
-): Promise<CommitOutcome> {
+async function applyIntent(port: GitPort, intent: CommitIntent): Promise<CommitOutcome> {
   const current = await branchOid(port, intent.worktree_path, intent.branch);
   if (current === intent.oid) return { kind: 'recovered', intent };
-  if (current !== intent.parent)
-    return { kind: 'head_changed', intent, found: current };
+  if (current !== intent.parent) return { kind: 'head_changed', intent, found: current };
   // The object may be missing if a crash hit between intent and gc; re-create it, it must match.
   const oid = await writeCommit(port, intent);
   if (oid !== intent.oid)
@@ -265,12 +241,7 @@ async function applyIntent(
       detail: `commit ${oid} differs from intended ${intent.oid}`,
     };
   const r = await port.run({
-    args: [
-      'update-ref',
-      `refs/heads/${intent.branch}`,
-      intent.oid,
-      intent.parent,
-    ],
+    args: ['update-ref', `refs/heads/${intent.branch}`, intent.oid, intent.parent],
     cwd: intent.worktree_path,
     timeout_ms: GIT_TIMEOUT_MS,
     max_output_bytes: 64 * 1024,

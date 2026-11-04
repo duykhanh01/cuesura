@@ -6,8 +6,7 @@ import { validateConfig } from '../../../src/config/validate.ts';
 import { authz, buildTask } from '../../support/builders.ts';
 import { docsFor } from '../../support/config-fixtures.ts';
 
-const dispatchYaml = (body: string): string =>
-  `    ${body.trim().split('\n').join('\n    ')}\n`;
+const dispatchYaml = (body: string): string => `    ${body.trim().split('\n').join('\n    ')}\n`;
 
 const PROJECT = {
   file: 'cusr.yaml',
@@ -19,11 +18,7 @@ profile: main
 `,
 };
 
-function userText(
-  dispatch: string,
-  modes = '',
-  projects = 'acme: { base_branch: main }',
-): string {
+function userText(dispatch: string, modes = '', projects = 'acme: { base_branch: main }'): string {
   return `version: 1
 harnesses:
   claude: { cmd: claude, auth: subscription, pool: claude }
@@ -75,8 +70,7 @@ function validate(dispatch: string, modes = '', project?: typeof PROJECT) {
 const OPUS = '{ harness: claude, model: opus, effort: medium }';
 const SOL = '{ harness: codex, model: sol, effort: high }';
 const DEFAULT = `default: { use: ${OPUS}, reviewer: ${SOL} }`;
-const block = (rest: string, profile = 'main'): string =>
-  `profile: ${profile}\n${rest}`;
+const block = (rest: string, profile = 'main'): string => `profile: ${profile}\n${rest}`;
 
 const codes = (r: ReturnType<typeof validate>): string[] =>
   r.ok ? [] : r.error.map((d) => `${d.code}:${d.path.join('.')}`);
@@ -132,11 +126,7 @@ ${DEFAULT}`),
   });
 
   it.each([
-    [
-      'an unknown profile',
-      block(DEFAULT, 'none'),
-      'unknown_profile:runtime.dispatch.profile',
-    ],
+    ['an unknown profile', block(DEFAULT, 'none'), 'unknown_profile:runtime.dispatch.profile'],
     [
       'an effort no role declares',
       block('default: { use: { harness: claude, model: opus, effort: high } }'),
@@ -144,16 +134,12 @@ ${DEFAULT}`),
     ],
     [
       'a harness that does not run the model',
-      block(
-        'default: { use: { harness: codex, model: opus, effort: medium } }',
-      ),
+      block('default: { use: { harness: codex, model: opus, effort: medium } }'),
       'schema_invalid:runtime.dispatch.default.use',
     ],
     [
       'a worker only the coder declares, since the fixer runs the same binding',
-      block(
-        'default: { use: { harness: claude, model: sonnet, effort: medium } }',
-      ),
+      block('default: { use: { harness: claude, model: sonnet, effort: medium } }'),
       'schema_invalid:runtime.dispatch.default.use',
     ],
     [
@@ -220,13 +206,8 @@ ${DEFAULT}`),
   });
 
   it('refuses the mode a reviewer implies when runtime.modes leaves it out', () => {
-    const r = validate(
-      block(DEFAULT),
-      `  modes: { direct-pr: { when_to_use: small } }\n`,
-    );
-    expect(codes(r)).toContain(
-      'schema_invalid:runtime.dispatch.default.reviewer',
-    );
+    const r = validate(block(DEFAULT), `  modes: { direct-pr: { when_to_use: small } }\n`);
+    expect(codes(r)).toContain('schema_invalid:runtime.dispatch.default.reviewer');
   });
 
   it('refuses the mode no reviewer implies when runtime.modes leaves it out', () => {
@@ -240,29 +221,15 @@ ${DEFAULT}`),
   it.each([
     ['no default', block('rules: []')],
     ['no profile', DEFAULT],
-    [
-      'a rule without why',
-      block(`rules: [{ when: x, use: ${OPUS} }]\n${DEFAULT}`),
-    ],
-    [
-      'a rule without when',
-      block(`rules: [{ why: x, use: ${OPUS} }]\n${DEFAULT}`),
-    ],
+    ['a rule without why', block(`rules: [{ when: x, use: ${OPUS} }]\n${DEFAULT}`)],
+    ['a rule without when', block(`rules: [{ why: x, use: ${OPUS} }]\n${DEFAULT}`)],
     ['an empty use', block('default: { use: [] }')],
-    [
-      'the old text form',
-      block('default: { use: [{ worker: claude/opus/medium }] }'),
-    ],
+    ['the old text form', block('default: { use: [{ worker: claude/opus/medium }] }')],
     ['a rule-level mode', block(`default: { mode: direct-pr, use: ${OPUS} }`)],
-    [
-      'an agent without effort',
-      block('default: { use: { harness: claude, model: opus } }'),
-    ],
+    ['an agent without effort', block('default: { use: { harness: claude, model: opus } }')],
     [
       'a name with a slash',
-      block(
-        'default: { use: { harness: claude, model: a/b, effort: medium } }',
-      ),
+      block('default: { use: { harness: claude, model: a/b, effort: medium } }'),
     ],
   ])('fails the schema on %s', (_name, body) => {
     expect(validate(body).ok).toBe(false);
@@ -309,18 +276,14 @@ describe('projects.<id>.dispatch at load', () => {
   dispatch:
     profile: main
     default: { use: { harness: claude, model: opus, effort: low } }`);
-    expect(codes(r)).toContain(
-      'schema_invalid:projects.acme.dispatch.default.use',
-    );
+    expect(codes(r)).toContain('schema_invalid:projects.acme.dispatch.default.use');
   });
 
   it('refuses an unknown profile under the project', () => {
     const r = validateProjects(`acme:
   base_branch: main
   dispatch: { profile: none, default: { use: ${OPUS} } }`);
-    expect(codes(r)).toContain(
-      'unknown_profile:projects.acme.dispatch.profile',
-    );
+    expect(codes(r)).toContain('unknown_profile:projects.acme.dispatch.profile');
   });
 });
 

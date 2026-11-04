@@ -9,9 +9,8 @@ import { CUSR_ENTRY, PtySession } from '../../support/pty.ts';
 // FR-001, FR-002: only `cusr` with no arguments at a real terminal opens the interface. Everything else
 // keeps the CLI contract, with no ANSI and no prompt.
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url));
-const VERSION = (
-  JSON.parse(readFileSync(`${ROOT}package.json`, 'utf8')) as { version: string }
-).version;
+const VERSION = (JSON.parse(readFileSync(`${ROOT}package.json`, 'utf8')) as { version: string })
+  .version;
 const tempDir = useTempDir('cusr-no-tty-');
 
 function piped(args: string[], env: Record<string, string | undefined> = {}) {

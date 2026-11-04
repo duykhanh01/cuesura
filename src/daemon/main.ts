@@ -20,11 +20,7 @@ import {
   readTokenFile,
   type TokenMap,
 } from '../application/access-tokens.ts';
-import {
-  authorize,
-  type AuthzError,
-  type Caller,
-} from '../application/authz.ts';
+import { authorize, type AuthzError, type Caller } from '../application/authz.ts';
 import {
   COMMAND_PAYLOADS,
   UNSUPPORTED_GUIDANCE,
@@ -48,15 +44,8 @@ import { inspectUnit } from '../runner/supervisor.ts';
 import { asEpochMs } from '../shared/brand.ts';
 import type { Result } from '../shared/result.ts';
 import type { Store, StoreOpenError } from '../store/index.ts';
-import {
-  Dispatcher,
-  type DispatchLog,
-  type EffectHandlers,
-} from './dispatch.ts';
-import {
-  clearOperationMark,
-  writeOperationMark,
-} from '../runner/process-tag.ts';
+import { Dispatcher, type DispatchLog, type EffectHandlers } from './dispatch.ts';
+import { clearOperationMark, writeOperationMark } from '../runner/process-tag.ts';
 import { healthProblem, healthReply } from './health.ts';
 import { ingestOperationSpool, type SpoolIngestReport } from './ingest.ts';
 import type { IngestPosition } from '../runner/files.ts';
@@ -70,12 +59,7 @@ import {
   type ControlHandlers,
   type Reply,
 } from './server.ts';
-import {
-  heldReason,
-  recoverOperations,
-  recoverStore,
-  type StartupReport,
-} from './startup.ts';
+import { heldReason, recoverOperations, recoverStore, type StartupReport } from './startup.ts';
 
 export const STORE_FILE = 'cusr.db';
 
@@ -231,11 +215,7 @@ type CommandOutcome =
   | { readonly ok: true; readonly value: unknown }
   | { readonly ok: false; readonly error: HandlerError };
 
-function outcomeReply(
-  requestId: string,
-  outcome: CommandOutcome,
-  replayed: boolean,
-): Reply {
+function outcomeReply(requestId: string, outcome: CommandOutcome, replayed: boolean): Reply {
   if (!outcome.ok)
     return errorReply(httpStatusFor(outcome.error.code), {
       ...outcome.error,
@@ -343,9 +323,7 @@ export async function startDaemon(
       latch: (reason) => dispatcher.latch(reason),
     }) ?? {};
   const dispatchLog: DispatchLog = (r) =>
-    log(
-      `dispatch ${r.event} ${r.effect_id}${r.detail === undefined ? '' : `: ${r.detail}`}`,
-    );
+    log(`dispatch ${r.event} ${r.effect_id}${r.detail === undefined ? '' : `: ${r.detail}`}`);
   const dispatcher: Dispatcher = new Dispatcher({
     store,
     clock,
@@ -362,44 +340,33 @@ export async function startDaemon(
     log(`startup recovery: dispatch blocked: ${startup.blocked}`);
   }
   dispatcher.hold(startup.held);
-  if (startup.held !== null)
-    log(`startup recovery: new work held: ${startup.held}`);
+  if (startup.held !== null) log(`startup recovery: new work held: ${startup.held}`);
   let unresolved = startup.unresolved;
   const spoolProblems = new Map<string, SpoolIngestReport>();
   const reportIngest = (reports: readonly SpoolIngestReport[]): void => {
     for (const report of reports) {
       if (report.status === 'unreadable' || report.status === 'rejected') {
         const previous = spoolProblems.get(report.operation_id);
-        if (
-          previous?.status !== report.status ||
-          previous.detail !== report.detail
-        )
-          log(
-            `spool ${report.operation_id}: ${report.status}: ${report.detail ?? ''}`,
-          );
+        if (previous?.status !== report.status || previous.detail !== report.detail)
+          log(`spool ${report.operation_id}: ${report.status}: ${report.detail ?? ''}`);
         spoolProblems.set(report.operation_id, report);
-      } else if (report.status !== 'write_failed')
-        spoolProblems.delete(report.operation_id);
+      } else if (report.status !== 'write_failed') spoolProblems.delete(report.operation_id);
     }
   };
   reportIngest(startup.ingest);
   const currentClaims = (): StartupReport['unresolved'] => {
     const open = store.unresolvedOperations();
     const reported = new Map(unresolved.map((o) => [o.operation_id, o]));
-    const untrusted =
-      dispatcher.blockedReason !== null || dispatcher.latchedReason !== null;
+    const untrusted = dispatcher.blockedReason !== null || dispatcher.latchedReason !== null;
     return open.flatMap((o) => {
       if (!untrusted && o.status === 'lost' && !reported.has(o.id)) return [];
       if (!untrusted && dispatcher.isInFlight(o.effect_id)) return [];
-      if (!untrusted && o.status === 'running' && !reported.has(o.id))
-        return [];
+      if (!untrusted && o.status === 'running' && !reported.has(o.id)) return [];
       return [
         reported.get(o.id) ?? {
           task_id: o.task_id,
           operation_id: o.id,
-          reason: untrusted
-            ? 'recovery is blocked; claim not verified'
-            : 'awaiting recovery',
+          reason: untrusted ? 'recovery is blocked; claim not verified' : 'awaiting recovery',
         },
       ];
     });
@@ -420,10 +387,7 @@ export async function startDaemon(
       });
       const retried = [...r.ingest];
       const seen = new Set(retried.map((i) => i.operation_id));
-      if (
-        !r.reconcile.write_failed &&
-        !retried.some((i) => i.status === 'write_failed')
-      )
+      if (!r.reconcile.write_failed && !retried.some((i) => i.status === 'write_failed'))
         for (const problem of spoolProblems.values()) {
           if (seen.has(problem.operation_id)) continue;
           const retry = ingestOperationSpool(
@@ -440,10 +404,7 @@ export async function startDaemon(
           log(
             `recover ${o.operation_id}: ${o.from} -> ${o.finding.status} (${o.finding.reason}); effect ${o.effect}`,
           );
-      if (
-        r.reconcile.write_failed ||
-        retried.some((i) => i.status === 'write_failed')
-      ) {
+      if (r.reconcile.write_failed || retried.some((i) => i.status === 'write_failed')) {
         dispatcher.latch('store write failed during recovery');
         return;
       }
@@ -462,20 +423,13 @@ export async function startDaemon(
   };
   let scheduling: Promise<void> | null = null;
   const schedule = (): Promise<void> => {
-    if (
-      extra.schedule === undefined ||
-      scheduling !== null ||
-      healthProblem(dispatcher) !== null
-    )
+    if (extra.schedule === undefined || scheduling !== null || healthProblem(dispatcher) !== null)
       return scheduling ?? Promise.resolve();
     scheduling = extra
       .schedule()
       .then(
         () => undefined,
-        (e: unknown) =>
-          log(
-            `scheduler pass failed: ${e instanceof Error ? e.message : String(e)}`,
-          ),
+        (e: unknown) => log(`scheduler pass failed: ${e instanceof Error ? e.message : String(e)}`),
       )
       .finally(() => {
         scheduling = null;
@@ -490,10 +444,7 @@ export async function startDaemon(
       const pass: Promise<void> = round()
         .then(
           () => undefined,
-          (e: unknown) =>
-            log(
-              `daemon round failed: ${e instanceof Error ? e.message : String(e)}`,
-            ),
+          (e: unknown) => log(`daemon round failed: ${e instanceof Error ? e.message : String(e)}`),
         )
         .finally(() => {
           running.delete(pass);
@@ -510,11 +461,7 @@ export async function startDaemon(
     ...extra.queries,
     // Here because only this scope knows which requests are running.
     request_show: (caller, body) => {
-      const r = requestShow(
-        { store, inFlight: (id) => inFlight.has(id) },
-        caller,
-        body,
-      );
+      const r = requestShow({ store, inFlight: (id) => inFlight.has(id) }, caller, body);
       return Promise.resolve(
         r.ok
           ? { status: 200, envelope: okEnvelope(r.value) }
@@ -539,13 +486,9 @@ export async function startDaemon(
       const allowed = authorize(caller, { role: 'read' });
       if (!allowed.ok) return authzReply(allowed.error);
       const kind =
-        typeof body === 'object' && body !== null
-          ? (body as { kind?: unknown }).kind
-          : undefined;
+        typeof body === 'object' && body !== null ? (body as { kind?: unknown }).kind : undefined;
       const handler =
-        typeof kind === 'string' && Object.hasOwn(queries, kind)
-          ? queries[kind]
-          : undefined;
+        typeof kind === 'string' && Object.hasOwn(queries, kind) ? queries[kind] : undefined;
       if (handler === undefined)
         return errorReply(501, {
           code: 'not_available',
@@ -556,8 +499,7 @@ export async function startDaemon(
     },
     async command(caller, body) {
       const input = body as CommandInput;
-      const requestId =
-        typeof input?.request_id === 'string' ? input.request_id : null;
+      const requestId = typeof input?.request_id === 'string' ? input.request_id : null;
       const kind = typeof input?.kind === 'string' ? input.kind : '';
       // A supported kind without a handler in this build is refused before admission, so no ledger row
       // waits for it forever. Unknown and unsupported kinds get their own error from admission.
@@ -580,11 +522,7 @@ export async function startDaemon(
           request_id: requestId,
         });
       }
-      const admitted = admitCommand(
-        { store, now: () => clock.now(), newId },
-        caller,
-        body,
-      );
+      const admitted = admitCommand({ store, now: () => clock.now(), newId }, caller, body);
       if (!admitted.ok) {
         if (admitted.error.code === 'write_failed')
           dispatcher.latch(`store write failed: ${admitted.error.cause}`);
@@ -592,31 +530,19 @@ export async function startDaemon(
       }
       const record = admitted.value.record;
       if (record.status === 'completed')
-        return outcomeReply(
-          record.request_id,
-          record.result as CommandOutcome,
-          true,
-        );
+        return outcomeReply(record.request_id, record.result as CommandOutcome, true);
       // The same request already running in this process: wait for its answer instead of running twice.
       const running = inFlight.get(record.request_id);
       if (running !== undefined) return running;
       // Admission succeeded, so the kind is known and has a handler. An `admitted` record left by a
       // crash runs the same handler again with the IDs assigned the first time.
       const run = (async (): Promise<Reply> => {
-        const r = await (handler as CommandHandler)(
-          admitted.value,
-          input,
-          caller,
-        );
+        const r = await (handler as CommandHandler)(admitted.value, input, caller);
         // A rejection is a result too: it is stored and replayed, never run again for the same request.
         const outcome: CommandOutcome = r.ok
           ? { ok: true, value: r.value }
           : { ok: false, error: r.error };
-        const done = store.completeCommand(
-          record.request_id,
-          outcome,
-          clock.now(),
-        );
+        const done = store.completeCommand(record.request_id, outcome, clock.now());
         if (!done.ok) {
           if (done.error.code === 'write_failed')
             dispatcher.latch(`store write failed: ${done.error.cause}`);

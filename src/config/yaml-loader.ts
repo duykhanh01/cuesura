@@ -33,9 +33,7 @@ export const DEFAULT_LIMITS: LoaderLimits = {
 };
 
 const CORE_TAGS = new Set(
-  ['str', 'int', 'float', 'bool', 'null', 'map', 'seq'].map(
-    (t) => `tag:yaml.org,2002:${t}`,
-  ),
+  ['str', 'int', 'float', 'bool', 'null', 'map', 'seq'].map((t) => `tag:yaml.org,2002:${t}`),
 );
 
 export type LoadedYaml = { located: LocatedDoc; value: unknown };
@@ -86,12 +84,7 @@ export function loadYaml(
     const lp = e.linePos?.[0] ?? lineCounter.linePos(e.pos[0]);
     const message = e.message.split('\n')[0] ?? e.message;
     out.push(
-      diag(
-        yamlErrorCode(e),
-        { file: source.file, line: lp.line, col: lp.col },
-        [],
-        message,
-      ),
+      diag(yamlErrorCode(e), { file: source.file, line: lp.line, col: lp.col }, [], message),
     );
   }
 
@@ -128,9 +121,7 @@ export function loadYaml(
     if (n.tag !== undefined && !CORE_TAGS.has(n.tag)) {
       // Unknown tags already have TAG_RESOLVE_FAILED warnings; add diagnostics only for resolved non-core tags.
       if (!n.tag.startsWith('!')) {
-        const lp = lineCounter.linePos(
-          tagStart(source.text, n.range?.[0] ?? 0),
-        );
+        const lp = lineCounter.linePos(tagStart(source.text, n.range?.[0] ?? 0));
         out.push(
           diag(
             'unsupported_tag',
@@ -152,12 +143,7 @@ export function loadYaml(
   } catch (e) {
     // Nested aliases can exceed maxAliasCount even when the number of alias nodes is within the limit.
     return err([
-      diag(
-        'alias_limit',
-        top,
-        [],
-        `Alias expansion exceeds the limit: ${(e as Error).message}`,
-      ),
+      diag('alias_limit', top, [], `Alias expansion exceeds the limit: ${(e as Error).message}`),
     ]);
   }
 }

@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type {
-  BoardReply,
-  ProjectList,
-  Health,
-} from '../../../src/tui/client/schemas.ts';
+import type { BoardReply, ProjectList, Health } from '../../../src/tui/client/schemas.ts';
 import { reduce } from '../../../src/tui/model/reduce.ts';
 import {
   initialState,
@@ -42,8 +38,7 @@ const BOARD = {
 const succeeded = (at = 1, board: BoardReply = BOARD) =>
   ({ type: 'read_succeeded', board, health: HEALTH, at }) as const;
 const failed = { type: 'read_failed', failure: FAILED } as const;
-const char = (text: string) =>
-  ({ type: 'key', key: { kind: 'char', text } }) as const;
+const char = (text: string) => ({ type: 'key', key: { kind: 'char', text } }) as const;
 
 function run(state: TuiState, ...messages: Parameters<typeof reduce>[1][]) {
   return messages.reduce((s, m) => reduce(s, m).state, state);
@@ -205,9 +200,9 @@ describe('reduce', () => {
   it('q and Ctrl-C quit', () => {
     const s = initialState(SIZE);
     expect(reduce(s, char('q')).effects).toEqual([{ type: 'quit', code: 0 }]);
-    expect(
-      reduce(s, { type: 'key', key: { kind: 'key', name: 'ctrl_c' } }).effects,
-    ).toEqual([{ type: 'quit', code: 0 }]);
+    expect(reduce(s, { type: 'key', key: { kind: 'key', name: 'ctrl_c' } }).effects).toEqual([
+      { type: 'quit', code: 0 },
+    ]);
   });
 
   it('? opens help and Esc returns, without stacking', () => {
@@ -218,10 +213,9 @@ describe('reduce', () => {
       key: { kind: 'key', name: 'esc' },
     }).state;
     expect(back.screens).toEqual(['home']);
-    expect(
-      reduce(back, { type: 'key', key: { kind: 'key', name: 'esc' } }).state
-        .screens,
-    ).toEqual(['home']);
+    expect(reduce(back, { type: 'key', key: { kind: 'key', name: 'esc' } }).state.screens).toEqual([
+      'home',
+    ]);
   });
 
   it('a resize keeps everything else', () => {
@@ -287,8 +281,9 @@ describe('reduce', () => {
 
   it('a paste outside any input does nothing', () => {
     const s = initialState(SIZE);
-    expect(
-      reduce(s, { type: 'key', key: { kind: 'paste', text: 'q\r' } }),
-    ).toEqual({ state: s, effects: [] });
+    expect(reduce(s, { type: 'key', key: { kind: 'paste', text: 'q\r' } })).toEqual({
+      state: s,
+      effects: [],
+    });
   });
 });

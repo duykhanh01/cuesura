@@ -23,12 +23,7 @@ export type ProgressSample = {
   readonly files: string | null;
 };
 
-export const PROGRESS_REASONS = [
-  'cpu',
-  'processes',
-  'output',
-  'files',
-] as const;
+export const PROGRESS_REASONS = ['cpu', 'processes', 'output', 'files'] as const;
 export type ProgressReason = (typeof PROGRESS_REASONS)[number];
 
 export type ProgressState = {
@@ -38,10 +33,7 @@ export type ProgressState = {
   readonly last_reasons: readonly ProgressReason[];
 };
 
-export function initialProgress(
-  sample: ProgressSample,
-  nowMono: number,
-): ProgressState {
+export function initialProgress(sample: ProgressSample, nowMono: number): ProgressState {
   return { last: sample, last_progress_mono: nowMono, last_reasons: [] };
 }
 
@@ -60,18 +52,13 @@ export function assessProgress(
     reasons.push('cpu');
   if (sample.processes !== prev.last.processes) reasons.push('processes');
   if (sample.output_seq > prev.last.output_seq) reasons.push('output');
-  if (sample.files !== null && sample.files !== prev.last.files)
-    reasons.push('files');
+  if (sample.files !== null && sample.files !== prev.last.files) reasons.push('files');
   return reasons.length === 0
     ? { ...prev, last: sample }
     : { last: sample, last_progress_mono: nowMono, last_reasons: reasons };
 }
 
-export function isStalled(
-  s: ProgressState,
-  nowMono: number,
-  stallMs: number,
-): boolean {
+export function isStalled(s: ProgressState, nowMono: number, stallMs: number): boolean {
   return nowMono - s.last_progress_mono >= stallMs;
 }
 
@@ -150,10 +137,7 @@ export const PROC: ProcReader = {
  * The process tree of a group leader: every process in its group plus every descendant by ppid, even
  * one that left the group with setsid. Identity is (pid, start ticks), never a pid or env marker alone.
  */
-export function processTree(
-  leader: number,
-  reader: ProcReader = PROC,
-): ProcStat[] | null {
+export function processTree(leader: number, reader: ProcReader = PROC): ProcStat[] | null {
   const pids = reader.pids();
   if (pids === null) return null;
   const stats: ProcStat[] = [];
@@ -163,8 +147,7 @@ export function processTree(
     if (s !== null) stats.push(s);
   }
   const inTree = new Set<number>();
-  for (const s of stats)
-    if (s.pid === leader || s.pgid === leader) inTree.add(s.pid);
+  for (const s of stats) if (s.pid === leader || s.pgid === leader) inTree.add(s.pid);
   for (let grown = true; grown;) {
     grown = false;
     for (const s of stats)
@@ -180,10 +163,7 @@ export function processTree(
  * Bounded fingerprint (path, size, mtime) of the watched directories. `.git` is skipped; the cap keeps
  * a huge tree from turning sampling into the bottleneck, and the cap itself is part of the digest.
  */
-export function fileFingerprint(
-  dirs: readonly string[],
-  maxEntries = 20_000,
-): string | null {
+export function fileFingerprint(dirs: readonly string[], maxEntries = 20_000): string | null {
   if (dirs.length === 0) return null;
   const entries: [string, number, number][] = [];
   let capped = false;

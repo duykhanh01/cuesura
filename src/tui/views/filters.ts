@@ -2,17 +2,8 @@
  * The filter screen and the line that always shows what is applied (FR-008). The filter is the one place a
  * user can type at this stage, and a lost connection leaves that text as it is (FR-009).
  */
-import {
-  projectChoices,
-  STATUS_CHOICES,
-  type TuiState,
-} from '../model/state.ts';
-import {
-  joinSafe,
-  sanitize,
-  uiText,
-  type SafeText,
-} from '../terminal/safe-text.ts';
+import { projectChoices, STATUS_CHOICES, type TuiState } from '../model/state.ts';
+import { joinSafe, sanitize, uiText, type SafeText } from '../terminal/safe-text.ts';
 import { truncate } from '../terminal/width.ts';
 import { putSegs, ruleHeading } from './ink.ts';
 import type { Body } from './layout.ts';
@@ -55,16 +46,11 @@ export const filtersBody =
       },
     ];
     const choices = projectChoices(s.projects, draft.query);
-    if (s.projects === null)
-      rows.push({ text: uiText('    Project list not read yet') });
-    else if (choices.length === 0)
-      rows.push({ text: uiText('    No project matches') });
+    if (s.projects === null) rows.push({ text: uiText('    Project list not read yet') });
+    else if (choices.length === 0) rows.push({ text: uiText('    No project matches') });
     // Statuses always fit; projects take what is left, around the chosen one.
     const room = Math.max(1, height - rows.length - STATUS_CHOICES.length - 2);
-    const first = Math.max(
-      0,
-      Math.min(draft.project - room + 1, choices.length - room),
-    );
+    const first = Math.max(0, Math.min(draft.project - room + 1, choices.length - room));
     for (const [i, choice] of choices.entries()) {
       if (i < first || i >= first + room) continue;
       const on = i === draft.project;

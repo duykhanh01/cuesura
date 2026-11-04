@@ -30,10 +30,7 @@ export function acceptFrozen(
     reject('invalid_trigger', { reason: 'freeze_base_mismatch' });
   if (!verifyPolicyHash(policy) || !verifyContextHash(context))
     reject('invalid_trigger', { reason: 'freeze_hash_mismatch' });
-  if (
-    ctx.policy !== null &&
-    ctx.policy.structure_hash !== policy.structure_hash
-  )
+  if (ctx.policy !== null && ctx.policy.structure_hash !== policy.structure_hash)
     reject('workflow_change_forbidden');
   return v;
 }
@@ -136,8 +133,7 @@ function acceptRunConfig(
   policy: FrozenPolicy,
 ): void {
   const s = ctx.state;
-  if (rc === undefined)
-    reject('invalid_trigger', { reason: 'run_config_missing' });
+  if (rc === undefined) reject('invalid_trigger', { reason: 'run_config_missing' });
   if (
     !runConfigConfirmed(s) ||
     rc.digest !== s.run.proposal?.digest ||

@@ -5,13 +5,7 @@ import { applyOverrides, deepMerge } from '../../../src/config/merge.ts';
 import { USER_ONLY_KEYS } from '../../../src/config/schema-user.ts';
 import type { ConfigSource } from '../../../src/config/yaml-loader.ts';
 import { authz, buildTask } from '../../support/builders.ts';
-import {
-  docsFor,
-  MIN_PARTS,
-  MIN_PROJECT,
-  minUser,
-  source,
-} from '../../support/config-fixtures.ts';
+import { docsFor, MIN_PARTS, MIN_PROJECT, minUser, source } from '../../support/config-fixtures.ts';
 
 const USER = source('configs/valid/user.yaml');
 const project = (text: string): ConfigSource => ({ file: 'cusr.yaml', text });
@@ -27,23 +21,20 @@ function validProject(text: string, packs: Record<string, ConfigSource> = {}) {
 }
 
 describe('Configuration authority by file (FR-001)', () => {
-  it.each(USER_ONLY_KEYS)(
-    'key %s in cusr.yaml reports forbidden_key at that key',
-    (key) => {
-      const r = validateConfig({
-        user: USER,
-        project: project(
-          `version: 1\ngates: { build: make, unit: t }\n${key}: {}\nprofile: standard\n`,
-        ),
-        packs: {},
-      });
-      expect(r.ok).toBe(false);
-      if (!r.ok)
-        expect(r.error.map((d) => [d.code, d.file, d.line, d.col])).toEqual([
-          ['forbidden_key', 'cusr.yaml', 3, 1],
-        ]);
-    },
-  );
+  it.each(USER_ONLY_KEYS)('key %s in cusr.yaml reports forbidden_key at that key', (key) => {
+    const r = validateConfig({
+      user: USER,
+      project: project(
+        `version: 1\ngates: { build: make, unit: t }\n${key}: {}\nprofile: standard\n`,
+      ),
+      packs: {},
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok)
+      expect(r.error.map((d) => [d.code, d.file, d.line, d.col])).toEqual([
+        ['forbidden_key', 'cusr.yaml', 3, 1],
+      ]);
+  });
 
   it('project keys in user configuration return forbidden_key', () => {
     const r = validateConfig({
@@ -102,10 +93,7 @@ describe('Merge precedence', () => {
 
   it('maps merge by key; arrays are replaced rather than concatenated', () => {
     const packs2 = {
-      p: pack(
-        'p',
-        'gates: { lint: eslint, build: tsc }\nconventions: [A.md, B.md]\n',
-      ),
+      p: pack('p', 'gates: { lint: eslint, build: tsc }\nconventions: [A.md, B.md]\n'),
     };
     const p = validProject(
       'version: 1\nextends: [p]\ngates: { unit: vitest }\nconventions: [C.md]\nprofile: standard\n',
@@ -116,9 +104,10 @@ describe('Merge precedence', () => {
   });
 
   it('deepMerge replaces scalars and arrays with higher-precedence values', () => {
-    expect(
-      deepMerge({ a: { b: 1, c: [1, 2] } }, { a: { c: [3] }, d: 1 }),
-    ).toEqual({ a: { b: 1, c: [3] }, d: 1 });
+    expect(deepMerge({ a: { b: 1, c: [1, 2] } }, { a: { c: [3] }, d: 1 })).toEqual({
+      a: { b: 1, c: [3] },
+      d: 1,
+    });
   });
 
   it('errors in inherited pack keys point to the pack file', () => {
@@ -131,9 +120,9 @@ describe('Merge precedence', () => {
         p: pack('p', 'ci_rules:\n  - match: { job: e2e }\n    class: maybe\n'),
       },
     });
-    expect(
-      !r.ok && r.error.map((d) => [d.code, d.file, d.line, d.col]),
-    ).toEqual([['schema_invalid', 'p.yaml', 3, 5]]);
+    expect(!r.ok && r.error.map((d) => [d.code, d.file, d.line, d.col])).toEqual([
+      ['schema_invalid', 'p.yaml', 3, 5],
+    ]);
   });
 });
 
@@ -159,16 +148,11 @@ describe('profile', () => {
       }),
       packs: {},
     });
-    expect(!r.ok && [...new Set(r.error.map((d) => d.code))]).toEqual([
-      'profile_cycle',
-    ]);
+    expect(!r.ok && [...new Set(r.error.map((d) => d.code))]).toEqual(['profile_cycle']);
   });
 
   it('rejects extends beyond the maximum depth', () => {
-    const chain = Array.from(
-      { length: 4 },
-      (_, i) => `  p${i}: { extends: p${i + 1} }\n`,
-    ).join('');
+    const chain = Array.from({ length: 4 }, (_, i) => `  p${i}: { extends: p${i + 1} }\n`).join('');
     const profiles = `profiles:\n  standard: { workflow: impl }\n${chain}  p4: { extends: standard }\n`;
     const r = validateConfig({
       user: minUser({ profiles }),
@@ -180,9 +164,7 @@ describe('profile', () => {
       ['profile_cycle', 'profiles.p3.extends'],
       ['profile_cycle', 'profiles.p4.extends'],
     ]);
-    expect(validateConfig({ user: minUser({ profiles }), packs: {} }).ok).toBe(
-      true,
-    );
+    expect(validateConfig({ user: minUser({ profiles }), packs: {} }).ok).toBe(true);
   });
 });
 
@@ -196,10 +178,7 @@ describe('Task-creation overrides (stage 4)', () => {
     if (!r.ok) throw new Error('fixture');
     return r.value.config;
   })();
-  const run = (
-    overrides: Record<string, unknown>,
-    roles: ('read' | 'operate' | 'admin')[],
-  ) =>
+  const run = (overrides: Record<string, unknown>, roles: ('read' | 'operate' | 'admin')[]) =>
     freeze({
       config: validated,
       task: buildTask({ profile: 'standard' }),
@@ -219,17 +198,13 @@ describe('Task-creation overrides (stage 4)', () => {
       ['operate'],
     );
     expect(r.ok && r.value.policy.steps.review?.binding.model).toBe('sonnet');
-    expect(r.ok && r.value.policy.gates.commands.lint).toBe(
-      'npm run lint:strict',
-    );
+    expect(r.ok && r.value.policy.gates.commands.lint).toBe('npm run lint:strict');
   });
 
   it('disallowed keys return override_not_allowed', () => {
     const r = run({ 'escalation.enabled': false }, ['admin']);
     expect(
-      !r.ok &&
-        r.error.code === 'config_invalid' &&
-        r.error.diagnostics.map((d) => d.code),
+      !r.ok && r.error.code === 'config_invalid' && r.error.diagnostics.map((d) => d.code),
     ).toEqual(['override_not_allowed']);
   });
 
@@ -361,8 +336,7 @@ describe('Task-creation overrides (stage 4)', () => {
         'coder: { binding: [{ model: sonnet }] }',
         'coder: { permissions: read_only, binding: [{ model: sonnet }] }',
       );
-      const profiles =
-        'profiles:\n  standard: { workflow: impl, overridable: [roles.coder] }\n';
+      const profiles = 'profiles:\n  standard: { workflow: impl, overridable: [roles.coder] }\n';
       const r = validateConfig({
         user: minUser({ roles, profiles }),
         project: MIN_PROJECT,
@@ -434,18 +408,14 @@ describe('Task-creation overrides (stage 4)', () => {
 
     it('freeze blocks permission upgrades through a full roles-map override (FR-001)', () => {
       const roles = `${MIN_PARTS.roles}  team.coder: { permissions: read_only, binding: [{ model: sonnet }] }\n`;
-      const profiles =
-        'profiles:\n  standard: { workflow: impl, overridable: [roles] }\n';
+      const profiles = 'profiles:\n  standard: { workflow: impl, overridable: [roles] }\n';
       const r = validateConfig({
         user: minUser({ roles, profiles }),
         project: MIN_PROJECT,
         packs: {},
       });
       if (!r.ok) throw new Error('validate');
-      const raw = r.value.config.raw.user.roles as Record<
-        string,
-        Record<string, unknown>
-      >;
+      const raw = r.value.config.raw.user.roles as Record<string, Record<string, unknown>>;
       expect(raw['team.coder']?.['permissions']).toBe('read_only');
       const f = freeze({
         config: r.value.config,
@@ -469,9 +439,7 @@ describe('Task-creation overrides (stage 4)', () => {
   });
 
   it('revalidates invalid override values', () => {
-    const r = run({ 'roles.reviewer.binding': [{ model: 'gpt' }] }, [
-      'operate',
-    ]);
+    const r = run({ 'roles.reviewer.binding': [{ model: 'gpt' }] }, ['operate']);
     expect(
       !r.ok &&
         r.error.code === 'config_invalid' &&

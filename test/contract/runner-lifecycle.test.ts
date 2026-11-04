@@ -5,13 +5,7 @@
  * left the group are stopped too; a passed durable deadline or a UTC jump never starts or extends a
  * run; an existing marker is never re-spawned; secrets are redacted before they reach the run dir.
  */
-import {
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -33,10 +27,7 @@ import {
   remainingMs,
 } from '../../src/runner/progress.ts';
 import { Redactor } from '../../src/runner/redact.ts';
-import {
-  InvocationSpecSchema,
-  type InvocationSpec,
-} from '../../src/runner/supervisor.ts';
+import { InvocationSpecSchema, type InvocationSpec } from '../../src/runner/supervisor.ts';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -135,13 +126,9 @@ describe('progress is not liveness, silence is not a stall', () => {
 
   it('applies whichever optional time cap is present', () => {
     const base = { start_mono: 0, now_mono: 100, now_utc: 1000 };
-    expect(remainingMs({ ...base, wall_ms: null, deadline_at: null })).toBe(
-      Infinity,
-    );
+    expect(remainingMs({ ...base, wall_ms: null, deadline_at: null })).toBe(Infinity);
     expect(remainingMs({ ...base, wall_ms: 500, deadline_at: null })).toBe(400);
-    expect(remainingMs({ ...base, wall_ms: null, deadline_at: 1500 })).toBe(
-      500,
-    );
+    expect(remainingMs({ ...base, wall_ms: null, deadline_at: 1500 })).toBe(500);
   });
 
   it('a silent CPU-busy process is not stalled', async () => {
@@ -164,10 +151,10 @@ describe('progress is not liveness, silence is not a stall', () => {
 
   it('file changes in a watched directory count as progress', async () => {
     const watched = tmp();
-    const run = setup(
-      `for i in 1 2 3 4 5 6; do sleep 0.2; echo $i > ${watched}/f$i; done`,
-      { stall_ms: 500, watch: [watched] },
-    );
+    const run = setup(`for i in 1 2 3 4 5 6; do sleep 0.2; echo $i > ${watched}/f$i; done`, {
+      stall_ms: 500,
+      watch: [watched],
+    });
     expect((await exec(run)).outcome).toBe('exited');
   });
 
@@ -216,9 +203,7 @@ describe('deadline and stop', () => {
 
   it('descendants that left the process group are stopped after the leader exits', async () => {
     const pidFile = join(tmp(), 'pid');
-    const run = setup(
-      `setsid sh -c 'echo $$ > ${pidFile}; exec sleep 30' & sleep 0.3; exit 0`,
-    );
+    const run = setup(`setsid sh -c 'echo $$ > ${pidFile}; exec sleep 30' & sleep 0.3; exit 0`);
     const exit = await exec(run);
     const escaped = Number(readFileSync(pidFile, 'utf8'));
     expect(exit.outcome).toBe('exited');
@@ -299,10 +284,7 @@ describe('output records', () => {
       'cat; head -c 300000 /dev/zero | tr "\\0" a; echo; echo \'{"type":"done"}\'',
       {},
     );
-    writeFileSync(
-      join(run.ensureDir('context'), 'prompt.md'),
-      '{"prompt":1}\n',
-    );
+    writeFileSync(join(run.ensureDir('context'), 'prompt.md'), '{"prompt":1}\n');
     const spec = InvocationSpecSchema.parse(
       JSON.parse(readFileSync(run.resolve(RUN_FILES.invocation), 'utf8')),
     );
@@ -329,13 +311,7 @@ describe('output records', () => {
     );
     const exit = await exec(run);
     expect(exit.exit_code).toBe(3);
-    const all = [
-      'events.jsonl',
-      'stderr.log',
-      'exit.json',
-      'pid.json',
-      'launch.json',
-    ]
+    const all = ['events.jsonl', 'stderr.log', 'exit.json', 'pid.json', 'launch.json']
       .map((f) => {
         try {
           return readFileSync(run.resolve(f), 'utf8');
@@ -352,25 +328,16 @@ describe('output records', () => {
 describe('process identity', () => {
   it('PID reuse or another boot is never the same process', () => {
     const id = { boot_id: 'b1', pid: 42, pgid: 42, start_ticks: 100 };
-    expect(
-      checkIdentity(id, { bootId: () => 'b1', startTicks: () => 100 }),
-    ).toBe('alive');
-    expect(
-      checkIdentity(id, { bootId: () => 'b1', startTicks: () => 999 }),
-    ).toBe('gone');
-    expect(
-      checkIdentity(id, { bootId: () => 'b2', startTicks: () => 100 }),
-    ).toBe('other_boot');
-    expect(
-      checkIdentity(id, { bootId: () => 'b1', startTicks: () => 'unreadable' }),
-    ).toBe('unknown');
+    expect(checkIdentity(id, { bootId: () => 'b1', startTicks: () => 100 })).toBe('alive');
+    expect(checkIdentity(id, { bootId: () => 'b1', startTicks: () => 999 })).toBe('gone');
+    expect(checkIdentity(id, { bootId: () => 'b2', startTicks: () => 100 })).toBe('other_boot');
+    expect(checkIdentity(id, { bootId: () => 'b1', startTicks: () => 'unreadable' })).toBe(
+      'unknown',
+    );
   });
 
   it('parses /proc stat with spaces and parentheses in the name', () => {
-    const s = parseStat(
-      7,
-      '7 (a b) c)) S 1 7 7 0 -1 0 0 0 0 0 11 22 0 0 20 0 1 0 333 0 0',
-    );
+    const s = parseStat(7, '7 (a b) c)) S 1 7 7 0 -1 0 0 0 0 0 11 22 0 0 20 0 1 0 333 0 0');
     expect(s).toEqual({
       pid: 7,
       ppid: 1,
@@ -417,9 +384,7 @@ describe('cusr-runner exec (the entrypoint a unit runs)', () => {
     expect(exit.state).toBe('valid');
     const second = exec();
     expect(second.status).toBe(2);
-    expect(second.stderr).toContain(
-      'already been launched; duplicate execution was refused',
-    );
+    expect(second.stderr).toContain('already been launched; duplicate execution was refused');
     expect(readFileSync(marker, 'utf8')).toBe('x\n');
   });
 });

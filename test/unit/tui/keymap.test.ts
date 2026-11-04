@@ -19,11 +19,7 @@ import type { Message } from '../../../src/tui/model/messages.ts';
 import { reduce } from '../../../src/tui/model/reduce.ts';
 import { initialState, type TuiState } from '../../../src/tui/model/state.ts';
 import type { Key, KeyName } from '../../../src/tui/terminal/keys.ts';
-import {
-  sanitize,
-  sanitizeLines,
-  uiText,
-} from '../../../src/tui/terminal/safe-text.ts';
+import { sanitize, sanitizeLines, uiText } from '../../../src/tui/terminal/safe-text.ts';
 import { helpLines } from '../../../src/tui/views/help.ts';
 import { renderFrame } from '../../../src/tui/views/layout.ts';
 import { screenBody } from '../../../src/tui/views/screen-body.ts';
@@ -111,10 +107,7 @@ function screen(s: TuiState): string {
 
 const bar = (s: TuiState): string => screen(s).split('\n').at(-1) ?? '';
 
-function explain(
-  actions: TaskExplain['allowed_actions'],
-  version = 3,
-): TaskExplain {
+function explain(actions: TaskExplain['allowed_actions'], version = 3): TaskExplain {
   return {
     task_id: TASK(2),
     version,
@@ -170,17 +163,14 @@ function contexts(): Record<Context, TuiState> {
 }
 
 function keyOf(p: { name: KeyName } | { char: string }): Key {
-  return 'name' in p
-    ? { kind: 'key', name: p.name }
-    : { kind: 'char', text: p.char };
+  return 'name' in p ? { kind: 'key', name: p.name } : { kind: 'char', text: p.char };
 }
 
 describe('the keymap is the one source of keys, hints and Help (T050)', () => {
   const all = contexts();
 
   it('each state is the context it stands for', () => {
-    for (const [ctx, s] of Object.entries(all))
-      expect(keyContext(s), ctx).toBe(ctx);
+    for (const [ctx, s] of Object.entries(all)) expect(keyContext(s), ctx).toBe(ctx);
   });
 
   it('every key a binding names acts as that binding says, where it applies', () => {
@@ -194,12 +184,8 @@ describe('the keymap is the one source of keys, hints and Help (T050)', () => {
               (o.when === undefined || o.when(s)) &&
               o.press.some(([q]) => JSON.stringify(q) === JSON.stringify(p)),
           );
-          const expected = first?.press.find(
-            ([q]) => JSON.stringify(q) === JSON.stringify(p),
-          )?.[1];
-          expect(commandFor(s, keyOf(p)), `${ctx} ${b.keys}`).toBe(
-            expected ?? command,
-          );
+          const expected = first?.press.find(([q]) => JSON.stringify(q) === JSON.stringify(p))?.[1];
+          expect(commandFor(s, keyOf(p)), `${ctx} ${b.keys}`).toBe(expected ?? command);
         }
       }
   });
@@ -208,12 +194,9 @@ describe('the keymap is the one source of keys, hints and Help (T050)', () => {
     for (const [ctx, s] of Object.entries(all) as [Context, TuiState][]) {
       const shown = bar(s);
       expect(shown.length, ctx).toBeLessThanOrEqual(80);
-      expect(shown, ctx).toMatch(
-        ctx === 'filter_text' ? /Ctrl-C quit/ : /q quit/,
-      );
+      expect(shown, ctx).toMatch(ctx === 'filter_text' ? /Ctrl-C quit/ : /q quit/);
       if (ctx !== 'home') expect(shown, ctx).toContain('Esc back');
-      if (ctx !== 'help' && ctx !== 'filter_text')
-        expect(shown, ctx).toContain('? help');
+      if (ctx !== 'help' && ctx !== 'filter_text') expect(shown, ctx).toContain('? help');
     }
     expect(bar(all.home)).toContain('a actions');
     expect(bar(all.home)).toContain('f filter');
@@ -254,9 +237,7 @@ describe('the keymap is the one source of keys, hints and Help (T050)', () => {
     const big = { cols: 140, rows: 100 };
     const s = run(home(big), k('enter'), ch('d'), ch('?'));
     const text = screen(s);
-    expect(text.indexOf('Keys on Task detail')).toBeLessThan(
-      text.indexOf('Keys on Home'),
-    );
+    expect(text.indexOf('Keys on Task detail')).toBeLessThan(text.indexOf('Keys on Home'));
     for (const ctx of Object.keys(all) as Context[])
       for (const b of ownBindings(ctx)) expect(text, ctx).toContain(b.help);
     expect(text).toContain('Keys in a text field');
@@ -352,9 +333,7 @@ describe('Help closes where it was (T051)', () => {
     expect(screen(asked.state)).toContain('Keys on Filter');
     // Any other key puts the question away; the same key again quits.
     expect(screen(run(asked.state, k('down')))).not.toContain('Quitting loses');
-    expect(reduce(asked.state, ch('q')).effects).toEqual([
-      { type: 'quit', code: 0 },
-    ]);
+    expect(reduce(asked.state, ch('q')).effects).toEqual([{ type: 'quit', code: 0 }]);
   });
 
   it('? on Help does not stack another', () => {
@@ -430,21 +409,13 @@ describe('the Actions menu (T052)', () => {
       ]),
     );
     const text = screen(s);
-    expect(text).toContain(
-      'Not available: needs the operate role; this token has: read',
-    );
-    expect(text).toContain(
-      'Not available: needs the admin role; this token has: read',
-    );
+    expect(text).toContain('Not available: needs the operate role; this token has: read');
+    expect(text).toContain('Not available: needs the admin role; this token has: read');
     const operator: CallerInfo = { ...OWNER, roles: ['operate'] };
     const op = { ...s, caller: operator };
     expect(screen(op)).not.toContain('needs the operate role');
-    expect(screen(op)).toContain(
-      'needs the admin role; this token has: operate',
-    );
-    expect(screen({ ...s, caller: null })).toContain(
-      'permissions are not read yet',
-    );
+    expect(screen(op)).toContain('needs the admin role; this token has: operate');
+    expect(screen({ ...s, caller: null })).toContain('permissions are not read yet');
   });
 
   it('Enter confirms nothing: it sends nothing and says so', () => {
@@ -482,9 +453,7 @@ describe('the Actions menu (T052)', () => {
     expect(text).not.toContain('Merge on GitHub · dialog');
     expect(text).toContain('Waits for the slot.');
     expect(text).toContain('something_new');
-    expect(reduce(s, k('enter')).state.actions?.notice).toContain(
-      'Nothing to send',
-    );
+    expect(reduce(s, k('enter')).state.actions?.notice).toContain('Nothing to send');
   });
 
   it('the merge guide gives the method and the proposed title and message, all of it by keyboard', () => {
@@ -522,9 +491,7 @@ describe('the Actions menu (T052)', () => {
     expect(text).toContain('body line 1');
     expect(text).not.toContain('body line 40');
     expect(bar(on)).toContain('PgUp/PgDn read on');
-    expect(reduce(on, k('enter')).state.actions?.notice).toContain(
-      'method, title and message',
-    );
+    expect(reduce(on, k('enter')).state.actions?.notice).toContain('method, title and message');
     // PgDn reads the rest of a message longer than the screen, PgUp goes back.
     let seen = text;
     let at = on;
@@ -567,9 +534,7 @@ describe('the Actions menu (T052)', () => {
     );
     expect(reordered.actions?.changed).toBe(true);
     expect(reordered.actions?.selected).toBe(0);
-    expect(screen(reordered)).toContain(
-      'The task changed while this menu was open',
-    );
+    expect(screen(reordered)).toContain('The task changed while this menu was open');
     expect(screen(reordered)).toMatch(/› Cancel task/);
   });
 
@@ -604,9 +569,7 @@ describe('the Actions menu draws only sanitized text', () => {
     const odd: CallerInfo = { ...OWNER, roles: ['read\x1b[2J'] };
     const s = answered(run(home(SMALL, odd), ch('a')), explain(QUESTION));
     const f = renderFrame(s, screenBody(s, { color: false }), { color: false });
-    const bytes = Array.from({ length: f.rows }, (_, y) => f.rowBytes(y)).join(
-      '\n',
-    );
+    const bytes = Array.from({ length: f.rows }, (_, y) => f.rowBytes(y)).join('\n');
     expect(bytes).not.toContain('\x1b[2J');
     expect(bytes).toContain('read␛[2J');
   });

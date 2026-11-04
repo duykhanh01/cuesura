@@ -12,11 +12,7 @@ import { FileContentStore } from '../../src/adapters/publish-content.ts';
 import { ingestOperationSpool } from '../../src/daemon/ingest.ts';
 import { runLocation } from '../../src/daemon/retention.ts';
 import { DETAIL_CODES, type OperationMirror } from '../../src/domain/state.ts';
-import {
-  EventLogWriter,
-  RunDir,
-  type FileLimits,
-} from '../../src/runner/files.ts';
+import { EventLogWriter, RunDir, type FileLimits } from '../../src/runner/files.ts';
 import { Redactor } from '../../src/runner/redact.ts';
 import type { EpochMs, Uuid } from '../../src/shared/brand.ts';
 import { openFileStoreForTest, storeDb } from '../../src/store/testing.ts';
@@ -24,35 +20,12 @@ import { STORE_FILE } from '../../src/daemon/main.ts';
 import { PACKS } from './config-fixtures.ts';
 import { ControlProxy } from './control-proxy.ts';
 import { SeededDaemon, type Reply, type TokenSpec } from './daemon-task.ts';
-import {
-  fakeGit,
-  fakeGitHub,
-  fakeHost,
-  MANIFESTS,
-  userConfig,
-} from './preflight-fakes.ts';
+import { fakeGit, fakeGitHub, fakeHost, MANIFESTS, userConfig } from './preflight-fakes.ts';
 import { KEY, PtySession } from './pty.ts';
-import {
-  createGrantStart,
-  proposeAndConfirm,
-  selectionFor,
-} from './runtime.ts';
-import {
-  agentData,
-  ciData,
-  gatesData,
-  PREPARE_DATA,
-  publishData,
-  USAGE,
-} from './scenario.ts';
+import { createGrantStart, proposeAndConfirm, selectionFor } from './runtime.ts';
+import { agentData, ciData, gatesData, PREPARE_DATA, publishData, USAGE } from './scenario.ts';
 import type { StoreDriver } from './store-driver.ts';
-import {
-  checkpointGates,
-  createAndStart,
-  toPublish,
-  WALL,
-  reviewToCi,
-} from './store-flows.ts';
+import { checkpointGates, createAndStart, toPublish, WALL, reviewToCi } from './store-flows.ts';
 
 // What the US1 tests share: a real daemon seeded through the real store, `cusr` on a real PTY, and the CLI
 // to compare the screen with.
@@ -91,27 +64,22 @@ export function useTui() {
     /** A stopped daemon to seed and start. Its clock reads now, so a time in status means something. */
     daemon(o: DaemonOptions = {}): SeededDaemon {
       const lines = ['acme', ...(o.projects ?? [])].map(
-        (id) =>
-          `${id}: { base_branch: main, path: /srv/${id}, repo: acme/${id} }`,
+        (id) => `${id}: { base_branch: main, path: /srv/${id}, repo: acme/${id} }`,
       );
-      const sd: SeededDaemon = new SeededDaemon(
-        o.tokens ?? [],
-        {},
-        (store) => ({
-          logs: { dataDir: sd.dataDir, redactor: new Redactor() },
-          confirm: {
-            store,
-            ports: { git: fakeGit(), github: fakeGitHub(), host: fakeHost() },
-            configInputs: () =>
-              Promise.resolve({
-                user: userConfig({ project: lines.join('\n  ') }),
-                packs: PACKS,
-                manifests: MANIFESTS,
-              }),
-            now: () => sd.clock.now(),
-          },
-        }),
-      );
+      const sd: SeededDaemon = new SeededDaemon(o.tokens ?? [], {}, (store) => ({
+        logs: { dataDir: sd.dataDir, redactor: new Redactor() },
+        confirm: {
+          store,
+          ports: { git: fakeGit(), github: fakeGitHub(), host: fakeHost() },
+          configInputs: () =>
+            Promise.resolve({
+              user: userConfig({ project: lines.join('\n  ') }),
+              packs: PACKS,
+              manifests: MANIFESTS,
+            }),
+          now: () => sd.clock.now(),
+        },
+      }));
       sd.now = Date.now();
       daemons.push(sd);
       return sd;
@@ -195,11 +163,7 @@ export function taskAdd(n: number, title: string): Record<string, unknown> {
 }
 
 /** Cancels through the daemon, as the CLI does; the status changes by the daemon's hand. */
-export async function cancelTask(
-  sd: SeededDaemon,
-  taskId: string,
-  n: number,
-): Promise<Reply> {
+export async function cancelTask(sd: SeededDaemon, taskId: string, n: number): Promise<Reply> {
   const shown = await sd.query('owner', { kind: 'task_show', task_id: taskId });
   return sd.command('owner', {
     request_id: uuidOf(6_000 + n),
@@ -231,10 +195,7 @@ export type CliRun = {
 };
 
 /** The real CLI against the same daemon, for what the screen is compared with. */
-export async function cliJson(
-  sd: SeededDaemon,
-  ...argv: string[]
-): Promise<CliRun> {
+export async function cliJson(sd: SeededDaemon, ...argv: string[]): Promise<CliRun> {
   let out = '';
   const code = await runCli(
     { name: 'cusr', description: '', version: '0' },
@@ -276,12 +237,7 @@ function toCode(d: StoreDriver, t: CanonicalTask): void {
 
 function toGates(d: StoreDriver, t: CanonicalTask): void {
   toCode(d, t);
-  d.complete(
-    t.id,
-    d.pendingOne(t.id, 'start_agent').id,
-    'succeeded',
-    agentData('done'),
-  );
+  d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
 }
 
 function toReview(d: StoreDriver, t: CanonicalTask): void {
@@ -298,12 +254,7 @@ function toReview(d: StoreDriver, t: CanonicalTask): void {
 function toCi(d: StoreDriver, t: CanonicalTask): void {
   createGrantStart(d, t);
   toPublish(d, t, HEAD);
-  d.complete(
-    t.id,
-    d.pendingOne(t.id, 'publish').id,
-    'succeeded',
-    publishData(HEAD),
-  );
+  d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(HEAD));
   d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
     pr_ref: `acme#${t.id.slice(-2)}`,
     head_sha: HEAD,
@@ -335,11 +286,8 @@ export type Sample =
   | 'cooldown'
   | 'cancelled';
 
-export function seedEveryState(
-  d: StoreDriver,
-): Readonly<Record<Sample, CanonicalTask>> {
-  const make = (n: number, title: string): CanonicalTask =>
-    buildTask({ id: uuidOf(n), title });
+export function seedEveryState(d: StoreDriver): Readonly<Record<Sample, CanonicalTask>> {
+  const make = (n: number, title: string): CanonicalTask => buildTask({ id: uuidOf(n), title });
   const s = {
     coding: make(1, 'Sample coding'),
     gates: make(2, 'Sample gates'),
@@ -389,30 +337,20 @@ export function seedEveryState(
     PREPARE_DATA,
   );
   for (let i = 0; i < 2; i++)
-    d.complete(
-      s.escalation.id,
-      d.pendingOne(s.escalation.id, 'start_agent').id,
-      'failed',
-      {
-        failure_class: 'quality',
-        signature: 'C1',
-        invoked: true,
-        usage: USAGE,
-      },
-    );
-
-  toCode(d, s.cooldown);
-  d.complete(
-    s.cooldown.id,
-    d.pendingOne(s.cooldown.id, 'start_agent').id,
-    'failed',
-    {
-      failure_class: 'rate_limit',
-      reset_at: d.now + 60_000,
+    d.complete(s.escalation.id, d.pendingOne(s.escalation.id, 'start_agent').id, 'failed', {
+      failure_class: 'quality',
+      signature: 'C1',
       invoked: true,
       usage: USAGE,
-    },
-  );
+    });
+
+  toCode(d, s.cooldown);
+  d.complete(s.cooldown.id, d.pendingOne(s.cooldown.id, 'start_agent').id, 'failed', {
+    failure_class: 'rate_limit',
+    reset_at: d.now + 60_000,
+    invoked: true,
+    usage: USAGE,
+  });
 
   toCi(d, s.waiting_ci);
   d.complete(
@@ -472,9 +410,9 @@ export function seedEveryDetailCode(sd: SeededDaemon): readonly string[] {
   try {
     DETAIL_CODES.forEach((code, i) => {
       const id = uuidOf(100 + i);
-      const row = db
-        .prepare('SELECT state_json FROM tasks WHERE id = ?')
-        .get(id) as { state_json: string };
+      const row = db.prepare('SELECT state_json FROM tasks WHERE id = ?').get(id) as {
+        state_json: string;
+      };
       const state = {
         ...(JSON.parse(row.state_json) as Record<string, unknown>),
         status: 'WAITING',
@@ -486,9 +424,11 @@ export function seedEveryDetailCode(sd: SeededDaemon): readonly string[] {
           resume: { kind: 'none' },
         },
       };
-      db.prepare(
-        'UPDATE tasks SET state_json = ?, status = ? WHERE id = ?',
-      ).run(JSON.stringify(state), 'WAITING', id);
+      db.prepare('UPDATE tasks SET state_json = ?, status = ? WHERE id = ?').run(
+        JSON.stringify(state),
+        'WAITING',
+        id,
+      );
     });
   } finally {
     store.close();
@@ -535,18 +475,8 @@ export function seedGreenPr(
     'succeeded',
     agentData('done', { content: stored }),
   );
-  d.complete(
-    t.id,
-    d.pendingOne(t.id, 'run_gates').id,
-    'succeeded',
-    checkpointGates(GREEN_HEAD),
-  );
-  d.complete(
-    t.id,
-    d.pendingOne(t.id, 'publish').id,
-    'succeeded',
-    publishData(GREEN_HEAD),
-  );
+  d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(GREEN_HEAD));
+  d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(GREEN_HEAD));
   d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
     pr_ref: 'acme#7',
     head_sha: GREEN_HEAD,
@@ -648,8 +578,7 @@ export class LogFeed {
 export async function openTask(s: PtySession, title: string): Promise<void> {
   await s.waitForText(title);
   // The time in status at the end of the row ticks by itself; only a move of the selection counts.
-  const row = (): string =>
-    selectedLine(s.screenText()).replace(/(\s+\d+[smhd])+\s*$/, '');
+  const row = (): string => selectedLine(s.screenText()).replace(/(\s+\d+[smhd])+\s*$/, '');
   for (let i = 0; i < 400; i++) {
     if (row().includes(title)) break;
     const before = row();
@@ -672,9 +601,7 @@ export async function enterDetail(s: PtySession): Promise<void> {
 export async function detailRead(s: PtySession): Promise<void> {
   await s.waitForText('Task detail');
   await s.waitFor(
-    () =>
-      s.screenText().includes('Progress') &&
-      !s.screenText().includes('Reading…'),
+    () => s.screenText().includes('Progress') && !s.screenText().includes('Reading…'),
   );
 }
 

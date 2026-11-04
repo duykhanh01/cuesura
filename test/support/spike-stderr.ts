@@ -22,12 +22,8 @@ const EVIDENCE = fileURLToPath(
  * Only the router lines survive, and they are the only stderr lines the stream summary reads.
  */
 export function recordedCodexStderr(attempt: string): string {
-  const evidence = JSON.parse(
-    readFileSync(EVIDENCE, 'utf8'),
-  ) as PermissionRuntime;
-  const run =
-    evidence.runs[attempt] ?? evidence.candidate_profile_runs[attempt];
-  if (run === undefined)
-    throw new Error(`no recorded Codex stderr for ${attempt}`);
+  const evidence = JSON.parse(readFileSync(EVIDENCE, 'utf8')) as PermissionRuntime;
+  const run = evidence.runs[attempt] ?? evidence.candidate_profile_runs[attempt];
+  if (run === undefined) throw new Error(`no recorded Codex stderr for ${attempt}`);
   return run.runtime_rejections.map((r) => `${r.at} ${r.line}\n`).join('');
 }

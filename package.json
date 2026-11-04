@@ -17,8 +17,9 @@
   "packageManager": "pnpm@12.15.0",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "lint": "eslint . && prettier --check .",
-    "format": "prettier --write .",
+    "lint": "eslint .",
+    "format": "oxfmt .",
+    "format:check": "oxfmt --check .",
     "test": "vitest run --project default",
     "test:changed": "vitest run --project default --changed origin/main",
     "test:performance": "vitest run --project performance",
@@ -44,7 +45,7 @@
     "fast-check": "4.10.2",
     "globals": "17.13.0",
     "node-pty": "1.1.0",
-    "prettier": "3.9.10",
+    "oxfmt": "0.75.0",
     "typescript": "6.0.3",
     "typescript-eslint": "8.72.0",
     "vitest": "5.0.5"

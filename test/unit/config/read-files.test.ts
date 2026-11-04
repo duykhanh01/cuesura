@@ -13,8 +13,6 @@ describe('readConfigFiles', () => {
   });
 
   it('reads only the user file when cusr.yaml is absent', async () => {
-    expect(
-      await readConfigFiles({ user: join(CONFIGS, 'valid', 'user.yaml') }),
-    ).toHaveLength(1);
+    expect(await readConfigFiles({ user: join(CONFIGS, 'valid', 'user.yaml') })).toHaveLength(1);
   });
 });

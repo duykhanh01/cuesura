@@ -59,9 +59,7 @@ describe('truncate', () => {
   it('never exceeds the width for any text', () => {
     fc.assert(
       fc.property(fc.string({ unit: 'grapheme' }), fc.nat(40), (s, cols) => {
-        expect(displayWidth(truncate(sanitize(s), cols))).toBeLessThanOrEqual(
-          cols,
-        );
+        expect(displayWidth(truncate(sanitize(s), cols))).toBeLessThanOrEqual(cols);
       }),
     );
   });
@@ -95,11 +93,7 @@ describe('truncateMiddle', () => {
 
 describe('wrap', () => {
   it('breaks at spaces and keeps every word', () => {
-    expect(wrap(sanitize('one two three four'), 9)).toEqual([
-      'one two',
-      'three',
-      'four',
-    ]);
+    expect(wrap(sanitize('one two three four'), 9)).toEqual(['one two', 'three', 'four']);
   });
 
   it('splits a word wider than the row, losing nothing', () => {

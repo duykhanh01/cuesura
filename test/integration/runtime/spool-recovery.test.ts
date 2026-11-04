@@ -24,11 +24,7 @@ import {
   type SpoolIngestDeps,
   type SpoolIngestReport,
 } from '../../../src/daemon/ingest.ts';
-import {
-  STORE_FILE,
-  startDaemon,
-  type DaemonRuntime,
-} from '../../../src/daemon/main.ts';
+import { STORE_FILE, startDaemon, type DaemonRuntime } from '../../../src/daemon/main.ts';
 import { recoverOperations } from '../../../src/daemon/startup.ts';
 import { sweepRetention } from '../../../src/daemon/retention.ts';
 import { DEFAULT_RUNTIME_LIMITS } from '../../../src/domain/runtime.ts';
@@ -46,11 +42,7 @@ import type { RunnerExit } from '../../../src/runner/lifecycle.ts';
 import { claimLaunch } from '../../../src/runner/operation-lock.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
 import type { EpochMs, Uuid } from '../../../src/shared/brand.ts';
-import {
-  openFileStoreForTest,
-  storeDb,
-  type CrashPoint,
-} from '../../../src/store/testing.ts';
+import { openFileStoreForTest, storeDb, type CrashPoint } from '../../../src/store/testing.ts';
 import { buildTask, uuidOf } from '../../support/builders.ts';
 import { runExit } from '../../support/run-exit.ts';
 import { createGrantStart } from '../../support/runtime.ts';
@@ -60,9 +52,7 @@ import { StoreDriver } from '../../support/store-driver.ts';
 import { useTempDir } from '../../support/temp-db.ts';
 
 const tempDir = useTempDir('cusr-spool-recovery-');
-const CHILD = fileURLToPath(
-  new URL('../../support/spool-ingest-child.ts', import.meta.url),
-);
+const CHILD = fileURLToPath(new URL('../../support/spool-ingest-child.ts', import.meta.url));
 const HASH = `sha256:${'a'.repeat(64)}` as const;
 const OP = uuidOf(901);
 const DAY_MS = 86_400_000;
@@ -180,9 +170,7 @@ function count(f: Fixture, sql: string): number {
 function ingestedRecords(f: Fixture): number[] {
   return (
     storeDb(f.d.store)
-      .prepare(
-        `SELECT payload_json FROM events WHERE type = 'OutputIngested' ORDER BY global_seq`,
-      )
+      .prepare(`SELECT payload_json FROM events WHERE type = 'OutputIngested' ORDER BY global_seq`)
       .all() as { payload_json: string }[]
   ).map((r) => (JSON.parse(r.payload_json) as { records: number }).records);
 }
@@ -190,9 +178,7 @@ function ingestedRecords(f: Fixture): number[] {
 function artifactPaths(f: Fixture): string[] {
   return (
     storeDb(f.d.store)
-      .prepare(
-        'SELECT relative_path FROM artifacts WHERE operation_id = ? ORDER BY relative_path',
-      )
+      .prepare('SELECT relative_path FROM artifacts WHERE operation_id = ? ORDER BY relative_path')
       .all(OP) as { relative_path: string }[]
   ).map((a) => a.relative_path);
 }
@@ -358,11 +344,7 @@ describe('ingest after a daemon outage (FR-031, FR-036)', () => {
     expect(r).toMatchObject({ status: 'ingested', records: 0 });
     expect(ingestedRecords(f)).toEqual(events);
     expect(artifactPaths(f)).toEqual(
-      [
-        ...before.map((s) => `${SPOOL_DIR}/${s}`),
-        'exit.json',
-        'stderr.log',
-      ].sort(),
+      [...before.map((s) => `${SPOOL_DIR}/${s}`), 'exit.json', 'stderr.log'].sort(),
     );
     expect(r.acked).toEqual(before.slice(0, -1));
     expect(segments(f)).toEqual(before.slice(-1));
@@ -377,9 +359,7 @@ describe('ingest after a daemon outage (FR-031, FR-036)', () => {
     const r = ingest(f);
     expect(r).toMatchObject({ status: 'ingested', records: 0 });
     expect(r.detail).toBeUndefined();
-    expect(artifactPaths(f)).toEqual(
-      expect.arrayContaining(['exit.json', 'stderr.log']),
-    );
+    expect(artifactPaths(f)).toEqual(expect.arrayContaining(['exit.json', 'stderr.log']));
     expect(cursorRow(f)).toBeNull();
     expect(ingestedRecords(f)).toEqual([]);
     expect(ingest(f)).toMatchObject({ status: 'up_to_date' });
@@ -398,11 +378,7 @@ describe('ingest after a daemon outage (FR-031, FR-036)', () => {
     expect(r).toMatchObject({ status: 'ingested', records: 150 });
     expect(ingestedRecords(f)).toEqual([150]);
     expect(artifactPaths(f)).toEqual(
-      [
-        ...before.map((s) => `${SPOOL_DIR}/${s}`),
-        'exit.json',
-        'stderr.log',
-      ].sort(),
+      [...before.map((s) => `${SPOOL_DIR}/${s}`), 'exit.json', 'stderr.log'].sort(),
     );
     expect(r.acked).toEqual(before.slice(0, -1));
     expect(f.d.store.verifyProjections()).toMatchObject({ ok: true });
@@ -420,8 +396,7 @@ describe('ingest after a daemon outage (FR-031, FR-036)', () => {
       openFileStoreForTest(join(f.dir, STORE_FILE), {
         crash: (p) => {
           // The records trigger commits; the artifact-only trigger after it fails.
-          if (armed && p === 'after_events' && ++hits === 2)
-            throw sqliteError('SQLITE_FULL');
+          if (armed && p === 'after_events' && ++hits === 2) throw sqliteError('SQLITE_FULL');
         },
       }),
     );
@@ -482,9 +457,7 @@ describe('ingest after a daemon outage (FR-031, FR-036)', () => {
     expect(ingest(f)).toMatchObject({ status: 'ingested', records: 4 });
     const kinds = (
       storeDb(f.d.store)
-        .prepare(
-          'SELECT kind, finalized FROM artifacts WHERE operation_id = ? ORDER BY kind',
-        )
+        .prepare('SELECT kind, finalized FROM artifacts WHERE operation_id = ? ORDER BY kind')
         .all(OP) as { kind: string; finalized: number }[]
     ).map((a) => `${a.kind}:${a.finalized}`);
     expect(kinds).toEqual(['events:1', 'exit:1', 'stderr:1']);
@@ -508,9 +481,7 @@ describe('ingest after a daemon outage (FR-031, FR-036)', () => {
       records: written,
       acked: [],
     });
-    expect(
-      f.log.append('progress', { i: written, pad: 'x'.repeat(80) }),
-    ).toMatchObject({
+    expect(f.log.append('progress', { i: written, pad: 'x'.repeat(80) })).toMatchObject({
       ok: false,
       error: { code: 'artifact_backpressure' },
     });
@@ -645,11 +616,7 @@ describe('daemon startup (FR-022, FR-036)', () => {
     const version = f.d.task(f.taskId).version;
     const probeCursors = new Map<string, IngestPosition>();
     const probe = () =>
-      ingestOperationSpool(
-        { ...deps(f, 1), finalOnly: true, probeCursors },
-        f.taskId,
-        OP,
-      );
+      ingestOperationSpool({ ...deps(f, 1), finalOnly: true, probeCursors }, f.taskId, OP);
     expect(probe().status).toBe('up_to_date');
     expect(probeCursors.get(OP)?.last_record_seq).toBe(1);
     const path = f.run.resolve('events.jsonl');
@@ -709,11 +676,8 @@ describe('daemon startup (FR-022, FR-036)', () => {
     expect(f.d.task(f.taskId).version).toBe(version);
     expect(f.d.store.readEvents(f.taskId as Uuid)).toHaveLength(count);
     expect(
-      f.d.must(
-        f.taskId,
-        { kind: 'cancel', reason: 'stop now' },
-        { expected_version: version },
-      ).decision.kind,
+      f.d.must(f.taskId, { kind: 'cancel', reason: 'stop now' }, { expected_version: version })
+        .decision.kind,
     ).toBe('accepted');
     f.log.close();
   });
@@ -744,13 +708,10 @@ describe('daemon startup (FR-022, FR-036)', () => {
     if (!started.ok) throw new Error(started.error.detail);
     try {
       await expect(started.value.recover()).resolves.toBeUndefined();
-      expect(runtime?.spoolProblems()).toMatchObject([
-        { operation_id: OP, status: 'unreadable' },
-      ]);
+      expect(runtime?.spoolProblems()).toMatchObject([{ operation_id: OP, status: 'unreadable' }]);
       rmSync(spool);
       f.run.ensureDir(SPOOL_DIR);
-      for (const file of original)
-        writeFileSync(join(spool, file.name), file.text);
+      for (const file of original) writeFileSync(join(spool, file.name), file.text);
       await started.value.recover();
       expect(runtime?.spoolProblems()).toEqual([]);
     } finally {
@@ -779,9 +740,7 @@ describe('daemon startup (FR-022, FR-036)', () => {
     if (!started.ok) throw new Error(started.error.detail);
     try {
       expect(started.value.dispatcher.blockedReason).toBeNull();
-      expect(
-        logs.some((l) => l.includes(`spool ${OP}: ingested records=15`)),
-      ).toBe(true);
+      expect(logs.some((l) => l.includes(`spool ${OP}: ingested records=15`))).toBe(true);
     } finally {
       await started.value.stop();
     }

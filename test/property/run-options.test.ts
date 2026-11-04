@@ -93,8 +93,7 @@ function userFor(sc: Scenario) {
   role('coder', sc.coder, sc.ladder);
   role('fixer', sc.fixer, sc.ladder);
   role('reviewer', sc.reviewer);
-  (raw.profiles['standard'] as Record<string, unknown>)['allow_models'] =
-    sc.allow;
+  (raw.profiles['standard'] as Record<string, unknown>)['allow_models'] = sc.allow;
   return { file: BASE_USER.file, text: stringify(raw) };
 }
 
@@ -111,13 +110,11 @@ describe('truncated', () => {
   /** direct-pr tries each worker once, full-review each worker with each reviewer. */
   async function truncatedWith(workers: number, reviewers: number) {
     const rules = (n: number) => {
-      const choices = MODELS.flatMap((model) =>
-        EFFORTS.map((effort) => ({ model, effort })),
-      ).slice(0, n);
-      return [
-        ...choices.map((c) => ({ ...c, when: { label: 'docs' } })),
-        choices[0],
-      ];
+      const choices = MODELS.flatMap((model) => EFFORTS.map((effort) => ({ model, effort }))).slice(
+        0,
+        n,
+      );
+      return [...choices.map((c) => ({ ...c, when: { label: 'docs' } })), choices[0]];
     };
     const user = userFor({
       coder: rules(workers),
@@ -142,8 +139,7 @@ describe('truncated', () => {
       {
         store: { readTask: () => state } as unknown as Store,
         ports: { git: fakeGit(), github: fakeGitHub(), host: fakeHost() },
-        configInputs: () =>
-          Promise.resolve({ user, packs: PACKS, manifests: MANIFESTS }),
+        configInputs: () => Promise.resolve({ user, packs: PACKS, manifests: MANIFESTS }),
       },
       OWNER,
       { kind: 'run_options', task_id: task.id },
@@ -188,8 +184,7 @@ describe('run_options against the code start runs', () => {
                 github: fakeGitHub(),
                 host: fakeHost(),
               },
-              configInputs: () =>
-                Promise.resolve({ user, packs: PACKS, manifests: MANIFESTS }),
+              configInputs: () => Promise.resolve({ user, packs: PACKS, manifests: MANIFESTS }),
             },
             OWNER,
             { kind: 'run_options', task_id: task.id },
@@ -256,13 +251,9 @@ describe('run_options against the code start runs', () => {
               });
               offeredWorkers += m.workers.length;
               for (const w of m.workers)
-                for (const rev of m.mode === 'full-review'
-                  ? m.reviewers
-                  : [null]) {
+                for (const rev of m.mode === 'full-review' ? m.reviewers : [null]) {
                   // Every pair offered is accepted, with all its fallbacks allowed at once.
-                  expect(accepted(m.mode, w.choice, rev, w.fallbacks)).toBe(
-                    true,
-                  );
+                  expect(accepted(m.mode, w.choice, rev, w.fallbacks)).toBe(true);
                   for (const f of w.fallbacks)
                     expect(accepted(m.mode, w.choice, rev, [f])).toBe(true);
                 }
@@ -275,14 +266,11 @@ describe('run_options against the code start runs', () => {
           // Nothing valid is left out: this universe holds at most the declared bindings that pass.
           for (const mode of EXECUTION_MODES)
             for (const worker of UNIVERSE)
-              for (const reviewer of mode === 'full-review'
-                ? UNIVERSE
-                : [null]) {
+              for (const reviewer of mode === 'full-review' ? UNIVERSE : [null]) {
                 if (!accepted(mode, worker, reviewer)) continue;
                 const list = offered.get(mode);
                 expect(list?.workers).toContainEqual(worker);
-                if (reviewer !== null)
-                  expect(list?.reviewers).toContainEqual(reviewer);
+                if (reviewer !== null) expect(list?.reviewers).toContainEqual(reviewer);
               }
         }),
         { numRuns: 25, seed: Number(process.env['CUSR_SEED'] ?? 20261101) },

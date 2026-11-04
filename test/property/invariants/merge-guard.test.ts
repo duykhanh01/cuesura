@@ -16,11 +16,7 @@ import {
 } from '../../support/scenario.ts';
 import { mergeAllowed } from '../../support/merge-oracle.ts';
 import { choicesArb, drive, walk } from '../arbitraries/signals.ts';
-import {
-  policyArb,
-  propertyParams,
-  taskOverArb,
-} from '../arbitraries/policies.ts';
+import { policyArb, propertyParams, taskOverArb } from '../arbitraries/policies.ts';
 import { HEAVY_PROPERTY_TIMEOUT_MS } from '../../support/timeouts.ts';
 
 describe('I11, FR-015 merge conditions', () => {
@@ -28,23 +24,17 @@ describe('I11, FR-015 merge conditions', () => {
     'requires head-bound approval, approved review, successful checks, complete requirements, and base ancestry',
     () => {
       fc.assert(
-        fc.property(
-          policyArb,
-          taskOverArb,
-          choicesArb(160),
-          (policy, over, choices) => {
-            const { sim } = drive(policy, over, choices);
-            let policyNow: FrozenPolicy | null = null;
-            walk(sim.events, (before, ev) => {
-              if (ev.type === 'PolicyFrozen' || ev.type === 'PolicyAmended')
-                policyNow = ev.payload.policy;
-              if (ev.type !== 'EffectRequested' || ev.payload.kind !== 'merge')
-                return;
-              const head = ev.payload.request['head_sha'] as string;
-              expect(mergeAllowed(before!, policyNow!, head)).toBeNull();
-            });
-          },
-        ),
+        fc.property(policyArb, taskOverArb, choicesArb(160), (policy, over, choices) => {
+          const { sim } = drive(policy, over, choices);
+          let policyNow: FrozenPolicy | null = null;
+          walk(sim.events, (before, ev) => {
+            if (ev.type === 'PolicyFrozen' || ev.type === 'PolicyAmended')
+              policyNow = ev.payload.policy;
+            if (ev.type !== 'EffectRequested' || ev.payload.kind !== 'merge') return;
+            const head = ev.payload.request['head_sha'] as string;
+            expect(mergeAllowed(before!, policyNow!, head)).toBeNull();
+          });
+        }),
         propertyParams(150),
       );
       // Random sequences rarely reach merge; the focused property below guarantees merge cases.
@@ -146,20 +136,12 @@ describe('I11 merge guard with generated evidence', () => {
             sim.complete(
               e.id,
               'succeeded',
-              ciData(
-                ci.head,
-                ci.checks,
-                { names: ci.names, complete: ci.complete },
-                extra,
-              ),
+              ciData(ci.head, ci.checks, { names: ci.names, complete: ci.complete }, extra),
             );
           }
-          const approval = Object.values(sim.s.approvals).find(
-            (a) => a.status === 'requested',
-          );
+          const approval = Object.values(sim.s.approvals).find((a) => a.status === 'requested');
           if (approval !== undefined) {
-            if (m.cancel === 'before')
-              sim.when({ kind: 'cancel', reason: 'x' });
+            if (m.cancel === 'before') sim.when({ kind: 'cancel', reason: 'x' });
             sim.when({
               kind: 'approve',
               approval_request_id: approval.id as Uuid,
@@ -176,21 +158,13 @@ describe('I11 merge guard with generated evidence', () => {
                 mergeAllowed(after, policyNow, after.head_sha) === null,
               );
             }
-            if (ev.type !== 'EffectRequested' || ev.payload.kind !== 'merge')
-              return;
+            if (ev.type !== 'EffectRequested' || ev.payload.kind !== 'merge') return;
             merges++;
             expect(
-              mergeAllowed(
-                before!,
-                policyNow!,
-                ev.payload.request['head_sha'] as string,
-              ),
+              mergeAllowed(before!, policyNow!, ev.payload.request['head_sha'] as string),
             ).toBeNull();
           });
-          if (
-            sim.effects('merge').length === 0 &&
-            sim.s.cancellation === null
-          ) {
+          if (sim.effects('merge').length === 0 && sim.s.cancellation === null) {
             blocked++;
             expect(sim.s.status).toBe('WAITING');
           }

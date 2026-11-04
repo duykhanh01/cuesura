@@ -23,9 +23,7 @@ import {
   userConfig,
 } from '../../support/preflight-fakes.ts';
 
-const CHILD = fileURLToPath(
-  new URL('../../support/request-crash-child.ts', import.meta.url),
-);
+const CHILD = fileURLToPath(new URL('../../support/request-crash-child.ts', import.meta.url));
 
 const TOKENS: TokenSpec[] = [
   {
@@ -98,8 +96,7 @@ describe('request_show', () => {
     expect(added.envelope.ok).toBe(true);
     const r = await show(sd, 'alice', uuidOf(1));
     expect(r.code).toBe(ExitCode.ok);
-    const taskId = (added.envelope.data as { result: { task_id: string } })
-      .result.task_id;
+    const taskId = (added.envelope.data as { result: { task_id: string } }).result.task_id;
     expect(r.envelope.data).toMatchObject({
       request_id: uuidOf(1),
       kind: 'task_add',
@@ -147,9 +144,7 @@ describe('request_show', () => {
       },
     }));
     const added = await sd.command('alice', addBody(3));
-    const task = (
-      added.envelope.data as { result: TaskState & { task_id: string } }
-    ).result;
+    const task = (added.envelope.data as { result: TaskState & { task_id: string } }).result;
     const pending = sd.command('alice', {
       request_id: uuidOf(4),
       kind: 'task_confirm',
@@ -293,9 +288,7 @@ describe('request_show', () => {
       const id = store.readCommand(uuidOf(7))?.task_id;
       expect(id).toBeTypeOf('string');
       expect(data).toMatchObject({ state: 'interrupted', task_id: id });
-      expect(data['next_step']).toEqual(
-        expect.stringContaining('Read the task'),
-      );
+      expect(data['next_step']).toEqual(expect.stringContaining('Read the task'));
       expect(counts(store)['tasks']).toBe(1);
     });
   });

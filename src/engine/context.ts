@@ -65,8 +65,7 @@ export class Ctx {
   }
 
   get state(): TaskState {
-    if (this.current === null)
-      throw new Error('Ctx.state accessed before TaskCreated');
+    if (this.current === null) throw new Error('Ctx.state accessed before TaskCreated');
     return this.current;
   }
 
@@ -79,8 +78,7 @@ export class Ctx {
   }
 
   get frozen(): FrozenPolicy {
-    if (this.policy === null)
-      throw new Error('Ctx.frozen accessed before a policy was recorded');
+    if (this.policy === null) throw new Error('Ctx.frozen accessed before a policy was recorded');
     return this.policy;
   }
 

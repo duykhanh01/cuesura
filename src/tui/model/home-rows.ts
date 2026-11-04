@@ -25,9 +25,7 @@ export function homeRows(s: TuiState): readonly HomeRow[] {
   if (s.board === null) return [];
   // The daemon narrows this group by project only; a status filter holds for the whole screen (FR-008).
   const { status } = s.filters;
-  const listed = s.board.attention.items.filter(
-    (t) => status === null || t.status === status,
-  );
+  const listed = s.board.attention.items.filter((t) => status === null || t.status === status);
   // A task already in `Needs you` is one row, so moving down never lands on the same task twice.
   const seen = new Set(listed.map((t) => t.task_id));
   // The group is capped; a task past the cap that this page shows still needs the user.
@@ -47,20 +45,15 @@ export function homeRows(s: TuiState): readonly HomeRow[] {
     if (!folds || !isTerminal(task.status)) rows.push({ kind: 'task', task });
   if (folds) {
     const count = finishedCount(s);
-    if (count > 0)
-      rows.push({ kind: 'finished_toggle', count, open: s.finishedOpen });
+    if (count > 0) rows.push({ kind: 'finished_toggle', count, open: s.finishedOpen });
     if (s.finishedOpen)
-      for (const task of rest)
-        if (isTerminal(task.status)) rows.push({ kind: 'finished', task });
+      for (const task of rest) if (isTerminal(task.status)) rows.push({ kind: 'finished', task });
   }
   return rows;
 }
 
 /** The row holding the selection, or -1. Follows the task, not the position (EC-013). */
-export function selectedRowIndex(
-  s: TuiState,
-  rows: readonly HomeRow[] = homeRows(s),
-): number {
+export function selectedRowIndex(s: TuiState, rows: readonly HomeRow[] = homeRows(s)): number {
   return rows.findIndex((r) =>
     r.kind === 'finished_toggle'
       ? s.finishedSelected
@@ -97,7 +90,5 @@ export function selectRow(
 export function keepSelection(s: TuiState): TuiState {
   const rows = homeRows(s);
   const at = selectedRowIndex(s, rows);
-  return at >= 0
-    ? { ...s, selectedIndex: at }
-    : selectRow(s, s.selectedIndex, rows);
+  return at >= 0 ? { ...s, selectedIndex: at } : selectRow(s, s.selectedIndex, rows);
 }

@@ -21,8 +21,7 @@ export class ControlProxy {
   connections = 0;
   mode: ProxyMode;
   /** Sees what passes in `forward`, for a test that must know what the daemon answered. */
-  tap: ((direction: 'request' | 'response', data: Buffer) => void) | null =
-    null;
+  tap: ((direction: 'request' | 'response', data: Buffer) => void) | null = null;
   #target: string;
   readonly #server: Server;
   readonly #open = new Set<Socket>();
@@ -34,10 +33,7 @@ export class ControlProxy {
     this.#server = createServer((client) => this.#accept(client));
   }
 
-  static async start(
-    target: string,
-    mode: ProxyMode = 'forward',
-  ): Promise<ControlProxy> {
+  static async start(target: string, mode: ProxyMode = 'forward'): Promise<ControlProxy> {
     const proxy = new ControlProxy(target, mode);
     await new Promise<void>((resolve, reject) => {
       proxy.#server.once('error', reject);

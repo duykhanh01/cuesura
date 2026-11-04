@@ -1,7 +1,4 @@
-import type {
-  GhExec,
-  GhExecResult,
-} from '../../src/adapters/github/gh-port.ts';
+import type { GhExec, GhExecResult } from '../../src/adapters/github/gh-port.ts';
 
 // Emulates `gh api --include` from a script for the production GitHub port; never touches the network.
 
@@ -13,9 +10,7 @@ export type FixtureResponse = {
 };
 
 /** Keyed by `METHOD path?query`; each key holds a sequence whose last item repeats. */
-export type FixtureScript = Readonly<
-  Record<string, readonly FixtureResponse[]>
->;
+export type FixtureScript = Readonly<Record<string, readonly FixtureResponse[]>>;
 
 const REASON: Readonly<Record<number, string>> = {
   200: 'OK',
@@ -36,9 +31,7 @@ export type FixtureCall = {
   readonly stdin: string | null;
 };
 
-export function fixtureExec(
-  script: FixtureScript,
-): GhExec & { readonly calls: FixtureCall[] } {
+export function fixtureExec(script: FixtureScript): GhExec & { readonly calls: FixtureCall[] } {
   const seen = new Map<string, number>();
   const calls: FixtureCall[] = [];
   const exec: GhExec = (args, opts) => {
@@ -82,9 +75,7 @@ export function fixtureExec(
       `HTTP/2.0 ${r.status} ${REASON[r.status] ?? ''}`,
       ...Object.entries(r.headers ?? {}).map(([k, v]) => `${k}: ${v}`),
     ].join('\r\n');
-    const out = Buffer.from(
-      `${head}\r\n\r\n${r.body === undefined ? '' : JSON.stringify(r.body)}`,
-    );
+    const out = Buffer.from(`${head}\r\n\r\n${r.body === undefined ? '' : JSON.stringify(r.body)}`);
     if (r.transport === 'overflow' || out.length > opts.maxBytes)
       return done({
         code: null,

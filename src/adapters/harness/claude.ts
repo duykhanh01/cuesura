@@ -46,20 +46,15 @@ function settingsFor(
   input: VendorPlanInput,
 ): { ok: true; value: Rec } | { ok: false; message: string } {
   const base = pin.settings;
-  if (base === null)
-    return { ok: false, message: 'claude pin has no settings document' };
+  if (base === null) return { ok: false, message: 'claude pin has no settings document' };
   const permissions = base['permissions'];
-  if (!isRec(permissions))
-    return { ok: false, message: 'claude settings have no permissions' };
+  if (!isRec(permissions)) return { ok: false, message: 'claude settings have no permissions' };
   const mode = input.host_execution
     ? pin.permission_mode === 'full-access' && input.role !== 'reviewer'
       ? 'bypassPermissions'
       : 'auto'
     : permissions['defaultMode'];
-  if (
-    typeof mode !== 'string' ||
-    (!input.host_execution && APPROVING_MODES.has(mode))
-  )
+  if (typeof mode !== 'string' || (!input.host_execution && APPROVING_MODES.has(mode)))
     return {
       ok: false,
       message: `claude permission mode ${String(mode)} is not allowed`,
@@ -68,8 +63,7 @@ function settingsFor(
   if (!input.host_execution && sandbox['allowUnsandboxedCommands'] !== false)
     return {
       ok: false,
-      message:
-        'claude settings must set sandbox.allowUnsandboxedCommands=false',
+      message: 'claude settings must set sandbox.allowUnsandboxedCommands=false',
     };
   if (
     input.host_execution &&
@@ -95,16 +89,10 @@ function settingsFor(
     const entry = Object.entries(input.paths).find(
       ([name]) => path === `/cusr/${name}` || path.startsWith(`/cusr/${name}/`),
     );
-    return entry === undefined
-      ? path
-      : entry[1] + path.slice(`/cusr/${entry[0]}`.length);
+    return entry === undefined ? path : entry[1] + path.slice(`/cusr/${entry[0]}`.length);
   };
-  const mappedAllowWrite = allowWrite.map((path: unknown) =>
-    hostPath(String(path)),
-  );
-  const mappedDenyWrite = denyWrite.map((path: unknown) =>
-    hostPath(String(path)),
-  );
+  const mappedAllowWrite = allowWrite.map((path: unknown) => hostPath(String(path)));
+  const mappedDenyWrite = denyWrite.map((path: unknown) => hostPath(String(path)));
   const native = input.host_execution
     ? nativeSandboxEnabled(pin, input.role)
     : input.inner_mode === 'native';
@@ -117,9 +105,7 @@ function settingsFor(
     ok: true,
     value: {
       ...base,
-      ...(input.host_execution
-        ? { permissions: { ...permissions, defaultMode: mode } }
-        : {}),
+      ...(input.host_execution ? { permissions: { ...permissions, defaultMode: mode } } : {}),
       sandbox: {
         ...sandbox,
         enabled: native,
@@ -143,10 +129,7 @@ function settingsFor(
                     ...(input.paths.tmp === undefined ? [] : [input.paths.tmp]),
                   ]),
                 ],
-                denyWrite: [
-                  ...mappedDenyWrite,
-                  ...(input.role === 'reviewer' ? [input.cwd] : []),
-                ],
+                denyWrite: [...mappedDenyWrite, ...(input.role === 'reviewer' ? [input.cwd] : [])],
               },
             }
           : {}),
@@ -163,8 +146,7 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
   if (pin.vendor !== 'claude') return fail(`pin is for ${pin.vendor}`);
   if (input.host_execution && input.inner_mode !== hostInnerMode(pin))
     return fail('host permission mode must match the explicit pin');
-  if (pin.tools === null || pin.tools.length === 0)
-    return fail('claude pin needs tools');
+  if (pin.tools === null || pin.tools.length === 0) return fail('claude pin needs tools');
   if (input.model === '') return fail('model is not configured');
   const settings = settingsFor(pin, input);
   if (!settings.ok) return fail(settings.message);
@@ -184,9 +166,7 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
       })
     : settings;
   if (!stableSettings.ok) return fail(stableSettings.message);
-  const caps = [input.max_turns, pin.max_turns].filter(
-    (v): v is number => typeof v === 'number',
-  );
+  const caps = [input.max_turns, pin.max_turns].filter((v): v is number => typeof v === 'number');
   const maxTurns = caps.length === 0 ? null : Math.min(...caps);
   const argv = [
     pin.binary.realpath,
@@ -205,21 +185,16 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
     '--settings',
     settingsFile,
     ...(input.session === null ? [] : ['--resume', input.session.ref]),
-    ...(input.role === 'reviewer'
-      ? ['--disallowedTools', REVIEWER_DISALLOWED]
-      : []),
+    ...(input.role === 'reviewer' ? ['--disallowedTools', REVIEWER_DISALLOWED] : []),
   ];
   const bypass = bypassToken(
     input.host_execution && pin.permission_mode === 'full-access'
       ? [pin.env]
       : [argv, settings.value, pin.env],
   );
-  if (bypass !== null)
-    return fail(`permission bypass token rejected: ${bypass}`);
+  if (bypass !== null) return fail(`permission bypass token rejected: ${bypass}`);
   if (input.schema.schema['$schema'] !== undefined)
-    return fail(
-      'claude 2.1.306 needs the schema without its $schema declaration',
-    );
+    return fail('claude 2.1.306 needs the schema without its $schema declaration');
   return {
     ok: true,
     value: {
@@ -260,9 +235,7 @@ function readUsage(p: Rec): { usage: Usage; source: string | null } {
     usage: {
       basis: 'reported',
       tokens,
-      ...(typeof cost === 'number' && Number.isFinite(cost) && cost >= 0
-        ? { cost }
-        : {}),
+      ...(typeof cost === 'number' && Number.isFinite(cost) && cost >= 0 ? { cost } : {}),
     },
     source: 'claude result.usage',
   };
@@ -297,13 +270,11 @@ function read(input: VendorRead): VendorFacts {
         const id = str(block['id']);
         const toolInput = block['input'];
         if (block['type'] === 'tool_use' && id !== null && isRec(toolInput)) {
-          const asked =
-            str(toolInput['command']) ?? str(toolInput['file_path']);
+          const asked = str(toolInput['command']) ?? str(toolInput['file_path']);
           if (asked !== null) requested.set(id, asked);
         }
       }
-    if (p['type'] === 'system' && p['subtype'] === 'init')
-      model = str(p['model']) ?? model;
+    if (p['type'] === 'system' && p['subtype'] === 'init') model = str(p['model']) ?? model;
     if (p['type'] === 'system' && p['subtype'] === 'permission_denied') {
       const id = str(p['tool_use_id']);
       if (id !== null) seen.add(id);
@@ -314,10 +285,7 @@ function read(input: VendorRead): VendorFacts {
         ...(message === null ? {} : { message }),
         source: 'claude_event',
       });
-    } else if (
-      p['type'] === 'rate_limit_event' &&
-      isRec(p['rate_limit_info'])
-    ) {
+    } else if (p['type'] === 'rate_limit_event' && isRec(p['rate_limit_info'])) {
       const info = p['rate_limit_info'];
       const resets = info['resetsAt'];
       if (typeof resets === 'number' && Number.isFinite(resets))
@@ -355,29 +323,17 @@ function read(input: VendorRead): VendorFacts {
         }
       }
       const stops = p['safety_stops'];
-      if (
-        p['stop_reason'] === 'refusal' ||
-        (typeof stops === 'number' && stops > 0)
-      )
+      if (p['stop_reason'] === 'refusal' || (typeof stops === 'number' && stops > 0))
         failure = {
           kind: 'refusal',
           detail: `result stop_reason ${String(p['stop_reason'])}, safety_stops ${typeof stops === 'number' ? stops : 0}`,
           reset_at: null,
         };
       else if (p['is_error'] === true) {
-        const status =
-          typeof p['api_error_status'] === 'number'
-            ? p['api_error_status']
-            : null;
-        const detail =
-          `${String(p['subtype'])}: ${str(p['result']) ?? ''}`.slice(
-            0,
-            DETAIL_MAX,
-          );
+        const status = typeof p['api_error_status'] === 'number' ? p['api_error_status'] : null;
+        const detail = `${String(p['subtype'])}: ${str(p['result']) ?? ''}`.slice(0, DETAIL_MAX);
         const kind =
-          p['subtype'] === 'error_max_turns'
-            ? 'turn_limit'
-            : classifyFailure(detail, status);
+          p['subtype'] === 'error_max_turns' ? 'turn_limit' : classifyFailure(detail, status);
         failure = {
           kind,
           detail,
@@ -402,9 +358,7 @@ function read(input: VendorRead): VendorFacts {
   };
 }
 
-function contentBlocks(
-  record: Record<string, unknown>,
-): Record<string, unknown>[] {
+function contentBlocks(record: Record<string, unknown>): Record<string, unknown>[] {
   const message = record['message'];
   const content = isRec(message) ? message['content'] : undefined;
   return Array.isArray(content) ? content.filter(isRec) : [];
@@ -447,12 +401,7 @@ export const claudeAdapter: VendorAdapter = {
   // The sandbox makes its bridge sockets directly under os.tmpdir(), and a socket path holds 108 bytes.
   needs_short_tmpdir: true,
   worktree_state: ['.claude/.cc-writes'],
-  git_dir_state: [
-    'branches',
-    'remotes',
-    'config.worktree',
-    'info/.claude-sandbox-noreplace',
-  ],
+  git_dir_state: ['branches', 'remotes', 'config.worktree', 'info/.claude-sandbox-noreplace'],
   nativeWriteDenied,
   plan,
   read,

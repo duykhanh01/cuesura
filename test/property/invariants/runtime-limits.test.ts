@@ -1,9 +1,6 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import {
-  DEFAULT_RUNTIME_LIMITS,
-  type RuntimeLimits,
-} from '../../../src/domain/runtime.ts';
+import { DEFAULT_RUNTIME_LIMITS, type RuntimeLimits } from '../../../src/domain/runtime.ts';
 import type { TaskState } from '../../../src/domain/state.ts';
 import { cadenceDelay } from '../../../src/engine/observation.ts';
 import { replay } from '../../../src/engine/evolve.ts';
@@ -44,9 +41,9 @@ describe('observation cadence (FR-043.03)', () => {
   });
 
   it('defaults: 60 s, doubling, capped at one hour', () => {
-    expect(
-      [0, 1, 2, 5, 6, 30].map((i) => cadenceDelay(DEFAULT_RUNTIME_LIMITS, i)),
-    ).toEqual([60_000, 120_000, 240_000, 1_920_000, 3_600_000, 3_600_000]);
+    expect([0, 1, 2, 5, 6, 30].map((i) => cadenceDelay(DEFAULT_RUNTIME_LIMITS, i))).toEqual([
+      60_000, 120_000, 240_000, 1_920_000, 3_600_000, 3_600_000,
+    ]);
   });
 });
 
@@ -109,9 +106,7 @@ describe('observation window (FR-043.04–06)', () => {
           let digest = 0;
           let expiredSeen = false;
           for (const op of ops) {
-            const before = d.task(t.id).observation as NonNullable<
-              TaskState['observation']
-            >;
+            const before = d.task(t.id).observation as NonNullable<TaskState['observation']>;
             switch (op.kind) {
               case 'advance':
                 d.now += op.ms;
@@ -120,13 +115,9 @@ describe('observation window (FR-043.04–06)', () => {
                 if (op.changed) digest++;
                 d.must(
                   t.id,
-                  observation(
-                    d,
-                    t,
-                    op.status,
-                    op.status === 'unknown' ? null : A,
-                    { digest: hashCanonical(`r${digest}`) },
-                  ),
+                  observation(d, t, op.status, op.status === 'unknown' ? null : A, {
+                    digest: hashCanonical(`r${digest}`),
+                  }),
                 );
                 break;
               case 'stale_round':
@@ -138,30 +129,23 @@ describe('observation window (FR-043.04–06)', () => {
                 );
                 break;
               case 'recheck_round':
-                d.must(
-                  t.id,
-                  observation(d, t, 'open', A, { source: 'recheck' }),
-                );
+                d.must(t.id, observation(d, t, 'open', A, { source: 'recheck' }));
                 break;
               case 'due':
                 d.must(t.id, { kind: 'observation_due' });
                 break;
             }
-            const after = d.task(t.id).observation as NonNullable<
-              TaskState['observation']
-            >;
+            const after = d.task(t.id).observation as NonNullable<TaskState['observation']>;
             const b = after.budget;
             expect(b.started_at).toBe(first.budget.started_at);
-            expect(b.deadline_at).toBe(
-              first.budget.started_at + LIMITS.observation_max_ms,
-            );
+            expect(b.deadline_at).toBe(first.budget.started_at + LIMITS.observation_max_ms);
             expect(b.max_count).toBe(LIMITS.observation_max_rounds);
             expect(b.count).toBeLessThanOrEqual(b.max_count);
             if (b.next_due_at !== null) {
               expect(b.next_due_at).toBeLessThanOrEqual(b.deadline_at);
-              expect(
-                b.next_due_at - (after.last?.observed_at ?? 0),
-              ).toBeLessThanOrEqual(LIMITS.poll_max_ms);
+              expect(b.next_due_at - (after.last?.observed_at ?? 0)).toBeLessThanOrEqual(
+                LIMITS.poll_max_ms,
+              );
             }
             // Only an accepted automatic round of the current generation moves the window.
             if (op.kind !== 'round') {
@@ -170,9 +154,7 @@ describe('observation window (FR-043.04–06)', () => {
             }
             if (op.kind === 'round' && !before.expired) {
               expect(b.count).toBe(before.budget.count + 1);
-              expect(
-                b.generation === before.budget.generation + 1 || after.expired,
-              ).toBe(true);
+              expect(b.generation === before.budget.generation + 1 || after.expired).toBe(true);
             }
             if (expiredSeen) {
               expect(after.expired).toBe(true);
@@ -181,14 +163,10 @@ describe('observation window (FR-043.04–06)', () => {
             }
             if (after.expired) expiredSeen = true;
             if (after.expired && !before.expired)
-              expect(d.task(t.id).blockers.map((x) => x.code)).toContain(
-                'observation_expired',
-              );
+              expect(d.task(t.id).blockers.map((x) => x.code)).toContain('observation_expired');
           }
           // Restart rebuilds the same window from the log.
-          expect(replay(d.store.readEvents(t.id))?.observation).toEqual(
-            d.task(t.id).observation,
-          );
+          expect(replay(d.store.readEvents(t.id))?.observation).toEqual(d.task(t.id).observation);
         }),
         propertyParams(40),
       );

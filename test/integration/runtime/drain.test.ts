@@ -43,12 +43,7 @@ const setup = () => new StoreDriver(openFileStoreForTest(dbPath(tempDir())));
 function toCi(d: StoreDriver, t: CanonicalTask): void {
   createGrantStart(d, t);
   toPublish(d, t, HEAD);
-  d.complete(
-    t.id,
-    d.pendingOne(t.id, 'publish').id,
-    'succeeded',
-    publishData(HEAD),
-  );
+  d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(HEAD));
   d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
     pr_ref: 'acme#7',
     head_sha: HEAD,
@@ -76,8 +71,7 @@ function merged(d: StoreDriver, t: CanonicalTask): void {
   d.must(t.id, { kind: 'external_completion', proof, unverified_reason: null });
 }
 
-const types = (d: StoreDriver, t: CanonicalTask) =>
-  d.store.readEvents(t.id).map((e) => e.type);
+const types = (d: StoreDriver, t: CanonicalTask) => d.store.readEvents(t.id).map((e) => e.type);
 const count = (d: StoreDriver, t: CanonicalTask, type: string) =>
   types(d, t).filter((x) => x === type).length;
 
@@ -104,11 +98,7 @@ describe('drain after a merge proof (T046, FR-040.04–09)', () => {
       completion: { finalized_at: d.now },
     });
     expect(count(d, t, 'TaskCompleted')).toBe(1);
-    expect(types(d, t).slice(-3)).toEqual([
-      'DrainStarted',
-      'DrainFinished',
-      'TaskCompleted',
-    ]);
+    expect(types(d, t).slice(-3)).toEqual(['DrainStarted', 'DrainFinished', 'TaskCompleted']);
     expect(d.store.readSlot()).toBeNull();
 
     notifyDependents(d.store, d.now);
@@ -132,9 +122,7 @@ describe('drain after a merge proof (T046, FR-040.04–09)', () => {
       status: 'WAITING',
       wait: { detail: { code: 'merge_cleanup_pending' } },
     });
-    expect(d.task(t.id).blockers.map((b) => b.code)).toContain(
-      'merge_cleanup_pending',
-    );
+    expect(d.task(t.id).blockers.map((b) => b.code)).toContain('merge_cleanup_pending');
     notifyDependents(d.store, d.now);
     expect(d.task(child.id).status).toBe('PENDING');
 
@@ -158,8 +146,7 @@ describe('drain after a merge proof (T046, FR-040.04–09)', () => {
     toCi(d, t);
     d.claim(d.pendingOne(t.id, 'await_ci').id);
     merged(d, t);
-    for (let i = 0; i < 3; i++)
-      d.must(t.id, { kind: 'drain_result', pending_operations: [] });
+    for (let i = 0; i < 3; i++) d.must(t.id, { kind: 'drain_result', pending_operations: [] });
     expect(d.task(t.id).completion?.drain).toMatchObject({
       count: 3,
       paused: true,

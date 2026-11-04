@@ -43,8 +43,7 @@ function setup() {
   return { d, read };
 }
 
-const step = (p: Progress, name: string): Step | undefined =>
-  p.steps?.find((s) => s.name === name);
+const step = (p: Progress, name: string): Step | undefined => p.steps?.find((s) => s.name === name);
 
 function prepared(d: StoreDriver, mode: ExecutionMode) {
   const t = buildTask();
@@ -163,8 +162,9 @@ describe('task_progress', () => {
     const out: Caller = {
       grant: { id: 'o', actor: 'o', roles: ['read'], projects: ['other'] },
     };
-    expect(
-      taskProgress(d.store, out, { kind: 'task_progress', task_id: t.id }),
-    ).toMatchObject({ ok: false, error: { code: 'task_not_found' } });
+    expect(taskProgress(d.store, out, { kind: 'task_progress', task_id: t.id })).toMatchObject({
+      ok: false,
+      error: { code: 'task_not_found' },
+    });
   });
 });

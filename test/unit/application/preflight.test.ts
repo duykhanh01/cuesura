@@ -51,26 +51,20 @@ async function runPreflight(
     packs: PACKS,
     manifests: o.manifests ?? MANIFESTS,
     mode: o.mode === undefined ? 'full-review' : o.mode,
-    ...(o.harness_tools === undefined
-      ? {}
-      : { harness_tools: o.harness_tools }),
+    ...(o.harness_tools === undefined ? {} : { harness_tools: o.harness_tools }),
     ...(o.gate_path === undefined ? {} : { gate_path: o.gate_path }),
   });
   return { result, ports };
 }
 
-function failure(
-  r: Awaited<ReturnType<typeof runPreflight>>['result'],
-): PreflightError {
+function failure(r: Awaited<ReturnType<typeof runPreflight>>['result']): PreflightError {
   if (r.ok) throw new Error('expected preflight to fail');
   return r.error;
 }
 
 function checks(e: PreflightError): string[] {
   return 'problems' in e
-    ? e.problems.map(
-        (p) => `${p.code}:${p.check}${p.cause === null ? '' : `:${p.cause}`}`,
-      )
+    ? e.problems.map((p) => `${p.code}:${p.check}${p.cause === null ? '' : `:${p.cause}`}`)
     : [`infra:${e.check}`];
 }
 
@@ -89,13 +83,8 @@ describe('preflight (T030, FR-002)', () => {
         codex: MANIFESTS.codex.manifest_hash,
       },
     });
-    expect(result.value.validated.config.files.project).toBe(
-      `cusr.yaml@${SHA}`,
-    );
-    expect(result.value.validated.config.project?.required_checks).toEqual([
-      'build',
-      'test',
-    ]);
+    expect(result.value.validated.config.files.project).toBe(`cusr.yaml@${SHA}`);
+    expect(result.value.validated.config.project?.required_checks).toEqual(['build', 'test']);
     expect(ports.git.calls).toContainEqual([
       'fetch',
       '--no-tags',
@@ -104,11 +93,7 @@ describe('preflight (T030, FR-002)', () => {
       'origin',
       '+refs/heads/main:refs/remotes/origin/main',
     ]);
-    expect(ports.git.calls).toContainEqual([
-      'cat-file',
-      'blob',
-      `${SHA}:cusr.yaml`,
-    ]);
+    expect(ports.git.calls).toContainEqual(['cat-file', 'blob', `${SHA}:cusr.yaml`]);
     expect(ports.github.requests).toEqual([
       { method: 'GET', path: 'repos/acme/app', query: {}, body: null },
     ]);
@@ -139,9 +124,7 @@ describe('preflight (T030, FR-002)', () => {
         sysctl: { '/proc/sys/user/max_user_namespaces': '0' },
       });
       expect(await checkHost(host, null)).toEqual([]);
-      expect(host.execs).toEqual([
-        ['/usr/bin/systemctl', '--user', 'show', '--property=Version'],
-      ]);
+      expect(host.execs).toEqual([['/usr/bin/systemctl', '--user', 'show', '--property=Version']]);
     });
     it.each([{ userBus: false }, { systemd: false }])(
       'requires a working systemd user manager',
@@ -164,12 +147,7 @@ describe('preflight (T030, FR-002)', () => {
   describe('config and project location', () => {
     it('requires runtime, path and repo for the task project', async () => {
       expect(
-        checks(
-          failure(
-            (await runPreflight({ user: userConfig({ runtime: null }) }))
-              .result,
-          ),
-        ),
+        checks(failure((await runPreflight({ user: userConfig({ runtime: null }) })).result)),
       ).toEqual(['config_invalid:runtime']);
       expect(
         checks(
@@ -182,11 +160,9 @@ describe('preflight (T030, FR-002)', () => {
           ),
         ),
       ).toEqual(['config_invalid:project_path', 'config_invalid:project_repo']);
-      expect(
-        checks(
-          failure((await runPreflight({ task: { project: 'other' } })).result),
-        ),
-      ).toEqual(['config_invalid:project']);
+      expect(checks(failure((await runPreflight({ task: { project: 'other' } })).result))).toEqual([
+        'config_invalid:project',
+      ]);
     });
 
     it('reports user config diagnostics as config_invalid', async () => {
@@ -198,18 +174,12 @@ describe('preflight (T030, FR-002)', () => {
         ).result,
       );
       expect(e).toMatchObject({ code: 'config_invalid' });
-      expect(
-        'problems' in e && e.problems[0]?.diagnostics.length,
-      ).toBeGreaterThan(0);
+      expect('problems' in e && e.problems[0]?.diagnostics.length).toBeGreaterThan(0);
     });
 
     it('rejects a non-root path and a remote that is not the allowlisted repo', async () => {
       expect(
-        checks(
-          failure(
-            (await runPreflight({ git: { toplevel: '/srv/repos' } })).result,
-          ),
-        ),
+        checks(failure((await runPreflight({ git: { toplevel: '/srv/repos' } })).result)),
       ).toEqual(['config_invalid:project_path']);
       expect(
         checks(
@@ -272,63 +242,54 @@ describe('preflight (T030, FR-002)', () => {
     });
 
     it('reads cusr.yaml only as a regular blob of the base commit', async () => {
-      expect(
-        checks(
-          failure((await runPreflight({ git: { mode: '120000' } })).result),
-        ),
-      ).toEqual(['config_invalid:project_config']);
-      expect(
-        checks(failure((await runPreflight({ git: { cusr: null } })).result)),
-      ).toEqual(['config_invalid:required_checks', 'config_invalid:profile']);
+      expect(checks(failure((await runPreflight({ git: { mode: '120000' } })).result))).toEqual([
+        'config_invalid:project_config',
+      ]);
+      expect(checks(failure((await runPreflight({ git: { cusr: null } })).result))).toEqual([
+        'config_invalid:required_checks',
+        'config_invalid:profile',
+      ]);
       expect(
         checks(
           failure(
             (
               await runPreflight({
                 git: {
-                  cusr: CUSR.replace(
-                    'required_checks: [build, test]',
-                    'required_checks: []',
-                  ),
+                  cusr: CUSR.replace('required_checks: [build, test]', 'required_checks: []'),
                 },
               })
             ).result,
           ),
         ),
       ).toEqual(['config_invalid:required_checks']);
-      const bad = failure(
-        (await runPreflight({ git: { cusr: `${CUSR}yolo: true\n` } })).result,
-      );
+      const bad = failure((await runPreflight({ git: { cusr: `${CUSR}yolo: true\n` } })).result);
       expect(checks(bad)).toEqual(['config_invalid:project_config']);
     });
 
     it('pins the immutable GitHub repo id and does not follow a rename', async () => {
-      expect(
-        checks(failure((await runPreflight({ github: 'renamed' })).result)),
-      ).toEqual(['config_invalid:github_repo']);
-      expect(
-        checks(failure((await runPreflight({ github: 404 })).result)),
-      ).toEqual(['config_invalid:github_repo']);
-      expect(
-        checks(failure((await runPreflight({ github: 403 })).result)),
-      ).toEqual(['capability_missing:github_repo']);
-      expect(
-        failure((await runPreflight({ github: 'unknown' })).result),
-      ).toMatchObject({ code: 'infra_unavailable', check: 'github_repo' });
+      expect(checks(failure((await runPreflight({ github: 'renamed' })).result))).toEqual([
+        'config_invalid:github_repo',
+      ]);
+      expect(checks(failure((await runPreflight({ github: 404 })).result))).toEqual([
+        'config_invalid:github_repo',
+      ]);
+      expect(checks(failure((await runPreflight({ github: 403 })).result))).toEqual([
+        'capability_missing:github_repo',
+      ]);
+      expect(failure((await runPreflight({ github: 'unknown' })).result)).toMatchObject({
+        code: 'infra_unavailable',
+        check: 'github_repo',
+      });
     });
   });
 
   describe('commands a sandbox of this task can run', () => {
     const NONE = { dirs: ['/nowhere'], requires: [] };
     const FULL = { dirs: ['/usr/bin'], requires: [] };
-    const toolchainProblems = (
-      r: Awaited<ReturnType<typeof runPreflight>>['result'],
-    ): string[] => {
+    const toolchainProblems = (r: Awaited<ReturnType<typeof runPreflight>>['result']): string[] => {
       const e = failure(r);
       return 'problems' in e
-        ? e.problems
-            .filter((p) => p.check === 'toolchain')
-            .map((p) => p.message)
+        ? e.problems.filter((p) => p.check === 'toolchain').map((p) => p.message)
         : [];
     };
 
@@ -349,10 +310,9 @@ describe('preflight (T030, FR-002)', () => {
       const [message, ...rest] = toolchainProblems(result);
       expect(rest).toEqual([]);
       expect(message).toContain("harness 'claude' sandbox cannot run npm");
-      expect(
-        (await runPreflight({ harness_tools: { claude: FULL, codex: FULL } }))
-          .result.ok,
-      ).toBe(true);
+      expect((await runPreflight({ harness_tools: { claude: FULL, codex: FULL } })).result.ok).toBe(
+        true,
+      );
     });
 
     it('checks what the project declares and what the binary needs', async () => {
@@ -363,9 +323,7 @@ describe('preflight (T030, FR-002)', () => {
           codex: FULL,
         },
       });
-      expect(toolchainProblems(declared.result)[0]).toContain(
-        'cannot run socat, pnpm, npm',
-      );
+      expect(toolchainProblems(declared.result)[0]).toContain('cannot run socat, pnpm, npm');
     });
 
     it('asks the same of setup, which runs in the gate sandbox', async () => {
@@ -387,30 +345,20 @@ describe('preflight (T030, FR-002)', () => {
   describe('what daemon 002 runs (FR-002.05: never drops a role or rebinds)', () => {
     it('never skips review by size; a task that needs scout is still refused', async () => {
       // software_dev@2 has no size skip: an XS task in full-review is reviewed, not refused or skipped.
-      expect((await runPreflight({ task: { size: 'XS' } })).result.ok).toBe(
-        true,
-      );
+      expect((await runPreflight({ task: { size: 'XS' } })).result.ok).toBe(true);
       expect(
-        checks(
-          failure(
-            (await runPreflight({ task: { labels: ['needs_scout'] } })).result,
-          ),
-        ),
+        checks(failure((await runPreflight({ task: { labels: ['needs_scout'] } })).result)),
       ).toEqual(['capability_missing:role']);
     });
 
     it('direct-pr needs no reviewer capability, binding or role; full-review does (M01/M03)', async () => {
       const noReviewer = { claude: MANIFESTS.claude, codex: null };
-      expect(
-        (await runPreflight({ manifests: noReviewer, mode: 'direct-pr' }))
-          .result.ok,
-      ).toBe(true);
+      expect((await runPreflight({ manifests: noReviewer, mode: 'direct-pr' })).result.ok).toBe(
+        true,
+      );
       expect(
         checks(
-          failure(
-            (await runPreflight({ manifests: noReviewer, mode: 'full-review' }))
-              .result,
-          ),
+          failure((await runPreflight({ manifests: noReviewer, mode: 'full-review' })).result),
         ),
       ).toEqual(['capability_missing:harness']);
       const user = userConfig({ extra: '' });
@@ -418,28 +366,19 @@ describe('preflight (T030, FR-002)', () => {
         'allow_roles: [scout, coder, reviewer, fixer]',
         'allow_roles: [coder, fixer]',
       );
-      expect((await runPreflight({ user, mode: 'direct-pr' })).result.ok).toBe(
-        true,
-      );
+      expect((await runPreflight({ user, mode: 'direct-pr' })).result.ok).toBe(true);
       // Before any selection is proposed only what both modes need is checked.
-      expect(
-        (await runPreflight({ manifests: noReviewer, mode: null })).result.ok,
-      ).toBe(true);
+      expect((await runPreflight({ manifests: noReviewer, mode: null })).result.ok).toBe(true);
     });
 
     it('a mode outside runtime.modes is refused as config, not swapped for another', async () => {
       const user = userConfig({
-        runtime:
-          'runtime:\n  modes: { full-review: { when_to_use: "always review" } }',
+        runtime: 'runtime:\n  modes: { full-review: { when_to_use: "always review" } }',
       });
-      expect(
-        checks(
-          failure((await runPreflight({ user, mode: 'direct-pr' })).result),
-        ),
-      ).toEqual(['config_invalid:mode']);
-      expect(
-        (await runPreflight({ user, mode: 'full-review' })).result.ok,
-      ).toBe(true);
+      expect(checks(failure((await runPreflight({ user, mode: 'direct-pr' })).result))).toEqual([
+        'config_invalid:mode',
+      ]);
+      expect((await runPreflight({ user, mode: 'full-review' })).result.ok).toBe(true);
     });
 
     it('rejects a profile that does not allow a role the workflow runs', async () => {
@@ -522,24 +461,12 @@ describe('preflight (T030, FR-002)', () => {
   });
 
   it('parses GitHub remote URLs and nothing else', () => {
-    expect(githubSlugFromRemote('https://github.com/acme/app.git')).toBe(
-      'acme/app',
-    );
-    expect(githubSlugFromRemote('https://github.com/acme/app')).toBe(
-      'acme/app',
-    );
-    expect(githubSlugFromRemote('git@github.com:acme/app.git\n')).toBe(
-      'acme/app',
-    );
-    expect(githubSlugFromRemote('ssh://git@github.com/acme/app.git')).toBe(
-      'acme/app',
-    );
-    expect(
-      githubSlugFromRemote('https://github.com.evil.io/acme/app.git'),
-    ).toBeNull();
-    expect(
-      githubSlugFromRemote('https://github.com/acme/app/extra'),
-    ).toBeNull();
+    expect(githubSlugFromRemote('https://github.com/acme/app.git')).toBe('acme/app');
+    expect(githubSlugFromRemote('https://github.com/acme/app')).toBe('acme/app');
+    expect(githubSlugFromRemote('git@github.com:acme/app.git\n')).toBe('acme/app');
+    expect(githubSlugFromRemote('ssh://git@github.com/acme/app.git')).toBe('acme/app');
+    expect(githubSlugFromRemote('https://github.com.evil.io/acme/app.git')).toBeNull();
+    expect(githubSlugFromRemote('https://github.com/acme/app/extra')).toBeNull();
     expect(githubSlugFromRemote('/srv/mirror/app.git')).toBeNull();
   });
 });

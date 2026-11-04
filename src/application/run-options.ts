@@ -36,42 +36,29 @@ const REVIEWER_ROLES = ['reviewer'];
 const DIAGNOSTICS = 20;
 const NO_REVIEWER: readonly (RunChoice | null)[] = [null];
 
-const QuerySchema = z
-  .object({ kind: z.literal('run_options'), task_id: UuidSchema })
-  .strict();
+const QuerySchema = z.object({ kind: z.literal('run_options'), task_id: UuidSchema }).strict();
 
-export type RunOptionsDeps = Pick<
-  ConfirmDeps,
-  'store' | 'ports' | 'configInputs'
->;
+export type RunOptionsDeps = Pick<ConfirmDeps, 'store' | 'ports' | 'configInputs'>;
 
-const configInvalid = (
-  message: string,
-  diagnostics: string[] = [],
-): AppError => ({
+const configInvalid = (message: string, diagnostics: string[] = []): AppError => ({
   code: 'config_invalid',
   message,
   details: { diagnostics: diagnostics.slice(0, DIAGNOSTICS) },
 });
 
-const choiceKey = (c: RunChoice): string =>
-  `${c.harness}/${c.model}/${c.effort}`;
+const choiceKey = (c: RunChoice): string => `${c.harness}/${c.model}/${c.effort}`;
 
 function unique(choices: readonly RunChoice[]): RunChoice[] {
   return [...new Map(choices.map((c) => [choiceKey(c), c])).values()];
 }
 
 /** Every binding the given roles declare, in the order of the config. */
-function declared(
-  config: ValidatedConfig,
-  roles: readonly string[],
-): RunChoice[] {
+function declared(config: ValidatedConfig, roles: readonly string[]): RunChoice[] {
   const out: RunChoice[] = [];
   for (const role of roles)
     for (const rule of config.user.roles[role]?.binding ?? []) {
       const harness = config.user.models[rule.model]?.harness;
-      if (harness !== undefined)
-        out.push({ harness, model: rule.model, effort: rule.effort });
+      if (harness !== undefined) out.push({ harness, model: rule.model, effort: rule.effort });
     }
   return unique(out);
 }
@@ -113,14 +100,10 @@ function optionsForMode(
   budget: { left: number; skipped: boolean },
   problems: string[],
 ): ModeOptions {
-  const workers = new Map<
-    string,
-    { choice: RunChoice; fallbacks: RunChoice[] }
-  >();
+  const workers = new Map<string, { choice: RunChoice; fallbacks: RunChoice[] }>();
   const reviewers = new Map<string, RunChoice>();
   const workerChoices = declared(config, WORKER_ROLES);
-  const reviewerChoices =
-    mode === 'full-review' ? declared(config, REVIEWER_ROLES) : NO_REVIEWER;
+  const reviewerChoices = mode === 'full-review' ? declared(config, REVIEWER_ROLES) : NO_REVIEWER;
   // Stand-ins: a missing document fails the freeze, but its content is not what is being checked.
   const prompts = Object.values(config.user.roles).flatMap((r) =>
     r.prompt === null ? [] : [{ name: r.prompt, content: '' }],
@@ -217,15 +200,9 @@ export async function runOptions(
     );
   const path = userOnly.value.locations[s.project]?.path ?? null;
   if (path === null)
-    return err(
-      configInvalid(`projects.${s.project}.path is not set in the user config`),
-    );
+    return err(configInvalid(`projects.${s.project}.path is not set in the user config`));
 
-  const base = await readLocalBaseConfig(
-    deps.ports.git,
-    path,
-    s.task.base_branch,
-  );
+  const base = await readLocalBaseConfig(deps.ports.git, path, s.task.base_branch);
   if (!base.ok)
     return err(
       base.error.kind === 'invalid'
@@ -250,8 +227,7 @@ export async function runOptions(
       ),
     );
   const { config, runtime } = validated.value;
-  if (runtime === null)
-    return err(configInvalid('the `runtime:` section is required by cusrd'));
+  if (runtime === null) return err(configInvalid('the `runtime:` section is required by cusrd'));
 
   const profile = s.task.profile ?? config.project?.profile ?? null;
   if (profile === null)
@@ -283,9 +259,7 @@ export async function runOptions(
   // Nothing froze at all: the config is the problem, not the choices.
   if (problems.length > 0 && modes.every((m) => m.workers.length === 0))
     return err(
-      configInvalid('no run selection can be frozen for this task', [
-        ...new Set(problems),
-      ]),
+      configInvalid('no run selection can be frozen for this task', [...new Set(problems)]),
     );
   return ok({
     task_id: s.id,

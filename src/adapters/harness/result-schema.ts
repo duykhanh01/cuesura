@@ -76,14 +76,10 @@ export type RoleSchemaId = (typeof ROLE_SCHEMAS)[Role]['id'];
  * manifests pin these; a mismatch at load time means the schema drifted and attempts must not start.
  */
 export const ROLE_SCHEMA_DIGESTS: Readonly<Record<Role, Hash>> = {
-  coder:
-    'sha256:0c1592471ef20ca5a8043c0c24c01b8f9b08593dc65be3686c427ba72e3023f4',
-  fixer:
-    'sha256:0c1592471ef20ca5a8043c0c24c01b8f9b08593dc65be3686c427ba72e3023f4',
-  reviewer:
-    'sha256:0ff4669a1cfda8e2208448032c76fd3428f55124fe5eb3e3e423cbb96ed1c57e',
-  decider:
-    'sha256:4fd09a7720ba5291314e9866a50e89c9f9c9f5d276c411a0541e2681fe634c0e',
+  coder: 'sha256:0c1592471ef20ca5a8043c0c24c01b8f9b08593dc65be3686c427ba72e3023f4',
+  fixer: 'sha256:0c1592471ef20ca5a8043c0c24c01b8f9b08593dc65be3686c427ba72e3023f4',
+  reviewer: 'sha256:0ff4669a1cfda8e2208448032c76fd3428f55124fe5eb3e3e423cbb96ed1c57e',
+  decider: 'sha256:4fd09a7720ba5291314e9866a50e89c9f9c9f5d276c411a0541e2681fe634c0e',
 };
 
 /** Keywords the exported schema may use; anything else needs new S0.2-grade evidence first. */
@@ -111,18 +107,14 @@ function isObject(v: unknown): v is JsonObject {
 
 /** Rejects keywords outside the portable subset and objects that are not closed with every key required. */
 export function assertPortableSchema(node: unknown, path = '#'): void {
-  if (!isObject(node))
-    throw new SchemaPortabilityError(`${path}: schema node must be an object`);
+  if (!isObject(node)) throw new SchemaPortabilityError(`${path}: schema node must be an object`);
   for (const key of Object.keys(node)) {
     if (!PORTABLE_KEYWORDS.has(key))
-      throw new SchemaPortabilityError(
-        `${path}: keyword ${key} is not portable`,
-      );
+      throw new SchemaPortabilityError(`${path}: keyword ${key} is not portable`);
   }
   if (node['type'] === 'object') {
     const props = node['properties'];
-    if (!isObject(props))
-      throw new SchemaPortabilityError(`${path}: object without properties`);
+    if (!isObject(props)) throw new SchemaPortabilityError(`${path}: object without properties`);
     if (node['additionalProperties'] !== false)
       throw new SchemaPortabilityError(`${path}: object is not closed`);
     const required = node['required'];
@@ -135,15 +127,12 @@ export function assertPortableSchema(node: unknown, path = '#'): void {
         `${path}: every property must be required (use null or [] for absence)`,
       );
     }
-    for (const [k, v] of Object.entries(props))
-      assertPortableSchema(v, `${path}/properties/${k}`);
+    for (const [k, v] of Object.entries(props)) assertPortableSchema(v, `${path}/properties/${k}`);
   }
-  if (node['items'] !== undefined)
-    assertPortableSchema(node['items'], `${path}/items`);
+  if (node['items'] !== undefined) assertPortableSchema(node['items'], `${path}/items`);
   const anyOf = node['anyOf'];
   if (anyOf !== undefined) {
-    if (!Array.isArray(anyOf))
-      throw new SchemaPortabilityError(`${path}: anyOf must be an array`);
+    if (!Array.isArray(anyOf)) throw new SchemaPortabilityError(`${path}: anyOf must be an array`);
     anyOf.forEach((v, i) => assertPortableSchema(v, `${path}/anyOf/${i}`));
   }
 }
@@ -215,12 +204,7 @@ export type RoleValidation =
       readonly issues: readonly ValidationIssue[];
     };
 
-function textIssue(
-  issues: ValidationIssue[],
-  path: string,
-  text: string,
-  max: number,
-): void {
+function textIssue(issues: ValidationIssue[], path: string, text: string, max: number): void {
   if (text.trim().length === 0)
     issues.push({ layer: 'semantic', path, message: 'must not be blank' });
   if (text.length > max)
@@ -242,9 +226,7 @@ function coderSemantics(r: CoderResult): ValidationIssue[] {
         path: `questions[${i}].options`,
         message: `more than ${OPTIONS_MAX}`,
       });
-    q.options.forEach((o, j) =>
-      textIssue(issues, `questions[${i}].options[${j}]`, o, TEXT_MAX),
-    );
+    q.options.forEach((o, j) => textIssue(issues, `questions[${i}].options[${j}]`, o, TEXT_MAX));
   });
   if (r.blocker !== null) textIssue(issues, 'blocker', r.blocker, TEXT_MAX);
   switch (r.status) {
@@ -311,9 +293,7 @@ function reviewerSemantics(r: ReviewerResult): ValidationIssue[] {
         message: 'must be >= 1 or null',
       });
   });
-  const blocking = r.findings.some(
-    (f) => f.severity === 'critical' || f.severity === 'major',
-  );
+  const blocking = r.findings.some((f) => f.severity === 'critical' || f.severity === 'major');
   if (r.verdict === 'approve' && blocking) {
     issues.push({
       layer: 'semantic',
@@ -335,8 +315,7 @@ function reviewerSemantics(r: ReviewerResult): ValidationIssue[] {
 export function validateRoleResult(role: Role, value: unknown): RoleValidation {
   if (role === 'decider') {
     const parsed = DeciderResultSchema.safeParse(value);
-    if (!parsed.success)
-      return { ok: false, role, issues: structureIssues(parsed.error) };
+    if (!parsed.success) return { ok: false, role, issues: structureIssues(parsed.error) };
     return parsed.data.answer.trim() === ''
       ? {
           ok: false,
@@ -353,20 +332,14 @@ export function validateRoleResult(role: Role, value: unknown): RoleValidation {
   }
   if (role === 'reviewer') {
     const parsed = ReviewerResultSchema.safeParse(value);
-    if (!parsed.success)
-      return { ok: false, role, issues: structureIssues(parsed.error) };
+    if (!parsed.success) return { ok: false, role, issues: structureIssues(parsed.error) };
     const issues = reviewerSemantics(parsed.data);
-    return issues.length > 0
-      ? { ok: false, role, issues }
-      : { ok: true, role, value: parsed.data };
+    return issues.length > 0 ? { ok: false, role, issues } : { ok: true, role, value: parsed.data };
   }
   const parsed = CoderResultSchema.safeParse(value);
-  if (!parsed.success)
-    return { ok: false, role, issues: structureIssues(parsed.error) };
+  if (!parsed.success) return { ok: false, role, issues: structureIssues(parsed.error) };
   const issues = coderSemantics(parsed.data);
-  return issues.length > 0
-    ? { ok: false, role, issues }
-    : { ok: true, role, value: parsed.data };
+  return issues.length > 0 ? { ok: false, role, issues } : { ok: true, role, value: parsed.data };
 }
 
 function structureIssues(error: z.ZodError): ValidationIssue[] {

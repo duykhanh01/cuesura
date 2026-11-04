@@ -27,9 +27,7 @@ function trickle(res: ServerResponse): void {
   res.on('close', () => clearInterval(timer));
 }
 
-async function daemon(
-  handler: (path: string, body: string, res: ServerResponse) => void,
-) {
+async function daemon(handler: (path: string, body: string, res: ServerResponse) => void) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cusr-deadline-')));
   writeFileSync(join(dir, 'owner.token'), `${TOKEN}\n`, { mode: 0o600 });
   const open = new Set<string>();
@@ -39,9 +37,7 @@ async function daemon(
     req.on('data', (c: Buffer) => (body += c.toString()));
     req.on('end', () => {
       const kind =
-        req.url === '/v1/health'
-          ? 'health'
-          : (JSON.parse(body) as { kind: string }).kind;
+        req.url === '/v1/health' ? 'health' : (JSON.parse(body) as { kind: string }).kind;
       const id = `${kind}#${seen.length}`;
       seen.push(kind);
       open.add(id);
@@ -59,8 +55,7 @@ async function daemon(
   return { dir, socketPath, open, seen };
 }
 
-const wait = (ms: number): Promise<void> =>
-  new Promise((r) => setTimeout(r, ms));
+const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 describe('callDaemon', () => {
   it('a response that trickles cannot outlast the timeout, and its connection closes', async () => {
@@ -147,9 +142,7 @@ describe('daemon port on a real socket', () => {
     // These variants need the real parser/port, not a separate PTY and retry window each.
     ['{"schema_version":1,"ok":true,"data":{"unchanged":false,"tasks_v9":[]}}'],
     ['{"hello":"world"}'],
-    [
-      '{"schema_version":1,"ok":false,"error":{"code":"not_available","message":"no such query"}}',
-    ],
+    ['{"schema_version":1,"ok":false,"error":{"code":"not_available","message":"no such query"}}'],
   ])('%s is incompatible and does not throw', async (reply) => {
     const d = await daemon((_p, _b, res) => res.end(reply));
     const port = createDaemonPort({ dataDir: d.dir, env: {} });

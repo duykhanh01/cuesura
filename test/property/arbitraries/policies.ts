@@ -7,17 +7,10 @@ const LADDERS: LadderStep[][] = [
   [],
   [{ effort: 'high' }],
   [{ effort: 'high' }, { model: 'opus', effort: 'high' }],
-  [
-    { add_context: ['repo_map'] },
-    { model: 'opus' },
-    { model: 'opus', effort: 'high' },
-  ],
+  [{ add_context: ['repo_map'] }, { model: 'opus' }, { model: 'opus', effort: 'high' }],
 ];
 
-const roleArb = (
-  model: string,
-  permissions: 'write' | 'read_only',
-): fc.Arbitrary<RoleSpec> =>
+const roleArb = (model: string, permissions: 'write' | 'read_only'): fc.Arbitrary<RoleSpec> =>
   fc
     .record({
       ladder: fc.constantFrom(...LADDERS),
@@ -46,15 +39,9 @@ export const policyArb: fc.Arbitrary<PolicyOptions> = fc.record({
   }),
 });
 
-const scopedRoleArb = (
-  model: string,
-  permissions: 'write' | 'read_only',
-): fc.Arbitrary<RoleSpec> =>
+const scopedRoleArb = (model: string, permissions: 'write' | 'read_only'): fc.Arbitrary<RoleSpec> =>
   fc
-    .tuple(
-      roleArb(model, permissions),
-      fc.constantFrom('step' as const, 'task' as const),
-    )
+    .tuple(roleArb(model, permissions), fc.constantFrom('step' as const, 'task' as const))
     .map(([r, scope]) => ({ ...r, scope }));
 
 /**
@@ -71,11 +58,7 @@ export const escalationPolicyArb: fc.Arbitrary<PolicyOptions> = fc.record({
   }),
   escalation: fc.record({
     auto_up_to_tier: fc.constantFrom(1, 2, 2, 3),
-    above: fc.constantFrom(
-      'ask_human' as const,
-      'ask_human' as const,
-      'deny' as const,
-    ),
+    above: fc.constantFrom('ask_human' as const, 'ask_human' as const, 'deny' as const),
   }),
   roles: fc.record({
     coder: scopedRoleArb('sonnet', 'write'),

@@ -24,10 +24,7 @@ import {
   writeSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import {
-  ROLE_SCHEMA_DIGESTS,
-  wireRoleSchema,
-} from '../adapters/harness/result-schema.ts';
+import { ROLE_SCHEMA_DIGESTS, wireRoleSchema } from '../adapters/harness/result-schema.ts';
 import {
   hostInnerMode,
   boundaryRole,
@@ -107,8 +104,7 @@ export function checkProofBudget(
   budget: ProofBudget,
   proveResume = false,
 ): Result<void, string> {
-  if (budget.approval.trim() === '')
-    return err('a proof spends model usage and needs an approval');
+  if (budget.approval.trim() === '') return err('a proof spends model usage and needs an approval');
   if (budget.maxInvocations === null) return ok(undefined);
   if (!Number.isInteger(budget.maxInvocations) || budget.maxInvocations < 1)
     return err('--max-invocations must be a positive integer');
@@ -141,8 +137,7 @@ function spent(dataDir: string, harness: string, sha256: string): number {
   return readFileSync(path, 'utf8')
     .split('\n')
     .filter(Boolean)
-    .filter((l) => (JSON.parse(l) as LedgerRow).binary_sha256 === sha256)
-    .length;
+    .filter((l) => (JSON.parse(l) as LedgerRow).binary_sha256 === sha256).length;
 }
 
 /** On disk before the spawn, so a crash cannot hide an invocation from the count. */
@@ -159,28 +154,19 @@ function reserve(dataDir: string, harness: string, row: LedgerRow): void {
 /** The rule a Claude pin must carry; a Codex rule lives in a home file this step does not read. */
 function deniesProbe(pin: VendorPin): boolean {
   if (pin.vendor !== 'claude') return true;
-  const permissions = pin.settings?.['permissions'] as
-    { deny?: readonly string[] } | undefined;
+  const permissions = pin.settings?.['permissions'] as { deny?: readonly string[] } | undefined;
   return permissions?.deny?.includes(`Bash(${DENIED_COMMAND})`) === true;
 }
 
 /** Everything a proof depends on, checked without invoking anything. */
-export function planProof(
-  o: ProofOptions,
-  candidatePin?: VendorPin,
-): Result<ProofPlan, string> {
+export function planProof(o: ProofOptions, candidatePin?: VendorPin): Result<ProofPlan, string> {
   // Setup can preview a validated candidate; real proofs always read the trusted pin on disk.
-  const pin =
-    candidatePin === undefined
-      ? readPin(o.dataDir, o.harness)
-      : ok(candidatePin);
+  const pin = candidatePin === undefined ? readPin(o.dataDir, o.harness) : ok(candidatePin);
   if (!pin.ok) return pin;
   if (o.proveResume && pin.value.vendor !== 'claude')
     return err('resume proof is only supported for Claude');
   if (!deniesProbe(pin.value))
-    return err(
-      `the pin does not deny ${DENIED_COMMAND}; nothing could be shown`,
-    );
+    return err(`the pin does not deny ${DENIED_COMMAND}; nothing could be shown`);
   const identity = harnessIdentity({
     pin: pin.value,
     dataDir: o.dataDir,
@@ -219,10 +205,7 @@ This write is expected to be refused. Change nothing else. Your answer is "proce
 "capability check".`,
 };
 
-const proofPrompt = (
-  role: ProofRole,
-  nativeCommand: string | null,
-): string => `Role: ${role}
+const proofPrompt = (role: ProofRole, nativeCommand: string | null): string => `Role: ${role}
 
 This is a capability check of this harness on a disposable repository, not a production task.
 You have a shell tool. Use it for all three steps, in order, then return the structured result your
@@ -262,8 +245,7 @@ function disposableRepo(
         GIT_COMMITTER_EMAIL: 'cusr@invalid',
       },
     });
-    if (r.status !== 0)
-      throw new Error(`git ${args.join(' ')}: ${r.stderr.trim()}`);
+    if (r.status !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr.trim()}`);
   };
   git(repo, 'init', '-q', '-b', 'main');
   writeFileSync(join(repo, 'NOTES.md'), 'notes\n');
@@ -277,10 +259,7 @@ function disposableRepo(
 }
 
 /** Runs the pinned binary with an empty home: the user's own config must not shape what it proves. */
-function pinnedRunner(
-  pin: VendorPin,
-  scratch: string,
-): (argv: readonly string[]) => PinnedRun {
+function pinnedRunner(pin: VendorPin, scratch: string): (argv: readonly string[]) => PinnedRun {
   const home = join(scratch, 'pinned-run-home');
   mkdirSync(home, { recursive: true, mode: 0o700 });
   return (argv) => {
@@ -325,8 +304,7 @@ export function evidenceFromRuns(
   resume?: ResumeProof,
 ): Record<string, unknown> {
   const inner = hostInnerMode(plan.pin);
-  const ids = (ok_: (r: RoleRun) => boolean): string[] =>
-    runs.filter(ok_).map((r) => r.attempt_id);
+  const ids = (ok_: (r: RoleRun) => boolean): string[] => runs.filter(ok_).map((r) => r.attempt_id);
   const verdict = (ok_: (r: RoleRun) => boolean, what: string) => {
     const shown = ids(ok_);
     return shown.length === PROOF_ROLES.length
@@ -335,8 +313,7 @@ export function evidenceFromRuns(
   };
   const valid = (r: RoleRun): boolean => r.outcome.kind === 'result';
   const denied = (r: RoleRun): boolean =>
-    r.marker_absent &&
-    r.outcome.permission_denials.some((d) => d.command === DENIED_COMMAND);
+    r.marker_absent && r.outcome.permission_denials.some((d) => d.command === DENIED_COMMAND);
   const capabilities: Record<string, unknown> = {
     structured_output: verdict(valid, 'valid results'),
     permission_denial_kept: verdict(denied, 'probe refused, marker absent'),
@@ -352,9 +329,7 @@ export function evidenceFromRuns(
       ? proven(
           `resumed across private homes and recalled a transcript-only nonce: ${resume.attempt_id}`,
         )
-      : notShown(
-          resume === undefined ? 'this proof runs no resume' : resume.reason,
-        ),
+      : notShown(resume === undefined ? 'this proof runs no resume' : resume.reason),
     cost_limit: notShown('no hard USD cap is exercised'),
   };
   for (const role of PROOF_ROLES) {
@@ -379,9 +354,7 @@ export function evidenceFromRuns(
         native_result: !nativeSandboxEnabled(plan.pin)
           ? 'not_tried'
           : PROOF_ROLES.every((role) =>
-                runs.some(
-                  (r) => r.role === role && valid(r) && r.native_write_blocked,
-                ),
+                runs.some((r) => r.role === role && valid(r) && r.native_write_blocked),
               )
             ? 'passed'
             : 'failed',
@@ -394,9 +367,7 @@ export function evidenceFromRuns(
           role: r.role,
           attempt_id: r.attempt_id,
           kind: r.outcome.kind,
-          ...(r.outcome.kind === 'failure'
-            ? { failure: r.outcome.failure }
-            : {}),
+          ...(r.outcome.kind === 'failure' ? { failure: r.outcome.failure } : {}),
           native_write_blocked: r.native_write_blocked,
         })),
       },
@@ -435,12 +406,10 @@ export function proofFailures(
         .join(', ')})`,
     );
   const needed = ['structured_output', 'private_home_auth'];
-  if (pin.permission_mode !== 'full-access')
-    needed.push('permission_denial_kept');
+  if (pin.permission_mode !== 'full-access') needed.push('permission_denial_kept');
   for (const name of needed) {
     const c = entry.capabilities[name];
-    if (c?.status !== 'proven')
-      out.push(`${name}: ${c?.evidence ?? 'not shown'}`);
+    if (c?.status !== 'proven') out.push(`${name}: ${c?.evidence ?? 'not shown'}`);
   }
   return out;
 }
@@ -471,9 +440,7 @@ function candidateManifest(o: ProofOptions, plan: ProofPlan, shownAt: number) {
       private_home_auth: claim,
       usage_report: claim,
       ...(o.proveResume ? { session_resume: claim } : {}),
-      ...Object.fromEntries(
-        PROOF_ROLES.map((r) => [`schema_acceptance_${r}`, claim]),
-      ),
+      ...Object.fromEntries(PROOF_ROLES.map((r) => [`schema_acceptance_${r}`, claim])),
     },
   };
   return manifestFromEvidence({
@@ -571,10 +538,7 @@ export async function proveHarness(
     const nativeCommand = `/usr/bin/touch '${nativeMarker.replaceAll("'", "'\\''")}'`;
     const nonce = randomUUID();
     const text =
-      proofPrompt(
-        role,
-        nativeSandboxEnabled(plan.pin, role) ? nativeCommand : null,
-      ) +
+      proofPrompt(role, nativeSandboxEnabled(plan.pin, role) ? nativeCommand : null) +
       (o.proveResume && role === 'coder'
         ? `\nRemember this nonce for a later continuation: ${nonce}. Do not write it to a file.`
         : '');

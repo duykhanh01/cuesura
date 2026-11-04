@@ -2,11 +2,7 @@ import { z } from 'zod';
 import type { CanonicalTask } from './task.ts';
 import type { EffectKind, EffectStatus } from './effect.ts';
 import type { Level } from './policy.ts';
-import type {
-  ExecutionMode,
-  RunConfirmation,
-  RunSelection,
-} from './run-config.ts';
+import type { ExecutionMode, RunConfirmation, RunSelection } from './run-config.ts';
 import type {
   BaseRelation,
   Check,
@@ -42,21 +38,13 @@ export const TASK_STATUSES = [
   'CANCELLED',
 ] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
-export const TERMINAL_STATUSES: readonly TaskStatus[] = [
-  'DONE',
-  'FAILED',
-  'CANCELLED',
-];
+export const TERMINAL_STATUSES: readonly TaskStatus[] = ['DONE', 'FAILED', 'CANCELLED'];
 
 export function isTerminal(s: TaskStatus): boolean {
   return TERMINAL_STATUSES.includes(s);
 }
 
-export const PENDING_REASONS = [
-  'confirmation',
-  'needs_info',
-  'dependency',
-] as const;
+export const PENDING_REASONS = ['confirmation', 'needs_info', 'dependency'] as const;
 export const WAITING_REASONS = [
   'human_input',
   'approval',
@@ -162,12 +150,7 @@ export type Wait = {
   resume: ResumeAction;
 };
 
-export const ATTEMPT_KINDS = [
-  'initial',
-  'retry',
-  'repair',
-  'fresh_session',
-] as const;
+export const ATTEMPT_KINDS = ['initial', 'retry', 'repair', 'fresh_session'] as const;
 export type AttemptKind = (typeof ATTEMPT_KINDS)[number];
 
 export type Attempt = {
@@ -208,12 +191,7 @@ export type EffectMirror = {
   base_update?: BaseUpdate;
 };
 
-export const TIMER_KINDS = [
-  'deadline',
-  'backoff',
-  'ci_poll',
-  'ci_timeout',
-] as const;
+export const TIMER_KINDS = ['deadline', 'backoff', 'ci_poll', 'ci_timeout'] as const;
 export type TimerKind = (typeof TIMER_KINDS)[number];
 
 export type TimerMirror = {

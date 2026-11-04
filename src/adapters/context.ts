@@ -150,9 +150,7 @@ export function sanitize(text: string, redactor: Redactor): string {
 /** Cuts `text` to at most `max` UTF-8 bytes on a character boundary, preferring a line end. */
 function cut(text: string, max: number): string {
   if (bytes(text) <= max) return text;
-  let s = Buffer.from(text, 'utf8')
-    .subarray(0, Math.max(0, max))
-    .toString('utf8');
+  let s = Buffer.from(text, 'utf8').subarray(0, Math.max(0, max)).toString('utf8');
   if (s.endsWith('�')) s = s.slice(0, -1);
   const nl = s.lastIndexOf('\n');
   return nl > s.length / 2 ? s.slice(0, nl + 1) : s;
@@ -168,8 +166,7 @@ function marker(t: Truncation): string {
   return `\n[truncated ${t.section}: kept ${t.kept_bytes} of ${t.original_bytes} bytes; full ${t.digest}]\n`;
 }
 
-const list = (xs: readonly string[]): string =>
-  xs.map((x) => `- ${x}`).join('\n');
+const list = (xs: readonly string[]): string => xs.map((x) => `- ${x}`).join('\n');
 
 const DECIDER_RULES = `You decide for the project owner, who is away and cannot be asked. A worker stopped on the question below.
 Read the worktree if that helps, but change nothing. Choose what best serves the task and its acceptance criteria, preferring the conventional, reversible choice. Never refuse to decide and never ask back: state any assumption you make.
@@ -183,26 +180,16 @@ export function buildRoleContext(
   const missing: string[] = [];
   if (c.revision !== input.revision) missing.push('context_revision');
   if (c.acceptance.length === 0) missing.push('acceptance');
-  const repairing =
-    input.role === 'fixer' ||
-    (input.repair !== undefined && input.repair !== null);
+  const repairing = input.role === 'fixer' || (input.repair !== undefined && input.repair !== null);
   if (repairing && input.failures.length === 0) missing.push('failures');
   if (repairing && input.repair === null) missing.push('repair_state');
-  if (input.role === 'reviewer' && input.pr_content === null)
-    missing.push('pr_content');
-  if (
-    input.role === 'reviewer' &&
-    (input.diff === null || input.diff.paths.length === 0)
-  )
+  if (input.role === 'reviewer' && input.pr_content === null) missing.push('pr_content');
+  if (input.role === 'reviewer' && (input.diff === null || input.diff.paths.length === 0))
     missing.push('diff');
   const prompt =
-    input.prompt === null
-      ? null
-      : (c.prompt_refs.find((p) => p.name === input.prompt) ?? null);
-  if (input.prompt !== null && prompt === null)
-    missing.push(`prompt:${input.prompt}`);
-  if (missing.length > 0)
-    return { ok: false, error: { kind: 'needs_context', missing } };
+    input.prompt === null ? null : (c.prompt_refs.find((p) => p.name === input.prompt) ?? null);
+  if (input.prompt !== null && prompt === null) missing.push(`prompt:${input.prompt}`);
+  if (missing.length > 0) return { ok: false, error: { kind: 'needs_context', missing } };
 
   const truncated: Truncation[] = [];
   let diff: RoleContext['diff'] = null;
@@ -299,9 +286,7 @@ export function buildRoleContext(
             required: true,
           },
         ]),
-    ...(input.role === 'reviewer'
-      ? [{ name: 'diff', body: diffBody, required: true }]
-      : []),
+    ...(input.role === 'reviewer' ? [{ name: 'diff', body: diffBody, required: true }] : []),
     {
       name: 'answers',
       body: input.answers
@@ -356,8 +341,7 @@ export function buildRoleContext(
     })),
   ].filter((s) => s.body !== '');
 
-  const render = (name: string, body: string): string =>
-    `## ${name}\n${body}\n\n`;
+  const render = (name: string, body: string): string => `## ${name}\n${body}\n\n`;
   const requiredBytes = sections
     .filter((s) => s.required)
     .reduce((n, s) => n + bytes(render(s.name, s.body)), 0);
@@ -390,8 +374,7 @@ export function buildRoleContext(
       digest: hashText(s.body),
     };
     const overhead =
-      bytes(render(s.name, '')) +
-      bytes(marker({ ...probe, kept_bytes: probe.original_bytes }));
+      bytes(render(s.name, '')) + bytes(marker({ ...probe, kept_bytes: probe.original_bytes }));
     const kept = room > overhead ? cut(s.body, room - overhead) : '';
     const t: Truncation = { ...probe, kept_bytes: bytes(kept) };
     truncated.push(t);

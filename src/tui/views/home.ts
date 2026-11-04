@@ -3,45 +3,16 @@
  * task, in columns: mark, title, project, stage dots, what it is doing and time in status. Scrolling follows
  * the selection in whole screens, so the view needs no memory of its own and a resize loses nothing (EC-002).
  */
-import {
-  TASK_STATUSES,
-  isTerminal,
-  type TaskStatus,
-} from '../../domain/state.ts';
-import {
-  activity,
-  markLegend,
-  statusGlyph,
-  timeInStatus,
-  todo,
-} from '../model/activity.ts';
-import {
-  homeRows,
-  selectedRowIndex,
-  type HomeRow,
-} from '../model/home-rows.ts';
+import { TASK_STATUSES, isTerminal, type TaskStatus } from '../../domain/state.ts';
+import { activity, markLegend, statusGlyph, timeInStatus, todo } from '../model/activity.ts';
+import { homeRows, selectedRowIndex, type HomeRow } from '../model/home-rows.ts';
 import { rowStages } from '../model/stages.ts';
 import { PAGE_LIMIT, type TuiState } from '../model/state.ts';
-import {
-  joinSafe,
-  sanitize,
-  uiText,
-  type SafeText,
-} from '../terminal/safe-text.ts';
+import { joinSafe, sanitize, uiText, type SafeText } from '../terminal/safe-text.ts';
 import type { Frame, Style } from '../terminal/screen.ts';
 import { displayWidth, truncate } from '../terminal/width.ts';
 import { filterLine } from './filters.ts';
-import {
-  BOLD,
-  DIM,
-  fg,
-  putSegs,
-  ruleHeading,
-  seg,
-  segsWidth,
-  ui,
-  type Seg,
-} from './ink.ts';
+import { BOLD, DIM, fg, putSegs, ruleHeading, seg, segsWidth, ui, type Seg } from './ink.ts';
 import type { Body } from './layout.ts';
 import { dots, DOTS_WIDTH, stepper } from './stepper.ts';
 
@@ -79,9 +50,7 @@ function summarySegs(s: TuiState, attention: number): Seg[] | null {
   const out: Seg[] = [];
   if (attention > 0) {
     const more = s.board.attention.truncated ? '+' : '';
-    out.push(
-      ui(`▲ ${attention}${more} need you`, { fg: 'yellow', bold: true }),
-    );
+    out.push(ui(`▲ ${attention}${more} need you`, { fg: 'yellow', bold: true }));
   }
   for (const status of TASK_STATUSES) {
     const n = counts[status];
@@ -125,11 +94,7 @@ const actionOf = (row: TaskRow): SafeText | null =>
 
 const BLANK: Line = { kind: 'static', segs: [] };
 
-function listLines(
-  s: TuiState,
-  rows: readonly HomeRow[],
-  cols: number,
-): Line[] {
+function listLines(s: TuiState, rows: readonly HomeRow[], cols: number): Line[] {
   const lines: Line[] = [];
   const attention = rows.filter((r) => r.kind === 'attention').length;
   if (attention > 0) {
@@ -195,10 +160,7 @@ function columns(s: TuiState, cols: number, rows: readonly HomeRow[]): Columns {
   // Selector and mark, then the gaps between columns and the time at the edge.
   const fixed = TITLE_X + 2 + 2 + DOTS_WIDTH + 2 + 2 + 1 + time;
   const longest = rows.reduce(
-    (n, r) =>
-      r.kind === 'finished_toggle'
-        ? n
-        : Math.max(n, displayWidth(r.task.project)),
+    (n, r) => (r.kind === 'finished_toggle' ? n : Math.max(n, displayWidth(r.task.project))),
     7,
   );
   const room = Math.max(24, cols - fixed);
@@ -220,9 +182,7 @@ function extraSegs(task: TaskRow['task']): Seg[] {
   const extra: SafeText[] = [];
   if (task.mode !== null) extra.push(task.mode);
   if (task.pr_ref !== null) extra.push(task.pr_ref);
-  return extra.length === 0
-    ? []
-    : [seg(joinSafe([uiText(' · '), joinDot(extra)]), DIM)];
+  return extra.length === 0 ? [] : [seg(joinSafe([uiText(' · '), joinDot(extra)]), DIM)];
 }
 
 /**
@@ -232,8 +192,7 @@ function extraSegs(task: TaskRow['task']): Seg[] {
 function doingSegs(row: TaskRow): Seg[] {
   const task = row.task;
   const action = actionOf(row);
-  if (action !== null)
-    return [seg(joinSafe([uiText('→ '), action]), { fg: 'yellow' })];
+  if (action !== null) return [seg(joinSafe([uiText('→ '), action]), { fg: 'yellow' })];
   const tail = extraSegs(task);
   const { status } = task;
   const style: Style =
@@ -247,10 +206,7 @@ function doingSegs(row: TaskRow): Seg[] {
 
 /** The line under a task that waits on the user: its activity, mode and PR, faint (FR-006). */
 function detailSegs(row: TaskRow): Seg[] {
-  return [
-    seg(joinSafe([uiText('  '), activity(row.task)]), DIM),
-    ...extraSegs(row.task),
-  ];
+  return [seg(joinSafe([uiText('  '), activity(row.task)]), DIM), ...extraSegs(row.task)];
 }
 
 function doingX(c: Columns): number {
@@ -285,8 +241,7 @@ function drawTask(
   frame.put(x, y, truncate(sanitize(task.project), c.project), DIM);
   x += c.project + 2;
   const stages = rowStages(task);
-  if (stages !== null)
-    putSegs(frame, x, y, dots(stages, task.status), DOTS_WIDTH);
+  if (stages !== null) putSegs(frame, x, y, dots(stages, task.status), DOTS_WIDTH);
   x += DOTS_WIDTH + 2;
   putSegs(frame, x, y, doingSegs(row), c.doing);
   const time = truncate(timeInStatus(task, s.lastUpdatedAt), c.time);
@@ -294,11 +249,7 @@ function drawTask(
 }
 
 /** The first line to show: whole screens, moved only as far as keeps the selected row in view. */
-function firstLine(
-  lines: readonly Line[],
-  selected: number,
-  height: number,
-): number {
+function firstLine(lines: readonly Line[], selected: number, height: number): number {
   const at = lines.findIndex(
     (l) => (l.kind === 'task' || l.kind === 'toggle') && l.row === selected,
   );
@@ -326,9 +277,7 @@ function selectionStages(s: TuiState, row: HomeRow | undefined): Seg[] | null {
   const stages = rowStages(row.task);
   if (stages === null) return null;
   const path = [ui(' '), ...stepper(stages, row.task.status)];
-  return segsWidth(path) + 8 <= s.size.cols
-    ? [ui(' Stages ', DIM), ...path]
-    : path;
+  return segsWidth(path) + 8 <= s.size.cols ? [ui(' Stages ', DIM), ...path] : path;
 }
 
 function drawList(
@@ -372,10 +321,7 @@ export const homeBody =
     const cols = s.size.cols;
     const rows = s.board === null ? [] : homeRows(s);
     const attention = rows.filter((r) => r.kind === 'attention').length;
-    const scope =
-      s.caller?.scope === 'limited'
-        ? [ui('   '), ui(`(${SCOPE_NOTE})`, DIM)]
-        : [];
+    const scope = s.caller?.scope === 'limited' ? [ui('   '), ui(`(${SCOPE_NOTE})`, DIM)] : [];
     const page = pageLine(s);
     const head: (readonly Seg[] | null)[] = [
       summarySegs(s, attention),
@@ -383,9 +329,7 @@ export const homeBody =
       page === null ? null : [seg(page, DIM)],
       opts.color ? null : [seg(markLegend(), DIM)],
     ];
-    const shown = head
-      .filter((l) => l !== null)
-      .slice(0, Math.max(1, height >> 1));
+    const shown = head.filter((l) => l !== null).slice(0, Math.max(1, height >> 1));
     shown.forEach((segs, i) => putSegs(frame, 1, top + i, segs, cols - 1));
     // A blank row under the summary when the list keeps enough room.
     const gap = height - shown.length > 8 ? 1 : 0;
@@ -401,12 +345,7 @@ export const homeBody =
       return;
     }
     if (rows.length === 0) {
-      frame.put(
-        1,
-        listTop,
-        truncate(uiText('No tasks in this view.'), cols - 1),
-        DIM,
-      );
+      frame.put(1, listTop, truncate(uiText('No tasks in this view.'), cols - 1), DIM);
       return;
     }
     drawList(frame, s, listTop, room, rows);

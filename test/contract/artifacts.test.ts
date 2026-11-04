@@ -16,10 +16,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import {
-  DEFAULT_RUNTIME_LIMITS,
-  type Artifact,
-} from '../../src/domain/runtime.ts';
+import { DEFAULT_RUNTIME_LIMITS, type Artifact } from '../../src/domain/runtime.ts';
 import type { TaskState } from '../../src/domain/state.ts';
 import type { Store } from '../../src/store/index.ts';
 import {
@@ -30,12 +27,7 @@ import {
   type RunEntry,
 } from '../../src/daemon/retention.ts';
 import { artifactId, collectArtifacts } from '../../src/runner/artifacts.ts';
-import {
-  EventLogWriter,
-  RUN_FILES,
-  RunDir,
-  RunnerFileError,
-} from '../../src/runner/files.ts';
+import { EventLogWriter, RUN_FILES, RunDir, RunnerFileError } from '../../src/runner/files.ts';
 import { Redactor } from '../../src/runner/redact.ts';
 
 const dirs: string[] = [];
@@ -91,11 +83,7 @@ describe('artifacts are redacted, bounded and stay inside the run directory', ()
     const arts = collectArtifacts(run, 'op-1');
     expect(arts.ok).toBe(true);
     if (!arts.ok) return;
-    expect(arts.value.map((a) => a.kind).sort()).toEqual([
-      'events',
-      'exit',
-      'stderr',
-    ]);
+    expect(arts.value.map((a) => a.kind).sort()).toEqual(['events', 'exit', 'stderr']);
     for (const a of arts.value) {
       const text = readFileSync(run.resolve(a.relative_path), 'utf8');
       expect(text).not.toContain(CANARY);
@@ -165,8 +153,7 @@ function entry(over: Partial<RunEntry> = {}): RunEntry {
     operation_id: 'op-1',
     kind: 'exit',
     relative_path: 'exit.json',
-    digest:
-      'sha256:1111111111111111111111111111111111111111111111111111111111111111',
+    digest: 'sha256:1111111111111111111111111111111111111111111111111111111111111111',
     bytes: 10,
     redaction_version: 2,
     finalized: true,
@@ -252,9 +239,7 @@ describe('retention only after terminal + ACK + 30 days', () => {
     expect(tomb.state).toBe('valid');
     expect(run.readFinal(RUN_FILES.exit).state).toBe('missing');
     if (tomb.state === 'valid')
-      expect((tomb.value as { artifacts: unknown[] }).artifacts).toHaveLength(
-        arts.value.length,
-      );
+      expect((tomb.value as { artifacts: unknown[] }).artifacts).toHaveLength(arts.value.length);
   });
 });
 
@@ -267,9 +252,7 @@ describe('a retention pass over the store', () => {
       ({
         status,
         operations: { 'op-1': { id: 'op-1', attempt_id: null } },
-        artifacts: committed
-          ? Object.fromEntries(arts.value.map((a) => [a.artifact_id, a]))
-          : {},
+        artifacts: committed ? Object.fromEntries(arts.value.map((a) => [a.artifact_id, a])) : {},
       }) as unknown as TaskState;
     const store = (s: TaskState) =>
       ({
@@ -284,16 +267,12 @@ describe('a retention pass over the store', () => {
         now: 40 * DAY,
         retention_ms: 30 * DAY,
       });
-    expect(sweep(state('DONE', false)).keep_runs).toEqual([
-      { id: 'op-1', reason: 'not_acked' },
-    ]);
+    expect(sweep(state('DONE', false)).keep_runs).toEqual([{ id: 'op-1', reason: 'not_acked' }]);
     expect(run.readFinal(RUN_FILES.exit).state).toBe('valid');
     expect(sweep(state('DONE', true)).delete_runs).toHaveLength(1);
     expect(run.readFinal(TOMBSTONE_FILE).state).toBe('valid');
     expect(run.readFinal(RUN_FILES.exit).state).toBe('missing');
     // A second pass sees the tombstone and leaves it.
-    expect(sweep(state('DONE', true)).keep_runs).toEqual([
-      { id: 'op-1', reason: 'tombstoned' },
-    ]);
+    expect(sweep(state('DONE', true)).keep_runs).toEqual([{ id: 'op-1', reason: 'tombstoned' }]);
   });
 });

@@ -20,12 +20,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { closeSync, openSync, readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { err, ok, type Result } from '../shared/result.ts';
-import {
-  EventLogWriter,
-  RUN_FILES,
-  type AppendError,
-  type RunDir,
-} from './files.ts';
+import { EventLogWriter, RUN_FILES, type AppendError, type RunDir } from './files.ts';
 import { bootId, captureIdentity, ownCgroup, unitName } from './identity.ts';
 import { claimLaunch } from './operation-lock.ts';
 import {
@@ -207,10 +202,7 @@ function readSpec(run: RunDir): Result<InvocationSpec, string> {
  * Runs the operation of `run` to its end and writes exit.json. The caller (the unit) already holds
  * the operation lock.
  */
-export async function execOperation(
-  run: RunDir,
-  deps: LifecycleDeps = {},
-): Promise<ExecResult> {
+export async function execOperation(run: RunDir, deps: LifecycleDeps = {}): Promise<ExecResult> {
   const clock = deps.clock ?? SYSTEM_CLOCK;
   const proc = deps.proc ?? PROC;
   const sampleMs = deps.sample_ms ?? 1_000;
@@ -342,9 +334,7 @@ export async function execOperation(
       error: e instanceof Error ? e.message : String(e),
     });
   }
-  const spawned = await new Promise<
-    { ok: true } | { ok: false; error: string }
-  >((res) => {
+  const spawned = await new Promise<{ ok: true } | { ok: false; error: string }>((res) => {
     child.once('spawn', () => res({ ok: true }));
     child.once('error', (e) => res({ ok: false, error: e.message }));
   });
@@ -394,28 +384,25 @@ export async function execOperation(
     } else truncated++;
     return false;
   };
-  const stdout = new LineSplitter(
-    run.limits.log_record_bytes - 4096,
-    (line) => {
-      if (!storing(line?.length ?? 0)) return;
-      if (line === null) {
-        truncated++;
-        append('stdout.truncated', { reason: 'record over cap' }, 0);
-        return;
-      }
-      const text = line.toString('utf8');
-      let data: unknown;
-      try {
-        data = JSON.parse(text) as unknown;
-      } catch {
-        data = { text };
-      }
-      if (append('stdout', data, line.length)) {
-        records++;
-        deps.onRecord?.(data);
-      }
-    },
-  );
+  const stdout = new LineSplitter(run.limits.log_record_bytes - 4096, (line) => {
+    if (!storing(line?.length ?? 0)) return;
+    if (line === null) {
+      truncated++;
+      append('stdout.truncated', { reason: 'record over cap' }, 0);
+      return;
+    }
+    const text = line.toString('utf8');
+    let data: unknown;
+    try {
+      data = JSON.parse(text) as unknown;
+    } catch {
+      data = { text };
+    }
+    if (append('stdout', data, line.length)) {
+      records++;
+      deps.onRecord?.(data);
+    }
+  });
   // Both streams are buffered into whole lines, so log.seq misses output that has not ended a line
   // yet; every chunk received counts as progress.
   let outputChunks = 0;
@@ -446,8 +433,7 @@ export async function execOperation(
     tree();
     for (const [p, ticks] of known) {
       const t = proc.stat(p);
-      const now =
-        t === null ? null : t.slice(t.lastIndexOf(')') + 2).split(' ')[19];
+      const now = t === null ? null : t.slice(t.lastIndexOf(')') + 2).split(' ')[19];
       if (now !== undefined && now !== null && Number(now) === ticks)
         sent = signalPid(p, sig) || sent;
     }
@@ -477,8 +463,7 @@ export async function execOperation(
   const watch = spec.watch ?? [];
   const sample = (): void => {
     const t = processTree(pid, proc);
-    for (const s of t ?? [])
-      if (!known.has(s.pid)) known.set(s.pid, s.start_ticks);
+    for (const s of t ?? []) if (!known.has(s.pid)) known.set(s.pid, s.start_ticks);
     const now = clock.monotonic();
     const s = {
       cpu_ticks: t === null ? null : t.reduce((a, x) => a + x.cpu_ticks, 0),
@@ -488,12 +473,8 @@ export async function execOperation(
     };
     samples++;
     const prev = progress;
-    progress =
-      prev === null ? initialProgress(s, now) : assessProgress(prev, s, now);
-    if (
-      prev === null ||
-      progress.last_progress_mono !== prev.last_progress_mono
-    )
+    progress = prev === null ? initialProgress(s, now) : assessProgress(prev, s, now);
+    if (prev === null || progress.last_progress_mono !== prev.last_progress_mono)
       progressAt = clock.now();
     try {
       run.writeJson(RUN_FILES.progress, {
@@ -527,13 +508,11 @@ export async function execOperation(
   if (storageError !== null) terminate('artifact_backpressure');
   sample();
   const sampler = setInterval(sample, sampleMs);
-  const unsubscribe = (deps.onStop ?? processStop)(() =>
-    terminate('cancelled'),
-  );
+  const unsubscribe = (deps.onStop ?? processStop)(() => terminate('cancelled'));
 
-  const [code, signal] = await new Promise<
-    [number | null, NodeJS.Signals | null]
-  >((res) => child.once('exit', (c, s) => res([c, s])));
+  const [code, signal] = await new Promise<[number | null, NodeJS.Signals | null]>((res) =>
+    child.once('exit', (c, s) => res([c, s])),
+  );
   clearInterval(sampler);
   unsubscribe();
   // The leader is gone; anything left of its tree is part of this operation and is stopped too.
@@ -564,15 +543,12 @@ export async function execOperation(
   // stdio may stay open in an escaped descendant; do not wait for it indefinitely.
   await Promise.race([
     new Promise<void>((r) =>
-      (child.stdout?.readableEnded ?? true)
-        ? r()
-        : child.stdout?.once('end', () => r()),
+      (child.stdout?.readableEnded ?? true) ? r() : child.stdout?.once('end', () => r()),
     ),
     sleep(500),
   ]);
   stdout.end();
-  const outcome: RunOutcome =
-    stopReason ?? (signal !== null ? 'signaled' : 'exited');
+  const outcome: RunOutcome = stopReason ?? (signal !== null ? 'signaled' : 'exited');
   return finish(outcome, {
     code,
     signal,

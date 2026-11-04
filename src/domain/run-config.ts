@@ -55,8 +55,7 @@ function reviewerMatchesMode(
     });
 }
 
-export const RunSelectionSchema =
-  RunSelectionFields.superRefine(reviewerMatchesMode);
+export const RunSelectionSchema = RunSelectionFields.superRefine(reviewerMatchesMode);
 /** A selection as a caller proposes it; the server binds it to the task ID and revision. */
 export const RunProposalSchema = RunSelectionFields.omit({
   task_id: true,
@@ -73,9 +72,7 @@ export function sameChoice(
   a: RunChoice,
   b: { harness: string; model: string; effort: string },
 ): boolean {
-  return (
-    a.harness === b.harness && a.model === b.model && a.effort === b.effort
-  );
+  return a.harness === b.harness && a.model === b.model && a.effort === b.effort;
 }
 
 /**

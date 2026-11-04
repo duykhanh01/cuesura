@@ -100,10 +100,7 @@ describe('run_options', () => {
       revision: 1,
       profile: { id: 'standard', source: 'project' },
     });
-    expect(data.modes.map((m) => m.mode).sort()).toEqual([
-      'direct-pr',
-      'full-review',
-    ]);
+    expect(data.modes.map((m) => m.mode).sort()).toEqual(['direct-pr', 'full-review']);
     const full = data.modes.find((m) => m.mode === 'full-review');
     expect(full?.reviewers.map((c) => c.model)).toEqual(['sol']);
     expect(full?.workers.map((w) => w.choice.model)).toEqual(['sonnet']);
@@ -111,9 +108,9 @@ describe('run_options', () => {
     expect(direct?.reviewers).toEqual([]);
     expect(direct?.workers.map((w) => w.choice.model)).toEqual(['sonnet']);
     // `opus` is on the ladder but the `standard` profile does not allow that model.
-    expect(
-      full?.workers[0]?.fallbacks.map((f) => `${f.model}/${f.effort}`),
-    ).toEqual([expect.stringMatching(/^sonnet\/high$/)]);
+    expect(full?.workers[0]?.fallbacks.map((f) => `${f.model}/${f.effort}`)).toEqual([
+      expect.stringMatching(/^sonnet\/high$/),
+    ]);
   });
 
   it('the profile of the task wins, and is reported as coming from the task', async () => {
@@ -131,11 +128,8 @@ describe('run_options', () => {
       const t = buildTask({ size, profile: 'heavy' });
       sd.seed((d) => d.must(t.id, { kind: 'create_task', task: t }));
       await sd.start();
-      const data = (await options(sd, t.id)).envelope
-        .data as unknown as Options;
-      return data.modes
-        .find((m) => m.mode === 'direct-pr')
-        ?.workers.map((w) => w.choice.model);
+      const data = (await options(sd, t.id)).envelope.data as unknown as Options;
+      return data.modes.find((m) => m.mode === 'direct-pr')?.workers.map((w) => w.choice.model);
     };
 
     it('a coder binding the fixer does not share is not offered', async () => {
@@ -160,17 +154,14 @@ describe('run_options', () => {
   it('shows the declared guidance of a mode and leaves out a mode that is not allowed', async () => {
     const sd = daemon({
       user: userConfig({
-        runtime:
-          'runtime:\n  modes:\n    direct-pr: { when_to_use: "small, low risk" }',
+        runtime: 'runtime:\n  modes:\n    direct-pr: { when_to_use: "small, low risk" }',
       }),
     });
     const t = buildTask();
     sd.seed((d) => d.must(t.id, { kind: 'create_task', task: t }));
     await sd.start();
     const data = (await options(sd, t.id)).envelope.data as unknown as Options;
-    expect(data.modes).toMatchObject([
-      { mode: 'direct-pr', when_to_use: 'small, low risk' },
-    ]);
+    expect(data.modes).toMatchObject([{ mode: 'direct-pr', when_to_use: 'small, low risk' }]);
   });
 
   it('reads the base from the local ref and never fetches', async () => {
@@ -250,9 +241,7 @@ describe('run_options', () => {
     const t = buildTask();
     sd.seed((d) => d.must(t.id, { kind: 'create_task', task: t }));
     await sd.start();
-    expect(JSON.stringify((await options(sd, t.id)).envelope)).not.toContain(
-      '/secret/',
-    );
+    expect(JSON.stringify((await options(sd, t.id)).envelope)).not.toContain('/secret/');
   });
 
   it('changes nothing', async () => {

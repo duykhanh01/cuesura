@@ -31,9 +31,9 @@ describe('Redactor', () => {
       'openai-value-1',
     ]);
     const r = new Redactor({ env });
-    expect(
-      r.text('gh-value-123456 openai-value-1 hunter22 /usr/bin:/bin'),
-    ).toBe(`${REDACTED} ${REDACTED} ${REDACTED} /usr/bin:/bin`);
+    expect(r.text('gh-value-123456 openai-value-1 hunter22 /usr/bin:/bin')).toBe(
+      `${REDACTED} ${REDACTED} ${REDACTED} /usr/bin:/bin`,
+    );
   });
 
   it.each([
@@ -62,10 +62,7 @@ describe('Redactor', () => {
     const out = r.value({
       argv: ['--auth', 'literal-secret-1'],
       env: { GITHUB_TOKEN: 'short', PATH: '/bin' },
-      nested: [
-        { msg: 'Authorization: Bearer abc.def.ghi' },
-        { gh: `ghp_${'a'.repeat(36)}` },
-      ],
+      nested: [{ msg: 'Authorization: Bearer abc.def.ghi' }, { gh: `ghp_${'a'.repeat(36)}` }],
       usage: { input_tokens: 12 },
       'literal-secret-1': true,
     });
@@ -98,13 +95,10 @@ describe('Redactor', () => {
 
   it('matches well-known credential shapes without being told the value', () => {
     const r = new Redactor();
-    const key =
-      '-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----';
+    const key = '-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----';
     expect(r.text(`a ${key} b`)).toBe(`a ${REDACTED} b`);
     expect(r.text('AKIAABCDEFGHIJKLMNOP')).toBe(REDACTED);
-    expect(r.text('"password": "correct-horse"')).toBe(
-      `"password": "${REDACTED}"`,
-    );
+    expect(r.text('"password": "correct-horse"')).toBe(`"password": "${REDACTED}"`);
   });
 
   it('rejects values that are not JSON-serializable', () => {
@@ -120,9 +114,7 @@ describe('Redactor', () => {
       const token = 'test-only-download-token';
       const url = `${base}${token}&raw=1#section`;
       const expected = `${base}${REDACTED}&raw=1#section`;
-      expect(r.text(`Download '${url}' now`)).toBe(
-        `Download '${expected}' now`,
-      );
+      expect(r.text(`Download '${url}' now`)).toBe(`Download '${expected}' now`);
       expect(r.text(JSON.stringify({ download_url: url }))).toBe(
         JSON.stringify({ download_url: expected }),
       );
@@ -140,10 +132,7 @@ describe('secretValuesFromText', () => {
       tokens: { access_token: 'access-0123456789', id: 'short' },
       list: ['refresh-0123456789'],
     });
-    expect(secretValuesFromText(text).sort()).toEqual([
-      'access-0123456789',
-      'refresh-0123456789',
-    ]);
+    expect(secretValuesFromText(text).sort()).toEqual(['access-0123456789', 'refresh-0123456789']);
   });
 
   it('falls back to lines and KEY=value right-hand sides', () => {

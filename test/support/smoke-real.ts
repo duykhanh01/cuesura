@@ -47,9 +47,7 @@ export const RealSmokeSchema = z
 export type RealSmoke = z.infer<typeof RealSmokeSchema>;
 
 /** The operator's file, or null when the real half was not asked for; a bad file is an error, not a skip. */
-export function loadRealSmoke(
-  env: NodeJS.ProcessEnv = process.env,
-): RealSmoke | null {
+export function loadRealSmoke(env: NodeJS.ProcessEnv = process.env): RealSmoke | null {
   const file = env['CUSR_SMOKE_REAL'];
   if (file === undefined || file === '') return null;
   return RealSmokeSchema.parse(JSON.parse(readFileSync(file, 'utf8')));
@@ -114,9 +112,7 @@ export class RealRun extends SmokeDriver {
         this.#stderr += d.toString();
         if (own.includes('listening on')) resolve();
       });
-      child.once('exit', (code) =>
-        reject(new Error(`cusrd exited ${code}: ${this.#stderr}`)),
-      );
+      child.once('exit', (code) => reject(new Error(`cusrd exited ${code}: ${this.#stderr}`)));
     });
   }
 
@@ -148,11 +144,10 @@ export class RealRun extends SmokeDriver {
   /** The PR as GitHub itself reports it, not as the daemon recorded it. */
   pull(prRef: string): { state: string; merged: boolean; head_sha: string } {
     const number = prRef.split('#')[1];
-    const r = spawnSync(
-      'gh',
-      ['api', `repos/${this.direction.repo}/pulls/${number}`],
-      { encoding: 'utf8', timeout: 60_000 },
-    );
+    const r = spawnSync('gh', ['api', `repos/${this.direction.repo}/pulls/${number}`], {
+      encoding: 'utf8',
+      timeout: 60_000,
+    });
     if (r.status !== 0) throw new Error(`gh: ${r.stderr}`);
     const pr = JSON.parse(r.stdout) as {
       state: string;

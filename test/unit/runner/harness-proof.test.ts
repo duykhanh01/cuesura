@@ -22,8 +22,7 @@ const failure = events.find(
     typeof e['tool_use_result'] === 'string' &&
     e['tool_use_result'].includes('Read-only file system'),
 );
-if (failure === undefined)
-  throw new Error('real Claude OS denial fixture missing');
+if (failure === undefined) throw new Error('real Claude OS denial fixture missing');
 const message = failure['message'];
 const content = isRec(message) ? message['content'] : undefined;
 const block = Array.isArray(content) ? content.find(isRec) : undefined;
@@ -101,14 +100,8 @@ describe('the Codex sandbox probe', () => {
 
   it.each([
     ['a write that succeeded', { status: 0, output: '' }],
-    [
-      'a failure that is not an OS refusal',
-      { status: 1, output: `${marker}: no such tool` },
-    ],
-    [
-      'an OS refusal of another path',
-      { status: 1, output: 'Read-only file system' },
-    ],
+    ['a failure that is not an OS refusal', { status: 1, output: `${marker}: no such tool` }],
+    ['an OS refusal of another path', { status: 1, output: 'Read-only file system' }],
     ['a killed probe', { status: null, output: denied }],
   ])('refuses %s', (_name, write) => {
     expect(probe('coder', write).result).toBe(false);

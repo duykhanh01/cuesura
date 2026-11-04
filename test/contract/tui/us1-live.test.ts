@@ -59,10 +59,7 @@ function replaceToken(path: string, token: string): void {
 }
 
 /** Nothing connects for this long, on a session that says it has stopped trying. */
-async function expectNoNewConnections(
-  proxy: ControlProxy,
-  ms: number,
-): Promise<void> {
+async function expectNoNewConnections(proxy: ControlProxy, ms: number): Promise<void> {
   const before = proxy.connections;
   await new Promise((r) => setTimeout(r, ms));
   expect(proxy.connections).toBe(before);
@@ -194,16 +191,8 @@ describe('US1 scenario 7 and FR-004: quitting changes nothing but the terminal',
   it.each([
     ['q', 0, (s: PtySession) => s.send('q')],
     ['Ctrl-C', 0, (s: PtySession) => s.send(KEY.ctrlC)],
-    [
-      'SIGTERM',
-      143,
-      async (s: PtySession) => s.signal('SIGTERM', await s.programPid()),
-    ],
-    [
-      'SIGHUP',
-      129,
-      async (s: PtySession) => s.signal('SIGHUP', await s.programPid()),
-    ],
+    ['SIGTERM', 143, async (s: PtySession) => s.signal('SIGTERM', await s.programPid())],
+    ['SIGHUP', 129, async (s: PtySession) => s.signal('SIGHUP', await s.programPid())],
   ] as const)(
     '%s gives the terminal back; tasks and the daemon go on exactly as they were',
     async (_how, status, leave) => {
@@ -364,9 +353,7 @@ describe('EC-008 and EC-009: another token with nothing new in the daemon', () =
   it('reads the board, the caller and the projects again, in both directions', async () => {
     const sd = tui.daemon({
       projects: ['beta'],
-      tokens: [
-        { id: 'acme', actor: 'acme', roles: ['read'], projects: ['acme'] },
-      ],
+      tokens: [{ id: 'acme', actor: 'acme', roles: ['read'], projects: ['acme'] }],
     });
     sd.seed((d) => {
       seedRunning(d, 1, () => ({ title: 'In acme' }), 1);
@@ -427,10 +414,7 @@ describe('US1 scenario 10 and EC-010: a daemon of another version', () => {
     await expectNoNewConnections(proxy, 1_500);
     expect(s.screenText()).toContain('Stopped:');
     s.send('R');
-    await s.waitFor(
-      () => !s.screenText().includes('Data may be out of date'),
-      10_000,
-    );
+    await s.waitFor(() => !s.screenText().includes('Data may be out of date'), 10_000);
     expect(s.screenText()).toContain('◇ 1 ready');
     s.send('q');
     expect((await s.waitForExit()).status).toBe(0);

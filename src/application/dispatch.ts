@@ -70,9 +70,7 @@ export async function dispatchGuidance(
       details: {},
     });
 
-  const own = Object.hasOwn(projectDispatch, project)
-    ? projectDispatch[project]
-    : undefined;
+  const own = Object.hasOwn(projectDispatch, project) ? projectDispatch[project] : undefined;
   const chosen = own ?? runtime?.dispatch ?? null;
   return ok({
     project,

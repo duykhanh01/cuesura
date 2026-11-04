@@ -11,11 +11,7 @@
 import { readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Artifact } from '../domain/runtime.ts';
-import {
-  isTerminal,
-  TERMINAL_STATUSES,
-  type TaskState,
-} from '../domain/state.ts';
+import { isTerminal, TERMINAL_STATUSES, type TaskState } from '../domain/state.ts';
 import { collectArtifacts } from '../runner/artifacts.ts';
 import { RUN_FILES, RunDir, type RunDirKind } from '../runner/files.ts';
 import { RunnerExitSchema } from '../runner/lifecycle.ts';
@@ -136,15 +132,14 @@ export function tombstoneRun(run: RunDir, entry: RunEntry, now: number): void {
     })),
   });
   for (const name of readdirSync(run.dir))
-    if (name !== TOMBSTONE_FILE)
-      rmSync(join(run.dir, name), { recursive: true, force: true });
+    if (name !== TOMBSTONE_FILE) rmSync(join(run.dir, name), { recursive: true, force: true });
 }
 
 /** Where an operation's runner files live: its attempt's run directory, or its own. */
-export function runLocation(op: {
-  readonly id: string;
-  readonly attempt_id: string | null;
-}): { kind: RunDirKind; id: string } {
+export function runLocation(op: { readonly id: string; readonly attempt_id: string | null }): {
+  kind: RunDirKind;
+  id: string;
+} {
   return op.attempt_id === null
     ? { kind: 'operations', id: op.id }
     : { kind: 'runs', id: op.attempt_id };
@@ -176,9 +171,7 @@ export function taskRunEntries(
     }
     const tombstoned = run.readFinal(TOMBSTONE_FILE).state === 'valid';
     const exit = run.readFinal(RUN_FILES.exit, RunnerExitSchema);
-    const arts = tombstoned
-      ? { ok: true as const, value: [] }
-      : collectArtifacts(run, op.id);
+    const arts = tombstoned ? { ok: true as const, value: [] } : collectArtifacts(run, op.id);
     const committed: Record<string, string> = {};
     for (const a of Object.values(s.artifacts))
       if (a.operation_id === op.id) committed[a.artifact_id] = a.digest;
@@ -189,9 +182,7 @@ export function taskRunEntries(
       task_terminal: o.terminal,
       ended_at: exit.state === 'valid' ? exit.value.ended_at : null,
       // A run whose files cannot be indexed is kept: nothing unverifiable is deleted.
-      artifacts: arts.ok
-        ? arts.value
-        : [{ ...placeholder(op.id), finalized: false }],
+      artifacts: arts.ok ? arts.value : [{ ...placeholder(op.id), finalized: false }],
       committed,
       tombstoned,
     });
@@ -205,8 +196,7 @@ function placeholder(operationId: string): Artifact {
     operation_id: operationId,
     kind: 'evidence',
     relative_path: 'unindexable',
-    digest:
-      'sha256:0000000000000000000000000000000000000000000000000000000000000000',
+    digest: 'sha256:0000000000000000000000000000000000000000000000000000000000000000',
     bytes: 0,
     redaction_version: 1,
     finalized: false,

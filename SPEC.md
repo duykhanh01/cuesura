@@ -601,7 +601,7 @@ Chỉ số gồm token và agent runs/task được chấp nhận, wasted runs, 
 | ID | UUIDv7 qua package `uuid`; ID/clock được cung cấp từ ngoài engine |
 | Kiểm thử | Vitest + fast-check; Clock inject ở tầng có I/O, fake ports/harness, fixture và crash injection; `node-pty` và `@xterm/headless` cho kiểm thử giao diện terminal |
 | Package manager | pnpm, pin phiên bản trong metadata project, commit lockfile, CI cài bằng frozen lockfile |
-| Lint/format | ESLint + typescript-eslint + Prettier; kiểm tra Promise không được xử lý và dùng Promise sai ngữ cảnh |
+| Lint/format | ESLint + typescript-eslint, format bằng Oxfmt; kiểm tra Promise không được xử lý và dùng Promise sai ngữ cảnh |
 | GitHub | `gh` qua port mỏng có timeout, phân loại lỗi và fake phục vụ kiểm thử |
 
 Typecheck, lint, test và build là các kiểm tra riêng; Vitest chạy xanh không thay thế typecheck. Không thêm framework workflow, ORM hoặc DI container chỉ để chuẩn bị cho khả năng mở rộng chưa cần.

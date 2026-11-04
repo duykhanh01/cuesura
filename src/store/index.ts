@@ -33,16 +33,9 @@ export type { Timer } from './read.ts';
 
 export interface Store {
   accept(envelope: TriggerEnvelope): Result<AcceptOutcome, AcceptError>;
-  claimEffect(
-    effectId: Uuid,
-    now: EpochMs,
-    req?: ClaimRequest,
-  ): Result<Effect, ClaimError>;
+  claimEffect(effectId: Uuid, now: EpochMs, req?: ClaimRequest): Result<Effect, ClaimError>;
   /** Grants the free execution slot to the queue head, if any (FR-044.01); `ids` feed a resumed step. */
-  grantNext(
-    now: EpochMs,
-    ids?: readonly string[],
-  ): Result<GrantOutcome, AcceptError>;
+  grantNext(now: EpochMs, ids?: readonly string[]): Result<GrantOutcome, AcceptError>;
   readQueue(limit: number): read.QueuedRequest[];
   readSlot(): {
     holder_task_id: string;
@@ -76,23 +69,14 @@ export interface Store {
       readonly limit: number;
     },
   ): string[];
-  countTasksByStatus(
-    filter: read.TaskFilter,
-  ): Partial<Record<TaskStatus, number>>;
+  countTasksByStatus(filter: read.TaskFilter): Partial<Record<TaskStatus, number>>;
   queueLength(projects: readonly string[] | null): number;
   lastGlobalSeq(): number;
   triggerTime(dedupKey: string): number | null;
   readEvents(taskId: Uuid, fromSeq?: number): DomainEvent[];
-  readPolicy(
-    taskId: Uuid,
-    revision: number,
-    policyVersion?: number,
-  ): FrozenPolicy | null;
+  readPolicy(taskId: Uuid, revision: number, policyVersion?: number): FrozenPolicy | null;
   readContext(taskId: Uuid, revision: number): FrozenExecutionContext | null;
-  readRuntimeContext(
-    taskId: Uuid,
-    revision: number,
-  ): FrozenRuntimeContext | null;
+  readRuntimeContext(taskId: Uuid, revision: number): FrozenRuntimeContext | null;
   /** Every project path any snapshot froze. */
   frozenProjectPaths(): string[];
   /** Operations not proven finished or never launched, in ID order (startup reconciles these). */
@@ -116,17 +100,10 @@ export class SqliteStore implements Store {
   accept(envelope: TriggerEnvelope): Result<AcceptOutcome, AcceptError> {
     return accept(this.db, envelope, this.crash);
   }
-  claimEffect(
-    effectId: Uuid,
-    now: EpochMs,
-    req: ClaimRequest = {},
-  ): Result<Effect, ClaimError> {
+  claimEffect(effectId: Uuid, now: EpochMs, req: ClaimRequest = {}): Result<Effect, ClaimError> {
     return claimEffect(this.db, effectId, now, this.crash, req);
   }
-  grantNext(
-    now: EpochMs,
-    ids: readonly string[] = [],
-  ): Result<GrantOutcome, AcceptError> {
+  grantNext(now: EpochMs, ids: readonly string[] = []): Result<GrantOutcome, AcceptError> {
     return grantNext(this.db, now, this.crash, ids);
   }
   readQueue(limit: number): read.QueuedRequest[] {
@@ -187,9 +164,7 @@ export class SqliteStore implements Store {
   ): string[] {
     return read.taskPage(this.db, filter);
   }
-  countTasksByStatus(
-    filter: read.TaskFilter,
-  ): Partial<Record<TaskStatus, number>> {
+  countTasksByStatus(filter: read.TaskFilter): Partial<Record<TaskStatus, number>> {
     return read.countTasksByStatus(this.db, filter);
   }
   queueLength(projects: readonly string[] | null): number {
@@ -204,20 +179,13 @@ export class SqliteStore implements Store {
   readEvents(taskId: Uuid, fromSeq?: number): DomainEvent[] {
     return read.readEvents(this.db, taskId, fromSeq);
   }
-  readPolicy(
-    taskId: Uuid,
-    revision: number,
-    policyVersion?: number,
-  ): FrozenPolicy | null {
+  readPolicy(taskId: Uuid, revision: number, policyVersion?: number): FrozenPolicy | null {
     return read.readPolicy(this.db, taskId, revision, policyVersion);
   }
   readContext(taskId: Uuid, revision: number): FrozenExecutionContext | null {
     return read.readContext(this.db, taskId, revision);
   }
-  readRuntimeContext(
-    taskId: Uuid,
-    revision: number,
-  ): FrozenRuntimeContext | null {
+  readRuntimeContext(taskId: Uuid, revision: number): FrozenRuntimeContext | null {
     return read.readRuntimeContext(this.db, taskId, revision);
   }
   frozenProjectPaths(): string[] {
@@ -230,9 +198,9 @@ export class SqliteStore implements Store {
     return verifyProjections(this.db);
   }
   integrityCheck(): string[] {
-    return (
-      this.db.pragma('integrity_check') as { integrity_check: string }[]
-    ).map((r) => r.integrity_check);
+    return (this.db.pragma('integrity_check') as { integrity_check: string }[]).map(
+      (r) => r.integrity_check,
+    );
   }
   schemaVersion(): number {
     return (

@@ -2,11 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { TaskShow } from '../../../src/tui/client/schemas.ts';
 import { initialDetail } from '../../../src/tui/model/detail.ts';
 import { reduce } from '../../../src/tui/model/reduce.ts';
-import {
-  animating,
-  initialState,
-  type TuiState,
-} from '../../../src/tui/model/state.ts';
+import { animating, initialState, type TuiState } from '../../../src/tui/model/state.ts';
 import { progressStages, rowStages } from '../../../src/tui/model/stages.ts';
 import { uiText } from '../../../src/tui/terminal/safe-text.ts';
 import { plain } from '../../../src/tui/views/ink.ts';
@@ -51,11 +47,7 @@ describe('stages', () => {
 
   it('never shows a stage the mode leaves out as one that ran', () => {
     const stages = progressStages(
-      [
-        step('code', 'past'),
-        step('review', 'not_required', 0),
-        step('ci', 'current'),
-      ],
+      [step('code', 'past'), step('review', 'not_required', 0), step('ci', 'current')],
       'WAITING',
     );
     const path = plain(stepper(stages ?? [], 'WAITING'));
@@ -79,9 +71,7 @@ describe('stages', () => {
   });
 
   it('draws nothing for a workflow it does not know', () => {
-    expect(
-      rowStages({ status: 'RUNNING', step: 'paint', mode: null }),
-    ).toBeNull();
+    expect(rowStages({ status: 'RUNNING', step: 'paint', mode: null })).toBeNull();
     expect(progressStages([step('paint', 'current')], 'RUNNING')).toBeNull();
   });
 
@@ -122,10 +112,7 @@ describe('markdown', () => {
 
 describe('animation', () => {
   const base = initialState({ cols: 120, rows: 40 });
-  const withStatus = (
-    status: string,
-    screens: TuiState['screens'],
-  ): TuiState => ({
+  const withStatus = (status: string, screens: TuiState['screens']): TuiState => ({
     ...base,
     screens,
     detail: {
@@ -140,12 +127,8 @@ describe('animation', () => {
   });
 
   it('turns only on the screen of a running task', () => {
-    expect(animating(withStatus('RUNNING', ['home', 'detail', 'logs']))).toBe(
-      true,
-    );
-    expect(animating(withStatus('WAITING', ['home', 'detail', 'logs']))).toBe(
-      false,
-    );
+    expect(animating(withStatus('RUNNING', ['home', 'detail', 'logs']))).toBe(true);
+    expect(animating(withStatus('WAITING', ['home', 'detail', 'logs']))).toBe(false);
     expect(animating(withStatus('RUNNING', ['home']))).toBe(false);
   });
 

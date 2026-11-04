@@ -44,9 +44,7 @@ export function disconnectedRows(s: TuiState, cols: number): SafeText[] {
     case 'stopped':
       return wrap(
         uiText(
-          s.filterDraft?.field === 'project'
-            ? retryHint(s)
-            : 'It will not try again on its own.',
+          s.filterDraft?.field === 'project' ? retryHint(s) : 'It will not try again on its own.',
         ),
         cols,
       );
@@ -57,13 +55,8 @@ export const withDisconnected =
   (s: TuiState, body: Body): Body =>
   (frame, top, height) => {
     // At most half the room, so the data under it stays in view.
-    const rows = disconnectedRows(s, s.size.cols).slice(
-      0,
-      Math.floor(height / 2),
-    );
-    rows.forEach((row, i) =>
-      frame.put(0, top + i, truncate(row, s.size.cols), { fg: 'yellow' }),
-    );
+    const rows = disconnectedRows(s, s.size.cols).slice(0, Math.floor(height / 2));
+    rows.forEach((row, i) => frame.put(0, top + i, truncate(row, s.size.cols), { fg: 'yellow' }));
     body(frame, top + rows.length, height - rows.length);
   };
 
@@ -73,7 +66,5 @@ export function contentHeight(s: TuiState): number {
   const room = Math.floor((rows - 2) / 2);
   const top = 1 + staleBanner(s).length + notices(s, cols, room).length;
   const height = rows - top - 1;
-  return (
-    height - Math.min(disconnectedRows(s, cols).length, Math.floor(height / 2))
-  );
+  return height - Math.min(disconnectedRows(s, cols).length, Math.floor(height / 2));
 }

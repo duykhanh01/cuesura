@@ -19,22 +19,13 @@ import { readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { v7 as uuidv7 } from 'uuid';
 import { afterAll, describe, expect, it } from 'vitest';
-import {
-  FileCommitIntentStore,
-  commitCheckpoint,
-} from '../../../src/adapters/git/commit.ts';
-import {
-  probeCommit,
-  probeLocalRemainder,
-} from '../../../src/adapters/git/reconcile.ts';
+import { FileCommitIntentStore, commitCheckpoint } from '../../../src/adapters/git/commit.ts';
+import { probeCommit, probeLocalRemainder } from '../../../src/adapters/git/reconcile.ts';
 import { notifyDependents } from '../../../src/application/dependency.ts';
 import { drainRound } from '../../../src/daemon/drain.ts';
 import { pushBranch } from '../../../src/adapters/git/push.ts';
 import { taskBranch } from '../../../src/adapters/git/worktree.ts';
-import {
-  createOrRecoverPr,
-  type PrSpec,
-} from '../../../src/adapters/github/publish.ts';
+import { createOrRecoverPr, type PrSpec } from '../../../src/adapters/github/publish.ts';
 import { FakeHarness } from '../../../src/adapters/harness/fake.ts';
 import type {
   GitCommand,
@@ -47,10 +38,7 @@ import type {
   SandboxProvider,
 } from '../../../src/adapters/ports.ts';
 import { Dispatcher } from '../../../src/daemon/dispatch.ts';
-import {
-  buildHandlers,
-  type HandlerDeps,
-} from '../../../src/daemon/handlers.ts';
+import { buildHandlers, type HandlerDeps } from '../../../src/daemon/handlers.ts';
 import { STORE_FILE } from '../../../src/daemon/main.ts';
 import { recoverStore, type StartupDeps } from '../../../src/daemon/startup.ts';
 import type { CanonicalTask } from '../../../src/domain/task.ts';
@@ -68,12 +56,7 @@ import { hashText } from '../../../src/shared/hash.ts';
 import { err, ok, type Result } from '../../../src/shared/result.ts';
 import type { Store } from '../../../src/store/index.ts';
 import { openFileStoreForTest } from '../../../src/store/testing.ts';
-import {
-  buildTask,
-  DEFAULT_CI_RULES,
-  freezeOk,
-  uuidOf,
-} from '../../support/builders.ts';
+import { buildTask, DEFAULT_CI_RULES, freezeOk, uuidOf } from '../../support/builders.ts';
 import { FakeGitHub } from '../../support/fake-github.ts';
 import { gitSandbox } from '../../support/git-repo.ts';
 import {
@@ -84,11 +67,7 @@ import {
 } from '../../support/runtime.ts';
 import { agentData, reviewData } from '../../support/scenario.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
-import {
-  checkpointGates,
-  currentReviewInput,
-  publishToReview,
-} from '../../support/store-flows.ts';
+import { checkpointGates, currentReviewInput, publishToReview } from '../../support/store-flows.ts';
 import { useTempDir } from '../../support/temp-db.ts';
 
 const g = gitSandbox('cusr-publish-recovery-');
@@ -131,8 +110,7 @@ type Crash =
 
 const never = <T>(): Promise<T> => new Promise<T>(() => undefined);
 const gitOp = (name: string) => (args: readonly string[]) => args[0] === name;
-const postPulls = (req: GitHubRequest) =>
-  req.method === 'POST' && req.path.endsWith('/pulls');
+const postPulls = (req: GitHubRequest) => req.method === 'POST' && req.path.endsWith('/pulls');
 
 let n = 0;
 
@@ -150,15 +128,8 @@ function world(task: CanonicalTask, o: { required?: string[] } = {}) {
   const github = new FakeGitHub();
   github.headOf = (branch) => {
     try {
-      const sha = g.sh(
-        remote,
-        'rev-parse',
-        '--verify',
-        '--quiet',
-        `refs/heads/${branch}`,
-      );
-      if (!github.checks.has(sha))
-        github.checks.set(sha, { build: 'success', test: 'success' });
+      const sha = g.sh(remote, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`);
+      if (!github.checks.has(sha)) github.checks.set(sha, { build: 'success', test: 'success' });
       return sha;
     } catch {
       return null;
@@ -194,10 +165,7 @@ function world(task: CanonicalTask, o: { required?: string[] } = {}) {
     harness: 'claude',
     manifest: coder.manifest,
     run: (input, signal) => {
-      writeFileSync(
-        join(worktree, 'search.ts'),
-        'export const search = (q: string) => q;\n',
-      );
+      writeFileSync(join(worktree, 'search.ts'), 'export const search = (q: string) => q;\n');
       const m = /as JSON \{[^}]*\} to (\S+\.json)\./.exec(input.context.text);
       if (m !== null) writeFileSync(m[1] as string, JSON.stringify(CONTENT));
       return coder.run(input, signal);
@@ -233,9 +201,7 @@ function world(task: CanonicalTask, o: { required?: string[] } = {}) {
   let answer: 'as_is' | '422' | 'lost' = 'as_is';
   let readsFail = false;
   const githubPort = {
-    request: async (
-      req: GitHubRequest,
-    ): Promise<Result<GitHubResponse, GitHubFailure>> => {
+    request: async (req: GitHubRequest): Promise<Result<GitHubResponse, GitHubFailure>> => {
       if (dead) return never();
       if (readsFail && req.method === 'GET')
         return err({
@@ -332,22 +298,14 @@ function world(task: CanonicalTask, o: { required?: string[] } = {}) {
         format_fix: 'true format',
       },
       required_checks: ['build', 'test', ...(o.required ?? [])],
-      ci_rules: [
-        { match: { check: 'format' }, class: 'autofix' },
-        ...DEFAULT_CI_RULES,
-      ],
+      ci_rules: [{ match: { check: 'format' }, class: 'autofix' }, ...DEFAULT_CI_RULES],
       limits: { max_wall_ms: 3_600_000 },
       mode: 'direct-pr',
     });
-    proposeAndConfirm(
-      d,
-      task,
-      selectionFor(task, 'direct-pr', frozen.value.policy),
-    );
+    proposeAndConfirm(d, task, selectionFor(task, 'direct-pr', frozen.value.policy));
     d.must(task.id, { kind: 'request_execution' });
     const granted = d.store.grantNext(d.now as EpochMs, [newId()]);
-    if (!granted.ok || granted.value.kind !== 'decided')
-      throw new Error(JSON.stringify(granted));
+    if (!granted.ok || granted.value.kind !== 'decided') throw new Error(JSON.stringify(granted));
     const runtime = confirmedRuntime(d, task, {
       base_sha: base,
       project_path: project,
@@ -374,9 +332,7 @@ function world(task: CanonicalTask, o: { required?: string[] } = {}) {
       if (d.pending(task.id).some((e) => e.kind === kind)) return;
       if ((await tick()) === 0) break;
     }
-    throw new Error(
-      `never reached ${kind}: ${JSON.stringify(d.pending(task.id))}`,
-    );
+    throw new Error(`never reached ${kind}: ${JSON.stringify(d.pending(task.id))}`);
   };
 
   /** Runs until a `run_gates` of `step` is pending; the slot is granted whenever the task waits for it. */
@@ -385,12 +341,7 @@ function world(task: CanonicalTask, o: { required?: string[] } = {}) {
       if (d.task(task.id).wait?.detail['code'] === 'execution_slot')
         d.store.grantNext(d.now as EpochMs, [newId(), newId(), newId()]);
       const s = d.task(task.id);
-      if (
-        d
-          .pending(task.id, 'run_gates')
-          .some((e) => s.effects[e.id]?.step === step)
-      )
-        return;
+      if (d.pending(task.id, 'run_gates').some((e) => s.effects[e.id]?.step === step)) return;
       if ((await tick()) === 0) break;
     }
     const s = d.task(task.id);
@@ -403,8 +354,7 @@ function world(task: CanonicalTask, o: { required?: string[] } = {}) {
   const dieAt = async (c: Crash): Promise<void> => {
     crash = c;
     expect(dispatcher.tick().started).toHaveLength(1);
-    for (let i = 0; i < 600 && !dead; i++)
-      await new Promise((r) => setTimeout(r, 10));
+    for (let i = 0; i < 600 && !dead; i++) await new Promise((r) => setTimeout(r, 10));
     expect(dead).toBe(true);
   };
 
@@ -442,13 +392,7 @@ function world(task: CanonicalTask, o: { required?: string[] } = {}) {
   const branch = taskBranch(task.id, task.title);
   const remoteHead = (): string | null => {
     try {
-      return g.sh(
-        remote,
-        'rev-parse',
-        '--verify',
-        '--quiet',
-        `refs/heads/${branch}`,
-      );
+      return g.sh(remote, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`);
     } catch {
       return null;
     }
@@ -487,10 +431,8 @@ function world(task: CanonicalTask, o: { required?: string[] } = {}) {
 
 type World = ReturnType<typeof world>;
 
-const count = (w: World, name: string) =>
-  w.gitLedger.filter((a) => a[0] === name).length;
-const posts = (w: World) =>
-  w.github.calls.filter((c) => c.startsWith('POST')).length;
+const count = (w: World, name: string) => w.gitLedger.filter((a) => a[0] === name).length;
+const posts = (w: World) => w.github.calls.filter((c) => c.startsWith('POST')).length;
 
 /**
  * After a restart the in-flight operation is lost and its effect unknown; the next daemon round runs
@@ -504,9 +446,7 @@ async function expectReconciled(
   report: Awaited<ReturnType<World['restart']>>,
   status: 'succeeded' | 'failed' | 'unknown' | 'pending',
 ) {
-  expect(report.operations).toMatchObject([
-    { finding: { status: 'lost' }, effect: 'unknown' },
-  ]);
+  expect(report.operations).toMatchObject([{ finding: { status: 'lost' }, effect: 'unknown' }]);
   expect(report.held).toBeNull();
   const [probe] = w.d.pending(task.id, 'reconcile');
   const effect = w.d.task(task.id).effects[String(probe?.request['effect_id'])];
@@ -526,12 +466,8 @@ async function expectReconciled(
         (e.payload as { effect_id: string }).effect_id === probe?.id,
     )?.payload as { result: { finding: string; requests: object } } | undefined;
   expect(result?.result.requests).toBeDefined();
-  const ops = Object.values(s.operations).filter(
-    (o) => o.effect_id === effect.id,
-  );
-  expect(ops.map((o) => o.status)).toEqual([
-    status === 'unknown' ? 'lost' : 'finished',
-  ]);
+  const ops = Object.values(s.operations).filter((o) => o.effect_id === effect.id);
+  expect(ops.map((o) => o.status)).toEqual([status === 'unknown' ? 'lost' : 'finished']);
   expect(same()).toBe(1);
   expect(w.d.store.verifyProjections().ok).toBe(true);
 }
@@ -585,12 +521,8 @@ describe('checkpoint commit interrupted around the ref CAS (FR-017/018)', () => 
         kind: 'recovered',
         intent: { oid: intent.oid },
       });
-      expect(
-        g.sh(w.worktree, 'rev-list', '--count', `${parent}..${intent.branch}`),
-      ).toBe('1');
-      expect(g.sh(w.worktree, 'log', '-1', '--format=%B', intent.oid)).toBe(
-        CONTENT.commit_message,
-      );
+      expect(g.sh(w.worktree, 'rev-list', '--count', `${parent}..${intent.branch}`)).toBe('1');
+      expect(g.sh(w.worktree, 'log', '-1', '--format=%B', intent.oid)).toBe(CONTENT.commit_message);
       // The flow goes on from the recovered checkpoint: that very SHA is pushed, once.
       await w.until('create_pr');
       expect(w.remoteHead()).toBe(intent.oid);
@@ -743,9 +675,7 @@ describe('PR create interrupted after GitHub made it (FR-017/018)', () => {
     expect(posts(w)).toBe(1);
 
     w.failReads(false);
-    expect(
-      await createOrRecoverPr(w.githubPort, prSpec(w, task)),
-    ).toMatchObject({
+    expect(await createOrRecoverPr(w.githubPort, prSpec(w, task))).toMatchObject({
       kind: 'recovered',
       pr: { number: 7 },
     });
@@ -770,8 +700,7 @@ describe('gate and autofix commands interrupted (FR-003/004, T090)', () => {
   }
   const journal = (w: World, effectId: string) =>
     new CommandJournal(join(w.paths.receipts, effectId)).read();
-  const autofix = (w: World) =>
-    w.kinds('run_gates').filter((e) => e.step === 'ci_autofix');
+  const autofix = (w: World) => w.kinds('run_gates').filter((e) => e.step === 'ci_autofix');
 
   it('a gate killed while it ran is declared safe: the reconcile runs the gates again and the flow goes on', async () => {
     const task = buildTask();
@@ -804,9 +733,7 @@ describe('gate and autofix commands interrupted (FR-003/004, T090)', () => {
     await w.tick();
     expect(autofix(w)).toHaveLength(1);
     expect(autofix(w)[0]?.status).toBe('succeeded');
-    expect(w.execLedger.filter((c) => c === 'true format')).toHaveLength(
-      fixes + 1,
-    );
+    expect(w.execLedger.filter((c) => c === 'true format')).toHaveLength(fixes + 1);
   });
 
   it('autofix killed while its command ran may have written: it stays unknown with its claim, and the worktree is kept', async () => {
@@ -822,9 +749,7 @@ describe('gate and autofix commands interrupted (FR-003/004, T090)', () => {
     expect(s.effects[fix?.id ?? '']?.status).toBe('unknown');
     for (let i = 0; i < 3; i++) await w.tick();
     expect(w.execLedger.filter((c) => c === 'true format')).toHaveLength(1);
-    expect(g.sh(w.worktree, 'status', '--porcelain')).toContain(
-      'half-formatted.ts',
-    );
+    expect(g.sh(w.worktree, 'status', '--porcelain')).toContain('half-formatted.ts');
   });
 
   it('autofix whose receipts are all on disk is recorded from them, without running it again', async () => {
@@ -925,9 +850,7 @@ describe('merge recorded while the daemon died with work in flight (T091, FR-034
     writeFileSync(join(w.worktree, 'scratch.txt'), 'notes\n');
 
     const report = await w.restart();
-    expect(report.operations).toMatchObject([
-      { finding: { status: 'lost' }, effect: 'unknown' },
-    ]);
+    expect(report.operations).toMatchObject([{ finding: { status: 'lost' }, effect: 'unknown' }]);
     let s = w.d.task(task.id);
     expect(s.completion?.proof.merge_commit_sha).toBe(MERGE);
     expect(s.wait?.detail['code']).toBe('merge_cleanup_pending');
@@ -980,9 +903,7 @@ describe('merge recorded while the daemon died with work in flight (T091, FR-034
     await w.tick();
     s = w.d.task(task.id);
     expect(w.kinds('await_ci')[0]?.status).toBe('succeeded');
-    expect(Object.values(s.operations).map((o) => o.status)).not.toContain(
-      'lost',
-    );
+    expect(Object.values(s.operations).map((o) => o.status)).not.toContain('lost');
     expect(w.d.pending(task.id)).toEqual([]);
     expect(s.status).toBe('DONE');
     expect(s.completion?.local_remainder?.local_head).toBe(local);
@@ -991,9 +912,7 @@ describe('merge recorded while the daemon died with work in flight (T091, FR-034
     expect(g.sh(w.worktree, 'status', '--porcelain')).toContain('scratch.txt');
     expect(w.remoteHead()).toBe(head);
     expect(count(w, 'push')).toBe(1);
-    const completed = w.d.store
-      .readEvents(task.id)
-      .filter((e) => e.type === 'TaskCompleted');
+    const completed = w.d.store.readEvents(task.id).filter((e) => e.type === 'TaskCompleted');
     expect(completed).toHaveLength(1);
     notifyDependents(w.d.store, w.d.now);
     expect(w.d.task(child.id).status).toBe('READY');
@@ -1016,9 +935,7 @@ describe('merge found by the reconcile of a lost CI read (T093, FR-040.02)', () 
     });
     expect(w.d.task(task.id).completion).toBeNull();
     const report = await w.restart();
-    expect(report.operations).toMatchObject([
-      { finding: { status: 'lost' }, effect: 'unknown' },
-    ]);
+    expect(report.operations).toMatchObject([{ finding: { status: 'lost' }, effect: 'unknown' }]);
     await w.tick();
     let s = w.d.task(task.id);
     expect(s.completion?.proof.merge_commit_sha).toBe(MERGE);
@@ -1044,9 +961,7 @@ describe('merge found by the reconcile of a lost CI read (T093, FR-040.02)', () 
     );
     s = w.d.task(task.id);
     expect(s.status).toBe('DONE');
-    expect(
-      w.d.store.readEvents(task.id).filter((e) => e.type === 'TaskCompleted'),
-    ).toHaveLength(1);
+    expect(w.d.store.readEvents(task.id).filter((e) => e.type === 'TaskCompleted')).toHaveLength(1);
     expect(w.d.store.verifyProjections().ok).toBe(true);
   });
 });
@@ -1067,18 +982,8 @@ describe('H05 restart: reviewer A finished on disk, not ingested, drift B record
       branch: 'b',
       setup: { ran: false, passed: true },
     });
-    d.complete(
-      task.id,
-      d.pendingOne(task.id, 'start_agent').id,
-      'succeeded',
-      agentData('done'),
-    );
-    d.complete(
-      task.id,
-      d.pendingOne(task.id, 'run_gates').id,
-      'succeeded',
-      checkpointGates(A),
-    );
+    d.complete(task.id, d.pendingOne(task.id, 'start_agent').id, 'succeeded', agentData('done'));
+    d.complete(task.id, d.pendingOne(task.id, 'run_gates').id, 'succeeded', checkpointGates(A));
     publishToReview(d, task.id, A);
     const reviewer = d.pendingOne(task.id, 'start_agent');
     const input = currentReviewInput(d, task.id);
@@ -1219,9 +1124,7 @@ describe('H05 restart: reviewer A finished on disk, not ingested, drift B record
       expect(d.pending(task.id, 'mark_ready')).toEqual([]);
       expect(d.pending(task.id, 'run_gates')).toEqual([]);
       expect(
-        Object.values(after.effects).filter(
-          (e) => e.step === 'review' && e.kind === 'start_agent',
-        ),
+        Object.values(after.effects).filter((e) => e.step === 'review' && e.kind === 'start_agent'),
       ).toHaveLength(1);
       expect(d.store.verifyProjections().ok).toBe(true);
     } finally {

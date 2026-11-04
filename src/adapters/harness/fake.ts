@@ -19,11 +19,7 @@ import type {
   HarnessPort,
   PermissionDenial,
 } from '../ports.ts';
-import {
-  ROLE_SCHEMA_DIGESTS,
-  validateRoleResult,
-  type Role,
-} from './result-schema.ts';
+import { ROLE_SCHEMA_DIGESTS, validateRoleResult, type Role } from './result-schema.ts';
 
 export const FAKE_VENDOR = 'fake';
 

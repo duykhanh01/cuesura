@@ -79,11 +79,7 @@ describe('task_content (R-09)', () => {
     const t = buildTask();
     d.must(t.id, { kind: 'create_task', task: t });
     const sel = selectionFor(t, 'direct-pr');
-    d.must(
-      t.id,
-      { kind: 'propose_run_config', selection: sel },
-      { authz: ownerAuthz() },
-    );
+    d.must(t.id, { kind: 'propose_run_config', selection: sel }, { authz: ownerAuthz() });
     expect(read(t.id)).toMatchObject({
       value: {
         run_config: {
@@ -118,8 +114,9 @@ describe('task_content (R-09)', () => {
 
   it('rejects a malformed query', () => {
     const { d } = setup();
-    expect(
-      taskContent(d.store, OWNER, { kind: 'task_content', task_id: 'x' }),
-    ).toMatchObject({ ok: false, error: { code: 'invalid_request' } });
+    expect(taskContent(d.store, OWNER, { kind: 'task_content', task_id: 'x' })).toMatchObject({
+      ok: false,
+      error: { code: 'invalid_request' },
+    });
   });
 });

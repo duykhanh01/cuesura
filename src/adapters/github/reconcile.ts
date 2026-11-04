@@ -43,8 +43,7 @@ export async function probeDescription(
 ): Promise<DescriptionProbe> {
   const want = bodyDigest(finalBody(u.spec));
   const read = await readPrBody(port, u.repo, u.pr_number);
-  if (typeof read === 'string')
-    return { kind: 'unknown', detail: `read: ${read}` };
+  if (typeof read === 'string') return { kind: 'unknown', detail: `read: ${read}` };
   const seen = bodyDigest(read.body);
   if (seen === want) return { kind: 'current', body_digest: want };
   if (seen === u.expected_body_digest) return { kind: 'not_applied' };
@@ -86,8 +85,7 @@ export async function probeRerun(
       kind: 'unknown',
       detail: `check runs unreadable: ${listed.error.detail}`,
     };
-  if (!listed.value.complete)
-    return { kind: 'unknown', detail: 'check run list incomplete' };
+  if (!listed.value.complete) return { kind: 'unknown', detail: 'check run list incomplete' };
   // A rerun replaces the failed check runs; the newest one per name says which run it belongs to.
   const newest = new Map<string, Obj>();
   for (const r of listed.value.items) {
@@ -99,14 +97,12 @@ export async function probeRerun(
     )
       continue;
     const prev = newest.get(o['name']);
-    if (prev === undefined || (prev['id'] as number) < o['id'])
-      newest.set(o['name'], o);
+    if (prev === undefined || (prev['id'] as number) < o['id']) newest.set(o['name'], o);
   }
   const byRun = new Map<number, string[]>();
   for (const name of [...new Set(req.checks)].sort()) {
     const id = workflowRunOf(newest.get(name));
-    if (id === null)
-      return { kind: 'unknown', detail: `check ${name} maps to no run` };
+    if (id === null) return { kind: 'unknown', detail: `check ${name} maps to no run` };
     byRun.set(id, [...(byRun.get(id) ?? []), name]);
   }
   if (byRun.size === 0) return { kind: 'unknown', detail: 'no checks named' };
@@ -126,9 +122,7 @@ export async function probeRerun(
     const run = obj(read.value.body);
     const attempt = run['run_attempt'];
     const started =
-      typeof run['run_started_at'] === 'string'
-        ? Date.parse(run['run_started_at'])
-        : Number.NaN;
+      typeof run['run_started_at'] === 'string' ? Date.parse(run['run_started_at']) : Number.NaN;
     if (run['head_sha'] !== req.head_sha)
       return {
         kind: 'unknown',

@@ -1,17 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Uuid } from '../../../src/shared/brand.ts';
-import {
-  injectEvents,
-  openMemoryStore,
-  storeDb,
-} from '../../../src/store/testing.ts';
+import { injectEvents, openMemoryStore, storeDb } from '../../../src/store/testing.ts';
 import { buildTask, freezeOk } from '../../support/builders.ts';
-import {
-  agentData,
-  gatesData,
-  PREPARE_DATA,
-  reviewData,
-} from '../../support/scenario.ts';
+import { agentData, gatesData, PREPARE_DATA, reviewData } from '../../support/scenario.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 
 const TASK = buildTask();
@@ -28,18 +19,8 @@ function started(seed = 1, limits?: { max_wall_ms?: number }): StoreDriver {
 
 function toPublish(seed = 1): StoreDriver {
   const d = started(seed);
-  d.complete(
-    TASK.id,
-    d.pendingOne(TASK.id, 'prepare').id,
-    'succeeded',
-    PREPARE_DATA,
-  );
-  d.complete(
-    TASK.id,
-    d.pendingOne(TASK.id, 'start_agent').id,
-    'succeeded',
-    agentData('done'),
-  );
+  d.complete(TASK.id, d.pendingOne(TASK.id, 'prepare').id, 'succeeded', PREPARE_DATA);
+  d.complete(TASK.id, d.pendingOne(TASK.id, 'start_agent').id, 'succeeded', agentData('done'));
   d.complete(
     TASK.id,
     d.pendingOne(TASK.id, 'run_gates').id,
@@ -57,9 +38,9 @@ function toPublish(seed = 1): StoreDriver {
 
 function status(d: StoreDriver, id: string): string | undefined {
   return (
-    storeDb(d.store)
-      .prepare('SELECT status FROM effects WHERE id = ?')
-      .get(id) as { status: string } | undefined
+    storeDb(d.store).prepare('SELECT status FROM effects WHERE id = ?').get(id) as
+      | { status: string }
+      | undefined
   )?.status;
 }
 
@@ -237,12 +218,7 @@ describe('Store effects (T080)', () => {
 
   it('cancellation does not block stop_attempt or reconcile', () => {
     const d = started();
-    d.complete(
-      TASK.id,
-      d.pendingOne(TASK.id, 'prepare').id,
-      'succeeded',
-      PREPARE_DATA,
-    );
+    d.complete(TASK.id, d.pendingOne(TASK.id, 'prepare').id, 'succeeded', PREPARE_DATA);
     const agent = d.pendingOne(TASK.id, 'start_agent');
     expect(d.claim(agent.id).ok).toBe(true);
 
@@ -258,8 +234,7 @@ describe('Store effects (T080)', () => {
       ok: true,
       value: { kind: 'reconcile', status: 'started' },
     });
-    for (const stop of d.pending(TASK.id, 'stop_attempt'))
-      expect(d.claim(stop.id).ok).toBe(true);
+    for (const stop of d.pending(TASK.id, 'stop_attempt')) expect(d.claim(stop.id).ok).toBe(true);
     expect(d.store.verifyProjections().ok).toBe(true);
   });
 

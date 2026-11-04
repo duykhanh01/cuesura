@@ -26,11 +26,7 @@ import {
   nativeSandboxEnabled,
   type VendorPin,
 } from '../../../src/adapters/harness/vendor.ts';
-import {
-  startDaemon,
-  STORE_FILE,
-  systemClock,
-} from '../../../src/daemon/main.ts';
+import { startDaemon, STORE_FILE, systemClock } from '../../../src/daemon/main.ts';
 import {
   productionControl,
   readPrompts,
@@ -51,11 +47,7 @@ import { FakeGitHub } from '../../support/fake-github.ts';
 import { gitSandbox } from '../../support/git-repo.ts';
 import { homeFileContent, REAL } from '../../support/harness-fixtures.ts';
 import { fakeVendorPin } from '../../support/runner-harness.ts';
-import {
-  confirmedRuntime,
-  proposeAndConfirm,
-  selectionFor,
-} from '../../support/runtime.ts';
+import { confirmedRuntime, proposeAndConfirm, selectionFor } from '../../support/runtime.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 
 const EVIDENCE = join(REAL, 'capability-manifest.json');
@@ -92,10 +84,7 @@ function setup() {
   for (const h of pin.home_files)
     writeFileSync(
       refs[h.credential] as string,
-      homeFileContent(
-        h,
-        JSON.stringify({ accessToken: 'sk-ant-canary-0123456789' }),
-      ),
+      homeFileContent(h, JSON.stringify({ accessToken: 'sk-ant-canary-0123456789' })),
     );
   writeFileSync(
     configPath,
@@ -227,16 +216,12 @@ describe('harness records', () => {
         isolation: 'internal_required' as const,
         host_policy_hash: hostSandbox().policy_hash,
       };
-      expect(
-        harnessRecordProblem({ pin: off, manifest: r.value }, opts),
-      ).toBeNull();
+      expect(harnessRecordProblem({ pin: off, manifest: r.value }, opts)).toBeNull();
       const on = {
         ...off,
         settings: { ...off.settings, sandbox: { enabled: true } },
       };
-      expect(
-        harnessRecordProblem({ pin: on, manifest: r.value }, opts),
-      ).not.toBeNull();
+      expect(harnessRecordProblem({ pin: on, manifest: r.value }, opts)).not.toBeNull();
       h.writePin(on);
       const again = recordManifest({
         dataDir: h.dataDir,
@@ -248,9 +233,7 @@ describe('harness records', () => {
         now: 1,
       });
       if (!again.ok) throw new Error(again.error);
-      expect(
-        harnessRecordProblem({ pin: on, manifest: again.value }, opts),
-      ).toBeNull();
+      expect(harnessRecordProblem({ pin: on, manifest: again.value }, opts)).toBeNull();
       expect(again.value.native_result).toBe('passed');
     },
   );
@@ -285,10 +268,7 @@ describe('harness records', () => {
     };
     expect(harnessRecordProblem({ pin, manifest: r.value }, opts)).toBeNull();
     expect(
-      harnessRecordProblem(
-        { pin: { ...pin, permission_mode: 'auto' }, manifest: r.value },
-        opts,
-      ),
+      harnessRecordProblem({ pin: { ...pin, permission_mode: 'auto' }, manifest: r.value }, opts),
     ).toContain('permission mode differs');
   });
 
@@ -388,14 +368,9 @@ describe('harness records', () => {
     expect(settings.ok ? '' : settings.error).toContain('settings_hash');
     h.writePin({ ...proved, env: { ...proved.env, EXTRA: '1' } });
     const environment = record(evidence);
-    expect(environment.ok ? '' : environment.error).toContain(
-      'environment_hash',
-    );
+    expect(environment.ok ? '' : environment.error).toContain('environment_hash');
     // Handed straight to the binary's argv: a higher turn cap or a new tool was never shown either.
-    for (const changed of [
-      { max_turns: 100_000 },
-      { tools: ['Bash', 'WebFetch'] },
-    ]) {
+    for (const changed of [{ max_turns: 100_000 }, { tools: ['Bash', 'WebFetch'] }]) {
       h.writePin({ ...proved, ...changed });
       const r = record(evidence);
       expect(r.ok ? '' : r.error).toContain('environment_hash');
@@ -508,10 +483,7 @@ type DoctorData = {
 };
 
 describe('production task surface', () => {
-  const doctor = async (
-    h: ReturnType<typeof setup>,
-    afterStart: () => void = () => undefined,
-  ) => {
+  const doctor = async (h: ReturnType<typeof setup>, afterStart: () => void = () => undefined) => {
     const store = openFileStoreForTest(join(h.dataDir, STORE_FILE));
     try {
       const control = await productionControl({
@@ -679,15 +651,8 @@ async function runSeeded(o: {
   const github = new FakeGitHub();
   github.headOf = (branch) => {
     try {
-      const sha = g.sh(
-        remote,
-        'rev-parse',
-        '--verify',
-        '--quiet',
-        `refs/heads/${branch}`,
-      );
-      if (!github.checks.has(sha))
-        github.checks.set(sha, { build: 'success', test: 'success' });
+      const sha = g.sh(remote, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`);
+      if (!github.checks.has(sha)) github.checks.set(sha, { build: 'success', test: 'success' });
       return sha;
     } catch {
       return null;
@@ -711,19 +676,12 @@ async function runSeeded(o: {
     limits: { max_wall_ms: 3_600_000 },
     mode: 'direct-pr',
   });
-  proposeAndConfirm(
-    d,
-    task,
-    selectionFor(task, 'direct-pr', frozen.value.policy),
-  );
+  proposeAndConfirm(d, task, selectionFor(task, 'direct-pr', frozen.value.policy));
   d.must(task.id, { kind: 'request_execution' });
   const granted = d.store.grantNext(d.now as never, [crypto.randomUUID()]);
-  if (!granted.ok || granted.value.kind !== 'decided')
-    throw new Error(JSON.stringify(granted));
+  if (!granted.ok || granted.value.kind !== 'decided') throw new Error(JSON.stringify(granted));
   const runtime = confirmedRuntime(d, task, {
-    ...(o.setup_commands === undefined
-      ? {}
-      : { setup_commands: o.setup_commands }),
+    ...(o.setup_commands === undefined ? {} : { setup_commands: o.setup_commands }),
     isolation: o.legacyIsolation
       ? { mode: 'isolated', provider: 'bwrap' }
       : { mode: 'native', provider: 'host' },
@@ -766,11 +724,7 @@ async function runSeeded(o: {
   });
   if (!started.ok) throw new Error(JSON.stringify(started.error));
   const { store } = started.value;
-  const until = async (
-    what: string,
-    done: () => boolean,
-    ms = 60_000,
-  ): Promise<void> => {
+  const until = async (what: string, done: () => boolean, ms = 60_000): Promise<void> => {
     const end = Date.now() + ms;
     while (!done()) {
       if (Date.now() > end)
@@ -798,13 +752,8 @@ describe.skipIf(!hostUsable)('productionControl on this host', () => {
       legacyIsolation: true,
     });
     try {
-      await until(
-        'requires a native runtime',
-        () => store.readTask(task.id)?.status === 'WAITING',
-      );
-      expect(Object.keys(store.readTask(task.id)?.attempts ?? {})).toHaveLength(
-        0,
-      );
+      await until('requires a native runtime', () => store.readTask(task.id)?.status === 'WAITING');
+      expect(Object.keys(store.readTask(task.id)?.attempts ?? {})).toHaveLength(0);
       expect(github.prs).toHaveLength(0);
       expect(JSON.stringify(store.readEvents(task.id))).toContain(
         'task was frozen for outer bwrap',
@@ -833,17 +782,12 @@ describe.skipIf(!hostUsable)('productionControl on this host', () => {
       expect(github.prs).toHaveLength(1);
       // Setup ran in the real sandbox, and its file is part of the tree the gates passed on.
       const head = store.readTask(task.id)?.head_sha ?? '';
-      expect(() =>
-        g.sh(remote, 'cat-file', '-e', `${head}:setup-ran`),
-      ).not.toThrow();
+      expect(() => g.sh(remote, 'cat-file', '-e', `${head}:setup-ran`)).not.toThrow();
       // The role's frozen stall limit and the snapshot's stop bounds reached the operation's unit.
       const task_ = store.readTask(task.id);
       const attempt = Object.values(task_?.attempts ?? {})[0];
       const spec = JSON.parse(
-        readFileSync(
-          join(h.dataDir, 'runs', attempt?.id ?? '', 'invocation.json'),
-          'utf8',
-        ),
+        readFileSync(join(h.dataDir, 'runs', attempt?.id ?? '', 'invocation.json'), 'utf8'),
       ) as { stall_ms: number | null; term_grace_ms: number };
       expect(spec.stall_ms).toBe(600_000);
       expect(spec.term_grace_ms).toBe(DEFAULT_RUNTIME_LIMITS.term_grace_ms);

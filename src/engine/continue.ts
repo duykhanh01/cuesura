@@ -31,8 +31,7 @@ export function continuable(s: TaskState): Plan | null {
   const step = w.detail['step'];
   if (!CONTINUABLE.includes(code) || typeof step !== 'string') return null;
   // A `loop_exhausted` question raised by a step's own `escalate` outcome is answered, not continued.
-  if (code === 'loop_exhausted' && w.detail['outcome'] !== 'exhausted')
-    return null;
+  if (code === 'loop_exhausted' && w.detail['outcome'] !== 'exhausted') return null;
   if (w.resume.kind === 'none') return null;
   const streaks = [step, s.last_fix_step].filter(
     (x, i, all): x is string => x !== null && all.indexOf(x) === i,
@@ -45,8 +44,7 @@ export function onContinue(ctx: Ctx): void {
     reject('invalid_trigger', { reason: 'operate_required' });
   const s = ctx.state;
   const plan = continuable(s);
-  if (plan === null)
-    reject('invalid_trigger', { reason: 'continue_not_applicable' });
+  if (plan === null) reject('invalid_trigger', { reason: 'continue_not_applicable' });
   const sp = ctx.frozen.steps[plan.step];
   const rung = s.rungs.by_step[plan.step] ?? 0;
   // The task floor still applies: staying below it would bypass the approved policy.

@@ -51,8 +51,7 @@ const atOverrides: Locator = () => ({ file: '<overrides>', line: 1, col: 1 });
  */
 export function freeze(input: FreezeInput): Result<Frozen, FreezeError> {
   const overrides = input.overrides ?? {};
-  const profileName =
-    input.task.profile ?? input.config.project?.profile ?? null;
+  const profileName = input.task.profile ?? input.config.project?.profile ?? null;
   if (
     Object.keys(overrides).length === 0 ||
     profileName === null ||
@@ -146,21 +145,11 @@ export function freezeRuntimeContext(
       name: c.name,
       file: c.file,
     })),
-    ...(input.run_config === undefined
-      ? {}
-      : { run_config: structuredClone(input.run_config) }),
-    ...(input.pr_template === undefined
-      ? {}
-      : { pr_template: input.pr_template }),
-    ...(input.review_template === undefined
-      ? {}
-      : { review_template: input.review_template }),
-    ...(input.merge_method === undefined
-      ? {}
-      : { merge_method: input.merge_method }),
-    ...(input.role_prompts === undefined
-      ? {}
-      : { role_prompts: { ...input.role_prompts } }),
+    ...(input.run_config === undefined ? {} : { run_config: structuredClone(input.run_config) }),
+    ...(input.pr_template === undefined ? {} : { pr_template: input.pr_template }),
+    ...(input.review_template === undefined ? {} : { review_template: input.review_template }),
+    ...(input.merge_method === undefined ? {} : { merge_method: input.merge_method }),
+    ...(input.role_prompts === undefined ? {} : { role_prompts: { ...input.role_prompts } }),
     ...(input.setup_commands === undefined || input.setup_commands.length === 0
       ? {}
       : { setup_commands: [...input.setup_commands] }),

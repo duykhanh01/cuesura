@@ -4,10 +4,7 @@
  * whose answer was lost.
  */
 import type { ReviewEvidence } from '../../domain/state.ts';
-import {
-  renderReviewTemplate,
-  type ReviewPlaceholder,
-} from '../../domain/templates.ts';
+import { renderReviewTemplate, type ReviewPlaceholder } from '../../domain/templates.ts';
 import type { GitHubFailure, GitHubPort } from '../ports.ts';
 import { markerCount } from '../publish-content.ts';
 import { listAll, MARK_READY_MUTATION } from './gh-port.ts';
@@ -37,11 +34,7 @@ type PullState =
     }
   | { error: string };
 
-async function readPull(
-  port: GitHubPort,
-  repo: string,
-  n: number,
-): Promise<PullState> {
+async function readPull(port: GitHubPort, repo: string, n: number): Promise<PullState> {
   const r = await port.request({
     method: 'GET',
     path: `repos/${repo}/pulls/${n}`,
@@ -85,11 +78,7 @@ async function readyEventAt(
   return at.length === 0 ? null : Math.max(...at);
 }
 
-async function readyResult(
-  port: GitHubPort,
-  repo: string,
-  n: number,
-): Promise<ReadyOutcome> {
+async function readyResult(port: GitHubPort, repo: string, n: number): Promise<ReadyOutcome> {
   const at = await readyEventAt(port, repo, n);
   return typeof at === 'object' && at !== null
     ? { kind: 'unknown', detail: `events: ${at.error}` }
@@ -122,8 +111,7 @@ export async function markReady(
   if ('error' in before) return { kind: 'unknown', detail: before.error };
   if (before.closed) return { kind: 'closed' };
   if (!before.draft) return readyResult(port, repo, n);
-  if (before.base !== expected.target)
-    return { kind: 'retargeted', base: before.base };
+  if (before.base !== expected.target) return { kind: 'retargeted', base: before.base };
   if (before.head_sha !== expected.head_sha)
     return { kind: 'head_moved', head_sha: before.head_sha };
   const r = await port.request({
@@ -133,13 +121,10 @@ export async function markReady(
     body: { query: MARK_READY_MUTATION, variables: { id: before.node_id } },
   });
   const after = await readPull(port, repo, n);
-  if ('error' in after)
-    return { kind: 'unknown', detail: `read back: ${after.error}` };
+  if ('error' in after) return { kind: 'unknown', detail: `read back: ${after.error}` };
   if (!after.draft) return readyResult(port, repo, n);
   if (!r.ok)
-    return r.error.reason === 'http_error' &&
-      r.error.status !== null &&
-      r.error.status < 500
+    return r.error.reason === 'http_error' && r.error.status !== null && r.error.status < 500
       ? { kind: 'rejected', detail: r.error.detail }
       : { kind: 'unknown', detail: r.error.detail };
   const errors = obj(r.value.body)['errors'];
@@ -187,17 +172,14 @@ export async function findPosted(
   port: GitHubPort,
   p: Pick<ReviewPost, 'repo' | 'pr_number' | 'marker'>,
 ): Promise<number | null | { error: string }> {
-  const r = await listAll(
-    port,
-    `repos/${p.repo}/pulls/${p.pr_number}/reviews`,
-    (b) => (Array.isArray(b) ? b : null),
+  const r = await listAll(port, `repos/${p.repo}/pulls/${p.pr_number}/reviews`, (b) =>
+    Array.isArray(b) ? b : null,
   );
   if (!r.ok) return { error: r.error.detail };
   const hit = r.value.items
     .map(obj)
     .find((v) => typeof v['body'] === 'string' && v['body'].includes(p.marker));
-  if (hit !== undefined)
-    return typeof hit['id'] === 'number' ? hit['id'] : null;
+  if (hit !== undefined) return typeof hit['id'] === 'number' ? hit['id'] : null;
   return r.value.complete ? null : { error: 'review listing incomplete' };
 }
 
@@ -226,15 +208,11 @@ async function send(
 }
 
 /** Posts one COMMENT review for the attempt, unless its marker is on the PR already. */
-export async function postReview(
-  port: GitHubPort,
-  p: ReviewPost,
-): Promise<PostOutcome> {
+export async function postReview(port: GitHubPort, p: ReviewPost): Promise<PostOutcome> {
   const seen = await findPosted(port, p);
   if (typeof seen === 'object' && seen !== null)
     return { kind: 'not_posted', detail: `probe: ${seen.error}` };
-  if (seen !== null)
-    return { kind: 'posted', review_id: seen, inline: p.comments.length };
+  if (seen !== null) return { kind: 'posted', review_id: seen, inline: p.comments.length };
   const first = await send(port, p, p.body, p.comments);
   if (first.ok)
     return {
@@ -255,8 +233,7 @@ export async function postReview(
     failures.push(second.error);
   }
   const after = await findPosted(port, p);
-  if (typeof after === 'number')
-    return { kind: 'posted', review_id: after, inline: 0 };
+  if (typeof after === 'number') return { kind: 'posted', review_id: after, inline: 0 };
   const detail = failures.map((f) => f.detail).join('; ');
   return failures.some(mayHaveLanded)
     ? { kind: 'unknown', detail }
@@ -329,10 +306,7 @@ function findingLine(f: ReviewEvidence['findings'][number]): string {
 export type RenderInput = {
   readonly template: string;
   readonly round: number;
-  readonly review: Pick<
-    ReviewEvidence,
-    'verdict' | 'findings' | 'summary' | 'sha'
-  >;
+  readonly review: Pick<ReviewEvidence, 'verdict' | 'findings' | 'summary' | 'sha'>;
   /** Commentable lines; null when the reviewed diff is not at hand, so nothing goes inline. */
   readonly commentable: Map<string, Set<number>> | null;
   readonly marker: string;
@@ -349,27 +323,20 @@ export function renderReview(
       r.commentable?.get(f.file)?.has(f.line) === true,
   );
   const listed = r.review.findings.filter((f) => !inline.includes(f));
-  const body = (
-    rest: readonly ReviewEvidence['findings'][number][],
-    inlineCount: number,
-  ) => {
+  const body = (rest: readonly ReviewEvidence['findings'][number][], inlineCount: number) => {
     const lines = rest.map(findingLine);
     if (inlineCount > 0)
-      lines.push(
-        `${inlineCount} finding${inlineCount === 1 ? '' : 's'} commented inline.`,
-      );
+      lines.push(`${inlineCount} finding${inlineCount === 1 ? '' : 's'} commented inline.`);
     const values: Record<ReviewPlaceholder, string> = {
       round: String(r.round),
-      verdict:
-        r.review.verdict === 'approve' ? 'Approved' : 'Changes requested',
+      verdict: r.review.verdict === 'approve' ? 'Approved' : 'Changes requested',
       summary: clean(r.review.summary ?? ''),
       findings: lines.length === 0 ? 'No findings.' : lines.join('\n'),
       inline_count: String(inlineCount),
       head_sha: r.review.sha.slice(0, 7),
     };
     let text = renderReviewTemplate(r.template, values).trimEnd();
-    if (text.length > REVIEW_BODY_MAX)
-      text = `${text.slice(0, REVIEW_BODY_MAX)}\n\n… (truncated)`;
+    if (text.length > REVIEW_BODY_MAX) text = `${text.slice(0, REVIEW_BODY_MAX)}\n\n… (truncated)`;
     return `${text}\n\n${r.marker}\n`;
   };
   return {

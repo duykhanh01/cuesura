@@ -37,12 +37,7 @@ import type { EpochMs, Uuid } from '../../../src/shared/brand.ts';
 import { buildTask, uuidOf } from '../../support/builders.ts';
 import { PACKS } from '../../support/config-fixtures.ts';
 import { SeededDaemon, type SeededExtra } from '../../support/daemon-task.ts';
-import {
-  A as HEAD,
-  merge,
-  observation,
-  toGreen,
-} from '../../support/observation.ts';
+import { A as HEAD, merge, observation, toGreen } from '../../support/observation.ts';
 import {
   fakeGit,
   fakeGitHub,
@@ -52,11 +47,7 @@ import {
 } from '../../support/preflight-fakes.ts';
 import { runExit } from '../../support/run-exit.ts';
 import { createGrantStart, selectionFor } from '../../support/runtime.ts';
-import {
-  agentData,
-  PREPARE_DATA,
-  publishData,
-} from '../../support/scenario.ts';
+import { agentData, PREPARE_DATA, publishData } from '../../support/scenario.ts';
 import { toPublish, reviewToCi } from '../../support/store-flows.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 
@@ -104,17 +95,11 @@ async function raw(
   const out: string[] = [];
   const err: string[] = [];
   const saved = process.env['CUSR_TOKEN_FILE'];
-  if (o.token !== undefined)
-    process.env['CUSR_TOKEN_FILE'] = join(sd.base, `${o.token}.token`);
+  if (o.token !== undefined) process.env['CUSR_TOKEN_FILE'] = join(sd.base, `${o.token}.token`);
   try {
     const code = await runCli(
       { name: 'cusr', description: 'test', version: '0' },
-      [
-        ...argv,
-        '--data-dir',
-        sd.dataDir,
-        ...(o.json === false ? [] : ['--json']),
-      ],
+      [...argv, '--data-dir', sd.dataDir, ...(o.json === false ? [] : ['--json'])],
       { stdout: (t) => out.push(t), stderr: (t) => err.push(t) },
       o.commands ?? CUSR_COMMANDS,
     );
@@ -126,11 +111,7 @@ async function raw(
 }
 
 /** A finite command: stdout holds exactly one envelope, whatever happened. */
-async function cli(
-  sd: SeededDaemon,
-  argv: string[],
-  o: { token?: string } = {},
-): Promise<Run> {
+async function cli(sd: SeededDaemon, argv: string[], o: { token?: string } = {}): Promise<Run> {
   const r = await raw(sd, argv, o);
   expect(r.out.endsWith('\n')).toBe(true);
   expect(r.out.trimEnd().split('\n')).toHaveLength(1);
@@ -156,12 +137,7 @@ const TASK_INPUT = {
 function pausedDrain(d: StoreDriver, t: CanonicalTask): void {
   createGrantStart(d, t);
   toPublish(d, t, HEAD);
-  d.complete(
-    t.id,
-    d.pendingOne(t.id, 'publish').id,
-    'succeeded',
-    publishData(HEAD),
-  );
+  d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(HEAD));
   d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
     pr_ref: 'acme#7',
     head_sha: HEAD,
@@ -188,12 +164,7 @@ function pausedDrain(d: StoreDriver, t: CanonicalTask): void {
 }
 
 /** The operation's receipt, then its effect's result: what lets recovery acknowledge its segments. */
-function resolve(
-  d: StoreDriver,
-  taskId: string,
-  effectId: string,
-  op: string,
-): void {
+function resolve(d: StoreDriver, taskId: string, effectId: string, op: string): void {
   d.must(taskId, {
     kind: 'operation_result',
     operation_id: op as Uuid,
@@ -228,12 +199,7 @@ describe('commands, envelope and exit codes (US6.1/2, FR-027.01/028)', () => {
   it('walks add → list → show → explain → history → confirm → cancel with one versioned result each', async () => {
     const sd = daemon();
     await sd.start();
-    const add = await cli(sd, [
-      'task',
-      'add',
-      '--file',
-      taskFile(sd, TASK_INPUT),
-    ]);
+    const add = await cli(sd, ['task', 'add', '--file', taskFile(sd, TASK_INPUT)]);
     expect(add.code).toBe(ExitCode.ok);
     const id = add.envelope.data.result?.['task_id'] as string;
     // A generated request ID comes back so the caller can replay it after a timeout.
@@ -266,23 +232,13 @@ describe('commands, envelope and exit codes (US6.1/2, FR-027.01/028)', () => {
       slot: { holding: false, queued: null, initial_wait_ms: 0 },
     });
     expect(
-      (why.envelope.data['allowed_actions'] as { action: string }[]).map(
-        (a) => a.action,
-      ),
+      (why.envelope.data['allowed_actions'] as { action: string }[]).map((a) => a.action),
     ).toEqual(['propose', 'cancel']);
 
     const history = await cli(sd, ['task', 'history', id]);
-    expect(
-      (history.envelope.data['events'] as { type: string }[])[0]?.type,
-    ).toBe('TaskCreated');
+    expect((history.envelope.data['events'] as { type: string }[])[0]?.type).toBe('TaskCreated');
 
-    const confirmed = await cli(sd, [
-      'task',
-      'confirm',
-      id,
-      '--expected-version',
-      version,
-    ]);
+    const confirmed = await cli(sd, ['task', 'confirm', id, '--expected-version', version]);
     expect(confirmed.code).toBe(ExitCode.ok);
 
     const fresh = await cli(sd, ['task', 'show', id]);
@@ -304,8 +260,7 @@ describe('commands, envelope and exit codes (US6.1/2, FR-027.01/028)', () => {
   it('pages a list by cursor, at most 100 per page', async () => {
     const sd = daemon();
     await sd.start();
-    for (let i = 0; i < 3; i++)
-      await cli(sd, ['task', 'add', '--file', taskFile(sd, TASK_INPUT)]);
+    for (let i = 0; i < 3; i++) await cli(sd, ['task', 'add', '--file', taskFile(sd, TASK_INPUT)]);
     const one = await cli(sd, ['task', 'list', '--limit', '2']);
     const page = one.envelope.data as unknown as {
       items: { task_id: string }[];
@@ -336,12 +291,7 @@ describe('commands, envelope and exit codes (US6.1/2, FR-027.01/028)', () => {
     const flag = await cli(sd, ['task', 'show']);
     expect(flag.code).toBe(ExitCode.usage);
     expect(flag.envelope.error.code).toBe('invalid_arguments');
-    const unreadable = await cli(sd, [
-      'task',
-      'add',
-      '--file',
-      join(sd.base, 'absent.json'),
-    ]);
+    const unreadable = await cli(sd, ['task', 'add', '--file', join(sd.base, 'absent.json')]);
     expect(unreadable.code).toBe(ExitCode.usage);
     const schema = await cli(sd, [
       'task',
@@ -359,9 +309,7 @@ describe('commands, envelope and exit codes (US6.1/2, FR-027.01/028)', () => {
     const noVersion = await cli(sd, ['task', 'cancel', t.id]);
     expect(noVersion.code).toBe(ExitCode.usage);
 
-    expect((await cli(sd, ['task', 'show', uuidOf(4_444)])).code).toBe(
-      ExitCode.missing,
-    );
+    expect((await cli(sd, ['task', 'show', uuidOf(4_444)])).code).toBe(ExitCode.missing);
     expect(
       (
         await cli(sd, ['task', 'add', '--file', taskFile(sd, TASK_INPUT)], {
@@ -369,13 +317,7 @@ describe('commands, envelope and exit codes (US6.1/2, FR-027.01/028)', () => {
         })
       ).code,
     ).toBe(ExitCode.forbidden);
-    const stale = await cli(sd, [
-      'task',
-      'cancel',
-      t.id,
-      '--expected-version',
-      '1',
-    ]);
+    const stale = await cli(sd, ['task', 'cancel', t.id, '--expected-version', '1']);
     expect(stale.code).toBe(ExitCode.conflict);
     expect(stale.envelope.error.code).toBe('conflict');
     expect(stale.envelope.error.request_id).toMatch(/^[0-9a-f-]{36}$/);
@@ -403,22 +345,8 @@ describe('commands, envelope and exit codes (US6.1/2, FR-027.01/028)', () => {
     await sd.start();
     const req = '0190e9a0-0000-7000-8000-00000000abce';
     const file = taskFile(sd, TASK_INPUT);
-    const first = await cli(sd, [
-      'task',
-      'add',
-      '--file',
-      file,
-      '--request-id',
-      req,
-    ]);
-    const again = await cli(sd, [
-      'task',
-      'add',
-      '--file',
-      file,
-      '--request-id',
-      req,
-    ]);
+    const first = await cli(sd, ['task', 'add', '--file', file, '--request-id', req]);
+    const again = await cli(sd, ['task', 'add', '--file', file, '--request-id', req]);
     expect(again.envelope.data.replayed).toBe(true);
     expect(again.envelope.data.result).toEqual(first.envelope.data.result);
     const other = await cli(sd, [
@@ -430,10 +358,7 @@ describe('commands, envelope and exit codes (US6.1/2, FR-027.01/028)', () => {
       req,
     ]);
     expect(other.code).toBe(ExitCode.conflict);
-    expect(
-      ((await cli(sd, ['task', 'list'])).envelope.data['items'] as unknown[])
-        .length,
-    ).toBe(1);
+    expect(((await cli(sd, ['task', 'list'])).envelope.data['items'] as unknown[]).length).toBe(1);
   });
 
   it('human output has no JSON envelope and no color; errors go to stderr with the request ID', async () => {
@@ -467,17 +392,11 @@ describe('commands, envelope and exit codes (US6.1/2, FR-027.01/028)', () => {
   it('a real cusr process over the socket; with no daemon it exits 3 and never opens the database', async () => {
     const sd = daemon();
     await sd.start();
-    const bin = fileURLToPath(
-      new URL('../../../src/cli/cusr.ts', import.meta.url),
-    );
+    const bin = fileURLToPath(new URL('../../../src/cli/cusr.ts', import.meta.url));
     const run = (args: string[]) =>
-      promisify(execFile)(
-        process.execPath,
-        [bin, ...args, '--data-dir', sd.dataDir],
-        {
-          env: { ...process.env, NODE_NO_WARNINGS: '1' },
-        },
-      ).then(
+      promisify(execFile)(process.execPath, [bin, ...args, '--data-dir', sd.dataDir], {
+        env: { ...process.env, NODE_NO_WARNINGS: '1' },
+      }).then(
         (r) => ({ code: 0, out: r.stdout }),
         (e: { code: number; stdout: string }) => ({
           code: e.code,
@@ -519,24 +438,21 @@ describe('unsupported features change nothing (US6.4/5, FR-021/045)', () => {
     [['task', 'amend-policy', 'ID'], 'task add'],
     [['task', 'approve', 'ID', '--kind', 'merge'], 'merge the PR on GitHub'],
     [['yolo', 'ID'], 'merge the PR on GitHub'],
-  ])(
-    '%j is unsupported_feature, exit 2, and points the way',
-    async (argv, hint) => {
-      const sd = daemon();
-      const t = buildTask();
-      sd.seed((d) => toGreen(d, t));
-      const daemonNow = await sd.start();
-      const before = daemonNow.store.readEvents(t.id).length;
-      const r = await cli(
-        sd,
-        argv.map((a) => (a === 'ID' ? t.id : a)),
-      );
-      expect(r.code).toBe(ExitCode.usage);
-      expect(r.envelope.error.code).toBe('unsupported_feature');
-      expect(r.envelope.error.details['guidance']).toContain(hint);
-      expect(daemonNow.store.readEvents(t.id)).toHaveLength(before);
-    },
-  );
+  ])('%j is unsupported_feature, exit 2, and points the way', async (argv, hint) => {
+    const sd = daemon();
+    const t = buildTask();
+    sd.seed((d) => toGreen(d, t));
+    const daemonNow = await sd.start();
+    const before = daemonNow.store.readEvents(t.id).length;
+    const r = await cli(
+      sd,
+      argv.map((a) => (a === 'ID' ? t.id : a)),
+    );
+    expect(r.code).toBe(ExitCode.usage);
+    expect(r.envelope.error.code).toBe('unsupported_feature');
+    expect(r.envelope.error.details['guidance']).toContain(hint);
+    expect(daemonNow.store.readEvents(t.id)).toHaveLength(before);
+  });
 
   it.each(['task_retry', 'task_amend_policy', 'merge_approve', 'yolo'])(
     'a raw %s command gets the same answer from the daemon and no ledger row',
@@ -685,9 +601,7 @@ describe('explain from committed data (US6.1/7, FR-027.03–05, FR-029)', () => 
     await sd.stop();
     await sd.start();
     const after = await cli(sd, ['task', 'explain', b.id, '--full']);
-    expect(after.envelope.data['prerequisites']).toEqual(
-      why.envelope.data['prerequisites'],
-    );
+    expect(after.envelope.data['prerequisites']).toEqual(why.envelope.data['prerequisites']);
   });
 
   it('a confirmed merge still draining shows what is open and is not DONE (FR-027.05)', async () => {
@@ -707,9 +621,7 @@ describe('explain from committed data (US6.1/7, FR-027.03–05, FR-029)', () => 
       wait: { detail: { code: 'merge_cleanup_pending' } },
     });
     expect(
-      (why.envelope.data['allowed_actions'] as { action: string }[]).map(
-        (a) => a.action,
-      ),
+      (why.envelope.data['allowed_actions'] as { action: string }[]).map((a) => a.action),
     ).toEqual(['wait', 'recheck']);
   });
 
@@ -738,11 +650,7 @@ describe('explain from committed data (US6.1/7, FR-027.03–05, FR-029)', () => 
       action: string;
       command: string;
     }[];
-    expect(actions.map((a) => a.action)).toEqual([
-      'confirm',
-      'propose',
-      'cancel',
-    ]);
+    expect(actions.map((a) => a.action)).toEqual(['confirm', 'propose', 'cancel']);
     const argv = actions[0]?.command.split(' ').slice(1) as string[];
     expect((await cli(sd, argv)).code).toBe(ExitCode.ok);
     await sd.stop();
@@ -766,9 +674,7 @@ describe('explain from committed data (US6.1/7, FR-027.03–05, FR-029)', () => 
       merge: { method: 'rebase', observed_method: null },
       pr: { ref: 'acme#7', head_sha: 'a'.repeat(40) },
     });
-    expect(JSON.stringify(why.envelope.data['allowed_actions'])).not.toMatch(
-      /amend|accept/i,
-    );
+    expect(JSON.stringify(why.envelope.data['allowed_actions'])).not.toMatch(/amend|accept/i);
     expect(JSON.stringify(why.envelope.data['wait'])).not.toMatch(/amend/);
   });
 });
@@ -800,9 +706,7 @@ function recheckable(sd: { current?: SeededDaemon }) {
 }
 
 function effectsOf(sd: SeededDaemon, id: string): string[] {
-  return Object.values(
-    sd.daemon?.store.readTask(id as Uuid)?.effects ?? {},
-  ).map((e) => e.kind);
+  return Object.values(sd.daemon?.store.readTask(id as Uuid)?.effects ?? {}).map((e) => e.kind);
 }
 
 describe('task recheck end to end (T110, FR-046.01–08)', () => {
@@ -825,9 +729,7 @@ describe('task recheck end to end (T110, FR-046.01–08)', () => {
 
   it('one PR read, no agent or merge, the schedule untouched; the same request replays without reading', async () => {
     const { sd, t, calls, script, version } = await green();
-    script.push((d) => [
-      observation(d, t, 'open', 'a'.repeat(40), { source: 'recheck' }),
-    ]);
+    script.push((d) => [observation(d, t, 'open', 'a'.repeat(40), { source: 'recheck' })]);
     const before = sd.daemon?.store.readTask(t.id);
     const effects = effectsOf(sd, t.id);
     const req = '0190e9a0-0000-7000-8000-00000000abd1';
@@ -855,39 +757,25 @@ describe('task recheck end to end (T110, FR-046.01–08)', () => {
     expect(after?.deadline_at).toBe(before?.deadline_at);
     expect(after?.budget).toEqual(before?.budget);
     expect(before?.observation?.budget.next_due_at).not.toBeNull();
-    expect(after?.observation?.budget.next_due_at).toBe(
-      before?.observation?.budget.next_due_at,
-    );
-    expect(after?.observation?.budget.generation).toBe(
-      before?.observation?.budget.generation,
-    );
+    expect(after?.observation?.budget.next_due_at).toBe(before?.observation?.budget.next_due_at);
+    expect(after?.observation?.budget.generation).toBe(before?.observation?.budget.generation);
     expect(after?.status).toBe('WAITING');
   });
 
   it('needs operate, and a stale version is a conflict with no read', async () => {
     const { sd, t, calls, version } = await green();
-    const denied = await cli(
-      sd,
-      ['task', 'recheck', t.id, '--expected-version', await version()],
-      { token: 'reader' },
-    );
+    const denied = await cli(sd, ['task', 'recheck', t.id, '--expected-version', await version()], {
+      token: 'reader',
+    });
     expect(denied.code).toBe(ExitCode.forbidden);
-    const stale = await cli(sd, [
-      'task',
-      'recheck',
-      t.id,
-      '--expected-version',
-      '1',
-    ]);
+    const stale = await cli(sd, ['task', 'recheck', t.id, '--expected-version', '1']);
     expect(stale.code).toBe(ExitCode.conflict);
     expect(calls.observe).toBe(0);
   });
 
   it('after observation_expired: still expired on no merge, no poll restarted, DONE path on a merge', async () => {
     const { sd, t, calls, script, version } = await green();
-    const store = sd.daemon?.store as NonNullable<
-      SeededDaemon['daemon']
-    >['store'];
+    const store = sd.daemon?.store as NonNullable<SeededDaemon['daemon']>['store'];
     const d = new StoreDriver(store);
     d.now = sd.now;
     d.now += 31 * 86_400_000;
@@ -896,22 +784,12 @@ describe('task recheck end to end (T110, FR-046.01–08)', () => {
     expect(d.task(t.id).wait?.detail.code).toBe('observation_expired');
     const budget = d.task(t.id).observation?.budget;
 
-    script.push((x) => [
-      observation(x, t, 'open', 'a'.repeat(40), { source: 'recheck' }),
-    ]);
-    const r = await cli(sd, [
-      'task',
-      'recheck',
-      t.id,
-      '--expected-version',
-      await version(),
-    ]);
+    script.push((x) => [observation(x, t, 'open', 'a'.repeat(40), { source: 'recheck' })]);
+    const r = await cli(sd, ['task', 'recheck', t.id, '--expected-version', await version()]);
     expect(r.code).toBe(ExitCode.ok);
     expect(calls.observe).toBe(1);
     expect(d.task(t.id).wait?.detail.code).toBe('observation_expired');
-    expect(d.task(t.id).observation?.budget.next_due_at).toBe(
-      budget?.next_due_at,
-    );
+    expect(d.task(t.id).observation?.budget.next_due_at).toBe(budget?.next_due_at);
     expect(d.task(t.id).observation?.expired).toBe(true);
 
     // The merge seen by a later recheck still ends through FR-040: drain, then DONE; no merge was sent.
@@ -928,22 +806,14 @@ describe('task recheck end to end (T110, FR-046.01–08)', () => {
             checked_head_sha: null,
             merge_commit_sha: 'd'.repeat(40),
             observation_id:
-              seen.kind === 'observation_result'
-                ? seen.observation.observation_id
-                : '',
+              seen.kind === 'observation_result' ? seen.observation.observation_id : '',
             evidence_ref: 'ev',
           },
           unverified_reason: null,
         },
       ] as Trigger[];
     });
-    await cli(sd, [
-      'task',
-      'recheck',
-      t.id,
-      '--expected-version',
-      await version(),
-    ]);
+    await cli(sd, ['task', 'recheck', t.id, '--expected-version', await version()]);
     expect(calls.observe).toBe(2);
     expect(d.task(t.id).completion?.proof.merged_head_sha).toBe(HEAD);
     expect(effectsOf(sd, t.id)).not.toContain('merge');
@@ -960,13 +830,7 @@ describe('task recheck end to end (T110, FR-046.01–08)', () => {
     sd.seed((d) => pausedDrain(d, t));
     await sd.start();
     const v = (await cli(sd, ['task', 'show', t.id])).envelope.data['version'];
-    const r = await cli(sd, [
-      'task',
-      'recheck',
-      t.id,
-      '--expected-version',
-      String(v),
-    ]);
+    const r = await cli(sd, ['task', 'recheck', t.id, '--expected-version', String(v)]);
     expect(r.envelope.data.result).toMatchObject({
       target: 'drain',
       performed: true,
@@ -987,13 +851,7 @@ describe('task recheck end to end (T110, FR-046.01–08)', () => {
     await sd.start();
     const s = sd.daemon?.store.readTask(t.id);
     expect(s && recheckTarget(s)).toBe('terminal');
-    const r = await cli(sd, [
-      'task',
-      'recheck',
-      t.id,
-      '--expected-version',
-      String(s?.version),
-    ]);
+    const r = await cli(sd, ['task', 'recheck', t.id, '--expected-version', String(s?.version)]);
     expect(r.code).toBe(ExitCode.ok);
     expect(r.envelope.data.result).toMatchObject({
       status: 'CANCELLED',
@@ -1012,13 +870,7 @@ describe('task recheck end to end (T110, FR-046.01–08)', () => {
     sd.seed((d) => createGrantStart(d, t, 'direct-pr'));
     await sd.start();
     const v = sd.daemon?.store.readTask(t.id)?.version;
-    const r = await cli(sd, [
-      'task',
-      'recheck',
-      t.id,
-      '--expected-version',
-      String(v),
-    ]);
+    const r = await cli(sd, ['task', 'recheck', t.id, '--expected-version', String(v)]);
     expect(r.code).toBe(ExitCode.conflict);
     expect(r.envelope.error.code).toBe('nothing_to_recheck');
   });
@@ -1032,37 +884,23 @@ describe('task recheck end to end (T110, FR-046.01–08)', () => {
       confirm: {
         store,
         ports: { git: fakeGit(), github: fakeGitHub(), host: fakeHost() },
-        configInputs: () =>
-          Promise.resolve({ user: userConfig(), packs: PACKS, manifests }),
+        configInputs: () => Promise.resolve({ user: userConfig(), packs: PACKS, manifests }),
         now: () => sd.now,
       },
     }));
     holder.current = sd;
     await sd.start();
-    const add = await cli(sd, [
-      'task',
-      'add',
-      '--file',
-      taskFile(sd, TASK_INPUT),
-    ]);
+    const add = await cli(sd, ['task', 'add', '--file', taskFile(sd, TASK_INPUT)]);
     const id = add.envelope.data.result?.['task_id'] as string;
     const v0 = add.envelope.data.result?.['version'] as number;
-    const confirm = await cli(sd, [
-      'task',
-      'confirm',
-      id,
-      '--expected-version',
-      String(v0),
-    ]);
+    const confirm = await cli(sd, ['task', 'confirm', id, '--expected-version', String(v0)]);
     expect(confirm.envelope.data.result).toMatchObject({
       status: 'PENDING',
       wait: { detail: { code: 'capability_missing' } },
     });
     const why = await cli(sd, ['task', 'explain', id, '--full']);
     expect(
-      (why.envelope.data['allowed_actions'] as { action: string }[]).map(
-        (a) => a.action,
-      ),
+      (why.envelope.data['allowed_actions'] as { action: string }[]).map((a) => a.action),
     ).toEqual(['fix_external', 'confirm', 'recheck', 'cancel']);
     manifests = MANIFESTS;
     const r = await cli(sd, [
@@ -1101,20 +939,16 @@ describe('logs (T114, US6.2, FR-027.01/031)', () => {
     const effect = sd.seed((d) => {
       createGrantStart(d, t);
       const prepare = d.pendingOne(t.id, 'prepare');
-      const claimed = d.store.claimEffect(
-        prepare.id as Uuid,
-        d.now as EpochMs,
-        {
-          require_runtime: true,
-          operation: {
-            operation_id: OP,
-            kind: 'setup',
-            launch_nonce: 'nonce-1',
-            unit: 'cusr-op-1.service',
-            holds_slot: true,
-          },
+      const claimed = d.store.claimEffect(prepare.id as Uuid, d.now as EpochMs, {
+        require_runtime: true,
+        operation: {
+          operation_id: OP,
+          kind: 'setup',
+          launch_nonce: 'nonce-1',
+          unit: 'cusr-op-1.service',
+          holds_slot: true,
         },
-      );
+      });
       if (!claimed.ok) throw new Error(JSON.stringify(claimed.error));
       return prepare.id;
     });
@@ -1168,22 +1002,21 @@ describe('logs (T114, US6.2, FR-027.01/031)', () => {
     const f = logged();
     const running = await f.sd.start();
     f.write(5, 0);
-    expect(
-      (await cli(f.sd, ['task', 'logs', f.t.id, '--after', '0'])).envelope.data,
-    ).toMatchObject({
-      records: [],
-      next_cursor: 0,
-    });
+    expect((await cli(f.sd, ['task', 'logs', f.t.id, '--after', '0'])).envelope.data).toMatchObject(
+      {
+        records: [],
+        next_cursor: 0,
+      },
+    );
     f.ingest(running.store);
     f.write(2, 5); // written, not yet ingested: not served
-    const page = (await cli(f.sd, ['task', 'logs', f.t.id, '--after', '0']))
-      .envelope.data as unknown as LogPage;
+    const page = (await cli(f.sd, ['task', 'logs', f.t.id, '--after', '0'])).envelope
+      .data as unknown as LogPage;
     expect(page.records.map((r) => r.seq)).toEqual([1, 2, 3, 4, 5]);
     expect(page.next_cursor).toBe(5);
     expect(JSON.stringify(page)).not.toContain(f.secret);
-    const rest = (
-      await cli(f.sd, ['task', 'logs', f.t.id, '--after', '3', '--limit', '1'])
-    ).envelope.data as unknown as LogPage;
+    const rest = (await cli(f.sd, ['task', 'logs', f.t.id, '--after', '3', '--limit', '1']))
+      .envelope.data as unknown as LogPage;
     expect(rest.records.map((r) => r.seq)).toEqual([4]);
     expect(rest.next_cursor).toBe(4);
   });
@@ -1200,23 +1033,17 @@ describe('logs (T114, US6.2, FR-027.01/031)', () => {
       resolve(d, f.t.id, f.effect, OP);
       expect(f.ingest(d.store).acked.length).toBeGreaterThan(0);
     });
-    expect(readdirSync(join(f.run.dir, ACKED_DIR))).toContain(
-      segmentFileName(0, 0),
-    );
+    expect(readdirSync(join(f.run.dir, ACKED_DIR))).toContain(segmentFileName(0, 0));
     expect(readdirSync(join(f.run.dir, SPOOL_DIR))).toHaveLength(1);
     await f.sd.start();
-    const first = (await cli(f.sd, ['task', 'logs', f.t.id, '--limit', '200']))
-      .envelope.data as unknown as LogPage;
-    expect(first.records.map((r) => r.data.i)).toEqual(
-      Array.from({ length: 30 }, (_, i) => i),
-    );
-    expect(first.records.map((r) => r.seq)).toEqual(
-      Array.from({ length: 30 }, (_, i) => i + 1),
-    );
+    const first = (await cli(f.sd, ['task', 'logs', f.t.id, '--limit', '200'])).envelope
+      .data as unknown as LogPage;
+    expect(first.records.map((r) => r.data.i)).toEqual(Array.from({ length: 30 }, (_, i) => i));
+    expect(first.records.map((r) => r.seq)).toEqual(Array.from({ length: 30 }, (_, i) => i + 1));
     await f.sd.stop();
     await f.sd.start();
-    const after = (await cli(f.sd, ['task', 'logs', f.t.id, '--limit', '200']))
-      .envelope.data as unknown as LogPage;
+    const after = (await cli(f.sd, ['task', 'logs', f.t.id, '--limit', '200'])).envelope
+      .data as unknown as LogPage;
     expect(after.records).toEqual(first.records);
   });
 
@@ -1225,20 +1052,10 @@ describe('logs (T114, US6.2, FR-027.01/031)', () => {
     const running = await f.sd.start();
     f.write(25, 0);
     f.ingest(running.store);
-    const first = (await cli(f.sd, ['task', 'logs', f.t.id])).envelope
-      .data as unknown as LogPage;
-    expect(first.records.map((r) => r.data.i)).toEqual(
-      Array.from({ length: 20 }, (_, i) => i),
-    );
-    const rest = (
-      await cli(f.sd, [
-        'task',
-        'logs',
-        f.t.id,
-        '--after',
-        String(first.next_cursor),
-      ])
-    ).envelope.data as unknown as LogPage;
+    const first = (await cli(f.sd, ['task', 'logs', f.t.id])).envelope.data as unknown as LogPage;
+    expect(first.records.map((r) => r.data.i)).toEqual(Array.from({ length: 20 }, (_, i) => i));
+    const rest = (await cli(f.sd, ['task', 'logs', f.t.id, '--after', String(first.next_cursor)]))
+      .envelope.data as unknown as LogPage;
     expect(rest.records.map((r) => r.data.i)).toEqual([20, 21, 22, 23, 24]);
   });
 
@@ -1248,8 +1065,8 @@ describe('logs (T114, US6.2, FR-027.01/031)', () => {
     f.write(3, 0);
     f.ingest(running.store);
     rmSync(join(f.run.dir, SPOOL_DIR), { recursive: true });
-    const page = (await cli(f.sd, ['task', 'logs', f.t.id, '--limit', '200']))
-      .envelope.data as unknown as LogPage;
+    const page = (await cli(f.sd, ['task', 'logs', f.t.id, '--limit', '200'])).envelope
+      .data as unknown as LogPage;
     expect(page.records).toMatchObject([{ seq: 3, gap: { records: 3 } }]);
     expect(page.next_cursor).toBe(3);
   });
@@ -1285,14 +1102,10 @@ describe('logs (T114, US6.2, FR-027.01/031)', () => {
     expect(lines.at(-1)).toEqual({ end: 'session_limit', cursor: 3 });
     // Resuming prints nothing again.
     now = 0;
-    const again = await raw(
-      f.sd,
-      ['task', 'logs', f.t.id, '--follow', '--after', '3'],
-      {
-        commands: [follow],
-        json: false,
-      },
-    );
+    const again = await raw(f.sd, ['task', 'logs', f.t.id, '--follow', '--after', '3'], {
+      commands: [follow],
+      json: false,
+    });
     const more = again.out
       .trimEnd()
       .split('\n')
@@ -1505,32 +1318,22 @@ describe('doctor (T112, FR-027.02/033)', () => {
         host,
         configInputs: () =>
           Promise.resolve({
-            user: userConfig(
-              o.runtime === undefined ? {} : { runtime: o.runtime },
-            ),
+            user: userConfig(o.runtime === undefined ? {} : { runtime: o.runtime }),
             packs: PACKS,
             manifests: (o.manifests ?? PROVEN) as typeof MANIFESTS,
           }),
         health: () => (o.health === undefined ? rt.health() : o.health),
-        ...(o.recoveryClaims === undefined
-          ? {}
-          : { recoveryClaims: o.recoveryClaims }),
-        ...(o.spoolProblems === undefined
-          ? {}
-          : { spoolProblems: o.spoolProblems }),
+        ...(o.recoveryClaims === undefined ? {} : { recoveryClaims: o.recoveryClaims }),
+        ...(o.spoolProblems === undefined ? {} : { spoolProblems: o.spoolProblems }),
         // The fixture's binaries are not on disk: unless told otherwise each is what its manifest says.
         digest:
           o.digest ??
           ((path) =>
-            Object.values(MANIFESTS).find((m) => m.binary.realpath === path)
-              ?.binary.digest ?? 'unknown'),
+            Object.values(MANIFESTS).find((m) => m.binary.realpath === path)?.binary.digest ??
+            'unknown'),
         now: () => sd.now,
-        ...(o.probeBudgetMs === undefined
-          ? {}
-          : { probeBudgetMs: o.probeBudgetMs }),
-        ...(o.harnessTools === undefined
-          ? {}
-          : { harnessTools: () => o.harnessTools ?? {} }),
+        ...(o.probeBudgetMs === undefined ? {} : { probeBudgetMs: o.probeBudgetMs }),
+        ...(o.harnessTools === undefined ? {} : { harnessTools: () => o.harnessTools ?? {} }),
       },
     }));
     return { sd, host };
@@ -1538,9 +1341,7 @@ describe('doctor (T112, FR-027.02/033)', () => {
   const names = (r: Run): Record<string, string> =>
     Object.fromEntries(
       (
-        (r.envelope.ok
-          ? r.envelope.data['checks']
-          : r.envelope.error.details['checks']) as {
+        (r.envelope.ok ? r.envelope.data['checks'] : r.envelope.error.details['checks']) as {
           name: string;
           status: string;
         }[]
@@ -1567,9 +1368,7 @@ describe('doctor (T112, FR-027.02/033)', () => {
       'project:acme': 'ok',
     });
     for (const argv of host.execs)
-      expect(argv.join(' ')).not.toMatch(
-        /\bsudo\b|sysctl -w|apparmor_parser|claude|codex/,
-      );
+      expect(argv.join(' ')).not.toMatch(/\bsudo\b|sysctl -w|apparmor_parser|claude|codex/);
   });
 
   it('checks a terminal backend it found outside PATH', async () => {
@@ -1589,23 +1388,16 @@ describe('doctor (T112, FR-027.02/033)', () => {
 
   it('checks orca with a command that fails when its runtime is down', async () => {
     const { sd, host } = doctored({
-      runtime:
-        'runtime: { terminal: { backend: orca }, tool_paths: { orca: /usr/bin/orca } }',
+      runtime: 'runtime: { terminal: { backend: orca }, tool_paths: { orca: /usr/bin/orca } }',
     });
     await sd.start();
     expect(names(await cli(sd, ['doctor']))['terminal']).toBeDefined();
-    expect(host.execs).toContainEqual([
-      '/usr/bin/orca',
-      'repo',
-      'list',
-      '--json',
-    ]);
+    expect(host.execs).toContainEqual(['/usr/bin/orca', 'repo', 'list', '--json']);
   });
 
   it('checks paseo by running its CLI script with the daemon node', async () => {
     const { sd, host } = doctored({
-      runtime:
-        'runtime: { terminal: { backend: paseo }, tool_paths: { paseo: /usr/bin/paseo } }',
+      runtime: 'runtime: { terminal: { backend: paseo }, tool_paths: { paseo: /usr/bin/paseo } }',
     });
     await sd.start();
     expect(names(await cli(sd, ['doctor']))['terminal']).toBeDefined();
@@ -1653,10 +1445,7 @@ describe('doctor (T112, FR-027.02/033)', () => {
     );
     expect(claimed.ok).toBe(true);
     expect(names(await cli(sd, ['doctor']))['claims']).toBe('ok');
-    for (const health of [
-      'dispatch blocked: verify failed',
-      'store unwritable: disk full',
-    ]) {
+    for (const health of ['dispatch blocked: verify failed', 'store unwritable: disk full']) {
       options.health = health;
       expect(names(await cli(sd, ['doctor']))['claims']).toBe('fail');
     }
@@ -1678,8 +1467,9 @@ describe('doctor (T112, FR-027.02/033)', () => {
   });
 
   it('reports spool errors instead of presenting a silent worker stall, and clears after recovery', async () => {
-    const problems: { operation_id: string; status: string; detail: string }[] =
-      [{ operation_id: uuidOf(4141), status: 'unreadable', detail: 'EIO' }];
+    const problems: { operation_id: string; status: string; detail: string }[] = [
+      { operation_id: uuidOf(4141), status: 'unreadable', detail: 'EIO' },
+    ];
     const { sd } = doctored({ spoolProblems: () => problems });
     await sd.start();
     expect(names(await cli(sd, ['doctor']))['spools']).toBe('fail');
@@ -1758,9 +1548,9 @@ describe('doctor (T112, FR-027.02/033)', () => {
   it('a recorded manifest that does not prove what an attempt requires fails', async () => {
     const { sd } = doctored({ manifests: MANIFESTS });
     await sd.start();
-    expect(
-      JSON.stringify((await cli(sd, ['doctor'])).envelope.error.details),
-    ).toContain('not proven: structured_output');
+    expect(JSON.stringify((await cli(sd, ['doctor'])).envelope.error.details)).toContain(
+      'not proven: structured_output',
+    );
   });
 
   /** A host whose unit and canary probes hang until their timeout, as with a stuck systemd. */
@@ -1768,9 +1558,7 @@ describe('doctor (T112, FR-027.02/033)', () => {
     const exec = host.exec.bind(host);
     host.exec = (argv, o) =>
       match.some((m) => argv.includes(m))
-        ? new Promise((r) =>
-            setTimeout(() => r({ kind: 'timeout' }), o.timeout_ms),
-          )
+        ? new Promise((r) => setTimeout(() => r({ kind: 'timeout' }), o.timeout_ms))
         : exec(argv, o);
   };
 
@@ -1786,9 +1574,7 @@ describe('doctor (T112, FR-027.02/033)', () => {
     expect(names(r)).toMatchObject({
       systemd_unit: 'fail',
     });
-    expect(JSON.stringify(r.envelope.error.details)).toContain(
-      'deploy/README.md',
-    );
+    expect(JSON.stringify(r.envelope.error.details)).toContain('deploy/README.md');
   }, 40_000);
 
   it('the budget bounds all probes together and the client waits longer than it', async () => {
@@ -1811,9 +1597,7 @@ describe('doctor (T112, FR-027.02/033)', () => {
     await changed.sd.start();
     const r1 = await cli(changed.sd, ['doctor']);
     expect(r1.code).toBe(ExitCode.failure);
-    expect(JSON.stringify(r1.envelope.error.details)).toContain(
-      'changed since the proof',
-    );
+    expect(JSON.stringify(r1.envelope.error.details)).toContain('changed since the proof');
 
     const gone = doctored({
       digest: () => {
@@ -1821,9 +1605,9 @@ describe('doctor (T112, FR-027.02/033)', () => {
       },
     });
     await gone.sd.start();
-    expect(
-      JSON.stringify((await cli(gone.sd, ['doctor'])).envelope.error.details),
-    ).toContain('ENOENT');
+    expect(JSON.stringify((await cli(gone.sd, ['doctor'])).envelope.error.details)).toContain(
+      'ENOENT',
+    );
 
     const altered = doctored({
       manifests: Object.fromEntries(
@@ -1834,11 +1618,9 @@ describe('doctor (T112, FR-027.02/033)', () => {
       ),
     });
     await altered.sd.start();
-    expect(
-      JSON.stringify(
-        (await cli(altered.sd, ['doctor'])).envelope.error.details,
-      ),
-    ).toContain('fails its schema or its hash');
+    expect(JSON.stringify((await cli(altered.sd, ['doctor'])).envelope.error.details)).toContain(
+      'fails its schema or its hash',
+    );
   });
 
   it('a host problem or a held writer fails with the fix to run, and nothing is run for it', async () => {
@@ -1863,9 +1645,7 @@ describe('doctor (T112, FR-027.02/033)', () => {
     chmodSync(sd.dataDir, 0o750);
     expect(names(await cli(sd, ['doctor']))['data_dir']).toBe('fail');
     chmodSync(sd.dataDir, 0o700);
-    expect((await cli(sd, ['doctor', '--project', 'nope'])).code).toBe(
-      ExitCode.missing,
-    );
+    expect((await cli(sd, ['doctor', '--project', 'nope'])).code).toBe(ExitCode.missing);
   });
 });
 
@@ -1910,9 +1690,7 @@ describe('dependency recovery and queue (T119, FR-001.02/03, FR-044.06/07)', () 
     await sd.stop();
     const again = await sd.start();
     expect(
-      again.store
-        .readEvents(b.id)
-        .filter((e) => e.causation.dedup_key?.startsWith('dep:')),
+      again.store.readEvents(b.id).filter((e) => e.causation.dedup_key?.startsWith('dep:')),
     ).toHaveLength(accepted);
   });
 
@@ -1955,9 +1733,7 @@ describe('control socket boundary (T116, FR-028/032)', () => {
     expect(big.code).toBe(ExitCode.usage);
     const open = await sd.query('owner', { kind: 'task_list', extra: 1 });
     expect(open.code).toBe(ExitCode.usage);
-    expect((await sd.query('owner', { kind: 'nope' })).code).toBe(
-      ExitCode.usage,
-    );
+    expect((await sd.query('owner', { kind: 'nope' })).code).toBe(ExitCode.usage);
     const show = await sd.query('owner', {
       kind: 'task_show',
       task_id: uuidOf(1),

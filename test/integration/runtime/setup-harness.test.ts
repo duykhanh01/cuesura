@@ -18,8 +18,7 @@ import { PROOF_LEDGER } from '../../../src/runner/harness-proof.ts';
 
 const dirs: string[] = [];
 afterEach(() => {
-  for (const dir of dirs.splice(0))
-    rmSync(dir, { recursive: true, force: true });
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 function setup() {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cusr-setup-')));
@@ -46,9 +45,7 @@ function setup() {
     const r = spawnSync(
       process.execPath,
       [
-        fileURLToPath(
-          new URL('../../../src/cli/cusr-runner.ts', import.meta.url),
-        ),
+        fileURLToPath(new URL('../../../src/cli/cusr-runner.ts', import.meta.url)),
         command,
         '--json',
         '--config',
@@ -65,8 +62,7 @@ function setup() {
       body: JSON.parse(r.stdout) as Envelope,
     };
   };
-  const run = (...extra: string[]) =>
-    invoke('setup-harness', [...pinArgs, ...proofArgs, ...extra]);
+  const run = (...extra: string[]) => invoke('setup-harness', [...pinArgs, ...proofArgs, ...extra]);
   const seed = () => {
     expect(invoke('write-pin', pinArgs).code).toBe(0);
     writeFileSync(join(records, 'manifest.json'), 'previous manifest', {
@@ -74,8 +70,7 @@ function setup() {
     });
     const pin = readFileSync(join(records, 'pin.json'), 'utf8');
     const parsed = JSON.parse(pin) as { binary: { sha256: string } };
-    const rows =
-      `${JSON.stringify({ binary_sha256: parsed.binary.sha256 })}\n`.repeat(2);
+    const rows = `${JSON.stringify({ binary_sha256: parsed.binary.sha256 })}\n`.repeat(2);
     writeFileSync(join(records, PROOF_LEDGER), rows, { mode: 0o600 });
     return { pin, rows };
   };
@@ -111,9 +106,7 @@ describe('setup-harness CLI without model calls', () => {
 
   it('leaves no pin behind when the initial budget cannot cover the proof', () => {
     const h = setup();
-    expect(
-      h.run('--approval', 'owner, test', '--max-invocations', '1'),
-    ).toMatchObject({
+    expect(h.run('--approval', 'owner, test', '--max-invocations', '1')).toMatchObject({
       code: 1,
       body: { error: { details: { step: 'prove-harness' } } },
     });
@@ -130,9 +123,7 @@ describe('setup-harness CLI without model calls', () => {
         data: { invocations_spent: 2, invocations_needed: 4, pin_exists: true },
       },
     });
-    expect(
-      h.run('--approval', 'owner, test', '--max-invocations', '6'),
-    ).toMatchObject({
+    expect(h.run('--approval', 'owner, test', '--max-invocations', '6')).toMatchObject({
       code: 1,
       body: { error: { code: 'pin_refused', details: { step: 'write-pin' } } },
     });
@@ -140,9 +131,7 @@ describe('setup-harness CLI without model calls', () => {
       ['--max-invocations', '4'],
       ['--max-invocations', '9', '--prove-resume'],
     ]) {
-      expect(
-        h.run('--force', '--approval', 'owner, test', ...extra),
-      ).toMatchObject({
+      expect(h.run('--force', '--approval', 'owner, test', ...extra)).toMatchObject({
         code: 1,
         body: {
           error: { code: 'proof_refused', details: { step: 'prove-harness' } },
@@ -170,9 +159,7 @@ describe('setup-harness CLI without model calls', () => {
       },
     });
     expect(readFileSync(join(h.records, 'pin.json'), 'utf8')).toBe(pin);
-    expect(readFileSync(join(h.records, 'manifest.json'), 'utf8')).toBe(
-      'previous manifest',
-    );
+    expect(readFileSync(join(h.records, 'manifest.json'), 'utf8')).toBe('previous manifest');
     expect(readFileSync(join(h.records, PROOF_LEDGER), 'utf8')).toBe(rows);
     expect(existsSync(h.out)).toBe(false);
     expect(existsSync(h.modelCalled)).toBe(false);
@@ -182,10 +169,7 @@ describe('setup-harness CLI without model calls', () => {
     const h = setup();
     const { pin, rows } = h.seed();
     const settings = join(h.dir, 'settings.json');
-    writeFileSync(
-      settings,
-      JSON.stringify({ permissions: { defaultMode: 'auto' } }),
-    );
+    writeFileSync(settings, JSON.stringify({ permissions: { defaultMode: 'auto' } }));
     const tools = join(h.dir, 'tools');
     mkdirSync(tools);
     for (const tool of ['socat', 'bwrap'])
@@ -217,9 +201,7 @@ describe('setup-harness CLI without model calls', () => {
       },
     });
     expect(readFileSync(join(h.records, 'pin.json'), 'utf8')).toBe(pin);
-    expect(readFileSync(join(h.records, 'manifest.json'), 'utf8')).toBe(
-      'previous manifest',
-    );
+    expect(readFileSync(join(h.records, 'manifest.json'), 'utf8')).toBe('previous manifest');
     expect(readFileSync(join(h.records, PROOF_LEDGER), 'utf8')).toBe(rows);
     expect(existsSync(h.modelCalled)).toBe(false);
   });
@@ -245,20 +227,12 @@ describe('setup-harness CLI without model calls', () => {
       body: {
         error: {
           code: 'proof_refused',
-          message: expect.stringContaining(
-            '2 invocations already spent',
-          ) as string,
+          message: expect.stringContaining('2 invocations already spent') as string,
         },
       },
     });
     expect(
-      h.invoke('setup-harness', [
-        '--from',
-        'prove-harness',
-        '--model',
-        'proof-model',
-        '--dry-run',
-      ]),
+      h.invoke('setup-harness', ['--from', 'prove-harness', '--model', 'proof-model', '--dry-run']),
     ).toMatchObject({
       code: 0,
       body: {
@@ -278,21 +252,13 @@ describe('setup-harness CLI without model calls', () => {
     writeFileSync(path, pin, { mode: 0o600 });
     chmodSync(path, 0o666);
     expect(
-      h.invoke('setup-harness', [
-        '--from',
-        'prove-harness',
-        '--model',
-        'proof-model',
-        '--dry-run',
-      ]),
+      h.invoke('setup-harness', ['--from', 'prove-harness', '--model', 'proof-model', '--dry-run']),
     ).toMatchObject({
       code: 1,
       body: {
         error: {
           code: 'proof_refused',
-          message: expect.stringContaining(
-            'writable by group or others',
-          ) as string,
+          message: expect.stringContaining('writable by group or others') as string,
         },
       },
     });

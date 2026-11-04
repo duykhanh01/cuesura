@@ -8,10 +8,7 @@ import { buildTask } from '../../support/builders.ts';
 import { createGrantStart } from '../../support/runtime.ts';
 import { agentData, publishData, reviewData } from '../../support/scenario.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
-import {
-  checkpointGates,
-  currentReviewInput,
-} from '../../support/store-flows.ts';
+import { checkpointGates, currentReviewInput } from '../../support/store-flows.ts';
 import { HEAVY_PROPERTY_TIMEOUT_MS } from '../../support/timeouts.ts';
 import { propertyParams } from '../arbitraries/policies.ts';
 
@@ -83,31 +80,20 @@ function drive(rounds: readonly Round[], driftAt: number | null): Run {
       run.beforeDrift = new Set(Object.keys(d.task(t.id).effects));
     }
     // The PR step holds no slot: the review queues for it again.
-    if (!run.drifted && d.task(t.id).wait?.detail['code'] === 'execution_slot')
-      d.grantNext();
+    if (!run.drifted && d.task(t.id).wait?.detail['code'] === 'execution_slot') d.grantNext();
     const s = d.task(t.id);
-    const pending = d
-      .pending(t.id)
-      .filter(
-        (e) =>
-          claimable(
-            s,
-            { id: e.id, kind: e.kind, revision: e.revision },
-            d.now,
-            { require_runtime: true },
-          ).ok,
-      );
+    const pending = d.pending(t.id).filter(
+      (e) =>
+        claimable(s, { id: e.id, kind: e.kind, revision: e.revision }, d.now, {
+          require_runtime: true,
+        }).ok,
+    );
     const e = pending[0];
     if (e === undefined) return run;
     const mirror = s.effects[e.id];
     if (e.kind === 'mark_ready') return run;
     if (e.kind === 'publish') {
-      d.complete(
-        t.id,
-        e.id,
-        'succeeded',
-        publishData(String(e.request['sha'])),
-      );
+      d.complete(t.id, e.id, 'succeeded', publishData(String(e.request['sha'])));
       continue;
     }
     if (e.kind === 'create_pr') {
@@ -191,39 +177,27 @@ describe('review evidence (T050, FR-014, M03)', () => {
     'one reviewer run per distinct input; verdicts bound to their checkpoint; only the approved published checkpoint turns the PR ready',
     () => {
       fc.assert(
-        fc.property(
-          fc.array(roundArb, { minLength: 1, maxLength: 8 }),
-          (rounds) => {
-            const { d, t, reviewerRuns, inputs } = drive(rounds, null);
-            const s = d.task(t.id);
-            expect(reviewerRuns).toBe(inputs.size);
-            const ran = Object.values(s.effects).filter(
-              (e) => e.kind === 'start_agent' && e.step === 'review',
-            ).length;
-            expect(ran).toBe(reviewerRuns);
-            // Reused verdicts are free: usage only for reviewer runs that happened.
-            const reused = d.store
-              .readEvents(t.id)
-              .filter((e) => e.type === 'ReviewReused');
-            for (const r of reused)
-              expect(
-                inputs.has(
-                  (r.payload as { input_digest: string }).input_digest,
-                ),
-              ).toBe(true);
-            for (const r of s.run.reviews)
-              expect(r.sha).toMatch(/^[0-9a-f]{40}$/);
-            const ready = d.pending(t.id, 'mark_ready')[0];
-            if (ready !== undefined) {
-              const cp = s.run.checkpoint;
-              expect(s.head_sha).toBe(cp?.sha);
-              const last = s.run.reviews
-                .filter((r) => r.valid && r.sha === cp?.sha)
-                .at(-1);
-              expect(last?.verdict).toBe('approve');
-            }
-          },
-        ),
+        fc.property(fc.array(roundArb, { minLength: 1, maxLength: 8 }), (rounds) => {
+          const { d, t, reviewerRuns, inputs } = drive(rounds, null);
+          const s = d.task(t.id);
+          expect(reviewerRuns).toBe(inputs.size);
+          const ran = Object.values(s.effects).filter(
+            (e) => e.kind === 'start_agent' && e.step === 'review',
+          ).length;
+          expect(ran).toBe(reviewerRuns);
+          // Reused verdicts are free: usage only for reviewer runs that happened.
+          const reused = d.store.readEvents(t.id).filter((e) => e.type === 'ReviewReused');
+          for (const r of reused)
+            expect(inputs.has((r.payload as { input_digest: string }).input_digest)).toBe(true);
+          for (const r of s.run.reviews) expect(r.sha).toMatch(/^[0-9a-f]{40}$/);
+          const ready = d.pending(t.id, 'mark_ready')[0];
+          if (ready !== undefined) {
+            const cp = s.run.checkpoint;
+            expect(s.head_sha).toBe(cp?.sha);
+            const last = s.run.reviews.filter((r) => r.valid && r.sha === cp?.sha).at(-1);
+            expect(last?.verdict).toBe('approve');
+          }
+        }),
         propertyParams(40),
       );
     },
@@ -244,12 +218,9 @@ describe('review evidence (T050, FR-014, M03)', () => {
             expect(s.run.head_drift).not.toBeNull();
             expect(s.blockers.map((b) => b.code)).toContain('head_changed');
             for (const e of d.pending(t.id)) {
-              const c = claimable(
-                s,
-                { id: e.id, kind: e.kind, revision: e.revision },
-                d.now,
-                { require_runtime: true },
-              );
+              const c = claimable(s, { id: e.id, kind: e.kind, revision: e.revision }, d.now, {
+                require_runtime: true,
+              });
               if (
                 e.kind !== 'stop_attempt' &&
                 e.kind !== 'reconcile' &&
@@ -261,12 +232,7 @@ describe('review evidence (T050, FR-014, M03)', () => {
               Object.values(s.effects).filter(
                 (e) =>
                   !beforeDrift.has(e.id) &&
-                  [
-                    'publish',
-                    'create_pr',
-                    'post_review',
-                    'mark_ready',
-                  ].includes(e.kind) &&
+                  ['publish', 'create_pr', 'post_review', 'mark_ready'].includes(e.kind) &&
                   e.status !== 'invalidated' &&
                   e.status !== 'pending',
               ),
@@ -310,11 +276,7 @@ describe('T139 M04 context admission', () => {
               used: 0,
               reserved: 0,
             });
-            expect(
-              d.store
-                .readEvents(t.id)
-                .filter((e) => e.type === 'BudgetConsumed'),
-            ).toEqual([]);
+            expect(d.store.readEvents(t.id).filter((e) => e.type === 'BudgetConsumed')).toEqual([]);
           } finally {
             d.store.close();
           }

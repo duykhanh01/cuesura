@@ -63,21 +63,15 @@ describe('needsUser (FR-007)', () => {
 
   it('READY without a confirmed run config needs the user', () => {
     expect(needsUser(state({ status: 'READY', run: noRun }))).toBe(true);
-    expect(needsUser(state({ status: 'READY', run: unconfirmedRun }))).toBe(
-      true,
-    );
+    expect(needsUser(state({ status: 'READY', run: unconfirmedRun }))).toBe(true);
   });
 
   it('a confirmation of another revision does not count', () => {
-    expect(
-      needsUser(state({ status: 'READY', run: confirmedRun, revision: 2 })),
-    ).toBe(true);
+    expect(needsUser(state({ status: 'READY', run: confirmedRun, revision: 2 }))).toBe(true);
   });
 
   it('READY with a confirmed run config does not', () => {
-    expect(needsUser(state({ status: 'READY', run: confirmedRun }))).toBe(
-      false,
-    );
+    expect(needsUser(state({ status: 'READY', run: confirmedRun }))).toBe(false);
   });
 
   it('a running task without a wait does not', () => {
@@ -88,12 +82,9 @@ describe('needsUser (FR-007)', () => {
     expect(needsUser(waiting(code))).toBe(false);
   });
 
-  it.each(DETAIL_CODES.filter((c) => !WITHIN_LIMITS.includes(c)))(
-    '%s needs the user',
-    (code) => {
-      expect(needsUser(waiting(code))).toBe(true);
-    },
-  );
+  it.each(DETAIL_CODES.filter((c) => !WITHIN_LIMITS.includes(c)))('%s needs the user', (code) => {
+    expect(needsUser(waiting(code))).toBe(true);
+  });
 
   it('READY waiting for the slot follows the unconfirmed rule first', () => {
     expect(

@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  KeyDecoder,
-  type Key,
-  type KeyName,
-} from '../../../src/tui/terminal/keys.ts';
+import { KeyDecoder, type Key, type KeyName } from '../../../src/tui/terminal/keys.ts';
 import { uiText } from '../../../src/tui/terminal/safe-text.ts';
 import { Frame } from '../../../src/tui/terminal/screen.ts';
 import { displayWidth } from '../../../src/tui/terminal/width.ts';
@@ -46,16 +42,7 @@ describe('every printable key is text', () => {
   });
 
   it('takes Vietnamese, CJK and emoji whole', () => {
-    const f = typed(
-      textField('line', 'Title'),
-      'Đ',
-      'ư',
-      'ờ',
-      'n',
-      'g',
-      '漢',
-      '👍🏽',
-    );
+    const f = typed(textField('line', 'Title'), 'Đ', 'ư', 'ờ', 'n', 'g', '漢', '👍🏽');
     expect(f.text).toBe('Đường漢👍🏽');
     // Backspace removes the last grapheme, not half of it.
     expect(typed(f, named('backspace')).text).toBe('Đường漢');
@@ -110,34 +97,23 @@ describe('keys as the terminal sends them', () => {
 
   it('a limit counts the joined text, typed or pasted alike', () => {
     const typedTone = fed(textField('line', 'Title', '', 1), '👍🏽');
-    const pastedTone = editField(
-      textField('line', 'Title', '', 1),
-      paste('👍🏽'),
-    );
+    const pastedTone = editField(textField('line', 'Title', '', 1), paste('👍🏽'));
     expect(typedTone.text).toBe('👍🏽');
     expect(pastedTone.field.text).toBe('👍🏽');
-    expect(fed(textField('line', 'Title', '', 1), 'e\u0301').text).toBe(
-      'e\u0301',
-    );
+    expect(fed(textField('line', 'Title', '', 1), 'e\u0301').text).toBe('e\u0301');
     expect(fed(typedTone, 'x').text).toBe('👍🏽');
   });
 });
 
 describe('paste', () => {
   it('goes in as one block; its line breaks never act as Enter or Ctrl-S', () => {
-    const r = editField(
-      textField('multi', 'Description'),
-      paste('one\r\ntwo\rthree\n'),
-    );
+    const r = editField(textField('multi', 'Description'), paste('one\r\ntwo\rthree\n'));
     expect(r.signal).toBeNull();
     expect(r.field.text).toBe('one\ntwo\nthree\n');
   });
 
   it('in a one-line field becomes one line', () => {
-    const r = editField(
-      textField('line', 'Title'),
-      paste('one\ntwo\r\n\tthree'),
-    );
+    const r = editField(textField('line', 'Title'), paste('one\ntwo\r\n\tthree'));
     expect(r.signal).toBeNull();
     expect(r.field.text).toBe('one two three');
   });
@@ -148,10 +124,7 @@ describe('paste', () => {
   });
 
   it('a large paste past the limit is cut at once, not one character at a time', () => {
-    const f = editField(
-      textField('multi', 'Reason', 'ab', 2000),
-      named('left'),
-    ).field;
+    const f = editField(textField('multi', 'Reason', 'ab', 2000), named('left')).field;
     const started = performance.now();
     const r = editField(f, paste('x'.repeat(20000) + '👍🏽'));
     expect(performance.now() - started).toBeLessThan(1000);
@@ -184,16 +157,10 @@ describe('the keys a field gives back', () => {
   });
 
   it('Enter is a new line in a multi-line field and the next field in a one-line field', () => {
-    const multi = editField(
-      typed(textField('multi', 'Body'), 'a'),
-      named('enter'),
-    );
+    const multi = editField(typed(textField('multi', 'Body'), 'a'), named('enter'));
     expect(multi.signal).toBeNull();
     expect(multi.field.text).toBe('a\n');
-    const line = editField(
-      typed(textField('line', 'Title'), 'a'),
-      named('enter'),
-    );
+    const line = editField(typed(textField('line', 'Title'), 'a'), named('enter'));
     expect(line.signal).toBe('next');
     expect(line.field.text).toBe('a');
   });
@@ -205,14 +172,7 @@ describe('the keys a field gives back', () => {
   });
 
   it('↑ and ↓ move between lines of a multi-line field', () => {
-    const f = typed(
-      textField('multi', 'Body'),
-      'a',
-      'b',
-      'c',
-      named('enter'),
-      'd',
-    );
+    const f = typed(textField('multi', 'Body'), 'a', 'b', 'c', named('enter'), 'd');
     const up = typed(f, named('up'), 'X');
     expect(up.text).toBe('aXbc\nd');
     const down = typed(up, named('down'), 'Y');
@@ -240,10 +200,7 @@ describe('the keys a field gives back', () => {
     const last = editField(down, named('down'), 4).field;
     expect(last.cursor).toBe(9);
     expect(editField(last, named('down'), 4).field.cursor).toBe(9);
-    expect(
-      editField(editField(last, named('up'), 4).field, named('up'), 4).field
-        .cursor,
-    ).toBe(1);
+    expect(editField(editField(last, named('up'), 4).field, named('up'), 4).field.cursor).toBe(1);
     // Before the line feed of a full row the cursor is drawn on a row of its own; ↑ and ↓ start from there.
     const full = {
       ...textField('multi', 'Body', `${'a'.repeat(80)}\nx`),
@@ -275,8 +232,7 @@ describe('the field keys come from the keymap', () => {
       'ctrl_s',
       'esc',
     ];
-    for (const name of names)
-      expect(fieldCommand(named(name)), name).not.toBeNull();
+    for (const name of names) expect(fieldCommand(named(name)), name).not.toBeNull();
     const f = textField('multi', 'Body', 'ab');
     for (const name of ['ctrl_c', 'pageup', 'pagedown'] as const) {
       expect(fieldCommand(named(name))).toBeNull();
@@ -340,10 +296,7 @@ describe('a form of fields', () => {
 
 describe('drawing a field', () => {
   it('a one-line field fits its width and keeps the cursor in view', () => {
-    const f = typed(
-      textField('line', 'Title'),
-      ...'abcdefghijklmnopqrstuvwxyz',
-    );
+    const f = typed(textField('line', 'Title'), ...'abcdefghijklmnopqrstuvwxyz');
     const { rows, cursor } = fieldRows(f, 10, 1);
     expect(rows).toHaveLength(1);
     expect(displayWidth(rows[0] ?? '')).toBeLessThanOrEqual(10);
@@ -356,8 +309,7 @@ describe('drawing a field', () => {
     const { rows } = fieldRows(f, 9, 1);
     expect(displayWidth(rows[0] ?? '')).toBeLessThanOrEqual(9);
     const multi = typed(textField('multi', 'Body'), ...'漢字漢字漢字');
-    for (const row of fieldRows(multi, 5, 5).rows)
-      expect(displayWidth(row)).toBeLessThanOrEqual(5);
+    for (const row of fieldRows(multi, 5, 5).rows) expect(displayWidth(row)).toBeLessThanOrEqual(5);
   });
 
   it('a multi-line field wraps, keeps line breaks and scrolls to the cursor', () => {
@@ -404,12 +356,7 @@ describe('drawing a field', () => {
     for (const kind of ['line', 'multi'] as const) {
       const frame = new Frame(4, 1, { color: false });
       frame.put(0, 0, uiText('XXXX'));
-      drawField(
-        frame,
-        { x: 1, y: 0, width: 1, height: 1 },
-        textField(kind, 'T', '漢'),
-        false,
-      );
+      drawField(frame, { x: 1, y: 0, width: 1, height: 1 }, textField(kind, 'T', '漢'), false);
       // The cells either side of the box keep what they held.
       expect(frame.rowBytes(0), kind).toMatch(/^X[ X]XX$/);
     }
@@ -435,12 +382,7 @@ describe('drawing a field', () => {
 
   it('draws inside its box only, with the cursor marked when focused', () => {
     const frame = new Frame(20, 4, { color: false });
-    const f = typed(
-      textField('multi', 'Body'),
-      ...'hello',
-      named('enter'),
-      ...'you',
-    );
+    const f = typed(textField('multi', 'Body'), ...'hello', named('enter'), ...'you');
     drawField(frame, { x: 2, y: 1, width: 6, height: 2 }, f, true);
     expect(frame.rowBytes(1)).toContain('hello');
     expect(frame.rowBytes(2)).toContain('you');

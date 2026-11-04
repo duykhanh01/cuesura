@@ -1,16 +1,7 @@
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import {
-  compareCheckpoint,
-  takeCheckpoint,
-} from '../../../src/adapters/git/checkpoint.ts';
+import { compareCheckpoint, takeCheckpoint } from '../../../src/adapters/git/checkpoint.ts';
 import {
   ensureWorktree,
   markerPath,
@@ -67,9 +58,7 @@ describe('task worktree (T036, FR-003)', () => {
     expect(existsSync(join(r.worktree_path, 'a.txt'))).toBe(true);
     expect(existsSync(join(r.worktree_path, 'b.txt'))).toBe(false);
     expect(
-      JSON.parse(
-        readFileSync(markerPath(spec.markers_dir, spec.task_id), 'utf8'),
-      ),
+      JSON.parse(readFileSync(markerPath(spec.markers_dir, spec.task_id), 'utf8')),
     ).toMatchObject({
       task_id: spec.task_id,
       base_sha: base,
@@ -89,9 +78,7 @@ describe('task worktree (T036, FR-003)', () => {
       worktree_path: first.worktree_path,
       marker: { nonce: 'n1' },
     });
-    expect(readFileSync(join(first.worktree_path, 'wip.txt'), 'utf8')).toBe(
-      'draft\n',
-    );
+    expect(readFileSync(join(first.worktree_path, 'wip.txt'), 'utf8')).toBe('draft\n');
   });
 
   it('resumes a create interrupted after the marker was written', async () => {
@@ -197,19 +184,10 @@ describe('worktree checkpoint (T036, FR-004)', () => {
     if (!dirty.ok) throw new Error(JSON.stringify(dirty.error));
     expect(dirty.value.tree_oid).not.toBe(clean.value.tree_oid);
     expect(dirty.value.diff_digest).not.toBe(clean.value.diff_digest);
-    expect(
-      g.sh(
-        r.worktree_path,
-        'cat-file',
-        '-p',
-        `${dirty.value.tree_oid}:new.txt`,
-      ),
-    ).toBe('n');
+    expect(g.sh(r.worktree_path, 'cat-file', '-p', `${dirty.value.tree_oid}:new.txt`)).toBe('n');
     // Nothing was committed; the files are still there.
     expect(g.sh(r.worktree_path, 'rev-parse', 'HEAD')).toBe(base);
-    expect(readFileSync(join(r.worktree_path, 'a.txt'), 'utf8')).toBe(
-      'changed\n',
-    );
+    expect(readFileSync(join(r.worktree_path, 'a.txt'), 'utf8')).toBe('changed\n');
 
     expect(await compareCheckpoint(git, dirty.value)).toEqual({ kind: 'same' });
     writeFileSync(join(r.worktree_path, 'later.txt'), 'x\n');

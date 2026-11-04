@@ -29,17 +29,15 @@ describe('structure_hash (R-11)', () => {
   });
 
   it('transition, step-kind, or step-set changes alter the hash', () => {
-    expect(
-      structureHash(edit((x) => (x.steps.gates!.next.fail = 'code'))),
-    ).not.toBe(SOFTWARE_DEV_STRUCTURE);
-    expect(
-      structureHash(edit((x) => (x.steps.review!.kind = 'agent'))),
-    ).not.toBe(SOFTWARE_DEV_STRUCTURE);
-    expect(
-      structureHash(
-        edit((x) => (x.steps.extra = { kind: 'complete', next: {} })),
-      ),
-    ).not.toBe(SOFTWARE_DEV_STRUCTURE);
+    expect(structureHash(edit((x) => (x.steps.gates!.next.fail = 'code')))).not.toBe(
+      SOFTWARE_DEV_STRUCTURE,
+    );
+    expect(structureHash(edit((x) => (x.steps.review!.kind = 'agent')))).not.toBe(
+      SOFTWARE_DEV_STRUCTURE,
+    );
+    expect(structureHash(edit((x) => (x.steps.extra = { kind: 'complete', next: {} })))).not.toBe(
+      SOFTWARE_DEV_STRUCTURE,
+    );
   });
 
   it('step declaration order does not change the hash', () => {

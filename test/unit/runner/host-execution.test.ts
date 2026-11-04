@@ -5,10 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { claudeAdapter } from '../../../src/adapters/harness/claude.ts';
 import { codexAdapter } from '../../../src/adapters/harness/codex.ts';
 import { wireRoleSchema } from '../../../src/adapters/harness/result-schema.ts';
-import {
-  hostInnerMode,
-  type VendorPlanInput,
-} from '../../../src/adapters/harness/vendor.ts';
+import { hostInnerMode, type VendorPlanInput } from '../../../src/adapters/harness/vendor.ts';
 import { HostExecutionProvider } from '../../../src/runner/sandbox.ts';
 import { SpawnExecutor } from '../../../src/runner/commands.ts';
 import { harnessSandboxTools } from '../../../src/runner/harness-records.ts';
@@ -18,8 +15,7 @@ import { vendorPin } from '../../support/harness-fixtures.ts';
 const dirs: string[] = [];
 afterEach(() => {
   vi.unstubAllEnvs();
-  for (const dir of dirs.splice(0))
-    rmSync(dir, { recursive: true, force: true });
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
 function input(
@@ -91,10 +87,7 @@ describe('host execution with harness-owned permissions', () => {
       dirs.push(dir);
       const pin = {
         ...vendorPin(vendor),
-        env:
-          entrypoint === undefined
-            ? {}
-            : { CLAUDE_CODE_ENTRYPOINT: entrypoint },
+        env: entrypoint === undefined ? {} : { CLAUDE_CODE_ENTRYPOINT: entrypoint },
       };
       const plan = new HostExecutionProvider().plan(
         {
@@ -135,28 +128,22 @@ describe('host execution with harness-owned permissions', () => {
     [20, 7, 7],
     [3, 7, 3],
     [null, null, null],
-  ] as const)(
-    'uses the stricter pin %s and role %s turn cap',
-    (pinCap, roleCap, expected) => {
-      const pin = { ...vendorPin('claude'), max_turns: pinCap };
-      const p = claudeAdapter.plan(pin, {
-        ...input('claude'),
-        max_turns: roleCap,
-      });
-      if (!p.ok) throw new Error(p.error.message);
-      const at = p.value.argv.indexOf('--max-turns');
-      expect(at === -1 ? null : Number(p.value.argv[at + 1])).toBe(expected);
-    },
-  );
+  ] as const)('uses the stricter pin %s and role %s turn cap', (pinCap, roleCap, expected) => {
+    const pin = { ...vendorPin('claude'), max_turns: pinCap };
+    const p = claudeAdapter.plan(pin, {
+      ...input('claude'),
+      max_turns: roleCap,
+    });
+    if (!p.ok) throw new Error(p.error.message);
+    const at = p.value.argv.indexOf('--max-turns');
+    expect(at === -1 ? null : Number(p.value.argv[at + 1])).toBe(expected);
+  });
 
-  it.each(['coder', 'fixer', 'reviewer'] as const)(
-    'keeps %s session persistence on',
-    (role) => {
-      const p = claudeAdapter.plan(vendorPin('claude'), input('claude', role));
-      if (!p.ok) throw new Error(p.error.message);
-      expect(p.value.argv).not.toContain('--no-session-persistence');
-    },
-  );
+  it.each(['coder', 'fixer', 'reviewer'] as const)('keeps %s session persistence on', (role) => {
+    const p = claudeAdapter.plan(vendorPin('claude'), input('claude', role));
+    if (!p.ok) throw new Error(p.error.message);
+    expect(p.value.argv).not.toContain('--no-session-persistence');
+  });
 
   it('uses native Claude sandbox when enabled, with host scratch paths', () => {
     const { plan, settings } = claude('auto', 'coder', true);
@@ -166,10 +153,7 @@ describe('host execution with harness-owned permissions', () => {
       failIfUnavailable: true,
       allowUnsandboxedCommands: false,
       filesystem: {
-        allowWrite: expect.arrayContaining([
-          '/host/scratch',
-          '/host/home',
-        ]) as string[],
+        allowWrite: expect.arrayContaining(['/host/scratch', '/host/home']) as string[],
       },
     });
     expect(plan.argv).toContain('/host/context/claude-settings.json');
@@ -196,9 +180,7 @@ describe('host execution with harness-owned permissions', () => {
       expect(off.settings.permissions.defaultMode).toBe(
         mode === 'auto' ? 'auto' : 'bypassPermissions',
       );
-      expect(on.settings.permissions.defaultMode).toBe(
-        off.settings.permissions.defaultMode,
-      );
+      expect(on.settings.permissions.defaultMode).toBe(off.settings.permissions.defaultMode);
       expect(off.settings.sandbox.enabled).toBe(false);
       expect(off.settings.sandbox.failIfUnavailable).toBe(false);
       expect(on.settings.sandbox.enabled).toBe(true);
@@ -264,8 +246,7 @@ describe('host execution with harness-owned permissions', () => {
     };
     expect(sandboxOf().network).toEqual({ allowAllUnixSockets: true });
     expect(
-      sandboxOf({ allowedDomains: ['example.com'], allowAllUnixSockets: false })
-        .network,
+      sandboxOf({ allowedDomains: ['example.com'], allowAllUnixSockets: false }).network,
     ).toEqual({ allowedDomains: ['example.com'], allowAllUnixSockets: false });
   });
 
@@ -273,12 +254,8 @@ describe('host execution with harness-owned permissions', () => {
     const p = codexAdapter.plan(vendorPin('codex'), input('codex'));
     if (!p.ok) throw new Error(p.error.message);
     expect(p.value.argv.join(' ')).toContain('approval_policy="on-request"');
-    expect(p.value.argv.join(' ')).toContain(
-      'approvals_reviewer="auto_review"',
-    );
-    expect(p.value.argv.join(' ')).toContain(
-      '--sandbox workspace-write --add-dir /host/scratch',
-    );
+    expect(p.value.argv.join(' ')).toContain('approvals_reviewer="auto_review"');
+    expect(p.value.argv.join(' ')).toContain('--sandbox workspace-write --add-dir /host/scratch');
     expect(p.value.argv).toContain('/host/scratch/final-response.json');
   });
 
@@ -303,9 +280,7 @@ describe('host execution with harness-owned permissions', () => {
       );
       if (!p.ok) throw new Error(p.error.message);
       expect(p.value.argv.join(' ')).toContain(
-        role === 'coder'
-          ? '--sandbox danger-full-access'
-          : '--sandbox read-only',
+        role === 'coder' ? '--sandbox danger-full-access' : '--sandbox read-only',
       );
     }
   });

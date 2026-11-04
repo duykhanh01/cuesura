@@ -8,14 +8,8 @@ import {
   type FrozenExecutionContext,
   type FrozenPolicy,
 } from '../../../src/domain/policy.ts';
-import {
-  modeGraph,
-  SOFTWARE_DEV,
-} from '../../../src/engine/workflows/software-dev.ts';
-import {
-  verifyContextHash,
-  verifyPolicyHash,
-} from '../../../src/policy/finalize.ts';
+import { modeGraph, SOFTWARE_DEV } from '../../../src/engine/workflows/software-dev.ts';
+import { verifyContextHash, verifyPolicyHash } from '../../../src/policy/finalize.ts';
 import { structureHash } from '../../../src/policy/structure-hash.ts';
 import { SCHEMA_VERSION } from '../../../src/store/migrate.ts';
 import { openFileStoreForTest, storeDb } from '../../../src/store/testing.ts';
@@ -29,10 +23,7 @@ import { dbPath, useTempDir } from '../../support/temp-db.ts';
 type Snapshot = { policy: FrozenPolicy; context: FrozenExecutionContext };
 const LEGACY = JSON.parse(
   readFileSync(
-    new URL(
-      '../../fixtures/snapshots/legacy-graph-config.json',
-      import.meta.url,
-    ),
+    new URL('../../fixtures/snapshots/legacy-graph-config.json', import.meta.url),
     'utf8',
   ),
 ) as {
@@ -42,9 +33,7 @@ const LEGACY = JSON.parse(
   'full-review': Snapshot;
   'direct-pr': Snapshot;
 };
-const V1 = fileURLToPath(
-  new URL('../../fixtures/runtime/db/v1.sqlite', import.meta.url),
-);
+const V1 = fileURLToPath(new URL('../../fixtures/runtime/db/v1.sqlite', import.meta.url));
 const tempDir = useTempDir('cusr-legacy-graph-');
 
 function doctorStoreClean(path: string): void {
@@ -83,35 +72,26 @@ describe('snapshots frozen from a config that declared graph keys', () => {
     // Frozen before full-review published ahead of its review: it keeps that older graph.
     ['full-review', null],
     ['direct-pr', modeGraph(SOFTWARE_DEV, 'direct-pr')],
-  ] as const)(
-    '%s: parses unchanged, verifies its hashes and keeps its graph',
-    (key, graph) => {
-      const snap = LEGACY[key];
-      expect(FrozenPolicySchema.parse(snap.policy)).toEqual(snap.policy);
-      expect(FrozenExecutionContextSchema.parse(snap.context)).toEqual(
-        snap.context,
+  ] as const)('%s: parses unchanged, verifies its hashes and keeps its graph', (key, graph) => {
+    const snap = LEGACY[key];
+    expect(FrozenPolicySchema.parse(snap.policy)).toEqual(snap.policy);
+    expect(FrozenExecutionContextSchema.parse(snap.context)).toEqual(snap.context);
+    expect(verifyPolicyHash(snap.policy)).toBe(true);
+    expect(verifyContextHash(snap.context)).toBe(true);
+    expect(snap.policy.structure_hash).toBe(structureHash(snap.policy.workflow));
+    if (graph === null) {
+      expect(snap.policy.workflow.steps['gates']?.next['pass']).toBe('review');
+      expect(snap.policy.structure_hash).not.toBe(
+        structureHash(modeGraph(SOFTWARE_DEV, 'full-review')),
       );
-      expect(verifyPolicyHash(snap.policy)).toBe(true);
-      expect(verifyContextHash(snap.context)).toBe(true);
-      expect(snap.policy.structure_hash).toBe(
-        structureHash(snap.policy.workflow),
-      );
-      if (graph === null) {
-        expect(snap.policy.workflow.steps['gates']?.next['pass']).toBe(
-          'review',
-        );
-        expect(snap.policy.structure_hash).not.toBe(
-          structureHash(modeGraph(SOFTWARE_DEV, 'full-review')),
-        );
-      } else {
-        expect(snap.policy.structure_hash).toBe(structureHash(graph));
-      }
-      expect(snap.policy.workflow.steps['gates']?.uses).toEqual(['build']);
-      expect(snap.policy.workflow.steps['merge_gate']?.auto_when).toEqual({
-        target_branch: ['feature/*'],
-      });
-    },
-  );
+    } else {
+      expect(snap.policy.structure_hash).toBe(structureHash(graph));
+    }
+    expect(snap.policy.workflow.steps['gates']?.uses).toEqual(['build']);
+    expect(snap.policy.workflow.steps['merge_gate']?.auto_when).toEqual({
+      target_branch: ['feature/*'],
+    });
+  });
 
   it('a task started from the legacy snapshot runs, replays and passes the doctor store checks', () => {
     const snap = LEGACY.legacy;
@@ -138,9 +118,9 @@ describe('snapshots frozen from a config that declared graph keys', () => {
     copyFileSync(V1, path);
     doctorStoreClean(path);
     const store = openFileStoreForTest(path);
-    const rows = storeDb(store)
-      .prepare('SELECT policy_json FROM frozen_policies')
-      .all() as { policy_json: string }[];
+    const rows = storeDb(store).prepare('SELECT policy_json FROM frozen_policies').all() as {
+      policy_json: string;
+    }[];
     store.close();
     expect(rows.length).toBeGreaterThan(0);
     for (const row of rows) {

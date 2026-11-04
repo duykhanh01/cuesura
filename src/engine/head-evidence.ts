@@ -65,15 +65,11 @@ export function headVerdict(
       observed: observed.head_sha,
     };
   const names = [
-    ...new Set([
-      ...snapshot,
-      ...(required.kind === 'covered' ? required.github : []),
-    ]),
+    ...new Set([...snapshot, ...(required.kind === 'covered' ? required.github : [])]),
   ].sort();
   const rev = state.revision;
   const byName = new Map<string, Check[]>();
-  for (const c of observed.checks)
-    byName.set(c.name, [...(byName.get(c.name) ?? []), c]);
+  for (const c of observed.checks) byName.set(c.name, [...(byName.get(c.name) ?? []), c]);
   const collisions = [
     ...new Set([
       ...observed.collisions.filter((n) => names.includes(n)),
@@ -92,14 +88,11 @@ export function headVerdict(
       single(n)?.state !== 'failure',
   );
 
-  const gates = state.evidence.gates.filter(
-    (g) => g.valid && g.revision === rev,
-  );
+  const gates = state.evidence.gates.filter((g) => g.valid && g.revision === rev);
   const lastGate = gates.at(-1);
   const cp = state.run.checkpoint;
   const onCheckpoint =
-    state.run.mode === null ||
-    (cp !== null && cp.revision === rev && cp.sha === expectedHead);
+    state.run.mode === null || (cp !== null && cp.revision === rev && cp.sha === expectedHead);
   const gate =
     lastGate === undefined
       ? 'missing'
@@ -157,8 +150,7 @@ export function reviewOf(
     state.run.checkpoint.sha === head &&
     state.run.checkpoint.revision === rev &&
     (update.conflict === undefined || update.scope !== undefined) &&
-    (update.scope === undefined ||
-      update.scope.tree === update.certificate.tree) &&
+    (update.scope === undefined || update.scope.tree === update.certificate.tree) &&
     update.scope?.unresolved !== true &&
     ((update.scope?.unchanged_conflicts?.length ?? 0) === 0 ||
       update.manual_resolution !== undefined) &&
@@ -180,11 +172,7 @@ export function reviewOf(
     return last?.verdict === 'approve' ? 'approved' : 'missing';
   }
   return state.evidence.reviews.some(
-    (r) =>
-      r.valid &&
-      r.revision === rev &&
-      r.head_sha === head &&
-      r.verdict === 'approve',
+    (r) => r.valid && r.revision === rev && r.head_sha === head && r.verdict === 'approve',
   )
     ? 'approved'
     : 'missing';

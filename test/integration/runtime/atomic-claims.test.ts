@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { EpochMs, Uuid } from '../../../src/shared/brand.ts';
-import {
-  openFileStoreForTest,
-  injectEvents,
-  storeDb,
-} from '../../../src/store/testing.ts';
+import { openFileStoreForTest, injectEvents, storeDb } from '../../../src/store/testing.ts';
 import type { CrashPoint } from '../../../src/store/testing.ts';
 import { buildTask, freezeOk, uuidOf } from '../../support/builders.ts';
 import { createGrantStart } from '../../support/runtime.ts';
@@ -17,10 +13,7 @@ const HASH = `sha256:${'a'.repeat(64)}` as const;
 
 function driver(crash?: (p: CrashPoint) => void): StoreDriver {
   return new StoreDriver(
-    openFileStoreForTest(
-      dbPath(tempDir()),
-      crash === undefined ? {} : { crash },
-    ),
+    openFileStoreForTest(dbPath(tempDir()), crash === undefined ? {} : { crash }),
   );
 }
 
@@ -57,10 +50,7 @@ describe('execution slot grants (FR-044.01, T025)', () => {
       d.must(t.id, { kind: 'request_execution' });
       d.now += 1_000;
     }
-    expect(d.store.readQueue(10).map((q) => q.task_id)).toEqual([
-      high.id,
-      low.id,
-    ]);
+    expect(d.store.readQueue(10).map((q) => q.task_id)).toEqual([high.id, low.id]);
 
     const g = d.store.grantNext(d.now as EpochMs);
     expect(g.ok && g.value.kind === 'decided' && g.value.task_id).toBe(high.id);
@@ -144,23 +134,14 @@ describe('operation claims and slot release (T025, FR-044.06)', () => {
     const request_id = createGrantStart(d, t);
     const prepare = d.pendingOne(t.id, 'prepare');
 
-    const c = d.store.claimEffect(
-      prepare.id as Uuid,
-      d.now as EpochMs,
-      opClaim(1),
-    );
+    const c = d.store.claimEffect(prepare.id as Uuid, d.now as EpochMs, opClaim(1));
     expect(c.ok).toBe(true);
     expect(d.task(t.id).operations[uuidOf(901)]).toMatchObject({
       effect_id: prepare.id,
       status: 'registered',
       holds_slot: true,
     });
-    expect(
-      count(
-        d,
-        `SELECT COUNT(*) AS n FROM operations WHERE status = 'registered'`,
-      ),
-    ).toBe(1);
+    expect(count(d, `SELECT COUNT(*) AS n FROM operations WHERE status = 'registered'`)).toBe(1);
 
     const blocked = d.send(t.id, {
       kind: 'release_execution',
@@ -198,13 +179,12 @@ describe('operation claims and slot release (T025, FR-044.06)', () => {
     const t = buildTask({ id: uuidOf(1) });
     createGrantStart(d, t);
     const prepare = d.pendingOne(t.id, 'prepare');
-    expect(
-      d.store.claimEffect(prepare.id as Uuid, d.now as EpochMs, opClaim(1)).ok,
-    ).toBe(true);
+    expect(d.store.claimEffect(prepare.id as Uuid, d.now as EpochMs, opClaim(1)).ok).toBe(true);
     // Claim path itself: the effect is no longer pending.
-    expect(
-      d.store.claimEffect(prepare.id as Uuid, d.now as EpochMs, opClaim(2)),
-    ).toMatchObject({ ok: false, error: { code: 'not_pending' } });
+    expect(d.store.claimEffect(prepare.id as Uuid, d.now as EpochMs, opClaim(2))).toMatchObject({
+      ok: false,
+      error: { code: 'not_pending' },
+    });
     // Projection guard: a duplicate open operation on one effect violates the partial unique index.
     expect(() =>
       injectEvents(d.store, t.id, [
@@ -258,9 +238,7 @@ describe('operation claims and slot release (T025, FR-044.06)', () => {
       reason: 'test',
     });
     const prepare = d.pendingOne(t.id, 'prepare');
-    expect(
-      d.store.claimEffect(prepare.id as Uuid, d.now as EpochMs, opClaim(1)),
-    ).toMatchObject({
+    expect(d.store.claimEffect(prepare.id as Uuid, d.now as EpochMs, opClaim(1))).toMatchObject({
       ok: false,
       error: { code: 'operation_rejected', reason: 'slot_not_held' },
     });
@@ -287,9 +265,7 @@ describe('operation claims and slot release (T025, FR-044.06)', () => {
       error: { code: 'claim_blocked', reason: 'legacy_task' },
     });
     // The 001 claim path is unchanged.
-    expect(d.store.claimEffect(prepare.id as Uuid, d.now as EpochMs).ok).toBe(
-      true,
-    );
+    expect(d.store.claimEffect(prepare.id as Uuid, d.now as EpochMs).ok).toBe(true);
   });
 
   it('releases the slot and withdraws the request when the task ends', () => {
@@ -307,9 +283,7 @@ describe('operation claims and slot release (T025, FR-044.06)', () => {
     const t = buildTask({ id: uuidOf(1) });
     const request_id = createGrantStart(d, t);
     const prepare = d.pendingOne(t.id, 'prepare');
-    expect(
-      d.store.claimEffect(prepare.id as Uuid, d.now as EpochMs, opClaim(1)).ok,
-    ).toBe(true);
+    expect(d.store.claimEffect(prepare.id as Uuid, d.now as EpochMs, opClaim(1)).ok).toBe(true);
     d.must(t.id, { kind: 'cancel', reason: 'stop' });
     d.must(t.id, {
       kind: 'effect_result',
@@ -346,9 +320,7 @@ describe('ingest cursor (FR-036)', () => {
     const t = buildTask({ id: uuidOf(1) });
     createGrantStart(d, t);
     const prepare = d.pendingOne(t.id, 'prepare');
-    expect(
-      d.store.claimEffect(prepare.id as Uuid, d.now as EpochMs, opClaim(1)).ok,
-    ).toBe(true);
+    expect(d.store.claimEffect(prepare.id as Uuid, d.now as EpochMs, opClaim(1)).ok).toBe(true);
     const artifact = {
       artifact_id: uuidOf(950),
       operation_id: uuidOf(901),
@@ -380,18 +352,11 @@ describe('ingest cursor (FR-036)', () => {
       kind: 'accepted',
       events: [{ type: 'SignalIgnored', payload: { reason: 'stale_cursor' } }],
     });
-    expect(
-      count(
-        d,
-        `SELECT COUNT(*) AS n FROM events WHERE type = 'OutputIngested'`,
-      ),
-    ).toBe(1);
+    expect(count(d, `SELECT COUNT(*) AS n FROM events WHERE type = 'OutputIngested'`)).toBe(1);
     expect(count(d, 'SELECT COUNT(*) AS n FROM artifacts')).toBe(1);
     expect(count(d, 'SELECT COUNT(*) AS n FROM events')).toBe(events + 1);
     expect(
-      storeDb(d.store)
-        .prepare('SELECT byte_offset, last_record_seq FROM ingest_cursors')
-        .get(),
+      storeDb(d.store).prepare('SELECT byte_offset, last_record_seq FROM ingest_cursors').get(),
     ).toEqual({ byte_offset: 120, last_record_seq: 3 });
     expect(d.store.verifyProjections()).toMatchObject({ ok: true });
   });

@@ -1,10 +1,6 @@
 import { emptyRuntime } from '../../src/engine/evolve.ts';
 import { describe, expect, it } from 'vitest';
-import {
-  checkRunState,
-  readHeadChecks,
-  selectCurrent,
-} from '../../src/adapters/github/checks.ts';
+import { checkRunState, readHeadChecks, selectCurrent } from '../../src/adapters/github/checks.ts';
 import { GhPort } from '../../src/adapters/github/gh-port.ts';
 import type { Evidence } from '../../src/domain/state.ts';
 import type { Check } from '../../src/domain/trigger.ts';
@@ -42,16 +38,9 @@ const status = (context: string, state: string, at: string) => ({
 describe('current generation per identity (T043)', () => {
   it('maps conclusions: only success passes; neutral/skipped/stale are skipped, not success', () => {
     expect(
-      [
-        'success',
-        'failure',
-        'neutral',
-        'skipped',
-        'stale',
-        'cancelled',
-        'timed_out',
-        'weird',
-      ].map((c) => checkRunState('completed', c)),
+      ['success', 'failure', 'neutral', 'skipped', 'stale', 'cancelled', 'timed_out', 'weird'].map(
+        (c) => checkRunState('completed', c),
+      ),
     ).toEqual([
       'success',
       'failure',
@@ -75,9 +64,7 @@ describe('current generation per identity (T043)', () => {
       [],
       SHA,
     );
-    expect(checks.map((c) => [c.name, c.state, c.generation])).toEqual([
-      ['build', 'pending', 12],
-    ]);
+    expect(checks.map((c) => [c.name, c.state, c.generation])).toEqual([['build', 'pending', 12]]);
   });
 
   it('the newest status of a context wins', () => {
@@ -89,9 +76,7 @@ describe('current generation per identity (T043)', () => {
       ],
       SHA,
     );
-    expect(checks).toMatchObject([
-      { name: 'ci/lint', state: 'failure', source: 'status' },
-    ]);
+    expect(checks).toMatchObject([{ name: 'ci/lint', state: 'failure', source: 'status' }]);
   });
 
   it('the same name from a check run and a status, or from two apps, is a collision', () => {
@@ -159,9 +144,7 @@ describe('reading checks of a SHA through the gh port (T043)', () => {
     expect(
       await readHeadChecks(
         port({
-          [runsPath]: [
-            { status: 403, body: { message: 'Resource not accessible' } },
-          ],
+          [runsPath]: [{ status: 403, body: { message: 'Resource not accessible' } }],
         }),
         'acme/app',
         SHA,
@@ -170,9 +153,7 @@ describe('reading checks of a SHA through the gh port (T043)', () => {
       ok: false,
       error: { status: 403 },
     });
-    const many = Array.from({ length: 100 }, (_, i) =>
-      run(i + 1, `c${i}`, 'completed', 'success'),
-    );
+    const many = Array.from({ length: 100 }, (_, i) => run(i + 1, `c${i}`, 'completed', 'success'));
     const capped = await readHeadChecks(
       port({
         [runsPath]: [
@@ -182,9 +163,7 @@ describe('reading checks of a SHA through the gh port (T043)', () => {
             headers: { link: '<x>; rel="next"' },
           },
         ],
-        [`GET repos/acme/app/commits/${SHA}/check-runs?per_page=100&page=2`]: [
-          { status: 502 },
-        ],
+        [`GET repos/acme/app/commits/${SHA}/check-runs?per_page=100&page=2`]: [{ status: 502 }],
         [statusPath]: [{ status: 200, body: [] }],
       }),
       'acme/app',
@@ -245,13 +224,7 @@ const c = (name: string, s: Check['state']): Check => ({ name, state: s });
 describe('green predicate of the checked head (T043, FR-019/041.06/042.08)', () => {
   it('is green only when every snapshot check succeeded on that head with valid gate and review', () => {
     expect(
-      headVerdict(
-        state(),
-        SNAPSHOT,
-        SHA,
-        COVERED,
-        ok(c('build', 'success'), c('test', 'success')),
-      ),
+      headVerdict(state(), SNAPSHOT, SHA, COVERED, ok(c('build', 'success'), c('test', 'success'))),
     ).toEqual({
       kind: 'green',
       head_sha: SHA,
@@ -275,42 +248,24 @@ describe('green predicate of the checked head (T043, FR-019/041.06/042.08)', () 
         SNAPSHOT,
         SHA,
         { ...COVERED, github: ['build', 'security'] },
-        ok(
-          c('build', 'success'),
-          c('test', 'success'),
-          c('security', 'success'),
-        ),
+        ok(c('build', 'success'), c('test', 'success'), c('security', 'success')),
       ),
     ).toMatchObject({ kind: 'green' });
   });
 
-  it.each(['skipped', 'pending', 'cancelled', 'unknown'] as const)(
-    '%s is not a pass',
-    (s) => {
-      expect(
-        headVerdict(
-          state(),
-          SNAPSHOT,
-          SHA,
-          COVERED,
-          ok(c('build', 'success'), c('test', s)),
-        ),
-      ).toMatchObject({ kind: 'not_green', not_passed: ['test'] });
-    },
-  );
+  it.each(['skipped', 'pending', 'cancelled', 'unknown'] as const)('%s is not a pass', (s) => {
+    expect(
+      headVerdict(state(), SNAPSHOT, SHA, COVERED, ok(c('build', 'success'), c('test', s))),
+    ).toMatchObject({ kind: 'not_green', not_passed: ['test'] });
+  });
 
   it('missing, failed, colliding, incomplete or uncovered evidence is not green', () => {
+    expect(headVerdict(state(), SNAPSHOT, SHA, COVERED, ok(c('build', 'success')))).toMatchObject({
+      kind: 'not_green',
+      missing: ['test'],
+    });
     expect(
-      headVerdict(state(), SNAPSHOT, SHA, COVERED, ok(c('build', 'success'))),
-    ).toMatchObject({ kind: 'not_green', missing: ['test'] });
-    expect(
-      headVerdict(
-        state(),
-        SNAPSHOT,
-        SHA,
-        COVERED,
-        ok(c('build', 'failure'), c('test', 'success')),
-      ),
+      headVerdict(state(), SNAPSHOT, SHA, COVERED, ok(c('build', 'failure'), c('test', 'success'))),
     ).toMatchObject({
       kind: 'not_green',
       failed: ['build'],
@@ -352,9 +307,7 @@ describe('green predicate of the checked head (T043, FR-019/041.06/042.08)', () 
     expect(
       headVerdict(
         state({
-          reviews: [
-            { revision: 1, head_sha: OTHER, verdict: 'approve', valid: true },
-          ],
+          reviews: [{ revision: 1, head_sha: OTHER, verdict: 'approve', valid: true }],
         }),
         SNAPSHOT,
         SHA,
@@ -388,9 +341,7 @@ describe('green predicate of the checked head (T043, FR-019/041.06/042.08)', () 
     expect(
       headVerdict(
         state({
-          reviews: [
-            { revision: 1, head_sha: SHA, verdict: 'approve', valid: false },
-          ],
+          reviews: [{ revision: 1, head_sha: SHA, verdict: 'approve', valid: false }],
         }),
         SNAPSHOT,
         SHA,
@@ -438,9 +389,11 @@ describe('green by confirmed mode (T043, M08)', () => {
   const green = ok(c('build', 'success'), c('test', 'success'));
 
   it('direct-pr is green on the checkpoint without any review, and says so', () => {
-    expect(
-      headVerdict(modeState('direct-pr'), SNAPSHOT, SHA, COVERED, green),
-    ).toEqual({ kind: 'green', head_sha: SHA, review: 'not_required' });
+    expect(headVerdict(modeState('direct-pr'), SNAPSHOT, SHA, COVERED, green)).toEqual({
+      kind: 'green',
+      head_sha: SHA,
+      review: 'not_required',
+    });
   });
 
   it('full-review needs the approval recorded for that commit; a legacy approval record does not count', () => {

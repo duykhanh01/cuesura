@@ -1,22 +1,9 @@
-import {
-  DEFAULT_RUNTIME_LIMITS,
-  type RuntimeLimits,
-} from '../domain/runtime.ts';
-import {
-  isTerminal,
-  type DetailCode,
-  type ResumeAction,
-  type Wait,
-} from '../domain/state.ts';
+import { DEFAULT_RUNTIME_LIMITS, type RuntimeLimits } from '../domain/runtime.ts';
+import { isTerminal, type DetailCode, type ResumeAction, type Wait } from '../domain/state.ts';
 import type { Trigger } from '../domain/trigger.ts';
 import { canonicalJson } from '../shared/canonical-json.ts';
 import { reject, type Ctx } from './context.ts';
-import {
-  ciSpent,
-  onCiRecorded,
-  proceed,
-  waitCiExhausted,
-} from './interpreter.ts';
+import { ciSpent, onCiRecorded, proceed, waitCiExhausted } from './interpreter.ts';
 import { ciVerdict, latestCi } from './merge-guard.ts';
 import { mkWait, waitTask } from './waits.ts';
 
@@ -54,8 +41,7 @@ export function cadenceDelay(
   cadenceIndex: number,
 ): number {
   let d = l.poll_initial_ms;
-  for (let i = 0; i < cadenceIndex && d < l.poll_max_ms; i++)
-    d *= l.poll_factor;
+  for (let i = 0; i < cadenceIndex && d < l.poll_max_ms; i++) d *= l.poll_factor;
   return Math.min(d, l.poll_max_ms);
 }
 
@@ -79,11 +65,7 @@ function prWait(ctx: Ctx): Wait | null {
 
 /** The CI wait step of the frozen graph. */
 function ciStep(ctx: Ctx): string | null {
-  return (
-    Object.entries(ctx.frozen.workflow.steps).find(
-      ([, d]) => d.kind === 'wait',
-    )?.[0] ?? null
-  );
+  return Object.entries(ctx.frozen.workflow.steps).find(([, d]) => d.kind === 'wait')?.[0] ?? null;
 }
 
 function cancelWaitTimer(ctx: Ctx, w: Wait): void {
@@ -101,16 +83,12 @@ export function onObservationResult(ctx: Ctx, t: ObservationResult): void {
       reason: 'observation_target_mismatch',
       target: o.subject.target_ref,
     });
-  if (
-    s.observation !== null &&
-    canonicalJson(s.observation.subject) !== canonicalJson(o.subject)
-  )
+  if (s.observation !== null && canonicalJson(s.observation.subject) !== canonicalJson(o.subject))
     reject('invalid_trigger', { reason: 'observation_subject_mismatch' });
   const auto = o.source === 'timer';
   if (auto && s.observation !== null) {
     // A round of another chain, or one read before the window moved on, is history only (FR-043.05).
-    if (s.observation.expired)
-      return ignore(ctx, 'observation_expired', o.observation_id);
+    if (s.observation.expired) return ignore(ctx, 'observation_expired', o.observation_id);
     if (o.generation !== s.observation.budget.generation)
       return ignore(ctx, 'stale_generation', o.observation_id);
   }
@@ -155,10 +133,7 @@ function schedule(ctx: Ctx, changed: boolean): void {
   if (b.count >= b.max_count) return expire(ctx, 'rounds');
   if (ctx.now >= b.deadline_at) return expire(ctx, 'deadline');
   const index = changed ? 0 : b.cadence_index + 1;
-  const due = Math.min(
-    ctx.now + cadenceDelay(limitsOf(ctx), index),
-    b.deadline_at,
-  );
+  const due = Math.min(ctx.now + cadenceDelay(limitsOf(ctx), index), b.deadline_at);
   ctx.emit('ObservationScheduled', {
     subject: ob.subject,
     started_at: b.started_at,
@@ -177,8 +152,7 @@ function schedule(ctx: Ctx, changed: boolean): void {
 function expire(ctx: Ctx, reason: 'deadline' | 'rounds'): void {
   const s = ctx.state;
   ctx.emit('ObservationExpired', { at: ctx.now, reason });
-  if (isTerminal(s.status) || s.completion !== null || s.cancellation !== null)
-    return;
+  if (isTerminal(s.status) || s.completion !== null || s.cancellation !== null) return;
   const w = s.status === 'WAITING' ? s.wait : null;
   if (
     w === null ||
@@ -186,8 +160,7 @@ function expire(ctx: Ctx, reason: 'deadline' | 'rounds'): void {
     w.detail.code === 'observation_expired'
   )
     return;
-  if (w.detail.code === 'checks_incomplete' || w.detail.code === 'source_drift')
-    return;
+  if (w.detail.code === 'checks_incomplete' || w.detail.code === 'source_drift') return;
   cancelWaitTimer(ctx, w);
   waitObservationExpired(ctx, w);
 }
@@ -214,17 +187,10 @@ export function waitObservationExpired(ctx: Ctx, prior: Wait | null): void {
 export function onObservationDue(ctx: Ctx, t: ObservationDue): void {
   const ob = ctx.state.observation;
   if (ob === null) reject('invalid_trigger', { reason: 'no_observation' });
-  if (
-    t.subject !== undefined &&
-    canonicalJson(t.subject) !== canonicalJson(ob.subject)
-  )
+  if (t.subject !== undefined && canonicalJson(t.subject) !== canonicalJson(ob.subject))
     reject('invalid_trigger', { reason: 'observation_subject_mismatch' });
   if (ob.expired || ctx.state.completion !== null)
-    return ignore(
-      ctx,
-      ob.expired ? 'observation_expired' : 'completion_recorded',
-      '',
-    );
+    return ignore(ctx, ob.expired ? 'observation_expired' : 'completion_recorded', '');
   if (ctx.now >= ob.budget.deadline_at) return expire(ctx, 'deadline');
   if (ob.budget.count >= ob.budget.max_count) return expire(ctx, 'rounds');
   ignore(ctx, 'not_due', '');
@@ -271,14 +237,12 @@ function react(ctx: Ctx, t: ObservationResult): void {
   if (s.cancellation !== null || s.run.head_drift !== null) return;
   const w = prWait(ctx);
   const step = ciStep(ctx);
-  const recheckCi: ResumeAction =
-    step === null ? { kind: 'none' } : { kind: 'poll_ci', step };
+  const recheckCi: ResumeAction = step === null ? { kind: 'none' } : { kind: 'poll_ci', step };
   // A PR that targets another branch: nothing it shows counts for the task's target (FR-041.05).
   if (t.target !== undefined && t.target.ref !== s.task.base_branch)
     return onTargetMismatch(ctx, w, recheckCi, t.target);
   // Merged into another branch is final: no later read moves the task (FR-040.12).
-  if (w?.detail.code === 'target_mismatch' && w.detail['merged'] === true)
-    return;
+  if (w?.detail.code === 'target_mismatch' && w.detail['merged'] === true) return;
   switch (t.observation.status) {
     case 'merged':
       // A merge with incomplete evidence holds the task for reconciliation; a complete one is followed by
@@ -318,27 +282,16 @@ function react(ctx: Ctx, t: ObservationResult): void {
       return;
     case 'open': {
       if (w?.detail.code === 'pr_closed') {
-        proceed(
-          ctx,
-          w.resume.kind === 'none' ? recheckCi : w.resume,
-          'pr_reopened',
-        );
+        proceed(ctx, w.resume.kind === 'none' ? recheckCi : w.resume, 'pr_reopened');
         return;
       }
       // Retargeted back to the task's target: the CI of the head is checked again, within its window.
       if (w?.detail.code === 'target_mismatch') {
         cancelWaitTimer(ctx, w);
-        proceed(
-          ctx,
-          w.resume.kind === 'none' ? recheckCi : w.resume,
-          'pr_retargeted',
-        );
+        proceed(ctx, w.resume.kind === 'none' ? recheckCi : w.resume, 'pr_retargeted');
         return;
       }
-      if (
-        w?.detail.code === 'observation_unknown' &&
-        w.detail['source'] === 'observation'
-      ) {
+      if (w?.detail.code === 'observation_unknown' && w.detail['source'] === 'observation') {
         const prior = w.detail['prior_wait'] as Wait | undefined;
         if (prior !== undefined) ctx.emit('TaskWaiting', { wait: prior });
       }
@@ -413,19 +366,10 @@ function lastReadable(ctx: Ctx): unknown {
 function onOpenCi(ctx: Ctx, t: ObservationResult, step: string | null): void {
   const s = ctx.state;
   const ci = t.ci;
-  if (
-    ci === undefined ||
-    step === null ||
-    s.head_sha === null ||
-    ci.head_sha !== s.head_sha
-  )
+  if (ci === undefined || step === null || s.head_sha === null || ci.head_sha !== s.head_sha)
     return;
   const code = s.status === 'WAITING' ? (s.wait?.detail.code ?? null) : null;
-  if (
-    code !== 'merge' &&
-    code !== 'required_checks_mismatch' &&
-    code !== 'ci_wait_exhausted'
-  )
+  if (code !== 'merge' && code !== 'required_checks_mismatch' && code !== 'ci_wait_exhausted')
     return;
   const prior = latestCi(s, ci.head_sha);
   const same =
@@ -452,23 +396,12 @@ function onOpenCi(ctx: Ctx, t: ObservationResult, step: string | null): void {
       resets_streak_of: null,
     });
   // Still not covered while already waiting on it: nothing changed for the task.
-  if (
-    code === 'ci_wait_exhausted' ||
-    (code === 'required_checks_mismatch' && !covered)
-  )
-    return;
-  const pass =
-    covered &&
-    ciVerdict(ctx.frozen, ci.required_set, ci.checks).kind === 'pass';
+  if (code === 'ci_wait_exhausted' || (code === 'required_checks_mismatch' && !covered)) return;
+  const pass = covered && ciVerdict(ctx.frozen, ci.required_set, ci.checks).kind === 'pass';
   if (code === 'merge' && pass) return;
   // The head's CI window is spent: what the CI shows now is evidence only, never a fix or a new poll (FR-043.08).
   if (ciSpent(ctx, step))
-    return waitCiExhausted(
-      ctx,
-      step,
-      { kind: 'poll_ci', step },
-      { withdrawn: code },
-    );
+    return waitCiExhausted(ctx, step, { kind: 'poll_ci', step }, { withdrawn: code });
   ctx.emit('TaskResumed', { reason: 'observation' });
   onCiRecorded(ctx, step, required);
 }

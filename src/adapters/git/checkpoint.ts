@@ -4,10 +4,7 @@
  * worktree's own index and written as a tree; parent is HEAD. The digest covers the raw diff between
  * parent and tree, so two checkpoints compare by value. Nothing is committed, reset or discarded.
  */
-import {
-  WorktreeCheckpointSchema,
-  type WorktreeCheckpoint,
-} from '../../domain/runtime.ts';
+import { WorktreeCheckpointSchema, type WorktreeCheckpoint } from '../../domain/runtime.ts';
 import { hashText } from '../../shared/hash.ts';
 import type { GitPort, GitResult } from '../ports.ts';
 
@@ -56,10 +53,7 @@ async function git(
   };
 }
 
-const failed = (
-  r: Extract<GitResult, { kind: 'exited' }>,
-  what: string,
-): CheckpointError => ({
+const failed = (r: Extract<GitResult, { kind: 'exited' }>, what: string): CheckpointError => ({
   kind: 'unknown',
   detail: `${what}: ${r.stderr.trim().slice(0, 512)}`,
 });
@@ -67,17 +61,11 @@ const failed = (
 export async function takeCheckpoint(
   port: GitPort,
   spec: CheckpointSpec,
-): Promise<
-  | { ok: true; value: WorktreeCheckpoint }
-  | { ok: false; error: CheckpointError }
-> {
+): Promise<{ ok: true; value: WorktreeCheckpoint } | { ok: false; error: CheckpointError }> {
   const cwd = spec.worktree_path;
   const branch = await git(port, cwd, ['symbolic-ref', '--quiet', 'HEAD']);
   if ('detail' in branch) return { ok: false, error: branch };
-  if (
-    branch.code !== 0 ||
-    branch.stdout.trim() !== `refs/heads/${spec.branch}`
-  ) {
+  if (branch.code !== 0 || branch.stdout.trim() !== `refs/heads/${spec.branch}`) {
     return {
       ok: false,
       error: {
@@ -91,16 +79,10 @@ export async function takeCheckpoint(
   if (add.code !== 0) return { ok: false, error: failed(add, 'git add') };
   const tree = await git(port, cwd, ['write-tree']);
   if ('detail' in tree) return { ok: false, error: tree };
-  if (tree.code !== 0)
-    return { ok: false, error: failed(tree, 'git write-tree') };
-  const parent = await git(port, cwd, [
-    'rev-parse',
-    '--verify',
-    'HEAD^{commit}',
-  ]);
+  if (tree.code !== 0) return { ok: false, error: failed(tree, 'git write-tree') };
+  const parent = await git(port, cwd, ['rev-parse', '--verify', 'HEAD^{commit}']);
   if ('detail' in parent) return { ok: false, error: parent };
-  if (parent.code !== 0)
-    return { ok: false, error: failed(parent, 'git rev-parse HEAD') };
+  if (parent.code !== 0) return { ok: false, error: failed(parent, 'git rev-parse HEAD') };
   const treeOid = tree.stdout.trim();
   const parentOid = parent.stdout.trim();
   const raw = await git(
@@ -138,9 +120,7 @@ export async function takeCheckpoint(
       ok: false,
       error: {
         kind: 'invalid',
-        detail: parsed.error.issues
-          .map((i) => `${i.path.join('.')}: ${i.message}`)
-          .join('; '),
+        detail: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '),
       },
     };
   return { ok: true, value: parsed.data };
@@ -161,15 +141,7 @@ export async function compareCheckpoint(
   const now = await takeCheckpoint(port, recorded);
   if (!now.ok) return { kind: 'error', error: now.error };
   const fields = (
-    [
-      'tree_oid',
-      'parent_oid',
-      'diff_digest',
-      'common_git_dir',
-      'owner_marker',
-    ] as const
+    ['tree_oid', 'parent_oid', 'diff_digest', 'common_git_dir', 'owner_marker'] as const
   ).filter((k) => now.value[k] !== recorded[k]);
-  return fields.length === 0
-    ? { kind: 'same' }
-    : { kind: 'changed', fields, current: now.value };
+  return fields.length === 0 ? { kind: 'same' } : { kind: 'changed', fields, current: now.value };
 }

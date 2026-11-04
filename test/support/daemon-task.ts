@@ -1,11 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import {
-  mkdirSync,
-  mkdtempSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readTokenFile } from '../../src/application/access-tokens.ts';
@@ -17,21 +11,12 @@ import {
   type DaemonOptions,
   type RunningDaemon,
 } from '../../src/daemon/main.ts';
-import {
-  taskControl,
-  type TaskControlDeps,
-} from '../../src/daemon/task-control.ts';
+import { taskControl, type TaskControlDeps } from '../../src/daemon/task-control.ts';
 import type { Store } from '../../src/store/index.ts';
 import { asEpochMs } from '../../src/shared/brand.ts';
 import { openFileStoreForTest } from '../../src/store/testing.ts';
 import { PACKS } from './config-fixtures.ts';
-import {
-  fakeGit,
-  fakeGitHub,
-  fakeHost,
-  MANIFESTS,
-  userConfig,
-} from './preflight-fakes.ts';
+import { fakeGit, fakeGitHub, fakeHost, MANIFESTS, userConfig } from './preflight-fakes.ts';
 import { StoreDriver } from './store-driver.ts';
 
 // A real daemon over the control socket on a store the test seeded first (T095/T096): the task is driven
@@ -100,9 +85,7 @@ export class SeededDaemon {
 
   /** Seeds the daemon's own store file before the daemon opens it. */
   seed<T>(f: (d: StoreDriver) => T): T {
-    const d = new StoreDriver(
-      openFileStoreForTest(join(this.dataDir, STORE_FILE)),
-    );
+    const d = new StoreDriver(openFileStoreForTest(join(this.dataDir, STORE_FILE)));
     d.now = this.now;
     try {
       return f(d);
@@ -112,8 +95,7 @@ export class SeededDaemon {
     }
   }
 
-  newId = (): string =>
-    `0192aaaa-0000-7000-8000-${String(++this.#seq).padStart(12, '0')}`;
+  newId = (): string => `0192aaaa-0000-7000-8000-${String(++this.#seq).padStart(12, '0')}`;
 
   async start(): Promise<RunningDaemon> {
     const started = await startDaemon({
@@ -166,11 +148,7 @@ export class SeededDaemon {
     rmSync(this.base, { recursive: true, force: true });
   }
 
-  async call(
-    path: '/v1/command' | '/v1/query',
-    token: string,
-    body: unknown,
-  ): Promise<Reply> {
+  async call(path: '/v1/command' | '/v1/query', token: string, body: unknown): Promise<Reply> {
     if (this.daemon === null) throw new Error('daemon not running');
     const r = await callDaemon({
       socketPath: this.daemon.socketPath,

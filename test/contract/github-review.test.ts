@@ -99,9 +99,9 @@ describe('mark ready (draft → ready after the review)', () => {
       kind: 'ready',
       ready_at: Date.parse('2026-10-29T11:00:00Z'),
     });
-    expect(
-      port.calls.filter((c) => c.path === 'graphql').map((c) => c.body),
-    ).toEqual([{ query: MARK_READY_MUTATION, variables: { id: 'PR_1' } }]);
+    expect(port.calls.filter((c) => c.path === 'graphql').map((c) => c.body)).toEqual([
+      { query: MARK_READY_MUTATION, variables: { id: 'PR_1' } },
+    ]);
   });
 
   it('leaves a ready PR alone, and a retargeted PR or a moved head a draft; a closed PR is reported, nothing is sent', async () => {
@@ -217,10 +217,7 @@ describe('post review (one COMMENT review per review attempt)', () => {
       review_id: 5,
       inline: 0,
     });
-    expect(sent.map((s) => s.body)).toEqual([
-      spec().body,
-      spec().body_without_inline,
-    ]);
+    expect(sent.map((s) => s.body)).toEqual([spec().body, spec().body_without_inline]);
   });
 
   it('a refused send is not posted; a lost answer or a server error stays unknown unless its marker shows up', async () => {
@@ -256,8 +253,7 @@ describe('post review (one COMMENT review per review attempt)', () => {
     });
     let landed = false;
     const lost = fakePort({
-      'GET repos/o/r/pulls/1/reviews': () =>
-        body(landed ? [{ id: 8, body: spec().body }] : []),
+      'GET repos/o/r/pulls/1/reviews': () => body(landed ? [{ id: 8, body: spec().body }] : []),
       'POST repos/o/r/pulls/1/reviews': () => {
         landed = true;
         return err({
@@ -315,9 +311,7 @@ describe('review body', () => {
       commentable: addedLines(DIFF),
       marker: MARKER,
     });
-    expect(r.comments).toEqual([
-      { path: 'x.ts', line: 4, body: '**major**: off by one' },
-    ]);
+    expect(r.comments).toEqual([{ path: 'x.ts', line: 4, body: '**major**: off by one' }]);
     expect(r.body).toBe(
       [
         '### Review round 2: Changes requested',
@@ -338,8 +332,7 @@ describe('review body', () => {
 
   it('hides reviewer text carrying a control marker and never expands placeholders inside values', () => {
     const r = renderReview({
-      template:
-        '{{verdict}}|{{summary}}|{{findings}}|{{inline_count}}|{{head_sha}}',
+      template: '{{verdict}}|{{summary}}|{{findings}}|{{inline_count}}|{{head_sha}}',
       round: 1,
       review: {
         verdict: 'approve',
@@ -367,9 +360,7 @@ describe('review body', () => {
 
   it('knows its placeholders', () => {
     expect(unknownPlaceholders(DEFAULT_REVIEW_TEMPLATE)).toEqual([]);
-    expect(unknownPlaceholders('{{ verdict }} {{author}} {{x}} {{x}}')).toEqual(
-      ['author', 'x'],
-    );
+    expect(unknownPlaceholders('{{ verdict }} {{author}} {{x}} {{x}}')).toEqual(['author', 'x']);
   });
 });
 

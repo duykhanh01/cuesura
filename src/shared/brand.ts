@@ -4,8 +4,7 @@ export type Uuid = string & { readonly __brand: 'Uuid' };
 export type EpochMs = number & { readonly __brand: 'EpochMs' };
 export type Hash = `sha256:${string}`;
 
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const HASH_RE = /^sha256:[0-9a-f]{64}$/;
 
 export const UuidSchema = z
@@ -21,10 +20,7 @@ export const EpochMsSchema = z
 
 export const HashSchema = z
   .string()
-  .regex(
-    HASH_RE,
-    'Hash must have the format sha256:<64 hexadecimal characters>',
-  )
+  .regex(HASH_RE, 'Hash must have the format sha256:<64 hexadecimal characters>')
   .transform((s) => s as Hash);
 
 export function asUuid(s: string): Uuid {
