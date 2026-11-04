@@ -5,6 +5,7 @@
 import type { PortResult } from '../client/daemon-port.ts';
 import type { TaskLogs } from '../client/schemas.ts';
 import type { Key, KeyName } from '../terminal/keys.ts';
+import { stepWords } from './activity.ts';
 import { joinSafe, uiText, type SafeText } from '../terminal/safe-text.ts';
 import { contentHeight } from '../views/disconnected.ts';
 import { detailRowCount } from '../views/task-detail.ts';
@@ -18,6 +19,7 @@ import {
   forgetLogs,
   initialLogs,
   LOG_HEADER_ROWS,
+  logColumns,
   logsEnd,
   logsTop,
   pauseLogs,
@@ -48,24 +50,34 @@ function moveName(key: Key): KeyName | undefined {
   return key.kind === 'char' ? ALIASES[key.text] : undefined;
 }
 
-/** Enter on Home. A row with no task is not this function's business. */
+/**
+ * Enter on Home opens the task where it is most often wanted: its stages beside its log. Task detail lies
+ * under the log, one `d` away; it holds what both screens read about the task. A row with no task is not
+ * this function's business.
+ */
 export function openDetail(state: TuiState, row: HomeRow | undefined): Reduced {
   if (row === undefined || row.kind === 'finished_toggle')
     return { state, effects: [] };
+  const session = state.screenSession + 1;
   return {
     state: {
       ...state,
-      screens: [...state.screens, 'detail'],
-      detail: initialDetail(
-        row.task.task_id,
-        row.task.title,
-        state.screenSession + 1,
-      ),
-      screenSession: state.screenSession + 1,
+      screens: [...state.screens, 'detail', 'logs'],
+      detail: initialDetail(row.task.task_id, row.task.title, session),
+      logs: initialLogs(row.task.task_id, row.task.title, session + 1),
+      screenSession: session + 1,
     },
     effects: READ,
   };
 }
+
+/** Esc on either screen of a task goes back to the list, never from one of its screens to the other. */
+const leaveTask = (state: TuiState): TuiState => ({
+  ...state,
+  screens: state.screens.slice(0, state.screens.lastIndexOf('detail')),
+  detail: null,
+  logs: null,
+});
 
 const leave = (state: TuiState, screen: 'detail' | 'logs'): TuiState => ({
   ...state,
@@ -114,7 +126,7 @@ export function onDetailKey(state: TuiState, key: Key): Reduced | null {
   });
   switch (moveName(key)) {
     case 'esc':
-      return { state: leave(state, 'detail'), effects: [] };
+      return { state: leaveTask(state), effects: [] };
     case 'down':
       return to(d.top + 1);
     case 'up':
@@ -142,16 +154,20 @@ export type AttemptChoice = {
 export function attemptChoices(s: TuiState): readonly AttemptChoice[] {
   const attempts = s.detail?.show.data?.provenance.usage ?? [];
   return [
-    { label: uiText('The whole log, live'), attemptId: null },
-    ...attempts.map((a) => ({
-      attemptId: a.attempt_id,
-      label: joinSafe([
-        uiText(`${shortAttempt(a.attempt_id)} · `),
-        a.step,
-        uiText(' · '),
-        a.binding,
-      ]),
-    })),
+    { label: uiText('Every step, live'), attemptId: null },
+    ...attempts.map((a) => {
+      const words = stepWords(a.step);
+      return {
+        attemptId: a.attempt_id,
+        label: joinSafe([
+          a.step,
+          uiText(words === null ? '' : ` — ${words}`),
+          uiText(' · '),
+          a.binding,
+          uiText(` · attempt ${shortAttempt(a.attempt_id)}`),
+        ]),
+      };
+    }),
   ];
 }
 
@@ -197,7 +213,8 @@ export function onLogsKey(state: TuiState, key: Key): Reduced | null {
   const logs = state.logs;
   if (logs === null) return null;
   if (logs.picker !== null) return onPickerKey(state, logs, key);
-  const cols = state.size.cols;
+  // The same width the screen draws the log at, so a row scrolled to is a row shown.
+  const cols = logColumns(state.size.cols).log;
   const height = Math.max(1, contentHeight(state) - LOG_HEADER_ROWS);
   const put = (next: LogState): Reduced => ({
     state: { ...state, logs: next },
@@ -214,6 +231,8 @@ export function onLogsKey(state: TuiState, key: Key): Reduced | null {
         );
       case 'F':
         return put(followLogs(logs));
+      case 'd':
+        return { state: leave(state, 'logs'), effects: READ };
       case 't':
         // The list of attempts may have grown since Task detail last read it.
         return {
@@ -230,7 +249,7 @@ export function onLogsKey(state: TuiState, key: Key): Reduced | null {
   }
   switch (moveName(key)) {
     case 'esc':
-      return { state: leave(state, 'logs'), effects: [] };
+      return { state: leaveTask(state), effects: [] };
     case 'up':
       return put(scrollLogs(logs, cols, height, -1));
     case 'down':

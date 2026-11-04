@@ -110,7 +110,7 @@ describe('the buffer (FR-039)', () => {
   });
 
   it('cuts one enormous record for showing, and says how much', () => {
-    const entry = toEntry(record(1, 'y'.repeat(256 * 1024)));
+    const entry = toEntry(record(1, 'y'.repeat(256 * 1024)))!;
     expect(entry.text.length).toBeLessThan(17 * 1024);
     expect(entry.text).toMatch(/more characters: see cusr task logs/);
   });
@@ -347,7 +347,7 @@ describe('what is on screen', () => {
     expect(
       rows.filter((r) => r.kind === 'separator').map((r) => r.text),
     ).toEqual([
-      '── code · attempt 00000a01 ──',
+      '── code · Writing code · attempt 00000a01 ──',
       '── fix · attempt 00000a02 ──',
       '── outside any step ──',
     ]);
@@ -410,7 +410,7 @@ describe('what is on screen', () => {
     } as Rec;
     const s = applyLogPage(start(), forward(0), page([gap], 7), 0);
     const rows = visibleRows(s, COLS, 3);
-    expect(rows[0]).toEqual({
+    expect(rows[0]).toMatchObject({
       kind: 'gap',
       text: 'Gap: 3 records unavailable — files are gone',
     });
@@ -426,7 +426,10 @@ describe('what is on screen', () => {
     );
     const rows = visibleRows(s, COLS, 10);
     expect(rows.length).toBeGreaterThan(3);
-    expect(rows.map((r) => r.text).join('')).toContain('z'.repeat(200));
+    // Wrapped rows stay under the text, past the two cells of the mark.
+    expect(rows.map((r) => r.text.slice(2)).join('')).toContain(
+      'z'.repeat(200),
+    );
   });
 
   it('control characters in a record stay as visible stand-ins', () => {
@@ -440,5 +443,121 @@ describe('what is on screen', () => {
     expect(text).toContain('a␛[2Jb�c');
     // eslint-disable-next-line no-control-regex -- the point of the check.
     expect(text).not.toMatch(/[\x00-\x09\x0b-\x1f‪-‮]/);
+  });
+});
+
+describe('records in words', () => {
+  const at = sanitize('2026-11-01T10:20:30.000Z');
+  const claude = (data: unknown): Rec => ({
+    seq: 1,
+    cursor: 1,
+    operation_id: 'op',
+    attempt_id: ATTEMPT,
+    step: sanitize('code'),
+    at,
+    kind: sanitize('stdout'),
+    data,
+  });
+
+  it("reads an agent's message, a tool call and its result as lines, not JSON", () => {
+    const said = toEntry(
+      claude({
+        type: 'assistant',
+        message: {
+          content: [
+            { type: 'text', text: 'Running the tests now.' },
+            { type: 'tool_use', name: 'Bash', input: { command: 'pnpm test' } },
+          ],
+        },
+      }),
+    );
+    expect(said?.lines.map((l) => [l.label, l.body])).toEqual([
+      ['Agent', 'Running the tests now.'],
+      ['Bash', 'pnpm test'],
+    ]);
+    const result = toEntry(
+      claude({
+        type: 'user',
+        message: {
+          content: [
+            { type: 'tool_result', content: 'ok\nmore', is_error: true },
+          ],
+        },
+      }),
+    );
+    expect(result?.lines[0]).toMatchObject({
+      body: 'ok\nmore',
+      tone: 'error',
+    });
+  });
+
+  it('leaves out bookkeeping with nothing to read, and keeps what it does not know', () => {
+    expect(
+      toEntry(claude({ type: 'system', subtype: 'thinking_tokens' })),
+    ).toBeNull();
+    expect(
+      toEntry(
+        claude({
+          type: 'rate_limit_event',
+          rate_limit_info: { status: 'allowed' },
+        }),
+      ),
+    ).toBeNull();
+    expect(toEntry(claude({ type: 'something_new', x: 1 }))?.text).toContain(
+      '"something_new"',
+    );
+  });
+
+  it("shows a worker's final JSON answer by its summary", () => {
+    const done = toEntry(
+      claude({
+        type: 'item.completed',
+        item: {
+          type: 'agent_message',
+          text: '{"status":"done","summary":"All three steps ran."}',
+        },
+      }),
+    );
+    expect(done?.lines[0]?.body).toBe('All three steps ran.');
+  });
+
+  it('a probe that finds only bookkeeping still reports new activity', () => {
+    const read = applyLogPage(start(), forward(0), page([record(1)], 1), 0);
+    const paused = pauseLogs(read, COLS, HEIGHT);
+    const told = applyLogPage(
+      paused,
+      probe(1),
+      page([{ ...claude({ type: 'turn.started' }), seq: 2, cursor: 2 }], 2),
+      1,
+    );
+    expect(told.newActivity).toBe(true);
+  });
+
+  it('keeps a system record or a content block it does not know, as JSON', () => {
+    expect(
+      toEntry(claude({ type: 'system', subtype: 'hook_response', id: 7 }))
+        ?.text,
+    ).toContain('"hook_response"');
+    const block = toEntry(
+      claude({
+        type: 'assistant',
+        message: { content: [{ type: 'server_tool_use', name: 'web' }] },
+      }),
+    );
+    expect(block?.text).toContain('"server_tool_use"');
+    expect(
+      toEntry(claude({ type: 'system', subtype: 'ui_invalidate' })),
+    ).toBeNull();
+  });
+
+  it('a page of bookkeeping only still moves the cursor', () => {
+    const s = applyLogPage(
+      start(),
+      forward(0),
+      page([claude({ type: 'system', subtype: 'ui_invalidate' })], 1),
+      0,
+    );
+    expect(s.buffer).toHaveLength(0);
+    expect(s.nextCursor).toBe(1);
   });
 });

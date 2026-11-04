@@ -655,14 +655,25 @@ export class LogFeed {
 /** Selects the task with this title on Home and opens it. */
 export async function openTask(s: PtySession, title: string): Promise<void> {
   await s.waitForText(title);
+  // The time in status at the end of the row ticks by itself; only a move of the selection counts.
+  const row = (): string =>
+    selectedLine(s.screenText()).replace(/(\s+\d+[smhd])+\s*$/, '');
   for (let i = 0; i < 400; i++) {
-    if (selectedLine(s.screenText()).includes(title)) break;
-    const before = selectedLine(s.screenText());
+    if (row().includes(title)) break;
+    const before = row();
     s.send(KEY.down);
-    await s.waitFor(() => selectedLine(s.screenText()) !== before, 3_000);
+    await s.waitFor(() => row() !== before, 3_000);
   }
-  s.send(KEY.enter);
+  await enterDetail(s);
   await detailRead(s);
+}
+
+/** Enter opens a task on its stages and log; `d` goes on to Task detail. */
+export async function enterDetail(s: PtySession): Promise<void> {
+  s.send(KEY.enter);
+  await s.waitForText('Logs:');
+  s.send('d');
+  await s.waitForText('Task detail');
 }
 
 /** Task detail is on screen with the first reads of what the screen shows in. */

@@ -43,6 +43,8 @@ export function reduce(state: TuiState, message: Message): Reduced {
   switch (message.type) {
     case 'resize':
       return same({ ...state, size: message.size });
+    case 'tick':
+      return same({ ...state, tick: state.tick + 1 });
     case 'credential_changed':
       return {
         state: {

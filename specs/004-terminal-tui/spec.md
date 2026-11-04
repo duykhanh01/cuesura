@@ -66,6 +66,32 @@ chưa có danh sách kiểm tra từng bước. Danh sách task rỗng dẫn t�
   không theo đề xuất chạy. Sau đó profile chỉ hiển thị; chế độ và binding vẫn chọn được trong phạm vi hợp lệ của task
   (FR-024, FR-025).
 
+### Session 2026-11-04
+
+Dùng thử US1 và US2 cho thấy giao diện khó đọc: chữ trơn cùng một độ đậm, danh sách 18 bước phẳng, log là JSON
+của harness. Các câu dưới chốt cách trình bày; không thêm trạng thái, thao tác hay quyền nào.
+
+- Q: Một task trên Home chiếm mấy dòng? → A: Một dòng, theo cột: ký hiệu trạng thái, tiêu đề, project, tám chấm giai
+  đoạn, hoạt động hiện tại kèm chế độ và PR, thời gian ở trạng thái. Trạng thái được nêu bằng ký hiệu riêng của nó
+  (FR-035), tên trạng thái nằm ở dòng đếm phía trên và màn trợ giúp. Dòng cuối thân màn ghi đủ tên các giai đoạn của
+  task đang chọn.
+- Q: Tiến trình workflow hiện thế nào? → A: Gộp các bước của `software_dev` thành tám giai đoạn triage, prepare, code,
+  gates, review, PR, CI, merge; bước sửa và chạy lại thuộc giai đoạn chúng sửa, giai đoạn chạy nhiều lần ghi `↻n`.
+  Giai đoạn chế độ bỏ qua ghi `skipped –`, không bao giờ mang dấu `✓` (FR-011). Workflow có bước lạ thì liệt kê từng
+  bước như daemon trả.
+- Q: Chi tiết task trình bày thế nào? → A: Từng mục có tiêu đề kẻ ngang và cột nhãn–giá trị; mục không có gì để nói
+  thì bỏ. ID, version, revision và worktree dồn xuống mục `Reference`. Mã spec không xuất hiện trong chữ hiển thị.
+- Q: Log đọc thế nào? → A: Như transcript của chính agent: `⏺` trước lời agent và lệnh gọi tool, `⎿` cho kết quả, `✻`
+  cho ghi chú phiên. Markdown trong lời agent được vẽ (đậm, code, danh sách, bảng). Bản ghi chỉ để đếm hoặc vẽ lại
+  (đếm token suy nghĩ, `ui_invalidate`, rate limit còn cho phép) không hiện; bản ghi lạ vẫn hiện dạng JSON gọn, và
+  `cusr task logs` vẫn trả nguyên bản ghi (FR-014).
+- Q: Log có xem theo bước không? → A: Từ 100 cột, màn Log chia hai cột: trái là các giai đoạn theo chiều dọc, việc
+  đang làm, việc đang chờ người dùng và phần log đang xem; phải là log. Hẹp hơn thì các giai đoạn thành một dòng ngang
+  ở đầu log. Vạch phân cách ghi tên bước bằng lời; `t` chọn xem riêng một bước.
+- Q: Enter trên Home mở gì? → A: Mở task ở màn Log ở trên, vì câu hỏi hay gặp nhất là task tới đâu và agent đang làm
+  gì. `d` mở Task detail (lý do chờ, việc cần làm, PR, giới hạn, lịch sử); `l` từ đó quay lại. `Esc` ở cả hai màn về
+  Home.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Nhìn một màn hình là hiểu hệ thống (Priority: P1)

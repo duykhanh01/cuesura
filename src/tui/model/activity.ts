@@ -167,6 +167,11 @@ const STEPS: Readonly<Record<string, string>> = {
 
 const UNCONFIRMED = WAITS.run_config_unconfirmed;
 
+/** A step of `software_dev` in words, or `null` for a step of a workflow this does not know. */
+export function stepWords(step: string): string | null {
+  return Object.hasOwn(STEPS, step) ? (STEPS[step] ?? null) : null;
+}
+
 export type ActivityRow = Pick<
   BoardRow,
   'status' | 'wait_code' | 'step' | 'mode' | 'needs_user'
@@ -236,6 +241,14 @@ const MARKS: Readonly<
   FAILED: { mark: '✗', color: 'red' },
   CANCELLED: { mark: '–', color: undefined },
 };
+
+/** The status's mark alone, for a row whose words already say what it is doing. */
+export function statusGlyph(status: TaskStatus): {
+  readonly mark: string;
+  readonly color: Color | undefined;
+} {
+  return MARKS[status];
+}
 
 export function statusMark(status: TaskStatus): {
   readonly text: SafeText;

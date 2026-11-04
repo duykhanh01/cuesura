@@ -227,15 +227,16 @@ describe('only the open screen reads (R-03)', () => {
     expect(plan(open({ screens: ['home', 'detail', 'help'] }))).toEqual([]);
   });
 
-  it('Logs over Task detail reads the log and not the detail', () => {
-    expect(
-      plan(
-        open({
-          screens: ['home', 'detail', 'logs'],
-          logs: initialLogs(TASK, uiText('T'), 1),
-        }),
-      ),
-    ).toEqual(['logs']);
+  it('Logs over Task detail reads the log and what its stages need, not the history', () => {
+    const keys = plan(
+      open({
+        screens: ['home', 'detail', 'logs'],
+        logs: initialLogs(TASK, uiText('T'), 1),
+      }),
+    );
+    expect(keys[0]).toBe('logs');
+    expect(keys).toContain('detail:progress');
+    expect(keys).not.toContain('detail:history');
   });
 
   it.each([

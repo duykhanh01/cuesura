@@ -74,10 +74,10 @@ describe('US1 scenario 4: a change shows by itself', () => {
     const [id] = seedReady(sd, 1);
     await sd.start();
     const s = tui.cusr(sd.dataDir);
-    await s.waitForText('Tasks: READY 1');
+    await s.waitForText('◇ 1 ready');
     const result = await cancelTask(sd, id!, 0);
     expect(result.envelope.ok).toBe(true);
-    await s.waitForText('CANCELLED 1');
+    await s.waitForText('– 1 cancelled');
     await s.waitForText('Finished (1)');
     expect(s.screenText()).not.toContain('Ready 01');
     s.send('q');
@@ -95,7 +95,7 @@ describe('US1 scenario 6 and SC-011: the daemon dies under an open session', () 
     proxy.tap = (direction, data) => {
       if (direction === 'request') sent.push(data.toString('utf8'));
     };
-    await s.waitForText('Tasks: READY 2');
+    await s.waitForText('◇ 2 ready');
     await s.waitFor(() => /updated: \d\d:\d\d:\d\d/.test(s.screenText()));
 
     s.send('f');
@@ -117,7 +117,7 @@ describe('US1 scenario 6 and SC-011: the daemon dies under an open session', () 
 
     // Leaving the field still works, and what is on screen stays marked.
     s.send(KEY.esc);
-    await s.waitForText('Tasks: READY 2');
+    await s.waitForText('◇ 2 ready');
     expect(s.screenText()).toContain('Data may be out of date');
     expect(s.screenText()).toContain('Ready 01');
     expect(s.screenText()).toContain('Filters: project all · status all');
@@ -138,7 +138,7 @@ describe('SC-003 and EC-007: the daemon back inside the automatic window', () =>
     sd.seed((d) => seedRunning(d, 2));
     await sd.start();
     const s = tui.cusr(sd.dataDir);
-    await s.waitForText('Tasks: RUNNING 2');
+    await s.waitForText('▶ 2 running');
     await sd.stop();
     // By this attempt the wait between attempts is at its largest: the worst case of the budget.
     await s.waitFor(() => reconnectAttempt(s.screenText()) >= 6, 20_000);
@@ -156,9 +156,9 @@ describe('SC-003 and EC-007: the daemon back inside the automatic window', () =>
     const screen = s.screenText();
     expect(screen).not.toContain('Data may be out of date');
     expect(screen.split('\n')[0]).toContain('daemon: ok');
-    expect(screen).toContain('RUNNING 2');
-    expect(rowOf(screen, 'Task 001')).toContain('RUNNING');
-    expect(rowOf(screen, 'Task 002')).toContain('RUNNING');
+    expect(screen).toContain('▶ 2 running');
+    expect(rowOf(screen, 'Task 001')).toContain('▶ Task 001');
+    expect(rowOf(screen, 'Task 002')).toContain('▶ Task 002');
     s.send('q');
     expect((await s.waitForExit()).status).toBe(0);
   });
@@ -168,7 +168,7 @@ describe('SC-003 and EC-007: the daemon back inside the automatic window', () =>
     seedReady(sd, 1);
     await sd.start();
     const { s, proxy } = await throughProxy(sd);
-    await s.waitForText('Tasks: READY 1');
+    await s.waitForText('◇ 1 ready');
 
     proxy.mode = 'hold';
     await s.waitFor(() => reconnectAttempt(s.screenText()) >= 5, 30_000);
@@ -176,7 +176,7 @@ describe('SC-003 and EC-007: the daemon back inside the automatic window', () =>
     s.send('?');
     await s.waitForText('Ctrl-C       Quit');
     s.send(KEY.esc);
-    await s.waitForText('Tasks: READY 1');
+    await s.waitForText('◇ 1 ready');
 
     const added = await sd.command('owner', taskAdd(1, 'Answered at last'));
     expect(added.envelope.ok).toBe(true);
@@ -213,7 +213,7 @@ describe('US1 scenario 7 and FR-004: quitting changes nothing but the terminal',
       const before = await cliJson(sd, 'task', 'list');
       const seq = await watermark(sd);
       const s = tui.cusr(sd.dataDir);
-      await s.waitForText('Tasks: RUNNING 2');
+      await s.waitForText('▶ 2 running');
       expect(s.modes()).toEqual(OPEN);
 
       await leave(s);
@@ -252,7 +252,7 @@ describe('US1 scenario 10 and EC-008: permission gone mid-session', () => {
     const { s, proxy } = await throughProxy(sd, {
       CUSR_TOKEN_FILE: tokenFile,
     });
-    await s.waitForText('Tasks: READY 1');
+    await s.waitForText('◇ 1 ready');
 
     // The daemon no longer knows this token. No other token is looked for.
     replaceToken(tokenFile, 'A'.repeat(43));
@@ -293,7 +293,7 @@ describe('US1 scenario 10 and EC-008: permission gone mid-session', () => {
     const { s, proxy } = await throughProxy(sd, {
       CUSR_TOKEN_FILE: tokenFile,
     });
-    await s.waitForText('Tasks: READY 1');
+    await s.waitForText('◇ 1 ready');
     rmSync(tokenFile);
     await s.waitForText('Stopped:');
     expect(s.screenText()).toContain('Next: fix the token file');
@@ -411,7 +411,7 @@ describe('US1 scenario 10 and EC-010: a daemon of another version', () => {
     seedReady(sd, 1);
     await sd.start();
     const { s, proxy } = await throughProxy(sd);
-    await s.waitForText('Tasks: READY 1');
+    await s.waitForText('◇ 1 ready');
 
     const other = await tui.answering('upgrade required');
     proxy.retarget(other.socketPath);
@@ -431,7 +431,7 @@ describe('US1 scenario 10 and EC-010: a daemon of another version', () => {
       () => !s.screenText().includes('Data may be out of date'),
       10_000,
     );
-    expect(s.screenText()).toContain('Tasks: READY 1');
+    expect(s.screenText()).toContain('◇ 1 ready');
     s.send('q');
     expect((await s.waitForExit()).status).toBe(0);
   });

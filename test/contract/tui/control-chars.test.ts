@@ -84,10 +84,10 @@ describe('SC-010: control characters in what daemon data carries', () => {
         .find((line) => line.includes(marker));
       // Every Home row keeps its status and end marker, including after returning from detail.
       expect(row, name).toContain('END');
-      expect(row, name).toContain('READY');
+      expect(row, name).toContain('◇');
       expect(s.screenText().split('\n')[0], name).toContain('daemon:');
       await openTask(s, marker);
-      await s.waitForText('Ways out');
+      await s.waitForText('What you can do');
       expect(s.screenText().split('\n')[0], name).toContain('daemon:');
       expect(s.screenText(), name).toContain(marker);
       expect(s.screenText(), name).toContain('END');
@@ -204,7 +204,7 @@ describe('FR-038: nothing secret on the screen or in a file', () => {
     try {
       const s = tui.cusr(sd.dataDir, { cols: 140, rows: 60, cwd });
       await openTask(s, 'Secretive');
-      await s.waitForText('Ways out');
+      await s.waitForText('What you can do');
       s.send('l');
       await s.waitForText('CANARY');
       await s.waitFor(() => flat(s.screenText()).includes('[REDACTED]'));

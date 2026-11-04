@@ -8,6 +8,7 @@ import { planScreenReads, ScreenReads } from './client/screen-reads.ts';
 import type { Effect, Message } from './model/messages.ts';
 import { reduce } from './model/reduce.ts';
 import {
+  animating,
   boardQuery,
   boardQueryKey,
   currentScreen,
@@ -27,6 +28,8 @@ import { detailBody } from './views/task-detail.ts';
 
 /** Nothing following an Esc for this long means it was the key, not the start of a sequence. */
 const ESC_WAIT_MS = 30;
+/** One frame of the spinner; only the cells that change are written. */
+const TICK_MS = 120;
 
 export function runTui(): void {
   const port = createDaemonPort();
@@ -149,6 +152,7 @@ export function runTui(): void {
   function run(effect: Effect): void {
     switch (effect.type) {
       case 'quit':
+        clearInterval(animation);
         scheduler.stop();
         screenReads.stop();
         terminal.exit(effect.code);
@@ -169,6 +173,11 @@ export function runTui(): void {
     draw();
     for (const effect of r.effects) run(effect);
   }
+
+  const animation = setInterval(() => {
+    if (animating(state)) dispatch({ type: 'tick' });
+  }, TICK_MS);
+  animation.unref();
 
   draw();
   scheduler.start();

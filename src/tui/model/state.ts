@@ -127,6 +127,8 @@ export type TuiState = {
    * an answer to a read of a former one can never pass for its own.
    */
   readonly screenSession: number;
+  /** Frames of the running animation; only what is drawn depends on it. */
+  readonly tick: number;
 };
 
 export function initialState(size: Size): TuiState {
@@ -153,7 +155,16 @@ export function initialState(size: Size): TuiState {
     detail: null,
     logs: null,
     screenSession: 0,
+    tick: 0,
   };
+}
+
+/** A task's screen is open on a task that is running: its current stage turns. */
+export function animating(s: TuiState): boolean {
+  const screen = currentScreen(s);
+  if (screen !== 'logs' && screen !== 'detail') return false;
+  const status = s.detail?.explain.data?.status ?? s.detail?.show.data?.status;
+  return status === 'RUNNING';
 }
 
 export function currentScreen(s: TuiState): Screen {

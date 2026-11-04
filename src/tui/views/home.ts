@@ -1,14 +1,17 @@
 /**
- * Home: which projects, what is going on, and what needs the user (FR-005–FR-007, FR-010, EC-005). Two rows
- * per task keep title, project, status, activity, time, mode and PR at 80 columns. Scrolling follows the
- * selection in whole screens, so the view needs no memory of its own and a resize loses nothing (EC-002).
+ * Home: which projects, what is going on, and what needs the user (FR-005–FR-007, FR-010, EC-005). One row per
+ * task, in columns: mark, title, project, stage dots, what it is doing and time in status. Scrolling follows
+ * the selection in whole screens, so the view needs no memory of its own and a resize loses nothing (EC-002).
  */
-import { TASK_STATUSES, isTerminal } from '../../domain/state.ts';
-import type { BoardRow } from '../client/schemas.ts';
 import {
-  activityLine,
+  TASK_STATUSES,
+  isTerminal,
+  type TaskStatus,
+} from '../../domain/state.ts';
+import {
+  activity,
   markLegend,
-  statusMark,
+  statusGlyph,
   timeInStatus,
   todo,
 } from '../model/activity.ts';
@@ -17,6 +20,7 @@ import {
   selectedRowIndex,
   type HomeRow,
 } from '../model/home-rows.ts';
+import { rowStages } from '../model/stages.ts';
 import { PAGE_LIMIT, type TuiState } from '../model/state.ts';
 import {
   joinSafe,
@@ -25,38 +29,68 @@ import {
   type SafeText,
 } from '../terminal/safe-text.ts';
 import type { Frame, Style } from '../terminal/screen.ts';
-import { padEnd, truncate } from '../terminal/width.ts';
+import { displayWidth, padEnd, truncate } from '../terminal/width.ts';
 import { filterLine } from './filters.ts';
+import {
+  BOLD,
+  DIM,
+  fg,
+  putSegs,
+  ruleHeading,
+  seg,
+  segsWidth,
+  ui,
+  type Seg,
+} from './ink.ts';
 import type { Body } from './layout.ts';
-
-const MARGIN = 2;
-const STATUS_COLUMN = 12;
-const PROJECT_COLUMN = 16;
-const TIME_COLUMN = 11;
+import { dots, DOTS_WIDTH, stepper } from './stepper.ts';
 
 /** Written beside the projects whenever the token does not see everything (EC-009). */
 export const SCOPE_NOTE = "Showing projects in this token's scope";
 
-function projectsLine(s: TuiState): SafeText {
-  if (s.projects === null) return uiText('Projects: not read yet');
-  if (s.projects.length === 0) return uiText('Projects: none in scope');
-  return joinSafe([
-    uiText('Projects: '),
-    joinSafe(
-      s.projects.map((p) => sanitize(p.id)),
-      uiText(', '),
+const STATUS_WORD: Readonly<Record<TaskStatus, string>> = {
+  PENDING: 'pending',
+  READY: 'ready',
+  RUNNING: 'running',
+  WAITING: 'waiting',
+  DONE: 'done',
+  FAILED: 'failed',
+  CANCELLED: 'cancelled',
+};
+
+function projectsSegs(s: TuiState): Seg[] {
+  if (s.projects === null) return [ui('Projects: not read yet', DIM)];
+  if (s.projects.length === 0) return [ui('Projects: none in scope', DIM)];
+  return [
+    ui('Projects: ', DIM),
+    seg(
+      joinSafe(
+        s.projects.map((p) => sanitize(p.id)),
+        uiText(', '),
+      ),
     ),
-  ]);
+  ];
 }
 
-function countsLine(s: TuiState): SafeText | null {
+/** `▲ 2 need you   ▶ 3 running …`: what the daemon counted, each status with its mark and colour. */
+function summarySegs(s: TuiState, attention: number): Seg[] | null {
   if (s.board === null) return null;
   const counts = s.board.counts.by_status;
-  const parts = TASK_STATUSES.flatMap((status) => {
+  const out: Seg[] = [];
+  if (attention > 0) {
+    const more = s.board.attention.truncated ? '+' : '';
+    out.push(
+      ui(`▲ ${attention}${more} need you`, { fg: 'yellow', bold: true }),
+    );
+  }
+  for (const status of TASK_STATUSES) {
     const n = counts[status];
-    return n === undefined ? [] : [`${status} ${n}`];
-  });
-  return uiText(`Tasks: ${parts.length === 0 ? 'none' : parts.join('  ')}`);
+    if (n === undefined || n === 0) continue;
+    const { mark, color } = statusGlyph(status);
+    if (out.length > 0) out.push(ui('    '));
+    out.push(ui(`${mark} `, fg(color)), ui(`${n} ${STATUS_WORD[status]}`));
+  }
+  return out.length === 0 ? [ui('No tasks yet', DIM)] : out;
 }
 
 /** How many tasks this view holds, from the daemon's counts: a page says nothing about it (EC-005). */
@@ -78,140 +112,240 @@ function pageLine(s: TuiState): SafeText | null {
   );
 }
 
+type TaskRow = Exclude<HomeRow, { kind: 'finished_toggle' }>;
+
 type Line =
-  | { readonly kind: 'heading'; readonly text: SafeText }
-  | { readonly kind: 'text'; readonly text: SafeText; readonly row: number }
-  | { readonly kind: 'task'; readonly task: BoardRow; readonly row: number };
+  | { readonly kind: 'static'; readonly segs: readonly Seg[] }
+  | { readonly kind: 'toggle'; readonly text: SafeText; readonly row: number }
+  | { readonly kind: 'task'; readonly row: number; readonly item: TaskRow };
 
-function rowLines(row: HomeRow, index: number): Line[] {
-  if (row.kind === 'finished_toggle')
-    return [
-      {
-        kind: 'text',
-        row: index,
-        text: uiText(
-          row.open
-            ? `▾ Finished (${row.count}) — Enter to hide`
-            : `▸ Finished (${row.count}) — Enter to show`,
-        ),
-      },
-    ];
-  const action = todo(row.task);
-  const doing = activityLine(row.task);
-  return [
-    { kind: 'task', task: row.task, row: index },
-    {
-      kind: 'text',
-      row: index,
-      text:
-        row.kind === 'attention' && action !== null
-          ? joinSafe([uiText('    To do: '), action, uiText(' — '), doing])
-          : joinSafe([uiText('    '), doing]),
-    },
-  ];
-}
+const BLANK: Line = { kind: 'static', segs: [] };
 
-function listLines(s: TuiState, rows: readonly HomeRow[]): Line[] {
+function listLines(
+  s: TuiState,
+  rows: readonly HomeRow[],
+  cols: number,
+): Line[] {
   const lines: Line[] = [];
   const attention = rows.filter((r) => r.kind === 'attention').length;
   if (attention > 0) {
-    // Past the daemon's cap the count is only what is known so far.
     const more = s.board?.attention.truncated === true ? '+' : '';
     lines.push({
-      kind: 'heading',
-      text: uiText(`Needs you (${attention}${more})`),
+      kind: 'static',
+      segs: ruleHeading(`Needs you (${attention}${more})`, cols, {
+        fg: 'yellow',
+        bold: true,
+      }),
     });
   }
   let inTasks = false;
   rows.forEach((row, i) => {
     if (row.kind === 'task' && !inTasks) {
       inTasks = true;
-      lines.push({ kind: 'heading', text: uiText('Tasks') });
+      if (lines.length > 0) lines.push(BLANK);
+      lines.push({
+        kind: 'static',
+        segs: ruleHeading('Tasks', cols, { fg: 'cyan', bold: true }),
+      });
     }
-    lines.push(...rowLines(row, i));
+    if (row.kind === 'finished_toggle') {
+      if (lines.length > 0) lines.push(BLANK);
+      lines.push({
+        kind: 'toggle',
+        row: i,
+        text: uiText(
+          row.open
+            ? `▾ Finished (${row.count}) — Enter to hide`
+            : `▸ Finished (${row.count}) — Enter to show`,
+        ),
+      });
+      return;
+    }
+    lines.push({ kind: 'task', row: i, item: row });
   });
   return lines;
+}
+
+/** Column widths for this terminal: the title and the activity share what the fixed columns leave. */
+type Columns = {
+  readonly title: number;
+  readonly project: number;
+  readonly doing: number;
+  readonly time: number;
+};
+
+const TITLE_X = 4;
+
+/** The time column fits the longest time shown, so `unavailable` reads whole and `5s` costs little. */
+function columns(s: TuiState, cols: number, rows: readonly HomeRow[]): Columns {
+  const time = rows.reduce(
+    (n, r) =>
+      r.kind === 'finished_toggle'
+        ? n
+        : Math.max(n, displayWidth(timeInStatus(r.task, s.lastUpdatedAt))),
+    'In status'.length - 2,
+  );
+  // Selector and mark, then the gaps between columns and the time at the edge.
+  const fixed = TITLE_X + 2 + 2 + DOTS_WIDTH + 2 + 1 + time;
+  const longest = rows.reduce(
+    (n, r) =>
+      r.kind === 'finished_toggle'
+        ? n
+        : Math.max(n, displayWidth(r.task.project)),
+    7,
+  );
+  const room = Math.max(24, cols - fixed);
+  const project = Math.min(longest, 14, Math.floor(room / 5));
+  const title = Math.min(36, Math.max(14, Math.round((room - project) * 0.28)));
+  return {
+    title,
+    project,
+    doing: Math.max(8, room - project - title),
+    time,
+  };
+}
+
+function joinDot(parts: readonly SafeText[]): SafeText {
+  return joinSafe(parts, uiText(' · '));
+}
+
+/** What the row is doing: the user's to-do first when it waits on them, then mode and PR, faint. */
+function doingSegs(row: TaskRow): Seg[] {
+  const task = row.task;
+  const action = row.kind === 'attention' ? todo(task) : null;
+  const extra: SafeText[] = [];
+  if (task.mode !== null) extra.push(task.mode);
+  if (task.pr_ref !== null) extra.push(task.pr_ref);
+  const tail =
+    extra.length === 0
+      ? []
+      : [seg(joinSafe([uiText(' · '), joinDot(extra)]), DIM)];
+  if (action !== null)
+    // Activity, mode and PR are always said (FR-006); a narrow terminal cuts their end.
+    return [
+      seg(joinSafe([uiText('→ '), action]), { fg: 'yellow', bold: true }),
+      seg(joinSafe([uiText(' · '), activity(task)]), DIM),
+      ...tail,
+    ];
+  const { status } = task;
+  const style: Style =
+    status === 'FAILED'
+      ? { fg: 'red' }
+      : isTerminal(status) || status === 'READY' || status === 'PENDING'
+        ? DIM
+        : {};
+  return [seg(activity(task), style), ...tail];
 }
 
 function drawTask(
   frame: Frame,
   y: number,
   s: TuiState,
-  task: BoardRow,
+  row: TaskRow,
+  c: Columns,
   selected: boolean,
 ): void {
   const cols = s.size.cols;
+  const { task } = row;
   const base: Style = selected ? { inverse: true } : {};
-  const mark = statusMark(task.status);
-  const titleX = MARGIN + STATUS_COLUMN;
-  const titleWidth = Math.max(
-    8,
-    cols - titleX - PROJECT_COLUMN - TIME_COLUMN - 2,
-  );
-  frame.put(0, y, padEnd(uiText(selected ? '› ' : ''), cols), base);
-  frame.put(MARGIN, y, padEnd(mark.text, STATUS_COLUMN), {
+  frame.put(0, y, padEnd(uiText(selected ? '›' : ''), cols), base);
+  const { mark, color } = statusGlyph(task.status);
+  frame.put(2, y, uiText(mark), { ...base, ...fg(color, { bold: true }) });
+  let x = TITLE_X;
+  const titleStyle: Style = isTerminal(task.status)
+    ? DIM
+    : row.kind === 'attention'
+      ? BOLD
+      : {};
+  frame.put(x, y, truncate(task.title, c.title), { ...base, ...titleStyle });
+  x += c.title + 2;
+  frame.put(x, y, truncate(sanitize(task.project), c.project), {
     ...base,
-    ...(mark.color === undefined ? {} : { fg: mark.color }),
+    ...DIM,
   });
-  frame.put(titleX, y, truncate(task.title, titleWidth), base);
-  const projectX = titleX + titleWidth + 1;
-  frame.put(
-    projectX,
-    y,
-    truncate(sanitize(task.project), PROJECT_COLUMN),
-    base,
-  );
-  frame.put(
-    projectX + PROJECT_COLUMN + 1,
-    y,
-    truncate(timeInStatus(task, s.lastUpdatedAt), TIME_COLUMN),
-    base,
-  );
+  x += c.project + 2;
+  const stages = rowStages(task);
+  if (stages !== null)
+    putSegs(frame, x, y, dots(stages, task.status), DOTS_WIDTH, base);
+  x += DOTS_WIDTH + 2;
+  putSegs(frame, x, y, doingSegs(row), c.doing, base);
+  const time = truncate(timeInStatus(task, s.lastUpdatedAt), c.time);
+  frame.put(cols - displayWidth(time) - 1, y, time, { ...base, ...DIM });
 }
 
-/** The first line to show: whole screens, moved only as far as keeps the selected row entirely in view. */
+/** The first line to show: whole screens, moved only as far as keeps the selected row in view. */
 function firstLine(
   lines: readonly Line[],
   selected: number,
   height: number,
 ): number {
-  const start = lines.findIndex(
-    (l) => l.kind !== 'heading' && l.row === selected,
-  );
-  if (start < 0 || height <= 0) return 0;
-  const screen = Math.floor(start / height) * height;
-  const end = start + (lines[start]?.kind === 'task' ? 1 : 0);
-  return end >= screen + height ? start : screen;
+  const at = lines.findIndex((l) => l.kind !== 'static' && l.row === selected);
+  if (at < 0 || height <= 0) return 0;
+  const screen = Math.floor(at / height) * height;
+  return at >= screen + height ? at : screen;
+}
+
+function columnHeads(c: Columns, cols: number): Seg[] {
+  const heads = [
+    ' '.repeat(TITLE_X),
+    'Task'.padEnd(c.title + 2),
+    'Project'.slice(0, c.project).padEnd(c.project + 2),
+    'Stages'.padEnd(DOTS_WIDTH + 2),
+    'Now',
+  ].join('');
+  const right = 'In status';
+  const gap = cols - displayWidth(heads) - displayWidth(right) - 1;
+  return [ui(gap > 0 ? `${heads}${' '.repeat(gap)}${right}` : heads, DIM)];
+}
+
+/** The selected task's stages spelled out, so the dots of every row can be read against them. */
+function selectionStages(s: TuiState, row: HomeRow | undefined): Seg[] | null {
+  if (row === undefined || row.kind === 'finished_toggle') return null;
+  const stages = rowStages(row.task);
+  if (stages === null) return null;
+  const path = [ui(' '), ...stepper(stages, row.task.status)];
+  return segsWidth(path) + 8 <= s.size.cols
+    ? [ui(' Stages ', DIM), ...path]
+    : path;
 }
 
 function drawList(
   frame: Frame,
   s: TuiState,
   top: number,
-  height: number,
+  space: number,
   rows: readonly HomeRow[],
 ): void {
   const cols = s.size.cols;
   const selected = selectedRowIndex(s, rows);
-  const lines = listLines(s, rows);
+  const footer = space > 6 ? selectionStages(s, rows[selected]) : null;
+  const height = footer === null ? space : space - 2;
+  if (footer !== null) {
+    putSegs(frame, 0, top + space - 2, [ui('─'.repeat(cols), DIM)], cols);
+    putSegs(frame, 0, top + space - 1, footer, cols);
+  }
+  const c = columns(s, cols, rows);
+  const lines: Line[] = [
+    { kind: 'static', segs: columnHeads(c, cols) },
+    ...listLines(s, rows, cols),
+  ];
   const offset = firstLine(lines, selected, height);
   lines.slice(offset, offset + height).forEach((line, i) => {
     const y = top + i;
-    if (line.kind === 'heading') {
-      frame.put(0, y, truncate(line.text, cols), { bold: true });
-    } else if (line.kind === 'task') {
-      drawTask(frame, y, s, line.task, line.row === selected);
-    } else if (rows[line.row]?.kind === 'finished_toggle') {
+    if (line.kind === 'static') putSegs(frame, 0, y, line.segs, cols);
+    else if (line.kind === 'toggle') {
       const on = line.row === selected;
+      const text = truncate(
+        joinSafe([uiText(on ? '› ' : '  '), line.text]),
+        cols,
+      );
       frame.put(
         0,
         y,
-        truncate(joinSafe([uiText(on ? '› ' : '  '), line.text]), cols),
-        on ? { inverse: true } : {},
+        on ? padEnd(text, cols) : text,
+        on ? { inverse: true } : DIM,
       );
-    } else {
-      frame.put(0, y, truncate(line.text, cols));
-    }
+    } else drawTask(frame, y, s, line.item, c, line.row === selected);
   });
 }
 
@@ -220,32 +354,43 @@ export const homeBody =
   (frame, top, height) => {
     if (height <= 0) return;
     const cols = s.size.cols;
-    const header: (SafeText | null)[] = [
-      projectsLine(s),
-      s.caller?.scope === 'limited' ? uiText(SCOPE_NOTE) : null,
-      filterLine(s),
-      opts.color ? null : markLegend(),
-      countsLine(s),
-      pageLine(s),
+    const rows = s.board === null ? [] : homeRows(s);
+    const attention = rows.filter((r) => r.kind === 'attention').length;
+    const scope =
+      s.caller?.scope === 'limited'
+        ? [ui('   '), ui(SCOPE_NOTE, { fg: 'yellow' })]
+        : [];
+    const page = pageLine(s);
+    const head: (readonly Seg[] | null)[] = [
+      summarySegs(s, attention),
+      [...projectsSegs(s), ui('   '), seg(filterLine(s), DIM), ...scope],
+      page === null ? null : [seg(page, DIM)],
+      opts.color ? null : [seg(markLegend(), DIM)],
     ];
-    const shown = header
-      .filter((line) => line !== null)
+    const shown = head
+      .filter((l) => l !== null)
       .slice(0, Math.max(1, height >> 1));
-    shown.forEach((line, i) => frame.put(0, top + i, truncate(line, cols)));
-    const listTop = top + shown.length;
-    const room = height - shown.length;
+    shown.forEach((segs, i) => putSegs(frame, 1, top + i, segs, cols - 1));
+    // A blank row under the summary when the list keeps enough room.
+    const gap = height - shown.length > 8 ? 1 : 0;
+    const listTop = top + shown.length + gap;
+    const room = height - shown.length - gap;
     if (room <= 0) return;
 
     if (s.board === null) {
       // Before any answer the banner already says it is connecting.
       if (s.lastUpdatedAt === null && !s.stale) return;
       const why = s.stale ? 'No data for this view yet.' : 'Reading this view…';
-      frame.put(0, listTop, truncate(uiText(why), cols));
+      frame.put(1, listTop, truncate(uiText(why), cols - 1), DIM);
       return;
     }
-    const rows = homeRows(s);
     if (rows.length === 0) {
-      frame.put(0, listTop, truncate(uiText('No tasks in this view.'), cols));
+      frame.put(
+        1,
+        listTop,
+        truncate(uiText('No tasks in this view.'), cols - 1),
+        DIM,
+      );
       return;
     }
     drawList(frame, s, listTop, room, rows);

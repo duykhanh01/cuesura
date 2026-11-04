@@ -37,7 +37,7 @@ type Row = (c: Ctx) => (AllowedAction | null)[];
 const cancel = (c: Ctx): AllowedAction => ({
   action: 'cancel',
   command: `cusr task cancel ${c.id} --expected-version ${c.version}`,
-  note: 'Cancel reconciles the PR first (FR-025); a merge already made still ends DONE.',
+  note: 'Cancel reconciles the PR first; a merge already made still ends DONE.',
 });
 const recheck = (c: Ctx, note: string): AllowedAction | null =>
   c.recheckable
@@ -52,7 +52,7 @@ const merge = (c: Ctx): AllowedAction | null =>
     ? {
         action: 'merge_manually',
         command: null,
-        note: 'Merge the PR on GitHub into the target branch; observation or recheck then records DONE (FR-040).',
+        note: 'Merge the PR on GitHub into the target branch; observation or recheck then records DONE.',
       }
     : null;
 const external = (note: string): AllowedAction => ({
@@ -73,7 +73,7 @@ const newTask: AllowedAction = {
 const answer = (c: Ctx): AllowedAction => ({
   action: 'answer',
   command: `cusr answer ${typeof c.s.wait?.detail['question_id'] === 'string' ? c.s.wait.detail['question_id'] : 'QUESTION'} --file FILE --expected-version ${c.version}`,
-  note: 'Answer or supply what is missing (FR-037–039).',
+  note: 'Answer or supply what is missing.',
 });
 const confirm = (c: Ctx): AllowedAction => ({
   action: 'confirm',

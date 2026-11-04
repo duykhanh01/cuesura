@@ -17,6 +17,7 @@ import { WALL } from '../../support/store-flows.ts';
 import {
   cliJson,
   detailRead,
+  enterDetail,
   flat,
   openTask,
   seedAgentUsage,
@@ -27,6 +28,12 @@ import {
   selectedLine,
   useTui,
 } from '../../support/tui-fixtures.ts';
+import {
+  STAGE_LABEL,
+  STAGES,
+  type StageName,
+} from '../../../src/tui/model/stages.ts';
+import { actionName } from '../../../src/tui/views/task-detail.ts';
 
 // T040: Task detail on a real PTY against a real daemon, compared with what the CLI says of the same task.
 const tui = useTui();
@@ -59,12 +66,9 @@ async function quit(s: PtySession): Promise<void> {
   expect((await s.waitForExit()).status).toBe(0);
 }
 
-function stepLine(screen: string, step: string): string {
-  return (
-    screen
-      .split('\n')
-      .find((l) => new RegExp(`^  .*\\s${step}(\\s|$)`).test(l)) ?? ''
-  );
+/** The row of stages under Progress. */
+function stagesLine(screen: string): string {
+  return screen.split('\n').find((l) => /^\s+triage .* ─ /.test(l)) ?? '';
 }
 
 describe('US2 scenario 1: the steps of the workflow', () => {
@@ -88,17 +92,21 @@ describe('US2 scenario 1: the steps of the workflow', () => {
       .data as {
       steps: { name: string; state: string; visits: number }[];
     };
-    const screen = s.screenText();
+    const line = stagesLine(s.screenText());
     const marks = {
-      past: 'ran',
-      current: 'running',
-      remaining: 'still to run',
-      not_required: 'not required',
+      past: '✓',
+      current: '●',
+      remaining: '○',
+      not_required: 'skipped –',
     } as const;
-    expect(progress.steps.length).toBeGreaterThan(2);
-    for (const step of progress.steps)
-      expect(stepLine(screen, step.name)).toContain(
-        marks[step.state as keyof typeof marks],
+    // Each stage's own step as `task progress` gives it; fix and retry steps fold into their stage.
+    const own = progress.steps.filter((p) =>
+      (STAGES as readonly string[]).includes(p.name),
+    );
+    expect(own.length).toBeGreaterThan(2);
+    for (const step of own)
+      expect(line).toContain(
+        `${STAGE_LABEL[step.name as StageName]} ${marks[step.state as keyof typeof marks]}`,
       );
     await quit(s);
   });
@@ -111,9 +119,9 @@ describe('US2 scenario 1: the steps of the workflow', () => {
     const s = tui.cusr(sd.dataDir, TALL);
     await openTask(s, 'Direct task');
     await s.waitForText('Progress');
-    const line = stepLine(s.screenText(), 'review');
-    expect(line).toContain('not required');
-    expect(line).not.toMatch(/passed|ran|done/i);
+    const line = stagesLine(s.screenText());
+    expect(line).toContain('review skipped –');
+    expect(line).not.toMatch(/review ✓/);
     await quit(s);
   });
 
@@ -142,28 +150,26 @@ describe('US2 scenario 2 and SC-001: why it waits and how out, as `task explain`
       // Down the list as Home has it; which code comes next is whatever the row says.
       const row = selectedLine(s.screenText());
       const code = /Code (\w+)/.exec(row)?.[1] as string;
-      s.send(KEY.enter);
+      await enterDetail(s);
       await detailRead(s);
       const explained = await explainOf(sd, uuidOf(100 + codes.indexOf(code)));
       const screen = flat(s.screenText());
       expect(explained.wait?.detail['code']).toBe(code);
-      expect(screen).toContain(`Reason: ${explained.wait?.reason}`);
-      expect(screen).toContain(`Code: ${code}`);
-      expect(screen).toContain(`because: detail of ${code}`);
+      expect(screen).toContain(`Reason ${explained.wait?.reason}`);
+      expect(screen).toContain(`Code ${code}`);
+      expect(screen).toContain(`because detail of ${code}`);
       // Some codes leave nothing when, as here, there is no PR to read or merge.
       if (explained.allowed_actions.length === 0)
         expect(screen).toContain('None right now');
       for (const a of explained.allowed_actions) {
-        expect(screen).toContain(`${a.action}: ${flat(a.note)}`);
+        expect(screen).toContain(`${actionName(a.action)} ${flat(a.note)}`);
         if (a.command !== null) expect(screen).toContain(a.command);
-        if (a.action === 'wait' || a.action === 'fix_external')
-          expect(screen).toContain(`To go on: ${flat(a.note)}`);
       }
       expect(screen).toContain(
-        `Agent runs left: ${explained.remaining.agent_runs}`,
+        `Agent runs ${explained.remaining.agent_runs} left`,
       );
       expect(screen).toContain(
-        `Escalations left: ${explained.remaining.escalations}`,
+        `Escalations ${explained.remaining.escalations} left`,
       );
       seen.add(code);
       s.send(KEY.esc);
@@ -192,7 +198,7 @@ describe('US2 scenario 2 and SC-001: why it waits and how out, as `task explain`
       for (const a of explained.allowed_actions)
         expect(flat(s.screenText())).toContain(flat(a.note));
       expect(flat(s.screenText())).toContain(
-        `Reason: ${explained.wait?.reason}`,
+        `Reason ${explained.wait?.reason}`,
       );
       s.send(KEY.esc);
       await s.waitForText('Needs you');
@@ -208,7 +214,7 @@ describe('US2 scenario 2 and SC-001: why it waits and how out, as `task explain`
     const s = tui.cusr(sd.dataDir, TALL);
     await openTask(s, 'Plain task');
     expect((await explainOf(sd, t.id)).blockers).toEqual([]);
-    expect(flat(s.screenText())).toContain('Blockers: none');
+    expect(flat(s.screenText())).toContain('Blockers none');
     await quit(s);
   });
 });
@@ -228,7 +234,7 @@ describe('US2 scenario 3: attempts, limits and usage', () => {
     await sd.start();
     const s = tui.cusr(sd.dataDir, TALL);
     await openTask(s, 'Tried task');
-    await s.waitForText('Requested');
+    await s.waitForText('requested');
     const explained = (await cliJson(sd, 'task', 'explain', t.id, '--full'))
       .envelope.data as {
       bindings_used: {
@@ -243,13 +249,13 @@ describe('US2 scenario 3: attempts, limits and usage', () => {
     for (const b of explained.bindings_used) {
       const line = screen
         .split('\n')
-        .find((l) => l.includes(b.binding) && l.includes('Requested'));
+        .find((l) => l.includes(b.binding) && l.includes('requested'));
       expect(line).toContain(b.step);
-      expect(line).toContain(`Requested ${b.requested}`);
-      expect(line).toContain(`Invoked ${b.invoked}`);
+      expect(line).toContain(`requested ${b.requested}`);
+      expect(line).toContain(`invoked ${b.invoked}`);
     }
-    expect(flat(screen)).toContain('Time left: 1h 0m 0s');
-    expect(flat(screen)).toContain('Waited for the slot: 0s first, 0s resumed');
+    expect(flat(screen)).toContain('Time left 1h 0m 0s');
+    expect(flat(screen)).toContain('Slot wait 0s first, 0s resumed');
     await quit(s);
   });
 
@@ -266,9 +272,9 @@ describe('US2 scenario 3: attempts, limits and usage', () => {
     };
     const s = tui.cusr(sd.dataDir, TALL);
     await openTask(s, 'Direct config');
-    await s.waitForText('Reviewer: none');
+    await s.waitFor(() => flat(s.screenText()).includes('Reviewer none'));
     expect(flat(s.screenText())).toContain(
-      `Worker: ${shown.run_config.selection.worker.harness}/${shown.run_config.selection.worker.model}`,
+      `Worker ${shown.run_config.selection.worker.harness}/${shown.run_config.selection.worker.model}`,
     );
     await quit(s);
   });
@@ -287,12 +293,12 @@ describe('US2 scenario 3: attempts, limits and usage', () => {
       await sd.start();
       const s = tui.cusr(sd.dataDir, TALL);
       await openTask(s, 'Usage task');
-      await s.waitForText('Usage:');
+      await s.waitForText(' · usage ');
       const line =
         s
           .screenText()
           .split('\n')
-          .find((l) => l.includes('Usage:')) ?? '';
+          .find((l) => l.includes(' · usage ')) ?? '';
       expect(line).toContain(words);
       if (usage?.basis !== 'reported' && usage?.basis !== 'estimated')
         expect(line).not.toMatch(/\b0\b/);
@@ -330,32 +336,32 @@ describe('US2 scenarios 5 and 6: the PR and the merge left to the user', () => {
       const s = tui.cusr(sd.dataDir, TALL);
       await openTask(s, 'Green task');
       await s.waitForText('Pull request');
-      await s.waitForText('Gates:');
+      await s.waitForText('Gates ');
       const explained = (await cliJson(sd, 'task', 'explain', t.id, '--full'))
         .envelope.data as {
         pr: { ref: string; head_sha: string; base_sha: string | null };
         merge: { method: string };
       };
       const screen = flat(s.screenText());
-      expect(screen).toContain(`PR: ${explained.pr.ref}`);
-      expect(screen).toContain(`Head: ${explained.pr.head_sha}`);
-      expect(screen).toContain(`Base: ${explained.pr.base_sha ?? 'unknown'}`);
+      expect(screen).toContain(`PR ${explained.pr.ref}`);
+      expect(screen).toContain(`Head ${explained.pr.head_sha}`);
+      expect(screen).toContain(`Base ${explained.pr.base_sha ?? 'unknown'}`);
       expect(screen).toContain('passed');
-      expect(screen).toContain('CI on head');
+      expect(screen).toContain('on head');
       expect(screen).toContain('build: success');
       expect(screen).toContain(`Green on head ${explained.pr.head_sha}`);
       if (mode === 'direct-pr') {
-        expect(screen).toContain('Review: not required by direct-pr');
+        expect(screen).toContain('Review not required by direct-pr');
         expect(screen).not.toContain('approve');
       } else {
-        expect(screen).toContain('Review: required');
+        expect(screen).toContain('Review required');
         expect(screen).toContain('approve');
       }
 
       // Scenario 6: the user merges, on GitHub, and the task is not done yet.
       expect(screen).toContain('Merge this PR yourself on GitHub');
       expect(screen).toContain('Cuesura does not merge');
-      expect(screen).toContain(`Method: ${explained.merge.method}`);
+      expect(screen).toContain(`Method ${explained.merge.method}`);
       expect(screen).toContain('Proposed PR title');
       expect(screen).toContain('Proposed merge message');
       expect(screen).not.toContain('will merge');
@@ -399,9 +405,9 @@ describe('US2 scenario 7: a DONE that needs reading closely', () => {
     await openTask(s, 'Unverified');
     await s.waitForText('merged_head_unverified');
     const screen = flat(s.screenText());
-    expect(screen).toContain(`Merged head: ${other}`);
-    expect(screen).toContain(`Checked head: ${'a'.repeat(40)}`);
-    expect(screen).toContain(`Merge commit: ${'d'.repeat(40)}`);
+    expect(screen).toContain(`Merged head ${other}`);
+    expect(screen).toContain(`Checked head ${'a'.repeat(40)}`);
+    expect(screen).toContain(`Merge commit ${'d'.repeat(40)}`);
     expect(screen).toContain('not certified');
     await quit(s);
   });
@@ -514,18 +520,18 @@ describe('EC-008 and EC-009: another token while Task detail is open', () => {
       env: { CUSR_TOKEN_FILE: tokenFile },
     });
     await openTask(s, 'Beta secret');
-    expect(s.screenText()).toContain('Ways out');
+    expect(s.screenText()).toContain('What you can do');
 
     swap(sd.tokens['acme'] ?? '');
     await s.waitFor(() => !s.screenText().includes('Beta secret'), 3_000);
     await s.waitForText('Could not read the explanation', 7_000);
     const hidden = s.screenText();
-    expect(hidden).not.toContain('Ways out');
-    expect(hidden).not.toContain('History\n#1');
+    expect(hidden).not.toContain('What you can do');
+    expect(hidden).not.toMatch(/History ─+\n\s+#1/);
 
     swap(sd.tokens['owner'] ?? '');
     await s.waitForText('Beta secret', 8_000);
-    await s.waitForText('Ways out', 8_000);
+    await s.waitForText('What you can do', 8_000);
     await quit(s);
   });
 });
@@ -539,9 +545,8 @@ describe('moving around the detail', () => {
     await s.waitForText('Task 002');
     s.send(KEY.down);
     await s.waitFor(() => selectedLine(s.screenText()).includes('Task 002'));
-    s.send(KEY.enter);
-    await s.waitForText('Task detail');
-    await s.waitForText('still to run');
+    await enterDetail(s);
+    await s.waitForText('Progress');
     const top = s.screenText();
     expect(top).toContain('Esc back');
     expect(top).toContain('l logs');

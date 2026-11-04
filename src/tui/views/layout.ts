@@ -17,14 +17,14 @@ import {
   uiText,
   type SafeText,
 } from '../terminal/safe-text.ts';
-import { Frame } from '../terminal/screen.ts';
+import { Frame, type Style } from '../terminal/screen.ts';
 import {
   displayWidth,
-  padEnd,
   truncate,
   truncateMiddle,
   wrap,
 } from '../terminal/width.ts';
+import { DIM, putSegs, seg, segsWidth, ui, type Seg } from './ink.ts';
 
 export function clockTime(at: number): string {
   const d = new Date(at);
@@ -114,51 +114,108 @@ export function notices(s: TuiState, cols: number, room: number): SafeText[] {
   });
 }
 
+/** The task holding the slot by title when the board lists it, else by the start of its ID. */
+function slotHolder(s: TuiState, id: string): SafeText {
+  const listed = [
+    ...(s.board?.items ?? []),
+    ...(s.board?.attention.items ?? []),
+  ];
+  const task = listed.find((t) => t.task_id === id);
+  return task === undefined ? uiText(id.slice(0, 8)) : truncate(task.title, 28);
+}
+
 /**
  * Short enough for 80 columns even with a busy slot and an unhealthy daemon; why it is unhealthy goes in
- * `notices` (FR-010). Only the project name, the one part of any length, gives way.
+ * `notices` (FR-010). The time of the last update sits at the right edge and gives way first.
  */
-function statusBar(s: TuiState, cols: number): SafeText {
+function statusBar(s: TuiState, cols: number): Seg[] {
   // What was read before the connection went is no answer about now: nothing here may look fine (SC-003).
   const h = s.stale ? null : s.health;
   const daemon = h === null ? 'unknown' : h.healthy ? 'ok' : 'unhealthy';
+  const dot: Style =
+    h === null ? DIM : h.healthy ? { fg: 'green' } : { fg: 'red', bold: true };
   const slot =
     h === null
-      ? '-'
+      ? uiText('-')
       : h.slot === null
-        ? 'free'
-        : h.slot.holder_task_id.slice(0, 8);
-  const facts = uiText(
-    [
-      `daemon: ${daemon}`,
-      `slot: ${slot}`,
-      `queue: ${s.stale ? '-' : (s.board?.queue.length ?? h?.queue_length ?? '-')}`,
-      `updated: ${lastUpdated(s)}`,
-      'project: ',
-    ].join('  '),
-  );
+        ? uiText('free')
+        : slotHolder(s, h.slot.holder_task_id);
+  const queue = s.stale
+    ? '-'
+    : String(s.board?.queue.length ?? h?.queue_length ?? '-');
   const project =
     s.filters.project === null ? uiText('all') : sanitize(s.filters.project);
-  return joinSafe([facts, truncate(project, cols - displayWidth(facts))]);
+  const right = ui(`updated: ${lastUpdated(s)} `, DIM);
+  // Narrower terminals lose the brand and the wide separators before they lose any fact.
+  for (const [wide, brand] of [
+    [true, true],
+    [false, true],
+    [false, false],
+  ] as const) {
+    const bar = barSegs(dot, daemon, slot, queue, project, wide, brand);
+    const gap = cols - segsWidth(bar) - displayWidth(right.text);
+    if (gap >= 2) return [...bar, ui(' '.repeat(gap)), right];
+  }
+  // Tightest: plain facts in a row. The slot's title gives way before the project, which must show
+  // (FR-008); the time stays (FR-009).
+  const rest = `  queue: ${queue}  updated: ${lastUpdated(s)}  project: `;
+  const fixed = ` daemon: ${daemon}  slot: ${rest}`;
+  const slotRoom = Math.max(
+    8,
+    cols - displayWidth(fixed) - Math.min(displayWidth(project), 16),
+  );
+  const facts = uiText(
+    ` daemon: ${daemon}  slot: ${truncate(slot, slotRoom)}${rest}`,
+  );
+  return [
+    seg(facts),
+    seg(truncate(project, Math.max(1, cols - displayWidth(facts)))),
+  ];
+}
+
+function barSegs(
+  dot: Style,
+  daemon: string,
+  slot: SafeText,
+  queue: string,
+  project: SafeText,
+  wide: boolean,
+  brand: boolean,
+): Seg[] {
+  const sep = ui(wide ? '  │  ' : ' │ ', DIM);
+  return [
+    ...(brand
+      ? [
+          ui(' cuesura ', { inverse: true, bold: true, fg: 'cyan' }),
+          ui(wide ? '  ' : ' '),
+        ]
+      : [ui(' ')]),
+    ui('● ', dot),
+    ui(`daemon: ${daemon}`),
+    sep,
+    seg(joinSafe([uiText('slot: '), slot])),
+    sep,
+    ui(`queue: ${queue}`),
+    sep,
+    seg(joinSafe([uiText('project: '), project])),
+  ];
 }
 
 /** Only keys that work where the user is; a key that does nothing here is not offered (FR-033). */
-function hints(s: TuiState): SafeText {
+function hints(s: TuiState): string[] {
   const screen = currentScreen(s);
   const waiting =
     s.connection.kind === 'waiting_retry' || s.connection.kind === 'stopped';
   if (screen === 'filters') {
     const typing = s.filterDraft?.field === 'project';
-    return uiText(
-      [
-        'Esc back',
-        'Enter apply',
-        '↑↓ choose',
-        typing ? 'Tab status' : 'Tab project',
-        ...(typing ? [] : ['q quit']),
-        ...(!typing && waiting ? ['R retry connection'] : []),
-      ].join('  '),
-    );
+    return [
+      'Esc back',
+      'Enter apply',
+      '↑↓ choose',
+      typing ? 'Tab status' : 'Tab project',
+      ...(typing ? [] : ['q quit']),
+      ...(!typing && waiting ? ['R retry connection'] : []),
+    ];
   }
   const keys = ['q quit', '? help'];
   if (screen === 'home') {
@@ -174,12 +231,32 @@ function hints(s: TuiState): SafeText {
     keys.unshift(
       'Esc back',
       ...(s.logs?.picker === null
-        ? ['↑↓ PgUp/PgDn scroll', 'Space pause', 'F live', 't attempt']
+        ? [
+            '↑↓ PgUp/PgDn scroll',
+            'Space pause',
+            'F live',
+            't step',
+            'd details',
+          ]
         : ['↑↓ choose', 'Enter open']),
     );
   else keys.unshift('Esc back');
   if (waiting) keys.push('R retry connection');
-  return uiText(keys.join('  '));
+  return keys;
+}
+
+/** `Enter open` as a highlighted key and its meaning; the text stays exactly the hint. */
+function hintSegs(keys: readonly string[]): Seg[] {
+  return keys.flatMap((hint, i) => {
+    const space = hint.indexOf(' ');
+    const key = space < 0 ? hint : hint.slice(0, space);
+    const what = space < 0 ? '' : hint.slice(space);
+    return [
+      ui(i === 0 ? ' ' : '   '),
+      ui(key, { fg: 'cyan', bold: true }),
+      ui(what, DIM),
+    ];
+  });
 }
 
 /**
@@ -225,16 +302,14 @@ export function renderFrame(
       });
     return frame;
   }
-  frame.put(0, 0, padEnd(truncate(statusBar(s, cols), cols), cols), {
-    inverse: true,
-  });
+  putSegs(frame, 0, 0, statusBar(s, cols), cols);
   let top = 1;
   const room = Math.floor((rows - 2) / 2);
   for (const line of [...staleBanner(s), ...notices(s, cols, room)]) {
     frame.put(0, top, truncate(line, cols), { fg: 'yellow', bold: true });
     top += 1;
   }
-  frame.put(0, rows - 1, truncate(hints(s), cols), { dim: true });
+  putSegs(frame, 0, rows - 1, hintSegs(hints(s)), cols);
   body(frame, top, rows - top - 1);
   return frame;
 }

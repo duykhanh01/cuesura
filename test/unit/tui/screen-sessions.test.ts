@@ -154,7 +154,7 @@ describe('finding 2: Logs closed and opened again on the same task', () => {
       { kind: 'forward', after: 5_000 },
       page([record(5_001)], 5_001),
     );
-    const closed = reduce(first, key('esc')).state;
+    const closed = reduce(first, char('d')).state;
     const again = reduce(closed, char('l')).state;
     const landed = reduce(again, stale).state;
     expect(landed.logs?.buffer).toEqual([]);
@@ -172,7 +172,7 @@ describe('finding 2: Logs closed and opened again on the same task', () => {
       { kind: 'forward', after: 7 },
       page([record(8)], 8),
     );
-    let again = reduce(reduce(first, key('esc')).state, char('l')).state;
+    let again = reduce(reduce(first, char('d')).state, char('l')).state;
     again = {
       ...again,
       logs: followLogs(filterAttempt(again.logs as LogState, ATTEMPT)),

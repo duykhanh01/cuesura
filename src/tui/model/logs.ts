@@ -13,17 +13,42 @@ import {
   uiText,
   type SafeText,
 } from '../terminal/safe-text.ts';
-import { wrap } from '../terminal/width.ts';
+import { displayWidth, wrap } from '../terminal/width.ts';
+import { stepWords } from './activity.ts';
+import { describeRecord, type Tone } from './log-text.ts';
+import type { Seg } from '../views/ink.ts';
+import { markdownRows } from '../views/markdown.ts';
 
 export const LOG_BUFFER_RECORDS = 5_000;
 export const LOG_BUFFER_BYTES = 8 * 1024 * 1024;
 /** The daemon's page; also how far back one reading of older records reaches. */
 export const LOG_PAGE_RECORDS = 200;
+/** The progress column beside the log, when the terminal is wide enough for both. */
+export const PROGRESS_PANE = 30;
+const TWO_COLUMNS_FROM = 100;
+
+/** Columns of the log: what is left of the terminal beside the progress column and its rule. */
+export function logColumns(cols: number): {
+  readonly pane: number;
+  readonly log: number;
+} {
+  return cols >= TWO_COLUMNS_FROM
+    ? { pane: PROGRESS_PANE, log: cols - PROGRESS_PANE - 2 }
+    : { pane: 0, log: cols };
+}
+
 /** Title, what is being followed, and one row for news. */
 export const LOG_HEADER_ROWS = 3;
 /** A record can be 256 KiB on one line; drawing that on every frame would hold the keys up (EC-011). */
 const LOG_TEXT_CHARS = 16 * 1024;
 const ENTRY_OVERHEAD_BYTES = 128;
+
+/** One line a record reads as: a short label, what it says, and its tone. */
+export type LogLine = {
+  readonly label: SafeText;
+  readonly body: SafeText;
+  readonly tone: Tone;
+};
 
 export type LogEntry = {
   readonly seq: number;
@@ -31,6 +56,10 @@ export type LogEntry = {
   /** `null` for a gap too, which says nothing about a step. */
   readonly step: SafeText | null;
   readonly gap: boolean;
+  /** `HH:MM:SS`, empty for a gap. */
+  readonly time: SafeText;
+  readonly lines: readonly LogLine[];
+  /** Everything the entry says, on one line: what a search or a test compares. */
   readonly text: SafeText;
   readonly bytes: number;
 };
@@ -121,9 +150,7 @@ function shortTime(at: SafeText): SafeText {
   return m === null ? at : sanitize(m[1] as string);
 }
 
-function dataText(data: unknown): SafeText {
-  const whole =
-    typeof data === 'string' ? data : (JSON.stringify(data) ?? 'null');
+function capped(whole: string): SafeText {
   if (whole.length <= LOG_TEXT_CHARS) return sanitizeLines(whole);
   return joinSafe([
     sanitizeLines(whole.slice(0, LOG_TEXT_CHARS)),
@@ -133,7 +160,8 @@ function dataText(data: unknown): SafeText {
   ]);
 }
 
-export function toEntry(record: TaskLogs['records'][number]): LogEntry {
+/** The record as a person reads it; `null` for bookkeeping with nothing to say (see `log-text.ts`). */
+export function toEntry(record: TaskLogs['records'][number]): LogEntry | null {
   if ('gap' in record) {
     const { records, reason } = record.gap as {
       readonly records: number;
@@ -152,22 +180,32 @@ export function toEntry(record: TaskLogs['records'][number]): LogEntry {
       attemptId: record.attempt_id,
       step: null,
       gap: true,
+      time: uiText(''),
+      lines: [{ label: uiText(''), body: text, tone: 'warn' }],
       text,
       bytes: Buffer.byteLength(text) + ENTRY_OVERHEAD_BYTES,
     };
   }
+  const lines: LogLine[] = describeRecord(record.kind, record.data).map(
+    (d) => ({
+      label: sanitize(d.label),
+      body: capped(d.body),
+      tone: d.tone,
+    }),
+  );
+  if (lines.length === 0) return null;
+  const time = shortTime(record.at);
   const text = joinSafe([
-    shortTime(record.at),
-    uiText(' '),
-    record.kind,
-    uiText(' '),
-    dataText(record.data),
+    time,
+    ...lines.flatMap((l) => [uiText(' '), l.label, uiText(' '), l.body]),
   ]);
   return {
     seq: record.seq,
     attemptId: record.attempt_id,
     step: record.step,
     gap: false,
+    time,
+    lines,
     text,
     bytes: Buffer.byteLength(text) + ENTRY_OVERHEAD_BYTES,
   };
@@ -267,6 +305,7 @@ function applyForward(
   s: LogState,
   entries: readonly LogEntry[],
   page: TaskLogs,
+  sent: number,
 ): LogState {
   const asked = s.filling || s.wantForward;
   // Paused while this read was on its way: it says there is more, and nothing goes in (FR-014).
@@ -279,9 +318,9 @@ function applyForward(
     ...next,
     nextCursor: page.next_cursor,
     complete: page.complete,
-    filling: s.filling && entries.length > 0 && page.next_cursor > s.nextCursor,
+    filling: s.filling && sent > 0 && page.next_cursor > s.nextCursor,
     wantForward: false,
-    moreForward: s.wantForward ? entries.length > 0 : s.moreForward,
+    moreForward: s.wantForward ? sent > 0 : s.moreForward,
   };
 }
 
@@ -324,16 +363,20 @@ export function applyLogPage(
   at: number,
 ): LogState {
   const read: LogState = { ...s, lastReadAt: at, error: null };
-  const entries = page.records.map(toEntry);
+  // Bookkeeping records are left out of the buffer; whether the daemon sent anything is the page's word.
+  const entries = page.records.flatMap((r) => toEntry(r) ?? []);
+  const sent = page.records.length;
   switch (request.kind) {
     case 'probe':
       return {
         ...read,
-        newActivity: s.newActivity || entries.length > 0,
-        complete: entries.length === 0 && page.complete,
+        // A probe reads one record. Bookkeeping there still means the log moved on, and what follows it
+        // may be the agent speaking; hiding a record is for showing, never for telling news (FR-014).
+        newActivity: s.newActivity || sent > 0,
+        complete: sent === 0 && page.complete,
       };
     case 'forward':
-      return applyForward(read, entries, page);
+      return applyForward(read, entries, page, sent);
     case 'older':
       return applyOlder(read, entries, page, request);
   }
@@ -347,18 +390,99 @@ export function failLogRead(
   return { ...s, error, lastReadAt: at };
 }
 
-/** One record on screen: a separator when `(step, attempt)` changed, then its text in rows. */
+/**
+ * One record on screen: a separator when `(step, attempt)` changed, then its text in rows. A record's row
+ * starts with `head` cells of time and label, drawn apart from the body that follows.
+ */
 export type LogRow = {
   readonly kind: 'record' | 'separator' | 'gap';
   readonly text: SafeText;
+  readonly tone?: Tone;
+  /** Cells of the mark before the text. */
+  readonly head?: number;
+  /** Cells after the mark that name the tool. */
+  readonly strong?: number;
+  /** The text after the mark in styled pieces, for a message written in Markdown. */
+  readonly segs?: readonly Seg[];
 };
 
-const wrapped = new WeakMap<LogEntry, { cols: number; rows: SafeText[] }>();
+const wrapped = new WeakMap<LogEntry, { cols: number; rows: LogRow[] }>();
 
-function textRows(entry: LogEntry, cols: number): SafeText[] {
+/**
+ * A record as a coding agent's own transcript shows it: `⏺` before what the agent says or the tool it calls,
+ * `⎿` under it for what came back, `✻` for session notes. Wrapped rows stay under their text.
+ */
+function shape(line: LogLine): {
+  prefix: string;
+  strong: string;
+  body: string;
+} {
+  switch (line.tone) {
+    case 'say':
+      return { prefix: '⏺ ', strong: '', body: line.body };
+    case 'tool':
+      return { prefix: '⏺ ', strong: line.label, body: `(${line.body})` };
+    case 'result':
+    case 'error':
+      return { prefix: '  ⎿  ', strong: '', body: line.body };
+    case 'warn':
+      return { prefix: '⚠ ', strong: '', body: line.body };
+    case 'ok':
+    case 'info': {
+      const own = ['', 'Start', 'Think', 'Summary'].includes(line.label);
+      return {
+        prefix: '✻ ',
+        strong: '',
+        body: own
+          ? line.body
+          : line.tone === 'ok'
+            ? `${line.label} · ${line.body}`
+            : `${line.label}: ${line.body}`,
+      };
+    }
+  }
+}
+
+function textRows(entry: LogEntry, cols: number): LogRow[] {
   const known = wrapped.get(entry);
   if (known?.cols === cols) return known.rows;
-  const rows = wrap(entry.text, cols);
+  const kind = entry.gap ? 'gap' : 'record';
+  const rows: LogRow[] = [];
+  if (entry.gap || cols < 24)
+    for (const text of wrap(entry.text, cols))
+      rows.push({ kind, text, tone: entry.lines[0]?.tone ?? 'info' });
+  else
+    for (const line of entry.lines) {
+      const { prefix, strong, body } = shape(line);
+      // A new thing the agent says or does starts after a blank row, as in its own transcript.
+      if (line.tone === 'say' || line.tone === 'tool')
+        rows.push({ kind, text: uiText(''), tone: line.tone });
+      const head = displayWidth(prefix);
+      if (line.tone === 'say') {
+        markdownRows(line.body, cols - head).forEach((segs, r) =>
+          rows.push({
+            kind,
+            text: uiText(
+              `${r === 0 ? prefix : ' '.repeat(head)}${segs.map((g) => g.text).join('')}`,
+            ),
+            tone: line.tone,
+            head,
+            segs,
+          }),
+        );
+        continue;
+      }
+      const first = `${strong}${body}`;
+      wrap(uiText(first), cols - head).forEach((text, r) =>
+        rows.push({
+          kind,
+          text: uiText(`${r === 0 ? prefix : ' '.repeat(head)}${text}`),
+          tone: line.tone,
+          head,
+          strong: r === 0 ? displayWidth(strong) : 0,
+        }),
+      );
+    }
   wrapped.set(entry, { cols, rows });
   return rows;
 }
@@ -376,9 +500,11 @@ function separator(
         prev.attemptId === entry.attemptId;
   if (same) return null;
   // A gap has no step to compare with; only a change of attempt after one is news.
+  const words = entry.step === null ? null : stepWords(entry.step);
   return joinSafe([
     uiText('── '),
     entry.step ?? uiText('outside any step'),
+    uiText(words === null ? '' : ` · ${words}`),
     uiText(
       entry.attemptId === null
         ? ' ──'
@@ -393,8 +519,7 @@ function entryRows(
   cols: number,
 ): LogRow[] {
   const sep = separator(entry, prev);
-  const kind = entry.gap ? 'gap' : 'record';
-  const rows: LogRow[] = textRows(entry, cols).map((text) => ({ kind, text }));
+  const rows = textRows(entry, cols);
   return sep === null ? rows : [{ kind: 'separator', text: sep }, ...rows];
 }
 

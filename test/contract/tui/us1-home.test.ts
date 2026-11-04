@@ -5,7 +5,12 @@ import { describe, expect, it } from 'vitest';
 import { ATTENTION_LIMIT } from '../../../src/application/board.ts';
 import { STORE_FILE } from '../../../src/daemon/main.ts';
 import { openFileStoreForTest, storeDb } from '../../../src/store/testing.ts';
-import { activity, todo } from '../../../src/tui/model/activity.ts';
+import {
+  activity,
+  statusGlyph,
+  todo,
+} from '../../../src/tui/model/activity.ts';
+import type { TaskStatus } from '../../../src/domain/state.ts';
 import { buildTask, uuidOf } from '../../support/builders.ts';
 import { KEY, type PtySession } from '../../support/pty.ts';
 import {
@@ -68,7 +73,8 @@ describe('US1 scenario 1: the main screen, with no arguments', () => {
     const screen = s.screenText();
     const bar = screen.split('\n')[0] ?? '';
     expect(bar).toContain('daemon: ok');
-    expect(bar).toContain(`slot: ${holder.id.slice(0, 8)}`);
+    // The holder is named by its title when the board lists it.
+    expect(bar).toContain(`slot: ${holder.title}`);
     expect(bar).toContain('queue: 1');
     expect(bar).toMatch(/updated: \d\d:\d\d:\d\d/);
     expect(bar).toContain('project: all');
@@ -97,7 +103,8 @@ describe('US1 scenario 1: the main screen, with no arguments', () => {
     expect(items).toHaveLength(Object.keys(samples).length);
     for (const item of items) {
       const row = rowOf(screen, item.title);
-      expect(row).toContain(item.status);
+      // A row carries its status as the status's own mark (FR-035).
+      expect(row).toContain(statusGlyph(item.status as TaskStatus).mark);
       const explained = (
         await cliJson(sd, 'task', 'explain', item.task_id, '--full')
       ).envelope.data as unknown as Explained;
@@ -181,7 +188,7 @@ describe('US1 scenario 3 and FR-007: what needs the user', () => {
     await s.waitForText('Needs you (4)');
     const lines = s.screenText().split('\n');
     const heading = lines.findIndex((l) => l.startsWith('Needs you (4)'));
-    const tasks = lines.findIndex((l) => l.trim() === 'Tasks');
+    const tasks = lines.findIndex((l) => l.startsWith('Tasks '));
     expect(tasks).toBeGreaterThan(heading);
     const group = lines.slice(heading, tasks).join('\n');
     for (const [title, action] of [
@@ -190,7 +197,7 @@ describe('US1 scenario 3 and FR-007: what needs the user', () => {
       ['Sample escalation', 'Approve the escalation or cancel'],
       ['Sample merge', 'Merge the PR on GitHub'],
     ] as const)
-      expect(rowOf(group, title)).toContain(`To do: ${action}`);
+      expect(rowOf(group, title)).toContain(`→ ${action}`);
     // Waiting within its limits is not the user's to solve.
     for (const title of [
       'Sample waiting CI',
@@ -266,9 +273,7 @@ describe('FR-007 and EC-005: more tasks need the user than the daemon lists', ()
     await s.waitForText('Past the cap');
     const screen = s.screenText();
     expect(screen).toContain('Needs you (1+)');
-    expect(rowOf(screen, 'Past the cap')).toContain(
-      'To do: Answer the question',
-    );
+    expect(rowOf(screen, 'Past the cap')).toContain('→ Answer the question');
     expect(screen.split('Past the cap')).toHaveLength(2);
     // The only row, so it must not also start a `Tasks` group below.
     expect(screen.split('\n').some((l) => l.trim() === 'Tasks')).toBe(false);
@@ -339,7 +344,7 @@ describe('EC-005: more than a page', () => {
     sd.seed((d) => seedRunning(d, 105));
     await sd.start();
     const s = tui.cusr(sd.dataDir);
-    await s.waitForText('Tasks: RUNNING 105');
+    await s.waitForText('▶ 105 running');
     await s.waitForText('Page 1: tasks 1–100 of 105');
     s.send('G');
     await s.waitFor(() => selectedLine(s.screenText()).includes('Task 100'));
@@ -347,7 +352,7 @@ describe('EC-005: more than a page', () => {
     await s.waitForText('Page 2: tasks 101–105 of 105');
     expect(s.screenText()).toContain('Task 105');
     expect(s.screenText()).not.toContain('Task 100');
-    expect(s.screenText()).toContain('Tasks: RUNNING 105');
+    expect(s.screenText()).toContain('▶ 105 running');
     s.send(KEY.pageUp);
     await s.waitForText('Page 1: tasks 1–100 of 105');
     await quit(s);
@@ -458,7 +463,7 @@ describe('T037: changing the filter when nothing has changed in the daemon', () 
     await s.waitForText('Filters: project all · status READY');
     await s.waitFor(() => !s.screenText().includes('In acme'));
     await s.waitForText('Unconfirmed one');
-    expect(s.screenText()).toContain('Tasks: READY 1');
+    expect(s.screenText()).toContain('◇ 1 ready');
 
     // A status the `Needs you` task does not have: the filter holds for that group too.
     s.send('f');
@@ -626,8 +631,8 @@ describe('T039 and FR-035: no colour, and the smallest terminal', () => {
       await s.waitForText('Unconfirmed one');
       const screen = s.screenText();
       expect(screen).toContain('No colour:');
-      expect(rowOf(screen, 'Task 001')).toContain('▶ RUNNING');
-      expect(rowOf(screen, 'Unconfirmed one')).toContain('◇ READY');
+      expect(rowOf(screen, 'Task 001')).toContain('▶ Task 001');
+      expect(rowOf(screen, 'Unconfirmed one')).toContain('◇ Unconfirmed one');
       // eslint-disable-next-line no-control-regex -- the colour escapes are what this looks for.
       expect(s.rawOutput()).not.toMatch(/\x1b\[[0-9;]*3[0-7][0-9;]*m/);
       await quit(s);
@@ -653,14 +658,15 @@ describe('T039 and FR-035: no colour, and the smallest terminal', () => {
     });
     await sd.start();
     const s = tui.cusr(sd.dataDir, { cols: 80, rows: 24 });
-    await s.waitForText('Tasks: RUNNING 30');
+    await s.waitForText('▶ 30 running');
     await s.waitFor(() => /\d+s/.test(rowOf(s.screenText(), 'Task 001')));
     const lines = s.screenText().split('\n');
     expect(lines[0]).toContain('daemon: ok');
     expect(lines[0]).toContain('project: all');
     expect(lines[23]).toContain('q quit');
     const row = rowOf(s.screenText(), 'Task 001').split('\n')[0] ?? '';
-    expect(row).toContain('RUNNING');
+    expect(row).toContain('▶');
+    expect(row).toContain('Preparing the worktree');
     expect(row).toContain('…');
     expect(row).toContain('acme');
     expect(row).toMatch(/\d+s\s*$/);

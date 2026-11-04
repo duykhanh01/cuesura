@@ -72,10 +72,46 @@ async function openLogs(s: PtySession, title = 'Logged task'): Promise<void> {
   await s.waitForText('Logs:');
 }
 
+/**
+ * The log's rows: right of the rule beside the stages, under the header. The stages may turn and the header
+ * may tell news while the place being read holds.
+ */
+function logColumn(screen: string): string {
+  return screen
+    .split('\n')
+    .slice(1, -1)
+    .filter((l) => l.includes('│'))
+    .map((l) => l.slice(l.indexOf('│') + 1))
+    .join('\n');
+}
+
 async function quit(s: PtySession): Promise<void> {
   s.send('q');
   expect((await s.waitForExit()).status).toBe(0);
 }
+
+describe('opening a task on its stages and log', () => {
+  it('a task not yet confirmed says why it has no steps and what to do, not "Reading…"', async () => {
+    const sd = tui.daemon();
+    const t = task('Unconfirmed task');
+    sd.seed((d) => d.must(t.id, { kind: 'create_task', task: t }));
+    await sd.start();
+    const s = tui.cusr(sd.dataDir, { cols: 120, rows: 40 });
+    await s.waitForText('Unconfirmed task');
+    s.send(KEY.enter);
+    await s.waitForText('Logs:');
+    await s.waitForText('No steps yet: not_frozen');
+    await s.waitForText('Needs you');
+    // The column of stages, without the log beside it: what to do wraps inside it.
+    const column = s
+      .screenText()
+      .split('\n')
+      .map((l) => l.split('│')[0] ?? '')
+      .join('\n');
+    expect(flat(column)).toContain('Propose or confirm a run configuration');
+    await quit(s);
+  });
+});
 
 describe('US2 scenario 4: following a log', () => {
   it('runs live, pauses and scrolls without losing its place, and resumes where it was', async () => {
@@ -135,10 +171,10 @@ describe('US2 scenario 4: following a log', () => {
     s.send(KEY.pageUp);
     await s.waitForText('Mode: paused');
     await s.waitFor(() => !s.screenText().includes('line 60'));
-    const held = s.screenText().split('\n').slice(4, -1).join('\n');
+    const held = logColumn(s.screenText());
     feed.write(live(sd), t.id, '', SETUP, 'setup', ['line 61']);
     await s.waitForText('New activity', 4_000);
-    expect(s.screenText().split('\n').slice(4, -1).join('\n')).toBe(held);
+    expect(logColumn(s.screenText())).toBe(held);
     await quit(s);
   });
 
@@ -243,10 +279,11 @@ describe('US2 scenarios 9 and 10: when the workflow moves to a new step', () => 
     await openLogs(s);
     await s.waitForText('fixer line 2');
     const screen = s.screenText();
-    expect(screen).toContain(`── code · attempt ${coder?.id.slice(-8)}`);
     expect(screen).toContain(
-      `── ${second?.step} · attempt ${second?.id.slice(-8)}`,
+      `── code · Writing code · attempt ${coder?.id.slice(-8)}`,
     );
+    expect(screen).toContain(`── ${second?.step} · `);
+    expect(screen).toContain(`attempt ${second?.id.slice(-8)} ──`);
     expect(screen.indexOf('coder line 3')).toBeLessThan(
       screen.indexOf(`attempt ${second?.id.slice(-8)}`),
     );
@@ -263,18 +300,18 @@ describe('US2 scenarios 9 and 10: when the workflow moves to a new step', () => 
     await openLogs(s);
     await s.waitForText('coder line 3');
     s.send('t');
-    await s.waitForText('Choose an attempt');
+    await s.waitForText('Show the log of:');
     s.send(KEY.down);
     s.send(KEY.enter);
     await s.waitFor(() => !s.screenText().includes('setup line 1'));
     await s.waitForText('coder line 3');
     expect(s.screenText()).toContain('Attempt: ');
-    const held = s.screenText().split('\n').slice(4, -1).join('\n');
+    const held = logColumn(s.screenText());
 
     feed.write(live(sd), t.id, '', CODER, 'agent', ['coder line 4']);
     await s.waitForText('New activity', 4_000);
     expect(s.screenText()).not.toContain('coder line 4');
-    expect(s.screenText().split('\n').slice(4, -1).join('\n')).toBe(held);
+    expect(logColumn(s.screenText())).toBe(held);
 
     s.send('F');
     await s.waitForText('coder line 4', 3_000);
@@ -294,7 +331,7 @@ describe('review findings, on a real PTY', () => {
     await openLogs(s);
     await s.waitForText('coder line 3');
     s.send('t');
-    await s.waitForText('Choose an attempt');
+    await s.waitForText('Show the log of:');
     s.send(KEY.down);
     s.send(KEY.enter);
     await s.waitFor(() => !s.screenText().includes('setup line 1'));
@@ -456,8 +493,12 @@ describe('EC-011 and FR-039: a log in full flow', () => {
     });
     const count = (): number =>
       requests.filter((r) => r.includes('"task_logs"')).length;
+    // Opening a task passes through Logs; once on Task detail, nothing reads the log.
     await openTask(s, 'Logged task');
-    expect(count()).toBe(0);
+    await new Promise((r) => setTimeout(r, 300));
+    const resting = count();
+    await new Promise((r) => setTimeout(r, 1_500));
+    expect(count()).toBe(resting);
     s.send('l');
     await s.waitForText('coder line 3');
     const started = count();
@@ -465,7 +506,7 @@ describe('EC-011 and FR-039: a log in full flow', () => {
     expect(count() - started).toBeGreaterThanOrEqual(2);
     expect(count() - started).toBeLessThanOrEqual(4);
 
-    s.send(KEY.esc);
+    s.send('d');
     await s.waitForText('Task detail');
     await new Promise((r) => setTimeout(r, 200));
     const left = count();

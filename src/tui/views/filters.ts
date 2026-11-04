@@ -14,6 +14,7 @@ import {
   type SafeText,
 } from '../terminal/safe-text.ts';
 import { truncate } from '../terminal/width.ts';
+import { putSegs, ruleHeading } from './ink.ts';
 import type { Body } from './layout.ts';
 
 /** The filter in force, in the words of the screen. */
@@ -31,6 +32,7 @@ const QUIT_PROMPT =
 
 type Row = {
   readonly text: SafeText;
+  readonly heading?: boolean;
   readonly bold?: boolean;
   readonly inverse?: boolean;
 };
@@ -42,7 +44,7 @@ export const filtersBody =
     if (draft === null) return;
     const typing = draft.field === 'project';
     const rows: Row[] = [
-      { text: uiText('Filter tasks'), bold: true },
+      { text: uiText('Filter tasks'), bold: true, heading: true },
       {
         text: joinSafe([
           uiText(`${typing ? '› ' : '  '}Find project: `),
@@ -86,10 +88,20 @@ export const filtersBody =
       });
     }
     if (s.quitArmed) rows.push({ text: uiText(QUIT_PROMPT), bold: true });
-    rows.slice(0, height).forEach((row, i) =>
-      frame.put(0, top + i, truncate(row.text, s.size.cols), {
+    rows.slice(0, height).forEach((row, i) => {
+      if (row.heading === true) {
+        putSegs(
+          frame,
+          1,
+          top + i,
+          ruleHeading(row.text, s.size.cols - 1, { fg: 'cyan', bold: true }),
+          s.size.cols - 1,
+        );
+        return;
+      }
+      frame.put(1, top + i, truncate(row.text, s.size.cols - 1), {
         ...(row.bold === true ? { bold: true } : {}),
         ...(row.inverse === true ? { inverse: true } : {}),
-      }),
-    );
+      });
+    });
   };

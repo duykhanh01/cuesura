@@ -203,8 +203,15 @@ export function planScreenReads(
       break;
     case 'logs':
       reads.push(logsRead(s, port, clock, now));
-      if (s.detail?.showWanted === true)
-        reads.push(detailRead(s, port, clock, 'show', now));
+      // The stages beside the log stay as current as Task detail keeps them; its history waits for it.
+      if (s.detail !== null) {
+        const due = detailDue(s.detail, s.board?.watermark ?? null, now).filter(
+          (p) => p !== 'history',
+        );
+        if (s.detail.showWanted && !due.includes('show')) due.push('show');
+        for (const part of due)
+          reads.push(detailRead(s, port, clock, part, now));
+      }
       break;
     default:
       break;

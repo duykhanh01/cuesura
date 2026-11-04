@@ -41,13 +41,16 @@ describe('T041: reading `task_explain` again while the version stands still', ()
     await sd.start();
     const s = tui.cusr(sd.dataDir, TALL);
     await openTask(s, 'Second in line');
-    await s.waitForText('Queue position: 2');
+    await s.waitFor(() => flat(s.screenText()).includes('Queue position 2'));
     const version = await versionOf(sd, second.id);
 
     await cancelTask(sd, first.id, 1);
     // Sooner than the 5-second read: the watermark moved.
     const from = Date.now();
-    await s.waitForText('Queue position: 1', 4_500);
+    await s.waitFor(
+      () => flat(s.screenText()).includes('Queue position 1'),
+      4_500,
+    );
     expect(Date.now() - from).toBeLessThan(4_500);
     expect(await versionOf(sd, second.id)).toBe(version);
     s.send('q');
@@ -70,13 +73,13 @@ describe('T041: reading `task_explain` again while the version stands still', ()
     const s = tui.cusr(sd.dataDir, TALL);
     await openTask(s, 'Dependent');
     await s.waitFor(() =>
-      /Prerequisite [0-9a-f-]+: (READY|PENDING)/.test(flat(s.screenText())),
+      /Prerequisite [0-9a-f-]+ · (READY|PENDING)/.test(flat(s.screenText())),
     );
     const version = await versionOf(sd, dep.id);
 
     await cancelTask(sd, pre.id, 2);
     await s.waitFor(
-      () => flat(s.screenText()).includes(`${pre.id}: CANCELLED`),
+      () => flat(s.screenText()).includes(`${pre.id} · CANCELLED`),
       4_500,
     );
     expect(await versionOf(sd, dep.id)).toBe(version);
@@ -91,10 +94,10 @@ describe('T041: reading `task_explain` again while the version stands still', ()
     await sd.start();
     const s = tui.cusr(sd.dataDir, TALL);
     await openTask(s, 'Timed task');
-    await s.waitForText('Time left: 1h 0m 0s');
-    await s.waitFor(() => /Read at \d\d:\d\d:\d\d/.test(s.screenText()));
+    await s.waitFor(() => flat(s.screenText()).includes('Time left 1h 0m 0s'));
+    await s.waitFor(() => /Read at\s+\d\d:\d\d:\d\d/.test(s.screenText()));
     const readAt = (): string =>
-      /Read at (\d\d:\d\d:\d\d)/.exec(s.screenText())?.[1] ?? '';
+      /Read at\s+(\d\d:\d\d:\d\d)/.exec(s.screenText())?.[1] ?? '';
     const first = readAt();
     const version = await versionOf(sd, t.id);
 
@@ -102,7 +105,10 @@ describe('T041: reading `task_explain` again while the version stands still', ()
     sd.now += 600_000;
     const from = Date.now();
     // 5 seconds, and half a second for the answer to reach the screen and this test.
-    await s.waitForText('Time left: 50m 0s', 5_500);
+    await s.waitFor(
+      () => flat(s.screenText()).includes('Time left 50m 0s'),
+      5_500,
+    );
     expect(Date.now() - from).toBeLessThan(5_500);
     expect(readAt()).not.toBe(first);
     expect(await versionOf(sd, t.id)).toBe(version);
@@ -117,10 +123,10 @@ describe('T041: reading `task_explain` again while the version stands still', ()
     await sd.start();
     const s = tui.cusr(sd.dataDir, TALL);
     await openTask(s, 'Timed task');
-    await s.waitForText('Time left: 1h 0m 0s');
+    await s.waitFor(() => flat(s.screenText()).includes('Time left 1h 0m 0s'));
     // The daemon's clock stands still here, so any change on screen would be the client's own counting.
     await new Promise((r) => setTimeout(r, 6_000));
-    expect(s.screenText()).toContain('Time left: 1h 0m 0s');
+    expect(flat(s.screenText())).toContain('Time left 1h 0m 0s');
     s.send('q');
     await s.waitForExit();
   });
