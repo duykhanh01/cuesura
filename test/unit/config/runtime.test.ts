@@ -584,7 +584,7 @@ describe('historical hashes', () => {
     text: original.text.replace(
       '    overridable:',
       `    limits:
-      classes: { infra_retries: 3 }
+      classes: { infra_retries: 3, quality_tries_per_rung: 3 }
       backoff:
         infra: { base: 5s, factor: 2, max: 5m, max_attempts: 3 }
         rate_limit: { base: 1m, factor: 2, max: 30m, max_attempts: 5 }

@@ -683,7 +683,7 @@ Xử lý theo chữ ký:
 - **Lần fail đầu tiên ở một nấc:** chạy lại cùng nấc, kèm log lỗi đã lọc.
 - **Lần fail thứ hai cùng chữ ký:** agent đang lặp lại cùng một lỗi, chạy tiếp cùng nấc vô ích. **Nâng ngay 1 nấc.**
 - **Lần fail thứ hai khác chữ ký:** agent đang tiến triển (sửa xong lỗi cũ, gặp lỗi mới). Cho thêm **1 lần** ở cùng nấc.
-- **Mỗi nấc tối đa 3 lần thử.** Quá số đó thì nâng nấc, dù chữ ký có khác.
+- **Mỗi nấc tối đa `quality_tries_per_rung` lần thử** (mặc định 5, người dùng tự đặt, không có trần cứng). Quá số đó thì nâng nấc, dù chữ ký có khác.
 - **Đã tăng effort mà chữ ký không đổi:** **nhảy thẳng** sang nấc model mạnh hơn, bỏ qua các nấc cùng model còn lại.
 
 **Bước 3: thang mặc định theo role.**
@@ -1268,7 +1268,7 @@ Tiền đề không đổi: 1 developer, có AI hỗ trợ, khoảng 6 giờ t�
 | Tầng | Kỹ thuật | Kịch bản bắt buộc |
 |---|---|---|
 | **Workflow engine (thuần)** | Test bảng kịch bản: `given(events) when(trigger) then(events, commands)`; đồng hồ giả | Happy path; reject → fix → approve; reject ×3 → escalate; gate fail ×3 → escalate; CI fail → fix → pass; policy chặn model; huỷ giữa chừng; `needs_input` → answer → resume |
-| **Bất biến** | Property-based (`fast-check`): sinh chuỗi trigger ngẫu nhiên | Không bước nào vượt `max_visits`. Trạng thái kết thúc là hút (không thoát ra được). Không có 2 effect cùng `idem_key`. Không `start_agent` nào vi phạm policy. Tổng `agent_runs` ≤ budget. **Nâng model:** không bao giờ dùng nấc ngoài thang đã đóng băng. Không bao giờ nâng vì outcome hạ tầng (rate limit, timeout, crash). Cùng chữ ký lỗi hai lần liên tiếp thì luôn rời nấc hiện tại. Mỗi nấc ≤ 3 lần thử. `rung` của mỗi cặp (task, bước) và sàn của task không bao giờ giảm; mọi `start_agent` dùng nấc ≥ `max(rung, floor)`. Nấc `needs_approval` không bao giờ chạy khi chưa có event duyệt. Số lần nâng ≤ `max_escalations_per_task`. **Quyết định:** merge vào `main` chỉ xảy ra khi có event duyệt gắn với đúng head SHA, hoặc khi yolo đang bật và mọi điều kiện cứng thỏa |
+| **Bất biến** | Property-based (`fast-check`): sinh chuỗi trigger ngẫu nhiên | Không bước nào vượt `max_visits`. Trạng thái kết thúc là hút (không thoát ra được). Không có 2 effect cùng `idem_key`. Không `start_agent` nào vi phạm policy. Tổng `agent_runs` ≤ budget. **Nâng model:** không bao giờ dùng nấc ngoài thang đã đóng băng. Không bao giờ nâng vì outcome hạ tầng (rate limit, timeout, crash). Cùng chữ ký lỗi hai lần liên tiếp thì luôn rời nấc hiện tại. Mỗi nấc ≤ `quality_tries_per_rung` lần thử. `rung` của mỗi cặp (task, bước) và sàn của task không bao giờ giảm; mọi `start_agent` dùng nấc ≥ `max(rung, floor)`. Nấc `needs_approval` không bao giờ chạy khi chưa có event duyệt. Số lần nâng ≤ `max_escalations_per_task`. **Quyết định:** merge vào `main` chỉ xảy ra khi có event duyệt gắn với đúng head SHA, hoặc khi yolo đang bật và mọi điều kiện cứng thỏa |
 | **Loader cấu hình** | Unit | Từ chối: outcome thiếu transition, chu trình không có `max_visits`, role hoặc model không tồn tại, profile mâu thuẫn, `cusr.yaml` không có gate nào mà profile không cho phép. Toolchain pack được merge và override đúng |
 | **Adapter** | Contract test với **fixture JSONL ghi từ CLI thật** (ngày 1) | Parse thành công, lỗi, rate limit, output bị cắt cụt, dòng không phải JSON. `classify` đúng |
 | **Runner + lifecycle** | `fake-agent` (script nhận kịch bản: ngủ, ghi file, phát JSONL, treo, exit code, hỏi người, JSON hỏng) | Stall timeout, wall timeout, kill cả process group (không để process con mồ côi), tái sử dụng PID (giả lập `start_ticks` khác) |

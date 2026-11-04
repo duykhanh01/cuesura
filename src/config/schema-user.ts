@@ -1,10 +1,6 @@
 import { z } from 'zod';
 import { parseDuration } from '../shared/duration.ts';
-import {
-  AUTHZ_ROLES,
-  EFFORTS,
-  MAX_QUALITY_TRIES_PER_RUNG,
-} from '../domain/policy.ts';
+import { AUTHZ_ROLES, EFFORTS } from '../domain/policy.ts';
 import { HARNESS_INNER_MODES, RuntimeLimitsSchema } from '../domain/runtime.ts';
 import { EXECUTION_MODES } from '../domain/run-config.ts';
 import { isAgentStep, type StepDef } from '../domain/workflow.ts';
@@ -194,12 +190,7 @@ export const ProfileSchema = z
             timeout_retries: z.number().int().nonnegative().optional(),
             invalid_output_repairs: z.number().int().nonnegative().optional(),
             invalid_output_fresh: z.number().int().nonnegative().optional(),
-            quality_tries_per_rung: z
-              .number()
-              .int()
-              .positive()
-              .max(MAX_QUALITY_TRIES_PER_RUNG)
-              .optional(),
+            quality_tries_per_rung: z.number().int().positive().optional(),
           })
           .strict()
           .optional(),

@@ -1,8 +1,4 @@
-import {
-  MAX_QUALITY_TRIES_PER_RUNG,
-  type Backoff,
-  type Limits,
-} from '../domain/policy.ts';
+import { type Backoff, type Limits } from '../domain/policy.ts';
 import {
   counterKey,
   isTerminal,
@@ -94,7 +90,7 @@ export function recordFailure(
     const tries = (prev?.quality_tries ?? 0) + 1;
     escalate =
       prev?.escalate === true ||
-      tries >= Math.min(c.quality_tries_per_rung, MAX_QUALITY_TRIES_PER_RUNG) ||
+      tries >= c.quality_tries_per_rung ||
       (o.class === 'quality' && consecutive >= 2) ||
       (o.class === 'invalid_output' &&
         count > c.invalid_output_repairs + c.invalid_output_fresh);

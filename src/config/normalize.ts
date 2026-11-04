@@ -58,7 +58,7 @@ export const DEFAULT_CLASSES: Limits['classes'] = {
   timeout_retries: 1,
   invalid_output_repairs: 1,
   invalid_output_fresh: 1,
-  quality_tries_per_rung: 3,
+  quality_tries_per_rung: 5,
 };
 
 export const DEFAULT_ESCALATION = {

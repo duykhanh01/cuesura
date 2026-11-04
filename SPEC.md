@@ -239,7 +239,7 @@ Mọi lần thật sự gọi agent, kể cả repair, resume và lần bị rat
 ### 9.3 Thang nâng cấp
 
 - FrozenPolicy chứa thang của từng bước và trạng thái mỗi nấc: `auto`, `needs_approval`, `denied`. Bước không được phép dùng một model thì approval thường không biến model đó thành hợp lệ; cần amendment của người có quyền.
-- Hai thất bại liên tiếp cùng chữ ký ở cùng nấc làm xét nâng. Chữ ký đổi cho phép thêm lượt nhưng tối đa 3 lần thử chất lượng mỗi nấc. Effort tăng mà lỗi không đổi có thể bỏ qua nấc cùng model theo thang đã duyệt.
+- Hai thất bại liên tiếp cùng chữ ký ở cùng nấc làm xét nâng. Chữ ký đổi cho phép thêm lượt, tối đa `quality_tries_per_rung` lần thử chất lượng mỗi nấc (mặc định 5, không có trần cứng). Effort tăng mà lỗi không đổi có thể bỏ qua nấc cùng model theo thang đã duyệt.
 - Thất bại kiểm tra gắn với bước agent sửa code gần nhất. Pass reset chuỗi thất bại liên tiếp, không hạ nấc hay reset tổng lượt.
 - `rung[task, step]` chỉ tăng hoặc giữ nguyên. Quay lại step cũ giữ nấc; step chưa chạy bắt đầu theo sàn đã resolve của chính step đó.
 - Sàn task chỉ tăng. Profile có thể nâng sàn khi hai bước đã phải escalation (`hard`) hoặc dùng `scope: task`. Loader phải ánh xạ sàn sang từng thang role; không coi cùng số nấc ở hai role là cùng model, và không vượt nấc cuối của role.

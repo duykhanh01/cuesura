@@ -89,9 +89,6 @@ export const CiRuleSchema = z
   .strict();
 export type CiRule = z.infer<typeof CiRuleSchema>;
 
-/** FR-020 caps quality tries per rung at 3; configuration may lower it, never raise it. */
-export const MAX_QUALITY_TRIES_PER_RUNG = 3;
-
 export const BackoffSchema = z
   .object({
     base_ms: z.number().int().positive(),
@@ -115,11 +112,7 @@ export const LimitsSchema = z
         timeout_retries: z.number().int().nonnegative(),
         invalid_output_repairs: z.number().int().nonnegative(),
         invalid_output_fresh: z.number().int().nonnegative(),
-        quality_tries_per_rung: z
-          .number()
-          .int()
-          .positive()
-          .max(MAX_QUALITY_TRIES_PER_RUNG),
+        quality_tries_per_rung: z.number().int().positive(),
       })
       .strict(),
     backoff: z

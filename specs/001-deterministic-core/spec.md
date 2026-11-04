@@ -434,7 +434,7 @@ liệu đúng đã có.
   | Quality | Tính chữ ký lỗi; sửa theo vòng hữu hạn và thang ở FR-020 | Theo FR-020 | Có |
   | Unknown | Chờ đối chiếu; không phát lại effect nguy hiểm theo phỏng đoán | 0 lần phát lại mù | Không |
 - **FR-020**: Hệ thống MUST áp dụng thang nâng cấp của SPEC.md §9.3: xét nâng sau hai thất bại liên tiếp
-  cùng chữ ký ở cùng nấc; tối đa 3 lần thử chất lượng mỗi nấc; nấc theo (task, step) chỉ tăng hoặc giữ;
+  cùng chữ ký ở cùng nấc; tối đa `quality_tries_per_rung` lần thử chất lượng mỗi nấc (mặc định 5, không trần cứng); nấc theo (task, step) chỉ tăng hoặc giữ;
   sàn task chỉ tăng. Sàn task MUST được ánh xạ riêng sang thang của từng step/role (cùng số thứ tự nấc ở
   hai role không có nghĩa là cùng model) và không vượt nấc cuối của role đó. Nấc được chọn sau khi áp
   sàn vẫn MUST qua kiểm tra `denied`, approval, giới hạn escalation và ngân sách.

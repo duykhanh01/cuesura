@@ -2,10 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { Uuid } from '../../src/shared/brand.ts';
 import type { DomainEventDraft } from '../../src/domain/event.ts';
 import type { Attempt } from '../../src/domain/state.ts';
-import {
-  FrozenPolicySchema,
-  MAX_QUALITY_TRIES_PER_RUNG,
-} from '../../src/domain/policy.ts';
+import { FrozenPolicySchema } from '../../src/domain/policy.ts';
 import { UsageSchema, type FailureClass } from '../../src/domain/trigger.ts';
 import { available } from '../../src/engine/budget.ts';
 import {
@@ -567,19 +564,20 @@ describe('US4 - Model escalation and budget under the approved policy', () => {
     expect(sim.effects('start_agent', 'pending')).toHaveLength(1);
   });
 
-  it('FR-020: quality tries per rung never exceed 3, whatever the configured value', () => {
-    expect(
-      FrozenPolicySchema.safeParse(
-        buildPolicy({ limits: { classes: { quality_tries_per_rung: 5 } } }),
-      ).success,
-    ).toBe(false);
-    const sim = run({ limits: { classes: { quality_tries_per_rung: 5 } } });
+  it('FR-020: quality tries per rung follow the configured value, with no hard cap', () => {
+    const limits = { classes: { quality_tries_per_rung: 7 } };
+    expect(FrozenPolicySchema.safeParse(buildPolicy({ limits })).success).toBe(
+      true,
+    );
+    const sim = run({ limits });
     toCode(sim);
-    for (let i = 0; i < MAX_QUALITY_TRIES_PER_RUNG; i++)
+    for (let i = 0; i < 7; i++)
       fail(sim, sim.pendingOne('start_agent').id, 'quality', {
         signature: `Q${i}`,
       });
-    expect(attemptsOf(sim, 'code').map((a) => a.rung)).toEqual([0, 0, 0, 1]);
+    expect(attemptsOf(sim, 'code').map((a) => a.rung)).toEqual([
+      0, 0, 0, 0, 0, 0, 0, 1,
+    ]);
   });
 
   describe('Scenario 13: the task floor maps onto the reviewer ladder and still passes every check', () => {

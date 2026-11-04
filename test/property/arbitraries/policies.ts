@@ -66,7 +66,7 @@ export const escalationPolicyArb: fc.Arbitrary<PolicyOptions> = fc.record({
     max_agent_runs: fc.integer({ min: 4, max: 24 }),
     max_escalations: fc.integer({ min: 0, max: 4 }),
     classes: fc.record({
-      quality_tries_per_rung: fc.integer({ min: 1, max: 3 }),
+      quality_tries_per_rung: fc.integer({ min: 1, max: 5 }),
     }),
   }),
   escalation: fc.record({
