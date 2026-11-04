@@ -193,6 +193,8 @@ export function harnessRecordProblem(
     readonly isolation: HarnessInnerModePolicy;
     readonly host_policy_hash: Hash;
     readonly digest?: (path: string) => Hash;
+    /** Seam for tests; otherwise probed from this release's sandbox layout. */
+    readonly layout_shapes?: Readonly<Record<string, Hash>>;
   },
 ): string | null {
   if (
@@ -223,7 +225,37 @@ export function harnessRecordProblem(
     cost: 'none',
     resume: false,
   });
-  return verified.ok ? null : verified.error.map((p) => p.message).join('; ');
+  if (!verified.ok) return verified.error.map((p) => p.message).join('; ');
+  // A new release can change the layout an attempt launches with while every hash above still matches.
+  const shapes =
+    o.layout_shapes === undefined
+      ? layoutShapes(record.pin)
+      : ok(o.layout_shapes);
+  if (!shapes.ok) return shapes.error;
+  const changed = Object.entries(shapes.value)
+    .filter(([role, shape]) => record.manifest.layout_shapes[role] !== shape)
+    .map(([role]) => role);
+  return changed.length === 0
+    ? null
+    : `sandbox layout for ${changed.join(', ')} changed since the proof; prove this harness again (cusr-runner setup-harness --from prove-harness)`;
+}
+
+const LAYOUT_ROLES = ['coder', 'fixer', 'reviewer'] as const;
+const layoutCache = new Map<Hash, Record<string, Hash>>();
+
+/** The layout shape per role an attempt with this pin launches with under this release. */
+function layoutShapes(pin: VendorPin): Result<Record<string, Hash>, string> {
+  const inputs = attemptLayoutInputs(pin, 'probe');
+  const key = hashCanonical(inputs);
+  const hit = layoutCache.get(key);
+  if (hit !== undefined) return ok(hit);
+  const shapes = probeLayoutShapes(hostSandbox().provider, {
+    roles: LAYOUT_ROLES,
+    ...inputs,
+  });
+  if (!shapes.ok) return err(shapes.error.message);
+  layoutCache.set(key, shapes.value);
+  return ok(shapes.value);
 }
 
 const HarnessIdentitySchema = z
@@ -255,16 +287,12 @@ export function harnessIdentity(o: {
 }): Result<HarnessIdentity, string> {
   const settings = pinSettingsHash(o.pin);
   if (!settings.ok) return settings;
-  const sandbox = hostSandbox();
-  const shapes = probeLayoutShapes(sandbox.provider, {
-    roles: ['coder', 'fixer', 'reviewer'],
-    ...attemptLayoutInputs(o.pin, 'probe'),
-  });
-  if (!shapes.ok) return err(shapes.error.message);
+  const shapes = layoutShapes(o.pin);
+  if (!shapes.ok) return shapes;
   return ok({
     settings_hash: settings.value,
     environment_hash: environmentHash(o.pin),
-    host_policy_hash: sandbox.policy_hash,
+    host_policy_hash: hostSandbox().policy_hash,
     layout_shapes: shapes.value,
   });
 }

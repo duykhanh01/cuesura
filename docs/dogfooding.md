@@ -57,14 +57,14 @@ assistant không đọc `owner.token` là quy tắc, không phải giới hạn 
      --toolchain "$PWD/tools/node/bin" --auth claude-0:.claude/.credentials.json \
      --settings claude-settings.json --permission-mode auto --sandbox off \
      --tools Bash,Read,Edit,Write,Glob,Grep --model claude-haiku-5-5 --effort low \
-     --max-invocations 9 --approval "<ai duyệt, ngày>" --out evidence-claude.json
+     --out evidence-claude.json
    ```
 
    Thay `claude-0` bằng tên credential đã khai trong config và dùng đường dẫn toolchain canonical trên host.
    Thêm `--dry-run` để xem `invocations_spent` và `invocations_needed`, không gọi model hoặc ghi pin,
-   evidence, manifest hay ledger. Lượt proof thật bắt buộc có `--approval` và `--max-invocations`;
-   giới hạn tính cả lượt đã ghi trong ledger cho cùng binary. Lệnh kiểm đầy đủ kế hoạch proof và cap
-   trước khi ghi pin; preflight bị từ chối giữ nguyên pin/manifest cũ, kể cả có `--force`.
+   evidence, manifest hay ledger. `--approval` (ghi vào ledger, mặc định `owner command`) và
+   `--max-invocations` (trần tổng số lượt cho cùng binary, tính cả lượt đã có trong ledger) là tùy chọn;
+   không truyền cap thì không giới hạn. Lệnh kiểm đầy đủ kế hoạch proof (và cap nếu có) trước khi ghi pin; preflight bị từ chối giữ nguyên pin/manifest cũ, kể cả có `--force`.
    Pin đã có cần `--force` để thay thế khi chạy thật; dry-run không cần cờ này và báo `pin_exists`
    để biết trước trạng thái pin. Proof vẫn kiểm lại ledger nếu usage thay đổi sau preflight.
    Bước nào lỗi thì dừng ngay và nêu tên bước; proof thất bại không ghi manifest.
@@ -203,11 +203,13 @@ cusr doctor --project cuesura --json
 
 Script xây release mới, đổi `current` một lần và chép skill; process đang chạy vẫn giữ code cũ tới khi restart.
 Trước khi đổi `current`, script chạy `cusr-runner check-records` của release mới. Release mới từ chối config hoặc
-harness record thì script dừng và `current` giữ nguyên: sửa config, hoặc chạy `setup-harness --force`
-với các tham số pin/proof như khi cài đặt bằng `node releases/<sha>/dist/cli/cusr-runner.js` rồi chạy lại script. `--allow-unproven` đổi `current` dù task mới sẽ bị chặn.
+harness record thì script dừng, `current` giữ nguyên và in lệnh chứng minh lại: sửa config, hoặc chạy
+`setup-harness` bằng `node releases/<sha>/dist/cli/cusr-runner.js` rồi chạy lại script. Pin không đổi (vd chỉ
+layout sandbox của release mới khác) thì dùng `--from prove-harness`; đổi tham số pin thì chạy đủ tham số
+như khi cài đặt, thêm `--force`. `--allow-unproven` đổi `current` dù task mới sẽ bị chặn.
 Script lấy code từ `repo/`, không từ repo phát triển.
 
-`doctor` báo `manifest:*` thì pin hoặc layout đã đổi: chứng minh lại harness trước khi chạy task. Không sửa tay
+`doctor` và `check-records` báo `manifest:*` khi pin, binary hoặc sandbox layout của release đang chạy khác lúc proof: chứng minh lại harness trước khi chạy task. Không sửa tay
 `manifest.json`.
 
 Mỗi lần chứng minh lại sinh manifest mới với hash mới. Task chưa bắt đầu chạy nhận manifest mới khi bắt đầu.

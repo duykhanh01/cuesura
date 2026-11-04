@@ -421,17 +421,17 @@ quyền thật ([token và quyền](#token-và-quyền)).
 cusr-runner setup-harness --config ~/.cusr/config.yaml --harness claude --vendor claude \
   --binary "$(command -v claude)" --toolchain /opt/node/bin --auth claude-0:.claude/.credentials.json \
   --settings claude-settings.json --permission-mode auto --sandbox off --tools Bash,Read,Edit,Write,Glob,Grep \
-  --model <model-id> --effort <effort> --max-invocations 9 --approval "<ai duyệt, ngày>" \
-  --out evidence-claude.json
+  --model <model-id> --effort <effort> --out evidence-claude.json
 ```
 
 `setup-harness` dùng cùng code của ba lệnh `write-pin`, `prove-harness`, `record-manifest`.
 Config được nạp một lần cho cả luồng. Trước khi ghi pin, lệnh bắt buộc có `--model`, kiểm pin dự kiến
-qua `planProof` (deny-probe, identity, khả năng resume) và kiểm tổng usage đã tốn + số lượt cần với cap.
+qua `planProof` (deny-probe, identity, khả năng resume) và, nếu có cap, kiểm tổng usage đã tốn + số lượt cần với cap.
 Preflight từ chối thì pin/manifest/ledger hiện có vẫn nguyên vẹn, kể cả khi truyền `--force`.
 Các tham số pin/proof giữ nguyên tên; `--out` vừa là file evidence xuất ra vừa là đầu vào cho manifest.
-Lượt chạy có proof thật bắt buộc có `--approval` (không rỗng) và `--max-invocations` là số nguyên dương;
-giới hạn tính cả usage đã ghi trong ledger cho cùng binary, kể cả lượt thất bại. Pin đã tồn tại cần
+Owner tự chạy lệnh nên `--approval` và `--max-invocations` là tùy chọn: `--approval` chỉ ghi vào ledger
+(mặc định `owner command`); `--max-invocations` là số nguyên dương, tính cả usage đã ghi trong ledger cho
+cùng binary, kể cả lượt thất bại; không truyền thì không có trần. Pin đã tồn tại cần
 `--force` để ghi đè. Bước nào lỗi thì dừng ngay, giữ mã lỗi và nêu tên bước (JSON có `error.details.step`);
 proof thất bại không được ghi manifest. Pin hoặc evidence đã ghi trước lỗi vẫn được giữ để gỡ lỗi.
 
@@ -469,8 +469,7 @@ cusr-runner write-pin --config ~/.cusr/config.yaml --harness claude --vendor cla
   --binary "$(command -v claude)" --toolchain /opt/node/bin --auth claude-0:.claude/.credentials.json \
   --settings claude-settings.json --permission-mode auto --sandbox off --tools Bash,Read,Edit,Write,Glob,Grep
 cusr-runner prove-harness --config ~/.cusr/config.yaml --harness claude \
-  --model <model-id> --effort <effort> --max-invocations 9 --approval "<ai duyệt, ngày>" \
-  --out evidence-claude.json
+  --model <model-id> --effort <effort> --out evidence-claude.json
 cusr-runner record-manifest --config ~/.cusr/config.yaml --harness claude --evidence evidence-claude.json
 ```
 

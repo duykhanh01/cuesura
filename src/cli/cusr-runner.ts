@@ -374,22 +374,18 @@ const writePin = {
 type ProofUsage = {
   readonly out: string;
   readonly approval: string;
-  readonly cap: number;
+  readonly cap: number | null;
 };
+/** The owner runs this command themselves; the approval text and the cap are optional records of that. */
 function proofUsage(values: Values): Result<ProofUsage, string> {
   const { out, approval, maxInvocations } = values;
-  const cap = Number(maxInvocations);
-  if (
-    out === undefined ||
-    approval === undefined ||
-    approval.trim() === '' ||
-    !Number.isInteger(cap) ||
-    cap < 1
-  )
-    return err(
-      'Harness verification consumes model usage; specify --out, --approval, and a positive integer --max-invocations',
-    );
-  return ok({ out, approval, cap });
+  if (out === undefined)
+    return err('Harness verification consumes model usage; specify --out');
+  const cap = maxInvocations === undefined ? null : Number(maxInvocations);
+  if (cap !== null && (!Number.isInteger(cap) || cap < 1))
+    return err('--max-invocations must be a positive integer');
+  const text = approval?.trim() ?? '';
+  return ok({ out, approval: text === '' ? 'owner command' : text, cap });
 }
 
 function proofOptions(
@@ -454,12 +450,12 @@ const proveHarness = {
     { flags: '--out <file>', description: 'Output evidence file' },
     {
       flags: '--approval <text>',
-      description: 'Approval reference for model usage',
+      description: 'Approval reference for model usage, copied to the ledger',
     },
     {
       flags: '--max-invocations <n>',
       description:
-        'Total invocation limit, including previously recorded invocations',
+        'Optional total invocation limit for this binary, including invocations already in the ledger',
     },
     {
       flags: '--dry-run',

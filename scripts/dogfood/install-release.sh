@@ -38,8 +38,11 @@ if ! grep -q check-records "$RELEASE/dist/cli/cusr-runner.js"; then
 elif ! node "$RELEASE/dist/cli/cusr-runner.js" check-records \
   --config "$ROOT/config.yaml" --data-dir "$ROOT/data"; then
   if [ "$ALLOW_UNPROVEN" -ne 1 ]; then
-    echo "Chưa đổi current. Sửa config, hoặc chứng minh lại harness bằng $RELEASE theo docs/dogfooding.md," >&2
-    echo "rồi chạy lại; --allow-unproven đổi current dù task mới sẽ bị chặn." >&2
+    echo "Chưa đổi current. Sửa config, hoặc chứng minh lại từng harness bị báo rồi chạy lại script:" >&2
+    echo "  cd $ROOT && node $RELEASE/dist/cli/cusr-runner.js setup-harness --config config.yaml --data-dir data \\" >&2
+    echo "    --harness <tên> --from prove-harness --model <model rẻ> --effort low --out evidence-<tên>.json" >&2
+    echo "Pin cần đổi thì chạy đủ tham số pin theo docs/dogfooding.md, thêm --force." >&2
+    echo "--allow-unproven đổi current dù task mới sẽ bị chặn." >&2
     echo "Chứng minh lại đổi manifest: task đang chạy sẽ chờ manifest_changed, chạy cusr task recheck để nhận manifest mới." >&2
     exit 1
   fi

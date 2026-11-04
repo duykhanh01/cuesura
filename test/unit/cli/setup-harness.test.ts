@@ -158,15 +158,23 @@ describe('setup-harness composition', () => {
     );
   });
 
+  it('proves without an approval text or a cap, recording a default approval', async () => {
+    expect(
+      (await run({ approval: undefined, maxInvocations: undefined })).code,
+    ).toBe(ExitCode.ok);
+    expect(mocks.prove).toHaveBeenCalledWith(
+      expect.objectContaining({
+        budget: { approval: 'owner command', maxInvocations: null },
+      }),
+    );
+  });
+
   it.each([
-    { approval: undefined },
-    { approval: ' ' },
-    { maxInvocations: undefined },
     { maxInvocations: '0' },
     { maxInvocations: '1.5' },
     { out: undefined },
   ])(
-    'requires explicit spend authorization before writing a pin: %j',
+    'refuses invalid proof arguments before writing a pin: %j',
     async (extra) => {
       expect(await run(extra)).toMatchObject({
         code: ExitCode.usage,

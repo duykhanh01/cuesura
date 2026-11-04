@@ -95,9 +95,10 @@ export type ProofPlan = {
 };
 
 export type ProofBudget = {
-  /** Who approved this spend, copied to the ledger; the cap below is what is enforced. */
+  /** Who approved this spend, copied to the ledger. */
   readonly approval: string;
-  readonly maxInvocations: number;
+  /** Total invocations on this binary, ledger included; null when the owner set no cap. */
+  readonly maxInvocations: number | null;
 };
 
 /** Shared by setup preflight and the proof itself; every real proof rechecks the live ledger. */
@@ -108,8 +109,9 @@ export function checkProofBudget(
 ): Result<void, string> {
   if (budget.approval.trim() === '')
     return err('a proof spends model usage and needs an approval');
+  if (budget.maxInvocations === null) return ok(undefined);
   if (!Number.isInteger(budget.maxInvocations) || budget.maxInvocations < 1)
-    return err('a proof needs a positive integer --max-invocations');
+    return err('--max-invocations must be a positive integer');
   const invocations = PROOF_ROLES.length + (proveResume ? 1 : 0);
   if (plan.invocations_spent + invocations > budget.maxInvocations)
     return err(
@@ -126,7 +128,7 @@ type LedgerRow = {
   readonly attempt_id: string;
   readonly model: string;
   readonly approval: string;
-  readonly max_invocations: number;
+  readonly max_invocations: number | null;
 };
 
 const ledgerPath = (dataDir: string, harness: string): string =>

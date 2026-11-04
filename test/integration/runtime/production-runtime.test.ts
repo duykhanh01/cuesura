@@ -345,6 +345,16 @@ describe('harness records', () => {
         host_policy_hash: `sha256:${'0'.repeat(64)}`,
       }),
     ).toContain('host sandbox policy');
+    // A release that launches roles with another layout needs a new proof though every hash matches.
+    expect(
+      harnessRecordProblem(loaded.value, {
+        ...check,
+        layout_shapes: {
+          ...loaded.value.manifest.layout_shapes,
+          coder: `sha256:${'1'.repeat(64)}`,
+        },
+      }),
+    ).toContain('sandbox layout for coder changed since the proof');
     writeFileSync(h.pin.binary.realpath, '#!/bin/sh\n');
     expect(harnessRecordProblem(loaded.value, check)).toContain('digest');
   });
