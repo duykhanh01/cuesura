@@ -1158,14 +1158,12 @@ describe('recheck service (T062, FR-046)', () => {
   let idSeq = 40_000;
   const owner: Caller = {
     grant: {
-      id: 'owner',
       actor: 'owner',
       roles: ['read', 'operate', 'admin'],
-      projects: '*',
     },
   };
   const reader: Caller = {
-    grant: { id: 'r', actor: 'reader', roles: ['read'], projects: '*' },
+    grant: { actor: 'reader', roles: ['read'] },
   };
 
   function deps(

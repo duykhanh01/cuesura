@@ -86,7 +86,7 @@ export function taskProgress(
       details: {},
     });
   const s = store.readTask(q.data.task_id);
-  if (s === null || !authorize(caller, { role: 'read', project: s.project }).ok)
+  if (s === null || !authorize(caller, { role: 'read' }).ok)
     return err({
       code: 'task_not_found',
       message: `no task ${q.data.task_id}`,

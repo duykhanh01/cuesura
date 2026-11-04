@@ -125,7 +125,7 @@ export async function recheckTask(
   caller: Caller,
   cmd: RecheckCommand,
 ): Promise<{ ok: true; value: RecheckResult } | { ok: false; error: RecheckError }> {
-  const allowed = authorize(caller, { role: 'operate', project: cmd.project });
+  const allowed = authorize(caller, { role: 'operate' });
   if (!allowed.ok) return allowed;
   const before = deps.store.readTask(cmd.task_id as Uuid);
   if (before === null) return { ok: false, error: { code: 'unknown_task' } };

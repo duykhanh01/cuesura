@@ -1,14 +1,14 @@
 /**
  * Control transport (contracts/cli-daemon.md): `node:http` over the
  * filesystem socket DATA_DIR/control.sock (directory 0700, socket 0600; never TCP or an abstract socket).
- * GET /v1/health, POST /v1/query and POST /v1/command with a JSON body of at most 1 MiB. The caller is
- * identified only by its bearer token; authorization, schema, version and dedup belong to the handlers.
+ * GET /v1/health, POST /v1/query and POST /v1/command with a JSON body of at most 1 MiB. The socket's
+ * file mode is the access check; the caller only declares its actor (`authz.ts`). Authorization, schema,
+ * version and dedup belong to the handlers.
  */
 import { chmodSync, lstatSync, unlinkSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
-import { authenticate, type Caller } from '../application/authz.ts';
-import type { TokenMap } from '../application/access-tokens.ts';
+import { ACTOR_HEADER, callerFor, CALLER_ACTORS, type Caller } from '../application/authz.ts';
 import { CONTROL_SOCKET, errorEnvelope, type Envelope, type EnvelopeError } from '../cli/output.ts';
 
 export const MAX_BODY_BYTES = 1024 * 1024;
@@ -45,9 +45,9 @@ function send(res: ServerResponse, reply: Reply): void {
   res.end(body);
 }
 
-function bearer(req: IncomingMessage): string | null {
-  const h = req.headers.authorization;
-  return typeof h === 'string' && h.startsWith('Bearer ') ? h.slice(7).trim() : null;
+function declaredActor(req: IncomingMessage): string | null {
+  const h = req.headers[ACTOR_HEADER];
+  return typeof h === 'string' ? h.trim() : null;
 }
 
 async function readBody(
@@ -97,7 +97,6 @@ async function readBody(
 }
 
 export function createControlServer(
-  tokens: TokenMap,
   handlers: ControlHandlers,
   log: (msg: string) => void = () => undefined,
 ): Server {
@@ -110,13 +109,13 @@ export function createControlServer(
     },
     (req, res) => {
       void (async () => {
-        const caller = authenticate(tokens, bearer(req));
+        const caller = callerFor(declaredActor(req));
         if (caller === null)
           return send(
             res,
             errorReply(401, {
               code: 'unauthenticated',
-              message: 'missing or unknown bearer token',
+              message: `unknown actor; CUSR_ACTOR must be one of ${CALLER_ACTORS.join(', ')}`,
               details: {},
             }),
           );

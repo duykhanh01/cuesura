@@ -11,7 +11,7 @@ server gắn task ID/requester đáng tin, không nhận `AuthzContext` do calle
 daemon chỉ validate lựa chọn tường minh. Trước spawn đầu, người dùng xem task/revision, profile,
 mode, worker harness/model/effort và reviewer binding nếu `full-review`, cùng fallback đã cho phép.
 Xác nhận từ kênh người dùng đáng tin gắn với digest bộ lựa chọn; assistant không tự khai `confirmed`
-để vượt bước này, token operate không được nâng quyền. Task do assistant tạo mặc định chờ xác nhận intake; auto-confirm intake và hạn mức tạo task theo
+để vượt bước này, quyền operate không được nâng lên. Task do assistant tạo mặc định chờ xác nhận intake; auto-confirm intake và hạn mức tạo task theo
 client chỉ do người dùng cấu hình. Auto-confirm intake không miễn xác nhận chạy.
 Giao diện có thể gộp cùng một lượt xác nhận khi hiển thị task và toàn bộ cấu hình chạy; bằng chứng
 phải ghi rõ cả hai phạm vi, không biến auto-confirm intake thành duyệt binding.
@@ -86,10 +86,9 @@ trước khi in, cho cả `--json` lẫn output cho người đọc.
 - `node:http` qua filesystem UDS `DATA_DIR/control.sock`; directory 0700/socket 0600, không TCP hoặc
   abstract socket. Protocol `/v1/query` và `/v1/command` POST JSON closed schema; health GET `/v1/health`.
   Body tối đa 1 MiB, header timeout 5 giây, command admission 10 giây; effect chạy bất đồng bộ.
-- Bearer capability token trong file riêng ngoài sandbox, map server-side sang actor/read/operate/
-  admin và project allowlist. Token chỉ nhận qua file cấu hình/`CUSR_TOKEN_FILE`, không argv/log.
-  Bootstrap token owner sinh lúc daemon init data dir, quyền 0600. Token map do owner quản lý;
-  không lấy role từ sender name/UID tự khai/marker/header actor.
+- Không có token. Quyền mở socket chỉ dựa vào file mode. Caller khai actor qua header `x-cusr-actor`, do
+  CLI lấy từ `CUSR_ACTOR`: không có hoặc `owner` là owner (`read`/`operate`/`admin`), `assistant` là
+  `read`/`operate`, giá trị khác bị từ chối 401. Không lấy role từ body request. Xem ADR 0011.
 - `task logs` đọc `POST /v1/query` kind `task_logs`; `--follow` là CLI hỏi lại theo cursor rồi in JSONL,
   không có route stream riêng. Cursor đếm record đã commit theo thứ tự event, không đổi qua rotation/restart;
   batch mất file hiện là `gap`, không bị bỏ im lặng.
@@ -101,34 +100,19 @@ trước khi in, cho cả `--json` lẫn output cho người đọc.
 - Cùng PR/timer/recheck coalesce observation đang chạy, mỗi request được ánh xạ về một kết quả;
   không tạo nhiều poll chains. Mutation accepted trả request/task version; show/history cho tra lại.
 
-### Token riêng cho assistant
+### Actor của assistant
 
-Owner provisioning **token thứ hai**, độc lập token bootstrap admin: 32 byte ngẫu nhiên, file 0600
-ngoài worktree, ID/actor riêng, roles đúng `[read, operate]` và danh sách project tường minh. Cấu
-hình trusted user `runtime.access_tokens[]` gồm `{id, actor, roles, projects, token_file}`; không
-được đặt ở cusr.yaml hoặc gửi qua command payload. Owner sinh file bằng công cụ random hệ thống,
-không in secret vào chat/log; cấp assistant chỉ token operate qua kênh tin cậy. Ví dụ metadata:
+Assistant gọi với `CUSR_ACTOR=assistant` nên chỉ có `read`/`operate`. Assistant không được approve
+escalation hay dùng quyền admin; tests trả exit 5 kể cả khi body request khai actor=owner/admin. Request đã
+accepted giữ actor lúc được nhận.
 
-```yaml
-runtime:
-  access_tokens:
-    - id: assistant-work
-      actor: assistant
-      roles: [read, operate]
-      projects: [node-sandbox]
-      token_file: /srv/cusr-access/assistant-work.token
-```
+Process cùng UID bỏ `CUSR_ACTOR` là thành owner, nên actor tự khai là rào chắn cho caller làm đúng quy ước,
+không phải ranh giới quyền. Tách quyền thật cần chạy assistant bằng UID khác. Coder/fixer/reviewer worker
+không gọi `cusr`; US6 assistant caller khác với worker agent đang sửa repo.
 
-Owner thêm/xóa entry rồi restart daemon để grant/revoke có hiệu lực; startup audit token ID/actor/
-scope và config hash, không ghi secret. Mutation mới luôn kiểm token map đang chạy; revocation
-không giả vờ thu hồi effect đã gửi. Assistant token không được approve escalation, quản trị token
-hoặc tự nâng scope; tests trả exit 5 kể cả caller tự khai actor=owner/admin. Request đã accepted
-vẫn có lịch sử gắn actor cũ; rotate không thay kết quả hoặc cấp scope theo payload caller.
-
-Nếu assistant có toàn quyền shell cùng UID và đọc được token owner thì token map không tạo được
-ranh giới quyền. Cấu hình được hỗ trợ cấp assistant qua client/connector hoặc sandbox chỉ có token
-operate và không thấy token admin/home owner. Coder/fixer/reviewer worker **không** được mount ngay
-cả token operate; US6 assistant caller khác với worker agent đang sửa repo.
+Bản trước dùng bearer token (`owner.token`, `runtime.access_tokens`) và phạm vi project theo token; cả hai
+đã bỏ. `runtime.access_tokens` còn được chấp nhận để config cũ khởi động được, daemon ghi log rằng khóa này
+bị bỏ qua.
 
 ## Cấu hình mở rộng tối thiểu
 
@@ -140,7 +124,7 @@ NormalizedUser để runtime còn biết allowlisted remote.
 | --- | --- |
 | User `projects.<id>.path` | Absolute realpath local repo; kiểm git common dir; bắt buộc cho runtime |
 | User `projects.<id>.repo` | `owner/repo` GitHub slug, immutable repo ID lấy ở preflight; khớp remote allowlist |
-| User `runtime` | Object closed: data_dir, limits, tool_paths, credential_refs, access_tokens và harness_isolation; chỉ owner sửa |
+| User `runtime` | Object closed: data_dir, limits, tool_paths, credential_refs và harness_isolation (`access_tokens` cũ được chấp nhận nhưng bỏ qua); chỉ owner sửa |
 | User `runtime.harness_isolation.<harness>` | internal_required mặc định hoặc allow_external_verified; mode sau chỉ được chọn khi S0.1 proof còn hợp lệ, không nhận từ cusr.yaml/task/agent |
 | User `projects.<id>.dispatch`, `runtime.dispatch` | Bản của project thay toàn bộ bản `runtime`, không merge rule. Gồm `profile`, `rules[]` (tùy chọn) và `default` bắt buộc. Mỗi rule có `when`, `why`, `use`, `reviewer?`; `default` có `use`, `reviewer?`, `why?`. `use` là một hoặc một mảng có thứ tự `{harness, model, effort}`, cả ba khóa bắt buộc; `reviewer` cùng dạng. Có `reviewer` là `full-review`, không có là `direct-pr`. Lúc nạp: profile tồn tại và cho phép, mode được phép theo `runtime.modes`, `use` khớp binding của `coder` và `fixer`, `reviewer` khớp binding của `reviewer`. Daemon không đọc `when`, không xếp `use`; không thuộc hash chính sách của task |
 | User `runtime.limits` | Các trần có default ở research R-04/R-11; số nguyên dương, hữu hạn; task mới chụp snapshot/hash |

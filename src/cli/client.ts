@@ -1,13 +1,18 @@
 /**
  * CLI side of the control socket (contracts/cli-daemon.md). Every command, reads included, goes through
  * the daemon: the store is held EXCLUSIVE by the single writer, so there is no fallback to opening the
- * database. A missing or unreachable daemon is exit 3. The token comes from `CUSR_TOKEN_FILE` or the
- * owner token in DATA_DIR, never from argv.
+ * database. A missing or unreachable daemon is exit 3. The caller declares its actor with `CUSR_ACTOR`
+ * (owner when unset); see `application/authz.ts` for what that does and does not protect.
  */
 import { request } from 'node:http';
 import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
-import { OWNER_TOKEN_FILE, readTokenFile } from '../application/access-tokens.ts';
+import {
+  ACTOR_HEADER,
+  CALLER_ACTORS,
+  isCallerActor,
+  type CallerActor,
+} from '../application/authz.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import {
   CONTROL_SOCKET,
@@ -26,7 +31,7 @@ export const DEFAULT_CLIENT_TIMEOUT_MS = 15_000;
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 
 export type ClientError = {
-  readonly code: 'connection' | 'timeout' | 'protocol' | 'token';
+  readonly code: 'connection' | 'timeout' | 'protocol' | 'actor';
   readonly message: string;
 };
 
@@ -43,23 +48,22 @@ export function resolveDataDir(
   return isAbsolute(dir) ? dir : resolve(dir);
 }
 
-export function readClientToken(
-  dataDir: string,
+export function readClientActor(
   env: NodeJS.ProcessEnv = process.env,
-): Result<string, ClientError> {
-  const path = env['CUSR_TOKEN_FILE'] ?? join(dataDir, OWNER_TOKEN_FILE);
-  const t = readTokenFile(path, 'client');
-  return t.ok
-    ? t
+): Result<CallerActor, ClientError> {
+  const v = env['CUSR_ACTOR'];
+  if (v === undefined || v === '') return ok('owner');
+  return isCallerActor(v)
+    ? ok(v)
     : err({
-        code: 'token',
-        message: `Cannot use token file ${path}: ${t.error.code === 'token_file_invalid' ? t.error.reason : t.error.code}`,
+        code: 'actor',
+        message: `CUSR_ACTOR '${v}' is not one of ${CALLER_ACTORS.join(', ')}`,
       });
 }
 
 export type CallOptions = {
   readonly socketPath: string;
-  readonly token: string;
+  readonly actor: CallerActor;
   readonly method: 'GET' | 'POST';
   readonly path: string;
   readonly body?: unknown;
@@ -98,7 +102,7 @@ export function callDaemon(opts: CallOptions): Promise<Result<DaemonReply, Clien
         method: opts.method,
         path: opts.path,
         headers: {
-          authorization: `Bearer ${opts.token}`,
+          [ACTOR_HEADER]: opts.actor,
           ...(payload === null
             ? {}
             : {
@@ -174,19 +178,19 @@ export const statusCommand: CliCommand = {
   ],
   async run(values, json, io) {
     const dataDir = resolveDataDir(values['dataDir']);
-    const token = readClientToken(dataDir);
-    const reply = token.ok
+    const actor = readClientActor();
+    const reply = actor.ok
       ? await callDaemon({
           socketPath: join(dataDir, CONTROL_SOCKET),
-          token: token.value,
+          actor: actor.value,
           method: 'GET',
           path: '/v1/health',
         })
-      : token;
+      : actor;
     if (!reply.ok) {
-      const code = reply.error.code === 'token' ? ExitCode.usage : ExitCode.connection;
+      const code = reply.error.code === 'actor' ? ExitCode.usage : ExitCode.connection;
       const envelope = errorEnvelope({
-        code: reply.error.code === 'token' ? 'token_unavailable' : 'daemon_unreachable',
+        code: reply.error.code === 'actor' ? 'actor_invalid' : 'daemon_unreachable',
         message: reply.error.message,
         details: {},
         request_id: null,

@@ -80,7 +80,7 @@ const control = await productionControl({
 });
 const started = await startDaemon({
   dataDir: args.dataDir,
-  accessTokens: [],
+
   control,
   dispatchIntervalMs: 100,
   log: (m) => process.stderr.write(`${m}\n`),

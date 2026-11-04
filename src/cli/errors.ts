@@ -20,7 +20,7 @@ const USAGE = [
   'unsupported_feature',
   'not_available',
   'body_too_large',
-  'token_unavailable',
+  'actor_invalid',
 ];
 /** The request was understood, but the task's current state or version does not allow it. */
 const CONFLICT = ['conflict', 'nothing_to_recheck', 'rejected'];

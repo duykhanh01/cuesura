@@ -53,10 +53,8 @@ it('keeps committed history and holds B live output until a corrupt, partially i
       { store: f.d.store, dataDir: f.deps.dataDir, redactor: f.deps.redactor },
       {
         grant: {
-          id: 'reader',
           actor: 'reader',
           roles: ['read'],
-          projects: ['acme'],
         },
       },
       { kind: 'task_logs', task_id: task.id, after },
@@ -248,10 +246,8 @@ it('final handler ingestion adds only the tail after live output, with no duplic
         { store: f.d.store, dataDir, redactor: f.deps.redactor },
         {
           grant: {
-            id: 'reader',
             actor: 'reader',
             roles: ['read'],
-            projects: ['acme'],
           },
         },
         { kind: 'task_logs', task_id: task.id, after },
@@ -307,10 +303,8 @@ it('final handler ingestion adds only the tail after live output, with no duplic
     { store: f.d.store, dataDir, redactor: f.deps.redactor },
     {
       grant: {
-        id: 'reader',
         actor: 'reader',
         roles: ['read'],
-        projects: ['acme'],
       },
     },
     { kind: 'task_logs', task_id: task.id },

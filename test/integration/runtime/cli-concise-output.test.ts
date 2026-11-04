@@ -18,7 +18,7 @@ afterEach(async () => {
 });
 
 function daemon(): SeededDaemon {
-  const sd = new SeededDaemon([]);
+  const sd = new SeededDaemon();
   live.push(sd);
   return sd;
 }

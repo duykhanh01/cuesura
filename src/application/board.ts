@@ -17,7 +17,7 @@ import { needsUser } from '../explain/needs-user.ts';
 import { UuidSchema, type Uuid } from '../shared/brand.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import type { Store } from '../store/index.ts';
-import { authorize, type Caller } from './authz.ts';
+import type { Caller } from './authz.ts';
 import type { AppError } from './queries.ts';
 
 export const BOARD_LIMIT = 100;
@@ -109,20 +109,10 @@ export function taskBoard(
     });
   const { project, status, scope, limit, cursor, if_changed_since } = q.data;
   const { store, statusSince } = deps;
-  if (project !== undefined) {
-    const allowed = authorize(caller, { role: 'read', project });
-    if (!allowed.ok)
-      return err({
-        code: 'forbidden',
-        message: `requires project ${project}`,
-        details: { ...allowed.error },
-      });
-  }
   const watermark = store.lastGlobalSeq();
   if (if_changed_since === watermark) return ok({ unchanged: true, watermark });
 
-  const token = caller.grant.projects === '*' ? null : caller.grant.projects;
-  const projects = project === undefined ? token : [project];
+  const projects = project === undefined ? null : [project];
   // A status names what the caller wants to see; the default scope must not hide it.
   const inScope: readonly TaskStatus[] = SCOPES[scope ?? (status === undefined ? 'active' : 'all')];
   const statuses = status === undefined ? inScope : inScope.filter((x) => x === status);
@@ -163,7 +153,7 @@ export function taskBoard(
         statuses: status === undefined ? TASK_STATUSES : [status],
       }),
     },
-    queue: { length: store.queueLength(token) },
+    queue: { length: store.queueLength(null) },
     attention: { items: attention, truncated },
     items,
     next_cursor: page.length > limit ? (page[limit - 1] as string) : null,

@@ -32,7 +32,7 @@ export type ConfirmCommand = {
   readonly assigned_ids: readonly string[];
   /**
    * Digest of the run selection the user was shown (M01/M02). Confirms it in the same interaction as
-   * the intake; only a trusted user channel may, an assistant token is refused by the engine.
+   * the intake; the engine accepts it from any caller with the operate role.
    */
   readonly run_config_digest?: string;
 };
@@ -132,11 +132,11 @@ export async function confirmTask(
   caller: Caller,
   cmd: ConfirmCommand,
 ): Promise<{ ok: true; value: ConfirmResult } | { ok: false; error: ConfirmError }> {
-  const allowed = authorize(caller, { role: 'operate', project: cmd.project });
+  const allowed = authorize(caller, { role: 'operate' });
   if (!allowed.ok) return allowed;
   const before = deps.store.readTask(cmd.task_id as Uuid);
   if (before === null) return { ok: false, error: { code: 'unknown_task' } };
-  // The admitted project must be the task's own: a grant for another project cannot confirm it.
+  // The command names the task's project; a mismatch means it was built for another task.
   if (before.task.project !== cmd.project)
     return {
       ok: false,

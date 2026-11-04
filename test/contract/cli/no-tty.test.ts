@@ -87,9 +87,9 @@ describe('without a terminal', () => {
 
   it('a subcommand behaves as usual', () => {
     const r = piped(['status', '--json'], { CUSR_DATA_DIR: tempDir() });
-    expect(r.status).toBe(2);
+    expect(r.status).toBe(3);
     expect(JSON.parse(r.stdout)).toMatchObject({
-      error: { code: 'token_unavailable' },
+      error: { code: 'daemon_unreachable' },
     });
     expect(r.stdout + r.stderr).not.toContain('\x1b[');
   });
@@ -134,7 +134,7 @@ describe('at a terminal, but not asking for the interface', () => {
     const { s, exit } = await onPty(['status', '--json'], {
       env: { CUSR_DATA_DIR: tempDir() },
     });
-    expect(exit.status).toBe(2);
+    expect(exit.status).toBe(3);
     expect(s.modes()).toEqual(NOT_THE_INTERFACE);
   });
 

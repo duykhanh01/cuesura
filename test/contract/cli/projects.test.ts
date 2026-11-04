@@ -32,7 +32,7 @@ describe('cusr project list', () => {
     expect(JSON.parse(r.out)).toMatchObject({
       ok: true,
       data: {
-        caller: { actor: 'owner', scope: 'all', trusted_confirmer: true },
+        caller: { actor: 'owner', trusted_confirmer: true },
         projects: [{ id: 'acme', repo: 'acme/app' }],
       },
     });

@@ -698,7 +698,6 @@ describe('daemon startup (FR-022, FR-036)', () => {
     let runtime: DaemonRuntime | undefined;
     const started = await startDaemon({
       dataDir: f.dir,
-      accessTokens: [],
       dispatchIntervalMs: 60_000,
       control: (_store, rt) => {
         runtime = rt;
@@ -728,7 +727,6 @@ describe('daemon startup (FR-022, FR-036)', () => {
     const logs: string[] = [];
     const started = await startDaemon({
       dataDir: f.dir,
-      accessTokens: [],
       clock: {
         now: () => f.d.now as EpochMs,
         monotonic: () => performance.now(),

@@ -66,7 +66,6 @@ const BOARD = {
 const OWNER: CallerInfo = {
   actor: uiText('owner'),
   roles: ['read', 'operate', 'admin'],
-  scope: 'all',
   trusted_confirmer: true,
 };
 
@@ -353,34 +352,6 @@ describe('the Actions menu (T052)', () => {
     expect(r.effects).toEqual([{ type: 'read_screen' }]);
   });
 
-  it('a change of token keeps nothing of the old one, title included (EC-009)', () => {
-    const open = answered(run(home(), k('down'), ch('a')), explain(QUESTION));
-    expect(screen(open)).toContain('Task 2');
-    const changed = run(open, { type: 'credential_changed' });
-    const m = changed.actions;
-    if (m === null) throw new Error('no menu');
-    const forbidden = reduce(changed, {
-      type: 'actions_read',
-      taskId: m.taskId,
-      session: m.session,
-      askedAt: 20,
-      at: 21,
-      watermark: 7,
-      result: {
-        ok: false,
-        error: {
-          kind: 'rejected',
-          code: 'forbidden',
-          message: sanitize('not allowed'),
-        },
-      },
-    }).state;
-    const text = screen(forbidden);
-    expect(text).not.toContain('Task 2');
-    expect(text).not.toContain('Cancel task');
-    expect(text).toContain(TASK(2));
-  });
-
   it('lists each allowed action with what it does, and the CLI command as text', () => {
     const s = answered(run(home(SMALL), k('down'), ch('a')), explain(QUESTION));
     const text = screen(s);
@@ -409,12 +380,12 @@ describe('the Actions menu (T052)', () => {
       ]),
     );
     const text = screen(s);
-    expect(text).toContain('Not available: needs the operate role; this token has: read');
-    expect(text).toContain('Not available: needs the admin role; this token has: read');
+    expect(text).toContain('Not available: needs the operate role; you have: read');
+    expect(text).toContain('Not available: needs the admin role; you have: read');
     const operator: CallerInfo = { ...OWNER, roles: ['operate'] };
     const op = { ...s, caller: operator };
     expect(screen(op)).not.toContain('needs the operate role');
-    expect(screen(op)).toContain('needs the admin role; this token has: operate');
+    expect(screen(op)).toContain('needs the admin role; you have: operate');
     expect(screen({ ...s, caller: null })).toContain('permissions are not read yet');
   });
 

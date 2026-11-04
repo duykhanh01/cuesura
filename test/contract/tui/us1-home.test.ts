@@ -12,7 +12,6 @@ import { KEY, type PtySession } from '../../support/pty.ts';
 import {
   cliJson,
   daemonSocket,
-  ownerTokenEnv,
   rowOf,
   seedEveryState,
   seedQuestion,
@@ -365,33 +364,6 @@ describe('EC-005: more than a page', () => {
   });
 });
 
-describe('EC-009: a token limited to some projects', () => {
-  it('shows only what it may read, and says this is the scope of the token', async () => {
-    const sd = tui.daemon({
-      projects: ['beta'],
-      tokens: [{ id: 'viewer', actor: 'viewer', roles: ['read'], projects: ['acme'] }],
-    });
-    sd.seed((d) => {
-      seedRunning(d, 1, () => ({ title: 'In acme' }), 1);
-      seedRunning(d, 1, () => ({ title: 'In beta', project: 'beta' }), 2);
-    });
-    await sd.start();
-    const limited = tui.cusr(sd.dataDir, {
-      env: { CUSR_TOKEN_FILE: `${sd.base}/viewer.token` },
-    });
-    await limited.waitForText("Showing projects in this token's scope");
-    await limited.waitForText('In acme');
-    await limited.waitForText('Projects: acme');
-    expect(limited.screenText()).not.toContain('beta');
-    await quit(limited);
-
-    const owner = tui.cusr(sd.dataDir);
-    await owner.waitForText('Projects: acme, beta');
-    expect(owner.screenText()).not.toContain("this token's scope");
-    await quit(owner);
-  });
-});
-
 describe('EC-013: the selection follows the task', () => {
   it('stays on the same task when the rows move under it', async () => {
     const sd = tui.daemon();
@@ -522,7 +494,7 @@ describe('FR-008: another question for the board drops the watermark', () => {
       if (direction === 'request' && text.includes('"task_board"'))
         asked.push(JSON.parse(text.slice(text.indexOf('{'))) as BoardAsked);
     };
-    const s = tui.cusr(proxy.dataDir, { env: ownerTokenEnv(sd) });
+    const s = tui.cusr(proxy.dataDir);
     await s.waitForText('Page 1: tasks 1–');
 
     /** Does `act`, then holds the first read of the new view and a later read of the same view to account. */

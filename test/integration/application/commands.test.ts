@@ -9,14 +9,12 @@ import { dbPath, useTempDir } from '../../support/temp-db.ts';
 const tempDir = useTempDir('cusr-commands-');
 const assistant: Caller = {
   grant: {
-    id: 'assistant-work',
     actor: 'assistant',
     roles: ['read', 'operate'],
-    projects: ['acme'],
   },
 };
 const reader: Caller = {
-  grant: { id: 'ro', actor: 'viewer', roles: ['read'], projects: ['acme'] },
+  grant: { actor: 'viewer', roles: ['read'] },
 };
 
 function deps(path = dbPath(tempDir())): CommandDeps {
@@ -129,10 +127,6 @@ describe('command admission ledger (T023)', () => {
     expect(admitCommand(d, reader, cancel())).toMatchObject({
       ok: false,
       error: { code: 'forbidden', reason: 'role' },
-    });
-    expect(admitCommand(d, assistant, cancel({ project: 'other' }))).toMatchObject({
-      ok: false,
-      error: { code: 'forbidden', reason: 'project' },
     });
     expect(
       admitCommand(

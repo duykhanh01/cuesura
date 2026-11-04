@@ -2,7 +2,7 @@ import { request, createServer, type Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { join } from 'node:path';
 import { KEY } from '../../support/pty.ts';
-import { daemonSocket, ownerTokenEnv, useTui } from '../../support/tui-fixtures.ts';
+import { daemonSocket, useTui } from '../../support/tui-fixtures.ts';
 
 const tui = useTui();
 const servers: Server[] = [];
@@ -87,7 +87,6 @@ const projects = (id: string) => ({
     caller: {
       actor: 'owner',
       roles: ['read'],
-      scope: 'all',
       trusted_confirmer: false,
     },
     projects: [{ id, repo: null }],
@@ -110,7 +109,7 @@ describe('US1: project-list failures', () => {
     await sd.start();
     const endpoint = await projectServer(daemonSocket(sd));
     endpoint.reply(reply);
-    const s = tui.cusr(endpoint.dataDir, { env: ownerTokenEnv(sd) });
+    const s = tui.cusr(endpoint.dataDir);
     await s.waitForText('Stopped:', 3_000);
     expect(s.screenText()).toContain('Next: install the same version');
     expect(s.screenText()).toContain('daemon: unknown');
@@ -130,7 +129,7 @@ describe('US1: project-list failures', () => {
     await sd.start();
     const endpoint = await projectServer(daemonSocket(sd));
     endpoint.reply(projects('before'));
-    const s = tui.cusr(endpoint.dataDir, { env: ownerTokenEnv(sd) });
+    const s = tui.cusr(endpoint.dataDir);
     await s.waitForText('Projects: before');
     endpoint.offline(true);
     await s.waitForText('Reconnecting');

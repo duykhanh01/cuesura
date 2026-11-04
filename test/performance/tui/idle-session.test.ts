@@ -4,7 +4,7 @@ import { STORE_FILE } from '../../../src/daemon/main.ts';
 import { openFileStoreForTest, storeDb } from '../../../src/store/testing.ts';
 import { buildTask, uuidOf } from '../../support/builders.ts';
 import type { SeededDaemon } from '../../support/daemon-task.ts';
-import { daemonSocket, ownerTokenEnv, useTui } from '../../support/tui-fixtures.ts';
+import { daemonSocket, useTui } from '../../support/tui-fixtures.ts';
 
 // T033: an early check on an idle session, on a real PTY and a real daemon, through a proxy that sees every
 // byte. Thirty seconds says nothing about an hour: this does not claim SC-009.
@@ -54,7 +54,7 @@ describe('T033: an idle session', () => {
     proxy.tap = (direction, data) =>
       (direction === 'request' ? requests : responses).push(data.toString('utf8'));
 
-    const s = tui.cusr(proxy.dataDir, { env: ownerTokenEnv(sd) });
+    const s = tui.cusr(proxy.dataDir);
     await s.waitForText('Sitting here');
     await new Promise((r) => setTimeout(r, IDLE_MS));
 

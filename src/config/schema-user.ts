@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { parseDuration } from '../shared/duration.ts';
-import { AUTHZ_ROLES, EFFORTS } from '../domain/policy.ts';
+import { EFFORTS } from '../domain/policy.ts';
 import { HARNESS_INNER_MODES, RuntimeLimitsSchema } from '../domain/runtime.ts';
 import { EXECUTION_MODES } from '../domain/run-config.ts';
 import { isAgentStep, type StepDef } from '../domain/workflow.ts';
@@ -286,27 +286,6 @@ const RefNameSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/, {
     'Names must start with a letter or digit and contain only letters, digits, underscores, periods, or hyphens (maximum: 64 characters)',
 });
 
-function unique<T>(xs: readonly T[]): boolean {
-  return new Set(xs).size === xs.length;
-}
-
-export const AccessTokenSchema = z
-  .object({
-    id: RefNameSchema,
-    actor: z.string().min(1).max(128),
-    roles: z
-      .array(z.enum(AUTHZ_ROLES))
-      .min(1)
-      .refine(unique, { message: 'roles must not contain duplicates' }),
-    projects: z
-      .array(z.string().min(1))
-      .min(1)
-      .refine(unique, { message: 'projects must not contain duplicates' }),
-    token_file: AbsolutePathSchema,
-  })
-  .strict();
-export type AccessTokenSpec = z.infer<typeof AccessTokenSchema>;
-
 /**
  * Where agent operations are shown (ADR-0006); only ever a view, the unit stays under systemd. A new backend
  * is one variant here and one case in `terminalHost`; its binary is the tool of the same name.
@@ -334,7 +313,8 @@ export const RuntimeSchema = z
     tool_paths: z.partialRecord(z.enum(RUNTIME_TOOLS), AbsolutePathSchema).optional(),
     credential_refs: z.record(RefNameSchema, AbsolutePathSchema).optional(),
     terminal: RuntimeTerminalSchema.optional(),
-    access_tokens: z.array(AccessTokenSchema).optional(),
+    /** Removed: accepted so an old config still starts, and reported as ignored. */
+    access_tokens: z.array(z.unknown()).optional(),
     harness_isolation: z.record(z.string().min(1), z.enum(HARNESS_INNER_MODES)).optional(),
     /**
      * Execution modes the user allows, each with natural-language guidance for the assistant that

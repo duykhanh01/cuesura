@@ -13,7 +13,7 @@ import {
   renderEnvelope,
   type Envelope,
 } from './output.ts';
-import { callDaemon, readClientToken, resolveDataDir } from './client.ts';
+import { callDaemon, readClientActor, resolveDataDir } from './client.ts';
 import { exitCodeFor } from './errors.ts';
 import { BOARD_LIMIT } from '../application/board.ts';
 import { UNSUPPORTED_GUIDANCE } from '../application/commands.ts';
@@ -45,20 +45,20 @@ async function call(
   timeoutMs?: number,
 ): Promise<Envelope> {
   const dataDir = resolveDataDir(values['dataDir']);
-  const token = readClientToken(dataDir);
-  const reply = token.ok
+  const actor = readClientActor();
+  const reply = actor.ok
     ? await callDaemon({
         socketPath: join(dataDir, CONTROL_SOCKET),
-        token: token.value,
+        actor: actor.value,
         method: 'POST',
         path,
         body,
         ...(timeoutMs === undefined ? {} : { timeoutMs }),
       })
-    : token;
+    : actor;
   if (reply.ok) return reply.value.envelope;
   return errorEnvelope({
-    code: reply.error.code === 'token' ? 'token_unavailable' : 'daemon_unreachable',
+    code: reply.error.code === 'actor' ? 'actor_invalid' : 'daemon_unreachable',
     message: reply.error.message,
     details: {},
     request_id: requestId,

@@ -98,7 +98,7 @@ const runSelection: Row = (c) => {
     {
       action: 'confirm',
       command: `cusr task confirm ${c.id} --run-config ${p.digest} --expected-version ${c.version}`,
-      note: 'Confirms the selection task show lists under run_config; needs the owner token.',
+      note: 'Confirms the selection task show lists under run_config; needs the operate role.',
     },
     propose,
     cancel(c),

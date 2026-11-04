@@ -19,7 +19,7 @@ import { openFileStoreForTest, storeDb } from '../../src/store/testing.ts';
 import { STORE_FILE } from '../../src/daemon/main.ts';
 import { PACKS } from './config-fixtures.ts';
 import { ControlProxy } from './control-proxy.ts';
-import { SeededDaemon, type Reply, type TokenSpec } from './daemon-task.ts';
+import { SeededDaemon, type Reply } from './daemon-task.ts';
 import { fakeGit, fakeGitHub, fakeHost, MANIFESTS, userConfig } from './preflight-fakes.ts';
 import { KEY, PtySession } from './pty.ts';
 import { createGrantStart, proposeAndConfirm, selectionFor } from './runtime.ts';
@@ -36,7 +36,6 @@ export const ROOMY = { cols: 140, rows: 60 } as const;
 const HEAD = 'a'.repeat(40);
 
 type DaemonOptions = {
-  readonly tokens?: TokenSpec[];
   /** Extra project names in the user config, next to `acme`. */
   readonly projects?: readonly string[];
 };
@@ -66,7 +65,7 @@ export function useTui() {
       const lines = ['acme', ...(o.projects ?? [])].map(
         (id) => `${id}: { base_branch: main, path: /srv/${id}, repo: acme/${id} }`,
       );
-      const sd: SeededDaemon = new SeededDaemon(o.tokens ?? [], {}, (store) => ({
+      const sd: SeededDaemon = new SeededDaemon({}, (store) => ({
         logs: { dataDir: sd.dataDir, redactor: new Redactor() },
         confirm: {
           store,
@@ -89,7 +88,7 @@ export function useTui() {
         cols: o.cols ?? ROOMY.cols,
         rows: o.rows ?? ROOMY.rows,
         ...(o.cwd === undefined ? {} : { cwd: o.cwd }),
-        env: { CUSR_DATA_DIR: dataDir, CUSR_TOKEN_FILE: undefined, ...o.env },
+        env: { CUSR_DATA_DIR: dataDir, CUSR_ACTOR: undefined, ...o.env },
       });
       sessions.push(s);
       return s;
@@ -178,12 +177,6 @@ export async function cancelTask(sd: SeededDaemon, taskId: string, n: number): P
 /** The attempt in the banner, or 0 when there is none. */
 export function reconnectAttempt(screen: string): number {
   return Number(/Reconnecting \((\d+)\/30\)/.exec(screen)?.[1] ?? 0);
-}
-
-/** `cusr` through a proxy needs this: the proxy's data dir holds only the socket. */
-export function ownerTokenEnv(sd: SeededDaemon): Record<string, string> {
-  if (sd.daemon === null) throw new Error('daemon not running');
-  return { CUSR_TOKEN_FILE: sd.daemon.ownerTokenPath };
 }
 
 export type CliRun = {

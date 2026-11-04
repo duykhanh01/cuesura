@@ -55,14 +55,6 @@ export function runTui(): void {
   let state: TuiState = initialState(terminal.size());
   /** The question the board read in progress asked, so its answer cannot land on another view. */
   let askedKey = boardQueryKey(state);
-  let credential = port.credentialGeneration();
-
-  function noticeCredential(): void {
-    if (port.credentialGeneration() === credential) return;
-    credential = port.credentialGeneration();
-    dispatch({ type: 'credential_changed' });
-  }
-
   const scheduler = new RefreshScheduler({
     clock: systemRefreshClock,
     reads: {
@@ -80,16 +72,11 @@ export function runTui(): void {
       },
       health: (timeoutMs, signal) => port.health(timeoutMs, signal),
       projects: (fresh, timeoutMs, signal) =>
-        fresh || state.caller === null || port.credentialGeneration() !== credential
+        fresh || state.caller === null
           ? port.projects(timeoutMs, signal)
           : Promise.resolve({ ok: true, value: null }),
     },
-    credential: {
-      generation: () => port.credentialGeneration(),
-      superseded: noticeCredential,
-    },
     report(r) {
-      noticeCredential();
       dispatch(
         r.ok
           ? {
@@ -110,10 +97,6 @@ export function runTui(): void {
     clock: systemRefreshClock,
     plan: (now) => planScreenReads(state, port, systemRefreshClock, now),
     report: (message) => dispatch(message),
-    credential: {
-      generation: () => port.credentialGeneration(),
-      superseded: noticeCredential,
-    },
   });
 
   function draw(): void {

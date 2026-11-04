@@ -51,25 +51,6 @@ export function checkRuntime(u: RawUserConfig, at: Locator): Diagnostic[] {
     push(key === undefined ? ['runtime', 'limits'] : ['runtime', 'limits', key], issue.message);
   }
 
-  const projects = new Set(Object.keys(u.projects ?? {}));
-  const ids = new Set<string>();
-  const files = new Set<string>();
-  (rt.access_tokens ?? []).forEach((t, i) => {
-    const base: KeyPath = ['runtime', 'access_tokens', i];
-    if (ids.has(t.id)) push([...base, 'id'], `Access token '${t.id}' is declared more than once`);
-    ids.add(t.id);
-    if (files.has(t.token_file))
-      push(
-        [...base, 'token_file'],
-        `token_file '${t.token_file}' is already assigned to another token`,
-      );
-    files.add(t.token_file);
-    t.projects.forEach((p, j) => {
-      if (!projects.has(p))
-        push([...base, 'projects', j], `Project '${p}' is not declared in projects`);
-    });
-  });
-
   const harnesses = new Set(Object.keys(u.harnesses ?? {}));
   for (const h of Object.keys(rt.harness_isolation ?? {})) {
     if (!harnesses.has(h))

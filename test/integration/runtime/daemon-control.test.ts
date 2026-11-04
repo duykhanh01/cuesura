@@ -1,11 +1,10 @@
-import { randomBytes } from 'node:crypto';
-import { chmodSync, mkdtempSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { readTokenFile } from '../../../src/application/access-tokens.ts';
 import { callDaemon, exitCodeFor, statusCommand } from '../../../src/cli/client.ts';
+import type { CallerActor } from '../../../src/application/authz.ts';
 import { ExitCode } from '../../../src/cli/output.ts';
 import Database from 'better-sqlite3';
 import {
@@ -27,13 +26,6 @@ function dataDir(): string {
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'cusr-daemon-')));
   dirs.push(base);
   return join(base, 'data');
-}
-
-function tokenFile(dir: string, name: string): { path: string; token: string } {
-  const token = randomBytes(32).toString('base64url');
-  const path = join(dir, `${name}.token`);
-  writeFileSync(path, `${token}\n`, { mode: 0o600 });
-  return { path, token };
 }
 
 const clock = { now: () => asEpochMs(1_800_000_000_000), monotonic: () => 0 };
@@ -62,11 +54,10 @@ const cancel = (over: Record<string, unknown> = {}): Record<string, unknown> => 
 });
 
 describe('daemon control socket (T026)', () => {
-  it('serves health over a 0600 socket in a 0700 data dir to an authenticated reader, and cusr status exits 0', async () => {
+  it('serves health over a 0600 socket in a 0700 data dir, and cusr status exits 0', async () => {
     const dir = dataDir();
     const started = await startDaemon({
       dataDir: dir,
-      accessTokens: [],
       clock,
       newId,
     });
@@ -75,15 +66,9 @@ describe('daemon control socket (T026)', () => {
     daemons.push(started.value);
     expect(statSync(dir).mode & 0o777).toBe(0o700);
     expect(statSync(started.value.socketPath).mode & 0o777).toBe(0o600);
-    expect(statSync(started.value.ownerTokenPath).mode & 0o777).toBe(0o600);
 
     const term = io();
-    process.env['CUSR_TOKEN_FILE'] = started.value.ownerTokenPath;
-    try {
-      expect(await statusCommand.run({ dataDir: dir }, true, term)).toBe(ExitCode.ok);
-    } finally {
-      delete process.env['CUSR_TOKEN_FILE'];
-    }
+    expect(await statusCommand.run({ dataDir: dir }, true, term)).toBe(ExitCode.ok);
     const health = JSON.parse(term.out.join('')) as {
       ok: boolean;
       data: Record<string, unknown>;
@@ -100,7 +85,7 @@ describe('daemon control socket (T026)', () => {
 
     const anon = await callDaemon({
       socketPath: started.value.socketPath,
-      token: 'x'.repeat(43),
+      actor: 'viewer' as CallerActor,
       method: 'GET',
       path: '/v1/health',
     });
@@ -112,7 +97,6 @@ describe('daemon control socket (T026)', () => {
     const dir = dataDir();
     const first = await startDaemon({
       dataDir: dir,
-      accessTokens: [],
       clock,
       newId,
     });
@@ -120,7 +104,6 @@ describe('daemon control socket (T026)', () => {
     daemons.push(first.value);
     const second = await startDaemon({
       dataDir: dir,
-      accessTokens: [],
       clock,
       newId,
     });
@@ -134,22 +117,20 @@ describe('daemon control socket (T026)', () => {
     const dir = dataDir();
     const started = await startDaemon({
       dataDir: dir,
-      accessTokens: [],
       clock,
       newId,
     });
     if (!started.ok) throw new Error(started.error.detail);
     await started.value.stop();
     chmodSync(dir, 0o755);
-    expect(await startDaemon({ dataDir: dir, accessTokens: [], clock, newId })).toMatchObject({
+    expect(await startDaemon({ dataDir: dir, clock, newId })).toMatchObject({
       ok: false,
       error: { code: 'data_dir_insecure' },
     });
   });
 
-  it('admits commands server-side: authz from the token, unavailable kinds leave no ledger row, replay and conflict by request id', async () => {
+  it('admits commands server-side: authz from the declared actor, unavailable kinds leave no ledger row, replay and conflict by request id', async () => {
     const dir = dataDir();
-    const reader = tokenFile(join(dir, '..'), 'reader');
     let runs = 0;
     const handler: CommandHandler = () => {
       runs++;
@@ -157,52 +138,46 @@ describe('daemon control socket (T026)', () => {
     };
     const started = await startDaemon({
       dataDir: dir,
-      accessTokens: [
-        {
-          id: 'reader',
-          actor: 'assistant',
-          roles: ['read'],
-          projects: ['p1'],
-          token_file: reader.path,
-        },
-      ],
       clock,
       newId,
-      commands: { task_cancel: handler },
+      commands: { task_cancel: handler, approve_escalation: handler },
     });
     if (!started.ok) throw new Error(started.error.detail);
     daemons.push(started.value);
     const sock = started.value.socketPath;
-    const owner = readTokenFile(started.value.ownerTokenPath, 'owner');
-    if (!owner.ok) throw new Error('owner token');
-    const post = (token: string, body: unknown) =>
+    const post = (actor: CallerActor, body: unknown) =>
       callDaemon({
         socketPath: sock,
-        token,
+        actor,
         method: 'POST',
         path: '/v1/command',
         body,
       });
-    const code = async (token: string, body: unknown): Promise<number> => {
-      const r = await post(token, body);
+    const code = async (actor: CallerActor, body: unknown): Promise<number> => {
+      const r = await post(actor, body);
       if (!r.ok) throw new Error(r.error.message);
       return exitCodeFor(r.value.envelope);
     };
 
-    // A read-only token cannot mutate, whatever actor the body claims.
-    expect(await code(reader.token, { ...cancel(), actor: 'owner' })).toBe(ExitCode.forbidden);
-    expect(await code(reader.token, cancel())).toBe(ExitCode.forbidden);
+    // The assistant cannot approve, whatever actor the body claims.
+    const approve = cancel({
+      request_id: '55555555-5555-4555-8555-555555555555',
+      kind: 'approve_escalation',
+      payload: { step: 'code', rung: 1 },
+    });
+    expect(await code('assistant', { ...approve, actor: 'owner' })).toBe(ExitCode.forbidden);
+    expect(await code('assistant', approve)).toBe(ExitCode.forbidden);
     // Supported kind with no handler in this build: refused before admission.
     const confirm = cancel({
       request_id: '33333333-3333-4333-8333-333333333333',
       kind: 'task_confirm',
       payload: {},
     });
-    expect(await code(owner.value, confirm)).toBe(ExitCode.usage);
+    expect(await code('owner', confirm)).toBe(ExitCode.usage);
     expect(started.value.store.readCommand('33333333-3333-4333-8333-333333333333')).toBeNull();
     expect(
       await code(
-        owner.value,
+        'owner',
         cancel({
           request_id: '44444444-4444-4444-8444-444444444444',
           kind: 'yolo',
@@ -211,24 +186,24 @@ describe('daemon control socket (T026)', () => {
       ),
     ).toBe(ExitCode.usage);
 
-    const first = await post(owner.value, cancel());
+    const first = await post('owner', cancel());
     expect(first.ok && first.value.envelope).toMatchObject({
       ok: true,
       data: { replayed: false, result: { cancelled: true } },
     });
-    const again = await post(owner.value, cancel());
+    const again = await post('owner', cancel());
     expect(again.ok && again.value.envelope).toMatchObject({
       ok: true,
       data: { replayed: true, result: { cancelled: true } },
     });
     expect(runs).toBe(1);
-    expect(await code(owner.value, cancel({ payload: { reason: 'different' } }))).toBe(
+    expect(await code('owner', cancel({ payload: { reason: 'different' } }))).toBe(
       ExitCode.conflict,
     );
 
     const query = await callDaemon({
       socketPath: sock,
-      token: reader.token,
+      actor: 'assistant',
       method: 'POST',
       path: '/v1/query',
       body: { kind: 'task_show' },
@@ -254,19 +229,16 @@ describe('daemon control socket (T026)', () => {
     };
     const started = await startDaemon({
       dataDir: dir,
-      accessTokens: [],
       clock,
       newId,
       commands: { task_cancel: handler },
     });
     if (!started.ok) throw new Error(started.error.detail);
     daemons.push(started.value);
-    const owner = readTokenFile(started.value.ownerTokenPath, 'owner');
-    if (!owner.ok) throw new Error('owner token');
     const post = (body: unknown) =>
       callDaemon({
         socketPath: started.value.socketPath,
-        token: owner.value,
+        actor: 'owner',
         method: 'POST',
         path: '/v1/command',
         body,
@@ -321,7 +293,7 @@ describe('daemon control socket (T026)', () => {
     try {
       const r = await callDaemon({
         socketPath,
-        token: 't',
+        actor: 'owner',
         method: 'GET',
         path: '/v1/health',
         timeoutMs: 60_000,
@@ -335,12 +307,10 @@ describe('daemon control socket (T026)', () => {
   it('reports blocked dispatch as a health failure (exit 1) and masks secrets in its log', async () => {
     const dir = dataDir();
     const lines: string[] = [];
-    let leak = '';
     const handler: CommandHandler = () =>
-      Promise.reject(new Error(`upstream said: token ${leak} and ghp_${'a'.repeat(36)}`));
+      Promise.reject(new Error(`upstream said: token ghp_${'a'.repeat(36)}`));
     const started = await startDaemon({
       dataDir: dir,
-      accessTokens: [],
       clock,
       newId,
       commands: { task_cancel: handler },
@@ -348,13 +318,10 @@ describe('daemon control socket (T026)', () => {
     });
     if (!started.ok) throw new Error(started.error.detail);
     daemons.push(started.value);
-    const owner = readTokenFile(started.value.ownerTokenPath, 'owner');
-    if (!owner.ok) throw new Error('owner token');
-    leak = owner.value;
 
     const failed = await callDaemon({
       socketPath: started.value.socketPath,
-      token: owner.value,
+      actor: 'owner',
       method: 'POST',
       path: '/v1/command',
       body: cancel(),
@@ -362,17 +329,11 @@ describe('daemon control socket (T026)', () => {
     expect(failed.ok && failed.value.status).toBe(500);
     const logged = lines.join('\n');
     expect(logged).toContain('control request failed');
-    expect(logged).not.toContain(owner.value);
     expect(logged).not.toContain(`ghp_${'a'.repeat(36)}`);
 
     started.value.dispatcher.block('projection mismatch (1)');
     const term = io();
-    process.env['CUSR_TOKEN_FILE'] = started.value.ownerTokenPath;
-    try {
-      expect(await statusCommand.run({ dataDir: dir }, true, term)).toBe(ExitCode.failure);
-    } finally {
-      delete process.env['CUSR_TOKEN_FILE'];
-    }
+    expect(await statusCommand.run({ dataDir: dir }, true, term)).toBe(ExitCode.failure);
     expect(JSON.parse(term.out.join(''))).toMatchObject({
       ok: false,
       error: {
@@ -391,19 +352,15 @@ describe('daemon control socket (T026)', () => {
     );
     const opts = {
       dataDir: dir,
-      accessTokens: [],
       clock,
       newId,
       commands: { task_cancel: handler },
     };
     const first = await startDaemon(opts);
     if (!first.ok) throw new Error(first.error.detail);
-    const ownerPath = first.value.ownerTokenPath;
-    const owner = readTokenFile(ownerPath, 'owner');
-    if (!owner.ok) throw new Error('owner token');
     const done = await callDaemon({
       socketPath: first.value.socketPath,
-      token: owner.value,
+      actor: 'owner',
       method: 'POST',
       path: '/v1/command',
       body: cancel(),
@@ -424,7 +381,7 @@ describe('daemon control socket (T026)', () => {
     daemons.push(second.value);
     const again = await callDaemon({
       socketPath: second.value.socketPath,
-      token: owner.value,
+      actor: 'owner',
       method: 'POST',
       path: '/v1/command',
       body: cancel(),
@@ -443,19 +400,13 @@ describe('daemon control socket (T026)', () => {
     const dir = dataDir();
     const started = await startDaemon({
       dataDir: dir,
-      accessTokens: [],
       clock,
       newId,
     });
     if (!started.ok) throw new Error(started.error.detail);
     await started.value.stop();
     const term = io();
-    process.env['CUSR_TOKEN_FILE'] = started.value.ownerTokenPath;
-    try {
-      expect(await statusCommand.run({ dataDir: dir }, true, term)).toBe(ExitCode.connection);
-    } finally {
-      delete process.env['CUSR_TOKEN_FILE'];
-    }
+    expect(await statusCommand.run({ dataDir: dir }, true, term)).toBe(ExitCode.connection);
     expect(JSON.parse(term.out.join(''))).toMatchObject({
       ok: false,
       error: { code: 'daemon_unreachable' },
@@ -468,7 +419,6 @@ describe('control socket path', () => {
     const dir = join(dataDir(), 'x'.repeat(120));
     const started = await startDaemon({
       dataDir: dir,
-      accessTokens: [],
       clock,
       newId,
     });

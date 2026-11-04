@@ -49,7 +49,7 @@ function cusr(
   const s = new PtySession({
     cols: o.cols ?? 100,
     rows: o.rows ?? 30,
-    env: { CUSR_DATA_DIR: dataDir, CUSR_TOKEN_FILE: undefined, ...o.env },
+    env: { CUSR_DATA_DIR: dataDir, CUSR_ACTOR: undefined, ...o.env },
   });
   live.sessions.push(s);
   return s;
@@ -96,10 +96,10 @@ describe('cusr at a terminal', () => {
     expect((await s.waitForExit()).status).toBe(0);
   });
 
-  it('opens with no data dir at all, and reports why it stops', async () => {
+  it('opens with no data dir at all and keeps trying, as for a daemon not started yet', async () => {
     const s = cusr(`${tempDir()}/nothing`);
-    await s.waitForText('Stopped:');
-    expect(s.screenText()).toContain('Retry connection (R)');
+    await s.waitForText('Reconnecting (');
+    expect(s.screenText()).not.toContain('Stopped:');
     s.send('q');
     expect((await s.waitForExit()).status).toBe(0);
   });
@@ -139,11 +139,9 @@ describe('cusr at a terminal', () => {
     await s.waitForExit();
   });
 
-  it('a revoked token stops at once and says so', async () => {
+  it('an unknown CUSR_ACTOR stops at once and says so', async () => {
     const sd = await daemon();
-    const s = cusr(sd.dataDir, {
-      env: { CUSR_TOKEN_FILE: `${sd.base}/nope.token` },
-    });
+    const s = cusr(sd.dataDir, { env: { CUSR_ACTOR: 'nobody' } });
     await s.waitForText('Stopped:');
     expect(s.screenText()).not.toContain('Reconnecting');
     s.send('q');
@@ -197,15 +195,6 @@ describe('cusr at a terminal', () => {
     expect(s.rawOutput()).toMatch(/\x1b\[[0-9;]*33m/); // eslint-disable-line no-control-regex
     s.send('q');
     await s.waitForExit();
-  });
-
-  it('never shows the token', async () => {
-    const sd = await daemon();
-    const s = cusr(sd.dataDir);
-    await s.waitForText('In status');
-    s.send('q');
-    await s.waitForExit();
-    expect(s.rawOutput()).not.toContain(sd.tokens['owner']);
   });
 
   it('a task title never reaches this frame unsanitized', async () => {

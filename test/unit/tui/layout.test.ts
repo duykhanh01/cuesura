@@ -50,8 +50,8 @@ describe('staleBanner', () => {
 
 describe('notices', () => {
   const LONG =
-    'Cannot use token file /home/first-time-contributor/projects/cuesura/.local/state/cusr/owner.token: token_file_mode_too_open';
-  const stopped = (kind: 'token' | 'unauthenticated' | 'incompatible') =>
+    "The daemon's response at /home/first-time-contributor/projects/cuesura/.local/state/cusr/control.sock has another shape";
+  const stopped = (kind: 'actor' | 'unauthenticated' | 'incompatible') =>
     state({
       connection: { kind: 'stopped', reason: { kind, message: uiText(LONG) } },
       stale: true,
@@ -59,30 +59,30 @@ describe('notices', () => {
     });
 
   it('keeps the whole reason at 80 columns, then the next step', () => {
-    const rows = notices(stopped('token'), 80, 11);
+    const rows = notices(stopped('incompatible'), 80, 11);
     expect(rows.join(' ').replaceAll(' ', '')).toContain(LONG.replaceAll(' ', ''));
     expect(rows.at(-1)).toContain('Next:');
     expect(rows.at(-1)).toContain('press R');
     expect(rows.every((r) => displayWidth(r) <= 80)).toBe(true);
   });
 
-  it.each(['token', 'unauthenticated', 'incompatible'] as const)('%s says what to do', (kind) => {
+  it.each(['actor', 'unauthenticated', 'incompatible'] as const)('%s says what to do', (kind) => {
     expect(notices(stopped(kind), 80, 11).at(-1)).toContain('Next:');
   });
 
   it('cuts only the reason when it has no room; the next step stays', () => {
-    const rows = notices(stopped('token'), 40, 3);
+    const rows = notices(stopped('incompatible'), 40, 3);
     expect(rows.length).toBeLessThanOrEqual(4);
     expect(rows.join('')).toContain('…');
     expect(rows.join(' ')).toContain('press R');
   });
 
   it('a path too long for its rows loses its middle, never the cause at the end', () => {
-    const message = `Cannot use token file /home/${'long-directory/'.repeat(200)}owner.token: ENOENT`;
+    const message = `Cannot reach /home/${'long-directory/'.repeat(200)}control.sock: ENOENT`;
     const at = state({
       connection: {
         kind: 'stopped',
-        reason: { kind: 'token', message: uiText(message) },
+        reason: { kind: 'incompatible', message: uiText(message) },
       },
       stale: true,
       size: { cols: 80, rows: 24 },

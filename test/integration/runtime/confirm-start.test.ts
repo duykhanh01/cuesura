@@ -32,18 +32,8 @@ const tempDir = useTempDir('cusr-confirm-start-');
 
 const OWNER: Caller = {
   grant: {
-    id: 'owner',
     actor: 'owner',
     roles: ['read', 'operate', 'admin'],
-    projects: '*',
-  },
-};
-const OTHER: Caller = {
-  grant: {
-    id: 'other',
-    actor: 'assistant',
-    roles: ['read', 'operate'],
-    projects: ['elsewhere'],
   },
 };
 
@@ -262,14 +252,10 @@ describe('task confirm runs triage, then one preflight candidate (T031, FR-002.0
     ]);
   });
 
-  it('checks the caller against the task project and the expected version', async () => {
+  it('checks the command against the task project and the expected version', async () => {
     const { d, confirmDeps } = setup();
     const task = fromAssistant();
     d.must(task.id, { kind: 'create_task', task });
-    expect(await confirmTask(confirmDeps(), OTHER, confirmCmd(d, task, 1))).toMatchObject({
-      ok: false,
-      error: { code: 'forbidden', reason: 'project' },
-    });
     expect(
       await confirmTask(confirmDeps(), OWNER, confirmCmd(d, task, 2, { project: 'elsewhere' })),
     ).toMatchObject({

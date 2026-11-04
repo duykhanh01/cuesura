@@ -1,7 +1,7 @@
 /**
  * The Actions menu (contracts/tui.md "Màn hình"). Each entry is one of `allowed_actions` with its `note` as
  * what it does. `command` is shown for the CLI and never read: what an entry does comes from `action` only
- * (FR-016, FR-023). An action the token may not take is dimmed with why; the menu looks for no other token.
+ * (FR-016, FR-023). An action the caller may not take is dimmed with why.
  */
 import type { ActionsMenu } from '../model/actions.ts';
 import { CHANGED_NOTICE } from '../model/actions.ts';
@@ -44,7 +44,7 @@ export type ActionItem = {
   readonly kind: ActionKind;
   readonly effect: SafeText;
   readonly command: SafeText | null;
-  /** Why the token may not take it; `null` when it may, or when there is nothing to take. */
+  /** Why the caller may not take it; `null` when it may, or when there is nothing to take. */
   readonly unavailable: string | null;
   /** What to do outside Cuesura, shown under the entry while it is chosen. */
   readonly guide: readonly SafeText[];
@@ -67,11 +67,11 @@ function mergeGuide(merge: TaskExplain['merge']): SafeText[] {
 
 function unavailable(role: Known['role'], caller: CallerInfo | null): string | null {
   if (role === undefined) return null;
-  if (caller === null) return 'this token’s permissions are not read yet';
+  if (caller === null) return 'your permissions are not read yet';
   if (caller.roles.includes(role)) return null;
   // Role names come from the daemon like any other text.
   const has = caller.roles.length === 0 ? 'no role' : sanitize(caller.roles.join(', '));
-  return `needs the ${role} role; this token has: ${has}`;
+  return `needs the ${role} role; you have: ${has}`;
 }
 
 export function actionItems(

@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -172,7 +172,6 @@ describe('FR-038: nothing secret on the screen or in a file', () => {
       ]);
     });
     await sd.start();
-    const owner = readFileSync(sd.daemon?.ownerTokenPath as string, 'utf8').trim();
     const cwd = realpathSync(mkdtempSync(join(tmpdir(), 'cusr-tui-cwd-')));
     try {
       const s = tui.cusr(sd.dataDir, { cols: 140, rows: 60, cwd });
@@ -182,14 +181,7 @@ describe('FR-038: nothing secret on the screen or in a file', () => {
       await s.waitForText('CANARY');
       await s.waitFor(() => flat(s.screenText()).includes('[REDACTED]'));
       const raw = s.rawOutput();
-      for (const bad of [
-        secret,
-        'hunter2hunter2',
-        owner,
-        sd.daemon?.ownerTokenPath as string,
-        'credential_refs',
-        'tool_paths',
-      ])
+      for (const bad of [secret, 'hunter2hunter2', 'credential_refs', 'tool_paths'])
         expect(raw).not.toContain(bad);
       s.send('q');
       expect((await s.waitForExit()).status).toBe(0);

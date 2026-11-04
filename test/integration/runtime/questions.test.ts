@@ -8,6 +8,7 @@ import { SeededDaemon } from '../../support/daemon-task.ts';
 import { buildTask, uuidOf } from '../../support/builders.ts';
 import { createGrantStart } from '../../support/runtime.ts';
 import { agentData, PREPARE_DATA } from '../../support/scenario.ts';
+import type { CallerActor } from '../../../src/application/authz.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 import { dbPath, useTempDir } from '../../support/temp-db.ts';
 
@@ -18,21 +19,10 @@ const tempDir = useTempDir('cusr-questions-');
 
 export const OWNER: Caller = {
   grant: {
-    id: 'owner',
     actor: 'owner',
     roles: ['read', 'operate', 'admin'],
-    projects: '*',
   },
 };
-const OTHER_PROJECT: Caller = {
-  grant: {
-    id: 'assistant',
-    actor: 'assistant',
-    roles: ['read', 'operate'],
-    projects: ['elsewhere'],
-  },
-};
-
 let grantSeq = 70_000;
 function grant(d: StoreDriver): void {
   const ids = Array.from({ length: 4 }, () => uuidOf(grantSeq++));
@@ -97,13 +87,9 @@ describe('needs_input ends the attempt and waits for a person (US5.1, FR-024)', 
         task_version: s.version,
       }),
     ]);
-    // A caller scoped to another project does not see it; a project it may not read is refused.
-    const other = inbox(reopened, OTHER_PROJECT, {});
+    // A filter on another project leaves it out.
+    const other = inbox(reopened, OWNER, { project: 'elsewhere' });
     expect(other.ok && other.value.items).toEqual([]);
-    expect(inbox(reopened, OTHER_PROJECT, { project: t.project })).toMatchObject({
-      ok: false,
-      error: { code: 'forbidden' },
-    });
     reopened.close();
   });
 });
@@ -312,21 +298,7 @@ describe('answer and inbox over the control socket (US5.1/US5.2, FR-024/FR-037)'
 
   /** A daemon whose store holds a task waiting on one worker question. */
   async function asking() {
-    const sd = new SeededDaemon([
-      {
-        id: 'assistant',
-        actor: 'assistant',
-        roles: ['read', 'operate'],
-        projects: ['acme'],
-      },
-      {
-        id: 'outsider',
-        actor: 'outsider',
-        roles: ['read', 'operate'],
-        projects: ['elsewhere'],
-      },
-      { id: 'reader', actor: 'reader', roles: ['read'], projects: ['acme'] },
-    ]);
+    const sd = new SeededDaemon();
     live.push(sd);
     const { t, q } = sd.seed((d) => {
       const t = buildTask();
@@ -364,17 +336,16 @@ describe('answer and inbox over the control socket (US5.1/US5.2, FR-024/FR-037)'
 
   it('the inbox lists the question, and still does after a daemon restart', async () => {
     const { sd, t, q } = await asking();
-    const list = async (token: string) => {
-      const r = await sd.query(token, { kind: 'inbox' });
+    const list = async (actor: CallerActor) => {
+      const r = await sd.query(actor, { kind: 'inbox' });
       expect(r.code).toBe(ExitCode.ok);
       return (r.envelope.data?.['items'] as { question_id: string }[]).map((i) => i.question_id);
     };
     expect(await list('assistant')).toEqual([q.id]);
-    expect(await list('outsider')).toEqual([]);
     await sd.stop();
     await sd.start();
     expect(await list('owner')).toEqual([q.id]);
-    const one = await sd.query('reader', { kind: 'inbox', task_id: t.id });
+    const one = await sd.query('assistant', { kind: 'inbox', task_id: t.id });
     expect(one.envelope.data?.['items']).toEqual([
       expect.objectContaining({ question_id: q.id, blocking: true }),
     ]);
@@ -436,13 +407,11 @@ describe('answer and inbox over the control socket (US5.1/US5.2, FR-024/FR-037)'
     expect(events('AnswerRejected')).toHaveLength(1);
   });
 
-  it('scope and role: another project, a read token and an unknown question change nothing', async () => {
+  it('another project and an unknown question change nothing', async () => {
     const { sd, answer, events } = await asking();
-    expect((await sd.command('outsider', answer(1))).code).toBe(ExitCode.forbidden);
-    expect((await sd.command('outsider', answer(2, 'x', { project: 'elsewhere' }))).code).toBe(
+    expect((await sd.command('assistant', answer(2, 'x', { project: 'elsewhere' }))).code).toBe(
       ExitCode.missing,
     );
-    expect((await sd.command('reader', answer(3))).code).toBe(ExitCode.forbidden);
     expect((await sd.command('owner', answer(4, 'x', { question: uuidOf(99_999) }))).code).toBe(
       ExitCode.missing,
     );

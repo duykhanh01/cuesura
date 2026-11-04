@@ -1,11 +1,10 @@
 /**
  * The interface's only way to the daemon (FR-003, FR-036). It connects exactly as a subcommand does: same
- * data dir, same token file, same socket. The token is read for every call, so one that was fixed is picked
- * up by the next retry and nothing but this module ever holds it.
+ * data dir, same declared actor, same socket.
  */
 import { join } from 'node:path';
 import type { z } from 'zod';
-import { callDaemon, readClientToken, resolveDataDir, type CallOptions } from '../../cli/client.ts';
+import { callDaemon, readClientActor, resolveDataDir, type CallOptions } from '../../cli/client.ts';
 import { CONTROL_SOCKET, isEnvelope, type Envelope } from '../../cli/output.ts';
 import { err, ok, type Result } from '../../shared/result.ts';
 import { sanitize, type SafeText } from '../terminal/safe-text.ts';
@@ -35,13 +34,13 @@ import {
 } from './schemas.ts';
 
 /**
- * Why a call failed. `connection` and `timeout` may pass by themselves. `token`, `unauthenticated` and
+ * Why a call failed. `connection` and `timeout` may pass by themselves. `actor`, `unauthenticated` and
  * `incompatible` will not, so retrying them is pointless. `rejected` is the daemon's answer to this request.
  */
 export type PortError =
   | { readonly kind: 'connection' | 'timeout'; readonly message: SafeText }
   | {
-      readonly kind: 'token' | 'unauthenticated' | 'incompatible';
+      readonly kind: 'actor' | 'unauthenticated' | 'incompatible';
       readonly message: SafeText;
     }
   | {
@@ -62,10 +61,7 @@ export type BoardQuery = {
 };
 
 export type DaemonPort = {
-  /** Counts the times the token file was found to hold another token; the token itself stays in here. */
-  credentialGeneration(): number;
   health(timeoutMs: number, signal?: AbortSignal): Promise<PortResult<Health>>;
-  /** The token is read before this returns: `credentialGeneration()` right after says which token asked. */
   board(q: BoardQuery, timeoutMs: number, signal?: AbortSignal): Promise<PortResult<BoardReply>>;
   projects(timeoutMs: number, signal?: AbortSignal): Promise<PortResult<ProjectList>>;
   runOptions(taskId: string, timeoutMs: number): Promise<PortResult<RunOptions>>;
@@ -107,28 +103,15 @@ export function createDaemonPort(deps: PortDeps = {}): DaemonPort {
   const call = deps.call ?? callDaemon;
   const dataDir = resolveDataDir(deps.dataDir, env);
 
-  let lastToken: string | null = null;
-  let generation = 0;
-  /** The generation of the latest board request; a watermark means nothing to another token (R-02). */
-  let boardGeneration = 0;
-
-  const readToken = (): ReturnType<typeof readClientToken> => {
-    const token = readClientToken(dataDir, env);
-    if (token.ok) {
-      if (lastToken !== null && lastToken !== token.value) generation += 1;
-      lastToken = token.value;
-    }
-    return token;
-  };
+  const actor = readClientActor(env);
 
   const send = async (
     opts: Pick<CallOptions, 'method' | 'path' | 'body' | 'timeoutMs' | 'signal'>,
-    token: ReturnType<typeof readClientToken> = readToken(),
   ): Promise<PortResult<Envelope>> => {
-    if (!token.ok) return err({ kind: 'token', message: sanitize(token.error.message) });
+    if (!actor.ok) return err({ kind: 'actor', message: sanitize(actor.error.message) });
     const r = await call({
       socketPath: join(dataDir, CONTROL_SOCKET),
-      token: token.value,
+      actor: actor.value,
       ...opts,
     });
     if (r.ok)
@@ -141,8 +124,8 @@ export function createDaemonPort(deps: PortDeps = {}): DaemonPort {
         return err({ kind: 'timeout', message });
       case 'protocol':
         return err({ kind: 'incompatible', message });
-      case 'token':
-        return err({ kind: 'token', message });
+      case 'actor':
+        return err({ kind: 'actor', message });
       default:
         return err({ kind: 'connection', message });
     }
@@ -166,18 +149,14 @@ export function createDaemonPort(deps: PortDeps = {}): DaemonPort {
     body: Record<string, unknown> & { kind: string },
     timeoutMs: number,
     signal?: AbortSignal,
-    token: ReturnType<typeof readClientToken> = readToken(),
   ): Promise<PortResult<z.output<T>>> => {
-    const r = await send(
-      {
-        method: 'POST',
-        path: '/v1/query',
-        body,
-        timeoutMs,
-        ...(signal === undefined ? {} : { signal }),
-      },
-      token,
-    );
+    const r = await send({
+      method: 'POST',
+      path: '/v1/query',
+      body,
+      timeoutMs,
+      ...(signal === undefined ? {} : { signal }),
+    });
     if (!r.ok) return r;
     return r.value.ok
       ? parsed(schema, r.value.data, body.kind)
@@ -190,7 +169,6 @@ export function createDaemonPort(deps: PortDeps = {}): DaemonPort {
       query(schema, { kind, task_id }, timeoutMs);
 
   return {
-    credentialGeneration: () => generation,
     async health(timeoutMs, signal) {
       const r = await send({
         method: 'GET',
@@ -216,24 +194,8 @@ export function createDaemonPort(deps: PortDeps = {}): DaemonPort {
         queue_length: data.value.queue_length,
       });
     },
-    board: (q, timeoutMs, signal) => {
-      // One read of the token decides both the watermark and who asks, so the two cannot disagree.
-      const token = readToken();
-      const sameToken = boardGeneration === generation;
-      boardGeneration = generation;
-      const { if_changed_since: watermark, ...view } = q;
-      return query(
-        BoardSchema,
-        {
-          kind: 'task_board',
-          ...view,
-          ...(watermark === undefined || !sameToken ? {} : { if_changed_since: watermark }),
-        },
-        timeoutMs,
-        signal,
-        token,
-      );
-    },
+    board: (q, timeoutMs, signal) =>
+      query(BoardSchema, { kind: 'task_board', ...q }, timeoutMs, signal),
     projects: (timeoutMs, signal) =>
       query(ProjectListSchema, { kind: 'project_list' }, timeoutMs, signal),
     runOptions: taskQuery(RunOptionsSchema, 'run_options'),

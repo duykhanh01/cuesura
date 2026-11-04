@@ -3,7 +3,7 @@
  * to resume interrupted sessions. Records go to stdout; connection diagnostics go to stderr.
  */
 import { join } from 'node:path';
-import { callDaemon, readClientToken, resolveDataDir } from './client.ts';
+import { callDaemon, readClientActor, resolveDataDir } from './client.ts';
 import { exitCodeFor } from './errors.ts';
 import { CONTROL_SOCKET, ExitCode } from './output.ts';
 import type { CliCommand } from './program.ts';
@@ -101,12 +101,12 @@ Examples:
           io,
         );
       const dataDir = resolveDataDir(values['dataDir']);
-      const token = readClientToken(dataDir);
-      if (!token.ok)
+      const actor = readClientActor();
+      if (!actor.ok)
         return print(
           errorEnvelope({
-            code: 'token_unavailable',
-            message: token.error.message,
+            code: 'actor_invalid',
+            message: actor.error.message,
             details: {},
             request_id: null,
           }),
@@ -116,7 +116,7 @@ Examples:
       const fetch = (cursor: number) =>
         callDaemon({
           socketPath: join(dataDir, CONTROL_SOCKET),
-          token: token.value,
+          actor: actor.value,
           method: 'POST',
           path: '/v1/query',
           body: {

@@ -135,7 +135,7 @@ describe('runtime config', () => {
       limits: DEFAULT_RUNTIME_LIMITS,
       tool_paths: {},
       credential_refs: [],
-      access_tokens: [],
+      access_tokens_ignored: false,
       harness_isolation: { claude: 'internal_required' },
       modes: {
         'direct-pr': { when_to_use: null },
@@ -171,15 +171,7 @@ describe('runtime config', () => {
         { name: 'github', file: '/srv/cred/gh.token' },
         { name: 'harness_claude', file: '/srv/cred/claude.json' },
       ],
-      access_tokens: [
-        {
-          id: 'assistant-work',
-          actor: 'assistant',
-          roles: ['read', 'operate'],
-          projects: ['acme'],
-          token_file: '/srv/access/a.token',
-        },
-      ],
+      access_tokens_ignored: true,
       harness_isolation: { claude: 'allow_external_verified' },
       // Declared modes are the allowlist: direct-pr is not allowed here.
       modes: {
@@ -256,47 +248,8 @@ describe('runtime config', () => {
       'runtime: { credential_refs: { github: ../gh.token } }\n',
       'runtime.credential_refs.github',
     ],
-    [
-      'token file',
-      'runtime: { access_tokens: [{ id: a, actor: x, roles: [read], projects: [acme], token_file: a.token }] }\n',
-      'runtime.access_tokens.0.token_file',
-    ],
   ])('rejects a relative %s', (_label, extra, path) => {
     expect(paths(extra)).toEqual([path]);
-  });
-
-  it('validates access token roles and projects', () => {
-    const token = (fields: string): string =>
-      `runtime: { access_tokens: [{ id: a, actor: x, token_file: /srv/a.token, ${fields} }] }\n`;
-    expect(paths(token('roles: [], projects: [acme]'))).toEqual(['runtime.access_tokens.0.roles']);
-    expect(paths(token('roles: [read, owner], projects: [acme]'))).toEqual([
-      'runtime.access_tokens.0.roles.1',
-    ]);
-    expect(paths(token('roles: [read, read], projects: [acme]'))).toEqual([
-      'runtime.access_tokens.0.roles',
-    ]);
-    expect(paths(token('roles: [read], projects: []'))).toEqual([
-      'runtime.access_tokens.0.projects',
-    ]);
-    expect(paths(token('roles: [read], projects: [acme, ghost]'))).toEqual([
-      'runtime.access_tokens.0.projects.1',
-    ]);
-    expect(
-      paths('runtime: { access_tokens: [{ id: a, actor: x, roles: [read], projects: [acme] }] }\n'),
-    ).toEqual(['runtime.access_tokens.0.token_file']);
-  });
-
-  it('rejects duplicate token ids and shared token files', () => {
-    const extra = `runtime:
-  access_tokens:
-    - { id: a, actor: x, roles: [read], projects: [acme], token_file: /srv/a.token }
-    - { id: a, actor: y, roles: [read], projects: [acme], token_file: /srv/b.token }
-    - { id: c, actor: z, roles: [read], projects: [acme], token_file: /srv/a.token }
-`;
-    expect(paths(extra)).toEqual([
-      'runtime.access_tokens.1.id',
-      'runtime.access_tokens.2.token_file',
-    ]);
   });
 
   it('rejects isolation modes for undeclared harnesses and unknown modes', () => {

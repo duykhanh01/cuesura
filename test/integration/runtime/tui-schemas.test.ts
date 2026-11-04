@@ -40,7 +40,7 @@ const TIMEOUT = 5_000;
 
 describe('interface schemas against a real daemon', () => {
   async function seeded() {
-    const sd = new SeededDaemon([], {}, extra);
+    const sd = new SeededDaemon({}, extra);
     live.push(sd);
     const fresh = buildTask({
       id: uuidOf(1),
@@ -90,7 +90,7 @@ describe('interface schemas against a real daemon', () => {
     const { port } = await seeded();
     expect(await port.projects(TIMEOUT)).toMatchObject({
       ok: true,
-      value: { caller: { scope: 'all' } },
+      value: { caller: { actor: 'owner' } },
     });
   });
 

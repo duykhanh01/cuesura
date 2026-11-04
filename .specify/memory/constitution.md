@@ -73,8 +73,10 @@ comment hoặc merge đã thành công.
 
 - Workflow, policy, role/model binding và input gốc MUST bất biến theo revision. Thay đổi cần
   event, actor, lý do và revision mới. Agent MUST NOT tự đổi role, quyền, binding, approval, pool
-  hay ngân sách của mình. Assistant caller có token `operate` được xác nhận run config của task nó
-  điều phối, theo digest và có ghi actor; worker không có token và không gọi `cusr`.
+  hay ngân sách của mình. Assistant caller tự khai là `assistant` (`CUSR_ACTOR`) và daemon giới hạn nó ở
+  `read`/`operate`: được xác nhận run config của task nó điều phối, theo digest và có ghi actor, không được
+  approve hay dùng quyền admin. Đây là rào chắn cho caller làm đúng quy ước, không phải ranh giới bảo
+  mật với process cùng UID. Worker không gọi `cusr`.
 - Nâng effort/model/vendor MUST đi theo thang đã duyệt trước, do code kích hoạt theo phân loại lỗi.
   Lỗi hạ tầng hoặc hết hạn mức MUST NOT kích hoạt nâng model; không hạ model ngầm.
 - Effect merge do Cuesura gửi MUST chỉ do code thực hiện sau khi kiểm tra quyền, head/base SHA,
@@ -223,4 +225,17 @@ Các gate typecheck, lint, test và build vẫn bắt buộc.
 I–VIII. SPEC §17 và hướng dẫn formatter được cập nhật; template Spec Kit đã kiểm tra, không cần
 thay đổi. Không có mục đồng bộ còn chờ.
 
-**Version**: 6.1.1 | **Ratified**: 2026-10-27 | **Last Amended**: 2026-11-04
+**Amendment 2026-11-05 (chủ dự án):** 6.1.1 → 7.0.0 vì định nghĩa lại cách nguyên tắc V tách assistant
+khỏi owner: bỏ access token. Caller tự khai actor qua `CUSR_ACTOR`; không khai là owner. Quyền truy cập
+socket điều khiển chỉ dựa vào file mode (thư mục 0700, socket 0600), như trước đây trên thực tế, vì process
+cùng UID vốn đọc được `owner.token`. Bỏ phạm vi project theo token. Giữ nguyên: assistant chỉ có
+`read`/`operate`, không approve escalation, không bật yolo; người dùng merge PR. Đồng bộ runbook, skill
+`cusr`, dogfooding, hợp đồng CLI–daemon và ADR 0011; các template đọc hiến chương hiện hành, không cần đổi
+cấu trúc.
+
+**Sync Impact Report 2026-11-05:** nguyên tắc V đổi cơ chế tách owner/assistant từ token sang actor tự
+khai. SPEC §5.2 và §15, `deploy/README.md`, `docs/dogfooding.md`, skill `cusr`, README và
+`specs/002-task-to-green-pr/contracts/cli-daemon.md` được cập nhật; template Spec Kit đã kiểm tra, không cần
+thay đổi. Không có mục đồng bộ còn chờ.
+
+**Version**: 7.0.0 | **Ratified**: 2026-10-27 | **Last Amended**: 2026-11-05

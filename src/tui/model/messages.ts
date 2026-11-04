@@ -21,8 +21,6 @@ export type Message =
       readonly type: 'read_failed';
       readonly failure: Extract<ReadOutcome, { ok: false }>;
     }
-  /** The token file now holds another token: who is asking, and what they may read, must be read again. */
-  | { readonly type: 'credential_changed' }
   /** One frame of the animation went by. */
   | { readonly type: 'tick' }
   | DetailMessage

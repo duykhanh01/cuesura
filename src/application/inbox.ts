@@ -75,10 +75,7 @@ export function inbox(
         issues: q.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`),
       },
     });
-  const allowed = authorize(caller, {
-    role: 'read',
-    ...(q.data.project === undefined ? {} : { project: q.data.project }),
-  });
+  const allowed = authorize(caller, { role: 'read' });
   if (!allowed.ok)
     return err({
       code: 'forbidden',
@@ -92,7 +89,6 @@ export function inbox(
     // Both paths: a question of a finished or cancelled task can no longer be answered.
     if (s === null || !(LIVE as readonly string[]).includes(s.status)) continue;
     if (q.data.project !== undefined && s.project !== q.data.project) continue;
-    if (!authorize(caller, { role: 'read', project: s.project }).ok) continue;
     items.push(...openQuestions(s));
   }
   items.sort(

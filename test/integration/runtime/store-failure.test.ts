@@ -7,7 +7,6 @@
 import { join } from 'node:path';
 import { v7 as uuidv7 } from 'uuid';
 import { describe, expect, it } from 'vitest';
-import { readTokenFile } from '../../../src/application/access-tokens.ts';
 import { callDaemon } from '../../../src/cli/client.ts';
 import { STORE_FILE, startDaemon } from '../../../src/daemon/main.ts';
 import type { EpochMs } from '../../../src/shared/brand.ts';
@@ -36,7 +35,6 @@ describe('store failure latch (T092, FR-023)', () => {
 
     const base = {
       dataDir: dir,
-      accessTokens: [],
       clock: { now: () => d.now as EpochMs, monotonic: () => 0 },
       newId: uuidv7,
       dispatchIntervalMs: 60_000,
@@ -64,11 +62,9 @@ describe('store failure latch (T092, FR-023)', () => {
       expect(daemon.dispatcher.latchedReason).toBe('filesystem write failed: ENOSPC');
       expect(logs.some((l) => l.includes('dispatch store_latched'))).toBe(true);
 
-      const token = readTokenFile(daemon.ownerTokenPath, 'owner');
-      if (!token.ok) throw new Error('owner token');
       const health = await callDaemon({
         socketPath: daemon.socketPath,
-        token: token.value,
+        actor: 'owner',
         method: 'GET',
         path: '/v1/health',
       });
@@ -96,7 +92,7 @@ describe('store failure latch (T092, FR-023)', () => {
       const before = ledger();
       const command = await callDaemon({
         socketPath: daemon.socketPath,
-        token: token.value,
+        actor: 'owner',
         method: 'POST',
         path: '/v1/command',
         body: {

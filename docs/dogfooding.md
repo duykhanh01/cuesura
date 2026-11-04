@@ -9,7 +9,7 @@ thành việc, sửa qua chính `cusr`, rồi có hiệu lực ở release sau.
   và merge mọi PR; khi user config có `yolo: true`, chính daemon merge PR đủ điều kiện
   ([deploy](../deploy/README.md#yolo)). Vòng cải thiện không có đường tắt nào khác.
 - **Gate lấy từ commit base.** PR sửa `cusr.yaml` hay CI không tự nới gate cho chính nó.
-- **Worker không dùng `cusr`.** Skill và token chỉ dành cho assistant caller điều phối; không truyền vào worker.
+- **Worker không dùng `cusr`.** Skill chỉ dành cho assistant caller điều phối; không truyền vào worker.
 - **Một release, một task.** V1 chạy một task tại một thời điểm.
 
 ## Bố cục
@@ -21,8 +21,7 @@ Repo phát triển giữ nguyên ở `~/projects/metronome`. Phần vận hành 
 | `releases/<sha>/` | Bản build đóng băng; không sửa tay |
 | `current` | Symlink tới release đang dùng; `~/.local/bin/cusr*` chạy qua đây |
 | `repo/` | Clone riêng của daemon; không làm việc trực tiếp ở đây |
-| `data/` | Data dir của daemon, gồm `owner.token`; assistant không đọc file này |
-| `access/assistant.token` | Token `read/operate`, chỉ cho project `cuesura` |
+| `data/` | Data dir của daemon |
 | `config.yaml`, `prompts/` | User config và prompt role |
 | `tools/node/bin/` | Node và pnpm của vận hành; lệnh dùng PATH host và quyền native của harness |
 
@@ -36,14 +35,14 @@ Kết nối cho assistant, lặp lại ở mỗi lệnh theo skill:
 
 ```sh
 DATA_DIR=~/cuesura-dogfood/data
-TOKEN_FILE=~/cuesura-dogfood/access/assistant.token
 PROJECT=cuesura
 BASE=main
 PROFILE=dogfood
 ```
 
-Cùng UID nên token map không phải ranh giới quyền thật ([deploy](../deploy/README.md#token-và-quyền)): việc
-assistant không đọc `owner.token` là quy tắc, không phải giới hạn kỹ thuật.
+Skill đặt `CUSR_ACTOR=assistant` ở mỗi lệnh nên daemon giới hạn assistant ở `read/operate`. Cùng UID nên đây
+không phải ranh giới quyền thật ([deploy](../deploy/README.md#người-gọi-và-quyền)): việc assistant không bỏ
+biến này để gọi như owner là quy tắc, không phải giới hạn kỹ thuật.
 
 ## Cài đặt lần đầu (người dùng)
 
@@ -98,7 +97,7 @@ assistant không đọc `owner.token` là quy tắc, không phải giới hạn 
 | Bước | Ai | Việc |
 | --- | --- | --- |
 | 1. Giao | Assistant | `cusr task add` với tiêu chí nghiệm thu quan sát được, kèm đề xuất run config và lý do |
-| 2. Xác nhận | Assistant | `cusr task confirm --run-config <digest>` bằng token của assistant |
+| 2. Xác nhận | Assistant | `cusr task confirm --run-config <digest>` với `CUSR_ACTOR=assistant` |
 | 3. Chạy | Daemon, worker | Worktree riêng, coder, gate, reviewer nếu `full-review`, tạo PR, chờ CI |
 | 4. Theo dõi | Assistant | `task explain`, `task logs`, `inbox`; câu hỏi chưa rõ thì chuyển cho người dùng |
 | 5. Merge | **Người dùng** | Đọc diff, merge trên GitHub; daemon ghi nhận DONE |
@@ -135,7 +134,7 @@ mức cao hơn. Không đổi binding sau khi task đã chạy: muốn đổi th
 Reviewer của mọi `full-review` là `codex/sol/high`.
 
 - **Vùng nhạy cảm luôn dùng mức mặc định:** `src/runner`, `src/daemon`, `src/adapters`, `cusr.yaml`, `.github`,
-  `deploy` hoặc quyền, token, sandbox. Với vùng này, `full-review` là bắt buộc và người dùng chạy `pnpm test` trên host
+  `deploy` hoặc quyền, sandbox. Với vùng này, `full-review` là bắt buộc và người dùng chạy `pnpm test` trên host
   trước khi merge: gate chạy trên host, còn sandbox native của worker có thể làm một số test không chạy được. Báo rõ test bị skip; không dùng lời worker thay bằng chứng test host.
 - **Giữa Terra và Sonnet:** hai model cùng mức. Có `full-review` thì ưu tiên Sonnet để reviewer Sol khác vendor;
   còn lại chọn bên còn hạn mức.
@@ -147,7 +146,7 @@ Reviewer của mọi `full-review` là `codex/sol/high`.
 
 Muốn thêm hoặc đổi model: sửa `models` và `binding` của `coder`, `fixer`, `reviewer` trong `config.yaml`, sửa bảng
 trên. Assistant kiểm tra không còn task đang chạy hoặc chờ sửa, rồi restart daemon và chạy `doctor`;
-người dùng không cần chép lệnh dài hay đưa owner token. `--worker` phải khớp đúng một binding đã khai,
+người dùng không cần chép lệnh dài hay chạy thay assistant. `--worker` phải khớp đúng một binding đã khai,
 theo dạng `harness/tên-model/effort`.
 
 Làm tay theo [AGENTS.md](../AGENTS.md) thay vì qua `cusr` khi:
@@ -172,7 +171,7 @@ Dùng đường này thì vẫn tạo PR như thường và ghi rõ lý do khôn
 4. **Có hiệu lực khi nâng release.** Skill và CLI đổi cùng lúc, theo cùng SHA. Dùng lại đúng kịch bản đã ghi trong
    issue trên release mới rồi mới đóng issue.
 
-Không tính là cải thiện, và không được làm chỉ để task xanh: nới gate, bỏ test, đổi quyền token. Những thay đổi này phải là PR riêng do người dùng quyết định.
+Không tính là cải thiện, và không được làm chỉ để task xanh: nới gate, bỏ test, đổi quyền của assistant. Những thay đổi này phải là PR riêng do người dùng quyết định.
 
 Mỗi tháng, hoặc sau 10 task, xem lại: tỉ lệ task tới PR xanh không cần sửa tay, số lần người dùng phải can thiệp,
 số lượt agent trên mỗi PR được merge, và số issue `dogfood:` mở/đóng. Chỉ số xấu đi thì sửa trước khi thêm feature.
@@ -187,9 +186,9 @@ Nếu còn việc thì hoãn cập nhật, không tự hủy task. Dừng servic
 sau khi tạo lại manifest và restart, kiểm tra lại `doctor`, `status` và chạy task nghiệm thu.
 
 Config được đọc lại khi xác nhận task mới; `yolo` được đọc lại trước khi daemon xét merge. Thay đổi
-token, công cụ, credential reference, pin/manifest hay binary cần restart để các thành phần trong process
+công cụ, credential reference, pin/manifest hay binary cần restart để các thành phần trong process
 dùng cùng cấu hình. Không thay snapshot của task cũ. Escalation vẫn cần người dùng chạy `task approve`
-bằng quyền admin; token assistant chỉ có read/operate.
+bằng quyền admin; assistant chỉ có read/operate.
 
 Profile mới không còn `budgets`: task mới không có trần số lượt agent hoặc deadline chung, nên không
 cần `amend-policy` để tăng budget. Giữ lịch sử/snapshot của task cũ nguyên trạng. Giới hạn retry theo

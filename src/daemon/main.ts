@@ -14,12 +14,6 @@ import { isAbsolute, join, resolve } from 'node:path';
 import type { Server } from 'node:http';
 import { v7 as uuidv7 } from 'uuid';
 import type { Clock } from '../adapters/ports.ts';
-import {
-  ensureOwnerToken,
-  loadTokenMap,
-  readTokenFile,
-  type TokenMap,
-} from '../application/access-tokens.ts';
 import { authorize, type AuthzError, type Caller } from '../application/authz.ts';
 import {
   COMMAND_PAYLOADS,
@@ -35,7 +29,6 @@ import { httpStatusFor } from '../cli/errors.ts';
 import { okEnvelope } from '../cli/output.ts';
 import type { RuntimeConfig } from '../config/normalize.ts';
 import { readConfigFiles } from '../config/read-files.ts';
-import type { AccessTokenSpec } from '../config/schema-user.ts';
 import { validateConfig } from '../config/validate.ts';
 import type { ConfigSource } from '../config/yaml-loader.ts';
 import type { IdentityProbe } from '../runner/identity.ts';
@@ -100,7 +93,6 @@ export type DaemonRuntime = {
 
 export type DaemonOptions = {
   readonly dataDir: string;
-  readonly accessTokens: readonly AccessTokenSpec[];
   readonly clock?: Clock;
   readonly newId?: () => string;
   readonly effects?: EffectHandlers;
@@ -139,16 +131,13 @@ export type DaemonOptions = {
 
 export type DaemonStartError =
   | { readonly code: 'data_dir_insecure'; readonly detail: string }
-  | { readonly code: 'token_error'; readonly detail: string }
   | { readonly code: StoreOpenError['code']; readonly detail: string }
   | { readonly code: 'listen_failed'; readonly detail: string };
 
 export type RunningDaemon = {
   readonly socketPath: string;
-  readonly ownerTokenPath: string;
   readonly store: Store;
   readonly dispatcher: Dispatcher;
-  readonly tokens: TokenMap;
   readonly startup: StartupReport;
   /** One recovery pass now (the interval runs it too); resolves once it is done. */
   recover(): Promise<void>;
@@ -159,7 +148,7 @@ function authzReply(e: AuthzError): Reply {
   return e.code === 'unauthenticated'
     ? errorReply(401, {
         code: 'unauthenticated',
-        message: 'missing or unknown bearer token',
+        message: 'unknown actor',
         details: {},
       })
     : errorReply(403, {
@@ -231,7 +220,7 @@ function outcomeReply(requestId: string, outcome: CommandOutcome, replayed: bool
   };
 }
 
-/** DATA_DIR holds the store, tokens and socket: created 0700, refused when group/other can access it. */
+/** DATA_DIR holds the store and socket: created 0700, refused when group/other can access it. */
 function prepareDataDir(dataDir: string): string | null {
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   const st = lstatSync(dataDir);
@@ -249,8 +238,7 @@ export async function startDaemon(
   const clock = opts.clock ?? systemClock;
   const newId = opts.newId ?? newUuid;
   const rawLog = opts.log ?? (() => undefined);
-  // Until the token files are read, only well-known credential shapes and secret-named env values are known.
-  let redactor = new Redactor({ env: process.env });
+  const redactor = new Redactor({ env: process.env });
   // Every daemon log line (request failures, handler errors) passes here: secrets are masked before output.
   const log = (msg: string): void => rawLog(redactor.text(msg));
   const insecure = prepareDataDir(opts.dataDir);
@@ -259,33 +247,6 @@ export async function startDaemon(
       ok: false,
       error: { code: 'data_dir_insecure', detail: insecure },
     };
-
-  const owner = ensureOwnerToken(opts.dataDir);
-  if (!owner.ok)
-    return {
-      ok: false,
-      error: { code: 'token_error', detail: JSON.stringify(owner.error) },
-    };
-  const tokens = loadTokenMap(owner.value.path, opts.accessTokens);
-  if (!tokens.ok)
-    return {
-      ok: false,
-      error: { code: 'token_error', detail: JSON.stringify(tokens.error) },
-    };
-  const secrets: string[] = [];
-  for (const [id, path] of [
-    ['owner', owner.value.path],
-    ...opts.accessTokens.map((t) => [t.id, t.token_file] as const),
-  ] as const) {
-    const t = readTokenFile(path, id);
-    if (t.ok) secrets.push(t.value);
-  }
-  redactor = new Redactor({ values: secrets, env: process.env });
-  log(`token config hash ${tokens.value.config_hash}`);
-  for (const a of tokens.value.audit)
-    log(
-      `token ${a.id} actor=${a.actor} roles=${a.roles.join(',')} projects=${a.projects === '*' ? '*' : a.projects.join(',')} fp=${a.fingerprint}`,
-    );
 
   const recovery = {
     probeCursors: new Map<string, IngestPosition>(),
@@ -564,7 +525,7 @@ export async function startDaemon(
     },
   };
 
-  const server: Server = createControlServer(tokens.value, handlers, log);
+  const server: Server = createControlServer(handlers, log);
   let socketPath: string;
   try {
     socketPath = await listenControlSocket(server, opts.dataDir);
@@ -595,10 +556,8 @@ export async function startDaemon(
     ok: true,
     value: {
       socketPath,
-      ownerTokenPath: owner.value.path,
       store,
       dispatcher,
-      tokens: tokens.value,
       startup,
       recover,
       async stop() {
@@ -625,8 +584,9 @@ export async function loadDaemonConfig(args: DaemonCliArgs): Promise<
   Result<
     {
       dataDir: string;
-      accessTokens: AccessTokenSpec[];
       runtime: RuntimeConfig;
+      /** Accepted for old configs, but no longer read. */
+      warnings: string[];
     },
     string
   >
@@ -662,8 +622,12 @@ export async function loadDaemonConfig(args: DaemonCliArgs): Promise<
     ok: true,
     value: {
       dataDir: isAbsolute(dataDir) ? dataDir : resolve(dataDir),
-      accessTokens: runtime.access_tokens,
       runtime,
+      warnings: runtime.access_tokens_ignored
+        ? [
+            `${args.config}: runtime.access_tokens is ignored; access tokens were removed, see deploy/README.md#người-gọi-và-quyền`,
+          ]
+        : [],
     },
   };
 }
@@ -680,6 +644,7 @@ export async function daemonMain(
     return 2;
   }
   const log = (m: string): void => io.stderr(`cusrd: ${m}\n`);
+  for (const w of cfg.value.warnings) log(w);
   const clock: Clock = {
     now: () => asEpochMs(Date.now()),
     monotonic: () => performance.now(),
@@ -694,7 +659,6 @@ export async function daemonMain(
   });
   const started = await startDaemon({
     dataDir: cfg.value.dataDir,
-    accessTokens: cfg.value.accessTokens,
     log,
     clock,
     control,

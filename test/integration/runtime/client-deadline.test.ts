@@ -1,5 +1,5 @@
 import { createServer, type Server, type ServerResponse } from 'node:http';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -14,7 +14,6 @@ import type { Connection } from '../../../src/tui/model/state.ts';
 
 // Real sockets: what matters is that a connection really closes, which a fake transport cannot show.
 
-const TOKEN = 'a'.repeat(43);
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
   for (const c of cleanups.splice(0)) await c();
@@ -29,7 +28,6 @@ function trickle(res: ServerResponse): void {
 
 async function daemon(handler: (path: string, body: string, res: ServerResponse) => void) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cusr-deadline-')));
-  writeFileSync(join(dir, 'owner.token'), `${TOKEN}\n`, { mode: 0o600 });
   const open = new Set<string>();
   const seen: string[] = [];
   const server: Server = createServer((req, res) => {
@@ -63,7 +61,7 @@ describe('callDaemon', () => {
     const started = Date.now();
     const r = await callDaemon({
       socketPath: d.socketPath,
-      token: TOKEN,
+      actor: 'owner',
       method: 'GET',
       path: '/v1/health',
       timeoutMs: 100,
@@ -79,7 +77,7 @@ describe('callDaemon', () => {
     const controller = new AbortController();
     const call = callDaemon({
       socketPath: d.socketPath,
-      token: TOKEN,
+      actor: 'owner',
       method: 'GET',
       path: '/v1/health',
       timeoutMs: 60_000,
@@ -97,7 +95,7 @@ describe('callDaemon', () => {
     const d = await daemon((_p, _b, res) => trickle(res));
     const r = await callDaemon({
       socketPath: d.socketPath,
-      token: TOKEN,
+      actor: 'owner',
       method: 'GET',
       path: '/v1/health',
       signal: AbortSignal.abort(),
@@ -119,7 +117,7 @@ describe('callDaemon', () => {
     expect(
       await callDaemon({
         socketPath: d.socketPath,
-        token: TOKEN,
+        actor: 'owner',
         method: 'GET',
         path: '/v1/health',
       }),

@@ -1,4 +1,4 @@
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -7,7 +7,6 @@ import { err, ok, type Result } from '../../../src/shared/result.ts';
 import type { DaemonReply } from '../../../src/cli/client.ts';
 import { createDaemonPort } from '../../../src/tui/client/daemon-port.ts';
 
-const TOKEN = 'a'.repeat(43);
 const TASK = '019a0000-0000-7000-8000-000000000001';
 const dirs: string[] = [];
 afterEach(() => {
@@ -17,7 +16,6 @@ afterEach(() => {
 function dataDir(): string {
   const d = realpathSync(mkdtempSync(join(tmpdir(), 'cusr-port-')));
   dirs.push(d);
-  writeFileSync(join(d, 'owner.token'), `${TOKEN}\n`, { mode: 0o600 });
   return d;
 }
 
@@ -91,12 +89,12 @@ const HEALTH = {
 };
 
 describe('daemon port', () => {
-  it('connects like a subcommand, on the data dir socket with the owner token', async () => {
+  it('connects like a subcommand, on the data dir socket as the owner', async () => {
     const p = port(okReply(BOARD));
     await p.port.board({}, 2_000);
     expect(p.calls[0]).toMatchObject({
       socketPath: join(p.dir, 'control.sock'),
-      token: TOKEN,
+      actor: 'owner',
       method: 'POST',
       path: '/v1/query',
       body: { kind: 'task_board' },
@@ -104,77 +102,36 @@ describe('daemon port', () => {
     });
   });
 
-  it('honours CUSR_TOKEN_FILE, reading no token from anywhere else', async () => {
-    const dir = dataDir();
-    const other = join(dir, 'other.token');
-    writeFileSync(other, `${'b'.repeat(43)}\n`, { mode: 0o600 });
+  it('declares the actor CUSR_ACTOR names', async () => {
     const calls: CallOptions[] = [];
     await createDaemonPort({
-      dataDir: dir,
-      env: { CUSR_TOKEN_FILE: other },
+      dataDir: dataDir(),
+      env: { CUSR_ACTOR: 'assistant' },
       call: (o) => {
         calls.push(o);
         return Promise.resolve(okReply(BOARD));
       },
     }).board({}, 1);
-    expect(calls[0]?.token).toBe('b'.repeat(43));
+    expect(calls[0]?.actor).toBe('assistant');
   });
 
-  it('drops the watermark and counts a change once the token file holds another token', async () => {
+  it('passes the watermark through as asked', async () => {
     const p = port(okReply(BOARD));
-    const file = join(p.dir, 'owner.token');
-    await p.port.board({ if_changed_since: 9 }, 1);
-    expect(p.calls[0]?.body).toMatchObject({ if_changed_since: 9 });
-    expect(p.port.credentialGeneration()).toBe(0);
-
-    writeFileSync(file, `${'b'.repeat(43)}\n`, { mode: 0o600 });
     await p.port.board({ if_changed_since: 9, limit: 5 }, 1);
-    expect(p.calls[1]).toMatchObject({
-      token: 'b'.repeat(43),
-      body: { limit: 5 },
-    });
-    expect(p.calls[1]?.body).not.toHaveProperty('if_changed_since');
-    expect(p.port.credentialGeneration()).toBe(1);
-
-    // Only the first question under the new token: the answer to it is a real read.
-    await p.port.board({ if_changed_since: 10 }, 1);
-    expect(p.calls[2]?.body).toMatchObject({ if_changed_since: 10 });
+    expect(p.calls[0]?.body).toMatchObject({ kind: 'task_board', if_changed_since: 9, limit: 5 });
   });
 
-  it('a change another read noticed first still drops the watermark', async () => {
-    const p = port(okReply(BOARD));
-    await p.port.board({ if_changed_since: 9 }, 1);
-    writeFileSync(join(p.dir, 'owner.token'), `${'b'.repeat(43)}\n`, {
-      mode: 0o600,
-    });
-    await p.port.projects(1);
-    await p.port.board({ if_changed_since: 9 }, 1);
-    expect(p.calls[2]?.body).not.toHaveProperty('if_changed_since');
-  });
-
-  it('a token file gone for a moment and back with the same token is no change', async () => {
-    const p = port(okReply(BOARD));
-    const file = join(p.dir, 'owner.token');
-    await p.port.board({}, 1);
-    rmSync(file);
-    expect((await p.port.board({}, 1)).ok).toBe(false);
-    writeFileSync(file, `${TOKEN}\n`, { mode: 0o600 });
-    await p.port.board({ if_changed_since: 9 }, 1);
-    expect(p.port.credentialGeneration()).toBe(0);
-    expect(p.calls.at(-1)?.body).toMatchObject({ if_changed_since: 9 });
-  });
-
-  it('a token that cannot be read stops short of the socket', async () => {
+  it('an unknown CUSR_ACTOR stops short of the socket', async () => {
     const calls: CallOptions[] = [];
     const r = await createDaemonPort({
       dataDir: '/nonexistent/dir',
-      env: {},
+      env: { CUSR_ACTOR: 'viewer' },
       call: (o) => {
         calls.push(o);
         return Promise.resolve(okReply(BOARD));
       },
     }).board({}, 1);
-    expect(r).toMatchObject({ ok: false, error: { kind: 'token' } });
+    expect(r).toMatchObject({ ok: false, error: { kind: 'actor' } });
     expect(calls).toEqual([]);
   });
 

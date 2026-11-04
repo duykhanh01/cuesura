@@ -7,15 +7,14 @@ import type { TaskLogs } from '../client/schemas.ts';
 import { joinSafe, uiText, type SafeText } from '../terminal/safe-text.ts';
 import { contentHeight } from '../views/disconnected.ts';
 import { detailRowCount } from '../views/task-detail.ts';
-import { forgetActions, openActions } from './actions.ts';
-import { forgetDetail, initialDetail } from './detail.ts';
+import { openActions } from './actions.ts';
+import { initialDetail } from './detail.ts';
 import type { HomeRow } from './home-rows.ts';
 import {
   applyLogPage,
   failLogRead,
   filterAttempt,
   followLogs,
-  forgetLogs,
   initialLogs,
   LOG_HEADER_ROWS,
   logColumns,
@@ -73,19 +72,6 @@ const leave = (state: TuiState, screen: 'detail' | 'logs'): TuiState => {
   // A menu over the screen left goes with it.
   return left.screens.includes('actions') ? left : { ...left, actions: null };
 };
-
-/** A change of token: what the open screens hold and are waiting for belongs to the old one. */
-export function forgetScreens(
-  state: TuiState,
-): Pick<TuiState, 'detail' | 'logs' | 'actions' | 'screenSession'> {
-  const session = state.screenSession + 1;
-  return {
-    detail: state.detail === null ? null : forgetDetail(state.detail, session),
-    logs: state.logs === null ? null : forgetLogs(state.logs, session),
-    actions: state.actions === null ? null : forgetActions(state.actions, session),
-    screenSession: session,
-  };
-}
 
 /** `null`: not a command of this screen. */
 export function onDetailCommand(state: TuiState, command: Command): Reduced | null {

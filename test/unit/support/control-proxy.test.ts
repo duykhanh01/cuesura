@@ -49,7 +49,7 @@ async function proxy(target: string, mode?: 'hold' | 'drop_response') {
 const call = (p: ControlProxy, timeoutMs = 2_000) =>
   callDaemon({
     socketPath: join(p.dataDir, CONTROL_SOCKET),
-    token: 't',
+    actor: 'owner',
     method: 'POST',
     path: '/v1/query',
     body: { kind: 'x' },

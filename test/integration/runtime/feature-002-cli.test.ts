@@ -78,11 +78,7 @@ afterEach(async () => {
 });
 
 function daemon(extra?: SeededExtra): SeededDaemon {
-  const sd = new SeededDaemon(
-    [{ id: 'reader', actor: 'reader', roles: ['read'], projects: ['acme'] }],
-    {},
-    extra,
-  );
+  const sd = new SeededDaemon({}, extra);
   live.push(sd);
   return sd;
 }
@@ -90,29 +86,22 @@ function daemon(extra?: SeededExtra): SeededDaemon {
 async function raw(
   sd: SeededDaemon,
   argv: string[],
-  o: { token?: string; commands?: typeof CUSR_COMMANDS; json?: boolean } = {},
+  o: { commands?: typeof CUSR_COMMANDS; json?: boolean } = {},
 ): Promise<{ code: number; out: string; err: string }> {
   const out: string[] = [];
   const err: string[] = [];
-  const saved = process.env['CUSR_TOKEN_FILE'];
-  if (o.token !== undefined) process.env['CUSR_TOKEN_FILE'] = join(sd.base, `${o.token}.token`);
-  try {
-    const code = await runCli(
-      { name: 'cusr', description: 'test', version: '0' },
-      [...argv, '--data-dir', sd.dataDir, ...(o.json === false ? [] : ['--json'])],
-      { stdout: (t) => out.push(t), stderr: (t) => err.push(t) },
-      o.commands ?? CUSR_COMMANDS,
-    );
-    return { code, out: out.join(''), err: err.join('') };
-  } finally {
-    if (saved === undefined) delete process.env['CUSR_TOKEN_FILE'];
-    else process.env['CUSR_TOKEN_FILE'] = saved;
-  }
+  const code = await runCli(
+    { name: 'cusr', description: 'test', version: '0' },
+    [...argv, '--data-dir', sd.dataDir, ...(o.json === false ? [] : ['--json'])],
+    { stdout: (t) => out.push(t), stderr: (t) => err.push(t) },
+    o.commands ?? CUSR_COMMANDS,
+  );
+  return { code, out: out.join(''), err: err.join('') };
 }
 
 /** A finite command: stdout holds exactly one envelope, whatever happened. */
-async function cli(sd: SeededDaemon, argv: string[], o: { token?: string } = {}): Promise<Run> {
-  const r = await raw(sd, argv, o);
+async function cli(sd: SeededDaemon, argv: string[]): Promise<Run> {
+  const r = await raw(sd, argv);
   expect(r.out.endsWith('\n')).toBe(true);
   expect(r.out.trimEnd().split('\n')).toHaveLength(1);
   const envelope = JSON.parse(r.out) as Run['envelope'];
@@ -310,13 +299,6 @@ describe('commands, envelope and exit codes (US6.1/2, FR-027.01/028)', () => {
     expect(noVersion.code).toBe(ExitCode.usage);
 
     expect((await cli(sd, ['task', 'show', uuidOf(4_444)])).code).toBe(ExitCode.missing);
-    expect(
-      (
-        await cli(sd, ['task', 'add', '--file', taskFile(sd, TASK_INPUT)], {
-          token: 'reader',
-        })
-      ).code,
-    ).toBe(ExitCode.forbidden);
     const stale = await cli(sd, ['task', 'cancel', t.id, '--expected-version', '1']);
     expect(stale.code).toBe(ExitCode.conflict);
     expect(stale.envelope.error.code).toBe('conflict');
@@ -762,12 +744,8 @@ describe('task recheck end to end (T110, FR-046.01–08)', () => {
     expect(after?.status).toBe('WAITING');
   });
 
-  it('needs operate, and a stale version is a conflict with no read', async () => {
-    const { sd, t, calls, version } = await green();
-    const denied = await cli(sd, ['task', 'recheck', t.id, '--expected-version', await version()], {
-      token: 'reader',
-    });
-    expect(denied.code).toBe(ExitCode.forbidden);
+  it('a stale version is a conflict with no read', async () => {
+    const { sd, t, calls } = await green();
     const stale = await cli(sd, ['task', 'recheck', t.id, '--expected-version', '1']);
     expect(stale.code).toBe(ExitCode.conflict);
     expect(calls.observe).toBe(0);
@@ -1116,7 +1094,7 @@ describe('logs (T114, US6.2, FR-027.01/031)', () => {
   it('--follow sleeps when a transient gap leaves the cursor unchanged', async () => {
     const t = buildTask();
     let calls = 0;
-    const sd = new SeededDaemon([], {
+    const sd = new SeededDaemon({
       control: () => ({
         queries: {
           task_logs: () => {
@@ -1193,7 +1171,7 @@ describe('logs (T114, US6.2, FR-027.01/031)', () => {
         { records: [record(2)], next_cursor: 2 },
       ];
       const cursors: unknown[] = [];
-      const sd = new SeededDaemon([], {
+      const sd = new SeededDaemon({
         control: () => ({
           queries: {
             task_logs: (_caller, body) => {
@@ -1711,7 +1689,7 @@ describe('dependency recovery and queue (T119, FR-001.02/03, FR-044.06/07)', () 
 
   it('a scheduler failure is logged and does not stop the daemon', async () => {
     const logs: string[] = [];
-    const sd = new SeededDaemon([], { log: (m) => logs.push(m) }, () => ({
+    const sd = new SeededDaemon({ log: (m) => logs.push(m) }, () => ({
       schedule: () => Promise.reject(new Error('boom')),
     }));
     live.push(sd);

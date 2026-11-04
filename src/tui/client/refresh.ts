@@ -42,20 +42,12 @@ export type RefreshReads = {
   /** `fresh`: no watermark, after a failure the data must be read for real. */
   board(fresh: boolean, timeoutMs: number, signal: AbortSignal): Promise<PortResult<BoardReply>>;
   health(timeoutMs: number, signal: AbortSignal): Promise<PortResult<Health>>;
-  /** Read metadata on first load, reconnect or credential change; otherwise reuse the cached value. */
+  /** Read metadata on first load or reconnect; otherwise reuse the cached value. */
   projects?(
     fresh: boolean,
     timeoutMs: number,
     signal: AbortSignal,
   ): Promise<PortResult<ProjectList | null>>;
-};
-
-/** Lets a round be judged by the token it went out with. */
-export type RefreshCredential = {
-  /** Another number means the token file was found to hold another token. */
-  generation(): number;
-  /** A round was thrown away for another token; a new one starts right after this. */
-  superseded(): void;
 };
 
 export type RoundResult =
@@ -72,10 +64,10 @@ export type RoundResult =
 
 /** Failures that retrying cannot fix end the automatic attempts at once. */
 function stopReason(e: PortError): StopReason | null {
-  // The token may no longer read this: asking again gets the same answer until someone changes that (EC-008).
+  // The caller may not read this: asking again gets the same answer until someone changes that (EC-008).
   if (e.kind === 'rejected' && e.code === 'forbidden')
     return { kind: 'forbidden', message: e.message };
-  return e.kind === 'token' || e.kind === 'unauthenticated' || e.kind === 'incompatible'
+  return e.kind === 'actor' || e.kind === 'unauthenticated' || e.kind === 'incompatible'
     ? { kind: e.kind, message: e.message }
     : null;
 }
@@ -84,7 +76,6 @@ export class RefreshScheduler {
   readonly #clock: RefreshClock;
   readonly #reads: RefreshReads;
   readonly #report: (r: RoundResult) => Connection;
-  readonly #credential: RefreshCredential | null;
   #timer: unknown = null;
   readonly #inFlight = new Set<AbortController>();
   #reading = false;
@@ -98,12 +89,10 @@ export class RefreshScheduler {
     reads: RefreshReads;
     /** Hands the result to the reducer and returns the connection state that follows. */
     report: (r: RoundResult) => Connection;
-    credential?: RefreshCredential;
   }) {
     this.#clock = opts.clock;
     this.#reads = opts.reads;
     this.#report = opts.report;
-    this.#credential = opts.credential ?? null;
   }
 
   start(): void {
@@ -169,8 +158,6 @@ export class RefreshScheduler {
       (signal) => this.#reads.board(fresh, BOARD_TIMEOUT_MS, signal),
       BOARD_TIMEOUT_MS,
     );
-    // Taken between the two reads, so a change the health read is first to see still counts against the board.
-    const askedAs = this.#credential?.generation();
     const health = this.#bounded(
       (signal) => this.#reads.health(HEALTH_TIMEOUT_MS, signal),
       HEALTH_TIMEOUT_MS,
@@ -183,20 +170,8 @@ export class RefreshScheduler {
     void Promise.all([board, health, metadata]).then(([b, h, p]) => {
       this.#reading = false;
       if (this.#stopped) return;
-      if (askedAs === this.#credential?.generation()) this.#finish(b, h, p, startedAt);
-      else this.#supersede();
+      this.#finish(b, h, p, startedAt);
     });
-  }
-
-  /**
-   * The answer, good or bad, is about a token that is gone: `unchanged` would keep its tasks as current, and its
-   * refusal says nothing of the new one. So it does not count as a read, and the new token asks at once.
-   */
-  #supersede(): void {
-    this.#retryAfterRead = false;
-    this.#fresh = true;
-    this.#credential?.superseded();
-    this.#read();
   }
 
   #finish(

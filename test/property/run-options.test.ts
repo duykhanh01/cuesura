@@ -34,10 +34,8 @@ import { HEAVY_PROPERTY_TIMEOUT_MS } from '../support/timeouts.ts';
 
 const OWNER: Caller = {
   grant: {
-    id: 'owner',
     actor: 'owner',
     roles: ['read', 'operate', 'admin'],
-    projects: '*',
   },
 };
 const MODELS = ['haiku', 'sonnet', 'opus', 'sol'] as const;

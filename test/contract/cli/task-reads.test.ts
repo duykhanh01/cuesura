@@ -22,11 +22,7 @@ afterEach(async () => {
 });
 
 function daemon(extra?: SeededExtra): SeededDaemon {
-  const sd = new SeededDaemon(
-    [{ id: 'out', actor: 'o', roles: ['read'], projects: ['elsewhere'] }],
-    {},
-    extra,
-  );
+  const sd = new SeededDaemon({}, extra);
   running.push(sd);
   return sd;
 }

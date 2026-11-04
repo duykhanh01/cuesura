@@ -12,7 +12,6 @@ import Database from 'better-sqlite3';
 import { v7 as uuidv7 } from 'uuid';
 import { describe, expect, it } from 'vitest';
 import type { UnitObservation } from '../../../src/adapters/ports.ts';
-import { readTokenFile } from '../../../src/application/access-tokens.ts';
 import { notifyDependents } from '../../../src/application/dependency.ts';
 import { callDaemon } from '../../../src/cli/client.ts';
 import { drainRound } from '../../../src/daemon/drain.ts';
@@ -260,10 +259,8 @@ describe('startup order (T085, FR-022, FR-036)', () => {
           { store: f.d.store, dataDir: f.dir, redactor: new Redactor() },
           {
             grant: {
-              id: 'reader',
               actor: 'reader',
               roles: ['read'],
-              projects: ['acme'],
             },
           },
           { kind: 'task_logs', task_id: task.id, after },
@@ -347,7 +344,6 @@ describe('startup order (T085, FR-022, FR-036)', () => {
     f.d.store.close();
     const started = await startDaemon({
       dataDir: f.dir,
-      accessTokens: [],
       clock: { now: () => f.d.now as EpochMs, monotonic: () => 0 },
       newId: uuidv7,
       dispatchIntervalMs: 60_000,
@@ -367,11 +363,9 @@ describe('startup order (T085, FR-022, FR-036)', () => {
       ]);
       // The operation would be provably not launched, yet nothing is reconciled on a mismatched store.
       expect(started.value.store.readTask(task.id)?.operations[OP]?.status).toBe('registered');
-      const owner = readTokenFile(started.value.ownerTokenPath, 'owner');
-      if (!owner.ok) throw new Error('owner token');
       const health = await callDaemon({
         socketPath: started.value.socketPath,
-        token: owner.value,
+        actor: 'owner',
         method: 'GET',
         path: '/v1/health',
       });
@@ -759,7 +753,6 @@ describe('open operations are reconciled before work is granted (T086, FR-034.01
     f.d.store.close();
     const started = await startDaemon({
       dataDir: f.dir,
-      accessTokens: [],
       clock: { now: () => f.d.now as EpochMs, monotonic: () => 0 },
       newId: uuidv7,
       dispatchIntervalMs: 60_000,
@@ -782,11 +775,9 @@ describe('open operations are reconciled before work is granted (T086, FR-034.01
         effect_id: expect.any(String) as string,
         reason: 'no_handler',
       });
-      const owner = readTokenFile(d.ownerTokenPath, 'owner');
-      if (!owner.ok) throw new Error('owner token');
       const health = await callDaemon({
         socketPath: d.socketPath,
-        token: owner.value,
+        actor: 'owner',
         method: 'GET',
         path: '/v1/health',
       });

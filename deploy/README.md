@@ -129,7 +129,7 @@ cusr doctor --project "$PROJECT" --json
 Yêu cầu version: Node đúng `engines` trong `package.json`, `systemd-run` và `systemctl` tại
 `/usr/bin`. Trên WSL2 cần user manager như mục trên; `wsl.exe --shutdown` dừng cả daemon lẫn runner,
 restart đối chiếu `lost`. Trên server headless cần `loginctl enable-linger` như bảng `cause`. Đường dẫn
-thực tế (data dir, socket `control.sock`, `owner.token`) theo `--data-dir`/`runtime.data_dir`; socket
+thực tế (data dir, socket `control.sock`) theo `--data-dir`/`runtime.data_dir`; socket
 phải ngắn hơn 108 byte.
 
 `cusr doctor` chỉ đọc: không gọi model, không sudo, không provision. Check nào fail thì exit 1 và in lệnh
@@ -201,49 +201,34 @@ trong app thành một project `cuesura-<project>` (thư mục `<data dir>/paseo
 vai trò và tiêu đề task, ví dụ `coder: Thêm …`, và tự đóng khi xong. Pane chỉ để xem như với herdr;
 daemon Paseo không chạy thì agent chạy nền và `cusr doctor` báo check `terminal`.
 
-## Token và quyền
+## Người gọi và quyền
 
-Quyền chỉ lấy từ bearer token map phía server: `read`, `operate`, `admin` kèm danh sách project. Tên
-actor/role tự khai trong body không có tác dụng, kiểm quyền chạy trước kiểm schema nên caller tự khai
-owner/admin vẫn exit 5.
+Chỉ process cùng UID với daemon mở được socket điều khiển: data dir phải 0700 và thuộc đúng user, socket
+`control.sock` là 0600; sai thì daemon từ chối chạy. Không có token hay file secret nào phải tạo.
 
-**Owner bootstrap.** Daemon sinh `DATA_DIR/owner.token` (0600) ở lần khởi động đầu, có đủ ba quyền trên
-mọi project. Chỉ owner dùng; không chia sẻ cho assistant. Data dir phải 0700 và thuộc đúng user, nếu
-không daemon từ chối chạy.
+Người gọi tự khai mình là ai qua biến môi trường `CUSR_ACTOR`:
 
-**Token assistant.** Owner sinh secret 32 byte ngẫu nhiên vào file riêng ngoài worktree và ngoài home
-assistant đọc được, không in ra chat/log:
+| `CUSR_ACTOR` | Actor | Quyền |
+| --- | --- | --- |
+| không đặt hoặc `owner` | `owner` | `read`, `operate`, `admin` |
+| `assistant` | `assistant` | `read`, `operate` |
 
-```sh
-install -d -m 0700 /srv/cusr-access
-(umask 077; head -c 32 /dev/urandom | basenc --base64url | tr -d '=\n' > /srv/cusr-access/assistant-work.token)
-```
+Giá trị khác bị CLI từ chối ngay (exit 2, `actor_invalid`). Actor/role ghi trong body request không có tác
+dụng; kiểm quyền chạy trước kiểm schema nên caller khai `actor: owner` trong body vẫn exit 5. Mọi lệnh được
+ghi kèm actor, nên lịch sử cho biết owner hay assistant đã xác nhận, hủy hay approve.
 
-Khai trong user config (không phải `cusr.yaml`, không qua payload lệnh) với đúng `[read, operate]` và
-project tường minh:
+**Assistant.** Skill `cusr` đặt `CUSR_ACTOR=assistant` cho mọi lệnh. Assistant được thêm task, đề xuất và
+xác nhận run config, trả lời câu hỏi, recheck và hủy; không approve escalation và không dùng quyền admin.
 
-```yaml
-runtime:
-  access_tokens:
-    - id: assistant-work
-      actor: assistant
-      roles: [read, operate]
-      projects: [node-sandbox]
-      token_file: /srv/cusr-access/assistant-work.token
-```
+**Ranh giới.** `CUSR_ACTOR` là rào chắn cho caller làm đúng quy ước, không phải ranh giới bảo mật: process
+cùng UID bỏ biến này là thành owner. Muốn tách quyền thật, chạy assistant bằng UID khác. Worker
+coder/fixer/reviewer không gọi `cusr`; environment của worker không kế thừa `GH_*`, `GITHUB_*` hoặc
+`CUSR_TOKEN*`. Không còn outer boundary chặn process cùng UID đọc file host.
 
-**Cấp và thu hồi.** Thêm/xóa entry rồi restart daemon; không có lệnh quản trị token qua CLI. Startup ghi
-audit gồm hash cấu hình và ID/actor/role/project/fingerprint của từng token, không ghi secret. Thu hồi
-chặn mọi request mới (exit 5) nhưng không giả vờ lấy lại effect đã gửi; lịch sử đã accepted giữ actor
-cũ. Hai entry trỏ cùng secret bị từ chối lúc khởi động.
-
-**Cách cấp cho assistant.** Client/connector đặt `CUSR_TOKEN_FILE` trỏ tới file token operate; token chỉ
-nhận qua file, không qua argv. Connector không được thấy home owner hay `owner.token`.
-
-**Ranh giới.** Token map **không** phải ranh giới quyền với process cùng UID có shell đầy đủ: process đó
-đọc được `owner.token`. Muốn tách quyền thật, chạy assistant bằng UID khác hoặc trong sandbox chỉ thấy
-token operate. Worker coder/fixer/reviewer không được truyền token nào, kể cả operate; environment không kế thừa
-`GH_*`, `GITHUB_*` hoặc `CUSR_TOKEN*`. Không còn outer boundary chặn process cùng UID đọc file host.
+**Nâng cấp từ bản có token.** `runtime.access_tokens` trong user config không còn tác dụng; daemon vẫn
+khởi động và ghi một dòng log báo khóa này bị bỏ qua. Xóa khóa đó, file token của assistant và
+`DATA_DIR/owner.token` khi tiện; thay `CUSR_TOKEN_FILE` bằng `CUSR_ACTOR=assistant` ở chỗ cấu hình
+assistant.
 
 ## Giới hạn thực thi tùy chọn
 
@@ -409,7 +394,7 @@ JSON
 ```
 
 Cùng UID nên assistant đọc được và sửa được user config: yolo là quy tắc vận hành, không phải ranh giới
-quyền thật ([token và quyền](#token-và-quyền)).
+quyền thật ([người gọi và quyền](#người-gọi-và-quyền)).
 
 ## Harness thật: pin và manifest
 

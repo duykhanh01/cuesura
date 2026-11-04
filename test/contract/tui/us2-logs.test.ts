@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { renameSync, rmSync, writeFileSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { runLocation } from '../../../src/daemon/retention.ts';
 import type { OperationMirror } from '../../../src/domain/state.ts';
@@ -12,14 +12,7 @@ import { createGrantStart } from '../../support/runtime.ts';
 import { agentData, PREPARE_DATA } from '../../support/scenario.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 import { checkpointGates } from '../../support/store-flows.ts';
-import {
-  daemonSocket,
-  flat,
-  LogFeed,
-  openTask,
-  ownerTokenEnv,
-  useTui,
-} from '../../support/tui-fixtures.ts';
+import { daemonSocket, flat, LogFeed, openTask, useTui } from '../../support/tui-fixtures.ts';
 import type { CanonicalTask } from '../../../src/domain/task.ts';
 
 // T042: Logs on a real PTY, with records written and ingested as a runner's are.
@@ -342,49 +335,6 @@ describe('review findings, on a real PTY', () => {
     await s.waitForText('xxxx');
     await quit(s);
   });
-
-  it('another token that may not read the task: nothing of the old one stays in Logs', async () => {
-    const sd = tui.daemon({
-      projects: ['beta'],
-      tokens: [{ id: 'acme', actor: 'acme', roles: ['read'], projects: ['acme'] }],
-    });
-    const t = buildTask({ id: uuidOf(1), title: 'Beta log', project: 'beta' });
-    const feed = new LogFeed(sd);
-    sd.seed((d) => {
-      createGrantStart(d, t, 'direct-pr');
-      feed.write(d, t.id, d.pendingOne(t.id, 'prepare').id, SETUP, 'setup', ['beta line 1']);
-    });
-    await sd.start();
-    const tokenFile = join(sd.base, 'client.token');
-    const swap = (token: string): void => {
-      writeFileSync(`${tokenFile}.new`, `${token}\n`, { mode: 0o600 });
-      renameSync(`${tokenFile}.new`, tokenFile);
-    };
-    swap(sd.tokens['owner'] ?? '');
-    const s = tui.cusr(sd.dataDir, {
-      cols: 120,
-      rows: 40,
-      env: { CUSR_TOKEN_FILE: tokenFile },
-    });
-    await openLogs(s, 'Beta log');
-    await s.waitForText('beta line 1');
-
-    swap(sd.tokens['acme'] ?? '');
-    await s.waitFor(() => !s.screenText().includes('beta line 1'), 3_000);
-    await s.waitForText('Could not read the log', 3_000);
-    expect(s.screenText()).not.toContain('Beta log');
-
-    // The right to read it back brings it back, from the start.
-    swap(sd.tokens['owner'] ?? '');
-    await s.waitForText('beta line 1', 5_000);
-    expect(
-      s
-        .screenText()
-        .split('\n')
-        .filter((l) => l.includes('beta line 1')),
-    ).toHaveLength(1);
-    await quit(s);
-  });
 });
 
 describe('EC-011 and FR-039: a log in full flow', () => {
@@ -460,7 +410,6 @@ describe('EC-011 and FR-039: a log in full flow', () => {
     const s = tui.cusr(proxy.dataDir, {
       cols: 100,
       rows: 24,
-      env: ownerTokenEnv(sd),
     });
     const count = (): number => requests.filter((r) => r.includes('"task_logs"')).length;
     // Opening a task passes through Logs; once on Task detail, nothing reads the log.

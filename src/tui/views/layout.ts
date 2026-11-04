@@ -48,9 +48,9 @@ export function staleBanner(s: TuiState): readonly SafeText[] {
 }
 
 const NEXT_STEP: Record<StopReason['kind'], string> = {
-  token: 'Next: fix the token file or CUSR_TOKEN_FILE, then press R.',
-  unauthenticated: 'Next: use a valid token (CUSR_TOKEN_FILE or the owner token), then press R.',
-  forbidden: 'Next: use a token that may read this, or change the filter, then press R.',
+  actor: 'Next: set CUSR_ACTOR to owner or assistant (or unset it), then start cusr again.',
+  unauthenticated: 'Next: install the same version of cusr and the daemon, then press R.',
+  forbidden: 'Next: run as the owner (unset CUSR_ACTOR), or change the filter, then press R.',
   incompatible: 'Next: install the same version of cusr and the daemon, then press R.',
 };
 

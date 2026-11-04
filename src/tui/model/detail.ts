@@ -88,13 +88,6 @@ export function initialDetail(taskId: string, title: SafeText, session: number):
   };
 }
 
-/** After a change of token nothing read under the old one may stay on screen (EC-008). */
-export const forgetDetail = (d: TaskDetail, session: number): TaskDetail => ({
-  // The title was read under the old token too; the ID is what the user chose.
-  ...initialDetail(d.taskId, sanitize(d.taskId), session),
-  top: d.top,
-});
-
 export type DetailPartName = 'show' | 'progress' | 'explain' | 'history';
 
 function versionedDue(

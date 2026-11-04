@@ -9,7 +9,7 @@ import { logDue, requestAttempt, LOG_PAGE_RECORDS } from '../model/logs.ts';
 import type { Message } from '../model/messages.ts';
 import { currentScreen, type TuiState } from '../model/state.ts';
 import type { DaemonPort } from './daemon-port.ts';
-import { DETAIL_TIMEOUT_MS, type RefreshClock, type RefreshCredential } from './refresh.ts';
+import { DETAIL_TIMEOUT_MS, type RefreshClock } from './refresh.ts';
 
 export type ScreenRead = {
   /** At most one read with the same key runs at a time. */
@@ -24,7 +24,6 @@ export class ScreenReads {
   readonly #clock: RefreshClock;
   readonly #plan: (now: number) => readonly ScreenRead[];
   readonly #report: (m: Message) => void;
-  readonly #credential: RefreshCredential | null;
   readonly #running = new Set<string>();
   #timer: unknown = null;
   #stopped = false;
@@ -33,9 +32,7 @@ export class ScreenReads {
     clock: RefreshClock;
     plan: (now: number) => readonly ScreenRead[];
     report: (m: Message) => void;
-    credential?: RefreshCredential;
   }) {
-    this.#credential = opts.credential ?? null;
     this.#clock = opts.clock;
     this.#plan = opts.plan;
     this.#report = opts.report;
@@ -67,14 +64,9 @@ export class ScreenReads {
     for (const read of this.#plan(this.#clock.now())) {
       if (this.#running.has(read.key)) continue;
       this.#running.add(read.key);
-      const answer = read.run();
-      // As in `RefreshScheduler`: the token is read before `run` returns, so this says which token asked.
-      const askedAs = this.#credential?.generation();
-      void answer.then((message) => {
+      void read.run().then((message) => {
         this.#running.delete(read.key);
         if (this.#stopped) return;
-        // The screen learns of the new token first, so an answer of the old one finds it moved on and is dropped.
-        if (askedAs !== this.#credential?.generation()) this.#credential?.superseded();
         this.#report(message);
         this.#begin();
       });

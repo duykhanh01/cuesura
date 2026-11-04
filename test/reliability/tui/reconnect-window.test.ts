@@ -1,12 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildTask, uuidOf } from '../../support/builders.ts';
 import { KEY } from '../../support/pty.ts';
-import {
-  daemonSocket,
-  ownerTokenEnv,
-  reconnectAttempt,
-  useTui,
-} from '../../support/tui-fixtures.ts';
+import { daemonSocket, reconnectAttempt, useTui } from '../../support/tui-fixtures.ts';
 
 // T034: the whole automatic window in real time, about two minutes a round with a socket that refuses at once.
 const tui = useTui();
@@ -26,7 +21,7 @@ describe('SC-003: after the automatic attempts run out', () => {
     await sd.start();
     const socket = daemonSocket(sd);
     const proxy = await tui.proxy(socket);
-    const s = tui.cusr(proxy.dataDir, { env: ownerTokenEnv(sd) });
+    const s = tui.cusr(proxy.dataDir);
     await s.waitForText('Before the outage');
 
     // Something being typed when the daemon goes.

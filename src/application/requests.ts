@@ -1,7 +1,7 @@
 /**
  * `request_show` (FR-041–FR-043, R-08): what became of a mutation, from its request ID alone. It only
  * reads the ledger: it runs no handler, admits nothing and cannot resume a request, because the ledger
- * keeps no payload. Whatever this token may not read answers exactly like an unknown ID, so the reply
+ * keeps no payload. Whatever this caller may not read answers exactly like an unknown ID, so the reply
  * never reveals that a request exists. `request_not_found` means no readable record at this moment; a
  * request still on its way may arrive later, so it never proves the mutation did not happen.
  */
@@ -10,7 +10,7 @@ import type { Uuid } from '../shared/brand.ts';
 import { UuidSchema } from '../shared/brand.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import type { CommandRecord, Store } from '../store/index.ts';
-import { authorize, type Caller } from './authz.ts';
+import type { Caller } from './authz.ts';
 import type { AppError } from './queries.ts';
 
 export type RequestState = 'completed' | 'in_progress' | 'interrupted';
@@ -25,16 +25,13 @@ const QuerySchema = z.object({ kind: z.literal('request_show'), request_id: Uuid
 
 const NOT_FOUND: AppError = {
   code: 'request_not_found',
-  message: 'no request readable by this token',
+  message: 'no request readable by this caller',
   details: {},
 };
 
-/** The ledger row belongs to this actor and to a project the token covers. */
+/** The ledger row belongs to this actor. */
 function readable(caller: Caller, r: CommandRecord): boolean {
-  if (r.actor !== caller.grant.actor) return false;
-  return r.project === null
-    ? caller.grant.projects === '*'
-    : authorize(caller, { role: 'read', project: r.project }).ok;
+  return r.actor === caller.grant.actor;
 }
 
 function nextStep(state: RequestState, kind: string, taskId: string | null): string | null {

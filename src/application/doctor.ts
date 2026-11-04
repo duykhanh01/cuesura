@@ -351,10 +351,7 @@ export async function runDoctor(
       },
     });
   const { project } = q.data;
-  const allowed = authorize(caller, {
-    role: 'read',
-    ...(project === undefined ? {} : { project }),
-  });
+  const allowed = authorize(caller, { role: 'read' });
   if (!allowed.ok)
     return err({
       code: 'forbidden',

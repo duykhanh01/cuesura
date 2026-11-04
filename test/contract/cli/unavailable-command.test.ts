@@ -1,13 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -75,14 +67,7 @@ describe('cusr status', () => {
   it('reports an unreachable daemon as exit 3 with one envelope, without opening the database', () => {
     const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cusr-status-')));
     try {
-      const token = join(dir, 'client.token');
-      writeFileSync(token, `${randomBytes(32).toString('base64url')}\n`, {
-        mode: 0o600,
-      });
-      const r = exec('cusr', ['status', '--json'], {
-        CUSR_DATA_DIR: dir,
-        CUSR_TOKEN_FILE: token,
-      });
+      const r = exec('cusr', ['status', '--json'], { CUSR_DATA_DIR: dir });
       expect(r.status).toBe(3);
       expect(JSON.parse(r.stdout)).toMatchObject({
         schema_version: 1,

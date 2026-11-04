@@ -1,13 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { SeededDaemon, type TokenSpec } from '../../support/daemon-task.ts';
+import { SeededDaemon } from '../../support/daemon-task.ts';
 import { userConfig } from '../../support/preflight-fakes.ts';
 import { PACKS } from '../../support/config-fixtures.ts';
 import { fakeGit, fakeGitHub, fakeHost } from '../../support/preflight-fakes.ts';
-
-const TOKENS: TokenSpec[] = [
-  { id: 'reader', actor: 'viewer', roles: ['read'], projects: ['acme'] },
-  { id: 'none', actor: 'viewer', roles: ['read'], projects: ['elsewhere'] },
-];
 
 const running: SeededDaemon[] = [];
 afterEach(async () => {
@@ -15,9 +10,9 @@ afterEach(async () => {
 });
 
 async function daemon(
-  extra?: ConstructorParameters<typeof SeededDaemon>[2],
+  extra?: ConstructorParameters<typeof SeededDaemon>[1],
 ): Promise<SeededDaemon> {
-  const sd = new SeededDaemon(TOKENS, {}, extra);
+  const sd = new SeededDaemon({}, extra);
   running.push(sd);
   await sd.start();
   return sd;
@@ -31,7 +26,6 @@ describe('project_list', () => {
       caller: {
         actor: 'owner',
         roles: ['read', 'operate', 'admin'],
-        scope: 'all',
         trusted_confirmer: true,
       },
       projects: [{ id: 'acme', repo: 'acme/app' }],
@@ -39,23 +33,20 @@ describe('project_list', () => {
     });
   });
 
-  it('a limited token sees its projects, is marked limited and cannot confirm a run config', async () => {
+  it('an assistant sees every project and may confirm a run config, but holds no admin', async () => {
     const sd = await daemon();
-    const r = await sd.query('reader', { kind: 'project_list' });
+    const r = await sd.query('assistant', { kind: 'project_list' });
     expect(r.envelope.data).toMatchObject({
       caller: {
-        actor: 'viewer',
-        roles: ['read'],
-        scope: 'limited',
-        trusted_confirmer: false,
+        actor: 'assistant',
+        roles: ['read', 'operate'],
+        trusted_confirmer: true,
       },
       projects: [{ id: 'acme', repo: 'acme/app' }],
     });
-    const none = await sd.query('none', { kind: 'project_list' });
-    expect(none.envelope.data).toMatchObject({ projects: [] });
   });
 
-  it('never returns a token, a token path, credential references or tool paths', async () => {
+  it('never returns credential references or tool paths', async () => {
     const user = userConfig({
       runtime:
         'runtime:\n  credential_refs: { gh: /secret/credential-file }\n  tool_paths: { git: /secret/tool/git }',
@@ -70,8 +61,6 @@ describe('project_list', () => {
     }));
     const text = JSON.stringify((await sd.query('owner', { kind: 'project_list' })).envelope);
     expect(text).not.toContain('/secret/');
-    expect(text).not.toContain(sd.tokens['owner']);
-    expect(text).not.toContain('.token');
     expect(text).not.toContain('credential_refs');
   });
 

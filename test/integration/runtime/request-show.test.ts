@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import { readTokenFile } from '../../../src/application/access-tokens.ts';
 import { callDaemon } from '../../../src/cli/client.ts';
 import { CONTROL_SOCKET, ExitCode } from '../../../src/cli/output.ts';
 import { startDaemon, STORE_FILE } from '../../../src/daemon/main.ts';
@@ -14,7 +13,8 @@ import { storeDb } from '../../../src/store/testing.ts';
 import type { Store } from '../../../src/store/index.ts';
 import { uuidOf } from '../../support/builders.ts';
 import { PACKS } from '../../support/config-fixtures.ts';
-import { SeededDaemon, type TokenSpec } from '../../support/daemon-task.ts';
+import { SeededDaemon } from '../../support/daemon-task.ts';
+import type { CallerActor } from '../../../src/application/authz.ts';
 import {
   fakeGit,
   fakeGitHub,
@@ -24,23 +24,6 @@ import {
 } from '../../support/preflight-fakes.ts';
 
 const CHILD = fileURLToPath(new URL('../../support/request-crash-child.ts', import.meta.url));
-
-const TOKENS: TokenSpec[] = [
-  {
-    id: 'alice',
-    actor: 'alice',
-    roles: ['read', 'operate'],
-    projects: ['acme'],
-  },
-  { id: 'bob', actor: 'bob', roles: ['read', 'operate'], projects: ['acme'] },
-  {
-    id: 'outsider',
-    actor: 'alice',
-    roles: ['read', 'operate'],
-    projects: ['elsewhere'],
-  },
-  { id: 'owner-limited', actor: 'owner', roles: ['read'], projects: ['acme'] },
-];
 
 const newTask = {
   title: 'A task',
@@ -66,16 +49,16 @@ afterEach(async () => {
 });
 
 async function daemon(
-  extra?: ConstructorParameters<typeof SeededDaemon>[2],
+  extra?: ConstructorParameters<typeof SeededDaemon>[1],
 ): Promise<SeededDaemon> {
-  const sd = new SeededDaemon(TOKENS, {}, extra);
+  const sd = new SeededDaemon({}, extra);
   running.push(sd);
   await sd.start();
   return sd;
 }
 
-const show = (sd: SeededDaemon, token: string, id: string) =>
-  sd.query(token, { kind: 'request_show', request_id: id });
+const show = (sd: SeededDaemon, actor: CallerActor, id: string) =>
+  sd.query(actor, { kind: 'request_show', request_id: id });
 
 function counts(store: Store): Record<string, number> {
   const db = storeDb(store);
@@ -92,9 +75,9 @@ function counts(store: Store): Record<string, number> {
 describe('request_show', () => {
   it('returns the stored result of a completed request', async () => {
     const sd = await daemon();
-    const added = await sd.command('alice', addBody(1));
+    const added = await sd.command('assistant', addBody(1));
     expect(added.envelope.ok).toBe(true);
-    const r = await show(sd, 'alice', uuidOf(1));
+    const r = await show(sd, 'assistant', uuidOf(1));
     expect(r.code).toBe(ExitCode.ok);
     const taskId = (added.envelope.data as { result: { task_id: string } }).result.task_id;
     expect(r.envelope.data).toMatchObject({
@@ -113,12 +96,12 @@ describe('request_show', () => {
 
   it('a rejected request is found and carries its rejection, with exit 0', async () => {
     const sd = await daemon();
-    const refused = await sd.command('alice', {
+    const refused = await sd.command('assistant', {
       ...addBody(2),
       payload: { task: { ...newTask, title: '' } },
     });
     expect(refused.envelope.ok).toBe(false);
-    const r = await show(sd, 'alice', uuidOf(2));
+    const r = await show(sd, 'assistant', uuidOf(2));
     expect(r.code).toBe(ExitCode.ok);
     expect(r.envelope.data).toMatchObject({
       state: 'completed',
@@ -143,9 +126,9 @@ describe('request_show', () => {
         now: () => sd.clock.now(),
       },
     }));
-    const added = await sd.command('alice', addBody(3));
+    const added = await sd.command('assistant', addBody(3));
     const task = (added.envelope.data as { result: TaskState & { task_id: string } }).result;
-    const pending = sd.command('alice', {
+    const pending = sd.command('assistant', {
       request_id: uuidOf(4),
       kind: 'task_confirm',
       project: 'acme',
@@ -154,17 +137,17 @@ describe('request_show', () => {
       payload: {},
     });
     await expect
-      .poll(async () => (await show(sd, 'alice', uuidOf(4))).envelope.data, {
+      .poll(async () => (await show(sd, 'assistant', uuidOf(4))).envelope.data, {
         timeout: 5_000,
       })
       .toMatchObject({ state: 'in_progress', task_id: task.task_id });
-    const during = (await show(sd, 'alice', uuidOf(4))).envelope.data as {
+    const during = (await show(sd, 'assistant', uuidOf(4))).envelope.data as {
       outcome?: unknown;
     };
     expect(during.outcome).toBeUndefined();
     release();
     await pending;
-    expect((await show(sd, 'alice', uuidOf(4))).envelope.data).toMatchObject({
+    expect((await show(sd, 'assistant', uuidOf(4))).envelope.data).toMatchObject({
       state: 'completed',
     });
   });
@@ -174,7 +157,7 @@ describe('request_show', () => {
     const stored = (sd.daemon as NonNullable<typeof sd.daemon>).store;
     stored.admitCommand({
       request_id: uuidOf(5),
-      actor: 'alice',
+      actor: 'assistant',
       kind: 'task_cancel',
       command_hash: 'h',
       project: 'acme',
@@ -182,7 +165,7 @@ describe('request_show', () => {
       assigned_ids: [],
       now: 1,
     });
-    const r = await show(sd, 'alice', uuidOf(5));
+    const r = await show(sd, 'assistant', uuidOf(5));
     expect(r.code).toBe(ExitCode.ok);
     const data = r.envelope.data as Record<string, unknown>;
     expect(data).toMatchObject({ state: 'interrupted', task_id: null });
@@ -211,12 +194,10 @@ describe('request_show', () => {
         child.once('exit', (code) => reject(new Error(`child exited ${code}`)));
       });
       const socketPath = join(dataDir, CONTROL_SOCKET);
-      const owner = readTokenFile(join(dataDir, 'owner.token'), 'owner');
-      if (!owner.ok) throw new Error('owner token');
       const gone = new Promise((resolve) => child.once('exit', resolve));
       const sent = await callDaemon({
         socketPath,
-        token: owner.value,
+        actor: 'owner',
         method: 'POST',
         path: '/v1/command',
         body: addBody(7),
@@ -227,7 +208,6 @@ describe('request_show', () => {
 
       const restarted = await startDaemon({
         dataDir,
-        accessTokens: [],
         control: (store) =>
           taskControl({
             store,
@@ -257,7 +237,7 @@ describe('request_show', () => {
         query: async (id) => {
           const r = await callDaemon({
             socketPath,
-            token: owner.value,
+            actor: 'owner',
             method: 'POST',
             path: '/v1/query',
             body: { kind: 'request_show', request_id: id },
@@ -295,7 +275,7 @@ describe('request_show', () => {
 
   describe('access (FR-043): everything unreadable answers like an unknown ID', () => {
     async function notFound(sd: SeededDaemon): Promise<unknown> {
-      const missing = await show(sd, 'alice', uuidOf(900));
+      const missing = await show(sd, 'assistant', uuidOf(900));
       expect(missing.code).toBe(ExitCode.missing);
       expect(missing.status).toBe(404);
       expect(missing.envelope.error).toMatchObject({
@@ -306,58 +286,30 @@ describe('request_show', () => {
 
     it('another actor', async () => {
       const sd = await daemon();
-      await sd.command('alice', addBody(10));
-      const r = await show(sd, 'bob', uuidOf(10));
+      await sd.command('assistant', addBody(10));
+      const r = await show(sd, 'owner', uuidOf(10));
       expect({
         ...r.envelope.error,
         details: r.envelope.error?.['details'],
       }).toEqual(await notFound(sd));
       expect(r.code).toBe(ExitCode.missing);
     });
-
-    it('a project outside the token, for the same actor', async () => {
-      const sd = await daemon();
-      await sd.command('alice', addBody(11));
-      const r = await show(sd, 'outsider', uuidOf(11));
-      expect(r.envelope.error).toEqual(await notFound(sd));
-    });
-
-    it('a row of unknown project: a limited token cannot read it, an unrestricted one can', async () => {
-      const sd = await daemon();
-      const store = (sd.daemon as NonNullable<typeof sd.daemon>).store;
-      store.admitCommand({
-        request_id: uuidOf(12),
-        actor: 'owner',
-        kind: 'task_cancel',
-        command_hash: 'h',
-        task_id: null,
-        assigned_ids: [],
-        now: 1,
-      });
-      const limited = await show(sd, 'owner-limited', uuidOf(12));
-      expect(limited.envelope.error).toEqual(await notFound(sd));
-      const all = await show(sd, 'owner', uuidOf(12));
-      expect(all.envelope.data).toMatchObject({
-        state: 'interrupted',
-        project: null,
-      });
-    });
   });
 
   it('rejects an ID that is not a UUID', async () => {
     const sd = await daemon();
-    const r = await show(sd, 'alice', 'not-a-uuid');
+    const r = await show(sd, 'assistant', 'not-a-uuid');
     expect(r.envelope.error).toMatchObject({ code: 'invalid_request' });
     expect(r.code).toBe(ExitCode.usage);
   });
 
   it('changes nothing: no tasks, events, effects or commands', async () => {
     const sd = await daemon();
-    await sd.command('alice', addBody(20));
+    await sd.command('assistant', addBody(20));
     const store = (sd.daemon as NonNullable<typeof sd.daemon>).store;
     const before = counts(store);
-    for (const id of [uuidOf(20), uuidOf(901)]) await show(sd, 'alice', id);
-    await show(sd, 'bob', uuidOf(20));
+    for (const id of [uuidOf(20), uuidOf(901)]) await show(sd, 'assistant', id);
+    await show(sd, 'owner', uuidOf(20));
     expect(counts(store)).toEqual(before);
     expect(STORE_FILE).toBe('cusr.db');
   });

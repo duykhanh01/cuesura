@@ -42,7 +42,7 @@ export async function dispatchGuidance(
       },
     });
   const { project } = q.data;
-  const allowed = authorize(caller, { role: 'read', project });
+  const allowed = authorize(caller, { role: 'read' });
   if (!allowed.ok)
     return err({
       code: 'forbidden',

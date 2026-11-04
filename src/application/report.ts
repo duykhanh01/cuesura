@@ -12,7 +12,7 @@ import { needsUser } from '../explain/needs-user.ts';
 import type { Uuid } from '../shared/brand.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import type { Store } from '../store/index.ts';
-import { authorize, type Caller } from './authz.ts';
+import type { Caller } from './authz.ts';
 import type { StatusSince } from './board.ts';
 import type { AppError } from './queries.ts';
 
@@ -201,19 +201,9 @@ export function report(
       },
     });
   const { project, since } = q.data;
-  if (project !== undefined) {
-    const allowed = authorize(caller, { role: 'read', project });
-    if (!allowed.ok)
-      return err({
-        code: 'forbidden',
-        message: `requires project ${project}`,
-        details: { ...allowed.error },
-      });
-  }
   const { store, statusSince } = deps;
   const until = deps.now();
-  const token = caller.grant.projects === '*' ? null : caller.grant.projects;
-  const projects = project === undefined ? token : [project];
+  const projects = project === undefined ? null : [project];
   const byProject = new Map<string, ProjectReport>();
   if (project !== undefined) byProject.set(project, emptyReport(project));
 

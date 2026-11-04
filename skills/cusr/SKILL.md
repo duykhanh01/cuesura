@@ -27,15 +27,15 @@ cusr task logs --help
 ```sh
 # External assistant callers only. Workers must not invoke the control CLI,
 # including on their own task, even if this skill is visible to them.
-# DATA_DIR and TOKEN_FILE: nonempty absolute paths supplied by the operator.
-# TOKEN_FILE must be the caller's separate project-scoped read/operate token.
-# Never read/use the owner token, unset TOKEN_FILE, or fall back to default auth.
+# DATA_DIR: nonempty absolute path supplied by the operator.
+# CUSR_ACTOR=assistant holds you to read/operate: you cannot approve or administer.
+# Never drop it or set another actor; unset means the owner, which you are not.
 # Refuse to proceed if the operator has not provided the intended connection.
-# Repeat both guarded environment assignments on EVERY daemon invocation;
+# Repeat both environment assignments on EVERY daemon invocation;
 # exports/functions from a previous shell call may not survive the next call.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr status --json
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr doctor --project "$PROJECT" --json
 
 # PROJECT and BASE: operator-supplied configured project ID and target branch.
@@ -53,9 +53,9 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
 ## Add tasks
 
 ```sh
-# Submit -> propose run settings -> confirm the run digest with your own token.
+# Submit -> propose run settings -> confirm the run digest yourself.
 # A complete run_config in the add input already supplies the proposal.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task add --project "$PROJECT" --title "$TITLE" --base "$BASE" \
   --description "$DESCRIPTION" --acceptance "$ACCEPTANCE" \
   --request-id "$ADD_REQUEST_ID" --json
@@ -71,7 +71,7 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
 # Do not mix --file with task/run flags: --title, --base, --description,
 # --acceptance, --priority and --depends-on do not override the file.
 # A complete run-flag proposal replaces the file's run_config, not individual keys.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task add --file "$TASK_FILE" --request-id "$ADD_REQUEST_ID" --json
 ```
 
@@ -109,26 +109,26 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
 # empty fields are omitted (absent = none). data.details is the --full command for everything else.
 # Progress question -> task explain: status, step, wait, blockers, running (step/binding),
 # queue_position, pr, failed (names of failed gates/CI checks, request_changes), allowed_actions.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task explain "$TASK_ID" --json
 # task show: status, step, wait, pr_ref, version and run_config {status, digest, mode} for mutations.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task show "$TASK_ID" --json
 # task list: newest first, 20 per page; items: task_id, project, title, status, activity, pr_ref.
 # Filter with --project/--status; follow next_cursor with --cursor to reach older tasks;
 # --order oldest starts from the first task.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task list --project "$PROJECT" --json
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task list --project "$PROJECT" --cursor "$NEXT_CURSOR" --json
 
 # Details only when the question needs them: --full on show/explain/list/history returns the
 # complete reply (evidence with log excerpts, provenance, usage, merge text, event payloads).
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task explain "$TASK_ID" --full --json
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task history "$TASK_ID" --after "$EVENT_CURSOR" --json
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task logs "$TASK_ID" --after "$LOG_CURSOR" --json
 
 # Finite --json output: {schema_version, ok, data, error}; check ok and task status.
@@ -140,14 +140,14 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
 # be envelopes. Both end:session_limit and end:task_finished exit 0.
 # session_limit ends only this one-hour log session. Save its cursor and resume;
 # task_finished also does not distinguish DONE from FAILED/CANCELLED: read show.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task logs "$TASK_ID" --follow --after "$LOG_CURSOR" --json
 ```
 
 ## Propose run settings
 
 ```sh
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr dispatch --project "$PROJECT" --json
 # data.rules[]: {when, why, profile, mode, use[]}; data.default has the same choice
 # fields; data.modes holds when_to_use; data.source says whose rules these are:
@@ -158,11 +158,11 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
 # A proposal does not start the task: confirm its digest next.
 # Bindings: HARNESS/MODEL/EFFORT, from the operator's configured allowlist.
 # Set VERSION from a fresh task show before each NEW mutation.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task propose "$TASK_ID" --profile "$PROFILE" --mode direct-pr \
   --worker "$WORKER" --reason "$REASON" \
   --expected-version "$VERSION" --request-id "$PROPOSE_REQUEST_ID" --json
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task propose "$TASK_ID" --profile "$PROFILE" --mode full-review \
   --worker "$WORKER" --reviewer "$REVIEWER" --reason "$REASON" \
   --expected-version "$VERSION" --request-id "$PROPOSE_REQUEST_ID" --json
@@ -176,26 +176,26 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
 # Intake/config check ONLY. This alone does not approve run settings.
 # READY can still be run_config_unconfirmed: add --run-config to confirm the digest.
 # Follow the user's instruction if they asked to review the run settings first.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task confirm "$TASK_ID" --expected-version "$VERSION" \
   --request-id "$INTAKE_REQUEST_ID" --json
 # Read task show for the CURRENT version and digest, then confirm both in one call.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task confirm "$TASK_ID" --run-config "$RUN_DIGEST" \
   --expected-version "$VERSION" --request-id "$CONFIRM_REQUEST_ID" --json
 # A confirm --run-config error can occur after
 # intake changed the version. Re-read show/history; do not reuse the stale version
-# for a new command, and do not switch to the owner token to make it succeed.
+# for a new command, and do not drop CUSR_ACTOR to make it succeed.
 ```
 
 ## Questions
 
 ```sh
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr inbox --task "$TASK_ID" --json
 # QUESTION_ID and current task_version come from the inbox item.
 # Supply the user's answer or known facts; unresolved decisions go to the user.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr answer "$QUESTION_ID" --file "$ANSWER_FILE" \
   --expected-version "$VERSION" --request-id "$ANSWER_REQUEST_ID" --json
 ```
@@ -206,7 +206,7 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
 # What happened since a moment, per project: finished tasks (PR, reason, usage),
 # tasks waiting for the user with their open questions, running tasks and decider answers.
 # Built from the event log, no model. --since takes 30m, 8h, 2d or an ISO time (default 24h).
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr report --project "$PROJECT" --since 24h --json
 # Present it to the user as is; do not act on needs_you items without the user.
 ```
@@ -229,9 +229,9 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
 # failed on infrastructure, rate limit or login; it gives those visits back. Ask
 # the user to fix the cause first.
 # allowed_actions describes available commands, not permission to accept changes.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task explain "$TASK_ID" --json
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task recheck "$TASK_ID" --expected-version "$VERSION" \
   --request-id "$RECHECK_REQUEST_ID" --json
 # When explain offers `continue` (ladder_exhausted, rung_denied, escalations_exhausted,
@@ -239,10 +239,10 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
 # fresh set of quality tries and visits and runs again with gates and review. Read the
 # latest review/gate failures first; when they repeat with no progress, report to the
 # user instead of continuing again.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task continue "$TASK_ID" --expected-version "$VERSION" \
   --request-id "$CONTINUE_REQUEST_ID" --json
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task cancel "$TASK_ID" --reason "$REASON" \
   --expected-version "$VERSION" --request-id "$CANCEL_REQUEST_ID" --json
 # Recheck does not extend a deadline frozen in an older task. Cancel does not undo a merge;
@@ -252,15 +252,15 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
 ## User-only commands to hand off, never execute as an assistant
 
 ```sh
-# ONLY THE USER executes these in their own terminal/trusted channel, even if an
-# owner token is readable by the agent. Do not read, acquire or use that token.
-# USER_TOKEN_FILE below belongs to the user's connection, never the assistant's.
+# ONLY THE USER executes these in their own terminal/trusted channel, even though
+# the agent could run them without CUSR_ACTOR. Never run them, with or without it.
+# The user's shell has no CUSR_ACTOR, so the daemon treats them as the owner.
 # Present the escalation reason/step/rung and this command.
 # The user reads show again for the CURRENT version before approving.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${USER_TOKEN_FILE:?}" \
+CUSR_DATA_DIR="${DATA_DIR:?}" \
   cusr task show "$TASK_ID" --json
 # Escalation approval requires admin privileges; it is not run confirmation.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${USER_TOKEN_FILE:?}" \
+CUSR_DATA_DIR="${DATA_DIR:?}" \
   cusr task approve "$TASK_ID" --kind escalation --step "$STEP" --rung "$RUNG" \
   --expected-version "$VERSION" --request-id "$APPROVE_REQUEST_ID" --json
 ```

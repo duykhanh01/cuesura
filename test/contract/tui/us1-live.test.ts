@@ -1,7 +1,4 @@
-import { renameSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { SCOPE_NOTE } from '../../../src/tui/views/home.ts';
 import { buildTask, uuidOf } from '../../support/builders.ts';
 import { ControlProxy } from '../../support/control-proxy.ts';
 import type { SeededDaemon } from '../../support/daemon-task.ts';
@@ -10,7 +7,6 @@ import {
   cancelTask,
   cliJson,
   daemonSocket,
-  ownerTokenEnv,
   reconnectAttempt,
   rowOf,
   seedRunning,
@@ -45,17 +41,11 @@ const seedReady = (sd: SeededDaemon, count: number): string[] =>
 /** `cusr` through a proxy, so a test can see every connection and change what the client reaches. */
 async function throughProxy(
   sd: SeededDaemon,
-  env: Record<string, string> = ownerTokenEnv(sd),
+  env: Record<string, string> = {},
 ): Promise<{ s: PtySession; proxy: ControlProxy }> {
   const proxy = await tui.proxy(daemonSocket(sd));
   const s = tui.cusr(proxy.dataDir, { env });
   return { s, proxy };
-}
-
-/** All at once, as a token is rotated: a read in between must not find the file half written. */
-function replaceToken(path: string, token: string): void {
-  writeFileSync(`${path}.new`, `${token}\n`, { mode: 0o600 });
-  renameSync(`${path}.new`, path);
 }
 
 /** Nothing connects for this long, on a session that says it has stopped trying. */
@@ -225,166 +215,19 @@ describe('US1 scenario 7 and FR-004: quitting changes nothing but the terminal',
   );
 });
 
-describe('US1 scenario 10 and EC-008: permission gone mid-session', () => {
-  const VIEWER = {
-    id: 'viewer',
-    actor: 'viewer',
-    roles: ['read' as const],
-    projects: ['acme'],
-  };
-
-  it('a revoked token stops the attempts at once, says why, and only the user tries again', async () => {
-    const sd = tui.daemon({ tokens: [VIEWER] });
+describe('US1 scenario 10: a declared actor the daemon does not know', () => {
+  it('stops at once, says how to fix it and never connects', async () => {
+    const sd = tui.daemon();
     seedReady(sd, 1);
     await sd.start();
-    const tokenFile = join(sd.base, 'viewer.token');
-    const { s, proxy } = await throughProxy(sd, {
-      CUSR_TOKEN_FILE: tokenFile,
-    });
-    await s.waitForText('◇ 1 ready');
-
-    // The daemon no longer knows this token. No other token is looked for.
-    replaceToken(tokenFile, 'A'.repeat(43));
+    const { s, proxy } = await throughProxy(sd, { CUSR_ACTOR: 'viewer' });
     await s.waitForText('Stopped:');
     const stopped = s.screenText();
-    expect(stopped).toContain('Next: use a valid token');
-    expect(stopped).toContain('Retry connection (R)');
-    expect(stopped).toContain('Data may be out of date');
+    expect(stopped).toContain("CUSR_ACTOR 'viewer' is not one of owner, assistant");
+    expect(stopped).toContain('Next: set CUSR_ACTOR');
     expect(stopped).not.toContain('Reconnecting');
-    expect(stopped).toContain('Ready 01');
-    expect(stopped.split('\n')[0]).toContain('daemon: unknown');
-    await expectNoNewConnections(proxy, 3_000);
-
-    // Asked again with nothing fixed: one more try, the same answer.
-    const beforeRetry = proxy.connections;
-    s.send('R');
-    // One read of the board and one of health; the old `Stopped` proves nothing until they have connected.
-    await s.waitFor(() => proxy.connections >= beforeRetry + 2);
-    await s.waitForText('Stopped:');
-    await expectNoNewConnections(proxy, 2_000);
-
-    // Fixed, and asked: back to current data.
-    replaceToken(tokenFile, sd.tokens['viewer'] ?? '');
+    expect(proxy.connections).toBe(0);
     await expectNoNewConnections(proxy, 1_500);
-    s.send('R');
-    await s.waitFor(() => !s.screenText().includes('Stopped:'), 10_000);
-    await s.waitFor(() => !s.screenText().includes('Data may be out of date'));
-    expect(s.screenText().split('\n')[0]).toContain('daemon: ok');
-    s.send('q');
-    expect((await s.waitForExit()).status).toBe(0);
-  });
-
-  it('a token file gone unreadable stops the same way, without printing the token', async () => {
-    const sd = tui.daemon({ tokens: [VIEWER] });
-    seedReady(sd, 1);
-    await sd.start();
-    const tokenFile = join(sd.base, 'viewer.token');
-    const { s, proxy } = await throughProxy(sd, {
-      CUSR_TOKEN_FILE: tokenFile,
-    });
-    await s.waitForText('◇ 1 ready');
-    rmSync(tokenFile);
-    await s.waitForText('Stopped:');
-    expect(s.screenText()).toContain('Next: fix the token file');
-    await expectNoNewConnections(proxy, 2_000);
-    expect(s.rawOutput()).not.toContain(sd.tokens['viewer']);
-    s.send('q');
-    expect((await s.waitForExit()).status).toBe(0);
-  });
-});
-
-describe('US1 scenario 10 and EC-008: a token that may no longer read this view', () => {
-  it('stops at once with the reason, and a filter it may read brings the data back on R', async () => {
-    const sd = tui.daemon({
-      projects: ['beta'],
-      tokens: [
-        {
-          id: 'both',
-          actor: 'both',
-          roles: ['read'],
-          projects: ['acme', 'beta'],
-        },
-        { id: 'acme', actor: 'acme', roles: ['read'], projects: ['acme'] },
-      ],
-    });
-    sd.seed((d) => {
-      seedRunning(d, 1, () => ({ title: 'In acme' }), 1);
-      seedRunning(d, 1, () => ({ title: 'In beta', project: 'beta' }), 2);
-    });
-    await sd.start();
-    const tokenFile = join(sd.base, 'both.token');
-    const { s, proxy } = await throughProxy(sd, { CUSR_TOKEN_FILE: tokenFile });
-    await s.waitForText('Projects: acme, beta');
-    s.send('f');
-    await s.waitForText('Find project:');
-    s.send('beta');
-    await s.waitForText('Find project: beta_');
-    s.send(KEY.enter);
-    await s.waitFor(() => !s.screenText().includes('In acme'));
-    await s.waitForText('In beta');
-
-    replaceToken(tokenFile, sd.tokens['acme'] ?? '');
-    await s.waitForText('Stopped: requires project beta');
-    const screen = s.screenText();
-    expect(screen).toContain('Next: use a token that may read this');
-    expect(screen).toContain('Data may be out of date');
-    expect(screen).not.toContain('Reconnecting');
-    expect(screen.split('\n')[0]).toContain('daemon: unknown');
-    await expectNoNewConnections(proxy, 2_000);
-
-    // Navigation still works; going back to everything the token may read is the user's call.
-    s.send('f');
-    await s.waitForText('Find project:');
-    s.send(KEY.up + KEY.up);
-    await s.waitForText('› All projects');
-    s.send(KEY.enter);
-    await s.waitForText('Filters: project all');
-    await expectNoNewConnections(proxy, 1_500);
-    s.send('R');
-    await s.waitForText('In acme', 10_000);
-    await s.waitFor(() => !s.screenText().includes('Data may be out of date'));
-    expect(s.screenText()).not.toContain('In beta');
-    s.send('q');
-    expect((await s.waitForExit()).status).toBe(0);
-  });
-});
-
-describe('EC-008 and EC-009: another token with nothing new in the daemon', () => {
-  it('reads the board, the caller and the projects again, in both directions', async () => {
-    const sd = tui.daemon({
-      projects: ['beta'],
-      tokens: [{ id: 'acme', actor: 'acme', roles: ['read'], projects: ['acme'] }],
-    });
-    sd.seed((d) => {
-      seedRunning(d, 1, () => ({ title: 'In acme' }), 1);
-      seedRunning(d, 1, () => ({ title: 'In beta', project: 'beta' }), 2);
-    });
-    await sd.start();
-    const seq = await watermark(sd);
-    const tokenFile = join(sd.base, 'client.token');
-    const owner = sd.tokens['owner'] ?? '';
-    replaceToken(tokenFile, owner);
-    const s = tui.cusr(sd.dataDir, { env: { CUSR_TOKEN_FILE: tokenFile } });
-    await s.waitForText('Projects: acme, beta');
-    await s.waitForText('In beta');
-    expect(s.screenText()).not.toContain(SCOPE_NOTE);
-
-    // Narrower: what the old token read is gone without any event to bring it down.
-    replaceToken(tokenFile, sd.tokens['acme'] ?? '');
-    await s.waitFor(() => !s.screenText().includes('In beta'), 3_000);
-    await s.waitForText('Projects: acme', 3_000);
-    await s.waitForText(SCOPE_NOTE, 3_000);
-    expect(s.screenText()).not.toContain('Projects: acme, beta');
-    expect(s.screenText()).toContain('In acme');
-    expect(s.screenText()).not.toContain('Data may be out of date');
-
-    // Wider: nothing new either, and `unchanged` would keep the narrow list for good.
-    replaceToken(tokenFile, owner);
-    await s.waitForText('In beta', 3_000);
-    await s.waitForText('Projects: acme, beta', 3_000);
-    await s.waitFor(() => !s.screenText().includes(SCOPE_NOTE), 3_000);
-
-    expect(await watermark(sd)).toBe(seq);
     s.send('q');
     expect((await s.waitForExit()).status).toBe(0);
   });

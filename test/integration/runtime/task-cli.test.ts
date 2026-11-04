@@ -1,5 +1,4 @@
-import { randomBytes } from 'node:crypto';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -29,21 +28,12 @@ const clock = { now: () => asEpochMs(1_800_000_000_000), monotonic: () => 0 };
 let seq = 0;
 const newId = (): string => `00000000-0000-7000-8000-${String(++seq).padStart(12, '0')}`;
 
-async function daemon(
-  accessTokens: {
-    id: string;
-    actor: string;
-    roles: ('read' | 'operate' | 'admin')[];
-    projects: string[];
-    token_file: string;
-  }[] = [],
-) {
+async function daemon() {
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'cusr-task-cli-')));
   dirs.push(base);
   const dataDir = join(base, 'data');
   const started = await startDaemon({
     dataDir,
-    accessTokens,
     clock,
     newId,
     control: (store) =>
@@ -242,102 +232,13 @@ describe('cusr task add/show/confirm over the control socket (T048)', () => {
     });
   });
 
-  it('a read-only token cannot add, and a token for another project cannot see the task', async () => {
-    const base = realpathSync(mkdtempSync(join(tmpdir(), 'cusr-task-tokens-')));
-    dirs.push(base);
-    const readerFile = join(base, 'reader.token');
-    writeFileSync(readerFile, `${randomBytes(32).toString('base64url')}\n`, {
-      mode: 0o600,
-    });
-    const otherFile = join(base, 'other.token');
-    writeFileSync(otherFile, `${randomBytes(32).toString('base64url')}\n`, {
-      mode: 0o600,
-    });
-    const scoped = await daemon([
-      {
-        id: 'reader',
-        actor: 'reader',
-        roles: ['read'],
-        projects: ['acme'],
-        token_file: readerFile,
-      },
-      {
-        id: 'other',
-        actor: 'assistant',
-        roles: ['read', 'operate'],
-        projects: ['elsewhere'],
-        token_file: otherFile,
-      },
-    ]);
-    const reader = await cli(
-      [
-        'task',
-        'add',
-        '--data-dir',
-        scoped.dataDir,
-        '--project',
-        'acme',
-        '--title',
-        'T',
-        '--base',
-        'main',
-        '--acceptance',
-        'a',
-      ],
-      {
-        CUSR_TOKEN_FILE: readerFile,
-      },
-    );
-    expect(reader.code).toBe(ExitCode.forbidden);
-    const mine = await cli([
-      'task',
-      'add',
-      '--data-dir',
-      scoped.dataDir,
-      '--project',
-      'acme',
-      '--title',
-      'T',
-      '--base',
-      'main',
-      '--acceptance',
-      'a',
-    ]);
-    const other = await cli(
-      ['task', 'show', '--data-dir', scoped.dataDir, mine.data?.['task_id'] as string],
-      { CUSR_TOKEN_FILE: otherFile },
-    );
-    expect(other.code).toBe(ExitCode.missing);
-    expect(
-      await cli(['task', 'show', '--data-dir', scoped.dataDir, mine.data?.['task_id'] as string], {
-        CUSR_TOKEN_FILE: readerFile,
-      }),
-    ).toMatchObject({
-      code: ExitCode.ok,
-    });
-  });
-
   it('refuses incomplete arguments locally with usage exit', async () => {
     expect((await cli(['task', 'add', '--project', 'acme'])).code).toBe(ExitCode.usage);
     expect((await cli(['task', 'confirm', 'x'])).code).toBe(ExitCode.usage);
   });
 
-  it('add carries a run selection; an assistant token confirms its digest (T048, M01/M02)', async () => {
-    const base = realpathSync(mkdtempSync(join(tmpdir(), 'cusr-task-run-')));
-    dirs.push(base);
-    const botFile = join(base, 'bot.token');
-    writeFileSync(botFile, `${randomBytes(32).toString('base64url')}\n`, {
-      mode: 0o600,
-    });
-    const { dataDir } = await daemon([
-      {
-        id: 'assistant',
-        actor: 'assistant',
-        roles: ['read', 'operate'],
-        projects: ['acme'],
-        token_file: botFile,
-      },
-    ]);
+  it('add carries a run selection; the assistant confirms its digest (T048, M01/M02)', async () => {
+    const { dataDir } = await daemon();
     const run = [
       '--profile',
       'standard',
@@ -366,7 +267,7 @@ describe('cusr task add/show/confirm over the control socket (T048)', () => {
         ...run,
       ],
       {
-        CUSR_TOKEN_FILE: botFile,
+        CUSR_ACTOR: 'assistant',
       },
     );
     expect(added).toMatchObject({
@@ -422,7 +323,7 @@ describe('cusr task add/show/confirm over the control socket (T048)', () => {
         '--run-config',
         digest,
       ],
-      { CUSR_TOKEN_FILE: botFile },
+      { CUSR_ACTOR: 'assistant' },
     );
     expect(byBot).toMatchObject({
       code: ExitCode.ok,

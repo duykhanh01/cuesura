@@ -7,7 +7,6 @@ import {
   daemonSocket,
   flat,
   openTask,
-  ownerTokenEnv,
   useTui,
 } from '../../support/tui-fixtures.ts';
 import type { SeededDaemon } from '../../support/daemon-task.ts';
@@ -129,7 +128,7 @@ describe('T041: reading `task_explain` again while the version stands still', ()
     proxy.tap = (direction, data) => {
       if (direction === 'request') requests.push(data.toString('utf8'));
     };
-    const s = tui.cusr(proxy.dataDir, { ...TALL, env: ownerTokenEnv(sd) });
+    const s = tui.cusr(proxy.dataDir, TALL);
     await openTask(s, 'Watched');
     const count = (kind: string): number => requests.filter((r) => r.includes(`"${kind}"`)).length;
     await s.waitFor(() => count('task_show') === 1 && count('task_progress') === 1);

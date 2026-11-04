@@ -16,9 +16,6 @@ import { BOLD, DIM, fg, putSegs, ruleHeading, seg, segsWidth, ui, type Seg } fro
 import type { Body } from './layout.ts';
 import { dots, DOTS_WIDTH, stepper } from './stepper.ts';
 
-/** Written beside the projects whenever the token does not see everything (EC-009). */
-export const SCOPE_NOTE = "Showing projects in this token's scope";
-
 const STATUS_WORD: Readonly<Record<TaskStatus, string>> = {
   PENDING: 'pending',
   READY: 'ready',
@@ -330,11 +327,10 @@ export const homeBody =
     const cols = s.size.cols;
     const rows = s.board === null ? [] : homeRows(s);
     const attention = rows.filter((r) => r.kind === 'attention').length;
-    const scope = s.caller?.scope === 'limited' ? [ui('   '), ui(`(${SCOPE_NOTE})`, DIM)] : [];
     const page = pageLine(s);
     const head: (readonly Seg[] | null)[] = [
       summarySegs(s, attention),
-      [...projectsSegs(s), ui('   '), seg(filterLine(s), DIM), ...scope],
+      [...projectsSegs(s), ui('   '), seg(filterLine(s), DIM)],
       page === null ? null : [seg(page, DIM)],
       opts.color ? null : [seg(markLegend(), DIM)],
     ];

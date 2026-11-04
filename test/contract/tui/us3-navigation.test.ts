@@ -1,4 +1,3 @@
-import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { buildTask, uuidOf } from '../../support/builders.ts';
 import type { SeededDaemon } from '../../support/daemon-task.ts';
@@ -192,29 +191,6 @@ describe('US3 scenario 2: the Actions menu of the selected task', () => {
     await s.waitForText('Cancel task');
     s.send(KEY.esc);
     await s.waitForText('Task detail');
-    await quit(s);
-  });
-
-  it('dims what the token may not do, saying why, and sends nothing for it', async () => {
-    const sd = tui.daemon({
-      tokens: [{ id: 'viewer', actor: 'viewer', roles: ['read'], projects: ['acme'] }],
-    });
-    const t = buildTask({ id: uuidOf(1), title: 'Asks a question' });
-    sd.seed((d) => seedQuestion(d, t));
-    await sd.start();
-    const before = await eventCount(sd, t.id);
-    const s = tui.cusr(sd.dataDir, {
-      env: { CUSR_TOKEN_FILE: join(sd.base, 'viewer.token') },
-    });
-    await s.waitForText('Asks a question');
-    s.send('a');
-    await s.waitForText('Actions — Asks a question');
-    await s.waitForText('needs the operate role');
-    const screen = s.screenText();
-    expect(screen).toMatch(/Not available: needs the operate role; this token has: read/);
-    s.send(KEY.enter);
-    await s.waitForText('Nothing was sent');
-    expect(await eventCount(sd, t.id)).toBe(before);
     await quit(s);
   });
 

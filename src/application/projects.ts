@@ -1,13 +1,13 @@
 /**
- * `project_list` (FR-005, EC-009): who this token is and which projects it covers, for an interface that
- * must not ask the user for a project name it could list. Names only: the config's credential references,
- * tool paths and token paths stay in the daemon.
+ * `project_list` (FR-005): who the caller is and which projects the config declares, for an interface that
+ * must not ask the user for a project name it could list. Names only: the config's credential references
+ * and tool paths stay in the daemon.
  */
 import { z } from 'zod';
 import { validateConfig } from '../config/validate.ts';
 import { trustedConfirmer } from '../domain/run-config.ts';
 import { err, ok, type Result } from '../shared/result.ts';
-import { authzContext, visibleProjects, type Caller } from './authz.ts';
+import { authzContext, type Caller } from './authz.ts';
 import type { ConfigInputs } from './confirm.ts';
 import type { AppError } from './queries.ts';
 
@@ -47,10 +47,9 @@ export async function projectList(
     caller: {
       actor: grant.actor,
       roles: [...grant.roles],
-      scope: grant.projects === '*' ? 'all' : 'limited',
       trusted_confirmer: trustedConfirmer(authzContext(caller, deps.now())),
     },
-    projects: visibleProjects(caller, Object.keys(locations))
+    projects: Object.keys(locations)
       .sort()
       .map((id) => ({ id, repo: locations[id]?.repo ?? null })),
     profiles: Object.keys(config.profiles).sort(),

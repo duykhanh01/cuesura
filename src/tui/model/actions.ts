@@ -5,7 +5,7 @@
  */
 import type { PortResult } from '../client/daemon-port.ts';
 import type { TaskExplain } from '../client/schemas.ts';
-import { sanitize, uiText, type SafeText } from '../terminal/safe-text.ts';
+import { uiText, type SafeText } from '../terminal/safe-text.ts';
 import { actionItems, actionsPaging, enterNotice } from '../views/actions.ts';
 import { contentHeight } from '../views/disconnected.ts';
 import { EXPLAIN_READ_MS, noPart, type Part } from './detail.ts';
@@ -68,17 +68,6 @@ export function leaveActions(state: TuiState): TuiState {
     actions: null,
   };
 }
-
-/** A change of token: what the menu was read with belongs to the old one, so it is read again. */
-export const forgetActions = (m: ActionsMenu, session: number): ActionsMenu => ({
-  ...m,
-  // The title was read under the old token too; the ID is what the user chose (EC-009).
-  title: sanitize(m.taskId),
-  session,
-  explain: noPart(),
-  watermark: null,
-  notice: null,
-});
 
 /** Read when opened, after anything in the daemon moved, and again a while after a failure. */
 export function actionsDue(m: ActionsMenu, watermark: number | null, now: number): boolean {

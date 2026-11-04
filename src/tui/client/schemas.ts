@@ -38,7 +38,6 @@ export type Health = {
 const CallerSchema = z.looseObject({
   actor: safe,
   roles: z.array(z.string()),
-  scope: z.enum(['all', 'limited']),
   trusted_confirmer: z.boolean(),
 });
 export type CallerInfo = z.infer<typeof CallerSchema>;

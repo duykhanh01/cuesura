@@ -7,13 +7,7 @@ import { contentHeight } from '../views/disconnected.ts';
 import { helpLastTop } from '../views/help.ts';
 import { oneLine } from '../views/input.ts';
 import { onActionsCommand, onActionsRead, openActions } from './actions.ts';
-import {
-  forgetScreens,
-  onDetailCommand,
-  onLogsCommand,
-  onLogsRead,
-  openDetail,
-} from './detail-keys.ts';
+import { onDetailCommand, onLogsCommand, onLogsRead, openDetail } from './detail-keys.ts';
 import { onDetailRead } from './detail.ts';
 import { homeRows, keepSelection, selectRow, selectedRowIndex } from './home-rows.ts';
 import { commandFor, keyContext, type Command } from './keymap.ts';
@@ -45,26 +39,8 @@ export function reduce(state: TuiState, message: Message): Reduced {
       return same({ ...state, size: message.size });
     case 'tick':
       return same({ ...state, tick: state.tick + 1 });
-    case 'credential_changed':
-      return {
-        state: {
-          ...state,
-          // What is on screen was read with the old token: not current until the new one has read it.
-          stale: true,
-          caller: null,
-          projects: null,
-          ...forgetScreens(state),
-          // Positions in the old list: the new token's list may not have them.
-          cursors: [],
-          ...(state.cursors.length > 0
-            ? { board: null, selectedTaskId: null, selectedIndex: 0 }
-            : {}),
-          filterDraft: state.filterDraft === null ? null : { ...state.filterDraft, project: 0 },
-        },
-        effects: [],
-      };
     case 'read_succeeded': {
-      // Metadata shares the round's failure handling and credential check with board and health.
+      // Metadata shares the round's failure handling with board and health.
       const online: TuiState = {
         ...state,
         connection: nextConnection(state.connection, { ok: true }),

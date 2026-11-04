@@ -394,9 +394,7 @@ const notFound = (id: string): AppError => ({
  */
 function readable(store: Store, caller: Caller, id: string): Result<TaskState, AppError> {
   const s = store.readTask(id as Uuid);
-  return s === null || !authorize(caller, { role: 'read', project: s.project }).ok
-    ? err(notFound(id))
-    : ok(s);
+  return s === null || !authorize(caller, { role: 'read' }).ok ? err(notFound(id)) : ok(s);
 }
 
 function mergeOf(store: Store, s: TaskState): Record<string, unknown> | null {
@@ -532,7 +530,7 @@ export function taskList(
   if (!q.success) return err(invalidQuery('task_list', q.error));
   const { limit, cursor, project, status, order } = q.data;
   if (project !== undefined) {
-    const allowed = authorize(caller, { role: 'read', project });
+    const allowed = authorize(caller, { role: 'read' });
     if (!allowed.ok)
       return err({
         code: 'forbidden',
@@ -549,7 +547,7 @@ export function taskList(
     const s = store.readTask(id as Uuid);
     if (s === null) continue;
     if (project !== undefined && s.project !== project) continue;
-    if (!authorize(caller, { role: 'read', project: s.project }).ok) continue;
+    if (!authorize(caller, { role: 'read' }).ok) continue;
     if (items.length === limit) {
       next = items.at(-1)?.['task_id'] as string;
       break;
@@ -675,12 +673,7 @@ export function questionShow(
   for (const id of store.taskIdsByStatus(TASK_STATUSES)) {
     const s = store.readTask(id as Uuid);
     const found = s?.questions[q.data.question_id];
-    if (
-      s === null ||
-      found === undefined ||
-      !authorize(caller, { role: 'read', project: s.project }).ok
-    )
-      continue;
+    if (s === null || found === undefined || !authorize(caller, { role: 'read' }).ok) continue;
     return ok({
       question_id: found.id,
       task_id: s.id,

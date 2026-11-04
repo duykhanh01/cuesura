@@ -1,6 +1,6 @@
 import { EXECUTION_MODES, type ExecutionMode } from '../domain/run-config.ts';
 import { parseDuration } from '../shared/duration.ts';
-import { AUTHZ_ROLES, type Backoff, type Limits } from '../domain/policy.ts';
+import { type Backoff, type Limits } from '../domain/policy.ts';
 import type {
   NormalizedProfile,
   NormalizedProject,
@@ -18,7 +18,6 @@ import { SOFTWARE_DEV } from '../engine/workflows/software-dev.ts';
 import { deepMerge } from './merge.ts';
 import type { RawProjectConfig } from './schema-project.ts';
 import type {
-  AccessTokenSpec,
   RawDispatchAgent,
   RawDispatchChoice,
   RawProfile,
@@ -297,7 +296,8 @@ export type RuntimeConfig = {
   tool_paths: Partial<Record<RuntimeTool, string>>;
   credential_refs: CredentialRef[];
   terminal: RuntimeTerminal;
-  access_tokens: AccessTokenSpec[];
+  /** `runtime.access_tokens` is present; it has no effect any more. */
+  access_tokens_ignored: boolean;
 
   harness_isolation: Record<string, HarnessInnerModePolicy>;
   /** Allowed execution modes with their guidance; both when `runtime.modes` is absent. */
@@ -333,13 +333,7 @@ export function normalizeRuntime(
       .sort(byName)
       .map(([name, file]) => ({ name, file })),
     terminal: r.terminal ?? { backend: 'background' },
-    access_tokens: [...(r.access_tokens ?? [])]
-      .map((t) => ({
-        ...t,
-        roles: AUTHZ_ROLES.filter((role) => t.roles.includes(role)),
-        projects: [...t.projects].sort(),
-      }))
-      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
+    access_tokens_ignored: r.access_tokens !== undefined,
     harness_isolation: isolation,
     modes:
       r.modes === undefined

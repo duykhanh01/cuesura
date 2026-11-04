@@ -12,10 +12,8 @@ import { dbPath, useTempDir } from '../../support/temp-db.ts';
 const tempDir = useTempDir('cusr-progress-');
 const OWNER: Caller = {
   grant: {
-    id: 'owner',
     actor: 'owner',
     roles: ['read', 'operate', 'admin'],
-    projects: '*',
   },
 };
 
@@ -153,18 +151,5 @@ describe('task_progress', () => {
     });
     expect(d.task(t.id).wait?.detail.code).toBe('worktree_changed');
     expect(read(t.id).worktree_path).toBe('/data/worktrees/one');
-  });
-
-  it('a task out of scope is not found', () => {
-    const { d } = setup();
-    const t = buildTask();
-    d.must(t.id, { kind: 'create_task', task: t });
-    const out: Caller = {
-      grant: { id: 'o', actor: 'o', roles: ['read'], projects: ['other'] },
-    };
-    expect(taskProgress(d.store, out, { kind: 'task_progress', task_id: t.id })).toMatchObject({
-      ok: false,
-      error: { code: 'task_not_found' },
-    });
   });
 });

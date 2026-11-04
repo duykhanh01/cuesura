@@ -83,44 +83,6 @@ function logsAnswer(s: TuiState, request: LogRequest, logPage: TaskLogs): LogsMe
   };
 }
 
-describe('finding 1: a change of token while a read is on its way', () => {
-  it('Task detail drops the answer asked under the old token', () => {
-    const before = detailOpen();
-    const answer = showAnswer(before, 'Read with the old token');
-    const after = reduce(before, { type: 'credential_changed' }).state;
-    const landed = reduce(after, answer).state;
-    expect(landed.detail?.show.data).toBeNull();
-  });
-
-  it('still takes the answer to a read asked after the change', () => {
-    const after = reduce(detailOpen(), { type: 'credential_changed' }).state;
-    const landed = reduce(after, showAnswer(after, 'Read with the new')).state;
-    expect(landed.detail?.show.data?.title).toBe('Read with the new');
-  });
-
-  it('nothing read under the old token stays on the detail, title included', () => {
-    const before = detailOpen();
-    const read = reduce(before, showAnswer(before, 'Read with the old')).state;
-    const after = reduce(read, { type: 'credential_changed' }).state;
-    expect(after.detail?.show.data).toBeNull();
-    expect(after.detail?.title).not.toContain('Secret title');
-  });
-
-  it('Logs drops the answer asked under the old token, and forgets what it held', () => {
-    const open = reduce(detailOpen(), char('l')).state;
-    const answer = logsAnswer(open, { kind: 'forward', after: 0 }, page([record(1)], 1));
-    const held = reduce(open, answer).state;
-    expect(held.logs?.buffer).toHaveLength(1);
-
-    const second = logsAnswer(held, { kind: 'forward', after: 1 }, page([record(2)], 2));
-    const after = reduce(held, { type: 'credential_changed' }).state;
-    expect(after.logs?.buffer).toEqual([]);
-    expect(after.logs?.nextCursor).toBe(0);
-    expect(after.logs?.title).not.toContain('Secret title');
-    expect(reduce(after, second).state.logs?.buffer).toEqual([]);
-  });
-});
-
 describe('finding 2: Logs closed and opened again on the same task', () => {
   it('drops the answer to what the former Logs asked', () => {
     const first = reduce(detailOpen(), char('l')).state;

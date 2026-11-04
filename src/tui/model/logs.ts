@@ -675,9 +675,3 @@ export function filterAttempt(s: LogState, attemptId: string): LogState {
     picker: null,
   };
 }
-
-/** After a change of token nothing read under the old one may stay on screen. */
-export function forgetLogs(s: LogState, session: number): LogState {
-  // The title was read under the old token too; the ID is what the user chose.
-  return initialLogs(s.taskId, sanitize(s.taskId), session);
-}

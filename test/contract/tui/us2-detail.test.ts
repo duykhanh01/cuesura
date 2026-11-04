@@ -1,5 +1,3 @@
-import { renameSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { DETAIL_CODES } from '../../../src/domain/state.ts';
 import { buildTask, freezeOk, uuidOf } from '../../support/builders.ts';
@@ -445,46 +443,6 @@ describe('US2 scenario 8: a finished task', () => {
     expect(at).toEqual([...at].sort((a, b) => a - b));
     expect(flat(screen)).toContain('To do the work again, add an independent task');
     expect(flat(screen)).not.toMatch(/\b(retry|reopen)\b/i);
-    await quit(s);
-  });
-});
-
-describe('EC-008 and EC-009: another token while Task detail is open', () => {
-  it('leaves nothing of the old token on screen, and reads it back when allowed again', async () => {
-    const sd = tui.daemon({
-      projects: ['beta'],
-      tokens: [{ id: 'acme', actor: 'acme', roles: ['read'], projects: ['acme'] }],
-    });
-    const t = buildTask({
-      id: uuidOf(1),
-      title: 'Beta secret',
-      project: 'beta',
-    });
-    sd.seed((d) => d.must(t.id, { kind: 'create_task', task: t }));
-    await sd.start();
-    const tokenFile = join(sd.base, 'client.token');
-    const swap = (token: string): void => {
-      writeFileSync(`${tokenFile}.new`, `${token}\n`, { mode: 0o600 });
-      renameSync(`${tokenFile}.new`, tokenFile);
-    };
-    swap(sd.tokens['owner'] ?? '');
-    const s = tui.cusr(sd.dataDir, {
-      ...TALL,
-      env: { CUSR_TOKEN_FILE: tokenFile },
-    });
-    await openTask(s, 'Beta secret');
-    expect(s.screenText()).toContain('What you can do');
-
-    swap(sd.tokens['acme'] ?? '');
-    await s.waitFor(() => !s.screenText().includes('Beta secret'), 3_000);
-    await s.waitForText('Could not read the explanation', 7_000);
-    const hidden = s.screenText();
-    expect(hidden).not.toContain('What you can do');
-    expect(hidden).not.toMatch(/History ─+\n\s+#1/);
-
-    swap(sd.tokens['owner'] ?? '');
-    await s.waitForText('Beta secret', 8_000);
-    await s.waitForText('What you can do', 8_000);
     await quit(s);
   });
 });

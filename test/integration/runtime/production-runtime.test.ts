@@ -717,7 +717,6 @@ async function runSeeded(o: {
   for (const file of Object.values(h.refs)) rmSync(file);
   const started = await startDaemon({
     dataDir: h.dataDir,
-    accessTokens: [],
     control,
     dispatchIntervalMs: 100,
     log: (m) => log.push(m),

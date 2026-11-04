@@ -14,16 +14,10 @@ const tempDir = useTempDir('cusr-report-');
 
 const OWNER: Caller = {
   grant: {
-    id: 'owner',
     actor: 'owner',
     roles: ['read', 'operate', 'admin'],
-    projects: '*',
   },
 };
-const ACME_ONLY: Caller = {
-  grant: { id: 'acme', actor: 'viewer', roles: ['read'], projects: ['acme'] },
-};
-
 type Item = { task_id: string } & Record<string, unknown>;
 type Section = { items: Item[]; truncated: boolean };
 type Project = {
@@ -104,15 +98,12 @@ describe('report', () => {
     ]);
   });
 
-  it('filters by project and keeps a limited token to its projects', () => {
-    const { d, read, run } = setup();
+  it('filters by project', () => {
+    const { d, read } = setup();
     add(d, { project: 'acme' });
     add(d, { project: 'beta' });
     expect(read({ since: 0, project: 'beta' }).projects.map((p) => p.project)).toEqual(['beta']);
-    expect(read({ since: 0 }, ACME_ONLY).projects.map((p) => p.project)).toEqual(['acme']);
-    const denied = run({ since: 0, project: 'beta' }, ACME_ONLY);
-    expect(denied.ok).toBe(false);
-    if (!denied.ok) expect(denied.error.code).toBe('forbidden');
+    expect(read({ since: 0 }).projects.map((p) => p.project)).toEqual(['acme', 'beta']);
   });
 
   it('answers through the daemon, with the daemon clock as the end of the window', async () => {

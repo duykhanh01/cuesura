@@ -147,7 +147,6 @@ describe('reduce', () => {
       caller: {
         actor: uiText('owner'),
         roles: ['read'],
-        scope: 'all',
         trusted_confirmer: false,
       },
       projects: [{ id: 'acme', repo: null }],
@@ -226,56 +225,6 @@ describe('reduce', () => {
     expect(state).toMatchObject({
       size: { cols: 120, rows: 40 },
       lastUpdatedAt: 5,
-    });
-  });
-
-  describe('another token', () => {
-    const CHANGED = { type: 'credential_changed' } as const;
-    const loaded: TuiState = {
-      ...run(initialState(SIZE), succeeded(5)),
-      caller: {
-        actor: uiText('owner'),
-        roles: ['read'],
-        scope: 'all',
-        trusted_confirmer: false,
-      },
-      projects: [],
-    };
-
-    it('forgets who was asking, keeping the list until the new answer', () => {
-      const r = reduce(loaded, CHANGED);
-      expect(r.effects).toEqual([]);
-      expect(r.state).toMatchObject({ caller: null, projects: null });
-      expect(r.state.board).toBe(loaded.board);
-      // Until the new token has read it, what is on screen is not current.
-      expect(r.state.stale).toBe(true);
-    });
-
-    it('leaves a page of the old list: its position means nothing to the new token', () => {
-      const r = reduce({ ...loaded, cursors: ['c1', 'c2'] }, CHANGED);
-      expect(r.state).toMatchObject({ cursors: [], board: null });
-    });
-
-    it('keeps what is being typed in the filter, but not a choice from the old list', () => {
-      const r = reduce(
-        {
-          ...loaded,
-          screens: ['home', 'filters'],
-          filterDraft: {
-            field: 'project',
-            query: 'be',
-            project: 2,
-            status: 3,
-          },
-        },
-        CHANGED,
-      );
-      expect(r.state.filterDraft).toEqual({
-        field: 'project',
-        query: 'be',
-        project: 0,
-        status: 3,
-      });
     });
   });
 

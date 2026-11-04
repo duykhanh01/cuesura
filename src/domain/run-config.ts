@@ -76,8 +76,7 @@ export function sameChoice(
 }
 
 /**
- * Who confirmed, from which channel. Only the owner's own token is a trusted user channel here; an
- * assistant token, even with `operate`, cannot confirm a run, and no request field can claim it.
+ * Who confirmed, from which channel: the actor the caller declared, never a request field.
  */
 export const RunConfirmationSchema = z
   .object({
@@ -89,7 +88,7 @@ export const RunConfirmationSchema = z
   .strict();
 export type RunConfirmation = z.infer<typeof RunConfirmationSchema>;
 
-/** Any token that may operate tasks may confirm a run, the assistant's included (constitution 4.0.0). */
+/** Any caller that may operate tasks may confirm a run, the assistant's included (constitution 4.0.0). */
 export function trustedConfirmer(authz: AuthzContext | undefined): boolean {
   return authz !== undefined && authz.roles.includes('operate');
 }

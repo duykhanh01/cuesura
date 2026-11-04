@@ -20,10 +20,8 @@ import { useTempDir } from '../../support/temp-db.ts';
 const tempDir = useTempDir('cusr-logs-attempt-');
 const OWNER: Caller = {
   grant: {
-    id: 'owner',
     actor: 'owner',
     roles: ['read', 'operate', 'admin'],
-    projects: '*',
   },
 };
 const LIMITS: FileLimits = {

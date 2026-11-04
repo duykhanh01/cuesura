@@ -288,8 +288,8 @@ describe('projects.<id>.dispatch at load', () => {
 });
 
 describe('dispatch query', () => {
-  const caller = (projects: string[] | '*' = '*'): Caller => ({
-    grant: { id: 'assistant', actor: 'assistant', roles: ['read'], projects },
+  const caller = (): Caller => ({
+    grant: { actor: 'assistant', roles: ['read'] },
   });
   const ask = (
     text: string,
@@ -377,11 +377,6 @@ other: { base_branch: main }`;
     expect(await dispatchGuidance(deps, caller(), body)).toMatchObject({
       value: { source: 'global' },
     });
-  });
-
-  it('keeps another project out of a limited token', async () => {
-    const out = await ask(userText(block(DEFAULT)), caller(['other']));
-    expect(out).toMatchObject({ ok: false, error: { code: 'forbidden' } });
   });
 
   it('reports an unknown project', async () => {

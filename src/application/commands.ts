@@ -108,7 +108,7 @@ export function admitCommand(
   input: unknown,
 ): Result<Admitted, AdmitError> {
   // Authz comes first (contracts/cli-daemon.md): a field the caller added cannot turn a refusal into a
-  // syntax error, and a body naming someone else's actor is still judged by the token alone.
+  // syntax error, and a body naming someone else's actor is still judged by the declared caller alone.
   const claimed = ClaimedSchema.safeParse(input);
   if (
     claimed.success &&
@@ -117,7 +117,6 @@ export function admitCommand(
   ) {
     const allowed = authorize(caller, {
       role: REQUIRED_ROLE[claimed.data.kind as CommandKind],
-      project: claimed.data.project ?? null,
     });
     if (!allowed.ok) return err(allowed.error);
   }
@@ -139,7 +138,6 @@ export function admitCommand(
 
   const allowed = authorize(caller, {
     role: REQUIRED_ROLE[kind],
-    project: cmd.project,
   });
   if (!allowed.ok) return err(allowed.error);
   const actor = (caller as Caller).grant.actor;

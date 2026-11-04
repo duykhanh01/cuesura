@@ -49,10 +49,8 @@ const { g, setup } = flowEnv('cusr-cancel-flow-');
 
 const OWNER: Caller = {
   grant: {
-    id: 'owner',
     actor: 'owner',
     roles: ['read', 'operate', 'admin'],
-    projects: '*',
   },
 };
 
@@ -1984,15 +1982,7 @@ describe('escalation approval over the control socket (T103, FR-010/FR-028)', ()
   });
 
   it('only the owner approves the open request for this step and rung; merge approval and yolo are unsupported', async () => {
-    const sd = new SeededDaemon([
-      {
-        id: 'assistant',
-        actor: 'assistant',
-        roles: ['read', 'operate'],
-        projects: ['acme'],
-      },
-      { id: 'reader', actor: 'reader', roles: ['read'], projects: ['acme'] },
-    ]);
+    const sd = new SeededDaemon();
     live.push(sd);
     const t = buildTask();
     sd.seed((d) => {
@@ -2040,7 +2030,6 @@ describe('escalation approval over the control socket (T103, FR-010/FR-028)', ()
         .filter((e) => e.type === 'ApprovalGranted');
 
     expect((await sd.command('assistant', body())).code).toBe(ExitCode.forbidden);
-    expect((await sd.command('reader', body())).code).toBe(ExitCode.forbidden);
     expect((await sd.command('owner', body({ rung: 2 }))).code).toBe(ExitCode.missing);
     for (const kind of ['merge_approve', 'yolo'])
       expect((await sd.command('owner', body({ kind }))).code).toBe(ExitCode.usage);

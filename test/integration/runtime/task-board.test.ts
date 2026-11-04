@@ -13,16 +13,10 @@ const tempDir = useTempDir('cusr-board-');
 
 const OWNER: Caller = {
   grant: {
-    id: 'owner',
     actor: 'owner',
     roles: ['read', 'operate', 'admin'],
-    projects: '*',
   },
 };
-const ACME_ONLY: Caller = {
-  grant: { id: 'acme', actor: 'viewer', roles: ['read'], projects: ['acme'] },
-};
-
 type Row = {
   task_id: string;
   project: string;
@@ -161,27 +155,6 @@ describe('task_board', () => {
     expect(r).toMatchObject({ ok: false, error: { code: 'invalid_request' } });
   });
 
-  it('keeps to the projects of the token, in rows, counts, attention and queue', () => {
-    const { d, board } = setup();
-    const mine = add(d);
-    add(d, { project: 'other' });
-    d.must(mine.id, { kind: 'cancel', reason: 'x' });
-    const own = add(d);
-    const r = board({}, ACME_ONLY);
-    expect(r.items?.map((i) => i.task_id)).toEqual([own.id]);
-    expect(r.counts?.by_status).toEqual({ READY: 1, CANCELLED: 1 });
-    expect(r.attention?.items.map((i) => i.task_id)).toEqual([own.id]);
-    const forbidden = taskBoard(
-      { store: d.store, statusSince: statusSinceReader(d.store) },
-      ACME_ONLY,
-      { kind: 'task_board', project: 'other' },
-    );
-    expect(forbidden).toMatchObject({
-      ok: false,
-      error: { code: 'forbidden' },
-    });
-  });
-
   it('the project filter applies to rows, counts and attention', () => {
     const { d, board } = setup();
     const a = add(d);
@@ -218,17 +191,13 @@ describe('task_board', () => {
     expect(r.items).toHaveLength(1);
   });
 
-  it('counts the queue in the scope of the token', () => {
+  it('counts the queue', () => {
     const { d, board } = setup();
     const t = add(d);
     const sel = selectionFor(t, 'direct-pr');
     d.must(t.id, { kind: 'propose_run_config', selection: sel }, { authz: ownerAuthz() });
     d.must(t.id, { kind: 'request_execution' });
     expect(board().queue?.length).toBe(1);
-    const elsewhere: Caller = {
-      grant: { id: 'e', actor: 'v', roles: ['read'], projects: ['other'] },
-    };
-    expect(board({}, elsewhere).queue?.length).toBe(0);
   });
 
   it('does not read the state of finished tasks outside the page', () => {

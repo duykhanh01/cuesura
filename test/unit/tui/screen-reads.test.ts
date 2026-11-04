@@ -274,68 +274,6 @@ describe('ScreenReads', () => {
     reads.stop();
   });
 
-  it('an answer asked with a token now gone is told of first, so it lands on a screen that has moved on', async () => {
-    let generation = 0;
-    let answer: () => void = () => undefined;
-    const order: string[] = [];
-    const reads = new ScreenReads({
-      clock: stoppedClock,
-      credential: {
-        generation: () => generation,
-        superseded: () => order.push('superseded'),
-      },
-      plan: () =>
-        order.length > 0
-          ? []
-          : [
-              {
-                key: 'a',
-                run: () =>
-                  new Promise((resolve) => {
-                    answer = () => resolve({ type: 'resize', size: { cols: 1, rows: 1 } });
-                  }),
-              },
-            ],
-      report: () => order.push('report'),
-    });
-    reads.start();
-    generation = 1;
-    answer();
-    await new Promise((r) => setImmediate(r));
-    expect(order).toEqual(['superseded', 'report']);
-    reads.stop();
-  });
-
-  it('an answer under the same token says nothing of credentials', async () => {
-    let answer: () => void = () => undefined;
-    const order: string[] = [];
-    const reads = new ScreenReads({
-      clock: stoppedClock,
-      credential: {
-        generation: () => 0,
-        superseded: () => order.push('superseded'),
-      },
-      plan: () =>
-        order.length > 0
-          ? []
-          : [
-              {
-                key: 'a',
-                run: () =>
-                  new Promise((resolve) => {
-                    answer = () => resolve({ type: 'resize', size: { cols: 1, rows: 1 } });
-                  }),
-              },
-            ],
-      report: () => order.push('report'),
-    });
-    reads.start();
-    answer();
-    await new Promise((r) => setImmediate(r));
-    expect(order).toEqual(['report']);
-    reads.stop();
-  });
-
   it('reports nothing after it stopped', async () => {
     const reports: unknown[] = [];
     let answer: () => void = () => undefined;

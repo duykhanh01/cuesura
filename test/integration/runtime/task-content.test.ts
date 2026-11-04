@@ -14,10 +14,8 @@ const FROM_ASSISTANT = {
 } as const;
 const OWNER: Caller = {
   grant: {
-    id: 'owner',
     actor: 'owner',
     roles: ['read', 'operate', 'admin'],
-    projects: '*',
   },
 };
 
@@ -97,19 +95,6 @@ describe('task_content (R-09)', () => {
     const t = buildTask();
     d.must(t.id, { kind: 'create_task', task: t });
     expect(read(t.id)).toMatchObject({ value: { intake_pending: false } });
-  });
-
-  it('a task out of scope is not found', () => {
-    const { d, read } = setup();
-    const t = buildTask();
-    d.must(t.id, { kind: 'create_task', task: t });
-    const out: Caller = {
-      grant: { id: 'o', actor: 'o', roles: ['read'], projects: ['other'] },
-    };
-    expect(read(t.id, out)).toMatchObject({
-      ok: false,
-      error: { code: 'task_not_found' },
-    });
   });
 
   it('rejects a malformed query', () => {

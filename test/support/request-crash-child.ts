@@ -12,7 +12,7 @@ const dataDir = process.argv[2];
 if (dataDir === undefined) throw new Error('missing data dir');
 const started = await startDaemon({
   dataDir,
-  accessTokens: [],
+
   control: (store) =>
     taskControl({
       store,

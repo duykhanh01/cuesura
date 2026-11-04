@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ExitCode } from '../../../src/cli/output.ts';
 import { buildTask } from '../../support/builders.ts';
 import { PACKS } from '../../support/config-fixtures.ts';
-import { SeededDaemon, type TokenSpec } from '../../support/daemon-task.ts';
+import { SeededDaemon } from '../../support/daemon-task.ts';
 import {
   fakeGit,
   fakeGitHub,
@@ -13,10 +13,6 @@ import {
 } from '../../support/preflight-fakes.ts';
 import { createGrantStart } from '../../support/runtime.ts';
 import type { ConfigSource } from '../../../src/config/yaml-loader.ts';
-
-const TOKENS: TokenSpec[] = [
-  { id: 'out', actor: 'viewer', roles: ['read'], projects: ['elsewhere'] },
-];
 
 const running: SeededDaemon[] = [];
 afterEach(async () => {
@@ -29,7 +25,7 @@ type Env = {
 };
 
 function daemon(env: Env = {}): SeededDaemon {
-  const sd: SeededDaemon = new SeededDaemon(TOKENS, {}, (store) => {
+  const sd: SeededDaemon = new SeededDaemon({}, (store) => {
     const git = fakeGit(env.git);
     return {
       confirm: {
@@ -82,8 +78,8 @@ type Options = {
   }[];
 };
 
-async function options(sd: SeededDaemon, task_id: string, token = 'owner') {
-  return sd.query(token, { kind: 'run_options', task_id });
+async function options(sd: SeededDaemon, task_id: string) {
+  return sd.query('owner', { kind: 'run_options', task_id });
 }
 
 describe('run_options', () => {
@@ -221,12 +217,10 @@ describe('run_options', () => {
     expect(r.envelope.error).toMatchObject({ code: 'conflict' });
   });
 
-  it('a task out of scope is task_not_found, exit 4', async () => {
+  it('an unknown task is task_not_found, exit 4', async () => {
     const sd = daemon();
-    const t = buildTask();
-    sd.seed((d) => d.must(t.id, { kind: 'create_task', task: t }));
     await sd.start();
-    const r = await options(sd, t.id, 'out');
+    const r = await options(sd, buildTask().id);
     expect(r.code).toBe(ExitCode.missing);
     expect(r.envelope.error).toMatchObject({ code: 'task_not_found' });
   });

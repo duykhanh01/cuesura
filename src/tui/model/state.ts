@@ -9,7 +9,7 @@ import type { LogState } from './logs.ts';
 export const RECONNECT_ATTEMPTS = 30;
 
 export type StopReason = {
-  readonly kind: 'token' | 'unauthenticated' | 'forbidden' | 'incompatible';
+  readonly kind: 'actor' | 'unauthenticated' | 'forbidden' | 'incompatible';
   readonly message: SafeText;
 };
 
@@ -88,7 +88,7 @@ export type TuiState = {
   /** Tasks whose latest detail read failed; new writes on them stay locked (FR-044). */
   readonly staleTasks: ReadonlySet<string>;
   readonly caller: CallerInfo | null;
-  /** Projects in the token's scope, when `project_list` answered. */
+  /** Projects the config declares, when `project_list` answered. */
   readonly projects: ProjectList['projects'] | null;
   readonly screens: readonly Screen[];
   /** Kept by task, not by row, so a reorder cannot move an action to another task (EC-013). */
@@ -120,7 +120,7 @@ export type TuiState = {
   /** First row of Help on screen; the screen under Help keeps its own place. */
   readonly helpTop: number;
   /**
-   * Counts every opening of Task detail, Logs or Actions and every change of token. Each screen keeps the value it got, so
+   * Counts every opening of Task detail, Logs or Actions. Each screen keeps the value it got, so
    * an answer to a read of a former one can never pass for its own.
    */
   readonly screenSession: number;

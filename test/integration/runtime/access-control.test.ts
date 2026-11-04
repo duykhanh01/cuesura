@@ -1,56 +1,42 @@
 /**
- * Who may do what over the control socket (T107, FR-028/032): owner/admin, read and a scoped assistant
- * with read+operate, all through the real daemon. Identity comes from the bearer token only, a grant
- * changes only with config and restart, and a revocation does not rewrite what was already accepted.
+ * Who may do what over the control socket (T107, FR-028/032): the owner and a declared assistant with
+ * read+operate, all through the real daemon. The caller's actor comes from `CUSR_ACTOR` only, never from
+ * the request body, and what was accepted keeps the actor it was accepted under.
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { loadTokenMap, readTokenFile } from '../../../src/application/access-tokens.ts';
 import { CUSR_COMMANDS } from '../../../src/cli/commands.ts';
+import { callDaemon } from '../../../src/cli/client.ts';
 import { ExitCode } from '../../../src/cli/output.ts';
 import { runCli } from '../../../src/cli/program.ts';
-import { startDaemon } from '../../../src/daemon/main.ts';
+import type { CallerActor } from '../../../src/application/authz.ts';
+import { loadDaemonConfig } from '../../../src/daemon/main.ts';
+import { userConfig } from '../../support/preflight-fakes.ts';
 
 import { buildTask, uuidOf } from '../../support/builders.ts';
-import { SeededDaemon, type TokenSpec } from '../../support/daemon-task.ts';
+import { SeededDaemon } from '../../support/daemon-task.ts';
 import { toGreen } from '../../support/observation.ts';
 import { createGrantStart } from '../../support/runtime.ts';
 import { PREPARE_DATA } from '../../support/scenario.ts';
 import type { EpochMs } from '../../../src/shared/brand.ts';
-
-const SPECS: TokenSpec[] = [
-  { id: 'reader', actor: 'reader', roles: ['read'], projects: ['acme'] },
-  {
-    id: 'assistant',
-    actor: 'assistant',
-    roles: ['read', 'operate'],
-    projects: ['acme'],
-  },
-  {
-    id: 'outsider',
-    actor: 'outsider',
-    roles: ['read', 'operate'],
-    projects: ['elsewhere'],
-  },
-];
 
 const live: SeededDaemon[] = [];
 afterEach(async () => {
   for (const x of live.splice(0)) await x.cleanup();
 });
 
-function daemon(specs = SPECS): SeededDaemon {
-  const sd = new SeededDaemon(specs);
+function daemon(): SeededDaemon {
+  const sd = new SeededDaemon();
   live.push(sd);
   return sd;
 }
 
-async function cli(sd: SeededDaemon, token: string, argv: string[]) {
+async function cli(sd: SeededDaemon, actor: string, argv: string[]) {
   const out: string[] = [];
-  const saved = process.env['CUSR_TOKEN_FILE'];
-  process.env['CUSR_TOKEN_FILE'] =
-    token === 'owner' ? join(sd.dataDir, 'owner.token') : join(sd.base, `${token}.token`);
+  const saved = process.env['CUSR_ACTOR'];
+  process.env['CUSR_ACTOR'] = actor;
   try {
     const code = await runCli(
       { name: 'cusr', description: 'test', version: '0' },
@@ -67,8 +53,8 @@ async function cli(sd: SeededDaemon, token: string, argv: string[]) {
       },
     };
   } finally {
-    if (saved === undefined) delete process.env['CUSR_TOKEN_FILE'];
-    else process.env['CUSR_TOKEN_FILE'] = saved;
+    if (saved === undefined) delete process.env['CUSR_ACTOR'];
+    else process.env['CUSR_ACTOR'] = saved;
   }
 }
 
@@ -89,42 +75,6 @@ const command = (
 });
 
 describe('roles (US6.3, FR-028)', () => {
-  it('read may read and nothing else', async () => {
-    const sd = daemon();
-    const t = buildTask();
-    sd.seed((d) => toGreen(d, t));
-    const running = await sd.start();
-    expect((await cli(sd, 'reader', ['task', 'show', t.id])).code).toBe(ExitCode.ok);
-    expect((await cli(sd, 'reader', ['inbox'])).code).toBe(ExitCode.ok);
-    expect((await cli(sd, 'reader', ['dispatch', '--project', 'acme'])).code).toBe(ExitCode.ok);
-    expect((await cli(sd, 'reader', ['dispatch', '--project', 'elsewhere'])).code).not.toBe(
-      ExitCode.ok,
-    );
-    const before = running.store.readEvents(t.id).length;
-    const v = String(running.store.readTask(t.id)?.version);
-    for (const argv of [
-      ['task', 'cancel', t.id, '--expected-version', v],
-      ['task', 'confirm', t.id, '--expected-version', v],
-      [
-        'task',
-        'approve',
-        t.id,
-        '--kind',
-        'escalation',
-        '--step',
-        'code',
-        '--rung',
-        '1',
-        '--expected-version',
-        v,
-      ],
-    ]) {
-      const r = await cli(sd, 'reader', argv);
-      expect(r.code, argv.join(' ')).toBe(ExitCode.forbidden);
-    }
-    expect(running.store.readEvents(t.id)).toHaveLength(before);
-  });
-
   it('the assistant operates its own project but cannot approve, even claiming to be the owner', async () => {
     const sd = daemon();
     const t = buildTask();
@@ -201,7 +151,7 @@ describe('roles (US6.3, FR-028)', () => {
       }
     });
     const running = await sd.start();
-    const why = await cli(sd, 'reader', ['task', 'explain', t.id, '--full']);
+    const why = await cli(sd, 'assistant', ['task', 'explain', t.id, '--full']);
     const action = (
       why.envelope.data['allowed_actions'] as {
         action: string;
@@ -217,7 +167,7 @@ describe('roles (US6.3, FR-028)', () => {
     );
   });
 
-  it('an assistant token confirms a run selection; admin reaches approve and finds no such request', async () => {
+  it('an assistant confirms a run selection; admin reaches approve and finds no such request', async () => {
     const sd = daemon();
     await sd.start();
     const add = await cli(sd, 'assistant', [
@@ -274,152 +224,59 @@ describe('roles (US6.3, FR-028)', () => {
   });
 });
 
-describe('project scope (FR-028/032)', () => {
-  it('another project is refused on a command, missing on a read, and left out of lists', async () => {
+describe('declared actor (FR-028/032)', () => {
+  it('an unknown actor is refused locally by the CLI and by the daemon', async () => {
     const sd = daemon();
-    const t = buildTask();
-    sd.seed((d) => toGreen(d, t));
     const running = await sd.start();
-    const v = running.store.readTask(t.id)?.version as number;
-    const before = running.store.readEvents(t.id).length;
-    // Naming the real project: forbidden. Naming its own: the task is not there.
-    expect((await sd.command('outsider', command(t, 'task_cancel', v, { reason: 'x' }))).code).toBe(
-      ExitCode.forbidden,
-    );
-    expect(
-      (
-        await sd.command(
-          'outsider',
-          command({ id: t.id, project: 'elsewhere' }, 'task_cancel', v, {
-            reason: 'x',
-          }),
-        )
-      ).code,
-    ).toBe(ExitCode.missing);
-    expect((await cli(sd, 'outsider', ['task', 'show', t.id])).code).toBe(ExitCode.missing);
-    expect((await cli(sd, 'outsider', ['task', 'explain', t.id, '--full'])).code).toBe(
-      ExitCode.missing,
-    );
-    expect((await cli(sd, 'outsider', ['task', 'history', t.id])).code).toBe(ExitCode.missing);
-    expect((await cli(sd, 'outsider', ['task', 'list'])).envelope.data['items']).toEqual([]);
-    expect((await cli(sd, 'outsider', ['task', 'list', '--project', 'acme'])).code).toBe(
-      ExitCode.forbidden,
-    );
-    expect(
-      (
-        await cli(sd, 'outsider', [
-          'task',
-          'add',
-          '--project',
-          'acme',
-          '--title',
-          'T',
-          '--base',
-          'main',
-        ])
-      ).code,
-    ).toBe(ExitCode.forbidden);
-    expect(running.store.readEvents(t.id)).toHaveLength(before);
-  });
-
-  it('a prerequisite in another project does not leak through explain', async () => {
-    const sd = daemon();
-    const a = buildTask({ id: uuidOf(8_001), project: 'elsewhere' });
-    const b = buildTask({ id: uuidOf(8_002), depends_on: [a.id] });
-    sd.seed((d) => {
-      d.must(a.id, { kind: 'create_task', task: a });
-      d.must(b.id, { kind: 'create_task', task: b });
+    const local = await cli(sd, 'viewer', ['task', 'list']);
+    expect(local.code).toBe(ExitCode.usage);
+    expect(local.envelope.error.code).toBe('actor_invalid');
+    const r = await callDaemon({
+      socketPath: running.socketPath,
+      actor: 'viewer' as CallerActor,
+      method: 'POST',
+      path: '/v1/query',
+      body: { kind: 'task_list' },
     });
-    await sd.start();
-    const why = await cli(sd, 'assistant', ['task', 'explain', b.id, '--full']);
-    expect(why.envelope.data['prerequisites']).toMatchObject([
-      { task_id: a.id, status: 'not_visible', merged_head_sha: null },
-    ]);
+    expect(r.ok && r.value.status).toBe(401);
+    expect(r.ok && !r.value.envelope.ok && r.value.envelope.error.code).toBe('unauthenticated');
   });
-});
 
-describe('tokens (T117, FR-028/032)', () => {
-  it('an unknown or missing token is exit 5; a token file with loose permissions is refused locally', async () => {
+  it('an unset actor is the owner', async () => {
     const sd = daemon();
     await sd.start();
-    expect((await sd.query('A'.repeat(43), { kind: 'task_list' })).code).toBe(ExitCode.forbidden);
-    const missing = await cli(sd, 'nobody', ['task', 'list']);
-    expect(missing.code).toBe(ExitCode.usage);
-    expect(missing.envelope.error.code).toBe('token_unavailable');
-  });
-
-  it('revoking takes effect on restart, and the accepted history keeps its actor', async () => {
-    const sd = daemon();
-    const t = buildTask();
-    sd.seed((d) => createGrantStart(d, t, 'direct-pr'));
-    const running = await sd.start();
-    const req = uuidOf(7_002);
-    const v = running.store.readTask(t.id)?.version as number;
-    expect(
-      (
-        await sd.command('assistant', {
-          ...command(t, 'task_cancel', v, { reason: 'stop' }),
-          request_id: req,
-        })
-      ).code,
-    ).toBe(ExitCode.ok);
-    await sd.stop();
-
-    // Restart with the assistant gone from the config.
-    const started = await startDaemon({
-      dataDir: sd.dataDir,
-      accessTokens: [],
-      clock: sd.clock,
-      newId: sd.newId,
-    });
-    if (!started.ok) throw new Error(JSON.stringify(started.error));
-    sd.daemon = started.value;
+    const saved = process.env['CUSR_ACTOR'];
+    delete process.env['CUSR_ACTOR'];
     try {
-      const r = await sd.query('assistant', { kind: 'task_list' });
-      expect(r.code).toBe(ExitCode.forbidden);
-      expect(r.envelope.error?.['code']).toBe('unauthenticated');
-      const events = started.value.store.readEvents(t.id);
-      expect(events.find((e) => e.type === 'CancelRequested')?.actor ?? events.at(-1)?.actor).toBe(
-        'assistant',
+      const out: string[] = [];
+      const code = await runCli(
+        { name: 'cusr', description: 'test', version: '0' },
+        ['project', 'list', '--data-dir', sd.dataDir, '--json'],
+        { stdout: (t) => out.push(t), stderr: () => undefined },
+        CUSR_COMMANDS,
       );
-      expect(started.value.store.readCommand(req)?.actor).toBe('assistant');
+      expect(code).toBe(ExitCode.ok);
+      const data = (JSON.parse(out.join('')) as { data: { caller: { actor: string } } }).data;
+      expect(data.caller.actor).toBe('owner');
     } finally {
-      await sd.stop();
+      if (saved !== undefined) process.env['CUSR_ACTOR'] = saved;
     }
   });
 
-  it('the owner token is separate: an assistant cannot read it from its grant, and audit holds no secret', async () => {
-    const logs: string[] = [];
-    const sd = new SeededDaemon(SPECS, { log: (m) => logs.push(m) });
-    live.push(sd);
-    const running = await sd.start();
-    const owner = readTokenFile(running.ownerTokenPath, 'owner');
-    if (!owner.ok) throw new Error('owner token');
-    const text = logs.join('\n');
-    expect(text).toContain('token assistant actor=assistant roles=read,operate projects=acme');
-    expect(text).toContain('token config hash');
-    expect(text).not.toContain(owner.value);
-    expect(text).not.toContain(sd.tokens['assistant']);
-    const map = loadTokenMap(
-      running.ownerTokenPath,
-      SPECS.map((s) => ({ ...s, token_file: join(sd.base, `${s.id}.token`) })),
-    );
-    expect(map.ok && map.value.audit.find((a) => a.id === 'assistant')).toMatchObject({
-      roles: ['read', 'operate'],
-      projects: ['acme'],
-    });
-    // Same secret under two IDs is refused rather than merged.
-    const dup = loadTokenMap(running.ownerTokenPath, [
-      { ...(SPECS[1] as TokenSpec), token_file: running.ownerTokenPath },
-    ]);
-    expect(dup).toMatchObject({
-      ok: false,
-      error: { code: 'token_duplicate' },
-    });
-    // The token map is on the daemon's side only: the token files never reach a task's data.
-    expect(existsSync(join(sd.dataDir, 'owner.token'))).toBe(true);
-    const leak = JSON.stringify(running.store.taskIdsByStatus(['READY']));
-    expect(leak).not.toContain(owner.value);
-    expect(readFileSync(join(sd.base, 'assistant.token'), 'utf8')).not.toContain(owner.value);
+  it('an old config with access_tokens still starts, with a warning that they are ignored', async () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cusr-old-config-')));
+    try {
+      const file = join(dir, 'config.yaml');
+      const { text } = userConfig({
+        runtime: `runtime:\n  data_dir: ${dir}/data\n  access_tokens:\n    - { id: a, actor: assistant, roles: [read, operate], projects: [acme], token_file: /srv/a.token }`,
+      });
+      writeFileSync(file, text);
+      const cfg = await loadDaemonConfig({ config: file, dataDir: undefined });
+      expect(cfg.ok && cfg.value.warnings).toEqual([
+        expect.stringContaining('runtime.access_tokens is ignored') as string,
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
