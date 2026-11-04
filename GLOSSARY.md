@@ -4,6 +4,38 @@ Thuật ngữ miền dùng khi mô tả việc điều phối agent, giới hạ
 
 ## Language
 
+**Tài khoản harness**:
+Một mục khai báo có tên về danh tính đăng nhập của vendor để một harness dùng khi chạy attempt. Mỗi harness có một tài khoản mặc định và có thể thêm tài khoản dự phòng. Nhiều mục có thể trỏ tới cùng một danh tính; đổi token không làm đổi danh tính đó.
+_Avoid_: Token, file credential, subscription độc lập, binding, pool
+
+**Tài khoản mặc định**:
+Tài khoản đã đăng nhập sẵn trên máy mà pin của harness đang dùng. Nó được chọn trước tài khoản dự phòng cùng ưu tiên; Cuesura chỉ đọc credential của nó, không ghi hay xóa.
+_Avoid_: Tài khoản kế thừa, tài khoản chính của vendor, tài khoản do Cuesura đăng nhập
+
+**Tài khoản dự phòng**:
+Tài khoản người dùng thêm bằng cách đăng nhập qua Cuesura vào thư mục riêng do Cuesura quản lý; được dùng khi tài khoản mặc định nghỉ hạn mức hay lỗi đăng nhập. Không dùng chung credential với phiên tương tác hay công cụ khác.
+_Avoid_: Tài khoản phụ của vendor, bản sao credential, tài khoản nhập từ công cụ khác
+
+**Nghỉ hạn mức**:
+Khoảng thời gian tài khoản không được chọn vì đã chạm hạn mức sử dụng, có mốc được xét lại. Nghỉ hạn mức thuộc danh tính subscription và dùng chung cho các mục khai, harness và task sử dụng danh tính đó; chưa nhận diện được danh tính thì mục đó nghỉ riêng.
+_Avoid_: Hỏng đăng nhập, tạm ngưng, giữ slot
+
+**Chờ ghi credential**:
+Tình trạng tài khoản dự phòng có thông tin đăng nhập đã làm mới nhưng chưa lưu được về thư mục của tài khoản, nên chưa được chọn cho attempt mới. Tình trạng này không làm mất kết quả công việc đã có của attempt.
+_Avoid_: Nghỉ hạn mức, task thất bại, lỗi đăng nhập
+
+**Khả dụng của tài khoản**:
+Khả năng một mục tài khoản được chọn cho attempt mới, chỉ có khi không còn nguyên nhân chặn nào. Gỡ một nguyên nhân không đồng nghĩa gỡ các nguyên nhân khác.
+_Avoid_: Đã bật là dùng được, hết nghỉ là dùng được
+
+**Đợt hết hạn mức**:
+Khoảng chờ của một harness có task cần chạy, có ít nhất một tài khoản chỉ bị chặn bởi hạn mức và không có tài khoản chọn được. Đợt kết thúc khi có tài khoản chọn được, kể cả khi task còn chờ slot.
+_Avoid_: Đợt gửi, thời gian task chưa chạy, thời gian chờ slot
+
+**Vòng thử tài khoản**:
+Chuỗi lựa chọn tài khoản liên tiếp trước khi task phải chờ điều kiện phục hồi. Task được đánh thức sau khoảng chờ thì mở vòng thử mới.
+_Avoid_: Toàn bộ step, toàn bộ task, một attempt
+
 **Chế độ thực thi**:
 Lựa chọn cách đưa kết quả task tới PR, do người dùng xác nhận trước khi chạy. Hai chế độ là `direct-pr` và `full-review`.
 _Avoid_: Độ khó task, tự động suy chế độ từ kích thước
@@ -65,7 +97,7 @@ Head SHA của PR mà Cuesura đã có đủ gate, CI và review nếu được 
 _Avoid_: Head hiện tại của PR, head mới nhất trên remote
 
 **Thông báo logic**:
-Một việc cần báo cho người dùng, như một câu hỏi chờ người hay một task vừa kết thúc. Thông báo giữ nguyên danh tính qua mọi lần thử lại, phục hồi và restart, nên cùng một việc không bao giờ thành hai thông báo.
+Một việc cần báo cho người dùng, như một câu hỏi chờ người, một task vừa kết thúc hay một đợt hết hạn mức. Thông báo giữ nguyên danh tính qua mọi lần thử lại, cập nhật nội dung, phục hồi và restart, nên cùng một việc không bao giờ thành hai thông báo logic dù có thể hiện thành nhiều bản tin.
 _Avoid_: Tin nhắn, mỗi lần gửi là một thông báo
 
 **Đợt gửi**:
