@@ -20,7 +20,10 @@ import {
   type CommandExecutor,
 } from '../../../src/runner/commands.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
-import { HostExecutionProvider } from '../../../src/runner/sandbox.ts';
+import {
+  HostExecutionProvider,
+  shortTmpDir,
+} from '../../../src/runner/sandbox.ts';
 import type { EpochMs } from '../../../src/shared/brand.ts';
 import { hashText } from '../../../src/shared/hash.ts';
 import { ok } from '../../../src/shared/result.ts';
@@ -319,7 +322,7 @@ describe('gates through the production host launcher', () => {
     expect(existsSync(join(worktree, 'out.txt'))).toBe(true);
   });
 
-  it('gives a gate a usable temp directory under a long data dir', async () => {
+  it('gives a gate a short private temp directory, removed afterwards', async () => {
     const { deps, input, worktree } = await setup(new HostExecutionProvider());
     const base = input([
       {
@@ -338,7 +341,10 @@ describe('gates through the production host launcher', () => {
     const [file, tmp] = readFileSync(join(worktree, 'out.txt'), 'utf8')
       .trim()
       .split('\n');
-    expect(tmp).toBe(scratch);
-    expect(file?.startsWith(`${scratch}/`)).toBe(true);
+    // A Unix socket path holds 108 bytes; the scratch dir alone leaves no room for one.
+    expect(tmp).toBe(shortTmpDir(scratch));
+    expect(`${tmp}/cusr-deadline-XXXXXX/control.sock`.length).toBeLessThan(108);
+    expect(file?.startsWith(`${tmp}/`)).toBe(true);
+    expect(existsSync(tmp!)).toBe(false);
   });
 });

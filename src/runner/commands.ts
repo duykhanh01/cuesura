@@ -15,6 +15,7 @@ import {
   openSync,
   readdirSync,
   readFileSync,
+  rmSync,
   writeSync,
 } from 'node:fs';
 import { join } from 'node:path';
@@ -28,6 +29,7 @@ import type { EpochMs, Hash } from '../shared/brand.ts';
 import { hashText } from '../shared/hash.ts';
 import { operationEnv } from './process-tag.ts';
 import type { Redactor } from './redact.ts';
+import { ensurePrivateTmpDir, shortTmpDir } from './sandbox.ts';
 
 export const COMMAND_ROLES = ['setup', 'gate', 'autofix'] as const;
 export type CommandRole = (typeof COMMAND_ROLES)[number];
@@ -283,7 +285,48 @@ export async function runCommand(
   return receipt;
 }
 
+/**
+ * A host command gets a short private TMPDIR: the scratch dir under a long data dir leaves no room for a Unix
+ * socket path (108 bytes) that a test makes under it. Commands of one scratch run one at a time.
+ */
 async function execute(
+  deps: CommandDeps,
+  spec: CommandSpec,
+): Promise<CommandReceipt> {
+  if (deps.sandbox.provider !== 'host' || spec.layout.tmp_dir !== undefined)
+    return executeIn(deps, spec);
+  const tmp = shortTmpDir(spec.layout.scratch);
+  try {
+    rmSync(tmp, { recursive: true, force: true });
+    ensurePrivateTmpDir(tmp);
+  } catch (e) {
+    return {
+      role: spec.role,
+      name: spec.name,
+      command: spec.command,
+      command_digest: hashText(spec.command),
+      retry: RETRY_SAFETY[spec.role],
+      layout_digest: null,
+      status: 'not_launched',
+      exit_code: null,
+      started_at: null,
+      finished_at: deps.clock.now(),
+      wall_ms: spec.wall_ms,
+      output: { digest: hashText(''), bytes: 0, tail: '', truncated: false },
+      detail: `tmp dir: ${e instanceof Error ? e.message : String(e)}`,
+    };
+  }
+  try {
+    return await executeIn(deps, {
+      ...spec,
+      layout: { ...spec.layout, tmp_dir: tmp },
+    });
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+async function executeIn(
   deps: CommandDeps,
   spec: CommandSpec,
 ): Promise<CommandReceipt> {
