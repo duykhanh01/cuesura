@@ -418,6 +418,7 @@ export function createDecider(deps: DeciderDeps): Decider {
           stall_ms: setting.stall_ms,
         },
         ...(workspace === undefined ? {} : { workspace }),
+        view: { project: s.project, title: `decider: ${s.task.title}` },
       },
     };
     mkdirSync(deps.recordsDir, { recursive: true, mode: 0o700 });

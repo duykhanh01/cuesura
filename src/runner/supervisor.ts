@@ -9,7 +9,6 @@
  * existing marker or loaded unit is `marker_exists` (recover it, do not spawn again).
  */
 import { spawn } from 'node:child_process';
-import { basename } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
 import type {
@@ -40,7 +39,11 @@ import {
   type LockProbe,
 } from './operation-lock.ts';
 import { Redactor } from './redact.ts';
-import { shellJoin, type TerminalHost } from './terminal-host.ts';
+import {
+  shellJoin,
+  terminalLabel,
+  type TerminalHost,
+} from './terminal-host.ts';
 
 export const SYSTEMD_RUN = '/usr/bin/systemd-run';
 export const SYSTEMCTL = '/usr/bin/systemctl';
@@ -303,7 +306,8 @@ export class SystemdSupervisor implements ProcessPort {
     const unit = unitName(spec.operation_id);
     const argv = systemdRunArgv(spec, lock, command, { pty: true });
     const opened = await terminal.open({
-      label: basename(spec.cwd).slice(0, 32),
+      label: terminalLabel(spec),
+      ...(spec.view === undefined ? {} : { project: spec.view.project }),
       // Not the worktree: this shell runs the user's hooks in the directory it starts in.
       cwd: this.#dataDir,
       // The leading space keeps it out of a shell history that honours it.

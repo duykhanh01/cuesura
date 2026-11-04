@@ -191,8 +191,9 @@ runtime:
 
 Cần daemon Paseo đang chạy (`paseo daemon start`) với home mặc định `~/.paseo`. Cuesura tìm `paseo` trên PATH của
 daemon rồi trong `~/.local/bin`; cài bằng `npm i -g` qua nvm thì đặt `tool_paths.paseo` tới script CLI, ví dụ
-`~/.nvm/versions/node/<bản>/bin/paseo`. Cuesura chạy script đó bằng node của `cusrd`. Agent hiện ở các terminal
-trong project `cuesura` (thư mục `<data dir>/cuesura`), terminal tự đóng khi xong. Pane chỉ để xem như với herdr;
+`~/.nvm/versions/node/<bản>/bin/paseo`. Cuesura chạy script đó bằng node của `cusrd`. Mỗi project của task hiện
+trong app thành một project `cuesura-<project>` (thư mục `<data dir>/paseo/cuesura-<project>`). Terminal mang tên
+vai trò và tiêu đề task, ví dụ `coder: Thêm …`, và tự đóng khi xong. Pane chỉ để xem như với herdr;
 daemon Paseo không chạy thì agent chạy nền và `cusr doctor` báo check `terminal`.
 
 ## Token và quyền

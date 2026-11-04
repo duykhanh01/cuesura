@@ -112,6 +112,12 @@ export interface SandboxProvider {
 
 // ---- Process supervision (transient user units, one per operation) ----
 
+/** What a terminal shows for an agent run; display only, never part of what identifies the run. */
+export type TerminalView = {
+  readonly project: string;
+  readonly title: string;
+};
+
 export type OperationLaunch = {
   readonly operation_id: string;
   readonly kind: OperationKind;
@@ -133,6 +139,7 @@ export type OperationLaunch = {
   readonly stall_ms?: number | null;
   /** Directories whose file changes count as progress (the worktree, scratch). */
   readonly watch?: readonly string[];
+  readonly view?: TerminalView;
 };
 
 export type LaunchError = {
@@ -215,6 +222,8 @@ export type HarnessInput = {
     readonly scratch_name: string;
     readonly host_path: string;
   }[];
+  /** Left out of the input digest, so a run launched before it existed still recovers. */
+  readonly view?: TerminalView;
 };
 
 export type PermissionDenial = {

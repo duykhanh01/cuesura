@@ -37,6 +37,8 @@ import {
   PASEO_WORKSPACE_DIR,
   PaseoTerminal,
   findTerminalBin,
+  paseoWorkspaceDir,
+  terminalLabel,
   shellJoin,
   terminalArgv,
   terminalHost,
@@ -475,6 +477,33 @@ function paseoCli(
   return Object.assign(exec, { calls });
 }
 
+describe('terminal naming (ADR-0006)', () => {
+  it('labels with the title, without controls, cut to a short tab', () => {
+    expect(
+      terminalLabel({
+        cwd: '/w/T1',
+        view: { project: 'p', title: 'a\n\tb\u001b[31m' },
+      }),
+    ).toBe('a b [31m');
+    expect(terminalLabel({ cwd: '/w/T1' })).toBe('T1');
+    const long = terminalLabel({
+      cwd: '/w',
+      view: { project: 'p', title: `coder: ${'é'.repeat(60)}` },
+    });
+    expect([...long]).toHaveLength(40);
+  });
+
+  it('gives each project its own Paseo directory, apart from one the user opened', () => {
+    expect(paseoWorkspaceDir('/d', 'metronome')).toBe(
+      '/d/paseo/cuesura-metronome',
+    );
+    expect(paseoWorkspaceDir('/d', '../a b/c')).toBe(
+      '/d/paseo/cuesura-..-a-b-c',
+    );
+    expect(paseoWorkspaceDir('/d')).toBe(join('/d', PASEO_WORKSPACE_DIR));
+  });
+});
+
 describe('PaseoTerminal (ADR-0006)', () => {
   const workspace = join('/d', PASEO_WORKSPACE_DIR);
   const made: string[] = [];
@@ -517,6 +546,15 @@ describe('PaseoTerminal (ADR-0006)', () => {
         '--json',
       ],
     ]);
+  });
+
+  it('opens the terminal in the directory of its project', async () => {
+    const exec = paseoCli();
+    expect(
+      (await paseo(exec).open({ ...request, project: 'metronome' })).ok,
+    ).toBe(true);
+    expect(made).toEqual(['/d/paseo/cuesura-metronome']);
+    expect(exec.calls[0]).toContain('/d/paseo/cuesura-metronome');
   });
 
   it('creates one terminal at a time, so launches arriving together share the workspace', async () => {
@@ -711,9 +749,29 @@ describe('agent launch through a terminal (ADR-0006)', () => {
     );
     expect(exec.direct).toEqual([]);
     expect(host.requests[0]).toMatchObject({ label: 'T1', cwd: dir });
+    expect(host.requests[0]?.project).toBeUndefined();
     expect(host.requests[0]?.command).toMatch(
       /^ '.*systemd-run'.*'--pty'.*; exit$/,
     );
+  });
+
+  it('names the terminal after the run and passes its project on', async () => {
+    const dir = dataDir();
+    const host = terminal();
+    const s = new SystemdSupervisor({
+      dataDir: dir,
+      runnerCommand: ['/runner'],
+      exec: systemd(1),
+      terminal: host,
+    });
+    await s.launch(
+      agentSpec({ view: { project: 'metronome', title: 'coder: Add X' } }),
+    );
+    expect(host.requests[0]).toMatchObject({
+      label: 'coder: Add X',
+      project: 'metronome',
+      cwd: dir,
+    });
   });
 
   it('runs in the background when the terminal is unavailable', async () => {

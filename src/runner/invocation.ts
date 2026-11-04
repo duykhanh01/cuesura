@@ -199,6 +199,11 @@ const StoredOutcomeSchema = z.strictObject({
 });
 
 /** The run's outcome could not be proven; the effect must be reconciled, never re-launched blindly. */
+export function inputDigest(input: HarnessInput): Hash {
+  const { view: _view, ...identity } = input;
+  return hashCanonical(identity);
+}
+
 export class InvocationUnknown extends Error {
   override name = 'InvocationUnknown';
 }
@@ -483,7 +488,7 @@ export class RunnerHarness implements HarnessPort {
       // so a daemon that dies while the run goes on can still conclude it (US3.2).
       const state: LaunchState = {
         schema_version: 1,
-        input_digest: hashCanonical(input),
+        input_digest: inputDigest(input),
         ...(input.session === null ? {} : { resumed: session !== null }),
         ...(resumeFallback === undefined
           ? {}
@@ -539,6 +544,7 @@ export class RunnerHarness implements HarnessPort {
           boundaryRole(input.role) === 'reviewer'
             ? [layout.scratch, ...tmpWatch]
             : [ws.worktree, layout.scratch, ...tmpWatch],
+        ...(input.view === undefined ? {} : { view: input.view }),
       });
       if (!launched.ok) {
         if (launched.error.code === 'spawn_failed')
@@ -631,7 +637,7 @@ export class RunnerHarness implements HarnessPort {
     const st = state.value;
     const e = exit.value;
     if (
-      st.input_digest !== hashCanonical(input) ||
+      st.input_digest !== inputDigest(input) ||
       st.manifest_hash !== o.manifest.manifest_hash ||
       marker.value.operation_id !== input.operation_id ||
       marker.value.attempt_id !== input.attempt_id ||
@@ -862,7 +868,7 @@ export class RunnerHarness implements HarnessPort {
     const p = result.value.provenance;
     const e = exit.value;
     if (
-      p.recovery.input_digest !== hashCanonical(input) ||
+      p.recovery.input_digest !== inputDigest(input) ||
       p.recovery.value_digest !== hashCanonical(result.value.value) ||
       p.recovery.exit_digest !== hashCanonical(e) ||
       p.manifest_hash !== this.#o.manifest.manifest_hash ||
@@ -940,7 +946,7 @@ export class RunnerHarness implements HarnessPort {
           ...(input.role === 'reviewer'
             ? {
                 recovery: {
-                  input_digest: hashCanonical(input),
+                  input_digest: inputDigest(input),
                   exit_digest: hashCanonical(exit),
                   value_digest: hashCanonical(redact(v.record.value)),
                 },

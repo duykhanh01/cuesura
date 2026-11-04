@@ -614,6 +614,13 @@ describe('run outcomes', () => {
     await stop(inp.operation_id);
   });
 
+  it('hands the terminal view to the launch', async () => {
+    const e = env('claude', 's0-claude-reviewer-1793180331');
+    const view = { project: 'p', title: 'reviewer: t' };
+    await harness(e).run({ ...input('claude', 'reviewer'), view }, signal());
+    expect(e.proc.launches[0]?.view).toEqual(view);
+  });
+
   it('an attempt that was already launched is recovered, never launched again', async () => {
     const e = env('claude', 's0-claude-coder-1793172185');
     const inp = input('claude', 'coder');
@@ -803,6 +810,10 @@ describe('T139 M07 finalized reviewer recovery', () => {
     const first = await harness(e).run(inp, signal());
     const fresh = harness(e, { credentials: {} });
     expect(fresh.recover(inp)).toEqual(first);
+    // The terminal view came later and is display only: a run launched without it still recovers.
+    expect(
+      fresh.recover({ ...inp, view: { project: 'p', title: 'coder: t' } }),
+    ).toEqual(first);
     expect(() =>
       fresh.recover({
         ...inp,

@@ -1059,6 +1059,7 @@ async function startAgent(
         ? { collect: [{ scratch_name: contentName, host_path: file }] }
         : {}),
       ...(workspace === undefined ? {} : { workspace }),
+      view: { project: l.s.project, title: `${r}: ${l.s.task.title}` },
     };
     if (!recovering) out = await harness.run(input, signal);
     else if (harness.recover === undefined)

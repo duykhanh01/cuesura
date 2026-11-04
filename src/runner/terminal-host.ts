@@ -5,8 +5,9 @@
  */
 import { mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { z } from 'zod';
+import type { OperationLaunch } from '../adapters/ports.ts';
 import type { AttachedTerminal } from '../config/schema-user.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import type { CommandExec } from './supervisor.ts';
@@ -14,6 +15,8 @@ import type { CommandExec } from './supervisor.ts';
 export type TerminalRequest = {
   /** Shown by the multiplexer; never parsed back. */
   readonly label: string;
+  /** The task's project, for a backend that groups terminals by it. */
+  readonly project?: string;
   readonly cwd: string;
   /** One shell line, typed into the new terminal's shell. */
   readonly command: string;
@@ -27,6 +30,18 @@ export type TerminalHandle = {
 export interface TerminalHost {
   readonly name: string;
   open(req: TerminalRequest): Promise<Result<TerminalHandle, string>>;
+}
+
+const LABEL_MAX = 40;
+
+/** The run's title, or its worktree when it has none; a multiplexer shows it as typed, controls included. */
+export function terminalLabel(
+  spec: Pick<OperationLaunch, 'cwd' | 'view'>,
+): string {
+  const text = (spec.view?.title ?? basename(spec.cwd))
+    .replace(/[\p{Cc}\s]+/gu, ' ')
+    .trim();
+  return [...text].slice(0, LABEL_MAX).join('').trimEnd();
 }
 
 /** POSIX single quoting: the line goes through the user's interactive shell. */
@@ -288,6 +303,16 @@ const PaseoCreatedSchema = z.object({ id: z.string().min(1) });
 
 /** Names the project in Paseo's app: Paseo titles a workspace's project after its directory. */
 export const PASEO_WORKSPACE_DIR = 'cuesura';
+
+/**
+ * One directory, so one Paseo project, per task project. The prefix keeps it apart from a project of the same
+ * name the user opened in Paseo, which Paseo would show under the same title.
+ */
+export function paseoWorkspaceDir(dataDir: string, project?: string): string {
+  if (project === undefined) return join(dataDir, PASEO_WORKSPACE_DIR);
+  const name = project.replace(/[^A-Za-z0-9_.-]/g, '-').slice(0, 64);
+  return join(dataDir, 'paseo', `${PASEO_WORKSPACE_DIR}-${name}`);
+}
 const PASEO_TIMEOUT_MS = 15_000;
 
 export type PaseoTerminalOptions = {
@@ -348,7 +373,7 @@ export class PaseoTerminal implements TerminalHost {
   }
 
   async #create(req: TerminalRequest): Promise<Result<string, string>> {
-    const dir = join(req.cwd, PASEO_WORKSPACE_DIR);
+    const dir = paseoWorkspaceDir(req.cwd, req.project);
     try {
       await this.#mkdir(dir);
     } catch (e) {

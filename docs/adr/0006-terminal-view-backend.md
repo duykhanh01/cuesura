@@ -22,7 +22,9 @@ và hợp đồng kết quả. Lệnh đã gõ vào pane có thể chạy muộn
 có dấu vết gì. Trong cùng operation, tên unit, operation lock và launch marker chặn chạy trùng. Attempt thay
 thế là operation khác, nên trước khi báo `not_launched` daemon chiếm `launch.json` bằng marker `fence`: ghi
 marker là thao tác nguyên tử, runner đến muộn gặp `marker_exists` và không spawn gì. `cusr doctor` báo backend không tới được. Shell của pane chạy ở data dir, không ở worktree, để hook
-của shell không chạy trong worktree. Tab tự đóng khi operation xong; xem lại bằng `cusr task logs`.
+của shell không chạy trong worktree. Tab mang tên vai trò và tiêu đề task (`coder: …`). Tên này chỉ để hiển thị,
+không thuộc digest của input nên run đã khởi động trước khi có nó vẫn khôi phục được. Tab tự đóng khi operation
+xong; xem lại bằng `cusr task logs`.
 
 Orca không có workspace tự do: terminal nào cũng thuộc một project, và CLI chỉ đăng ký được repo git. Vì vậy
 Cuesura tạo repo rỗng `<data dir>/cuesura`, đăng ký nó khi `terminal create` báo chưa có project, và shell chạy
@@ -30,8 +32,11 @@ trong repo đó. Phương án bị loại: mở tab trong worktree của task (v
 worktree của Cuesura không do Orca quản lý); `orca agent launch` (cùng lý do với `herdr agent start`). Đã thử trên
 Orca 1.4.246 với runtime tách riêng: đóng tab, Ctrl-C và dừng hẳn server Orca không dừng unit.
 
-Paseo cũng gắn terminal với một workspace, nhưng workspace mở được ở thư mục bất kỳ, không cần git: Cuesura tạo
-`<data dir>/cuesura` và mở terminal ở đó, app Paseo hiện nó trong project `cuesura`. Các lệnh `terminal create`
+Paseo cũng gắn terminal với một workspace, nhưng workspace mở được ở thư mục bất kỳ, không cần git, và app đặt
+tên project theo tên thư mục. Cuesura mở terminal ở `<data dir>/paseo/cuesura-<project>`, nên mỗi project của
+task là một project `cuesura-<project>` trong app. Tiền tố `cuesura-` giữ nó tách khỏi project cùng tên mà người
+dùng tự mở: Paseo phân biệt project theo đường dẫn nhưng hiện cùng một tên. Phương án bị loại: mở ở worktree để
+agent hiện ngay trong project thật (vi phạm quy tắc shell không ở worktree). Các lệnh `terminal create`
 đồng thời vào một thư mục mới tạo ra nhiều workspace, nên Cuesura tạo lần lượt từng terminal. CLI của Paseo là
 script Node gọi `env node`, mà lệnh ngoài của daemon chạy với PATH tối giản, nên Cuesura chạy nó bằng chính node
 của daemon. Phương án bị loại: `paseo run` (cùng lý do với `herdr agent start`; agent còn thành process con của

@@ -400,6 +400,10 @@ describe.each(['full-review', 'direct-pr'] as const)(
         '## prompt:prompts/coder.md',
       );
       expect(coder.calls[0]?.context.text).toContain('## worker_rules');
+      expect(coder.calls[0]?.view).toEqual({
+        project: s.project,
+        title: `coder: ${s.task.title}`,
+      });
       // gates → checkpoint commit made with the worker's message; publish pushed exactly that commit.
       const cp = s.run.checkpoint;
       expect(cp).toMatchObject({ revision: 1, committed: true });

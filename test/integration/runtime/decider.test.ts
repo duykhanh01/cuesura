@@ -126,6 +126,7 @@ describe('the decider answers for an absent owner', () => {
 
     expect(h.calls).toHaveLength(1);
     expect(h.calls[0]).toMatchObject({ role: 'decider', session: null });
+    expect(h.calls[0]?.view?.title).toMatch(/^decider: /);
     expect(h.calls[0]?.context.text).toContain('Which encoding?');
     expect(h.calls[0]?.context.text).toContain('Which line ending?');
     const [q] = questions(d, t.id);
