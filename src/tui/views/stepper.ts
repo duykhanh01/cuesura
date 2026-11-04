@@ -45,11 +45,26 @@ export function stageLook(
   return { mark, style };
 }
 
-/** One cell per stage, for a list row. */
-export function dots(stages: readonly Stage[], status: TaskStatus): Seg[] {
+const BAR_STYLE: Readonly<Record<StageState, (status: TaskStatus) => Style>> = {
+  done: () => ({ fg: 'green' }),
+  current: (status) => ({ fg: currentColor(status), bold: true }),
+  failed: () => ({ fg: 'red', bold: true }),
+  stopped: () => ({ fg: 'magenta' }),
+  skipped: () => DIM,
+  todo: () => DIM,
+};
+
+/**
+ * One cell per stage, for a list row. With colour the row is a bar and only the colour tells the states
+ * apart; a skipped stage is a gap. Without colour the distinct marks of `look` carry the states (FR-035).
+ */
+export function dots(stages: readonly Stage[], status: TaskStatus, color = true): Seg[] {
   return stages.map((s) => {
-    const { dot, style } = look(s.state, status);
-    return ui(dot, style);
+    if (!color) {
+      const { dot, style } = look(s.state, status);
+      return ui(dot, style);
+    }
+    return s.state === 'skipped' ? ui(' ') : ui('━', BAR_STYLE[s.state](status));
   });
 }
 

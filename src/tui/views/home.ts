@@ -148,6 +148,14 @@ const TITLE_X = 4;
 
 const SELECTOR: Style = { fg: 'cyan', bold: true };
 
+const SELECTED: Style = { fg: 'cyan' };
+
+/** Selected row: faint or plain text turns cyan; yellow and red keep their meaning. */
+const highlight = (segs: readonly Seg[]): Seg[] =>
+  segs.map((g) =>
+    g.style?.fg === 'yellow' || g.style?.fg === 'red' ? g : { ...g, style: SELECTED },
+  );
+
 /** The time column fits the longest time shown, so `unavailable` reads whole and `5s` costs little. */
 function columns(s: TuiState, cols: number, rows: readonly HomeRow[]): Columns {
   const time = rows.reduce(
@@ -220,6 +228,7 @@ function drawTask(
   row: TaskRow,
   c: Columns,
   selected: boolean,
+  useColor: boolean,
 ): void {
   const cols = s.size.cols;
   const { task } = row;
@@ -238,12 +247,12 @@ function drawTask(
         : {};
   frame.put(x, y, truncate(task.title, c.title), titleStyle);
   x += c.title + 2;
-  frame.put(x, y, truncate(sanitize(task.project), c.project), DIM);
+  frame.put(x, y, truncate(sanitize(task.project), c.project), selected ? SELECTED : DIM);
   x += c.project + 2;
   const stages = rowStages(task);
-  if (stages !== null) putSegs(frame, x, y, dots(stages, task.status), DOTS_WIDTH);
+  if (stages !== null) putSegs(frame, x, y, dots(stages, task.status, useColor), DOTS_WIDTH);
   x += DOTS_WIDTH + 2;
-  putSegs(frame, x, y, doingSegs(row), c.doing);
+  putSegs(frame, x, y, selected ? highlight(doingSegs(row)) : doingSegs(row), c.doing);
   const time = truncate(timeInStatus(task, s.lastUpdatedAt), c.time);
   frame.put(cols - displayWidth(time) - 1, y, time, DIM);
 }
@@ -286,6 +295,7 @@ function drawList(
   top: number,
   space: number,
   rows: readonly HomeRow[],
+  useColor: boolean,
 ): void {
   const cols = s.size.cols;
   const selected = selectedRowIndex(s, rows);
@@ -310,7 +320,7 @@ function drawList(
       const on = line.row === selected;
       if (on) frame.put(0, y, uiText('›'), SELECTOR);
       frame.put(2, y, truncate(line.text, cols - 2), on ? {} : DIM);
-    } else drawTask(frame, y, s, line.item, c, line.row === selected);
+    } else drawTask(frame, y, s, line.item, c, line.row === selected, useColor);
   });
 }
 
@@ -348,5 +358,5 @@ export const homeBody =
       frame.put(1, listTop, truncate(uiText('No tasks in this view.'), cols - 1), DIM);
       return;
     }
-    drawList(frame, s, listTop, room, rows);
+    drawList(frame, s, listTop, room, rows, opts.color);
   };
