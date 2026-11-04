@@ -351,8 +351,12 @@ export function applyInPlace(
           input_digest: event.payload.input_digest,
           signature: event.payload.signature,
           findings: event.payload.findings ?? [],
+          ...(event.payload.summary === undefined
+            ? {}
+            : { summary: event.payload.summary }),
           valid: true,
         });
+        s.run.verdict_attempt_id = event.payload.attempt_id;
       }
       resetStreak(s, event.payload.resets_streak_of);
       break;
@@ -960,6 +964,7 @@ export function applyInPlace(
       s.run.content = event.payload.content;
       break;
     case 'ReviewReused':
+      s.run.verdict_attempt_id = event.payload.from_attempt_id;
       break;
     case 'BaseUpdateRecorded':
       s.run.base_update = event.payload.update;
@@ -1044,6 +1049,14 @@ function applySuccessFacts(s: TaskState, kind: string, result: unknown): void {
   const body = r['pr_body'] as PrBodyState | undefined;
   if (kind === 'create_pr' && body !== undefined) s.run.pr_body = body;
   if (kind === 'merge' && r['merged'] === true) s.merged = true;
+  if (kind === 'mark_ready' && typeof r['ready_at'] === 'number')
+    s.run.pr_ready_at = r['ready_at'];
+  if (
+    kind === 'post_review' &&
+    typeof r['attempt_id'] === 'string' &&
+    r['outcome'] !== 'not_posted'
+  )
+    s.run.posted_reviews = [...(s.run.posted_reviews ?? []), r['attempt_id']];
 }
 
 /**

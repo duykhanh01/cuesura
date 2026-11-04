@@ -1,3 +1,4 @@
+import type { EventPayloads } from '../domain/event.ts';
 import { reviewOf } from './head-evidence.ts';
 import type { BaseUpdate } from '../domain/runtime.ts';
 import type { z } from 'zod';
@@ -17,7 +18,9 @@ import {
   CreatePrDataSchema,
   FailureDataSchema,
   GateDataSchema,
+  MarkReadyDataSchema,
   MergeDataSchema,
+  PostReviewDataSchema,
   PrepareDataSchema,
   PublishDataSchema,
   RerunDataSchema,
@@ -242,11 +245,7 @@ const SKIP_OUTCOME: Partial<Record<StepKind, string>> = {
   triage: 'ok',
 };
 
-function skip(
-  ctx: Ctx,
-  step: string,
-  reason: 'when' | 'skip_when' | 'no_gates' | 'pr_exists' | 'prepared',
-): void {
+function skip(ctx: Ctx, step: string, reason: StepSkippedReason): void {
   const def = stepDef(ctx, step);
   const outcome = SKIP_OUTCOME[def.kind] ?? 'ok';
   ctx.emit('StepSkipped', { step, kind: def.kind, reason, outcome });
@@ -568,9 +567,43 @@ function runAction(ctx: Ctx, step: string, def: StepDef, visit: number): void {
         request: {
           head_sha: s.head_sha,
           content_digest: s.run.content?.digest ?? null,
+          ...(draftUntilReady(ctx) ? { draft: true } : {}),
         },
       });
       return;
+    case 'github.mark_ready':
+      requestEffect(ctx, {
+        kind: 'mark_ready',
+        logical_id: `${s.id}#${visit}`,
+        step,
+        request: { pr_ref: s.pr_ref },
+      });
+      return;
+    case 'github.post_review': {
+      const reviews = s.run.reviews.filter(
+        (r) => r.valid && r.revision === s.revision,
+      );
+      // The verdict the review step routed on, a reused one included; never merely the latest recorded.
+      const at = reviews.findIndex(
+        (r) => r.attempt_id === s.run.verdict_attempt_id,
+      );
+      const review = reviews[at];
+      if (review === undefined || s.pr_ref === null)
+        return skip(ctx, step, 'no_review');
+      if (s.run.posted_reviews?.includes(review.attempt_id) === true)
+        return skip(ctx, step, 'review_posted');
+      requestEffect(ctx, {
+        kind: 'post_review',
+        logical_id: `${review.attempt_id}#${visit}`,
+        step,
+        request: {
+          pr_ref: s.pr_ref,
+          attempt_id: review.attempt_id,
+          round: at + 1,
+        },
+      });
+      return;
+    }
     case 'github.rerun_failed': {
       const ci = s.head_sha === null ? undefined : latestCi(s, s.head_sha);
       const failed = (ci?.checks ?? [])
@@ -1073,6 +1106,10 @@ export function parseSuccess(
         return RerunDataSchema;
       case 'create_pr':
         return CreatePrDataSchema;
+      case 'mark_ready':
+        return MarkReadyDataSchema;
+      case 'post_review':
+        return PostReviewDataSchema;
       case 'await_ci':
         return AwaitCiDataSchema;
       case 'merge':
@@ -1344,6 +1381,8 @@ function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
       return;
     }
     case 'create_pr':
+    case 'mark_ready':
+    case 'post_review':
     case 'rerun_ci':
       proceed(ctx, { kind: 'route', step: step as string, outcome: 'ok' });
       return;
@@ -1690,6 +1729,9 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
       ...(input === null
         ? {}
         : { input_digest: input, findings: d.findings.slice(0, MAX_FINDINGS) }),
+      ...(input === null || d.summary === undefined
+        ? {}
+        : { summary: d.summary.slice(0, MAX_SUMMARY) }),
     });
     if (!approved) recordCheckFailure(ctx, signature);
     if (!approved && ctx.state.run.base_update?.scope?.outside_files.length)
@@ -1902,7 +1944,17 @@ export function onEffectFailed(
 
 // ---------- Execution modes (task-execution-modes.md) ----------
 
+type StepSkippedReason = EventPayloads['StepSkipped']['reason'];
+
 const MAX_FINDINGS = 50;
+const MAX_SUMMARY = 4_000;
+
+/** A graph that turns the PR ready later opens it as a draft, so the repo's CI can wait for the review. */
+function draftUntilReady(ctx: Ctx): boolean {
+  return Object.values(ctx.frozen.workflow.steps).some(
+    (d) => d.kind === 'action' && d.action === 'github.mark_ready',
+  );
+}
 
 /** Review steps of a task started with a confirmed mode compare inputs and bind to the checkpoint. */
 function modeReview(ctx: Ctx): boolean {

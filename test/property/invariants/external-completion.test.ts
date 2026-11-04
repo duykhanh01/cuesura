@@ -15,7 +15,7 @@ import { buildTask, uuidOf } from '../../support/builders.ts';
 import { createGrantStart } from '../../support/runtime.ts';
 import { ciData, publishData } from '../../support/scenario.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
-import { toPublish } from '../../support/store-flows.ts';
+import { toPublish, reviewToCi } from '../../support/store-flows.ts';
 import { propertyParams } from '../arbitraries/policies.ts';
 
 // FR-040.01–15 and FR-001.02/03: a merge proof ends business work, TaskCompleted happens at most once and
@@ -55,6 +55,7 @@ function toCi(
     pr_ref: 'acme#7',
     head_sha: HEAD,
   });
+  reviewToCi(d, t.id);
 }
 
 function observeMerged(d: StoreDriver, t: CanonicalTask): void {

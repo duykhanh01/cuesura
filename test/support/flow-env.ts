@@ -330,12 +330,20 @@ export function flowEnv(prefix: string) {
       d.must(task.id, { kind: 'start', freeze: frozen, runtime });
     };
 
-    /** One dispatcher round; returns how many effects it started. */
+    /**
+     * One dispatcher round; returns how many effects it started. Like cusrd, a free slot goes to the task
+     * when it queued for one again (a full-review task does after its PR step).
+     */
     const tick = async (): Promise<number> => {
+      const queued =
+        d.task(task.id).wait?.detail.code === 'execution_slot' &&
+        d.store.readSlot() === null;
+      if (queued)
+        d.store.grantNext(d.now as EpochMs, Array.from({ length: 8 }, newId));
       const r = dispatcher.tick();
       await dispatcher.settle();
       d.now += 1_000;
-      return r.started.length;
+      return r.started.length + (queued ? 1 : 0);
     };
     const settle = async (max = 40): Promise<void> => {
       for (let i = 0; i < max; i++) if ((await tick()) === 0) return;

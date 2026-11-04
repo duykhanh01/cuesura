@@ -1,6 +1,7 @@
 /**
  * The steps of `software_dev` folded into the eight stages a person follows: triage, prepare, code, gates,
- * review, PR, CI, merge. Fix and retry steps belong to the stage they repair, so a loop shows as a stage run
+ * PR, review, CI, merge. The PR opens before the review (a draft in `full-review`), whose verdict is posted
+ * on it and turns it ready. Fix and retry steps belong to the stage they repair, so a loop shows as a stage run
  * more than once instead of a list of side steps. Only presentation: the step states are the daemon's.
  */
 import type { TaskStatus } from '../../domain/state.ts';
@@ -11,8 +12,8 @@ export const STAGES = [
   'prepare',
   'code',
   'gates',
-  'review',
   'pr',
+  'review',
   'ci',
   'merge',
 ] as const;
@@ -23,8 +24,8 @@ export const STAGE_LABEL: Readonly<Record<StageName, string>> = {
   prepare: 'prepare',
   code: 'code',
   gates: 'gates',
-  review: 'review',
   pr: 'PR',
+  review: 'review',
   ci: 'CI',
   merge: 'merge',
 };
@@ -38,6 +39,9 @@ const STAGE_OF: Readonly<Record<string, StageName>> = {
   fix_gates: 'gates',
   review: 'review',
   fix_review: 'review',
+  post_review: 'review',
+  post_changes: 'review',
+  ready: 'review',
   publish: 'pr',
   pr: 'pr',
   ci: 'ci',

@@ -11,7 +11,7 @@ import type { PolicyOptions } from './builders.ts';
 import { createGrantStart } from './runtime.ts';
 import { ciData, publishData } from './scenario.ts';
 import type { StoreDriver } from './store-driver.ts';
-import { toPublish } from './store-flows.ts';
+import { toPublish, reviewToCi } from './store-flows.ts';
 
 // PR observation facts as the daemon's handlers and observation service submit them (T058–T062).
 
@@ -136,6 +136,7 @@ export function toGreen(
     pr_ref: 'acme#7',
     head_sha: A,
   });
+  reviewToCi(d, t.id);
   d.complete(
     t.id,
     d.pendingOne(t.id, 'await_ci').id,

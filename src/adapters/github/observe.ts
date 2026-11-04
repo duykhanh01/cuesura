@@ -29,6 +29,8 @@ export type ObserveTarget = {
   /** Known after the PR was created or recovered; null only before the first read. */
   readonly pr_id: string | null;
   readonly target: string;
+  /** When the task's draft PR was turned ready: skipped check runs that finished earlier are ignored. */
+  readonly skipped_before?: number | null;
 };
 
 export type PullObservation =
@@ -182,7 +184,12 @@ export async function observePull(
     observedAt,
   );
   const checks = /^[0-9a-f]{40}$/.test(pull.head.sha)
-    ? await readHeadChecks(port, t.repo, pull.head.sha)
+    ? await readHeadChecks(
+        port,
+        t.repo,
+        pull.head.sha,
+        t.skipped_before ?? null,
+      )
     : null;
   const second = await port.request({
     method: 'GET',

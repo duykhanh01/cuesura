@@ -211,6 +211,9 @@ export function normalizeProject(
     profile: p.profile ?? null,
     // Only when declared, so the normalized project (and its historical hash) is unchanged otherwise.
     ...(p.pr_template === undefined ? {} : { pr_template: p.pr_template }),
+    ...(p.review_template === undefined
+      ? {}
+      : { review_template: p.review_template }),
     ...(p.merge?.method === undefined ? {} : { merge_method: p.merge.method }),
   };
 }

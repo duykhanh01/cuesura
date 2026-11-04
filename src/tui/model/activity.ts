@@ -143,7 +143,7 @@ const WAITS: Readonly<Record<DetailCode, WaitWords>> = {
   },
 };
 
-/** Steps of `software_dev@1`. A workflow with other names shows them as they are. */
+/** Steps of `software_dev@1` and its mode graphs. A workflow with other names shows them as they are. */
 const STEPS: Readonly<Record<string, string>> = {
   triage: 'Triaging the task',
   prepare: 'Preparing the worktree',
@@ -155,6 +155,9 @@ const STEPS: Readonly<Record<string, string>> = {
   fix_review: 'Addressing review comments',
   publish: 'Publishing the branch',
   pr: 'Opening the PR',
+  post_review: 'Posting the review on the PR',
+  post_changes: 'Posting the requested changes on the PR',
+  ready: 'Marking the PR ready for CI',
   ci: 'Watching CI',
   ci_triage: 'Classifying a CI failure',
   rerun_ci: 'Rerunning CI',

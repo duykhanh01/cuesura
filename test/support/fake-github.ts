@@ -20,6 +20,18 @@ export type FakePr = {
   state: 'open' | 'closed';
   merged_at: string | null;
   merge_commit: string | null;
+  draft?: boolean;
+  /** When the PR was turned ready (a `ready_for_review` event); absent if it never was a draft. */
+  ready_at?: string;
+  reviews?: FakeReview[];
+};
+
+export type FakeReview = {
+  id: number;
+  commit_id: string;
+  body: string;
+  event: string;
+  comments: { path: string; line: number; body: string }[];
 };
 
 export type FakeGitHubState = {
@@ -82,6 +94,8 @@ export class FakeGitHub implements GitHubPort {
       title: p.title,
       body: p.body,
       html_url: `https://github.com/${this.repo}/pull/${p.number}`,
+      draft: p.draft === true,
+      node_id: `PR_${p.id}`,
       head: { ref: p.head.ref, sha: p.head.sha, repo },
       base: { ref: p.base, sha: 'f'.repeat(40), repo },
     };
@@ -108,6 +122,7 @@ export class FakeGitHub implements GitHubPort {
         head: string;
         base: string;
         body: string;
+        draft?: boolean;
       };
       const sha = this.headOf(b.head);
       if (sha === null)
@@ -129,10 +144,52 @@ export class FakeGitHub implements GitHubPort {
         state: 'open',
         merged_at: null,
         merge_commit: null,
+        ...(b.draft === true ? { draft: true } : {}),
       };
       this.#next++;
       this.prs.push(pr);
       return reply(201, this.#pull(pr));
+    }
+    if (req.method === 'POST' && req.path === 'graphql') {
+      const id = (req.body as { variables: { id: string } }).variables.id;
+      const p = this.prs.find((x) => `PR_${x.id}` === id);
+      if (p === undefined)
+        return reply(200, { errors: [{ message: 'not found' }] });
+      if (p.draft === true) {
+        p.draft = false;
+        p.ready_at = '2026-10-29T11:00:00Z';
+      }
+      return reply(200, {
+        data: {
+          markPullRequestReadyForReview: { pullRequest: { isDraft: false } },
+        },
+      });
+    }
+    const reviews = /\/pulls\/(\d+)\/reviews$/.exec(req.path);
+    if (reviews !== null) {
+      const p = this.prs.find((x) => x.number === Number(reviews[1]));
+      if (p === undefined)
+        return Promise.resolve(
+          err({
+            reason: 'http_error',
+            status: 404,
+            detail: 'HTTP 404',
+            retry_after_ms: null,
+          }),
+        );
+      p.reviews ??= [];
+      if (req.method === 'GET')
+        return reply(200, req.query['page'] === '1' ? p.reviews : []);
+      const b = req.body as Omit<FakeReview, 'id'>;
+      const review: FakeReview = {
+        id: 9000 + p.reviews.length,
+        commit_id: b.commit_id,
+        body: b.body,
+        event: b.event,
+        comments: b.comments,
+      };
+      p.reviews.push(review);
+      return reply(200, review);
     }
     const patch =
       req.method === 'PATCH' ? /\/pulls\/(\d+)$/.exec(req.path) : null;
@@ -217,7 +274,11 @@ export class FakeGitHub implements GitHubPort {
               },
             ]
           : [];
-      return reply(200, req.query['page'] === '1' ? merged : []);
+      const ready =
+        p?.ready_at === undefined
+          ? []
+          : [{ id: 2, event: 'ready_for_review', created_at: p.ready_at }];
+      return reply(200, req.query['page'] === '1' ? [...ready, ...merged] : []);
     }
     if (/\/rules\/branches\//.test(req.path)) return reply(200, []);
     if (/\/branches\/[^/]+$/.test(req.path))

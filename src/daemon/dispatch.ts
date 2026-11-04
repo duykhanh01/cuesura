@@ -61,6 +61,8 @@ const OPERATION_KIND: Record<Exclude<EffectKind, 'merge'>, OperationKind> = {
   run_gates: 'gate',
   publish: 'publish',
   create_pr: 'github',
+  mark_ready: 'github',
+  post_review: 'github',
   await_ci: 'github',
   rerun_ci: 'github',
   reconcile: 'github',

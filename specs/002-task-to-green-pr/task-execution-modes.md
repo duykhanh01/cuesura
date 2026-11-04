@@ -12,10 +12,12 @@ nguyên giá trị lịch sử; việc có tài liệu này không chứng minh 
 | Chế độ | Luồng bắt buộc |
 | --- | --- |
 | `direct-pr` | Code → gates → checkpoint commit → push → tạo/nhận lại PR → CI → chờ merge thủ công |
-| `full-review` | Code → gates → checkpoint commit → review → push → tạo/nhận lại PR → CI → chờ merge thủ công |
+| `full-review` | Code → gates → checkpoint commit → push → tạo/nhận lại PR draft → review → đăng review lên PR → approve thì chuyển PR ready → CI → chờ merge thủ công |
 
-Trong `full-review`, yêu cầu sửa đi về worker → gates → commit nếu code đổi → xét evidence review
-(dùng lại kết quả còn hiệu lực hoặc gọi reviewer theo điều kiện bên dưới). Trong
+Trong `full-review`, yêu cầu sửa được đăng lên PR rồi đi về worker → gates → commit nếu code đổi →
+push → xét evidence review (dùng lại kết quả còn hiệu lực hoặc gọi reviewer theo điều kiện bên
+dưới). Thứ tự này áp dụng cho task bắt đầu từ 2026-11-04; task đã đóng băng graph cũ (review trước
+push) giữ graph đó. Trong
 `direct-pr`, sửa gate/CI đi về worker → gates → commit nếu code đổi → publish cùng PR, không gọi reviewer.
 Cả hai giữ nguyên ngân sách, slot, bảo vệ quyền, đối chiếu effect và quan sát merge của feature 002.
 Chế độ không cấp quyền merge hoặc miễn branch protection trên GitHub.
@@ -92,9 +94,11 @@ Context mới không cấp quyền nhận head ngoài dự kiến; drift vẫn c
 
 ## Nội dung commit và PR
 
-Orchestrator đọc PR template từ frozen base và đưa nguyên nội dung vào context worker. Nếu có
-nhiều template, lựa chọn theo cấu hình tường minh; chưa chọn được thì chờ bổ sung. Không có template
-thì worker viết mô tả thông thường; không suy đoán các heading bắt buộc.
+Orchestrator đọc PR template từ frozen base và đưa nguyên nội dung vào context worker. Thứ tự chọn:
+`pr_template` trong `cusr.yaml`, rồi template duy nhất của repo (`pull_request_template.md` ở gốc,
+`.github/` hoặc `docs/`), rồi template mặc định của cusr (Summary, Changes, Testing, Risks and
+notes). Nếu repo có nhiều template mà chưa chọn thì chờ bổ sung. Template được đóng băng cùng task;
+daemon không suy đoán các heading bắt buộc.
 
 Worker chuẩn bị commit message, PR title và description cùng code. Kết quả là artifact có schema,
 provenance và digest, nằm ngoài vùng code được commit. Coder/fixer cập nhật nội dung khi thay đổi
@@ -141,6 +145,40 @@ chiếu. Muốn đưa code mới vào PR phải gates, commit mới và review l
 thêm file hoặc chạy formatter sau approval rồi dùng approval cũ. Body đổi cần được reviewer đối chiếu
 lại trong `full-review`; retry không dựng lại body khác cho cùng create intent.
 
+## Review trên PR (quyết định 2026-11-04)
+
+Reviewer chỉ trả kết quả có schema (verdict, summary, findings); daemon đăng lên PR. Worker và
+reviewer không nhận GitHub credential, nên comment trên PR luôn khớp verdict mà engine dùng để rẽ nhánh.
+
+- `full-review` mở PR dạng draft. Mỗi lượt review được đăng thành một PR review `COMMENT` (không
+  dùng `APPROVE`/`REQUEST_CHANGES`, vốn tác động lên điều kiện merge); review các vòng trước được giữ
+  nguyên làm lịch sử. Finding trỏ vào dòng được thêm trong diff thành inline comment, phần còn lại
+  nằm trong body; GitHub từ chối vị trí inline thì đăng lại toàn bộ trong body.
+- Comment đăng đúng lượt review mà bước review vừa dùng để rẽ nhánh, kể cả verdict được dùng lại; không
+  lấy lượt review mới nhất của revision.
+- Body có marker ẩn `<!-- cusr:review task=… attempt=… -->`. Daemon tìm marker trước khi đăng và
+  sau một lần gửi mất trả lời. Kết quả gửi có ba trạng thái: `posted`, `not_posted` (chưa gửi hoặc
+  GitHub từ chối hẳn với 4xx) và `unknown` (mất trả lời hoặc 5xx mà chưa thấy marker). Lượt review đã
+  `posted` hoặc `unknown` không bao giờ được gửi lại, kể cả khi verdict được dùng lại; chỉ `not_posted`
+  mới gửi lại. Văn bản của reviewer chứa marker điều khiển bị ẩn khỏi comment.
+- Đăng review là bản ghi cho người đọc, không phải điều kiện của task: lỗi khi đăng được ghi trong kết
+  quả effect và task đi tiếp.
+- Approve thì daemon chuyển PR sang ready (GraphQL `markPullRequestReadyForReview`) rồi mới chờ CI.
+  Chỉ chuyển khi PR vẫn nhắm target đã đóng băng và head vẫn là commit đã review. Target khác hoặc
+  head khác thì giữ draft để bước CI ghi target_mismatch hoặc head_changed; PR đã đóng/merge cũng để
+  bước CI xử lý.
+- Repo muốn CI chỉ chạy sau approve cần bỏ qua PR draft và chạy lại khi `ready_for_review`. CI chạy
+  cả trên draft cũng không sai, chỉ tốn lượt chạy. Daemon bỏ qua check run `skipped` kết thúc trước
+  thời điểm PR chuyển ready (theo event `ready_for_review` của GitHub), để run bị skip lúc draft không
+  được tính là đạt.
+- Format comment theo `review_template` trong `cusr.yaml` (đường dẫn file trong repo, đọc từ frozen
+  base); không khai báo thì dùng template mặc định. Placeholder: `{{round}}`, `{{verdict}}`,
+  `{{summary}}`, `{{findings}}`, `{{inline_count}}`, `{{head_sha}}`; chỉ thay chuỗi một lượt, không có
+  điều kiện hay vòng lặp. Placeholder lạ, file thiếu hoặc marker `<!-- cusr:` trong template chặn
+  task lúc start với `config_invalid:review_template`. Inline comment có format cố định.
+- Bước PR không giữ execution slot, nên review xếp hàng lấy lại slot sau khi PR mở; request
+  `resumed` được ưu tiên hơn task mới ở cùng priority.
+
 ## Dùng lại kết quả review còn hiệu lực
 
 Trong cùng task/revision, trước khi gọi reviewer, daemon MUST so đầu vào review với evidence đã lưu:
@@ -179,6 +217,11 @@ reviewer approve hoặc dùng bằng chứng head cũ cho head mới. Xem [SPEC 
 M03/M06 áp dụng ngoại lệ hẹp này; code/nội dung khác vẫn phải xét review theo quy tắc trên.
 
 ## Remote đổi head khi review còn chạy
+
+Từ 2026-11-04, `full-review` push A và mở PR draft trước khi review; publish không còn đứng sau
+approve. Các quy tắc dưới đây vẫn áp dụng, với "chuyển PR ready" và "đăng review" ở vị trí publish:
+approve A không được chuyển PR có head B sang ready, và drift ghi trước khi kết quả review được
+ingest thì không đăng review hay chuyển ready. Bảng H01–H06 giữ cách đánh số cũ để đối chiếu.
 
 Reviewer đang kiểm commit A thì một bên khác có thể push B lên branch của task/PR. B ở đây là head
 ngoài expected-old/new của operation hợp lệ, không phải kết quả push A đã được ghi intent nhưng chưa

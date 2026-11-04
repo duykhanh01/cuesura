@@ -150,6 +150,8 @@ export const ReviewDataSchema = z
     head_sha: z.string().min(1),
     usage: UsageSchema,
     invoked: z.boolean().optional(),
+    // Additive: the reviewer's own summary, posted to the PR with the findings.
+    summary: z.string().optional(),
     // Digest of everything the reviewer saw (base/commit/diff, PR content, frozen context, binding); M03.
     input_digest: HashSchema.optional(),
   })
@@ -205,6 +207,28 @@ export const PublishDataSchema = z
 
 export const RerunDataSchema = z
   .object({ head_sha: z.string().min(1), rerun_checks: z.array(z.string()) })
+  .strict();
+
+/** `ready_at` is GitHub's time of the draft → ready change this effect made; null when it was ready already. */
+export const MarkReadyDataSchema = z
+  .object({
+    pr_ref: z.string().min(1),
+    ready_at: z.number().int().nonnegative().nullable(),
+  })
+  .strict();
+
+/**
+ * Posting a review never blocks the task: a review that could not be posted says why. `unknown` is a send
+ * that may still land; that attempt is never sent again.
+ */
+export const PostReviewDataSchema = z
+  .object({
+    attempt_id: z.string().min(1),
+    outcome: z.enum(['posted', 'not_posted', 'unknown']),
+    review_id: z.number().int().nullable(),
+    inline: z.number().int().nonnegative(),
+    detail: z.string().nullable(),
+  })
   .strict();
 
 export const CreatePrDataSchema = z

@@ -81,6 +81,16 @@ import {
   probeRerun,
 } from '../adapters/github/reconcile.ts';
 import { rerunFailedJobs } from '../adapters/github/rerun.ts';
+import {
+  addedLines,
+  findPosted,
+  markReady,
+  postReview,
+  probeReady,
+  renderReview,
+  type ReadyOutcome,
+} from '../adapters/github/review.ts';
+import { defaultReviewTemplate } from '../domain/templates.ts';
 import type {
   Clock,
   GitHubPort,
@@ -734,6 +744,7 @@ function agentOutcome(
           ...(f.line === null ? {} : { line: f.line }),
           msg: f.message,
         })),
+        summary: v.summary,
         head_sha: head ?? 'none',
         usage: o.usage,
         ...digest,
@@ -1701,10 +1712,10 @@ async function createPr(
   const content = currentContent(deps, l.s);
   if (content === null) return failed('infra', 'no accepted PR content');
   if (effect.request['update'] === true) return describePr(deps, l, content);
-  const r = await createOrRecoverPr(
-    deps.github(),
-    prSpecOf(l, l.s.head_sha, content, effect.idem_key),
-  );
+  const r = await createOrRecoverPr(deps.github(), {
+    ...prSpecOf(l, l.s.head_sha, content, effect.idem_key),
+    draft: effect.request['draft'] === true,
+  });
   if (r.kind === 'created' || r.kind === 'recovered')
     return prOutcome(l, content, effect.idem_key, r.pr, r.body_digest);
   if (r.kind === 'unknown') return unknown(r.detail);
@@ -1756,6 +1767,7 @@ export async function observeTaskPr(
       pr_number: n,
       pr_id: null,
       target: l.s.task.base_branch,
+      skipped_before: l.s.run.pr_ready_at ?? null,
     },
     now,
   );
@@ -2058,6 +2070,159 @@ async function rerunCi(
         ? failed('infra', r.detail)
         : unknown(r.detail);
   }
+}
+
+// ---- mark_ready / post_review ----
+
+function prOf(l: Loaded): { repo: string; n: number } {
+  const n = prNumber(l.s.pr_ref);
+  if (n === null) throw new Skip(failed('infra', 'no PR to act on'));
+  return { repo: l.rt.target.repo, n };
+}
+
+function readyOutcome(l: Loaded, r: ReadyOutcome): EffectOutcome {
+  switch (r.kind) {
+    case 'ready':
+      return {
+        outcome: 'succeeded',
+        data: { pr_ref: l.s.pr_ref, ready_at: r.ready_at },
+      };
+    // A closed, merged or retargeted PR, or one whose head moved, is the CI wait's to judge: it observes
+    // the PR and records the merge, mismatch or drift.
+    case 'closed':
+    case 'retargeted':
+    case 'head_moved':
+      return {
+        outcome: 'succeeded',
+        data: { pr_ref: l.s.pr_ref, ready_at: null },
+      };
+    case 'rejected':
+      return failed('auth_config', `ready for review refused: ${r.detail}`);
+    case 'unknown':
+      return unknown(r.detail);
+  }
+}
+
+/** Turns the task's draft PR ready after the review approved it, so the repo's CI runs from here. */
+async function markReadyEffect(
+  deps: HandlerDeps,
+  effect: Effect,
+): Promise<EffectOutcome> {
+  const l = load(deps, effect);
+  const { repo, n } = prOf(l);
+  if (l.s.head_sha === null) return failed('infra', 'no published head');
+  return readyOutcome(
+    l,
+    await markReady(deps.github(), repo, n, {
+      head_sha: l.s.head_sha,
+      target: l.s.task.base_branch,
+    }),
+  );
+}
+
+function reviewMarker(taskId: string, attemptId: string): string {
+  return `<!-- cusr:review task=${taskId} attempt=${attemptId} -->`;
+}
+
+/**
+ * Posts the recorded verdict of one review attempt as a COMMENT review on the PR. It is a record for the
+ * reader, not a step the task depends on: anything that keeps it from being posted is reported in the
+ * data and the task goes on.
+ */
+async function postReviewEffect(
+  deps: HandlerDeps,
+  effect: Effect,
+): Promise<EffectOutcome> {
+  const l = load(deps, effect);
+  const n = prNumber(l.s.pr_ref);
+  const attemptId = String(effect.request['attempt_id']);
+  const result = (
+    outcome: 'posted' | 'not_posted' | 'unknown',
+    detail: string | null,
+    review_id: number | null = null,
+    inline = 0,
+  ): EffectOutcome => ({
+    outcome: 'succeeded',
+    data: { attempt_id: attemptId, outcome, review_id, inline, detail },
+  });
+  const review = l.s.run.reviews.find((r) => r.attempt_id === attemptId);
+  if (n === null || review === undefined)
+    return result('not_posted', 'no PR or no recorded review');
+  const cp = l.s.run.checkpoint;
+  let commentable: Map<string, Set<number>> | null = null;
+  if (cp !== null && cp.sha === review.sha) {
+    try {
+      const diff = await gitText(
+        deps,
+        where(deps, l).worktree,
+        ['diff', '--no-color', '--no-ext-diff', '-U0', cp.base_sha, cp.sha],
+        l.rt.limits.review_diff_bytes * 4,
+      );
+      commentable = addedLines(diff);
+    } catch (e) {
+      if (!(e instanceof Skip)) throw e;
+    }
+  }
+  const marker = reviewMarker(l.s.id, review.attempt_id);
+  const rendered = renderReview({
+    template: (l.rt.review_template ?? defaultReviewTemplate()).content,
+    round:
+      typeof effect.request['round'] === 'number' ? effect.request['round'] : 1,
+    review,
+    commentable,
+    marker,
+  });
+  const r = await postReview(deps.github(), {
+    repo: l.rt.target.repo,
+    pr_number: n,
+    commit_id: review.sha,
+    marker,
+    ...rendered,
+  });
+  return r.kind === 'posted'
+    ? result('posted', null, r.review_id, r.inline)
+    : result(r.kind, r.detail);
+}
+
+async function probeMarkReady(
+  deps: HandlerDeps,
+  target: Effect,
+): Promise<Probe> {
+  const l = load(deps, target);
+  const { repo, n } = prOf(l);
+  const r = await probeReady(deps.github(), repo, n);
+  if (r.kind === 'draft')
+    return { finding: 'not_executed', detail: 'PR is still a draft' };
+  return fromOutcome(readyOutcome(l, r));
+}
+
+async function probePostReview(
+  deps: HandlerDeps,
+  target: Effect,
+): Promise<Probe> {
+  const l = load(deps, target);
+  const n = prNumber(l.s.pr_ref);
+  const attemptId = target.request['attempt_id'];
+  if (n === null || typeof attemptId !== 'string')
+    return { finding: 'not_executed', detail: 'nothing was posted' };
+  const seen = await findPosted(deps.github(), {
+    repo: l.rt.target.repo,
+    pr_number: n,
+    marker: reviewMarker(l.s.id, attemptId),
+  });
+  if (typeof seen === 'object' && seen !== null) return still(seen.error);
+  // An interrupted send may still land: absent now is no proof it never will, so it is not sent again.
+  return {
+    finding: 'executed_succeeded',
+    data: {
+      attempt_id: attemptId,
+      outcome: seen === null ? 'unknown' : 'posted',
+      review_id: seen,
+      inline: 0,
+      detail:
+        seen === null ? 'interrupted; no review with its marker yet' : null,
+    },
+  };
 }
 
 // ---- reconcile ----
@@ -2505,6 +2670,12 @@ async function reconcileEffect(
     case 'create_pr':
       p = await probeCreatePr(counted, target);
       break;
+    case 'mark_ready':
+      p = await probeMarkReady(counted, target);
+      break;
+    case 'post_review':
+      p = await probePostReview(counted, target);
+      break;
     case 'await_ci': {
       const o = await observeTask(counted, target.task_id, `op:${effect.id}`);
       p = fromOutcome(o.outcome, o.extra);
@@ -2740,6 +2911,8 @@ export function buildHandlers(deps: HandlerDeps): EffectHandlers {
     ),
     publish: wrap((e) => publish(deps, e)),
     create_pr: plain((e) => createPr(deps, e)),
+    mark_ready: plain((e) => markReadyEffect(deps, e)),
+    post_review: plain((e) => postReviewEffect(deps, e)),
     await_ci: wrap((e, _s, o) =>
       observeTask(deps, e.task_id, `op:${o.operation_id}`),
     ),

@@ -31,7 +31,11 @@ import { StoreDriver } from '../../support/store-driver.ts';
 import {
   checkpointGates,
   currentReviewInput,
+  publishToReview,
   toPublish,
+  reviewToCi,
+  completePost,
+  CONTENT_DIGEST,
 } from '../../support/store-flows.ts';
 import { dbPath, useTempDir } from '../../support/temp-db.ts';
 
@@ -50,6 +54,7 @@ const reviewerRuns = (d: StoreDriver, t: CanonicalTask) =>
   Object.values(d.task(t.id).effects).filter(
     (e) => e.kind === 'start_agent' && e.step === 'review',
   ).length;
+const posted = (d: StoreDriver, t: CanonicalTask) => completePost(d, t.id);
 
 /** Publish A, open the PR, and get a failing CI on A so the worker is called to fix it. */
 function toCiFix(d: StoreDriver, t: CanonicalTask): void {
@@ -63,6 +68,7 @@ function toCiFix(d: StoreDriver, t: CanonicalTask): void {
     pr_ref: 'acme#7',
     head_sha: A,
   });
+  reviewToCi(d, t.id);
   d.complete(
     t.id,
     d.pendingOne(t.id, 'await_ci').id,
@@ -303,6 +309,7 @@ describe('run selection confirmation (T135, M01/M02)', () => {
       'succeeded',
       checkpointGates(A),
     );
+    publishToReview(d, t.id, A);
     // The floor maps the reviewer onto sol/high, which the user never confirmed.
     expect(d.task(t.id)).toMatchObject({
       status: 'WAITING',
@@ -335,6 +342,7 @@ describe('PR target (FR-041.05)', () => {
       pr_ref: 'acme#7',
       head_sha: A,
     });
+    reviewToCi(d, t.id);
     const green = {
       ...ciData(A, { build: 'success', test: 'success' }),
       target_ref: 'unprotected',
@@ -396,20 +404,83 @@ describe('direct-pr and full-review graphs (T137, M03/M08)', () => {
     expect(v).toEqual({ kind: 'green', head_sha: A, review: 'not_required' });
   });
 
-  it('full-review: the checkpoint is committed before the review, which approves that commit and input', () => {
+  it('full-review: the pushed checkpoint is reviewed on a draft PR; the verdict is posted and an approval turns it ready', () => {
     const d = setup();
     const t = buildTask();
     createGrantStart(d, t, 'full-review');
     toPublish(d, t, A);
-    const s = d.task(t.id);
+    expect(d.pendingOne(t.id, 'publish').request).toMatchObject({ sha: A });
+    expect(reviewerRuns(d, t)).toBe(0);
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'publish').id,
+      'succeeded',
+      publishData(A),
+    );
+    expect(d.pendingOne(t.id, 'create_pr').request).toMatchObject({
+      draft: true,
+    });
+    d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
+      pr_ref: 'acme#7',
+      head_sha: A,
+    });
+    if (d.task(t.id).wait?.detail['code'] === 'execution_slot') d.grantNext();
+    const input = currentReviewInput(d, t.id);
+    const review = d.pendingOne(t.id, 'start_agent');
+    d.complete(
+      t.id,
+      review.id,
+      'succeeded',
+      reviewData('approve', A, { input_digest: input, summary: 'Looks good' }),
+    );
     const ev = types(d, t);
     expect(ev.indexOf('CheckpointRecorded')).toBeLessThan(
+      ev.indexOf('PublishRecorded'),
+    );
+    expect(ev.indexOf('PublishRecorded')).toBeLessThan(
       ev.indexOf('ReviewVerdictRecorded'),
     );
-    expect(s.run.reviews).toMatchObject([
-      { verdict: 'approve', sha: A, input_digest: currentReviewInput(d, t.id) },
+    expect(d.task(t.id).run.reviews).toMatchObject([
+      {
+        verdict: 'approve',
+        sha: A,
+        input_digest: input,
+        summary: 'Looks good',
+      },
     ]);
-    expect(d.pendingOne(t.id, 'publish').request).toMatchObject({ sha: A });
+    expect(d.pendingOne(t.id, 'post_review').request).toMatchObject({
+      pr_ref: 'acme#7',
+      attempt_id: d.task(t.id).effects[review.id]?.attempt_id,
+      round: 1,
+    });
+    expect(d.pending(t.id, 'await_ci')).toEqual([]);
+    completePost(d, t.id);
+    expect(d.pending(t.id, 'await_ci')).toEqual([]);
+    d.complete(t.id, d.pendingOne(t.id, 'mark_ready').id, 'succeeded', {
+      pr_ref: 'acme#7',
+      ready_at: 1_000,
+    });
+    expect(d.task(t.id).run.pr_ready_at).toBe(1_000);
+    expect(d.pending(t.id, 'await_ci')).toHaveLength(1);
+  });
+
+  it('full-review: requested changes are posted and go to the fixer; the PR stays a draft', () => {
+    const d = setup();
+    const t = buildTask();
+    createGrantStart(d, t, 'full-review');
+    toPublish(d, t, A);
+    publishToReview(d, t.id, A);
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      reviewData('request_changes', A, {
+        input_digest: currentReviewInput(d, t.id),
+      }),
+    );
+    completePost(d, t.id, 'not_posted');
+    expect(d.task(t.id).current_step).toBe('fix_review');
+    expect(d.pending(t.id, 'mark_ready')).toEqual([]);
   });
 
   it('a review of another commit or input is not evidence', () => {
@@ -434,6 +505,7 @@ describe('direct-pr and full-review graphs (T137, M03/M08)', () => {
       'succeeded',
       checkpointGates(A),
     );
+    publishToReview(d, t.id, A);
     d.complete(
       t.id,
       d.pendingOne(t.id, 'start_agent').id,
@@ -441,7 +513,8 @@ describe('direct-pr and full-review graphs (T137, M03/M08)', () => {
       reviewData('approve', B, { input_digest: currentReviewInput(d, t.id) }),
     );
     expect(d.task(t.id).run.reviews).toEqual([]);
-    expect(d.pending(t.id, 'publish')).toEqual([]);
+    expect(d.pending(t.id, 'post_review')).toEqual([]);
+    expect(d.pending(t.id, 'mark_ready')).toEqual([]);
   });
 
   it('gates whose tree moved, or a commit of another tree, block the commit and publish (M06)', () => {
@@ -485,6 +558,120 @@ describe('direct-pr and full-review graphs (T137, M03/M08)', () => {
 });
 
 describe('review evidence reuse (T137, M03)', () => {
+  /** After CI on A failed: the worker writes `content` (same commit A), up to the review of that input. */
+  const fixTo = (d: StoreDriver, t: CanonicalTask, content: string): void => {
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      agentData('done', {
+        content: { digest: content, ref: `/c/${content}.json` },
+      }),
+    );
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'run_gates').id,
+      'succeeded',
+      checkpointGates(A, undefined, {
+        checkpoint: {
+          ...(checkpointGates(A)['checkpoint'] as object),
+          content_digest: content,
+          committed: false,
+        },
+      }),
+    );
+    publishToReview(d, t.id, A);
+  };
+  const attemptOf = (d: StoreDriver, t: CanonicalTask, i: number) =>
+    d.task(t.id).run.reviews[i]?.attempt_id;
+
+  it('a reused verdict posts the attempt it reuses, never a later one of another input', () => {
+    const d = setup();
+    const t = buildTask();
+    createGrantStart(d, t, 'full-review');
+    toPublish(d, t, A);
+    toCiFix(d, t);
+    // Body B is rejected, then the worker restores the original body: the approval of A is reused.
+    fixTo(d, t, hashCanonical('body B'));
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      reviewData('request_changes', A, {
+        findings: [{ severity: 'major', msg: 'wrong body' }],
+        input_digest: currentReviewInput(d, t.id),
+      }),
+    );
+    expect(d.pendingOne(t.id, 'post_review').request).toMatchObject({
+      attempt_id: attemptOf(d, t, 1),
+      round: 2,
+    });
+    completePost(d, t.id);
+    if (d.task(t.id).wait?.detail['code'] === 'execution_slot') d.grantNext();
+    fixTo(d, t, CONTENT_DIGEST);
+    expect(types(d, t)).toContain('ReviewReused');
+    expect(d.task(t.id).run.verdict_attempt_id).toBe(attemptOf(d, t, 0));
+    // That approval is on the PR already: nothing is posted, the rejection of B least of all.
+    expect(d.pending(t.id, 'post_review')).toEqual([]);
+    expect(
+      d.store
+        .readEvents(t.id)
+        .filter((e) => e.type === 'StepSkipped')
+        .at(-1)?.payload,
+    ).toMatchObject({ step: 'post_review', reason: 'review_posted' });
+    expect(d.pending(t.id, 'mark_ready')).toHaveLength(1);
+  });
+
+  it('a post whose outcome is unknown is never sent again for that attempt', () => {
+    const d = setup();
+    const t = buildTask();
+    createGrantStart(d, t, 'full-review');
+    toPublish(d, t, A);
+    toCiFix(d, t);
+    fixTo(d, t, hashCanonical('body B'));
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      reviewData('request_changes', A, {
+        findings: [{ severity: 'major', msg: 'wrong body' }],
+        input_digest: currentReviewInput(d, t.id),
+      }),
+    );
+    completePost(d, t.id, 'unknown');
+    expect(d.task(t.id).run.posted_reviews).toContain(attemptOf(d, t, 1));
+    if (d.task(t.id).wait?.detail['code'] === 'execution_slot') d.grantNext();
+    // The fixer changes nothing: the same rejection is reused and its send is not repeated.
+    fixTo(d, t, hashCanonical('body B'));
+    expect(types(d, t)).toContain('ReviewReused');
+    expect(d.pending(t.id, 'post_review')).toEqual([]);
+    expect(d.task(t.id).current_step).toBe('fix_review');
+  });
+
+  it('a post that was refused outright is sent again when the verdict is reused', () => {
+    const d = setup();
+    const t = buildTask();
+    createGrantStart(d, t, 'full-review');
+    toPublish(d, t, A);
+    toCiFix(d, t);
+    fixTo(d, t, hashCanonical('body B'));
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      reviewData('request_changes', A, {
+        findings: [{ severity: 'major', msg: 'wrong body' }],
+        input_digest: currentReviewInput(d, t.id),
+      }),
+    );
+    completePost(d, t.id, 'not_posted');
+    if (d.task(t.id).wait?.detail['code'] === 'execution_slot') d.grantNext();
+    fixTo(d, t, hashCanonical('body B'));
+    expect(d.pendingOne(t.id, 'post_review').request).toMatchObject({
+      attempt_id: attemptOf(d, t, 1),
+    });
+  });
+
   it('a worker that changed nothing keeps the checkpoint SHA and the approval; no reviewer runs again', () => {
     const d = setup();
     const t = buildTask();
@@ -512,9 +699,18 @@ describe('review evidence reuse (T137, M03)', () => {
       sha: A,
       committed: false,
     });
+    expect(d.pendingOne(t.id, 'publish').request).toMatchObject({ sha: A });
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'publish').id,
+      'succeeded',
+      publishData(A),
+    );
     expect(types(d, t)).toContain('ReviewReused');
     expect(reviewerRuns(d, t)).toBe(1);
-    expect(d.pendingOne(t.id, 'publish').request).toMatchObject({ sha: A });
+    // The reused verdict is the one already on the PR: it is not posted again.
+    expect(d.pending(t.id, 'post_review')).toEqual([]);
+    expect(d.pending(t.id, 'mark_ready')).toHaveLength(1);
   });
 
   it('changed PR content or a new commit needs a new review', () => {
@@ -546,9 +742,10 @@ describe('review evidence reuse (T137, M03)', () => {
         'succeeded',
         checkpointGates(change === 'commit' ? C : A),
       );
+      publishToReview(d, t.id, change === 'commit' ? C : A);
       expect(types(d, t)).not.toContain('ReviewReused');
       expect(reviewerRuns(d, t)).toBe(2);
-      expect(d.pending(t.id, 'publish')).toEqual([]);
+      expect(d.pending(t.id, 'post_review')).toEqual([]);
     }
   });
 
@@ -574,6 +771,7 @@ describe('review evidence reuse (T137, M03)', () => {
       'succeeded',
       checkpointGates(A),
     );
+    publishToReview(d, t.id, A);
     const findings = [
       {
         severity: 'major',
@@ -594,6 +792,8 @@ describe('review evidence reuse (T137, M03)', () => {
     expect(d.task(t.id).run.reviews).toMatchObject([
       { verdict: 'request_changes', findings },
     ]);
+    posted(d, t);
+    if (d.task(t.id).wait?.detail['code'] === 'execution_slot') d.grantNext();
     // The fixer changes nothing: same checkpoint, same input, the findings stand without a reviewer call.
     d.complete(
       t.id,
@@ -611,6 +811,12 @@ describe('review evidence reuse (T137, M03)', () => {
           committed: false,
         },
       }),
+    );
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'publish').id,
+      'succeeded',
+      publishData(A),
     );
     const reused = d.store
       .readEvents(t.id)
@@ -659,6 +865,7 @@ describe('remote head drift while the review runs (T137, FR-041.03, H01/H02/H05)
       'succeeded',
       checkpointGates(A),
     );
+    publishToReview(d, t.id, A);
     const review = d.pendingOne(t.id, 'start_agent');
     d.claim(review.id);
     d.must(t.id, drift);
@@ -680,7 +887,8 @@ describe('remote head drift while the review runs (T137, FR-041.03, H01/H02/H05)
     });
     expect(s.blockers.map((b) => b.code)).toContain('head_changed');
     expect(s.effects[review.id]?.status).toBe('succeeded');
-    expect(d.pending(t.id, 'publish')).toEqual([]);
+    expect(d.pending(t.id, 'post_review')).toEqual([]);
+    expect(d.pending(t.id, 'mark_ready')).toEqual([]);
     expect(s.run.head_drift).toMatchObject({
       expected: A,
       observed: B,
@@ -716,6 +924,14 @@ describe('remote head drift while the review runs (T137, FR-041.03, H01/H02/H05)
     const t = buildTask();
     createGrantStart(d, t, 'full-review');
     toPublish(d, t, A);
+    publishToReview(d, t.id, A);
+    const review = d.pendingOne(t.id, 'start_agent');
+    d.complete(
+      t.id,
+      review.id,
+      'succeeded',
+      reviewData('approve', A, { input_digest: currentReviewInput(d, t.id) }),
+    );
     d.must(t.id, drift);
     const rebuilt = replay(d.store.readEvents(t.id));
     if (rebuilt === null) throw new Error('nothing replayed');
@@ -784,6 +1000,7 @@ describe('merged head verification by mode (T045, M08)', () => {
       pr_ref: 'acme#7',
       head_sha: A,
     });
+    reviewToCi(d, t.id);
     d.complete(
       t.id,
       d.pendingOne(t.id, 'await_ci').id,

@@ -67,6 +67,8 @@ export type NormalizedProject = {
   profile: string | null;
   /** Path of the PR template in the repo, when several exist (task-execution-modes.md). */
   pr_template?: string;
+  /** Path of the review comment template in the repo; absent means the built-in one. */
+  review_template?: string;
   /** `merge.method` as declared; absent when not declared, so the normalized project keeps its hash. */
   merge_method?: MergeMethod;
 };

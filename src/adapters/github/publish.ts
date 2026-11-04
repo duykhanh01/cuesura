@@ -28,6 +28,8 @@ export type PrSpec = {
   readonly task_id: string;
   readonly revision: number;
   readonly operation_key: string;
+  /** Open as a draft: the workflow turns it ready later (after review). */
+  readonly draft?: boolean;
 };
 
 export type PrFact = {
@@ -219,7 +221,7 @@ export async function createOrRecoverPr(
       base: s.base,
       body,
       maintainer_can_modify: false,
-      draft: false,
+      draft: s.draft === true,
     },
   });
   if (r.ok) {

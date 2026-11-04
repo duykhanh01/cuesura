@@ -65,6 +65,7 @@ export const ProjectConfigSchema = z
     pools: z.record(z.string(), z.number().int().positive()).optional(),
     profile: z.string().min(1).optional(),
     pr_template: z.string().min(1).max(255).optional(),
+    review_template: z.string().min(1).max(255).optional(),
     /** Closed object: only `method`; absent object or key means squash (SPEC §14.2). */
     merge: z
       .object({ method: z.enum(MERGE_METHODS).optional() })
@@ -84,6 +85,7 @@ export const PROJECT_ONLY_KEYS = [
   'extends',
   'profile',
   'pr_template',
+  'review_template',
   'merge',
 ] as const;
 
@@ -93,5 +95,6 @@ export const PROJECT_KEYS = [
   'extends',
   'profile',
   'pr_template',
+  'review_template',
   'merge',
 ] as const;

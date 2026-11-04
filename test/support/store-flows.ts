@@ -23,8 +23,9 @@ export function createAndStart(d: StoreDriver, task: CanonicalTask): void {
 }
 
 /**
- * Stop before publish. Mode-aware tasks use the gate checkpoint; full-review also requires an
- * approval bound to that commit and input, while direct-pr has no review.
+ * Stop before publish. Mode-aware tasks use the gate checkpoint and publish it before any review
+ * (full-review reviews the pushed checkpoint after the PR, see {@link reviewToCi}); a legacy task
+ * without a mode still reviews before publish.
  */
 export function toPublish(
   d: StoreDriver,
@@ -53,7 +54,7 @@ export function toPublish(
       ? gatesData({ build: true, unit: true })
       : checkpointGates(head),
   );
-  if (mode === 'direct-pr') return;
+  if (mode !== null) return;
   d.complete(
     task.id,
     d.pendingOne(task.id, 'start_agent').id,
@@ -64,6 +65,78 @@ export function toPublish(
       mode === null ? {} : { input_digest: currentReviewInput(d, task.id) },
     ),
   );
+}
+
+/** Completes the task's pending post_review with `outcome`, for the attempt it was asked to post. */
+export function completePost(
+  d: StoreDriver,
+  taskId: string,
+  outcome: 'posted' | 'not_posted' | 'unknown' = 'posted',
+): void {
+  const e = d.pendingOne(taskId, 'post_review');
+  d.complete(taskId, e.id, 'succeeded', {
+    attempt_id: e.request['attempt_id'],
+    outcome,
+    review_id: outcome === 'posted' ? 1 : null,
+    inline: 0,
+    detail: outcome === 'posted' ? null : 'HTTP 502',
+  });
+}
+
+/**
+ * A full-review task from its gate checkpoint to the review: publish `head`, open (or keep) the PR and
+ * hand the review the slot. Stops with the reviewer's start_agent pending, or wherever the task stopped
+ * instead.
+ */
+export function publishToReview(
+  d: StoreDriver,
+  taskId: string,
+  head: string,
+): void {
+  d.complete(
+    taskId,
+    d.pendingOne(taskId, 'publish').id,
+    'succeeded',
+    publishData(head),
+  );
+  const pr = d.pending(taskId, 'create_pr');
+  if (pr.length === 1)
+    d.complete(taskId, pr[0]!.id, 'succeeded', {
+      pr_ref: 'acme#7',
+      head_sha: head,
+    });
+  if (d.task(taskId).wait?.detail['code'] === 'execution_slot') d.grantNext();
+}
+
+/**
+ * After the PR step of a full-review task: the review approves the checkpoint, its comment is posted and
+ * the draft PR turned ready, leaving the task at the CI wait. A no-op for other modes.
+ */
+export function reviewToCi(
+  d: StoreDriver,
+  taskId: string,
+  verdict: 'approve' | 'request_changes' = 'approve',
+): void {
+  const s = d.task(taskId);
+  if (s.run.mode !== 'full-review') return;
+  const head = s.run.checkpoint?.sha;
+  if (head === undefined) throw new Error('no checkpoint to review');
+  // The PR step holds no slot, so the review queues for it again.
+  if (s.wait?.detail['code'] === 'execution_slot') d.grantNext();
+  d.complete(
+    taskId,
+    d.pendingOne(taskId, 'start_agent').id,
+    'succeeded',
+    reviewData(verdict, head, {
+      input_digest: currentReviewInput(d, taskId),
+    }),
+  );
+  completePost(d, taskId);
+  if (verdict !== 'approve') return;
+  d.complete(taskId, d.pendingOne(taskId, 'mark_ready').id, 'succeeded', {
+    pr_ref: d.task(taskId).pr_ref,
+    ready_at: null,
+  });
 }
 
 export const TREE = 'e'.repeat(40);

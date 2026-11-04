@@ -192,6 +192,9 @@ export const FrozenRuntimeContextSchema = z
     // A snapshot without them predates the two modes and is never started again.
     run_config: RunConfigSnapshotSchema.optional(),
     pr_template: PrTemplateSchema.nullable().optional(),
+    // Additive: the template the daemon renders review comments on the PR with. Absent in a snapshot
+    // frozen before it existed; that task posts with the built-in template.
+    review_template: PrTemplateSchema.optional(),
     // Additive (SPEC §14.2): the merge method resolved at the frozen base. Absent in a snapshot frozen
     // before it existed; never back-filled, so that snapshot keeps its hash.
     merge_method: MergeMethodSchema.optional(),

@@ -3,6 +3,7 @@ import {
   API_VERSION,
   GhPort,
   listAll,
+  MARK_READY_MUTATION,
   spawnGhExec,
   type GhPortOptions,
 } from '../../src/adapters/github/gh-port.ts';
@@ -102,6 +103,62 @@ describe('gh port (T040, contracts/github.md)', () => {
       });
     }
     expect(exec.calls).toEqual([]);
+  });
+
+  it('posts only COMMENT reviews and only the mark-ready GraphQL mutation', async () => {
+    const review = {
+      commit_id: 'a'.repeat(40),
+      body: 'b',
+      event: 'COMMENT',
+      comments: [{ path: 'x.ts', line: 1, side: 'RIGHT', body: 'c' }],
+    };
+    const ready = { query: MARK_READY_MUTATION, variables: { id: 'PR_1' } };
+    const { p, exec } = port({
+      'POST repos/o/r/pulls/1/reviews': [{ status: 200, body: { id: 3 } }],
+      'POST graphql': [{ status: 200, body: { data: {} } }],
+    });
+    for (const body of [
+      { ...review, event: 'APPROVE' },
+      { ...review, event: 'REQUEST_CHANGES' },
+      { ...review, extra: 1 },
+      { ...review, comments: [{ path: 'x.ts', line: 1, position: 2 }] },
+    ])
+      expect(
+        await p.request({
+          method: 'POST',
+          path: 'repos/o/r/pulls/1/reviews',
+          query: {},
+          body,
+        }),
+      ).toMatchObject({ ok: false, error: { reason: 'not_allowed' } });
+    for (const body of [
+      {
+        query: 'mutation { mergePullRequest(input: {}) { clientMutationId } }',
+      },
+      { ...ready, variables: { id: 'PR_1', other: 1 } },
+      { ...ready, operationName: 'x' },
+    ])
+      expect(
+        await p.request({ method: 'POST', path: 'graphql', query: {}, body }),
+      ).toMatchObject({ ok: false, error: { reason: 'not_allowed' } });
+    expect(exec.calls).toEqual([]);
+    expect(
+      await p.request({
+        method: 'POST',
+        path: 'repos/o/r/pulls/1/reviews',
+        query: {},
+        body: review,
+      }),
+    ).toMatchObject({ ok: true, value: { body: { id: 3 } } });
+    expect(
+      await p.request({
+        method: 'POST',
+        path: 'graphql',
+        query: {},
+        body: ready,
+      }),
+    ).toMatchObject({ ok: true });
+    expect(exec.calls).toHaveLength(2);
   });
 
   it('POSTs a PR once with the JSON body on stdin; a 422 is an HTTP error, a lost answer is unknown', async () => {

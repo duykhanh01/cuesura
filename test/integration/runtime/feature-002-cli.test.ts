@@ -57,7 +57,7 @@ import {
   PREPARE_DATA,
   publishData,
 } from '../../support/scenario.ts';
-import { toPublish } from '../../support/store-flows.ts';
+import { toPublish, reviewToCi } from '../../support/store-flows.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 
 type Run = {
@@ -166,6 +166,7 @@ function pausedDrain(d: StoreDriver, t: CanonicalTask): void {
     pr_ref: 'acme#7',
     head_sha: HEAD,
   });
+  reviewToCi(d, t.id);
   d.claim(d.pendingOne(t.id, 'await_ci').id);
   d.must(t.id, observation(d, t, 'merged', HEAD));
   const s = d.task(t.id);

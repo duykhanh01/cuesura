@@ -87,6 +87,7 @@ import { StoreDriver } from '../../support/store-driver.ts';
 import {
   checkpointGates,
   currentReviewInput,
+  publishToReview,
 } from '../../support/store-flows.ts';
 import { useTempDir } from '../../support/temp-db.ts';
 
@@ -1055,7 +1056,7 @@ describe('H05 restart: reviewer A finished on disk, not ingested, drift B record
   const B = 'b'.repeat(40);
   const OP = uuidOf(951);
 
-  it('keeps the drift, the blocker and A as unknown; no second reviewer, commit, publish or PR', async () => {
+  it('keeps the drift, the blocker and A as unknown; no second reviewer, commit, publish, posted review or ready PR', async () => {
     const dir = tempDir();
     let d = new StoreDriver(openFileStoreForTest(join(dir, STORE_FILE)));
     const task = buildTask();
@@ -1078,6 +1079,7 @@ describe('H05 restart: reviewer A finished on disk, not ingested, drift B record
       'succeeded',
       checkpointGates(A),
     );
+    publishToReview(d, task.id, A);
     const reviewer = d.pendingOne(task.id, 'start_agent');
     const input = currentReviewInput(d, task.id);
     const claimed = d.store.claimEffect(reviewer.id as Uuid, d.now as EpochMs, {
@@ -1198,7 +1200,7 @@ describe('H05 restart: reviewer A finished on disk, not ingested, drift B record
       expect(s.blockers.map((b) => b.code)).toContain('head_changed');
       expect(s.effects[reviewer.id]?.status).toBe('unknown');
       expect(s.run.reviews).toEqual(drifted.run.reviews);
-      expect(s.head_sha).toBeNull();
+      expect(s.head_sha).toBe(A);
 
       // A's result arrives through reconcile: recorded as A's, it routes nothing while B stands.
       d.must(task.id, {
@@ -1213,6 +1215,8 @@ describe('H05 restart: reviewer A finished on disk, not ingested, drift B record
       expect(after.run.head_drift).toMatchObject({ expected: A, observed: B });
       expect(d.pending(task.id, 'publish')).toEqual([]);
       expect(d.pending(task.id, 'create_pr')).toEqual([]);
+      expect(d.pending(task.id, 'post_review')).toEqual([]);
+      expect(d.pending(task.id, 'mark_ready')).toEqual([]);
       expect(d.pending(task.id, 'run_gates')).toEqual([]);
       expect(
         Object.values(after.effects).filter(

@@ -1,0 +1,384 @@
+/**
+ * Draft → ready and review comments on the task's PR. Both are idempotent against GitHub: the PR state
+ * and a per-attempt marker in the review body are read before anything is sent, and again after a send
+ * whose answer was lost.
+ */
+import type { ReviewEvidence } from '../../domain/state.ts';
+import {
+  renderReviewTemplate,
+  type ReviewPlaceholder,
+} from '../../domain/templates.ts';
+import type { GitHubFailure, GitHubPort } from '../ports.ts';
+import { markerCount } from '../publish-content.ts';
+import { listAll, MARK_READY_MUTATION } from './gh-port.ts';
+
+type Obj = Record<string, unknown>;
+const obj = (v: unknown): Obj =>
+  typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Obj) : {};
+
+export type ReadyOutcome =
+  /** `ready_at`: GitHub's time of the latest draft → ready change; null when the PR never was a draft. */
+  | { readonly kind: 'ready'; readonly ready_at: number | null }
+  | { readonly kind: 'closed' }
+  /** The PR's head is not the commit that was reviewed: left a draft; the CI wait records the drift. */
+  | { readonly kind: 'head_moved'; readonly head_sha: string }
+  /** The PR targets another branch than the task's: left a draft; the CI wait records the mismatch. */
+  | { readonly kind: 'retargeted'; readonly base: string | null }
+  | { readonly kind: 'rejected'; readonly detail: string }
+  | { readonly kind: 'unknown'; readonly detail: string };
+
+type PullState =
+  | {
+      draft: boolean;
+      closed: boolean;
+      node_id: string;
+      head_sha: string;
+      base: string | null;
+    }
+  | { error: string };
+
+async function readPull(
+  port: GitHubPort,
+  repo: string,
+  n: number,
+): Promise<PullState> {
+  const r = await port.request({
+    method: 'GET',
+    path: `repos/${repo}/pulls/${n}`,
+    query: {},
+    body: null,
+  });
+  if (!r.ok) return { error: r.error.detail };
+  const p = obj(r.value.body);
+  const head = obj(p['head'])['sha'];
+  const base = obj(p['base'])['ref'];
+  if (
+    typeof p['draft'] !== 'boolean' ||
+    typeof p['node_id'] !== 'string' ||
+    typeof head !== 'string'
+  )
+    return { error: 'unexpected PR shape' };
+  return {
+    draft: p['draft'],
+    closed: p['state'] === 'closed',
+    node_id: p['node_id'],
+    head_sha: head,
+    base: typeof base === 'string' ? base : null,
+  };
+}
+
+async function readyEventAt(
+  port: GitHubPort,
+  repo: string,
+  n: number,
+): Promise<number | null | { error: string }> {
+  const r = await listAll(port, `repos/${repo}/issues/${n}/events`, (b) =>
+    Array.isArray(b) ? b : null,
+  );
+  if (!r.ok) return { error: r.error.detail };
+  if (!r.value.complete) return { error: 'PR events listing incomplete' };
+  const at = r.value.items
+    .map(obj)
+    .filter((e) => e['event'] === 'ready_for_review')
+    .map((e) => Date.parse(String(e['created_at'])))
+    .filter((t) => Number.isFinite(t));
+  return at.length === 0 ? null : Math.max(...at);
+}
+
+async function readyResult(
+  port: GitHubPort,
+  repo: string,
+  n: number,
+): Promise<ReadyOutcome> {
+  const at = await readyEventAt(port, repo, n);
+  return typeof at === 'object' && at !== null
+    ? { kind: 'unknown', detail: `events: ${at.error}` }
+    : { kind: 'ready', ready_at: at };
+}
+
+/** Read-only: whether the PR is ready (and since when), still a draft, or unreadable. Sends nothing. */
+export async function probeReady(
+  port: GitHubPort,
+  repo: string,
+  n: number,
+): Promise<ReadyOutcome | { readonly kind: 'draft' }> {
+  const pull = await readPull(port, repo, n);
+  if ('error' in pull) return { kind: 'unknown', detail: pull.error };
+  if (pull.closed) return { kind: 'closed' };
+  return pull.draft ? { kind: 'draft' } : readyResult(port, repo, n);
+}
+
+/**
+ * Turns the PR ready for review when it still targets the task's frozen `target` and its head is still
+ * `expectedHead`, the commit that was reviewed; a PR that is ready already is left as it is.
+ */
+export async function markReady(
+  port: GitHubPort,
+  repo: string,
+  n: number,
+  expected: { readonly head_sha: string; readonly target: string },
+): Promise<ReadyOutcome> {
+  const before = await readPull(port, repo, n);
+  if ('error' in before) return { kind: 'unknown', detail: before.error };
+  if (before.closed) return { kind: 'closed' };
+  if (!before.draft) return readyResult(port, repo, n);
+  if (before.base !== expected.target)
+    return { kind: 'retargeted', base: before.base };
+  if (before.head_sha !== expected.head_sha)
+    return { kind: 'head_moved', head_sha: before.head_sha };
+  const r = await port.request({
+    method: 'POST',
+    path: 'graphql',
+    query: {},
+    body: { query: MARK_READY_MUTATION, variables: { id: before.node_id } },
+  });
+  const after = await readPull(port, repo, n);
+  if ('error' in after)
+    return { kind: 'unknown', detail: `read back: ${after.error}` };
+  if (!after.draft) return readyResult(port, repo, n);
+  if (!r.ok)
+    return r.error.reason === 'http_error' &&
+      r.error.status !== null &&
+      r.error.status < 500
+      ? { kind: 'rejected', detail: r.error.detail }
+      : { kind: 'unknown', detail: r.error.detail };
+  const errors = obj(r.value.body)['errors'];
+  return {
+    kind: 'rejected',
+    detail: Array.isArray(errors)
+      ? errors.map((e) => String(obj(e)['message'])).join('; ')
+      : 'PR is still a draft',
+  };
+}
+
+// ---- review comment ----
+
+export type InlineComment = {
+  readonly path: string;
+  readonly line: number;
+  readonly body: string;
+};
+
+export type ReviewPost = {
+  readonly repo: string;
+  readonly pr_number: number;
+  readonly commit_id: string;
+  /** Hidden marker that identifies this review attempt's comment; part of both bodies. */
+  readonly marker: string;
+  readonly body: string;
+  readonly comments: readonly InlineComment[];
+  /** Used when GitHub refuses the inline comments: every finding listed in the body. */
+  readonly body_without_inline: string;
+};
+
+export type PostOutcome =
+  | {
+      readonly kind: 'posted';
+      readonly review_id: number | null;
+      readonly inline: number;
+    }
+  /** Nothing was sent, or every send was refused outright: posting again cannot duplicate it. */
+  | { readonly kind: 'not_posted'; readonly detail: string }
+  /** A send may still land although no review with the marker is seen: never sent again. */
+  | { readonly kind: 'unknown'; readonly detail: string };
+
+/** Read-only: the id of the review carrying `p.marker`, null when none, or why it could not be read. */
+export async function findPosted(
+  port: GitHubPort,
+  p: Pick<ReviewPost, 'repo' | 'pr_number' | 'marker'>,
+): Promise<number | null | { error: string }> {
+  const r = await listAll(
+    port,
+    `repos/${p.repo}/pulls/${p.pr_number}/reviews`,
+    (b) => (Array.isArray(b) ? b : null),
+  );
+  if (!r.ok) return { error: r.error.detail };
+  const hit = r.value.items
+    .map(obj)
+    .find((v) => typeof v['body'] === 'string' && v['body'].includes(p.marker));
+  if (hit !== undefined)
+    return typeof hit['id'] === 'number' ? hit['id'] : null;
+  return r.value.complete ? null : { error: 'review listing incomplete' };
+}
+
+async function send(
+  port: GitHubPort,
+  p: ReviewPost,
+  body: string,
+  comments: readonly InlineComment[],
+) {
+  return port.request({
+    method: 'POST',
+    path: `repos/${p.repo}/pulls/${p.pr_number}/reviews`,
+    query: {},
+    body: {
+      commit_id: p.commit_id,
+      body,
+      event: 'COMMENT',
+      comments: comments.map((c) => ({
+        path: c.path,
+        line: c.line,
+        side: 'RIGHT',
+        body: c.body,
+      })),
+    },
+  });
+}
+
+/** Posts one COMMENT review for the attempt, unless its marker is on the PR already. */
+export async function postReview(
+  port: GitHubPort,
+  p: ReviewPost,
+): Promise<PostOutcome> {
+  const seen = await findPosted(port, p);
+  if (typeof seen === 'object' && seen !== null)
+    return { kind: 'not_posted', detail: `probe: ${seen.error}` };
+  if (seen !== null)
+    return { kind: 'posted', review_id: seen, inline: p.comments.length };
+  const first = await send(port, p, p.body, p.comments);
+  if (first.ok)
+    return {
+      kind: 'posted',
+      review_id: idOf(first.value.body),
+      inline: p.comments.length,
+    };
+  const failures = [first.error];
+  // A 422 is GitHub refusing a comment position: post every finding in the body instead.
+  if (first.error.status === 422 && p.comments.length > 0) {
+    const second = await send(port, p, p.body_without_inline, []);
+    if (second.ok)
+      return {
+        kind: 'posted',
+        review_id: idOf(second.value.body),
+        inline: 0,
+      };
+    failures.push(second.error);
+  }
+  const after = await findPosted(port, p);
+  if (typeof after === 'number')
+    return { kind: 'posted', review_id: after, inline: 0 };
+  const detail = failures.map((f) => f.detail).join('; ');
+  return failures.some(mayHaveLanded)
+    ? { kind: 'unknown', detail }
+    : { kind: 'not_posted', detail };
+}
+
+/** A lost answer or a server error: the review may exist now or appear later. */
+function mayHaveLanded(f: GitHubFailure): boolean {
+  return f.reason !== 'http_error' || f.status === null || f.status >= 500;
+}
+
+function idOf(body: unknown): number | null {
+  const id = obj(body)['id'];
+  return typeof id === 'number' ? id : null;
+}
+
+// ---- rendering ----
+
+export const REVIEW_BODY_MAX = 60_000;
+const HIDDEN = '[removed: contained a control marker]';
+
+/** Lines added on the right side of a `git diff -U0`, by path: where an inline comment surely lands. */
+export function addedLines(diff: string): Map<string, Set<number>> {
+  const out = new Map<string, Set<number>>();
+  let path: string | null = null;
+  let line = 0;
+  let inHunk = false;
+  for (const raw of diff.split('\n')) {
+    if (raw.startsWith('diff --git ')) {
+      path = null;
+      inHunk = false;
+      continue;
+    }
+    if (!inHunk && raw.startsWith('+++ ')) {
+      const p = raw.slice(4);
+      path = p.startsWith('b/') ? p.slice(2) : null;
+      continue;
+    }
+    const h = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw);
+    if (h !== null) {
+      line = Number(h[1]);
+      inHunk = true;
+      continue;
+    }
+    if (!inHunk || path === null) continue;
+    if (raw.startsWith('+')) {
+      const set = out.get(path) ?? new Set<number>();
+      set.add(line);
+      out.set(path, set);
+      line++;
+    } else if (raw.startsWith(' ')) {
+      line++;
+    }
+  }
+  return out;
+}
+
+function clean(text: string): string {
+  return markerCount(text) > 0 ? HIDDEN : text;
+}
+
+function findingLine(f: ReviewEvidence['findings'][number]): string {
+  const where =
+    f.file === undefined || f.file === ''
+      ? ''
+      : ` \`${clean(f.file)}${f.line === undefined ? '' : `:${f.line}`}\``;
+  return `- **${clean(f.severity)}**${where}: ${clean(f.msg)}`;
+}
+
+export type RenderInput = {
+  readonly template: string;
+  readonly round: number;
+  readonly review: Pick<
+    ReviewEvidence,
+    'verdict' | 'findings' | 'summary' | 'sha'
+  >;
+  /** Commentable lines; null when the reviewed diff is not at hand, so nothing goes inline. */
+  readonly commentable: Map<string, Set<number>> | null;
+  readonly marker: string;
+};
+
+export function renderReview(
+  r: RenderInput,
+): Pick<ReviewPost, 'body' | 'body_without_inline' | 'comments'> {
+  const inline = r.review.findings.filter(
+    (f) =>
+      f.file !== undefined &&
+      f.line !== undefined &&
+      markerCount(f.file) === 0 &&
+      r.commentable?.get(f.file)?.has(f.line) === true,
+  );
+  const listed = r.review.findings.filter((f) => !inline.includes(f));
+  const body = (
+    rest: readonly ReviewEvidence['findings'][number][],
+    inlineCount: number,
+  ) => {
+    const lines = rest.map(findingLine);
+    if (inlineCount > 0)
+      lines.push(
+        `${inlineCount} finding${inlineCount === 1 ? '' : 's'} commented inline.`,
+      );
+    const values: Record<ReviewPlaceholder, string> = {
+      round: String(r.round),
+      verdict:
+        r.review.verdict === 'approve' ? 'Approved' : 'Changes requested',
+      summary: clean(r.review.summary ?? ''),
+      findings: lines.length === 0 ? 'No findings.' : lines.join('\n'),
+      inline_count: String(inlineCount),
+      head_sha: r.review.sha.slice(0, 7),
+    };
+    let text = renderReviewTemplate(r.template, values).trimEnd();
+    if (text.length > REVIEW_BODY_MAX)
+      text = `${text.slice(0, REVIEW_BODY_MAX)}\n\n… (truncated)`;
+    return `${text}\n\n${r.marker}\n`;
+  };
+  return {
+    body: body(listed, inline.length),
+    body_without_inline: body(r.review.findings, 0),
+    comments: inline.map((f) => ({
+      path: f.file as string,
+      line: f.line as number,
+      body: `**${clean(f.severity)}**: ${clean(f.msg)}`,
+    })),
+  };
+}

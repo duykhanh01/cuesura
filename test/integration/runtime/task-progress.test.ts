@@ -97,8 +97,11 @@ describe('task_progress', () => {
     expect(step(p, 'review')).toMatchObject({ state: 'remaining' });
     const names = p.steps?.map((s) => s.name) ?? [];
     expect(names.indexOf('code')).toBeLessThan(names.indexOf('gates'));
-    expect(names.indexOf('gates')).toBeLessThan(names.indexOf('review'));
-    expect(names.indexOf('review')).toBeLessThan(names.indexOf('publish'));
+    expect(names.indexOf('gates')).toBeLessThan(names.indexOf('publish'));
+    expect(names.indexOf('publish')).toBeLessThan(names.indexOf('pr'));
+    expect(names.indexOf('pr')).toBeLessThan(names.indexOf('review'));
+    expect(names.indexOf('review')).toBeLessThan(names.indexOf('ready'));
+    expect(names.indexOf('ready')).toBeLessThan(names.indexOf('ci'));
     expect(new Set(names).size).toBe(names.length);
   });
 
@@ -114,8 +117,10 @@ describe('task_progress', () => {
         visits: 0,
       });
     const names = p.steps?.map((s) => s.name) ?? [];
-    expect(names.indexOf('gates')).toBeLessThan(names.indexOf('review'));
-    expect(names.indexOf('review')).toBeLessThan(names.indexOf('publish'));
+    expect(names.indexOf('gates')).toBeLessThan(names.indexOf('publish'));
+    expect(names.indexOf('pr')).toBeLessThan(names.indexOf('review'));
+    for (const name of ['post_review', 'post_changes', 'ready'])
+      expect(step(p, name)).toMatchObject({ state: 'not_required' });
   });
 
   it('gives the same order on every read', () => {

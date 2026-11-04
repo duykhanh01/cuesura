@@ -4,8 +4,8 @@
  * endpoint allowlist, and caps on time, bytes, pages, calls and sends. The credential stays in the
  * orchestrator's environment; nothing here is mounted into a sandbox.
  *
- * The writes are creating a PR, re-running failed jobs, editing a PR's text and yolo's merge of a named
- * head. A GET may be resent inside the round window; a write is sent once, and a write whose outcome
+ * The writes are creating a PR, turning the task's draft PR ready, posting a COMMENT review, re-running
+ * failed jobs, editing a PR's text and yolo's merge of a named head. A GET may be resent inside the round window; a write is sent once, and a write whose outcome
  * cannot be read back is `unknown` (it may have been applied), so the caller probes before any new send.
  */
 import { spawn } from 'node:child_process';
@@ -50,6 +50,7 @@ export const GET_ENDPOINTS: readonly RegExp[] = [
   new RegExp(`^${REPO}/pulls$`),
   new RegExp(`^${REPO}/pulls/\\d+$`),
   new RegExp(`^${REPO}/pulls/\\d+/merge$`),
+  new RegExp(`^${REPO}/pulls/\\d+/reviews$`),
   new RegExp(`^${REPO}/issues/\\d+/events$`),
   new RegExp(`^${REPO}/branches/${BRANCH}$`),
   new RegExp(`^${REPO}/branches/${BRANCH}/protection$`),
@@ -60,11 +61,56 @@ export const GET_ENDPOINTS: readonly RegExp[] = [
   new RegExp(`^${REPO}/actions/runs/\\d+$`),
 ];
 
-/** The only writes: open a PR, re-run the failed jobs of one workflow run. Never merge. */
+/**
+ * The only POSTs: open a PR, post a COMMENT review on it, re-run the failed jobs of one workflow run, and
+ * the one GraphQL mutation that turns a draft PR ready. Never merge.
+ */
 export const POST_ENDPOINTS: readonly RegExp[] = [
   new RegExp(`^${REPO}/pulls$`),
+  new RegExp(`^${REPO}/pulls/\\d+/reviews$`),
   new RegExp(`^${REPO}/actions/runs/\\d+/rerun-failed-jobs$`),
+  /^graphql$/,
 ];
+/** The only GraphQL document the port lets through. */
+export const MARK_READY_MUTATION =
+  'mutation($id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: $id}) { pullRequest { isDraft } } }';
+
+const REVIEW_FIELDS = new Set(['commit_id', 'body', 'event', 'comments']);
+const REVIEW_COMMENT_FIELDS = new Set(['path', 'line', 'side', 'body']);
+
+/** A review only comments: never APPROVE or REQUEST_CHANGES, which would act on the PR's merge state. */
+function validReviewBody(body: unknown): boolean {
+  const b = obj(body);
+  const comments = b['comments'];
+  return (
+    Object.keys(b).every((k) => REVIEW_FIELDS.has(k)) &&
+    b['event'] === 'COMMENT' &&
+    typeof b['body'] === 'string' &&
+    (comments === undefined ||
+      (Array.isArray(comments) &&
+        comments.every((c) =>
+          Object.keys(obj(c)).every((k) => REVIEW_COMMENT_FIELDS.has(k)),
+        )))
+  );
+}
+
+/** GraphQL is reachable for exactly one document: marking a pull request ready for review. */
+function validGraphqlBody(body: unknown): boolean {
+  const b = obj(body);
+  const vars = obj(b['variables']);
+  return (
+    Object.keys(b).every((k) => k === 'query' || k === 'variables') &&
+    b['query'] === MARK_READY_MUTATION &&
+    Object.keys(vars).length === 1 &&
+    typeof vars['id'] === 'string'
+  );
+}
+
+function obj(v: unknown): Readonly<Record<string, unknown>> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+    ? (v as Record<string, unknown>)
+    : {};
+}
 
 /** The one edit: title/description of a PR (M05/M07); never state, base, head or merge settings. */
 export const PATCH_ENDPOINTS: readonly RegExp[] = [
@@ -352,6 +398,20 @@ export class GhPort implements GitHubPort {
         retry_after_ms: null,
       });
     }
+    if (
+      req.method === 'POST' &&
+      ((req.path === 'graphql' && !validGraphqlBody(req.body)) ||
+        (req.path.endsWith('/reviews') && !validReviewBody(req.body)))
+    )
+      return err({
+        reason: 'not_allowed',
+        status: null,
+        detail:
+          req.path === 'graphql'
+            ? 'graphql may only mark a pull request ready'
+            : 'a review may only COMMENT',
+        retry_after_ms: null,
+      });
     if (req.method === 'PUT' && !validMergeBody(req.body))
       return err({
         reason: 'not_allowed',

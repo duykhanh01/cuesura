@@ -75,13 +75,14 @@ async function currentChecksProblem(
   policy: FrozenPolicy,
   t: MergeTarget,
   now: number,
+  skippedBefore: number | null,
 ): Promise<string | null> {
   const required = await readRequirements(port, t.repo, t.target, now);
   const verdict = evaluateRequired(required, policy.ci.required_checks);
   if (verdict.kind !== 'covered') return `required checks ${verdict.kind}`;
   if (policy.ci.required_checks.length === 0 && verdict.github.length === 0)
     return NO_REQUIRED_CHECKS;
-  const checks = await readHeadChecks(port, t.repo, t.head_sha);
+  const checks = await readHeadChecks(port, t.repo, t.head_sha, skippedBefore);
   if (!checks.ok) return `checks unreadable: ${checks.error.detail}`;
   for (const identity of verdict.app_pinned ?? []) {
     if (
@@ -187,6 +188,7 @@ export async function advanceTaskPr(
     policy,
     target,
     deps.clock.now(),
+    s.run.pr_ready_at ?? null,
   );
   if (problem !== null) return notReady(problem);
 

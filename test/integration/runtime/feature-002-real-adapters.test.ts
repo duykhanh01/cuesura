@@ -291,12 +291,23 @@ function setup(o: {
     });
     d.must(task.id, { kind: 'start', freeze: frozen, runtime });
   };
+  // Like cusrd, a free slot goes to the task when it queued for one again (full-review after its PR).
   const settle = async (max = 40): Promise<void> => {
     for (let i = 0; i < max; i++) {
+      const queued =
+        d.task(task.id).wait?.detail.code === 'execution_slot' &&
+        d.store.readSlot() === null;
+      if (queued)
+        d.store.grantNext(d.now as EpochMs, [
+          newId(),
+          newId(),
+          newId(),
+          newId(),
+        ]);
       const r = dispatcher.tick();
       await dispatcher.settle();
       d.now = Math.max(d.now + 1_000, Date.now());
-      if (r.started.length === 0) return;
+      if (r.started.length === 0 && !queued) return;
     }
     throw new Error('flow did not settle');
   };
@@ -485,7 +496,7 @@ describe('T139 M03 same vendor/model through the host launcher', () => {
     expect(f.d.store.verifyProjections().ok).toBe(true);
   });
 
-  it('a same-vendor reviewer write is detected and cannot produce green or a PR', async () => {
+  it('a same-vendor reviewer write is detected and cannot produce green or a ready PR', async () => {
     const f = setup({
       mode: 'full-review',
       sameVendor: true,
@@ -495,7 +506,9 @@ describe('T139 M03 same vendor/model through the host launcher', () => {
     f.start();
     await f.settle();
     expect(f.proc.launches).toHaveLength(2);
-    expect(f.github.prs).toEqual([]);
+    // The PR opened before the review stays a draft without a posted review.
+    expect(f.github.prs).toMatchObject([{ draft: true }]);
+    expect(f.github.prs[0]?.reviews ?? []).toEqual([]);
     expect(
       f.d.task(f.task.id).run.reviews.filter((r) => r.verdict === 'approve'),
     ).toEqual([]);

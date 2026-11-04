@@ -76,11 +76,22 @@ export function statusState(state: unknown): CheckState {
   }
 }
 
+/**
+ * A skipped run that finished before the PR was turned ready: the repo's CI skipping a draft, not a
+ * result for the ready PR. Dropping it lets the run started by the ready event count instead.
+ */
+function skippedWhileDraft(o: Obj, skippedBefore: number | null): boolean {
+  if (skippedBefore === null || o['conclusion'] !== 'skipped') return false;
+  const at = Date.parse(String(o['completed_at']));
+  return Number.isFinite(at) && at < skippedBefore;
+}
+
 /** Current generation per identity, then collisions per name. Pure; exported for tests. */
 export function selectCurrent(
   runs: readonly unknown[],
   statuses: readonly unknown[],
   sha: string,
+  skippedBefore: number | null = null,
 ): { checks: SourcedCheck[]; collisions: string[] } {
   const current = new Map<string, SourcedCheck>();
   for (const r of runs) {
@@ -88,7 +99,8 @@ export function selectCurrent(
     if (
       typeof o['name'] !== 'string' ||
       typeof o['id'] !== 'number' ||
-      o['head_sha'] !== sha
+      o['head_sha'] !== sha ||
+      skippedWhileDraft(o, skippedBefore)
     )
       continue;
     const appId =
@@ -146,6 +158,7 @@ export async function readHeadChecks(
   port: GitHubPort,
   repo: string,
   sha: string,
+  skippedBefore: number | null = null,
 ): Promise<
   { ok: true; value: HeadChecks } | { ok: false; error: GitHubFailure }
 > {
@@ -178,6 +191,7 @@ export async function readHeadChecks(
     runs.value.items,
     statuses.value.items,
     sha,
+    skippedBefore,
   );
   return {
     ok: true,

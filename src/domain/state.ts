@@ -444,6 +444,8 @@ export type ReviewEvidence = {
     line?: number | undefined;
     msg: string;
   }[];
+  /** The reviewer's summary; absent for verdicts recorded before it was kept. */
+  summary?: string;
   valid: boolean;
 };
 
@@ -478,6 +480,15 @@ export type RunState = {
   ci_wait: Record<string, CiWait>;
   /** What the PR title/body were last written from, and the marker they carry (M05/M07). */
   pr_body: PrBodyState | null;
+  /**
+   * When the daemon turned the task's draft PR ready (GitHub's clock). CI waits ignore skipped check runs
+   * that finished before it: a draft run skipped by the repo's CI is not a result. Absent when never set.
+   */
+  pr_ready_at?: number | null;
+  /** Review attempt whose verdict the review step last routed on, recorded or reused. */
+  verdict_attempt_id?: string;
+  /** Review attempts posted on the PR, or sent with an outcome never confirmed: not sent again. */
+  posted_reviews?: string[];
   /**
    * The worktree tree the orchestrator last saw as the task's own: after prepare, after each worker
    * attempt, after the gates and after an accepted user change (T072). A worker attempt starting on

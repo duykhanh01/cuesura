@@ -155,8 +155,9 @@ export function modeWorkflowName(mode: ExecutionMode): string {
 /**
  * Graph a 002 task runs for its confirmed mode (task-execution-modes.md), derived from the configured
  * software_dev@1 graph so per-step limits stay the user's. The gate step ends with the checkpoint
- * commit (handler side), so `gates → checkpoint → review → publish` in `full-review` and
- * `gates → checkpoint → publish` in `direct-pr`:
+ * commit (handler side), so both modes run `gates → checkpoint → publish → PR`:
+ * - `full-review` opens the PR as a draft and reviews the pushed checkpoint; each verdict is posted on
+ *   the PR, an approval turns it ready and only then waits for CI, changes go to the fixer;
  * - no review skip by size; `direct-pr` has no review step at all, so nothing approves on its behalf;
  * - an autofix that changed code goes back through the gates, which commit the final tree.
  */
@@ -166,11 +167,31 @@ export function modeGraph(w: Workflow, mode: ExecutionMode): Workflow {
     const step = steps[name];
     if (step !== undefined) step.next = { ...step.next, [outcome]: target };
   };
-  set('gates', 'pass', mode === 'full-review' ? 'review' : 'publish');
+  set('gates', 'pass', 'publish');
   set('ci_autofix', 'pass', 'gates');
   if (mode === 'full-review') {
     const review = steps['review'];
     if (review !== undefined) delete review.skip_when;
+    set('pr', 'ok', 'review');
+    set('review', 'approve', 'post_review');
+    set('review', 'request_changes', 'post_changes');
+    steps['post_review'] = {
+      kind: 'action',
+      action: 'github.post_review',
+      next: { ok: 'ready' },
+    };
+    steps['post_changes'] = {
+      kind: 'action',
+      action: 'github.post_review',
+      next: { ok: 'fix_review' },
+    };
+    steps['ready'] = {
+      kind: 'action',
+      action: 'github.mark_ready',
+      max_visits: 10,
+      on_exhausted: 'escalate',
+      next: { ok: 'ci' },
+    };
   } else {
     delete steps['review'];
     delete steps['fix_review'];

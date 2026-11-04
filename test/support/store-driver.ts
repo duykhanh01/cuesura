@@ -89,6 +89,16 @@ export class StoreDriver {
     });
   }
 
+  /** Grants the slot to the next queued request, with IDs for the step it resumes. */
+  grantNext(): void {
+    const g = this.store.grantNext(
+      this.now as EpochMs,
+      this.idSource.take(MAX_ENVELOPE_IDS),
+    );
+    if (!g.ok || g.value.kind !== 'decided')
+      throw new Error(`grant failed: ${JSON.stringify(g)}`);
+  }
+
   deliver(env: TriggerEnvelope): Result<AcceptOutcome, AcceptError> {
     this.ops.push({ op: 'accept', envelope: env });
     return this.store.accept(env);

@@ -461,11 +461,40 @@ describe.each(['full-review', 'direct-pr'] as const)(
         expect(s.run.reviews).toMatchObject([
           { verdict: 'approve', sha: cp?.sha },
         ]);
+        // The PR opened as a draft; the verdict was posted on it as one COMMENT review, then it turned
+        // ready, and CI was read only after that.
+        const pr = github.prs[0];
+        expect(pr?.draft).toBe(false);
+        expect(pr?.reviews).toHaveLength(1);
+        expect(pr?.reviews?.[0]).toMatchObject({
+          event: 'COMMENT',
+          commit_id: cp?.sha,
+          comments: [],
+        });
+        expect(pr?.reviews?.[0]?.body).toContain('Review round 1: Approved');
+        expect(pr?.reviews?.[0]?.body).toContain(
+          `<!-- cusr:review task=${task.id} attempt=${s.run.reviews[0]?.attempt_id ?? ''} -->`,
+        );
+        const calls = github.calls;
+        expect(calls.indexOf(`POST repos/${github.repo}/pulls`)).toBeLessThan(
+          calls.indexOf(`POST repos/${github.repo}/pulls/7/reviews`),
+        );
+        expect(
+          calls.indexOf(`POST repos/${github.repo}/pulls/7/reviews`),
+        ).toBeLessThan(calls.indexOf('POST graphql'));
+        expect(calls.indexOf('POST graphql')).toBeLessThan(
+          calls.findIndex((c) => c.endsWith('/check-runs')),
+        );
+        expect(s.run.pr_ready_at).toBe(Date.parse('2026-10-29T11:00:00Z'));
       } else {
         // direct-pr: no reviewer call, no approval made up on its behalf.
         expect(codex.calls).toEqual([]);
         expect(types(d, task)).not.toContain('ReviewVerdictRecorded');
         expect(types(d, task)).not.toContain('ReviewReused');
+        // Nothing turns it ready later, so it opens ready and gets no review comment.
+        expect(github.prs[0]?.draft ?? false).toBe(false);
+        expect(github.prs[0]?.reviews ?? []).toEqual([]);
+        expect(github.calls).not.toContain('POST graphql');
       }
       // One PR with the worker's title/body and one canonical marker block at the end; no merge request.
       expect(github.prs).toHaveLength(1);
@@ -835,7 +864,9 @@ it('T139 M03: missing reviewer diff never launches or consumes a reviewer run', 
     used: 1,
     reserved: 0,
   });
-  expect(f.github.prs).toEqual([]);
+  // The review comes after the PR: it stays a draft, with no review on it.
+  expect(f.github.prs).toMatchObject([{ draft: true }]);
+  expect(f.github.prs[0]?.reviews ?? []).toEqual([]);
 });
 
 async function settleWithSlot(
@@ -941,15 +972,16 @@ describe('worktree changed by someone else before the worker (T072, real Git)', 
 });
 
 describe('remote drift while the reviewer reads A (T137, H01/H03, real Git)', () => {
-  it('B pushed to the task branch during the review: the probe before publish blocks, B is kept, no PR', async () => {
+  it('B pushed to the task branch during the review: the PR stays a draft, the CI wait records the drift, B is kept', async () => {
     const task = buildTask();
     let pushedB: string | null = null;
     const { d, github, remote, start, settle } = setup(task, {
       mode: 'full-review',
       duringReview: (rem) => {
-        // Someone pushes B to the task branch on the remote while A is being reviewed.
+        // Someone pushes B on top of the published A to the task branch while A is being reviewed.
         const other = `${rem}.other${n++}`;
-        g.sh(g.base, 'clone', '-q', rem, other);
+        const branch = taskBranch(task.id, task.title);
+        g.sh(g.base, 'clone', '-q', '-b', branch, rem, other);
         writeFileSync(join(other, 'b.txt'), 'b\n');
         g.sh(other, 'add', 'b.txt');
         g.sh(other, 'commit', '-qm', 'b');
@@ -967,10 +999,11 @@ describe('remote drift while the reviewer reads A (T137, H01/H03, real Git)', ()
     start();
     await settle();
     const s = d.task(task.id);
-    // The approval of A is recorded as A's history; the publish probe saw B and recorded the drift.
-    expect(s.run.reviews).toMatchObject([
-      { verdict: 'approve', sha: s.run.checkpoint?.sha },
-    ]);
+    const a = s.run.checkpoint?.sha;
+    // A was published and reviewed; the approval is A's. The PR head is B, so it is not turned ready, and
+    // the CI wait observes B and records the drift.
+    expect(s.head_sha).toBe(a);
+    expect(s.run.reviews).toMatchObject([{ verdict: 'approve', sha: a }]);
     expect(s).toMatchObject({
       status: 'WAITING',
       wait: {
@@ -978,11 +1011,7 @@ describe('remote drift while the reviewer reads A (T137, H01/H03, real Git)', ()
         detail: { code: 'head_changed', observed: pushedB },
       },
     });
-    expect(s.run.head_drift).toMatchObject({
-      source: 'publish_probe',
-      expected: null,
-      observed: pushedB,
-    });
+    expect(s.run.head_drift).toMatchObject({ expected: a, observed: pushedB });
     expect(
       g.sh(
         remote,
@@ -990,8 +1019,8 @@ describe('remote drift while the reviewer reads A (T137, H01/H03, real Git)', ()
         `refs/heads/${taskBranch(task.id, task.title)}`,
       ),
     ).toBe(pushedB);
-    expect(s.head_sha).toBeNull();
-    expect(github.prs).toEqual([]);
+    expect(github.prs).toMatchObject([{ draft: true }]);
+    expect(types(d, task)).not.toContain('CiResultRecorded');
   });
 });
 

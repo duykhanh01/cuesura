@@ -25,6 +25,8 @@ import type { RunConfirmation } from '../domain/run-config.ts';
 import {
   checkSelection,
   readPrTemplate,
+  readReviewTemplate,
+  type TemplateError,
   type SelectionProblem,
 } from './run-config.ts';
 import { checkConfig, submit } from './triage.ts';
@@ -146,24 +148,14 @@ async function freezeFor(
     candidate.base_sha,
     config.project?.pr_template ?? null,
   );
-  if (!template.ok) {
-    return {
-      ok: false as const,
-      error: {
-        code: 'config_invalid' as const,
-        diagnostics: [],
-        problems: [
-          {
-            check: template.error.check,
-            message: template.error.message,
-            ...('candidates' in template.error
-              ? { candidates: template.error.candidates }
-              : {}),
-          },
-        ],
-      },
-    };
-  }
+  const reviewTemplate = await readReviewTemplate(
+    deps.ports.git,
+    candidate.project_path,
+    candidate.base_sha,
+    config.project?.review_template ?? null,
+  );
+  if (!template.ok) return templateInvalid(template.error);
+  if (!reviewTemplate.ok) return templateInvalid(reviewTemplate.error);
   const runtime = freezeRuntimeContext({
     runtime: candidate.runtime,
     task_id: s.id,
@@ -179,6 +171,7 @@ async function freezeFor(
       confirmation,
     },
     pr_template: template.value,
+    review_template: reviewTemplate.value,
     merge_method: resolveMergeMethod(config.project),
     setup_commands: config.project?.setup ?? [],
     role_prompts: Object.fromEntries(
@@ -202,6 +195,25 @@ async function freezeFor(
     };
   }
   return { ok: true as const, policy: frozen.value, runtime: runtime.value };
+}
+
+function templateInvalid(
+  e: TemplateError | { readonly check: 'git'; readonly message: string },
+) {
+  return {
+    ok: false as const,
+    error: {
+      code: 'config_invalid' as const,
+      diagnostics: [],
+      problems: [
+        {
+          check: e.check,
+          message: e.message,
+          ...('candidates' in e ? { candidates: e.candidates } : {}),
+        },
+      ],
+    },
+  };
 }
 
 export async function startTask(

@@ -112,6 +112,7 @@ export type RuntimeFreezeInput = {
   capability_refs: Record<string, Hash>;
   run_config?: RunConfigSnapshot;
   pr_template?: PrTemplate | null;
+  review_template?: PrTemplate;
   merge_method?: MergeMethod;
   role_prompts?: Readonly<Record<string, string>>;
   setup_commands?: readonly string[];
@@ -151,6 +152,9 @@ export function freezeRuntimeContext(
     ...(input.pr_template === undefined
       ? {}
       : { pr_template: input.pr_template }),
+    ...(input.review_template === undefined
+      ? {}
+      : { review_template: input.review_template }),
     ...(input.merge_method === undefined
       ? {}
       : { merge_method: input.merge_method }),

@@ -3,7 +3,7 @@
  * selection a user confirmed is checked against the effective, frozen configuration at start: the
  * profile, the worker binding of every coder/fixer step, the reviewer binding of `full-review` and the
  * allowed fallbacks. The daemon never rebinds to make it fit; a mismatch waits for a new confirmation.
- * Also reads the PR template of the frozen base (M05).
+ * Also reads the PR and review templates of the frozen base (M05).
  */
 import type { GitPort } from '../adapters/ports.ts';
 import type { FrozenPolicy } from '../domain/policy.ts';
@@ -12,6 +12,14 @@ import {
   type PrTemplate,
   type RunSelection,
 } from '../domain/run-config.ts';
+import {
+  defaultPrTemplate,
+  defaultReviewTemplate,
+  REVIEW_PLACEHOLDERS,
+  REVIEW_TEMPLATE_MAX_BYTES,
+  unknownPlaceholders,
+} from '../domain/templates.ts';
+import { markerCount } from '../adapters/publish-content.ts';
 import { hashText } from '../shared/hash.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 
@@ -82,27 +90,48 @@ const TEMPLATE_RE =
   /^(?:\.github\/|docs\/)?pull_request_template\.md$|^(?:\.github\/|docs\/)?pull_request_template\/[^/]+\.md$/i;
 
 export type TemplateError = {
-  readonly check: 'pr_template';
+  readonly check: 'pr_template' | 'review_template';
   readonly message: string;
   readonly candidates: readonly string[];
 };
 
-/**
- * The PR template at `base`: the configured `pr_template` path, else the only template the repo has;
- * several without a choice wait for one (no guessing). `null` when the repo has none: the worker then
- * writes a plain description. Read from Git objects, never from the working tree.
- */
-export async function readPrTemplate(
+type GitError = { readonly check: 'git'; readonly message: string };
+
+async function readBlob(
   git: GitPort,
   cwd: string,
   base: string,
-  configured: string | null,
-): Promise<
-  Result<
-    PrTemplate | null,
-    TemplateError | { readonly check: 'git'; readonly message: string }
-  >
-> {
+  path: string,
+  maxBytes: number,
+  check: TemplateError['check'],
+): Promise<Result<PrTemplate, TemplateError | GitError>> {
+  const blob = await git.run({
+    args: ['cat-file', 'blob', `${base}:${path}`],
+    cwd,
+    timeout_ms: 10_000,
+    max_output_bytes: maxBytes,
+    stdin: null,
+  });
+  if (blob.kind !== 'exited' || blob.code !== 0)
+    return err({ check: 'git', message: `cannot read ${path}` });
+  if (blob.truncated)
+    return err({
+      check,
+      message: `${path} is larger than ${maxBytes} bytes`,
+      candidates: [path],
+    });
+  return ok({
+    path,
+    content: blob.stdout,
+    content_hash: hashText(blob.stdout),
+  });
+}
+
+async function listBase(
+  git: GitPort,
+  cwd: string,
+  base: string,
+): Promise<Result<string[], GitError>> {
   const ls = await git.run({
     args: ['ls-tree', '-r', '--name-only', '-z', base],
     cwd,
@@ -112,7 +141,23 @@ export async function readPrTemplate(
   });
   if (ls.kind !== 'exited' || ls.code !== 0 || ls.truncated)
     return err({ check: 'git', message: 'cannot list the base tree' });
-  const files = ls.stdout.split('\0').filter((f) => f !== '');
+  return ok(ls.stdout.split('\0').filter((f) => f !== ''));
+}
+
+/**
+ * The PR template at `base`: the configured `pr_template` path, else the only template the repo has,
+ * else the built-in default; several without a choice wait for one (no guessing). Read from Git
+ * objects, never from the working tree.
+ */
+export async function readPrTemplate(
+  git: GitPort,
+  cwd: string,
+  base: string,
+  configured: string | null,
+): Promise<Result<PrTemplate, TemplateError | GitError>> {
+  const listed = await listBase(git, cwd, base);
+  if (!listed.ok) return listed;
+  const files = listed.value;
   const found = files.filter((f) => TEMPLATE_RE.test(f)).sort();
   let path: string;
   if (configured !== null) {
@@ -124,7 +169,7 @@ export async function readPrTemplate(
       });
     path = configured;
   } else if (found.length === 0) {
-    return ok(null);
+    return ok(defaultPrTemplate());
   } else if (found.length > 1) {
     return err({
       check: 'pr_template',
@@ -134,24 +179,49 @@ export async function readPrTemplate(
   } else {
     path = found[0] as string;
   }
-  const blob = await git.run({
-    args: ['cat-file', 'blob', `${base}:${path}`],
+  return readBlob(git, cwd, base, path, TEMPLATE_BYTES, 'pr_template');
+}
+
+/**
+ * The review comment template at `base`: the configured `review_template` path, else the built-in
+ * default. Unknown placeholders and control markers are refused here, before anything runs, rather than
+ * when the first review is posted.
+ */
+export async function readReviewTemplate(
+  git: GitPort,
+  cwd: string,
+  base: string,
+  configured: string | null,
+): Promise<Result<PrTemplate, TemplateError | GitError>> {
+  if (configured === null) return ok(defaultReviewTemplate());
+  const blob = await readBlob(
+    git,
     cwd,
-    timeout_ms: 10_000,
-    max_output_bytes: TEMPLATE_BYTES,
-    stdin: null,
-  });
-  if (blob.kind !== 'exited' || blob.code !== 0)
-    return err({ check: 'git', message: `cannot read ${path}` });
-  if (blob.truncated)
+    base,
+    configured,
+    REVIEW_TEMPLATE_MAX_BYTES,
+    'review_template',
+  );
+  if (!blob.ok)
+    return blob.error.check === 'git'
+      ? err({
+          check: 'review_template',
+          message: `review_template '${configured}' is not in the base commit`,
+          candidates: [],
+        })
+      : blob;
+  const unknown = unknownPlaceholders(blob.value.content);
+  if (unknown.length > 0)
     return err({
-      check: 'pr_template',
-      message: `${path} is larger than ${TEMPLATE_BYTES} bytes`,
-      candidates: [path],
+      check: 'review_template',
+      message: `${configured} uses unknown placeholders: ${unknown.join(', ')}; allowed: ${REVIEW_PLACEHOLDERS.join(', ')}`,
+      candidates: [configured],
     });
-  return ok({
-    path,
-    content: blob.stdout,
-    content_hash: hashText(blob.stdout),
-  });
+  if (markerCount(blob.value.content) > 0)
+    return err({
+      check: 'review_template',
+      message: `${configured} contains a <!-- cusr: control marker`,
+      candidates: [configured],
+    });
+  return blob;
 }

@@ -29,8 +29,11 @@ describe('stages', () => {
         step('code', 'past'),
         step('gates', 'past', 2),
         step('fix_gates', 'past'),
+        step('publish', 'past'),
+        step('pr', 'past'),
         step('review', 'current'),
-        step('pr', 'remaining', 0),
+        step('post_review', 'remaining', 0),
+        step('ready', 'remaining', 0),
       ],
       'RUNNING',
     );
@@ -39,8 +42,8 @@ describe('stages', () => {
       ['prepare', 'done', 1],
       ['code', 'done', 1],
       ['gates', 'done', 2],
+      ['pr', 'done', 1],
       ['review', 'current', 1],
-      ['pr', 'todo', 0],
       ['ci', 'skipped', 0],
       ['merge', 'skipped', 0],
     ]);

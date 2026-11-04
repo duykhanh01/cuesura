@@ -15,7 +15,7 @@ import { buildTask, uuidOf } from '../../support/builders.ts';
 import { createGrantStart } from '../../support/runtime.ts';
 import { ciData, publishData } from '../../support/scenario.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
-import { toPublish } from '../../support/store-flows.ts';
+import { toPublish, reviewToCi } from '../../support/store-flows.ts';
 import { dbPath, useTempDir } from '../../support/temp-db.ts';
 
 const tempDir = useTempDir('cusr-drain-');
@@ -53,6 +53,7 @@ function toCi(d: StoreDriver, t: CanonicalTask): void {
     pr_ref: 'acme#7',
     head_sha: HEAD,
   });
+  reviewToCi(d, t.id);
 }
 
 function merged(d: StoreDriver, t: CanonicalTask): void {

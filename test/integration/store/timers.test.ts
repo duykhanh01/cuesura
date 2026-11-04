@@ -10,7 +10,7 @@ import {
 import { buildTask, freezeOk } from '../../support/builders.ts';
 import { ciData, publishData } from '../../support/scenario.ts';
 import { StoreDriver, timerIds } from '../../support/store-driver.ts';
-import { toPublish } from '../../support/store-flows.ts';
+import { toPublish, reviewToCi } from '../../support/store-flows.ts';
 import { dbPath, useTempDir } from '../../support/temp-db.ts';
 import { runChild } from '../../support/child.ts';
 import { writeFileSync } from 'node:fs';
@@ -132,6 +132,7 @@ describe('Store timers (T081)', () => {
       pr_ref: 'acme#1',
       head_sha: 'H',
     });
+    reviewToCi(d, TASK.id);
     d.complete(
       TASK.id,
       d.pendingOne(TASK.id, 'await_ci').id,

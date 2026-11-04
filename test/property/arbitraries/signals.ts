@@ -140,6 +140,16 @@ function successData(sim: Sim, e: EffectMirror, c: Choice): unknown {
       );
     case 'create_pr':
       return { pr_ref: 'acme#1', head_sha: sim.s.head_sha ?? 'h1' };
+    case 'mark_ready':
+      return { pr_ref: 'acme#1', ready_at: v % 2 === 0 ? 1 : null };
+    case 'post_review':
+      return {
+        attempt_id: 'a1',
+        outcome: (['posted', 'not_posted', 'unknown'] as const)[v % 3],
+        review_id: v % 3 === 0 ? v : null,
+        inline: 0,
+        detail: null,
+      };
     case 'rerun_ci':
       return { head_sha: sim.s.head_sha ?? 'h1', rerun_checks: [] };
     case 'await_ci': {

@@ -22,9 +22,10 @@ Use case đầu tiên là quy trình phát triển phần mềm: code → review
 3. **Workflow cho mỗi task trong worktree riêng:**
    - Code, rồi chạy gate (build/test).
    - Trước khi chạy, bạn xác nhận harness, model, effort và chế độ: `direct-pr` hoặc `full-review`.
-   - Worker chuẩn bị commit message và nội dung PR; daemon tạo branch, commit và publish.
+   - Worker chuẩn bị commit message và nội dung PR theo PR template của repo, hoặc template mặc định của cusr; daemon tạo branch, commit và publish.
    - `full-review` có reviewer riêng session, chỉ đọc, có thể cùng vendor; `direct-pr` bỏ bước reviewer.
-   - Mở PR và chờ CI. Sửa gate/review/CI ưu tiên resume worker đã code, trong giới hạn đã duyệt.
+   - `full-review` mở PR dạng draft, daemon đăng từng lượt review lên PR (format đổi được bằng `review_template` trong `cusr.yaml`), approve thì chuyển PR ready rồi mới chờ CI. `direct-pr` mở PR ready và chờ CI ngay.
+   - Sửa gate/review/CI ưu tiên resume worker đã code, trong giới hạn đã duyệt.
    - Method mặc định là squash merge, đổi được bằng `merge.method` trong `cusr.yaml`; không bật yolo thì method chỉ là đề xuất cho người merge thủ công (`cusr show`).
    - Merge an toàn. Mặc định bạn duyệt từng lần merge vào `main`. Chế độ yolo (chỉ bạn bật được, theo từng repo) cho phép code tự merge khi đủ điều kiện cứng. Agent không bao giờ quyết định merge.
 4. **Role và model cấu hình được,** đóng băng theo từng task, kèm thang nâng effort/model theo chữ ký lỗi.

@@ -25,6 +25,10 @@ import {
   type HostOpts,
 } from '../../support/preflight-fakes.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
+import {
+  DEFAULT_PR_TEMPLATE_PATH,
+  DEFAULT_REVIEW_TEMPLATE_PATH,
+} from '../../../src/domain/templates.ts';
 import { dbPath, useTempDir } from '../../support/temp-db.ts';
 
 const tempDir = useTempDir('cusr-confirm-start-');
@@ -341,7 +345,8 @@ describe('start freezes one snapshot under the slot before RUNNING (T032, FR-002
           digest: s.run.proposal?.digest,
           confirmation: { actor: 'owner', channel: 'token:owner' },
         },
-        pr_template: null,
+        pr_template: { path: DEFAULT_PR_TEMPLATE_PATH },
+        review_template: { path: DEFAULT_REVIEW_TEMPLATE_PATH },
       },
     });
     expect(d.store.readPolicy(task.id, 1)?.workflow_name).toBe(

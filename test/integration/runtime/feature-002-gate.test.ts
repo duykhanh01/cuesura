@@ -16,6 +16,8 @@ import {
   checkpointGates,
   currentReviewInput,
   toPublish,
+  publishToReview,
+  reviewToCi,
 } from '../../support/store-flows.ts';
 import { dbPath, useTempDir } from '../../support/temp-db.ts';
 
@@ -109,6 +111,7 @@ describe.each([true, false])(
         'succeeded',
         checkpointGates(A),
       );
+      publishToReview(d, task.id, A);
       const reviewer = d.pendingOne(task.id, 'start_agent');
       expect(d.claim(reviewer.id).ok).toBe(true);
       // This simulates an already normalized callback, not recovery from runner files (T082/T093).
@@ -152,7 +155,7 @@ describe.each([true, false])(
         );
         expect(beforeDuplicate.effects[reviewer.id]?.status).toBe('succeeded');
         expect(beforeDuplicate.head_sha).not.toBe(B);
-        expect(reopened.pending(task.id, 'publish')).toEqual([]);
+        expect(reopened.pending(task.id, 'post_review')).toEqual([]);
         expect(
           Object.values(beforeDuplicate.effects).filter(
             (e) => e.step === 'review' && e.kind === 'start_agent',
@@ -176,6 +179,8 @@ describe('M03 review input validity', () => {
     try {
       createGrantStart(d, task, 'full-review');
       toPublish(d, task, A);
+      publishToReview(d, task.id, A);
+      reviewToCi(d, task.id);
       const s = d.task(task.id);
       const policy = d.store.readPolicy(task.id, 1);
       if (

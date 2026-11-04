@@ -2,14 +2,15 @@ name: ci
 on:
   pull_request:
     # closed chỉ để hủy run cũ của PR qua concurrency; mọi job bỏ qua sự kiện này.
-    types: [opened, synchronize, reopened, closed]
+    # Draft PRs (cusr keeps one a draft until its review approves) skip CI; ready_for_review runs it.
+    types: [opened, synchronize, reopened, ready_for_review, closed]
 concurrency:
   group: ci-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 jobs:
   # build và test là check bắt buộc: PR chỉ sửa tài liệu vẫn có hai job này, ở trạng thái skipped.
   changes:
-    if: github.event.action != 'closed'
+    if: github.event.action != 'closed' && !github.event.pull_request.draft
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -50,6 +50,8 @@ export function isSpecialTarget(t: string): t is SpecialTarget {
 export const ACTIONS = [
   'git.publish',
   'github.create_pr',
+  'github.mark_ready',
+  'github.post_review',
   'github.rerun_failed',
   'github.merge',
 ] as const;

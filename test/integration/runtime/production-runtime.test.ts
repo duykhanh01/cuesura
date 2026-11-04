@@ -563,6 +563,8 @@ describe('production task surface', () => {
     expect(missing.effects).toEqual([
       'await_ci',
       'create_pr',
+      'mark_ready',
+      'post_review',
       'prepare',
       'publish',
       'reconcile',

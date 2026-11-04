@@ -80,7 +80,8 @@ describe('snapshots frozen from a config that declared graph keys', () => {
 
   it.each([
     ['legacy', SOFTWARE_DEV],
-    ['full-review', modeGraph(SOFTWARE_DEV, 'full-review')],
+    // Frozen before full-review published ahead of its review: it keeps that older graph.
+    ['full-review', null],
     ['direct-pr', modeGraph(SOFTWARE_DEV, 'direct-pr')],
   ] as const)(
     '%s: parses unchanged, verifies its hashes and keeps its graph',
@@ -95,7 +96,16 @@ describe('snapshots frozen from a config that declared graph keys', () => {
       expect(snap.policy.structure_hash).toBe(
         structureHash(snap.policy.workflow),
       );
-      expect(snap.policy.structure_hash).toBe(structureHash(graph));
+      if (graph === null) {
+        expect(snap.policy.workflow.steps['gates']?.next['pass']).toBe(
+          'review',
+        );
+        expect(snap.policy.structure_hash).not.toBe(
+          structureHash(modeGraph(SOFTWARE_DEV, 'full-review')),
+        );
+      } else {
+        expect(snap.policy.structure_hash).toBe(structureHash(graph));
+      }
       expect(snap.policy.workflow.steps['gates']?.uses).toEqual(['build']);
       expect(snap.policy.workflow.steps['merge_gate']?.auto_when).toEqual({
         target_branch: ['feature/*'],

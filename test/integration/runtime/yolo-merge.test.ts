@@ -8,7 +8,11 @@ import { ci, observation } from '../../support/observation.ts';
 import { observeTaskPr } from '../../../src/daemon/handlers.ts';
 import { createGrantStart } from '../../support/runtime.ts';
 import { publishData } from '../../support/scenario.ts';
-import { toPublish, checkpointGates } from '../../support/store-flows.ts';
+import {
+  toPublish,
+  checkpointGates,
+  reviewToCi,
+} from '../../support/store-flows.ts';
 import { readMergeReadiness } from '../../../src/adapters/github/merge.ts';
 import { GhPort } from '../../../src/adapters/github/gh-port.ts';
 import type {
@@ -275,6 +279,7 @@ describe('yolo merge', () => {
           pr_ref: 'acme#7',
           head_sha: A,
         });
+        reviewToCi(d, t.id);
       }
       const { port, sent } = github({
         protection: { required_status_checks: PINNED },
@@ -340,6 +345,7 @@ describe('yolo merge', () => {
           pr_ref: 'acme#7',
           head_sha: A,
         });
+        reviewToCi(d, t.id);
       } else toGreen(d, t, 'direct-pr', policy, OBS_RUNTIME);
       const { port } = github({
         checks: {
@@ -908,6 +914,15 @@ describe('yolo merge', () => {
         'succeeded',
         publishData(fresh),
       );
+      if (mode === 'full-review') {
+        // The certified update needs no new review: the approval already on the PR is not posted again,
+        // and the PR stays ready.
+        expect(d.pending(t.id, 'post_review')).toEqual([]);
+        d.complete(t.id, d.pendingOne(t.id, 'mark_ready').id, 'succeeded', {
+          pr_ref: d.task(t.id).pr_ref,
+          ready_at: null,
+        });
+      }
       expect(d.pendingOne(t.id, 'await_ci').request).toMatchObject({
         head_sha: fresh,
       });

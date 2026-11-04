@@ -92,6 +92,8 @@ describe('US2 scenario 1: the steps of the workflow', () => {
       .data as {
       steps: { name: string; state: string; visits: number }[];
     };
+    // The stage line may render after its heading: wait for it.
+    await s.waitFor(() => stagesLine(s.screenText()) !== '');
     const line = stagesLine(s.screenText());
     const marks = {
       past: '✓',
@@ -119,6 +121,7 @@ describe('US2 scenario 1: the steps of the workflow', () => {
     const s = tui.cusr(sd.dataDir, TALL);
     await openTask(s, 'Direct task');
     await s.waitForText('Progress');
+    await s.waitFor(() => stagesLine(s.screenText()) !== '');
     const line = stagesLine(s.screenText());
     expect(line).toContain('review skipped –');
     expect(line).not.toMatch(/review ✓/);

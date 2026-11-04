@@ -13,7 +13,7 @@ import {
 } from '../../support/scenario.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 import { cancelRef, observation } from '../../support/observation.ts';
-import { toPublish } from '../../support/store-flows.ts';
+import { toPublish, reviewToCi } from '../../support/store-flows.ts';
 import { dbPath, useTempDir } from '../../support/temp-db.ts';
 
 const tempDir = useTempDir('cusr-completion-');
@@ -57,6 +57,7 @@ function toMergeGate(d: StoreDriver, task: CanonicalTask): void {
     pr_ref: 'acme#7',
     head_sha: HEAD,
   });
+  reviewToCi(d, task.id);
   d.complete(
     task.id,
     d.pendingOne(task.id, 'await_ci').id,

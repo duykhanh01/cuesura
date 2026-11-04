@@ -43,16 +43,15 @@ import {
   gatesData,
   PREPARE_DATA,
   publishData,
-  reviewData,
   USAGE,
 } from './scenario.ts';
 import type { StoreDriver } from './store-driver.ts';
 import {
   checkpointGates,
   createAndStart,
-  currentReviewInput,
   toPublish,
   WALL,
+  reviewToCi,
 } from './store-flows.ts';
 
 // What the US1 tests share: a real daemon seeded through the real store, `cusr` on a real PTY, and the CLI
@@ -309,6 +308,7 @@ function toCi(d: StoreDriver, t: CanonicalTask): void {
     pr_ref: `acme#${t.id.slice(-2)}`,
     head_sha: HEAD,
   });
+  reviewToCi(d, t.id);
 }
 
 /** A task stopped on the agent's question: the daemon says it needs the user. */
@@ -541,15 +541,6 @@ export function seedGreenPr(
     'succeeded',
     checkpointGates(GREEN_HEAD),
   );
-  if (mode === 'full-review')
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'start_agent').id,
-      'succeeded',
-      reviewData('approve', GREEN_HEAD, {
-        input_digest: currentReviewInput(d, t.id),
-      }),
-    );
   d.complete(
     t.id,
     d.pendingOne(t.id, 'publish').id,
@@ -560,6 +551,7 @@ export function seedGreenPr(
     pr_ref: 'acme#7',
     head_sha: GREEN_HEAD,
   });
+  reviewToCi(d, t.id);
   d.complete(
     t.id,
     d.pendingOne(t.id, 'await_ci').id,

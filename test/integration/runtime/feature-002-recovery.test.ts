@@ -75,7 +75,7 @@ import {
 } from '../../../src/daemon/handlers.ts';
 import type { TriggerEnvelope } from '../../../src/domain/trigger.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
-import { toPublish } from '../../support/store-flows.ts';
+import { toPublish, reviewToCi } from '../../support/store-flows.ts';
 import { useTempDir } from '../../support/temp-db.ts';
 
 const tempDir = useTempDir('cusr-recovery-');
@@ -1167,6 +1167,7 @@ describe('merge recorded before the drain finished (FR-034.02/03)', () => {
       pr_ref: 'acme#7',
       head_sha: HEAD,
     });
+    reviewToCi(f.d, t.id);
     f.d.must(child.id, { kind: 'create_task', task: child });
     const ci = f.d.pendingOne(t.id, 'await_ci');
     f.d.store.claimEffect(ci.id as Uuid, f.d.now as EpochMs, {

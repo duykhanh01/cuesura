@@ -26,6 +26,9 @@ import {
   checkpointGates,
   currentReviewInput,
   toPublish,
+  reviewToCi,
+  publishToReview,
+  completePost,
 } from '../../support/store-flows.ts';
 import { dbPath, useTempDir } from '../../support/temp-db.ts';
 import {
@@ -130,7 +133,7 @@ describe('repair loops (US2.1–US2.3, M03/M04/M06)', () => {
       'succeeded',
       agentData('done'),
     );
-    // Gates again, on the fixed tree, before the reviewer sees anything.
+    // Gates again, on the fixed tree, before anything is published or reviewed.
     expect(stepOf(d, t, d.pendingOne(t.id, 'run_gates'))).toBe('gates');
     expect(effects(d, t, 'start_agent', 'review')).toEqual([]);
     d.complete(
@@ -139,10 +142,11 @@ describe('repair loops (US2.1–US2.3, M03/M04/M06)', () => {
       'succeeded',
       checkpointGates(A),
     );
-    expect(stepOf(d, t, d.pendingOne(t.id, 'start_agent'))).toBe('review');
+    expect(d.pendingOne(t.id, 'publish').request).toMatchObject({ sha: A });
+    expect(effects(d, t, 'start_agent', 'review')).toEqual([]);
   });
 
-  it('US2.2: requested changes invalidate the review; gate, checkpoint commit and a new review run before publish', () => {
+  it('US2.2: requested changes are posted and go to the fixer; gate, checkpoint commit, publish and a new review run before the PR turns ready', () => {
     const d = setup();
     const t = buildTask();
     createGrantStart(d, t, 'full-review');
@@ -159,6 +163,7 @@ describe('repair loops (US2.1–US2.3, M03/M04/M06)', () => {
       'succeeded',
       checkpointGates(A),
     );
+    publishToReview(d, t.id, A);
     d.complete(
       t.id,
       d.pendingOne(t.id, 'start_agent').id,
@@ -168,6 +173,9 @@ describe('repair loops (US2.1–US2.3, M03/M04/M06)', () => {
         input_digest: currentReviewInput(d, t.id),
       }),
     );
+    expect(effects(d, t, 'mark_ready')).toEqual([]);
+    completePost(d, t.id);
+    grant(d);
     expect(d.pendingOne(t.id, 'start_agent').request).toMatchObject({
       role: 'fixer',
     });
@@ -183,19 +191,23 @@ describe('repair loops (US2.1–US2.3, M03/M04/M06)', () => {
       'succeeded',
       checkpointGates(C),
     );
+    expect(d.pendingOne(t.id, 'publish').request).toMatchObject({ sha: C });
+    publishToReview(d, t.id, C);
     // A new commit is a new review input: the reviewer runs again (separate session, read only).
     const review = d.pendingOne(t.id, 'start_agent');
     expect(review).toMatchObject({ request: { role: 'reviewer' } });
     expect(stepOf(d, t, review)).toBe('review');
     expect(types(d, t)).not.toContain('ReviewReused');
-    expect(effects(d, t, 'publish')).toEqual([]);
+    expect(effects(d, t, 'mark_ready')).toEqual([]);
     d.complete(
       t.id,
       review.id,
       'succeeded',
       reviewData('approve', C, { input_digest: currentReviewInput(d, t.id) }),
     );
-    expect(d.pendingOne(t.id, 'publish').request).toMatchObject({ sha: C });
+    expect(d.pendingOne(t.id, 'post_review').request).toMatchObject({
+      round: 2,
+    });
   });
 
   it('US2.3: a CI code failure is fixed on the task worktree and updates the same PR; CI of the old head never greens the new one', () => {
@@ -221,12 +233,6 @@ describe('repair loops (US2.1–US2.3, M03/M04/M06)', () => {
     );
     d.complete(
       t.id,
-      d.pendingOne(t.id, 'start_agent').id,
-      'succeeded',
-      reviewData('approve', A, { input_digest: currentReviewInput(d, t.id) }),
-    );
-    d.complete(
-      t.id,
       d.pendingOne(t.id, 'publish').id,
       'succeeded',
       publishData(A),
@@ -242,6 +248,7 @@ describe('repair loops (US2.1–US2.3, M03/M04/M06)', () => {
       head_sha: A,
       pr_body: prBody,
     });
+    reviewToCi(d, t.id);
     d.complete(
       t.id,
       d.pendingOne(t.id, 'await_ci').id,
@@ -267,12 +274,6 @@ describe('repair loops (US2.1–US2.3, M03/M04/M06)', () => {
     );
     d.complete(
       t.id,
-      d.pendingOne(t.id, 'start_agent').id,
-      'succeeded',
-      reviewData('approve', B, { input_digest: currentReviewInput(d, t.id) }),
-    );
-    d.complete(
-      t.id,
       d.pendingOne(t.id, 'publish').id,
       'succeeded',
       publishData(B),
@@ -293,6 +294,7 @@ describe('repair loops (US2.1–US2.3, M03/M04/M06)', () => {
       },
     });
     expect(d.task(t.id).pr_ref).toBe('acme#7');
+    reviewToCi(d, t.id);
     expect(d.pendingOne(t.id, 'await_ci').request).toMatchObject({
       head_sha: B,
     });
@@ -342,6 +344,7 @@ describe('CI classification and limits (US2.4/US2.5, FR-010/015/020)', () => {
       pr_ref: 'acme#7',
       head_sha: A,
     });
+    reviewToCi(d, t.id);
     const flaky = ciData(
       A,
       { build: 'success', test: 'failure' },
@@ -391,6 +394,7 @@ describe('CI classification and limits (US2.4/US2.5, FR-010/015/020)', () => {
       pr_ref: 'acme#7',
       head_sha: A,
     });
+    reviewToCi(d, t.id);
     const data = ciData(A, { e2e: 'failure' }, {}, { required: COVERED });
     (data['checks'] as { job?: string }[])[0]!.job = 'e2e';
     d.complete(t.id, d.pendingOne(t.id, 'await_ci').id, 'succeeded', data);
@@ -523,6 +527,7 @@ describe('required checks (US2.6, FR-042)', () => {
       pr_ref: 'acme#7',
       head_sha: A,
     });
+    reviewToCi(d, t.id);
   }
 
   it('a legacy GitHub A/B vs snapshot B/C mismatch result remains readable and names both sides', () => {
@@ -794,6 +799,7 @@ describe('CI and execution limits vs observation (US2.9/US2.10, FR-043.08–11)'
       pr_ref: 'acme#7',
       head_sha: A,
     });
+    reviewToCi(d, t.id);
     for (let i = 0; i < 200 && code(d, t) !== 'ci_wait_exhausted'; i++) {
       d.complete(
         t.id,
@@ -886,6 +892,7 @@ describe('CI and execution limits vs observation (US2.9/US2.10, FR-043.08–11)'
       pr_ref: 'acme#7',
       head_sha: A,
     });
+    reviewToCi(d, t.id);
     d.complete(
       t.id,
       d.pendingOne(t.id, 'await_ci').id,
@@ -998,6 +1005,7 @@ describe('observation vs the CI window, merge proof and target (PR review)', () 
       pr_ref: 'acme#7',
       head_sha: A,
     });
+    reviewToCi(d, t.id);
     d.complete(
       t.id,
       d.pendingOne(t.id, 'await_ci').id,
@@ -1040,6 +1048,7 @@ describe('observation vs the CI window, merge proof and target (PR review)', () 
       pr_ref: 'acme#7',
       head_sha: A,
     });
+    reviewToCi(d, t.id);
     d.complete(
       t.id,
       d.pendingOne(t.id, 'await_ci').id,
@@ -1082,6 +1091,7 @@ describe('observation vs the CI window, merge proof and target (PR review)', () 
         pr_ref: 'acme#7',
         head_sha: A,
       });
+      reviewToCi(d, t.id);
       d.complete(
         t.id,
         d.pendingOne(t.id, 'await_ci').id,
@@ -1147,6 +1157,7 @@ describe('observation vs the CI window, merge proof and target (PR review)', () 
         pr_ref: 'acme#7',
         head_sha: A,
       });
+      reviewToCi(d, t.id);
       const poll = d.pendingOne(t.id, 'await_ci');
       d.now += 2 * HOUR;
       d.complete(t.id, poll.id, 'succeeded', ci(A, { build: 'success', test }));

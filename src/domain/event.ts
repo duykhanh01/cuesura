@@ -77,7 +77,14 @@ export type EventPayloads = {
   StepSkipped: {
     step: string;
     kind: StepKind;
-    reason: 'when' | 'skip_when' | 'no_gates' | 'pr_exists' | 'prepared';
+    reason:
+      | 'when'
+      | 'skip_when'
+      | 'no_gates'
+      | 'pr_exists'
+      | 'prepared'
+      | 'no_review'
+      | 'review_posted';
     outcome: string;
   };
   StepExhausted: { step: string; visits: number; target: string };
@@ -162,6 +169,7 @@ export type EventPayloads = {
     // 002, additive: what the reviewer saw and said, for reuse (M03) and the fixer packet (M04).
     input_digest?: string;
     findings?: ReviewEvidence['findings'];
+    summary?: string;
   };
   PublishRecorded: { head_sha: string };
   CiResultRecorded: {
