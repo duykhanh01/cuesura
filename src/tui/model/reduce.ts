@@ -2,11 +2,15 @@
  * `(state, message) → (state, effects)`, pure, so random keys and connection failures can be tested without
  * a terminal. Nothing here decides what a task may do: that stays with the daemon.
  */
-import type { Key, KeyName } from '../terminal/keys.ts';
+import type { Key } from '../terminal/keys.ts';
+import { contentHeight } from '../views/disconnected.ts';
+import { helpLastTop } from '../views/help.ts';
+import { oneLine } from '../views/input.ts';
+import { onActionsCommand, onActionsRead, openActions } from './actions.ts';
 import {
   forgetScreens,
-  onDetailKey,
-  onLogsKey,
+  onDetailCommand,
+  onLogsCommand,
   onLogsRead,
   openDetail,
 } from './detail-keys.ts';
@@ -17,6 +21,7 @@ import {
   selectRow,
   selectedRowIndex,
 } from './home-rows.ts';
+import { commandFor, keyContext, type Command } from './keymap.ts';
 import type { Effect, Message } from './messages.ts';
 import {
   boardQueryKey,
@@ -108,32 +113,55 @@ export function reduce(state: TuiState, message: Message): Reduced {
       return same(onDetailRead(state, message));
     case 'logs_read':
       return same(onLogsRead(state, message));
+    case 'actions_read':
+      return same(onActionsRead(state, message));
     case 'key':
       return onKey(state, message.key);
   }
 }
 
-const typingInFilter = (s: TuiState): boolean =>
-  currentScreen(s) === 'filters' && s.filterDraft?.field === 'project';
-
 function onKey(given: TuiState, key: Key): Reduced {
-  const quitKey =
-    (key.kind === 'key' && key.name === 'ctrl_c') ||
-    (key.kind === 'char' && key.text === 'q' && !typingInFilter(given));
+  const command = commandFor(given, key);
   // Any other key puts the question about quitting away.
   const state =
-    given.quitArmed && !quitKey ? { ...given, quitArmed: false } : given;
+    given.quitArmed && command !== 'quit'
+      ? { ...given, quitArmed: false }
+      : given;
+  if (command === null) return onText(state, key);
+  switch (command) {
+    case 'quit':
+      return askToQuit(state);
+    case 'help':
+      return same({
+        ...state,
+        screens: [...state.screens, 'help'],
+        helpTop: 0,
+      });
+    case 'retry': {
+      const connection = retryConnection(state.connection);
+      return connection === null
+        ? same(state)
+        : {
+            state: { ...state, connection },
+            effects: [{ type: 'retry_connection' }],
+          };
+    }
+    default:
+      break;
+  }
   switch (currentScreen(state)) {
     case 'filters':
-      return onFilterKey(state, key);
+      return onFilterCommand(state, command);
     case 'home':
-      return onHomeKey(state, key);
+      return onHomeCommand(state, command);
     case 'help':
-      return common(state, key);
+      return onHelpCommand(state, command);
     case 'detail':
-      return onDetailKey(state, key) ?? common(state, key);
+      return onDetailCommand(state, command) ?? same(state);
     case 'logs':
-      return onLogsKey(state, key) ?? common(state, key);
+      return onLogsCommand(state, command) ?? same(state);
+    case 'actions':
+      return onActionsCommand(state, command) ?? same(state);
   }
 }
 
@@ -144,75 +172,67 @@ function askToQuit(state: TuiState): Reduced {
   return { state, effects: [{ type: 'quit', code: 0 }] };
 }
 
-/** Keys that mean the same on every screen. */
-function common(state: TuiState, key: Key): Reduced {
-  if (key.kind === 'paste') return same(state);
-  if (key.kind === 'key') {
-    if (key.name === 'ctrl_c') return askToQuit(state);
-    if (key.name === 'esc' && state.screens.length > 1)
+/** A key that is no command: text, where a field takes it, and nothing elsewhere. */
+function onText(state: TuiState, key: Key): Reduced {
+  const draft = state.filterDraft;
+  if (keyContext(state) !== 'filter_text' || draft === null) return same(state);
+  const put = (query: string): Reduced =>
+    same({ ...state, filterDraft: { ...draft, query, project: 0 } });
+  if (key.kind === 'char') return put(draft.query + key.text);
+  if (key.kind === 'paste') return put(draft.query + oneLine(key.text));
+  return same(state);
+}
+
+function onHelpCommand(state: TuiState, command: Command): Reduced {
+  const height = contentHeight(state);
+  const last = helpLastTop(state, height);
+  const to = (top: number): Reduced =>
+    same({ ...state, helpTop: Math.min(Math.max(0, top), last) });
+  switch (command) {
+    case 'back':
       return same({ ...state, screens: state.screens.slice(0, -1) });
-    return same(state);
-  }
-  switch (key.text) {
-    case 'q':
-      return askToQuit(state);
-    case '?':
-      return currentScreen(state) === 'help'
-        ? same(state)
-        : same({ ...state, screens: [...state.screens, 'help'] });
-    case 'R': {
-      const connection = retryConnection(state.connection);
-      return connection === null
-        ? same(state)
-        : {
-            state: { ...state, connection },
-            effects: [{ type: 'retry_connection' }],
-          };
-    }
+    case 'down':
+      return to(state.helpTop + 1);
+    case 'up':
+      return to(state.helpTop - 1);
+    case 'page_down':
+      return to(state.helpTop + Math.max(1, height - 1));
+    case 'page_up':
+      return to(state.helpTop - Math.max(1, height - 1));
+    case 'top':
+      return to(0);
+    case 'end':
+      return to(last);
     default:
       return same(state);
   }
 }
 
-const KEY_ALIASES: Readonly<Record<string, KeyName>> = {
-  j: 'down',
-  k: 'up',
-  g: 'home',
-  G: 'end',
-};
-
-function onHomeKey(state: TuiState, key: Key): Reduced {
-  if (key.kind === 'char' && key.text === 'f') return openFilters(state);
-  const name =
-    key.kind === 'key'
-      ? key.name
-      : key.kind === 'char'
-        ? KEY_ALIASES[key.text]
-        : undefined;
-  if (name === undefined) return common(state, key);
+function onHomeCommand(state: TuiState, command: Command): Reduced {
+  if (command === 'filters') return openFilters(state);
   const rows = homeRows(state);
   const at = selectedRowIndex(state, rows);
   const last = rows.length - 1;
-  switch (name) {
+  switch (command) {
     case 'down':
       return same(selectRow(state, at + 1, rows));
     case 'up':
       return same(selectRow(state, at - 1, rows));
-    case 'home':
+    case 'top':
       return same(selectRow(state, 0, rows));
     case 'end':
       return same(selectRow(state, last, rows));
-    case 'pagedown': {
+    case 'page_down': {
       const next = state.board?.next_cursor ?? null;
       if (at >= last && next !== null)
         return changeView(state, { cursors: [...state.cursors, next] });
       return same(selectRow(state, at + pageStep(state), rows));
     }
-    case 'pageup':
+    case 'page_up':
       if (at <= 0 && state.cursors.length > 0)
         return changeView(state, { cursors: state.cursors.slice(0, -1) });
       return same(selectRow(state, at - pageStep(state), rows));
-    case 'enter':
+    case 'open':
       // Keeps the selection on the row just pressed, which stays where it is.
       if (rows[at]?.kind === 'finished_toggle')
         return changeView(
@@ -221,8 +241,14 @@ function onHomeKey(state: TuiState, key: Key): Reduced {
           { keepSelection: true },
         );
       return openDetail(state, rows[at]);
+    case 'actions': {
+      const row = rows[at];
+      return row === undefined || row.kind === 'finished_toggle'
+        ? same(state)
+        : openActions(state, row.task.task_id, row.task.title);
+    }
     default:
-      return common(state, key);
+      return same(state);
   }
 }
 
@@ -273,48 +299,38 @@ function closeFilters(state: TuiState): TuiState {
   };
 }
 
-function onFilterKey(state: TuiState, key: Key): Reduced {
+function onFilterCommand(state: TuiState, command: Command): Reduced {
   const draft = state.filterDraft;
-  if (draft === null) return common(state, key);
-  const put = (change: Partial<FilterDraft>): Reduced =>
-    same({ ...state, filterDraft: { ...draft, ...change } });
-  const typing = draft.field === 'project';
-
-  if (key.kind === 'paste')
-    return typing
-      ? // One line: a pasted line break must not reach the name being looked for.
-        put({
-          query: draft.query + key.text.replace(/[\r\n\t]+/g, ' '),
-          project: 0,
-        })
-      : same(state);
-
-  if (key.kind === 'char') {
-    if (typing) return put({ query: draft.query + key.text, project: 0 });
-    const alias = KEY_ALIASES[key.text];
-    if (alias === 'down' || alias === 'up')
-      return moveChoice(state, draft, alias);
-    // Help would open over a form it does not describe yet; T051 brings help by context.
-    return key.text === '?' ? same(state) : common(state, key);
-  }
-
-  switch (key.name) {
-    case 'esc':
+  if (draft === null) return same(state);
+  switch (command) {
+    case 'back':
       return same(closeFilters(state));
-    case 'tab':
-    case 'shift_tab':
-      return put({ field: typing ? 'status' : 'project' });
-    case 'backspace':
-      return typing
-        ? put({ query: [...draft.query].slice(0, -1).join(''), project: 0 })
-        : same(state);
+    case 'switch_field':
+      return same({
+        ...state,
+        filterDraft: {
+          ...draft,
+          field: draft.field === 'project' ? 'status' : 'project',
+        },
+      });
     case 'up':
     case 'down':
-      return moveChoice(state, draft, key.name);
-    case 'enter':
+      return moveChoice(state, draft, command);
+    case 'apply':
       return applyFilters(state, draft);
+    case 'erase':
+      return draft.field === 'project'
+        ? same({
+            ...state,
+            filterDraft: {
+              ...draft,
+              query: [...draft.query].slice(0, -1).join(''),
+              project: 0,
+            },
+          })
+        : same(state);
     default:
-      return common(state, key);
+      return same(state);
   }
 }
 

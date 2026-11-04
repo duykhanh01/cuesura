@@ -261,3 +261,67 @@ Test T040–T043 được viết trước. Trước khi triển khai chỉ chạ
 | Chu kỳ `task_explain` tính từ lúc nhận phản hồi, nên phản hồi 1 giây tạo chu kỳ 5,5 giây | Chu kỳ tính từ lúc hỏi; `Read at` vẫn là lúc có phản hồi | `screen-sessions.test.ts` |
 
 Riêng Logs khi đổi token: `forgetLogs` đã tăng `generation` nên phản hồi cũ vốn bị bỏ; trên code cũ test chỉ thất bại ở tiêu đề.
+
+## US3 (T049–T053)
+
+**Kết quả: đạt checkpoint Phase 5 trên Unix socket thật.** Lần làm đầu chạy trong sandbox không bind được Unix socket: mọi test dựng daemon thật dừng ở `listen EPERM`, sau đó ở `listen EINVAL` vì `TMPDIR` của gate làm đường dẫn socket dài hơn 107 byte. Khi host gate đã dùng `TMPDIR` ngắn, `us3-navigation.test.ts` chạy với daemon thật trong PTY. Lần chạy đó phát hiện hai lỗi của test, không phải của giao diện, và cả hai đã được sửa (xem "Sửa sau lần chạy PTY đầu").
+
+| Task | Lệnh hoặc nơi kiểm | Kết quả |
+| --- | --- | --- |
+| T049 | `pnpm vitest run test/contract/tui/us3-navigation.test.ts`, 10 test, PTY và daemon thật | 10/10 đạt, chạy 3 lần liên tiếp |
+| T050 | `test/unit/tui/keymap.test.ts` (keymap, Help, Actions, sanitize) | 24/24 đạt |
+| T051 | `test/unit/tui/keymap.test.ts`, mục "Help closes where it was"; T049 US3 số 4 | Đạt: mở Help, cuộn rồi Esc trên Home, Task detail, Logs và bộ lọc cho lại đúng state và đúng frame cũ |
+| T052 | `test/unit/tui/keymap.test.ts`, mục "the Actions menu"; T049 US3 số 2 | Đạt |
+| T053 | `test/unit/tui/input.test.ts`; T049 US3 số 3 | 31/31 đạt |
+| Hồi quy | `pnpm vitest run test/unit/tui` | 15 file, 425/425 đạt |
+
+**Thứ tự test trước:** `input.test.ts` chạy khi chưa có `src/tui/views/input.ts` và thất bại vì không nạp được module; sau khi triển khai, 1 test vẫn thất bại (paste vào ô một dòng giữ khoảng trắng của dấu xuống dòng cuối) và đã sửa code. `us3-navigation.test.ts` được viết trước khi có keymap, Help mới và Actions, nhưng lần chạy đầu chỉ thấy lỗi sandbox (`listen EPERM`), không phải thất bại của giao diện, nên không tính là đã thấy test thất bại đúng lý do. `keymap.test.ts` viết sau khi triển khai, chỉ để hồi quy.
+
+**Sửa sau lần chạy PTY đầu:**
+
+| Thất bại | Nguyên nhân | Sửa |
+| --- | --- | --- |
+| `us3-navigation.test.ts`, US3 số 2 "lists what `task explain` allows": thiếu `Cancel task` | Test chờ chữ `Answer the question`, nhưng Home đã có chữ đó ở dòng `To do:`, nên test đọc màn hình trước khi menu mở | Chờ tiêu đề `Actions — Asks a question` rồi `Cancel task`; ba chỗ chờ menu khác cũng chờ theo tiêu đề |
+| `us1-live.test.ts`, "a daemon that holds connections…": hết 10 giây khi chờ `Ctrl-C       Quit` | Test chờ một dòng của Help cũ; T051 dựng lại Help theo keymap nên cột phím đổi | Chờ `Keys on Home`; điều test kiểm (Help vẫn mở được khi các lần đọc bị treo) giữ nguyên |
+
+| Gate | Kết quả |
+| --- | --- |
+| `pnpm typecheck` | Sạch |
+| `pnpm lint` | Sạch (ESLint và `prettier --check .`) |
+| `pnpm test:changed` | 10 file, 195/195 đạt, sau khi thêm hướng dẫn merge vào menu Actions; `us3-navigation.test.ts` chạy lại 10/10 đạt. Trước đó 10 file, 193/193 đạt, sau khi sửa race của `us2-logs.test.ts` (xem dưới); 9 file, 182/182 đạt sau lần sửa theo review thứ bảy (↑/↓ và phần vẽ dùng chung một cách tính hàng/cột); sau lần thứ sáu, 9 file, 182/182; sau lần thứ năm, 9 file, 180/180; sau lần thứ tư, 9 file, 179/179; sau lần thứ ba, 9 file, 178/178; trước đó, sau lần sửa thứ hai, 9 file, 176/176; `pnpm vitest run test/unit/tui test/contract/tui` 25 file, 536/536 đạt (gồm `us3-navigation.test.ts`, PTY và daemon thật) |
+| `pnpm test` | Gate của host sau lần sửa theo review thứ bảy: 168 file, 2716/2717; test hỏng là race của `us2-logs.test.ts` (xem dưới), đã sửa. Trước các sửa theo review: 168 file, 2702/2702 |
+
+**Race của test US2 trong gate đầy đủ:** `us2-logs.test.ts`, "reading an old attempt: the place holds and new activity is reported", thất bại một lần trong gate của host vì `coder line 4` hiện ra. Test chọn attempt rồi chỉ chờ `coder line 3`, nhưng lúc đó attempt vẫn đang đọc tới hết (`filling`, dòng tin hiện `Reading…`). Khi máy tải nặng, lượt đọc tiếp theo tới sau khi test đã ghi `coder line 4`, nên bản ghi đó đúng là thuộc phần người dùng đã chọn đọc, không phải hoạt động mới. `logs.ts` và test này không đổi so với `origin/main`, nên đây là race có sẵn của test. Sửa: test chờ `Reading…` biến mất rồi mới ghi nhận vị trí và ghi bản ghi mới; mọi assertion giữ nguyên. Chạy riêng 5/5 đạt, cả file 3/3 đạt, và 6 lần chạy song song khi mọi CPU bận đều đạt.
+
+**Sửa theo review:**
+
+| Lỗi | Sửa | Test (thất bại trên code cũ) |
+| --- | --- | --- |
+| Gõ `👍🏽` hay chữ có dấu tổ hợp qua `KeyDecoder` thật cho hai phím `char`; con trỏ tăng theo grapheme của phần chèn riêng nên vượt số grapheme của chuỗi, Backspace sau đó không xóa gì | Con trỏ được đếm lại trên chuỗi đã ghép | `input.test.ts`, "keys as the terminal sends them" (2 test) |
+| Con trỏ đứng trước dấu xuống dòng ngay sau một hàng đầy có `col` bằng độ rộng, nên ô đảo màu vẽ ra ngoài box | Con trỏ đó sang một hàng riêng như ở cuối văn bản; `col` luôn bị kẹp dưới độ rộng box, kể cả khi một ký tự rộng hơn box | `input.test.ts`, "the cursor before the line feed of a full row stays inside the box" |
+| Enter, Backspace, Delete, ←/→, Home/End, ↑/↓ của ô nhập được đọc thẳng trong `editField`, Help không liệt kê | `FIELD_KEYS` khai báo mọi phím của ô nhập kèm lệnh; `editField` chỉ xử lý theo `fieldCommand`; Help đọc cùng bảng | `input.test.ts`, "the field keys come from the keymap"; `keymap.test.ts` kiểm Help có mọi mục của `FIELD_KEYS` |
+| Backspace của ô gõ tên project trong bộ lọc được reducer đọc thẳng từ `key.name`, ngoài keymap | Ngữ cảnh `filter_text` có binding Backspace với lệnh `erase`; reducer chỉ xóa qua lệnh này; Help liệt kê nó | `keymap.test.ts`, "Backspace in the project name is a keymap command, listed in Help" |
+| Bộ lọc có chữ, Tab → `?` → `q`: `quitArmed` bật nhưng Help không hiện lời hỏi lại, bấm `q` lần nữa là thoát | Màn nào đang mở (trừ bộ lọc, vốn tự hiện) cũng hiện lời hỏi lại ở đầu body (`views/screen-body.ts`) | `keymap.test.ts`, "q on Help over a filter with text asks again on Help itself" |
+| `drawField` vẽ ra ngoài box: `漢` trong ô nhiều dòng rộng 1 đè ô bên phải; dấu tổ hợp đứng đầu hàng (`'\u0301abc'`) gắn vào ô bên trái box | Mỗi hàng được vẽ theo từng ô và cắt ở độ rộng box; ký tự rộng hơn phần còn lại vẽ thành khoảng trắng; dấu tổ hợp không có ký tự trước trong hàng thì không vẽ (văn bản vẫn giữ) | `input.test.ts`, "a character wider than the box is not drawn past it", "a mark at the start of a row does not join the cell left of the box" |
+| Giới hạn số ký tự của ô nhập tính trước khi ghép grapheme: với `max` 1, gõ `👍🏽` qua `KeyDecoder` chỉ giữ `👍` trong khi paste giữ đủ; gõ `e` rồi dấu tổ hợp mất dấu | Giới hạn tính trên chuỗi sau khi ghép: phần chèn chỉ bị bớt khi chuỗi đã ghép vượt `max` | `input.test.ts`, "a limit counts the joined text, typed or pasted alike" |
+| Help ghi `g/G` cho các binding đầu/cuối, dù Home và End cũng làm việc đó ở Home, Task detail, Logs và Help | Các binding này có `helpKeys` `g G Home End` | `keymap.test.ts`, "Help names Home and End wherever they move to the top and end" |
+| Paste vượt giới hạn: vòng cắt phân đoạn lại toàn bộ chuỗi sau mỗi grapheme bị bỏ, nên paste 20.000 ký tự vào ô giới hạn 2.000 mất khoảng 28 giây và chặn cả Esc, Ctrl-C | Số grapheme của chuỗi đã ghép không giảm khi lấy thêm phần chèn, nên phần lấy được tìm bằng chia đôi: khoảng 15 lần phân đoạn thay vì một lần cho mỗi ký tự bị bỏ | `input.test.ts`, "a large paste past the limit is cut at once" (32 giây trên code cũ) |
+| Đổi token khi menu Actions đang mở: `forgetActions` giữ tiêu đề task đọc bằng token cũ, nên token mới không được đọc project đó vẫn thấy tiêu đề, kể cả sau khi `task_explain` trả `forbidden` (EC-009) | Như `forgetDetail`, `forgetLogs`: tiêu đề được thay bằng task ID | `keymap.test.ts`, "a change of token keeps nothing of the old one, title included" |
+| ↑/↓ trong ô nhiều dòng tính cột bằng số grapheme và chỉ đi theo dấu xuống dòng: với `漢abc\n12345`, con trỏ sau `漢` (cột 2) xuống thành sau `1` (cột 1); trong một dòng dài tự xuống hàng, ↑/↓ không đi giữa các hàng | `editField` nhận độ rộng box; ↑/↓ đi theo hàng như ô nhập vẽ ra, tới cùng cột hiển thị hoặc vị trí gần nhất bên trái | `input.test.ts`, "↑ and ↓ keep the display column, not the count of characters", "↑ and ↓ move between the rows a long line wraps into" |
+| Phần vẽ và ↑/↓ tính vị trí trước dấu xuống dòng của một hàng đầy khác nhau: với độ rộng 80, `'a'.repeat(80)+'\nx'` và con trỏ ở 80, con trỏ vẽ ở hàng 1 cột 0 nhưng ↑ không đi và ↓ đi ngang | Một hàm `layout` duy nhất tính hàng của văn bản và vị trí của mọi con trỏ; cả `fieldRows` lẫn ↑/↓ đọc nó. Hàng riêng cho con trỏ sau một hàng đầy vẫn chỉ có khi con trỏ đứng đó | `input.test.ts`, "↑ and ↓ move between the rows a long line wraps into" (phần hàng đầy) |
+| Mục `merge_manually` của menu Actions chỉ hiện `note`; `explain.merge.method` và `explain.merge.proposed` bị bỏ qua, nên cả menu lẫn Enter đều không cho xem method, tiêu đề và thông điệp merge đề xuất mà [hợp đồng](contracts/tui.md#màn-hình) yêu cầu | Khi mục đang được chọn, dưới nó hiện `Merge method`, `Proposed title` và `Proposed message` (giữ xuống dòng), hoặc nói rõ daemon không đưa method hay đề xuất. Thông điệp dài hơn màn hình đọc tiếp bằng `PgUp/PgDn` (binding `read on` của ngữ cảnh Actions, có trên thanh gợi ý và Help); ↑/↓ sang mục khác thì bắt đầu từ đầu mục. Enter nói không có gì để gửi và chỉ tới phần hướng dẫn | `keymap.test.ts`, "the merge guide gives the method and the proposed title and message, all of it by keyboard", "without a merge proposal the guide says so" |
+
+**Cách làm:**
+
+- `src/tui/model/keymap.ts` khai báo phím theo ngữ cảnh (`home`, `detail`, `logs`, `attempts`, `actions`, `filter_choice`, `filter_text`, `help`) cùng nhóm phím chung. Reducer chỉ đổi phím thành lệnh qua `commandFor`; thanh gợi ý (`hintBar`) và Help đọc cùng bảng; binding có `when` không đúng lúc này thì vừa không tác dụng vừa không hiện. Phím của ô nhập (`FIELD_KEYS`) cũng khai báo ở đây và `views/input.ts` dùng lại.
+- Thanh gợi ý không vượt độ rộng terminal: thiếu chỗ thì bỏ dần gợi ý không thiết yếu từ cuối, còn `Esc back`, `? help`, `q quit` (hoặc `Ctrl-C quit` khi đang gõ) và `R retry connection` luôn được giữ. Help vẫn liệt kê những phím bị bỏ. Ở Home, `PgUp/PgDn page` rút thành `PgUp/PgDn` để `a actions` vừa 80 cột.
+- Help là một màn trên stack và chỉ có `helpTop` của riêng nó, nên không đổi gì của màn bên dưới. Nó mở được cả trên bộ lọc khi đang ở danh sách status; trong ô gõ, `?` là chữ.
+- Menu Actions mở bằng `a` ở Home (task đang chọn) và Task detail. Menu tự đọc `task_explain`, không dùng bản Task detail đang giữ, và đọc lại khi watermark của board đổi. Version đổi thì hiện `The task changed while this menu was open; its actions were read again.` và giữ lựa chọn theo `action`, không theo dòng (EC-013). Quyền theo `caller.roles`: `approve` cần `admin`, các thao tác gửi khác cần `operate`, giống `REQUIRED_ROLE` ở `src/application/commands.ts`; daemon vẫn là nơi quyết định. Mục thiếu quyền bị làm mờ, kèm `Not available: needs the operate role; this token has: read`. `command` chỉ hiện dưới dạng `CLI: …`, không được đọc. Mục `merge_manually` hiện method, tiêu đề và thông điệp merge đề xuất từ `explain.merge` khi được chọn; `PgUp/PgDn` đọc tiếp thông điệp dài. Mục có hộp thoại ghi `dialog in a later version`; Enter trên bất kỳ mục nào chỉ hiện thông báo tại chỗ (`Nothing was sent: …`), không gửi gì.
+- Ô nhập `views/input.ts` là hàm thuần: con trỏ theo grapheme; một dòng cuộn ngang quanh con trỏ; nhiều dòng tự xuống dòng theo độ rộng hiển thị và cuộn tới dòng của con trỏ; con trỏ là ô đảo màu vì con trỏ terminal bị ẩn; nội dung qua `sanitize()` khi vẽ. Ở phase này ô nhập chưa có màn nào dùng; bộ lọc chỉ dùng phần xử lý paste một dòng. US4, US5 dùng ô nhập cho hộp thoại và form.
+
+**R-01, cỡ renderer:** cell buffer và diff (`terminal/screen.ts` 143 dòng), đo và cắt theo độ rộng (`terminal/width.ts` 98), `terminal/safe-text.ts` 43, khung và vùng cuộn (`views/layout.ts` 203) và ô nhập (`views/input.ts` 397) tổng cộng 884 dòng sau Prettier. Lúc đầu là 789 dòng; các sửa theo review (đếm lại con trỏ sau khi ghép grapheme, giữ con trỏ trong box, xử lý phím ô nhập theo keymap, cắt phần vẽ của ô nhập trong box, tính giới hạn ký tự trên chuỗi đã ghép, cắt paste lớn bằng chia đôi, ↑/↓ theo hàng và cột hiển thị) đẩy con số qua ngưỡng khoảng 800 dòng. Cách đếm này không tính giải mã phím, terminal và các màn hình. Đánh giá theo R-01: phần tăng thêm là quy tắc của ô nhập (grapheme, độ rộng, phím theo keymap), Ink không có sẵn ô nhập nhiều dòng theo grapheme nên đổi sang Ink cũng vẫn phải tự viết phần này; vì vậy phase này giữ renderer tự viết và không đổi sang Ink. Ô xác nhận của US4 sẽ làm con số tăng tiếp, nên người dùng cần quyết định theo R-01 trước khi làm T061–T063.
+
+**Giới hạn của bằng chứng:**
+
+- Mục Actions bị làm mờ theo vai trò của token, không theo project: menu chỉ mở được trên task mà token đã đọc được.
+- SC-005 với người thật thuộc T080.

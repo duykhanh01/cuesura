@@ -11,20 +11,14 @@ import {
   animating,
   boardQuery,
   boardQueryKey,
-  currentScreen,
   initialState,
   type TuiState,
 } from './model/state.ts';
 import { KeyDecoder } from './terminal/keys.ts';
 import { colorEnabled, diffFrames, type Frame } from './terminal/screen.ts';
 import { openTerminal } from './terminal/terminal.ts';
-import { withDisconnected } from './views/disconnected.ts';
-import { filtersBody } from './views/filters.ts';
-import { helpBody } from './views/help.ts';
-import { homeBody } from './views/home.ts';
-import { renderFrame, type Body } from './views/layout.ts';
-import { logsBody } from './views/logs.ts';
-import { detailBody } from './views/task-detail.ts';
+import { renderFrame } from './views/layout.ts';
+import { screenBody } from './views/screen-body.ts';
 
 /** Nothing following an Esc for this long means it was the key, not the start of a sequence. */
 const ESC_WAIT_MS = 30;
@@ -126,23 +120,8 @@ export function runTui(): void {
     },
   });
 
-  function bodyOf(s: TuiState): Body {
-    switch (currentScreen(s)) {
-      case 'help':
-        return helpBody(s.size.cols);
-      case 'filters':
-        return filtersBody(s);
-      case 'home':
-        return homeBody(s, { color });
-      case 'detail':
-        return detailBody(s);
-      case 'logs':
-        return logsBody(s);
-    }
-  }
-
   function draw(): void {
-    const body = withDisconnected(state, bodyOf(state));
+    const body = screenBody(state, { color });
     const next = renderFrame(state, body, { color });
     const bytes = diffFrames(screen, next);
     screen = next;

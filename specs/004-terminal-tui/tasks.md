@@ -2,7 +2,7 @@
 
 **Input**: [spec.md](spec.md), [plan.md](plan.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/](contracts/), [quickstart.md](quickstart.md)
 
-**Trạng thái**: Backlog tạo ngày 2026-11-01. Phase 1, Phase 2 và Phase 3 (T001–T039) đã xong; checkpoint US1 đạt trên Unix socket thật, kết quả ở [báo cáo nghiệm thu](acceptance-report.md#us1-t031t039). Phase 4 (T040–T048) đã xong và đạt checkpoint trên Unix socket thật, xem [báo cáo nghiệm thu](acceptance-report.md#us2-t040t048). Từ Phase 5 trở đi chưa làm. Phạm vi là mốc nghiệm thu đầu US1–US5; US6 thuộc [mốc sau](#mốc-sau-us6).
+**Trạng thái**: Backlog tạo ngày 2026-11-01. Phase 1, Phase 2 và Phase 3 (T001–T039) đã xong; checkpoint US1 đạt trên Unix socket thật, kết quả ở [báo cáo nghiệm thu](acceptance-report.md#us1-t031t039). Phase 4 (T040–T048) đã xong và đạt checkpoint trên Unix socket thật, xem [báo cáo nghiệm thu](acceptance-report.md#us2-t040t048). Phase 5 (T049–T053) đã xong và đạt checkpoint trên Unix socket thật, xem [báo cáo nghiệm thu](acceptance-report.md#us3-t049t053). Từ Phase 6 trở đi chưa làm. Phạm vi là mốc nghiệm thu đầu US1–US5; US6 thuộc [mốc sau](#mốc-sau-us6).
 
 **Tests**: Spec yêu cầu mọi tiêu chí được kiểm trong terminal thật hoặc pseudo-terminal với daemon thật, và hiến chương nguyên tắc VII yêu cầu bằng chứng theo tầng, nên test là bắt buộc. Viết test trước, thấy nó thất bại rồi mới triển khai. Test reducer và view thuần chỉ để hồi quy, không dùng để tuyên bố đạt SC.
 
@@ -129,14 +129,14 @@
 
 ### Tests for User Story 3
 
-- [ ] T049 [P] [US3] Test PTY tại `test/contract/tui/us3-navigation.test.ts`: US3 số 1, 2, 3, 4 theo [bảng phím](contracts/tui.md#phím); phím chính, quay lại và thoát nhất quán; Enter không xác nhận thao tác có hậu quả; dùng được hoàn toàn bằng bàn phím; phần tự động của SC-005 (FR-032, FR-033, FR-034).
+- [X] T049 [P] [US3] Test PTY tại `test/contract/tui/us3-navigation.test.ts`: US3 số 1, 2, 3, 4 theo [bảng phím](contracts/tui.md#phím); phím chính, quay lại và thoát nhất quán; Enter không xác nhận thao tác có hậu quả; dùng được hoàn toàn bằng bàn phím; phần tự động của SC-005 (FR-032, FR-033, FR-034).
 
 ### Implementation for User Story 3
 
-- [ ] T050 [US3] Khai báo bảng phím theo ngữ cảnh tại `src/tui/model/keymap.ts`, là nguồn duy nhất cho xử lý phím, thanh gợi ý và Help (FR-033).
-- [ ] T051 [P] [US3] Dựng màn Help tại `src/tui/views/help.ts`; đóng lại đúng vị trí cũ (FR-033).
-- [ ] T052 [US3] Dựng menu Actions tại `src/tui/views/actions.ts`: đọc `task_explain` lúc mở; ánh xạ `allowed_actions` theo [hợp đồng giao diện](contracts/tui.md#màn-hình), mỗi mục có một câu tác dụng từ `note`; thao tác thiếu quyền làm mờ kèm lý do theo `caller`; không phân tích trường `command`; menu không còn hợp lệ thì làm mới (FR-016, FR-023, EC-013). Ở phase này các mục ghi chưa mở được hộp thoại; US4, US5 nối sau.
-- [ ] T053 [P] [US3] Triển khai ô nhập tại `src/tui/views/input.ts`: một dòng và nhiều dòng, độ rộng đúng, paste nguyên khối; phím in được là văn bản; `Tab`, `Shift-Tab`, `Ctrl-S`, `Esc` theo hợp đồng. Test tại `test/unit/tui/input.test.ts` (FR-034).
+- [X] T050 [US3] Khai báo bảng phím theo ngữ cảnh tại `src/tui/model/keymap.ts`, là nguồn duy nhất cho xử lý phím, thanh gợi ý và Help (FR-033).
+- [X] T051 [P] [US3] Dựng màn Help tại `src/tui/views/help.ts`; đóng lại đúng vị trí cũ (FR-033).
+- [X] T052 [US3] Dựng menu Actions tại `src/tui/views/actions.ts`: đọc `task_explain` lúc mở; ánh xạ `allowed_actions` theo [hợp đồng giao diện](contracts/tui.md#màn-hình), mỗi mục có một câu tác dụng từ `note`; thao tác thiếu quyền làm mờ kèm lý do theo `caller`; không phân tích trường `command`; menu không còn hợp lệ thì làm mới (FR-016, FR-023, EC-013). Ở phase này các mục ghi chưa mở được hộp thoại; US4, US5 nối sau.
+- [X] T053 [P] [US3] Triển khai ô nhập tại `src/tui/views/input.ts`: một dòng và nhiều dòng, độ rộng đúng, paste nguyên khối; phím in được là văn bản; `Tab`, `Shift-Tab`, `Ctrl-S`, `Esc` theo hợp đồng. Test tại `test/unit/tui/input.test.ts` (FR-034).
 
 **Checkpoint**: US1–US3 chỉ đọc hoàn chỉnh, điều hướng không cần tài liệu.
 

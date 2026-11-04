@@ -4,11 +4,10 @@
  */
 import type { PortResult } from '../client/daemon-port.ts';
 import type { TaskLogs } from '../client/schemas.ts';
-import type { Key, KeyName } from '../terminal/keys.ts';
-import { stepWords } from './activity.ts';
 import { joinSafe, uiText, type SafeText } from '../terminal/safe-text.ts';
 import { contentHeight } from '../views/disconnected.ts';
 import { detailRowCount } from '../views/task-detail.ts';
+import { forgetActions, openActions } from './actions.ts';
 import { forgetDetail, initialDetail } from './detail.ts';
 import type { HomeRow } from './home-rows.ts';
 import {
@@ -28,6 +27,8 @@ import {
   type LogRequest,
   type LogState,
 } from './logs.ts';
+import { stepWords } from './activity.ts';
+import type { Command } from './keymap.ts';
 import type { Effect } from './messages.ts';
 import type { TuiState } from './state.ts';
 
@@ -38,23 +39,7 @@ type Reduced = {
 
 const READ: readonly Effect[] = [{ type: 'read_screen' }];
 
-const ALIASES: Readonly<Record<string, KeyName>> = {
-  j: 'down',
-  k: 'up',
-  g: 'home',
-  G: 'end',
-};
-
-function moveName(key: Key): KeyName | undefined {
-  if (key.kind === 'key') return key.name;
-  return key.kind === 'char' ? ALIASES[key.text] : undefined;
-}
-
-/**
- * Enter on Home opens the task where it is most often wanted: its stages beside its log. Task detail lies
- * under the log, one `d` away; it holds what both screens read about the task. A row with no task is not
- * this function's business.
- */
+/** Enter opens the task's stages and log; its details sit underneath, one `d` away. */
 export function openDetail(state: TuiState, row: HomeRow | undefined): Reduced {
   if (row === undefined || row.kind === 'finished_toggle')
     return { state, effects: [] };
@@ -71,37 +56,49 @@ export function openDetail(state: TuiState, row: HomeRow | undefined): Reduced {
   };
 }
 
-/** Esc on either screen of a task goes back to the list, never from one of its screens to the other. */
+/** Esc on either task screen returns to Home and drops everything held by that task. */
 const leaveTask = (state: TuiState): TuiState => ({
   ...state,
   screens: state.screens.slice(0, state.screens.lastIndexOf('detail')),
   detail: null,
   logs: null,
+  actions: null,
 });
 
-const leave = (state: TuiState, screen: 'detail' | 'logs'): TuiState => ({
-  ...state,
-  screens: state.screens.slice(0, state.screens.lastIndexOf(screen)),
-  ...(screen === 'detail' ? { detail: null } : { logs: null }),
-});
+const leave = (state: TuiState, screen: 'detail' | 'logs'): TuiState => {
+  const left: TuiState = {
+    ...state,
+    screens: state.screens.slice(0, state.screens.lastIndexOf(screen)),
+    ...(screen === 'detail' ? { detail: null } : { logs: null }),
+  };
+  // A menu over the screen left goes with it.
+  return left.screens.includes('actions') ? left : { ...left, actions: null };
+};
 
 /** A change of token: what the open screens hold and are waiting for belongs to the old one. */
 export function forgetScreens(
   state: TuiState,
-): Pick<TuiState, 'detail' | 'logs' | 'screenSession'> {
+): Pick<TuiState, 'detail' | 'logs' | 'actions' | 'screenSession'> {
   const session = state.screenSession + 1;
   return {
     detail: state.detail === null ? null : forgetDetail(state.detail, session),
     logs: state.logs === null ? null : forgetLogs(state.logs, session),
+    actions:
+      state.actions === null ? null : forgetActions(state.actions, session),
     screenSession: session,
   };
 }
 
-/** `null`: not a key of this screen. */
-export function onDetailKey(state: TuiState, key: Key): Reduced | null {
+/** `null`: not a command of this screen. */
+export function onDetailCommand(
+  state: TuiState,
+  command: Command,
+): Reduced | null {
   const d = state.detail;
   if (d === null) return null;
-  if (key.kind === 'char' && key.text === 'l')
+  if (command === 'actions')
+    return openActions(state, d.taskId, d.show.data?.title ?? d.title);
+  if (command === 'logs')
     return {
       state: {
         ...state,
@@ -124,18 +121,18 @@ export function onDetailKey(state: TuiState, key: Key): Reduced | null {
     },
     effects: [],
   });
-  switch (moveName(key)) {
-    case 'esc':
+  switch (command) {
+    case 'back':
       return { state: leaveTask(state), effects: [] };
     case 'down':
       return to(d.top + 1);
     case 'up':
       return to(d.top - 1);
-    case 'pagedown':
+    case 'page_down':
       return to(d.top + Math.max(1, height - 1));
-    case 'pageup':
+    case 'page_up':
       return to(d.top - Math.max(1, height - 1));
-    case 'home':
+    case 'top':
       return to(0);
     case 'end':
       return to(last);
@@ -171,10 +168,10 @@ export function attemptChoices(s: TuiState): readonly AttemptChoice[] {
   ];
 }
 
-function onPickerKey(
+function onPickerCommand(
   state: TuiState,
   logs: LogState,
-  key: Key,
+  command: Command,
 ): Reduced | null {
   const picker = logs.picker as number;
   const choices = attemptChoices(state);
@@ -182,8 +179,8 @@ function onPickerKey(
     state: { ...state, logs: next },
     effects,
   });
-  switch (moveName(key)) {
-    case 'esc':
+  switch (command) {
+    case 'back':
       return put({ ...logs, picker: null });
     case 'down':
       return put({
@@ -192,7 +189,7 @@ function onPickerKey(
       });
     case 'up':
       return put({ ...logs, picker: Math.max(0, picker - 1) });
-    case 'enter': {
+    case 'open': {
       const chosen = choices[picker]?.attemptId ?? null;
       return put(
         chosen === null ? followLogs(logs) : filterAttempt(logs, chosen),
@@ -200,20 +197,18 @@ function onPickerKey(
       );
     }
     default:
-      // What holds on every screen still holds here; nothing else reaches past the chooser.
-      return (key.kind === 'char' && 'q?R'.includes(key.text)) ||
-        (key.kind === 'key' && key.name === 'ctrl_c')
-        ? null
-        : put(logs);
+      return null;
   }
 }
 
-/** `null`: not a key of this screen. */
-export function onLogsKey(state: TuiState, key: Key): Reduced | null {
+/** `null`: not a command of this screen. */
+export function onLogsCommand(
+  state: TuiState,
+  command: Command,
+): Reduced | null {
   const logs = state.logs;
   if (logs === null) return null;
-  if (logs.picker !== null) return onPickerKey(state, logs, key);
-  // The same width the screen draws the log at, so a row scrolled to is a row shown.
+  if (logs.picker !== null) return onPickerCommand(state, logs, command);
   const cols = logColumns(state.size.cols).log;
   const height = Math.max(1, contentHeight(state) - LOG_HEADER_ROWS);
   const put = (next: LogState): Reduced => ({
@@ -221,44 +216,38 @@ export function onLogsKey(state: TuiState, key: Key): Reduced | null {
     effects:
       next.wantOlder || next.wantForward || next.mode !== logs.mode ? READ : [],
   });
-  if (key.kind === 'char') {
-    switch (key.text) {
-      case ' ':
-        return put(
-          logs.mode === 'live'
-            ? pauseLogs(logs, cols, height)
-            : followLogs(logs),
-        );
-      case 'F':
-        return put(followLogs(logs));
-      case 'd':
-        return { state: leave(state, 'logs'), effects: READ };
-      case 't':
-        // The list of attempts may have grown since Task detail last read it.
-        return {
-          state: {
-            ...state,
-            logs: { ...logs, picker: 0 },
-            ...(state.detail === null
-              ? {}
-              : { detail: { ...state.detail, showWanted: true } }),
-          },
-          effects: READ,
-        };
-    }
-  }
-  switch (moveName(key)) {
-    case 'esc':
+  switch (command) {
+    case 'pause':
+      return put(
+        logs.mode === 'live' ? pauseLogs(logs, cols, height) : followLogs(logs),
+      );
+    case 'follow':
+      return put(followLogs(logs));
+    case 'attempts':
+      // The list of attempts may have grown since Task detail last read it.
+      return {
+        state: {
+          ...state,
+          logs: { ...logs, picker: 0 },
+          ...(state.detail === null
+            ? {}
+            : { detail: { ...state.detail, showWanted: true } }),
+        },
+        effects: READ,
+      };
+    case 'details':
+      return { state: leave(state, 'logs'), effects: READ };
+    case 'back':
       return { state: leaveTask(state), effects: [] };
     case 'up':
       return put(scrollLogs(logs, cols, height, -1));
     case 'down':
       return put(scrollLogs(logs, cols, height, 1));
-    case 'pageup':
+    case 'page_up':
       return put(scrollLogs(logs, cols, height, -Math.max(1, height - 1)));
-    case 'pagedown':
+    case 'page_down':
       return put(scrollLogs(logs, cols, height, Math.max(1, height - 1)));
-    case 'home':
+    case 'top':
       return put(logsTop(logs));
     case 'end':
       return put(logsEnd(logs, cols, height));

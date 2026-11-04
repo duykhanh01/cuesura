@@ -30,7 +30,7 @@ export type Part<T> = {
   readonly readAt: number | null;
 };
 
-const noPart = <T>(): Part<T> => ({
+export const noPart = <T>(): Part<T> => ({
   data: null,
   error: null,
   attemptAt: null,

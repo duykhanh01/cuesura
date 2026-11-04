@@ -305,6 +305,8 @@ describe('US2 scenarios 9 and 10: when the workflow moves to a new step', () => 
     s.send(KEY.enter);
     await s.waitFor(() => !s.screenText().includes('setup line 1'));
     await s.waitForText('coder line 3');
+    // Until the attempt is read to its end, a new record is still part of what was asked for.
+    await s.waitFor(() => !s.screenText().includes('Reading…'));
     expect(s.screenText()).toContain('Attempt: ');
     const held = logColumn(s.screenText());
 

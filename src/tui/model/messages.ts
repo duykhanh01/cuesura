@@ -1,5 +1,6 @@
 import type { BoardReply, Health, ProjectList } from '../client/schemas.ts';
 import type { Key } from '../terminal/keys.ts';
+import type { ActionsMessage } from './actions.ts';
 import type { DetailMessage } from './detail.ts';
 import type { LogsMessage } from './detail-keys.ts';
 import type { ReadOutcome, Size } from './state.ts';
@@ -25,7 +26,8 @@ export type Message =
   /** One frame of the animation went by. */
   | { readonly type: 'tick' }
   | DetailMessage
-  | LogsMessage;
+  | LogsMessage
+  | ActionsMessage;
 
 /** What the reducer asks the runtime to do; it does none of it itself. */
 export type Effect =

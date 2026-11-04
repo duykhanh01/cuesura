@@ -6,6 +6,7 @@ import type {
   ProjectList,
 } from '../client/schemas.ts';
 import type { SafeText } from '../terminal/safe-text.ts';
+import type { ActionsMenu } from './actions.ts';
 import type { TaskDetail } from './detail.ts';
 import type { LogState } from './logs.ts';
 
@@ -59,7 +60,8 @@ export function retryConnection(c: Connection): Connection | null {
   return null;
 }
 
-export type Screen = 'home' | 'help' | 'filters' | 'detail' | 'logs';
+export type Screen =
+  'home' | 'help' | 'filters' | 'detail' | 'logs' | 'actions';
 
 export type Filters = {
   readonly project: string | null;
@@ -122,8 +124,12 @@ export type TuiState = {
   readonly detail: TaskDetail | null;
   /** The open Logs; only while it is on the screen stack. */
   readonly logs: LogState | null;
+  /** The open Actions menu; only while it is on the screen stack. */
+  readonly actions: ActionsMenu | null;
+  /** First row of Help on screen; the screen under Help keeps its own place. */
+  readonly helpTop: number;
   /**
-   * Counts every opening of Task detail or Logs and every change of token. Each screen keeps the value it got, so
+   * Counts every opening of Task detail, Logs or Actions and every change of token. Each screen keeps the value it got, so
    * an answer to a read of a former one can never pass for its own.
    */
   readonly screenSession: number;
@@ -154,6 +160,8 @@ export function initialState(size: Size): TuiState {
     size,
     detail: null,
     logs: null,
+    actions: null,
+    helpTop: 0,
     screenSession: 0,
     tick: 0,
   };

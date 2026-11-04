@@ -27,7 +27,7 @@ export function filterLine(s: TuiState): SafeText {
   ]);
 }
 
-const QUIT_PROMPT =
+export const QUIT_PROMPT =
   'Quitting loses what you typed. Press the same key again to quit, any other to stay.';
 
 type Row = {

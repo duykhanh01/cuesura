@@ -3,11 +3,11 @@
  * under the minimum size. Pure: same state and size, same frame. The content of each screen comes in `body`,
  * so a resize can never lose a position kept in the state (EC-002).
  */
+import { hintBar } from '../model/keymap.ts';
 import {
   RECONNECT_ATTEMPTS,
   tooSmall,
   MIN_SIZE,
-  currentScreen,
   type StopReason,
   type TuiState,
 } from '../model/state.ts';
@@ -201,64 +201,6 @@ function barSegs(
   ];
 }
 
-/** Only keys that work where the user is; a key that does nothing here is not offered (FR-033). */
-function hints(s: TuiState): string[] {
-  const screen = currentScreen(s);
-  const waiting =
-    s.connection.kind === 'waiting_retry' || s.connection.kind === 'stopped';
-  if (screen === 'filters') {
-    const typing = s.filterDraft?.field === 'project';
-    return [
-      'Esc back',
-      'Enter apply',
-      '↑↓ choose',
-      typing ? 'Tab status' : 'Tab project',
-      ...(typing ? [] : ['q quit']),
-      ...(!typing && waiting ? ['R retry connection'] : []),
-    ];
-  }
-  const keys = ['q quit', '? help'];
-  if (screen === 'home') {
-    const enter = s.finishedSelected
-      ? ['Enter fold/unfold']
-      : s.selectedTaskId === null
-        ? []
-        : ['Enter open'];
-    keys.unshift('↑↓ move', 'PgUp/PgDn page', ...enter, 'f filter');
-  } else if (screen === 'detail')
-    keys.unshift('Esc back', '↑↓ scroll', 'PgUp/PgDn', 'g/G top/end', 'l logs');
-  else if (screen === 'logs')
-    keys.unshift(
-      'Esc back',
-      ...(s.logs?.picker === null
-        ? [
-            '↑↓ PgUp/PgDn scroll',
-            'Space pause',
-            'F live',
-            't step',
-            'd details',
-          ]
-        : ['↑↓ choose', 'Enter open']),
-    );
-  else keys.unshift('Esc back');
-  if (waiting) keys.push('R retry connection');
-  return keys;
-}
-
-/** `Enter open` as a highlighted key and its meaning; the text stays exactly the hint. */
-function hintSegs(keys: readonly string[]): Seg[] {
-  return keys.flatMap((hint, i) => {
-    const space = hint.indexOf(' ');
-    const key = space < 0 ? hint : hint.slice(0, space);
-    const what = space < 0 ? '' : hint.slice(space);
-    return [
-      ui(i === 0 ? ' ' : '   '),
-      ui(key, { fg: 'cyan', bold: true }),
-      ui(what, DIM),
-    ];
-  });
-}
-
 /**
  * The first row to show so `selected` stays visible, moving as little as possible from `offset`. Computed from
  * the selection each time, so a new height keeps the same item on screen.
@@ -309,7 +251,21 @@ export function renderFrame(
     frame.put(0, top, truncate(line, cols), { fg: 'yellow', bold: true });
     top += 1;
   }
-  putSegs(frame, 0, rows - 1, hintSegs(hints(s)), cols);
+  const hints = hintBar(s, cols).split('  ');
+  putSegs(
+    frame,
+    0,
+    rows - 1,
+    hints.flatMap((hint, i) => {
+      const space = hint.indexOf(' ');
+      return [
+        ...(i === 0 ? [] : [ui('  ')]),
+        ui(space < 0 ? hint : hint.slice(0, space), { fg: 'cyan', bold: true }),
+        ui(space < 0 ? '' : hint.slice(space), DIM),
+      ];
+    }),
+    cols,
+  );
   body(frame, top, rows - top - 1);
   return frame;
 }

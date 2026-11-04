@@ -174,7 +174,7 @@ describe('SC-003 and EC-007: the daemon back inside the automatic window', () =>
     await s.waitFor(() => reconnectAttempt(s.screenText()) >= 5, 30_000);
     // Nobody waits on the stuck reads: keys still answer.
     s.send('?');
-    await s.waitForText('Ctrl-C       Quit');
+    await s.waitForText('Keys on Home');
     s.send(KEY.esc);
     await s.waitForText('◇ 1 ready');
 
