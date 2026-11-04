@@ -3,7 +3,7 @@ setup: 'pnpm install --frozen-lockfile'
 # Gate `lint` của software_dev là tùy chọn, đỏ vẫn publish; typecheck và lint nằm trong gate bắt buộc.
 gates:
   build: 'pnpm typecheck && pnpm build'
-  unit: 'pnpm lint && pnpm test'
+  unit: 'pnpm lint && pnpm test:changed'
 autofix:
   format_fix: 'pnpm format'
 ci:
