@@ -188,7 +188,10 @@ describe('harness argv and settings follow the pinned T007 shape (T068/T069)', (
       );
       expect(plan.ok).toBe(true);
       if (!plan.ok) return;
-      const recorded = recordedHarnessArgv(attempt);
+      // The archived runs predate dropping --no-session-persistence.
+      const recorded = recordedHarnessArgv(attempt).filter(
+        (a) => a !== '--no-session-persistence',
+      );
       // The archived claude reviewer run predates --disallowedTools for reviewers; see below.
       const ours = [...plan.value.argv];
       if (r.vendor === 'claude') {

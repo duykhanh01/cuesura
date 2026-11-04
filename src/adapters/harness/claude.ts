@@ -198,13 +198,7 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
     ...(input.effort === null ? [] : ['--effort', input.effort]),
     '--settings',
     settingsFile,
-    ...(input.session === null
-      ? input.host_execution &&
-        input.role !== 'reviewer' &&
-        input.resume_proven === true
-        ? []
-        : ['--no-session-persistence']
-      : ['--resume', input.session.ref]),
+    ...(input.session === null ? [] : ['--resume', input.session.ref]),
     '--setting-sources',
     '',
     '--safe-mode',

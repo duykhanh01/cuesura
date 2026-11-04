@@ -146,29 +146,15 @@ describe('host execution with harness-owned permissions', () => {
       if (!p.ok) throw new Error(p.error.message);
       const at = p.value.argv.indexOf('--max-turns');
       expect(at === -1 ? null : Number(p.value.argv[at + 1])).toBe(expected);
-      expect(p.value.argv).toContain('--no-session-persistence');
     },
   );
 
-  it('keeps reviewer session persistence disabled', () => {
-    expect(claude('auto', 'reviewer').plan.argv).toContain(
-      '--no-session-persistence',
-    );
-  });
-
   it.each(['coder', 'fixer', 'reviewer'] as const)(
-    'gates fresh %s persistence on proven resume',
+    'keeps %s session persistence on',
     (role) => {
-      for (const capability of ['unknown', 'unsupported', 'proven']) {
-        const p = claudeAdapter.plan(vendorPin('claude'), {
-          ...input('claude', role),
-          resume_proven: capability === 'proven',
-        });
-        if (!p.ok) throw new Error(p.error.message);
-        expect(p.value.argv.includes('--no-session-persistence')).toBe(
-          role === 'reviewer' || capability !== 'proven',
-        );
-      }
+      const p = claudeAdapter.plan(vendorPin('claude'), input('claude', role));
+      if (!p.ok) throw new Error(p.error.message);
+      expect(p.value.argv).not.toContain('--no-session-persistence');
     },
   );
 

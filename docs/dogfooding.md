@@ -56,7 +56,7 @@ assistant không đọc `owner.token` là quy tắc, không phải giới hạn 
      --vendor claude --binary "$(command -v claude)" \
      --toolchain "$PWD/tools/node/bin" --auth claude-0:.claude/.credentials.json \
      --settings claude-settings.json --permission-mode auto --sandbox off \
-     --tools Bash,Read,Edit,Write,Glob,Grep --model claude-opus-5-5 --effort medium \
+     --tools Bash,Read,Edit,Write,Glob,Grep --model claude-haiku-5-5 --effort low \
      --max-invocations 9 --approval "<ai duyệt, ngày>" --out evidence-claude.json
    ```
 
@@ -77,7 +77,7 @@ assistant không đọc `owner.token` là quy tắc, không phải giới hạn 
    (thêm `--prove-resume` cho Claude thì cần 5 lượt).
 
    Lặp lại cho Codex với `--harness codex --vendor codex --binary "$(command -v codex)"`,
-   `--model gpt-6.1-sol --effort high`, auth/rules Codex tương ứng và `--out evidence-codex.json`;
+   `--model gpt-6-luna --effort low`, auth/rules Codex tương ứng và `--out evidence-codex.json`;
    bỏ các cờ riêng Claude (`--settings`, `--sandbox`, `--tools`). Manifest gắn với binary và pin, không gắn
    với model, nên các model còn lại trong bảng [Chọn model](#chọn-model) chạy được mà chưa có lượt chứng minh
    riêng. Coi task đầu tiên của mỗi model là lần kiểm thật của nó.

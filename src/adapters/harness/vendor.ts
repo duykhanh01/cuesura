@@ -121,8 +121,6 @@ export type VendorPlanInput = {
   readonly inner_mode: SelectedInnerMode;
   /** Direct host execution: the harness owns permissions and its native sandbox. */
   readonly host_execution?: boolean;
-  /** Enables persistence for fresh host workers only when the manifest proved resume. */
-  readonly resume_proven?: boolean;
   /** Only passed when the manifest proved resume for this binary; see `resume_supported`. */
   readonly session: { readonly ref: string } | null;
   readonly max_turns?: number | null;

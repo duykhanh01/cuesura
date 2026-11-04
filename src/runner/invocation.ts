@@ -410,7 +410,6 @@ export class RunnerHarness implements HarnessPort {
           }
         : IN_SANDBOX,
       host_execution: hostExecution,
-      resume_proven: this.manifest.capabilities.resume === 'proven',
       inner_mode: inner,
       session,
       ...(input.max_turns === undefined ? {} : { max_turns: input.max_turns }),

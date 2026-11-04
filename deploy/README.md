@@ -274,8 +274,8 @@ Pin cũ có số turn vẫn giữ trần đã khai; tạo lại pin bằng `writ
 Với Claude, `roles.<role>.limits.max_turns` được áp dụng cùng trần trong pin: nếu cả hai có số thì dùng
 số nhỏ hơn. Bỏ cả hai để không giới hạn. Cap turn này chỉ áp dụng cho Claude;
 dùng wall/stall timeout cho binding Codex. Hết turn là `timeout`, dùng cơ chế retry/hỏi người vận hành của
-timeout, không tiêu lượt retry infra. Worker host chỉ bật persistence khi manifest có `resume: proven`;
-khi chưa chứng minh resume thì dùng `--no-session-persistence`. Reviewer luôn dùng phiên mới và tắt persistence.
+timeout, không tiêu lượt retry infra. Claude luôn lưu session vào private home của attempt, không dùng
+`--no-session-persistence`; chỉ resume khi manifest có `resume: proven`. Reviewer luôn dùng phiên mới.
 
 Các policy/runtime snapshot của task đã chạy giữ nguyên giới hạn đã đóng băng. Sau khi nâng release,
 xóa các trần trong user config và tạo lại pin/manifest theo mục bên dưới để task mới dùng cấu hình
