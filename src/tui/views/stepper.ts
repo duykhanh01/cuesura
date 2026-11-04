@@ -64,7 +64,7 @@ export function stepper(stages: readonly Stage[], status: TaskStatus): Seg[] {
   stages.forEach((s, i) => {
     const { mark, style } = look(s.state, status);
     if (i > 0) out.push(ui(' ─ ', DIM));
-    const runs = s.runs > 1 ? `↻${s.runs}` : '';
+    const runs = s.runs > 1 ? `\u00a0×${s.runs}` : '';
     const label =
       s.state === 'skipped'
         ? `${STAGE_LABEL[s.name]}\u00a0skipped`
@@ -80,5 +80,5 @@ export const STAGE_KEY: readonly Seg[] = [
   ui('  ● now', { fg: 'cyan' }),
   ui('  ○ to come', DIM),
   ui('  – skipped by mode', DIM),
-  ui('  ↻ runs', DIM),
+  ui('  ×n runs', DIM),
 ];

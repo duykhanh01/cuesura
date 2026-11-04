@@ -163,7 +163,7 @@ function rawSteps(out: Rows, steps: NonNullable<TaskProgress['steps']>): void {
   for (const step of steps)
     out.field(words[step.state], [
       seg(step.name),
-      ui(step.visits > 1 ? ` ↻${step.visits}` : '', DIM),
+      ui(step.visits > 1 ? ` ×${step.visits}` : '', DIM),
     ]);
 }
 

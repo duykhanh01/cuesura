@@ -409,7 +409,7 @@ export type LogRow = {
 const wrapped = new WeakMap<LogEntry, { cols: number; rows: LogRow[] }>();
 
 /**
- * A record as a coding agent's own transcript shows it: `⏺` before what the agent says or the tool it calls,
+ * A record as a coding agent's own transcript shows it: `•` before what the agent says or the tool it calls,
  * `⎿` under it for what came back, `✻` for session notes. Wrapped rows stay under their text.
  */
 function shape(line: LogLine): {
@@ -419,9 +419,9 @@ function shape(line: LogLine): {
 } {
   switch (line.tone) {
     case 'say':
-      return { prefix: '⏺ ', strong: '', body: line.body };
+      return { prefix: '• ', strong: '', body: line.body };
     case 'tool':
-      return { prefix: '⏺ ', strong: line.label, body: `(${line.body})` };
+      return { prefix: '• ', strong: line.label, body: `(${line.body})` };
     case 'result':
     case 'error':
       return { prefix: '  ⎿  ', strong: '', body: line.body };

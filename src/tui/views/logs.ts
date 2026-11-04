@@ -236,7 +236,7 @@ function progressPane(
               : {}),
           ...(strong ? { bold: true } : {}),
         }),
-        ui(stage.runs > 1 ? `  ↻${stage.runs}` : '', DIM),
+        ui(stage.runs > 1 ? `  ×${stage.runs}` : '', DIM),
         ui(stage.state === 'skipped' ? '  skipped' : '', DIM),
       ]);
       const next = stages[i + 1];
