@@ -5,14 +5,14 @@ import { floorRung } from './escalation.ts';
 import { proceed, visitLimit } from './interpreter.ts';
 
 /**
- * `continue` (issue #101): an admin keeps a task on its current model after its quality loop ran out,
+ * `continue` (issue #101): an operator, assistant included, keeps a task on its current model after its quality loop ran out,
  * instead of cancelling it. Accepted only while the task waits because no higher rung can be used
  * (`ladder_exhausted`, `rung_denied`, `escalations_exhausted`) or a step ran out of visits. One
  * continuation clears the escalation streak of the waiting step and of the last fixing step at their
  * current rungs, so each gets `quality_tries_per_rung` fresh tries, and tops up every visited step to at
  * least that many remaining visits. The step then runs again from its wait; gates and review run as
  * usual, and the budget, deadline, ladder and floor are unchanged. Each continuation is bounded and
- * needs its own admin command.
+ * needs its own command.
  */
 export const CONTINUABLE: readonly DetailCode[] = [
   'ladder_exhausted',
@@ -41,7 +41,8 @@ export function continuable(s: TaskState): Plan | null {
 }
 
 export function onContinue(ctx: Ctx): void {
-  if (!hasRole(ctx.env.authz, 'admin')) reject('not_admin');
+  if (!hasRole(ctx.env.authz, 'operate') && !hasRole(ctx.env.authz, 'admin'))
+    reject('invalid_trigger', { reason: 'operate_required' });
   const s = ctx.state;
   const plan = continuable(s);
   if (plan === null)

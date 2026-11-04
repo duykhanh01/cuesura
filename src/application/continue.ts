@@ -1,7 +1,7 @@
 /**
- * `task continue` (issue #101). Admission already required the admin role: keeping a task on its
- * current model after its quality loop ran out is a policy decision an assistant or worker token
- * cannot make. The engine checks the task still waits on a continuable limit.
+ * `task continue` (issue #101). Admission requires the operate role, so an assistant may keep a task
+ * on its current model; the engine checks the task still waits on a continuable limit, and the ladder,
+ * floor, budget and deadline stay as frozen.
  */
 import type { Uuid } from '../shared/brand.ts';
 import { err, ok, type Result } from '../shared/result.ts';

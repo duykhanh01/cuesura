@@ -234,6 +234,14 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
   cusr task recheck "$TASK_ID" --expected-version "$VERSION" \
   --request-id "$RECHECK_REQUEST_ID" --json
+# When explain offers `continue` (ladder_exhausted, rung_denied, escalations_exhausted,
+# or loop_exhausted from quality failures), keep the current model: the step gets a
+# fresh set of quality tries and visits and runs again with gates and review. Read the
+# latest review/gate failures first; when they repeat with no progress, report to the
+# user instead of continuing again.
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
+  cusr task continue "$TASK_ID" --expected-version "$VERSION" \
+  --request-id "$CONTINUE_REQUEST_ID" --json
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
   cusr task cancel "$TASK_ID" --reason "$REASON" \
   --expected-version "$VERSION" --request-id "$CANCEL_REQUEST_ID" --json
@@ -255,13 +263,6 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${USER_TOKEN_FILE:?}" \
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${USER_TOKEN_FILE:?}" \
   cusr task approve "$TASK_ID" --kind escalation --step "$STEP" --rung "$RUNG" \
   --expected-version "$VERSION" --request-id "$APPROVE_REQUEST_ID" --json
-# When explain offers `continue` (ladder_exhausted, rung_denied, escalations_exhausted,
-# or loop_exhausted from quality failures), the user may keep the current model: the
-# step gets a fresh set of quality tries and visits and runs again with gates and
-# review. Admin only; present the latest review/gate failures before handing it off.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${USER_TOKEN_FILE:?}" \
-  cusr task continue "$TASK_ID" --expected-version "$VERSION" \
-  --request-id "$CONTINUE_REQUEST_ID" --json
 ```
 
 ## Unsupported commands and alternatives

@@ -20,7 +20,7 @@ afterEach(() => {
 const ONE_RUNG: PolicyOptions = {
   roles: { coder: { model: 'sonnet', effort: 'medium', ladder: [] } },
 };
-const ADMIN = { authz: authz(['operate', 'admin']) };
+const READER = { authz: authz(['read']) };
 
 function run(policy: PolicyOptions = ONE_RUNG): Sim {
   const sim = started(buildTask(), { policy });
@@ -59,7 +59,7 @@ describe('task continue (issue #101)', () => {
     toLadderExhausted(sim);
     const before = sim.events.length;
 
-    expectAccepted(sim.when({ kind: 'continue' }, ADMIN));
+    expectAccepted(sim.when({ kind: 'continue' }));
     expect(sim.eventTypes(before)).toContain('TaskContinued');
     expect(sim.s.status).toBe('RUNNING');
     expect(sim.s.failure_streaks[streakKey('code', 0)]).toMatchObject({
@@ -78,24 +78,28 @@ describe('task continue (issue #101)', () => {
     const sim = run();
     toCode(sim);
     toLadderExhausted(sim);
-    expectAccepted(sim.when({ kind: 'continue' }, ADMIN));
+    expectAccepted(sim.when({ kind: 'continue' }));
     toLadderExhausted(sim);
     expect(sim.effects('start_agent', 'pending')).toEqual([]);
   });
 
-  it('requires the admin role', () => {
+  it('needs the operate role an assistant holds, not admin', () => {
     const sim = run();
     toCode(sim);
     toLadderExhausted(sim);
-    const d = sim.when({ kind: 'continue' });
-    expect(d).toMatchObject({ kind: 'rejected', code: 'not_admin' });
+    const d = sim.when({ kind: 'continue' }, READER);
+    expect(d).toMatchObject({
+      kind: 'rejected',
+      code: 'invalid_trigger',
+      detail: { reason: 'operate_required' },
+    });
     expect(sim.s.wait?.detail.code).toBe('ladder_exhausted');
   });
 
   it('is rejected while the task is not waiting on an exhausted limit', () => {
     const sim = run();
     toCode(sim);
-    expect(sim.when({ kind: 'continue' }, ADMIN)).toMatchObject({
+    expect(sim.when({ kind: 'continue' })).toMatchObject({
       kind: 'rejected',
       code: 'invalid_trigger',
       detail: { reason: 'continue_not_applicable' },
@@ -115,7 +119,7 @@ describe('task continue (issue #101)', () => {
     });
     const used = sim.s.step_visits['code'] ?? 0;
 
-    expectAccepted(sim.when({ kind: 'continue' }, ADMIN));
+    expectAccepted(sim.when({ kind: 'continue' }));
     expect(sim.s.status).toBe('RUNNING');
     expect(sim.s.visit_credits?.['code']?.visits).toBe(100);
     expect(sim.s.step_visits['code']).toBe(used + 1);

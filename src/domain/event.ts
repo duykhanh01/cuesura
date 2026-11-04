@@ -404,7 +404,7 @@ export type EventPayloads = {
     at: number;
   };
   /**
-   * An admin kept the task on its current model after its quality loop ran out (issue #101): the listed
+   * An operator kept the task on its current model after its quality loop ran out (issue #101): the listed
    * streaks start over and each step's limit grows by the visits given.
    */
   TaskContinued: {

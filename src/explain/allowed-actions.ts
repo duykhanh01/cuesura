@@ -112,7 +112,7 @@ const proceedSameModel = (c: Ctx): AllowedAction | null =>
     : {
         action: 'continue',
         command: `cusr task continue ${c.id} --expected-version ${c.version}`,
-        note: 'Admin only. Keeps the current model: the step gets a fresh set of quality tries and visits, then runs again from here with gates and review as usual. Budget, deadline, ladder and floor stay as they are.',
+        note: 'Keeps the current model: the step gets a fresh set of quality tries and visits, then runs again from here with gates and review as usual. Budget, deadline, ladder and floor stay as they are.',
       };
 const continuableExhausted: Row = (c) => [proceedSameModel(c), ...exhausted(c)];
 

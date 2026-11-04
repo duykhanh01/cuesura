@@ -698,7 +698,7 @@ export const recheckCommand: CliCommand = {
 export const continueCommand: CliCommand = {
   name: 'task continue',
   description:
-    'Keep a task on its current model after its quality loop ran out (admin required)',
+    'Keep a task on its current model after its quality loop ran out',
   args: ['<id>'],
   options: [DATA_DIR, REQUEST_ID, PROJECT, EXPECTED_VERSION],
   run: (values, json, io) =>

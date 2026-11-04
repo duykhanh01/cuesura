@@ -41,7 +41,7 @@ const REQUIRED_ROLE: Record<CommandKind, AuthzRole> = {
   task_propose_run: 'operate',
   task_cancel: 'operate',
   task_recheck: 'operate',
-  task_continue: 'admin',
+  task_continue: 'operate',
   answer: 'operate',
   approve_escalation: 'admin',
 };
