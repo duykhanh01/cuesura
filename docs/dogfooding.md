@@ -210,10 +210,10 @@ Script lấy code từ `repo/`, không từ repo phát triển.
 `doctor` báo `manifest:*` thì pin hoặc layout đã đổi: chứng minh lại harness trước khi chạy task. Không sửa tay
 `manifest.json`.
 
-Mỗi lần chứng minh lại sinh manifest mới với hash mới. Task đã xác nhận giữ hash manifest lúc xác nhận, nên
-lượt agent kế tiếp bị chặn với `auth_config (harness <tên> manifest changed since the run was confirmed)`.
-Task đó không tự chạy tiếp được: hủy rồi tạo lại task (digest run config đổi) và xác nhận lại. Vì vậy chứng
-minh lại harness trước khi giao task mới, không làm giữa lúc còn task đã xác nhận nhưng chưa xong.
+Mỗi lần chứng minh lại sinh manifest mới với hash mới. Task chưa bắt đầu chạy nhận manifest mới khi bắt đầu.
+Task đã bắt đầu giữ hash manifest trong snapshot, nên lượt agent kế tiếp không chạy mà chờ `manifest_changed`
+(harness, hash cũ, hash mới). Kiểm tra manifest mới là lượt proof mình đã duyệt, rồi chạy
+`cusr task recheck <id>`: task nhận manifest mới và chạy lại bước đó, không cần hủy hay tạo lại task.
 
 Lùi: truyền SHA cũ cho script rồi restart. Nếu release mới đã migrate DB, bản cũ có thể không mở được DB: dừng
 daemon và chép `data/cusr.db` trước mỗi lần nâng có migration. Backup/restore chưa được nghiệm thu, nên coi đây là

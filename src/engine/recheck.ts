@@ -18,6 +18,9 @@ import { proceed, waitBaseRepair } from './interpreter.ts';
  * - `worktree`: a task waiting on `worktree_changed` before a worker attempt takes the observed tree as
  *   its own (recorded as the person's change, T072) and runs the step again; a tree that moved since
  *   is caught by the next attempt's own check.
+ * - `manifest`: a task waiting on `manifest_changed` (harness re-proved after its snapshot froze) takes
+ *   the manifest in force as its own and runs the step again; a manifest that moved since is caught by
+ *   the next attempt's own check.
  */
 
 type RecheckTrigger = Extract<Trigger, { kind: 'recheck' }>;
@@ -74,6 +77,21 @@ export function onRecheck(ctx: Ctx, t: RecheckTrigger): void {
         });
       break;
     }
+    case 'manifest': {
+      const w = s.wait;
+      if (
+        s.status !== 'WAITING' ||
+        w?.detail.code !== 'manifest_changed' ||
+        typeof w.detail['harness'] !== 'string' ||
+        typeof w.detail['observed'] !== 'string' ||
+        typeof w.detail['known'] !== 'string'
+      )
+        reject('invalid_trigger', {
+          reason: 'recheck_not_applicable',
+          target: t.target,
+        });
+      break;
+    }
     default: {
       const never: never = t.target;
       throw new Error(`unknown recheck target ${String(never)}`);
@@ -105,5 +123,17 @@ export function onRecheck(ctx: Ctx, t: RecheckTrigger): void {
     });
     ctx.emit('TaskResumed', { reason: 'worktree_accepted' });
     proceed(ctx, w.resume, 'worktree_accepted');
+  }
+  if (t.target === 'manifest') {
+    const w = s.wait as NonNullable<typeof s.wait>;
+    ctx.emit('ManifestChangeAccepted', {
+      harness: w.detail['harness'] as string,
+      manifest_hash: w.detail['observed'] as string,
+      previous: w.detail['known'] as string,
+      by: ctx.actor,
+      at: ctx.now,
+    });
+    ctx.emit('TaskResumed', { reason: 'manifest_accepted' });
+    proceed(ctx, w.resume, 'manifest_accepted');
   }
 }

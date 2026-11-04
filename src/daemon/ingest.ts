@@ -62,6 +62,12 @@ export type EffectOutcome =
           readonly known: string;
           readonly observed: string;
         };
+        /** The harness manifest in force differs from the task's; nothing was invoked. */
+        readonly manifest?: {
+          readonly harness: string;
+          readonly known: string;
+          readonly observed: string;
+        };
       };
     }
   | { readonly outcome: 'unknown'; readonly detail: string };

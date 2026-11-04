@@ -203,6 +203,9 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
 # For WAITING/worktree_changed, inspect the actual diff and obtain the user's
 # approval of that specific diff BEFORE recheck: it adopts the observed tree and
 # enables the step to rerun. If the diff is unavailable, hand off to the user.
+# For WAITING/manifest_changed, the harness was re-proved after the task started:
+# recheck only when the user approved that re-proof (setup-harness --approval);
+# it switches the task to the manifest in force and reruns the step.
 # allowed_actions describes available commands, not permission to accept changes.
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
   cusr task explain "$TASK_ID" --json

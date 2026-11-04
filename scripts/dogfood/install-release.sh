@@ -40,7 +40,7 @@ elif ! node "$RELEASE/dist/cli/cusr-runner.js" check-records \
   if [ "$ALLOW_UNPROVEN" -ne 1 ]; then
     echo "Chưa đổi current. Sửa config, hoặc chứng minh lại harness bằng $RELEASE theo docs/dogfooding.md," >&2
     echo "rồi chạy lại; --allow-unproven đổi current dù task mới sẽ bị chặn." >&2
-    echo "Chứng minh lại đổi manifest: task đã xác nhận trước đó bị chặn, phải hủy và tạo lại." >&2
+    echo "Chứng minh lại đổi manifest: task đang chạy sẽ chờ manifest_changed, chạy cusr task recheck để nhận manifest mới." >&2
     exit 1
   fi
   echo "Cảnh báo: đổi current dù release này chưa chấp nhận config hoặc harness record." >&2

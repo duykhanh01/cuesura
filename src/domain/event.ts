@@ -349,7 +349,7 @@ export type EventPayloads = {
   DrainFinished: { at: number };
   RecheckRequested: {
     request_id: string;
-    target: 'config' | 'observation' | 'drain' | 'worktree';
+    target: 'config' | 'observation' | 'drain' | 'worktree' | 'manifest';
     at: number;
   };
   // Execution modes (task-execution-modes.md)
@@ -374,6 +374,14 @@ export type EventPayloads = {
   /** The person took the changed worktree as the task's own; the next worker attempt starts from it (T072). */
   WorktreeChangeAccepted: {
     tree: string;
+    previous: string;
+    by: string;
+    at: number;
+  };
+  /** The person took a re-proved harness manifest for this task; later attempts run with it. */
+  ManifestChangeAccepted: {
+    harness: string;
+    manifest_hash: string;
     previous: string;
     by: string;
     at: number;
@@ -463,6 +471,7 @@ export const EVENT_TYPES = [
   'BaseUpdateRecorded',
   'HeadDriftRecorded',
   'WorktreeChangeAccepted',
+  'ManifestChangeAccepted',
 ] as const satisfies readonly EventType[];
 
 type _MissingEventTypes = Exclude<EventType, (typeof EVENT_TYPES)[number]>;

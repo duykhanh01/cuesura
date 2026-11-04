@@ -300,9 +300,19 @@ function setup(o: {
     }
     throw new Error('flow did not settle');
   };
+  const grant = () => {
+    const r = d.store.grantNext(d.now as EpochMs, [
+      newId(),
+      newId(),
+      newId(),
+      newId(),
+    ]);
+    return r.ok ? r.value.kind : r.error;
+  };
   return {
     d,
     task,
+    grant,
     github,
     remote,
     proc,
@@ -417,8 +427,22 @@ describe('the confirmed manifest is the one in force (T070/T071)', () => {
     const ev = types(f);
     expect(ev).toContain('BudgetReleased');
     expect(ev).not.toContain('BudgetConsumed');
-    expect(f.d.task(f.task.id).status).toBe('WAITING');
+    const waiting = f.d.task(f.task.id);
+    expect(waiting.status).toBe('WAITING');
+    expect(waiting.wait?.detail).toMatchObject({
+      code: 'manifest_changed',
+      harness: 'claude',
+      known: hashCanonical('another proof'),
+    });
     expect(f.github.prs).toEqual([]);
+
+    // Taking the manifest in force lets the same task go on, without a new task or confirmation.
+    f.d.must(f.task.id, { kind: 'recheck', target: 'manifest' });
+    expect(f.d.task(f.task.id).wait?.detail.code).toBe('execution_slot');
+    expect(f.grant()).toBe('decided');
+    await f.settle();
+    expect(f.proc.launches.length).toBeGreaterThan(0);
+    expect(f.d.task(f.task.id).wait?.detail.code).toBe('merge');
   });
 });
 

@@ -9,6 +9,8 @@
  *   automatic schedule, deadline and budgets stay as they are (FR-046.04–06);
  * - a task waiting on `worktree_changed` before a worker attempt → the observed tree becomes the task's
  *   own, recorded as the person's change, and the step runs again (T072);
+ * - a task waiting on `manifest_changed` → the re-proved harness manifest becomes the task's own and the
+ *   step runs again;
  * - a terminal task → the request is only logged by the engine (FR-046.08).
  *
  * The engine first accepts a `recheck` fact under the request's dedup key, so the same request ID replays
@@ -34,7 +36,8 @@ import {
 import { cancelReadEvidence } from '../engine/cancel.ts';
 import { submit } from './triage.ts';
 
-export type RecheckTarget = 'config' | 'observation' | 'drain' | 'worktree';
+export type RecheckTarget =
+  'config' | 'observation' | 'drain' | 'worktree' | 'manifest';
 
 export type RecheckDeps = ConfirmDeps & {
   /** IDs for the facts this check submits (the command's own IDs go to the recheck fact). */
@@ -105,6 +108,8 @@ export function recheckTarget(s: TaskState): RecheckTarget | 'terminal' | null {
     typeof s.wait.detail['observed'] === 'string'
   )
     return 'worktree';
+  if (s.status === 'WAITING' && s.wait?.detail.code === 'manifest_changed')
+    return 'manifest';
   if (s.pr_ref !== null && s.policy_ref !== null) return 'observation';
   return null;
 }

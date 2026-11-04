@@ -119,6 +119,10 @@ const WAITS: Readonly<Record<DetailCode, WaitWords>> = {
     doing: 'Worktree changed outside the task',
     todo: 'Recheck to accept the tree, or cancel',
   },
+  manifest_changed: {
+    doing: 'Harness was re-proved after the task started',
+    todo: 'Recheck to run with the new manifest, or cancel',
+  },
   target_mismatch: {
     doing: 'PR points at the wrong base branch',
     todo: 'Change the PR base back, or cancel',

@@ -71,12 +71,14 @@ async function conflictFlow(
     | 'gate-failed'
     | 'scope-unreadable'
     | 'rate-limited'
-    | 'markerless' = 'done',
+    | 'markerless'
+    | 'reproved' = 'done',
 ) {
   const task = buildTask();
   const f = setup(task, {
     mode,
     reviews: 2,
+    ...(behavior === 'reproved' ? { confirmManifests: true } : {}),
     ...(behavior === 'gate-failed'
       ? {
           gates: {
@@ -185,6 +187,13 @@ async function conflictFlow(
   g.sh(external, 'commit', '-qm', 'conflict on main');
   g.sh(external, 'push', '-q', 'origin', 'main');
   const base = g.sh(external, 'rev-parse', 'HEAD');
+  // The harness is re-proved before the conflict fixer gets to run.
+  const proven = worker.manifest;
+  if (behavior === 'reproved')
+    (worker as { manifest: typeof proven }).manifest = {
+      ...proven,
+      manifest_hash: hashCanonical('re-proved'),
+    };
   const finish = async () => {
     for (let i = 0; i < 6; i++) {
       if (f.d.task(task.id).wait?.detail.code === 'execution_slot')
@@ -682,6 +691,31 @@ describe('base integration through the real gate/review/publish handlers', () =>
     });
     await f.finish();
     expect(f.fixes()).toBe(2);
+    expect(f.d.task(f.task.id).wait?.detail.code).toBe('merge');
+    expect(replay(f.d.store.readEvents(f.task.id))).toEqual(
+      f.d.task(f.task.id),
+    );
+  });
+
+  it('a re-proved harness before the conflict fixer waits on manifest_changed; recheck keeps the one fixer attempt', async () => {
+    const f = await conflictFlow('full-review', 'reproved');
+    const waiting = f.d.task(f.task.id);
+    expect(f.fixes()).toBe(0);
+    expect(waiting.wait?.detail).toMatchObject({
+      code: 'manifest_changed',
+      harness: 'claude',
+      observed: hashCanonical('re-proved'),
+    });
+    expect(waiting.wait?.resume).toEqual({
+      kind: 'repair_base',
+      mode: 'retry_fixer',
+    });
+    f.d.must(f.task.id, { kind: 'recheck', target: 'manifest' });
+    expect(f.d.task(f.task.id).run.manifest_refs).toEqual({
+      claude: hashCanonical('re-proved'),
+    });
+    await f.finish();
+    expect(f.fixes()).toBe(1);
     expect(f.d.task(f.task.id).wait?.detail.code).toBe('merge');
     expect(replay(f.d.store.readEvents(f.task.id))).toEqual(
       f.d.task(f.task.id),

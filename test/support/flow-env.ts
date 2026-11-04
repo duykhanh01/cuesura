@@ -89,6 +89,8 @@ export type SetupOptions = {
   askFirst?: boolean;
   /** Gate commands of the frozen policy (default: all `true`). */
   gates?: Record<string, string>;
+  /** Freeze the harness manifests in force into the runtime, so a re-proof is noticed (default: none). */
+  confirmManifests?: boolean;
   afterGit?: (args: readonly string[]) => void;
 };
 
@@ -296,6 +298,14 @@ export function flowEnv(prefix: string) {
           base_ref: 'main',
         },
         pr_template: template,
+        ...(o.confirmManifests === true
+          ? {
+              capability_refs: {
+                claude: claude.manifest.manifest_hash,
+                codex: codex.manifest.manifest_hash,
+              },
+            }
+          : {}),
         ...(o.setup_commands === undefined
           ? {}
           : { setup_commands: o.setup_commands }),

@@ -314,6 +314,15 @@ export const FailureDataSchema = z
       .object({ known: z.string().min(1), observed: z.string().min(1) })
       .strict()
       .optional(),
+    // Additive: the harness manifest in force differs from the one the task runs with; nothing was invoked.
+    manifest: z
+      .object({
+        harness: z.string().min(1),
+        known: z.string().min(1),
+        observed: z.string().min(1),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type FailureData = z.infer<typeof FailureDataSchema>;
@@ -629,7 +638,13 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
   z
     .object({
       kind: z.literal('recheck'),
-      target: z.enum(['config', 'observation', 'drain', 'worktree']),
+      target: z.enum([
+        'config',
+        'observation',
+        'drain',
+        'worktree',
+        'manifest',
+      ]),
     })
     .strict(),
   // Run configuration (task-execution-modes.md M01/M02): proposed by any operator, confirmed by the user.

@@ -1584,6 +1584,62 @@ describe('worktree changed outside the task (T072, SPEC §14.1)', () => {
   });
 });
 
+describe('harness re-proved after the task started', () => {
+  const M0 = `sha256:${'a'.repeat(64)}`;
+  const M1 = `sha256:${'b'.repeat(64)}`;
+
+  it('an attempt on a changed manifest waits; recheck takes the new manifest and runs the step again', () => {
+    const d = setup();
+    const t = buildTask();
+    createGrantStart(d, t, 'full-review');
+    d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE);
+    expect(d.send(t.id, { kind: 'recheck', target: 'manifest' })).toMatchObject(
+      {
+        ok: true,
+        value: {
+          decision: {
+            kind: 'rejected',
+            detail: { reason: 'recheck_not_applicable' },
+          },
+        },
+      },
+    );
+    const coder = d.pendingOne(t.id, 'start_agent');
+    d.complete(t.id, coder.id, 'failed', {
+      failure_class: 'auth_config',
+      message: 'harness claude manifest changed since the run was confirmed',
+      invoked: false,
+      manifest: { harness: 'claude', known: M0, observed: M1 },
+    });
+    const s = d.task(t.id);
+    expect(s.status).toBe('WAITING');
+    expect(s.wait?.detail).toMatchObject({
+      code: 'manifest_changed',
+      step: 'code',
+      harness: 'claude',
+      known: M0,
+      observed: M1,
+    });
+    expect(s.run.manifest_refs).toBeUndefined();
+
+    d.must(t.id, { kind: 'recheck', target: 'manifest' });
+    const accepted = d.store
+      .readEvents(t.id)
+      .find((e) => e.type === 'ManifestChangeAccepted');
+    expect(accepted?.payload).toMatchObject({
+      harness: 'claude',
+      manifest_hash: M1,
+      previous: M0,
+    });
+    expect(d.task(t.id).run.manifest_refs).toEqual({ claude: M1 });
+    expect(code(d, t)).toBe('execution_slot');
+    grant(d);
+    const again = d.pendingOne(t.id, 'start_agent');
+    expect(again.id).not.toBe(coder.id);
+    expect(again.request).toMatchObject({ role: 'coder' });
+  });
+});
+
 describe('source drift at the runtime boundary (T063, FR-026)', () => {
   it('the drift is recorded at once, the running attempt finishes, the next step waits; limits and deadline stay; the new revision needs a new task', () => {
     const d = setup();

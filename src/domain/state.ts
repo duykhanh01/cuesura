@@ -121,6 +121,8 @@ export const DETAIL_CODES = [
   'run_config_unconfirmed',
   'gate_tree_unstable',
   'worktree_changed',
+  // The harness manifest was re-proved after the task froze its runtime snapshot; additive only.
+  'manifest_changed',
   'publish_content_invalid',
   // PR retargeted away from the task's base branch (FR-041.05); additive only.
   'target_mismatch',
@@ -480,6 +482,11 @@ export type RunState = {
    * another tree waits instead of taking someone else's change as its own. Null before the first.
    */
   worktree_tree?: string | null;
+  /**
+   * Harness manifests a person accepted after the runtime snapshot froze (re-proved harness), by harness;
+   * they replace the snapshot's `capability_refs` for later attempts. Absent until the first accept.
+   */
+  manifest_refs?: Record<string, string>;
 };
 
 export type PrBodyState = {

@@ -1802,6 +1802,28 @@ export function onEffectFailed(
     });
     if (afterAttempt(ctx, e)) return;
   }
+  // The harness was re-proved after the task froze its snapshot. Never a silent switch (T070/T071):
+  // a person takes the new manifest with `recheck`, then the same step runs again. Nothing was
+  // invoked, so a conflict fixer blocked here keeps its one attempt: it resumes as a fixer retry.
+  if (
+    agent &&
+    f.manifest !== undefined &&
+    s.cancellation === null &&
+    step !== null
+  ) {
+    const baseFixer =
+      s.run.base_update?.fixer_attempt_id === e.attempt_id &&
+      s.run.base_update.certificate === undefined;
+    waitPolicy(
+      ctx,
+      'manifest_changed',
+      baseFixer
+        ? { kind: 'repair_base', mode: 'retry_fixer' }
+        : { kind: 'run_step', step },
+      { step, ...f.manifest },
+    );
+    return;
+  }
   if (
     agent &&
     s.run.base_update?.fixer_attempt_id === e.attempt_id &&

@@ -52,6 +52,7 @@ const NEEDS_USER: Record<DetailCode, boolean> = {
   run_config_unconfirmed: true,
   gate_tree_unstable: true,
   worktree_changed: true,
+  manifest_changed: true,
   publish_content_invalid: true,
   target_mismatch: true,
   pr_closed: true,

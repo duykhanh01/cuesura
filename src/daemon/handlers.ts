@@ -872,15 +872,24 @@ async function startAgent(
   if (harness === undefined)
     return failed('auth_config', `no harness ${binding.harness}`);
   // The manifest confirmed with the task must still be the one in force; a re-proved or changed
-  // binary needs a new confirmation, never a silent switch between attempts (T070/T071).
-  const confirmed = l.rt.capability_refs[binding.harness];
-  if (confirmed !== undefined && confirmed !== harness.manifest.manifest_hash)
+  // binary needs a new confirmation, never a silent switch between attempts (T070/T071). The task
+  // waits on `manifest_changed` and `recheck` records the new one in `run.manifest_refs`.
+  const confirmed =
+    l.s.run.manifest_refs?.[binding.harness] ??
+    l.rt.capability_refs[binding.harness];
+  const inForce = harness.manifest.manifest_hash;
+  if (confirmed !== undefined && confirmed !== inForce)
     return {
       outcome: 'failed',
       data: {
         failure_class: 'auth_config',
         message: `harness ${binding.harness} manifest changed since the run was confirmed`,
         invoked: false,
+        manifest: {
+          harness: binding.harness,
+          known: confirmed,
+          observed: inForce,
+        },
       },
     };
   const r = role as Role;

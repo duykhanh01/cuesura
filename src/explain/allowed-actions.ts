@@ -265,6 +265,13 @@ const ROWS: Readonly<Record<DetailCode, Row>> = {
     ),
     cancel(c),
   ],
+  manifest_changed: (c) => [
+    recheck(
+      c,
+      'Runs the task with the re-proved harness manifest from now on and runs the step again.',
+    ),
+    cancel(c),
+  ],
   cancel_reconcile: (c) => [
     recheck(
       c,

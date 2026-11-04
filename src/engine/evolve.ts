@@ -895,6 +895,12 @@ export function applyInPlace(
     case 'WorktreeChangeAccepted':
       s.run.worktree_tree = event.payload.tree;
       break;
+    case 'ManifestChangeAccepted':
+      s.run.manifest_refs = {
+        ...s.run.manifest_refs,
+        [event.payload.harness]: event.payload.manifest_hash,
+      };
+      break;
     case 'RecheckRequested':
       // A recheck of a paused drain allows one more bounded round; the round and time caps stay.
       if (
