@@ -15,6 +15,7 @@ import { validateConfig } from '../config/validate.ts';
 import type { Uuid } from '../shared/brand.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import type { Store } from '../store/index.ts';
+import { snapshotDrift } from '../store/verify.ts';
 import { authorize, type Caller } from './authz.ts';
 import type { ConfigInputs } from './confirm.ts';
 import { binaryDigest, manifestHash } from './capabilities.ts';
@@ -154,7 +155,13 @@ function storeChecks(deps: DoctorDeps): DoctorCheck[] {
   out.push(
     replay.ok
       ? ok_('replay', `${replay.events} events replay onto ${replay.tasks} tasks`)
-      : fail('replay', `${replay.mismatches.length} projection rows differ from the event log`),
+      : fail(
+          'replay',
+          `${replay.mismatches.length} projection rows differ from the event log`,
+          snapshotDrift(replay) === null
+            ? null
+            : 'only task snapshots differ; restarting the daemon rewrites them from the log',
+        ),
   );
   const open = store.unresolvedOperations();
   const ids = new Set(open.map((o) => o.id));

@@ -335,6 +335,10 @@ export async function startDaemon(
       clear: (id) => clearOperationMark(opts.dataDir, id),
     },
   });
+  if (startup.projections.rewritten.length > 0)
+    log(
+      `startup recovery: task snapshots rewritten from the event log: ${startup.projections.rewritten.join(', ')}`,
+    );
   if (startup.blocked !== null) {
     dispatcher.block(startup.blocked);
     log(`startup recovery: dispatch blocked: ${startup.blocked}`);

@@ -15,7 +15,7 @@ import { crashHookFromEnv, type CrashHook } from './crash.ts';
 import { openDatabase, type StoreOpenError } from './open.ts';
 import * as read from './read.ts';
 import { dueTimers, fireDueTimers, type FireError } from './timers.ts';
-import { verifyProjections, type VerifyReport } from './verify.ts';
+import { verifyProjections, type SnapshotDrift, type VerifyReport } from './verify.ts';
 
 export type {
   AcceptError,
@@ -82,6 +82,11 @@ export interface Store {
   /** Operations not proven finished or never launched, in ID order (startup reconciles these). */
   unresolvedOperations(): read.UnresolvedOperation[];
   verifyProjections(): VerifyReport;
+  /**
+   * Rewrites `tasks.state_json` from replayed rows in one transaction; returns the IDs written. A row
+   * whose stored snapshot no longer matches `stale` is left alone.
+   */
+  rewriteTaskSnapshots(rows: readonly SnapshotDrift[]): string[];
   /** `PRAGMA integrity_check` messages; exactly `['ok']` when healthy. */
   integrityCheck(): string[];
   schemaVersion(): number;
@@ -196,6 +201,16 @@ export class SqliteStore implements Store {
   }
   verifyProjections(): VerifyReport {
     return verifyProjections(this.db);
+  }
+  rewriteTaskSnapshots(rows: readonly SnapshotDrift[]): string[] {
+    const update = this.db.prepare(
+      'UPDATE tasks SET state_json = ? WHERE id = ? AND state_json = ?',
+    );
+    return this.db
+      .transaction(() =>
+        rows.filter((r) => update.run(r.state_json, r.id, r.stale).changes === 1).map((r) => r.id),
+      )
+      .immediate();
   }
   integrityCheck(): string[] {
     return (this.db.pragma('integrity_check') as { integrity_check: string }[]).map(

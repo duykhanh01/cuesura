@@ -5,6 +5,7 @@
  *   1. writer lock: the store file is opened with an exclusive lock; a second daemon gets `store_locked`;
  *   2. schema/integrity: migration, then `integrity_check`; a newer schema is refused untouched;
  *   3. verify: every projection rebuilt from the committed log in global order must match the tables;
+ *      task snapshots that differ only in `state_json` are rewritten from the log first (snapshotDrift);
  *   4. reconcile: open operations against the host (reconcile.ts); slot, queue and timers are read back
  *      as committed, never re-armed or extended;
  *   5. ingest: what runners wrote while no daemon ran, from the committed cursor (ingest.ts);
@@ -22,6 +23,7 @@ import { canonicalJson } from '../shared/canonical-json.ts';
 import type { Uuid } from '../shared/brand.ts';
 import type { Result } from '../shared/result.ts';
 import { openStore, type Store, type StoreOpenError } from '../store/index.ts';
+import { snapshotDrift } from '../store/verify.ts';
 import {
   ingestAllSpools,
   ingestOperationSpool,
@@ -61,6 +63,8 @@ export type StartupReport = {
     readonly tasks: number;
     readonly events: number;
     readonly mismatches: number;
+    /** Tasks whose snapshot was rewritten from the log before verifying again. */
+    readonly rewritten: readonly string[];
   };
   readonly operations: readonly OperationReconcile[];
   readonly unresolved: ReconcileReport['unresolved'];
@@ -187,21 +191,39 @@ export async function recoverStore(
     store,
   };
 
-  const verify = store.verifyProjections();
+  let verify = store.verifyProjections();
   let blocked: string | null = null;
+  let rewritten: string[] = [];
+  const drift = verify.ok ? null : snapshotDrift(verify);
+  if (drift !== null) {
+    try {
+      rewritten = store.rewriteTaskSnapshots(drift);
+      verify = store.verifyProjections();
+    } catch (e) {
+      blocked = `store write failed during snapshot rewrite: ${e instanceof Error ? e.message : String(e)}`;
+    }
+  }
   let operations: readonly OperationReconcile[] = [];
   let unresolved: ReconcileReport['unresolved'] = [];
   let orphaned: ReconcileReport['orphaned'] = [];
   let ingest: SpoolIngestReport[] = [];
-  if (!verify.ok) {
-    blocked = `projection mismatch (${verify.mismatches.length})`;
+  if (blocked !== null || !verify.ok) {
+    blocked ??= `projection mismatch (${verify.mismatches.length})`;
     steps.push(
       { step: 'verify', status: 'failed', detail: blocked },
       { step: 'reconcile', status: 'skipped' },
       { step: 'ingest', status: 'skipped' },
     );
   } else {
-    steps.push({ step: 'verify', status: 'ok' });
+    steps.push(
+      rewritten.length === 0
+        ? { step: 'verify', status: 'ok' }
+        : {
+            step: 'verify',
+            status: 'ok',
+            detail: `${rewritten.length} task snapshots rewritten from the event log`,
+          },
+    );
     const r = await reconcileOperations(full);
     operations = r.operations;
     unresolved = r.unresolved;
@@ -238,6 +260,7 @@ export async function recoverStore(
       tasks: verify.tasks,
       events: verify.events,
       mismatches: verify.mismatches.length,
+      rewritten,
     },
     operations,
     unresolved,

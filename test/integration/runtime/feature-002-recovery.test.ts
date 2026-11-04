@@ -388,6 +388,35 @@ describe('startup order (T085, FR-022, FR-036)', () => {
     }
   });
 
+  it('a snapshot written before a release derived a new field is rewritten from the log, not blocking dispatch', async () => {
+    const f = fixture();
+    const { task } = toAgent(f);
+    f.host.ticks.set(PID, TICKS);
+    const db = storeDb(f.d.store);
+    const before = db.prepare('SELECT * FROM tasks WHERE id = ?').get(task.id) as {
+      state_json: string;
+    };
+    const state = JSON.parse(before.state_json) as { run: Record<string, unknown> };
+    delete state.run['ci_wait'];
+    db.prepare('UPDATE tasks SET state_json = ? WHERE id = ?').run(JSON.stringify(state), task.id);
+    expect(f.d.store.verifyProjections().ok).toBe(false);
+
+    const report = await restart(f);
+    expect(report.steps.find((s) => s.step === 'verify')).toEqual({
+      step: 'verify',
+      status: 'ok',
+      detail: '1 task snapshots rewritten from the event log',
+    });
+    expect(report).toMatchObject({
+      blocked: null,
+      projections: { ok: true, mismatches: 0, rewritten: [task.id] },
+    });
+    // Reconcile went on to settle the never-launched operation on the rewritten snapshot.
+    expect(f.d.store.readTask(task.id)?.run.ci_wait).toEqual({});
+    expect(f.d.store.readTask(task.id)?.operations[OP]?.status).toBe('not_launched');
+    expect(f.d.store.verifyProjections().ok).toBe(true);
+  });
+
   it('lists a task without a runtime snapshot as read-only', async () => {
     const f = fixture();
     const legacy = buildTask({ id: uuidOf(3), source_key: 'cli:3' });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { openFileStoreForTest, openMemoryStore, storeDb } from '../../../src/store/testing.ts';
+import { snapshotDrift } from '../../../src/store/verify.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 import { mixedWorkload } from '../../support/store-flows.ts';
 import { dbPath, useTempDir } from '../../support/temp-db.ts';
@@ -36,6 +37,30 @@ describe('verifyProjections (T079, FR-029)', () => {
     const report = store.verifyProjections();
     expect(report.ok).toBe(false);
     expect(report.mismatches.map((m) => m.table)).toContain(table);
+  });
+
+  it('tells a snapshot that only lacks a derived field from any other mismatch', () => {
+    const store = openMemoryStore();
+    mixedWorkload(new StoreDriver(store));
+    const db = storeDb(store);
+    const row = db.prepare('SELECT id, state_json FROM tasks ORDER BY rowid LIMIT 1').get() as {
+      id: string;
+      state_json: string;
+    };
+    const stale = JSON.stringify({ ...JSON.parse(row.state_json), retired: true });
+    db.prepare('UPDATE tasks SET state_json = ? WHERE id = ?').run(stale, row.id);
+    expect(snapshotDrift(store.verifyProjections())).toEqual([
+      { id: row.id, state_json: row.state_json, stale },
+    ]);
+
+    expect(
+      store.rewriteTaskSnapshots([{ id: row.id, state_json: row.state_json, stale: 'x' }]),
+    ).toEqual([]);
+    db.exec(`UPDATE timers SET due_at = due_at + 1`);
+    expect(snapshotDrift(store.verifyProjections())).toBeNull();
+    db.exec(`UPDATE timers SET due_at = due_at - 1`);
+    db.exec(`UPDATE tasks SET status = 'DONE' WHERE id = '${row.id}'`);
+    expect(snapshotDrift(store.verifyProjections())).toBeNull();
   });
 
   it('detects sequence gaps in the log', () => {

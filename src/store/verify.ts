@@ -9,6 +9,7 @@ import {
   projectRuntime,
   projectTask,
   projectTimers,
+  type TaskRow,
 } from './projector.ts';
 import { toEvent, type EventRow } from './read.ts';
 
@@ -18,6 +19,8 @@ export type VerifyMismatch = {
   expected: unknown;
   actual: unknown;
 };
+
+export type SnapshotDrift = { id: string; state_json: string; stale: string };
 
 export type VerifyReport = {
   ok: boolean;
@@ -157,6 +160,23 @@ export function verifyProjections(db: Database): VerifyReport {
     events: rows.length,
     mismatches,
   };
+}
+
+/**
+ * Task rows whose only difference from the replay is `state_json`, when that is the whole mismatch;
+ * null when anything else differs. A release whose evolve derives a field the previous one did not
+ * leaves such snapshots behind while status, version and every other table still agree with the log.
+ */
+export function snapshotDrift(report: VerifyReport): SnapshotDrift[] | null {
+  const rows: SnapshotDrift[] = [];
+  for (const m of report.mismatches) {
+    if (m.table !== 'tasks' || m.expected === null || m.actual === null) return null;
+    const { state_json, ...expected } = m.expected as TaskRow;
+    const { state_json: stale, ...actual } = m.actual as TaskRow;
+    if (canonicalJson(expected) !== canonicalJson(actual)) return null;
+    rows.push({ id: expected.id, state_json, stale });
+  }
+  return rows;
 }
 
 function compare(
