@@ -238,6 +238,37 @@ describe('host execution with harness-owned permissions', () => {
     });
   });
 
+  it('lets native Claude workers create Unix sockets unless the settings turn it off', () => {
+    const pin = vendorPin('claude');
+    const base = pin.settings as Record<string, unknown>;
+    const sandboxOf = (network?: Record<string, unknown>) => {
+      const p = claudeAdapter.plan(
+        {
+          ...pin,
+          settings: {
+            ...base,
+            sandbox: {
+              ...(base['sandbox'] as Record<string, unknown>),
+              ...(network === undefined ? {} : { network }),
+            },
+          },
+        },
+        input('claude', 'coder'),
+      );
+      if (!p.ok) throw new Error(p.error.message);
+      return (
+        JSON.parse(p.value.context_files[0]!.content) as {
+          sandbox: { network?: Record<string, unknown> };
+        }
+      ).sandbox;
+    };
+    expect(sandboxOf().network).toEqual({ allowAllUnixSockets: true });
+    expect(
+      sandboxOf({ allowedDomains: ['example.com'], allowAllUnixSockets: false })
+        .network,
+    ).toEqual({ allowedDomains: ['example.com'], allowAllUnixSockets: false });
+  });
+
   it('uses Codex automatic approval review with workspace-write and real host output paths', () => {
     const p = codexAdapter.plan(vendorPin('codex'), input('codex'));
     if (!p.ok) throw new Error(p.error.message);

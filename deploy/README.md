@@ -73,6 +73,11 @@ file settings; nếu không khai báo thì sandbox tắt như mặc định Clau
 | `--permission-mode auto` | Auto review quyền tool, `native_result=not_tried` | Auto review quyền tool và sandbox native, cần native proof |
 | `--permission-mode full-access` | `bypassPermissions`, không sandbox worker | `bypassPermissions` trong sandbox native, cần native proof |
 
+Khi sandbox native bật, adapter thêm `sandbox.network.allowAllUnixSockets: true` để worker tạo được socket
+`AF_UNIX` (trên Linux sandbox chặn mặc định), nhờ đó chạy được test dùng daemon thật. Khai
+`sandbox.network.allowAllUnixSockets: false` trong file settings để giữ chặn. Giá trị này nằm trong settings hash,
+nên release đổi nó cần chứng minh lại harness.
+
 Reviewer luôn giữ sandbox chỉ đọc. `bwrap`/`socat` vì vậy vẫn cần cho harness Claude. Đây là quyền tool,
 không phải tự duyệt run config, review code hoặc merge. Khi đã bật sandbox, lỗi không tự chuyển sang
 tắt hoặc full access. Codex không nhận flag `--sandbox` này; chế độ sandbox Codex giữ theo permission mode.

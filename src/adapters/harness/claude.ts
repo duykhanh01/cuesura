@@ -78,6 +78,7 @@ function settingsFor(
   )
     return { ok: false, message: 'sandbox.enabled must be a boolean' };
   const filesystem = isRec(sandbox['filesystem']) ? sandbox['filesystem'] : {};
+  const network = isRec(sandbox['network']) ? sandbox['network'] : {};
   const allowWrite: unknown = filesystem['allowWrite'] ?? [];
   const denyWrite: unknown = filesystem['denyWrite'] ?? [];
   if (
@@ -126,6 +127,12 @@ function settingsFor(
         allowUnsandboxedCommands: false,
         ...(input.host_execution && native
           ? {
+              // On Linux the sandbox blocks socket(AF_UNIX) unless this is set, which breaks tests that
+              // start a daemon on a Unix socket. The settings document can still turn it off.
+              network: {
+                ...network,
+                allowAllUnixSockets: network['allowAllUnixSockets'] ?? true,
+              },
               filesystem: {
                 ...filesystem,
                 allowWrite: [
