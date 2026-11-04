@@ -185,10 +185,7 @@ function barSegs(
   const sep = ui(wide ? '  │  ' : ' │ ', DIM);
   return [
     ...(brand
-      ? [
-          ui(' cuesura ', { inverse: true, bold: true, fg: 'cyan' }),
-          ui(wide ? '  ' : ' '),
-        ]
+      ? [ui(' cuesura', { bold: true, fg: 'cyan' }), ui(wide ? '   ' : ' ')]
       : [ui(' ')]),
     ui('● ', dot),
     ui(`daemon: ${daemon}`),

@@ -29,7 +29,7 @@ import {
   type SafeText,
 } from '../terminal/safe-text.ts';
 import type { Frame, Style } from '../terminal/screen.ts';
-import { displayWidth, padEnd, truncate } from '../terminal/width.ts';
+import { displayWidth, truncate } from '../terminal/width.ts';
 import { filterLine } from './filters.ts';
 import {
   BOLD,
@@ -117,7 +117,11 @@ type TaskRow = Exclude<HomeRow, { kind: 'finished_toggle' }>;
 type Line =
   | { readonly kind: 'static'; readonly segs: readonly Seg[] }
   | { readonly kind: 'toggle'; readonly text: SafeText; readonly row: number }
-  | { readonly kind: 'task'; readonly row: number; readonly item: TaskRow };
+  | { readonly kind: 'task'; readonly row: number; readonly item: TaskRow }
+  | { readonly kind: 'detail'; readonly item: TaskRow };
+
+const actionOf = (row: TaskRow): SafeText | null =>
+  row.kind === 'attention' ? todo(row.task) : null;
 
 const BLANK: Line = { kind: 'static', segs: [] };
 
@@ -162,6 +166,7 @@ function listLines(
       return;
     }
     lines.push({ kind: 'task', row: i, item: row });
+    if (actionOf(row) !== null) lines.push({ kind: 'detail', item: row });
   });
   return lines;
 }
@@ -176,6 +181,8 @@ type Columns = {
 
 const TITLE_X = 4;
 
+const SELECTOR: Style = { fg: 'cyan', bold: true };
+
 /** The time column fits the longest time shown, so `unavailable` reads whole and `5s` costs little. */
 function columns(s: TuiState, cols: number, rows: readonly HomeRow[]): Columns {
   const time = rows.reduce(
@@ -186,7 +193,7 @@ function columns(s: TuiState, cols: number, rows: readonly HomeRow[]): Columns {
     'In status'.length - 2,
   );
   // Selector and mark, then the gaps between columns and the time at the edge.
-  const fixed = TITLE_X + 2 + 2 + DOTS_WIDTH + 2 + 1 + time;
+  const fixed = TITLE_X + 2 + 2 + DOTS_WIDTH + 2 + 2 + 1 + time;
   const longest = rows.reduce(
     (n, r) =>
       r.kind === 'finished_toggle'
@@ -209,24 +216,25 @@ function joinDot(parts: readonly SafeText[]): SafeText {
   return joinSafe(parts, uiText(' · '));
 }
 
-/** What the row is doing: the user's to-do first when it waits on them, then mode and PR, faint. */
-function doingSegs(row: TaskRow): Seg[] {
-  const task = row.task;
-  const action = row.kind === 'attention' ? todo(task) : null;
+function extraSegs(task: TaskRow['task']): Seg[] {
   const extra: SafeText[] = [];
   if (task.mode !== null) extra.push(task.mode);
   if (task.pr_ref !== null) extra.push(task.pr_ref);
-  const tail =
-    extra.length === 0
-      ? []
-      : [seg(joinSafe([uiText(' · '), joinDot(extra)]), DIM)];
+  return extra.length === 0
+    ? []
+    : [seg(joinSafe([uiText(' · '), joinDot(extra)]), DIM)];
+}
+
+/**
+ * What the row is doing. A task waiting on the user says only what to do; why, mode and PR go on the line
+ * under it (`detailSegs`), so the to-do is never the part a narrow terminal cuts.
+ */
+function doingSegs(row: TaskRow): Seg[] {
+  const task = row.task;
+  const action = actionOf(row);
   if (action !== null)
-    // Activity, mode and PR are always said (FR-006); a narrow terminal cuts their end.
-    return [
-      seg(joinSafe([uiText('→ '), action]), { fg: 'yellow', bold: true }),
-      seg(joinSafe([uiText(' · '), activity(task)]), DIM),
-      ...tail,
-    ];
+    return [seg(joinSafe([uiText('→ '), action]), { fg: 'yellow' })];
+  const tail = extraSegs(task);
   const { status } = task;
   const style: Style =
     status === 'FAILED'
@@ -235,6 +243,18 @@ function doingSegs(row: TaskRow): Seg[] {
         ? DIM
         : {};
   return [seg(activity(task), style), ...tail];
+}
+
+/** The line under a task that waits on the user: its activity, mode and PR, faint (FR-006). */
+function detailSegs(row: TaskRow): Seg[] {
+  return [
+    seg(joinSafe([uiText('  '), activity(row.task)]), DIM),
+    ...extraSegs(row.task),
+  ];
+}
+
+function doingX(c: Columns): number {
+  return TITLE_X + c.title + 2 + c.project + 2 + DOTS_WIDTH + 2;
 }
 
 function drawTask(
@@ -247,30 +267,30 @@ function drawTask(
 ): void {
   const cols = s.size.cols;
   const { task } = row;
-  const base: Style = selected ? { inverse: true } : {};
-  frame.put(0, y, padEnd(uiText(selected ? '›' : ''), cols), base);
+  // The selection is a pointer and a bright title, not a reversed row: reversing turns every coloured
+  // cell into a block of its own colour.
+  if (selected) frame.put(0, y, uiText('›'), SELECTOR);
   const { mark, color } = statusGlyph(task.status);
-  frame.put(2, y, uiText(mark), { ...base, ...fg(color, { bold: true }) });
+  frame.put(2, y, uiText(mark), fg(color, { bold: true }));
   let x = TITLE_X;
-  const titleStyle: Style = isTerminal(task.status)
-    ? DIM
-    : row.kind === 'attention'
-      ? BOLD
-      : {};
-  frame.put(x, y, truncate(task.title, c.title), { ...base, ...titleStyle });
+  const titleStyle: Style = selected
+    ? { fg: 'cyan', bold: true }
+    : isTerminal(task.status)
+      ? DIM
+      : row.kind === 'attention'
+        ? BOLD
+        : {};
+  frame.put(x, y, truncate(task.title, c.title), titleStyle);
   x += c.title + 2;
-  frame.put(x, y, truncate(sanitize(task.project), c.project), {
-    ...base,
-    ...DIM,
-  });
+  frame.put(x, y, truncate(sanitize(task.project), c.project), DIM);
   x += c.project + 2;
   const stages = rowStages(task);
   if (stages !== null)
-    putSegs(frame, x, y, dots(stages, task.status), DOTS_WIDTH, base);
+    putSegs(frame, x, y, dots(stages, task.status), DOTS_WIDTH);
   x += DOTS_WIDTH + 2;
-  putSegs(frame, x, y, doingSegs(row), c.doing, base);
+  putSegs(frame, x, y, doingSegs(row), c.doing);
   const time = truncate(timeInStatus(task, s.lastUpdatedAt), c.time);
-  frame.put(cols - displayWidth(time) - 1, y, time, { ...base, ...DIM });
+  frame.put(cols - displayWidth(time) - 1, y, time, DIM);
 }
 
 /** The first line to show: whole screens, moved only as far as keeps the selected row in view. */
@@ -279,7 +299,9 @@ function firstLine(
   selected: number,
   height: number,
 ): number {
-  const at = lines.findIndex((l) => l.kind !== 'static' && l.row === selected);
+  const at = lines.findIndex(
+    (l) => (l.kind === 'task' || l.kind === 'toggle') && l.row === selected,
+  );
   if (at < 0 || height <= 0) return 0;
   const screen = Math.floor(at / height) * height;
   return at >= screen + height ? at : screen;
@@ -333,18 +355,12 @@ function drawList(
   lines.slice(offset, offset + height).forEach((line, i) => {
     const y = top + i;
     if (line.kind === 'static') putSegs(frame, 0, y, line.segs, cols);
+    else if (line.kind === 'detail')
+      putSegs(frame, doingX(c), y, detailSegs(line.item), cols - doingX(c) - 1);
     else if (line.kind === 'toggle') {
       const on = line.row === selected;
-      const text = truncate(
-        joinSafe([uiText(on ? '› ' : '  '), line.text]),
-        cols,
-      );
-      frame.put(
-        0,
-        y,
-        on ? padEnd(text, cols) : text,
-        on ? { inverse: true } : DIM,
-      );
+      if (on) frame.put(0, y, uiText('›'), SELECTOR);
+      frame.put(2, y, truncate(line.text, cols - 2), on ? {} : DIM);
     } else drawTask(frame, y, s, line.item, c, line.row === selected);
   });
 }
@@ -358,7 +374,7 @@ export const homeBody =
     const attention = rows.filter((r) => r.kind === 'attention').length;
     const scope =
       s.caller?.scope === 'limited'
-        ? [ui('   '), ui(SCOPE_NOTE, { fg: 'yellow' })]
+        ? [ui('   '), ui(`(${SCOPE_NOTE})`, DIM)]
         : [];
     const page = pageLine(s);
     const head: (readonly Seg[] | null)[] = [
