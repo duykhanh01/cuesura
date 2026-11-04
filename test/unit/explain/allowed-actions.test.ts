@@ -98,6 +98,35 @@ describe('allowed actions for every wait detail (T111, FR-029)', () => {
       expect(actions(code, {}, false)).not.toContain('recheck');
   });
 
+  it.each<DetailCode>([
+    'ladder_exhausted',
+    'rung_denied',
+    'escalations_exhausted',
+  ])('%s offers continuing on the current model first', (code) => {
+    const o = {
+      deadline_passed: false,
+      last_fix_step: null,
+      wait: {
+        reason: 'policy',
+        detail: { code, step: 'fix_review' },
+        resume_when: [],
+        exit_paths: [],
+        resume: { kind: 'start_attempt', step: 'fix_review' },
+      },
+    } as unknown as Partial<TaskState>;
+    const out = allowedActions(state(code, o), { recheckable: false });
+    expect(out.map((a) => a.action)).toEqual([
+      'continue',
+      'merge_manually',
+      'cancel',
+      'task_add',
+    ]);
+    expect(out[0]?.command).toBe(
+      `cusr task continue ${ID} --expected-version 9`,
+    );
+    expect(JSON.stringify(out)).not.toMatch(/more attempts|retry/i);
+  });
+
   it('a confirmed merge still draining cannot be cancelled away', () => {
     expect(actions('merge_cleanup_pending')).not.toContain('cancel');
   });

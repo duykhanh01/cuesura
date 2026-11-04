@@ -50,6 +50,7 @@ import {
   settleSlot,
 } from './runtime.ts';
 import { onStart } from './start.ts';
+import { onContinue } from './continue.ts';
 import { onRecheck } from './recheck.ts';
 import { waitPolicy } from './waits.ts';
 import { onHeadDrift } from './head-drift.ts';
@@ -243,6 +244,9 @@ function dispatch(ctx: Ctx, t: Trigger): void {
       return;
     case 'recheck':
       onRecheck(ctx, t);
+      return;
+    case 'continue':
+      onContinue(ctx);
       return;
     default:
       assertNever(t);

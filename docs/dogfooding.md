@@ -222,6 +222,11 @@ Lỗi đăng nhập harness (`WAITING/policy harness_auth`): đăng nhập lại
 để phát triển) rồi `cusr task recheck <id>`. Task `loop_exhausted` mà các lượt cuối đều lỗi hạ tầng hoặc đăng nhập
 cũng dùng `recheck` để lấy lại visit; xem [Phiên đăng nhập harness](../deploy/README.md#phiên-đăng-nhập-harness).
 
+Task hết đường nâng model (`ladder_exhausted`, `rung_denied`, `escalations_exhausted`) hoặc `loop_exhausted` do lỗi
+chất lượng: xem lỗi review/gate gần nhất, nếu muốn giữ model hiện tại thì chạy `cusr task continue <id>
+--expected-version N` bằng token admin. Bước đang chờ được thêm một đợt `quality_tries_per_rung` lượt thử và đủ lượt ghé
+rồi chạy lại từ chỗ dừng; gate và review vẫn chạy, budget, deadline và sàn model giữ nguyên. Hết đợt đó thì task lại chờ.
+
 Lùi: truyền SHA cũ cho script rồi restart. Nếu release mới đã migrate DB, bản cũ có thể không mở được DB: dừng
 daemon và chép `data/cusr.db` trước mỗi lần nâng có migration. Backup/restore chưa được nghiệm thu, nên coi đây là
 biện pháp tốt nhất hiện có, không phải bảo đảm.

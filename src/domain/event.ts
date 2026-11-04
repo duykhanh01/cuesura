@@ -403,6 +403,18 @@ export type EventPayloads = {
     by: string;
     at: number;
   };
+  /**
+   * An admin kept the task on its current model after its quality loop ran out (issue #101): the listed
+   * streaks start over and each step's limit grows by the visits given.
+   */
+  TaskContinued: {
+    step: string;
+    wait_code: string;
+    streaks: string[];
+    visits: Record<string, number>;
+    by: string;
+    at: number;
+  };
 };
 
 export type EventType = keyof EventPayloads;
@@ -490,6 +502,7 @@ export const EVENT_TYPES = [
   'WorktreeChangeAccepted',
   'ManifestChangeAccepted',
   'VisitsCredited',
+  'TaskContinued',
 ] as const satisfies readonly EventType[];
 
 type _MissingEventTypes = Exclude<EventType, (typeof EVENT_TYPES)[number]>;

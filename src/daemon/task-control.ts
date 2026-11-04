@@ -8,6 +8,7 @@ import { answerQuestion } from '../application/answer.ts';
 import { approveEscalation } from '../application/approve.ts';
 import { statusSinceReader, taskBoard } from '../application/board.ts';
 import { cancelTask } from '../application/cancel.ts';
+import { continueTask } from '../application/continue.ts';
 import { runDoctor, type DoctorDeps } from '../application/doctor.ts';
 import { inbox } from '../application/inbox.ts';
 import { taskLogs, type LogsDeps } from '../application/logs.ts';
@@ -56,6 +57,7 @@ export function taskControl(deps: TaskControlDeps): {
     answer: CommandHandler;
     task_cancel: CommandHandler;
     approve_escalation: CommandHandler;
+    task_continue: CommandHandler;
     task_recheck?: CommandHandler;
   };
   queries: Record<string, QueryHandler>;
@@ -76,6 +78,8 @@ export function taskControl(deps: TaskControlDeps): {
         cancelTask(deps, admitted, input, caller),
       approve_escalation: (admitted, input, caller) =>
         approveEscalation(deps, admitted, input, caller),
+      task_continue: (admitted, input, caller) =>
+        continueTask(deps, admitted, input, caller),
       ...(deps.observe === undefined ||
       deps.drain === undefined ||
       deps.newId === undefined

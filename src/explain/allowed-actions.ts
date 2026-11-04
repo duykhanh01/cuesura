@@ -1,4 +1,5 @@
 import type { DetailCode, TaskState } from '../domain/state.ts';
+import { continuable } from '../engine/continue.ts';
 import { exhaustedByInfra } from '../engine/recheck.ts';
 import { runConfigConfirmed } from '../engine/run-config.ts';
 
@@ -10,6 +11,7 @@ export type AllowedAction = {
   readonly action:
     | 'merge_manually'
     | 'recheck'
+    | 'continue'
     | 'cancel'
     | 'answer'
     | 'approve'
@@ -104,6 +106,16 @@ const runSelection: Row = (c) => {
   ];
 };
 
+const proceedSameModel = (c: Ctx): AllowedAction | null =>
+  continuable(c.s) === null
+    ? null
+    : {
+        action: 'continue',
+        command: `cusr task continue ${c.id} --expected-version ${c.version}`,
+        note: 'Admin only. Keeps the current model: the step gets a fresh set of quality tries and visits, then runs again from here with gates and review as usual. Budget, deadline, ladder and floor stay as they are.',
+      };
+const continuableExhausted: Row = (c) => [proceedSameModel(c), ...exhausted(c)];
+
 const exhausted: Row = (c) => [
   merge(c),
   recheck(c, 'Reads the PR once; it adds no attempts or time.'),
@@ -172,7 +184,7 @@ const ROWS: Readonly<Record<DetailCode, Row>> = {
   publish_content_invalid: stuck,
   loop_exhausted: (c) =>
     exhaustedByInfra(c.s) === null
-      ? exhausted(c)
+      ? continuableExhausted(c)
       : [
           recheck(
             c,
@@ -180,12 +192,12 @@ const ROWS: Readonly<Record<DetailCode, Row>> = {
           ),
           cancel(c),
         ],
-  ladder_exhausted: exhausted,
+  ladder_exhausted: continuableExhausted,
   agent_runs_exhausted: exhausted,
   agent_runs_insufficient: exhausted,
-  escalations_exhausted: exhausted,
+  escalations_exhausted: continuableExhausted,
   deadline: exhausted,
-  rung_denied: exhausted,
+  rung_denied: continuableExhausted,
   backoff_exhausted: exhausted,
   escalation_rejected: exhausted,
   ci_wait_exhausted: exhausted,

@@ -695,6 +695,16 @@ export const recheckCommand: CliCommand = {
     mutate(values, 'task_recheck', values['id'] as string, {}, json, io),
 };
 
+export const continueCommand: CliCommand = {
+  name: 'task continue',
+  description:
+    'Keep a task on its current model after its quality loop ran out (admin required)',
+  args: ['<id>'],
+  options: [DATA_DIR, REQUEST_ID, PROJECT, EXPECTED_VERSION],
+  run: (values, json, io) =>
+    mutate(values, 'task_continue', values['id'] as string, {}, json, io),
+};
+
 function unsupported(
   key: keyof typeof UNSUPPORTED_GUIDANCE,
   json: boolean,

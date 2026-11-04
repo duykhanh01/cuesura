@@ -167,6 +167,16 @@ describe('command admission ledger (T023)', () => {
       error: { code: 'forbidden', reason: 'role' },
     });
     expect(
+      admitCommand(
+        d,
+        assistant,
+        cancel({ kind: 'task_continue', payload: {} }),
+      ),
+    ).toMatchObject({
+      ok: false,
+      error: { code: 'forbidden', reason: 'role' },
+    });
+    expect(
       admitCommand(d, assistant, cancel({ expected_version: null })),
     ).toMatchObject({ ok: false, error: { code: 'invalid_command' } });
     expect(

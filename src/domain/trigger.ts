@@ -654,6 +654,8 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
       ]),
     })
     .strict(),
+  // An admin keeps the task on its current model after its quality loop ran out (issue #101).
+  z.object({ kind: z.literal('continue') }).strict(),
   // Run configuration (task-execution-modes.md M01/M02): proposed by any operator, confirmed by the user.
   z
     .object({
@@ -699,6 +701,7 @@ export const HUMAN_TRIGGERS: readonly TriggerKind[] = [
   'cancel',
   'amend',
   'recheck',
+  'continue',
   'propose_run_config',
   'confirm_run_config',
 ];

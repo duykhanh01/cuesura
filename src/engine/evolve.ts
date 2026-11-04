@@ -907,6 +907,26 @@ export function applyInPlace(
       };
       break;
     }
+    case 'TaskContinued': {
+      for (const k of event.payload.streaks) {
+        const streak = s.failure_streaks[k];
+        if (streak === undefined) continue;
+        streak.signature = null;
+        streak.consecutive = 0;
+        streak.quality_tries = 0;
+        streak.escalate = false;
+      }
+      const credits = { ...s.visit_credits };
+      for (const [step, n] of Object.entries(event.payload.visits)) {
+        const prev = credits[step];
+        credits[step] = {
+          visits: (prev?.visits ?? 0) + n,
+          through: prev?.through ?? 0,
+        };
+      }
+      s.visit_credits = credits;
+      break;
+    }
     case 'ManifestChangeAccepted':
       s.run.manifest_refs = {
         ...s.run.manifest_refs,

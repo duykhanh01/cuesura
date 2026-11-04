@@ -25,6 +25,7 @@ export const COMMAND_PAYLOADS = {
   task_propose_run: z.object({ run_config: RunProposalSchema }).strict(),
   task_cancel: z.object({ reason: Reason }).strict(),
   task_recheck: z.object({}).strict(),
+  task_continue: z.object({}).strict(),
   answer: z
     .object({ question_id: UuidSchema, answer: z.string().min(1).max(65_536) })
     .strict(),
@@ -40,6 +41,7 @@ const REQUIRED_ROLE: Record<CommandKind, AuthzRole> = {
   task_propose_run: 'operate',
   task_cancel: 'operate',
   task_recheck: 'operate',
+  task_continue: 'admin',
   answer: 'operate',
   approve_escalation: 'admin',
 };
