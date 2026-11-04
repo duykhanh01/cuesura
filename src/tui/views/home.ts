@@ -146,11 +146,10 @@ type Columns = {
 
 const TITLE_X = 4;
 
-const SELECTOR: Style = { fg: 'cyan', bold: true };
+/** One style for every part of the selected row, so the selection reads as a single colour. */
+const SELECTED: Style = { fg: 'cyan', bold: true };
 
-const SELECTED: Style = { fg: 'cyan' };
-
-/** Selected row: faint or plain text turns cyan; yellow and red keep their meaning. */
+/** Selected row: faint or plain text takes the selection style; yellow and red keep their meaning. */
 const highlight = (segs: readonly Seg[]): Seg[] =>
   segs.map((g) =>
     g.style?.fg === 'yellow' || g.style?.fg === 'red' ? g : { ...g, style: SELECTED },
@@ -234,12 +233,12 @@ function drawTask(
   const { task } = row;
   // The selection is a pointer and a bright title, not a reversed row: reversing turns every coloured
   // cell into a block of its own colour.
-  if (selected) frame.put(0, y, uiText('›'), SELECTOR);
+  if (selected) frame.put(0, y, uiText('›'), SELECTED);
   const { mark, color } = statusGlyph(task.status);
   frame.put(2, y, uiText(mark), fg(color, { bold: true }));
   let x = TITLE_X;
   const titleStyle: Style = selected
-    ? { fg: 'cyan', bold: true }
+    ? SELECTED
     : isTerminal(task.status)
       ? DIM
       : row.kind === 'attention'
@@ -254,7 +253,7 @@ function drawTask(
   x += DOTS_WIDTH + 2;
   putSegs(frame, x, y, selected ? highlight(doingSegs(row)) : doingSegs(row), c.doing);
   const time = truncate(timeInStatus(task, s.lastUpdatedAt), c.time);
-  frame.put(cols - displayWidth(time) - 1, y, time, DIM);
+  frame.put(cols - displayWidth(time) - 1, y, time, selected ? SELECTED : DIM);
 }
 
 /** The first line to show: whole screens, moved only as far as keeps the selected row in view. */
@@ -318,8 +317,8 @@ function drawList(
       putSegs(frame, doingX(c), y, detailSegs(line.item), cols - doingX(c) - 1);
     else if (line.kind === 'toggle') {
       const on = line.row === selected;
-      if (on) frame.put(0, y, uiText('›'), SELECTOR);
-      frame.put(2, y, truncate(line.text, cols - 2), on ? {} : DIM);
+      if (on) frame.put(0, y, uiText('›'), SELECTED);
+      frame.put(2, y, truncate(line.text, cols - 2), on ? SELECTED : DIM);
     } else drawTask(frame, y, s, line.item, c, line.row === selected, useColor);
   });
 }
