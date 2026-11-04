@@ -176,7 +176,7 @@ describe('cusr task add/show/confirm over the control socket (T048)', () => {
       await cli(['task', 'show', '--data-dir', dataDir, id]),
     ).toMatchObject({
       code: ExitCode.ok,
-      data: { task_id: id, status: 'READY', pr_ref: null },
+      data: { task_id: id, status: 'READY' },
     });
     expect(
       await cli([

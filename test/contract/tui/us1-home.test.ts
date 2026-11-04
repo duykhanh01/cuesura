@@ -91,15 +91,16 @@ describe('US1 scenario 1: the main screen, with no arguments', () => {
     await openFinished(s);
     await s.waitForText('Sample cancelled');
 
-    const listed = await cliJson(sd, 'task', 'list');
+    const listed = await cliJson(sd, 'task', 'list', '--full');
     const items = listed.envelope.data?.['items'] as ListItem[];
     const screen = s.screenText();
     expect(items).toHaveLength(Object.keys(samples).length);
     for (const item of items) {
       const row = rowOf(screen, item.title);
       expect(row).toContain(item.status);
-      const explained = (await cliJson(sd, 'task', 'explain', item.task_id))
-        .envelope.data as unknown as Explained;
+      const explained = (
+        await cliJson(sd, 'task', 'explain', item.task_id, '--full')
+      ).envelope.data as unknown as Explained;
       expect(explained.status).toBe(item.status);
       if (explained.wait !== null)
         expect(row).toContain(

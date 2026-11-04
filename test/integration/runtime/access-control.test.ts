@@ -215,7 +215,7 @@ describe('roles (US6.3, FR-028)', () => {
       }
     });
     const running = await sd.start();
-    const why = await cli(sd, 'reader', ['task', 'explain', t.id]);
+    const why = await cli(sd, 'reader', ['task', 'explain', t.id, '--full']);
     const action = (
       why.envelope.data['allowed_actions'] as {
         action: string;
@@ -320,9 +320,9 @@ describe('project scope (FR-028/032)', () => {
     expect((await cli(sd, 'outsider', ['task', 'show', t.id])).code).toBe(
       ExitCode.missing,
     );
-    expect((await cli(sd, 'outsider', ['task', 'explain', t.id])).code).toBe(
-      ExitCode.missing,
-    );
+    expect(
+      (await cli(sd, 'outsider', ['task', 'explain', t.id, '--full'])).code,
+    ).toBe(ExitCode.missing);
     expect((await cli(sd, 'outsider', ['task', 'history', t.id])).code).toBe(
       ExitCode.missing,
     );
@@ -358,7 +358,7 @@ describe('project scope (FR-028/032)', () => {
       d.must(b.id, { kind: 'create_task', task: b });
     });
     await sd.start();
-    const why = await cli(sd, 'assistant', ['task', 'explain', b.id]);
+    const why = await cli(sd, 'assistant', ['task', 'explain', b.id, '--full']);
     expect(why.envelope.data['prerequisites']).toMatchObject([
       { task_id: a.id, status: 'not_visible', merged_head_sha: null },
     ]);

@@ -30,8 +30,8 @@ qua amend-policy của feature 002; tạo task mới nếu cần đổi. Không 
 | `cusr doctor --project NAME`, `cusr status` | read; doctor kiểm capability và health, lỗi health exit 1 |
 | `cusr task add --file FILE` | operate; JSON task input, trả task có thể PENDING/READY, không chờ tới PR |
 | `cusr task propose ID --profile P --mode M --worker H/M/E` | operate; đề xuất bộ lựa chọn chạy, xác nhận riêng |
-| `cusr task show/list/explain/history` | read; list có `--limit` tối đa 100 và cursor; show/explain nhận ID |
-| `cusr task logs ID --after CURSOR [--follow]` | read; snapshot hữu hạn hoặc stream JSONL có seq/cursor; một follow session tối đa 1 giờ, có thể nối lại |
+| `cusr task show/list/explain/history` | read; mặc định chỉ trả phần cần thiết, `--full` trả nguyên reply của daemon (xem [Output mặc định gọn](#output-mặc-định-gọn)); list mới nhất trước, `--limit` mặc định 20, tối đa 100, có cursor và `--order oldest`; show/explain nhận ID |
+| `cusr task logs ID --after CURSOR [--follow]` | read; snapshot hữu hạn (mặc định 20 record) hoặc stream JSONL có seq/cursor; chuỗi dài hơn 1000 ký tự bị cắt trừ khi có `--full`; một follow session tối đa 1 giờ, có thể nối lại |
 | `cusr task confirm/cancel/recheck ID` | operate; version/dedup; recheck chọn cấu hình/PR/drain/worktree theo task, không gọi agent; với `worktree_changed` thì nhận tree đã quan sát làm mốc của task rồi chạy lại bước; với `manifest_changed` thì nhận manifest harness đang hiệu lực rồi chạy lại bước |
 | `cusr dispatch --project ID` | read trong phạm vi project; trả `project`, `source` (`project`, `global` hoặc `none`), `modes`, `rules`, `default`. Lấy từ `projects.<id>.dispatch`, không có thì `runtime.dispatch`; đọc config mỗi lần gọi; `use[]` trả về dạng `{worker, reviewer?}` kèm `profile`, `mode` để chép thẳng vào `task propose`; không chứa secret, không chọn thay người dùng |
 | `cusr inbox`, `cusr answer QUESTION --file FILE --expected-version N` | read/operate; câu trả lời đầu thắng, ràng buộc revision/version |
@@ -52,6 +52,34 @@ Priority số lớn chạy trước; default 0. Explain gồm deadline chưa b�
 ban đầu/xin lại, PR/head/base, các blocker còn hiệu lực, bằng chứng và allowed_actions từ FR-029.
 Prerequisite chưa chứng nhận vẫn hiện sau khi B bắt đầu. Merge đã xác nhận nhưng còn drain phải hiện
 merge_cleanup_pending/process/effect chưa rõ, không hiện DONE.
+
+### Output mặc định gọn
+
+Lệnh đọc mặc định chỉ trả những gì cần để theo dõi task và quyết định bước tiếp; mọi thứ khác lấy bằng
+`--full` (nguyên reply của daemon, như trước) hoặc lệnh chi tiết. Daemon và TUI không đổi: CLI rút gọn reply
+trước khi in, cho cả `--json` lẫn output cho người đọc.
+
+- Bản gọn bỏ field `null`, mảng rỗng, object rỗng: field vắng nghĩa là "không có". `details` là lệnh
+  `--full` tương ứng. Chuỗi dài hơn 300 ký tự bị cắt, có ghi số ký tự bị bỏ.
+- `task explain`: `task_id`, `version`, `status`, `step`, `wait` (`reason`, `detail`), `blockers`,
+  `running` (`step`, `binding` của attempt đang chạy), `queue_position`, `pr` (`ref`, `head_sha`),
+  `merge` (`method`, `title`, chỉ khi có PR), `failed` (tên gate lỗi, CI check lỗi, `review:
+  request_changes` của lần gần nhất; không log), `deadline_ms` khi deadline đang chạy, `prerequisites`
+  chưa DONE hoặc chưa xác minh, `merge_cleanup`, `cancellation`, `allowed_actions`.
+- `task show`: `task_id`, `project`, `title`, `status`, `step`, `version`, `wait`, `blockers`, `pr_ref`,
+  `run_config` (`status`, `digest`, `mode`). Đủ cho mutation; nội dung task ở `task content`.
+- `task list`: mới nhất trước, mặc định 20, tối đa 100. Item chỉ có `task_id`, `project`, `title`, `status`,
+  `activity` (wait code hoặc step), `pr_ref`. Theo `next_cursor` tới khi `null` là thấy mọi task;
+  `--order oldest` bắt đầu từ task đầu tiên. CLI gửi `order` trong query `task_list`; daemon vẫn mặc định
+  `oldest` cho caller cũ.
+- `task history`: mặc định 50 event, mỗi event `seq`, `type`, `revision`, `actor`; `--full` thêm `payload`,
+  `dedup_key`.
+- `task logs`: snapshot mặc định 20 record, chuỗi dài hơn 1000 ký tự bị cắt; `--full` giữ nguyên.
+- `task_explain` của daemon có thêm `running` (attempt đang chạy: `attempt_id`, `step`, `kind`, `rung`,
+  `binding`).
+- `status`, `inbox`, `report`, `task board`, `task progress` giữ nguyên: dữ liệu đã có giới hạn
+  (`inbox` tối đa 100 câu hỏi, `report` và `board` có `truncated`/cursor) và nội dung câu hỏi cần đủ để
+  trả lời. `task content` là lệnh chi tiết cho nội dung task.
 
 ## Transport và application service
 

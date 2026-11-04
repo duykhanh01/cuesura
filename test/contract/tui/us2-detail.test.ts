@@ -50,7 +50,7 @@ async function explainOf(
   sd: Parameters<typeof cliJson>[0],
   id: string,
 ): Promise<Explained> {
-  return (await cliJson(sd, 'task', 'explain', id)).envelope
+  return (await cliJson(sd, 'task', 'explain', id, '--full')).envelope
     .data as unknown as Explained;
 }
 
@@ -229,8 +229,8 @@ describe('US2 scenario 3: attempts, limits and usage', () => {
     const s = tui.cusr(sd.dataDir, TALL);
     await openTask(s, 'Tried task');
     await s.waitForText('Requested');
-    const explained = (await cliJson(sd, 'task', 'explain', t.id)).envelope
-      .data as {
+    const explained = (await cliJson(sd, 'task', 'explain', t.id, '--full'))
+      .envelope.data as {
       bindings_used: {
         step: string;
         binding: string;
@@ -258,7 +258,8 @@ describe('US2 scenario 3: attempts, limits and usage', () => {
     const t = buildTask({ id: uuidOf(1), title: 'Direct config' });
     sd.seed((d) => createGrantStart(d, t, 'direct-pr'));
     await sd.start();
-    const shown = (await cliJson(sd, 'task', 'show', t.id)).envelope.data as {
+    const shown = (await cliJson(sd, 'task', 'show', t.id, '--full')).envelope
+      .data as {
       run_config: {
         selection: { worker: { harness: string; model: string } };
       };
@@ -330,8 +331,8 @@ describe('US2 scenarios 5 and 6: the PR and the merge left to the user', () => {
       await openTask(s, 'Green task');
       await s.waitForText('Pull request');
       await s.waitForText('Gates:');
-      const explained = (await cliJson(sd, 'task', 'explain', t.id)).envelope
-        .data as {
+      const explained = (await cliJson(sd, 'task', 'explain', t.id, '--full'))
+        .envelope.data as {
         pr: { ref: string; head_sha: string; base_sha: string | null };
         merge: { method: string };
       };
@@ -433,8 +434,11 @@ describe('US2 scenario 7: a DONE that needs reading closely', () => {
       });
     });
     await sd.start();
-    const explained = (await cliJson(sd, 'task', 'explain', t.id)).envelope
-      .data as { cancellation: { late: boolean } | null; status: string };
+    const explained = (await cliJson(sd, 'task', 'explain', t.id, '--full'))
+      .envelope.data as {
+      cancellation: { late: boolean } | null;
+      status: string;
+    };
     expect(explained.status).toBe('DONE');
     expect(explained.cancellation?.late).toBe(true);
     const s = tui.cusr(sd.dataDir, TALL);

@@ -210,6 +210,14 @@ export type RuntimeExplanation = Omit<Explanation, 'wait'> & {
   wait: { reason: WaitReason; detail: unknown } | null;
   allowed_actions: AllowedAction[];
   blockers: TaskState['blockers'];
+  /** Attempts launched and not yet finished: the worker or reviewer binding at work now. */
+  running: {
+    attempt_id: string;
+    step: string;
+    kind: string;
+    rung: number;
+    binding: string;
+  }[];
   pr: {
     ref: string | null;
     head_sha: string | null;
@@ -309,6 +317,16 @@ export function explainRuntime(
         : { reason: state.wait.reason, detail: state.wait.detail },
     allowed_actions: allowedActions(state, { recheckable: input.recheckable }),
     blockers: state.blockers.filter((b) => b.until === null),
+    running: Object.values(state.attempts)
+      .filter((a) => a.status === 'running')
+      .sort((a, b) => a.n - b.n)
+      .map((a) => ({
+        attempt_id: a.id,
+        step: a.step,
+        kind: a.kind,
+        rung: a.rung,
+        binding: a.binding,
+      })),
     pr: {
       ref: state.pr_ref,
       head_sha: state.head_sha,

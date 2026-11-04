@@ -21,7 +21,19 @@ import { DOCTOR_CLIENT_TIMEOUT_MS } from '../application/doctor.ts';
 import { TASK_STATUSES } from '../domain/state.ts';
 import { UuidSchema } from '../shared/brand.ts';
 import type { CliCommand, CliIo } from './program.ts';
-import { renderBoard, renderProgress, type Render } from './render.ts';
+import {
+  renderBoard,
+  renderHistory,
+  renderProgress,
+  renderTaskList,
+  type Render,
+} from './render.ts';
+import {
+  explainSummary,
+  historySummary,
+  listSummary,
+  showSummary,
+} from './summary.ts';
 
 type Values = Readonly<Record<string, string | undefined>>;
 
@@ -271,6 +283,7 @@ async function mutate(
   );
 }
 
+/** `view` reshapes a successful reply before it is printed, for both `--json` and the human output. */
 export async function query(
   values: Values,
   body: Record<string, unknown>,
@@ -278,14 +291,31 @@ export async function query(
   io: CliIo,
   timeoutMs?: number,
   render?: Render,
+  view?: (data: unknown) => unknown,
 ): Promise<number> {
+  const reply = await call(values, '/v1/query', body, null, timeoutMs);
   return print(
-    await call(values, '/v1/query', body, null, timeoutMs),
+    reply.ok && view !== undefined
+      ? { ...reply, data: view(reply.data) }
+      : reply,
     json,
     io,
     render,
   );
 }
+
+const FULL = {
+  flags: '--full',
+  description:
+    'Print the complete reply, including evidence, log excerpts and provenance',
+};
+
+/** The summary view unless `--full` asked for the complete reply. */
+const unlessFull = (
+  values: Values,
+  summary: (data: unknown) => unknown,
+): ((data: unknown) => unknown) | undefined =>
+  values['full'] === undefined ? summary : undefined;
 
 /** The JSON task input of `task add --file` (contracts/cli-daemon.md); the daemon validates its fields. */
 function readJsonFile(path: string): Record<string, unknown> | string {
@@ -400,36 +430,85 @@ export const addCommand: CliCommand = {
 export const showCommand: CliCommand = {
   name: 'task show',
   description:
-    'Show task status, progress, version, pull request, usage, and evidence',
+    'Show task status, step, wait, pull request, version and run configuration digest',
+  help: `By default: identity, status, step, wait, PR, version and run_config digest for mutations.
+--full adds provenance, usage, merge, deadline and execution details.
+
+Examples:
+  cusr task show 019a0000-0000-7000-8000-000000000001 --json
+  cusr task show 019a0000-0000-7000-8000-000000000001 --full --json`,
   args: ['<id>'],
-  options: [DATA_DIR],
+  options: [DATA_DIR, FULL],
   run: (values, json, io) =>
-    query(values, { kind: 'task_show', task_id: values['id'] }, json, io),
+    query(
+      values,
+      { kind: 'task_show', task_id: values['id'] },
+      json,
+      io,
+      undefined,
+      undefined,
+      unlessFull(values, showSummary),
+    ),
 };
+
+export const TASK_LIST_DEFAULT_LIMIT = 20;
+const LIST_ORDERS = ['newest', 'oldest'];
 
 export const listCommand: CliCommand = {
   name: 'task list',
-  description: 'List accessible tasks (up to 100 per page)',
+  description: `List accessible tasks, newest first, ${TASK_LIST_DEFAULT_LIMIT} per page by default`,
+  help: `Every task stays reachable: follow next_cursor page by page, filter with --project and
+--status, or use --order oldest to start from the first task.
+
+Examples:
+  cusr task list
+  cusr task list --project acme --status WAITING
+  cusr task list --limit 100 --cursor 019a0000-0000-7000-8000-000000000001 --json`,
   options: [
     DATA_DIR,
-    { flags: '--limit <n>', description: 'Page size (maximum: 100)' },
+    {
+      flags: '--limit <n>',
+      description: `Page size, from 1 to 100 (default: ${TASK_LIST_DEFAULT_LIMIT})`,
+    },
     {
       flags: '--cursor <id>',
-      description: 'Pagination cursor from the previous result',
+      description: 'Pagination cursor (next_cursor) from the previous result',
     },
     { flags: '--project <id>', description: 'Filter by project ID' },
     { flags: '--status <status>', description: 'Filter by task status' },
+    {
+      flags: '--order <order>',
+      description: 'newest (default) or oldest task first',
+    },
+    {
+      flags: '--full',
+      description: 'Print every field of each task, such as version and head',
+    },
   ],
   run(values, json, io) {
-    const limit =
-      values['limit'] === undefined ? undefined : Number(values['limit']);
-    if (limit !== undefined && !Number.isInteger(limit))
+    const limit = Number(values['limit'] ?? TASK_LIST_DEFAULT_LIMIT);
+    if (!Number.isInteger(limit))
       return Promise.resolve(usage('--limit must be an integer', json, io));
+    const order = values['order'] ?? 'newest';
+    if (!LIST_ORDERS.includes(order))
+      return Promise.resolve(
+        badChoice('--order', order, LIST_ORDERS, json, io),
+      );
+    const filters = (
+      [
+        ['--project', values['project']],
+        ['--status', values['status']],
+        ['--order', values['order']],
+        ['--limit', values['limit']],
+        ['--data-dir', values['dataDir']],
+      ] as const
+    ).flatMap(([flag, value]) => (value === undefined ? [] : [flag, value]));
     return query(
       values,
       {
         kind: 'task_list',
-        ...(limit === undefined ? {} : { limit }),
+        limit,
+        order,
         ...(values['cursor'] === undefined ? {} : { cursor: values['cursor'] }),
         ...(values['project'] === undefined
           ? {}
@@ -438,22 +517,49 @@ export const listCommand: CliCommand = {
       },
       json,
       io,
+      undefined,
+      values['full'] === undefined ? renderTaskList(filters) : undefined,
+      unlessFull(values, listSummary),
     );
   },
 };
 
 export const explainCommand: CliCommand = {
   name: 'task explain',
-  description: 'Explain task blockers, available actions, and remaining limits',
+  description:
+    'Explain where a task is: step, wait reason, running binding, queue, pull request and next actions',
+  help: `By default: status, step, wait, blockers, running binding, queue position, PR, what failed
+last (names only) and allowed actions; empty fields are left out. --full prints the complete
+explanation with evidence and log excerpts; task logs and task history show the records behind it.
+
+Examples:
+  cusr task explain 019a0000-0000-7000-8000-000000000001 --json
+  cusr task explain 019a0000-0000-7000-8000-000000000001 --full --json`,
   args: ['<id>'],
-  options: [DATA_DIR],
+  options: [DATA_DIR, FULL],
   run: (values, json, io) =>
-    query(values, { kind: 'task_explain', task_id: values['id'] }, json, io),
+    query(
+      values,
+      { kind: 'task_explain', task_id: values['id'] },
+      json,
+      io,
+      undefined,
+      undefined,
+      unlessFull(values, explainSummary),
+    ),
 };
+
+export const HISTORY_DEFAULT_LIMIT = 50;
 
 export const historyCommand: CliCommand = {
   name: 'task history',
-  description: 'Show accepted task events in sequence order',
+  description: `Show accepted task events in sequence order, ${HISTORY_DEFAULT_LIMIT} per page by default`,
+  help: `By default each event shows seq, type, revision and actor; --full adds payloads.
+Continue with --after set to next_cursor while more is true.
+
+Examples:
+  cusr task history 019a0000-0000-7000-8000-000000000001
+  cusr task history 019a0000-0000-7000-8000-000000000001 --after 120 --full --json`,
   args: ['<id>'],
   options: [
     DATA_DIR,
@@ -461,16 +567,22 @@ export const historyCommand: CliCommand = {
       flags: '--after <seq>',
       description: 'Show events after this sequence number',
     },
-    { flags: '--limit <n>', description: 'Page size (maximum: 500)' },
+    {
+      flags: '--limit <n>',
+      description: `Page size, at most 500 (default: ${HISTORY_DEFAULT_LIMIT})`,
+    },
+    {
+      flags: '--full',
+      description: 'Include each event payload and deduplication key',
+    },
   ],
   run(values, json, io) {
     const after =
       values['after'] === undefined ? undefined : Number(values['after']);
-    const limit =
-      values['limit'] === undefined ? undefined : Number(values['limit']);
+    const limit = Number(values['limit'] ?? HISTORY_DEFAULT_LIMIT);
     if (
       (after !== undefined && !Number.isInteger(after)) ||
-      (limit !== undefined && !Number.isInteger(limit))
+      !Number.isInteger(limit)
     )
       return Promise.resolve(
         usage('--after and --limit must be integers', json, io),
@@ -481,10 +593,13 @@ export const historyCommand: CliCommand = {
         kind: 'task_history',
         task_id: values['id'],
         ...(after === undefined ? {} : { after }),
-        ...(limit === undefined ? {} : { limit }),
+        limit,
       },
       json,
       io,
+      undefined,
+      renderHistory,
+      unlessFull(values, historySummary),
     );
   },
 };

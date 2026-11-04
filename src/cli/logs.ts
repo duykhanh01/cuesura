@@ -9,8 +9,11 @@ import { CONTROL_SOCKET, ExitCode } from './output.ts';
 import type { CliCommand } from './program.ts';
 import { print } from './tasks.ts';
 import { errorEnvelope } from './output.ts';
+import { logRecordSummary, logsSummary, LOG_TEXT_LIMIT } from './summary.ts';
 
 export const FOLLOW_SESSION_MS = 3_600_000;
+/** A snapshot without --limit; --follow keeps the daemon's larger page since it streams anyway. */
+export const LOGS_DEFAULT_LIMIT = 20;
 const FOLLOW_POLL_MS = 1_000;
 
 type Page = {
@@ -42,6 +45,12 @@ export function logsCommandWith(o: FollowOptions = {}): CliCommand {
     name: 'task logs',
     description:
       'Show recorded, redacted task logs; --follow streams JSON Lines',
+    help: `Continue a snapshot with --after set to next_cursor until complete is true.
+
+Examples:
+  cusr task logs 019a0000-0000-7000-8000-000000000001 --json
+  cusr task logs 019a0000-0000-7000-8000-000000000001 --after 20 --limit 200 --json
+  cusr task logs 019a0000-0000-7000-8000-000000000001 --follow`,
     args: ['<id>'],
     options: [
       {
@@ -53,10 +62,17 @@ export function logsCommandWith(o: FollowOptions = {}): CliCommand {
         flags: '--after <cursor>',
         description: 'Show records after this cursor (default: 0)',
       },
-      { flags: '--limit <n>', description: 'Page size (maximum: 200)' },
+      {
+        flags: '--limit <n>',
+        description: `Page size, at most 200 (default: ${LOGS_DEFAULT_LIMIT} without --follow)`,
+      },
       {
         flags: '--attempt <id>',
         description: 'Filter logs by attempt ID.',
+      },
+      {
+        flags: '--full',
+        description: `Print records as recorded; by default strings longer than ${LOG_TEXT_LIMIT} characters are cut`,
       },
       {
         flags: '--follow',
@@ -65,9 +81,14 @@ export function logsCommandWith(o: FollowOptions = {}): CliCommand {
       },
     ],
     async run(values, json, io) {
+      const full = values['full'] !== undefined;
       const after = Number(values['after'] ?? 0);
       const limit =
-        values['limit'] === undefined ? undefined : Number(values['limit']);
+        values['limit'] === undefined
+          ? values['follow'] === undefined
+            ? LOGS_DEFAULT_LIMIT
+            : undefined
+          : Number(values['limit']);
       if (
         !Number.isInteger(after) ||
         after < 0 ||
@@ -114,15 +135,22 @@ export function logsCommandWith(o: FollowOptions = {}): CliCommand {
         });
       if (values['follow'] === undefined) {
         const r = await fetch(after);
+        if (!r.ok)
+          return print(
+            errorEnvelope({
+              code: 'daemon_unreachable',
+              message: r.error.message,
+              details: { cursor: after },
+              request_id: null,
+            }),
+            json,
+            io,
+          );
+        const { envelope } = r.value;
         return print(
-          r.ok
-            ? r.value.envelope
-            : errorEnvelope({
-                code: 'daemon_unreachable',
-                message: r.error.message,
-                details: { cursor: after },
-                request_id: null,
-              }),
+          envelope.ok && !full
+            ? { ...envelope, data: logsSummary(envelope.data) }
+            : envelope,
           json,
           io,
         );
@@ -165,7 +193,10 @@ export function logsCommandWith(o: FollowOptions = {}): CliCommand {
                   reason: rec.gap.reason,
                 })}\n`,
               );
-          } else io.stdout(`${JSON.stringify(rec)}\n`);
+          } else
+            io.stdout(
+              `${JSON.stringify(full ? rec : logRecordSummary(rec))}\n`,
+            );
         }
         lastDiagnostic = diagnostic;
         const advanced = page.next_cursor > cursor;

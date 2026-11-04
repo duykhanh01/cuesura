@@ -102,6 +102,95 @@ export const renderBoard =
     return `${lines.join('\n')}\n`;
   };
 
+const TaskListSchema = z.object({
+  items: z.array(
+    z.object({
+      task_id: z.string(),
+      project: z.string(),
+      title: z.string(),
+      status: z.string(),
+      activity: z.string().optional(),
+      pr_ref: z.string().optional(),
+    }),
+  ),
+  next_cursor: z.string().nullable(),
+});
+
+/** `flags`: what this list was asked with, so the next page shows the same list. */
+export const renderTaskList =
+  (flags: readonly string[]): Render =>
+  (data) => {
+    const r = TaskListSchema.safeParse(data);
+    if (!r.success) return stringify(data);
+    const { items, next_cursor } = r.data;
+    const lines =
+      items.length === 0
+        ? ['No tasks.']
+        : table(
+            ['ID', 'PROJECT', 'STATUS', 'ACTIVITY', 'PR', 'TITLE'],
+            items.map((t) => [
+              t.task_id,
+              sanitize(t.project),
+              sanitize(t.status),
+              sanitize(t.activity ?? '-'),
+              sanitize(t.pr_ref ?? '-'),
+              sanitize(t.title),
+            ]),
+          );
+    if (next_cursor !== null)
+      lines.push(
+        '',
+        `More: ${sanitize(
+          ['cusr', 'task', 'list', ...flags, '--cursor', next_cursor]
+            .map(shellWord)
+            .join(' '),
+        )}`,
+      );
+    return `${lines.join('\n')}\n`;
+  };
+
+const HistorySchema = z.object({
+  task_id: z.string(),
+  events: z.array(
+    z.object({
+      seq: z.number(),
+      type: z.string(),
+      revision: z.number(),
+      actor: z.unknown(),
+    }),
+  ),
+  next_cursor: z.number(),
+  more: z.boolean(),
+});
+
+/** Summary pages only: a `--full` page has payloads, which a table cannot show, so it stays YAML. */
+export const renderHistory: Render = (data) => {
+  const r = HistorySchema.safeParse(data);
+  if (!r.success || (data as { details?: unknown }).details === undefined)
+    return stringify(data);
+  const { task_id, events, next_cursor, more } = r.data;
+  const lines =
+    events.length === 0
+      ? ['No events.']
+      : table(
+          ['SEQ', 'REVISION', 'ACTOR', 'TYPE'],
+          events.map((e) => [
+            String(e.seq),
+            String(e.revision),
+            sanitize(
+              typeof e.actor === 'string' ? e.actor : JSON.stringify(e.actor),
+            ),
+            sanitize(e.type),
+          ]),
+        );
+  if (more)
+    lines.push(
+      '',
+      `More: cusr task history ${shellWord(sanitize(task_id))} --after ${next_cursor}`,
+    );
+  return `${lines.join('\n')}\n`;
+};
+
 export const renderProjects: Render = (data) => {
   const r = ProjectListSchema.safeParse(data);
   if (!r.success) return stringify(data);

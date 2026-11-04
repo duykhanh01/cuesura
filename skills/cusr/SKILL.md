@@ -105,20 +105,35 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
 ## Inspect tasks and output
 
 ```sh
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
-  cusr task list --project "$PROJECT" --limit 100 --json
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
-  cusr task list --project "$PROJECT" --cursor "$NEXT_CURSOR" --json
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
-  cusr task show "$TASK_ID" --json
+# Short first, details on demand. Defaults hold only what a progress question needs; null and
+# empty fields are omitted (absent = none). data.details is the --full command for everything else.
+# Progress question -> task explain: status, step, wait, blockers, running (step/binding),
+# queue_position, pr, failed (names of failed gates/CI checks, request_changes), allowed_actions.
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
   cusr task explain "$TASK_ID" --json
+# task show: status, step, wait, pr_ref, version and run_config {status, digest, mode} for mutations.
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
-  cusr task history "$TASK_ID" --after "$EVENT_CURSOR" --limit 100 --json
+  cusr task show "$TASK_ID" --json
+# task list: newest first, 20 per page; items: task_id, project, title, status, activity, pr_ref.
+# Filter with --project/--status; follow next_cursor with --cursor to reach older tasks;
+# --order oldest starts from the first task.
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
-  cusr task logs "$TASK_ID" --after "$LOG_CURSOR" --limit 100 --json
+  cusr task list --project "$PROJECT" --json
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
+  cusr task list --project "$PROJECT" --cursor "$NEXT_CURSOR" --json
+
+# Details only when the question needs them: --full on show/explain/list/history returns the
+# complete reply (evidence with log excerpts, provenance, usage, merge text, event payloads).
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
+  cusr task explain "$TASK_ID" --full --json
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
+  cusr task history "$TASK_ID" --after "$EVENT_CURSOR" --json
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_TOKEN_FILE="${TOKEN_FILE:?}" \
+  cusr task logs "$TASK_ID" --after "$LOG_CURSOR" --json
 
 # Finite --json output: {schema_version, ok, data, error}; check ok and task status.
+# history: 50 events per page (seq/type/revision/actor; --full adds payloads).
+# logs: 20 records per page, strings over 1000 characters cut (--full keeps them); --limit up to 200.
 # List: next_cursor -> --cursor; history/logs: next_cursor -> --after.
 # Event and log cursors are different. Surface missing-log gap records.
 # --follow emits JSONL records, not one result envelope; initial errors can still

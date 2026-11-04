@@ -548,10 +548,14 @@ const TaskListSchema = z
     cursor: UuidSchema.optional(),
     project: z.string().min(1).optional(),
     status: z.enum(TASK_STATUSES).optional(),
+    order: z.enum(['oldest', 'newest']).default('oldest'),
   })
   .strict();
 
-/** `task_list`: pages in task ID order, only tasks of the caller's projects (FR-027.01). */
+/**
+ * `task_list`: pages in task ID order, only tasks of the caller's projects (FR-027.01). IDs are UUIDv7, so
+ * `newest` lists the most recently created first and its cursor moves toward older tasks.
+ */
 export function taskList(
   store: Store,
   caller: Caller,
@@ -559,7 +563,7 @@ export function taskList(
 ): Result<unknown, AppError> {
   const q = TaskListSchema.safeParse(body);
   if (!q.success) return err(invalidQuery('task_list', q.error));
-  const { limit, cursor, project, status } = q.data;
+  const { limit, cursor, project, status, order } = q.data;
   if (project !== undefined) {
     const allowed = authorize(caller, { role: 'read', project });
     if (!allowed.ok)
@@ -571,10 +575,16 @@ export function taskList(
   }
   const items: Record<string, unknown>[] = [];
   let next: string | null = null;
-  for (const id of store.taskIdsByStatus(
+  const ascending = store.taskIdsByStatus(
     status === undefined ? TASK_STATUSES : [status],
-  )) {
-    if (cursor !== undefined && id <= cursor) continue;
+  );
+  const ids = order === 'newest' ? [...ascending].reverse() : ascending;
+  for (const id of ids) {
+    if (
+      cursor !== undefined &&
+      (order === 'newest' ? id >= cursor : id <= cursor)
+    )
+      continue;
     const s = store.readTask(id as Uuid);
     if (s === null) continue;
     if (project !== undefined && s.project !== project) continue;
@@ -589,6 +599,7 @@ export function taskList(
       title: s.task.title,
       status: s.status,
       wait_code: s.wait?.detail.code ?? null,
+      step: s.current_step,
       version: s.version,
       priority: s.task.priority,
       pr_ref: s.pr_ref,

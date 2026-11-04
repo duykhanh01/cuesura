@@ -250,7 +250,7 @@ export abstract class SmokeDriver {
   }
 
   show(id: string): Promise<Record<string, unknown>> {
-    return this.must('task', 'show', id);
+    return this.must('task', 'show', id, '--full');
   }
 
   /** Every accepted event of a task, across pages. */
@@ -261,6 +261,7 @@ export abstract class SmokeDriver {
         'task',
         'history',
         id,
+        '--full',
         ...(all.length === 0 ? [] : ['--after', String(all.at(-1)?.seq)]),
       );
       all.push(...(page['events'] as HistoryEvent[]));

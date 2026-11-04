@@ -248,11 +248,17 @@ describe('commands, envelope and exit codes (US6.1/2, FR-027.01/028)', () => {
     expect(show.envelope.data).toMatchObject({
       task_id: id,
       status: 'READY',
+      details: `cusr task show ${id} --full`,
+    });
+    expect(show.envelope.data).not.toHaveProperty('provenance');
+    const full = await cli(sd, ['task', 'show', id, '--full']);
+    expect(full.envelope.data).toMatchObject({
+      task_id: id,
       provenance: { usage: [], artifacts: [] },
     });
     const version = String(show.envelope.data['version']);
 
-    const why = await cli(sd, ['task', 'explain', id]);
+    const why = await cli(sd, ['task', 'explain', id, '--full']);
     expect(why.envelope.data).toMatchObject({
       task_id: id,
       deadline: { state: 'not_started', remaining_ms: null },
@@ -433,7 +439,7 @@ describe('commands, envelope and exit codes (US6.1/2, FR-027.01/028)', () => {
     const sd = daemon();
     await sd.start();
     const list = await raw(sd, ['task', 'list'], { json: false });
-    expect(list.out).toContain('items:');
+    expect(list.out).toBe('No tasks.\n');
     // eslint-disable-next-line no-control-regex
     expect(list.out + list.err).not.toMatch(/\u001b\[/);
     const req = '0190e9a0-0000-7000-8000-00000000abcf';
@@ -607,7 +613,7 @@ describe('explain from committed data (US6.1/7, FR-027.03–05, FR-029)', () => 
       d.now += 90_000;
     });
     await sd.start();
-    const why = await cli(sd, ['task', 'explain', queued.id]);
+    const why = await cli(sd, ['task', 'explain', queued.id, '--full']);
     expect(why.envelope.data).toMatchObject({
       deadline: { state: 'not_started', at: null },
       slot: {
@@ -617,7 +623,7 @@ describe('explain from committed data (US6.1/7, FR-027.03–05, FR-029)', () => 
         resumed_wait_ms: 0,
       },
     });
-    const running = await cli(sd, ['task', 'explain', holder.id]);
+    const running = await cli(sd, ['task', 'explain', holder.id, '--full']);
     expect(running.envelope.data).toMatchObject({
       deadline: { state: 'running', remaining_ms: 3_600_000 - 90_000 },
       slot: { holding: true, queued: null },
@@ -662,7 +668,7 @@ describe('explain from committed data (US6.1/7, FR-027.03–05, FR-029)', () => 
       });
     const started = await sd.start();
     await sched(started.store).tick();
-    const why = await cli(sd, ['task', 'explain', b.id]);
+    const why = await cli(sd, ['task', 'explain', b.id, '--full']);
     expect(why.envelope.data['prerequisites']).toEqual([
       {
         task_id: a.id,
@@ -677,7 +683,7 @@ describe('explain from committed data (US6.1/7, FR-027.03–05, FR-029)', () => 
     // Durable: the same after a restart.
     await sd.stop();
     await sd.start();
-    const after = await cli(sd, ['task', 'explain', b.id]);
+    const after = await cli(sd, ['task', 'explain', b.id, '--full']);
     expect(after.envelope.data['prerequisites']).toEqual(
       why.envelope.data['prerequisites'],
     );
@@ -688,7 +694,7 @@ describe('explain from committed data (US6.1/7, FR-027.03–05, FR-029)', () => 
     const t = buildTask();
     sd.seed((d) => pausedDrain(d, t));
     await sd.start();
-    const why = await cli(sd, ['task', 'explain', t.id]);
+    const why = await cli(sd, ['task', 'explain', t.id, '--full']);
     expect(why.envelope.data['status']).not.toBe('DONE');
     expect(why.envelope.data).toMatchObject({
       merge_cleanup: {
@@ -726,7 +732,7 @@ describe('explain from committed data (US6.1/7, FR-027.03–05, FR-029)', () => 
     });
     const running = await sd.start();
     expect(running.store.readTask(t.id)?.execution.request).toBeNull();
-    const why = await cli(sd, ['task', 'explain', t.id]);
+    const why = await cli(sd, ['task', 'explain', t.id, '--full']);
     const actions = why.envelope.data['allowed_actions'] as {
       action: string;
       command: string;
@@ -744,7 +750,7 @@ describe('explain from committed data (US6.1/7, FR-027.03–05, FR-029)', () => 
       again.store.readTask(t.id)?.execution.holding ??
         again.store.readTask(t.id)?.execution.request,
     ).not.toBeNull();
-    const after = await cli(sd, ['task', 'explain', t.id]);
+    const after = await cli(sd, ['task', 'explain', t.id, '--full']);
     expect(after.envelope.data['allowed_actions']).not.toEqual(actions);
   });
 
@@ -753,7 +759,7 @@ describe('explain from committed data (US6.1/7, FR-027.03–05, FR-029)', () => 
     const t = buildTask();
     sd.seed((d) => toGreen(d, t, 'direct-pr', {}, { merge_method: 'rebase' }));
     await sd.start();
-    const why = await cli(sd, ['task', 'explain', t.id]);
+    const why = await cli(sd, ['task', 'explain', t.id, '--full']);
     expect(why.envelope.data).toMatchObject({
       wait: { reason: 'approval', detail: { code: 'merge' } },
       merge: { method: 'rebase', observed_method: null },
@@ -1051,7 +1057,7 @@ describe('task recheck end to end (T110, FR-046.01–08)', () => {
       status: 'PENDING',
       wait: { detail: { code: 'capability_missing' } },
     });
-    const why = await cli(sd, ['task', 'explain', id]);
+    const why = await cli(sd, ['task', 'explain', id, '--full']);
     expect(
       (why.envelope.data['allowed_actions'] as { action: string }[]).map(
         (a) => a.action,
@@ -1198,8 +1204,8 @@ describe('logs (T114, US6.2, FR-027.01/031)', () => {
     );
     expect(readdirSync(join(f.run.dir, SPOOL_DIR))).toHaveLength(1);
     await f.sd.start();
-    const first = (await cli(f.sd, ['task', 'logs', f.t.id])).envelope
-      .data as unknown as LogPage;
+    const first = (await cli(f.sd, ['task', 'logs', f.t.id, '--limit', '200']))
+      .envelope.data as unknown as LogPage;
     expect(first.records.map((r) => r.data.i)).toEqual(
       Array.from({ length: 30 }, (_, i) => i),
     );
@@ -1208,9 +1214,31 @@ describe('logs (T114, US6.2, FR-027.01/031)', () => {
     );
     await f.sd.stop();
     await f.sd.start();
-    const after = (await cli(f.sd, ['task', 'logs', f.t.id])).envelope
-      .data as unknown as LogPage;
+    const after = (await cli(f.sd, ['task', 'logs', f.t.id, '--limit', '200']))
+      .envelope.data as unknown as LogPage;
     expect(after.records).toEqual(first.records);
+  });
+
+  it('a snapshot without --limit shows 20 records; next_cursor reaches the rest', async () => {
+    const f = logged();
+    const running = await f.sd.start();
+    f.write(25, 0);
+    f.ingest(running.store);
+    const first = (await cli(f.sd, ['task', 'logs', f.t.id])).envelope
+      .data as unknown as LogPage;
+    expect(first.records.map((r) => r.data.i)).toEqual(
+      Array.from({ length: 20 }, (_, i) => i),
+    );
+    const rest = (
+      await cli(f.sd, [
+        'task',
+        'logs',
+        f.t.id,
+        '--after',
+        String(first.next_cursor),
+      ])
+    ).envelope.data as unknown as LogPage;
+    expect(rest.records.map((r) => r.data.i)).toEqual([20, 21, 22, 23, 24]);
   });
 
   it('a batch whose files are gone is a gap of that size; the cursor moves past it', async () => {
@@ -1219,8 +1247,8 @@ describe('logs (T114, US6.2, FR-027.01/031)', () => {
     f.write(3, 0);
     f.ingest(running.store);
     rmSync(join(f.run.dir, SPOOL_DIR), { recursive: true });
-    const page = (await cli(f.sd, ['task', 'logs', f.t.id])).envelope
-      .data as unknown as LogPage;
+    const page = (await cli(f.sd, ['task', 'logs', f.t.id, '--limit', '200']))
+      .envelope.data as unknown as LogPage;
     expect(page.records).toMatchObject([{ seq: 3, gap: { records: 3 } }]);
     expect(page.next_cursor).toBe(3);
   });
