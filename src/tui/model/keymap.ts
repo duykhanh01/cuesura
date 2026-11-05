@@ -28,6 +28,7 @@ export type Command =
   | 'technical'
   | 'pause'
   | 'follow'
+  | 'toggle_output'
   | 'attempts'
   | 'expand'
   | 'collapse'
@@ -212,6 +213,12 @@ const KEYS: Readonly<Record<Context, readonly Binding[]>> = {
       hint: 'attempt',
       help: 'Choose an attempt to read',
       press: [[c('t'), 'attempts']],
+    },
+    {
+      keys: 'Ctrl-O',
+      hint: 'full output',
+      help: 'Show or hide the whole output of each tool call',
+      press: [[n('ctrl_o'), 'toggle_output']],
     },
   ],
   attempts: [

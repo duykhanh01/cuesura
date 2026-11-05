@@ -265,3 +265,41 @@ describe('the chooser on screen', () => {
     expect(frame.rowBytes(2)).toBe('');
   });
 });
+
+describe('a running task that went quiet', () => {
+  const MINUTE = 60_000;
+  const quiet = (ms: number, status = 'RUNNING', mode: 'live' | 'paused' = 'live') => {
+    const title = uiText('A task');
+    const detail = initialDetail('t1', title, 1);
+    const show = { status, provenance: { usage: [] } } as unknown as TaskShow;
+    const logs = {
+      ...initialLogs('t1', title, 2),
+      mode,
+      filling: false,
+      lastOutputAt: 0,
+      lastReadAt: ms,
+    };
+    const frame = new Frame(120, 10);
+    logsBody({
+      ...initialState({ cols: 120, rows: 40 }),
+      detail: { ...detail, show: { ...detail.show, data: show } },
+      logs,
+    })(frame, 0, 10);
+    return [frame.rowBytes(1), frame.rowBytes(2)].join('\n');
+  };
+
+  it('says nothing for the first minute', () => {
+    expect(quiet(MINUTE - 1)).not.toContain('output');
+  });
+
+  it('says how long, then that it may be stuck', () => {
+    expect(quiet(2 * MINUTE)).toContain('last output 2m 0s ago');
+    expect(quiet(6 * MINUTE)).toContain('No output for 6m 0s: it may be stuck');
+    expect(quiet(6 * MINUTE)).not.toContain('last output');
+  });
+
+  it('says nothing of a task not running, or a log not followed', () => {
+    expect(quiet(6 * MINUTE, 'WAITING')).not.toContain('output');
+    expect(quiet(6 * MINUTE, 'RUNNING', 'paused')).not.toContain('output');
+  });
+});

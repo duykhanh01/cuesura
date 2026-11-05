@@ -22,6 +22,7 @@ export type KeyName =
   | 'backspace'
   | 'delete'
   | 'ctrl_c'
+  | 'ctrl_o'
   | 'ctrl_s';
 
 export type Key =
@@ -61,6 +62,7 @@ const SINGLE: Readonly<Record<string, KeyName>> = {
   '\x7f': 'backspace',
   '\b': 'backspace',
   '\x03': 'ctrl_c',
+  '\x0f': 'ctrl_o',
   '\x13': 'ctrl_s',
 };
 

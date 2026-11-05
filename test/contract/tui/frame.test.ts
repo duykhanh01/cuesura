@@ -61,6 +61,8 @@ describe('cusr at a terminal', () => {
     const s = cusr(sd.dataDir);
     await s.waitForText('▲ 2 need you');
     expect(s.modes()).toEqual(OPEN);
+    // The wheel works, and the mouse stays the terminal's: selecting and copying are left alone.
+    expect(s.rawOutput()).toContain('\x1b[?1007h');
     const top = s.screenText().split('\n')[0];
     expect(top).toContain('daemon: ok');
     expect(top).toContain('slot: free');

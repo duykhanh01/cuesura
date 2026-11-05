@@ -2,7 +2,7 @@
  * Logs: the task's log, live or by attempt (FR-014, EC-011). What the reader is looking at stays while new
  * records come: this only says that they came. Only the rows on screen are worked out, however long the buffer.
  */
-import { activity, todo } from '../model/activity.ts';
+import { activity, duration, todo } from '../model/activity.ts';
 import {
   cursorIndex,
   formatTokens,
@@ -46,7 +46,7 @@ const TONE: Readonly<Record<Tone, { mark: Style; body: Style }>> = {
   tool: { mark: { fg: 'green', bold: true }, body: {} },
   result: { mark: DIM, body: DIM },
   ok: { mark: { fg: 'green' }, body: DIM },
-  error: { mark: { fg: 'red' }, body: { fg: 'red' } },
+  error: { mark: { fg: 'red', bold: true }, body: { fg: 'red' } },
   warn: { mark: { fg: 'yellow', bold: true }, body: { fg: 'yellow' } },
   info: { mark: DIM, body: DIM },
 };
@@ -79,6 +79,20 @@ function drawRow(frame: Frame, x0: number, y: number, row: LogRow, cols: number)
   frame.put(x0 + x, y, truncate(part(x), Math.max(0, cols - x)), tone.body);
 }
 
+const QUIET_MS = 60_000;
+const STUCK_MS = 5 * 60_000;
+
+/**
+ * How long a running task followed live has said nothing, up to the last read, so a screen that lost the daemon
+ * does not count on. Only a log being followed has an answer: a paused one or one attempt stopped reading on.
+ */
+function quietFor(s: LogState, t: TuiState): number | null {
+  const status = t.detail?.explain.data?.status ?? t.detail?.show.data?.status;
+  if (status !== 'RUNNING' || s.mode !== 'live' || s.attemptFilter !== null) return null;
+  if (s.lastOutputAt === null || s.lastReadAt === null) return null;
+  return s.lastReadAt - s.lastOutputAt;
+}
+
 /** What is being read, and which lines when the buffer holds only part of it. */
 function modeLine(s: LogState, t: TuiState): SafeText {
   const parts: SafeText[] = [];
@@ -104,13 +118,20 @@ function modeLine(s: LogState, t: TuiState): SafeText {
           : 'earlier lines: ↑ at the top reads them',
       ),
     );
+  if (s.expanded) parts.push(uiText('full output'));
+  const quiet = quietFor(s, t);
+  if (quiet !== null && quiet >= QUIET_MS && quiet < STUCK_MS)
+    parts.push(uiText(`last output ${duration(quiet) ?? ''} ago`));
   return joinSafe(parts, ' · ');
 }
 
-function newsLine(s: LogState): SafeText {
+function newsLine(s: LogState, t: TuiState): SafeText {
   if (s.error !== null) return joinSafe([uiText('Could not read the log: '), s.error]);
   if (s.newActivity) return uiText('New activity: F follows the log live');
   if (s.filling || s.older !== null) return uiText('Reading…');
+  const quiet = quietFor(s, t);
+  if (quiet !== null && quiet >= STUCK_MS)
+    return uiText(`No output for ${duration(quiet) ?? ''}: it may be stuck`);
   return uiText('');
 }
 
@@ -455,7 +476,7 @@ export const logsBody =
     // Without room for the column of stages, they take the second row and the mode joins the news.
     const narrow = logColumns(cols).pane === 0;
     const stages = narrow ? stagesRow(s) : null;
-    const news = newsLine(logs);
+    const news = newsLine(logs, s);
     if (height > 1) {
       if (stages !== null) putSegs(frame, 1, top + 1, stages, cols - 1);
       else

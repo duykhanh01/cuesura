@@ -30,12 +30,11 @@ function oneLine(text: string, max = 400): string {
   return more > 0 ? `${cut}  (+${more} ${more === 1 ? 'line' : 'lines'})` : cut;
 }
 
-/** The first lines of an output, as a transcript shows them, and how many more there are. */
-function excerpt(text: string, keep = 3): string {
+/** An output without the blank lines around it. How much of it shows is for the screen to say. */
+function trimmed(text: string): string {
   const lines = text.replace(/\s+$/, '').split('\n');
   while (lines.length > 0 && (lines[0] ?? '').trim() === '') lines.shift();
-  if (lines.length <= keep + 1) return lines.join('\n');
-  return `${lines.slice(0, keep).join('\n')}\n… +${lines.length - keep} lines`;
+  return lines.join('\n');
 }
 
 function compact(v: unknown): string {
@@ -201,7 +200,7 @@ function claude(d: Obj): Described[] | null {
             ];
           }
           case 'tool_result': {
-            const text = excerpt(toolResultText(c['content']));
+            const text = trimmed(toolResultText(c['content']));
             if (c['is_error'] === true) return [{ label: 'Error', body: text, tone: 'error' }];
             return [
               {
@@ -258,7 +257,7 @@ function codexItem(item: Obj, done: boolean): Described[] {
       const command = oneLine(str(item['command']) ?? '', 300);
       if (!done) return [{ label: 'Shell', body: command, tone: 'tool' }];
       const code = item['exit_code'];
-      const output = excerpt(str(item['aggregated_output']) ?? '');
+      const output = trimmed(str(item['aggregated_output']) ?? '');
       const failed = typeof code === 'number' && code !== 0;
       const body = failed
         ? `Exit ${code}${output === '' ? '' : `\n${output}`}`

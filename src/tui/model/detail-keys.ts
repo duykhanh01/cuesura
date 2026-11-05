@@ -21,6 +21,7 @@ import {
   logsTop,
   pauseLogs,
   scrollLogs,
+  toggleOutput,
   type LogRequest,
   type LogState,
 } from './logs.ts';
@@ -213,6 +214,8 @@ export function onLogsCommand(state: TuiState, command: Command): Reduced | null
       return put(logs.mode === 'live' ? pauseLogs(logs, cols, height) : followLogs(logs));
     case 'follow':
       return put(followLogs(logs));
+    case 'toggle_output':
+      return put(toggleOutput(logs));
     case 'back':
       // Reading one attempt, back is the chooser it was picked from.
       return logs.attemptFilter === null

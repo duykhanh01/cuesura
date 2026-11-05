@@ -19,6 +19,7 @@ import {
   visibleRows,
   type LogState,
   logColumns,
+  toggleOutput,
 } from '../../../src/tui/model/logs.ts';
 import { sanitize, uiText } from '../../../src/tui/terminal/safe-text.ts';
 
@@ -559,5 +560,73 @@ describe('the columns of Logs', () => {
     expect(logColumns(100)).toEqual({ pane: 30, log: 68 });
     expect(logColumns(119)).toEqual({ pane: 30, log: 87 });
     expect(logColumns(120)).toEqual({ pane: 36, log: 82 });
+  });
+});
+
+describe("what Logs folds, as a coding agent's transcript does", () => {
+  const content = (c: unknown, type = 'assistant'): Rec => ({
+    ...record(1),
+    kind: sanitize('agent'),
+    data: { type, message: { content: [c] } },
+  });
+  const read = (r: Rec, over: Partial<LogState> = {}): LogState => ({
+    ...applyLogPage(start(), forward(0), page([r], 1), 0),
+    ...over,
+  });
+  const body = (s: LogState): string[] =>
+    screenTexts(s).filter((t) => t.trim() !== '' && !t.startsWith('──'));
+  const output = ['one', 'two', 'three', 'four', 'five', 'six', 'seven'].join('\n');
+  const result = (is_error: boolean): Rec =>
+    content({ type: 'tool_result', is_error, content: output }, 'user');
+
+  it('shows a call on one row, and how much of its result it left out', () => {
+    const long = `run ${'x'.repeat(200)}`;
+    const call = { type: 'tool_use', name: 'Bash', input: { command: long } };
+    expect(body(read(content(call)))).toHaveLength(1);
+    expect(body(read(result(false)))).toEqual(['  ⎿  one  +6 lines']);
+  });
+
+  it('shows all of it on asking, and stays on the same record', () => {
+    const shown = toggleOutput(read(result(false)));
+    const whole = visibleRows(shown, COLS, 20).map((r) => r.text.trim().replace('⎿  ', ''));
+    expect(whole.slice(-7)).toEqual(output.split('\n'));
+    const held = toggleOutput({ ...shown, anchor: { seq: 1, row: 3 } });
+    expect(held.expanded).toBe(false);
+    expect(held.anchor).toEqual({ seq: 1, row: 0 });
+  });
+
+  it('never folds an error, and marks it at the margin', () => {
+    const rows = body(read(result(true)));
+    expect(rows[0]).toBe('✗ ⎿  one');
+    expect(rows.at(-1)?.trim()).toBe('… +3 lines');
+    expect(rows).toHaveLength(5);
+  });
+
+  it('keeps what the agent says and plain output whole', () => {
+    const long = 'word '.repeat(60).trim();
+    const said = read(content({ type: 'text', text: long }));
+    expect(body(said).length).toBeGreaterThan(1);
+    expect(body(read(record(1, long))).length).toBeGreaterThan(1);
+  });
+});
+
+describe('when the log last moved', () => {
+  it('counts bookkeeping too, since a heartbeat says the agent is alive', () => {
+    const heartbeat: Rec = {
+      ...record(2),
+      at: sanitize('2026-11-01T10:25:00.000Z'),
+      kind: sanitize('agent'),
+      data: { type: 'tool_progress' },
+    };
+    const s = applyLogPage(start(), forward(0), page([record(1), heartbeat], 2), 0);
+    expect(s.buffer).toHaveLength(1);
+    expect(s.lastOutputAt).toBe(Date.parse('2026-11-01T10:25:00.000Z'));
+  });
+
+  it('does not go back on reading older records', () => {
+    const later = sanitize('2026-11-01T11:00:00.000Z');
+    const s = applyLogPage(start(), forward(0), page([{ ...record(9), at: later }], 9), 0);
+    const again = applyLogPage(s, { kind: 'older', after: 0 }, page([record(1)], 1), 0);
+    expect(again.lastOutputAt).toBe(Date.parse(later));
   });
 });

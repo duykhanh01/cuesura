@@ -54,6 +54,10 @@ describe('KeyDecoder', () => {
     expect(d.feed('A')).toEqual([key('up')]);
   });
 
+  it('reads Ctrl-O as a key, not as text', () => {
+    expect(new KeyDecoder().feed('\x0f')).toEqual([key('ctrl_o')]);
+  });
+
   it('Esc alone waits, and is Esc once flushed', () => {
     const d = new KeyDecoder();
     expect(d.feed('\x1b')).toEqual([]);

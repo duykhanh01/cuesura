@@ -7,7 +7,7 @@
 import { LOG_POLL_INTERVAL_MS } from '../client/refresh.ts';
 import type { TaskLogs } from '../client/schemas.ts';
 import { joinSafe, sanitize, sanitizeLines, uiText, type SafeText } from '../terminal/safe-text.ts';
-import { displayWidth, wrap } from '../terminal/width.ts';
+import { displayWidth, truncate, wrap } from '../terminal/width.ts';
 import { stepWords } from './activity.ts';
 import { describeRecord, type Tone } from './log-text.ts';
 import type { Seg } from '../views/ink.ts';
@@ -104,6 +104,10 @@ export type LogState = {
   readonly complete: boolean;
   readonly error: SafeText | null;
   readonly lastReadAt: number | null;
+  /** When the newest record read was written, bookkeeping too: a heartbeat says it is alive. */
+  readonly lastOutputAt: number | null;
+  /** Tool calls and their output in full; else one row each, as a coding agent's own transcript does. */
+  readonly expanded: boolean;
   /** The attempt chooser is open, its cursor on the row of this key (`attempt-tree.ts`). */
   readonly picker: string | null;
   /** Keys of the chooser's rounds and runs shown unfolded. */
@@ -141,6 +145,8 @@ export function initialLogs(taskId: string, title: SafeText, session: number): L
     complete: false,
     error: null,
     lastReadAt: null,
+    lastOutputAt: null,
+    expanded: false,
     picker: null,
     pickerOpen: [],
   };
@@ -362,6 +368,12 @@ function applyOlder(
   return { ...done, wantOlder: collected.length === 0 && reading.after > 0 };
 }
 
+function newestOutput(known: number | null, page: TaskLogs): number | null {
+  const last = page.records.findLast((r) => !('gap' in r));
+  const at = last === undefined || 'gap' in last ? Number.NaN : Date.parse(last.at);
+  return Number.isNaN(at) ? known : Math.max(known ?? at, at);
+}
+
 /** One answer from the daemon. */
 export function applyLogPage(
   s: LogState,
@@ -369,7 +381,12 @@ export function applyLogPage(
   page: TaskLogs,
   at: number,
 ): LogState {
-  const read: LogState = { ...s, lastReadAt: at, error: null };
+  const read: LogState = {
+    ...s,
+    lastReadAt: at,
+    error: null,
+    lastOutputAt: newestOutput(s.lastOutputAt, page),
+  };
   // Bookkeeping records are left out of the buffer; whether the daemon sent anything is the page's word.
   const entries = page.records.flatMap((r) => toEntry(r) ?? []);
   const sent = page.records.length;
@@ -411,7 +428,33 @@ export type LogRow = {
   readonly segs?: readonly Seg[];
 };
 
-const wrapped = new WeakMap<LogEntry, { cols: number; rows: LogRow[] }>();
+const wrapped = new WeakMap<LogEntry, { cols: number; expanded: boolean; rows: LogRow[] }>();
+
+/** Plain output and what needs reading stay whole: only calls, their results and session notes fold. */
+const folds = (line: LogLine): boolean =>
+  line.tone === 'tool' ||
+  line.tone === 'result' ||
+  line.tone === 'ok' ||
+  (line.tone === 'info' && line.label !== '');
+
+/** The rows of a failed output shown while folded: it needs reading, but must not push the rest away. */
+const ERROR_LINES = 4;
+
+const moreLines = (n: number): string => `+${n} ${n === 1 ? 'line' : 'lines'}`;
+
+function errorText(body: string): string {
+  const lines = body.split('\n');
+  if (lines.length <= ERROR_LINES + 1) return body;
+  return [...lines.slice(0, ERROR_LINES), `… ${moreLines(lines.length - ERROR_LINES)}`].join('\n');
+}
+
+/** The first line of `body` in `room` cells, and how many lines that leaves out. */
+function foldedText(body: string, room: number): SafeText {
+  const lines = body.split('\n');
+  const more = lines.length - 1;
+  const tail = more > 0 ? `  ${moreLines(more)}` : '';
+  return joinSafe([truncate(uiText(lines[0] ?? ''), room - displayWidth(tail)), uiText(tail)]);
+}
 
 /**
  * A record as a coding agent's own transcript shows it: `•` before what the agent says or the tool it calls,
@@ -428,8 +471,9 @@ function shape(line: LogLine): {
     case 'tool':
       return { prefix: '• ', strong: line.label, body: `(${line.body})` };
     case 'result':
-    case 'error':
       return { prefix: '  ⎿  ', strong: '', body: line.body };
+    case 'error':
+      return { prefix: '✗ ⎿  ', strong: '', body: line.body };
     case 'warn':
       return { prefix: '⚠ ', strong: '', body: line.body };
     case 'ok':
@@ -448,9 +492,9 @@ function shape(line: LogLine): {
   }
 }
 
-function textRows(entry: LogEntry, cols: number): LogRow[] {
+function textRows(entry: LogEntry, cols: number, expanded: boolean): LogRow[] {
   const known = wrapped.get(entry);
-  if (known?.cols === cols) return known.rows;
+  if (known?.cols === cols && known.expanded === expanded) return known.rows;
   const kind = entry.gap ? 'gap' : 'record';
   const rows: LogRow[] = [];
   if (entry.gap || cols < 24)
@@ -478,7 +522,18 @@ function textRows(entry: LogEntry, cols: number): LogRow[] {
         continue;
       }
       const first = `${strong}${body}`;
-      wrap(uiText(first), cols - head).forEach((text, r) =>
+      if (!expanded && folds(line)) {
+        rows.push({
+          kind,
+          text: uiText(`${prefix}${foldedText(first, cols - head)}`),
+          tone: line.tone,
+          head,
+          strong: displayWidth(strong),
+        });
+        continue;
+      }
+      const whole = !expanded && line.tone === 'error' ? errorText(first) : first;
+      wrap(uiText(whole), cols - head).forEach((text, r) =>
         rows.push({
           kind,
           text: uiText(`${r === 0 ? prefix : ' '.repeat(head)}${text}`),
@@ -488,7 +543,7 @@ function textRows(entry: LogEntry, cols: number): LogRow[] {
         }),
       );
     }
-  wrapped.set(entry, { cols, rows });
+  wrapped.set(entry, { cols, expanded, rows });
   return rows;
 }
 
@@ -509,9 +564,14 @@ function separator(entry: LogEntry, prev: LogEntry | undefined): SafeText | null
   ]);
 }
 
-function entryRows(entry: LogEntry, prev: LogEntry | undefined, cols: number): LogRow[] {
+function entryRows(
+  entry: LogEntry,
+  prev: LogEntry | undefined,
+  cols: number,
+  expanded: boolean,
+): LogRow[] {
   const sep = separator(entry, prev);
-  const rows = textRows(entry, cols);
+  const rows = textRows(entry, cols, expanded);
   return sep === null ? rows : [{ kind: 'separator', text: sep }, ...rows];
 }
 
@@ -535,7 +595,7 @@ function rowsFrom(
 ): { row: LogRow; index: number; inner: number }[] {
   const out: { row: LogRow; index: number; inner: number }[] = [];
   for (let i = from.index; i < s.buffer.length && out.length < count; i++) {
-    const rows = entryRows(s.buffer[i] as LogEntry, s.buffer[i - 1], cols);
+    const rows = entryRows(s.buffer[i] as LogEntry, s.buffer[i - 1], cols, s.expanded);
     // The place was kept on another width, where this record may have had more rows.
     const first = i === from.index ? Math.min(from.row, rows.length - 1) : 0;
     for (let r = first; r < rows.length; r++) {
@@ -550,7 +610,7 @@ function rowsFrom(
 function lastScreen(s: LogState, cols: number, height: number): { index: number; row: number } {
   let needed = height;
   for (let i = s.buffer.length - 1; i >= 0; i--) {
-    const count = entryRows(s.buffer[i] as LogEntry, s.buffer[i - 1], cols).length;
+    const count = entryRows(s.buffer[i] as LogEntry, s.buffer[i - 1], cols, s.expanded).length;
     if (count >= needed) return { index: i, row: count - needed };
     needed -= count;
   }
@@ -606,7 +666,10 @@ export function scrollLogs(given: LogState, cols: number, height: number, delta:
     };
   }
   let { index, row } = topOf(s, cols, height);
-  row = Math.min(row, entryRows(s.buffer[index] as LogEntry, s.buffer[index - 1], cols).length - 1);
+  row = Math.min(
+    row,
+    entryRows(s.buffer[index] as LogEntry, s.buffer[index - 1], cols, s.expanded).length - 1,
+  );
   let left = -delta;
   while (left > 0) {
     if (row >= left) {
@@ -620,7 +683,8 @@ export function scrollLogs(given: LogState, cols: number, height: number, delta:
       }
       index -= 1;
       left -= 1;
-      row = entryRows(s.buffer[index] as LogEntry, s.buffer[index - 1], cols).length - 1;
+      row =
+        entryRows(s.buffer[index] as LogEntry, s.buffer[index - 1], cols, s.expanded).length - 1;
       if (left === 0) break;
     }
   }
@@ -647,6 +711,13 @@ export function logsEnd(s: LogState, cols: number, height: number): LogState {
     wantForward: s.wantForward || s.moreForward,
   };
 }
+
+/** Rows change under the place being read; the record at the top of the screen stays there. */
+export const toggleOutput = (s: LogState): LogState => ({
+  ...s,
+  expanded: !s.expanded,
+  anchor: s.anchor === null || s.anchor === 'end' ? s.anchor : { ...s.anchor, row: 0 },
+});
 
 export function pauseLogs(s: LogState, cols: number, height: number): LogState {
   if (s.mode === 'paused') return s;
