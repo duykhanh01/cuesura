@@ -255,7 +255,11 @@ describe('FR-007 and EC-005: more tasks need the user than the daemon lists', ()
     const screen = s.screenText();
     expect(screen).toContain('Needs you (1+)');
     expect(rowOf(screen, 'Past the cap')).toContain('→ Answer the question');
-    expect(screen.split('Past the cap')).toHaveLength(2);
+    // Listed once; the footer under the list repeats the selected task's title by design.
+    const listed = screen
+      .split('\n')
+      .filter((l) => l.includes('Past the cap') && !l.trimStart().startsWith('Task '));
+    expect(listed).toHaveLength(1);
     // The only row, so it must not also start a `Tasks` group below.
     expect(screen.split('\n').some((l) => l.trim() === 'Tasks')).toBe(false);
     await quit(s);

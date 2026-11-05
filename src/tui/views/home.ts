@@ -158,30 +158,47 @@ const highlight = (segs: readonly Seg[]): Seg[] =>
     g.style?.fg === 'yellow' || g.style?.fg === 'red' ? g : { ...g, style: SELECTED },
   );
 
+const TITLE_MIN = 14;
+/** Enough for a status and a mode, such as `Cancelled · full-review`. */
+const DOING_MIN = 24;
+
+/**
+ * How the title and the activity share `room`. Each gets its longest text when both fit, so a wide terminal
+ * cuts nothing; short of room the activity gives way first, down to `DOING_MIN`, then the title.
+ */
+export function shareColumns(
+  room: number,
+  want: { readonly title: number; readonly doing: number },
+): { readonly title: number; readonly doing: number } {
+  const title = Math.max(TITLE_MIN, want.title);
+  if (title + want.doing <= room) return { title, doing: room - title };
+  const doing = Math.min(want.doing, Math.max(DOING_MIN, Math.round(room * 0.4)));
+  const cut = Math.max(TITLE_MIN, Math.min(title, room - doing));
+  return { title: cut, doing: Math.max(8, room - cut) };
+}
+
 /** The time column fits the longest time shown, so `unavailable` reads whole and `5s` costs little. */
 function columns(s: TuiState, cols: number, rows: readonly HomeRow[]): Columns {
-  const time = rows.reduce(
-    (n, r) =>
-      r.kind === 'finished_toggle'
-        ? n
-        : Math.max(n, displayWidth(timeInStatus(r.task, s.lastUpdatedAt))),
+  const tasks = rows.filter((r): r is TaskRow => r.kind !== 'finished_toggle');
+  const longest = (width: (r: TaskRow) => number, floor: number): number =>
+    tasks.reduce((n, r) => Math.max(n, width(r)), floor);
+  const time = longest(
+    (r) => displayWidth(timeInStatus(r.task, s.lastUpdatedAt)),
     'In status'.length - 2,
   );
   // Selector and mark, then the gaps between columns and the time at the edge.
   const fixed = TITLE_X + 2 + 2 + DOTS_WIDTH + 2 + 2 + 1 + time;
-  const longest = rows.reduce(
-    (n, r) => (r.kind === 'finished_toggle' ? n : Math.max(n, displayWidth(r.task.project))),
-    7,
-  );
   const room = Math.max(24, cols - fixed);
-  const project = Math.min(longest, 14, Math.floor(room / 5));
-  const title = Math.min(36, Math.max(14, Math.round((room - project) * 0.28)));
-  return {
-    title,
-    project,
-    doing: Math.max(8, room - project - title),
-    time,
-  };
+  const project = Math.min(
+    longest((r) => displayWidth(r.task.project), 7),
+    14,
+    Math.floor(room / 5),
+  );
+  const share = shareColumns(room - project, {
+    title: longest((r) => displayWidth(r.task.title), 0),
+    doing: longest((r) => segsWidth(doingSegs(r)), 0),
+  });
+  return { ...share, project, time };
 }
 
 function joinDot(parts: readonly SafeText[]): SafeText {
@@ -283,12 +300,22 @@ function columnHeads(c: Columns, cols: number): Seg[] {
 }
 
 /** The selected task's stages spelled out, so the dots of every row can be read against them. */
-function selectionStages(s: TuiState, row: HomeRow | undefined): Seg[] | null {
-  if (row === undefined || row.kind === 'finished_toggle') return null;
+function selectionStages(s: TuiState, row: TaskRow): Seg[] | null {
   const stages = rowStages(row.task);
   if (stages === null) return null;
   const path = [ui(' '), ...stepper(stages, row.task.status)];
   return segsWidth(path) + 8 <= s.size.cols ? [ui(' Stages ', DIM), ...path] : path;
+}
+
+/**
+ * Under the list, the selected task in full: its whole title, which a narrow column cuts, and its stages.
+ * Empty on the Finished toggle and on a screen too short to spare the rows.
+ */
+function selectionFooter(s: TuiState, row: HomeRow | undefined, space: number): Seg[][] {
+  if (row === undefined || row.kind === 'finished_toggle' || space <= 7) return [];
+  const stages = selectionStages(s, row);
+  const title = [ui(' Task   ', DIM), ui(' '), seg(row.task.title, BOLD)];
+  return [[ui('─'.repeat(s.size.cols), DIM)], title, ...(stages === null ? [] : [stages])];
 }
 
 function drawList(
@@ -301,12 +328,9 @@ function drawList(
 ): void {
   const cols = s.size.cols;
   const selected = selectedRowIndex(s, rows);
-  const footer = space > 6 ? selectionStages(s, rows[selected]) : null;
-  const height = footer === null ? space : space - 2;
-  if (footer !== null) {
-    putSegs(frame, 0, top + space - 2, [ui('─'.repeat(cols), DIM)], cols);
-    putSegs(frame, 0, top + space - 1, footer, cols);
-  }
+  const footer = selectionFooter(s, rows[selected], space);
+  const height = space - footer.length;
+  footer.forEach((line, i) => putSegs(frame, 0, top + height + i, line, cols));
   const c = columns(s, cols, rows);
   const lines: Line[] = [
     { kind: 'static', segs: columnHeads(c, cols) },
