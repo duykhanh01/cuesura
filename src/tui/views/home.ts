@@ -127,6 +127,9 @@ function listLines(s: TuiState, rows: readonly HomeRow[], cols: number): Line[] 
       });
       return;
     }
+    // A blank line keeps the stage bars of two tasks from joining into columns; a task waiting on the user
+    // is already followed by its detail line.
+    if (lines.at(-1)?.kind === 'task') lines.push(BLANK);
     lines.push({ kind: 'task', row: i, item: row });
     if (actionOf(row) !== null) lines.push({ kind: 'detail', item: row });
   });

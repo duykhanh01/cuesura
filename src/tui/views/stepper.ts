@@ -57,7 +57,8 @@ const DOT_STYLE: Readonly<Record<StageState, (status: TaskStatus) => Style>> = {
 
 /**
  * Terminals draw block elements themselves rather than from the font, so the bar looks the same whatever
- * font the user has. The empty right half of each cell is the gap between stages.
+ * font the user has. The empty right half of each cell is the gap between stages; Home keeps a line between
+ * tasks so the bars of two rows do not join.
  */
 const BAR = '▌';
 
