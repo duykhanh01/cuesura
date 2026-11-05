@@ -6,6 +6,7 @@
  */
 import type { Key, KeyName } from '../terminal/keys.ts';
 import { displayWidth } from '../terminal/width.ts';
+import { logColumns } from './logs.ts';
 import { currentScreen, type TuiState } from './state.ts';
 
 export type Command =
@@ -29,6 +30,9 @@ export type Command =
   | 'pause'
   | 'follow'
   | 'toggle_output'
+  | 'toggle_pane'
+  | 'previous_step'
+  | 'next_step'
   | 'attempts'
   | 'expand'
   | 'collapse'
@@ -209,6 +213,15 @@ const KEYS: Readonly<Record<Context, readonly Binding[]>> = {
       when: (s) => s.logs?.complete !== true || s.logs.attemptFilter !== null,
     },
     {
+      keys: '←→',
+      hint: 'step',
+      help: 'Previous or next step; reading one attempt, the attempt before or after it',
+      press: [
+        [n('left'), 'previous_step'],
+        [n('right'), 'next_step'],
+      ],
+    },
+    {
       keys: 't',
       hint: 'attempt',
       help: 'Choose an attempt to read',
@@ -216,9 +229,16 @@ const KEYS: Readonly<Record<Context, readonly Binding[]>> = {
     },
     {
       keys: 'Ctrl-O',
-      hint: 'full output',
+      hint: 'output',
       help: 'Show or hide the whole output of each tool call',
       press: [[n('ctrl_o'), 'toggle_output']],
+    },
+    {
+      keys: 'p',
+      hint: 'progress',
+      help: 'Hide or show the progress column, to select and copy the log alone',
+      press: [[c('p'), 'toggle_pane']],
+      when: (s) => logColumns(s.size.cols).pane > 0,
     },
   ],
   attempts: [

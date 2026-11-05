@@ -21,6 +21,7 @@ import { progressStages, STAGE_LABEL, stageOf, type StageName } from '../model/s
 import {
   LOG_HEADER_ROWS,
   logColumns,
+  logRows,
   visibleRows,
   type LogRow,
   type LogState,
@@ -127,7 +128,12 @@ function modeLine(s: LogState, t: TuiState): SafeText {
 
 function newsLine(s: LogState, t: TuiState): SafeText {
   if (s.error !== null) return joinSafe([uiText('Could not read the log: '), s.error]);
-  if (s.newActivity) return uiText('New activity: F follows the log live');
+  if (s.newActivity)
+    return uiText(
+      s.attemptFilter === null
+        ? 'New activity: F follows the log live'
+        : 'New activity: → next step, F follows the log live',
+    );
   if (s.filling || s.older !== null) return uiText('Reading…');
   const quiet = quietFor(s, t);
   if (quiet !== null && quiet >= STUCK_MS)
@@ -474,7 +480,7 @@ export const logsBody =
       cols - 1,
     );
     // Without room for the column of stages, they take the second row and the mode joins the news.
-    const narrow = logColumns(cols).pane === 0;
+    const narrow = logColumns(cols, logs.paneHidden).pane === 0;
     const stages = narrow ? stagesRow(s) : null;
     const news = newsLine(logs, s);
     if (height > 1) {
@@ -500,14 +506,14 @@ export const logsBody =
     const listTop = top + LOG_HEADER_ROWS;
     const room = height - LOG_HEADER_ROWS;
     if (room <= 0) return;
-    const { pane, log } = logColumns(cols);
+    const { pane, log } = logColumns(cols, logs.paneHidden);
     const x = pane === 0 ? 0 : pane + 2;
     if (pane > 0) {
       progressPane(frame, s, listTop, room, pane);
       for (let y = listTop; y < listTop + room; y++) frame.put(pane, y, uiText('│'), DIM);
     }
     if (logs.picker !== null) {
-      pickerList(frame, s, logs, x, listTop, room, log);
+      pickerList(frame, s, logs, x, listTop, logRows(height), log);
       return;
     }
     if (logs.buffer.length === 0 && !logs.filling && logs.lastReadAt !== null) {
@@ -515,5 +521,7 @@ export const logsBody =
       return;
     }
     // Scrolling counts rows wrapped at this same width (`logColumns`), so the place kept is the place shown.
-    visibleRows(logs, log, room).forEach((row, i) => drawRow(frame, x, listTop + i, row, log));
+    visibleRows(logs, log, logRows(height)).forEach((row, i) =>
+      drawRow(frame, x, listTop + i, row, log),
+    );
   };

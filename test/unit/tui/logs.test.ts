@@ -10,6 +10,7 @@ import {
   LOG_BUFFER_RECORDS,
   LOG_PAGE_RECORDS,
   logDue,
+  jumpStep,
   logsEnd,
   logsTop,
   pauseLogs,
@@ -20,6 +21,7 @@ import {
   type LogState,
   logColumns,
   toggleOutput,
+  togglePane,
 } from '../../../src/tui/model/logs.ts';
 import { sanitize, uiText } from '../../../src/tui/terminal/safe-text.ts';
 
@@ -264,6 +266,96 @@ describe('live, paused and an attempt (data-model.md)', () => {
     expect(s.error).toBe('gone');
     expect(logDue(s, 1_500)).toBeNull();
     expect(logDue(s, 2_000)).toEqual(forward(3));
+  });
+});
+
+describe('moving between steps', () => {
+  const rec = (seq: number, step: string): Rec => record(seq, `line ${seq}`, ATTEMPT, step);
+  const steps = ['code', 'code', 'gates', 'gates', 'review', 'review'];
+  const WIDE = { cols: COLS, height: 3 };
+  const go = (s: LogState, direction: 1 | -1): LogState =>
+    jumpStep(s, WIDE.cols, WIDE.height, direction);
+  const read = (over: Partial<LogState> = {}): LogState => ({
+    ...applyLogPage(
+      start(),
+      forward(0),
+      page(
+        steps.map((st, i) => rec(i + 1, st)),
+        6,
+      ),
+      0,
+    ),
+    ...over,
+  });
+  const topSeq = (s: LogState): number | undefined =>
+    s.anchor !== null && s.anchor !== 'end' ? s.anchor.seq : undefined;
+  const atRecord = (seq: number): LogState => read({ mode: 'paused', anchor: { seq, row: 0 } });
+
+  it('goes forward to the start of the next step', () => {
+    expect(topSeq(go(atRecord(1), 1))).toBe(3);
+    expect(topSeq(go(atRecord(3), 1))).toBe(5);
+  });
+
+  it('goes back to the start of this step, then of the one before', () => {
+    expect(topSeq(go(atRecord(4), -1))).toBe(3);
+    expect(topSeq(go(atRecord(3), -1))).toBe(1);
+  });
+
+  it('holds the place it reaches, so what arrives does not move it', () => {
+    const live = read();
+    const back = go(live, -1);
+    expect(back.mode).toBe('paused');
+    expect(back.scrolledAway).toBe(true);
+  });
+
+  it('follows again past the last step, unless a pause was asked for', () => {
+    const away = { ...atRecord(5), scrolledAway: true };
+    expect(go(away, 1).mode).toBe('live');
+    expect(go(atRecord(5), 1).mode).toBe('paused');
+  });
+
+  it('reads back what left the buffer before the first step', () => {
+    const back = go({ ...atRecord(2), windowStart: 300 }, -1);
+    expect(topSeq(back)).toBe(1);
+    expect(back.wantOlder).toBe(true);
+    expect(go(atRecord(1), -1).wantOlder).toBe(false);
+  });
+});
+
+describe('coming back to the end of the log', () => {
+  const read = (): LogState =>
+    applyLogPage(
+      start(),
+      forward(0),
+      page(
+        Array.from({ length: 40 }, (_, i) => record(i + 1)),
+        40,
+      ),
+      0,
+    );
+
+  it('follows again after scrolling away, by scrolling down or by the end key', () => {
+    const away = scrollLogs(read(), COLS, HEIGHT, -3);
+    expect(away.mode).toBe('paused');
+    expect(scrollLogs(away, COLS, HEIGHT, 1).mode).toBe('paused');
+    expect(scrollLogs(away, COLS, HEIGHT, 3).mode).toBe('live');
+    expect(logsEnd(away, COLS, HEIGHT).mode).toBe('live');
+  });
+
+  it('keeps a pause that was asked for', () => {
+    const paused = scrollLogs(pauseLogs(read(), COLS, HEIGHT), COLS, HEIGHT, -3);
+    expect(scrollLogs(paused, COLS, HEIGHT, 3).mode).toBe('paused');
+    expect(logsEnd(paused, COLS, HEIGHT).mode).toBe('paused');
+  });
+
+  it('stays on one attempt being read', () => {
+    const away = { ...scrollLogs(read(), COLS, HEIGHT, -3), attemptFilter: ATTEMPT };
+    expect(logsEnd(away, COLS, HEIGHT).mode).toBe('paused');
+  });
+
+  it('does not follow past records that are not read yet', () => {
+    const away = { ...scrollLogs(read(), COLS, HEIGHT, -3), moreForward: true };
+    expect(logsEnd(away, COLS, HEIGHT).mode).toBe('paused');
   });
 });
 
@@ -560,6 +652,13 @@ describe('the columns of Logs', () => {
     expect(logColumns(100)).toEqual({ pane: 30, log: 68 });
     expect(logColumns(119)).toEqual({ pane: 30, log: 87 });
     expect(logColumns(120)).toEqual({ pane: 36, log: 82 });
+  });
+
+  it('gives the log the whole width on asking, and stays on the same record', () => {
+    expect(logColumns(140, true)).toEqual({ pane: 0, log: 140 });
+    const held = togglePane({ ...start(), anchor: { seq: 7, row: 3 } });
+    expect(held.paneHidden).toBe(true);
+    expect(held.anchor).toEqual({ seq: 7, row: 0 });
   });
 });
 

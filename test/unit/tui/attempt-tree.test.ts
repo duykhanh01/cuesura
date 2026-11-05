@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { TaskShow } from '../../../src/tui/client/schemas.ts';
+import type { TaskLogs, TaskShow } from '../../../src/tui/client/schemas.ts';
 import {
   attemptGroups,
   attemptKey,
@@ -11,7 +11,7 @@ import {
 import { initialDetail } from '../../../src/tui/model/detail.ts';
 import { onLogsCommand } from '../../../src/tui/model/detail-keys.ts';
 import type { Command } from '../../../src/tui/model/keymap.ts';
-import { initialLogs } from '../../../src/tui/model/logs.ts';
+import { applyLogPage, initialLogs, logRows } from '../../../src/tui/model/logs.ts';
 import { initialState, type TuiState } from '../../../src/tui/model/state.ts';
 import { sanitize, uiText } from '../../../src/tui/terminal/safe-text.ts';
 import { Frame } from '../../../src/tui/terminal/screen.ts';
@@ -176,6 +176,17 @@ describe('going back between the log, the chooser and an attempt', () => {
     expect(back.screens.at(-1)).toBe('logs');
   });
 
+  it('→ and ← go through the attempts, and after the last one to the whole log', () => {
+    const first = run(state(), 'attempts', 'end', 'up', 'open');
+    expect(first.logs?.attemptFilter).toBe('attempt-1');
+    expect(run(first, 'next_step').logs?.attemptFilter).toBe('attempt-2');
+    expect(run(first, 'previous_step').logs?.attemptFilter).toBe('attempt-0');
+
+    const last = run(first, 'next_step', 'next_step');
+    expect(last.logs?.attemptFilter).toBeNull();
+    expect(last.logs?.mode).toBe('live');
+  });
+
   it('Esc from the whole log leaves the task', () => {
     expect(run(state(), 'back').logs).toBeNull();
   });
@@ -245,8 +256,8 @@ describe('the chooser on screen', () => {
   });
 
   it('keeps every row in reach when the list only just fits', () => {
-    // Header, whole log, the empty row, Build, two rounds and the two attempts of the open one.
-    expect(at(drawn(3 + 7, steps), 'Fix review')).toBeGreaterThan(0);
+    // Header, whole log, the empty row, Build, two rounds, the two attempts of the open one, the foot.
+    expect(at(drawn(3 + 7 + 1, steps), 'Fix review')).toBeGreaterThan(0);
   });
 
   it('marks only the open round in bold', () => {
@@ -301,5 +312,48 @@ describe('a running task that went quiet', () => {
   it('says nothing of a task not running, or a log not followed', () => {
     expect(quiet(6 * MINUTE, 'WAITING')).not.toContain('output');
     expect(quiet(6 * MINUTE, 'RUNNING', 'paused')).not.toContain('output');
+  });
+});
+
+describe('the progress column hidden', () => {
+  it('leaves the log the first column, so a selection takes nothing else', () => {
+    const title = uiText('A task');
+    const rows = (paneHidden: boolean) => {
+      const record = { ...initialLogs('t1', title, 2), filling: false, paneHidden };
+      const frame = new Frame(120, 8);
+      logsBody({ ...initialState({ cols: 120, rows: 40 }), logs: record })(frame, 0, 8);
+      return Array.from({ length: 8 }, (_, y) => frame.rowBytes(y)).join('\n');
+    };
+    expect(rows(false)).toContain('│');
+    expect(rows(true)).not.toContain('│');
+    expect(rows(true)).not.toContain('Progress');
+  });
+});
+
+describe('the end of the log on screen', () => {
+  it('leaves an empty row above the key bar, and the scrolling counts it', () => {
+    const records = Array.from({ length: 40 }, (_, i) => ({
+      seq: i + 1,
+      cursor: i + 1,
+      operation_id: 'op',
+      attempt_id: null,
+      step: null,
+      at: sanitize('2026-11-01T10:20:30.000Z'),
+      kind: sanitize('stdout'),
+      data: `line ${i + 1}`,
+    }));
+    const start = { ...initialLogs('t1', uiText('A task'), 2), tailing: false, paneHidden: true };
+    const page = {
+      task_id: 't1',
+      records,
+      next_cursor: 40,
+      complete: false,
+    } as unknown as TaskLogs;
+    const logs = applyLogPage(start, { kind: 'forward', after: 0 }, page, 0);
+    const frame = new Frame(120, 12);
+    logsBody({ ...initialState({ cols: 120, rows: 40 }), logs })(frame, 0, 12);
+    expect(frame.rowBytes(10)).toContain('line 40');
+    expect(frame.rowBytes(11)).toBe('');
+    expect(logRows(12)).toBe(8);
   });
 });

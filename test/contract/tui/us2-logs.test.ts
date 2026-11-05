@@ -194,6 +194,11 @@ describe('US2 scenario 4: following a log', () => {
     feed.write(live(sd), t.id, '', SETUP, 'setup', ['line 61']);
     await s.waitForText('New activity', 4_000);
     expect(logColumn(s.screenText())).toBe(held);
+
+    // Back at the end, nothing is left to hold: it follows again and what came meanwhile shows.
+    s.send(KEY.pageDown);
+    await s.waitForText('Live · whole log');
+    await s.waitForText('line 61', 3_000);
     await quit(s);
   });
 

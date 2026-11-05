@@ -25,17 +25,23 @@ const PROGRESS_PANE_WIDE = 36;
 const WIDE_FROM = 120;
 
 /** Columns of the log: what is left of the terminal beside the progress column and its rule. */
-export function logColumns(cols: number): {
+export function logColumns(
+  cols: number,
+  paneHidden = false,
+): {
   readonly pane: number;
   readonly log: number;
 } {
-  if (cols < TWO_COLUMNS_FROM) return { pane: 0, log: cols };
+  if (paneHidden || cols < TWO_COLUMNS_FROM) return { pane: 0, log: cols };
   const pane = cols >= WIDE_FROM ? PROGRESS_PANE_WIDE : PROGRESS_PANE;
   return { pane, log: cols - pane - 2 };
 }
 
 /** Title, what is being followed, and one row for news. */
 export const LOG_HEADER_ROWS = 3;
+
+/** Rows of log in a body `height` rows high: the last one stays empty, to set the log off from the key bar. */
+export const logRows = (height: number): number => Math.max(1, height - LOG_HEADER_ROWS - 1);
 /** A record can be 256 KiB on one line; drawing that on every frame would hold the keys up (EC-011). */
 const LOG_TEXT_CHARS = 16 * 1024;
 const ENTRY_OVERHEAD_BYTES = 128;
@@ -77,6 +83,8 @@ export type LogState = {
   /** Bumped when what is being read changes, so an answer to the former question is not taken for this one. */
   readonly generation: number;
   readonly mode: 'live' | 'paused';
+  /** Paused by scrolling up rather than on asking: coming back to the end follows again, as a chat does. */
+  readonly scrolledAway: boolean;
   readonly attemptFilter: string | null;
   readonly buffer: readonly LogEntry[];
   readonly bufferBytes: number;
@@ -108,6 +116,8 @@ export type LogState = {
   readonly lastOutputAt: number | null;
   /** Tool calls and their output in full; else one row each, as a coding agent's own transcript does. */
   readonly expanded: boolean;
+  /** The log has the whole width: a terminal selects across columns, so this is how to copy it alone. */
+  readonly paneHidden: boolean;
   /** The attempt chooser is open, its cursor on the row of this key (`attempt-tree.ts`). */
   readonly picker: string | null;
   /** Keys of the chooser's rounds and runs shown unfolded. */
@@ -127,6 +137,7 @@ export function initialLogs(taskId: string, title: SafeText, session: number): L
     session,
     generation: 0,
     mode: 'live',
+    scrolledAway: false,
     attemptFilter: null,
     buffer: [],
     bufferBytes: 0,
@@ -147,6 +158,7 @@ export function initialLogs(taskId: string, title: SafeText, session: number): L
     lastReadAt: null,
     lastOutputAt: null,
     expanded: false,
+    paneHidden: false,
     picker: null,
     pickerOpen: [],
   };
@@ -649,15 +661,18 @@ export function scrollLogs(given: LogState, cols: number, height: number, delta:
       ? {
           ...given,
           mode: 'paused',
+          scrolledAway: given.mode === 'live' || given.scrolledAway,
           anchor: anchored(given, lastScreen(given, cols, height)),
         }
       : given;
   if (delta >= 0) {
-    const rows = rowsFrom(s, topOf(s, cols, height), cols, delta + height);
+    // One row past the move, to tell the last screen from a screen that only reads as far as was asked.
+    const rows = rowsFrom(s, topOf(s, cols, height), cols, delta + height + 1);
     const room = Math.max(0, rows.length - height);
     const go = Math.min(delta, room);
     const target = rows[go];
     const atEnd = delta > room && s.moreForward;
+    if (rows.length <= go + height && backToEnd(s)) return followLogs(s);
     return {
       ...s,
       wantForward: s.wantForward || atEnd,
@@ -695,6 +710,10 @@ export function scrollLogs(given: LogState, cols: number, height: number, delta:
   };
 }
 
+/** Back at the end of everything read, having only scrolled away: nothing says to stay there. */
+const backToEnd = (s: LogState): boolean =>
+  s.scrolledAway && !s.moreForward && s.attemptFilter === null;
+
 /** The top of what the buffer holds; from there what left it is one `↑` away. */
 export const logsTop = (s: LogState): LogState => ({
   ...s,
@@ -702,9 +721,10 @@ export const logsTop = (s: LogState): LogState => ({
   anchor: null,
 });
 
-/** The end of what the buffer holds; following the log is another key, `F`. */
+/** The end of what the buffer holds. A pause asked for stays: following is then another key, `F`. */
 export function logsEnd(s: LogState, cols: number, height: number): LogState {
   if (s.mode === 'live' || s.buffer.length === 0) return s;
+  if (backToEnd(s)) return followLogs(s);
   return {
     ...s,
     anchor: anchored(s, lastScreen(s, cols, height)),
@@ -713,11 +733,59 @@ export function logsEnd(s: LogState, cols: number, height: number): LogState {
 }
 
 /** Rows change under the place being read; the record at the top of the screen stays there. */
+const recordTop = (s: LogState): LogState['anchor'] =>
+  s.anchor === null || s.anchor === 'end' ? s.anchor : { ...s.anchor, row: 0 };
+
 export const toggleOutput = (s: LogState): LogState => ({
   ...s,
   expanded: !s.expanded,
-  anchor: s.anchor === null || s.anchor === 'end' ? s.anchor : { ...s.anchor, row: 0 },
+  anchor: recordTop(s),
 });
+
+export const togglePane = (s: LogState): LogState => ({
+  ...s,
+  paneHidden: !s.paneHidden,
+  anchor: recordTop(s),
+});
+
+const sameStep = (a: LogEntry, b: LogEntry): boolean =>
+  a.step === b.step && a.attemptId === b.attemptId;
+
+/** Where the step of the record at `index` starts, as far as the buffer holds it. */
+function stepStart(buffer: readonly LogEntry[], index: number): number {
+  let i = index;
+  while (i > 0 && sameStep(buffer[i - 1] as LogEntry, buffer[i] as LogEntry)) i -= 1;
+  return i;
+}
+
+/**
+ * The start of the next or the previous step of the whole log. Past the last one is the end, which follows
+ * again if only scrolling left it; before the first one, what left the buffer is read back.
+ */
+export function jumpStep(s: LogState, cols: number, height: number, direction: 1 | -1): LogState {
+  if (s.buffer.length === 0) return s;
+  const { index, row } = topOf(s, cols, height);
+  let target: number;
+  if (direction > 0) {
+    const from = s.buffer[index] as LogEntry;
+    target = s.buffer.findIndex((e, i) => i > index && !sameStep(e, from));
+    if (target < 0) return logsEnd(s, cols, height);
+  } else {
+    const start = stepStart(s.buffer, index);
+    const inside = start < index || row > 0;
+    if (!inside && start === 0 && s.windowStart === 0) return s;
+    target = inside ? start : stepStart(s.buffer, Math.max(0, start - 1));
+  }
+  const at = anchored(s, { index: target, row: 0 });
+  const stillBefore = direction < 0 && target === 0 && s.windowStart > 0;
+  return {
+    ...s,
+    mode: 'paused',
+    scrolledAway: s.mode === 'live' || s.scrolledAway,
+    anchor: at,
+    wantOlder: s.wantOlder || stillBefore,
+  };
+}
 
 export function pauseLogs(s: LogState, cols: number, height: number): LogState {
   if (s.mode === 'paused') return s;
@@ -735,6 +803,7 @@ export function followLogs(s: LogState): LogState {
     // A read on its way asked for something else: an old page or "anything new?" is no answer now.
     generation: s.generation + 1,
     mode: 'live',
+    scrolledAway: false,
     newActivity: false,
     anchor: null,
     wantForward: false,
@@ -766,6 +835,7 @@ export function filterAttempt(s: LogState, attemptId: string): LogState {
     ...s,
     generation: s.generation + 1,
     mode: 'paused',
+    scrolledAway: false,
     attemptFilter: attemptId,
     buffer: [],
     bufferBytes: 0,

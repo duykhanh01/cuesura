@@ -53,7 +53,14 @@ Lời gọi tool, kết quả và ghi chú phiên mặc định gọn một dòn
 báo và output thường luôn đầy đủ; dòng lỗi có dấu `✗` ở lề trái. Task đang chạy mà im từ 1 phút ghi `last output … ago`,
 từ 5 phút báo `No output for …: it may be stuck`.
 
-Giao diện không bắt chuột, nên bôi đen và copy vẫn do terminal xử lý. Con lăn đi qua chế độ alternate scroll (DECSET 1007):
+`←` và `→` tới đầu bước trước hoặc sau của log; đang đọc một attempt thì sang attempt liền kề, sau attempt cuối là toàn bộ log.
+Giao diện không tự chuyển bước khi người dùng đang đọc.
+
+Cuộn lên làm log tạm dừng; cuộn về cuối hoặc `G` thì tự theo dõi tiếp. Tạm dừng bằng `Space` hay đang đọc một attempt thì giữ
+nguyên cho tới khi bấm `F`.
+
+Giao diện không bắt chuột, nên bôi đen và copy vẫn do terminal xử lý. `p` ẩn hoặc hiện cột tiến trình để log chiếm hết chiều
+rộng, vì bôi đen của terminal đi xuyên các cột. Con lăn đi qua chế độ alternate scroll (DECSET 1007):
 terminal hỗ trợ sẽ gửi phím mũi tên.
 Danh sách chọn attempt gom theo giai đoạn: Build, mỗi lượt review mở một `Round N` cùng các lượt fix
 nó yêu cầu, rồi CI và merge, theo thứ tự attempt bắt đầu; một step chạy liền nhiều lần gộp thành một dòng

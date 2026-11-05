@@ -17,16 +17,20 @@ import {
   initialLogs,
   LOG_HEADER_ROWS,
   logColumns,
+  logRows,
   logsEnd,
+  jumpStep,
   logsTop,
   pauseLogs,
   scrollLogs,
   toggleOutput,
+  togglePane,
   type LogRequest,
   type LogState,
 } from './logs.ts';
 import {
   attemptGroups,
+  groupAttempts,
   cursorIndex,
   pickerStart,
   treeRows,
@@ -185,6 +189,20 @@ function onPickerCommand(state: TuiState, logs: LogState, command: Command): Red
 }
 
 /** Opens the chooser on the attempt being read, or on its first row. */
+/** The attempt beside the one being read. After the last one comes the whole log, followed live. */
+function neighbourAttempt(state: TuiState, logs: LogState, direction: 1 | -1): Reduced {
+  const ids = pickerGroups(state)
+    .flatMap(groupAttempts)
+    .map((a) => a.id);
+  const at = ids.indexOf(logs.attemptFilter ?? '');
+  const next = at < 0 ? undefined : ids[at + direction];
+  if (next === undefined && direction < 0) return { state, effects: [] };
+  return {
+    state: { ...state, logs: next === undefined ? followLogs(logs) : filterAttempt(logs, next) },
+    effects: READ,
+  };
+}
+
 function openPicker(state: TuiState, logs: LogState): Reduced {
   const start = pickerStart(pickerGroups(state), logs.attemptFilter);
   // The list of attempts may have grown since Task detail last read it.
@@ -203,8 +221,8 @@ export function onLogsCommand(state: TuiState, command: Command): Reduced | null
   const logs = state.logs;
   if (logs === null) return null;
   if (logs.picker !== null) return onPickerCommand(state, logs, command);
-  const cols = logColumns(state.size.cols).log;
-  const height = Math.max(1, contentHeight(state) - LOG_HEADER_ROWS);
+  const cols = logColumns(state.size.cols, logs.paneHidden).log;
+  const height = logRows(contentHeight(state));
   const put = (next: LogState): Reduced => ({
     state: { ...state, logs: next },
     effects: next.wantOlder || next.wantForward || next.mode !== logs.mode ? READ : [],
@@ -216,6 +234,14 @@ export function onLogsCommand(state: TuiState, command: Command): Reduced | null
       return put(followLogs(logs));
     case 'toggle_output':
       return put(toggleOutput(logs));
+    case 'toggle_pane':
+      return put(togglePane(logs));
+    case 'previous_step':
+    case 'next_step': {
+      const direction = command === 'next_step' ? 1 : -1;
+      if (logs.attemptFilter === null) return put(jumpStep(logs, cols, height, direction));
+      return neighbourAttempt(state, logs, direction);
+    }
     case 'back':
       // Reading one attempt, back is the chooser it was picked from.
       return logs.attemptFilter === null
