@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import type { TaskShow } from '../../../src/tui/client/schemas.ts';
-import { initialDetail } from '../../../src/tui/model/detail.ts';
+import type { TaskHistory, TaskShow } from '../../../src/tui/client/schemas.ts';
+import { ending, initialDetail, onDetailRead } from '../../../src/tui/model/detail.ts';
 import { reduce } from '../../../src/tui/model/reduce.ts';
 import { animating, initialState, type TuiState } from '../../../src/tui/model/state.ts';
 import { progressStages, rowStages } from '../../../src/tui/model/stages.ts';
 import { uiText } from '../../../src/tui/terminal/safe-text.ts';
 import { plain } from '../../../src/tui/views/ink.ts';
 import { markdownRows } from '../../../src/tui/views/markdown.ts';
-import { dots, stepper } from '../../../src/tui/views/stepper.ts';
+import { dots, endBadge, stepper } from '../../../src/tui/views/stepper.ts';
 
 type Step = Parameters<typeof progressStages>[0][number];
 const step = (name: string, state: Step['state'], visits = 1): Step => ({
@@ -15,6 +15,9 @@ const step = (name: string, state: Step['state'], visits = 1): Step => ({
   state,
   visits,
 });
+
+/** The path as read, with the no-break spaces that keep a stage whole made plain. */
+const spaced = (segs: Parameters<typeof plain>[0]): string => plain(segs).replaceAll('\u00a0', ' ');
 
 describe('stages', () => {
   it('folds fix steps into their stage and counts how often the stage ran', () => {
@@ -82,6 +85,97 @@ describe('stages', () => {
       mode: 'full-review',
     });
     expect(stages?.find((s) => s.name === 'ci')?.state).toBe('failed');
+  });
+
+  it('a cancelled task stops at its stage: no stage after it reads as still to come', () => {
+    const stages = progressStages(
+      [
+        step('triage', 'past'),
+        step('prepare', 'past'),
+        step('code', 'current'),
+        step('gates', 'remaining', 0),
+      ],
+      'CANCELLED',
+    );
+    expect(stages?.map((st) => st.state)).toEqual([
+      'done',
+      'done',
+      'stopped',
+      'abandoned',
+      'skipped',
+      'skipped',
+      'skipped',
+      'skipped',
+    ]);
+    const row = rowStages({ status: 'CANCELLED', step: 'code', mode: 'full-review' });
+    expect(row?.slice(2, 4).map((st) => st.state)).toEqual(['stopped', 'abandoned']);
+    const path = spaced(stepper(stages ?? [], 'CANCELLED'));
+    expect(path).toContain('code cancelled ■');
+    expect(path).toContain('gates ·');
+    expect(path).not.toContain('○');
+  });
+
+  it('tells a pause, a failure and a cancellation apart by mark and word, not by colour alone', () => {
+    const at = (status: 'WAITING' | 'FAILED' | 'CANCELLED'): string =>
+      spaced(stepper(rowStages({ status, step: 'ci', mode: 'full-review' }) ?? [], status));
+    expect(at('WAITING')).toContain('CI waiting ‖');
+    expect(at('FAILED')).toContain('CI failed ✕');
+    expect(at('CANCELLED')).toContain('CI cancelled ■');
+    expect(at('FAILED')).toContain('merge ·');
+    expect(at('WAITING')).toContain('merge ○');
+    expect(endBadge('CANCELLED')?.text).toBe('■ CANCELLED');
+    expect(endBadge('FAILED')?.text).toBe('✕ FAILED');
+    expect(endBadge('WAITING')).toBeNull();
+  });
+
+  it('on Home the bars stop where the task ended', () => {
+    const stages = rowStages({ status: 'CANCELLED', step: 'code', mode: 'full-review' }) ?? [];
+    const bars = dots(stages, 'CANCELLED');
+    expect(plain(bars)).toBe('▌▌▌     ');
+    expect(bars[2]?.style).toEqual({ fg: 'orange' });
+    expect(plain(dots(stages, 'CANCELLED', false))).toBe('●●■·····');
+  });
+
+  it('says who ended a task and why, from the event that ended it', () => {
+    const d = initialDetail('t', uiText('T'), 1);
+    const events = [
+      {
+        seq: 1,
+        type: 'TaskCreated',
+        revision: 1,
+        actor: 'owner',
+        payload: { reason: 'not this one' },
+      },
+      {
+        seq: 2,
+        type: 'TaskCancelled',
+        revision: 2,
+        actor: 'assistant',
+        payload: { reason: 'superseded' },
+      },
+    ];
+    const s = onDetailRead(
+      { ...initialState({ cols: 100, rows: 30 }), detail: d },
+      {
+        type: 'detail_read',
+        taskId: 't',
+        session: 1,
+        askedAt: 1,
+        at: 1,
+        watermark: null,
+        version: 2,
+        part: 'history',
+        result: {
+          ok: true,
+          value: { task_id: 't', events, next_cursor: 2, more: false } as unknown as TaskHistory,
+        },
+      },
+    );
+    expect(s.detail === null ? null : ending(s.detail)).toEqual({
+      actor: 'assistant',
+      reason: 'superseded',
+    });
+    expect(ending(d)).toBeNull();
   });
 
   it('draws one bar per stage and gives each state its own colour', () => {

@@ -6,7 +6,7 @@
  */
 import type { TaskStatus } from '../../domain/state.ts';
 import { activity, statusMark, todo } from '../model/activity.ts';
-import type { TaskDetail } from '../model/detail.ts';
+import { ending, type TaskDetail } from '../model/detail.ts';
 import { shortAttempt } from '../model/logs.ts';
 import { progressStages } from '../model/stages.ts';
 import type { TuiState } from '../model/state.ts';
@@ -16,7 +16,7 @@ import type { Style } from '../terminal/screen.ts';
 import { displayWidth } from '../terminal/width.ts';
 import { clockTime, type Body } from './layout.ts';
 import { BOLD, DIM, putSegs, ruleHeading, seg, ui, wrapSegs, type Seg } from './ink.ts';
-import { stepper } from './stepper.ts';
+import { endBadge, stepper } from './stepper.ts';
 
 const WARN: Style = { fg: 'yellow', bold: true };
 const GOOD: Style = { fg: 'green' };
@@ -164,7 +164,13 @@ function progressRows(out: Rows, d: TaskDetail): void {
       mode: progress.mode,
       needs_user: progress.needs_user,
     };
-    out.field('Now', [seg(activity(row), BOLD)]);
+    const over = endBadge(explain.status) !== null;
+    const end = over ? ending(d) : null;
+    out.field(over ? 'Ended' : 'Now', [
+      seg(activity(row), BOLD),
+      ...(end === null ? [] : [ui(' by ', DIM), seg(end.actor)]),
+    ]);
+    if (end !== null && end.reason !== null) out.field('Reason', [seg(end.reason)]);
     const action = todo(row);
     if (action !== null)
       out.field('Needs you', [seg(joinSafe([uiText('→ '), action]), WARN)], WARN);

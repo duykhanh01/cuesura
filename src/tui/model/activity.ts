@@ -228,8 +228,8 @@ const MARKS: Readonly<Record<TaskStatus, { mark: string; color: Color | undefine
   RUNNING: { mark: '▶', color: 'cyan' },
   WAITING: { mark: '‖', color: 'yellow' },
   DONE: { mark: '✓', color: 'green' },
-  FAILED: { mark: '✗', color: 'red' },
-  CANCELLED: { mark: '–', color: undefined },
+  FAILED: { mark: '✕', color: 'red' },
+  CANCELLED: { mark: '■', color: 'orange' },
 };
 
 /** The status's mark alone, for a row whose words already say what it is doing. */

@@ -86,8 +86,12 @@ export type LogState = {
   /** While an attempt is being read: where following the whole log goes on from. */
   readonly resumeCursor: number | null;
   readonly newActivity: boolean;
-  /** The first row on screen while paused; `null` is the top of the buffer. */
-  readonly anchor: { readonly seq: number; readonly row: number } | null;
+  /** The first row on screen while paused; `null` is the top of the buffer, `end` its last screen. */
+  readonly anchor: { readonly seq: number; readonly row: number } | 'end' | null;
+  /** Nothing read yet: the first read is the last page, so the screen opens at the end, as a chat does. */
+  readonly tailing: boolean;
+  /** The daemon has more after `nextCursor` than one page held; following reads on without waiting. */
+  readonly behind: boolean;
   /** The first reads of an attempt, until it is all here or the buffer is full. */
   readonly filling: boolean;
   /** Records past the buffer's end were dropped or never fetched; `wantForward` asks for them. */
@@ -126,6 +130,8 @@ export function initialLogs(taskId: string, title: SafeText, session: number): L
     resumeCursor: null,
     newActivity: false,
     anchor: null,
+    tailing: true,
+    behind: false,
     filling: false,
     moreForward: false,
     wantForward: false,
@@ -255,6 +261,8 @@ function prependEntries(s: LogState, entries: readonly LogEntry[]): LogState {
 }
 
 export type LogRequest =
+  /** The last page, in place of whatever the buffer held. */
+  | { readonly kind: 'tail'; readonly after: number }
   /** What comes next, into the buffer. */
   | { readonly kind: 'forward'; readonly after: number }
   /** Is there anything new? The answer goes nowhere but `newActivity`. */
@@ -267,13 +275,16 @@ export function logDue(s: LogState, now: number): LogRequest | null {
   const rested = s.lastReadAt === null || now - s.lastReadAt >= LOG_POLL_INTERVAL_MS;
   // A read that failed waits its turn, whatever it was for.
   if (s.error !== null && !rested) return null;
+  if (s.tailing) return { kind: 'tail', after: 0 };
   if (s.older !== null) return { kind: 'older', after: s.older.cursor };
   if (s.wantOlder && s.windowStart > 0)
     return {
       kind: 'older',
       after: Math.max(0, s.windowStart - LOG_PAGE_RECORDS),
     };
-  if (s.filling || s.wantForward) return { kind: 'forward', after: s.nextCursor };
+  // A full page while following means the log ran ahead: catch up now rather than a page a second.
+  if (s.filling || s.wantForward || (s.mode === 'live' && s.behind))
+    return { kind: 'forward', after: s.nextCursor };
   if (!rested || s.complete) return null;
   if (s.mode === 'live') return { kind: 'forward', after: s.nextCursor };
   if (s.newActivity) return null;
@@ -301,8 +312,24 @@ function applyForward(
     nextCursor: page.next_cursor,
     complete: page.complete,
     filling: s.filling && sent > 0 && page.next_cursor > s.nextCursor,
+    behind: (page.more ?? false) && page.next_cursor > s.nextCursor,
     wantForward: false,
     moreForward: s.wantForward ? sent > 0 : s.moreForward,
+  };
+}
+
+/** The last page: the buffer starts again from it, and what precedes it is one `↑` away. */
+function applyTail(s: LogState, entries: readonly LogEntry[], page: TaskLogs): LogState {
+  const start = page.after ?? 0;
+  const more = page.more ?? false;
+  return {
+    ...appendEntries({ ...s, buffer: [], bufferBytes: 0, windowStart: start }, entries),
+    nextCursor: page.next_cursor,
+    complete: page.complete,
+    tailing: false,
+    behind: more,
+    // One attempt is read to its end whether or not it is followed; the whole log catches up while live.
+    filling: s.attemptFilter !== null && more,
   };
 }
 
@@ -354,6 +381,8 @@ export function applyLogPage(
         newActivity: s.newActivity || sent > 0,
         complete: sent === 0 && page.complete,
       };
+    case 'tail':
+      return applyTail(read, entries, page);
     case 'forward':
       return applyForward(read, entries, page, sent);
     case 'older':
@@ -527,7 +556,8 @@ function lastScreen(s: LogState, cols: number, height: number): { index: number;
   return { index: 0, row: 0 };
 }
 
-function topOf(s: LogState): { index: number; row: number } {
+function topOf(s: LogState, cols: number, height: number): { index: number; row: number } {
+  if (s.mode === 'live' || s.anchor === 'end') return lastScreen(s, cols, height);
   return s.anchor === null
     ? { index: 0, row: 0 }
     : { index: indexOfSeq(s.buffer, s.anchor.seq), row: s.anchor.row };
@@ -536,7 +566,7 @@ function topOf(s: LogState): { index: number; row: number } {
 /** What fills the log area now. */
 export function visibleRows(s: LogState, cols: number, height: number): readonly LogRow[] {
   if (height <= 0 || s.buffer.length === 0) return [];
-  const from = s.mode === 'live' ? lastScreen(s, cols, height) : topOf(s);
+  const from = topOf(s, cols, height);
   return rowsFrom(s, from, cols, height).map((r) => r.row);
 }
 
@@ -554,7 +584,7 @@ export function scrollLogs(given: LogState, cols: number, height: number, delta:
     return delta < 0 && given.windowStart > 0 ? { ...given, wantOlder: true } : given;
   if (given.mode === 'live' && delta >= 0) return given;
   const s: LogState =
-    given.mode === 'live'
+    given.mode === 'live' || given.anchor === 'end'
       ? {
           ...given,
           mode: 'paused',
@@ -562,7 +592,7 @@ export function scrollLogs(given: LogState, cols: number, height: number, delta:
         }
       : given;
   if (delta >= 0) {
-    const rows = rowsFrom(s, topOf(s), cols, delta + height);
+    const rows = rowsFrom(s, topOf(s, cols, height), cols, delta + height);
     const room = Math.max(0, rows.length - height);
     const go = Math.min(delta, room);
     const target = rows[go];
@@ -574,7 +604,7 @@ export function scrollLogs(given: LogState, cols: number, height: number, delta:
         target === undefined ? s.anchor : anchored(s, { index: target.index, row: target.inner }),
     };
   }
-  let { index, row } = topOf(s);
+  let { index, row } = topOf(s, cols, height);
   row = Math.min(row, entryRows(s.buffer[index] as LogEntry, s.buffer[index - 1], cols).length - 1);
   let left = -delta;
   while (left > 0) {
@@ -644,20 +674,21 @@ export function followLogs(s: LogState): LogState {
     picker: null,
   };
   if (s.resumeCursor === null) return base;
+  // Back from one attempt: the whole log is read from its last page again, as on opening.
   return {
     ...base,
     attemptFilter: null,
     buffer: [],
     bufferBytes: 0,
-    windowStart: s.resumeCursor,
-    nextCursor: s.resumeCursor,
+    windowStart: 0,
+    nextCursor: 0,
     resumeCursor: null,
-    // Nothing new may ever come on a quiet log, so the screen must not wait for it to show anything.
-    wantOlder: s.resumeCursor > 0,
+    tailing: true,
+    behind: false,
   };
 }
 
-/** Reads one attempt from its start; the rest of the log is only watched for news. */
+/** Reads one attempt from its last page, shown at its end; the rest of the log is only watched for news. */
 export function filterAttempt(s: LogState, attemptId: string): LogState {
   return {
     ...s,
@@ -669,8 +700,10 @@ export function filterAttempt(s: LogState, attemptId: string): LogState {
     windowStart: 0,
     nextCursor: 0,
     resumeCursor: s.resumeCursor ?? s.nextCursor,
-    anchor: null,
-    filling: true,
+    anchor: 'end',
+    tailing: true,
+    behind: false,
+    filling: false,
     moreForward: false,
     wantForward: false,
     wantOlder: false,

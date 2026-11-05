@@ -37,6 +37,8 @@ export type HistoryLine = {
   readonly type: SafeText;
   readonly actor: SafeText;
   readonly payload: SafeText;
+  /** The payload's `reason`, whole, for the events that end a task. */
+  readonly reason?: SafeText;
 };
 
 export type TaskDetail = {
@@ -162,6 +164,28 @@ function payloadText(payload: unknown): SafeText {
   return sanitize(whole.length > PAYLOAD_CHARS ? `${whole.slice(0, PAYLOAD_CHARS)}…` : whole);
 }
 
+function reasonOf(payload: unknown): SafeText | undefined {
+  if (typeof payload !== 'object' || payload === null || !('reason' in payload)) return undefined;
+  const { reason } = payload;
+  return typeof reason === 'string' ? sanitize(reason) : undefined;
+}
+
+const ENDINGS = new Set(['TaskFailed', 'TaskCancelled']);
+
+/** How a failed or cancelled task ended, by the event that ended it; `null` until the history has it. */
+export function ending(
+  d: TaskDetail,
+): { readonly actor: SafeText; readonly reason: SafeText | null } | null {
+  const e = d.history.events.findLast((ev) => ENDINGS.has(ev.type));
+  return e === undefined ? null : { actor: e.actor, reason: e.reason ?? null };
+}
+
+/** The task failed or was cancelled, by the daemon's latest word: its history has the event that says how. */
+export function hasEnding(d: TaskDetail): boolean {
+  const status = d.explain.data?.status;
+  return status === 'FAILED' || status === 'CANCELLED';
+}
+
 function withHistory(
   d: TaskDetail,
   r: PortResult<TaskHistory>,
@@ -176,12 +200,11 @@ function withHistory(
     };
   const all = [
     ...h.events,
-    ...r.value.events.map((e) => ({
-      seq: e.seq,
-      type: e.type,
-      actor: e.actor,
-      payload: payloadText(e.payload),
-    })),
+    ...r.value.events.map((e): HistoryLine => {
+      const line = { seq: e.seq, type: e.type, actor: e.actor, payload: payloadText(e.payload) };
+      const reason = ENDINGS.has(e.type) ? reasonOf(e.payload) : undefined;
+      return reason === undefined ? line : { ...line, reason };
+    }),
   ];
   const drop = Math.max(0, all.length - HISTORY_KEPT);
   return {

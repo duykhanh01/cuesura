@@ -11,7 +11,7 @@ import { cancelTask } from '../application/cancel.ts';
 import { continueTask } from '../application/continue.ts';
 import { runDoctor, type DoctorDeps } from '../application/doctor.ts';
 import { inbox } from '../application/inbox.ts';
-import { taskLogs, type LogsDeps } from '../application/logs.ts';
+import { LogRecordCache, taskLogs, type LogsDeps } from '../application/logs.ts';
 import { taskProgress } from '../application/progress.ts';
 import { projectList } from '../application/projects.ts';
 import { report } from '../application/report.ts';
@@ -64,6 +64,7 @@ export function taskControl(deps: TaskControlDeps): {
 } {
   const { store, logs, doctor } = deps;
   const statusSince = statusSinceReader(store);
+  const logCache = new LogRecordCache();
   return {
     commands: {
       task_add: (admitted, input, caller) => taskAdd(deps, admitted, input, caller),
@@ -104,7 +105,8 @@ export function taskControl(deps: TaskControlDeps): {
       ...(logs === undefined
         ? {}
         : {
-            task_logs: (caller, body) => reply(taskLogs({ store, ...logs }, caller, body)),
+            task_logs: (caller, body) =>
+              reply(taskLogs({ store, ...logs, cache: logCache }, caller, body)),
           }),
       ...(doctor === undefined
         ? {}

@@ -75,6 +75,10 @@ Quy tắc: thao tác `unknown` hoặc `unresolved` chặn gửi thao tác ghi m�
 `live` theo tiếp bước mới và chèn dòng phân cách khi `(step, attempt_id)` đổi. `paused` hoặc có lọc attempt thì chỉ đánh dấu
 `new_activity`, không đưa bản ghi vào bộ đệm.
 
+Mở màn Logs, lọc một attempt hoặc quay lại cả log bằng `F`: lần đọc đầu là trang cuối (`tail`), màn hình đứng ở cuối như
+một khung chat. Phần trước được đọc theo cursor khi cuộn lên tới đỉnh. Trang trả `more: true` thì đọc tiếp ngay, không
+chờ nhịp một giây.
+
 ## Dữ liệu đọc từ daemon
 
 Hợp đồng đầy đủ ở [cli-daemon.md](contracts/cli-daemon.md).

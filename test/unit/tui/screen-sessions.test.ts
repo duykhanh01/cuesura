@@ -139,18 +139,21 @@ describe('finding 3: `F` after an attempt, on a log with nothing new', () => {
       0,
     );
 
-  it('reads a window of the log back, up to where following left off', () => {
-    const live = fed(initialLogs(TASK, uiText('T'), 1), 50);
+  it('reads the last page of the whole log back, then follows from its end', () => {
+    const live = fed({ ...initialLogs(TASK, uiText('T'), 1), tailing: false }, 50);
     const filtered = filterAttempt(live, ATTEMPT);
     const back = followLogs(filtered);
-    expect(logDue(back, 0)).toEqual({ kind: 'older', after: 0 });
+    expect(logDue(back, 0)).toEqual({ kind: 'tail', after: 0 });
     const read = applyLogPage(
       back,
-      { kind: 'older', after: 0 },
-      page(
-        Array.from({ length: 50 }, (_, i) => record(i + 1)),
-        50,
-      ),
+      { kind: 'tail', after: 0 },
+      {
+        ...page(
+          Array.from({ length: 50 }, (_, i) => record(i + 1)),
+          50,
+        ),
+        after: 0,
+      },
       0,
     );
     expect(visibleRows(read, 60, 5).at(-1)?.text).toContain('line 50');
@@ -160,7 +163,7 @@ describe('finding 3: `F` after an attempt, on a log with nothing new', () => {
 
   it('`↑` on an empty buffer with earlier records asks for them', () => {
     const empty: LogState = {
-      ...initialLogs(TASK, uiText('T'), 1),
+      ...{ ...initialLogs(TASK, uiText('T'), 1), tailing: false },
       windowStart: 300,
       nextCursor: 300,
     };
@@ -174,15 +177,15 @@ describe('finding 4: paused inside a wrapped record, then a wider terminal', () 
   const LONG = 'x'.repeat(1_000);
   const paused = (): LogState => {
     const live = applyLogPage(
-      initialLogs(TASK, uiText('T'), 1),
+      { ...initialLogs(TASK, uiText('T'), 1), tailing: false },
       { kind: 'forward', after: 0 },
       page([record(1, LONG), record(2, 'after it')], 2),
       0,
     );
     // Well into the record: on 80 columns it takes more than ten rows.
     const s = scrollLogs(live, 80, 5, -3);
-    expect(s.anchor?.seq).toBe(1);
-    expect(s.anchor?.row).toBeGreaterThan(6);
+    expect(s.anchor).toMatchObject({ seq: 1 });
+    expect((s.anchor as { row: number }).row).toBeGreaterThan(6);
     return s;
   };
 

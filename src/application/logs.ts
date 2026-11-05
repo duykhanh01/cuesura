@@ -9,11 +9,16 @@ import { z } from 'zod';
 import type { DomainEvent } from '../domain/event.ts';
 import type { TaskState } from '../domain/state.ts';
 import {
+  listSegments,
   readAllRecords,
   readRecords,
+  recordFilesStamp,
   RunDir,
   RunnerFileError,
+  type IngestPosition,
   type LogRecord,
+  type ReadBatch,
+  type ReadError,
 } from '../runner/files.ts';
 import { runLocation } from '../daemon/retention.ts';
 import type { Redactor } from '../runner/redact.ts';
@@ -31,7 +36,49 @@ export type LogsDeps = {
   readonly store: Store;
   readonly dataDir: string;
   readonly redactor: Redactor;
+  /** Kept by the daemon across reads; without it every read parses each run's files whole. */
+  readonly cache?: LogRecordCache;
 };
+
+type Cached =
+  | { readonly kind: 'all'; readonly stamp: string; readonly records: LogRecord[] }
+  | {
+      readonly kind: 'live';
+      readonly first: string;
+      readonly records: LogRecord[];
+      readonly cursor: IngestPosition;
+    };
+
+/**
+ * Records already parsed, by operation, so a follower polling once a second reads only what was appended
+ * since, not the whole run each time. Bounded: the least recently read operations leave first.
+ */
+export class LogRecordCache {
+  readonly #entries = new Map<string, Cached>();
+  readonly #max: number;
+
+  constructor(max = 16) {
+    this.#max = max;
+  }
+
+  get(id: string): Cached | undefined {
+    const hit = this.#entries.get(id);
+    if (hit !== undefined) {
+      this.#entries.delete(id);
+      this.#entries.set(id, hit);
+    }
+    return hit;
+  }
+
+  set(id: string, value: Cached): void {
+    this.#entries.delete(id);
+    this.#entries.set(id, value);
+    for (const key of this.#entries.keys()) {
+      if (this.#entries.size <= this.#max) break;
+      this.#entries.delete(key);
+    }
+  }
+}
 
 const LogsQuerySchema = z
   .object({
@@ -40,6 +87,8 @@ const LogsQuerySchema = z
     after: z.number().int().nonnegative().default(0),
     limit: z.number().int().min(1).max(LOG_PAGE_RECORDS).default(LOG_PAGE_RECORDS),
     attempt_id: UuidSchema.optional(),
+    /** The last page instead of the one after `after`; the answer says where it started. */
+    tail: z.boolean().default(false),
   })
   .strict();
 
@@ -72,10 +121,99 @@ function openRecords(deps: LogsDeps, op: TaskState['operations'][string]): LogRe
       redactor: deps.redactor,
       create: false,
     });
-    return readAllRecords(run);
+    if (deps.cache === undefined) return readAllRecords(run);
+    const stamp = recordFilesStamp(run);
+    const hit = deps.cache.get(op.id);
+    if (hit?.kind === 'all' && hit.stamp === stamp) return hit.records;
+    const records = readAllRecords(run);
+    deps.cache.set(op.id, { kind: 'all', stamp, records });
+    return records;
   } catch (e) {
     return e instanceof Error ? e.message : String(e);
   }
+}
+
+/**
+ * The live spool from its oldest segment, as `readRecords(run, id, null)` reads it. With a cache, only what
+ * was appended after the last read is parsed; a spool whose oldest segment moved on is read whole again.
+ */
+function liveRecords(
+  deps: LogsDeps,
+  run: RunDir,
+  id: string,
+): Result<
+  { readonly records: readonly LogRecord[]; readonly cursor: IngestPosition | null },
+  ReadError
+> {
+  const cache = deps.cache;
+  if (cache === undefined) return readRecords(run, id, null);
+  const first = listSegments(run)[0]?.name ?? '';
+  const hit = cache.get(id);
+  let read: Result<ReadBatch, ReadError> | null = null;
+  let records: LogRecord[] = [];
+  if (hit?.kind === 'live' && hit.first === first) {
+    const more = readRecords(run, id, hit.cursor);
+    if (more.ok) {
+      read = more;
+      records =
+        more.value.records.length === 0 ? hit.records : [...hit.records, ...more.value.records];
+    }
+  }
+  if (read === null) {
+    read = readRecords(run, id, null);
+    if (!read.ok) return read;
+    records = [...read.value.records];
+  }
+  const cursor = read.value.cursor;
+  if (cursor !== null) cache.set(id, { kind: 'live', first, records, cursor });
+  return ok({ records, cursor });
+}
+
+/** What a record weighs against `LOG_PAGE_BYTES`. */
+const recordBytes = (r: LogRecord): number => JSON.stringify(r.data).length;
+
+/**
+ * The cursor a tail page starts after: as many of the last records as fit both `limit` and `LOG_PAGE_BYTES`,
+ * or the page would stop short of the end. Only the attempt's records count when it is given; what precedes
+ * them is read later, by `after`, as it would be otherwise. The last record is taken whatever its size, and
+ * records that cannot be read weigh nothing, as in the page itself.
+ */
+function tailStart(
+  s: TaskState,
+  batches: readonly { readonly operation_id: string; readonly records: number }[],
+  limit: number,
+  attemptId: string | undefined,
+  load: (id: string) => readonly LogRecord[] | string,
+): number {
+  const ends = new Map<string, number>();
+  let end = 0;
+  for (const b of batches) {
+    ends.set(b.operation_id, (ends.get(b.operation_id) ?? 0) + b.records);
+    end += b.records;
+  }
+  // Fewer records than a page: from the first of them, or past everything when there are none.
+  let first = end;
+  let taken = 0;
+  let bytes = 0;
+  for (const b of batches.toReversed()) {
+    const start = end - b.records;
+    const from = (ends.get(b.operation_id) ?? 0) - b.records;
+    ends.set(b.operation_id, from);
+    end = start;
+    const mine =
+      attemptId === undefined || (s.operations[b.operation_id]?.attempt_id ?? null) === attemptId;
+    if (!mine || b.records === 0) continue;
+    const loaded = load(b.operation_id);
+    for (let i = b.records - 1; i >= 0; i--) {
+      const record = typeof loaded === 'string' ? undefined : loaded[from + i];
+      const size = record === undefined ? 0 : recordBytes(record);
+      if (taken === limit || (taken > 0 && bytes + size > LOG_PAGE_BYTES)) return first;
+      bytes += size;
+      taken += 1;
+      first = start + i;
+    }
+  }
+  return first;
 }
 
 export function taskLogs(
@@ -102,11 +240,10 @@ export function taskLogs(
 
   const out: LogEntry[] = [];
   let bytes = 0;
-  let cursor = q.data.after;
   let position = 0;
   let total = 0;
   const offsets = new Map<string, number>();
-  const cache = new Map<string, LogRecord[] | string>();
+  const cache = new Map<string, readonly LogRecord[] | string>();
   const events = deps.store
     .readEvents(s.id as Uuid)
     .filter((e): e is OutputEvent => e.type === 'OutputIngested');
@@ -167,14 +304,14 @@ export function taskLogs(
           redactor: deps.redactor,
           create: false,
         });
-        const live = readRecords(run, active.id, null);
+        const live = liveRecords(deps, run, active.id);
         if (!live.ok)
           diagnostic = {
             op: active,
             reason: `live spool is unreadable: ${JSON.stringify(live.error)}`,
           };
         else {
-          cache.set(active.id, [...live.value.records]);
+          cache.set(active.id, live.value.records);
           const committed = batches
             .filter((b) => b.operation_id === active.id)
             .reduce((n, b) => n + b.records, 0);
@@ -197,6 +334,19 @@ export function taskLogs(
     }
   }
   for (const b of batches) total += b.records;
+  const load = (id: string): readonly LogRecord[] | string => {
+    let loaded = cache.get(id);
+    if (loaded === undefined) {
+      const op = s.operations[id];
+      loaded = op === undefined ? 'operation unknown' : openRecords(deps, op);
+      cache.set(id, loaded);
+    }
+    return loaded;
+  };
+  const after = q.data.tail
+    ? tailStart(s, batches, q.data.limit, q.data.attempt_id, load)
+    : q.data.after;
+  let cursor = after;
 
   for (const b of batches) {
     const { operation_id: id, records: count, digest } = b;
@@ -204,7 +354,7 @@ export function taskLogs(
     offsets.set(id, from + count);
     const first = position + 1;
     position += count;
-    if (position <= q.data.after) continue;
+    if (position <= after) continue;
     if (out.length >= q.data.limit || bytes >= LOG_PAGE_BYTES) break;
     const op = s.operations[id];
     const attemptId = op?.attempt_id ?? null;
@@ -214,11 +364,7 @@ export function taskLogs(
       cursor = position;
       continue;
     }
-    let loaded = cache.get(id);
-    if (loaded === undefined) {
-      loaded = op === undefined ? 'operation unknown' : openRecords(deps, op);
-      cache.set(id, loaded);
-    }
+    const loaded = load(id);
     const batch = typeof loaded === 'string' ? null : loaded.slice(from, from + count);
     if (batch === null || hashCanonical(batch) !== digest) {
       // Taken whole: a gap has no records to page through, and the cursor must still move past it.
@@ -228,7 +374,7 @@ export function taskLogs(
         operation_id: id,
         attempt_id: attemptId,
         gap: {
-          records: position - Math.max(first - 1, q.data.after),
+          records: position - Math.max(first - 1, after),
           reason:
             typeof loaded === 'string'
               ? `records unavailable: ${loaded}`
@@ -241,7 +387,7 @@ export function taskLogs(
     const step = op?.attempt_id == null ? null : (s.attempts[op.attempt_id]?.step ?? null);
     for (const [i, r] of batch.entries()) {
       const seq = first + i;
-      if (seq <= q.data.after) continue;
+      if (seq <= after) continue;
       if (out.length >= q.data.limit || bytes >= LOG_PAGE_BYTES) break;
       out.push({
         seq,
@@ -253,7 +399,7 @@ export function taskLogs(
         kind: r.kind,
         data: r.data,
       });
-      bytes += JSON.stringify(r.data).length;
+      bytes += recordBytes(r);
       cursor = seq;
     }
   }
@@ -279,5 +425,8 @@ export function taskLogs(
     next_cursor: cursor,
     // A finished task whose committed records were all read: a follower may stop here.
     complete: diagnostic === null && s.terminal !== null && cursor >= total,
+    // Committed or live records past this page: a follower that is behind reads on at once.
+    more: cursor < total,
+    ...(q.data.tail ? { after } : {}),
   });
 }

@@ -172,6 +172,13 @@ Vào: `{ kind, task_id }`. Ra:
 - Vào thêm `attempt_id?`. Khi có, chỉ trả bản ghi của operation thuộc attempt đó; cursor vẫn là cursor chung của task.
 - Bản ghi và `gap` thêm `attempt_id`, `null` khi operation không thuộc attempt.
 - Giữ `LOG_PAGE_RECORDS = 200` và giới hạn 1 MiB mỗi trang.
+- Vào thêm `tail?: boolean`. Khi `true`, bỏ qua `after` và trả những bản ghi cuối (của attempt nếu có `attempt_id`),
+  nhiều nhất `limit` bản ghi và 1 MiB, nên trang luôn tới hết log; bản ghi cuối luôn có mặt dù vượt 1 MiB.
+  Ra thêm `after`: cursor đứng ngay trước trang đó, để đọc phần trước bằng `after` như thường.
+  CLI: `cusr task logs ID --tail`, dùng được cùng `--follow`, không dùng cùng `--after`.
+- Ra thêm `more`: `true` khi sau `next_cursor` còn bản ghi mà trang này không chứa hết, để người đang theo dõi đọc tiếp ngay.
+- Daemon giữ bản ghi đã đọc của tối đa 16 operation. Mỗi lần đọc, nó chỉ parse phần spool ghi thêm. Spool đổi
+  segment đầu, hoặc file của run đổi tên hay kích thước, thì đọc lại từ đầu, nên gap vẫn được báo như cũ.
 
 ## `request_show`
 

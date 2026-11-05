@@ -104,7 +104,7 @@ function readingLines(cols: number): Line[] {
     ui('  Stages'.padEnd(15), DIM),
     ui('triage, prepare, code, gates, review, PR, CI, merge: one dot each on Home'),
   ]);
-  out.push([ui(''.padEnd(15)), ...STAGE_KEY]);
+  for (const key of STAGE_KEY) out.push([ui(''.padEnd(15)), ...key]);
   out.push([
     ui('  Needs you'.padEnd(15), DIM),
     ui('→ what to do', { fg: 'yellow', bold: true }),

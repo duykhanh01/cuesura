@@ -1148,3 +1148,24 @@ export function readAllRecords(run: RunDir): LogRecord[] {
   }
   return out;
 }
+
+/**
+ * What `readAllRecords` would read, as names and sizes: the same stamp means the same records, since
+ * segments are only appended to, moved between the two directories, or removed.
+ */
+export function recordFilesStamp(run: RunDir): string {
+  const parts: string[] = [];
+  for (const rel of [ACKED_DIR, SPOOL_DIR]) {
+    const dir = run.resolve(rel);
+    let names: string[];
+    try {
+      names = readdirSync(dir);
+    } catch (e) {
+      if (errno(e) === 'ENOENT') continue;
+      throw e;
+    }
+    for (const name of names.toSorted())
+      if (SEGMENT_RE.test(name)) parts.push(`${rel}/${name}:${lstatSync(join(dir, name)).size}`);
+  }
+  return parts.join('|');
+}

@@ -48,7 +48,8 @@ export function logsCommandWith(o: FollowOptions = {}): CliCommand {
 Examples:
   cusr task logs 019a0000-0000-7000-8000-000000000001 --json
   cusr task logs 019a0000-0000-7000-8000-000000000001 --after 20 --limit 200 --json
-  cusr task logs 019a0000-0000-7000-8000-000000000001 --follow`,
+  cusr task logs 019a0000-0000-7000-8000-000000000001 --tail
+  cusr task logs 019a0000-0000-7000-8000-000000000001 --follow --tail`,
     args: ['<id>'],
     options: [
       {
@@ -62,6 +63,11 @@ Examples:
       {
         flags: '--limit <n>',
         description: `Page size, at most 200 (default: ${LOGS_DEFAULT_LIMIT} without --follow)`,
+      },
+      {
+        flags: '--tail',
+        description:
+          'Start from the last page instead of --after; with --follow, stream from there',
       },
       {
         flags: '--attempt <id>',
@@ -78,6 +84,18 @@ Examples:
     ],
     async run(values, json, io) {
       const full = values['full'] !== undefined;
+      const tail = values['tail'] !== undefined;
+      if (tail && values['after'] !== undefined)
+        return print(
+          errorEnvelope({
+            code: 'invalid_arguments',
+            message: '--tail and --after cannot be used together',
+            details: {},
+            request_id: null,
+          }),
+          json,
+          io,
+        );
       const after = Number(values['after'] ?? 0);
       const limit =
         values['limit'] === undefined
@@ -113,7 +131,7 @@ Examples:
           json,
           io,
         );
-      const fetch = (cursor: number) =>
+      const fetch = (cursor: number, fromEnd = false) =>
         callDaemon({
           socketPath: join(dataDir, CONTROL_SOCKET),
           actor: actor.value,
@@ -123,12 +141,13 @@ Examples:
             kind: 'task_logs',
             task_id: values['id'],
             after: cursor,
+            ...(fromEnd ? { tail: true } : {}),
             ...(limit === undefined ? {} : { limit }),
             ...(values['attempt'] === undefined ? {} : { attempt_id: values['attempt'] }),
           },
         });
       if (values['follow'] === undefined) {
-        const r = await fetch(after);
+        const r = await fetch(after, tail);
         if (!r.ok)
           return print(
             errorEnvelope({
@@ -150,8 +169,10 @@ Examples:
       const started = now();
       let cursor = after;
       let lastDiagnostic: string | null = null;
+      let fromEnd = tail;
       for (;;) {
-        const r = await fetch(cursor);
+        const r = await fetch(cursor, fromEnd);
+        fromEnd = false;
         if (!r.ok) {
           io.stderr(`cusr: ${r.error.message}; resume with --after ${cursor}\n`);
           return ExitCode.connection;

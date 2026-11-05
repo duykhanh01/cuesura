@@ -16,6 +16,7 @@ import {
   type TreeRow,
 } from '../model/attempt-tree.ts';
 import { pickerGroups } from '../model/detail-keys.ts';
+import { ending } from '../model/detail.ts';
 import { progressStages, STAGE_LABEL, stageOf, type StageName } from '../model/stages.ts';
 import {
   LOG_HEADER_ROWS,
@@ -32,7 +33,7 @@ import type { Frame, Style } from '../terminal/screen.ts';
 import type { Tone } from '../model/log-text.ts';
 import { graphemes, truncate } from '../terminal/width.ts';
 import { BOLD, DIM, putSegs, seg, segsWidth, ui, wrapSegs, type Seg } from './ink.ts';
-import { stageLook, stepper } from './stepper.ts';
+import { endBadge, leadsOn, stageLook, stepper } from './stepper.ts';
 import type { Body } from './layout.ts';
 
 const ROW_STYLE: Readonly<Record<LogRow['kind'], Style>> = {
@@ -183,13 +184,18 @@ function progressPane(frame: Frame, s: TuiState, top: number, height: number, wi
   } else {
     const counted = stages.filter((st) => st.state !== 'skipped');
     const done = counted.filter((st) => st.state === 'done').length;
-    const label = `${done}/${counted.length}`;
+    const count = `${done}/${counted.length}`;
+    // A task that ended says so beside the count, so the header alone tells an end from a pause.
+    const badge = endBadge(status);
+    const right =
+      badge === null
+        ? [ui(count, DIM)]
+        : badge.text.length + count.length + 3 <= width - 11
+          ? [badge, ui(` · ${count}`, DIM)]
+          : [badge];
+    const used = right.reduce((n, r) => n + r.text.length, 0);
     head.push(
-      [
-        ui('Progress', BOLD),
-        ui(' '.repeat(Math.max(1, width - 9 - label.length - 1))),
-        ui(label, DIM),
-      ],
+      [ui('Progress', BOLD), ui(' '.repeat(Math.max(1, width - 9 - used - 1))), ...right],
       [],
     );
     const pointed = filteredStage(s);
@@ -199,24 +205,23 @@ function progressPane(frame: Frame, s: TuiState, top: number, height: number, wi
       const mark = turning ? (SPINNER[s.tick % SPINNER.length] ?? look.mark) : look.mark;
       const here = pointed === stage.name;
       const strong = here || stage.state === 'current';
+      const faint = stage.state === 'todo' || stage.state === 'abandoned';
       timeline.push([
         ui(here ? '▸' : ' ', KEY),
         ui(`${mark}  `, look.style),
         ui(STAGE_LABEL[stage.name], {
-          ...(stage.state === 'todo' || stage.state === 'skipped'
-            ? DIM
-            : stage.state === 'current'
-              ? look.style
-              : {}),
+          ...(faint ? DIM : stage.state === 'done' ? {} : look.style),
           ...(strong ? { bold: true } : {}),
         }),
         ui(stage.runs > 1 ? `  ×${stage.runs}` : '', DIM),
-        ui(stage.state === 'skipped' ? '  skipped' : '', DIM),
+        ui(look.word === null ? '' : `  ${look.word}`, look.style),
       ]);
       const next = stages[i + 1];
       if (next !== undefined) {
         const passed = stage.state === 'done';
-        timeline.push([ui(' '), ui(passed ? '│' : '╎', passed ? { fg: 'green' } : DIM)]);
+        // The path stops where the task ended; the empty row keeps every stage on its own line.
+        if (!leadsOn(stage.state)) timeline.push([]);
+        else timeline.push([ui(' '), ui(passed ? '│' : '╎', passed ? { fg: 'green' } : DIM)]);
       }
     });
   }
@@ -230,8 +235,22 @@ function progressPane(frame: Frame, s: TuiState, top: number, height: number, wi
       mode: d?.progress.data?.mode ?? null,
       needs_user: d?.progress.data?.needs_user ?? false,
     };
-    tail.push([], [ui('Now', BOLD)]);
-    tail.push(...wrapSegs([seg(activity(row))], width - 1));
+    const over = endBadge(explain.status) !== null;
+    const end = over && d !== null ? ending(d) : null;
+    tail.push([], [ui(over ? 'Ended' : 'Now', BOLD)]);
+    tail.push(
+      ...wrapSegs(
+        [seg(activity(row)), ...(end === null ? [] : [ui(' by ', DIM), seg(end.actor)])],
+        width - 1,
+      ),
+    );
+    if (end !== null && end.reason !== null)
+      tail.push(...wrapSegs([ui('Reason: ', DIM), seg(end.reason)], width - 1, 2));
+    // What can still be done about it, which for an ended task is the daemon's word too.
+    if (over)
+      for (const a of explain.allowed_actions)
+        if (a.command !== null)
+          tail.push(...wrapSegs([ui('→ ', DIM), seg(a.command, DIM)], width - 1, 2));
     const action = todo(row);
     if (action !== null) {
       tail.push([], [ui('▲ Needs you', WARN)]);

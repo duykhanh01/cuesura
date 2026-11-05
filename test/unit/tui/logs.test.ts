@@ -57,7 +57,8 @@ function page(records: readonly Rec[], next: number, complete = false): TaskLogs
   } as TaskLogs;
 }
 
-const start = (): LogState => initialLogs(TASK, uiText('Task'), 1);
+/** A log whose last page has been read and that is followed from cursor 0 on. */
+const start = (): LogState => ({ ...initialLogs(TASK, uiText('Task'), 1), tailing: false });
 const forward = (after: number) => ({ kind: 'forward', after }) as const;
 const probe = (after: number) => ({ kind: 'probe', after }) as const;
 
@@ -148,39 +149,48 @@ describe('live, paused and an attempt (data-model.md)', () => {
     expect(more.buffer.map((e) => e.seq)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
   });
 
-  it('an attempt is read from its start, then only watched; the whole log is kept for coming back', () => {
+  it('an attempt opens at its last page, then is only watched; the whole log is kept for coming back', () => {
     const live = fed(start(), 1, 50);
     const s = filterAttempt(live, ATTEMPT);
     expect(s.mode).toBe('paused');
     expect(s.buffer).toEqual([]);
-    const first = logDue(s, 0);
-    expect(first).toEqual(forward(0));
-    expect(requestAttempt(s, forward(0))).toBe(ATTEMPT);
-    const read = applyLogPage(s, forward(0), page([record(3), record(4)], 10), 0);
+    const tail = { kind: 'tail', after: 0 } as const;
+    expect(logDue(s, 0)).toEqual(tail);
+    expect(requestAttempt(s, tail)).toBe(ATTEMPT);
+    const read = applyLogPage(s, tail, { ...page([record(3), record(4)], 10), after: 2 }, 0);
     expect(read.buffer).toHaveLength(2);
-    expect(read.filling).toBe(true);
-    const done = applyLogPage(read, forward(10), page([], 50), 0);
-    expect(done.filling).toBe(false);
+    expect(read.windowStart).toBe(2);
+    expect(read.filling).toBe(false);
+    // Paused on the attempt, yet shown at its end.
+    expect(visibleRows(read, COLS, 1).at(-1)?.text).toContain('line 4');
 
     // Watching looks at the whole log from where following stopped.
-    const watch = logDue(done, 5_000);
+    const watch = logDue(read, 5_000);
     expect(watch).toEqual(probe(50));
-    expect(requestAttempt(done, probe(50))).toBeNull();
-    const told = applyLogPage(done, probe(50), page([record(51)], 51), 5_000);
+    expect(requestAttempt(read, probe(50))).toBeNull();
+    const told = applyLogPage(read, probe(50), page([record(51)], 51), 5_000);
     expect(told.newActivity).toBe(true);
     expect(told.buffer).toHaveLength(2);
 
     const back = followLogs(told);
     expect(back.attemptFilter).toBeNull();
-    // The window it had is gone: a piece is read back first, then following goes on from the same place.
-    expect(logDue(back, 9_000)).toEqual({ kind: 'older', after: 0 });
-    expect(back.nextCursor).toBe(50);
+    // Back on the whole log, it opens at its last page again.
+    expect(logDue(back, 9_000)).toEqual(tail);
     expect(back.generation).toBeGreaterThan(told.generation);
   });
 
   it('an attempt longer than the buffer stops at the cap and goes on when the reader gets to the end', () => {
     let s = filterAttempt(start(), ATTEMPT);
-    for (let at = 1; at <= LOG_BUFFER_RECORDS; at += LOG_PAGE_RECORDS) {
+    const first = Array.from({ length: LOG_PAGE_RECORDS }, (_, i) => record(i + 1));
+    s = applyLogPage(
+      s,
+      { kind: 'tail', after: 0 },
+      { ...page(first, LOG_PAGE_RECORDS), after: 0, more: true },
+      0,
+    );
+    // The daemon's last page was cut short by its bytes: the rest of the attempt is read on.
+    expect(s.filling).toBe(true);
+    for (let at = LOG_PAGE_RECORDS + 1; at <= LOG_BUFFER_RECORDS; at += LOG_PAGE_RECORDS) {
       const records = Array.from({ length: LOG_PAGE_RECORDS }, (_, i) => record(at + i));
       s = applyLogPage(s, forward(s.nextCursor), page(records, at + LOG_PAGE_RECORDS - 1), 0);
     }
@@ -195,9 +205,49 @@ describe('live, paused and an attempt (data-model.md)', () => {
     expect(s.moreForward).toBe(true);
     expect(s.buffer).toHaveLength(LOG_BUFFER_RECORDS);
 
-    const atEnd = logsEnd(s, COLS, HEIGHT);
+    const atEnd = logsEnd(scrollLogs(s, COLS, HEIGHT, -1), COLS, HEIGHT);
     expect(atEnd.wantForward).toBe(true);
     expect(logDue(atEnd, 0)).toEqual(forward(LOG_BUFFER_RECORDS));
+  });
+
+  it('opens at the end of the log, as a chat does, and reads earlier records only on the way up', () => {
+    const s = initialLogs(TASK, uiText('Task'), 1);
+    expect(logDue(s, 0)).toEqual({ kind: 'tail', after: 0 });
+    const records = Array.from({ length: LOG_PAGE_RECORDS }, (_, i) => record(301 + i));
+    const read = applyLogPage(
+      s,
+      { kind: 'tail', after: 0 },
+      { ...page(records, 500), after: 300, more: false },
+      0,
+    );
+    expect(read.mode).toBe('live');
+    expect(read.windowStart).toBe(300);
+    expect(read.nextCursor).toBe(500);
+    expect(visibleRows(read, COLS, 1).at(-1)?.text).toContain('line 500');
+    // Following goes on from the end, at its usual pace.
+    expect(logDue(read, 500)).toBeNull();
+    expect(logDue(read, 1_000)).toEqual(forward(500));
+    // Up past the top asks for the page before it.
+    const up = scrollLogs(read, COLS, HEIGHT, -100_000);
+    expect(logDue(up, 0)).toEqual({ kind: 'older', after: 100 });
+  });
+
+  it('a log running ahead of a full page is caught up at once, not a page a second', () => {
+    const records = Array.from({ length: LOG_PAGE_RECORDS }, (_, i) => record(i + 1));
+    const behind = applyLogPage(
+      start(),
+      forward(0),
+      { ...page(records, LOG_PAGE_RECORDS), more: true },
+      0,
+    );
+    expect(logDue(behind, 0)).toEqual(forward(LOG_PAGE_RECORDS));
+    const caught = applyLogPage(
+      behind,
+      forward(LOG_PAGE_RECORDS),
+      { ...page([record(201)], 201), more: false },
+      0,
+    );
+    expect(logDue(caught, 0)).toBeNull();
   });
 
   it('a finished task with nothing left stops being read', () => {

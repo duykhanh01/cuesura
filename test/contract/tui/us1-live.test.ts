@@ -64,7 +64,7 @@ describe('US1 scenario 4: a change shows by itself', () => {
     await s.waitForText('◇ 1 ready');
     const result = await cancelTask(sd, id!, 0);
     expect(result.envelope.ok).toBe(true);
-    await s.waitForText('– 1 cancelled');
+    await s.waitForText('■ 1 cancelled');
     await s.waitForText('Finished (1)');
     expect(s.screenText()).not.toContain('Ready 01');
     s.send('q');

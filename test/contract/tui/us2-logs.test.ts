@@ -12,7 +12,15 @@ import { createGrantStart } from '../../support/runtime.ts';
 import { agentData, PREPARE_DATA } from '../../support/scenario.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 import { checkpointGates } from '../../support/store-flows.ts';
-import { daemonSocket, flat, LogFeed, openTask, useTui } from '../../support/tui-fixtures.ts';
+import {
+  daemonSocket,
+  flat,
+  LogFeed,
+  openTask,
+  seedEveryState,
+  selectedLine,
+  useTui,
+} from '../../support/tui-fixtures.ts';
 import type { CanonicalTask } from '../../../src/domain/task.ts';
 
 // T042: Logs on a real PTY, with records written and ingested as a runner's are.
@@ -102,6 +110,29 @@ describe('opening a task on its stages and log', () => {
       .map((l) => l.split('│')[0] ?? '')
       .join('\n');
     expect(flat(column)).toContain('Propose or confirm a run configuration');
+    await quit(s);
+  });
+});
+
+describe('a task that ended, opened from Home', () => {
+  it('says who cancelled it and why, beside the log', async () => {
+    const sd = tui.daemon();
+    sd.seed((d) => seedEveryState(d));
+    await sd.start();
+    const s = tui.cusr(sd.dataDir, { cols: 120, rows: 50 });
+    await s.waitForText('Finished (1)');
+    s.send('G');
+    s.send(KEY.enter);
+    await s.waitForText('Sample cancelled');
+    while (!selectedLine(s.screenText()).includes('Sample cancelled')) {
+      const before = selectedLine(s.screenText());
+      s.send(KEY.down);
+      await s.waitFor(() => selectedLine(s.screenText()) !== before, 3_000);
+    }
+    s.send(KEY.enter);
+    await s.waitForText('Logs:');
+    await s.waitForText('Reason: No longer needed');
+    expect(s.screenText()).toMatch(/Cancelled by \S/);
     await quit(s);
   });
 });
@@ -340,7 +371,7 @@ describe('review findings, on a real PTY', () => {
 });
 
 describe('EC-011 and FR-039: a log in full flow', () => {
-  it('keeps at most 5,000 records, reads the old ones again by position and never holds the keys up', async () => {
+  it('opens at the end of a long log, reads the old part only on the way up and never holds the keys up', async () => {
     const sd = tui.daemon();
     const t = task();
     const feed = new LogFeed(sd);
@@ -359,9 +390,15 @@ describe('EC-011 and FR-039: a log in full flow', () => {
     await sd.start();
     const s = tui.cusr(sd.dataDir, { cols: 100, rows: 24 });
     await openLogs(s);
-    await s.waitForText('flood 1');
+    // The last page at once, not the first one followed by a page a second.
+    await s.waitForText(`flood ${total}`, 5_000);
+    const window = (): string => /Records: \d+–\d+/.exec(s.screenText())?.[0] ?? '';
+    await s.waitFor(() => window() !== '');
+    const m = /Records: (\d+)–(\d+)/.exec(s.screenText());
+    expect(Number(m?.[2])).toBe(total);
+    expect(Number(m?.[2]) - Number(m?.[1]) + 1).toBeLessThanOrEqual(200);
 
-    // While it pours in, a key is still answered at once.
+    // A key is still answered at once.
     const answers: number[] = [];
     for (let i = 0; i < 8; i++) {
       const from = Date.now();
@@ -374,27 +411,17 @@ describe('EC-011 and FR-039: a log in full flow', () => {
     answers.sort((a, b) => a - b);
     expect(answers[Math.floor(answers.length * 0.95) - 1]).toBeLessThan(1_000);
 
-    await s.waitForText(`flood ${total}`, 40_000);
-    await s.waitFor(() => /Records: \d+–5300/.test(s.screenText()));
-    const m = /Records: (\d+)–(\d+)/.exec(s.screenText());
-    const held = Number(m?.[2]) - Number(m?.[1]) + 1;
-    expect(held).toBeLessThanOrEqual(5_000);
-    expect(s.screenText()).toContain('300 earlier');
-
-    // What left the buffer reads again from its place.
+    // What precedes the last page reads from its place on the way up.
     s.send('g');
     await s.waitForText('Mode: paused');
-    await s.waitForText(`flood ${Number(m?.[1])}`);
-    // The first `↑` at the top fetches and holds the place; the next one goes there.
-    const window = (): string => /Records: \d+–\d+/.exec(s.screenText())?.[0] ?? '';
+    const first = Number(m?.[1]);
+    await s.waitForText(`flood ${first}`);
     const before = window();
     s.send(KEY.up);
     await s.waitFor(() => window() !== before, 5_000);
-    expect(s.screenText()).toContain(`flood ${Number(m?.[1])}`);
+    expect(s.screenText()).toContain(`flood ${first}`);
     s.send(KEY.up);
-    await s.waitForText(`flood ${Number(m?.[1]) - 1}`, 5_000);
-    const after = /Records: (\d+)–(\d+)/.exec(s.screenText());
-    expect(Number(after?.[2]) - Number(after?.[1]) + 1).toBeLessThanOrEqual(5_000);
+    await s.waitForText(`flood ${first - 1}`, 5_000);
     await quit(s);
   }, 60_000);
 

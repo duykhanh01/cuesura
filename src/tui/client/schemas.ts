@@ -201,6 +201,10 @@ export const TaskLogsSchema = z.looseObject({
   records: z.array(LogRecordSchema),
   next_cursor: z.number().int(),
   complete: z.boolean(),
+  /** Where a `tail` page starts. */
+  after: z.number().int().optional(),
+  /** Records after `next_cursor` that did not fit in this page. */
+  more: z.boolean().optional(),
 });
 export type TaskLogs = z.infer<typeof TaskLogsSchema>;
 

@@ -4,7 +4,7 @@
  * the daemon nothing. Each kind of read runs one at a time. A failure stays with its part of the screen.
  */
 import { actionsDue } from '../model/actions.ts';
-import { detailDue, type DetailPartName } from '../model/detail.ts';
+import { detailDue, hasEnding, type DetailPartName } from '../model/detail.ts';
 import { logDue, requestAttempt, LOG_PAGE_RECORDS } from '../model/logs.ts';
 import type { Message } from '../model/messages.ts';
 import { currentScreen, type TuiState } from '../model/state.ts';
@@ -161,6 +161,7 @@ function logsRead(
           taskId: logs.taskId,
           after: request.after,
           limit: request.kind === 'probe' ? 1 : LOG_PAGE_RECORDS,
+          ...(request.kind === 'tail' ? { tail: true } : {}),
           ...(attemptId === null ? {} : { attemptId }),
         },
         DETAIL_TIMEOUT_MS,
@@ -211,10 +212,12 @@ export function planScreenReads(
       break;
     case 'logs':
       reads.push(logsRead(s, port, clock, now));
-      // The stages beside the log stay as current as Task detail keeps them; its history waits for it.
+      // The stages beside the log stay as current as Task detail keeps them. Its history waits for it,
+      // unless the task has ended: how it ended is told only there.
       if (s.detail !== null) {
+        const over = hasEnding(s.detail);
         const due = detailDue(s.detail, s.board?.watermark ?? null, now).filter(
-          (p) => p !== 'history',
+          (p) => p !== 'history' || over,
         );
         if (s.detail.showWanted && !due.includes('show')) due.push('show');
         for (const part of due) reads.push(detailRead(s, port, clock, part, now));

@@ -71,7 +71,7 @@ export type DaemonPort = {
   explain(taskId: string, timeoutMs: number): Promise<PortResult<TaskExplain>>;
   history(taskId: string, after: number, timeoutMs: number): Promise<PortResult<TaskHistory>>;
   logs(
-    q: { taskId: string; after: number; attemptId?: string; limit?: number },
+    q: { taskId: string; after: number; attemptId?: string; limit?: number; tail?: boolean },
     timeoutMs: number,
   ): Promise<PortResult<TaskLogs>>;
   requestShow(id: string, timeoutMs: number): Promise<PortResult<RequestShow>>;
@@ -205,13 +205,14 @@ export function createDaemonPort(deps: PortDeps = {}): DaemonPort {
     explain: taskQuery(TaskExplainSchema, 'task_explain'),
     history: (task_id, after, timeoutMs) =>
       query(TaskHistorySchema, { kind: 'task_history', task_id, after }, timeoutMs),
-    logs: ({ taskId, after, attemptId, limit }, timeoutMs) =>
+    logs: ({ taskId, after, attemptId, limit, tail }, timeoutMs) =>
       query(
         TaskLogsSchema,
         {
           kind: 'task_logs',
           task_id: taskId,
           after,
+          ...(tail === true ? { tail } : {}),
           ...(attemptId === undefined ? {} : { attempt_id: attemptId }),
           ...(limit === undefined ? {} : { limit }),
         },

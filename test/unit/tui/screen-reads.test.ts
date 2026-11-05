@@ -208,7 +208,7 @@ describe('only the open screen reads (R-03)', () => {
     expect(plan(open({ screens: ['home', 'detail', 'help'] }))).toEqual([]);
   });
 
-  it('Logs over Task detail reads the log and what its stages need, not the history', () => {
+  it('Logs over Task detail reads the log and what its stages need, not yet the history', () => {
     const keys = plan(
       open({
         screens: ['home', 'detail', 'logs'],
@@ -218,6 +218,24 @@ describe('only the open screen reads (R-03)', () => {
     expect(keys[0]).toBe('logs');
     expect(keys).toContain('detail:progress');
     expect(keys).not.toContain('detail:history');
+  });
+
+  it('Logs over an ended task reads the history too: its end is told from there', () => {
+    const logs = { screens: ['home', 'detail', 'logs'], logs: initialLogs(TASK, uiText('T'), 1) };
+    const ended = (status: string): TuiState =>
+      onDetailRead(open(logs as Partial<TuiState>), {
+        ...base,
+        at: 0,
+        askedAt: 0,
+        watermark: WM,
+        version: 1,
+        part: 'explain',
+        result: { ok: true, value: { version: 1, status } as TaskExplain },
+      });
+    expect(plan(ended('CANCELLED'))).toContain('detail:history');
+    expect(plan(ended('FAILED'))).toContain('detail:history');
+    expect(plan(ended('RUNNING'))).not.toContain('detail:history');
+    expect(plan(ended('DONE'))).not.toContain('detail:history');
   });
 
   it.each([

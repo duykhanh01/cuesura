@@ -54,8 +54,18 @@ const STAGE_OF: Readonly<Record<string, StageName>> = {
   complete: 'merge',
 };
 
-/** `failed` and `stopped` mark where a task that ended badly was. */
-export type StageState = 'done' | 'current' | 'todo' | 'skipped' | 'failed' | 'stopped';
+/**
+ * `failed` and `stopped` mark where a task that ended badly was; `abandoned` is a stage it will now never
+ * reach, so it does not read as one still to come.
+ */
+export type StageState =
+  | 'done'
+  | 'current'
+  | 'todo'
+  | 'skipped'
+  | 'failed'
+  | 'stopped'
+  | 'abandoned';
 
 export type Stage = {
   readonly name: StageName;
@@ -71,6 +81,12 @@ export function stageOf(step: string | null): StageName | null {
 
 const endState = (status: TaskStatus): StageState => (status === 'FAILED' ? 'failed' : 'stopped');
 
+const ended = (status: TaskStatus): boolean => status === 'FAILED' || status === 'CANCELLED';
+
+/** A stage still to come of a task that has ended will never run. */
+const settle = (state: StageState, status: TaskStatus): StageState =>
+  state === 'todo' && ended(status) ? 'abandoned' : state;
+
 /**
  * Stages for a board row, which knows only its current step and mode. `null` when the step belongs to a
  * workflow this does not know, so nothing is drawn rather than something made up.
@@ -84,8 +100,7 @@ export function rowStages(row: {
   const at = stageOf(row.step);
   if (row.step !== null && at === null) return null;
   const here = at === null ? -1 : STAGES.indexOf(at);
-  const terminal =
-    row.status === 'FAILED' || row.status === 'CANCELLED' ? endState(row.status) : null;
+  const terminal = ended(row.status) ? endState(row.status) : null;
   return STAGES.map((name, i) => {
     let state: StageState;
     if (skip(name)) state = 'skipped';
@@ -94,7 +109,7 @@ export function rowStages(row: {
     else if (i < here) state = 'done';
     else if (i === here) state = terminal ?? 'current';
     else state = 'todo';
-    return { name, state, runs: 0 };
+    return { name, state: settle(state, row.status), runs: 0 };
   });
 }
 
@@ -125,11 +140,10 @@ export function progressStages(
     if (members.length === 0 || members.every((s) => s.state === 'not_required')) state = 'skipped';
     // A finished task still names its last step (`complete`); nothing of a DONE task is under way.
     else if (status === 'DONE') state = 'done';
-    else if (i === current)
-      state = status === 'FAILED' || status === 'CANCELLED' ? endState(status) : 'current';
+    else if (i === current) state = ended(status) ? endState(status) : 'current';
     else if (current >= 0 && i > current) state = 'todo';
     else if (members.some((s) => s.state === 'past')) state = 'done';
     else state = 'todo';
-    return { name, state, runs };
+    return { name, state: settle(state, status), runs };
   });
 }

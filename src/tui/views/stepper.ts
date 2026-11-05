@@ -4,35 +4,40 @@
  */
 import type { TaskStatus } from '../../domain/state.ts';
 import { STAGE_LABEL, type Stage, type StageState } from '../model/stages.ts';
-import type { Color, Style } from '../terminal/screen.ts';
+import type { Style } from '../terminal/screen.ts';
 import { DIM, ui, type Seg } from './ink.ts';
 
-/** Running is cyan; a task that waits shows its current stage in yellow, so a stall stands out. */
-function currentColor(status: TaskStatus): Color {
-  return status === 'WAITING' ? 'yellow' : 'cyan';
-}
+type Look = {
+  readonly dot: string;
+  readonly mark: string;
+  readonly style: Style;
+  /** Said after the label where the mark alone could be missed. */
+  readonly word: string | null;
+};
 
-function look(
-  state: StageState,
-  status: TaskStatus,
-): { readonly dot: string; readonly mark: string; readonly style: Style } {
+/**
+ * A stage that waits, failed or was cancelled has a mark, a colour and a word of its own, so neither colour
+ * nor the mark alone has to tell a pause from an end. Cancelled is orange: yellow already means a wait, and on
+ * a 16-colour terminal orange falls back to yellow, where the marks `‖` and `■` still differ.
+ */
+function look(state: StageState, status: TaskStatus): Look {
   switch (state) {
     case 'done':
-      return { dot: '●', mark: '✓', style: { fg: 'green' } };
+      return { dot: '●', mark: '✓', style: { fg: 'green' }, word: null };
     case 'current':
-      return {
-        dot: '◉',
-        mark: '●',
-        style: { fg: currentColor(status), bold: true },
-      };
+      return status === 'WAITING'
+        ? { dot: '‖', mark: '‖', style: { fg: 'yellow', bold: true }, word: 'waiting' }
+        : { dot: '◉', mark: '●', style: { fg: 'cyan', bold: true }, word: null };
     case 'failed':
-      return { dot: '✗', mark: '✗', style: { fg: 'red', bold: true } };
+      return { dot: '✕', mark: '✕', style: { fg: 'red', bold: true }, word: 'failed' };
     case 'stopped':
-      return { dot: '×', mark: '×', style: DIM };
+      return { dot: '■', mark: '■', style: { fg: 'orange', bold: true }, word: 'cancelled' };
     case 'skipped':
-      return { dot: '–', mark: '–', style: DIM };
+      return { dot: '–', mark: '–', style: { fg: 'gray' }, word: 'skipped' };
     case 'todo':
-      return { dot: '○', mark: '○', style: DIM };
+      return { dot: '○', mark: '○', style: DIM, word: null };
+    case 'abandoned':
+      return { dot: '·', mark: '·', style: DIM, word: null };
   }
 }
 
@@ -40,20 +45,25 @@ function look(
 export function stageLook(
   stage: Stage,
   status: TaskStatus,
-): { readonly mark: string; readonly style: Style } {
-  const { mark, style } = look(stage.state, status);
-  return { mark, style };
+): { readonly mark: string; readonly style: Style; readonly word: string | null } {
+  const { mark, style, word } = look(stage.state, status);
+  return { mark, style, word };
+}
+
+/** Whether the path goes on after this stage; it ends where the task ended. */
+export function leadsOn(state: StageState): boolean {
+  return state !== 'failed' && state !== 'stopped' && state !== 'abandoned';
 }
 
 const DOT_STYLE: Readonly<Record<StageState, (status: TaskStatus) => Style>> = {
   done: () => ({ fg: 'green' }),
-  current: (status) => ({ fg: currentColor(status), bold: true }),
+  current: (status) => ({ fg: status === 'WAITING' ? 'yellow' : 'cyan', bold: true }),
   failed: () => ({ fg: 'red', bold: true }),
-  // A warning, like a cancelled run elsewhere; yellow already means a task waits on the user.
   stopped: () => ({ fg: 'orange' }),
   // Fainter than a stage still to come, so it reads as absent and never as one that will run (FR-011).
   skipped: () => ({ fg: 'gray' }),
   todo: () => DIM,
+  abandoned: () => DIM,
 };
 
 /**
@@ -73,6 +83,8 @@ export function dots(stages: readonly Stage[], status: TaskStatus, color = true)
       const { dot, style } = look(s.state, status);
       return ui(dot, style);
     }
+    // The bars stop where the task ended: a stage it will never reach has none.
+    if (s.state === 'abandoned') return ui(' ');
     return ui(BAR, DOT_STYLE[s.state](status));
   });
 }
@@ -86,21 +98,35 @@ export const DOTS_WIDTH = 8;
 export function stepper(stages: readonly Stage[], status: TaskStatus): Seg[] {
   const out: Seg[] = [];
   stages.forEach((s, i) => {
-    const { mark, style } = look(s.state, status);
+    const { mark, style, word } = look(s.state, status);
     if (i > 0) out.push(ui(' ─ ', DIM));
     const runs = s.runs > 1 ? `\u00a0×${s.runs}` : '';
-    const label =
-      s.state === 'skipped' ? `${STAGE_LABEL[s.name]}\u00a0skipped` : STAGE_LABEL[s.name];
+    const label = word === null ? STAGE_LABEL[s.name] : `${STAGE_LABEL[s.name]}\u00a0${word}`;
     out.push(ui(`${label}\u00a0${mark}${runs}`, style));
   });
   return out;
 }
 
-/** What the marks mean, for the screens that draw them. */
-export const STAGE_KEY: readonly Seg[] = [
-  ui('✓ ran', { fg: 'green' }),
-  ui('  ● now', { fg: 'cyan' }),
-  ui('  ○ to come', DIM),
-  ui('  – skipped by mode', DIM),
-  ui('  ×n runs', DIM),
+/** What the marks mean, for the screens that draw them: what runs on one row, how a task stops on the next. */
+export const STAGE_KEY: readonly (readonly Seg[])[] = [
+  [
+    ui('✓ ran', { fg: 'green' }),
+    ui('  ● now', { fg: 'cyan' }),
+    ui('  ○ to come', DIM),
+    ui('  – skipped by mode', { fg: 'gray' }),
+    ui('  ×n runs', DIM),
+  ],
+  [
+    ui('‖ waiting', { fg: 'yellow' }),
+    ui('  ✕ failed', { fg: 'red' }),
+    ui('  ■ cancelled', { fg: 'orange' }),
+    ui('  · will not run', DIM),
+  ],
 ];
+
+/** The end of a failed or cancelled task, in its stage's mark and colour; `null` for any other task. */
+export function endBadge(status: TaskStatus): Seg | null {
+  if (status === 'FAILED') return ui('✕ FAILED', { fg: 'red', bold: true });
+  if (status === 'CANCELLED') return ui('■ CANCELLED', { fg: 'orange', bold: true });
+  return null;
+}
