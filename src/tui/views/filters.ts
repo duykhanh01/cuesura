@@ -8,6 +8,9 @@ import { truncate } from '../terminal/width.ts';
 import { putSegs, ruleHeading } from './ink.ts';
 import type { Body } from './layout.ts';
 
+export const filtered = (s: TuiState): boolean =>
+  s.filters.project !== null || s.filters.status !== null;
+
 /** The filter in force, in the words of the screen. */
 export function filterLine(s: TuiState): SafeText {
   const { project, status } = s.filters;

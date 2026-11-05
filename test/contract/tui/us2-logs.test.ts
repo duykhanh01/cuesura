@@ -109,7 +109,7 @@ describe('opening a task on its stages and log', () => {
       .split('\n')
       .map((l) => l.split('│')[0] ?? '')
       .join('\n');
-    expect(flat(column)).toContain('Propose or confirm a run configuration');
+    expect(flat(column)).toContain('Confirm how to run this task');
     await quit(s);
   });
 });

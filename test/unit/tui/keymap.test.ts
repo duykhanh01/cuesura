@@ -510,7 +510,7 @@ describe('the Actions menu (T052)', () => {
       ]),
     );
     const text = screen(s);
-    expect(text).toContain('Merge method: not given by the daemon');
+    expect(text).toContain('Merge method: not set');
     expect(text).toContain('No proposed title or message.');
   });
 

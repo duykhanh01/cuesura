@@ -59,7 +59,7 @@ describe('every DetailCode (FR-006)', () => {
       }
       expect(action).not.toBeNull();
       expect(action).not.toBe(code);
-      expect(action).not.toBe('See cusr task explain');
+      expect(action).not.toBe('Open the task for details');
     },
   );
 
@@ -109,13 +109,9 @@ describe('what a task is doing without a wait', () => {
   });
 
   it('tells an unconfirmed READY from a queued one, by what the daemon said', () => {
-    expect(activity(row({ status: 'READY', needs_user: true }))).toBe(
-      'Run configuration not confirmed',
-    );
-    expect(activity(row({ status: 'READY' }))).toBe('Queued for the execution slot');
-    expect(todo(row({ status: 'READY', needs_user: true }))).toBe(
-      'Propose or confirm a run configuration',
-    );
+    expect(activity(row({ status: 'READY', needs_user: true }))).toBe('Run settings not confirmed');
+    expect(activity(row({ status: 'READY' }))).toBe('Queued');
+    expect(todo(row({ status: 'READY', needs_user: true }))).toBe('Confirm how to run this task');
   });
 
   it('never returns only the raw status', () => {

@@ -11,7 +11,7 @@ import { PAGE_LIMIT, type TuiState } from '../model/state.ts';
 import { joinSafe, sanitize, uiText, type SafeText } from '../terminal/safe-text.ts';
 import type { Frame, Style } from '../terminal/screen.ts';
 import { displayWidth, truncate } from '../terminal/width.ts';
-import { filterLine } from './filters.ts';
+import { filtered, filterLine } from './filters.ts';
 import { BOLD, DIM, fg, putSegs, ruleHeading, seg, segsWidth, ui, type Seg } from './ink.ts';
 import type { Body } from './layout.ts';
 import { dots, DOTS_WIDTH, stepper } from './stepper.ts';
@@ -40,18 +40,22 @@ function projectsSegs(s: TuiState): Seg[] {
   ];
 }
 
-/** `▲ 2 need you   ▶ 3 running …`: what the daemon counted, each status with its mark and colour. */
+/**
+ * `▲ 2 need you   ▶ 3 running …`: what the daemon counted, each status with its mark and colour. A task that
+ * needs the user counts there and not again under its status, so the figures add up to the tasks listed.
+ */
 function summarySegs(s: TuiState, attention: number): Seg[] | null {
   if (s.board === null) return null;
   const counts = s.board.counts.by_status;
+  const listed = s.board.attention.items;
   const out: Seg[] = [];
   if (attention > 0) {
     const more = s.board.attention.truncated ? '+' : '';
     out.push(ui(`▲ ${attention}${more} need you`, { fg: 'yellow', bold: true }));
   }
   for (const status of TASK_STATUSES) {
-    const n = counts[status];
-    if (n === undefined || n === 0) continue;
+    const n = (counts[status] ?? 0) - listed.filter((t) => t.status === status).length;
+    if (n <= 0) continue;
     const { mark, color } = statusGlyph(status);
     if (out.length > 0) out.push(ui('    '));
     out.push(ui(`${mark} `, fg(color)), ui(`${n} ${STATUS_WORD[status]}`));
@@ -182,10 +186,7 @@ function columns(s: TuiState, cols: number, rows: readonly HomeRow[]): Columns {
   const tasks = rows.filter((r): r is TaskRow => r.kind !== 'finished_toggle');
   const longest = (width: (r: TaskRow) => number, floor: number): number =>
     tasks.reduce((n, r) => Math.max(n, width(r)), floor);
-  const time = longest(
-    (r) => displayWidth(timeInStatus(r.task, s.lastUpdatedAt)),
-    'In status'.length - 2,
-  );
+  const time = longest((r) => displayWidth(timeInStatus(r.task, s.lastUpdatedAt)), 'Time'.length);
   // Selector and mark, then the gaps between columns and the time at the edge.
   const fixed = TITLE_X + 2 + 2 + DOTS_WIDTH + 2 + 2 + 1 + time;
   const room = Math.max(24, cols - fixed);
@@ -294,7 +295,7 @@ function columnHeads(c: Columns, cols: number): Seg[] {
     'Stages'.padEnd(DOTS_WIDTH + 2),
     'Now',
   ].join('');
-  const right = 'In status';
+  const right = 'Time';
   const gap = cols - displayWidth(heads) - displayWidth(right) - 1;
   return [ui(gap > 0 ? `${heads}${' '.repeat(gap)}${right}` : heads, DIM)];
 }
@@ -338,8 +339,17 @@ function drawList(
     BLANK,
     ...listLines(s, rows, cols),
   ];
-  const offset = firstLine(lines, selected, height);
-  lines.slice(offset, offset + height).forEach((line, i) => {
+  // A list longer than the screen gives up its last row to say so.
+  const room = lines.length > height ? Math.max(1, height - 1) : height;
+  const offset = firstLine(lines, selected, room);
+  const below = lines
+    .slice(offset + room)
+    .filter((l) => l.kind === 'task' || l.kind === 'toggle').length;
+  const shown = lines.slice(offset, offset + room);
+  // A heading with nothing under it is not worth a row.
+  while (below > 0 && shown.at(-1)?.kind === 'static') shown.pop();
+  if (below > 0) frame.put(2, top + height - 1, uiText(`↓ ${below} more`), DIM);
+  shown.forEach((line, i) => {
     const y = top + i;
     if (line.kind === 'static') putSegs(frame, 0, y, line.segs, cols);
     else if (line.kind === 'detail')
@@ -362,7 +372,8 @@ export const homeBody =
     const page = pageLine(s);
     const head: (readonly Seg[] | null)[] = [
       summarySegs(s, attention),
-      [...projectsSegs(s), ui('   '), seg(filterLine(s), DIM)],
+      // With no filter on, the status bar already says `project: all` and the key bar offers `f`.
+      filtered(s) ? [...projectsSegs(s), ui('   '), seg(filterLine(s), DIM)] : projectsSegs(s),
       page === null ? null : [seg(page, DIM)],
       opts.color ? null : [seg(markLegend(), DIM)],
     ];

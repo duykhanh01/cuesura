@@ -59,7 +59,7 @@ describe('cusr at a terminal', () => {
   it('opens with data from the daemon and quits clean', async () => {
     const sd = await daemon();
     const s = cusr(sd.dataDir);
-    await s.waitForText('◇ 2 ready');
+    await s.waitForText('▲ 2 need you');
     expect(s.modes()).toEqual(OPEN);
     const top = s.screenText().split('\n')[0];
     expect(top).toContain('daemon: ok');
@@ -77,7 +77,7 @@ describe('cusr at a terminal', () => {
   it('Ctrl-C quits clean and the daemon keeps going', async () => {
     const sd = await daemon();
     const s = cusr(sd.dataDir);
-    await s.waitForText('In status');
+    await s.waitForText('Time');
     s.send(KEY.ctrlC);
     const exit = await s.waitForExit();
     expect(exit.status).toBe(0);
@@ -107,15 +107,15 @@ describe('cusr at a terminal', () => {
   it('marks data stale when the daemon dies, stays open, and recovers with no key', async () => {
     const sd = await daemon();
     const s = cusr(sd.dataDir);
-    await s.waitForText('◇ 2 ready');
+    await s.waitForText('▲ 2 need you');
     await sd.stop();
     await s.waitForText('Data may be out of date');
     expect(s.screenText()).toContain('Reconnecting (');
-    expect(s.screenText()).toContain('◇ 2 ready');
+    expect(s.screenText()).toContain('▲ 2 need you');
     expect(s.modes()).toEqual(OPEN);
     await sd.start();
     await s.waitFor(() => !s.screenText().includes('Data may be out of date'), 15_000);
-    expect(s.screenText()).toContain('◇ 2 ready');
+    expect(s.screenText()).toContain('▲ 2 need you');
     s.send('q');
     await s.waitForExit();
   });
@@ -123,7 +123,7 @@ describe('cusr at a terminal', () => {
   it('shows a change with no key pressed', async () => {
     const sd = await daemon(1);
     const s = cusr(sd.dataDir);
-    await s.waitForText('◇ 1 ready');
+    await s.waitForText('▲ 1 need you');
     await sd.command('owner', {
       request_id: uuidOf(500),
       kind: 'task_add',
@@ -134,7 +134,7 @@ describe('cusr at a terminal', () => {
         task: { title: 'Another', base_branch: 'main', acceptance: ['a'] },
       },
     });
-    await s.waitForText('◇ 2 ready', 3_000);
+    await s.waitForText('▲ 2 need you', 3_000);
     s.send('q');
     await s.waitForExit();
   });
@@ -155,7 +155,7 @@ describe('cusr at a terminal', () => {
     expect(s.screenText()).toContain('60×20');
     expect(s.screenText()).toContain('q quit');
     s.resize(100, 30);
-    await s.waitForText('◇ 2 ready');
+    await s.waitForText('▲ 2 need you');
     s.resize(70, 24);
     await s.waitForText('70×24');
     s.resize(80, 24);
@@ -167,12 +167,12 @@ describe('cusr at a terminal', () => {
   it('? opens help and Esc returns on its own, without waiting for another key', async () => {
     const sd = await daemon();
     const s = cusr(sd.dataDir);
-    await s.waitForText('In status');
+    await s.waitForText('Time');
     s.send('?');
     await s.waitForText('Ctrl-C');
     expect(s.screenText()).toContain('Esc back');
     s.send(KEY.esc);
-    await s.waitForText('In status');
+    await s.waitForText('Time');
     s.send('q');
     await s.waitForExit();
   });
@@ -204,7 +204,7 @@ describe('cusr at a terminal', () => {
     sd.seed((d) => d.must(t.id, { kind: 'create_task', task: t }));
     await sd.start();
     const s = cusr(sd.dataDir);
-    await s.waitForText('◇ 1 ready');
+    await s.waitForText('▲ 1 need you');
     expect(s.rawOutput()).not.toContain('\x1b[2Jevil');
     s.send('q');
     await s.waitForExit();

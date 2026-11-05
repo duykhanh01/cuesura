@@ -16,7 +16,7 @@ const DECIDE = 'Decide: recheck or merge on GitHub if offered, else cancel';
 const FIX_CONFIG = 'Fix the config, then confirm again';
 const NEW_OR_CANCEL = 'Cancel it or add a new task';
 const RECONNECT = 'Fix the connection or permission, then recheck';
-const SEE_EXPLAIN = 'See cusr task explain';
+const SEE_EXPLAIN = 'Open the task for details';
 
 const WAITS: Readonly<Record<DetailCode, WaitWords>> = {
   missing_acceptance: {
@@ -41,9 +41,9 @@ const WAITS: Readonly<Record<DetailCode, WaitWords>> = {
     doing: 'Decision mode is not supported',
     todo: FIX_CONFIG,
   },
-  no_valid_binding: { doing: 'No agent binding fits', todo: FIX_CONFIG },
+  no_valid_binding: { doing: 'No agent fits this task', todo: FIX_CONFIG },
   override_exceeds_caller: {
-    doing: 'Override exceeds your permission',
+    doing: 'Settings exceed your permission',
     todo: FIX_CONFIG,
   },
   capability_missing: {
@@ -51,8 +51,8 @@ const WAITS: Readonly<Record<DetailCode, WaitWords>> = {
     todo: FIX_CONFIG,
   },
   run_config_unconfirmed: {
-    doing: 'Run configuration not confirmed',
-    todo: 'Propose or confirm a run configuration',
+    doing: 'Run settings not confirmed',
+    todo: 'Confirm how to run this task',
   },
   agent_question: {
     doing: 'Agent asked a question',
@@ -68,7 +68,7 @@ const WAITS: Readonly<Record<DetailCode, WaitWords>> = {
   refused: { doing: 'The agent refused the work', todo: RECONNECT },
   timeout: { doing: 'A step timed out', todo: DECIDE },
   base_outdated: { doing: 'Base branch moved ahead', todo: DECIDE },
-  ci_unclassified: { doing: 'CI failure not classified', todo: DECIDE },
+  ci_unclassified: { doing: 'CI failed for an unknown reason', todo: DECIDE },
   attempt_stopped: { doing: 'Attempt was stopped', todo: DECIDE },
   effect_failed: { doing: 'An operation failed', todo: DECIDE },
   merge_not_done: { doing: 'Merge did not happen', todo: DECIDE },
@@ -85,18 +85,18 @@ const WAITS: Readonly<Record<DetailCode, WaitWords>> = {
   escalation_rejected: { doing: 'Escalation was rejected', todo: DECIDE },
   ci_wait_exhausted: { doing: 'CI took too long', todo: DECIDE },
   escalation: {
-    doing: 'Waiting for escalation approval',
-    todo: 'Approve the escalation or cancel',
+    doing: 'Wants a stronger model',
+    todo: 'Approve the stronger model or cancel',
   },
   merge: { doing: 'PR ready to merge by hand', todo: 'Merge the PR on GitHub' },
   checks_incomplete: { doing: 'Waiting for CI', todo: null },
-  effect_unknown: { doing: 'Confirming an uncertain result', todo: null },
+  effect_unknown: { doing: 'Checking what happened', todo: null },
   infra_backoff: {
-    doing: 'Cooling down after an infrastructure error',
+    doing: 'Retrying soon after a system error',
     todo: null,
   },
-  rate_limited: { doing: 'Cooling down: rate limited', todo: null },
-  execution_slot: { doing: 'Waiting for the execution slot', todo: null },
+  rate_limited: { doing: 'Rate limited: retrying soon', todo: null },
+  execution_slot: { doing: 'Waiting for its turn', todo: null },
   head_changed: {
     doing: 'PR head changed outside the task',
     todo: 'Return the branch to the checked head, or cancel',
@@ -106,21 +106,21 @@ const WAITS: Readonly<Record<DetailCode, WaitWords>> = {
     todo: 'Recheck the PR',
   },
   required_checks_mismatch: {
-    doing: 'Required checks differ from the snapshot',
+    doing: 'Required checks changed on GitHub',
     todo: 'Change the GitHub requirement, or cancel',
   },
   merge_cleanup_pending: { doing: 'Merged; cleaning up', todo: null },
   worktree_changed: {
     doing: 'Worktree changed outside the task',
-    todo: 'Recheck to accept the tree, or cancel',
+    todo: 'Recheck to accept the changes, or cancel',
   },
   harness_auth: {
-    doing: 'Harness login expired or was refused',
+    doing: 'Agent login expired or was refused',
     todo: 'Sign in again, then recheck, or cancel',
   },
   manifest_changed: {
-    doing: 'Harness was re-proved after the task started',
-    todo: 'Recheck to run with the new manifest, or cancel',
+    doing: 'Agent setup changed after the task started',
+    todo: 'Recheck to use the new setup, or cancel',
   },
   target_mismatch: {
     doing: 'PR points at the wrong base branch',
@@ -129,11 +129,11 @@ const WAITS: Readonly<Record<DetailCode, WaitWords>> = {
   pr_closed: { doing: 'PR was closed', todo: 'Reopen the PR, or cancel' },
   observation_unknown: { doing: 'Could not read the PR yet', todo: null },
   merge_evidence_incomplete: {
-    doing: 'Merge evidence is incomplete',
+    doing: 'Could not confirm the merge yet',
     todo: 'Recheck once GitHub shows the merge',
   },
   cancel_reconcile: {
-    doing: 'Cancelling: PR must be read first',
+    doing: 'Cancelling: checking the PR first',
     todo: 'Recheck the PR',
   },
 };
@@ -193,7 +193,7 @@ export function activity(row: ActivityRow): SafeText {
     const words = waitWords(row.wait_code);
     return words === null ? sanitize(row.wait_code) : uiText(words.doing);
   }
-  if (row.status === 'READY') return uiText('Queued for the execution slot');
+  if (row.status === 'READY') return uiText('Queued');
   if (row.status === 'PENDING') return uiText('Waiting for its checks');
   if (row.step === null) return uiText('Running');
   const step = Object.hasOwn(STEPS, row.step) ? STEPS[row.step] : undefined;

@@ -61,7 +61,7 @@ describe('US1 scenario 4: a change shows by itself', () => {
     const [id] = seedReady(sd, 1);
     await sd.start();
     const s = tui.cusr(sd.dataDir);
-    await s.waitForText('◇ 1 ready');
+    await s.waitForText('▲ 1 need you');
     const result = await cancelTask(sd, id!, 0);
     expect(result.envelope.ok).toBe(true);
     await s.waitForText('■ 1 cancelled');
@@ -82,7 +82,7 @@ describe('US1 scenario 6 and SC-011: the daemon dies under an open session', () 
     proxy.tap = (direction, data) => {
       if (direction === 'request') sent.push(data.toString('utf8'));
     };
-    await s.waitForText('◇ 2 ready');
+    await s.waitForText('▲ 2 need you');
     await s.waitFor(() => /updated: \d\d:\d\d:\d\d/.test(s.screenText()));
 
     s.send('f');
@@ -104,10 +104,10 @@ describe('US1 scenario 6 and SC-011: the daemon dies under an open session', () 
 
     // Leaving the field still works, and what is on screen stays marked.
     s.send(KEY.esc);
-    await s.waitForText('◇ 2 ready');
+    await s.waitForText('▲ 2 need you');
     expect(s.screenText()).toContain('Data may be out of date');
     expect(s.screenText()).toContain('Ready 01');
-    expect(s.screenText()).toContain('Filters: project all · status all');
+    expect(s.screenText()).not.toContain('Filters:');
     expect(s.modes()).toEqual(OPEN);
     expect(sent.filter((r) => r.includes('/v1/command'))).toEqual([]);
 
@@ -155,7 +155,7 @@ describe('SC-003 and EC-007: the daemon back inside the automatic window', () =>
     seedReady(sd, 1);
     await sd.start();
     const { s, proxy } = await throughProxy(sd);
-    await s.waitForText('◇ 1 ready');
+    await s.waitForText('▲ 1 need you');
 
     proxy.mode = 'hold';
     await s.waitFor(() => reconnectAttempt(s.screenText()) >= 5, 30_000);
@@ -163,7 +163,7 @@ describe('SC-003 and EC-007: the daemon back inside the automatic window', () =>
     s.send('?');
     await s.waitForText('Keys on Home');
     s.send(KEY.esc);
-    await s.waitForText('◇ 1 ready');
+    await s.waitForText('▲ 1 need you');
 
     const added = await sd.command('owner', taskAdd(1, 'Answered at last'));
     expect(added.envelope.ok).toBe(true);
@@ -241,7 +241,7 @@ describe('US1 scenario 10 and EC-010: a daemon of another version', () => {
     seedReady(sd, 1);
     await sd.start();
     const { s, proxy } = await throughProxy(sd);
-    await s.waitForText('◇ 1 ready');
+    await s.waitForText('▲ 1 need you');
 
     const other = await tui.answering('upgrade required');
     proxy.retarget(other.socketPath);
@@ -258,7 +258,7 @@ describe('US1 scenario 10 and EC-010: a daemon of another version', () => {
     expect(s.screenText()).toContain('Stopped:');
     s.send('R');
     await s.waitFor(() => !s.screenText().includes('Data may be out of date'), 10_000);
-    expect(s.screenText()).toContain('◇ 1 ready');
+    expect(s.screenText()).toContain('▲ 1 need you');
     s.send('q');
     expect((await s.waitForExit()).status).toBe(0);
   });

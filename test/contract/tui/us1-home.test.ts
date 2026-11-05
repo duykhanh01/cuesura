@@ -74,7 +74,7 @@ describe('US1 scenario 1: the main screen, with no arguments', () => {
     expect(bar).toMatch(/updated: \d\d:\d\d:\d\d/);
     expect(bar).toContain('project: all');
     expect(screen).toContain('Task 003');
-    expect(rowOf(screen, 'Sample queued')).toContain('Queued for the execution slot');
+    expect(rowOf(screen, 'Sample queued')).toContain('Queued');
     await quit(s);
   });
 
@@ -140,6 +140,33 @@ describe('US1 scenario 1: the main screen, with no arguments', () => {
   });
 });
 
+describe('Home says what it holds', () => {
+  it('counts each task once, however it is grouped', async () => {
+    const sd = tui.daemon();
+    sd.seed((d) => seedEveryState(d));
+    await sd.start();
+    const s = tui.cusr(sd.dataDir, { cols: 120, rows: 60 });
+    await s.waitForText('Needs you (4)');
+    const figures = (s.screenText().split('\n')[1] ?? '').match(/\d+/g) ?? [];
+    const finished = 1;
+    const listed = 4 + 5 + finished;
+    expect(figures.reduce((n, f) => n + Number(f), 0)).toBe(listed);
+    await quit(s);
+  });
+
+  it('says how much is below the screen, and leaves no heading on its own', async () => {
+    const sd = tui.daemon();
+    sd.seed((d) => seedEveryState(d));
+    await sd.start();
+    const s = tui.cusr(sd.dataDir, { cols: 90, rows: 26 });
+    await s.waitForText('more');
+    const rows = s.screenText().split('\n');
+    expect(rows.some((r) => /^ +↓ 6 more/.test(r))).toBe(true);
+    expect(rows.some((r) => r.startsWith('Tasks ─'))).toBe(false);
+    await quit(s);
+  });
+});
+
 describe('US1 scenario 2: what each task is doing, in words', () => {
   it('says it plainly for every kind of work and wait, never only a raw status', async () => {
     const sd = tui.daemon();
@@ -156,10 +183,10 @@ describe('US1 scenario 2: what each task is doing, in words', () => {
       ['Sample review', 'Reviewing the change'],
       ['Sample waiting CI', 'Waiting for CI'],
       ['Sample question', 'Agent asked a question'],
-      ['Sample unconfirmed', 'Run configuration not confirmed'],
-      ['Sample escalation', 'Waiting for escalation approval'],
+      ['Sample unconfirmed', 'Run settings not confirmed'],
+      ['Sample escalation', 'Wants a stronger model'],
       ['Sample merge', 'PR ready to merge by hand'],
-      ['Sample cooldown', 'Cooling down: rate limited'],
+      ['Sample cooldown', 'Rate limited: retrying soon'],
       ['Sample cancelled', 'Cancelled'],
     ] as const)
       expect(rowOf(screen, title)).toContain(words);
@@ -183,8 +210,8 @@ describe('US1 scenario 3 and FR-007: what needs the user', () => {
     const group = lines.slice(heading, tasks).join('\n');
     for (const [title, action] of [
       ['Sample question', 'Answer the question'],
-      ['Sample unconfirmed', 'Propose or confirm a run configuration'],
-      ['Sample escalation', 'Approve the escalation or cancel'],
+      ['Sample unconfirmed', 'Confirm how to run this task'],
+      ['Sample escalation', 'Approve the stronger model or cancel'],
       ['Sample merge', 'Merge the PR on GitHub'],
     ] as const)
       expect(rowOf(group, title)).toContain(`→ ${action}`);
@@ -299,7 +326,7 @@ describe('US1 scenario 9 and FR-008: every project in scope', () => {
       expect(screen).toContain('In acme');
       expect(screen).toContain('In beta');
       expect(screen.split('\n')[0]).toContain('project: all');
-      expect(screen).toContain('Filters: project all · status all');
+      expect(screen).not.toContain('Filters:');
 
       s.send('f');
       await s.waitForText('Find project:');
@@ -315,7 +342,7 @@ describe('US1 scenario 9 and FR-008: every project in scope', () => {
       const again = tui.cusr(sd.dataDir, { cwd: elsewhere });
       await again.waitForText('In acme');
       expect(again.screenText()).toContain('In beta');
-      expect(again.screenText()).toContain('Filters: project all · status all');
+      expect(again.screenText()).not.toContain('Filters:');
       await quit(again);
     } finally {
       rmSync(elsewhere, { recursive: true, force: true });
@@ -419,7 +446,7 @@ describe('T037: changing the filter when nothing has changed in the daemon', () 
     await s.waitForText('Filters: project all · status READY');
     await s.waitFor(() => !s.screenText().includes('In acme'));
     await s.waitForText('Unconfirmed one');
-    expect(s.screenText()).toContain('◇ 1 ready');
+    expect(s.screenText()).toContain('▲ 1 need you');
 
     // A status the `Needs you` task does not have: the filter holds for that group too.
     s.send('f');
@@ -467,7 +494,8 @@ describe('T037: changing the filter when nothing has changed in the daemon', () 
     s.send(KEY.enter);
     await s.waitForText('Find project: zzz_');
     s.send(KEY.esc);
-    await s.waitForText('Filters: project all');
+    await s.waitFor(() => !s.screenText().includes('Find project'));
+    expect(s.screenText()).not.toContain('Filters:');
     await quit(s);
   });
 });

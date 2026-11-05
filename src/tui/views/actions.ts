@@ -52,9 +52,7 @@ export type ActionItem = {
 
 /** The merge method and the proposed title and message, for the one who merges on GitHub. */
 function mergeGuide(merge: TaskExplain['merge']): SafeText[] {
-  const lines = [
-    joinSafe([uiText('Merge method: '), merge?.method ?? uiText('not given by the daemon')]),
-  ];
+  const lines = [joinSafe([uiText('Merge method: '), merge?.method ?? uiText('not set')])];
   if (merge === null || merge.proposed === null)
     return [...lines, uiText('No proposed title or message.')];
   return [
