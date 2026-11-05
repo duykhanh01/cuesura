@@ -34,7 +34,7 @@ jobs:
   build:
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.full_name == github.repository && fromJSON('["self-hosted","cuesura-host"]') || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -49,7 +49,7 @@ jobs:
   test:
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.full_name == github.repository && fromJSON('["self-hosted","cuesura-host"]') || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -58,7 +58,8 @@ jobs:
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
       # Native sandbox probes của harness cần bwrap/userns; đây không phải outer sandbox của Cuesura.
-      - run: |
+      - if: runner.environment == 'github-hosted'
+        run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           sudo apparmor_parser -R /etc/apparmor.d/bwrap-userns-restrict
       - run: pnpm test
