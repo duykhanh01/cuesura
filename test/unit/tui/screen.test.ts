@@ -113,7 +113,7 @@ describe('256 colours', () => {
       f.put(1, 0, text('b'), { fg: 'gray' });
       return diffFrames(null, f);
     };
-    expect(sgr(true)).toContain('\x1b[38;5;208ma');
+    expect(sgr(true)).toContain('\x1b[38;5;173ma');
     expect(sgr(true)).toContain('\x1b[38;5;238mb');
     expect(sgr(false)).toContain('\x1b[33ma');
     expect(sgr(false)).toContain('\x1b[90mb');

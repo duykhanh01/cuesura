@@ -30,9 +30,9 @@ const FG: Readonly<Record<Color, string>> = {
   gray: '90',
 };
 
-/** Where the terminal has 256 colours: xterm palette orange (208) and a dark gray (238). */
+/** Where the terminal has 256 colours: a muted orange (173), as 208 glares on dark, and a dark gray (238). */
 const FG_256: Readonly<Partial<Record<Color, string>>> = {
-  orange: '38;5;208',
+  orange: '38;5;173',
   gray: '38;5;238',
 };
 const RESET = '\x1b[0m';

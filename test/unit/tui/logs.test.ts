@@ -18,6 +18,7 @@ import {
   toEntry,
   visibleRows,
   type LogState,
+  logColumns,
 } from '../../../src/tui/model/logs.ts';
 import { sanitize, uiText } from '../../../src/tui/terminal/safe-text.ts';
 
@@ -534,5 +535,14 @@ describe('records in words', () => {
     );
     expect(s.buffer).toHaveLength(0);
     expect(s.nextCursor).toBe(1);
+  });
+});
+
+describe('the columns of Logs', () => {
+  it('widens the progress column only with room to spare, and drops it when there is none', () => {
+    expect(logColumns(99)).toEqual({ pane: 0, log: 99 });
+    expect(logColumns(100)).toEqual({ pane: 30, log: 68 });
+    expect(logColumns(119)).toEqual({ pane: 30, log: 87 });
+    expect(logColumns(120)).toEqual({ pane: 36, log: 82 });
   });
 });

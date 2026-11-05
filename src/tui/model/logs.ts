@@ -18,17 +18,20 @@ export const LOG_BUFFER_BYTES = 8 * 1024 * 1024;
 /** The daemon's page; also how far back one reading of older records reaches. */
 export const LOG_PAGE_RECORDS = 200;
 /** The progress column beside the log, when the terminal is wide enough for both. */
-export const PROGRESS_PANE = 30;
+const PROGRESS_PANE = 30;
 const TWO_COLUMNS_FROM = 100;
+/** With room to spare the column widens, so a reason wraps less; narrower, the log needs those columns more. */
+const PROGRESS_PANE_WIDE = 36;
+const WIDE_FROM = 120;
 
 /** Columns of the log: what is left of the terminal beside the progress column and its rule. */
 export function logColumns(cols: number): {
   readonly pane: number;
   readonly log: number;
 } {
-  return cols >= TWO_COLUMNS_FROM
-    ? { pane: PROGRESS_PANE, log: cols - PROGRESS_PANE - 2 }
-    : { pane: 0, log: cols };
+  if (cols < TWO_COLUMNS_FROM) return { pane: 0, log: cols };
+  const pane = cols >= WIDE_FROM ? PROGRESS_PANE_WIDE : PROGRESS_PANE;
+  return { pane, log: cols - pane - 2 };
 }
 
 /** Title, what is being followed, and one row for news. */
