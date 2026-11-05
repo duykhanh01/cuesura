@@ -7,12 +7,12 @@ import {
   cursorIndex,
   formatTokens,
   groupAttempts,
+  groupFlow,
   rowStage,
   stepName,
   tokensOf,
   treeRows,
   type Attempt,
-  type AttemptGroup,
   type TreeRow,
 } from '../model/attempt-tree.ts';
 import { pickerGroups } from '../model/detail-keys.ts';
@@ -116,7 +116,8 @@ function newsLine(s: LogState): SafeText {
   if (s.error !== null) return joinSafe([uiText('Could not read the log: '), s.error]);
   if (s.newActivity) return uiText('New activity: F follows the log live');
   if (s.filling || s.older !== null) return uiText('Reading…');
-  if (s.complete) return uiText('End of the log: the task has finished');
+  // Nothing to do with choosing an attempt, and the loudest line on the screen.
+  if (s.complete && s.picker === null) return uiText('End of the log: the task has finished');
   return uiText('');
 }
 
@@ -304,14 +305,6 @@ const tokenSeg = (attempts: readonly Attempt[]): Seg[] => {
   return [ui(n === null ? ' '.repeat(TOKEN_COLS) : formatTokens(n).padStart(TOKEN_COLS), DIM)];
 };
 
-const flow = (group: AttemptGroup): string =>
-  group.runs
-    .map((r) => {
-      const name = r.step.replaceAll('_', ' ');
-      return r.attempts.length > 1 ? `${name} ×${r.attempts.length}` : name;
-    })
-    .join(' → ');
-
 /** The left and the right-aligned part of one chooser row. */
 function pickerRow(
   row: TreeRow,
@@ -335,12 +328,12 @@ function pickerRow(
           ...pad(
             [
               ui(row.open ? '▾ ' : '▸ ', DIM),
-              ui(row.group.title, BOLD),
+              ui(row.group.title, row.open ? BOLD : {}),
               ui(now ? ' ●' : '', { fg: 'green' }),
             ],
             NAME_COLS,
           ),
-          seg(sanitize(flow(row.group)), DIM),
+          seg(sanitize(groupFlow(row.group)), DIM),
         ],
         right: [
           ui(`${attempts.length} ${attempts.length === 1 ? 'run ' : 'runs'}`.padStart(7), DIM),
@@ -393,7 +386,7 @@ function pickerRow(
 function pickerSummary(s: TuiState): SafeText {
   const groups = pickerGroups(s);
   const all = groups.flatMap(groupAttempts);
-  const rounds = groups.filter((g) => g.title.startsWith('Review round')).length;
+  const rounds = groups.filter((g) => g.runs[0]?.step === 'review').length;
   const tokens = tokensOf(all);
   return uiText(
     [
@@ -425,12 +418,18 @@ function pickerList(
   const cursor = cursorIndex(rows, logs.picker);
   const area = room;
   if (area <= 0) return;
+  // A row of its own under the whole log, which is not one of the rounds. `null` is that row.
+  const lines = rows.flatMap((r, i): (TreeRow | null)[] =>
+    i === 0 && rows.length > 1 ? [r, null] : [r],
+  );
+  const at = cursor === 0 ? 0 : cursor + 1;
   // One row past the chosen one stays in sight, so moving down shows what comes next.
-  const first = Math.min(Math.max(0, cursor - area + 2), Math.max(0, rows.length - area));
+  const first = Math.min(Math.max(0, at - area + 2), Math.max(0, lines.length - area));
   const inner = Math.max(0, width - 2);
-  rows.slice(first, first + area).forEach((row, i) => {
+  lines.slice(first, first + area).forEach((row, i) => {
+    if (row === null) return;
     const y = top + i;
-    const chosen = first + i === cursor;
+    const chosen = first + i === at;
     const { left, right } = pickerRow(row, ctx);
     const look = (segs: readonly Seg[]): Seg[] => (chosen ? highlight(segs) : [...segs]);
     if (chosen) frame.put(x, y, uiText('›'), SELECTED);

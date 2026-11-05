@@ -48,9 +48,10 @@ Luôn có hiệu lực ngoài ô nhập, và luôn được hiện ở thanh g�
 | `Ctrl-C` | Thoát, không hủy task; hỏi lại nếu còn nội dung đang nhập, lần thứ hai thì thoát |
 
 Trong Logs thêm: `Space` tạm dừng hoặc tiếp tục; `F` về theo dõi trực tiếp; `t` chọn attempt.
-Danh sách chọn attempt gom theo giai đoạn: Build, mỗi lượt review mở một `Review round N` cùng các lượt fix
+Danh sách chọn attempt gom theo giai đoạn: Build, mỗi lượt review mở một `Round N` cùng các lượt fix
 nó yêu cầu, rồi CI và merge, theo thứ tự attempt bắt đầu; một step chạy liền nhiều lần gộp thành một dòng
-`×N`. Lần đầu mở, con trỏ ở dòng đầu và chỉ vòng mới nhất mở ra; đang đọc một attempt thì danh sách mở trên
+`×N`. Dòng vòng thu gọn chỉ nêu điểm khác một lượt review và một lượt fix thông thường; `Whole log` cách
+các vòng một dòng trống. Lần đầu mở, con trỏ ở dòng đầu và chỉ vòng mới nhất mở ra; đang đọc một attempt thì danh sách mở trên
 attempt đó. `←`/`→` (`h`/`l`) thu gọn hoặc mở một vòng; `Enter` đọc attempt, trên dòng vòng thì thu gọn hoặc
 mở. `Esc` đi ngược: từ một attempt về danh sách, từ danh sách về toàn bộ log, từ toàn bộ log về Home.
 

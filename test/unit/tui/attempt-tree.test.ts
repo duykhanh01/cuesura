@@ -4,6 +4,7 @@ import {
   attemptGroups,
   attemptKey,
   formatTokens,
+  groupFlow,
   pickerStart,
   treeRows,
 } from '../../../src/tui/model/attempt-tree.ts';
@@ -13,6 +14,8 @@ import type { Command } from '../../../src/tui/model/keymap.ts';
 import { initialLogs } from '../../../src/tui/model/logs.ts';
 import { initialState, type TuiState } from '../../../src/tui/model/state.ts';
 import { sanitize, uiText } from '../../../src/tui/terminal/safe-text.ts';
+import { Frame } from '../../../src/tui/terminal/screen.ts';
+import { logsBody } from '../../../src/tui/views/logs.ts';
 
 type Usage = TaskShow['provenance']['usage'][number];
 
@@ -47,8 +50,8 @@ describe('attempts grouped into the build and review rounds', () => {
       ]),
     ).toEqual([
       ['Build', 'code×1 fix_gates×1'],
-      ['Review round 1', 'review×1 fix_review×1 fix_gates×1'],
-      ['Review round 2', 'review×1 fix_review×2'],
+      ['Round 1', 'review×1 fix_review×1 fix_gates×1'],
+      ['Round 2', 'review×1 fix_review×2'],
       ['CI', 'ci_fix×1 fix_gates×1'],
     ]);
   });
@@ -175,5 +178,76 @@ describe('going back between the log, the chooser and an attempt', () => {
 
   it('Esc from the whole log leaves the task', () => {
     expect(run(state(), 'back').logs).toBeNull();
+  });
+});
+
+describe('what a row of the chooser says about its group', () => {
+  const flows = (steps: readonly string[]) => attemptGroups(usage(steps)).map(groupFlow);
+
+  it('leaves a usual round blank and names only what sets another apart', () => {
+    expect(
+      flows([
+        'review',
+        'fix_review',
+        'review',
+        'fix_review',
+        'fix_review',
+        'review',
+        'fix_review',
+        'fix_gates',
+        'review',
+      ]),
+    ).toEqual(['', 'fix review ×2', 'fix gates', 'review']);
+  });
+
+  it('keeps the whole flow outside the review rounds', () => {
+    expect(flows(['code', 'fix_gates', 'fix_gates'])).toEqual(['code → fix gates ×2']);
+  });
+});
+
+describe('the chooser on screen', () => {
+  const BOLD_ON = '\u001b[1m';
+  const drawn = (rows: number, steps: readonly string[], complete = true): readonly string[] => {
+    const title = uiText('A task');
+    const detail = initialDetail('t1', title, 1);
+    const show = {
+      status: 'DONE',
+      provenance: { usage: usage(steps) },
+    } as unknown as TaskShow;
+    const opened = onLogsCommand(
+      {
+        ...initialState({ cols: 120, rows: 40 }),
+        screens: ['home', 'detail', 'logs'],
+        detail: { ...detail, show: { ...detail.show, data: show } },
+        logs: { ...initialLogs('t1', title, 2), complete },
+      },
+      'attempts',
+    )?.state as TuiState;
+    const frame = new Frame(120, rows);
+    logsBody(opened)(frame, 0, rows);
+    return Array.from({ length: rows }, (_, y) => frame.rowBytes(y));
+  };
+  const steps = ['code', 'review', 'fix_review', 'review', 'fix_review'];
+  const at = (screen: readonly string[], text: string) => screen.findIndex((l) => l.includes(text));
+
+  it('sets the whole log apart from the rounds by one empty row', () => {
+    const screen = drawn(20, steps);
+    expect(at(screen, 'Build')).toBe(at(screen, 'Whole log') + 2);
+  });
+
+  it('keeps every row in reach when the list only just fits', () => {
+    // Header, whole log, the empty row, Build, two rounds and the two attempts of the open one.
+    expect(at(drawn(3 + 7, steps), 'Fix review')).toBeGreaterThan(0);
+  });
+
+  it('marks only the open round in bold', () => {
+    const screen = drawn(20, steps);
+    const bold = (text: string) => (screen[at(screen, text)] as string).includes(BOLD_ON + text);
+    expect(bold('Round 2')).toBe(true);
+    expect(bold('Round 1')).toBe(false);
+  });
+
+  it('does not say the log ended, while choosing what to read', () => {
+    expect(at(drawn(20, steps), 'End of the log')).toBe(-1);
   });
 });

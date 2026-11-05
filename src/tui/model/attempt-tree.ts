@@ -75,7 +75,7 @@ export function attemptGroups(usage: readonly Usage[]): readonly AttemptGroup[] 
     if (opens) {
       const title =
         u.step === 'review'
-          ? `Review round ${++rounds}`
+          ? `Round ${++rounds}`
           : phase === null
             ? 'Steps'
             : PHASE_TITLE[phase as 0 | 1 | 2 | 3 | 4];
@@ -98,6 +98,21 @@ export function tokensOf(attempts: readonly Attempt[]): number | null {
 
 export const groupAttempts = (g: AttemptGroup): readonly Attempt[] =>
   g.runs.flatMap((r) => r.attempts);
+
+/**
+ * What the row of a group says about it. Nearly every round is one review and one fix, so a round names only
+ * what sets it apart: its fix repeated, or steps beyond it.
+ */
+export function groupFlow(group: AttemptGroup): string {
+  const label = (r: AttemptRun): string => {
+    const name = r.step.replaceAll('_', ' ');
+    return r.attempts.length > 1 ? `${name} ×${r.attempts.length}` : name;
+  };
+  const [opening, fix, ...rest] = group.runs;
+  if (opening?.step !== 'review' || fix === undefined) return group.runs.map(label).join(' → ');
+  const usual = fix.step === 'fix_review' && fix.attempts.length === 1;
+  return (usual ? rest : [fix, ...rest]).map(label).join(' → ');
+}
 
 /** `fix_review` → `Fix review`. */
 export function stepName(step: SafeText): SafeText {
