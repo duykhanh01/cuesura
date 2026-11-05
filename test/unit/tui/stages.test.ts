@@ -7,7 +7,7 @@ import { progressStages, rowStages } from '../../../src/tui/model/stages.ts';
 import { uiText } from '../../../src/tui/terminal/safe-text.ts';
 import { plain } from '../../../src/tui/views/ink.ts';
 import { markdownRows } from '../../../src/tui/views/markdown.ts';
-import { stepper } from '../../../src/tui/views/stepper.ts';
+import { dots, stepper } from '../../../src/tui/views/stepper.ts';
 
 type Step = Parameters<typeof progressStages>[0][number];
 const step = (name: string, state: Step['state'], visits = 1): Step => ({
@@ -82,6 +82,23 @@ describe('stages', () => {
       mode: 'full-review',
     });
     expect(stages?.find((s) => s.name === 'ci')?.state).toBe('failed');
+  });
+
+  it('draws one bar per stage and gives each state its own colour', () => {
+    const stages = (['done', 'current', 'skipped', 'todo'] as const).map((state) => ({
+      name: 'code' as const,
+      state,
+      runs: 1,
+    }));
+    const bars = dots(stages, 'RUNNING');
+    expect(plain(bars)).toBe('▌▌▌▌');
+    expect(bars.map((b) => b.style)).toEqual([
+      { fg: 'green' },
+      { fg: 'cyan', bold: true },
+      { fg: 'blue' },
+      { dim: true },
+    ]);
+    expect(plain(dots(stages, 'RUNNING', false))).toBe('●◉–○');
   });
 });
 

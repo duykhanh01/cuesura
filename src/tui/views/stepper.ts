@@ -50,14 +50,20 @@ const DOT_STYLE: Readonly<Record<StageState, (status: TaskStatus) => Style>> = {
   current: (status) => ({ fg: currentColor(status), bold: true }),
   failed: () => ({ fg: 'red', bold: true }),
   stopped: () => ({ fg: 'magenta' }),
-  skipped: () => DIM,
+  // Its own colour, so a skipped stage never looks like one still to come (FR-011).
+  skipped: () => ({ fg: 'blue' }),
   todo: () => DIM,
 };
 
 /**
- * One cell per stage, for a list row. With colour every stage is the same dot and the colour tells the state;
- * a skipped stage is a small dot, so it never looks like one still to come (FR-011). Without colour the
- * distinct marks of `look` carry the states (FR-035).
+ * Terminals draw block elements themselves rather than from the font, so the bar looks the same whatever
+ * font the user has. The empty right half of each cell is the gap between stages.
+ */
+const BAR = '▌';
+
+/**
+ * One cell per stage, for a list row. With colour every stage is the same bar and the colour tells the state.
+ * Without colour the distinct marks of `look` carry the states (FR-035).
  */
 export function dots(stages: readonly Stage[], status: TaskStatus, color = true): Seg[] {
   return stages.map((s) => {
@@ -65,7 +71,7 @@ export function dots(stages: readonly Stage[], status: TaskStatus, color = true)
       const { dot, style } = look(s.state, status);
       return ui(dot, style);
     }
-    return ui(s.state === 'skipped' ? '·' : '●', DOT_STYLE[s.state](status));
+    return ui(BAR, DOT_STYLE[s.state](status));
   });
 }
 
