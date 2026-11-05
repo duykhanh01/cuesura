@@ -17,6 +17,7 @@ import {
 } from '../../../src/tui/model/keymap.ts';
 import type { Message } from '../../../src/tui/model/messages.ts';
 import { reduce } from '../../../src/tui/model/reduce.ts';
+import { initialLogs, type LogState } from '../../../src/tui/model/logs.ts';
 import { initialState, type TuiState } from '../../../src/tui/model/state.ts';
 import type { Key, KeyName } from '../../../src/tui/terminal/keys.ts';
 import { sanitize, sanitizeLines, uiText } from '../../../src/tui/terminal/safe-text.ts';
@@ -276,6 +277,25 @@ describe('the keymap is the one source of keys, hints and Help (T050)', () => {
     expect(help.map((l) => l.text).join('\n')).toContain(
       'Delete the last character of the project name',
     );
+  });
+});
+
+describe('the keys of a finished log', () => {
+  const on = (logs: Partial<LogState>): TuiState => ({
+    ...initialState({ cols: 120, rows: 30 }),
+    screens: ['home', 'detail', 'logs'],
+    logs: { ...initialLogs('t1', uiText('A task'), 1), ...logs },
+  });
+
+  it('offers no pausing or following, which have nothing left to do', () => {
+    const bar = hintBar(on({ complete: true }), 120);
+    expect(bar).not.toContain('pause');
+    expect(bar).not.toContain('live');
+    expect(hintBar(on({}), 120)).toContain('Space pause');
+  });
+
+  it('keeps the way back from one attempt to the whole log', () => {
+    expect(hintBar(on({ complete: true, attemptFilter: 'a1' }), 120)).toContain('F live');
   });
 });
 

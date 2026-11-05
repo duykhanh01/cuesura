@@ -5,7 +5,7 @@
 import type { PortResult } from '../client/daemon-port.ts';
 import { EXPLAIN_REFRESH_MS } from '../client/refresh.ts';
 import type { TaskExplain, TaskHistory, TaskProgress, TaskShow } from '../client/schemas.ts';
-import { sanitize, type SafeText } from '../terminal/safe-text.ts';
+import { sanitize, uiText, type SafeText } from '../terminal/safe-text.ts';
 import type { TuiState } from './state.ts';
 
 /**
@@ -172,12 +172,16 @@ function reasonOf(payload: unknown): SafeText | undefined {
 
 const ENDINGS = new Set(['TaskFailed', 'TaskCancelled']);
 
+/** `system:effect_result` names a part of the daemon, which means nothing to whoever reads this. */
+export const actorWords = (actor: SafeText): SafeText =>
+  actor === 'system' || actor.startsWith('system:') ? uiText('Cuesura') : actor;
+
 /** How a failed or cancelled task ended, by the event that ended it; `null` until the history has it. */
 export function ending(
   d: TaskDetail,
 ): { readonly actor: SafeText; readonly reason: SafeText | null } | null {
   const e = d.history.events.findLast((ev) => ENDINGS.has(ev.type));
-  return e === undefined ? null : { actor: e.actor, reason: e.reason ?? null };
+  return e === undefined ? null : { actor: actorWords(e.actor), reason: e.reason ?? null };
 }
 
 /** The task failed or was cancelled, by the daemon's latest word: its history has the event that says how. */

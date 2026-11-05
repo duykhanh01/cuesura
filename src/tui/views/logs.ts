@@ -21,7 +21,6 @@ import { progressStages, STAGE_LABEL, stageOf, type StageName } from '../model/s
 import {
   LOG_HEADER_ROWS,
   logColumns,
-  shortAttempt,
   visibleRows,
   type LogRow,
   type LogState,
@@ -84,17 +83,13 @@ function drawRow(frame: Frame, x0: number, y: number, row: LogRow, cols: number)
 function modeLine(s: LogState, t: TuiState): SafeText {
   const parts: SafeText[] = [];
   if (s.attemptFilter === null)
-    parts.push(uiText(`${s.mode === 'live' ? 'Live' : 'Paused'} · whole log`));
+    parts.push(
+      uiText(`${s.complete ? 'Finished' : s.mode === 'live' ? 'Live' : 'Paused'} · whole log`),
+    );
   else {
     const a = t.detail?.show.data?.provenance.usage.find((u) => u.attempt_id === s.attemptFilter);
     parts.push(
-      joinSafe(
-        [
-          joinSafe([uiText('Attempt '), shortAttempt(s.attemptFilter)]),
-          ...(a === undefined ? [] : [stepName(a.step), a.binding]),
-        ],
-        ' · ',
-      ),
+      a === undefined ? uiText('One attempt') : joinSafe([stepName(a.step), a.binding], ' · '),
     );
   }
   const first = s.buffer[0];
@@ -116,8 +111,6 @@ function newsLine(s: LogState): SafeText {
   if (s.error !== null) return joinSafe([uiText('Could not read the log: '), s.error]);
   if (s.newActivity) return uiText('New activity: F follows the log live');
   if (s.filling || s.older !== null) return uiText('Reading…');
-  // Nothing to do with choosing an attempt, and the loudest line on the screen.
-  if (s.complete && s.picker === null) return uiText('End of the log: the task has finished');
   return uiText('');
 }
 
@@ -171,12 +164,7 @@ function progressPane(frame: Frame, s: TuiState, top: number, height: number, wi
     if (progress === null) timeline.push([ui('Reading…', DIM)]);
     else if (progress.steps === null)
       // Not frozen yet, say: there are no steps to show, which is an answer, not a wait.
-      timeline.push(
-        ...wrapSegs(
-          [ui('No steps yet: ', DIM), seg(progress.reason ?? uiText('no reason given'), DIM)],
-          width - 1,
-        ),
-      );
+      timeline.push([ui('No steps yet', DIM)]);
     // A workflow whose steps this does not know: each step as the daemon gave it.
     else
       for (const step of progress.steps)
@@ -253,31 +241,30 @@ function progressPane(frame: Frame, s: TuiState, top: number, height: number, wi
     tail.push([], [ui(over ? 'Ended' : 'Now', BOLD)]);
     tail.push(
       ...wrapSegs(
-        [seg(activity(row)), ...(end === null ? [] : [ui(' by ', DIM), seg(end.actor)])],
+        [
+          seg(activity(row)),
+          ...(end === null ? [] : [seg(joinSafe([uiText(' by '), end.actor]), DIM)]),
+        ],
         width - 1,
       ),
     );
     if (end !== null && end.reason !== null)
-      tail.push(...wrapSegs([ui('Reason: ', DIM), seg(end.reason)], width - 1, 2));
+      tail.push([], [ui('Reason', BOLD)], ...wrapSegs([seg(end.reason)], width - 1));
     // What can still be done about it, which for an ended task is the daemon's word too.
-    if (over)
-      for (const a of explain.allowed_actions)
-        if (a.command !== null)
-          tail.push(...wrapSegs([ui('→ ', DIM), seg(a.command, DIM)], width - 1, 2));
+    if (over) {
+      const commands = explain.allowed_actions.flatMap((a) =>
+        a.command === null ? [] : [a.command],
+      );
+      if (commands.length > 0) tail.push([]);
+      for (const command of commands)
+        tail.push(...wrapSegs([ui('→ ', { fg: 'cyan' }), seg(command)], width - 1, 2));
+    }
     const action = todo(row);
     if (action !== null) {
       tail.push([], [ui('▲ Needs you', WARN)]);
       tail.push(...wrapSegs([seg(joinSafe([uiText('→ '), action]), WARN)], width - 1, 2));
     }
   }
-  // The chooser has keys of its own, on the bar.
-  if ((s.logs?.picker ?? null) === null)
-    tail.push(
-      [],
-      [ui('─'.repeat(Math.max(0, width - 2)), DIM)],
-      [ui('t', KEY), ui('  pick an attempt', DIM)],
-      [ui('d', KEY), ui('  details: why, PR, limits', DIM)],
-    );
 
   // Short of room, the lines between stages go first: the stages and what to do matter more.
   const fits = head.length + timeline.length + tail.length <= height;
@@ -364,11 +351,17 @@ function pickerRow(
     }
     case 'attempt': {
       const a = row.attempt;
+      const name = stepName(a.step);
       return {
         left: [
-          ...pad([ui(' '.repeat(row.depth * 2 + 2)), seg(stepName(a.step))], NAME_COLS),
+          ...pad(
+            [
+              ui(' '.repeat(row.depth * 2 + 2)),
+              seg(row.ordinal === undefined ? name : joinSafe([name, uiText(` #${row.ordinal}`)])),
+            ],
+            NAME_COLS,
+          ),
           ...pad([seg(a.binding, DIM)], BINDING_COLS),
-          seg(shortAttempt(a.id), DIM),
           ui(a.id === ctx.running ? '  ● running' : '', { fg: 'green' }),
           ui(a.id === ctx.reading ? '  ◂ reading' : '', { fg: 'cyan' }),
         ],

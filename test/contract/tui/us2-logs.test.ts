@@ -101,7 +101,7 @@ describe('opening a task on its stages and log', () => {
     await s.waitForText('Unconfirmed task');
     s.send(KEY.enter);
     await s.waitForText('Logs:');
-    await s.waitForText('No steps yet: not_frozen');
+    await s.waitForText('No steps yet');
     await s.waitForText('Needs you');
     // The column of stages, without the log beside it: what to do wraps inside it.
     const column = s
@@ -131,8 +131,10 @@ describe('a task that ended, opened from Home', () => {
     }
     s.send(KEY.enter);
     await s.waitForText('Logs:');
-    await s.waitForText('Reason: No longer needed');
+    await s.waitForText('No longer needed');
     expect(s.screenText()).toMatch(/Cancelled by \S/);
+    // The reason is a block of its own, under its heading rather than beside it.
+    expect(s.screenText()).toMatch(/Reason +│[^\n]*\n No longer needed/);
     await quit(s);
   });
 });
@@ -310,7 +312,7 @@ describe('US2 scenarios 9 and 10: when the workflow moves to a new step', () => 
     await s.waitForText('coder line 3');
     // Until the attempt is read to its end, a new record is still part of what was asked for.
     await s.waitFor(() => !s.screenText().includes('Reading…'));
-    expect(s.screenText()).toContain('Attempt ');
+    expect(s.screenText()).toMatch(/Code · \S/);
     const held = logColumn(s.screenText());
 
     feed.write(live(sd), t.id, '', CODER, 'agent', ['coder line 4']);

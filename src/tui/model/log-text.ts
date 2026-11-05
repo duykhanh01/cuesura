@@ -112,6 +112,9 @@ const HIDDEN_SYSTEM: ReadonlySet<string> = new Set([
   'permission_check_status',
   'permission_denied',
   'ui_invalidate',
+  // The tool call that started it is already shown, and its end has a line of its own.
+  'task_started',
+  'task_progress',
 ]);
 
 /** A piece this does not know, kept as compact JSON so nothing a person may need is dropped. */
@@ -138,9 +141,24 @@ function claude(d: Obj): Described[] | null {
           },
         ];
       }
+      if (sub === 'task_notification') {
+        const summary = str(d['summary']);
+        if (summary === null) return null;
+        const status = str(d['status']);
+        return [
+          {
+            label: 'Task',
+            body: status === null ? summary : `${summary} (${status})`,
+            tone: 'info',
+          },
+        ];
+      }
       // Only bookkeeping known to say nothing is left out; another subtype shows as it came.
       return sub !== null && HIDDEN_SYSTEM.has(sub) ? [] : null;
     }
+    // A heartbeat every 30 seconds while a tool runs: the tool's result says how it went.
+    case 'tool_progress':
+      return [];
     case 'rate_limit_event': {
       const info = isObj(d['rate_limit_info']) ? d['rate_limit_info'] : {};
       const status = str(info['status']);

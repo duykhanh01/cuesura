@@ -142,6 +142,8 @@ export type TreeRow =
       readonly attempt: Attempt;
       /** 1 under a group, 2 under a run. */
       readonly depth: 1 | 2;
+      /** Which run of its step, where several in a row would read the same. */
+      readonly ordinal?: number;
     };
 
 export const LIVE_KEY = 'live';
@@ -172,14 +174,16 @@ export function treeRows(
       const runOpen = open.includes(run.key);
       rows.push({ kind: 'run', key: run.key, parent: group.key, run, open: runOpen });
       if (runOpen)
-        for (const attempt of run.attempts)
+        run.attempts.forEach((attempt, i) =>
           rows.push({
             kind: 'attempt',
             key: attemptKey(attempt.id),
             parent: run.key,
             attempt,
             depth: 2,
-          });
+            ordinal: i + 1,
+          }),
+        );
     }
   }
   return rows;

@@ -181,6 +181,15 @@ describe('going back between the log, the chooser and an attempt', () => {
   });
 });
 
+describe('several runs of one step in a row', () => {
+  it('are numbered, since their step and binding read the same', () => {
+    const groups = attemptGroups(usage(['review', 'fix_review', 'fix_review']));
+    const open = [groups[0]?.key ?? '', groups[0]?.runs[1]?.key ?? ''];
+    const rows = treeRows(groups, open).flatMap((r) => (r.kind === 'attempt' ? [r.ordinal] : []));
+    expect(rows).toEqual([undefined, 1, 2]);
+  });
+});
+
 describe('what a row of the chooser says about its group', () => {
   const flows = (steps: readonly string[]) => attemptGroups(usage(steps)).map(groupFlow);
 
@@ -247,7 +256,12 @@ describe('the chooser on screen', () => {
     expect(bold('Round 1')).toBe(false);
   });
 
-  it('does not say the log ended, while choosing what to read', () => {
-    expect(at(drawn(20, steps), 'End of the log')).toBe(-1);
+  it('says a finished log is finished, not live, leaving the row for news empty', () => {
+    const title = uiText('A task');
+    const logs = { ...initialLogs('t1', title, 2), complete: true, filling: false };
+    const frame = new Frame(120, 10);
+    logsBody({ ...initialState({ cols: 120, rows: 40 }), logs })(frame, 0, 10);
+    expect(frame.rowBytes(1)).toContain('Finished · whole log');
+    expect(frame.rowBytes(2)).toBe('');
   });
 });

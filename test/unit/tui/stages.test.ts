@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TaskHistory, TaskShow } from '../../../src/tui/client/schemas.ts';
-import { ending, initialDetail, onDetailRead } from '../../../src/tui/model/detail.ts';
+import { actorWords, ending, initialDetail, onDetailRead } from '../../../src/tui/model/detail.ts';
 import { reduce } from '../../../src/tui/model/reduce.ts';
 import { animating, initialState, type TuiState } from '../../../src/tui/model/state.ts';
 import { progressStages, rowStages } from '../../../src/tui/model/stages.ts';
@@ -248,5 +248,12 @@ describe('animation', () => {
     const r = reduce(s, { type: 'tick' });
     expect(r.state).toEqual({ ...s, tick: 1 });
     expect(r.effects).toEqual([]);
+  });
+});
+
+describe('who ended a task', () => {
+  it('says Cuesura for a part of the daemon, and keeps a person as named', () => {
+    expect(actorWords(uiText('system:effect_result'))).toBe('Cuesura');
+    expect(actorWords(uiText('owner'))).toBe('owner');
   });
 });

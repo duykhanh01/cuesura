@@ -47,7 +47,8 @@ Luôn có hiệu lực ngoài ô nhập, và luôn được hiện ở thanh g�
 | `q` | Thoát; hỏi lại nếu còn nội dung đang nhập |
 | `Ctrl-C` | Thoát, không hủy task; hỏi lại nếu còn nội dung đang nhập, lần thứ hai thì thoát |
 
-Trong Logs thêm: `Space` tạm dừng hoặc tiếp tục; `F` về theo dõi trực tiếp; `t` chọn attempt.
+Trong Logs thêm: `Space` tạm dừng hoặc tiếp tục; `F` về theo dõi trực tiếp; `t` chọn attempt. Log của task đã kết thúc
+ghi `Finished` thay cho `Live`/`Paused` và không có `Space`; `F` chỉ còn tác dụng khi đang đọc một attempt.
 Danh sách chọn attempt gom theo giai đoạn: Build, mỗi lượt review mở một `Round N` cùng các lượt fix
 nó yêu cầu, rồi CI và merge, theo thứ tự attempt bắt đầu; một step chạy liền nhiều lần gộp thành một dòng
 `×N`. Dòng vòng thu gọn chỉ nêu điểm khác một lượt review và một lượt fix thông thường; `Whole log` cách

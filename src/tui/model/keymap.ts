@@ -190,12 +190,15 @@ const KEYS: Readonly<Record<Context, readonly Binding[]>> = {
       hint: 'pause',
       help: 'Pause or resume following',
       press: [[c(' '), 'pause']],
+      when: (s) => s.logs?.complete !== true,
     },
     {
       keys: 'F',
       hint: 'live',
       help: 'Back to following live',
       press: [[c('F'), 'follow']],
+      // A finished log has nothing to follow, but reading one attempt still needs a way back.
+      when: (s) => s.logs?.complete !== true || s.logs.attemptFilter !== null,
     },
     {
       keys: 't',

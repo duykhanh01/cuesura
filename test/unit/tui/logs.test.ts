@@ -474,6 +474,21 @@ describe('records in words', () => {
     });
   });
 
+  it('drops what a background task reports while it runs, and says how it ended', () => {
+    expect(toEntry(claude({ type: 'tool_progress', tool_name: 'Bash' }))).toBeNull();
+    expect(toEntry(claude({ type: 'system', subtype: 'task_started', id: 1 }))).toBeNull();
+    expect(
+      toEntry(
+        claude({
+          type: 'system',
+          subtype: 'task_notification',
+          status: 'completed',
+          summary: 'Wait for gates',
+        }),
+      )?.lines[0],
+    ).toMatchObject({ label: 'Task', body: 'Wait for gates (completed)' });
+  });
+
   it('leaves out bookkeeping with nothing to read, and keeps what it does not know', () => {
     expect(toEntry(claude({ type: 'system', subtype: 'thinking_tokens' }))).toBeNull();
     expect(
