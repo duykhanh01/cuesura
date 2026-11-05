@@ -21,7 +21,6 @@ import { progressStages, STAGE_LABEL, stageOf, type StageName } from '../model/s
 import {
   LOG_HEADER_ROWS,
   logColumns,
-  PICKER_HEADER_ROWS,
   shortAttempt,
   visibleRows,
   type LogRow,
@@ -81,23 +80,36 @@ function drawRow(frame: Frame, x0: number, y: number, row: LogRow, cols: number)
   frame.put(x0 + x, y, truncate(part(x), Math.max(0, cols - x)), tone.body);
 }
 
-function modeLine(s: LogState): SafeText {
-  const parts = [`Mode: ${s.mode}`];
-  parts.push(
-    s.attemptFilter === null
-      ? 'Every step (t: one step only)'
-      : `Attempt: ${shortAttempt(s.attemptFilter)}`,
-  );
+/** What is being read, and which lines when the buffer holds only part of it. */
+function modeLine(s: LogState, t: TuiState): SafeText {
+  const parts: SafeText[] = [];
+  if (s.attemptFilter === null)
+    parts.push(uiText(`${s.mode === 'live' ? 'Live' : 'Paused'} · whole log`));
+  else {
+    const a = t.detail?.show.data?.provenance.usage.find((u) => u.attempt_id === s.attemptFilter);
+    parts.push(
+      joinSafe(
+        [
+          joinSafe([uiText('Attempt '), shortAttempt(s.attemptFilter)]),
+          ...(a === undefined ? [] : [stepName(a.step), a.binding]),
+        ],
+        ' · ',
+      ),
+    );
+  }
   const first = s.buffer[0];
   const last = s.buffer.at(-1);
-  if (first !== undefined && last !== undefined) parts.push(`Records: ${first.seq}–${last.seq}`);
+  if (first !== undefined && last !== undefined && (s.windowStart > 0 || s.moreForward))
+    parts.push(uiText(`lines ${first.seq}–${last.seq}`));
   if (s.windowStart > 0)
     parts.push(
-      s.attemptFilter === null
-        ? `${s.windowStart} earlier left the buffer: ↑ at the top reads them again`
-        : 'Earlier ones left the buffer: ↑ at the top reads them again',
+      uiText(
+        s.attemptFilter === null
+          ? `${s.windowStart} earlier: ↑ at the top reads them`
+          : 'earlier lines: ↑ at the top reads them',
+      ),
     );
-  return uiText(parts.join(' · '));
+  return joinSafe(parts, ' · ');
 }
 
 function newsLine(s: LogState): SafeText {
@@ -257,14 +269,14 @@ function progressPane(frame: Frame, s: TuiState, top: number, height: number, wi
       tail.push(...wrapSegs([seg(joinSafe([uiText('→ '), action]), WARN)], width - 1, 2));
     }
   }
-  const filtered = s.logs?.attemptFilter !== null && s.logs?.attemptFilter !== undefined;
-  tail.push(
-    [],
-    [ui('─'.repeat(Math.max(0, width - 2)), DIM)],
-    [ui('Showing ', DIM), ui(filtered ? 'one step' : 'every step')],
-    [ui('t', KEY), ui('  choose a step', DIM)],
-    [ui('d', KEY), ui('  details: why, PR, limits', DIM)],
-  );
+  // The chooser has keys of its own, on the bar.
+  if ((s.logs?.picker ?? null) === null)
+    tail.push(
+      [],
+      [ui('─'.repeat(Math.max(0, width - 2)), DIM)],
+      [ui('t', KEY), ui('  pick an attempt', DIM)],
+      [ui('d', KEY), ui('  details: why, PR, limits', DIM)],
+    );
 
   // Short of room, the lines between stages go first: the stages and what to do matter more.
   const fits = head.length + timeline.length + tail.length <= height;
@@ -309,9 +321,9 @@ function pickerRow(
     case 'live':
       return {
         left: [
-          ui('◉ ', { fg: 'cyan' }),
-          ui('Every step, live'),
-          ui('  the whole log as it comes', DIM),
+          ui('  '),
+          ui('Whole log'),
+          ui(ctx.reading === null ? '  ◂ reading' : '', { fg: 'cyan' }),
         ],
         right: [],
       };
@@ -377,6 +389,22 @@ function pickerRow(
  * The attempt chooser: a summary, then the rounds, each folded to one row unless unfolded. Moves only as far as
  * keeps the chosen row in sight.
  */
+/** In place of what is being read, while the chooser is open: the row under it says that. */
+function pickerSummary(s: TuiState): SafeText {
+  const groups = pickerGroups(s);
+  const all = groups.flatMap(groupAttempts);
+  const rounds = groups.filter((g) => g.title.startsWith('Review round')).length;
+  const tokens = tokensOf(all);
+  return uiText(
+    [
+      'Choose what to read',
+      `${all.length} ${all.length === 1 ? 'attempt' : 'attempts'}`,
+      ...(rounds > 0 ? [`${rounds} review ${rounds === 1 ? 'round' : 'rounds'}`] : []),
+      ...(tokens === null ? [] : [`${formatTokens(tokens)} tokens`]),
+    ].join(' · '),
+  );
+}
+
 function pickerList(
   frame: Frame,
   s: TuiState,
@@ -388,16 +416,6 @@ function pickerList(
 ): void {
   const groups = pickerGroups(s);
   const all = groups.flatMap(groupAttempts);
-  const rounds = groups.filter((g) => g.title.startsWith('Review round')).length;
-  const tokens = tokensOf(all);
-  const summary = [
-    'Choose what to read',
-    `${all.length} ${all.length === 1 ? 'attempt' : 'attempts'}`,
-    ...(rounds > 0 ? [`${rounds} review ${rounds === 1 ? 'round' : 'rounds'}`] : []),
-    ...(tokens === null ? [] : [`${formatTokens(tokens)} tokens`]),
-  ].join(' · ');
-  frame.put(x + 2, top, truncate(uiText(summary), Math.max(0, width - 2)), DIM);
-
   const status = s.detail?.explain.data?.status ?? s.detail?.show.data?.status;
   const ctx = {
     reading: logs.attemptFilter,
@@ -405,13 +423,13 @@ function pickerList(
   };
   const rows = treeRows(groups, logs.pickerOpen);
   const cursor = cursorIndex(rows, logs.picker);
-  const area = room - PICKER_HEADER_ROWS;
+  const area = room;
   if (area <= 0) return;
   // One row past the chosen one stays in sight, so moving down shows what comes next.
   const first = Math.min(Math.max(0, cursor - area + 2), Math.max(0, rows.length - area));
   const inner = Math.max(0, width - 2);
   rows.slice(first, first + area).forEach((row, i) => {
-    const y = top + PICKER_HEADER_ROWS + i;
+    const y = top + i;
     const chosen = first + i === cursor;
     const { left, right } = pickerRow(row, ctx);
     const look = (segs: readonly Seg[]): Seg[] => (chosen ? highlight(segs) : [...segs]);
@@ -448,11 +466,22 @@ export const logsBody =
     const news = newsLine(logs);
     if (height > 1) {
       if (stages !== null) putSegs(frame, 1, top + 1, stages, cols - 1);
-      else frame.put(1, top + 1, truncate(modeLine(logs), cols - 1), DIM);
+      else
+        frame.put(
+          1,
+          top + 1,
+          truncate(logs.picker === null ? modeLine(logs, s) : pickerSummary(s), cols - 1),
+          DIM,
+        );
     }
     if (height > 2) {
       if (news === '' && stages !== null)
-        frame.put(1, top + 2, truncate(modeLine(logs), cols - 1), DIM);
+        frame.put(
+          1,
+          top + 2,
+          truncate(logs.picker === null ? modeLine(logs, s) : pickerSummary(s), cols - 1),
+          DIM,
+        );
       else frame.put(1, top + 2, truncate(news, cols - 1), WARN);
     }
     const listTop = top + LOG_HEADER_ROWS;

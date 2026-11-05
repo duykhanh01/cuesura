@@ -62,14 +62,14 @@ describe('attempts grouped into the build and review rounds', () => {
   });
 });
 
-describe('the chooser opens folded, on the latest attempt', () => {
+describe('the chooser opens folded, at its top, with the latest round unfolded', () => {
   const groups = attemptGroups(
     usage(['code', 'review', 'fix_review', 'review', 'fix_review', 'fix_review']),
   );
 
   it('unfolds only what holds the latest attempt', () => {
     const start = pickerStart(groups, null);
-    expect(start.cursor).toBe(attemptKey('attempt-5'));
+    expect(start.cursor).toBe('live');
     const rows = treeRows(groups, start.open).map((r) => `${r.kind}:${r.key}`);
     expect(rows).toEqual([
       'live:live',
@@ -114,7 +114,8 @@ describe('keys of the chooser', () => {
     commands.reduce((acc, c) => onLogsCommand(acc, c)?.state ?? acc, s);
 
   it('← goes up to the run, then folds it; → unfolds it again', () => {
-    const open = run(state(), 'attempts');
+    expect(run(state(), 'attempts').logs?.picker).toBe('live');
+    const open = run(state(), 'attempts', 'end');
     expect(open.logs?.picker).toBe(attemptKey('attempt-3'));
     const up = run(open, 'collapse');
     expect(up.logs?.picker).toBe('r:attempt-2');
@@ -124,7 +125,7 @@ describe('keys of the chooser', () => {
   });
 
   it('Enter folds a round and reads an attempt', () => {
-    const open = run(state(), 'attempts', 'collapse', 'collapse', 'collapse');
+    const open = run(state(), 'attempts', 'end', 'collapse', 'collapse', 'collapse');
     expect(open.logs?.picker).toBe('g:1');
     const folded = run(open, 'open');
     expect(folded.logs?.pickerOpen).not.toContain('g:1');
@@ -138,5 +139,41 @@ describe('keys of the chooser', () => {
     expect(read.logs?.picker).toBeNull();
     expect(read.logs?.attemptFilter).toBeNull();
     expect(read.logs?.mode).toBe('live');
+  });
+});
+
+describe('going back between the log, the chooser and an attempt', () => {
+  const state = (): TuiState => {
+    const title = uiText('A task');
+    const detail = initialDetail('t1', title, 1);
+    const show = {
+      status: 'RUNNING',
+      provenance: { usage: usage(['code', 'review', 'fix_review']) },
+    } as unknown as TaskShow;
+    return {
+      ...initialState({ cols: 120, rows: 40 }),
+      screens: ['home', 'detail', 'logs'],
+      detail: { ...detail, show: { ...detail.show, data: show } },
+      logs: initialLogs('t1', title, 2),
+    };
+  };
+  const run = (s: TuiState, ...commands: Command[]): TuiState =>
+    commands.reduce((acc, c) => onLogsCommand(acc, c)?.state ?? acc, s);
+
+  it('Esc from an attempt returns to the chooser on that attempt', () => {
+    const back = run(state(), 'attempts', 'end', 'up', 'open', 'back');
+    expect(back.logs?.attemptFilter).toBe('attempt-1');
+    expect(back.logs?.picker).toBe(attemptKey('attempt-1'));
+  });
+
+  it('Esc from the chooser, after reading an attempt, returns to the whole log', () => {
+    const back = run(state(), 'attempts', 'end', 'open', 'back', 'back');
+    expect(back.logs?.picker).toBeNull();
+    expect(back.logs?.attemptFilter).toBeNull();
+    expect(back.screens.at(-1)).toBe('logs');
+  });
+
+  it('Esc from the whole log leaves the task', () => {
+    expect(run(state(), 'back').logs).toBeNull();
   });
 });

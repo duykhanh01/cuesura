@@ -171,7 +171,8 @@ export function treeRows(
 }
 
 /**
- * Where the chooser opens: on the attempt being read, else on the latest one, with what holds it unfolded.
+ * Where the chooser opens: on the attempt being read, else on its first row, with what holds the attempt read
+ * or the latest one unfolded.
  * Older rounds stay folded, so a long task still fits on one screen.
  */
 export function pickerStart(
@@ -184,7 +185,7 @@ export function pickerStart(
     for (const run of group.runs)
       if (run.attempts.some((a) => a.id === target))
         return {
-          cursor: attemptKey(target as string),
+          cursor: reading === null ? LIVE_KEY : attemptKey(reading),
           open: run.attempts.length > 1 ? [group.key, run.key] : [group.key],
         };
   return { cursor: LIVE_KEY, open: [] };

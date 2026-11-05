@@ -21,7 +21,6 @@ import {
   logsTop,
   pauseLogs,
   scrollLogs,
-  PICKER_HEADER_ROWS,
   type LogRequest,
   type LogState,
 } from './logs.ts';
@@ -142,10 +141,13 @@ function onPickerCommand(state: TuiState, logs: LogState, command: Command): Red
         ? [...logs.pickerOpen.filter((k) => k !== key), key]
         : logs.pickerOpen.filter((k) => k !== key),
     });
-  const page = Math.max(1, contentHeight(state) - LOG_HEADER_ROWS - PICKER_HEADER_ROWS - 1);
+  const page = Math.max(1, contentHeight(state) - LOG_HEADER_ROWS - 1);
   switch (command) {
     case 'back':
-      return put({ picker: null });
+      // The chooser sits between the whole log and one attempt: going back from it goes to the whole log.
+      return logs.attemptFilter === null
+        ? put({ picker: null })
+        : { state: { ...state, logs: followLogs(logs) }, effects: READ };
     case 'down':
       return moveTo(at + 1);
     case 'up':
@@ -176,6 +178,20 @@ function onPickerCommand(state: TuiState, logs: LogState, command: Command): Red
   }
 }
 
+/** Opens the chooser on the attempt being read, or on its first row. */
+function openPicker(state: TuiState, logs: LogState): Reduced {
+  const start = pickerStart(pickerGroups(state), logs.attemptFilter);
+  // The list of attempts may have grown since Task detail last read it.
+  return {
+    state: {
+      ...state,
+      logs: { ...logs, picker: start.cursor, pickerOpen: start.open },
+      ...(state.detail === null ? {} : { detail: { ...state.detail, showWanted: true } }),
+    },
+    effects: READ,
+  };
+}
+
 /** `null`: not a command of this screen. */
 export function onLogsCommand(state: TuiState, command: Command): Reduced | null {
   const logs = state.logs;
@@ -192,22 +208,15 @@ export function onLogsCommand(state: TuiState, command: Command): Reduced | null
       return put(logs.mode === 'live' ? pauseLogs(logs, cols, height) : followLogs(logs));
     case 'follow':
       return put(followLogs(logs));
-    case 'attempts': {
-      const start = pickerStart(pickerGroups(state), logs.attemptFilter);
-      // The list of attempts may have grown since Task detail last read it.
-      return {
-        state: {
-          ...state,
-          logs: { ...logs, picker: start.cursor, pickerOpen: start.open },
-          ...(state.detail === null ? {} : { detail: { ...state.detail, showWanted: true } }),
-        },
-        effects: READ,
-      };
-    }
+    case 'back':
+      // Reading one attempt, back is the chooser it was picked from.
+      return logs.attemptFilter === null
+        ? { state: leaveTask(state), effects: [] }
+        : openPicker(state, logs);
+    case 'attempts':
+      return openPicker(state, logs);
     case 'details':
       return { state: leave(state, 'logs'), effects: READ };
-    case 'back':
-      return { state: leaveTask(state), effects: [] };
     case 'up':
       return put(scrollLogs(logs, cols, height, -1));
     case 'down':

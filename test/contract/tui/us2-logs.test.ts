@@ -147,7 +147,7 @@ describe('US2 scenario 4: following a log', () => {
     const s = tui.cusr(sd.dataDir, { cols: 100, rows: 24 });
     await openLogs(s);
     await s.waitForText('coder line 3');
-    expect(s.screenText()).toContain('Mode: live');
+    expect(s.screenText()).toContain('Live · whole log');
 
     const agent = (await sd.query('owner', { kind: 'task_show', task_id: t.id })).envelope.data as {
       status: string;
@@ -158,17 +158,17 @@ describe('US2 scenario 4: following a log', () => {
     await s.waitForText('coder line 5', 3_000);
 
     s.send(' ');
-    await s.waitForText('Mode: paused');
+    await s.waitForText('Paused · whole log');
     feed.write(live(sd), t.id, '', effect, 'agent', ['coder line 6']);
     await s.waitForText('New activity', 4_000);
     expect(s.screenText()).not.toContain('coder line 6');
     s.send(KEY.up);
     await new Promise((r) => setTimeout(r, 200));
-    expect(s.screenText()).toContain('Mode: paused');
+    expect(s.screenText()).toContain('Paused · whole log');
 
     s.send('F');
     await s.waitForText('coder line 6', 3_000);
-    expect(s.screenText()).toContain('Mode: live');
+    expect(s.screenText()).toContain('Live · whole log');
     expect(s.screenText()).not.toContain('New activity');
     await quit(s);
   });
@@ -186,7 +186,7 @@ describe('US2 scenario 4: following a log', () => {
     await openLogs(s);
     await s.waitForText('line 60');
     s.send(KEY.pageUp);
-    await s.waitForText('Mode: paused');
+    await s.waitForText('Paused · whole log');
     await s.waitFor(() => !s.screenText().includes('line 60'));
     const held = logColumn(s.screenText());
     feed.write(live(sd), t.id, '', SETUP, 'setup', ['line 61']);
@@ -234,7 +234,7 @@ describe('US2 scenario 4: following a log', () => {
     const screen = s.screenText();
     const shown = screen.split('\n').filter((l) => /coder line \d$/.test(l));
     expect(shown.map((l) => l.slice(-1))).toEqual(['1', '2', '3', '4', '5', '6']);
-    expect(screen).toContain('Mode: live');
+    expect(screen).toContain('Live · whole log');
     await quit(s);
   }, 60_000);
 });
@@ -300,15 +300,17 @@ describe('US2 scenarios 9 and 10: when the workflow moves to a new step', () => 
     await openLogs(s);
     await s.waitForText('coder line 3');
     s.send('t');
-    // The chooser opens on the latest attempt; the one before it is the first coder's, which wrote the log.
+    // The chooser opens at its top, the latest round unfolded: Build, its two coder attempts, the first wrote the log.
     await s.waitForText('Choose what to read');
-    s.send(KEY.up);
+    s.send(KEY.down);
+    s.send(KEY.down);
+    s.send(KEY.down);
     s.send(KEY.enter);
     await s.waitFor(() => !s.screenText().includes('setup line 1'));
     await s.waitForText('coder line 3');
     // Until the attempt is read to its end, a new record is still part of what was asked for.
     await s.waitFor(() => !s.screenText().includes('Reading…'));
-    expect(s.screenText()).toContain('Attempt: ');
+    expect(s.screenText()).toContain('Attempt ');
     const held = logColumn(s.screenText());
 
     feed.write(live(sd), t.id, '', CODER, 'agent', ['coder line 4']);
@@ -318,7 +320,7 @@ describe('US2 scenarios 9 and 10: when the workflow moves to a new step', () => 
 
     s.send('F');
     await s.waitForText('coder line 4', 3_000);
-    expect(s.screenText()).toContain('Mode: live');
+    expect(s.screenText()).toContain('Live · whole log');
     await quit(s);
   });
 });
@@ -334,13 +336,15 @@ describe('review findings, on a real PTY', () => {
     await openLogs(s);
     await s.waitForText('coder line 3');
     s.send('t');
-    // The chooser opens on the latest attempt; the one before it is the first coder's, which wrote the log.
+    // The chooser opens at its top, the latest round unfolded: Build, its two coder attempts, the first wrote the log.
     await s.waitForText('Choose what to read');
-    s.send(KEY.up);
+    s.send(KEY.down);
+    s.send(KEY.down);
+    s.send(KEY.down);
     s.send(KEY.enter);
     await s.waitFor(() => !s.screenText().includes('setup line 1'));
     s.send('F');
-    await s.waitForText('Mode: live');
+    await s.waitForText('Live · whole log');
     await s.waitForText('setup line 1', 3_000);
     await s.waitForText('coder line 3', 3_000);
     expect(s.screenText()).not.toContain('No log records here yet');
@@ -362,7 +366,7 @@ describe('review findings, on a real PTY', () => {
     await openLogs(s);
     await s.waitForText('xxxx');
     s.send(KEY.up);
-    await s.waitForText('Mode: paused');
+    await s.waitForText('Paused · whole log');
     s.resize(200, 24);
     await s.waitFor(() => s.screenText().split('\n')[0]?.length === 200);
     await s.waitForText('xxxx');
@@ -392,9 +396,9 @@ describe('EC-011 and FR-039: a log in full flow', () => {
     await openLogs(s);
     // The last page at once, not the first one followed by a page a second.
     await s.waitForText(`flood ${total}`, 5_000);
-    const window = (): string => /Records: \d+–\d+/.exec(s.screenText())?.[0] ?? '';
+    const window = (): string => /lines \d+–\d+/.exec(s.screenText())?.[0] ?? '';
     await s.waitFor(() => window() !== '');
-    const m = /Records: (\d+)–(\d+)/.exec(s.screenText());
+    const m = /lines (\d+)–(\d+)/.exec(s.screenText());
     expect(Number(m?.[2])).toBe(total);
     expect(Number(m?.[2]) - Number(m?.[1]) + 1).toBeLessThanOrEqual(200);
 
@@ -403,7 +407,7 @@ describe('EC-011 and FR-039: a log in full flow', () => {
     for (let i = 0; i < 8; i++) {
       const from = Date.now();
       s.send(i % 2 === 0 ? ' ' : 'F');
-      const want = i % 2 === 0 ? 'Mode: paused' : 'Mode: live';
+      const want = i % 2 === 0 ? 'Paused · whole log' : 'Live · whole log';
       await s.waitForText(want, 2_000);
       answers.push(Date.now() - from);
       await new Promise((r) => setTimeout(r, 150));
@@ -413,7 +417,7 @@ describe('EC-011 and FR-039: a log in full flow', () => {
 
     // What precedes the last page reads from its place on the way up.
     s.send('g');
-    await s.waitForText('Mode: paused');
+    await s.waitForText('Paused · whole log');
     const first = Number(m?.[1]);
     await s.waitForText(`flood ${first}`);
     const before = window();
