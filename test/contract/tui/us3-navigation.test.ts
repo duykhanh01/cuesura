@@ -305,6 +305,7 @@ describe('US3 scenario 4: Help shows every key by context and closes where it wa
     await sd.start();
     const s = tui.cusr(sd.dataDir, SMALL);
     await openTask(s, 'Task 001');
+    s.send('i');
     s.send('G');
     await s.waitForText('History');
     await new Promise((r) => setTimeout(r, 500));

@@ -8,7 +8,7 @@ tiết có thể đổi khi triển khai miễn giữ các quy tắc dưới đ�
 | Màn hình | Nội dung | Vào từ |
 | --- | --- | --- |
 | Home | Thanh trạng thái (daemon, slot, hàng đợi, cập nhật cuối, bộ lọc project), nhóm `Needs you`, danh sách task | Mở `cusr` |
-| Task detail | Hoạt động, tiến trình bước, lý do chờ, lối ra, attempt, PR, bằng chứng, lịch sử | Enter trên một task |
+| Task detail | Hoạt động, tiến trình bước, lối ra, PR, kết quả kiểm tra. `i` mở phần kỹ thuật: mã lý do chờ, blocker, commit, attempt, rung, giới hạn đầy đủ, lịch sử event | `d` trong Logs |
 | Logs | Log trực tiếp hoặc theo attempt | `l` trong Task detail |
 | Actions | Menu thao tác của task | `a` trên một task |
 | New task | Form tạo task; profile là tùy chọn, mặc định `Project default`; dependency chọn từ danh sách task, không nhập ID | `n` ở Home |

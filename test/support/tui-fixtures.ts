@@ -601,6 +601,12 @@ export async function enterDetail(s: PtySession): Promise<void> {
   await s.waitForText('Task detail');
 }
 
+/** Task detail shows what only whoever digs in needs: codes, commits, attempts and raw history. */
+export async function technicalInfo(s: PtySession): Promise<void> {
+  s.send('i');
+  await s.waitForText('Agents and usage');
+}
+
 /** Task detail is on screen with the first reads of what the screen shows in. */
 export async function detailRead(s: PtySession): Promise<void> {
   await s.waitForText('Task detail');

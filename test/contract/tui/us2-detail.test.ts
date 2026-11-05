@@ -12,6 +12,7 @@ import {
   enterDetail,
   flat,
   openTask,
+  technicalInfo,
   seedAgentUsage,
   seedEveryDetailCode,
   seedEveryState,
@@ -111,7 +112,7 @@ describe('US2 scenario 1: the steps of the workflow', () => {
     await sd.start();
     const s = tui.cusr(sd.dataDir, TALL);
     await openTask(s, 'Unfrozen task');
-    await s.waitForText('not_frozen');
+    await s.waitForText('Steps are not known yet: it has not started');
     await quit(s);
   });
 });
@@ -131,6 +132,7 @@ describe('US2 scenario 2 and SC-001: why it waits and how out, as `task explain`
       const code = /Code (\w+)/.exec(row)?.[1] as string;
       await enterDetail(s);
       await detailRead(s);
+      await technicalInfo(s);
       const explained = await explainOf(sd, uuidOf(100 + codes.indexOf(code)));
       const screen = flat(s.screenText());
       expect(explained.wait?.detail['code']).toBe(code);
@@ -164,6 +166,7 @@ describe('US2 scenario 2 and SC-001: why it waits and how out, as `task explain`
     for (const title of ['Sample question', 'Sample escalation']) {
       const task = Object.values(samples).find((x) => x.title === title);
       await openTask(s, title);
+      await technicalInfo(s);
       const explained = await explainOf(sd, task?.id as string);
       for (const a of explained.allowed_actions)
         expect(flat(s.screenText())).toContain(flat(a.note));
@@ -181,6 +184,7 @@ describe('US2 scenario 2 and SC-001: why it waits and how out, as `task explain`
     await sd.start();
     const s = tui.cusr(sd.dataDir, TALL);
     await openTask(s, 'Plain task');
+    await technicalInfo(s);
     expect((await explainOf(sd, t.id)).blockers).toEqual([]);
     expect(flat(s.screenText())).toContain('Blockers none');
     await quit(s);
@@ -202,6 +206,7 @@ describe('US2 scenario 3: attempts, limits and usage', () => {
     await sd.start();
     const s = tui.cusr(sd.dataDir, TALL);
     await openTask(s, 'Tried task');
+    await technicalInfo(s);
     await s.waitForText('requested');
     const explained = (await cliJson(sd, 'task', 'explain', t.id, '--full')).envelope.data as {
       bindings_used: {
@@ -257,6 +262,7 @@ describe('US2 scenario 3: attempts, limits and usage', () => {
       await sd.start();
       const s = tui.cusr(sd.dataDir, TALL);
       await openTask(s, 'Usage task');
+      await technicalInfo(s);
       await s.waitForText(' · usage ');
       const line =
         s
@@ -294,6 +300,7 @@ describe('US2 scenarios 5 and 6: the PR and the merge left to the user', () => {
       await sd.start();
       const s = tui.cusr(sd.dataDir, TALL);
       await openTask(s, 'Green task');
+      await technicalInfo(s);
       await s.waitForText('Pull request');
       await s.waitForText('Gates ');
       const explained = (await cliJson(sd, 'task', 'explain', t.id, '--full')).envelope.data as {
@@ -361,6 +368,8 @@ describe('US2 scenario 7: a DONE that needs reading closely', () => {
     s.send(KEY.enter);
     await s.waitForText('Unverified');
     await openTask(s, 'Unverified');
+    await s.waitForText('Could not verify that what was merged is what was checked');
+    await technicalInfo(s);
     await s.waitForText('merged_head_unverified');
     const screen = flat(s.screenText());
     expect(screen).toContain(`Merged head ${other}`);
@@ -416,6 +425,32 @@ describe('US2 scenario 7: a DONE that needs reading closely', () => {
   });
 });
 
+describe('what Task detail says until asked for more', () => {
+  it('keeps codes, commits and counters behind `i`, and gives them back', async () => {
+    const sd = tui.daemon();
+    const t = buildTask({ id: uuidOf(1), title: 'Green task' });
+    sd.seed((d) => seedGreenPr(d, sd, t, 'full-review', { title: 'Title', message: 'Message' }));
+    await sd.start();
+    const s = tui.cusr(sd.dataDir, TALL);
+    await openTask(s, 'Green task');
+    await s.waitForText('All checks passed on the latest commit');
+    await s.waitForText('i technical info');
+    const screen = flat(s.screenText());
+    for (const technical of ['Why it is waiting', 'rung', 'on head', 'Version', 'Reference']) {
+      expect(screen).not.toContain(technical);
+    }
+    expect(screen).not.toMatch(/Head [0-9a-f]{7}/);
+
+    await technicalInfo(s);
+    await s.waitForText('Why it is waiting');
+    expect(flat(s.screenText())).toContain('rung');
+
+    s.send('i');
+    await s.waitFor(() => !s.screenText().includes('Why it is waiting'));
+    await quit(s);
+  });
+});
+
 describe('US2 scenario 8: a finished task', () => {
   it('can still be read and offers nothing that reopens it', async () => {
     const sd = tui.daemon();
@@ -427,6 +462,9 @@ describe('US2 scenario 8: a finished task', () => {
     s.send(KEY.enter);
     await s.waitForText('Sample cancelled');
     await openTask(s, 'Sample cancelled');
+    await s.waitForText('What you can do');
+    expect(s.screenText()).not.toContain('stops safely first');
+    await technicalInfo(s);
     const explained = await explainOf(sd, samples.cancelled.id);
     expect(explained.allowed_actions.map((a) => a.action)).toEqual(['task_add']);
     const history = (await cliJson(sd, 'task', 'history', samples.cancelled.id)).envelope.data as {
@@ -461,6 +499,7 @@ describe('moving around the detail', () => {
     const top = s.screenText();
     expect(top).toContain('Esc back');
     expect(top).toContain('l logs');
+    s.send('i');
     s.send('G');
     await s.waitForText('History');
     s.send('g');

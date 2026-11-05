@@ -7,6 +7,7 @@ import {
   daemonSocket,
   flat,
   openTask,
+  technicalInfo,
   useTui,
 } from '../../support/tui-fixtures.ts';
 import type { SeededDaemon } from '../../support/daemon-task.ts';
@@ -64,6 +65,7 @@ describe('T041: reading `task_explain` again while the version stands still', ()
     await sd.start();
     const s = tui.cusr(sd.dataDir, TALL);
     await openTask(s, 'Dependent');
+    await technicalInfo(s);
     await s.waitFor(() => /Prerequisite [0-9a-f-]+ · (READY|PENDING)/.test(flat(s.screenText())));
     const version = await versionOf(sd, dep.id);
 
@@ -82,6 +84,7 @@ describe('T041: reading `task_explain` again while the version stands still', ()
     const s = tui.cusr(sd.dataDir, TALL);
     await openTask(s, 'Timed task');
     await s.waitFor(() => flat(s.screenText()).includes('Time left 1h 0m 0s'));
+    await technicalInfo(s);
     await s.waitFor(() => /Read at\s+\d\d:\d\d:\d\d/.test(s.screenText()));
     const readAt = (): string => /Read at\s+(\d\d:\d\d:\d\d)/.exec(s.screenText())?.[1] ?? '';
     const first = readAt();

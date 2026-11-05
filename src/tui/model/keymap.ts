@@ -25,6 +25,7 @@ export type Command =
   | 'quit'
   | 'logs'
   | 'details'
+  | 'technical'
   | 'pause'
   | 'follow'
   | 'attempts'
@@ -162,6 +163,12 @@ const KEYS: Readonly<Record<Context, readonly Binding[]>> = {
       hint: 'actions',
       help: 'Actions of this task',
       press: [[c('a'), 'actions']],
+    },
+    {
+      keys: 'i',
+      hint: 'technical info',
+      help: 'Show or hide codes, commits, attempts and raw history',
+      press: [[c('i'), 'technical']],
     },
   ],
   logs: [

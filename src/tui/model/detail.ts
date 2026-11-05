@@ -46,6 +46,8 @@ export type TaskDetail = {
   /** See `TuiState.screenSession`. */
   readonly session: number;
   readonly title: SafeText;
+  /** Whether codes, hashes and counters are shown, for whoever digs in. */
+  readonly technical: boolean;
   readonly show: Part<TaskShow>;
   readonly progress: Part<TaskProgress>;
   readonly explain: Part<TaskExplain>;
@@ -72,6 +74,7 @@ export function initialDetail(taskId: string, title: SafeText, session: number):
     taskId,
     session,
     title,
+    technical: false,
     show: noPart(),
     progress: noPart(),
     explain: noPart(),

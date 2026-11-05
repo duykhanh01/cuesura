@@ -133,6 +133,7 @@ describe('SC-010: control characters in what daemon data carries', () => {
     await openTask(s, 'Plain');
     await s.waitForText('PRTITLE');
     await s.waitForText('PRMESSAGE');
+    s.send('i');
     await s.waitForText('History');
     expect(s.screenText().split('\n')[0]).toContain('daemon:');
     expect(s.term.buffer.active.type).toBe('alternate');

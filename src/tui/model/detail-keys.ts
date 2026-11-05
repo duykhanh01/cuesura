@@ -116,6 +116,11 @@ export function onDetailCommand(state: TuiState, command: Command): Reduced | nu
       return to(0);
     case 'end':
       return to(last);
+    case 'technical':
+      return {
+        state: { ...state, detail: { ...d, technical: !d.technical, top: 0 } },
+        effects: [],
+      };
     default:
       return null;
   }

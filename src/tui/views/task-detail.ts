@@ -2,10 +2,12 @@
  * Task detail: where a task stands, why, and how out (FR-011–FR-013, FR-015, US2). Everything about waits, exits,
  * blockers and limits is what `task_explain` said, written out; nothing here works out a state of its own
  * (FR-012). Sections without anything to say are left out. The rows are kept whole, so a resize loses nothing
- * and the screen scrolls by row.
+ * and the screen scrolls by row. Codes, hashes and counters that only mean something to whoever digs in stay
+ * behind `i` (`technical`): the screen first says what a person acts on.
  */
-import type { TaskStatus } from '../../domain/state.ts';
+import { isTerminal, type TaskStatus } from '../../domain/state.ts';
 import { activity, statusMark, todo } from '../model/activity.ts';
+import { stepName } from '../model/attempt-tree.ts';
 import { ending, type TaskDetail } from '../model/detail.ts';
 import { shortAttempt } from '../model/logs.ts';
 import { progressStages } from '../model/stages.ts';
@@ -147,8 +149,17 @@ function progressRows(out: Rows, d: TaskDetail): void {
   }
   if (progress.steps === null)
     out.line([
-      ui('  Steps are not known yet: ', DIM),
-      seg(progress.reason ?? uiText('no reason given')),
+      ui('  Steps are not known yet', DIM),
+      ...(progress.reason === null
+        ? []
+        : [
+            ui(': ', DIM),
+            seg(
+              progress.reason !== 'not_frozen'
+                ? progress.reason
+                : uiText(isTerminal(status) ? 'it never started' : 'it has not started'),
+            ),
+          ]),
     ]);
   else {
     const stages = progressStages(progress.steps, status);
@@ -184,7 +195,7 @@ function valueText(value: unknown): SafeText {
 function whyRows(out: Rows, explain: TaskExplain): void {
   const { wait } = explain;
   if (wait === null && explain.blockers.length === 0) return;
-  out.heading(wait === null ? 'Why' : 'Why it is waiting');
+  out.heading(wait === null ? 'Why' : 'Why it is waiting', DIM);
   if (wait !== null) {
     out.field('Reason', wait.reason);
     out.field('Code', sanitize(wait.detail.code));
@@ -226,33 +237,55 @@ function checkStyle(state: string): Style {
   return { fg: 'yellow' };
 }
 
-function evidenceRows(out: Rows, explain: TaskExplain, show: TaskShow | null): void {
+function evidenceRows(
+  out: Rows,
+  explain: TaskExplain,
+  show: TaskShow | null,
+  technical: boolean,
+): void {
   const { pr, evidence } = explain;
+  const config = show?.run_config ?? null;
+  const review = config?.review ?? null;
+  // Nothing to say yet is left out; whether review applies at all is said once there is a PR to review.
+  if (
+    !technical &&
+    pr.ref === null &&
+    evidence.gates.length === 0 &&
+    evidence.ci.length === 0 &&
+    evidence.reviews.length === 0
+  )
+    return;
   out.heading('Pull request and checks');
   out.field('PR', pr.ref === null ? [ui('none yet', DIM)] : [seg(pr.ref, BOLD)]);
-  if (pr.head_sha !== null || pr.base_sha !== null) {
+  if (technical && (pr.head_sha !== null || pr.base_sha !== null)) {
     out.field('Head', pr.head_sha ?? uiText('none yet'));
     out.field('Base', pr.base_sha ?? uiText('unknown'));
   }
   if (pr.observed !== null)
     out.field('On GitHub', [
       seg(pr.observed.status),
-      ui(' at head ', DIM),
-      seg(
-        pr.observed.observed_head === null ? uiText('unknown') : short(pr.observed.observed_head),
-      ),
+      ...(technical
+        ? [
+            ui(' at head ', DIM),
+            seg(
+              pr.observed.observed_head === null
+                ? uiText('unknown')
+                : short(pr.observed.observed_head),
+            ),
+          ]
+        : []),
     ]);
   if (pr.observation_expired)
     out.say('  Watching this PR has expired; a recheck reads it again.', WARN);
   const stale = (valid: boolean): Seg[] => (valid ? [] : [ui(' (no longer valid)', DIM)]);
+  const onHead = (sha: SafeText): Seg[] =>
+    technical ? [ui(' on head ', DIM), seg(short(sha), DIM)] : [];
 
   if (evidence.gates.length === 0) out.field('Gates', [ui('none yet', DIM)]);
   for (const g of evidence.gates) {
     out.field('Gates', [
       ui(g.passed ? '✓ passed' : '✗ failed', g.passed ? GOOD : BAD),
-      ui(' · ', DIM),
-      seg(g.step),
-      ui(` visit ${g.visit}`, DIM),
+      ...(technical ? [ui(' · ', DIM), seg(g.step), ui(` visit ${g.visit}`, DIM)] : []),
       ...stale(g.valid),
     ]);
     for (const f of g.failed ?? []) {
@@ -270,49 +303,59 @@ function evidenceRows(out: Rows, explain: TaskExplain, show: TaskShow | null): v
         seg(joinSafe([k.name, uiText(': '), k.state]), checkStyle(k.state)),
       ]),
       ...(c.checks.length === 0 ? [ui('no checks', DIM)] : []),
-      ui('   on head ', DIM),
-      seg(short(c.head_sha), DIM),
+      ...onHead(c.head_sha),
       ...stale(c.valid),
     ]);
 
   // Whether review belongs to this run is the daemon's word; a mode without it never reads as passed.
-  const config = show?.run_config ?? null;
-  const review = config?.review ?? null;
   if (review === 'not_run_by_mode' && config !== null)
     out.field('Review', [ui('not required by ', DIM), seg(config.selection.mode, DIM)]);
   else out.field('Review', [ui(review === 'required' ? 'required' : 'not decided yet', DIM)]);
   for (const r of evidence.reviews)
-    out.field('', [
-      seg(r.verdict, BOLD),
-      ui(' on head ', DIM),
-      seg(short(r.head_sha), DIM),
-      ...stale(r.valid),
-    ]);
+    out.field('', [seg(r.verdict, BOLD), ...onHead(r.head_sha), ...stale(r.valid)]);
 
   const { wait } = explain;
   // The daemon waits for a merge only once the head is green; this says what it holds, it decides nothing.
   if (wait?.detail.code === 'merge' && typeof wait.detail['head_sha'] === 'string')
-    out.line([
-      ui('  Green on head ', GOOD),
-      seg(sanitize(wait.detail['head_sha']), GOOD),
-      ui(': the daemon is waiting for the merge of this head.'),
-    ]);
+    if (technical)
+      out.line([
+        ui('  Green on head ', GOOD),
+        seg(sanitize(wait.detail['head_sha']), GOOD),
+        ui(': the daemon is waiting for the merge of this head.'),
+      ]);
+    else out.say('  All checks passed on the latest commit.', GOOD);
 }
 
-function agentRows(out: Rows, explain: TaskExplain, show: TaskShow | null): void {
-  out.heading('Agents and usage');
+const runs = (n: number): string => `${n} ${n === 1 ? 'run' : 'runs'}`;
+
+function agentRows(
+  out: Rows,
+  explain: TaskExplain,
+  show: TaskShow | null,
+  technical: boolean,
+): void {
+  if (!technical && explain.bindings_used.length === 0 && explain.escalations.length === 0) return;
+  out.heading(technical ? 'Agents and usage' : 'Agents');
   if (explain.bindings_used.length === 0) out.say('  No attempts requested yet.', DIM);
   for (const b of explain.bindings_used)
-    out.field(b.step, [
+    out.field(technical ? b.step : stepName(b.step), [
       seg(b.binding),
-      ui(` · rung ${b.rung} · requested ${b.requested} · invoked ${b.invoked}`, DIM),
+      ui(
+        technical
+          ? ` · rung ${b.rung} · requested ${b.requested} · invoked ${b.invoked}`
+          : ` · ${runs(b.invoked)}`,
+        DIM,
+      ),
     ]);
   for (const e of explain.escalations)
-    out.field(
-      'Escalated',
-      [seg(e.step), ui(` · rung ${e.from} to ${e.to} · `, DIM), seg(e.reason)],
-      WARN,
-    );
+    if (technical)
+      out.field(
+        'Escalated',
+        [seg(e.step), ui(` · rung ${e.from} to ${e.to} · `, DIM), seg(e.reason)],
+        WARN,
+      );
+    else out.field('Stronger model', [seg(stepName(e.step))], WARN);
+  if (!technical) return;
   for (const a of show?.provenance.usage ?? [])
     out.field('Attempt', [
       ui(`${shortAttempt(a.attempt_id)} · `, DIM),
@@ -325,7 +368,7 @@ function agentRows(out: Rows, explain: TaskExplain, show: TaskShow | null): void
     out.field('In progress', [seg(e.kind), ui(' '), seg(e.status, DIM)]);
 }
 
-function runConfigRows(out: Rows, show: TaskShow | null): void {
+function runConfigRows(out: Rows, show: TaskShow | null, technical: boolean): void {
   const config = show?.run_config ?? null;
   if (config === null) return;
   const { selection } = config;
@@ -334,8 +377,7 @@ function runConfigRows(out: Rows, show: TaskShow | null): void {
     seg(selection.profile),
     ui(' · ', DIM),
     seg(selection.mode),
-    ui(' · ', DIM),
-    seg(sanitize(config.status), DIM),
+    ...(technical ? [ui(' · ', DIM), seg(sanitize(config.status), DIM)] : []),
   ]);
   out.field('Worker', choice(selection.worker));
   out.field(
@@ -346,6 +388,24 @@ function runConfigRows(out: Rows, show: TaskShow | null): void {
   );
   if (selection.fallbacks.length > 0)
     out.field('Fallbacks', joinSafe(selection.fallbacks.map(choice), uiText(', ')));
+}
+
+/** What is left and its place in the queue; a task that ended or never started has none of it. */
+function plainLimitRows(out: Rows, explain: TaskExplain): void {
+  const { remaining, deadline, slot } = explain;
+  const running = explain.limits_frozen && !isTerminal(explain.status);
+  if (!running && slot.queued === null && explain.prerequisites.length === 0) return;
+  out.heading('Limits');
+  if (running) {
+    out.field('Agent runs', [ui(`${remaining.agent_runs} left`)]);
+    if (deadline.state === 'passed') out.field('Time left', [ui('none, the deadline passed', BAD)]);
+    else if (deadline.state === 'running' && deadline.remaining_ms !== null)
+      out.field('Time left', [ui(formatDuration(deadline.remaining_ms))]);
+  }
+  if (slot.queued?.position !== null && slot.queued?.position !== undefined)
+    out.field('Queue', [ui(`position ${slot.queued.position}`)]);
+  for (const p of explain.prerequisites)
+    out.field('Waits for', [seg(sanitize(p.task_id), DIM), ui(' · '), seg(p.status)]);
 }
 
 function limitRows(out: Rows, explain: TaskExplain): void {
@@ -393,13 +453,21 @@ function limitRows(out: Rows, explain: TaskExplain): void {
     ]);
 }
 
-function mergeRows(out: Rows, explain: TaskExplain, show: TaskShow | null): void {
-  const { merge, cancellation, merge_cleanup: cleanup } = explain;
+function mergeRows(
+  out: Rows,
+  explain: TaskExplain,
+  show: TaskShow | null,
+  technical: boolean,
+): void {
+  const { merge, cancellation: asked, merge_cleanup: cleanup } = explain;
   const completion = show?.completion ?? null;
   const manual = explain.allowed_actions.some((a) => a.action === 'merge_manually');
+  // Once it ended cancelled, that the cancel was asked for is history: the status already says how it went.
+  const cancellation = explain.status === 'CANCELLED' ? null : asked;
   if (merge === null && completion === null && cancellation === null && !manual && cleanup === null)
     return;
-  out.heading('Merge');
+  const mergeNews = merge !== null || completion !== null || manual || cleanup !== null;
+  out.heading(mergeNews ? 'Merge' : 'Cancelling');
   if (manual)
     out.line(
       [
@@ -419,10 +487,19 @@ function mergeRows(out: Rows, explain: TaskExplain, show: TaskShow | null): void
     if (merge.observed_method !== null) out.field('Method used', merge.observed_method);
   }
   if (completion !== null) {
-    out.field('Merged head', completion.merged_head_sha);
-    out.field('Checked head', completion.checked_head_sha ?? uiText('none'));
-    out.field('Merge commit', completion.merge_commit_sha ?? uiText('unknown'));
-    if (completion.unverified !== null)
+    if (technical) {
+      out.field('Merged head', completion.merged_head_sha);
+      out.field('Checked head', completion.checked_head_sha ?? uiText('none'));
+    }
+    out.field(
+      'Merge commit',
+      technical
+        ? (completion.merge_commit_sha ?? uiText('unknown'))
+        : short(completion.merge_commit_sha ?? uiText('unknown')),
+    );
+    if (completion.unverified !== null && !technical)
+      out.say('  Could not verify that what was merged is what was checked.', WARN);
+    if (completion.unverified !== null && technical)
       out.line(
         [
           ui('  '),
@@ -435,7 +512,7 @@ function mergeRows(out: Rows, explain: TaskExplain, show: TaskShow | null): void
         2,
       );
   }
-  if (cleanup !== null)
+  if (cleanup !== null && technical)
     for (const o of cleanup.pending_operations)
       out.field('Cleaning up', [seg(o.kind), ui(' '), seg(o.status, DIM)]);
   // Once a merge is proved the cancel has lost, whether or not the daemon has written that down yet.
@@ -445,7 +522,7 @@ function mergeRows(out: Rows, explain: TaskExplain, show: TaskShow | null): void
         ui(
           cancellation.late || completion !== null
             ? '  Cancel arrived too late: the merge had already happened, so this task does not end cancelled.'
-            : '  Cancel requested: it stops and reconciles first; the status above is the daemon’s.',
+            : '  Cancel requested: the task stops safely first, so this can take a moment.',
           WARN,
         ),
       ],
@@ -493,6 +570,7 @@ let memo: {
 
 function detailRows(d: TaskDetail, cols: number, stale: boolean): readonly Seg[][] {
   if (memo?.d === d && memo.cols === cols && memo.stale === stale) return memo.rows;
+  const { technical } = d;
   const out = new Rows(cols);
   aboutRows(out, d, stale);
   progressRows(out, d);
@@ -501,16 +579,22 @@ function detailRows(d: TaskDetail, cols: number, stale: boolean): readonly Seg[]
     out.heading('Why');
     out.say('  Reading…', DIM);
   } else {
-    whyRows(out, explain);
     exitRows(out, explain);
-    evidenceRows(out, explain, d.show.data);
-    mergeRows(out, explain, d.show.data);
-    agentRows(out, explain, d.show.data);
+    evidenceRows(out, explain, d.show.data, technical);
+    mergeRows(out, explain, d.show.data, technical);
+    agentRows(out, explain, d.show.data, technical);
   }
-  runConfigRows(out, d.show.data);
-  if (explain !== null) limitRows(out, explain);
-  referenceRows(out, d);
-  historyRows(out, d);
+  runConfigRows(out, d.show.data, technical);
+  if (explain !== null) {
+    if (technical) {
+      whyRows(out, explain);
+      limitRows(out, explain);
+    } else plainLimitRows(out, explain);
+  }
+  if (technical) {
+    referenceRows(out, d);
+    historyRows(out, d);
+  }
   memo = { d, cols, stale, rows: out.rows };
   return out.rows;
 }
