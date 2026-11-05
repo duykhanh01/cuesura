@@ -65,7 +65,18 @@ export function useTui() {
       const lines = ['acme', ...(o.projects ?? [])].map(
         (id) => `${id}: { base_branch: main, path: /srv/${id}, repo: acme/${id} }`,
       );
-      const sd: SeededDaemon = new SeededDaemon({}, (store) => ({
+      // Seeded operations have no real runner unit; asking the host's systemd would make recovery depend
+      // on whether a user bus is reachable.
+      const noUnit = {
+        inspectUnit: (id: string) =>
+          Promise.resolve({
+            unit: `cusr-${id}.service`,
+            state: 'not_found' as const,
+            invocation_id: null,
+            cgroup: null,
+          }),
+      };
+      const sd: SeededDaemon = new SeededDaemon(noUnit, (store) => ({
         logs: { dataDir: sd.dataDir, redactor: new Redactor() },
         confirm: {
           store,
