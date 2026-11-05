@@ -33,6 +33,8 @@ export function logColumns(cols: number): {
 
 /** Title, what is being followed, and one row for news. */
 export const LOG_HEADER_ROWS = 3;
+/** The attempt chooser's summary and the blank row under it. */
+export const PICKER_HEADER_ROWS = 2;
 /** A record can be 256 KiB on one line; drawing that on every frame would hold the keys up (EC-011). */
 const LOG_TEXT_CHARS = 16 * 1024;
 const ENTRY_OVERHEAD_BYTES = 128;
@@ -97,8 +99,10 @@ export type LogState = {
   readonly complete: boolean;
   readonly error: SafeText | null;
   readonly lastReadAt: number | null;
-  /** The attempt chooser is open at this row. */
-  readonly picker: number | null;
+  /** The attempt chooser is open, its cursor on the row of this key (`attempt-tree.ts`). */
+  readonly picker: string | null;
+  /** Keys of the chooser's rounds and runs shown unfolded. */
+  readonly pickerOpen: readonly string[];
 };
 
 /**
@@ -131,6 +135,7 @@ export function initialLogs(taskId: string, title: SafeText, session: number): L
     error: null,
     lastReadAt: null,
     picker: null,
+    pickerOpen: [],
   };
 }
 

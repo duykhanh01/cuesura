@@ -28,6 +28,8 @@ export type Command =
   | 'pause'
   | 'follow'
   | 'attempts'
+  | 'expand'
+  | 'collapse'
   | 'switch_field'
   | 'erase';
 
@@ -211,9 +213,28 @@ const KEYS: Readonly<Record<Context, readonly Binding[]>> = {
       press: MOVE,
     },
     {
+      keys: '←→',
+      hint: 'fold',
+      helpKeys: '← → h l',
+      help: 'Fold or unfold a round, or a step run several times in a row',
+      press: [
+        [n('left'), 'collapse'],
+        [n('right'), 'expand'],
+        [c('h'), 'collapse'],
+        [c('l'), 'expand'],
+      ],
+    },
+    {
+      keys: 'g/G',
+      hint: null,
+      helpKeys: END_KEYS,
+      help: 'First and last row',
+      press: ENDS,
+    },
+    {
       keys: 'Enter',
       hint: 'open',
-      help: 'Read the chosen attempt',
+      help: 'Read the chosen attempt; on a round or a run, fold or unfold it',
       press: [[n('enter'), 'open']],
     },
   ],

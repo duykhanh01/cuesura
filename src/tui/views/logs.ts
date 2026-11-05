@@ -3,22 +3,35 @@
  * records come: this only says that they came. Only the rows on screen are worked out, however long the buffer.
  */
 import { activity, todo } from '../model/activity.ts';
-import { attemptChoices } from '../model/detail-keys.ts';
+import {
+  cursorIndex,
+  formatTokens,
+  groupAttempts,
+  rowStage,
+  stepName,
+  tokensOf,
+  treeRows,
+  type Attempt,
+  type AttemptGroup,
+  type TreeRow,
+} from '../model/attempt-tree.ts';
+import { pickerGroups } from '../model/detail-keys.ts';
 import { progressStages, STAGE_LABEL, stageOf, type StageName } from '../model/stages.ts';
 import {
   LOG_HEADER_ROWS,
   logColumns,
+  PICKER_HEADER_ROWS,
   shortAttempt,
   visibleRows,
   type LogRow,
   type LogState,
 } from '../model/logs.ts';
 import type { TuiState } from '../model/state.ts';
-import { joinSafe, uiText, type SafeText } from '../terminal/safe-text.ts';
+import { joinSafe, sanitize, uiText, type SafeText } from '../terminal/safe-text.ts';
 import type { Frame, Style } from '../terminal/screen.ts';
 import type { Tone } from '../model/log-text.ts';
 import { graphemes, truncate } from '../terminal/width.ts';
-import { BOLD, DIM, putSegs, seg, ui, wrapSegs, type Seg } from './ink.ts';
+import { BOLD, DIM, putSegs, seg, segsWidth, ui, wrapSegs, type Seg } from './ink.ts';
 import { stageLook, stepper } from './stepper.ts';
 import type { Body } from './layout.ts';
 
@@ -107,9 +120,16 @@ function stagesRow(s: TuiState): Seg[] | null {
   return stages === null ? null : stepper(stages, status);
 }
 
-/** The attempt being read, by its step, so the progress column can point at it. */
+/** The attempt being read, or the row chosen in the chooser, by its stage, so the progress column can point at it. */
 function filteredStage(s: TuiState): StageName | null {
-  const id = s.logs?.attemptFilter ?? null;
+  const logs = s.logs;
+  if (logs !== null && logs.picker !== null) {
+    const groups = pickerGroups(s);
+    const rows = treeRows(groups, logs.pickerOpen);
+    const row = rows[cursorIndex(rows, logs.picker)];
+    return row === undefined ? null : rowStage(row, groups);
+  }
+  const id = logs?.attemptFilter ?? null;
   if (id === null) return null;
   const attempt = s.detail?.show.data?.provenance.usage.find((a) => a.attempt_id === id);
   return attempt === undefined ? null : stageOf(attempt.step);
@@ -235,6 +255,161 @@ function progressPane(frame: Frame, s: TuiState, top: number, height: number, wi
     .forEach((segs, i) => putSegs(frame, 1, top + i, segs, width - 1));
 }
 
+const SELECTED: Style = { fg: 'cyan', bold: true };
+const NAME_COLS = 24;
+const BINDING_COLS = 14;
+/** A step run this many times in a row is worth a look: a fix that does not hold. */
+const RUN_WARN = 3;
+
+const pad = (segs: readonly Seg[], cols: number): Seg[] => [
+  ...segs,
+  ui(' '.repeat(Math.max(1, cols - segsWidth(segs)))),
+];
+
+const TOKEN_COLS = 5;
+
+const tokenSeg = (attempts: readonly Attempt[]): Seg[] => {
+  const n = tokensOf(attempts);
+  return [ui(n === null ? ' '.repeat(TOKEN_COLS) : formatTokens(n).padStart(TOKEN_COLS), DIM)];
+};
+
+const flow = (group: AttemptGroup): string =>
+  group.runs
+    .map((r) => {
+      const name = r.step.replaceAll('_', ' ');
+      return r.attempts.length > 1 ? `${name} ×${r.attempts.length}` : name;
+    })
+    .join(' → ');
+
+/** The left and the right-aligned part of one chooser row. */
+function pickerRow(
+  row: TreeRow,
+  ctx: { readonly reading: string | null; readonly running: string | null },
+): { left: Seg[]; right: Seg[] } {
+  switch (row.kind) {
+    case 'live':
+      return {
+        left: [
+          ui('◉ ', { fg: 'cyan' }),
+          ui('Every step, live'),
+          ui('  the whole log as it comes', DIM),
+        ],
+        right: [],
+      };
+    case 'group': {
+      const attempts = groupAttempts(row.group);
+      const now = ctx.running !== null && attempts.some((a) => a.id === ctx.running);
+      return {
+        left: [
+          ...pad(
+            [
+              ui(row.open ? '▾ ' : '▸ ', DIM),
+              ui(row.group.title, BOLD),
+              ui(now ? ' ●' : '', { fg: 'green' }),
+            ],
+            NAME_COLS,
+          ),
+          seg(sanitize(flow(row.group)), DIM),
+        ],
+        right: [
+          ui(`${attempts.length} ${attempts.length === 1 ? 'run ' : 'runs'}`.padStart(7), DIM),
+          ui('  '),
+          ...tokenSeg(attempts),
+        ],
+      };
+    }
+    case 'run': {
+      const n = row.run.attempts.length;
+      const last = row.run.attempts.at(-1);
+      return {
+        left: [
+          ...pad(
+            [
+              ui('  '),
+              ui(row.open ? '▾ ' : '▸ ', DIM),
+              seg(stepName(row.run.step)),
+              ui(` ×${n}`, BOLD),
+            ],
+            NAME_COLS,
+          ),
+          ...(last === undefined ? [] : pad([seg(last.binding, DIM)], BINDING_COLS)),
+          ui(n >= RUN_WARN ? `⚠ ${n} in a row` : '', { fg: 'yellow' }),
+        ],
+        right: tokenSeg(row.run.attempts),
+      };
+    }
+    case 'attempt': {
+      const a = row.attempt;
+      return {
+        left: [
+          ...pad([ui(' '.repeat(row.depth * 2 + 2)), seg(stepName(a.step))], NAME_COLS),
+          ...pad([seg(a.binding, DIM)], BINDING_COLS),
+          seg(shortAttempt(a.id), DIM),
+          ui(a.id === ctx.running ? '  ● running' : '', { fg: 'green' }),
+          ui(a.id === ctx.reading ? '  ◂ reading' : '', { fg: 'cyan' }),
+        ],
+        right: tokenSeg([a]),
+      };
+    }
+  }
+}
+
+/**
+ * The attempt chooser: a summary, then the rounds, each folded to one row unless unfolded. Moves only as far as
+ * keeps the chosen row in sight.
+ */
+function pickerList(
+  frame: Frame,
+  s: TuiState,
+  logs: LogState,
+  x: number,
+  top: number,
+  room: number,
+  width: number,
+): void {
+  const groups = pickerGroups(s);
+  const all = groups.flatMap(groupAttempts);
+  const rounds = groups.filter((g) => g.title.startsWith('Review round')).length;
+  const tokens = tokensOf(all);
+  const summary = [
+    'Choose what to read',
+    `${all.length} ${all.length === 1 ? 'attempt' : 'attempts'}`,
+    ...(rounds > 0 ? [`${rounds} review ${rounds === 1 ? 'round' : 'rounds'}`] : []),
+    ...(tokens === null ? [] : [`${formatTokens(tokens)} tokens`]),
+  ].join(' · ');
+  frame.put(x + 2, top, truncate(uiText(summary), Math.max(0, width - 2)), DIM);
+
+  const status = s.detail?.explain.data?.status ?? s.detail?.show.data?.status;
+  const ctx = {
+    reading: logs.attemptFilter,
+    running: status === 'RUNNING' ? (all.at(-1)?.id ?? null) : null,
+  };
+  const rows = treeRows(groups, logs.pickerOpen);
+  const cursor = cursorIndex(rows, logs.picker);
+  const area = room - PICKER_HEADER_ROWS;
+  if (area <= 0) return;
+  // One row past the chosen one stays in sight, so moving down shows what comes next.
+  const first = Math.min(Math.max(0, cursor - area + 2), Math.max(0, rows.length - area));
+  const inner = Math.max(0, width - 2);
+  rows.slice(first, first + area).forEach((row, i) => {
+    const y = top + PICKER_HEADER_ROWS + i;
+    const chosen = first + i === cursor;
+    const { left, right } = pickerRow(row, ctx);
+    const look = (segs: readonly Seg[]): Seg[] => (chosen ? highlight(segs) : [...segs]);
+    if (chosen) frame.put(x, y, uiText('›'), SELECTED);
+    const rightCols = segsWidth(right);
+    const fitsRight = rightCols > 0 && inner - rightCols >= NAME_COLS + 2;
+    putSegs(frame, x + 2, y, look(left), fitsRight ? inner - rightCols - 2 : inner);
+    if (fitsRight) putSegs(frame, x + 2 + inner - rightCols, y, look(right), rightCols);
+  });
+}
+
+/** Chosen row: faint or plain text takes the selection style; yellow and green keep their meaning. */
+const highlight = (segs: readonly Seg[]): Seg[] =>
+  segs.map((g) =>
+    g.style?.fg === 'yellow' || g.style?.fg === 'green' ? g : { ...g, style: SELECTED },
+  );
+
 export const logsBody =
   (s: TuiState): Body =>
   (frame, top, height) => {
@@ -264,24 +439,15 @@ export const logsBody =
     const listTop = top + LOG_HEADER_ROWS;
     const room = height - LOG_HEADER_ROWS;
     if (room <= 0) return;
-    if (logs.picker !== null) {
-      const rows = [
-        uiText('Show the log of:'),
-        ...attemptChoices(s).map((c, i) =>
-          joinSafe([uiText(i === logs.picker ? '› ' : '  '), c.label]),
-        ),
-      ];
-      const first = Math.max(0, logs.picker + 2 - room);
-      rows
-        .slice(first, first + room)
-        .forEach((row, i) => frame.put(1, listTop + i, truncate(row, cols - 1)));
-      return;
-    }
     const { pane, log } = logColumns(cols);
     const x = pane === 0 ? 0 : pane + 2;
     if (pane > 0) {
       progressPane(frame, s, listTop, room, pane);
       for (let y = listTop; y < listTop + room; y++) frame.put(pane, y, uiText('│'), DIM);
+    }
+    if (logs.picker !== null) {
+      pickerList(frame, s, logs, x, listTop, room, log);
+      return;
     }
     if (logs.buffer.length === 0 && !logs.filling && logs.lastReadAt !== null) {
       frame.put(x + 1, listTop, uiText('No log records here yet.'), DIM);

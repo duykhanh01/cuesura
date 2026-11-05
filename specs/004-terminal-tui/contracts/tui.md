@@ -48,6 +48,10 @@ Luôn có hiệu lực ngoài ô nhập, và luôn được hiện ở thanh g�
 | `Ctrl-C` | Thoát, không hủy task; hỏi lại nếu còn nội dung đang nhập, lần thứ hai thì thoát |
 
 Trong Logs thêm: `Space` tạm dừng hoặc tiếp tục; `F` về theo dõi trực tiếp; `t` chọn attempt.
+Danh sách chọn attempt gom theo giai đoạn: Build, mỗi lượt review mở một `Review round N` cùng các lượt fix
+nó yêu cầu, rồi CI và merge; một step chạy liền nhiều lần gộp thành một dòng `×N`. Danh sách mở trên attempt
+đang đọc hoặc attempt mới nhất, các vòng khác thu gọn. `←`/`→` (`h`/`l`) thu gọn hoặc mở một vòng; `Enter`
+đọc attempt, trên dòng vòng thì thu gọn hoặc mở.
 
 Trong ô nhập, mọi phím in được đều là văn bản (FR-034): `Tab` sang trường kế, `Shift-Tab` về trường trước, `Ctrl-S` gửi, `Esc` rời
 không gửi. `Enter` xuống dòng ở ô nhiều dòng và sang trường kế ở ô một dòng. Bracketed paste đưa nguyên khối vào ô như văn bản; xuống

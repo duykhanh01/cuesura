@@ -269,8 +269,9 @@ describe('US2 scenarios 9 and 10: when the workflow moves to a new step', () => 
     await openLogs(s);
     await s.waitForText('coder line 3');
     s.send('t');
-    await s.waitForText('Show the log of:');
-    s.send(KEY.down);
+    // The chooser opens on the latest attempt; the one before it is the first coder's, which wrote the log.
+    await s.waitForText('Choose what to read');
+    s.send(KEY.up);
     s.send(KEY.enter);
     await s.waitFor(() => !s.screenText().includes('setup line 1'));
     await s.waitForText('coder line 3');
@@ -302,8 +303,9 @@ describe('review findings, on a real PTY', () => {
     await openLogs(s);
     await s.waitForText('coder line 3');
     s.send('t');
-    await s.waitForText('Show the log of:');
-    s.send(KEY.down);
+    // The chooser opens on the latest attempt; the one before it is the first coder's, which wrote the log.
+    await s.waitForText('Choose what to read');
+    s.send(KEY.up);
     s.send(KEY.enter);
     await s.waitFor(() => !s.screenText().includes('setup line 1'));
     s.send('F');
