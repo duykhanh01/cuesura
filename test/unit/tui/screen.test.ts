@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Terminal } from '@xterm/headless';
 import { sanitize, uiText } from '../../../src/tui/terminal/safe-text.ts';
-import { colorEnabled, diffFrames, Frame } from '../../../src/tui/terminal/screen.ts';
+import { colorEnabled, diffFrames, Frame, has256Colors } from '../../../src/tui/terminal/screen.ts';
 
 function show(frames: Frame[], cols = 10, rows = 3): Promise<string[]> {
   const term = new Terminal({ cols, rows, allowProposedApi: true });
@@ -95,6 +95,28 @@ describe('colorEnabled', () => {
       expect(colorEnabled({ TERM })).toBe(false);
     for (const TERM of ['xterm-256color', 'screen', 'tmux-256color', 'linux'])
       expect(colorEnabled({ TERM })).toBe(true);
+  });
+});
+
+describe('256 colours', () => {
+  it('are known from TERM or COLORTERM', () => {
+    expect(has256Colors({ TERM: 'xterm-256color' })).toBe(true);
+    expect(has256Colors({ TERM: 'xterm', COLORTERM: 'truecolor' })).toBe(true);
+    expect(has256Colors({ TERM: 'xterm' })).toBe(false);
+    expect(has256Colors({ TERM: 'linux' })).toBe(false);
+  });
+
+  it('draw orange and gray from the palette, or the nearest of 16 colours without it', () => {
+    const sgr = (colors256: boolean): string => {
+      const f = new Frame(2, 1, { colors256 });
+      f.put(0, 0, text('a'), { fg: 'orange' });
+      f.put(1, 0, text('b'), { fg: 'gray' });
+      return diffFrames(null, f);
+    };
+    expect(sgr(true)).toContain('\x1b[38;5;208ma');
+    expect(sgr(true)).toContain('\x1b[38;5;238mb');
+    expect(sgr(false)).toContain('\x1b[33ma');
+    expect(sgr(false)).toContain('\x1b[90mb');
   });
 });
 

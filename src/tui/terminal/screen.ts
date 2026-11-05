@@ -6,7 +6,7 @@
 import type { SafeText } from './safe-text.ts';
 import { displayWidth, graphemes } from './width.ts';
 
-export type Color = 'red' | 'green' | 'yellow' | 'blue' | 'magenta' | 'cyan';
+export type Color = 'red' | 'green' | 'yellow' | 'blue' | 'magenta' | 'cyan' | 'orange' | 'gray';
 
 export type Style = {
   readonly fg?: Color;
@@ -15,13 +15,25 @@ export type Style = {
   readonly inverse?: boolean;
 };
 
-const FG: Readonly<Record<Color, number>> = {
-  red: 31,
-  green: 32,
-  yellow: 33,
-  blue: 34,
-  magenta: 35,
-  cyan: 36,
+/**
+ * Foreground codes for a 16-colour terminal. Orange and gray have no colour of their own there and take the
+ * nearest one: yellow, and bright black.
+ */
+const FG: Readonly<Record<Color, string>> = {
+  red: '31',
+  green: '32',
+  yellow: '33',
+  blue: '34',
+  magenta: '35',
+  cyan: '36',
+  orange: '33',
+  gray: '90',
+};
+
+/** Where the terminal has 256 colours: xterm palette orange (208) and a dark gray (238). */
+const FG_256: Readonly<Partial<Record<Color, string>>> = {
+  orange: '38;5;208',
+  gray: '38;5;238',
 };
 const RESET = '\x1b[0m';
 
@@ -37,12 +49,19 @@ export function colorEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return !MONOCHROME_TERM.test(env['TERM'] ?? '');
 }
 
-function sgrOf(style: Style, color: boolean): string {
-  const codes: number[] = [];
-  if (style.bold === true) codes.push(1);
-  if (style.dim === true) codes.push(2);
-  if (style.inverse === true) codes.push(7);
-  if (color && style.fg !== undefined) codes.push(FG[style.fg]);
+/** `TERM` that names 256 colours, or a `COLORTERM` that promises 24-bit colour, which covers them. */
+export function has256Colors(env: NodeJS.ProcessEnv = process.env): boolean {
+  const colorterm = env['COLORTERM'] ?? '';
+  return /256color/.test(env['TERM'] ?? '') || colorterm === 'truecolor' || colorterm === '24bit';
+}
+
+function sgrOf(style: Style, color: boolean, wide: boolean): string {
+  const codes: string[] = [];
+  if (style.bold === true) codes.push('1');
+  if (style.dim === true) codes.push('2');
+  if (style.inverse === true) codes.push('7');
+  if (color && style.fg !== undefined)
+    codes.push((wide ? FG_256[style.fg] : undefined) ?? FG[style.fg]);
   return codes.length === 0 ? '' : `\x1b[${codes.join(';')}m`;
 }
 
@@ -50,12 +69,14 @@ export class Frame {
   readonly cols: number;
   readonly rows: number;
   readonly #color: boolean;
+  readonly #wide: boolean;
   readonly #cells: Cell[][];
 
-  constructor(cols: number, rows: number, opts: { color?: boolean } = {}) {
+  constructor(cols: number, rows: number, opts: { color?: boolean; colors256?: boolean } = {}) {
     this.cols = Math.max(0, cols);
     this.rows = Math.max(0, rows);
     this.#color = opts.color ?? true;
+    this.#wide = opts.colors256 ?? false;
     this.#cells = Array.from({ length: this.rows }, () =>
       Array.from({ length: this.cols }, () => ({ ch: ' ', sgr: '' })),
     );
@@ -65,7 +86,7 @@ export class Frame {
   put(x: number, y: number, text: SafeText, style: Style = {}): void {
     const row = this.#cells[y];
     if (row === undefined) return;
-    const sgr = sgrOf(style, this.#color);
+    const sgr = sgrOf(style, this.#color, this.#wide);
     let at = x;
     for (const g of graphemes(text)) {
       const w = displayWidth(g);

@@ -182,7 +182,11 @@ export function scrollOffset(
 /** Text of an area with rows of its own; rows outside it are dropped, never drawn over the frame. */
 export type Body = (frame: Frame, top: number, height: number) => void;
 
-export function renderFrame(s: TuiState, body: Body, opts: { color: boolean }): Frame {
+export function renderFrame(
+  s: TuiState,
+  body: Body,
+  opts: { readonly color: boolean; readonly colors256?: boolean },
+): Frame {
   const { cols, rows } = s.size;
   const frame = new Frame(cols, rows, opts);
   if (tooSmall(s.size)) {

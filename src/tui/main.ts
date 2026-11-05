@@ -15,7 +15,7 @@ import {
   type TuiState,
 } from './model/state.ts';
 import { KeyDecoder } from './terminal/keys.ts';
-import { colorEnabled, diffFrames, type Frame } from './terminal/screen.ts';
+import { colorEnabled, diffFrames, has256Colors, type Frame } from './terminal/screen.ts';
 import { openTerminal } from './terminal/terminal.ts';
 import { renderFrame } from './views/layout.ts';
 import { screenBody } from './views/screen-body.ts';
@@ -29,6 +29,7 @@ export function runTui(): void {
   const port = createDaemonPort();
   const decoder = new KeyDecoder();
   const color = colorEnabled();
+  const colors256 = has256Colors();
   let screen: Frame | null = null;
   let escTimer: NodeJS.Timeout | null = null;
 
@@ -101,7 +102,7 @@ export function runTui(): void {
 
   function draw(): void {
     const body = screenBody(state, { color });
-    const next = renderFrame(state, body, { color });
+    const next = renderFrame(state, body, { color, colors256 });
     const bytes = diffFrames(screen, next);
     screen = next;
     if (bytes !== '') terminal.write(bytes);

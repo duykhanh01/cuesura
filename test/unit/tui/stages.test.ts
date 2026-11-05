@@ -95,7 +95,7 @@ describe('stages', () => {
     expect(bars.map((b) => b.style)).toEqual([
       { fg: 'green' },
       { fg: 'cyan', bold: true },
-      { fg: 'blue' },
+      { fg: 'gray' },
       { dim: true },
     ]);
     expect(plain(dots(stages, 'RUNNING', false))).toBe('●◉–○');

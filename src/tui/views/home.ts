@@ -310,6 +310,8 @@ function drawList(
   const c = columns(s, cols, rows);
   const lines: Line[] = [
     { kind: 'static', segs: columnHeads(c, cols) },
+    // The first entry may be a heading or the Finished toggle; the gap keeps the list's one rhythm.
+    BLANK,
     ...listLines(s, rows, cols),
   ];
   const offset = firstLine(lines, selected, height);

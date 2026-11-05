@@ -49,9 +49,10 @@ const DOT_STYLE: Readonly<Record<StageState, (status: TaskStatus) => Style>> = {
   done: () => ({ fg: 'green' }),
   current: (status) => ({ fg: currentColor(status), bold: true }),
   failed: () => ({ fg: 'red', bold: true }),
-  stopped: () => ({ fg: 'magenta' }),
-  // Its own colour, so a skipped stage never looks like one still to come (FR-011).
-  skipped: () => ({ fg: 'blue' }),
+  // A warning, like a cancelled run elsewhere; yellow already means a task waits on the user.
+  stopped: () => ({ fg: 'orange' }),
+  // Fainter than a stage still to come, so it reads as absent and never as one that will run (FR-011).
+  skipped: () => ({ fg: 'gray' }),
   todo: () => DIM,
 };
 
