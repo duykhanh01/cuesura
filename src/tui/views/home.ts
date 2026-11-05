@@ -93,6 +93,11 @@ const BLANK: Line = { kind: 'static', segs: [] };
 
 function listLines(s: TuiState, rows: readonly HomeRow[], cols: number): Line[] {
   const lines: Line[] = [];
+  // One blank line between every heading, toggle and task, so the list keeps one rhythm and the stage bars
+  // of two tasks never join into columns. A task's detail line stays with its task.
+  const gap = (): void => {
+    if (lines.length > 0) lines.push(BLANK);
+  };
   const attention = rows.filter((r) => r.kind === 'attention').length;
   if (attention > 0) {
     const more = s.board?.attention.truncated === true ? '+' : '';
@@ -108,14 +113,14 @@ function listLines(s: TuiState, rows: readonly HomeRow[], cols: number): Line[] 
   rows.forEach((row, i) => {
     if (row.kind === 'task' && !inTasks) {
       inTasks = true;
-      if (lines.length > 0) lines.push(BLANK);
+      gap();
       lines.push({
         kind: 'static',
         segs: ruleHeading('Tasks', cols, { fg: 'cyan', bold: true }),
       });
     }
     if (row.kind === 'finished_toggle') {
-      if (lines.length > 0) lines.push(BLANK);
+      gap();
       lines.push({
         kind: 'toggle',
         row: i,
@@ -127,9 +132,7 @@ function listLines(s: TuiState, rows: readonly HomeRow[], cols: number): Line[] 
       });
       return;
     }
-    // A blank line keeps the stage bars of two tasks from joining into columns; a task waiting on the user
-    // is already followed by its detail line.
-    if (lines.at(-1)?.kind === 'task') lines.push(BLANK);
+    gap();
     lines.push({ kind: 'task', row: i, item: row });
     if (actionOf(row) !== null) lines.push({ kind: 'detail', item: row });
   });
