@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { AttentionDesk } from '../../../src/application/attention.ts';
 import { recheckTask, type RecheckDeps } from '../../../src/application/recheck.ts';
-import type { Caller } from '../../../src/application/authz.ts';
+import { callerFor, type Caller } from '../../../src/application/authz.ts';
 import type { CanonicalTask } from '../../../src/domain/task.ts';
 import type { RequiredCheckVerdict, Trigger } from '../../../src/domain/trigger.ts';
 import type { Uuid } from '../../../src/shared/brand.ts';
@@ -1522,6 +1523,29 @@ describe('harness login expired (#97)', () => {
     expect(d.task(t.id).visit_credits).toEqual({
       code: { visits: 2, through: 2 },
     });
+  });
+
+  it('tells the assistant again when a recheck hits the same login failure between polls', () => {
+    const d = setup();
+    const t = buildTask();
+    createGrantStart(d, t, 'full-review');
+    d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE);
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'failed', AUTH);
+    const desk = new AttentionDesk({ store: d.store, now: () => 0 });
+    const caller = callerFor('assistant') as Caller;
+    const first = desk.poll(caller, { lease: 'session', mode: 'attach' });
+    if (!first.ok) throw new Error(first.error.code);
+    expect(first.value.items).toMatchObject([{ code: 'harness_auth' }]);
+    const told = desk.poll(caller, { lease: first.value.lease, mode: 'resume' });
+    expect(told).toMatchObject({ ok: true, value: { items: [] } });
+
+    d.must(t.id, { kind: 'recheck', target: 'auth' });
+    grant(d);
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'failed', AUTH);
+    expect(code(d, t)).toBe('harness_auth');
+
+    const again = desk.poll(caller, { lease: first.value.lease, mode: 'resume' });
+    expect(again).toMatchObject({ ok: true, value: { items: [{ code: 'harness_auth' }] } });
   });
 
   it('a step out of visits only on infrastructure failures gets them back on recheck', () => {

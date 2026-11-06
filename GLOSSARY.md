@@ -96,6 +96,10 @@ _Avoid_: Một task chưa kết thúc, giữ slot suốt vòng đời task, nh�
 Head SHA của PR mà Cuesura đã có đủ gate, CI và review nếu được yêu cầu bởi chế độ đã xác nhận cho revision hiện tại. Head này không tự đổi theo push bên ngoài.
 _Avoid_: Head hiện tại của PR, head mới nhất trên remote
 
+**Khóa assistant**:
+Dấu cho biết phiên assistant nào đang nhận tin về các task cần người để chuyển cho người dùng. Khóa chỉ định tuyến tin, không cấp quyền và không điều phối; mất khóa không mất sự thật nào vì việc cần người được dựng lại từ task.
+_Avoid_: Primary, khóa quyền
+
 **Thông báo logic**:
 Một việc cần báo cho người dùng, như một câu hỏi chờ người, một task vừa kết thúc hay một đợt hết hạn mức. Thông báo giữ nguyên danh tính qua mọi lần thử lại, cập nhật nội dung, phục hồi và restart, nên cùng một việc không bao giờ thành hai thông báo logic dù có thể hiện thành nhiều bản tin.
 _Avoid_: Tin nhắn, mỗi lần gửi là một thông báo

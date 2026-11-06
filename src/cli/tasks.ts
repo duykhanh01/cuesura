@@ -37,7 +37,7 @@ export const DATA_DIR = {
   description: 'Daemon data directory (default: $CUSR_DATA_DIR or ~/.cusr)',
 };
 
-async function call(
+export async function call(
   values: Values,
   path: '/v1/command' | '/v1/query',
   body: unknown,

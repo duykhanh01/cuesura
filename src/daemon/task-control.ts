@@ -11,6 +11,7 @@ import { cancelTask } from '../application/cancel.ts';
 import { continueTask } from '../application/continue.ts';
 import { pauseTask, resumeTask } from '../application/pause.ts';
 import { runDoctor, type DoctorDeps } from '../application/doctor.ts';
+import { AttentionDesk } from '../application/attention.ts';
 import { inbox } from '../application/inbox.ts';
 import { LogRecordCache, taskLogs, type LogsDeps } from '../application/logs.ts';
 import { taskProgress } from '../application/progress.ts';
@@ -68,6 +69,7 @@ export function taskControl(deps: TaskControlDeps): {
   const { store, logs, doctor } = deps;
   const statusSince = statusSinceReader(store);
   const logCache = new LogRecordCache();
+  const attention = new AttentionDesk({ store, now: deps.now });
   return {
     commands: {
       task_add: (admitted, input, caller) => taskAdd(deps, admitted, input, caller),
@@ -88,6 +90,7 @@ export function taskControl(deps: TaskControlDeps): {
     },
     queries: {
       inbox: (caller, body) => reply(inbox(store, caller, body)),
+      attention: (caller, body) => reply(attention.poll(caller, body)),
       task_show: (caller, body) => reply(taskShow(store, caller, body)),
       task_list: (caller, body) => reply(taskList(store, caller, body)),
       task_history: (caller, body) => reply(taskHistory(store, caller, body)),

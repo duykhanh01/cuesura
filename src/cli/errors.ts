@@ -23,7 +23,13 @@ const USAGE = [
   'actor_invalid',
 ];
 /** The request was understood, but the task's current state or version does not allow it. */
-const CONFLICT = ['conflict', 'nothing_to_recheck', 'rejected'];
+const CONFLICT = [
+  'conflict',
+  'nothing_to_recheck',
+  'rejected',
+  'attention_held',
+  'attention_superseded',
+];
 
 export function exitCodeForError(code: string): ExitCode {
   if (FORBIDDEN.includes(code)) return ExitCode.forbidden;

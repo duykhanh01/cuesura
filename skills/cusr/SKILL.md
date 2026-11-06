@@ -188,6 +188,24 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 # for a new command, and do not drop CUSR_ACTOR to make it succeed.
 ```
 
+## Waiting for what needs the user
+
+Do not poll with `sleep` and `task show`: each check costs a model turn. Run this as a background command;
+it uses no model turns while it waits and exits when a task needs a person:
+
+```sh
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
+  cusr assistant wait --json
+```
+
+- Relay each returned item to the user, then run the command again with `--lease "$LEASE"` from the reply.
+  That run confirms the items arrived; without it they are sent again.
+  A reply with `timed_out: true` has nothing to relay: run it again the same way.
+- The lease only routes news to one session. It grants nothing, and the user can still answer elsewhere.
+- `attention_held` means another live session has the lease. Use `--take` only when the user asks to move here.
+- `attention_superseded` means another session took over. Stop waiting; do not take it back.
+- Only a harness that wakes the session when a background command exits can use this.
+
 ## Questions
 
 ```sh

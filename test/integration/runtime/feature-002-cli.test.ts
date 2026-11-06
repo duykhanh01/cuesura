@@ -461,6 +461,44 @@ describe('unsupported features change nothing (US6.4/5, FR-021/045)', () => {
   );
 });
 
+describe('assistant wait (issue #166)', () => {
+  it('tells the holder once, refuses a second session, and moves on --take', async () => {
+    const sd = daemon();
+    const t = buildTask();
+    sd.seed((d) => asking(d, t));
+    await sd.start();
+    const wait = (...argv: string[]) => cli(sd, ['assistant', 'wait', '--timeout', '1', ...argv]);
+
+    const first = await wait();
+    expect(first.code).toBe(ExitCode.ok);
+    expect(first.envelope.data['items']).toMatchObject([
+      { task_id: t.id, code: 'agent_question', question: 'Which encoding?' },
+    ]);
+    const lease = first.envelope.data['lease'] as string;
+
+    const quiet = await wait('--lease', lease);
+    expect(quiet.envelope.data).toMatchObject({ items: [], timed_out: true });
+
+    const other = await wait();
+    expect(other.code).toBe(ExitCode.conflict);
+    expect(other.envelope.error.code).toBe('attention_held');
+
+    const taken = await wait('--take');
+    expect(taken.envelope.data['items']).toMatchObject([{ task_id: t.id }]);
+    expect(taken.envelope.data['lease']).not.toBe(lease);
+
+    const old = await wait('--lease', lease);
+    expect(old.code).toBe(ExitCode.conflict);
+    expect(old.envelope.error.code).toBe('attention_superseded');
+  });
+
+  it('refuses a timeout that is not a positive whole number', async () => {
+    const sd = daemon();
+    await sd.start();
+    expect((await cli(sd, ['assistant', 'wait', '--timeout', '0'])).code).toBe(ExitCode.usage);
+  });
+});
+
 describe('inbox and answer (US6, FR-027.01)', () => {
   it('finds the question and answers it from a file; a replay returns the first result', async () => {
     const sd = daemon();
