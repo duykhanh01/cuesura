@@ -7,8 +7,9 @@ import { writeSync } from 'node:fs';
 
 // 1007 turns the wheel into arrow keys here. Capturing the mouse would do it too, and take from the user the
 // terminal's own selection and copy. Saved and restored, since some terminals have it on by default.
-const ENTER = '\x1b[?1049h\x1b[?25l\x1b[?2004h\x1b[?1007s\x1b[?1007h';
-const LEAVE = '\x1b[0m\x1b[?1007r\x1b[?2004l\x1b[?25h\x1b[?1049l';
+// 1004 reports coming back to the window: a terminal hidden meanwhile may not have kept what was drawn.
+const ENTER = '\x1b[?1049h\x1b[?25l\x1b[?2004h\x1b[?1004h\x1b[?1007s\x1b[?1007h';
+const LEAVE = '\x1b[0m\x1b[?1007r\x1b[?1004l\x1b[?2004l\x1b[?25h\x1b[?1049l';
 const SIGNAL_NUMBERS = { SIGHUP: 1, SIGINT: 2, SIGTERM: 15 } as const;
 const STDOUT_FD = 1;
 const STDERR_FD = 2;

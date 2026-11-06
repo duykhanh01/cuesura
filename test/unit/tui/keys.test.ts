@@ -10,6 +10,10 @@ function decode(input: string): Key[] {
 }
 
 describe('KeyDecoder', () => {
+  it('reads leaving the window as nothing, not as text or Esc', () => {
+    expect(decode('\x1b[O')).toEqual([]);
+  });
+
   it.each([
     ['\x1b[A', 'up'],
     ['\x1b[B', 'down'],
@@ -25,6 +29,8 @@ describe('KeyDecoder', () => {
     ['\x1b[4~', 'end'],
     ['\x1b[3~', 'delete'],
     ['\x1b[Z', 'shift_tab'],
+    ['\x1b[I', 'focus_in'],
+    ['\x0c', 'ctrl_l'],
     ['\x1b[1;2A', 'up'],
     ['\r', 'enter'],
     ['\n', 'enter'],

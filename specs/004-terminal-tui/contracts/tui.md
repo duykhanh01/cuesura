@@ -44,6 +44,7 @@ Luôn có hiệu lực ngoài ô nhập, và luôn được hiện ở thanh g�
 | `?` | Help |
 | `R` | `Retry connection` khi đang chờ người dùng |
 | `C` | `Check again` với thao tác chưa rõ đã hết lượt tự đối chiếu |
+| `Ctrl-L` | Vẽ lại toàn bộ màn hình, kể cả trong ô nhập; không đổi trạng thái nào |
 | `q` | Thoát; hỏi lại nếu còn nội dung đang nhập |
 | `Ctrl-C` | Thoát, không hủy task; hỏi lại nếu còn nội dung đang nhập, lần thứ hai thì thoát |
 

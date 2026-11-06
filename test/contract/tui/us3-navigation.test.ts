@@ -156,7 +156,7 @@ describe('US3 scenario 1: every screen says which keys work, how to go back and 
     expect(exit.sttyAfter).toBe(exit.sttyBefore);
     // Keyboard only: the mouse was never asked for (FR-032).
     expect(s.modes().mouseTracking).toBe(false);
-    expect(s.rawOutput()).not.toMatch(/\x1b\[\?100[0-6]h/); // eslint-disable-line no-control-regex
+    expect(s.rawOutput()).not.toMatch(/\x1b\[\?100[0-356]h/); // eslint-disable-line no-control-regex
     expect(Date.now() - started).toBeLessThan(120_000);
   });
 });

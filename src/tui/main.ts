@@ -14,7 +14,7 @@ import {
   initialState,
   type TuiState,
 } from './model/state.ts';
-import { KeyDecoder } from './terminal/keys.ts';
+import { KeyDecoder, type Key } from './terminal/keys.ts';
 import { colorEnabled, diffFrames, has256Colors, type Frame } from './terminal/screen.ts';
 import { openTerminal } from './terminal/terminal.ts';
 import { renderFrame } from './views/layout.ts';
@@ -35,11 +35,11 @@ export function runTui(): void {
 
   const terminal = openTerminal({
     onInput(data) {
-      for (const key of decoder.feed(data)) dispatch({ type: 'key', key });
+      for (const key of decoder.feed(data)) press(key);
       if (escTimer !== null) clearTimeout(escTimer);
       escTimer = decoder.pending()
         ? setTimeout(() => {
-            for (const key of decoder.flush()) dispatch({ type: 'key', key });
+            for (const key of decoder.flush()) press(key);
           }, ESC_WAIT_MS)
         : null;
     },
@@ -47,10 +47,7 @@ export function runTui(): void {
       screen = null;
       dispatch({ type: 'resize', size: terminal.size() });
     },
-    onRedraw() {
-      screen = null;
-      draw();
-    },
+    onRedraw: redraw,
   });
 
   let state: TuiState = initialState(terminal.size());
@@ -99,6 +96,17 @@ export function runTui(): void {
     plan: (now) => planScreenReads(state, port, systemRefreshClock, now),
     report: (message) => dispatch(message),
   });
+
+  function redraw(): void {
+    screen = null;
+    draw();
+  }
+
+  /** Redrawing belongs to no screen, and must not count as an answer to one: "press again to quit", say. */
+  function press(key: Key): void {
+    if (key.kind === 'key' && (key.name === 'ctrl_l' || key.name === 'focus_in')) redraw();
+    else dispatch({ type: 'key', key });
+  }
 
   function draw(): void {
     const body = screenBody(state, { color });

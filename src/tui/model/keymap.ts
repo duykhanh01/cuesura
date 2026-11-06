@@ -380,6 +380,13 @@ const GLOBAL_LEAD: readonly Binding[] = [
 
 const GLOBAL_TAIL: readonly Binding[] = [
   {
+    keys: 'Ctrl-L',
+    hint: null,
+    help: 'Draw the screen again; coming back to the window does this by itself',
+    // Works on every screen, fields too, ahead of them all (`main.ts`).
+    press: [],
+  },
+  {
     keys: 'q',
     hint: 'quit',
     help: 'Quit; tasks and the daemon keep running. Asks again if you typed something',

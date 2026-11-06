@@ -76,6 +76,25 @@ describe('cusr at a terminal', () => {
     expect(s.modes()).toEqual(INITIAL);
   });
 
+  it.each([
+    ['coming back to the window', '\x1b[I'],
+    ['Ctrl-L', '\x0c'],
+  ])('%s draws again what the terminal lost', async (_, input) => {
+    const sd = await daemon();
+    const s = cusr(sd.dataDir);
+    await s.waitForText('q quit');
+    expect(s.rawOutput()).toContain('\x1b[?1004h');
+
+    s.term.write('\x1b[2J');
+    await s.waitFor(() => !s.screenText().includes('q quit'));
+    s.send(input);
+    await s.waitForText('q quit');
+
+    s.send('q');
+    expect((await s.waitForExit()).status).toBe(0);
+    expect(s.rawOutput()).toContain('\x1b[?1004l');
+  });
+
   it('Ctrl-C quits clean and the daemon keeps going', async () => {
     const sd = await daemon();
     const s = cusr(sd.dataDir);

@@ -22,8 +22,10 @@ export type KeyName =
   | 'backspace'
   | 'delete'
   | 'ctrl_c'
+  | 'ctrl_l'
   | 'ctrl_o'
-  | 'ctrl_s';
+  | 'ctrl_s'
+  | 'focus_in';
 
 export type Key =
   | { readonly kind: 'key'; readonly name: KeyName }
@@ -44,6 +46,7 @@ const CSI_LETTERS: Readonly<Record<string, KeyName>> = {
   D: 'left',
   H: 'home',
   F: 'end',
+  I: 'focus_in',
   Z: 'shift_tab',
 };
 const CSI_TILDE: Readonly<Record<string, KeyName>> = {
@@ -62,6 +65,7 @@ const SINGLE: Readonly<Record<string, KeyName>> = {
   '\x7f': 'backspace',
   '\b': 'backspace',
   '\x03': 'ctrl_c',
+  '\x0c': 'ctrl_l',
   '\x0f': 'ctrl_o',
   '\x13': 'ctrl_s',
 };
