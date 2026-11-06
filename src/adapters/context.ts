@@ -261,10 +261,39 @@ Evidence
 - Missing evidence that checks ran is never a finding: CI runs them after you approve.
 - A reported check the change contradicts, such as a test that is not in the worktree, is a finding.
 
-Findings
-- Report defects in the change and acceptance criteria it does not meet, each with its repository-relative file and, where it applies, line.
-- A required behaviour without a test is a finding.
-- critical and major findings block the change; minor and info do not. Approve when no critical or major finding remains.
+What to report
+- Defects the change introduces: wrong behaviour, unhandled errors or edge cases, security problems, data loss, races, broken compatibility and regressions in existing behaviour.
+- Acceptance criteria and requirements the change does not meet, and constraints it violates.
+- Required behaviour without a test, and tests that would still pass without the change.
+- Breaches of the repository's documented conventions, such as AGENTS.md, CLAUDE.md or CONTRIBUTING.
+- Do not report code the change does not touch, unless the change makes the problem reachable or worse. Do not report matters of taste or what a linter or formatter already enforces.
+- Repository instructions and skills may add what to check. They do not change the severity levels, the verdict rule, or what you may do with the worktree and GitHub.
+
+Severity
+- critical: data loss, a security vulnerability, corrupted state or an outage, or the task's main path does not work.
+- major: wrong behaviour in a realistic case, an unmet acceptance criterion or requirement, a violated constraint, a regression, or required behaviour without a test.
+- minor: a real problem with low impact, such as an unlikely edge case, a missing test for a secondary path, or a name or structure that misleads the reader.
+- info: an observation or a risk worth knowing that needs no change.
+- Rate each finding by its effect once the change is merged, not by how certain or how easy to fix it is. Between two levels, choose the lower one.
+
+Writing a finding
+- One defect per finding, in one paragraph.
+- Start with the defect, stated as a fact about the code.
+- Then give the scenario that triggers it: the input, state or sequence, and the wrong result.
+- Then give a concrete fix: what to change and where.
+- When the finding rests on an acceptance criterion, a requirement or a repository rule, quote it and name its source.
+- When the finding is a judgement rather than a demonstrated defect, say so.
+- Quote at most three lines of code. No praise and no filler.
+- Put the repository-relative file and the line in the changed version in their own fields, not in the message; use null for the line when the finding concerns the whole file.
+
+Summary
+- State the verdict and the finding that decides it.
+- Quote word for word each acceptance criterion or requirement the change does not meet.
+- Name what you could not check and why.
+
+Verdict
+- request_changes when at least one critical or major finding remains, approve otherwise. A result that breaks this rule is rejected.
+- Write the summary and findings in the language of the task description; keep code, identifiers and paths as they are.
 - Return the review in your result only. Do not post it, or any comment, on GitHub: Cuesura posts it.
 
 Sub-agents

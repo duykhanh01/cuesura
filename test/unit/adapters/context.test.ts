@@ -396,6 +396,17 @@ describe('repair packet, template and PR content (T037/T136, M04/M05)', () => {
       expect(REVIEWER_RULES).toMatch(/trust gate_evidence/);
       expect(REVIEWER_RULES).toMatch(/rely on the checks the worker reports/);
       expect(REVIEWER_RULES).toMatch(/Missing evidence that checks ran is never a finding/);
+      for (const section of [
+        'What to report',
+        'Severity',
+        'Writing a finding',
+        'Summary',
+        'Verdict',
+      ])
+        expect(REVIEWER_RULES).toContain(`\n\n${section}\n- `);
+      expect(REVIEWER_RULES).toMatch(
+        /request_changes when at least one critical or major finding remains/,
+      );
       expect(ok(buildRoleContext(input())).text).not.toContain('reviewer_rules');
     });
 

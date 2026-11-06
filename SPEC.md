@@ -334,7 +334,7 @@ Coder/fixer trả `status` thuộc `done | needs_input | needs_context | blocked
 
 Coder/fixer sẽ chuẩn bị thêm commit message, PR title và description theo template từ frozen base, dưới dạng artifact ngoài code; orchestrator dùng nội dung đó để publish. Đây là hợp đồng bổ sung cần version hóa/kiểm chứng schema, chưa có trong ví dụ schema hiện tại.
 
-Reviewer có verdict `approve | request_changes`, summary và findings có severity/file/line/message. Mỗi role có schema được version hóa; metadata task/attempt và provenance do orchestrator gắn, không tin ID mà agent tự khai.
+Reviewer có verdict `approve | request_changes`, summary và findings có severity/file/line/message; `request_changes` khi và chỉ khi còn finding critical hoặc major. Mỗi role có schema được version hóa; metadata task/attempt và provenance do orchestrator gắn, không tin ID mà agent tự khai.
 
 Nguồn ưu tiên là structured final response của harness. Adapter chuẩn hóa response, orchestrator validate rồi lưu `out/result.json`. Cờ structured output không mặc nhiên validate file tùy ý do agent tạo. File fallback chỉ dùng khi adapter khai báo rõ, có đường dẫn riêng theo attempt và được kiểm tra tương đương. Không đọc nhầm `result.json` cũ từ bước trước.
 

@@ -41,6 +41,8 @@
       "value": { "schema_version": 1, "verdict": "approve", "summary": "ok", "findings": [{ "severity": "critical", "file": "a.ts", "line": 1, "message": "data loss" }] } },
     { "name": "request_changes without findings", "role": "reviewer", "expect": "semantic",
       "value": { "schema_version": 1, "verdict": "request_changes", "summary": "no", "findings": [] } },
+    { "name": "request_changes with only minor findings", "role": "reviewer", "expect": "semantic",
+      "value": { "schema_version": 1, "verdict": "request_changes", "summary": "no", "findings": [{ "severity": "minor", "file": "a.ts", "line": 1, "message": "naming" }] } },
     { "name": "finding path escapes repo", "role": "reviewer", "expect": "semantic",
       "value": { "schema_version": 1, "verdict": "request_changes", "summary": "no", "findings": [{ "severity": "minor", "file": "../etc/passwd", "line": 0, "message": "m" }] } }
   ]

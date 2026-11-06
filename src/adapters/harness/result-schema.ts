@@ -301,11 +301,11 @@ function reviewerSemantics(r: ReviewerResult): ValidationIssue[] {
       message: 'approve with critical/major findings',
     });
   }
-  if (r.verdict === 'request_changes' && r.findings.length === 0) {
+  if (r.verdict === 'request_changes' && !blocking) {
     issues.push({
       layer: 'semantic',
-      path: 'findings',
-      message: 'request_changes requires a finding',
+      path: 'verdict',
+      message: 'request_changes without a critical/major finding',
     });
   }
   return issues;

@@ -155,7 +155,11 @@ issue, PR và CI; việc họ tự làm trên GitHub không thay cho comment rev
 - `full-review` mở PR dạng draft. Mỗi lượt review được đăng thành một PR review `COMMENT` (không
   dùng `APPROVE`/`REQUEST_CHANGES`, vốn tác động lên điều kiện merge); review các vòng trước được giữ
   nguyên làm lịch sử. Mỗi lượt là đúng một comment: mọi finding (kèm file và dòng nếu có) nằm trong
-  body, không tách thành inline comment theo từng file.
+  body, không tách thành inline comment theo từng file. `{{findings}}` chia hai nhóm `Blocking`
+  (critical, major) và `Not blocking` (minor, info), mỗi nhóm xếp theo severity giảm dần, nhóm rỗng
+  được bỏ.
+- Verdict phải khớp findings: `request_changes` khi và chỉ khi còn ít nhất một finding critical hoặc
+  major. Kết quả sai quy tắc này là output không hợp lệ.
 - Comment đăng đúng lượt review mà bước review vừa dùng để rẽ nhánh, kể cả verdict được dùng lại; không
   lấy lượt review mới nhất của revision.
 - Body có marker ẩn `<!-- cusr:review task=… attempt=… -->`. Daemon tìm marker trước khi đăng và

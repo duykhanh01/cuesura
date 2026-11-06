@@ -218,6 +218,31 @@ function findingLine(f: ReviewEvidence['findings'][number]): string {
   return `- **${clean(f.severity)}**${where}: ${clean(f.msg)}`;
 }
 
+const SEVERITY_ORDER = ['critical', 'major', 'minor', 'info'];
+const BLOCKING = new Set(['critical', 'major']);
+
+/** Blocking findings first, then the rest, each group most severe first; an empty group is left out. */
+function findingsBlock(findings: ReviewEvidence['findings']): string {
+  if (findings.length === 0) return 'No findings.';
+  const rank = (f: ReviewEvidence['findings'][number]) => {
+    const i = SEVERITY_ORDER.indexOf(f.severity);
+    return i === -1 ? SEVERITY_ORDER.length : i;
+  };
+  const sorted = [...findings].sort((a, b) => rank(a) - rank(b));
+  const group = (title: string, items: typeof sorted) =>
+    items.length === 0 ? [] : [`#### ${title}\n\n${items.map(findingLine).join('\n')}`];
+  return [
+    ...group(
+      'Blocking',
+      sorted.filter((f) => BLOCKING.has(f.severity)),
+    ),
+    ...group(
+      'Not blocking',
+      sorted.filter((f) => !BLOCKING.has(f.severity)),
+    ),
+  ].join('\n\n');
+}
+
 export type RenderInput = {
   readonly template: string;
   readonly round: number;
@@ -226,12 +251,11 @@ export type RenderInput = {
 };
 
 export function renderReview(r: RenderInput): string {
-  const lines = r.review.findings.map(findingLine);
   const values: Record<ReviewPlaceholder, string> = {
     round: String(r.round),
     verdict: r.review.verdict === 'approve' ? 'Approved' : 'Changes requested',
     summary: clean(r.review.summary ?? ''),
-    findings: lines.length === 0 ? 'No findings.' : lines.join('\n'),
+    findings: findingsBlock(r.review.findings),
     // Kept so existing templates stay valid; nothing is commented inline any more.
     inline_count: '0',
     head_sha: r.review.sha.slice(0, 7),

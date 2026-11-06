@@ -236,7 +236,7 @@ describe('post review (one COMMENT review per review attempt)', () => {
 });
 
 describe('review body', () => {
-  it('lists every finding in the one comment; the marker ends it', () => {
+  it('lists every finding in the one comment, blocking first and most severe first; the marker ends it', () => {
     const r = renderReview({
       template: DEFAULT_REVIEW_TEMPLATE,
       round: 2,
@@ -245,9 +245,10 @@ describe('review body', () => {
         sha: A,
         summary: 'Two problems.',
         findings: [
+          { severity: 'info', msg: 'general note' },
           { severity: 'major', file: 'x.ts', line: 4, msg: 'off by one' },
           { severity: 'minor', file: 'y.ts', msg: 'naming' },
-          { severity: 'info', msg: 'general note' },
+          { severity: 'critical', file: 'z.ts', line: 9, msg: 'drops rows' },
         ],
       },
       marker: MARKER,
@@ -258,7 +259,13 @@ describe('review body', () => {
         '',
         'Two problems.',
         '',
+        '#### Blocking',
+        '',
+        '- **critical** `z.ts:9`: drops rows',
         '- **major** `x.ts:4`: off by one',
+        '',
+        '#### Not blocking',
+        '',
         '- **minor** `y.ts`: naming',
         '- **info**: general note',
         '',
@@ -266,6 +273,21 @@ describe('review body', () => {
         '',
       ].join('\n'),
     );
+  });
+
+  it('leaves out a group with no findings', () => {
+    const r = renderReview({
+      template: '{{findings}}',
+      round: 1,
+      review: {
+        verdict: 'approve',
+        sha: A,
+        summary: 'Fine.',
+        findings: [{ severity: 'minor', file: 'y.ts', line: 2, msg: 'naming' }],
+      },
+      marker: MARKER,
+    });
+    expect(r).toBe(`#### Not blocking\n\n- **minor** \`y.ts:2\`: naming\n\n${MARKER}\n`);
   });
 
   it('hides reviewer text carrying a control marker and never expands placeholders inside values', () => {
