@@ -40,9 +40,17 @@ export function reduce(state: TuiState, message: Message): Reduced {
     case 'tick':
       return same({ ...state, tick: state.tick + 1 });
     case 'read_succeeded': {
-      // Metadata shares the round's failure handling with board and health.
+      // Coming back from stale data: the open task is read again before its writes unlock, and a draft
+      // stays in the input for the user to send again; nothing is sent here.
+      const recovering = state.stale && state.detail !== null;
       const online: TuiState = {
         ...state,
+        ...(recovering && state.detail !== null
+          ? {
+              recheck: new Map(state.recheck).set(state.detail.taskId, message.at),
+              detail: { ...state.detail, showWanted: true },
+            }
+          : {}),
         connection: nextConnection(state.connection, { ok: true }),
         stale: false,
         lastError: null,
@@ -56,7 +64,7 @@ export function reduce(state: TuiState, message: Message): Reduced {
       };
       // Asked before the view changed: the connection is fine, the board is not this view's.
       if (message.queryKey !== undefined && message.queryKey !== boardQueryKey(state))
-        return same(online);
+        return { state: online, effects: recovering ? [{ type: 'read_screen' }] : [] };
       return {
         state: keepSelection({
           ...online,
@@ -64,7 +72,7 @@ export function reduce(state: TuiState, message: Message): Reduced {
           // An unchanged board keeps what was already read: that is still the truth.
           board: message.board.unchanged ? state.board : message.board,
         }),
-        effects: [],
+        effects: recovering ? [{ type: 'read_screen' }] : [],
       };
     }
     case 'read_failed':
@@ -74,6 +82,12 @@ export function reduce(state: TuiState, message: Message): Reduced {
         stale: true,
         lastError: message.failure.message ?? state.lastError,
       });
+    case 'draft_changed': {
+      const drafts = new Map(state.drafts);
+      if (message.text === null || message.text === '') drafts.delete(message.taskId);
+      else drafts.set(message.taskId, message.text);
+      return same({ ...state, drafts });
+    }
     case 'detail_read':
       return same(onDetailRead(state, message));
     case 'logs_read':

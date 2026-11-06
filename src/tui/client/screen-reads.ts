@@ -206,9 +206,12 @@ export function planScreenReads(
   const reads: (ScreenRead | null)[] = [];
   switch (currentScreen(s)) {
     case 'detail':
-      if (s.detail !== null)
-        for (const part of detailDue(s.detail, s.board?.watermark ?? null, now))
-          reads.push(detailRead(s, port, clock, part, now));
+      if (s.detail !== null) {
+        const due = [...detailDue(s.detail, s.board?.watermark ?? null, now)];
+        // A task read again after a lost connection must not wait for its version to change.
+        if (s.detail.showWanted && !due.includes('show')) due.push('show');
+        for (const part of due) reads.push(detailRead(s, port, clock, part, now));
+      }
       break;
     case 'logs':
       reads.push(logsRead(s, port, clock, now));

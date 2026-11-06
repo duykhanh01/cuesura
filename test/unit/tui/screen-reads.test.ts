@@ -204,6 +204,12 @@ describe('only the open screen reads (R-03)', () => {
     expect(plan(open({ screens: ['home'], detail: null }))).toEqual([]);
   });
 
+  it('Task detail reads the show again when asked to, even if the version has not moved', () => {
+    const s = open({ screens: ['home', 'detail'] });
+    const wanted = { ...s, detail: { ...s.detail!, showWanted: true } };
+    expect(plan(wanted)).toContain('detail:show');
+  });
+
   it('Help over Task detail reads nothing', () => {
     expect(plan(open({ screens: ['home', 'detail', 'help'] }))).toEqual([]);
   });

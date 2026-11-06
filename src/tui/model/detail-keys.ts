@@ -58,7 +58,14 @@ export function openDetail(state: TuiState, row: HomeRow | undefined): Reduced {
     state: {
       ...state,
       screens: [...state.screens, 'logs'],
-      detail: initialDetail(row.task.task_id, row.task.title, session),
+      // Parts start without errors, so a task that was stale must be read again before it unlocks.
+      ...(state.staleTasks.has(row.task.task_id)
+        ? { recheck: new Map(state.recheck).set(row.task.task_id, 0) }
+        : {}),
+      detail: {
+        ...initialDetail(row.task.task_id, row.task.title, session),
+        showWanted: state.staleTasks.has(row.task.task_id),
+      },
       logs: initialLogs(row.task.task_id, row.task.title, session + 1),
       screenSession: session + 1,
     },

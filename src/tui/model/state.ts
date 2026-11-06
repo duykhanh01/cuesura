@@ -87,6 +87,16 @@ export type TuiState = {
   readonly stale: boolean;
   /** Tasks whose latest detail read failed; new writes on them stay locked (FR-044). */
   readonly staleTasks: ReadonlySet<string>;
+  /**
+   * Tasks that must be read again after the connection came back, by when it did. Their writes stay
+   * locked until a `task_show` asked at or after that time answers (FR-044).
+   */
+  readonly recheck: ReadonlyMap<string, number>;
+  /**
+   * What the user is typing, by task. Memory only (FR-038): nothing here is sent by itself, not even after
+   * the connection comes back.
+   */
+  readonly drafts: ReadonlyMap<string, string>;
   readonly caller: CallerInfo | null;
   /** Projects the config declares, when `project_list` answered. */
   readonly projects: ProjectList['projects'] | null;
@@ -134,6 +144,8 @@ export function initialState(size: Size): TuiState {
     lastUpdatedAt: null,
     stale: false,
     staleTasks: new Set(),
+    recheck: new Map(),
+    drafts: new Map(),
     caller: null,
     projects: null,
     screens: ['home'],
@@ -156,6 +168,17 @@ export function initialState(size: Size): TuiState {
     screenSession: 0,
     tick: 0,
   };
+}
+
+export type WriteLock = 'stale' | 'task_stale';
+
+/**
+ * Why a write on `taskId` may not go out now (FR-044). Before the first successful read nothing is known
+ * yet, which counts as stale. `null` means the data is fresh enough to act on.
+ */
+export function writeLock(s: TuiState, taskId: string): WriteLock | null {
+  if (s.stale || s.lastUpdatedAt === null) return 'stale';
+  return s.staleTasks.has(taskId) || s.recheck.has(taskId) ? 'task_stale' : null;
 }
 
 /** A task's screen is open on a task that is running: its current stage turns. */

@@ -231,6 +231,10 @@ export const RequestShowSchema = z.looseObject({
 });
 export type RequestShow = z.infer<typeof RequestShowSchema>;
 
+/** The `data` of an accepted command; its shape depends on the command, so only the envelope is checked. */
+export const CommandReplySchema = z.unknown();
+export type CommandReply = z.infer<typeof CommandReplySchema>;
+
 const WaitSchema = z.looseObject({
   reason: safe,
   detail: z.looseObject({ code: z.string() }),

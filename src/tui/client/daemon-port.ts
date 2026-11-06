@@ -10,6 +10,7 @@ import { err, ok, type Result } from '../../shared/result.ts';
 import { sanitize, type SafeText } from '../terminal/safe-text.ts';
 import {
   BoardSchema,
+  CommandReplySchema,
   HealthDataSchema,
   ProjectListSchema,
   RequestShowSchema,
@@ -21,6 +22,7 @@ import {
   TaskProgressSchema,
   TaskShowSchema,
   type BoardReply,
+  type CommandReply,
   type Health,
   type ProjectList,
   type RequestShow,
@@ -76,6 +78,11 @@ export type DaemonPort = {
     timeoutMs: number,
   ): Promise<PortResult<TaskLogs>>;
   requestShow(id: string, timeoutMs: number): Promise<PortResult<RequestShow>>;
+  /** The only write path; the body carries its own `request_id`, which a resend must keep. */
+  command(
+    body: Record<string, unknown> & { request_id: string },
+    timeoutMs: number,
+  ): Promise<PortResult<CommandReply>>;
 };
 
 export type PortDeps = {
@@ -221,5 +228,12 @@ export function createDaemonPort(deps: PortDeps = {}): DaemonPort {
       ),
     requestShow: (request_id, timeoutMs) =>
       query(RequestShowSchema, { kind: 'request_show', request_id }, timeoutMs),
+    async command(body, timeoutMs) {
+      const r = await send({ method: 'POST', path: '/v1/command', body, timeoutMs });
+      if (!r.ok) return r;
+      return r.value.ok
+        ? parsed(CommandReplySchema, r.value.data, String(body['kind']))
+        : err(fromEnvelopeError(r.value.error));
+    },
   };
 }

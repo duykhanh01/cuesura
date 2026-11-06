@@ -241,13 +241,16 @@ function partFailed(d: TaskDetail): boolean {
 export function onDetailRead(state: TuiState, m: DetailMessage): TuiState {
   const d = state.detail;
   if (d === null || d.taskId !== m.taskId || d.session !== m.session) return state;
+  // An answer asked before the connection came back says nothing about the task now.
+  const since = state.recheck.get(d.taskId);
+  const fresh = since === undefined || m.askedAt >= since;
   let next: TaskDetail;
   switch (m.part) {
     case 'show':
       next = {
         ...d,
         show: answered(d.show, m.result, m),
-        showWanted: false,
+        showWanted: !fresh,
       };
       break;
     case 'progress':
@@ -264,8 +267,11 @@ export function onDetailRead(state: TuiState, m: DetailMessage): TuiState {
       next = withHistory(d, m.result, m.askedAt, m.version);
       break;
   }
+  const recheck = new Map(state.recheck);
+  if (m.part === 'show' && fresh && m.result.ok) recheck.delete(d.taskId);
   const staleTasks = new Set(state.staleTasks);
   if (partFailed(next)) staleTasks.add(d.taskId);
-  else staleTasks.delete(d.taskId);
-  return { ...state, detail: next, staleTasks };
+  // A task that was stale stays so until its `task_show` is read again, whichever part answers first.
+  else if (!recheck.has(d.taskId)) staleTasks.delete(d.taskId);
+  return { ...state, detail: next, staleTasks, recheck };
 }
