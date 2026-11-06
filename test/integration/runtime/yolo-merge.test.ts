@@ -1070,3 +1070,48 @@ describe('yolo merge', () => {
       });
   });
 });
+
+describe('a PR head a worker pushed from the task worktree (no drift)', () => {
+  const B = 'c'.repeat(40);
+  /** Local Git that knows `line` as ancestry pairs `a>b` (a is an ancestor of b). */
+  const localGit = (line: readonly string[]) => ({
+    git: {
+      run: (cmd: { args: readonly string[] }) => {
+        const [, , a, b] = cmd.args;
+        return Promise.resolve({
+          kind: 'exited' as const,
+          code: line.includes(`${a}>${b}`) ? 0 : 1,
+          stdout: '',
+          stderr: '',
+          truncated: false,
+        });
+      },
+    },
+    worktrees: '/worktrees',
+  });
+
+  it.each([
+    ['without a local check', undefined, true],
+    [
+      'on the line from the pushed head to the worktree HEAD',
+      localGit([`${A}>${B}`, `${B}>HEAD`]),
+      false,
+    ],
+    ['not in the worktree history', localGit([`${A}>${B}`]), true],
+    ['not after the pushed head', localGit([`${B}>HEAD`]), true],
+  ] as const)('%s', async (_name, local, drift) => {
+    const d = setup();
+    const t = buildTask();
+    toGreen(d, t, 'direct-pr', { required_checks: REQUIRED }, OBS_RUNTIME, {
+      content: { digest: CONTENT_DIGEST, ref: '/content/a.json' },
+    });
+    const { port } = github({ pull: { head: { sha: B, ref: 'cusr/t' } } });
+    const read = await observeTaskPr(
+      { ...deps(d, port), ...(local === undefined ? {} : { local }) },
+      t.id,
+      'worker-push',
+      'timer',
+    );
+    expect(read.facts.some((f) => f.kind === 'head_drift')).toBe(drift);
+  });
+});

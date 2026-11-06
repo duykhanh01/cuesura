@@ -190,8 +190,9 @@ ngăn đọc file host. Network do host và harness quyết định; không có 
   Gate đạt mới commit hai parent và publish/chờ CI head mới. CAS/checkout không ghi đè thay đổi
   ngoài dự kiến. FrozenPolicy/base snapshot giữ nguyên; recovery nhận lại cùng intent/OID, không
   reset HEAD theo phỏng đoán, không giả approval của reviewer.
-- Push kiểm remote expected old SHA, chỉ fast-forward; remote khác dự kiến chờ head_changed,
-  không force-push. Local git ref cập nhật cũng compare-and-swap old OID. Remote push đã gửi có
+- Push kiểm remote expected old SHA, chỉ fast-forward; remote đã được worker đẩy tới trên chính lịch
+  sử task thì nhận làm expected old, cả khi push lẫn khi probe lúc recovery (probe báo chưa push để
+  push lại), remote khác dự kiến chờ head_changed, không force-push. Local git ref cập nhật cũng compare-and-swap old OID. Remote push đã gửi có
   thể xong sau merge; drain ghi đúng thực tế, không tạo retry hoặc push local remainder.
 - Remote branch đổi sang B khi reviewer còn kiểm A: result/receipt A không được gỡ head_changed
   hoặc route publish. Kiểm blocker/identity/remote trước dispatch và giữ expected-old trong update

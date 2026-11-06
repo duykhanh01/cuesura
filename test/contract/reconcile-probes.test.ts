@@ -11,6 +11,7 @@ import {
   FileCommitIntentStore,
   type CommitInput,
 } from '../../src/adapters/git/commit.ts';
+import { pushBranch } from '../../src/adapters/git/push.ts';
 import { probeCommit, probePush } from '../../src/adapters/git/reconcile.ts';
 import { bodyDigest, finalBody, type PrSpec } from '../../src/adapters/github/publish.ts';
 import { probeDescription, probePr, probeRerun } from '../../src/adapters/github/reconcile.ts';
@@ -124,7 +125,7 @@ describe('commit probe: the stored intent decides, never a guess', () => {
 });
 
 describe('push probe: remote ref against expected old and new SHA', () => {
-  it('pushed, not pushed, diverged and unreadable, with one ls-remote and no push', async () => {
+  it('pushed, not pushed, diverged and unreadable, read-only and never a push', async () => {
     const r = repo();
     const c1 = r.commit('a.txt');
     const spec = {
@@ -152,8 +153,42 @@ describe('push probe: remote ref against expected old and new SHA', () => {
       remote_sha: remoteNow,
     });
     expect(await probePush(offline, spec)).toMatchObject({ kind: 'unknown' });
-    expect(r.argv.filter((a) => a !== 'ls-remote')).toEqual([]);
+    expect(r.argv.filter((a) => a !== 'ls-remote' && a !== 'merge-base')).toEqual([]);
     expect(g.sh(r.remote, 'rev-parse', BRANCH)).toBe(remoteNow);
+  });
+
+  it('a remote the worker moved along the task line is not pushed: after a restart the push goes on', async () => {
+    const r = repo();
+    const a = r.commit('a.txt');
+    g.sh(r.work, 'push', '-q', r.remote, `${a}:refs/heads/${BRANCH}`);
+    // The worker commits and pushes B; the daemon then has C to push over A, and restarts.
+    const b = r.commit('b.txt');
+    g.sh(r.work, 'push', '-q', r.remote, `${b}:refs/heads/${BRANCH}`);
+    const c = r.commit('c.txt');
+    const spec = { cwd: r.work, remote_url: r.remote, branch: BRANCH, expected_old: a, new_sha: c };
+
+    expect(await probePush(r.git, spec)).toEqual({ kind: 'not_pushed' });
+    expect(r.argv).not.toContain('push');
+    expect(await pushBranch(r.git, spec)).toEqual({ kind: 'pushed', remote_sha: c });
+    expect(g.sh(r.remote, 'rev-parse', BRANCH)).toBe(c);
+    expect(await probePush(r.git, spec)).toEqual({ kind: 'pushed', remote_sha: c });
+  });
+
+  it('a remote holding the task line plus a commit the worktree lacks is still a changed head', async () => {
+    const r = repo();
+    const a = r.commit('a.txt');
+    g.sh(r.work, 'push', '-q', r.remote, `${a}:refs/heads/${BRANCH}`);
+    const c = r.commit('c.txt');
+    const other = g.repo(`other${n++}`);
+    g.sh(other, 'fetch', '-q', r.remote, BRANCH);
+    g.sh(other, 'checkout', '-q', 'FETCH_HEAD');
+    writeFileSync(join(other, 'x.txt'), 'x\n');
+    g.sh(other, 'add', 'x.txt');
+    g.sh(other, 'commit', '-qm', 'x');
+    g.sh(other, 'push', '-q', r.remote, `HEAD:refs/heads/${BRANCH}`);
+    const remoteNow = g.sh(r.remote, 'rev-parse', BRANCH);
+    const spec = { cwd: r.work, remote_url: r.remote, branch: BRANCH, expected_old: a, new_sha: c };
+    expect(await probePush(r.git, spec)).toEqual({ kind: 'head_changed', remote_sha: remoteNow });
   });
 });
 
@@ -236,7 +271,10 @@ describe('PR probe: tuple and marker across every state', () => {
       reason: 'multiple',
       prs: [7, 8],
     });
+    // Without any marker at the pushed head it is a worker's PR: the create, run again, takes it over.
     w.gh.prs.splice(0, 2, pr(9, 'someone else'));
+    expect(await probePr(w.port, spec)).toMatchObject({ kind: 'unclaimed', pr: { number: 9 } });
+    w.gh.prs.splice(0, 1, { ...pr(9, 'someone else'), state: 'closed' as const });
     expect(await probePr(w.port, spec)).toMatchObject({
       kind: 'conflict',
       reason: 'not_ours',

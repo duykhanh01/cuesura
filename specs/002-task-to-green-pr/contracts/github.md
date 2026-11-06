@@ -24,14 +24,16 @@ artifact hiện hành đã validate, ghi digest vào intent, chờ nếu method 
 | Thao tác | Identity / probe trước retry |
 | --- | --- |
 | Commit | Checkpoint tree/parent/metadata/OID dự kiến, compare-and-swap local ref |
-| Push | Immutable repo ID + source branch + expected-old/new SHA; remote bằng new thì nhận lại, khác cả hai thì unknown/head_changed |
+| Push | Immutable repo ID + source branch + expected-old/new SHA; remote bằng new thì nhận lại; remote nằm giữa expected-old và new trên lịch sử local (worker đã tự push commit của task) thì nhận làm expected-old rồi push fast-forward; khác nữa thì unknown/head_changed |
 | Create PR | Repo + head owner/branch + target + marker chứa task/revision/operation key; title/body từ artifact worker đã validate, digest lưu cùng intent; query mọi state, không chỉ PR open |
 | Update PR description | Cùng repo/PR identity, expected previous body và body artifact mới; probe trước retry, thay đổi ngoài dự kiến thì chờ, không ghi đè mù |
 | Rerun CI | Cụ thể workflow run ID/attempt/head; chỉ khi policy và số lượt cho phép, đối chiếu run generation trước retry |
 
 Một logical operation giữ idem key qua timeout/restart. Không coi marker/title tự nó là đủ quyền
 nhận PR; tuple repo/head/base phải khớp. Nhiều PR khớp hoặc remote diverged thì chờ, không tạo PR
-thay thế. HTTP 422/timeout sau create không chứng minh thất bại; query/probe trước lần gửi mới.
+thay thế. Một PR đang mở trên đúng tuple, không có marker nào và head đúng SHA vừa push là PR worker tự
+mở cho task: create tiếp quản bằng cách ghi title/body và marker như khi tự tạo, rồi probe lại; PR
+đóng, head khác hoặc mang marker khác vẫn là conflict. HTTP 422/timeout sau create không chứng minh thất bại; query/probe trước lần gửi mới.
 POST rerun không có idempotency remote: không chứng minh được chưa gửi thì unknown, không lặp bừa.
 
 Title/body worker là dữ liệu không đáng tin: trước khi ghép, từ chối marker trong namespace
@@ -118,7 +120,9 @@ FR-040.12, không thay bằng HEAD hiện tại hoặc suy từ merge commit squ
   no-protection không miễn gate/CI hoặc review ngoài ngoại lệ phạm vi trên.
 
 Review callback không xác nhận remote head hiện tại: khi reviewer A đang chạy mà branch task
-bị push thành B ngoài dự kiến, observation ghi head_changed và chặn business dispatch; approve A
+bị push thành B ngoài dự kiến, observation ghi head_changed và chặn business dispatch (B nằm giữa head
+đã push và HEAD của worktree task là commit worker tự push, không phải drift; nó chưa là bằng chứng CI
+cho tới khi daemon push); approve A
 đến muộn chỉ hoàn tất receipt/lịch sử A, không gỡ blocker hoặc duyệt B. Nếu observation chưa thấy B,
 probe trước publish và guard expected-old trong update phải chặn drift; receipt muộn/restart không
 route lại bước đã chặn. Chỉ base tip đổi không gây nhánh này.

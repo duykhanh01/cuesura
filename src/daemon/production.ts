@@ -256,6 +256,7 @@ export async function productionControl(opts: {
           github: newGitHub,
           clock: opts.clock,
           newId: opts.newId,
+          local: { git: ports.git, worktrees: join(opts.dataDir, 'worktrees') },
         },
         taskId,
         ref,

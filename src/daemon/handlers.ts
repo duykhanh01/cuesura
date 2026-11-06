@@ -1625,9 +1625,13 @@ export type ObservedPr = {
  * closed, or unknown for a read that could not be trusted) bound to the window's generation; a merge
  * with complete evidence adds the merge proof, a head the task did not push adds a drift fact, and an
  * open PR carries the CI data of its head. Shared by `await_ci`, the observation service and recheck.
+ * With `local`, a head a worker pushed from the task worktree (between the pushed head and the
+ * worktree HEAD) is the task's own and no drift; it carries no CI evidence until the daemon pushes.
  */
 export async function observeTaskPr(
-  deps: Pick<HandlerDeps, 'store' | 'github' | 'clock' | 'newId'>,
+  deps: Pick<HandlerDeps, 'store' | 'github' | 'clock' | 'newId'> & {
+    readonly local?: { readonly git: GitPort; readonly worktrees: string };
+  },
   taskId: string,
   evidenceRef: string,
   source: Observation['source'],
@@ -1775,6 +1779,11 @@ export async function observeTaskPr(
   });
   // A PR head that is not the head this task pushed: a drift fact, never the new expected head (H01).
   if (l.s.head_sha !== null && obs.pull.head.sha !== null && obs.pull.head.sha !== l.s.head_sha) {
+    if (
+      deps.local !== undefined &&
+      (await workerPushed(deps.local, l, l.s.head_sha, obs.pull.head.sha))
+    )
+      return { ci: noCi(obs.pull.head.sha), failure: null, facts };
     facts.push({
       kind: 'head_drift',
       expected: l.s.head_sha,
@@ -1854,13 +1863,39 @@ async function describePr(
   }
 }
 
+/** Whether `observed` lies between the head the task pushed and its worktree HEAD. */
+async function workerPushed(
+  local: { readonly git: GitPort; readonly worktrees: string },
+  l: Loaded,
+  pushed: string,
+  observed: string,
+): Promise<boolean> {
+  const cwd = join(local.worktrees, l.s.id);
+  const ancestor = async (a: string, b: string): Promise<boolean> => {
+    const r = await local.git.run({
+      args: ['merge-base', '--is-ancestor', a, b],
+      cwd,
+      timeout_ms: 30_000,
+      max_output_bytes: 1024,
+      stdin: null,
+    });
+    return r.kind === 'exited' && r.code === 0;
+  };
+  return (await ancestor(pushed, observed)) && (await ancestor(observed, 'HEAD'));
+}
+
 /** `await_ci`: the observation facts plus the CI data of the head as the effect's own result. */
 export async function observeTask(
   deps: HandlerDeps,
   taskId: string,
   evidenceRef: string,
 ): Promise<{ outcome: EffectOutcome; extra: Trigger[] }> {
-  const r = await observeTaskPr(deps, taskId, evidenceRef, 'timer');
+  const r = await observeTaskPr(
+    { ...deps, local: { git: deps.git, worktrees: deps.paths.worktrees } },
+    taskId,
+    evidenceRef,
+    'timer',
+  );
   // The effect's own result carries the CI; the observation fact need not repeat it.
   for (const f of r.facts) if (f.kind === 'observation_result') delete f.ci;
   if (r.ci === null)
@@ -2174,7 +2209,7 @@ async function probePublish(deps: HandlerDeps, target: Effect, done: boolean): P
     case 'not_pushed':
       return {
         finding: 'not_executed',
-        detail: 'remote at the expected old head',
+        detail: 'remote at the expected old head or behind it on the task branch',
       };
     case 'head_changed':
       return {
@@ -2235,6 +2270,12 @@ async function probeCreatePr(deps: HandlerDeps, target: Effect): Promise<Probe> 
       return {
         finding: 'not_executed',
         detail: 'no PR on the tuple in any state',
+      };
+    // A worker's PR for this task: the create runs again and takes it over.
+    case 'unclaimed':
+      return {
+        finding: 'not_executed',
+        detail: `PR #${r.pr.number} on the task branch has no marker yet`,
       };
     case 'conflict':
       return {

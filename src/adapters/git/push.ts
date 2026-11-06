@@ -6,7 +6,9 @@
  *
  * The remote URL is passed in from the frozen runtime snapshot, not read from the repo config. Before a
  * push and after any failure the remote ref itself is probed: at the new SHA the push happened, at the
- * expected old SHA it did not, anything else is `head_changed`. A diverged remote is never overwritten.
+ * expected old SHA it did not. A remote a worker moved forward along the task's own history (it pushed
+ * commits this push also carries) is taken as the old value; anything else is `head_changed`. A
+ * diverged remote is never overwritten.
  */
 import type { GitPort, GitResult } from '../ports.ts';
 
@@ -82,11 +84,43 @@ export function classifyRemote(
   return matches(ref, spec.expected_old) ? 'at_old' : 'elsewhere';
 }
 
+/**
+ * Whether `remote` lies between the expected old head and the new one: the worker pushed commits of
+ * this task. False when it is not known locally or not on that line; null when Git could not say.
+ */
+export async function movedAlong(
+  port: GitPort,
+  spec: PushSpec,
+  remote: string,
+): Promise<boolean | null> {
+  const ancestor = async (a: string, b: string): Promise<boolean | null> => {
+    const r = await port.run({
+      args: ['merge-base', '--is-ancestor', a, b],
+      cwd: spec.cwd,
+      timeout_ms: PROBE_TIMEOUT_MS,
+      max_output_bytes: 1024,
+      stdin: null,
+    });
+    if (r.kind !== 'exited') return null;
+    // 1: not an ancestor; 128: an object this worktree does not have.
+    return r.code === 0;
+  };
+  const under = await ancestor(remote, spec.new_sha);
+  if (under !== true || spec.expected_old === null) return under;
+  return ancestor(spec.expected_old, remote);
+}
+
 export async function pushBranch(port: GitPort, spec: PushSpec): Promise<PushOutcome> {
   const before = await probeRemote(port, spec.cwd, spec.remote_url, spec.branch);
   if (before.kind === 'unknown') return { kind: 'unknown', detail: `probe: ${before.detail}` };
   const seen = classifyRemote(before, spec);
   if (seen === 'at_new') return { kind: 'already_pushed', remote_sha: spec.new_sha };
+  if (seen === 'elsewhere' && before.kind === 'at') {
+    const ahead = await movedAlong(port, spec, before.sha);
+    if (ahead === null)
+      return { kind: 'unknown', detail: 'ancestry of the remote head unreadable' };
+    if (ahead) return pushBranch(port, { ...spec, expected_old: before.sha });
+  }
   if (seen === 'elsewhere')
     return {
       kind: 'head_changed',

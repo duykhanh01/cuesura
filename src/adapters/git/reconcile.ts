@@ -8,7 +8,7 @@
  */
 import type { GitPort } from '../ports.ts';
 import type { CommitIntent, CommitIntentStore } from './commit.ts';
-import { classifyRemote, probeRemote, type PushSpec } from './push.ts';
+import { classifyRemote, movedAlong, probeRemote, type PushSpec } from './push.ts';
 
 const PROBE_TIMEOUT_MS = 30_000;
 
@@ -70,12 +70,18 @@ export async function probeCommit(
 export type PushProbe =
   /** The remote branch is at the new SHA: the push landed (or someone pushed that very commit). */
   | { readonly kind: 'pushed'; readonly remote_sha: string }
-  /** The remote still holds the expected old value: the push did not apply. */
+  /**
+   * The push did not apply and may be retried: the remote holds the expected old value, or a worker
+   * moved it along the task's own history, which the retry fast-forwards over.
+   */
   | { readonly kind: 'not_pushed' }
   | { readonly kind: 'head_changed'; readonly remote_sha: string | null }
   | { readonly kind: 'unknown'; readonly detail: string };
 
-/** Where the push identified by repo, branch, expected old and new SHA stands; one `ls-remote`. */
+/**
+ * Where the push identified by repo, branch, expected old and new SHA stands: one `ls-remote`, plus an
+ * ancestry check when the remote is elsewhere, the same one the push makes.
+ */
 export async function probePush(port: GitPort, spec: PushSpec): Promise<PushProbe> {
   const ref = await probeRemote(port, spec.cwd, spec.remote_url, spec.branch);
   if (ref.kind === 'unknown') return { kind: 'unknown', detail: ref.detail };
@@ -84,11 +90,18 @@ export async function probePush(port: GitPort, spec: PushSpec): Promise<PushProb
       return { kind: 'pushed', remote_sha: spec.new_sha };
     case 'at_old':
       return { kind: 'not_pushed' };
-    case 'elsewhere':
+    case 'elsewhere': {
+      if (ref.kind === 'at') {
+        const along = await movedAlong(port, spec, ref.sha);
+        if (along === null)
+          return { kind: 'unknown', detail: 'ancestry of the remote head unreadable' };
+        if (along) return { kind: 'not_pushed' };
+      }
       return {
         kind: 'head_changed',
         remote_sha: ref.kind === 'at' ? ref.sha : null,
       };
+    }
   }
 }
 

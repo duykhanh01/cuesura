@@ -113,6 +113,45 @@ describe('push (T041): fast-forward with expected-old CAS, never force', () => {
     });
   });
 
+  it('a remote a worker moved along the task line is taken as the old head and fast-forwarded', async () => {
+    const { work, remote, commit, git } = setup();
+    const c1 = commit('w1.txt');
+    await pushBranch(git, {
+      cwd: work,
+      remote_url: remote,
+      branch: BRANCH,
+      expected_old: null,
+      new_sha: c1,
+    });
+    // The worker committed and pushed itself; the daemon then committed the rest on top.
+    const byWorker = commit('w2.txt');
+    g.sh(work, 'push', '-q', remote, `${byWorker}:refs/heads/${BRANCH}`);
+    const daemon = commit('w3.txt');
+    expect(
+      await pushBranch(git, {
+        cwd: work,
+        remote_url: remote,
+        branch: BRANCH,
+        expected_old: c1,
+        new_sha: daemon,
+      }),
+    ).toEqual({ kind: 'pushed', remote_sha: daemon });
+    // Same when the worker pushed the branch before the daemon ever did.
+    const fresh = setup();
+    const w = fresh.commit('x1.txt');
+    g.sh(fresh.work, 'push', '-q', fresh.remote, `${w}:refs/heads/${BRANCH}`);
+    const d = fresh.commit('x2.txt');
+    expect(
+      await pushBranch(fresh.git, {
+        cwd: fresh.work,
+        remote_url: fresh.remote,
+        branch: BRANCH,
+        expected_old: null,
+        new_sha: d,
+      }),
+    ).toEqual({ kind: 'pushed', remote_sha: d });
+  });
+
   it('refuses a head that does not descend from the expected old one', async () => {
     const { work, remote, commit, git } = setup();
     const c1 = commit('c1.txt');
@@ -295,13 +334,40 @@ describe('create or recover the PR (T041)', () => {
     });
   });
 
-  it('never claims or replaces a PR it cannot prove is its own', async () => {
-    const foreign = gh({ [LIST]: [list(pr({ body: 'by hand' }))] });
-    expect(await createOrRecoverPr(foreign.port, SPEC)).toEqual({
-      kind: 'conflict',
-      reason: 'not_ours',
-      prs: [7],
+  it('takes over the PR a worker opened for the task: open, no marker, head at the pushed SHA', async () => {
+    const worker = gh({
+      [LIST]: [list(pr({ title: 'wip', body: 'by the worker' })), list(pr())],
+      'PATCH repos/acme/app/pulls/7': [{ status: 200, body: pr() }],
     });
+    expect(await createOrRecoverPr(worker.port, SPEC)).toMatchObject({
+      kind: 'created',
+      pr: { number: 7 },
+      body_digest: bodyDigest(finalBody(SPEC)),
+    });
+    expect(worker.posts()).toEqual([]);
+    const patch = worker.exec.calls.find((c) => c.method === 'PATCH');
+    expect(JSON.parse(patch?.stdin ?? '{}')).toEqual({ title: SPEC.title, body: finalBody(SPEC) });
+  });
+
+  it('never claims or replaces a PR it cannot prove is its own', async () => {
+    // A PR without the marker whose head is not the pushed one, or that is closed, is not taken over.
+    for (const over of [
+      { body: 'by hand', head: { ref: BRANCH, sha: 'b'.repeat(40), repo: { id: 4242 } } },
+      { body: 'by hand', state: 'closed' },
+    ]) {
+      const foreign = gh({ [LIST]: [list(pr(over))] });
+      expect(await createOrRecoverPr(foreign.port, SPEC)).toEqual({
+        kind: 'conflict',
+        reason: 'not_ours',
+        prs: [7],
+      });
+      expect(foreign.exec.calls.filter((c) => c.method !== 'GET')).toEqual([]);
+    }
+    // Another task's marker is never taken over either.
+    const foreign = gh({
+      [LIST]: [list(pr({ body: 'Summary\n\n<!-- cusr:task=x revision=1 op=y -->\n' }))],
+    });
+    expect(await createOrRecoverPr(foreign.port, SPEC)).toMatchObject({ kind: 'conflict' });
     const two = gh({ [LIST]: [list(pr(), pr({ number: 8, id: 800 }))] });
     expect(await createOrRecoverPr(two.port, SPEC)).toMatchObject({
       kind: 'conflict',

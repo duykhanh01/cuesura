@@ -3,9 +3,11 @@
  * A PR belongs to the task only when repo identity, head branch, head repo, base and the marker
  * (task, revision, operation key) all agree; a title or marker alone never claims a PR. Every state is
  * queried before a create, and again after any create whose answer was not a clean 201: a 422 or a
- * lost answer does not prove that nothing was created. Several matches, someone else's PR on the
- * branch, or a head that is not the pushed SHA are reported for the engine to wait on; no replacement
- * PR is opened.
+ * lost answer does not prove that nothing was created. Several matches, a closed or edited PR on
+ * the branch, or a head that is not the pushed SHA are reported for the engine to wait on; no
+ * replacement PR is opened. An open PR without any marker on the task's own branch whose head is the
+ * pushed SHA is one a worker opened for this task: the create takes it over by writing the title, body
+ * and marker, as it would have sent them.
  *
  * Title and body are the worker's content (M05), untrusted: any `<!-- cusr:` marker in them refuses the
  * create. Only this module appends the one canonical marker block at the end of the body, and a probe
@@ -143,6 +145,8 @@ export type FoundPr =
       readonly pr: PrFact;
       readonly body_digest: string;
     }
+  /** Open, no marker at all, head at the pushed SHA: a worker opened it; the create takes it over. */
+  | { readonly kind: 'unclaimed'; readonly pr: PrFact }
   | Extract<PrOutcome, { kind: 'closed' | 'head_changed' | 'conflict' | 'unknown' }>;
 
 /** Reads every PR on the task's head/base tuple (all states) and judges ownership; sends nothing. */
@@ -166,7 +170,10 @@ export async function findTaskPr(port: GitHubPort, s: PrSpec): Promise<FoundPr |
   if (f === null) return { kind: 'unknown', detail: 'probe: unexpected PR shape' };
   const body = typeof obj(p)['body'] === 'string' ? (obj(p)['body'] as string) : '';
   const verdict = markerVerdict(body, s);
-  if (verdict === 'none') return { kind: 'conflict', reason: 'not_ours', prs: [f.number] };
+  if (verdict === 'none')
+    return f.state === 'open' && !f.merged && f.head_sha === s.head_sha
+      ? { kind: 'unclaimed', pr: f }
+      : { kind: 'conflict', reason: 'not_ours', prs: [f.number] };
   if (verdict === 'forged') return { kind: 'conflict', reason: 'marker_forged', prs: [f.number] };
   if (verdict === 'changed') return { kind: 'conflict', reason: 'body_changed', prs: [f.number] };
   if (f.state === 'closed') return { kind: 'closed', pr: f };
@@ -178,6 +185,7 @@ export async function createOrRecoverPr(port: GitHubPort, s: PrSpec): Promise<Pr
   if (markerCount(s.title) > 0) return { kind: 'content_rejected', field: 'title' };
   if (markerCount(s.body) > 0) return { kind: 'content_rejected', field: 'body' };
   const existing = await findTaskPr(port, s);
+  if (existing?.kind === 'unclaimed') return takeOver(port, s, existing.pr);
   if (existing !== null) return existing;
 
   const body = finalBody(s);
@@ -203,6 +211,7 @@ export async function createOrRecoverPr(port: GitHubPort, s: PrSpec): Promise<Pr
   }
   // Anything but a clean, matching 201 is checked against GitHub before deciding.
   const after = await findTaskPr(port, s);
+  if (after?.kind === 'unclaimed') return takeOver(port, s, after.pr);
   if (after !== null)
     return after.kind === 'recovered' && r.ok ? { ...after, kind: 'created' } : after;
   if (!r.ok && r.error.reason === 'http_error' && r.error.status !== null && r.error.status < 500)
@@ -210,6 +219,24 @@ export async function createOrRecoverPr(port: GitHubPort, s: PrSpec): Promise<Pr
   return {
     kind: 'unknown',
     detail: r.ok ? 'created PR does not match the request' : r.error.detail,
+  };
+}
+
+/** Writes this operation's title, body and marker onto a PR a worker opened; GitHub then decides. */
+async function takeOver(port: GitHubPort, s: PrSpec, pr: PrFact): Promise<PrOutcome> {
+  const body = finalBody(s);
+  const r = await port.request({
+    method: 'PATCH',
+    path: `repos/${s.repo}/pulls/${pr.number}`,
+    query: {},
+    body: { title: s.title, body },
+  });
+  const after = await findTaskPr(port, s);
+  if (after?.kind === 'recovered') return { ...after, kind: 'created' };
+  if (after !== null && after.kind !== 'unclaimed') return after;
+  return {
+    kind: 'unknown',
+    detail: r.ok ? 'taken-over PR does not carry the marker' : r.error.detail,
   };
 }
 
