@@ -72,13 +72,19 @@ describe('SC-010: control characters in what daemon data carries', () => {
     const s = tui.cusr(sd.dataDir, { cols: 140, rows: 60 });
     await s.waitForText(samples.at(-1)!.marker);
     for (const { name, marker } of samples) {
-      const row = s
-        .screenText()
-        .split('\n')
-        .find((line) => line.includes(marker));
-      // Every Home row keeps its status and end marker, including after returning from detail.
-      expect(row, name).toContain('END');
-      expect(row, name).toContain('◇');
+      const row = (): string | undefined =>
+        s
+          .screenText()
+          .split('\n')
+          .find((line) => line.includes(marker));
+      // Every Home row keeps its status and end marker, including after returning from detail. The frame
+      // may still be arriving: the newest task is drawn first, so seeing it says nothing of the rows below.
+      await s.waitFor(
+        () => row()?.includes('END') === true,
+        10_000,
+        () => `the end of the ${name} row`,
+      );
+      expect(row(), name).toContain('◇');
       expect(s.screenText().split('\n')[0], name).toContain('daemon:');
       await openTask(s, marker);
       await s.waitForText('What you can do');

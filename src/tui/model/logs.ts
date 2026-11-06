@@ -764,6 +764,9 @@ function stepStart(buffer: readonly LogEntry[], index: number): number {
  */
 export function jumpStep(s: LogState, cols: number, height: number, direction: 1 | -1): LogState {
   if (s.buffer.length === 0) return s;
+  // Following is already the end. Measured from the screen's top, the running step's start would look
+  // like a next step, and each press would swap between it and following.
+  if (direction > 0 && s.mode === 'live') return s;
   const { index, row } = topOf(s, cols, height);
   let target: number;
   if (direction > 0) {

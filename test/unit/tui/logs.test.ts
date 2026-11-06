@@ -314,6 +314,11 @@ describe('moving between steps', () => {
     expect(go(atRecord(5), 1).mode).toBe('paused');
   });
 
+  it('stays following past the last step, even with the step before still on screen', () => {
+    const live = read();
+    expect(jumpStep(live, WIDE.cols, 6, 1)).toBe(live);
+  });
+
   it('reads back what left the buffer before the first step', () => {
     const back = go({ ...atRecord(2), windowStart: 300 }, -1);
     expect(topSeq(back)).toBe(1);
