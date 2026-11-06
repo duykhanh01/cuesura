@@ -481,6 +481,108 @@ describe('a final answer is accepted only when every layer holds (T075)', () => 
     });
   });
 
+  describe('a session re-entered after the answer (issue #158)', () => {
+    const answer = (summary: string) => ({
+      schema_version: 1,
+      status: 'done',
+      summary,
+      questions: [],
+      blocker: null,
+    });
+    const after = (read: VendorRead) => {
+      const head = read.stdout.slice(0, -1);
+      const result = read.stdout.at(-1) as Record<string, unknown>;
+      const lifecycle = { type: 'command_lifecycle', state: 'started' };
+      const init = { type: 'system', subtype: 'init' };
+      const turn = (input: number, cost: number, rest: Record<string, unknown> = {}) => ({
+        ...result,
+        structured_output: undefined,
+        result: 'Nothing left to do.',
+        stop_reason: 'end_turn',
+        usage: { input_tokens: input, output_tokens: 0 },
+        total_cost_usd: cost,
+        ...rest,
+      });
+      return { head, init, lifecycle, turn };
+    };
+
+    it('keeps the last structured_output and counts every turn of the stream', () => {
+      const read = claudeRead();
+      const { head, init, lifecycle, turn } = after(read);
+      const stream = [
+        ...head,
+        turn(100, 1, { structured_output: answer('first') }),
+        init,
+        turn(0, 1),
+        init,
+        turn(20, 2, { structured_output: answer('second') }),
+        lifecycle,
+        init,
+        turn(3, 3),
+        lifecycle,
+      ];
+      const v = replay('claude', 'coder', { ...read, stdout: stream });
+      expect(v.outcome).toMatchObject({
+        kind: 'result',
+        value: { summary: 'second' },
+        usage: { basis: 'reported', tokens: 123, cost: 3 },
+      });
+    });
+
+    it('a later answer that fails validation is what gets rejected', () => {
+      const read = claudeRead();
+      const { head, init, lifecycle, turn } = after(read);
+      const stream = [
+        ...head,
+        turn(1, 1, { structured_output: answer('good') }),
+        init,
+        turn(1, 2, { structured_output: { ...answer('bad'), blocker: 'stuck' } }),
+        lifecycle,
+      ];
+      const v = replay('claude', 'coder', { ...read, stdout: stream });
+      expect(v.outcome.kind).toBe('invalid_output');
+    });
+
+    it('says which result was rejected when none of them carries an answer', () => {
+      const read = claudeRead();
+      const { head, lifecycle, turn } = after(read);
+      const v = replay('claude', 'coder', {
+        ...read,
+        stdout: [...head, turn(1, 1), lifecycle],
+      });
+      expect(v.outcome).toMatchObject({
+        kind: 'failure',
+        failure: 'missing_output',
+        detail:
+          'no structured_output in 1 result record(s); last: subtype success, stop_reason end_turn',
+      });
+    });
+
+    it('does not trust an answer when a later record was lost', () => {
+      const read = claudeRead();
+      const { head, lifecycle, turn } = after(read);
+      const v = replay('claude', 'coder', {
+        ...read,
+        stdout: [...head, turn(1, 1, { structured_output: answer('a') }), lifecycle],
+        truncated_records: 1,
+      });
+      expect(v.outcome.kind).toBe('invalid_output');
+    });
+
+    it('a turn without usage makes the total unavailable, not partial', () => {
+      const facts = ADAPTERS.claude.read({
+        stdout: [
+          { type: 'result', usage: { input_tokens: 5, output_tokens: 2 } },
+          { type: 'result' },
+        ],
+        stderr: '',
+        truncated_records: 0,
+      });
+      expect(facts.usage).toEqual({ basis: 'unavailable' });
+      expect(facts.usage_source).toBeNull();
+    });
+  });
+
   it('a stale or reused output file and a non-JSON file are invalid', () => {
     for (const file of [
       {

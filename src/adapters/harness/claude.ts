@@ -8,7 +8,9 @@
  *
  * Facts are read from stream-json records: `system/permission_denied` events and the result record's
  * `permission_denials`, `rate_limit_event`, refusal stop reasons, `result.usage`/`total_cost_usd`, the
- * session id and the reported model. The final answer is the last record's `structured_output`.
+ * session id and the reported model. One invocation can emit several result records: a background
+ * task or a `ScheduleWakeup` turn re-enters the session after the worker has answered, and such a
+ * turn may answer again or say nothing. The final answer is the last `structured_output` of the stream.
  */
 import { hashCanonical } from '../../shared/hash.ts';
 import type { EpochMs } from '../../shared/brand.ts';
@@ -242,21 +244,42 @@ function readUsage(p: Rec): { usage: Usage; source: string | null } {
   };
 }
 
-function finalOf(last: unknown): StreamFinal {
-  if (!isRec(last) || last['type'] !== 'result')
-    return { kind: 'missing', reason: 'last record is not a complete result' };
-  let v: unknown = last;
+/** Each result counts the tokens since the previous one, but the session's cost so far. */
+function addUsage(total: Usage | null, next: Usage): Usage {
+  if (total === null) return next;
+  if (total.basis === 'unavailable' || next.basis === 'unavailable')
+    return { basis: 'unavailable' };
+  return { ...next, tokens: (total.tokens ?? 0) + (next.tokens ?? 0) };
+}
+
+function structuredOutput(record: Rec): unknown {
+  let v: unknown = record;
   for (const k of CLAUDE_RESULT_POINTER) v = isRec(v) ? v[k] : undefined;
-  if (v === undefined || v === null)
-    return { kind: 'missing', reason: 'result has no structured_output' };
-  return { kind: 'found', raw: JSON.stringify(v), value: v };
+  return v ?? undefined;
+}
+
+function finalOf(records: readonly Rec[], truncated: number): StreamFinal {
+  const results = records.filter((r) => r['type'] === 'result');
+  const last = results.at(-1);
+  if (last === undefined) return { kind: 'missing', reason: 'stream has no result record' };
+  const answer = results.findLast((r) => structuredOutput(r) !== undefined);
+  if (answer === undefined)
+    return {
+      kind: 'missing',
+      reason: `no structured_output in ${results.length} result record(s); last: subtype ${String(last['subtype'])}, stop_reason ${String(last['stop_reason'])}`,
+    };
+  // A lost record after the answer may have been a newer answer.
+  if (truncated > 0 && records.at(-1) !== answer)
+    return { kind: 'missing', reason: 'a record after the last structured_output is unreadable' };
+  const value = structuredOutput(answer);
+  return { kind: 'found', raw: JSON.stringify(value), value };
 }
 
 function read(input: VendorRead): VendorFacts {
   const denials: PermissionDenial[] = [];
   const seen = new Set<string>();
   let failure: VendorFacts['failure'] = null;
-  let usage: Usage = { basis: 'unavailable' };
+  let usage: Usage | null = null;
   let usageSource: string | null = null;
   let session: string | null = null;
   let model: string | null = null;
@@ -309,8 +332,8 @@ function read(input: VendorRead): VendorFacts {
       };
     } else if (p['type'] === 'result') {
       const u = readUsage(p);
-      usage = u.usage;
-      usageSource = u.source;
+      usage = addUsage(usage, u.usage);
+      usageSource = usage.basis === 'unavailable' ? null : u.source;
       if (Array.isArray(p['permission_denials'])) {
         for (const d of p['permission_denials']) {
           const id = isRec(d) ? str(d['tool_use_id']) : null;
@@ -344,7 +367,7 @@ function read(input: VendorRead): VendorFacts {
     }
   }
   return {
-    usage,
+    usage: usage ?? { basis: 'unavailable' },
     usage_source: usageSource,
     permission_denials: denials,
     failure,
@@ -352,7 +375,7 @@ function read(input: VendorRead): VendorFacts {
     reported_model: model,
     final:
       failure === null
-        ? finalOf(input.stdout.at(-1))
+        ? finalOf(records, input.truncated_records)
         : { kind: 'missing', reason: `vendor failure ${failure.kind}` },
     warnings: [],
     truncated_records: input.truncated_records,
