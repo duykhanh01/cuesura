@@ -26,6 +26,9 @@ import {
 // T031: Home on a real PTY against a real daemon, compared with what the CLI says about the same tasks.
 const tui = useTui();
 
+const selectedTitle = (s: PtySession): string =>
+  /Task \d{3}/.exec(selectedLine(s.screenText()))?.[0] ?? '';
+
 type ListItem = { task_id: string; title: string; status: string };
 type Explained = {
   status: string;
@@ -418,6 +421,26 @@ describe('EC-013: the selection follows the task', () => {
     await s.waitForText('Newcomer');
     expect(lineOf('Task 002')).toBeGreaterThan(before);
     expect(selectedLine(s.screenText())).toContain('Task 002');
+    await quit(s);
+  });
+});
+
+describe('the selected task under the list', () => {
+  it('shows the whole ID, which is what `cusr` takes, and follows the selection', async () => {
+    const sd = tui.daemon();
+    sd.seed((d) => seedRunning(d, 2));
+    await sd.start();
+    const items = (await cliJson(sd, 'task', 'list', '--full')).envelope.data?.[
+      'items'
+    ] as ListItem[];
+    const idOf = (title: string) => items.find((t) => t.title === title)?.task_id ?? '';
+    const s = tui.cusr(sd.dataDir, { cols: 80, rows: 24 });
+    await s.waitForText('Task 002');
+    await s.waitForText(`ID      ${idOf(selectedTitle(s))}`);
+    const first = selectedTitle(s);
+    s.send('j');
+    await s.waitFor(() => selectedTitle(s) !== first);
+    await s.waitForText(`ID      ${idOf(selectedTitle(s))}`);
     await quit(s);
   });
 });

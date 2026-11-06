@@ -309,14 +309,16 @@ function selectionStages(s: TuiState, row: TaskRow): Seg[] | null {
 }
 
 /**
- * Under the list, the selected task in full: its whole title, which a narrow column cuts, and its stages.
- * Empty on the Finished toggle and on a screen too short to spare the rows.
+ * Under the list, the selected task in full: its whole title, which a narrow column cuts, its stages, and
+ * its whole ID, since `cusr` takes no shortened form. Empty on the Finished toggle and on a
+ * screen too short to spare the rows.
  */
 function selectionFooter(s: TuiState, row: HomeRow | undefined, space: number): Seg[][] {
-  if (row === undefined || row.kind === 'finished_toggle' || space <= 7) return [];
+  if (row === undefined || row.kind === 'finished_toggle' || space <= 8) return [];
   const stages = selectionStages(s, row);
   const title = [ui(' Task   ', DIM), ui(' '), seg(row.task.title, BOLD)];
-  return [[ui('─'.repeat(s.size.cols), DIM)], title, ...(stages === null ? [] : [stages])];
+  const id = [ui(' ID     ', DIM), ui(' '), seg(sanitize(row.task.task_id), DIM)];
+  return [[ui('─'.repeat(s.size.cols), DIM)], title, id, ...(stages === null ? [] : [stages])];
 }
 
 function drawList(
