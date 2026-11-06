@@ -55,8 +55,8 @@ chưa có danh sách kiểm tra từng bước. Danh sách task rỗng dẫn t�
   project luôn nhìn thấy (FR-008).
 - Q: Dữ liệu cũ có được dùng để thao tác? → A: Không gửi được thao tác ghi mới khi dữ liệu đang bị đánh dấu cũ; giữ nội
   dung đang nhập, đọc lại trước khi cho gửi và không tự gửi. Đối chiếu request chưa rõ kết quả vẫn chạy (FR-044).
-- Q: Log có tự chuyển sang bước mới? → A: Chỉ khi đang theo dõi trực tiếp, kèm dòng phân cách; đang cuộn, tạm dừng hoặc
-  đọc attempt cũ thì giữ vị trí và báo có hoạt động mới (FR-014).
+- Q: Log có tự chuyển sang bước mới? → A: Chỉ khi đang theo dõi trực tiếp, và mỗi bước có log riêng, mở đầu bằng dòng nêu
+  bước và attempt; đang cuộn, tạm dừng hoặc đọc attempt cũ thì giữ vị trí và báo có hoạt động mới (FR-014).
 - Q: Xác nhận có phải cho xem cả nội dung task? → A: Có; phải xem được đầy đủ nội dung của đúng revision, phần dài cuộn
   hoặc mở rộng. Không đọc được thì không cho xác nhận (FR-026).
 - Q: Hết lượt tự kết nối lại thì làm gì? → A: Giữ phiên, màn hình mất kết nối và bản nháp, chờ người dùng chọn `Retry
@@ -393,7 +393,7 @@ tiếp theo; làm theo duy nhất các chỉ dẫn đó cho tới khi tạo đư
   usage. Usage MUST phân biệt `reported`, `estimated`, `unavailable`.
 - **FR-014**: Log MUST xem được trực tiếp và theo vị trí, cuộn và tạm dừng được, đọc được theo attempt đã qua, tự nối
   lại phiên theo dõi và hiện khoảng trống dữ liệu; theo dõi log MUST NOT chiếm slot. Khi theo dõi trực tiếp, log MUST
-  chạy tiếp sang bước mới kèm dòng phân cách nêu bước và attempt. Khi đang cuộn, tạm dừng hoặc đọc attempt cũ, vị trí
+  chuyển sang log riêng của bước mới, mở đầu bằng dòng nêu bước và attempt; bước trước xem lại bằng `←`. Khi đang cuộn, tạm dừng hoặc đọc attempt cũ, vị trí
   MUST giữ nguyên và giao diện báo có hoạt động mới; phần log mới MUST được đọc lại theo cursor, không dồn vào bộ đệm
   ngoài trần của FR-039.
 - **FR-015**: Chi tiết MUST hiện lịch sử event theo thứ tự đã commit và bằng chứng PR: liên kết, head, base,

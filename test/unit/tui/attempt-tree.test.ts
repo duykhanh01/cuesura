@@ -11,7 +11,13 @@ import {
 import { initialDetail } from '../../../src/tui/model/detail.ts';
 import { onLogsCommand } from '../../../src/tui/model/detail-keys.ts';
 import type { Command } from '../../../src/tui/model/keymap.ts';
-import { applyLogPage, initialLogs, logRows } from '../../../src/tui/model/logs.ts';
+import {
+  applyLogPage,
+  initialLogs,
+  logRows,
+  type LogEntry,
+  type LogState,
+} from '../../../src/tui/model/logs.ts';
 import { initialState, type TuiState } from '../../../src/tui/model/state.ts';
 import { sanitize, uiText } from '../../../src/tui/terminal/safe-text.ts';
 import { Frame } from '../../../src/tui/terminal/screen.ts';
@@ -93,7 +99,7 @@ describe('the chooser opens folded, at its top, with the latest round unfolded',
     });
   });
 
-  it('opens on the whole log when there are no attempts', () => {
+  it('opens on the latest step when there are no attempts', () => {
     expect(pickerStart([], null)).toEqual({ cursor: 'live', open: [] });
   });
 });
@@ -137,7 +143,7 @@ describe('keys of the chooser', () => {
     expect(read.logs?.attemptFilter).toBe('attempt-0');
   });
 
-  it('Enter on the first row follows the whole log', () => {
+  it('Enter on the first row follows the latest step', () => {
     const read = run(state(), 'attempts', 'top', 'open');
     expect(read.logs?.picker).toBeNull();
     expect(read.logs?.attemptFilter).toBeNull();
@@ -169,25 +175,75 @@ describe('going back between the log, the chooser and an attempt', () => {
     expect(back.logs?.picker).toBe(attemptKey('attempt-1'));
   });
 
-  it('Esc from the chooser, after reading an attempt, returns to the whole log', () => {
+  it('Esc from the chooser, after reading an attempt, returns to the latest step', () => {
     const back = run(state(), 'attempts', 'end', 'open', 'back', 'back');
     expect(back.logs?.picker).toBeNull();
     expect(back.logs?.attemptFilter).toBeNull();
     expect(back.screens.at(-1)).toBe('logs');
   });
 
-  it('→ and ← go through the attempts, and after the last one to the whole log', () => {
+  it('← and → go through the attempts; forward to the last one is following it', () => {
     const first = run(state(), 'attempts', 'end', 'up', 'open');
     expect(first.logs?.attemptFilter).toBe('attempt-1');
-    expect(run(first, 'next_step').logs?.attemptFilter).toBe('attempt-2');
     expect(run(first, 'previous_step').logs?.attemptFilter).toBe('attempt-0');
+    expect(run(first, 'previous_step', 'next_step').logs?.attemptFilter).toBe('attempt-1');
 
-    const last = run(first, 'next_step', 'next_step');
+    const last = run(first, 'next_step');
     expect(last.logs?.attemptFilter).toBeNull();
     expect(last.logs?.mode).toBe('live');
   });
 
-  it('Esc from the whole log leaves the task', () => {
+  it('← from the latest step reads the attempt before it, also when the list lags the log', () => {
+    const latest = (attempt: string): TuiState => {
+      const s = state();
+      return {
+        ...s,
+        logs: {
+          ...(s.logs as LogState),
+          buffer: [{ attemptId: attempt, gap: false } as LogEntry],
+        },
+      };
+    };
+    expect(run(latest('attempt-2'), 'previous_step').logs?.attemptFilter).toBe('attempt-1');
+    expect(run(latest('attempt-9'), 'previous_step').logs?.attemptFilter).toBe('attempt-2');
+    expect(run(latest('attempt-0'), 'previous_step').logs?.attemptFilter).toBeNull();
+  });
+
+  it('→ goes through each attempt the list names before following one it does not name yet', () => {
+    const s = state();
+    const lagging: TuiState = {
+      ...s,
+      logs: {
+        ...(s.logs as LogState),
+        buffer: [{ attemptId: 'attempt-9', gap: false } as LogEntry],
+      },
+    };
+    const back = run(lagging, 'previous_step', 'previous_step');
+    expect(back.logs?.attemptFilter).toBe('attempt-1');
+    const forward = run(back, 'next_step');
+    expect(forward.logs?.attemptFilter).toBe('attempt-2');
+    expect(run(forward, 'next_step').logs?.attemptFilter).toBeNull();
+    expect(run(forward, 'next_step').logs?.mode).toBe('live');
+  });
+
+  it('→ to the last attempt follows once the list has caught up with the log', () => {
+    const s = state();
+    const latest: TuiState = {
+      ...s,
+      logs: {
+        ...(s.logs as LogState),
+        buffer: [{ attemptId: 'attempt-2', gap: false } as LogEntry],
+      },
+    };
+    expect(run(latest, 'previous_step', 'next_step').logs?.attemptFilter).toBeNull();
+  });
+
+  it('→ while following stays on the latest step', () => {
+    const s = state();
+    expect(run(s, 'next_step').logs).toBe(s.logs);
+  });
+
+  it('Esc from the latest step leaves the task', () => {
     expect(run(state(), 'back').logs).toBeNull();
   });
 });
@@ -250,13 +306,13 @@ describe('the chooser on screen', () => {
   const steps = ['code', 'review', 'fix_review', 'review', 'fix_review'];
   const at = (screen: readonly string[], text: string) => screen.findIndex((l) => l.includes(text));
 
-  it('sets the whole log apart from the rounds by one empty row', () => {
+  it('sets the latest step apart from the rounds by one empty row', () => {
     const screen = drawn(20, steps);
-    expect(at(screen, 'Build')).toBe(at(screen, 'Whole log') + 2);
+    expect(at(screen, 'Build')).toBe(at(screen, 'Latest step') + 2);
   });
 
   it('keeps every row in reach when the list only just fits', () => {
-    // Header, whole log, the empty row, Build, two rounds, the two attempts of the open one, the foot.
+    // Header, latest step, the empty row, Build, two rounds, the two attempts of the open one, the foot.
     expect(at(drawn(3 + 7 + 1, steps), 'Fix review')).toBeGreaterThan(0);
   });
 
@@ -272,7 +328,7 @@ describe('the chooser on screen', () => {
     const logs = { ...initialLogs('t1', title, 2), complete: true, filling: false };
     const frame = new Frame(120, 10);
     logsBody({ ...initialState({ cols: 120, rows: 40 }), logs })(frame, 0, 10);
-    expect(frame.rowBytes(1)).toContain('Finished · whole log');
+    expect(frame.rowBytes(1)).toContain('Finished · latest step');
     expect(frame.rowBytes(2)).toBe('');
   });
 });

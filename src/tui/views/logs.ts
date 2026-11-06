@@ -1,5 +1,5 @@
 /**
- * Logs: the task's log, live or by attempt (FR-014, EC-011). What the reader is looking at stays while new
+ * Logs: the task's log one step at a time, the latest live or an earlier attempt (FR-014, EC-011). What the reader is looking at stays while new
  * records come: this only says that they came. Only the rows on screen are worked out, however long the buffer.
  */
 import { activity, duration, todo } from '../model/activity.ts';
@@ -99,7 +99,7 @@ function modeLine(s: LogState, t: TuiState): SafeText {
   const parts: SafeText[] = [];
   if (s.attemptFilter === null)
     parts.push(
-      uiText(`${s.complete ? 'Finished' : s.mode === 'live' ? 'Live' : 'Paused'} · whole log`),
+      uiText(`${s.complete ? 'Finished' : s.mode === 'live' ? 'Live' : 'Paused'} · latest step`),
     );
   else {
     const a = t.detail?.show.data?.provenance.usage.find((u) => u.attempt_id === s.attemptFilter);
@@ -111,14 +111,7 @@ function modeLine(s: LogState, t: TuiState): SafeText {
   const last = s.buffer.at(-1);
   if (first !== undefined && last !== undefined && (s.windowStart > 0 || s.moreForward))
     parts.push(uiText(`lines ${first.seq}–${last.seq}`));
-  if (s.windowStart > 0)
-    parts.push(
-      uiText(
-        s.attemptFilter === null
-          ? `${s.windowStart} earlier: ↑ at the top reads them`
-          : 'earlier lines: ↑ at the top reads them',
-      ),
-    );
+  if (s.windowStart > 0) parts.push(uiText('earlier lines: ↑ at the top reads them'));
   if (s.expanded) parts.push(uiText('full output'));
   const quiet = quietFor(s, t);
   if (quiet !== null && quiet >= QUIET_MS && quiet < STUCK_MS)
@@ -329,7 +322,7 @@ function pickerRow(
       return {
         left: [
           ui('  '),
-          ui('Whole log'),
+          ui('Latest step'),
           ui(ctx.reading === null ? '  ◂ reading' : '', { fg: 'cyan' }),
         ],
         right: [],
@@ -438,7 +431,7 @@ function pickerList(
   const cursor = cursorIndex(rows, logs.picker);
   const area = room;
   if (area <= 0) return;
-  // A row of its own under the whole log, which is not one of the rounds. `null` is that row.
+  // A row of its own under the latest step, which is not one of the rounds. `null` is that row.
   const lines = rows.flatMap((r, i): (TreeRow | null)[] =>
     i === 0 && rows.length > 1 ? [r, null] : [r],
   );

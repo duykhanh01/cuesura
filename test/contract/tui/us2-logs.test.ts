@@ -149,7 +149,7 @@ describe('US2 scenario 4: following a log', () => {
     const s = tui.cusr(sd.dataDir, { cols: 100, rows: 24 });
     await openLogs(s);
     await s.waitForText('coder line 3');
-    expect(s.screenText()).toContain('Live · whole log');
+    expect(s.screenText()).toContain('Live · latest step');
 
     const agent = (await sd.query('owner', { kind: 'task_show', task_id: t.id })).envelope.data as {
       status: string;
@@ -160,17 +160,17 @@ describe('US2 scenario 4: following a log', () => {
     await s.waitForText('coder line 5', 3_000);
 
     s.send(' ');
-    await s.waitForText('Paused · whole log');
+    await s.waitForText('Paused · latest step');
     feed.write(live(sd), t.id, '', effect, 'agent', ['coder line 6']);
     await s.waitForText('New activity', 4_000);
     expect(s.screenText()).not.toContain('coder line 6');
     s.send(KEY.up);
     await new Promise((r) => setTimeout(r, 200));
-    expect(s.screenText()).toContain('Paused · whole log');
+    expect(s.screenText()).toContain('Paused · latest step');
 
     s.send('F');
     await s.waitForText('coder line 6', 3_000);
-    expect(s.screenText()).toContain('Live · whole log');
+    expect(s.screenText()).toContain('Live · latest step');
     expect(s.screenText()).not.toContain('New activity');
     await quit(s);
   });
@@ -188,7 +188,7 @@ describe('US2 scenario 4: following a log', () => {
     await openLogs(s);
     await s.waitForText('line 60');
     s.send(KEY.pageUp);
-    await s.waitForText('Paused · whole log');
+    await s.waitForText('Paused · latest step');
     await s.waitFor(() => !s.screenText().includes('line 60'));
     const held = logColumn(s.screenText());
     feed.write(live(sd), t.id, '', SETUP, 'setup', ['line 61']);
@@ -197,7 +197,7 @@ describe('US2 scenario 4: following a log', () => {
 
     // Back at the end, nothing is left to hold: it follows again and what came meanwhile shows.
     s.send(KEY.pageDown);
-    await s.waitForText('Live · whole log');
+    await s.waitForText('Live · latest step');
     await s.waitForText('line 61', 3_000);
     await quit(s);
   });
@@ -241,7 +241,7 @@ describe('US2 scenario 4: following a log', () => {
     const screen = s.screenText();
     const shown = screen.split('\n').filter((l) => /coder line \d$/.test(l));
     expect(shown.map((l) => l.slice(-1))).toEqual(['1', '2', '3', '4', '5', '6']);
-    expect(screen).toContain('Live · whole log');
+    expect(screen).toContain('Live · latest step');
     await quit(s);
   }, 60_000);
 });
@@ -274,26 +274,22 @@ describe('US2 scenarios 9 and 10: when the workflow moves to a new step', () => 
     });
   }
 
-  it('live: runs on into the new step with a separator naming step and attempt', async () => {
+  it('live: the new step has a log of its own, opening with its step and attempt', async () => {
     const sd = tui.daemon();
     const t = task();
     const feed = new LogFeed(sd);
     seedCoding(sd, t, feed);
     toFixerAttempt(sd, t, feed);
     const attempts = sd.seed((d) => Object.values(d.task(t.id).attempts));
-    const coder = attempts.find((a) => a.step === 'code');
     const second = attempts.find((a) => a.step !== 'code');
     await sd.start();
     const s = tui.cusr(sd.dataDir, { cols: 120, rows: 40 });
     await openLogs(s);
     await s.waitForText('fixer line 2');
     const screen = s.screenText();
-    expect(screen).toContain(`── code · Writing code · attempt ${coder?.id.slice(-8)}`);
     expect(screen).toContain(`── ${second?.step} · `);
     expect(screen).toContain(`attempt ${second?.id.slice(-8)} ──`);
-    expect(screen.indexOf('coder line 3')).toBeLessThan(
-      screen.indexOf(`attempt ${second?.id.slice(-8)}`),
-    );
+    expect(screen).not.toContain('coder line 3');
     await quit(s);
   });
 
@@ -327,7 +323,7 @@ describe('US2 scenarios 9 and 10: when the workflow moves to a new step', () => 
 
     s.send('F');
     await s.waitForText('coder line 4', 3_000);
-    expect(s.screenText()).toContain('Live · whole log');
+    expect(s.screenText()).toContain('Live · latest step');
     await quit(s);
   });
 });
@@ -351,7 +347,7 @@ describe('review findings, on a real PTY', () => {
     s.send(KEY.enter);
     await s.waitFor(() => !s.screenText().includes('setup line 1'));
     s.send('F');
-    await s.waitForText('Live · whole log');
+    await s.waitForText('Live · latest step');
     await s.waitForText('setup line 1', 3_000);
     await s.waitForText('coder line 3', 3_000);
     expect(s.screenText()).not.toContain('No log records here yet');
@@ -373,7 +369,7 @@ describe('review findings, on a real PTY', () => {
     await openLogs(s);
     await s.waitForText('xxxx');
     s.send(KEY.up);
-    await s.waitForText('Paused · whole log');
+    await s.waitForText('Paused · latest step');
     s.resize(200, 24);
     await s.waitFor(() => s.screenText().split('\n')[0]?.length === 200);
     await s.waitForText('xxxx');
@@ -414,7 +410,7 @@ describe('EC-011 and FR-039: a log in full flow', () => {
     for (let i = 0; i < 8; i++) {
       const from = Date.now();
       s.send(i % 2 === 0 ? ' ' : 'F');
-      const want = i % 2 === 0 ? 'Paused · whole log' : 'Live · whole log';
+      const want = i % 2 === 0 ? 'Paused · latest step' : 'Live · latest step';
       await s.waitForText(want, 2_000);
       answers.push(Date.now() - from);
       await new Promise((r) => setTimeout(r, 150));
@@ -424,7 +420,7 @@ describe('EC-011 and FR-039: a log in full flow', () => {
 
     // What precedes the last page reads from its place on the way up.
     s.send('g');
-    await s.waitForText('Paused · whole log');
+    await s.waitForText('Paused · latest step');
     const first = Number(m?.[1]);
     await s.waitForText(`flood ${first}`);
     const before = window();

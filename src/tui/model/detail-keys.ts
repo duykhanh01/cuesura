@@ -19,7 +19,7 @@ import {
   logColumns,
   logRows,
   logsEnd,
-  jumpStep,
+  latestAttempt,
   logsTop,
   pauseLogs,
   scrollLogs,
@@ -163,7 +163,7 @@ function onPickerCommand(state: TuiState, logs: LogState, command: Command): Red
   const page = Math.max(1, contentHeight(state) - LOG_HEADER_ROWS - 1);
   switch (command) {
     case 'back':
-      // The chooser sits between the whole log and one attempt: going back from it goes to the whole log.
+      // The chooser sits between the latest step and one attempt: going back from it goes to the latest step.
       return logs.attemptFilter === null
         ? put({ picker: null })
         : { state: { ...state, logs: followLogs(logs) }, effects: READ };
@@ -198,16 +198,24 @@ function onPickerCommand(state: TuiState, logs: LogState, command: Command): Red
 }
 
 /** Opens the chooser on the attempt being read, or on its first row. */
-/** The attempt beside the one being read. After the last one comes the whole log, followed live. */
+/** The attempt beside the one being read. Forward to the last one is following: that is the latest step. */
 function neighbourAttempt(state: TuiState, logs: LogState, direction: 1 | -1): Reduced {
   const ids = pickerGroups(state)
     .flatMap(groupAttempts)
     .map((a) => a.id);
-  const at = ids.indexOf(logs.attemptFilter ?? '');
-  const next = at < 0 ? undefined : ids[at + direction];
-  if (next === undefined && direction < 0) return { state, effects: [] };
+  const at = ids.indexOf(logs.attemptFilter ?? latestAttempt(logs) ?? '');
+  // The list can lag the log: the attempt being followed is then newer than all it names.
+  const behind = at < 0 && logs.attemptFilter === null;
+  const next = behind ? ids.at(-1) : at < 0 ? undefined : ids[at + direction];
+  // The last of a list that lags is not the latest step: it has its own place before that one.
+  const caughtUp = logs.latestSeen === null || ids.includes(logs.latestSeen);
+  const follows = direction > 0 && (next === undefined || (caughtUp && next === ids.at(-1)));
+  if (next === undefined && !follows) return { state, effects: [] };
   return {
-    state: { ...state, logs: next === undefined ? followLogs(logs) : filterAttempt(logs, next) },
+    state: {
+      ...state,
+      logs: next === undefined || follows ? followLogs(logs) : filterAttempt(logs, next),
+    },
     effects: READ,
   };
 }
@@ -248,7 +256,8 @@ export function onLogsCommand(state: TuiState, command: Command): Reduced | null
     case 'previous_step':
     case 'next_step': {
       const direction = command === 'next_step' ? 1 : -1;
-      if (logs.attemptFilter === null) return put(jumpStep(logs, cols, height, direction));
+      // Already on the latest step, there is no step after it, only its end.
+      if (logs.attemptFilter === null && direction > 0) return put(logsEnd(logs, cols, height));
       return neighbourAttempt(state, logs, direction);
     }
     case 'back':

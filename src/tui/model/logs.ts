@@ -1,7 +1,7 @@
 /**
- * The Logs screen's state (data-model.md "Trạng thái log", FR-014, FR-039, EC-011). It holds a window over the
- * task's log, never more than the cap: what leaves it is read again by position, because the daemon's cursor
- * does not change through rotation or restart. The place being read is kept by record, not by row, so
+ * The Logs screen's state (data-model.md "Trạng thái log", FR-014, FR-039, EC-011). It holds one step at a
+ * time, the latest or the attempt asked for, never more than the cap: what leaves it is read again by
+ * position, because the daemon's cursor does not change through rotation or restart. The place being read is kept by record, not by row, so
  * neither a resize nor new records can move it.
  */
 import { LOG_POLL_INTERVAL_MS } from '../client/refresh.ts';
@@ -86,13 +86,15 @@ export type LogState = {
   /** Paused by scrolling up rather than on asking: coming back to the end follows again, as a chat does. */
   readonly scrolledAway: boolean;
   readonly attemptFilter: string | null;
+  /** The attempt the log had reached when reading one began; the attempt list can lag behind it. */
+  readonly latestSeen: string | null;
   readonly buffer: readonly LogEntry[];
   readonly bufferBytes: number;
-  /** The cursor just before the buffer's first record; above 0 means earlier records can be read again. */
+  /** The cursor just before the buffer's first record; above 0 means more of this step can be read again. */
   readonly windowStart: number;
   /** Where the next forward read starts. */
   readonly nextCursor: number;
-  /** While an attempt is being read: where following the whole log goes on from. */
+  /** While an attempt is being read: where following the latest step goes on from. */
   readonly resumeCursor: number | null;
   readonly newActivity: boolean;
   /** The first row on screen while paused; `null` is the top of the buffer, `end` its last screen. */
@@ -139,6 +141,7 @@ export function initialLogs(taskId: string, title: SafeText, session: number): L
     mode: 'live',
     scrolledAway: false,
     attemptFilter: null,
+    latestSeen: null,
     buffer: [],
     bufferBytes: 0,
     windowStart: 0,
@@ -257,6 +260,33 @@ function appendEntries(s: LogState, entries: readonly LogEntry[]): LogState {
   };
 }
 
+/** A record that opens a step. A gap does not: a late one can name an earlier worker. */
+const ofAttempt = (e: LogEntry): boolean => !e.gap && e.attemptId !== null;
+
+/** Records outside any attempt have no step to go back to, so they stay with the step that follows them. */
+const sameStep = (e: LogEntry, step: LogEntry): boolean =>
+  e.attemptId === null || (e.attemptId === step.attemptId && (e.gap || e.step === step.step));
+
+/** The attempt of the step the log has reached. */
+export const latestAttempt = (s: LogState): string | null =>
+  s.buffer.findLast(ofAttempt)?.attemptId ?? null;
+
+/**
+ * Only the step the log has reached stays, so each step reads on its own. Its start is then known, and nothing
+ * before it is to be read again: `windowStart` goes to 0.
+ */
+function keepLatestStep(s: LogState): LogState {
+  if (s.attemptFilter !== null) return s;
+  const last = s.buffer.findLastIndex(ofAttempt);
+  if (last <= 0) return s;
+  let first = last;
+  while (first > 0 && sameStep(s.buffer[first - 1] as LogEntry, s.buffer[last] as LogEntry))
+    first -= 1;
+  if (first === 0) return s;
+  const kept = s.buffer.slice(first);
+  return { ...s, buffer: kept, bufferBytes: sumBytes(kept), windowStart: 0 };
+}
+
 /** Would adding these overflow the buffer? An attempt being read then waits for the reader to get there. */
 const wouldOverflow = (s: LogState, entries: readonly LogEntry[]): boolean =>
   s.buffer.length + entries.length > LOG_BUFFER_RECORDS ||
@@ -326,7 +356,7 @@ function applyForward(
     return { ...s, newActivity: s.newActivity || entries.length > 0 };
   if (s.filling && wouldOverflow(s, entries)) return { ...s, filling: false, moreForward: true };
   const next = appendEntries(s, entries);
-  return {
+  const read: LogState = {
     ...next,
     nextCursor: page.next_cursor,
     complete: page.complete,
@@ -335,21 +365,23 @@ function applyForward(
     wantForward: false,
     moreForward: s.wantForward ? sent > 0 : s.moreForward,
   };
+  // Paused, the place being read stays even when the next step comes into the buffer.
+  return s.mode === 'live' ? keepLatestStep(read) : read;
 }
 
 /** The last page: the buffer starts again from it, and what precedes it is one `↑` away. */
 function applyTail(s: LogState, entries: readonly LogEntry[], page: TaskLogs): LogState {
   const start = page.after ?? 0;
   const more = page.more ?? false;
-  return {
+  return keepLatestStep({
     ...appendEntries({ ...s, buffer: [], bufferBytes: 0, windowStart: start }, entries),
     nextCursor: page.next_cursor,
     complete: page.complete,
     tailing: false,
     behind: more,
-    // One attempt is read to its end whether or not it is followed; the whole log catches up while live.
+    // One attempt is read to its end whether or not it is followed; the latest step catches up while live.
     filling: s.attemptFilter !== null && more,
-  };
+  });
 }
 
 function applyOlder(
@@ -377,7 +409,7 @@ function applyOlder(
     older: null,
   };
   // Nothing of this attempt in that stretch: keep going back, or the reader sees no change at all.
-  return { ...done, wantOlder: collected.length === 0 && reading.after > 0 };
+  return keepLatestStep({ ...done, wantOlder: collected.length === 0 && reading.after > 0 });
 }
 
 function newestOutput(known: number | null, page: TaskLogs): number | null {
@@ -748,48 +780,6 @@ export const togglePane = (s: LogState): LogState => ({
   anchor: recordTop(s),
 });
 
-const sameStep = (a: LogEntry, b: LogEntry): boolean =>
-  a.step === b.step && a.attemptId === b.attemptId;
-
-/** Where the step of the record at `index` starts, as far as the buffer holds it. */
-function stepStart(buffer: readonly LogEntry[], index: number): number {
-  let i = index;
-  while (i > 0 && sameStep(buffer[i - 1] as LogEntry, buffer[i] as LogEntry)) i -= 1;
-  return i;
-}
-
-/**
- * The start of the next or the previous step of the whole log. Past the last one is the end, which follows
- * again if only scrolling left it; before the first one, what left the buffer is read back.
- */
-export function jumpStep(s: LogState, cols: number, height: number, direction: 1 | -1): LogState {
-  if (s.buffer.length === 0) return s;
-  // Following is already the end. Measured from the screen's top, the running step's start would look
-  // like a next step, and each press would swap between it and following.
-  if (direction > 0 && s.mode === 'live') return s;
-  const { index, row } = topOf(s, cols, height);
-  let target: number;
-  if (direction > 0) {
-    const from = s.buffer[index] as LogEntry;
-    target = s.buffer.findIndex((e, i) => i > index && !sameStep(e, from));
-    if (target < 0) return logsEnd(s, cols, height);
-  } else {
-    const start = stepStart(s.buffer, index);
-    const inside = start < index || row > 0;
-    if (!inside && start === 0 && s.windowStart === 0) return s;
-    target = inside ? start : stepStart(s.buffer, Math.max(0, start - 1));
-  }
-  const at = anchored(s, { index: target, row: 0 });
-  const stillBefore = direction < 0 && target === 0 && s.windowStart > 0;
-  return {
-    ...s,
-    mode: 'paused',
-    scrolledAway: s.mode === 'live' || s.scrolledAway,
-    anchor: at,
-    wantOlder: s.wantOlder || stillBefore,
-  };
-}
-
 export function pauseLogs(s: LogState, cols: number, height: number): LogState {
   if (s.mode === 'paused') return s;
   return {
@@ -799,7 +789,7 @@ export function pauseLogs(s: LogState, cols: number, height: number): LogState {
   };
 }
 
-/** Back to following the whole log, from where it was left. */
+/** Back to following the latest step, from where it was left. */
 export function followLogs(s: LogState): LogState {
   const base: LogState = {
     ...s,
@@ -818,7 +808,7 @@ export function followLogs(s: LogState): LogState {
     picker: null,
   };
   if (s.resumeCursor === null) return base;
-  // Back from one attempt: the whole log is read from its last page again, as on opening.
+  // Back from one attempt: the log is read from its last page again, as on opening.
   return {
     ...base,
     attemptFilter: null,
@@ -840,6 +830,7 @@ export function filterAttempt(s: LogState, attemptId: string): LogState {
     mode: 'paused',
     scrolledAway: false,
     attemptFilter: attemptId,
+    latestSeen: s.attemptFilter === null ? latestAttempt(s) : s.latestSeen,
     buffer: [],
     bufferBytes: 0,
     windowStart: 0,

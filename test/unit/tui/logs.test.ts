@@ -10,7 +10,7 @@ import {
   LOG_BUFFER_RECORDS,
   LOG_PAGE_RECORDS,
   logDue,
-  jumpStep,
+  latestAttempt,
   logsEnd,
   logsTop,
   pauseLogs,
@@ -269,61 +269,84 @@ describe('live, paused and an attempt (data-model.md)', () => {
   });
 });
 
-describe('moving between steps', () => {
-  const rec = (seq: number, step: string): Rec => record(seq, `line ${seq}`, ATTEMPT, step);
-  const steps = ['code', 'code', 'gates', 'gates', 'review', 'review'];
-  const WIDE = { cols: COLS, height: 3 };
-  const go = (s: LogState, direction: 1 | -1): LogState =>
-    jumpStep(s, WIDE.cols, WIDE.height, direction);
-  const read = (over: Partial<LogState> = {}): LogState => ({
-    ...applyLogPage(
+describe('one step at a time', () => {
+  const NEXT = '00000000-0000-7000-8000-000000000a02';
+  const coding = (): LogState =>
+    applyLogPage(start(), forward(0), page([record(1), record(2)], 2), 0);
+  const seqs = (s: LogState): number[] => s.buffer.map((e) => e.seq);
+
+  it('following, the next step replaces the one before and opens with its name', () => {
+    const s = applyLogPage(coding(), forward(2), page([record(3, 'c', NEXT, 'fix')], 3), 0);
+    expect(seqs(s)).toEqual([3]);
+    expect(s.windowStart).toBe(0);
+    expect(s.bufferBytes).toBe(s.buffer[0]?.bytes);
+    expect(visibleRows(s, COLS, HEIGHT)[0]?.text).toBe(`── fix · attempt 00000a02 ──`);
+    expect(latestAttempt(s)).toBe(NEXT);
+  });
+
+  it('a last page that spans two steps opens on the latest, with nothing to read above it', () => {
+    const s = applyLogPage(
+      initialLogs(TASK, uiText('Task'), 1),
+      { kind: 'tail', after: 0 },
+      { ...page([record(1), record(2, 'b', NEXT, 'fix')], 2), after: 0 },
+      0,
+    );
+    expect(seqs(s)).toEqual([2]);
+    expect(scrollLogs(s, COLS, HEIGHT, -1).wantOlder).toBe(false);
+  });
+
+  it('reading back stops where the step starts', () => {
+    const s = {
+      ...applyLogPage(start(), forward(0), page([record(11, 'k', NEXT, 'fix')], 11), 0),
+      windowStart: 10,
+    };
+    const older = { kind: 'older', after: 0 } as const;
+    const back = applyLogPage(s, older, page([record(9), record(10, 'j', NEXT, 'fix')], 10), 0);
+    expect(seqs(back)).toEqual([10, 11]);
+    expect(back.windowStart).toBe(0);
+    expect(back.wantOlder).toBe(false);
+  });
+
+  it('scrolled away, the place holds; back at the end it goes on to the next step', () => {
+    const tall = fed(start(), 1, 10);
+    const away = scrollLogs(tall, COLS, HEIGHT, -2);
+    expect(away.mode).toBe('paused');
+    const told = applyLogPage(away, forward(10), page([record(11, 'k', NEXT, 'fix')], 11), 0);
+    expect(told.newActivity).toBe(true);
+    expect(seqs(told)).toEqual(seqs(away));
+
+    const back = scrollLogs(told, COLS, HEIGHT, 50);
+    expect(back.mode).toBe('live');
+    const next = applyLogPage(back, forward(10), page([record(11, 'k', NEXT, 'fix')], 11), 0);
+    expect(seqs(next)).toEqual([11]);
+  });
+
+  it('a gap of an earlier worker does not take the screen back to that step', () => {
+    const gap = {
+      seq: 4,
+      cursor: 3,
+      operation_id: 'op',
+      attempt_id: ATTEMPT,
+      gap: { records: 0, reason: sanitize('waits') },
+    } as unknown as Rec;
+    const s = applyLogPage(
       start(),
       forward(0),
-      page(
-        steps.map((st, i) => rec(i + 1, st)),
-        6,
-      ),
+      page([record(2), record(3, 'c', NEXT, 'fix'), gap], 3),
       0,
-    ),
-    ...over,
-  });
-  const topSeq = (s: LogState): number | undefined =>
-    s.anchor !== null && s.anchor !== 'end' ? s.anchor.seq : undefined;
-  const atRecord = (seq: number): LogState => read({ mode: 'paused', anchor: { seq, row: 0 } });
-
-  it('goes forward to the start of the next step', () => {
-    expect(topSeq(go(atRecord(1), 1))).toBe(3);
-    expect(topSeq(go(atRecord(3), 1))).toBe(5);
+    );
+    expect(seqs(s)).toEqual([3, 4]);
+    expect(latestAttempt(s)).toBe(NEXT);
   });
 
-  it('goes back to the start of this step, then of the one before', () => {
-    expect(topSeq(go(atRecord(4), -1))).toBe(3);
-    expect(topSeq(go(atRecord(3), -1))).toBe(1);
-  });
-
-  it('holds the place it reaches, so what arrives does not move it', () => {
-    const live = read();
-    const back = go(live, -1);
-    expect(back.mode).toBe('paused');
-    expect(back.scrolledAway).toBe(true);
-  });
-
-  it('follows again past the last step, unless a pause was asked for', () => {
-    const away = { ...atRecord(5), scrolledAway: true };
-    expect(go(away, 1).mode).toBe('live');
-    expect(go(atRecord(5), 1).mode).toBe('paused');
-  });
-
-  it('stays following past the last step, even with the step before still on screen', () => {
-    const live = read();
-    expect(jumpStep(live, WIDE.cols, 6, 1)).toBe(live);
-  });
-
-  it('reads back what left the buffer before the first step', () => {
-    const back = go({ ...atRecord(2), windowStart: 300 }, -1);
-    expect(topSeq(back)).toBe(1);
-    expect(back.wantOlder).toBe(true);
-    expect(go(atRecord(1), -1).wantOlder).toBe(false);
+  it('records outside any attempt stay with the step that follows them', () => {
+    const s = applyLogPage(
+      start(),
+      forward(0),
+      page([record(1), record(2, 'b', null, null), record(3, 'c', NEXT, 'fix')], 3),
+      0,
+    );
+    expect(seqs(s)).toEqual([2, 3]);
   });
 });
 
@@ -433,8 +456,9 @@ describe('scrolling keeps the place', () => {
 describe('what is on screen', () => {
   it('puts a separator where step or attempt changes, naming both', () => {
     const other = '00000000-0000-7000-8000-000000000a02';
+    // Only one attempt's read keeps more than one step, and the daemon sends it one; the rows do not ask.
     const s = applyLogPage(
-      start(),
+      { ...start(), attemptFilter: ATTEMPT },
       forward(0),
       page(
         [record(1, 'a'), record(2, 'b'), record(3, 'c', other, 'fix'), record(4, 'd', null, null)],

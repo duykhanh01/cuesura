@@ -9,7 +9,7 @@ tiết có thể đổi khi triển khai miễn giữ các quy tắc dưới đ�
 | --- | --- | --- |
 | Home | Thanh trạng thái (daemon, slot, hàng đợi, cập nhật cuối, bộ lọc project), nhóm `Needs you`, danh sách task | Mở `cusr` |
 | Task detail | Hoạt động, tiến trình bước, lối ra, PR, kết quả kiểm tra. `i` mở phần kỹ thuật: mã lý do chờ, blocker, commit, attempt, rung, giới hạn đầy đủ, lịch sử event | `d` trong Logs |
-| Logs | Log trực tiếp hoặc theo attempt | `l` trong Task detail |
+| Logs | Log của bước mới nhất, trực tiếp, hoặc của một attempt đã qua | `l` trong Task detail |
 | Actions | Menu thao tác của task | `a` trên một task |
 | New task | Form tạo task; profile là tùy chọn, mặc định `Project default`; dependency chọn từ danh sách task, không nhập ID | `n` ở Home |
 | Run config | Hiện profile của task; chọn chế độ, worker, reviewer, dự phòng; nhập lý do, tối đa 2.000 ký tự | `Propose run` trong Actions |
@@ -53,8 +53,10 @@ Lời gọi tool, kết quả và ghi chú phiên mặc định gọn một dòn
 báo và output thường luôn đầy đủ; dòng lỗi có dấu `✗` ở lề trái. Task đang chạy mà im từ 1 phút ghi `last output … ago`,
 từ 5 phút báo `No output for …: it may be stuck`.
 
-`←` và `→` tới đầu bước trước hoặc sau của log; đang đọc một attempt thì sang attempt liền kề, sau attempt cuối là toàn bộ log.
-Giao diện không tự chuyển bước khi người dùng đang đọc.
+Logs hiện từng bước một: mặc định là bước mới nhất, nhãn `latest step`. Toàn bộ log của task đọc bằng `cusr task logs`.
+`←` và `→` sang attempt liền kề; `→` tới attempt cuối là quay về bước mới nhất. Đang theo dõi ở cuối log thì sang bước mới
+ngay khi bước đó có bản ghi. Giao diện không tự chuyển bước khi người dùng đang đọc: cuộn lên thì giữ chỗ và báo có hoạt
+động mới, cuộn về cuối mới sang bước mới.
 
 Cuộn lên làm log tạm dừng; cuộn về cuối hoặc `G` thì tự theo dõi tiếp. Tạm dừng bằng `Space` hay đang đọc một attempt thì giữ
 nguyên cho tới khi bấm `F`.
@@ -64,10 +66,10 @@ rộng, vì bôi đen của terminal đi xuyên các cột. Con lăn đi qua ch�
 terminal hỗ trợ sẽ gửi phím mũi tên.
 Danh sách chọn attempt gom theo giai đoạn: Build, mỗi lượt review mở một `Round N` cùng các lượt fix
 nó yêu cầu, rồi CI và merge, theo thứ tự attempt bắt đầu; một step chạy liền nhiều lần gộp thành một dòng
-`×N`. Dòng vòng thu gọn chỉ nêu điểm khác một lượt review và một lượt fix thông thường; `Whole log` cách
+`×N`. Dòng vòng thu gọn chỉ nêu điểm khác một lượt review và một lượt fix thông thường; `Latest step` cách
 các vòng một dòng trống. Lần đầu mở, con trỏ ở dòng đầu và chỉ vòng mới nhất mở ra; đang đọc một attempt thì danh sách mở trên
 attempt đó. `←`/`→` (`h`/`l`) thu gọn hoặc mở một vòng; `Enter` đọc attempt, trên dòng vòng thì thu gọn hoặc
-mở. `Esc` đi ngược: từ một attempt về danh sách, từ danh sách về toàn bộ log, từ toàn bộ log về Home.
+mở. `Esc` đi ngược: từ một attempt về danh sách, từ danh sách về bước mới nhất, từ bước mới nhất về Home.
 
 Trong ô nhập, mọi phím in được đều là văn bản (FR-034): `Tab` sang trường kế, `Shift-Tab` về trường trước, `Ctrl-S` gửi, `Esc` rời
 không gửi. `Enter` xuống dòng ở ô nhiều dòng và sang trường kế ở ô một dòng. Bracketed paste đưa nguyên khối vào ô như văn bản; xuống

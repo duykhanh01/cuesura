@@ -215,7 +215,7 @@ const KEYS: Readonly<Record<Context, readonly Binding[]>> = {
     {
       keys: '←→',
       hint: 'step',
-      help: 'Previous or next step; reading one attempt, the attempt before or after it',
+      help: 'The step before or after this one; past the last, following live',
       press: [
         [n('left'), 'previous_step'],
         [n('right'), 'next_step'],
