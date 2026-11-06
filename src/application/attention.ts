@@ -4,6 +4,9 @@
  * no fact: what needs a person is rebuilt from the tasks. Delivery is at least once: what was sent counts as
  * received only when the holder comes back with the lease of that reply.
  */
+import { randomUUID } from 'node:crypto';
+import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { z } from 'zod';
 import { TASK_STATUSES, isTerminal, type TaskState } from '../domain/state.ts';
 import { needsUser } from '../explain/needs-user.ts';
@@ -17,6 +20,22 @@ import type { AppError } from './queries.ts';
 /** With no poll for this long the holder has gone, and a new session needs no `take`. */
 export const ATTENTION_STALE_MS = 10_000;
 
+/**
+ * Names the session a Stop hook may wake (cusr assistant register). Unlike the lease it survives a restart,
+ * because that hook only starts on the session's next Stop and nothing else would claim the lease back.
+ */
+export const ASSISTANT_SESSION_FILE = 'assistant-session.json';
+
+export function registeredSession(dataDir: string): string | null {
+  try {
+    const raw: unknown = JSON.parse(readFileSync(join(dataDir, ASSISTANT_SESSION_FILE), 'utf8'));
+    const session = (raw as { session?: unknown } | null)?.session;
+    return typeof session === 'string' ? session : null;
+  } catch {
+    return null;
+  }
+}
+
 const LIVE = TASK_STATUSES.filter((s) => !isTerminal(s));
 
 const AttentionQuerySchema = z
@@ -24,9 +43,22 @@ const AttentionQuerySchema = z
     kind: z.literal('attention').optional(),
     /** `<id>`, or `<id>.<batch>` as a reply printed it: coming back with it confirms that batch arrived. */
     lease: z.string().regex(/^[^.]+(\.\d+)?$/),
-    mode: z.enum(['attach', 'resume', 'take']),
+    /** `hook` is a Stop hook parked for its session: it never claims the lease. */
+    mode: z.enum(['attach', 'resume', 'take', 'hook']),
   })
   .strict();
+
+const SESSION_ID = z.string().regex(/^[^.]+$/);
+
+const RegisterSchema = z
+  .object({
+    kind: z.literal('assistant_register').optional(),
+    session: SESSION_ID,
+    take: z.boolean().optional(),
+  })
+  .strict();
+
+const UnregisterSchema = z.object({ kind: z.literal('assistant_unregister').optional() }).strict();
 
 type Mode = z.infer<typeof AttentionQuerySchema>['mode'];
 
@@ -55,6 +87,8 @@ type Holder = {
   delivered: ReadonlySet<string>;
   /** Log position already looked at; null while something is still to send or to be confirmed. */
   seq: number | null;
+  /** Rebuilt from disk, so `batch` is not yet known: the client's first lease tells where it stood. */
+  restored: boolean;
 };
 
 type Keyed = { readonly key: string; readonly item: AttentionItem };
@@ -76,29 +110,114 @@ function keyed(s: TaskState, enteredAt: number): Keyed {
   };
 }
 
+function invalid(message: string, issues: readonly z.core.$ZodIssue[]): Result<never, AppError> {
+  return err({
+    code: 'invalid_request',
+    message,
+    details: { issues: issues.map((i) => `${i.path.join('.')}: ${i.message}`) },
+  });
+}
+
 /** Events that set `wait`; together with the task they name one entry into a wait. */
 const ENTERS_WAIT: ReadonlySet<string> = new Set(['TaskPending', 'TaskWaiting']);
 
 export class AttentionDesk {
   readonly #store: Store;
   readonly #now: () => number;
+  readonly #dataDir: string | null;
   #holder: Holder | null = null;
+  #registered: string | null = null;
   /** Reading a task's log only when it changed; holds the tasks that needed a person last time. */
   #entered = new Map<string, { readonly version: number; readonly seq: number }>();
 
-  constructor(deps: { readonly store: Store; readonly now: () => number }) {
+  constructor(deps: {
+    readonly store: Store;
+    readonly now: () => number;
+    readonly dataDir?: string;
+  }) {
     this.#store = deps.store;
     this.#now = deps.now;
+    this.#dataDir = deps.dataDir ?? null;
+    this.#registered = this.#dataDir === null ? null : registeredSession(this.#dataDir);
+    if (this.#registered !== null)
+      this.#holder = {
+        id: this.#registered,
+        seenAt: this.#now(),
+        batch: 0,
+        offered: [],
+        delivered: new Set(),
+        seq: null,
+        restored: true,
+      };
+  }
+
+  register(
+    caller: Caller,
+    body: Readonly<Record<string, unknown>>,
+  ): Result<{ readonly session: string }, AppError> {
+    const q = RegisterSchema.safeParse(body);
+    if (!q.success) return invalid('invalid assistant_register query', q.error.issues);
+    const allowed = authorize(caller, { role: 'operate' });
+    if (!allowed.ok)
+      return err({
+        code: 'forbidden',
+        message: 'assistant session not registrable',
+        details: { ...allowed.error },
+      });
+    const dataDir = this.#dataDir;
+    if (dataDir === null)
+      return err({ code: 'not_available', message: 'no data directory', details: {} });
+    const { session, take } = q.data;
+    const held = this.#claim(session, 0, take === true ? 'take' : 'attach');
+    if (!held.ok) return held;
+    const file = join(dataDir, ASSISTANT_SESSION_FILE);
+    const tmp = `${file}.${randomUUID()}.tmp`;
+    writeFileSync(tmp, JSON.stringify({ session }), { mode: 0o600 });
+    renameSync(tmp, file);
+    this.#registered = session;
+    return ok({ session });
+  }
+
+  unregister(
+    caller: Caller,
+    body: Readonly<Record<string, unknown>>,
+  ): Result<{ readonly session: string | null }, AppError> {
+    const q = UnregisterSchema.safeParse(body);
+    if (!q.success) return invalid('invalid assistant_unregister query', q.error.issues);
+    const allowed = authorize(caller, { role: 'operate' });
+    if (!allowed.ok)
+      return err({
+        code: 'forbidden',
+        message: 'assistant session not registrable',
+        details: { ...allowed.error },
+      });
+    const session = this.#registered;
+    if (session !== null && this.#holder?.id === session) this.#holder = null;
+    this.#forget();
+    return ok({ session });
+  }
+
+  /** How many tasks wait for a person, for a session deciding whether to ask for the lease. Holds nothing. */
+  peek(caller: Caller): Result<{ readonly waiting: number }, AppError> {
+    const allowed = authorize(caller, { role: 'read' });
+    if (!allowed.ok)
+      return err({
+        code: 'forbidden',
+        message: 'attention not readable',
+        details: { ...allowed.error },
+      });
+    return ok({ waiting: this.#waiting().length });
+  }
+
+  #forget(): void {
+    this.#registered = null;
+    if (this.#dataDir !== null)
+      rmSync(join(this.#dataDir, ASSISTANT_SESSION_FILE), { force: true });
   }
 
   poll(caller: Caller, body: Readonly<Record<string, unknown>>): Result<AttentionReply, AppError> {
     const q = AttentionQuerySchema.safeParse(body);
-    if (!q.success)
-      return err({
-        code: 'invalid_request',
-        message: 'invalid attention query',
-        details: { issues: q.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`) },
-      });
+    if (!q.success) return invalid('invalid attention query', q.error.issues);
     const allowed = authorize(caller, { role: 'read' });
     if (!allowed.ok)
       return err({
@@ -111,6 +230,11 @@ export class AttentionDesk {
     if (!held.ok) return held;
     const holder = held.value;
     holder.seenAt = this.#now();
+    if (holder.restored) {
+      holder.restored = false;
+      // A number reused after a restart would make a retry of a lost reply read as its confirmation.
+      holder.batch = Math.max(holder.batch, Number(batch));
+    }
     if (Number(batch) >= holder.batch) {
       holder.delivered = new Set([...holder.delivered, ...holder.offered]);
       holder.offered = [];
@@ -125,6 +249,12 @@ export class AttentionDesk {
   #claim(id: string, batch: number, mode: Mode): Result<Holder, AppError> {
     const cur = this.#holder;
     if (cur !== null && cur.id === id) return ok(cur);
+    if (mode === 'hook')
+      return err({
+        code: 'attention_not_registered',
+        message: 'this session is not the registered assistant session',
+        details: {},
+      });
     if (cur !== null && mode === 'resume')
       return err({
         code: 'attention_superseded',
@@ -137,12 +267,21 @@ export class AttentionDesk {
         message: 'another session holds the assistant lease',
         details: { guidance: 'Run this again with --take only if the user asked to move here.' },
       });
+    if (this.#registered !== null && this.#registered !== id) this.#forget();
     // Starts at the batch it came with: after a daemon restart a lower number would read as confirmed.
-    this.#holder = { id, seenAt: this.#now(), batch, offered: [], delivered: new Set(), seq: null };
+    this.#holder = {
+      id,
+      seenAt: this.#now(),
+      batch,
+      offered: [],
+      delivered: new Set(),
+      seq: null,
+      restored: false,
+    };
     return ok(this.#holder);
   }
 
-  #deliver(holder: Holder, seq: number): AttentionReply {
+  #waiting(): Keyed[] {
     const waiting: Keyed[] = [];
     const entered = new Map<string, { readonly version: number; readonly seq: number }>();
     for (const id of this.#store.taskIdsByStatus(LIVE)) {
@@ -158,6 +297,11 @@ export class AttentionDesk {
       waiting.push(keyed(s, seq));
     }
     this.#entered = entered;
+    return waiting;
+  }
+
+  #deliver(holder: Holder, seq: number): AttentionReply {
+    const waiting = this.#waiting();
     waiting.sort((a, b) => a.item.task_id.localeCompare(b.item.task_id));
     const fresh = waiting.filter((w) => !holder.delivered.has(w.key));
     const sent = fresh.slice(0, INBOX_LIMIT);

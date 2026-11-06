@@ -15,10 +15,12 @@ import {
   DOCTOR_PROBE_BUDGET_MS,
 } from '../../../src/application/doctor.ts';
 import { recheckTarget } from '../../../src/application/recheck.ts';
+import { runStopHook } from '../../../src/cli/assistant.ts';
 import { CUSR_COMMANDS } from '../../../src/cli/commands.ts';
 import { logsCommandWith } from '../../../src/cli/logs.ts';
 import { ExitCode, okEnvelope } from '../../../src/cli/output.ts';
 import { runCli } from '../../../src/cli/program.ts';
+import { call } from '../../../src/cli/tasks.ts';
 import { ingestOperationSpool } from '../../../src/daemon/ingest.ts';
 import { ObservationCoordinator } from '../../../src/daemon/observation.ts';
 import { Scheduler } from '../../../src/daemon/scheduler.ts';
@@ -490,6 +492,43 @@ describe('assistant wait (issue #166)', () => {
     const old = await wait('--lease', lease);
     expect(old.code).toBe(ExitCode.conflict);
     expect(old.envelope.error.code).toBe('attention_superseded');
+  });
+
+  it('a registered session is told by its Stop hook; another session is not', async () => {
+    const sd = daemon();
+    const t = buildTask();
+    sd.seed((d) => asking(d, t));
+    await sd.start();
+    const registered = await cli(sd, ['assistant', 'register', '--session', 's-1']);
+    expect(registered.envelope.data).toEqual({ session: 's-1' });
+
+    const notes: string[] = [];
+    const hook = (session: string) =>
+      runStopHook({
+        dataDir: sd.dataDir,
+        session,
+        pid: process.pid,
+        parkMs: 1_000,
+        alive: () => false,
+        query: (lease) =>
+          call(
+            { dataDir: sd.dataDir },
+            '/v1/query',
+            { kind: 'attention', lease, mode: 'hook' },
+            null,
+          ),
+        now: Date.now,
+        sleep: () => Promise.resolve(),
+        stderr: (text) => notes.push(text),
+      });
+
+    expect(await hook('s-2')).toBe(ExitCode.ok);
+    expect(notes).toEqual([]);
+    expect(await hook('s-1')).toBe(2);
+    expect(notes[0]).toContain(`${t.id} (agent_question)`);
+
+    expect((await cli(sd, ['assistant', 'unregister'])).envelope.data).toEqual({ session: 's-1' });
+    expect(await hook('s-1')).toBe(ExitCode.ok);
   });
 
   it('refuses a timeout that is not a positive whole number', async () => {

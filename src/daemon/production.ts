@@ -453,6 +453,7 @@ export async function productionControl(opts: {
     const control = taskControl({
       store,
       now,
+      dataDir: opts.dataDir,
       newId: opts.newId,
       observe,
       drain: (taskId) => drainRound(drainDeps, taskId),

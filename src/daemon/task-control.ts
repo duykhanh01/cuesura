@@ -50,6 +50,8 @@ const reply = (r: Result<unknown, AppError>): Promise<Reply> =>
 export type TaskControlDeps = TaskServiceDeps & {
   readonly logs?: Omit<LogsDeps, 'store'>;
   readonly doctor?: Omit<DoctorDeps, 'store'>;
+  /** Where the registered assistant session is kept; without it nothing can be registered. */
+  readonly dataDir?: string;
 };
 
 export function taskControl(deps: TaskControlDeps): {
@@ -71,7 +73,11 @@ export function taskControl(deps: TaskControlDeps): {
   const { store, logs, doctor } = deps;
   const statusSince = statusSinceReader(store);
   const logCache = new LogRecordCache();
-  const attention = new AttentionDesk({ store, now: deps.now });
+  const attention = new AttentionDesk({
+    store,
+    now: deps.now,
+    ...(deps.dataDir === undefined ? {} : { dataDir: deps.dataDir }),
+  });
   return {
     commands: {
       task_add: (admitted, input, caller) => taskAdd(deps, admitted, input, caller),
@@ -95,6 +101,9 @@ export function taskControl(deps: TaskControlDeps): {
     queries: {
       inbox: (caller, body) => reply(inbox(store, caller, body)),
       attention: (caller, body) => reply(attention.poll(caller, body)),
+      attention_peek: (caller) => reply(attention.peek(caller)),
+      assistant_register: (caller, body) => reply(attention.register(caller, body)),
+      assistant_unregister: (caller, body) => reply(attention.unregister(caller, body)),
       task_show: (caller, body) => reply(taskShow(store, caller, body)),
       task_list: (caller, body) => reply(taskList(store, caller, body)),
       task_history: (caller, body) => reply(taskHistory(store, caller, body)),

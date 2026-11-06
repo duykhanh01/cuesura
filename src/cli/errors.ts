@@ -29,6 +29,7 @@ const CONFLICT = [
   'rejected',
   'attention_held',
   'attention_superseded',
+  'attention_not_registered',
 ];
 
 export function exitCodeForError(code: string): ExitCode {

@@ -1,4 +1,10 @@
-import { assistantWaitCommand } from './assistant.ts';
+import {
+  assistantHookCommand,
+  assistantRegisterCommand,
+  assistantSessionStartCommand,
+  assistantUnregisterCommand,
+  assistantWaitCommand,
+} from './assistant.ts';
 import { statusCommand } from './client.ts';
 import { initCommand } from './init.ts';
 import { logsCommand } from './logs.ts';
@@ -42,6 +48,10 @@ export const CUSR_COMMANDS: readonly CliCommand[] = [
   dispatchCommand,
   inboxCommand,
   assistantWaitCommand,
+  assistantRegisterCommand,
+  assistantUnregisterCommand,
+  assistantHookCommand,
+  assistantSessionStartCommand,
   answerCommand,
   yoloCommand,
   addCommand,

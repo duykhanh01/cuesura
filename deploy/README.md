@@ -233,6 +233,59 @@ khởi động và ghi một dòng log báo khóa này bị bỏ qua. Xóa khóa
 `DATA_DIR/owner.token` khi tiện; thay `CUSR_TOKEN_FILE` bằng `CUSR_ACTOR=assistant` ở chỗ cấu hình
 assistant.
 
+### Đánh thức assistant bằng Stop hook
+
+Claude Code chạy hook `Stop` có `asyncRewake` ở nền sau mỗi lượt. `cusr assistant hook` đậu ở đó, hỏi daemon
+không tốn lượt model, và thoát exit 2 khi có task cần người; Claude Code coi stderr là phản hồi của hook và mở
+một lượt mới. Phiên vẫn rảnh trong lúc hook đậu nên người dùng hỏi được bình thường.
+
+Thêm vào `settings.json` của Claude Code, sửa data dir theo nơi cài:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CUSR_DATA_DIR=$HOME/cuesura-dogfood/data CUSR_ACTOR=assistant cusr assistant session-start",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CUSR_DATA_DIR=$HOME/cuesura-dogfood/data CUSR_ACTOR=assistant cusr assistant hook",
+            "asyncRewake": true,
+            "timeout": 604800
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Khóa chỉ đổi khi người dùng bảo agent lấy. Phiên mở ra mà có task đang chờ và chưa giữ khóa thì `session-start`
+nhắc agent hỏi người dùng; lời nhắc chỉ nằm trong context, không mở lượt. Người dùng đồng ý thì agent chạy
+`cusr assistant register --take`. Hết lượt đó, Stop hook đánh thức phiên với mọi việc còn đang chờ để agent báo
+cáo, rồi đậu lại. Phiên khác thoát ngay, không gọi daemon. Đăng ký nằm ở `DATA_DIR/assistant-session.json` nên còn
+nguyên sau restart daemon.
+
+- Chỉ tin thật mới đánh thức phiên. Hết `--timeout` (mặc định 604500 giây, thấp hơn `timeout` của hook) hook thoát
+  im lặng; lượt kế tiếp kết thúc bằng một Stop và hook đậu lại, việc chưa báo vẫn còn ở daemon.
+- Đóng terminal là kết thúc phiên: hook chết theo và không gửi gì. Mở lại phiên thì đăng ký vẫn còn, tin tới sau
+  lượt đầu tiên.
+- Tin chỉ có ID task và mã trạng thái: nội dung câu hỏi do worker viết, nên assistant đọc bằng `cusr inbox`.
+- `asyncRewake` không có trong tài liệu `--help` của Claude Code. Đã kiểm trên 2.1.319; bản khác có thể đổi.
+- Codex và harness khác dùng `cusr assistant wait`.
+
 ## Giới hạn thực thi tùy chọn
 
 Task và worker mặc định không có trần số lượt chạy, tổng thời gian, thời gian mỗi worker/lệnh,

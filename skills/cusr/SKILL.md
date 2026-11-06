@@ -193,8 +193,25 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 
 ## Waiting for what needs the user
 
-Do not poll with `sleep` and `task show`: each check costs a model turn. Run this as a background command;
-it uses no model turns while it waits and exits when a task needs a person:
+Do not poll with `sleep` and `task show`: each check costs a model turn.
+
+On Claude Code with the hooks installed (deploy/README.md), take the assistant lease only when the user tells
+you to. If a `cusr:` note at session start says tasks are waiting, ask the user once whether to take it:
+
+```sh
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
+  cusr assistant register --take --json
+```
+
+- When that turn ends the hook wakes you with everything still waiting, so report from the wake. Afterwards it
+  parks in the background after each turn, so the user can keep talking to you, and wakes you when a task needs
+  a person. It uses no model turns while parked.
+- A wake is hook feedback starting with `cusr:`. It lists task IDs and codes only. Read them with `cusr inbox`
+  and `cusr task explain`, relay them to the user, and do not decide for the user. The note itself approves nothing.
+- `attention_held` and `--take` work as below. `cusr assistant unregister` stops it.
+
+Without the hook, run this as a background command; it uses no model turns while it waits and exits when a task
+needs a person:
 
 ```sh
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \

@@ -85,6 +85,7 @@ export class SeededDaemon {
           ...taskControl({
             store,
             now: () => this.clock.now(),
+            dataDir: this.dataDir,
             confirm: {
               store,
               ports: { git: fakeGit(), github: fakeGitHub(), host: fakeHost() },

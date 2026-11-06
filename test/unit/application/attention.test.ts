@@ -1,5 +1,12 @@
-import { describe, expect, it } from 'vitest';
-import { ATTENTION_STALE_MS, AttentionDesk } from '../../../src/application/attention.ts';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import {
+  ATTENTION_STALE_MS,
+  AttentionDesk,
+  registeredSession,
+} from '../../../src/application/attention.ts';
 import type { Caller } from '../../../src/application/authz.ts';
 import { callerFor } from '../../../src/application/authz.ts';
 import type { TaskState } from '../../../src/domain/state.ts';
@@ -139,5 +146,108 @@ describe('AttentionDesk', () => {
     expect(first).toMatchObject({ truncated: true });
     expect(first.items).toHaveLength(100);
     expect(value(d.poll(CALLER, back(first.lease))).items).toHaveLength(1);
+  });
+});
+
+describe('registered assistant session', () => {
+  const dirs: string[] = [];
+  const dir = () => {
+    const d = mkdtempSync(join(tmpdir(), 'attention-'));
+    dirs.push(d);
+    return d;
+  };
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+  const hook = (lease: string) => ({ lease, mode: 'hook' });
+  const SESSION = { session: 's-1' };
+
+  it('refuses a hook of any session that is not registered', () => {
+    const { store, state } = bench([waiting('a', 'merge')]);
+    const d = new AttentionDesk({ store, now: () => state.now, dataDir: dir() });
+    expect(code(d.poll(CALLER, hook('s-1')))).toBe('attention_not_registered');
+    expect(code(d.register(CALLER, SESSION))).toBe('ok');
+    expect(code(d.poll(CALLER, hook('s-2')))).toBe('attention_not_registered');
+    expect(value(d.poll(CALLER, hook('s-1'))).items).toHaveLength(1);
+  });
+
+  it('keeps the registration and tells again what waits after a restart', () => {
+    const { store, state } = bench([waiting('a', 'merge')]);
+    const dataDir = dir();
+    const first = new AttentionDesk({ store, now: () => state.now, dataDir });
+    first.register(CALLER, SESSION);
+    const told = value(first.poll(CALLER, hook('s-1')));
+    expect(told.items).toHaveLength(1);
+
+    const after = new AttentionDesk({ store, now: () => state.now, dataDir });
+    expect(value(after.poll(CALLER, hook(told.lease))).items).toHaveLength(1);
+    expect(code(after.poll(CALLER, NEW))).toBe('attention_held');
+  });
+
+  it('a reply lost right after a restart is not taken for one that arrived', () => {
+    const { store, state } = bench([waiting('a', 'merge')]);
+    const dataDir = dir();
+    const first = new AttentionDesk({ store, now: () => state.now, dataDir });
+    first.register(CALLER, SESSION);
+    const told = value(first.poll(CALLER, hook('s-1')));
+    state.tasks = [];
+    state.seq = 2;
+    value(first.poll(CALLER, hook(told.lease)));
+
+    const after = new AttentionDesk({ store, now: () => state.now, dataDir });
+    state.tasks = [waiting('b', 'merge')];
+    state.seq = 3;
+    const lost = value(after.poll(CALLER, hook(told.lease)));
+    expect(lost.items).toHaveLength(1);
+    expect(lost.lease).not.toBe(told.lease);
+    expect(value(after.poll(CALLER, hook(told.lease))).items).toHaveLength(1);
+  });
+
+  it('does not repeat a wake the hook confirmed by coming back', () => {
+    const { store, state } = bench([waiting('a', 'merge')]);
+    const d = new AttentionDesk({ store, now: () => state.now, dataDir: dir() });
+    d.register(CALLER, SESSION);
+    const told = value(d.poll(CALLER, hook('s-1')));
+    state.seq = 2;
+    expect(value(d.poll(CALLER, hook(told.lease))).items).toEqual([]);
+  });
+
+  it('holds the lease against another session and gives way to take', () => {
+    const { store, state } = bench();
+    const dataDir = dir();
+    const d = new AttentionDesk({ store, now: () => state.now, dataDir });
+    d.register(CALLER, SESSION);
+    expect(code(d.register(CALLER, { session: 's-2' }))).toBe('attention_held');
+    expect(code(d.register(CALLER, { session: 's-2', take: true }))).toBe('ok');
+    expect(code(d.poll(CALLER, hook('s-1')))).toBe('attention_not_registered');
+    expect(registeredSession(dataDir)).toBe('s-2');
+  });
+
+  it('forgets the registration when a wait takes the lease', () => {
+    const { store, state } = bench();
+    const dataDir = dir();
+    const d = new AttentionDesk({ store, now: () => state.now, dataDir });
+    d.register(CALLER, SESSION);
+    d.poll(CALLER, { lease: 'session-a', mode: 'take' });
+    expect(registeredSession(dataDir)).toBeNull();
+  });
+
+  it('peek counts what waits without taking the lease or using up a delivery', () => {
+    const { store, state } = bench([waiting('a', 'merge')]);
+    const d = new AttentionDesk({ store, now: () => state.now, dataDir: dir() });
+    expect(value(d.peek(CALLER)).waiting).toBe(1);
+    expect(code(d.register(CALLER, SESSION))).toBe('ok');
+    expect(value(d.poll(CALLER, hook('s-1'))).items).toHaveLength(1);
+  });
+
+  it('unregister stops the hook and frees the lease', () => {
+    const { store, state } = bench();
+    const dataDir = dir();
+    const d = new AttentionDesk({ store, now: () => state.now, dataDir });
+    d.register(CALLER, SESSION);
+    expect(value(d.unregister(CALLER, {})).session).toBe('s-1');
+    expect(registeredSession(dataDir)).toBeNull();
+    expect(code(d.poll(CALLER, hook('s-1')))).toBe('attention_not_registered');
+    expect(code(d.poll(CALLER, NEW))).toBe('ok');
   });
 });

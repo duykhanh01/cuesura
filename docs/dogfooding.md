@@ -99,7 +99,7 @@ biến này để gọi như owner là quy tắc, không phải giới hạn k�
 | 1. Giao | Assistant | `cusr task add` với tiêu chí nghiệm thu quan sát được, kèm đề xuất run config và lý do |
 | 2. Xác nhận | Assistant | `cusr task confirm --run-config <digest>` với `CUSR_ACTOR=assistant` |
 | 3. Chạy | Daemon, worker | Worktree riêng, coder, gate, reviewer nếu `full-review`, tạo PR, chờ CI |
-| 4. Theo dõi | Assistant | `cusr assistant wait` chạy nền để biết khi task cần người, `task explain`, `task logs`, `inbox`; câu hỏi chưa rõ thì chuyển cho người dùng |
+| 4. Theo dõi | Assistant | `cusr assistant register` để Stop hook đánh thức phiên khi task cần người ([cài hook](../deploy/README.md#đánh-thức-assistant-bằng-stop-hook)); harness khác dùng `cusr assistant wait` chạy nền; `task explain`, `task logs`, `inbox`; câu hỏi chưa rõ thì chuyển cho người dùng |
 | 5. Merge | **Người dùng** | Đọc diff, merge trên GitHub; daemon ghi nhận DONE |
 | 6. Cập nhật | Assistant | Kiểm tra task, backup, nâng release và restart theo mục [Nâng và lùi release](#nâng-và-lùi-release) khi có thay đổi cần dùng |
 
