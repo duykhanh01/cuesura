@@ -46,26 +46,6 @@ lo những việc đó. Không gọi `cusr`.
 - Làm xong: commit, push nhánh và tạo PR vào `main`. Agent không tự merge PR; người dùng merge.
   Mô tả PR theo [PR template](.github/pull_request_template.md) và skill `write-pr`;
   `gh pr create --body` không tự áp template nên phải viết theo nó.
-- Sau khi PR được merge: dọn worktree và nhánh local theo mục [Dọn worktree rác](#dọn-worktree-rác).
-
-## Dọn worktree rác
-
-Trước khi tạo worktree mới và khi kết thúc một việc, chạy `git fetch origin --prune` rồi
-`git worktree list`, và dọn những worktree không còn dùng:
-
-- **Được dọn ngay**: worktree sạch (`git status --porcelain` rỗng) và nhánh thoả một trong hai điều kiện:
-  - Git thấy nhánh đã merge vào `origin/main`, hoặc nhánh chưa có commit nào ngoài `origin/main`
-    (`git rev-list --count origin/main..<nhánh>` bằng 0). Dọn bằng `git worktree remove <đường dẫn>` rồi
-    `git branch -d <nhánh>`.
-  - PR của nhánh đã merge kiểu squash, nên `git branch -d` không nhận. Đọc
-    `gh pr view <nhánh> --json number,state,headRefOid,mergeCommit` và
-    `git fetch origin pull/<number>/head`, rồi kiểm đủ cả ba: `state` là `MERGED`;
-    `git merge-base --is-ancestor <mergeCommit.oid> origin/main` thành công; và
-    `git rev-list --count <headRefOid>..<nhánh>` bằng 0 (nhánh local không có commit nào ngoài commit
-    cuối của PR; chậm hơn PR thì vẫn được). Dọn bằng `git worktree remove <đường dẫn>` rồi
-    `git branch -D <nhánh>`, không cần hỏi.
-- **Thư mục đã mất**: `git worktree prune` để xoá bản ghi worktree trỏ tới thư mục không còn tồn tại.
-- **Không tự dọn, hỏi người dùng trước**: worktree còn thay đổi chưa commit, nhánh còn commit chưa push
-  hoặc chưa merge, hoặc không do agent tạo. Ngoài trường hợp PR đã merge kiểu squash ở trên, không dùng
-  `--force` cho `git worktree remove` hay `git branch -D` khi chưa được đồng ý.
-- Không bao giờ dọn worktree chính của repo.
+- Sau khi PR được merge: không cần dọn tay. Hook `.githooks/post-merge` (cài qua `pnpm install`) tự xóa
+  worktree và nhánh local của PR đã merge mỗi khi `git pull` trên `main`; worktree còn thay đổi chưa commit
+  hoặc nhánh có commit sau PR thì được giữ lại.

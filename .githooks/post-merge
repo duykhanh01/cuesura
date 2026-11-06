@@ -1,0 +1,39 @@
+#!/bin/sh
+# Remove local branches and worktrees whose PR was merged, after `git pull` on main.
+# Never fails the pull: every problem is reported and skipped.
+
+main_branch=main
+
+[ "$(git symbolic-ref --quiet --short HEAD)" = "$main_branch" ] || exit 0
+command -v gh >/dev/null 2>&1 || { echo "post-merge: gh not found, skip cleanup" >&2; exit 0; }
+
+# Squash merges leave the branch unmerged by git's reckoning, so ask GitHub instead.
+merged=$(gh pr list --state merged --base "$main_branch" --limit 200 \
+  --json headRefName,headRefOid --jq '.[] | "\(.headRefName) \(.headRefOid)"' 2>/dev/null) \
+  || { echo "post-merge: cannot query PRs, skip cleanup" >&2; exit 0; }
+
+git worktree prune
+
+main_worktree=$(git worktree list --porcelain | sed -n '1s/^worktree //p')
+
+git for-each-ref --format='%(refname:short) %(objectname)' refs/heads | while read -r branch sha; do
+  [ "$branch" = "$main_branch" ] && continue
+  # The tip must equal the merged PR head, otherwise later local commits would be lost.
+  printf '%s\n' "$merged" | grep -qxF "$branch $sha" || continue
+
+  path=$(git worktree list --porcelain | awk -v ref="refs/heads/$branch" '
+    /^worktree /{p=substr($0,10)} $0=="branch " ref{print p; exit}')
+
+  if [ -n "$path" ] && [ "$path" != "$main_worktree" ]; then
+    # No --force: a dirty worktree is kept.
+    git worktree remove "$path" 2>/dev/null \
+      || { echo "post-merge: keep $branch (worktree $path is dirty or locked)" >&2; continue; }
+    echo "post-merge: removed worktree $path"
+  elif [ -n "$path" ]; then
+    continue
+  fi
+
+  git branch -D "$branch" >/dev/null 2>&1 && echo "post-merge: deleted branch $branch"
+done
+
+exit 0

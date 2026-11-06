@@ -16,6 +16,7 @@
   },
   "packageManager": "pnpm@12.15.0",
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks || true",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint .",
     "format": "oxfmt .",
