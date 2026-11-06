@@ -313,9 +313,10 @@ export const TaskExplainSchema = z.looseObject({
     }),
   ),
   remaining: z.looseObject({
-    agent_runs: z.number(),
+    // Null when the policy sets no limit.
+    agent_runs: z.number().nullable(),
     reserved: z.number(),
-    escalations: z.number(),
+    escalations: z.number().nullable(),
   }),
   escalations: z.array(
     z.looseObject({

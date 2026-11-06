@@ -39,7 +39,7 @@ type Explained = {
     command: string | null;
     note: string;
   }[];
-  remaining: { agent_runs: number; escalations: number };
+  remaining: { agent_runs: number | null; escalations: number | null };
   blockers: { code: string }[];
 };
 
@@ -227,6 +227,33 @@ describe('US2 scenario 3: attempts, limits and usage', () => {
     }
     expect(flat(screen)).toContain('Time left 1h 0m 0s');
     expect(flat(screen)).toContain('Slot wait 0s first, 0s resumed');
+    await quit(s);
+  });
+
+  it('opens a task with no budget set: no limit is an answer, not an unreadable reply', async () => {
+    const sd = tui.daemon();
+    const t = buildTask({ id: uuidOf(1), title: 'Unbudgeted task' });
+    sd.seed((d) => {
+      d.must(t.id, { kind: 'create_task', task: t });
+      d.must(t.id, {
+        kind: 'start',
+        freeze: freezeOk(t, {
+          limits: { max_wall_ms: WALL, max_agent_runs: null, max_escalations: null },
+        }),
+      });
+    });
+    await sd.start();
+    const explained = await explainOf(sd, t.id);
+    expect(explained.remaining).toMatchObject({ agent_runs: null, escalations: null });
+    const s = tui.cusr(sd.dataDir, TALL);
+    await openTask(s, 'Unbudgeted task');
+    await detailRead(s);
+    await s.waitForText('What you can do');
+    expect(flat(s.screenText())).toContain('Agent runs no limit');
+    await technicalInfo(s);
+    const screen = flat(s.screenText());
+    expect(screen).toContain('Escalations no limit');
+    expect(screen).not.toContain('Could not read');
     await quit(s);
   });
 

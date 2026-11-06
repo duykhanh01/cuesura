@@ -54,6 +54,8 @@ const choice = (c: {
   readonly effort: SafeText;
 }): SafeText => joinSafe([c.harness, c.model, c.effort], '/');
 
+const left = (count: number | null): string => (count === null ? 'no limit' : `${count} left`);
+
 const short = (sha: SafeText): SafeText => (sha.length > 12 ? uiText(`${sha.slice(0, 12)}…`) : sha);
 
 /** Rows of styled segments, wrapped to the screen as they are added. */
@@ -138,13 +140,20 @@ function rawSteps(out: Rows, steps: NonNullable<TaskProgress['steps']>): void {
     ]);
 }
 
+/** A section with nothing to show yet: still on its way, or its read failed and is being retried. */
+function missing(out: Rows, failed: boolean): void {
+  if (failed) out.say('  Could not be read.', WARN);
+  else out.say('  Reading…', DIM);
+}
+
 function progressRows(out: Rows, d: TaskDetail): void {
   const progress = d.progress.data;
   const explain = d.explain.data;
   const status = explain?.status ?? d.show.data?.status;
   out.heading('Progress');
   if (progress === null || status === undefined) {
-    out.say('  Reading…', DIM);
+    const noStatus = d.explain.error !== null && d.show.error !== null;
+    missing(out, progress === null ? d.progress.error !== null : noStatus);
     return;
   }
   if (progress.steps === null)
@@ -397,7 +406,7 @@ function plainLimitRows(out: Rows, explain: TaskExplain): void {
   if (!running && slot.queued === null && explain.prerequisites.length === 0) return;
   out.heading('Limits');
   if (running) {
-    out.field('Agent runs', [ui(`${remaining.agent_runs} left`)]);
+    out.field('Agent runs', [ui(left(remaining.agent_runs))]);
     if (deadline.state === 'passed') out.field('Time left', [ui('none, the deadline passed', BAD)]);
     else if (deadline.state === 'running' && deadline.remaining_ms !== null)
       out.field('Time left', [ui(formatDuration(deadline.remaining_ms))]);
@@ -414,10 +423,10 @@ function limitRows(out: Rows, explain: TaskExplain): void {
   if (!explain.limits_frozen)
     out.say('  Limits are not frozen yet: the task has not started.', DIM);
   out.field('Agent runs', [
-    ui(`${remaining.agent_runs} left`),
+    ui(left(remaining.agent_runs)),
     ui(` (${remaining.reserved} reserved)`, DIM),
   ]);
-  out.field('Escalations', [ui(`${remaining.escalations} left`)]);
+  out.field('Escalations', [ui(left(remaining.escalations))]);
   if (explain.blockers.length === 0) out.field('Blockers', [ui('none', DIM)]);
   if (deadline.state === 'passed') out.field('Time left', [ui('none, the deadline passed', BAD)]);
   else if (deadline.state === 'running')
@@ -577,7 +586,7 @@ function detailRows(d: TaskDetail, cols: number, stale: boolean): readonly Seg[]
   const explain = d.explain.data;
   if (explain === null) {
     out.heading('Why');
-    out.say('  Reading…', DIM);
+    missing(out, d.explain.error !== null);
   } else {
     exitRows(out, explain);
     evidenceRows(out, explain, d.show.data, technical);
