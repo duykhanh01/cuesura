@@ -4,7 +4,12 @@
  * Queries read the projection and the event log only: no LLM and no external I/O (FR-027.01/02).
  */
 import { z } from 'zod';
-import { CanonicalTaskSchema, TASK_SCHEMA_VERSION, type CanonicalTask } from '../domain/task.ts';
+import {
+  CanonicalTaskSchema,
+  PR_REF_PATTERN,
+  TASK_SCHEMA_VERSION,
+  type CanonicalTask,
+} from '../domain/task.ts';
 import type { TaskState } from '../domain/state.ts';
 import type { FrozenRuntimeContext } from '../domain/runtime.ts';
 import type { PublishContent } from '../adapters/context.ts';
@@ -46,6 +51,7 @@ export const NewTaskSchema = z
     labels: z.array(z.string().min(1).max(64)).max(50).default([]),
     profile: z.string().min(1).nullable().default(null),
     source_key: z.string().min(1).max(512).optional(),
+    pr_ref: z.string().regex(PR_REF_PATTERN).optional(),
   })
   .strict();
 

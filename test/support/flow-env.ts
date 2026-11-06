@@ -319,6 +319,7 @@ export function flowEnv(prefix: string) {
       d,
       deps,
       github,
+      project,
       remote,
       start,
       tick,

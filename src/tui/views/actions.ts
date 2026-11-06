@@ -29,7 +29,7 @@ const KNOWN: Readonly<Record<string, Known>> = {
   answer: { label: 'Answer the question', kind: 'dialog', role: 'operate' },
   confirm: { label: 'Confirm', kind: 'dialog', role: 'operate' },
   propose: { label: 'Propose run', kind: 'dialog', role: 'operate' },
-  approve: { label: 'Approve escalation', kind: 'dialog', role: 'admin' },
+  approve: { label: 'Approve', kind: 'dialog', role: 'admin' },
   cancel: { label: 'Cancel task', kind: 'dialog', role: 'operate' },
   recheck: { label: 'Recheck', kind: 'dialog', role: 'operate' },
   task_add: { label: 'New task', kind: 'dialog', role: 'operate' },

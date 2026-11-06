@@ -22,6 +22,9 @@ export const RequesterSchema = z
   .strict();
 export type Requester = z.infer<typeof RequesterSchema>;
 
+/** `owner/repo#number` of an existing pull request. */
+export const PR_REF_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+#[1-9][0-9]*$/;
+
 export const CanonicalTaskSchema = z
   .object({
     schema_version: z.literal(TASK_SCHEMA_VERSION),
@@ -47,6 +50,8 @@ export const CanonicalTaskSchema = z
     revision: z.number().int().positive(),
     source_key: z.string().min(1),
     retry_of: UuidSchema.nullable(),
+    /** The existing PR this task continues; absent on every other task, so their hashes do not change. */
+    pr_ref: z.string().regex(PR_REF_PATTERN).optional(),
   })
   .strict();
 export type CanonicalTask = z.infer<typeof CanonicalTaskSchema>;

@@ -344,6 +344,11 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
       }
       resetStreak(s, event.payload.resets_streak_of);
       break;
+    case 'PrAdopted':
+      s.adoption = event.payload.adoption;
+      s.pr_ref = event.payload.adoption.pr_ref;
+      s.head_sha = event.payload.adoption.head_sha;
+      break;
     case 'PublishRecorded':
       s.evidence.publishes.push({
         revision: s.revision,

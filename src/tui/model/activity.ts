@@ -27,6 +27,10 @@ const WAITS: Readonly<Record<DetailCode, WaitWords>> = {
     doing: 'Waiting for you to confirm the task',
     todo: 'Confirm the task',
   },
+  adopt_approval: {
+    doing: 'Waiting for an admin to adopt the PR',
+    todo: 'Review the PR and approve adopting it',
+  },
   dependency_pending: { doing: 'Waiting for prerequisite tasks', todo: null },
   dependency_failed: {
     doing: 'A prerequisite task failed',

@@ -4,6 +4,7 @@
  * version and task conditions when the fact is accepted, so a stale view becomes a conflict.
  */
 import type { AuthzContext } from '../domain/policy.ts';
+import type { TaskState } from '../domain/state.ts';
 import {
   computeRequestHash,
   TRIGGER_SCHEMA_VERSION,
@@ -69,6 +70,15 @@ export type ConfigCheck =
   | { readonly kind: 'ok'; readonly candidate: PreflightCandidate }
   | { readonly kind: 'failed'; readonly error: FreezeError }
   | { readonly kind: 'infra'; readonly check: string; readonly detail: string };
+
+/** What preflight needs of an adopted PR; a task without one adds nothing. */
+export function adoptionInput(s: TaskState): Pick<PreflightInput, 'adoption'> {
+  return s.adoption === undefined
+    ? {}
+    : {
+        adoption: { head_branch: s.adoption.head_branch, head_sha: s.adoption.head_sha },
+      };
+}
 
 /** Runs preflight once for this request; the result is a candidate, never a snapshot (FR-002.03). */
 export async function checkConfig(

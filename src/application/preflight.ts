@@ -12,6 +12,7 @@ import type { ConfigSource } from '../config/yaml-loader.ts';
 import type { Diagnostic } from '../domain/config.ts';
 import type { CapabilityManifest } from '../domain/runtime.ts';
 import type { ExecutionMode } from '../domain/run-config.ts';
+import type { Adoption } from '../domain/state.ts';
 import type { CanonicalTask } from '../domain/task.ts';
 import { evalPredicate, type StepDef } from '../domain/workflow.ts';
 import { modeGraph } from '../engine/workflows/software-dev.ts';
@@ -89,6 +90,8 @@ export type PreflightInput = {
   readonly harness_tools?: Readonly<Record<string, SandboxTools>>;
   /** PATH of the gate sandbox; left unchecked when absent. */
   readonly gate_path?: readonly string[];
+  /** The PR head the task continues from: the base it freezes is where that head left the base branch. */
+  readonly adoption?: Pick<Adoption, 'head_branch' | 'head_sha'>;
 };
 
 /** PATH directories of a harness's sandbox and the commands its binary cannot start without. */
@@ -257,8 +260,14 @@ async function run(
 
   const repo = await checkProjectRepo(ports, location.path, location.repo, task.base_branch);
   if (!repo.ok) return err(failed(repo.error));
+  const fork =
+    input.adoption === undefined
+      ? ok(repo.value.base_sha)
+      : await adoptedBase(ports, location.path, repo.value.base_sha, input.adoption);
+  if (!fork.ok) return err(failed([fork.error]));
+  const base_sha = fork.value;
 
-  const config = await readProjectConfig(ports.git, location.path, repo.value.base_sha);
+  const config = await readProjectConfig(ports.git, location.path, base_sha);
   if (!config.ok) return err(failed([config.error]));
   const validated = validateConfig({
     user: input.user,
@@ -268,12 +277,9 @@ async function run(
   if (!validated.ok)
     return err(
       failed([
-        problem(
-          'config_invalid',
-          'project_config',
-          `config at base ${repo.value.base_sha} is invalid`,
-          { diagnostics: validated.error },
-        ),
+        problem('config_invalid', 'project_config', `config at base ${base_sha} is invalid`, {
+          diagnostics: validated.error,
+        }),
       ]),
     );
 
@@ -284,7 +290,7 @@ async function run(
   if (support.problems.length > 0 || !remote.ok) return err(failed(support.problems));
 
   return ok({
-    base_sha: repo.value.base_sha,
+    base_sha,
     validated: validated.value,
     runtime: validated.value.runtime as RuntimeConfig,
     project_path: location.path,
@@ -488,6 +494,69 @@ export function githubSlugFromRemote(url: string): string | null {
       url.trim(),
     );
   return m === null ? null : `${m[1] as string}/${m[2] as string}`;
+}
+
+/**
+ * The base of a task on an existing PR: the commit where the approved head left the base branch. The
+ * task then reads like one that started there and already has the PR's commits: config comes from the
+ * base branch, not from the PR, and every diff against the base is the PR's own diff. A head that moved
+ * since the approval is refused here, before any worker runs on it.
+ */
+async function adoptedBase(
+  ports: PreflightPorts,
+  path: string,
+  baseTip: string,
+  adoption: NonNullable<PreflightInput['adoption']>,
+): Promise<Result<string, PreflightProblem>> {
+  const tracking = `refs/remotes/origin/${adoption.head_branch}`;
+  const fetch = await git(
+    ports.git,
+    path,
+    [
+      'fetch',
+      '--no-tags',
+      '--no-write-fetch-head',
+      '--quiet',
+      'origin',
+      `+refs/heads/${adoption.head_branch}:${tracking}`,
+    ],
+    'adopt_pr',
+    { timeout_ms: FETCH_TIMEOUT_MS },
+  );
+  if (fetch.code !== 0) {
+    if (/couldn't find remote ref/i.test(fetch.stderr))
+      return err(
+        problem(
+          'config_invalid',
+          'adopt_pr',
+          `PR head branch '${adoption.head_branch}' no longer exists on origin`,
+        ),
+      );
+    throw new Infra('adopt_pr', `git fetch failed: ${fetch.stderr.trim().slice(0, 512)}`);
+  }
+  const tip = await git(
+    ports.git,
+    path,
+    ['rev-parse', '--verify', '--quiet', `${tracking}^{commit}`],
+    'adopt_pr',
+  );
+  if (tip.code !== 0) throw new Infra('adopt_pr', `fetched ${tracking} does not resolve`);
+  const observed = tip.stdout.trim();
+  if (observed !== adoption.head_sha)
+    return err(
+      problem(
+        'config_invalid',
+        'adopt_pr',
+        `PR head moved from ${adoption.head_sha} to ${observed} after the approval`,
+        { fix: `review the new head, then task approve --kind adopt --head-sha ${observed}` },
+      ),
+    );
+  const fork = await git(ports.git, path, ['merge-base', baseTip, observed], 'adopt_pr');
+  if (fork.code !== 0)
+    return err(
+      problem('config_invalid', 'adopt_pr', 'the PR head shares no history with the base branch'),
+    );
+  return ok(fork.stdout.trim());
 }
 
 async function checkProjectRepo(

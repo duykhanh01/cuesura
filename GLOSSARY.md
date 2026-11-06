@@ -4,6 +4,10 @@ Thuật ngữ miền dùng khi mô tả việc điều phối agent, giới hạ
 
 ## Language
 
+**Nhận PR (adopt)**:
+Việc admin duyệt cho một task làm tiếp trên PR đã mở, gắn với một head SHA cụ thể. Task đẩy commit vào chính head branch của PR, chỉ fast-forward, không mở PR mới và không sửa tiêu đề hay mô tả PR. Head đổi sau khi duyệt thì task dừng ở `head_changed`; PR đang có task sống giữ, PR từ fork hoặc PR khác base thì bị từ chối.
+_Avoid_: Takeover, PR xếp chồng, tự nhận PR
+
 **Tài khoản harness**:
 Một mục khai báo có tên về danh tính đăng nhập của vendor để một harness dùng khi chạy attempt. Mỗi harness có một tài khoản mặc định và có thể thêm tài khoản dự phòng. Nhiều mục có thể trỏ tới cùng một danh tính; đổi token không làm đổi danh tính đó.
 _Avoid_: Token, file credential, subscription độc lập, binding, pool

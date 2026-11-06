@@ -37,6 +37,8 @@ export type WorktreeSpec = {
   readonly project_realpath: string;
   readonly common_git_dir: string;
   readonly base_sha: string;
+  /** Commit the new worktree checks out, when it is not the base: the head of an adopted PR. */
+  readonly start_sha?: string;
   /** Parent of every task worktree, outside the project repo. */
   readonly worktrees_root: string;
   /** Directory of owner markers; never mounted into a sandbox. */
@@ -239,13 +241,14 @@ async function ensure(port: GitPort, spec: WorktreeSpec): Promise<WorktreeOutcom
         reason: 'marker_conflict',
         detail: 'marker appeared concurrently',
       };
+    const start = spec.start_sha ?? marker.base_sha;
     const add = await git(port, project, [
       'worktree',
       'add',
       '-b',
       branch,
       path,
-      `${marker.base_sha}^{commit}`,
+      `${start}^{commit}`,
     ]);
     if (add.code !== 0)
       return {
@@ -254,10 +257,10 @@ async function ensure(port: GitPort, spec: WorktreeSpec): Promise<WorktreeOutcom
         detail: `worktree add failed: ${add.stderr.trim().slice(0, 512)}`,
       };
     const head = await refOid(port, path, 'HEAD');
-    if (head !== marker.base_sha)
+    if (head !== start)
       return {
         kind: 'unknown',
-        detail: `new worktree HEAD ${head ?? 'none'} is not the base`,
+        detail: `new worktree HEAD ${head ?? 'none'} is not ${start}`,
       };
     return { kind: 'created', worktree_path: path, branch, head, marker };
   }

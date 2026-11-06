@@ -165,6 +165,40 @@ describe('cusr task add/show/confirm over the control socket (T048)', () => {
     ).toMatchObject({ code: ExitCode.missing });
   });
 
+  it('--pr holds the task for an adopt approval, whose command names the full head', async () => {
+    const { dataDir } = await daemon();
+    const add = (pr: string) =>
+      cli([
+        'task',
+        'add',
+        '--data-dir',
+        dataDir,
+        '--project',
+        'acme',
+        '--title',
+        `Continue ${pr}`,
+        '--base',
+        'main',
+        '--acceptance',
+        'done',
+        '--pr',
+        pr,
+      ]);
+    const added = await add('acme/app#7');
+    expect(added).toMatchObject({
+      code: ExitCode.ok,
+      data: {
+        status: 'PENDING',
+        wait: { detail: { code: 'adopt_approval', pr_ref: 'acme/app#7' } },
+      },
+    });
+    expect((await add('not a ref')).code).toBe(ExitCode.usage);
+    const id = (added.data as { task_id: string }).task_id;
+    expect(
+      (await cli(['task', 'approve', '--data-dir', dataDir, id, '--kind', 'adopt'])).code,
+    ).toBe(ExitCode.usage);
+  });
+
   it('a task without acceptance stays PENDING; confirm checks the config of a READY task once', async () => {
     const { dataDir } = await daemon();
     const pending = await cli([

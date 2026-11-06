@@ -4,6 +4,7 @@
  * read and the drain round, `task_logs` the run directories and `doctor` the host probes: a build
  * without them answers `not_available` instead of pretending.
  */
+import { approveAdopt } from '../application/adopt.ts';
 import { answerQuestion } from '../application/answer.ts';
 import { approveEscalation } from '../application/approve.ts';
 import { statusSinceReader, taskBoard } from '../application/board.ts';
@@ -59,6 +60,7 @@ export function taskControl(deps: TaskControlDeps): {
     answer: CommandHandler;
     task_cancel: CommandHandler;
     approve_escalation: CommandHandler;
+    approve_adopt: CommandHandler;
     task_continue: CommandHandler;
     task_pause: CommandHandler;
     task_resume: CommandHandler;
@@ -79,6 +81,8 @@ export function taskControl(deps: TaskControlDeps): {
       task_cancel: (admitted, input, caller) => cancelTask(deps, admitted, input, caller),
       approve_escalation: (admitted, input, caller) =>
         approveEscalation(deps, admitted, input, caller),
+      approve_adopt: (admitted, input, caller) =>
+        approveAdopt(deps.confirm, admitted, input, caller),
       task_continue: (admitted, input, caller) => continueTask(deps, admitted, input, caller),
       task_pause: (admitted, input, caller) => pauseTask(deps, admitted, input, caller),
       task_resume: (admitted, input, caller) => resumeTask(deps, admitted, input, caller),

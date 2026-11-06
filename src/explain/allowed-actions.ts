@@ -216,6 +216,14 @@ const ROWS: Readonly<Record<DetailCode, Row>> = {
       cancel(c),
     ];
   },
+  adopt_approval: (c) => [
+    {
+      action: 'approve',
+      command: `cusr task approve ${c.id} --kind adopt --head-sha SHA --expected-version ${c.version}`,
+      note: 'Admin only: review the PR, then name its full head SHA. The task pushes to that PR and stops if the head moves.',
+    },
+    cancel(c),
+  ],
   merge: (c) => [merge(c), recheck(c, 'Reads the PR once.'), cancel(c)],
   checks_incomplete: (c) => [wait('CI is being observed within its limits.'), merge(c), cancel(c)],
   execution_slot: (c) => [

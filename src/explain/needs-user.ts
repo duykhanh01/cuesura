@@ -10,6 +10,7 @@ import { runConfigConfirmed } from '../engine/run-config.ts';
 const NEEDS_USER: Record<DetailCode, boolean> = {
   missing_acceptance: true,
   needs_confirmation: true,
+  adopt_approval: true,
   dependency_pending: false,
   dependency_failed: true,
   config_invalid: true,

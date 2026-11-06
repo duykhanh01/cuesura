@@ -3,6 +3,7 @@ import type { CanonicalTask } from './task.ts';
 import type { EffectKind } from './effect.ts';
 import type { FrozenExecutionContext, FrozenPolicy, Level } from './policy.ts';
 import type {
+  Adoption,
   AttemptKind,
   CheckpointState,
   HeadDrift,
@@ -172,6 +173,7 @@ export type EventPayloads = {
     summary?: string;
   };
   PublishRecorded: { head_sha: string };
+  PrAdopted: { adoption: Adoption };
   CiResultRecorded: {
     head_sha: string;
     required_set: RequiredSet;
@@ -446,6 +448,7 @@ export const EVENT_TYPES = [
   'GateResultRecorded',
   'ReviewVerdictRecorded',
   'PublishRecorded',
+  'PrAdopted',
   'CiResultRecorded',
   'BaseRelationRecorded',
   'EvidenceInvalidated',

@@ -1,5 +1,5 @@
 import { canonicalJson } from '../shared/canonical-json.ts';
-import type { TaskStatus, Wait } from '../domain/state.ts';
+import type { TaskState, TaskStatus, Wait } from '../domain/state.ts';
 import type { CanonicalTask } from '../domain/task.ts';
 import type { RelatedFacts } from '../domain/trigger.ts';
 import { reject, type Ctx } from './context.ts';
@@ -24,6 +24,12 @@ export function checkRetryOf(task: CanonicalTask, related: RelatedFacts): void {
   }
 }
 
+/** The task names an existing PR, and no admin has adopted that PR for it. */
+function adoptionPending(s: TaskState): boolean {
+  const wanted = s.task.pr_ref;
+  return wanted !== undefined && s.adoption?.pr_ref.toLowerCase() !== wanted.toLowerCase();
+}
+
 export function pendingWait(ctx: Ctx, deps: Record<string, TaskStatus | 'missing'>): Wait | null {
   const s = ctx.state;
   if (s.needs_confirmation && !s.confirmed) {
@@ -36,6 +42,13 @@ export function pendingWait(ctx: Ctx, deps: Record<string, TaskStatus | 'missing
     return mkWait('needs_info', 'missing_acceptance', {
       resume: { kind: 'triage' },
       resume_when: ['source_updated(acceptance)'],
+    });
+  }
+  if (adoptionPending(s)) {
+    return mkWait('confirmation', 'adopt_approval', {
+      resume: { kind: 'triage' },
+      resume_when: ['approve(adopt)'],
+      detail: { pr_ref: s.task.pr_ref },
     });
   }
   const status = s.task.depends_on.map((d) => [d, deps[d] ?? 'missing'] as const);

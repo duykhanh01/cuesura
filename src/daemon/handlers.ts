@@ -214,6 +214,13 @@ async function commonDir(deps: HandlerDeps, project: string): Promise<string> {
   return r.stdout.trim();
 }
 
+/**
+ * The branch the task publishes to. An adopted PR keeps its own head branch on the remote; locally the
+ * task still works on its private `cusr/` branch, so a checkout of that head elsewhere cannot collide.
+ */
+const remoteBranch = (s: TaskState): string =>
+  s.adoption?.head_branch ?? taskBranch(s.id, s.task.title);
+
 function where(deps: HandlerDeps, l: Loaded) {
   return {
     worktree: join(deps.paths.worktrees, l.s.id),
@@ -385,6 +392,7 @@ async function prepare(deps: HandlerDeps, effect: Effect): Promise<EffectOutcome
     project_realpath: l.rt.project_path,
     common_git_dir: await commonDir(deps, l.rt.project_path),
     base_sha: base,
+    ...(l.s.adoption === undefined ? {} : { start_sha: l.s.adoption.head_sha }),
     worktrees_root: deps.paths.worktrees,
     markers_dir: deps.paths.markers,
     nonce: effect.id,
@@ -1516,7 +1524,7 @@ async function publish(
   const r = await pushBranch(deps.git, {
     cwd: spec.worktree_path,
     remote_url: deps.remoteUrl(l.rt.target.repo),
-    branch: spec.branch,
+    branch: remoteBranch(l.s),
     expected_old: published,
     new_sha: sha,
   });
@@ -1542,9 +1550,12 @@ async function publish(
   };
 }
 
-/** The head published by the last valid publish: what the remote branch is expected to hold now. */
+/**
+ * The head published by the last valid publish, else the head an adoption approved: what the remote
+ * branch is expected to hold now. Null only for a branch that must not exist yet.
+ */
 const publishedHead = (s: TaskState): string | null =>
-  s.evidence.publishes.filter((p) => p.valid).at(-1)?.head_sha ?? null;
+  s.evidence.publishes.filter((p) => p.valid).at(-1)?.head_sha ?? s.adoption?.head_sha ?? null;
 
 /** A publish whose SHA is on the remote: the head and how it relates to the frozen base. */
 async function pushedOutcome(
@@ -1586,7 +1597,7 @@ function prSpecOf(l: Loaded, head: string, content: PublishContent, operationKey
   return {
     repo: l.rt.target.repo,
     immutable_repo_id: l.rt.target.immutable_repo_id,
-    head_branch: taskBranch(l.s.id, l.s.task.title),
+    head_branch: remoteBranch(l.s),
     base: l.s.task.base_branch,
     head_sha: head,
     title: content.pr_title,
@@ -2228,7 +2239,7 @@ async function probePublish(deps: HandlerDeps, target: Effect, done: boolean): P
   const r = await probePush(deps.git, {
     cwd,
     remote_url: deps.remoteUrl(l.rt.target.repo),
-    branch: where(deps, l).branch,
+    branch: remoteBranch(l.s),
     expected_old: published,
     new_sha: sha,
   });
@@ -2697,7 +2708,7 @@ export async function localRemainderOf(
   return probeLocalRemainder(deps.git, {
     worktree,
     remote_url: deps.remoteUrl(rt.target.repo),
-    branch: taskBranch(s.id, s.task.title),
+    branch: remoteBranch(s),
     base_sha: rt.base_sha,
   });
 }

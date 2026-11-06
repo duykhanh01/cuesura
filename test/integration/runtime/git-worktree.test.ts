@@ -67,6 +67,26 @@ describe('task worktree (T036, FR-003)', () => {
     expect(g.sh(project, 'rev-parse', 'HEAD')).not.toBe(base);
   });
 
+  it('checks out the head of an adopted PR on its private branch and keeps the base in the marker', async () => {
+    const { project, base, spec, git } = setup();
+    g.sh(project, 'checkout', '-q', '-b', 'feature/human');
+    writeFileSync(join(project, 'human.txt'), 'human\n');
+    g.sh(project, 'add', 'human.txt');
+    g.sh(project, 'commit', '-qm', 'human');
+    const head = g.sh(project, 'rev-parse', 'HEAD');
+
+    // The PR's branch stays checked out in the project: the private branch cannot collide with it.
+    const r = await ensureWorktree(git, { ...spec, start_sha: head });
+    expect(r).toMatchObject({
+      kind: 'created',
+      head,
+      branch: taskBranch(spec.task_id, spec.title),
+      marker: { base_sha: base },
+    });
+    const again = await ensureWorktree(git, { ...spec, start_sha: head, nonce: 'n2' });
+    expect(again).toMatchObject({ kind: 'adopted', head });
+  });
+
   it('adopts its own worktree again, keeping uncommitted work', async () => {
     const { spec, git } = setup();
     const first = await ensureWorktree(git, spec);

@@ -597,6 +597,14 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
       subject: ExternalSubjectSchema.optional(),
     })
     .strict(),
+  z
+    .object({
+      kind: z.literal('adopt_pr'),
+      pr_ref: z.string().min(1),
+      head_branch: z.string().min(1),
+      head_sha: z.string().regex(/^[0-9a-f]{40}$/),
+    })
+    .strict(),
   // Keep the old trigger readable for existing durable envelopes.
   BaseUpdateSchema.extend({ kind: z.literal('yolo_update_base') }).strict(),
   BaseUpdateSchema.extend({ kind: z.literal('update_base') }).strict(),
@@ -699,6 +707,7 @@ export const HUMAN_TRIGGERS: readonly TriggerKind[] = [
   'confirm_task',
   'answer',
   'approve',
+  'adopt_pr',
   'reject',
   'drift_choice',
   'stop_attempt',
@@ -750,6 +759,8 @@ export type RelatedFacts = {
   retry_of?: TaskStatus | 'missing';
 
   source_task?: { task_id: string; same_content: boolean };
+  /** Live tasks other than this one that hold the PR an `adopt_pr` names. */
+  pr_holders?: string[];
   /** Daemon-wide slot and queue head, read in the same transaction as a grant (FR-044). */
   execution?: {
     slot: { holder_task_id: string; request_id: string } | null;

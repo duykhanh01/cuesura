@@ -130,6 +130,8 @@ export const DETAIL_CODES = [
   'review_repeated',
   // A person paused the task and the next step waits for them to unpause it (issue #142).
   'paused',
+  // A task on an existing PR waits for an admin to adopt that PR at a named head (issue #174).
+  'adopt_approval',
 ] as const;
 export type DetailCode = (typeof DETAIL_CODES)[number];
 
@@ -232,6 +234,15 @@ export type Question = {
   answer: string | null;
   answered_by: string | null;
   resume: ResumeAction;
+};
+
+/** The existing PR a task continues, as an admin approved it; `head_sha` is the head they approved. */
+export type Adoption = {
+  pr_ref: string;
+  head_branch: string;
+  head_sha: string;
+  by: string;
+  at: number;
 };
 
 export type Approval = {
@@ -547,6 +558,8 @@ export type TaskState = {
   /** Absent until the decider first runs, so tasks without it replay to the same state. */
   decider_runs?: Record<string, DeciderRun>;
   approvals: Record<string, Approval>;
+  /** Absent unless an existing PR was adopted, so other tasks replay to the same state. */
+  adoption?: Adoption;
   evidence: Evidence;
   head_sha: string | null;
   pr_ref: string | null;

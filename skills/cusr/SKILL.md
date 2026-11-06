@@ -61,6 +61,9 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   --request-id "$ADD_REQUEST_ID" --json
 
 # Optional task flags: --depends-on ID,ID --priority N
+# --pr OWNER/REPO#N continues that open PR instead of opening a new one: --base must
+# be its base branch, and the user approves adopting it (see Escalation below). In a
+# JSON file the field is pr_ref. The PR keeps its title and body; workers only add commits.
 # --acceptance takes one criterion per line.
 # A run proposal needs --profile, --mode and --worker TOGETHER.
 # full-review also needs --reviewer; direct-pr must omit --reviewer.
@@ -291,6 +294,12 @@ CUSR_DATA_DIR="${DATA_DIR:?}" \
 # Escalation approval requires admin privileges; it is not run confirmation.
 CUSR_DATA_DIR="${DATA_DIR:?}" \
   cusr task approve "$TASK_ID" --kind escalation --step "$STEP" --rung "$RUNG" \
+  --expected-version "$VERSION" --request-id "$APPROVE_REQUEST_ID" --json
+# A task added with --pr waits as adopt_approval. The same rule applies: present the
+# PR and its full head SHA (the user reviews that head) and this command. It refuses a
+# fork, a closed PR, another base, a head that moved and a PR a live task holds.
+CUSR_DATA_DIR="${DATA_DIR:?}" \
+  cusr task approve "$TASK_ID" --kind adopt --head-sha "$HEAD_SHA" \
   --expected-version "$VERSION" --request-id "$APPROVE_REQUEST_ID" --json
 ```
 

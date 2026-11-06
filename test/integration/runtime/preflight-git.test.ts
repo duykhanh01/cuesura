@@ -171,6 +171,51 @@ describe('preflight on real Git objects (T030)', () => {
     });
   });
 
+  it('a task on a PR freezes where the approved head left the base, with the config of that commit', async () => {
+    const fork = sh(seed, 'rev-parse', 'HEAD');
+    sh(seed, 'checkout', '-q', '-b', 'feature/pr');
+    writeFileSync(join(seed, 'pr.txt'), 'pr\n');
+    // A PR cannot rewrite the rules it runs under: this config is never read.
+    writeFileSync(join(seed, 'cusr.yaml'), 'version: 1\n');
+    sh(seed, 'add', '.');
+    sh(seed, 'commit', '-qm', 'pr work');
+    sh(seed, 'push', '-q', 'origin', 'feature/pr');
+    const head = sh(seed, 'rev-parse', 'HEAD');
+    sh(seed, 'checkout', '-q', 'main');
+    writeFileSync(join(seed, 'later.txt'), 'later\n');
+    sh(seed, 'add', '.');
+    sh(seed, 'commit', '-qm', 'base moved on');
+    sh(seed, 'push', '-q', 'origin', 'main');
+
+    const check = (head_sha: string, head_branch = 'feature/pr') =>
+      preflight(
+        { git: testGit, github, host: passingHost },
+        {
+          task: buildTask(),
+          user,
+          packs: PACKS,
+          manifests,
+          adoption: { head_branch, head_sha },
+        },
+      );
+    const r = await check(head);
+    if (!r.ok) throw new Error(JSON.stringify(r.error));
+    expect(r.value.base_sha).toBe(fork);
+    // The head is in the project's objects for the worktree.
+    expect(sh(repo, 'rev-parse', `${head}^{commit}`)).toBe(head);
+
+    const moved = await check(fork);
+    expect(moved.ok ? null : moved.error).toMatchObject({
+      code: 'config_invalid',
+      problems: [{ check: 'adopt_pr', message: expect.stringContaining(head) as unknown }],
+    });
+    const gone = await check(head, 'feature/deleted');
+    expect(gone.ok ? null : gone.error).toMatchObject({
+      code: 'config_invalid',
+      problems: [{ check: 'adopt_pr' }],
+    });
+  });
+
   it('a base branch missing on origin is config_invalid', async () => {
     const r = await preflight(
       { git: testGit, github, host: passingHost },

@@ -29,7 +29,7 @@ import {
   type TemplateError,
   type SelectionProblem,
 } from './run-config.ts';
-import { checkConfig, submit } from './triage.ts';
+import { adoptionInput, checkConfig, submit } from './triage.ts';
 
 /** Documents frozen into the execution context that do not live in the repo's base commit. */
 export interface StartDocsPort {
@@ -236,6 +236,7 @@ export async function startTask(deps: StartDeps, taskId: string): Promise<StartR
     task: s.task,
     ...(await deps.configInputs()),
     mode: s.run.proposal?.selection.mode ?? null,
+    ...adoptionInput(s),
   });
   if (check.kind === 'infra')
     return {

@@ -316,6 +316,10 @@ export const addCommand: CliCommand = {
     { flags: '--title <text>', description: 'Task title' },
     { flags: '--base <branch>', description: 'Base branch' },
     {
+      flags: '--pr <owner/repo#n>',
+      description: 'Continue this open PR: push to its head branch after task approve --kind adopt',
+    },
+    {
       flags: '--acceptance <text>',
       description: 'Acceptance criteria, one per line',
     },
@@ -362,6 +366,7 @@ export const addCommand: CliCommand = {
         ...(values['priority'] === undefined ? {} : { priority: Number(values['priority']) }),
       };
     }
+    if (values['pr'] !== undefined) task['pr_ref'] = values['pr'];
     const flagged = runProposal(values);
     if (typeof flagged === 'string') return usage(flagged, json, io);
     const run = flagged ?? fileRun;
@@ -756,19 +761,26 @@ function unsupported(
 
 export const approveCommand: CliCommand = {
   name: 'task approve',
-  description: 'Approve a model escalation (admin required)',
+  description: 'Approve a model escalation or adopting a PR (admin required)',
   args: ['<id>'],
   options: [
     DATA_DIR,
     REQUEST_ID,
     PROJECT,
     EXPECTED_VERSION,
-    { flags: '--kind <kind>', description: 'Approval kind: escalation' },
+    { flags: '--kind <kind>', description: 'Approval kind: escalation or adopt' },
     { flags: '--step <step>', description: 'Step requesting escalation' },
     { flags: '--rung <n>', description: 'Requested escalation rung' },
+    { flags: '--head-sha <sha>', description: 'Full PR head SHA this adoption approves' },
   ],
   run(values, json, io) {
     if (values['kind'] === 'merge') return unsupported('merge_approve', json, io);
+    if (values['kind'] === 'adopt') {
+      const head = values['headSha'];
+      if (head === undefined)
+        return Promise.resolve(usage('task approve --kind adopt requires --head-sha', json, io));
+      return mutate(values, 'approve_adopt', values['id'] as string, { head_sha: head }, json, io);
+    }
     const rung = values['rung'] === undefined ? NaN : Number(values['rung']);
     if (values['kind'] !== 'escalation' || values['step'] === undefined || !Number.isInteger(rung))
       return Promise.resolve(

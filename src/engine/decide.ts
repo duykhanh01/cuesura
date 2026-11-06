@@ -1,3 +1,4 @@
+import { onAdoptPr } from './adopt.ts';
 import { onUpdateBase } from './base-update.ts';
 import { assertNever } from '../shared/assert-never.ts';
 import { canonicalJson } from '../shared/canonical-json.ts';
@@ -109,6 +110,7 @@ function dispatch(ctx: Ctx, t: Trigger): void {
   }
   const needsPolicy = ![
     'confirm_task',
+    'adopt_pr',
     'config_checked',
     'source_updated',
     'dependency_status',
@@ -131,6 +133,9 @@ function dispatch(ctx: Ctx, t: Trigger): void {
   switch (t.kind) {
     case 'confirm_task':
       onConfirmTask(ctx);
+      return;
+    case 'adopt_pr':
+      onAdoptPr(ctx, t);
       return;
     case 'config_checked':
       onConfigChecked(ctx, t);

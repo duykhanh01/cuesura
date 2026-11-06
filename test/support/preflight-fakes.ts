@@ -153,6 +153,8 @@ export function fakeGit(o: GitOpts = {}): PreflightPorts['git'] & { calls: strin
           if (o.templates?.[path] !== undefined) return Promise.resolve(exited(o.templates[path]));
           return Promise.resolve(exited(cusr ?? ''));
         }
+        case 'merge-base':
+          return Promise.resolve(exited(SHA));
         default:
           throw new Error(`unexpected git ${c.args.join(' ')}`);
       }

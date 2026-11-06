@@ -21,6 +21,7 @@ export const REJECT_CODES = [
   'question_not_open',
   'approval_mismatch',
   'untrusted_confirmation',
+  'pr_in_use',
 ] as const;
 export type RejectCode = (typeof REJECT_CODES)[number];
 

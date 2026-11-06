@@ -153,6 +153,17 @@ export function relatedFacts(
   if (t.kind === 'grant_execution')
     related.execution = readExecutionFacts(db, t.started_only === true);
 
+  if (t.kind === 'adopt_pr') {
+    const rows = db
+      .prepare(
+        `SELECT id FROM tasks
+         WHERE lower(json_extract(state_json, '$.pr_ref')) = lower(?)
+           AND status NOT IN ('DONE', 'FAILED', 'CANCELLED') AND id <> ?`,
+      )
+      .all(t.pr_ref, env.task_id) as { id: string }[];
+    related.pr_holders = rows.map((r) => r.id);
+  }
+
   const retryOf = incoming?.retry_of ?? null;
   if (t.kind === 'create_task' && retryOf !== null) related.retry_of = readTaskStatus(db, retryOf);
 

@@ -34,6 +34,7 @@ export const COMMAND_PAYLOADS = {
   approve_escalation: z
     .object({ step: z.string().min(1), rung: z.number().int().nonnegative() })
     .strict(),
+  approve_adopt: z.object({ head_sha: z.string().regex(/^[0-9a-f]{40}$/) }).strict(),
 } as const;
 export type CommandKind = keyof typeof COMMAND_PAYLOADS;
 
@@ -50,6 +51,7 @@ const REQUIRED_ROLE: Record<CommandKind, AuthzRole> = {
   queue_resume: 'operate',
   answer: 'operate',
   approve_escalation: 'admin',
+  approve_adopt: 'admin',
 };
 
 /** Commands on the daemon's own queue: no project, task or version. */
