@@ -8,11 +8,12 @@
  * Worktrees are never removed by age alone: a worktree whose diff or commits are not preserved (not on
  * the remote at the recorded head) is a local remainder and stays, whatever its age.
  */
-import { readdirSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Artifact } from '../domain/runtime.ts';
 import { isTerminal, TERMINAL_STATUSES, type TaskState } from '../domain/state.ts';
 import { collectArtifacts } from '../runner/artifacts.ts';
+import { COMMAND_LOG_DIR } from '../runner/commands.ts';
 import { RUN_FILES, RunDir, type RunDirKind } from '../runner/files.ts';
 import { RunnerExitSchema } from '../runner/lifecycle.ts';
 import type { Redactor } from '../runner/redact.ts';
@@ -205,6 +206,24 @@ function placeholder(operationId: string): Artifact {
 }
 
 /**
+ * Replaces an effect's command logs with a tombstone once the newest is past retention. Their digests
+ * stay in the events; the tombstone goes first, so a crash in between never loses the fact they existed.
+ */
+export function expireCommandLogs(dir: string, now: number, retentionMs: number): boolean {
+  if (!existsSync(dir)) return false;
+  const logs = readdirSync(dir).filter((f) => f.endsWith('.log'));
+  if (logs.length === 0) return false;
+  const newest = Math.max(...logs.map((f) => statSync(join(dir, f)).mtimeMs));
+  if (now - newest < retentionMs) return false;
+  const temp = join(dir, `${TOMBSTONE_FILE}.tmp`);
+  const body = { schema_version: 1, removed_at: now, files: logs };
+  writeFileSync(temp, `${JSON.stringify(body)}\n`, { mode: 0o600 });
+  renameSync(temp, join(dir, TOMBSTONE_FILE));
+  for (const f of logs) rmSync(join(dir, f), { force: true });
+  return true;
+}
+
+/**
  * One retention pass over the terminal tasks of the store: plans with {@link planRetention} and
  * tombstones the runs that may go. Worktrees are left to their owner (preserved ones are only
  * reported); the daemon schedules this pass once its production effect handlers are wired.
@@ -227,6 +246,13 @@ export function sweepRetention(o: {
         terminal: isTerminal(s.status),
       }),
     );
+    if (isTerminal(s.status))
+      for (const effect of Object.keys(s.effects ?? {}))
+        expireCommandLogs(
+          join(o.dataDir, 'receipts', effect, COMMAND_LOG_DIR),
+          o.now,
+          o.retention_ms,
+        );
   }
   const plan = planRetention({
     runs,

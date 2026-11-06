@@ -128,7 +128,11 @@ describe('command journal', () => {
     expect(receipt.detail).toBe('lost pipe after curl -H [REDACTED]');
     // The digest still names the frozen command, so recovery can match it.
     expect(receipt.command_digest).toBe(hashText(`deploy --token ${token}`));
-    for (const f of readdirSync(d)) expect(readFileSync(join(d, f), 'utf8')).not.toContain(token);
+    const files = readdirSync(d, { recursive: true, withFileTypes: true }).filter((f) =>
+      f.isFile(),
+    );
+    for (const f of files)
+      expect(readFileSync(join(f.parentPath, f.name), 'utf8')).not.toContain(token);
   });
 
   it('a command past the deadline never spawns: a receipt without started', async () => {

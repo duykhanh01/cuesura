@@ -104,6 +104,9 @@ crash I/O rộng vẫn thuộc B; không lấy API đọc finalized review làm 
   có ngân sách. Mọi lần sửa kể cả resume MUST nhận packet mới có nguyên nhân/log/findings, nguồn/SHA/run
   generation, acceptance, checkpoint/worktree/diff, PR content và Q&A hiện hành; packet stale phải dựng
   lại, thiếu bắt buộc thì needs_context. Adapter không quyết định tạo attempt. Refusal không bị retry để vượt quyền.
+- Output của lệnh setup/gate/autofix: runner giữ phần đầu và phần cuối trong 16 MiB, redact rồi ghi một file 0600
+  cho mỗi lần chạy dưới `receipts/<effect>/logs/`, kể cả khi lệnh pass; event chỉ giữ tham chiếu, digest và excerpt
+  đầu + cuối tối đa 16 KiB có marker số byte đã bỏ. Khi nhiều gate cùng fail, fixer chia chung 48 KiB excerpt.
 - Context tối đa 128 KiB, phần cắt phải ghi rõ. Reviewer không nhận nội dung diff mà đọc bằng `git diff`
   theo range trong context; context giữ range, digest của diff đầy đủ và toàn bộ path list. Diff đưa cho
   fixer cắt ở 64 KiB. Không đủ acceptance/range bắt buộc thì needs_context/chờ, không cắt thông tin rồi approve. Reviewer

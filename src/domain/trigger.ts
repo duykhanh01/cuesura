@@ -160,6 +160,15 @@ export const CheckpointDataSchema = z
   })
   .strict();
 
+const CommandLogRefSchema = z
+  .object({
+    ref: z.string().min(1),
+    digest: HashSchema,
+    bytes: z.number().int().nonnegative(),
+    truncated: z.boolean(),
+  })
+  .strict();
+
 export const GateDataSchema = z
   .object({
     results: z.array(
@@ -168,7 +177,9 @@ export const GateDataSchema = z
           gate: z.string(),
           passed: z.boolean(),
           signature: z.string().optional(),
-          log_excerpt: z.string().max(4_096).optional(),
+          // Events of earlier releases hold at most 4 KiB here.
+          log_excerpt: z.string().max(16_384).optional(),
+          log: CommandLogRefSchema.optional(),
         })
         .strict(),
     ),

@@ -6,20 +6,24 @@
  * never an unpreserved worktree.
  */
 import {
+  existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { DEFAULT_RUNTIME_LIMITS, type Artifact } from '../../src/domain/runtime.ts';
 import type { TaskState } from '../../src/domain/state.ts';
 import type { Store } from '../../src/store/index.ts';
 import {
+  expireCommandLogs,
   planRetention,
   sweepRetention,
   tombstoneRun,
@@ -274,5 +278,30 @@ describe('a retention pass over the store', () => {
     expect(run.readFinal(RUN_FILES.exit).state).toBe('missing');
     // A second pass sees the tombstone and leaves it.
     expect(sweep(state('DONE', true)).keep_runs).toEqual([{ id: 'op-1', reason: 'tombstoned' }]);
+  });
+});
+
+describe('command logs under retention (#178)', () => {
+  const base = mkdtempSync(join(tmpdir(), 'cusr-log-retention-'));
+  afterAll(() => rmSync(base, { recursive: true, force: true }));
+  const DAYS = 24 * 3600 * 1000;
+
+  it('keeps a recent log, and leaves a tombstone for one past retention', () => {
+    const dir = join(base, 'logs');
+    mkdirSync(dir);
+    writeFileSync(join(dir, '000000-unit.log'), 'output');
+    const written = statSync(join(dir, '000000-unit.log')).mtimeMs;
+    expect(expireCommandLogs(dir, written + 29 * DAYS, 30 * DAYS)).toBe(false);
+    expect(existsSync(join(dir, '000000-unit.log'))).toBe(true);
+    expect(expireCommandLogs(dir, written + 31 * DAYS, 30 * DAYS)).toBe(true);
+    expect(existsSync(join(dir, '000000-unit.log'))).toBe(false);
+    expect(JSON.parse(readFileSync(join(dir, TOMBSTONE_FILE), 'utf8'))).toMatchObject({
+      files: ['000000-unit.log'],
+    });
+    expect(expireCommandLogs(dir, written + 32 * DAYS, 30 * DAYS)).toBe(false);
+  });
+
+  it('has nothing to do for an effect without logs', () => {
+    expect(expireCommandLogs(join(base, 'none'), 0, 0)).toBe(false);
   });
 });

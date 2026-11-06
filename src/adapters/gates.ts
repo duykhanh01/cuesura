@@ -6,10 +6,12 @@
  */
 import type { GitPort } from './ports.ts';
 import type { WorktreeCheckpoint } from '../domain/runtime.ts';
+import { excerptOf } from '../runner/command-output.ts';
 import {
   mayRetry,
   runCommand,
   type CommandDeps,
+  type CommandLogRef,
   type CommandReceipt,
   type CommandRole,
   type CommandSpec,
@@ -96,21 +98,37 @@ export type GateResult = {
   passed: boolean;
   signature?: string;
   log_excerpt?: string;
+  log?: CommandLogRef;
 };
 
 /** Passes over the required set when a gate or formatter keeps changing the tree (M06). */
 export const GATE_TREE_PASSES = 3;
 
 /** The gate result a receipt stands for; also what recovery rebuilds from a journal. */
-export const gateResultOf = (r: CommandReceipt): GateResult =>
-  r.status === 'passed'
-    ? { gate: r.name, passed: true }
-    : {
-        gate: r.name,
-        passed: false,
-        signature: failureSignature(r),
-        ...(r.output.tail === '' ? {} : { log_excerpt: r.output.tail.slice(-4_096) }),
-      };
+export function gateResultOf(r: CommandReceipt): GateResult {
+  const log = r.output.log == null ? {} : { log: r.output.log };
+  if (r.status === 'passed') return { gate: r.name, passed: true, ...log };
+  const excerpt = r.output.excerpt ?? r.output.tail;
+  return {
+    gate: r.name,
+    passed: false,
+    signature: failureSignature(r),
+    ...(excerpt === '' ? {} : { log_excerpt: excerpt }),
+    ...log,
+  };
+}
+
+/**
+ * The fixer's failures are a required part of its context, which is never cut and refuses to start past
+ * 128 KiB, so however many gates fail together they share this much and leave room for the rest.
+ */
+const FIXER_GATE_LOG_BYTES = 48 * 1024;
+
+/** One failed gate's excerpt as the fixer gets it when `failures` gates failed together. */
+export function fixerExcerpt(excerpt: string, failures: number): string {
+  const limit = Math.floor(FIXER_GATE_LOG_BYTES / Math.max(1, failures));
+  return excerptOf(excerpt, Buffer.byteLength(excerpt), limit);
+}
 
 /**
  * `run_gates`: every gate runs, and every result must hold for one final tree (M06). The tree is

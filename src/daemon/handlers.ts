@@ -39,6 +39,7 @@ import {
   runGates,
   runSetup,
   type CommandSetInput,
+  fixerExcerpt,
 } from '../adapters/gates.ts';
 import { takeCheckpoint, type CheckpointSpec } from '../adapters/git/checkpoint.ts';
 import { commitCheckpoint, FileCommitIntentStore } from '../adapters/git/commit.ts';
@@ -517,7 +518,7 @@ function failuresFor(s: TaskState): {
       failures: list.map((f) => ({
         source: 'gate',
         name: f.gate,
-        detail: [f.signature ?? 'gate failed', f.log_excerpt ?? '']
+        detail: [f.signature ?? 'gate failed', fixerExcerpt(f.log_excerpt ?? '', list.length)]
           .filter((x) => x !== '')
           .join('\n'),
         sha: cp,

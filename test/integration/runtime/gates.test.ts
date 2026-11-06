@@ -1,8 +1,10 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
+  fixerExcerpt,
+  gateResultOf,
   runAutofix,
   runGates,
   runSetup,
@@ -11,7 +13,14 @@ import {
 } from '../../../src/adapters/gates.ts';
 import { ensureWorktree, markerPath } from '../../../src/adapters/git/worktree.ts';
 import type { SandboxProvider } from '../../../src/adapters/ports.ts';
-import { RETRY_SAFETY, SpawnExecutor, type CommandExecutor } from '../../../src/runner/commands.ts';
+import {
+  CommandJournal,
+  EXCERPT_BYTES,
+  RETRY_SAFETY,
+  SpawnExecutor,
+  type CommandExecutor,
+} from '../../../src/runner/commands.ts';
+import { GateDataSchema } from '../../../src/domain/trigger.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
 import { HostExecutionProvider, shortTmpDir } from '../../../src/runner/sandbox.ts';
 import type { EpochMs } from '../../../src/shared/brand.ts';
@@ -320,5 +329,153 @@ describe('gates through the production host launcher', () => {
     expect(`${tmp}/cusr-deadline-XXXXXX/control.sock`.length).toBeLessThan(108);
     expect(file?.startsWith(`${tmp}/`)).toBe(true);
     expect(existsSync(tmp!)).toBe(false);
+  });
+});
+
+describe('gate logs (#178)', () => {
+  const MIB = 1024 * 1024;
+  /** Prints markers at the two ends and the middle of `bytes` of filler lines. */
+  const noisy = (bytes: number, tail = ''): string =>
+    `echo MARKER-START; yes filler-line-of-a-long-test-report | head -c ${bytes / 2}; ` +
+    `echo; echo MARKER-MIDDLE; yes filler-line-of-a-long-test-report | head -c ${bytes / 2}; ` +
+    `echo; echo MARKER-END; ${tail} exit 1`;
+
+  async function gate(command: string) {
+    const { deps, input } = await setup();
+    const dir = join(g.base, `journal${n++}`);
+    const r = await runGates(
+      { ...deps, journal: new CommandJournal(dir) },
+      input([{ name: 'unit', command }]),
+    );
+    const result = r.data?.results[0];
+    const log = result?.log === undefined ? null : join(dir, result.log.ref);
+    return { dir, result, log };
+  }
+
+  it('keeps the two ends in the excerpt and all of a 2 MiB output in the log', async () => {
+    const { result, log } = await gate(noisy(2 * MIB));
+    expect(result?.log_excerpt).toContain('MARKER-START');
+    expect(result?.log_excerpt).toContain('MARKER-END');
+    expect(result?.log_excerpt).toMatch(/\[cuesura: \d+ of \d+ bytes omitted\]/);
+    expect(result?.log_excerpt).not.toContain('MARKER-MIDDLE');
+    expect(Buffer.byteLength(result?.log_excerpt ?? '')).toBeLessThanOrEqual(EXCERPT_BYTES);
+    const whole = readFileSync(log as string, 'utf8');
+    for (const m of ['MARKER-START', 'MARKER-MIDDLE', 'MARKER-END']) expect(whole).toContain(m);
+    expect(result?.log).toMatchObject({
+      digest: hashText(whole),
+      bytes: Buffer.byteLength(whole),
+      truncated: false,
+    });
+    expect(() => GateDataSchema.parse({ results: [result] })).not.toThrow();
+  });
+
+  it('still has the last line of output past the capture limit, and says what was dropped', async () => {
+    const { result, log } = await gate(noisy(20 * MIB));
+    expect(result?.log_excerpt).toContain('MARKER-START');
+    expect(result?.log_excerpt).toContain('MARKER-END');
+    expect(result?.log_excerpt).toMatch(/\[cuesura: \d{8} of \d{8} bytes omitted\]/);
+    expect(result?.log?.truncated).toBe(true);
+    const whole = readFileSync(log as string, 'utf8');
+    expect(whole).toMatch(/\[cuesura: \d+ of \d{8} bytes not captured\]/);
+    expect(whole).toContain('MARKER-END');
+    expect(Buffer.byteLength(whole)).toBeLessThanOrEqual(16 * MIB + 100);
+  });
+
+  it('writes a secret to neither, and only its owner reads the log', async () => {
+    const { result, log } = await gate(
+      `echo "$SECRET_VALUE"; ${noisy(MIB, 'echo "$SECRET_VALUE";')}`,
+    );
+    const whole = readFileSync(log as string, 'utf8');
+    expect(whole).not.toContain(SECRET);
+    expect(result?.log_excerpt).not.toContain(SECRET);
+    expect(whole).toContain('[REDACTED]');
+    expect(statSync(log as string).mode & 0o777).toBe(0o600);
+    expect(statSync(join(log as string, '..')).mode & 0o777).toBe(0o700);
+  });
+
+  it('keeps the log of a gate that passed', async () => {
+    const { result, log } = await gate('echo all good');
+    expect(result).toMatchObject({ passed: true, log: { truncated: false } });
+    expect(result?.log_excerpt).toBeUndefined();
+    expect(readFileSync(log as string, 'utf8')).toBe('all good\n');
+  });
+
+  it('a log that cannot be written leaves the result of the gate alone', async () => {
+    const { deps, input } = await setup();
+    const dir = join(g.base, `journal${n++}`);
+    mkdirSync(dir);
+    writeFileSync(join(dir, 'logs'), 'not a directory');
+    const r = await runGates(
+      { ...deps, journal: new CommandJournal(dir) },
+      input([{ name: 'unit', command: 'echo out; exit 1' }]),
+    );
+    expect(r.receipts[0]).toMatchObject({ status: 'failed', output: { log: null } });
+    expect(r.data?.results[0]).toMatchObject({ passed: false, log_excerpt: 'out\n' });
+    expect(r.data?.results[0]?.log).toBeUndefined();
+  });
+
+  it('keeps what a fixer gets within its share, however many gates failed together', () => {
+    const log = `first\n${'x\n'.repeat(8000)}last\n`;
+    const failed = 10;
+    const excerpts = Array.from({ length: failed }, () => fixerExcerpt(log, failed));
+    expect(Buffer.byteLength(excerpts.join(''))).toBeLessThanOrEqual(48 * 1024);
+    for (const e of excerpts) {
+      expect(e.startsWith('first\n')).toBe(true);
+      expect(e.endsWith('last\n')).toBe(true);
+    }
+    expect(fixerExcerpt('short\n', 1)).toBe('short\n');
+  });
+
+  it.each([49, 150, 1000])('holds the shared budget when %i gates failed together', (failed) => {
+    const log = `first\n${'x\n'.repeat(8000)}last\n`;
+    const one = fixerExcerpt(log, failed);
+    expect(Buffer.byteLength(one) * failed).toBeLessThanOrEqual(48 * 1024);
+  });
+
+  it('stores no suffix of a secret that the capture limit cut in two', async () => {
+    // Each short value grows when redacted, which moves the tail of the long one away from the start.
+    const SHORT = 'abc123';
+    const LONG = `${SHORT.repeat(4000)}TAIL-OF-THE-LONG-SECRET`;
+    const script = join(g.base, `secret${n++}.sh`);
+    writeFileSync(script, `printf %s '${LONG}'\n`);
+    const { deps, input } = await setup();
+    const dir = join(g.base, `journal${n++}`);
+    // The middle of the stream goes so that the tail starts inside the long secret.
+    const after = 8 * MIB - LONG.length + 1000;
+    const r = await runGates(
+      {
+        ...deps,
+        redactor: new Redactor({ values: [LONG, SHORT] }),
+        journal: new CommandJournal(dir),
+      },
+      input([
+        {
+          name: 'unit',
+          command: `head -c ${9 * MIB} /dev/zero | tr '\\0' a; sh ${script}; head -c ${after} /dev/zero | tr '\\0' b; echo MARKER-END; exit 1`,
+        },
+      ]),
+    );
+    const ref = r.data?.results[0]?.log?.ref as string;
+    const whole = readFileSync(join(dir, ref), 'utf8');
+    expect(r.data?.results[0]?.log?.truncated).toBe(true);
+    expect(whole).toContain('MARKER-END');
+    expect(whole).not.toContain('TAIL-OF-THE');
+  });
+
+  it('keeps the last line after a single line larger than the capture limit', async () => {
+    const { result, log } = await gate(
+      `echo START; head -c ${20 * MIB} /dev/zero | tr '\\0' x; echo MARKER-END; exit 1`,
+    );
+    expect(result?.log_excerpt).toContain('START');
+    expect(result?.log_excerpt).toContain('MARKER-END');
+    expect(readFileSync(log as string, 'utf8')).toContain('MARKER-END');
+  });
+
+  it('reads a receipt an earlier release journaled, which has only a tail', async () => {
+    const { deps, input } = await setup();
+    const r = await runGates(deps, input([{ name: 'unit', command: 'echo old; exit 1' }]));
+    const receipt = r.receipts[0] as (typeof r.receipts)[number];
+    const { excerpt: _excerpt, log: _log, ...output } = receipt.output;
+    expect(gateResultOf({ ...receipt, output })).toMatchObject({ log_excerpt: 'old\n' });
   });
 });

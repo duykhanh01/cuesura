@@ -155,6 +155,7 @@ export type EventPayloads = {
       passed: boolean;
       signature?: string | undefined;
       log_excerpt?: string | undefined;
+      log?: { ref: string; digest: string; bytes: number; truncated: boolean } | undefined;
     }[];
     passed: boolean;
     signature: string | null;

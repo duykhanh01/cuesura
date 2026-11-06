@@ -27,6 +27,13 @@ import type {
 } from '../adapters/ports.ts';
 import type { EpochMs, Hash } from '../shared/brand.ts';
 import { hashText } from '../shared/hash.ts';
+import {
+  excerptOf,
+  joinCapture,
+  OutputCapture,
+  type CaptureEnd,
+  type Captured,
+} from './command-output.ts';
 import { operationEnv } from './process-tag.ts';
 import type { Redactor } from './redact.ts';
 import { ensurePrivateTmpDir, shortTmpDir } from './sandbox.ts';
@@ -44,8 +51,12 @@ export const RETRY_SAFETY: Readonly<Record<CommandRole, 'safe' | 'unsafe'>> = {
   autofix: 'unsafe',
 };
 
-const OUTPUT_BYTES = 4 * 1024 * 1024;
+const OUTPUT_BYTES = 16 * 1024 * 1024;
 const TAIL_BYTES = 4 * 1024;
+/** Lives in an event and repeats with each round of fixes, so it stays far below the whole log. */
+export const EXCERPT_BYTES = 16 * 1024;
+/** Under an effect's journal directory. */
+export const COMMAND_LOG_DIR = 'logs';
 
 export type ExecOutcome =
   | {
@@ -53,11 +64,13 @@ export type ExecOutcome =
       readonly code: number;
       readonly output: string;
       readonly truncated: boolean;
+      readonly end?: CaptureEnd;
     }
   | {
       readonly kind: 'timeout';
       readonly output: string;
       readonly truncated: boolean;
+      readonly end?: CaptureEnd;
     }
   /** Provably never started (spawn error before a process existed). */
   | { readonly kind: 'not_launched'; readonly message: string }
@@ -66,6 +79,7 @@ export type ExecOutcome =
       readonly kind: 'unknown';
       readonly message: string;
       readonly output: string;
+      readonly end?: CaptureEnd;
       /** Set when it was stopped on request: whether its whole process group was seen gone. */
       readonly stop?: 'verified' | 'unverified';
     };
@@ -115,9 +129,21 @@ export type CommandReceipt = {
     readonly bytes: number;
     readonly tail: string;
     readonly truncated: boolean;
+    /** Both ends of the output. Receipts journaled by earlier releases have only `tail`. */
+    readonly excerpt?: string;
+    /** The redacted output on disk; null when it could not be written, absent when there is no journal. */
+    readonly log?: CommandLogRef | null;
   };
   readonly retry: 'safe' | 'unsafe';
   readonly detail: string | null;
+};
+
+/** Where a command's whole redacted output is, relative to its effect's journal directory. */
+export type CommandLogRef = {
+  readonly ref: string;
+  readonly digest: Hash;
+  readonly bytes: number;
+  readonly truncated: boolean;
 };
 
 export type CommandSpec = {
@@ -193,6 +219,22 @@ export class CommandJournal {
     }
   }
 
+  /** One file per run of a command, so a retry of the effect never overwrites what a person may read. */
+  writeLog(name: string, text: string): string {
+    const dir = join(this.#dir, COMMAND_LOG_DIR);
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const seq = String(readdirSync(dir).length).padStart(6, '0');
+    const file = `${seq}-${name.replace(/[^A-Za-z0-9._-]+/g, '_')}.log`;
+    const fd = openSync(join(dir, file), 'wx', 0o600);
+    try {
+      writeSync(fd, text);
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+    return `${COMMAND_LOG_DIR}/${file}`;
+  }
+
   read(): JournalRead {
     let files: string[];
     try {
@@ -249,6 +291,20 @@ function tail(text: string): string {
         .subarray(b.length - TAIL_BYTES)
         .toString('utf8')
         .replace(/^�+/, '');
+}
+
+/** A log that cannot be written costs the reader the log, not the gate its result. */
+function writeLog(
+  journal: CommandJournal,
+  name: string,
+  text: string,
+  facts: Omit<CommandLogRef, 'ref'>,
+): CommandLogRef | null {
+  try {
+    return { ref: journal.writeLog(name, text), ...facts };
+  } catch {
+    return null;
+  }
 }
 
 /** Whether a receipt may be followed by running the same command again without asking a human. */
@@ -379,13 +435,22 @@ async function executeIn(deps: CommandDeps, spec: CommandSpec): Promise<CommandR
     max_output_bytes: OUTPUT_BYTES,
   });
   const finished = deps.clock.now();
-  const raw = r.kind === 'not_launched' ? '' : r.output;
+  const { text: raw, total_bytes: total } =
+    r.kind === 'not_launched' ? { text: '', total_bytes: 0 } : joinCapture(r, deps.redactor);
   const redacted = deps.redactor.text(raw);
+  const digest = hashText(redacted);
+  const truncated =
+    r.kind !== 'not_launched' && (r.end !== undefined || ('truncated' in r && r.truncated));
+  const bytes = Buffer.byteLength(redacted);
   const output = {
-    digest: hashText(redacted),
-    bytes: Buffer.byteLength(redacted),
+    digest,
+    bytes,
     tail: tail(redacted),
-    truncated: 'truncated' in r ? r.truncated : false,
+    truncated,
+    excerpt: excerptOf(redacted, total, EXCERPT_BYTES),
+    ...(r.kind === 'not_launched' || deps.journal === undefined
+      ? {}
+      : { log: writeLog(deps.journal, spec.name, redacted, { digest, bytes, truncated }) }),
   };
   const common = {
     ...base,
@@ -430,6 +495,11 @@ async function executeIn(deps: CommandDeps, spec: CommandSpec): Promise<CommandR
   }
 }
 
+const untruncated = (capture: OutputCapture): Omit<Captured, 'truncated'> => {
+  const { output, end } = capture.result();
+  return { output, ...(end === undefined ? {} : { end }) };
+};
+
 /**
  * Spawns the plan's argv directly in its own process group; the group is killed on timeout. A stop
  * request prevents the spawn, or sends the running group SIGTERM and, after the grace, SIGKILL.
@@ -471,21 +541,10 @@ export class SpawnExecutor implements CommandExecutor {
         });
         return;
       }
-      const chunks: Buffer[] = [];
-      let size = 0;
-      let truncated = false;
+      const capture = new OutputCapture(opts.max_output_bytes);
       let timedOut = false;
       let spawned = false;
-      const take = (b: Buffer): void => {
-        const room = opts.max_output_bytes - size;
-        if (room <= 0) {
-          truncated = true;
-          return;
-        }
-        if (b.length > room) truncated = true;
-        chunks.push(b.subarray(0, room));
-        size += Math.min(b.length, room);
-      };
+      const take = (b: Buffer): void => capture.take(b);
       child.stdout.on('data', take);
       child.stderr.on('data', take);
       child.on('spawn', () => {
@@ -546,7 +605,7 @@ export class SpawnExecutor implements CommandExecutor {
             ? {
                 kind: 'unknown',
                 message: e.message,
-                output: Buffer.concat(chunks).toString('utf8'),
+                ...untruncated(capture),
                 ...(stoppedAt === null ? {} : { stop: 'unverified' as const }),
               }
             : { kind: 'not_launched', message: e.message },
@@ -554,14 +613,14 @@ export class SpawnExecutor implements CommandExecutor {
       });
       child.on('close', (code, signal) => {
         done();
-        const output = Buffer.concat(chunks).toString('utf8');
-        if (timedOut) return resolve({ kind: 'timeout', output, truncated });
+        const captured = capture.result();
+        if (timedOut) return resolve({ kind: 'timeout', ...captured });
         if (stoppedAt !== null) {
           void endStop(stoppedAt).then((gone) =>
             resolve({
               kind: 'unknown',
               message: `stopped on request (${signal ?? `exit ${String(code)}`})${gone ? '' : '; process group not verified gone'}`,
-              output,
+              ...untruncated(capture),
               stop: gone ? 'verified' : 'unverified',
             }),
           );
@@ -571,9 +630,9 @@ export class SpawnExecutor implements CommandExecutor {
           return resolve({
             kind: 'unknown',
             message: `terminated by ${signal ?? 'unknown signal'}`,
-            output,
+            ...untruncated(capture),
           });
-        resolve({ kind: 'exited', code, output, truncated });
+        resolve({ kind: 'exited', code, ...captured });
       });
     });
   }

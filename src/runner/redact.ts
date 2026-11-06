@@ -139,6 +139,38 @@ export class Redactor {
     return out;
   }
 
+  /**
+   * Where to start reading raw `text` whose beginning was lost, so that redacting the rest leaves nothing
+   * of a secret. It skips what a secret cut by the loss could have left, a private key whose BEGIN marker
+   * went with it, and then any match the start would itself cut. Offsets hold only on unredacted text:
+   * redaction changes lengths. Starts on a line when that is safe and leaves more than a final newline.
+   */
+  safeStart(text: string): number {
+    const spans = [...this.#valueSpans(text), ...this.#patternSpans(text)];
+    const begin = [...text.matchAll(PRIVATE_KEY_BEGIN)][0]?.index ?? text.length;
+    const orphan = [...text.matchAll(PRIVATE_KEY_END)].filter((m) => m.index < begin).at(-1);
+    const lost = orphan === undefined ? 0 : orphan.index + orphan[0].length;
+    const start = this.#past(text, Math.min(text.length, Math.max(this.carry, lost)), spans);
+    const line = text.indexOf('\n', start) + 1;
+    if (line === 0 || line === text.length) return start;
+    return this.#past(text, line, spans) === line ? line : start;
+  }
+
+  /** The first offset at or after `start` that is outside every span and not inside a surrogate pair. */
+  #past(text: string, start: number, spans: readonly (readonly [number, number])[]): number {
+    let c = start;
+    for (let moved = true; moved;) {
+      moved = false;
+      for (const [s, e] of spans) {
+        if (s < c && c < e) {
+          c = e;
+          moved = true;
+        }
+      }
+    }
+    return c > 0 && isHighSurrogate(text.charCodeAt(c - 1)) ? c + 1 : c;
+  }
+
   /** Start of the last private-key BEGIN marker with no END marker after it, if any. */
   #openKeyBlock(text: string): number | null {
     let lastBegin: number | null = null;

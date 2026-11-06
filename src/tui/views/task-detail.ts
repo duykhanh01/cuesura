@@ -246,6 +246,12 @@ function checkStyle(state: string): Style {
   return { fg: 'yellow' };
 }
 
+const EXCERPT_LINES = 20;
+
+/** The end of a failure's excerpt: the page is for the state of the task, not for reading a log. */
+export const lastLines = (text: SafeText): SafeText =>
+  sanitizeLines(text.split('\n').slice(-EXCERPT_LINES).join('\n'));
+
 function evidenceRows(
   out: Rows,
   explain: TaskExplain,
@@ -300,7 +306,7 @@ function evidenceRows(
     for (const f of g.failed ?? []) {
       out.field('', [ui('✗ ', BAD), seg(f.gate)]);
       if (f.log_excerpt !== null)
-        out.line([ui(''.padEnd(LABEL + 4)), seg(f.log_excerpt, DIM)], LABEL + 4);
+        out.line([ui(''.padEnd(LABEL + 4)), seg(lastLines(f.log_excerpt), DIM)], LABEL + 4);
     }
   }
   if (evidence.ci.length === 0) out.field('CI', [ui('nothing read yet', DIM)]);
