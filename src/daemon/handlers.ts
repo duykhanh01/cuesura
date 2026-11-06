@@ -57,7 +57,6 @@ import {
 import { probeDescription, probePr, probeRerun } from '../adapters/github/reconcile.ts';
 import { rerunFailedJobs } from '../adapters/github/rerun.ts';
 import {
-  addedLines,
   findPosted,
   markReady,
   postReview,
@@ -1937,35 +1936,18 @@ async function postReviewEffect(deps: HandlerDeps, effect: Effect): Promise<Effe
     outcome: 'posted' | 'not_posted' | 'unknown',
     detail: string | null,
     review_id: number | null = null,
-    inline = 0,
   ): EffectOutcome => ({
     outcome: 'succeeded',
-    data: { attempt_id: attemptId, outcome, review_id, inline, detail },
+    data: { attempt_id: attemptId, outcome, review_id, inline: 0, detail },
   });
   const review = l.s.run.reviews.find((r) => r.attempt_id === attemptId);
   if (n === null || review === undefined)
     return result('not_posted', 'no PR or no recorded review');
-  const cp = l.s.run.checkpoint;
-  let commentable: Map<string, Set<number>> | null = null;
-  if (cp !== null && cp.sha === review.sha) {
-    try {
-      const diff = await gitText(
-        deps,
-        where(deps, l).worktree,
-        ['diff', '--no-color', '--no-ext-diff', '-U0', cp.base_sha, cp.sha],
-        l.rt.limits.review_diff_bytes * 4,
-      );
-      commentable = addedLines(diff);
-    } catch (e) {
-      if (!(e instanceof Skip)) throw e;
-    }
-  }
   const marker = reviewMarker(l.s.id, review.attempt_id);
-  const rendered = renderReview({
+  const body = renderReview({
     template: (l.rt.review_template ?? defaultReviewTemplate()).content,
     round: typeof effect.request['round'] === 'number' ? effect.request['round'] : 1,
     review,
-    commentable,
     marker,
   });
   const r = await postReview(deps.github(), {
@@ -1973,11 +1955,9 @@ async function postReviewEffect(deps: HandlerDeps, effect: Effect): Promise<Effe
     pr_number: n,
     commit_id: review.sha,
     marker,
-    ...rendered,
+    body,
   });
-  return r.kind === 'posted'
-    ? result('posted', null, r.review_id, r.inline)
-    : result(r.kind, r.detail);
+  return r.kind === 'posted' ? result('posted', null, r.review_id) : result(r.kind, r.detail);
 }
 
 async function probeMarkReady(deps: HandlerDeps, target: Effect): Promise<Probe> {

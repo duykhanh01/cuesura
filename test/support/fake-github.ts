@@ -31,7 +31,8 @@ export type FakeReview = {
   commit_id: string;
   body: string;
   event: string;
-  comments: { path: string; line: number; body: string }[];
+  /** Inline comments sent with the review; cusr sends none. */
+  comments?: { path: string; line: number; body: string }[];
 };
 
 export type FakeGitHubState = {
@@ -181,7 +182,7 @@ export class FakeGitHub implements GitHubPort {
         commit_id: b.commit_id,
         body: b.body,
         event: b.event,
-        comments: b.comments,
+        ...(b.comments === undefined ? {} : { comments: b.comments }),
       };
       p.reviews.push(review);
       return reply(200, review);

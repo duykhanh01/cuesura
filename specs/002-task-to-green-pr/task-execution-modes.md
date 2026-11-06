@@ -152,8 +152,8 @@ reviewer không nhận GitHub credential, nên comment trên PR luôn khớp ver
 
 - `full-review` mở PR dạng draft. Mỗi lượt review được đăng thành một PR review `COMMENT` (không
   dùng `APPROVE`/`REQUEST_CHANGES`, vốn tác động lên điều kiện merge); review các vòng trước được giữ
-  nguyên làm lịch sử. Finding trỏ vào dòng được thêm trong diff thành inline comment, phần còn lại
-  nằm trong body; GitHub từ chối vị trí inline thì đăng lại toàn bộ trong body.
+  nguyên làm lịch sử. Mỗi lượt là đúng một comment: mọi finding (kèm file và dòng nếu có) nằm trong
+  body, không tách thành inline comment theo từng file.
 - Comment đăng đúng lượt review mà bước review vừa dùng để rẽ nhánh, kể cả verdict được dùng lại; không
   lấy lượt review mới nhất của revision.
 - Body có marker ẩn `<!-- cusr:review task=… attempt=… -->`. Daemon tìm marker trước khi đăng và
@@ -173,9 +173,10 @@ reviewer không nhận GitHub credential, nên comment trên PR luôn khớp ver
   được tính là đạt.
 - Format comment theo `review_template` trong `cusr.yaml` (đường dẫn file trong repo, đọc từ frozen
   base); không khai báo thì dùng template mặc định. Placeholder: `{{round}}`, `{{verdict}}`,
-  `{{summary}}`, `{{findings}}`, `{{inline_count}}`, `{{head_sha}}`; chỉ thay chuỗi một lượt, không có
-  điều kiện hay vòng lặp. Placeholder lạ, file thiếu hoặc marker `<!-- cusr:` trong template chặn
-  task lúc start với `config_invalid:review_template`. Inline comment có format cố định.
+  `{{summary}}`, `{{findings}}`, `{{inline_count}}` (luôn là `0`, giữ để template cũ vẫn hợp lệ),
+  `{{head_sha}}`; chỉ thay chuỗi một lượt, không có điều kiện hay vòng lặp. Placeholder lạ, file
+  thiếu hoặc marker `<!-- cusr:` trong template chặn task lúc start với
+  `config_invalid:review_template`.
 - Bước PR không giữ execution slot, nên review xếp hàng lấy lại slot sau khi PR mở; request
   `resumed` được ưu tiên hơn task mới ở cùng priority.
 

@@ -212,6 +212,7 @@ export const PostReviewDataSchema = z
     attempt_id: z.string().min(1),
     outcome: z.enum(['posted', 'not_posted', 'unknown']),
     review_id: z.number().int().nullable(),
+    // Always 0 now that the review is one comment; kept so recorded events still parse.
     inline: z.number().int().nonnegative(),
     detail: z.string().nullable(),
   })

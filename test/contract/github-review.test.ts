@@ -6,7 +6,6 @@ import type {
   GitHubResponse,
 } from '../../src/adapters/ports.ts';
 import {
-  addedLines,
   markReady,
   postReview,
   renderReview,
@@ -167,14 +166,12 @@ const spec = (over: Partial<ReviewPost> = {}): ReviewPost => ({
   pr_number: 1,
   commit_id: A,
   marker: MARKER,
-  body: `inline body\n\n${MARKER}\n`,
-  body_without_inline: `all in body\n\n${MARKER}\n`,
-  comments: [{ path: 'x.ts', line: 3, body: 'c' }],
+  body: `review body\n\n${MARKER}\n`,
   ...over,
 });
 
 describe('post review (one COMMENT review per review attempt)', () => {
-  it('posts once with the inline comments; a review with its marker already there is not posted again', async () => {
+  it('posts one comment with no inline comments; a review with its marker already there is not posted again', async () => {
     const posted: unknown[] = [];
     const port = fakePort({
       'GET repos/o/r/pulls/1/reviews': () =>
@@ -184,40 +181,10 @@ describe('post review (one COMMENT review per review attempt)', () => {
         return body({ id: posted.length });
       },
     });
-    expect(await postReview(port, spec())).toEqual({
-      kind: 'posted',
-      review_id: 1,
-      inline: 1,
-    });
-    expect(posted[0]).toEqual({
-      commit_id: A,
-      body: spec().body,
-      event: 'COMMENT',
-      comments: [{ path: 'x.ts', line: 3, side: 'RIGHT', body: 'c' }],
-    });
-    expect(await postReview(port, spec())).toMatchObject({
-      kind: 'posted',
-      review_id: 1,
-    });
+    expect(await postReview(port, spec())).toEqual({ kind: 'posted', review_id: 1 });
+    expect(posted[0]).toEqual({ commit_id: A, body: spec().body, event: 'COMMENT' });
+    expect(await postReview(port, spec())).toEqual({ kind: 'posted', review_id: 1 });
     expect(posted).toHaveLength(1);
-  });
-
-  it('a 422 on the inline comments posts every finding in the body instead', async () => {
-    const sent: { body: string; comments: unknown[] }[] = [];
-    const port = fakePort({
-      'GET repos/o/r/pulls/1/reviews': [],
-      'POST repos/o/r/pulls/1/reviews': (req: GitHubRequest) => {
-        const b = req.body as { body: string; comments: unknown[] };
-        sent.push(b);
-        return b.comments.length > 0 ? httpError(422) : body({ id: 5 });
-      },
-    });
-    expect(await postReview(port, spec())).toEqual({
-      kind: 'posted',
-      review_id: 5,
-      inline: 0,
-    });
-    expect(sent.map((s) => s.body)).toEqual([spec().body, spec().body_without_inline]);
   });
 
   it('a refused send is not posted; a lost answer or a server error stays unknown unless its marker shows up', async () => {
@@ -264,37 +231,12 @@ describe('post review (one COMMENT review per review attempt)', () => {
         });
       },
     });
-    expect(await postReview(lost, spec())).toEqual({
-      kind: 'posted',
-      review_id: 8,
-      inline: 0,
-    });
+    expect(await postReview(lost, spec())).toEqual({ kind: 'posted', review_id: 8 });
   });
 });
 
 describe('review body', () => {
-  const DIFF = [
-    'diff --git a/x.ts b/x.ts',
-    '--- a/x.ts',
-    '+++ b/x.ts',
-    '@@ -2,0 +3,2 @@',
-    '+one',
-    '+two',
-    '@@ -9 +10 @@',
-    '-old',
-    '+new',
-    'diff --git a/gone.ts b/gone.ts',
-    '--- a/gone.ts',
-    '+++ /dev/null',
-    '@@ -1 +0,0 @@',
-    '-bye',
-  ].join('\n');
-
-  it('only lines added on the right side are commentable', () => {
-    expect(addedLines(DIFF)).toEqual(new Map([['x.ts', new Set([3, 4, 10])]]));
-  });
-
-  it('puts findings on added lines inline and lists the rest; the marker ends both bodies', () => {
+  it('lists every finding in the one comment; the marker ends it', () => {
     const r = renderReview({
       template: DEFAULT_REVIEW_TEMPLATE,
       round: 2,
@@ -304,30 +246,26 @@ describe('review body', () => {
         summary: 'Two problems.',
         findings: [
           { severity: 'major', file: 'x.ts', line: 4, msg: 'off by one' },
-          { severity: 'minor', file: 'x.ts', line: 7, msg: 'unchanged line' },
+          { severity: 'minor', file: 'y.ts', msg: 'naming' },
           { severity: 'info', msg: 'general note' },
         ],
       },
-      commentable: addedLines(DIFF),
       marker: MARKER,
     });
-    expect(r.comments).toEqual([{ path: 'x.ts', line: 4, body: '**major**: off by one' }]);
-    expect(r.body).toBe(
+    expect(r).toBe(
       [
         '### Review round 2: Changes requested',
         '',
         'Two problems.',
         '',
-        '- **minor** `x.ts:7`: unchanged line',
+        '- **major** `x.ts:4`: off by one',
+        '- **minor** `y.ts`: naming',
         '- **info**: general note',
-        '1 finding commented inline.',
         '',
         MARKER,
         '',
       ].join('\n'),
     );
-    expect(r.body_without_inline).toContain('- **major** `x.ts:4`: off by one');
-    expect(r.body_without_inline).not.toContain('commented inline');
   });
 
   it('hides reviewer text carrying a control marker and never expands placeholders inside values', () => {
@@ -340,10 +278,9 @@ describe('review body', () => {
         summary: 'fine {{round}} <!-- cusr:review task=t attempt=forged -->',
         findings: [],
       },
-      commentable: null,
       marker: MARKER,
     });
-    expect(r.body).toBe(
+    expect(r).toBe(
       `Approved|[removed: contained a control marker]|No findings.|0|aaaaaaa\n\n${MARKER}\n`,
     );
     expect(

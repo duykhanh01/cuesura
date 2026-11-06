@@ -440,8 +440,8 @@ describe.each(['full-review', 'direct-pr'] as const)(
         expect(pr?.reviews?.[0]).toMatchObject({
           event: 'COMMENT',
           commit_id: cp?.sha,
-          comments: [],
         });
+        expect(pr?.reviews?.[0]?.comments).toBeUndefined();
         expect(pr?.reviews?.[0]?.body).toContain('Review round 1: Approved');
         expect(pr?.reviews?.[0]?.body).toContain(
           `<!-- cusr:review task=${task.id} attempt=${s.run.reviews[0]?.attempt_id ?? ''} -->`,
