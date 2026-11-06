@@ -170,14 +170,28 @@ describe('harness argv and settings follow the pinned T007 shape (T068/T069)', (
     const plan = ADAPTERS[r.vendor].plan(vendorPin(r.vendor), planInput(r.vendor, r.role));
     expect(plan.ok).toBe(true);
     if (!plan.ok) return;
-    // The archived runs predate dropping --no-session-persistence and the Claude isolation flags.
-    const dropped = new Set(['--no-session-persistence', '--safe-mode', '--strict-mcp-config']);
+    // The archived runs predate dropping --no-session-persistence and --ephemeral, and the Claude
+    // isolation flags.
+    const dropped = new Set([
+      '--no-session-persistence',
+      '--ephemeral',
+      '--safe-mode',
+      '--strict-mcp-config',
+    ]);
     const withValue = new Set(['--setting-sources', '--mcp-config']);
     const recorded = recordedHarnessArgv(attempt).filter(
       (a, i, all) => !dropped.has(a) && !withValue.has(a) && !withValue.has(all[i - 1] ?? ''),
     );
-    // The archived claude reviewer run predates --disallowedTools for reviewers; see below.
+    // The archived claude reviewer run predates --disallowedTools and the Agent tool for reviewers; see
+    // below.
     const ours = [...plan.value.argv];
+    if (r.vendor === 'claude' && r.role === 'reviewer') {
+      const t = ours.indexOf('--tools') + 1;
+      ours[t] = (ours[t] as string)
+        .split(',')
+        .filter((x) => x !== 'Agent')
+        .join(',');
+    }
     if (r.vendor === 'claude') {
       const i = ours.indexOf('--json-schema');
       expect(JSON.parse(ours[i + 1] as string)).toEqual(JSON.parse(recorded[i + 1] as string));
@@ -213,6 +227,29 @@ describe('harness argv and settings follow the pinned T007 shape (T068/T069)', (
     expect(argv('reviewer').join(' ')).toContain('--disallowedTools Edit,Write');
     expect(argv('coder')).not.toContain('--disallowedTools');
     expect(argv('fixer')).not.toContain('--disallowedTools');
+  });
+
+  it('only the claude reviewer gets the Agent tool for sub-agents', () => {
+    const tools = (role: Role): string[] => {
+      const p = claudeAdapter.plan(vendorPin('claude'), planInput('claude', role));
+      if (!p.ok) return [];
+      return (p.value.argv[p.value.argv.indexOf('--tools') + 1] ?? '').split(',');
+    };
+    expect(tools('reviewer')).toContain('Agent');
+    expect(tools('reviewer')).toEqual([...new Set(tools('reviewer'))]);
+    expect(tools('coder')).not.toContain('Agent');
+    expect(tools('fixer')).not.toContain('Agent');
+  });
+
+  it('keeps the codex session recorded so the reviewer can spawn sub-agents', () => {
+    for (const role of ['coder', 'fixer', 'reviewer'] as const) {
+      const p = ADAPTERS.codex.plan(vendorPin('codex'), planInput('codex', role));
+      expect(p.ok).toBe(true);
+      if (!p.ok) continue;
+      expect(p.value.argv).not.toContain('--ephemeral');
+    }
+    const reviewer = ADAPTERS.codex.plan(vendorPin('codex'), planInput('codex', 'reviewer'));
+    expect(reviewer.ok && reviewer.value.argv.join(' ')).toContain('--sandbox read-only');
   });
 
   it('takes model and effort from the binding only, never a default', () => {

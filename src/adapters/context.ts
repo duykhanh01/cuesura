@@ -7,10 +7,12 @@
  * Size is capped (context 128 KiB, reviewer diff 64 KiB by default). Required parts are never cut: when
  * acceptance, the fixer's failures or the reviewer's diff are missing, or the required parts (the role
  * prompt among them) alone do not fit, the result is `needs_context` and no agent is called. Workers also
- * get {@link WORKER_RULES}, which hold whatever the owner's prompt says. Optional parts are cut from the end,
- * lowest priority first, and every cut says what was kept, of how much, and the digest of the whole.
+ * get {@link CODER_RULES} or {@link FIXER_RULES} and the reviewer {@link REVIEWER_RULES}, which hold whatever the owner's prompt
+ * says. Optional parts are cut from the end, lowest priority first, and every cut says what was kept, of
+ * how much, and the digest of the whole.
  */
-import type { FrozenExecutionContext } from '../domain/policy.ts';
+import type { FrozenExecutionContext, FrozenPolicy } from '../domain/policy.ts';
+import type { TaskState } from '../domain/state.ts';
 import type { Redactor } from '../runner/redact.ts';
 import { hashText } from '../shared/hash.ts';
 import type { Hash } from '../shared/brand.ts';
@@ -55,6 +57,93 @@ export type PublishBrief = {
   readonly file: string;
 };
 
+/**
+ * What the gates ran on the commit under review. `passed` and `failed` describe the gate run that made
+ * the reviewed checkpoint; `not_configured` when the project declares no gates; `missing` when no gate
+ * run matches that commit.
+ */
+export type GateEvidence = {
+  readonly status: 'passed' | 'failed' | 'not_configured' | 'missing';
+  readonly sha: string;
+  readonly visit: number | null;
+  readonly gates: readonly {
+    readonly name: string;
+    readonly command: string | null;
+    readonly required: boolean;
+    readonly result: 'passed' | 'failed' | 'skipped';
+    readonly detail: string | null;
+  }[];
+  readonly reason: string | null;
+};
+
+/** Failure output kept per gate; the reviewer needs the cause, not the whole log. */
+const GATE_DETAIL_BYTES = 1024;
+
+/**
+ * Gate evidence for the reviewer: the gate run whose checkpoint is the reviewed commit, with each gate's
+ * command and whether the step requires it, from the frozen policy. Any other run of the revision
+ * describes another tree, so the reviewer gets `missing` instead of a stale pass.
+ */
+export function gateEvidenceFor(
+  s: Pick<TaskState, 'revision' | 'evidence' | 'run'>,
+  gates: FrozenPolicy['gates'],
+  sha: string,
+): GateEvidence {
+  const missing = (reason: string): GateEvidence => ({
+    status: 'missing',
+    sha,
+    visit: null,
+    gates: [],
+    reason,
+  });
+  if (Object.values(gates.by_step).every((g) => g.run.length === 0))
+    return { status: 'not_configured', sha, visit: null, gates: [], reason: null };
+  const cp = s.run.checkpoint;
+  if (cp === null || cp.revision !== s.revision || cp.sha !== sha)
+    return missing('the reviewed commit is not the checkpoint the gates made');
+  const record = s.evidence.gates
+    .filter((g) => g.valid && g.revision === s.revision && g.visit === cp.gate_visit)
+    .at(-1);
+  if (record === undefined) return missing('no gate run is recorded for this checkpoint');
+  const step = gates.by_step[record.step];
+  const failed = new Map((record.failed ?? []).map((f) => [f.gate, f]));
+  const tail = (f: { signature: string | null; log_excerpt: string | null }): string => {
+    const text = [f.signature ?? 'failed', f.log_excerpt ?? ''].filter((x) => x !== '').join('\n');
+    const buf = Buffer.from(text, 'utf8');
+    return buf.length <= GATE_DETAIL_BYTES
+      ? text
+      : buf
+          .subarray(buf.length - GATE_DETAIL_BYTES)
+          .toString('utf8')
+          .replace(/^\uFFFD/, '');
+  };
+  return {
+    status: record.passed ? 'passed' : 'failed',
+    sha,
+    visit: record.visit,
+    gates: [
+      ...(step?.run ?? []).map((name) => {
+        const f = failed.get(name);
+        return {
+          name,
+          command: gates.commands[name] ?? null,
+          required: step?.required.includes(name) ?? false,
+          result: f === undefined ? ('passed' as const) : ('failed' as const),
+          detail: f === undefined ? null : tail(f),
+        };
+      }),
+      ...(step?.skipped ?? []).map((name) => ({
+        name,
+        command: null,
+        required: false,
+        result: 'skipped' as const,
+        detail: null,
+      })),
+    ],
+    reason: null,
+  };
+}
+
 export type ReviewDiff = {
   readonly text: string;
   /** Every changed path, kept in full even when the diff text is cut. */
@@ -86,6 +175,8 @@ export type ContextInput = {
   readonly repair?: RepairState | null;
   /** Worker roles of a mode task: template and where to put the commit/PR content. */
   readonly publish?: PublishBrief | null;
+  /** Reviewer: what the gates ran on the reviewed commit. */
+  readonly gate_evidence?: GateEvidence | null;
   /** Reviewer of a `full-review` task: the PR content it checks with the diff. */
   readonly pr_content?: PublishContent | null;
   /** Decider: what the worker is waiting on, every question of its result together. */
@@ -121,12 +212,58 @@ export type NeedsContext = {
   readonly missing: readonly string[];
 };
 
-/** What the run enforces on a worker. Not left to the owner's prompt: `.git` is read-only either way. */
-export const WORKER_RULES = [
-  'Cuesura commits, pushes and opens the PR itself after this step. The Git directory is read-only in this sandbox.',
-  'Leave your changes uncommitted in the worktree. Do not run git add, commit, push or any command that writes to Git, and do not open a PR.',
-  'A read-only Git directory is expected: it is not a reason to report blocked.',
-].join('\n');
+/** Shared by coder and fixer: what the run enforces and what each result status means to the engine. */
+const WORKER_COMMON = `Checks
+- Run the project's checks that apply to your change and list the commands and results in the PR description.
+- A check the sandbox prevents from running is not a failure of your change: name it and the reason.
+
+Git
+- Leave your changes uncommitted in the worktree. Cuesura commits, pushes and opens the PR after this step.
+- The Git directory is read-only here. Do not run commands that write to Git; this is expected, not a reason to report blocked.
+
+Result
+- done: the work is finished and the publish_content file is current.
+- needs_input: a choice only the owner can make; ask it in questions, with options.
+- needs_context: information the task depends on is in neither the context nor the worktree; name it in blocker.
+- blocked: the work cannot be done within this task; give the reason in blocker.`;
+
+export const CODER_RULES = `You implement one task in this worktree.
+- Meet every acceptance criterion and requirement. Respect the constraints; do not touch what is out of scope.
+- Follow the repository conventions. Add or update tests for the behaviour you change.
+
+${WORKER_COMMON}`;
+
+export const FIXER_RULES = `You fix the failures listed in the failures section on an existing change.
+- Fix each failure at its cause. Do not weaken tests, gates or lint rules to make them pass.
+- Keep the rest of the change as it is.
+- If a review finding is wrong or asks for work outside this task, do not change code for it: fix the others, then report blocked, naming the finding and why in blocker.
+
+${WORKER_COMMON}`;
+
+/**
+ * What the reviewer works from. Not left to the owner's prompt: the reviewer runs read-only, so a check
+ * it starts fails on the sandbox and only adds noise to the verdict.
+ */
+export const REVIEWER_RULES = `You review one change before it is merged. You cannot edit files.
+
+Scope
+- The change is the commit range in the diff section; read it with the command given there and the files in the worktree. Do not review another range.
+- The spec is the acceptance criteria and requirements. Do not ask for another.
+
+Evidence
+- Do not run typecheck, lint, build or tests, yourself or in sub-agents: the sandbox is read-only and they fail regardless.
+- gate_evidence states what the gates ran on this commit. The PR content may list checks the worker ran; where both report the same check differently, trust gate_evidence.
+- If gate_evidence is not_configured or missing, rely on the checks the worker reports and say in the summary that no gate confirmed them.
+- Missing evidence that checks ran is never a finding: CI runs them after you approve.
+- A reported check the change contradicts, such as a test that is not in the worktree, is a finding.
+
+Findings
+- Report defects in the change and acceptance criteria it does not meet, each with its repository-relative file and, where it applies, line.
+- A required behaviour without a test is a finding.
+- critical and major findings block the change; minor and info do not. Approve when no critical or major finding remains.
+
+Sub-agents
+- You may delegate parts of the review to read-only sub-agents with this context. If none can start, review directly and do not report it.`;
 
 const bytes = (s: string): number => Buffer.byteLength(s, 'utf8');
 
@@ -168,9 +305,11 @@ function marker(t: Truncation): string {
 
 const list = (xs: readonly string[]): string => xs.map((x) => `- ${x}`).join('\n');
 
-const DECIDER_RULES = `You decide for the project owner, who is away and cannot be asked. A worker stopped on the question below.
-Read the worktree if that helps, but change nothing. Choose what best serves the task and its acceptance criteria, preferring the conventional, reversible choice. Never refuse to decide and never ask back: state any assumption you make.
-Return \`answer\`, telling the worker what to do and covering every question listed, and \`reason\`, one or two sentences the owner reads later.`;
+const DECIDER_RULES = `You answer a worker's question for the project owner, who is away and cannot be asked.
+- Read the worktree if it helps; change nothing.
+- Choose what best serves the task and its acceptance criteria; prefer the conventional, reversible option.
+- Always decide; never ask back. State any assumption you make.
+- answer: what the worker should do, covering every question listed. reason: one or two sentences the owner reads later.`;
 
 export function buildRoleContext(
   input: ContextInput,
@@ -196,21 +335,30 @@ export function buildRoleContext(
   let diffBody = '';
   if (input.diff !== null) {
     const full = clean(input.diff.text);
-    const kept = cut(full, input.limits.review_diff_bytes);
     const paths = input.diff.paths.map(clean);
+    const from = clean(input.diff.from);
+    const to = clean(input.diff.to);
     diff = { digest: hashText(full), paths, bytes: bytes(full) };
-    let tail = '';
-    if (kept.length < full.length) {
-      const t: Truncation = {
-        section: 'diff',
-        kept_bytes: bytes(kept),
-        original_bytes: bytes(full),
-        digest: hashText(full),
-      };
-      truncated.push(t);
-      tail = marker(t);
+    const range = `Range: ${from}..${to}`;
+    const listed = `Digest: ${diff.digest}\nChanged paths (${paths.length}):\n${list(paths)}`;
+    if (input.role === 'reviewer') {
+      // The reviewer reads the change through git; a copy here would be read twice.
+      diffBody = `${range}\nRead it with: git diff ${from} ${to}\n${listed}`;
+    } else {
+      const kept = cut(full, input.limits.review_diff_bytes);
+      let tail = '';
+      if (kept.length < full.length) {
+        const t: Truncation = {
+          section: 'diff',
+          kept_bytes: bytes(kept),
+          original_bytes: bytes(full),
+          digest: hashText(full),
+        };
+        truncated.push(t);
+        tail = marker(t);
+      }
+      diffBody = `${range}\n${listed}\n\n\`\`\`diff\n${kept}\n\`\`\`${tail}`;
     }
-    diffBody = `Range: ${clean(input.diff.from)}..${clean(input.diff.to)}\nDigest: ${diff.digest}\nChanged paths (${paths.length}):\n${list(paths)}\n\n\`\`\`diff\n${kept}\n\`\`\`${tail}`;
   }
 
   const header = [
@@ -231,7 +379,16 @@ export function buildRoleContext(
           },
         ]),
     ...(input.role === 'coder' || input.role === 'fixer'
-      ? [{ name: 'worker_rules', body: WORKER_RULES, required: true }]
+      ? [
+          {
+            name: 'worker_rules',
+            body: input.role === 'coder' ? CODER_RULES : FIXER_RULES,
+            required: true,
+          },
+        ]
+      : []),
+    ...(input.role === 'reviewer'
+      ? [{ name: 'reviewer_rules', body: REVIEWER_RULES, required: true }]
       : []),
     ...(input.role === 'decider'
       ? [
@@ -317,6 +474,16 @@ export function buildRoleContext(
       body: clean(c.request.description),
       required: false,
     },
+    // After the spec: optional sections fill the budget in order, and gate output must not crowd it out.
+    ...(input.role === 'reviewer' && input.gate_evidence != null
+      ? [
+          {
+            name: 'gate_evidence',
+            body: gateBody(input.gate_evidence, clean),
+            required: false,
+          },
+        ]
+      : []),
     ...(input.repair != null && input.repair.diff !== ''
       ? [
           {
@@ -396,6 +563,26 @@ export function buildRoleContext(
   };
 }
 
+function gateBody(g: GateEvidence, clean: (s: string) => string): string {
+  const sha = clean(g.sha);
+  const head =
+    g.status === 'not_configured'
+      ? `Status: not_configured. The project declares no gates: nothing was built, linted or tested on ${sha}.`
+      : g.status === 'missing'
+        ? `Status: missing. No gate result for ${sha}${g.reason === null ? '' : `: ${clean(g.reason)}`}.`
+        : `Status: ${g.status} on ${sha}${g.visit === null ? '' : ` (gate run ${g.visit})`}.`;
+  const lines = [head];
+  for (const x of g.gates)
+    lines.push(
+      x.result === 'skipped'
+        ? `- ${clean(x.name)}: skipped, not declared by the project`
+        : `- ${clean(x.name)} (${x.required ? 'required' : 'optional'}): ${x.result}${x.command === null ? '' : `. Command: ${clean(x.command)}`}`,
+    );
+  for (const x of g.gates)
+    if (x.detail !== null) lines.push(`### ${clean(x.name)} output (tail)\n${clean(x.detail)}`);
+  return lines.join('\n');
+}
+
 function repairBody(r: RepairState, clean: (s: string) => string): string {
   return [
     `Cause: ${r.cause}`,
@@ -410,10 +597,10 @@ function repairBody(r: RepairState, clean: (s: string) => string): string {
 
 function publishBody(p: PublishBrief, clean: (s: string) => string): string {
   const parts = [
-    `Write the commit message, PR title and PR description for this change as JSON {"commit_message", "pr_title", "pr_body"} to ${p.file}. Do not add <!-- cusr: ... --> markers; Cuesura adds its own. Update them when your change makes them inaccurate.`,
+    `Write the commit message, PR title and PR description as JSON {"commit_message", "pr_title", "pr_body"} to ${p.file}. Keep them accurate to the final change. Do not add <!-- cusr: ... --> markers.`,
     p.template === null
       ? 'The repo has no PR template: write a plain description.'
-      : `PR template (${clean(p.template.path)}), follow it:\n${clean(p.template.content)}`,
+      : `Follow the PR template (${clean(p.template.path)}):\n${clean(p.template.content)}`,
   ];
   if (p.current !== null)
     parts.push(

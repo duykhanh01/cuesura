@@ -2,14 +2,16 @@
  * Codex CLI adapter (T069, FR-011/012/033). Argv follows the shape the T007 fixtures proved on 0.165.0
  * (`pinned-codex.json`) and `prove-harness` re-proves for each pinned binary: `exec --json` with the role schema file and `--output-last-message`
  * into a per-operation scratch file, apps/plugins/MCP installs disabled, `approval_policy="never"`,
- * user config ignored, an ephemeral session and cwd pinned to the worktree. Coder/fixer get
+ * user config ignored and cwd pinned to the worktree. Coder/fixer get
  * `workspace-write` plus scratch, the reviewer `read-only`; the inner sandbox is only switched off in
  * the external_verified mode the manifest selected. Nothing here names a model.
  *
  * `--json` emits no event for a command that a rule or the sandbox refused; Codex logs it on stderr
  * (`codex_core::tools::router ... Rejected`), so denials come from stderr and never from the model's
  * own words (T006/T007 evidence). Usage is the sum of `turn.completed.usage`; Codex reports no cost.
- * No resume argv is pinned for this binary, so a session is never passed.
+ * No resume argv is pinned for this binary, so a session is never passed. The session is still recorded
+ * (no `--ephemeral`) in the private home: `spawn_agent` loads the parent thread's rollout, so an
+ * ephemeral session cannot start sub-agents ("no rollout found for thread id").
  */
 import { existsSync } from 'node:fs';
 import { hashCanonical } from '../../shared/hash.ts';
@@ -97,7 +99,6 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
     input.model,
     ...(input.effort === null ? [] : ['-c', `model_reasoning_effort="${input.effort}"`]),
     '--ignore-user-config',
-    '--ephemeral',
     '-C',
     input.cwd,
     ...sandboxArgs(input),
@@ -127,7 +128,7 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
       ]),
     ),
     ignore_user_config: true,
-    ephemeral: true,
+    ephemeral: false,
     home_files: pin.home_files.map((f) => ({
       to: f.to,
       sha256: f.sha256 ?? null,

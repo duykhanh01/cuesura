@@ -20,6 +20,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   buildRoleContext,
+  gateEvidenceFor,
   type PublishContent,
   type RepairState,
   type RoleFailure,
@@ -891,7 +892,12 @@ async function startAgent(
           file: agentFile,
         }
       : null,
-    ...(r === 'reviewer' ? { pr_content: currentContent(deps, l.s) } : {}),
+    ...(r === 'reviewer'
+      ? {
+          pr_content: currentContent(deps, l.s),
+          gate_evidence: review === null ? null : gateEvidenceFor(l.s, l.policy.gates, review.sha),
+        }
+      : {}),
     limits: {
       context_bytes: l.rt.limits.context_bytes,
       review_diff_bytes: l.rt.limits.review_diff_bytes,

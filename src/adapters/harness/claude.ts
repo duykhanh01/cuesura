@@ -38,6 +38,11 @@ import {
 export const CLAUDE_SETTINGS_FILE = 'claude-settings.json';
 export const CLAUDE_RESULT_POINTER = ['structured_output'] as const;
 const REVIEWER_DISALLOWED = 'Edit,Write';
+/**
+ * Lets the reviewer split its review across sub-agents. Sub-agents inherit `--disallowedTools` and the
+ * sandbox settings of the session, so they stay read-only like the reviewer.
+ */
+const REVIEWER_EXTRA_TOOLS = ['Agent'] as const;
 /** Auto-approving modes rejected by the archived outer-sandbox contract. */
 const APPROVING_MODES = new Set(['bypassPermissions', 'acceptEdits', 'auto']);
 
@@ -174,7 +179,10 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
     '--verbose',
     ...(maxTurns === null ? [] : ['--max-turns', String(maxTurns)]),
     '--tools',
-    pin.tools.join(','),
+    (input.role === 'reviewer'
+      ? [...new Set([...pin.tools, ...REVIEWER_EXTRA_TOOLS])]
+      : pin.tools
+    ).join(','),
     '--output-format',
     'stream-json',
     '--json-schema',

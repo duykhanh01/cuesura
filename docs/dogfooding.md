@@ -120,6 +120,30 @@ có `cursor`, `operation_id`, `attempt_id`, `reason` và không có `seq`. CLI c
 hoặc lý do thay đổi, hoặc lỗi xuất hiện lại sau khi đã hết. Record thật sau khi khôi phục vẫn giữ
 `seq` ban đầu. TUI hiện `Log temporarily unavailable` thay vì báo mất 0 record.
 
+### Khi gate và review khác ý nhau
+
+Reviewer chạy read-only nên không tự chạy typecheck, lint, build hay test. Nó đánh giá dựa trên bằng chứng có sẵn:
+phần kiểm tra worker tự báo trong nội dung PR (nếu template PR yêu cầu), và mục `gate_evidence` trong context cho
+biết gate đã chạy gì trên đúng commit đang review: từng gate, command, bắt buộc hay tuỳ chọn, kết quả và đuôi log
+khi fail. Cùng một kiểm tra mà hai nguồn báo khác nhau thì tin `gate_evidence`. Không có kết quả gate
+(`not_configured`, `missing`) thì reviewer dựa vào phần worker tự báo và ghi rõ chưa có gate xác nhận. Thiếu bằng
+chứng đã chạy kiểm tra không bao giờ là finding, vì CI chạy sau khi approve; còn kiểm tra được báo mà thay đổi mâu
+thuẫn (vd test không có trong worktree) là finding.
+`gate_evidence` gồm các trạng thái:
+
+- `passed`/`failed`: kết quả của lượt gate tạo ra checkpoint đó, kể cả gate tuỳ chọn bị fail.
+- `not_configured`: project không khai báo gate (`allow_no_gates`).
+- `missing`: không có lượt gate nào khớp commit đang review.
+
+Context của reviewer chỉ có range, digest và danh sách file của thay đổi, không chép nội dung diff; reviewer đọc
+bằng `git diff <from> <to>` trong worktree. Reviewer được tách việc cho sub-agent read-only (Claude qua tool
+`Agent`, Codex qua `spawn_agent`).
+
+Nhận xét review nói "không chạy được test", "môi trường chỉ đọc" hay "không khởi tạo được sub-agent" là nhiễu,
+không phải lý do sửa code: đối chiếu kết quả gate trong `task explain` và ghi issue theo
+[Vòng tự cải thiện](#vòng-tự-cải-thiện). Review từ chối vì tiêu chí nghiệm thu nằm ngoài phạm vi task là lỗi giao
+việc: hủy và giao lại với tiêu chí nghiệm thu được trong chính diff của task.
+
 ### Chọn model
 
 Assistant đề xuất theo bảng, nêu lý do ở `--reason`, rồi tự xác nhận; người dùng chỉ định khác thì làm theo. Không chắc thì chọn

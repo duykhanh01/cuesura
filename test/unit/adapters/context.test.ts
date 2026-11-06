@@ -1,13 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
-  WORKER_RULES,
+  CODER_RULES,
+  FIXER_RULES,
+  REVIEWER_RULES,
   buildRoleContext,
+  gateEvidenceFor,
+  type GateEvidence,
   sanitize,
   type ContextInput,
 } from '../../../src/adapters/context.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
 import { buildContext, buildTask } from '../../support/builders.ts';
 import { finalizeContext } from '../../../src/policy/finalize.ts';
+import { emptyRuntime } from '../../../src/engine/evolve.ts';
+import type { Evidence, TaskState } from '../../../src/domain/state.ts';
 
 const SECRET = 'hunter2-very-secret-value';
 const redactor = new Redactor({ values: [SECRET] });
@@ -68,7 +74,7 @@ describe('role context (T037, FR-005)', () => {
 
   it('tells workers, whatever the prompt says, that Cuesura commits; a reviewer is not told', () => {
     const coder = ok(buildRoleContext(input()));
-    expect(coder.text).toContain(`## worker_rules\n${WORKER_RULES}`);
+    expect(coder.text).toContain(`## worker_rules\n${CODER_RULES}`);
     const fixer = ok(
       buildRoleContext(
         input({
@@ -77,7 +83,8 @@ describe('role context (T037, FR-005)', () => {
         }),
       ),
     );
-    expect(fixer.text).toContain('## worker_rules');
+    expect(fixer.text).toContain(`## worker_rules\n${FIXER_RULES}`);
+    expect(FIXER_RULES).toMatch(/outside this task, do not change code for it/);
     const reviewer = ok(
       buildRoleContext(
         input({
@@ -150,14 +157,33 @@ describe('role context (T037, FR-005)', () => {
     expect(reviewer.text).toContain(`Digest: ${reviewer.diff?.digest ?? ''}`);
   });
 
+  it('gives the reviewer the range, digest and paths, not a copy of the diff', () => {
+    const from = 'a'.repeat(40);
+    const to = 'b'.repeat(40);
+    const v = ok(
+      buildRoleContext(
+        input({
+          role: 'reviewer',
+          step: 'review',
+          diff: { text: '+secret-free change\n', paths: ['src/x.ts'], from, to },
+        }),
+      ),
+    );
+    expect(v.text).toContain(`Range: ${from}..${to}\nRead it with: git diff ${from} ${to}`);
+    expect(v.text).toContain('- src/x.ts');
+    expect(v.text).not.toContain('+secret-free change');
+    expect(v.diff?.digest).toMatch(/^sha256:/);
+  });
+
   it('cuts a large diff at 64 KiB with a marker but keeps every path', () => {
     const big = Array.from({ length: 5_000 }, (_, i) => `+line ${i} ${'x'.repeat(20)}`).join('\n');
     const paths = Array.from({ length: 300 }, (_, i) => `src/file${i}.ts`);
     const v = ok(
       buildRoleContext(
         input({
-          role: 'reviewer',
-          step: 'review',
+          role: 'fixer',
+          step: 'fix_review',
+          failures: [{ source: 'review', name: 'major', detail: 'x' }],
           diff: { text: big, paths, from: 'a'.repeat(40), to: 'b'.repeat(40) },
         }),
       ),
@@ -349,6 +375,169 @@ describe('repair packet, template and PR content (T037/T136, M04/M05)', () => {
     ).toMatchObject({
       ok: false,
       error: { kind: 'needs_context', missing: ['context_budget'] },
+    });
+  });
+
+  describe('reviewer rules and gate evidence (#140)', () => {
+    const SHA = 'c'.repeat(40);
+    const diff = { text: 'd', paths: ['a'], from: 'b'.repeat(40), to: SHA };
+    const reviewer = (gate_evidence: GateEvidence | null) =>
+      ok(buildRoleContext(input({ role: 'reviewer', step: 'review', diff, gate_evidence })));
+
+    it('tells only the reviewer not to run checks itself, whatever the prompt says', () => {
+      const v = reviewer(null);
+      expect(v.text).toContain(`## reviewer_rules\n${REVIEWER_RULES}`);
+      expect(REVIEWER_RULES).toMatch(/Do not run typecheck, lint, build or tests/);
+      expect(REVIEWER_RULES).toMatch(/trust gate_evidence/);
+      expect(REVIEWER_RULES).toMatch(/rely on the checks the worker reports/);
+      expect(REVIEWER_RULES).toMatch(/Missing evidence that checks ran is never a finding/);
+      expect(ok(buildRoleContext(input())).text).not.toContain('reviewer_rules');
+    });
+
+    it('shows each gate with its command, whether it is required, and a short failure tail', () => {
+      const v = reviewer({
+        status: 'passed',
+        sha: SHA,
+        visit: 2,
+        gates: [
+          { name: 'build', command: 'pnpm build', required: true, result: 'passed', detail: null },
+          {
+            name: 'lint',
+            command: 'pnpm lint',
+            required: false,
+            result: 'failed',
+            detail: 'eslint: 1 error',
+          },
+          { name: 'e2e', command: null, required: false, result: 'skipped', detail: null },
+        ],
+        reason: null,
+      });
+      expect(v.text).toContain(`## gate_evidence\nStatus: passed on ${SHA} (gate run 2).`);
+      expect(v.text).toContain('- build (required): passed. Command: pnpm build');
+      expect(v.text).toContain('- lint (optional): failed. Command: pnpm lint');
+      expect(v.text).toContain('- e2e: skipped, not declared by the project');
+      expect(v.text).toContain('### lint output (tail)\neslint: 1 error');
+    });
+
+    it('says plainly when there is no gate evidence', () => {
+      const none = reviewer({
+        status: 'not_configured',
+        sha: SHA,
+        visit: null,
+        gates: [],
+        reason: null,
+      });
+      expect(none.text).toContain('Status: not_configured. The project declares no gates');
+      const missing = reviewer({
+        status: 'missing',
+        sha: SHA,
+        visit: null,
+        gates: [],
+        reason: 'no gate run is recorded for this checkpoint',
+      });
+      expect(missing.text).toContain(
+        `Status: missing. No gate result for ${SHA}: no gate run is recorded for this checkpoint.`,
+      );
+    });
+
+    it('keeps the spec ahead of gate output in the budget', () => {
+      const v = reviewer({ status: 'passed', sha: SHA, visit: 1, gates: [], reason: null });
+      expect(v.text.indexOf('## requirements')).toBeLessThan(v.text.indexOf('## gate_evidence'));
+      expect(v.text.indexOf('## description')).toBeLessThan(v.text.indexOf('## gate_evidence'));
+    });
+
+    type Gate = Evidence['gates'][number];
+    const gate = (over: Partial<Gate> = {}): Gate => ({
+      revision: 1,
+      step: 'gates',
+      visit: 2,
+      passed: true,
+      signature: null,
+      valid: true,
+      failed: [],
+      ...over,
+    });
+    const policy = {
+      commands: { build: 'pnpm build', unit: 'pnpm test', lint: 'pnpm lint' },
+      by_step: {
+        gates: { run: ['build', 'unit', 'lint'], required: ['build', 'unit'], skipped: ['e2e'] },
+      },
+    };
+    const state = (
+      gates: Gate[],
+      checkpointSha = SHA,
+    ): Pick<TaskState, 'revision' | 'evidence' | 'run'> => ({
+      revision: 1,
+      run: {
+        ...emptyRuntime().run,
+        checkpoint: {
+          revision: 1,
+          sha: checkpointSha,
+          tree: 'd'.repeat(40),
+          base_sha: 'b'.repeat(40),
+          diff_digest: 'sha256:x',
+          content_digest: 'sha256:y',
+          committed: true,
+          gate_visit: 2,
+        },
+      },
+      evidence: { gates, reviews: [], review_skipped: [], ci: [] } as unknown as Evidence,
+    });
+
+    it('takes the gate run that made the reviewed checkpoint, with commands from the policy', () => {
+      const s = state([
+        gate({
+          visit: 1,
+          passed: false,
+          failed: [{ gate: 'unit', signature: 'x', log_excerpt: null }],
+        }),
+        gate({ failed: [{ gate: 'lint', signature: 'lint failed', log_excerpt: '1 error' }] }),
+      ]);
+      expect(gateEvidenceFor(s, policy, SHA)).toEqual({
+        status: 'passed',
+        sha: SHA,
+        visit: 2,
+        gates: [
+          { name: 'build', command: 'pnpm build', required: true, result: 'passed', detail: null },
+          { name: 'unit', command: 'pnpm test', required: true, result: 'passed', detail: null },
+          {
+            name: 'lint',
+            command: 'pnpm lint',
+            required: false,
+            result: 'failed',
+            detail: 'lint failed\n1 error',
+          },
+          { name: 'e2e', command: null, required: false, result: 'skipped', detail: null },
+        ],
+        reason: null,
+      });
+    });
+
+    it('keeps only the tail of a long failure output', () => {
+      const log = `${'head '.repeat(1000)}the cause`;
+      const s = state([
+        gate({ passed: false, failed: [{ gate: 'unit', signature: null, log_excerpt: log }] }),
+      ]);
+      const detail = gateEvidenceFor(s, policy, SHA).gates.find((g) => g.name === 'unit')?.detail;
+      expect(Buffer.byteLength(detail ?? '')).toBeLessThanOrEqual(1024);
+      expect(detail).toMatch(/the cause$/);
+    });
+
+    it('reports a project without gates as not_configured', () => {
+      const none = { commands: {}, by_step: { gates: { run: [], required: [], skipped: [] } } };
+      expect(gateEvidenceFor(state([]), none, SHA).status).toBe('not_configured');
+    });
+
+    it('never passes on a stale or missing gate run', () => {
+      expect(gateEvidenceFor(state([gate({ visit: 1 })]), policy, SHA)).toMatchObject({
+        status: 'missing',
+        reason: 'no gate run is recorded for this checkpoint',
+      });
+      expect(gateEvidenceFor(state([gate({ valid: false })]), policy, SHA).status).toBe('missing');
+      expect(gateEvidenceFor(state([gate()], 'e'.repeat(40)), policy, SHA)).toMatchObject({
+        status: 'missing',
+        reason: 'the reviewed commit is not the checkpoint the gates made',
+      });
     });
   });
 });

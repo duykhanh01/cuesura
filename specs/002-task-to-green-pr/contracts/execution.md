@@ -103,8 +103,9 @@ crash I/O rộng vẫn thuộc B; không lấy API đọc finalized review làm 
   có ngân sách. Mọi lần sửa kể cả resume MUST nhận packet mới có nguyên nhân/log/findings, nguồn/SHA/run
   generation, acceptance, checkpoint/worktree/diff, PR content và Q&A hiện hành; packet stale phải dựng
   lại, thiếu bắt buộc thì needs_context. Adapter không quyết định tạo attempt. Refusal không bị retry để vượt quyền.
-- Context tối đa 128 KiB, reviewer diff 64 KiB; kèm diff digest/path list, phần cắt phải ghi rõ.
-  Không đủ acceptance/diff bắt buộc thì needs_context/chờ, không cắt thông tin rồi approve. Reviewer
+- Context tối đa 128 KiB, phần cắt phải ghi rõ. Reviewer không nhận nội dung diff mà đọc bằng `git diff`
+  theo range trong context; context giữ range, digest của diff đầy đủ và toàn bộ path list. Diff đưa cho
+  fixer cắt ở 64 KiB. Không đủ acceptance/range bắt buộc thì needs_context/chờ, không cắt thông tin rồi approve. Reviewer
   có session riêng, chỉ đọc trong `full-review`; có thể cùng vendor/model. `direct-pr` không gọi reviewer.
 - Worker chuẩn bị commit message, PR title/description theo template frozen trong artifact ngoài code;
   sửa code thì cập nhật mô tả khi cần. Hợp đồng output mới phải version hóa/kiểm chứng schema riêng,
