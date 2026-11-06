@@ -5,6 +5,7 @@ import type { CanonicalTask } from '../../../src/domain/task.ts';
 import type { Uuid } from '../../../src/shared/brand.ts';
 import { claimable } from '../../../src/engine/claim.ts';
 import { replay } from '../../../src/engine/evolve.ts';
+import { explain } from '../../../src/explain/explain.ts';
 import { headVerdict } from '../../../src/engine/head-evidence.ts';
 import { hashCanonical } from '../../../src/shared/hash.ts';
 import { openFileStoreForTest } from '../../../src/store/testing.ts';
@@ -42,6 +43,12 @@ const reviewerRuns = (d: StoreDriver, t: CanonicalTask) =>
   Object.values(d.task(t.id).effects).filter((e) => e.kind === 'start_agent' && e.step === 'review')
     .length;
 const posted = (d: StoreDriver, t: CanonicalTask) => completePost(d, t.id);
+/** Answers the question of a review that came back without progress. */
+const answerRepeated = (d: StoreDriver, t: CanonicalTask, answer = 'Fix it.') => {
+  const w = d.task(t.id).wait;
+  expect(w?.detail['code']).toBe('review_repeated');
+  d.must(t.id, { kind: 'answer', question_id: w?.detail['question_id'] as Uuid, answer });
+};
 
 /** Publish A, open the PR, and get a failing CI on A so the worker is called to fix it. */
 function toCiFix(d: StoreDriver, t: CanonicalTask): void {
@@ -576,6 +583,7 @@ describe('review evidence reuse (T137, M03)', () => {
     // The fixer changes nothing: the same rejection is reused and its send is not repeated.
     fixTo(d, t, hashCanonical('body B'));
     expect(types(d, t)).toContain('ReviewReused');
+    answerRepeated(d, t);
     expect(d.pending(t.id, 'post_review')).toEqual([]);
     expect(d.task(t.id).current_step).toBe('fix_review');
   });
@@ -599,6 +607,7 @@ describe('review evidence reuse (T137, M03)', () => {
     completePost(d, t.id, 'not_posted');
     if (d.task(t.id).wait?.detail['code'] === 'execution_slot') d.grantNext();
     fixTo(d, t, hashCanonical('body B'));
+    answerRepeated(d, t);
     expect(d.pendingOne(t.id, 'post_review').request).toMatchObject({
       attempt_id: attemptOf(d, t, 1),
     });
@@ -671,7 +680,7 @@ describe('review evidence reuse (T137, M03)', () => {
     }
   });
 
-  it('unchanged findings are reused and go back to the fixer under the same failure signature', () => {
+  it('unchanged findings are reused under the same failure signature and reach the fixer on an answer', () => {
     const d = setup();
     const t = buildTask();
     createGrantStart(d, t, 'full-review');
@@ -726,6 +735,7 @@ describe('review evidence reuse (T137, M03)', () => {
     // The reused findings count against the fixer with the same signature the reviewer produced.
     const streaks = d.task(t.id).failure_streaks;
     expect(streaks['fix_review#0']?.signature).toBe(streaks['code#0']?.signature);
+    answerRepeated(d, t);
     expect(d.task(t.id).current_step).toBe('fix_review');
   });
 });
@@ -914,5 +924,174 @@ describe('merged head verification by mode (T045, M08)', () => {
         completion: { unverified: { reason: 'merged_head_unverified' } },
       });
     }
+  });
+});
+
+describe('a review/fix loop that does not move (#141)', () => {
+  const blocking = (file: string, msg: string) => ({ severity: 'major', file, msg });
+  /** Rejects the review pending now, with `findings` and the files changed since `since`. */
+  const reject = (
+    d: StoreDriver,
+    t: CanonicalTask,
+    head: string,
+    findings: Record<string, unknown>[],
+    changed?: { sha: string; paths: string[] },
+  ) =>
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      reviewData('request_changes', head, {
+        findings,
+        input_digest: currentReviewInput(d, t.id),
+        ...(changed === undefined ? {} : { changed_since: changed }),
+      }),
+    );
+  /** From the fixer to the next review of the checkpoint `head`. */
+  const fixTo = (d: StoreDriver, t: CanonicalTask, head: string) => {
+    if (d.task(t.id).wait?.detail['code'] === 'execution_slot') d.grantNext();
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(head));
+    publishToReview(d, t.id, head);
+  };
+  const firstRound = () => {
+    const d = setup();
+    const t = buildTask();
+    createGrantStart(d, t, 'full-review');
+    toPublish(d, t, A);
+    publishToReview(d, t.id, A);
+    reject(d, t, A, [
+      blocking('src/tui/app.ts', 'tracker is never started'),
+      { severity: 'minor', file: 'b.ts', msg: 'naming' },
+    ]);
+    completePost(d, t.id);
+    fixTo(d, t, B);
+    return { d, t };
+  };
+
+  it('a blocking finding back on a file the fix did not touch waits for a person; the answer goes on to the fixer', () => {
+    const { d, t } = firstRound();
+    reject(
+      d,
+      t,
+      B,
+      [
+        blocking('src/tui/app.ts', 'The tracker is still not started.'),
+        { severity: 'minor', file: 'c.ts', msg: 'x' },
+      ],
+      { sha: A, paths: ['b.ts', 'src/other.ts'] },
+    );
+    const s = d.task(t.id);
+    expect(s.wait).toMatchObject({
+      reason: 'human_input',
+      detail: { code: 'review_repeated', step: 'review', files: ['src/tui/app.ts'] },
+    });
+    expect(d.pending(t.id, 'post_review')).toEqual([]);
+    const q = d.store
+      .readEvents(t.id)
+      .flatMap((e) => (e.type === 'QuestionAsked' ? [e.payload.body] : []))
+      .at(-1);
+    expect(q).toContain('- major src/tui/app.ts: The tracker is still not started.');
+
+    d.must(t.id, {
+      kind: 'answer',
+      question_id: s.wait?.detail['question_id'] as Uuid,
+      answer: 'Out of scope: the TUI wiring is T075. Fix the rest.',
+    });
+    completePost(d, t.id);
+    expect(d.task(t.id).current_step).toBe('fix_review');
+  });
+
+  it('a fix round that moved nothing waits on the reused rejection before another fix', () => {
+    for (const [finding, files] of [
+      [blocking('src/tui/app.ts', 'still wrong'), ['src/tui/app.ts']],
+      [{ severity: 'major', msg: 'the PR body is wrong' }, []],
+      [{ severity: 'minor', file: 'b.ts', msg: 'naming' }, ['b.ts']],
+    ] as const) {
+      const { d, t } = firstRound();
+      reject(d, t, B, [finding]);
+      completePost(d, t.id);
+      fixTo(d, t, B);
+
+      const s = d.task(t.id);
+      expect(types(d, t)).toContain('ReviewReused');
+      expect(s.wait).toMatchObject({
+        reason: 'human_input',
+        detail: { code: 'review_repeated', step: 'review', files },
+      });
+      expect(d.pending(t.id, 'start_agent')).toEqual([]);
+      expect(s.step_visits['fix_review']).toBe(2);
+      const q = d.store
+        .readEvents(t.id)
+        .flatMap((e) => (e.type === 'QuestionAsked' ? [e.payload.body] : []))
+        .at(-1);
+      expect(q).toContain(finding.msg);
+
+      answerRepeated(d, t, 'Out of scope, leave it.');
+      expect(d.pending(t.id, 'post_review')).toEqual([]);
+      expect(d.task(t.id).current_step).toBe('fix_review');
+      expect(reviewerRuns(d, t)).toBe(2);
+    }
+  });
+
+  it('a fix that returns to an input already rejected waits too', () => {
+    const { d, t } = firstRound();
+    reject(d, t, B, [blocking('src/other.ts', 'wrong')], { sha: A, paths: ['src/tui/app.ts'] });
+    completePost(d, t.id);
+    fixTo(d, t, A);
+    expect(d.task(t.id).wait?.detail).toMatchObject({
+      code: 'review_repeated',
+      files: ['src/tui/app.ts'],
+    });
+  });
+
+  it('a fix that touched the file, or a review without the changed files, goes back to the fixer', () => {
+    for (const changed of [
+      { sha: A, paths: ['src/tui/app.ts'] },
+      undefined,
+      { sha: C, paths: [] },
+    ]) {
+      const { d, t } = firstRound();
+      reject(d, t, B, [blocking('src/tui/app.ts', 'still wrong')], changed);
+      expect(d.task(t.id).wait?.detail['code']).not.toBe('review_repeated');
+      completePost(d, t.id);
+      expect(d.task(t.id).current_step).toBe('fix_review');
+    }
+  });
+
+  it('the same blocking files reworded count as the same failure; task explain shows the rounds', () => {
+    const { d, t } = firstRound();
+    // The first rejection counts against the coder; the fixer's two rounds are compared with each other.
+    for (const [head, next, msg] of [
+      [B, C, 'reworded'],
+      [C, null, 'reworded again'],
+    ] as const) {
+      reject(
+        d,
+        t,
+        head,
+        [blocking('src/tui/app.ts', msg), { severity: 'minor', file: `${msg}.ts`, msg: 'new nit' }],
+        { sha: head === B ? A : B, paths: ['src/tui/app.ts'] },
+      );
+      completePost(d, t.id);
+      if (next !== null) fixTo(d, t, next);
+    }
+    const failures = d.store
+      .readEvents(t.id)
+      .flatMap((e) =>
+        e.type === 'FailureClassified' && e.payload.step === 'fix_review' ? [e.payload] : [],
+      );
+    expect(failures.map((f) => f.consecutive)).toEqual([1, 2]);
+    expect(failures.at(-1)?.escalate).toBe(true);
+
+    const s = d.task(t.id);
+    const ref = s.policy_ref;
+    const policy = ref === null ? null : d.store.readPolicy(t.id, ref.revision, ref.version);
+    expect(explain(s, d.store.readEvents(t.id), policy).visits).toEqual(
+      expect.arrayContaining([
+        { step: 'review', visits: 3, limit: 6 },
+        { step: 'fix_review', visits: 3, limit: 7 },
+      ]),
+    );
   });
 });

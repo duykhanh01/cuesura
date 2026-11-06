@@ -61,6 +61,7 @@ const NEEDS_USER: Record<DetailCode, boolean> = {
   merge_evidence_incomplete: true,
   agent_needs_context: true,
   agent_blocked: true,
+  review_repeated: true,
   cancel_reconcile: true,
 };
 

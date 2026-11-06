@@ -114,17 +114,55 @@ export function recordCheckFailure(ctx: Ctx, signature: string | null): void {
   });
 }
 
-export function reviewSignature(
-  findings: readonly {
-    severity: string;
-    file?: string | undefined;
-    msg: string;
-  }[],
-): string | null {
+type ReviewFinding = { severity: string; file?: string | undefined; msg: string };
+
+export const isBlocking = (f: Pick<ReviewFinding, 'severity'>): boolean =>
+  f.severity === 'critical' || f.severity === 'major';
+
+/**
+ * The files the review blocks on, so a rejection that comes back on the same files reads as the same
+ * failure however the reviewer words it, and whatever minor findings it adds. A review without a
+ * blocking finding falls back to the files of all its findings.
+ */
+export function reviewSignature(findings: readonly ReviewFinding[]): string | null {
   if (findings.length === 0) return null;
+  const blocking = findings.filter(isBlocking);
+  const files = (blocking.length > 0 ? blocking : findings).map((f) => f.file ?? '');
   // Code-unit order, independent of the host locale, so replay yields the same signature.
-  const key = findings.map((f) => [f.severity, f.file ?? '', f.msg].join('\0')).sort();
+  const key = [...new Set(files)].sort();
   return `review:${hashCanonical(key).slice('sha256:'.length, 'sha256:'.length + 16)}`;
+}
+
+/**
+ * Files of blocking findings that the previous rejecting review of this revision also blocked on and
+ * that no commit since touched: the fixer left them alone, so another fix round would only repeat.
+ * Empty when there is no such review or the changed files are not known for it.
+ */
+export function untouchedRepeats(
+  reviews: readonly {
+    revision: number;
+    valid: boolean;
+    verdict: string;
+    sha: string;
+    findings: readonly ReviewFinding[];
+  }[],
+  revision: number,
+  current: {
+    findings: readonly ReviewFinding[];
+    changed_since?: { sha: string; paths: readonly string[] } | undefined;
+  },
+): string[] {
+  const prior = reviews.filter((r) => r.valid && r.revision === revision).at(-1);
+  const changed = current.changed_since;
+  if (prior?.verdict !== 'request_changes' || changed === undefined || changed.sha !== prior.sha)
+    return [];
+  const before = new Set(prior.findings.filter(isBlocking).map((f) => f.file ?? ''));
+  const touched = new Set(changed.paths);
+  const files = current.findings
+    .filter(isBlocking)
+    .map((f) => f.file ?? '')
+    .filter((f) => f !== '' && before.has(f) && !touched.has(f));
+  return [...new Set(files)].sort();
 }
 
 function invalidOutputKind(c: Limits['classes'], count: number): AttemptKind {

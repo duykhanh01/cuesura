@@ -155,6 +155,7 @@ const ROWS: Readonly<Record<DetailCode, Row>> = {
   agent_question: humanInput,
   agent_needs_context: humanInput,
   agent_blocked: humanInput,
+  review_repeated: humanInput,
   source_drift: (c) => [cancel(c), newTask],
   auth_config: reconnect,
   refused: reconnect,

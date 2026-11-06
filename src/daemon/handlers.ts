@@ -693,6 +693,34 @@ function agentOutcome(
   };
 }
 
+/**
+ * A rejecting review also carries the files changed since the commit the previous rejecting review of
+ * this revision saw, so the engine can tell a finding the fixer left alone from one it got wrong. Left
+ * out when there is no such review or Git cannot say.
+ */
+async function withChangedSince(
+  deps: HandlerDeps,
+  l: Loaded,
+  head: string,
+  o: EffectOutcome,
+): Promise<EffectOutcome> {
+  if (o.outcome !== 'succeeded') return o;
+  const data = o.data as Record<string, unknown>;
+  if (data['verdict'] !== 'request_changes' || data['schema_checked'] !== true) return o;
+  const prior = l.s.run.reviews.filter((v) => v.valid && v.revision === l.s.revision).at(-1);
+  if (prior?.verdict !== 'request_changes') return o;
+  const r = await deps.git.run({
+    args: ['diff', '--name-only', '-z', '--no-renames', prior.sha, head],
+    cwd: where(deps, l).worktree,
+    timeout_ms: 30_000,
+    max_output_bytes: 1024 * 1024,
+    stdin: null,
+  });
+  if (r.kind !== 'exited' || r.code !== 0 || r.truncated) return o;
+  const paths = r.stdout.split('\0').filter((p) => p !== '');
+  return { ...o, data: { ...data, changed_since: { sha: prior.sha, paths } } };
+}
+
 /** The fixed range a `full-review` reviewer reads: frozen base .. checkpoint commit, never the working copy. */
 async function reviewRange(
   deps: HandlerDeps,
@@ -1084,7 +1112,8 @@ async function startAgent(
   // that fails leaves the tree changed, and the next worker step waits for a person on that (T072).
   if (r === 'reviewer' && !(out.kind === 'failure' && out.invoked === false))
     await restoreAfterReview(deps, l.s.id, effect.id);
-  const plain = agentOutcome(r, binding.harness, out, review?.sha ?? null, inputDigest);
+  const verdict = agentOutcome(r, binding.harness, out, review?.sha ?? null, inputDigest);
+  const plain = review === null ? verdict : await withChangedSince(deps, l, review.sha, verdict);
   // Sessions are a worker concern: a reviewer always runs in its own new session.
   const outcome = worker ? withSession(plain, out, resume) : plain;
   if (!worker) return outcome;

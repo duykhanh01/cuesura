@@ -140,6 +140,11 @@ export const ReviewDataSchema = z
     summary: z.string().optional(),
     // Digest of everything the reviewer saw (base/commit/diff, PR content, frozen context, binding); M03.
     input_digest: HashSchema.optional(),
+    // Additive: the files changed since the commit the previous rejecting review of this revision saw.
+    changed_since: z
+      .object({ sha: z.string().min(1), paths: z.array(z.string()) })
+      .strict()
+      .optional(),
   })
   .strict();
 

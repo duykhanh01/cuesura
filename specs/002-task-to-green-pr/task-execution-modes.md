@@ -186,6 +186,27 @@ issue, PR và CI; việc họ tự làm trên GitHub không thay cho comment rev
 - Bước PR không giữ execution slot, nên review xếp hàng lấy lại slot sau khi PR mở; request
   `resumed` được ưu tiên hơn task mới ở cùng priority.
 
+## Vòng review và sửa không tiến triển (#141)
+
+- Signature của một lượt `request_changes` là tập file của các finding critical/major (không có thì
+  của mọi finding), không tính câu chữ, số dòng hay finding minor/info. Lượt sau chặn lại trên đúng
+  các file đó là cùng một lỗi dù reviewer viết khác.
+- Gate xanh sau lượt sửa không xoá chuỗi lỗi review của fixer; chỉ approve mới xoá. Hai lượt review
+  liên tiếp cùng signature nâng fixer lên rung kế tiếp như mọi lỗi chất lượng lặp lại; hết ladder thì
+  chờ người.
+- Kèm lượt `request_changes`, daemon ghi các file đổi từ commit mà lượt `request_changes` trước của
+  cùng revision đã review (`changed_since`). Finding chặn nằm trên file lượt trước cũng chặn mà không
+  commit nào đổi tới thì fixer đã bỏ qua nó: task chờ người với `review_repeated` (liệt kê file và
+  finding) thay vì gọi fixer tiếp, vì model mạnh hơn không giải quyết được bất đồng về phạm vi. Câu
+  trả lời đi tiếp như verdict thường: review được đăng rồi chuyển fixer. Daemon không đọc được diff
+  thì bỏ kiểm này, không chặn task.
+- Fixer để nguyên toàn bộ đầu vào review (M03) thì lượt `request_changes` được dùng lại, không gọi
+  reviewer, và task cũng chờ người với `review_repeated` thay vì gọi fixer tiếp, kể cả khi finding
+  không có file hoặc chỉ ở mức minor/info. Đầu vào quay lại đúng bản từng bị từ chối cũng tính là
+  không tiến triển. Lượt dùng lại vẫn tính vào chuỗi lỗi của fixer.
+- `cusr task explain` có `visits`: số lượt đã vào và giới hạn của từng step, gồm `review` và
+  `fix_review`.
+
 ## Dùng lại kết quả review còn hiệu lực
 
 Trong cùng task/revision, trước khi gọi reviewer, daemon MUST so đầu vào review với evidence đã lưu:

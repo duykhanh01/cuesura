@@ -3,6 +3,7 @@ import type { DomainEvent } from '../domain/event.ts';
 import type { FrozenPolicy } from '../domain/policy.ts';
 import type { TaskState, TaskStatus, WaitReason } from '../domain/state.ts';
 import { available } from '../engine/budget.ts';
+import { stepVisitLimit } from '../engine/interpreter.ts';
 import { isUnresolved } from '../engine/runtime.ts';
 import type { FrozenRuntimeContext } from '../domain/runtime.ts';
 import { allowedActions, type AllowedAction } from './allowed-actions.ts';
@@ -24,6 +25,11 @@ export type Explanation = {
     requested: number;
     invoked: number;
   }[];
+  /**
+   * Visits of each step entered so far against its limit (`max_visits` plus granted extra visits); null
+   * when the step has none. A review/fix loop shows here before the step is exhausted.
+   */
+  visits: { step: string; visits: number; limit: number | null }[];
   remaining: {
     agent_runs: number | null;
     reserved: number;
@@ -74,6 +80,7 @@ export function explain(
             exit_paths: [...state.wait.exit_paths],
           },
     bindings_used: bindingsUsed(state, events),
+    visits: stepVisits(state, policy),
     remaining: {
       agent_runs: state.budget.agent_runs.limit === null ? null : available(state.budget),
       reserved: state.budget.agent_runs.reserved,
@@ -99,6 +106,18 @@ export function explain(
             late: state.cancellation.late,
           },
   };
+}
+
+/** Steps entered so far, in workflow order, with the limit the interpreter enforces. */
+function stepVisits(state: TaskState, policy: FrozenPolicy | null): Explanation['visits'] {
+  const order = [...Object.keys(policy?.workflow.steps ?? {}), ...Object.keys(state.step_visits)];
+  return [...new Set(order)]
+    .filter((step) => (state.step_visits[step] ?? 0) > 0)
+    .map((step) => ({
+      step,
+      visits: state.step_visits[step] ?? 0,
+      limit: policy === null ? null : stepVisitLimit(policy, state, step),
+    }));
 }
 
 /**

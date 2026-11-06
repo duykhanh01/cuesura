@@ -4,12 +4,15 @@ import type { BaseUpdate } from '../domain/runtime.ts';
 import type { z } from 'zod';
 import { assertNever } from '../shared/assert-never.ts';
 import { sameChoice } from '../domain/run-config.ts';
-import { bindingName } from '../domain/policy.ts';
+import { bindingName, type FrozenPolicy } from '../domain/policy.ts';
 import {
   isTerminal,
+  streakKey,
   type AttemptKind,
   type EffectMirror,
   type ResumeAction,
+  type ReviewEvidence,
+  type TaskState,
 } from '../domain/state.ts';
 import {
   AgentDataSchema,
@@ -52,7 +55,9 @@ import {
   clearRetryCounters,
   handleFailure,
   recordCheckFailure,
+  isBlocking,
   reviewSignature,
+  untouchedRepeats,
 } from './failure.ts';
 import { ciVerdict, latestCi, mergeGuard, type GuardFailure } from './merge-guard.ts';
 import { askHuman, requestApproval } from './questions.ts';
@@ -253,12 +258,31 @@ export function enterStep(
 }
 
 export function visitLimit(ctx: Ctx, step: string): number | null {
-  const max = stepDef(ctx, step).max_visits;
+  return stepVisitLimit(ctx.frozen, ctx.state, step);
+}
+
+/**
+ * Whether the last fix step's streak counts review rejections. Gates passing on the fix say nothing
+ * about the review that asked for it, so they leave that streak to the next review: a rejection on the
+ * same files then counts as a second one in a row, and only an approval clears it.
+ */
+function reviewStreak(s: TaskState): boolean {
+  const step = s.last_fix_step;
+  if (step === null) return false;
+  const streak = s.failure_streaks[streakKey(step, s.rungs.by_step[step] ?? 0)];
+  return streak?.signature?.startsWith('review:') === true;
+}
+
+/** `max_visits` plus the visits an amendment or a granted credit added; null when the step has no limit. */
+export function stepVisitLimit(
+  frozen: Pick<FrozenPolicy, 'workflow' | 'limits'>,
+  state: TaskState,
+  step: string,
+): number | null {
+  const max = frozen.workflow.steps[step]?.max_visits;
   return max === undefined
     ? null
-    : max +
-        (ctx.frozen.limits.extra_visits[step] ?? 0) +
-        (ctx.state.visit_credits?.[step]?.visits ?? 0);
+    : max + (frozen.limits.extra_visits[step] ?? 0) + (state.visit_credits?.[step]?.visits ?? 0);
 }
 
 export function route(ctx: Ctx, step: string, outcome: string, body?: string): void {
@@ -1201,7 +1225,7 @@ function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
         results: d.results,
         passed,
         signature,
-        resets_streak_of: passed ? ctx.state.last_fix_step : null,
+        resets_streak_of: passed && !reviewStreak(ctx.state) ? ctx.state.last_fix_step : null,
       });
       if (!passed) recordCheckFailure(ctx, signature);
       if (!passed && baseUpdate !== undefined && baseUpdate.certificate === undefined)
@@ -1566,6 +1590,7 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
       );
       return;
     }
+    const repeated = approved ? [] : untouchedRepeats(ctx.state.run.reviews, ctx.state.revision, d);
     ctx.emit('ReviewVerdictRecorded', {
       step,
       attempt_id: e.attempt_id as string,
@@ -1586,6 +1611,20 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
         ctx,
         'review rejected changes outside conflict files; conflict fixer attempt already used',
       );
+    // The fixer left these files alone after the last review asked for them: a stronger model would not
+    // change that, a person decides (the finding may be out of scope, or wrong). The answer routes the
+    // verdict on as usual, so the review is posted then, on its way to the fixer.
+    if (repeated.length > 0) {
+      waitReviewRepeated(
+        ctx,
+        step,
+        e.attempt_id,
+        `The review blocks again on ${repeated.join(', ')}, which the fix since the last review did not change:`,
+        d.findings.filter((f) => isBlocking(f) && repeated.includes(f.file ?? '')),
+        repeated,
+      );
+      return;
+    }
     proceed(ctx, { kind: 'route', step, outcome: d.verdict });
     return;
   }
@@ -1777,10 +1816,35 @@ function modeReview(ctx: Ctx): boolean {
   return ctx.state.run.mode === 'full-review';
 }
 
+/** Stops a review/fix round that made no progress; the answer routes the rejection on as usual. */
+function waitReviewRepeated(
+  ctx: Ctx,
+  step: string,
+  attemptId: string | null,
+  lead: string,
+  findings: readonly ReviewEvidence['findings'][number][],
+  files: readonly string[],
+): void {
+  askHuman(ctx, 'review_repeated', {
+    step,
+    attempt_id: attemptId,
+    body: [
+      lead,
+      ...findings.map(
+        (f) =>
+          `- ${f.severity} ${f.file ?? ''}${f.line === undefined ? '' : `:${f.line}`}: ${f.msg}`,
+      ),
+      'Answer to send the review to the fixer with your answer (for example, what is in or out of scope), or cancel the task.',
+    ].join('\n'),
+    resume: { kind: 'route', step, outcome: 'request_changes' },
+    detail: { step, files },
+  });
+}
+
 /**
  * Before calling the reviewer: an unchanged review input of this revision reuses the recorded verdict
- * (M03). An approval routes on without a reviewer run; unchanged findings go back to the fixer through
- * the same failure signature, so a no-progress loop is caught by the existing limits.
+ * (M03). An approval routes on without a reviewer run. A reused rejection means the fix round moved
+ * nothing the review reads, so it counts against the fixer and waits for a person before another one.
  */
 function reuseReview(ctx: Ctx, step: string): boolean {
   if (!modeReview(ctx)) return false;
@@ -1794,8 +1858,23 @@ function reuseReview(ctx: Ctx, step: string): boolean {
     verdict: prior.verdict,
     input_digest: input,
   });
-  if (prior.verdict === 'request_changes') recordCheckFailure(ctx, prior.signature);
-  route(ctx, step, prior.verdict);
+  if (prior.verdict === 'approve') {
+    route(ctx, step, 'approve');
+    return true;
+  }
+  recordCheckFailure(ctx, prior.signature);
+  // The whole input is unchanged, so this holds for a finding without a file or a minor one too.
+  const blocking = prior.findings.filter(isBlocking);
+  const findings = blocking.length > 0 ? blocking : prior.findings;
+  const files = [...new Set(findings.flatMap((f) => (f.file ? [f.file] : [])))].sort();
+  waitReviewRepeated(
+    ctx,
+    step,
+    prior.attempt_id,
+    'The review input is unchanged since it was rejected, so the rejection stands:',
+    findings,
+    files,
+  );
   return true;
 }
 

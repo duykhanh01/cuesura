@@ -126,6 +126,8 @@ export const DETAIL_CODES = [
   'agent_blocked',
   // A cancel waits for a read of its PR made after the request before it may end CANCELLED (FR-025.03).
   'cancel_reconcile',
+  // A blocking review finding came back on a file the fix since the last review did not touch.
+  'review_repeated',
 ] as const;
 export type DetailCode = (typeof DETAIL_CODES)[number];
 
