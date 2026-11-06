@@ -30,6 +30,7 @@ type Row = {
   priority: number;
   pr_ref: string | null;
   needs_user: boolean;
+  step_visits: Record<string, number>;
 };
 type Board = {
   unchanged: boolean;
@@ -87,6 +88,7 @@ describe('task_board', () => {
       version: d.task(a.id).version,
       priority: 5,
       pr_ref: null,
+      step_visits: {},
       needs_user: true,
     });
     expect(r.next_cursor).toBeNull();

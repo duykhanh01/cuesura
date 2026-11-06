@@ -1,8 +1,9 @@
 /**
  * The steps of `software_dev` folded into the eight stages a person follows: triage, prepare, code, gates,
  * PR, review, CI, merge. The PR opens before the review (a draft in `full-review`), whose verdict is posted
- * on it and turns it ready. Fix and retry steps belong to the stage they repair, so a loop shows as a stage run
- * more than once instead of a list of side steps. Only presentation: the step states are the daemon's.
+ * on it and turns it ready. Fix and retry steps belong to the stage they repair, and the path never goes back:
+ * the gates and the push that recheck a fix stay under the stage that asked for it. A loop shows as a stage run
+ * more than once, and the task's `Now` says which step runs. Only presentation: the step states are the daemon's.
  */
 import type { TaskStatus } from '../../domain/state.ts';
 import type { TaskProgress } from '../client/schemas.ts';
@@ -87,19 +88,35 @@ const ended = (status: TaskStatus): boolean => status === 'FAILED' || status ===
 const settle = (state: StageState, status: TaskStatus): StageState =>
   state === 'todo' && ended(status) ? 'abandoned' : state;
 
+type Visits = Readonly<Record<string, number>>;
+
 /**
- * Stages for a board row, which knows only its current step and mode. `null` when the step belongs to a
+ * Index of the stage to light. A stage entered again is a recheck, so the furthest stage reached stays lit. A
+ * stage's first run stands: the graph without modes runs the review before the PR, which `STAGES` puts after.
+ */
+function stageNow(step: string | null, visits: Visits): number {
+  const here = stageOf(step);
+  if (here === null) return -1;
+  const index = STAGES.indexOf(here);
+  const ran = Object.entries(visits).filter(([, n]) => n > 0);
+  if (!ran.some(([name, n]) => n > 1 && stageOf(name) === here)) return index;
+  const reached = ran.map(([name]) => STAGES.indexOf(stageOf(name) ?? here));
+  return Math.max(index, ...reached);
+}
+
+/**
+ * Stages for a board row, which knows only its current step, what ran and its mode. `null` when the step belongs to a
  * workflow this does not know, so nothing is drawn rather than something made up.
  */
 export function rowStages(row: {
   readonly status: TaskStatus;
   readonly step: string | null;
+  readonly step_visits?: Visits | undefined;
   readonly mode: string | null;
 }): readonly Stage[] | null {
   const skip = (name: StageName): boolean => name === 'review' && row.mode === 'direct-pr';
-  const at = stageOf(row.step);
-  if (row.step !== null && at === null) return null;
-  const here = at === null ? -1 : STAGES.indexOf(at);
+  if (row.step !== null && stageOf(row.step) === null) return null;
+  const here = stageNow(row.step, row.step_visits ?? {});
   const terminal = ended(row.status) ? endState(row.status) : null;
   return STAGES.map((name, i) => {
     let state: StageState;
@@ -116,8 +133,7 @@ export function rowStages(row: {
 type Step = NonNullable<TaskProgress['steps']>[number];
 
 /**
- * Stages from the daemon's step list. A stage after the current one that already ran is shown as still to
- * come: the loop that went back will run it again. `null` for a workflow with steps this does not know.
+ * Stages from the daemon's step list. `null` for a workflow with steps this does not know.
  */
 export function progressStages(
   steps: readonly Step[],
@@ -129,9 +145,8 @@ export function progressStages(
     if (name === null) return null;
     byStage.set(name, [...(byStage.get(name) ?? []), step]);
   }
-  const current = STAGES.findIndex((n) =>
-    (byStage.get(n) ?? []).some((s) => s.state === 'current'),
-  );
+  const visits = Object.fromEntries(steps.map((s) => [s.name, s.visits]));
+  const current = stageNow(steps.find((s) => s.state === 'current')?.name ?? null, visits);
   return STAGES.map((name, i) => {
     const members = byStage.get(name) ?? [];
     const own = members.find((s) => s.name === name) ?? members[0];
@@ -142,7 +157,7 @@ export function progressStages(
     else if (status === 'DONE') state = 'done';
     else if (i === current) state = ended(status) ? endState(status) : 'current';
     else if (current >= 0 && i > current) state = 'todo';
-    else if (members.some((s) => s.state === 'past')) state = 'done';
+    else if (members.some((s) => s.visits > 0)) state = 'done';
     else state = 'todo';
     return { name, state: settle(state, status), runs };
   });

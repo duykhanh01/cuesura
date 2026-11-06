@@ -80,6 +80,7 @@ function row(s: TaskState, since: StatusSince): Record<string, unknown> {
     status: s.status,
     wait_code: s.wait?.detail.code ?? null,
     step: s.current_step,
+    step_visits: s.step_visits,
     mode: s.run.mode,
     status_since: since(s),
     version: s.version,

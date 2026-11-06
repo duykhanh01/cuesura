@@ -56,6 +56,8 @@ const BoardRowSchema = z.looseObject({
   status: z.enum(TASK_STATUSES),
   wait_code: z.string().nullable(),
   step: safe.nullable(),
+  /** Absent from a daemon older than this TUI. */
+  step_visits: z.record(z.string(), z.number().int().nonnegative()).optional(),
   mode: safe.nullable(),
   status_since: z.number().nullable(),
   version: z.number().int().nonnegative(),

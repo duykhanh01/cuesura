@@ -85,7 +85,7 @@ Hợp đồng đầy đủ ở [cli-daemon.md](contracts/cli-daemon.md).
 
 ### Hàng task
 
-Từ `task_board.items`: `task_id`, `project`, `title`, `status`, `wait_code`, `step`, `mode`, `status_since`, `version`, `priority`,
+Từ `task_board.items`: `task_id`, `project`, `title`, `status`, `wait_code`, `step`, `step_visits`, `mode`, `status_since`, `version`, `priority`,
 `pr_ref`, `needs_user`.
 
 Hoạt động hiện tại (FR-006) được giao diện dựng từ các trường này qua bảng trong `src/tui/model/activity.ts`. Mã chưa có trong bảng

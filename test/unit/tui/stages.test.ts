@@ -48,6 +48,87 @@ describe('stages', () => {
     ]);
   });
 
+  describe('never goes back', () => {
+    const steps = (current: string, visits: Readonly<Record<string, number>>): Step[] =>
+      [
+        'triage',
+        'prepare',
+        'code',
+        'gates',
+        'fix_gates',
+        'publish',
+        'pr',
+        'review',
+        'post_changes',
+        'fix_review',
+        'post_review',
+        'ready',
+        'ci',
+        'ci_fix',
+        'merge_gate',
+      ].map((name) => {
+        const n = visits[name] ?? 0;
+        return step(name, name === current ? 'current' : n > 0 ? 'past' : 'remaining', n);
+      });
+    const once = { triage: 1, prepare: 1, code: 1, publish: 1, pr: 1 };
+    const states = (stages: readonly { readonly state: string }[] | null | undefined): string[] =>
+      (stages ?? []).map((s) => s.state);
+    const atReview = ['done', 'done', 'done', 'done', 'done', 'current', 'todo', 'todo'];
+    const atCi = ['done', 'done', 'done', 'done', 'done', 'done', 'current', 'todo'];
+
+    it.each([
+      ['gates', { ...once, gates: 2, review: 1, post_changes: 1, fix_review: 1 }],
+      ['fix_gates', { ...once, gates: 3, fix_gates: 1, review: 1, post_changes: 1, fix_review: 1 }],
+      ['publish', { ...once, gates: 2, publish: 2, review: 1, post_changes: 1, fix_review: 1 }],
+      ['pr', { ...once, gates: 2, publish: 2, pr: 2, review: 1, post_changes: 1, fix_review: 1 }],
+    ])('%s after a review fix stays on review', (current, visits) => {
+      expect(states(progressStages(steps(current, visits), 'RUNNING'))).toEqual(atReview);
+      const row = { status: 'RUNNING', step: current, step_visits: visits, mode: 'full-review' };
+      expect(states(rowStages(row as Parameters<typeof rowStages>[0]))).toEqual(atReview);
+    });
+
+    it.each([
+      ['gates', { ...once, gates: 2, review: 1, post_review: 1, ready: 1, ci: 1, ci_fix: 1 }],
+      ['review', { ...once, gates: 2, review: 2, post_review: 1, ready: 1, ci: 1, ci_fix: 1 }],
+      // First time this step runs, but its stage ran before.
+      [
+        'post_changes',
+        { ...once, gates: 2, review: 2, post_review: 1, ready: 1, ci: 1, ci_fix: 1 },
+      ],
+    ])('%s after a CI fix stays on CI', (current, visits) => {
+      expect(states(progressStages(steps(current, visits), 'RUNNING'))).toEqual(atCi);
+    });
+
+    it('counts the run of a stage held behind the current one', () => {
+      const stages = progressStages(
+        steps('gates', { ...once, gates: 2, review: 1, post_changes: 1, fix_review: 1 }),
+        'RUNNING',
+      );
+      expect(stages?.find((s) => s.name === 'gates')).toMatchObject({ state: 'done', runs: 2 });
+    });
+
+    it('a first pass through gate fixes stays on gates', () => {
+      const visits = { triage: 1, prepare: 1, code: 1, gates: 2, fix_gates: 1 };
+      expect(progressStages(steps('gates', visits), 'RUNNING')?.[3]?.state).toBe('current');
+    });
+
+    it('marks a task that ended in a recheck at the stage held', () => {
+      const visits = { ...once, gates: 2, review: 1, post_changes: 1, fix_review: 1 };
+      expect(progressStages(steps('gates', visits), 'FAILED')?.[5]?.state).toBe('failed');
+    });
+
+    it('still shows the PR of the graph without modes, which runs after the review', () => {
+      const visits = { triage: 1, prepare: 1, code: 1, gates: 1, review: 1, publish: 1, pr: 1 };
+      const stages = progressStages(steps('pr', visits), 'RUNNING');
+      expect(stages?.find((s) => s.name === 'pr')?.state).toBe('current');
+    });
+
+    it('falls back to the current step for a daemon that does not send what ran', () => {
+      const stages = rowStages({ status: 'RUNNING', step: 'gates', mode: 'full-review' });
+      expect(stages?.[3]?.state).toBe('current');
+    });
+  });
+
   it('never shows a stage the mode leaves out as one that ran', () => {
     const stages = progressStages(
       [step('code', 'past'), step('review', 'not_required', 0), step('ci', 'current')],
