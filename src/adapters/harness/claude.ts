@@ -39,7 +39,9 @@ import {
 
 export const CLAUDE_SETTINGS_FILE = 'claude-settings.json';
 export const CLAUDE_RESULT_POINTER = ['structured_output'] as const;
-const REVIEWER_DISALLOWED = 'Edit,Write';
+/** A wakeup re-enters the session after the answer: the run stays open for a turn nobody reads. */
+const WORKER_DISALLOWED = 'ScheduleWakeup';
+const REVIEWER_DISALLOWED = `Edit,Write,${WORKER_DISALLOWED}`;
 /** Auto-approving modes rejected by the archived outer-sandbox contract. */
 const APPROVING_MODES = new Set(['bypassPermissions', 'acceptEdits', 'auto']);
 
@@ -188,7 +190,8 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
     '--settings',
     settingsFile,
     ...(input.session === null ? [] : ['--resume', input.session.ref]),
-    ...(input.role === 'reviewer' ? ['--disallowedTools', REVIEWER_DISALLOWED] : []),
+    '--disallowedTools',
+    input.role === 'reviewer' ? REVIEWER_DISALLOWED : WORKER_DISALLOWED,
   ];
   const bypass = bypassToken(
     input.host_execution && pin.permission_mode === 'full-access'

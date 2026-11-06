@@ -189,6 +189,9 @@ describe('harness argv and settings follow the pinned T007 shape (T068/T069)', (
       const i = ours.indexOf('--json-schema');
       expect(JSON.parse(ours[i + 1] as string)).toEqual(JSON.parse(recorded[i + 1] as string));
       ours[i + 1] = recorded[i + 1] as string;
+      // The archived runs also predate denying ScheduleWakeup.
+      const d = ours.indexOf('--disallowedTools');
+      ours[d + 1] = (ours[d + 1] as string).replace(',ScheduleWakeup', '');
     }
     expect(ours.slice(0, recorded.length)).toEqual(recorded);
     for (const flag of [...dropped, ...withValue]) expect(plan.value.argv).not.toContain(flag);
@@ -218,8 +221,16 @@ describe('harness argv and settings follow the pinned T007 shape (T068/T069)', (
       return p.ok ? p.value.argv : [];
     };
     expect(argv('reviewer').join(' ')).toContain('--disallowedTools Edit,Write');
-    expect(argv('coder')).not.toContain('--disallowedTools');
-    expect(argv('fixer')).not.toContain('--disallowedTools');
+    expect(argv('coder').join(' ')).not.toMatch(/Edit|Write/);
+    expect(argv('fixer').join(' ')).not.toMatch(/Edit|Write/);
+  });
+
+  it('no claude role can schedule a wakeup after its answer', () => {
+    for (const role of ['coder', 'fixer', 'reviewer'] as const) {
+      const p = claudeAdapter.plan(vendorPin('claude'), planInput('claude', role));
+      const argv = p.ok ? p.value.argv : [];
+      expect(argv[argv.indexOf('--disallowedTools') + 1]).toContain('ScheduleWakeup');
+    }
   });
 
   it('claude runs every role with the default tool set of an interactive session', () => {

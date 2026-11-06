@@ -423,7 +423,7 @@ describe('T139 M03 same vendor/model through the host launcher', () => {
     expect(worker?.argv).not.toContain('--bind');
     expect(worker?.argv).not.toContain('--no-session-persistence');
     expect(reviewer?.argv).not.toContain('--no-session-persistence');
-    expect(reviewer?.argv).not.toContain('--disallowedTools');
+    expect(reviewer?.argv.join(' ')).not.toMatch(/Edit|Write/);
     expect(reviewer?.argv).not.toContain('--resume');
     expect(worker?.run_id).not.toBe(reviewer?.run_id);
     const attempts = Object.values(state.attempts);
