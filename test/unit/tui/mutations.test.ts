@@ -252,4 +252,121 @@ describe('MutationTracker', () => {
     expect(port.sent).toHaveLength(1);
     expect(m).toMatchObject({ state: 'unknown', checks: 0, resends: 0 });
   });
+
+  it('does not spend a check when the link drops while request_show waits and fails', async () => {
+    let up = true;
+    const { tracker, port } = make({ connected: () => up });
+    port.onCommand = lost;
+    await tracker.submit(CMD);
+    for (let i = 0; i < MAX_CHECKS - 1; i++) await tracker.poll('id-1');
+    expect(tracker.get('id-1')?.checks).toBe(MAX_CHECKS - 1);
+    port.onShow = () => {
+      up = false;
+      return lost();
+    };
+    // The 60th look would have ended the round; it did not count, so the round is still open.
+    expect(await tracker.poll('id-1')).toMatchObject({ state: 'unknown', checks: MAX_CHECKS - 1 });
+    up = true;
+    port.onShow = () => good(shown('in_progress'));
+    expect(await tracker.poll('id-1')).toMatchObject({ state: 'unresolved', checks: MAX_CHECKS });
+  });
+
+  it('gives back the check, not the resend, when the link drops while the resend waits', async () => {
+    let up = true;
+    const { tracker, port } = make({ connected: () => up });
+    port.onCommand = lost;
+    await tracker.submit(CMD);
+    port.onShow = () => good(shown('interrupted'));
+    port.onCommand = () => {
+      up = false;
+      return lost();
+    };
+    expect(await tracker.poll('id-1')).toMatchObject({ state: 'unknown', resends: 1, checks: 0 });
+    expect(tracker.blocking(TASK)?.requestId).toBe('id-1');
+  });
+
+  it('does not spend a check or a resend on a timeout while still connected', async () => {
+    const { tracker, port } = make();
+    const timedOut = <T>(): PortResult<T> => ({
+      ok: false,
+      error: { kind: 'timeout', message: uiText('slow') },
+    });
+    port.onCommand = lost;
+    await tracker.submit(CMD);
+    for (let i = 0; i < MAX_CHECKS - 1; i++) await tracker.poll('id-1');
+    port.onShow = timedOut;
+    expect(await tracker.poll('id-1')).toMatchObject({ state: 'unknown', checks: MAX_CHECKS - 1 });
+
+    const second = make();
+    second.port.onCommand = lost;
+    await second.tracker.submit(CMD);
+    second.port.onShow = () => good(shown('interrupted'));
+    for (let i = 0; i < MAX_RESENDS - 1; i++) await second.tracker.poll('id-1');
+    second.port.onCommand = timedOut;
+    expect(await second.tracker.poll('id-1')).toMatchObject({
+      state: 'unknown',
+      resends: MAX_RESENDS - 1,
+    });
+  });
+
+  it('keeps the round open when the 60th check asks for a resend that times out', async () => {
+    const { tracker, port } = make();
+    port.onCommand = lost;
+    await tracker.submit(CMD);
+    for (let i = 0; i < MAX_CHECKS - 1; i++) await tracker.poll('id-1');
+    port.onShow = () => good(shown('interrupted'));
+    port.onCommand = () => ({ ok: false, error: { kind: 'timeout', message: uiText('slow') } });
+    expect(await tracker.poll('id-1')).toMatchObject({ state: 'unknown', resends: 0 });
+  });
+
+  it('still counts a check that failed with a connection error while the state says online', async () => {
+    const { tracker, port } = make();
+    port.onCommand = lost;
+    await tracker.submit(CMD);
+    for (let i = 0; i < MAX_CHECKS - 1; i++) await tracker.poll('id-1');
+    port.onShow = lost;
+    expect(await tracker.poll('id-1')).toMatchObject({ state: 'unresolved', checks: MAX_CHECKS });
+  });
+
+  it('keeps the write unknown when the fifth resend is lost to a dropped link', async () => {
+    let up = true;
+    const { tracker, port } = make({ connected: () => up });
+    port.onCommand = lost;
+    await tracker.submit(CMD);
+    port.onShow = () => good(shown('interrupted'));
+    for (let i = 0; i < MAX_RESENDS - 1; i++) await tracker.poll('id-1');
+    port.onCommand = () => {
+      up = false;
+      return lost();
+    };
+    expect(await tracker.poll('id-1')).toMatchObject({ state: 'unknown', resends: MAX_RESENDS });
+  });
+
+  it('does not spend a check on an in_progress answer that arrives while offline', async () => {
+    let up = true;
+    const { tracker, port } = make({ connected: () => up });
+    port.onCommand = lost;
+    await tracker.submit(CMD);
+    for (let i = 0; i < MAX_CHECKS - 1; i++) await tracker.poll('id-1');
+    port.onShow = () => {
+      up = false;
+      return good(shown('in_progress'));
+    };
+    expect(await tracker.poll('id-1')).toMatchObject({ state: 'unknown', checks: MAX_CHECKS - 1 });
+    up = true;
+    port.onShow = () => good(shown('completed', { outcome: { ok: true, value: { v: 1 } } }));
+    expect(await tracker.poll('id-1')).toMatchObject({ state: 'accepted' });
+  });
+
+  it('still settles a completed answer that arrives while offline', async () => {
+    let up = true;
+    const { tracker, port } = make({ connected: () => up });
+    port.onCommand = lost;
+    await tracker.submit(CMD);
+    port.onShow = () => {
+      up = false;
+      return good(shown('completed', { outcome: { ok: true, value: { v: 1 } } }));
+    };
+    expect(await tracker.poll('id-1')).toMatchObject({ state: 'accepted' });
+  });
 });

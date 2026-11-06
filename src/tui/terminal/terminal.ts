@@ -23,6 +23,8 @@ export type TerminalOptions = {
   readonly onRedraw: () => void;
   /** Line printed on stderr after restoring, when a signal or failure ends the process. */
   readonly exitNotice?: () => string | null;
+  /** Exit status when a signal or internal failure ends the process while `exitNotice` has something to say (EC-012). */
+  readonly exitNoticeCode?: number;
 };
 
 export type Terminal = {
@@ -68,7 +70,8 @@ export function openTerminal(options: TerminalOptions): Terminal {
   /** A failure or signal: the session ends here, but pending notices must still reach the user. */
   const abort = (code: number, message: string | null): never => {
     const extra = options.exitNotice?.() ?? null;
-    return exit(code, `${message === null ? '' : `${message}\n`}${extra === null ? '' : extra}`);
+    const status = extra !== null ? (options.exitNoticeCode ?? code) : code;
+    return exit(status, `${message === null ? '' : `${message}\n`}${extra === null ? '' : extra}`);
   };
 
   const fail = (cause: unknown): never =>

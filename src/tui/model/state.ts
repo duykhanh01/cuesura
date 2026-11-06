@@ -1,4 +1,5 @@
 import { TASK_STATUSES, type TaskStatus } from '../../domain/state.ts';
+import type { Mutation } from '../client/mutations.ts';
 import type { BoardData, CallerInfo, Health, ProjectList } from '../client/schemas.ts';
 import type { SafeText } from '../terminal/safe-text.ts';
 import type { ActionsMenu } from './actions.ts';
@@ -97,6 +98,8 @@ export type TuiState = {
    * the connection comes back.
    */
   readonly drafts: ReadonlyMap<string, string>;
+  /** The latest write of each task and what is known of its result (FR-018, FR-019). */
+  readonly mutations: ReadonlyMap<string, Mutation>;
   readonly caller: CallerInfo | null;
   /** Projects the config declares, when `project_list` answered. */
   readonly projects: ProjectList['projects'] | null;
@@ -146,6 +149,7 @@ export function initialState(size: Size): TuiState {
     staleTasks: new Set(),
     recheck: new Map(),
     drafts: new Map(),
+    mutations: new Map(),
     caller: null,
     projects: null,
     screens: ['home'],
@@ -179,6 +183,18 @@ export type WriteLock = 'stale' | 'task_stale';
 export function writeLock(s: TuiState, taskId: string): WriteLock | null {
   if (s.stale || s.lastUpdatedAt === null) return 'stale';
   return s.staleTasks.has(taskId) || s.recheck.has(taskId) ? 'task_stale' : null;
+}
+
+/**
+ * The write on `taskId` that keeps new ones out: one being sent, or one whose result is not known. Resends
+ * stay `sending`, so one in flight counts too.
+ */
+export function mutationLock(s: TuiState, taskId: string): Mutation | null {
+  const m = s.mutations.get(taskId);
+  return m !== undefined &&
+    (m.state === 'sending' || m.state === 'unknown' || m.state === 'unresolved')
+    ? m
+    : null;
 }
 
 /** A task's screen is open on a task that is running: its current stage turns. */

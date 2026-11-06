@@ -3,7 +3,7 @@
  * Only the screen on top reads, and only while connected: a screen under another, or a lost connection, costs
  * the daemon nothing. Each kind of read runs one at a time. A failure stays with its part of the screen.
  */
-import { actionsDue } from '../model/actions.ts';
+import { actionsDue, actionsShowDue } from '../model/actions.ts';
 import { detailDue, hasEnding, type DetailPartName } from '../model/detail.ts';
 import { logDue, requestAttempt, LOG_PAGE_RECORDS } from '../model/logs.ts';
 import type { Message } from '../model/messages.ts';
@@ -171,27 +171,44 @@ function logsRead(
 }
 
 /** `task_explain` of the open menu: its own read, never the one Task detail holds (FR-016). */
-function actionsRead(
+function actionsReads(
   s: TuiState,
   port: DaemonPort,
   clock: RefreshClock,
   now: number,
-): ScreenRead | null {
+): readonly ScreenRead[] {
   const m = s.actions;
   const watermark = s.board?.watermark ?? null;
-  if (m === null || !actionsDue(m, watermark, now)) return null;
-  return {
-    key: 'actions',
-    run: async () => ({
-      type: 'actions_read',
-      taskId: m.taskId,
-      session: m.session,
-      askedAt: now,
-      watermark,
-      result: await port.explain(m.taskId, DETAIL_TIMEOUT_MS),
-      at: clock.now(),
-    }),
-  };
+  if (m === null) return [];
+  const reads: ScreenRead[] = [];
+  if (actionsDue(m, watermark, now))
+    reads.push({
+      key: 'actions',
+      run: async () => ({
+        type: 'actions_read',
+        taskId: m.taskId,
+        session: m.session,
+        askedAt: now,
+        watermark,
+        result: await port.explain(m.taskId, DETAIL_TIMEOUT_MS),
+        at: clock.now(),
+      }),
+    });
+  // `task_show` carries the project and version a write goes out with, and unlocks a stale task.
+  if (actionsShowDue(m, watermark, now))
+    reads.push({
+      key: 'actions:show',
+      run: async () => ({
+        type: 'actions_show_read',
+        taskId: m.taskId,
+        session: m.session,
+        askedAt: now,
+        watermark,
+        result: await port.show(m.taskId, DETAIL_TIMEOUT_MS),
+        at: clock.now(),
+      }),
+    });
+  return reads;
 }
 
 /** What is due right now for the screen on top. */
@@ -227,7 +244,7 @@ export function planScreenReads(
       }
       break;
     case 'actions':
-      reads.push(actionsRead(s, port, clock, now));
+      reads.push(...actionsReads(s, port, clock, now));
       break;
     default:
       break;

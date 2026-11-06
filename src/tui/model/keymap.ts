@@ -7,7 +7,7 @@
 import type { Key, KeyName } from '../terminal/keys.ts';
 import { displayWidth } from '../terminal/width.ts';
 import { logColumns } from './logs.ts';
-import { currentScreen, type TuiState } from './state.ts';
+import { currentScreen, mutationLock, type TuiState } from './state.ts';
 
 export type Command =
   | 'up'
@@ -36,7 +36,8 @@ export type Command =
   | 'expand'
   | 'collapse'
   | 'switch_field'
-  | 'erase';
+  | 'erase'
+  | 'check_again';
 
 export type Context =
   | 'home'
@@ -286,6 +287,19 @@ const KEYS: Readonly<Record<Context, readonly Binding[]>> = {
       hint: 'open',
       help: 'Open the chosen action; nothing is sent without its own confirmation',
       press: [[n('enter'), 'open']],
+    },
+    {
+      keys: 'C',
+      hint: 'check again',
+      help: 'Ask again whether an earlier change went through, when it could not be confirmed',
+      press: [
+        [c('c'), 'check_again'],
+        [c('C'), 'check_again'],
+      ],
+      when: (s) => {
+        const id = s.actions?.taskId;
+        return id !== undefined && mutationLock(s, id)?.state === 'unresolved';
+      },
     },
   ],
   filter_choice: [

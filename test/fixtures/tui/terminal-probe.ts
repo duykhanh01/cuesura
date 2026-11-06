@@ -18,6 +18,10 @@ const terminal = openTerminal({
   },
   onResize: draw,
   onRedraw: draw,
+  // A pending notice, as a write whose result is unknown would leave (EC-012).
+  ...(process.env['PROBE_NOTICE'] === undefined
+    ? {}
+    : { exitNotice: () => process.env['PROBE_NOTICE'] ?? null, exitNoticeCode: 3 }),
 });
 
 /** Writes now fail the way libuv reports it, while fd 1 stays open so the restore can be observed. */

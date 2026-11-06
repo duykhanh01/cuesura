@@ -128,7 +128,16 @@ export class MutationTracker {
     try {
       const counted = this.#set({ ...m, checks: m.checks + 1 });
       const r = await this.#deps.port.requestShow(requestId, CHECK_TIMEOUT_MS);
-      return this.#capped(await this.#afterCheck(counted, r));
+      // A check that went unanswered because the link dropped or it timed out says nothing: it does not use a turn.
+      if (!r.ok && (!this.#deps.connected() || r.error.kind === 'timeout'))
+        return this.#set({ ...counted, checks: m.checks });
+      const after = await this.#afterCheck(counted, r);
+      if (this.#deps.connected()) return this.#capped(after);
+      // Offline, an answer that settles nothing does not use a turn and nothing is given up: the round resumes
+      // once the link is back.
+      return after.state === 'unknown'
+        ? this.#set({ ...after, checks: Math.min(after.checks, m.checks) })
+        : after;
     } finally {
       this.#busy.delete(requestId);
     }
@@ -181,19 +190,34 @@ export class MutationTracker {
     if (m.resends >= MAX_RESENDS) return this.#set({ ...m, state: 'unresolved' });
     this.#resending.add(m.requestId);
     try {
-      return await this.#send(this.#set({ ...m, state: 'sending', resends: m.resends + 1 }));
+      let timedOut = false;
+      const sent = await this.#send(
+        this.#set({ ...m, state: 'sending', resends: m.resends + 1 }),
+        (kind) => (timedOut = kind === 'timeout'),
+      );
+      if (sent.state !== 'unknown') return sent;
+      // Only the check that asked for the resend is given back when the link is down; the resend itself counts.
+      // A timeout gives back both, so a check at the ceiling does not end the round.
+      if (timedOut)
+        return this.#set({ ...sent, resends: m.resends, checks: Math.max(0, m.checks - 1) });
+      return this.#deps.connected()
+        ? sent
+        : this.#set({ ...sent, checks: Math.max(0, m.checks - 1) });
     } finally {
       this.#resending.delete(m.requestId);
     }
   }
 
-  async #send(m: Mutation): Promise<Mutation> {
+  async #send(m: Mutation, onLost?: (kind: string) => void): Promise<Mutation> {
     const r = await this.#deps.port.command(
       { ...m.command, request_id: m.requestId },
       COMMAND_TIMEOUT_MS,
     );
     if (r.ok) return this.#set({ ...m, state: 'accepted', result: { ok: true, value: r.value } });
-    if (lostAnswer(r.error)) return this.#set({ ...m, state: 'unknown' });
+    if (lostAnswer(r.error)) {
+      onLost?.(r.error.kind);
+      return this.#set({ ...m, state: 'unknown' });
+    }
     return this.#set({
       ...m,
       state: 'rejected',

@@ -8,9 +8,13 @@ import type { Message } from '../../../src/tui/model/messages.ts';
 import { reduce } from '../../../src/tui/model/reduce.ts';
 import { initialState, writeLock, type TuiState } from '../../../src/tui/model/state.ts';
 import { uiText } from '../../../src/tui/terminal/safe-text.ts';
+import { actionsShowDue, openActions } from '../../../src/tui/model/actions.ts';
+import { flat, pressAction, recheckScene, useTui } from '../../support/tui-fixtures.ts';
 
 // T056: no write goes out on stale data, and a draft survives it without being sent (US4 scenario 10,
-// SC-015, FR-044). The lock is a function of state and the daemon is a counter, so no PTY is needed.
+// SC-015, FR-044). The first block drives the Actions screen on a PTY, opened straight from Home; the second
+// checks the lock as a function of state, which is what the rest of the screens rely on.
+const tui = useTui();
 const A = '019a0000-0000-7000-8000-000000000001';
 const B = '019a0000-0000-7000-8000-000000000002';
 const HEALTH: Health = { healthy: true, reason: null, slot: null, queue_length: 0 };
@@ -51,6 +55,42 @@ function step(s: TuiState, ...ms: Message[]) {
 const withDetail = (s: TuiState, id: string): TuiState => ({
   ...s,
   detail: initialDetail(id, uiText('t'), 7),
+});
+
+describe('US4 scenario 10: the Actions screen on stale data', () => {
+  it('sends nothing while stale or until the task is read again, then sends once', async () => {
+    const { proxy, s, sent, control, observed } = await recheckScene(tui);
+    const said = (text: string): Promise<void> =>
+      s.waitFor(() => flat(s.screenText()).includes(text), 10_000);
+
+    // The link goes: Home is stale, and Enter on Recheck says why nothing was sent.
+    control.refuseAll = true;
+    proxy.dropConnections();
+    await said('Reconnecting');
+    await pressAction(s, 'Recheck');
+    await said('Nothing was sent: the data on screen may be out of date');
+    expect(sent).toHaveLength(0);
+
+    // The link is back but the task is not read yet: Home is fresh, the task is not.
+    control.refuseTaskShow = true;
+    control.refuseAll = false;
+    await s.waitFor(() => !flat(s.screenText()).includes('Reconnecting'), 15_000);
+    await pressAction(s, 'Recheck');
+    await said('being read again after the connection came back');
+    expect(sent).toHaveLength(0);
+
+    // The first `task_show` after the recovery answers: the write goes out, once.
+    control.refuseTaskShow = false;
+    for (let i = 0; i < 30 && sent.length === 0; i++) {
+      s.send('\r');
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    await said('Done (request');
+    expect(sent).toHaveLength(1);
+    expect(observed()).toBe(1);
+    s.send('q');
+    expect((await s.waitForExit()).status).toBe(0);
+  }, 40_000);
 });
 
 describe('US4 scenario 10: stale data locks writes', () => {
@@ -126,6 +166,70 @@ describe('US4 scenario 10: stale data locks writes', () => {
     const other = reduce(reopened, progress).state;
     expect(writeLock(other, A)).toBe('task_stale');
     expect(writeLock(reduce(other, detailOk(A, session)).state, A)).toBeNull();
+  });
+
+  it('locks the task of an Actions menu opened from Home, which has no detail, until task_show answers', () => {
+    const online = step(initialState({ cols: 100, rows: 30 }), succeeded).s;
+    const opened = openActions(online, A, uiText('t')).state;
+    expect(opened.detail).toBeNull();
+    const session = opened.actions?.session ?? 0;
+    const { s, effects } = step(opened, failed, { ...succeeded, at: 100 });
+    expect(effects).toContainEqual({ type: 'read_screen' });
+    expect(s.actions?.showWanted).toBe(true);
+    expect(writeLock(s, A)).toBe('task_stale');
+    const show = (askedAt: number): Message => ({
+      type: 'actions_show_read',
+      taskId: A,
+      session,
+      askedAt,
+      at: askedAt + 1,
+      watermark: null,
+      result: { ok: true, value: { project: 'acme', version: 7 } as never },
+    });
+    expect(writeLock(reduce(s, show(50)).state, A)).toBe('task_stale');
+    expect(writeLock(reduce(s, show(150)).state, A)).toBeNull();
+  });
+
+  it('frees the task when Actions is opened from Detail, a read failed, and a later task_show answers', () => {
+    const online = withDetail(step(initialState({ cols: 100, rows: 30 }), succeeded).s, A);
+    const opened = openActions(online, A, uiText('t')).state;
+    const session = opened.actions?.session ?? 0;
+    const show = (ok: boolean): Message => ({
+      type: 'actions_show_read',
+      taskId: A,
+      session,
+      askedAt: 10,
+      at: 11,
+      watermark: null,
+      result: ok
+        ? { ok: true, value: { project: 'acme', version: 7 } as never }
+        : { ok: false, error: { kind: 'connection', message: uiText('x') } },
+    });
+    const failedRead = reduce(opened, show(false)).state;
+    expect(writeLock(failedRead, A)).toBe('task_stale');
+    expect(writeLock(reduce(failedRead, show(true)).state, A)).toBeNull();
+  });
+
+  it('waits after a failed task_show before asking again, and keeps the lock', () => {
+    const online = step(initialState({ cols: 100, rows: 30 }), succeeded).s;
+    const opened = openActions(online, A, uiText('t')).state;
+    const session = opened.actions?.session ?? 0;
+    const failedShow: Message = {
+      type: 'actions_show_read',
+      taskId: A,
+      session,
+      askedAt: 1_000,
+      at: 1_001,
+      watermark: null,
+      result: { ok: false, error: { kind: 'connection', message: uiText('x') } },
+    };
+    const s = reduce(
+      { ...opened, actions: { ...opened.actions!, showWanted: true } },
+      failedShow,
+    ).state;
+    expect(actionsShowDue(s.actions!, null, 1_100)).toBe(false);
+    expect(actionsShowDue(s.actions!, null, 1_000 + 60_000)).toBe(true);
+    expect(writeLock(s, A)).toBe('task_stale');
   });
 
   it('keeps a draft in memory through stale and recovery without sending it', () => {

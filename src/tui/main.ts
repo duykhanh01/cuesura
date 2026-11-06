@@ -2,6 +2,7 @@
  * The interactive interface's runtime: terminal, timers and daemon port around a pure reducer and pure views.
  * Quitting only ends this process: tasks, the daemon and runners do not depend on it (FR-004).
  */
+import { MutationTracker, type Mutation } from './client/mutations.ts';
 import { RefreshScheduler, systemRefreshClock } from './client/refresh.ts';
 import { createDaemonPort } from './client/daemon-port.ts';
 import { planScreenReads, ScreenReads } from './client/screen-reads.ts';
@@ -25,8 +26,26 @@ const ESC_WAIT_MS = 30;
 /** One frame of the spinner; only the cells that change are written. */
 const TICK_MS = 120;
 
+/** How often a write whose result is unknown is looked up; each look counts only while connected. */
+const MUTATION_POLL_MS = 1_000;
+/** Exit status when a write's result is still unknown at exit (EC-012). */
+const EXIT_UNKNOWN_RESULT = 3;
+
+/** What goes to stderr after the terminal is restored, for each write whose result is not known. */
+function unknownResultNotice(mutations: Iterable<Mutation>): string | null {
+  const lines = [...mutations]
+    .filter((m) => m.state === 'sending' || m.state === 'unknown' || m.state === 'unresolved')
+    .map(
+      (m) =>
+        `cusr: the result of ${m.command.kind} on task ${m.command.task_id} is not known.\n` +
+        `  request ID: ${m.requestId}\n  look it up with: cusr request show ${m.requestId}\n`,
+    );
+  return lines.length === 0 ? null : lines.join('');
+}
+
 export function runTui(): void {
   const port = createDaemonPort();
+  const known = new Map<string, Mutation>();
   const decoder = new KeyDecoder();
   const color = colorEnabled();
   const colors256 = has256Colors();
@@ -48,6 +67,8 @@ export function runTui(): void {
       dispatch({ type: 'resize', size: terminal.size() });
     },
     onRedraw: redraw,
+    exitNotice: () => unknownResultNotice(known.values()),
+    exitNoticeCode: EXIT_UNKNOWN_RESULT,
   });
 
   let state: TuiState = initialState(terminal.size());
@@ -91,6 +112,19 @@ export function runTui(): void {
     },
   });
 
+  const tracker = new MutationTracker({
+    port,
+    connected: () => state.connection.kind === 'online',
+    onChange(mutation) {
+      known.set(mutation.requestId, mutation);
+      dispatch({ type: 'mutation_changed', mutation });
+    },
+  });
+  const pollWrites = setInterval(() => {
+    for (const m of tracker.open()) if (m.state === 'unknown') void tracker.poll(m.requestId);
+  }, MUTATION_POLL_MS);
+  pollWrites.unref();
+
   const screenReads = new ScreenReads({
     clock: systemRefreshClock,
     plan: (now) => planScreenReads(state, port, systemRefreshClock, now),
@@ -118,11 +152,22 @@ export function runTui(): void {
 
   function run(effect: Effect): void {
     switch (effect.type) {
-      case 'quit':
+      case 'quit': {
         clearInterval(animation);
+        clearInterval(pollWrites);
         scheduler.stop();
         screenReads.stop();
-        terminal.exit(effect.code);
+        const notice = unknownResultNotice(known.values());
+        if (notice === null) terminal.exit(effect.code);
+        else terminal.exit(EXIT_UNKNOWN_RESULT, notice);
+        break;
+      }
+      case 'submit':
+        void tracker.submit(effect.command);
+        break;
+      case 'check_again':
+        if (tracker.checkAgain(effect.requestId)?.state === 'unknown')
+          void tracker.poll(effect.requestId);
         break;
       case 'retry_connection':
       case 'refresh_now':

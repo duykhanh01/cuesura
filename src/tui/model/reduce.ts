@@ -6,7 +6,7 @@ import type { Key } from '../terminal/keys.ts';
 import { contentHeight } from '../views/disconnected.ts';
 import { helpLastTop } from '../views/help.ts';
 import { oneLine } from '../views/input.ts';
-import { onActionsCommand, onActionsRead, openActions } from './actions.ts';
+import { onActionsCommand, onActionsRead, onActionsShowRead, openActions } from './actions.ts';
 import { onDetailCommand, onLogsCommand, onLogsRead, openDetail } from './detail-keys.ts';
 import { onDetailRead } from './detail.ts';
 import { homeRows, keepSelection, selectRow, selectedRowIndex } from './home-rows.ts';
@@ -40,15 +40,21 @@ export function reduce(state: TuiState, message: Message): Reduced {
     case 'tick':
       return same({ ...state, tick: state.tick + 1 });
     case 'read_succeeded': {
-      // Coming back from stale data: the open task is read again before its writes unlock, and a draft
-      // stays in the input for the user to send again; nothing is sent here.
-      const recovering = state.stale && state.detail !== null;
+      // Coming back from stale data: every task a screen is open on is read again before its writes unlock,
+      // whichever screen that is, and a draft stays in the input for the user to send again.
+      const open = [state.detail?.taskId, state.logs?.taskId, state.actions?.taskId].filter(
+        (id): id is string => id !== undefined,
+      );
+      const recovering = state.stale && open.length > 0;
       const online: TuiState = {
         ...state,
-        ...(recovering && state.detail !== null
+        ...(recovering
           ? {
-              recheck: new Map(state.recheck).set(state.detail.taskId, message.at),
-              detail: { ...state.detail, showWanted: true },
+              recheck: open.reduce((m, id) => m.set(id, message.at), new Map(state.recheck)),
+              ...(state.detail === null ? {} : { detail: { ...state.detail, showWanted: true } }),
+              ...(state.actions === null
+                ? {}
+                : { actions: { ...state.actions, showWanted: true, watermark: null } }),
             }
           : {}),
         connection: nextConnection(state.connection, { ok: true }),
@@ -94,6 +100,20 @@ export function reduce(state: TuiState, message: Message): Reduced {
       return same(onLogsRead(state, message));
     case 'actions_read':
       return same(onActionsRead(state, message));
+    case 'actions_show_read':
+      return same(onActionsShowRead(state, message));
+    case 'mutation_changed': {
+      const m = message.mutation;
+      const mutations = new Map(state.mutations).set(m.command.task_id, m);
+      // A write that went through moved the task: read the board now instead of at the next tick.
+      return {
+        state: { ...state, mutations },
+        effects:
+          m.state === 'accepted' && state.connection.kind === 'online'
+            ? [{ type: 'refresh_now' }]
+            : [],
+      };
+    }
     case 'key':
       return onKey(state, message.key);
   }

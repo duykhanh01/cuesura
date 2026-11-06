@@ -38,6 +38,8 @@ const HEAD = 'a'.repeat(40);
 type DaemonOptions = {
   /** Extra project names in the user config, next to `acme`. */
   readonly projects?: readonly string[];
+  /** Serves `task_recheck`; `observed` is called once for each time the PR is really read. */
+  readonly recheck?: { readonly observed: () => void | Promise<void> };
 };
 
 type CusrOptions = {
@@ -76,7 +78,18 @@ export function useTui() {
             cgroup: null,
           }),
       };
+      let ids = 0;
       const sd: SeededDaemon = new SeededDaemon(noUnit, (store) => ({
+        ...(o.recheck === undefined
+          ? {}
+          : {
+              observe: async () => {
+                await o.recheck?.observed();
+                return { facts: [], failure: null };
+              },
+              drain: () => Promise.resolve(null),
+              newId: () => uuidOf(9_000 + ids++),
+            }),
         logs: { dataDir: sd.dataDir, redactor: new Redactor() },
         confirm: {
           store,
@@ -631,4 +644,98 @@ export async function detailRead(s: PtySession): Promise<void> {
 /** The screen as one line, so text that wrapped still compares whole. */
 export function flat(screen: string): string {
   return screen.replace(/\s+/g, ' ');
+}
+
+/** Opens the Actions menu of the selected task on Home, with `Recheck` listed. */
+export async function openActionsMenu(s: PtySession): Promise<void> {
+  s.send('a');
+  await s.waitForText('Actions — ');
+  await s.waitForText('Recheck');
+}
+
+/** Chooses `label` in the open Actions menu and presses Enter. */
+export async function pressAction(s: PtySession, label: string): Promise<void> {
+  for (let i = 0; i < 10 && !s.screenText().includes(`› ${label}`); i++) {
+    s.send(KEY.down);
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  s.send(KEY.enter);
+}
+
+/**
+ * A task waiting for a merge, whose Actions menu is open on a PTY behind a proxy that can refuse what the
+ * client writes. `sent` lists every `task_recheck` written, refused or not.
+ */
+export async function recheckScene(tui: ReturnType<typeof useTui>) {
+  let observed = 0;
+  let hold: Promise<void> | null = null;
+  let release: () => void = () => {};
+  const sd = tui.daemon({
+    recheck: {
+      observed: async () => {
+        observed++;
+        await hold;
+      },
+    },
+  });
+  const t = buildTask({ id: uuidOf(1), title: 'Green PR' });
+  sd.seed((d) => seedGreenPr(d, sd, t, 'full-review', { title: 'Title', message: 'Message' }));
+  await sd.start();
+  const proxy = await tui.proxy(daemonSocket(sd));
+  const sent: { id: string; body: string }[] = [];
+  /** `request_show` looks that reached the proxy. */
+  let shows = 0;
+  /** How many of the next commands never reach the daemon; `Infinity` for all. */
+  const control = {
+    refuseCommands: 0,
+    refuseShows: false,
+    refuseTaskShow: false,
+    refuseAll: false,
+    /** How many times each admitted `task_recheck` is delivered to the daemon again, once the first is in. */
+    replays: 0,
+    /** What the daemon answered to each replay. */
+    replies: [] as string[],
+  };
+  proxy.refuse = (request) => {
+    const body = request.slice(request.indexOf('\r\n\r\n') + 4);
+    if (body.includes('"task_recheck"')) {
+      sent.push({ id: /"request_id":"([^"]+)"/.exec(body)?.[1] ?? '', body });
+      if (control.refuseCommands > 0) {
+        control.refuseCommands -= 1;
+        return true;
+      }
+      for (let i = 0; i < control.replays; i++)
+        setTimeout(
+          () => void proxy.replay(request).then((reply) => control.replies.push(reply)),
+          1_000 + i * 200,
+        );
+    }
+    if (body.includes('"request_show"')) shows += 1;
+    return (
+      control.refuseAll ||
+      (control.refuseShows && body.includes('"request_show"')) ||
+      (control.refuseTaskShow && body.includes('"task_show"'))
+    );
+  };
+  const s = tui.cusr(proxy.dataDir);
+  await s.waitForText('Green PR');
+  await openActionsMenu(s);
+  // The first `task_show` must have answered, or Enter says the task is still being read.
+  await s.waitFor(() => /Read at \d\d:\d\d:\d\d/.test(s.screenText()));
+  await new Promise((r) => setTimeout(r, 300));
+  /** Makes the daemon keep the next `task_recheck` in progress: it answers `request_show` but not the command. */
+  const holdDaemon = (): void => {
+    hold = new Promise<void>((r) => (release = r));
+  };
+  return {
+    sd,
+    proxy,
+    s,
+    sent,
+    control,
+    observed: () => observed,
+    shows: () => shows,
+    holdDaemon,
+    release: () => release(),
+  };
 }

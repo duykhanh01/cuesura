@@ -19,8 +19,10 @@ describe('terminal restore through a real PTY', () => {
     session = null;
   });
 
-  async function start(): Promise<{ s: PtySession; pid: number }> {
-    const s = new PtySession({ entry: PROBE });
+  async function start(
+    env: Readonly<Record<string, string>> = {},
+  ): Promise<{ s: PtySession; pid: number }> {
+    const s = new PtySession({ entry: PROBE, env });
     session = s;
     await s.waitForText('probe ready');
     return { s, pid: await s.programPid() };
@@ -83,6 +85,18 @@ describe('terminal restore through a real PTY', () => {
     expect(exit.sttyAfter).toBe(exit.sttyBefore);
     expect(s.modes()).toEqual(INITIAL_MODES);
     expect(s.screenText()).toContain(text);
+  });
+
+  it.each([
+    ['an uncaught exception', 'x'],
+    ['an unhandled rejection', 'r'],
+  ] as const)('exits 3 after %s while a result is unknown, with the notice', async (_n, key) => {
+    const { s } = await start({ PROBE_NOTICE: 'request ID: abc\n' });
+    s.send(key);
+    const exit = await s.waitForExit();
+    expect(exit.status).toBe(3);
+    expect(exit.sttyAfter).toBe(exit.sttyBefore);
+    expect(s.screenText()).toContain('request ID: abc');
   });
 
   it('restores after a stdout write error', async () => {

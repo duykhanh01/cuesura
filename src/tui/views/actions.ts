@@ -4,7 +4,9 @@
  * (FR-016, FR-023). An action the caller may not take is dimmed with why.
  */
 import type { ActionsMenu } from '../model/actions.ts';
+import type { TuiState } from '../model/state.ts';
 import { CHANGED_NOTICE } from '../model/actions.ts';
+import type { Mutation } from '../client/mutations.ts';
 import type { CallerInfo, TaskExplain } from '../client/schemas.ts';
 import { joinSafe, sanitize, uiText, type SafeText } from '../terminal/safe-text.ts';
 import type { Style } from '../terminal/screen.ts';
@@ -13,10 +15,10 @@ import type { Body } from './layout.ts';
 import { clockTime } from './layout.ts';
 
 /**
- * `dialog`: a form of its own before anything is sent (US4, US5). `guide`: what to do outside Cuesura.
+ * `dialog`: a form of its own before anything is sent (US4, US5). `send`: Enter sends it, as it takes no input. `guide`: what to do outside Cuesura.
  * `info`: a line to read. An action this version does not know is shown as it came, as `info`.
  */
-export type ActionKind = 'dialog' | 'guide' | 'info';
+export type ActionKind = 'dialog' | 'send' | 'guide' | 'info';
 
 type Known = {
   readonly label: string;
@@ -31,7 +33,7 @@ const KNOWN: Readonly<Record<string, Known>> = {
   propose: { label: 'Propose run', kind: 'dialog', role: 'operate' },
   approve: { label: 'Approve', kind: 'dialog', role: 'admin' },
   cancel: { label: 'Cancel task', kind: 'dialog', role: 'operate' },
-  recheck: { label: 'Recheck', kind: 'dialog', role: 'operate' },
+  recheck: { label: 'Recheck', kind: 'send', role: 'operate' },
   task_add: { label: 'New task', kind: 'dialog', role: 'operate' },
   merge_manually: { label: 'Merge on GitHub', kind: 'guide' },
   fix_external: { label: 'Fix outside Cuesura', kind: 'guide' },
@@ -95,6 +97,7 @@ export function enterNotice(item: ActionItem): string {
   if (item.unavailable !== null) return `Nothing was sent: ${item.label} ${item.unavailable}.`;
   if (item.kind === 'dialog')
     return `Nothing was sent: the ${item.label} dialog comes in a later version. The CLI command is listed with it.`;
+  if (item.kind === 'send') return `Sending ${item.label}.`;
   if (item.guide.length > 0)
     return 'Nothing to send: merge it on GitHub with the method, title and message under it. PgUp/PgDn read a long message.';
   return 'Nothing to send: this says what to do outside this menu.';
@@ -140,7 +143,31 @@ function itemRows(item: ActionItem, index: number, on: boolean, cols: number): R
   ];
 }
 
-function headRows(s: { menu: ActionsMenu; cols: number }): Row[] {
+/** What is known of the latest write on this task, in the words of data-model.md "Thao tác đang gửi". */
+function mutationLine(m: Mutation | undefined): { text: string; style: Style } | null {
+  if (m === undefined) return null;
+  const id = `request ${m.requestId}`;
+  switch (m.state) {
+    case 'sending':
+      return { text: `Sending (${id})…`, style: { bold: true } };
+    case 'unknown':
+      return { text: `Result unknown - checking (${id})`, style: { fg: 'yellow', bold: true } };
+    case 'unresolved':
+      return {
+        text: `Result unknown - could not be confirmed (${id}). Check again (C)`,
+        style: { fg: 'yellow', bold: true },
+      };
+    case 'accepted':
+      return { text: `Done (${id})`, style: { bold: true } };
+    case 'rejected':
+      return {
+        text: `Rejected: ${m.result?.ok === false ? sanitize(`${m.result.code}: ${m.result.message}`) : ''} (${id})`,
+        style: { fg: 'red', bold: true },
+      };
+  }
+}
+
+function headRows(s: { menu: ActionsMenu; cols: number; mutation: Mutation | undefined }): Row[] {
   const { menu, cols } = s;
   const e = menu.explain;
   const rows: Row[] = [
@@ -171,6 +198,8 @@ function headRows(s: { menu: ActionsMenu; cols: number }): Row[] {
       ).map((text): Row => ({ text, style: { fg: 'yellow' }, item: null })),
     );
   else if (e.data === null) at('Reading the actions of this task…');
+  const line = mutationLine(s.mutation);
+  if (line !== null) at(line.text, line.style);
   if (menu.notice !== null)
     for (const r of wrap(menu.notice, cols))
       rows.push({ text: r, style: { bold: true }, item: null });
@@ -183,13 +212,14 @@ function headRows(s: { menu: ActionsMenu; cols: number }): Row[] {
 type MenuState = {
   readonly actions: ActionsMenu | null;
   readonly caller: CallerInfo | null;
+  readonly mutations: TuiState['mutations'];
   readonly size: { cols: number };
 };
 
 /** The head, the list, and where the chosen entry is in it, for a body `height` rows high. */
 function menuLayout(s: MenuState, menu: ActionsMenu, height: number) {
   const cols = s.size.cols;
-  const head = headRows({ menu, cols });
+  const head = headRows({ menu, cols, mutation: s.mutations.get(menu.taskId) });
   const items = menu.explain.data === null ? [] : actionItems(menu.explain.data, s.caller);
   const list = items.flatMap((item, i) => itemRows(item, i, i === menu.selected, cols));
   const room = Math.max(1, height - head.length);
