@@ -74,7 +74,7 @@ export function checkSelection(policy: FrozenPolicy, sel: RunSelection): Selecti
 // ---- PR template of the frozen base ----
 
 const TEMPLATE_BYTES = 64 * 1024;
-const TEMPLATE_RE =
+export const TEMPLATE_RE =
   /^(?:\.github\/|docs\/)?pull_request_template\.md$|^(?:\.github\/|docs\/)?pull_request_template\/[^/]+\.md$/i;
 
 export type TemplateError = {

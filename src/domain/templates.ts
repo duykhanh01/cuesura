@@ -9,22 +9,55 @@ import type { PrTemplate } from './run-config.ts';
 export const DEFAULT_PR_TEMPLATE_PATH = 'cusr:default/pull_request_template.md';
 export const DEFAULT_REVIEW_TEMPLATE_PATH = 'cusr:default/review_template.md';
 
-export const DEFAULT_PR_TEMPLATE = `## Summary
+/** Where `cusr init` puts the PR skill; the template it installs points workers there. */
+export const WRITE_PR_SKILL_PATH = '.agents/skills/write-pr/SKILL.md';
 
-<!-- What this PR changes and why, in a few sentences. -->
+function prTemplate(sketch: string): string {
+  return `## Why
+
+<!--
+The problem or need, in 1-3 sentences, in the project's own terms.
+Delete these comments when writing.
+-->
 
 ## Changes
 
--
+<!--
+Bullets by behaviour a user or the system can see, not a list of files.
+When the PR changes structure (call flow, state transitions, module layout, flow between
+components), ${sketch}
+-->
 
-## Testing
+## Evidence
 
-<!-- Gates run, tests added or updated, manual checks. -->
+<!--
+Concrete before and after: a test that failed and now passes, command output, a screenshot.
+Do not repeat the list of gates and CI checks; they are recorded already.
+Say what was not verified.
+-->
 
-## Risks and notes
+## Merge risk
 
-<!-- What a reader should look at closely; "None" when nothing. -->
+**Door:** <!-- one-way | two-way -->
+
+<!--
+Two-way: a revert undoes it. One-way: a revert leaves something behind, e.g. data already written
+in a new format, clients that already depend on new behaviour, deleted data. For a one-way door,
+say where rollback stops and how to go through safely.
+-->
+
+**Blast radius:** <!-- a short phrase: what breaks if this PR is wrong -->
 `;
+}
+
+/** Used when the repo has no template; it cannot point to a skill the repo may not have. */
+export const DEFAULT_PR_TEMPLATE =
+  prTemplate(`add the smallest sketch that makes it clear: pseudocode,
+a call tree, a file tree, a Mermaid diagram, or a \`diff\` of one of these when only part changes.`);
+
+/** Written to the repo by `cusr init`, next to the skill it points to. */
+export const INSTALLED_PR_TEMPLATE = prTemplate(`add the smallest sketch that makes it clear;
+read ${WRITE_PR_SKILL_PATH} for how.`);
 
 export const DEFAULT_REVIEW_TEMPLATE = `### Review round {{round}}: {{verdict}}
 

@@ -44,6 +44,8 @@ lo những việc đó. Không gọi `cusr`.
 - PR sửa quy tắc kiểm tra vẫn áp dụng quy tắc đã có trên `main` cho đến khi merge, trừ chỉ dẫn trực
   tiếp của người dùng; không tự dùng quy tắc mới trong PR để miễn kiểm tra cho chính PR đó.
 - Làm xong: commit, push nhánh và tạo PR vào `main`. Agent không tự merge PR; người dùng merge.
+  Mô tả PR theo [PR template](.github/pull_request_template.md) và skill `write-pr`;
+  `gh pr create --body` không tự áp template nên phải viết theo nó.
 - Sau khi PR được merge: `git worktree remove ../metronome.worktrees/<nhánh>` và xóa nhánh local.
 
 ## Dọn worktree rác

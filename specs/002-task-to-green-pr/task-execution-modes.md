@@ -96,8 +96,8 @@ Context mới không cấp quyền nhận head ngoài dự kiến; drift vẫn c
 
 Orchestrator đọc PR template từ frozen base và đưa nguyên nội dung vào context worker. Thứ tự chọn:
 `pr_template` trong `cusr.yaml`, rồi template duy nhất của repo (`pull_request_template.md` ở gốc,
-`.github/` hoặc `docs/`), rồi template mặc định của cusr (Summary, Changes, Testing, Risks and
-notes). Nếu repo có nhiều template mà chưa chọn thì chờ bổ sung. Template được đóng băng cùng task;
+`.github/` hoặc `docs/`), rồi template mặc định của cusr (Why, Changes, Evidence, Merge risk).
+Nếu repo có nhiều template mà chưa chọn thì chờ bổ sung. Template được đóng băng cùng task;
 daemon không suy đoán các heading bắt buộc.
 
 Worker chuẩn bị commit message, PR title và description cùng code. Kết quả là artifact có schema,

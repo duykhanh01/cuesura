@@ -597,7 +597,7 @@ Quy tắc:
 - **Phân chia rõ:** `~/.cusr/config.yaml` giữ những gì thuộc về *người dùng* (harness, model, role, workflow, profile, pool của harness). `cusr.yaml` giữ những gì thuộc về *repo*.
 - **Đóng băng:** `cusr.yaml` được đọc tại `base_sha` lúc task bắt đầu, và đóng băng vào FrozenPolicy cùng `workflow_hash`. Agent sửa `cusr.yaml` trong branch của task không ảnh hưởng task đang chạy. PR có thay đổi `cusr.yaml` được gắn cờ để reviewer và bạn thấy rõ (ví dụ một gate bị đổi thành `true`).
 - **Gate thiếu:** workflow dùng tên gate logic (`build`, `unit`, `lint`). Gate nào project không khai báo thì bị bỏ qua, và việc đó được ghi vào FrozenPolicy để biết task đã được kiểm tra bằng những gì. Project không có gate nào thì profile phải cho phép rõ ràng (`allow_no_gates: true`), vì khi đó chỉ còn review làm tuyến phòng thủ.
-- **Repo mới:** `cusr init` phát hiện manifest (`package.json` → pack `node`, `pyproject.toml` → `python`…), đề xuất `cusr.yaml`, và bạn xác nhận trước khi giao task cho repo đó.
+- **Repo mới:** `cusr init` phát hiện manifest (`package.json` → pack `node`, `pyproject.toml` → `python`…), đề xuất `cusr.yaml`, và bạn xác nhận trước khi giao task cho repo đó. Hiện `cusr init` mới làm phần PR: danh sách chọn có mục `write-pr` (PR template của cusr cùng skill `write-pr`, repo đã có template thì chỉ cài skill); phát hiện manifest và đề xuất `cusr.yaml` chưa làm.
 
 ### 5.3 Đóng băng policy và chống tự thay đổi
 1. `cusr task create --profile standard --set roles.reviewer.binding=sol` → resolve ra **FrozenPolicy** gồm workflow đã expand, binding đã resolve, `config_sha`, `workflow_hash` và `git rev-parse HEAD` của file cấu hình. Ghi event `PolicyFrozen`.

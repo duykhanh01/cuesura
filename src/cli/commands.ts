@@ -1,4 +1,5 @@
 import { statusCommand } from './client.ts';
+import { initCommand } from './init.ts';
 import { logsCommand } from './logs.ts';
 import { projectListCommand } from './projects.ts';
 import { reportCommand } from './report.ts';
@@ -30,6 +31,7 @@ import {
 import type { CliCommand } from './program.ts';
 
 export const CUSR_COMMANDS: readonly CliCommand[] = [
+  initCommand,
   statusCommand,
   doctorCommand,
   dispatchCommand,
