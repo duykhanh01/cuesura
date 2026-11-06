@@ -369,7 +369,8 @@ tiếp theo; làm theo duy nhất các chỉ dẫn đó cho tới khi tạo đư
   ở trạng thái đó, chế độ thực thi nếu đã có và PR nếu đã có.
 - **FR-007**: Task cần người dùng xử lý MUST được nhóm riêng ở trên cùng, nêu việc cần làm và số lượng. Task
   chỉ nằm trong nhóm này khi việc tiếp tục phụ thuộc người dùng theo `task explain`. Task đang chờ CI, cooldown
-  hoặc slot trong giới hạn MUST NOT nằm trong nhóm chỉ vì người dùng có thể hủy nó.
+  hoặc slot trong giới hạn MUST NOT nằm trong nhóm chỉ vì người dùng có thể hủy nó. Trong mỗi nhóm, task mới tạo
+  nhất MUST nằm trên cùng.
 - **FR-008**: Khi mở, giao diện MUST hiện toàn bộ project trong phạm vi token; thư mục đang đứng MUST NOT thu hẹp phạm
   vi này. Người dùng MUST lọc được theo project và trạng thái, và duyệt được toàn bộ task qua phân trang. Bộ lọc project
   đang áp dụng MUST luôn nhìn thấy.

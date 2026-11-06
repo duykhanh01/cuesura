@@ -93,6 +93,8 @@ export type TaskFilter = {
   readonly statuses: readonly TaskStatus[];
 };
 
+export type TaskOrder = 'oldest' | 'newest';
+
 function filterSql(f: TaskFilter): { where: string; params: string[] } {
   const marks = (n: number): string => Array(n).fill('?').join(', ');
   const parts = [`status IN (${marks(f.statuses.length)})`];
@@ -104,15 +106,24 @@ function filterSql(f: TaskFilter): { where: string; params: string[] } {
   return { where: parts.join(' AND '), params };
 }
 
-/** One page of task IDs in ID order, without reading any task's state. */
+/**
+ * One page of task IDs in ID order, without reading any task's state. IDs are UUIDv7, so `newest` lists the
+ * most recently created first and `after` then moves toward older tasks.
+ */
 export function taskPage(
   db: Database,
-  f: TaskFilter & { readonly after?: string; readonly limit: number },
+  f: TaskFilter & {
+    readonly after?: string;
+    readonly limit: number;
+    readonly order?: TaskOrder;
+  },
 ): string[] {
   const { where, params } = filterSql(f);
+  const newest = f.order === 'newest';
+  const past = f.after === undefined ? '' : ` AND id ${newest ? '<' : '>'} ?`;
   const rows = db
     .prepare(
-      `SELECT id FROM tasks WHERE ${where}${f.after === undefined ? '' : ' AND id > ?'} ORDER BY id LIMIT ?`,
+      `SELECT id FROM tasks WHERE ${where}${past} ORDER BY id${newest ? ' DESC' : ''} LIMIT ?`,
     )
     .all(...params, ...(f.after === undefined ? [] : [f.after]), f.limit) as {
     id: string;

@@ -23,7 +23,7 @@ cột mới trong `command_ledger`. Không thêm task status, event type hay l�
 | `screen_stack` | Màn hình đang mở, gồm các hộp thoại |
 | `selected_task_id` | Giữ theo task ID, không theo dòng (EC-013) |
 | `filters` | Project và status. Mỗi lần mở đều bắt đầu không lọc (FR-008) |
-| `board` | Dữ liệu `task_board` mới nhất và `watermark`. Đổi `project`, `status`, `scope`, `limit` hoặc `cursor` thì bỏ `watermark` |
+| `board` | Dữ liệu `task_board` mới nhất và `watermark`. Đổi `project`, `status`, `scope`, `limit`, `cursor` hoặc `order` thì bỏ `watermark` |
 | `mutations` | Danh sách thao tác đang gửi |
 | `drafts` | Nội dung đang nhập, chỉ trong bộ nhớ (FR-038) |
 

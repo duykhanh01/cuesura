@@ -71,6 +71,7 @@ export interface Store {
     filter: read.TaskFilter & {
       readonly after?: string;
       readonly limit: number;
+      readonly order?: read.TaskOrder;
     },
   ): string[];
   countTasksByStatus(filter: read.TaskFilter): Partial<Record<TaskStatus, number>>;
@@ -173,6 +174,7 @@ export class SqliteStore implements Store {
     filter: read.TaskFilter & {
       readonly after?: string;
       readonly limit: number;
+      readonly order?: read.TaskOrder;
     },
   ): string[] {
     return read.taskPage(this.db, filter);

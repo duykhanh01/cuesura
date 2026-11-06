@@ -242,14 +242,16 @@ describe('FR-007 and EC-005: more tasks need the user than the daemon lists', ()
   it('still groups a task past the cap, once, whichever way it is reached', async () => {
     const sd = tui.daemon();
     sd.seed((d) => {
+      // Newest first, so the oldest task is the one past the cap.
+      seedQuestion(d, buildTask({ id: uuidOf(1), title: 'Past the cap' }));
       for (let n = 1; n <= ATTENTION_LIMIT; n++) {
-        const t = buildTask({ id: uuidOf(n), title: `Unconfirmed ${n}` });
+        const t = buildTask({ id: uuidOf(ATTENTION_LIMIT + 2 - n), title: `Unconfirmed ${n}` });
         d.must(t.id, { kind: 'create_task', task: t });
       }
-      seedQuestion(d, buildTask({ id: uuidOf(ATTENTION_LIMIT + 1), title: 'Past the cap' }));
     });
     await sd.start();
-    const board = (await sd.query('owner', { kind: 'task_board' })).envelope.data as {
+    const asked = { kind: 'task_board', order: 'newest' };
+    const board = (await sd.query('owner', asked)).envelope.data as {
       attention: { items: AttentionRow[]; truncated: boolean };
     };
     expect(board.attention.truncated).toBe(true);
@@ -359,11 +361,11 @@ describe('EC-005: more than a page', () => {
     await s.waitForText('▶ 105 running');
     await s.waitForText('Page 1: tasks 1–100 of 105');
     s.send('G');
-    await s.waitFor(() => selectedLine(s.screenText()).includes('Task 100'));
+    await s.waitFor(() => selectedLine(s.screenText()).includes('Task 006'));
     s.send(KEY.pageDown);
     await s.waitForText('Page 2: tasks 101–105 of 105');
-    expect(s.screenText()).toContain('Task 105');
-    expect(s.screenText()).not.toContain('Task 100');
+    expect(s.screenText()).toContain('Task 001');
+    expect(s.screenText()).not.toContain('Task 006');
     expect(s.screenText()).toContain('▶ 105 running');
     s.send(KEY.pageUp);
     await s.waitForText('Page 1: tasks 1–100 of 105');
@@ -640,12 +642,12 @@ describe('T039 and FR-035: no colour, and the smallest terminal', () => {
     await sd.start();
     const s = tui.cusr(sd.dataDir, { cols: 80, rows: 24 });
     await s.waitForText('▶ 30 running');
-    await s.waitFor(() => /\d+s/.test(rowOf(s.screenText(), 'Task 001')));
+    await s.waitFor(() => /\d+s/.test(rowOf(s.screenText(), 'Task 030')));
     const lines = s.screenText().split('\n');
     expect(lines[0]).toContain('daemon: ok');
     expect(lines[0]).toContain('project: all');
     expect(lines[23]).toContain('q quit');
-    const row = rowOf(s.screenText(), 'Task 001').split('\n')[0] ?? '';
+    const row = rowOf(s.screenText(), 'Task 030').split('\n')[0] ?? '';
     expect(row).toContain('▶');
     expect(row).toContain('Preparing the worktree');
     expect(row).toContain('…');
@@ -654,7 +656,7 @@ describe('T039 and FR-035: no colour, and the smallest terminal', () => {
 
     // Past the first screen the selection stays in view.
     s.send('jjjjjjjjjjjj');
-    await s.waitFor(() => selectedLine(s.screenText()).includes('Task 013'));
+    await s.waitFor(() => selectedLine(s.screenText()).includes('Task 018'));
     expect(s.screenText().split('\n')[23]).toContain('q quit');
     await quit(s);
   });

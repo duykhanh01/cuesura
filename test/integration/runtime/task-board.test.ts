@@ -148,6 +148,17 @@ describe('task_board', () => {
     expect(second.next_cursor).toBeNull();
     expect(second.counts?.by_status).toEqual({ READY: 105 });
     expect(board({ limit: 2 }).items).toHaveLength(2);
+  });
+
+  it('lists the newest task first on request, the cursor moving toward older tasks', () => {
+    const { d, board } = setup();
+    const newest = Array.from({ length: 105 }, () => add(d).id).reverse();
+    const first = board({ order: 'newest' });
+    expect(first.items?.map((i) => i.task_id)).toEqual(newest.slice(0, 100));
+    expect(first.next_cursor).toBe(newest[99]);
+    const second = board({ order: 'newest', cursor: first.next_cursor });
+    expect(second.items?.map((i) => i.task_id)).toEqual(newest.slice(100));
+    expect(second.next_cursor).toBeNull();
     const r = taskBoard({ store: d.store, statusSince: statusSinceReader(d.store) }, OWNER, {
       kind: 'task_board',
       limit: 101,
@@ -180,6 +191,15 @@ describe('task_board', () => {
       mode: 'direct-pr',
       step: expect.any(String) as string,
     });
+  });
+
+  it('newest first also orders attention, so the cap keeps the newest', () => {
+    const { d, board } = setup();
+    const ids = Array.from({ length: ATTENTION_LIMIT + 1 }, () => add(d).id);
+    const r = board({ order: 'newest', limit: 1 });
+    expect(r.attention?.items[0]?.task_id).toBe(ids.at(-1));
+    expect(r.attention?.items.map((i) => i.task_id)).not.toContain(ids[0]);
+    expect(r.attention?.truncated).toBe(true);
   });
 
   it('attention is capped and says so', () => {

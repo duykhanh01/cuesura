@@ -86,9 +86,9 @@ Vào: `{ kind, task_id }`. Ra:
 
 ## `task_board`
 
-Vào: `{ kind, project?, status?, scope?, limit?, cursor?, if_changed_since? }`; `scope` mặc định `active`, trừ khi có `status` thì mặc định `all` để không che đúng trạng thái đang hỏi; `limit` tối đa 100.
+Vào: `{ kind, project?, status?, scope?, limit?, cursor?, order?, if_changed_since? }`; `scope` mặc định `active`, trừ khi có `status` thì mặc định `all` để không che đúng trạng thái đang hỏi; `limit` tối đa 100.
 
-`if_changed_since` chỉ có nghĩa khi các tham số khác giống lần đọc trước. Đổi `project`, `status`, `scope`, `limit` hoặc `cursor` thì client MUST bỏ
+`if_changed_since` chỉ có nghĩa khi các tham số khác giống lần đọc trước. Đổi `project`, `status`, `scope`, `limit`, `cursor` hoặc `order` thì client MUST bỏ
 nó, nếu không sẽ nhận `unchanged` cho dữ liệu chưa từng đọc.
 
 Khi `MAX(global_seq)` bằng `if_changed_since`:
@@ -116,7 +116,8 @@ Khi có thay đổi:
 - `attention.items` gồm mọi task `needs_user` trong phạm vi, tối đa 200. Bộ lọc project áp dụng cả ở đây.
 - Mỗi hàng có `task_id`, `project`, `title`, `status`, `wait_code`, `step`, `mode`, `status_since`, `version`, `priority`, `pr_ref`,
   `needs_user`. `status_since` là `null` khi không xác định được.
-- Sắp theo task ID như `task_list`.
+- `items` và `attention.items` sắp theo task ID như `task_list`: `order` mặc định `oldest`, `newest` xếp task mới tạo lên đầu và
+  `cursor` đi dần về task cũ hơn. TUI gửi `newest`; `cusr task board` không gửi nên giữ thứ tự cũ.
 
 ## `task_content`
 

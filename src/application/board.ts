@@ -40,6 +40,7 @@ const BoardSchema = z
     scope: z.enum(['active', 'terminal', 'all']).optional(),
     limit: z.number().int().min(1).max(BOARD_LIMIT).default(BOARD_LIMIT),
     cursor: UuidSchema.optional(),
+    order: z.enum(['oldest', 'newest']).default('oldest'),
     if_changed_since: z.number().int().nonnegative().optional(),
   })
   .strict();
@@ -107,7 +108,7 @@ export function taskBoard(
         issues: q.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`),
       },
     });
-  const { project, status, scope, limit, cursor, if_changed_since } = q.data;
+  const { project, status, scope, limit, cursor, order, if_changed_since } = q.data;
   const { store, statusSince } = deps;
   const watermark = store.lastGlobalSeq();
   if (if_changed_since === watermark) return ok({ unchanged: true, watermark });
@@ -122,6 +123,7 @@ export function taskBoard(
     statuses,
     ...(cursor === undefined ? {} : { after: cursor }),
     limit: limit + 1,
+    order,
   });
   const items = page
     .slice(0, limit)
@@ -134,6 +136,7 @@ export function taskBoard(
     projects,
     statuses: ACTIVE_STATUSES,
     limit: Number.MAX_SAFE_INTEGER,
+    order,
   })) {
     const s = store.readTask(id as Uuid);
     if (s === null || !needsUser(s)) continue;

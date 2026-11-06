@@ -586,7 +586,10 @@ export async function openTask(s: PtySession, title: string): Promise<void> {
   for (let i = 0; i < 400; i++) {
     if (row().includes(title)) break;
     const before = row();
-    s.send(KEY.down);
+    const lines = s.screenText().split('\n');
+    const above =
+      lines.findIndex((l) => l.includes(title)) < lines.indexOf(selectedLine(s.screenText()));
+    s.send(above ? KEY.up : KEY.down);
     await s.waitFor(() => row() !== before, 3_000);
   }
   await enterDetail(s);

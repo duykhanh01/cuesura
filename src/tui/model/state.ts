@@ -184,6 +184,7 @@ export type ViewQuery = {
   readonly scope?: 'active' | 'all';
   readonly limit: number;
   readonly cursor?: string;
+  readonly order: 'newest';
 };
 
 export function boardQuery(s: TuiState): ViewQuery {
@@ -191,6 +192,7 @@ export function boardQuery(s: TuiState): ViewQuery {
   const { project, status } = s.filters;
   return {
     limit: PAGE_LIMIT,
+    order: 'newest',
     ...(project === null ? {} : { project }),
     // A status names what the user wants to see, finished or not, so it takes no scope.
     ...(status === null

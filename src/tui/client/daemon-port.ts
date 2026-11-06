@@ -57,6 +57,7 @@ export type BoardQuery = {
   readonly scope?: 'active' | 'terminal' | 'all';
   readonly limit?: number;
   readonly cursor?: string;
+  readonly order?: 'oldest' | 'newest';
   readonly if_changed_since?: number;
 };
 
