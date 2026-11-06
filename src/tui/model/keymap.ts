@@ -160,7 +160,7 @@ const KEYS: Readonly<Record<Context, readonly Binding[]>> = {
     {
       keys: 'l',
       hint: 'logs',
-      help: 'Open the logs of this task',
+      help: 'Back to the logs of this task',
       press: [[c('l'), 'logs']],
     },
     {

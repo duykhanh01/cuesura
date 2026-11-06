@@ -9,6 +9,7 @@ import {
   openTask,
   technicalInfo,
   useTui,
+  leaveTask,
 } from '../../support/tui-fixtures.ts';
 import type { SeededDaemon } from '../../support/daemon-task.ts';
 
@@ -156,7 +157,7 @@ describe('T041: reading `task_explain` again while the version stands still', ()
     await s.waitFor(() => flat(s.screenText()).includes('CANCELLED ·'));
 
     // Back on Home, this screen reads nothing any more (R-03).
-    s.send('\x1b');
+    await leaveTask(s);
     await s.waitForText('Finished (2)');
     await new Promise((r) => setTimeout(r, 200));
     const left = count('task_explain');

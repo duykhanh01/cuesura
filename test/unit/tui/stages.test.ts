@@ -238,13 +238,13 @@ describe('animation', () => {
   });
 
   it('turns only on the screen of a running task', () => {
-    expect(animating(withStatus('RUNNING', ['home', 'detail', 'logs']))).toBe(true);
-    expect(animating(withStatus('WAITING', ['home', 'detail', 'logs']))).toBe(false);
+    expect(animating(withStatus('RUNNING', ['home', 'logs']))).toBe(true);
+    expect(animating(withStatus('WAITING', ['home', 'logs']))).toBe(false);
     expect(animating(withStatus('RUNNING', ['home']))).toBe(false);
   });
 
   it('a tick moves the frame and nothing else', () => {
-    const s = withStatus('RUNNING', ['home', 'detail', 'logs']);
+    const s = withStatus('RUNNING', ['home', 'logs']);
     const r = reduce(s, { type: 'tick' });
     expect(r.state).toEqual({ ...s, tick: 1 });
     expect(r.effects).toEqual([]);

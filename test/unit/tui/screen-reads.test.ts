@@ -208,10 +208,10 @@ describe('only the open screen reads (R-03)', () => {
     expect(plan(open({ screens: ['home', 'detail', 'help'] }))).toEqual([]);
   });
 
-  it('Logs over Task detail reads the log and what its stages need, not yet the history', () => {
+  it('Logs reads the log and what its stages need, not yet the history', () => {
     const keys = plan(
       open({
-        screens: ['home', 'detail', 'logs'],
+        screens: ['home', 'logs'],
         logs: initialLogs(TASK, uiText('T'), 1),
       }),
     );
@@ -221,7 +221,7 @@ describe('only the open screen reads (R-03)', () => {
   });
 
   it('Logs over an ended task reads the history too: its end is told from there', () => {
-    const logs = { screens: ['home', 'detail', 'logs'], logs: initialLogs(TASK, uiText('T'), 1) };
+    const logs = { screens: ['home', 'logs'], logs: initialLogs(TASK, uiText('T'), 1) };
     const ended = (status: string): TuiState =>
       onDetailRead(open(logs as Partial<TuiState>), {
         ...base,
@@ -248,7 +248,7 @@ describe('only the open screen reads (R-03)', () => {
       plan(
         open({
           connection,
-          screens: ['home', 'detail', 'logs'],
+          screens: ['home', 'logs'],
           logs: initialLogs(TASK, uiText('T'), 1),
         }),
       ),

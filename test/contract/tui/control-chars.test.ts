@@ -4,7 +4,14 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { buildTask, uuidOf } from '../../support/builders.ts';
 import { createGrantStart } from '../../support/runtime.ts';
-import { flat, LogFeed, openTask, seedGreenPr, useTui } from '../../support/tui-fixtures.ts';
+import {
+  flat,
+  leaveTask,
+  LogFeed,
+  openTask,
+  seedGreenPr,
+  useTui,
+} from '../../support/tui-fixtures.ts';
 
 // T043: what an agent or a repo wrote must not be able to command the terminal or fake the screen (SC-010,
 // EC-001, FR-037), checked in the bytes that leave the program and cell by cell.
@@ -81,8 +88,7 @@ describe('SC-010: control characters in what daemon data carries', () => {
       expect(s.modes().alternateScreen, name).toBe(true);
       expect(s.term.buffer.active.type, name).toBe('alternate');
       expectNoInjection(s.rawOutput());
-      s.send('\x1b');
-      await s.waitFor(() => !s.screenText().includes('Task detail'));
+      await leaveTask(s);
       await s.waitForText(marker);
     }
     s.send('q');

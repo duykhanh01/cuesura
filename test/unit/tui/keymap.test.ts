@@ -283,7 +283,7 @@ describe('the keymap is the one source of keys, hints and Help (T050)', () => {
 describe('the keys of a finished log', () => {
   const on = (logs: Partial<LogState>): TuiState => ({
     ...initialState({ cols: 120, rows: 30 }),
-    screens: ['home', 'detail', 'logs'],
+    screens: ['home', 'logs'],
     logs: { ...initialLogs('t1', uiText('A task'), 1), ...logs },
   });
 
@@ -308,20 +308,50 @@ describe('the keys of a finished log', () => {
 describe('task navigation after the TUI redesign', () => {
   it('opens Logs first, exposes details through the keymap and returns to Home with Esc', () => {
     const logs = run(home(), k('enter'));
-    expect(logs.screens).toEqual(['home', 'detail', 'logs']);
+    expect(logs.screens).toEqual(['home', 'logs']);
+    expect(logs.detail).not.toBeNull();
     expect(commandFor(logs, { kind: 'char', text: 'd' })).toBe('details');
     expect(bar(logs)).toContain('d details');
-    const details = reduce(logs, ch('d'));
-    expect(details.state.screens).toEqual(['home', 'detail']);
-    expect(details.state.logs).toBeNull();
+    const back = run(logs, k('esc'));
+    expect(back.screens).toEqual(['home']);
+    expect(back.detail).toBeNull();
+    expect(back.logs).toBeNull();
+    expect(back.actions).toBeNull();
+  });
+
+  it('opens Task detail over Logs, and Esc or `l` comes back to the log as it was left', () => {
+    const logs = run(home(), k('enter'));
+    const reading: TuiState = {
+      ...logs,
+      logs: { ...(logs.logs as LogState), mode: 'paused', anchor: { seq: 7, row: 0 } },
+    };
+    const details = reduce(reading, ch('d'));
+    expect(details.state.screens).toEqual(['home', 'logs', 'detail']);
+    expect(details.state.logs).toBe(reading.logs);
     expect(details.effects).toEqual([{ type: 'read_screen' }]);
-    for (const s of [logs, details.state, run(details.state, ch('l'))]) {
-      const back = run(s, k('esc'));
-      expect(back.screens).toEqual(['home']);
-      expect(back.detail).toBeNull();
-      expect(back.logs).toBeNull();
-      expect(back.actions).toBeNull();
+    for (const leave of [k('esc'), ch('l')]) {
+      const r = reduce(details.state, leave);
+      expect(r.state.screens).toEqual(['home', 'logs']);
+      expect(r.state.logs).toBe(reading.logs);
+      expect(r.state.detail).toBe(details.state.detail);
+      expect(r.effects).toEqual([{ type: 'read_screen' }]);
     }
+  });
+
+  it('keeps Actions over Task detail over Logs one Esc apart', () => {
+    const actions = run(home(), k('enter'), ch('d'), ch('a'));
+    expect(actions.screens).toEqual(['home', 'logs', 'detail', 'actions']);
+    const detail = run(actions, k('esc'));
+    expect(detail.screens).toEqual(['home', 'logs', 'detail']);
+    expect(detail.actions).toBeNull();
+    expect(run(detail, k('esc')).screens).toEqual(['home', 'logs']);
+    expect(run(detail, k('esc'), k('esc')).screens).toEqual(['home']);
+  });
+
+  it('goes `d` and `l` back and forth without growing the stack', () => {
+    const s = run(home(), k('enter'), ch('d'), ch('l'), ch('d'), ch('l'), ch('d'));
+    expect(s.screens).toEqual(['home', 'logs', 'detail']);
+    expect(run(s, k('esc'), k('esc')).screens).toEqual(['home']);
   });
 
   it('keeps the screen legend alongside context Help and the field keys', () => {
@@ -374,7 +404,7 @@ describe('the Actions menu (T052)', () => {
     expect(fromHome.actions?.taskId).toBe(TASK(2));
     expect(screen(fromHome)).toContain('Reading the actions of this task…');
     const r = reduce(run(home(), k('enter'), ch('d')), ch('a'));
-    expect(r.state.screens).toEqual(['home', 'detail', 'actions']);
+    expect(r.state.screens).toEqual(['home', 'logs', 'detail', 'actions']);
     expect(r.effects).toEqual([{ type: 'read_screen' }]);
   });
 
@@ -555,7 +585,7 @@ describe('the Actions menu (T052)', () => {
   it('Esc goes back to where it was opened, and leaving Task detail closes nothing else', () => {
     const detail = run(home(), k('down'), k('enter'), ch('d'));
     const back = run(detail, ch('a'), k('esc'));
-    expect(back.screens).toEqual(['home', 'detail']);
+    expect(back.screens).toEqual(['home', 'logs', 'detail']);
     expect(back.actions).toBeNull();
     expect(back.selectedTaskId).toBe(TASK(2));
   });

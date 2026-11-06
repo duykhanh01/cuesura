@@ -108,7 +108,7 @@ describe('keys of the chooser', () => {
     } as unknown as TaskShow;
     return {
       ...initialState({ cols: 120, rows: 40 }),
-      screens: ['home', 'detail', 'logs'],
+      screens: ['home', 'logs'],
       detail: { ...detail, show: { ...detail.show, data: show } },
       logs: initialLogs('t1', title, 2),
     };
@@ -155,7 +155,7 @@ describe('going back between the log, the chooser and an attempt', () => {
     } as unknown as TaskShow;
     return {
       ...initialState({ cols: 120, rows: 40 }),
-      screens: ['home', 'detail', 'logs'],
+      screens: ['home', 'logs'],
       detail: { ...detail, show: { ...detail.show, data: show } },
       logs: initialLogs('t1', title, 2),
     };
@@ -237,7 +237,7 @@ describe('the chooser on screen', () => {
     const opened = onLogsCommand(
       {
         ...initialState({ cols: 120, rows: 40 }),
-        screens: ['home', 'detail', 'logs'],
+        screens: ['home', 'logs'],
         detail: { ...detail, show: { ...detail.show, data: show } },
         logs: { ...initialLogs('t1', title, 2), complete },
       },

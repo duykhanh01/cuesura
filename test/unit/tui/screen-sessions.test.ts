@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { TaskExplain, TaskLogs, TaskShow } from '../../../src/tui/client/schemas.ts';
-import type { LogsMessage } from '../../../src/tui/model/detail-keys.ts';
+import type { BoardRow, TaskExplain, TaskLogs, TaskShow } from '../../../src/tui/client/schemas.ts';
+import { openDetail, type LogsMessage } from '../../../src/tui/model/detail-keys.ts';
 import { detailDue, initialDetail, type DetailMessage } from '../../../src/tui/model/detail.ts';
 import {
   applyLogPage,
@@ -83,6 +83,10 @@ function logsAnswer(s: TuiState, request: LogRequest, logPage: TaskLogs): LogsMe
   };
 }
 
+/** Enter on the task's row of Home. */
+const reopen = (s: TuiState): TuiState =>
+  openDetail(s, { kind: 'task', task: { task_id: TASK, title: uiText('T') } as BoardRow }).state;
+
 describe('finding 2: Logs closed and opened again on the same task', () => {
   it('drops the answer to what the former Logs asked', () => {
     const first = reduce(detailOpen(), char('l')).state;
@@ -91,8 +95,7 @@ describe('finding 2: Logs closed and opened again on the same task', () => {
       { kind: 'forward', after: 5_000 },
       page([record(5_001)], 5_001),
     );
-    const closed = reduce(first, char('d')).state;
-    const again = reduce(closed, char('l')).state;
+    const again = reopen(reduce(first, key('esc')).state);
     const landed = reduce(again, stale).state;
     expect(landed.logs?.buffer).toEqual([]);
     expect(landed.logs?.nextCursor).toBe(0);
@@ -105,7 +108,7 @@ describe('finding 2: Logs closed and opened again on the same task', () => {
       logs: followLogs(filterAttempt(first.logs as LogState, ATTEMPT)),
     };
     const stale = logsAnswer(first, { kind: 'forward', after: 7 }, page([record(8)], 8));
-    let again = reduce(reduce(first, char('d')).state, char('l')).state;
+    let again = reopen(reduce(first, key('esc')).state);
     again = {
       ...again,
       logs: followLogs(filterAttempt(again.logs as LogState, ATTEMPT)),

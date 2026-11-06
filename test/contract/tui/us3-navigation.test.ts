@@ -12,6 +12,7 @@ import {
   seedRunning,
   selectedLine,
   useTui,
+  leaveTask,
 } from '../../support/tui-fixtures.ts';
 
 // T049: getting around without remembering keys (US3, FR-032–FR-034), on a real PTY against a real daemon.
@@ -106,7 +107,7 @@ describe('US3 scenario 1: every screen says which keys work, how to go back and 
     bars['logs'] = hintBar(s.screenText());
     s.send('d');
     await s.waitForText('Task detail');
-    s.send(KEY.esc);
+    await leaveTask(s);
     await s.waitFor(() => hintBar(s.screenText()).includes('f filter'));
 
     s.send('f');
@@ -332,7 +333,7 @@ describe('US3 scenario 4: Help shows every key by context and closes where it wa
     await s.waitForText('Logs:');
     s.send('d');
     await s.waitForText('Task detail');
-    s.send(KEY.esc);
+    await leaveTask(s);
     await s.waitFor(() => hintBar(s.screenText()).includes('f filter'));
 
     s.send('f');

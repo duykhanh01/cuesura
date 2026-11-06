@@ -47,14 +47,17 @@ type Reduced = {
 
 const READ: readonly Effect[] = [{ type: 'read_screen' }];
 
-/** Enter opens the task's stages and log; its details sit underneath, one `d` away. */
+/**
+ * Enter opens the task's stages and log. Task detail is read along with it, because the log's stages and its
+ * chooser of attempts come from there, but it is drawn only over the log, one `d` away.
+ */
 export function openDetail(state: TuiState, row: HomeRow | undefined): Reduced {
   if (row === undefined || row.kind === 'finished_toggle') return { state, effects: [] };
   const session = state.screenSession + 1;
   return {
     state: {
       ...state,
-      screens: [...state.screens, 'detail', 'logs'],
+      screens: [...state.screens, 'logs'],
       detail: initialDetail(row.task.task_id, row.task.title, session),
       logs: initialLogs(row.task.task_id, row.task.title, session + 1),
       screenSession: session + 1,
@@ -63,31 +66,36 @@ export function openDetail(state: TuiState, row: HomeRow | undefined): Reduced {
   };
 }
 
-/** Esc on either task screen returns to Home and drops everything held by that task. */
-const leaveTask = (state: TuiState): TuiState => ({
-  ...state,
-  screens: state.screens.slice(0, state.screens.lastIndexOf('detail')),
-  detail: null,
-  logs: null,
-  actions: null,
+const isTaskScreen = (screen: string): boolean => screen === 'logs' || screen === 'detail';
+
+/** Leaves the task for the screen it was opened from, and drops everything held by it. */
+const leaveTask = (state: TuiState): TuiState => {
+  const first = state.screens.findIndex(isTaskScreen);
+  return {
+    ...state,
+    screens: first < 0 ? state.screens : state.screens.slice(0, first),
+    detail: null,
+    logs: null,
+    actions: null,
+  };
+};
+
+/** Task detail over the log goes back to it as it was left; the log catches up at once. */
+const backToLogs = (state: TuiState): Reduced => ({
+  state: { ...state, screens: state.screens.slice(0, state.screens.lastIndexOf('detail')) },
+  effects: READ,
 });
 
-const leave = (state: TuiState, screen: 'detail' | 'logs'): TuiState => {
-  const left: TuiState = {
-    ...state,
-    screens: state.screens.slice(0, state.screens.lastIndexOf(screen)),
-    ...(screen === 'detail' ? { detail: null } : { logs: null }),
-  };
-  // A menu over the screen left goes with it.
-  return left.screens.includes('actions') ? left : { ...left, actions: null };
-};
+const overLogs = (state: TuiState): boolean =>
+  state.screens.slice(0, state.screens.lastIndexOf('detail')).includes('logs');
 
 /** `null`: not a command of this screen. */
 export function onDetailCommand(state: TuiState, command: Command): Reduced | null {
   const d = state.detail;
   if (d === null) return null;
   if (command === 'actions') return openActions(state, d.taskId, d.show.data?.title ?? d.title);
-  if (command === 'logs')
+  if (command === 'logs') {
+    if (overLogs(state)) return backToLogs(state);
     return {
       state: {
         ...state,
@@ -97,6 +105,7 @@ export function onDetailCommand(state: TuiState, command: Command): Reduced | nu
       },
       effects: READ,
     };
+  }
   const height = contentHeight(state);
   const last = Math.max(0, detailRowCount(state) - height);
   const to = (top: number): Reduced => ({
@@ -108,7 +117,7 @@ export function onDetailCommand(state: TuiState, command: Command): Reduced | nu
   });
   switch (command) {
     case 'back':
-      return { state: leaveTask(state), effects: [] };
+      return overLogs(state) ? backToLogs(state) : { state: leaveTask(state), effects: [] };
     case 'down':
       return to(d.top + 1);
     case 'up':
@@ -249,8 +258,23 @@ export function onLogsCommand(state: TuiState, command: Command): Reduced | null
         : openPicker(state, logs);
     case 'attempts':
       return openPicker(state, logs);
-    case 'details':
-      return { state: leave(state, 'logs'), effects: READ };
+    case 'details': {
+      // Over the log, not instead of it: Esc comes back to the place being read.
+      const session = state.screenSession + 1;
+      return {
+        state: {
+          ...state,
+          screens: [...state.screens, 'detail'],
+          ...(state.detail === null
+            ? {
+                detail: initialDetail(logs.taskId, logs.title, session),
+                screenSession: session,
+              }
+            : {}),
+        },
+        effects: READ,
+      };
+    }
     case 'up':
       return put(scrollLogs(logs, cols, height, -1));
     case 'down':

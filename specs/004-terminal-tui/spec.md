@@ -89,8 +89,8 @@ của harness. Các câu dưới chốt cách trình bày; không thêm trạng 
   đang làm, việc đang chờ người dùng và phần log đang xem; phải là log. Hẹp hơn thì các giai đoạn thành một dòng ngang
   ở đầu log. Vạch phân cách ghi tên bước bằng lời; `t` chọn xem riêng một bước.
 - Q: Enter trên Home mở gì? → A: Mở task ở màn Log ở trên, vì câu hỏi hay gặp nhất là task tới đâu và agent đang làm
-  gì. `d` mở Task detail (lý do chờ, việc cần làm, PR, giới hạn, lịch sử); `l` từ đó quay lại. `Esc` ở cả hai màn về
-  Home.
+  gì. `d` mở Task detail đè lên màn Log (lý do chờ, việc cần làm, PR, giới hạn, lịch sử); `Esc` hoặc `l` từ đó quay
+  lại đúng chỗ đang đọc ở màn Log. `Esc` ở màn Log về Home.
 
 ## User Scenarios & Testing *(mandatory)*
 

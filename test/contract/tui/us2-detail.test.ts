@@ -20,6 +20,7 @@ import {
   seedRunning,
   selectedLine,
   useTui,
+  leaveTask,
 } from '../../support/tui-fixtures.ts';
 import { STAGE_LABEL, STAGES, type StageName } from '../../../src/tui/model/stages.ts';
 import { actionName } from '../../../src/tui/views/task-detail.ts';
@@ -148,7 +149,7 @@ describe('US2 scenario 2 and SC-001: why it waits and how out, as `task explain`
       expect(screen).toContain(`Agent runs ${explained.remaining.agent_runs} left`);
       expect(screen).toContain(`Escalations ${explained.remaining.escalations} left`);
       seen.add(code);
-      s.send(KEY.esc);
+      await leaveTask(s);
       await s.waitFor(() => selectedLine(s.screenText()).includes(`Code ${code} `));
       s.send(KEY.down);
       if (i < codes.length - 1)
@@ -171,7 +172,7 @@ describe('US2 scenario 2 and SC-001: why it waits and how out, as `task explain`
       for (const a of explained.allowed_actions)
         expect(flat(s.screenText())).toContain(flat(a.note));
       expect(flat(s.screenText())).toContain(`Reason ${explained.wait?.reason}`);
-      s.send(KEY.esc);
+      await leaveTask(s);
       await s.waitForText('Needs you');
     }
     await quit(s);
@@ -504,7 +505,7 @@ describe('moving around the detail', () => {
     await s.waitForText('History');
     s.send('g');
     await s.waitForText('Task detail');
-    s.send(KEY.esc);
+    await leaveTask(s);
     await s.waitFor(() => selectedLine(s.screenText()).includes('Task 002'));
     await quit(s);
   });

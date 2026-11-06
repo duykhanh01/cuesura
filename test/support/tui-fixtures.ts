@@ -601,6 +601,16 @@ export async function enterDetail(s: PtySession): Promise<void> {
   await s.waitForText('Task detail');
 }
 
+/** Esc from Task detail comes back to the log under it; Esc again leaves the task for Home. */
+export async function leaveTask(s: PtySession): Promise<void> {
+  s.send(KEY.esc);
+  await s.waitFor(
+    () => s.screenText().includes('Logs:') && !s.screenText().includes('Task detail'),
+  );
+  s.send(KEY.esc);
+  await s.waitFor(() => !s.screenText().includes('Logs:'));
+}
+
 /** Task detail shows what only whoever digs in needs: codes, commits, attempts and raw history. */
 export async function technicalInfo(s: PtySession): Promise<void> {
   s.send('i');
