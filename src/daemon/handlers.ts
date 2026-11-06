@@ -14,10 +14,16 @@
  * `reconcile` (T090) probes the effect it targets by kind before anything is sent again; see
  * {@link reconcileEffect}.
  */
+import {
+  headOf as gitHead,
+  restoreWorktree,
+  WorktreeBaselineSchema,
+} from '../adapters/git/restore.ts';
+import { writeAtomicIn } from '../runner/files.ts';
 import { updateBase, baseRepairScope, baseUpdateIntentKey } from '../adapters/git/update-base.ts';
 import { BaseUpdateSchema } from '../domain/runtime.ts';
-import { existsSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import {
   buildRoleContext,
   gateEvidenceFor,
@@ -778,6 +784,32 @@ function acceptContent(
   };
 }
 
+/** Named after the effect, since every run of one review goes back to the same point. */
+function reviewBaselineFile(deps: HandlerDeps, taskId: string, effectId: string): string {
+  return join(deps.paths.scratch, taskId, `review-baseline-${effectId}.json`);
+}
+
+/**
+ * Puts back what a review changed, from the baseline saved before it ran, so a daemon that restarted in
+ * between restores the same way. Without a readable baseline the tree stays as it is, and a tree that
+ * changed makes the next worker step wait for a person (T072); so does a restore that fails.
+ */
+async function restoreAfterReview(
+  deps: HandlerDeps,
+  taskId: string,
+  effectId: string,
+): Promise<void> {
+  let saved: unknown;
+  try {
+    saved = JSON.parse(readFileSync(reviewBaselineFile(deps, taskId, effectId), 'utf8'));
+  } catch {
+    return;
+  }
+  const before = WorktreeBaselineSchema.safeParse(saved);
+  if (before.success)
+    await restoreWorktree(deps.git, join(deps.paths.worktrees, taskId), before.data);
+}
+
 async function startAgent(
   deps: HandlerDeps,
   effect: Effect,
@@ -960,6 +992,27 @@ async function startAgent(
   const resume = sessionFor(effect.request, harness);
   // Without a task deadline the run's is fixed by its operation, so recovery rebuilds the same input.
   const registered = l.s.operations[op.operation_id]?.registered_at ?? deps.clock.now();
+  // Where a reviewer's worktree goes back to after it ran: HEAD and the full working tree. On disk
+  // before the launch, since the review may outlive this daemon.
+  if (r === 'reviewer' && !recovering) {
+    const head = await gitHead(deps.git, where(deps, l).worktree);
+    const tree = await worktreeTree(deps, l);
+    if (head === null || !tree.ok)
+      return {
+        outcome: 'failed',
+        data: {
+          failure_class: 'infra',
+          message: 'cannot read the worktree before the review',
+          invoked: false,
+        },
+      };
+    mkdirSync(scratch, { recursive: true, mode: 0o700 });
+    writeAtomicIn(
+      scratch,
+      basename(reviewBaselineFile(deps, l.s.id, effect.id)),
+      Buffer.from(JSON.stringify({ head, tree: tree.tree })),
+    );
+  }
   let out: HarnessOutcome;
   try {
     const input: HarnessInput = {
@@ -1027,8 +1080,12 @@ async function startAgent(
       return unknown(`spool ingest ${report.status}: ${report.detail ?? ''}`);
     }
   }
+  // The reviewer may edit, run checks and commit; what it changed never reaches the task. A restore
+  // that fails leaves the tree changed, and the next worker step waits for a person on that (T072).
+  if (r === 'reviewer' && !(out.kind === 'failure' && out.invoked === false))
+    await restoreAfterReview(deps, l.s.id, effect.id);
   const plain = agentOutcome(r, binding.harness, out, review?.sha ?? null, inputDigest);
-  // Sessions are a worker concern: a reviewer always runs in its own new, read-only session.
+  // Sessions are a worker concern: a reviewer always runs in its own new session.
   const outcome = worker ? withSession(plain, out, resume) : plain;
   if (!worker) return outcome;
   const accepted = acceptContent(deps, l, file, outcome);
@@ -2240,13 +2297,16 @@ async function probeAgent(
   // attempt is lost. It was launched, so it counts; the engine decides the next attempt and resumes a
   // session at most once (FR-035, FR-038).
   const runs = ops.filter((o) => o.kind === 'agent');
-  if (finished.length === 0 && runs.length > 0 && runs.every((o) => o.status === 'lost'))
+  if (finished.length === 0 && runs.length > 0 && runs.every((o) => o.status === 'lost')) {
+    if (target.request['role'] === 'reviewer')
+      await restoreAfterReview(deps, target.task_id, target.id);
     return {
       finding: 'executed_failed',
       failure_class: 'infra',
       signature: AGENT_LOST_SIGNATURE,
       detail: 'runner gone without a result',
     };
+  }
   if (finished.length !== 1 || op === undefined)
     return still('no single finished agent run to read back');
   const extra: Trigger[] = [];

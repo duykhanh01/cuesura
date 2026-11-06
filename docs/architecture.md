@@ -860,7 +860,7 @@ Crash giữa 1 và 2: probe không thấy gì, làm lại. Crash giữa 2 và 3:
 - Trước mỗi bước agent, ghi `checkpoint_sha = HEAD`. Sau mỗi bước agent thành công, **orchestrator** (không phải agent) commit: `cusr(T012/code#1): …` kèm trailer. Mỗi ranh giới bước vì thế là một commit có thể quay về.
 - Attempt *lost* (process chết, không có `exit.json`). Policy theo role:
   - `coder`/`fixer`: nếu có `session_id` thì resume một lần với lời nhắc "bạn bị gián đoạn, kiểm tra `git status` và tiếp tục". Thất bại thì `git reset --hard checkpoint && git clean -fd` và chạy lại attempt mới.
-  - `reviewer`/`scout`: luôn chạy lại, vì các bước này chỉ đọc.
+  - `reviewer`/`scout`: luôn chạy lại; scout chỉ đọc, còn thay đổi của reviewer được trả về theo mốc đã ghi trước khi chạy.
 
 ### 6.4 Thuật toán khởi động (Recovery Manager)
 ```text

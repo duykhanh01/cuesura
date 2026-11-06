@@ -55,7 +55,7 @@ biến này để gọi như owner là quy tắc, không phải giới hạn k�
      --vendor claude --binary "$(command -v claude)" \
      --toolchain "$PWD/tools/node/bin" --auth claude-0:.claude/.credentials.json \
      --settings claude-settings.json --permission-mode auto --sandbox off \
-     --tools Bash,Read,Edit,Write,Glob,Grep --model claude-haiku-5-5 --effort low \
+     --model claude-haiku-5-5 --effort low \
      --out evidence-claude.json
    ```
 
@@ -79,7 +79,7 @@ biến này để gọi như owner là quy tắc, không phải giới hạn k�
 
    Lặp lại cho Codex với `--harness codex --vendor codex --binary "$(command -v codex)"`,
    `--model gpt-6-luna --effort low`, auth/rules Codex tương ứng và `--out evidence-codex.json`;
-   bỏ các cờ riêng Claude (`--settings`, `--sandbox`, `--tools`). Manifest gắn với binary và pin, không gắn
+   bỏ các cờ riêng Claude (`--settings`, `--sandbox`). Manifest gắn với binary và pin, không gắn
    với model, nên các model còn lại trong bảng [Chọn model](#chọn-model) chạy được mà chưa có lượt chứng minh
    riêng. Coi task đầu tiên của mỗi model là lần kiểm thật của nó.
 
@@ -122,7 +122,8 @@ hoặc lý do thay đổi, hoặc lỗi xuất hiện lại sau khi đã hết. 
 
 ### Khi gate và review khác ý nhau
 
-Reviewer chạy read-only nên không tự chạy typecheck, lint, build hay test. Nó đánh giá dựa trên bằng chứng có sẵn:
+Reviewer được tự chạy typecheck, lint, build hay test; mọi thay đổi nó để lại trong worktree bị daemon trả về
+sau lượt review. Ngoài những gì tự chạy, nó dựa vào bằng chứng có sẵn:
 phần kiểm tra worker tự báo trong nội dung PR (nếu template PR yêu cầu), và mục `gate_evidence` trong context cho
 biết gate đã chạy gì trên đúng commit đang review: từng gate, command, bắt buộc hay tuỳ chọn, kết quả và đuôi log
 khi fail. Cùng một kiểm tra mà hai nguồn báo khác nhau thì tin `gate_evidence`. Không có kết quả gate
@@ -136,8 +137,8 @@ thuẫn (vd test không có trong worktree) là finding.
 - `missing`: không có lượt gate nào khớp commit đang review.
 
 Context của reviewer chỉ có range, digest và danh sách file của thay đổi, không chép nội dung diff; reviewer đọc
-bằng `git diff <from> <to>` trong worktree. Reviewer được tách việc cho sub-agent read-only (Claude qua tool
-`Agent`, Codex qua `spawn_agent`).
+bằng `git diff <from> <to>` trong worktree. Reviewer được tách việc cho sub-agent (Claude qua tool `Agent`,
+Codex qua `spawn_agent`).
 
 Nhận xét review nói "không chạy được test", "môi trường chỉ đọc" hay "không khởi tạo được sub-agent" là nhiễu,
 không phải lý do sửa code: đối chiếu kết quả gate trong `task explain` và ghi issue theo

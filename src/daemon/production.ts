@@ -10,6 +10,7 @@
  * request and attempt is against the disk, so a changed binary stops new work at once. What an attempt
  * runs with (credential references, stop bounds, stall limit) comes from the task's frozen snapshot.
  */
+import { homedir } from 'node:os';
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, extname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -322,6 +323,7 @@ export async function productionControl(opts: {
           // Only the task's frozen references, passed with each attempt: a config edited since the
           // task was frozen, or since this daemon started, must not change whose account it runs on.
           credentials: {},
+          user_home: homedir(),
           redactor: opts.redactor,
           clock: opts.clock,
           // Fallback for an input without bounds; the handlers always pass the frozen ones.

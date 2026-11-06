@@ -67,7 +67,7 @@ lại mỗi lần resume. Đổi harness/model/effort ngoài lựa chọn đã d
 mới; quyền admin hiện có vẫn áp dụng cho escalation cần admin. Toàn bộ v1 không hỗ trợ đổi graph
 của task đang chạy theo SPEC §5.3: đổi chế độ sau khi đã bắt đầu phải tạo task mới, không sửa FrozenPolicy.
 
-Reviewer dùng session riêng, chỉ đọc; có thể cùng vendor/model với worker. Không có điều kiện
+Reviewer dùng session riêng, thay đổi của nó không vào task; có thể cùng vendor/model với worker. Không có điều kiện
 khác vendor ở admission, review hay publish. Quota chỉ giúp agent đề xuất trong các lựa chọn được
 phép và có dữ liệu khả dụng; không giả định luôn đọc được quota chính xác. Hết quota thì chờ hoặc
 đề xuất lựa chọn khác để người dùng duyệt; không tự chuyển `full-review` sang `direct-pr`.
@@ -135,7 +135,8 @@ retry/wall time hiện có và chỉ với lệnh được phép chạy lại. N
 chứng minh được các gate cùng kiểm tree cuối thì chặn để đối chiếu, không lặp vô hạn hay commit/push.
 
 Review nhận diff của cặp base SHA/commit SHA bất biến, không đọc một diff thay đổi theo working copy.
-Reviewer chỉ đọc checkout tương ứng; approval ghi cặp SHA và digest nội dung PR đã xem. Daemon giữ
+Reviewer được sửa và chạy kiểm tra trên checkout tương ứng, xong daemon trả checkout về như trước review;
+approval ghi cặp SHA và digest nội dung PR đã xem. Daemon giữ
 khóa công việc worktree qua snapshot/review/publish và bảo đảm process có quyền ghi đã kết thúc rõ.
 
 Trước publish, kiểm ref/tree/worktree và artifact còn khớp checkpoint/evidence, sau đó push đúng SHA
@@ -147,8 +148,9 @@ lại trong `full-review`; retry không dựng lại body khác cho cùng create
 
 ## Review trên PR (quyết định 2026-11-04)
 
-Reviewer chỉ trả kết quả có schema (verdict, summary, findings); daemon đăng lên PR. Worker và
-reviewer không nhận GitHub credential, nên comment trên PR luôn khớp verdict mà engine dùng để rẽ nhánh.
+Reviewer chỉ trả kết quả có schema (verdict, summary, findings); daemon đăng lên PR, nên comment review
+của cusr luôn khớp verdict mà engine dùng để rẽ nhánh. Worker và reviewer dùng được `gh` của owner để đọc
+issue, PR và CI; việc họ tự làm trên GitHub không thay cho comment review hay việc push của daemon.
 
 - `full-review` mở PR dạng draft. Mỗi lượt review được đăng thành một PR review `COMMENT` (không
   dùng `APPROVE`/`REQUEST_CHANGES`, vốn tác động lên điều kiện merge); review các vòng trước được giữ

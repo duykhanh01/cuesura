@@ -1,8 +1,8 @@
 /**
  * Claude Code adapter (T068, FR-011/012/033). Argv and settings follow the pinned 2.1.306 shape the
  * T007 fixtures proved (`pinned-claude.json`): print mode with stream-json, the role schema inline
- * (without the `$schema` declaration that version refuses), user/project setting sources and MCP
- * servers disabled, a read-only settings file the runner writes, and the reviewer without Edit/Write.
+ * (without the `$schema` declaration that version refuses), the default tool set of an interactive
+ * session, a read-only settings file the runner writes, and the reviewer without Edit/Write.
  * Production derives auto/full-access permissions from the pin and keeps reviewer writes denied.
  * Archived outer-sandbox plans retain their recorded permission mode. Nothing here names a model.
  *
@@ -38,11 +38,6 @@ import {
 export const CLAUDE_SETTINGS_FILE = 'claude-settings.json';
 export const CLAUDE_RESULT_POINTER = ['structured_output'] as const;
 const REVIEWER_DISALLOWED = 'Edit,Write';
-/**
- * Lets the reviewer split its review across sub-agents. Sub-agents inherit `--disallowedTools` and the
- * sandbox settings of the session, so they stay read-only like the reviewer.
- */
-const REVIEWER_EXTRA_TOOLS = ['Agent'] as const;
 /** Auto-approving modes rejected by the archived outer-sandbox contract. */
 const APPROVING_MODES = new Set(['bypassPermissions', 'acceptEdits', 'auto']);
 
@@ -92,14 +87,16 @@ function settingsFor(
     };
   const hostPath = (path: string): string => {
     const entry = Object.entries(input.paths).find(
-      ([name]) => path === `/cusr/${name}` || path.startsWith(`/cusr/${name}/`),
+      (e): e is [string, string] =>
+        typeof e[1] === 'string' && (path === `/cusr/${e[0]}` || path.startsWith(`/cusr/${e[0]}/`)),
     );
     return entry === undefined ? path : entry[1] + path.slice(`/cusr/${entry[0]}`.length);
   };
   const mappedAllowWrite = allowWrite.map((path: unknown) => hostPath(String(path)));
   const mappedDenyWrite = denyWrite.map((path: unknown) => hostPath(String(path)));
   const native = input.host_execution
-    ? nativeSandboxEnabled(pin, input.role)
+    ? // Adapters receive a boundary; the decider arrives as `reviewer`.
+      nativeSandboxEnabled(pin, input.role === 'decider' ? 'reviewer' : input.role)
     : input.inner_mode === 'native';
   if (input.host_execution && input.inner_mode === 'external_verified')
     return {
@@ -132,6 +129,7 @@ function settingsFor(
                     input.paths.home,
                     input.paths.scratch,
                     ...(input.paths.tmp === undefined ? [] : [input.paths.tmp]),
+                    ...(input.role === 'reviewer' ? [] : (input.paths.git ?? [])),
                   ]),
                 ],
                 denyWrite: [...mappedDenyWrite, ...(input.role === 'reviewer' ? [input.cwd] : [])],
@@ -151,7 +149,6 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
   if (pin.vendor !== 'claude') return fail(`pin is for ${pin.vendor}`);
   if (input.host_execution && input.inner_mode !== hostInnerMode(pin))
     return fail('host permission mode must match the explicit pin');
-  if (pin.tools === null || pin.tools.length === 0) return fail('claude pin needs tools');
   if (input.model === '') return fail('model is not configured');
   const settings = settingsFor(pin, input);
   if (!settings.ok) return fail(settings.message);
@@ -167,6 +164,7 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
           context: '<context>',
           schema: '<schema>',
           tmp: '<tmp>',
+          git: ['<git>'],
         },
       })
     : settings;
@@ -178,11 +176,6 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
     '-p',
     '--verbose',
     ...(maxTurns === null ? [] : ['--max-turns', String(maxTurns)]),
-    '--tools',
-    (input.role === 'reviewer'
-      ? [...new Set([...pin.tools, ...REVIEWER_EXTRA_TOOLS])]
-      : pin.tools
-    ).join(','),
     '--output-format',
     'stream-json',
     '--json-schema',

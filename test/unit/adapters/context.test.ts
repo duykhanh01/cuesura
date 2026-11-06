@@ -75,6 +75,9 @@ describe('role context (T037, FR-005)', () => {
   it('tells workers, whatever the prompt says, that Cuesura commits; a reviewer is not told', () => {
     const coder = ok(buildRoleContext(input()));
     expect(coder.text).toContain(`## worker_rules\n${CODER_RULES}`);
+    expect(CODER_RULES).toMatch(
+      /Do not create, edit, comment on, merge or close this task's pull request/,
+    );
     const fixer = ok(
       buildRoleContext(
         input({
@@ -384,10 +387,12 @@ describe('repair packet, template and PR content (T037/T136, M04/M05)', () => {
     const reviewer = (gate_evidence: GateEvidence | null) =>
       ok(buildRoleContext(input({ role: 'reviewer', step: 'review', diff, gate_evidence })));
 
-    it('tells only the reviewer not to run checks itself, whatever the prompt says', () => {
+    it('tells only the reviewer it may run checks but that its edits are put back', () => {
       const v = reviewer(null);
       expect(v.text).toContain(`## reviewer_rules\n${REVIEWER_RULES}`);
-      expect(REVIEWER_RULES).toMatch(/Do not run typecheck, lint, build or tests/);
+      expect(REVIEWER_RULES).toMatch(/You may run typecheck, lint, build, tests/);
+      expect(REVIEWER_RULES).toMatch(/the worktree is restored after you finish/);
+      expect(REVIEWER_RULES).toMatch(/Do not post it, or any comment, on GitHub/);
       expect(REVIEWER_RULES).toMatch(/trust gate_evidence/);
       expect(REVIEWER_RULES).toMatch(/rely on the checks the worker reports/);
       expect(REVIEWER_RULES).toMatch(/Missing evidence that checks ran is never a finding/);

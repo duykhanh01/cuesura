@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
 import {
+  lstatSync,
   mkdirSync,
   readdirSync,
+  readlinkSync,
   readFileSync,
   rmSync,
   statSync,
@@ -12,8 +14,10 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { RunDir } from '../../../src/runner/files.ts';
 import {
+  USER_CONFIG_LINKS,
   copySession,
   installAuth,
+  linkUserConfig,
   homeSecretValues,
   readInstalledAuth,
   removeAuth,
@@ -264,5 +268,55 @@ describe('private home auth', () => {
       installAuth(run, [{ ref: { name: 'a', file: real }, to: '../escape.json' }]),
     ).toThrow(/inside the private home/);
     expect(() => statSync(join(run.dir, 'private-home', 'ok.json'))).toThrow();
+  });
+});
+
+describe('owner configuration in the private home', () => {
+  it('links the owner harness config next to the auth, never over it, and keeps state private', () => {
+    const { base } = fixture();
+    const owner = join(base, 'owner');
+    for (const rel of [
+      '.claude/skills/write-pr',
+      '.claude/projects',
+      '.codex/skills',
+      '.config/gh',
+    ])
+      mkdirSync(join(owner, rel), { recursive: true });
+    for (const rel of ['.claude/settings.json', '.codex/config.toml', '.codex/auth.json'])
+      writeFileSync(join(owner, rel), 'owner');
+    writeFileSync(
+      join(owner, '.claude.json'),
+      JSON.stringify({
+        oauthAccount: { id: 'owner' },
+        mcpServers: { docs: { command: 'docs-mcp' } },
+      }),
+    );
+    const run = RunDir.open({ dataDir: base, kind: 'runs', id: 'links', redactor: new Redactor() });
+    const source = join(base, 'auth.json');
+    writeFileSync(source, '{}', { mode: 0o600 });
+    const installed = installAuth(run, [
+      { ref: { name: 'codex', file: source }, to: '.codex/config.toml' },
+    ]);
+
+    const linked = linkUserConfig(installed.home, owner);
+    expect(linked).toEqual([
+      '.claude/settings.json',
+      '.claude/skills',
+      '.codex/skills',
+      '.claude/.claude.json',
+    ]);
+    for (const rel of linked.filter((r) => (USER_CONFIG_LINKS as readonly string[]).includes(r)))
+      expect(readlinkSync(join(installed.home, rel))).toBe(join(owner, rel));
+    // Only the MCP servers come over; the owner's account and session state stay out.
+    expect(JSON.parse(readFileSync(join(installed.home, '.claude/.claude.json'), 'utf8'))).toEqual({
+      mcpServers: { docs: { command: 'docs-mcp' } },
+    });
+    // What cusr installed wins; the rest of the owner's home is reached through the real HOME.
+    expect(lstatSync(join(installed.home, '.codex/config.toml')).isSymbolicLink()).toBe(false);
+    expect(readdirSync(installed.home).sort()).toEqual(['.claude', '.codex']);
+    expect(readdirSync(join(installed.home, '.codex')).sort()).toEqual(['config.toml', 'skills']);
+
+    removeAuth(installed);
+    expect(readFileSync(join(owner, '.claude/settings.json'), 'utf8')).toBe('owner');
   });
 });

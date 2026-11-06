@@ -17,7 +17,7 @@
 // It never calls a model.
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 const argv = process.argv.slice(2);
 if (argv[0] === 'sandbox') {
@@ -51,7 +51,8 @@ if (has('print_home')) {
       const p = join(d, n);
       return statSync(p).isDirectory() ? walk(p) : [readFileSync(p, 'utf8')];
     });
-  const text = walk(process.env.HOME).join('\n');
+  // The attempt's own home: the config dirs point into it while HOME stays the owner's.
+  const text = walk(dirname(process.env.CLAUDE_CONFIG_DIR ?? join(process.env.HOME, '.claude'))).join('\n');
   out({ type: 'leak', text });
   process.stderr.write(`leak ${text}\n`);
 }
@@ -61,7 +62,8 @@ if (has('publish') && !reviewer) {
   const path = m[1].replace('/cusr/scratch', process.env.FAKE_SANDBOX_SCRATCH ?? '/cusr/scratch');
   writeFileSync(path, JSON.stringify({ commit_message: 'Fix add', pr_title: 'Fix add', pr_body: 'Fixes add.' }));
 }
-if (has('write_worktree') && (!reviewer || process.env.FAKE_VENDOR_REVIEWER_WRITE)) writeFileSync(join(process.cwd(), 'agent-wrote.txt'), 'x');
+if (has('write_worktree') && (!reviewer || process.env.FAKE_VENDOR_REVIEWER_WRITE))
+  writeFileSync(join(process.cwd(), reviewer ? 'reviewer-wrote.txt' : 'agent-wrote.txt'), 'x');
 if (reviewer && process.env.FAKE_VENDOR_REVIEWER_PROBE) {
   let landed = true;
   if (process.env.FAKE_VENDOR_INNER_SANDBOX) {
@@ -132,7 +134,7 @@ else {
   const resumeMode = process.env.FAKE_VENDOR_RESUME;
   if (!codex && resumeMode) {
     const session = records.find((r) => r.type === 'result')?.session_id;
-    const projects = join(process.env.HOME, '.claude/projects', process.cwd().replace(/[^a-zA-Z0-9]/g, '-'));
+    const projects = join(process.env.CLAUDE_CONFIG_DIR ?? join(process.env.HOME, '.claude'), 'projects', process.cwd().replace(/[^a-zA-Z0-9]/g, '-'));
     const nonce = /Remember this nonce for a later continuation: ([0-9a-f-]+)\./.exec(stdin)?.[1];
     if (nonce && resumeMode !== 'missing') {
       mkdirSync(projects, { recursive: true });
@@ -159,7 +161,7 @@ else {
     let text = last.item.text;
     if (has('leak_summary')) {
       // Copies the installed auth token into the answer's summary, as a confused agent might.
-      const auth = JSON.parse(readFileSync(join(process.env.HOME, '.codex/auth.json'), 'utf8'));
+      const auth = JSON.parse(readFileSync(join(process.env.CODEX_HOME ?? join(process.env.HOME, '.codex'), 'auth.json'), 'utf8'));
       text = JSON.stringify({ ...JSON.parse(text), summary: `token ${auth.accessToken}` });
     }
     writeFileSync(argv[i + 1], text);

@@ -1,5 +1,5 @@
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { claudeAdapter } from '../../../src/adapters/harness/claude.ts';
@@ -297,42 +297,60 @@ describe('host execution with harness-owned permissions', () => {
     }
   });
 
-  it.each([
-    'NPM_TOKEN',
-    'AWS_SECRET_ACCESS_KEY',
-    'SSH_AUTH_SOCK',
-    'GH_TOKEN',
-    'GITHUB_TOKEN',
-    'CUSR_TOKEN_FILE',
-    'CUSR_ADMIN_TOKEN',
-    'CUSR_OPERATE_TOKEN',
-    'OPENAI_API_KEY',
-    'ANTHROPIC_API_KEY',
-    'DBUS_SESSION_BUS_ADDRESS',
-    'XDG_RUNTIME_DIR',
-    'invalid-name',
-  ])('rejects pin environment variable %s for workers and reviewers', (key) => {
-    for (const role of ['coder', 'reviewer'] as const) {
-      const p = new HostExecutionProvider().plan(
-        {
-          role,
-          worktree: tmpdir(),
-          git_dirs: [],
-          scratch: tmpdir(),
-          private_home: tmpdir(),
-          context: null,
-          schema: null,
-          toolchain: [],
-          env: { [key]: 'must-not-pass' },
-          network: 'internet_outbound',
-        },
-        ['/bin/true'],
-      );
-      expect(p).toMatchObject({
+  const plan = (env: Record<string, string>) =>
+    new HostExecutionProvider().plan(
+      {
+        role: 'coder',
+        worktree: tmpdir(),
+        git_dirs: [],
+        scratch: tmpdir(),
+        private_home: join(tmpdir(), 'home'),
+        context: null,
+        schema: null,
+        toolchain: [],
+        env,
+        network: 'internet_outbound',
+      },
+      ['/bin/true'],
+    );
+
+  it.each(['CUSR_TOKEN_FILE', 'CUSR_ADMIN_TOKEN', 'CUSR_OPERATE_TOKEN', 'invalid-name'])(
+    'rejects pin environment variable %s',
+    (key) => {
+      expect(plan({ [key]: 'must-not-pass' })).toMatchObject({
         ok: false,
         error: { code: 'policy_violation' },
       });
-    }
+    },
+  );
+
+  it('passes what a pin sets, secrets included, as a shell the owner opened would have it', () => {
+    const env = {
+      GH_TOKEN: 'gh',
+      GITHUB_TOKEN: 'gh',
+      NPM_TOKEN: 'npm',
+      OPENAI_API_KEY: 'key',
+      SSH_AUTH_SOCK: '/run/ssh.sock',
+      GH_HOST: 'github.com',
+    };
+    const p = plan(env);
+    expect(p.ok && p.value.env).toMatchObject(env);
+  });
+
+  it('keeps the real HOME and points only the harness config dirs into the private home', () => {
+    vi.stubEnv('CUSR_ACTOR', 'assistant');
+    vi.stubEnv('CLAUDECODE', '1');
+    vi.stubEnv('SOME_TOOL_HOME', '/opt/tool');
+    const p = plan({});
+    if (!p.ok) throw new Error(p.error.message);
+    expect(p.value.env).toMatchObject({
+      HOME: homedir(),
+      CLAUDE_CONFIG_DIR: join(tmpdir(), 'home', '.claude'),
+      CODEX_HOME: join(tmpdir(), 'home', '.codex'),
+      SOME_TOOL_HOME: '/opt/tool',
+    });
+    expect(p.value.env).not.toHaveProperty('CUSR_ACTOR');
+    expect(p.value.env).not.toHaveProperty('CLAUDECODE');
   });
 
   it('runs host commands and Unix sockets without an outer bwrap launcher', async () => {
@@ -371,7 +389,7 @@ describe('host execution with harness-owned permissions', () => {
       mount_sources: [],
       proof_refs: [],
     });
-    expect(plan.value.env).not.toHaveProperty('GH_TOKEN');
+    expect(plan.value.env).toHaveProperty('GH_TOKEN', 'redact-me');
     expect(plan.value.env).not.toHaveProperty('CUSR_TOKEN_FILE');
     const r = await new SpawnExecutor().run(plan.value, {
       timeout_ms: 5_000,

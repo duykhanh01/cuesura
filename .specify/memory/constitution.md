@@ -64,8 +64,10 @@ comment hoặc merge đã thành công.
   `full-review` MUST có review; `direct-pr` không yêu cầu review, không giả bằng chứng approve
   và không miễn gate/CI hoặc cấp quyền merge.
 - Required checks ở trạng thái pending, cancelled, missing hoặc unknown MUST NOT được coi là pass.
-- Reviewer MUST dùng session riêng với coder, chỉ đọc và chỉ nhận dữ liệu cần thiết
-  (diff có giới hạn kích thước). Vendor/model có thể giống coder; không mặc định ưu tiên khác vendor.
+- Reviewer MUST dùng session riêng với coder và chỉ nhận dữ liệu cần thiết (diff có giới hạn kích
+  thước). Reviewer MAY sửa và chạy kiểm tra trong worktree; thay đổi của nó MUST NOT vào task: daemon
+  MUST ghi bền mốc trước khi chạy và trả worktree về mốc đó, kể cả sau khi daemon khởi động lại. Vendor/model
+  có thể giống coder; không mặc định ưu tiên khác vendor.
 
 **Lý do:** agent có thể tự tin mà sai; chỉ tín hiệu kiểm chứng được mới đẩy workflow tiến lên.
 
@@ -149,10 +151,12 @@ mỗi thành phần phải được dùng thật.
   Theo quyết định chủ dự án ngày 2026-11-01 ([ADR-0005](../../docs/adr/0005-native-harness-permissions.md)),
   Cuesura chạy harness trực tiếp trong worktree riêng, không dùng outer bwrap. Sandbox và quyền tool
   MUST do harness quản lý: mặc định auto review/approve, full access chỉ khi owner chọn rõ trong pin.
-  Sandbox worker Claude MAY bật/tắt độc lập với permission mode, mặc định tắt; reviewer MUST giữ sandbox chỉ đọc.
+  Sandbox worker Claude MAY bật/tắt độc lập với permission mode, mặc định tắt; decider MUST giữ sandbox chỉ đọc, reviewer dùng ranh giới của fixer.
   Không hứa ngăn process cùng UID đọc home/secret hoặc truy cập socket/metadata ngoài worktree.
   Worktree không phải sandbox bảo mật. Các quyền workflow, approval và merge MUST giữ nguyên.
-- **Secret:** che trước khi lưu hoặc xuất log. Không force-push mù; không xoá worktree còn dữ liệu
+- **Secret:** che trước khi lưu hoặc xuất log. Secret mà lệnh cần để chạy MUST NOT đi qua artifact đã che;
+  nó được giao qua file riêng mode 0600 trong run dir, runner xóa trước khi spawn, daemon xóa khi run không
+  bắt đầu, và không file nào khác giữ bản rõ. Không force-push mù; không xoá worktree còn dữ liệu
   chưa bảo toàn.
 
 ## Quy trình phát triển và cổng chất lượng
@@ -238,4 +242,17 @@ khai. SPEC §5.2 và §15, `deploy/README.md`, `docs/dogfooding.md`, skill `cusr
 `specs/002-task-to-green-pr/contracts/cli-daemon.md` được cập nhật; template Spec Kit đã kiểm tra, không cần
 thay đổi. Không có mục đồng bộ còn chờ.
 
-**Version**: 7.0.0 | **Ratified**: 2026-10-27 | **Last Amended**: 2026-11-05
+**Amendment 2026-11-06 (chủ dự án):** 7.0.0 → 8.0.0 vì định nghĩa lại nguyên tắc IV và trust boundary: reviewer
+không còn chỉ đọc mà chạy như fixer, được sửa, chạy kiểm tra và commit; daemon ghi bền mốc HEAD/cây làm việc trước
+khi chạy và trả worktree về mốc đó, nên thay đổi của reviewer không vào task. Chỉ decider giữ sandbox chỉ đọc.
+Làm rõ thêm đường giao secret cho lệnh: không qua artifact đã che, file riêng 0600 bị xóa trước khi spawn. Giữ
+nguyên: reviewer dùng session riêng, approval gắn SHA cụ thể, decider và agent không quyết định merge. Đồng bộ
+SPEC §7, §9, §14 và §15.2, hợp đồng execution, ADR-0005, runbook; các template đọc hiến chương hiện hành, không cần đổi
+cấu trúc.
+
+**Sync Impact Report 2026-11-06:** nguyên tắc IV và trust boundary đổi quyền của reviewer và đường giao secret.
+`SPEC.md`, `specs/002-task-to-green-pr/contracts/execution.md`, `docs/adr/0005-native-harness-permissions.md`,
+`deploy/README.md` và `docs/architecture.md` được cập nhật; template Spec Kit đã kiểm tra, không cần thay đổi.
+Không có mục đồng bộ còn chờ.
+
+**Version**: 8.0.0 | **Ratified**: 2026-10-27 | **Last Amended**: 2026-11-06

@@ -1198,6 +1198,62 @@ describe.each(['full-review', 'direct-pr'] as const)(
   },
 );
 
+const git = (cwd: string, ...args: string[]): string =>
+  spawnSync('git', args, { cwd, encoding: 'utf8' }).stdout.trim();
+
+/** What a reviewer may do in its run; `git add` and `commit` move both the index and HEAD. */
+function reviewerCommits(worktree: string): void {
+  writeFileSync(join(worktree, 'reviewer-probe.txt'), 'reviewer\n');
+  git(worktree, 'add', '--all', '--', '.');
+  git(worktree, '-c', 'user.name=r', '-c', 'user.email=r@x', 'commit', '-qm', 'reviewer');
+}
+
+it('a reviewer lost to a restart still has its worktree put back before the next run', async () => {
+  const task = buildTask();
+  const { d, deps, start, settle } = setup(task, { mode: 'full-review', reviews: 2 });
+  const harness = deps.harnesses['codex'];
+  if (harness === undefined) throw new Error('no harness');
+  const run = harness.run.bind(harness);
+  const worktree = join(deps.paths.worktrees, task.id);
+  const heads: string[] = [];
+  Object.assign(harness, {
+    run: async (input: HarnessInput, signal: AbortSignal) => {
+      heads.push(git(worktree, 'rev-parse', 'HEAD'));
+      if (heads.length > 1) return run(input, signal);
+      reviewerCommits(worktree);
+      throw new Error('daemon killed');
+    },
+  });
+  d.must(task.id, { kind: 'create_task', task });
+  start();
+  await settle();
+  const agent = Object.values(d.task(task.id).effects).find((e) => e.status === 'started');
+  if (agent === undefined) throw new Error('no agent effect');
+  const op = Object.values(d.task(task.id).operations).find((o) => o.effect_id === agent.id);
+  if (op === undefined) throw new Error('no operation');
+  d.must(task.id, {
+    kind: 'operation_result',
+    operation_id: op.id as Uuid,
+    status: 'lost',
+    outcome: null,
+    invocation_id: null,
+    processes: [],
+    started_at: d.now as EpochMs,
+    finished_at: d.now as EpochMs,
+    receipt_digest: `sha256:${'c'.repeat(64)}`,
+  });
+  d.must(task.id, {
+    kind: 'effect_result',
+    effect_id: agent.id as Uuid,
+    ...(agent.attempt_id === null ? {} : { attempt_id: agent.attempt_id as Uuid }),
+    outcome: 'unknown',
+  });
+  await settle();
+  expect(d.task(task.id).effects[agent.id]?.status).toBe('failed');
+  expect(git(worktree, 'rev-parse', 'HEAD')).toBe(heads[0]);
+  expect(existsSync(join(worktree, 'reviewer-probe.txt'))).toBe(false);
+});
+
 describe.each(['coder', 'reviewer'] as const)(
   'restart after a %s finished while no daemon read it (US3.2, T090)',
   (role) => {
@@ -1218,6 +1274,7 @@ describe.each(['coder', 'reviewer'] as const)(
           if (died) return out;
           died = true;
           finished.push({ input, out });
+          if (role === 'reviewer') reviewerCommits(join(deps.paths.worktrees, task.id));
           throw new Error('daemon killed');
         },
       });
@@ -1300,6 +1357,9 @@ describe.each(['coder', 'reviewer'] as const)(
 
       expect(recovered).toHaveLength(1);
       expect((role === 'coder' ? coder : codex).calls).toHaveLength(1);
+      const worktree = join(deps.paths.worktrees, task.id);
+      expect(existsSync(join(worktree, 'reviewer-probe.txt'))).toBe(false);
+      expect(git(worktree, 'log', '--format=%s', '-1')).not.toBe('reviewer');
       const s = d.task(task.id);
       expect(s.effects[agent.id]?.status).toBe('succeeded');
       // The result file is indexed alone at the committed cursor, the records are not counted twice.

@@ -1,12 +1,13 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { OperationLaunch } from '../../../src/adapters/ports.ts';
 import { asEpochMs } from '../../../src/shared/brand.ts';
-import { RUN_FILES, RunDir } from '../../../src/runner/files.ts';
+import { RUN_FILES, RunDir, SECRET_ENV_FILE } from '../../../src/runner/files.ts';
+import { execOperation } from '../../../src/runner/lifecycle.ts';
 import {
   PidRecordSchema,
   captureIdentity,
@@ -18,6 +19,7 @@ import {
   FLOCK,
   LOCK_CONFLICT_EXIT,
   claimLaunch,
+  fenceLaunch,
   flockArgv,
   lockFilePath,
   probeOperationLock,
@@ -186,6 +188,74 @@ describe('SystemdSupervisor with scripted systemctl', () => {
     expect(run.readFinal(RUN_FILES.invocation)).toMatchObject({
       state: 'valid',
       value: { operation_id: 'op-1', launch_nonce: 'nonce-1' },
+    });
+  });
+
+  describe('secret variables', () => {
+    const secrets = { GH_TOKEN: 'gho_owner-login-value', NPM_TOKEN: 'npm-owner-value' };
+    const open = (d: string): RunDir =>
+      RunDir.open({
+        dataDir: d,
+        kind: 'runs',
+        id: 'at-1',
+        redactor: new Redactor(),
+        create: false,
+      });
+    const launch = (d: string, exec: CommandExec) =>
+      new SystemdSupervisor({ dataDir: d, runnerCommand: ['/r'], exec }).launch(
+        launchSpec({
+          argv: ['/bin/sh', '-c', 'printf %s "$GH_TOKEN $NPM_TOKEN $PLAIN" > "$OUT"'],
+          cwd: d,
+          env: { ...secrets, PATH: '/usr/bin:/bin', PLAIN: 'plain', OUT: join(d, 'seen') },
+          deadline_at: asEpochMs(Date.now() + 60_000),
+        }),
+      );
+
+    it('reach the command as they are, and only redacted files stay on disk', async () => {
+      const d = dataDir();
+      const exec = scripted([show('not-found', 'inactive'), show('loaded', 'active')]);
+      expect(await launch(d, exec)).toMatchObject({ ok: true });
+      const run = open(d);
+      expect(statSync(run.resolve(SECRET_ENV_FILE)).mode & 0o777).toBe(0o600);
+      const stored = readFileSync(run.resolve(RUN_FILES.invocation), 'utf8');
+      expect(stored).not.toContain(secrets.GH_TOKEN);
+      expect(JSON.parse(stored)).toMatchObject({ secret_env: true, env: { PLAIN: 'plain' } });
+
+      const r = await execOperation(run, { sample_ms: 50, onStop: () => () => undefined });
+      expect(r).toMatchObject({ state: 'finished', exit: { outcome: 'exited', exit_code: 0 } });
+      expect(readFileSync(join(d, 'seen'), 'utf8')).toBe(
+        `${secrets.GH_TOKEN} ${secrets.NPM_TOKEN} plain`,
+      );
+      expect(existsSync(run.resolve(SECRET_ENV_FILE))).toBe(false);
+    });
+
+    it('a run that lost them does not start without them', async () => {
+      const d = dataDir();
+      await launch(d, scripted([show('not-found', 'inactive'), show('loaded', 'active')]));
+      const run = open(d);
+      run.removeSecretEnv();
+      const r = await execOperation(run, { sample_ms: 50, onStop: () => () => undefined });
+      expect(r).toMatchObject({
+        state: 'finished',
+        exit: { outcome: 'spawn_failed', spawned: false, error: 'secret environment missing' },
+      });
+      expect(existsSync(join(d, 'seen'))).toBe(false);
+    });
+
+    it('do not stay behind a launch that failed or a run that is fenced off', async () => {
+      const failed = dataDir();
+      const refused = scripted(
+        [show('not-found', 'inactive'), show('not-found', 'inactive')],
+        result({ code: 1 }),
+      );
+      expect(await launch(failed, refused)).toMatchObject({ error: { code: 'spawn_failed' } });
+      expect(existsSync(open(failed).resolve(SECRET_ENV_FILE))).toBe(false);
+
+      const fenced = dataDir();
+      await launch(fenced, scripted([show('not-found', 'inactive'), show('loaded', 'active')]));
+      const run = open(fenced);
+      fenceLaunch(run, { operation_id: 'op-1', attempt_id: 'at-1', at: 'now' });
+      expect(existsSync(run.resolve(SECRET_ENV_FILE))).toBe(false);
     });
   });
 

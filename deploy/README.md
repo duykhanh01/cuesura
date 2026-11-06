@@ -21,7 +21,7 @@ harness cần. Claude native trên Linux vẫn có thể cần `bwrap`/`socat` c
 
 ### User namespace và AppArmor của sandbox native
 
-Claude có sandbox bật trên Linux vẫn dùng bwrap; reviewer luôn cần sandbox dù worker chọn tắt hoặc full access. Trên host mới,
+Claude có sandbox bật trên Linux vẫn dùng bwrap; decider luôn cần sandbox dù worker chọn tắt hoặc full access. Trên host mới,
 cài `bubblewrap`/`socat` và kiểm tra bằng user chạy daemon:
 
 ```sh
@@ -78,7 +78,9 @@ Khi sandbox native bật, adapter thêm `sandbox.network.allowAllUnixSockets: tr
 `sandbox.network.allowAllUnixSockets: false` trong file settings để giữ chặn. Giá trị này nằm trong settings hash,
 nên release đổi nó cần chứng minh lại harness.
 
-Reviewer luôn giữ sandbox chỉ đọc. `bwrap`/`socat` vì vậy vẫn cần cho harness Claude. Đây là quyền tool,
+Decider (trả lời câu hỏi thay owner) luôn giữ sandbox chỉ đọc. `bwrap`/`socat` vì vậy vẫn cần cho harness
+Claude. Reviewer chạy như fixer: được sửa file, chạy test và commit, xong daemon trả worktree về đúng trạng
+thái trước review. Đây là quyền tool,
 không phải tự duyệt run config, review code hoặc merge. Khi đã bật sandbox, lỗi không tự chuyển sang
 tắt hoặc full access. Codex không nhận flag `--sandbox` này; chế độ sandbox Codex giữ theo permission mode.
 
@@ -222,8 +224,9 @@ xác nhận run config, trả lời câu hỏi, recheck và hủy; không approv
 
 **Ranh giới.** `CUSR_ACTOR` là rào chắn cho caller làm đúng quy ước, không phải ranh giới bảo mật: process
 cùng UID bỏ biến này là thành owner. Muốn tách quyền thật, chạy assistant bằng UID khác. Worker
-coder/fixer/reviewer không gọi `cusr`; environment của worker không kế thừa `GH_*`, `GITHUB_*` hoặc
-`CUSR_TOKEN*`. Không còn outer boundary chặn process cùng UID đọc file host.
+coder/fixer/reviewer không gọi `cusr`; environment của worker không kế thừa biến `CUSR_*`. Worker dùng
+`gh` bằng đăng nhập của owner ([Network và credentials](#network-và-credentials)). Không còn outer
+boundary chặn process cùng UID đọc file host.
 
 **Nâng cấp từ bản có token.** `runtime.access_tokens` trong user config không còn tác dụng; daemon vẫn
 khởi động và ghi một dòng log báo khóa này bị bỏ qua. Xóa khóa đó, file token của assistant và
@@ -287,7 +290,7 @@ roles:
 ```
 
 Decider dùng binding đầu tiên của role `decider`, thiếu role này thì config bị từ chối. Nó chạy phiên mới, chỉ
-đọc, trong cùng ranh giới với reviewer. Role mới cần một lần `prove-harness` và `record-manifest` (mỗi lần chứng
+đọc, trong ranh giới read-only riêng (các worker khác đều ghi được). Role mới cần một lần `prove-harness` và `record-manifest` (mỗi lần chứng
 minh giờ tốn 4 lượt thay vì 3). Manifest cũ vẫn chạy được coder, fixer, reviewer; khi đó decider báo
 `capability_missing` trong log và câu hỏi vẫn mở.
 
@@ -410,7 +413,7 @@ quyền thật ([người gọi và quyền](#người-gọi-và-quyền)).
 ```sh
 cusr-runner setup-harness --config ~/.cusr/config.yaml --harness claude --vendor claude \
   --binary "$(command -v claude)" --toolchain /opt/node/bin --auth claude-0:.claude/.credentials.json \
-  --settings claude-settings.json --permission-mode auto --sandbox off --tools Bash,Read,Edit,Write,Glob,Grep \
+  --settings claude-settings.json --permission-mode auto --sandbox off \
   --model <model-id> --effort <effort> --out evidence-claude.json
 ```
 
@@ -457,7 +460,7 @@ cách này. Ba lệnh riêng vẫn được giữ để gỡ lỗi:
 ```sh
 cusr-runner write-pin --config ~/.cusr/config.yaml --harness claude --vendor claude \
   --binary "$(command -v claude)" --toolchain /opt/node/bin --auth claude-0:.claude/.credentials.json \
-  --settings claude-settings.json --permission-mode auto --sandbox off --tools Bash,Read,Edit,Write,Glob,Grep
+  --settings claude-settings.json --permission-mode auto --sandbox off
 cusr-runner prove-harness --config ~/.cusr/config.yaml --harness claude \
   --model <model-id> --effort <effort> --out evidence-claude.json
 cusr-runner record-manifest --config ~/.cusr/config.yaml --harness claude --evidence evidence-claude.json
@@ -531,9 +534,31 @@ Push vẫn do daemon gọi qua credential helper tin cậy. Role/model/workflow 
 ## Network và credentials
 
 Cuesura chạy trên host và không thêm namespace mạng hay egress firewall. Mạng của lệnh do host và
-native harness quyết định. Home/auth của harness vẫn riêng, credential được che trước khi lưu log,
-và token điều phối/GitHub không tự được đưa vào environment worker hoặc gate. Process cùng UID có
-quyền đọc file host theo OS; worktree và canary sau chạy không là ranh giới bảo mật ngăn truy cập đó.
+native harness quyết định. Mỗi attempt có home riêng giữ file đăng nhập harness và session; credential
+được che trước khi lưu log, và token điều phối của cusr không vào environment worker hoặc gate.
+
+Worker chạy như phiên owner tự mở, giống cách Orca chạy agent theo từng tài khoản:
+
+- `HOME` là home thật của owner, nên dotfile, `gh`, `git`, `ssh`, `~/.agents/skills` dùng như thường.
+  Chỉ `CLAUDE_CONFIG_DIR` và `CODEX_HOME` trỏ vào home riêng của attempt, nơi giữ file đăng nhập và
+  session. Home riêng link tới cấu hình harness của owner: `~/.claude` (`CLAUDE.md`, `settings.json`,
+  `skills`, `agents`, `commands`, `plugins`, `output-styles`, `hooks`) và `~/.codex` (`config.toml`,
+  `AGENTS.md`, `skills`, `prompts`); MCP server khai ở `~/.claude.json` được chép sang.
+- Environment là environment của daemon (PATH thêm toolchain của pin), trừ biến `CUSR_*` và biến của một
+  phiên agent bọc ngoài (`CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `CODEX_SANDBOX*`). Pin đặt được mọi biến,
+  kể cả secret như API key cho MCP server; log vẫn che giá trị secret. Muốn worker có PATH như shell của
+  owner thì đặt `Environment=PATH=…` trong unit systemd.
+- Claude dùng bộ tool mặc định như phiên tương tác; `--tools` của pin không còn tác dụng. Codex nạp
+  `config.toml` của owner và bật mọi tính năng; cờ của cusr đè lên config đó.
+- Coder/fixer được commit trong worktree, trên nhánh của task; daemon commit phần còn lại, rồi push
+  fast-forward và mở PR. Reviewer được sửa, chạy test và commit; xong lượt review daemon đưa nhánh và file
+  về như trước review (file bị gitignore giữ nguyên). Chỉ decider còn chỉ đọc.
+
+Process cùng UID có quyền đọc file host theo OS; home riêng không phải ranh giới bảo mật.
+
+Nâng cấp lên bản này: argv Codex đổi nên manifest Codex cũ không còn khớp. Chạy lại proof bằng pin đã có
+(`cusr-runner setup-harness … --harness codex --from prove-harness`) rồi restart daemon. Pin Claude có bật
+sandbox cũng cần proof lại; pin Claude tắt sandbox giữ nguyên manifest.
 
 ### Phiên đăng nhập harness
 

@@ -22,6 +22,7 @@ import {
   mkdirSync,
   openSync,
   readdirSync,
+  rmSync,
   readSync,
   realpathSync,
   renameSync,
@@ -59,6 +60,10 @@ export const RUN_FILES = {
   result: 'out/result.json',
 } as const;
 export type RunFileName = (typeof RUN_FILES)[keyof typeof RUN_FILES];
+
+/** The only unredacted file of a run dir: hands secret variables to the runner, see `takeSecretEnv`. */
+export const SECRET_ENV_FILE = 'secret-env.json';
+const SecretEnvSchema = z.record(z.string(), z.string());
 
 export const SPOOL_DIR = 'spool';
 /** Segments behind the committed cursor; `task logs` still reads them, the spool cap no longer counts them. */
@@ -390,6 +395,27 @@ export class RunDir {
     const { dir, name } = this.#parentOf(rel);
     writeAtomicIn(dir, name, buf);
     return this.#written(rel, buf);
+  }
+
+  /**
+   * A command needs its secrets as they are, but invocation.json is redacted and stays on disk for the
+   * whole retention. So they cross in a file of their own that is never redacted and never read back as
+   * an artifact: the runner deletes it before it spawns anything.
+   */
+  writeSecretEnv(env: Readonly<Record<string, string>>): void {
+    const { dir, name } = this.#parentOf(SECRET_ENV_FILE);
+    writeAtomicIn(dir, name, Buffer.from(`${JSON.stringify(env)}\n`, 'utf8'));
+  }
+
+  /** Reads and deletes the handed-over secrets; null when there are none to read. */
+  takeSecretEnv(): Record<string, string> | null {
+    const read = this.readFinal(SECRET_ENV_FILE, SecretEnvSchema);
+    this.removeSecretEnv();
+    return read.state === 'valid' ? read.value : null;
+  }
+
+  removeSecretEnv(): void {
+    rmSync(this.resolve(SECRET_ENV_FILE), { force: true });
   }
 
   /** Redacted text, written atomically. */

@@ -10,7 +10,7 @@ Owner có thể ghi `permission_mode: full-access` trong pin bằng `write-pin -
 Khi đó worker Claude dùng `bypassPermissions`; sandbox Claude được chọn độc lập qua
 `write-pin --sandbox on|off` hoặc `settings.sandbox.enabled`, không đổi theo permission mode.
 Nếu không khai báo, sandbox worker tắt; nếu bật, không fallback ra ngoài khi lỗi. Codex dùng `danger-full-access`
-và `approval_policy=never`. Reviewer vẫn theo vai trò chỉ đọc. Đổi permission mode cần pin/manifest
+và `approval_policy=never`. Decider vẫn theo vai trò chỉ đọc; từ hiến chương 8.0.0 reviewer chạy như fixer và daemon trả worktree về. Đổi permission mode cần pin/manifest
 khớp nhau; thay sandbox cũng cần proof mới. Task hay worker không tự chọn mode. Auto review/approve này chỉ xử lý quyền tool trong
 harness, không thay `full-review`/`direct-pr`, gate, run confirmation hoặc quyền merge của workflow.
 
@@ -26,4 +26,4 @@ với outer bwrap phải kết thúc/hủy theo release cũ rồi tạo task m�
 
 Khi worker Claude tắt sandbox nhưng giữ auto, manifest ghi `selected_inner_mode=permissions_only`
 và `native_result=not_tried`; vẫn cần bằng chứng cưỡng chế rule quyền. Khi bật sandbox, cả auto và
-full access đều cần probe âm native đạt. Reviewer giữ sandbox chỉ đọc trong mọi lựa chọn của worker.
+full access đều cần probe âm native đạt. Decider giữ sandbox chỉ đọc trong mọi lựa chọn của worker.

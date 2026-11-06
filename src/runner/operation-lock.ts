@@ -119,7 +119,7 @@ export function fenceLaunch(
     readonly at: string;
   },
 ): LaunchClaim {
-  return claimLaunch(run, {
+  const claim = claimLaunch(run, {
     schema_version: 1,
     operation_id: o.operation_id,
     attempt_id: o.attempt_id,
@@ -129,6 +129,9 @@ export function fenceLaunch(
     at: o.at,
     fence: true,
   });
+  // No runner reads them after this, and one that won the race already took them.
+  run.removeSecretEnv();
+  return claim;
 }
 
 export function readLaunchMarker(run: RunDir): FinalRead<LaunchMarker> {

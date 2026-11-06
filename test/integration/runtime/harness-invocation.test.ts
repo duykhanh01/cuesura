@@ -18,9 +18,14 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { boundaryRole } from '../../../src/adapters/harness/vendor.ts';
 import { claudeAdapter } from '../../../src/adapters/harness/claude.ts';
 import { codexAdapter } from '../../../src/adapters/harness/codex.ts';
-import { wireRoleSchema, type Role } from '../../../src/adapters/harness/result-schema.ts';
+import {
+  ROLE_SCHEMA_DIGESTS,
+  wireRoleSchema,
+  type Role,
+} from '../../../src/adapters/harness/result-schema.ts';
 import type { VendorPin } from '../../../src/adapters/harness/vendor.ts';
 import {
   DaemonStopping,
@@ -71,6 +76,31 @@ type Env = {
   sandbox: PassThroughSandbox;
   credentials: Record<string, { name: string; file: string }>;
 };
+
+/** The archived evidence predates the decider; these tests need its schema proven too. */
+function withDecider(
+  e: Env,
+  shapes?: Parameters<typeof evidenceManifest>[2],
+): ReturnType<typeof evidenceManifest> {
+  const all = JSON.parse(readFileSync(join(REAL, 'capability-manifest.json'), 'utf8')) as {
+    vendors: Record<
+      string,
+      { role_schemas: Record<string, { digest: string }>; capabilities: Record<string, unknown> }
+    >;
+  };
+  const entry = all.vendors[e.pin.vendor];
+  return evidenceManifest(
+    e.pin,
+    {
+      role_schemas: { ...entry?.role_schemas, decider: { digest: ROLE_SCHEMA_DIGESTS.decider } },
+      capabilities: {
+        ...entry?.capabilities,
+        schema_acceptance_decider: { status: 'proven', evidence: 'test-only decider proof' },
+      },
+    },
+    shapes,
+  );
+}
 
 function env(vendor: 'claude' | 'codex', attempt: string, mode = '', secret = CANARY): Env {
   const root = tempDir('cusr-invocation-', dirs);
@@ -250,7 +280,7 @@ describe('six role × vendor runs through the real runner lifecycle', () => {
     expect(readFileSync(join(run.dir, 'context/prompt.md'), 'utf8')).toBe(inp.context.text);
     // Only the selected auth was installed, and it is gone again.
     const layout = e.sandbox.plans[0];
-    expect(layout?.role).toBe(r.role);
+    expect(layout?.role).toBe(boundaryRole(r.role));
     expect(
       readdirSync(join(run.dir, 'private-home'), { recursive: true }).filter((p) =>
         String(p).endsWith('.json'),
@@ -328,8 +358,11 @@ describe('admission before every attempt (T070)', () => {
       invoked: false,
     });
     expect(e.proc.launches).toHaveLength(0);
-    const reviewer = await harness(e, { manifest }).run(input('claude', 'reviewer'), signal());
-    expect(reviewer).toMatchObject({
+    // The read-only boundary is still named `reviewer`; only the decider runs under it now.
+    const decider = await harness(e, {
+      manifest: withDecider(e, { coder: hashText('another layout') }),
+    }).run(input('claude', 'decider'), signal());
+    expect(decider).toMatchObject({
       failure: 'capability_missing',
       detail: 'no proven sandbox layout for reviewer',
     });
@@ -438,14 +471,20 @@ describe('boundary and secrets (T072)', () => {
     expect(e.proc.launches).toHaveLength(0);
   });
 
-  it('a reviewer that changed its read-only worktree is a boundary violation, never an approval', async () => {
+  it('a decider that changed its read-only worktree is a boundary violation; a reviewer may write', async () => {
     const e = env('claude', 's0-claude-reviewer-1793180331', 'write_worktree');
-    const out = await harness(e).run(input('claude', 'reviewer'), signal());
+    const out = await harness(e, { manifest: withDecider(e) }).run(
+      input('claude', 'decider'),
+      signal(),
+    );
     expect(out).toMatchObject({
       kind: 'failure',
       failure: 'boundary_violation',
       invoked: true,
     });
+    const r = env('claude', 's0-claude-reviewer-1793180331', 'write_worktree');
+    const reviewer = await harness(r).run(input('claude', 'reviewer'), signal());
+    expect(reviewer.kind === 'failure' && reviewer.failure).not.toBe('boundary_violation');
   });
 
   it('a coder may write its worktree', async () => {
@@ -693,7 +732,11 @@ function evidenceManifestEntry(vendor: 'claude' | 'codex'): {
 }
 
 /** The daemon dies right after the launch: the run goes on to its exit alone and nobody concludes it. */
-async function orphaned(e: Env, inp: HarnessInput): Promise<RunDir> {
+async function orphaned(
+  e: Env,
+  inp: HarnessInput,
+  over: Parameters<typeof harness>[1] = {},
+): Promise<RunDir> {
   const dying: ProcessPort = {
     launch: async (spec) => {
       await e.proc.launch(spec);
@@ -702,7 +745,7 @@ async function orphaned(e: Env, inp: HarnessInput): Promise<RunDir> {
     inspect: (id) => e.proc.inspect(id),
     stop: (id) => e.proc.stop(id),
   };
-  await expect(harness(e, { process: dying }).run(inp, signal())).rejects.toThrow(
+  await expect(harness(e, { ...over, process: dying }).run(inp, signal())).rejects.toThrow(
     InvocationUnknown,
   );
   const run = RunDir.open({
@@ -849,10 +892,13 @@ describe('T139 M07 finalized reviewer recovery', () => {
 
   it('a write zone changed between the exit and recovery cannot be pinned on the run: unknown', async () => {
     const e = env('claude', 's0-claude-reviewer-1793180331');
-    const inp = input('claude', 'reviewer');
-    await orphaned(e, inp);
+    const inp = input('claude', 'decider');
+    const proven = { manifest: withDecider(e) };
+    await orphaned(e, inp, proven);
     writeFileSync(join(e.worktree, 'later.txt'), 'edited by someone\n');
-    expect(() => harness(e, { credentials: {} }).recover(inp)).toThrow(InvocationUnknown);
+    expect(() => harness(e, { ...proven, credentials: {} }).recover(inp)).toThrow(
+      InvocationUnknown,
+    );
     expect(e.proc.launches).toHaveLength(1);
   });
 
@@ -923,10 +969,11 @@ describe('T139 M07 finalized reviewer recovery', () => {
     },
   );
 
-  it('a boundary violation leaves no reusable reviewer approval', async () => {
+  it('a boundary violation leaves no reusable result', async () => {
     const e = env('claude', 's0-claude-reviewer-1793180331', 'write_worktree');
-    const inp = input('claude', 'reviewer');
-    expect(await harness(e).run(inp, signal())).toMatchObject({
+    const inp = input('claude', 'decider');
+    const proven = { manifest: withDecider(e) };
+    expect(await harness(e, proven).run(inp, signal())).toMatchObject({
       kind: 'failure',
       failure: 'boundary_violation',
     });
@@ -939,7 +986,7 @@ describe('T139 M07 finalized reviewer recovery', () => {
     });
     expect(run.readFinal(RUN_FILES.result).state).toBe('missing');
     // A repeated call gets the same stored failure back, never an approval and never a launch.
-    expect(await harness(e).run(inp, signal())).toMatchObject({
+    expect(await harness(e, proven).run(inp, signal())).toMatchObject({
       kind: 'failure',
       failure: 'boundary_violation',
     });

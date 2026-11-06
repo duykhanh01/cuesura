@@ -1,12 +1,16 @@
 /**
  * Private harness home (contracts/execution.md, S0.2 `private_home_auth`).
- * Each agent attempt gets its own home under the run directory, passed as HOME to the harness.
+ * Each agent attempt gets its own home under the run directory; the harness config dirs point into it
+ * (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`) while HOME stays the owner's.
  * Only the selected vendor's auth files are copied in, 0600, from trusted credential references. Auth is
  * removed again once the attempt's artifacts are archived. Setup/gate/autofix never get a home.
  *
  * A login the harness refreshed inside the home (OAuth providers rotate the refresh token, so the old
  * one in the source stops working) is written back to its source before removal, but only while the
  * source still holds what was copied and the refreshed file keeps the source's JSON shape (#97).
+ *
+ * The owner's harness configuration (skills, plugins, instructions, settings) is linked in next to the
+ * auth, as Orca does for its account homes, so a worker runs like the owner's own session.
  */
 import { createHash, randomBytes } from 'node:crypto';
 import {
@@ -23,6 +27,8 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  symlinkSync,
+  writeFileSync,
   writeSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -61,6 +67,68 @@ export type InstalledAuth = {
 
 export function privateHome(run: RunDir): string {
   return run.ensureDir(PRIVATE_HOME_DIR);
+}
+
+/**
+ * Owner harness configuration shared with every attempt, relative to both homes. Auth and runtime
+ * state (sessions, history, caches) are left out: they stay with the attempt. Everything else in the
+ * owner's home (gh, git, ssh, ~/.agents) is reached through the real HOME.
+ */
+export const USER_CONFIG_LINKS = [
+  '.claude/CLAUDE.md',
+  '.claude/settings.json',
+  '.claude/skills',
+  '.claude/agents',
+  '.claude/commands',
+  '.claude/plugins',
+  '.claude/output-styles',
+  '.claude/hooks',
+  '.codex/config.toml',
+  '.codex/AGENTS.md',
+  '.codex/skills',
+  '.codex/prompts',
+] as const;
+
+/** Claude's global config in its config dir; only the owner's user-scope MCP servers are carried in. */
+const CLAUDE_GLOBAL_CONFIG = '.claude.json';
+
+/**
+ * Links each {@link USER_CONFIG_LINKS} entry that exists in `userHome` into `home`, and copies the
+ * owner's user-scope MCP servers from `~/.claude.json`, whose other keys are the owner's session state.
+ * Runs after the auth is installed: a path cusr already wrote there (auth, a pinned rule) is kept.
+ * Returns what was linked or written.
+ */
+export function linkUserConfig(home: string, userHome: string): string[] {
+  const linked: string[] = [];
+  for (const rel of USER_CONFIG_LINKS) {
+    const source = join(userHome, rel);
+    const target = join(home, rel);
+    if (lstatSync(source, { throwIfNoEntry: false }) === undefined) continue;
+    if (lstatSync(target, { throwIfNoEntry: false }) !== undefined) continue;
+    mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
+    symlinkSync(source, target);
+    linked.push(rel);
+  }
+  const servers = mcpServers(join(userHome, CLAUDE_GLOBAL_CONFIG));
+  const target = join(home, '.claude', CLAUDE_GLOBAL_CONFIG);
+  if (servers !== null && lstatSync(target, { throwIfNoEntry: false }) === undefined) {
+    mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
+    writeFileSync(target, `${JSON.stringify({ mcpServers: servers }, null, 2)}\n`, { mode: 0o600 });
+    linked.push(`.claude/${CLAUDE_GLOBAL_CONFIG}`);
+  }
+  return linked;
+}
+
+function mcpServers(path: string): Record<string, unknown> | null {
+  try {
+    const v = JSON.parse(readFileSync(path, 'utf8')) as { mcpServers?: unknown };
+    const servers = v.mcpServers;
+    return typeof servers === 'object' && servers !== null && Object.keys(servers).length > 0
+      ? (servers as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Carry only the selected Claude transcript into a fresh attempt, never auth or settings. */

@@ -1,8 +1,9 @@
 /**
  * Codex CLI adapter (T069, FR-011/012/033). Argv follows the shape the T007 fixtures proved on 0.165.0
  * (`pinned-codex.json`) and `prove-harness` re-proves for each pinned binary: `exec --json` with the role schema file and `--output-last-message`
- * into a per-operation scratch file, apps/plugins/MCP installs disabled, `approval_policy="never"`,
- * user config ignored and cwd pinned to the worktree. Coder/fixer get
+ * into a per-operation scratch file, `approval_policy="never"` and cwd pinned to the worktree. The owner's
+ * `config.toml` (linked into the private home) loads as in an interactive session, with every feature
+ * on; the flags here override it. Coder/fixer get
  * `workspace-write` plus scratch, the reviewer `read-only`; the inner sandbox is only switched off in
  * the external_verified mode the manifest selected. Nothing here names a model.
  *
@@ -36,13 +37,6 @@ import {
 } from './vendor.ts';
 
 export const CODEX_OUTPUT_FILE = 'final-response.json';
-const DISABLED_FEATURES = [
-  'apps',
-  'plugins',
-  'remote_plugin',
-  'plugin_sharing',
-  'skill_mcp_dependency_install',
-] as const;
 
 /** Home directory codex reads execpolicy rules from; every file under it must pin its content. */
 const RULES_DIR = '.codex/rules/';
@@ -53,7 +47,11 @@ function sandboxArgs(input: VendorPlanInput): string[] {
     return ['--sandbox', 'danger-full-access'];
   return input.role === 'reviewer'
     ? ['--sandbox', 'read-only']
-    : ['--sandbox', 'workspace-write', '--add-dir', input.paths.scratch];
+    : [
+        '--sandbox',
+        'workspace-write',
+        ...[input.paths.scratch, ...(input.paths.git ?? [])].flatMap((d) => ['--add-dir', d]),
+      ];
 }
 
 function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
@@ -86,7 +84,6 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
   const argv = [
     pin.binary.realpath,
     'exec',
-    ...DISABLED_FEATURES.flatMap((f) => ['--disable', f]),
     '-c',
     auto ? 'approval_policy="on-request"' : 'approval_policy="never"',
     ...(auto ? ['-c', 'approvals_reviewer="auto_review"'] : []),
@@ -98,7 +95,6 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
     '--model',
     input.model,
     ...(input.effort === null ? [] : ['-c', `model_reasoning_effort="${input.effort}"`]),
-    '--ignore-user-config',
     '-C',
     input.cwd,
     ...sandboxArgs(input),
@@ -109,7 +105,6 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
   if (bypass !== null) return fail(`permission bypass token rejected: ${bypass}`);
   // Effective permission settings for every role of this mode, so one hash covers the binary's config.
   const effective = {
-    disabled: DISABLED_FEATURES,
     approval_policy: input.host_execution
       ? {
           worker: pin.permission_mode === 'full-access' ? 'never' : 'on-request',
@@ -123,11 +118,13 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
         sandboxArgs({
           ...input,
           role,
-          paths: input.host_execution ? { ...input.paths, scratch: '<scratch>' } : input.paths,
+          paths: input.host_execution
+            ? { ...input.paths, scratch: '<scratch>', git: ['<git>'] }
+            : input.paths,
         }),
       ]),
     ),
-    ignore_user_config: true,
+    user_config: true,
     ephemeral: false,
     home_files: pin.home_files.map((f) => ({
       to: f.to,

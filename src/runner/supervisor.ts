@@ -120,6 +120,8 @@ export const InvocationSpecSchema = z
     argv: z.array(z.string()).min(1),
     cwd: z.string().startsWith('/'),
     env: z.record(z.string(), z.string()),
+    // Additive: the run also has variables in SECRET_ENV_FILE and must not start without them.
+    secret_env: z.literal(true).optional(),
     wall_ms: z.number().int().positive().nullable(),
     deadline_at: z.number().int().nonnegative().nullable(),
     term_grace_ms: z.number().int().positive(),
@@ -344,6 +346,13 @@ export class SystemdSupervisor implements ProcessPort {
         message: `${unit} is already loaded (${before.state})`,
       });
 
+    // Whatever the redactor would change goes around invocation.json, or the command gets `[REDACTED]`.
+    const shown = this.#redactor.value(spec.env) as Record<string, string>;
+    const env: Record<string, string> = {};
+    const secret: Record<string, string> = {};
+    for (const [key, value] of Object.entries(spec.env))
+      (shown[key] === value ? env : secret)[key] = value;
+    const hasSecret = Object.keys(secret).length > 0;
     const invocation: InvocationSpec = {
       schema_version: 1,
       operation_id: spec.operation_id,
@@ -352,7 +361,8 @@ export class SystemdSupervisor implements ProcessPort {
       run_id: spec.run_id,
       argv: [...spec.argv],
       cwd: spec.cwd,
-      env: { ...spec.env },
+      env,
+      ...(hasSecret ? { secret_env: true as const } : {}),
       wall_ms: spec.wall_ms,
       deadline_at: spec.deadline_at,
       term_grace_ms: spec.term_grace_ms,
@@ -362,6 +372,7 @@ export class SystemdSupervisor implements ProcessPort {
       ...(spec.stall_ms === undefined ? {} : { stall_ms: spec.stall_ms }),
       ...(spec.watch === undefined ? {} : { watch: [...spec.watch] }),
     };
+    if (hasSecret) run.writeSecretEnv(secret);
     run.writeJson(RUN_FILES.invocation, InvocationSpecSchema.parse(invocation));
     const lock = lockFilePath(this.#dataDir, spec.operation_id, true);
     const command = [
@@ -407,6 +418,7 @@ export class SystemdSupervisor implements ProcessPort {
           code: 'unknown',
           message: `${unit} was started from the terminal after all`,
         });
+      run.removeSecretEnv();
       return err({
         code: 'spawn_failed',
         message: `systemd-run exit ${String(r.code)}: ${r.stderr.trim()}`,

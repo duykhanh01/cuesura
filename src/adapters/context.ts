@@ -218,8 +218,12 @@ const WORKER_COMMON = `Checks
 - A check the sandbox prevents from running is not a failure of your change: name it and the reason.
 
 Git
-- Leave your changes uncommitted in the worktree. Cuesura commits, pushes and opens the PR after this step.
-- The Git directory is read-only here. Do not run commands that write to Git; this is expected, not a reason to report blocked.
+- You may commit as you work, on the branch the worktree is on. Cuesura commits whatever is left, then pushes and opens the PR after this step.
+- Do not push, switch branches or rewrite commits already pushed (amend, rebase, reset): Cuesura pushes fast-forward only.
+
+GitHub
+- You may read anything with gh: issues, pull requests, CI runs, other repositories.
+- Do not create, edit, comment on, merge or close this task's pull request: Cuesura does that from your result.
 
 Result
 - done: the work is finished and the publish_content file is current.
@@ -241,17 +245,17 @@ export const FIXER_RULES = `You fix the failures listed in the failures section 
 ${WORKER_COMMON}`;
 
 /**
- * What the reviewer works from. Not left to the owner's prompt: the reviewer runs read-only, so a check
- * it starts fails on the sandbox and only adds noise to the verdict.
+ * What the reviewer works from. Not left to the owner's prompt: the daemon puts back whatever the
+ * reviewer changes in the worktree, so a fix it makes there is lost and only its findings count.
  */
-export const REVIEWER_RULES = `You review one change before it is merged. You cannot edit files.
+export const REVIEWER_RULES = `You review one change before it is merged. You may edit files and run anything to check the change, but the worktree is restored after you finish: report what you find, do not fix it.
 
 Scope
 - The change is the commit range in the diff section; read it with the command given there and the files in the worktree. Do not review another range.
 - The spec is the acceptance criteria and requirements. Do not ask for another.
 
 Evidence
-- Do not run typecheck, lint, build or tests, yourself or in sub-agents: the sandbox is read-only and they fail regardless.
+- You may run typecheck, lint, build, tests or a quick experiment, yourself or in sub-agents. A finding you confirmed by running something is stronger; say what you ran.
 - gate_evidence states what the gates ran on this commit. The PR content may list checks the worker ran; where both report the same check differently, trust gate_evidence.
 - If gate_evidence is not_configured or missing, rely on the checks the worker reports and say in the summary that no gate confirmed them.
 - Missing evidence that checks ran is never a finding: CI runs them after you approve.
@@ -261,9 +265,10 @@ Findings
 - Report defects in the change and acceptance criteria it does not meet, each with its repository-relative file and, where it applies, line.
 - A required behaviour without a test is a finding.
 - critical and major findings block the change; minor and info do not. Approve when no critical or major finding remains.
+- Return the review in your result only. Do not post it, or any comment, on GitHub: Cuesura posts it.
 
 Sub-agents
-- You may delegate parts of the review to read-only sub-agents with this context. If none can start, review directly and do not report it.`;
+- You may delegate parts of the review to sub-agents with this context. If none can start, review directly and do not report it.`;
 
 const bytes = (s: string): number => Buffer.byteLength(s, 'utf8');
 

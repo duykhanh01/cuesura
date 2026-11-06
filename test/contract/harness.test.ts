@@ -170,36 +170,29 @@ describe('harness argv and settings follow the pinned T007 shape (T068/T069)', (
     const plan = ADAPTERS[r.vendor].plan(vendorPin(r.vendor), planInput(r.vendor, r.role));
     expect(plan.ok).toBe(true);
     if (!plan.ok) return;
-    // The archived runs predate dropping --no-session-persistence and --ephemeral, and the Claude
-    // isolation flags.
+    // The archived runs predate dropping --no-session-persistence and --ephemeral, the Claude
+    // isolation flags and tool list, and the Codex user-config and feature switches.
     const dropped = new Set([
       '--no-session-persistence',
       '--ephemeral',
       '--safe-mode',
       '--strict-mcp-config',
+      '--ignore-user-config',
     ]);
-    const withValue = new Set(['--setting-sources', '--mcp-config']);
+    const withValue = new Set(['--setting-sources', '--mcp-config', '--disable', '--tools']);
     const recorded = recordedHarnessArgv(attempt).filter(
       (a, i, all) => !dropped.has(a) && !withValue.has(a) && !withValue.has(all[i - 1] ?? ''),
     );
-    // The archived claude reviewer run predates --disallowedTools and the Agent tool for reviewers; see
-    // below.
+    // The archived runs predate the default Claude tool set (no --tools); see below.
     const ours = [...plan.value.argv];
-    if (r.vendor === 'claude' && r.role === 'reviewer') {
-      const t = ours.indexOf('--tools') + 1;
-      ours[t] = (ours[t] as string)
-        .split(',')
-        .filter((x) => x !== 'Agent')
-        .join(',');
-    }
     if (r.vendor === 'claude') {
       const i = ours.indexOf('--json-schema');
       expect(JSON.parse(ours[i + 1] as string)).toEqual(JSON.parse(recorded[i + 1] as string));
       ours[i + 1] = recorded[i + 1] as string;
     }
     expect(ours.slice(0, recorded.length)).toEqual(recorded);
+    for (const flag of [...dropped, ...withValue]) expect(plan.value.argv).not.toContain(flag);
     if (r.vendor === 'claude') {
-      for (const flag of [...dropped, ...withValue]) expect(plan.value.argv).not.toContain(flag);
       expect(plan.value.context_files).toHaveLength(1);
       expect(JSON.parse(plan.value.context_files[0]?.content ?? '')).toEqual(
         JSON.parse(readReal(`${attempt}/context/claude-settings.json`)),
@@ -229,16 +222,24 @@ describe('harness argv and settings follow the pinned T007 shape (T068/T069)', (
     expect(argv('fixer')).not.toContain('--disallowedTools');
   });
 
-  it('only the claude reviewer gets the Agent tool for sub-agents', () => {
-    const tools = (role: Role): string[] => {
+  it('claude runs every role with the default tool set of an interactive session', () => {
+    for (const role of ['coder', 'fixer', 'reviewer'] as const) {
       const p = claudeAdapter.plan(vendorPin('claude'), planInput('claude', role));
-      if (!p.ok) return [];
-      return (p.value.argv[p.value.argv.indexOf('--tools') + 1] ?? '').split(',');
-    };
-    expect(tools('reviewer')).toContain('Agent');
-    expect(tools('reviewer')).toEqual([...new Set(tools('reviewer'))]);
-    expect(tools('coder')).not.toContain('Agent');
-    expect(tools('fixer')).not.toContain('Agent');
+      expect(p.ok && p.value.argv).not.toContain('--tools');
+    }
+    expect(
+      claudeAdapter.plan({ ...vendorPin('claude'), tools: null }, planInput('claude', 'coder')).ok,
+    ).toBe(true);
+  });
+
+  it('codex loads the owner config with every feature on, as in an interactive session', () => {
+    for (const role of ['coder', 'fixer', 'reviewer'] as const) {
+      const p = ADAPTERS.codex.plan(vendorPin('codex'), planInput('codex', role));
+      expect(p.ok).toBe(true);
+      if (!p.ok) continue;
+      expect(p.value.argv).not.toContain('--ignore-user-config');
+      expect(p.value.argv).not.toContain('--disable');
+    }
   });
 
   it('keeps the codex session recorded so the reviewer can spawn sub-agents', () => {

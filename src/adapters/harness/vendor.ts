@@ -71,16 +71,25 @@ export const VendorPinSchema = z
 export type VendorPin = z.infer<typeof VendorPinSchema>;
 
 /**
- * The boundary a role runs under. The decider only reads, like a reviewer, and uses that same boundary, so
- * adding it changed no settings hash or layout shape of a proven harness.
+ * The boundary a role runs under. The reviewer works like a fixer: it may edit and run checks, and the
+ * daemon puts back whatever it changed. The decider answers while a worker's uncommitted change is in
+ * the worktree, so it alone keeps the read-only boundary, still named `reviewer` so proven settings
+ * hashes and layout shapes stay valid.
  */
 export function boundaryRole(role: Role): Exclude<Role, 'decider'> {
-  return role === 'decider' ? 'reviewer' : role;
+  if (role === 'decider') return 'reviewer';
+  return role === 'reviewer' ? 'fixer' : role;
 }
 
-/** Claude follows its own default (off); reviewers retain their native read-only boundary. */
-export function nativeSandboxEnabled(pin: VendorPin, role: Role = 'coder'): boolean {
-  if (boundaryRole(role) === 'reviewer') return true;
+/**
+ * Claude follows its own default (off); the read-only boundary keeps its native sandbox. `role` is a
+ * boundary (see {@link boundaryRole}), as adapters receive it.
+ */
+export function nativeSandboxEnabled(
+  pin: VendorPin,
+  role: Exclude<Role, 'decider'> = 'coder',
+): boolean {
+  if (role === 'reviewer') return true;
   if (pin.vendor === 'codex') return pin.permission_mode !== 'full-access';
   const sandbox = pin.settings?.['sandbox'];
   return isRec(sandbox) && sandbox['enabled'] === true;
@@ -100,6 +109,8 @@ export type SandboxPaths = {
   readonly schema: string;
   /** The run's TMPDIR when the adapter asked for a short one. */
   readonly tmp?: string;
+  /** Git dirs of the worktree (common and admin dir): a worker commits there itself. */
+  readonly git?: readonly string[];
 };
 
 export type VendorPlanInput = {

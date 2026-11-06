@@ -508,7 +508,9 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
       'result',
       'result',
     ]);
-    expect(r.value.runs.map((x) => x.native_write_blocked)).toEqual([false, false, true, true]);
+    // Only the decider keeps the read-only boundary with its own native sandbox; the reviewer works
+    // like a fixer.
+    expect(r.value.runs.map((x) => x.native_write_blocked)).toEqual([false, false, false, true]);
     expect(entry(h.out, 'claude')?.native_result).toBe('not_tried');
     expect(entry(h.out, 'claude')?.capabilities['permission_denial_kept']?.status).toBe('proven');
     const recorded = h.record();

@@ -126,9 +126,10 @@ describe('cusr-runner write-pin', () => {
       sandbox: { allowUnsandboxedCommands: false },
     };
     const claude = { ...input, harness: 'claude', vendor: 'claude' as const };
-    expect(writePin({ ...claude, settings, max_turns: null, tools: null })).toMatchObject({
+    // Claude runs with its default tool set, so a pin needs no tool list, but it needs settings.
+    expect(writePin({ ...claude, settings: null, max_turns: null, tools: null })).toMatchObject({
       ok: false,
-      error: expect.stringContaining('tools') as string,
+      error: expect.stringContaining('settings') as string,
     });
     const fake = (name: string) => {
       const d = join(input.dataDir, '..', name);

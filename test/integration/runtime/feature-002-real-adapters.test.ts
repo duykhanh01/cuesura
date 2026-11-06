@@ -6,7 +6,7 @@
  * checkpoint; each attempt's manifest is the one confirmed with the task; reservations are consumed
  * only for runs that happened. This is fixture replay, not an end-to-end smoke with real vendors.
  */
-import { cpSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { HostExecutionProvider, probeLayoutShapes } from '../../../src/runner/sandbox.ts';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
@@ -21,11 +21,7 @@ import type { CapabilityManifest } from '../../../src/domain/runtime.ts';
 import type { ExecutionMode } from '../../../src/domain/run-config.ts';
 import { SpawnExecutor } from '../../../src/runner/commands.ts';
 import { RUN_FILES, RunDir } from '../../../src/runner/files.ts';
-import {
-  attemptLayoutInputs,
-  RunnerHarness,
-  OUTCOME_FILE,
-} from '../../../src/runner/invocation.ts';
+import { attemptLayoutInputs, RunnerHarness } from '../../../src/runner/invocation.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
 import type { EpochMs, Hash } from '../../../src/shared/brand.ts';
 import { hashCanonical, hashText } from '../../../src/shared/hash.ts';
@@ -411,7 +407,7 @@ describe('the confirmed manifest is the one in force (T070/T071)', () => {
 });
 
 describe('T139 M03 same vendor/model through the host launcher', () => {
-  it('one confirmed harness serves worker and reviewer with separate homes/sessions, reviewer read-only, one PR', async () => {
+  it('one confirmed harness serves worker and reviewer with separate homes/sessions, one PR', async () => {
     const f = setup({
       mode: 'full-review',
       sameVendor: true,
@@ -427,7 +423,7 @@ describe('T139 M03 same vendor/model through the host launcher', () => {
     expect(worker?.argv).not.toContain('--bind');
     expect(worker?.argv).not.toContain('--no-session-persistence');
     expect(reviewer?.argv).not.toContain('--no-session-persistence');
-    expect(reviewer?.argv).toContain('--disallowedTools');
+    expect(reviewer?.argv).not.toContain('--disallowedTools');
     expect(reviewer?.argv).not.toContain('--resume');
     expect(worker?.run_id).not.toBe(reviewer?.run_id);
     const attempts = Object.values(state.attempts);
@@ -449,7 +445,7 @@ describe('T139 M03 same vendor/model through the host launcher', () => {
     expect(f.d.store.verifyProjections().ok).toBe(true);
   });
 
-  it('a same-vendor reviewer write is detected and cannot produce green or a ready PR', async () => {
+  it('a same-vendor reviewer may write; what it wrote is put back and never reaches the PR', async () => {
     const f = setup({
       mode: 'full-review',
       sameVendor: true,
@@ -458,28 +454,12 @@ describe('T139 M03 same vendor/model through the host launcher', () => {
     });
     f.start();
     await f.settle();
+    const state = f.d.task(f.task.id);
+    expect(state.wait?.detail.code, JSON.stringify(state.wait)).toBe('merge');
     expect(f.proc.launches).toHaveLength(2);
-    // The PR opened before the review stays a draft without a posted review.
-    expect(f.github.prs).toMatchObject([{ draft: true }]);
-    expect(f.github.prs[0]?.reviews ?? []).toEqual([]);
-    expect(f.d.task(f.task.id).run.reviews.filter((r) => r.verdict === 'approve')).toEqual([]);
-    const reviewer = f.proc.launches[1];
-    const outcome = RunDir.open({
-      dataDir: join(f.data, 'runtime'),
-      kind: 'runs',
-      id: reviewer!.run_id,
-      redactor: new Redactor(),
-      create: false,
-    }).readFinal(OUTCOME_FILE);
-    expect(outcome).toMatchObject({
-      state: 'valid',
-      value: {
-        outcome: {
-          kind: 'failure',
-          failure: 'boundary_violation',
-          detail: 'reviewer changed the read-only worktree',
-        },
-      },
-    });
+    expect(existsSync(join(f.worktree, 'reviewer-wrote.txt'))).toBe(false);
+    expect(existsSync(join(f.worktree, 'agent-wrote.txt'))).toBe(true);
+    expect(state.run.reviews).toMatchObject([{ verdict: 'approve' }]);
+    expect(f.github.prs).toHaveLength(1);
   });
 });

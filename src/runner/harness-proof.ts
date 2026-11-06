@@ -9,6 +9,7 @@
  * written; the only output is the evidence file, where a capability is `proven` only if these runs showed
  * it. Anything else stays `unknown`, and the manifest recorded from it does not hold.
  */
+import { homedir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import {
@@ -496,6 +497,7 @@ export async function proveHarness(
     host_policy_hash: boundary.policy_hash,
     data_dir: o.dataDir,
     credentials: {},
+    user_home: homedir(),
     redactor,
     clock: {
       now: () => o.now() as EpochMs,
@@ -538,7 +540,7 @@ export async function proveHarness(
     const nativeCommand = `/usr/bin/touch '${nativeMarker.replaceAll("'", "'\\''")}'`;
     const nonce = randomUUID();
     const text =
-      proofPrompt(role, nativeSandboxEnabled(plan.pin, role) ? nativeCommand : null) +
+      proofPrompt(role, nativeSandboxEnabled(plan.pin, boundaryRole(role)) ? nativeCommand : null) +
       (o.proveResume && role === 'coder'
         ? `\nRemember this nonce for a later continuation: ${nonce}. Do not write it to a file.`
         : '');

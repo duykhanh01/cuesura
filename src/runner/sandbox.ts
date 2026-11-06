@@ -47,9 +47,13 @@ export class SandboxPolicyError extends Error {
   }
 }
 
-const FORBIDDEN_ENV =
-  /^(GH_|GITHUB_|SSH_AUTH_SOCK$|DBUS_|XDG_RUNTIME_DIR$|DOCKER_|CUSR_(ADMIN|OPERATE|TOKEN))/;
-const SECRET_ENV = /(TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|APIKEY|CREDENTIAL|PRIVATE_KEY|AUTH)/i;
+/** cusr's control credentials: a worker never calls cusr, so a pin cannot pass them. */
+const CUSR_CONTROL_ENV = /^CUSR_(ADMIN|OPERATE|TOKEN)/;
+/**
+ * Daemon variables a worker does not inherit: cusr's own, and what an enclosing agent session sets
+ * (the daemon may run under one in development); a harness started by hand never sees these.
+ */
+const NOT_INHERITED_ENV = /^(CUSR_|CLAUDECODE$|CLAUDE_CODE_ENTRYPOINT$|CODEX_SANDBOX)/;
 
 /** One path equals or contains the other. */
 export function overlaps(a: string, b: string): boolean {
@@ -60,18 +64,13 @@ function within(child: string, parent: string): boolean {
   return child === parent || child.startsWith(parent.endsWith(sep) ? parent : parent + sep);
 }
 
-/** Model auth lives only in the private home; orchestration/control secrets never enter. */
+/** A pin may set any variable a shell could, secrets included; only cusr's own stay out. */
 function checkEnv(env: Readonly<Record<string, string>>): void {
   for (const key of Object.keys(env)) {
     if (!/^[A-Z_][A-Z0-9_]*$/.test(key))
       throw new SandboxPolicyError('policy_violation', `env ${key}: invalid name`);
-    if (FORBIDDEN_ENV.test(key))
-      throw new SandboxPolicyError(
-        'policy_violation',
-        `env ${key}: orchestration/control secret is never passed`,
-      );
-    if (SECRET_ENV.test(key))
-      throw new SandboxPolicyError('policy_violation', `env ${key}: secret-like variable rejected`);
+    if (CUSR_CONTROL_ENV.test(key))
+      throw new SandboxPolicyError('policy_violation', `env ${key}: cusr control credential`);
   }
 }
 
@@ -139,9 +138,9 @@ const GIT_METADATA = [
 
 export type WriteZoneSnapshot = {
   readonly role: SandboxRole;
-  /** Fingerprint of the worktree for roles that must not write it (reviewer); null otherwise. */
+  /** Fingerprints for the read-only boundary (the decider); null for a role that may write. */
   readonly worktree: string | null;
-  readonly metadata: string;
+  readonly metadata: string | null;
 };
 
 /**
@@ -178,7 +177,7 @@ function fingerprint(
   return hashCanonical(entries);
 }
 
-/** Snapshot before and after an agent run; any change in a read-only zone is a boundary violation. */
+/** Snapshot before and after a read-only run; any change in its zone is a boundary violation. */
 export function snapshotWriteZone(
   layout: Pick<SandboxLayout, 'role' | 'worktree' | 'git_dirs'>,
   /** The adapter's `worktree_state`. */
@@ -198,12 +197,12 @@ export function snapshotWriteZone(
       state.add(p);
       for (let up = dirname(p); up !== g; up = dirname(up)) parents.add(up);
     }
+  // A worker commits itself; the daemon's own Git refuses repo config that could run code.
+  const readOnly = READ_ONLY_REPO_ROLES.has(layout.role);
   return {
     role: layout.role,
-    worktree: READ_ONLY_REPO_ROLES.has(layout.role)
-      ? fingerprintTree(layout.worktree, harnessState)
-      : null,
-    metadata: fingerprint(meta, state, parents),
+    worktree: readOnly ? fingerprintTree(layout.worktree, harnessState) : null,
+    metadata: readOnly ? fingerprint(meta, state, parents) : null,
   };
 }
 
@@ -291,23 +290,25 @@ export class HostExecutionProvider implements SandboxProvider {
       if (e instanceof SandboxPolicyError) return err({ code: e.code, message: e.message });
       throw e;
     }
+    // A command runs like one the owner starts in a shell: the daemon's environment and the real
+    // HOME (dotfiles, gh, git, ssh). Only the harness config dirs point into the private home, which
+    // holds the attempt's login and sessions, as Orca does for its account homes.
     const inherited: Record<string, string> = {};
-    for (const key of ['LANG', 'LC_ALL', 'TERM', 'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS']) {
-      const value = process.env[key];
-      if (value !== undefined) inherited[key] = value;
-    }
+    for (const [key, value] of Object.entries(process.env))
+      if (value !== undefined && !NOT_INHERITED_ENV.test(key)) inherited[key] = value;
     const env = {
       ...inherited,
       ...layout.env,
       PATH: hostExecutionPath(layout.toolchain).join(':'),
-      HOME: layout.private_home ?? homedir(),
-      ...(layout.private_home === null ? {} : { CODEX_HOME: join(layout.private_home, '.codex') }),
+      HOME: homedir(),
+      ...(layout.private_home === null
+        ? {}
+        : {
+            CLAUDE_CONFIG_DIR: join(layout.private_home, '.claude'),
+            CODEX_HOME: join(layout.private_home, '.codex'),
+          }),
       TMPDIR: layout.tmp_dir ?? layout.scratch,
     };
-    // Never forward orchestration credentials through a pin or the daemon environment.
-    for (const key of Object.keys(env))
-      if (/^(GH_|GITHUB_|CUSR_(ADMIN|OPERATE|TOKEN)|CUSR_TOKEN_FILE$)/.test(key))
-        delete (env as Record<string, string>)[key];
     const shape = {
       mode: 'native',
       provider: 'host',

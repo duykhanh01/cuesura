@@ -176,13 +176,13 @@ Một lần hủy chưa thành CANCELLED khi process hoặc merge request vẫn 
 | Code | Coder sửa trong worktree, chuẩn bị commit message và PR title/description theo template frozen, trả kết quả có schema | Hỏi người, bổ sung context hoặc xử lý lỗi theo policy |
 | Gates | Các gate bắt buộc cùng đạt trên tree code cuối; formatter/gate sửa code thì kiểm lại tập gate trong giới hạn | Worker nhận lỗi và trạng thái mới nhất; chưa chứng minh tree cuối thì chặn |
 | Checkpoint | Sau gates, orchestrator commit trạng thái code đã đối chiếu bằng message worker chuẩn bị | Intent/OID bền vững; gate evidence khớp tree |
-| Review, chỉ `full-review` | Dùng lại evidence hợp lệ khi toàn bộ đầu vào không đổi; nếu chưa có thì reviewer riêng session, chỉ đọc, kiểm acceptance/commit cố định/nội dung PR | Findings → worker sửa → gates → commit nếu code đổi → xét evidence; không tiến triển thì giữ findings và xử lý giới hạn |
+| Review, chỉ `full-review` | Dùng lại evidence hợp lệ khi toàn bộ đầu vào không đổi; nếu chưa có thì reviewer riêng session (thay đổi của nó bị trả về), kiểm acceptance/commit cố định/nội dung PR | Findings → worker sửa → gates → commit nếu code đổi → xét evidence; không tiến triển thì giữ findings và xử lý giới hạn |
 | Publish | Orchestrator push đúng SHA đã kiểm và tạo hoặc nhận lại PR bằng nội dung worker chuẩn bị | Ref/tree/worktree drift thì chặn; probe trước retry |
 | CI | Chờ required checks của đúng head SHA | Hạ tầng/flaky: rerun hữu hạn; autofix: gate; lỗi code: coder/fixer rồi chạy lại gates/review cần thiết |
 | Merge | Tuần tự hóa theo branch đích, kiểm tra lại mọi điều kiện | Cập nhật base và chạy lại kiểm tra, hoặc WAITING |
 | Complete | Xác nhận merge, lưu artifact/usage, đồng bộ nguồn | Dọn dẹp có điều kiện; lỗi thông báo không làm lặp merge |
 
-Có hai chế độ do người dùng xác nhận trước khi chạy: `direct-pr` không gọi reviewer; `full-review` bắt buộc review trước publish. Không tự chọn theo size XS và không bắt buộc khác vendor/model. Reviewer dùng session riêng, chỉ đọc; approval gắn base SHA/commit SHA cụ thể. Thay đổi code sau review phải gates, commit mới và review lại, trừ ngoại lệ tích hợp base có chứng nhận phạm vi tại §14.2; publish không commit thêm code sau approval.
+Có hai chế độ do người dùng xác nhận trước khi chạy: `direct-pr` không gọi reviewer; `full-review` bắt buộc review trước publish. Không tự chọn theo size XS và không bắt buộc khác vendor/model. Reviewer dùng session riêng; thay đổi nó để lại trong worktree bị daemon trả về; approval gắn base SHA/commit SHA cụ thể. Thay đổi code sau review phải gates, commit mới và review lại, trừ ngoại lệ tích hợp base có chứng nhận phạm vi tại §14.2; publish không commit thêm code sau approval.
 
 Nếu remote branch task đổi sang B khi đang review A, kết quả A đến muộn chỉ thuộc A và không gỡ `head_changed` hoặc chứng nhận B. Approve đến trước khi quan sát drift vẫn phải qua guard remote expected-old trước publish; restart giữ blocker và receipt. Chỉ base tip đổi không tự làm review A mất hiệu lực. Xem [H01–H06](specs/002-task-to-green-pr/task-execution-modes.md#remote-đổi-head-khi-review-còn-chạy).
 
@@ -217,7 +217,7 @@ Gate project không khai báo chỉ được bỏ qua theo quy tắc optional v�
 
 ### 9.1 Role và quyền
 
-Daemon tạo branch/worktree; coder/fixer được ghi code, không có quyền publish. Fixer là vai trò sửa của worker đã tạo thay đổi: lỗi gate/review/CI ưu tiên resume session worker đó theo binding đã resolve, không tạo worker mới chỉ vì đổi tên step. Reviewer/scout chỉ đọc; reviewer luôn tách session khỏi worker. Refiner đề xuất acceptance tối đa một lượt khi profile cho phép; planner tự tách epic nằm sau v1.
+Daemon tạo branch/worktree; coder/fixer được ghi code và commit trên nhánh task, không push hay publish. Fixer là vai trò sửa của worker đã tạo thay đổi: lỗi gate/review/CI ưu tiên resume session worker đó theo binding đã resolve, không tạo worker mới chỉ vì đổi tên step. Reviewer được sửa và chạy kiểm tra, daemon trả worktree về sau lượt review; scout chỉ đọc; reviewer luôn tách session khỏi worker. Refiner đề xuất acceptance tối đa một lượt khi profile cho phép; planner tự tách epic nằm sau v1.
 
 Binding gồm harness, model, effort, quyền và các giới hạn thực tế được hỗ trợ. Tên model/CLI flag nằm trong cấu hình adapter, không gắn cứng trong engine. Resume chỉ dùng khi cùng harness, session còn hợp lệ và policy cho phép; nếu không thì session mới với context packet có giới hạn.
 
@@ -385,7 +385,7 @@ Không được reset worktree chỉ vì HEAD khác checkpoint: có thể commit
 
 Orchestrator tạo và sở hữu worktree tại `~/.cusr/worktrees/<project>/<task_id>`, branch theo task. Không dùng cơ chế worktree tự quản của harness. Setup chạy khi chuẩn bị môi trường và chỉ chạy lại theo hợp đồng retry của project.
 
-Context/output tạm phải được loại khỏi git. Cwd và đường dẫn ghi được kiểm tra trước khi chạy; reviewer/scout chỉ đọc. Phát hiện thay đổi ngoài vùng được phép phải dừng để đối chiếu, không tự quy mọi thay đổi của người dùng ở repo gốc thành hành vi của agent.
+Context/output tạm phải được loại khỏi git. Cwd và đường dẫn ghi được kiểm tra trước khi chạy; scout và decider chỉ đọc, thay đổi của reviewer bị trả về. Phát hiện thay đổi ngoài vùng được phép phải dừng để đối chiếu, không tự quy mọi thay đổi của người dùng ở repo gốc thành hành vi của agent.
 
 Checkpoint trước bước có thể ghi; orchestrator commit thay đổi sau bước thành công. Worktree mất được phục hồi từ branch/checkpoint khi đủ bằng chứng. Dọn dẹp chỉ sau khi hoàn tất và hết thời gian giữ; có thay đổi chưa commit hoặc commit chưa push thì bảo toàn, không xóa.
 
@@ -553,7 +553,7 @@ Connector làm nhận → kiểm tra quyền → normalize → dedup → triage.
 
 Phân quyền `read`, `operate`, `admin` được kiểm tra ở application service, không chỉ trong CLI. Chỉ process cùng UID với daemon mở được socket điều khiển (thư mục 0700, socket 0600). Caller tự khai actor qua `CUSR_ACTOR`: không khai là owner (`read`, `operate`, `admin`), `assistant` chỉ có `read`, `operate`; trường trong body request không đổi được actor. Actor tự khai là rào chắn cho caller làm đúng quy ước, không phải bằng chứng người gọi là người thật: process cùng UID luôn gọi được như owner. Hành động đòi người duyệt (approve escalation, bật yolo) thuộc owner; muốn tách quyền thật thì chạy assistant bằng UID khác, nằm sau v1.
 
-Theo quyết định chủ dự án ngày 2026-11-01 ([ADR-0005](docs/adr/0005-native-harness-permissions.md)), Cuesura chạy harness trực tiếp trong worktree riêng, bỏ outer bwrap. Mặc định worker Claude dùng mode `auto` và tắt sandbox như Claude Code; owner bật/tắt độc lập qua `--sandbox on|off` hoặc `settings.sandbox.enabled`. Sandbox bật thì native proof bắt buộc; auto tắt sandbox ghi `permissions_only`/`not_tried` và vẫn kiểm quyền tool. Codex dùng `workspace-write` với automatic approval review. Owner có thể chọn `permission_mode: full-access` trong pin; khi đó worker dùng quyền full access của chính harness. Reviewer vẫn dùng sandbox chỉ đọc. Đổi permission mode hoặc sandbox cần manifest đúng pin; không tự fallback từ sandbox lỗi sang full access.
+Theo quyết định chủ dự án ngày 2026-11-01 ([ADR-0005](docs/adr/0005-native-harness-permissions.md)), Cuesura chạy harness trực tiếp trong worktree riêng, bỏ outer bwrap. Mặc định worker Claude dùng mode `auto` và tắt sandbox như Claude Code; owner bật/tắt độc lập qua `--sandbox on|off` hoặc `settings.sandbox.enabled`. Sandbox bật thì native proof bắt buộc; auto tắt sandbox ghi `permissions_only`/`not_tried` và vẫn kiểm quyền tool. Codex dùng `workspace-write` với automatic approval review. Owner có thể chọn `permission_mode: full-access` trong pin; khi đó worker dùng quyền full access của chính harness. Decider vẫn dùng sandbox chỉ đọc; reviewer chạy như fixer và thay đổi của nó bị trả về theo mốc daemon ghi bền trước khi chạy. Secret trong environment của lệnh không đi qua `invocation.json` đã che mà qua file riêng 0600, runner xóa trước khi spawn. Đổi permission mode hoặc sandbox cần manifest đúng pin; không tự fallback từ sandbox lỗi sang full access.
 
 Setup/gate/autofix chạy trên host. Home/auth của harness vẫn tách riêng và environment không kế thừa token điều phối, nhưng worktree không là sandbox bảo mật: không còn cam kết che filesystem, secret hoặc socket host khỏi process cùng UID. Doctor kiểm dependency thực tế của harness và systemd, không đòi outer proof. Auto review/approve của harness không đổi workflow review, run confirmation, gate/CI hoặc quyền merge. Mô hình multi-user và cách ly đối thủ cùng OS user nằm sau v1.
 

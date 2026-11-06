@@ -206,6 +206,8 @@ export async function execOperation(run: RunDir, deps: LifecycleDeps = {}): Prom
   const clock = deps.clock ?? SYSTEM_CLOCK;
   const proc = deps.proc ?? PROC;
   const sampleMs = deps.sample_ms ?? 1_000;
+  // First, so the secrets are gone from disk whatever this run turns out to be.
+  const secretEnv = run.takeSecretEnv();
   const specRead = readSpec(run);
   if (!specRead.ok) return { state: 'invalid_spec', reason: specRead.error };
   const spec = specRead.value;
@@ -316,6 +318,9 @@ export async function execOperation(run: RunDir, deps: LifecycleDeps = {}): Prom
       error: 'deadline passed before start',
     });
 
+  if (spec.secret_env === true && secretEnv === null)
+    return finish('spawn_failed', { spawned: false, error: 'secret environment missing' });
+
   let stdinFd: number | null = null;
   let child: ChildProcess;
   try {
@@ -323,7 +328,7 @@ export async function execOperation(run: RunDir, deps: LifecycleDeps = {}): Prom
       stdinFd = openSync(run.resolve(spec.stdin), 'r');
     child = spawn(spec.argv[0] as string, spec.argv.slice(1), {
       cwd: spec.cwd,
-      env: { ...spec.env },
+      env: { ...spec.env, ...secretEnv },
       stdio: [stdinFd ?? 'ignore', 'pipe', 'pipe'],
       detached: true,
     });

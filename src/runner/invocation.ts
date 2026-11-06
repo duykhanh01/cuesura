@@ -86,6 +86,7 @@ import {
   LAUNCH_STATE_FILE,
   installAuth,
   copySession,
+  linkUserConfig,
   removeAuth,
   type InstalledAuth,
 } from './private-home.ts';
@@ -163,7 +164,7 @@ const LaunchStateSchema = z.strictObject({
   before: z.strictObject({
     role: z.enum(SANDBOX_ROLES),
     worktree: z.string().nullable(),
-    metadata: z.string(),
+    metadata: z.string().nullable(),
   }),
   preexisted: z.boolean(),
   collect_before: z.array(z.string()),
@@ -245,6 +246,8 @@ export type RunnerHarnessOptions = {
   readonly data_dir: string;
   /** Credential references by name, for an input without frozen ones; values never pass through here. */
   readonly credentials: Readonly<Record<string, CredentialRef>>;
+  /** Owner home whose agent configuration each private home links to; unset links nothing (tests). */
+  readonly user_home?: string;
   readonly redactor: Redactor;
   readonly clock: Clock;
   /** Fallback when the input names no workspace (tests); the daemon always passes one. */
@@ -321,8 +324,8 @@ export class RunnerHarness implements HarnessPort {
     if (run.readFinal(RUN_FILES.launch).state !== 'missing') return this.recover(input);
 
     if (signal.aborted) return never('cancelled', 'aborted before start');
-    // A reviewer always runs in its own new, read-only session (contracts/execution.md).
-    if (boundaryRole(input.role) === 'reviewer' && input.session !== null)
+    // A reviewer or decider always runs in its own new session (contracts/execution.md).
+    if ((input.role === 'reviewer' || input.role === 'decider') && input.session !== null)
       return never('capability_missing', 'a reviewer never resumes a session');
 
     // The wire form is the vendor's; the canonical schema digest must be the role's current one.
@@ -398,6 +401,7 @@ export class RunnerHarness implements HarnessPort {
             context: join(run.dir, 'context'),
             schema: join(run.dir, 'schema'),
             ...(shortTmp === undefined ? {} : { tmp: shortTmp }),
+            git: ws.git_dirs,
           }
         : IN_SANDBOX,
       host_execution: hostExecution,
@@ -947,6 +951,7 @@ export class RunnerHarness implements HarnessPort {
         };
       });
       installed = installAuth(run, files);
+      if (o.user_home !== undefined) linkUserConfig(installed.home, o.user_home);
     } catch (e) {
       if (e instanceof SandboxPolicyError) return { ok: false, error: e.message };
       throw e;

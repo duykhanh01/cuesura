@@ -24,6 +24,7 @@ export const GIT_SUBCOMMANDS = [
   'branch',
   'cat-file',
   'check-ref-format',
+  'checkout-index',
   'commit-tree',
   'config',
   'diff',

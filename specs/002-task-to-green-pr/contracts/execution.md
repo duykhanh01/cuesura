@@ -96,7 +96,8 @@ crash I/O rộng vẫn thuộc B; không lấy API đọc finalized review làm 
   cạnh canonical digest; inline và file phải khớp, không đổi schema v1 hoặc nới semantic validation.
 - Codex build argv `exec --json --output-schema ... --output-last-message ... --sandbox ...`, cwd
   worktree; Claude print/structured-schema/settings tương ứng manifest. Không hardcode model ID từ
-  ví dụ docs. Quyền auto/full-access theo pin owner và manifest; không tự bypass để sửa một failure. Auth/session home riêng, không load tùy ý config user.
+  ví dụ docs. Quyền auto/full-access theo pin owner và manifest; không tự bypass để sửa một failure. Auth/session home riêng theo attempt; cấu hình agent của owner (skill, plugin, settings, instructions,
+  đăng nhập `gh`) được link vào home đó để worker chạy như phiên tương tác.
 - Fixer là vai trò sửa của worker đã code: ưu tiên resume session worker cho lỗi gate/review/CI,
   không resume session reviewer. Resume chỉ cùng harness/binding, đúng policy; nếu không còn dùng
   được thì attempt mới có lý do fallback và mang Q&A
@@ -106,7 +107,7 @@ crash I/O rộng vẫn thuộc B; không lấy API đọc finalized review làm 
 - Context tối đa 128 KiB, phần cắt phải ghi rõ. Reviewer không nhận nội dung diff mà đọc bằng `git diff`
   theo range trong context; context giữ range, digest của diff đầy đủ và toàn bộ path list. Diff đưa cho
   fixer cắt ở 64 KiB. Không đủ acceptance/range bắt buộc thì needs_context/chờ, không cắt thông tin rồi approve. Reviewer
-  có session riêng, chỉ đọc trong `full-review`; có thể cùng vendor/model. `direct-pr` không gọi reviewer.
+  có session riêng trong `full-review`, thay đổi của nó bị daemon trả về; có thể cùng vendor/model. `direct-pr` không gọi reviewer.
 - Worker chuẩn bị commit message, PR title/description theo template frozen trong artifact ngoài code;
   sửa code thì cập nhật mô tả khi cần. Hợp đồng output mới phải version hóa/kiểm chứng schema riêng,
   không coi schema/fixture spike hiện có đã bao phủ; xem [M01–M08](../task-execution-modes.md).
@@ -122,7 +123,8 @@ Codex `workspace-write`,
 trên host. Settings hash chuẩn hóa các đường dẫn thay đổi theo attempt; launch shape vẫn gắn với role.
 
 Owner chọn `full-access` qua pin: worker Claude dùng `bypassPermissions`, giữ lựa chọn sandbox riêng;
-worker Codex dùng `danger-full-access` và `approval_policy=never`. Reviewer vẫn native read-only.
+worker Codex dùng `danger-full-access` và `approval_policy=never`. Decider vẫn native read-only; reviewer
+chạy như fixer và daemon trả worktree về trạng thái trước review.
 Mode không tự đổi khi có lỗi và không thay `full-review`/`direct-pr`, gate, run confirmation hoặc merge.
 
 Manifest phải chứng minh đúng binary, settings, environment, host launch policy, layout và role schemas;
@@ -140,9 +142,13 @@ snapshot để đổi mode. `prove-harness` không cần `--outer-proof`; cờ c
 ## Phạm vi quyền trên host
 
 Setup/gate/autofix chạy trực tiếp trên host với PATH của host và toolchain đã khai. Harness nhận home/auth
-riêng và environment được lọc; token GitHub/điều phối không tự được kế thừa. Không còn lời hứa OS chặn
+riêng và kế thừa environment của daemon trừ biến `CUSR_*` và biến của phiên agent bao ngoài; token điều phối
+không được kế thừa. Secret trong environment không ghi vào `invocation.json` (file này đã che) mà giao qua
+`secret-env.json` mode 0600, runner xóa trước khi spawn; thiếu file thì run báo `spawn_failed`. Không còn lời hứa OS chặn
 mọi truy cập home, Git metadata, database hoặc socket host. Quyền native và full access có đúng phạm vi
-harness cung cấp. Canary sau chạy vẫn từ chối kết quả khi reviewer ghi worktree hoặc agent sửa Git metadata.
+harness cung cấp. Canary sau chạy vẫn từ chối kết quả khi decider ghi worktree hoặc sửa Git metadata. Trước khi chạy reviewer,
+daemon ghi HEAD và cây làm việc vào scratch của task; không đọc được thì reviewer không chạy. Daemon trả
+worktree về mốc đó sau lượt review, cả khi đọc lại run đã xong hoặc run bị mất sau restart.
 
 Orchestrator Git giữ argv/env allowlist, hooks rỗng, credential helper tin cậy và chính sách push như cũ.
 Build/gate không có token được truyền riêng, nhưng process cùng UID không bị outer filesystem boundary

@@ -23,7 +23,8 @@ Use case đầu tiên là quy trình phát triển phần mềm: code → review
    - Code, rồi chạy gate (build/test).
    - Trước khi chạy, bạn xác nhận harness, model, effort và chế độ: `direct-pr` hoặc `full-review`.
    - Worker chuẩn bị commit message và nội dung PR theo PR template của repo (`pr_template` trong `cusr.yaml`, hoặc `pull_request_template.md` duy nhất ở gốc, `.github/` hay `docs/`), không có thì theo template mặc định của cusr; daemon tạo branch, commit và publish. `cusr init` hiện danh sách để chọn những gì cài vào repo, mặc định chọn hết, mỗi mục có mô tả. Mục `write-pr` gồm PR template của cusr và skill [`write-pr`](src/assets/write-pr/SKILL.md) mà template trỏ tới; repo đã có template riêng thì giữ nguyên template đó và chỉ cài skill.
-   - `full-review` có reviewer riêng session, chỉ đọc, có thể cùng vendor; `direct-pr` bỏ bước reviewer.
+   - `full-review` có reviewer riêng session, được chạy kiểm tra nhưng thay đổi không vào task, có thể cùng
+     vendor; `direct-pr` bỏ bước reviewer.
    - `full-review` mở PR dạng draft, daemon đăng từng lượt review lên PR (format đổi được bằng `review_template` trong `cusr.yaml`), approve thì chuyển PR ready rồi mới chờ CI. `direct-pr` mở PR ready và chờ CI ngay.
    - Sửa gate/review/CI ưu tiên resume worker đã code, trong giới hạn đã duyệt.
    - Method mặc định là squash merge, đổi được bằng `merge.method` trong `cusr.yaml`; không bật yolo thì method chỉ là đề xuất cho người merge thủ công (`cusr show`).

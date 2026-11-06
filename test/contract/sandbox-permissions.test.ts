@@ -66,21 +66,22 @@ describe('selected auth only, in a fresh home of an agent run', () => {
 
   it('a write to a read-only zone is a boundary violation (runtime canary)', () => {
     const fx = fixture();
+    // The read-only boundary (the decider's) covers the worktree and the Git metadata.
     const layout = fixtureLayout('reviewer', fx);
     const before = snapshotWriteZone(layout);
     writeFileSync(join(fx.worktree, 'reviewer-wrote'), 'x');
+    mkdirSync(join(fx.gitCommon, 'hooks'), { recursive: true });
+    writeFileSync(join(fx.gitCommon, 'hooks', 'pre-push'), '#!/bin/sh\n');
     expect(writeZoneViolations(before, snapshotWriteZone(layout))).toEqual([
       'reviewer changed the read-only worktree',
+      'reviewer run changed git metadata',
     ]);
+    // A worker edits and commits itself: neither is a violation.
     const coder = fixtureLayout('coder', fx);
     const c0 = snapshotWriteZone(coder);
     writeFileSync(join(fx.worktree, 'coder-wrote'), 'x');
+    writeFileSync(join(fx.gitCommon, 'hooks', 'post-commit'), '#!/bin/sh\n');
     expect(writeZoneViolations(c0, snapshotWriteZone(coder))).toEqual([]);
-    mkdirSync(join(fx.gitCommon, 'hooks'), { recursive: true });
-    writeFileSync(join(fx.gitCommon, 'hooks', 'pre-push'), '#!/bin/sh\n');
-    expect(writeZoneViolations(c0, snapshotWriteZone(coder))).toEqual([
-      'coder run changed git metadata',
-    ]);
   });
 });
 
