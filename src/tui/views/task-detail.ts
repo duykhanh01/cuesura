@@ -19,10 +19,8 @@ import { displayWidth } from '../terminal/width.ts';
 import { clockTime, type Body } from './layout.ts';
 import { BOLD, DIM, putSegs, ruleHeading, seg, ui, wrapSegs, type Seg } from './ink.ts';
 import { endBadge, stepper } from './stepper.ts';
+import { ACTIVE, BAD, FOCUS, GOOD, NOTICE, WARN } from './theme.ts';
 
-const WARN: Style = { fg: 'yellow', bold: true };
-const GOOD: Style = { fg: 'green' };
-const BAD: Style = { fg: 'red' };
 const MARGIN = 1;
 const LABEL = 16;
 
@@ -233,7 +231,7 @@ function exitRows(out: Rows, explain: TaskExplain): void {
   out.heading('What you can do');
   // `command` is only for showing (contracts/tui.md); this reads nothing out of it.
   for (const a of explain.allowed_actions) {
-    out.field(actionName(a.action), a.note, { fg: 'cyan', bold: true });
+    out.field(actionName(a.action), a.note, FOCUS);
     if (a.command !== null)
       out.line([ui(''.padEnd(LABEL + 2)), ui('$ ', DIM), seg(a.command, DIM)], LABEL + 4);
   }
@@ -243,7 +241,7 @@ function exitRows(out: Rows, explain: TaskExplain): void {
 function checkStyle(state: string): Style {
   if (/^(success|passed?|ok|neutral|skipped)$/i.test(state)) return GOOD;
   if (/^(failure|failed|fail|error|cancelled|timed_out)$/i.test(state)) return BAD;
-  return { fg: 'yellow' };
+  return NOTICE;
 }
 
 const EXCERPT_LINES = 20;
@@ -451,7 +449,7 @@ function limitRows(out: Rows, explain: TaskExplain): void {
     ui(
       `${formatDuration(slot.initial_wait_ms)} first, ${formatDuration(slot.resumed_wait_ms)} resumed`,
     ),
-    ...(slot.holding ? [ui(' · holds the execution slot', { fg: 'cyan' })] : []),
+    ...(slot.holding ? [ui(' · holds the execution slot', ACTIVE)] : []),
   ]);
   if (slot.queued !== null)
     out.field('Queue', [

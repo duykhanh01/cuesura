@@ -5,7 +5,19 @@
 import type { TaskStatus } from '../../domain/state.ts';
 import { STAGE_LABEL, type Stage, type StageState } from '../model/stages.ts';
 import type { Style } from '../terminal/screen.ts';
-import { DIM, ui, type Seg } from './ink.ts';
+import { DIM, segsWidth, ui, type Seg } from './ink.ts';
+import {
+  ACTIVE,
+  BAD,
+  BAD_STRONG,
+  FAINT,
+  FOCUS,
+  GOOD,
+  NOTICE,
+  STOPPED,
+  STOPPED_STRONG,
+  WARN,
+} from './theme.ts';
 
 type Look = {
   readonly dot: string;
@@ -23,17 +35,17 @@ type Look = {
 function look(state: StageState, status: TaskStatus): Look {
   switch (state) {
     case 'done':
-      return { dot: '●', mark: '✓', style: { fg: 'green' }, word: null };
+      return { dot: '●', mark: '✓', style: GOOD, word: null };
     case 'current':
       return status === 'WAITING'
-        ? { dot: '‖', mark: '‖', style: { fg: 'yellow', bold: true }, word: 'waiting' }
-        : { dot: '◉', mark: '●', style: { fg: 'cyan', bold: true }, word: null };
+        ? { dot: '‖', mark: '‖', style: WARN, word: 'waiting' }
+        : { dot: '◉', mark: '●', style: FOCUS, word: null };
     case 'failed':
-      return { dot: '✕', mark: '✕', style: { fg: 'red', bold: true }, word: 'failed' };
+      return { dot: '✕', mark: '✕', style: BAD_STRONG, word: 'failed' };
     case 'stopped':
-      return { dot: '■', mark: '■', style: { fg: 'orange', bold: true }, word: 'cancelled' };
+      return { dot: '■', mark: '■', style: STOPPED_STRONG, word: 'cancelled' };
     case 'skipped':
-      return { dot: '–', mark: '–', style: { fg: 'gray' }, word: 'skipped' };
+      return { dot: '–', mark: '–', style: FAINT, word: 'skipped' };
     case 'todo':
       return { dot: '○', mark: '○', style: DIM, word: null };
     case 'abandoned':
@@ -56,12 +68,12 @@ export function leadsOn(state: StageState): boolean {
 }
 
 const DOT_STYLE: Readonly<Record<StageState, (status: TaskStatus) => Style>> = {
-  done: () => ({ fg: 'green' }),
-  current: (status) => ({ fg: status === 'WAITING' ? 'yellow' : 'cyan', bold: true }),
-  failed: () => ({ fg: 'red', bold: true }),
-  stopped: () => ({ fg: 'orange' }),
+  done: () => GOOD,
+  current: (status) => (status === 'WAITING' ? WARN : FOCUS),
+  failed: () => BAD_STRONG,
+  stopped: () => STOPPED,
   // Fainter than a stage still to come, so it reads as absent and never as one that will run (FR-011).
-  skipped: () => ({ fg: 'gray' }),
+  skipped: () => FAINT,
   todo: () => DIM,
   abandoned: () => DIM,
 };
@@ -107,26 +119,55 @@ export function stepper(stages: readonly Stage[], status: TaskStatus): Seg[] {
   return out;
 }
 
+/** The stage a reader looks for: where the task is, or where it ended. */
+function anchorOf(stages: readonly Stage[]): number {
+  const here = stages.findIndex(
+    (s) => s.state === 'current' || s.state === 'failed' || s.state === 'stopped',
+  );
+  return here >= 0 ? here : stages.findLastIndex((s) => s.state === 'done');
+}
+
+/**
+ * {@link stepper} in one row of `cols` cells. Stages behind the task go first, then those still to come;
+ * the anchor stage stays whole, so a narrow screen never cuts the stage that says what is going on.
+ */
+export function stepperRow(stages: readonly Stage[], status: TaskStatus, cols: number): Seg[] {
+  const anchor = Math.max(0, anchorOf(stages));
+  const view = (first: number, last: number): Seg[] => [
+    ...(first > 0 ? [ui('…', DIM), ui(' ─ ', DIM)] : []),
+    ...stepper(stages.slice(first, last), status),
+    ...(last < stages.length ? [ui(' ─ ', DIM), ui('…', DIM)] : []),
+  ];
+  let first = 0;
+  let last = stages.length;
+  while (segsWidth(view(first, last)) > cols) {
+    if (first < anchor) first += 1;
+    else if (last > anchor + 1) last -= 1;
+    else break;
+  }
+  return view(first, last);
+}
+
 /** What the marks mean, for the screens that draw them: what runs on one row, how a task stops on the next. */
 export const STAGE_KEY: readonly (readonly Seg[])[] = [
   [
-    ui('✓ ran', { fg: 'green' }),
-    ui('  ● now', { fg: 'cyan' }),
+    ui('✓ ran', GOOD),
+    ui('  ● now', ACTIVE),
     ui('  ○ to come', DIM),
-    ui('  – skipped by mode', { fg: 'gray' }),
+    ui('  – skipped by mode', FAINT),
     ui('  ×n runs', DIM),
   ],
   [
-    ui('‖ waiting', { fg: 'yellow' }),
-    ui('  ✕ failed', { fg: 'red' }),
-    ui('  ■ cancelled', { fg: 'orange' }),
+    ui('‖ waiting', NOTICE),
+    ui('  ✕ failed', BAD),
+    ui('  ■ cancelled', STOPPED),
     ui('  · will not run', DIM),
   ],
 ];
 
 /** The end of a failed or cancelled task, in its stage's mark and colour; `null` for any other task. */
 export function endBadge(status: TaskStatus): Seg | null {
-  if (status === 'FAILED') return ui('✕ FAILED', { fg: 'red', bold: true });
-  if (status === 'CANCELLED') return ui('■ CANCELLED', { fg: 'orange', bold: true });
+  if (status === 'FAILED') return ui('✕ FAILED', BAD_STRONG);
+  if (status === 'CANCELLED') return ui('■ CANCELLED', STOPPED_STRONG);
   return null;
 }

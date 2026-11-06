@@ -15,6 +15,7 @@ import { joinSafe, sanitize, uiText, type SafeText } from '../terminal/safe-text
 import { Frame, type Style } from '../terminal/screen.ts';
 import { displayWidth, truncate, truncateMiddle, wrap } from '../terminal/width.ts';
 import { DIM, putSegs, seg, segsWidth, ui, type Seg } from './ink.ts';
+import { BAD_STRONG, FOCUS, GOOD, WARN } from './theme.ts';
 
 export function clockTime(at: number): string {
   const d = new Date(at);
@@ -109,7 +110,7 @@ function statusBar(s: TuiState, cols: number): Seg[] {
   // What was read before the connection went is no answer about now: nothing here may look fine (SC-003).
   const h = s.stale ? null : s.health;
   const daemon = h === null ? 'unknown' : h.healthy ? 'ok' : 'unhealthy';
-  const dot: Style = h === null ? DIM : h.healthy ? { fg: 'green' } : { fg: 'red', bold: true };
+  const dot: Style = h === null ? DIM : h.healthy ? GOOD : BAD_STRONG;
   const slot =
     h === null
       ? uiText('-')
@@ -149,7 +150,7 @@ function barSegs(
 ): Seg[] {
   const sep = ui(wide ? '  │  ' : ' │ ', DIM);
   return [
-    ...(brand ? [ui(' cuesura', { bold: true, fg: 'cyan' }), ui(wide ? '   ' : ' ')] : [ui(' ')]),
+    ...(brand ? [ui(' cuesura', FOCUS), ui(wide ? '   ' : ' ')] : [ui(' ')]),
     ui('● ', dot),
     ui(`daemon: ${daemon}`),
     sep,
@@ -207,7 +208,7 @@ export function renderFrame(
   let top = 1;
   const room = Math.floor((rows - 2) / 2);
   for (const line of [...staleBanner(s), ...notices(s, cols, room)]) {
-    frame.put(0, top, truncate(line, cols), { fg: 'yellow', bold: true });
+    frame.put(0, top, truncate(line, cols), WARN);
     top += 1;
   }
   const hints = hintBar(s, cols).split('  ');
@@ -219,7 +220,7 @@ export function renderFrame(
       const space = hint.indexOf(' ');
       return [
         ...(i === 0 ? [] : [ui('  ')]),
-        ui(space < 0 ? hint : hint.slice(0, space), { fg: 'cyan', bold: true }),
+        ui(space < 0 ? hint : hint.slice(0, space), FOCUS),
         ui(space < 0 ? '' : hint.slice(space), DIM),
       ];
     }),

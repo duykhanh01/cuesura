@@ -7,6 +7,7 @@ import { RECONNECT_ATTEMPTS, type TuiState } from '../model/state.ts';
 import { joinSafe, uiText, type SafeText } from '../terminal/safe-text.ts';
 import { truncate, wrap } from '../terminal/width.ts';
 import { notices, staleBanner, type Body } from './layout.ts';
+import { NOTICE } from './theme.ts';
 
 const LABEL = 'Disconnected: ';
 
@@ -56,7 +57,7 @@ export const withDisconnected =
   (frame, top, height) => {
     // At most half the room, so the data under it stays in view.
     const rows = disconnectedRows(s, s.size.cols).slice(0, Math.floor(height / 2));
-    rows.forEach((row, i) => frame.put(0, top + i, truncate(row, s.size.cols), { fg: 'yellow' }));
+    rows.forEach((row, i) => frame.put(0, top + i, truncate(row, s.size.cols), NOTICE));
     body(frame, top + rows.length, height - rows.length);
   };
 

@@ -32,23 +32,24 @@ import type { Frame, Style } from '../terminal/screen.ts';
 import type { Tone } from '../model/log-text.ts';
 import { graphemes, truncate } from '../terminal/width.ts';
 import { BOLD, DIM, putSegs, seg, segsWidth, ui, wrapSegs, type Seg } from './ink.ts';
-import { endBadge, leadsOn, stageLook, stepper } from './stepper.ts';
+import { endBadge, leadsOn, stageLook, stepperRow } from './stepper.ts';
 import type { Body } from './layout.ts';
+import { ACTIVE, BAD, BAD_STRONG, FOCUS, GOOD, GOOD_STRONG, NOTICE, WARN } from './theme.ts';
 
 const ROW_STYLE: Readonly<Record<LogRow['kind'], Style>> = {
   record: {},
-  separator: { fg: 'cyan', bold: true },
-  gap: { fg: 'yellow', bold: true },
+  separator: FOCUS,
+  gap: WARN,
 };
 
 /** The mark and the text of a record by what it says. */
 const TONE: Readonly<Record<Tone, { mark: Style; body: Style }>> = {
   say: { mark: { bold: true }, body: {} },
-  tool: { mark: { fg: 'green', bold: true }, body: {} },
+  tool: { mark: GOOD_STRONG, body: {} },
   result: { mark: DIM, body: DIM },
-  ok: { mark: { fg: 'green' }, body: DIM },
-  error: { mark: { fg: 'red', bold: true }, body: { fg: 'red' } },
-  warn: { mark: { fg: 'yellow', bold: true }, body: { fg: 'yellow' } },
+  ok: { mark: GOOD, body: DIM },
+  error: { mark: BAD_STRONG, body: BAD },
+  warn: { mark: WARN, body: NOTICE },
   info: { mark: DIM, body: DIM },
 };
 
@@ -140,17 +141,14 @@ function newsLine(s: LogState, t: TuiState): SafeText {
   return uiText('');
 }
 
-const WARN: Style = { fg: 'yellow', bold: true };
-const KEY: Style = { fg: 'cyan', bold: true };
-
 /** The stages in one row, where there is no room for a column of them. */
-function stagesRow(s: TuiState): Seg[] | null {
+function stagesRow(s: TuiState, cols: number): Seg[] | null {
   const d = s.detail;
   const status = d?.explain.data?.status ?? d?.show.data?.status;
   const steps = d?.progress.data?.steps ?? null;
   if (steps === null || status === undefined) return null;
   const stages = progressStages(steps, status);
-  return stages === null ? null : stepper(stages, status);
+  return stages === null ? null : stepperRow(stages, status, cols);
 }
 
 /** The attempt being read, or the row chosen in the chooser, by its stage, so the progress column can point at it. */
@@ -234,7 +232,7 @@ function progressPane(frame: Frame, s: TuiState, top: number, height: number, wi
       const strong = here || stage.state === 'current';
       const faint = stage.state === 'todo' || stage.state === 'abandoned';
       timeline.push([
-        ui(here ? '▸' : ' ', KEY),
+        ui(here ? '▸' : ' ', FOCUS),
         ui(`${mark}  `, look.style),
         ui(STAGE_LABEL[stage.name], {
           ...(faint ? DIM : stage.state === 'done' ? {} : look.style),
@@ -248,7 +246,7 @@ function progressPane(frame: Frame, s: TuiState, top: number, height: number, wi
         const passed = stage.state === 'done';
         // The path stops where the task ended; the empty row keeps every stage on its own line.
         if (!leadsOn(stage.state)) timeline.push([]);
-        else timeline.push([ui(' '), ui(passed ? '│' : '╎', passed ? { fg: 'green' } : DIM)]);
+        else timeline.push([ui(' '), ui(passed ? '│' : '╎', passed ? GOOD : DIM)]);
       }
     });
   }
@@ -283,7 +281,7 @@ function progressPane(frame: Frame, s: TuiState, top: number, height: number, wi
       );
       if (commands.length > 0) tail.push([]);
       for (const command of commands)
-        tail.push(...wrapSegs([ui('→ ', { fg: 'cyan' }), seg(command)], width - 1, 2));
+        tail.push(...wrapSegs([ui('→ ', ACTIVE), seg(command)], width - 1, 2));
     }
     const action = todo(row);
     if (action !== null) {
@@ -300,7 +298,6 @@ function progressPane(frame: Frame, s: TuiState, top: number, height: number, wi
     .forEach((segs, i) => putSegs(frame, 1, top + i, segs, width - 1));
 }
 
-const SELECTED: Style = { fg: 'cyan', bold: true };
 const NAME_COLS = 24;
 const BINDING_COLS = 14;
 /** A step run this many times in a row is worth a look: a fix that does not hold. */
@@ -326,11 +323,7 @@ function pickerRow(
   switch (row.kind) {
     case 'live':
       return {
-        left: [
-          ui('  '),
-          ui('Latest step'),
-          ui(ctx.reading === null ? '  ◂ reading' : '', { fg: 'cyan' }),
-        ],
+        left: [ui('  '), ui('Latest step'), ui(ctx.reading === null ? '  ◂ reading' : '', ACTIVE)],
         right: [],
       };
     case 'group': {
@@ -342,7 +335,7 @@ function pickerRow(
             [
               ui(row.open ? '▾ ' : '▸ ', DIM),
               ui(row.group.title, row.open ? BOLD : {}),
-              ui(now ? ' ●' : '', { fg: 'green' }),
+              ui(now ? ' ●' : '', GOOD),
             ],
             NAME_COLS,
           ),
@@ -370,7 +363,7 @@ function pickerRow(
             NAME_COLS,
           ),
           ...(last === undefined ? [] : pad([seg(last.binding, DIM)], BINDING_COLS)),
-          ui(n >= RUN_WARN ? `⚠ ${n} in a row` : '', { fg: 'yellow' }),
+          ui(n >= RUN_WARN ? `⚠ ${n} in a row` : '', NOTICE),
         ],
         right: tokenSeg(row.run.attempts),
       };
@@ -388,8 +381,8 @@ function pickerRow(
             NAME_COLS,
           ),
           ...pad([seg(a.binding, DIM)], BINDING_COLS),
-          ui(a.id === ctx.running ? '  ● running' : '', { fg: 'green' }),
-          ui(a.id === ctx.reading ? '  ◂ reading' : '', { fg: 'cyan' }),
+          ui(a.id === ctx.running ? '  ● running' : '', GOOD),
+          ui(a.id === ctx.reading ? '  ◂ reading' : '', ACTIVE),
         ],
         right: tokenSeg([a]),
       };
@@ -451,7 +444,7 @@ function pickerList(
     const chosen = first + i === at;
     const { left, right } = pickerRow(row, ctx);
     const look = (segs: readonly Seg[]): Seg[] => (chosen ? highlight(segs) : [...segs]);
-    if (chosen) frame.put(x, y, uiText('›'), SELECTED);
+    if (chosen) frame.put(x, y, uiText('›'), FOCUS);
     const rightCols = segsWidth(right);
     const fitsRight = rightCols > 0 && inner - rightCols >= NAME_COLS + 2;
     putSegs(frame, x + 2, y, look(left), fitsRight ? inner - rightCols - 2 : inner);
@@ -462,7 +455,7 @@ function pickerList(
 /** Chosen row: faint or plain text takes the selection style; yellow and green keep their meaning. */
 const highlight = (segs: readonly Seg[]): Seg[] =>
   segs.map((g) =>
-    g.style?.fg === 'yellow' || g.style?.fg === 'green' ? g : { ...g, style: SELECTED },
+    g.style?.fg === 'yellow' || g.style?.fg === 'green' ? g : { ...g, style: FOCUS },
   );
 
 export const logsBody =
@@ -471,16 +464,10 @@ export const logsBody =
     const logs = s.logs;
     if (logs === null || height <= 0) return;
     const cols = s.size.cols;
-    putSegs(
-      frame,
-      1,
-      top,
-      [ui('Logs: ', { fg: 'cyan', bold: true }), seg(logs.title, BOLD)],
-      cols - 1,
-    );
+    putSegs(frame, 1, top, [ui('Logs: ', FOCUS), seg(logs.title, BOLD)], cols - 1);
     // Without room for the column of stages, they take the second row and the mode joins the news.
     const narrow = logColumns(cols, logs.paneHidden).pane === 0;
-    const stages = narrow ? stagesRow(s) : null;
+    const stages = narrow ? stagesRow(s, cols - 1) : null;
     const news = newsLine(logs, s);
     if (height > 1) {
       if (stages !== null) putSegs(frame, 1, top + 1, stages, cols - 1);

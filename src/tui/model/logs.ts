@@ -51,6 +51,8 @@ export type LogLine = {
   readonly label: SafeText;
   readonly body: SafeText;
   readonly tone: Tone;
+  /** Shown instead of `body` in the full-output view. */
+  readonly full?: SafeText;
 };
 
 export type LogEntry = {
@@ -211,6 +213,7 @@ export function toEntry(record: TaskLogs['records'][number]): LogEntry | null {
     label: sanitize(d.label),
     body: capped(d.body),
     tone: d.tone,
+    ...(d.full === undefined ? {} : { full: capped(d.full) }),
   }));
   if (lines.length === 0) return null;
   const time = shortTime(record.at);
@@ -226,7 +229,10 @@ export function toEntry(record: TaskLogs['records'][number]): LogEntry | null {
     time,
     lines,
     text,
-    bytes: Buffer.byteLength(text) + ENTRY_OVERHEAD_BYTES,
+    bytes:
+      Buffer.byteLength(text) +
+      lines.reduce((n, l) => n + Buffer.byteLength(l.full ?? ''), 0) +
+      ENTRY_OVERHEAD_BYTES,
   };
 }
 
@@ -565,7 +571,7 @@ function textRows(entry: LogEntry, cols: number, expanded: boolean): LogRow[] {
         );
         continue;
       }
-      const first = `${strong}${body}`;
+      const first = `${strong}${expanded ? (line.full ?? body) : body}`;
       if (!expanded && folds(line)) {
         rows.push({
           kind,

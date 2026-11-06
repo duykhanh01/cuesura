@@ -67,7 +67,6 @@ describe('US1 scenario 1: the main screen, with no arguments', () => {
     await sd.start();
     const s = tui.cusr(sd.dataDir);
     await s.waitForText('Sample holder');
-    await s.waitForText('Projects: acme');
     const screen = s.screenText();
     const bar = screen.split('\n')[0] ?? '';
     expect(bar).toContain('daemon: ok');
@@ -506,12 +505,36 @@ describe('T037: changing the filter when nothing has changed in the daemon', () 
     await quit(s);
   });
 
+  it.each([
+    ['80×24', { cols: 80, rows: 24 }, {}],
+    ['120×40', { cols: 120, rows: 40 }, {}],
+    ['80×24 NO_COLOR', { cols: 80, rows: 24 }, { NO_COLOR: '1' }],
+  ])('gives the project column to the title with one project (%s)', async (_, size, env) => {
+    const title = 'Sửa lỗi hiển thị tiêu đề tiếng Việt dài trên màn hình';
+    const sd = tui.daemon();
+    sd.seed((d) => seedRunning(d, 1, () => ({ title })));
+    await sd.start();
+    const s = tui.cusr(sd.dataDir, { ...size, env });
+    await s.waitForText('Sửa lỗi hiển thị tiêu đề');
+    const screen = s.screenText();
+    expect(screen).not.toContain('Projects:');
+    expect(screen).not.toMatch(/Task\s+Project/);
+    const row = selectedLine(screen);
+    expect(row).toContain(size.cols === 80 ? 'Sửa lỗi hiển thị tiêu đề tiếng' : title);
+    // The stage marks sit under their heading, with the gap the hidden column left closed.
+    const head = screen.split('\n').find((l) => /\bStages\b/.test(l)) ?? '';
+    const at = head.indexOf('Stages');
+    expect(row[at - 1]).toBe(' ');
+    expect(row[at]).not.toBe(' ');
+    await quit(s);
+  });
+
   it('a name that matches nothing stays to be corrected and applies nothing', async () => {
     const sd = tui.daemon();
     sd.seed((d) => seedRunning(d, 1));
     await sd.start();
     const s = tui.cusr(sd.dataDir);
-    await s.waitForText('Projects: acme');
+    await s.waitForText('Task 001');
     s.send('f');
     await s.waitForText('Find project:');
     s.send('zzz');
@@ -674,7 +697,7 @@ describe('T039 and FR-035: no colour, and the smallest terminal', () => {
     expect(row).toContain('▶');
     expect(row).toContain('Preparing the worktree');
     expect(row).toContain('…');
-    expect(row).toContain('acme');
+    expect(row).not.toContain('acme');
     expect(row).toMatch(/\d+s\s*$/);
 
     // Past the first screen the selection stays in view.

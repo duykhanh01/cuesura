@@ -7,6 +7,7 @@ import { joinSafe, sanitize, uiText, type SafeText } from '../terminal/safe-text
 import { truncate } from '../terminal/width.ts';
 import { putSegs, ruleHeading } from './ink.ts';
 import type { Body } from './layout.ts';
+import { FOCUS } from './theme.ts';
 
 export const filtered = (s: TuiState): boolean =>
   s.filters.project !== null || s.filters.status !== null;
@@ -79,13 +80,7 @@ export const filtersBody =
     if (s.quitArmed) rows.push({ text: uiText(QUIT_PROMPT), bold: true });
     rows.slice(0, height).forEach((row, i) => {
       if (row.heading === true) {
-        putSegs(
-          frame,
-          1,
-          top + i,
-          ruleHeading(row.text, s.size.cols - 1, { fg: 'cyan', bold: true }),
-          s.size.cols - 1,
-        );
+        putSegs(frame, 1, top + i, ruleHeading(row.text, s.size.cols - 1, FOCUS), s.size.cols - 1);
         return;
       }
       frame.put(1, top + i, truncate(row.text, s.size.cols - 1), {

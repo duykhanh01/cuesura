@@ -20,6 +20,7 @@ import { statusGlyph } from '../model/activity.ts';
 import { DIM, fg, plain, putSegs, ruleHeading, ui, type Seg } from './ink.ts';
 import type { Body } from './layout.ts';
 import { STAGE_KEY } from './stepper.ts';
+import { WARN } from './theme.ts';
 
 const KEY_COLUMN = 20;
 /** Every context Help describes, in this order after the one the user came from. */
@@ -107,7 +108,7 @@ function readingLines(cols: number): Line[] {
   for (const key of STAGE_KEY) out.push([ui(''.padEnd(15)), ...key]);
   out.push([
     ui('  Needs you'.padEnd(15), DIM),
-    ui('→ what to do', { fg: 'yellow', bold: true }),
+    ui('→ what to do', WARN),
     ui(' for tasks that cannot go on without you'),
   ]);
   return out.map((segs) => ({ text: plain(segs), style: {}, segs }));

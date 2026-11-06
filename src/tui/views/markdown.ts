@@ -7,8 +7,9 @@ import { uiText, type SafeText } from '../terminal/safe-text.ts';
 import type { Style } from '../terminal/screen.ts';
 import { displayWidth } from '../terminal/width.ts';
 import { BOLD, DIM, seg, ui, wrapSegs, type Seg } from './ink.ts';
+import { ACTIVE } from './theme.ts';
 
-const CODE: Style = { fg: 'cyan' };
+const CODE: Style = ACTIVE;
 const HEADING: Style = { bold: true };
 
 /** `**bold**`, `` `code` ``, `*em*` and `[text](url)` within a line; the markers themselves go. */

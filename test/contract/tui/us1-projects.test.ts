@@ -80,7 +80,7 @@ async function projectServer(target: string) {
   };
 }
 
-const projects = (id: string) => ({
+const projects = (...ids: string[]) => ({
   schema_version: 1,
   ok: true,
   data: {
@@ -89,7 +89,7 @@ const projects = (id: string) => ({
       roles: ['read'],
       trusted_confirmer: false,
     },
-    projects: [{ id, repo: null }],
+    projects: ids.map((id) => ({ id, repo: null })),
     profiles: [],
   },
   error: null,
@@ -118,7 +118,7 @@ describe('US1: project-list failures', () => {
     await new Promise((resolve) => setTimeout(resolve, 1_500));
     expect(endpoint.reads()).toBe(reads);
     s.send('R');
-    await s.waitForText('Projects: acme');
+    await s.waitFor(() => !s.screenText().includes('Stopped:'));
     await s.waitFor(() => !s.screenText().includes('Data may be out of date'));
     s.send('q');
     expect((await s.waitForExit()).status).toBe(0);
@@ -128,15 +128,15 @@ describe('US1: project-list failures', () => {
     const sd = tui.daemon();
     await sd.start();
     const endpoint = await projectServer(daemonSocket(sd));
-    endpoint.reply(projects('before'));
+    endpoint.reply(projects('before', 'other'));
     const s = tui.cusr(endpoint.dataDir);
-    await s.waitForText('Projects: before');
+    await s.waitForText('Projects: before, other');
     endpoint.offline(true);
     await s.waitForText('Reconnecting');
-    endpoint.reply(projects('after'));
+    endpoint.reply(projects('after', 'other'));
     endpoint.fail(1);
     endpoint.offline(false);
-    await s.waitForText('Projects: after', 5_000);
+    await s.waitForText('Projects: after, other', 5_000);
     await s.waitFor(() => !s.screenText().includes('Data may be out of date'));
     expect(endpoint.reads()).toBeGreaterThanOrEqual(3);
     s.send('f');

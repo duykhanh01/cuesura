@@ -629,7 +629,7 @@ describe('records in words', () => {
         }),
       ),
     ).toBeNull();
-    expect(toEntry(claude({ type: 'something_new', x: 1 }))?.text).toContain('"something_new"');
+    expect(toEntry(claude({ type: 'something_new', x: 1 }))?.text).toContain('something_new');
   });
 
   it("shows a worker's final JSON answer by its summary", () => {
@@ -657,18 +657,47 @@ describe('records in words', () => {
     expect(told.newActivity).toBe(true);
   });
 
-  it('keeps a system record or a content block it does not know, as JSON', () => {
-    expect(toEntry(claude({ type: 'system', subtype: 'hook_response', id: 7 }))?.text).toContain(
-      '"hook_response"',
+  it('reads a record it does not know as one line, and keeps its JSON for the full view', () => {
+    const system = toEntry(claude({ type: 'system', subtype: 'hook_response', id: 7 }));
+    expect(system?.text).toContain('System hook_response');
+    expect(system?.text).not.toContain('{');
+    expect(system?.lines[0]?.full).toContain('"id":7');
+    const s = applyLogPage(
+      start(),
+      forward(0),
+      page([claude({ type: 'system', subtype: 'hook_response', id: 7 })], 1),
+      0,
     );
+    const shown = (expanded: boolean): string =>
+      visibleRows({ ...s, expanded }, 100, 20)
+        .map((r) => r.text)
+        .join('\n');
+    expect(shown(false)).not.toContain('"id":7');
+    expect(shown(true)).toContain('"id":7');
     const block = toEntry(
       claude({
         type: 'assistant',
         message: { content: [{ type: 'server_tool_use', name: 'web' }] },
       }),
     );
-    expect(block?.text).toContain('"server_tool_use"');
+    expect(block?.text).toContain('server_tool_use');
+    expect(block?.lines[0]?.full).toContain('"name":"web"');
     expect(toEntry(claude({ type: 'system', subtype: 'ui_invalidate' }))).toBeNull();
+  });
+
+  it('reads as text what the runner wrapped because it was not JSON', () => {
+    const line = 'Error: request failed: overloaded';
+    const entry = toEntry(claude({ text: line }));
+    expect(entry?.text).toContain(line);
+    expect(entry?.lines[0]?.label).toBe('');
+    expect(entry?.lines[0]?.full).toBeUndefined();
+    expect(toEntry(claude({ text: '   ' }))).toBeNull();
+    expect(
+      toEntry({ ...claude({ text: line }), kind: sanitize('stderr') })?.lines[0],
+    ).toMatchObject({
+      label: 'stderr',
+      tone: 'warn',
+    });
   });
 
   it('a page of bookkeeping only still moves the cursor', () => {

@@ -13,6 +13,7 @@ import type { Style } from '../terminal/screen.ts';
 import { truncate, wrap } from '../terminal/width.ts';
 import type { Body } from './layout.ts';
 import { clockTime } from './layout.ts';
+import { BAD_STRONG, NOTICE, WARN } from './theme.ts';
 
 /**
  * `dialog`: a form of its own before anything is sent (US4, US5). `send`: Enter sends it, as it takes no input. `guide`: what to do outside Cuesura.
@@ -136,7 +137,7 @@ function itemRows(item: ActionItem, index: number, on: boolean, cols: number): R
     ...(on ? item.guide.flatMap((g) => indent(g, {})) : []),
     ...(item.unavailable === null
       ? []
-      : indent(uiText(`Not available: ${item.unavailable}`), { fg: 'yellow' })),
+      : indent(uiText(`Not available: ${item.unavailable}`), NOTICE)),
     ...(item.command === null
       ? []
       : indent(joinSafe([uiText('CLI: '), item.command]), { dim: true })),
@@ -151,18 +152,18 @@ function mutationLine(m: Mutation | undefined): { text: string; style: Style } |
     case 'sending':
       return { text: `Sending (${id})…`, style: { bold: true } };
     case 'unknown':
-      return { text: `Result unknown - checking (${id})`, style: { fg: 'yellow', bold: true } };
+      return { text: `Result unknown - checking (${id})`, style: WARN };
     case 'unresolved':
       return {
         text: `Result unknown - could not be confirmed (${id}). Check again (C)`,
-        style: { fg: 'yellow', bold: true },
+        style: WARN,
       };
     case 'accepted':
       return { text: `Done (${id})`, style: { bold: true } };
     case 'rejected':
       return {
         text: `Rejected: ${m.result?.ok === false ? sanitize(`${m.result.code}: ${m.result.message}`) : ''} (${id})`,
-        style: { fg: 'red', bold: true },
+        style: BAD_STRONG,
       };
   }
 }
@@ -182,7 +183,7 @@ function headRows(s: { menu: ActionsMenu; cols: number; mutation: Mutation | und
   };
   if (e.readAt !== null && e.data !== null)
     at(`Read at ${clockTime(e.readAt)} · ${e.data.status} · version ${e.data.version}`);
-  if (menu.changed) at(CHANGED_NOTICE, { fg: 'yellow', bold: true });
+  if (menu.changed) at(CHANGED_NOTICE, WARN);
   if (e.error !== null)
     rows.push(
       ...wrap(
@@ -195,7 +196,7 @@ function headRows(s: { menu: ActionsMenu; cols: number; mutation: Mutation | und
           e.error,
         ]),
         cols,
-      ).map((text): Row => ({ text, style: { fg: 'yellow' }, item: null })),
+      ).map((text): Row => ({ text, style: NOTICE, item: null })),
     );
   else if (e.data === null) at('Reading the actions of this task…');
   const line = mutationLine(s.mutation);

@@ -14,7 +14,8 @@ import { displayWidth, truncate } from '../terminal/width.ts';
 import { filtered, filterLine } from './filters.ts';
 import { BOLD, DIM, fg, putSegs, ruleHeading, seg, segsWidth, ui, type Seg } from './ink.ts';
 import type { Body } from './layout.ts';
-import { dots, DOTS_WIDTH, stepper } from './stepper.ts';
+import { dots, DOTS_WIDTH, stepper, stepperRow } from './stepper.ts';
+import { BAD, FOCUS, NOTICE, WARN } from './theme.ts';
 
 const STATUS_WORD: Readonly<Record<TaskStatus, string>> = {
   PENDING: 'pending',
@@ -25,6 +26,9 @@ const STATUS_WORD: Readonly<Record<TaskStatus, string>> = {
   FAILED: 'failed',
   CANCELLED: 'cancelled',
 };
+
+/** With one project in scope, naming it on every row says nothing. */
+const oneProject = (s: TuiState): boolean => s.projects?.length === 1;
 
 function projectsSegs(s: TuiState): Seg[] {
   if (s.projects === null) return [ui('Projects: not read yet', DIM)];
@@ -40,6 +44,13 @@ function projectsSegs(s: TuiState): Seg[] {
   ];
 }
 
+function projectLine(s: TuiState): Seg[] | null {
+  const projects = oneProject(s) ? null : projectsSegs(s);
+  if (!filtered(s)) return projects;
+  const filter = seg(filterLine(s), DIM);
+  return projects === null ? [filter] : [...projects, ui('   '), filter];
+}
+
 /**
  * `▲ 2 need you   ▶ 3 running …`: what the daemon counted, each status with its mark and colour. A task that
  * needs the user counts there and not again under its status, so the figures add up to the tasks listed.
@@ -51,7 +62,7 @@ function summarySegs(s: TuiState, attention: number): Seg[] | null {
   const out: Seg[] = [];
   if (attention > 0) {
     const more = s.board.attention.truncated ? '+' : '';
-    out.push(ui(`▲ ${attention}${more} need you`, { fg: 'yellow', bold: true }));
+    out.push(ui(`▲ ${attention}${more} need you`, WARN));
   }
   for (const status of TASK_STATUSES) {
     const n = (counts[status] ?? 0) - listed.filter((t) => t.status === status).length;
@@ -107,10 +118,7 @@ function listLines(s: TuiState, rows: readonly HomeRow[], cols: number): Line[] 
     const more = s.board?.attention.truncated === true ? '+' : '';
     lines.push({
       kind: 'static',
-      segs: ruleHeading(`Needs you (${attention}${more})`, cols, {
-        fg: 'yellow',
-        bold: true,
-      }),
+      segs: ruleHeading(`Needs you (${attention}${more})`, cols, WARN),
     });
   }
   let inTasks = false;
@@ -120,7 +128,7 @@ function listLines(s: TuiState, rows: readonly HomeRow[], cols: number): Line[] 
       gap();
       lines.push({
         kind: 'static',
-        segs: ruleHeading('Tasks', cols, { fg: 'cyan', bold: true }),
+        segs: ruleHeading('Tasks', cols, FOCUS),
       });
     }
     if (row.kind === 'finished_toggle') {
@@ -152,15 +160,13 @@ type Columns = {
 };
 
 const TITLE_X = 4;
+const PROJECT_GAP = 2;
 
-/** One style for every part of the selected row, so the selection reads as a single colour. */
-const SELECTED: Style = { fg: 'cyan', bold: true };
+const projectWidth = (c: Columns): number => (c.project === 0 ? 0 : c.project + PROJECT_GAP);
 
 /** Selected row: faint or plain text takes the selection style; yellow and red keep their meaning. */
 const highlight = (segs: readonly Seg[]): Seg[] =>
-  segs.map((g) =>
-    g.style?.fg === 'yellow' || g.style?.fg === 'red' ? g : { ...g, style: SELECTED },
-  );
+  segs.map((g) => (g.style?.fg === 'yellow' || g.style?.fg === 'red' ? g : { ...g, style: FOCUS }));
 
 const TITLE_MIN = 14;
 /** Enough for a status and a mode, such as `Cancelled · full-review`. */
@@ -189,12 +195,14 @@ function columns(s: TuiState, cols: number, rows: readonly HomeRow[]): Columns {
   const time = longest((r) => displayWidth(timeInStatus(r.task, s.lastUpdatedAt)), 'Time'.length);
   // Selector and mark, then the gaps between columns and the time at the edge.
   const fixed = TITLE_X + 2 + 2 + DOTS_WIDTH + 2 + 2 + 1 + time;
-  const room = Math.max(24, cols - fixed);
-  const project = Math.min(
-    longest((r) => displayWidth(r.task.project), 7),
-    14,
-    Math.floor(room / 5),
-  );
+  const room = Math.max(24, cols - fixed + (oneProject(s) ? PROJECT_GAP : 0));
+  const project = oneProject(s)
+    ? 0
+    : Math.min(
+        longest((r) => displayWidth(r.task.project), 7),
+        14,
+        Math.floor(room / 5),
+      );
   const share = shareColumns(room - project, {
     title: longest((r) => displayWidth(r.task.title), 0),
     doing: longest((r) => segsWidth(doingSegs(r)), 0),
@@ -220,12 +228,12 @@ function extraSegs(task: TaskRow['task']): Seg[] {
 function doingSegs(row: TaskRow): Seg[] {
   const task = row.task;
   const action = actionOf(row);
-  if (action !== null) return [seg(joinSafe([uiText('→ '), action]), { fg: 'yellow' })];
+  if (action !== null) return [seg(joinSafe([uiText('→ '), action]), NOTICE)];
   const tail = extraSegs(task);
   const { status } = task;
   const style: Style =
     status === 'FAILED'
-      ? { fg: 'red' }
+      ? BAD
       : isTerminal(status) || status === 'READY' || status === 'PENDING'
         ? DIM
         : {};
@@ -238,7 +246,7 @@ function detailSegs(row: TaskRow): Seg[] {
 }
 
 function doingX(c: Columns): number {
-  return TITLE_X + c.title + 2 + c.project + 2 + DOTS_WIDTH + 2;
+  return TITLE_X + c.title + 2 + projectWidth(c) + DOTS_WIDTH + 2;
 }
 
 function drawTask(
@@ -254,12 +262,12 @@ function drawTask(
   const { task } = row;
   // The selection is a pointer and a bright title, not a reversed row: reversing turns every coloured
   // cell into a block of its own colour.
-  if (selected) frame.put(0, y, uiText('›'), SELECTED);
+  if (selected) frame.put(0, y, uiText('›'), FOCUS);
   const { mark, color } = statusGlyph(task.status);
   frame.put(2, y, uiText(mark), fg(color, { bold: true }));
   let x = TITLE_X;
   const titleStyle: Style = selected
-    ? SELECTED
+    ? FOCUS
     : isTerminal(task.status)
       ? DIM
       : row.kind === 'attention'
@@ -267,14 +275,15 @@ function drawTask(
         : {};
   frame.put(x, y, truncate(task.title, c.title), titleStyle);
   x += c.title + 2;
-  frame.put(x, y, truncate(sanitize(task.project), c.project), selected ? SELECTED : DIM);
-  x += c.project + 2;
+  if (c.project > 0)
+    frame.put(x, y, truncate(sanitize(task.project), c.project), selected ? FOCUS : DIM);
+  x += projectWidth(c);
   const stages = rowStages(task);
   if (stages !== null) putSegs(frame, x, y, dots(stages, task.status, useColor), DOTS_WIDTH);
   x += DOTS_WIDTH + 2;
   putSegs(frame, x, y, selected ? highlight(doingSegs(row)) : doingSegs(row), c.doing);
   const time = truncate(timeInStatus(task, s.lastUpdatedAt), c.time);
-  frame.put(cols - displayWidth(time) - 1, y, time, selected ? SELECTED : DIM);
+  frame.put(cols - displayWidth(time) - 1, y, time, selected ? FOCUS : DIM);
 }
 
 /** The first line to show: whole screens, moved only as far as keeps the selected row in view. */
@@ -291,7 +300,7 @@ function columnHeads(c: Columns, cols: number): Seg[] {
   const heads = [
     ' '.repeat(TITLE_X),
     'Task'.padEnd(c.title + 2),
-    'Project'.slice(0, c.project).padEnd(c.project + 2),
+    'Project'.slice(0, c.project).padEnd(projectWidth(c)),
     'Stages'.padEnd(DOTS_WIDTH + 2),
     'Now',
   ].join('');
@@ -305,7 +314,8 @@ function selectionStages(s: TuiState, row: TaskRow): Seg[] | null {
   const stages = rowStages(row.task);
   if (stages === null) return null;
   const path = [ui(' '), ...stepper(stages, row.task.status)];
-  return segsWidth(path) + 8 <= s.size.cols ? [ui(' Stages ', DIM), ...path] : path;
+  if (segsWidth(path) + 8 <= s.size.cols) return [ui(' Stages ', DIM), ...path];
+  return [ui(' '), ...stepperRow(stages, row.task.status, s.size.cols - 2)];
 }
 
 /**
@@ -358,8 +368,8 @@ function drawList(
       putSegs(frame, doingX(c), y, detailSegs(line.item), cols - doingX(c) - 1);
     else if (line.kind === 'toggle') {
       const on = line.row === selected;
-      if (on) frame.put(0, y, uiText('›'), SELECTED);
-      frame.put(2, y, truncate(line.text, cols - 2), on ? SELECTED : DIM);
+      if (on) frame.put(0, y, uiText('›'), FOCUS);
+      frame.put(2, y, truncate(line.text, cols - 2), on ? FOCUS : DIM);
     } else drawTask(frame, y, s, line.item, c, line.row === selected, useColor);
   });
 }
@@ -375,7 +385,7 @@ export const homeBody =
     const head: (readonly Seg[] | null)[] = [
       summarySegs(s, attention),
       // With no filter on, the status bar already says `project: all` and the key bar offers `f`.
-      filtered(s) ? [...projectsSegs(s), ui('   '), seg(filterLine(s), DIM)] : projectsSegs(s),
+      projectLine(s),
       page === null ? null : [seg(page, DIM)],
       opts.color ? null : [seg(markLegend(), DIM)],
     ];

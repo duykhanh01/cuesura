@@ -2,7 +2,8 @@
  * A log record in words. Harnesses write their own event streams (Claude's stream-json, Codex's JSON events),
  * which read as noise to a person; this turns the kinds a person cares about into one labelled line and drops
  * bookkeeping that says nothing (token counters, redraw hints, a rate limit that still allows). Anything it
- * does not know is kept, as compact JSON, so no record a person might need disappears.
+ * does not know reads as one line naming its type, and keeps its compact JSON for the full-output view, so
+ * no record a person might need disappears and none fills the log with JSON.
  */
 
 export type Tone = 'say' | 'tool' | 'result' | 'ok' | 'error' | 'warn' | 'info';
@@ -12,6 +13,8 @@ export type Described = {
   readonly label: string;
   readonly body: string;
   readonly tone: Tone;
+  /** Replaces `body` in the full-output view. */
+  readonly full?: string;
 };
 
 export const LABEL_WIDTH = 7;
@@ -116,12 +119,19 @@ const HIDDEN_SYSTEM: ReadonlySet<string> = new Set([
   'task_progress',
 ]);
 
-/** A piece this does not know, kept as compact JSON so nothing a person may need is dropped. */
+/** What a record calls itself, for a line that stands in for its JSON. */
+function typeName(value: unknown): string {
+  if (!isObj(value)) return compact(value);
+  return str(value['subtype']) ?? str(value['type']) ?? 'record';
+}
+
+/** A piece this does not know: its type on the line, all of it in the full-output view. */
 function unknown(label: string, value: unknown): Described {
   return {
     label: label.slice(0, LABEL_WIDTH),
-    body: compact(value),
+    body: oneLine(typeName(value), 120),
     tone: 'info',
+    full: compact(value),
   };
 }
 
@@ -153,7 +163,7 @@ function claude(d: Obj): Described[] | null {
         ];
       }
       // Only bookkeeping known to say nothing is left out; another subtype shows as it came.
-      return sub !== null && HIDDEN_SYSTEM.has(sub) ? [] : null;
+      return sub !== null && HIDDEN_SYSTEM.has(sub) ? [] : [unknown('System', d)];
     }
     // A heartbeat every 30 seconds while a tool runs: the tool's result says how it went.
     case 'tool_progress':
@@ -296,14 +306,7 @@ function codexItem(item: Obj, done: boolean): Described[] {
       ];
     default: {
       if (!done) return [];
-      const type = str(item['type']) ?? 'item';
-      return [
-        {
-          label: type.slice(0, LABEL_WIDTH),
-          body: oneLine(compact(item), 300),
-          tone: 'info',
-        },
-      ];
+      return [unknown('Item', item)];
     }
   }
 }
@@ -346,8 +349,13 @@ function codex(d: Obj): Described[] | null {
   }
 }
 
+const isPlainText = (v: unknown): v is { readonly text: string } =>
+  isObj(v) && Object.keys(v).length === 1 && typeof v['text'] === 'string';
+
 /** The lines a record reads as; empty for bookkeeping a person never needs to see. */
-export function describeRecord(kind: string, data: unknown): Described[] {
+export function describeRecord(kind: string, given: unknown): Described[] {
+  // The runner wraps a line of output that is not JSON this way; it is text, not a record.
+  const data = isPlainText(given) ? given['text'] : given;
   if (typeof data === 'string')
     return data.trim() === ''
       ? []
@@ -363,5 +371,5 @@ export function describeRecord(kind: string, data: unknown): Described[] {
     const known = claude(data) ?? codex(data);
     if (known !== null) return known;
   }
-  return [{ label: kind.slice(0, LABEL_WIDTH), body: compact(data), tone: 'info' }];
+  return [unknown(kind, data)];
 }
