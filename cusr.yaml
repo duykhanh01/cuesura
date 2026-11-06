@@ -1,5 +1,7 @@
 version: 1
-setup: 'pnpm install --frozen-lockfile'
+# A worktree starts without the untracked index. Keep it best effort: workers can read files without it,
+# and as a list item preflight would require codegraph on the PATH.
+setup: 'pnpm install --frozen-lockfile && { codegraph init -y . >/dev/null 2>&1 || true; }'
 # Gate `lint` của software_dev là tùy chọn, đỏ vẫn publish; typecheck và lint nằm trong gate bắt buộc.
 gates:
   build: 'pnpm typecheck && pnpm build'
