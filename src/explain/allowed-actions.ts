@@ -12,6 +12,8 @@ export type AllowedAction = {
     | 'merge_manually'
     | 'recheck'
     | 'continue'
+    | 'pause'
+    | 'resume'
     | 'cancel'
     | 'answer'
     | 'approve'
@@ -104,6 +106,17 @@ const runSelection: Row = (c) => {
     cancel(c),
   ];
 };
+
+const resume = (c: Ctx): AllowedAction => ({
+  action: 'resume',
+  command: `cusr task resume ${c.id} --expected-version ${c.version}`,
+  note: 'Unpauses the task: the step it stopped at runs as it would have, with the same revision, worktree, PR and evidence.',
+});
+const pause = (c: Ctx): AllowedAction => ({
+  action: 'pause',
+  command: `cusr task pause ${c.id} --reason <text> --expected-version ${c.version}`,
+  note: 'Work already started finishes; no new step starts until the task is resumed. Unlike cancel, nothing is lost.',
+});
 
 const proceedSameModel = (c: Ctx): AllowedAction | null =>
   continuable(c.s) === null
@@ -290,6 +303,7 @@ const ROWS: Readonly<Record<DetailCode, Row>> = {
     recheck(c, 'The cancel ends only after a read of the PR made after the request.'),
     merge(c),
   ],
+  paused: (c) => [resume(c), cancel(c)],
 };
 
 export function allowedActions(
@@ -304,6 +318,17 @@ export function allowedActions(
     recheckable: o.recheckable,
   };
   if (s.terminal !== null) return [newTask];
+  const rows = listed(c);
+  // Pausing is offered to a started task that can still start work; resuming to a paused one that
+  // waits on something else first (CI, a person, GitHub), whose outcome then waits for the resume.
+  const paused = (s.pause ?? null) !== null;
+  if (paused) return rows.some((a) => a.action === 'resume') ? rows : [resume(c), ...rows];
+  const pausable = s.policy_ref !== null && s.completion === null && s.cancellation === null;
+  return pausable ? [...rows, pause(c)] : rows;
+}
+
+function listed(c: Ctx): AllowedAction[] {
+  const s = c.s;
   const detail = s.wait?.detail.code;
   if (detail !== undefined) return ROWS[detail](c).filter((a): a is AllowedAction => a !== null);
   // Once merge is proven, completion waits only for drain and reconciliation.

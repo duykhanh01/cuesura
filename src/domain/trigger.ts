@@ -544,7 +544,14 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
     .strict(),
 
   z.object({ kind: z.literal('request_execution') }).strict(),
-  z.object({ kind: z.literal('grant_execution'), request_id: UuidSchema }).strict(),
+  z
+    .object({
+      kind: z.literal('grant_execution'),
+      request_id: UuidSchema,
+      // `cusr queue pause` (issue #142): only started tasks compete for the slot; additive.
+      started_only: z.boolean().optional(),
+    })
+    .strict(),
   z
     .object({
       kind: z.literal('release_execution'),
@@ -645,6 +652,16 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
     .strict(),
   // An operator keeps the task on its current model after its quality loop ran out (issue #101).
   z.object({ kind: z.literal('continue') }).strict(),
+  // A person holds the task at its next step boundary, and lets it go on (issue #142).
+  z
+    .object({
+      kind: z.literal('pause'),
+      reason: z.string().min(1).max(4_096),
+      // Also stop the agent attempts already running; they start over in a new session on resume.
+      now: z.boolean().optional(),
+    })
+    .strict(),
+  z.object({ kind: z.literal('unpause') }).strict(),
   // Run configuration (task-execution-modes.md M01/M02): proposed by any operator, confirmed by the user.
   z
     .object({
@@ -689,6 +706,8 @@ export const HUMAN_TRIGGERS: readonly TriggerKind[] = [
   'amend',
   'recheck',
   'continue',
+  'pause',
+  'unpause',
   'propose_run_config',
   'confirm_run_config',
 ];

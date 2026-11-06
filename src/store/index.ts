@@ -9,7 +9,7 @@ import type { TaskState, TaskStatus } from '../domain/state.ts';
 import type { TriggerEnvelope } from '../domain/trigger.ts';
 import { accept, type AcceptError, type AcceptOutcome } from './accept.ts';
 import { claimEffect, type ClaimError, type ClaimRequest } from './claim.ts';
-import { grantNext, type GrantOutcome } from './grant.ts';
+import { grantNext, type GrantOptions, type GrantOutcome } from './grant.ts';
 import * as commands from './commands.ts';
 import { crashHookFromEnv, type CrashHook } from './crash.ts';
 import { openDatabase, type StoreOpenError } from './open.ts';
@@ -35,7 +35,11 @@ export interface Store {
   accept(envelope: TriggerEnvelope): Result<AcceptOutcome, AcceptError>;
   claimEffect(effectId: Uuid, now: EpochMs, req?: ClaimRequest): Result<Effect, ClaimError>;
   /** Grants the free execution slot to the queue head, if any (FR-044.01); `ids` feed a resumed step. */
-  grantNext(now: EpochMs, ids?: readonly string[]): Result<GrantOutcome, AcceptError>;
+  grantNext(
+    now: EpochMs,
+    ids?: readonly string[],
+    opts?: GrantOptions,
+  ): Result<GrantOutcome, AcceptError>;
   readQueue(limit: number): read.QueuedRequest[];
   readSlot(): {
     holder_task_id: string;
@@ -108,8 +112,12 @@ export class SqliteStore implements Store {
   claimEffect(effectId: Uuid, now: EpochMs, req: ClaimRequest = {}): Result<Effect, ClaimError> {
     return claimEffect(this.db, effectId, now, this.crash, req);
   }
-  grantNext(now: EpochMs, ids: readonly string[] = []): Result<GrantOutcome, AcceptError> {
-    return grantNext(this.db, now, this.crash, ids);
+  grantNext(
+    now: EpochMs,
+    ids: readonly string[] = [],
+    opts: GrantOptions = {},
+  ): Result<GrantOutcome, AcceptError> {
+    return grantNext(this.db, now, this.crash, ids, opts);
   }
   readQueue(limit: number): read.QueuedRequest[] {
     return read.readQueue(this.db, limit);

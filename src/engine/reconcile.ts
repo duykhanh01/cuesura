@@ -1,3 +1,4 @@
+import { stoppedByPause } from './pause.ts';
 import { isRequeueSafe } from '../domain/effect.ts';
 import { AGENT_LOST_SIGNATURE } from '../domain/runtime.ts';
 import { hashCanonical } from '../shared/hash.ts';
@@ -202,12 +203,13 @@ export function onReconciled(ctx: Ctx, t: Reconciled): void {
       if (
         ctx.state.cancellation !== null ||
         attempt === undefined ||
-        attempt.stop_requested ||
+        (attempt.stop_requested && !stoppedByPause(ctx, attempt.id)) ||
         ctx.state.current_attempt[attempt.step] !== attempt.id
       ) {
         proceed(ctx, { kind: 'none' });
         return;
       }
+      // A run stopped by `pause --now` that never started: retried on resume, held until then.
 
       proceed(ctx, {
         kind: 'start_attempt',

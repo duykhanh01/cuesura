@@ -26,6 +26,10 @@ export const COMMAND_PAYLOADS = {
   task_cancel: z.object({ reason: Reason }).strict(),
   task_recheck: z.object({}).strict(),
   task_continue: z.object({}).strict(),
+  task_pause: z.object({ reason: Reason, now: z.boolean().optional() }).strict(),
+  task_resume: z.object({}).strict(),
+  queue_pause: z.object({ reason: Reason }).strict(),
+  queue_resume: z.object({}).strict(),
   answer: z.object({ question_id: UuidSchema, answer: z.string().min(1).max(65_536) }).strict(),
   approve_escalation: z
     .object({ step: z.string().min(1), rung: z.number().int().nonnegative() })
@@ -40,9 +44,16 @@ const REQUIRED_ROLE: Record<CommandKind, AuthzRole> = {
   task_cancel: 'operate',
   task_recheck: 'operate',
   task_continue: 'operate',
+  task_pause: 'operate',
+  task_resume: 'operate',
+  queue_pause: 'operate',
+  queue_resume: 'operate',
   answer: 'operate',
   approve_escalation: 'admin',
 };
+
+/** Commands on the daemon's own queue: no project, task or version. */
+export const GLOBAL_COMMANDS: readonly CommandKind[] = ['queue_pause', 'queue_resume'];
 
 /** Rejected before anything is recorded; the CLI maps them to exit 2. */
 export const UNSUPPORTED_COMMANDS = [
@@ -149,11 +160,16 @@ export function admitCommand(
       issues: payload.error.issues.map((i) => `payload.${i.path.join('.')}: ${i.message}`),
     });
   const issues: string[] = [];
-  if (cmd.project === null) issues.push('project: required');
-  if (kind === 'task_add') {
+  if (GLOBAL_COMMANDS.includes(kind)) {
+    if (cmd.project !== null) issues.push(`project: not used by ${kind}`);
+    if (cmd.task_id !== null) issues.push(`task_id: not used by ${kind}`);
+    if (cmd.expected_version !== null) issues.push(`expected_version: not used by ${kind}`);
+  } else if (kind === 'task_add') {
+    if (cmd.project === null) issues.push('project: required');
     if (cmd.task_id !== null) issues.push('task_id: assigned by the server');
     if (cmd.expected_version !== null) issues.push('expected_version: not used by task_add');
   } else {
+    if (cmd.project === null) issues.push('project: required');
     if (cmd.task_id === null) issues.push('task_id: required');
     if (cmd.expected_version === null) issues.push('expected_version: required');
   }

@@ -52,6 +52,7 @@ import {
   type ControlHandlers,
   type Reply,
 } from './server.ts';
+import { readQueuePause } from './queue-pause.ts';
 import { heldReason, recoverOperations, recoverStore, type StartupReport } from './startup.ts';
 
 export const STORE_FILE = 'cusr.db';
@@ -444,6 +445,7 @@ export async function startDaemon(
         startup,
         unresolved: currentClaims(),
         spoolProblems: [...spoolProblems.values()],
+        queuePaused: readQueuePause(opts.dataDir),
         now: clock.now(),
       });
     },

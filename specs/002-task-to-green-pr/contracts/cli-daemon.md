@@ -33,6 +33,8 @@ qua amend-policy của feature 002; tạo task mới nếu cần đổi. Không 
 | `cusr task show/list/explain/history` | read; mặc định chỉ trả phần cần thiết, `--full` trả nguyên reply của daemon (xem [Output mặc định gọn](#output-mặc-định-gọn)); list mới nhất trước, `--limit` mặc định 20, tối đa 100, có cursor và `--order oldest`; show/explain nhận ID |
 | `cusr task logs ID --after CURSOR [--follow]` | read; snapshot hữu hạn (mặc định 20 record) hoặc stream JSONL có seq/cursor; chuỗi dài hơn 1000 ký tự bị cắt trừ khi có `--full`; một follow session tối đa 1 giờ, có thể nối lại |
 | `cusr task confirm/cancel/recheck ID` | operate; version/dedup; recheck chọn cấu hình/PR/drain/worktree theo task, không gọi agent; với `worktree_changed` thì nhận tree đã quan sát làm mốc của task rồi chạy lại bước; với `manifest_changed` thì nhận manifest harness đang hiệu lực rồi chạy lại bước; với `harness_auth`, hoặc `loop_exhausted` mà các lượt cuối lỗi infra/rate limit/đăng nhập, thì trả visit của các lượt đó rồi chạy lại bước |
+| `cusr task pause ID --reason TEXT [--now]`, `cusr task resume ID` | operate; version/dedup; xem [Tạm dừng task](#tạm-dừng-task) |
+| `cusr queue pause --reason TEXT`, `cusr queue resume` | operate; không có project, task hay version; xem [Tạm dừng task](#tạm-dừng-task) |
 | `cusr dispatch --project ID` | read trong phạm vi project; trả `project`, `source` (`project`, `global` hoặc `none`), `modes`, `rules`, `default`. Lấy từ `projects.<id>.dispatch`, không có thì `runtime.dispatch`; đọc config mỗi lần gọi; `use[]` trả về dạng `{worker, reviewer?}` kèm `profile`, `mode` để chép thẳng vào `task propose`; không chứa secret, không chọn thay người dùng |
 | `cusr inbox`, `cusr answer QUESTION --file FILE --expected-version N` | read/operate; câu trả lời đầu thắng, ràng buộc revision/version |
 | `cusr task approve ID --kind escalation --step STEP --rung N` | admin; task/revision/policy hash đúng, không cấp merge |
@@ -65,7 +67,8 @@ trước khi in, cho cả `--json` lẫn output cho người đọc.
   `running` (`step`, `binding` của attempt đang chạy), `queue_position`, `pr` (`ref`, `head_sha`),
   `merge` (`method`, `title`, chỉ khi có PR), `failed` (tên gate lỗi, CI check lỗi, `review:
   request_changes` của lần gần nhất; không log), `deadline_ms` khi deadline đang chạy, `prerequisites`
-  chưa DONE hoặc chưa xác minh, `merge_cleanup`, `cancellation`, `allowed_actions`.
+  chưa DONE hoặc chưa xác minh, `merge_cleanup`, `cancellation`, `paused` (`reason`, `by`, `at`, null khi
+  không tạm dừng), `allowed_actions`.
 - `task show`: `task_id`, `project`, `title`, `status`, `step`, `version`, `wait`, `blockers`, `pr_ref`,
   `run_config` (`status`, `digest`, `mode`). Đủ cho mutation; nội dung task ở `task content`.
 - `task list`: mới nhất trước, mặc định 20, tối đa 100. Item chỉ có `task_id`, `project`, `title`, `status`,
@@ -174,6 +177,31 @@ auth home và ba role × hai vendor. Không kiểm pass bằng tên profile AppA
 trên WSL2 kiểm systemd=true cùng user-manager unit probe, không chỉ PID1. Schema output thật/cost/auth
 capability chỉ được đánh dấu proven khi có fixture thực nghiệm; chưa
 có thì chặn binding cần khả năng đó. Mỗi lần attempt kiểm lại binary hash và manifest còn phù hợp.
+
+## Tạm dừng task
+
+Issue #142. `task pause` khác `task cancel`: task không kết thúc và không mất gì.
+
+- Việc đã giao trước khi tạm dừng chạy nốt: lượt agent, gate, publish hay hành động GitHub đang chờ
+  hoặc đang chạy. Không bước, retry hay lượt chờ nào được bắt đầu sau đó: task chờ
+  `policy/paused` với đúng hành động nó định chạy, và slot được trả lại khi không còn việc giữ slot.
+- Task đang chờ thứ khác (CI, câu trả lời, GitHub) vẫn được quan sát; kết quả của lượt chờ đó đi tới
+  `paused` thay vì chạy tiếp. Task chưa bắt đầu rời hàng đợi slot và scheduler không xếp lại.
+- `task resume` chạy đúng hành động đã giữ: cùng revision, rung, worktree, PR, bằng chứng và lượt ghé
+  (bước đã vào không bị đếm lại). Task đã bắt đầu thì xếp lại hàng đợi slot nhóm `resumed`.
+- Không tạm dừng được task đã kết thúc, đang hủy hoặc đã có bằng chứng merge; tạm dừng lần hai bị bỏ
+  qua. Task tạm dừng vẫn hủy được.
+- `--now` dừng thêm các lượt agent đang chạy bằng cơ chế `stop_attempt`; lượt chưa khởi chạy thì bị
+  rút. Bước đó chạy lại trong session mới khi resume, kể cả khi resume trước lúc lượt bị dừng kết thúc
+  (không hỏi `attempt_stopped`); lượt đã chạy vẫn tính vào budget. Gate và hành
+  động GitHub đang chạy vẫn chạy nốt.
+- `cusr queue pause` dừng nhận việc mới cho cả daemon: task chưa bắt đầu không được xếp hàng hay cấp
+  slot, kể cả request đã xếp trước đó và có priority cao hơn; task đã bắt đầu vẫn chạy và vẫn được cấp
+  lại slot. Task đã được cấp slot mà chưa start (crash giữa hai bước) trả slot và được xếp lại sau
+  resume. `cusr queue resume` bỏ tạm dừng. Trạng thái nằm ở file `queue-paused.json` trong data dir
+  (owner-only, giữ qua restart, không cần migration DB); file hỏng được coi là đang tạm dừng. File ghi
+  kèm request ID đã áp dụng, nên lệnh chạy lại sau crash không đổi gì và không lật quyết định mới hơn. `cusr status` có
+  `queue_paused` (`reason`, `by`, `at`) và không coi đây là lỗi health.
 
 ## Confirm/recheck PENDING và health
 

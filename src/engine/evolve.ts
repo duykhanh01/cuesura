@@ -873,6 +873,14 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
       };
       break;
     }
+    case 'TaskPaused':
+      s.pause = { reason: event.payload.reason, by: event.payload.by, at: event.payload.at };
+      if (event.payload.stopped !== undefined && event.payload.stopped.length > 0)
+        s.pause_stops = [...(s.pause_stops ?? []), ...event.payload.stopped];
+      break;
+    case 'TaskUnpaused':
+      s.pause = null;
+      break;
     case 'TaskContinued': {
       for (const k of event.payload.streaks) {
         const streak = s.failure_streaks[k];

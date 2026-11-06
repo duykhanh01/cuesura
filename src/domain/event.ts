@@ -412,6 +412,10 @@ export type EventPayloads = {
     by: string;
     at: number;
   };
+  /** A person paused the task (issue #142): no new step starts until it is unpaused. */
+  /** `stopped`: attempts `pause --now` stopped; each starts over in a new session, paused or not. */
+  TaskPaused: { reason: string; by: string; at: number; stopped?: string[] };
+  TaskUnpaused: { by: string; at: number };
 };
 
 export type EventType = keyof EventPayloads;
@@ -500,6 +504,8 @@ export const EVENT_TYPES = [
   'ManifestChangeAccepted',
   'VisitsCredited',
   'TaskContinued',
+  'TaskPaused',
+  'TaskUnpaused',
 ] as const satisfies readonly EventType[];
 
 type _MissingEventTypes = Exclude<EventType, (typeof EVENT_TYPES)[number]>;

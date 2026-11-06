@@ -19,6 +19,7 @@ import { canonicalJson } from '../shared/canonical-json.ts';
 import { reject, type Ctx } from './context.ts';
 import { inFlight, requestReconcile } from './effects.ts';
 import { proceed } from './interpreter.ts';
+import { isPaused, waitPaused } from './pause.ts';
 import { mkWait, waitTask } from './waits.ts';
 
 // Pure runtime handlers of feature 002: execution queue/slot, operation receipts and output ingest.
@@ -86,6 +87,10 @@ export function onRequestExecution(ctx: Ctx): void {
     });
     return;
   }
+  if (isPaused(ctx)) {
+    ctx.emit('SignalIgnored', { reason: 'paused', trigger_kind: 'request_execution' });
+    return;
+  }
   const fresh = s.policy_ref === null;
   if (fresh ? s.status !== 'READY' : s.status !== 'WAITING' && s.status !== 'RUNNING') {
     reject('invalid_trigger', { reason: 'not_queueable', status: s.status });
@@ -134,6 +139,8 @@ export function onGrantExecution(ctx: Ctx, t: TriggerOf<'grant_execution'>): voi
     });
     return;
   }
+  if (t.started_only === true && r.group === 'fresh')
+    reject('invalid_trigger', { reason: 'queue_paused', request_id: r.request_id });
   if (s.cancellation !== null || s.completion !== null) {
     ctx.emit('ExecutionWithdrawn', {
       request_id: r.request_id,
@@ -177,6 +184,11 @@ function usesSlot(s: TaskState): boolean {
  */
 export function waitForSlot(ctx: Ctx, resume: ResumeAction): boolean {
   const s = ctx.state;
+  // Retries reach slot-bound work without a new step; a paused task holds them here too (issue #142).
+  if (isPaused(ctx)) {
+    waitPaused(ctx, resume);
+    return true;
+  }
   if (!usesSlot(s) || s.execution.holding !== null) return false;
   waitTask(
     ctx,

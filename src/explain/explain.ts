@@ -1,7 +1,7 @@
 import type { EpochMs, Uuid } from '../shared/brand.ts';
 import type { DomainEvent } from '../domain/event.ts';
 import type { FrozenPolicy } from '../domain/policy.ts';
-import type { TaskState, TaskStatus, WaitReason } from '../domain/state.ts';
+import type { TaskPause, TaskState, TaskStatus, WaitReason } from '../domain/state.ts';
 import { available } from '../engine/budget.ts';
 import { stepVisitLimit } from '../engine/interpreter.ts';
 import { isUnresolved } from '../engine/runtime.ts';
@@ -214,6 +214,8 @@ export type RuntimeExplanation = Omit<Explanation, 'wait'> & {
    */
   wait: { reason: WaitReason; detail: unknown } | null;
   allowed_actions: AllowedAction[];
+  /** Who paused the task, when and why; null when it is not paused (issue #142). */
+  paused: TaskPause | null;
   blockers: TaskState['blockers'];
   /** Attempts launched and not yet finished: the worker or reviewer binding at work now. */
   running: {
@@ -317,6 +319,7 @@ export function explainRuntime(
     limits_frozen: policy !== null,
     wait: state.wait === null ? null : { reason: state.wait.reason, detail: state.wait.detail },
     allowed_actions: allowedActions(state, { recheckable: input.recheckable }),
+    paused: state.pause ?? null,
     blockers: state.blockers.filter((b) => b.until === null),
     running: Object.values(state.attempts)
       .filter((a) => a.status === 'running')

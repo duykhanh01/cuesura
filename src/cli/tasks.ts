@@ -634,6 +634,99 @@ export const recheckCommand: CliCommand = {
   run: (values, json, io) => mutate(values, 'task_recheck', values['id'] as string, {}, json, io),
 };
 
+export const pauseCommand: CliCommand = {
+  name: 'task pause',
+  description:
+    'Pause a task: work already started finishes, no new step starts until it is resumed',
+  args: ['<id>'],
+  options: [
+    DATA_DIR,
+    REQUEST_ID,
+    PROJECT,
+    EXPECTED_VERSION,
+    { flags: '--reason <text>', description: 'Why the task is paused, shown until it is resumed' },
+    {
+      flags: '--now',
+      description:
+        'Also stop the agent attempt running now; it starts over in a new session on resume',
+    },
+  ],
+  run: (values, json, io) =>
+    mutate(
+      values,
+      'task_pause',
+      values['id'] as string,
+      {
+        reason: values['reason'] ?? 'Paused from the CLI',
+        ...(values['now'] === undefined ? {} : { now: true }),
+      },
+      json,
+      io,
+    ),
+};
+
+export const resumeCommand: CliCommand = {
+  name: 'task resume',
+  description: 'Resume a paused task from the step it stopped at',
+  args: ['<id>'],
+  options: [DATA_DIR, REQUEST_ID, PROJECT, EXPECTED_VERSION],
+  run: (values, json, io) => mutate(values, 'task_resume', values['id'] as string, {}, json, io),
+};
+
+/** A command on the daemon's own queue: no project, task or version. */
+async function mutateQueue(
+  values: Values,
+  kind: 'queue_pause' | 'queue_resume',
+  payload: unknown,
+  json: boolean,
+  io: CliIo,
+): Promise<number> {
+  const requestId = values['requestId'] ?? uuidv7();
+  return print(
+    await call(
+      values,
+      '/v1/command',
+      {
+        request_id: requestId,
+        kind,
+        project: null,
+        task_id: null,
+        expected_version: null,
+        payload,
+      },
+      requestId,
+    ),
+    json,
+    io,
+  );
+}
+
+export const queuePauseCommand: CliCommand = {
+  name: 'queue pause',
+  description:
+    'Stop starting tasks that have not started yet; started tasks go on. Kept across daemon restarts',
+  options: [
+    DATA_DIR,
+    REQUEST_ID,
+    { flags: '--reason <text>', description: 'Why the queue is paused, shown by cusr status' },
+  ],
+  run: (values, json, io) =>
+    mutateQueue(
+      values,
+      'queue_pause',
+      { reason: values['reason'] ?? 'Paused from the CLI' },
+      json,
+      io,
+    ),
+};
+
+export const queueResumeCommand: CliCommand = {
+  name: 'queue resume',
+  description: 'Let tasks that have not started yet be queued and started again',
+  options: [DATA_DIR, REQUEST_ID],
+  run: (values, json, io) => mutateQueue(values, 'queue_resume', {}, json, io),
+};
+
 export const continueCommand: CliCommand = {
   name: 'task continue',
   description: 'Keep a task on its current model after its quality loop ran out',

@@ -137,6 +137,7 @@ const WAITS: Readonly<Record<DetailCode, WaitWords>> = {
     doing: 'Cancelling: checking the PR first',
     todo: 'Recheck the PR',
   },
+  paused: { doing: 'Paused', todo: 'Resume the task when ready' },
 };
 
 /** Steps of `software_dev@1` and its mode graphs. A workflow with other names shows them as they are. */

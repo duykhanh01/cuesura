@@ -27,18 +27,24 @@ export type GrantOutcome =
  * can never both commit; the slot table's singleton key is the last guard. `ids` are not part of the
  * request hash, so a retry with fresh IDs is still the same request.
  */
+/** `fresh: false` grants only tasks that already started (`cusr queue pause`, issue #142). */
+export type GrantOptions = { readonly fresh?: boolean };
+
 export function grantNext(
   db: Database,
   now: number,
   crash: CrashHook,
   ids: readonly string[] = [],
+  opts: GrantOptions = {},
 ): Result<GrantOutcome, AcceptError> {
-  const next = selectNext(readQueue(db), readSlot(db));
+  const queue = readQueue(db).filter((r) => opts.fresh !== false || r.group !== 'fresh');
+  const next = selectNext(queue, readSlot(db));
   if (next.kind !== 'grant') return ok(next);
   const head = next.request;
   const trigger = {
     kind: 'grant_execution' as const,
     request_id: head.request_id as Uuid,
+    ...(opts.fresh === false ? { started_only: true } : {}),
   };
   const env: TriggerEnvelope = {
     schema_version: TRIGGER_SCHEMA_VERSION,

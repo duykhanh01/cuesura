@@ -128,8 +128,12 @@ export const DETAIL_CODES = [
   'cancel_reconcile',
   // A blocking review finding came back on a file the fix since the last review did not touch.
   'review_repeated',
+  // A person paused the task and the next step waits for them to unpause it (issue #142).
+  'paused',
 ] as const;
 export type DetailCode = (typeof DETAIL_CODES)[number];
+
+export type TaskPause = { reason: string; by: string; at: number };
 
 export type ResumeAction =
   | { kind: 'start_attempt'; step: string; attempt_kind: AttemptKind }
@@ -525,6 +529,10 @@ export type TaskState = {
    * the highest attempt number credited, so no attempt is credited twice. Absent until the first.
    */
   visit_credits?: Record<string, { visits: number; through: number }>;
+  /** Set while a person has the task paused (issue #142); absent when it never was. */
+  pause?: TaskPause | null;
+  /** Attempts stopped by `pause --now`: kept past the resume, so their end restarts the step. */
+  pause_stops?: string[];
   attempts: Record<string, Attempt>;
   current_attempt: Record<string, string>;
   rungs: { by_step: Record<string, number>; floor_level: Level | null };

@@ -230,14 +230,17 @@ export function readEffect(db: Database, id: string): Effect | null {
 }
 
 /** Slot holder and the next request by SPEC.md §6.2 order, read inside the caller's transaction. */
-export function readExecutionFacts(db: Database): {
+export function readExecutionFacts(
+  db: Database,
+  startedOnly = false,
+): {
   slot: { holder_task_id: string; request_id: string } | null;
   queue_head: string | null;
 } {
   const slot = db
     .prepare(`SELECT holder_task_id, request_id FROM execution_slot WHERE key = 'execution'`)
     .get() as { holder_task_id: string; request_id: string } | undefined;
-  const head = readQueue(db, 1)[0];
+  const head = readQueue(db).find((r) => !startedOnly || r.group !== 'fresh');
   return { slot: slot ?? null, queue_head: head?.request_id ?? null };
 }
 

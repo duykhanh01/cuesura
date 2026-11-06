@@ -57,6 +57,7 @@ import { ObservationCoordinator, observationRound } from './observation.ts';
 import { createDecider } from './decider.ts';
 import { advanceTaskPr, type YoloDeps } from './yolo.ts';
 import { FileContentStore } from '../adapters/publish-content.ts';
+import { queueCommands, readQueuePause } from './queue-pause.ts';
 import { Scheduler } from './scheduler.ts';
 import { taskControl } from './task-control.ts';
 
@@ -409,6 +410,7 @@ export async function productionControl(opts: {
       store,
       clock: opts.clock,
       newId: opts.newId,
+      queuePaused: () => readQueuePause(opts.dataDir) !== null,
       start: (taskId) =>
         startTask(
           {
@@ -448,26 +450,28 @@ export async function productionControl(opts: {
         await drainRound(drainDeps, id);
       }
     };
-    return {
-      ...taskControl({
-        store,
+    const control = taskControl({
+      store,
+      now,
+      newId: opts.newId,
+      observe,
+      drain: (taskId) => drainRound(drainDeps, taskId),
+      confirm: { store, ports, configInputs, now },
+      logs: { dataDir: opts.dataDir, redactor: opts.redactor },
+      doctor: {
+        dataDir: opts.dataDir,
+        host,
+        configInputs,
+        harnessTools,
+        health: daemon.health,
+        recoveryClaims: daemon.recoveryClaims,
+        spoolProblems: daemon.spoolProblems,
         now,
-        newId: opts.newId,
-        observe,
-        drain: (taskId) => drainRound(drainDeps, taskId),
-        confirm: { store, ports, configInputs, now },
-        logs: { dataDir: opts.dataDir, redactor: opts.redactor },
-        doctor: {
-          dataDir: opts.dataDir,
-          host,
-          configInputs,
-          harnessTools,
-          health: daemon.health,
-          recoveryClaims: daemon.recoveryClaims,
-          spoolProblems: daemon.spoolProblems,
-          now,
-        },
-      }),
+      },
+    });
+    return {
+      queries: control.queries,
+      commands: { ...control.commands, ...queueCommands({ dataDir: opts.dataDir, now }) },
       schedule: () => scheduler.tick(),
       effects: buildHandlers(deps),
       rounds: [

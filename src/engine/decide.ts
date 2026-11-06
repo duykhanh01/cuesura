@@ -40,6 +40,7 @@ import {
 } from './runtime.ts';
 import { onStart } from './start.ts';
 import { onContinue } from './continue.ts';
+import { onPause, onUnpause, stoppedByPause } from './pause.ts';
 import { onRecheck } from './recheck.ts';
 import { waitPolicy } from './waits.ts';
 import { onHeadDrift } from './head-drift.ts';
@@ -121,6 +122,8 @@ function dispatch(ctx: Ctx, t: Trigger): void {
     'propose_run_config',
     'confirm_run_config',
     'recheck',
+    'pause',
+    'unpause',
   ].includes(t.kind);
   if (needsPolicy && (ctx.policy === null || ctx.state.policy_ref === null))
     reject('invalid_trigger', { reason: 'not_started' });
@@ -234,6 +237,12 @@ function dispatch(ctx: Ctx, t: Trigger): void {
     case 'continue':
       onContinue(ctx);
       return;
+    case 'pause':
+      onPause(ctx, t);
+      return;
+    case 'unpause':
+      onUnpause(ctx);
+      return;
     default:
       assertNever(t);
   }
@@ -288,7 +297,7 @@ function onTimer(ctx: Ctx, timerId: string): void {
  * Stopping one attempt invalidates pending launches or requests a stop for a running one. A later
  * result from the stopped attempt must not advance the workflow.
  */
-function onStopAttempt(ctx: Ctx, attemptId: string, reason: string): void {
+export function onStopAttempt(ctx: Ctx, attemptId: string, reason: string): void {
   const s = ctx.state;
   const a = s.attempts[attemptId];
   if (a === undefined)
@@ -308,6 +317,11 @@ function onStopAttempt(ctx: Ctx, attemptId: string, reason: string): void {
   if (e === undefined) throw new Error(`Attempt ${attemptId} has no effect`);
   if (e.status === 'pending') {
     invalidatePending(ctx, 'attempt_stopped', (x) => x.id === e.id);
+    // Stopped by `pause --now`: the step starts over in a new session, held while the task is paused.
+    if (stoppedByPause(ctx, a.id)) {
+      proceed(ctx, { kind: 'start_attempt', step: a.step, attempt_kind: 'fresh_session' });
+      return;
+    }
     askHuman(ctx, 'attempt_stopped', {
       step: a.step,
       attempt_id: a.id,

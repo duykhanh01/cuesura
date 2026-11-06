@@ -168,7 +168,7 @@ describe('US3 scenario 2: the Actions menu of the selected task', () => {
     sd.seed((d) => seedQuestion(d, t));
     await sd.start();
     const explained = await explainOf(sd, t.id);
-    expect(explained.allowed_actions.map((a) => a.action)).toEqual(['answer', 'cancel']);
+    expect(explained.allowed_actions.map((a) => a.action)).toEqual(['answer', 'cancel', 'pause']);
     const s = tui.cusr(sd.dataDir);
     await s.waitForText('Asks a question');
     s.send('a');

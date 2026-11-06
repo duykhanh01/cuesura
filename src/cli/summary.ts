@@ -106,6 +106,7 @@ export function explainSummary(data: unknown): unknown {
       .map((p) => compact(pick(p, ['task_id', 'status', 'unverified']))),
     merge_cleanup: clip(data['merge_cleanup'] ?? null),
     cancellation: data['cancellation'],
+    paused: data['paused'] ?? null,
     allowed_actions: data['allowed_actions'],
     details: `cusr task explain ${id} --full`,
   });

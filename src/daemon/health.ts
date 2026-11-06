@@ -10,6 +10,7 @@ import { errorReply, type Reply } from './server.ts';
 import { okEnvelope } from '../cli/output.ts';
 import { STARTUP_REPORT_FILE, type StartupReport } from './startup.ts';
 import type { SpoolIngestReport } from './ingest.ts';
+import type { QueuePause } from './queue-pause.ts';
 
 export type HealthInput = {
   readonly store: Store;
@@ -18,6 +19,8 @@ export type HealthInput = {
   readonly unresolved: StartupReport['unresolved'];
   readonly now: number;
   readonly spoolProblems?: readonly SpoolIngestReport[];
+  /** `cusr queue pause` in force: tasks not started yet wait; not a health problem (issue #142). */
+  readonly queuePaused?: QueuePause | null;
 };
 
 /** The first problem that stops work from being handed out, most fundamental first; null when none. */
@@ -52,6 +55,7 @@ export function healthReply(h: HealthInput): Reply {
     },
     slot: store.readSlot(),
     queue_length: store.readQueue(100).length,
+    queue_paused: h.queuePaused ?? null,
     now: h.now,
   };
   const problem = healthProblem(dispatcher);

@@ -64,6 +64,7 @@ import { askHuman, requestApproval } from './questions.ts';
 import { settleUnderDrift } from './head-drift.ts';
 import { deferForDrift } from './revision.ts';
 import { waitMergeEvidence, waitPrClosed } from './observation.ts';
+import { isPaused, stoppedByPause, waitPaused } from './pause.ts';
 import { reusableReview, reviewInputDigest } from './review-evidence.ts';
 import { confirmedChoices } from './run-config.ts';
 import { ensureRunning, mkWait, waitPolicy, waitTask } from './waits.ts';
@@ -84,6 +85,11 @@ export function proceed(ctx: Ctx, action: ResumeAction, reason = 'continue'): vo
   if (s.completion !== null) return;
   // An unexpected remote head holds everything until reconciled; a late callback is not an exit (H01).
   if (s.run.head_drift !== null) return;
+  // Paused by a person: hold the action itself, so unpausing runs exactly it (issue #142).
+  if (isPaused(ctx)) {
+    waitPaused(ctx, action);
+    return;
+  }
   // A PR closed without a merge holds business work until it is reopened; no replacement PR (FR-041.07).
   if (
     s.runtime_ref !== null &&
@@ -367,6 +373,21 @@ export function runStep(
   const s = ctx.state;
   const p = ctx.frozen;
   const visit = visitOf(ctx, step);
+  // A step entered while paused waits before doing anything; its visit is already counted, so the
+  // unpause runs it without counting another (issue #142).
+  if (isPaused(ctx)) {
+    waitPaused(
+      ctx,
+      def.kind === 'agent' || (def.kind === 'review' && attemptKind !== 'initial')
+        ? { kind: 'start_attempt', step, attempt_kind: attemptKind }
+        : {
+            kind: 'run_step',
+            step,
+            ...(baseUpdate === undefined ? {} : { base_update: baseUpdate }),
+          },
+    );
+    return;
+  }
   switch (def.kind) {
     case 'triage': {
       const need = agentRunsAhead(ctx, step);
@@ -1677,6 +1698,12 @@ function afterAttempt(ctx: Ctx, e: EffectMirror): boolean {
   const a = ctx.state.attempts[e.attempt_id as string];
   if (a?.stop_requested) {
     if (ctx.state.cancellation !== null) return true;
+    // Stopped by `pause --now`: the step starts over in a new session, held while the task is paused,
+    // and started at once when it was resumed before the stopped run ended.
+    if (stoppedByPause(ctx, a.id)) {
+      proceed(ctx, { kind: 'start_attempt', step: a.step, attempt_kind: 'fresh_session' });
+      return true;
+    }
     askHuman(ctx, 'attempt_stopped', {
       step: a.step,
       attempt_id: a.id,

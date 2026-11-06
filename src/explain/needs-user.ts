@@ -63,6 +63,7 @@ const NEEDS_USER: Record<DetailCode, boolean> = {
   agent_blocked: true,
   review_repeated: true,
   cancel_reconcile: true,
+  paused: true,
 };
 
 export function needsUser(s: Pick<TaskState, 'status' | 'wait' | 'revision' | 'run'>): boolean {

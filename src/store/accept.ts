@@ -150,7 +150,8 @@ export function relatedFacts(
     dependency_cycle: proposed !== undefined && reachesTask(db, env.task_id, proposed),
   };
 
-  if (t.kind === 'grant_execution') related.execution = readExecutionFacts(db);
+  if (t.kind === 'grant_execution')
+    related.execution = readExecutionFacts(db, t.started_only === true);
 
   const retryOf = incoming?.retry_of ?? null;
   if (t.kind === 'create_task' && retryOf !== null) related.retry_of = readTaskStatus(db, retryOf);

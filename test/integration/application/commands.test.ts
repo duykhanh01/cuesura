@@ -163,3 +163,38 @@ describe('command admission ledger (T023)', () => {
     expect(d.store.pendingCommands(10)).toEqual([]);
   });
 });
+
+describe('queue commands (issue #142)', () => {
+  const queue = (over: Record<string, unknown> = {}) => ({
+    request_id: uuidOf(900),
+    kind: 'queue_pause',
+    project: null,
+    task_id: null,
+    expected_version: null,
+    payload: { reason: 'release upgrade' },
+    ...over,
+  });
+
+  it('take no project, task or version, and need the operate role', () => {
+    const d = deps();
+    expect(admitCommand(d, assistant, queue())).toMatchObject({ ok: true });
+    expect(
+      admitCommand(
+        d,
+        assistant,
+        queue({ request_id: uuidOf(901), kind: 'queue_resume', payload: {} }),
+      ),
+    ).toMatchObject({ ok: true });
+    expect(admitCommand(d, reader, queue({ request_id: uuidOf(902) }))).toMatchObject({
+      ok: false,
+      error: { code: 'forbidden', reason: 'role' },
+    });
+    for (const over of [{ project: 'p' }, { task_id: uuidOf(5) }, { expected_version: 1 }])
+      expect(admitCommand(d, assistant, queue({ request_id: uuidOf(903), ...over }))).toMatchObject(
+        {
+          ok: false,
+          error: { code: 'invalid_command' },
+        },
+      );
+  });
+});

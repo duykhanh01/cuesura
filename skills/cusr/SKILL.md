@@ -242,6 +242,17 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task continue "$TASK_ID" --expected-version "$VERSION" \
   --request-id "$CONTINUE_REQUEST_ID" --json
+# Pause instead of cancel when work must stop for a while (a release upgrade, a fix to
+# Cuesura itself): what already started finishes, the next step waits as `paused` and the
+# slot goes back to the queue. Resume runs that step on the same revision, worktree and PR.
+# `--now` also stops the running agent attempt; it starts over in a new session on resume.
+# `cusr queue pause --reason ...` / `cusr queue resume` hold every task not started yet.
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
+  cusr task pause "$TASK_ID" --reason "$REASON" \
+  --expected-version "$VERSION" --request-id "$PAUSE_REQUEST_ID" --json
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
+  cusr task resume "$TASK_ID" --expected-version "$VERSION" \
+  --request-id "$RESUME_REQUEST_ID" --json
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task cancel "$TASK_ID" --reason "$REASON" \
   --expected-version "$VERSION" --request-id "$CANCEL_REQUEST_ID" --json

@@ -5,7 +5,7 @@ import { Scheduler } from '../../../src/daemon/scheduler.ts';
 import type { CanonicalTask } from '../../../src/domain/task.ts';
 import type { EpochMs, Uuid } from '../../../src/shared/brand.ts';
 import { injectEvents, openFileStoreForTest, storeDb } from '../../../src/store/testing.ts';
-import { buildTask, uuidOf } from '../../support/builders.ts';
+import { authz, buildTask, uuidOf } from '../../support/builders.ts';
 import { PACKS } from '../../support/config-fixtures.ts';
 import {
   configuredSelection,
@@ -22,7 +22,7 @@ import { dbPath, useTempDir } from '../../support/temp-db.ts';
 
 const tempDir = useTempDir('cusr-scheduler-');
 
-function setup(start?: (taskId: string) => Promise<StartResult>) {
+function setup(start?: (taskId: string) => Promise<StartResult>, queuePaused?: () => boolean) {
   const d = new StoreDriver(openFileStoreForTest(dbPath(tempDir())));
   let ids = 7_000;
   const clock = { now: () => d.now as EpochMs, monotonic: () => d.now };
@@ -55,6 +55,7 @@ function setup(start?: (taskId: string) => Promise<StartResult>) {
       start: start ?? realStart,
       startRetryMs: 60_000,
       newId: () => uuidOf(ids++),
+      ...(queuePaused === undefined ? {} : { queuePaused }),
     }),
   };
 }
@@ -329,5 +330,122 @@ describe('dependencies are satisfied only by a recorded terminal status (T034, F
       status: 'PENDING',
       wait: { detail: { code: 'dependency_failed' } },
     });
+  });
+});
+
+describe('a paused task and the execution slot (issue #142)', () => {
+  const owner = { authz: authz(['operate'], 'owner') };
+
+  it('gives the slot back once its running work is done, so the next task starts; resume queues it again', async () => {
+    const { d, scheduler } = setup();
+    const a = task(1);
+    const b = task(2);
+    createGrantStart(d, a);
+    await confirmed(d, b);
+    d.must(a.id, { kind: 'pause', reason: 'release upgrade' }, owner);
+    // The prepare handed out before the pause still runs and keeps the slot until it ends.
+    expect(slotHolder(d)).toBe(a.id);
+    d.complete(a.id, d.pendingOne(a.id, 'prepare').id, 'succeeded', PREPARE_DATA);
+    expect(d.task(a.id).wait?.detail.code).toBe('paused');
+    expect(d.pending(a.id, 'start_agent')).toEqual([]);
+    expect(slotHolder(d)).toBeNull();
+
+    await scheduler.tick();
+    expect(slotHolder(d)).toBe(b.id);
+
+    d.must(a.id, { kind: 'unpause' }, owner);
+    expect(d.task(a.id).wait?.detail.code).toBe('execution_slot');
+    expect(d.task(a.id).execution.request).toMatchObject({ group: 'resumed' });
+  });
+
+  it('a task not started yet leaves the queue and is not queued again until resumed', async () => {
+    const { d, scheduler } = setup();
+    const a = task(3);
+    await confirmed(d, a);
+    // Queued and granted, the start not run yet.
+    d.must(a.id, { kind: 'request_execution' });
+    d.grantNext();
+    expect(slotHolder(d)).toBe(a.id);
+    d.must(a.id, { kind: 'pause', reason: 'later' }, owner);
+    expect(d.task(a.id).execution).toMatchObject({ request: null, holding: null });
+    expect(slotHolder(d)).toBeNull();
+
+    await scheduler.tick();
+    expect(d.task(a.id).execution).toMatchObject({ request: null, holding: null });
+    expect(d.task(a.id).status).toBe('READY');
+
+    d.must(a.id, { kind: 'unpause' }, owner);
+    await scheduler.tick();
+    expect(slotHolder(d)).toBe(a.id);
+  });
+});
+
+describe('cusr queue pause (issue #142)', () => {
+  it('queues and grants no task that has not started; a started one still gets the slot back', async () => {
+    let paused = true;
+    const { d, scheduler } = setup(undefined, () => paused);
+    const asking = task(10);
+    const fresh = task(11);
+    // A higher priority than the started task: first in the queue order, held by the pause all the same.
+    const queuedEarlier = task(12, { priority: 5 });
+    startedAndAsking(d, asking);
+    await confirmed(d, fresh);
+    await confirmed(d, queuedEarlier);
+    // Queued before the pause: it stays queued, and is granted once the queue is resumed.
+    d.must(queuedEarlier.id, { kind: 'request_execution' });
+
+    await scheduler.tick();
+    expect(d.task(fresh.id).execution.request).toBeNull();
+    expect(slotHolder(d)).toBeNull();
+
+    // The started task gets its answer and asks for the slot again: it is granted past the fresh one.
+    const qid = d.task(asking.id).wait?.detail['question_id'] as Uuid;
+    d.must(asking.id, { kind: 'answer', question_id: qid, answer: 'SQLite' });
+    await scheduler.tick();
+    expect(slotHolder(d)).toBe(asking.id);
+    expect(d.task(queuedEarlier.id).execution.holding).toBeNull();
+
+    paused = false;
+    d.complete(
+      asking.id,
+      d.pendingOne(asking.id, 'start_agent').id,
+      'succeeded',
+      agentData('needs_input', { questions: ['Again?'] }),
+    );
+    await scheduler.tick();
+    expect(slotHolder(d)).toBe(queuedEarlier.id);
+  });
+});
+
+describe('cusr queue pause after a crash between grant and start (issue #142)', () => {
+  it('a task granted the slot but never started gives it back, and is queued again after the resume', async () => {
+    let paused = false;
+    const starts: string[] = [];
+    const { d, scheduler } = setup(
+      (id) => {
+        starts.push(id);
+        return Promise.resolve({ kind: 'unavailable', detail: 'not in this test' } as never);
+      },
+      () => paused,
+    );
+    const t = task(20);
+    await confirmed(d, t);
+    d.must(t.id, { kind: 'request_execution' });
+    d.grantNext();
+    expect(slotHolder(d)).toBe(t.id);
+
+    paused = true;
+    await scheduler.tick();
+    expect(starts).toEqual([]);
+    expect(slotHolder(d)).toBeNull();
+    expect(d.task(t.id)).toMatchObject({
+      status: 'READY',
+      execution: { request: null, holding: null },
+    });
+
+    paused = false;
+    await scheduler.tick();
+    expect(slotHolder(d)).toBe(t.id);
+    expect(starts).toEqual([t.id]);
   });
 });

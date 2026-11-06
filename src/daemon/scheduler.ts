@@ -26,6 +26,8 @@ export type SchedulerDeps = {
   /** IDs for the envelopes the scheduler submits (the queued request ID). */
   readonly newId: () => string;
   readonly startRetryMs?: number;
+  /** True while `cusr queue pause` holds tasks that have not started (issue #142). */
+  readonly queuePaused?: () => boolean;
 };
 
 export type SchedulerReport = {
@@ -52,14 +54,16 @@ export class Scheduler {
     const now = clock.now();
     const dependencies = notifyDependents(store, now);
 
+    const paused = this.#deps.queuePaused?.() ?? false;
     const queued: string[] = [];
-    for (const id of store.taskIdsByStatus(['READY'])) {
+    for (const id of paused ? [] : store.taskIdsByStatus(['READY'])) {
       const s = store.readTask(id as Uuid);
       if (
         s === null ||
         s.policy_ref !== null ||
         s.execution.request !== null ||
-        s.execution.holding !== null
+        s.execution.holding !== null ||
+        (s.pause ?? null) !== null
       )
         continue;
       // A fresh task queues only once its run selection is confirmed for this revision (M01/M02).
@@ -81,6 +85,7 @@ export class Scheduler {
       const g = store.grantNext(
         now,
         Array.from({ length: MAX_ENVELOPE_IDS }, () => this.#deps.newId()),
+        { fresh: !paused },
       );
       if (g.ok && g.value.kind === 'decided' && g.value.outcome.decision.kind === 'accepted')
         granted = g.value.task_id;
@@ -89,7 +94,27 @@ export class Scheduler {
     let started: SchedulerReport['started'] = null;
     const slot = store.readSlot();
     const holder = slot === null ? null : store.readTask(slot.holder_task_id as Uuid);
-    if (holder !== null && holder.status === 'READY' && holder.policy_ref === null) {
+    // A task granted the slot but never started (a crash between grant and start) gives it back while
+    // the queue is paused, and is queued again after the resume.
+    if (
+      paused &&
+      slot !== null &&
+      holder !== null &&
+      holder.status === 'READY' &&
+      holder.policy_ref === null
+    ) {
+      submit(store, {
+        task_id: holder.id,
+        dedup_key: `queue-paused:${slot.request_id}`,
+        trigger: {
+          kind: 'release_execution',
+          request_id: slot.request_id as Uuid,
+          reason: 'queue_paused',
+        },
+        now,
+        ids: [],
+      });
+    } else if (holder !== null && holder.status === 'READY' && holder.policy_ref === null) {
       const result = await this.#deps.start(holder.id);
       if (result.kind === 'unavailable')
         this.#retryAfter.set(holder.id, clock.now() + (this.#deps.startRetryMs ?? START_RETRY_MS));

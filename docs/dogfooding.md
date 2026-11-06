@@ -203,11 +203,17 @@ số lượt agent trên mỗi PR được merge, và số issue `dogfood:` mở
 
 ## Nâng và lùi release
 
-Chỉ nâng khi `cusr task list` không còn task đang chạy hoặc chờ sửa.
+Chỉ nâng khi `cusr task list` không còn task đang chạy hoặc chờ sửa, trừ task đã tạm dừng.
 
 Assistant được thực hiện bước nâng/restart khi người dùng đã giao việc vận hành. Trước khi đổi config,
 pin hoặc release: kiểm tra cả `task list` và `status` (không còn operation in-flight hay slot đang giữ).
-Nếu còn việc thì hoãn cập nhật, không tự hủy task. Dừng service và backup DB/config/pin trước khi nâng;
+Chặn task mới trước: `cusr queue pause --reason "nâng release"`. Còn task đang chạy thì tạm dừng thay
+vì hủy: `cusr task pause <id> --reason "nâng release" --expected-version N` (thêm `--now` nếu không
+chờ lượt agent đang chạy xong; lượt đó chạy lại trong session mới khi resume). Việc đã giao (lượt agent, gate, publish đang chạy) chạy nốt; bước kế tiếp chờ
+`paused` và slot được trả lại. Nâng khi các task đó không còn operation in-flight, rồi
+`cusr task resume <id> --expected-version N` để chạy tiếp đúng bước đã dừng, cùng revision, worktree,
+PR và bằng chứng, rồi `cusr queue resume`. Snapshot đã đóng băng của task (config, model, manifest) không đổi khi resume. Không tự
+hủy task để nâng. Dừng service và backup DB/config/pin trước khi nâng;
 sau khi tạo lại manifest và restart, kiểm tra lại `doctor`, `status` và chạy task nghiệm thu.
 
 Config được đọc lại khi xác nhận task mới; `yolo` được đọc lại trước khi daemon xét merge. Thay đổi
