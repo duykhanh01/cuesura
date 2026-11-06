@@ -750,10 +750,11 @@ const backToEnd = (s: LogState): boolean =>
 export const logsTop = (s: LogState): LogState => ({
   ...s,
   mode: 'paused',
+  scrolledAway: s.mode === 'live' || s.scrolledAway,
   anchor: null,
 });
 
-/** The end of what the buffer holds. A pause asked for stays: following is then another key, `F`. */
+/** The end of what the buffer holds. A pause asked for stays: following is then `Space`. */
 export function logsEnd(s: LogState, cols: number, height: number): LogState {
   if (s.mode === 'live' || s.buffer.length === 0) return s;
   if (backToEnd(s)) return followLogs(s);

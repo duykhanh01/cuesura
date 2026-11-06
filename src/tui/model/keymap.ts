@@ -28,7 +28,6 @@ export type Command =
   | 'details'
   | 'technical'
   | 'pause'
-  | 'follow'
   | 'toggle_output'
   | 'toggle_pane'
   | 'previous_step'
@@ -187,7 +186,7 @@ const KEYS: Readonly<Record<Context, readonly Binding[]>> = {
       keys: '↑↓',
       hint: 'PgUp/PgDn scroll',
       helpKeys: '↑ ↓ k j PgUp PgDn',
-      help: 'Scroll; scrolling up pauses following',
+      help: 'Scroll; scrolling up holds the place, the end follows again',
       press: [...MOVE, ...PAGE],
     },
     {
@@ -199,16 +198,9 @@ const KEYS: Readonly<Record<Context, readonly Binding[]>> = {
     },
     {
       keys: 'Space',
-      hint: 'pause',
-      help: 'Pause or resume following',
+      hint: 'pause/live',
+      help: 'Pause following, or go back to following live from anywhere',
       press: [[c(' '), 'pause']],
-      when: (s) => s.logs?.complete !== true,
-    },
-    {
-      keys: 'F',
-      hint: 'live',
-      help: 'Back to following live',
-      press: [[c('F'), 'follow']],
       // A finished log has nothing to follow, but reading one attempt still needs a way back.
       when: (s) => s.logs?.complete !== true || s.logs.attemptFilter !== null,
     },

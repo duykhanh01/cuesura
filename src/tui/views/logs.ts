@@ -94,13 +94,16 @@ function quietFor(s: LogState, t: TuiState): number | null {
   return s.lastReadAt - s.lastOutputAt;
 }
 
+function followState(s: LogState): string {
+  if (s.complete) return 'Finished';
+  if (s.mode === 'live') return 'Live';
+  return s.scrolledAway ? 'Scrolled up' : 'Paused';
+}
+
 /** What is being read, and which lines when the buffer holds only part of it. */
 function modeLine(s: LogState, t: TuiState): SafeText {
   const parts: SafeText[] = [];
-  if (s.attemptFilter === null)
-    parts.push(
-      uiText(`${s.complete ? 'Finished' : s.mode === 'live' ? 'Live' : 'Paused'} · latest step`),
-    );
+  if (s.attemptFilter === null) parts.push(uiText(`${followState(s)} · latest step`));
   else {
     const a = t.detail?.show.data?.provenance.usage.find((u) => u.attempt_id === s.attemptFilter);
     parts.push(
@@ -119,13 +122,16 @@ function modeLine(s: LogState, t: TuiState): SafeText {
   return joinSafe(parts, ' · ');
 }
 
+/** Only scrolling left the end, so that is where to look: it shows under the log, not up in the header. */
+const newBelow = (s: LogState): boolean => s.newActivity && s.scrolledAway;
+
 function newsLine(s: LogState, t: TuiState): SafeText {
   if (s.error !== null) return joinSafe([uiText('Could not read the log: '), s.error]);
-  if (s.newActivity)
+  if (s.newActivity && !s.scrolledAway)
     return uiText(
       s.attemptFilter === null
-        ? 'New activity: F follows the log live'
-        : 'New activity: → next step, F follows the log live',
+        ? 'New activity: Space follows the log live'
+        : 'New activity: → next step, Space follows the log live',
     );
   if (s.filling || s.older !== null) return uiText('Reading…');
   const quiet = quietFor(s, t);
@@ -517,4 +523,11 @@ export const logsBody =
     visibleRows(logs, log, logRows(height)).forEach((row, i) =>
       drawRow(frame, x, listTop + i, row, log),
     );
+    if (newBelow(logs) && logRows(height) < room)
+      frame.put(
+        x + 1,
+        listTop + logRows(height),
+        truncate(uiText('↓ New messages · G to jump to the end'), log - 1),
+        WARN,
+      );
   };

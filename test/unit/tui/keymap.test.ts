@@ -291,7 +291,7 @@ describe('the keys of a finished log', () => {
     const bar = hintBar(on({ complete: true }), 120);
     expect(bar).not.toContain('pause');
     expect(bar).not.toContain('live');
-    expect(hintBar(on({}), 120)).toContain('Space pause');
+    expect(hintBar(on({}), 120)).toContain('Space pause/live');
   });
 
   it('offers hiding the progress column only where there is one', () => {
@@ -301,7 +301,7 @@ describe('the keys of a finished log', () => {
   });
 
   it('keeps the way back from one attempt to the whole log', () => {
-    expect(hintBar(on({ complete: true, attemptFilter: 'a1' }), 120)).toContain('F live');
+    expect(hintBar(on({ complete: true, attemptFilter: 'a1' }), 120)).toContain('Space pause/live');
   });
 });
 

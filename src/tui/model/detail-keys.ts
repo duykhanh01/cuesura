@@ -247,8 +247,6 @@ export function onLogsCommand(state: TuiState, command: Command): Reduced | null
   switch (command) {
     case 'pause':
       return put(logs.mode === 'live' ? pauseLogs(logs, cols, height) : followLogs(logs));
-    case 'follow':
-      return put(followLogs(logs));
     case 'toggle_output':
       return put(toggleOutput(logs));
     case 'toggle_pane':

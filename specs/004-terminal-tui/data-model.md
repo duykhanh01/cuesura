@@ -66,7 +66,7 @@ Quy tắc: thao tác `unknown` hoặc `unresolved` chặn gửi thao tác ghi m�
 
 | Trường | Ý nghĩa |
 | --- | --- |
-| `mode` | `live` hoặc `paused`; cuộn lên chuyển sang `paused` |
+| `mode` | `live` hoặc `paused`; cuộn lên chuyển sang `paused`, giao diện ghi `Scrolled up` và về cuối thì tự `live` |
 | `attempt_filter` | `null` hoặc một attempt ID |
 | `next_cursor` | Vị trí đọc tiếp, không đổi qua rotation hay restart |
 | `buffer` | Tối đa 5.000 bản ghi hoặc 8 MiB, bản ghi cũ bị bỏ và đọc lại theo cursor |
@@ -75,7 +75,7 @@ Quy tắc: thao tác `unknown` hoặc `unresolved` chặn gửi thao tác ghi m�
 `live` theo tiếp bước mới: khi `(step, attempt_id)` đổi, bộ đệm bỏ bước trước và chỉ giữ bước mới. `paused` hoặc có lọc
 attempt thì chỉ đánh dấu `new_activity`, không đưa bản ghi vào bộ đệm.
 
-Mở màn Logs, lọc một attempt hoặc quay lại bước mới nhất bằng `F`: lần đọc đầu là trang cuối (`tail`), màn hình đứng ở cuối như
+Mở màn Logs, lọc một attempt hoặc quay lại bước mới nhất bằng `Space`: lần đọc đầu là trang cuối (`tail`), màn hình đứng ở cuối như
 một khung chat. Phần trước của bước được đọc theo cursor khi cuộn lên tới đỉnh, dừng ở đầu bước. Trang trả `more: true` thì đọc tiếp ngay, không
 chờ nhịp một giây.
 

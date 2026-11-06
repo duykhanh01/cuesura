@@ -385,6 +385,14 @@ describe('coming back to the end of the log', () => {
     const away = { ...scrollLogs(read(), COLS, HEIGHT, -3), moreForward: true };
     expect(logsEnd(away, COLS, HEIGHT).mode).toBe('paused');
   });
+
+  it('the top is reached by scrolling too: from following, the end follows again', () => {
+    const top = logsTop(fed(start(), 1, 10));
+    expect(top.scrolledAway).toBe(true);
+    expect(logsEnd(top, COLS, HEIGHT).mode).toBe('live');
+    const paused = logsTop(pauseLogs(fed(start(), 1, 10), COLS, HEIGHT));
+    expect(paused.scrolledAway).toBe(false);
+  });
 });
 
 describe('scrolling keeps the place', () => {

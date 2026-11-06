@@ -130,7 +130,7 @@ describe('finding 2: Logs closed and opened again on the same task', () => {
   });
 });
 
-describe('finding 3: `F` after an attempt, on a log with nothing new', () => {
+describe('finding 3: `Space` after an attempt, on a log with nothing new', () => {
   const fed = (s: LogState, count: number): LogState =>
     applyLogPage(
       s,

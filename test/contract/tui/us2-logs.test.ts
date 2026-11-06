@@ -168,14 +168,14 @@ describe('US2 scenario 4: following a log', () => {
     await new Promise((r) => setTimeout(r, 200));
     expect(s.screenText()).toContain('Paused · latest step');
 
-    s.send('F');
+    s.send(' ');
     await s.waitForText('coder line 6', 3_000);
     expect(s.screenText()).toContain('Live · latest step');
     expect(s.screenText()).not.toContain('New activity');
     await quit(s);
   });
 
-  it('scrolling up pauses by itself, and the place holds while records arrive', async () => {
+  it('scrolling up holds the place, and new messages show under the log', async () => {
     const sd = tui.daemon();
     const t = task();
     const feed = new LogFeed(sd);
@@ -188,17 +188,19 @@ describe('US2 scenario 4: following a log', () => {
     await openLogs(s);
     await s.waitForText('line 60');
     s.send(KEY.pageUp);
-    await s.waitForText('Paused · latest step');
+    await s.waitForText('Scrolled up · latest step');
     await s.waitFor(() => !s.screenText().includes('line 60'));
     const held = logColumn(s.screenText());
     feed.write(live(sd), t.id, '', SETUP, 'setup', ['line 61']);
-    await s.waitForText('New activity', 4_000);
-    expect(logColumn(s.screenText())).toBe(held);
+    await s.waitForText('↓ New messages · G to jump to the end', 4_000);
+    expect(s.screenText()).not.toContain('New activity');
+    expect(logColumn(s.screenText()).replace(/ +↓ New messages.*/, '')).toBe(held);
 
     // Back at the end, nothing is left to hold: it follows again and what came meanwhile shows.
     s.send(KEY.pageDown);
     await s.waitForText('Live · latest step');
     await s.waitForText('line 61', 3_000);
+    expect(s.screenText()).not.toContain('New messages');
     await quit(s);
   });
 
@@ -321,7 +323,7 @@ describe('US2 scenarios 9 and 10: when the workflow moves to a new step', () => 
     expect(s.screenText()).not.toContain('coder line 4');
     expect(logColumn(s.screenText())).toBe(held);
 
-    s.send('F');
+    s.send(' ');
     await s.waitForText('coder line 4', 3_000);
     expect(s.screenText()).toContain('Live · latest step');
     await quit(s);
@@ -329,7 +331,7 @@ describe('US2 scenarios 9 and 10: when the workflow moves to a new step', () => 
 });
 
 describe('review findings, on a real PTY', () => {
-  it('`F` after an attempt on a quiet log brings the log back, and `↑` reads on', async () => {
+  it('`Space` after an attempt on a quiet log brings the log back, and `↑` reads on', async () => {
     const sd = tui.daemon();
     const t = task();
     const feed = new LogFeed(sd);
@@ -346,7 +348,7 @@ describe('review findings, on a real PTY', () => {
     s.send(KEY.down);
     s.send(KEY.enter);
     await s.waitFor(() => !s.screenText().includes('setup line 1'));
-    s.send('F');
+    s.send(' ');
     await s.waitForText('Live · latest step');
     await s.waitForText('setup line 1', 3_000);
     await s.waitForText('coder line 3', 3_000);
@@ -369,7 +371,7 @@ describe('review findings, on a real PTY', () => {
     await openLogs(s);
     await s.waitForText('xxxx');
     s.send(KEY.up);
-    await s.waitForText('Paused · latest step');
+    await s.waitForText('Scrolled up · latest step');
     s.resize(200, 24);
     await s.waitFor(() => s.screenText().split('\n')[0]?.length === 200);
     await s.waitForText('xxxx');
@@ -409,7 +411,7 @@ describe('EC-011 and FR-039: a log in full flow', () => {
     const answers: number[] = [];
     for (let i = 0; i < 8; i++) {
       const from = Date.now();
-      s.send(i % 2 === 0 ? ' ' : 'F');
+      s.send(' ');
       const want = i % 2 === 0 ? 'Paused · latest step' : 'Live · latest step';
       await s.waitForText(want, 2_000);
       answers.push(Date.now() - from);
@@ -420,7 +422,7 @@ describe('EC-011 and FR-039: a log in full flow', () => {
 
     // What precedes the last page reads from its place on the way up.
     s.send('g');
-    await s.waitForText('Paused · latest step');
+    await s.waitForText('Scrolled up · latest step');
     const first = Number(m?.[1]);
     await s.waitForText(`flood ${first}`);
     const before = window();
