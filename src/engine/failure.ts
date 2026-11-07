@@ -134,6 +134,21 @@ export function reviewSignature(findings: readonly ReviewFinding[]): string | nu
 }
 
 /**
+ * The findings a review keeps when it has more than `max`: every blocking one first, then the others,
+ * in the reviewer's order. Later checks read the blocking files from what was kept.
+ */
+export function keptFindings<F extends { severity: string }>(
+  findings: readonly F[],
+  max: number,
+): F[] {
+  if (findings.length <= max) return [...findings];
+  const at = findings.map((f, i) => ({ f, i }));
+  const blocking = at.filter(({ f }) => isBlocking(f)).slice(0, max);
+  const others = at.filter(({ f }) => !isBlocking(f)).slice(0, max - blocking.length);
+  return [...blocking, ...others].sort((a, b) => a.i - b.i).map(({ f }) => f);
+}
+
+/**
  * Files of blocking findings that the previous rejecting review of this revision also blocked on and
  * that no commit since touched: the fixer left them alone, so another fix round would only repeat.
  * Empty when there is no such review or the changed files are not known for it.

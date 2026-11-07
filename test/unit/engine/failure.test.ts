@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { reviewSignature, untouchedRepeats } from '../../../src/engine/failure.ts';
+import { keptFindings, reviewSignature, untouchedRepeats } from '../../../src/engine/failure.ts';
 import { hashCanonical } from '../../../src/shared/hash.ts';
 
 describe('review failure signature', () => {
@@ -85,5 +85,24 @@ describe('blocking findings the fix left alone', () => {
     expect(
       untouchedRepeats([prior], 1, { findings: now, changed_since: { sha: 'b', paths: [] } }),
     ).toEqual([]);
+  });
+});
+
+describe('findings kept with a review', () => {
+  const f = (severity: string, file: string) => ({ severity, file, msg: 'm' });
+  it('keeps every blocking finding first, then the others, in their order', () => {
+    const all = [
+      f('minor', 'a'),
+      f('major', 'b'),
+      f('minor', 'c'),
+      f('critical', 'd'),
+      f('info', 'e'),
+    ];
+    expect(keptFindings(all, 3)).toEqual([f('minor', 'a'), f('major', 'b'), f('critical', 'd')]);
+    expect(keptFindings(all, 10)).toEqual(all);
+    expect(keptFindings([f('major', 'x'), f('major', 'y')], 1)).toEqual([f('major', 'x')]);
+    // Positions count, not object identity.
+    const same = f('minor', 'a');
+    expect(keptFindings([same, same, same], 2)).toHaveLength(2);
   });
 });

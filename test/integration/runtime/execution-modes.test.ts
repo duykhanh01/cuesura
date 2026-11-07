@@ -1034,6 +1034,27 @@ describe('a review/fix loop that does not move (#141)', () => {
     }
   });
 
+  it('a blocking file past the findings kept with the first review still counts as repeated', () => {
+    const d = setup();
+    const t = buildTask();
+    createGrantStart(d, t, 'full-review');
+    toPublish(d, t, A);
+    publishToReview(d, t.id, A);
+    const minors = Array.from({ length: 60 }, (_, i) => ({
+      severity: 'minor',
+      file: `n${i}.ts`,
+      msg: 'naming',
+    }));
+    reject(d, t, A, [...minors, blocking('src/a.ts', 'wrong')]);
+    completePost(d, t.id);
+    fixTo(d, t, B);
+    reject(d, t, B, [blocking('src/a.ts', 'still wrong')], { sha: A, paths: ['src/other.ts'] });
+    expect(d.task(t.id).wait?.detail).toMatchObject({
+      code: 'review_repeated',
+      files: ['src/a.ts'],
+    });
+  });
+
   it('a fix that returns to an input already rejected waits too', () => {
     const { d, t } = firstRound();
     reject(d, t, B, [blocking('src/other.ts', 'wrong')], { sha: A, paths: ['src/tui/app.ts'] });
@@ -1100,16 +1121,17 @@ describe('a review/fix loop that does not move (#141)', () => {
     const toFixGates = (
       changed: { sha: string; paths: string[] } | undefined,
       certifiedBase = false,
+      findings: Record<string, unknown>[] = [
+        blocking('src/tui/client/mutations.ts', 'a lost link spends a check'),
+        { severity: 'minor', file: 'b.ts', msg: 'naming' },
+      ],
     ) => {
       const d = setup();
       const t = buildTask();
       createGrantStart(d, t, 'full-review');
       toPublish(d, t, A);
       publishToReview(d, t.id, A);
-      reject(d, t, A, [
-        blocking('src/tui/client/mutations.ts', 'a lost link spends a check'),
-        { severity: 'minor', file: 'b.ts', msg: 'naming' },
-      ]);
+      reject(d, t, A, findings);
       completePost(d, t.id);
       // A base update that finished earlier stays recorded with its certificate.
       if (certifiedBase)
@@ -1172,6 +1194,22 @@ describe('a review/fix loop that does not move (#141)', () => {
       publishToReview(d, t.id, B);
       expect(d.task(t.id).current_step).toBe('review');
       expect(reviewerRuns(d, t)).toBe(2);
+    });
+
+    it('sees a blocking finding past the findings kept with the review', () => {
+      const minors = Array.from({ length: 60 }, (_, i) => ({
+        severity: 'minor',
+        file: `n${i}.ts`,
+        msg: 'naming',
+      }));
+      const { d, t } = toFixGates({ sha: A, paths: ['test/a.test.ts'] }, false, [
+        ...minors,
+        blocking('src/a.ts', 'wrong'),
+      ]);
+      expect(d.task(t.id).wait?.detail).toMatchObject({
+        code: 'fix_no_src_change',
+        files: ['src/a.ts'],
+      });
     });
 
     it('still waits after a base update that finished earlier', () => {

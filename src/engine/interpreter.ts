@@ -56,6 +56,7 @@ import {
   handleFailure,
   recordCheckFailure,
   isBlocking,
+  keptFindings,
   reviewSignature,
   untouchedRepeats,
 } from './failure.ts';
@@ -1651,7 +1652,7 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
       resets_streak_of: approved ? ctx.state.last_fix_step : null,
       ...(input === null
         ? {}
-        : { input_digest: input, findings: d.findings.slice(0, MAX_FINDINGS) }),
+        : { input_digest: input, findings: keptFindings(d.findings, MAX_FINDINGS) }),
       ...(input === null || d.summary === undefined
         ? {}
         : { summary: d.summary.slice(0, MAX_SUMMARY) }),
