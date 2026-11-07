@@ -1,11 +1,22 @@
 /**
- * `cusr init`, PR part: put cusr's PR template and the write-pr skill into a repo's working tree. It
- * never commits. cusr reads the template from the base commit, so it applies once committed there.
+ * `cusr init`: put cusr's PR template and skills into a repo's working tree, and the assistant hooks
+ * into local settings. It never commits. cusr reads the template from the base commit, so it applies
+ * once committed there.
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parse } from 'yaml';
 import { INSTALLED_PR_TEMPLATE, WRITE_PR_SKILL_PATH } from '../domain/templates.ts';
+import {
+  ASSISTANT_SETTINGS_PATH,
+  CUSR_SKILL_ROOTS,
+  cusrSkillFiles,
+  excludePath,
+  hideAssistantSettings,
+  planAssistantSettings,
+  writeAssistantSettings,
+  type SettingsPlan,
+} from './init-assistant.ts';
 import { TEMPLATE_RE } from './run-config.ts';
 
 export const PR_TEMPLATE_TARGET = '.github/pull_request_template.md';
@@ -26,6 +37,8 @@ export type InitFile = {
   readonly path: string;
   readonly status: InitFileStatus;
   readonly reason?: string;
+  /** Belongs to this machine: `init` tells the person not to commit it. */
+  readonly local?: true;
 };
 
 function entries(dir: string): string[] {
@@ -79,8 +92,8 @@ function place(root: string, path: string, content: string, force: boolean): Ini
   return { path, status: 'updated' };
 }
 
-export type InitItemId = 'write-pr';
-export const INIT_ITEM_IDS: readonly InitItemId[] = ['write-pr'];
+export type InitItemId = 'write-pr' | 'assistant';
+export const INIT_ITEM_IDS: readonly InitItemId[] = ['write-pr', 'assistant'];
 
 export type InitItem = {
   readonly id: InitItemId;
@@ -118,6 +131,12 @@ export function initItems(root: string): InitItem[] {
           : `The skill for writing PR descriptions; keeps your ${own}`,
       unavailable: null,
     },
+    {
+      id: 'assistant',
+      label: 'assistant: cusr skill and Claude Code hooks',
+      description: 'The skill for calling cusr, and the local hooks that wake the assistant',
+      unavailable: null,
+    },
   ];
 }
 
@@ -140,27 +159,53 @@ export class InitWriteError extends Error {
 export function installInitItems(
   root: string,
   ids: readonly InitItemId[],
-  opts: { readonly force: boolean },
+  opts: { readonly force: boolean; readonly dataDir: string },
 ): InitFile[] {
-  if (!ids.includes('write-pr')) return [];
-  const own = ownTemplates(root);
   const done: InitFile[] = [];
-  const write = (path: string, content: string, force: boolean) => {
+  const attempt = (path: string, step: () => InitFile) => {
     try {
-      done.push(place(root, path, content, force));
+      done.push(step());
     } catch (e) {
       throw new InitWriteError(path, [...done], e);
     }
   };
-  const skill = writePrSkill();
-  for (const p of WRITE_PR_SKILL_PATHS) write(p, skill, opts.force);
-  // Last, so the template never points to a skill that failed to install.
-  if (own === null) write(PR_TEMPLATE_TARGET, INSTALLED_PR_TEMPLATE, false);
-  else
-    done.push({
-      path: PR_TEMPLATE_TARGET,
-      status: 'skipped',
-      reason: `the repo already has ${own}`,
-    });
+  const write = (path: string, content: string, force: boolean) =>
+    attempt(path, () => place(root, path, content, force));
+
+  // Read before anything is written: a build without the skill must not leave a partial install.
+  const skill = ids.includes('assistant') ? cusrSkillFiles() : [];
+  let assistant: { readonly settings: SettingsPlan; readonly exclude: string } | null = null;
+  if (ids.includes('assistant'))
+    try {
+      assistant = {
+        settings: planAssistantSettings(root, opts.dataDir),
+        exclude: excludePath(root),
+      };
+    } catch (e) {
+      throw new InitWriteError(ASSISTANT_SETTINGS_PATH, [], e);
+    }
+
+  if (ids.includes('write-pr')) {
+    const own = ownTemplates(root);
+    const writePr = writePrSkill();
+    for (const p of WRITE_PR_SKILL_PATHS) write(p, writePr, opts.force);
+    // Last, so the template never points to a skill that failed to install.
+    if (own === null) write(PR_TEMPLATE_TARGET, INSTALLED_PR_TEMPLATE, false);
+    else
+      done.push({
+        path: PR_TEMPLATE_TARGET,
+        status: 'skipped',
+        reason: `the repo already has ${own}`,
+      });
+  }
+
+  if (assistant !== null) {
+    const { settings, exclude } = assistant;
+    for (const r of CUSR_SKILL_ROOTS)
+      for (const f of skill) write(`${r}/${f.path}`, f.content, opts.force);
+    // Hidden first, so a path of this machine never shows up as a file to commit.
+    attempt(exclude, () => hideAssistantSettings(root, exclude));
+    attempt(ASSISTANT_SETTINGS_PATH, () => writeAssistantSettings(root, settings));
+  }
   return done;
 }

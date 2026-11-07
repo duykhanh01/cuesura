@@ -9,7 +9,8 @@ thành việc, sửa qua chính `cusr`, rồi có hiệu lực ở release sau.
   và merge mọi PR; khi user config có `yolo: true`, chính daemon merge PR đủ điều kiện
   ([deploy](../deploy/README.md#yolo)). Vòng cải thiện không có đường tắt nào khác.
 - **Gate lấy từ commit base.** PR sửa `cusr.yaml` hay CI không tự nới gate cho chính nó.
-- **Worker không dùng `cusr`.** Skill chỉ dành cho assistant caller điều phối; không truyền vào worker.
+- **Worker không dùng `cusr`.** Skill chỉ dành cho assistant caller điều phối; worker có thể đọc thấy nó trong repo
+  nhưng không được dùng.
 - **Một release, một task.** V1 chạy một task tại một thời điểm.
 
 ## Bố cục
@@ -28,8 +29,9 @@ Repo phát triển giữ nguyên ở `~/projects/metronome`. Phần vận hành 
 Không chạy daemon từ repo phát triển: checkout hay build ở đó sẽ đổi code của CLI đang chạy, và worktree của
 daemon sẽ lẫn vào `git worktree list`.
 
-Skill `cusr` nằm ở `~/.claude/skills/cusr` và `~/.codex/skills/cusr`, không commit vào `.claude/skills` hay
-`.agents/skills` của repo này: repo này cũng là repo đích, mà worker đọc được mọi file đã commit.
+Skill `cusr` của release nằm ở `~/.claude/skills/cusr` và `~/.codex/skills/cusr`. `cusr init` cũng có thể cài nó vào
+`.claude/skills` và `.agents/skills` của repo đích và commit: worker đọc được skill là chấp nhận được, vì đọc
+không cho worker thêm quyền nào, và việc chặn worker gọi `cusr` thuộc #185.
 
 Kết nối cho assistant, lặp lại ở mỗi lệnh theo skill:
 

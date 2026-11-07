@@ -239,7 +239,18 @@ Claude Code chạy hook `Stop` có `asyncRewake` ở nền sau mỗi lượt. `c
 không tốn lượt model, và thoát exit 2 khi có task cần người; Claude Code coi stderr là phản hồi của hook và mở
 một lượt mới. Phiên vẫn rảnh trong lúc hook đậu nên người dùng hỏi được bình thường.
 
-Thêm vào `settings.json` của Claude Code, sửa data dir theo nơi cài:
+Chạy trong repo mà assistant làm việc, data dir theo nơi cài:
+
+```sh
+cusr init --data-dir "$HOME/cuesura-dogfood/data"
+```
+
+Mục `assistant` cài skill `cusr` và gộp hai hook vào `.claude/settings.local.json` của repo bằng đường dẫn tuyệt đối,
+giữ nguyên mọi khóa và hook khác; chạy lại không thêm trùng, đổi data dir thì cập nhật đúng hook đó. File này chứa
+đường dẫn trên máy nên không được commit: `init` giấu nó bằng `info/exclude` trong git common dir để mọi worktree
+cùng dùng, và dừng với lỗi nếu file đã được track, JSON hỏng hoặc sai kiểu. Commit các file skill.
+
+Đoạn `init` ghi vào file, để tham khảo:
 
 ```json
 {

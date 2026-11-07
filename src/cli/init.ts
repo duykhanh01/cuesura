@@ -7,6 +7,7 @@ import {
   type InitFile,
   type InitItemId,
 } from '../application/init.ts';
+import { resolveDataDir } from './client.ts';
 import { exitCodeForError } from './errors.ts';
 import { ExitCode, errorEnvelope, okEnvelope, renderEnvelope } from './output.ts';
 import type { CliCommand, CliIo } from './program.ts';
@@ -64,21 +65,28 @@ function describe(f: InitFile): string {
 export function makeInitCommand(deps: InitDeps = processDeps): CliCommand {
   return {
     name: 'init',
-    description: 'Set up a repo for cusr: choose the PR template and skills to install.',
+    description: 'Set up a repo for cusr: choose the PR template, skills and hooks to install.',
     help: `Shows a checklist, every item checked:
   write-pr  .github/pull_request_template.md and the write-pr skill under .agents/skills and
             .claude/skills. A repo with its own PR template keeps it and gets the skill alone.
+  assistant skills/cusr under .agents/skills and .claude/skills, and the Claude Code hooks in
+            .claude/settings.local.json, hidden from Git through info/exclude.
 Nothing is committed: cusr reads the template from the base commit, so commit the files for new
-tasks to use them.
+tasks to use them. Do not commit settings.local.json: its hooks hold this machine's data dir.
 
 Examples:
   cusr init
   cusr init --dir ~/code/acme --yes
-  cusr init --yes --force`,
+  cusr init --yes --force
+  cusr init --yes --data-dir ~/cuesura-dogfood/data`,
     options: [
       { flags: '--dir <path>', description: 'Repo to set up (default: the current directory)' },
       { flags: '--yes', description: 'Install every item without asking' },
       { flags: '--force', description: 'Replace skill files that differ from the shipped copy' },
+      {
+        flags: '--data-dir <dir>',
+        description: 'Data dir the assistant hooks use (default: $CUSR_DATA_DIR or ~/.cusr)',
+      },
     ],
     async run(values, json, io) {
       const dir = values['dir'] ?? process.cwd();
@@ -115,7 +123,10 @@ Examples:
       }
       let files: InitFile[];
       try {
-        files = installInitItems(root, ids, { force: values['force'] === 'true' });
+        files = installInitItems(root, ids, {
+          force: values['force'] === 'true',
+          dataDir: resolveDataDir(values['dataDir']),
+        });
       } catch (e) {
         return failed(e, root, json, io);
       }
@@ -126,7 +137,9 @@ Examples:
       io.stdout(`${root}\n${files.map(describe).join('')}`);
       if (files.some((f) => f.status === 'kept'))
         io.stdout('Pass --force to replace the files kept above.\n');
-      const written = files.filter((f) => f.status === 'created' || f.status === 'updated');
+      const written = files.filter(
+        (f) => f.local !== true && (f.status === 'created' || f.status === 'updated'),
+      );
       if (written.some((f) => f.path === PR_TEMPLATE_TARGET))
         io.stdout(
           'Commit these files. cusr reads the PR template from the base commit, so new tasks use it once the commit is there.\n',

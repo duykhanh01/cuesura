@@ -32,10 +32,16 @@ const read = (root: string, path: string) => readFileSync(join(root, path), 'utf
 describe('cusr init: write-pr (PR template and skill)', () => {
   it('installs the template with the skill it points to; running again changes nothing', () => {
     const root = repo();
-    expect(initItems(root)).toMatchObject([{ id: 'write-pr', unavailable: null }]);
+    expect(initItems(root)).toMatchObject([
+      { id: 'write-pr', unavailable: null },
+      { id: 'assistant', unavailable: null },
+    ]);
     expect(initItems(root)[0]?.description).toContain('PR template');
     expect(
-      installInitItems(root, ['write-pr'], { force: false }).map((f) => [f.path, f.status]),
+      installInitItems(root, ['write-pr'], { force: false, dataDir: '/data' }).map((f) => [
+        f.path,
+        f.status,
+      ]),
     ).toEqual([
       ...WRITE_PR_SKILL_PATHS.map((p) => [p, 'created']),
       [PR_TEMPLATE_TARGET, 'created'],
@@ -45,12 +51,10 @@ describe('cusr init: write-pr (PR template and skill)', () => {
     for (const p of WRITE_PR_SKILL_PATHS) expect(read(root, p)).toBe(writePrSkill());
     expect(writePrSkill()).toMatch(/^---\nname: write-pr\ndescription: /);
 
-    expect(installInitItems(root, ['write-pr'], { force: false }).map((f) => f.status)).toEqual([
-      'unchanged',
-      'unchanged',
-      'unchanged',
-    ]);
-    expect(installInitItems(root, [], { force: false })).toEqual([]);
+    expect(
+      installInitItems(root, ['write-pr'], { force: false, dataDir: '/data' }).map((f) => f.status),
+    ).toEqual(['unchanged', 'unchanged', 'unchanged']);
+    expect(installInitItems(root, [], { force: false, dataDir: '/data' })).toEqual([]);
   });
 
   it('keeps the repo’s own template, wherever it is or whichever cusr.yaml names, and adds the skill alone', () => {
@@ -64,7 +68,10 @@ describe('cusr init: write-pr (PR template and skill)', () => {
       const root = repo(files);
       const own = existingPrTemplates(root).join(', ');
       expect(initItems(root)[0]?.description).toContain(`keeps your ${own}`);
-      const [a, b, template] = installInitItems(root, ['write-pr'], { force: true });
+      const [a, b, template] = installInitItems(root, ['write-pr'], {
+        force: true,
+        dataDir: '/data',
+      });
       expect(template).toEqual({
         path: PR_TEMPLATE_TARGET,
         status: 'skipped',
@@ -77,12 +84,16 @@ describe('cusr init: write-pr (PR template and skill)', () => {
 
   it('keeps an edited skill file unless forced', () => {
     const root = repo({ [WRITE_PR_SKILL_PATH]: 'edited' });
-    expect(installInitItems(root, ['write-pr'], { force: false })[0]).toMatchObject({
+    expect(
+      installInitItems(root, ['write-pr'], { force: false, dataDir: '/data' })[0],
+    ).toMatchObject({
       path: WRITE_PR_SKILL_PATH,
       status: 'kept',
     });
     expect(read(root, WRITE_PR_SKILL_PATH)).toBe('edited');
-    expect(installInitItems(root, ['write-pr'], { force: true })[0]).toMatchObject({
+    expect(
+      installInitItems(root, ['write-pr'], { force: true, dataDir: '/data' })[0],
+    ).toMatchObject({
       status: 'updated',
     });
     expect(read(root, WRITE_PR_SKILL_PATH)).toBe(writePrSkill());
@@ -92,7 +103,7 @@ describe('cusr init: write-pr (PR template and skill)', () => {
     // A file where a directory must go fails for any user, root included.
     const root = repo({ '.claude/skills': 'not a directory' });
     try {
-      installInitItems(root, ['write-pr'], { force: false });
+      installInitItems(root, ['write-pr'], { force: false, dataDir: '/data' });
       expect.unreachable();
     } catch (e) {
       expect(e).toBeInstanceOf(InitWriteError);

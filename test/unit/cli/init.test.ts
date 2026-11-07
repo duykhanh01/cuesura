@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { PR_TEMPLATE_TARGET } from '../../../src/application/init.ts';
+import { ASSISTANT_SETTINGS_PATH } from '../../../src/application/init-assistant.ts';
+import { PR_TEMPLATE_TARGET, type InitFile } from '../../../src/application/init.ts';
 import { makeInitCommand, type InitDeps } from '../../../src/cli/init.ts';
 import { runCli } from '../../../src/cli/program.ts';
 import type { Choice } from '../../../src/cli/select.ts';
@@ -50,7 +51,7 @@ describe('cusr init', () => {
     const { deps, shown } = picking(['write-pr']);
     const r = await run(['init', '--dir', root], deps);
     expect(r.code).toBe(0);
-    expect(shown[0]?.map((c) => c.id)).toEqual(['write-pr']);
+    expect(shown[0]?.map((c) => c.id)).toEqual(['write-pr', 'assistant']);
     expect(shown[0]?.every((c) => c.description !== '')).toBe(true);
     expect(r.stdout).toContain(`created   ${PR_TEMPLATE_TARGET}`);
     expect(r.stdout).toContain(`created   ${WRITE_PR_SKILL_PATH}`);
@@ -79,10 +80,57 @@ describe('cusr init', () => {
     expect(existsSync(join(root, '.github'))).toBe(false);
 
     const yes = await run(['init', '--dir', root, '--yes', '--json'], deps);
-    expect(JSON.parse(yes.stdout)).toMatchObject({
-      ok: true,
-      data: { files: [{}, {}, { path: PR_TEMPLATE_TARGET, status: 'created' }] },
+    const { ok, data } = JSON.parse(yes.stdout) as { ok: boolean; data: { files: InitFile[] } };
+    expect(ok).toBe(true);
+    expect(data.files).toContainEqual({ path: PR_TEMPLATE_TARGET, status: 'created' });
+    expect(data.files).toContainEqual({ path: '.claude/skills/cusr/SKILL.md', status: 'created' });
+    expect(data.files).toContainEqual({
+      path: ASSISTANT_SETTINGS_PATH,
+      status: 'created',
+      reason: 'stays on this machine, do not commit',
+      local: true,
     });
+  });
+
+  it('--yes installs the assistant with the data dir given, absolute, and says what not to commit', async () => {
+    const root = gitRepo();
+    const dataDir = join(base, 'data dir');
+    const r = await run(['init', '--dir', root, '--yes', '--data-dir', dataDir], picking([]).deps);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain(`created   ${ASSISTANT_SETTINGS_PATH} (stays on this machine`);
+    expect(r.stdout).toContain('Commit these files');
+    expect(readFileSync(join(root, ASSISTANT_SETTINGS_PATH), 'utf8')).toContain(
+      `CUSR_DATA_DIR='${dataDir}' `,
+    );
+
+    const again = await run(
+      ['init', '--dir', root, '--yes', '--data-dir', dataDir],
+      picking([]).deps,
+    );
+    expect(again.stdout).not.toContain('created');
+    expect(again.stdout).not.toContain('updated');
+    expect(again.stdout).not.toContain('Commit these files');
+  });
+
+  it('a change only to the local settings asks for no commit', async () => {
+    const root = gitRepo();
+    await run(['init', '--dir', root, '--yes', '--data-dir', '/one'], picking([]).deps);
+    const r = await run(['init', '--dir', root, '--yes', '--data-dir', '/two'], picking([]).deps);
+    expect(r.stdout).toContain(`updated   ${ASSISTANT_SETTINGS_PATH}`);
+    expect(r.stdout).not.toContain('Commit these files');
+  });
+
+  it('a settings file it cannot merge ends with an error and installs nothing', async () => {
+    const root = gitRepo();
+    mkdirSync(join(root, '.claude'));
+    writeFileSync(join(root, ASSISTANT_SETTINGS_PATH), '{oops');
+    const r = await run(['init', '--dir', root, '--yes'], picking([]).deps);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain(
+      `cusr: cannot write ${ASSISTANT_SETTINGS_PATH}: it is not valid JSON`,
+    );
+    expect(readFileSync(join(root, ASSISTANT_SETTINGS_PATH), 'utf8')).toBe('{oops');
+    expect(existsSync(join(root, '.github'))).toBe(false);
   });
 
   it('refuses a directory outside a Git repository', async () => {

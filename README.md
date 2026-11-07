@@ -22,7 +22,7 @@ Use case đầu tiên là quy trình phát triển phần mềm: code → review
 3. **Workflow cho mỗi task trong worktree riêng:**
    - Code, rồi chạy gate (build/test).
    - Trước khi chạy, bạn xác nhận harness, model, effort và chế độ: `direct-pr` hoặc `full-review`.
-   - Worker chuẩn bị commit message và nội dung PR theo PR template của repo (`pr_template` trong `cusr.yaml`, hoặc `pull_request_template.md` duy nhất ở gốc, `.github/` hay `docs/`), không có thì theo template mặc định của cusr; daemon tạo branch, commit và publish. `cusr init` hiện danh sách để chọn những gì cài vào repo, mặc định chọn hết, mỗi mục có mô tả. Mục `write-pr` gồm PR template của cusr và skill [`write-pr`](src/assets/write-pr/SKILL.md) mà template trỏ tới; repo đã có template riêng thì giữ nguyên template đó và chỉ cài skill.
+   - Worker chuẩn bị commit message và nội dung PR theo PR template của repo (`pr_template` trong `cusr.yaml`, hoặc `pull_request_template.md` duy nhất ở gốc, `.github/` hay `docs/`), không có thì theo template mặc định của cusr; daemon tạo branch, commit và publish. `cusr init` hiện danh sách để chọn những gì cài vào repo, mặc định chọn hết, mỗi mục có mô tả. Mục `write-pr` gồm PR template của cusr và skill [`write-pr`](src/assets/write-pr/SKILL.md) mà template trỏ tới; repo đã có template riêng thì giữ nguyên template đó và chỉ cài skill. Mục `assistant` gồm skill `cusr` và hook Claude Code cho khóa assistant.
    - `full-review` có reviewer riêng session, được chạy kiểm tra nhưng thay đổi không vào task, có thể cùng
      vendor; `direct-pr` bỏ bước reviewer.
    - `full-review` mở PR dạng draft, daemon đăng từng lượt review lên PR (format đổi được bằng `review_template` trong `cusr.yaml`), approve thì chuyển PR ready rồi mới chờ CI. `direct-pr` mở PR ready và chờ CI ngay.
@@ -46,9 +46,11 @@ Baseline: Node 24 LTS, TypeScript strict, SQLite (`better-sqlite3`), Zod 4, Comm
 ## Agent sử dụng Cuesura
 
 [Gói skill `cusr`](skills/cusr/SKILL.md) hướng dẫn lệnh và điều kiện sử dụng CLI `cusr`.
-Cài toàn bộ `skills/cusr` vào thư mục skill cá nhân của **assistant caller** (Codex hoặc Claude Code),
-ngoài repo mà Cuesura giao cho worker. Không commit skill điều khiển này vào repo đích hoặc đưa nó cho
-worker; worker không được dùng skill kể cả khi vô tình đọc thấy nó.
+Mục `assistant` của `cusr init` cài toàn bộ `skills/cusr` vào `.claude/skills/cusr` và `.agents/skills/cusr`
+của repo, rồi thêm hook đánh thức của Claude Code vào `.claude/settings.local.json`
+([chi tiết](deploy/README.md#đánh-thức-assistant-bằng-stop-hook)). Commit file skill, không commit file settings.
+Skill dành cho **assistant caller** (Codex hoặc Claude Code). Worker đọc được skill đã commit trong repo đích,
+nhưng không được dùng nó.
 Gói chỉ gồm file thường, không cần symlink hay source/spec của Cuesura. CLI đã cài và thông tin kết nối
 được người vận hành cung cấp riêng; agent tự khai `CUSR_ACTOR=assistant` nên chỉ có quyền `read/operate`,
 người dùng tự approve. Không cần tạo token nào ([người gọi và quyền](deploy/README.md#người-gọi-và-quyền)).

@@ -26,7 +26,7 @@
     "test:performance": "vitest run --project performance",
     "test:reliability": "node scripts/test-reliability.ts",
     "test:smoke": "vitest run --project smoke --passWithNoTests",
-    "build": "tsc -p tsconfig.build.json && node -e \"const fs = require('node:fs'); fs.cpSync('src/store/migrations', 'dist/store/migrations', { recursive: true }); fs.cpSync('src/assets', 'dist/assets', { recursive: true })\"",
+    "build": "tsc -p tsconfig.build.json && node -e \"const fs = require('node:fs'); fs.cpSync('src/store/migrations', 'dist/store/migrations', { recursive: true }); fs.cpSync('src/assets', 'dist/assets', { recursive: true }); fs.cpSync('skills/cusr', 'dist/assets/skills/cusr', { recursive: true })\"",
     "report:invariants": "node scripts/report-invariants.ts"
   },
   "dependencies": {
