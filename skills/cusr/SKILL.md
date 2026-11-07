@@ -55,7 +55,11 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 ## Add tasks
 
 ```sh
-# Submit -> propose run settings -> confirm the run digest yourself.
+# Ask the user before `task add`. Read `cusr dispatch` first, then show one summary:
+# title, acceptance criteria, out of scope, and the proposed worker/mode/reviewer with
+# the matched dispatch rule. Submit only after the user approves or edits it. Skip the
+# summary only when the user says to submit without asking; that covers that request only.
+# Then: submit -> propose run settings -> confirm the run digest yourself.
 # A complete run_config in the add input already supplies the proposal.
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task add --project "$PROJECT" --title "$TITLE" --base "$BASE" \
@@ -172,7 +176,7 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   --worker "$WORKER" --reviewer "$REVIEWER" --reason "$REASON" \
   --expected-version "$VERSION" --request-id "$PROPOSE_REQUEST_ID" --json
 # Optional: --fallback HARNESS/MODEL/EFFORT,...
-# Show the resulting selection, reason, fallbacks and digest to the user.
+# The proposal must match the summary the user approved; changing it needs a new approval.
 ```
 
 ## Intake confirmation

@@ -5,7 +5,7 @@ thành việc, sửa qua chính `cusr`, rồi có hiệu lực ở release sau.
 
 ## Ranh giới
 
-- **Agent không merge.** Assistant tự xác nhận run config và chạy task, nhưng không gọi merge. Người dùng duyệt
+- **Agent không merge.** Assistant hỏi người dùng trước khi giao, rồi tự xác nhận run config và chạy task, nhưng không gọi merge. Người dùng duyệt
   và merge mọi PR; khi user config có `yolo: true`, chính daemon merge PR đủ điều kiện
   ([deploy](../deploy/README.md#yolo)). Vòng cải thiện không có đường tắt nào khác.
 - **Gate lấy từ commit base.** PR sửa `cusr.yaml` hay CI không tự nới gate cho chính nó.
@@ -98,12 +98,17 @@ biến này để gọi như owner là quy tắc, không phải giới hạn k�
 
 | Bước | Ai | Việc |
 | --- | --- | --- |
-| 1. Giao | Assistant | `cusr task add` với tiêu chí nghiệm thu quan sát được, kèm đề xuất run config và lý do |
-| 2. Xác nhận | Assistant | `cusr task confirm --run-config <digest>` với `CUSR_ACTOR=assistant` |
-| 3. Chạy | Daemon, worker | Worktree riêng, coder, gate, reviewer nếu `full-review`, tạo PR, chờ CI |
-| 4. Theo dõi | Assistant | `cusr assistant register` để hook đánh thức phiên khi task cần người trên Claude Code, Codex và pi ([cài hook](../deploy/README.md#đánh-thức-assistant-bằng-stop-hook)); harness khác dùng `cusr assistant wait` chạy nền; `task explain`, `task logs`, `inbox`; câu hỏi chưa rõ thì chuyển cho người dùng |
-| 5. Merge | **Người dùng** | Đọc diff, merge trên GitHub; daemon ghi nhận DONE |
-| 6. Cập nhật | Assistant | Kiểm tra task, backup, nâng release và restart theo mục [Nâng và lùi release](#nâng-và-lùi-release) khi có thay đổi cần dùng |
+| 1. Chốt | Assistant, người dùng | Assistant đọc `cusr dispatch`, đưa một bản tóm tắt: tiêu đề, tiêu chí nghiệm thu quan sát được, ngoài phạm vi, worker/mode/reviewer kèm luật đã khớp; người dùng đồng ý hoặc sửa |
+| 2. Giao | Assistant | `cusr task add` và `cusr task propose` đúng như bản đã chốt |
+| 3. Xác nhận | Assistant | `cusr task confirm --run-config <digest>` với `CUSR_ACTOR=assistant` |
+| 4. Chạy | Daemon, worker | Worktree riêng, coder, gate, reviewer nếu `full-review`, tạo PR, chờ CI |
+| 5. Theo dõi | Assistant | `cusr assistant register` để hook đánh thức phiên khi task cần người trên Claude Code, Codex và pi ([cài hook](../deploy/README.md#đánh-thức-assistant-bằng-stop-hook)); harness khác dùng `cusr assistant wait` chạy nền; `task explain`, `task logs`, `inbox`; câu hỏi chưa rõ thì chuyển cho người dùng |
+| 6. Merge | **Người dùng** | Đọc diff, merge trên GitHub; daemon ghi nhận DONE |
+| 7. Cập nhật | Assistant | Kiểm tra task, backup, nâng release và restart theo mục [Nâng và lùi release](#nâng-và-lùi-release) khi có thay đổi cần dùng |
+
+Bỏ bước Chốt chỉ khi người dùng nói rõ cứ giao không cần hỏi; lời đó chỉ áp dụng cho lần giao ấy. Đổi nội dung
+task hay run config so với bản đã chốt thì hỏi lại. Bước Chốt là quy tắc cho assistant, không phải giới hạn
+của daemon: `CUSR_ACTOR=assistant` vẫn chạy được `task confirm`.
 
 `task logs` đọc phần đuôi đã redacted từ spool của worker đang chạy. Phần live này không tăng
 `task.version` hay ghi event theo từng tick, nên không làm stale version vừa đọc để hủy task. Khi run kết
@@ -149,7 +154,7 @@ việc: hủy và giao lại với tiêu chí nghiệm thu được trong chính
 
 ### Chọn model
 
-Assistant đề xuất theo bảng, nêu lý do ở `--reason`, rồi tự xác nhận; người dùng chỉ định khác thì làm theo. Không chắc thì chọn
+Assistant đề xuất theo bảng trong bản tóm tắt ở bước Chốt, nêu lý do ở `--reason`, rồi tự xác nhận sau khi người dùng đồng ý; người dùng chỉ định khác thì làm theo. Không chắc thì chọn
 mức cao hơn. Không đổi binding sau khi task đã chạy: muốn đổi thì tạo task mới.
 
 | Mức | Khi nào | `--worker` | Mode |
