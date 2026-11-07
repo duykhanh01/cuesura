@@ -105,7 +105,7 @@ Dấu cho biết phiên assistant nào đang nhận tin về các task cần ng�
 _Avoid_: Primary, khóa quyền
 
 **Phiên assistant đã đăng ký**:
-Phiên giữ khóa assistant và được Stop hook đánh thức khi có task cần người, không phải chạy `cusr assistant wait`. Đăng ký còn nguyên qua restart daemon, và cũng chỉ định tuyến tin, không cấp quyền.
+Phiên giữ khóa assistant và được hook đánh thức khi có task cần người, không phải chạy `cusr assistant wait`. Đăng ký còn nguyên qua restart daemon, và cũng chỉ định tuyến tin, không cấp quyền.
 _Avoid_: Assistant chính, phiên điều phối
 
 **Thông báo logic**:

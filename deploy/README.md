@@ -244,9 +244,14 @@ assistant.
 
 ### Đánh thức assistant bằng Stop hook
 
-Claude Code chạy hook `Stop` có `asyncRewake` ở nền sau mỗi lượt. `cusr assistant hook` đậu ở đó, hỏi daemon
-không tốn lượt model, và thoát exit 2 khi có task cần người; Claude Code coi stderr là phản hồi của hook và mở
-một lượt mới. Phiên vẫn rảnh trong lúc hook đậu nên người dùng hỏi được bình thường.
+Sau mỗi lượt, `cusr assistant hook` đậu ở nền, hỏi daemon không tốn lượt model và giao tin khi có task cần người.
+Phiên vẫn rảnh trong lúc hook đậu nên người dùng hỏi được bình thường. Chỉ cách giao tin khác nhau:
+
+| Harness | Cách chạy nền | Cách giao tin | ID phiên khi `register` | Bản đã kiểm chứng |
+| --- | --- | --- | --- | --- |
+| Claude Code | Hook `Stop` có `asyncRewake` | Exit 2; stderr thành phản hồi của hook và mở lượt mới | `CLAUDE_CODE_SESSION_ID` | 2.1.319 |
+| Codex | Hook `Stop` có `async` | `codex queue --thread` bằng binary của phiên, vì hook async không tự đánh thức được | `CODEX_THREAD_ID` | 0.166.0 |
+| pi | Extension giữ process con | Extension gửi bằng `pi.sendUserMessage` khi phiên rảnh và thử lại tới khi thấy tin vào phiên | `PI_SESSION_ID` | 1.5.0 |
 
 Chạy trong repo mà assistant làm việc, data dir theo nơi cài:
 
@@ -258,6 +263,23 @@ Mục `assistant` cài skill `cusr` và gộp hai hook vào `.claude/settings.lo
 giữ nguyên mọi khóa và hook khác; chạy lại không thêm trùng, đổi data dir thì cập nhật đúng hook đó. File này chứa
 đường dẫn trên máy nên không được commit: `init` giấu nó bằng `info/exclude` trong git common dir để mọi worktree
 cùng dùng, và dừng với lỗi nếu file đã được track, JSON hỏng hoặc sai kiểu. Commit các file skill.
+
+Khi `codex` hoặc `pi` có trên PATH, `init` cài thêm theo cùng cách `.codex/hooks.json` và
+`.pi/extensions/cusr-assistant.ts`. Hai file này cũng ở cấp repo, được giấu và không commit:
+
+- Cài cấp người dùng sẽ gắn data dir của repo này vào mọi repo khác, nên `init` không dùng `~/.codex` hay `~/.pi`.
+- File bị ignore không vào worktree sạch của worker, nên worker không thấy hook. `session-start` cũng tự thoát khi
+  chạy trong worker.
+- Repo đã commit một trong hai file, hoặc `.gitignore` bỏ ignore nó, thì `init` bỏ qua harness đó và báo `skipped`;
+  harness đó tiếp tục dùng `cusr assistant wait`. `.pi/extensions/cusr-assistant.ts` không do `cusr` viết cũng được giữ nguyên.
+- JSON hỏng trong `.codex/hooks.json` dừng `init` trước khi ghi, như với Claude Code.
+- Codex chỉ nạp hook của thư mục đã trust và hỏi "Hooks need review" lần đầu cũng như khi hook đổi. pi hỏi trust
+  project lần đầu. Phải đồng ý thì hook mới chạy.
+
+**Codex và sandbox.** Sandbox `workspace-write` chặn `connect()` tới socket của daemon, nên mọi lệnh `cusr` do agent
+chạy đều báo `daemon_unreachable` với `EPERM`; hook chạy ngoài sandbox nên không bị. Agent cần được duyệt chạy `cusr`
+ngoài sandbox, hoặc bật `network_access` trong `[sandbox_workspace_write]` của Codex. Lựa chọn thứ hai mở mạng cho
+mọi lệnh của agent, nên cân nhắc trước khi bật.
 
 Đoạn `init` ghi vào file, để tham khảo:
 
@@ -301,10 +323,22 @@ nguyên sau restart daemon.
 - Chỉ tin thật mới đánh thức phiên. Hết `--timeout` (mặc định 604500 giây, thấp hơn `timeout` của hook) hook thoát
   im lặng; lượt kế tiếp kết thúc bằng một Stop và hook đậu lại, việc chưa báo vẫn còn ở daemon.
 - Đóng terminal là kết thúc phiên: hook chết theo và không gửi gì. Mở lại phiên thì đăng ký vẫn còn, tin tới sau
-  lượt đầu tiên.
+  lượt đầu tiên. Trên Codex và pi, hook tự theo dõi process của harness vì đóng terminal hoặc `kill -9` không kéo nó
+  theo. `codex queue` cũng trả exit 0 với phiên đã đóng, nên hook phải tự kiểm tra trước khi gửi.
+- Tin chỉ được xác nhận khi đã tới: `codex queue` thành công, hoặc pi hiện tin trong phiên. Trong lúc giao, hook của
+  lượt vừa kết thúc chờ kết quả. Giao thất bại thì daemon gửi lại ở lần `Stop` sau; pi đang compact thì tin chờ tới khi
+  phiên rảnh. Tin đã vào hàng đợi Codex mà phiên tắt trước khi nhận thì tới lúc resume.
+- `/new` đổi ID phiên. Phiên đã đăng ký thôi nhận tin, tin còn nguyên ở daemon và phiên mới được nhắc hỏi khóa; khóa
+  không tự chuyển. `/resume` về phiên cũ thì nhận tin lại. Codex chỉ báo phiên mới ở prompt đầu tiên, nên tin tới
+  giữa `/new` và prompt đó vẫn chạy thành lượt của phiên cũ mà người dùng không thấy.
+- `register` lấy biến đầu tiên có giá trị theo thứ tự pi, Codex, Claude Code; harness chạy lồng trong harness khác
+  thì truyền `--session`.
+- `codex exec` thoát sau khi xong nên không nhận tin; hook không ở lại.
+- Hook Codex tìm `cusr` theo PATH của login shell. `cusr` ở đó cũ hơn bản đã chạy `init` thì hook báo lỗi `--harness`
+  và không đậu, trong khi `session-start` vẫn chạy nên phiên trông như bình thường.
 - Tin chỉ có ID task và mã trạng thái: nội dung câu hỏi do worker viết, nên assistant đọc bằng `cusr inbox`.
 - `asyncRewake` không có trong tài liệu `--help` của Claude Code. Đã kiểm trên 2.1.319; bản khác có thể đổi.
-- Codex và harness khác dùng `cusr assistant wait`.
+- Harness khác dùng `cusr assistant wait`.
 
 ## Giới hạn thực thi tùy chọn
 

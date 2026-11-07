@@ -16,10 +16,13 @@ import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
   ASSISTANT_SETTINGS_PATH,
+  CODEX_HOOKS_PATH,
   CUSR_SKILL_ROOTS,
+  PI_EXTENSION_PATH,
   assistantCommands,
   cusrSkillFiles,
   mergeAssistantHooks,
+  mergeCodexHooks,
 } from '../../../src/application/init-assistant.ts';
 import {
   InitWriteError,
@@ -50,7 +53,9 @@ const git = (root: string, ...args: string[]) =>
 const read = (root: string, path: string) => readFileSync(join(root, path), 'utf8');
 const settings = (root: string) => JSON.parse(read(root, ASSISTANT_SETTINGS_PATH)) as unknown;
 const install = (root: string, force = false, dataDir = DATA) =>
-  installInitItems(root, ['assistant'], { force, dataDir });
+  installInitItems(root, ['assistant'], { force, dataDir, installed: () => false });
+const installAll = (root: string, dataDir = DATA) =>
+  installInitItems(root, ['assistant'], { force: false, dataDir, installed: () => true });
 const statuses = (files: readonly InitFile[]) => [...new Set(files.map((f) => f.status))];
 
 const WANT = {
@@ -254,6 +259,8 @@ describe('cusr init: assistant', () => {
       ...CUSR_SKILL_ROOTS.flatMap((r) => skill.map((f) => `${r}/${f.path}`)),
       '.git/info/exclude',
       ASSISTANT_SETTINGS_PATH,
+      CODEX_HOOKS_PATH,
+      PI_EXTENSION_PATH,
     ]);
     for (const r of CUSR_SKILL_ROOTS)
       for (const f of skill) expect(read(root, `${r}/${f.path}`)).toBe(f.content);
@@ -271,7 +278,7 @@ describe('cusr init: assistant', () => {
 
     const excluded = read(root, '.git/info/exclude');
     const bytes = read(root, ASSISTANT_SETTINGS_PATH);
-    expect(statuses(install(root))).toEqual(['unchanged']);
+    expect(statuses(install(root)).filter((s) => s !== 'skipped')).toEqual(['unchanged']);
     expect(read(root, '.git/info/exclude')).toBe(excluded);
     expect(read(root, ASSISTANT_SETTINGS_PATH)).toBe(bytes);
   });
@@ -284,10 +291,7 @@ describe('cusr init: assistant', () => {
       }),
     });
     chmodSync(join(root, ASSISTANT_SETTINGS_PATH), 0o644);
-    expect(install(root).at(-1)).toMatchObject({
-      path: ASSISTANT_SETTINGS_PATH,
-      status: 'updated',
-    });
+    expect(install(root).find((f) => f.path === ASSISTANT_SETTINGS_PATH)?.status).toBe('updated');
     const saved = settings(root) as typeof WANT & { permissions: unknown };
     expect(saved.permissions).toEqual({ deny: ['Read(.env)'] });
     expect(saved.hooks.Stop).toHaveLength(2);
@@ -300,9 +304,9 @@ describe('cusr init: assistant', () => {
     const root = gitRepo();
     install(root);
     const files = install(root, false, '/elsewhere');
-    expect(files.filter((f) => f.status !== 'unchanged').map((f) => f.path)).toEqual([
-      ASSISTANT_SETTINGS_PATH,
-    ]);
+    expect(
+      files.filter((f) => f.status === 'updated' || f.status === 'created').map((f) => f.path),
+    ).toEqual([ASSISTANT_SETTINGS_PATH]);
     expect(read(root, ASSISTANT_SETTINGS_PATH)).toContain('CUSR_DATA_DIR=/elsewhere ');
     expect(read(root, ASSISTANT_SETTINGS_PATH)).not.toContain('/srv/cusr');
   });
@@ -452,6 +456,106 @@ describe('cusr init: assistant', () => {
         cusrSkillFiles().map((f) => `${CUSR_SKILL_ROOTS[0]}/${f.path}`),
       );
     }
+  });
+
+  it('installs Codex and pi hidden from Git; running again changes nothing', () => {
+    const root = gitRepo();
+    const first = installAll(root);
+    expect(first.find((f) => f.path === CODEX_HOOKS_PATH)).toMatchObject({
+      status: 'created',
+      local: true,
+    });
+    expect(first.find((f) => f.path === PI_EXTENSION_PATH)).toMatchObject({
+      status: 'created',
+      local: true,
+    });
+    const codex = assistantCommands(DATA, 'codex');
+    expect(JSON.parse(read(root, CODEX_HOOKS_PATH))).toEqual({
+      hooks: {
+        SessionStart: [
+          {
+            matcher: 'startup|resume',
+            hooks: [{ type: 'command', command: codex.sessionStart, timeout: 5 }],
+          },
+        ],
+        Stop: [{ hooks: [{ type: 'command', command: codex.stop, async: true, timeout: 604800 }] }],
+      },
+    });
+    expect(read(root, PI_EXTENSION_PATH)).toContain(JSON.stringify(DATA));
+    const status = git(root, 'status', '--porcelain', '--untracked-files=all');
+    expect(status).not.toContain(CODEX_HOOKS_PATH);
+    expect(status).not.toContain(PI_EXTENSION_PATH);
+
+    const bytes = read(root, CODEX_HOOKS_PATH);
+    expect(statuses(installAll(root))).toEqual(['unchanged']);
+    expect(read(root, CODEX_HOOKS_PATH)).toBe(bytes);
+  });
+
+  it('a changed data dir updates both files', () => {
+    const root = gitRepo();
+    installAll(root);
+    installAll(root, '/other');
+    expect(read(root, CODEX_HOOKS_PATH)).toContain('CUSR_DATA_DIR=/other ');
+    expect(read(root, CODEX_HOOKS_PATH)).not.toContain('/srv/cusr');
+    expect(read(root, PI_EXTENSION_PATH)).toContain('"/other"');
+  });
+
+  it('keeps a Codex hook of the owner in place', () => {
+    const owner = { type: 'command', command: 'my-hook' };
+    const merged = mergeCodexHooks({ model: 'x', hooks: { Stop: [{ hooks: [owner] }] } }, DATA);
+    expect(merged['model']).toBe('x');
+    expect(JSON.stringify(merged)).toContain('my-hook');
+    expect(mergeCodexHooks(merged, DATA)).toEqual(merged);
+  });
+
+  it('leaves a harness that is not on this machine out', () => {
+    const root = gitRepo();
+    const files = install(root);
+    expect(files.find((f) => f.path === CODEX_HOOKS_PATH)).toMatchObject({
+      status: 'skipped',
+      reason: expect.stringContaining('codex is not on PATH') as string,
+    });
+    expect(existsSync(join(root, CODEX_HOOKS_PATH))).toBe(false);
+    expect(existsSync(join(root, PI_EXTENSION_PATH))).toBe(false);
+    expect(read(root, '.git/info/exclude')).not.toContain(CODEX_HOOKS_PATH);
+  });
+
+  it('skips a tracked Codex file and still installs the rest', () => {
+    const root = gitRepo({ [CODEX_HOOKS_PATH]: '{}' });
+    git(root, 'add', CODEX_HOOKS_PATH);
+    const files = installAll(root);
+    expect(files.find((f) => f.path === CODEX_HOOKS_PATH)).toMatchObject({
+      status: 'skipped',
+      reason: expect.stringContaining('cusr assistant wait') as string,
+    });
+    expect(read(root, CODEX_HOOKS_PATH)).toBe('{}');
+    expect(existsSync(join(root, PI_EXTENSION_PATH))).toBe(true);
+    expect(existsSync(join(root, ASSISTANT_SETTINGS_PATH))).toBe(true);
+    expect(read(root, '.git/info/exclude')).not.toContain(CODEX_HOOKS_PATH);
+  });
+
+  it('skips a .gitignore that un-ignores the pi extension in its own directory', () => {
+    const root = gitRepo({
+      '.pi/extensions/.gitignore': `!${PI_EXTENSION_PATH.split('/').pop() ?? ''}\n`,
+    });
+    const files = installAll(root);
+    expect(files.find((f) => f.path === PI_EXTENSION_PATH)).toMatchObject({
+      status: 'skipped',
+      reason: expect.stringContaining('.pi/extensions/.gitignore un-ignores it') as string,
+    });
+  });
+
+  it('leaves a pi extension cusr did not write', () => {
+    const root = gitRepo({ [PI_EXTENSION_PATH]: '// mine\n' });
+    const files = installAll(root);
+    expect(files.find((f) => f.path === PI_EXTENSION_PATH)?.status).toBe('skipped');
+    expect(read(root, PI_EXTENSION_PATH)).toBe('// mine\n');
+  });
+
+  it('stops before any write on a Codex file it cannot read', () => {
+    const root = gitRepo({ [CODEX_HOOKS_PATH]: '{oops' });
+    expect(() => installAll(root)).toThrow(`cannot write ${CODEX_HOOKS_PATH}`);
+    expect(existsSync(join(root, ASSISTANT_SETTINGS_PATH))).toBe(false);
   });
 
   it('write-pr alone leaves the assistant out', () => {

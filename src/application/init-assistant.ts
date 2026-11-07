@@ -1,10 +1,13 @@
 /**
- * `cusr init`, assistant part: the `cusr` skill plus the Claude Code hooks that use it. The skill is
- * committed; the hooks hold a path of this machine, so they go to a settings file Git never sees.
+ * `cusr init`, assistant part: the `cusr` skill plus the harness hooks that use it. The skill is
+ * committed; the hooks hold a path of this machine, so they go to local files Git never sees. Workers
+ * get a clean worktree, so an ignored file never reaches them.
  */
 import { spawnSync } from 'node:child_process';
 import {
+  accessSync,
   appendFileSync,
+  constants,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -14,15 +17,21 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { InitFile } from './init.ts';
+import { PI_EXTENSION_MARKER, piExtensionSource } from './pi-extension.ts';
 
 /** Codex reads skills from `.agents/skills`, Claude Code from `.claude/skills`. */
 export const CUSR_SKILL_ROOTS = ['.claude/skills/cusr', '.agents/skills/cusr'] as const;
 export const ASSISTANT_SETTINGS_PATH = '.claude/settings.local.json';
-const EXCLUDE_LINE = `/${ASSISTANT_SETTINGS_PATH}`;
+export const CODEX_HOOKS_PATH = '.codex/hooks.json';
+export const PI_EXTENSION_PATH = '.pi/extensions/cusr-assistant.ts';
 const NOT_COMMITTED = 'stays on this machine, do not commit';
+const CODEX_NOTE = `${NOT_COMMITTED}; Codex asks you to review the hooks once`;
+const PI_NOTE = `${NOT_COMMITTED}; pi asks you to trust the project once`;
+const KEEPS_WAIT = 'this harness keeps using cusr assistant wait';
+const TRACKED = 'it is tracked by Git, and the hooks hold a path of this machine';
 
 const STOP_TIMEOUT_S = 604800;
 const SESSION_START_TIMEOUT_S = 5;
@@ -49,11 +58,14 @@ function shellQuoted(word: string): string {
   return /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`;
 }
 
-export function assistantCommands(dataDir: string): { sessionStart: string; stop: string } {
+export function assistantCommands(
+  dataDir: string,
+  harness: 'claude' | 'codex' = 'claude',
+): { sessionStart: string; stop: string } {
   const env = `CUSR_DATA_DIR=${shellQuoted(dataDir)} CUSR_ACTOR=assistant`;
   return {
     sessionStart: `${env} cusr assistant session-start`,
-    stop: `${env} cusr assistant hook`,
+    stop: `${env} cusr assistant hook${harness === 'claude' ? '' : ` --harness ${harness}`}`,
   };
 }
 
@@ -132,10 +144,13 @@ function mergeEvent(existing: unknown, event: string, spec: HookSpec): unknown[]
 }
 
 /** The settings with both cusr hooks in, everything else untouched. Throws on a shape it cannot merge. */
-export function mergeAssistantHooks(settings: unknown, dataDir: string): Json {
+function mergeHooks(
+  settings: unknown,
+  commands: { readonly sessionStart: string; readonly stop: string },
+  background: Json,
+): Json {
   const root = objectAt(settings, 'the settings');
   const hooks = objectAt(root['hooks'] === undefined ? {} : root['hooks'], 'hooks');
-  const commands = assistantCommands(dataDir);
   return {
     ...root,
     hooks: {
@@ -150,7 +165,7 @@ export function mergeAssistantHooks(settings: unknown, dataDir: string): Json {
         hook: {
           type: 'command',
           command: commands.stop,
-          asyncRewake: true,
+          ...background,
           timeout: STOP_TIMEOUT_S,
         },
       }),
@@ -158,24 +173,39 @@ export function mergeAssistantHooks(settings: unknown, dataDir: string): Json {
   };
 }
 
+export function mergeAssistantHooks(settings: unknown, dataDir: string): Json {
+  return mergeHooks(settings, assistantCommands(dataDir), { asyncRewake: true });
+}
+
+/** An async hook does not wake Codex by itself: the hook queues the wake with `codex queue`. */
+export function mergeCodexHooks(settings: unknown, dataDir: string): Json {
+  return mergeHooks(settings, assistantCommands(dataDir, 'codex'), { async: true });
+}
+
 function git(root: string, ...args: string[]): { ok: boolean; stdout: string } {
   const r = spawnSync('git', ['-C', root, ...args], { encoding: 'utf8' });
   return { ok: r.status === 0, stdout: r.stdout };
 }
 
-/** The settings as they exist; null when there is no file yet. */
-function currentSettings(root: string): { readonly raw: unknown } | null {
-  const full = join(root, ASSISTANT_SETTINGS_PATH);
+/** True for a regular file, false when there is none. Throws on anything else. */
+function regularFile(full: string): boolean {
   let isFile: boolean;
   try {
     isFile = lstatSync(full).isFile();
   } catch (e) {
     const code = (e as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT' || code === 'ENOTDIR') return null;
+    if (code === 'ENOENT' || code === 'ENOTDIR') return false;
     throw e;
   }
   // Renaming over a symlink would cut the link to whatever it shares the settings with.
   if (!isFile) throw new Error('it is not a regular file');
+  return true;
+}
+
+/** The settings as they exist; null when there is no file yet. */
+function currentSettings(root: string, path: string): { readonly raw: unknown } | null {
+  const full = join(root, path);
+  if (!regularFile(full)) return null;
   try {
     return { raw: JSON.parse(readFileSync(full, 'utf8')) };
   } catch (e) {
@@ -185,38 +215,116 @@ function currentSettings(root: string): { readonly raw: unknown } | null {
   }
 }
 
-export type SettingsPlan = {
-  readonly status: 'created' | 'updated' | 'unchanged';
+export type LocalPlan = {
+  readonly path: string;
+  readonly status: 'created' | 'updated' | 'unchanged' | 'skipped';
   readonly content: string;
+  readonly reason: string;
 };
 
-/** What the settings file must become. Reads only, so a bad file stops `init` before any write. */
-export function planAssistantSettings(root: string, dataDir: string): SettingsPlan {
-  if (git(root, 'ls-files', '--error-unmatch', '--', ASSISTANT_SETTINGS_PATH).ok)
-    throw new Error('it is tracked by Git, and the hooks hold a path of this machine');
+/** Why Git could show this path to others; null when `info/exclude` can hide it. */
+function gitBlock(root: string, path: string): string | null {
+  if (git(root, 'ls-files', '--error-unmatch', '--', path).ok) return TRACKED;
   // A negation in a repo .gitignore outranks info/exclude; one in info/exclude or the global file does
-  // not. Only these two .gitignore files apply to the path; core.excludesFile can be named anything.
-  const rule = git(root, 'check-ignore', '-v', '-n', '--', ASSISTANT_SETTINGS_PATH).stdout;
-  const negated = /^((?:\.claude\/)?\.gitignore):\d+:!/.exec(rule);
-  if (negated !== null)
-    throw new Error(`${negated[1] ?? '.gitignore'} un-ignores it; remove that rule first`);
-  const current = currentSettings(root);
-  const merged = mergeAssistantHooks(current === null ? {} : current.raw, dataDir);
-  const content = `${JSON.stringify(merged, null, 2)}\n`;
-  if (current === null) return { status: 'created', content };
-  const same = JSON.stringify(merged) === JSON.stringify(current.raw);
-  return { status: same ? 'unchanged' : 'updated', content };
+  // not. Only the .gitignore files on the path apply; core.excludesFile can be named anything.
+  const dirs: string[] = [];
+  for (let d = dirname(path); d !== '.'; d = dirname(d)) dirs.push(`${d}/`);
+  const within = dirs.map((d) => d.replaceAll('.', '\\.')).join('|');
+  const rule = git(root, 'check-ignore', '-v', '-n', '--', path).stdout;
+  const negated = new RegExp(`^((?:${within})?\\.gitignore):\\d+:!`).exec(rule);
+  if (negated === null) return null;
+  return `${negated[1] ?? '.gitignore'} un-ignores it; remove that rule first`;
 }
 
-export function writeAssistantSettings(root: string, plan: SettingsPlan): InitFile {
+function planJson(
+  root: string,
+  path: string,
+  reason: string,
+  merge: (settings: unknown) => Json,
+): LocalPlan {
+  const current = currentSettings(root, path);
+  const merged = merge(current === null ? {} : current.raw);
+  const content = `${JSON.stringify(merged, null, 2)}\n`;
+  if (current === null) return { path, status: 'created', content, reason };
+  const same = JSON.stringify(merged) === JSON.stringify(current.raw);
+  return { path, status: same ? 'unchanged' : 'updated', content, reason };
+}
+
+/** What the settings file must become. Reads only, so a bad file stops `init` before any write. */
+export function planAssistantSettings(root: string, dataDir: string): LocalPlan {
+  const blocked = gitBlock(root, ASSISTANT_SETTINGS_PATH);
+  if (blocked !== null) throw new Error(blocked);
+  return planJson(root, ASSISTANT_SETTINGS_PATH, NOT_COMMITTED, (s) =>
+    mergeAssistantHooks(s, dataDir),
+  );
+}
+
+const skipped = (path: string, why: string): LocalPlan => ({
+  path,
+  status: 'skipped',
+  content: '',
+  reason: `${why}; ${KEEPS_WAIT}`,
+});
+
+function planCodexHooks(root: string, dataDir: string): LocalPlan {
+  const blocked = gitBlock(root, CODEX_HOOKS_PATH);
+  if (blocked !== null) return skipped(CODEX_HOOKS_PATH, blocked);
+  return planJson(root, CODEX_HOOKS_PATH, CODEX_NOTE, (s) => mergeCodexHooks(s, dataDir));
+}
+
+function planPiExtension(root: string, dataDir: string): LocalPlan {
+  const path = PI_EXTENSION_PATH;
+  const blocked = gitBlock(root, path);
+  if (blocked !== null) return skipped(path, blocked);
+  const content = piExtensionSource(dataDir);
+  const reason = PI_NOTE;
+  const full = join(root, path);
+  if (!regularFile(full)) return { path, status: 'created', content, reason };
+  const before = readFileSync(full, 'utf8');
+  if (!before.startsWith(PI_EXTENSION_MARKER)) return skipped(path, 'cusr did not write this file');
+  return { path, status: before === content ? 'unchanged' : 'updated', content, reason };
+}
+
+function onPath(command: string): boolean {
+  return (process.env['PATH'] ?? '').split(delimiter).some((dir) => {
+    try {
+      accessSync(join(dir, command), constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
+/**
+ * A repo-level file is what keeps the data dir out of every other repo, so there is no user-level
+ * fallback. One harness that cannot take its file leaves the others alone.
+ */
+export function harnessPlanners(
+  root: string,
+  dataDir: string,
+  installed: (command: string) => boolean = onPath,
+): { readonly path: string; readonly plan: () => LocalPlan }[] {
+  const planner = (path: string, command: string, plan: () => LocalPlan) => ({
+    path,
+    plan: () => (installed(command) ? plan() : skipped(path, `${command} is not on PATH`)),
+  });
+  return [
+    planner(CODEX_HOOKS_PATH, 'codex', () => planCodexHooks(root, dataDir)),
+    planner(PI_EXTENSION_PATH, 'pi', () => planPiExtension(root, dataDir)),
+  ];
+}
+
+export function writeLocalFile(root: string, plan: LocalPlan): InitFile {
+  if (plan.status === 'skipped') return { path: plan.path, status: 'skipped', reason: plan.reason };
   const entry: InitFile = {
-    path: ASSISTANT_SETTINGS_PATH,
+    path: plan.path,
     status: plan.status,
-    reason: NOT_COMMITTED,
+    reason: plan.reason,
     local: true,
   };
   if (plan.status === 'unchanged') return entry;
-  const full = join(root, ASSISTANT_SETTINGS_PATH);
+  const full = join(root, plan.path);
   const tmp = `${full}.${String(process.pid)}.tmp`;
   mkdirSync(dirname(full), { recursive: true });
   try {
@@ -238,14 +346,14 @@ export function excludePath(root: string): string {
   return rel.startsWith('..') || isAbsolute(rel) ? file : rel;
 }
 
-export function hideAssistantSettings(root: string, path: string): InitFile {
+export function hideLocalFiles(root: string, path: string, files: readonly string[]): InitFile {
   const entry = { path, reason: NOT_COMMITTED, local: true } as const;
-  if (git(root, 'check-ignore', '-q', '--', ASSISTANT_SETTINGS_PATH).ok)
-    return { ...entry, status: 'unchanged' };
+  const visible = files.filter((f) => !git(root, 'check-ignore', '-q', '--', f).ok);
+  if (visible.length === 0) return { ...entry, status: 'unchanged' };
   const full = resolve(root, path);
   const before = existsSync(full) ? readFileSync(full, 'utf8') : null;
   mkdirSync(dirname(full), { recursive: true });
   const gap = before === null || before === '' || before.endsWith('\n') ? '' : '\n';
-  appendFileSync(full, `${gap}${EXCLUDE_LINE}\n`);
+  appendFileSync(full, `${gap}${visible.map((f) => `/${f}\n`).join('')}`);
   return { ...entry, status: before === null ? 'created' : 'updated' };
 }

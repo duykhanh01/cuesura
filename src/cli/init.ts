@@ -69,10 +69,11 @@ export function makeInitCommand(deps: InitDeps = processDeps): CliCommand {
     help: `Shows a checklist, every item checked:
   write-pr  .github/pull_request_template.md and the write-pr skill under .agents/skills and
             .claude/skills. A repo with its own PR template keeps it and gets the skill alone.
-  assistant skills/cusr under .agents/skills and .claude/skills, and the Claude Code hooks in
-            .claude/settings.local.json, hidden from Git through info/exclude.
+  assistant skills/cusr under .agents/skills and .claude/skills, and the hooks that wake the
+            assistant, hidden from Git through info/exclude: .claude/settings.local.json, plus
+            .codex/hooks.json and .pi/extensions/cusr-assistant.ts when codex or pi is on PATH.
 Nothing is committed: cusr reads the template from the base commit, so commit the files for new
-tasks to use them. Do not commit settings.local.json: its hooks hold this machine's data dir.
+tasks to use them. Do not commit the hook files: they hold this machine's data dir.
 
 Examples:
   cusr init

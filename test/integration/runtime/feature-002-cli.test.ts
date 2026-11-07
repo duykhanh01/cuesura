@@ -510,6 +510,8 @@ describe('assistant wait (issue #166)', () => {
         pid: process.pid,
         parkMs: 1_000,
         alive: () => false,
+        owner: null,
+        ownerAlive: () => true,
         query: (lease) =>
           call(
             { dataDir: sd.dataDir },
@@ -519,7 +521,10 @@ describe('assistant wait (issue #166)', () => {
           ),
         now: Date.now,
         sleep: () => Promise.resolve(),
-        stderr: (text) => notes.push(text),
+        deliver: (note) => {
+          notes.push(note);
+          return Promise.resolve({ exit: 2, confirmed: true });
+        },
       });
 
     expect(await hook('s-2')).toBe(ExitCode.ok);
@@ -529,6 +534,48 @@ describe('assistant wait (issue #166)', () => {
 
     expect((await cli(sd, ['assistant', 'unregister'])).envelope.data).toEqual({ session: 's-1' });
     expect(await hook('s-1')).toBe(ExitCode.ok);
+  });
+
+  it('sends a wake again when its delivery failed while the next Stop arrived', async () => {
+    const sd = daemon();
+    const t = buildTask();
+    sd.seed((d) => asking(d, t));
+    await sd.start();
+    await cli(sd, ['assistant', 'register', '--session', 's-1']);
+    const notes: string[] = [];
+    const later: Promise<number>[] = [];
+    const hook = (pid: number, ok: boolean, onDelivery?: () => void) =>
+      runStopHook({
+        dataDir: sd.dataDir,
+        session: 's-1',
+        pid,
+        parkMs: 1_000,
+        alive: (other) => other === 1_000,
+        owner: null,
+        ownerAlive: () => true,
+        query: (lease) =>
+          call(
+            { dataDir: sd.dataDir },
+            '/v1/query',
+            { kind: 'attention', lease, mode: 'hook' },
+            null,
+          ),
+        now: Date.now,
+        sleep: (ms) => new Promise((r) => setTimeout(r, Math.min(ms, 5))),
+        deliver: (note) => {
+          notes.push(note);
+          onDelivery?.();
+          return Promise.resolve({ exit: 0, confirmed: ok });
+        },
+      });
+
+    // The turn ends while the first delivery is under way, and that delivery then fails.
+    await hook(1_000, false, () => {
+      later.push(hook(2_000, true));
+    });
+    await Promise.all(later);
+    expect(notes).toHaveLength(2);
+    for (const note of notes) expect(note).toContain(`${t.id} (agent_question)`);
   });
 
   it('refuses a timeout that is not a positive whole number', async () => {

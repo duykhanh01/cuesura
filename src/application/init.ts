@@ -12,10 +12,11 @@ import {
   CUSR_SKILL_ROOTS,
   cusrSkillFiles,
   excludePath,
-  hideAssistantSettings,
+  harnessPlanners,
+  hideLocalFiles,
   planAssistantSettings,
-  writeAssistantSettings,
-  type SettingsPlan,
+  writeLocalFile,
+  type LocalPlan,
 } from './init-assistant.ts';
 import { TEMPLATE_RE } from './run-config.ts';
 
@@ -133,7 +134,7 @@ export function initItems(root: string): InitItem[] {
     },
     {
       id: 'assistant',
-      label: 'assistant: cusr skill and Claude Code hooks',
+      label: 'assistant: cusr skill and hooks for Claude Code, Codex and pi',
       description: 'The skill for calling cusr, and the local hooks that wake the assistant',
       unavailable: null,
     },
@@ -159,7 +160,12 @@ export class InitWriteError extends Error {
 export function installInitItems(
   root: string,
   ids: readonly InitItemId[],
-  opts: { readonly force: boolean; readonly dataDir: string },
+  opts: {
+    readonly force: boolean;
+    readonly dataDir: string;
+    /** Whether a harness is on this machine; defaults to looking in PATH. */
+    readonly installed?: (command: string) => boolean;
+  },
 ): InitFile[] {
   const done: InitFile[] = [];
   const attempt = (path: string, step: () => InitFile) => {
@@ -174,16 +180,21 @@ export function installInitItems(
 
   // Read before anything is written: a build without the skill must not leave a partial install.
   const skill = ids.includes('assistant') ? cusrSkillFiles() : [];
-  let assistant: { readonly settings: SettingsPlan; readonly exclude: string } | null = null;
-  if (ids.includes('assistant'))
-    try {
-      assistant = {
-        settings: planAssistantSettings(root, opts.dataDir),
-        exclude: excludePath(root),
-      };
-    } catch (e) {
-      throw new InitWriteError(ASSISTANT_SETTINGS_PATH, [], e);
-    }
+  let assistant: { readonly plans: readonly LocalPlan[]; readonly exclude: string } | null = null;
+  if (ids.includes('assistant')) {
+    const planned = <T>(path: string, plan: () => T): T => {
+      try {
+        return plan();
+      } catch (e) {
+        throw new InitWriteError(path, [], e);
+      }
+    };
+    const plans = [
+      planned(ASSISTANT_SETTINGS_PATH, () => planAssistantSettings(root, opts.dataDir)),
+      ...harnessPlanners(root, opts.dataDir, opts.installed).map((h) => planned(h.path, h.plan)),
+    ];
+    assistant = { plans, exclude: planned(ASSISTANT_SETTINGS_PATH, () => excludePath(root)) };
+  }
 
   if (ids.includes('write-pr')) {
     const own = ownTemplates(root);
@@ -200,12 +211,13 @@ export function installInitItems(
   }
 
   if (assistant !== null) {
-    const { settings, exclude } = assistant;
+    const { plans, exclude } = assistant;
     for (const r of CUSR_SKILL_ROOTS)
       for (const f of skill) write(`${r}/${f.path}`, f.content, opts.force);
+    const local = plans.filter((p) => p.status !== 'skipped').map((p) => p.path);
     // Hidden first, so a path of this machine never shows up as a file to commit.
-    attempt(exclude, () => hideAssistantSettings(root, exclude));
-    attempt(ASSISTANT_SETTINGS_PATH, () => writeAssistantSettings(root, settings));
+    attempt(exclude, () => hideLocalFiles(root, exclude, local));
+    for (const p of plans) attempt(p.path, () => writeLocalFile(root, p));
   }
   return done;
 }
