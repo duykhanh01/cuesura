@@ -77,7 +77,8 @@ comment hoặc merge đã thành công.
   event, actor, lý do và revision mới. Agent MUST NOT tự đổi role, quyền, binding, approval, pool
   hay ngân sách của mình. Assistant caller tự khai là `assistant` (`CUSR_ACTOR`) và daemon giới hạn nó ở
   `read`/`operate`: được xác nhận run config của task nó điều phối, theo digest và có ghi actor, được duyệt
-  escalation trong ladder đã đóng băng (#205), không được duyệt nhận PR có sẵn hay dùng quyền admin. Đây là rào chắn cho caller làm đúng quy ước, không phải ranh giới bảo
+  escalation trong ladder đã đóng băng (#205), không được duyệt nhận PR có sẵn hay dùng quyền admin. Đây
+  là rào chắn cho caller làm đúng quy ước, không phải ranh giới bảo
   mật với process cùng UID. Worker không gọi `cusr`.
 - Nâng effort/model/vendor MUST đi theo thang đã duyệt trước, do code kích hoạt theo phân loại lỗi.
   Lỗi hạ tầng hoặc hết hạn mức MUST NOT kích hoạt nâng model; không hạ model ngầm.
@@ -255,4 +256,18 @@ cấu trúc.
 `deploy/README.md` và `docs/architecture.md` được cập nhật; template Spec Kit đã kiểm tra, không cần thay đổi.
 Không có mục đồng bộ còn chờ.
 
-**Version**: 8.0.0 | **Ratified**: 2026-10-27 | **Last Amended**: 2026-11-06
+**Amendment 2026-11-08 (chủ dự án):** 8.0.0 → 9.0.0 vì định nghĩa lại nguyên tắc V: assistant (`operate`) được
+duyệt escalation (`task approve --kind escalation`), không còn là việc riêng của owner. Lý do (#205): nấc được
+duyệt đã nằm trong ladder người dùng cấu hình và đóng băng vào policy, còn actor tự khai không phải ranh giới
+quyền thật, nên đòi admin chỉ làm task đứng chờ một bước cơ học. Giữ nguyên: engine vẫn kiểm request mở, revision,
+step, rung, policy hash và ngân sách; duyệt nhận PR có sẵn, bật yolo và quyền admin vẫn thuộc owner; agent không
+merge. Đồng bộ SPEC §5.2 và §15, hợp đồng CLI–daemon, TUI và Telegram, runbook, dogfooding, skill `cusr`, README
+và ADR-0011 (PR #225); các template đọc hiến chương hiện hành, không cần đổi cấu trúc.
+
+**Sync Impact Report 2026-11-08:** nguyên tắc V đổi quyền duyệt escalation từ `admin` sang `operate`.
+`SPEC.md`, `specs/002-task-to-green-pr/contracts/cli-daemon.md`, `specs/004-terminal-tui/contracts/tui.md`,
+`specs/003-telegram-channel/contracts/telegram.md`, `deploy/README.md`, `docs/dogfooding.md`, `README.md`,
+skill `cusr` và `docs/adr/0011-declared-actor-instead-of-tokens.md` đã cập nhật trong PR #225; template Spec
+Kit đã kiểm tra, không cần thay đổi. Không có mục đồng bộ còn chờ.
+
+**Version**: 9.0.0 | **Ratified**: 2026-10-27 | **Last Amended**: 2026-11-08
