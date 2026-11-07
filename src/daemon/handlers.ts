@@ -1176,8 +1176,7 @@ async function startAgent(
   // A worker's summary is kept in state and shown to the next reviewer, so it is stored redacted.
   const verdict = worker ? redactedSummary(raw, deps.redactor) : raw;
   const plain = review === null ? verdict : await withChangedSince(deps, l, review.sha, verdict);
-  // Sessions are a worker concern: a reviewer always runs in its own new session.
-  const outcome = worker ? withSession(plain, out, resume) : plain;
+  const outcome = withSession(plain, out, resume);
   if (!worker) return outcome;
   const accepted = acceptContent(deps, l, file, outcome);
   // What the attempt left is now the task's tree; an attempt never invoked changed nothing.

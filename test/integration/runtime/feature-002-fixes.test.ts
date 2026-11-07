@@ -213,6 +213,80 @@ describe('repair loops (US2.1–US2.3, M03/M04/M06)', () => {
     ]);
   });
 
+  /** Coder, gates and a rejecting review on `A`, then the fixer and gates on `C`: the second review is pending. */
+  function secondReview(d: StoreDriver, t: CanonicalTask, firstReview: Record<string, unknown>) {
+    createGrantStart(d, t, 'full-review');
+    d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE);
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      agentData('done', { session_ref: 'worker-1' }),
+    );
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(A));
+    publishToReview(d, t.id, A);
+    const first = d.pendingOne(t.id, 'start_agent');
+    d.complete(t.id, first.id, 'succeeded', {
+      ...reviewData('request_changes', A, {
+        findings: [{ severity: 'major', msg: 'missing test' }],
+        input_digest: currentReviewInput(d, t.id),
+      }),
+      ...firstReview,
+    });
+    completePost(d, t.id);
+    grant(d);
+    const fixer = d.pendingOne(t.id, 'start_agent');
+    d.complete(t.id, fixer.id, 'succeeded', agentData('done', { session_ref: 'worker-2' }));
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(C));
+    publishToReview(d, t.id, C);
+    const attemptOf = (e: { id: string }) => d.task(t.id).effects[e.id]?.attempt_id;
+    return { first, fixer, second: d.pendingOne(t.id, 'start_agent'), attemptOf };
+  }
+
+  it('#213: a later review round resumes the reviewer session of the round before; sessions never cross between reviewer and worker', () => {
+    const d = setup();
+    const t = buildTask();
+    const { first, fixer, second, attemptOf } = secondReview(d, t, { session_ref: 'review-1' });
+    // The first review has nothing of its own to resume, and never takes the coder's session.
+    expect(first.request).toMatchObject({ role: 'reviewer', resume: null, resume_reason: null });
+    expect(d.task(t.id).attempts[attemptOf(first) ?? '']?.session_ref).toBe('review-1');
+    expect(fixer.request).toMatchObject({
+      role: 'fixer',
+      resume: { session_ref: 'worker-1' },
+    });
+    expect(second.request).toMatchObject({
+      role: 'reviewer',
+      resume: { session_ref: 'review-1', from_attempt_id: attemptOf(first) },
+      resume_reason: null,
+    });
+    expect(d.task(t.id).attempts[attemptOf(second) ?? '']?.resumed_from).toBe(attemptOf(first));
+    // The fixer of the next round goes back to the worker session, never the reviewer's.
+    d.complete(t.id, second.id, 'succeeded', {
+      ...reviewData('request_changes', C, {
+        findings: [{ severity: 'major', msg: 'still no test' }],
+        input_digest: currentReviewInput(d, t.id),
+      }),
+      session_ref: 'review-1',
+    });
+    completePost(d, t.id);
+    grant(d);
+    expect(d.pendingOne(t.id, 'start_agent').request).toMatchObject({
+      role: 'fixer',
+      resume: { session_ref: 'worker-2' },
+    });
+  });
+
+  it('#213: a reviewer that reported no session leaves the next round a new session with the reason', () => {
+    const d = setup();
+    const t = buildTask();
+    const { second } = secondReview(d, t, {});
+    expect(second.request).toMatchObject({
+      role: 'reviewer',
+      resume: null,
+      resume_reason: 'no_session',
+    });
+  });
+
   it('US2.3: a CI code failure is fixed on the task worktree and updates the same PR; CI of the old head never greens the new one', () => {
     const d = setup();
     const t = buildTask();

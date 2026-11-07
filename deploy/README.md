@@ -393,7 +393,9 @@ Với Claude, `roles.<role>.limits.max_turns` được áp dụng cùng trần t
 số nhỏ hơn. Bỏ cả hai để không giới hạn. Cap turn này chỉ áp dụng cho Claude;
 dùng wall/stall timeout cho binding Codex. Hết turn là `timeout`, dùng cơ chế retry/hỏi người vận hành của
 timeout, không tiêu lượt retry infra. Claude luôn lưu session vào private home của attempt, không dùng
-`--no-session-persistence`; chỉ resume khi manifest có `resume: proven`. Reviewer luôn dùng phiên mới.
+`--no-session-persistence`; chỉ resume khi manifest có `resume: proven`. Từ vòng review thứ hai, reviewer
+resume phiên reviewer của vòng trước (cùng revision, step và binding) với packet dựng mới. Phiên reviewer
+không bao giờ trao cho coder/fixer và ngược lại; revision mới hoặc đổi binding thì mở phiên mới.
 
 Các policy/runtime snapshot của task đã chạy giữ nguyên giới hạn đã đóng băng. Sau khi nâng release,
 xóa các trần trong user config và tạo lại pin/manifest theo mục bên dưới để task mới dùng cấu hình
@@ -599,7 +601,7 @@ hiện là 5 lượt tổng cộng, thay vì 4 (dry-run hiển thị số cần)
 và nhớ lại một nonce chỉ có trong hội thoại trước. Chỉ bằng chứng probe đạt mới ghi `session_resume: proven`;
 sau setup thành công, restart daemon. Resume chỉ mang transcript/tool data của đúng session,
 không mang auth/settings của attempt cũ. Codex hiện chưa có resume được hỗ trợ; daemon ghi lý do và
-sử dụng phiên mới cùng context đầy đủ.
+sử dụng phiên mới cùng context đầy đủ, cho cả worker lẫn reviewer.
 
 Nếu transcript/run cũ đã mất, worker dùng phiên mới với context đầy đủ và ghi `resume_fallback: session_missing`;
 không chờ người vận hành chỉ để khôi phục hội thoại. Evidence của `--prove-resume` có `resume_probe` ghi

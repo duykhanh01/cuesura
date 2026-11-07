@@ -110,7 +110,9 @@ crash I/O rộng vẫn thuộc B; không lấy API đọc finalized review làm 
 - Context tối đa 128 KiB, phần cắt phải ghi rõ. Reviewer không nhận nội dung diff mà đọc bằng `git diff`
   theo range trong context; context giữ range, digest của diff đầy đủ và toàn bộ path list. Diff đưa cho
   fixer cắt ở 64 KiB. Không đủ acceptance/range bắt buộc thì needs_context/chờ, không cắt thông tin rồi approve. Reviewer
-  có session riêng trong `full-review`, thay đổi của nó bị daemon trả về; có thể cùng vendor/model. `direct-pr` không gọi reviewer.
+  có session riêng trong `full-review`, thay đổi của nó bị daemon trả về; có thể cùng vendor/model. Vòng review sau
+  resume session reviewer của vòng trước cùng revision/step/binding khi harness chứng minh resume, vẫn nhận
+  packet dựng mới; không thì session mới có lý do fallback như worker. `direct-pr` không gọi reviewer.
 - Worker chuẩn bị commit message, PR title/description theo template frozen trong artifact ngoài code;
   sửa code thì cập nhật mô tả khi cần. Hợp đồng output mới phải version hóa/kiểm chứng schema riêng,
   không coi schema/fixture spike hiện có đã bao phủ; xem [M01–M08](../task-execution-modes.md).

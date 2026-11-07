@@ -323,9 +323,9 @@ export class RunnerHarness implements HarnessPort {
     if (run.readFinal(RUN_FILES.launch).state !== 'missing') return this.recover(input);
 
     if (signal.aborted) return never('cancelled', 'aborted before start');
-    // A reviewer or decider always runs in its own new session (contracts/execution.md).
-    if ((input.role === 'reviewer' || input.role === 'decider') && input.session !== null)
-      return never('capability_missing', 'a reviewer never resumes a session');
+    // A decider always runs in its own new session; a reviewer resumes only its own (#213).
+    if (input.role === 'decider' && input.session !== null)
+      return never('capability_missing', 'a decider never resumes a session');
 
     // The wire form is the vendor's; the canonical schema digest must be the role's current one.
     const schema = wireRoleSchema(input.role, {

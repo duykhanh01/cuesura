@@ -79,6 +79,10 @@ export type SetupOptions = {
   reviews?: number;
   /** Reviewer results in order, in place of the approvals of `reviews`. */
   verdicts?: readonly Record<string, unknown>[];
+  /** The first scripted review requests changes instead of approving. */
+  rejectFirst?: boolean;
+  /** The fake reviewer proves resume and reports a session per run, like `resume` for the coder. */
+  reviewerResume?: boolean;
   writeCode?: boolean;
   reviewerPrompt?: string;
   /** Project setup of the frozen runtime; `prepare` runs it. */
@@ -181,16 +185,31 @@ export function flowEnv(prefix: string) {
         findings: [],
       },
     };
+    const reject = {
+      kind: 'result' as const,
+      value: {
+        ...approve.value,
+        verdict: 'request_changes',
+        summary: 'needs a test',
+        findings: [{ severity: 'major', file: 'search.ts', line: null, message: 'missing test' }],
+      },
+    };
     const reviewer = new FakeHarness(
       {
-        reviewer:
-          o.mode !== 'full-review'
-            ? []
-            : o.verdicts !== undefined
-              ? o.verdicts.map((value) => ({ kind: 'result' as const, value }))
-              : Array.from({ length: o.reviews ?? 1 }, () => approve),
+        reviewer: (o.mode !== 'full-review'
+          ? []
+          : o.verdicts !== undefined
+            ? o.verdicts.map((value) => ({ kind: 'result' as const, value }))
+            : Array.from({ length: o.reviews ?? 1 }, (_, i) =>
+                i === 0 && o.rejectFirst === true ? reject : approve,
+              )
+        ).map((step, i) => ({
+          ...step,
+          ...(o.reviewerResume === true ? { session_ref: `review-${i + 1}` } : {}),
+        })),
       },
       'codex',
+      o.reviewerResume === true ? { resume: 'proven' } : {},
     );
     const codex = Object.assign(reviewer, {
       run: ((orig) => (input: Parameters<HarnessPort['run']>[0], signal: AbortSignal) => {

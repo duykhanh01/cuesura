@@ -8,6 +8,7 @@ import { bindingName, type FrozenPolicy } from '../domain/policy.ts';
 import {
   isTerminal,
   streakKey,
+  type Attempt,
   type AttemptKind,
   type EffectMirror,
   type ResumeAction,
@@ -848,6 +849,7 @@ function resumePlan(
   resume: { session_ref: string; from_attempt_id: string } | null;
   resume_reason: string | null;
 } {
+  if (role === 'reviewer') return reviewerResume(ctx, step, binding, kind, self);
   if (role !== 'coder' && role !== 'fixer') return { resume: null, resume_reason: null };
   const s = ctx.state;
   const answered = Object.values(s.questions).some(
@@ -867,11 +869,51 @@ function resumePlan(
       a.status === 'finished' &&
       (ctx.frozen.steps[a.step]?.role === 'coder' || ctx.frozen.steps[a.step]?.role === 'fixer'),
   );
+  return lastSession(ctx, workers, binding, self);
+}
+
+/**
+ * A later review round resumes the reviewer's own session of this revision and step, so it keeps the
+ * findings it raised and the vendor's prompt cache; the packet is still built fresh. A reviewer session
+ * is never handed to a worker and a worker session never to a reviewer. The first round has nothing to
+ * resume.
+ */
+function reviewerResume(
+  ctx: Ctx,
+  step: string,
+  binding: string,
+  kind: AttemptKind,
+  self: string,
+): ReturnType<typeof resumePlan> {
+  const s = ctx.state;
+  const reviews = Object.values(s.attempts).filter(
+    (a) =>
+      a.id !== self &&
+      a.revision === s.revision &&
+      a.step === step &&
+      a.status === 'finished' &&
+      ctx.frozen.steps[a.step]?.role === 'reviewer',
+  );
+  if (reviews.length === 0) return { resume: null, resume_reason: null };
+  if (kind === 'fresh_session') return { resume: null, resume_reason: 'fresh_session_requested' };
+  return lastSession(ctx, reviews, binding, self);
+}
+
+/**
+ * The newest of `candidates` that reported a session, on the same binding, resumed at most once: when an
+ * attempt that resumed it ended without a session of its own, the next one starts a new session.
+ */
+function lastSession(
+  ctx: Ctx,
+  candidates: readonly Attempt[],
+  binding: string,
+  self: string,
+): ReturnType<typeof resumePlan> {
   // Attempts keep their request order in state.
-  const last = workers.filter((a) => typeof a.session_ref === 'string').at(-1);
+  const last = candidates.filter((a) => typeof a.session_ref === 'string').at(-1);
   if (last === undefined) return { resume: null, resume_reason: 'no_session' };
   if (last.binding !== binding) return { resume: null, resume_reason: 'binding_changed' };
-  const spent = Object.values(s.attempts).some(
+  const spent = Object.values(ctx.state.attempts).some(
     (a) =>
       a.id !== self &&
       a.resumed_from === last.id &&

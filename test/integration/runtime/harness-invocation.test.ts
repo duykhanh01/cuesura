@@ -634,17 +634,20 @@ describe('worker content and reviewer input (T076)', () => {
     expect(existsSync(host)).toBe(false);
   });
 
-  it('a reviewer never resumes a session', async () => {
+  it('a reviewer resumes its own session once resume is proven (#213)', async () => {
     const e = env('claude', 's0-claude-reviewer-1793180331');
-    const out = await harness(e).run(
-      input('claude', 'reviewer', { session: { ref: 's' } }),
+    const proven = evidenceManifest(e.pin, {
+      capabilities: {
+        ...evidenceManifestEntry('claude').capabilities,
+        session_resume: { status: 'proven', evidence: 'test-only resume proof' },
+      },
+    });
+    const out = await harness(e, { manifest: proven }).run(
+      input('claude', 'reviewer', { session: { ref: 'review-1' } }),
       signal(),
     );
-    expect(out).toMatchObject({
-      kind: 'failure',
-      failure: 'capability_missing',
-      invoked: false,
-    });
+    expect(out.kind).toBe('result');
+    expect(e.proc.launches.at(-1)?.argv.join(' ')).toContain('--resume review-1');
   });
 });
 

@@ -146,6 +146,10 @@ export const ReviewDataSchema = z
     input_digest: HashSchema.optional(),
     // Additive: the files changed since the commit the previous rejecting review of this revision saw.
     changed_since: ChangedSinceSchema.optional(),
+    // The reviewer's own session, resumed by the next round of the same revision (#213); additive.
+    session_ref: z.string().min(1).nullable().optional(),
+    resumed: z.boolean().optional(),
+    resume_fallback: z.string().min(1).optional(),
   })
   .strict();
 

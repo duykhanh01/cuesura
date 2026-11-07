@@ -255,6 +255,33 @@ it('#215: each review gets the worker reports since the review before, redacted,
   expect(JSON.stringify(f.d.task(task.id).attempts)).not.toContain(token);
 });
 
+it('#213: the second review resumes the first review session through the handler; the fixer keeps the worker session', async () => {
+  const task = buildTask();
+  const f = setup(task, {
+    mode: 'full-review',
+    reviews: 2,
+    rejectFirst: true,
+    reviewerResume: true,
+    resume: true,
+    runs: [CONTENT, CONTENT],
+  });
+  f.d.must(task.id, { kind: 'create_task', task });
+  f.start();
+  await settleWithSlot(f.d, f.settle);
+  expect(f.codex.calls).toHaveLength(2);
+  expect(f.codex.calls[0]?.session).toBeNull();
+  expect(f.codex.calls[1]?.session).toEqual({
+    ref: 'review-1',
+    from_attempt_id: f.codex.calls[0]?.attempt_id,
+  });
+  expect(f.coder.calls[1]?.session).toMatchObject({ ref: 'sess-1' });
+  // A resumed review still gets a packet built for its own round.
+  expect(f.codex.calls[1]?.context.digest).not.toBe(f.codex.calls[0]?.context.digest);
+  expect(f.d.task(task.id).attempts[f.codex.calls[1]?.attempt_id ?? '']?.session_ref).toBe(
+    'review-2',
+  );
+});
+
 it('an expired harness login stops at once instead of spending retries and visits (#97)', async () => {
   const task = buildTask();
   const f = setup(task, { mode: 'direct-pr' });
