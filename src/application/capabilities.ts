@@ -173,26 +173,6 @@ export function verifyManifest(
   });
 }
 
-/**
- * The sandbox layout an attempt is about to launch must be the one the manifest pinned for its role;
- * a changed mount table, flag, environment name or launcher blocks the attempt until it is proven again.
- */
-export function verifyLayout(
-  m: CapabilityManifest,
-  role: string,
-  shape: Hash,
-): CapabilityProblem | null {
-  const pinned = m.layout_shapes[role];
-  if (pinned === undefined)
-    return { check: 'layout', message: `no proven sandbox layout for ${role}` };
-  if (pinned !== shape)
-    return {
-      check: 'layout',
-      message: `sandbox layout for ${role} changed since the proof`,
-    };
-  return null;
-}
-
 // ---- observation ----
 
 const digestCache = new Map<string, { key: string; digest: Hash }>();

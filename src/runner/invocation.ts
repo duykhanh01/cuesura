@@ -41,7 +41,6 @@ import { HashSchema } from '../shared/brand.ts';
 import { readLaunchMarker } from './operation-lock.ts';
 import {
   observeHarness,
-  verifyLayout,
   verifyManifest,
   type CapabilityProblem,
 } from '../application/capabilities.ts';
@@ -454,13 +453,6 @@ export class RunnerHarness implements HarnessPort {
           'capability_missing',
           `sandbox ${sandboxed.error.code}: ${sandboxed.error.message}`,
         );
-      const layoutProblem = verifyLayout(
-        o.manifest,
-        boundaryRole(input.role),
-        sandboxed.value.layout_shape,
-      );
-      if (layoutProblem !== null) return never('capability_missing', layoutProblem.message);
-
       const nonce = newLaunchNonce();
       // Everything the conclusion needs that only exists before launch is on disk before the spawn,
       // so a daemon that dies while the run goes on can still conclude it (US3.2).

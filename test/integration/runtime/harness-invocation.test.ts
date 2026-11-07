@@ -341,7 +341,7 @@ describe('admission before every attempt (T070)', () => {
     expect(e.proc.launches).toHaveLength(0);
   });
 
-  it('a sandbox layout other than the pinned one for the role is capability_missing; nothing launches', async () => {
+  it('a sandbox layout other than the one recorded at proof time does not block the attempt', async () => {
     const e = env('claude', attempt);
     const manifest = evidenceManifest(
       e.pin,
@@ -351,21 +351,8 @@ describe('admission before every attempt (T070)', () => {
       },
     );
     const out = await harness(e, { manifest }).run(input('claude', 'coder'), signal());
-    expect(out).toMatchObject({
-      kind: 'failure',
-      failure: 'capability_missing',
-      detail: 'sandbox layout for coder changed since the proof',
-      invoked: false,
-    });
-    expect(e.proc.launches).toHaveLength(0);
-    // The read-only boundary is still named `reviewer`; only the decider runs under it now.
-    const decider = await harness(e, {
-      manifest: withDecider(e, { coder: hashText('another layout') }),
-    }).run(input('claude', 'decider'), signal());
-    expect(decider).toMatchObject({
-      failure: 'capability_missing',
-      detail: 'no proven sandbox layout for reviewer',
-    });
+    expect(out).not.toMatchObject({ failure: 'capability_missing' });
+    expect(e.proc.launches).toHaveLength(1);
   });
 
   it('knows whether an attempt ever got as far as a launch', async () => {

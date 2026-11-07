@@ -130,7 +130,7 @@ worker Codex dùng `danger-full-access` và `approval_policy=never`. Decider v�
 chạy như fixer và daemon trả worktree về trạng thái trước review.
 Mode không tự đổi khi có lỗi và không thay `full-review`/`direct-pr`, gate, run confirmation hoặc merge.
 
-Manifest phải chứng minh đúng binary, settings, environment, host launch policy, layout và role schemas;
+Manifest phải chứng minh đúng binary, settings, environment, host launch policy và role schemas; layout lúc chứng minh chỉ được ghi lại để tham khảo, không chặn attempt;
 permission mode phải khớp pin. Full access được ghi rõ `selected_inner_mode=full_access`, không giả
 bằng chứng cưỡng chế quyền. Claude auto không sandbox ghi `selected_inner_mode=permissions_only`,
 `native_result=not_tried`, vẫn cần proof permission. Cả auto và full access có sandbox bật đều cần

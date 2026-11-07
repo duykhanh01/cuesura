@@ -76,7 +76,7 @@ biến này để gọi như owner là quy tắc, không phải giới hạn k�
 
    Proof chạy bốn role `coder`, `fixer`, `reviewer`, `decider`, tốn 4 lượt cho mỗi harness
    (thêm `--prove-resume` cho Claude thì cần 5 lượt). `--model` và `--effort` áp dụng chung cho cả bốn role.
-   Proof chỉ kiểm sandbox layout, xác thực và các thao tác cơ học của role, không kiểm chất lượng code,
+   Proof chỉ kiểm quyền và sandbox native, xác thực và các thao tác cơ học của role, không kiểm chất lượng code,
    nên dùng model rẻ nhất với effort `low`; model của proof không cần trùng model role dùng khi chạy task.
 
    Lặp lại cho Codex với `--harness codex --vendor codex --binary "$(command -v codex)"`,
@@ -241,12 +241,13 @@ cusr doctor --project cuesura --json
 Script xây release mới, đổi `current` một lần và chép skill; process đang chạy vẫn giữ code cũ tới khi restart.
 Trước khi đổi `current`, script chạy `cusr-runner check-records` của release mới. Release mới từ chối config hoặc
 harness record thì script dừng, `current` giữ nguyên và in lệnh chứng minh lại: sửa config, hoặc chạy
-`setup-harness` bằng `node releases/<sha>/dist/cli/cusr-runner.js` rồi chạy lại script. Pin không đổi (vd chỉ
-layout sandbox của release mới khác) thì dùng `--from prove-harness`; đổi tham số pin thì chạy đủ tham số
-như khi cài đặt, thêm `--force`. `--allow-unproven` đổi `current` dù task mới sẽ bị chặn.
+`setup-harness` bằng `node releases/<sha>/dist/cli/cusr-runner.js` rồi chạy lại script. Release mới chỉ đổi cách
+dựng layout chạy của role (pin, binary và settings không đổi) thì không cần chứng minh lại: layout không còn là
+điều kiện của record. Binary hoặc pin đổi mà tham số pin giữ nguyên thì dùng `--from prove-harness`; đổi tham số
+pin thì chạy đủ tham số như khi cài đặt, thêm `--force`. `--allow-unproven` đổi `current` dù task mới sẽ bị chặn.
 Script lấy code từ `repo/`, không từ repo phát triển.
 
-`doctor` và `check-records` báo `manifest:*` khi pin, binary hoặc sandbox layout của release đang chạy khác lúc proof: chứng minh lại harness trước khi chạy task. Không sửa tay
+`doctor` và `check-records` báo `manifest:*` khi pin, binary hoặc settings của release đang chạy khác lúc proof: chứng minh lại harness trước khi chạy task. Không sửa tay
 `manifest.json`.
 
 Mỗi lần chứng minh lại sinh manifest mới với hash mới. Task chưa bắt đầu chạy nhận manifest mới khi bắt đầu.

@@ -185,8 +185,6 @@ export function harnessRecordProblem(
     readonly isolation: HarnessInnerModePolicy;
     readonly host_policy_hash: Hash;
     readonly digest?: (path: string) => Hash;
-    /** Seam for tests; otherwise probed from this release's sandbox layout. */
-    readonly layout_shapes?: Readonly<Record<string, Hash>>;
   },
 ): string | null {
   if (record.manifest.provider !== 'host' || record.manifest.isolation_mode !== 'native')
@@ -212,15 +210,7 @@ export function harnessRecordProblem(
     resume: false,
   });
   if (!verified.ok) return verified.error.map((p) => p.message).join('; ');
-  // A new release can change the layout an attempt launches with while every hash above still matches.
-  const shapes = o.layout_shapes === undefined ? layoutShapes(record.pin) : ok(o.layout_shapes);
-  if (!shapes.ok) return shapes.error;
-  const changed = Object.entries(shapes.value)
-    .filter(([role, shape]) => record.manifest.layout_shapes[role] !== shape)
-    .map(([role]) => role);
-  return changed.length === 0
-    ? null
-    : `sandbox layout for ${changed.join(', ')} changed since the proof; prove this harness again (cusr-runner setup-harness --from prove-harness)`;
+  return null;
 }
 
 const LAYOUT_ROLES = ['coder', 'fixer', 'reviewer'] as const;
