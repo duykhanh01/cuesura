@@ -394,6 +394,61 @@ describe('cusr task add/show/confirm over the control socket (T048)', () => {
     });
   });
 
+  it('propose without --fallback takes the worker ladder rungs from task options (#170)', async () => {
+    const { dataDir } = await daemon();
+    const added = await cli([
+      'task',
+      'add',
+      '--data-dir',
+      dataDir,
+      '--project',
+      'acme',
+      '--title',
+      'Add search',
+      '--base',
+      'main',
+      '--acceptance',
+      'works',
+    ]);
+    const id = added.data?.['task_id'] as string;
+    const version = () =>
+      cli(['task', 'show', '--data-dir', dataDir, id]).then((r) => String(r.data?.['version']));
+    const propose = async (extra: string[]) =>
+      cli([
+        'task',
+        'propose',
+        '--data-dir',
+        dataDir,
+        id,
+        '--expected-version',
+        await version(),
+        '--profile',
+        'standard',
+        '--mode',
+        'full-review',
+        '--worker',
+        'claude/sonnet/medium',
+        '--reviewer',
+        'codex/sol/medium',
+        ...extra,
+      ]);
+
+    // `standard` denies opus, so the only rung above the worker is sonnet/high.
+    expect(await propose([])).toMatchObject({
+      code: ExitCode.ok,
+      data: {
+        run_config: {
+          selection: { fallbacks: [{ harness: 'claude', model: 'sonnet', effort: 'high' }] },
+        },
+      },
+    });
+    // An explicit empty list still means no fallbacks.
+    expect(await propose(['--fallback', ''])).toMatchObject({
+      code: ExitCode.ok,
+      data: { run_config: { selection: { fallbacks: [] } } },
+    });
+  });
+
   it('refuses an incomplete run selection locally', async () => {
     expect(
       (

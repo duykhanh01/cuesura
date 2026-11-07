@@ -87,6 +87,7 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 # full-review also needs --reviewer; direct-pr must omit --reviewer.
 # If BOTH --mode and --worker are absent, --profile/--reviewer/--fallback/--reason
 # are ignored. If either is present without the required trio, the CLI errors.
+# task add does not default --fallback (there are no task options yet): pass it, or propose after add.
 
 # With --file, put ALL task fields and any run_config in the JSON object.
 # Do not mix --file with task/run flags: --title, --base, --description,
@@ -209,7 +210,9 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task propose "$TASK_ID" --profile "$PROFILE" --mode full-review \
   --worker "$WORKER" --reviewer "$REVIEWER" --reason "$REASON" \
   --expected-version "$VERSION" --request-id "$PROPOSE_REQUEST_ID" --json
-# Optional: --fallback HARNESS/MODEL/EFFORT,...
+# Without --fallback, propose fills fallbacks from `task options` workers[].fallbacks of the chosen
+# worker: the escalation rungs the run may climb. A rung left out stops the task at
+# run_config_unconfirmed. --fallback HARNESS/MODEL/EFFORT,... sets the list; --fallback '' empties it.
 # The proposal must match the summary the user approved; changing it needs a new approval.
 ```
 
