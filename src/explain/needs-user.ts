@@ -63,6 +63,7 @@ const NEEDS_USER: Record<DetailCode, boolean> = {
   agent_needs_context: true,
   agent_blocked: true,
   review_repeated: true,
+  fix_no_src_change: true,
   cancel_reconcile: true,
   paused: true,
 };

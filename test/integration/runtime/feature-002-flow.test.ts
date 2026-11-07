@@ -836,6 +836,45 @@ it('T139 M03: missing reviewer diff never launches or consumes a reviewer run', 
   expect(f.github.prs[0]?.reviews ?? []).toEqual([]);
 });
 
+describe('a fix round that left the reviewed files alone (#168, real Git)', () => {
+  const rejectOn = (file: string) => ({
+    schema_version: 1,
+    verdict: 'request_changes',
+    summary: 'one blocking finding',
+    findings: [{ severity: 'major', file, line: 1, message: 'wrong behaviour' }],
+  });
+  const approve = { schema_version: 1, verdict: 'approve', summary: 'ok', findings: [] };
+  const run = async (file: string) => {
+    const task = buildTask();
+    const f = setup(task, {
+      mode: 'full-review',
+      runs: [CONTENT, FIXED],
+      verdicts: [rejectOn(file), approve],
+    });
+    f.d.must(task.id, { kind: 'create_task', task });
+    f.start();
+    await settleWithSlot(f.d, f.settle);
+    return { ...f, task };
+  };
+
+  it('waits for a person before a second review when the fixer did not touch the finding file', async () => {
+    // The fake fixer only edits search.ts.
+    const { d, codex, coder, task } = await run('src/other.ts');
+    expect(coder.calls).toHaveLength(2);
+    expect(codex.calls).toHaveLength(1);
+    expect(d.task(task.id).wait).toMatchObject({
+      reason: 'human_input',
+      detail: { code: 'fix_no_src_change', step: 'gates', files: ['src/other.ts'] },
+    });
+  });
+
+  it('goes on to the second review when the fixer touched it', async () => {
+    const { d, codex, task } = await run('search.ts');
+    expect(codex.calls).toHaveLength(2);
+    expect(d.task(task.id).wait).toMatchObject({ detail: { code: 'merge' } });
+  });
+});
+
 async function settleWithSlot(d: StoreDriver, settle: () => Promise<void>): Promise<void> {
   for (let i = 0; i < 6; i++) {
     await settle();

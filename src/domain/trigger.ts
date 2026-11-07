@@ -119,6 +119,10 @@ export const ReviewRefusedSchema = AgentDataSchema.refine(
   (d) => d.status === 'needs_context' && d.invoked === false,
 );
 
+const ChangedSinceSchema = z
+  .object({ sha: z.string().min(1), paths: z.array(z.string()) })
+  .strict();
+
 export const ReviewDataSchema = z
   .object({
     schema_checked: z.boolean(),
@@ -141,10 +145,7 @@ export const ReviewDataSchema = z
     // Digest of everything the reviewer saw (base/commit/diff, PR content, frozen context, binding); M03.
     input_digest: HashSchema.optional(),
     // Additive: the files changed since the commit the previous rejecting review of this revision saw.
-    changed_since: z
-      .object({ sha: z.string().min(1), paths: z.array(z.string()) })
-      .strict()
-      .optional(),
+    changed_since: ChangedSinceSchema.optional(),
   })
   .strict();
 
@@ -191,6 +192,8 @@ export const GateDataSchema = z
     checkpoint: CheckpointDataSchema.optional(),
     base_conflict: BaseConflictSchema.optional(),
     base_scope: BaseRepairScopeSchema.optional(),
+    // Additive (#168): files changed from the commit the last rejecting review saw to the checkpoint.
+    changed_since: ChangedSinceSchema.optional(),
   })
   .strict();
 

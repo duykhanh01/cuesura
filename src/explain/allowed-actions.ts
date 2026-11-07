@@ -180,6 +180,7 @@ const ROWS: Readonly<Record<DetailCode, Row>> = {
   agent_needs_context: humanInput,
   agent_blocked: humanInput,
   review_repeated: humanInput,
+  fix_no_src_change: humanInput,
   source_drift: (c) => [cancel(c), newTask],
   auth_config: reconnect,
   refused: reconnect,

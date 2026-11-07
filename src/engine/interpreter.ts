@@ -1298,6 +1298,14 @@ function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
             'review required for changes outside conflict files; this direct-pr snapshot has no reviewer',
           );
       }
+      if (
+        passed &&
+        d.checkpoint !== undefined &&
+        // Only the gate of an open conflict repair is exempt; a certified update stays recorded.
+        (baseUpdate === undefined || baseUpdate.certificate !== undefined) &&
+        fixLeftFindings(ctx, step as string, d.checkpoint.sha, d.changed_since)
+      )
+        return;
       proceed(ctx, {
         kind: 'route',
         step: step as string,
@@ -1842,6 +1850,48 @@ function draftUntilReady(ctx: Ctx): boolean {
 /** Review steps of a task started with a confirmed mode compare inputs and bind to the checkpoint. */
 function modeReview(ctx: Ctx): boolean {
   return ctx.state.run.mode === 'full-review';
+}
+
+/**
+ * Before the review of a fix round: when the commits since the last rejecting review touched none of
+ * the files it blocked on, the fix went around the findings (only tests, say). A person decides before
+ * a reviewer run is spent on it; the answer routes the gate pass on to the review (#168). Returns true
+ * when the task now waits. Unknown changed files never block.
+ */
+function fixLeftFindings(
+  ctx: Ctx,
+  step: string,
+  head: string,
+  changed: { sha: string; paths: readonly string[] } | undefined,
+): boolean {
+  // In `full-review` the committing gate step leads on, through publish, to the review.
+  if (!modeReview(ctx) || changed === undefined || !commitsCheckpoint(ctx, step)) return false;
+  const prior = ctx.state.run.reviews
+    .filter((r) => r.valid && r.revision === ctx.state.revision)
+    .at(-1);
+  // An unchanged commit is the reused review's case (M03), not this one.
+  if (prior?.verdict !== 'request_changes' || prior.sha !== changed.sha || prior.sha === head)
+    return false;
+  const findings = prior.findings.filter((f) => isBlocking(f) && (f.file ?? '') !== '');
+  const files = [...new Set(findings.map((f) => f.file as string))].sort();
+  const touched = new Set(changed.paths);
+  if (files.length === 0 || files.some((f) => touched.has(f))) return false;
+  askHuman(ctx, 'fix_no_src_change', {
+    step,
+    attempt_id: null,
+    body: [
+      'The fix since the last review changed none of the files its blocking findings are in:',
+      ...findings.map(
+        (f) =>
+          `- ${f.severity} ${f.file ?? ''}${f.line === undefined ? '' : `:${f.line}`}: ${f.msg}`,
+      ),
+      `Changed: ${changed.paths.length === 0 ? '(nothing)' : changed.paths.join(', ')}`,
+      'Answer to send the change to review as it is (for example, why the findings no longer apply), or cancel the task.',
+    ].join('\n'),
+    resume: { kind: 'route', step, outcome: 'pass' },
+    detail: { step, files },
+  });
+  return true;
 }
 
 /** Stops a review/fix round that made no progress; the answer routes the rejection on as usual. */

@@ -716,8 +716,21 @@ async function withChangedSince(
   if (o.outcome !== 'succeeded') return o;
   const data = o.data as Record<string, unknown>;
   if (data['verdict'] !== 'request_changes' || data['schema_checked'] !== true) return o;
+  const changed = await changedSinceRejection(deps, l, head);
+  return changed === null ? o : { ...o, data: { ...data, changed_since: changed } };
+}
+
+/**
+ * Files changed from the commit the last rejecting review of this revision saw to `head`; null when
+ * the last review did not reject or Git cannot say.
+ */
+async function changedSinceRejection(
+  deps: HandlerDeps,
+  l: Loaded,
+  head: string,
+): Promise<{ sha: string; paths: string[] } | null> {
   const prior = l.s.run.reviews.filter((v) => v.valid && v.revision === l.s.revision).at(-1);
-  if (prior?.verdict !== 'request_changes') return o;
+  if (prior?.verdict !== 'request_changes') return null;
   const r = await deps.git.run({
     args: ['diff', '--name-only', '-z', '--no-renames', prior.sha, head],
     cwd: where(deps, l).worktree,
@@ -725,9 +738,8 @@ async function withChangedSince(
     max_output_bytes: 1024 * 1024,
     stdin: null,
   });
-  if (r.kind !== 'exited' || r.code !== 0 || r.truncated) return o;
-  const paths = r.stdout.split('\0').filter((p) => p !== '');
-  return { ...o, data: { ...data, changed_since: { sha: prior.sha, paths } } };
+  if (r.kind !== 'exited' || r.code !== 0 || r.truncated) return null;
+  return { sha: prior.sha, paths: r.stdout.split('\0').filter((p) => p !== '') };
 }
 
 /** The fixed range a `full-review` reviewer reads: frozen base .. checkpoint commit, never the working copy. */
@@ -1464,12 +1476,18 @@ async function gates(
       : undefined;
   if (scope?.unresolved)
     return failed('refused', 'gate left conflict markers; no checkpoint applied');
+  const checkpoint = await checkpointCommit(deps, l, effect, data.tree);
+  const changed =
+    typeof checkpoint['sha'] === 'string'
+      ? await changedSinceRejection(deps, l, checkpoint['sha'])
+      : null;
   return {
     outcome: 'succeeded',
     data: {
       ...data,
       ...(scope === undefined ? {} : { base_scope: scope }),
-      checkpoint: await checkpointCommit(deps, l, effect, data.tree),
+      checkpoint,
+      ...(changed === null ? {} : { changed_since: changed }),
     },
   };
 }

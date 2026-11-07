@@ -128,6 +128,8 @@ export const DETAIL_CODES = [
   'cancel_reconcile',
   // A blocking review finding came back on a file the fix since the last review did not touch.
   'review_repeated',
+  // The fix since the last rejecting review touched none of the files it blocked on (#168).
+  'fix_no_src_change',
   // A person paused the task and the next step waits for them to unpause it (issue #142).
   'paused',
   // A task on an existing PR waits for an admin to adopt that PR at a named head (issue #174).

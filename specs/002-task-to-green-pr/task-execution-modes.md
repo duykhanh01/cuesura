@@ -211,6 +211,13 @@ issue, PR và CI; việc họ tự làm trên GitHub không thay cho comment rev
   reviewer, và task cũng chờ người với `review_repeated` thay vì gọi fixer tiếp, kể cả khi finding
   không có file hoặc chỉ ở mức minor/info. Đầu vào quay lại đúng bản từng bị từ chối cũng tính là
   không tiến triển. Lượt dùng lại vẫn tính vào chuỗi lỗi của fixer.
+- Trước lượt review kế tiếp: gate của vòng sửa đã xanh và có checkpoint commit, daemon ghi các file
+  đổi từ commit lượt `request_changes` gần nhất đã review tới checkpoint (`changed_since` của kết quả
+  gate). Không file nào chứa finding chặn (major/critical, có file) bị đổi, ví dụ fixer chỉ nới test,
+  thì task chờ người với `fix_no_src_change` (liệt kê file và finding) trước khi publish, không tốn một
+  lượt reviewer. Câu trả lời cho qua gate như thường: publish rồi review. Chỉ cần một file của finding
+  chặn bị đổi là đi tiếp; daemon không đọc được diff hoặc checkpoint trùng commit đã review (M03) thì
+  bỏ kiểm này.
 - `cusr task explain` có `visits`: số lượt đã vào và giới hạn của từng step, gồm `review` và
   `fix_review`.
 

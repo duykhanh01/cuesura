@@ -8,7 +8,7 @@ import { replay } from '../../../src/engine/evolve.ts';
 import { explain } from '../../../src/explain/explain.ts';
 import { headVerdict } from '../../../src/engine/head-evidence.ts';
 import { hashCanonical } from '../../../src/shared/hash.ts';
-import { openFileStoreForTest } from '../../../src/store/testing.ts';
+import { injectEvents, openFileStoreForTest } from '../../../src/store/testing.ts';
 import { authz, buildTask, freezeOk, ownerAuthz, uuidOf } from '../../support/builders.ts';
 import {
   confirmedRuntime,
@@ -1093,6 +1093,105 @@ describe('a review/fix loop that does not move (#141)', () => {
         { step: 'fix_review', visits: 3, limit: 7 },
       ]),
     );
+  });
+
+  describe('a fix round that left every blocking file alone (#168)', () => {
+    /** First rejection at A, then the fixer's gates commit B with `changed` since A. */
+    const toFixGates = (
+      changed: { sha: string; paths: string[] } | undefined,
+      certifiedBase = false,
+    ) => {
+      const d = setup();
+      const t = buildTask();
+      createGrantStart(d, t, 'full-review');
+      toPublish(d, t, A);
+      publishToReview(d, t.id, A);
+      reject(d, t, A, [
+        blocking('src/tui/client/mutations.ts', 'a lost link spends a check'),
+        { severity: 'minor', file: 'b.ts', msg: 'naming' },
+      ]);
+      completePost(d, t.id);
+      // A base update that finished earlier stays recorded with its certificate.
+      if (certifiedBase)
+        injectEvents(d.store, t.id, [
+          {
+            type: 'BaseUpdateRecorded',
+            revision: 1,
+            actor: 'test',
+            payload: {
+              update: {
+                head_sha: A,
+                base_sha: C,
+                revision: 1,
+                gate_step: 'gates',
+                certificate: { head_sha: A, tree: 'e'.repeat(40) },
+              },
+            },
+          },
+        ]);
+      if (d.task(t.id).wait?.detail['code'] === 'execution_slot') d.grantNext();
+      d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
+      d.complete(
+        t.id,
+        d.pendingOne(t.id, 'run_gates').id,
+        'succeeded',
+        checkpointGates(B, undefined, changed === undefined ? {} : { changed_since: changed }),
+      );
+      return { d, t };
+    };
+
+    it('waits for a person before the reviewer runs; the answer goes on to the review', () => {
+      const { d, t } = toFixGates({
+        sha: A,
+        paths: ['test/unit/tui/mutations.test.ts', 'b.ts'],
+      });
+      const s = d.task(t.id);
+      expect(s.wait).toMatchObject({
+        reason: 'human_input',
+        detail: {
+          code: 'fix_no_src_change',
+          step: 'gates',
+          files: ['src/tui/client/mutations.ts'],
+        },
+      });
+      expect(d.pending(t.id, 'publish')).toEqual([]);
+      expect(reviewerRuns(d, t)).toBe(1);
+      const q = d.store
+        .readEvents(t.id)
+        .flatMap((e) => (e.type === 'QuestionAsked' ? [e.payload.body] : []))
+        .at(-1);
+      expect(q).toContain('- major src/tui/client/mutations.ts: a lost link spends a check');
+      expect(d.store.verifyProjections().mismatches).toEqual([]);
+
+      d.must(t.id, {
+        kind: 'answer',
+        question_id: s.wait?.detail['question_id'] as Uuid,
+        answer: 'The finding is wrong; review the change as it is.',
+      });
+      if (d.task(t.id).wait?.detail['code'] === 'execution_slot') d.grantNext();
+      publishToReview(d, t.id, B);
+      expect(d.task(t.id).current_step).toBe('review');
+      expect(reviewerRuns(d, t)).toBe(2);
+    });
+
+    it('still waits after a base update that finished earlier', () => {
+      const { d, t } = toFixGates({ sha: A, paths: ['test/unit/tui/mutations.test.ts'] }, true);
+      expect(d.task(t.id).run.base_update?.certificate).toBeDefined();
+      expect(d.task(t.id).wait?.detail['code']).toBe('fix_no_src_change');
+    });
+
+    it('goes on to the review when the fix touched a blocking file or the changes are unknown', () => {
+      for (const changed of [
+        { sha: A, paths: ['src/tui/client/mutations.ts'] },
+        undefined,
+        { sha: C, paths: [] },
+      ]) {
+        const { d, t } = toFixGates(changed);
+        expect(d.task(t.id).wait).toBeNull();
+        publishToReview(d, t.id, B);
+        expect(reviewerRuns(d, t)).toBe(2);
+      }
+    });
   });
 });
 

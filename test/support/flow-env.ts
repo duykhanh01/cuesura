@@ -77,6 +77,8 @@ export type SetupOptions = {
   ci_rules?: CiRule[];
   /** Reviewer approvals scripted in `full-review` (default 1). */
   reviews?: number;
+  /** Reviewer results in order, in place of the approvals of `reviews`. */
+  verdicts?: readonly Record<string, unknown>[];
   writeCode?: boolean;
   reviewerPrompt?: string;
   /** Project setup of the frozen runtime; `prepare` runs it. */
@@ -148,7 +150,8 @@ export function flowEnv(prefix: string) {
       ...(o.resume === true ? { session_ref: `sess-${i + 1}` } : {}),
     }));
     const coder = new FakeHarness(
-      { coder: answers },
+      // Worker runs after the first may be the coder's or a review fixer's.
+      { coder: answers, fixer: answers.slice(1) },
       'claude',
       o.resume === true ? { resume: 'proven' } : {},
     );
@@ -181,7 +184,11 @@ export function flowEnv(prefix: string) {
     const reviewer = new FakeHarness(
       {
         reviewer:
-          o.mode === 'full-review' ? Array.from({ length: o.reviews ?? 1 }, () => approve) : [],
+          o.mode !== 'full-review'
+            ? []
+            : o.verdicts !== undefined
+              ? o.verdicts.map((value) => ({ kind: 'result' as const, value }))
+              : Array.from({ length: o.reviews ?? 1 }, () => approve),
       },
       'codex',
     );

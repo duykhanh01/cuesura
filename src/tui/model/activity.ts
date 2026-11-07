@@ -68,6 +68,7 @@ const WAITS: Readonly<Record<DetailCode, WaitWords>> = {
   },
   agent_blocked: { doing: 'Agent is blocked', todo: 'Answer to unblock it' },
   review_repeated: { doing: 'Review finding came back unfixed', todo: 'Answer to unblock it' },
+  fix_no_src_change: { doing: 'Fix left the reviewed files alone', todo: 'Answer to unblock it' },
   source_drift: { doing: 'Task source changed', todo: NEW_OR_CANCEL },
   auth_config: { doing: 'Login or permission problem', todo: RECONNECT },
   refused: { doing: 'The agent refused the work', todo: RECONNECT },
