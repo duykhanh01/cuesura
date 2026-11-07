@@ -106,6 +106,15 @@ thực tế. Xem [Microsoft WSL systemd](https://learn.microsoft.com/en-us/windo
 probe unit riêng của Cuesura, không chỉ chuỗi trạng thái này. Logout/distro shutdown không tương
 đương daemon restart; không cam kết runner sống qua việc tắt máy/WSL, recovery phải đối chiếu lost.
 
+Thiếu user bus thì `systemctl --user` và `systemd-run --user` báo `Failed to connect to bus: No such
+file or directory`, doctor báo check `systemd_unit` thất bại, dù `user@<uid>.service` vẫn chạy. Chạy
+daemon foreground cũng không né được vì runner cần `systemd-run --user`. Cài gói để systemd tự bật
+user bus, rồi chạy `wsl.exe --shutdown` từ Windows và mở distro lại:
+
+```sh
+sudo apt install -y dbus-user-session
+```
+
 ### Chạy daemon: foreground hoặc service
 
 Một data dir chỉ có một writer: daemon thứ hai trên cùng thư mục thoát với `store_locked`. Chọn một
