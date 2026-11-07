@@ -88,6 +88,10 @@ describe('role context (T037, FR-005)', () => {
     );
     expect(fixer.text).toContain(`## worker_rules\n${FIXER_RULES}`);
     expect(FIXER_RULES).toMatch(/outside this task, do not change code for it/);
+    expect(FIXER_RULES).toMatch(/search the whole change for other places with the same cause/);
+    expect(FIXER_RULES).toMatch(/does not undo or bypass the earlier fixes/);
+    expect(FIXER_RULES).toMatch(/add a test that fails before your fix and passes after it/);
+    expect(FIXER_RULES).toMatch(/In your summary, list each failure/);
     const reviewer = ok(
       buildRoleContext(
         input({

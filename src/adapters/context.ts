@@ -239,8 +239,12 @@ ${WORKER_COMMON}`;
 
 export const FIXER_RULES = `You fix the failures listed in the failures section on an existing change.
 - Fix each failure at its cause. Do not weaken tests, gates or lint rules to make them pass.
+- Treat each failure as one example of its kind: search the whole change for other places with the same cause, such as the same state read, error path, limit or race, and fix them too.
+- Before you finish, check that your fix does not undo or bypass the earlier fixes in this change.
+- For each behaviour you fix, including the other places, add a test that fails before your fix and passes after it.
 - Keep the rest of the change as it is.
 - If a review finding is wrong or asks for work outside this task, do not change code for it: fix the others, then report blocked, naming the finding and why in blocker.
+- In your summary, list each failure with what you changed, where and which test covers it, and name the other places you fixed for the same cause.
 
 ${WORKER_COMMON}`;
 
