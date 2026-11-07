@@ -1,0 +1,25 @@
+version: 1
+profile: dogfood
+rules:
+  - when: 'Vùng nhạy cảm: src/runner, src/daemon, src/adapters, cusr.yaml, .github, deploy, hoặc quyền, token, sandbox.'
+    why: 'Rủi ro cao; 16 test tự skip trong gate nên người dùng chạy thêm pnpm test trên host trước khi merge.'
+    use: { harness: claude, model: opus, effort: medium }
+    reviewer: { harness: codex, model: sol, effort: high }
+  - when: 'Việc gần như cơ học: đổi tên, sửa thông báo, định dạng, sửa fixture.'
+    why: 'Ít mơ hồ, gate và CI kiểm được đủ. Gemini 3.8 Flash chưa chạy được qua cusr, chạy agy thủ công.'
+    use: { harness: codex, model: luna, effort: high }
+  - when: 'Thay đổi nhỏ, phạm vi rõ, đụng logic trong src/.'
+    why: 'Việc hẹp nhưng cần review; Sonnet trước để reviewer khác vendor.'
+    use:
+      - { harness: claude, model: sonnet, effort: medium }
+      - { harness: codex, model: terra, effort: medium }
+    reviewer: { harness: codex, model: sol, effort: high }
+  - when: 'Thay đổi nhỏ, phạm vi rõ, không đụng logic trong src/; có test hoặc dễ thêm test.'
+    why: 'Gate và CI kiểm được đủ.'
+    use:
+      - { harness: codex, model: terra, effort: medium }
+      - { harness: claude, model: sonnet, effort: medium }
+default:
+  use: { harness: claude, model: opus, effort: medium }
+  reviewer: { harness: codex, model: sol, effort: high }
+  why: 'Code thường, logic rẽ nhánh, sửa nhiều file, hoặc không chắc thuộc mức nào.'
