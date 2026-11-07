@@ -301,7 +301,7 @@ describe.skipIf(!available)(
         ]);
         expect(report.held).toBeNull();
         expect(d.pending(f.task.id, 'start_agent')).toEqual([]);
-        expect(d.store.readSlot()?.holder_task_id).toBe(f.task.id);
+        expect(d.store.readSlots()[0]?.holder_task_id).toBe(f.task.id);
 
         // Nothing launches the operation again: the loaded unit and the held lock both refuse.
         expect(
@@ -435,7 +435,7 @@ describe.skipIf(!available)(
         const effect = s.effects[f.effectId];
         expect(effect?.status).toBe('unknown');
         expect(s.budget.reservations[effect?.reservation_id ?? '']?.status).toBe('held');
-        expect(d.store.readSlot()?.holder_task_id).toBe(f.task.id);
+        expect(d.store.readSlots()[0]?.holder_task_id).toBe(f.task.id);
         expect(d.pending(f.task.id, 'start_agent')).toEqual([]);
         expect(spawnCount(f)).toBe(1);
       } finally {

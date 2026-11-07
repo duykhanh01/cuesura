@@ -21,6 +21,8 @@ export type HealthInput = {
   readonly spoolProblems?: readonly SpoolIngestReport[];
   /** `cusr queue pause` in force: tasks not started yet wait; not a health problem (issue #142). */
   readonly queuePaused?: QueuePause | null;
+  /** How many tasks may hold an execution slot at once (FR-044.01); default 1. */
+  readonly concurrency?: number;
 };
 
 /** The first problem that stops work from being handed out, most fundamental first; null when none. */
@@ -53,7 +55,8 @@ export function healthReply(h: HealthInput): Reply {
       legacy_read_only: startup.legacy_read_only,
       timers: startup.timers,
     },
-    slot: store.readSlot(),
+    slots: store.readSlots(),
+    concurrency: h.concurrency ?? 1,
     queue_length: store.readQueue(100).length,
     queue_paused: h.queuePaused ?? null,
     now: h.now,

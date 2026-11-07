@@ -99,7 +99,7 @@ describe('drain after a merge proof (T046, FR-040.04–09)', () => {
     });
     expect(count(d, t, 'TaskCompleted')).toBe(1);
     expect(types(d, t).slice(-3)).toEqual(['DrainStarted', 'DrainFinished', 'TaskCompleted']);
-    expect(d.store.readSlot()).toBeNull();
+    expect(d.store.readSlots()).toEqual([]);
 
     notifyDependents(d.store, d.now);
     expect(d.task(child.id).status).toBe('READY');

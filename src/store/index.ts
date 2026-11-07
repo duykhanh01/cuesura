@@ -27,25 +27,22 @@ export type {
   StoreOpenError,
   VerifyReport,
 };
-export type { QueuedRequest } from './read.ts';
+export type { QueuedRequest, SlotHolding } from './read.ts';
 export type { Admission, CommandRecord, LedgerError } from './commands.ts';
 export type { Timer } from './read.ts';
 
 export interface Store {
   accept(envelope: TriggerEnvelope): Result<AcceptOutcome, AcceptError>;
   claimEffect(effectId: Uuid, now: EpochMs, req?: ClaimRequest): Result<Effect, ClaimError>;
-  /** Grants the free execution slot to the queue head, if any (FR-044.01); `ids` feed a resumed step. */
+  /** Grants a free execution slot to the queue head, if any (FR-044.01); `ids` feed a resumed step. */
   grantNext(
     now: EpochMs,
     ids?: readonly string[],
     opts?: GrantOptions,
   ): Result<GrantOutcome, AcceptError>;
   readQueue(limit: number): read.QueuedRequest[];
-  readSlot(): {
-    holder_task_id: string;
-    request_id: string;
-    claimed_at: number;
-  } | null;
+  /** Every held execution slot, in grant order (FR-044.01). */
+  readSlots(): read.SlotHolding[];
   admitCommand(
     input: Parameters<typeof commands.admitCommand>[1],
   ): Result<commands.Admission, commands.LedgerError>;
@@ -123,12 +120,8 @@ export class SqliteStore implements Store {
   readQueue(limit: number): read.QueuedRequest[] {
     return read.readQueue(this.db, limit);
   }
-  readSlot(): {
-    holder_task_id: string;
-    request_id: string;
-    claimed_at: number;
-  } | null {
-    return read.readSlot(this.db);
+  readSlots(): read.SlotHolding[] {
+    return read.readSlots(this.db);
   }
   dueTimers(now: EpochMs, limit: number): read.Timer[] {
     return dueTimers(this.db, now, limit);

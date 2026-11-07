@@ -425,6 +425,7 @@ export async function productionControl(opts: {
       clock: opts.clock,
       newId: opts.newId,
       queuePaused: () => readQueuePause(opts.dataDir) !== null,
+      concurrency: runtime?.concurrency ?? 1,
       start: (taskId) =>
         startTask(
           {
@@ -489,6 +490,7 @@ export async function productionControl(opts: {
       queries: control.queries,
       commands: { ...control.commands, ...queueCommands({ dataDir: opts.dataDir, now }) },
       schedule: () => scheduler.tick(),
+      concurrency: runtime?.concurrency ?? 1,
       effects: buildHandlers(deps),
       rounds: [
         fireTimers,

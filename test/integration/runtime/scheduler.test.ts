@@ -22,7 +22,12 @@ import { dbPath, useTempDir } from '../../support/temp-db.ts';
 
 const tempDir = useTempDir('cusr-scheduler-');
 
-function setup(start?: (taskId: string) => Promise<StartResult>, queuePaused?: () => boolean) {
+/** `start` stands in for the real start, which it gets as `real` to call through. */
+function setup(
+  start?: (taskId: string, real: (taskId: string) => Promise<StartResult>) => Promise<StartResult>,
+  queuePaused?: () => boolean,
+  concurrency?: number,
+) {
   const d = new StoreDriver(openFileStoreForTest(dbPath(tempDir())));
   let ids = 7_000;
   const clock = { now: () => d.now as EpochMs, monotonic: () => d.now };
@@ -52,10 +57,11 @@ function setup(start?: (taskId: string) => Promise<StartResult>, queuePaused?: (
     scheduler: new Scheduler({
       store: d.store,
       clock,
-      start: start ?? realStart,
+      start: start === undefined ? realStart : (id) => start(id, realStart),
       startRetryMs: 60_000,
       newId: () => uuidOf(ids++),
       ...(queuePaused === undefined ? {} : { queuePaused }),
+      ...(concurrency === undefined ? {} : { concurrency }),
     }),
   };
 }
@@ -68,7 +74,7 @@ async function confirmed(d: StoreDriver, t: CanonicalTask): Promise<void> {
   proposeAndConfirm(d, t, await configuredSelection(t, 'full-review'));
 }
 
-const slotHolder = (d: StoreDriver) => d.store.readSlot()?.holder_task_id ?? null;
+const slotHolder = (d: StoreDriver) => d.store.readSlots()[0]?.holder_task_id ?? null;
 
 /** Started under the slot, then asks a question: the attempt is over, so nothing slot-bound is left. */
 function startedAndAsking(d: StoreDriver, t: CanonicalTask): string {
@@ -92,7 +98,7 @@ describe('scheduler queues, grants and starts one task at a time (T034, FR-044)'
       kind: 'propose_run_config',
       selection: await configuredSelection(t, 'direct-pr'),
     });
-    expect(await scheduler.tick()).toMatchObject({ queued: [], granted: null });
+    expect(await scheduler.tick()).toMatchObject({ queued: [], granted: [] });
     expect(d.task(t.id)).toMatchObject({
       status: 'READY',
       execution: { request: null },
@@ -108,18 +114,20 @@ describe('scheduler queues, grants and starts one task at a time (T034, FR-044)'
     const first = await scheduler.tick();
     expect(first.queued).toEqual([low.id, high.id]);
     expect(first).toMatchObject({
-      granted: high.id,
-      started: {
-        task_id: high.id,
-        result: { kind: 'submitted', frozen: true },
-      },
+      granted: [high.id],
+      started: [
+        {
+          task_id: high.id,
+          result: { kind: 'submitted', frozen: true },
+        },
+      ],
     });
     expect(d.task(high.id).status).toBe('RUNNING');
     expect(slotHolder(d)).toBe(high.id);
 
     d.now += 3_600_000;
     const second = await scheduler.tick();
-    expect(second).toMatchObject({ queued: [], granted: null, started: null });
+    expect(second).toMatchObject({ queued: [], granted: [], started: [] });
     expect(d.task(low.id)).toMatchObject({
       status: 'READY',
       deadline_at: null,
@@ -127,6 +135,57 @@ describe('scheduler queues, grants and starts one task at a time (T034, FR-044)'
     });
     expect(d.task(low.id).execution.request).not.toBeNull();
     expect(slotHolder(d)).toBe(high.id);
+  });
+
+  it('a pause made while the first holder starts gives the second slot back unstarted (issue #142, FR-044.01)', async () => {
+    let paused = false;
+    let starts = 0;
+    const { d, scheduler } = setup(
+      async (id, real) => {
+        starts += 1;
+        const r = await real(id);
+        // `cusr queue pause` arrives while this start was in preflight.
+        paused = true;
+        return r;
+      },
+      () => paused,
+      2,
+    );
+    const mid = task(1, { priority: 3 });
+    const high = task(2, { priority: 5 });
+    for (const t of [mid, high]) await confirmed(d, t);
+
+    const r = await scheduler.tick();
+    expect(r.granted).toEqual([high.id, mid.id]);
+    expect(starts).toBe(1);
+    expect(r.started.map((s) => s.task_id)).toEqual([high.id]);
+    expect(d.store.readSlots().map((s) => s.holder_task_id)).toEqual([high.id]);
+    expect(d.task(mid.id)).toMatchObject({
+      status: 'READY',
+      policy_ref: null,
+      execution: { holding: null },
+    });
+  });
+
+  it('with concurrency 2 grants and starts the two highest priority tasks in one pass; the third waits (FR-044.01)', async () => {
+    const { d, scheduler } = setup(undefined, undefined, 2);
+    const low = task(1, { priority: 0 });
+    const mid = task(2, { priority: 3 });
+    const high = task(3, { priority: 5 });
+    for (const t of [low, mid, high]) await confirmed(d, t);
+
+    const first = await scheduler.tick();
+    expect(first.granted).toEqual([high.id, mid.id]);
+    expect(first.started.map((s) => [s.task_id, s.result.kind])).toEqual([
+      [high.id, 'submitted'],
+      [mid.id, 'submitted'],
+    ]);
+    expect(d.store.readSlots().map((s) => s.holder_task_id)).toEqual([high.id, mid.id]);
+    expect(d.task(low.id)).toMatchObject({ status: 'READY', policy_ref: null });
+
+    const second = await scheduler.tick();
+    expect(second).toMatchObject({ granted: [], started: [] });
+    expect(d.task(low.id).execution.request).not.toBeNull();
   });
 
   it('a start that cannot reach Git/GitHub returns the slot and waits before queueing again', async () => {
@@ -160,7 +219,7 @@ describe('scheduler queues, grants and starts one task at a time (T034, FR-044)'
     });
     const t = task(1);
     await confirmed(d, t);
-    expect((await scheduler.tick()).started?.result).toMatchObject({
+    expect((await scheduler.tick()).started[0]?.result).toMatchObject({
       kind: 'unavailable',
       check: 'github_repo',
     });
@@ -170,7 +229,7 @@ describe('scheduler queues, grants and starts one task at a time (T034, FR-044)'
     });
 
     d.now += 1_000;
-    expect(await scheduler.tick()).toMatchObject({ queued: [], started: null });
+    expect(await scheduler.tick()).toMatchObject({ queued: [], started: [] });
     d.now += 60_000;
     expect((await scheduler.tick()).queued).toEqual([t.id]);
     expect(calls).toEqual([t.id, t.id]);
@@ -187,7 +246,7 @@ describe('the engine returns the slot when nothing slot-bound is left and queues
       wait: { reason: 'human_input' },
       execution: { holding: null },
     });
-    expect(d.store.readSlot()).toBeNull();
+    expect(d.store.readSlots()).toEqual([]);
     const deadline = d.task(a.id).deadline_at;
     expect(deadline).not.toBeNull();
 
@@ -250,7 +309,7 @@ describe('the engine returns the slot when nothing slot-bound is left and queues
       'succeeded',
       agentData('needs_input', { questions: ['?'] }),
     );
-    expect(d.store.readSlot()).toBeNull();
+    expect(d.store.readSlots()).toEqual([]);
 
     const g = d.store.grantNext(
       d.now as EpochMs,

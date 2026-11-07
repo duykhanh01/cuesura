@@ -80,6 +80,16 @@ permission/approval được kiểm chứng, owner cho phép tường minh; khô
 
 ## Clarifications
 
+### Session 2026-11-07 — slot theo task (issue #206), thay một phần Q3
+
+- Slot gắn với task, không gắn với loại bước. Task đang RUNNING giữ slot qua mọi bước và effect tự động,
+  kể cả effect không chạy process (tạo PR, review, fix_review…); không nhả ở ranh giới bước. Trước đây
+  slot bị nhả giữa `publish → pr → review` và task phải xếp hàng lại sau task priority thấp hơn (#203).
+- Số task giữ slot cùng lúc là `runtime.concurrency` trong config user, mặc định 1, đọc khi cusrd khởi
+  động. Thứ tự cấp vẫn theo FR-044.03.
+- Phần còn lại của Q3 giữ nguyên trong mốc này: task rời RUNNING để chờ CI/merge/người/cooldown vẫn trả
+  slot. Giữ chỗ và cho mượn khi chờ bên ngoài là việc tiếp theo của issue #206.
+
 ### Session 2026-11-02 — thay thế Q5/Q12 và quy tắc subset của FR-042
 
 - Required checks là hợp snapshot và mọi tên check GitHub đang bắt buộc, kể cả check ngoài policy/ghim
@@ -707,8 +717,8 @@ nhóm bao gồm toàn bộ các mục con, không thay thế việc kiểm chứ
 
   | Mã | Yêu cầu |
   | --- | --- |
-  | **FR-044.01** | Daemon MUST giới hạn đúng một slot thực thi cho Prepare/setup/gate/autofix/publish hoặc attempt, mỗi worktree tối đa một attempt; giữ slot tới khi bước đã kết thúc/đối chiếu rõ. |
-  | **FR-044.02** | Task chờ CI/merge/người/cooldown MUST trả slot khi không còn công việc thuộc slot chưa rõ; polling chỉ đọc không chiếm slot, thấy merge không tự nhả claim đang chưa rõ. |
+  | **FR-044.01** | Daemon MUST cho tối đa `runtime.concurrency` task (mặc định 1) giữ slot thực thi cùng lúc; slot gắn với task, mỗi task giữ tối đa một slot, mỗi worktree tối đa một attempt. Task đang RUNNING MUST giữ slot qua mọi bước và effect tự động (Prepare/setup, agent, gate, autofix, publish, tạo PR, review, fix_review…), không nhả ở ranh giới bước hay khi chạy effect không cần slot; Prepare/setup/gate/autofix/publish và attempt chỉ chạy khi task đang giữ slot. |
+  | **FR-044.02** | Task rời RUNNING để chờ CI/merge/người/cooldown MUST trả slot khi không còn công việc thuộc slot chưa rõ; polling chỉ đọc không chiếm slot, thấy merge không tự nhả claim đang chưa rõ. |
   | **FR-044.03** | Cấp slot MUST theo priority, rồi task đã bắt đầu chờ execution_slot trước READY cùng priority, rồi thời điểm xin slot hiện tại trong cùng nhóm; hòa thì thứ tự event đã commit, không theo lúc tạo task. |
   | **FR-044.04** | Scheduler MUST NOT ngắt task đang giữ slot để cấp cho task khác; ưu tiên task đang dở không bảo đảm chống đói slot. |
   | **FR-044.05** | Task chờ slot MUST giữ READY nếu chưa chạy, hoặc WAITING/policy với execution_slot nếu đã bắt đầu rồi chuyển RUNNING khi được cấp; không đưa task đã chạy về READY/PENDING để chờ. |
@@ -761,7 +771,7 @@ của feature 002 hoặc thay 117 mã FR hiện có.
 | S04 Hỏi giữa chừng | US5; FR-024, FR-037–039 | Inbox/answer bền qua restart; chưa có kênh ngoài CLI |
 | S05 Crash giữa agent/publish | US3; FR-006–009, FR-017–018, FR-022–023, FR-030–036 | Process, git và PR được nhận lại; không dựa riêng vào test lõi |
 | S06 Hạn mức/hạ tầng | US2, US4–5; FR-010–016 | Phân loại, cooldown và ngân sách với kết quả harness |
-| S07 Task phụ thuộc/song song | US1, EC-001; FR-001, FR-044 | Một slot, task đang chờ trả slot, vòng sửa đợi slot; chưa chứng minh thực thi song song |
+| S07 Task phụ thuộc/song song | US1, EC-001; FR-001, FR-044 | `runtime.concurrency` slot theo task, task đang chờ trả slot, vòng sửa đợi slot; chưa nghiệm thu song song với harness thật |
 | S08 Head/base/quyền merge đổi | US1–2, US5–6; FR-019–021, FR-040–043 | Thu hồi xanh; quan sát merge thủ công; chưa nghiệm thu thực thi merge tự động |
 | S09 Yêu cầu thay đổi | Edge Cases; FR-026 | Executor tôn trọng drift/revision; không có decider/overturn |
 | S10 Tiến độ/vận hành | US3, US6; FR-022–023, FR-027–029, FR-045–046 | CLI, health, recovery; chưa có backup/restore đầy đủ |

@@ -33,7 +33,7 @@ const opClaim = (n: number, holds_slot = true) => ({
 });
 
 describe('execution slot grants (FR-044.01, T025)', () => {
-  it('grants the single slot once, in priority then request order, and keeps the rest queued', () => {
+  it('with concurrency 1 grants one slot, in priority then request order, and keeps the rest queued', () => {
     const d = driver();
     const low = buildTask({
       id: uuidOf(1),
@@ -54,7 +54,7 @@ describe('execution slot grants (FR-044.01, T025)', () => {
 
     const g = d.store.grantNext(d.now as EpochMs);
     expect(g.ok && g.value.kind === 'decided' && g.value.task_id).toBe(high.id);
-    expect(d.store.readSlot()?.holder_task_id).toBe(high.id);
+    expect(d.store.readSlots()[0]?.holder_task_id).toBe(high.id);
     expect(d.task(high.id).execution).toMatchObject({
       request: null,
       holding: { granted_at: d.now },
@@ -62,15 +62,12 @@ describe('execution slot grants (FR-044.01, T025)', () => {
     });
 
     const again = d.store.grantNext(d.now as EpochMs);
-    expect(again.ok && again.value).toEqual({
-      kind: 'busy',
-      holder_task_id: high.id,
-    });
+    expect(again.ok && again.value).toEqual({ kind: 'busy', holders: 1 });
     expect(d.store.readQueue(10).map((q) => q.task_id)).toEqual([low.id]);
     expect(d.store.verifyProjections()).toMatchObject({ ok: true });
   });
 
-  it('rejects a grant whose view of the slot is stale, and the slot table refuses a second holder', () => {
+  it('rejects a grant over the cap, and the slot table refuses a second slot for one task', () => {
     const d = driver();
     const a = buildTask({ id: uuidOf(1), source_key: 'cli:a' });
     const b = buildTask({ id: uuidOf(2), source_key: 'cli:b' });
@@ -82,9 +79,12 @@ describe('execution slot grants (FR-044.01, T025)', () => {
     const direct = d.send(b.id, { kind: 'grant_execution', request_id });
     expect(direct.ok && direct.value.decision).toMatchObject({
       kind: 'rejected',
-      detail: { reason: 'slot_held', holder_task_id: a.id },
+      detail: { reason: 'slot_held', holder_task_ids: [a.id], capacity: 1 },
     });
 
+    // Under a cap of 2 the same request is granted; a replayed grant of it cannot stack a second slot.
+    const wider = d.store.grantNext(d.now as EpochMs, [], { capacity: 2 });
+    expect(wider.ok && wider.value.kind === 'decided' && wider.value.task_id).toBe(b.id);
     const before = count(d, 'SELECT COUNT(*) AS n FROM events');
     expect(() =>
       injectEvents(d.store, b.id, [
@@ -95,9 +95,9 @@ describe('execution slot grants (FR-044.01, T025)', () => {
           payload: { request_id, at: d.now, waited_ms: 0 },
         },
       ]),
-    ).toThrow(/already held/);
+    ).toThrow(/already holds an execution slot/);
     expect(count(d, 'SELECT COUNT(*) AS n FROM events')).toBe(before);
-    expect(d.store.readSlot()?.holder_task_id).toBe(a.id);
+    expect(d.store.readSlots().map((s) => s.holder_task_id)).toEqual([a.id, b.id]);
     expect(d.store.verifyProjections()).toMatchObject({ ok: true });
   });
 
@@ -118,7 +118,7 @@ describe('execution slot grants (FR-044.01, T025)', () => {
       error: { code: 'write_failed', cause: 'io_error' },
     });
     expect(count(d, 'SELECT COUNT(*) AS n FROM events')).toBe(events);
-    expect(d.store.readSlot()).toBeNull();
+    expect(d.store.readSlots()).toEqual([]);
     expect(d.store.readQueue(10)).toHaveLength(1);
     armed = false;
     const retry = d.store.grantNext(d.now as EpochMs);
@@ -152,7 +152,7 @@ describe('operation claims and slot release (T025, FR-044.06)', () => {
       kind: 'rejected',
       detail: { reason: 'unresolved_operations' },
     });
-    expect(d.store.readSlot()?.request_id).toBe(request_id);
+    expect(d.store.readSlots()[0]?.request_id).toBe(request_id);
 
     d.must(t.id, {
       kind: 'operation_result',
@@ -170,7 +170,7 @@ describe('operation claims and slot release (T025, FR-044.06)', () => {
       request_id: request_id as Uuid,
       reason: 'idle',
     });
-    expect(d.store.readSlot()).toBeNull();
+    expect(d.store.readSlots()).toEqual([]);
     expect(d.store.verifyProjections()).toMatchObject({ ok: true });
   });
 
@@ -274,7 +274,7 @@ describe('operation claims and slot release (T025, FR-044.06)', () => {
     createGrantStart(d, t);
     d.must(t.id, { kind: 'cancel', reason: 'stop' });
     expect(d.task(t.id).status).toBe('CANCELLED');
-    expect(d.store.readSlot()).toBeNull();
+    expect(d.store.readSlots()).toEqual([]);
     expect(d.store.verifyProjections()).toMatchObject({ ok: true });
   });
 
@@ -293,7 +293,7 @@ describe('operation claims and slot release (T025, FR-044.06)', () => {
     });
     expect(d.task(t.id).status).toBe('CANCELLED');
     // The operation is still unresolved, so ending the task did not release the slot.
-    expect(d.store.readSlot()).toMatchObject({ request_id });
+    expect(d.store.readSlots()[0]).toMatchObject({ request_id });
     d.must(t.id, {
       kind: 'operation_result',
       operation_id: uuidOf(901),
@@ -309,7 +309,7 @@ describe('operation claims and slot release (T025, FR-044.06)', () => {
       status: 'CANCELLED',
       operations: { [uuidOf(901)]: { status: 'finished' } },
     });
-    expect(d.store.readSlot()).toBeNull();
+    expect(d.store.readSlots()).toEqual([]);
     expect(d.store.verifyProjections()).toMatchObject({ ok: true });
   });
 });

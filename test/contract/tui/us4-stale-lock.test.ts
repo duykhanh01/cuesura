@@ -17,7 +17,7 @@ import { flat, pressAction, recheckScene, useTui } from '../../support/tui-fixtu
 const tui = useTui();
 const A = '019a0000-0000-7000-8000-000000000001';
 const B = '019a0000-0000-7000-8000-000000000002';
-const HEALTH: Health = { healthy: true, reason: null, slot: null, queue_length: 0 };
+const HEALTH: Health = { healthy: true, reason: null, slots: [], concurrency: 1, queue_length: 0 };
 const BOARD = {
   unchanged: false,
   watermark: 1,

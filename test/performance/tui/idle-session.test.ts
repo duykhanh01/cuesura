@@ -84,7 +84,7 @@ describe('T033: an idle session', () => {
     // No slot was taken, and none was ever asked for.
     const store = openFileStoreForTest(join(sd.dataDir, STORE_FILE));
     try {
-      expect(store.readSlot()).toBeNull();
+      expect(store.readSlots()).toEqual([]);
     } finally {
       store.close();
     }

@@ -79,7 +79,8 @@ describe('daemon control socket (T026)', () => {
         writer: 'ok',
         projections: { ok: true },
         dispatch: { blocked: null, in_flight: 0 },
-        slot: null,
+        slots: [],
+        concurrency: 1,
       },
     });
 

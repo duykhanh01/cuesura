@@ -33,7 +33,7 @@ v1 bên dưới mô tả nền đã có, không tự có các trường mới ch
 | FrozenPolicy v1 | required_checks: string[] giữ nguyên | Không thêm app_id; giữ schema/hash lịch sử, hợp tên và app-pinned GitHub chỉ lưu trong evidence |
 | WorktreeCheckpoint | task/revision, project realpath, common_git_dir, worktree path, branch, base_sha, tree_oid, parent_oid, diff_digest, owner_marker | Không nhận lại theo tên path đơn thuần; SHA/tree/ownership phải đối chiếu |
 | ExecutionRequest | task_id, request_id, requested_at, request_global_seq, group=fresh/resumed, priority, resume_action, accumulated_wait_ms | Priority số lớn trước, default 0 theo SPEC §6.2; một yêu cầu đang chờ/task; grant/withdraw đóng đoạn chờ, không dùng created_at thay requested_at |
-| ExecutionSlot | key=execution, holder_task_id, request_id, claimed_at, active_operation_ids | Singleton toàn daemon; một holder, có thể nhiều operation phục vụ dừng/đối chiếu cùng task |
+| ExecutionSlot | request_id, holder_task_id, claimed_at, claimed_seq, active_operation_ids | Mỗi task giữ tối đa một dòng, tối đa `runtime.concurrency` dòng (migration `006_task_slots.sql`, FR-044.01); có thể nhiều operation phục vụ dừng/đối chiếu cùng task |
 | OperationReceipt | operation_id, effect_id, attempt_id hoặc null, revision, binding_hash, launch_nonce, supervisor/unit identity, process identities, started/finished_at, outcome, artifact refs | Agent/setup/gate/publish đều có receipt; một process identity không chỉ là PID |
 | IngestCursor | operation_id, generation, segment, byte_offset, last_record_seq, acked_at | Chỉ nhảy sau record đầy đủ; thay đổi cùng transaction với event suy ra |
 | Artifact | artifact_id, operation_id, kind, relative_path, digest, bytes, redaction_version, finalized, acked | Runtime root riêng; không tin path từ agent; không expose secret hoặc file chưa finalize |
@@ -149,7 +149,7 @@ ci_wait_exhausted hoặc source drift trong explain. Bảng lối ra FR-029 vẫ
 
 - Migration `002_runtime.sql` thêm `runtime_contexts`, `execution_queue`, `execution_slot`,
   `operations`, `ingest_cursors`, `artifacts`, `external_observations`; phần đối chiếu/drain còn lại
-  nằm trong TaskState và task JSON. Unique slot key, một active queue/task, unique operation/effect,
+  nằm trong TaskState và task JSON. Một slot/task (`006_task_slots.sql` bỏ khóa singleton), một active queue/task, unique operation/effect,
   unique cursor/segment sequence và proof/observation key ngăn trùng.
 - Tất cả là projection từ event được commit, không để runner ghi SQLite. Mở rộng ProjectionSink/
   MemorySink và verification report cho mọi bảng mới. Slot replay theo global_seq; task seq vẫn liên

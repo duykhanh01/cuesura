@@ -312,10 +312,14 @@ export const RuntimeTerminalSchema = z.discriminatedUnion('backend', [
 export type RuntimeTerminal = z.infer<typeof RuntimeTerminalSchema>;
 export type AttachedTerminal = Exclude<RuntimeTerminal, { backend: 'background' }>;
 
+export const MAX_CONCURRENCY = 64;
+
 /** Runtime limits override defaults individually; check cross-field constraints after merging them. */
 export const RuntimeSchema = z
   .object({
     data_dir: AbsolutePathSchema.optional(),
+    /** How many tasks may hold an execution slot at once (FR-044.01); read when cusrd starts. */
+    concurrency: z.number().int().positive().max(MAX_CONCURRENCY).optional(),
     limits: RuntimeLimitsSchema.partial().optional(),
     tool_paths: z.partialRecord(z.enum(RUNTIME_TOOLS), AbsolutePathSchema).optional(),
     credential_refs: z.record(RefNameSchema, AbsolutePathSchema).optional(),

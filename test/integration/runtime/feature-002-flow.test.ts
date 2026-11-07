@@ -479,7 +479,7 @@ describe.each(['full-review', 'direct-pr'] as const)(
       expect(github.calls.filter((c) => c.includes('/merge') && !c.startsWith('GET'))).toEqual([]);
       expect(Object.values(s.effects).filter((e) => e.kind === 'merge')).toEqual([]);
       expect(types(d, task)).not.toContain('ApprovalRequested');
-      expect(d.store.readSlot()).toBeNull();
+      expect(d.store.readSlots()).toEqual([]);
       expect(d.task(child.id).status).toBe('PENDING');
 
       // The user merges on GitHub; the merged head is the checked one, verified under this mode.
@@ -719,6 +719,31 @@ describe.each(['full-review', 'direct-pr'] as const)(
     );
   },
 );
+
+it('keeps the slot from publish through PR and review while a lower priority task waits (#203, FR-044.01)', async () => {
+  const task = buildTask({ priority: 60 });
+  const other = buildTask({ id: uuidOf(2), source_key: 'cli:other', priority: 50 });
+  const { d, start, settle } = setup(task, { mode: 'full-review' });
+  d.must(task.id, { kind: 'create_task', task });
+  d.must(other.id, { kind: 'create_task', task: other });
+  d.must(other.id, { kind: 'request_execution' });
+  start();
+  await settle();
+
+  expect(d.task(task.id).wait).toMatchObject({ reason: 'approval', detail: { code: 'merge' } });
+  const events = d.store.readEvents(task.id);
+  const at = (type: string) => events.findIndex((e) => e.type === type);
+  // One grant for the whole run: no release at a step boundary, so no second trip through the queue.
+  expect(events.filter((e) => e.type === 'ExecutionGranted')).toHaveLength(1);
+  expect(
+    events.some((e) => e.type === 'TaskWaiting' && e.payload.wait.detail.code === 'execution_slot'),
+  ).toBe(false);
+  const released = at('ExecutionReleased');
+  expect(released).toBeGreaterThan(at('ReviewVerdictRecorded'));
+  expect(events[released]?.payload).toMatchObject({ reason: 'waiting' });
+  expect(d.store.readSlots()).toEqual([]);
+  expect(d.task(other.id).execution.request).not.toBeNull();
+});
 
 describe('project setup in prepare', () => {
   const prepareResult = (f: ReturnType<typeof setup>, id: Uuid): unknown => {

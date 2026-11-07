@@ -439,7 +439,7 @@ describe('startup order (T085, FR-022, FR-036)', () => {
     }
     const db = () => storeDb(f.d.store);
     const before = {
-      slot: f.d.store.readSlot(),
+      slots: f.d.store.readSlots(),
       queue: f.d.store.readQueue(10),
       timers: db().prepare('SELECT * FROM timers ORDER BY id').all(),
       deadline: f.d.task(a.id).deadline_at,
@@ -450,10 +450,10 @@ describe('startup order (T085, FR-022, FR-036)', () => {
     f.d.now = (before.deadline ?? 0) + 60_000;
     const report = await restart(f);
     expect(report.timers.overdue).toBeGreaterThan(0);
-    expect(report.slot).toEqual(before.slot);
+    expect(report.slots).toEqual(before.slots);
     expect(report.queue_length).toBe(2);
     expect({
-      slot: f.d.store.readSlot(),
+      slots: f.d.store.readSlots(),
       queue: f.d.store.readQueue(10),
       timers: db().prepare('SELECT * FROM timers ORDER BY id').all(),
       deadline: f.d.task(a.id).deadline_at,
@@ -550,7 +550,7 @@ describe('open operations are reconciled before work is granted (T086, FR-034.01
     });
     expect(s.effects[effectId]?.status).toBe('started');
     expect(f.d.pending(task.id, 'start_agent')).toEqual([]);
-    expect(f.d.store.readSlot()?.holder_task_id).toBe(task.id);
+    expect(f.d.store.readSlots()[0]?.holder_task_id).toBe(task.id);
 
     // A second pass with nothing new commits nothing.
     const events = eventCount(f);
@@ -594,7 +594,7 @@ describe('open operations are reconciled before work is granted (T086, FR-034.01
     expect(s.operations[OP]?.status).toBe('lost');
     expect(s.effects[effectId]?.status).toBe('unknown');
     expect(s.budget.reservations[s.effects[effectId]?.reservation_id ?? '']?.status).toBe('held');
-    expect(f.d.store.readSlot()?.holder_task_id).toBe(task.id);
+    expect(f.d.store.readSlots()[0]?.holder_task_id).toBe(task.id);
     expect(f.d.pending(task.id, 'start_agent')).toEqual([]);
     expect(report.held).toBeNull();
   });

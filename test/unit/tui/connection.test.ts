@@ -22,7 +22,8 @@ const SIZE = { cols: 100, rows: 30 };
 const HEALTH: Health = {
   healthy: true,
   reason: null,
-  slot: null,
+  slots: [],
+  concurrency: 1,
   queue_length: 0,
 };
 const BOARD = {

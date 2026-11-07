@@ -121,6 +121,8 @@ export type DaemonOptions = {
      * held, blocked or latched.
      */
     readonly schedule?: () => Promise<unknown>;
+    /** `runtime.concurrency` the scheduler grants up to, reported by health (FR-044.01); default 1. */
+    readonly concurrency?: number;
   };
   readonly dispatchIntervalMs?: number;
   readonly log?: (msg: string) => void;
@@ -446,6 +448,7 @@ export async function startDaemon(
         unresolved: currentClaims(),
         spoolProblems: [...spoolProblems.values()],
         queuePaused: readQueuePause(opts.dataDir),
+        concurrency: extra.concurrency ?? 1,
         now: clock.now(),
       });
     },

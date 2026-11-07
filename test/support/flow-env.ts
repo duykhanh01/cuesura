@@ -300,11 +300,11 @@ export function flowEnv(prefix: string) {
 
     /**
      * One dispatcher round; returns how many effects it started. Like cusrd, a free slot goes to the task
-     * when it queued for one again (a full-review task does after its PR step).
+     * when it queued for one again (after it gave the slot back to wait for CI or a person).
      */
     const tick = async (): Promise<number> => {
       const queued =
-        d.task(task.id).wait?.detail.code === 'execution_slot' && d.store.readSlot() === null;
+        d.task(task.id).wait?.detail.code === 'execution_slot' && d.store.readSlots().length === 0;
       if (queued) d.store.grantNext(d.now as EpochMs, Array.from({ length: 8 }, newId));
       const r = dispatcher.tick();
       await dispatcher.settle();

@@ -111,12 +111,15 @@ function statusBar(s: TuiState, cols: number): Seg[] {
   const h = s.stale ? null : s.health;
   const daemon = h === null ? 'unknown' : h.healthy ? 'ok' : 'unhealthy';
   const dot: Style = h === null ? DIM : h.healthy ? GOOD : BAD_STRONG;
+  const first = h?.slots[0];
   const slot =
     h === null
       ? uiText('-')
-      : h.slot === null
-        ? uiText('free')
-        : slotHolder(s, h.slot.holder_task_id);
+      : h.concurrency > 1
+        ? uiText(`${h.slots.length}/${h.concurrency}`)
+        : first === undefined
+          ? uiText('free')
+          : slotHolder(s, first.holder_task_id);
   const queue = s.stale ? '-' : String(s.board?.queue.length ?? h?.queue_length ?? '-');
   const project = s.filters.project === null ? uiText('all') : sanitize(s.filters.project);
   const right = ui(`updated: ${lastUpdated(s)} `, DIM);

@@ -563,6 +563,8 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
       request_id: UuidSchema,
       // `cusr queue pause` (issue #142): only started tasks compete for the slot; additive.
       started_only: z.boolean().optional(),
+      // `runtime.concurrency` when the grant was asked for (FR-044.01); absent means 1. Additive.
+      capacity: z.number().int().positive().optional(),
     })
     .strict(),
   z
@@ -774,9 +776,9 @@ export type RelatedFacts = {
   source_task?: { task_id: string; same_content: boolean };
   /** Live tasks other than this one that hold the PR an `adopt_pr` names. */
   pr_holders?: string[];
-  /** Daemon-wide slot and queue head, read in the same transaction as a grant (FR-044). */
+  /** Slot holders and queue head, read in the same transaction as a grant (FR-044). */
   execution?: {
-    slot: { holder_task_id: string; request_id: string } | null;
+    holders: string[];
     queue_head: string | null;
   };
 };

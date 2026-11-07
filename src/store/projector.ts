@@ -1,7 +1,6 @@
-import type { Database } from 'better-sqlite3';
+import type { Database, Statement } from 'better-sqlite3';
 import { canonicalJson } from '../shared/canonical-json.ts';
 import type { DomainEvent } from '../domain/event.ts';
-import { EXECUTION_SLOT_KEY } from '../domain/runtime.ts';
 import type { TaskState } from '../domain/state.ts';
 
 // Store canonical JSON so projection verification can compare byte for byte.
@@ -73,10 +72,10 @@ export type QueueRow = {
 };
 
 export type SlotRow = {
-  key: string;
   holder_task_id: string;
   request_id: string;
   claimed_at: number;
+  claimed_seq: number;
 };
 
 export type OperationRow = {
@@ -126,11 +125,11 @@ export type ObservationRow = {
   observation_json: string;
 };
 
-/** A second holder for the singleton execution slot: the grant is rolled back as a conflict. */
+/** A task granted a second slot while it holds one: the grant is rolled back as a conflict. */
 export class SlotConflict extends Error {
   readonly holder: string;
   constructor(holder: string) {
-    super(`projection: execution slot already held by ${holder}`);
+    super(`projection: task ${holder} already holds an execution slot`);
     this.holder = holder;
   }
 }
@@ -161,7 +160,8 @@ export interface ProjectionSink {
   putRuntimeContext(row: RuntimeContextRow): void;
   getQueue(requestId: string): QueueRow | undefined;
   putQueue(row: QueueRow): void;
-  getSlot(): SlotRow | undefined;
+  /** The slot this task holds; a task holds at most one (FR-044.01). */
+  getSlot(taskId: string): SlotRow | undefined;
   putSlot(row: SlotRow): void;
   clearSlot(requestId: string): void;
   getOperation(id: string): OperationRow | undefined;
@@ -365,13 +365,12 @@ export function projectRuntime(sink: ProjectionSink, events: readonly DomainEven
           closed_at: e.payload.at,
         });
         if (e.type === 'ExecutionGranted') {
-          const held = sink.getSlot();
-          if (held !== undefined) throw new SlotConflict(held.holder_task_id);
+          if (sink.getSlot(e.task_id) !== undefined) throw new SlotConflict(e.task_id);
           sink.putSlot({
-            key: EXECUTION_SLOT_KEY,
             holder_task_id: e.task_id,
             request_id: e.payload.request_id,
             claimed_at: e.payload.at,
+            claimed_seq: e.global_seq,
           });
         }
         break;
@@ -496,10 +495,10 @@ export function sqliteSink(db: Database): ProjectionSink {
      VALUES (@request_id, @task_id, @grp, @priority, @requested_at, @request_global_seq, @status, @closed_at)
      ON CONFLICT (request_id) DO UPDATE SET priority = excluded.priority, status = excluded.status, closed_at = excluded.closed_at`,
   );
-  const getSlot = db.prepare(`SELECT * FROM execution_slot WHERE key = '${EXECUTION_SLOT_KEY}'`);
-  const putSlot = db.prepare(
-    'INSERT INTO execution_slot (key, holder_task_id, request_id, claimed_at) VALUES (@key, @holder_task_id, @request_id, @claimed_at)',
-  );
+  const getSlot = db.prepare('SELECT * FROM execution_slot WHERE holder_task_id = ?');
+  // Prepared on first use: migration 002 rebuilds through this sink before 006 adds `claimed_seq`, and
+  // a log that old has no grant to project.
+  let putSlot: Statement | undefined;
   const clearSlot = db.prepare('DELETE FROM execution_slot WHERE request_id = ?');
   const getOperation = db.prepare('SELECT * FROM operations WHERE id = ?');
   const putOperation = db.prepare(
@@ -527,8 +526,13 @@ export function sqliteSink(db: Database): ProjectionSink {
     putRuntimeContext: (row) => void putRuntimeContext.run(row),
     getQueue: (id) => getQueue.get(id) as QueueRow | undefined,
     putQueue: (row) => void putQueue.run(row),
-    getSlot: () => getSlot.get() as SlotRow | undefined,
-    putSlot: (row) => void putSlot.run(row),
+    getSlot: (taskId) => getSlot.get(taskId) as SlotRow | undefined,
+    putSlot: (row) => {
+      putSlot ??= db.prepare(
+        'INSERT INTO execution_slot (holder_task_id, request_id, claimed_at, claimed_seq) VALUES (@holder_task_id, @request_id, @claimed_at, @claimed_seq)',
+      );
+      putSlot.run(row);
+    },
     clearSlot: (id) => void clearSlot.run(id),
     getOperation: (id) => getOperation.get(id) as OperationRow | undefined,
     putOperation: (row) => void putOperation.run(row),
@@ -581,17 +585,15 @@ export class MemorySink implements ProjectionSink {
       throw new Error(`execution_queue: second open request for ${row.task_id}`);
     this.queue.set(row.request_id, row);
   }
-  getSlot(): SlotRow | undefined {
-    return this.slot.get(EXECUTION_SLOT_KEY);
+  getSlot(taskId: string): SlotRow | undefined {
+    return [...this.slot.values()].find((r) => r.holder_task_id === taskId);
   }
   putSlot(row: SlotRow): void {
-    if (this.slot.has(row.key))
-      throw new SlotConflict(this.slot.get(row.key)?.holder_task_id ?? '');
-    this.slot.set(row.key, row);
+    if (this.getSlot(row.holder_task_id) !== undefined) throw new SlotConflict(row.holder_task_id);
+    this.slot.set(row.request_id, row);
   }
   clearSlot(requestId: string): void {
-    if (this.slot.get(EXECUTION_SLOT_KEY)?.request_id === requestId)
-      this.slot.delete(EXECUTION_SLOT_KEY);
+    this.slot.delete(requestId);
   }
   getOperation(id: string): OperationRow | undefined {
     return this.operations.get(id);

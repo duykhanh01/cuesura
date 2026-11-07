@@ -20,6 +20,7 @@ const MIGRATIONS: readonly {
   { version: 3, file: '003_command_outcome.sql' },
   { version: 4, file: '004_command_project.sql' },
   { version: 5, file: '005_drop_decider_budget.sql', after: rewriteTaskStates },
+  { version: 6, file: '006_task_slots.sql' },
 ];
 
 /**

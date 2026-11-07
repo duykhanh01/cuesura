@@ -111,7 +111,7 @@ describe('cancel before and during an attempt (US5.3, FR-025.01/02)', () => {
     expect(s.effects[agent.id]?.status).toBe('invalidated');
     expect(Object.values(s.attempts).map((a) => a.outcome?.status)).toEqual(['not_started']);
     expect(d.store.pendingEffects(100)).toEqual([]);
-    expect(d.store.readSlot()).toBeNull();
+    expect(d.store.readSlots()).toEqual([]);
     // Nothing reopens a terminal task.
     const again = d.must(t.id, { kind: 'cancel', reason: 'again' });
     expect(again.decision.kind === 'accepted' && again.decision.events.map((e) => e.type)).toEqual([
@@ -186,7 +186,7 @@ describe('cancel before and during an attempt (US5.3, FR-025.01/02)', () => {
     expect(d.task(t.id).status).not.toBe('CANCELLED');
     // No business effect is created or claimable while the cancel is open.
     expect(d.store.pendingEffects(100).map((e) => e.kind)).toEqual(['stop_attempt']);
-    expect(d.store.readSlot()?.holder_task_id).toBe(t.id);
+    expect(d.store.readSlots()[0]?.holder_task_id).toBe(t.id);
 
     const stop = d.pendingOne(t.id, 'stop_attempt');
     const handlers = buildHandlers({
@@ -226,7 +226,7 @@ describe('cancel before and during an attempt (US5.3, FR-025.01/02)', () => {
     expect([pgid, ...kids].some(alive)).toBe(false);
     // Stopped is not done: the claim and the slot wait for the attempt's own result.
     expect(d.task(t.id).status).not.toBe('CANCELLED');
-    expect(d.store.readSlot()?.holder_task_id).toBe(t.id);
+    expect(d.store.readSlots()[0]?.holder_task_id).toBe(t.id);
 
     // The stopped runner's receipt, then the attempt's result: only now is the outcome clear.
     d.must(t.id, {
@@ -247,7 +247,7 @@ describe('cancel before and during an attempt (US5.3, FR-025.01/02)', () => {
       data: { failure_class: 'infra', message: 'stopped by cancel' },
     });
     expect(d.task(t.id).status).toBe('CANCELLED');
-    expect(d.store.readSlot()).toBeNull();
+    expect(d.store.readSlots()).toEqual([]);
     expect(types(d, t).filter((x) => x === 'AttemptRequested')).toHaveLength(1);
   });
 });
@@ -337,7 +337,7 @@ describe('cancel stops setup and gate processes (US5.3, FR-025.02)', () => {
       expect(d.task(t.id).effects[stop.id]?.status).toBe('succeeded');
       // Stopped, not yet clear: the slot stays until the setup's receipt and result.
       expect(d.task(t.id).status).not.toBe('CANCELLED');
-      expect(d.store.readSlot()?.holder_task_id).toBe(t.id);
+      expect(d.store.readSlots()[0]?.holder_task_id).toBe(t.id);
       d.must(t.id, {
         kind: 'operation_result',
         operation_id: opId,
@@ -357,7 +357,7 @@ describe('cancel stops setup and gate processes (US5.3, FR-025.02)', () => {
       });
       for (const rec of d.pending(t.id, 'reconcile')) d.complete(t.id, rec.id, 'succeeded');
       expect(d.task(t.id).status).toBe('CANCELLED');
-      expect(d.store.readSlot()).toBeNull();
+      expect(d.store.readSlots()).toEqual([]);
     } finally {
       try {
         process.kill(-pgid, 'SIGKILL');
@@ -928,7 +928,7 @@ describe('gates are guarded at the moment they run (FR-025.01/02)', () => {
         expect(s.operations[recOp.operation_id]?.status).toBe('unknown');
         expect(s.effects[rec.id]?.status).toBe('unknown');
         expect(s.status).not.toBe('CANCELLED');
-        expect(f.d.store.readSlot()?.holder_task_id).toBe(task.id);
+        expect(f.d.store.readSlots()[0]?.holder_task_id).toBe(task.id);
       } else {
         expect(s.operations[recOp.operation_id]?.status).not.toBe('unknown');
       }
@@ -1096,7 +1096,7 @@ describe('a probe that cannot see processes gone is not the end of the road (Con
           expect(d.store.pendingEffects(100)).toEqual([]);
           expect(d.task(t.id).status).toBe('WAITING');
           expect(d.task(t.id).effects[gate.id]?.status).toBe('unknown');
-          expect(d.store.readSlot()?.holder_task_id).toBe(t.id);
+          expect(d.store.readSlots()[0]?.holder_task_id).toBe(t.id);
           expect(alive()).toBe(true);
           // The process dies; the daemon's operation reconcile proves it gone and records it lost.
           await die();
@@ -1130,7 +1130,7 @@ describe('a probe that cannot see processes gone is not the end of the road (Con
         expect(s.effects[gate.id]?.status).toBe('failed');
         expect(s.operations[gateOp]?.status).toBe('finished');
         expect(s.status).toBe('CANCELLED');
-        expect(d.store.readSlot()).toBeNull();
+        expect(d.store.readSlots()).toEqual([]);
       } finally {
         try {
           process.kill(-pgid, 'SIGKILL');
@@ -1290,7 +1290,7 @@ describe('a probe left unknown holds the slot and every later probe of its effec
         expect(s.effects[r2?.id ?? '']?.status).toBe('pending');
         expect(s.effects[gate.id]?.status).toBe('unknown');
         expect(s.status).not.toBe('CANCELLED');
-        expect(f.d.store.readSlot()?.holder_task_id).toBe(task.id);
+        expect(f.d.store.readSlots()[0]?.holder_task_id).toBe(task.id);
       }
       expect(alive()).toBe(true);
 
@@ -1321,7 +1321,7 @@ describe('a probe left unknown holds the slot and every later probe of its effec
       expect(s.status).toBe('CANCELLED');
       expect(s.effects[gate.id]?.status).toBe('failed');
       expect(Object.values(s.operations).filter((o) => isUnresolved(o))).toEqual([]);
-      expect(f.d.store.readSlot()).toBeNull();
+      expect(f.d.store.readSlots()).toEqual([]);
       expect(s.run.checkpoint).toBeNull();
     } finally {
       if (alive()) process.kill(pid, 'SIGKILL');
@@ -1401,7 +1401,7 @@ describe('a probe of slot-bound work binds the slot itself (FR-044.01)', () => {
     expect(s.effects[r1.id]?.status).toBe('unknown');
     expect(s.operations[r1Op]?.status).toBe('unknown');
     expect(s.status).not.toBe('CANCELLED');
-    expect(d.store.readSlot()?.holder_task_id).toBe(t.id);
+    expect(d.store.readSlots()[0]?.holder_task_id).toBe(t.id);
   });
 });
 
@@ -1907,7 +1907,7 @@ describe('quota, auth and refusal wait with a reason (US5.5, FR-015)', () => {
     expect(due).toBeGreaterThanOrEqual(resetAt);
     expect(due).toBeLessThanOrEqual(d.now + 1_800_000);
     expect(s.budget.agent_runs.used).toBe(1);
-    expect(d.store.readSlot()).toBeNull();
+    expect(d.store.readSlots()).toEqual([]);
     d.now = due;
     d.fire();
     grant(d);
@@ -1941,7 +1941,7 @@ describe('quota, auth and refusal wait with a reason (US5.5, FR-015)', () => {
       status: 'WAITING',
       wait: { reason: 'policy', detail: { code: 'backoff_exhausted' } },
     });
-    expect(d.store.readSlot()).toBeNull();
+    expect(d.store.readSlots()).toEqual([]);
   });
 
   it.each(['auth_config', 'refused'] as const)(
@@ -1955,7 +1955,7 @@ describe('quota, auth and refusal wait with a reason (US5.5, FR-015)', () => {
         wait: { reason: 'human_input', detail: { code: cls } },
       });
       expect(d.store.pendingEffects(100)).toEqual([]);
-      expect(d.store.readSlot()).toBeNull();
+      expect(d.store.readSlots()).toEqual([]);
       d.now += 3_600_000;
       d.fire();
       expect(d.pending(t.id, 'start_agent')).toEqual([]);
@@ -1969,7 +1969,7 @@ describe('quota, auth and refusal wait with a reason (US5.5, FR-015)', () => {
     const agent = d.pendingOne(t.id, 'start_agent');
     d.complete(t.id, agent.id, 'unknown');
     expect(d.task(t.id).effects[agent.id]?.status).toBe('unknown');
-    expect(d.store.readSlot()?.holder_task_id).toBe(t.id);
+    expect(d.store.readSlots()[0]?.holder_task_id).toBe(t.id);
     expect(d.pending(t.id, 'reconcile')).toHaveLength(1);
     expect(d.pending(t.id, 'start_agent')).toEqual([]);
   });

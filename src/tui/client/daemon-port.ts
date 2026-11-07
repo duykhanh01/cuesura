@@ -214,7 +214,8 @@ export function createDaemonPort(deps: PortDeps = {}): DaemonPort {
       return ok({
         healthy: envelope.ok,
         reason: envelope.ok ? null : sanitize(envelope.error.message),
-        slot: data.value.slot,
+        slots: data.value.slots,
+        concurrency: data.value.concurrency,
         queue_length: data.value.queue_length,
       });
     },

@@ -260,7 +260,7 @@ function setup(o: {
   const settle = async (max = 40): Promise<void> => {
     for (let i = 0; i < max; i++) {
       const queued =
-        d.task(task.id).wait?.detail.code === 'execution_slot' && d.store.readSlot() === null;
+        d.task(task.id).wait?.detail.code === 'execution_slot' && d.store.readSlots().length === 0;
       if (queued) d.store.grantNext(d.now as EpochMs, [newId(), newId(), newId(), newId()]);
       const r = dispatcher.tick();
       await dispatcher.settle();

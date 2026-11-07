@@ -145,7 +145,7 @@ export function verifyProjections(db: Database): VerifyReport {
       (r) => `${String(r['task_id'])}#${String(r['revision'])}`,
     ],
     ['execution_queue', sink.queue, (r) => r['request_id']],
-    ['execution_slot', sink.slot, (r) => r['key']],
+    ['execution_slot', sink.slot, (r) => r['request_id']],
     ['operations', sink.operations, (r) => r['id']],
     ['ingest_cursors', sink.cursors, (r) => r['operation_id']],
     ['artifacts', sink.artifacts, (r) => r['artifact_id']],

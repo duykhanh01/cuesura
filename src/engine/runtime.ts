@@ -125,7 +125,7 @@ export function onRequestExecution(ctx: Ctx): void {
 }
 
 /**
- * Grant the slot to this task's open request. The store reads the slot holder and queue head inside the
+ * Grant the slot to this task's open request. The store reads the slot holders and queue head inside the
  * same BEGIN IMMEDIATE transaction; a stale view is rejected rather than granting twice.
  */
 export function onGrantExecution(ctx: Ctx, t: TriggerOf<'grant_execution'>): void {
@@ -151,10 +151,12 @@ export function onGrantExecution(ctx: Ctx, t: TriggerOf<'grant_execution'>): voi
   }
   const facts = ctx.related.execution;
   if (facts === undefined) reject('invalid_trigger', { reason: 'missing_execution_facts' });
-  if (facts.slot !== null)
+  const capacity = t.capacity ?? 1;
+  if (facts.holders.length >= capacity)
     reject('invalid_trigger', {
       reason: 'slot_held',
-      holder_task_id: facts.slot.holder_task_id,
+      holder_task_ids: facts.holders,
+      capacity,
     });
   if (facts.queue_head !== r.request_id)
     reject('invalid_trigger', {
@@ -211,9 +213,10 @@ export function hasSlotWork(s: TaskState): boolean {
 }
 
 /**
- * Run after every decision on a runtime task (FR-044.02/05). Withdraws a request the task no longer
- * qualifies for, and returns the slot once a started task has no slot-bound work left, including while
- * it waits for CI, merge, a human or a cooldown. An unresolved claim always keeps the slot.
+ * Run after every decision on a runtime task (FR-044.01/02/05). Withdraws a request the task no longer
+ * qualifies for. The slot belongs to the task, not to a step: a RUNNING task keeps it across every step
+ * and effect, slot-bound or not (issue #203). It goes back only once the task stops running to wait for
+ * CI, merge, a human or a cooldown, and an unresolved claim keeps it even then.
  */
 export function settleSlot(ctx: Ctx): void {
   const s = ctx.state;
@@ -232,10 +235,15 @@ export function settleSlot(ctx: Ctx): void {
       });
   }
   const h = ctx.state.execution.holding;
-  if (h !== null && ctx.state.policy_ref !== null && !hasSlotWork(ctx.state)) {
+  if (
+    h !== null &&
+    ctx.state.policy_ref !== null &&
+    ctx.state.status !== 'RUNNING' &&
+    !hasSlotWork(ctx.state)
+  ) {
     ctx.emit('ExecutionReleased', {
       request_id: h.request_id,
-      reason: 'no_slot_work',
+      reason: 'waiting',
       at: ctx.now,
     });
   }

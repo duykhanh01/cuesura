@@ -24,7 +24,8 @@ import { uiText } from '../../../src/tui/terminal/safe-text.ts';
 const HEALTH: Health = {
   healthy: true,
   reason: null,
-  slot: null,
+  slots: [],
+  concurrency: 1,
   queue_length: 0,
 };
 const BOARD = { unchanged: true, watermark: 1 } as BoardReply;

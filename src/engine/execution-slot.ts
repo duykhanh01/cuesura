@@ -1,7 +1,7 @@
 import type { ExecutionRequest } from '../domain/runtime.ts';
 
-// Pure selector of the daemon-wide execution slot (SPEC.md §6.2, FR-044.01–07). The store hands it the
-// open requests and the holder read inside its transaction; nothing here reads a clock or the store.
+// Pure selector of the execution slots (SPEC.md §6.2, FR-044.01–07). The store hands it the open
+// requests and the holders read inside its transaction; nothing here reads a clock or the store.
 
 /** The fields selection may look at: never `created_at` or the insertion order of the rows. */
 export type SlotCandidate = Pick<
@@ -9,13 +9,8 @@ export type SlotCandidate = Pick<
   'request_id' | 'task_id' | 'group' | 'priority' | 'requested_at' | 'request_global_seq'
 >;
 
-export type SlotHolder = {
-  readonly holder_task_id: string;
-  readonly request_id: string;
-};
-
 export type SlotSelection<R extends SlotCandidate> =
-  | { readonly kind: 'busy'; readonly holder_task_id: string }
+  | { readonly kind: 'busy'; readonly holders: number }
   | { readonly kind: 'empty' }
   | { readonly kind: 'grant'; readonly request: R };
 
@@ -36,12 +31,16 @@ export function orderQueue<R extends SlotCandidate>(queue: readonly R[]): R[] {
   return [...queue].sort(compareRequests);
 }
 
-/** A held slot is never preempted, whatever waits behind it; otherwise the first request in order wins. */
+/**
+ * A held slot is never preempted, whatever waits behind it: with `holders` slots of `capacity` taken
+ * nothing is granted; otherwise the first request in order wins.
+ */
 export function selectNext<R extends SlotCandidate>(
   queue: readonly R[],
-  slot: SlotHolder | null,
+  holders: number,
+  capacity: number,
 ): SlotSelection<R> {
-  if (slot !== null) return { kind: 'busy', holder_task_id: slot.holder_task_id };
+  if (holders >= capacity) return { kind: 'busy', holders };
   let best: R | undefined;
   for (const r of queue) if (best === undefined || compareRequests(r, best) < 0) best = r;
   return best === undefined ? { kind: 'empty' } : { kind: 'grant', request: best };

@@ -293,6 +293,8 @@ export function ignoredDispatchKeys(u: RawUserConfig): string[] {
 
 export type RuntimeConfig = {
   data_dir: string | null;
+  /** Tasks that may hold an execution slot at once; 1 when `runtime.concurrency` is absent. */
+  concurrency: number;
   limits: RuntimeLimits;
   /** Doctor and preflight resolve tools that have no explicit path. */
   tool_paths: Partial<Record<RuntimeTool, string>>;
@@ -328,6 +330,7 @@ export function normalizeRuntime(
     isolation[h] = r.harness_isolation?.[h] ?? 'internal_required';
   return {
     data_dir: r.data_dir ?? null,
+    concurrency: r.concurrency ?? 1,
     limits: mergeRuntimeLimits(r.limits),
     tool_paths: Object.fromEntries(Object.entries(r.tool_paths ?? {}).sort(byName)),
     credential_refs: Object.entries(r.credential_refs ?? {})

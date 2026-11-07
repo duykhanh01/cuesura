@@ -240,19 +240,19 @@ export function readEffect(db: Database, id: string): Effect | null {
   return row === undefined ? null : toEffect(row);
 }
 
-/** Slot holder and the next request by SPEC.md §6.2 order, read inside the caller's transaction. */
+/** Slot holders and the next request by SPEC.md §6.2 order, read inside the caller's transaction. */
 export function readExecutionFacts(
   db: Database,
   startedOnly = false,
 ): {
-  slot: { holder_task_id: string; request_id: string } | null;
+  holders: string[];
   queue_head: string | null;
 } {
-  const slot = db
-    .prepare(`SELECT holder_task_id, request_id FROM execution_slot WHERE key = 'execution'`)
-    .get() as { holder_task_id: string; request_id: string } | undefined;
   const head = readQueue(db).find((r) => !startedOnly || r.group !== 'fresh');
-  return { slot: slot ?? null, queue_head: head?.request_id ?? null };
+  return {
+    holders: readSlots(db).map((s) => s.holder_task_id),
+    queue_head: head?.request_id ?? null,
+  };
 }
 
 export type QueuedRequest = {
@@ -274,15 +274,15 @@ export function readQueue(db: Database, limit = Number.MAX_SAFE_INTEGER): Queued
   return orderQueue(rows.map(({ grp, ...r }) => ({ ...r, group: grp }))).slice(0, limit);
 }
 
-export function readSlot(
-  db: Database,
-): { holder_task_id: string; request_id: string; claimed_at: number } | null {
-  const row = db
+export type SlotHolding = { holder_task_id: string; request_id: string; claimed_at: number };
+
+/** Every held slot in grant order (FR-044.01). */
+export function readSlots(db: Database): SlotHolding[] {
+  return db
     .prepare(
-      `SELECT holder_task_id, request_id, claimed_at FROM execution_slot WHERE key = 'execution'`,
+      'SELECT holder_task_id, request_id, claimed_at FROM execution_slot ORDER BY claimed_seq',
     )
-    .get() as { holder_task_id: string; request_id: string; claimed_at: number } | undefined;
-  return row ?? null;
+    .all() as SlotHolding[];
 }
 
 /** Every project path any snapshot froze; execution resolves a task's Git directories from it. */

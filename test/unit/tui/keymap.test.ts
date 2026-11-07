@@ -33,7 +33,8 @@ const TASK = (n: number) => `00000000-0000-7000-8000-00000000000${n}`;
 const HEALTH: Health = {
   healthy: true,
   reason: null,
-  slot: null,
+  slots: [],
+  concurrency: 1,
   queue_length: 0,
 };
 

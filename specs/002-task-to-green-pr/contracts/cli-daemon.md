@@ -133,7 +133,8 @@ NormalizedUser để runtime còn biết allowlisted remote.
 | --- | --- |
 | User `projects.<id>.path` | Absolute realpath local repo; kiểm git common dir; bắt buộc cho runtime |
 | User `projects.<id>.repo` | `owner/repo` GitHub slug, immutable repo ID lấy ở preflight; khớp remote allowlist |
-| User `runtime` | Object closed: data_dir, limits, tool_paths, credential_refs và harness_isolation (`access_tokens` cũ được chấp nhận nhưng bỏ qua); chỉ owner sửa |
+| User `runtime` | Object closed: data_dir, concurrency, limits, tool_paths, credential_refs và harness_isolation (`access_tokens` cũ được chấp nhận nhưng bỏ qua); chỉ owner sửa |
+| User `runtime.concurrency` | Số task giữ execution slot cùng lúc (FR-044.01); số nguyên 1–64, mặc định 1; đọc khi cusrd khởi động, đổi thì restart; không thuộc snapshot của task. `GET /v1/health` trả `slots` (mọi slot đang giữ, theo thứ tự cấp) và `concurrency` |
 | User `runtime.harness_isolation.<harness>` | internal_required mặc định hoặc allow_external_verified; mode sau chỉ được chọn khi S0.1 proof còn hợp lệ, không nhận từ cusr.yaml/task/agent |
 | User `projects.<id>.dispatch`, `runtime.dispatch` | Bản của project thay toàn bộ bản `runtime`, không merge rule. Gồm `profile`, `rules[]` (tùy chọn) và `default` bắt buộc. Mỗi rule có `when`, `why`, `use`, `reviewer?`; `default` có `use`, `reviewer?`, `why?`. `use` là một hoặc một mảng có thứ tự `{harness, model, effort}`, cả ba khóa bắt buộc; `reviewer` cùng dạng. Có `reviewer` là `full-review`, không có là `direct-pr`. Lúc nạp: profile tồn tại và cho phép, mode được phép theo `runtime.modes`, `use` khớp binding của `coder` và `fixer`, `reviewer` khớp binding của `reviewer`. Daemon không đọc `when`, không xếp `use`; không thuộc hash chính sách của task |
 | User `runtime.limits` | Các trần có default ở research R-04/R-11; số nguyên dương, hữu hạn; task mới chụp snapshot/hash |

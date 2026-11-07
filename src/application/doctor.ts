@@ -204,8 +204,15 @@ function storeChecks(deps: DoctorDeps): DoctorCheck[] {
             .join(', '),
     ),
   );
-  const slot = store.readSlot();
-  out.push(ok_('slot', slot === null ? 'free' : `held by task ${slot.holder_task_id}`));
+  const slots = store.readSlots();
+  out.push(
+    ok_(
+      'slot',
+      slots.length === 0
+        ? 'free'
+        : `held by task ${slots.map((s) => s.holder_task_id).join(', task ')}`,
+    ),
+  );
   return out;
 }
 

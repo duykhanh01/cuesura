@@ -351,7 +351,7 @@ describe('start freezes one snapshot under the slot before RUNNING (T032, FR-002
       wait: { reason: 'needs_info', detail: { code: 'capability_missing' } },
     });
     expect(s.execution.holding).toBeNull();
-    expect(d.store.readSlot()).toBeNull();
+    expect(d.store.readSlots()).toEqual([]);
     expect(d.pending(task.id)).toEqual([]);
   });
 
@@ -371,7 +371,7 @@ describe('start freezes one snapshot under the slot before RUNNING (T032, FR-002
       status: 'READY',
       policy_ref: null,
     });
-    expect(d.store.readSlot()).toBeNull();
+    expect(d.store.readSlots()).toEqual([]);
   });
 
   it('a task changed during preflight is a conflict and keeps no snapshot', async () => {
@@ -414,7 +414,7 @@ describe('start freezes one snapshot under the slot before RUNNING (T032, FR-002
       kind: 'not_startable',
       reason: 'run_config_unconfirmed',
     });
-    expect(d.store.readSlot()).toBeNull();
+    expect(d.store.readSlots()).toEqual([]);
     expect(d.task(task.id).policy_ref).toBeNull();
 
     // Confirmed, then a different selection is proposed: the old confirmation no longer covers it.

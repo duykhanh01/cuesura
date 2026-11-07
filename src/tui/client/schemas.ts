@@ -23,7 +23,8 @@ const SlotSchema = z.looseObject({
 export const HealthDataSchema = z.looseObject({
   store: z.looseObject({ writable: z.boolean() }),
   dispatch: z.looseObject({}),
-  slot: SlotSchema.nullable(),
+  slots: z.array(SlotSchema),
+  concurrency: z.number().int().positive().default(1),
   queue_length: z.number().int().nonnegative(),
   now: z.number(),
 });
@@ -31,7 +32,9 @@ export const HealthDataSchema = z.looseObject({
 export type Health = {
   readonly healthy: boolean;
   readonly reason: ReturnType<typeof sanitize> | null;
-  readonly slot: z.infer<typeof SlotSchema> | null;
+  /** Held slots, in grant order, out of `concurrency` (FR-044.01). */
+  readonly slots: readonly z.infer<typeof SlotSchema>[];
+  readonly concurrency: number;
   readonly queue_length: number;
 };
 

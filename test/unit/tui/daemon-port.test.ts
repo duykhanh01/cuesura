@@ -83,7 +83,8 @@ const HEALTH = {
   writer: 'ok',
   store: { writable: true, failure: null },
   dispatch: { blocked: null, held: null, in_flight: 0 },
-  slot: null,
+  slots: [],
+  concurrency: 1,
   queue_length: 2,
   now: 5,
 };
@@ -225,7 +226,7 @@ describe('daemon port', () => {
       const r = await port(okReply(HEALTH)).port.health(1);
       expect(r).toEqual({
         ok: true,
-        value: { healthy: true, reason: null, slot: null, queue_length: 2 },
+        value: { healthy: true, reason: null, slots: [], concurrency: 1, queue_length: 2 },
       });
     });
 
@@ -238,7 +239,8 @@ describe('daemon port', () => {
         value: {
           healthy: false,
           reason: 'new work held: claim␛[K',
-          slot: null,
+          slots: [],
+          concurrency: 1,
           queue_length: 2,
         },
       });

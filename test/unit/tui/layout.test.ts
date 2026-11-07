@@ -118,7 +118,8 @@ describe('notices', () => {
         health: {
           healthy: false,
           reason: uiText('new work held: claim'),
-          slot: null,
+          slots: [],
+          concurrency: 1,
           queue_length: 0,
         },
       }),
@@ -145,11 +146,14 @@ describe('status bar', () => {
         health: {
           healthy: false,
           reason: uiText(`a very long reason ${'x'.repeat(200)}`),
-          slot: {
-            holder_task_id: '019a0000-0000-7000-8000-000000000001' as Uuid,
-            request_id: 'r',
-            claimed_at: 1,
-          },
+          slots: [
+            {
+              holder_task_id: '019a0000-0000-7000-8000-000000000001' as Uuid,
+              request_id: 'r',
+              claimed_at: 1,
+            },
+          ],
+          concurrency: 1,
           queue_length: 12,
         },
       }),

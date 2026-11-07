@@ -72,7 +72,7 @@ export type StartupReport = {
   readonly orphaned: ReconcileReport['orphaned'];
   /** Spools that had something to ingest or failed; up-to-date ones are left out. */
   readonly ingest: readonly SpoolIngestReport[];
-  readonly slot: ReturnType<Store['readSlot']>;
+  readonly slots: ReturnType<Store['readSlots']>;
   readonly queue_length: number;
   readonly timers: { readonly armed: number; readonly overdue: number };
   /** Tasks started before 002 without a runtime snapshot: read-only, never dispatched. */
@@ -147,7 +147,7 @@ function writeReport(dataDir: string, report: StartupReport): string | null {
 function committedState(
   store: Store,
   now: number,
-): Pick<StartupReport, 'slot' | 'queue_length' | 'timers' | 'legacy_read_only'> {
+): Pick<StartupReport, 'slots' | 'queue_length' | 'timers' | 'legacy_read_only'> {
   let armed = 0;
   let overdue = 0;
   const legacy: string[] = [];
@@ -162,7 +162,7 @@ function committedState(
     }
   }
   return {
-    slot: store.readSlot(),
+    slots: store.readSlots(),
     queue_length: store.readQueue(1_000).length,
     timers: { armed, overdue },
     legacy_read_only: legacy,

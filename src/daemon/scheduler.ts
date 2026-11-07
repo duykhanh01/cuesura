@@ -2,10 +2,12 @@
  * Daemon scheduler pass (T034, FR-044). One pass, in order:
  *   1. dependency notifications from committed prerequisite status (FR-001.02/03);
  *   2. queue every READY task that has not started as `fresh` (it stays READY, no deadline yet);
- *   3. grant the single slot to the queue head, if free (priority, resumed before fresh, request order);
- *   4. start the slot holder if it is a fresh task, which freezes its snapshot under the slot.
+ *   3. grant free slots, up to `concurrency`, to the queue head in turn (priority, resumed before fresh,
+ *      request order);
+ *   4. start every slot holder that is a fresh task, which freezes its snapshot under the slot.
  * A started task that needs the slot again queues itself as `resumed` inside the engine and resumes on
- * grant; the engine also returns the slot once no slot-bound work is left. Nothing here preempts a holder.
+ * grant; the engine also returns the slot once the task stops running to wait. Nothing here preempts a
+ * holder.
  */
 import { runConfigConfirmed } from '../engine/run-config.ts';
 import type { Clock } from '../adapters/ports.ts';
@@ -28,16 +30,18 @@ export type SchedulerDeps = {
   readonly startRetryMs?: number;
   /** True while `cusr queue pause` holds tasks that have not started (issue #142). */
   readonly queuePaused?: () => boolean;
+  /** `runtime.concurrency`: how many tasks may hold a slot at once (FR-044.01); default 1. */
+  readonly concurrency?: number;
 };
 
 export type SchedulerReport = {
   readonly dependencies: readonly DependencyNotice[];
   readonly queued: readonly string[];
-  readonly granted: string | null;
-  readonly started: {
+  readonly granted: readonly string[];
+  readonly started: readonly {
     readonly task_id: string;
     readonly result: StartResult;
-  } | null;
+  }[];
 };
 
 export class Scheduler {
@@ -80,45 +84,46 @@ export class Scheduler {
       if (r.ok && r.value.decision.kind === 'accepted' && !r.value.duplicate) queued.push(id);
     }
 
-    let granted: string | null = null;
-    if (store.readSlot() === null) {
+    const capacity = this.#deps.concurrency ?? 1;
+    const granted: string[] = [];
+    // Each grant takes one slot, so the loop ends after at most `capacity` grants; a rejected or empty
+    // grant ends it too, and the next pass tries again.
+    while (store.readSlots().length < capacity) {
       const g = store.grantNext(
         now,
         Array.from({ length: MAX_ENVELOPE_IDS }, () => this.#deps.newId()),
-        { fresh: !paused },
+        { fresh: !paused, capacity },
       );
-      if (g.ok && g.value.kind === 'decided' && g.value.outcome.decision.kind === 'accepted')
-        granted = g.value.task_id;
+      if (!g.ok || g.value.kind !== 'decided' || g.value.outcome.decision.kind !== 'accepted')
+        break;
+      granted.push(g.value.task_id);
     }
 
-    let started: SchedulerReport['started'] = null;
-    const slot = store.readSlot();
-    const holder = slot === null ? null : store.readTask(slot.holder_task_id as Uuid);
-    // A task granted the slot but never started (a crash between grant and start) gives it back while
-    // the queue is paused, and is queued again after the resume.
-    if (
-      paused &&
-      slot !== null &&
-      holder !== null &&
-      holder.status === 'READY' &&
-      holder.policy_ref === null
-    ) {
-      submit(store, {
-        task_id: holder.id,
-        dedup_key: `queue-paused:${slot.request_id}`,
-        trigger: {
-          kind: 'release_execution',
-          request_id: slot.request_id as Uuid,
-          reason: 'queue_paused',
-        },
-        now,
-        ids: [],
-      });
-    } else if (holder !== null && holder.status === 'READY' && holder.policy_ref === null) {
+    const started: { task_id: string; result: StartResult }[] = [];
+    for (const slot of store.readSlots()) {
+      const holder = store.readTask(slot.holder_task_id as Uuid);
+      if (holder === null || holder.status !== 'READY' || holder.policy_ref !== null) continue;
+      // A task granted the slot but never started (a crash between grant and start, or a pause made
+      // while an earlier holder was starting) gives it back while the queue is paused, and is queued
+      // again after the resume. Read the pause again for each: every start awaits preflight.
+      if (this.#deps.queuePaused?.() ?? false) {
+        submit(store, {
+          task_id: holder.id,
+          dedup_key: `queue-paused:${slot.request_id}`,
+          trigger: {
+            kind: 'release_execution',
+            request_id: slot.request_id as Uuid,
+            reason: 'queue_paused',
+          },
+          now,
+          ids: [],
+        });
+        continue;
+      }
       const result = await this.#deps.start(holder.id);
       if (result.kind === 'unavailable')
         this.#retryAfter.set(holder.id, clock.now() + (this.#deps.startRetryMs ?? START_RETRY_MS));
-      started = { task_id: holder.id, result };
+      started.push({ task_id: holder.id, result });
     }
     return { dependencies, queued, granted, started };
   }

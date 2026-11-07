@@ -52,8 +52,9 @@ export function isBusinessEffect(kind: EffectKind): boolean {
 }
 
 /**
- * Work that runs under the single execution slot (FR-044.01): Prepare/setup, gates/autofix, publish and
- * agent attempts. GitHub reads/writes (PR, CI, rerun) and service effects never hold it.
+ * Work that runs only while its task holds an execution slot (FR-044.01): Prepare/setup, gates/autofix,
+ * publish and agent attempts. GitHub reads/writes (PR, CI, rerun) and service effects do not need one,
+ * though a running task keeps its slot through them.
  */
 export const SLOT_EFFECTS: readonly EffectKind[] = [
   'prepare',

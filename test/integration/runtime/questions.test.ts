@@ -69,7 +69,7 @@ describe('needs_input ends the attempt and waits for a person (US5.1, FR-024)', 
     // No agent kept alive to wait: the attempt is finished and nothing is in flight or holding the slot.
     expect(Object.values(s.attempts).map((a) => a.status)).toEqual(['finished']);
     expect(d.store.pendingEffects(100)).toEqual([]);
-    expect(d.store.readSlot()).toBeNull();
+    expect(d.store.readSlots()).toEqual([]);
     expect(s.execution).toMatchObject({ holding: null, request: null });
     const q = openQuestion(d, t.id);
     expect(q).toMatchObject({ body: 'Which encoding?', step: 'code' });
