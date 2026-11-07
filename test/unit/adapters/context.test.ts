@@ -400,7 +400,10 @@ describe('repair packet, template and PR content (T037/T136, M04/M05)', () => {
       expect(REVIEWER_RULES).toMatch(/trust gate_evidence/);
       expect(REVIEWER_RULES).toMatch(/rely on the checks the worker reports/);
       expect(REVIEWER_RULES).toMatch(/Missing evidence that checks ran is never a finding/);
+      expect(REVIEWER_RULES).toMatch(/If a code review skill is available to you/);
+      expect(REVIEWER_RULES).toMatch(/Skip any step of it that needs a person/);
       for (const section of [
+        'Review skill',
         'What to report',
         'Severity',
         'Writing a finding',

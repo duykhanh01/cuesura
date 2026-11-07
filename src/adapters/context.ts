@@ -258,6 +258,11 @@ Scope
 - The change is the commit range in the diff section; read it with the command given there and the files in the worktree. Do not review another range.
 - The spec is the acceptance criteria and requirements. Do not ask for another.
 
+Review skill
+- If a code review skill is available to you, from the repository or your own configuration, load it and review with it.
+- Use it for what to check and how to work. These rules still decide the range, severity, the verdict, the result and what you may do with the worktree and GitHub.
+- Skip any step of it that needs a person, such as asking for the range or the spec, or posting the review.
+
 Evidence
 - You may run typecheck, lint, build, tests or a quick experiment, yourself or in sub-agents. A finding you confirmed by running something is stronger; say what you ran.
 - gate_evidence states what the gates ran on this commit. The PR content may list checks the worker ran; where both report the same check differently, trust gate_evidence.
