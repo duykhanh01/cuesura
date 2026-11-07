@@ -1095,3 +1095,249 @@ describe('a review/fix loop that does not move (#141)', () => {
     );
   });
 });
+
+describe('an answer that follows the ladder running out (#192)', () => {
+  const blocking = { severity: 'major', file: 'src/tui/app.ts', msg: 'still wrong' };
+  const fixer = (ladder: { effort: string }[]) => ({
+    fixer: { model: 'sonnet', effort: 'medium', permissions: 'write', ladder },
+  });
+  const ONE_RUNG = { roles: fixer([]) } as Parameters<typeof createGrantStart>[3];
+
+  const rejectAt = (d: StoreDriver, t: CanonicalTask, head: string, paths: string[], since = A) =>
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      reviewData('request_changes', head, {
+        findings: [blocking],
+        input_digest: currentReviewInput(d, t.id),
+        changed_since: { sha: since, paths },
+      }),
+    );
+  const untilFixer = (d: StoreDriver, t: CanonicalTask) => {
+    if (d.task(t.id).wait?.detail['code'] === 'execution_slot') d.grantNext();
+  };
+  const fixTo = (d: StoreDriver, t: CanonicalTask, head: string) => {
+    untilFixer(d, t);
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(head));
+    publishToReview(d, t.id, head);
+  };
+  /** Two fixer rounds rejected on one file: its streak asks for a rung past the ladder's end. */
+  const toRepeated = (path: string, policy = ONE_RUNG) => {
+    const d = new StoreDriver(openFileStoreForTest(path));
+    const t = buildTask();
+    createGrantStart(d, t, 'full-review', policy);
+    toPublish(d, t, A);
+    publishToReview(d, t.id, A);
+    rejectAt(d, t, A, [blocking.file]);
+    completePost(d, t.id);
+    fixTo(d, t, B);
+    rejectAt(d, t, B, [blocking.file]);
+    completePost(d, t.id);
+    fixTo(d, t, C);
+    rejectAt(d, t, C, [], B);
+    expect(d.task(t.id).wait?.detail['code']).toBe('review_repeated');
+    expect(d.task(t.id).failure_streaks['fix_review#0']?.escalate).toBe(true);
+    return { d, t };
+  };
+  const answer = (d: StoreDriver, t: CanonicalTask) =>
+    d.must(t.id, {
+      kind: 'answer',
+      question_id: d.task(t.id).wait?.detail['question_id'] as Uuid,
+      answer: 'Not a finding any more: leave src/tui/app.ts alone.',
+    });
+  const fixerAttempts = (d: StoreDriver, t: CanonicalTask) =>
+    Object.values(d.task(t.id).attempts)
+      .filter((a) => a.step === 'fix_review')
+      .sort((a, b) => a.n - b.n);
+  const expectReplays = (d: StoreDriver) =>
+    expect(d.store.verifyProjections().mismatches).toEqual([]);
+  const reopen = (d: StoreDriver, path: string) => {
+    const now = d.now;
+    d.store.close();
+    const r = new StoreDriver(openFileStoreForTest(path), 2);
+    r.now = now;
+    expectReplays(r);
+    return r;
+  };
+
+  it('runs the fixer at its current rung instead of waiting on ladder_exhausted', () => {
+    const { d, t } = toRepeated(dbPath(tempDir()));
+    const before = fixerAttempts(d, t).length;
+    answer(d, t);
+    completePost(d, t.id);
+    untilFixer(d, t);
+
+    const s = d.task(t.id);
+    expect(s.status).toBe('RUNNING');
+    expect(s.current_step).toBe('fix_review');
+    expect(fixerAttempts(d, t)).toHaveLength(before + 1);
+    expect(fixerAttempts(d, t).at(-1)).toMatchObject({ rung: 0, status: 'running' });
+    expect(types(d, t)).toContain('AnswerTurnGranted');
+    expectReplays(d);
+  });
+
+  it('gives one turn: a review rejecting the same files again waits on the ladder', () => {
+    const { d, t } = toRepeated(dbPath(tempDir()));
+    answer(d, t);
+    completePost(d, t.id);
+    const A2 = 'd'.repeat(40);
+    fixTo(d, t, A2);
+    rejectAt(d, t, A2, [blocking.file], C);
+    completePost(d, t.id);
+    untilFixer(d, t);
+
+    expect(d.task(t.id).wait).toMatchObject({
+      reason: 'policy',
+      detail: { code: 'ladder_exhausted', step: 'fix_review', rung: 1 },
+    });
+    expect(d.pending(t.id, 'start_agent')).toEqual([]);
+    expectReplays(d);
+  });
+
+  it('gives one turn: a fixer failing with a new signature waits on the ladder', () => {
+    const { d, t } = toRepeated(dbPath(tempDir()));
+    answer(d, t);
+    completePost(d, t.id);
+    untilFixer(d, t);
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'failed', {
+      failure_class: 'quality',
+      invoked: true,
+      signature: 'something else',
+    });
+
+    expect(d.task(t.id).wait?.detail).toMatchObject({
+      code: 'ladder_exhausted',
+      step: 'fix_review',
+    });
+    expect(d.pending(t.id, 'start_agent')).toEqual([]);
+  });
+
+  it('keeps the rung until that turn fails, then raises through the ladder as before', () => {
+    const { d, t } = toRepeated(dbPath(tempDir()), {
+      roles: fixer([{ effort: 'high' }]),
+    } as typeof ONE_RUNG);
+    expect(d.task(t.id).rungs.by_step['fix_review'] ?? 0).toBe(0);
+    answer(d, t);
+    completePost(d, t.id);
+    untilFixer(d, t);
+    expect(fixerAttempts(d, t).at(-1)?.rung).toBe(0);
+
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'failed', {
+      failure_class: 'quality',
+      invoked: true,
+      signature: 'something else',
+    });
+    untilFixer(d, t);
+    expect(fixerAttempts(d, t).at(-1)).toMatchObject({ rung: 1, status: 'running' });
+  });
+
+  it('leaves the tries of a streak that does not ask for a raise yet', () => {
+    const d = new StoreDriver(openFileStoreForTest(dbPath(tempDir())));
+    const t = buildTask();
+    createGrantStart(d, t, 'full-review', ONE_RUNG);
+    toPublish(d, t, A);
+    publishToReview(d, t.id, A);
+    rejectAt(d, t, A, [blocking.file]);
+    completePost(d, t.id);
+    fixTo(d, t, B);
+    rejectAt(d, t, B, [], A);
+    expect(d.task(t.id).wait?.detail['code']).toBe('review_repeated');
+    expect(d.task(t.id).failure_streaks['fix_review#0']).toMatchObject({
+      quality_tries: 1,
+      escalate: false,
+    });
+
+    answer(d, t);
+    completePost(d, t.id);
+    expect(types(d, t)).not.toContain('AnswerTurnGranted');
+    untilFixer(d, t);
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'failed', {
+      failure_class: 'quality',
+      invoked: true,
+      signature: 'something else',
+    });
+    untilFixer(d, t);
+    // quality_tries_per_rung is 3: the second try is the fixer's own, not taken by the answer.
+    expect(fixerAttempts(d, t).at(-1)).toMatchObject({ rung: 0, status: 'running' });
+    expectReplays(d);
+  });
+
+  it('does not outlive the deadline', () => {
+    const { d, t } = toRepeated(dbPath(tempDir()));
+    d.now = (d.task(t.id).deadline_at as number) + 1;
+    const before = fixerAttempts(d, t).length;
+    answer(d, t);
+    if (d.pending(t.id, 'post_review').length > 0) completePost(d, t.id);
+
+    expect(d.task(t.id).wait?.detail['code']).toBe('deadline');
+    expect(fixerAttempts(d, t)).toHaveLength(before);
+  });
+
+  it('does not outlive the visits of the step: answering again ends on loop_exhausted', () => {
+    const { d, t } = toRepeated(dbPath(tempDir()));
+    for (let round = 0; d.task(t.id).wait?.detail['code'] === 'review_repeated'; round++) {
+      expect(round).toBeLessThan(10);
+      answer(d, t);
+      if (d.pending(t.id, 'post_review').length > 0) completePost(d, t.id);
+      if (d.task(t.id).status === 'WAITING' && d.pending(t.id, 'start_agent').length === 0) {
+        untilFixer(d, t);
+        if (d.pending(t.id, 'start_agent').length === 0) break;
+      }
+      d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
+      d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(C));
+      if (d.pending(t.id, 'publish').length === 0) break;
+      publishToReview(d, t.id, C);
+    }
+
+    expect(d.task(t.id).wait?.detail).toMatchObject({ code: 'loop_exhausted' });
+    expect(d.pending(t.id, 'start_agent')).toEqual([]);
+    expectReplays(d);
+  });
+
+  it('keeps the turn across a restart between the answer and the fixer', () => {
+    const path = dbPath(tempDir());
+    const { d, t } = toRepeated(path);
+    answer(d, t);
+
+    const r = reopen(d, path);
+    expect(r.task(t.id).failure_streaks['fix_review#0']?.escalate).toBe(false);
+    completePost(r, t.id);
+    untilFixer(r, t);
+    expect(fixerAttempts(r, t).at(-1)).toMatchObject({ rung: 0, status: 'running' });
+    expect(r.task(t.id).wait).toBeNull();
+    expectReplays(r);
+    r.store.close();
+  });
+
+  it('task continue survives a restart on both sides of the command', () => {
+    const path = dbPath(tempDir());
+    const { d, t } = toRepeated(path);
+    answer(d, t);
+    completePost(d, t.id);
+    const A2 = 'd'.repeat(40);
+    fixTo(d, t, A2);
+    rejectAt(d, t, A2, [blocking.file], C);
+    completePost(d, t.id);
+    untilFixer(d, t);
+    expect(d.task(t.id).wait?.detail['code']).toBe('ladder_exhausted');
+
+    const waiting = reopen(d, path);
+    expect(waiting.task(t.id).wait?.detail['code']).toBe('ladder_exhausted');
+    waiting.must(t.id, { kind: 'continue' });
+
+    const r = reopen(waiting, path);
+    expect(r.task(t.id).failure_streaks['fix_review#0']).toMatchObject({
+      consecutive: 0,
+      quality_tries: 0,
+      escalate: false,
+    });
+    untilFixer(r, t);
+    expect(fixerAttempts(r, t).at(-1)).toMatchObject({ rung: 0, status: 'running' });
+    r.complete(t.id, r.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
+    expect(r.pendingOne(t.id, 'run_gates')).toBeDefined();
+    expectReplays(r);
+    r.store.close();
+  });
+});

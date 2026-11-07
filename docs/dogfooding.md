@@ -258,6 +258,7 @@ Task hết đường nâng model (`ladder_exhausted`, `rung_denied`, `escalation
 chất lượng: xem lỗi review/gate gần nhất, nếu muốn giữ model hiện tại thì chạy `cusr task continue <id>
 --expected-version N` (quyền operate, assistant tự chạy được). Bước đang chờ được thêm một đợt `quality_tries_per_rung` lượt thử và đủ lượt ghé
 rồi chạy lại từ chỗ dừng; gate và review vẫn chạy, budget, deadline và sàn model giữ nguyên. Hết đợt đó thì task lại chờ.
+Trả lời câu hỏi `review_repeated` không cần `task continue` thêm: fixer chạy ít nhất một lượt ở nấc hiện tại để nhận câu trả lời.
 
 Lùi: truyền SHA cũ cho script rồi restart. Nếu release mới đã migrate DB, bản cũ có thể không mở được DB: dừng
 daemon và chép `data/cusr.db` trước mỗi lần nâng có migration. Backup/restore chưa được nghiệm thu, nên coi đây là

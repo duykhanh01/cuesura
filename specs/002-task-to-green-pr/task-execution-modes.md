@@ -200,6 +200,13 @@ issue, PR và CI; việc họ tự làm trên GitHub không thay cho comment rev
   finding) thay vì gọi fixer tiếp, vì model mạnh hơn không giải quyết được bất đồng về phạm vi. Câu
   trả lời đi tiếp như verdict thường: review được đăng rồi chuyển fixer. Daemon không đọc được diff
   thì bỏ kiểm này, không chặn task.
+- Câu trả lời cho `review_repeated` là tín hiệu duy nhất đổi phạm vi mà engine nhận biết được, vì engine
+  không đọc được nghĩa câu trả lời. Câu trả lời cho wait này bảo đảm fixer chạy ít nhất một lượt ở nấc
+  hiện tại. Chuỗi lỗi của fixer đã xin nâng nấc thì câu trả lời cho đúng một lượt, ghi cùng transaction
+  với câu trả lời (`AnswerTurnGranted`); lượt đó thất bại chất lượng, kể cả với signature mới, thì chuỗi
+  lỗi lại xin nâng nấc như thường: còn nấc thì nâng, hết thang thì chờ. Chuỗi lỗi chưa xin nâng thì
+  giữ nguyên các lượt thử còn lại theo luật thường; câu trả lời không cắt bớt. Sàn model, `max_visits`,
+  budget và deadline vẫn áp dụng nên trả lời lặp lại dừng ở `loop_exhausted`.
 - Fixer để nguyên toàn bộ đầu vào review (M03) thì lượt `request_changes` được dùng lại, không gọi
   reviewer, và task cũng chờ người với `review_repeated` thay vì gọi fixer tiếp, kể cả khi finding
   không có file hoặc chỉ ở mức minor/info. Đầu vào quay lại đúng bản từng bị từ chối cũng tính là

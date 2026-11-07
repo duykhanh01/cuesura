@@ -1,5 +1,11 @@
 import { hasRole } from '../domain/policy.ts';
-import type { DetailCode, ResumeAction, TaskState } from '../domain/state.ts';
+import {
+  streakKey,
+  type DetailCode,
+  type Question,
+  type ResumeAction,
+  type TaskState,
+} from '../domain/state.ts';
 import type { Trigger } from '../domain/trigger.ts';
 import { available, consume, release, reserve } from './budget.ts';
 import { reject, type Ctx } from './context.ts';
@@ -146,6 +152,34 @@ export function onDeciderRan(ctx: Ctx, t: Extract<Trigger, { kind: 'decider_ran'
     );
 }
 
+/**
+ * An answer to `review_repeated` is the person's decision on what the fixer should do, and the engine
+ * cannot read it, so a streak built on the old findings must not stop the fixer from ever seeing it
+ * (issue #192). Only that question routes on a rejection. When the streak already asks for a raise, the
+ * fixer gets one turn at its rung and one more quality failure asks again; a streak that still has tries
+ * keeps them, so the answer never cuts tries the fixer had. Rung, floor, visits, budget and deadline still
+ * apply. Recorded with the answer, so a restart before the fixer starts keeps the turn.
+ */
+function grantAnswerTurn(ctx: Ctx, q: Question): void {
+  const { resume } = q;
+  if (resume.kind !== 'route' || resume.outcome !== 'request_changes') return;
+  const { steps } = ctx.frozen.workflow;
+  const next = steps[resume.step]?.next['request_changes'];
+  const after = next === undefined ? undefined : steps[next];
+  // A full-review task posts the verdict on its way to the fixer.
+  const step = after?.kind === 'action' ? after.next['ok'] : next;
+  if (step === undefined) return;
+  const s = ctx.state;
+  const streak = streakKey(step, s.rungs.by_step[step] ?? 0);
+  if (s.failure_streaks[streak]?.escalate !== true) return;
+  ctx.emit('AnswerTurnGranted', {
+    question_id: q.id,
+    step,
+    streak,
+    quality_tries: ctx.frozen.limits.classes.quality_tries_per_rung - 1,
+  });
+}
+
 export function onAnswer(ctx: Ctx, t: AnswerTrigger, by: string = ctx.actor): void {
   const s = ctx.state;
   const q = s.questions[t.question_id];
@@ -175,6 +209,7 @@ export function onAnswer(ctx: Ctx, t: AnswerTrigger, by: string = ctx.actor): vo
     answer: t.answer,
     by,
   });
+  grantAnswerTurn(ctx, q);
   const w = ctx.state.wait;
   if (ctx.state.status === 'WAITING' && w?.detail['question_id'] === q.id) {
     proceed(ctx, resume, `answer:${q.id}`);

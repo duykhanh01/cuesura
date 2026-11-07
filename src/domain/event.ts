@@ -423,6 +423,16 @@ export type EventPayloads = {
     by: string;
     at: number;
   };
+  /**
+   * An answer to a review that came back without progress (issue #192): `step` runs once more at its
+   * current rung, and `quality_tries` leaves that streak one try, so the next quality failure ends it.
+   */
+  AnswerTurnGranted: {
+    question_id: string;
+    step: string;
+    streak: string;
+    quality_tries: number;
+  };
   /** A person paused the task (issue #142): no new step starts until it is unpaused. */
   /** `stopped`: attempts `pause --now` stopped; each starts over in a new session, paused or not. */
   TaskPaused: { reason: string; by: string; at: number; stopped?: string[] };
@@ -516,6 +526,7 @@ export const EVENT_TYPES = [
   'ManifestChangeAccepted',
   'VisitsCredited',
   'TaskContinued',
+  'AnswerTurnGranted',
   'TaskPaused',
   'TaskUnpaused',
 ] as const satisfies readonly EventType[];

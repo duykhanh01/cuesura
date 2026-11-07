@@ -126,7 +126,7 @@ export function createGrantStart(
   d: StoreDriver,
   task: CanonicalTask,
   mode: ExecutionMode = 'full-review',
-  policy: Pick<PolicyOptions, 'limits' | 'ci_rules' | 'required_checks'> = {},
+  policy: Pick<PolicyOptions, 'limits' | 'ci_rules' | 'required_checks' | 'roles'> = {},
   runtime: Partial<Omit<FrozenRuntimeContext, 'runtime_hash'>> = {},
 ): string {
   d.must(task.id, { kind: 'create_task', task });

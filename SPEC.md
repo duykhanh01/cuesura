@@ -247,6 +247,7 @@ Mọi lần thật sự gọi agent, kể cả repair, resume và lần bị rat
 - Sàn task chỉ tăng. Profile có thể nâng sàn khi hai bước đã phải escalation (`hard`) hoặc dùng `scope: task`. Loader phải ánh xạ sàn sang từng thang role; không coi cùng số nấc ở hai role là cùng model, và không vượt nấc cuối của role.
 - Approval gắn với task/revision, step, rung và policy hash. Quay lại cùng bước với policy không đổi có thể dùng lại approval; step khác hoặc policy đổi phải kiểm tra quyền lại.
 - Mọi lần nâng, kể cả nâng do sàn task, phải qua giới hạn escalation và ngân sách. Hết thang/lượt/ngân sách thì chờ quyết định; không ngầm kéo dài giới hạn.
+- Ngoại lệ duy nhất cho số lượt thử: câu trả lời của người cho `review_repeated` bảo đảm fixer chạy ít nhất một lượt ở nấc hiện tại: chuỗi lỗi đã xin nâng thì được đúng một lượt, chưa xin nâng thì giữ các lượt thử còn lại. Lượt này không đổi thang, sàn, lượt vào step, ngân sách hay thời hạn.
 
 ### 9.4 Ngân sách
 

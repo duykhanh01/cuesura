@@ -906,6 +906,14 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
       s.visit_credits = credits;
       break;
     }
+    case 'AnswerTurnGranted': {
+      const streak = s.failure_streaks[event.payload.streak];
+      if (streak !== undefined) {
+        streak.escalate = false;
+        streak.quality_tries = event.payload.quality_tries;
+      }
+      break;
+    }
     case 'ManifestChangeAccepted':
       s.run.manifest_refs = {
         ...s.run.manifest_refs,
