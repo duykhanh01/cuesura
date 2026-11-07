@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { rmSync } from 'node:fs';
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runLocation } from '../../../src/daemon/retention.ts';
 import type { OperationMirror } from '../../../src/domain/state.ts';
 import { RunDir, SPOOL_DIR } from '../../../src/runner/files.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
+import { hashText } from '../../../src/shared/hash.ts';
 import { buildTask, uuidOf } from '../../support/builders.ts';
 import type { SeededDaemon } from '../../support/daemon-task.ts';
 import { KEY, type PtySession } from '../../support/pty.ts';
@@ -472,4 +473,103 @@ describe('EC-011 and FR-039: a log in full flow', () => {
     expect(requests.filter((r) => r.includes('/v1/command'))).toEqual([]);
     await quit(s);
   });
+});
+
+describe('#178: reading the gates from Logs', () => {
+  const logOf = (name: string, lines_: number): string =>
+    Array.from({ length: lines_ }, (_, i) => `${name} line ${i + 1}`).join('\n') + '\n';
+
+  /** A task past one round of gates: `unit` failed, `build` passed, each with its log on disk. */
+  function seedRound(sd: SeededDaemon): void {
+    const t = buildTask({ id: uuidOf(1), title: 'Gated task' });
+    sd.seed((d) => {
+      createGrantStart(d, t);
+      d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE_DATA);
+      d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
+      const effect = d.pendingOne(t.id, 'run_gates').id;
+      const dir = join(sd.dataDir, 'receipts', effect, 'logs');
+      mkdirSync(dir, { recursive: true });
+      const log = (file: string, text: string, wall_ms: number) => {
+        writeFileSync(join(dir, file), text);
+        return {
+          ref: `logs/${file}`,
+          digest: hashText(text),
+          bytes: Buffer.byteLength(text),
+          truncated: false,
+          wall_ms,
+        };
+      };
+      d.complete(t.id, effect, 'succeeded', {
+        results: [
+          { gate: 'build', passed: true, log: log('000000-build.log', logOf('build', 3), 38_000) },
+          {
+            gate: 'unit',
+            passed: false,
+            signature: 'gate:unit:exit_1:abc',
+            log_excerpt: 'unit failed',
+            log: log('000001-unit.log', logOf('unit', 300), 134_000),
+          },
+        ],
+      });
+    });
+  }
+
+  it.each([
+    ['120×40', { cols: 120, rows: 40 }],
+    ['80×24', { cols: 80, rows: 24 }],
+    ['80×24 NO_COLOR', { cols: 80, rows: 24, env: { NO_COLOR: '1' } }],
+  ])(
+    'reaches the gates with the arrows, changes gate and scrolls (%s)',
+    async (_, size) => {
+      const sd = tui.daemon();
+      seedRound(sd);
+      await sd.start();
+      const s = tui.cusr(sd.dataDir, size);
+      await openLogs(s, 'Gated task');
+      await s.waitFor(() => /gates/.test(s.screenText()));
+      s.send(KEY.left);
+      await s.waitForText('Gates · round 1 of 1 · failed');
+      // The failed gate first, at the end of its log, which is where failures are reported.
+      await s.waitForText('unit line 300');
+      expect(s.screenText()).toContain('✕ unit');
+      expect(s.screenText()).toContain('✓ build');
+      expect(s.screenText()).toMatch(/unit · \d+ KB|unit · \d+ B/);
+      s.send(KEY.up);
+      s.send(KEY.up);
+      await s.waitFor(() => !s.screenText().includes('unit line 300'));
+      await s.waitForText('Scrolled up');
+      await s.waitForText('more rows');
+      s.send('G');
+      await s.waitForText('unit line 300');
+      await s.waitForText('Live');
+      s.send(KEY.tab);
+      await s.waitForText('build line 3');
+      await s.waitForText('Paused');
+      s.send(KEY.esc);
+      await s.waitFor(() => !s.screenText().includes('Gates · round'));
+      s.send('q');
+      s.send('q');
+      expect((await s.waitForExit()).status).toBe(0);
+    },
+    30_000,
+  );
+
+  it('a log retention removed reads as expired, not as an error', async () => {
+    const sd = tui.daemon();
+    seedRound(sd);
+    await sd.start();
+    for (const effect of readdirSync(join(sd.dataDir, 'receipts'))) {
+      const dir = join(sd.dataDir, 'receipts', effect, 'logs');
+      for (const f of readdirSync(dir)) rmSync(join(dir, f));
+      writeFileSync(join(dir, 'tombstone.json'), '{}');
+    }
+    const s = tui.cusr(sd.dataDir, { cols: 120, rows: 40 });
+    await openLogs(s, 'Gated task');
+    await s.waitFor(() => /gates/.test(s.screenText()));
+    s.send(KEY.left);
+    await s.waitForText('This log has expired');
+    expect(s.screenText()).not.toContain('Could not');
+    s.send('q');
+    expect((await s.waitForExit()).status).toBe(0);
+  }, 30_000);
 });

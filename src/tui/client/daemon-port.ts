@@ -17,6 +17,8 @@ import {
   RunOptionsSchema,
   TaskContentSchema,
   TaskExplainSchema,
+  TaskGateLogSchema,
+  TaskGatesSchema,
   TaskHistorySchema,
   TaskLogsSchema,
   TaskProgressSchema,
@@ -29,6 +31,8 @@ import {
   type RunOptions,
   type TaskContent,
   type TaskExplain,
+  type TaskGateLog,
+  type TaskGates,
   type TaskHistory,
   type TaskLogs,
   type TaskProgress,
@@ -77,6 +81,18 @@ export type DaemonPort = {
     q: { taskId: string; after: number; attemptId?: string; limit?: number; tail?: boolean },
     timeoutMs: number,
   ): Promise<PortResult<TaskLogs>>;
+  gates(taskId: string, timeoutMs: number): Promise<PortResult<TaskGates>>;
+  gateLog(
+    q: {
+      taskId: string;
+      gate: string;
+      round: number;
+      offset?: number;
+      tail?: boolean;
+      limit: number;
+    },
+    timeoutMs: number,
+  ): Promise<PortResult<TaskGateLog>>;
   requestShow(id: string, timeoutMs: number): Promise<PortResult<RequestShow>>;
   /** The only write path; the body carries its own `request_id`, which a resend must keep. */
   command(
@@ -223,6 +239,21 @@ export function createDaemonPort(deps: PortDeps = {}): DaemonPort {
           ...(tail === true ? { tail } : {}),
           ...(attemptId === undefined ? {} : { attempt_id: attemptId }),
           ...(limit === undefined ? {} : { limit }),
+        },
+        timeoutMs,
+      ),
+    gates: taskQuery(TaskGatesSchema, 'task_gates'),
+    gateLog: ({ taskId, gate, round, offset, tail, limit }, timeoutMs) =>
+      query(
+        TaskGateLogSchema,
+        {
+          kind: 'task_gate_log',
+          task_id: taskId,
+          gate,
+          round,
+          limit,
+          ...(tail === true ? { tail } : {}),
+          ...(offset === undefined ? {} : { offset }),
         },
         timeoutMs,
       ),

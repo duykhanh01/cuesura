@@ -434,6 +434,72 @@ describe('gate logs (#178)', () => {
     expect(end.text).not.toContain('MARKER-MIDDLE');
   });
 
+  it('tells a reader what runs while it runs, and leaves nothing once it ended', async () => {
+    const { deps, input } = await setup();
+    const dir = join(g.base, `journal${n++}`);
+    const file = join(dir, 'running.state');
+    let t = now;
+    const seen: unknown[] = [];
+    const executor: CommandExecutor = {
+      run: (plan, opts) => {
+        seen.push(JSON.parse(readFileSync(file, 'utf8')));
+        t += 5_000;
+        opts.on_output?.();
+        seen.push(JSON.parse(readFileSync(file, 'utf8')));
+        return new SpawnExecutor().run(plan, opts);
+      },
+    };
+    const r = await runGates(
+      {
+        ...deps,
+        executor,
+        clock: { now: () => t as EpochMs, monotonic: () => t },
+        journal: new CommandJournal(dir),
+      },
+      input([{ name: 'unit', command: 'echo out' }]),
+    );
+    expect(seen).toEqual([
+      { gate: 'unit', role: 'gate', started_at: now, last_output_at: null },
+      { gate: 'unit', role: 'gate', started_at: now, last_output_at: now + 5_000 },
+    ]);
+    expect(existsSync(file)).toBe(false);
+    expect(r.data?.results[0]?.log?.wall_ms).toBe(5_000);
+  });
+
+  it('records the first output at once, then at most once a second', async () => {
+    const { deps, input } = await setup();
+    const dir = join(g.base, `journal${n++}`);
+    const file = join(dir, 'running.state');
+    let t = now;
+    const seen: unknown[] = [];
+    const after = (ms: number, opts: Parameters<CommandExecutor['run']>[1]): void => {
+      t += ms;
+      opts.on_output?.();
+      seen.push(
+        (JSON.parse(readFileSync(file, 'utf8')) as { last_output_at: number | null })
+          .last_output_at,
+      );
+    };
+    const executor: CommandExecutor = {
+      run: (plan, opts) => {
+        after(10, opts);
+        after(500, opts);
+        after(500, opts);
+        return new SpawnExecutor().run(plan, opts);
+      },
+    };
+    await runGates(
+      {
+        ...deps,
+        executor,
+        clock: { now: () => t as EpochMs, monotonic: () => t },
+        journal: new CommandJournal(dir),
+      },
+      input([{ name: 'unit', command: 'echo out' }]),
+    );
+    expect(seen).toEqual([now + 10, now + 10, now + 1_010]);
+  });
+
   it('keeps the log of a gate that passed', async () => {
     const { result, log } = await gate('echo all good');
     expect(result).toMatchObject({ passed: true, log: { truncated: false } });

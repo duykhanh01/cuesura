@@ -16,6 +16,7 @@ import {
   type TreeRow,
 } from '../model/attempt-tree.ts';
 import { pickerGroups } from '../model/detail-keys.ts';
+import { QUIET_MS, STUCK_MS } from '../model/gates.ts';
 import { ending } from '../model/detail.ts';
 import { progressStages, STAGE_LABEL, stageOf, type StageName } from '../model/stages.ts';
 import {
@@ -32,6 +33,7 @@ import type { Frame, Style } from '../terminal/screen.ts';
 import type { Tone } from '../model/log-text.ts';
 import { graphemes, truncate } from '../terminal/width.ts';
 import { BOLD, DIM, putSegs, seg, segsWidth, ui, wrapSegs, type Seg } from './ink.ts';
+import { gatesBody, gatesModeLine, gatesNews } from './gates.ts';
 import { endBadge, leadsOn, stageLook, stepperRow } from './stepper.ts';
 import type { Body } from './layout.ts';
 import { ACTIVE, BAD, BAD_STRONG, FOCUS, GOOD, GOOD_STRONG, NOTICE, WARN } from './theme.ts';
@@ -81,9 +83,6 @@ function drawRow(frame: Frame, x0: number, y: number, row: LogRow, cols: number)
   frame.put(x0 + x, y, truncate(part(x), Math.max(0, cols - x)), tone.body);
 }
 
-const QUIET_MS = 60_000;
-const STUCK_MS = 5 * 60_000;
-
 /**
  * How long a running task followed live has said nothing, up to the last read, so a screen that lost the daemon
  * does not count on. Only a log being followed has an answer: a paused one or one attempt stopped reading on.
@@ -103,6 +102,7 @@ function followState(s: LogState): string {
 
 /** What is being read, and which lines when the buffer holds only part of it. */
 function modeLine(s: LogState, t: TuiState): SafeText {
+  if (s.gates !== null) return gatesModeLine(s.gates);
   const parts: SafeText[] = [];
   if (s.attemptFilter === null) parts.push(uiText(`${followState(s)} · latest step`));
   else {
@@ -127,6 +127,7 @@ function modeLine(s: LogState, t: TuiState): SafeText {
 const newBelow = (s: LogState): boolean => s.newActivity && s.scrolledAway;
 
 function newsLine(s: LogState, t: TuiState): SafeText {
+  if (s.gates !== null) return gatesNews(s.gates);
   if (s.error !== null) return joinSafe([uiText('Could not read the log: '), s.error]);
   if (s.newActivity && !s.scrolledAway)
     return uiText(
@@ -154,6 +155,7 @@ function stagesRow(s: TuiState, cols: number): Seg[] | null {
 /** The attempt being read, or the row chosen in the chooser, by its stage, so the progress column can point at it. */
 function filteredStage(s: TuiState): StageName | null {
   const logs = s.logs;
+  if (logs?.gates != null && logs.picker === null) return 'gates';
   if (logs !== null && logs.picker !== null) {
     const groups = pickerGroups(s);
     const rows = treeRows(groups, logs.pickerOpen);
@@ -500,6 +502,16 @@ export const logsBody =
     }
     if (logs.picker !== null) {
       pickerList(frame, s, logs, x, listTop, logRows(height), log);
+      return;
+    }
+    if (logs.gates !== null) {
+      gatesBody(frame, logs.gates, {
+        x,
+        top: listTop,
+        height: logRows(height),
+        cols: log,
+        wide: pane > 0,
+      });
       return;
     }
     if (logs.buffer.length === 0 && !logs.filling && logs.lastReadAt !== null) {

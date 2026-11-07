@@ -7,7 +7,13 @@ import { contentHeight } from '../views/disconnected.ts';
 import { helpLastTop } from '../views/help.ts';
 import { oneLine } from '../views/input.ts';
 import { onActionsCommand, onActionsRead, onActionsShowRead, openActions } from './actions.ts';
-import { onDetailCommand, onLogsCommand, onLogsRead, openDetail } from './detail-keys.ts';
+import {
+  onDetailCommand,
+  onLogsCommand,
+  onGatesMessage,
+  onLogsRead,
+  openDetail,
+} from './detail-keys.ts';
 import { onDetailRead } from './detail.ts';
 import { homeRows, keepSelection, selectRow, selectedRowIndex } from './home-rows.ts';
 import { commandFor, keyContext, type Command } from './keymap.ts';
@@ -98,6 +104,9 @@ export function reduce(state: TuiState, message: Message): Reduced {
       return same(onDetailRead(state, message));
     case 'logs_read':
       return same(onLogsRead(state, message));
+    case 'gates_read':
+    case 'gate_log_read':
+      return same(onGatesMessage(state, message));
     case 'actions_read':
       return same(onActionsRead(state, message));
     case 'actions_show_read':

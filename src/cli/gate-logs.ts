@@ -2,7 +2,7 @@
  * `task gates` and `task gate-log`: one gate's output, read by bytes. Plain output goes to stdout as the
  * command wrote it, cleaned for a terminal; what was left out is said on stderr, so a pipe stays clean.
  */
-import { sanitize, sanitizeLines } from '../tui/terminal/safe-text.ts';
+import { ANSI, cleanLog, sanitize } from '../tui/terminal/safe-text.ts';
 import { ExitCode, okEnvelope, type Envelope } from './output.ts';
 import type { CliCommand, CliIo } from './program.ts';
 import { DATA_DIR, badFlag, call, print } from './tasks.ts';
@@ -39,13 +39,6 @@ type LogPage = {
   readonly complete?: boolean;
   readonly truncated?: boolean;
 };
-
-const ANSI = new RegExp(String.raw`\u001b\[[0-9;?]*[ -/]*[@-~]`, 'g');
-
-/** Colour goes and a carriage return ends a line; anything else a terminal would obey stays visible. */
-export function cleanLog(text: string): string {
-  return sanitizeLines(text.replace(ANSI, '').replaceAll('\t', '    ').replace(/\r\n?/g, '\n'));
-}
 
 /**
  * A line end or colour code a page may have cut: it waits for the page that completes it. A CR before a

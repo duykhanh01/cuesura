@@ -5,6 +5,7 @@
  */
 import { actionsDue, actionsShowDue } from '../model/actions.ts';
 import { detailDue, hasEnding, type DetailPartName } from '../model/detail.ts';
+import { gateLogDue, gatesDue } from '../model/gates.ts';
 import { logDue, requestAttempt, LOG_PAGE_RECORDS } from '../model/logs.ts';
 import type { Message } from '../model/messages.ts';
 import { currentScreen, type TuiState } from '../model/state.ts';
@@ -136,6 +137,43 @@ function detailRead(
   }
 }
 
+/** The list of rounds and the log of the chosen gate: read while that is what the screen shows. */
+function gatesReads(
+  s: TuiState,
+  port: DaemonPort,
+  clock: RefreshClock,
+  now: number,
+): readonly ScreenRead[] {
+  const logs = s.logs;
+  const view = logs?.gates ?? null;
+  if (logs === null || view === null) return [];
+  const reads: ScreenRead[] = [];
+  const common = { taskId: logs.taskId, session: logs.session, generation: view.generation };
+  if (gatesDue(view, now))
+    reads.push({
+      key: 'gates',
+      run: async () => ({
+        ...common,
+        type: 'gates_read',
+        result: await port.gates(logs.taskId, DETAIL_TIMEOUT_MS),
+        at: clock.now(),
+      }),
+    });
+  const request = gateLogDue(view, now);
+  if (request !== null)
+    reads.push({
+      key: 'gate_log',
+      run: async () => ({
+        ...common,
+        type: 'gate_log_read',
+        request,
+        result: await port.gateLog({ taskId: logs.taskId, ...request }, DETAIL_TIMEOUT_MS),
+        at: clock.now(),
+      }),
+    });
+  return reads;
+}
+
 function logsRead(
   s: TuiState,
   port: DaemonPort,
@@ -231,7 +269,7 @@ export function planScreenReads(
       }
       break;
     case 'logs':
-      reads.push(logsRead(s, port, clock, now));
+      reads.push(logsRead(s, port, clock, now), ...gatesReads(s, port, clock, now));
       // The stages beside the log stay as current as Task detail keeps them. Its history waits for it,
       // unless the task has ended: how it ended is told only there.
       if (s.detail !== null) {

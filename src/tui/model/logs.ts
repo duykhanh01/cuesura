@@ -9,6 +9,7 @@ import type { TaskLogs } from '../client/schemas.ts';
 import { joinSafe, sanitize, sanitizeLines, uiText, type SafeText } from '../terminal/safe-text.ts';
 import { displayWidth, truncate, wrap } from '../terminal/width.ts';
 import { stepWords } from './activity.ts';
+import type { GatesView } from './gates.ts';
 import { describeRecord, type Tone } from './log-text.ts';
 import type { Seg } from '../views/ink.ts';
 import { markdownRows } from '../views/markdown.ts';
@@ -126,6 +127,8 @@ export type LogState = {
   readonly picker: string | null;
   /** Keys of the chooser's rounds and runs shown unfolded. */
   readonly pickerOpen: readonly string[];
+  /** The gates are being read in place of the agent log, which goes on underneath. */
+  readonly gates: GatesView | null;
 };
 
 /**
@@ -166,6 +169,7 @@ export function initialLogs(taskId: string, title: SafeText, session: number): L
     paneHidden: false,
     picker: null,
     pickerOpen: [],
+    gates: null,
   };
 }
 

@@ -16,6 +16,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  writeFileSync,
   writeSync,
 } from 'node:fs';
 import { join } from 'node:path';
@@ -57,6 +58,9 @@ const TAIL_BYTES = 4 * 1024;
 export const EXCERPT_BYTES = 16 * 1024;
 /** Under an effect's journal directory. */
 export const COMMAND_LOG_DIR = 'logs';
+/** Beside the journal records, while a command runs: what a reader can say of it before it has a log. */
+export const COMMAND_RUNNING_FILE = 'running.state';
+const RUNNING_WRITE_MS = 1_000;
 
 export type ExecOutcome =
   | {
@@ -93,6 +97,8 @@ export interface CommandExecutor {
       readonly max_output_bytes: number;
       /** Stop request: nothing is spawned once it fired; a running group gets TERM, then KILL. */
       readonly signal?: AbortSignal;
+      /** Called on every chunk of output, before it is captured. */
+      readonly on_output?: () => void;
     },
   ): Promise<ExecOutcome>;
 }
@@ -144,6 +150,16 @@ export type CommandLogRef = {
   readonly digest: Hash;
   readonly bytes: number;
   readonly truncated: boolean;
+  /** How long the command ran. */
+  readonly wall_ms: number;
+};
+
+export type CommandRunning = {
+  readonly gate: string;
+  readonly role: CommandRole;
+  readonly started_at: number;
+  /** Null until the command has written anything. */
+  readonly last_output_at: number | null;
 };
 
 export type CommandSpec = {
@@ -233,6 +249,20 @@ export class CommandJournal {
       closeSync(fd);
     }
     return `${COMMAND_LOG_DIR}/${file}`;
+  }
+
+  /**
+   * What is running now, for readers only: nothing depends on it, so a write that fails is not an error
+   * and recovery keeps reading the records above.
+   */
+  markRunning(running: CommandRunning | null): void {
+    const file = join(this.#dir, COMMAND_RUNNING_FILE);
+    try {
+      if (running === null) rmSync(file, { force: true });
+      else writeFileSync(file, JSON.stringify(running), { mode: 0o600 });
+    } catch {
+      // A reader then sees nothing running.
+    }
   }
 
   read(): JournalRead {
@@ -430,10 +460,25 @@ async function executeIn(deps: CommandDeps, spec: CommandSpec): Promise<CommandR
       detail: `journal: ${e instanceof Error ? e.message : String(e)}`,
     };
   }
+  const running: CommandRunning = {
+    gate: spec.name,
+    role: spec.role,
+    started_at: started,
+    last_output_at: null,
+  };
+  deps.journal?.markRunning(running);
+  let written: number | null = null;
   const r = await deps.executor.run(plan.value, {
     timeout_ms: wall,
     max_output_bytes: OUTPUT_BYTES,
+    on_output: () => {
+      const at = deps.clock.now();
+      if (written !== null && at - written < RUNNING_WRITE_MS) return;
+      written = at;
+      deps.journal?.markRunning({ ...running, last_output_at: at });
+    },
   });
+  deps.journal?.markRunning(null);
   const finished = deps.clock.now();
   const { text: raw, total_bytes: total } =
     r.kind === 'not_launched' ? { text: '', total_bytes: 0 } : joinCapture(r, deps.redactor);
@@ -450,7 +495,14 @@ async function executeIn(deps: CommandDeps, spec: CommandSpec): Promise<CommandR
     excerpt: excerptOf(redacted, total, EXCERPT_BYTES),
     ...(r.kind === 'not_launched' || deps.journal === undefined
       ? {}
-      : { log: writeLog(deps.journal, spec.name, redacted, { digest, bytes, truncated }) }),
+      : {
+          log: writeLog(deps.journal, spec.name, redacted, {
+            digest,
+            bytes,
+            truncated,
+            wall_ms: finished - started,
+          }),
+        }),
   };
   const common = {
     ...base,
@@ -516,6 +568,7 @@ export class SpawnExecutor implements CommandExecutor {
       readonly timeout_ms: number | null;
       readonly max_output_bytes: number;
       readonly signal?: AbortSignal;
+      readonly on_output?: () => void;
     },
   ): Promise<ExecOutcome> {
     const [file, ...args] = plan.argv;
@@ -544,7 +597,10 @@ export class SpawnExecutor implements CommandExecutor {
       const capture = new OutputCapture(opts.max_output_bytes);
       let timedOut = false;
       let spawned = false;
-      const take = (b: Buffer): void => capture.take(b);
+      const take = (b: Buffer): void => {
+        opts.on_output?.();
+        capture.take(b);
+      };
       child.stdout.on('data', take);
       child.stderr.on('data', take);
       child.on('spawn', () => {

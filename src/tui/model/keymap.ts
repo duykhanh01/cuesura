@@ -33,6 +33,10 @@ export type Command =
   | 'previous_step'
   | 'next_step'
   | 'attempts'
+  | 'next_gate'
+  | 'previous_gate'
+  | 'next_round'
+  | 'previous_round'
   | 'expand'
   | 'collapse'
   | 'switch_field'
@@ -62,6 +66,8 @@ export type Binding = {
   readonly press: readonly (readonly [Press, Command])[];
   /** Kept on a narrow bar: going back, help, quitting and retrying must always be in sight (US3 scenario 1). */
   readonly essential?: boolean;
+  /** Essential only in this state of the screen. */
+  readonly keep?: (s: TuiState) => boolean;
   readonly when?: (s: TuiState) => boolean;
 };
 
@@ -87,6 +93,8 @@ const ENDS: Binding['press'] = [
 const END_KEYS = 'g G Home End';
 
 const onTask = (s: TuiState): boolean => s.selectedTaskId !== null && !s.finishedSelected;
+
+const readingGates = (s: TuiState): boolean => (s.logs?.gates ?? null) !== null;
 
 const waiting = (s: TuiState): boolean =>
   s.connection.kind === 'waiting_retry' || s.connection.kind === 'stopped';
@@ -207,12 +215,36 @@ const KEYS: Readonly<Record<Context, readonly Binding[]>> = {
     },
     {
       keys: '←→',
+      keep: readingGates,
       hint: 'step',
       help: 'The step before or after this one; past the last, following live',
       press: [
         [n('left'), 'previous_step'],
         [n('right'), 'next_step'],
       ],
+    },
+    {
+      keys: 'Tab',
+      keep: readingGates,
+      hint: 'gate',
+      helpKeys: 'Tab Shift-Tab',
+      help: 'Reading gates: the next or the previous gate',
+      press: [
+        [n('tab'), 'next_gate'],
+        [n('shift_tab'), 'previous_gate'],
+      ],
+      when: readingGates,
+    },
+    {
+      keys: '[ ]',
+      keep: readingGates,
+      hint: 'round',
+      help: 'Reading gates: the round before or after this one',
+      press: [
+        [c('['), 'previous_round'],
+        [c(']'), 'next_round'],
+      ],
+      when: readingGates,
     },
     {
       keys: 't',
@@ -225,6 +257,7 @@ const KEYS: Readonly<Record<Context, readonly Binding[]>> = {
       hint: 'output',
       help: 'Show or hide the whole output of each tool call',
       press: [[n('ctrl_o'), 'toggle_output']],
+      when: (s) => !readingGates(s),
     },
     {
       keys: 'p',
@@ -582,7 +615,7 @@ export function hintBar(s: TuiState, cols: number): string {
   const width = (bs: readonly Binding[]): number => displayWidth(bs.map(label).join('  '));
   let kept = shown;
   while (width(kept) > cols) {
-    const drop = kept.findLastIndex((b) => b.essential !== true);
+    const drop = kept.findLastIndex((b) => b.essential !== true && b.keep?.(s) !== true);
     if (drop < 0) break;
     kept = kept.filter((_, i) => i !== drop);
   }

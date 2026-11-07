@@ -3,11 +3,20 @@
  * rows there are, and that is worked out by the views that draw them, so the two cannot disagree.
  */
 import type { PortResult } from '../client/daemon-port.ts';
-import type { TaskLogs } from '../client/schemas.ts';
+import type { TaskGateLog, TaskGates, TaskLogs } from '../client/schemas.ts';
 import { contentHeight } from '../views/disconnected.ts';
 import { detailRowCount } from '../views/task-detail.ts';
 import { openActions } from './actions.ts';
 import { initialDetail } from './detail.ts';
+import {
+  gateLogRows,
+  gatesCommand,
+  GATES_STOP,
+  onGateLogRead,
+  onGatesRead,
+  openGates,
+  type GateLogRead,
+} from './gates.ts';
 import type { HomeRow } from './home-rows.ts';
 import {
   applyLogPage,
@@ -38,6 +47,7 @@ import {
 } from './attempt-tree.ts';
 import type { Command } from './keymap.ts';
 import type { Effect } from './messages.ts';
+import { progressStages, STAGES, stageOf } from './stages.ts';
 import type { TuiState } from './state.ts';
 
 type Reduced = {
@@ -207,24 +217,43 @@ function onPickerCommand(state: TuiState, logs: LogState, command: Command): Red
 /** Opens the chooser on the attempt being read, or on its first row. */
 /** The attempt beside the one being read. Forward to the last one is following: that is the latest step. */
 function neighbourAttempt(state: TuiState, logs: LogState, direction: 1 | -1): Reduced {
-  const ids = pickerGroups(state)
-    .flatMap(groupAttempts)
-    .map((a) => a.id);
-  const at = ids.indexOf(logs.attemptFilter ?? latestAttempt(logs) ?? '');
+  const stops = stepStops(state);
+  const reading = logs.gates !== null ? GATES_STOP : (logs.attemptFilter ?? latestAttempt(logs));
+  const at = stops.indexOf(reading ?? '');
   // The list can lag the log: the attempt being followed is then newer than all it names.
   const behind = at < 0 && logs.attemptFilter === null;
-  const next = behind ? ids.at(-1) : at < 0 ? undefined : ids[at + direction];
+  const next = behind ? stops.at(-1) : at < 0 ? undefined : stops[at + direction];
+  if (next === GATES_STOP)
+    return {
+      state: { ...state, logs: { ...logs, gates: openGates(logs.gates) } },
+      effects: READ,
+    };
   // The last of a list that lags is not the latest step: it has its own place before that one.
-  const caughtUp = logs.latestSeen === null || ids.includes(logs.latestSeen);
-  const follows = direction > 0 && (next === undefined || (caughtUp && next === ids.at(-1)));
+  const caughtUp = logs.latestSeen === null || stops.includes(logs.latestSeen);
+  const follows = direction > 0 && (next === undefined || (caughtUp && next === stops.at(-1)));
   if (next === undefined && !follows) return { state, effects: [] };
-  return {
-    state: {
-      ...state,
-      logs: next === undefined || follows ? followLogs(logs) : filterAttempt(logs, next),
-    },
-    effects: READ,
-  };
+  const moved = next === undefined || follows ? followLogs(logs) : filterAttempt(logs, next);
+  return { state: { ...state, logs: { ...moved, gates: null } }, effects: READ };
+}
+
+/** What `←`/`→` stop at, in order: the attempts, with the gates where their stage comes. */
+function stepStops(state: TuiState): readonly string[] {
+  const attempts = pickerGroups(state).flatMap(groupAttempts);
+  const ids = attempts.map((a) => a.id);
+  const d = state.detail;
+  const status = d?.explain.data?.status ?? d?.show.data?.status;
+  const steps = d?.progress.data?.steps ?? null;
+  const stages = steps === null || status === undefined ? null : progressStages(steps, status);
+  const reached = stages?.find((s) => s.name === 'gates');
+  if (reached === undefined || !['done', 'current', 'failed', 'stopped'].includes(reached.state))
+    return ids;
+  const after = STAGES.indexOf('gates');
+  const later = attempts.findIndex((a) => {
+    const stage = stageOf(a.step);
+    return stage !== null && STAGES.indexOf(stage) > after;
+  });
+  const at = later < 0 ? ids.length : later;
+  return [...ids.slice(0, at), GATES_STOP, ...ids.slice(at)];
 }
 
 function openPicker(state: TuiState, logs: LogState): Reduced {
@@ -245,8 +274,17 @@ export function onLogsCommand(state: TuiState, command: Command): Reduced | null
   const logs = state.logs;
   if (logs === null) return null;
   if (logs.picker !== null) return onPickerCommand(state, logs, command);
-  const cols = logColumns(state.size.cols, logs.paneHidden).log;
+  const { log: cols, pane } = logColumns(state.size.cols, logs.paneHidden);
   const height = logRows(contentHeight(state));
+  if (logs.gates !== null) {
+    const rows = gateLogRows(logs.gates, height, pane > 0);
+    const view = gatesCommand(logs.gates, command, cols, rows);
+    if (view !== null)
+      return { state: { ...state, logs: { ...logs, gates: view } }, effects: READ };
+    if (command === 'back')
+      return { state: { ...state, logs: { ...logs, gates: null } }, effects: READ };
+    if (command === 'attempts') return openPicker(state, { ...logs, gates: null });
+  }
   const put = (next: LogState): Reduced => ({
     state: { ...state, logs: next },
     effects: next.wantOlder || next.wantForward || next.mode !== logs.mode ? READ : [],
@@ -262,7 +300,14 @@ export function onLogsCommand(state: TuiState, command: Command): Reduced | null
     case 'next_step': {
       const direction = command === 'next_step' ? 1 : -1;
       // Already on the latest step, there is no step after it, only its end.
-      if (logs.attemptFilter === null && direction > 0) return put(logsEnd(logs, cols, height));
+      const last = stepStops(state).at(-1);
+      if (
+        logs.attemptFilter === null &&
+        direction > 0 &&
+        logs.gates === null &&
+        last !== GATES_STOP
+      )
+        return put(logsEnd(logs, cols, height));
       return neighbourAttempt(state, logs, direction);
     }
     case 'back':
@@ -315,6 +360,50 @@ export type LogsMessage = {
   readonly at: number;
   readonly result: PortResult<TaskLogs>;
 };
+
+export type GatesMessage = {
+  readonly taskId: string;
+  readonly session: number;
+  readonly generation: number;
+  readonly at: number;
+} & (
+  | { readonly type: 'gates_read'; readonly result: PortResult<TaskGates> }
+  | {
+      readonly type: 'gate_log_read';
+      readonly request: GateLogRead;
+      readonly result: PortResult<TaskGateLog>;
+    }
+);
+
+/** An answer about the gates; one to a question since replaced is dropped. */
+export function onGatesMessage(state: TuiState, m: GatesMessage): TuiState {
+  const logs = state.logs;
+  const view = logs?.gates ?? null;
+  if (
+    logs === null ||
+    view === null ||
+    logs.taskId !== m.taskId ||
+    logs.session !== m.session ||
+    view.generation !== m.generation
+  )
+    return state;
+  return {
+    ...state,
+    logs: {
+      ...logs,
+      gates:
+        m.type === 'gates_read'
+          ? onGatesRead(view, m.result, m.at)
+          : onGateLogRead(
+              view,
+              m.request,
+              m.result,
+              m.at,
+              logColumns(state.size.cols, logs.paneHidden).log,
+            ),
+    },
+  };
+}
 
 /** One answer; one to a question since replaced is dropped. */
 export function onLogsRead(state: TuiState, m: LogsMessage): TuiState {

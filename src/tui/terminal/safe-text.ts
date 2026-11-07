@@ -32,6 +32,13 @@ export function sanitizeLines(raw: string): SafeText {
   return raw.toWellFormed().replace(UNSAFE_KEEPING_LINES, visible) as SafeText;
 }
 
+export const ANSI = new RegExp(String.raw`\u001b\[[0-9;?]*[ -/]*[@-~]`, 'g');
+
+/** A command's output: colour goes and a carriage return ends a line; anything else stays visible. */
+export function cleanLog(text: string): SafeText {
+  return sanitizeLines(text.replace(ANSI, '').replaceAll('\t', '    ').replace(/\r\n?/g, '\n'));
+}
+
 /** Fixed text of the interface itself. Never pass anything that came from outside. */
 export function uiText(text: string): SafeText {
   return text as SafeText;

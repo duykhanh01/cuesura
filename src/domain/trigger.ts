@@ -166,6 +166,8 @@ const CommandLogRefSchema = z
     digest: HashSchema,
     bytes: z.number().int().nonnegative(),
     truncated: z.boolean(),
+    // Logs of earlier releases have no time.
+    wall_ms: z.number().nonnegative().optional(),
   })
   .strict();
 

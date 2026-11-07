@@ -3,7 +3,7 @@ import type { Key } from '../terminal/keys.ts';
 import type { Mutation, MutationCommand } from '../client/mutations.ts';
 import type { ActionsMessage, ActionsShowMessage } from './actions.ts';
 import type { DetailMessage } from './detail.ts';
-import type { LogsMessage } from './detail-keys.ts';
+import type { GatesMessage, LogsMessage } from './detail-keys.ts';
 import type { ReadOutcome, Size } from './state.ts';
 
 export type Message =
@@ -30,6 +30,7 @@ export type Message =
   | { readonly type: 'mutation_changed'; readonly mutation: Mutation }
   | DetailMessage
   | LogsMessage
+  | GatesMessage
   | ActionsMessage
   | ActionsShowMessage;
 

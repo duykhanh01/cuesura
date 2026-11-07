@@ -3,12 +3,12 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   GATE_LOG_DEFAULT_BYTES,
-  cleanLog,
   gateLogCommandWith,
   gatesCommand,
 } from '../../../src/cli/gate-logs.ts';
 import { okEnvelope, errorEnvelope, type Envelope } from '../../../src/cli/output.ts';
 import { runCli } from '../../../src/cli/program.ts';
+import { cleanLog } from '../../../src/tui/terminal/safe-text.ts';
 
 const ID = '019a0000-0000-7000-8000-000000000001';
 

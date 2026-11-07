@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -35,7 +35,10 @@ const ref = (name: string) => ({
 });
 
 let n = 0;
-function fixture(rounds: readonly { effect: string; results: Run[]; passed?: boolean }[]) {
+function fixture(
+  rounds: readonly { effect: string; results: Run[]; passed?: boolean }[],
+  effects: Record<string, unknown> = {},
+) {
   const dataDir = join(base, String(n++));
   mkdirSync(dataDir);
   const events = rounds.map(({ effect, results, passed }) => ({
@@ -52,7 +55,7 @@ function fixture(rounds: readonly { effect: string; results: Run[]; passed?: boo
   }));
   const deps = {
     store: {
-      readTask: (id: string) => (id === TASK ? ({} as TaskState) : null),
+      readTask: (id: string) => (id === TASK ? ({ effects } as unknown as TaskState) : null),
       readEvents: () => [{ type: 'TaskCreated', payload: {} }, ...events],
     },
     dataDir,
@@ -363,5 +366,49 @@ describe('task_gate_log', () => {
       { gate: 'unit', other: 1 },
     ])
       expect(read(deps, q)).toMatchObject({ ok: false, error: { code: 'invalid_request' } });
+  });
+});
+
+describe('task_gates: a gate still running', () => {
+  const EFFECT = '00000000-0000-7000-8000-0000000000aa';
+  const started = { [EFFECT]: { id: EFFECT, kind: 'run_gates', status: 'started' } };
+  const gates = (deps: GateLogDeps) => {
+    const r = taskGates(deps, OWNER, { kind: 'task_gates', task_id: TASK });
+    if (!r.ok) throw new Error(r.error.message);
+    return r.value as { running: unknown };
+  };
+  const write = (dataDir: string, text: string) => {
+    mkdirSync(join(dataDir, 'receipts', EFFECT), { recursive: true });
+    writeFileSync(join(dataDir, 'receipts', EFFECT, 'running.state'), text);
+  };
+  const FACTS = { gate: 'unit', role: 'gate', started_at: 5, last_output_at: 9 };
+
+  it('says which gate runs, since when, and when it last wrote', () => {
+    const { deps, dataDir } = fixture([], started);
+    write(dataDir, JSON.stringify(FACTS));
+    expect(gates(deps).running).toEqual(FACTS);
+  });
+
+  it('nothing runs without a gate effect in progress, whatever the file says', () => {
+    const { deps, dataDir } = fixture([], {
+      [EFFECT]: { ...started[EFFECT], status: 'succeeded' },
+    });
+    write(dataDir, JSON.stringify(FACTS));
+    expect(gates(deps).running).toBeNull();
+  });
+
+  it('a torn file, or none, reads as nothing running', () => {
+    const { deps, dataDir } = fixture([], started);
+    expect(gates(deps).running).toBeNull();
+    write(dataDir, '{"gate":');
+    expect(gates(deps).running).toBeNull();
+  });
+
+  it('does not hang on, or follow, what is not a plain file', () => {
+    const { deps, dataDir } = fixture([], started);
+    const dir = join(dataDir, 'receipts', EFFECT);
+    mkdirSync(dir, { recursive: true });
+    spawnSync('mkfifo', [join(dir, 'running.state')]);
+    expect(gates(deps).running).toBeNull();
   });
 });

@@ -63,3 +63,8 @@ Mục chờ dữ liệu phải nói đúng một điều:
 
 Record không đọc được bằng lời chỉ chiếm một dòng ghi loại của nó. JSON đầy đủ nằm sau `Ctrl-O`, không bao giờ hiện
 ở chế độ mặc định.
+
+Màn gates là một điểm dừng trong `←`/`→`, nằm đúng chỗ stage `gates` trong chuỗi attempt. Danh sách gate ở trên, log
+của gate đang chọn ở dưới. Mặc định chọn gate fail của vòng mới nhất và mở ở cuối log, nơi trình test báo lỗi. Log chỉ
+có sau khi gate xong, nên gate đang chạy hiện tên, thời gian và lần có output cuối. Rộng thì danh sách là một cột; hẹp
+thì là một dòng luôn giữ gate đang chọn. Log hết hạn là trạng thái bình thường, không tô như lỗi.

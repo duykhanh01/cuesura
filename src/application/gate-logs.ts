@@ -16,8 +16,9 @@ import {
 import { join } from 'node:path';
 import { z } from 'zod';
 import type { DomainEvent, EventPayloads } from '../domain/event.ts';
+import type { TaskState } from '../domain/state.ts';
 import { TOMBSTONE_FILE } from '../daemon/retention.ts';
-import { COMMAND_LOG_DIR } from '../runner/commands.ts';
+import { COMMAND_LOG_DIR, COMMAND_RUNNING_FILE } from '../runner/commands.ts';
 import { isSafeId } from '../runner/files.ts';
 import { UuidSchema, type Uuid } from '../shared/brand.ts';
 import { err, ok, type Result } from '../shared/result.ts';
@@ -28,6 +29,7 @@ import type { AppError } from './queries.ts';
 /** Most of one read: a client wanting a whole log pages through it. */
 export const GATE_LOG_PAGE_BYTES = 1024 * 1024;
 const GATE_LOG_MIN_BYTES = 1024;
+const RUNNING_FILE_BYTES = 4096;
 
 /** What `ref` may look like; it comes from an event, and is still a path handed to the filesystem. */
 const LOG_REF = new RegExp(`^${COMMAND_LOG_DIR}/[A-Za-z0-9._-]+\\.log$`);
@@ -71,12 +73,12 @@ function goneState(dataDir: string, effect: string): GateLogState {
 }
 
 /**
- * The log as a descriptor, or null. Where the open really landed is checked after it, which holds for
- * every directory on the way and leaves no gap to swap one in. `O_NONBLOCK`: opening a FIFO would
- * otherwise wait for a writer, and hold the whole daemon.
+ * A file of an effect as a descriptor, or null. Where the open really landed is checked after it, which
+ * holds for every directory on the way and leaves no gap to swap one in. `O_NONBLOCK`: opening a FIFO
+ * would otherwise wait for a writer, and hold the whole daemon.
  */
-function openLog(dataDir: string, effect: string, ref: string): number | null {
-  if (!isSafeId(effect) || !LOG_REF.test(ref)) return null;
+function openEffectFile(dataDir: string, effect: string, ref: string): number | null {
+  if (!isSafeId(effect)) return null;
   try {
     const file = join(realpathSync(dataDir), 'receipts', effect, ref);
     const fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
@@ -89,6 +91,36 @@ function openLog(dataDir: string, effect: string, ref: string): number | null {
     return null;
   } catch {
     return null;
+  }
+}
+
+const openLog = (dataDir: string, effect: string, ref: string): number | null =>
+  LOG_REF.test(ref) ? openEffectFile(dataDir, effect, ref) : null;
+
+const RunningSchema = z.object({
+  gate: z.string(),
+  role: z.string(),
+  started_at: z.number(),
+  last_output_at: z.number().nullable(),
+});
+
+/** The command of a gate effect in progress. A torn or absent file is the same as nothing running. */
+function runningGate(dataDir: string, state: TaskState): z.infer<typeof RunningSchema> | null {
+  const effect = Object.values(state.effects).find(
+    (e) => e.kind === 'run_gates' && e.status === 'started',
+  );
+  if (effect === undefined) return null;
+  const fd = openEffectFile(dataDir, effect.id, COMMAND_RUNNING_FILE);
+  if (fd === null) return null;
+  try {
+    const buffer = Buffer.alloc(RUNNING_FILE_BYTES);
+    const read = readSync(fd, buffer, 0, buffer.length, 0);
+    const parsed = RunningSchema.safeParse(JSON.parse(buffer.toString('utf8', 0, read)));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  } finally {
+    closeSync(fd);
   }
 }
 
@@ -181,10 +213,11 @@ export function taskGates(
 ): Result<unknown, AppError> {
   const q = TaskQuerySchema.safeParse(body);
   if (!q.success) return invalid('invalid task_gates query', q.error);
-  if (deps.store.readTask(q.data.task_id) === null || !authorize(caller, { role: 'read' }).ok)
-    return unknownTask(q.data.task_id);
+  const state = deps.store.readTask(q.data.task_id);
+  if (state === null || !authorize(caller, { role: 'read' }).ok) return unknownTask(q.data.task_id);
   return ok({
     task_id: q.data.task_id,
+    running: runningGate(deps.dataDir, state),
     rounds: rounds(deps.store, q.data.task_id).map(({ payload }, i) => ({
       round: i + 1,
       step: payload.step,
@@ -194,7 +227,13 @@ export function taskGates(
         gate: run.gate,
         passed: run.passed,
         log: logState(deps.dataDir, payload.effect_id, run),
-        ...(run.log === undefined ? {} : { bytes: run.log.bytes, truncated: run.log.truncated }),
+        ...(run.log === undefined
+          ? {}
+          : {
+              bytes: run.log.bytes,
+              truncated: run.log.truncated,
+              ...(run.log.wall_ms === undefined ? {} : { wall_ms: run.log.wall_ms }),
+            }),
       })),
     })),
   });

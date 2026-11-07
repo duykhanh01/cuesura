@@ -404,6 +404,48 @@ export const TaskExplainSchema = z.looseObject({
 });
 export type TaskExplain = z.infer<typeof TaskExplainSchema>;
 
+const GATE_LOG_STATES = ['available', 'expired', 'missing'] as const;
+
+export const TaskGatesSchema = z.looseObject({
+  task_id: taskId,
+  running: z
+    .looseObject({
+      gate: safe,
+      started_at: z.number(),
+      last_output_at: z.number().nullable(),
+    })
+    .nullish()
+    .transform((v) => v ?? null),
+  rounds: z.array(
+    z.looseObject({
+      round: z.number().int(),
+      passed: z.boolean(),
+      gates: z.array(
+        z.looseObject({
+          // Kept as sent: `task_gate_log` is asked by this exact name.
+          gate: z.string(),
+          passed: z.boolean(),
+          log: z.enum(GATE_LOG_STATES),
+          bytes: z.number().optional(),
+          wall_ms: z.number().optional(),
+        }),
+      ),
+    }),
+  ),
+});
+export type TaskGates = z.infer<typeof TaskGatesSchema>;
+
+export const TaskGateLogSchema = z.looseObject({
+  gate: z.string(),
+  round: z.number().int(),
+  state: z.enum(GATE_LOG_STATES),
+  text: z.string().optional(),
+  offset: z.number().int().optional(),
+  next_offset: z.number().int().optional(),
+  size: z.number().int().optional(),
+});
+export type TaskGateLog = z.infer<typeof TaskGateLogSchema>;
+
 export const TaskHistorySchema = z.looseObject({
   task_id: taskId,
   events: z.array(

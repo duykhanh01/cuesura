@@ -106,6 +106,7 @@ trước khi in, cho cả `--json` lẫn output cho người đọc.
   deadline/cancel; engine/store accept facts trong transaction không I/O/await.
 - Cùng PR/timer/recheck coalesce observation đang chạy, mỗi request được ánh xạ về một kết quả;
   không tạo nhiều poll chains. Mutation accepted trả request/task version; show/history cho tra lại.
+- `task_gates` có thêm `running` (`gate`, `role`, `started_at`, `last_output_at`, hoặc `null`) đọc từ `running.state` của effect `run_gates` đang chạy, và `wall_ms` theo từng gate khi event có; event của bản cũ không có trường này.
 
 ### Actor của assistant
 
