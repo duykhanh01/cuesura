@@ -47,8 +47,11 @@ export function cleanLog(text: string): string {
   return sanitizeLines(text.replace(ANSI, '').replaceAll('\t', '    ').replace(/\r\n?/g, '\n'));
 }
 
-/** A line end or colour code a page may have cut: it waits for the page that completes it. */
-const UNFINISHED = new RegExp(String.raw`(?:\r|\u001b(?:\[[0-9;?]*[ -/]*)?)$`);
+/**
+ * A line end or colour code a page may have cut: it waits for the page that completes it. A CR before a
+ * cut code waits too, or it would end a line on its own and the LF after the code would add another.
+ */
+const UNFINISHED = new RegExp(String.raw`(?:\r?\u001b(?:\[[0-9;?]*[ -/]*)?|\r)$`);
 
 /** `cleanLog` over pages, which end at any byte. */
 function pageCleaner(): { push(text: string): string; end(): string } {

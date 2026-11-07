@@ -125,6 +125,17 @@ describe('cusr task gate-log', () => {
     expect(r.stdout).toBe('a\nb');
   });
 
+  it('--full keeps a line end whose colour code a page cuts before its LF', async () => {
+    const pages: Record<number, Record<string, unknown>> = {
+      0: { text: 'a\r\u001b[0', next_offset: 6, size: 9, complete: false },
+      6: { text: 'm\nb', next_offset: 9, size: 9, complete: true },
+    };
+    const r = await run(['task', 'gate-log', ID, 'unit', '--full'], (b) =>
+      available(pages[b['offset'] as number] ?? {}),
+    );
+    expect(r.stdout).toBe('a\nb');
+  });
+
   it('--full stops rather than spins when a page does not move on', async () => {
     const r = await run(['task', 'gate-log', ID, 'unit', '--full'], () =>
       available({ text: '', next_offset: 0, size: 8, complete: false }),
