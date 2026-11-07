@@ -550,6 +550,249 @@ describe('required checks (US2.6, FR-042)', () => {
   });
 });
 
+describe('a verified "Update branch" merge taken as the base update (#110)', () => {
+  const drift = (expected: string) =>
+    ({
+      kind: 'head_drift',
+      expected,
+      observed: B,
+      source: 'observation',
+      evidence_ref: 'obs:B',
+      base_merge: { base_sha: C },
+    }) as const;
+
+  function toCiRead(d: StoreDriver, t: CanonicalTask): string {
+    createGrantStart(d, t, 'direct-pr', { limits: { max_wall_ms: 6 * HOUR } });
+    toPublish(d, t, A);
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
+    d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
+      pr_ref: 'acme#7',
+      head_sha: A,
+    });
+    reviewToCi(d, t.id);
+    const read = d.pendingOne(t.id, 'await_ci').id;
+    const c = d.claim(read);
+    if (!c.ok) throw new Error('claim');
+    return read;
+  }
+
+  it('during a CI read: the gates run on the merge and the late answer of that read is history only', () => {
+    const d = setup();
+    const t = buildTask();
+    const read = toCiRead(d, t);
+    d.must(t.id, drift(A));
+    const s = d.task(t.id);
+    expect(s.run.head_drift).toBeNull();
+    expect(s.run.base_update).toMatchObject({ head_sha: A, base_sha: C, remote_head: B });
+    expect(d.pendingOne(t.id, 'run_gates').request['base_update']).toEqual({
+      head_sha: A,
+      base_sha: C,
+      remote_head: B,
+    });
+    const ciBefore = s.evidence.ci.length;
+    d.must(t.id, {
+      kind: 'effect_result',
+      effect_id: read as Uuid,
+      outcome: 'succeeded',
+      data: ci(B, { build: 'success', test: 'success' }),
+    });
+    const after = d.task(t.id);
+    expect(after.evidence.ci).toHaveLength(ciBefore);
+    expect(d.pending(t.id, 'await_ci')).toEqual([]);
+    expect(d.pending(t.id, 'run_gates')).toHaveLength(1);
+    expect(replay(d.store.readEvents(t.id))).toEqual(after);
+  });
+
+  it('the same merge read again while it is being taken changes nothing', () => {
+    const d = setup();
+    const t = buildTask();
+    toCiRead(d, t);
+    d.must(t.id, drift(A));
+    const gates = d.pendingOne(t.id, 'run_gates').id;
+    d.must(t.id, drift(A));
+    const { base_merge: _unverified, ...plain } = drift(A);
+    d.must(t.id, plain);
+    expect(d.task(t.id).run.head_drift).toBeNull();
+    expect(d.pendingOne(t.id, 'run_gates').id).toBe(gates);
+  });
+
+  it('a queued reviewer of the checked head never runs after the merge is taken', () => {
+    const d = setup();
+    const t = buildTask();
+    createGrantStart(d, t, 'full-review');
+    d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE);
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(A));
+    publishToReview(d, t.id, A);
+    const reviewer = d.pendingOne(t.id, 'start_agent').id;
+    d.must(t.id, drift(A));
+    expect(d.task(t.id).effects[reviewer]?.status).toBe('invalidated');
+    expect(d.pending(t.id, 'start_agent')).toEqual([]);
+    expect(d.pending(t.id, 'run_gates')).toHaveLength(1);
+  });
+
+  it('a CI read of the checked head that fails after the merge was published is history only', () => {
+    const d = setup();
+    const t = buildTask();
+    const read = toCiRead(d, t);
+    d.must(t.id, drift(A));
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(B));
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(B));
+    expect(d.task(t.id).head_sha).toBe(B);
+    d.must(t.id, {
+      kind: 'effect_result',
+      effect_id: read as Uuid,
+      outcome: 'failed',
+      data: { failure_class: 'auth_config', message: 'token expired' },
+    });
+    const after = d.task(t.id);
+    expect(after.wait?.detail.code).not.toBe('auth_config');
+    expect(Object.values(after.questions).filter((q) => q.status === 'open')).toEqual([]);
+  });
+
+  it('a CI read of the checked head that went unknown and is reconciled after the publish is history only', () => {
+    const d = setup();
+    const t = buildTask();
+    const read = toCiRead(d, t);
+    d.must(t.id, drift(A));
+    d.must(t.id, { kind: 'effect_result', effect_id: read as Uuid, outcome: 'unknown' });
+    expect(code(d, t)).not.toBe('effect_unknown');
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(B));
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(B));
+    d.must(t.id, {
+      kind: 'effect_reconciled',
+      effect_id: read as Uuid,
+      finding: 'executed_failed',
+      failure_class: 'auth_config',
+    });
+    const after = d.task(t.id);
+    expect(after.wait?.detail.code).not.toBe('auth_config');
+    expect(Object.values(after.questions).filter((q) => q.status === 'open')).toEqual([]);
+    expect(replay(d.store.readEvents(t.id))).toEqual(after);
+  });
+
+  it('a reviewer of the checked head whose end is not proven keeps the merge a drift', () => {
+    const d = setup();
+    const t = buildTask();
+    createGrantStart(d, t, 'full-review');
+    d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE);
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(A));
+    publishToReview(d, t.id, A);
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'unknown');
+    d.must(t.id, drift(A));
+    expect(code(d, t)).toBe('head_changed');
+    expect(d.task(t.id).run.base_update?.remote_head).toBeUndefined();
+    expect(d.pending(t.id, 'run_gates')).toEqual([]);
+  });
+
+  it('a late duplicate read of the merge, arriving after it was published, changes nothing', () => {
+    const d = setup();
+    const t = buildTask();
+    toCiRead(d, t);
+    d.must(t.id, drift(A));
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(B));
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(B));
+    const poll = d.pendingOne(t.id, 'await_ci').id;
+    d.must(t.id, drift(A));
+    const s = d.task(t.id);
+    expect(s.run.head_drift).toBeNull();
+    expect(s.head_sha).toBe(B);
+    expect(d.pendingOne(t.id, 'await_ci').id).toBe(poll);
+  });
+
+  it('a worktree drift back to the current head is still a drift', () => {
+    const d = setup();
+    const t = buildTask();
+    toGreen(d, t);
+    d.must(t.id, {
+      kind: 'head_drift',
+      expected: B,
+      observed: A,
+      source: 'worktree',
+      evidence_ref: 'worktree:reset',
+    });
+    expect(code(d, t)).toBe('head_changed');
+  });
+
+  it('after the merge is published and fixed on, going back to that merge is a drift', () => {
+    const d = setup();
+    const t = buildTask();
+    toCiRead(d, t);
+    d.must(t.id, drift(A));
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(B));
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(B));
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'await_ci').id,
+      'succeeded',
+      ci(B, { build: 'failure', test: 'success' }),
+    );
+    grant(d);
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(C));
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(C));
+    expect(d.task(t.id).head_sha).toBe(C);
+    d.must(t.id, {
+      kind: 'head_drift',
+      expected: C,
+      observed: B,
+      source: 'observation',
+      evidence_ref: 'obs:rollback',
+    });
+    expect(code(d, t)).toBe('head_changed');
+    expect(d.task(t.id).run.head_drift).toMatchObject({ expected: C, observed: B });
+  });
+
+  it('a later base update does not forget the CI reads the merge replaced', () => {
+    const d = setup();
+    const t = buildTask();
+    const read = toCiRead(d, t);
+    d.must(t.id, drift(A));
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(B));
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(B));
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'await_ci').id,
+      'succeeded',
+      ci(B, { build: 'success', test: 'success' }),
+    );
+    expect(code(d, t)).toBe('merge');
+    d.must(t.id, { kind: 'update_base', head_sha: B, base_sha: 'd'.repeat(40) });
+    expect(d.task(t.id).run.base_update?.superseded_reads).toBeUndefined();
+    d.must(t.id, {
+      kind: 'effect_result',
+      effect_id: read as Uuid,
+      outcome: 'failed',
+      data: { failure_class: 'auth_config', message: 'token expired' },
+    });
+    expect(code(d, t)).not.toBe('auth_config');
+    expect(Object.values(d.task(t.id).questions).filter((q) => q.status === 'open')).toEqual([]);
+  });
+
+  it('while other work runs on the checked head, or for a head the task did not check, it stays head_changed', () => {
+    const d = setup();
+    const t = buildTask();
+    toGreen(d, t);
+    d.must(t.id, drift(C));
+    expect(code(d, t)).toBe('head_changed');
+    expect(d.task(t.id).run.base_update).toBeUndefined();
+
+    const d2 = setup();
+    const t2 = buildTask();
+    createGrantStart(d2, t2, 'full-review');
+    d2.complete(t2.id, d2.pendingOne(t2.id, 'prepare').id, 'succeeded', PREPARE);
+    d2.complete(t2.id, d2.pendingOne(t2.id, 'start_agent').id, 'succeeded', agentData('done'));
+    d2.complete(t2.id, d2.pendingOne(t2.id, 'run_gates').id, 'succeeded', checkpointGates(A));
+    publishToReview(d2, t2.id, A);
+    const reviewer = d2.claim(d2.pendingOne(t2.id, 'start_agent').id);
+    if (!reviewer.ok) throw new Error('claim');
+    d2.must(t2.id, drift(A));
+    expect(code(d2, t2)).toBe('head_changed');
+    expect(d2.task(t2.id).run.base_update?.remote_head).toBeUndefined();
+  });
+});
+
 describe('green PR under observation (US2.7/US2.8, US1.7, FR-041)', () => {
   it('US2.7: an outside push withdraws green as head_changed; nothing is fixed or overwritten', () => {
     const d = setup();

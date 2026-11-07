@@ -248,7 +248,10 @@ const ROWS: Readonly<Record<DetailCode, Row>> = {
     external(
       'Return the branch to the checked head; it is then reconciled within its limits. Closing the PR leads to pr_closed.',
     ),
-    recheck(c, 'Reads the PR once; it does not check or accept the new head.'),
+    recheck(
+      c,
+      'Reads the PR once. A clean "Update branch" merge of the target into the checked head is then taken as a base update and gated, certified and CI-checked again; any other head stays as it is.',
+    ),
     merge(c),
     cancel(c),
   ],

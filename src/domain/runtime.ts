@@ -13,7 +13,15 @@ const PositiveInt = z.number().int().positive();
 const NonNegInt = z.number().int().nonnegative();
 const Sha = z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/, 'git object id');
 
-export const BaseUpdateSchema = z.object({ head_sha: Sha, base_sha: Sha }).strict();
+/** A base update as a trigger asks for it: merge `base_sha` into the checked `head_sha`. */
+export const BaseUpdateRequestSchema = z.object({ head_sha: Sha, base_sha: Sha }).strict();
+/**
+ * `remote_head`: that merge already made on the PR by someone else (GitHub "Update branch") and verified
+ * by the daemon as Git's own clean merge of the two; it is taken as is instead of a new commit (#110).
+ */
+export const BaseUpdateSchema = BaseUpdateRequestSchema.extend({
+  remote_head: Sha.optional(),
+}).strict();
 export type BaseUpdate = z.infer<typeof BaseUpdateSchema>;
 
 export const BaseConflictSchema = z
@@ -39,6 +47,8 @@ export type BaseUpdateRun = BaseUpdate & {
   scope?: BaseRepairScope;
   manual_resolution?: { by: string; at: number };
   certificate?: { head_sha: string; tree: string };
+  /** CI reads of the checked head still out when a remote merge was taken; their answers are history. */
+  superseded_reads?: string[];
 };
 
 /**

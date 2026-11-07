@@ -271,7 +271,12 @@ export async function productionControl(opts: {
           github: newGitHub,
           clock: opts.clock,
           newId: opts.newId,
-          local: { git: ports.git, worktrees: join(opts.dataDir, 'worktrees') },
+          local: {
+            git: ports.git,
+            worktrees: join(opts.dataDir, 'worktrees'),
+            // Read on each observation, after the handler deps below exist.
+            remoteUrl: (repo) => remoteUrl(repo),
+          },
         },
         taskId,
         ref,

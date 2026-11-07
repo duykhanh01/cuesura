@@ -13,7 +13,13 @@ import {
 import { release, usageOf } from './budget.ts';
 import { reject, type Ctx } from './context.ts';
 import { settleUnderDrift } from './head-drift.ts';
-import { onEffectFailed, onEffectSucceeded, parseSuccess, proceed } from './interpreter.ts';
+import {
+  onEffectFailed,
+  onEffectSucceeded,
+  parseSuccess,
+  proceed,
+  supersededCiRead,
+} from './interpreter.ts';
 
 type Reconciled = Extract<Trigger, { kind: 'effect_reconciled' }>;
 
@@ -92,7 +98,7 @@ export function onReconciled(ctx: Ctx, t: Reconciled): void {
       });
       closeProbe(ctx, e, probeResult(t));
       // After a merge proof the finding is recorded as it is; nothing proceeds from it (FR-040.05).
-      if (ctx.state.completion !== null) return;
+      if (ctx.state.completion !== null || supersededCiRead(ctx.state, e)) return;
       // Under a recorded head drift a late result is history of its own operation (H01/H05): no route.
       if (ctx.state.run.head_drift !== null)
         return settleUnderDrift(ctx, e, (data as { invoked?: boolean } | null)?.invoked !== false);
@@ -157,7 +163,7 @@ export function onReconciled(ctx: Ctx, t: Reconciled): void {
         result: f,
       });
       closeProbe(ctx, e, probeResult(t));
-      if (ctx.state.completion !== null) return;
+      if (ctx.state.completion !== null || supersededCiRead(ctx.state, e)) return;
       if (ctx.state.run.head_drift !== null) return settleUnderDrift(ctx, e, true);
       onEffectFailed(ctx, e, f);
       return;
@@ -175,6 +181,7 @@ export function onReconciled(ctx: Ctx, t: Reconciled): void {
           ctx.state.cancellation === null &&
           ctx.state.completion === null &&
           ctx.state.run.head_drift === null &&
+          !supersededCiRead(ctx.state, e) &&
           e.revision === ctx.state.revision);
       ctx.emit('EffectReconciled', {
         effect_id: e.id,

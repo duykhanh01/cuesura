@@ -7,7 +7,7 @@ import { RunSelectionSchema } from './run-config.ts';
 import type { TaskStatus } from './state.ts';
 import {
   ArtifactSchema,
-  BaseUpdateSchema,
+  BaseUpdateRequestSchema,
   BaseConflictSchema,
   BaseRepairScopeSchema,
   ExternalSubjectSchema,
@@ -624,8 +624,8 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
     })
     .strict(),
   // Keep the old trigger readable for existing durable envelopes.
-  BaseUpdateSchema.extend({ kind: z.literal('yolo_update_base') }).strict(),
-  BaseUpdateSchema.extend({ kind: z.literal('update_base') }).strict(),
+  BaseUpdateRequestSchema.extend({ kind: z.literal('yolo_update_base') }).strict(),
+  BaseUpdateRequestSchema.extend({ kind: z.literal('update_base') }).strict(),
   z
     .object({
       kind: z.literal('yolo_merge_approve'),
@@ -704,6 +704,11 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
       observed: z.string().min(1).nullable(),
       source: z.enum(['observation', 'publish_probe', 'pr_probe', 'worktree']),
       evidence_ref: z.string().min(1),
+      /** Set only when the daemon verified `observed` as a clean merge of this target commit (#110). */
+      base_merge: z
+        .object({ base_sha: z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/) })
+        .strict()
+        .optional(),
     })
     .strict(),
   // Preflight candidate of a task that has not started (FR-002.02/03): advisory, never a snapshot.

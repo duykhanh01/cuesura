@@ -953,6 +953,18 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
       break;
     case 'BaseUpdateRecorded':
       s.run.base_update = event.payload.update;
+      if (event.payload.update.superseded_reads !== undefined)
+        s.run.superseded_reads = [
+          ...new Set([...(s.run.superseded_reads ?? []), ...event.payload.update.superseded_reads]),
+        ];
+      // A drift to the remote merge now taken as the base update is no longer unexplained (#110).
+      if (
+        event.payload.update.remote_head !== undefined &&
+        s.run.head_drift?.observed === event.payload.update.remote_head
+      ) {
+        s.run.head_drift = null;
+        s.blockers = s.blockers.filter((b) => b.code !== 'head_changed');
+      }
       break;
     case 'HeadDriftRecorded':
       s.run.head_drift = event.payload.drift;

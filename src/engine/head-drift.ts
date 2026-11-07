@@ -1,6 +1,7 @@
 import { isTerminal } from '../domain/state.ts';
 import type { Trigger } from '../domain/trigger.ts';
 import { consume, release } from './budget.ts';
+import { adoptingRemoteMerge, adoptRemoteMerge } from './base-update.ts';
 import { invalidatePending } from './cancel.ts';
 import { reject, type Ctx } from './context.ts';
 import { mkWait } from './waits.ts';
@@ -26,6 +27,25 @@ export function onHeadDrift(ctx: Ctx, t: HeadDriftTrigger): void {
     });
     return;
   }
+  // A read made before the task moved to this very head (a late duplicate after the merge was published).
+  if (t.source === 'observation' && t.observed !== null && t.observed === s.head_sha) {
+    ctx.emit('SignalIgnored', {
+      reason: 'head_is_current',
+      trigger_kind: t.kind,
+      detail: { observed: t.observed },
+    });
+    return;
+  }
+  if (adoptingRemoteMerge(s, t.observed)) {
+    ctx.emit('SignalIgnored', {
+      reason: 'base_update_in_progress',
+      trigger_kind: t.kind,
+      detail: { observed: t.observed },
+    });
+    return;
+  }
+  // Also for a drift already recorded on this head, so a task stuck before #110 recovers on its next read.
+  if (adoptRemoteMerge(ctx, t)) return;
   const prior = s.run.head_drift;
   if (prior !== null && prior.observed === t.observed) {
     ctx.emit('SignalIgnored', {

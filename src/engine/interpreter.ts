@@ -1093,6 +1093,11 @@ export function parseSuccess(
       };
 }
 
+/** A CI read started before a remote merge was taken as the base update reads a replaced head (#110). */
+export function supersededCiRead(s: TaskState, e: EffectMirror): boolean {
+  return e.kind === 'await_ci' && (s.run.superseded_reads?.includes(e.id) ?? false);
+}
+
 export function onEffectResult(ctx: Ctx, t: EffectResultTrigger): void {
   const e = ctx.state.effects[t.effect_id];
   if (e === undefined)
@@ -1118,6 +1123,8 @@ export function onEffectResult(ctx: Ctx, t: EffectResultTrigger): void {
         status: 'unknown',
         result: null,
       });
+      // Still reconciled so the read settles, but it no longer holds the task (#110).
+      if (supersededCiRead(ctx.state, e)) return requestReconcile(ctx, e);
       onEffectUnknown(ctx, e);
       return;
     case 'succeeded': {
@@ -1134,7 +1141,7 @@ export function onEffectResult(ctx: Ctx, t: EffectResultTrigger): void {
         result: parsed.ok ? parsed.data : (t.data ?? null),
       });
       // A late result after a merge proof (e.g. a push that still landed) is recorded, never acted on.
-      if (ctx.state.completion !== null) return;
+      if (ctx.state.completion !== null || supersededCiRead(ctx.state, e)) return;
       // Under a recorded head drift a result is history of its own operation (H01/H02): no route.
       if (ctx.state.run.head_drift !== null)
         return settleUnderDrift(
@@ -1157,7 +1164,7 @@ export function onEffectResult(ctx: Ctx, t: EffectResultTrigger): void {
         status: 'failed',
         result: f.data,
       });
-      if (ctx.state.completion !== null) return;
+      if (ctx.state.completion !== null || supersededCiRead(ctx.state, e)) return;
       if (ctx.state.run.head_drift !== null)
         return settleUnderDrift(ctx, e, f.data.invoked !== false);
       onEffectFailed(ctx, e, f.data);

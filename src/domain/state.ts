@@ -499,6 +499,11 @@ export type RunState = {
    * they replace the snapshot's `capability_refs` for later attempts. Absent until the first accept.
    */
   manifest_refs?: Record<string, string>;
+  /**
+   * CI reads still out when a remote merge was taken as a base update (#110): their answers are history.
+   * Kept here, not in `base_update`, so a later base update does not forget them. Absent until the first.
+   */
+  superseded_reads?: string[];
 };
 
 export type PrBodyState = {

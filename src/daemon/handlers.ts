@@ -20,7 +20,12 @@ import {
   WorktreeBaselineSchema,
 } from '../adapters/git/restore.ts';
 import { writeAtomicIn } from '../runner/files.ts';
-import { updateBase, baseRepairScope, baseUpdateIntentKey } from '../adapters/git/update-base.ts';
+import {
+  updateBase,
+  baseRepairScope,
+  baseUpdateIntentKey,
+  checkBaseMerge,
+} from '../adapters/git/update-base.ts';
 import { BaseUpdateSchema } from '../domain/runtime.ts';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
@@ -1725,7 +1730,12 @@ export type ObservedPr = {
  */
 export async function observeTaskPr(
   deps: Pick<HandlerDeps, 'store' | 'github' | 'clock' | 'newId'> & {
-    readonly local?: { readonly git: GitPort; readonly worktrees: string };
+    readonly local?: {
+      readonly git: GitPort;
+      readonly worktrees: string;
+      /** Lets a drift be checked as GitHub's "Update branch" (#110); without it every drift is plain. */
+      readonly remoteUrl?: (repo: string) => string;
+    };
   },
   taskId: string,
   evidenceRef: string,
@@ -1879,12 +1889,23 @@ export async function observeTaskPr(
       (await workerPushed(deps.local, l, l.s.head_sha, obs.pull.head.sha))
     )
       return { ci: noCi(obs.pull.head.sha), failure: null, facts };
+    const merge =
+      deps.local?.remoteUrl === undefined
+        ? null
+        : await checkBaseMerge(deps.local.git, {
+            cwd: join(deps.local.worktrees, l.s.id),
+            remote: deps.local.remoteUrl(l.rt.target.repo),
+            target: l.s.task.base_branch,
+            expected: l.s.head_sha,
+            observed: obs.pull.head.sha,
+          });
     facts.push({
       kind: 'head_drift',
       expected: l.s.head_sha,
       observed: obs.pull.head.sha,
       source: 'observation',
       evidence_ref: evidenceRef,
+      ...(merge?.kind === 'clean' ? { base_merge: { base_sha: merge.base_sha } } : {}),
     });
     return { ci: noCi(obs.pull.head.sha), failure: null, facts };
   }
@@ -1986,7 +2007,10 @@ export async function observeTask(
   evidenceRef: string,
 ): Promise<{ outcome: EffectOutcome; extra: Trigger[] }> {
   const r = await observeTaskPr(
-    { ...deps, local: { git: deps.git, worktrees: deps.paths.worktrees } },
+    {
+      ...deps,
+      local: { git: deps.git, worktrees: deps.paths.worktrees, remoteUrl: deps.remoteUrl },
+    },
     taskId,
     evidenceRef,
     'timer',

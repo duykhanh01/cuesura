@@ -1,4 +1,5 @@
 import type { Trigger } from '../domain/trigger.ts';
+import { invalidatePending } from './cancel.ts';
 import type { Ctx } from './context.ts';
 import { verifiedHead } from './external-completion.ts';
 import { commitsCheckpoint, proceed } from './interpreter.ts';
@@ -48,5 +49,91 @@ export function onUpdateBase(
       base_update: { head_sha: t.head_sha, base_sha: t.base_sha },
     },
     'base_update',
+  );
+}
+
+type HeadDriftTrigger = Extract<Trigger, { kind: 'head_drift' }>;
+
+/**
+ * Takes a remote head the daemon verified as a clean merge of the target into the checked head (GitHub
+ * "Update branch", #110) as a base update. The merge is not evidence by itself: the gates run on it, its
+ * certification decides the review (as for a base update the daemon makes) and the CI is read on it.
+ * Only while nothing else runs on the checked head; otherwise it stays a drift for a person. Returns
+ * whether it was taken.
+ */
+export function adoptRemoteMerge(ctx: Ctx, t: HeadDriftTrigger): boolean {
+  const s = ctx.state;
+  const base = t.base_merge?.base_sha;
+  const step = s.evidence.gates
+    .filter((g) => g.valid && g.revision === s.revision && g.passed)
+    .at(-1)?.step;
+  const openUpdate =
+    s.run.base_update !== undefined &&
+    s.run.base_update.revision === s.revision &&
+    s.run.base_update.certificate === undefined;
+  if (
+    base === undefined ||
+    t.observed === null ||
+    t.expected === null ||
+    s.runtime_ref === null ||
+    s.run.mode === null ||
+    s.cancellation !== null ||
+    s.completion !== null ||
+    s.head_sha !== t.expected ||
+    s.run.checkpoint?.revision !== s.revision ||
+    s.run.checkpoint.sha !== t.expected ||
+    openUpdate ||
+    step === undefined ||
+    !commitsCheckpoint(ctx, step) ||
+    // A CI read of the checked head is the only work that may still be out or unreconciled; its late
+    // answer is history. Anything else (a reviewer whose end is not proven) could still touch the tree.
+    Object.values(s.effects).some(
+      (e) => (e.status === 'started' || e.status === 'unknown') && e.kind !== 'await_ci',
+    )
+  )
+    return false;
+  const reads = Object.values(s.effects)
+    .filter((e) => (e.status === 'started' || e.status === 'unknown') && e.kind === 'await_ci')
+    .map((e) => e.id);
+  // Nothing queued for the checked head runs after it: a reviewer or gate would work on the old tree.
+  invalidatePending(ctx, 'head_changed', () => true);
+  for (const e of Object.values(ctx.state.effects))
+    if (e.status === 'pending' && e.kind === 'await_ci')
+      ctx.emit('EffectInvalidated', { effect_id: e.id, reason: 'head_changed' });
+  for (const tm of Object.values(s.timers))
+    if (tm.status === 'armed' && (tm.kind === 'ci_poll' || tm.kind === 'ci_timeout'))
+      ctx.emit('TimerCancelled', { timer_id: tm.id });
+  ctx.emit('BaseUpdateRecorded', {
+    update: {
+      head_sha: t.expected,
+      base_sha: base,
+      remote_head: t.observed,
+      revision: s.revision,
+      gate_step: step,
+      ...(reads.length === 0 ? {} : { superseded_reads: reads }),
+    },
+  });
+  proceed(
+    ctx,
+    {
+      kind: 'enter_step',
+      step,
+      base_update: { head_sha: t.expected, base_sha: base, remote_head: t.observed },
+    },
+    'base_update',
+  );
+  return true;
+}
+
+/** A drift to the remote merge already being taken as the base update: the same fact again, not news. */
+export function adoptingRemoteMerge(s: Ctx['state'], observed: string | null): boolean {
+  const u = s.run.base_update;
+  return (
+    observed !== null &&
+    u?.remote_head === observed &&
+    u.revision === s.revision &&
+    // Until the merge is published the task still stands on the head it checked; after that the same
+    // SHA seen again (a rollback) is a drift like any other.
+    s.head_sha === u.head_sha
   );
 }
