@@ -195,6 +195,44 @@ function progressRows(out: Rows, d: TaskDetail): void {
   }
 }
 
+/** A long description is cut on the plain screen so it never pushes what to do far down; `i` shows it whole. */
+const DESCRIPTION_ROWS = 6;
+
+function itemRows(out: Rows, label: string, items: readonly SafeText[]): void {
+  items.forEach((item, i) => {
+    const head = (i === 0 ? `  ${label}` : '').padEnd(LABEL + 2);
+    out.line([ui(head, DIM), ui('• ', DIM), seg(item)], LABEL + 4);
+  });
+}
+
+function requestRows(out: Rows, d: TaskDetail): void {
+  const content = d.content.data;
+  out.heading('Request');
+  if (content === null) {
+    if (d.content.error === null) out.say('  Reading…', DIM);
+    else out.line([ui('  Could not be read: ', WARN), seg(d.content.error, WARN)], 2);
+    return;
+  }
+  if (content.description !== '') {
+    const rows = wrapSegs([ui('  '), seg(content.description)], out.width, 2);
+    const cut = !d.technical && rows.length > DESCRIPTION_ROWS + 1;
+    out.rows.push(...(cut ? rows.slice(0, DESCRIPTION_ROWS) : rows));
+    if (cut)
+      out.say(
+        `  … ${rows.length - DESCRIPTION_ROWS} more lines: press i to see the whole request`,
+        DIM,
+      );
+    out.rows.push([]);
+  }
+  itemRows(out, 'Requirements', content.requirements);
+  if (content.acceptance.length === 0) out.field('Acceptance', [ui('none', DIM)]);
+  else itemRows(out, 'Acceptance', content.acceptance);
+  if (!d.technical) return;
+  itemRows(out, 'Constraints', content.constraints);
+  itemRows(out, 'Out of scope', content.out_of_scope);
+  out.field('Base branch', content.base_branch);
+}
+
 function valueText(value: unknown): SafeText {
   return sanitizeLines(typeof value === 'string' ? value : (JSON.stringify(value) ?? 'null'));
 }
@@ -591,8 +629,9 @@ function detailRows(d: TaskDetail, cols: number, stale: boolean): readonly Seg[]
   if (explain === null) {
     out.heading('Why');
     missing(out, d.explain.error !== null);
-  } else {
-    exitRows(out, explain);
+  } else exitRows(out, explain);
+  requestRows(out, d);
+  if (explain !== null) {
     evidenceRows(out, explain, d.show.data, technical);
     mergeRows(out, explain, d.show.data, technical);
     agentRows(out, explain, d.show.data, technical);

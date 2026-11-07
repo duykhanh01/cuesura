@@ -116,6 +116,7 @@
 - [X] T046 [US2] Thêm phần PR và bằng chứng vào `src/tui/views/task-detail.ts`: lịch sử event theo thứ tự commit, head, base, gate, CI, review theo chế độ, hiệu lực xanh, method và nội dung merge đề xuất, `merged_head_unverified`, yêu cầu hủy đến quá muộn; không hứa tự merge và không hiện task là xong khi chờ merge (FR-015).
 - [X] T047 [US2] Triển khai trạng thái log tại `src/tui/model/logs.ts` theo [data model](data-model.md#trạng-thái-log): `mode` là `live` hoặc `paused`; `buffer` "Tối đa 5.000 bản ghi hoặc 8 MiB"; `paused` hoặc có lọc attempt chỉ đánh dấu `new_activity`, không đưa bản ghi vào bộ đệm. Test tại `test/unit/tui/logs.test.ts` (FR-014, FR-039).
 - [X] T048 [US2] Dựng màn Logs tại `src/tui/views/logs.ts`: dòng phân cách khi `(step, attempt_id)` đổi, chọn attempt, khoảng trống từ `gap`, báo có hoạt động mới; chỉ màn đang mở mới poll; theo dõi log không chiếm slot (FR-014, EC-011).
+- [X] T084 [US2] Thêm phần Request vào `src/tui/views/task-detail.ts`, đọc `task_content` một lần và đọc lại khi `revision` đổi; mô tả dài cắt ở chế độ thường, `i` hiện đủ cùng constraints, out_of_scope, base branch; đọc lỗi không khóa ghi. Test tại `test/unit/tui/task-detail.test.ts` và `test/unit/tui/screen-reads.test.ts` (FR-015.01).
 
 **Checkpoint**: US1 và US2 là bản theo dõi chỉ đọc đầy đủ, nhưng chưa đạt mốc đầu.
 

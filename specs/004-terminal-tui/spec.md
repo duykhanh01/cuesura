@@ -399,6 +399,10 @@ tiếp theo; làm theo duy nhất các chỉ dẫn đó cho tới khi tạo đư
 - **FR-015**: Chi tiết MUST hiện lịch sử event theo thứ tự đã commit và bằng chứng PR: liên kết, head, base,
   kết quả gate, CI, review theo chế độ, hiệu lực xanh, method và nội dung merge đề xuất, merge commit và đánh
   dấu merge chưa chứng nhận.
+- **FR-015.01**: Chi tiết MUST hiện task yêu cầu gì, đọc từ `task content`: mô tả, requirements và acceptance; ở
+  chế độ thông tin kỹ thuật thêm constraints, out_of_scope và base branch. Mô tả dài MAY được cắt ở chế độ thường nếu
+  ghi rõ còn bao nhiêu dòng và cách xem đủ. Nội dung đọc lại khi `revision` đổi; đọc lỗi MUST hiện ngay tại phần đó
+  và MUST NOT khóa thao tác ghi, vì nội dung này chỉ để xem.
 
 **Thao tác**
 

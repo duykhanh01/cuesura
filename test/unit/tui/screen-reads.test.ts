@@ -7,12 +7,14 @@ import {
 } from '../../../src/tui/client/screen-reads.ts';
 import type { RefreshClock } from '../../../src/tui/client/refresh.ts';
 import type {
+  TaskContent,
   TaskExplain,
   TaskHistory,
   TaskProgress,
   TaskShow,
 } from '../../../src/tui/client/schemas.ts';
 import {
+  contentDue,
   detailDue,
   initialDetail,
   onDetailRead,
@@ -175,6 +177,44 @@ describe('T044: when Task detail reads (R-03)', () => {
   });
 });
 
+describe('when Task detail reads what the task asks for (FR-015.01)', () => {
+  const content = (revision: number): DetailMessage => ({
+    ...base,
+    at: 1_000,
+    askedAt: 1_000,
+    watermark: WM,
+    version: 7,
+    part: 'content',
+    result: { ok: true, value: { revision } as TaskContent },
+  });
+  const explainAt = (revision: number): DetailMessage => ({
+    ...base,
+    at: 1_100,
+    askedAt: 1_100,
+    watermark: WM,
+    version: 7,
+    part: 'explain',
+    result: { ok: true, value: { version: 7, revision } as TaskExplain },
+  });
+
+  it('reads it on opening, then only when the revision moves', () => {
+    expect(contentDue(detail(open()), 0)).toBe(true);
+    const s = onDetailRead(onDetailRead(open(), content(1)), explainAt(1));
+    expect(contentDue(detail(s), 60_000)).toBe(false);
+    expect(contentDue(detail(onDetailRead(s, explainAt(2))), 1_200)).toBe(true);
+  });
+
+  it('a failed read is tried again every 5 seconds and does not lock writes', () => {
+    const failed = onDetailRead(open(), {
+      ...content(1),
+      result: { ok: false, error: { kind: 'timeout', message: sanitize('slow') } },
+    });
+    expect(failed.staleTasks.has(TASK)).toBe(false);
+    expect(contentDue(detail(failed), 1_100)).toBe(false);
+    expect(contentDue(detail(failed), 5_500)).toBe(true);
+  });
+});
+
 const fakePort = (log: string[]): DaemonPort =>
   ({
     show: () => (log.push('show'), Promise.resolve(show(1))),
@@ -210,6 +250,10 @@ describe('only the open screen reads (R-03)', () => {
     expect(plan(wanted)).toContain('detail:show');
   });
 
+  it('Task detail reads what the task asks for', () => {
+    expect(plan(open())).toContain('detail:content');
+  });
+
   it('Help over Task detail reads nothing', () => {
     expect(plan(open({ screens: ['home', 'detail', 'help'] }))).toEqual([]);
   });
@@ -224,6 +268,7 @@ describe('only the open screen reads (R-03)', () => {
     expect(keys[0]).toBe('logs');
     expect(keys).toContain('detail:progress');
     expect(keys).not.toContain('detail:history');
+    expect(keys).not.toContain('detail:content');
   });
 
   it('Logs over an ended task reads the history too: its end is told from there', () => {

@@ -4,7 +4,13 @@
  */
 import type { PortResult } from '../client/daemon-port.ts';
 import { EXPLAIN_REFRESH_MS } from '../client/refresh.ts';
-import type { TaskExplain, TaskHistory, TaskProgress, TaskShow } from '../client/schemas.ts';
+import type {
+  TaskContent,
+  TaskExplain,
+  TaskHistory,
+  TaskProgress,
+  TaskShow,
+} from '../client/schemas.ts';
 import { sanitize, uiText, type SafeText } from '../terminal/safe-text.ts';
 import type { TuiState } from './state.ts';
 
@@ -51,6 +57,8 @@ export type TaskDetail = {
   readonly show: Part<TaskShow>;
   readonly progress: Part<TaskProgress>;
   readonly explain: Part<TaskExplain>;
+  /** What the task asks for (`task_content`); shown only, never what a write goes out with. */
+  readonly content: Part<TaskContent>;
   /** The watermark `explain` was asked under. */
   readonly explainWatermark: number | null;
   readonly history: {
@@ -78,6 +86,7 @@ export function initialDetail(taskId: string, title: SafeText, session: number):
     show: noPart(),
     progress: noPart(),
     explain: noPart(),
+    content: noPart(),
     explainWatermark: null,
     history: {
       events: [],
@@ -93,7 +102,7 @@ export function initialDetail(taskId: string, title: SafeText, session: number):
   };
 }
 
-export type DetailPartName = 'show' | 'progress' | 'explain' | 'history';
+export type DetailPartName = 'show' | 'progress' | 'explain' | 'history' | 'content';
 
 function versionedDue(
   part: Part<{ readonly version: number }>,
@@ -137,6 +146,15 @@ export function detailDue(
   return due;
 }
 
+/** The request changes only with a new revision, so it is read once and again when the revision moves. */
+export function contentDue(d: TaskDetail, now: number): boolean {
+  const c = d.content;
+  if (c.attemptAt === null) return true;
+  if (c.error !== null) return now - c.attemptAt >= EXPLAIN_READ_MS;
+  const known = d.explain.data?.revision ?? d.show.data?.revision ?? null;
+  return known !== null && c.data !== null && c.data.revision < known;
+}
+
 export type DetailMessage = {
   readonly type: 'detail_read';
   readonly taskId: string;
@@ -154,6 +172,7 @@ export type DetailMessage = {
   | { readonly part: 'progress'; readonly result: PortResult<TaskProgress> }
   | { readonly part: 'explain'; readonly result: PortResult<TaskExplain> }
   | { readonly part: 'history'; readonly result: PortResult<TaskHistory> }
+  | { readonly part: 'content'; readonly result: PortResult<TaskContent> }
 );
 
 function answered<T>(part: Part<T>, r: PortResult<T>, m: DetailMessage): Part<T> {
@@ -228,6 +247,7 @@ function withHistory(
   };
 }
 
+/** The request is left out: it is only shown, so failing to read it must not lock writes. */
 function partFailed(d: TaskDetail): boolean {
   return (
     d.show.error !== null ||
@@ -265,6 +285,9 @@ export function onDetailRead(state: TuiState, m: DetailMessage): TuiState {
       break;
     case 'history':
       next = withHistory(d, m.result, m.askedAt, m.version);
+      break;
+    case 'content':
+      next = { ...d, content: answered(d.content, m.result, m) };
       break;
   }
   const recheck = new Map(state.recheck);

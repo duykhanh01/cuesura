@@ -4,7 +4,7 @@
  * the daemon nothing. Each kind of read runs one at a time. A failure stays with its part of the screen.
  */
 import { actionsDue, actionsShowDue } from '../model/actions.ts';
-import { detailDue, hasEnding, type DetailPartName } from '../model/detail.ts';
+import { contentDue, detailDue, hasEnding, type DetailPartName } from '../model/detail.ts';
 import { gateLogDue, gatesDue } from '../model/gates.ts';
 import { logDue, requestAttempt, LOG_PAGE_RECORDS } from '../model/logs.ts';
 import type { Message } from '../model/messages.ts';
@@ -131,6 +131,16 @@ function detailRead(
           ...common,
           part,
           result: await port.history(d.taskId, d.history.next, DETAIL_TIMEOUT_MS),
+          at: clock.now(),
+        }),
+      };
+    case 'content':
+      return {
+        key,
+        run: async () => ({
+          ...common,
+          part,
+          result: await port.content(d.taskId, DETAIL_TIMEOUT_MS),
           at: clock.now(),
         }),
       };
@@ -265,6 +275,7 @@ export function planScreenReads(
         const due = [...detailDue(s.detail, s.board?.watermark ?? null, now)];
         // A task read again after a lost connection must not wait for its version to change.
         if (s.detail.showWanted && !due.includes('show')) due.push('show');
+        if (contentDue(s.detail, now)) due.push('content');
         for (const part of due) reads.push(detailRead(s, port, clock, part, now));
       }
       break;
