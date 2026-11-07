@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   codexBinary,
   findAncestor,
+  findHarness,
   isAncestor,
   ownerWatch,
   procInfo,
@@ -25,6 +26,23 @@ describe('procInfo', () => {
 
   it('has nothing for a process that does not exist', () => {
     expect(procInfo(2 ** 30)).toBeNull();
+  });
+});
+
+describe('findHarness', () => {
+  const tree = new Map<number, ProcInfo>([
+    [40, proc('zsh', 30)],
+    [30, proc('claude', 20)],
+    [20, proc('zsh', 10)],
+  ]);
+  const read = (pid: number) => tree.get(pid) ?? null;
+
+  it('finds the session through the shell that ran the background command', () => {
+    expect(findHarness(40, read)).toBe(30);
+  });
+
+  it('finds none outside a harness', () => {
+    expect(findHarness(20, read)).toBeNull();
   });
 });
 

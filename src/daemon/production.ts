@@ -469,6 +469,7 @@ export async function productionControl(opts: {
       now,
       dataDir: opts.dataDir,
       newId: opts.newId,
+      decider,
       observe,
       drain: (taskId) => drainRound(drainDeps, taskId),
       confirm: { store, ports, configInputs, now },

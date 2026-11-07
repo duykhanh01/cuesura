@@ -12,7 +12,7 @@ import { cancelTask } from '../application/cancel.ts';
 import { continueTask } from '../application/continue.ts';
 import { pauseTask, resumeTask } from '../application/pause.ts';
 import { runDoctor, type DoctorDeps } from '../application/doctor.ts';
-import { AttentionDesk } from '../application/attention.ts';
+import { AttentionDesk, type DeciderWatch } from '../application/attention.ts';
 import { inbox } from '../application/inbox.ts';
 import { taskGateLog, taskGates } from '../application/gate-logs.ts';
 import { LogRecordCache, taskLogs, type LogsDeps } from '../application/logs.ts';
@@ -53,6 +53,8 @@ export type TaskControlDeps = TaskServiceDeps & {
   readonly doctor?: Omit<DoctorDeps, 'store'>;
   /** Where the registered assistant session is kept; without it nothing can be registered. */
   readonly dataDir?: string;
+  /** Holds back from the assistant what the decider may still answer itself. */
+  readonly decider?: DeciderWatch;
 };
 
 export function taskControl(deps: TaskControlDeps): {
@@ -78,6 +80,7 @@ export function taskControl(deps: TaskControlDeps): {
     store,
     now: deps.now,
     ...(deps.dataDir === undefined ? {} : { dataDir: deps.dataDir }),
+    ...(deps.decider === undefined ? {} : { decider: deps.decider }),
   });
   return {
     commands: {

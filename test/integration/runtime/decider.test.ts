@@ -488,3 +488,81 @@ describe('the decider answers for an absent owner', () => {
     expect(h.calls).toEqual([]);
   });
 });
+
+describe('what the decider holds back from the assistant', () => {
+  it('holds a question it may answer until a round finds autonomous off', async () => {
+    const { d, t } = waiting();
+    const one = decider(d, fake([]), null);
+    expect(one.holds(d.task(t.id))).toBe(true);
+    const before = one.version();
+    await one.round();
+    expect(one.holds(d.task(t.id))).toBe(false);
+    expect(one.version()).not.toBe(before);
+  });
+
+  it('holds a question while its run goes on', async () => {
+    const { d, t } = waiting();
+    let seen: boolean | null = null;
+    const inner = fake([decision('UTF-8')]);
+    const one = decider(d, {
+      harness: inner.harness,
+      manifest: inner.manifest,
+      run: (input, signal) => {
+        seen = one.holds(d.task(t.id));
+        return inner.run(input, signal);
+      },
+    });
+    await one.round();
+    expect(seen).toBe(true);
+    expect(questions(d, t.id)[0]?.status).toBe('answered');
+  });
+
+  it('gives a question back to the person after a failed run', async () => {
+    const { d, t } = waiting();
+    const one = decider(d, fake([{ kind: 'failure', failure: 'rate_limited' }]));
+    await one.round();
+    expect(questions(d, t.id)[0]?.status).toBe('open');
+    expect(one.holds(d.task(t.id))).toBe(false);
+  });
+
+  it('gives a question back when its run cannot start', async () => {
+    const { d, t } = waiting();
+    const one = decider(d, fake([]), { ...SETTING, harness: 'missing' });
+    await one.round();
+    expect(one.holds(d.task(t.id))).toBe(false);
+  });
+
+  it('holds again the replacement run for a record a restart dropped', async () => {
+    const { d, t } = waiting();
+    const inner = fake([decision('UTF-8')]);
+    let crashed = true;
+    let seen: boolean | null = null;
+    let restarted: ReturnType<typeof decider> | null = null;
+    const h: HarnessPort = {
+      harness: inner.harness,
+      manifest: inner.manifest,
+      started: () => false,
+      run: (input, signal) => {
+        if (crashed) return Promise.reject(new InvocationUnknown('lost before the spawn'));
+        seen = restarted?.holds(d.task(t.id)) ?? null;
+        return inner.run(input, signal);
+      },
+    };
+    await decider(d, h).round();
+    crashed = false;
+    restarted = decider(d, h);
+    await restarted.round();
+
+    expect(seen).toBe(true);
+    expect(questions(d, t.id)[0]?.answered_by).toBe(DECIDER_ACTOR);
+  });
+
+  it('never holds a second question at a step it already answered', async () => {
+    const { d, t } = waiting();
+    const one = decider(d, fake([decision('UTF-8')]));
+    await one.round();
+    grant(d);
+    ask(d, t.id, ['And the BOM?']);
+    expect(one.holds(d.task(t.id))).toBe(false);
+  });
+});

@@ -8,6 +8,7 @@ import {
   HARNESSES,
   codexBinary,
   findAncestor,
+  findHarness,
   isAncestor,
   ownerWatch,
   queueToCodex,
@@ -19,8 +20,6 @@ import type { CliCommand, CliIo } from './program.ts';
 import { DATA_DIR, badFlag, call, print } from './tasks.ts';
 
 const POLL_MS = 2_000;
-/** A session that died without killing this process must not keep the lease looking alive for ever. */
-const DEFAULT_TIMEOUT_S = 3_600;
 
 /** Below the hook `timeout` in the settings, so the hook ends by itself instead of being killed. */
 const DEFAULT_PARK_S = 604_500;
@@ -53,20 +52,35 @@ Examples:
     { flags: '--lease <id>', description: 'The lease a previous wait printed' },
     { flags: '--take', description: 'Take the lease from another session' },
     {
+      flags: '--owner-pid <pid>',
+      description:
+        'Stop waiting when this process ends (default: the nearest claude, codex or pi ancestor)',
+    },
+    {
       flags: '--timeout <seconds>',
-      description: `Return with no items after this long (default: ${DEFAULT_TIMEOUT_S})`,
+      description:
+        'Return with no items after this long (default: wait until something needs a person)',
     },
   ],
   async run(values, json, io) {
-    const seconds = Number(values['timeout'] ?? DEFAULT_TIMEOUT_S);
-    if (!Number.isInteger(seconds) || seconds < 1)
+    const seconds = values['timeout'] === undefined ? null : Number(values['timeout']);
+    if (seconds !== null && (!Number.isInteger(seconds) || seconds < 1))
       return badFlag('--timeout must be a positive whole number of seconds.', {}, json, io);
-    const deadline = Date.now() + seconds * 1_000;
+    const ownerPid = values['ownerPid'] === undefined ? null : Number(values['ownerPid']);
+    if (ownerPid !== null && (!Number.isInteger(ownerPid) || ownerPid < 1))
+      return badFlag('--owner-pid must be a process ID.', {}, json, io);
+    // A timeout only wakes the session for nothing. What ends a wait nobody reads is its session dying;
+    // the shell that ran this in the background may end long before that, so the harness is watched.
+    const deadline = seconds === null ? Number.POSITIVE_INFINITY : Date.now() + seconds * 1_000;
+    const owner = ownerPid ?? findHarness(process.ppid);
+    const ownerAlive = owner === null ? () => true : (ownerWatch(owner) ?? (() => false));
     // Named here, not by the daemon: a retry after a lost first reply must count as this same session.
     let lease = values['lease'] ?? uuidv7();
     const first = values['take'] === 'true' ? 'take' : 'attach';
     let mode = values['lease'] === undefined || first === 'take' ? first : 'resume';
     for (;;) {
+      // Its session is gone: stopping lets the lease go stale for the next one.
+      if (!ownerAlive()) return ExitCode.ok;
       const r = await call(values, '/v1/query', { kind: 'attention', lease, mode }, null);
       if (r.ok) {
         const data = r.data as Attention;

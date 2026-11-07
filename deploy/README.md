@@ -351,7 +351,10 @@ nguyên sau restart daemon.
   và không đậu, trong khi `session-start` vẫn chạy nên phiên trông như bình thường.
 - Tin chỉ có ID task và mã trạng thái: nội dung câu hỏi do worker viết, nên assistant đọc bằng `cusr inbox`.
 - `asyncRewake` không có trong tài liệu `--help` của Claude Code. Đã kiểm trên 2.1.319; bản khác có thể đổi.
-- Harness khác dùng `cusr assistant wait`.
+- Harness khác dùng `cusr assistant wait`. Lệnh này chờ tới khi có tin và không còn tự trả về sau 1 giờ. Nó thoát khi
+  process harness gần nhất (`claude`, `codex` hoặc `pi`) hoặc process do `--owner-pid` chỉ định kết thúc, để khóa hết
+  hạn cho phiên sau; shell chạy lệnh nền kết thúc trước thì không sao. Không tìm thấy harness và không có
+  `--owner-pid` thì lệnh chờ mãi; khi đó dùng `--timeout`.
 
 ## Giới hạn thực thi tùy chọn
 
@@ -431,6 +434,9 @@ minh giờ tốn 4 lượt thay vì 3). Manifest cũ vẫn chạy được coder
   cờ đã tắt. Không kết luận được thì log một lần và câu hỏi chờ người.
 - **Khi lỗi:** câu hỏi vẫn mở, lý do nằm trong log, không gọi lại câu đó cho tới lần restart daemon. Một lượt không
   khai `wall_timeout` dừng sau 30 phút. Người trả lời trước thì câu của người thắng.
+- **Đánh thức assistant:** khi cờ bật, câu hỏi decider sắp trả lời hoặc đang trả lời không đánh thức assistant. Assistant
+  chỉ được báo khi decider bỏ câu đó: lượt lỗi, câu trả lời không được dùng, không khởi chạy được hoặc chưa kết luận
+  được sau restart. Trong khoảng ngắn từ lúc daemon khởi động tới vòng decider đầu tiên đọc cờ, câu hỏi cũng chờ.
 - **Lật lại:** decider không hoàn tác được gì. Xem `decisions.md` rồi revert hoặc tạo task mới. Run directory
   của decider không gắn với operation nào trong store nên retention không dọn.
 

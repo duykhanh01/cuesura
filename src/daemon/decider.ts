@@ -14,6 +14,9 @@
  * budget before it spawns. The event log holds the usage and the reason; `decisions.md` is rewritten
  * from it as a whole, so a crash or a failed write leaves nothing half done.
  * A run that fails leaves the question open and is not tried again until the daemon restarts.
+ *
+ * While the decider may still answer a question, `holds` says so, and the assistant is not woken for it;
+ * a question the decider gives up on goes to the person.
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
@@ -101,12 +104,31 @@ export function deciderQuestion(s: TaskState): InboxItem | null {
 
 export type Decider = {
   round(): Promise<void>;
+  /** Whether this task's blocking question is the decider's to answer now or soon, not yet the person's. */
+  holds(s: TaskState): boolean;
+  /** Changes whenever `holds` may answer otherwise without a new event in the log. */
+  version(): number;
   /** Stops the runs in progress; their questions stay open for the next daemon. */
   abort(): void;
 };
 
 export function createDecider(deps: DeciderDeps): Decider {
   const tried = new Set<string>();
+  /** Questions this daemon will not answer: the run failed, was not taken or never started. */
+  const handedBack = new Set<string>();
+  /** The setting as last read; null until a round first needs it. */
+  let on: boolean | null = null;
+  let version = 0;
+  const handBack = (questionId: string): void => {
+    if (handedBack.has(questionId)) return;
+    handedBack.add(questionId);
+    version += 1;
+  };
+  const noteSetting = (setting: DeciderSetting | null): void => {
+    if (on === (setting !== null)) return;
+    on = setting !== null;
+    version += 1;
+  };
   const active = new Set<string>();
   const nextAdopt = new Map<string, number>();
   const unknownLogged = new Set<string>();
@@ -167,6 +189,7 @@ export function createDecider(deps: DeciderDeps): Decider {
   const conclude = async (record: RunRecord, out: HarnessOutcome): Promise<void> => {
     const value = out.kind === 'result' && 'answer' in out.value ? out.value : null;
     const setting = value === null ? null : await deps.setting();
+    if (value !== null) noteSetting(setting);
     // No await from here to the submit: what is checked is what the answer is taken on.
     const now = deps.store.readTask(record.task_id as Uuid);
     const waiting = now !== null && deciderQuestion(now)?.question_id === record.question_id;
@@ -202,6 +225,7 @@ export function createDecider(deps: DeciderDeps): Decider {
       ids: Array.from({ length: MAX_ENVELOPE_IDS }, () => deps.newId()),
     });
     if (!r.ok) throw new Error(`decider_ran: ${r.error.code}`);
+    if (failure !== null || setting === null || !waiting) handBack(record.question_id);
     if (failure !== null) log(`task ${record.task_id}: no decision: ${failure}`);
     else if (setting === null) log(`task ${record.task_id}: autonomous is off, answer not taken`);
     else if (!waiting) log(`task ${record.task_id}: ${record.question_id} no longer waits`);
@@ -286,6 +310,8 @@ export function createDecider(deps: DeciderDeps): Decider {
             );
           } catch (e) {
             nextAdopt.set(qid, deps.clock.now() + ADOPT_RECHECK_MS);
+            // Not concluded yet, maybe never: the person hears of the question meanwhile.
+            handBack(qid);
             if (!unknownLogged.has(qid)) {
               unknownLogged.add(qid);
               log(
@@ -301,6 +327,7 @@ export function createDecider(deps: DeciderDeps): Decider {
     const harness = deps.harnesses[setting.harness];
     if (harness === undefined) {
       log(`task ${s.id}: no harness ${setting.harness}`);
+      handBack(q.question_id);
       return;
     }
     const id = s.id as Uuid;
@@ -308,6 +335,7 @@ export function createDecider(deps: DeciderDeps): Decider {
     const rt = deps.store.readRuntimeContext(id, s.revision);
     if (context === null || rt === null) {
       log(`task ${s.id}: frozen snapshot missing`);
+      handBack(q.question_id);
       return;
     }
     const built = buildRoleContext({
@@ -343,6 +371,7 @@ export function createDecider(deps: DeciderDeps): Decider {
     });
     if (!built.ok) {
       log(`task ${s.id}: missing ${built.error.missing.join(', ')}`);
+      handBack(q.question_id);
       return;
     }
     const workspace = harness.agent_paths === undefined ? undefined : await deps.workspace(s.id);
@@ -398,6 +427,7 @@ export function createDecider(deps: DeciderDeps): Decider {
     });
     if (!held.ok || held.value.decision.kind !== 'accepted') {
       forget(record);
+      handBack(q.question_id);
       log(
         `task ${s.id}: not started: ${held.ok ? JSON.stringify(held.value.decision) : held.error.code}`,
       );
@@ -430,6 +460,7 @@ export function createDecider(deps: DeciderDeps): Decider {
       });
       if (due.length === 0) return;
       const setting = await deps.setting();
+      noteSetting(setting);
       if (setting === null) {
         offUntil = now + OFF_RECHECK_MS;
         return;
@@ -437,11 +468,27 @@ export function createDecider(deps: DeciderDeps): Decider {
       await Promise.all(
         due.map(({ s, q }) => {
           tried.add(q.question_id);
+          // A replacement run, e.g. for a record a restart dropped: the question is the decider's again.
+          if (handedBack.delete(q.question_id)) version += 1;
           return start(setting, s, q).catch((e: unknown) => {
+            if (!existsSync(join(deps.recordsDir, `${q.question_id}.json`)))
+              handBack(q.question_id);
             log(`task ${s.id}: ${e instanceof Error ? e.message : String(e)}`);
           });
         }),
       );
+    },
+    holds(s) {
+      const q = deciderQuestion(s);
+      if (q === null || handedBack.has(q.question_id)) return false;
+      // Started, here or by an earlier daemon: its own end says whether the person is needed.
+      if (tried.has(q.question_id) || existsSync(join(deps.recordsDir, `${q.question_id}.json`)))
+        return true;
+      // Unknown until a round reads the setting; that round follows within a tick.
+      return on !== false;
+    },
+    version() {
+      return version;
     },
     abort() {
       controller.abort();

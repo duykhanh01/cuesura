@@ -85,13 +85,19 @@ type Holder = {
   batch: number;
   offered: readonly string[];
   delivered: ReadonlySet<string>;
-  /** Log position already looked at; null while something is still to send or to be confirmed. */
-  seq: number | null;
+  /** Log position and decider version already looked at; null while something is still to send or to be confirmed. */
+  seq: string | null;
   /** Rebuilt from disk, so `batch` is not yet known: the client's first lease tells where it stood. */
   restored: boolean;
 };
 
 type Keyed = { readonly key: string; readonly item: AttentionItem };
+
+/** The decider's view of what it may still answer itself (`Decider.holds`/`version`). */
+export type DeciderWatch = {
+  readonly holds: (s: TaskState) => boolean;
+  readonly version: () => number;
+};
 
 function keyed(s: TaskState, enteredAt: number): Keyed {
   const code = s.wait?.detail.code ?? 'run_config_unconfirmed';
@@ -125,6 +131,7 @@ export class AttentionDesk {
   readonly #store: Store;
   readonly #now: () => number;
   readonly #dataDir: string | null;
+  readonly #decider: DeciderWatch | null;
   #holder: Holder | null = null;
   #registered: string | null = null;
   /** Reading a task's log only when it changed; holds the tasks that needed a person last time. */
@@ -134,8 +141,10 @@ export class AttentionDesk {
     readonly store: Store;
     readonly now: () => number;
     readonly dataDir?: string;
+    readonly decider?: DeciderWatch;
   }) {
     this.#store = deps.store;
+    this.#decider = deps.decider ?? null;
     this.#now = deps.now;
     this.#dataDir = deps.dataDir ?? null;
     this.#registered = this.#dataDir === null ? null : registeredSession(this.#dataDir);
@@ -239,8 +248,9 @@ export class AttentionDesk {
       holder.delivered = new Set([...holder.delivered, ...holder.offered]);
       holder.offered = [];
     }
-    const seq = this.#store.lastGlobalSeq();
-    // Every input of `needsUser` is task state, so an unchanged log means nothing new to read.
+    // Every input of `needsUser` is task state, and the decider's view changes its version: with neither
+    // changed there is nothing new to read.
+    const seq = `${this.#store.lastGlobalSeq()}:${this.#decider?.version() ?? 0}`;
     if (holder.seq === seq)
       return ok({ lease: `${holder.id}.${holder.batch}`, items: [], truncated: false });
     return ok(this.#deliver(holder, seq));
@@ -286,7 +296,8 @@ export class AttentionDesk {
     const entered = new Map<string, { readonly version: number; readonly seq: number }>();
     for (const id of this.#store.taskIdsByStatus(LIVE)) {
       const s = this.#store.readTask(id as Uuid);
-      if (s === null || !needsUser(s)) continue;
+      // A question the decider is about to answer is not the person's yet; it comes if the decider gives up.
+      if (s === null || !needsUser(s) || this.#decider?.holds(s) === true) continue;
       const known = this.#entered.get(id);
       const seq =
         known?.version === s.version
@@ -300,7 +311,7 @@ export class AttentionDesk {
     return waiting;
   }
 
-  #deliver(holder: Holder, seq: number): AttentionReply {
+  #deliver(holder: Holder, seq: string): AttentionReply {
     const waiting = this.#waiting();
     waiting.sort((a, b) => a.item.task_id.localeCompare(b.item.task_id));
     const fresh = waiting.filter((w) => !holder.delivered.has(w.key));

@@ -265,7 +265,8 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 
 - Relay each returned item to the user, then run the command again with `--lease "$LEASE"` from the reply.
   That run confirms the items arrived; without it they are sent again.
-  A reply with `timed_out: true` has nothing to relay: run it again the same way.
+  It waits until something needs the user; a reply with `timed_out: true` (only with `--timeout`) has nothing to
+  relay: run it again the same way.
 - The lease only routes news to one session. It grants nothing, and the user can still answer elsewhere.
 - `attention_held` means another live session has the lease. Use `--take` only when the user asks to move here.
 - `attention_superseded` means another session took over. Stop waiting; do not take it back.

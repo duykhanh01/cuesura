@@ -46,6 +46,20 @@ export function findAncestor(
   return null;
 }
 
+/** The nearest ancestor that is a harness: what a background command started from a session belongs to. */
+export function findHarness(
+  from: number,
+  read: (pid: number) => ProcInfo | null = procInfo,
+): number | null {
+  for (let pid = from; pid > 1;) {
+    const info = read(pid);
+    if (info === null) return null;
+    if ((HARNESSES as readonly string[]).includes(info.comm)) return pid;
+    pid = info.ppid;
+  }
+  return null;
+}
+
 /** Whether `pid` is `from` or one of its ancestors. */
 export function isAncestor(
   from: number,
