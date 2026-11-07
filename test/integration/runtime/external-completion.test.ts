@@ -236,6 +236,46 @@ describe('external confirmation (T045, FR-021, FR-040)', () => {
     });
   });
 
+  it.each([false, true])(
+    '#179: a cancel read of a PR GitHub moved to another base (merged there: %s) ends the cancel',
+    (merged) => {
+      const d = setup();
+      const t = buildTask();
+      toMergeGate(d, t);
+      d.must(t.id, { kind: 'cancel', reason: 'stop' });
+      d.now += 1_000;
+      // The PR's base branch was deleted and GitHub retargeted it: the read is not of the task's target.
+      d.must(
+        t.id,
+        observation(d, t, 'unknown', HEAD, {
+          source: 'cancel',
+          ref: cancelRef(d, t),
+          target: { ref: 'release', merged },
+        }),
+      );
+      expect(d.task(t.id)).toMatchObject({
+        status: 'CANCELLED',
+        completion: null,
+        cancellation: { pr_read: { status: 'unknown', target: { ref: 'release', merged } } },
+      });
+    },
+  );
+
+  it('#179: a cancel read that could not read the PR keeps the cancel waiting and says so', () => {
+    const d = setup();
+    const t = buildTask();
+    toMergeGate(d, t);
+    d.must(t.id, { kind: 'cancel', reason: 'stop' });
+    d.now += 1_000;
+    d.must(t.id, observation(d, t, 'unknown', null, { source: 'cancel', ref: cancelRef(d, t) }));
+    expect(d.task(t.id)).toMatchObject({
+      status: 'WAITING',
+      wait: {
+        detail: { code: 'cancel_reconcile', last_cancel_read: { status: 'unknown' } },
+      },
+    });
+  });
+
   it('a cancelled task is not reopened by a later merge', () => {
     const d = setup();
     const t = buildTask();

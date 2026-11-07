@@ -341,7 +341,12 @@ export type EventPayloads = {
     cadence_index: number;
     generation: number;
   };
-  ExternalStateObserved: { observation: Observation; remote_digest: string };
+  ExternalStateObserved: {
+    observation: Observation;
+    remote_digest: string;
+    /** The PR is on another base than the task's target (FR-041.05), merged there or not. */
+    target?: { ref: string; merged: boolean };
+  };
   ObservationExpired: { at: number; reason: 'deadline' | 'rounds' };
   ExternalCompletionObserved: {
     proof: MergeProof;

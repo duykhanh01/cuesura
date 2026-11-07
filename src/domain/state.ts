@@ -575,7 +575,12 @@ export type TaskState = {
     /** See `CancelRequested.read_token`; absent on a task without a runtime snapshot. */
     read_token?: string;
     /** The newest read that carried `read_token`. */
-    pr_read?: { observation_id: string; status: string };
+    pr_read?: {
+      observation_id: string;
+      status: string;
+      /** Set when the read found the PR on another base than the task's target (#179). */
+      target?: { ref: string; merged: boolean };
+    };
     /** A read of any source showed the PR merged while this cancel was open (or just before it). */
     merge_seen?: string;
   } | null;

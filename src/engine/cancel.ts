@@ -5,6 +5,7 @@ import { release, usageOf } from './budget.ts';
 import type { Ctx } from './context.ts';
 import { inFlight, requestEffect, requestReconcile } from './effects.ts';
 import { closeOut } from './interpreter.ts';
+import { canonicalJson } from '../shared/canonical-json.ts';
 import { mkWait } from './waits.ts';
 
 /**
@@ -122,7 +123,10 @@ export function cancelNeedsPrRead(s: TaskState): boolean {
   if (c.merge_seen !== undefined || s.blockers.some((b) => b.code === 'merge_evidence_incomplete'))
     return true;
   const r = c.pr_read;
-  return !(r !== undefined && (r.status === 'open' || r.status === 'closed'));
+  if (r === undefined) return true;
+  // A PR GitHub moved to another base (its base branch deleted after a merge, #179) cannot be merged
+  // into the task's target by this PR any more: for the cancel that is as final as closed.
+  return !(r.status === 'open' || r.status === 'closed' || r.target !== undefined);
 }
 
 /** The evidence ref a read for the task's open cancel must carry; null when no read is asked for. */
@@ -133,7 +137,14 @@ export function cancelReadEvidence(s: TaskState): string | null {
 
 function waitCancelReconcile(ctx: Ctx): void {
   const s = ctx.state;
-  if (s.status === 'WAITING' && s.wait?.detail.code === 'cancel_reconcile') return;
+  const read = s.cancellation?.pr_read ?? null;
+  // Waiting already: shown again only when a newer cancel read came back, so its outcome is visible.
+  if (
+    s.status === 'WAITING' &&
+    s.wait?.detail.code === 'cancel_reconcile' &&
+    canonicalJson(s.wait.detail['last_cancel_read'] ?? null) === canonicalJson(read)
+  )
+    return;
   ctx.emit('TaskWaiting', {
     wait: mkWait('policy', 'cancel_reconcile', {
       resume_when: ['observation(after cancel)', 'recheck(observation)'],
@@ -142,7 +153,7 @@ function waitCancelReconcile(ctx: Ctx): void {
         pr_ref: s.pr_ref,
         head_sha: s.head_sha,
         requested_at: s.cancellation?.requested_at ?? null,
-        last_cancel_read: s.cancellation?.pr_read ?? null,
+        last_cancel_read: read,
       },
     }),
   });

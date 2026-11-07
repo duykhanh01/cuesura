@@ -763,6 +763,7 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
           c.pr_read = {
             observation_id: read.observation_id,
             status: read.status,
+            ...(event.payload.target === undefined ? {} : { target: event.payload.target }),
           };
       }
       const o = s.observation;

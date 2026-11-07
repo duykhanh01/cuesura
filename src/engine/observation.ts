@@ -108,6 +108,7 @@ export function onObservationResult(ctx: Ctx, t: ObservationResult): void {
   ctx.emit('ExternalStateObserved', {
     observation: o,
     remote_digest: t.remote_digest,
+    ...(t.target === undefined ? {} : { target: t.target }),
   });
   if (isTerminal(ctx.state.status) || ctx.state.completion !== null) return;
   // A merge keeps the schedule too: only an accepted merge proof stops observing (FR-041.01).
