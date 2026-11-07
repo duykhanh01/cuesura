@@ -57,6 +57,13 @@ người dùng tự approve. Không cần tạo token nào ([người gọi và 
 
 Repo này cũng tự phát triển bằng Cuesura: xem [quy trình dogfood](docs/dogfooding.md).
 
+## Giao diện terminal
+
+Chạy `cusr` không kèm lệnh trong terminal tương tác để mở giao diện: bảng task, chi tiết, log, câu hỏi và form tạo task
+([hợp đồng](specs/004-terminal-tui/contracts/tui.md)). Ngoài terminal, kèm `--json`, hoặc khi `TERM=dumb`/không đặt `TERM`,
+lệnh vẫn báo lỗi thiếu lệnh (exit 2). Các lệnh chỉ đọc giao diện dùng, như `cusr project list` và `cusr task board`, chạy được
+riêng với `--json`. Giới hạn khi dùng qua SSH và `reset` sau `SIGKILL`: xem [deploy/README.md](deploy/README.md#giao-diện-terminal-qua-ssh).
+
 ## Phát triển
 
 Feature đang làm là lõi điều phối tất định ([specs/001-deterministic-core](specs/001-deterministic-core/spec.md)). Hướng dẫn kiểm chứng đầy đủ, kèm kết quả mong đợi của từng lệnh, ở [quickstart.md](specs/001-deterministic-core/quickstart.md).

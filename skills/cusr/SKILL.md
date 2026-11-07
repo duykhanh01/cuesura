@@ -22,6 +22,10 @@ cusr task recheck --help
 cusr task logs --help
 cusr task gates --help
 cusr task gate-log --help
+cusr project list --help
+cusr task options --help
+cusr task content --help
+cusr request show --help
 ```
 
 ## Connection and argument values
@@ -41,15 +45,23 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr doctor --project "$PROJECT" --json
 
 # PROJECT and BASE: operator-supplied configured project ID and target branch.
-# PROFILE, WORKER, REVIEWER, FALLBACKS: operator-supplied allowed run settings,
-# matching the effective project configuration. Do not guess names or bindings.
+# PROFILE, WORKER, REVIEWER, FALLBACKS: allowed run settings, matching the effective
+# project configuration. Do not guess names or bindings: list them.
+# `cusr project list --json` -> data.projects[] {id, repo} and data.profiles[] (profile names
+# in the user config); data.caller shows your actor, roles and scope (all or limited).
+# `cusr task options "$TASK_ID" --json` -> modes[] each with when_to_use, reviewers[] and
+# workers[] {choice, fallbacks[]} for that task, plus profile {id, source}. Copy a choice
+# verbatim into `task propose`. It is a list to choose from, not proof: the daemon
+# re-checks at start. truncated: true means the list was cut at 64 combinations.
+# options errors: config_invalid, options_unavailable (exit 1), conflict once the task
+# has started (6), task_not_found (4). Do not guess a choice after an error.
 # Read run-setting guidance with `cusr dispatch` before proposing a run. An empty
 # rules list with a default is valid: use the default. If default is null, ask the
 # operator for the values and guidance; do not guess.
 # TASK_ID, VERSION, RUN_DIGEST: task show -> task_id, version, run_config.digest.
 # Request IDs are UUIDs: retain one per mutation; exact delivery retries reuse it
 # with unchanged input/version. After a conflict or changed decision, reread state
-# before allocating a new ID. Do not create duplicate tasks after a timeout.
+# before allocating a new ID. Do not create duplicate tasks after a timeout: see Look up after a timeout.
 ```
 
 ## Add tasks
@@ -123,6 +135,11 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 # task show: status, step, wait, pr_ref, version and run_config {status, digest, mode} for mutations.
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task show "$TASK_ID" --json
+# task content: what was asked, read in one call: title, description, requirements, acceptance,
+# constraints, out_of_scope, depends_on, priority, base_branch, intake_pending and run_config
+# (null until proposed). Use it to quote the task back to the user before approval.
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
+  cusr task content "$TASK_ID" --json
 # task list: newest first, 20 per page; items: task_id, project, title, status, activity, pr_ref.
 # Filter with --project/--status; follow next_cursor with --cursor to reach older tasks;
 # --order oldest starts from the first task.
@@ -151,6 +168,23 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 # task_finished also does not distinguish DONE from FAILED/CANCELLED: read show.
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task logs "$TASK_ID" --follow --after "$LOG_CURSOR" --json
+```
+
+## Look up after a timeout
+
+```sh
+# A socket timeout (exit 3) after sending does not prove the mutation failed.
+# Look the request up by the ID you kept; do not send a new one first.
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
+  cusr request show "$REQUEST_ID" --json
+# Exit 0 means the lookup worked, even when the operation was rejected: read
+# data.state (completed, in_progress, interrupted) and, when completed, data.outcome.ok.
+# completed: data.outcome holds the original result (task_id for task add).
+# in_progress: look again later. interrupted: follow data.next_step (reread the task if
+# data.task_id is set; otherwise task add did not create a task and a NEW request ID may retry).
+# request_not_found (exit 4) means only that the request was not admitted at lookup time:
+# it may still arrive. Do not tell the user it did not happen; check `task list` before re-adding.
+# Only the same actor and an in-scope project can see a request.
 ```
 
 ## Propose run settings

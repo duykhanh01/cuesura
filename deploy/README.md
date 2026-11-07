@@ -212,6 +212,19 @@ trong app thành một project `cuesura-<project>` (thư mục `<data dir>/paseo
 vai trò và tiêu đề task, ví dụ `coder: Thêm …`, và tự đóng khi xong. Pane chỉ để xem như với herdr;
 daemon Paseo không chạy thì agent chạy nền và `cusr doctor` báo check `terminal`.
 
+## Giao diện terminal qua SSH
+
+Mở bằng `cusr` không kèm lệnh trong terminal tương tác của cùng user với daemon (SSH, tmux, WSL2 đều được); giao diện
+đọc cùng socket điều khiển và cùng `CUSR_DATA_DIR`/`--data-dir` như các lệnh khác.
+
+- **Thoát và tín hiệu.** Ctrl-C, `SIGTERM`, `SIGHUP` và lỗi nội bộ đều trả terminal về trạng thái ban đầu. Ctrl-C không hủy task.
+- **Đứt SSH.** Khi không còn terminal, giao diện không in được gì và không ghi payload ra file. Thao tác chưa rõ kết quả
+  phải đối chiếu bằng `cusr task list`, `cusr task history ID` hoặc `cusr request show REQUEST_ID`. Task đang chạy không bị ảnh hưởng.
+  Chạy trong `tmux` để phiên sống qua đứt SSH.
+- **Thoát thường mà còn thao tác chưa rõ.** Giao diện in request ID và lệnh `cusr request show` tương ứng ra stderr rồi thoát với exit 3.
+- **Sau `SIGKILL`.** Không bắt được tín hiệu này nên terminal có thể còn ở alternate screen hoặc raw mode, không hiện con trỏ
+  hay phím gõ. Chạy `reset` (hoặc `stty sane; tput rmcup; tput cnorm`) để khôi phục.
+
 ## Người gọi và quyền
 
 Chỉ process cùng UID với daemon mở được socket điều khiển: data dir phải 0700 và thuộc đúng user, socket

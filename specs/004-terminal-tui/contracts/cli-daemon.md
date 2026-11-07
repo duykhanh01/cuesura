@@ -1,7 +1,6 @@
 # Hợp đồng CLI và daemon bổ sung
 
-Mở rộng [hợp đồng feature 002](../../002-task-to-green-pr/contracts/cli-daemon.md). Đây là hợp đồng cần triển khai, chưa phải lệnh đã
-có. Giữ nguyên transport, envelope `{schema_version:1,ok,data,error}` và bảng exit code.
+Mở rộng [hợp đồng feature 002](../../002-task-to-green-pr/contracts/cli-daemon.md). Các lệnh dưới đây đã có trong bản đang chạy (kiểm bằng `cusr --help`, `cusr task --help`). Giữ nguyên transport, envelope `{schema_version:1,ok,data,error}` và bảng exit code.
 
 Quy tắc chung (FR-040):
 

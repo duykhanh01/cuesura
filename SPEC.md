@@ -515,15 +515,17 @@ Nhóm chỉ DONE khi kết quả tích hợp được merge vào branch đích c
 | Nhóm lệnh | Hợp đồng |
 |---|---|
 | `cusr` không kèm lệnh, trong terminal tương tác | Mở giao diện tương tác; ngoài terminal vẫn báo lỗi thiếu lệnh như hiện tại |
-| `cusr init`, `cusr doctor`, `cusr status` | Cấu hình repo, kiểm tra môi trường và sức khỏe |
-| `cusr task add/show/list/explain/history/logs` | Tạo và đọc task; `add` là tên chuẩn cho thao tác tạo |
-| `cusr task confirm/approve/cancel/retry` | Thao tác có kiểm tra quyền, version và dedup; retry terminal tạo task mới có liên kết |
+| `cusr init`, `cusr doctor`, `cusr status`, `cusr dispatch` | Cấu hình repo, kiểm tra môi trường, sức khỏe và hướng dẫn chọn run settings |
+| `cusr task add/show/list/explain/history/logs/gates/gate-log` | Tạo và đọc task; `add` là tên chuẩn cho thao tác tạo |
+| `cusr task propose/confirm/recheck/continue/pause/resume/cancel`, `cusr queue pause/resume` | Thao tác có kiểm tra quyền, version và dedup |
+| `cusr task approve` | Chỉ owner: escalation và adopt PR; không có approve merge |
+| `cusr task retry/amend-policy`, `cusr yolo` | Không hỗ trợ, trả `unsupported_feature` (exit 2) kèm lệnh thay thế |
 | `cusr project list`, `cusr task board/content/progress/options` | Dữ liệu chỉ đọc cho giao diện terminal; output `--json` như mọi lệnh ([hợp đồng feature 004](specs/004-terminal-tui/contracts/cli-daemon.md)) |
 | `cusr request show` | Tra kết quả mutation theo request ID, chỉ đọc |
-| `cusr inbox`, `cusr answer` | Liệt kê và trả lời câu hỏi |
-| `cusr group status` | Tiến độ nhóm |
-| `cusr repo yolo on/off`, `cusr task amend-policy` | Quản trị có xác nhận tin cậy và audit |
-| `cusr report`, `cusr admin verify-projections/backup/restore` | Báo cáo theo project từ một mốc thời gian (task đã kết thúc, việc chờ người, câu decider đã trả lời, usage), đối chiếu và bảo trì trong chế độ thích hợp |
+| `cusr inbox`, `cusr answer`, `cusr assistant` | Liệt kê và trả lời câu hỏi; khóa và chờ của assistant |
+| `cusr report` | Báo cáo theo project từ một mốc thời gian (task đã kết thúc, việc chờ người, câu decider đã trả lời, usage) |
+
+`cusr group status` và `cusr admin verify-projections/backup/restore` chưa có trong bản đang chạy.
 
 `--json` là tùy chọn chung; output có `schema_version`. Lệnh hữu hạn trả một JSON object vào stdout, kể cả lỗi có thể xử lý. Log/chẩn đoán đi stderr; không ANSI, spinner hoặc prompt trộn vào stdout. Lệnh streaming như `logs -f --json` dùng JSONL, mỗi record có version và cursor/sequence để nối lại.
 
