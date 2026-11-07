@@ -548,6 +548,10 @@ khi ghi khác. Không dùng kiểm thử dựng màn hình tách rời để tuy
   giữ nguyên output và exit code.
 - **SC-007**: Với mỗi thao tác ở ba mức quyền, kết quả về quyền, event và số effect giống hệt cùng thao tác qua CLI;
   gửi lại 2–5 lần và mất kết nối sau khi gửi đều cho đúng một tác dụng logic.
+  Phạm vi kiểm: `operate` và `admin` kiểm qua daemon thật, bằng actor `assistant` và `owner`. Mức `read` không kiểm
+  qua daemon thật vì daemon chỉ nhận hai actor đó ([ADR 0011](../../docs/adr/0011-declared-actor-instead-of-tokens.md),
+  #207 đã đóng "not planned"). Mức `read` kiểm ở bảng quyền (`test/unit/application/authz.test.ts`) và ở reducer TUI,
+  nơi mọi thao tác ghi bị làm mờ và không mở được.
 - **SC-008**: Trong kiểm thử phím ngẫu nhiên có seed tái hiện (ít nhất 10.000 phím trên từng màn hình), không có lần
   nào xác nhận cấu hình chạy, hủy task hoặc kiểm tra lại `worktree_changed` mà chưa qua màn xem lại và bước xác nhận
   riêng.

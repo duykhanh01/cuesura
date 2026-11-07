@@ -147,11 +147,11 @@
 
 **Goal**: Trả lời, duyệt, kiểm tra lại, hủy trong giao diện với cùng bảo đảm quyền và chống lặp như CLI.
 
-**Independent Test**: Với ba mức quyền, thực hiện từng thao tác trên task mẫu, đối chiếu event và số attempt, effect với cùng thao tác qua CLI.
+**Independent Test**: Với `operate` và `admin` qua daemon thật, thực hiện từng thao tác trên task mẫu, đối chiếu event và số attempt, effect với cùng thao tác qua CLI. Mức `read` kiểm theo ghi chú SC-007 trong spec.md, không qua daemon (#207).
 
 ### Tests for User Story 4
 
-- [ ] T054 [P] [US4] Test PTY tại `test/contract/tui/us4-actions.test.ts`: US4 số 1–7, 9; SC-007 so event và effect với cùng thao tác qua CLI ở ba mức quyền; EC-006; câu trả lời bị trùng không mất nội dung; câu hỏi chứa ký tự điều khiển không đổi nội dung màn hình.
+- [ ] T054 [P] [US4] Test PTY tại `test/contract/tui/us4-actions.test.ts`: US4 số 1–7, 9; SC-007 so event và effect với cùng thao tác qua CLI ở `operate` và `admin` (daemon thật); mức `read` kiểm ở bảng quyền và reducer, không qua daemon (#207); EC-006; câu trả lời bị trùng không mất nội dung; câu hỏi chứa ký tự điều khiển không đổi nội dung màn hình.
 - [ ] T055 [P] [US4] Test PTY và crash injection tại `test/contract/tui/us4-unknown-result.test.ts`: US4 số 8; gửi lại 2–5 lần và mất kết nối sau khi gửi đều cho đúng một tác dụng logic; dùng proxy T020 cho mẫu mất phản hồi; hết trần 60 lần `request_show` hoặc 5 lần gửi lại thì dừng và `Check again` bắt đầu vòng mới; SC-014 gồm thoát rồi chạy nguyên văn lệnh đã in; EC-012 thông báo in sau khi trả terminal, và exit 3 khi còn thao tác chưa rõ.
 - [ ] T056 [P] [US4] Test PTY tại `test/contract/tui/us4-stale-lock.test.ts`: US4 số 10; SC-015 không có request ID mới tới daemon khi dữ liệu cũ hoặc trước lần đọc lại đầu tiên; đối chiếu request chưa rõ kết quả vẫn chạy; nội dung đang nhập còn nguyên (FR-044).
 - [ ] T057 [P] [US4] Fuzz PTY có seed tại `test/reliability/tui/fuzz-confirm.test.ts`: ít nhất 10.000 phím trên từng màn hình; kiểm trace, mọi command hủy, kiểm tra lại `worktree_changed` đi sau màn xem lại và đúng từ xác nhận. Bổ sung xác nhận cấu hình chạy ở T068. Fuzz nhanh trên reducer ở `test/unit/tui/fuzz-reducer.test.ts` chạy trong `pnpm test` nhưng không dùng để tuyên bố đạt (SC-008).
