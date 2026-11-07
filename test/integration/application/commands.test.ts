@@ -133,8 +133,8 @@ describe('command admission ledger (T023)', () => {
         d,
         assistant,
         cancel({
-          kind: 'approve_escalation',
-          payload: { step: 'code', rung: 1 },
+          kind: 'approve_adopt',
+          payload: { head_sha: 'a'.repeat(40) },
         }),
       ),
     ).toMatchObject({

@@ -76,8 +76,8 @@ comment hoặc merge đã thành công.
 - Workflow, policy, role/model binding và input gốc MUST bất biến theo revision. Thay đổi cần
   event, actor, lý do và revision mới. Agent MUST NOT tự đổi role, quyền, binding, approval, pool
   hay ngân sách của mình. Assistant caller tự khai là `assistant` (`CUSR_ACTOR`) và daemon giới hạn nó ở
-  `read`/`operate`: được xác nhận run config của task nó điều phối, theo digest và có ghi actor, không được
-  approve hay dùng quyền admin. Đây là rào chắn cho caller làm đúng quy ước, không phải ranh giới bảo
+  `read`/`operate`: được xác nhận run config của task nó điều phối, theo digest và có ghi actor, được duyệt
+  escalation trong ladder đã đóng băng (#205), không được duyệt nhận PR có sẵn hay dùng quyền admin. Đây là rào chắn cho caller làm đúng quy ước, không phải ranh giới bảo
   mật với process cùng UID. Worker không gọi `cusr`.
 - Nâng effort/model/vendor MUST đi theo thang đã duyệt trước, do code kích hoạt theo phân loại lỗi.
   Lỗi hạ tầng hoặc hết hạn mức MUST NOT kích hoạt nâng model; không hạ model ngầm.

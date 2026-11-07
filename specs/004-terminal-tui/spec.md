@@ -224,7 +224,7 @@ event và số attempt/effect với cùng thao tác làm qua CLI.
 4. **Given** task ở `worktree_changed`, **When** chọn kiểm tra lại, **Then** giao diện cảnh báo thao tác
    này nhận cây thư mục đã quan sát làm mốc của task rồi chạy lại bước, cho xem thay đổi đó (hoặc nói rõ
    không xem được và chỉ vị trí worktree), và chỉ tiếp tục sau xác nhận riêng.
-5. **Given** escalation chờ duyệt, **When** người có quyền admin mở thao tác duyệt, **Then** thấy bước,
+5. **Given** escalation chờ duyệt, **When** người có quyền operate mở thao tác duyệt, **Then** thấy bước,
    nấc, lý do và giới hạn còn lại; duyệt không mở thêm lượt đã hết.
 6. **Given** token không đủ quyền cho một thao tác, **When** xem menu, **Then** thao tác hiện là không khả
    dụng kèm lý do; giao diện không dò tìm token khác để vượt qua.

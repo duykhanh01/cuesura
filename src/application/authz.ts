@@ -3,7 +3,7 @@ import type { AuthzContext, AuthzRole } from '../domain/policy.ts';
 // Server-side authorization (contracts/cli-daemon.md). Only processes of the daemon's UID reach the
 // control socket (directory 0700, socket 0600), and any of them could act as the owner. The actor a
 // caller declares is therefore a guardrail for well-behaved callers, not a security boundary: an
-// assistant that declares itself is held to read/operate, so it cannot approve or administer by mistake.
+// assistant that declares itself is held to read/operate, so it cannot administer by mistake.
 
 export const CALLER_ACTORS = ['owner', 'assistant'] as const;
 export type CallerActor = (typeof CALLER_ACTORS)[number];
@@ -34,7 +34,7 @@ export function callerFor(declared: string | null | undefined): Caller | null {
   return { grant: { actor, roles: [...GRANTS[actor]] } };
 }
 
-/** `read` never mutates; `operate` never grants escalation or admin; `admin` stays with the owner. */
+/** `read` never mutates; `operate` never grants admin; `admin` stays with the owner. */
 export function authorize(
   caller: Caller | null,
   need: { role: AuthzRole },

@@ -34,7 +34,7 @@ cusr request show --help
 # External assistant callers only. Workers must not invoke the control CLI,
 # including on their own task, even if this skill is visible to them.
 # DATA_DIR: nonempty absolute path supplied by the operator.
-# CUSR_ACTOR=assistant holds you to read/operate: you cannot approve or administer.
+# CUSR_ACTOR=assistant holds you to read/operate: you cannot adopt a PR or administer.
 # Never drop it or set another actor; unset means the owner, which you are not.
 # Refuse to proceed if the operator has not provided the intended connection.
 # Repeat both environment assignments on EVERY daemon invocation;
@@ -329,6 +329,12 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task continue "$TASK_ID" --expected-version "$VERSION" \
   --request-id "$CONTINUE_REQUEST_ID" --json
+# When the task waits on `escalation` (approval_kind escalation), approve the rung yourself:
+# it is a rung of the frozen ladder the user configured, not run confirmation and not a
+# merge. Take step and rung from the approve command explain lists, version from a fresh show.
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
+  cusr task approve "$TASK_ID" --kind escalation --step "$STEP" --rung "$RUNG" \
+  --expected-version "$VERSION" --request-id "$APPROVE_REQUEST_ID" --json
 # Pause instead of cancel when work must stop for a while (a release upgrade, a fix to
 # Cuesura itself): what already started finishes, the next step waits as `paused` and the
 # slot goes back to the queue. Resume runs that step on the same revision, worktree and PR.
@@ -353,16 +359,11 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 # ONLY THE USER executes these in their own terminal/trusted channel, even though
 # the agent could run them without CUSR_ACTOR. Never run them, with or without it.
 # The user's shell has no CUSR_ACTOR, so the daemon treats them as the owner.
-# Present the escalation reason/step/rung and this command.
 # The user reads show again for the CURRENT version before approving.
 CUSR_DATA_DIR="${DATA_DIR:?}" \
   cusr task show "$TASK_ID" --json
-# Escalation approval requires admin privileges; it is not run confirmation.
-CUSR_DATA_DIR="${DATA_DIR:?}" \
-  cusr task approve "$TASK_ID" --kind escalation --step "$STEP" --rung "$RUNG" \
-  --expected-version "$VERSION" --request-id "$APPROVE_REQUEST_ID" --json
-# A task added with --pr waits as adopt_approval. The same rule applies: present the
-# PR and its full head SHA (the user reviews that head) and this command. It refuses a
+# A task added with --pr waits as adopt_approval: present the PR and its full head SHA
+# (the user reviews that head) and this command. It needs admin and refuses a
 # fork, a closed PR, another base, a head that moved and a PR a live task holds.
 CUSR_DATA_DIR="${DATA_DIR:?}" \
   cusr task approve "$TASK_ID" --kind adopt --head-sha "$HEAD_SHA" \

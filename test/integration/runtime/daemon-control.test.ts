@@ -141,7 +141,7 @@ describe('daemon control socket (T026)', () => {
       dataDir: dir,
       clock,
       newId,
-      commands: { task_cancel: handler, approve_escalation: handler },
+      commands: { task_cancel: handler, approve_adopt: handler },
     });
     if (!started.ok) throw new Error(started.error.detail);
     daemons.push(started.value);
@@ -160,11 +160,11 @@ describe('daemon control socket (T026)', () => {
       return exitCodeFor(r.value.envelope);
     };
 
-    // The assistant cannot approve, whatever actor the body claims.
+    // The assistant cannot adopt a PR, whatever actor the body claims.
     const approve = cancel({
       request_id: '55555555-5555-4555-8555-555555555555',
-      kind: 'approve_escalation',
-      payload: { step: 'code', rung: 1 },
+      kind: 'approve_adopt',
+      payload: { head_sha: 'a'.repeat(40) },
     });
     expect(await code('assistant', { ...approve, actor: 'owner' })).toBe(ExitCode.forbidden);
     expect(await code('assistant', approve)).toBe(ExitCode.forbidden);

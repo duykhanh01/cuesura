@@ -1981,7 +1981,7 @@ describe('escalation approval over the control socket (T103, FR-010/FR-028)', ()
     for (const x of live.splice(0)) await x.cleanup();
   });
 
-  it('only the owner approves the open request for this step and rung; merge approval and yolo are unsupported', async () => {
+  it('the assistant approves the open request for this step and rung (#205); merge approval and yolo are unsupported', async () => {
     const sd = new SeededDaemon();
     live.push(sd);
     const t = buildTask();
@@ -2029,21 +2029,20 @@ describe('escalation approval over the control socket (T103, FR-010/FR-028)', ()
         .readEvents(t.id)
         .filter((e) => e.type === 'ApprovalGranted');
 
-    expect((await sd.command('assistant', body())).code).toBe(ExitCode.forbidden);
-    expect((await sd.command('owner', body({ rung: 2 }))).code).toBe(ExitCode.missing);
+    expect((await sd.command('assistant', body({ rung: 2 }))).code).toBe(ExitCode.missing);
     for (const kind of ['merge_approve', 'yolo'])
       expect((await sd.command('owner', body({ kind }))).code).toBe(ExitCode.usage);
     expect(granted()).toEqual([]);
 
     const first = body({ request: 500 });
-    const ok = await sd.command('owner', first);
+    const ok = await sd.command('assistant', first);
     expect(ok.code).toBe(ExitCode.ok);
     expect(ok.envelope.data?.['result']).toMatchObject({ status: 'granted' });
-    const again = await sd.command('owner', first);
+    const again = await sd.command('assistant', first);
     expect(again.envelope.data).toMatchObject({ replayed: true });
     // A second request for the same rung finds the request already decided.
     expect((await sd.command('owner', body())).code).toBe(ExitCode.conflict);
-    expect(granted()).toHaveLength(1);
+    expect(granted().map((e) => e.payload.by)).toEqual(['assistant']);
     expect(store().readTask(t.id)?.approvals).toSatisfy((a: Record<string, { kind: string }>) =>
       Object.values(a).every((x) => x.kind === 'escalation'),
     );

@@ -172,7 +172,7 @@ Merge unverified và các failure permutations có fake/contract trước, smoke
 ## Kiểm quyền assistant
 
 Owner cấp token riêng `[read,operate]` có project allowlist theo CLI contract, không chia sẻ token
-bootstrap admin. Dùng assistant token để add/show/cancel/recheck, rồi thử approve escalation hoặc
+bootstrap admin. Dùng assistant token để add/show/cancel/recheck, rồi thử approve adopt hoặc
 tự khai role admin: phải exit 5 và không mutation quyền. Thử task khác project cũng bị từ chối.
 Client/connector assistant không có quyền đọc token owner; worker agents không thấy cả token operate.
 Owner xóa grant, restart daemon, token cũ bị từ chối cho mutation mới; đã accepted vẫn giữ audit.

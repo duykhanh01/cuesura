@@ -242,11 +242,11 @@ nút đã cũ sau khi revision/nấc/policy/cấu hình chạy đổi, bấm t�
 1. **Given** task chờ duyệt escalation, **When** gửi thông báo, **Then** tin nêu task, revision, bước,
    nấc và model/effort đề xuất, số lượt/nấc còn lại, kèm nút "Duyệt" gắn đúng phạm vi đó. Tin ghi rõ:
    không duyệt thì task đứng chờ; muốn bỏ thì hủy task bằng `cusr task cancel` và tạo task mới.
-2. **Given** chat có quyền `admin`, **When** bấm "Duyệt", **Then** approval được ghi qua cùng dịch vụ với
+2. **Given** chat có quyền `operate`, **When** bấm "Duyệt", **Then** approval được ghi qua cùng dịch vụ với
    `cusr task approve --kind escalation`, gắn task/revision, bước, nấc và policy hash; tin được sửa thành
    "đã duyệt".
-3. **Given** chat chỉ có quyền `operate`, **When** nhận yêu cầu duyệt, **Then** tin không có nút duyệt
-   mà ghi rõ cần quyền `admin` và lệnh CLI tương ứng; lần bấm giả mạo (callback tự dựng) bị từ chối
+3. **Given** chat chỉ có quyền `read`, **When** nhận yêu cầu duyệt, **Then** tin không có nút duyệt
+   mà ghi rõ cần quyền `operate` và lệnh CLI tương ứng; lần bấm giả mạo (callback tự dựng) bị từ chối
    vì thiếu quyền, không ghi approval.
 4. **Given** nút được gửi cho nấc N, **When** revision, nấc hoặc policy đã đổi trước khi bấm, **Then** lần
    bấm bị từ chối là hết hiệu lực; tin được sửa thành "hết hiệu lực"; không áp approval cho phạm vi mới.

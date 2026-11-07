@@ -75,7 +75,7 @@ const command = (
 });
 
 describe('roles (US6.3, FR-028)', () => {
-  it('the assistant operates its own project but cannot approve, even claiming to be the owner', async () => {
+  it('the assistant operates its own project but cannot approve adopting a PR, even claiming to be the owner', async () => {
     const sd = daemon();
     const t = buildTask();
     sd.seed((d) => toGreen(d, t));
@@ -87,11 +87,9 @@ describe('roles (US6.3, FR-028)', () => {
       'approve',
       t.id,
       '--kind',
-      'escalation',
-      '--step',
-      'code',
-      '--rung',
-      '1',
+      'adopt',
+      '--head-sha',
+      'a'.repeat(40),
       '--expected-version',
       String(v),
     ]);
@@ -103,7 +101,7 @@ describe('roles (US6.3, FR-028)', () => {
     ]) {
       const r = await sd.command(
         'assistant',
-        command(t, 'approve_escalation', v, { step: 'code', rung: 1 }, claim),
+        command(t, 'approve_adopt', v, { head_sha: 'a'.repeat(40) }, claim),
       );
       expect(r.code, JSON.stringify(claim)).toBe(ExitCode.forbidden);
     }
@@ -125,7 +123,7 @@ describe('roles (US6.3, FR-028)', () => {
     expect(running.store.readCommand(req)?.actor).toBe('assistant');
   });
 
-  it('the approve command explain prints works for the owner, and only for the owner', async () => {
+  it('the approve command explain prints works for the assistant too (#205)', async () => {
     const sd = daemon();
     const t = buildTask();
     sd.seed((d) => {
@@ -160,11 +158,12 @@ describe('roles (US6.3, FR-028)', () => {
     ).find((a) => a.action === 'approve');
     const argv = action?.command.split(' ').slice(1) as string[];
     expect(argv).toContain('--rung');
-    expect((await cli(sd, 'assistant', argv)).code).toBe(ExitCode.forbidden);
-    expect((await cli(sd, 'owner', argv)).code).toBe(ExitCode.ok);
-    expect(running.store.readEvents(t.id).filter((e) => e.type === 'ApprovalGranted')).toHaveLength(
-      1,
-    );
+    expect((await cli(sd, 'assistant', argv)).code).toBe(ExitCode.ok);
+    expect(
+      running.store
+        .readEvents(t.id)
+        .flatMap((e) => (e.type === 'ApprovalGranted' ? [e.payload.by] : [])),
+    ).toEqual(['assistant']);
   });
 
   it('an assistant confirms a run selection; admin reaches approve and finds no such request', async () => {

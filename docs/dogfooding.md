@@ -225,8 +225,9 @@ sau khi tạo lại manifest và restart, kiểm tra lại `doctor`, `status` v�
 
 Config được đọc lại khi xác nhận task mới; `yolo` được đọc lại trước khi daemon xét merge. Thay đổi
 công cụ, credential reference, pin/manifest hay binary cần restart để các thành phần trong process
-dùng cùng cấu hình. Không thay snapshot của task cũ. Escalation vẫn cần người dùng chạy `task approve`
-bằng quyền admin; assistant chỉ có read/operate.
+dùng cùng cấu hình. Không thay snapshot của task cũ. Assistant tự duyệt escalation (`task approve --kind
+escalation`, quyền operate) vì nấc đó đã nằm trong ladder người dùng cấu hình; duyệt nhận PR có sẵn
+(`--kind adopt`) vẫn cần người dùng chạy bằng quyền admin.
 
 Profile mới không còn `budgets`: task mới không có trần số lượt agent hoặc deadline chung, nên không
 cần `amend-policy` để tăng budget. Giữ lịch sử/snapshot của task cũ nguyên trạng. Giới hạn retry theo

@@ -53,7 +53,7 @@ Skill dành cho **assistant caller** (Codex hoặc Claude Code). Worker đọc �
 nhưng không được dùng nó.
 Gói chỉ gồm file thường, không cần symlink hay source/spec của Cuesura. CLI đã cài và thông tin kết nối
 được người vận hành cung cấp riêng; agent tự khai `CUSR_ACTOR=assistant` nên chỉ có quyền `read/operate`,
-người dùng tự approve. Không cần tạo token nào ([người gọi và quyền](deploy/README.md#người-gọi-và-quyền)).
+tự duyệt escalation; duyệt nhận PR có sẵn thì người dùng tự làm. Không cần tạo token nào ([người gọi và quyền](deploy/README.md#người-gọi-và-quyền)).
 
 Repo này cũng tự phát triển bằng Cuesura: xem [quy trình dogfood](docs/dogfooding.md).
 

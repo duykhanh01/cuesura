@@ -108,11 +108,16 @@ function screen(s: TuiState): string {
 
 const bar = (s: TuiState): string => screen(s).split('\n').at(-1) ?? '';
 
-function explain(actions: TaskExplain['allowed_actions'], version = 3): TaskExplain {
+function explain(
+  actions: TaskExplain['allowed_actions'],
+  version = 3,
+  waitCode?: string,
+): TaskExplain {
   return {
     task_id: TASK(2),
     version,
     status: 'NEEDS_INPUT',
+    ...(waitCode === undefined ? {} : { wait: { reason: 'approval', detail: { code: waitCode } } }),
     allowed_actions: actions,
     merge: null,
   } as unknown as TaskExplain;
@@ -427,14 +432,18 @@ describe('the Actions menu (T052)', () => {
     };
     const s = answered(
       run(home(SMALL, viewer), ch('a')),
-      explain([
-        ...QUESTION,
-        {
-          action: 'approve',
-          command: sanitize('cusr task approve'),
-          note: sanitize('Admin only.'),
-        },
-      ]),
+      explain(
+        [
+          ...QUESTION,
+          {
+            action: 'approve',
+            command: sanitize('cusr task approve T --kind adopt --head-sha SHA'),
+            note: sanitize('Admin only.'),
+          },
+        ],
+        3,
+        'adopt_approval',
+      ),
     );
     const text = screen(s);
     expect(text).toContain('Not available: needs the operate role; you have: read');
@@ -444,6 +453,21 @@ describe('the Actions menu (T052)', () => {
     expect(screen(op)).not.toContain('needs the operate role');
     expect(screen(op)).toContain('needs the admin role; you have: operate');
     expect(screen({ ...s, caller: null })).toContain('permissions are not read yet');
+  });
+
+  it('an escalation approval needs only the operate role (#205)', () => {
+    const operator: CallerInfo = { ...OWNER, roles: ['read', 'operate'] };
+    const s = answered(
+      run(home(SMALL, operator), ch('a')),
+      explain([
+        {
+          action: 'approve',
+          command: sanitize('cusr task approve T --kind escalation --step code --rung 1'),
+          note: sanitize('Approves the requested rung.'),
+        },
+      ]),
+    );
+    expect(screen(s)).not.toContain('Not available');
   });
 
   it('Enter confirms nothing: it sends nothing and says so', () => {

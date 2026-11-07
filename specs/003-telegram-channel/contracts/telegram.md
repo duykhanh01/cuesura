@@ -19,7 +19,7 @@ Phản hồi khi mã sai, hết hạn, đã dùng hay đã hủy giống hệt n
 | --- | --- | --- |
 | reply vào bản tin câu hỏi | operate | Trả lời câu hỏi đó |
 | `/answer <mã> <nội dung>` | operate | Trả lời câu hỏi có mã ngắn đó |
-| nút "Duyệt" | admin | `approve_escalation` với phạm vi của thẻ |
+| nút "Duyệt" | operate | `approve_escalation` với phạm vi của thẻ |
 | nút "Xác nhận" | operate | `task_confirm` với `run_config_digest` của thẻ |
 | `/inbox` | read | Trang inbox đầu, 8 mục mỗi tin; nút "Mở" cho mục thao tác được, nút "Trang sau" |
 | `/show <mã>` hoặc nút "Mở" | read | Gửi thẻ hiện hành của mục đó, dựng lại từ state |
@@ -55,7 +55,7 @@ Không duyệt thì task đứng chờ. Muốn bỏ: cusr task cancel <id>, rồ
 [ Duyệt ]
 ```
 
-Chat chỉ có `operate`: thay nút bằng dòng "Cần quyền admin: cusr task approve <id> --kind escalation --step code --rung 2".
+Chat chỉ có `read`: thay nút bằng dòng "Cần quyền operate: cusr task approve <id> --kind escalation --step code --rung 2".
 
 ```text
 [acme] Add retry to webhook sender

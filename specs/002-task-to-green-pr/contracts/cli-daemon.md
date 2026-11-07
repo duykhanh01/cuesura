@@ -37,7 +37,7 @@ qua amend-policy của feature 002; tạo task mới nếu cần đổi. Không 
 | `cusr queue pause --reason TEXT`, `cusr queue resume` | operate; không có project, task hay version; xem [Tạm dừng task](#tạm-dừng-task) |
 | `cusr dispatch --project ID` | read trong phạm vi project; trả `project`, `source` (`project`, `global` hoặc `none`), `modes`, `rules`, `default`. Lấy từ `projects.<id>.dispatch`, không có thì `runtime.dispatch`; đọc config mỗi lần gọi; `use[]` trả về dạng `{worker, reviewer?}` kèm `profile`, `mode` để chép thẳng vào `task propose`; không chứa secret, không chọn thay người dùng |
 | `cusr inbox`, `cusr answer QUESTION --file FILE --expected-version N` | read/operate; câu trả lời đầu thắng, ràng buộc revision/version |
-| `cusr task approve ID --kind escalation --step STEP --rung N` | admin; task/revision/policy hash đúng, không cấp merge |
+| `cusr task approve ID --kind escalation --step STEP --rung N` | operate; task/revision/policy hash đúng, không cấp merge |
 | `cusr task approve ID --kind adopt --head-sha SHA` | admin; task khai `--pr`/`pr_ref`, chưa start; PR mở, cùng repo (không fork), đúng base, head đúng SHA, không task sống nào đang giữ PR |
 | `cusr project list`, `cusr task options/content/progress ID`, `cusr task board`, `cusr request show REQUEST_ID` | read; truy vấn chỉ đọc không tạo event, thêm cho giao diện terminal và assistant; hợp đồng đầy đủ ở [feature 004](../../004-terminal-tui/contracts/cli-daemon.md) |
 | `cusr task retry/amend-policy`, merge approval, yolo | unsupported_feature, exit 2; không tạo mutation nghiệp vụ |
@@ -100,7 +100,7 @@ trước khi in, cho cả `--json` lẫn output cho người đọc.
 - `task logs` đọc `POST /v1/query` kind `task_logs`; `--follow` là CLI hỏi lại theo cursor rồi in JSONL,
   không có route stream riêng. Cursor đếm record đã commit theo thứ tự event, không đổi qua rotation/restart;
   batch mất file hiện là `gap`, không bị bỏ im lặng.
-- `read` không mutation, `operate` không cấp escalation/admin. CLI read cũng gọi daemon vì SQLite
+- `read` không mutation, `operate` không cấp quyền admin (nhận PR có sẵn). CLI read cũng gọi daemon vì SQLite
   đang khóa EXCLUSIVE. Daemon disconnected trả exit 3; không fallback mở DB trực tiếp.
 - Application kiểm authz/schema/allowlist/version/dedup trước I/O. Ghi command admission/dedup và ID
   đã gán trước preflight; crash giữa preflight và accept nhận lại cùng command. External I/O có
@@ -111,8 +111,9 @@ trước khi in, cho cả `--json` lẫn output cho người đọc.
 
 ### Actor của assistant
 
-Assistant gọi với `CUSR_ACTOR=assistant` nên chỉ có `read`/`operate`. Assistant không được approve
-escalation hay dùng quyền admin; tests trả exit 5 kể cả khi body request khai actor=owner/admin. Request đã
+Assistant gọi với `CUSR_ACTOR=assistant` nên chỉ có `read`/`operate`. Assistant duyệt được escalation
+(nấc đã có trong ladder đóng băng, #205) nhưng không duyệt nhận PR có sẵn hay dùng quyền admin; tests
+trả exit 5 kể cả khi body request khai actor=owner/admin. Request đã
 accepted giữ actor lúc được nhận.
 
 Process cùng UID bỏ `CUSR_ACTOR` là thành owner, nên actor tự khai là rào chắn cho caller làm đúng quy ước,

@@ -64,7 +64,7 @@ và xin xác nhận mới trước spawn. Recheck không tự xác nhận hoặc
 
 Một lần xác nhận áp dụng cho cả task, gồm các vòng sửa/retry trong giới hạn đã duyệt. Không hỏi
 lại mỗi lần resume. Đổi harness/model/effort ngoài lựa chọn đã duyệt hoặc đổi chế độ cần xác nhận
-mới; quyền admin hiện có vẫn áp dụng cho escalation cần admin. Toàn bộ v1 không hỗ trợ đổi graph
+mới; nấc escalation cần duyệt thì người có quyền `operate` duyệt (#205). Toàn bộ v1 không hỗ trợ đổi graph
 của task đang chạy theo SPEC §5.3: đổi chế độ sau khi đã bắt đầu phải tạo task mới, không sửa FrozenPolicy.
 
 Reviewer dùng session riêng, thay đổi của nó không vào task; có thể cùng vendor/model với worker. Không có điều kiện

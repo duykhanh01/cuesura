@@ -18,7 +18,8 @@ giữ assistant lại là quy ước trong skill. Thứ token còn mang lại l�
 quy ước lỡ gọi `approve`. Actor tự khai cho đúng hai điều đó mà không cần tạo file secret, khai config hay restart
 daemon. Bước cấp token cho assistant là chỗ người mới bị kẹt khi bắt đầu dùng.
 
-Hệ quả. Assistant vẫn không approve escalation và không bật yolo, nhưng đó là quy ước có daemon cưỡng chế với caller
+Hệ quả. Assistant vẫn không approve escalation và không bật yolo (sửa đổi sau: từ #205 assistant duyệt được escalation
+bằng quyền `operate`), nhưng đó là quy ước có daemon cưỡng chế với caller
 khai đúng, không phải ranh giới bảo mật: process cùng UID bỏ `CUSR_ACTOR` là thành owner. Phạm vi project theo caller
 không còn; mọi caller thấy mọi project trong config. Event cũ có `issued_by: token:<id>` vẫn đọc được; lệnh mới ghi
 `issued_by: socket:<actor>`. Config cũ còn `runtime.access_tokens` vẫn khởi động được, daemon ghi một dòng log báo

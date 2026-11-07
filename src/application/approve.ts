@@ -1,6 +1,6 @@
 /**
- * `task approve --kind escalation` (T103, FR-010/FR-028). Admission already required the admin role,
- * so a caller declared as the assistant, which holds read/operate, cannot approve its own escalation.
+ * `task approve --kind escalation` (T103, FR-010/FR-028). Admission requires the operate role: the
+ * assistant approves a rung the frozen ladder already allows, as it continues a task (#205).
  * The approval is the open escalation request of the task's current revision for exactly this step and
  * rung; the engine then checks it is still open and bound to the policy hash in force. Merge approval
  * and yolo are refused at admission as unsupported and never reach this service, and an approval

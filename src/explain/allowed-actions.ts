@@ -223,7 +223,7 @@ const ROWS: Readonly<Record<DetailCode, Row>> = {
       {
         action: 'approve',
         command: `cusr task approve ${c.id} --kind escalation --step ${open?.step ?? 'STEP'} --rung ${open?.rung ?? 'N'} --expected-version ${c.version}`,
-        note: 'Admin only, while budget remains; an approval adds no attempts that are already spent.',
+        note: 'Needs the operate role, while budget remains; an approval adds no attempts that are already spent.',
       },
       cancel(c),
     ];

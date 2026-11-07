@@ -50,7 +50,7 @@ const REQUIRED_ROLE: Record<CommandKind, AuthzRole> = {
   queue_pause: 'operate',
   queue_resume: 'operate',
   answer: 'operate',
-  approve_escalation: 'admin',
+  approve_escalation: 'operate',
   approve_adopt: 'admin',
 };
 

@@ -242,7 +242,8 @@ dụng; kiểm quyền chạy trước kiểm schema nên caller khai `actor: ow
 ghi kèm actor, nên lịch sử cho biết owner hay assistant đã xác nhận, hủy hay approve.
 
 **Assistant.** Skill `cusr` đặt `CUSR_ACTOR=assistant` cho mọi lệnh. Assistant được thêm task, đề xuất và
-xác nhận run config, trả lời câu hỏi, recheck và hủy; không approve escalation và không dùng quyền admin.
+xác nhận run config, trả lời câu hỏi, duyệt escalation, recheck và hủy; không duyệt nhận PR có sẵn và không
+dùng quyền admin.
 
 **Ranh giới.** `CUSR_ACTOR` là rào chắn cho caller làm đúng quy ước, không phải ranh giới bảo mật: process
 cùng UID bỏ biến này là thành owner. Muốn tách quyền thật, chạy assistant bằng UID khác. Worker

@@ -84,7 +84,7 @@ dòng trong đó không kích hoạt gửi.
 | Xác nhận intake, cấu hình chạy hoặc cả hai | Màn Review với nội dung đọc thành công; phạm vi theo [data model](../data-model.md#phạm-vi-xác-nhận) | `confirm` |
 | Hủy task | Lý do không rỗng, xem hậu quả | `cancel` |
 | Kiểm tra lại `worktree_changed` | Cảnh báo nhận cây thư mục, vị trí worktree | `accept` |
-| Duyệt escalation | Bước, nấc, lý do, giới hạn còn lại; quyền admin | `approve` |
+| Duyệt escalation | Bước, nấc, lý do, giới hạn còn lại; quyền operate (nhận PR có sẵn: admin) | `approve` |
 | Trả lời, đề xuất cấu hình, tạo task, kiểm tra lại thường | Xem lại nội dung | Không; dùng `Ctrl-S` |
 
 Trong ô xác nhận, `Enter` chỉ gửi khi nội dung đúng bằng từ yêu cầu; sai thì giữ nguyên và báo lỗi tại chỗ, không sang trường khác. `Ctrl-S` không có tác dụng ở

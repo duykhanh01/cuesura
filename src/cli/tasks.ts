@@ -789,7 +789,7 @@ function unsupported(
 
 export const approveCommand: CliCommand = {
   name: 'task approve',
-  description: 'Approve a model escalation or adopting a PR (admin required)',
+  description: 'Approve a model escalation (operate) or adopting a PR (admin)',
   args: ['<id>'],
   options: [
     DATA_DIR,
