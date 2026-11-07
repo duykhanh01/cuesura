@@ -241,6 +241,7 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
         };
         a.usage = event.payload.usage;
         if (event.payload.session_ref !== undefined) a.session_ref = event.payload.session_ref;
+        if (event.payload.summary !== undefined) a.summary = event.payload.summary;
       }
       if (event.payload.status === 'done') s.last_fix_step = event.payload.step;
       break;

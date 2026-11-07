@@ -1533,6 +1533,14 @@ function isStale(ctx: Ctx, attemptId: string | null): boolean {
   );
 }
 
+/** A worker's report is a claim for the reviewer to check, so a long one is cut rather than kept whole. */
+export const WORKER_REPORT_MAX = 8_000;
+
+function workerReport(summary: string): string {
+  if (summary.length <= WORKER_REPORT_MAX) return summary;
+  return `${summary.slice(0, WORKER_REPORT_MAX)}\n[truncated: kept ${WORKER_REPORT_MAX} of ${summary.length} characters]`;
+}
+
 function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
   const step = e.step as string;
   const review = stepKindOf(ctx, e) === 'review';
@@ -1562,6 +1570,11 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
   if (e.attempt_id !== null) {
     const session =
       'session_ref' in d && d.session_ref !== undefined ? { session_ref: d.session_ref } : {};
+    const role = ctx.frozen.steps[step]?.role;
+    const report =
+      !('verdict' in d) && d.status === 'done' && (role === 'coder' || role === 'fixer')
+        ? { summary: workerReport(d.summary) }
+        : {};
     ctx.emit('AttemptFinished', {
       attempt_id: e.attempt_id,
       step,
@@ -1570,6 +1583,7 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
       signature: null,
       usage: usageOf(d.usage),
       ...session,
+      ...report,
     });
   }
   if (afterAttempt(ctx, e)) return;

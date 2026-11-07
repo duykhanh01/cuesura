@@ -7,6 +7,8 @@ import type { RequiredCheckVerdict, Trigger } from '../../../src/domain/trigger.
 import type { Uuid } from '../../../src/shared/brand.ts';
 import { replay } from '../../../src/engine/evolve.ts';
 import { observationDue } from '../../../src/daemon/observation.ts';
+import { WORKER_REPORT_MAX } from '../../../src/engine/interpreter.ts';
+import { workerReports } from '../../../src/daemon/handlers.ts';
 import { hashCanonical } from '../../../src/shared/hash.ts';
 import { openFileStoreForTest } from '../../../src/store/testing.ts';
 import { buildTask, DEFAULT_LIMITS, uuidOf } from '../../support/builders.ts';
@@ -145,6 +147,70 @@ describe('repair loops (US2.1–US2.3, M03/M04/M06)', () => {
     expect(d.pendingOne(t.id, 'post_review').request).toMatchObject({
       round: 2,
     });
+  });
+
+  it('#215: coder and fixer reports are kept on their attempts; the reviewer gets only those since the last review', () => {
+    const d = setup();
+    const t = buildTask();
+    const reports = (strip = false) => {
+      const task = d.task(t.id);
+      // A review stopped before its verdict was recorded (pause --now) leaves no evidence behind.
+      const s = strip ? { ...task, run: { ...task.run, reviews: [] } } : task;
+      const policy = d.store.readPolicy(
+        t.id,
+        s.policy_ref?.revision ?? 0,
+        s.policy_ref?.version ?? 0,
+      );
+      if (policy === null) throw new Error('no policy');
+      return workerReports(s, policy).map((r) => [r.role, r.step, r.summary]);
+    };
+    createGrantStart(d, t, 'full-review');
+    d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE);
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      agentData('done', { summary: 'added search' }),
+    );
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(A));
+    publishToReview(d, t.id, A);
+    expect(reports()).toEqual([['coder', 'code', 'added search']]);
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      reviewData('request_changes', A, {
+        summary: 'needs a test',
+        findings: [{ severity: 'major', msg: 'missing test' }],
+        input_digest: currentReviewInput(d, t.id),
+      }),
+    );
+    completePost(d, t.id);
+    grant(d);
+    const long = `fixed finding 1 ${'x'.repeat(WORKER_REPORT_MAX)}`;
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      agentData('done', { summary: long }),
+    );
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(C));
+    publishToReview(d, t.id, C);
+    const attempts = Object.values(d.task(t.id).attempts);
+    expect(attempts.map((a) => a.summary)).toEqual([
+      'added search',
+      undefined,
+      `${long.slice(0, WORKER_REPORT_MAX)}\n[truncated: kept ${WORKER_REPORT_MAX} of ${long.length} characters]`,
+      undefined,
+    ]);
+    // The second review sees the fixer's report, not the coder's the first review already had.
+    expect(reports()).toEqual([['fixer', 'fix_review', attempts[2]?.summary]]);
+    // Its attempt still shows request_changes, but no verdict counted: the reviewer saw nothing yet.
+    expect(attempts[1]?.outcome?.status).toBe('request_changes');
+    expect(reports(true)).toEqual([
+      ['coder', 'code', 'added search'],
+      ['fixer', 'fix_review', attempts[2]?.summary],
+    ]);
   });
 
   it('US2.3: a CI code failure is fixed on the task worktree and updates the same PR; CI of the old head never greens the new one', () => {

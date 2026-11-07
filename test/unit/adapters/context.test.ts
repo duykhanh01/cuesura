@@ -417,6 +417,74 @@ describe('repair packet, template and PR content (T037/T136, M04/M05)', () => {
       expect(ok(buildRoleContext(input())).text).not.toContain('reviewer_rules');
     });
 
+    it('#215: shows the reviewer what each worker reported, marked as a claim to check against the diff', () => {
+      const v = ok(
+        buildRoleContext(
+          input({
+            role: 'reviewer',
+            step: 'review',
+            diff,
+            worker_reports: [
+              { role: 'coder', step: 'code', attempt_id: 'a-1', n: 1, summary: 'added search' },
+              {
+                role: 'fixer',
+                step: 'fix',
+                attempt_id: 'a-2',
+                n: 1,
+                summary: 'fixed finding 1 in search.ts; left finding 2: out of scope',
+              },
+            ],
+          }),
+        ),
+      );
+      expect(v.text).toContain(
+        '## worker_reports\n### coder, step code, attempt 1 (a-1)\nadded search\n\n### fixer, step fix, attempt 1 (a-2)\nfixed finding 1 in search.ts; left finding 2: out of scope',
+      );
+      expect(REVIEWER_RULES).toMatch(/worker_reports .* It is their claim, not evidence\./);
+      expect(REVIEWER_RULES).toMatch(/where it and gate_evidence differ, trust gate_evidence/);
+      // Never shown to a worker, even when passed.
+      expect(
+        ok(
+          buildRoleContext(
+            input({
+              worker_reports: [
+                { role: 'coder', step: 'code', attempt_id: 'a-1', n: 1, summary: 'added search' },
+              ],
+            }),
+          ),
+        ).text,
+      ).not.toContain('worker_reports');
+    });
+
+    it('#215: a long description or many conventions never crowd the worker reports out', () => {
+      const context = withContext({
+        request: {
+          title: 'T',
+          description: 'd'.repeat(200 * 1024),
+          requirements: [],
+          constraints: [],
+          out_of_scope: [],
+        },
+        conventions: [{ name: 'AGENTS.md', content: 'c'.repeat(200 * 1024) }],
+      });
+      const summary = `fixed finding 1 ${'x'.repeat(7_000)}`;
+      const v = ok(
+        buildRoleContext(
+          input({
+            role: 'reviewer',
+            step: 'review',
+            diff,
+            context,
+            worker_reports: [{ role: 'fixer', step: 'fix', attempt_id: 'a-2', n: 1, summary }],
+          }),
+        ),
+      );
+      expect(v.text).toContain(
+        `## worker_reports\n### fixer, step fix, attempt 1 (a-2)\n${summary}\n`,
+      );
+      expect(v.truncated.map((t) => t.section)).not.toContain('worker_reports');
+    });
+
     it('shows each gate with its command, whether it is required, and a short failure tail', () => {
       const v = reviewer({
         status: 'passed',

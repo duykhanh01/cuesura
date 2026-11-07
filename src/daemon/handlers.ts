@@ -30,6 +30,7 @@ import {
   type PublishContent,
   type RepairState,
   type RoleFailure,
+  type WorkerReport,
 } from '../adapters/context.ts';
 import { FileContentStore, readContentFile, validateContent } from '../adapters/publish-content.ts';
 import {
@@ -742,6 +743,38 @@ async function changedSinceRejection(
   return { sha: prior.sha, paths: r.stdout.split('\0').filter((p) => p !== '') };
 }
 
+/**
+ * What the coders and fixers of this revision reported since the last review whose verdict was recorded,
+ * in order (#215). A review that failed, was stopped before its verdict counted or was reused saw none of
+ * them, so it does not reset the list. Not part of the review input digest: the same code gets the same
+ * verdict whatever the worker claimed.
+ */
+export function workerReports(s: TaskState, policy: FrozenPolicy): WorkerReport[] {
+  const attempts = Object.values(s.attempts).filter(
+    (a) => a.revision === s.revision && a.status === 'finished',
+  );
+  const seen = new Set(
+    s.run.reviews.filter((r) => r.revision === s.revision).map((r) => r.attempt_id),
+  );
+  const roleOf = (step: string): string | undefined => policy.steps[step]?.role;
+  const last = attempts.findLastIndex((a) => seen.has(a.id));
+  return attempts.slice(last + 1).flatMap((a) => {
+    const role = roleOf(a.step);
+    return (role === 'coder' || role === 'fixer') && a.summary !== undefined
+      ? [{ role, step: a.step, attempt_id: a.id, n: a.n, summary: a.summary }]
+      : [];
+  });
+}
+
+function redactedSummary(o: EffectOutcome, redactor: Redactor): EffectOutcome {
+  if (o.outcome !== 'succeeded') return o;
+  const data = o.data as Record<string, unknown>;
+  const summary = data['summary'];
+  return typeof summary === 'string'
+    ? { ...o, data: { ...data, summary: redactor.text(summary) } }
+    : o;
+}
+
 /** The fixed range a `full-review` reviewer reads: frozen base .. checkpoint commit, never the working copy. */
 async function reviewRange(
   deps: HandlerDeps,
@@ -976,6 +1009,7 @@ async function startAgent(
       ? {
           pr_content: currentContent(deps, l.s),
           gate_evidence: review === null ? null : gateEvidenceFor(l.s, l.policy.gates, review.sha),
+          worker_reports: workerReports(l.s, l.policy),
         }
       : {}),
     limits: {
@@ -1133,7 +1167,9 @@ async function startAgent(
   // that fails leaves the tree changed, and the next worker step waits for a person on that (T072).
   if (r === 'reviewer' && !(out.kind === 'failure' && out.invoked === false))
     await restoreAfterReview(deps, l.s.id, effect.id);
-  const verdict = agentOutcome(r, binding.harness, out, review?.sha ?? null, inputDigest);
+  const raw = agentOutcome(r, binding.harness, out, review?.sha ?? null, inputDigest);
+  // A worker's summary is kept in state and shown to the next reviewer, so it is stored redacted.
+  const verdict = worker ? redactedSummary(raw, deps.redactor) : raw;
   const plain = review === null ? verdict : await withChangedSince(deps, l, review.sha, verdict);
   // Sessions are a worker concern: a reviewer always runs in its own new session.
   const outcome = worker ? withSession(plain, out, resume) : plain;

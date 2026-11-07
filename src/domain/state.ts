@@ -186,6 +186,8 @@ export type Attempt = {
   session_ref?: string | null;
   /** Attempt whose session this one was asked to resume (FR-038). */
   resumed_from?: string;
+  /** A finished coder/fixer's own report of what it did (#215); a claim, not evidence. */
+  summary?: string;
 };
 
 export type EffectMirror = {

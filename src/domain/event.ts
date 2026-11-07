@@ -111,6 +111,8 @@ export type EventPayloads = {
     usage: Usage;
     /** Harness session reported by the run, kept so a repair can resume it (M04); additive. */
     session_ref?: string | null;
+    /** What a coder or fixer said it did, redacted and capped, for the next reviewer (#215); additive. */
+    summary?: string;
   };
   FailureClassified: {
     step: string;

@@ -152,6 +152,14 @@ export type ReviewDiff = {
   readonly to: string;
 };
 
+export type WorkerReport = {
+  readonly role: 'coder' | 'fixer';
+  readonly step: string;
+  readonly attempt_id: string;
+  readonly n: number;
+  readonly summary: string;
+};
+
 export type ContextInput = {
   readonly role: Role;
   readonly step: string;
@@ -179,6 +187,8 @@ export type ContextInput = {
   readonly gate_evidence?: GateEvidence | null;
   /** Reviewer of a `full-review` task: the PR content it checks with the diff. */
   readonly pr_content?: PublishContent | null;
+  /** Reviewer: what the coders and fixers of this revision said they did since the last review. */
+  readonly worker_reports?: readonly WorkerReport[];
   /** Decider: what the worker is waiting on, every question of its result together. */
   readonly question?: string;
   readonly limits: {
@@ -269,6 +279,7 @@ Evidence
 - If gate_evidence is not_configured or missing, rely on the checks the worker reports and say in the summary that no gate confirmed them.
 - Missing evidence that checks ran is never a finding: CI runs them after you approve.
 - A reported check the change contradicts, such as a test that is not in the worktree, is a finding.
+- worker_reports is what the coder and fixers said they did since the last review: which findings they fixed and how, which they left and why, what they ran. It is their claim, not evidence. Check each claim against the diff; where it and gate_evidence differ, trust gate_evidence. A finding a report calls fixed stands until the diff shows the fix.
 
 What to report
 - Defects the change introduces: wrong behaviour, unhandled errors or edge cases, security problems, data loss, races, broken compatibility and regressions in existing behaviour.
@@ -497,6 +508,21 @@ export function buildRoleContext(
         .join('\n'),
       required: true,
     },
+    // First of the optional sections: what the worker says it fixed is what this round checks.
+    ...(input.role === 'reviewer' && input.worker_reports !== undefined
+      ? [
+          {
+            name: 'worker_reports',
+            body: input.worker_reports
+              .map(
+                (r) =>
+                  `### ${r.role}, step ${clean(r.step)}, attempt ${r.n} (${r.attempt_id})\n${clean(r.summary)}`,
+              )
+              .join('\n\n'),
+            required: false,
+          },
+        ]
+      : []),
     {
       name: 'requirements',
       body: list(c.request.requirements.map(clean)),

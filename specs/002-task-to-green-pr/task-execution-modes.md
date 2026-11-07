@@ -226,7 +226,8 @@ issue, PR và CI; việc họ tự làm trên GitHub không thay cho comment rev
 Trong cùng task/revision, trước khi gọi reviewer, daemon MUST so đầu vào review với evidence đã lưu:
 base dùng tính diff, checkpoint SHA/tree/diff digest, title/description cần review (không tính marker
 điều khiển do orchestrator gắn), acceptance/conventions review đã đóng băng và policy/binding review.
-Attempt ID, timestamp, receipt gate/CI mới hoặc log resume không tự làm đổi đầu vào review.
+Attempt ID, timestamp, receipt gate/CI mới, log resume hoặc summary worker tự báo (`worker_reports`) không tự
+làm đổi đầu vào review: cùng code thì cùng verdict.
 Chỉ dùng lại kết quả đã validate và ghi bền, còn hiệu lực, khi mọi đầu vào trên khớp;
 không suy từ việc worker nói không sửa.
 Trừ ngoại lệ tích hợp base bên dưới, code hoặc nội dung PR đổi thì review lại; acceptance/policy/base dùng tính diff đổi thì không được

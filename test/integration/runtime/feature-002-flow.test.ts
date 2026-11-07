@@ -23,7 +23,7 @@ import type { CanonicalTask } from '../../../src/domain/task.ts';
 import { InvocationUnknown } from '../../../src/runner/invocation.ts';
 import { canonicalJson } from '../../../src/shared/canonical-json.ts';
 import type { EpochMs } from '../../../src/shared/brand.ts';
-import { hashCanonical } from '../../../src/shared/hash.ts';
+import { hashCanonical, hashText } from '../../../src/shared/hash.ts';
 import type { Uuid } from '../../../src/shared/brand.ts';
 import { injectEvents } from '../../../src/store/testing.ts';
 import { buildTask, uuidOf } from '../../support/builders.ts';
@@ -192,6 +192,67 @@ it('turn exhaustion uses timeout handling, preserving the worker session for con
     from_attempt_id: seen[0]?.attempt_id,
   });
   expect(f.d.task(task.id).wait?.detail.code).toBe('timeout');
+});
+
+it('#215: each review gets the worker reports since the review before, redacted, through the handler', async () => {
+  const task = buildTask();
+  const f = setup(task, { mode: 'full-review', reviews: 2, runs: [CONTENT, CONTENT] });
+  const token = `github_pat_${'A'.repeat(30)}`;
+  const reviewerRun = f.codex.run.bind(f.codex);
+  f.codex.run = (input, signal) =>
+    f.codex.calls.length > 0
+      ? reviewerRun(input, signal)
+      : (f.codex.calls.push(input),
+        Promise.resolve({
+          kind: 'result',
+          role: 'reviewer',
+          usage: { basis: 'unavailable' },
+          session_ref: null,
+          permission_denials: [],
+          raw_digest: hashText('reject'),
+          schema_digest: input.schema.digest,
+          value: {
+            schema_version: 1,
+            verdict: 'request_changes',
+            summary: 'needs a test',
+            findings: [
+              { severity: 'major', file: 'search.ts', line: null, message: 'missing test' },
+            ],
+          },
+        }));
+  const coderRun = f.coder.run.bind(f.coder);
+  f.coder.run = (input, signal) =>
+    input.role !== 'fixer'
+      ? coderRun(input, signal)
+      : (f.coder.calls.push(input),
+        Promise.resolve({
+          kind: 'result',
+          role: 'fixer',
+          usage: { basis: 'unavailable' },
+          session_ref: null,
+          permission_denials: [],
+          raw_digest: hashText('fix'),
+          schema_digest: input.schema.digest,
+          value: {
+            schema_version: 1,
+            status: 'done',
+            summary: `added the missing test in search.test.ts with ${token}`,
+            questions: [],
+            blocker: null,
+          },
+        }));
+  f.d.must(task.id, { kind: 'create_task', task });
+  f.start();
+  await settleWithSlot(f.d, f.settle);
+  expect(f.codex.calls).toHaveLength(2);
+  const [first, second] = f.codex.calls.map((c) => c.context.text);
+  expect(first).toContain('## worker_reports\n### coder, step code, attempt 1');
+  expect(first).toContain('added search');
+  expect(second).toContain('## worker_reports\n### fixer, step fix_review, attempt 1');
+  expect(second).toContain('added the missing test in search.test.ts');
+  expect(second).not.toMatch(/### coder/);
+  expect(second).not.toContain(token);
+  expect(JSON.stringify(f.d.task(task.id).attempts)).not.toContain(token);
 });
 
 it('an expired harness login stops at once instead of spending retries and visits (#97)', async () => {

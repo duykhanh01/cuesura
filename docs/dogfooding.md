@@ -143,6 +143,11 @@ thuẫn (vd test không có trong worktree) là finding.
 - `not_configured`: project không khai báo gate (`allow_no_gates`).
 - `missing`: không có lượt gate nào khớp commit đang review.
 
+Mục `worker_reports` chép summary của các lượt coder/fixer trong revision hiện tại kể từ lượt review gần nhất có
+verdict (vòng đầu là summary của coder), mỗi mục ghi role, step và attempt; summary đã redact và cắt ở 8.000 ký tự.
+Đây là lời worker tự báo, không phải bằng chứng: reviewer kiểm lại trên diff, và `gate_evidence` thắng khi hai bên
+khác nhau.
+
 Context của reviewer chỉ có range, digest và danh sách file của thay đổi, không chép nội dung diff; reviewer đọc
 bằng `git diff <from> <to>` trong worktree. Reviewer được tách việc cho sub-agent (Claude qua tool `Agent`,
 Codex qua `spawn_agent`).
