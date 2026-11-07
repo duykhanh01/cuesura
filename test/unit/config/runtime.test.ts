@@ -56,7 +56,7 @@ describe('projects.<id>.path / repo', () => {
   it('exposes path and repo as locations, outside the hashed user config', () => {
     const v = valid('');
     expect(v.locations).toEqual({
-      acme: { path: '/srv/acme', repo: 'acme/app' },
+      acme: { path: '/srv/acme', repo: 'acme/app', base_branch: 'main' },
     });
     expect(v.config.user.projects?.acme).toEqual({
       base_branch: 'main',
@@ -74,8 +74,8 @@ describe('projects.<id>.path / repo', () => {
       packs: PACKS,
     });
     expect(r.ok && r.value.locations).toEqual({
-      acme: { path: null, repo: null },
-      beta: { path: null, repo: 'beta/app' },
+      acme: { path: null, repo: null, base_branch: 'main' },
+      beta: { path: null, repo: 'beta/app', base_branch: 'dev' },
     });
   });
 
@@ -141,7 +141,6 @@ describe('runtime config', () => {
         'direct-pr': { when_to_use: null },
         'full-review': { when_to_use: null },
       },
-      dispatch: null,
       terminal: { backend: 'background' },
     } satisfies RuntimeConfig);
   });
@@ -177,7 +176,6 @@ describe('runtime config', () => {
       modes: {
         'full-review': { when_to_use: 'changes touching auth or data' },
       },
-      dispatch: null,
     });
   });
 
@@ -551,7 +549,7 @@ describe('historical hashes', () => {
     const base = frozenHashes(USER_YAML);
     const h = frozenHashes(located);
     expect(h.locations).toEqual({
-      acme: { path: '/srv/acme', repo: 'acme/app' },
+      acme: { path: '/srv/acme', repo: 'acme/app', base_branch: 'main' },
     });
     expect(h.config).toEqual(GOLDEN.config);
     expect(h.effective).toBe(base.effective);

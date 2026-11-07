@@ -258,14 +258,21 @@ export const DispatchSchema = z
   .strict();
 export type RawDispatch = z.infer<typeof DispatchSchema>;
 
+/**
+ * `dispatch.yaml` beside the user config and a repo's `cusr.dispatch.yaml`, which replaces it as a whole.
+ * Served by `cusr dispatch`: cusrd checks the choices and never reads `when`; the user still confirms the
+ * selection (docs/architecture.md §5.1).
+ */
+export const DispatchFileSchema = DispatchSchema.extend({ version: z.literal(1) }).strict();
+
 export const ProjectEntrySchema = z
   .object({
     path: AbsolutePathSchema.optional(),
     repo: RepoSlugSchema.optional(),
     base_branch: z.string().min(1),
     protected_branches: nameList.optional(),
-    /** Replaces `runtime.dispatch` as a whole for this project; rule lists are never merged. */
-    dispatch: DispatchSchema.optional(),
+    /** Removed: accepted so an old config still starts, and reported as ignored. */
+    dispatch: z.unknown().optional(),
   })
   .strict();
 
@@ -327,11 +334,8 @@ export const RuntimeSchema = z
         z.object({ when_to_use: z.string().min(1).max(4_000) }).strict(),
       )
       .optional(),
-    /**
-     * Guidance for projects without their own `projects.<id>.dispatch`, served by `cusr dispatch`. cusrd checks
-     * the choices at load and never reads `when`; the user still confirms the selection (docs/architecture.md §5.1).
-     */
-    dispatch: DispatchSchema.optional(),
+    /** Removed: accepted so an old config still starts, and reported as ignored. */
+    dispatch: z.unknown().optional(),
   })
   .strict();
 export type RawRuntime = z.infer<typeof RuntimeSchema>;

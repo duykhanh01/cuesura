@@ -625,11 +625,17 @@ export async function loadDaemonConfig(args: DaemonCliArgs): Promise<
     value: {
       dataDir: isAbsolute(dataDir) ? dataDir : resolve(dataDir),
       runtime,
-      warnings: runtime.access_tokens_ignored
-        ? [
-            `${args.config}: runtime.access_tokens is ignored; access tokens were removed, see deploy/README.md#người-gọi-và-quyền`,
-          ]
-        : [],
+      warnings: [
+        ...(runtime.access_tokens_ignored
+          ? [
+              `${args.config}: runtime.access_tokens is ignored; access tokens were removed, see deploy/README.md#người-gọi-và-quyền`,
+            ]
+          : []),
+        ...validated.value.ignoredDispatchKeys.map(
+          (key) =>
+            `${args.config}: ${key} is ignored; dispatch rules live in dispatch.yaml beside the config or cusr.dispatch.yaml in the repo`,
+        ),
+      ],
     },
   };
 }

@@ -216,7 +216,7 @@ export function normalizeUserBase(u: RawUserConfig): Omit<NormalizedUser, 'workf
 
 // ---------- Runtime daemon 002 ----------
 
-export type ProjectLocation = { path: string | null; repo: string | null };
+export type ProjectLocation = { path: string | null; repo: string | null; base_branch: string };
 
 /**
  * Keep project paths and remotes outside NormalizedUser to preserve existing policy/configuration
@@ -226,7 +226,7 @@ export function projectLocations(u: RawUserConfig): Record<string, ProjectLocati
   return Object.fromEntries(
     Object.entries(u.projects ?? {}).map(([k, v]) => [
       k,
-      { path: v.path ?? null, repo: v.repo ?? null },
+      { path: v.path ?? null, repo: v.repo ?? null, base_branch: v.base_branch },
     ]),
   );
 }
@@ -281,12 +281,14 @@ export function normalizeDispatch(d: RawDispatch): NormalizedDispatch {
   };
 }
 
-export function projectDispatch(u: RawUserConfig): Record<string, NormalizedDispatch> {
-  return Object.fromEntries(
-    Object.entries(u.projects ?? {}).flatMap(([id, p]) =>
-      p.dispatch === undefined ? [] : [[id, normalizeDispatch(p.dispatch)]],
+/** Dispatch keys of the user config, which no longer has any; the daemon warns about them at start. */
+export function ignoredDispatchKeys(u: RawUserConfig): string[] {
+  return [
+    ...(u.runtime?.dispatch === undefined ? [] : ['runtime.dispatch']),
+    ...Object.entries(u.projects ?? {}).flatMap(([id, p]) =>
+      p.dispatch === undefined ? [] : [`projects.${id}.dispatch`],
     ),
-  );
+  ];
 }
 
 export type RuntimeConfig = {
@@ -302,7 +304,6 @@ export type RuntimeConfig = {
   harness_isolation: Record<string, HarnessInnerModePolicy>;
   /** Allowed execution modes with their guidance; both when `runtime.modes` is absent. */
   modes: Partial<Record<ExecutionMode, { when_to_use: string | null }>>;
-  dispatch: NormalizedDispatch | null;
 };
 
 export function mergeRuntimeLimits(overrides: RawRuntime['limits']): RuntimeLimits {
@@ -343,6 +344,5 @@ export function normalizeRuntime(
               r.modes?.[m] === undefined ? [] : [[m, { when_to_use: r.modes[m].when_to_use }]],
             ),
           ),
-    dispatch: r.dispatch === undefined ? null : normalizeDispatch(r.dispatch),
   };
 }

@@ -61,69 +61,63 @@ export function checkRuntime(u: RawUserConfig, at: Locator): Diagnostic[] {
 
 /** A proposal from a dispatch block must be one the user could confirm: declared, allowed and complete. */
 export function checkDispatch(
-  raw: RawUserConfig,
+  modes: Readonly<Record<string, unknown>> | undefined,
   user: NormalizedUser,
   profiles: Record<string, NormalizedProfile>,
   at: Locator,
+  dispatch: RawDispatch,
 ): Diagnostic[] {
   const out: Diagnostic[] = [];
   const bad = (path: KeyPath, message: string): void => {
     out.push(diag('schema_invalid', at(path), path, message));
   };
-  const checkBlock = (root: KeyPath, dispatch: RawDispatch): void => {
-    const known = Object.hasOwn(profiles, dispatch.profile);
-    if (!known)
-      out.push(
-        diag(
-          'unknown_profile',
-          at([...root, 'profile']),
-          [...root, 'profile'],
-          `Profile '${dispatch.profile}' does not exist`,
-        ),
+  const known = Object.hasOwn(profiles, dispatch.profile);
+  if (!known)
+    out.push(
+      diag(
+        'unknown_profile',
+        at(['profile']),
+        ['profile'],
+        `Profile '${dispatch.profile}' does not exist`,
+      ),
+    );
+  const profile = known ? profiles[dispatch.profile] : undefined;
+  const checkAgent = (path: KeyPath, agent: RawDispatchAgent, roles: readonly string[]): void => {
+    const { harness, model, effort } = agent;
+    if (profile?.allow_models != null && !profile.allow_models.includes(model))
+      bad(path, `Profile '${dispatch.profile}' does not allow model '${model}'`);
+    for (const roleName of roles) {
+      if (profile?.allow_roles != null && !profile.allow_roles.includes(roleName))
+        bad(path, `Profile '${dispatch.profile}' does not allow role '${roleName}'`);
+      const declared = user.roles[roleName]?.binding.some(
+        (b) =>
+          b.model === model && b.effort === effort && user.models[b.model]?.harness === harness,
       );
-    const profile = known ? profiles[dispatch.profile] : undefined;
-    const checkAgent = (path: KeyPath, agent: RawDispatchAgent, roles: readonly string[]): void => {
-      const { harness, model, effort } = agent;
-      if (profile?.allow_models != null && !profile.allow_models.includes(model))
-        bad(path, `Profile '${dispatch.profile}' does not allow model '${model}'`);
-      for (const roleName of roles) {
-        if (profile?.allow_roles != null && !profile.allow_roles.includes(roleName))
-          bad(path, `Profile '${dispatch.profile}' does not allow role '${roleName}'`);
-        const declared = user.roles[roleName]?.binding.some(
-          (b) =>
-            b.model === model && b.effort === effort && user.models[b.model]?.harness === harness,
-        );
-        if (declared !== true)
-          bad(
-            path,
-            `Role '${roleName}' does not declare a binding for ${harness}/${model}/${effort}`,
-          );
-      }
-    };
-    const checkChoice = (base: KeyPath, c: RawDispatchChoice): void => {
-      const mode = dispatchMode(c);
-      const modes = raw.runtime?.modes;
-      if (modes !== undefined && modes[mode] === undefined)
+      if (declared !== true)
         bad(
-          mode === 'full-review' ? [...base, 'reviewer'] : [...base, 'use'],
-          `Mode '${mode}' is not allowed by runtime.modes`,
+          path,
+          `Role '${roleName}' does not declare a binding for ${harness}/${model}/${effort}`,
         );
-      if (Array.isArray(c.use))
-        c.use.forEach((u, i) => {
-          checkAgent([...base, 'use', i], u, ['coder', 'fixer']);
-        });
-      else checkAgent([...base, 'use'], c.use, ['coder', 'fixer']);
-      if (c.reviewer !== undefined) checkAgent([...base, 'reviewer'], c.reviewer, ['reviewer']);
-    };
-    dispatch.rules.forEach((r, i) => {
-      checkChoice([...root, 'rules', i], r);
-    });
-    checkChoice([...root, 'default'], dispatch.default);
+    }
   };
-  if (raw.runtime?.dispatch !== undefined)
-    checkBlock(['runtime', 'dispatch'], raw.runtime.dispatch);
-  for (const [id, project] of Object.entries(raw.projects ?? {}))
-    if (project.dispatch !== undefined) checkBlock(['projects', id, 'dispatch'], project.dispatch);
+  const checkChoice = (base: KeyPath, c: RawDispatchChoice): void => {
+    const mode = dispatchMode(c);
+    if (modes !== undefined && modes[mode] === undefined)
+      bad(
+        mode === 'full-review' ? [...base, 'reviewer'] : [...base, 'use'],
+        `Mode '${mode}' is not allowed by runtime.modes`,
+      );
+    if (Array.isArray(c.use))
+      c.use.forEach((u, i) => {
+        checkAgent([...base, 'use', i], u, ['coder', 'fixer']);
+      });
+    else checkAgent([...base, 'use'], c.use, ['coder', 'fixer']);
+    if (c.reviewer !== undefined) checkAgent([...base, 'reviewer'], c.reviewer, ['reviewer']);
+  };
+  dispatch.rules.forEach((r, i) => {
+    checkChoice(['rules', i], r);
+  });
+  checkChoice(['default'], dispatch.default);
   return out;
 }
 

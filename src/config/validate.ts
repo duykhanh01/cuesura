@@ -19,7 +19,8 @@ import {
   normalizeProject,
   normalizeRuntime,
   normalizeUserBase,
-  projectDispatch,
+  ignoredDispatchKeys,
+  normalizeDispatch,
   projectLocations,
   type NormalizedDispatch,
   type ProjectLocation,
@@ -35,7 +36,7 @@ import {
 } from './schema-project.ts';
 
 export type { ValidatedConfig };
-import { USER_ONLY_KEYS, UserConfigSchema } from './schema-user.ts';
+import { DispatchFileSchema, USER_ONLY_KEYS, UserConfigSchema } from './schema-user.ts';
 import { DEFAULT_LIMITS, loadYaml, type ConfigSource, type LoaderLimits } from './yaml-loader.ts';
 
 export type ValidateInput = {
@@ -54,7 +55,7 @@ export type Validated = {
   runtime: RuntimeConfig | null;
   locations: Record<string, ProjectLocation>;
   /** Each project's own guidance. Kept out of `config` like the locations: never part of a policy hash. */
-  projectDispatch: Record<string, NormalizedDispatch>;
+  ignoredDispatchKeys: string[];
 };
 
 export function zodDiagnostics(error: z.ZodError, at: Locator, prefix: KeyPath = []): Diagnostic[] {
@@ -82,11 +83,6 @@ type AnalyzeInput = {
   files: { user: string; project: string | null };
   packHashes: Record<string, Hash>;
   maxProfileDepth: number;
-  /**
-   * `runtime.dispatch` guides proposals from the configuration as loaded. Set by `validateConfig`; a task's
-   * re-analysis after overrides leaves it out, since guidance must not constrain an allowed override.
-   */
-  checkGuidance?: boolean;
 };
 
 export function analyze(input: AnalyzeInput): Result<Validated, Diagnostic[]> {
@@ -137,8 +133,6 @@ export function analyze(input: AnalyzeInput): Result<Validated, Diagnostic[]> {
       atProject: input.atProject,
     }),
   );
-  if (input.checkGuidance === true)
-    diags.push(...checkDispatch(rawUser, user, profiles, input.atUser));
   if (diags.length > 0) return err(diags);
 
   const config: ValidatedConfig = {
@@ -159,7 +153,7 @@ export function analyze(input: AnalyzeInput): Result<Validated, Diagnostic[]> {
     config,
     runtime: normalizeRuntime(rawUser.runtime, Object.keys(rawUser.harnesses ?? {})),
     locations: projectLocations(rawUser),
-    projectDispatch: projectDispatch(rawUser),
+    ignoredDispatchKeys: ignoredDispatchKeys(rawUser),
   });
 }
 
@@ -260,11 +254,32 @@ export function validateConfig(input: ValidateInput): Result<Validated, Diagnost
     files: { user: input.user.file, project: input.project?.file ?? null },
     packHashes,
     maxProfileDepth: limits.max_profile_depth,
-    checkGuidance: true,
   });
   if (!result.ok) diags.push(...result.error);
   if (diags.length > 0) return err(sortDiagnostics(dedupe(diags)));
   return result;
+}
+
+/** A dispatch file can only propose what the user config declares and its profiles allow. */
+export function validateDispatchFile(
+  source: ConfigSource,
+  validated: Validated,
+  limits: LoaderLimits = DEFAULT_LIMITS,
+): Result<NormalizedDispatch, Diagnostic[]> {
+  const doc = loadYaml(source, limits);
+  if (!doc.ok) return err(sortDiagnostics(doc.error));
+  const at: Locator = (path) => locate(doc.value.located, path);
+  const parsed = DispatchFileSchema.safeParse(doc.value.value);
+  if (!parsed.success) return err(sortDiagnostics(zodDiagnostics(parsed.error, at)));
+  const { config } = validated;
+  const diags = checkDispatch(
+    validated.runtime?.modes,
+    config.user,
+    config.profiles,
+    at,
+    parsed.data,
+  );
+  return diags.length > 0 ? err(sortDiagnostics(diags)) : ok(normalizeDispatch(parsed.data));
 }
 
 function dedupe(ds: Diagnostic[]): Diagnostic[] {

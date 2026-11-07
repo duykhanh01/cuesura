@@ -5,6 +5,7 @@
  * config_invalid/capability_missing. No slot, worktree or snapshot is taken here; the snapshot is frozen
  * once at start. Nothing polls the base: a later retry needs a new confirm/recheck request.
  */
+import type { ConfigSource } from '../config/yaml-loader.ts';
 import type { TaskState, Wait } from '../domain/state.ts';
 import { FREEZE_PENDING_CODES } from '../engine/start.ts';
 import type { Hash, Uuid } from '../shared/brand.ts';
@@ -14,7 +15,12 @@ import type { PreflightInput, PreflightPorts } from './preflight.ts';
 import { adoptionInput, checkConfig, submit } from './triage.ts';
 
 /** Inputs read fresh for every request, so a fixed config is picked up by the next confirm/recheck. */
-export type ConfigInputs = () => Promise<Omit<PreflightInput, 'task'>>;
+export type ConfigInputs = () => Promise<
+  Omit<PreflightInput, 'task'> & {
+    /** `dispatch.yaml` beside the user config. Lazy: a bad optional file must not reach preflight. */
+    readonly dispatch?: () => Promise<ConfigSource | null>;
+  }
+>;
 
 export type ConfirmDeps = {
   readonly store: Store;

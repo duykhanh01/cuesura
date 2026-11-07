@@ -845,7 +845,8 @@ export const inboxCommand: CliCommand = {
 
 export const dispatchCommand: CliCommand = {
   name: 'dispatch',
-  description: 'Show the configured guidance for choosing run settings',
+  description:
+    'Show the guidance for choosing run settings; cusr.dispatch.yaml overrides the config',
   options: [DATA_DIR, { flags: '--project <id>', description: 'Project ID' }],
   run: (values, json, io) =>
     values['project'] === undefined

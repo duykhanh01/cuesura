@@ -28,6 +28,7 @@ const FETCH_TIMEOUT_MS = 60_000;
 const GIT_OUTPUT_BYTES = 64 * 1024;
 const PROJECT_CONFIG_BYTES = 1024 * 1024;
 const PROJECT_CONFIG_FILE = 'cusr.yaml';
+export const DISPATCH_FILE = 'cusr.dispatch.yaml';
 
 export const HOST_CAUSES = ['systemd_user_unavailable'] as const;
 export type HostCause = (typeof HOST_CAUSES)[number];
@@ -267,7 +268,7 @@ async function run(
   if (!fork.ok) return err(failed([fork.error]));
   const base_sha = fork.value;
 
-  const config = await readProjectConfig(ports.git, location.path, base_sha);
+  const config = await readBaseFile(ports.git, location.path, base_sha, PROJECT_CONFIG_FILE);
   if (!config.ok) return err(failed([config.error]));
   const validated = validateConfig({
     user: input.user,
@@ -661,18 +662,14 @@ async function checkProjectRepo(
   return ok({ base_sha: sha.stdout.trim(), common_git_dir: common });
 }
 
-/** `cusr.yaml` of the base commit, never the working tree; null when the commit has none. */
-async function readProjectConfig(
+/** A config file of the base commit, never the working tree; null when the commit has none. */
+async function readBaseFile(
   port: GitPort,
   path: string,
   sha: string,
+  file: string,
 ): Promise<Result<ConfigSource | null, PreflightProblem>> {
-  const entry = await git(
-    port,
-    path,
-    ['ls-tree', sha, '--', PROJECT_CONFIG_FILE],
-    'project_config',
-  );
+  const entry = await git(port, path, ['ls-tree', sha, '--', file], 'project_config');
   if (entry.code !== 0)
     throw new Infra('project_config', `git ls-tree failed: ${entry.stderr.trim().slice(0, 512)}`);
   const line = entry.stdout.trim();
@@ -683,17 +680,13 @@ async function readProjectConfig(
       problem(
         'config_invalid',
         'project_config',
-        `${PROJECT_CONFIG_FILE} at ${sha} is not a regular file (mode ${mode ?? '?'})`,
+        `${file} at ${sha} is not a regular file (mode ${mode ?? '?'})`,
       ),
     );
   }
-  const blob = await git(
-    port,
-    path,
-    ['cat-file', 'blob', `${sha}:${PROJECT_CONFIG_FILE}`],
-    'project_config',
-    { max_output_bytes: PROJECT_CONFIG_BYTES },
-  );
+  const blob = await git(port, path, ['cat-file', 'blob', `${sha}:${file}`], 'project_config', {
+    max_output_bytes: PROJECT_CONFIG_BYTES,
+  });
   if (blob.code !== 0)
     throw new Infra('project_config', `git cat-file failed: ${blob.stderr.trim().slice(0, 512)}`);
   if (blob.truncated)
@@ -701,10 +694,10 @@ async function readProjectConfig(
       problem(
         'config_invalid',
         'project_config',
-        `${PROJECT_CONFIG_FILE} at ${sha} is larger than ${PROJECT_CONFIG_BYTES} bytes`,
+        `${file} at ${sha} is larger than ${PROJECT_CONFIG_BYTES} bytes`,
       ),
     );
-  return ok({ file: `${PROJECT_CONFIG_FILE}@${sha}`, text: blob.stdout });
+  return ok({ file: `${file}@${sha}`, text: blob.stdout });
 }
 
 /** Immutable numeric repo ID; a renamed or transferred repo is a mismatch, not a silent follow. */
@@ -764,13 +757,14 @@ export type LocalBaseError = {
 };
 
 /**
- * `cusr.yaml` at the base as this machine knows it, for a read that must stay quick: unlike preflight it
- * does not fetch, so it may lag the remote. Start fetches and checks again.
+ * A config file at the base as this machine knows it, for a read that must stay quick: unlike preflight it
+ * does not fetch, so it may lag the remote. Start fetches and checks `cusr.yaml` again.
  */
 export async function readLocalBaseConfig(
   port: GitPort,
   path: string,
   baseBranch: string,
+  file: string = PROJECT_CONFIG_FILE,
 ): Promise<
   Result<{ readonly base_sha: string; readonly config: ConfigSource | null }, LocalBaseError>
 > {
@@ -787,7 +781,7 @@ export async function readLocalBaseConfig(
         detail: `origin/${baseBranch} is not available in ${path}`,
       });
     const base_sha = sha.stdout.trim();
-    const config = await readProjectConfig(port, path, base_sha);
+    const config = await readBaseFile(port, path, base_sha, file);
     return config.ok
       ? ok({ base_sha, config: config.value })
       : err({ kind: 'invalid', detail: config.error.message });

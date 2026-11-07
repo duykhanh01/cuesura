@@ -20,7 +20,8 @@ import type { Clock, GitHubPort, HarnessPort } from '../adapters/ports.ts';
 import { MAX_ENVELOPE_IDS } from '../domain/trigger.ts';
 import { DEFAULT_RUNTIME_LIMITS } from '../domain/runtime.ts';
 import type { RuntimeConfig } from '../config/normalize.ts';
-import { readConfigFiles } from '../config/read-files.ts';
+import { ensureDefaultDispatch } from '../config/default-dispatch.ts';
+import { readConfigFiles, readDispatchFile } from '../config/read-files.ts';
 import { validateConfig } from '../config/validate.ts';
 import type { ConfigSource } from '../config/yaml-loader.ts';
 import type { DocContent } from '../policy/finalize.ts';
@@ -138,6 +139,18 @@ export async function productionControl(opts: {
     user: sources[0] as ConfigSource,
     packs: {},
   });
+  if (validated.ok)
+    // Guidance only, so a failure here must not stop the daemon.
+    await ensureDefaultDispatch(opts.configPath, validated.value).then(
+      (r) => {
+        if (r === 'created') opts.log?.('wrote the default dispatch.yaml beside the config');
+        if (r === 'unavailable')
+          opts.log?.('no default dispatch.yaml: no profile can run its default models');
+      },
+      (e: unknown) => {
+        opts.log?.(`no default dispatch.yaml: ${opts.redactor.text(String(e))}`);
+      },
+    );
   const runtime = validated.ok ? validated.value.runtime : null;
   const projects = validated.ok
     ? Object.values(validated.value.locations).flatMap((l) => (l.path === null ? [] : [l.path]))
@@ -244,6 +257,7 @@ export async function productionControl(opts: {
       const user = (await readConfigFiles({ user: opts.configPath }))[0] as ConfigSource;
       return {
         user,
+        dispatch: () => readDispatchFile(opts.configPath),
         packs: {},
         ...manifestInputs(user),
         harness_tools: harnessTools(),
