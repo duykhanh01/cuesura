@@ -11,6 +11,12 @@ import {
   type CommandSetDeps,
   type CommandSetInput,
 } from '../../../src/adapters/gates.ts';
+import type { Caller } from '../../../src/application/authz.ts';
+import {
+  taskGateLog,
+  type GateLogDeps,
+  type GateLogPage,
+} from '../../../src/application/gate-logs.ts';
 import { ensureWorktree, markerPath } from '../../../src/adapters/git/worktree.ts';
 import type { SandboxProvider } from '../../../src/adapters/ports.ts';
 import {
@@ -20,6 +26,7 @@ import {
   SpawnExecutor,
   type CommandExecutor,
 } from '../../../src/runner/commands.ts';
+import type { TaskState } from '../../../src/domain/state.ts';
 import { GateDataSchema } from '../../../src/domain/trigger.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
 import { HostExecutionProvider, shortTmpDir } from '../../../src/runner/sandbox.ts';
@@ -340,9 +347,8 @@ describe('gate logs (#178)', () => {
     `echo; echo MARKER-MIDDLE; yes filler-line-of-a-long-test-report | head -c ${bytes / 2}; ` +
     `echo; echo MARKER-END; ${tail} exit 1`;
 
-  async function gate(command: string) {
+  async function gate(command: string, dir = join(g.base, `journal${n++}`)) {
     const { deps, input } = await setup();
-    const dir = join(g.base, `journal${n++}`);
     const r = await runGates(
       { ...deps, journal: new CommandJournal(dir) },
       input([{ name: 'unit', command }]),
@@ -391,6 +397,41 @@ describe('gate logs (#178)', () => {
     expect(whole).toContain('[REDACTED]');
     expect(statSync(log as string).mode & 0o777).toBe(0o600);
     expect(statSync(join(log as string, '..')).mode & 0o777).toBe(0o700);
+  });
+
+  it('the log a real gate wrote reads back through the daemon query, whole and from its end', async () => {
+    const dataDir = join(g.base, `reader${n++}`);
+    const effect = uuidOf(7);
+    const { result, log } = await gate(noisy(2 * MIB), join(dataDir, 'receipts', effect));
+    const path = log as string;
+    const deps = {
+      store: {
+        readTask: () => ({}) as TaskState,
+        readEvents: () => [
+          { type: 'GateResultRecorded', payload: { effect_id: effect, results: [result] } },
+        ],
+      },
+      dataDir,
+    } as unknown as GateLogDeps;
+    const owner: Caller = { grant: { actor: 'owner', roles: ['read'] } };
+    const query = { kind: 'task_gate_log', task_id: uuidOf(1), gate: result?.gate };
+
+    let offset = 0;
+    let all = '';
+    for (;;) {
+      const r = taskGateLog(deps, owner, { ...query, offset });
+      const page = (r as { value: GateLogPage }).value;
+      all += page.text;
+      offset = page.next_offset;
+      if (page.complete) break;
+    }
+    expect(all).toBe(readFileSync(path, 'utf8'));
+    expect(all).toContain('MARKER-MIDDLE');
+
+    const tail = taskGateLog(deps, owner, { ...query, tail: true, limit: 4096 });
+    const end = (tail as { value: GateLogPage }).value;
+    expect(end.text).toContain('MARKER-END');
+    expect(end.text).not.toContain('MARKER-MIDDLE');
   });
 
   it('keeps the log of a gate that passed', async () => {

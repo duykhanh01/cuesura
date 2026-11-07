@@ -6,6 +6,7 @@ import {
   assistantWaitCommand,
 } from './assistant.ts';
 import { statusCommand } from './client.ts';
+import { gateLogCommand, gatesCommand } from './gate-logs.ts';
 import { initCommand } from './init.ts';
 import { logsCommand } from './logs.ts';
 import { projectListCommand } from './projects.ts';
@@ -60,6 +61,8 @@ export const CUSR_COMMANDS: readonly CliCommand[] = [
   explainCommand,
   historyCommand,
   logsCommand,
+  gatesCommand,
+  gateLogCommand,
   proposeCommand,
   confirmCommand,
   cancelCommand,

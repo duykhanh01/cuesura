@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { CUSR_COMMANDS } from './commands.ts';
-import { packageVersion, processIo, runCli } from './program.ts';
+import { exitOnClosedPipe, packageVersion, processIo, runCli } from './program.ts';
 
 const argv = process.argv.slice(2);
 const term = process.env['TERM'];
@@ -18,6 +18,7 @@ if (
   const { runTui } = await import('../tui/main.ts');
   runTui();
 } else {
+  process.stdout.on('error', exitOnClosedPipe);
   process.exitCode = await runCli(
     {
       name: 'cusr',

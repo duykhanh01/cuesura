@@ -20,6 +20,8 @@ cusr task propose --help
 cusr task confirm --help
 cusr task recheck --help
 cusr task logs --help
+cusr task gates --help
+cusr task gate-log --help
 ```
 
 ## Connection and argument values

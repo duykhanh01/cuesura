@@ -93,6 +93,9 @@ trước khi in, cho cả `--json` lẫn output cho người đọc.
 - Không có token. Quyền mở socket chỉ dựa vào file mode. Caller khai actor qua header `x-cusr-actor`, do
   CLI lấy từ `CUSR_ACTOR`: không có hoặc `owner` là owner (`read`/`operate`/`admin`), `assistant` là
   `read`/`operate`, giá trị khác bị từ chối 401. Không lấy role từ body request. Xem ADR 0011.
+- `task gates` đọc kind `task_gates`: mỗi vòng gate và trạng thái log của từng gate (`available`, `expired`,
+  `missing`). `task gate-log` đọc kind `task_gate_log` theo byte offset, không dùng cursor của log agent; mặc định
+  lấy phần cuối có giới hạn, `--full` đọc hết. Log retention đã xóa là trạng thái bình thường, không phải lỗi.
 - `task logs` đọc `POST /v1/query` kind `task_logs`; `--follow` là CLI hỏi lại theo cursor rồi in JSONL,
   không có route stream riêng. Cursor đếm record đã commit theo thứ tự event, không đổi qua rotation/restart;
   batch mất file hiện là `gap`, không bị bỏ im lặng.

@@ -35,6 +35,12 @@ export interface CliCommand {
   ): Promise<number>;
 }
 
+/** A reader such as `head` that has seen enough closes the pipe: that ends the output, not in a crash. */
+export function exitOnClosedPipe(e: NodeJS.ErrnoException): void {
+  if (e.code !== 'EPIPE') throw e;
+  process.exit(0);
+}
+
 export const processIo: CliIo = {
   stdout: (text) => {
     process.stdout.write(text);

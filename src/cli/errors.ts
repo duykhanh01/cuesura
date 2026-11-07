@@ -9,6 +9,7 @@ const FORBIDDEN = ['unauthenticated', 'forbidden'];
 const MISSING = [
   'not_found',
   'task_not_found',
+  'gate_not_found',
   'question_not_found',
   'approval_not_found',
   'request_not_found',

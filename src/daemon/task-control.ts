@@ -14,6 +14,7 @@ import { pauseTask, resumeTask } from '../application/pause.ts';
 import { runDoctor, type DoctorDeps } from '../application/doctor.ts';
 import { AttentionDesk } from '../application/attention.ts';
 import { inbox } from '../application/inbox.ts';
+import { taskGateLog, taskGates } from '../application/gate-logs.ts';
 import { LogRecordCache, taskLogs, type LogsDeps } from '../application/logs.ts';
 import { taskProgress } from '../application/progress.ts';
 import { projectList } from '../application/projects.ts';
@@ -128,6 +129,10 @@ export function taskControl(deps: TaskControlDeps): {
         : {
             task_logs: (caller, body) =>
               reply(taskLogs({ store, ...logs, cache: logCache }, caller, body)),
+            task_gates: (caller, body) =>
+              reply(taskGates({ store, dataDir: logs.dataDir }, caller, body)),
+            task_gate_log: (caller, body) =>
+              reply(taskGateLog({ store, dataDir: logs.dataDir }, caller, body)),
           }),
       ...(doctor === undefined
         ? {}
