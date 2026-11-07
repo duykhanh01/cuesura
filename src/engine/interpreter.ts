@@ -63,7 +63,7 @@ import { ciVerdict, latestCi, mergeGuard, type GuardFailure } from './merge-guar
 import { askHuman, requestApproval } from './questions.ts';
 import { settleUnderDrift } from './head-drift.ts';
 import { deferForDrift } from './revision.ts';
-import { waitMergeEvidence, waitPrClosed } from './observation.ts';
+import { restartCadence, waitMergeEvidence, waitPrClosed } from './observation.ts';
 import { isPaused, stoppedByPause, waitPaused } from './pause.ts';
 import { reusableReview, reviewInputDigest } from './review-evidence.ts';
 import { confirmedChoices } from './run-config.ts';
@@ -991,6 +991,7 @@ export function waitCiExhausted(
       },
     }),
   );
+  restartCadence(ctx);
 }
 
 /**

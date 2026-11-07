@@ -185,3 +185,42 @@ describe('allowed actions for every wait detail (T111, FR-029)', () => {
     ).toEqual(['task_add']);
   });
 });
+
+describe('merge_manually says what records the merge (#209)', () => {
+  const note = (o: Partial<TaskState>): string =>
+    allowedActions(state('ci_wait_exhausted', o), { recheckable: true }).find(
+      (a) => a.action === 'merge_manually',
+    )?.note ?? '';
+  const DEADLINE = Date.UTC(2026, 11, 7);
+  const observing = (o: { next_due_at: number | null; expired?: boolean; count?: number }) =>
+    ({
+      runtime_ref: 'rt',
+      observation: {
+        expired: o.expired ?? false,
+        budget: {
+          next_due_at: o.next_due_at,
+          deadline_at: DEADLINE,
+          count: o.count ?? 0,
+          max_count: 2000,
+        },
+      },
+    }) as unknown as Partial<TaskState>;
+
+  it('names when the next observation round reads the PR', () => {
+    const at = Date.UTC(2026, 10, 7, 13, 8, 0);
+    expect(note(observing({ next_due_at: at }))).toContain(`due at ${at}, Unix ms`);
+  });
+
+  it('asks for a recheck when no observation round will read the PR', () => {
+    for (const o of [
+      {},
+      observing({ next_due_at: null, expired: true }),
+      observing({ next_due_at: DEADLINE }),
+      observing({ next_due_at: DEADLINE - 1, count: 2000 }),
+      { runtime_ref: null } as Partial<TaskState>,
+    ]) {
+      expect(note(o)).toMatch(/then run recheck/);
+      expect(note(o)).not.toMatch(/due at/);
+    }
+  });
+});

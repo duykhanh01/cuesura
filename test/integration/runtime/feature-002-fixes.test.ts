@@ -6,6 +6,7 @@ import type { CanonicalTask } from '../../../src/domain/task.ts';
 import type { RequiredCheckVerdict, Trigger } from '../../../src/domain/trigger.ts';
 import type { Uuid } from '../../../src/shared/brand.ts';
 import { replay } from '../../../src/engine/evolve.ts';
+import { observationDue } from '../../../src/daemon/observation.ts';
 import { hashCanonical } from '../../../src/shared/hash.ts';
 import { openFileStoreForTest } from '../../../src/store/testing.ts';
 import { buildTask, DEFAULT_LIMITS, uuidOf } from '../../support/builders.ts';
@@ -708,6 +709,36 @@ describe('CI and execution limits vs observation (US2.9/US2.10, FR-043.08–11)'
     expect(after.evidence.ci.at(-1)?.checks.map((c) => c.state)).toEqual(['success', 'success']);
     expect(d.pending(t.id)).toEqual([]);
     // A merge still completes the task.
+    merge(d, t, A);
+    expect(d.task(t.id).status).toBe('DONE');
+  });
+
+  it('#209: when the CI window runs out the observation resumes its first cadence, so a manual merge is seen within a minute', () => {
+    const d = setup();
+    const t = buildTask();
+    createGrantStart(d, t, 'direct-pr', { limits: { max_wall_ms: 6 * HOUR } });
+    toPublish(d, t, A);
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
+    d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
+      pr_ref: 'acme#7',
+      head_sha: A,
+    });
+    reviewToCi(d, t.id);
+    const pending = ci(A, { build: 'success', test: 'pending' });
+    // Each CI poll also submits its read as an automatic observation round, as `observeTask` does.
+    for (let i = 0; i < 200 && code(d, t) !== 'ci_wait_exhausted'; i++) {
+      d.must(t.id, observation(d, t, 'open', A));
+      d.complete(t.id, d.pendingOne(t.id, 'await_ci').id, 'succeeded', pending);
+      if (code(d, t) === 'ci_wait_exhausted') break;
+      d.now += 60_000;
+      d.fire();
+    }
+    expect(code(d, t)).toBe('ci_wait_exhausted');
+    const due = d.task(t.id).observation?.budget.next_due_at;
+    expect(due).not.toBeNull();
+    expect(due).toBeLessThanOrEqual(d.now + 60_000);
+    d.now = due as number;
+    expect(observationDue(d.task(t.id), d.now)).toBe('observe');
     merge(d, t, A);
     expect(d.task(t.id).status).toBe('DONE');
   });

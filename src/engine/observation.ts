@@ -146,6 +146,27 @@ function schedule(ctx: Ctx, changed: boolean): void {
 }
 
 /**
+ * The CI wait stopped polling while its reads backed the window's cadence off to the cap; the observation
+ * alone now watches the PR, so its next round comes at the first cadence step (#209). Counts nothing.
+ */
+export function restartCadence(ctx: Ctx): void {
+  const ob = ctx.state.observation;
+  if (ob === null || ob.expired) return;
+  const b = ob.budget;
+  const due = Math.min(ctx.now + cadenceDelay(limitsOf(ctx), 0), b.deadline_at);
+  if (b.next_due_at === null || b.next_due_at <= due) return;
+  ctx.emit('ObservationScheduled', {
+    subject: ob.subject,
+    started_at: b.started_at,
+    deadline_at: b.deadline_at,
+    max_count: b.max_count,
+    next_due_at: due,
+    cadence_index: 0,
+    generation: b.generation,
+  });
+}
+
+/**
  * The window is spent: no more automatic rounds. A task waiting on its PR now waits
  * `policy/observation_expired` and keeps the wait it had as history; only a recheck observes again.
  */

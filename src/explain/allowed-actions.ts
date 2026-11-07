@@ -49,14 +49,25 @@ const recheck = (c: Ctx, note: string): AllowedAction | null =>
         note,
       }
     : null;
+/** Which read records a manual merge: only a runtime task with a live window is observed (#209). */
+function mergeNote(s: TaskState): string {
+  const ob = s.observation ?? null;
+  const due = ob?.budget.next_due_at ?? null;
+  // A round due at the window's end or past its round cap only expires the window; it reads nothing.
+  if (
+    (s.runtime_ref ?? null) === null ||
+    ob === null ||
+    ob.expired ||
+    (due !== null && due >= ob.budget.deadline_at) ||
+    ob.budget.count >= ob.budget.max_count
+  )
+    return 'Merge the PR on GitHub into the target branch, then run recheck to record DONE; no observation round is scheduled.';
+  return due === null
+    ? 'Merge the PR on GitHub into the target branch; the next read of the PR records DONE, or recheck records it at once.'
+    : `Merge the PR on GitHub into the target branch; the next observation round (due at ${due}, Unix ms) records DONE, or recheck records it at once.`;
+}
 const merge = (c: Ctx): AllowedAction | null =>
-  c.hasPr
-    ? {
-        action: 'merge_manually',
-        command: null,
-        note: 'Merge the PR on GitHub into the target branch; observation or recheck then records DONE.',
-      }
-    : null;
+  c.hasPr ? { action: 'merge_manually', command: null, note: mergeNote(c.s) } : null;
 const external = (note: string): AllowedAction => ({
   action: 'fix_external',
   command: null,
