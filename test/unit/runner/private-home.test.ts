@@ -166,7 +166,7 @@ describe('private home auth', () => {
     previous.writeText(`${prefix}/other.jsonl`, 'another session');
     previous.writeText('private-home/.claude/.credentials.json', 'secret');
     previous.writeText('private-home/.claude/settings.json', 'settings');
-    copySession(previous, next, id);
+    copySession(previous, next, id, 'claude');
     expect(readFileSync(next.resolve(`${prefix}/${id}.jsonl`), 'utf8')).toBe('conversation\n');
     expect(readFileSync(next.resolve(`${prefix}/${id}/tool-results/one.txt`), 'utf8')).toBe(
       'result',
@@ -177,11 +177,51 @@ describe('private home auth', () => {
       'private-home/.claude/settings.json',
     ])
       expect(() => statSync(next.resolve(rel))).toThrow();
-    expect(() => copySession(previous, run('bad'), '../escape')).toThrow(/session ID/);
+    expect(() => copySession(previous, run('bad'), '../escape', 'claude')).toThrow(/session ID/);
     const missing = '0192aaaa-0000-7000-8000-000000000002';
-    expect(() => copySession(previous, run('missing'), missing)).toThrow(/missing/);
+    expect(() => copySession(previous, run('missing'), missing, 'claude')).toThrow(/missing/);
     symlinkSync(join(base, 'outside'), previous.resolve(`${prefix}/${id}/link`));
-    expect(() => copySession(previous, run('symlink'), id)).toThrow(/non-regular/);
+    expect(() => copySession(previous, run('symlink'), id, 'claude')).toThrow(/non-regular/);
+  });
+
+  it('carries only the selected Codex rollout at its dated path; never auth or another thread', () => {
+    const { base } = fixture();
+    const run = (id: string) =>
+      RunDir.open({
+        dataDir: base,
+        kind: 'runs',
+        id,
+        redactor: new Redactor(),
+      });
+    const previous = run('codex-first');
+    const next = run('codex-next');
+    const id = '01a1b7dd-6b52-7760-9e52-1f0d49d39970';
+    const day = 'private-home/.codex/sessions/2026/11/08';
+    const rollout = `${day}/rollout-2026-11-08T04-15-03-${id}.jsonl`;
+    previous.writeText(rollout, 'thread\n');
+    previous.writeText(
+      `${day}/rollout-2026-11-08T04-16-00-01a1b7dd-0000-7000-8000-000000000009.jsonl`,
+      'other',
+    );
+    previous.writeText('private-home/.codex/auth.json', 'secret');
+    previous.writeText('private-home/.codex/state_5.sqlite', 'state');
+    copySession(previous, next, id, 'codex');
+    expect(readFileSync(next.resolve(rollout), 'utf8')).toBe('thread\n');
+    expect(readdirSync(next.resolve(day))).toEqual([rollout.slice(day.length + 1)]);
+    for (const rel of ['private-home/.codex/auth.json', 'private-home/.codex/state_5.sqlite'])
+      expect(() => statSync(next.resolve(rel))).toThrow();
+    expect(() => copySession(previous, run('codex-bad'), '-c', 'codex')).toThrow(/session ID/);
+    expect(() =>
+      copySession(previous, run('codex-missing'), '01a1b7dd-0000-7000-8000-000000000002', 'codex'),
+    ).toThrow(/missing/);
+    // A symlinked directory elsewhere in the tree is skipped, never followed.
+    symlinkSync(join(base, 'outside'), previous.resolve('private-home/.codex/sessions/link'));
+    copySession(previous, run('codex-again'), id, 'codex');
+    const linked = '01a1b7dd-0000-7000-8000-000000000003';
+    symlinkSync(join(base, 'outside'), previous.resolve(`${day}/rollout-x-${linked}.jsonl`));
+    expect(() => copySession(previous, run('codex-symlink'), linked, 'codex')).toThrow(
+      /non-regular/,
+    );
   });
 
   it('copies only the selected credential files 0600 and removes them after archive', () => {

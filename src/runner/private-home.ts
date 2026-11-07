@@ -131,10 +131,16 @@ function mcpServers(path: string): Record<string, unknown> | null {
   }
 }
 
-/** Carry only the selected Claude transcript into a fresh attempt, never auth or settings. */
-export function copySession(previous: RunDir, run: RunDir, session: string): void {
+/** Carry only the selected session into a fresh attempt, never auth, settings or another session. */
+export function copySession(
+  previous: RunDir,
+  run: RunDir,
+  session: string,
+  vendor: 'claude' | 'codex',
+): void {
   if (!UuidSchema.safeParse(session).success)
-    throw new SandboxPolicyError('policy_violation', 'invalid Claude session ID');
+    throw new SandboxPolicyError('policy_violation', `invalid ${vendor} session ID`);
+  if (vendor === 'codex') return copyCodexRollout(previous, run, session);
   const projects = previous.resolve(`${PRIVATE_HOME_DIR}/.claude/projects`);
   const st = lstatSync(projects, { throwIfNoEntry: false });
   if (st?.isDirectory())
@@ -165,6 +171,39 @@ export function copySession(previous: RunDir, run: RunDir, session: string): voi
       return;
     }
   throw new SandboxPolicyError('source_missing', `Claude session ${session} is missing`);
+}
+
+/**
+ * Codex keeps a thread as one rollout file, `sessions/YYYY/MM/DD/rollout-<time>-<id>.jsonl`, and
+ * `exec resume <id>` finds it by scanning that tree; the same relative path is kept.
+ */
+function copyCodexRollout(previous: RunDir, run: RunDir, session: string): void {
+  const sessions = `${PRIVATE_HOME_DIR}/.codex/sessions`;
+  const suffix = `-${session.toLowerCase()}.jsonl`;
+  const find = (rel: string): string | null => {
+    const dir = previous.resolve(rel);
+    if (!lstatSync(dir, { throwIfNoEntry: false })?.isDirectory()) return null;
+    for (const name of readdirSync(dir).sort()) {
+      const child = `${rel}/${name}`;
+      // lstat: a symlinked directory is never followed out of the previous home.
+      const entry = lstatSync(join(dir, name));
+      if (entry.isDirectory()) {
+        const found = find(child);
+        if (found !== null) return found;
+      } else if (name.startsWith('rollout-') && name.toLowerCase().endsWith(suffix)) {
+        if (!entry.isFile())
+          throw new SandboxPolicyError('policy_violation', 'session contains a non-regular entry');
+        return child;
+      }
+    }
+    return null;
+  };
+  const rollout = find(sessions);
+  if (rollout === null)
+    throw new SandboxPolicyError('source_missing', `Codex session ${session} is missing`);
+  const destination = run.resolve(rollout);
+  mkdirSync(dirname(destination), { recursive: true, mode: 0o700 });
+  copyFileSync(previous.resolve(rollout), destination, constants.COPYFILE_EXCL);
 }
 
 /**

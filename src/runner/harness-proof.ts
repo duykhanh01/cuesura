@@ -78,7 +78,7 @@ export type ProofOptions = {
   readonly outerProofFile?: string;
   readonly runnerCommand: readonly string[];
   readonly now: () => number;
-  /** One additional invocation verifies Claude resume across fresh private homes. */
+  /** One additional invocation verifies resume across fresh private homes. */
   readonly proveResume?: boolean;
   /** Seam for tests; production always supervises through systemd. */
   readonly process?: ProcessPort;
@@ -164,8 +164,6 @@ export function planProof(o: ProofOptions, candidatePin?: VendorPin): Result<Pro
   // Setup can preview a validated candidate; real proofs always read the trusted pin on disk.
   const pin = candidatePin === undefined ? readPin(o.dataDir, o.harness) : ok(candidatePin);
   if (!pin.ok) return pin;
-  if (o.proveResume && pin.value.vendor !== 'claude')
-    return err('resume proof is only supported for Claude');
   if (!deniesProbe(pin.value))
     return err(`the pin does not deny ${DENIED_COMMAND}; nothing could be shown`);
   const identity = harnessIdentity({
@@ -644,7 +642,9 @@ export async function proveHarness(
               permission_policy_hash: plan.permission_policy_hash,
             },
             context: { text: prompt, digest: hashText(prompt) },
-            schema: wireRoleSchema('fixer', { omit_meta_schema: true }),
+            schema: wireRoleSchema('fixer', {
+              omit_meta_schema: plan.pin.vendor === 'claude',
+            }),
             wall_ms: WALL_MS,
             deadline_at: (o.now() + WALL_MS) as EpochMs,
             session: { ref: outcome.session_ref, from_attempt_id: attempt_id },

@@ -357,7 +357,7 @@ export class RunnerHarness implements HarnessPort {
     let resumeFallback: string | undefined;
     try {
       assertFreshHome(run);
-      if (o.pin.vendor === 'claude' && session?.from_attempt_id !== undefined) {
+      if (session?.from_attempt_id !== undefined) {
         try {
           const previous = RunDir.open({
             dataDir: o.data_dir,
@@ -366,14 +366,14 @@ export class RunnerHarness implements HarnessPort {
             redactor: o.redactor,
             create: false,
           });
-          copySession(previous, run, session.ref);
+          copySession(previous, run, session.ref, o.pin.vendor);
         } catch (e) {
           const missing =
             (e instanceof RunnerFileError && e.code === 'not_found') ||
             (e instanceof SandboxPolicyError && e.code === 'source_missing') ||
             (e as NodeJS.ErrnoException).code === 'ENOENT';
           if (!missing) throw e;
-          rmSync(run.resolve('private-home/.claude'), {
+          rmSync(run.resolve(`private-home/.${o.pin.vendor}`), {
             recursive: true,
             force: true,
           });

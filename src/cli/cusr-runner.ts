@@ -404,7 +404,7 @@ const proveHarness = {
     },
     {
       flags: '--prove-resume',
-      description: 'Verify Claude resume with one additional invocation',
+      description: 'Verify session resume with one additional invocation',
     },
   ],
   async run(

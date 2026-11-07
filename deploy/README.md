@@ -595,13 +595,20 @@ cusr-runner prove-harness --config ~/.cusr/config.yaml --harness claude \
 cusr-runner record-manifest --config ~/.cusr/config.yaml --harness claude --evidence evidence-claude.json
 ```
 
-Để bật resume cho Claude, thêm `--prove-resume` vào `setup-harness` (hoặc lệnh riêng `prove-harness`).
+Để bật resume cho Claude hoặc Codex, thêm `--prove-resume` vào `setup-harness` (hoặc lệnh riêng `prove-harness`).
 Probe này cần thêm một invocation ngoài các role `coder`, `fixer`, `reviewer`, `decider` trong `PROOF_ROLES`:
 hiện là 5 lượt tổng cộng, thay vì 4 (dry-run hiển thị số cần). Probe thử tiếp tục bằng private home mới
 và nhớ lại một nonce chỉ có trong hội thoại trước. Chỉ bằng chứng probe đạt mới ghi `session_resume: proven`;
-sau setup thành công, restart daemon. Resume chỉ mang transcript/tool data của đúng session,
-không mang auth/settings của attempt cũ. Codex hiện chưa có resume được hỗ trợ; daemon ghi lý do và
-sử dụng phiên mới cùng context đầy đủ, cho cả worker lẫn reviewer.
+sau setup thành công, restart daemon. Resume chỉ mang dữ liệu của đúng session, không mang auth/settings
+của attempt cũ: với Claude là transcript và tool data trong `.claude/projects/`, với Codex là file rollout
+`.codex/sessions/YYYY/MM/DD/rollout-*-<thread_id>.jsonl` của đúng thread. Harness chưa chứng minh resume
+thì daemon ghi lý do và dùng phiên mới cùng context đầy đủ, cho cả worker lẫn reviewer.
+
+Codex resume bằng `codex exec <cờ như phiên mới> resume <thread_id> -`. Subcommand `resume` (0.167.0)
+không có `-C`, `--sandbox`, `--add-dir` riêng, nhưng các cờ của `exec` đặt trước `resume` vẫn áp dụng
+cho lượt resume, nên cwd, sandbox và hash quyền hiệu lực giữ như phiên mới. Lượt resume phát lại
+`thread.started` với cùng `thread_id`. Manifest Codex ghi trước thay đổi này không có `session_resume`,
+nên vẫn chạy phiên mới cho đến khi chạy lại `setup-harness --prove-resume`.
 
 Nếu transcript/run cũ đã mất, worker dùng phiên mới với context đầy đủ và ghi `resume_fallback: session_missing`;
 không chờ người vận hành chỉ để khôi phục hội thoại. Evidence của `--prove-resume` có `resume_probe` ghi

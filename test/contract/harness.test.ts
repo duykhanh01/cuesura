@@ -325,23 +325,31 @@ describe('harness argv and settings follow the pinned T007 shape (T068/T069)', (
     );
   });
 
-  it('passes a session only where a resume form is pinned; codex refuses it', () => {
+  it('passes a session in each vendor resume form, with the permissions of a new session', () => {
     const c = claudeAdapter.plan(
       vendorPin('claude'),
       planInput('claude', 'fixer', { session: { ref: 'sess-1' } }),
     );
     expect(c.ok && c.value.argv.join(' ')).toContain('--resume sess-1');
     expect(c.ok && c.value.argv).not.toContain('--no-session-persistence');
-    const x = codexAdapter.plan(
-      vendorPin('codex'),
-      planInput('codex', 'fixer', { session: { ref: 'thread-1' } }),
-    );
-    expect(x).toMatchObject({
-      ok: false,
-      error: { code: 'resume_unsupported' },
-    });
+    const thread = '01a1b7dd-6b52-7760-9e52-1f0d49d39970';
+    for (const role of ['fixer', 'reviewer'] as const) {
+      const fresh = codexAdapter.plan(vendorPin('codex'), planInput('codex', role));
+      const resumed = codexAdapter.plan(
+        vendorPin('codex'),
+        planInput('codex', role, { session: { ref: thread } }),
+      );
+      if (!fresh.ok || !resumed.ok) throw new Error('codex plan refused');
+      // `resume` has no -C/--sandbox of its own: the exec options before it carry over (0.167.0).
+      expect(resumed.value.argv).toEqual([...fresh.value.argv.slice(0, -1), 'resume', thread, '-']);
+      expect(resumed.value.settings_hash).toBe(fresh.value.settings_hash);
+    }
+    for (const ref of ['thread-1', '--dangerously-bypass-approvals-and-sandbox', '--last'])
+      expect(
+        codexAdapter.plan(vendorPin('codex'), planInput('codex', 'fixer', { session: { ref } })),
+      ).toMatchObject({ ok: false, error: { code: 'policy_violation' } });
     expect(claudeAdapter.resume_supported).toBe(true);
-    expect(codexAdapter.resume_supported).toBe(false);
+    expect(codexAdapter.resume_supported).toBe(true);
   });
 });
 

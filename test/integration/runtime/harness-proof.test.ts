@@ -180,7 +180,7 @@ const entry = (out: string, vendor: string) =>
   ).vendors[vendor];
 
 describe('what a proof may spend', () => {
-  it('reserves a fourth invocation for resume and refuses unsupported vendors', async () => {
+  it('reserves a fifth invocation for resume, for either vendor', async () => {
     const h = setup('claude');
     const refused = await proveHarness({
       ...h.options,
@@ -191,9 +191,7 @@ describe('what a proof may spend', () => {
     expect(refusal(refused)).toContain('5 more exceed the cap');
     expect(existsSync(h.ledger)).toBe(false);
     const codex = setup('codex');
-    expect(refusal(planProof({ ...codex.options, proveResume: true }))).toContain(
-      'only supported for Claude',
-    );
+    expect(planProof({ ...codex.options, proveResume: true }).ok).toBe(true);
   });
 
   it('a dry run reports the plan and leaves no trace', () => {
@@ -246,10 +244,14 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
     expect(raw).not.toContain('this proof runs no resume');
   }, 120_000);
 
-  it.each(['success', 'failure', 'no_session', 'missing'])(
-    'records the real resume probe outcome: %s',
-    async (mode) => {
-      const h = setup('claude', {
+  it.each(
+    (['claude', 'codex'] as const).flatMap((vendor) =>
+      ['success', 'failure', 'no_session', 'missing'].map((mode) => [vendor, mode] as const),
+    ),
+  )(
+    '%s: records the real resume probe outcome: %s',
+    async (vendor, mode) => {
+      const h = setup(vendor, {
         FAKE_VENDOR_INNER_SANDBOX: '1',
         FAKE_VENDOR_DENY_STDERR: '1',
         FAKE_VENDOR_RESUME: mode,
@@ -262,18 +264,20 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
       });
       if (!r.ok) throw new Error(r.error);
       const raw = JSON.parse(readFileSync(h.out, 'utf8')) as {
-        vendors: {
-          claude: {
+        vendors: Record<
+          string,
+          {
             resume_probe: {
               attempt_id: string | null;
               reason: string;
               outcome?: { kind: string; resume_fallback?: string };
             };
             capabilities: Record<string, { status: string; evidence: string }>;
-          };
-        };
+          }
+        >;
       };
-      const e = raw.vendors.claude;
+      const e = raw.vendors[vendor];
+      if (e === undefined) throw new Error(`no ${vendor} evidence`);
       expect(e.capabilities['session_resume']?.status).toBe(
         mode === 'success' ? 'proven' : 'unknown',
       );
@@ -285,6 +289,14 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
           readFileSync(join(h.options.dataDir, 'runs', seed.attempt_id, 'invocation.json'), 'utf8'),
         ) as { argv: string[] };
         expect(launch.argv).not.toContain('--no-session-persistence');
+        expect(launch.argv).not.toContain('--ephemeral');
+        const resumed = JSON.parse(
+          readFileSync(
+            join(h.options.dataDir, 'runs', String(e.resume_probe.attempt_id), 'invocation.json'),
+            'utf8',
+          ),
+        ) as { argv: string[] };
+        expect(resumed.argv.join(' ')).toContain(vendor === 'claude' ? '--resume ' : ' resume ');
         expect(h.record().ok).toBe(true);
         expect(h.problem()).toBeNull();
       }

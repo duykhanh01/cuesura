@@ -680,28 +680,46 @@ describe('sessions (T138)', () => {
     expect(e.proc.launches.at(-1)?.argv.join(' ')).toContain('--resume sess-1');
   });
 
-  it('codex has no pinned resume form even with a proven manifest', async () => {
+  it('codex resumes a proven session with its rollout carried into the fresh home (#218)', async () => {
     const e = env('codex', 's0-codex-fixer-1793173505');
-    const proven = evidenceManifest(e.pin, {
-      capabilities: {
-        ...evidenceManifestEntry('codex').capabilities,
-        session_resume: { status: 'proven', evidence: 'test-only' },
-      },
-    });
-    const h = harness(e, { manifest: proven });
-    // What the handler reads: no resume, so a repair falls back to a new session with this reason.
-    expect(h.manifest.capabilities.resume).toBe('unsupported');
-    expect(sessionFor({ resume: { session_ref: 't-1' } }, h)).toEqual({
-      session: null,
-      fallback: 'resume_unsupported',
-      asked: true,
-    });
-    const out = await h.run(input('codex', 'fixer', { session: { ref: 't-1' } }), signal());
-    expect(out).toMatchObject({
-      kind: 'failure',
-      failure: 'capability_missing',
-    });
+    const thread = '01a1b7dd-6b52-7760-9e52-1f0d49d39970';
+    const h = harness(e);
+    // Unproven: the handler asks for no session, and a session passed anyway is refused before launch.
+    expect(sessionFor({ resume: { session_ref: thread } }, h).session).toBeNull();
+    const unproven = await h.run(input('codex', 'fixer', { session: { ref: thread } }), signal());
+    expect(unproven).toMatchObject({ kind: 'failure', failure: 'capability_missing' });
     expect(e.proc.launches).toHaveLength(0);
+
+    const from = 'codex-previous';
+    const rollout = `private-home/.codex/sessions/2026/11/08/rollout-2026-11-08T04-15-03-${thread}.jsonl`;
+    RunDir.open({ dataDir: e.data, kind: 'runs', id: from, redactor: new Redactor() }).writeText(
+      rollout,
+      'thread\n',
+    );
+    const proven = harness(e, {
+      manifest: evidenceManifest(e.pin, {
+        capabilities: {
+          ...evidenceManifestEntry('codex').capabilities,
+          session_resume: { status: 'proven', evidence: 'test-only' },
+        },
+      }),
+    });
+    expect(proven.manifest.capabilities.resume).toBe('proven');
+    const inp = input('codex', 'fixer', { session: { ref: thread, from_attempt_id: from } });
+    const out = await proven.run(inp, signal());
+    expect(out).toMatchObject({ kind: 'result', resumed: true });
+    expect(e.proc.launches.at(-1)?.argv.slice(-3)).toEqual(['resume', thread, '-']);
+    expect(readFileSync(join(e.data, 'runs', inp.attempt_id, rollout), 'utf8')).toBe('thread\n');
+
+    const missing = input('codex', 'fixer', {
+      session: { ref: '01a1b7dd-0000-7000-8000-000000000002', from_attempt_id: from },
+    });
+    expect(await proven.run(missing, signal())).toMatchObject({
+      kind: 'result',
+      resumed: false,
+      resume_fallback: 'session_missing',
+    });
+    expect(e.proc.launches.at(-1)?.argv).not.toContain('resume');
   });
 });
 

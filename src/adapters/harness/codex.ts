@@ -10,11 +10,16 @@
  * `--json` emits no event for a command that a rule or the sandbox refused; Codex logs it on stderr
  * (`codex_core::tools::router ... Rejected`), so denials come from stderr and never from the model's
  * own words (T006/T007 evidence). Usage is the sum of `turn.completed.usage`; Codex reports no cost.
- * No resume argv is pinned for this binary, so a session is never passed. The session is still recorded
- * (no `--ephemeral`) in the private home: `spawn_agent` loads the parent thread's rollout, so an
- * ephemeral session cannot start sub-agents ("no rollout found for thread id").
+ * The session is recorded (no `--ephemeral`) in the private home: `spawn_agent` loads the parent
+ * thread's rollout, so an ephemeral session cannot start sub-agents ("no rollout found for thread id").
+ *
+ * Resume (#218) is `exec <same options> resume <thread id> -`. On 0.167.0 the `resume` subcommand has
+ * no `-C`, `--sandbox` or `--add-dir` of its own, but the `exec` options before it apply to the resumed
+ * turn (its rollout `turn_context` records the new cwd and sandbox), so argv and the effective
+ * permissions stay those of a new session. The resumed run emits `thread.started` with the same id.
  */
 import { existsSync } from 'node:fs';
+import { UuidSchema } from '../../shared/brand.ts';
 import { hashCanonical } from '../../shared/hash.ts';
 import type { Usage } from '../../domain/trigger.ts';
 import type { PermissionDenial } from '../ports.ts';
@@ -71,14 +76,9 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
   const unpinned = pin.home_files.find((f) => f.to.startsWith(RULES_DIR) && f.sha256 === undefined);
   if (unpinned !== undefined) return fail(`rule file ${unpinned.to} has no pinned sha256`);
   if (input.model === '') return fail('model is not configured');
-  if (input.session !== null)
-    return {
-      ok: false,
-      error: {
-        code: 'resume_unsupported',
-        message: 'no resume form is pinned for this codex binary',
-      },
-    };
+  // The ref is a positional argument: only a thread UUID may reach argv, never an option.
+  if (input.session !== null && !UuidSchema.safeParse(input.session.ref).success)
+    return fail('codex session ref is not a thread id');
   const auto =
     input.host_execution && pin.permission_mode !== 'full-access' && input.role !== 'reviewer';
   const argv = [
@@ -98,6 +98,7 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
     '-C',
     input.cwd,
     ...sandboxArgs(input),
+    ...(input.session === null ? [] : ['resume', input.session.ref]),
     '-',
   ];
   // `danger-full-access` is the sandbox switch itself, allowed only in external_verified (above).
@@ -262,7 +263,7 @@ function nativeWriteDenied(check: NativeWriteCheck): boolean {
 
 export const codexAdapter: VendorAdapter = {
   vendor: 'codex',
-  resume_supported: false,
+  resume_supported: true,
   needs_short_tmpdir: false,
   worktree_state: [],
   git_dir_state: [],

@@ -151,6 +151,39 @@ else {
     }
     if (resumeMode === 'no_session') for (const r of records) delete r.session_id;
   }
+  if (codex && resumeMode) {
+    // Codex keeps a thread as one dated rollout and `exec ... resume <id> -` finds it by id (0.167.0).
+    const sessions = join(process.env.CODEX_HOME ?? join(process.env.HOME, '.codex'), 'sessions');
+    const thread = records.find((r) => r.type === 'thread.started')?.thread_id;
+    const nonce = /Remember this nonce for a later continuation: ([0-9a-f-]+)\./.exec(stdin)?.[1];
+    if (nonce && resumeMode !== 'missing') {
+      mkdirSync(join(sessions, '2026/11/08'), { recursive: true });
+      writeFileSync(join(sessions, '2026/11/08', `rollout-2026-11-08T00-00-00-${thread}.jsonl`), JSON.stringify({ nonce }));
+    }
+    const at = argv.indexOf('resume');
+    if (at !== -1) {
+      const id = argv[at + 1];
+      const find = (d) =>
+        !existsSync(d) ? null : readdirSync(d).map((n) => join(d, n)).reduce((hit, p) =>
+          hit ?? (statSync(p).isDirectory() ? find(p) : p.endsWith(`-${id}.jsonl`) ? p : null), null);
+      const rollout = find(sessions);
+      if (rollout === null) {
+        process.stderr.write(`Error: thread/resume: thread/resume failed: no rollout found for thread id ${id}\n`);
+        process.exit(1);
+      }
+      out({ type: 'thread.started', thread_id: id });
+      out({ type: 'turn.started' });
+      if (resumeMode === 'failure') {
+        out({ type: 'turn.failed', error: { message: 'fixture resume service unavailable' } });
+        process.exit(1);
+      }
+      const remembered = JSON.parse(readFileSync(rollout, 'utf8')).nonce;
+      out({ type: 'turn.completed', usage: records.find((r) => r.type === 'turn.completed').usage });
+      writeFileSync(argv[argv.indexOf('--output-last-message') + 1], JSON.stringify({ schema_version: 1, status: 'done', summary: remembered, questions: [], blocker: null }));
+      process.exit(0);
+    }
+    if (resumeMode === 'no_session') records.splice(records.findIndex((r) => r.type === 'thread.started'), 1);
+  }
   for (const r of records)
     out(r.type === 'system' && r.subtype === 'init' && process.env.FAKE_VENDOR_ECHO_MODEL ? { ...r, model } : r);
   if (codex && !has('no_output')) {

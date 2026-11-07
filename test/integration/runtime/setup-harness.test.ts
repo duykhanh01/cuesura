@@ -96,10 +96,8 @@ describe('setup-harness CLI without model calls', () => {
     expect(existsSync(h.out)).toBe(false);
     expect(existsSync(h.modelCalled)).toBe(false);
     expect(h.run('--dry-run', '--prove-resume')).toMatchObject({
-      code: 1,
-      body: {
-        error: { code: 'proof_refused', details: { step: 'prove-harness' } },
-      },
+      code: 0,
+      body: { ok: true, data: { invocations_needed: 5, pin_exists: false } },
     });
     expect(existsSync(h.records)).toBe(false);
   });
@@ -129,7 +127,8 @@ describe('setup-harness CLI without model calls', () => {
     });
     for (const extra of [
       ['--max-invocations', '4'],
-      ['--max-invocations', '9', '--prove-resume'],
+      // 6 covers the four roles after the 2 spent, but not the resume probe.
+      ['--max-invocations', '6', '--prove-resume'],
     ]) {
       expect(h.run('--force', '--approval', 'owner, test', ...extra)).toMatchObject({
         code: 1,
