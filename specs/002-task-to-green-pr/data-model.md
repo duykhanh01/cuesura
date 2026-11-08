@@ -106,7 +106,7 @@ EffectRequested/Completed, TimerArmed/Cancelled, TaskCompleted, QuestionAnswered
 | --- | --- |
 | start có runtime snapshot mới | RuntimeConfigured cùng PolicyFrozen trong một lần accept; chưa commit thì không RUNNING/dispatch |
 | request_execution(action, now) | ExecutionQueued, hoặc cập nhật intent cùng request hiện tại; fresh giữ READY, resumed WAITING/execution_slot |
-| grant_execution(queue snapshot, now) | ExecutionGranted sau kiểm tra holder/priority/facts trong transaction; resumed RUNNING, fresh mới chốt start/deadline |
+| grant_execution(queue snapshot, now, passed_over?) | ExecutionGranted sau kiểm tra holder/priority/facts trong transaction; resumed RUNNING, fresh mới chốt start/deadline. `passed_over` là các request fresh scheduler bỏ qua vì chồng phạm vi (FR-044.08): đầu hàng và đầu hàng mượn đọc không tính chúng, grant cho chính request đó bị từ chối `passed_over` |
 | operation_started/operation_result | OperationRegistered/Observed, EffectStarted/Completed; budget reservation → used khi xác nhận thực chạy |
 | release_execution(receipts) | ExecutionReleased sau chứng minh công việc thuộc slot kết thúc/rõ; lý do `reservation_expired` do scheduler gửi khi chỗ giữ quá hạn, bị bỏ qua nếu task đã quay lại |
 | settle sau mỗi quyết định | Chờ CI/merge/người/cooldown: ExecutionReserved (giữ chỗ); quay lại RUNNING với việc cần slot: ExecutionReclaimed (poll CI hay việc GitHub thì không); chỗ mượn chờ bên ngoài hoặc lender đã quay lại trước việc cần slot: ExecutionReleased `loan_ended` |

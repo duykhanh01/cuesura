@@ -130,6 +130,11 @@ function scopeSummary(scope: unknown): Data | null {
     base_conflicts: base['conflicts'] ?? null,
     // Kept apart from "none": a part listed here could not be read, so its absence says nothing.
     unknown: scope['unknown'] ?? null,
+    declared: scope['declared'] ?? null,
+    // No branch and nothing declared: the files it will touch are not known yet.
+    unscoped: scope['unscoped'] === true ? true : null,
+    // Why the scheduler passes it over for a slot or a loan (FR-044.08).
+    slot_block: scope['slot_block'] ?? null,
   });
 }
 

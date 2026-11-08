@@ -29,7 +29,7 @@ hết thang/lượt, và chính lần xác nhận amendment của owner là xác
 | --- | --- |
 | `cusrd --config FILE --data-dir DIR` | Owner khởi động daemon foreground; có unit systemd mẫu; một writer |
 | `cusr doctor --project NAME`, `cusr status` | read; doctor kiểm capability và health, lỗi health exit 1 |
-| `cusr task add --file FILE` | operate; JSON task input, trả task có thể PENDING/READY, không chờ tới PR |
+| `cusr task add --file FILE` | operate; JSON task input, trả task có thể PENDING/READY, không chờ tới PR. `scope` (hoặc `--scope a,b`) khai đường dẫn/thư mục/glob tương đối trong repo task dự kiến đổi (tối đa 100, không `..` hay đường dẫn tuyệt đối; glob chỉ dùng `*`, `**`, `?`, `[...]`, còn brace `{}`, extglob `@(…)`/`!(…)`…, `!` đầu mục và lớp ký tự chứa `/` bị từ chối); không khai thì trường vắng mặt. Kết quả `task add`, `task propose` và `task confirm` có `slot_block` (như `scope.slot_block` của explain) khi phạm vi giao với task đang giữ slot, chỗ giữ hoặc chỗ mượn, `null` khi không (FR-044.08) |
 | `cusr task propose ID --profile P --mode M --worker H/M/E` | operate; đề xuất bộ lựa chọn chạy, xác nhận riêng |
 | `cusr task show/list/explain/history` | read; mặc định chỉ trả phần cần thiết, `--full` trả nguyên reply của daemon (xem [Output mặc định gọn](#output-mặc-định-gọn)); list mới nhất trước, `--limit` mặc định 20, tối đa 100, có cursor và `--order oldest`; show/explain nhận ID |
 | `cusr task logs ID --after CURSOR [--follow]` | read; snapshot hữu hạn (mặc định 20 record) hoặc stream JSONL có seq/cursor; chuỗi dài hơn 1000 ký tự bị cắt trừ khi có `--full`; một follow session tối đa 1 giờ, có thể nối lại |
@@ -90,7 +90,7 @@ trước khi in, cho cả `--json` lẫn output cho người đọc.
   request_changes` của lần gần nhất; không log), `deadline_ms` khi deadline đang chạy, `prerequisites`
   chưa DONE hoặc chưa xác minh, `merge_cleanup`, `cancellation`, `paused` (`reason`, `by`, `at`, null khi
   không tạm dừng), `scope` (`overlaps`: task còn sống khác đổi chung file, `base_behind`, `base_conflicts`,
-  `unknown`: phần chưa đọc được; chỉ khi có), `allowed_actions`.
+  `unknown`: phần chưa đọc được, `declared`, `unscoped`, `slot_block`; chỉ khi có), `allowed_actions`.
 - `task show`: `task_id`, `project`, `title`, `status`, `step`, `version`, `wait`, `blockers`, `pr_ref`,
   `run_config` (`status`, `digest`, `mode`). Đủ cho mutation; nội dung task ở `task content`.
 - `task list`: mới nhất trước, mặc định 20, tối đa 100. Item chỉ có `task_id`, `project`, `title`, `status`,
@@ -104,7 +104,10 @@ trước khi in, cho cả `--json` lẫn output cho người đọc.
 - `task_explain` của daemon có thêm `running` (attempt đang chạy: `attempt_id`, `step`, `kind`, `rung`,
   `binding`) và `scope` (FR-027.06): `changed_files`, `base` (`ref`, `tip_sha`, `behind`, `conflicts`) và
   `overlaps` (`task_id`, `status`, `files`) và `unknown` (`changed_files`, `base`, `overlaps`: phần có mà
-  chưa đọc được, rỗng khi task chưa có nhánh); `null` cho task terminal. Item `task_list` của daemon có
+  chưa đọc được, rỗng khi task chưa có nhánh), `declared` (phạm vi task khai, `null` khi không khai),
+  `unscoped` (`true` khi chưa có nhánh và không khai: phạm vi chưa rõ) và `slot_block` (`null` hoặc
+  `{ code: "scope_overlap", tasks: [{ task_id, files }] }`: task chưa chạy đang xếp hàng bị scheduler bỏ
+  qua vì chung file với task giữ slot, chỗ giữ hoặc chỗ mượn, FR-044.08); `null` cho task terminal. Item `task_list` của daemon có
   `overlaps` (ID task), `base_conflicts` và `scope_unknown`. Dữ liệu đọc từ repo cục bộ, không fetch: base
   tip là `refs/remotes/origin/<base>` đã fetch gần nhất; mọi lệnh git của một truy vấn chung hạn 4 giây.
 - `status`, `inbox`, `report`, `task board`, `task progress` giữ nguyên: dữ liệu đã có giới hạn

@@ -9,6 +9,7 @@
  */
 import type { GitPort } from '../adapters/ports.ts';
 import { validateConfig } from '../config/validate.ts';
+import { effectiveScope, slotBlock, type ProjectScope, type ScopeBlock } from './scope-match.ts';
 import { isTerminal, TASK_STATUSES, type TaskState, type TaskStatus } from '../domain/state.ts';
 import type { Uuid } from '../shared/brand.ts';
 import type { Store } from '../store/index.ts';
@@ -49,6 +50,18 @@ export type TaskScope = {
    * no branch yet has nothing to read and lists none.
    */
   readonly unknown: readonly ('changed_files' | 'base' | 'overlaps')[];
+  /** Paths or globs the task declared it expects to change (issue #240); null when none. */
+  readonly declared: readonly string[] | null;
+  /**
+   * No branch yet and nothing declared: nothing tells which files the task will touch, so it is never
+   * passed over for its scope and no overlap with it can be seen.
+   */
+  readonly unscoped: boolean;
+  /**
+   * For a task that never started and is queued: why the scheduler passes it over for a slot or a loan
+   * (FR-044.08); null when nothing does.
+   */
+  readonly slot_block: ScopeBlock | null;
 };
 
 type BranchRead = {
@@ -272,6 +285,13 @@ export async function projectScopes(
   const inScope = tasks.filter((s) => wantedProjects.has(s.project));
   const read = await Promise.all(inScope.map((s) => branchOf(deps, rd, s)));
   const reads = new Map(inScope.map((s, i) => [s.id, { s, read: read[i] ?? null }]));
+  const effective = new Map<string, ProjectScope>(
+    [...reads].map(([id, { s, read }]) => [
+      id,
+      { project: s.project, files: effectiveScope(read?.changed_files ?? null, s.task.scope) },
+    ]),
+  );
+  const occupants = slotOccupants(deps.store);
   const out = new Map<string, TaskScope>();
   for (const [id, { s, read }] of reads) {
     if (only !== undefined && !only.has(id)) continue;
@@ -299,6 +319,10 @@ export async function projectScopes(
       base: read?.base ?? null,
       overlaps,
       unknown,
+      declared: s.task.scope ?? null,
+      unscoped: read === null && s.task.scope === undefined,
+      slot_block:
+        s.execution.request?.group === 'fresh' ? slotBlock(id, effective, occupants) : null,
     });
   }
   return out;
@@ -307,4 +331,36 @@ export async function projectScopes(
 /** The scope of one task, or null when it is terminal or unknown. */
 export async function taskScope(deps: ScopeDeps, taskId: string): Promise<TaskScope | null> {
   return (await projectScopes(deps, new Set([taskId]))).get(taskId) ?? null;
+}
+
+/**
+ * Effective scopes (changed files plus declared paths, FR-044.08) of the given tasks, null for a task
+ * whose scope is unknown. Missing tasks are left out. Shares the deadline and cache of a scope query.
+ */
+export async function effectiveScopes(
+  deps: ScopeDeps,
+  taskIds: Iterable<string>,
+): Promise<Map<string, ProjectScope>> {
+  const now = deps.now ?? Date.now;
+  const rd: Reader = {
+    port: deps.git,
+    deadline: now() + (deps.budget_ms ?? SCOPE_BUDGET_MS),
+    now,
+  };
+  const states = [...new Set(taskIds)].flatMap((id) => deps.store.readTask(id as Uuid) ?? []);
+  const reads = await Promise.all(states.map((s) => branchOf(deps, rd, s)));
+  return new Map(
+    states.map((s, i) => [
+      s.id,
+      { project: s.project, files: effectiveScope(reads[i]?.changed_files ?? null, s.task.scope) },
+    ]),
+  );
+}
+
+/** Tasks holding a slot (running or reserved) or running on a loan: what a fresh task must not share. */
+export function slotOccupants(store: Store): string[] {
+  return [
+    ...store.readSlots().map((x) => x.holder_task_id),
+    ...store.readLoans().map((x) => x.borrower_task_id),
+  ];
 }

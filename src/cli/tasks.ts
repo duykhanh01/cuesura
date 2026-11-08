@@ -328,6 +328,11 @@ export const addCommand: CliCommand = {
       flags: '--priority <n>',
       description: 'Scheduling priority; higher values run first (default: 0)',
     },
+    {
+      flags: '--scope <paths>',
+      description:
+        'Comma-separated paths or globs the task expects to change; a task sharing them does not run alongside',
+    },
     ...RUN_OPTIONS,
   ],
   async run(values, json, io) {
@@ -363,6 +368,11 @@ export const addCommand: CliCommand = {
       };
     }
     if (values['pr'] !== undefined) task['pr_ref'] = values['pr'];
+    if (values['scope'] !== undefined)
+      task['scope'] = values['scope']
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s !== '');
     const flagged = runProposal(values);
     if (typeof flagged === 'string') return usage(flagged, json, io);
     const run = flagged ?? fileRun;

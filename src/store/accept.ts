@@ -151,7 +151,12 @@ export function relatedFacts(
   };
 
   if (t.kind === 'grant_execution')
-    related.execution = readExecutionFacts(db, t.started_only === true, t.lender_task_id);
+    related.execution = readExecutionFacts(
+      db,
+      t.started_only === true,
+      t.lender_task_id,
+      new Set(t.passed_over ?? []),
+    );
   if (state?.execution.holding?.lender_task_id !== undefined)
     related.loan = { active: loanActive(db, env.task_id) };
 

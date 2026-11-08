@@ -10,6 +10,7 @@ import {
   TASK_SCHEMA_VERSION,
   type CanonicalTask,
 } from '../domain/task.ts';
+import { DeclaredScopeSchema } from './scope-match.ts';
 import type { TaskState } from '../domain/state.ts';
 import type { FrozenRuntimeContext } from '../domain/runtime.ts';
 import type { PublishContent } from '../adapters/context.ts';
@@ -52,6 +53,7 @@ export const NewTaskSchema = z
     profile: z.string().min(1).nullable().default(null),
     source_key: z.string().min(1).max(512).optional(),
     pr_ref: z.string().regex(PR_REF_PATTERN).optional(),
+    scope: DeclaredScopeSchema.optional(),
   })
   .strict();
 
@@ -199,7 +201,7 @@ export function buildNewTask(
       },
     });
   const id = admitted.record.task_id as string;
-  const { source_key, ...rest } = parsed.data;
+  const { source_key, scope, ...rest } = parsed.data;
   const task = CanonicalTaskSchema.safeParse({
     schema_version: TASK_SCHEMA_VERSION,
     id,
@@ -215,6 +217,8 @@ export function buildNewTask(
     },
     source_key: source_key ?? `cli:${id}`,
     ...rest,
+    // An empty declaration says nothing about the files, the same as none.
+    ...(scope === undefined || scope.length === 0 ? {} : { scope }),
   });
   if (!task.success)
     return err({
@@ -506,6 +510,7 @@ export function taskContent(
     out_of_scope: t.out_of_scope,
     depends_on: t.depends_on,
     priority: t.priority,
+    scope: t.scope ?? null,
     intake_pending: s.needs_confirmation && !s.confirmed,
     run_config: runConfigView(s),
   });

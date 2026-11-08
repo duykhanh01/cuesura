@@ -6,6 +6,8 @@
  *   4. grant free slots, up to `concurrency`, to the queue head in turn (priority, resumed before fresh,
  *      request order);
  *   5. with every slot taken, lend each reservation not lent yet to a task that never started;
+ *   In 4 and 5 a task that never started is passed over while its scope (changed files plus declared
+ *   paths) shares a file with a task holding a slot or a loan (FR-044.08); one with an unknown scope is not.
  *   6. start every slot holder or borrower that is a fresh task, which freezes its snapshot under it.
  * A started task that needs the slot again queues itself as `resumed` inside the engine and resumes on
  * grant. The engine keeps the slot of a task that stops running to wait outside as a reservation, and
@@ -15,10 +17,12 @@ import { runConfigConfirmed } from '../engine/run-config.ts';
 import type { Clock } from '../adapters/ports.ts';
 import { notifyDependents, type DependencyNotice } from '../application/dependency.ts';
 import type { StartResult } from '../application/start.ts';
+import { slotOccupants } from '../application/scope.ts';
 import { submit } from '../application/triage.ts';
-import { MAX_ENVELOPE_IDS } from '../domain/trigger.ts';
+import { slotBlock, type ProjectScope } from '../application/scope-match.ts';
+import { MAX_ENVELOPE_IDS, MAX_PASSED_OVER } from '../domain/trigger.ts';
 import type { Uuid } from '../shared/brand.ts';
-import type { Store } from '../store/index.ts';
+import type { QueuedRequest, Store } from '../store/index.ts';
 
 /** How long a task whose start could not reach Git/GitHub/host waits before it queues again (FR-015). */
 export const START_RETRY_MS = 60_000;
@@ -39,6 +43,11 @@ export type SchedulerDeps = {
   readonly concurrency?: number;
   /** `runtime.slot_reservation_hours` in ms: how long a reservation lasts; default 24 hours. */
   readonly reservationMs?: number;
+  /**
+   * Effective scopes of these tasks, null where unknown (FR-044.08). Without it no task is passed over
+   * for its scope.
+   */
+  readonly scopes?: (taskIds: readonly string[]) => Promise<ReadonlyMap<string, ProjectScope>>;
 };
 
 export type SchedulerReport = {
@@ -49,6 +58,8 @@ export type SchedulerReport = {
   readonly lent: readonly string[];
   /** Holders whose reservation ran out in this pass. */
   readonly expired: readonly string[];
+  /** Tasks passed over for a slot or a loan in this pass because their scope overlaps (FR-044.08). */
+  readonly passed_over: readonly string[];
   readonly started: readonly {
     readonly task_id: string;
     readonly result: StartResult;
@@ -117,6 +128,16 @@ export class Scheduler {
         expired.push(slot.holder_task_id);
     }
 
+    const blocked = await this.#scopeGuard(capacity, paused);
+    const passedOver = new Set<string>();
+    const guard = (): { fresh: boolean; passedOver?: ReadonlySet<string> } => {
+      const hit = blocked();
+      for (const r of hit) passedOver.add(r.task_id);
+      // Too many to name in one trigger: no fresh task is granted this pass rather than a blocked one.
+      if (hit.length > MAX_PASSED_OVER) return { fresh: false };
+      return { fresh: !paused, passedOver: new Set(hit.map((r) => r.request_id)) };
+    };
+
     const granted: string[] = [];
     // Each grant takes one slot, so the loop ends after at most `capacity` grants; a rejected or empty
     // grant ends it too, and the next pass tries again.
@@ -124,7 +145,7 @@ export class Scheduler {
       const g = store.grantNext(
         now,
         Array.from({ length: MAX_ENVELOPE_IDS }, () => this.#deps.newId()),
-        { fresh: !paused, capacity },
+        { capacity, ...guard() },
       );
       if (!g.ok || g.value.kind !== 'decided' || g.value.outcome.decision.kind !== 'accepted')
         break;
@@ -134,7 +155,7 @@ export class Scheduler {
     // Each loan takes one reservation and loans never exceed `capacity`, so this loop is bounded too.
     const lent: string[] = [];
     while (!paused) {
-      const g = store.lendNext(now, [], { capacity });
+      const g = store.lendNext(now, [], { capacity, ...guard() });
       if (!g.ok || g.value.kind !== 'decided' || g.value.outcome.decision.kind !== 'accepted')
         break;
       lent.push(g.value.task_id);
@@ -170,6 +191,46 @@ export class Scheduler {
         this.#retryAfter.set(holder.id, clock.now() + (this.#deps.startRetryMs ?? START_RETRY_MS));
       started.push({ task_id: holder.id, result });
     }
-    return { dependencies, queued, granted, lent, expired, started };
+    return {
+      dependencies,
+      queued,
+      granted,
+      lent,
+      expired,
+      passed_over: [...passedOver].filter((id) => !granted.includes(id) && !lent.includes(id)),
+      started,
+    };
+  }
+
+  /**
+   * Reads the scopes once per pass, then answers which fresh requests overlap the current holders and
+   * borrowers, so a task granted earlier in the pass, fresh or resumed, blocks the ones after it.
+   */
+  async #scopeGuard(capacity: number, paused: boolean): Promise<() => QueuedRequest[]> {
+    const read = this.#deps.scopes;
+    const { store } = this.#deps;
+    const queue = store.readQueue(Number.MAX_SAFE_INTEGER);
+    const occupants = slotOccupants(store);
+    if (
+      read === undefined ||
+      paused ||
+      !queue.some((r) => r.group === 'fresh') ||
+      (occupants.length === 0 && (capacity === 1 || queue.length === 1))
+    )
+      return () => [];
+    let scopes: ReadonlyMap<string, ProjectScope>;
+    try {
+      // Every queued task may become a holder in this pass, so each one's scope is read too.
+      scopes = await read([...occupants, ...queue.map((r) => r.task_id)]);
+    } catch {
+      // Unreadable scopes are unknown, and an unknown scope blocks nothing.
+      return () => [];
+    }
+    return () => {
+      const holders = slotOccupants(store);
+      return store
+        .readQueue(Number.MAX_SAFE_INTEGER)
+        .filter((r) => r.group === 'fresh' && slotBlock(r.task_id, scopes, holders) !== null);
+    };
   }
 }

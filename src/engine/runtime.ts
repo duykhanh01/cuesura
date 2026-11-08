@@ -151,6 +151,8 @@ export function onGrantExecution(ctx: Ctx, t: TriggerOf<'grant_execution'>): voi
   }
   const facts = ctx.related.execution;
   if (facts === undefined) reject('invalid_trigger', { reason: 'missing_execution_facts' });
+  if (t.passed_over?.some((id) => id === r.request_id) === true)
+    reject('invalid_trigger', { reason: 'passed_over', request_id: r.request_id });
   const capacity = t.capacity ?? 1;
   const waited_ms = s.execution.accumulated_wait_ms + Math.max(0, ctx.now - r.requested_at);
   if (t.lender_task_id !== undefined) {

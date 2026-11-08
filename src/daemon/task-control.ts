@@ -37,12 +37,16 @@ import {
 } from '../application/queries.ts';
 import { dispatchGuidance } from '../application/dispatch.ts';
 import {
+  effectiveScopes,
   projectPathFrom,
   projectScopes,
   ScopeCache,
+  slotOccupants,
   taskScope,
   type ScopeDeps,
 } from '../application/scope.ts';
+import { slotBlock } from '../application/scope-match.ts';
+import type { Uuid } from '../shared/brand.ts';
 import { httpStatusFor } from '../cli/errors.ts';
 import { okEnvelope } from '../cli/output.ts';
 import type { Result } from '../shared/result.ts';
@@ -103,6 +107,27 @@ async function withListScope(
   };
 }
 
+/**
+ * A task added, proposed or confirmed with the tasks holding a slot, a reservation or a loan whose files
+ * its scope shares (FR-044.08): the scheduler will not run it alongside them. Null once it holds a slot.
+ */
+async function withSlotBlock(
+  deps: ScopeDeps,
+  r: Result<unknown, AppError>,
+): Promise<Result<unknown, AppError>> {
+  if (!r.ok) return r;
+  const value = r.value as Record<string, unknown>;
+  const id = value['task_id'] as string;
+  const s = deps.store.readTask(id as Uuid);
+  let block = null;
+  if (s !== null && s.execution.holding === null) {
+    const occupants = slotOccupants(deps.store);
+    if (occupants.length > 0)
+      block = slotBlock(id, await effectiveScopes(deps, [id, ...occupants]), occupants);
+  }
+  return { ok: true, value: { ...value, slot_block: block } };
+}
+
 export function taskControl(deps: TaskControlDeps): {
   commands: {
     task_add: CommandHandler;
@@ -138,9 +163,12 @@ export function taskControl(deps: TaskControlDeps): {
   });
   return {
     commands: {
-      task_add: (admitted, input, caller) => taskAdd(deps, admitted, input, caller),
-      task_confirm: (admitted, input, caller) => taskConfirm(deps, admitted, input, caller),
-      task_propose_run: (admitted, input, caller) => taskProposeRun(deps, admitted, input, caller),
+      task_add: async (admitted, input, caller) =>
+        withSlotBlock(scope, await taskAdd(deps, admitted, input, caller)),
+      task_confirm: async (admitted, input, caller) =>
+        withSlotBlock(scope, await taskConfirm(deps, admitted, input, caller)),
+      task_propose_run: async (admitted, input, caller) =>
+        withSlotBlock(scope, await taskProposeRun(deps, admitted, input, caller)),
       answer: (admitted, input, caller) => answerQuestion(deps, admitted, input, caller),
       task_cancel: (admitted, input, caller) => cancelTask(deps, admitted, input, caller),
       approve_escalation: (admitted, input, caller) =>

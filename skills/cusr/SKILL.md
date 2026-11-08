@@ -78,7 +78,11 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   --description "$DESCRIPTION" --acceptance "$ACCEPTANCE" \
   --request-id "$ADD_REQUEST_ID" --json
 
-# Optional task flags: --depends-on ID,ID --priority N
+# Optional task flags: --depends-on ID,ID --priority N --scope PATH,GLOB
+# --scope (JSON: scope) lists repo-relative paths, directories or globs the task expects to
+# change, e.g. src/engine/**,docs/x.md. Globs use *, **, ? and [...] only; braces and extglobs are refused. The scheduler does not run it alongside a task sharing
+# those files. Declare it when you know the files. add/propose/confirm results carry slot_block
+# when it shares files with a task holding a slot: tell the user it will wait for that task.
 # --pr OWNER/REPO#N continues that open PR instead of opening a new one: --base must
 # be its base branch, and the user approves adopting it (see Escalation below). In a
 # JSON file the field is pr_ref. The PR keeps its title and body; workers only add commits.
@@ -138,6 +142,8 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 # scope (overlaps: other live tasks changing the same files; base_behind/base_conflicts: the
 # branch against its base). Report overlaps and base conflicts to the user before they burn slots.
 # scope.unknown lists parts that could not be read: say so instead of reporting "no overlap".
+# scope.slot_block {code: scope_overlap, tasks[]}: the task waits because it shares files with
+# those tasks. scope.unscoped: no branch and nothing declared, so no overlap can be seen yet.
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task explain "$TASK_ID" --json
 # task show: status, step, wait, pr_ref, version and run_config {status, digest, mode} for mutations.

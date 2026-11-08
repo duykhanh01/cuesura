@@ -21,6 +21,8 @@ import {
 
 export const TRIGGER_SCHEMA_VERSION = 1;
 export const MAX_ENVELOPE_IDS = 8;
+/** Most fresh requests one grant may pass over for their scope (FR-044.08). */
+export const MAX_PASSED_OVER = 1_000;
 
 export const FAILURE_CLASSES = [
   'rate_limit',
@@ -596,6 +598,9 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
       capacity: z.number().int().positive().optional(),
       // A loan of this task's reserved slot (FR-044.02); only a task that never started borrows. Additive.
       lender_task_id: UuidSchema.optional(),
+      // Fresh requests the scheduler passes over because their scope shares files with a task holding a
+      // slot or a loan (FR-044.08); the queue head and loan head are read without them. Additive.
+      passed_over: z.array(UuidSchema).max(MAX_PASSED_OVER).optional(),
     })
     .strict(),
   z

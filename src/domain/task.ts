@@ -52,6 +52,11 @@ export const CanonicalTaskSchema = z
     retry_of: UuidSchema.nullable(),
     /** The existing PR this task continues; absent on every other task, so their hashes do not change. */
     pr_ref: z.string().regex(PR_REF_PATTERN).optional(),
+    /**
+     * Paths or globs the task expects to change (issue #240), normalized; absent when none was declared,
+     * so the hashes of other tasks do not change.
+     */
+    scope: z.array(z.string().min(1)).min(1).optional(),
   })
   .strict();
 export type CanonicalTask = z.infer<typeof CanonicalTaskSchema>;

@@ -248,13 +248,16 @@ export function readExecutionFacts(
   db: Database,
   startedOnly = false,
   lender?: string,
+  passedOver: ReadonlySet<string> = new Set(),
 ): {
   holders: string[];
   queue_head: string | null;
   loans: number;
   lender?: { lendable: boolean; loan_head: string | null; reserved_at: number | null };
 } {
-  const head = readQueue(db).find((r) => !startedOnly || r.group !== 'fresh');
+  const head = readQueue(db).find(
+    (r) => (!startedOnly || r.group !== 'fresh') && !passedOver.has(r.request_id),
+  );
   const slots = readSlots(db);
   const facts = {
     holders: slots.map((s) => s.holder_task_id),
@@ -268,23 +271,28 @@ export function readExecutionFacts(
     lender: {
       lendable: own !== undefined && own.reserved_at !== null && own.borrower_task_id === null,
       reserved_at: own?.reserved_at ?? null,
-      loan_head: startedOnly ? null : (loanCandidate(db, lender)?.request_id ?? null),
+      loan_head: startedOnly ? null : (loanCandidate(db, lender, passedOver)?.request_id ?? null),
     },
   };
 }
 
 /**
  * The first request in selection order that may borrow `lender`'s reservation: a task that never
- * started, does not depend on the lender and does not work on the lender's PR. Branches and worktrees
- * are per task (`cusr/<task_id>`), so the PR is the only thing two such tasks could share.
+ * started, does not depend on the lender, does not work on the lender's PR and is not passed over for
+ * its scope (FR-044.08). Branches and worktrees are per task (`cusr/<task_id>`), so files and the PR are
+ * what two such tasks could share.
  */
-export function loanCandidate(db: Database, lender: string): QueuedRequest | undefined {
+export function loanCandidate(
+  db: Database,
+  lender: string,
+  passedOver: ReadonlySet<string> = new Set(),
+): QueuedRequest | undefined {
   const dependsOnLender = db.prepare(
     'SELECT 1 FROM task_deps WHERE task_id = ? AND depends_on = ?',
   );
   const lenderPr = readTask(db, lender)?.pr_ref ?? null;
   return readQueue(db).find((r) => {
-    if (r.group !== 'fresh' || r.task_id === lender) return false;
+    if (r.group !== 'fresh' || r.task_id === lender || passedOver.has(r.request_id)) return false;
     if (dependsOnLender.get(r.task_id, lender) !== undefined) return false;
     return lenderPr === null || readTask(db, r.task_id)?.pr_ref !== lenderPr;
   });

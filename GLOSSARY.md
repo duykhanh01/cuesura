@@ -93,7 +93,7 @@ PR có gate và các kiểm tra CI bắt buộc đã đạt cho một head SHA c
 _Avoid_: Task đã xong, được phép tự merge, xanh vĩnh viễn cho mọi thay đổi của PR
 
 **Slot thực thi**:
-Một trong `runtime.concurrency` suất chạy, cấp cho task chứ không cho từng bước. Task đang chạy giữ slot qua mọi việc tự động (chuẩn bị, agent, gate, publish, tạo PR, review…) và không nhả ở ranh giới bước. Task rời trạng thái chạy để chờ người, CI, merge hoặc cooldown giữ slot thành chỗ giữ (tối đa `runtime.slot_reservation_hours`) và quay lại thì chạy ngay; trong lúc đó một task chưa từng chạy được mượn chỗ. Task tạm dừng, hết deadline hoặc đang hủy thì nhả slot. Worktree luôn được giữ.
+Một trong `runtime.concurrency` suất chạy, cấp cho task chứ không cho từng bước. Task đang chạy giữ slot qua mọi việc tự động (chuẩn bị, agent, gate, publish, tạo PR, review…) và không nhả ở ranh giới bước. Task rời trạng thái chạy để chờ người, CI, merge hoặc cooldown giữ slot thành chỗ giữ (tối đa `runtime.slot_reservation_hours`) và quay lại thì chạy ngay; trong lúc đó một task chưa từng chạy được mượn chỗ. Task chưa từng chạy có phạm vi (file nhánh đã đổi cộng phạm vi khai báo) chung file với task đang giữ slot hoặc chỗ mượn thì không được cấp slot hay mượn chỗ. Task tạm dừng, hết deadline hoặc đang hủy thì nhả slot. Worktree luôn được giữ.
 _Avoid_: Slot của một bước, một task chưa kết thúc, nhả slot đồng nghĩa xóa worktree, chỗ mượn được giữ chỗ hay cho mượn tiếp
 
 **Head đã kiểm**:

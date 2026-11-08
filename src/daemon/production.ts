@@ -45,6 +45,12 @@ import type { Hash, Uuid } from '../shared/brand.ts';
 import { hashCanonical } from '../shared/hash.ts';
 import type { Store } from '../store/index.ts';
 import { startTask } from '../application/start.ts';
+import {
+  effectiveScopes,
+  projectPathFrom,
+  ScopeCache,
+  type ScopeDeps,
+} from '../application/scope.ts';
 import { drainingTasks, drainRound } from './drain.ts';
 import {
   buildHandlers,
@@ -426,6 +432,12 @@ export async function productionControl(opts: {
       clock: opts.clock,
       local: (taskId: string) => localRemainderOf(deps, taskId),
     };
+    const scopeDeps: ScopeDeps = {
+      store,
+      git: ports.git,
+      projectPath: projectPathFrom(configInputs),
+      cache: new ScopeCache(),
+    };
     const scheduler = new Scheduler({
       store,
       clock: opts.clock,
@@ -433,6 +445,7 @@ export async function productionControl(opts: {
       queuePaused: () => readQueuePause(opts.dataDir) !== null,
       concurrency: runtime?.concurrency ?? 1,
       reservationMs: (runtime?.slot_reservation_hours ?? 24) * 60 * 60 * 1000,
+      scopes: (taskIds) => effectiveScopes(scopeDeps, taskIds),
       start: (taskId) =>
         startTask(
           {

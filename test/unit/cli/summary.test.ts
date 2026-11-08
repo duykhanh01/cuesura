@@ -169,6 +169,38 @@ describe('explainSummary', () => {
     expect(unread['scope']).toEqual({ unknown: ['changed_files', 'base', 'overlaps'] });
   });
 
+  it('shows a declared scope, an unknown one and why the task is passed over (issue #240)', () => {
+    const block = { code: 'scope_overlap', tasks: [{ task_id: 'h', files: ['src/a.ts'] }] };
+    const queued = explainSummary({
+      task_id: ID,
+      status: 'READY',
+      scope: {
+        changed_files: null,
+        base: null,
+        overlaps: [],
+        unknown: [],
+        declared: ['src/**'],
+        unscoped: false,
+        slot_block: block,
+      },
+    }) as Record<string, unknown>;
+    expect(queued['scope']).toEqual({ declared: ['src/**'], slot_block: block });
+    const unscoped = explainSummary({
+      task_id: ID,
+      status: 'READY',
+      scope: {
+        changed_files: null,
+        base: null,
+        overlaps: [],
+        unknown: [],
+        declared: null,
+        unscoped: true,
+        slot_block: null,
+      },
+    }) as Record<string, unknown>;
+    expect(unscoped['scope']).toEqual({ unscoped: true });
+  });
+
   it('passes a reply it does not recognize through unchanged', () => {
     expect(explainSummary({ unexpected: true })).toEqual({ unexpected: true });
     expect(explainSummary(null)).toBeNull();

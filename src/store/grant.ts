@@ -24,8 +24,20 @@ export type GrantOutcome =
 /**
  * `fresh: false` grants only tasks that already started (`cusr queue pause`, issue #142). `capacity` is
  * `runtime.concurrency`, the number of tasks that may hold a slot at once (FR-044.01); default 1.
+ * `passedOver` names fresh requests that may not take a slot or a loan now because their scope shares
+ * files with a holder or borrower (FR-044.08); the trigger carries them so the decision re-reads the
+ * same queue.
  */
-export type GrantOptions = { readonly fresh?: boolean; readonly capacity?: number };
+export type GrantOptions = {
+  readonly fresh?: boolean;
+  readonly capacity?: number;
+  readonly passedOver?: ReadonlySet<string>;
+};
+
+const passedOverOf = (opts: GrantOptions): { passed_over?: Uuid[] } =>
+  opts.passedOver === undefined || opts.passedOver.size === 0
+    ? {}
+    : { passed_over: [...opts.passedOver].sort() as Uuid[] };
 
 /**
  * One grant step. The queue head is picked here, but `accept` re-reads the holders and head inside its
@@ -41,13 +53,17 @@ export function grantNext(
   ids: readonly string[] = [],
   opts: GrantOptions = {},
 ): Result<GrantOutcome, AcceptError> {
-  const queue = readQueue(db).filter((r) => opts.fresh !== false || r.group !== 'fresh');
+  const queue = readQueue(db).filter(
+    (r) =>
+      (opts.fresh !== false || r.group !== 'fresh') && opts.passedOver?.has(r.request_id) !== true,
+  );
   const capacity = opts.capacity ?? 1;
   const next = selectNext(queue, readSlots(db).length, capacity);
   if (next.kind !== 'grant') return ok(next);
   return submitGrant(db, now, crash, ids, next.request, {
     ...(opts.fresh === false ? { started_only: true } : {}),
     ...(capacity === 1 ? {} : { capacity }),
+    ...passedOverOf(opts),
   });
 }
 
@@ -69,11 +85,12 @@ export function lendNext(
   if (slots.length < capacity || readLoans(db).length >= capacity) return ok({ kind: 'empty' });
   for (const slot of slots) {
     if (slot.reserved_at === null || slot.borrower_task_id !== null) continue;
-    const head = loanCandidate(db, slot.holder_task_id);
+    const head = loanCandidate(db, slot.holder_task_id, opts.passedOver);
     if (head === undefined) continue;
     return submitGrant(db, now, crash, ids, head, {
       ...(capacity === 1 ? {} : { capacity }),
       lender_task_id: slot.holder_task_id as Uuid,
+      ...passedOverOf(opts),
     });
   }
   return ok({ kind: 'empty' });
@@ -85,7 +102,7 @@ function submitGrant(
   crash: CrashHook,
   ids: readonly string[],
   head: QueuedRequest,
-  extra: { started_only?: true; capacity?: number; lender_task_id?: Uuid },
+  extra: { started_only?: true; capacity?: number; lender_task_id?: Uuid; passed_over?: Uuid[] },
 ): Result<GrantOutcome, AcceptError> {
   const trigger = {
     kind: 'grant_execution' as const,

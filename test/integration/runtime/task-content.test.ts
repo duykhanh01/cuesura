@@ -56,6 +56,7 @@ describe('task_content (R-09)', () => {
         out_of_scope: ['o1'],
         depends_on: [],
         priority: 3,
+        scope: null,
         intake_pending: true,
         run_config: null,
       },

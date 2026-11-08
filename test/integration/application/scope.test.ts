@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { GitPort, GitResult } from '../../../src/adapters/ports.ts';
 import {
+  effectiveScopes,
   projectScopes,
   SCOPE_BUDGET_MS,
   ScopeCache,
@@ -92,6 +93,7 @@ function task(id: string, status: TaskStatus, head: string | null, project = 'ac
     runtime_ref: null,
     run: { checkpoint: null },
     task: { base_branch: 'main' },
+    execution: { request: null },
   } as unknown as TaskState;
 }
 
@@ -102,6 +104,8 @@ function storeOf(tasks: TaskState[]): Store {
       tasks.filter((t) => statuses.includes(t.status)).map((t) => t.id),
     readTask: (id: string) => byId.get(id) ?? null,
     readRuntimeContext: () => null,
+    readSlots: () => [],
+    readLoans: () => [],
   } as unknown as Store;
 }
 
@@ -133,6 +137,9 @@ describe('task scope (issue #210)', () => {
       },
       overlaps: [{ task_id: 't2', status: 'WAITING', files: ['b.txt'] }],
       unknown: [],
+      declared: null,
+      unscoped: false,
+      slot_block: null,
     });
     expect(scopes.get('t2')?.overlaps).toEqual([
       { task_id: 't1', status: 'RUNNING', files: ['b.txt'] },
@@ -144,6 +151,9 @@ describe('task scope (issue #210)', () => {
       base: null,
       overlaps: [],
       unknown: [],
+      declared: null,
+      unscoped: true,
+      slot_block: null,
     });
     expect(scopes.has('done')).toBe(false);
     expect(scopes.get('other')?.overlaps).toEqual([]);
@@ -222,5 +232,54 @@ describe('task scope before publish (issue #210)', () => {
     } as unknown as TaskState;
     const scope = await taskScope(deps([t]), 't1');
     expect(scope?.changed_files).toEqual(['a.txt', 'b.txt']);
+  });
+});
+
+describe('declared scope and slot blocks (issue #240)', () => {
+  const queued = (id: string, scope?: string[]): TaskState =>
+    ({
+      ...task(id, 'READY', null),
+      task: { base_branch: 'main', ...(scope === undefined ? {} : { scope }) },
+      execution: { request: { group: 'fresh' } },
+    }) as unknown as TaskState;
+  const holding = (tasks: TaskState[], holder: string): Store =>
+    ({
+      ...storeOf(tasks),
+      readSlots: () => [{ holder_task_id: holder }],
+    }) as unknown as Store;
+
+  it('unions changed and declared files; a task with neither has an unknown scope', async () => {
+    const tasks = [
+      {
+        ...task('t1', 'RUNNING', heads['t1'] as string),
+        task: { base_branch: 'main', scope: ['docs/**'] },
+      } as unknown as TaskState,
+      queued('q', ['c.txt']),
+      queued('none'),
+    ];
+    const scopes = await effectiveScopes(deps(tasks), ['t1', 'q', 'none', 'missing']);
+    expect(Object.fromEntries(scopes)).toEqual({
+      t1: { project: 'acme', files: ['a.txt', 'b.txt', 'docs/**'] },
+      q: { project: 'acme', files: ['c.txt'] },
+      none: { project: 'acme', files: null },
+    });
+  });
+
+  it('explains a queued task passed over for the files a slot holder changed', async () => {
+    const tasks = [
+      task('t1', 'RUNNING', heads['t1'] as string),
+      queued('q', ['b.txt', 'z/**']),
+      queued('free', ['c.txt']),
+      queued('none'),
+    ];
+    const scopes = await projectScopes({ ...deps(tasks), store: holding(tasks, 't1') });
+    expect(scopes.get('q')).toMatchObject({
+      declared: ['b.txt', 'z/**'],
+      unscoped: false,
+      slot_block: { code: 'scope_overlap', tasks: [{ task_id: 't1', files: ['b.txt'] }] },
+    });
+    expect(scopes.get('free')?.slot_block).toBeNull();
+    expect(scopes.get('none')).toMatchObject({ unscoped: true, slot_block: null });
+    expect(scopes.get('t1')?.slot_block).toBeNull();
   });
 });
