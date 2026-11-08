@@ -65,7 +65,9 @@ directory. Rotation đổi events.jsonl sang segment có generation trong spool,
 request lặp không lặp event. Cap spool 64 MiB thì dừng operation với artifact_backpressure, không
 âm thầm bỏ output chưa ingest. Disk full giữ health lỗi/claim; partial final sau process chết là
 invalid output. Retention 30 ngày chỉ cho artifact terminal đã ACK, giữ tombstone; không xóa
-worktree có diff/commit chưa bảo toàn theo retention log.
+worktree có diff/commit chưa bảo toàn theo retention log. Log lệnh (setup/gate/autofix) của task
+terminal giữ 14 ngày tính theo file mới nhất, thay bằng tombstone. Daemon quét lúc khởi động và sau
+khi task kết thúc, không timer riêng; lượt quét không ghi store, lỗi xóa chỉ cảnh báo và lượt sau làm lại.
 
 ### Finalized reviewer proof (T139)
 

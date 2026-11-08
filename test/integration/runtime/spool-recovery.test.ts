@@ -583,28 +583,31 @@ describe('store cannot write (FR-023, FR-033)', () => {
 });
 
 describe('retention and ACK (FR-016, FR-031)', () => {
-  it('never removes a run whose records the store has not acknowledged', () => {
+  it('never removes a run whose records the store has not acknowledged', async () => {
     const f = setup();
     write(f, 9);
     finish(f);
     f.d.must(f.taskId, { kind: 'cancel', reason: 'stop' });
     expect(f.d.task(f.taskId).status).toBe('CANCELLED');
-    const sweep = () =>
-      sweepRetention({
-        store: f.d.store,
-        dataDir: f.dir,
-        redactor: new Redactor(),
-        now: f.d.now + 31 * DAY_MS,
-        retention_ms: 30 * DAY_MS,
-      });
+    const sweep = async () =>
+      (
+        await sweepRetention({
+          store: f.d.store,
+          dataDir: f.dir,
+          redactor: new Redactor(),
+          now: f.d.now + 31 * DAY_MS,
+          retention_ms: 30 * DAY_MS,
+          command_log_retention_ms: 14 * DAY_MS,
+        })
+      ).plan;
 
-    const kept = sweep();
+    const kept = await sweep();
     expect(kept.delete_runs).toEqual([]);
     expect(kept.keep_runs).toEqual([{ id: OP, reason: 'not_acked' }]);
     expect(readdirSync(join(f.run.dir, SPOOL_DIR)).length).toBeGreaterThan(1);
 
     expect(ingest(f)).toMatchObject({ status: 'ingested', records: 9 });
-    const after = sweep();
+    const after = await sweep();
     expect(after.delete_runs.map((r) => r.id)).toEqual([OP]);
   });
 });

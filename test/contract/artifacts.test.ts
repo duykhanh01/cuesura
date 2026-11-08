@@ -7,13 +7,16 @@
  */
 import {
   existsSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
   statSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -23,14 +26,18 @@ import { DEFAULT_RUNTIME_LIMITS, type Artifact } from '../../src/domain/runtime.
 import type { TaskState } from '../../src/domain/state.ts';
 import type { Store } from '../../src/store/index.ts';
 import {
+  clearTombstonedRun,
+  COMMAND_LOG_RETENTION_MS,
   expireCommandLogs,
   planRetention,
+  retentionRound,
   sweepRetention,
   tombstoneRun,
   TOMBSTONE_FILE,
   type RunEntry,
 } from '../../src/daemon/retention.ts';
 import { artifactId, collectArtifacts } from '../../src/runner/artifacts.ts';
+import { COMMAND_LOG_DIR } from '../../src/runner/commands.ts';
 import { EventLogWriter, RUN_FILES, RunDir, RunnerFileError } from '../../src/runner/files.ts';
 import { Redactor } from '../../src/runner/redact.ts';
 
@@ -248,36 +255,164 @@ describe('retention only after terminal + ACK + 30 days', () => {
 });
 
 describe('a retention pass over the store', () => {
-  it('tombstones only runs of terminal tasks whose artifacts the store committed', () => {
-    const run = finishedRun();
+  const committedState = (run: RunDir, status: string, committed: boolean) => {
     const arts = collectArtifacts(run, 'op-1');
     if (!arts.ok) throw new Error('collect');
-    const state = (status: string, committed: boolean) =>
-      ({
-        status,
-        operations: { 'op-1': { id: 'op-1', attempt_id: null } },
-        artifacts: committed ? Object.fromEntries(arts.value.map((a) => [a.artifact_id, a])) : {},
-      }) as unknown as TaskState;
-    const store = (s: TaskState) =>
-      ({
-        taskIdsByStatus: () => ['t-1'],
-        readTask: () => s,
-      }) as unknown as Store;
-    const sweep = (s: TaskState) =>
-      sweepRetention({
-        store: store(s),
-        dataDir: run.root,
-        redactor: new Redactor(),
-        now: 40 * DAY,
-        retention_ms: 30 * DAY,
-      });
-    expect(sweep(state('DONE', false)).keep_runs).toEqual([{ id: 'op-1', reason: 'not_acked' }]);
+    return {
+      status,
+      operations: { 'op-1': { id: 'op-1', attempt_id: null } },
+      artifacts: committed ? Object.fromEntries(arts.value.map((a) => [a.artifact_id, a])) : {},
+      effects: { 'eff-1': {} },
+    } as unknown as TaskState;
+  };
+  const storeOf = (get: () => TaskState) =>
+    ({
+      taskIdsByStatus: () => ['t-1'],
+      readTask: () => get(),
+      countTasksByStatus: () => (TERMINAL.includes(get().status) ? { DONE: 1 } : {}),
+    }) as unknown as Store;
+  const TERMINAL = ['DONE', 'FAILED', 'CANCELLED'];
+  const sweepAt = (run: RunDir, s: TaskState, now = 40 * DAY) =>
+    sweepRetention({
+      store: storeOf(() => s),
+      dataDir: run.root,
+      redactor: new Redactor(),
+      now,
+      retention_ms: 30 * DAY,
+      command_log_retention_ms: COMMAND_LOG_RETENTION_MS,
+    });
+
+  it('tombstones only runs of terminal tasks whose artifacts the store committed', async () => {
+    const run = finishedRun();
+    expect((await sweepAt(run, committedState(run, 'DONE', false))).plan.keep_runs).toEqual([
+      { id: 'op-1', reason: 'not_acked' },
+    ]);
     expect(run.readFinal(RUN_FILES.exit).state).toBe('valid');
-    expect(sweep(state('DONE', true)).delete_runs).toHaveLength(1);
+    const state = committedState(run, 'DONE', true);
+    const r = await sweepAt(run, state);
+    expect(r.plan.delete_runs).toHaveLength(1);
+    expect(r.removed_runs).toBe(1);
+    expect(r.freed_bytes).toBeGreaterThan(0);
     expect(run.readFinal(TOMBSTONE_FILE).state).toBe('valid');
     expect(run.readFinal(RUN_FILES.exit).state).toBe('missing');
     // A second pass sees the tombstone and leaves it.
-    expect(sweep(state('DONE', true)).keep_runs).toEqual([{ id: 'op-1', reason: 'tombstoned' }]);
+    const again = await sweepAt(run, state);
+    expect(again.plan.keep_runs).toEqual([{ id: 'op-1', reason: 'tombstoned' }]);
+    expect(again.removed_runs).toBe(0);
+  });
+
+  it('keeps everything of a task that has not ended', async () => {
+    const run = finishedRun();
+    const logs = join(run.root, 'receipts', 'eff-1', COMMAND_LOG_DIR);
+    mkdirSync(logs, { recursive: true });
+    writeFileSync(join(logs, '000000-gate.log'), 'output');
+    const r = await sweepAt(run, committedState(run, 'RUNNING', true), Date.now() + 400 * DAY);
+    expect(r.plan.delete_runs).toEqual([]);
+    expect(r.expired_logs).toBe(0);
+    expect(run.readFinal(RUN_FILES.exit).state).toBe('valid');
+    expect(existsSync(join(logs, '000000-gate.log'))).toBe(true);
+  });
+
+  it('expires command logs after 14 days while the run artifacts stay for 30', async () => {
+    const run = finishedRun();
+    const logs = join(run.root, 'receipts', 'eff-1', COMMAND_LOG_DIR);
+    mkdirSync(logs, { recursive: true });
+    writeFileSync(join(logs, '000000-gate.log'), 'gate output');
+    const written = statSync(join(logs, '000000-gate.log')).mtimeMs;
+    const state = committedState(run, 'DONE', true);
+    // The fixture's run ended 1 s after the epoch; a window past "now" keeps it.
+    const sweep = (now: number) =>
+      sweepRetention({
+        store: storeOf(() => state),
+        dataDir: run.root,
+        redactor: new Redactor(),
+        now,
+        retention_ms: written + 16 * DAY,
+        command_log_retention_ms: COMMAND_LOG_RETENTION_MS,
+      });
+    const early = await sweep(written + 13 * DAY);
+    expect(early.expired_logs).toBe(0);
+    expect(existsSync(join(logs, '000000-gate.log'))).toBe(true);
+    const r = await sweep(written + 15 * DAY);
+    expect(r.expired_logs).toBe(1);
+    expect(r.freed_bytes).toBe('gate output'.length);
+    expect(existsSync(join(logs, '000000-gate.log'))).toBe(false);
+    expect(existsSync(join(logs, TOMBSTONE_FILE))).toBe(true);
+    expect(r.plan.keep_runs).toEqual([{ id: 'op-1', reason: 'too_recent' }]);
+    expect(run.readFinal(RUN_FILES.exit).state).toBe('valid');
+  });
+
+  it('finishes a run tombstoned by a pass that died before removing its files', async () => {
+    const run = finishedRun();
+    const state = committedState(run, 'DONE', true);
+    run.writeJson(TOMBSTONE_FILE, { schema_version: 1 });
+    const r = await sweepAt(run, state);
+    expect(r.plan.keep_runs).toEqual([{ id: 'op-1', reason: 'tombstoned' }]);
+    expect(r.freed_bytes).toBeGreaterThan(0);
+    expect(run.readFinal(RUN_FILES.exit).state).toBe('missing');
+    expect(run.readFinal(TOMBSTONE_FILE).state).toBe('valid');
+  });
+
+  it('counts a hard-linked file once in the bytes freed', () => {
+    const run = runDir();
+    for (const name of readdirSync(run.dir))
+      rmSync(join(run.dir, name), { recursive: true, force: true });
+    run.writeJson(TOMBSTONE_FILE, { schema_version: 1 });
+    mkdirSync(join(run.dir, 'spool'));
+    writeFileSync(join(run.dir, 'events.jsonl'), 'x'.repeat(138));
+    linkSync(join(run.dir, 'events.jsonl'), join(run.dir, 'spool', 'segment-0.jsonl'));
+    expect(clearTombstonedRun(run)).toBe(138);
+    expect(readdirSync(run.dir)).toEqual([TOMBSTONE_FILE]);
+  });
+
+  it('reports a failed removal and goes on with the other items', async () => {
+    const run = finishedRun();
+    const logs = join(run.root, 'receipts', 'eff-1', COMMAND_LOG_DIR);
+    mkdirSync(logs, { recursive: true });
+    writeFileSync(join(logs, '000000-gate.log'), 'gate output');
+    // A directory named like a log cannot be removed as one: that effect fails, the rest still goes.
+    mkdirSync(join(run.root, 'receipts', 'eff-2', COMMAND_LOG_DIR, '000000-broken.log'), {
+      recursive: true,
+    });
+    const state = {
+      ...committedState(run, 'DONE', true),
+      effects: { 'eff-1': {}, 'eff-2': {} },
+    } as unknown as TaskState;
+    const r = await sweepAt(run, state, Date.now() + 40 * DAY);
+    expect(r.removed_runs).toBe(1);
+    expect(r.expired_logs).toBe(1);
+    expect(r.failures).toEqual([expect.stringContaining('command logs of')]);
+  });
+
+  it('the daemon round sweeps at start and again only once a task ends', async () => {
+    const run = finishedRun();
+    let state = committedState(run, 'RUNNING', true);
+    const lines: string[] = [];
+    let passes = 0;
+    const round = retentionRound({
+      store: storeOf(() => state),
+      dataDir: run.root,
+      redactor: new Redactor(),
+      now: () => 40 * DAY,
+      retention_ms: 30 * DAY,
+      log: (l) => lines.push(l),
+      pause: () => {
+        passes += 1;
+        return Promise.resolve();
+      },
+    });
+    await round();
+    expect(passes).toBe(1);
+    await round();
+    expect(passes).toBe(1);
+    state = committedState(run, 'DONE', true);
+    await round();
+    expect(passes).toBe(2);
+    expect(lines).toEqual([
+      expect.stringMatching(/^retention: removed 1 runs and 0 command log sets, freed \d+ bytes$/),
+    ]);
+    await round();
+    expect(passes).toBe(2);
   });
 });
 
@@ -291,17 +426,45 @@ describe('command logs under retention (#178)', () => {
     mkdirSync(dir);
     writeFileSync(join(dir, '000000-unit.log'), 'output');
     const written = statSync(join(dir, '000000-unit.log')).mtimeMs;
-    expect(expireCommandLogs(dir, written + 29 * DAYS, 30 * DAYS)).toBe(false);
+    expect(expireCommandLogs(dir, written + 29 * DAYS, 30 * DAYS)).toBeNull();
     expect(existsSync(join(dir, '000000-unit.log'))).toBe(true);
-    expect(expireCommandLogs(dir, written + 31 * DAYS, 30 * DAYS)).toBe(true);
+    expect(expireCommandLogs(dir, written + 31 * DAYS, 30 * DAYS)).toBe('output'.length);
     expect(existsSync(join(dir, '000000-unit.log'))).toBe(false);
     expect(JSON.parse(readFileSync(join(dir, TOMBSTONE_FILE), 'utf8'))).toMatchObject({
       files: ['000000-unit.log'],
     });
-    expect(expireCommandLogs(dir, written + 32 * DAYS, 30 * DAYS)).toBe(false);
+    expect(expireCommandLogs(dir, written + 32 * DAYS, 30 * DAYS)).toBeNull();
+  });
+
+  it('ages logs by the newest file, not the directory', () => {
+    const dir = join(base, 'aged');
+    mkdirSync(dir);
+    writeFileSync(join(dir, '000000-old.log'), 'a');
+    writeFileSync(join(dir, '000001-new.log'), 'b');
+    const now = Date.now();
+    utimesSync(join(dir, '000000-old.log'), new Date(now - 20 * DAYS), new Date(now - 20 * DAYS));
+    utimesSync(join(dir, '000001-new.log'), new Date(now - 10 * DAYS), new Date(now - 10 * DAYS));
+    utimesSync(dir, new Date(now - 30 * DAYS), new Date(now - 30 * DAYS));
+    expect(expireCommandLogs(dir, now, 14 * DAYS)).toBeNull();
+    expect(expireCommandLogs(dir, now + 5 * DAYS, 14 * DAYS)).toBe(2);
+  });
+
+  it('keeps the names of logs a crashed pass already removed', () => {
+    const dir = join(base, 'crashed');
+    mkdirSync(dir);
+    writeFileSync(
+      join(dir, TOMBSTONE_FILE),
+      JSON.stringify({ schema_version: 1, removed_at: 0, files: ['000000-a.log', '000001-b.log'] }),
+    );
+    writeFileSync(join(dir, '000001-b.log'), 'b');
+    const written = statSync(join(dir, '000001-b.log')).mtimeMs;
+    expect(expireCommandLogs(dir, written + 15 * DAYS, 14 * DAYS)).toBe(1);
+    expect(JSON.parse(readFileSync(join(dir, TOMBSTONE_FILE), 'utf8'))).toMatchObject({
+      files: ['000000-a.log', '000001-b.log'],
+    });
   });
 
   it('has nothing to do for an effect without logs', () => {
-    expect(expireCommandLogs(join(base, 'none'), 0, 0)).toBe(false);
+    expect(expireCommandLogs(join(base, 'none'), 0, 0)).toBeNull();
   });
 });

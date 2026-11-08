@@ -2,7 +2,7 @@
  * Production wiring of `cusrd` (T048, T110, T112, T114, T119, T140): real Git, gh and host probes behind
  * preflight, the user config re-read for every request so a fixed config is picked up by the next
  * confirm, the host effect handlers and transient units, the scheduler, and the rounds nothing else
- * drives (due timers, PR observation, drain).
+ * drives (due timers, PR observation, drain, retention).
  *
  * This is what lets the daemon call a real agent, and the gate for that is the harness record: a harness
  * runs only with an owner `pin.json` and a `manifest.json` that still holds on this host, and each attempt
@@ -59,6 +59,7 @@ import { createDecider } from './decider.ts';
 import { advanceTaskPr, type YoloDeps } from './yolo.ts';
 import { FileContentStore } from '../adapters/publish-content.ts';
 import { queueCommands, readQueuePause } from './queue-pause.ts';
+import { retentionRound } from './retention.ts';
 import { Scheduler } from './scheduler.ts';
 import { taskControl } from './task-control.ts';
 
@@ -514,6 +515,14 @@ export async function productionControl(opts: {
           }),
         drainAll,
         () => decider.round(),
+        retentionRound({
+          store,
+          dataDir: opts.dataDir,
+          redactor: opts.redactor,
+          now,
+          retention_ms: limits.terminal_retention_ms,
+          ...(opts.log === undefined ? {} : { log: opts.log }),
+        }),
       ],
       abortRounds: () => {
         decider.abort();

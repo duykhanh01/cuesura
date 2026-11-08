@@ -149,8 +149,14 @@ help/version của binary; manifest có rồi vẫn fail nếu hash sai, thiếu
 Settings, environment và host policy cần pin của vendor nên do preflight và từng attempt kiểm. Unit mẫu đã
 qua `systemd-analyze --user verify` (chỉ báo thiếu binary ở `ExecStart` khi chưa cài).
 
-**Lưu giữ:** thư mục run chỉ bị xoá khi task đã kết thúc, `exit.json` hoàn chỉnh, mọi artifact đã được store ghi nhận và đã qua 30 ngày;
-phần xoá để lại tombstone chứa digest. Worktree không bị xoá chỉ vì cũ: diff hoặc commit chưa có trên remote thì giữ lại.
+**Lưu giữ:** `cusrd` quét retention lúc khởi động và sau khi có task kết thúc; không có timer riêng hay lệnh
+dọn tay. Thư mục run chỉ bị xoá khi task đã kết thúc, `exit.json` hoàn chỉnh, mọi artifact đã được store ghi nhận
+và đã qua `runtime.limits.terminal_retention_ms` (mặc định 30 ngày). Log lệnh setup, gate và autofix
+(`receipts/<effect>/logs/`) của task đã kết thúc bị xoá sau 14 ngày, tính từ file log mới nhất; giá trị này chưa
+cấu hình được. Phần xoá để lại tombstone (digest của run, tên file log), nên `cusr task gate-log` và màn gates báo
+log đã hết hạn chứ không báo lỗi. Lượt quét có xoá ghi một dòng `retention: removed … freed … bytes`; lỗi xoá ghi
+`retention warning` và lượt sau làm lại. Retention không ghi store. Worktree không bị xoá chỉ vì cũ: diff hoặc
+commit chưa có trên remote thì giữ lại.
 
 **Recovery:** khi quét process sau restart, một process cùng user không đọc được `environ` (`ssh`, `sudo`) và bắt đầu từ lúc operation chạy
 sẽ giữ claim và chặn việc mới cho tới khi process đó kết thúc; daemon tự thử lại mỗi giây.
