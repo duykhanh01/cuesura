@@ -82,6 +82,10 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 # --pr OWNER/REPO#N continues that open PR instead of opening a new one: --base must
 # be its base branch, and the user approves adopting it (see Escalation below). In a
 # JSON file the field is pr_ref. The PR keeps its title and body; workers only add commits.
+# --base must not be the branch of an unmerged PR: preflight stops such a task as
+# config_invalid/stacked_base. Ask the user; continue that PR with --pr instead, or base the
+# task on the PR's base. Only the user may stack on purpose, on a task they add themselves with
+# labels ["stacked-base"] in --file; that label on a task you add is ignored.
 # --acceptance takes one criterion per line.
 # A run proposal needs --profile, --mode and --worker TOGETHER.
 # full-review also needs --reviewer; direct-pr must omit --reviewer.
@@ -130,7 +134,10 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 # Short first, details on demand. Defaults hold only what a progress question needs; null and
 # empty fields are omitted (absent = none). data.details is the --full command for everything else.
 # Progress question -> task explain: status, step, wait, blockers, running (step/binding),
-# queue_position, pr, failed (names of failed gates/CI checks, request_changes), allowed_actions.
+# queue_position, pr, failed (names of failed gates/CI checks, request_changes), allowed_actions,
+# scope (overlaps: other live tasks changing the same files; base_behind/base_conflicts: the
+# branch against its base). Report overlaps and base conflicts to the user before they burn slots.
+# scope.unknown lists parts that could not be read: say so instead of reporting "no overlap".
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task explain "$TASK_ID" --json
 # task show: status, step, wait, pr_ref, version and run_config {status, digest, mode} for mutations.
@@ -141,7 +148,8 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 # (null until proposed). Use it to quote the task back to the user before approval.
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task content "$TASK_ID" --json
-# task list: newest first, 20 per page; items: task_id, project, title, status, activity, pr_ref.
+# task list: newest first, 20 per page; items: task_id, project, title, status, activity, pr_ref,
+# overlaps (IDs of live tasks changing the same files) and base_conflicts when present.
 # Filter with --project/--status; follow next_cursor with --cursor to reach older tasks;
 # --order oldest starts from the first task.
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \

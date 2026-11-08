@@ -470,3 +470,61 @@ describe('preflight (T030, FR-002)', () => {
     expect(githubSlugFromRemote('/srv/mirror/app.git')).toBeNull();
   });
 });
+
+describe('preflight: base branch of an unmerged PR (issue #167)', () => {
+  const branch = 'cusr/01a1acf5-8a48-75ad-a6be-c073da7c7580-feat-x';
+  const stacked = { default_branch: 'main', pulls: [{ number: 139, base: { ref: 'main' } }] };
+
+  it('stops the task when its base is the head of an open PR, naming the PR and its task', async () => {
+    const { result, ports } = await runPreflight({
+      task: { base_branch: branch },
+      github: stacked,
+    });
+    const e = failure(result);
+    expect(checks(e)).toEqual(['config_invalid:stacked_base']);
+    const p = 'problems' in e ? e.problems[0] : undefined;
+    expect(p?.message).toContain('acme/app#139');
+    expect(p?.message).toContain('task 01a1acf5-8a48-75ad-a6be-c073da7c7580');
+    expect(p?.fix).toContain('cusr task add --pr acme/app#139');
+    expect(p?.fix).toContain("labels include 'stacked-base'");
+    expect(ports.github.requests.at(-1)).toMatchObject({
+      path: 'repos/acme/app/pulls',
+      query: { state: 'open', head: `acme:${branch}` },
+    });
+  });
+
+  it('lets the owner stack on purpose with the stacked-base label', async () => {
+    const { result, ports } = await runPreflight({
+      task: { base_branch: branch, labels: ['stacked-base'] },
+      github: stacked,
+    });
+    expect(result.ok).toBe(true);
+    expect(ports.github.requests.map((r) => r.path)).toEqual(['repos/acme/app']);
+  });
+
+  it('ignores the label on a task the assistant added: only the owner opts in', async () => {
+    const { result } = await runPreflight({
+      task: {
+        base_branch: branch,
+        labels: ['stacked-base'],
+        requested_by: { kind: 'assistant', id: 'assistant' },
+      },
+      github: stacked,
+    });
+    expect(checks(failure(result))).toEqual(['config_invalid:stacked_base']);
+  });
+
+  it('passes a non-default base that no open PR has as its head', async () => {
+    const { result } = await runPreflight({
+      task: { base_branch: 'release' },
+      github: { default_branch: 'main', pulls: [] },
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it('does not read PRs for a task on the default branch', async () => {
+    const { result, ports } = await runPreflight({ github: stacked });
+    expect(result.ok).toBe(true);
+    expect(ports.github.requests.map((r) => r.path)).toEqual(['repos/acme/app']);
+  });
+});

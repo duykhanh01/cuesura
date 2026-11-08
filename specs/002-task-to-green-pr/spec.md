@@ -494,6 +494,7 @@ nhóm bao gồm toàn bộ các mục con, không thay thế việc kiểm chứ
   | **FR-002.03** | Sau lỗi này, hệ thống MUST chỉ thử lại qua task confirm/recheck có dedup, đọc base mới nhất và kiểm tra/chốt snapshot; vẫn qua acceptance/dependency/quyền, không tự poll cấu hình hoặc base tip. |
   | **FR-002.04** | Lỗi policy/năng lực phát hiện sau RUNNING MUST chuyển WAITING/policy, không về PENDING; lỗi hạ tầng theo FR-015. |
   | **FR-002.05** | Hệ thống MUST NOT bỏ role/bước hoặc đổi binding để vượt kiểm tra cấu hình/năng lực. |
+  | **FR-002.06** | Base branch khác nhánh mặc định của repo mà là head của một PR đang mở (chưa merge) MUST bị preflight chặn thành config_invalid với check `stacked_base`, nêu PR đó, task sở hữu nếu nhánh là `cusr/<task-id>-…`, và các lối ra: merge PR đó trước, làm tiếp PR bằng `task add --pr` (adopt), hoặc tạo lại task trên base của PR. Chỉ owner chọn stack có chủ đích bằng label `stacked-base` trên task do chính owner tạo; label trên task assistant tạo không có hiệu lực (issue #167). |
 
 - **FR-003**: Mỗi task thực thi MUST có một worktree và branch riêng do orchestrator sở hữu. MUST
   kiểm tra repo/cwd/vùng ghi và ownership trước khi dùng; bảo toàn repo gốc, diff chưa commit và commit
@@ -605,6 +606,7 @@ nhóm bao gồm toàn bộ các mục con, không thay thế việc kiểm chứ
   | **FR-027.03** | Explain MUST tách thời gian chờ slot và chỉ rõ deadline chưa bắt đầu hoặc thời hạn còn lại. |
   | **FR-027.04** | Explain MUST hiển thị prerequisite DONE có merged_head_unverified và liên kết bằng chứng, kể cả khi task phụ thuộc đã chạy. |
   | **FR-027.05** | Với merge_cleanup_pending, explain MUST hiển thị merge đã xác nhận, process/effect chưa rõ, giới hạn dừng/đối chiếu và thao tác recheck; không mô tả task đã DONE. |
+  | **FR-027.06** | Explain MUST cho thấy phạm vi nhánh của task còn sống: file nhánh đã đổi so với base, task còn sống khác cùng project đổi chung file, số commit base nhánh còn thiếu và file sẽ xung đột khi tích hợp base tip (đọc bằng `git merge-tree`). Task list MUST cho thấy với mỗi task: task đổi chung file, file xung đột với base và việc phạm vi chưa đọc được. Dữ liệu chỉ đọc repo cục bộ (ref base đã fetch gần nhất), không fetch, không gọi GitHub hay LLM, trong một hạn thời gian chung ngắn hơn timeout của CLI; phần đọc không được hoặc quá hạn MUST hiện là unknown, phân biệt với "không có", và không làm hỏng truy vấn (issue #210). |
 
 - **FR-028**: CLI và dịch vụ MUST giữ hợp đồng quyền read/operate/admin, request dedup/version/conflict,
   output máy đọc và exit code của SPEC.md §15.1–15.2. Quyền MUST kiểm tra tại dịch vụ bằng nguồn đáng

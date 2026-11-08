@@ -105,10 +105,31 @@ export function explainSummary(data: unknown): unknown {
       .filter((p) => p['status'] !== 'DONE' || p['unverified'] !== null)
       .map((p) => compact(pick(p, ['task_id', 'status', 'unverified']))),
     merge_cleanup: clip(data['merge_cleanup'] ?? null),
+    scope: scopeSummary(data['scope']),
     cancellation: data['cancellation'],
     paused: data['paused'] ?? null,
     allowed_actions: data['allowed_actions'],
     details: `cusr task explain ${id} --full`,
+  });
+}
+
+/**
+ * Only what needs a person: other live tasks changing the same files, and a branch behind or conflicting
+ * with its base. The changed files themselves come with `--full`.
+ */
+function scopeSummary(scope: unknown): Data | null {
+  if (!isRecord(scope)) return null;
+  const base = record(scope['base']);
+  const behind = typeof base['behind'] === 'number' && base['behind'] > 0 ? base['behind'] : null;
+  return compact({
+    overlaps: list(scope['overlaps']).map((o) => {
+      const r = record(o);
+      return { task_id: r['task_id'], status: r['status'], files: clip(r['files']) };
+    }),
+    base_behind: behind,
+    base_conflicts: base['conflicts'] ?? null,
+    // Kept apart from "none": a part listed here could not be read, so its absence says nothing.
+    unknown: scope['unknown'] ?? null,
   });
 }
 
@@ -142,6 +163,9 @@ export function listSummary(data: unknown): unknown {
         ...pick(r, ['task_id', 'project', 'title', 'status']),
         activity: r['wait_code'] ?? r['step'] ?? null,
         pr_ref: r['pr_ref'],
+        overlaps: r['overlaps'] ?? null,
+        base_conflicts: r['base_conflicts'] ?? null,
+        scope_unknown: r['scope_unknown'] === true ? true : null,
       });
     }),
     next_cursor: data['next_cursor'] ?? null,

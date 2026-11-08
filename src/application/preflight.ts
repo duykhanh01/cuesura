@@ -288,6 +288,10 @@ async function run(
   support.problems.push(...(await checkTools(ports.host, input, validated.value, support)));
   const remote = await readRepoIdentity(ports.github, location.repo);
   if (!remote.ok) support.problems.push(remote.error);
+  else {
+    const stacked = await checkStackedBase(ports.github, location.repo, task, remote.value);
+    if (stacked !== null) support.problems.push(stacked);
+  }
   if (support.problems.length > 0 || !remote.ok) return err(failed(support.problems));
 
   return ok({
@@ -298,7 +302,7 @@ async function run(
     common_git_dir: repo.value.common_git_dir,
     target: {
       repo: location.repo,
-      immutable_repo_id: remote.value,
+      immutable_repo_id: remote.value.id,
       base_ref: task.base_branch,
     },
     capability_refs: support.capability_refs,
@@ -704,7 +708,7 @@ async function readBaseFile(
 async function readRepoIdentity(
   port: GitHubPort,
   slug: string,
-): Promise<Result<string, PreflightProblem>> {
+): Promise<Result<RepoIdentity, PreflightProblem>> {
   const r = await port.request({
     method: 'GET',
     path: `repos/${slug}`,
@@ -732,7 +736,11 @@ async function readRepoIdentity(
       ),
     );
   }
-  const body = r.value.body as { id?: unknown; full_name?: unknown } | null;
+  const body = r.value.body as {
+    id?: unknown;
+    full_name?: unknown;
+    default_branch?: unknown;
+  } | null;
   if (typeof body?.id !== 'number' || typeof body.full_name !== 'string')
     throw new Infra('github_repo', 'repo response has no id/full_name');
   if (body.full_name.toLowerCase() !== slug.toLowerCase()) {
@@ -747,7 +755,69 @@ async function readRepoIdentity(
       ),
     );
   }
-  return ok(String(body.id));
+  return ok({
+    id: String(body.id),
+    default_branch: typeof body.default_branch === 'string' ? body.default_branch : null,
+  });
+}
+
+type RepoIdentity = { readonly id: string; readonly default_branch: string | null };
+
+/** The label a task carries when its owner chose to build on an unmerged PR's branch (issue #167). */
+export const STACKED_BASE_LABEL = 'stacked-base';
+
+const CUSR_TASK_BRANCH =
+  /^cusr\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:-|$)/;
+
+/**
+ * A base branch that is the head of an open PR stacks this task's PR on unmerged work: the PR can only
+ * merge after that one, and becomes an orphan if that PR's task was cancelled. Only the owner decides
+ * that (AGENTS.md), so preflight stops the task until they opt in with a label on a task they add
+ * themselves, or change the base.
+ */
+async function checkStackedBase(
+  port: GitHubPort,
+  slug: string,
+  task: CanonicalTask,
+  repo: RepoIdentity,
+): Promise<PreflightProblem | null> {
+  if (repo.default_branch === null || task.base_branch === repo.default_branch) return null;
+  // The assistant cannot opt in for the owner: only a person's own task request counts.
+  if (task.labels.includes(STACKED_BASE_LABEL) && task.requested_by.kind === 'human') return null;
+  const owner = slug.split('/')[0] as string;
+  const r = await port.request({
+    method: 'GET',
+    path: `repos/${slug}/pulls`,
+    query: { state: 'open', head: `${owner}:${task.base_branch}`, per_page: '10', page: '1' },
+    body: null,
+  });
+  if (!r.ok) {
+    if (r.error.reason === 'unknown') throw new Infra('stacked_base', r.error.detail);
+    return problem(
+      'capability_missing',
+      'stacked_base',
+      `open PRs of ${slug} cannot be read: ${r.error.detail}`,
+    );
+  }
+  if (!Array.isArray(r.value.body)) throw new Infra('stacked_base', 'unexpected pulls shape');
+  const open = r.value.body.flatMap((p: unknown) => {
+    const pr = p as { number?: unknown; base?: { ref?: unknown } } | null;
+    return typeof pr?.number === 'number' ? [pr] : [];
+  });
+  const first = open[0];
+  if (first === undefined) return null;
+  const into = typeof first.base?.ref === 'string' ? first.base.ref : repo.default_branch;
+  const owning = CUSR_TASK_BRANCH.exec(task.base_branch)?.[1];
+  const owner_note =
+    owning === undefined ? '' : ` It is the branch of task ${owning} (cusr task show ${owning}).`;
+  return problem(
+    'config_invalid',
+    'stacked_base',
+    `base branch '${task.base_branch}' is the head of open PR ${slug}#${String(first.number)}, which is not merged; this task's PR would stack on it.${owner_note}`,
+    {
+      fix: `merge ${slug}#${String(first.number)} first, or continue that PR with \`cusr task add --pr ${slug}#${String(first.number)}\` and base '${into}', or add the task again with base '${into}'; to stack on it on purpose, add the task again from a --file whose labels include '${STACKED_BASE_LABEL}'`,
+    },
+  );
 }
 
 export type LocalBaseError = {

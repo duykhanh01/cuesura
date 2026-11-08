@@ -85,18 +85,24 @@ trước khi in, cho cả `--json` lẫn output cho người đọc.
   `merge` (`method`, `title`, chỉ khi có PR), `failed` (tên gate lỗi, CI check lỗi, `review:
   request_changes` của lần gần nhất; không log), `deadline_ms` khi deadline đang chạy, `prerequisites`
   chưa DONE hoặc chưa xác minh, `merge_cleanup`, `cancellation`, `paused` (`reason`, `by`, `at`, null khi
-  không tạm dừng), `allowed_actions`.
+  không tạm dừng), `scope` (`overlaps`: task còn sống khác đổi chung file, `base_behind`, `base_conflicts`,
+  `unknown`: phần chưa đọc được; chỉ khi có), `allowed_actions`.
 - `task show`: `task_id`, `project`, `title`, `status`, `step`, `version`, `wait`, `blockers`, `pr_ref`,
   `run_config` (`status`, `digest`, `mode`). Đủ cho mutation; nội dung task ở `task content`.
 - `task list`: mới nhất trước, mặc định 20, tối đa 100. Item chỉ có `task_id`, `project`, `title`, `status`,
-  `activity` (wait code hoặc step), `pr_ref`. Theo `next_cursor` tới khi `null` là thấy mọi task;
+  `activity` (wait code hoặc step), `pr_ref`, `overlaps`, `base_conflicts` và `scope_unknown: true` khi có;
+  output cho người đọc in thêm dòng `Overlap:`/`Base conflict:`/`Scope unknown:` dưới bảng. Theo `next_cursor` tới khi `null` là thấy mọi task;
   `--order oldest` bắt đầu từ task đầu tiên. CLI gửi `order` trong query `task_list`; daemon vẫn mặc định
   `oldest` cho caller cũ.
 - `task history`: mặc định 50 event, mỗi event `seq`, `type`, `revision`, `actor`; `--full` thêm `payload`,
   `dedup_key`.
 - `task logs`: snapshot mặc định 20 record, chuỗi dài hơn 1000 ký tự bị cắt; `--full` giữ nguyên.
 - `task_explain` của daemon có thêm `running` (attempt đang chạy: `attempt_id`, `step`, `kind`, `rung`,
-  `binding`).
+  `binding`) và `scope` (FR-027.06): `changed_files`, `base` (`ref`, `tip_sha`, `behind`, `conflicts`) và
+  `overlaps` (`task_id`, `status`, `files`) và `unknown` (`changed_files`, `base`, `overlaps`: phần có mà
+  chưa đọc được, rỗng khi task chưa có nhánh); `null` cho task terminal. Item `task_list` của daemon có
+  `overlaps` (ID task), `base_conflicts` và `scope_unknown`. Dữ liệu đọc từ repo cục bộ, không fetch: base
+  tip là `refs/remotes/origin/<base>` đã fetch gần nhất; mọi lệnh git của một truy vấn chung hạn 4 giây.
 - `status`, `inbox`, `report`, `task board`, `task progress` giữ nguyên: dữ liệu đã có giới hạn
   (`inbox` tối đa 100 câu hỏi, `report` và `board` có `truncated`/cursor) và nội dung câu hỏi cần đủ để
   trả lời. `task content` là lệnh chi tiết cho nội dung task.

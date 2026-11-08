@@ -98,6 +98,9 @@ const TaskListSchema = z.object({
       status: z.string(),
       activity: z.string().optional(),
       pr_ref: z.string().optional(),
+      overlaps: z.array(z.string()).optional(),
+      base_conflicts: z.array(z.string()).optional(),
+      scope_unknown: z.boolean().optional(),
     }),
   ),
   next_cursor: z.string().nullable(),
@@ -124,6 +127,23 @@ export const renderTaskList =
               sanitize(t.title),
             ]),
           );
+    // Shared files and base conflicts collide at merge whatever the queue order says (issue #210).
+    const notes = items.flatMap((t) => [
+      ...(t.overlaps === undefined || t.overlaps.length === 0
+        ? []
+        : [`Overlap: ${t.task_id} changes files also changed by ${t.overlaps.join(', ')}`]),
+      ...(t.base_conflicts === undefined || t.base_conflicts.length === 0
+        ? []
+        : [
+            `Base conflict: ${t.task_id} conflicts with its base on ${t.base_conflicts.join(', ')}`,
+          ]),
+      ...(t.scope_unknown === true
+        ? [
+            `Scope unknown: ${t.task_id}'s branch could not be read; overlaps and conflicts may be missing`,
+          ]
+        : []),
+    ]);
+    if (notes.length > 0) lines.push('', ...notes.map(sanitize));
     if (next_cursor !== null)
       lines.push(
         '',

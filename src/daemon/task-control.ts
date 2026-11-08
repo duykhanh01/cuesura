@@ -35,6 +35,13 @@ import {
   type TaskServiceDeps,
 } from '../application/queries.ts';
 import { dispatchGuidance } from '../application/dispatch.ts';
+import {
+  projectPathFrom,
+  projectScopes,
+  ScopeCache,
+  taskScope,
+  type ScopeDeps,
+} from '../application/scope.ts';
 import { httpStatusFor } from '../cli/errors.ts';
 import { okEnvelope } from '../cli/output.ts';
 import type { Result } from '../shared/result.ts';
@@ -57,6 +64,44 @@ export type TaskControlDeps = TaskServiceDeps & {
   readonly decider?: DeciderWatch;
 };
 
+/** The explanation with what the branch touches and how it stands against its base (issue #210). */
+async function withScope(
+  deps: ScopeDeps,
+  r: Result<unknown, AppError>,
+): Promise<Result<unknown, AppError>> {
+  if (!r.ok) return r;
+  const value = r.value as Record<string, unknown>;
+  return {
+    ok: true,
+    value: { ...value, scope: await taskScope(deps, value['task_id'] as string) },
+  };
+}
+
+/** Each listed live task with the tasks it overlaps and the files its branch conflicts on with the base. */
+async function withListScope(
+  deps: ScopeDeps,
+  r: Result<unknown, AppError>,
+): Promise<Result<unknown, AppError>> {
+  if (!r.ok) return r;
+  const value = r.value as { items: Record<string, unknown>[] };
+  const scopes = await projectScopes(deps, new Set(value.items.map((i) => i['task_id'] as string)));
+  return {
+    ok: true,
+    value: {
+      ...value,
+      items: value.items.map((i) => {
+        const sc = scopes.get(i['task_id'] as string);
+        return {
+          ...i,
+          overlaps: sc?.overlaps.map((o) => o.task_id) ?? [],
+          base_conflicts: sc?.base?.conflicts ?? null,
+          scope_unknown: (sc?.unknown.length ?? 0) > 0,
+        };
+      }),
+    },
+  };
+}
+
 export function taskControl(deps: TaskControlDeps): {
   commands: {
     task_add: CommandHandler;
@@ -76,6 +121,12 @@ export function taskControl(deps: TaskControlDeps): {
   const { store, logs, doctor } = deps;
   const statusSince = statusSinceReader(store);
   const logCache = new LogRecordCache();
+  const scope: ScopeDeps = {
+    store,
+    git: deps.confirm.ports.git,
+    projectPath: projectPathFrom(deps.confirm.configInputs),
+    cache: new ScopeCache(),
+  };
   const attention = new AttentionDesk({
     store,
     now: deps.now,
@@ -109,9 +160,11 @@ export function taskControl(deps: TaskControlDeps): {
       assistant_register: (caller, body) => reply(attention.register(caller, body)),
       assistant_unregister: (caller, body) => reply(attention.unregister(caller, body)),
       task_show: (caller, body) => reply(taskShow(store, caller, body)),
-      task_list: (caller, body) => reply(taskList(store, caller, body)),
+      task_list: async (caller, body) =>
+        reply(await withListScope(scope, taskList(store, caller, body))),
       task_history: (caller, body) => reply(taskHistory(store, caller, body)),
-      task_explain: (caller, body) => reply(taskExplain(store, caller, body, deps.now())),
+      task_explain: async (caller, body) =>
+        reply(await withScope(scope, taskExplain(store, caller, body, deps.now()))),
       question_show: (caller, body) => reply(questionShow(store, caller, body)),
       task_board: (caller, body) => reply(taskBoard({ store, statusSince }, caller, body)),
       report: (caller, body) => reply(report({ store, statusSince, now: deps.now }, caller, body)),

@@ -162,14 +162,31 @@ export function fakeGit(o: GitOpts = {}): PreflightPorts['git'] & { calls: strin
   };
 }
 
+/** A repo that reports its default branch, and the open PRs a `pulls?head=` read returns. */
+export type RepoWithPulls = {
+  readonly default_branch: string;
+  readonly pulls?: readonly { number: number; base: { ref: string } }[];
+};
+
 export function fakeGitHub(
-  reply: 'ok' | 'renamed' | 404 | 403 | 'unknown' = 'ok',
+  reply: 'ok' | 'renamed' | 404 | 403 | 'unknown' | RepoWithPulls = 'ok',
 ): PreflightPorts['github'] & { requests: GitHubRequest[] } {
   const requests: GitHubRequest[] = [];
   return {
     requests,
     request: (req) => {
       requests.push(req);
+      if (typeof reply === 'object')
+        return Promise.resolve(
+          ok({
+            status: 200,
+            headers: {},
+            body: req.path.endsWith('/pulls')
+              ? (reply.pulls ?? [])
+              : { id: 4242, full_name: 'Acme/App', default_branch: reply.default_branch },
+            evidence_digest: hashCanonical('repo'),
+          }),
+        );
       if (reply === 'unknown')
         return Promise.resolve(
           err({

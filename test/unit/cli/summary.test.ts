@@ -135,6 +135,40 @@ describe('explainSummary', () => {
     });
   });
 
+  it('names overlapping tasks and a branch behind or conflicting with its base (issue #210)', () => {
+    const summary = explainSummary({
+      task_id: ID,
+      status: 'RUNNING',
+      scope: {
+        changed_files: ['a.ts', 'b.ts'],
+        base: { ref: 'main', tip_sha: 'f', behind: 2, conflicts: ['a.ts'] },
+        overlaps: [{ task_id: 'other', status: 'WAITING', files: ['b.ts'] }],
+      },
+    }) as Record<string, unknown>;
+    expect(summary['scope']).toEqual({
+      overlaps: [{ task_id: 'other', status: 'WAITING', files: ['b.ts'] }],
+      base_behind: 2,
+      base_conflicts: ['a.ts'],
+    });
+    const clean = explainSummary({
+      task_id: ID,
+      status: 'RUNNING',
+      scope: { changed_files: ['a.ts'], base: { behind: 0, conflicts: [] }, overlaps: [] },
+    }) as Record<string, unknown>;
+    expect(clean['scope']).toBeUndefined();
+    const unread = explainSummary({
+      task_id: ID,
+      status: 'RUNNING',
+      scope: {
+        changed_files: null,
+        base: { behind: null, conflicts: null },
+        overlaps: [],
+        unknown: ['changed_files', 'base', 'overlaps'],
+      },
+    }) as Record<string, unknown>;
+    expect(unread['scope']).toEqual({ unknown: ['changed_files', 'base', 'overlaps'] });
+  });
+
   it('passes a reply it does not recognize through unchanged', () => {
     expect(explainSummary({ unexpected: true })).toEqual({ unexpected: true });
     expect(explainSummary(null)).toBeNull();
@@ -220,6 +254,22 @@ describe('listSummary', () => {
       ],
       next_cursor: null,
     });
+  });
+
+  it('tells an unreadable scope apart from a clean one (issue #210)', () => {
+    const row = (extra: Record<string, unknown>) =>
+      (
+        listSummary({
+          items: [{ task_id: ID, project: 'acme', title: 'T', status: 'RUNNING', ...extra }],
+          next_cursor: null,
+        }) as { items: Record<string, unknown>[] }
+      ).items[0];
+    expect(row({ overlaps: [], base_conflicts: null, scope_unknown: true })).toMatchObject({
+      scope_unknown: true,
+    });
+    expect(row({ overlaps: [], base_conflicts: [], scope_unknown: false })).not.toHaveProperty(
+      'scope_unknown',
+    );
   });
 });
 
