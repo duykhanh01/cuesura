@@ -42,6 +42,7 @@ import {
 import { onStart } from './start.ts';
 import { onContinue } from './continue.ts';
 import { onPause, onUnpause, stoppedByPause } from './pause.ts';
+import { afterMessageStop, onMessage, stoppedByMessage } from './message.ts';
 import { onRecheck } from './recheck.ts';
 import { waitPolicy } from './waits.ts';
 import { onHeadDrift } from './head-drift.ts';
@@ -252,6 +253,9 @@ function dispatch(ctx: Ctx, t: Trigger): void {
     case 'unpause':
       onUnpause(ctx);
       return;
+    case 'message':
+      onMessage(ctx, t);
+      return;
     default:
       assertNever(t);
   }
@@ -329,6 +333,11 @@ export function onStopAttempt(ctx: Ctx, attemptId: string, reason: string): void
     // Stopped by `pause --now`: the step starts over in a new session, held while the task is paused.
     if (stoppedByPause(ctx, a.id)) {
       proceed(ctx, { kind: 'start_attempt', step: a.step, attempt_kind: 'fresh_session' });
+      return;
+    }
+    // Interrupted by a message before it launched: the next turn carries the message.
+    if (stoppedByMessage(ctx, a.id)) {
+      proceed(ctx, afterMessageStop(ctx, a));
       return;
     }
     askHuman(ctx, 'attempt_stopped', {

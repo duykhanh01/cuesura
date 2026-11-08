@@ -1,10 +1,12 @@
 /**
- * `task pause` and `task resume` (issue #142). Admission requires the operate role; the engine checks the
- * task can still be paused (not ended, not cancelling, no merge proof) or is paused.
+ * `task pause` and `task resume` (issue #142), and `task message` (issue #154). Admission requires the
+ * operate role; the engine checks the task can still be paused (not ended, not cancelling, no merge
+ * proof) or is paused, and whether a message interrupts a running turn.
  */
 import type { Uuid } from '../shared/brand.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import type { Store } from '../store/index.ts';
+import type { TaskState } from '../domain/state.ts';
 import type { Trigger } from '../domain/trigger.ts';
 import { acceptError, taskInProject } from './answer.ts';
 import { authzContext, type Caller } from './authz.ts';
@@ -22,7 +24,8 @@ function submitOne(
   admitted: Admitted,
   input: CommandInput,
   caller: Caller,
-  trigger: Extract<Trigger, { kind: 'pause' | 'unpause' }>,
+  trigger: Extract<Trigger, { kind: 'pause' | 'unpause' | 'message' }>,
+  extra: (after: TaskState) => Record<string, unknown> = () => ({}),
 ): Promise<Result<unknown, AppError>> {
   const found = taskInProject(deps.store, input);
   if (!found.ok) return Promise.resolve(found);
@@ -47,7 +50,9 @@ function submitOne(
         details: { reason: d.code, detail: d.detail ?? null },
       }),
     );
-  return Promise.resolve(ok({ task: after === null ? null : taskView(after) }));
+  return Promise.resolve(
+    ok({ ...(after === null ? {} : extra(after)), task: after === null ? null : taskView(after) }),
+  );
 }
 
 export function pauseTask(
@@ -71,4 +76,31 @@ export function resumeTask(
   caller: Caller,
 ): Promise<Result<unknown, AppError>> {
   return submitOne(deps, admitted, input, caller, { kind: 'unpause' });
+}
+
+/** `task message` (issue #154): guidance for the task's agents; the engine decides whether it interrupts. */
+export function messageTask(
+  deps: PauseDeps,
+  admitted: Admitted,
+  input: CommandInput,
+  caller: Caller,
+): Promise<Result<unknown, AppError>> {
+  const { body, behavior } = input.payload as {
+    body: string;
+    behavior?: 'steer' | 'interrupt' | 'queue';
+  };
+  return submitOne(
+    deps,
+    admitted,
+    input,
+    caller,
+    { kind: 'message', body, ...(behavior === undefined ? {} : { behavior }) },
+    // A replayed request answers with the message it recorded the first time, not a later one.
+    (after) => {
+      const m = (after.messages ?? []).find((x) => admitted.record.assigned_ids.includes(x.id));
+      if (m === undefined) return {};
+      const { body: _body, ...shown } = m;
+      return { message: shown };
+    },
+  );
 }

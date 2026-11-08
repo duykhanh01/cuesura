@@ -67,6 +67,7 @@ import { settleUnderDrift } from './head-drift.ts';
 import { deferForDrift } from './revision.ts';
 import { restartCadence, waitMergeEvidence, waitPrClosed } from './observation.ts';
 import { isPaused, stoppedByPause, waitPaused } from './pause.ts';
+import { afterMessageStop, stoppedByMessage } from './message.ts';
 import { reusableReview, reviewInputDigest } from './review-evidence.ts';
 import { confirmedChoices } from './run-config.ts';
 import { ensureRunning, mkWait, waitPolicy, waitTask } from './waits.ts';
@@ -811,6 +812,10 @@ export function startAttempt(ctx: Ctx, step: string, kind: AttemptKind): void {
   const answers = Object.values(ctx.state.questions)
     .filter((q) => q.step === step && q.status === 'answered' && q.revision === s.revision)
     .map((q) => ({ question_id: q.id, answer: q.answer }));
+  // Which messages this attempt's context carries (issue #154); the handler reads them from state.
+  const messages = (ctx.state.messages ?? [])
+    .filter((m) => m.revision === s.revision)
+    .map((m) => m.id);
   requestEffect(ctx, {
     kind: 'start_agent',
     logical_id: attemptId,
@@ -825,6 +830,7 @@ export function startAttempt(ctx: Ctx, step: string, kind: AttemptKind): void {
       attempt_kind: kind,
       context_hash: s.context_ref?.hash ?? null,
       answers,
+      ...(messages.length === 0 ? {} : { messages }),
       ...resume,
     },
   });
@@ -1775,6 +1781,12 @@ function afterAttempt(ctx: Ctx, e: EffectMirror): boolean {
     // and started at once when it was resumed before the stopped run ended.
     if (stoppedByPause(ctx, a.id)) {
       proceed(ctx, { kind: 'start_attempt', step: a.step, attempt_kind: 'fresh_session' });
+      return true;
+    }
+    // Interrupted by a message: the next turn continues this session with it when the harness can
+    // resume, else starts a new one; held while the task is paused (issue #154).
+    if (stoppedByMessage(ctx, a.id)) {
+      proceed(ctx, afterMessageStop(ctx, a));
       return true;
     }
     askHuman(ctx, 'attempt_stopped', {

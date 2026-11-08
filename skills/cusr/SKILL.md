@@ -299,6 +299,20 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   --expected-version "$VERSION" --request-id "$ANSWER_REQUEST_ID" --json
 ```
 
+## Messages
+
+```sh
+# Guidance for a task's agents without cancelling it or waiting for a question, e.g.
+# "leave the TUI wiring to T075". A running coder/fixer turn is stopped and its session
+# continues with the message; a reviewer, a paused task or --behavior queue gets it on
+# the next turn. Every later agent turn of the revision sees every message.
+# Never use it to widen the task or its acceptance criteria: agents are told to ignore that.
+# The interrupted turn counts against the agent-run budget; send messages the user asked for.
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
+  cusr task message "$TASK_ID" --file "$MESSAGE_FILE" \
+  --expected-version "$VERSION" --request-id "$MESSAGE_REQUEST_ID" --json
+```
+
 ## Report
 
 ```sh

@@ -356,7 +356,7 @@ export const FailureDataSchema = z
     usage: UsageSchema.optional(),
     invoked: z.boolean().optional(),
     message: z.string().optional(),
-    // A turn-limited worker can continue its persisted transcript on the next attempt.
+    // A turn-limited or stopped worker can continue its persisted transcript on the next attempt.
     session_ref: z.string().min(1).nullable().optional(),
     // T072, additive: the worktree tree after a worker attempt, or the change found before one.
     worktree_tree: z.string().min(1).optional(),
@@ -715,6 +715,16 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
     })
     .strict(),
   z.object({ kind: z.literal('unpause') }).strict(),
+  // A person or the assistant sends guidance to the task's agents (issue #154). `steer` and `interrupt`
+  // stop a running coder/fixer turn and continue its session with the message; `queue` waits for the
+  // next turn. Absent: `steer` from the assistant, `interrupt` from the owner.
+  z
+    .object({
+      kind: z.literal('message'),
+      body: z.string().min(1).max(65_536),
+      behavior: z.enum(['steer', 'interrupt', 'queue']).optional(),
+    })
+    .strict(),
   // Run configuration (task-execution-modes.md M01/M02): proposed by any operator, confirmed by the user.
   z
     .object({
@@ -767,6 +777,7 @@ export const HUMAN_TRIGGERS: readonly TriggerKind[] = [
   'continue',
   'pause',
   'unpause',
+  'message',
   'propose_run_config',
   'confirm_run_config',
 ];

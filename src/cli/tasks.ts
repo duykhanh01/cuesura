@@ -709,6 +709,50 @@ export const resumeCommand: CliCommand = {
   run: (values, json, io) => mutate(values, 'task_resume', values['id'] as string, {}, json, io),
 };
 
+export const messageCommand: CliCommand = {
+  name: 'task message',
+  description:
+    'Send guidance from a text file to the agents of a task; it never widens the task or its acceptance criteria',
+  args: ['<id>'],
+  options: [
+    DATA_DIR,
+    REQUEST_ID,
+    PROJECT,
+    EXPECTED_VERSION,
+    { flags: '--file <file>', description: 'Text file containing the message' },
+    {
+      flags: '--behavior <behavior>',
+      description:
+        'interrupt: stop a running coder/fixer turn and continue its session with the message; steer: the same, as no harness takes input mid-turn; queue: wait for the next turn. Default: steer for the assistant, interrupt for the owner',
+    },
+  ],
+  async run(values, json, io) {
+    const behavior = values['behavior'];
+    if (values['file'] === undefined) return usage('task message requires --file', json, io);
+    if (behavior !== undefined && !['steer', 'interrupt', 'queue'].includes(behavior))
+      return usage('--behavior must be steer, interrupt or queue', json, io);
+    let body: string;
+    try {
+      body = readFileSync(values['file'], 'utf8').trimEnd();
+    } catch (e) {
+      return usage(
+        `Cannot read ${values['file']}: ${e instanceof Error ? e.message : String(e)}`,
+        json,
+        io,
+      );
+    }
+    if (body === '') return usage(`${values['file']} is empty`, json, io);
+    return mutate(
+      values,
+      'task_message',
+      values['id'] as string,
+      { body, ...(behavior === undefined ? {} : { behavior }) },
+      json,
+      io,
+    );
+  },
+};
+
 /** A command on the daemon's own queue: no project, task or version. */
 async function mutateQueue(
   values: Values,

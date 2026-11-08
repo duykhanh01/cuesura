@@ -72,13 +72,15 @@ async function conflictFlow(
     | 'scope-unreadable'
     | 'rate-limited'
     | 'markerless'
-    | 'reproved' = 'done',
+    | 'reproved'
+    | 'interrupted' = 'done',
 ) {
   const task = buildTask();
   const f = setup(task, {
     mode,
     reviews: 2,
     ...(behavior === 'reproved' ? { confirmManifests: true } : {}),
+    ...(behavior === 'interrupted' ? { resume: true } : {}),
     ...(behavior === 'gate-failed'
       ? {
           gates: {
@@ -94,6 +96,7 @@ async function conflictFlow(
   if (worker === undefined) throw new Error('no worker');
   const original = worker.run.bind(worker);
   let calls = 0;
+  const fixerInputs: Parameters<typeof worker.run>[0][] = [];
   const fixer = new FakeHarness(
     {
       fixer: [
@@ -114,6 +117,22 @@ async function conflictFlow(
   worker.run = (input, signal) => {
     if (input.role !== 'fixer') return original(input, signal);
     calls++;
+    fixerInputs.push(input);
+    // A message lands while the conflict fixer runs; the stop ends it as cancelled, session kept.
+    if (behavior === 'interrupted' && calls === 1) {
+      f.d.must(task.id, { kind: 'message', body: 'MSG-154: keep the trimmed search' });
+      return Promise.resolve({
+        kind: 'failure' as const,
+        failure: 'cancelled' as const,
+        detail: 'stopped',
+        role: 'fixer' as const,
+        usage: { basis: 'unavailable' as const },
+        session_ref: 'fixer-session',
+        permission_denials: [],
+        invoked: true,
+        reset_at: null,
+      });
+    }
     if (
       behavior !== 'unresolved' &&
       behavior !== 'markerless' &&
@@ -188,7 +207,7 @@ async function conflictFlow(
   };
   expect(await requestBaseWithoutYolo(f.deps, task.id, head, base)).toBe('updating_base');
   await finish();
-  return { ...f, task, head, base, external, finish, fixes: () => calls };
+  return { ...f, task, head, base, external, finish, fixes: () => calls, fixerInputs };
 }
 
 describe('base integration through the real gate/review/publish handlers', () => {
@@ -568,6 +587,20 @@ describe('base integration through the real gate/review/publish handlers', () =>
       expect(replay(f.d.store.readEvents(f.task.id))).toEqual(f.d.task(f.task.id));
     },
   );
+
+  it('#154: a message interrupting the conflict fixer continues its session as the one fixer, no manual repair', async () => {
+    const f = await conflictFlow('full-review', 'interrupted');
+    expect(f.fixes()).toBe(2);
+    expect(f.fixerInputs[1]?.session).toMatchObject({
+      ref: 'fixer-session',
+      from_attempt_id: f.fixerInputs[0]?.attempt_id,
+    });
+    expect(f.fixerInputs[1]?.context.text).toContain('MSG-154: keep the trimmed search');
+    const after = f.d.task(f.task.id);
+    expect(after.run.base_update?.fixer_attempt_id).toBe(f.fixerInputs[1]?.attempt_id);
+    expect(after.wait?.detail.code).toBe('merge');
+    expect(replay(f.d.store.readEvents(f.task.id))).toEqual(after);
+  });
 
   it('a rate-limited fixer can be retried only by an explicit operator answer', async () => {
     const f = await conflictFlow('full-review', 'rate-limited');

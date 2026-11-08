@@ -902,6 +902,24 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
     case 'TaskUnpaused':
       s.pause = null;
       break;
+    case 'TaskMessageSent': {
+      const p = event.payload;
+      s.messages = [
+        ...(s.messages ?? []),
+        {
+          id: p.message_id,
+          body: p.body,
+          by: p.by,
+          at: p.at,
+          revision: p.revision,
+          behavior: p.behavior,
+          delivery: p.delivery,
+        },
+      ];
+      if (p.stopped !== undefined && p.stopped.length > 0)
+        s.message_stops = [...(s.message_stops ?? []), ...p.stopped];
+      break;
+    }
     case 'TaskContinued': {
       for (const k of event.payload.streaks) {
         const streak = s.failure_streaks[k];

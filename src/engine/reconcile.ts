@@ -1,4 +1,5 @@
 import { stoppedByPause } from './pause.ts';
+import { afterMessageStop, stoppedByMessage } from './message.ts';
 import { isRequeueSafe } from '../domain/effect.ts';
 import { AGENT_LOST_SIGNATURE } from '../domain/runtime.ts';
 import { hashCanonical } from '../shared/hash.ts';
@@ -138,10 +139,17 @@ export function onReconciled(ctx: Ctx, t: Reconciled): void {
         });
         return;
       }
-      const f = FailureDataSchema.parse({
+      const base = {
         failure_class: t.failure_class,
         ...(t.signature !== undefined ? { signature: t.signature } : {}),
-      });
+      };
+      // A run read back keeps what the live result would have carried: the session a stopped worker
+      // continues and the tree it left (#154). Data that does not parse falls back to the class alone.
+      const full =
+        typeof t.data === 'object' && t.data !== null
+          ? FailureDataSchema.safeParse({ ...t.data, ...base })
+          : null;
+      const f = full?.success === true ? full.data : FailureDataSchema.parse(base);
       for (const o of lost.filter((x) => x.status === 'lost'))
         ctx.emit('OperationObserved', {
           operation_id: o.id,
@@ -210,19 +218,22 @@ export function onReconciled(ctx: Ctx, t: Reconciled): void {
       if (
         ctx.state.cancellation !== null ||
         attempt === undefined ||
-        (attempt.stop_requested && !stoppedByPause(ctx, attempt.id)) ||
+        (attempt.stop_requested &&
+          !stoppedByPause(ctx, attempt.id) &&
+          !stoppedByMessage(ctx, attempt.id)) ||
         ctx.state.current_attempt[attempt.step] !== attempt.id
       ) {
         proceed(ctx, { kind: 'none' });
         return;
       }
-      // A run stopped by `pause --now` that never started: retried on resume, held until then.
+      // A run stopped by `pause --now` or a message that never started: retried, held while paused.
 
-      proceed(ctx, {
-        kind: 'start_attempt',
-        step: attempt.step,
-        attempt_kind: 'retry',
-      });
+      proceed(
+        ctx,
+        stoppedByMessage(ctx, attempt.id)
+          ? afterMessageStop(ctx, attempt)
+          : { kind: 'start_attempt', step: attempt.step, attempt_kind: 'retry' },
+      );
       return;
     }
     case 'still_unknown':

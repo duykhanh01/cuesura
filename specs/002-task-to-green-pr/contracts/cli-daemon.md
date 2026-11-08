@@ -34,6 +34,7 @@ qua amend-policy của feature 002; tạo task mới nếu cần đổi. Không 
 | `cusr task logs ID --after CURSOR [--follow]` | read; snapshot hữu hạn (mặc định 20 record) hoặc stream JSONL có seq/cursor; chuỗi dài hơn 1000 ký tự bị cắt trừ khi có `--full`; một follow session tối đa 1 giờ, có thể nối lại |
 | `cusr task confirm/cancel/recheck ID` | operate; version/dedup; recheck chọn cấu hình/PR/drain/worktree theo task, không gọi agent; với `worktree_changed` thì nhận tree đã quan sát làm mốc của task rồi chạy lại bước; với `manifest_changed` thì nhận manifest harness đang hiệu lực rồi chạy lại bước; với `harness_auth`, hoặc `loop_exhausted` mà các lượt cuối lỗi infra/rate limit/đăng nhập, thì trả visit của các lượt đó rồi chạy lại bước |
 | `cusr task pause ID --reason TEXT [--now]`, `cusr task resume ID` | operate; version/dedup; xem [Tạm dừng task](#tạm-dừng-task) |
+| `cusr task message ID --file FILE [--behavior steer\|interrupt\|queue]` | operate; version/dedup; xem [Tin nhắn cho agent](#tin-nhắn-cho-agent) |
 | `cusr queue pause --reason TEXT`, `cusr queue resume` | operate; không có project, task hay version; xem [Tạm dừng task](#tạm-dừng-task) |
 | `cusr dispatch --project ID` | read trong phạm vi project; trả `project`, `source` (`project`, `global` hoặc `none`), `modes`, `rules`, `default`. Lấy từ `projects.<id>.dispatch`, không có thì `runtime.dispatch`; đọc config mỗi lần gọi; `use[]` trả về dạng `{worker, reviewer?}` kèm `profile`, `mode` để chép thẳng vào `task propose`; không chứa secret, không chọn thay người dùng |
 | `cusr inbox`, `cusr answer QUESTION --file FILE --expected-version N` | read/operate; câu trả lời đầu thắng, ràng buộc revision/version |
@@ -238,6 +239,38 @@ thúc CANCELLED và kết quả có `warning` rằng PR có thể chưa được
   (owner-only, giữ qua restart, không cần migration DB); file hỏng được coi là đang tạm dừng. File ghi
   kèm request ID đã áp dụng, nên lệnh chạy lại sau crash không đổi gì và không lật quyết định mới hơn. `cusr status` có
   `queue_paused` (`reason`, `by`, `at`) và không coi đây là lỗi health.
+
+## Tin nhắn cho agent
+
+Issue #154. `task message` đưa chỉ dẫn cho agent đang làm task mà không hủy task hay chờ tới lượt hỏi
+đáp. Mô hình theo cách paseo giao prompt cho agent đang bận: `interrupt` hủy lượt đang chạy rồi mở
+lượt mới với tin nhắn; `steer` chèn tin nhắn vào lượt đang chạy và lùi về `interrupt` khi provider
+không nhận input giữa chừng; mặc định assistant là `steer`, người dùng là `interrupt`.
+
+- Worker chạy dưới runner riêng với stdin là file cố định và `codex exec` không nhận input sau khi chạy,
+  nên `steer` luôn lùi về `interrupt` và event ghi `fallback: steer_unsupported`.
+- `steer`/`interrupt` dừng các lượt coder/fixer đang chạy của revision hiện tại bằng `stop_attempt` (lượt
+  chưa khởi chạy thì bị rút). Khi lượt bị dừng kết thúc, cùng bước chạy lượt `retry` nối tiếp session
+  của lượt đó nếu harness đã chứng minh resume; không thì session mới. Không hỏi `attempt_stopped`.
+  Lượt bị dừng vẫn tính vào budget. Conflict fixer duy nhất của một lần cập nhật base bị ngắt thì đi qua
+  `retry_fixer`: lượt nối tiếp nhận vai conflict fixer đó, không chuyển sang chờ sửa tay.
+- Không ngắt reviewer (reviewer luôn dựng packet riêng và chạy nốt); không ngắt gì khi task đang tạm dừng,
+  lượt bị dừng kết thúc lúc tạm dừng thì chờ `resume`; `queue` không ngắt. Các trường hợp đó ghi
+  `delivery: next_turn`.
+- Tin nhắn gửi khi lượt bị dừng chưa kết thúc không dừng thêm lần nữa; lượt kế tiếp mang tất cả.
+- Mọi lượt agent sau đó của cùng revision (coder, fixer, reviewer) có mục `messages` trong context, theo thứ
+  tự gửi, kèm người gửi và thời điểm; mục này bắt buộc, không bị cắt. Request `start_agent` ghi ID các tin
+  nhắn nó mang và context chỉ dựng từ các ID đó, nên tin nhắn tới sau khi khởi chạy không đổi input mà
+  recovery dựng lại để nhận kết quả lượt cũ; lượt kế tiếp mới mang nó. Tin nhắn chỉ là chỉ dẫn: context nói rõ không thêm hay đổi tiêu chí nghiệm thu, yêu cầu,
+  ràng buộc hay phạm vi loại trừ, phần vượt ra ngoài thì không làm và nêu trong summary.
+- Tin nhắn là event `TaskMessageSent` (người gửi, revision, behavior, delivery, lượt bị dừng) nên giữ qua
+  restart và replay. Daemon chết giữa lúc dừng và lúc nối tiếp thì kết quả lượt bị dừng, hoặc reconcile
+  `not_executed`, vẫn dẫn tới lượt `retry` mang tin nhắn. Lượt bị dừng báo `cancelled` giữ `session_ref`;
+  reconcile đọc lại một lượt thất bại thì chuyển nguyên failure data đã validate (session, cây worktree,
+  usage) cho engine như kết quả trực tiếp.
+- Reply có `message` (`id`, `by`, `at`, `revision`, `behavior`, `delivery`); request chạy lại trả đúng tin
+  nhắn lần đầu. Không gửi được cho task đã kết thúc hoặc đang hủy. `task explain --full` có `messages` của
+  revision hiện tại.
 
 ## Confirm/recheck PENDING và health
 

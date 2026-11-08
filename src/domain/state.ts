@@ -139,6 +139,19 @@ export type DetailCode = (typeof DETAIL_CODES)[number];
 
 export type TaskPause = { reason: string; by: string; at: number };
 
+export type MessageBehavior = 'steer' | 'interrupt' | 'queue';
+
+/** Guidance sent with `cusr task message` (issue #154); never widens the task. */
+export type TaskMessage = {
+  id: string;
+  body: string;
+  by: string;
+  at: number;
+  revision: number;
+  behavior: MessageBehavior;
+  delivery: 'interrupt' | 'next_turn';
+};
+
 export type ResumeAction =
   | { kind: 'start_attempt'; step: string; attempt_kind: AttemptKind }
   | { kind: 'enter_step'; step: string; base_update?: BaseUpdate }
@@ -560,6 +573,10 @@ export type TaskState = {
   pause?: TaskPause | null;
   /** Attempts stopped by `pause --now`: kept past the resume, so their end restarts the step. */
   pause_stops?: string[];
+  /** Messages in the order sent (issue #154); absent until the first. */
+  messages?: TaskMessage[];
+  /** Attempts a message interrupted: their end continues the same session with the message. */
+  message_stops?: string[];
   attempts: Record<string, Attempt>;
   current_attempt: Record<string, string>;
   rungs: { by_step: Record<string, number>; floor_level: Level | null };

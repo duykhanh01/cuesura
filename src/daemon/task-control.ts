@@ -10,7 +10,7 @@ import { approveEscalation } from '../application/approve.ts';
 import { statusSinceReader, taskBoard } from '../application/board.ts';
 import { cancelTask } from '../application/cancel.ts';
 import { continueTask } from '../application/continue.ts';
-import { pauseTask, resumeTask } from '../application/pause.ts';
+import { messageTask, pauseTask, resumeTask } from '../application/pause.ts';
 import { runDoctor, type DoctorDeps } from '../application/doctor.ts';
 import { AttentionDesk, type DeciderWatch } from '../application/attention.ts';
 import { inbox } from '../application/inbox.ts';
@@ -114,6 +114,7 @@ export function taskControl(deps: TaskControlDeps): {
     task_continue: CommandHandler;
     task_pause: CommandHandler;
     task_resume: CommandHandler;
+    task_message: CommandHandler;
     task_recheck?: CommandHandler;
   };
   queries: Record<string, QueryHandler>;
@@ -147,6 +148,7 @@ export function taskControl(deps: TaskControlDeps): {
       task_continue: (admitted, input, caller) => continueTask(deps, admitted, input, caller),
       task_pause: (admitted, input, caller) => pauseTask(deps, admitted, input, caller),
       task_resume: (admitted, input, caller) => resumeTask(deps, admitted, input, caller),
+      task_message: (admitted, input, caller) => messageTask(deps, admitted, input, caller),
       ...(deps.observe === undefined || deps.drain === undefined || deps.newId === undefined
         ? {}
         : {

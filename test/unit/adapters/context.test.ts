@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CODER_RULES,
   FIXER_RULES,
+  MESSAGE_RULES,
   REVIEWER_RULES,
   buildRoleContext,
   gateEvidenceFor,
@@ -113,6 +114,29 @@ describe('role context (T037, FR-005)', () => {
     expect(v.text).toContain('(q1) Use SQLite');
     expect(v.truncated).toEqual([]);
     expect(v.digest).toMatch(/^sha256:/);
+  });
+
+  it('carries the messages of the revision with the rule that they never widen the task (#154)', () => {
+    const v = ok(
+      buildRoleContext(
+        input({
+          messages: [
+            { by: 'owner', at: Date.UTC(2026, 10, 8, 9), body: 'Leave the TUI wiring to T075' },
+            { by: 'assistant', at: Date.UTC(2026, 10, 8, 10), body: `token ${SECRET}` },
+          ],
+          // Required: the optional spec sections are cut first, the messages never.
+          limits: { context_bytes: 4 * 1024, review_diff_bytes: 64 * 1024 },
+        }),
+      ),
+    );
+    expect(v.text).toContain(`## messages\n${MESSAGE_RULES}`);
+    expect(v.text).toContain(
+      '### From owner at 2026-11-08T09:00:00.000Z\nLeave the TUI wiring to T075',
+    );
+    expect(v.text).toContain('### From assistant at 2026-11-08T10:00:00.000Z');
+    expect(v.text).not.toContain(SECRET);
+    expect(v.truncated.map((t) => t.section)).not.toContain('messages');
+    expect(ok(buildRoleContext(input())).text).not.toContain('## messages');
   });
 
   it('asks for context instead of calling the agent when a required part is missing', () => {

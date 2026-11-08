@@ -8,6 +8,7 @@ import type {
   CheckpointState,
   HeadDrift,
   LocalRemainder,
+  MessageBehavior,
   PublishContentState,
   ResumeAction,
   ReviewEvidence,
@@ -458,6 +459,22 @@ export type EventPayloads = {
   /** `stopped`: attempts `pause --now` stopped; each starts over in a new session, paused or not. */
   TaskPaused: { reason: string; by: string; at: number; stopped?: string[] };
   TaskUnpaused: { by: string; at: number };
+  /**
+   * Guidance sent to the task's agents (issue #154), shown to every later agent attempt of `revision`.
+   * `stopped`: the coder/fixer attempts it interrupted; each continues its session with the message.
+   * `fallback`: why the requested behavior was not used as asked (`steer` needs mid-turn input).
+   */
+  TaskMessageSent: {
+    message_id: string;
+    body: string;
+    by: string;
+    at: number;
+    revision: number;
+    behavior: MessageBehavior;
+    delivery: 'interrupt' | 'next_turn';
+    stopped?: string[];
+    fallback?: string;
+  };
 };
 
 export type EventType = keyof EventPayloads;
@@ -553,6 +570,7 @@ export const EVENT_TYPES = [
   'AnswerTurnGranted',
   'TaskPaused',
   'TaskUnpaused',
+  'TaskMessageSent',
 ] as const satisfies readonly EventType[];
 
 type _MissingEventTypes = Exclude<EventType, (typeof EVENT_TYPES)[number]>;

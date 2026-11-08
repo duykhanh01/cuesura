@@ -643,7 +643,10 @@ function agentOutcome(
         // The reservation is released only when the harness provably never ran (FR-010/016).
         invoked: o.invoked,
         usage: o.usage,
-        ...(o.failure === 'turn_limit' ? { session_ref: o.session_ref } : {}),
+        // A stopped run (a message interrupted it, #154) keeps its session for the next turn too.
+        ...(o.failure === 'turn_limit' || o.failure === 'cancelled'
+          ? { session_ref: o.session_ref }
+          : {}),
         ...(o.reset_at === null ? {} : { reset_at: o.reset_at }),
       },
     };
@@ -984,6 +987,14 @@ async function startAgent(
       ? [{ question_id: q.id, question: q.body, answer: q.answer }]
       : [],
   );
+  // Only the messages the engine listed at the request: one sent after the launch must not change the
+  // input, or recovery could not match the run it launched (#154); the next turn carries it.
+  const listed = Array.isArray(effect.request['messages'])
+    ? (effect.request['messages'] as unknown[])
+    : [];
+  const messages = (l.s.messages ?? []).flatMap((m) =>
+    listed.includes(m.id) ? [{ by: m.by, at: m.at, body: m.body }] : [],
+  );
   const built = buildRoleContext({
     role: r,
     step,
@@ -996,6 +1007,7 @@ async function startAgent(
     },
     prompt: l.rt.role_prompts?.[r] ?? null,
     answers,
+    ...(messages.length === 0 ? {} : { messages }),
     failures: repairing ? fix.failures : [],
     diff: review?.diff ?? null,
     ...(repairing
@@ -2219,6 +2231,8 @@ type Probe =
       readonly failure_class: NonNullable<Reconciled['failure_class']>;
       readonly signature?: string;
       readonly detail: string;
+      /** The handler's whole failure data, when a run was read back (session, worktree tree, usage). */
+      readonly data?: unknown;
       readonly extra?: Trigger[];
     }
   | { readonly finding: 'not_executed'; readonly detail: string }
@@ -2244,6 +2258,7 @@ function fromOutcome(o: EffectOutcome, extra: Trigger[] = []): Probe {
     finding: 'executed_failed',
     failure_class: f.failure_class,
     detail: f.message ?? 'failed',
+    data: o.data,
     extra,
   };
 }
@@ -2683,6 +2698,7 @@ async function reconcileEffect(
       ? {
           failure_class: p.failure_class,
           ...(p.signature === undefined ? {} : { signature: p.signature }),
+          ...(p.data === undefined ? {} : { data: p.data }),
         }
       : {}),
   });

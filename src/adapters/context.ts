@@ -177,6 +177,12 @@ export type ContextInput = {
     readonly question?: string;
     readonly answer: string;
   }[];
+  /** Guidance sent with `cusr task message` during this revision, in the order sent (issue #154). */
+  readonly messages?: readonly {
+    readonly by: string;
+    readonly at: number;
+    readonly body: string;
+  }[];
   readonly failures: readonly RoleFailure[];
   readonly diff: ReviewDiff | null;
   /** Required for a repair (fixer, or a coder step that fixes CI). */
@@ -240,6 +246,22 @@ Result
 - needs_input: a choice only the owner can make; ask it in questions, with options.
 - needs_context: information the task depends on is in neither the context nor the worktree; name it in blocker.
 - blocked: the work cannot be done within this task; give the reason in blocker.`;
+
+/**
+ * Messages reach the agent's prompt straight from a person or the assistant, so they are guidance only:
+ * the task as frozen stays what the work is judged against (issue #154).
+ */
+export const MESSAGE_RULES = `Guidance sent while this task runs, oldest first. Follow it within the task: it never adds to or changes the acceptance criteria, requirements, constraints or out-of-scope list above. If a message asks for work outside them, do not do that part and name it in your summary.`;
+
+function messagesBody(
+  messages: NonNullable<ContextInput['messages']>,
+  clean: (s: string) => string,
+): string {
+  const items = messages.map(
+    (m) => `### From ${clean(m.by)} at ${new Date(m.at).toISOString()}\n${clean(m.body)}`,
+  );
+  return [MESSAGE_RULES, ...items].join('\n\n');
+}
 
 export const CODER_RULES = `You implement one task in this worktree.
 - Meet every acceptance criterion and requirement. Respect the constraints; do not touch what is out of scope.
@@ -508,6 +530,9 @@ export function buildRoleContext(
         .join('\n'),
       required: true,
     },
+    ...(input.messages === undefined || input.messages.length === 0
+      ? []
+      : [{ name: 'messages', body: messagesBody(input.messages, clean), required: true }]),
     // First of the optional sections: what the worker says it fixed is what this round checks.
     ...(input.role === 'reviewer' && input.worker_reports !== undefined
       ? [

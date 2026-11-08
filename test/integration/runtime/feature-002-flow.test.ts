@@ -26,6 +26,7 @@ import type { EpochMs } from '../../../src/shared/brand.ts';
 import { hashCanonical, hashText } from '../../../src/shared/hash.ts';
 import type { Uuid } from '../../../src/shared/brand.ts';
 import { injectEvents } from '../../../src/store/testing.ts';
+import { replay } from '../../../src/engine/evolve.ts';
 import { buildTask, uuidOf } from '../../support/builders.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 import { CONTENT, flowEnv, type Content } from '../../support/flow-env.ts';
@@ -192,6 +193,42 @@ it('turn exhaustion uses timeout handling, preserving the worker session for con
     from_attempt_id: seen[0]?.attempt_id,
   });
   expect(f.d.task(task.id).wait?.detail.code).toBe('timeout');
+});
+
+it('#154: a message interrupts the coder; the next turn resumes its session with the message in context', async () => {
+  const task = buildTask();
+  const f = setup(task, { mode: 'direct-pr', resume: true, runs: [CONTENT] });
+  const original = f.coder.run.bind(f.coder);
+  const seen: HarnessInput[] = [];
+  f.coder.run = (input, signal) => {
+    seen.push(input);
+    if (seen.length > 1) return original(input, signal);
+    // The message lands while this turn runs; the stop ends it as cancelled, its session kept.
+    f.d.must(task.id, { kind: 'message', body: 'MSG-154: reuse the parser in src/parse.ts' });
+    return Promise.resolve({
+      kind: 'failure',
+      failure: 'cancelled',
+      detail: 'stopped',
+      role: input.role,
+      usage: { basis: 'unavailable' },
+      session_ref: 'interrupted-session',
+      permission_denials: [],
+      invoked: true,
+      reset_at: null,
+    });
+  };
+  f.d.must(task.id, { kind: 'create_task', task });
+  f.start();
+  await settleWithSlot(f.d, f.settle);
+  expect(seen.length).toBeGreaterThanOrEqual(2);
+  expect(seen[0]?.context.text).not.toContain('MSG-154');
+  expect(seen[1]?.session).toMatchObject({
+    ref: 'interrupted-session',
+    from_attempt_id: seen[0]?.attempt_id,
+  });
+  expect(seen[1]?.context.text).toContain('MSG-154: reuse the parser in src/parse.ts');
+  expect(seen[1]?.context.text).toContain('never adds to or changes the acceptance criteria');
+  expect(Object.values(f.d.task(task.id).questions)).toEqual([]);
 });
 
 it('#215: each review gets the worker reports since the review before, redacted, through the handler', async () => {
@@ -1408,6 +1445,140 @@ it('a reviewer lost to a restart still has its worktree put back before the next
   expect(d.task(task.id).effects[agent.id]?.status).toBe('failed');
   expect(git(worktree, 'rev-parse', 'HEAD')).toBe(heads[0]);
   expect(existsSync(join(worktree, 'reviewer-probe.txt'))).toBe(false);
+});
+
+it('#154: a message sent after the launch does not change the input recovery rebuilds; the next turn carries it', async () => {
+  const task = buildTask();
+  const { d, deps, start, settle, coder } = setup(task, { mode: 'direct-pr', runs: [CONTENT] });
+  const harness = deps.harnesses['claude'];
+  if (harness === undefined) throw new Error('no harness');
+  const finished: { input: HarnessInput; out: HarnessOutcome }[] = [];
+  const run = harness.run.bind(harness);
+  let died = false;
+  Object.assign(harness, {
+    run: async (input: HarnessInput, signal: AbortSignal) => {
+      const out = await run(input, signal);
+      if (died) return out;
+      died = true;
+      finished.push({ input, out });
+      throw new Error('daemon killed');
+    },
+    recover: (input: HarnessInput): HarnessOutcome => {
+      const r = finished.find((f) => canonicalJson(f.input) === canonicalJson(input));
+      if (r === undefined)
+        throw new InvocationUnknown('launch state does not match this invocation');
+      return r.out;
+    },
+  });
+  d.must(task.id, { kind: 'create_task', task });
+  start();
+  await settle();
+  const agent = Object.values(d.task(task.id).effects).find((e) => e.status === 'started');
+  const op = Object.values(d.task(task.id).operations).find((o) => o.effect_id === agent?.id);
+  if (agent === undefined || op === undefined) throw new Error('no running agent');
+  d.must(task.id, { kind: 'message', body: 'MSG-154: after the launch' });
+  d.must(task.id, {
+    kind: 'operation_result',
+    operation_id: op.id as Uuid,
+    status: 'finished',
+    outcome: 'succeeded',
+    invocation_id: null,
+    processes: [],
+    started_at: d.now as EpochMs,
+    finished_at: d.now as EpochMs,
+    receipt_digest: `sha256:${'c'.repeat(64)}`,
+  });
+  d.must(task.id, {
+    kind: 'effect_result',
+    effect_id: agent.id as Uuid,
+    ...(agent.attempt_id === null ? {} : { attempt_id: agent.attempt_id as Uuid }),
+    outcome: 'unknown',
+  });
+  await settleWithSlot(d, settle);
+  expect(d.task(task.id).effects[agent.id]?.status).toBe('succeeded');
+  expect(finished[0]?.input.context.text).not.toContain('MSG-154');
+  const next = coder.calls.at(-1);
+  expect(next?.attempt_id).not.toBe(agent.attempt_id);
+  expect(next?.context.text).toContain('MSG-154: after the launch');
+});
+
+it('#154: a stopped run recovered as cancelled keeps its session and tree; the next turn continues it', async () => {
+  const task = buildTask();
+  const { d, deps, start, settle, coder } = setup(task, {
+    mode: 'direct-pr',
+    runs: [CONTENT, CONTENT],
+    resume: true,
+  });
+  const harness = deps.harnesses['claude'];
+  if (harness === undefined) throw new Error('no harness');
+  const finished: { input: HarnessInput; out: HarnessOutcome }[] = [];
+  const run = harness.run.bind(harness);
+  let died = false;
+  Object.assign(harness, {
+    run: async (input: HarnessInput, signal: AbortSignal) => {
+      // The first run edits the worktree, then a message stops it and the daemon dies unread.
+      const edited = await run(input, signal);
+      if (died) return edited;
+      died = true;
+      d.must(task.id, { kind: 'message', body: 'MSG-154: keep going from here' });
+      finished.push({
+        input,
+        out: {
+          kind: 'failure',
+          failure: 'cancelled',
+          detail: 'stopped',
+          role: input.role,
+          usage: { basis: 'unavailable' },
+          session_ref: 'interrupted-session',
+          permission_denials: [],
+          invoked: true,
+          reset_at: null,
+        },
+      });
+      throw new Error('daemon killed');
+    },
+    recover: (input: HarnessInput): HarnessOutcome => {
+      const r = finished.find((f) => canonicalJson(f.input) === canonicalJson(input));
+      if (r === undefined)
+        throw new InvocationUnknown('launch state does not match this invocation');
+      return r.out;
+    },
+  });
+  d.must(task.id, { kind: 'create_task', task });
+  start();
+  await settle();
+  const agent = Object.values(d.task(task.id).effects).find((e) => e.status === 'started');
+  const op = Object.values(d.task(task.id).operations).find((o) => o.effect_id === agent?.id);
+  if (agent === undefined || op === undefined) throw new Error('no running agent');
+  d.must(task.id, {
+    kind: 'operation_result',
+    operation_id: op.id as Uuid,
+    status: 'finished',
+    outcome: 'failed',
+    invocation_id: null,
+    processes: [],
+    started_at: d.now as EpochMs,
+    finished_at: d.now as EpochMs,
+    receipt_digest: `sha256:${'c'.repeat(64)}`,
+  });
+  d.must(task.id, {
+    kind: 'effect_result',
+    effect_id: agent.id as Uuid,
+    ...(agent.attempt_id === null ? {} : { attempt_id: agent.attempt_id as Uuid }),
+    outcome: 'unknown',
+  });
+  await settleWithSlot(d, settle);
+  const s = d.task(task.id);
+  expect(s.effects[agent.id]?.status).toBe('failed');
+  expect(s.attempts[agent.attempt_id as string]?.session_ref).toBe('interrupted-session');
+  expect(coder.calls).toHaveLength(2);
+  expect(coder.calls[1]?.session).toMatchObject({
+    ref: 'interrupted-session',
+    from_attempt_id: agent.attempt_id,
+  });
+  expect(coder.calls[1]?.context.text).toContain('MSG-154: keep going from here');
+  expect(s.wait?.detail.code).not.toBe('worktree_changed');
+  expect(replay(d.store.readEvents(task.id))).toEqual(s);
 });
 
 describe.each(['coder', 'reviewer'] as const)(

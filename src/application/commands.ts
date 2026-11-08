@@ -28,6 +28,12 @@ export const COMMAND_PAYLOADS = {
   task_continue: z.object({}).strict(),
   task_pause: z.object({ reason: Reason, now: z.boolean().optional() }).strict(),
   task_resume: z.object({}).strict(),
+  task_message: z
+    .object({
+      body: z.string().min(1).max(65_536),
+      behavior: z.enum(['steer', 'interrupt', 'queue']).optional(),
+    })
+    .strict(),
   queue_pause: z.object({ reason: Reason }).strict(),
   queue_resume: z.object({}).strict(),
   answer: z.object({ question_id: UuidSchema, answer: z.string().min(1).max(65_536) }).strict(),
@@ -47,6 +53,7 @@ const REQUIRED_ROLE: Record<CommandKind, AuthzRole> = {
   task_continue: 'operate',
   task_pause: 'operate',
   task_resume: 'operate',
+  task_message: 'operate',
   queue_pause: 'operate',
   queue_resume: 'operate',
   answer: 'operate',
