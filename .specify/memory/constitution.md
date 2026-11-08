@@ -43,8 +43,10 @@ comment hoặc merge đã thành công.
 
 ### III. Vòng lặp có giới hạn, task không có budget
 
-- Vòng lặp giữa các step (`max_visits`) MUST có trần. Lượt gọi decider không có trần; thay vào đó, sau một
-  câu trả lời của decider, câu hỏi tiếp theo ở cùng step và revision MUST chờ người, trừ task có nhãn `grill`. Lượt agent, wall time và
+- Vòng lặp giữa các step (`max_visits`) MUST có trần. Các trần của task (lượt vào step, lượt thử mỗi nấc, retry,
+  ngân sách và deadline khi có) là trần thử lại trước khi task chờ; khi chạm trần, deputy hoặc người có quyền MAY mở
+  lại chúng bằng lệnh có actor và lý do. Lượt gọi deputy không có trần và không tính vào ngân sách hay trần nào của
+  task. Lượt agent, wall time và
   budget của task không có trần bắt buộc; retry hạ tầng dùng backoff tăng dần và trần số lần là tùy
   chọn. Task cũ giữ trần đã đóng băng: không bắt đầu attempt khi vượt trần đó. Khi policy yêu cầu approval (nấc
   `needs_approval`), attempt MUST NOT bắt đầu nếu chưa có approval hợp lệ, tức gắn đúng
@@ -77,22 +79,29 @@ comment hoặc merge đã thành công.
   event, actor, lý do và revision mới. Agent MUST NOT tự đổi role, quyền, binding, approval, pool
   hay ngân sách của mình. Assistant caller tự khai là `assistant` (`CUSR_ACTOR`) và daemon giới hạn nó ở
   `read`/`operate`: được xác nhận run config của task nó điều phối, theo digest và có ghi actor, được duyệt
-  escalation trong ladder đã đóng băng (#205), không được duyệt nhận PR có sẵn hay dùng quyền admin. Đây
+  escalation trong ladder đã đóng băng (#205), được sửa policy của bước đang chờ (`amend-policy`: model trong
+  `allow_models` và trạng thái nấc của profile, ngân sách, deadline), không được duyệt nhận PR có sẵn hay dùng quyền
+  admin. Deputy (actor `deputy`, do daemon gắn khi khởi chạy nó) có cùng quyền `read`/`operate`, MUST ghi lý do cho
+  mọi thao tác ghi và MUST NOT xác nhận intake hay run config của bất kỳ task nào. Đây
   là rào chắn cho caller làm đúng quy ước, không phải ranh giới bảo
   mật với process cùng UID. Worker không gọi `cusr`.
-- Nâng effort/model/vendor MUST đi theo thang đã duyệt trước, do code kích hoạt theo phân loại lỗi.
-  Lỗi hạ tầng hoặc hết hạn mức MUST NOT kích hoạt nâng model; không hạ model ngầm.
+- Code chỉ nâng effort/model/vendor theo thang đã duyệt trước, kích hoạt theo phân loại lỗi.
+  Lỗi hạ tầng hoặc hết hạn mức MUST NOT kích hoạt nâng model; không hạ model ngầm. Ngoài thang, đổi model cho bước
+  đang chờ chỉ đi qua `amend-policy` của caller `operate` hoặc owner, có event, actor và lý do.
 - Effect merge do Cuesura gửi MUST chỉ do code thực hiện sau khi kiểm tra quyền, head/base SHA,
   gate/CI, review theo chế độ và approval cho thao tác merge. Auto-merge của `full-review` MUST có
-  reviewer approve; `direct-pr` auto-merge khi gate và CI xanh, không có reviewer đọc diff. Decider và agent không quyết định merge. Người dùng
+  reviewer approve; `direct-pr` auto-merge khi gate và CI xanh, không có reviewer đọc diff. Deputy và agent không quyết định merge. Người dùng
   có thể merge thủ công trên GitHub theo quyền/branch protection; Cuesura MUST đối chiếu bằng chứng
   thao tác bên ngoài đó, không giả approval/review và không đòi merge qua guard của effect nội bộ.
   Mặc định người duyệt từng merge vào protected branch; chế độ yolo
   chỉ người dùng admin bật qua kênh tin cậy, không bao giờ qua `cusr.yaml` của repo, và được kiểm
   tra lại ngay lúc dispatch merge.
-- Quyết định của decider MUST được ghi lại và giải thích được. Lật lại nghĩa là người dùng revert hoặc tạo task
-  mới; decider không tự hoàn tác và không giả vờ hoàn tác side effect bên ngoài. Decider chỉ trả lời câu hỏi của
-  worker, MUST NOT cấp approval hay quyết định merge, và chỉ chạy khi người dùng bật qua kênh tin cậy.
+- Deputy làm thay người dùng trên một task: daemon chỉ gọi nó khi task đã vào wait mà bảng định tuyến giao cho deputy;
+  câu hỏi về spec và yêu cầu của worker chỉ tới deputy khi người dùng bật `autonomous` qua kênh tin cậy. Wait về
+  credentials, harness từ chối, vi phạm ranh giới, merge và xác nhận task luôn tới người. Deputy MUST NOT merge, bật
+  yolo hay nhận PR có sẵn. Thao tác của người dùng thắng thao tác của deputy. Mỗi thao tác của deputy MUST được ghi lại
+  với lý do và giải thích được; lật lại nghĩa là người dùng thao tác tiếp, revert hoặc tạo task mới, và deputy không
+  giả vờ hoàn tác side effect bên ngoài.
 
 **Lý do:** policy, chi phí, quyền ghi và merge thuộc về người dùng; kết quả giữa các lần chạy
 phải so sánh được.
@@ -152,7 +161,9 @@ mỗi thành phần phải được dùng thật.
   Theo quyết định chủ dự án ngày 2026-11-01 ([ADR-0005](../../docs/adr/0005-native-harness-permissions.md)),
   Cuesura chạy harness trực tiếp trong worktree riêng, không dùng outer bwrap. Sandbox và quyền tool
   MUST do harness quản lý: mặc định auto review/approve, full access chỉ khi owner chọn rõ trong pin.
-  Sandbox worker Claude MAY bật/tắt độc lập với permission mode, mặc định tắt; decider MUST giữ sandbox chỉ đọc, reviewer dùng ranh giới của fixer.
+  Sandbox worker Claude MAY bật/tắt độc lập với permission mode, mặc định tắt; reviewer dùng ranh giới của fixer.
+  Deputy chạy với toàn quyền của harness; thay đổi của nó trong worktree của task MUST NOT vào task: daemon MUST ghi bền mốc trước mỗi lượt và trả
+  worktree về mốc đó sau lượt, kể cả sau khi daemon khởi động lại, như với reviewer.
   Không hứa ngăn process cùng UID đọc home/secret hoặc truy cập socket/metadata ngoài worktree.
   Worktree không phải sandbox bảo mật. Các quyền workflow, approval và merge MUST giữ nguyên.
 - **Secret:** che trước khi lưu hoặc xuất log. Secret mà lệnh cần để chạy MUST NOT đi qua artifact đã che;
@@ -270,4 +281,21 @@ và ADR-0011 (PR #225); các template đọc hiến chương hiện hành, khôn
 skill `cusr` và `docs/adr/0011-declared-actor-instead-of-tokens.md` đã cập nhật trong PR #225; template Spec
 Kit đã kiểm tra, không cần thay đổi. Không có mục đồng bộ còn chờ.
 
-**Version**: 9.0.0 | **Ratified**: 2026-10-27 | **Last Amended**: 2026-11-08
+**Amendment 2026-11-08 (chủ dự án):** 9.0.0 → 10.0.0 vì định nghĩa lại nguyên tắc III, V và trust boundary cho
+deputy (feature 007, spec ở PR #253): deputy thay decider, làm thay người dùng trên một task khi
+task vào wait cần người. Nguyên tắc III: các trần của task là trần thử lại trước khi chờ, deputy hoặc người có quyền mở
+lại bằng lệnh có actor và lý do; lượt deputy không có trần và nằm ngoài ngân sách; bỏ quy tắc một câu trả lời của
+decider mỗi step và nhãn `grill`. Nguyên tắc V: actor `deputy` có `read`/`operate` như assistant, phải ghi lý do, không
+xác nhận task; assistant và deputy được `amend-policy` (đổi model trong `allow_models`, ngân sách, deadline của bước đang
+chờ); đổi model ngoài thang chỉ qua `amend-policy` có actor và lý do. Trust boundary: deputy toàn quyền, thay đổi trong
+worktree của task bị trả về theo mốc như reviewer. Giữ nguyên: engine quyết định mọi chuyển trạng thái (nguyên tắc I),
+code là bên duy nhất gửi merge, deputy và agent không merge, không bật yolo, không nhận PR có sẵn, credentials và
+refusal luôn tới người. Decider hiện có vẫn tuân thủ vì hẹp hơn deputy, cho tới khi feature 007 thay nó.
+
+**Sync Impact Report 2026-11-08:** nguyên tắc III, V và trust boundary đổi cho deputy. Phần đồng bộ được làm cùng phần
+hiện thực ở lát F của feature 007, để tài liệu vận hành không mô tả hành vi chưa có: `SPEC.md` §4 (I09), §9.3, §10,
+§14.1, §15.1, §15.2; `deploy/README.md` mục Autonomous; ADR-0005; một ADR mới cho lượt tương tác của deputy (thay
+ADR-0006 riêng cho role này); `GLOSSARY.md`; `docs/architecture.md`; `specs/003-telegram-channel/spec.md`; skill `cusr`.
+Template Spec Kit đã kiểm tra, không cần thay đổi. Mục đồng bộ còn chờ: các tài liệu vừa nêu.
+
+**Version**: 10.0.0 | **Ratified**: 2026-10-27 | **Last Amended**: 2026-11-08
