@@ -589,7 +589,7 @@ nhóm bao gồm toàn bộ các mục con, không thay thế việc kiểm chứ
   | --- | --- |
   | **FR-025.01** | Cancel MUST chặn effect nghiệp vụ mới và vô hiệu effect chưa dispatch. |
   | **FR-025.02** | Cancel MUST dừng process thuộc task trong giới hạn theo FR-009. |
-  | **FR-025.03** | Cancel MUST đối chiếu effect đã gửi và trạng thái PR mới nhất trước khi kết thúc; chưa rõ merge thì tiếp tục chờ đối chiếu. |
+  | **FR-025.03** | Cancel MUST đối chiếu effect đã gửi và trạng thái PR mới nhất trước khi kết thúc; chưa rõ merge thì tiếp tục chờ đối chiếu. Ngoại lệ duy nhất là `cancel --force` do người dùng yêu cầu (#179): đọc PR thêm một lần, lần đọc đó không cho kết quả thì kết thúc CANCELLED dù PR chưa đọc được; không áp dụng khi đã thấy merge hoặc bằng chứng merge chưa đủ. |
   | **FR-025.04** | Nếu merge được xác nhận, cancel MUST kết thúc DONE theo FR-040 kèm “yêu cầu hủy đến quá muộn”, kể cả merged_head_unverified; chỉ CANCELLED khi PR chưa merge và các effect đã rõ. |
   | **FR-025.05** | Cancel MUST bảo toàn diff/commit/PR đã tạo; không tự đóng PR, xóa branch hoặc hoàn tác thao tác bên ngoài. |
 

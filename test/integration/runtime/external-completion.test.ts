@@ -276,6 +276,43 @@ describe('external confirmation (T045, FR-021, FR-040)', () => {
     });
   });
 
+  it('#179: cancel --force ends a cancel the read left waiting; a later merge stays history', () => {
+    const d = setup();
+    const t = buildTask();
+    toMergeGate(d, t);
+    // A force with no cancel yet is a plain cancel: the PR read still comes first.
+    d.must(t.id, { kind: 'cancel', reason: 'stop', force: true });
+    expect(d.task(t.id).wait?.detail.code).toBe('cancel_reconcile');
+    d.now += 1_000;
+    d.must(t.id, observation(d, t, 'unknown', null, { source: 'cancel', ref: cancelRef(d, t) }));
+    d.must(t.id, { kind: 'cancel', reason: 'stop', force: true });
+    expect(d.task(t.id)).toMatchObject({
+      status: 'CANCELLED',
+      cancellation: { forced: { at: d.now } },
+    });
+    complete(d, t);
+    expect(d.task(t.id)).toMatchObject({ status: 'CANCELLED', completion: null });
+  });
+
+  it('#179: cancel --force is ignored once a merge was seen', () => {
+    const d = setup();
+    const t = buildTask();
+    toMergeGate(d, t);
+    d.must(t.id, { kind: 'cancel', reason: 'stop' });
+    d.now += 1_000;
+    d.must(t.id, observation(d, t, 'merged', HEAD, { source: 'cancel', ref: cancelRef(d, t) }));
+    const before = d.task(t.id).status;
+    const r = d.send(t.id, { kind: 'cancel', reason: 'stop', force: true });
+    expect(r).toMatchObject({
+      ok: true,
+      value: {
+        decision: { events: [{ type: 'SignalIgnored', payload: { reason: 'merge_seen' } }] },
+      },
+    });
+    expect(d.task(t.id).status).toBe(before);
+    expect(d.task(t.id).cancellation?.forced).toBeUndefined();
+  });
+
   it('a cancelled task is not reopened by a later merge', () => {
     const d = setup();
     const t = buildTask();

@@ -140,7 +140,7 @@ const WAITS: Readonly<Record<DetailCode, WaitWords>> = {
   },
   cancel_reconcile: {
     doing: 'Cancelling: checking the PR first',
-    todo: 'Recheck the PR',
+    todo: 'Recheck the PR, or cancel --force',
   },
   paused: { doing: 'Paused', todo: 'Resume the task when ready' },
 };

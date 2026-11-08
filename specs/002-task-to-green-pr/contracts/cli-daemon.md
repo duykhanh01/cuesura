@@ -212,6 +212,12 @@ có thì chặn binding cần khả năng đó. Mỗi lần attempt kiểm lại
 
 Issue #142. `task pause` khác `task cancel`: task không kết thúc và không mất gì.
 
+`task cancel --force` (#179) là lối thoát cho cancel kẹt ở `cancel_reconcile` vì lần đọc PR không cho `open`
+hoặc `closed`. Lệnh vẫn ghi cancel (hoặc giữ cancel đã có) và đọc PR một lần như thường; lần đọc kết thúc được
+cancel thì `--force` không làm gì (`force_ignored: "nothing_to_force"`). Còn chờ thì ghi `CancelForced`, task kết
+thúc CANCELLED và kết quả có `warning` rằng PR có thể chưa được đọc. Đã thấy merge hoặc bằng chứng merge chưa
+đủ thì `--force` bị bỏ qua (`force_ignored: "merge_seen"`), task chờ đối chiếu merge như cũ. Quyền: `operate`.
+
 - Việc đã giao trước khi tạm dừng chạy nốt: lượt agent, gate, publish hay hành động GitHub đang chờ
   hoặc đang chạy. Không bước, retry hay lượt chờ nào được bắt đầu sau đó: task chờ
   `policy/paused` với đúng hành động nó định chạy, và slot được trả lại khi không còn việc giữ slot.

@@ -23,7 +23,7 @@ export const COMMAND_PAYLOADS = {
     .strict(),
   task_confirm: z.object({ run_config_digest: HashSchema.optional() }).strict(),
   task_propose_run: z.object({ run_config: RunProposalSchema }).strict(),
-  task_cancel: z.object({ reason: Reason }).strict(),
+  task_cancel: z.object({ reason: Reason, force: z.literal(true).optional() }).strict(),
   task_recheck: z.object({}).strict(),
   task_continue: z.object({}).strict(),
   task_pause: z.object({ reason: Reason, now: z.boolean().optional() }).strict(),

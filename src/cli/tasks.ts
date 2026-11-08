@@ -641,13 +641,21 @@ export const cancelCommand: CliCommand = {
       flags: '--reason <text>',
       description: 'Cancellation reason recorded in task history',
     },
+    {
+      flags: '--force',
+      description:
+        'End the cancel even when no read shows the PR open or closed (the PR may be unread); a merge seen still ends DONE',
+    },
   ],
   run: (values, json, io) =>
     mutate(
       values,
       'task_cancel',
       values['id'] as string,
-      { reason: values['reason'] ?? 'Cancelled from the CLI' },
+      {
+        reason: values['reason'] ?? 'Cancelled from the CLI',
+        ...(values['force'] === undefined ? {} : { force: true }),
+      },
       json,
       io,
     ),

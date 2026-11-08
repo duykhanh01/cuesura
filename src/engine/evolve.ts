@@ -606,6 +606,9 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
       };
       s.source_drift = null;
       break;
+    case 'CancelForced':
+      if (s.cancellation) s.cancellation.forced = { by: event.payload.by, at: event.payload.at };
+      break;
     case 'CancelRecordedLate':
       if (s.cancellation) s.cancellation.late = true;
       break;

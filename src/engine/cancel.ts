@@ -122,11 +122,31 @@ export function cancelNeedsPrRead(s: TaskState): boolean {
   // any read said before or after (FR-040.12).
   if (c.merge_seen !== undefined || s.blockers.some((b) => b.code === 'merge_evidence_incomplete'))
     return true;
+  if (c.forced !== undefined) return false;
   const r = c.pr_read;
   if (r === undefined) return true;
   // A PR GitHub moved to another base (its base branch deleted after a merge, #179) cannot be merged
   // into the task's target by this PR any more: for the cancel that is as final as closed.
   return !(r.status === 'open' || r.status === 'closed' || r.target !== undefined);
+}
+
+/**
+ * `cancel --force` (#179): a person ends a cancel that a read of the PR could not settle, for a PR read
+ * that keeps coming back unknown. It waives only that read. A merge shown or with incomplete evidence
+ * still holds the cancel (FR-025.04, FR-040.12), and effects still in flight still settle first.
+ */
+export function forceCancel(ctx: Ctx): void {
+  const s = ctx.state;
+  const c = s.cancellation;
+  const ignored = (reason: string): void =>
+    ctx.emit('SignalIgnored', { reason, trigger_kind: 'cancel' });
+  if (c === null) return;
+  if (c.forced !== undefined) return ignored('already_forced');
+  if (c.merge_seen !== undefined || s.blockers.some((b) => b.code === 'merge_evidence_incomplete'))
+    return ignored('merge_seen');
+  if (!cancelNeedsPrRead(s)) return ignored('nothing_to_force');
+  ctx.emit('CancelForced', { by: ctx.actor, at: ctx.now });
+  maybeFinishCancel(ctx);
 }
 
 /** The evidence ref a read for the task's open cancel must carry; null when no read is asked for. */
@@ -148,7 +168,7 @@ function waitCancelReconcile(ctx: Ctx): void {
   ctx.emit('TaskWaiting', {
     wait: mkWait('policy', 'cancel_reconcile', {
       resume_when: ['observation(after cancel)', 'recheck(observation)'],
-      exit_paths: ['recheck', 'merge the PR on GitHub, then recheck'],
+      exit_paths: ['recheck', 'merge the PR on GitHub, then recheck', 'cancel --force'],
       detail: {
         pr_ref: s.pr_ref,
         head_sha: s.head_sha,

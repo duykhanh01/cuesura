@@ -7,7 +7,7 @@ import { hasRole, type FrozenPolicy } from '../domain/policy.ts';
 import { isTerminal, type TaskState } from '../domain/state.ts';
 import type { RelatedFacts, Trigger, TriggerEnvelope } from '../domain/trigger.ts';
 import { verifyPolicyHash } from '../policy/finalize.ts';
-import { invalidatePending, maybeFinishCancel, requestCancel } from './cancel.ts';
+import { forceCancel, invalidatePending, maybeFinishCancel, requestCancel } from './cancel.ts';
 import { Ctx, reject, Rejection, type RejectCode } from './context.ts';
 import { requestEffect, requestReconcile } from './effects.ts';
 import { IdPoolExhausted } from './ids.ts';
@@ -180,6 +180,10 @@ function dispatch(ctx: Ctx, t: Trigger): void {
       onStopAttempt(ctx, t.attempt_id, t.reason);
       return;
     case 'cancel':
+      if (t.force === true && ctx.state.cancellation !== null) {
+        forceCancel(ctx);
+        return;
+      }
       if (ctx.state.cancellation !== null) {
         ctx.emit('SignalIgnored', {
           reason: 'already_cancelling',

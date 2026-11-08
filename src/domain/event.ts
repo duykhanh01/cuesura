@@ -278,6 +278,8 @@ export type EventPayloads = {
      */
     read_token?: string;
   };
+  /** The person ended the cancel without a PR read showing it open or closed (#179). */
+  CancelForced: { by: string; at: number };
   CancelRecordedLate: { merge_effect_id: string | null };
 
   TaskCompleted: { reason: string };
@@ -510,6 +512,7 @@ export const EVENT_TYPES = [
   'SafeBoundaryReached',
   'RevisionApplied',
   'CancelRequested',
+  'CancelForced',
   'CancelRecordedLate',
   'TaskCompleted',
   'TaskFailed',

@@ -363,6 +363,9 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   --expected-version "$VERSION" --request-id "$CANCEL_REQUEST_ID" --json
 # Recheck does not extend a deadline frozen in an older task. Cancel does not undo a merge;
 # inspect the resulting state rather than treating command exit 0 as completion.
+# A cancel stuck in `cancel_reconcile` because the PR read keeps failing: tell the user,
+# and add --force ONLY when the user asks for it. It ends CANCELLED without a read that
+# shows the PR open or closed; a merge already seen still wins.
 ```
 
 ## User-only commands to hand off, never execute as an assistant

@@ -1629,7 +1629,7 @@ describe('the cancel service reads the PR before it ends (US5.4/US5.6, FR-025.03
     const newId = (): string => uuidOf(ids++);
     const observeWith = (deps: HandlerDeps) => (taskId: string, ref: string) =>
       observeTaskPr(deps, taskId, ref, 'recheck');
-    const cancel = (o: { github?: GitHubPort } = {}) =>
+    const cancel = (o: { github?: GitHubPort; force?: true } = {}) =>
       cancelTask(
         {
           store: f.d.store,
@@ -1640,7 +1640,9 @@ describe('the cancel service reads the PR before it ends (US5.4/US5.6, FR-025.03
           ),
         },
         admitted(),
-        cancelInput(f.d, task),
+        o.force === undefined
+          ? cancelInput(f.d, task)
+          : { ...cancelInput(f.d, task), payload: { reason: 'not needed', force: true } },
         OWNER,
       );
     return { ...f, task, cancel, newId, observeWith };
@@ -1735,6 +1737,54 @@ describe('the cancel service reads the PR before it ends (US5.4/US5.6, FR-025.03
     );
     expect(rc.ok).toBe(true);
     expect(f.d.task(f.task.id).status).toBe('CANCELLED');
+  });
+
+  it('#179: --force ends a cancel the PR read left waiting, and says the PR may be unread', async () => {
+    const f = await green();
+    const r = await f.cancel({ github: down, force: true });
+    expect(r).toMatchObject({
+      ok: true,
+      value: {
+        status: 'CANCELLED',
+        pr_read: { performed: true },
+        force_ignored: null,
+        warning: expect.stringContaining('may be unread') as unknown,
+      },
+    });
+    expect(f.d.task(f.task.id).cancellation?.forced).toMatchObject({ by: 'owner' });
+    expect(types(f.d, f.task)).toContain('CancelForced');
+  });
+
+  it('#179: --force on a cancel already stuck reads the PR once more, then ends it', async () => {
+    const f = await green();
+    await f.cancel({ github: down });
+    expect(f.d.task(f.task.id).wait?.detail.code).toBe('cancel_reconcile');
+    const r = await f.cancel({ github: down, force: true });
+    expect(r).toMatchObject({
+      ok: true,
+      value: { status: 'CANCELLED', ignored: 'already_cancelling', pr_read: { performed: true } },
+    });
+    expect(types(f.d, f.task).filter((x) => x === 'CancelRequested')).toHaveLength(1);
+  });
+
+  it('#179: --force changes nothing when the read settles the cancel', async () => {
+    const f = await green();
+    const r = await f.cancel({ force: true });
+    expect(r).toMatchObject({
+      ok: true,
+      value: { status: 'CANCELLED', force_ignored: 'nothing_to_force' },
+    });
+    expect(r.ok && 'warning' in (r.value as object)).toBe(false);
+    expect(types(f.d, f.task)).not.toContain('CancelForced');
+  });
+
+  it('#179: --force never turns a merge into CANCELLED', async () => {
+    const f = await green();
+    f.github.merge(7, 'e'.repeat(40));
+    const r = await f.cancel({ force: true });
+    expect(r.ok).toBe(true);
+    expect(f.d.task(f.task.id).status).not.toBe('CANCELLED');
+    expect(types(f.d, f.task)).not.toContain('CancelForced');
   });
 
   it('the read happens even after the observation window expired', async () => {

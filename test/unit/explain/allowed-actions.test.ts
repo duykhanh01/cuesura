@@ -14,6 +14,7 @@ function state(code: DetailCode, o: Partial<TaskState> = {}): TaskState {
     terminal: null,
     completion: null,
     approvals: {},
+    blockers: [],
     policy_ref: null,
     run: { proposal: null, confirmation: null, mode: null, content: null },
     wait: {
@@ -29,6 +30,19 @@ function state(code: DetailCode, o: Partial<TaskState> = {}): TaskState {
 
 const actions = (code: DetailCode, o: Partial<TaskState> = {}, recheckable = true): string[] =>
   allowedActions(state(code, o), { recheckable }).map((a) => a.action);
+
+describe('cancel --force while a cancel waits for the PR read (#179)', () => {
+  it('is offered while only the read holds the cancel', () => {
+    const out = allowedActions(state('cancel_reconcile'), { recheckable: true });
+    expect(out.map((a) => a.action)).toEqual(['recheck', 'merge_manually', 'cancel']);
+    expect(out.at(-1)?.command).toBe(`cusr task cancel ${ID} --force --expected-version 9`);
+  });
+
+  it('is not offered once a merge was seen', () => {
+    const seen = { cancellation: { merge_seen: 'obs-1' } } as unknown as Partial<TaskState>;
+    expect(actions('cancel_reconcile', seen)).toEqual(['recheck', 'merge_manually']);
+  });
+});
 
 describe('allowed actions for every wait detail (T111, FR-029)', () => {
   it.each(DETAIL_CODES)('%s has a way out and promises nothing out of scope', (code) => {

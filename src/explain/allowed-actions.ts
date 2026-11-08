@@ -41,6 +41,16 @@ const cancel = (c: Ctx): AllowedAction => ({
   command: `cusr task cancel ${c.id} --expected-version ${c.version}`,
   note: 'Cancel reconciles the PR first; a merge already made still ends DONE.',
 });
+/** Offered only while a read is what holds the cancel: a merge seen is decided by the drain. */
+const forceCancel = (c: Ctx): AllowedAction | null =>
+  c.s.cancellation?.merge_seen !== undefined ||
+  c.s.blockers.some((b) => b.code === 'merge_evidence_incomplete')
+    ? null
+    : {
+        action: 'cancel',
+        command: `cusr task cancel ${c.id} --force --expected-version ${c.version}`,
+        note: 'Only if the user asks: reads the PR once more, then ends CANCELLED even if the read cannot tell open from closed (the PR may be unread).',
+      };
 const recheck = (c: Ctx, note: string): AllowedAction | null =>
   c.recheckable
     ? {
@@ -325,6 +335,7 @@ const ROWS: Readonly<Record<DetailCode, Row>> = {
   cancel_reconcile: (c) => [
     recheck(c, 'The cancel ends only after a read of the PR made after the request.'),
     merge(c),
+    forceCancel(c),
   ],
   paused: (c) => [resume(c), cancel(c)],
 };

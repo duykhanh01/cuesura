@@ -9,8 +9,11 @@
  *
  * The cancel fact is accepted under the request's dedup key, so a repeated request replays its first
  * result without reading again; a later `recheck` reads the PR if this read failed.
+ *
+ * `force` (#179) is tried only after that read, so a PR the read can see still decides: it ends a cancel
+ * the read left waiting, also one requested earlier, unless a merge was seen.
  */
-import type { TaskState } from '../domain/state.ts';
+import { isTerminal, type TaskState } from '../domain/state.ts';
 import { MAX_ENVELOPE_IDS, type Trigger } from '../domain/trigger.ts';
 import { cancelReadEvidence } from '../engine/cancel.ts';
 import type { Uuid } from '../shared/brand.ts';
@@ -50,7 +53,7 @@ export async function cancelTask(
   const found = taskInProject(deps.store, input);
   if (!found.ok) return found;
   const id = found.value.id;
-  const reason = (input.payload as { reason: string }).reason;
+  const { reason, force } = input.payload as { reason: string; force?: true };
   const r = submit(deps.store, {
     task_id: id,
     dedup_key: `cmd:${admitted.record.request_id}:cancel`,
@@ -93,12 +96,52 @@ export async function cancelTask(
     });
     pr = { performed: true, unavailable: o.failure, facts };
   }
+
+  let forceIgnored: string | null = null;
+  const cur = read();
+  if (force === true && (cur === null || isTerminal(cur.status))) forceIgnored = 'nothing_to_force';
+  else if (force === true && cur !== null && cur.cancellation !== null) {
+    const f = submit(deps.store, {
+      task_id: id,
+      dedup_key: `cmd:${admitted.record.request_id}:force`,
+      trigger: { kind: 'cancel', reason, force: true },
+      now: deps.now(),
+      ids: deps.newId === undefined ? [] : Array.from({ length: MAX_ENVELOPE_IDS }, deps.newId),
+      expected_version: cur.version,
+      authz: authzContext(caller, deps.now()),
+    });
+    if (!f.ok) return err(acceptError(f.error, read()));
+    const fd = f.value.decision;
+    if (fd.kind === 'rejected')
+      return err({
+        code: fd.code,
+        message: fd.code,
+        details: { reason: fd.code, detail: fd.detail ?? null },
+      });
+    const skipped = fd.events.find((e) => e.type === 'SignalIgnored')?.payload as
+      | { reason?: string }
+      | undefined;
+    forceIgnored = skipped?.reason ?? null;
+  }
   const s = read() as TaskState;
+  const forced = s.cancellation?.forced !== undefined;
   return ok({
     ...taskView(s),
     cancellation: s.cancellation,
     // `terminal` (nothing reopens) or `already_cancelling` (the first request stands).
     ignored: (ignored as { reason?: string } | null)?.reason ?? null,
     pr_read: pr,
+    ...(force === true
+      ? {
+          // `already_forced`, `merge_seen` (the merge decides) or `nothing_to_force` (the read settled it).
+          force_ignored: forceIgnored,
+          ...(forced
+            ? {
+                warning:
+                  'The cancel ended without a read showing the PR open or closed; the PR may be unread. A merge seen later stays history and does not reopen the task.',
+              }
+            : {}),
+        }
+      : {}),
   });
 }

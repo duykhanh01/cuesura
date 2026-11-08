@@ -599,6 +599,8 @@ export type TaskState = {
     };
     /** A read of any source showed the PR merged while this cancel was open (or just before it). */
     merge_seen?: string;
+    /** See `CancelForced`: the PR read is no longer required. */
+    forced?: { by: string; at: number };
   } | null;
   started_at: number | null;
   deadline_at: number | null;

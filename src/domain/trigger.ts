@@ -567,7 +567,14 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
       reason: z.string(),
     })
     .strict(),
-  z.object({ kind: z.literal('cancel'), reason: z.string() }).strict(),
+  z
+    .object({
+      kind: z.literal('cancel'),
+      reason: z.string(),
+      /** Ends a cancel whose PR read did not settle it, without that read (#179). */
+      force: z.literal(true).optional(),
+    })
+    .strict(),
   z
     .object({
       kind: z.literal('amend'),
