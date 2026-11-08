@@ -22,6 +22,8 @@ export const RunChoiceSchema = z
   .strict();
 export type RunChoice = z.infer<typeof RunChoiceSchema>;
 
+export const MAX_FALLBACKS = 8;
+
 const RunSelectionFields = z
   .object({
     task_id: z.string().min(1),
@@ -33,7 +35,7 @@ const RunSelectionFields = z
     /** Required with `full-review`, absent with `direct-pr`. */
     reviewer: RunChoiceSchema.nullable(),
     /** Worker bindings the user allows without asking again (escalation/fallback within this set). */
-    fallbacks: z.array(RunChoiceSchema).max(8),
+    fallbacks: z.array(RunChoiceSchema).max(MAX_FALLBACKS),
   })
   .strict();
 
@@ -60,7 +62,12 @@ export const RunSelectionSchema = RunSelectionFields.superRefine(reviewerMatches
 export const RunProposalSchema = RunSelectionFields.omit({
   task_id: true,
   revision: true,
-}).superRefine(reviewerMatchesMode);
+})
+  .extend({
+    /** Absent: the daemon fills the worker's ladder from `run_options`; `[]` allows none (#263). */
+    fallbacks: RunSelectionFields.shape.fallbacks.optional(),
+  })
+  .superRefine(reviewerMatchesMode);
 export type RunProposal = z.infer<typeof RunProposalSchema>;
 export type RunSelection = z.infer<typeof RunSelectionSchema>;
 

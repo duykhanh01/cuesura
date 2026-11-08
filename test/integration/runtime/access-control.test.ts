@@ -181,11 +181,11 @@ describe('roles (US6.3, FR-028)', () => {
       '--acceptance',
       'a',
       '--profile',
-      'default',
+      'standard',
       '--mode',
       'direct-pr',
       '--worker',
-      'claude/sonnet/high',
+      'claude/sonnet/medium',
     ]);
     expect(add.code).toBe(ExitCode.ok);
     const result = add.envelope.data['result'] as {

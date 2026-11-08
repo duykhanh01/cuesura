@@ -24,10 +24,11 @@ import { confirmTask, type ConfirmDeps } from './confirm.ts';
 import { decisionError, engineRejection } from './engine-verdict.ts';
 import { recheckTarget, recheckTask, type RecheckDeps } from './recheck.ts';
 import { explainRuntime } from '../explain/explain.ts';
-import { TASK_STATUSES } from '../domain/state.ts';
+import { isTerminal, TASK_STATUSES } from '../domain/state.ts';
 import { asEpochMs } from '../shared/brand.ts';
 import { submit } from './triage.ts';
-import type { RunProposal } from '../domain/run-config.ts';
+import { RunSelectionSchema, type RunProposal, type RunSelection } from '../domain/run-config.ts';
+import { computeRunOptions, resolveProposal } from './run-options.ts';
 import { runConfigConfirmed } from '../engine/run-config.ts';
 
 export type AppError = {
@@ -157,7 +158,7 @@ function proposeRun(
   deps: TaskServiceDeps,
   s: TaskState,
   dedup: string,
-  proposal: RunProposal,
+  proposal: RunSelectionProposal,
   caller: Caller,
 ): Result<void, AppError> {
   const r = submit(deps.store, {
@@ -196,6 +197,13 @@ export function buildNewTask(
       details: {
         issues: parsed.error.issues.map((i) => `task.${i.path.join('.')}: ${i.message}`),
       },
+    });
+  // Triage would hold such a task at `missing_acceptance`, and nothing can supply it afterwards (#263).
+  if (parsed.data.acceptance.length === 0)
+    return err({
+      code: 'invalid_arguments',
+      message: 'a task needs at least one acceptance criterion',
+      details: { issues: ['task.acceptance: at least one criterion is required'] },
     });
   const id = admitted.record.task_id as string;
   const { source_key, scope, ...rest } = parsed.data;
@@ -248,6 +256,23 @@ export async function taskAdd(
 ): Promise<Result<unknown, AppError>> {
   const task = buildNewTask(admitted, input, caller);
   if (!task.ok) return task;
+  const proposal = (input.payload as { run_config?: RunProposal } | null)?.run_config;
+  let resolved: RunSelectionProposal | undefined;
+  if (proposal !== undefined) {
+    // Checked before the task exists, so a selection start would refuse never leaves a task behind.
+    const r = await checkedProposal(
+      deps,
+      {
+        id: task.value.id,
+        revision: task.value.revision,
+        project: task.value.project,
+        task: task.value,
+      },
+      proposal,
+    );
+    if (!r.ok) return r;
+    resolved = r.value;
+  }
   const requester = task.value.requested_by;
   // Decided here from the user's config, never from anything the caller sent.
   const auto =
@@ -268,13 +293,12 @@ export async function taskAdd(
   if (!r.ok) return err({ code: 'conflict', message: r.error.code, details: { ...r.error } });
   const refused = decisionError(r.value.decision);
   if (refused !== null) return err(refused);
-  const proposal = (input.payload as { run_config?: RunProposal } | null)?.run_config;
-  if (proposal !== undefined) {
+  if (resolved !== undefined) {
     const p = proposeRun(
       deps,
       deps.store.readTask(task.value.id) as TaskState,
       `cmd:${admitted.record.request_id}:run`,
-      proposal,
+      resolved,
       caller,
     );
     if (!p.ok && p.error.code !== 'conflict') return p;
@@ -283,8 +307,36 @@ export async function taskAdd(
   return ok(taskView(s));
 }
 
+type RunSelectionProposal = Omit<RunSelection, 'task_id' | 'revision'>;
+
+async function checkedProposal(
+  deps: TaskServiceDeps,
+  task: Parameters<typeof computeRunOptions>[1],
+  proposal: RunProposal,
+): Promise<Result<RunSelectionProposal, AppError>> {
+  const computed = await computeRunOptions(deps.confirm, task);
+  if (!computed.ok) return computed;
+  const resolved = resolveProposal(computed.value.options, computed.value.probe, proposal);
+  if (!resolved.ok) return resolved;
+  // The engine checks the bound selection again; a failure there would come after the task exists.
+  const whole = RunSelectionSchema.safeParse({
+    ...resolved.value,
+    task_id: task.id,
+    revision: task.revision,
+  });
+  if (!whole.success)
+    return err({
+      code: 'invalid_arguments',
+      message: 'invalid run_config',
+      details: {
+        issues: whole.error.issues.map((i) => `run_config.${i.path.join('.')}: ${i.message}`),
+      },
+    });
+  return ok(resolved.value);
+}
+
 /** `task_propose_run`: a new run selection for a task that has not started; any operator may propose. */
-export function taskProposeRun(
+export async function taskProposeRun(
   deps: TaskServiceDeps,
   admitted: Admitted,
   input: CommandInput,
@@ -292,25 +344,27 @@ export function taskProposeRun(
 ): Promise<Result<unknown, AppError>> {
   const s = deps.store.readTask(input.task_id as Uuid);
   if (s === null || s.project !== input.project)
-    return Promise.resolve(
-      err({
-        code: 'task_not_found',
-        message: 'no such task in this project',
-        details: {},
-      }),
-    );
+    return err({
+      code: 'task_not_found',
+      message: 'no such task in this project',
+      details: {},
+    });
   if (input.expected_version !== s.version)
-    return Promise.resolve(
-      err({
-        code: 'conflict',
-        message: 'stale_version',
-        details: { version: s.version },
-      }),
-    );
+    return err({
+      code: 'conflict',
+      message: 'stale_version',
+      details: { version: s.version },
+    });
   const proposal = (input.payload as { run_config: RunProposal }).run_config;
-  const r = proposeRun(deps, s, `cmd:${admitted.record.request_id}:run`, proposal, caller);
-  if (!r.ok) return Promise.resolve(r);
-  return Promise.resolve(ok(taskView(deps.store.readTask(s.id as Uuid) as TaskState)));
+  // A started or ended task is refused by the engine as `run_config_frozen`; nothing to check then.
+  const frozen = s.policy_ref !== null || isTerminal(s.status);
+  const resolved: Result<RunSelectionProposal, AppError> = frozen
+    ? ok({ ...proposal, fallbacks: proposal.fallbacks ?? [] })
+    : await checkedProposal(deps, s, proposal);
+  if (!resolved.ok) return resolved;
+  const r = proposeRun(deps, s, `cmd:${admitted.record.request_id}:run`, resolved.value, caller);
+  if (!r.ok) return r;
+  return ok(taskView(deps.store.readTask(s.id as Uuid) as TaskState));
 }
 
 export async function taskConfirm(

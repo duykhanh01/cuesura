@@ -3,7 +3,6 @@ import { minorFixApproved, reviewOf } from './head-evidence.ts';
 import type { BaseUpdate, BaseUpdateRun } from '../domain/runtime.ts';
 import type { z } from 'zod';
 import { assertNever } from '../shared/assert-never.ts';
-import { sameChoice } from '../domain/run-config.ts';
 import { bindingName, type FrozenPolicy } from '../domain/policy.ts';
 import {
   isTerminal,
@@ -71,7 +70,6 @@ import { restartCadence, waitMergeEvidence, waitPrClosed } from './observation.t
 import { isPaused, stoppedByPause, waitPaused } from './pause.ts';
 import { afterMessageStop, stoppedByMessage } from './message.ts';
 import { reusableReview, reviewInputDigest } from './review-evidence.ts';
-import { confirmedChoices } from './run-config.ts';
 import { ensureRunning, mkWait, waitPolicy, waitTask } from './waits.ts';
 
 /**
@@ -910,15 +908,6 @@ export function startAttempt(ctx: Ctx, step: string, kind: AttemptKind): void {
   if (available(s.budget) < 1) return waitPolicy(ctx, 'agent_runs_exhausted', again, { step });
   const rungIndex = choice.rung;
   const rung = sp.ladder[rungIndex] as (typeof sp.ladder)[number];
-  // A binding outside the confirmed selection, worker or reviewer, needs a new confirmation, never a silent switch (M02).
-  if (
-    s.run.mode !== null &&
-    !confirmedChoices(s, sp.role).some((c) => sameChoice(c, rung.binding))
-  ) {
-    if (minor) return dropMinorFix(ctx, step);
-    // The confirmation cannot be given again once the task started, so this is the end of its ladder.
-    return failWithDraft(ctx, `run_config_unconfirmed:${step}:${bindingName(rung.binding)}`);
-  }
   applyRaise(ctx, step, sp, choice);
 
   const baseUpdate = s.run.base_update;

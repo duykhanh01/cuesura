@@ -199,9 +199,10 @@ describe('cusr task add/show/confirm over the control socket (T048)', () => {
     ).toBe(ExitCode.usage);
   });
 
-  it('a task without acceptance stays PENDING; confirm checks the config of a READY task once', async () => {
+  it('a task without acceptance is refused; confirm checks the config of a READY task once', async () => {
     const { dataDir } = await daemon();
-    const pending = await cli([
+    // Nothing could supply acceptance later, so such a task would wait forever (#263).
+    const refused = await cli([
       'task',
       'add',
       '--data-dir',
@@ -213,10 +214,8 @@ describe('cusr task add/show/confirm over the control socket (T048)', () => {
       '--base',
       'main',
     ]);
-    expect(pending.data).toMatchObject({
-      status: 'PENDING',
-      wait: { detail: { code: 'missing_acceptance' } },
-    });
+    expect(refused.code).toBe(ExitCode.usage);
+    expect(refused.error).toMatchObject({ code: 'invalid_arguments' });
 
     const ready = await cli([
       'task',

@@ -1,8 +1,16 @@
-import { compareLevel, levelKey, type Level, type StepPolicy } from '../domain/policy.ts';
+import {
+  bindingName,
+  compareLevel,
+  levelKey,
+  type Level,
+  type StepPolicy,
+} from '../domain/policy.ts';
+import { sameChoice } from '../domain/run-config.ts';
 import { streakKey, type ResumeAction, type TaskState } from '../domain/state.ts';
 import type { Ctx } from './context.ts';
 import { failWithDraft } from './interpreter.ts';
 import { requestApproval } from './questions.ts';
+import { confirmedChoices } from './run-config.ts';
 import { waitPolicy } from './waits.ts';
 
 export type RaiseReason = 'quality' | 'floor';
@@ -63,23 +71,34 @@ export function hasEscalationApproval(ctx: Ctx, step: string, rung: number): boo
   );
 }
 
+/** A binding outside the confirmed selection, worker or reviewer, is never switched to silently (M02). */
+function unconfirmed(s: TaskState, sp: StepPolicy, rung: StepPolicy['ladder'][number]): boolean {
+  return (
+    s.run.mode !== null && !confirmedChoices(s, sp.role).some((c) => sameChoice(c, rung.binding))
+  );
+}
+
+function escalationsExhausted(s: TaskState, choice: RungChoice): boolean {
+  const esc = s.budget.escalations;
+  return choice.raise !== null && esc.limit !== null && esc.used >= esc.limit;
+}
+
 /** Whether {@link chooseRung} would pick a rung without opening a wait or asking for an approval. */
 export function rungReady(ctx: Ctx, step: string, sp: StepPolicy): boolean {
   const s = ctx.state;
   const choice = targetRung(s, sp, step);
   const rung = sp.ladder[choice.rung];
-  if (rung === undefined || rung.state === 'denied') return false;
-  if (rung.state === 'needs_approval' && !hasEscalationApproval(ctx, step, choice.rung))
-    return false;
-  const esc = s.budget.escalations;
-  return !(choice.raise !== null && esc.limit !== null && esc.used >= esc.limit);
+  if (rung === undefined || rung.state === 'denied' || unconfirmed(s, sp, rung)) return false;
+  if (escalationsExhausted(s, choice)) return false;
+  return !(rung.state === 'needs_approval' && !hasEscalationApproval(ctx, step, choice.rung));
 }
 
 /**
- * Picks the rung for the next attempt of `step` and checks it in the order of research R-18: within the
- * ladder, not `denied`, approved when `needs_approval`, within `max_escalations`. Past the ladder or on a
- * denied rung the task fails; otherwise it is put into the matching wait. `null` means no attempt starts.
- * Budget and deadline are checked by the caller.
+ * Picks the rung for the next attempt of `step` and checks it: within the ladder, not `denied`, within
+ * `max_escalations`, inside the confirmed selection, approved when `needs_approval`. Approval comes last
+ * so nobody is asked to approve a rung that could not run anyway (#263). Past the ladder, on a denied or
+ * unconfirmed rung the task fails; otherwise it is put into the matching wait. `null` means no attempt
+ * starts. Budget and deadline are checked by the caller.
  */
 export function chooseRung(
   ctx: Ctx,
@@ -99,6 +118,23 @@ export function chooseRung(
     failWithDraft(ctx, `rung_denied:${step}:${choice.rung}`);
     return null;
   }
+  // A wait an admin can lift, also by amending the rung into the confirmed set (#105).
+  if (choice.raise !== null && escalationsExhausted(s, choice)) {
+    const esc = s.budget.escalations;
+    waitPolicy(ctx, 'escalations_exhausted', again, {
+      step,
+      from: choice.raise.from,
+      to: choice.raise.to,
+      used: esc.used,
+      limit: esc.limit,
+    });
+    return null;
+  }
+  // The confirmation cannot be given again once the task started, so this is the end of its ladder.
+  if (unconfirmed(s, sp, rung)) {
+    failWithDraft(ctx, `run_config_unconfirmed:${step}:${bindingName(rung.binding)}`);
+    return null;
+  }
   if (rung.state === 'needs_approval' && !hasEscalationApproval(ctx, step, choice.rung)) {
     requestApproval(ctx, {
       kind: 'escalation',
@@ -106,17 +142,6 @@ export function chooseRung(
       rung: choice.rung,
       head_sha: null,
       resume: again,
-    });
-    return null;
-  }
-  const esc = s.budget.escalations;
-  if (choice.raise !== null && esc.limit !== null && esc.used >= esc.limit) {
-    waitPolicy(ctx, 'escalations_exhausted', again, {
-      step,
-      from: choice.raise.from,
-      to: choice.raise.to,
-      used: esc.used,
-      limit: esc.limit,
     });
     return null;
   }

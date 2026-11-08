@@ -13,9 +13,11 @@ import type { ValidatedConfig } from '../domain/config.ts';
 import type { FrozenPolicy } from '../domain/policy.ts';
 import {
   EXECUTION_MODES,
+  MAX_FALLBACKS,
   sameChoice,
   type ExecutionMode,
   type RunChoice,
+  type RunProposal,
   type RunSelection,
 } from '../domain/run-config.ts';
 import { isTerminal, type TaskState } from '../domain/state.ts';
@@ -90,20 +92,22 @@ type ModeOptions = {
   readonly workers: { choice: RunChoice; fallbacks: RunChoice[] }[];
 };
 
-function optionsForMode(
-  s: TaskState,
+type TaskRef = Pick<TaskState, 'id' | 'revision' | 'project' | 'task'>;
+
+/**
+ * The ladder rungs a worker may fall back to when start would accept this exact mode, worker and
+ * reviewer, else `null` (freeze problems go to `problems`).
+ */
+function pairFallbacks(
+  s: TaskRef,
   config: ValidatedConfig,
   baseSha: string,
   profile: string,
   mode: ExecutionMode,
-  whenToUse: string | null,
-  budget: { left: number; skipped: boolean },
+  worker: RunChoice,
+  reviewer: RunChoice | null,
   problems: string[],
-): ModeOptions {
-  const workers = new Map<string, { choice: RunChoice; fallbacks: RunChoice[] }>();
-  const reviewers = new Map<string, RunChoice>();
-  const workerChoices = declared(config, WORKER_ROLES);
-  const reviewerChoices = mode === 'full-review' ? declared(config, REVIEWER_ROLES) : NO_REVIEWER;
+): RunChoice[] | null {
   // Stand-ins: a missing document fails the freeze, but its content is not what is being checked.
   const prompts = Object.values(config.user.roles).flatMap((r) =>
     r.prompt === null ? [] : [{ name: r.prompt, content: '' }],
@@ -117,6 +121,48 @@ function optionsForMode(
     media_type: a.media_type,
     content: '',
   }));
+  const frozen = freezePolicy({
+    config,
+    task: s.task,
+    base_sha: baseSha,
+    attachments,
+    prompts,
+    conventions,
+    mode,
+    selection: { worker, reviewer },
+  });
+  if (!frozen.ok) {
+    problems.push(...freezeProblem(frozen.error));
+    return null;
+  }
+  const selection: RunSelection = {
+    task_id: s.id,
+    revision: s.revision,
+    profile,
+    mode,
+    reason: '',
+    worker,
+    reviewer,
+    fallbacks: [],
+  };
+  if (checkSelection(frozen.value.policy, selection).length > 0) return null;
+  return fallbacksOf(frozen.value.policy, worker);
+}
+
+function optionsForMode(
+  s: TaskRef,
+  config: ValidatedConfig,
+  baseSha: string,
+  profile: string,
+  mode: ExecutionMode,
+  whenToUse: string | null,
+  budget: { left: number; skipped: boolean },
+  problems: string[],
+): ModeOptions {
+  const workers = new Map<string, { choice: RunChoice; fallbacks: RunChoice[] }>();
+  const reviewers = new Map<string, RunChoice>();
+  const workerChoices = declared(config, WORKER_ROLES);
+  const reviewerChoices = mode === 'full-review' ? declared(config, REVIEWER_ROLES) : NO_REVIEWER;
   for (const worker of workerChoices)
     for (const reviewer of reviewerChoices) {
       if (budget.left <= 0) {
@@ -124,35 +170,18 @@ function optionsForMode(
         break;
       }
       budget.left -= 1;
-      const frozen = freezePolicy({
+      const fallbacks = pairFallbacks(
+        s,
         config,
-        task: s.task,
-        base_sha: baseSha,
-        attachments,
-        prompts,
-        conventions,
-        mode,
-        selection: { worker, reviewer },
-      });
-      if (!frozen.ok) {
-        problems.push(...freezeProblem(frozen.error));
-        continue;
-      }
-      const selection: RunSelection = {
-        task_id: s.id,
-        revision: s.revision,
+        baseSha,
         profile,
         mode,
-        reason: '',
         worker,
         reviewer,
-        fallbacks: [],
-      };
-      if (checkSelection(frozen.value.policy, selection).length > 0) continue;
-      workers.set(choiceKey(worker), {
-        choice: worker,
-        fallbacks: fallbacksOf(frozen.value.policy, worker),
-      });
+        problems,
+      );
+      if (fallbacks === null) continue;
+      workers.set(choiceKey(worker), { choice: worker, fallbacks });
       if (reviewer !== null) reviewers.set(choiceKey(reviewer), reviewer);
     }
   return {
@@ -163,32 +192,24 @@ function optionsForMode(
   };
 }
 
-export async function runOptions(
-  deps: RunOptionsDeps,
-  caller: Caller,
-  body: Readonly<Record<string, unknown>>,
-): Promise<Result<unknown, AppError>> {
-  const q = QuerySchema.safeParse(body);
-  if (!q.success)
-    return err({
-      code: 'invalid_request',
-      message: 'task_id is required',
-      details: {},
-    });
-  const s = deps.store.readTask(q.data.task_id);
-  if (s === null || !authorize(caller, { role: 'read' }).ok)
-    return err({
-      code: 'task_not_found',
-      message: `no task ${q.data.task_id}`,
-      details: {},
-    });
-  if (s.policy_ref !== null || isTerminal(s.status))
-    return err({
-      code: 'conflict',
-      message: 'the run config of this task can no longer change',
-      details: { status: s.status },
-    });
+export type RunOptions = {
+  readonly profile: { readonly id: string; readonly source: 'project' | 'task' };
+  readonly modes: ModeOptions[];
+  readonly truncated: boolean;
+};
 
+/** Fallbacks for exactly this mode, worker and reviewer, `null` when start would refuse the pair. */
+export type PairProbe = (
+  mode: ExecutionMode,
+  worker: RunChoice,
+  reviewer: RunChoice | null,
+) => RunChoice[] | null;
+
+/** The run options of a task that has not started; also checks proposals at add and propose (#263). */
+export async function computeRunOptions(
+  deps: RunOptionsDeps,
+  s: TaskRef,
+): Promise<Result<{ options: RunOptions; probe: PairProbe }, AppError>> {
   const { user, packs } = await deps.configInputs();
   const userOnly = validateConfig({ user, packs: {} });
   if (!userOnly.ok)
@@ -262,14 +283,101 @@ export async function runOptions(
       configInvalid('no run selection can be frozen for this task', [...new Set(problems)]),
     );
   return ok({
+    options: {
+      profile: { id: profile, source: s.task.profile === null ? 'project' : 'task' },
+      modes,
+      truncated: budget.skipped,
+    },
+    // The listing stops at RUN_OPTION_COMBINATIONS and pairs workers with reviewers loosely, so a
+    // proposal is checked on its own pair rather than looked up in the lists.
+    probe: (mode, worker, reviewer) =>
+      pairFallbacks(s, config, base.value.base_sha, profile, mode, worker, reviewer, []),
+  });
+}
+
+const offMenu = (message: string, valid_values: unknown): AppError => ({
+  code: 'rejected',
+  message,
+  details: { reason: 'run_config_not_offered', valid_values },
+});
+
+/**
+ * The proposal checked against `run_options`, with the fallbacks filled from the worker's ladder when
+ * the caller gave none: a selection start would refuse, or one whose next rung is not confirmed, is
+ * refused here instead of after the task took a slot (#263).
+ */
+export function resolveProposal(
+  options: RunOptions,
+  probe: PairProbe,
+  p: RunProposal,
+): Result<RunProposal & { fallbacks: RunChoice[] }, AppError> {
+  if (p.profile !== options.profile.id)
+    return err(
+      offMenu(`profile '${p.profile}' is not the profile this task resolves to`, {
+        profile: [options.profile.id],
+      }),
+    );
+  const mode = options.modes.find((m) => m.mode === p.mode);
+  if (mode === undefined)
+    return err(
+      offMenu(`mode '${p.mode}' is not allowed for this task`, {
+        mode: options.modes.map((m) => m.mode),
+      }),
+    );
+  const ladder = probe(p.mode, p.worker, p.reviewer);
+  if (ladder === null)
+    return err(
+      p.reviewer === null || !mode.workers.some((w) => sameChoice(w.choice, p.worker))
+        ? offMenu(`worker ${choiceKey(p.worker)} is not offered for ${p.mode}`, {
+            worker: mode.workers.map((w) => w.choice),
+          })
+        : offMenu(
+            `reviewer ${choiceKey(p.reviewer)} is not offered for ${p.mode} with this worker`,
+            { reviewer: mode.reviewers },
+          ),
+    );
+  const stray = (p.fallbacks ?? []).filter((f) => !ladder.some((c) => sameChoice(c, f)));
+  if (stray.length > 0)
+    return err(
+      offMenu(`fallback ${stray.map(choiceKey).join(', ')} is not a rung of this worker's ladder`, {
+        fallbacks: ladder,
+      }),
+    );
+  // A selection holds at most MAX_FALLBACKS; the lowest rungs are the ones climbed first.
+  return ok({ ...p, fallbacks: p.fallbacks ?? ladder.slice(0, MAX_FALLBACKS) });
+}
+
+export async function runOptions(
+  deps: RunOptionsDeps,
+  caller: Caller,
+  body: Readonly<Record<string, unknown>>,
+): Promise<Result<unknown, AppError>> {
+  const q = QuerySchema.safeParse(body);
+  if (!q.success)
+    return err({
+      code: 'invalid_request',
+      message: 'task_id is required',
+      details: {},
+    });
+  const s = deps.store.readTask(q.data.task_id);
+  if (s === null || !authorize(caller, { role: 'read' }).ok)
+    return err({
+      code: 'task_not_found',
+      message: `no task ${q.data.task_id}`,
+      details: {},
+    });
+  if (s.policy_ref !== null || isTerminal(s.status))
+    return err({
+      code: 'conflict',
+      message: 'the run config of this task can no longer change',
+      details: { status: s.status },
+    });
+  const computed = await computeRunOptions(deps, s);
+  if (!computed.ok) return computed;
+  return ok({
     task_id: s.id,
     revision: s.revision,
     version: s.version,
-    profile: {
-      id: profile,
-      source: s.task.profile === null ? 'project' : 'task',
-    },
-    modes,
-    truncated: budget.skipped,
+    ...computed.value.options,
   });
 }

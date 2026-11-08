@@ -10,7 +10,7 @@ const admitted = { record: { task_id: uuidOf(1) } } as unknown as Admitted;
 const input = (task: Record<string, unknown>) =>
   ({
     project: 'acme',
-    payload: { task: { title: 't', base_branch: 'main', ...task } },
+    payload: { task: { title: 't', base_branch: 'main', acceptance: ['a'], ...task } },
   }) as unknown as CommandInput;
 
 describe('task add scope (issue #240)', () => {

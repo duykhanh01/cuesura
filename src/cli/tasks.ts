@@ -155,7 +155,7 @@ const RUN_OPTIONS = [
   {
     flags: '--fallback <list>',
     description:
-      "Comma-separated fallback bindings in harness/model/effort format; task propose defaults to the worker's ladder rungs from task options, '' for none",
+      "Comma-separated fallback bindings in harness/model/effort format; defaults to the worker's ladder rungs from task options, '' for none",
   },
   {
     flags: '--reason <text>',
@@ -187,7 +187,8 @@ function runProposal(values: Values): Record<string, unknown> | string | undefin
     reason: values['reason'] ?? '',
     worker,
     reviewer: reviewer ?? null,
-    fallbacks,
+    // Without the flag the daemon fills the worker's ladder from `run_options` (#263).
+    ...(values['fallback'] === undefined ? {} : { fallbacks }),
   };
 }
 
@@ -574,43 +575,16 @@ export const proposeCommand: CliCommand = {
       return Promise.resolve(
         usage(run ?? 'task propose requires --profile, --mode, and --worker', json, io),
       );
-    return (async () => {
-      const taskId = values['id'] as string;
-      if (values['fallback'] === undefined)
-        run['fallbacks'] = await ladderFallbacks(values, taskId, run);
-      return mutate(values, 'task_propose_run', taskId, { run_config: run }, json, io);
-    })();
+    return mutate(
+      values,
+      'task_propose_run',
+      values['id'] as string,
+      { run_config: run },
+      json,
+      io,
+    );
   },
 };
-
-type Choice = { harness: string; model: string; effort: string };
-
-/**
- * Without `--fallback`, the rungs `task options` lists for the chosen worker: a rung missing from the
- * confirmed fallbacks stops the task at `run_config_unconfirmed` instead of escalating (#170). When
- * the options cannot be read, the list stays empty and the daemon's own checks report why.
- */
-async function ladderFallbacks(
-  values: Values,
-  taskId: string,
-  run: Record<string, unknown>,
-): Promise<Choice[]> {
-  const reply = await call(values, '/v1/query', { kind: 'run_options', task_id: taskId }, null);
-  if (!reply.ok) return [];
-  const modes = (
-    reply.data as { modes?: { mode: string; workers: { choice: Choice; fallbacks: Choice[] }[] }[] }
-  ).modes;
-  const worker = run['worker'] as Choice;
-  const found = modes
-    ?.find((m) => m.mode === run['mode'])
-    ?.workers.find(
-      (w) =>
-        w.choice.harness === worker.harness &&
-        w.choice.model === worker.model &&
-        w.choice.effort === worker.effort,
-    );
-  return found?.fallbacks ?? [];
-}
 
 export const confirmCommand: CliCommand = {
   name: 'task confirm',
