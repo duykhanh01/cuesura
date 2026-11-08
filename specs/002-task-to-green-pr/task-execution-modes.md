@@ -143,7 +143,8 @@ Trước publish, kiểm ref/tree/worktree và artifact còn khớp checkpoint/e
 đã lưu, không lấy HEAD mới nhất theo phỏng đoán. Git commit bất biến là căn cứ; khóa phối hợp không
 được coi là đủ để ngăn mọi thay đổi từ bên ngoài. Có thay đổi thì giữ dữ liệu và chặn publish để đối
 chiếu. Muốn đưa code mới vào PR phải gates, commit mới và review lại khi ở `full-review`; không commit
-thêm file hoặc chạy formatter sau approval rồi dùng approval cũ. Body đổi cần được reviewer đối chiếu
+thêm file hoặc chạy formatter sau approval rồi dùng approval cũ. Ngoại lệ duy nhất là lượt sửa finding
+minor ở [mục dưới](#finding-minor-sau-approve), với điều kiện phạm vi được Git trên host kiểm. Body đổi cần được reviewer đối chiếu
 lại trong `full-review`; retry không dựng lại body khác cho cùng create intent.
 
 ## Review trên PR (quyết định 2026-11-04)
@@ -185,6 +186,40 @@ issue, PR và CI; việc họ tự làm trên GitHub không thay cho comment rev
   `config_invalid:review_template`.
 - Bước PR không giữ execution slot, nên review xếp hàng lấy lại slot sau khi PR mở; request
   `resumed` được ưu tiên hơn task mới ở cùng priority.
+
+## Finding minor sau approve
+
+Approve vẫn có thể kèm finding `minor` (lỗi thật, ảnh hưởng nhỏ) và `info` (chỉ để biết, không cần sửa).
+Finding minor được sửa trước khi PR chuyển ready, không qua thêm một lượt reviewer. Finding minor không
+bao giờ được chặn merge.
+
+- Sau khi đăng review approve, nếu lượt review đó có finding `minor`, bước `fix_minor` gọi fixer đúng
+  một lượt cho các finding đó. Chỉ có `info` hoặc không có finding thì bỏ qua cả nhánh này, PR chuyển
+  ready như cũ. Mỗi lượt approve chỉ có một lượt sửa minor, kể cả khi lượt đó bị bỏ và verdict được
+  dùng lại sau này (M03).
+- Fixer nhận finding minor kèm phạm vi: chỉ đổi file có trong finding và test của chúng. Title và body
+  PR mà fixer ghi không được nhận: PR giữ nội dung reviewer đã approve.
+- Hết lượt agent, nấc model phải chờ duyệt hoặc bị cấm, hoặc binding ngoài bộ đã xác nhận thì không chạy
+  fixer và không chờ người. Quá deadline cũng bỏ phần sửa minor; task sau đó chờ deadline như mọi task.
+- Lượt fixer minor bị dừng bằng `pause --now` không chạy lại: phần sửa bị bỏ như khi fixer lỗi.
+- Fixer không trả `done` (needs_input, needs_context, blocked), output không hợp lệ hoặc chạy lỗi (kể cả
+  harness bị từ chối đăng nhập): không hỏi người, không retry. Daemon đưa worktree về checkpoint đã
+  approve và PR chuyển ready với commit đó. Engine ghi tree của checkpoint đó là tree của task (T072):
+  daemon không khôi phục được worktree thì lượt worker sau chờ người, phần sửa đã bỏ không vào commit.
+- Bước `minor_gates` chạy cùng gate với bước `gates`. Gate đỏ hoặc tree không đứng yên thì cũng bỏ
+  phần sửa như trên. Lượt gate bị bỏ không phải bằng chứng cho head, nên không làm head đã approve mất
+  xanh.
+- Gate đạt thì daemon commit checkpoint mới và ghi các file đổi từ commit đã approve (`changed_since`).
+  Mọi file đổi đều là file có trong finding minor hoặc file test (thư mục `test/`, `tests/`,
+  `__tests__/`, `spec/`; file `*.test.*`, `*.spec.*`, `test_*.py`, `*_test.*`) thì engine ghi
+  `MinorFixRecorded`: approval của lượt review đó áp dụng cho checkpoint mới. Checkpoint được publish,
+  bước review thấy approval mang sang thì đi tiếp mà không gọi reviewer và không tính lượt review, rồi
+  PR chuyển ready.
+- Đổi file khác, hoặc daemon không đọc được diff, thì không mang approval sang: checkpoint mới đi qua
+  publish và review như mọi thay đổi khác.
+- Approval chỉ mang sang khi lượt review đó vẫn là verdict mới nhất của revision và head đúng là
+  checkpoint của lượt sửa. Commit sau đó (sửa CI, tích hợp base có sửa code) cần review như thường.
+  Tích hợp base chạy bước `gates` của task, không chạy `minor_gates`.
 
 ## Vòng review và sửa không tiến triển (#141)
 

@@ -1,5 +1,6 @@
 import type { Trigger } from '../domain/trigger.ts';
 import { invalidatePending } from './cancel.ts';
+import { isMinorStep } from '../domain/workflow.ts';
 import type { Ctx } from './context.ts';
 import { verifiedHead } from './external-completion.ts';
 import { commitsCheckpoint, proceed } from './interpreter.ts';
@@ -10,9 +11,7 @@ export function onUpdateBase(
   t: Extract<Trigger, { kind: 'update_base' | 'yolo_update_base' }>,
 ): void {
   const s = ctx.state;
-  const step = s.evidence.gates
-    .filter((g) => g.valid && g.revision === s.revision && g.passed)
-    .at(-1)?.step;
+  const step = baseGateStep(ctx);
   if (
     s.runtime_ref === null ||
     s.run.mode === null ||
@@ -52,6 +51,22 @@ export function onUpdateBase(
   );
 }
 
+/**
+ * The gate step a base update runs: the task's own one that passed last. The minor-fix gates run only
+ * while that fix is open, so they never take a base update.
+ */
+function baseGateStep(ctx: Ctx): string | undefined {
+  const s = ctx.state;
+  return s.evidence.gates
+    .filter((g) => {
+      const def = ctx.frozen.workflow.steps[g.step];
+      return (
+        g.valid && g.revision === s.revision && g.passed && def !== undefined && !isMinorStep(def)
+      );
+    })
+    .at(-1)?.step;
+}
+
 type HeadDriftTrigger = Extract<Trigger, { kind: 'head_drift' }>;
 
 /**
@@ -64,9 +79,7 @@ type HeadDriftTrigger = Extract<Trigger, { kind: 'head_drift' }>;
 export function adoptRemoteMerge(ctx: Ctx, t: HeadDriftTrigger): boolean {
   const s = ctx.state;
   const base = t.base_merge?.base_sha;
-  const step = s.evidence.gates
-    .filter((g) => g.valid && g.revision === s.revision && g.passed)
-    .at(-1)?.step;
+  const step = baseGateStep(ctx);
   const openUpdate =
     s.run.base_update !== undefined &&
     s.run.base_update.revision === s.revision &&

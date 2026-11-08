@@ -9,6 +9,7 @@ import type {
   HeadDrift,
   LocalRemainder,
   MessageBehavior,
+  MinorFix,
   PublishContentState,
   ResumeAction,
   ReviewEvidence,
@@ -86,7 +87,8 @@ export type EventPayloads = {
       | 'pr_exists'
       | 'prepared'
       | 'no_review'
-      | 'review_posted';
+      | 'review_posted'
+      | 'approval_carried';
     outcome: string;
   };
   StepExhausted: { step: string; visits: number; target: string };
@@ -171,6 +173,8 @@ export type EventPayloads = {
     passed: boolean;
     signature: string | null;
     resets_streak_of: string | null;
+    /** A minor fix that failed its gates: its tree was thrown away, so the run is no evidence. */
+    discarded?: boolean;
   };
   ReviewVerdictRecorded: {
     step: string;
@@ -407,6 +411,14 @@ export type EventPayloads = {
     input_digest: string;
   };
   BaseUpdateRecorded: { update: BaseUpdateRun };
+  MinorFixRecorded: { fix: MinorFix };
+  /** The one minor fixer run an approving review gets has started; it never starts again for it. */
+  MinorFixStarted: { review_attempt_id: string };
+  /**
+   * The minor fix of that review was dropped: the task goes on from the approved checkpoint, whose tree
+   * is the task's own again (T072), whether or not the worktree could be put back.
+   */
+  MinorFixDropped: { review_attempt_id: string; tree: string | null };
   HeadDriftRecorded: { drift: HeadDrift };
   /** The person took the changed worktree as the task's own; the next worker attempt starts from it (T072). */
   WorktreeChangeAccepted: {
@@ -562,6 +574,9 @@ export const EVENT_TYPES = [
   'PublishContentRecorded',
   'ReviewReused',
   'BaseUpdateRecorded',
+  'MinorFixRecorded',
+  'MinorFixStarted',
+  'MinorFixDropped',
   'HeadDriftRecorded',
   'WorktreeChangeAccepted',
   'ManifestChangeAccepted',

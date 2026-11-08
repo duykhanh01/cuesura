@@ -7,6 +7,7 @@ import { claimable } from '../../../src/engine/claim.ts';
 import { replay } from '../../../src/engine/evolve.ts';
 import { explain } from '../../../src/explain/explain.ts';
 import { headVerdict } from '../../../src/engine/head-evidence.ts';
+import { mergeGuard } from '../../../src/engine/merge-guard.ts';
 import { hashCanonical } from '../../../src/shared/hash.ts';
 import { injectEvents, openFileStoreForTest } from '../../../src/store/testing.ts';
 import { authz, buildTask, freezeOk, ownerAuthz, uuidOf } from '../../support/builders.ts';
@@ -555,7 +556,7 @@ describe('review evidence reuse (T137, M03)', () => {
     expect(
       d.store
         .readEvents(t.id)
-        .filter((e) => e.type === 'StepSkipped')
+        .filter((e) => e.type === 'StepSkipped' && e.payload.step === 'post_review')
         .at(-1)?.payload,
     ).toMatchObject({ step: 'post_review', reason: 'review_posted' });
     expect(d.pending(t.id, 'mark_ready')).toHaveLength(1);
@@ -1476,5 +1477,253 @@ describe('an answer that follows the ladder running out (#192)', () => {
     expect(r.pendingOne(t.id, 'run_gates')).toBeDefined();
     expectReplays(r);
     r.store.close();
+  });
+});
+
+describe('minor findings of an approving review (fix_minor)', () => {
+  const MINOR = { severity: 'minor', file: 'src/a.ts', line: 3, msg: 'misleading name' };
+  const TREE_B = 'f'.repeat(40);
+  const covered = {
+    kind: 'covered' as const,
+    github_required: 'none' as const,
+    github: [],
+    snapshot_only: ['build'],
+  };
+  const green = (head: string) => ({
+    head_sha: head,
+    checks: [{ name: 'build', state: 'success' as const }],
+    collisions: [],
+    complete: true,
+  });
+  const policyOf = (d: StoreDriver, t: CanonicalTask) => {
+    const ref = d.task(t.id).policy_ref;
+    const p = ref === null ? null : d.store.readPolicy(t.id, ref.revision, ref.version);
+    if (p === null) throw new Error('no policy');
+    return p;
+  };
+  const slot = (d: StoreDriver, t: CanonicalTask) => {
+    if (d.task(t.id).wait?.detail['code'] === 'execution_slot') d.grantNext();
+  };
+
+  /** A full-review task whose review of A approved it with `findings`, posted on the PR. */
+  function approvedWith(
+    findings: Record<string, unknown>[],
+    limits: { max_agent_runs?: number } = {},
+  ): { d: StoreDriver; t: CanonicalTask } {
+    const d = setup();
+    const t = buildTask();
+    createGrantStart(d, t, 'full-review', { limits });
+    toPublish(d, t, A);
+    publishToReview(d, t.id, A);
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      reviewData('approve', A, { findings, input_digest: currentReviewInput(d, t.id) }),
+    );
+    completePost(d, t.id);
+    slot(d, t);
+    return { d, t };
+  }
+  const minorFixer = (d: StoreDriver, t: CanonicalTask) => {
+    const e = d.pendingOne(t.id, 'start_agent');
+    expect(d.task(t.id).effects[e.id]?.step).toBe('fix_minor');
+    return e;
+  };
+  /** Gates of the minor fix passed on B, which changed `paths` since A. */
+  const minorGatesPass = (d: StoreDriver, t: CanonicalTask, paths: string[]) => {
+    const g = d.pendingOne(t.id, 'run_gates');
+    expect(d.task(t.id).effects[g.id]?.step).toBe('minor_gates');
+    d.complete(
+      t.id,
+      g.id,
+      'succeeded',
+      checkpointGates(B, undefined, {
+        tree: TREE_B,
+        checkpoint: { ...(checkpointGates(B)['checkpoint'] as object), tree: TREE_B },
+        changed_since: { sha: A, paths },
+      }),
+    );
+  };
+
+  it('only info findings: no fixer, the PR turns ready', () => {
+    const { d, t } = approvedWith([{ severity: 'info', msg: 'worth knowing' }]);
+    expect(d.pending(t.id, 'start_agent')).toEqual([]);
+    expect(d.pending(t.id, 'mark_ready')).toHaveLength(1);
+  });
+
+  it('a minor fix in the findings and tests is carried by the approval: no second review', () => {
+    const { d, t } = approvedWith([MINOR]);
+    expect(d.pending(t.id, 'mark_ready')).toEqual([]);
+    d.complete(t.id, minorFixer(d, t).id, 'succeeded', agentData('done'));
+    minorGatesPass(d, t, ['src/a.ts', 'test/a.test.ts']);
+    expect(d.task(t.id).run.minor_fix).toMatchObject({ approved_sha: A, sha: B });
+    publishToReview(d, t.id, B);
+    expect(reviewerRuns(d, t)).toBe(1);
+    // No reviewer runs, so no review visit is spent: an approval on the last allowed review still goes on.
+    expect(d.task(t.id).step_visits['review']).toBe(1);
+    expect(
+      d.store
+        .readEvents(t.id)
+        .filter((e) => e.type === 'StepSkipped' && e.payload.step === 'review')
+        .at(-1)?.payload,
+    ).toMatchObject({ reason: 'approval_carried' });
+    expect(d.pending(t.id, 'post_review')).toEqual([]);
+    expect(d.pending(t.id, 'mark_ready')).toHaveLength(1);
+    expect(headVerdict(d.task(t.id), ['build'], B, covered, green(B))).toEqual({
+      kind: 'green',
+      head_sha: B,
+      review: 'approved',
+    });
+    // The merge guard takes the carried approval: what it misses next is CI, not the review.
+    expect(mergeGuard(d.task(t.id), policyOf(d, t))).toEqual({
+      ok: false,
+      code: 'checks_incomplete',
+    });
+  });
+
+  it('a minor fix that changes other files goes back through review', () => {
+    const { d, t } = approvedWith([MINOR]);
+    d.complete(t.id, minorFixer(d, t).id, 'succeeded', agentData('done'));
+    minorGatesPass(d, t, ['src/a.ts', 'src/b.ts']);
+    expect(d.task(t.id).run.minor_fix).toBeUndefined();
+    publishToReview(d, t.id, B);
+    expect(reviewerRuns(d, t)).toBe(2);
+    expect(headVerdict(d.task(t.id), ['build'], B, covered, green(B))).toMatchObject({
+      kind: 'not_green',
+      review: 'missing',
+    });
+    expect(mergeGuard(d.task(t.id), policyOf(d, t))).toEqual({
+      ok: false,
+      code: 'review_missing',
+    });
+  });
+
+  it('a blocked minor fixer never waits: the approved commit goes on', () => {
+    const { d, t } = approvedWith([MINOR]);
+    d.complete(
+      t.id,
+      minorFixer(d, t).id,
+      'succeeded',
+      agentData('blocked', { blocker: 'out of scope' }),
+    );
+    expect(d.task(t.id).wait?.reason).not.toBe('human_input');
+    expect(d.pending(t.id, 'run_gates')).toEqual([]);
+    expect(d.pending(t.id, 'mark_ready')).toHaveLength(1);
+  });
+
+  it('a failed minor fixer run is dropped without a retry', () => {
+    const { d, t } = approvedWith([MINOR]);
+    d.complete(t.id, minorFixer(d, t).id, 'failed', {
+      failure_class: 'quality',
+      signature: 'F1',
+      invoked: true,
+    });
+    expect(d.pending(t.id, 'start_agent')).toEqual([]);
+    expect(d.pending(t.id, 'mark_ready')).toHaveLength(1);
+  });
+
+  it('one approval gets one minor fixer run, even when it was dropped and the approval is reused', () => {
+    const { d, t } = approvedWith([MINOR]);
+    d.complete(t.id, minorFixer(d, t).id, 'succeeded', agentData('blocked', { blocker: 'no' }));
+    d.complete(t.id, d.pendingOne(t.id, 'mark_ready').id, 'succeeded', {
+      pr_ref: 'acme#7',
+      ready_at: null,
+    });
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'await_ci').id,
+      'succeeded',
+      ciData(A, { build: 'success', test: 'failure' }),
+    );
+    d.store.grantNext(d.now as never, [uuidOf(990), uuidOf(991), uuidOf(992), uuidOf(993)]);
+    // The CI fix changes nothing the review reads: the approval of A is reused.
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'run_gates').id,
+      'succeeded',
+      checkpointGates(A, undefined, {
+        checkpoint: { ...(checkpointGates(A)['checkpoint'] as object), committed: false },
+      }),
+    );
+    publishToReview(d, t.id, A);
+    expect(types(d, t)).toContain('ReviewReused');
+    expect(Object.values(d.task(t.id).effects).filter((e) => e.step === 'fix_minor')).toHaveLength(
+      1,
+    );
+    expect(d.pending(t.id, 'mark_ready')).toHaveLength(1);
+  });
+
+  it('with no agent run left the minor fix is dropped instead of waiting for budget', () => {
+    // The coder and the reviewer use both runs.
+    const { d, t } = approvedWith([MINOR], { max_agent_runs: 2 });
+    expect(d.task(t.id).wait?.detail['code']).not.toBe('agent_runs_exhausted');
+    expect(d.pending(t.id, 'start_agent')).toEqual([]);
+    expect(d.pending(t.id, 'mark_ready')).toHaveLength(1);
+  });
+
+  it('the minor fixer cannot change the PR title and body the review approved', () => {
+    const { d, t } = approvedWith([MINOR]);
+    const before = d.task(t.id).run.content;
+    d.complete(
+      t.id,
+      minorFixer(d, t).id,
+      'succeeded',
+      agentData('done', { content: { digest: hashCanonical('new body'), ref: '/c/new.json' } }),
+    );
+    expect(d.task(t.id).run.content).toEqual(before);
+  });
+
+  it('a minor fixer stopped by pause --now is not run again, even when its late result is done', () => {
+    const { d, t } = approvedWith([MINOR]);
+    const fixer = minorFixer(d, t);
+    // The fixer runs when the pause stops it; its result still comes back, as done.
+    expect(d.claim(fixer.id).ok).toBe(true);
+    d.must(t.id, { kind: 'pause', reason: 'later', now: true }, { authz: ownerAuthz() });
+    d.complete(t.id, d.pendingOne(t.id, 'stop_attempt').id, 'succeeded', { stopped: true });
+    d.must(t.id, {
+      kind: 'effect_result',
+      effect_id: fixer.id as Uuid,
+      outcome: 'succeeded',
+      data: agentData('done', { worktree_tree: TREE_B }),
+    });
+    expect(types(d, t)).toContain('MinorFixDropped');
+    // The approved tree is the task's own again, not the one the stopped fixer left.
+    expect(d.task(t.id).run.worktree_tree).toBe('e'.repeat(40));
+    d.must(t.id, { kind: 'unpause' }, { authz: ownerAuthz() });
+    slot(d, t);
+    expect(d.pending(t.id, 'start_agent')).toEqual([]);
+    expect(d.pending(t.id, 'run_gates')).toEqual([]);
+    expect(d.pending(t.id, 'mark_ready')).toHaveLength(1);
+  });
+
+  it('a minor fixer refused by its harness login drops the fix instead of waiting for a sign-in', () => {
+    const { d, t } = approvedWith([MINOR]);
+    d.complete(t.id, minorFixer(d, t).id, 'failed', {
+      failure_class: 'auth_config',
+      invoked: true,
+      auth: { harness: 'claude' },
+    });
+    expect(d.task(t.id).wait?.detail['code']).not.toBe('harness_auth');
+    expect(d.pending(t.id, 'mark_ready')).toHaveLength(1);
+  });
+
+  it('failed minor gates drop the fix and are no evidence against the approved commit', () => {
+    const { d, t } = approvedWith([MINOR]);
+    d.complete(t.id, minorFixer(d, t).id, 'succeeded', agentData('done'));
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', {
+      ...checkpointGates(B, { build: false, unit: true }, { tree: TREE_B }),
+      checkpoint: undefined,
+    });
+    // The approved tree is the task's again: a worktree left as the fix had it makes a worker wait.
+    expect(d.task(t.id).run.worktree_tree).toBe('e'.repeat(40));
+    expect(d.pending(t.id, 'publish')).toEqual([]);
+    expect(d.pending(t.id, 'mark_ready')).toHaveLength(1);
+    expect(headVerdict(d.task(t.id), ['build'], A, covered, green(A))).toEqual({
+      kind: 'green',
+      head_sha: A,
+      review: 'approved',
+    });
   });
 });

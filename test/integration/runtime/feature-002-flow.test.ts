@@ -1700,3 +1700,78 @@ describe.each(['coder', 'reviewer'] as const)(
     });
   },
 );
+
+describe('minor findings of an approving review (real Git)', () => {
+  const approveMinor = {
+    schema_version: 1,
+    verdict: 'approve',
+    summary: 'ok, one minor finding',
+    findings: [{ severity: 'minor', file: 'search.ts', line: 1, message: 'misleading name' }],
+  };
+  const run = async (gates?: Record<string, string>) => {
+    const task = buildTask();
+    const f = setup(task, {
+      mode: 'full-review',
+      runs: [CONTENT, FIXED],
+      verdicts: [approveMinor],
+      ...(gates === undefined ? {} : { gates }),
+    });
+    f.d.must(task.id, { kind: 'create_task', task });
+    f.start();
+    await settleWithSlot(f.d, f.settle);
+    return { ...f, task };
+  };
+  const remoteHead = (remote: string, task: CanonicalTask) =>
+    g.sh(remote, 'rev-parse', `refs/heads/${taskBranch(task.id, task.title)}`);
+
+  it('the fixer takes the minor finding once; the approval carries the fix to the merge, with no second review', async () => {
+    const { d, codex, coder, remote, task } = await run();
+    expect(coder.calls).toHaveLength(2);
+    expect(codex.calls).toHaveLength(1);
+    const s = d.task(task.id);
+    expect(s.run.minor_fix).toMatchObject({ paths: ['search.ts'] });
+    expect(remoteHead(remote, task)).toBe(s.run.minor_fix?.sha);
+    expect(s.wait).toMatchObject({ detail: { code: 'merge' } });
+  });
+
+  it('a base update after a carried minor fix runs the task gates, not the minor ones', async () => {
+    const { d, codex, remote, task, settle } = await run();
+    const head = d.task(task.id).head_sha as string;
+    const external = join(g.base, `minor-base-${task.id}`);
+    g.sh(g.base, 'clone', '-q', remote, external);
+    writeFileSync(join(external, 'base-only.txt'), 'a change on main\n');
+    g.sh(external, 'add', '-A');
+    g.sh(external, 'commit', '-qm', 'main moves on');
+    g.sh(external, 'push', '-q', 'origin', 'main');
+    const base = g.sh(external, 'rev-parse', 'HEAD');
+    d.must(task.id, { kind: 'update_base', head_sha: head, base_sha: base });
+    await settleWithSlot(d, settle);
+    const s = d.task(task.id);
+    expect(s.run.base_update).toMatchObject({ gate_step: 'gates', base_sha: base });
+    const pushed = remoteHead(remote, task);
+    expect(pushed).not.toBe(head);
+    expect(g.sh(remote, 'merge-base', '--is-ancestor', base, pushed)).toBe('');
+    expect(codex.calls).toHaveLength(1);
+    expect(s.wait).toMatchObject({ detail: { code: 'merge' } });
+  });
+
+  it('failed minor gates put the worktree back and merge the approved commit', async () => {
+    // The fake fixer adds "fix 1" to search.ts; the approved tree has none.
+    const { d, codex, coder, deps, remote, task } = await run({
+      build: '! grep -q "fix 1" search.ts',
+      unit: 'true',
+      lint: 'true',
+      format_fix: 'true',
+    });
+    expect(coder.calls).toHaveLength(2);
+    expect(codex.calls).toHaveLength(1);
+    const s = d.task(task.id);
+    expect(s.run.minor_fix).toBeUndefined();
+    const approved = s.run.reviews.at(-1)?.sha;
+    expect(remoteHead(remote, task)).toBe(approved);
+    const worktree = join(deps.paths.worktrees, task.id);
+    expect(readFileSync(join(worktree, 'search.ts'), 'utf8')).not.toContain('fix 1');
+    expect(g.sh(worktree, 'status', '--porcelain', '--untracked-files=no')).toBe('');
+    expect(s.wait).toMatchObject({ detail: { code: 'merge' } });
+  });
+});

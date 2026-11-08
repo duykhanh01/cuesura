@@ -468,6 +468,19 @@ export type ReviewEvidence = {
   valid: boolean;
 };
 
+/**
+ * A fix of the minor findings an approving review left, carried by that approval: its gates passed on
+ * the checkpoint `sha` and it changed only the findings' files and tests since `approved_sha`.
+ */
+export type MinorFix = {
+  revision: number;
+  review_attempt_id: string;
+  approved_sha: string;
+  sha: string;
+  tree: string;
+  paths: string[];
+};
+
 /** A remote head nobody in this task expected: blocks business work until reconciled (FR-041.03, H01–H05). */
 export type HeadDrift = {
   expected: string | null;
@@ -524,6 +537,10 @@ export type RunState = {
    * Kept here, not in `base_update`, so a later base update does not forget them. Absent until the first.
    */
   superseded_reads?: string[];
+  /** The latest minor fix carried by an approval; absent until the first one. */
+  minor_fix?: MinorFix;
+  /** Approving review attempts whose one minor fixer run started or was dropped. */
+  minor_started?: string[];
 };
 
 export type PrBodyState = {

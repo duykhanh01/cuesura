@@ -1,5 +1,5 @@
 import type { EventPayloads } from '../domain/event.ts';
-import { reviewOf } from './head-evidence.ts';
+import { minorFixApproved, reviewOf } from './head-evidence.ts';
 import type { BaseUpdate } from '../domain/runtime.ts';
 import type { z } from 'zod';
 import { assertNever } from '../shared/assert-never.ts';
@@ -39,6 +39,7 @@ import {
   branchMatches,
   evalPredicate,
   isAgentStep,
+  isMinorStep,
   isSpecialTarget,
   type PredicateFacts,
   type StepDef,
@@ -51,7 +52,7 @@ import { externalConfirmation, waitForExternalMerge } from './external-completio
 import { settleExecutionOnClose, waitForSlot } from './runtime.ts';
 import { reject, type Ctx } from './context.ts';
 import { requestEffect, requestReconcile } from './effects.ts';
-import { applyRaise, chooseRung } from './escalation.ts';
+import { applyRaise, chooseRung, rungReady } from './escalation.ts';
 import {
   clearRetryCounters,
   handleFailure,
@@ -223,7 +224,36 @@ function facts(ctx: Ctx, step: string): PredicateFacts {
     task_type: t.type,
     attempt: (ctx.state.step_visits[step] ?? 0) + 1,
     target_branch: t.base_branch,
+    // The fixer runs once per approval; the gates after it run while that fix is still open.
+    minor_findings:
+      minorStage(ctx.state) ===
+      (ctx.frozen.workflow.steps[step]?.kind === 'agent' ? 'due' : 'open'),
   };
+}
+
+/** The latest review of this revision when it approved the change. */
+function latestApproval(s: TaskState): ReviewEvidence | undefined {
+  const last = s.run.reviews.filter((r) => r.valid && r.revision === s.revision).at(-1);
+  return last?.verdict === 'approve' ? last : undefined;
+}
+
+/**
+ * The minor findings the latest review of this revision left when it approved the change; empty when
+ * it did not approve, or found nothing below the blocking levels to fix (`info` needs no change).
+ */
+export function minorFindings(s: TaskState): ReviewEvidence['findings'] {
+  return latestApproval(s)?.findings.filter((f) => f.severity === 'minor') ?? [];
+}
+
+/**
+ * Where the minor fix of the latest approval stands: `due` before its one fixer run, `open` from that
+ * run until it is carried or dropped, null when there is nothing (more) to fix.
+ */
+function minorStage(s: TaskState): 'due' | 'open' | null {
+  const approval = latestApproval(s);
+  if (approval === undefined || minorFindings(s).length === 0) return null;
+  if (s.run.minor_fix?.review_attempt_id === approval.attempt_id) return null;
+  return (s.run.minor_started ?? []).includes(approval.attempt_id) ? 'open' : 'due';
 }
 
 const SKIP_OUTCOME: Partial<Record<StepKind, string>> = {
@@ -239,6 +269,13 @@ function skip(ctx: Ctx, step: string, reason: StepSkippedReason): void {
   const def = stepDef(ctx, step);
   const outcome = SKIP_OUTCOME[def.kind] ?? 'ok';
   ctx.emit('StepSkipped', { step, kind: def.kind, reason, outcome });
+  // A minor fixer entered again while its fix is open (its run was stopped, say) drops that fix: the
+  // worktree may hold a change no gate saw.
+  if (isMinorStep(def) && def.kind === 'agent' && minorStage(ctx.state) === 'open')
+    return dropMinorFix(ctx, step);
+  // A skipped minor step skips the whole minor fix: its success would lead on into the fix.
+  if (isMinorStep(def) && def.on_exhausted !== undefined)
+    return goTarget(ctx, step, def.on_exhausted, outcome);
   route(ctx, step, outcome);
 }
 
@@ -254,6 +291,10 @@ export function enterStep(
     return skip(ctx, step, 'when');
   if (def.skip_when !== undefined && evalPredicate(def.skip_when, facts(ctx, step)))
     return skip(ctx, step, 'skip_when');
+  // The approval carries a minor fix to its checkpoint: no reviewer runs, so no review visit counts.
+  const cp = ctx.state.run.checkpoint;
+  if (def.kind === 'review' && cp !== null && minorFixApproved(ctx.state, cp.sha))
+    return skip(ctx, step, 'approval_carried');
   const visits = ctx.state.step_visits[step] ?? 0;
   const limit = visitLimit(ctx, step);
   if (limit !== null && visits >= limit) {
@@ -759,6 +800,11 @@ export function startAttempt(ctx: Ctx, step: string, kind: AttemptKind): void {
     enterStep(ctx, step, { step, outcome: 'resume' }, kind);
     return;
   }
+  // A minor fix never waits for runs, a rung or a confirmation: it is dropped instead. Past the
+  // deadline it is dropped too; the task then waits on the deadline like any other.
+  const minor = isMinorStep(stepDef(ctx, step));
+  if (minor && (pastDeadline(ctx) || available(s.budget) < 1 || !rungReady(ctx, step, sp)))
+    return dropMinorFix(ctx, step);
   const choice = chooseRung(ctx, step, sp, again);
   if (choice === null) return;
   if (pastDeadline(ctx)) return waitPolicy(ctx, 'deadline', again, { deadline_at: s.deadline_at });
@@ -770,6 +816,7 @@ export function startAttempt(ctx: Ctx, step: string, kind: AttemptKind): void {
     s.run.mode !== null &&
     !confirmedChoices(s, sp.role).some((c) => sameChoice(c, rung.binding))
   ) {
+    if (minor) return dropMinorFix(ctx, step);
     return waitPolicy(ctx, 'run_config_unconfirmed', again, {
       step,
       binding: bindingName(rung.binding),
@@ -797,6 +844,9 @@ export function startAttempt(ctx: Ctx, step: string, kind: AttemptKind): void {
       ? {}
       : resumePlan(ctx, step, sp.role, bindingName(rung.binding), kind, attemptId);
   ensureRunning(ctx, 'attempt');
+  const approval = latestApproval(s);
+  if (minor && approval !== undefined)
+    ctx.emit('MinorFixStarted', { review_attempt_id: approval.attempt_id });
   reserve(ctx, reservationId, effectId);
   ctx.emit('AttemptRequested', {
     attempt_id: attemptId,
@@ -1282,6 +1332,8 @@ function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
         proceed(ctx, { kind: 'route', step: step as string, outcome: 'fail' });
         return;
       }
+      // A minor fix whose gate tree moved is dropped like a failed one, never a wait.
+      if (isMinorStep(stepDef(ctx, step as string))) return onMinorGates(ctx, e, d);
       if (onGateTree(ctx, e, d)) return;
       const sg = ctx.frozen.gates.by_step[step as string];
       // Without an explicit required list, every executed gate is required; an empty list never passes.
@@ -1660,7 +1712,8 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
       update: { ...baseUpdate, scope: d.base_repair },
     });
   }
-  if (!('verdict' in d) && d.content !== undefined) {
+  // A minor fix keeps the PR title and body the review approved.
+  if (!('verdict' in d) && d.content !== undefined && !isMinorStep(stepDef(ctx, step))) {
     ctx.emit('PublishContentRecorded', {
       content: {
         revision: ctx.state.revision,
@@ -1728,6 +1781,13 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
     proceed(ctx, { kind: 'route', step, outcome: d.verdict });
     return;
   }
+  // A minor fix never waits for a person: short of done, the handler put the worktree back and the
+  // approved commit goes on as it is.
+  if (isMinorStep(stepDef(ctx, step)) && d.status !== 'done') {
+    if (ctx.state.cancellation !== null) return proceed(ctx, { kind: 'none' });
+    dropMinorFix(ctx, step);
+    return;
+  }
   // Context refused before launch is a human wait, never another automatic model attempt.
   if (ctx.state.runtime_ref !== null && d.status === 'needs_context' && d.invoked === false) {
     askHuman(ctx, 'agent_question', {
@@ -1777,6 +1837,11 @@ function afterAttempt(ctx: Ctx, e: EffectMirror): boolean {
   const a = ctx.state.attempts[e.attempt_id as string];
   if (a?.stop_requested) {
     if (ctx.state.cancellation !== null) return true;
+    // A stopped minor fixer is not started over: its fix is dropped, whatever its run returned.
+    if (isMinorStep(stepDef(ctx, a.step))) {
+      dropMinorFix(ctx, a.step);
+      return true;
+    }
     // Stopped by `pause --now`: the step starts over in a new session, held while the task is paused,
     // and started at once when it was resumed before the stopped run ended.
     if (stoppedByPause(ctx, a.id)) {
@@ -1832,6 +1897,18 @@ export function onEffectFailed(
       ...(f.session_ref === undefined ? {} : { session_ref: f.session_ref }),
     });
     if (afterAttempt(ctx, e)) return;
+  }
+  // Minor findings never hold the task: a minor fixer or its gates that fail for any reason drop the fix,
+  // with no retry and no wait; the steps after it need no harness. A failed publish is not dropped,
+  // since the checkpoint already moved to the fix.
+  if (
+    (agent || e.kind === 'run_gates') &&
+    step !== null &&
+    s.cancellation === null &&
+    isMinorStep(stepDef(ctx, step))
+  ) {
+    dropMinorFix(ctx, step);
+    return;
   }
   // The harness was re-proved after the task froze its snapshot. Never a silent switch (T070/T071):
   // a person takes the new manifest with `recheck`, then the same step runs again. Nothing was
@@ -2090,6 +2167,99 @@ function recordCheckpoint(ctx: Ctx, step: string, c: z.infer<typeof CheckpointDa
       gate_visit: visitOf(ctx, step),
     },
   });
+}
+
+// ---------- Minor findings of an approving review ----------
+
+/**
+ * Drops the minor fix and routes on: the approved commit goes on as it is. The approved checkpoint's
+ * tree is the task's own again, so a worktree the handler could not put back makes the next worker
+ * wait for a person (T072) instead of taking the dropped fix as the task's.
+ */
+function dropMinorFix(ctx: Ctx, step: string): void {
+  const approval = latestApproval(ctx.state);
+  const cp = ctx.state.run.checkpoint;
+  if (approval !== undefined)
+    ctx.emit('MinorFixDropped', {
+      review_attempt_id: approval.attempt_id,
+      tree: cp !== null && cp.revision === ctx.state.revision ? cp.tree : null,
+    });
+  proceed(ctx, {
+    kind: 'route',
+    step,
+    outcome: stepDef(ctx, step).kind === 'gate' ? 'fail' : 'blocked',
+  });
+}
+
+/**
+ * Gates of a minor fix. A failure drops the fix (the handler put the worktree back) and is no evidence
+ * against the approved commit. A pass carries the approval to the new checkpoint when the fix changed
+ * only the findings' files and tests; anything else goes back through review.
+ */
+function onMinorGates(ctx: Ctx, e: EffectMirror, d: z.infer<typeof GateDataSchema>): void {
+  const step = e.step as string;
+  const sg = ctx.frozen.gates.by_step[step];
+  const required =
+    sg !== undefined && sg.required.length > 0
+      ? sg.required
+      : (sg?.run ?? d.results.map((r) => r.gate));
+  const passed =
+    required.length > 0 &&
+    required.every((g) => d.results.some((r) => r.gate === g && r.passed)) &&
+    d.stable !== false &&
+    d.checkpoint !== undefined &&
+    d.checkpoint.tree === d.tree;
+  const failing = d.results.find((r) => !r.passed);
+  ctx.emit('GateResultRecorded', {
+    step,
+    visit: visitOf(ctx, step),
+    effect_id: e.id,
+    results: d.results,
+    passed,
+    signature: failing?.signature ?? null,
+    resets_streak_of: null,
+    ...(passed ? {} : { discarded: true }),
+  });
+  if (!passed || d.checkpoint === undefined) return dropMinorFix(ctx, step);
+  const findings = minorFindings(ctx.state);
+  const approved = latestApproval(ctx.state);
+  const before = ctx.state.run.checkpoint;
+  recordCheckpoint(ctx, step, d.checkpoint);
+  const allowed = new Set(findings.flatMap((f) => (f.file ? [f.file] : [])));
+  const changed = d.changed_since;
+  const inScope =
+    approved !== undefined &&
+    changed !== undefined &&
+    changed.sha === approved.sha &&
+    before?.sha === approved.sha &&
+    before.content_digest === d.checkpoint.content_digest &&
+    changed.paths.every((p) => allowed.has(p) || isTestPath(p));
+  // Outside its findings, the fix is a change like any other: the review runs on it.
+  if (!inScope) {
+    proceed(ctx, { kind: 'route', step, outcome: 'pass' });
+    return;
+  }
+  ctx.emit('MinorFixRecorded', {
+    fix: {
+      revision: ctx.state.revision,
+      review_attempt_id: approved.attempt_id,
+      approved_sha: approved.sha,
+      sha: d.checkpoint.sha,
+      tree: d.checkpoint.tree,
+      paths: [...changed.paths],
+    },
+  });
+  proceed(ctx, { kind: 'route', step, outcome: 'pass' });
+}
+
+/** A path conventionally holding tests: a minor fix may add or change them beside the findings' files. */
+export function isTestPath(path: string): boolean {
+  return (
+    /(^|\/)(tests?|__tests__|spec)\//.test(path) ||
+    /\.(test|spec)\.[^/]+$/.test(path) ||
+    /(^|\/)test_[^/]+\.py$/.test(path) ||
+    /_test\.[^/.]+$/.test(path)
+  );
 }
 
 /** A bounded operator decision, using the existing public question/answer path. */

@@ -42,6 +42,8 @@ const STAGE_OF: Readonly<Record<string, StageName>> = {
   fix_review: 'review',
   post_review: 'review',
   post_changes: 'review',
+  fix_minor: 'review',
+  minor_gates: 'review',
   ready: 'review',
   publish: 'pr',
   pr: 'pr',

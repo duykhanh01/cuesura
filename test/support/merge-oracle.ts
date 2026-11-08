@@ -19,7 +19,17 @@ export function mergeAllowed(s: TaskState, p: FrozenPolicy, head: string): strin
     (r) => r.valid && r.revision === rev && r.head_sha === head,
   );
   const skipped = s.evidence.review_skipped.some((r) => r.valid && r.revision === rev);
-  if (reviews.at(-1)?.verdict !== 'approve' && !skipped)
+  // A minor fix of the revision's latest, approving review carries that approval to its commit.
+  const latest = s.run.reviews.filter((r) => r.valid && r.revision === rev).at(-1);
+  const fix = s.run.minor_fix;
+  const carried =
+    fix !== undefined &&
+    fix.revision === rev &&
+    fix.sha === head &&
+    latest?.verdict === 'approve' &&
+    latest.attempt_id === fix.review_attempt_id &&
+    latest.sha === fix.approved_sha;
+  if (reviews.at(-1)?.verdict !== 'approve' && !skipped && !carried)
     return 'review approval for the head is missing';
   const ci = s.evidence.ci
     .filter((c) => c.valid && c.revision === rev && c.head_sha === head)

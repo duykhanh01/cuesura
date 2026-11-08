@@ -67,6 +67,18 @@ export function hasEscalationApproval(ctx: Ctx, step: string, rung: number): boo
  * ladder, not `denied`, approved when `needs_approval`, within `max_escalations`. On failure the task is put
  * into the matching wait and `null` is returned. Budget and deadline are checked by the caller.
  */
+/** Whether {@link chooseRung} would pick a rung without opening a wait or asking for an approval. */
+export function rungReady(ctx: Ctx, step: string, sp: StepPolicy): boolean {
+  const s = ctx.state;
+  const choice = targetRung(s, sp, step);
+  const rung = sp.ladder[choice.rung];
+  if (rung === undefined || rung.state === 'denied') return false;
+  if (rung.state === 'needs_approval' && !hasEscalationApproval(ctx, step, choice.rung))
+    return false;
+  const esc = s.budget.escalations;
+  return !(choice.raise !== null && esc.limit !== null && esc.used >= esc.limit);
+}
+
 export function chooseRung(
   ctx: Ctx,
   step: string,

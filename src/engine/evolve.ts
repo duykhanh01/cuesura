@@ -311,7 +311,7 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
         visit: event.payload.visit,
         passed: event.payload.passed,
         signature: event.payload.signature,
-        valid: true,
+        valid: event.payload.discarded !== true,
         failed: event.payload.results
           .filter((r) => !r.passed)
           .map((r) => ({
@@ -977,6 +977,18 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
     case 'CheckpointRecorded':
       s.run.checkpoint = event.payload.checkpoint;
       break;
+    case 'MinorFixRecorded':
+      s.run.minor_fix = event.payload.fix;
+      break;
+    case 'MinorFixStarted':
+    case 'MinorFixDropped': {
+      const started = s.run.minor_started ?? [];
+      if (!started.includes(event.payload.review_attempt_id))
+        s.run.minor_started = [...started, event.payload.review_attempt_id];
+      if (event.type === 'MinorFixDropped' && event.payload.tree !== null)
+        s.run.worktree_tree = event.payload.tree;
+      break;
+    }
     case 'PublishContentRecorded':
       s.run.content = event.payload.content;
       break;

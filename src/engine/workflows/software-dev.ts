@@ -148,6 +148,9 @@ export const SOFTWARE_DEV: Workflow = WorkflowSchema.parse(RAW);
 
 export const SOFTWARE_DEV_V2 = 'software_dev@2';
 
+/** The fixer step that takes the minor findings of an approving review before the PR turns ready. */
+export const MINOR_FIX_STEP = 'fix_minor';
+
 export function modeWorkflowName(mode: ExecutionMode): string {
   return `${SOFTWARE_DEV_V2}:${mode}`;
 }
@@ -158,6 +161,9 @@ export function modeWorkflowName(mode: ExecutionMode): string {
  * commit (handler side), so both modes run `gates → checkpoint → publish → PR`:
  * - `full-review` opens the PR as a draft and reviews the pushed checkpoint; each verdict is posted on
  *   the PR, an approval turns it ready and only then waits for CI, changes go to the fixer;
+ * - in `full-review`, an approval with minor findings first gets one fixer pass on them; a fix that
+ *   stays within the findings' files and tests is carried by the approval, anything short of that is
+ *   dropped or reviewed again, never waited on;
  * - no review skip by size; `direct-pr` has no review step at all, so nothing approves on its behalf;
  * - an autofix that changed code goes back through the gates, which commit the final tree.
  */
@@ -178,7 +184,26 @@ export function modeGraph(w: Workflow, mode: ExecutionMode): Workflow {
     steps['post_review'] = {
       kind: 'action',
       action: 'github.post_review',
-      next: { ok: 'ready' },
+      next: { ok: MINOR_FIX_STEP },
+    };
+    const gates = steps['gates'];
+    const minor = { minor_findings: true } as const;
+    steps[MINOR_FIX_STEP] = {
+      kind: 'agent',
+      role: 'fixer',
+      when: minor,
+      max_visits: 3,
+      on_exhausted: 'ready',
+      next: { done: 'minor_gates', needs_input: 'ready', needs_context: 'ready', blocked: 'ready' },
+    };
+    steps['minor_gates'] = {
+      kind: 'gate',
+      ...(gates?.run === undefined ? {} : { run: gates.run }),
+      ...(gates?.required === undefined ? {} : { required: gates.required }),
+      when: minor,
+      max_visits: 3,
+      on_exhausted: 'ready',
+      next: { pass: 'publish', fail: 'ready' },
     };
     steps['post_changes'] = {
       kind: 'action',

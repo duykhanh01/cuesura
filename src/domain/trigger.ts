@@ -211,6 +211,7 @@ export const GateDataSchema = z
     base_conflict: BaseConflictSchema.optional(),
     base_scope: BaseRepairScopeSchema.optional(),
     // Additive (#168): files changed from the commit the last rejecting review saw to the checkpoint.
+    // For a minor fix: files changed from the approved commit to the checkpoint.
     changed_since: ChangedSinceSchema.optional(),
   })
   .strict();

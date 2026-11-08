@@ -1,6 +1,7 @@
 import type { FrozenPolicy } from '../domain/policy.ts';
 import type { Evidence, TaskState } from '../domain/state.ts';
 import { type Check, checkPasser, type RequiredSet } from '../domain/trigger.ts';
+import { minorFixApproved } from './head-evidence.ts';
 
 export type CiVerdict =
   | { kind: 'pass' }
@@ -82,7 +83,8 @@ export function mergeGuard(state: TaskState, policy: FrozenPolicy): GuardResult 
     (r) => r.valid && r.revision === rev && r.head_sha === head,
   );
   const skipped = state.evidence.review_skipped.some((r) => r.valid && r.revision === rev);
-  if (review?.verdict !== 'approve' && !skipped) return { ok: false, code: 'review_missing' };
+  if (review?.verdict !== 'approve' && !skipped && !minorFixApproved(state, head))
+    return { ok: false, code: 'review_missing' };
 
   const ci = latestCi(state, head);
   if (ci === undefined) return { ok: false, code: 'checks_incomplete' };

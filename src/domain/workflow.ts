@@ -60,6 +60,7 @@ export const PREDICATE_KEYS = [
   'task_type',
   'attempt_gte',
   'target_branch',
+  'minor_findings',
 ] as const;
 export type PredicateKey = (typeof PREDICATE_KEYS)[number];
 
@@ -73,6 +74,8 @@ export const PredicateSchema = z
     task_type: stringOrList.optional(),
     attempt_gte: z.number().int().positive().optional(),
     target_branch: stringOrList.optional(),
+    /** The latest review of the revision approved the change with minor findings left. */
+    minor_findings: z.literal(true).optional(),
   })
   .strict();
 export type Predicate = z.infer<typeof PredicateSchema>;
@@ -124,6 +127,7 @@ export type PredicateFacts = {
   task_type: string;
   attempt: number;
   target_branch: string;
+  minor_findings?: boolean;
 };
 
 function anyOf(v: string | string[]): string[] {
@@ -156,5 +160,11 @@ export function evalPredicate(p: Predicate, f: PredicateFacts): boolean {
     !anyOf(p.target_branch).some((g) => globMatch(g, f.target_branch))
   )
     return false;
+  if (p.minor_findings === true && f.minor_findings !== true) return false;
   return true;
+}
+
+/** A step of the minor-fix path: it never blocks the task; anything short of success drops the fix. */
+export function isMinorStep(step: StepDef): boolean {
+  return step.when?.minor_findings === true;
 }

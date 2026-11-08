@@ -98,6 +98,8 @@ import {
   type Observation,
 } from '../domain/runtime.ts';
 import type { TaskState } from '../domain/state.ts';
+import { isMinorStep } from '../domain/workflow.ts';
+import { MINOR_FIX_STEP } from '../engine/workflows/software-dev.ts';
 import type { z } from 'zod';
 import type {
   AwaitCiDataSchema,
@@ -485,6 +487,13 @@ function currentContent(deps: HandlerDeps, s: TaskState): PublishContent | null 
   return c === null || c.revision !== s.revision ? null : contentStore(deps).get(c.ref, c.digest);
 }
 
+/**
+ * The review approved the change; these findings are minor. A fix that changes other files than the
+ * findings' files and tests is not carried by the approval: it goes back through review.
+ */
+const MINOR_SCOPE =
+  'The review approved this change; this finding is minor. Fix it where it is: change only the files named in these findings and their tests. If that is not enough, leave it and say why in your summary.';
+
 /** Failures the repair is about, newest evidence of this revision, each with the SHA it was seen on. */
 function failuresFor(s: TaskState): {
   cause: RepairState['cause'] | null;
@@ -544,6 +553,19 @@ function failuresFor(s: TaskState): {
         detail: f.msg,
         sha: review.sha,
       })),
+    };
+  }
+  if (step === MINOR_FIX_STEP && review?.verdict === 'approve') {
+    return {
+      cause: 'review',
+      failures: review.findings
+        .filter((f) => f.severity === 'minor')
+        .map((f) => ({
+          source: 'review',
+          name: `${f.severity}${f.file === undefined ? '' : ` ${f.file}${f.line === undefined ? '' : `:${f.line}`}`}`,
+          detail: `${f.msg}\n${MINOR_SCOPE}`,
+          sha: review.sha,
+        })),
     };
   }
   if (ci !== undefined) {
@@ -740,15 +762,35 @@ async function changedSinceRejection(
 ): Promise<{ sha: string; paths: string[] } | null> {
   const prior = l.s.run.reviews.filter((v) => v.valid && v.revision === l.s.revision).at(-1);
   if (prior?.verdict !== 'request_changes') return null;
+  return changedFrom(deps, l, prior.sha, head);
+}
+
+/** Files a minor fix changed from the commit the approving review saw to `head`. */
+async function changedSinceApproval(
+  deps: HandlerDeps,
+  l: Loaded,
+  head: string,
+): Promise<{ sha: string; paths: string[] } | null> {
+  const prior = l.s.run.reviews.filter((v) => v.valid && v.revision === l.s.revision).at(-1);
+  if (prior?.verdict !== 'approve') return null;
+  return changedFrom(deps, l, prior.sha, head);
+}
+
+async function changedFrom(
+  deps: HandlerDeps,
+  l: Loaded,
+  since: string,
+  head: string,
+): Promise<{ sha: string; paths: string[] } | null> {
   const r = await deps.git.run({
-    args: ['diff', '--name-only', '-z', '--no-renames', prior.sha, head],
+    args: ['diff', '--name-only', '-z', '--no-renames', since, head],
     cwd: where(deps, l).worktree,
     timeout_ms: 30_000,
     max_output_bytes: 1024 * 1024,
     stdin: null,
   });
   if (r.kind !== 'exited' || r.code !== 0 || r.truncated) return null;
-  return { sha: prior.sha, paths: r.stdout.split('\0').filter((p) => p !== '') };
+  return { sha: since, paths: r.stdout.split('\0').filter((p) => p !== '') };
 }
 
 /**
@@ -1193,6 +1235,7 @@ async function startAgent(
   const accepted = acceptContent(deps, l, file, outcome);
   // What the attempt left is now the task's tree; an attempt never invoked changed nothing.
   if (out.kind === 'failure' && out.invoked === false) return accepted;
+  if (minorStep(l.policy, mirror.step) && !workerDone(accepted)) await restoreCheckpoint(deps, l);
   const after = await worktreeTree(deps, l);
   if (!after.ok) return accepted;
   const recorded = withWorktreeTree(accepted, after.tree);
@@ -1293,6 +1336,32 @@ function withSession(out: EffectOutcome, o: HarnessOutcome, r: ResumeChoice): Ef
 }
 
 // ---- gates ----
+
+function minorStep(policy: FrozenPolicy, step: string | null): boolean {
+  const def = step === null ? undefined : policy.workflow.steps[step];
+  return def !== undefined && isMinorStep(def);
+}
+
+function workerDone(o: EffectOutcome): boolean {
+  if (o.outcome !== 'succeeded') return false;
+  const d = o.data as { status?: unknown; schema_checked?: unknown };
+  return d.schema_checked === true && d.status === 'done';
+}
+
+/**
+ * Drops a minor fix: the worktree goes back to the approved checkpoint, so the task carries on from the
+ * commit the review approved. Returns the tree it restored, or null when there was nothing to restore
+ * to or Git could not; a tree left changed makes the next worker step wait for a person (T072).
+ */
+async function restoreCheckpoint(deps: HandlerDeps, l: Loaded): Promise<string | null> {
+  const cp = l.s.run.checkpoint;
+  if (cp === null || cp.revision !== l.s.revision) return null;
+  const r = await restoreWorktree(deps.git, where(deps, l).worktree, {
+    head: cp.sha,
+    tree: cp.tree,
+  });
+  return r.ok ? cp.tree : null;
+}
 
 /** The gate step whose pass leads to review or publish: it ends with the checkpoint commit. */
 function commitStep(policy: FrozenPolicy, step: string | null): boolean {
@@ -1408,7 +1477,25 @@ function commandLayout(
 }
 
 /** Run under a {@link guard}: its ports refuse new commands once it fired; the caller reports that. */
+/**
+ * Gates of a minor fix that fail drop the fix like failed gates do: the worktree goes back to the
+ * approved checkpoint first. An outcome not known yet is left as it is for reconcile to read; if the
+ * fix is dropped then, the approved tree is the task's own and a changed worktree waits (T072).
+ */
 async function gates(
+  deps: HandlerDeps,
+  effect: Effect,
+  step: string | null,
+  signal: AbortSignal,
+): Promise<EffectOutcome> {
+  const l = load(deps, effect);
+  if (!minorStep(l.policy, step)) return runGateStep(deps, effect, step, signal);
+  const out = await runGateStep(deps, effect, step, signal);
+  if (out.outcome === 'failed') await restoreCheckpoint(deps, l);
+  return out;
+}
+
+async function runGateStep(
   deps: HandlerDeps,
   effect: Effect,
   step: string | null,
@@ -1521,6 +1608,11 @@ async function gates(
   const must = required.length > 0 ? required : data.results.map((x) => x.gate);
   const passed =
     must.length > 0 && must.every((g) => data.results.some((x) => x.gate === g && x.passed));
+  const minor = minorStep(l.policy, step);
+  if (minor && (!passed || !data.stable)) {
+    await restoreCheckpoint(deps, l);
+    return { outcome: 'succeeded', data };
+  }
   if (!passed || !data.stable || !commitStep(l.policy, step)) return { outcome: 'succeeded', data };
   const scope =
     update !== undefined && update.certificate === undefined
@@ -1531,7 +1623,9 @@ async function gates(
   const checkpoint = await checkpointCommit(deps, l, effect, data.tree);
   const changed =
     typeof checkpoint['sha'] === 'string'
-      ? await changedSinceRejection(deps, l, checkpoint['sha'])
+      ? minor
+        ? await changedSinceApproval(deps, l, checkpoint['sha'])
+        : await changedSinceRejection(deps, l, checkpoint['sha'])
       : null;
   return {
     outcome: 'succeeded',
@@ -2474,6 +2568,10 @@ async function probeAgent(
   if (finished.length === 0 && runs.length > 0 && runs.every((o) => o.status === 'lost')) {
     if (target.request['role'] === 'reviewer')
       await restoreAfterReview(deps, target.task_id, target.id);
+    else {
+      const l = load(deps, target);
+      if (minorStep(l.policy, mirror.step)) await restoreCheckpoint(deps, l);
+    }
     return {
       finding: 'executed_failed',
       failure_class: 'infra',

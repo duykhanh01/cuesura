@@ -159,6 +159,8 @@ const STEPS: Readonly<Record<string, string>> = {
   pr: 'Opening the PR',
   post_review: 'Posting the review on the PR',
   post_changes: 'Posting the requested changes on the PR',
+  fix_minor: 'Fixing minor review findings',
+  minor_gates: 'Running gates on the minor fixes',
   ready: 'Marking the PR ready for CI',
   ci: 'Watching CI',
   ci_triage: 'Classifying a CI failure',

@@ -172,6 +172,7 @@ export function reviewOf(
     const last = state.run.reviews
       .filter((r) => r.valid && r.revision === rev && r.sha === head)
       .at(-1);
+    if (last === undefined && minorFixApproved(state, head)) return 'approved';
     return last?.verdict === 'approve' ? 'approved' : 'missing';
   }
   return state.evidence.reviews.some(
@@ -179,4 +180,22 @@ export function reviewOf(
   )
     ? 'approved'
     : 'missing';
+}
+
+/**
+ * `head` is the checkpoint of a minor fix whose approving review is still the latest verdict of this
+ * revision: the approval carries over to it (gates passed there, and only finding files and tests changed).
+ */
+export function minorFixApproved(
+  state: Pick<TaskState, 'revision' | 'run'>,
+  head: string,
+): boolean {
+  const fix = state.run.minor_fix;
+  if (fix === undefined || fix.revision !== state.revision || fix.sha !== head) return false;
+  const last = state.run.reviews.filter((r) => r.valid && r.revision === state.revision).at(-1);
+  return (
+    last?.attempt_id === fix.review_attempt_id &&
+    last.verdict === 'approve' &&
+    last.sha === fix.approved_sha
+  );
 }
