@@ -35,7 +35,8 @@ export function onUpdateBase(
       base_sha: t.base_sha,
       revision: s.revision,
       gate_step: step,
-      ...(s.run.base_update?.fixer_attempt_id === undefined
+      ...(s.run.base_update?.fixer_attempt_id === undefined ||
+      s.run.base_update.fix_step !== undefined
         ? {}
         : { fixer_attempt_id: s.run.base_update.fixer_attempt_id }),
     },

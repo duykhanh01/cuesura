@@ -47,6 +47,7 @@ import {
   type CommandSetInput,
   fixerExcerpt,
 } from '../adapters/gates.ts';
+import { readBaseConflicts } from '../adapters/git/base-conflicts.ts';
 import { takeCheckpoint, type CheckpointSpec } from '../adapters/git/checkpoint.ts';
 import { commitCheckpoint, FileCommitIntentStore } from '../adapters/git/commit.ts';
 import { pushBranch } from '../adapters/git/push.ts';
@@ -494,8 +495,24 @@ function currentContent(deps: HandlerDeps, s: TaskState): PublishContent | null 
 const MINOR_SCOPE =
   'The review approved this change; this finding is minor. Fix it where it is: change only the files named in these findings and their tests. If that is not enough, leave it and say why in your summary.';
 
+function reviewFailures(review: TaskState['run']['reviews'][number]): RoleFailure[] {
+  const findings =
+    review.findings.length > 0
+      ? review.findings
+      : [{ severity: 'major', msg: 'the reviewer requested changes' }];
+  return findings.map((f) => ({
+    source: 'review',
+    name: `${f.severity}${f.file === undefined ? '' : ` ${f.file}${f.line === undefined ? '' : `:${f.line}`}`}`,
+    detail: f.msg,
+    sha: review.sha,
+  }));
+}
+
 /** Failures the repair is about, newest evidence of this revision, each with the SHA it was seen on. */
-function failuresFor(s: TaskState): {
+function failuresFor(
+  s: TaskState,
+  policy: FrozenPolicy,
+): {
   cause: RepairState['cause'] | null;
   failures: RoleFailure[];
 } {
@@ -505,21 +522,26 @@ function failuresFor(s: TaskState): {
   const ci = s.evidence.ci.filter((c) => c.valid && c.revision === rev).at(-1);
   const cp = s.run.checkpoint?.sha ?? null;
   const step = s.current_step ?? '';
+  const update = s.run.base_update;
   if (
-    step === 'fix_gates' &&
-    s.run.base_update?.conflict !== undefined &&
-    s.run.base_update.certificate === undefined
+    update?.conflict !== undefined &&
+    update.certificate === undefined &&
+    step === (update.fix_step ?? policy.workflow.steps[update.gate_step]?.next['fail'])
   ) {
+    const conflict: RoleFailure = {
+      source: 'gate',
+      name: 'base-conflict',
+      sha: update.head_sha,
+      detail: `Resolve this merge conflict in one attempt. Conflicting files: ${update.conflict.files.join(', ')}. Keep both task and base behavior. ${update.fix_step === undefined ? 'Changes outside these files require review.' : 'Fix the review findings listed with it in the same attempt.'} Do not run git commit or push.`,
+    };
+    // In a review/fix round (#239) the same attempt also takes the rejected review's findings.
+    const findings =
+      update.fix_step !== undefined && review?.verdict === 'request_changes'
+        ? reviewFailures(review)
+        : [];
     return {
-      cause: 'gate',
-      failures: [
-        {
-          source: 'gate',
-          name: 'base-conflict',
-          sha: s.run.base_update.head_sha,
-          detail: `Resolve this merge conflict in one attempt. Conflicting files: ${s.run.base_update.conflict.files.join(', ')}. Keep both task and base behavior. Changes outside these files require review. Do not run git commit or push.`,
-        },
-      ],
+      cause: findings.length > 0 ? 'review' : 'gate',
+      failures: [conflict, ...findings],
     };
   }
   if (step === 'fix_gates' && gate !== undefined && !gate.passed) {
@@ -540,21 +562,8 @@ function failuresFor(s: TaskState): {
       })),
     };
   }
-  if (step === 'fix_review' && review?.verdict === 'request_changes') {
-    const findings =
-      review.findings.length > 0
-        ? review.findings
-        : [{ severity: 'major', msg: 'the reviewer requested changes' }];
-    return {
-      cause: 'review',
-      failures: findings.map((f) => ({
-        source: 'review',
-        name: `${f.severity}${f.file === undefined ? '' : ` ${f.file}${f.line === undefined ? '' : `:${f.line}`}`}`,
-        detail: f.msg,
-        sha: review.sha,
-      })),
-    };
-  }
+  if (step === 'fix_review' && review?.verdict === 'request_changes')
+    return { cause: 'review', failures: reviewFailures(review) };
   if (step === MINOR_FIX_STEP && review?.verdict === 'approve') {
     return {
       cause: 'review',
@@ -1007,7 +1016,7 @@ async function startAgent(
   const review = r === 'reviewer' ? await reviewRange(deps, l) : null;
   const inputDigest = r === 'reviewer' ? reviewInputDigest(l.s, l.policy, step) : null;
   const worker = WORKER_ROLES.includes(r);
-  const fix = failuresFor(l.s);
+  const fix = failuresFor(l.s, l.policy);
   const repairing = r === 'fixer' || (step !== 'code' && worker && fix.cause !== null);
   const scratch = where(deps, l).scratch;
   const contentName = `publish-${op.operation_id}.json`;
@@ -1242,7 +1251,9 @@ async function startAgent(
   const update = l.s.run.base_update;
   if (
     update?.conflict !== undefined &&
-    update.fixer_attempt_id === mirror.attempt_id &&
+    update.certificate === undefined &&
+    // In a review/fix round a gate fixer may follow the conflict fixer before the merge is certified.
+    (update.fixer_attempt_id === mirror.attempt_id || update.fix_step !== undefined) &&
     recorded.outcome === 'succeeded'
   ) {
     const scope = await baseRepairScope(
@@ -1447,6 +1458,12 @@ async function checkpointCommit(
     ['diff', '--raw', '--no-abbrev', '--no-renames', l.rt.base_sha, sha],
     4 * 1024 * 1024,
   );
+  const conflicts = await readBaseConflicts(
+    deps.git,
+    spec.worktree_path,
+    l.rt.target.base_ref,
+    sha,
+  );
   return {
     sha,
     tree,
@@ -1454,6 +1471,7 @@ async function checkpointCommit(
     diff_digest: hashText(raw),
     content_digest: ref.digest,
     committed,
+    ...(conflicts === undefined ? {} : { base_conflicts: conflicts }),
   };
 }
 

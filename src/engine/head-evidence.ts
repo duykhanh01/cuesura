@@ -148,6 +148,8 @@ export function reviewOf(
   const update = state.run.base_update;
   if (
     update?.revision === rev &&
+    // An update in a review/fix round carries that round's fix, which the review has not seen.
+    update.fix_step === undefined &&
     update.certificate?.head_sha === head &&
     update.certificate.tree === state.run.checkpoint?.tree &&
     state.run.checkpoint.sha === head &&

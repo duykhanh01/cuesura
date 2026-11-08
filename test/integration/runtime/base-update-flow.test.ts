@@ -2,7 +2,7 @@ import { writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { buildTask } from '../../support/builders.ts';
-import { flowEnv } from '../../support/flow-env.ts';
+import { CONTENT, flowEnv } from '../../support/flow-env.ts';
 import type { EpochMs, Uuid } from '../../../src/shared/brand.ts';
 import { FakeHarness } from '../../../src/adapters/harness/fake.ts';
 import { reviewOf } from '../../../src/engine/head-evidence.ts';
@@ -716,5 +716,118 @@ describe('base integration through the real gate/review/publish handlers', () =>
     changed.run.base_update.scope.outside_files = [];
     changed.revision++;
     expect(reviewOf(changed, head)).toBe('missing');
+    changed.revision--;
+    expect(reviewOf(changed, head)).toBe('not_required');
+    changed.run.base_update.fix_step = 'fix_review';
+    expect(reviewOf(changed, head)).toBe('missing');
+  });
+});
+
+describe('a rejected checkpoint that conflicts with its base, through the real handlers (#239)', () => {
+  const REJECT = {
+    schema_version: 1,
+    verdict: 'request_changes',
+    summary: 'needs a test',
+    findings: [{ severity: 'major', file: 'search.ts', line: null, message: 'missing test' }],
+  };
+  const APPROVE = { schema_version: 1, verdict: 'approve', summary: 'ok', findings: [] };
+
+  /** Main already changed search.ts when the coder writes it; the daemon last fetched that tip. */
+  const conflicting = (gateFails: boolean) => {
+    const task = buildTask();
+    const f = setup(task, {
+      mode: 'full-review',
+      verdicts: [REJECT, APPROVE],
+      runs: gateFails ? [CONTENT, CONTENT, CONTENT] : [CONTENT, CONTENT],
+      gates: {
+        build: 'true',
+        unit: 'test ! -f gate-failed',
+        lint: 'true',
+        format_fix: 'true',
+      },
+    });
+    const external = join(g.base, `base-writer-${seq++}`);
+    g.sh(g.base, 'clone', '-q', f.remote, external);
+    writeFileSync(join(external, 'search.ts'), 'conflicting implementation\n');
+    g.sh(external, 'add', '-A');
+    g.sh(external, 'commit', '-qm', 'conflict on main');
+    g.sh(external, 'push', '-q', 'origin', 'main');
+    const base = g.sh(external, 'rev-parse', 'HEAD');
+    g.sh(f.project, 'fetch', '-q', f.remote, 'main:refs/remotes/origin/main');
+    const fixerInputs: string[] = [];
+    const worker = f.deps.harnesses['claude'];
+    if (worker === undefined) throw new Error('no worker');
+    const original = worker.run.bind(worker);
+    worker.run = (input, signal) => {
+      if (input.role === 'fixer') {
+        fixerInputs.push(input.context.text);
+        // The combined fix breaks a gate; the gate fixer after it repairs that.
+        if (gateFails && fixerInputs.length === 1)
+          writeFileSync(join(f.worktree, 'gate-failed'), 'fail gate');
+        if (gateFails && fixerInputs.length === 2) rmSync(join(f.worktree, 'gate-failed'));
+      }
+      return original(input, signal);
+    };
+    return { task, f, base, fixerInputs };
+  };
+
+  it('the review fixer resolves the base conflict and the findings in one attempt', async () => {
+    const { task, f, base, fixerInputs } = conflicting(false);
+    f.d.must(task.id, { kind: 'create_task', task });
+    f.start();
+    for (let i = 0; i < 8 && f.d.task(task.id).wait?.detail.code !== 'merge'; i++) await f.settle();
+
+    const after = f.d.task(task.id);
+    expect(after.wait?.detail.code).toBe('merge');
+    const first = f.d.store
+      .readEvents(task.id)
+      .flatMap((e) => (e.type === 'CheckpointRecorded' ? [e.payload.checkpoint] : []));
+    expect(first[0]?.base_conflicts).toEqual({ tip_sha: base, files: ['search.ts'] });
+    expect(after.run.base_update).toMatchObject({
+      base_sha: base,
+      fix_step: 'fix_review',
+      conflict: { files: ['search.ts'] },
+      certificate: { head_sha: after.head_sha },
+    });
+    // One fixer attempt saw both the conflict and the finding; nobody was asked.
+    expect(fixerInputs).toHaveLength(1);
+    expect(fixerInputs[0]).toContain('base-conflict');
+    expect(fixerInputs[0]).toContain('missing test');
+    expect(Object.values(after.questions)).toEqual([]);
+    // The PR branch fast-forwarded to the merge of the base, and the fix was reviewed again.
+    expect(g.sh(f.worktree, 'rev-parse', 'HEAD^2')).toBe(base);
+    expect(g.sh(f.remote, 'rev-parse', g.sh(f.worktree, 'symbolic-ref', '--short', 'HEAD'))).toBe(
+      after.head_sha,
+    );
+    expect(after.run.checkpoint?.base_conflicts).toEqual({ tip_sha: base, files: [] });
+    expect(f.codex.calls).toHaveLength(2);
+    expect(f.github.prs).toHaveLength(1);
+    expect(replay(f.d.store.readEvents(task.id))).toEqual(after);
+  });
+
+  it('gates that fail after the combined fix go to the gate fixer, then publish and review', async () => {
+    const { task, f, base, fixerInputs } = conflicting(true);
+    f.d.must(task.id, { kind: 'create_task', task });
+    f.start();
+    for (let i = 0; i < 8 && f.d.task(task.id).wait?.detail.code !== 'merge'; i++) await f.settle();
+
+    const after = f.d.task(task.id);
+    expect(Object.values(after.questions)).toEqual([]);
+    expect(after.wait?.detail.code).toBe('merge');
+    expect(fixerInputs).toHaveLength(2);
+    expect(fixerInputs[0]).toContain('base-conflict');
+    expect(fixerInputs[1]).not.toContain('base-conflict');
+    const gates = after.evidence.gates.filter((r) => r.step === 'gates').map((r) => r.passed);
+    expect(gates).toEqual([true, false, true]);
+    expect(after.run.base_update).toMatchObject({
+      fix_step: 'fix_review',
+      certificate: { head_sha: after.head_sha },
+    });
+    expect(g.sh(f.worktree, 'rev-parse', 'HEAD^2')).toBe(base);
+    expect(g.sh(f.remote, 'rev-parse', g.sh(f.worktree, 'symbolic-ref', '--short', 'HEAD'))).toBe(
+      after.head_sha,
+    );
+    expect(f.codex.calls).toHaveLength(2);
+    expect(replay(f.d.store.readEvents(task.id))).toEqual(after);
   });
 });

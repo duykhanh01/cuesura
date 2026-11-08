@@ -7,6 +7,7 @@
  * their priority or dependencies say; a branch that already conflicts with its base will not merge
  * until that is resolved, and fix_review never touches the base (FR-041.04).
  */
+import { mergeTreeConflicts } from '../adapters/git/base-conflicts.ts';
 import type { GitPort } from '../adapters/ports.ts';
 import { validateConfig } from '../config/validate.ts';
 import { effectiveScope, slotBlock, type ProjectScope, type ScopeBlock } from './scope-match.ts';
@@ -189,13 +190,8 @@ async function readBranch(
           head,
           tip,
         ]);
-        // Exit 1 lists the conflicted paths after the tree, up to an empty entry.
         if (merged === null || (merged.code !== 0 && merged.code !== 1)) conflicts = null;
-        else if (merged.code === 1) {
-          const parts = merged.stdout.split('\0').slice(1);
-          const end = parts.indexOf('');
-          conflicts = paths(parts.slice(0, end < 0 ? parts.length : end).join('\0'));
-        }
+        else if (merged.code === 1) conflicts = mergeTreeConflicts(merged.stdout);
       }
       return {
         changed_files: changed,

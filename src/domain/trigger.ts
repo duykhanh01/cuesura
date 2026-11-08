@@ -178,6 +178,13 @@ export const CheckpointDataSchema = z
     diff_digest: HashSchema,
     content_digest: HashSchema,
     committed: z.boolean(),
+    base_conflicts: z
+      .object({
+        tip_sha: z.string().regex(/^[0-9a-f]{40}$/),
+        files: z.array(z.string().min(1)),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 

@@ -1,6 +1,6 @@
 import type { EventPayloads } from '../domain/event.ts';
 import { minorFixApproved, reviewOf } from './head-evidence.ts';
-import type { BaseUpdate } from '../domain/runtime.ts';
+import type { BaseUpdate, BaseUpdateRun } from '../domain/runtime.ts';
 import type { z } from 'zod';
 import { assertNever } from '../shared/assert-never.ts';
 import { sameChoice } from '../domain/run-config.ts';
@@ -145,7 +145,7 @@ function execute(ctx: Ctx, action: ResumeAction): void {
       if (action.mode === 'retry_fixer') {
         if (update.conflict === undefined) return waitBaseRepair(ctx, 'no conflict fixer to retry');
         ctx.emit('BaseUpdateRecorded', { update: previous });
-        const fix = ctx.frozen.workflow.steps[update.gate_step]?.next['fail'];
+        const fix = conflictFixStep(ctx, update);
         if (fix === undefined) return waitBaseRepair(ctx, 'missing conflict fixer step');
         enterStep(ctx, fix, { step: update.gate_step, outcome: 'fail' }, 'retry');
       } else {
@@ -343,6 +343,7 @@ export function route(ctx: Ctx, step: string, outcome: string, body?: string): v
 
 function goTarget(ctx: Ctx, from: string, target: string, outcome: string, body?: string): void {
   if (!isSpecialTarget(target)) {
+    if (updateBaseBeforeReviewFix(ctx, target, { step: from, outcome })) return;
     enterStep(ctx, target, { step: from, outcome });
     return;
   }
@@ -828,7 +829,7 @@ export function startAttempt(ctx: Ctx, step: string, kind: AttemptKind): void {
   const baseFix =
     baseUpdate?.conflict !== undefined &&
     baseUpdate.certificate === undefined &&
-    step === ctx.frozen.workflow.steps[baseUpdate.gate_step]?.next['fail'];
+    step === conflictFixStep(ctx, baseUpdate);
   if (baseFix && baseUpdate?.fixer_attempt_id !== undefined)
     return waitBaseRepair(ctx, 'single conflict fixer attempt already used');
   const attemptId = ctx.nextId();
@@ -1329,6 +1330,9 @@ function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
         });
         if (baseUpdate.fixer_attempt_id !== undefined)
           return waitBaseRepair(ctx, 'conflict returned after the single fixer attempt');
+        // In a review/fix round the review fixer takes the conflict with the review's findings.
+        if (baseUpdate.fix_step !== undefined)
+          return proceed(ctx, { kind: 'enter_step', step: baseUpdate.fix_step });
         proceed(ctx, { kind: 'route', step: step as string, outcome: 'fail' });
         return;
       }
@@ -1358,7 +1362,13 @@ function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
         resets_streak_of: passed && !reviewStreak(ctx.state) ? ctx.state.last_fix_step : null,
       });
       if (!passed) recordCheckFailure(ctx, signature);
-      if (!passed && baseUpdate !== undefined && baseUpdate.certificate === undefined)
+      // A review/fix round goes on to the gate fixer as any round does; its one conflict fix is spent.
+      if (
+        !passed &&
+        baseUpdate !== undefined &&
+        baseUpdate.certificate === undefined &&
+        baseUpdate.fix_step === undefined
+      )
         return waitBaseRepair(
           ctx,
           'base update gates failed; no additional automatic fixer attempt',
@@ -1405,6 +1415,9 @@ function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
             ctx,
             'review required for changes outside conflict files; this direct-pr snapshot has no reviewer',
           );
+        // A clean merge in a review/fix round: the review's findings still wait for their fixer.
+        if (baseUpdate.fix_step !== undefined && baseUpdate.conflict === undefined)
+          return proceed(ctx, { kind: 'enter_step', step: baseUpdate.fix_step });
       }
       if (
         passed &&
@@ -1711,6 +1724,24 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
     ctx.emit('BaseUpdateRecorded', {
       update: { ...baseUpdate, scope: d.base_repair },
     });
+  } else if (
+    !('verdict' in d) &&
+    baseUpdate?.fix_step !== undefined &&
+    baseUpdate.fixer_attempt_id !== undefined &&
+    baseUpdate.conflict !== undefined &&
+    baseUpdate.certificate === undefined &&
+    d.status === 'done'
+  ) {
+    // A gate fixer after the conflict fix: its tree is the one the next gates check the scope of.
+    if (
+      d.base_repair === undefined ||
+      d.base_repair.unresolved ||
+      d.base_repair.tree !== d.worktree_tree
+    )
+      return waitBaseRepair(ctx, 'gate fixer left the merge conflict unresolved');
+    ctx.emit('BaseUpdateRecorded', {
+      update: { ...baseUpdate, scope: d.base_repair },
+    });
   }
   // A minor fix keeps the PR title and body the review approved.
   if (!('verdict' in d) && d.content !== undefined && !isMinorStep(stepDef(ctx, step))) {
@@ -1759,7 +1790,11 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
         : { summary: d.summary.slice(0, MAX_SUMMARY) }),
     });
     if (!approved) recordCheckFailure(ctx, signature);
-    if (!approved && ctx.state.run.base_update?.scope?.outside_files.length)
+    if (
+      !approved &&
+      ctx.state.run.base_update?.fix_step === undefined &&
+      ctx.state.run.base_update?.scope?.outside_files.length
+    )
       return waitBaseRepair(
         ctx,
         'review rejected changes outside conflict files; conflict fixer attempt already used',
@@ -2160,11 +2195,13 @@ export function commitsCheckpoint(ctx: Pick<Ctx, 'state' | 'frozen'>, step: stri
 }
 
 function recordCheckpoint(ctx: Ctx, step: string, c: z.infer<typeof CheckpointDataSchema>): void {
+  const { base_conflicts, ...rest } = c;
   ctx.emit('CheckpointRecorded', {
     checkpoint: {
       revision: ctx.state.revision,
-      ...c,
+      ...rest,
       gate_visit: visitOf(ctx, step),
+      ...(base_conflicts === undefined ? {} : { base_conflicts }),
     },
   });
 }
@@ -2260,6 +2297,65 @@ export function isTestPath(path: string): boolean {
     /(^|\/)test_[^/]+\.py$/.test(path) ||
     /_test\.[^/.]+$/.test(path)
   );
+}
+
+/** The fixer step of a base conflict: the review fixer in a review/fix round, else the gate's `fail`. */
+function conflictFixStep(ctx: Ctx, update: BaseUpdateRun): string | undefined {
+  return update.fix_step ?? ctx.frozen.workflow.steps[update.gate_step]?.next['fail'];
+}
+
+/** The fixer a rejecting review leads to, past the step that posts the verdict on the PR. */
+function reviewFixStep(ctx: Ctx): string | undefined {
+  const steps = ctx.frozen.workflow.steps;
+  const review = Object.values(steps).find((d) => d.kind === 'review');
+  let target = review?.next['request_changes'];
+  const post = target === undefined ? undefined : steps[target];
+  if (post?.kind === 'action' && post.action === 'github.post_review') target = post.next['ok'];
+  return target !== undefined && steps[target]?.kind === 'agent' ? target : undefined;
+}
+
+/**
+ * Before the review fixer runs on a rejected checkpoint that conflicts with the base tip it was read
+ * against (#239), the base is merged in first through the usual base update: a conflict then goes to
+ * that fixer with the review's findings in the same attempt, a clean merge is gated and certified before
+ * it. A fixer cannot clear a base conflict without the base, so waiting until merge only spends rounds.
+ * Returns true when the update started.
+ */
+function updateBaseBeforeReviewFix(
+  ctx: Ctx,
+  target: string,
+  from: { step: string; outcome: string },
+): boolean {
+  const s = ctx.state;
+  const cp = s.run.checkpoint;
+  const conflicts = cp?.base_conflicts;
+  const u = s.run.base_update;
+  const review = s.run.reviews.filter((r) => r.valid && r.revision === s.revision).at(-1);
+  const gate = ctx.frozen.workflow.steps[target]?.next['done'];
+  if (
+    !modeReview(ctx) ||
+    s.cancellation !== null ||
+    cp === null ||
+    conflicts === undefined ||
+    conflicts.files.length === 0 ||
+    cp.revision !== s.revision ||
+    cp.sha !== s.head_sha ||
+    s.run.head_drift !== null ||
+    review?.verdict !== 'request_changes' ||
+    review.sha !== cp.sha ||
+    target !== reviewFixStep(ctx) ||
+    gate === undefined ||
+    !commitsCheckpoint(ctx, gate) ||
+    // One update per checkpoint, and never over one still open.
+    (u?.revision === s.revision && (u.certificate === undefined || u.head_sha === cp.sha))
+  )
+    return false;
+  const update = { head_sha: cp.sha, base_sha: conflicts.tip_sha };
+  ctx.emit('BaseUpdateRecorded', {
+    update: { ...update, revision: s.revision, gate_step: gate, fix_step: target },
+  });
+  enterStep(ctx, gate, from, 'initial', update);
+  return true;
 }
 
 /** A bounded operator decision, using the existing public question/answer path. */

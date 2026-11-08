@@ -6,7 +6,7 @@ import type { Uuid } from '../../../src/shared/brand.ts';
 import { claimable } from '../../../src/engine/claim.ts';
 import { replay } from '../../../src/engine/evolve.ts';
 import { explain } from '../../../src/explain/explain.ts';
-import { headVerdict } from '../../../src/engine/head-evidence.ts';
+import { headVerdict, reviewOf } from '../../../src/engine/head-evidence.ts';
 import { mergeGuard } from '../../../src/engine/merge-guard.ts';
 import { hashCanonical } from '../../../src/shared/hash.ts';
 import { injectEvents, openFileStoreForTest } from '../../../src/store/testing.ts';
@@ -17,7 +17,13 @@ import {
   proposeAndConfirm,
   selectionFor,
 } from '../../support/runtime.ts';
-import { agentData, ciData, publishData, reviewData } from '../../support/scenario.ts';
+import {
+  agentData,
+  ciData,
+  PREPARE_DATA,
+  publishData,
+  reviewData,
+} from '../../support/scenario.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 import {
   checkpointGates,
@@ -27,6 +33,7 @@ import {
   reviewToCi,
   completePost,
   CONTENT_DIGEST,
+  TREE,
 } from '../../support/store-flows.ts';
 import { dbPath, useTempDir } from '../../support/temp-db.ts';
 
@@ -1231,6 +1238,257 @@ describe('a review/fix loop that does not move (#141)', () => {
         expect(reviewerRuns(d, t)).toBe(2);
       }
     });
+  });
+});
+
+describe('a rejected checkpoint that conflicts with its base (#210, #239)', () => {
+  const TIP = 'f'.repeat(40);
+  const MERGE = '9'.repeat(40);
+  const CONFLICT_TREE = '8'.repeat(40);
+  /** Gate result whose checkpoint `sha` conflicts with the base on `files`; null: base unreadable. */
+  const gatesAt = (sha: string, files: string[] | null, over: Record<string, unknown> = {}) =>
+    checkpointGates(sha, undefined, {
+      checkpoint: {
+        ...(checkpointGates(sha)['checkpoint'] as object),
+        ...(files === null ? {} : { base_conflicts: { tip_sha: TIP, files } }),
+      },
+      ...over,
+    });
+  /** The step of the one worker attempt pending now. */
+  const fixerStep = (d: StoreDriver, t: CanonicalTask) =>
+    d.task(t.id).effects[d.pendingOne(t.id, 'start_agent').id]?.step;
+  const grant = (d: StoreDriver, t: CanonicalTask) => {
+    if (d.task(t.id).wait?.detail['code'] === 'execution_slot') d.grantNext();
+  };
+  /** Checkpoint A, conflicting with the base on `files`, published and rejected on src/a.ts. */
+  const toRejected = (files: string[] | null, path?: string) => {
+    const d = path === undefined ? setup() : new StoreDriver(openFileStoreForTest(path));
+    const t = buildTask();
+    createGrantStart(d, t, 'full-review');
+    d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE_DATA);
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', gatesAt(A, files));
+    publishToReview(d, t.id, A);
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      reviewData('request_changes', A, {
+        findings: [{ severity: 'major', file: 'src/a.ts', msg: 'wrong' }],
+        input_digest: currentReviewInput(d, t.id),
+      }),
+    );
+    completePost(d, t.id);
+    grant(d, t);
+    return { d, t };
+  };
+  const conflictGates = {
+    results: [],
+    tree: CONFLICT_TREE,
+    stable: true,
+    base_conflict: { tree: CONFLICT_TREE, files: ['src/y.ts'] },
+  };
+  /** The review fixer resolves the conflict and the finding; its gates commit the merge B. */
+  const fixBoth = (d: StoreDriver, t: CanonicalTask) => {
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      agentData('done', {
+        worktree_tree: TREE,
+        base_repair: { tree: TREE, outside_files: ['src/a.ts'], unresolved: false },
+      }),
+    );
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', gatesAt(B, []));
+  };
+
+  it('merges the base in before the review fixer, which takes the conflict with the findings', () => {
+    const { d, t } = toRejected(['src/y.ts']);
+    const gate = d.pendingOne(t.id, 'run_gates');
+    expect(gate.request['base_update']).toEqual({ head_sha: A, base_sha: TIP });
+    expect(d.task(t.id).run.base_update).toEqual({
+      head_sha: A,
+      base_sha: TIP,
+      revision: 1,
+      gate_step: 'gates',
+      fix_step: 'fix_review',
+    });
+    expect(d.pending(t.id, 'start_agent')).toEqual([]);
+
+    d.complete(t.id, gate.id, 'succeeded', conflictGates);
+    grant(d, t);
+    const fixer = d.pendingOne(t.id, 'start_agent');
+    const s = d.task(t.id);
+    expect(s.current_step).toBe('fix_review');
+    expect(s.run.base_update?.fixer_attempt_id).toBe(s.effects[fixer.id]?.attempt_id);
+    expect(s.step_visits['fix_review']).toBe(1);
+
+    fixBoth(d, t);
+    const after = d.task(t.id);
+    expect(after.wait).toBeNull();
+    expect(after.run.base_update?.certificate).toEqual({ head_sha: B, tree: TREE });
+    // The fix the review has not seen is reviewed: no exemption for a review/fix round.
+    expect(reviewOf(after, B)).toBe('missing');
+    grant(d, t);
+    publishToReview(d, t.id, B);
+    expect(d.task(t.id).current_step).toBe('review');
+    expect(reviewerRuns(d, t)).toBe(2);
+    expect(replay(d.store.readEvents(t.id))).toEqual(d.task(t.id));
+    expect(d.store.verifyProjections().mismatches).toEqual([]);
+  });
+
+  it('a clean merge is gated first, then the review fixer runs on it', () => {
+    const { d, t } = toRejected(['src/y.ts']);
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', gatesAt(MERGE, []));
+    grant(d, t);
+    const s = d.task(t.id);
+    expect(s.run.base_update?.certificate).toEqual({ head_sha: MERGE, tree: TREE });
+    expect(s.run.base_update?.fixer_attempt_id).toBeUndefined();
+    expect(fixerStep(d, t)).toBe('fix_review');
+    expect(d.pending(t.id, 'publish')).toEqual([]);
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'run_gates').id,
+      'succeeded',
+      gatesAt(B, [], { changed_since: { sha: A, paths: ['src/a.ts'] } }),
+    );
+    grant(d, t);
+    publishToReview(d, t.id, B);
+    expect(reviewerRuns(d, t)).toBe(2);
+  });
+
+  it('a conflict fixer that leaves the conflict waits for a person, the last resort', () => {
+    const { d, t } = toRejected(['src/y.ts']);
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', conflictGates);
+    grant(d, t);
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
+    expect(d.task(t.id).wait).toMatchObject({
+      reason: 'human_input',
+      detail: { code: 'refused', files: ['src/y.ts'] },
+    });
+    expect(d.pending(t.id, 'start_agent')).toEqual([]);
+  });
+
+  /** Combined fix done, its gates fail: the gate fixer is pending. */
+  const toGateFixer = () => {
+    const { d, t } = toRejected(['src/y.ts']);
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', conflictGates);
+    grant(d, t);
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      agentData('done', {
+        worktree_tree: TREE,
+        base_repair: { tree: TREE, outside_files: ['src/a.ts'], unresolved: false },
+      }),
+    );
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'run_gates').id,
+      'succeeded',
+      checkpointGates(B, { build: true, unit: false }, { checkpoint: undefined }),
+    );
+    grant(d, t);
+    expect(d.task(t.id).wait).toBeNull();
+    expect(fixerStep(d, t)).toBe('fix_gates');
+    return { d, t };
+  };
+
+  it('gates that fail after the combined fix go to the gate fixer, then publish and review', () => {
+    const { d, t } = toGateFixer();
+    const T2 = '7'.repeat(40);
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      agentData('done', {
+        worktree_tree: T2,
+        base_repair: { tree: T2, outside_files: ['src/a.ts'], unresolved: false },
+      }),
+    );
+    expect(d.task(t.id).run.base_update?.scope?.tree).toBe(T2);
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'run_gates').id,
+      'succeeded',
+      checkpointGates(B, undefined, {
+        tree: T2,
+        checkpoint: { ...(checkpointGates(B)['checkpoint'] as object), tree: T2 },
+      }),
+    );
+    grant(d, t);
+    expect(d.task(t.id).wait).toBeNull();
+    expect(d.task(t.id).run.base_update?.certificate).toEqual({ head_sha: B, tree: T2 });
+    publishToReview(d, t.id, B);
+    expect(reviewerRuns(d, t)).toBe(2);
+  });
+
+  it('a gate fixer that brings the conflict back waits for a person', () => {
+    const { d, t } = toGateFixer();
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      agentData('done', {
+        worktree_tree: TREE,
+        base_repair: { tree: TREE, outside_files: [], unresolved: true },
+      }),
+    );
+    expect(d.task(t.id).wait).toMatchObject({ reason: 'human_input', detail: { code: 'refused' } });
+  });
+
+  it('a later review rejection runs the usual fix round', () => {
+    const { d, t } = toRejected(['src/y.ts']);
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', conflictGates);
+    grant(d, t);
+    fixBoth(d, t);
+    grant(d, t);
+    publishToReview(d, t.id, B);
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      reviewData('request_changes', B, {
+        findings: [{ severity: 'major', file: 'src/b.ts', msg: 'still wrong' }],
+        input_digest: currentReviewInput(d, t.id),
+      }),
+    );
+    completePost(d, t.id);
+    grant(d, t);
+    expect(d.task(t.id).wait).toBeNull();
+    expect(fixerStep(d, t)).toBe('fix_review');
+    expect(d.pending(t.id, 'run_gates')).toEqual([]);
+  });
+
+  it('keeps the usual fix round when the checkpoint has no conflict or it is unknown', () => {
+    for (const files of [[], null]) {
+      const { d, t } = toRejected(files);
+      expect(d.task(t.id).run.base_update).toBeUndefined();
+      expect(fixerStep(d, t)).toBe('fix_review');
+    }
+  });
+
+  it('survives a restart between the merge gates and the conflict fixer', () => {
+    const path = dbPath(tempDir());
+    const first = toRejected(['src/y.ts'], path);
+    first.d.complete(
+      first.t.id,
+      first.d.pendingOne(first.t.id, 'run_gates').id,
+      'succeeded',
+      conflictGates,
+    );
+    const before = first.d.task(first.t.id);
+    first.d.store.close();
+    const d = new StoreDriver(openFileStoreForTest(path));
+    const t = first.t;
+    expect(d.task(t.id)).toEqual(before);
+    expect(replay(d.store.readEvents(t.id))).toEqual(before);
+    expect(d.store.verifyProjections().mismatches).toEqual([]);
+    grant(d, t);
+    fixBoth(d, t);
+    expect(d.task(t.id).run.base_update?.certificate?.head_sha).toBe(B);
   });
 });
 

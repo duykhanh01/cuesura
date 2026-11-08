@@ -253,6 +253,14 @@ bao giờ được chặn merge.
   lượt reviewer. Câu trả lời cho qua gate như thường: publish rồi review. Chỉ cần một file của finding
   chặn bị đổi là đi tiếp; daemon không đọc được diff hoặc checkpoint trùng commit đã review (M03) thì
   bỏ kiểm này.
+- Mỗi checkpoint ghi `base_conflicts`: base tip lấy từ `refs/remotes/origin/<base>` đã fetch cục bộ
+  (không fetch thêm) và các file `git merge-tree` báo conflict khi tích hợp tip đó; không đọc được thì
+  bỏ trống (unknown). Review từ chối một checkpoint đã publish có conflict với tip đó thì trước lượt
+  fixer review, daemon tích hợp tip ấy bằng base update (SPEC.md §14.2, FR-041.04) thay vì để
+  conflict tới lúc chờ merge. Conflict thì lượt fixer review là lượt fixer conflict duy nhất, nhận cả
+  file conflict và finding; merge sạch thì gate, chứng nhận, rồi mới gọi fixer review. Head sau đó luôn
+  qua review. Lượt fixer conflict không gỡ được mới chờ người (`refused`, trả lời `continue` hoặc
+  `retry fixer`). Checkpoint không conflict hoặc unknown thì vòng sửa như thường.
 - `cusr task explain` có `visits`: số lượt đã vào và giới hạn của từng step, gồm `review` và
   `fix_review`.
 
@@ -293,6 +301,8 @@ no-op cần người xác nhận phiên bản đã chọn. Không tự retry fix
 Chứng nhận phạm vi gắn đúng head/tree/revision, có provenance trong `BaseUpdateRecorded`, không giả
 reviewer approve hoặc dùng bằng chứng head cũ cho head mới. Xem [SPEC §14.2](../../SPEC.md#142-merge).
 M03/M06 áp dụng ngoại lệ hẹp này; code/nội dung khác vẫn phải xét review theo quy tắc trên.
+Base update bắt đầu trong vòng review/fix không được miễn review: lượt sửa mang cả thay đổi cho finding
+mà reviewer chưa xem.
 
 ## Remote đổi head khi review còn chạy
 

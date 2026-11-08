@@ -458,6 +458,18 @@ cập nhật base hoặc sửa conflict. Chưa chứng nhận head, PR đóng, d
 | Fixer sửa cả file ngoài danh sách conflict | Qua review trước publish | Có; `direct-pr` không có reviewer đóng băng thì chờ người quyết định |
 | Fixer lỗi, bị chặn, chưa xong, gate fail hoặc conflict lại sau lượt đó | Chờ người, không gọi thêm fixer tự động | Người quyết định |
 
+**Tích hợp base trong vòng review/fix (#239):** mỗi checkpoint ghi `base_conflicts`, tức các file
+`git merge-tree` báo conflict khi tích hợp base tip ở `refs/remotes/origin/<base>` đã fetch cục bộ;
+không đọc được thì unknown. Khi review `full-review` từ chối một checkpoint đã publish, không drift,
+có conflict với tip đó, daemon tích hợp đúng tip ấy trước lượt fixer review, bằng cùng base update
+(`fix_step` ghi step fixer review), cùng handler, intent và guard như trên. Conflict thì lượt fixer
+review là lượt fixer conflict duy nhất: nhận cả file conflict lẫn finding review. Merge sạch thì gate,
+chứng nhận, rồi mới gọi fixer review trên head đã merge. Gate fail sau lượt sửa đi tới fixer gate như
+một vòng sửa thường; host kiểm lại phạm vi (marker, file conflict) trên tree của lượt fixer gate đó,
+còn marker hoặc conflict quay lại thì chờ người. Head mới không được miễn review: lượt sửa mang thay đổi reviewer chưa xem.
+Lượt fixer conflict lỗi, chưa xong hoặc conflict lại thì chờ người như bảng trên. Mỗi checkpoint có
+nhiều nhất một base update; số lượt vẫn do `max_visits` của review/fix và gate giới hạn.
+
 Handler fetch đúng base SHA và dùng `merge-tree --write-tree --name-only -z`. Không conflict thì
 merge commit hai parent có durable intent và CAS từ head cũ. Có conflict thì lưu tree và danh sách
 file conflict trong intent, checkout tree này cho fixer nhưng giữ HEAD cũ; không áp dụng/push commit

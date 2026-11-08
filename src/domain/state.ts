@@ -439,7 +439,14 @@ export type CheckpointState = {
   /** False when the tree did not change and the previous checkpoint commit was kept. */
   committed: boolean;
   gate_visit: number;
+  /**
+   * Files a merge of the local base tip into this commit would conflict on, read when the commit was
+   * made (#210); absent when the base tip could not be read. Empty means no conflict.
+   */
+  base_conflicts?: BaseConflicts;
 };
+
+export type BaseConflicts = { tip_sha: string; files: string[] };
 
 /** Worker-prepared commit message and PR title/body, validated and stored outside the code (M05). */
 export type PublishContentState = {

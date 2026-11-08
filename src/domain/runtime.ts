@@ -42,6 +42,12 @@ export type BaseRepairScope = z.infer<typeof BaseRepairScopeSchema>;
 export type BaseUpdateRun = BaseUpdate & {
   revision: number;
   gate_step: string;
+  /**
+   * Set when the update was started in a review/fix round (#239): the review fixer step that resolves
+   * the conflict together with the rejected review's findings. Absent for an update while waiting to
+   * merge, whose conflict fixer is the gate step's `fail` target.
+   */
+  fix_step?: string;
   conflict?: BaseConflict;
   fixer_attempt_id?: string;
   scope?: BaseRepairScope;
