@@ -383,6 +383,81 @@ export class PaseoTerminal implements TerminalHost {
   }
 }
 
+export const TMUX_SESSION = 'cuesura';
+const TMUX_TIMEOUT_MS = 15_000;
+const TMUX_WINDOW_ID = /^@\d+$/;
+
+export type TmuxTerminalOptions = {
+  /** Absolute path of the tmux binary. */
+  readonly bin: string;
+  readonly exec: CommandExec;
+};
+
+/**
+ * One detached window per operation in a `cuesura` session of the user's running tmux server; `-d` keeps the
+ * user's current window. It never starts a server itself: one started by the daemon would live in the daemon's
+ * cgroup and die with every daemon restart, and its shells would inherit the daemon's minimal environment.
+ */
+export class TmuxTerminal implements TerminalHost {
+  readonly name = 'tmux';
+  readonly #bin: string;
+  readonly #exec: CommandExec;
+  /** Two concurrent launches must not both create the session. */
+  #queue: Promise<unknown> = Promise.resolve();
+
+  constructor(opts: TmuxTerminalOptions) {
+    this.#bin = opts.bin;
+    this.#exec = opts.exec;
+  }
+
+  async #cli(args: readonly string[]): Promise<Result<string, string>> {
+    const r = await this.#exec(this.#bin, args, { timeout_ms: TMUX_TIMEOUT_MS });
+    const verb = args[0] ?? '';
+    if (r.error !== null) return err(`tmux ${verb}: ${r.error}`);
+    if (r.timed_out) return err(`tmux ${verb}: timed out`);
+    if (r.code !== 0) return err(`tmux ${verb}: exit ${String(r.code)}: ${r.stderr.trim()}`);
+    return ok(r.stdout.trim());
+  }
+
+  async #openWindow(req: TerminalRequest, retry = true): Promise<Result<string, string>> {
+    // Fails when no server runs, unlike `has-session`, which cannot tell that apart from a missing session.
+    const sessions = await this.#cli(['list-sessions', '-F', '#{session_name}']);
+    if (!sessions.ok) return sessions;
+    const exists = sessions.value.split('\n').includes(TMUX_SESSION);
+    const window = ['-n', req.label, '-c', req.cwd, '-P', '-F', '#{window_id}'];
+    const created = await this.#cli(
+      exists
+        ? ['new-window', '-d', '-t', `=${TMUX_SESSION}:`, ...window]
+        : ['new-session', '-d', '-s', TMUX_SESSION, ...window],
+    );
+    // tmux drops a session with its last window, so it can vanish after the listing. Listing again
+    // instead of creating straight away keeps a server that went with it from being restarted here.
+    if (!created.ok && exists && retry) return this.#openWindow(req, false);
+    if (!created.ok) return created;
+    return TMUX_WINDOW_ID.test(created.value)
+      ? ok(created.value)
+      : err(`tmux ${exists ? 'new-window' : 'new-session'}: unexpected output`);
+  }
+
+  open(req: TerminalRequest): Promise<Result<TerminalHandle, string>> {
+    const opened = this.#queue.then(() => this.#openWindow(req));
+    this.#queue = opened.catch(() => undefined);
+    return opened.then(async (window) => {
+      if (!window.ok) return window;
+      const close = async (): Promise<void> => {
+        await this.#cli(['kill-window', '-t', window.value]);
+      };
+      const typed = await this.#cli(['send-keys', '-t', window.value, '-l', '--', req.command]);
+      const sent = typed.ok ? await this.#cli(['send-keys', '-t', window.value, 'Enter']) : typed;
+      if (!sent.ok) {
+        await close();
+        return sent;
+      }
+      return ok({ close });
+    });
+  }
+}
+
 /** The only place that knows the backends; the config value picks one, nothing else changes. */
 export function terminalHost(
   config: AttachedTerminal,
@@ -407,6 +482,8 @@ export function terminalHost(
         ...deps,
         ...(config.session === undefined ? {} : { session: config.session }),
       });
+    case 'tmux':
+      return new TmuxTerminal(deps);
   }
 }
 
@@ -423,6 +500,8 @@ export function terminalProbeArgs(config: AttachedTerminal): string[] {
         'workspace',
         'list',
       ];
+    case 'tmux':
+      return ['list-sessions'];
   }
 }
 
@@ -431,6 +510,7 @@ const TERMINAL_INSTALL_DIRS: Record<AttachedTerminal['backend'], readonly string
   herdr: ['.local/bin'],
   orca: ['.config/orca/cli/bin', '.local/bin'],
   paseo: ['.local/bin'],
+  tmux: ['.local/bin'],
 };
 
 /** The argv prefix that runs the backend's binary; Paseo's CLI is a Node script without a node on PATH. */

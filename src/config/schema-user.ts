@@ -285,6 +285,7 @@ export const RUNTIME_TOOLS = [
   'herdr',
   'orca',
   'paseo',
+  'tmux',
 ] as const;
 export type RuntimeTool = (typeof RUNTIME_TOOLS)[number];
 
@@ -308,6 +309,7 @@ export const RuntimeTerminalSchema = z.discriminatedUnion('backend', [
     .strict(),
   z.object({ backend: z.literal('orca') }).strict(),
   z.object({ backend: z.literal('paseo') }).strict(),
+  z.object({ backend: z.literal('tmux') }).strict(),
 ]);
 export type RuntimeTerminal = z.infer<typeof RuntimeTerminalSchema>;
 export type AttachedTerminal = Exclude<RuntimeTerminal, { backend: 'background' }>;

@@ -1497,6 +1497,15 @@ describe('doctor (T112, FR-027.02/033)', () => {
     expect(host.execs).toContainEqual(['/usr/bin/orca', 'repo', 'list', '--json']);
   });
 
+  it('checks tmux with a command that fails when no server runs', async () => {
+    const { sd, host } = doctored({
+      runtime: 'runtime: { terminal: { backend: tmux }, tool_paths: { tmux: /usr/bin/tmux } }',
+    });
+    await sd.start();
+    expect(names(await cli(sd, ['doctor']))['terminal']).toBeDefined();
+    expect(host.execs).toContainEqual(['/usr/bin/tmux', 'list-sessions']);
+  });
+
   it('checks paseo by running its CLI script with the daemon node', async () => {
     const { sd, host } = doctored({
       runtime: 'runtime: { terminal: { backend: paseo }, tool_paths: { paseo: /usr/bin/paseo } }',

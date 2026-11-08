@@ -33,6 +33,8 @@ import {
   OrcaTerminal,
   PASEO_WORKSPACE_DIR,
   PaseoTerminal,
+  TMUX_SESSION,
+  TmuxTerminal,
   findTerminalBin,
   paseoWorkspaceDir,
   terminalLabel,
@@ -112,6 +114,8 @@ describe('terminal config (ADR-0006)', () => {
     expect(RuntimeTerminalSchema.safeParse({ backend: 'orca' }).success).toBe(true);
     expect(RuntimeTerminalSchema.safeParse({ backend: 'orca', session: 'x' }).success).toBe(false);
     expect(RuntimeTerminalSchema.safeParse({ backend: 'paseo' }).success).toBe(true);
+    expect(RuntimeTerminalSchema.safeParse({ backend: 'tmux' }).success).toBe(true);
+    expect(RuntimeTerminalSchema.safeParse({ backend: 'tmux', session: 'x' }).success).toBe(false);
     expect(RuntimeTerminalSchema.safeParse({ backend: 'screen' }).success).toBe(false);
     expect(RuntimeTerminalSchema.safeParse({ backend: 'background', session: 'x' }).success).toBe(
       false,
@@ -132,6 +136,9 @@ describe('terminal config (ADR-0006)', () => {
     expect(terminalProbeArgs({ backend: 'orca' })).toEqual(['repo', 'list', '--json']);
     expect(terminalHost({ backend: 'paseo' }, { bin: '/p', git: null, exec }).name).toBe('paseo');
     expect(terminalProbeArgs({ backend: 'paseo' })).toEqual(['workspace', 'ls', '--json']);
+    expect(terminalHost({ backend: 'tmux' }, { bin: '/t', git: null, exec }).name).toBe('tmux');
+    expect(terminalProbeArgs({ backend: 'tmux' })).toEqual(['list-sessions']);
+    expect(terminalArgv({ backend: 'tmux' }, '/t', '/n/node')).toEqual(['/t']);
   });
 
   it('runs the Paseo CLI script with a node, since the service PATH has none', () => {
@@ -221,6 +228,123 @@ describe('HerdrTerminal (ADR-0006)', () => {
     const r = await new HerdrTerminal({ bin: '/h', exec }).open(request);
     expect(r.ok).toBe(false);
     expect(inner.calls.at(-1)).toEqual(['tab', 'close', 'w9:t2']);
+  });
+});
+
+/** A tmux server that holds the given sessions and creates what it is asked to. */
+function tmuxCli(
+  sessions: string[] | null,
+  override: (args: readonly string[]) => CommandResult | null = () => null,
+): CommandExec & { calls: string[][] } {
+  const calls: string[][] = [];
+  let next = 5;
+  const exec: CommandExec = (_file, args) => {
+    calls.push([...args]);
+    const given = override(args);
+    if (given !== null) return Promise.resolve(given);
+    if (sessions === null)
+      return Promise.resolve(
+        result({ code: 1, stderr: 'no server running on /tmp/tmux-1000/default' }),
+      );
+    if (args[0] === 'list-sessions')
+      return Promise.resolve(result({ stdout: sessions.map((s) => `${s}\n`).join('') }));
+    if (args[0] === 'new-session') sessions.push(String(args[args.indexOf('-s') + 1]));
+    if (args[0] === 'new-session' || args[0] === 'new-window')
+      return Promise.resolve(result({ stdout: `@${String(next++)}\n` }));
+    return Promise.resolve(result());
+  };
+  return Object.assign(exec, { calls });
+}
+
+describe('TmuxTerminal (ADR-0006)', () => {
+  const window = ['-n', 'T1', '-c', '/d', '-P', '-F', '#{window_id}'];
+
+  it('opens a detached window in the existing session and types the line', async () => {
+    const exec = tmuxCli(['work', TMUX_SESSION]);
+    const r = await new TmuxTerminal({ bin: '/t', exec }).open(request);
+    expect(r.ok).toBe(true);
+    expect(exec.calls).toEqual([
+      ['list-sessions', '-F', '#{session_name}'],
+      ['new-window', '-d', '-t', '=cuesura:', ...window],
+      ['send-keys', '-t', '@5', '-l', '--', 'run it'],
+      ['send-keys', '-t', '@5', 'Enter'],
+    ]);
+  });
+
+  it('creates the session once when launches arrive together', async () => {
+    const exec = tmuxCli(['work']);
+    const t = new TmuxTerminal({ bin: '/t', exec });
+    const [a, b] = await Promise.all([t.open(request), t.open(request)]);
+    expect(a?.ok && b?.ok).toBe(true);
+    const verbs = exec.calls.map((c) => c[0]);
+    expect(verbs.filter((v) => v === 'new-session')).toHaveLength(1);
+    expect(verbs.filter((v) => v === 'new-window')).toHaveLength(1);
+    expect(exec.calls).toContainEqual(['new-session', '-d', '-s', 'cuesura', ...window]);
+  });
+
+  it('creates the session again when it closed after the listing', async () => {
+    const sessions = [TMUX_SESSION];
+    const exec = tmuxCli(sessions, (args) => {
+      if (args[0] !== 'new-window') return null;
+      sessions.splice(0);
+      return result({ code: 1, stderr: "can't find session: cuesura" });
+    });
+    const r = await new TmuxTerminal({ bin: '/t', exec }).open(request);
+    expect(r.ok).toBe(true);
+    expect(exec.calls.map((c) => c[0])).toEqual([
+      'list-sessions',
+      'new-window',
+      'list-sessions',
+      'new-session',
+      'send-keys',
+      'send-keys',
+    ]);
+  });
+
+  it('tries a failed window once more, then reports it', async () => {
+    const exec = tmuxCli([TMUX_SESSION], (args) =>
+      args[0] === 'new-window' ? result({ code: 1, stderr: 'no space for new window' }) : null,
+    );
+    const r = await new TmuxTerminal({ bin: '/t', exec }).open(request);
+    expect(r).toEqual(err('tmux new-window: exit 1: no space for new window'));
+    expect(exec.calls.map((c) => c[0])).toEqual([
+      'list-sessions',
+      'new-window',
+      'list-sessions',
+      'new-window',
+    ]);
+  });
+
+  it('never starts a server of its own', async () => {
+    const exec = tmuxCli(null);
+    const r = await new TmuxTerminal({ bin: '/t', exec }).open(request);
+    expect(r).toEqual(
+      err('tmux list-sessions: exit 1: no server running on /tmp/tmux-1000/default'),
+    );
+    expect(exec.calls).toHaveLength(1);
+  });
+
+  it('reports output that is not a window id', async () => {
+    const exec = tmuxCli([TMUX_SESSION], (args) =>
+      args[0] === 'new-window' ? result({ stdout: 'oops' }) : null,
+    );
+    const r = await new TmuxTerminal({ bin: '/t', exec }).open(request);
+    expect(r).toEqual(err('tmux new-window: unexpected output'));
+  });
+
+  it('kills the window it opened when the line cannot be typed, and when asked to close', async () => {
+    const failing = tmuxCli([TMUX_SESSION], (args) =>
+      args[0] === 'send-keys' ? result({ code: 1, stderr: "can't find window" }) : null,
+    );
+    const r = await new TmuxTerminal({ bin: '/t', exec: failing }).open(request);
+    expect(r).toEqual(err("tmux send-keys: exit 1: can't find window"));
+    expect(failing.calls.at(-1)).toEqual(['kill-window', '-t', '@5']);
+
+    const exec = tmuxCli([TMUX_SESSION]);
+    const opened = await new TmuxTerminal({ bin: '/t', exec }).open(request);
+    if (!opened.ok) throw new Error(opened.error);
+    await opened.value.close();
+    expect(exec.calls.at(-1)).toEqual(['kill-window', '-t', '@5']);
   });
 });
 

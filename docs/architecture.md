@@ -422,7 +422,7 @@ run_dir = ~/.cusr/runs/<attempt_id>/
   - **Progress**: có *bất kỳ* dấu hiệu tiến triển nào. Đó có thể là output mới, CPU time của cả cây process tăng, file trong worktree thay đổi, hoặc có process con (compiler, test runner, build daemon) đang chạy và dùng CPU.
   - **Wall timeout**: tổng thời gian tối đa của bước.
 - **Stall** nghĩa là *không có tín hiệu progress nào* trong `stall_timeout`. `stall_timeout` cấu hình riêng theo bước (ví dụ bước có build dài thì 20 phút). Khi stall hoặc quá `wall_timeout`: `kill(-pgid, SIGTERM)`, chờ 10 giây, rồi `SIGKILL`. Liveness mất mà không có `exit.json` thì attempt là `lost` (mục 6), không phải stall.
-- **Xem trực tiếp:** `cusr task logs T012 -f` render `events.jsonl` dạng dễ đọc. Tuỳ chọn `runner.tmux: true` chạy shim trong `tmux new-session -d -s cusr-T012-code-1` để `cusr task attach T012`.
+- **Xem trực tiếp:** `cusr task logs T012 -f` render `events.jsonl` dạng dễ đọc. Muốn xem agent trong terminal multiplexer thì đặt `runtime.terminal.backend` (`tmux`, `herdr`, `orca` hoặc `paseo`): mỗi operation `agent` được khởi động từ một cửa sổ nền của backend, còn unit systemd vẫn giữ vòng đời ([ADR-0006](adr/0006-terminal-view-backend.md)). Với `tmux`, cửa sổ nằm trong session `cuesura` của tmux server người dùng đang chạy; xem bằng `tmux attach -t cuesura`.
 
 ### 4.3 Từng harness
 

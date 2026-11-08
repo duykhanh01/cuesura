@@ -3,8 +3,8 @@
 Mặc định `runtime.terminal.backend` là `background`: agent chạy nền trong unit systemd như
 [ADR-0002](0002-systemd-runner-lifetime.md). Chọn `herdr` thì mỗi operation `agent` được khởi động từ một
 tab nền trong workspace `cuesura`, bằng đúng lệnh `systemd-run` cộng thêm `--pty`. Đổi backend chỉ cần đổi
-config và restart `cusrd`. Chọn `orca` hoặc `paseo` cũng vậy, chỉ khác nơi hiện tab (xem dưới). Thêm backend mới
-(tmux) là một biến thể schema và một `TerminalHost`.
+config và restart `cusrd`. Chọn `orca`, `paseo` hoặc `tmux` cũng vậy, chỉ khác nơi hiện tab (xem dưới). Thêm
+backend mới là một biến thể schema và một `TerminalHost`.
 
 Vẫn là service `cusr-op-<operation>.service` nên inspect, stop, cgroup và recovery không đổi; terminal chỉ giữ
 đầu pty. Phương án bị loại: `systemd-run --scope` trong pane (đã thử: scope chết cùng herdr server, vi phạm
@@ -42,3 +42,11 @@ script Node gọi `env node`, mà lệnh ngoài của daemon chạy với PATH t
 của daemon. Phương án bị loại: `paseo run` (cùng lý do với `herdr agent start`; agent còn thành process con của
 daemon Paseo, mất unit systemd, pin và proof của harness). Đã thử trên Paseo 0.13.0: kill terminal và dừng hẳn
 daemon Paseo không dừng unit.
+
+tmux mở mỗi operation trong một cửa sổ `new-window -d` của session `cuesura`, tạo session bằng `new-session -d`
+khi chưa có, rồi gõ lệnh bằng `send-keys`; cửa sổ đang xem của người dùng không đổi. Cuesura chỉ dùng tmux server
+người dùng đang chạy và không tự khởi động server: server do daemon khởi động nằm trong cgroup của `cusrd`, chết
+theo mỗi lần restart daemon, và shell trong đó nhận env tối giản của daemon. Không có server thì `list-sessions`
+lỗi, agent chạy nền như mọi backend không sẵn sàng, và `cusr doctor` báo bằng chính lệnh đó. Phương án bị loại:
+chạy shim trực tiếp trong session `cusr-<task>` riêng (cách cũ ghi ở architecture §4.2; mất unit systemd như
+`systemd-run --scope` ở trên).
