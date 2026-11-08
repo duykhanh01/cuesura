@@ -344,7 +344,7 @@ export const TaskExplainSchema = z.looseObject({
     observation_expired: z.boolean(),
   }),
   deadline: z.looseObject({
-    state: z.enum(['not_started', 'running', 'passed']),
+    state: z.enum(['not_started', 'running', 'passed', 'ended']),
     remaining_ms: z.number().nullable(),
     max_wall_ms: z.number().nullable(),
   }),

@@ -46,19 +46,26 @@ function compact(d: Data): Data {
 }
 
 /**
- * What went wrong most recently, by name only: failed gates, failing CI checks and a review asking for
- * changes. Passing results are left out. The daemon appends evidence in the order it was recorded.
+ * What went wrong most recently, by name only: failed gates, failing or cancelled CI checks and a review
+ * asking for changes. Passing results are left out. The daemon appends evidence in the order it was
+ * recorded. CI counts only the newest valid read of the current revision and head, as the merge guard does.
  */
-function failures(evidence: unknown): Data {
+function failures(evidence: unknown, revision: unknown, head: unknown): Data {
   const e = record(evidence);
   const gate = record(list(e['gates']).at(-1));
   const review = record(list(e['reviews']).at(-1));
-  const ci = record(list(e['ci']).at(-1));
+  const ci = record(
+    list(e['ci'])
+      .map(record)
+      .findLast(
+        (c) => c['valid'] !== false && c['revision'] === revision && c['head_sha'] === head,
+      ),
+  );
   return compact({
     gates: gate['passed'] === false ? list(gate['failed']).map((f) => record(f)['gate']) : null,
     ci: list(ci['checks'])
       .map(record)
-      .filter((c) => c['state'] === 'failure')
+      .filter((c) => c['state'] === 'failure' || c['state'] === 'cancelled')
       .map((c) => c['name']),
     review: review['verdict'] === 'request_changes' ? 'request_changes' : null,
   });
@@ -94,16 +101,21 @@ export function explainSummary(data: unknown): unknown {
     step: data['step'],
     wait: clip(data['wait'] ?? null),
     blockers: clip(data['blockers'] ?? []),
-    running: list(data['running']).map((r) => pick(record(r), ['step', 'binding'])),
+    status_since: data['status_since'] ?? null,
+    running: list(data['running']).map((r) =>
+      compact(pick(record(r), ['step', 'binding', 'started_at', 'last_output_at', 'silent_ms'])),
+    ),
     queue_position: 'position' in queued ? queued['position'] : null,
     pr: hasPr ? { ref: pr['ref'], head_sha: pr['head_sha'] } : null,
     merge: hasPr ? mergeSummary(data['merge']) : null,
-    failed: failures(data['evidence']),
+    failed: failures(data['evidence'], data['revision'], pr['head_sha']),
     deadline_ms: deadline['state'] === 'running' ? deadline['remaining_ms'] : null,
     prerequisites: list(data['prerequisites'])
       .map(record)
       .filter((p) => p['status'] !== 'DONE' || p['unverified'] !== null)
       .map((p) => compact(pick(p, ['task_id', 'status', 'unverified']))),
+    terminal: clip(data['terminal'] ?? null),
+    unverified: record(data['completion'])['unverified'] ?? null,
     merge_cleanup: clip(data['merge_cleanup'] ?? null),
     scope: scopeSummary(data['scope']),
     cancellation: data['cancellation'],
@@ -153,6 +165,8 @@ export function showSummary(data: unknown): unknown {
     wait: isRecord(data['wait']) ? clip(pick(data['wait'], ['reason', 'detail'])) : null,
     blockers: clip(data['blockers'] ?? []),
     pr_ref: data['pr_ref'],
+    terminal: clip(data['terminal'] ?? null),
+    unverified: record(data['completion'])['unverified'] ?? null,
     run_config: compact(pick(run, ['status', 'digest', 'mode'])),
     details: `cusr task show ${id} --full`,
   });
@@ -168,6 +182,8 @@ export function listSummary(data: unknown): unknown {
         ...pick(r, ['task_id', 'project', 'title', 'status']),
         activity: r['wait_code'] ?? r['step'] ?? null,
         pr_ref: r['pr_ref'],
+        terminal: clip(r['terminal'] ?? null),
+        unverified: r['unverified'] ?? null,
         overlaps: r['overlaps'] ?? null,
         base_conflicts: r['base_conflicts'] ?? null,
         scope_unknown: r['scope_unknown'] === true ? true : null,

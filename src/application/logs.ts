@@ -216,6 +216,21 @@ function tailStart(
   return first;
 }
 
+/**
+ * When the attempt's newest operation last wrote a record, live spool included; null when it wrote none or
+ * its files cannot be read.
+ */
+export function lastOutputAt(deps: LogsDeps, s: TaskState, attemptId: string): number | null {
+  const op = Object.values(s.operations)
+    .filter((o) => o.attempt_id === attemptId)
+    .at(-1);
+  if (op === undefined) return null;
+  const records = openRecords(deps, op);
+  const at = typeof records === 'string' ? undefined : records.at(-1)?.at;
+  const ms = at === undefined ? Number.NaN : Date.parse(at);
+  return Number.isNaN(ms) ? null : ms;
+}
+
 export function taskLogs(
   deps: LogsDeps,
   caller: Caller,

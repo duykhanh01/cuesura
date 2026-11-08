@@ -1,7 +1,14 @@
 import type { EpochMs, Uuid } from '../shared/brand.ts';
 import type { DomainEvent } from '../domain/event.ts';
 import type { FrozenPolicy } from '../domain/policy.ts';
-import type { TaskMessage, TaskPause, TaskState, TaskStatus, WaitReason } from '../domain/state.ts';
+import {
+  isTerminal,
+  type TaskMessage,
+  type TaskPause,
+  type TaskState,
+  type TaskStatus,
+  type WaitReason,
+} from '../domain/state.ts';
 import { available } from '../engine/budget.ts';
 import { stepVisitLimit } from '../engine/interpreter.ts';
 import { isUnresolved } from '../engine/runtime.ts';
@@ -200,6 +207,10 @@ export type RuntimeInput = {
   readonly prerequisite: (id: string) => TaskState | null;
 
   readonly merge: Record<string, unknown> | null;
+  /** When the task entered its current status; null when the log cannot say. */
+  readonly status_since?: number | null;
+  /** When a running attempt last wrote a log record; null when it wrote none or its log cannot be read. */
+  readonly last_output_at?: (attemptId: string) => number | null;
 };
 
 export type RuntimeExplanation = Omit<Explanation, 'wait'> & {
@@ -218,7 +229,10 @@ export type RuntimeExplanation = Omit<Explanation, 'wait'> & {
   paused: TaskPause | null;
   /** Messages of the current revision, in the order sent; later agent attempts carry them (issue #154). */
   messages: TaskMessage[];
+  /** Blockers in force: without an end, or with one still ahead. */
   blockers: TaskState['blockers'];
+  /** When the task entered its current status; null when the log cannot say. */
+  status_since: number | null;
   /** Attempts launched and not yet finished: the worker or reviewer binding at work now. */
   running: {
     attempt_id: string;
@@ -226,7 +240,27 @@ export type RuntimeExplanation = Omit<Explanation, 'wait'> & {
     kind: string;
     rung: number;
     binding: string;
+    /** When the runner started the attempt's process; null while no runner has taken it. */
+    started_at: number | null;
+    last_output_at: number | null;
+    /**
+     * Time since the attempt last showed life: its last output, else its start, else the task entering its
+     * status. Grows while an attempt hangs, which the timestamps alone do not show (issue #264).
+     */
+    silent_ms: number | null;
   }[];
+  /** Why the task ended; null while it is live. */
+  terminal: TaskState['terminal'];
+  /**
+   * The merge the task finished on. `unverified` set means nobody checked the merged head, so a DONE does
+   * not vouch for it.
+   */
+  completion: {
+    merged_head_sha: string;
+    checked_head_sha: string | null;
+    merge_commit_sha: string | null;
+    unverified: { reason: string } | null;
+  } | null;
   pr: {
     ref: string | null;
     head_sha: string | null;
@@ -236,7 +270,8 @@ export type RuntimeExplanation = Omit<Explanation, 'wait'> & {
     observation_expired: boolean;
   };
   deadline: {
-    state: 'not_started' | 'running' | 'passed';
+    /** `ended` once the task is terminal: nothing counts down any more. */
+    state: 'not_started' | 'running' | 'passed' | 'ended';
     at: number | null;
     remaining_ms: number | null;
     /**
@@ -322,6 +357,14 @@ function slotHold(state: TaskState): RuntimeExplanation['slot']['hold'] {
   return { kind: 'running', since: h.granted_at, lender_task_id: null };
 }
 
+/** When the runner started the attempt's newest operation; null while none has started. */
+function attemptStartedAt(state: TaskState, attemptId: string): number | null {
+  let at: number | null = null;
+  for (const o of Object.values(state.operations))
+    if (o.attempt_id === attemptId && o.started_at !== null) at = Math.max(at ?? 0, o.started_at);
+  return at;
+}
+
 export function explainRuntime(
   state: TaskState,
   events: readonly DomainEvent[],
@@ -333,6 +376,8 @@ export function explainRuntime(
   const c = state.completion;
   const draining = c !== null && c.finalized_at === null;
   const request = state.execution.request;
+  const ended = isTerminal(state.status);
+  const statusSince = input.status_since ?? null;
   return {
     ...core,
     task_id: state.id,
@@ -343,17 +388,36 @@ export function explainRuntime(
     allowed_actions: allowedActions(state, { recheckable: input.recheckable }),
     paused: state.pause ?? null,
     messages: (state.messages ?? []).filter((m) => m.revision === state.revision),
-    blockers: state.blockers.filter((b) => b.until === null),
+    blockers: state.blockers.filter((b) => b.until === null || b.until > input.now),
+    status_since: statusSince,
     running: Object.values(state.attempts)
       .filter((a) => a.status === 'running')
       .sort((a, b) => a.n - b.n)
-      .map((a) => ({
-        attempt_id: a.id,
-        step: a.step,
-        kind: a.kind,
-        rung: a.rung,
-        binding: a.binding,
-      })),
+      .map((a) => {
+        const started = attemptStartedAt(state, a.id);
+        const output = input.last_output_at?.(a.id) ?? null;
+        const alive = output ?? started ?? statusSince;
+        return {
+          attempt_id: a.id,
+          step: a.step,
+          kind: a.kind,
+          rung: a.rung,
+          binding: a.binding,
+          started_at: started,
+          last_output_at: output,
+          silent_ms: alive === null ? null : Math.max(0, input.now - alive),
+        };
+      }),
+    terminal: state.terminal,
+    completion:
+      c === null
+        ? null
+        : {
+            merged_head_sha: c.proof.merged_head_sha,
+            checked_head_sha: c.proof.checked_head_sha,
+            merge_commit_sha: c.proof.merge_commit_sha,
+            unverified: c.unverified,
+          },
     pr: {
       ref: state.pr_ref,
       head_sha: state.head_sha,
@@ -363,13 +427,15 @@ export function explainRuntime(
       observation_expired: state.observation?.expired ?? false,
     },
     deadline: {
-      state: state.deadline_passed
-        ? 'passed'
-        : state.deadline_at === null
-          ? 'not_started'
-          : 'running',
+      state: ended
+        ? 'ended'
+        : state.deadline_passed
+          ? 'passed'
+          : state.deadline_at === null
+            ? 'not_started'
+            : 'running',
       at: state.deadline_at,
-      remaining_ms: core.remaining.wall_ms,
+      remaining_ms: ended ? null : core.remaining.wall_ms,
       max_wall_ms: policy?.limits.max_wall_ms ?? null,
     },
     slot: {

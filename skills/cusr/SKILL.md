@@ -141,16 +141,23 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 ```sh
 # Short first, details on demand. Defaults hold only what a progress question needs; null and
 # empty fields are omitted (absent = none). data.details is the --full command for everything else.
-# Progress question -> task explain: status, step, wait, blockers, running (step/binding),
-# queue_position, pr, failed (names of failed gates/CI checks, request_changes), allowed_actions,
+# Progress question -> task explain: status, step, wait, blockers, status_since, running
+# (step/binding, started_at, last_output_at, silent_ms), queue_position, pr, failed (names of failed
+# gates, failing/cancelled CI checks on the current head, request_changes), allowed_actions,
 # scope (overlaps: other live tasks changing the same files; base_behind/base_conflicts: the
 # branch against its base). Report overlaps and base conflicts to the user before they burn slots.
 # scope.unknown lists parts that could not be read: say so instead of reporting "no overlap".
 # scope.slot_block {code: scope_overlap, tasks[]}: the task waits because it shares files with
 # those tasks. scope.unscoped: no branch and nothing declared, so no overlap can be seen yet.
+# running[].silent_ms: time since the attempt last wrote output (or started). A large value with no
+# started_at means no runner took it; tell the user it may be hung instead of "still running".
+# A finished task has terminal {kind, reason}: report the reason, not just the status.
+# DONE with unverified: the merge was not vouched for (the merged head is not the checked one); say
+# so to the user and do not report "done, CI green" or rely on it for dependent work.
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task explain "$TASK_ID" --json
-# task show: status, step, wait, pr_ref, version and run_config {status, digest, mode} for mutations.
+# task show: status, step, wait, pr_ref, terminal, unverified, version and run_config
+# {status, digest, mode} for mutations.
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task show "$TASK_ID" --json
 # task content: what was asked, read in one call: title, description, requirements, acceptance,
@@ -159,7 +166,7 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task content "$TASK_ID" --json
 # task list: newest first, 20 per page; items: task_id, project, title, status, activity, pr_ref,
-# overlaps (IDs of live tasks changing the same files) and base_conflicts when present.
+# terminal, unverified, overlaps (IDs of live tasks changing the same files) and base_conflicts when present.
 # Filter with --project/--status; follow next_cursor with --cursor to reach older tasks;
 # --order oldest starts from the first task.
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \

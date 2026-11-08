@@ -140,30 +140,43 @@ trước khi in, cho cả `--json` lẫn output cho người đọc.
 - Bản gọn bỏ field `null`, mảng rỗng, object rỗng: field vắng nghĩa là "không có". `details` là lệnh
   `--full` tương ứng. Chuỗi dài hơn 300 ký tự bị cắt, có ghi số ký tự bị bỏ.
 - `task explain`: `task_id`, `version`, `status`, `step`, `wait` (`reason`, `detail`), `blockers`,
-  `running` (`step`, `binding` của attempt đang chạy), `queue_position`, `pr` (`ref`, `head_sha`),
-  `merge` (`method`, `title`, chỉ khi có PR), `failed` (tên gate lỗi, CI check lỗi, `review:
-  request_changes` của lần gần nhất; không log), `deadline_ms` khi deadline đang chạy, `prerequisites`
-  chưa DONE hoặc chưa xác minh, `merge_cleanup`, `cancellation`, `paused` (`reason`, `by`, `at`, null khi
+  `status_since`, `running` (`step`, `binding`, `started_at`, `last_output_at`, `silent_ms` của attempt
+  đang chạy; field null bị bỏ), `queue_position`, `pr` (`ref`, `head_sha`), `merge` (`method`, `title`,
+  chỉ khi có PR), `failed` (tên gate lỗi, CI check `failure`/`cancelled` của lần đọc CI hợp lệ mới nhất
+  đúng revision và head hiện tại, `review: request_changes` của lần gần nhất; không log), `deadline_ms`
+  khi deadline đang chạy (task đã kết thúc thì không có), `prerequisites` chưa DONE hoặc chưa xác minh,
+  `terminal` (`kind`, `reason`) khi task đã kết thúc, `unverified` (`reason`) khi DONE trên một merge chưa
+  được xác minh, `merge_cleanup`, `cancellation`, `paused` (`reason`, `by`, `at`, null khi
   không tạm dừng), `scope` (`overlaps`: task còn sống khác đổi chung file, `base_behind`, `base_conflicts`,
   `unknown`: phần chưa đọc được, `declared`, `unscoped`, `slot_block`; chỉ khi có), `allowed_actions`.
 - `task show`: `task_id`, `project`, `title`, `status`, `step`, `version`, `wait`, `blockers`, `pr_ref`,
-  `run_config` (`status`, `digest`, `mode`). Đủ cho mutation; nội dung task ở `task content`.
+  `terminal` và `unverified` (như `task explain`, chỉ khi có), `run_config` (`status`, `digest`, `mode`).
+  Đủ cho mutation; nội dung task ở `task content`.
 - `task list`: mới nhất trước, mặc định 20, tối đa 100. Item chỉ có `task_id`, `project`, `title`, `status`,
-  `activity` (wait code hoặc step), `pr_ref`, `overlaps`, `base_conflicts` và `scope_unknown: true` khi có;
-  output cho người đọc in thêm dòng `Overlap:`/`Base conflict:`/`Scope unknown:` dưới bảng. Theo `next_cursor` tới khi `null` là thấy mọi task;
+  `activity` (wait code hoặc step), `pr_ref`, `terminal`, `unverified`, `overlaps`, `base_conflicts` và
+  `scope_unknown: true` khi có;
+  output cho người đọc in thêm dòng `Overlap:`/`Base conflict:`/`Scope unknown:` dưới bảng, ghi status `DONE (unverified)` khi có `unverified` và lý do kết thúc (cắt ở 60 ký tự) ở cột activity khi task đã kết thúc. Theo `next_cursor` tới khi `null` là thấy mọi task;
   `--order oldest` bắt đầu từ task đầu tiên. CLI gửi `order` trong query `task_list`; daemon vẫn mặc định
   `oldest` cho caller cũ.
 - `task history`: mặc định 50 event, mỗi event `seq`, `type`, `revision`, `actor`; `--full` thêm `payload`,
   `dedup_key`.
 - `task logs`: snapshot mặc định 20 record, chuỗi dài hơn 1000 ký tự bị cắt; `--full` giữ nguyên.
 - `task_explain` của daemon có thêm `running` (attempt đang chạy: `attempt_id`, `step`, `kind`, `rung`,
-  `binding`) và `scope` (FR-027.06): `changed_files`, `base` (`ref`, `tip_sha`, `behind`, `conflicts`) và
+  `binding`, `started_at` lúc runner khởi động operation mới nhất của attempt hoặc `null` khi chưa runner
+  nào nhận, `last_output_at` thời điểm record log cuối của operation đó kể cả spool chưa ingest hoặc
+  `null`, `silent_ms` = bây giờ trừ `last_output_at`, không có thì `started_at`, không có nữa thì
+  `status_since`; tăng dần khi attempt treo, issue #264), `status_since` (lúc task vào status hiện tại,
+  như `task board`), `terminal` (`kind`, `reason`; `null` khi task còn sống), `completion`
+  (`merged_head_sha`, `checked_head_sha`, `merge_commit_sha`, `unverified`; `null` khi chưa merge),
+  `deadline.state` là `ended` và `remaining_ms` là `null` khi task đã kết thúc, `blockers` gồm blocker
+  không có `until` hoặc `until` còn ở tương lai, và `scope` (FR-027.06): `changed_files`, `base` (`ref`, `tip_sha`, `behind`, `conflicts`) và
   `overlaps` (`task_id`, `status`, `files`) và `unknown` (`changed_files`, `base`, `overlaps`: phần có mà
   chưa đọc được, rỗng khi task chưa có nhánh), `declared` (phạm vi task khai, `null` khi không khai),
   `unscoped` (`true` khi chưa có nhánh và không khai: phạm vi chưa rõ) và `slot_block` (`null` hoặc
   `{ code: "scope_overlap", tasks: [{ task_id, files }] }`: task chưa chạy đang xếp hàng bị scheduler bỏ
   qua vì chung file với task giữ slot, chỗ giữ hoặc chỗ mượn, FR-044.08); `null` cho task terminal. Item `task_list` của daemon có
-  `overlaps` (ID task), `base_conflicts` và `scope_unknown`. Dữ liệu đọc từ repo cục bộ, không fetch: base
+  `overlaps` (ID task), `base_conflicts`, `scope_unknown`, `terminal` và `unverified`; `task_show` có
+  `terminal`. Dữ liệu đọc từ repo cục bộ, không fetch: base
   tip là `refs/remotes/origin/<base>` đã fetch gần nhất; mọi lệnh git của một truy vấn chung hạn 4 giây.
 - `status`, `inbox`, `report`, `task board`, `task progress` giữ nguyên: dữ liệu đã có giới hạn
   (`inbox` tối đa 100 câu hỏi, `report` và `board` có `truncated`/cursor) và nội dung câu hỏi cần đủ để

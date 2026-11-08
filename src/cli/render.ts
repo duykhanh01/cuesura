@@ -101,10 +101,18 @@ const TaskListSchema = z.object({
       overlaps: z.array(z.string()).optional(),
       base_conflicts: z.array(z.string()).optional(),
       scope_unknown: z.boolean().optional(),
+      terminal: z.object({ reason: z.string() }).loose().optional(),
+      unverified: z.object({ reason: z.string() }).loose().optional(),
     }),
   ),
   next_cursor: z.string().nullable(),
 });
+
+/** Longest end reason the list's activity column shows; `task show` has the whole of it. */
+const LIST_REASON_LIMIT = 60;
+
+const shortReason = (r: string): string =>
+  r.length <= LIST_REASON_LIMIT ? r : `${r.slice(0, LIST_REASON_LIMIT - 1)}…`;
 
 /** `flags`: what this list was asked with, so the next page shows the same list. */
 export const renderTaskList =
@@ -121,8 +129,11 @@ export const renderTaskList =
             items.map((t) => [
               t.task_id,
               sanitize(t.project),
-              sanitize(t.status),
-              sanitize(t.activity ?? '-'),
+              // A DONE on a merge nobody checked must not read as a clean one (issue #264).
+              sanitize(t.unverified === undefined ? t.status : `${t.status} (unverified)`),
+              sanitize(
+                t.terminal === undefined ? (t.activity ?? '-') : shortReason(t.terminal.reason),
+              ),
               sanitize(t.pr_ref ?? '-'),
               sanitize(t.title),
             ]),

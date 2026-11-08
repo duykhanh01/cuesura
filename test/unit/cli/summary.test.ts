@@ -82,7 +82,9 @@ describe('explainSummary', () => {
       reviews: [{ verdict: 'approve', head_sha: 'b' }],
       ci: [
         {
-          head_sha: 'c',
+          revision: 1,
+          head_sha: 'a',
+          valid: true,
           checks: [
             { name: 'build', state: 'success', log_excerpt: LONG },
             { name: 'test', state: 'failure', log_excerpt: LONG },
@@ -201,6 +203,82 @@ describe('explainSummary', () => {
     expect(unscoped['scope']).toEqual({ unscoped: true });
   });
 
+  it('counts failed and cancelled CI only on the current head and revision (issue #264)', () => {
+    const ci = (revision: number, head: string, valid: boolean, state: string) => ({
+      revision,
+      head_sha: head,
+      valid,
+      checks: [{ name: `${head}-${revision}-${state}`, state }],
+    });
+    const failed = (evidence: unknown) =>
+      (
+        explainSummary({
+          task_id: ID,
+          status: 'WAITING',
+          revision: 2,
+          pr: { ref: 'acme#7', head_sha: 'h2' },
+          evidence,
+        }) as Record<string, unknown>
+      )['failed'];
+    expect(failed({ ci: [ci(2, 'h2', true, 'cancelled'), ci(2, 'h1', true, 'success')] })).toEqual({
+      ci: ['h2-2-cancelled'],
+    });
+    expect(failed({ ci: [ci(2, 'h2', true, 'failure'), ci(2, 'h2', false, 'success')] })).toEqual({
+      ci: ['h2-2-failure'],
+    });
+    expect(failed({ ci: [ci(1, 'h2', true, 'failure')] })).toBeUndefined();
+  });
+
+  it('says how long a running attempt has been silent, why a task ended and a DONE nobody verified (issue #264)', () => {
+    expect(
+      explainSummary({
+        task_id: ID,
+        status: 'RUNNING',
+        status_since: 1_000,
+        running: [
+          {
+            attempt_id: 'a1',
+            step: 'code',
+            kind: 'initial',
+            rung: 0,
+            binding: 'opus/medium',
+            started_at: 2_000,
+            last_output_at: null,
+            silent_ms: 7_200_000,
+          },
+        ],
+        deadline: { state: 'running', remaining_ms: 5 },
+        terminal: null,
+        completion: null,
+      }),
+    ).toEqual({
+      task_id: ID,
+      status: 'RUNNING',
+      status_since: 1_000,
+      running: [{ step: 'code', binding: 'opus/medium', started_at: 2_000, silent_ms: 7_200_000 }],
+      deadline_ms: 5,
+      details: `cusr task explain ${ID} --full`,
+    });
+    const unverified = { reason: 'merged_head_unverified' };
+    expect(
+      explainSummary({
+        task_id: ID,
+        status: 'DONE',
+        deadline: { state: 'ended', remaining_ms: null },
+        terminal: { kind: 'DONE', reason: 'merged' },
+        completion: { merged_head_sha: 'm', checked_head_sha: 'c', unverified },
+      }),
+    ).toMatchObject({ terminal: { kind: 'DONE', reason: 'merged' }, unverified });
+    const failed = explainSummary({
+      task_id: ID,
+      status: 'FAILED',
+      terminal: { kind: 'FAILED', reason: 'code:failed' },
+      completion: null,
+    }) as Record<string, unknown>;
+    expect(failed['terminal']).toEqual({ kind: 'FAILED', reason: 'code:failed' });
+    expect(failed).not.toHaveProperty('unverified');
+  });
+
   it('passes a reply it does not recognize through unchanged', () => {
     expect(explainSummary({ unexpected: true })).toEqual({ unexpected: true });
     expect(explainSummary(null)).toBeNull();
@@ -251,6 +329,26 @@ describe('showSummary', () => {
       details: `cusr task show ${ID} --full`,
     });
   });
+
+  it('names why a task ended and a merge nobody verified (issue #264)', () => {
+    const unverified = { reason: 'merged_head_unverified' };
+    expect(
+      showSummary({
+        task_id: ID,
+        status: 'DONE',
+        terminal: { kind: 'DONE', reason: 'merged' },
+        completion: { merged_head_sha: 'm', unverified, finalized_at: 1 },
+      }),
+    ).toMatchObject({ terminal: { kind: 'DONE', reason: 'merged' }, unverified });
+    expect(
+      showSummary({
+        task_id: ID,
+        status: 'DONE',
+        terminal: { kind: 'DONE', reason: 'merged' },
+        completion: { merged_head_sha: 'm', unverified: null, finalized_at: 1 },
+      }),
+    ).not.toHaveProperty('unverified');
+  });
 });
 
 describe('listSummary', () => {
@@ -285,6 +383,27 @@ describe('listSummary', () => {
         },
       ],
       next_cursor: null,
+    });
+  });
+
+  it('names why a task ended and a merge nobody verified (issue #264)', () => {
+    const [row] = (
+      listSummary({
+        items: [
+          {
+            task_id: ID,
+            status: 'DONE',
+            terminal: { kind: 'DONE', reason: 'merged' },
+            unverified: { reason: 'merged_head_unverified' },
+          },
+          { task_id: ID, status: 'RUNNING', terminal: null, unverified: null },
+        ],
+        next_cursor: null,
+      }) as { items: Record<string, unknown>[] }
+    ).items;
+    expect(row).toMatchObject({
+      terminal: { kind: 'DONE', reason: 'merged' },
+      unverified: { reason: 'merged_head_unverified' },
     });
   });
 

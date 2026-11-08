@@ -83,6 +83,7 @@ export function taskView(
     },
     run_config: runConfigView(s),
     merge,
+    terminal: s.terminal,
     completion:
       s.completion === null
         ? null
@@ -629,6 +630,8 @@ export function taskList(
       priority: s.task.priority,
       pr_ref: s.pr_ref,
       head_sha: s.head_sha,
+      terminal: s.terminal,
+      unverified: s.completion?.unverified ?? null,
     });
   }
   return ok({ items, next_cursor: next });
@@ -686,6 +689,10 @@ export function taskExplain(
   caller: Caller,
   body: Readonly<Record<string, unknown>>,
   now: number,
+  live: {
+    readonly statusSince?: (s: TaskState) => number | null;
+    readonly lastOutputAt?: (s: TaskState, attemptId: string) => number | null;
+  } = {},
 ): Result<unknown, AppError> {
   const q = TaskQuerySchema.safeParse(body);
   if (!q.success)
@@ -716,6 +723,10 @@ export function taskExplain(
           return p.ok ? p.value : null;
         },
         merge: mergeOf(store, s),
+        status_since: live.statusSince?.(s) ?? null,
+        ...(live.lastOutputAt === undefined
+          ? {}
+          : { last_output_at: (id: string) => live.lastOutputAt?.(s, id) ?? null }),
       },
     ),
   );

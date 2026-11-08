@@ -477,6 +477,7 @@ function limitRows(out: Rows, explain: TaskExplain): void {
   out.field('Escalations', [ui(left(remaining.escalations))]);
   if (explain.blockers.length === 0) out.field('Blockers', [ui('none', DIM)]);
   if (deadline.state === 'passed') out.field('Time left', [ui('none, the deadline passed', BAD)]);
+  else if (deadline.state === 'ended') out.field('Time left', [ui('none, the task ended', DIM)]);
   else if (deadline.state === 'running')
     out.field('Time left', [
       ui(deadline.remaining_ms === null ? 'unavailable' : formatDuration(deadline.remaining_ms)),

@@ -60,6 +60,43 @@ describe('renderProgress', () => {
 });
 
 describe('renderTaskList', () => {
+  it('marks a DONE nobody verified and shows why a task ended (issue #264)', () => {
+    const long = `dependency_failed:root=${TASK} via=${TASK} (CANCELLED)`;
+    const out = renderTaskList([])({
+      items: [
+        {
+          task_id: 't1',
+          project: 'acme',
+          title: 'One',
+          status: 'DONE',
+          terminal: { kind: 'DONE', reason: 'merged' },
+          unverified: { reason: 'merged_head_unverified' },
+        },
+        {
+          task_id: 't2',
+          project: 'acme',
+          title: 'Two',
+          status: 'CANCELLED',
+          activity: 'code',
+          terminal: { kind: 'CANCELLED', reason: long },
+        },
+        {
+          task_id: 't3',
+          project: 'acme',
+          title: 'Three',
+          status: 'DONE',
+          terminal: { kind: 'DONE', reason: 'merged' },
+        },
+      ],
+      next_cursor: null,
+    });
+    const row = (id: string) => out.split('\n').find((l) => l.startsWith(id)) ?? '';
+    expect(row('t1')).toMatch(/DONE \(unverified\)\s+merged\s/);
+    expect(row('t2')).toContain(`${long.slice(0, 59)}…`);
+    expect(row('t2')).not.toContain(' code ');
+    expect(row('t3')).not.toContain('unverified');
+  });
+
   it('notes tasks that change the same files or conflict with their base (issue #210)', () => {
     const out = renderTaskList([])({
       items: [

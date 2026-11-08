@@ -16,7 +16,7 @@ import { runDoctor, type DoctorDeps } from '../application/doctor.ts';
 import { AttentionDesk, type DeciderWatch } from '../application/attention.ts';
 import { inbox } from '../application/inbox.ts';
 import { taskGateLog, taskGates } from '../application/gate-logs.ts';
-import { LogRecordCache, taskLogs, type LogsDeps } from '../application/logs.ts';
+import { lastOutputAt, LogRecordCache, taskLogs, type LogsDeps } from '../application/logs.ts';
 import { taskProgress } from '../application/progress.ts';
 import { projectList } from '../application/projects.ts';
 import { report } from '../application/report.ts';
@@ -211,7 +211,20 @@ export function taskControl(deps: TaskControlDeps): {
         reply(await withListScope(scope, taskList(store, caller, body))),
       task_history: (caller, body) => reply(taskHistory(store, caller, body)),
       task_explain: async (caller, body) =>
-        reply(await withScope(scope, taskExplain(store, caller, body, deps.now()))),
+        reply(
+          await withScope(
+            scope,
+            taskExplain(store, caller, body, deps.now(), {
+              statusSince,
+              ...(logs === undefined
+                ? {}
+                : {
+                    lastOutputAt: (s, id) =>
+                      lastOutputAt({ store, ...logs, cache: logCache }, s, id),
+                  }),
+            }),
+          ),
+        ),
       question_show: (caller, body) => reply(questionShow(store, caller, body)),
       task_board: (caller, body) =>
         reply(taskBoard({ store, statusSince, now: deps.now }, caller, body)),
