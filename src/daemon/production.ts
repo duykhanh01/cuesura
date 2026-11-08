@@ -293,7 +293,7 @@ export async function productionControl(opts: {
     );
     const observe = (taskId: string, ref: string) => coordinator.observe(taskId, ref, 'recheck');
     /** The user config as it is now; a config that cannot be read turns `what` off. */
-    const currentUser = async (what: string) => {
+    const currentConfig = async (what: string) => {
       try {
         const user = (await readConfigFiles({ user: opts.configPath }))[0] as ConfigSource;
         const current = validateConfig({ user, packs: {} });
@@ -303,12 +303,13 @@ export async function productionControl(opts: {
           );
           return null;
         }
-        return current.value.config.user;
+        return current.value;
       } catch (error) {
         opts.log?.(`${what} disabled: config unreadable: ${opts.redactor.text(String(error))}`);
         return null;
       }
     };
+    const currentUser = async (what: string) => (await currentConfig(what))?.config.user ?? null;
     const yolo: YoloDeps = {
       store,
       clock: opts.clock,
@@ -495,6 +496,9 @@ export async function productionControl(opts: {
       decider,
       observe,
       drain: (taskId) => drainRound(drainDeps, taskId),
+      autoConfirmIntake: async (requester) =>
+        (await currentConfig('intake auto_confirm'))?.intakeAutoConfirm.includes(requester) ??
+        false,
       confirm: { store, ports, configInputs, now },
       logs: { dataDir: opts.dataDir, redactor: opts.redactor },
       doctor: {

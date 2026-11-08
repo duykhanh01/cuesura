@@ -27,9 +27,12 @@ export function onCreateTask(ctx: Ctx, t: CreateTrigger): void {
   }
   checkDependencies(task, ctx.related);
   checkRetryOf(task, ctx.related);
+  const needs = needsConfirmation(task);
+  const auto = needs && t.intake_auto_confirm === true;
   ctx.emit('TaskCreated', {
     task: { ...task, revision: 1 },
-    needs_confirmation: needsConfirmation(task),
+    needs_confirmation: needs && !auto,
+    ...(auto ? { intake_auto_confirmed: true as const } : {}),
   });
   retriage(ctx, ctx.related.deps);
 }

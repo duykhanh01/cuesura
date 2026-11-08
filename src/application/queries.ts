@@ -239,37 +239,42 @@ export type TaskServiceDeps = {
   readonly observe?: RecheckDeps['observe'];
   /** One bounded drain round for `task recheck`; `task_recheck` needs this and `observe`. */
   readonly drain?: RecheckDeps['drain'];
+  /** Whether the user config accepts tasks of this requester without the intake confirmation. */
+  readonly autoConfirmIntake?: (requesterId: string) => Promise<boolean>;
 };
 
-export function taskAdd(
+export async function taskAdd(
   deps: TaskServiceDeps,
   admitted: Admitted,
   input: CommandInput,
   caller: Caller,
 ): Promise<Result<unknown, AppError>> {
   const task = buildNewTask(admitted, input, caller);
-  if (!task.ok) return Promise.resolve(task);
+  if (!task.ok) return task;
+  const requester = task.value.requested_by;
+  // Decided here from the user's config, never from anything the caller sent.
+  const auto =
+    requester.kind !== 'human' && (await deps.autoConfirmIntake?.(requester.id)) === true;
   const r = submit(deps.store, {
     task_id: task.value.id,
     dedup_key: `cmd:${admitted.record.request_id}:create`,
-    trigger: { kind: 'create_task', task: task.value },
+    trigger: {
+      kind: 'create_task',
+      task: task.value,
+      ...(auto ? { intake_auto_confirm: true as const } : {}),
+    },
     now: deps.now(),
     ids: admitted.record.assigned_ids,
     expected_version: 0,
     authz: authzContext(caller, deps.now()),
   });
-  if (!r.ok)
-    return Promise.resolve(
-      err({ code: 'conflict', message: r.error.code, details: { ...r.error } }),
-    );
+  if (!r.ok) return err({ code: 'conflict', message: r.error.code, details: { ...r.error } });
   if (r.value.decision.kind === 'rejected')
-    return Promise.resolve(
-      err({
-        code: r.value.decision.code,
-        message: 'task rejected',
-        details: { detail: r.value.decision.detail ?? null },
-      }),
-    );
+    return err({
+      code: r.value.decision.code,
+      message: 'task rejected',
+      details: { detail: r.value.decision.detail ?? null },
+    });
   const proposal = (input.payload as { run_config?: RunProposal } | null)?.run_config;
   if (proposal !== undefined) {
     const p = proposeRun(
@@ -279,10 +284,10 @@ export function taskAdd(
       proposal,
       caller,
     );
-    if (!p.ok && p.error.code !== 'conflict') return Promise.resolve(p);
+    if (!p.ok && p.error.code !== 'conflict') return p;
   }
   const s = deps.store.readTask(task.value.id) as TaskState;
-  return Promise.resolve(ok(taskView(s)));
+  return ok(taskView(s));
 }
 
 /** `task_propose_run`: a new run selection for a task that has not started; any operator may propose. */

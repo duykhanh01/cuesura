@@ -154,7 +154,8 @@ cũ thành bằng chứng đọc đầy đủ endpoint chưa từng thành công
 CI deadline/count riêng từng head: default 1 giờ/60 lượt (hoặc step timeout đóng băng); exhausted
 không mở lại agent/rerun/poll. CI pass muộn đủ required checks trên đúng head (quan sát hoặc câu trả
 lời poll đến sau hạn) đưa task sang chờ merge; kết quả muộn khác chỉ là bằng chứng (FR-043.11). Hết task deadline vẫn quan sát trong hạn riêng. Hết hạn
-observation là observation_expired, không tự poll lại. Recheck quan sát một lần có dedup, chưa
+observation là observation_expired, không tự poll lại, trừ khi lần đọc cuối thấy PR mở trên đúng
+head task: khi đó cửa sổ tự gia hạn (`ObservationExtended`, FR-043.04). Recheck quan sát một lần có dedup, chưa
 merge giữ exhausted; thấy merge thì drain theo FR-040, không DONE trước dừng/đối chiếu.
 
 Head ngoài dự kiến, target mismatch, PR đóng, CI rerun và base tip thay đổi tuân FR-041. Chỉ base

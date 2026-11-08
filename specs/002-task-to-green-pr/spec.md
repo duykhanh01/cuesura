@@ -149,7 +149,9 @@ permission/approval được kiểm chứng, owner cho phép tường minh; khô
   amend-policy thuộc feature sau, không mở thêm lượt/thời hạn.
 - Q11: Theo dõi PR tới terminal có vi phạm I07? → A: Dùng backoff tới trần và thời hạn quan sát
   tổng hữu hạn; hết hạn chuyển WAITING/policy với `observation_expired`, ngừng tự poll. Chỉ recheck
-  mới đối chiếu lại, thấy merge vẫn DONE; plan chốt giá trị cụ thể (FR-043/046).
+  mới đối chiếu lại, thấy merge vẫn DONE; plan chốt giá trị cụ thể (FR-043/046). Cập nhật theo
+  issue #248: cửa sổ hết hạn khi PR vẫn mở trên đúng head của task thì tự gia hạn một cửa sổ mới
+  (mỗi cửa sổ vẫn hữu hạn, poll ở trần 1 giờ không gọi agent hay giữ slot), không dừng chờ người.
 - Q12: Repo không có branch protection xử lý thế nào? → A: GitHub yêu cầu là tập con của snapshot
   thì đối chiếu đạt; có check ngoài snapshot thì `required_checks_mismatch`. GitHub xác nhận không
   có quy tắc thì ghi `github_required: none`; không đọc được vẫn unknown. Sửa chi tiết Q5 (FR-042).
@@ -287,7 +289,8 @@ code; kiểm tra vòng sửa, bằng chứng mới và số lượt. Tách mẫu
 10. **Given** task đang chờ người merge, **When** deadline thực thi hết, **Then** WAITING/policy với
     task_deadline và không mở attempt mới; vẫn quan sát PR tự động trong hạn FR-043. Merge sau đó
     làm DONE theo FR-040 khi được xác nhận; hết hạn quan sát cần recheck, không tăng deadline.
-11. **Given** PR chưa terminal và quan sát tự động đã hết hạn tổng, **When** đến hạn kể cả qua restart,
+11. **Given** PR chưa terminal, lần quan sát cuối thấy PR đóng, khác head của task hoặc unknown, và
+    quan sát tự động đã hết hạn tổng (PR vẫn mở trên đúng head thì cửa sổ tự gia hạn theo FR-043.04), **When** đến hạn kể cả qua restart,
     **Then** WAITING/policy với observation_expired, không còn poll tự động; backoff trước đó không
     vượt trần. Recheck đối chiếu một lần: thấy merge thì DONE theo FR-040, chưa merge hoặc unknown
     thì vẫn ngừng poll, giữ lý do/giới hạn đang chặn và bằng chứng mới; không gia hạn quan sát/thực thi.
@@ -725,9 +728,9 @@ nhóm bao gồm toàn bộ các mục con, không thay thế việc kiểm chứ
   | **FR-043.01** | Hệ thống MUST duy trì giới hạn chờ CI/thực thi tách khỏi giới hạn quan sát PR. |
   | **FR-043.02** | Mỗi lượt quan sát MUST có timeout và số retry transport hữu hạn. |
   | **FR-043.03** | Chu kỳ poll MUST giãn dần tới trần đã cấu hình, không retry nóng; quan sát không giữ slot hoặc gọi agent. |
-  | **FR-043.04** | Vòng quan sát MUST có thời hạn tổng hữu hạn; plan chốt giá trị, mốc tính hạn và lịch backoff. |
-  | **FR-043.05** | Restart/đọc thành công/recheck MUST NOT reset hạn quan sát hoặc tạo chuỗi poll trùng. |
-  | **FR-043.06** | Hết hạn quan sát MUST ngừng poll và chuyển WAITING/policy với observation_expired, giữ blocker/giới hạn đã chạm và lần quan sát cuối; chỉ recheck đối chiếu một lần, không tự bật lại lịch. |
+  | **FR-043.04** | Mỗi cửa sổ quan sát MUST có thời hạn và số lượt hữu hạn; plan chốt giá trị, mốc tính hạn và lịch backoff. Cửa sổ hết hạn hoặc hết lượt khi lần quan sát cuối thấy PR vẫn mở trên đúng head của task (không head drift, không cancel) thì MUST được thay bằng cửa sổ mới cùng giới hạn tính từ lúc đó (`ObservationExtended`), không cần người (issue #248). Hết hạn mà gia hạn không đọc GitHub thì cửa sổ mới đọc PR ngay. |
+  | **FR-043.05** | Restart/đọc thành công/recheck MUST NOT reset hạn quan sát hoặc tạo chuỗi poll trùng; chỉ gia hạn theo FR-043.04 dời hạn. |
+  | **FR-043.06** | Hết hạn quan sát mà không gia hạn được (lần đọc cuối thấy PR đóng, khác head hoặc unknown) MUST ngừng poll và chuyển WAITING/policy với observation_expired, giữ blocker/giới hạn đã chạm và lần quan sát cuối; chỉ recheck đối chiếu một lần, không tự bật lại lịch. |
   | **FR-043.07** | Đối chiếu bắt buộc khi cancel MUST vẫn được thực hiện theo FR-025 sau hạn quan sát, không khôi phục giám sát định kỳ. |
   | **FR-043.08** | Vòng CI mỗi head MUST có trần thời gian/số lần kiểm tra; chạm trần thì WAITING/ci với ci_wait_exhausted và dừng tự động sửa/rerun vòng đó, không gia hạn; pass muộn xử lý theo FR-043.11. |
   | **FR-043.09** | Deadline task MUST bắt đầu khi workflow chạy lần đầu theo SPEC.md §9.4: READY chờ slot đầu chưa tính, chờ xin lại slot có tính; không tạm dừng/reset khi xin slot hoặc restart. |

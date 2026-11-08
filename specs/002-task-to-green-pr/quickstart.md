@@ -104,7 +104,8 @@ Mỗi nhóm có trước effect, sau side effect thành công, trước ingest x
 - Merge lúc fixer/setup/gate/push còn chạy: chặn effect mới ngay sau ghi fact; nhận late push đúng
   thực tế, giữ local diff/commit. Unknown drain giữ claim, recheck hữu hạn; B chỉ được giải phóng
   sau A DONE và explain hiển thị prerequisite merged_head_unverified.
-- Clock tiến qua 30 ngày/2.000 lượt thì observation_expired, không poll nữa; recheck một lượt thấy
+- Clock tiến qua 30 ngày/2.000 lượt khi lần đọc cuối thấy PR mở trên đúng head thì cửa sổ tự gia hạn;
+  PR đã đóng/khác head/unknown thì observation_expired, không poll nữa; recheck một lượt thấy
   merge vẫn drain→DONE, chưa merge/unknown không bật poll hoặc reset deadline. Drain có hạn riêng.
 
 ## 4. Lát C — Smoke xuyên suốt thật

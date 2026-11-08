@@ -834,6 +834,12 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
         until: null,
       });
       break;
+    case 'ObservationExtended':
+      if (s.observation) {
+        s.observation.budget.deadline_at = event.payload.deadline_at;
+        s.observation.budget.max_count = event.payload.max_count;
+      }
+      break;
     case 'ExternalCompletionObserved':
       s.completion = {
         proof: event.payload.proof,

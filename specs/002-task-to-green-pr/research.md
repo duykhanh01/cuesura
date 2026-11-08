@@ -57,9 +57,9 @@ khai; đọc help/tài liệu không được tính là smoke đã đạt. Các 
 
   | Giới hạn | Giá trị |
   | --- | --- |
-  | Hạn quan sát tổng | 30 ngày từ lần đầu nhận diện PR; không reset bởi thay đổi/đọc/recheck/restart |
+  | Hạn quan sát tổng | 30 ngày từ lần đầu nhận diện PR; không reset bởi thay đổi/đọc/recheck/restart. Hết hạn khi lần đọc cuối thấy PR mở trên đúng head task thì gia hạn cửa sổ mới 30 ngày từ lúc đó (#248) |
   | Poll | 60 giây × 2 sau mỗi lượt, trần 1 giờ; reset cadence khi head/check/PR-state thay đổi, không reset hạn tổng |
-  | Trần lượt tự quan sát | 2.000 lượt/PR, chạm trước cũng observation_expired |
+  | Trần lượt tự quan sát | 2.000 lượt mỗi cửa sổ, chạm trước cũng observation_expired, trừ khi gia hạn được như trên |
   | Một lượt đối chiếu | Tối đa 60 giây, 100 HTTP request, 20 trang mỗi danh sách, 2 MiB/response |
   | Transport | Tối đa 3 lần gửi/request, chờ 1 rồi 2 giây; Retry-After vượt cửa sổ thì trả unknown và hẹn lượt sau trong hạn |
   | CI tự tiếp tục | Timeout của bước CI đóng băng, mặc định 1 giờ/head; tối đa 60 lượt CI/head, không reset khi recheck |

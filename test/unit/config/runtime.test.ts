@@ -52,6 +52,23 @@ function paths(extra: string): string[] {
   return errors(extra).map((e) => e.path);
 }
 
+describe('intake.auto_confirm (T135, #248)', () => {
+  it('lists the requesters outside the hashed user config; absent means none', () => {
+    const on = valid('intake: { auto_confirm: [assistant] }\n');
+    const off = valid('');
+    expect(on.intakeAutoConfirm).toEqual(['assistant']);
+    expect(off.intakeAutoConfirm).toEqual([]);
+    expect(on.config.hashes).toEqual(off.config.hashes);
+  });
+
+  it('rejects an unknown key or an empty name', () => {
+    expect(paths('intake: { auto_confirm: [assistant], max_per_day: 3 }\n')).toEqual([
+      'intake.max_per_day',
+    ]);
+    expect(paths("intake: { auto_confirm: [''] }\n")).toEqual(['intake.auto_confirm.0']);
+  });
+});
+
 describe('projects.<id>.path / repo', () => {
   it('exposes path and repo as locations, outside the hashed user config', () => {
     const v = valid('');
@@ -300,6 +317,12 @@ describe('project file authority', () => {
     expect(errors('', project('autonomous: true\n')).map((e) => [e.code, e.path])).toEqual([
       ['forbidden_key', 'autonomous'],
     ]);
+  });
+
+  it('cannot auto-confirm intake (#248)', () => {
+    expect(
+      errors('', project('intake: { auto_confirm: [assistant] }\n')).map((e) => [e.code, e.path]),
+    ).toEqual([['forbidden_key', 'intake']]);
   });
 
   it('cannot enable yolo', () => {

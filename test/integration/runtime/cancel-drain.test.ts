@@ -1789,6 +1789,8 @@ describe('the cancel service reads the PR before it ends (US5.4/US5.6, FR-025.03
 
   it('the read happens even after the observation window expired', async () => {
     const f = await green();
+    // The last read shows another head, so the window cannot be extended (#248).
+    f.d.must(f.task.id, observation(f.d, f.task, 'open', 'b'.repeat(40), { source: 'recheck' }));
     const s = f.d.task(f.task.id);
     f.d.now = (s.observation?.budget.deadline_at ?? f.d.now) + 1;
     f.d.must(f.task.id, { kind: 'observation_due' });

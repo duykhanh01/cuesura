@@ -14,8 +14,10 @@ import { mkWait, waitTask } from './waits.ts';
  * 30 days and 2,000 automatic rounds by default (the snapshot's limits). Each automatic round (`timer`
  * source) must carry the window's current generation, which then moves on, so two chains reading the
  * same round cannot both count; the next round is due 60 s × 2ⁿ later, capped at one hour, and a
- * changed remote digest only resets the cadence, never the window. A recheck observation is recorded
- * and acted on but neither counts nor moves the schedule; after expiry only a recheck observes.
+ * changed remote digest only resets the cadence, never the window. A window that runs out while the
+ * last observation shows the PR open on the task's own head is extended by a fresh window instead (#248):
+ * nothing changed that needs a person, so watching goes on. A recheck observation is recorded and acted
+ * on but neither counts nor moves the schedule; after expiry only a recheck observes.
  *
  * What an observation changes, and nothing else:
  * - `closed` (not merged): green is withdrawn, the task waits `policy/pr_closed`; no new PR, no business
@@ -130,9 +132,12 @@ function ignore(ctx: Ctx, reason: string, observationId: string): void {
 function schedule(ctx: Ctx, changed: boolean): void {
   const ob = ctx.state.observation;
   if (ob === null) return;
-  const b = ob.budget;
-  if (b.count >= b.max_count) return expire(ctx, 'rounds');
-  if (ctx.now >= b.deadline_at) return expire(ctx, 'deadline');
+  const spent = spentReason(ob.budget, ctx.now);
+  if (spent !== null) {
+    if (!extendable(ctx)) return expire(ctx, spent);
+    extend(ctx, spent);
+  }
+  const b = (ctx.state.observation ?? ob).budget;
   const index = changed ? 0 : b.cadence_index + 1;
   const due = Math.min(ctx.now + cadenceDelay(limitsOf(ctx), index), b.deadline_at);
   ctx.emit('ObservationScheduled', {
@@ -143,6 +148,44 @@ function schedule(ctx: Ctx, changed: boolean): void {
     next_due_at: due,
     cadence_index: index,
     generation: b.generation + 1,
+  });
+}
+
+function spentReason(
+  b: { count: number; max_count: number; deadline_at: number },
+  now: number,
+): 'deadline' | 'rounds' | null {
+  if (b.count >= b.max_count) return 'rounds';
+  if (now >= b.deadline_at) return 'deadline';
+  return null;
+}
+
+/** The last observation shows the PR still open on the task's own head, with nothing pending on it. */
+function extendable(ctx: Ctx): boolean {
+  const s = ctx.state;
+  const last = s.observation?.last ?? null;
+  return (
+    last !== null &&
+    last.status === 'open' &&
+    s.head_sha !== null &&
+    last.observed_head === s.head_sha &&
+    s.run.head_drift === null &&
+    s.cancellation === null &&
+    s.completion === null &&
+    !isTerminal(s.status)
+  );
+}
+
+/** A fresh window of the snapshot's limits from now; the rounds already counted stay counted. */
+function extend(ctx: Ctx, reason: 'deadline' | 'rounds'): void {
+  const ob = ctx.state.observation;
+  if (ob === null) return;
+  const l = limitsOf(ctx);
+  ctx.emit('ObservationExtended', {
+    at: ctx.now,
+    reason,
+    deadline_at: ctx.now + l.observation_max_ms,
+    max_count: ob.budget.count + l.observation_max_rounds,
   });
 }
 
@@ -213,9 +256,22 @@ export function onObservationDue(ctx: Ctx, t: ObservationDue): void {
     reject('invalid_trigger', { reason: 'observation_subject_mismatch' });
   if (ob.expired || ctx.state.completion !== null)
     return ignore(ctx, ob.expired ? 'observation_expired' : 'completion_recorded', '');
-  if (ctx.now >= ob.budget.deadline_at) return expire(ctx, 'deadline');
-  if (ob.budget.count >= ob.budget.max_count) return expire(ctx, 'rounds');
-  ignore(ctx, 'not_due', '');
+  const b0 = ob.budget;
+  const spent = ctx.now >= b0.deadline_at ? 'deadline' : b0.count >= b0.max_count ? 'rounds' : null;
+  if (spent === null) return ignore(ctx, 'not_due', '');
+  if (!extendable(ctx)) return expire(ctx, spent);
+  // No read happens here, so the fresh window starts with a round now that checks the PR again.
+  extend(ctx, spent);
+  const b = (ctx.state.observation ?? ob).budget;
+  ctx.emit('ObservationScheduled', {
+    subject: ob.subject,
+    started_at: b.started_at,
+    deadline_at: b.deadline_at,
+    max_count: b.max_count,
+    next_due_at: ctx.now,
+    cadence_index: b.cadence_index,
+    generation: b.generation,
+  });
 }
 
 /** The PR is closed without a merge: wait for a person, with no new PR and no business work (FR-041.07). */

@@ -366,6 +366,11 @@ export const UserConfigSchema = z
     permissions: z.record(z.string(), z.enum(['read_only', 'write'])).optional(),
     yolo: z.boolean().optional(),
     autonomous: z.boolean().optional(),
+    /**
+     * Requesters (`requested_by.id`, e.g. `assistant`) whose tasks are accepted without the intake
+     * confirmation (SPEC.md intake rules). Read when a task is created; it never confirms a run config.
+     */
+    intake: z.object({ auto_confirm: nameList }).strict().optional(),
     runtime: RuntimeSchema.optional(),
   })
   .strict();
@@ -381,5 +386,6 @@ export const USER_ONLY_KEYS = [
   'permissions',
   'yolo',
   'autonomous',
+  'intake',
   'runtime',
 ] as const;

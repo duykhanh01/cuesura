@@ -47,7 +47,7 @@ Trước lần spawn đầu, người dùng phải được xem và xác nhận 
 - Các lựa chọn dự phòng/nấc escalation nếu muốn cho phép dùng mà không hỏi lại.
 
 Task do assistant tạo vẫn mặc định cần xác nhận intake; người dùng cấu hình auto-confirm intake
-và hạn mức theo client. Quyền nhận task này tách khỏi xác nhận cấu hình chạy: auto-confirm intake
+(`intake.auto_confirm` trong user config, liệt kê `requested_by.id`) và hạn mức theo client (chưa có). Quyền nhận task này tách khỏi xác nhận cấu hình chạy: auto-confirm intake
 không miễn lượt xác nhận harness/model/effort/mode trước spawn.
 Có thể gộp một lượt tương tác cho cả intake và cấu hình chạy nếu người dùng được xem rõ cả hai
 và bằng chứng xác nhận bao phủ đúng task/bộ lựa chọn; không yêu cầu hai lượt chat chỉ vì có hai phạm vi.

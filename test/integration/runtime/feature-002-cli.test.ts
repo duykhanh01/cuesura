@@ -895,6 +895,8 @@ describe('task recheck end to end (T110, FR-046.01–08)', () => {
     const store = sd.daemon?.store as NonNullable<SeededDaemon['daemon']>['store'];
     const d = new StoreDriver(store);
     d.now = sd.now;
+    // The last read shows another head, so the window cannot be extended (#248).
+    d.must(t.id, observation(d, t, 'open', 'b'.repeat(40), { source: 'recheck' }));
     d.now += 31 * 86_400_000;
     sd.now = d.now;
     d.must(t.id, { kind: 'observation_due' });

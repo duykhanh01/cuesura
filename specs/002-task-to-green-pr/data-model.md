@@ -116,7 +116,7 @@ EffectRequested/Completed, TimerArmed/Cancelled, TaskCompleted, QuestionAnswered
 | drain_deadline/round_limit | DrainPaused, WAITING/policy merge_cleanup_pending; không retry tự động |
 | recheck(request) | RecheckRequested, một effect observe hoặc drain; dedup cùng command ledger, không sửa ngân sách. Target `worktree` (task chờ `worktree_changed`): thêm WorktreeChangeAccepted với tree đã quan sát, ghi là thay đổi của người dùng, rồi chạy lại bước đó. Target `manifest` (task chờ `manifest_changed`): thêm ManifestChangeAccepted với hash manifest đang hiệu lực, ghi vào `run.manifest_refs`, rồi chạy lại bước đó. Target `auth` (task chờ `harness_auth`) và `visits` (`loop_exhausted` mà các lượt cuối của bước đều lỗi infra/rate_limit/auth_config): thêm VisitsCredited cho các lượt đó, ghi vào `visit_credits` (cộng vào giới hạn visit, mỗi lượt chỉ được trả một lần), rồi chạy lại bước |
 | ingest_record(operation, cursor, normalized) | ArtifactIngested/OutputAccepted + cursor; commit chung, rồi ACK file. Cursor null chỉ khi run chưa ghi record nào: chỉ artifact final |
-| observation_due/deadline | ObservationScheduled/Expired; CI/deadline task giữ blocker riêng, không ghi đè drain |
+| observation_due/deadline | ObservationScheduled/Expired/Extended; CI/deadline task giữ blocker riêng, không ghi đè drain |
 
 Các fact I/O đều có observation time, provenance và digest; `now`/ID được tạo ngoài engine. Adapter
 không chọn WAITING/DONE/retry/escalation. Runtime xử lý completion trước source-drift/deadline trong
@@ -138,7 +138,7 @@ không chọn WAITING/DONE/retry/escalation. Runtime xử lý completion trướ
 | Harness được chứng minh lại sau khi task đóng băng snapshot | Không gọi agent. Manifest mới vẫn đáp ứng yêu cầu task đã chốt (schema kết quả của mọi role policy đóng băng chạy trên harness đó, không capability nào `unsupported`, không `external_verified`): ghi ManifestChangeAccepted rồi chạy lại bước, không chờ người (issue #249). Không đáp ứng: WAITING/policy manifest_changed (harness/known/observed); `recheck` nhận manifest đang hiệu lực cho task, không đổi ngầm (T070/T071) |
 | Harness chạy nhưng đăng nhập hết hạn/bị từ chối | WAITING/policy harness_auth (step/harness/message), không backoff hay retry; `recheck` sau khi đăng nhập lại trả visit của lượt đó và chạy lại bước |
 | Hết hạn/thang/lượt | Giữ blocker, không thêm thực thi; observation vẫn chạy trong hạn riêng |
-| Hết hạn quan sát | WAITING/policy observation_expired, hủy lịch, recheck hữu hạn |
+| Hết hạn quan sát | PR còn mở trên đúng head task ở lần đọc cuối: ObservationExtended, cửa sổ mới cùng giới hạn (#248). Còn lại: WAITING/policy observation_expired, hủy lịch, recheck hữu hạn |
 | Merge proof đủ khi task chưa terminal | WAITING/policy merge_cleanup_pending cho tới drain xong; không giải phóng dependency sớm |
 | Drain hoàn tất, kể cả chưa chứng nhận | DONE; giải phóng dependency qua event DONE, không thêm approval |
 | Cancel khi merge đã xác nhận | Tiếp tục drain rồi DONE + dấu yêu cầu hủy đến quá muộn, không CANCELLED |

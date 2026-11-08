@@ -468,7 +468,14 @@ export const FreezeResultSchema = z.union([
 ]);
 
 export const TriggerSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('create_task'), task: CanonicalTaskSchema }).strict(),
+  z
+    .object({
+      kind: z.literal('create_task'),
+      task: CanonicalTaskSchema,
+      /** Set by cusrd from the user's `intake.auto_confirm`, for a non-human requester only. */
+      intake_auto_confirm: z.literal(true).optional(),
+    })
+    .strict(),
   z.object({ kind: z.literal('confirm_task') }).strict(),
   z.object({ kind: z.literal('source_updated'), task: CanonicalTaskSchema }).strict(),
   z

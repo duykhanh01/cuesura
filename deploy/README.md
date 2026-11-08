@@ -464,6 +464,21 @@ minh giờ tốn 4 lượt thay vì 3). Manifest cũ vẫn chạy được coder
 - **Lật lại:** decider không hoàn tác được gì. Xem `decisions.md` rồi revert hoặc tạo task mới. Run directory
   của decider không gắn với operation nào trong store nên retention không dọn.
 
+## Auto-confirm intake
+
+Task do assistant tạo mặc định chờ `cusr task confirm` ở bước intake. Liệt kê requester được nhận task
+ngay trong user config (không khai được trong `cusr.yaml`):
+
+```yaml
+intake:
+  auto_confirm: [assistant]
+```
+
+Tên là `requested_by.id` của task (`assistant` với token assistant). Daemon đọc lại config mỗi lần tạo task,
+không cần restart; task đã tạo không đổi. Task được nhận ngay mang `intake_auto_confirmed: true` trong
+event `TaskCreated`. Khóa này chỉ bỏ bước intake: bộ lựa chọn chạy (mode, harness/model/effort, reviewer)
+vẫn phải được xác nhận trước lần spawn đầu.
+
 ## Workflow trong user config
 
 Graph workflow cố định trong code (`software_dev@1`). User config chỉ chọn graph đó (`base`, bắt buộc)

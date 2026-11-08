@@ -21,6 +21,7 @@ import { dbPath, useTempDir } from '../../support/temp-db.ts';
 
 const tempDir = useTempDir('cusr-observe-');
 const DAY = 86_400_000;
+const B = 'b'.repeat(40);
 const setup = () => new StoreDriver(openFileStoreForTest(dbPath(tempDir())));
 
 function clockOf(d: StoreDriver): Clock {
@@ -199,6 +200,8 @@ describe('observation service (T061)', () => {
     const d = setup();
     const t = buildTask();
     greenObserved(d, t);
+    // The last read shows another head, so the window cannot be extended (#248).
+    d.must(t.id, observation(d, t, 'open', B, { source: 'recheck' }));
     d.now += 31 * DAY;
     const { calls, coordinator } = fakeReads(() => ({
       facts: [],

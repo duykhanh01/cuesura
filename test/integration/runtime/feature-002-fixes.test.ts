@@ -13,6 +13,7 @@ import { hashCanonical } from '../../../src/shared/hash.ts';
 import { openFileStoreForTest } from '../../../src/store/testing.ts';
 import { buildTask, DEFAULT_LIMITS, uuidOf } from '../../support/builders.ts';
 import { createGrantStart } from '../../support/runtime.ts';
+import { DEFAULT_RUNTIME_LIMITS } from '../../../src/domain/runtime.ts';
 import { agentData, ciData, publishData, reviewData } from '../../support/scenario.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 import {
@@ -1511,6 +1512,8 @@ describe('observation window (US2.11, FR-043.04–06, FR-046.05/06)', () => {
       kind: 'accepted',
     });
     expect(types(d, t).at(-1)).toBe('SignalIgnored');
+    // The last read shows another head, so the window cannot be extended (#248).
+    d.must(t.id, observation(d, t, 'open', 'b'.repeat(40), { source: 'recheck' }));
     d.now += 31 * DAY;
     d.must(t.id, { kind: 'observation_due' });
     const s = d.task(t.id);
@@ -1541,6 +1544,69 @@ describe('observation window (US2.11, FR-043.04–06, FR-046.05/06)', () => {
     });
     merge(d, t, A, 'recheck');
     expect(d.task(t.id).status).toBe('DONE');
+  });
+
+  it('a window that runs out while the PR is open on the task head is extended, not expired (#248)', () => {
+    const d = setup();
+    const t = buildTask();
+    toGreen(d, t);
+    d.must(
+      t.id,
+      observation(d, t, 'open', A, {
+        ci: ci(A, { build: 'success', test: 'success' }),
+      }),
+    );
+    const first = d.task(t.id).observation?.budget;
+    d.now += 31 * DAY;
+    d.must(t.id, { kind: 'observation_due' });
+    const s = d.task(t.id);
+    expect(types(d, t)).toContain('ObservationExtended');
+    expect(s.wait?.detail.code).toBe('merge');
+    expect(s.observation).toMatchObject({
+      expired: false,
+      budget: {
+        started_at: first?.started_at,
+        deadline_at: d.now + 30 * DAY,
+        max_count: (first?.count ?? 0) + 2_000,
+        // No read happened, so the new window checks the PR right away.
+        next_due_at: d.now,
+      },
+    });
+    expect(s.blockers.map((b) => b.code)).not.toContain('observation_expired');
+    // That round finds the PR closed: the usual handling, and the next run-out expires the window.
+    d.must(t.id, observation(d, t, 'closed', A));
+    expect(d.task(t.id).wait?.detail.code).toBe('pr_closed');
+    d.now += 31 * DAY;
+    d.must(t.id, { kind: 'observation_due' });
+    expect(d.task(t.id).observation?.expired).toBe(true);
+  });
+
+  it('the round cap extends the window on an open, unchanged PR and expires it on another head (#248)', () => {
+    const d = setup();
+    const t = buildTask();
+    toGreen(
+      d,
+      t,
+      'full-review',
+      {},
+      { limits: { ...DEFAULT_RUNTIME_LIMITS, observation_max_rounds: 2 } },
+    );
+    d.must(t.id, observation(d, t, 'open', A));
+    d.now += HOUR;
+    d.must(t.id, observation(d, t, 'open', A));
+    expect(d.task(t.id).observation).toMatchObject({
+      expired: false,
+      budget: { count: 2, max_count: 4, deadline_at: d.now + 30 * DAY },
+    });
+    expect(d.task(t.id).observation?.budget.next_due_at).not.toBeNull();
+    d.now += HOUR;
+    d.must(t.id, observation(d, t, 'open', A));
+    d.now += HOUR;
+    d.must(t.id, observation(d, t, 'open', 'b'.repeat(40)));
+    expect(d.task(t.id).observation).toMatchObject({
+      expired: true,
+      budget: { count: 4, max_count: 4 },
+    });
   });
 
   it('a round of a generation that moved on is ignored, so two chains never both count (FR-043.05)', () => {

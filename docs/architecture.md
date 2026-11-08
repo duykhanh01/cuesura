@@ -1064,7 +1064,7 @@ interface SourceConnector {
 Ghi chú theo nguồn:
 - **Task do agent tạo có rủi ro chi phí**, vì một agent có thể tạo hàng loạt việc.
   - Mặc định task do agent tạo ở trạng thái `PENDING(confirmation)` cho tới khi bạn chạy `cusr task confirm`.
-  - Có thể cấu hình `auto_confirm` theo từng agent và profile.
+  - Có thể cấu hình auto-confirm intake theo từng agent: `intake.auto_confirm: [assistant]` trong user config (không theo profile). Task vẫn cần xác nhận cấu hình chạy trước spawn.
   - Có giới hạn số task mỗi agent được tạo trong một ngày.
 - **GitHub là kênh hỏi đáp tự nhiên từ điện thoại.** Câu hỏi của agent thành comment trên issue, và bạn trả lời bằng `/cusr answer …` ngay trong app GitHub. Task tạo từ CLI hay agent cũng có thể gắn với một issue để dùng kênh này.
 - **Form chỉ cần khi đã có HTTP API** (giai đoạn 2). Trước đó, từ điện thoại bạn giao việc bằng GitHub issue, hoặc nhờ assistant trong Paseo chạy `cusr task add`.

@@ -12,7 +12,9 @@ daemon chỉ validate lựa chọn tường minh. Trước spawn đầu, ngườ
 mode, worker harness/model/effort và reviewer binding nếu `full-review`, cùng fallback đã cho phép.
 Xác nhận từ kênh người dùng đáng tin gắn với digest bộ lựa chọn; assistant không tự khai `confirmed`
 để vượt bước này, quyền operate không được nâng lên. Task do assistant tạo mặc định chờ xác nhận intake; auto-confirm intake và hạn mức tạo task theo
-client chỉ do người dùng cấu hình. Auto-confirm intake không miễn xác nhận chạy.
+client chỉ do người dùng cấu hình. Auto-confirm intake không miễn xác nhận chạy. `task add` từ requester
+có trong `intake.auto_confirm` của user config tạo task không chờ intake (`TaskCreated` mang
+`intake_auto_confirmed: true`); payload không có trường nào để caller tự khai việc này.
 Giao diện có thể gộp cùng một lượt xác nhận khi hiển thị task và toàn bộ cấu hình chạy; bằng chứng
 phải ghi rõ cả hai phạm vi, không biến auto-confirm intake thành duyệt binding.
 Các key/command/proof cụ thể cần triển khai, chưa phải CLI/schema hiện có.

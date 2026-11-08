@@ -45,7 +45,12 @@ export const EVENT_SCHEMA_VERSION = 1;
 
 export type EventPayloads = {
   // Task
-  TaskCreated: { task: CanonicalTask; needs_confirmation: boolean };
+  TaskCreated: {
+    task: CanonicalTask;
+    needs_confirmation: boolean;
+    /** The intake confirmation was waived by the user's `intake.auto_confirm` (absent otherwise). */
+    intake_auto_confirmed?: true;
+  };
   TaskRevised: { task: CanonicalTask };
   TaskConfirmed: { by: string };
   TaskReady: Record<string, never>;
@@ -375,6 +380,13 @@ export type EventPayloads = {
     target?: { ref: string; merged: boolean };
   };
   ObservationExpired: { at: number; reason: 'deadline' | 'rounds' };
+  /** The window ran out while the PR was open on the task's head: a fresh window replaces it (#248). */
+  ObservationExtended: {
+    at: number;
+    reason: 'deadline' | 'rounds';
+    deadline_at: number;
+    max_count: number;
+  };
   ExternalCompletionObserved: {
     proof: MergeProof;
     unverified_reason: string | null;
@@ -572,6 +584,7 @@ export const EVENT_TYPES = [
   'ObservationScheduled',
   'ExternalStateObserved',
   'ObservationExpired',
+  'ObservationExtended',
   'ExternalCompletionObserved',
   'DrainStarted',
   'DrainProgressed',

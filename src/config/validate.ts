@@ -56,6 +56,8 @@ export type Validated = {
   locations: Record<string, ProjectLocation>;
   /** Each project's own guidance. Kept out of `config` like the locations: never part of a policy hash. */
   ignoredDispatchKeys: string[];
+  /** `intake.auto_confirm`; read when a task is created, so kept out of every config hash. */
+  intakeAutoConfirm: string[];
 };
 
 export function zodDiagnostics(error: z.ZodError, at: Locator, prefix: KeyPath = []): Diagnostic[] {
@@ -154,6 +156,7 @@ export function analyze(input: AnalyzeInput): Result<Validated, Diagnostic[]> {
     runtime: normalizeRuntime(rawUser.runtime, Object.keys(rawUser.harnesses ?? {})),
     locations: projectLocations(rawUser),
     ignoredDispatchKeys: ignoredDispatchKeys(rawUser),
+    intakeAutoConfirm: rawUser.intake?.auto_confirm ?? [],
   });
 }
 

@@ -12,9 +12,10 @@ import { StoreDriver } from '../../support/store-driver.ts';
 import { HEAVY_PROPERTY_TIMEOUT_MS } from '../../support/timeouts.ts';
 import { propertyParams } from '../arbitraries/policies.ts';
 
-// FR-043.01–07/12/13, research R-04: a finite observation window per PR, fixed at its first observation;
-// cadence grows to a cap and only a changed remote resets it; only automatic rounds of the current
-// generation count; a recheck or a stale round never moves the window; expiry is final.
+// FR-043.01–07/12/13, research R-04: a finite observation window per PR, fixed at its first observation
+// unless it runs out while the PR is open on the task's head, which extends it (#248); cadence grows to a
+// cap and only a changed remote resets it; only automatic rounds of the current generation count; a
+// recheck or a stale round never moves the window; expiry is final.
 
 describe('observation cadence (FR-043.03)', () => {
   it('stays within [initial, max] and never shrinks as unchanged rounds go by', () => {
@@ -87,7 +88,7 @@ const LIMITS: RuntimeLimits = {
 
 describe('observation window (FR-043.04–06)', () => {
   it(
-    'bounded rounds and time; fixed start/deadline; recheck and stale rounds never count; expiry is final; replay agrees',
+    'bounded rounds and time; fixed start; only an open, unchanged PR extends the window; recheck and stale rounds never count; expiry is final; replay agrees',
     () => {
       fc.assert(
         fc.property(fc.array(opArb, { minLength: 1, maxLength: 40 }), (ops) => {
@@ -137,15 +138,25 @@ describe('observation window (FR-043.04–06)', () => {
             }
             const after = d.task(t.id).observation as NonNullable<TaskState['observation']>;
             const b = after.budget;
+            const openOnHead = after.last?.status === 'open' && after.last.observed_head === A;
             expect(b.started_at).toBe(first.budget.started_at);
-            expect(b.deadline_at).toBe(first.budget.started_at + LIMITS.observation_max_ms);
-            expect(b.max_count).toBe(LIMITS.observation_max_rounds);
+            const extended = b.max_count !== before.budget.max_count;
+            if (extended) {
+              expect(openOnHead).toBe(true);
+              expect(b.deadline_at).toBe(d.now + LIMITS.observation_max_ms);
+              expect(b.max_count).toBe(b.count + LIMITS.observation_max_rounds);
+            } else {
+              expect(b.deadline_at).toBe(before.budget.deadline_at);
+            }
             expect(b.count).toBeLessThanOrEqual(b.max_count);
             if (b.next_due_at !== null) {
               expect(b.next_due_at).toBeLessThanOrEqual(b.deadline_at);
-              expect(b.next_due_at - (after.last?.observed_at ?? 0)).toBeLessThanOrEqual(
-                LIMITS.poll_max_ms,
-              );
+              // An extension without a read asks for a round right away.
+              if (!(extended && op.kind === 'due'))
+                expect(b.next_due_at - (after.last?.observed_at ?? 0)).toBeLessThanOrEqual(
+                  LIMITS.poll_max_ms,
+                );
+              else expect(b.next_due_at).toBe(d.now);
             }
             // Only an accepted automatic round of the current generation moves the window.
             if (op.kind !== 'round') {
@@ -162,8 +173,10 @@ describe('observation window (FR-043.04–06)', () => {
               expect(b.next_due_at).toBeNull();
             }
             if (after.expired) expiredSeen = true;
-            if (after.expired && !before.expired)
+            if (after.expired && !before.expired) {
+              expect(openOnHead).toBe(false);
               expect(d.task(t.id).blockers.map((x) => x.code)).toContain('observation_expired');
+            }
           }
           // Restart rebuilds the same window from the log.
           expect(replay(d.store.readEvents(t.id))?.observation).toEqual(d.task(t.id).observation);
