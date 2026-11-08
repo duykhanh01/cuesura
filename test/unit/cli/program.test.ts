@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { packageVersion, runCli, type CliSpec } from '../../../src/cli/program.ts';
+import { packageVersion, runCli, type CliCommand, type CliSpec } from '../../../src/cli/program.ts';
 
 const spec: CliSpec = {
   name: 'cusr',
@@ -85,6 +85,52 @@ describe('runCli', () => {
       const r = await run(argv);
       expect(r.stdout + r.stderr).not.toContain('\u001b[');
     }
+  });
+});
+
+describe('global options', () => {
+  const seen: Record<string, string | undefined>[] = [];
+  const show: CliCommand = {
+    name: 'task show',
+    description: 'show',
+    options: [{ flags: '--data-dir <dir>', description: 'data dir' }],
+    run(values) {
+      seen.push({ ...values });
+      return Promise.resolve(0);
+    },
+  };
+  const withGlobal: CliSpec = {
+    ...spec,
+    globalOptions: [{ flags: '--data-dir <dir>', description: 'data dir' }],
+  };
+  const io = { stdout: () => {}, stderr: () => {} };
+
+  it.each([
+    [['--data-dir', '/g', 'task', 'show'], '/g'],
+    [['task', 'show', '--data-dir', '/c'], '/c'],
+    [['--data-dir', '/g', 'task', 'show', '--data-dir', '/c'], '/c'],
+    [['task', 'show'], undefined],
+  ])('%j gives the command data dir %s', async (argv, dir) => {
+    seen.length = 0;
+    expect(await runCli(withGlobal, argv, io, [show])).toBe(0);
+    expect(seen).toEqual([{ dataDir: dir }]);
+  });
+
+  it('is not accepted before the command without the spec declaring it', async () => {
+    let stderr = '';
+    const code = await runCli(
+      spec,
+      ['--data-dir', '/g', 'task', 'show'],
+      {
+        stdout: () => {},
+        stderr: (t) => {
+          stderr += t;
+        },
+      },
+      [show],
+    );
+    expect(code).toBe(2);
+    expect(stderr).toContain('"--data-dir" is not available');
   });
 });
 

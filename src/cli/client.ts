@@ -4,9 +4,11 @@
  * database. A missing or unreachable daemon is exit 3. The caller declares its actor with `CUSR_ACTOR`
  * (owner when unset); see `application/authz.ts` for what that does and does not protect.
  */
+import { existsSync } from 'node:fs';
 import { request } from 'node:http';
 import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   ACTOR_HEADER,
   CALLER_ACTORS,
@@ -16,7 +18,6 @@ import {
 import { err, ok, type Result } from '../shared/result.ts';
 import {
   CONTROL_SOCKET,
-  ExitCode,
   errorEnvelope,
   isEnvelope,
   renderEnvelope,
@@ -46,6 +47,49 @@ export function resolveDataDir(
 ): string {
   const dir = flag ?? env['CUSR_DATA_DIR'] ?? join(homedir(), '.cusr');
   return isAbsolute(dir) ? dir : resolve(dir);
+}
+
+/** The relative path holds for both src/cli and dist/cli of a release, which ships the whole repo. */
+const SAMPLE_CONFIG = fileURLToPath(new URL('../../deploy/config.example.yaml', import.meta.url));
+
+/** A missing socket or a refused connection usually means a first run, or a daemon on another data dir. */
+export function startDaemonGuidance(dataDir: string): string {
+  const sample = existsSync(SAMPLE_CONFIG)
+    ? SAMPLE_CONFIG
+    : 'deploy/config.example.yaml in the Cuesura repository';
+  return (
+    `No cusrd is listening in ${dataDir}. First run: copy the sample config ${sample}, fill it in, then ` +
+    `start the daemon with \`cusrd --config <config.yaml> --data-dir ${dataDir}\`; it creates the data ` +
+    `dir itself and needs no token. If cusrd already runs on another data dir, pass --data-dir DIR or ` +
+    `set CUSR_DATA_DIR.`
+  );
+}
+
+/** The envelope for a call that never got an answer from the daemon. */
+export function clientErrorEnvelope(
+  dataDir: string,
+  error: ClientError,
+  requestId: string | null,
+  details: Readonly<Record<string, unknown>> = {},
+): Envelope {
+  if (error.code === 'actor')
+    return errorEnvelope({
+      code: 'actor_invalid',
+      message: error.message,
+      details,
+      request_id: requestId,
+    });
+  const notListening = error.code === 'connection' && /^(ENOENT|ECONNREFUSED):/.test(error.message);
+  return errorEnvelope({
+    code: 'daemon_unreachable',
+    message: error.message,
+    details: {
+      ...details,
+      data_dir: dataDir,
+      ...(notListening ? { guidance: startDaemonGuidance(dataDir) } : {}),
+    },
+    request_id: requestId,
+  });
 }
 
 export function readClientActor(
@@ -188,16 +232,14 @@ export const statusCommand: CliCommand = {
         })
       : actor;
     if (!reply.ok) {
-      const code = reply.error.code === 'actor' ? ExitCode.usage : ExitCode.connection;
-      const envelope = errorEnvelope({
-        code: reply.error.code === 'actor' ? 'actor_invalid' : 'daemon_unreachable',
-        message: reply.error.message,
-        details: {},
-        request_id: null,
-      });
+      const envelope = clientErrorEnvelope(dataDir, reply.error, null);
       if (json) io.stdout(renderEnvelope(envelope));
-      else io.stderr(`cusr: ${reply.error.message}\n`);
-      return code;
+      else {
+        io.stderr(`cusr: ${reply.error.message}\n`);
+        const guidance = envelope.ok ? undefined : envelope.error.details['guidance'];
+        if (typeof guidance === 'string') io.stderr(`cusr: ${guidance}\n`);
+      }
+      return exitCodeFor(envelope);
     }
     const { envelope } = reply.value;
     if (json) io.stdout(renderEnvelope(envelope));

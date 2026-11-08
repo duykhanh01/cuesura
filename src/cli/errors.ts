@@ -5,7 +5,7 @@
  */
 import { ExitCode, type Envelope } from './output.ts';
 
-const FORBIDDEN = ['unauthenticated', 'forbidden'];
+const FORBIDDEN = ['unauthenticated', 'forbidden', 'worker_refused'];
 const MISSING = [
   'not_found',
   'task_not_found',

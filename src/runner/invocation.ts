@@ -89,6 +89,7 @@ import {
   removeAuth,
   type InstalledAuth,
 } from './private-home.ts';
+import { ATTEMPT_ENV } from './process-tag.ts';
 import { Redactor } from './redact.ts';
 import {
   ensurePrivateTmpDir,
@@ -221,7 +222,7 @@ export function attemptLayoutInputs(
       ...pin.env,
       // Label our headless Claude sessions explicitly: anthropics/claude-code#97074.
       ...(pin.vendor === 'claude' ? { CLAUDE_CODE_ENTRYPOINT: 'cuesura' } : {}),
-      CUSR_ATTEMPT_ID: attemptId,
+      [ATTEMPT_ENV]: attemptId,
     },
   };
 }

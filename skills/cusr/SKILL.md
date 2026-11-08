@@ -255,6 +255,10 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 - `attention_held` and `--take` work as below. `cusr assistant unregister` stops it.
 - On Codex, `daemon_unreachable` with `EPERM` means the sandbox blocked the daemon socket, not that the daemon is
   down. Ask to run the `cusr` command outside the sandbox; do not start a daemon or change Codex settings yourself.
+- `daemon_unreachable` with `ENOENT` or `ECONNREFUSED` means no daemon listens on that data dir; `details.guidance`
+  says how the user starts one. Relay it; do not start a daemon yourself.
+- `worker_refused` (exit 5) means this process runs inside a Cuesura worker or operation. Workers must not call
+  `cusr`; stop using it.
 - `/new` starts another session and the old one stops getting news. If a `cusr:` note asks about the lease, ask the
   user as above.
 

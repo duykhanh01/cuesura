@@ -80,3 +80,73 @@ describe('cusr status', () => {
     }
   });
 });
+
+describe('first run without a daemon', () => {
+  it('says how to start cusrd, with --data-dir given before the command', () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cusr-first-')));
+    try {
+      const r = exec('cusr', ['--data-dir', dir, 'status', '--json']);
+      expect(r.status).toBe(3);
+      const env = JSON.parse(r.stdout) as {
+        error: { code: string; details: { data_dir: string; guidance: string } };
+      };
+      expect(env.error.code).toBe('daemon_unreachable');
+      expect(env.error.details.data_dir).toBe(dir);
+      expect(env.error.details.guidance).toContain(
+        `cusrd --config <config.yaml> --data-dir ${dir}`,
+      );
+      expect(env.error.details.guidance).toContain(join(ROOT, 'deploy/config.example.yaml'));
+
+      const plain = exec('cusr', ['task', 'list', '--data-dir', dir]);
+      expect(plain.status).toBe(3);
+      expect(plain.stderr).toContain('cusrd --config');
+
+      const follow = exec('cusr', [
+        '--data-dir',
+        dir,
+        'task',
+        'logs',
+        '019a0000-0000-7000-8000-000000000001',
+        '--follow',
+        '--after',
+        '7',
+      ]);
+      expect(follow.status).toBe(3);
+      expect(follow.stderr).toContain('resume with --after 7');
+      expect(follow.stderr).toContain(`cusrd --config <config.yaml> --data-dir ${dir}`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('called from a worker', () => {
+  const TAG = { CUSR_OPERATION_ID: 'op-1' };
+
+  it('refuses a command with exit 5 before reaching the daemon', () => {
+    const r = exec('cusr', ['task', 'list', '--json'], TAG);
+    expect(r.status).toBe(5);
+    expect(JSON.parse(r.stdout)).toMatchObject({
+      ok: false,
+      error: { code: 'worker_refused', details: { variable: 'CUSR_OPERATION_ID' } },
+    });
+  });
+
+  it.each([['session-start'], ['hook']])('assistant %s exits 0 and prints nothing', (cmd) => {
+    const r = spawnSync(process.execPath, ['src/cli/cusr.ts', 'assistant', cmd], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      input: '{"session_id":"s-1"}',
+      env: { ...process.env, ...TAG, CUSR_DATA_DIR: join(tmpdir(), 'cusr-none') },
+    });
+    expect({ status: r.status, stdout: r.stdout, stderr: r.stderr }).toEqual({
+      status: 0,
+      stdout: '',
+      stderr: '',
+    });
+  });
+
+  it.each(['cusrd', 'cusr-runner'])('leaves %s alone', (bin) => {
+    expect(exec(bin, ['--version'], { ...TAG, CUSR_ATTEMPT_ID: 'a-1' }).status).toBe(0);
+  });
+});

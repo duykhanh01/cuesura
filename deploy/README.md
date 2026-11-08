@@ -120,11 +120,23 @@ sudo apt install -y dbus-user-session
 Một data dir chỉ có một writer: daemon thứ hai trên cùng thư mục thoát với `store_locked`. Chọn một
 trong hai cách, cả hai dùng cùng runner unit `cusr-op-*.service` độc lập với daemon.
 
+Lần chạy đầu: chép [config mẫu](config.example.yaml), sửa phần giữ chỗ (project, model, credential)
+rồi chạy daemon. `cusrd` tự tạo data dir mode 0700; không có token hay file secret nào phải tạo trước.
+`cusr` chưa thấy daemon (`daemon_unreachable`) thì in lại đúng các bước này kèm data dir nó đã thử.
+
+```sh
+(umask 077 && mkdir -p ~/.cusr && cp deploy/config.example.yaml ~/.cusr/config.yaml)
+```
+
+`umask 077` giữ data dir ở 0700: daemon từ chối chạy khi group hoặc others vào được thư mục này.
+
 Foreground, dừng bằng Ctrl-C hoặc SIGTERM:
 
 ```sh
 cusrd --config ~/.cusr/config.yaml --data-dir ~/.cusr
 ```
+
+`cusr` tìm daemon theo `--data-dir` (đặt trước hoặc sau lệnh), rồi `CUSR_DATA_DIR`, rồi `~/.cusr`.
 
 Service: dùng unit mẫu [cusrd.service](systemd/cusrd.service). Repo không tự cài hay nạp unit; người
 vận hành sửa `ExecStart` theo nơi cài rồi tự chạy:
@@ -253,7 +265,10 @@ dùng quyền admin.
 
 **Ranh giới.** `CUSR_ACTOR` là rào chắn cho caller làm đúng quy ước, không phải ranh giới bảo mật: process
 cùng UID bỏ biến này là thành owner. Muốn tách quyền thật, chạy assistant bằng UID khác. Worker
-coder/fixer/reviewer không gọi `cusr`; environment của worker không kế thừa biến `CUSR_*`. Worker dùng
+coder/fixer/reviewer không gọi `cusr`; environment của worker không kế thừa biến `CUSR_*` của daemon. `cusr`
+từ chối chạy (`worker_refused`, exit 5) khi thấy `CUSR_ATTEMPT_ID` hoặc `CUSR_OPERATION_ID`, hai tag daemon gắn
+cho lượt harness và cho gate/setup; hook `assistant session-start`/`assistant hook` thì thoát 0 im lặng. Đây
+cũng chỉ là rào chắn theo quy ước như `CUSR_ACTOR`. Worker dùng
 `gh` bằng đăng nhập của owner ([Network và credentials](#network-và-credentials)). Không còn outer
 boundary chặn process cùng UID đọc file host.
 

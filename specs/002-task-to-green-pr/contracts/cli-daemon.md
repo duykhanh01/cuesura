@@ -52,6 +52,21 @@ code/message/details/request_id. Log/chẩn đoán vào stderr, không ANSI/prom
 execution/health failure, 2 syntax/config/unsupported, 3 connection/timeout, 4 missing, 5 forbidden,
 6 conflict. Status task không quyết định exit code của lệnh query.
 
+Data dir của `cusr` lấy theo thứ tự `--data-dir`, `CUSR_DATA_DIR`, `~/.cusr`. `--data-dir` là option toàn cục:
+đặt trước lệnh (`cusr --data-dir DIR status`) hay sau lệnh đều được; cho cả hai chỗ thì giá trị sau lệnh thắng.
+Không mở được socket thì lỗi `daemon_unreachable` (exit 3) có `details.data_dir`; khi socket không có
+(`ENOENT`) hoặc bị từ chối (`ECONNREFUSED`), thêm `details.guidance`: chép config mẫu
+[deploy/config.example.yaml](../../../deploy/config.example.yaml), chạy
+`cusrd --config FILE --data-dir DIR` (daemon tự tạo data dir, không có token phải tạo), hoặc trỏ `cusr`
+tới data dir của daemon đang chạy. Output cho người đọc in `guidance` thành dòng stderr thứ hai.
+
+`cusr` từ chối chạy khi environment có `CUSR_ATTEMPT_ID` (mọi lượt harness của worker) hoặc
+`CUSR_OPERATION_ID` (mọi process daemon chạy cho một operation: gate, setup, Git): lỗi `worker_refused`,
+exit 5, trước khi mở socket hay giao diện terminal. Riêng `cusr assistant session-start` và
+`cusr assistant hook` thoát 0 không in gì, vì hook trong settings của owner có thể chạy trong worker.
+`cusrd` và `cusr-runner` không kiểm biến này. Giống `CUSR_ACTOR`, đây là rào chắn cho agent làm đúng quy
+ước, không phải ranh giới quyền: process cùng UID xóa biến là qua (#185).
+
 Priority số lớn chạy trước; default 0. Explain gồm deadline chưa bắt đầu/đã hết, thời gian chờ slot
 ban đầu/xin lại, PR/head/base, các blocker còn hiệu lực, bằng chứng và allowed_actions từ FR-029.
 Prerequisite chưa chứng nhận vẫn hiện sau khi B bắt đầu. Merge đã xác nhận nhưng còn drain phải hiện

@@ -13,7 +13,7 @@ import {
   renderEnvelope,
   type Envelope,
 } from './output.ts';
-import { callDaemon, readClientActor, resolveDataDir } from './client.ts';
+import { callDaemon, clientErrorEnvelope, readClientActor, resolveDataDir } from './client.ts';
 import { exitCodeFor } from './errors.ts';
 import { BOARD_LIMIT } from '../application/board.ts';
 import { UNSUPPORTED_GUIDANCE } from '../application/commands.ts';
@@ -57,12 +57,7 @@ export async function call(
       })
     : actor;
   if (reply.ok) return reply.value.envelope;
-  return errorEnvelope({
-    code: reply.error.code === 'actor' ? 'actor_invalid' : 'daemon_unreachable',
-    message: reply.error.message,
-    details: {},
-    request_id: requestId,
-  });
+  return clientErrorEnvelope(dataDir, reply.error, requestId);
 }
 
 export function print(

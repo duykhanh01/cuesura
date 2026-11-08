@@ -7,10 +7,20 @@ export interface CliIo {
   readonly stderr: (text: string) => void;
 }
 
+export interface CliOption {
+  readonly flags: string;
+  readonly description: string;
+}
+
 export interface CliSpec {
   readonly name: string;
   readonly description: string;
   readonly version: string;
+  /**
+   * Also accepted before the command (`cusr --data-dir DIR status`). A command that declares the same
+   * flag gets the value given either place; its own place wins.
+   */
+  readonly globalOptions?: readonly CliOption[];
 }
 
 /**
@@ -24,10 +34,7 @@ export interface CliCommand {
   /** Printed after the options in `--help`: notes and real examples. */
   readonly help?: string;
   readonly args?: readonly string[];
-  readonly options?: readonly {
-    readonly flags: string;
-    readonly description: string;
-  }[];
+  readonly options?: readonly CliOption[];
   run(
     values: Readonly<Record<string, string | undefined>>,
     json: boolean,
@@ -89,17 +96,16 @@ export async function runCli(
       getOutHasColors: () => false,
       getErrHasColors: () => false,
     })
-    .exitOverride()
-    .action(() => {
-      const opts = program.opts<{ version?: true; json?: true }>();
-      if (opts.version === true) {
-        io.stdout(
-          json ? renderEnvelope(okEnvelope({ version: spec.version })) : `${spec.version}\n`,
-        );
-        return;
-      }
-      exitCode = notAvailable(spec.name, program.args, json, io, commands.length > 0);
-    });
+    .exitOverride();
+  for (const o of spec.globalOptions ?? []) program.option(o.flags, o.description);
+  program.action(() => {
+    const opts = program.opts<{ version?: true; json?: true }>();
+    if (opts.version === true) {
+      io.stdout(json ? renderEnvelope(okEnvelope({ version: spec.version })) : `${spec.version}\n`);
+      return;
+    }
+    exitCode = notAvailable(spec.name, program.args, json, io, commands.length > 0);
+  });
   if (commands.length === 0)
     program.addHelpText('after', '\nNo commands are available in this build.');
 
@@ -127,6 +133,13 @@ export async function runCli(
         Record<string, string | true | undefined> & { json?: true }
       >();
       const values: Record<string, string | undefined> = {};
+      const globals = program.opts<Record<string, string | true | undefined>>();
+      for (const o of c.options ?? []) {
+        const key = sub.options.find((x) => x.flags === o.flags)?.attributeName();
+        const fromGlobal = key === undefined ? undefined : globals[key];
+        if (key !== undefined && opts[key] === undefined && fromGlobal !== undefined)
+          opts[key] = fromGlobal;
+      }
       for (const [k, v] of Object.entries(opts)) values[k] = v === true ? 'true' : v;
       (c.args ?? []).forEach((a, i) => {
         values[a.replace(/[<>[\]]/g, '')] = given[i] as string | undefined;

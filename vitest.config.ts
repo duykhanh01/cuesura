@@ -9,6 +9,10 @@ function selectedProject(argv: readonly string[]): string {
 }
 
 const project = selectedProject(process.argv);
+// A gate or a worker that runs these tests carries the tags below, and `cusr` refuses to run under them
+// (src/cli/worker-guard.ts); the tests spawn it as their own caller, so test workers must not inherit them.
+delete process.env['CUSR_OPERATION_ID'];
+delete process.env['CUSR_ATTEMPT_ID'];
 // Workers inherit CUSR_SEED so property and crash tests can reproduce the same run.
 
 export default defineConfig({

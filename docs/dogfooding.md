@@ -31,7 +31,8 @@ daemon sẽ lẫn vào `git worktree list`.
 
 Skill `cusr` của release nằm ở `~/.claude/skills/cusr` và `~/.codex/skills/cusr`. `cusr init` cũng có thể cài nó vào
 `.claude/skills` và `.agents/skills` của repo đích và commit: worker đọc được skill là chấp nhận được, vì đọc
-không cho worker thêm quyền nào, và việc chặn worker gọi `cusr` thuộc #185.
+không cho worker thêm quyền nào, và `cusr` từ chối chạy trong worker
+([Người gọi và quyền](../deploy/README.md#người-gọi-và-quyền)).
 
 Kết nối cho assistant, lặp lại ở mỗi lệnh theo skill:
 

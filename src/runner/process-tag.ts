@@ -23,6 +23,8 @@ import { isSafeId } from './files.ts';
 import { bootId } from './identity.ts';
 
 export const OPERATION_ENV = 'CUSR_OPERATION_ID';
+/** Set in the environment of every harness attempt (worker agent) the runner launches. */
+export const ATTEMPT_ENV = 'CUSR_ATTEMPT_ID';
 
 const current = new AsyncLocalStorage<string>();
 

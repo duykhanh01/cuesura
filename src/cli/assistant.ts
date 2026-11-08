@@ -3,7 +3,6 @@ import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { v7 as uuidv7 } from 'uuid';
 import { registeredSession, type AttentionItem } from '../application/attention.ts';
-import { OPERATION_ENV } from '../runner/process-tag.ts';
 import {
   HARNESSES,
   codexBinary,
@@ -338,8 +337,6 @@ export const assistantSessionStartCommand: CliCommand = {
   help: `Reads the hook payload on stdin; see deploy/README.md. Prints nothing unless a task waits.`,
   options: [DATA_DIR],
   async run(values, _json, io) {
-    // A worker can read the owner's settings, and must never be told about cusr.
-    if (process.env[OPERATION_ENV] !== undefined) return ExitCode.ok;
     const session = payloadSession();
     if (session === null) return ExitCode.ok;
     const dataDir = resolveDataDir(values['dataDir']);

@@ -3,7 +3,7 @@
  * to resume interrupted sessions. Records go to stdout; connection diagnostics go to stderr.
  */
 import { join } from 'node:path';
-import { callDaemon, readClientActor, resolveDataDir } from './client.ts';
+import { callDaemon, clientErrorEnvelope, readClientActor, resolveDataDir } from './client.ts';
 import { exitCodeFor } from './errors.ts';
 import { CONTROL_SOCKET, ExitCode } from './output.ts';
 import type { CliCommand } from './program.ts';
@@ -149,16 +149,7 @@ Examples:
       if (values['follow'] === undefined) {
         const r = await fetch(after, tail);
         if (!r.ok)
-          return print(
-            errorEnvelope({
-              code: 'daemon_unreachable',
-              message: r.error.message,
-              details: { cursor: after },
-              request_id: null,
-            }),
-            json,
-            io,
-          );
+          return print(clientErrorEnvelope(dataDir, r.error, null, { cursor: after }), json, io);
         const { envelope } = r.value;
         return print(
           envelope.ok && !full ? { ...envelope, data: logsSummary(envelope.data) } : envelope,
@@ -175,6 +166,9 @@ Examples:
         fromEnd = false;
         if (!r.ok) {
           io.stderr(`cusr: ${r.error.message}; resume with --after ${cursor}\n`);
+          const failed = clientErrorEnvelope(dataDir, r.error, null);
+          const guidance = failed.ok ? undefined : failed.error.details['guidance'];
+          if (typeof guidance === 'string') io.stderr(`cusr: ${guidance}\n`);
           return ExitCode.connection;
         }
         const { envelope } = r.value;
