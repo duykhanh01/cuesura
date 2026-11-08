@@ -1,12 +1,18 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ASSISTANT_SESSION_FILE, type AttentionItem } from '../../../src/application/attention.ts';
 import {
+  DOWN_TOKEN,
+  LEASE_MOVED_NOTE,
+  MOVED_TOKEN,
+  UNREACHABLE_WAKE_MS,
   leaseQuestion,
+  noteRegistered,
   noteSessionStart,
   runStopHook,
+  unreachableNote,
   wakeNote,
   type StopHookDeps,
 } from '../../../src/cli/assistant.ts';
@@ -32,6 +38,7 @@ describe('runStopHook', () => {
   let leases: string[];
   let err: string;
   let replies: Envelope[];
+  let acks: number;
 
   const deps = (over: Partial<StopHookDeps> = {}): StopHookDeps => ({
     dataDir: dir,
@@ -51,16 +58,34 @@ describe('runStopHook', () => {
       err += note;
       return Promise.resolve({ exit: 2, confirmed: true });
     },
+    // What the daemon does on assistant_moved_ack.
+    ackMoved: () => {
+      acks += 1;
+      const file = join(dir, ASSISTANT_SESSION_FILE);
+      const now = JSON.parse(readFileSync(file, 'utf8')) as { replaced?: string[] };
+      writeFileSync(
+        file,
+        JSON.stringify({ ...now, replaced: (now.replaced ?? []).filter((r) => r !== 's-1') }),
+      );
+      return Promise.resolve(okEnvelope({}));
+    },
     ...over,
   });
   const register = (session: string) =>
     writeFileSync(join(dir, ASSISTANT_SESSION_FILE), JSON.stringify({ session }));
+  /** What the daemon leaves when `to` takes the lease from s-1. */
+  const takenBy = (to: string | null) =>
+    writeFileSync(
+      join(dir, ASSISTANT_SESSION_FILE),
+      JSON.stringify({ ...(to === null ? {} : { session: to }), replaced: ['s-1'] }),
+    );
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'assistant-hook-'));
     leases = [];
     err = '';
     replies = [];
+    acks = 0;
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -100,11 +125,245 @@ describe('runStopHook', () => {
     expect(leases).toHaveLength(2);
   });
 
-  it('stays silent when the lease moved away', async () => {
+  it('says once that the lease moved away (#258, #268)', async () => {
     register('s-1');
     replies = [failure('attention_superseded')];
-    expect(await runStopHook(deps())).toBe(0);
+    expect(await runStopHook(deps())).toBe(2);
+    expect(err).toBe(LEASE_MOVED_NOTE);
+    // The wait that took the lease ended the registration, so the next Stop stays quiet.
+    rmSync(join(dir, ASSISTANT_SESSION_FILE));
+    err = '';
+    expect(await runStopHook(deps({ pid: 101 }))).toBe(0);
     expect(err).toBe('');
+  });
+
+  it('says the lease moved when another session registered while this one parked', async () => {
+    register('s-1');
+    const query = (lease: string) => {
+      leases.push(lease);
+      takenBy('s-2');
+      writeFileSync(
+        join(dir, 'assistant-hook.json'),
+        JSON.stringify({ session: 's-2', pid: null, lease: 's-2.1' }),
+      );
+      return Promise.resolve(reply(lease));
+    };
+    expect(await runStopHook(deps({ query, parkMs: 60_000 }))).toBe(2);
+    expect(err).toBe(LEASE_MOVED_NOTE);
+    expect(leases).toHaveLength(1);
+  });
+
+  describe('a session whose lease moved while no hook of it was parked (#268)', () => {
+    it('is told at its next Stop, once', async () => {
+      takenBy('s-2');
+      expect(await runStopHook(deps())).toBe(2);
+      expect(err).toBe(LEASE_MOVED_NOTE);
+      expect(leases).toEqual([]);
+      err = '';
+      expect(await runStopHook(deps({ pid: 101 }))).toBe(0);
+      expect(err).toBe('');
+    });
+
+    it('also when a wait took it and nobody is registered', async () => {
+      takenBy(null);
+      expect(await runStopHook(deps())).toBe(2);
+      expect(err).toBe(LEASE_MOVED_NOTE);
+    });
+
+    it('is told again while the note has not arrived, until the harness confirms it', async () => {
+      takenBy('s-2');
+      const deliver = (note: string) => {
+        err += note;
+        return Promise.resolve({ exit: 2, confirmed: false });
+      };
+      await runStopHook(deps({ deliver }));
+      err = '';
+      await runStopHook(deps({ deliver }));
+      expect(err).toBe(LEASE_MOVED_NOTE);
+      expect(await runStopHook(deps({ deliver, confirm: MOVED_TOKEN }))).toBe(0);
+      err = '';
+      expect(await runStopHook(deps({ deliver }))).toBe(0);
+      expect(err).toBe('');
+    });
+
+    it('acknowledges through the daemon and never writes its file (#268 review)', async () => {
+      takenBy('s-2');
+      const file = join(dir, ASSISTANT_SESSION_FILE);
+      const before = readFileSync(file, 'utf8');
+      const ackMoved = () => {
+        acks += 1;
+        return Promise.resolve(okEnvelope({}));
+      };
+      expect(await runStopHook(deps({ ackMoved }))).toBe(2);
+      expect(acks).toBe(1);
+      expect(readFileSync(file, 'utf8')).toBe(before);
+    });
+
+    it('keeps trying a note codex failed to queue, since no Stop follows in an idle session', async () => {
+      takenBy('s-2');
+      let tries = 0;
+      const deliver = (note: string) => {
+        err += note;
+        return Promise.resolve({ exit: 0, confirmed: ++tries === 3 });
+      };
+      expect(await runStopHook(deps({ deliver, parkMs: 60 * 60_000 }))).toBe(0);
+      expect(tries).toBe(3);
+      expect(acks).toBe(1);
+    });
+
+    it('with the daemon down, wakes once and then only retries the ack quietly (#268 review)', async () => {
+      takenBy('s-2');
+      let up = false;
+      const ackMoved = () => {
+        acks += 1;
+        if (!up) return Promise.resolve(failure('daemon_unreachable'));
+        writeFileSync(join(dir, ASSISTANT_SESSION_FILE), JSON.stringify({ session: 's-2' }));
+        return Promise.resolve(okEnvelope({}));
+      };
+      expect(await runStopHook(deps({ ackMoved }))).toBe(2);
+      err = '';
+      expect(await runStopHook(deps({ ackMoved }))).toBe(0);
+      expect(await runStopHook(deps({ ackMoved }))).toBe(0);
+      expect(err).toBe('');
+      expect(acks).toBe(3);
+      up = true;
+      expect(await runStopHook(deps({ ackMoved }))).toBe(0);
+      expect(acks).toBe(4);
+      expect(readdirSync(dir).filter((f) => f.startsWith('assistant-moved-told'))).toEqual([]);
+    });
+
+    it('registering again forgets an unacknowledged note, so the next move is told (#268 review)', async () => {
+      takenBy('s-2');
+      const ackMoved = () => Promise.resolve(failure('daemon_unreachable'));
+      expect(await runStopHook(deps({ ackMoved }))).toBe(2);
+      // The daemon comes back still listing s-1; s-1 registers again and s-2 takes it before s-1 stops.
+      writeFileSync(
+        join(dir, ASSISTANT_SESSION_FILE),
+        JSON.stringify({ session: 's-1', replaced: ['s-1'] }),
+      );
+      noteRegistered(dir, 's-1', 's-1.1');
+      takenBy('s-2');
+      err = '';
+      expect(await runStopHook(deps())).toBe(2);
+      expect(err).toBe(LEASE_MOVED_NOTE);
+    });
+
+    it('a record from an earlier replacement does not silence the next one', async () => {
+      takenBy('s-2');
+      const ackMoved = () => Promise.resolve(failure('daemon_unreachable'));
+      await runStopHook(deps({ ackMoved }));
+      register('s-1');
+      await runStopHook(deps({ ackMoved, parkMs: 1 }));
+      takenBy('s-3');
+      err = '';
+      expect(await runStopHook(deps({ ackMoved }))).toBe(2);
+      expect(err).toBe(LEASE_MOVED_NOTE);
+    });
+
+    it('a session not involved stays quiet', async () => {
+      takenBy('s-2');
+      expect(await runStopHook(deps({ session: 's-3' }))).toBe(0);
+      expect(err).toBe('');
+    });
+  });
+
+  it('a second hook parked for the same session leaves quietly before its next query', async () => {
+    register('s-1');
+    const query = (lease: string) => {
+      leases.push(lease);
+      writeFileSync(
+        join(dir, 'assistant-hook.json'),
+        JSON.stringify({ session: 's-1', pid: 200, lease }),
+      );
+      return Promise.resolve(reply(lease));
+    };
+    expect(await runStopHook(deps({ query, parkMs: 60_000 }))).toBe(0);
+    expect(leases).toHaveLength(1);
+    expect(err).toBe('');
+  });
+
+  describe('a daemon that stays down (#268)', () => {
+    const down = () => failure('daemon_unreachable');
+    const clock = () => {
+      let t = 0;
+      return { now: () => t, sleep: () => ((t += 2_000), Promise.resolve()) };
+    };
+
+    it('wakes the session once, and not again while it stays down', async () => {
+      register('s-1');
+      const query = () => Promise.resolve(down());
+      const first = await runStopHook(deps({ query, parkMs: 60 * 60_000, ...clock() }));
+      expect(first).toBe(2);
+      expect(err).toBe(unreachableNote(dir));
+      expect(err).toContain(dir);
+      err = '';
+      const again = await runStopHook(
+        deps({ pid: 101, query, parkMs: 2 * UNREACHABLE_WAKE_MS, ...clock() }),
+      );
+      expect(again).toBe(0);
+      expect(err).toBe('');
+    });
+
+    it('tells again once the daemon came back and went down again', async () => {
+      register('s-1');
+      const query = () => Promise.resolve(down());
+      await runStopHook(deps({ query, parkMs: 60 * 60_000, ...clock() }));
+      err = '';
+      let calls = 0;
+      const flaky = (lease: string) => Promise.resolve(++calls === 1 ? reply(lease) : down());
+      expect(
+        await runStopHook(deps({ pid: 101, query: flaky, parkMs: 60 * 60_000, ...clock() })),
+      ).toBe(2);
+      expect(err).toBe(unreachableNote(dir));
+    });
+
+    it('keeps parking and tries again when codex failed to queue the note (#268 review)', async () => {
+      register('s-1');
+      const query = () => Promise.resolve(down());
+      let tries = 0;
+      const deliver = (note: string) => {
+        err += note;
+        return Promise.resolve({ exit: 0, confirmed: ++tries === 3 });
+      };
+      expect(await runStopHook(deps({ query, deliver, parkMs: 60 * 60_000, ...clock() }))).toBe(0);
+      expect(tries).toBe(3);
+      expect(tracked()).toMatchObject({ unreachable: true });
+    });
+
+    it('stops trying once the daemon is back', async () => {
+      register('s-1');
+      let calls = 0;
+      const query = (lease: string) => Promise.resolve(++calls < 200 ? down() : reply(lease));
+      let tries = 0;
+      const deliver = () => {
+        tries += 1;
+        return Promise.resolve({ exit: 0, confirmed: false });
+      };
+      expect(await runStopHook(deps({ query, deliver, parkMs: 30 * 60_000, ...clock() }))).toBe(0);
+      expect(tries).toBeGreaterThan(1);
+      expect(tracked()).not.toHaveProperty('unreachable');
+    });
+
+    it('counts it told once pi confirms the note', async () => {
+      register('s-1');
+      const query = (lease: string) => {
+        leases.push(lease);
+        return Promise.resolve(down());
+      };
+      const r = await runStopHook(
+        deps({ query, confirm: DOWN_TOKEN, parkMs: 2 * UNREACHABLE_WAKE_MS, ...clock() }),
+      );
+      expect(r).toBe(0);
+      expect(err).toBe('');
+      expect(leases[0]).toBe('s-1');
+    });
+
+    it('a short restart wakes nobody', async () => {
+      register('s-1');
+      replies = [down(), down(), reply('s-1.1', [ITEM])];
+      expect(await runStopHook(deps({ parkMs: 60 * 60_000, ...clock() }))).toBe(2);
+      expect(err).not.toContain('unreachable');
+    });
   });
 
   it('ends quietly when time runs out, because only news may wake the session', async () => {
@@ -121,11 +380,12 @@ describe('runStopHook', () => {
     register('s-1');
     const next = { session: 's-2', pid: 200, lease: 's-2' };
     const query = () => {
-      register('s-2');
+      takenBy('s-2');
       writeFileSync(join(dir, 'assistant-hook.json'), JSON.stringify(next));
       return Promise.resolve(failure('attention_not_registered'));
     };
-    expect(await runStopHook(deps({ query }))).toBe(0);
+    expect(await runStopHook(deps({ query }))).toBe(2);
+    expect(err).toBe(LEASE_MOVED_NOTE);
     expect(JSON.parse(readFileSync(join(dir, 'assistant-hook.json'), 'utf8'))).toEqual(next);
   });
 

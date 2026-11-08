@@ -114,3 +114,19 @@ export function queueToCodex(binary: string, session: string, note: string): Pro
     );
   });
 }
+
+export function readCmdline(pid: number): readonly string[] {
+  try {
+    return readFileSync(`/proc/${String(pid)}/cmdline`, 'utf8').split('\0');
+  } catch {
+    return [];
+  }
+}
+
+/** `codex app-server`, the process the Codex app, IDE extensions and Paseo run their threads in. */
+export function isAppServer(
+  pid: number,
+  cmdline: (pid: number) => readonly string[] = readCmdline,
+): boolean {
+  return cmdline(pid).includes('app-server');
+}

@@ -6,6 +6,7 @@ import {
   ATTENTION_STALE_MS,
   AttentionDesk,
   registeredSession,
+  replacedSessions,
 } from '../../../src/application/attention.ts';
 import type { Caller } from '../../../src/application/authz.ts';
 import { callerFor } from '../../../src/application/authz.ts';
@@ -238,7 +239,7 @@ describe('registered assistant session', () => {
     d.register(CALLER, SESSION);
     expect(code(d.register(CALLER, { session: 's-2' }))).toBe('attention_held');
     expect(code(d.register(CALLER, { session: 's-2', take: true }))).toBe('ok');
-    expect(code(d.poll(CALLER, hook('s-1')))).toBe('attention_not_registered');
+    expect(code(d.poll(CALLER, hook('s-1')))).toBe('attention_superseded');
     expect(registeredSession(dataDir)).toBe('s-2');
   });
 
@@ -296,5 +297,153 @@ describe('AttentionDesk and a long effect_unknown (#249)', () => {
     const after = state.reads;
     expect(value(d.poll(CALLER, back(due.lease))).items).toEqual([]);
     expect(state.reads).toBe(after);
+  });
+});
+
+describe('waking the assistant (#268)', () => {
+  const dirs: string[] = [];
+  const dir = () => {
+    const d = mkdtempSync(join(tmpdir(), 'attention-'));
+    dirs.push(d);
+    return d;
+  };
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+  const hook = (lease: string) => ({ lease, mode: 'hook' });
+  const registered = () => {
+    const b = bench([waiting('a', 'merge')]);
+    const dataDir = dir();
+    const d = new AttentionDesk({ store: b.store, now: () => b.state.now, dataDir });
+    return { ...b, d, dataDir };
+  };
+
+  it('a live holder that was sent everything makes peek say nothing is left to tell', () => {
+    const { state, desk } = bench([waiting('a', 'merge')]);
+    const d = desk();
+    expect(value(d.peek(CALLER))).toEqual({ waiting: 1, held: false, undelivered: 1 });
+    const { lease } = value(d.poll(CALLER, NEW));
+    expect(value(d.peek(CALLER))).toEqual({ waiting: 1, held: true, undelivered: 0 });
+    value(d.poll(CALLER, back(lease)));
+    expect(value(d.peek(CALLER))).toMatchObject({ held: true, undelivered: 0 });
+    state.tasks.push(waiting('b', 'merge'));
+    state.seq = 2;
+    expect(value(d.peek(CALLER))).toMatchObject({ waiting: 2, undelivered: 1 });
+  });
+
+  it('a holder that stopped polling no longer holds, registered or not', () => {
+    const { state, desk } = bench([waiting('a', 'merge')]);
+    const d = desk();
+    value(d.poll(CALLER, NEW));
+    state.now = ATTENTION_STALE_MS;
+    expect(value(d.peek(CALLER)).held).toBe(false);
+
+    const r = registered();
+    r.d.register(CALLER, { session: 's-1' });
+    expect(value(r.d.peek(CALLER))).toMatchObject({ held: true, undelivered: 0 });
+    // Told everything, then died: a session opening must still be asked (#244 keeps it a user decision).
+    r.state.now = ATTENTION_STALE_MS;
+    expect(value(r.d.peek(CALLER))).toEqual({ waiting: 1, held: false, undelivered: 0 });
+  });
+
+  it('keeps the replaced session on disk, so its next Stop can be told without a hook parked', () => {
+    const { d, state, dataDir } = registered();
+    d.register(CALLER, { session: 's-1' });
+    d.register(CALLER, { session: 's-2', take: true });
+    expect(replacedSessions(dataDir)).toEqual(['s-1']);
+    expect(registeredSession(dataDir)).toBe('s-2');
+    expect(code(d.movedAck(CALLER, { session: 's-1' }))).toBe('ok');
+    expect(replacedSessions(dataDir)).toEqual([]);
+    expect(registeredSession(dataDir)).toBe('s-2');
+
+    state.now = 2 * ATTENTION_STALE_MS;
+    value(d.poll(CALLER, NEW));
+    expect(replacedSessions(dataDir)).toEqual(['s-2']);
+    expect(registeredSession(dataDir)).toBeNull();
+    expect(code(d.poll(CALLER, hook('s-2')))).toBe('attention_superseded');
+  });
+
+  it('remembers every replaced session until each says it was told', () => {
+    const { d, dataDir } = registered();
+    d.register(CALLER, { session: 'A' });
+    d.register(CALLER, { session: 'B', take: true });
+    d.register(CALLER, { session: 'C', take: true });
+    expect(replacedSessions(dataDir)).toEqual(['A', 'B']);
+    expect(code(d.poll(CALLER, hook('A')))).toBe('attention_superseded');
+    d.movedAck(CALLER, { session: 'B' });
+    expect(replacedSessions(dataDir)).toEqual(['A']);
+    expect(registeredSession(dataDir)).toBe('C');
+  });
+
+  it('keeps that across a daemon restart, and drops a session that registers again', () => {
+    const { store, state } = bench();
+    const dataDir = dir();
+    const d = new AttentionDesk({ store, now: () => state.now, dataDir });
+    d.register(CALLER, { session: 'A' });
+    d.register(CALLER, { session: 'B', take: true });
+    const after = new AttentionDesk({ store, now: () => state.now, dataDir });
+    expect(code(after.poll(CALLER, hook('A')))).toBe('attention_superseded');
+    after.register(CALLER, { session: 'A', take: true });
+    expect(replacedSessions(dataDir)).toEqual(['B']);
+  });
+
+  it('register lists what waits, and the hook coming back with that lease is not sent it again', () => {
+    const { d } = registered();
+    const reg = value(d.register(CALLER, { session: 's-1' }));
+    expect(reg.items.map((i) => i.task_id)).toEqual(['a']);
+    expect(reg.lease).toBe('s-1.1');
+    expect(value(d.poll(CALLER, hook(reg.lease))).items).toEqual([]);
+  });
+
+  it('register --take lists what waits too', () => {
+    const { d } = registered();
+    d.register(CALLER, { session: 's-1' });
+    const taken = value(d.register(CALLER, { session: 's-2', take: true }));
+    expect(taken.items).toHaveLength(1);
+    expect(value(d.poll(CALLER, hook(taken.lease))).items).toEqual([]);
+  });
+
+  it('the hook of a registered session a wait took the lease from learns it moved', () => {
+    const { d, state, dataDir } = registered();
+    d.register(CALLER, { session: 's-1' });
+    state.now = 2 * ATTENTION_STALE_MS;
+    expect(code(d.poll(CALLER, NEW))).toBe('ok');
+    expect(registeredSession(dataDir)).toBeNull();
+    expect(code(d.poll(CALLER, hook('s-1')))).toBe('attention_superseded');
+  });
+
+  it('attention_held says when to retry and that a session that lost its own lease only waits (#258)', () => {
+    const { state, desk } = bench();
+    const d = desk();
+    value(d.poll(CALLER, NEW));
+    state.now = 3_000;
+    const r = d.poll(CALLER, OTHER);
+    if (r.ok) throw new Error('expected attention_held');
+    expect(r.error.details).toMatchObject({ retry_after_ms: ATTENTION_STALE_MS - 3_000 });
+    expect(r.error.details['guidance']).toContain('without --take');
+  });
+
+  it('a malformed --lease says how to get one (#260)', () => {
+    const r = bench().desk().poll(CALLER, { lease: 'a.b.c', mode: 'resume' });
+    if (r.ok) throw new Error('expected invalid_request');
+    expect(r.error.code).toBe('invalid_request');
+    expect(r.error.details['guidance']).toContain('cusr assistant wait');
+  });
+
+  it('claiming the lease needs operate; following it needs read', () => {
+    const reader = { grant: { actor: 'reader', roles: ['read' as const] } };
+    const d = bench().desk();
+    expect(code(d.poll(reader, NEW))).toBe('forbidden');
+    expect(code(d.poll(reader, { lease: 'session-a', mode: 'take' }))).toBe('forbidden');
+    value(d.poll(CALLER, NEW));
+    expect(code(d.poll(reader, back('session-a.0')))).toBe('ok');
+  });
+
+  it('unregister from another session leaves the registration alone', () => {
+    const { d, dataDir } = registered();
+    d.register(CALLER, { session: 's-1' });
+    expect(code(d.unregister(CALLER, { session: 's-2' }))).toBe('attention_not_registered');
+    expect(registeredSession(dataDir)).toBe('s-1');
+    expect(value(d.unregister(CALLER, { session: 's-1' })).session).toBe('s-1');
   });
 });

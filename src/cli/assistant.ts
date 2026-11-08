@@ -1,14 +1,27 @@
-import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { v7 as uuidv7 } from 'uuid';
-import { registeredSession, type AttentionItem } from '../application/attention.ts';
+import {
+  registeredSession,
+  replacedSessions,
+  type AttentionItem,
+  type AttentionPeek,
+  type RegisterReply,
+} from '../application/attention.ts';
+import {
+  ASSISTANT_SETTINGS_PATH,
+  CODEX_HOOKS_PATH,
+  PI_EXTENSION_PATH,
+} from '../application/init-assistant.ts';
 import {
   HARNESSES,
   codexBinary,
   findAncestor,
   findHarness,
   isAncestor,
+  isAppServer,
   ownerWatch,
   queueToCodex,
   type Harness,
@@ -25,9 +38,29 @@ const DEFAULT_PARK_S = 604_500;
 /** Claude Code wakes the session on this exit and shows it stderr; the pi extension reads stdout. */
 const WAKE_SESSION = 2;
 const HOOK_FILE = 'assistant-hook.json';
+/** One per replaced session, so hooks of different sessions never write the same file. */
+const MOVED_FILE_PREFIX = 'assistant-moved-told.';
+
+function movedToldFile(dataDir: string, session: string): string {
+  return join(dataDir, `${MOVED_FILE_PREFIX}${encodeURIComponent(session)}`);
+}
 /** Longer than `codex queue` may take, so a hook that waits outlasts the delivery it waits for. */
 const DELIVERY_WAIT_MS = 25_000;
 const DELIVERY_POLL_MS = 200;
+/** A daemon down this long is no restart: tasks stand still until someone looks. */
+export const UNREACHABLE_WAKE_MS = 5 * 60_000;
+/** Between tries of a note `codex queue` failed to hand over; the hook keeps parking meanwhile. */
+export const RETRY_MIN_MS = 30_000;
+const RETRY_MAX_MS = 5 * 60_000;
+
+/**
+ * A usage error on the hook path must not exit with `WAKE_SESSION`: a broken hook command would wake the
+ * session on every Stop with its own error text.
+ */
+function hookFlag(message: string, json: boolean, io: CliIo): number {
+  badFlag(message, {}, json, io);
+  return ExitCode.failure;
+}
 
 type Attention = {
   readonly lease: string;
@@ -77,6 +110,7 @@ Examples:
     let lease = values['lease'] ?? uuidv7();
     const first = values['take'] === 'true' ? 'take' : 'attach';
     let mode = values['lease'] === undefined || first === 'take' ? first : 'resume';
+    let downSince: number | null = null;
     for (;;) {
       // Its session is gone: stopping lets the lease go stale for the next one.
       if (!ownerAlive()) return ExitCode.ok;
@@ -85,9 +119,14 @@ Examples:
         const data = r.data as Attention;
         lease = data.lease;
         mode = 'resume';
+        downSince = null;
         if (data.items.length > 0) return print(r, json, io);
-        // An unreachable daemon is not news: the lease resumes on the first poll after its restart.
       } else if (r.error.code !== 'daemon_unreachable') return print(r, json, io);
+      else {
+        // A restart is not news: the lease resumes on the first poll after it. A daemon that stays down is.
+        downSince ??= Date.now();
+        if (Date.now() - downSince >= UNREACHABLE_WAKE_MS) return print(r, json, io);
+      }
       const left = deadline - Date.now();
       if (left <= 0)
         return print(
@@ -134,18 +173,87 @@ Examples:
       );
     const take = values['take'] === 'true';
     const r = await call(values, '/v1/query', { kind: 'assistant_register', session, take }, null);
-    return print(r, json, io);
+    if (!r.ok) return print(r, json, io);
+    const data = r.data as RegisterReply;
+    // A daemon older than this CLI replies without a lease; its first wake then repeats what waits.
+    if (typeof data.lease === 'string')
+      noteRegistered(resolveDataDir(values['dataDir']), session, data.lease);
+    const warnings = stopHookFound(process.cwd(), homedir())
+      ? []
+      : [
+          `No cusr Stop hook found for ${process.cwd()}, so nothing will wake this session. Run cusr init here, or use cusr assistant wait.`,
+        ];
+    return print(
+      okEnvelope({
+        ...data,
+        guidance:
+          (data.items ?? []).length > 0
+            ? 'Relay the items listed here to the user now; the Stop hook will not wake this session for them again, only for what comes after.'
+            : 'Nothing waits now. The Stop hook wakes this session when a task needs the user; do not poll.',
+        ...(warnings.length > 0 ? { warnings } : {}),
+      }),
+      json,
+      io,
+    );
   },
 };
+
+const HOOK_MARK = 'cusr assistant hook';
+
+/** Where `cusr init` puts the Stop hook; a harness also reads the user's own settings. */
+export function stopHookFound(cwd: string, home: string): boolean {
+  const has = (path: string, mark: string): boolean => {
+    try {
+      return readFileSync(path, 'utf8').includes(mark);
+    } catch {
+      return false;
+    }
+  };
+  return (
+    [
+      join(cwd, ASSISTANT_SETTINGS_PATH),
+      join(cwd, '.claude/settings.json'),
+      join(home, '.claude/settings.json'),
+      join(cwd, CODEX_HOOKS_PATH),
+      join(home, '.codex/hooks.json'),
+    ].some((p) => has(p, HOOK_MARK)) || existsSync(join(cwd, PI_EXTENSION_PATH))
+  );
+}
+
+/**
+ * The register reply already listed what waits; the first Stop hook comes back with its lease to confirm
+ * that, instead of waking the session for the same tasks a second time.
+ */
+export function noteRegistered(dataDir: string, session: string, lease: string): void {
+  // A note about an earlier move, still unacknowledged, must not stand for the next move.
+  rmSync(movedToldFile(dataDir, session), { force: true });
+  const file = join(dataDir, HOOK_FILE);
+  const state = readHookState(file);
+  if (state?.session === session) {
+    const { retired: _, ...rest } = state;
+    writeHookState(file, { ...rest, lease });
+  } else writeHookState(file, { session, pid: null, lease });
+}
 
 export const assistantUnregisterCommand: CliCommand = {
   name: 'assistant unregister',
   description: 'Stop waking the registered session; its parked hook exits by itself',
   help: `Example:
   cusr assistant unregister --json`,
-  options: [DATA_DIR],
+  options: [
+    DATA_DIR,
+    {
+      flags: '--session <id>',
+      description:
+        'Only if this session is the registered one (default: as for register; none outside a session)',
+    },
+  ],
   async run(values, json, io) {
-    return print(await call(values, '/v1/query', { kind: 'assistant_unregister' }, null), json, io);
+    const session =
+      values['session'] ??
+      SESSION_ENVS.map((e) => process.env[e]).find((v) => v !== undefined && v !== '');
+    const body = { kind: 'assistant_unregister', ...(session === undefined ? {} : { session }) };
+    return print(await call(values, '/v1/query', body, null), json, io);
   },
 };
 
@@ -164,6 +272,8 @@ type HookState = {
   readonly retired?: boolean;
   /** `pid` is handing over a wake, so `lease` does not yet say whether it arrived. */
   readonly delivering?: boolean;
+  /** The session was told the daemon is down; told again only after it came back. */
+  readonly unreachable?: boolean;
 };
 
 /** `confirmed` says the wake arrived; only then may the next hook come back with its lease. */
@@ -184,6 +294,8 @@ export type StopHookDeps = {
   /** The lease of a wake the harness saw arrive, for a harness that confirms after this hook ended. */
   readonly confirm?: string;
   readonly deliver: (note: string, lease: string) => Promise<Delivery>;
+  /** Tells the daemon this replaced session got the note that the lease moved. */
+  readonly ackMoved: () => Promise<Envelope>;
 };
 
 function readHookState(file: string): HookState | null {
@@ -206,12 +318,63 @@ export function wakeNote(items: readonly AttentionItem[], truncated: boolean): s
   return `cusr: tasks need the user: ${listed}${truncated ? ', and more' : ''}. Read them with cusr inbox and cusr task explain, then relay them to the user. This note approves nothing.\n`;
 }
 
+export function unreachableNote(dataDir: string): string {
+  return `cusr: daemon unreachable at ${dataDir} for ${UNREACHABLE_WAKE_MS / 60_000} minutes, so no task moves. Run cusr status and tell the user. This note is not repeated until the daemon comes back and goes down again.\n`;
+}
+
+/**
+ * What a hook hands with a note that carries no lease, so that pi, which confirms a note with the lease
+ * it came with, can say the note arrived. Never sent to the daemon.
+ */
+export const MOVED_TOKEN = 'lease-moved';
+export const DOWN_TOKEN = 'daemon-down';
+
+export const LEASE_MOVED_NOTE =
+  'cusr: another session took the assistant lease; this session no longer gets task news. Run cusr assistant register --take only if the user asks to move it back.\n';
+
 /**
  * Parks for one Stop of the registered session. The harness runs this in the background, so the user can
  * keep talking, and starts one on every Stop without deduplicating: a live hook keeps the job.
  */
 export async function runStopHook(d: StopHookDeps): Promise<number> {
-  if (registeredSession(d.dataDir) !== d.session) return ExitCode.ok;
+  const replaced = (): boolean => replacedSessions(d.dataDir).includes(d.session);
+  // The hook's own record that the note arrived, kept while the daemon cannot take the ack: without it
+  // every Stop would wake the session again with the same note until the daemon is back.
+  const toldFile = movedToldFile(d.dataDir, d.session);
+  const ack = async (): Promise<void> => {
+    if ((await d.ackMoved()).ok) rmSync(toldFile, { force: true });
+  };
+  const noteTold = async (): Promise<void> => {
+    writeFileSync(toldFile, '', { mode: 0o600 });
+    await ack();
+  };
+  // Told once, also when no hook of this session was parked as the lease moved; only a confirmed note counts.
+  const tellMoved = async (): Promise<number> => {
+    if (existsSync(toldFile)) {
+      await ack();
+      return ExitCode.ok;
+    }
+    if (d.confirm === MOVED_TOKEN) {
+      await noteTold();
+      return ExitCode.ok;
+    }
+    const end = d.now() + d.parkMs;
+    for (let wait = RETRY_MIN_MS; ; wait = Math.min(2 * wait, RETRY_MAX_MS)) {
+      const sent = await d.deliver(LEASE_MOVED_NOTE, MOVED_TOKEN);
+      if (sent.confirmed) {
+        await noteTold();
+        return sent.exit;
+      }
+      // pi takes the note over and confirms it later. A failed codex queue leaves an idle session with no
+      // Stop to come, so this hook keeps trying while it may park.
+      if (sent.exit !== ExitCode.ok || d.now() + wait > end) return sent.exit;
+      await d.sleep(wait);
+      if (!d.ownerAlive() || !replaced()) return ExitCode.ok;
+    }
+  };
+  // A record left from an earlier replacement must not silence the next one.
+  if (!replaced()) rmSync(toldFile, { force: true });
+  if (registeredSession(d.dataDir) !== d.session) return replaced() ? tellMoved() : ExitCode.ok;
   const file = join(d.dataDir, HOOK_FILE);
   const ownState = (): HookState | null => {
     const now = readHookState(file);
@@ -228,42 +391,61 @@ export async function runStopHook(d: StopHookDeps): Promise<number> {
   }
   if (own?.retired === true) return ExitCode.ok;
   // Coming back with the lease of the last wake confirms that wake arrived.
-  let lease = d.confirm ?? own?.lease ?? d.session;
-  writeHookState(file, { session: d.session, pid: d.pid, lease, owner: d.owner });
+  const confirm = d.confirm === DOWN_TOKEN || d.confirm === MOVED_TOKEN ? undefined : d.confirm;
+  let lease = confirm ?? own?.lease ?? d.session;
+  let told = own?.unreachable === true || d.confirm === DOWN_TOKEN;
+  const save = (pid: number | null, reached: string, delivering = false): void =>
+    writeHookState(file, {
+      session: d.session,
+      pid,
+      lease: reached,
+      owner: d.owner,
+      ...(delivering ? { delivering: true } : {}),
+      ...(told ? { unreachable: true } : {}),
+    });
+  save(d.pid, lease);
   // A session that took over may already track its own hook here; that file is no longer this hook's.
-  const mine = (): boolean => {
+  const tracked = (): HookState | null => {
     const now = readHookState(file);
-    return now?.session === d.session && now.pid === d.pid;
+    return now?.session === d.session && now.pid === d.pid ? now : null;
   };
+  const mine = (): boolean => tracked() !== null;
   const release = (reached: string): void => {
-    if (mine())
-      writeHookState(file, { session: d.session, pid: null, lease: reached, owner: d.owner });
+    if (mine()) save(null, reached);
   };
   const ended = (): boolean => !d.ownerAlive() || readHookState(file)?.retired === true;
   const deadline = d.now() + d.parkMs;
+  let downSince: number | null = null;
+  let retryAt = 0;
+  let retryWait = RETRY_MIN_MS;
   for (;;) {
     if (ended()) {
       release(lease);
       return ExitCode.ok;
     }
+    const state = tracked();
+    // Another hook of this session took the job, or another session took the lease.
+    if (state === null) return replaced() ? tellMoved() : ExitCode.ok;
+    // A register in this session moved the lease on past what it listed.
+    lease = state.lease;
     const before = lease;
     const r = await d.query(lease);
     if (r.ok) {
       const data = r.data as Attention;
       lease = data.lease;
+      downSince = null;
+      retryAt = 0;
+      retryWait = RETRY_MIN_MS;
+      if (told) {
+        told = false;
+        if (mine()) save(d.pid, before);
+      }
       if (data.items.length > 0) {
         if (ended()) {
           release(before);
           return ExitCode.ok;
         }
-        if (mine())
-          writeHookState(file, {
-            session: d.session,
-            pid: d.pid,
-            lease: before,
-            owner: d.owner,
-            delivering: true,
-          });
+        if (mine()) save(d.pid, before, true);
         const sent = await d.deliver(
           wakeNote(data.items as AttentionItem[], data.truncated === true),
           lease,
@@ -272,8 +454,25 @@ export async function runStopHook(d: StopHookDeps): Promise<number> {
         release(sent.confirmed ? lease : before);
         return sent.exit;
       }
-    } else if (r.error.code !== 'daemon_unreachable') {
+      if (lease !== before && mine()) save(d.pid, lease);
+    } else if (r.error.code === 'daemon_unreachable') {
+      downSince ??= d.now();
+      if (!told && d.now() - downSince >= UNREACHABLE_WAKE_MS && d.now() >= retryAt) {
+        const sent = await d.deliver(unreachableNote(d.dataDir), DOWN_TOKEN);
+        // pi confirms with DOWN_TOKEN on its next hook, so only a confirmed note marks it told.
+        if (sent.confirmed || sent.exit !== ExitCode.ok) {
+          told = sent.confirmed;
+          release(lease);
+          return sent.exit;
+        }
+        // A failed codex queue: no Stop will follow in an idle session, so keep parking and try again
+        // until it arrives or the daemon is back.
+        retryAt = d.now() + retryWait;
+        retryWait = Math.min(2 * retryWait, RETRY_MAX_MS);
+      }
+    } else {
       if (mine()) rmSync(file, { force: true });
+      if (r.error.code === 'attention_superseded' || replaced()) return tellMoved();
       return ExitCode.ok;
     }
     const left = deadline - d.now();
@@ -311,6 +510,27 @@ export function noteSessionStart(
     writeHookState(file, { ...state, pid: null, retired: true });
 }
 
+/**
+ * A Codex app-server holds many threads (the Codex app, an IDE, Paseo), so a thread opening in it is not
+ * the registered one going away.
+ */
+export function retiresIn(
+  owner: number,
+  from: number,
+  inside: (from: number, owner: number) => boolean = isAncestor,
+  appServer: (pid: number) => boolean = isAppServer,
+): boolean {
+  return !appServer(owner) && inside(from, owner);
+}
+
+/**
+ * How many waits to ask about; 0 when a live holder was already sent everything. A dead holder still gets
+ * the question, since nobody else would relay its news (#244 keeps taking it a user decision).
+ */
+export function askAbout(peek: AttentionPeek): number {
+  return peek.held === true ? peek.undelivered : peek.waiting;
+}
+
 /** A recycled pid must not pass for a parked hook and silence the session. */
 function hookAlive(pid: number): boolean {
   try {
@@ -340,10 +560,10 @@ export const assistantSessionStartCommand: CliCommand = {
     const session = payloadSession();
     if (session === null) return ExitCode.ok;
     const dataDir = resolveDataDir(values['dataDir']);
-    noteSessionStart(dataDir, session, (owner) => isAncestor(process.ppid, owner));
+    noteSessionStart(dataDir, session, (owner) => retiresIn(owner, process.ppid));
     if (registeredSession(dataDir) === session) return ExitCode.ok;
     const r = await call(values, '/v1/query', { kind: 'attention_peek' }, null, PEEK_TIMEOUT_MS);
-    const waiting = r.ok ? (r.data as { waiting: number }).waiting : 0;
+    const waiting = r.ok ? askAbout(r.data as AttentionPeek) : 0;
     if (waiting > 0) io.stdout(leaseQuestion(waiting));
     return ExitCode.ok;
   },
@@ -393,13 +613,13 @@ Codex needs "async": true, and the pi extension from cusr init starts this itsel
   async run(values, json, io) {
     const seconds = Number(values['timeout'] ?? DEFAULT_PARK_S);
     if (!Number.isInteger(seconds) || seconds < 1)
-      return badFlag('--timeout must be a positive whole number of seconds.', {}, json, io);
+      return hookFlag('--timeout must be a positive whole number of seconds.', json, io);
     const harness = (values['harness'] ?? 'claude') as Harness;
     if (!HARNESSES.includes(harness))
-      return badFlag(`--harness must be one of ${HARNESSES.join(', ')}.`, {}, json, io);
+      return hookFlag(`--harness must be one of ${HARNESSES.join(', ')}.`, json, io);
     const ownerPid = values['ownerPid'] === undefined ? null : Number(values['ownerPid']);
     if (ownerPid !== null && (!Number.isInteger(ownerPid) || ownerPid < 1))
-      return badFlag('--owner-pid must be a process ID.', {}, json, io);
+      return hookFlag('--owner-pid must be a process ID.', json, io);
     const session = payloadSession();
     if (session === null) return ExitCode.ok;
     const owner = ownerOf(harness, ownerPid);
@@ -420,6 +640,7 @@ Codex needs "async": true, and the pi extension from cusr init starts this itsel
       sleep,
       ...(values['confirm'] === undefined ? {} : { confirm: values['confirm'] }),
       deliver: deliverer(harness, session, owner, io),
+      ackMoved: () => call(values, '/v1/query', { kind: 'assistant_moved_ack', session }, null),
     });
   },
 };

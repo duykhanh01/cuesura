@@ -349,11 +349,27 @@ mọi lệnh của agent, nên cân nhắc trước khi bật.
 }
 ```
 
-Khóa chỉ đổi khi người dùng bảo agent lấy. Phiên mở ra mà có task đang chờ và chưa giữ khóa thì `session-start`
-nhắc agent hỏi người dùng; lời nhắc chỉ nằm trong context, không mở lượt. Người dùng đồng ý thì agent chạy
-`cusr assistant register --take`. Hết lượt đó, Stop hook đánh thức phiên với mọi việc còn đang chờ để agent báo
-cáo, rồi đậu lại. Phiên khác thoát ngay, không gọi daemon. Đăng ký nằm ở `DATA_DIR/assistant-session.json` nên còn
-nguyên sau restart daemon.
+Khóa chỉ đổi khi người dùng bảo agent lấy. Phiên mở ra mà có task đang chờ thì `session-start` nhắc agent hỏi
+người dùng, trừ khi phiên giữ khóa đã hỏi daemon trong 10 giây gần nhất và đã được gửi hết các task đó; lời nhắc
+chỉ nằm trong context, không mở lượt. Phiên đã đăng ký mà đang chạy một lượt dài (hook chưa đậu lại) thì phiên mới
+vẫn được nhắc, vì từ daemon không phân biệt được với phiên đã chết.
+Người dùng đồng ý thì agent chạy `cusr assistant register --take`. Output của lệnh này liệt kê việc đang chờ
+(`items`) như một lần đánh thức; Stop hook đầu tiên xác nhận chúng thay vì đánh thức lại, rồi đậu và chỉ báo tin
+mới. Thư mục hiện tại không có Stop hook thì output có `warnings`. Phiên khác thoát ngay, không gọi daemon. Đăng
+ký nằm ở `DATA_DIR/assistant-session.json` nên còn nguyên sau restart daemon.
+
+- Phiên khác lấy khóa (`register --take`, hoặc `assistant wait` sau khi hook im quá 10 giây) thì hook của phiên cũ
+  đánh thức nó một lần với dòng `cusr:` báo khóa đã chuyển, kể cả khi lúc đó không có hook nào đậu: daemon giữ danh
+  sách phiên bị thay chưa được báo trong `assistant-session.json` (chỉ daemon ghi file này), và Stop kế tiếp của phiên
+  đó báo rồi xác nhận với daemon. Daemon chưa nhận xác nhận (đang chết) thì hook ghi nhớ đã báo ở file riêng của
+  phiên và các Stop sau chỉ thử xác nhận lại, không đánh thức nữa. `codex queue` lỗi thì hook tiếp tục đậu và thử lại, giãn dần từ 30 giây tới 5 phút.
+  Lấy khóa cần quyền `operate`.
+- Daemon không trả lời liên tục 5 phút thì hook đánh thức phiên một lần với data dir và gợi ý `cusr status`; chỉ báo
+  lại khi daemon đã về rồi mất lần nữa. `codex queue` lỗi thì hook vẫn đậu và thử lại theo cùng nhịp giãn, tới khi
+  tin tới hoặc daemon về. Restart ngắn không đánh thức ai. `assistant wait` trả `daemon_unreachable`
+  sau cùng ngưỡng đó.
+- Lỗi cú pháp trên đường hook (`assistant hook`, `assistant session-start`, lệnh con sai) thoát 1, không phải 2, để
+  lệnh hook hỏng không đánh thức phiên ở mọi Stop.
 
 - Chỉ tin thật mới đánh thức phiên. Hết `--timeout` (mặc định 604500 giây, thấp hơn `timeout` của hook) hook thoát
   im lặng; lượt kế tiếp kết thúc bằng một Stop và hook đậu lại, việc chưa báo vẫn còn ở daemon.
@@ -364,7 +380,8 @@ nguyên sau restart daemon.
   lượt vừa kết thúc chờ kết quả. Giao thất bại thì daemon gửi lại ở lần `Stop` sau; pi đang compact thì tin chờ tới khi
   phiên rảnh. Tin đã vào hàng đợi Codex mà phiên tắt trước khi nhận thì tới lúc resume.
 - `/new` đổi ID phiên. Phiên đã đăng ký thôi nhận tin, tin còn nguyên ở daemon và phiên mới được nhắc hỏi khóa; khóa
-  không tự chuyển. `/resume` về phiên cũ thì nhận tin lại. Codex chỉ báo phiên mới ở prompt đầu tiên, nên tin tới
+  không tự chuyển. Ngoại lệ là `codex app-server` (Codex app, extension IDE, Paseo): một process chứa nhiều thread,
+  nên thread mới mở không làm thread đã đăng ký thôi nhận tin. `/resume` về phiên cũ thì nhận tin lại. Codex chỉ báo phiên mới ở prompt đầu tiên, nên tin tới
   giữa `/new` và prompt đó vẫn chạy thành lượt của phiên cũ mà người dùng không thấy.
 - `register` lấy biến đầu tiên có giá trị theo thứ tự pi, Codex, Claude Code; harness chạy lồng trong harness khác
   thì truyền `--session`.

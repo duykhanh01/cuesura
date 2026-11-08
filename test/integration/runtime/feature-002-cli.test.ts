@@ -515,7 +515,10 @@ describe('assistant wait (issue #166)', () => {
     sd.seed((d) => asking(d, t));
     await sd.start();
     const registered = await cli(sd, ['assistant', 'register', '--session', 's-1']);
-    expect(registered.envelope.data).toEqual({ session: 's-1' });
+    expect(registered.envelope.data).toMatchObject({
+      session: 's-1',
+      items: [{ task_id: t.id, code: 'agent_question' }],
+    });
 
     const notes: string[] = [];
     const hook = (session: string) =>
@@ -540,15 +543,25 @@ describe('assistant wait (issue #166)', () => {
           notes.push(note);
           return Promise.resolve({ exit: 2, confirmed: true });
         },
+        ackMoved: () => Promise.resolve(okEnvelope({})),
       });
 
     expect(await hook('s-2')).toBe(ExitCode.ok);
     expect(notes).toEqual([]);
+    // Register listed the task, so the first Stop hook confirms it instead of waking for it (#268).
+    expect(await hook('s-1')).toBe(ExitCode.ok);
+    expect(notes).toEqual([]);
+
+    expect((await cli(sd, ['assistant', 'unregister', '--session', 's-1'])).envelope.data).toEqual({
+      session: 's-1',
+    });
+    expect(await hook('s-1')).toBe(ExitCode.ok);
+
+    // A register whose reply was lost leaves no lease behind: the hook then tells it.
+    await cli(sd, ['assistant', 'register', '--session', 's-1']);
+    rmSync(join(sd.dataDir, 'assistant-hook.json'));
     expect(await hook('s-1')).toBe(2);
     expect(notes[0]).toContain(`${t.id} (agent_question)`);
-
-    expect((await cli(sd, ['assistant', 'unregister'])).envelope.data).toEqual({ session: 's-1' });
-    expect(await hook('s-1')).toBe(ExitCode.ok);
   });
 
   it('sends a wake again when its delivery failed while the next Stop arrived', async () => {
@@ -557,6 +570,8 @@ describe('assistant wait (issue #166)', () => {
     sd.seed((d) => asking(d, t));
     await sd.start();
     await cli(sd, ['assistant', 'register', '--session', 's-1']);
+    // As if the register reply was lost, so the first Stop hook has the task to deliver.
+    rmSync(join(sd.dataDir, 'assistant-hook.json'));
     const notes: string[] = [];
     const later: Promise<number>[] = [];
     const hook = (pid: number, ok: boolean, onDelivery?: () => void) =>
@@ -582,6 +597,7 @@ describe('assistant wait (issue #166)', () => {
           onDelivery?.();
           return Promise.resolve({ exit: 0, confirmed: ok });
         },
+        ackMoved: () => Promise.resolve(okEnvelope({})),
       });
 
     // The turn ends while the first delivery is under way, and that delivery then fails.

@@ -27,14 +27,38 @@ export const ATTENTION_STALE_MS = 10_000;
  */
 export const ASSISTANT_SESSION_FILE = 'assistant-session.json';
 
-export function registeredSession(dataDir: string): string | null {
+/** Only the daemon writes this file, so no other process can lose a change it made. */
+type SessionFile = { readonly session: string | null; readonly replaced: readonly string[] };
+
+function readSessionFile(dataDir: string): SessionFile {
   try {
-    const raw: unknown = JSON.parse(readFileSync(join(dataDir, ASSISTANT_SESSION_FILE), 'utf8'));
-    const session = (raw as { session?: unknown } | null)?.session;
-    return typeof session === 'string' ? session : null;
+    const raw = JSON.parse(readFileSync(join(dataDir, ASSISTANT_SESSION_FILE), 'utf8')) as Record<
+      string,
+      unknown
+    > | null;
+    const session = raw?.['session'];
+    const replaced = raw?.['replaced'];
+    return {
+      session: typeof session === 'string' ? session : null,
+      replaced: Array.isArray(replaced)
+        ? replaced.filter((r): r is string => typeof r === 'string')
+        : [],
+    };
   } catch {
-    return null;
+    return { session: null, replaced: [] };
   }
+}
+
+export function registeredSession(dataDir: string): string | null {
+  return readSessionFile(dataDir).session;
+}
+
+/**
+ * Registered sessions another one took the lease from and that were not told yet. Kept on disk because
+ * such a session may have no hook parked when it happens: its next Stop must still be able to say so.
+ */
+export function replacedSessions(dataDir: string): readonly string[] {
+  return readSessionFile(dataDir).replaced;
 }
 
 const LIVE = TASK_STATUSES.filter((s) => !isTerminal(s));
@@ -59,7 +83,20 @@ const RegisterSchema = z
   })
   .strict();
 
-const UnregisterSchema = z.object({ kind: z.literal('assistant_unregister').optional() }).strict();
+const MovedAckSchema = z
+  .object({ kind: z.literal('assistant_moved_ack').optional(), session: SESSION_ID })
+  .strict();
+
+const UnregisterSchema = z
+  .object({
+    kind: z.literal('assistant_unregister').optional(),
+    /** When given, only this session's registration goes. */
+    session: SESSION_ID.optional(),
+  })
+  .strict();
+
+const LEASE_GUIDANCE =
+  'Pass --lease exactly as the last cusr assistant wait printed it, or leave it out to start a new wait.';
 
 type Mode = z.infer<typeof AttentionQuerySchema>['mode'];
 
@@ -78,6 +115,16 @@ export type AttentionReply = {
   readonly items: readonly AttentionItem[];
   readonly truncated: boolean;
 };
+
+export type AttentionPeek = {
+  readonly waiting: number;
+  /** The holder polled within `ATTENTION_STALE_MS`. */
+  readonly held: boolean;
+  /** Waits the holder has not been sent yet. */
+  readonly undelivered: number;
+};
+
+export type RegisterReply = AttentionReply & { readonly session: string };
 
 type Holder = {
   readonly id: string;
@@ -119,12 +166,23 @@ function keyed(s: TaskState, enteredAt: number): Keyed {
   };
 }
 
-function invalid(message: string, issues: readonly z.core.$ZodIssue[]): Result<never, AppError> {
+function invalid(
+  message: string,
+  issues: readonly z.core.$ZodIssue[],
+  guidance?: string,
+): Result<never, AppError> {
   return err({
     code: 'invalid_request',
     message,
-    details: { issues: issues.map((i) => `${i.path.join('.')}: ${i.message}`) },
+    details: {
+      issues: issues.map((i) => `${i.path.join('.')}: ${i.message}`),
+      ...(guidance === undefined ? {} : { guidance }),
+    },
   });
+}
+
+function forbidden(message: string, error: object): Result<never, AppError> {
+  return err({ code: 'forbidden', message, details: { ...error } });
 }
 
 /** Events that set `wait`; together with the task they name one entry into a wait. */
@@ -138,6 +196,7 @@ export class AttentionDesk {
   readonly #statusSince: StatusSince;
   #holder: Holder | null = null;
   #registered: string | null = null;
+  #replaced = new Set<string>();
   /** Reading a task's log only when it changed; holds the tasks that needed a person last time. */
   #entered = new Map<string, { readonly version: number; readonly seq: number }>();
 
@@ -152,7 +211,10 @@ export class AttentionDesk {
     this.#decider = deps.decider ?? null;
     this.#now = deps.now;
     this.#dataDir = deps.dataDir ?? null;
-    this.#registered = this.#dataDir === null ? null : registeredSession(this.#dataDir);
+    const saved =
+      this.#dataDir === null ? { session: null, replaced: [] } : readSessionFile(this.#dataDir);
+    this.#registered = saved.session;
+    this.#replaced = new Set(saved.replaced);
     if (this.#registered !== null)
       this.#holder = {
         id: this.#registered,
@@ -169,28 +231,22 @@ export class AttentionDesk {
   register(
     caller: Caller,
     body: Readonly<Record<string, unknown>>,
-  ): Result<{ readonly session: string }, AppError> {
+  ): Result<RegisterReply, AppError> {
     const q = RegisterSchema.safeParse(body);
     if (!q.success) return invalid('invalid assistant_register query', q.error.issues);
     const allowed = authorize(caller, { role: 'operate' });
-    if (!allowed.ok)
-      return err({
-        code: 'forbidden',
-        message: 'assistant session not registrable',
-        details: { ...allowed.error },
-      });
+    if (!allowed.ok) return forbidden('assistant session not registrable', allowed.error);
     const dataDir = this.#dataDir;
     if (dataDir === null)
       return err({ code: 'not_available', message: 'no data directory', details: {} });
     const { session, take } = q.data;
     const held = this.#claim(session, 0, take === true ? 'take' : 'attach');
     if (!held.ok) return held;
-    const file = join(dataDir, ASSISTANT_SESSION_FILE);
-    const tmp = `${file}.${randomUUID()}.tmp`;
-    writeFileSync(tmp, JSON.stringify({ session }), { mode: 0o600 });
-    renameSync(tmp, file);
     this.#registered = session;
-    return ok({ session });
+    this.#replaced.delete(session);
+    this.#persist();
+    // What waits now goes in this reply, so the first Stop hook confirms it instead of waking for it again.
+    return ok({ session, ...this.#reply(held.value, 0) });
   }
 
   unregister(
@@ -200,57 +256,96 @@ export class AttentionDesk {
     const q = UnregisterSchema.safeParse(body);
     if (!q.success) return invalid('invalid assistant_unregister query', q.error.issues);
     const allowed = authorize(caller, { role: 'operate' });
-    if (!allowed.ok)
-      return err({
-        code: 'forbidden',
-        message: 'assistant session not registrable',
-        details: { ...allowed.error },
-      });
+    if (!allowed.ok) return forbidden('assistant session not registrable', allowed.error);
     const session = this.#registered;
+    if (q.data.session !== undefined && q.data.session !== session)
+      return err({
+        code: 'attention_not_registered',
+        message: 'this session is not the registered assistant session',
+        details: { registered: session, guidance: 'Nothing to undo: this session gets no news.' },
+      });
     if (session !== null && this.#holder?.id === session) this.#holder = null;
     this.#forget();
     return ok({ session });
   }
 
-  /** How many tasks wait for a person, for a session deciding whether to ask for the lease. Holds nothing. */
-  peek(caller: Caller): Result<{ readonly waiting: number }, AppError> {
+  /** What a session opening needs to decide whether to ask for the lease. Holds nothing, sends nothing. */
+  peek(caller: Caller): Result<AttentionPeek, AppError> {
     const allowed = authorize(caller, { role: 'read' });
-    if (!allowed.ok)
-      return err({
-        code: 'forbidden',
-        message: 'attention not readable',
-        details: { ...allowed.error },
-      });
-    return ok({ waiting: this.#waiting().waiting.length });
+    if (!allowed.ok) return forbidden('attention not readable', allowed.error);
+    const { waiting } = this.#waiting();
+    const holder = this.#holder;
+    if (holder === null)
+      return ok({ waiting: waiting.length, held: false, undelivered: waiting.length });
+    // A registered session that stopped polling may be dead (#244): a session opening must then ask.
+    const held = this.#now() - holder.seenAt < ATTENTION_STALE_MS;
+    // Sent but not yet confirmed counts as told: the holder's session may be reading it right now.
+    const told = new Set([...holder.delivered, ...holder.offered]);
+    const undelivered = waiting.filter((w) => !told.has(w.key)).length;
+    return ok({ waiting: waiting.length, held, undelivered });
+  }
+
+  /** A replaced session's hook says its note arrived; it is not told again. */
+  movedAck(
+    caller: Caller,
+    body: Readonly<Record<string, unknown>>,
+  ): Result<{ readonly session: string }, AppError> {
+    const q = MovedAckSchema.safeParse(body);
+    if (!q.success) return invalid('invalid assistant_moved_ack query', q.error.issues);
+    const allowed = authorize(caller, { role: 'operate' });
+    if (!allowed.ok) return forbidden('assistant session not registrable', allowed.error);
+    if (this.#replaced.delete(q.data.session)) this.#persist();
+    return ok({ session: q.data.session });
   }
 
   #forget(): void {
     this.#registered = null;
-    if (this.#dataDir !== null)
-      rmSync(join(this.#dataDir, ASSISTANT_SESSION_FILE), { force: true });
+    this.#persist();
+  }
+
+  #persist(): void {
+    const dataDir = this.#dataDir;
+    if (dataDir === null) return;
+    const file = join(dataDir, ASSISTANT_SESSION_FILE);
+    if (this.#registered === null && this.#replaced.size === 0) {
+      rmSync(file, { force: true });
+      return;
+    }
+    const tmp = `${file}.${randomUUID()}.tmp`;
+    const content: Record<string, unknown> = {
+      ...(this.#registered === null ? {} : { session: this.#registered }),
+      ...(this.#replaced.size === 0 ? {} : { replaced: [...this.#replaced] }),
+    };
+    writeFileSync(tmp, JSON.stringify(content), { mode: 0o600 });
+    renameSync(tmp, file);
   }
 
   poll(caller: Caller, body: Readonly<Record<string, unknown>>): Result<AttentionReply, AppError> {
     const q = AttentionQuerySchema.safeParse(body);
-    if (!q.success) return invalid('invalid attention query', q.error.issues);
-    const allowed = authorize(caller, { role: 'read' });
-    if (!allowed.ok)
-      return err({
-        code: 'forbidden',
-        message: 'attention not readable',
-        details: { ...allowed.error },
-      });
+    if (!q.success)
+      return invalid(
+        'invalid attention query',
+        q.error.issues,
+        q.error.issues.some((i) => i.path[0] === 'lease') ? LEASE_GUIDANCE : undefined,
+      );
+    // Claiming the lease moves where news goes, and may end a registration: that is a change.
+    const claims = q.data.mode === 'attach' || q.data.mode === 'take';
+    const allowed = authorize(caller, { role: claims ? 'operate' : 'read' });
+    if (!allowed.ok) return forbidden('attention not readable', allowed.error);
     const [id = '', batch = '0'] = q.data.lease.split('.');
     const held = this.#claim(id, Number(batch), q.data.mode);
     if (!held.ok) return held;
-    const holder = held.value;
+    return ok(this.#reply(held.value, Number(batch)));
+  }
+
+  #reply(holder: Holder, batch: number): AttentionReply {
     holder.seenAt = this.#now();
     if (holder.restored) {
       holder.restored = false;
       // A number reused after a restart would make a retry of a lost reply read as its confirmation.
-      holder.batch = Math.max(holder.batch, Number(batch));
+      holder.batch = Math.max(holder.batch, batch);
     }
-    if (Number(batch) >= holder.batch) {
+    if (batch >= holder.batch) {
       holder.delivered = new Set([...holder.delivered, ...holder.offered]);
       holder.offered = [];
     }
@@ -258,32 +353,46 @@ export class AttentionDesk {
     // `effect_unknown` wait, time: with none of them changed and no such wait due yet, nothing is new.
     const seq = `${this.#store.lastGlobalSeq()}:${this.#decider?.version() ?? 0}`;
     if (holder.seq === seq && (holder.due === null || this.#now() < holder.due))
-      return ok({ lease: `${holder.id}.${holder.batch}`, items: [], truncated: false });
-    return ok(this.#deliver(holder, seq));
+      return { lease: `${holder.id}.${holder.batch}`, items: [], truncated: false };
+    return this.#deliver(holder, seq);
   }
 
   #claim(id: string, batch: number, mode: Mode): Result<Holder, AppError> {
     const cur = this.#holder;
     if (cur !== null && cur.id === id) return ok(cur);
     if (mode === 'hook')
-      return err({
-        code: 'attention_not_registered',
-        message: 'this session is not the registered assistant session',
-        details: {},
-      });
+      return this.#replaced.has(id)
+        ? err({
+            code: 'attention_superseded',
+            message: 'another session took the assistant lease',
+            details: {},
+          })
+        : err({
+            code: 'attention_not_registered',
+            message: 'this session is not the registered assistant session',
+            details: {},
+          });
     if (cur !== null && mode === 'resume')
       return err({
         code: 'attention_superseded',
         message: 'another session took the assistant lease; stop waiting here',
         details: {},
       });
-    if (cur !== null && mode === 'attach' && this.#now() - cur.seenAt < ATTENTION_STALE_MS)
+    const idle = cur === null ? 0 : this.#now() - cur.seenAt;
+    if (cur !== null && mode === 'attach' && idle < ATTENTION_STALE_MS)
       return err({
         code: 'attention_held',
         message: 'another session holds the assistant lease',
-        details: { guidance: 'Run this again with --take only if the user asked to move here.' },
+        details: {
+          retry_after_ms: ATTENTION_STALE_MS - idle,
+          guidance:
+            'If that is this same session after it lost its lease (a compact or a restart), wait retry_after_ms and run this again without --take; do not ask the user. Otherwise run it again with --take only if the user asked to move here.',
+        },
       });
-    if (this.#registered !== null && this.#registered !== id) this.#forget();
+    if (this.#registered !== null && this.#registered !== id) {
+      this.#replaced.add(this.#registered);
+      this.#forget();
+    }
     // Starts at the batch it came with: after a daemon restart a lower number would read as confirmed.
     this.#holder = {
       id,

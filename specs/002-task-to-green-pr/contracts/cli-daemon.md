@@ -95,6 +95,9 @@ tới data dir của daemon đang chạy. Output cho người đọc in `guidanc
 `CUSR_OPERATION_ID` (mọi process daemon chạy cho một operation: gate, setup, Git): lỗi `worker_refused`,
 exit 5, trước khi mở socket hay giao diện terminal. Riêng `cusr assistant session-start` và
 `cusr assistant hook` thoát 0 không in gì, vì hook trong settings của owner có thể chạy trong worker.
+Lỗi cú pháp của lệnh dưới `cusr assistant` mà harness chạy làm hook (`hook`, `session-start`, lệnh con
+không tồn tại) thoát 1 thay vì 2: exit 2 của hook có `asyncRewake` đánh thức phiên, nên lệnh hook hỏng
+sẽ đánh thức phiên ở mọi Stop (#268). `wait`, `register`, `unregister` do agent chạy vẫn thoát 2.
 `cusrd` và `cusr-runner` không kiểm biến này. Giống `CUSR_ACTOR`, đây là rào chắn cho agent làm đúng quy
 ước, không phải ranh giới quyền: process cùng UID xóa biến là qua (#185).
 

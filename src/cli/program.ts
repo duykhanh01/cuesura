@@ -166,9 +166,20 @@ export async function runCli(
         ),
       );
     }
-    return ExitCode.usage;
+    return hookPath(argv) ? ExitCode.failure : ExitCode.usage;
   }
   return exitCode;
+}
+
+/** Commands an agent runs itself under `assistant`; the rest are hooks a harness runs. */
+const ASSISTANT_RUN_BY_AGENT = ['wait', 'register', 'unregister'];
+
+/**
+ * A harness wakes the session on exit 2 from a hook (`asyncRewake`), so a hook command that no longer
+ * parses would wake it on every Stop with its own error.
+ */
+function hookPath(argv: readonly string[]): boolean {
+  return argv[0] === 'assistant' && !ASSISTANT_RUN_BY_AGENT.includes(argv[1] ?? '');
 }
 
 function notAvailable(

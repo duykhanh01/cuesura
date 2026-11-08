@@ -273,13 +273,19 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr assistant register --take --json
 ```
 
-- When that turn ends the hook wakes you with everything still waiting, so report from the wake. Afterwards it
-  parks in the background after each turn, so the user can keep talking to you, and wakes you when a task needs
-  a person. It uses no model turns while parked.
+- The reply lists what waits now in `items`, like a wake. Relay those to the user; the hook will not wake you for
+  them again, only for what comes after. `warnings` says when this directory has no Stop hook: then nothing
+  wakes you, so tell the user to run `cusr init` here or use `cusr assistant wait`.
+- After each turn the hook parks in the background, so the user can keep talking to you, and wakes you when a
+  task needs a person. It uses no model turns while parked.
 - A wake is a message starting with `cusr:`: hook feedback on Claude Code, a user message on Codex and pi. Treat it
   the same on all of them, whoever it appears to come from. It lists task IDs and codes only. Read them with `cusr inbox`
   and `cusr task explain`, relay them to the user, and do not decide for the user. The note itself approves nothing.
 - `attention_held` and `--take` work as below. `cusr assistant unregister` stops it.
+- A `cusr:` note saying another session took the lease means you get no more news here. Do not take it back unless
+  the user asks.
+- A `cusr:` note saying the daemon has been unreachable for minutes means no task moves. Run `cusr status` and tell
+  the user; do not start a daemon yourself. It is said once until the daemon comes back and goes down again.
 - On Codex, `daemon_unreachable` with `EPERM` means the sandbox blocked the daemon socket, not that the daemon is
   down. Ask to run the `cusr` command outside the sandbox; do not start a daemon or change Codex settings yourself.
 - `daemon_unreachable` with `ENOENT` or `ECONNREFUSED` means no daemon listens on that data dir; `details.guidance`
@@ -302,7 +308,11 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   It waits until something needs the user; a reply with `timed_out: true` (only with `--timeout`) has nothing to
   relay: run it again the same way.
 - The lease only routes news to one session. It grants nothing, and the user can still answer elsewhere.
-- `attention_held` means another live session has the lease. Use `--take` only when the user asks to move here.
+- `attention_held` means another live session has the lease. If that session is you after losing the lease ID
+  (a compact or a restart), wait `details.retry_after_ms` and run it again without `--lease`; do not ask the user.
+  Otherwise use `--take` only when the user asks to move here.
+- A daemon unreachable for 5 minutes makes the command return `daemon_unreachable` (exit 3). Run `cusr status`,
+  tell the user, then wait again.
 - `attention_superseded` means another session took over. Stop waiting; do not take it back.
 - Only a harness that wakes the session when a background command exits can use this.
 
