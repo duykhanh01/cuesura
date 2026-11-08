@@ -245,6 +245,16 @@ export type RuntimeExplanation = Omit<Explanation, 'wait'> & {
   };
   slot: {
     holding: boolean;
+    /**
+     * How the task holds a slot (FR-044.07): `running` on its own, `reserved` while it waits outside (or
+     * runs only work that needs no slot, such as a CI poll) and keeps it, `borrowed` on a loan of another
+     * task's reservation; null when it holds none.
+     */
+    hold: {
+      kind: 'running' | 'reserved' | 'borrowed';
+      since: number;
+      lender_task_id: string | null;
+    } | null;
     queued: {
       group: string;
       requested_at: number;
@@ -300,6 +310,16 @@ function slotWaits(
   return waits;
 }
 
+function slotHold(state: TaskState): RuntimeExplanation['slot']['hold'] {
+  const h = state.execution.holding;
+  if (h === null) return null;
+  if (h.lender_task_id !== undefined)
+    return { kind: 'borrowed', since: h.granted_at, lender_task_id: h.lender_task_id };
+  if (h.reserved_at !== undefined)
+    return { kind: 'reserved', since: h.reserved_at, lender_task_id: null };
+  return { kind: 'running', since: h.granted_at, lender_task_id: null };
+}
+
 export function explainRuntime(
   state: TaskState,
   events: readonly DomainEvent[],
@@ -351,6 +371,7 @@ export function explainRuntime(
     },
     slot: {
       holding: state.execution.holding !== null,
+      hold: slotHold(state),
       queued:
         request === null
           ? null

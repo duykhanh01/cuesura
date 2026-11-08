@@ -133,6 +133,7 @@ describe('runtime config', () => {
     expect(v.runtime).toEqual({
       data_dir: null,
       concurrency: 1,
+      slot_reservation_hours: 24,
       limits: DEFAULT_RUNTIME_LIMITS,
       tool_paths: {},
       credential_refs: [],
@@ -150,6 +151,7 @@ describe('runtime config', () => {
     const v = valid(`runtime:
   data_dir: /var/lib/cusr
   concurrency: 3
+  slot_reservation_hours: 6
   limits: { poll_initial_ms: 30000, spool_bytes: 134217728 }
   tool_paths: { git: /usr/bin/git, bwrap: /usr/bin/bwrap }
   credential_refs: { harness_claude: /srv/cred/claude.json, github: /srv/cred/gh.token }
@@ -162,6 +164,7 @@ describe('runtime config', () => {
     expect(v.runtime).toEqual({
       data_dir: '/var/lib/cusr',
       concurrency: 3,
+      slot_reservation_hours: 6,
       terminal: { backend: 'herdr', session: 'cusr' },
       limits: {
         ...DEFAULT_RUNTIME_LIMITS,

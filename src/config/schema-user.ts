@@ -313,6 +313,8 @@ export type RuntimeTerminal = z.infer<typeof RuntimeTerminalSchema>;
 export type AttachedTerminal = Exclude<RuntimeTerminal, { backend: 'background' }>;
 
 export const MAX_CONCURRENCY = 64;
+/** Thirty days: a reservation is meant to cover a wait for CI, a merge or a person, not to park a slot. */
+export const MAX_SLOT_RESERVATION_HOURS = 720;
 
 /** Runtime limits override defaults individually; check cross-field constraints after merging them. */
 export const RuntimeSchema = z
@@ -320,6 +322,11 @@ export const RuntimeSchema = z
     data_dir: AbsolutePathSchema.optional(),
     /** How many tasks may hold an execution slot at once (FR-044.01); read when cusrd starts. */
     concurrency: z.number().int().positive().max(MAX_CONCURRENCY).optional(),
+    /**
+     * How long a task waiting outside keeps its slot reserved (FR-044.02); read when cusrd starts.
+     * Past it the slot is free again and the task queues by priority when it comes back.
+     */
+    slot_reservation_hours: z.number().int().positive().max(MAX_SLOT_RESERVATION_HOURS).optional(),
     limits: RuntimeLimitsSchema.partial().optional(),
     tool_paths: z.partialRecord(z.enum(RUNTIME_TOOLS), AbsolutePathSchema).optional(),
     credential_refs: z.record(RefNameSchema, AbsolutePathSchema).optional(),

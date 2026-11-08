@@ -89,6 +89,17 @@ function startedAndAsking(d: StoreDriver, t: CanonicalTask): string {
   return Object.keys(d.task(t.id).questions)[0] as string;
 }
 
+/** Lets the reservation of `t` run out, as the scheduler does past `slot_reservation_hours`. */
+function expireReservation(d: StoreDriver, t: CanonicalTask): void {
+  const h = d.task(t.id).execution.holding;
+  expect(h?.reserved_at).toBeTypeOf('number');
+  d.must(t.id, {
+    kind: 'release_execution',
+    request_id: h?.request_id as Uuid,
+    reason: 'reservation_expired',
+  });
+}
+
 describe('scheduler queues, grants and starts one task at a time (T034, FR-044)', () => {
   it('a READY task without a confirmed run selection is never queued (M01)', async () => {
     const { d, scheduler } = setup();
@@ -237,15 +248,20 @@ describe('scheduler queues, grants and starts one task at a time (T034, FR-044)'
 });
 
 describe('the engine returns the slot when nothing slot-bound is left and queues resumed work (FR-044.02/03/05)', () => {
-  it('a task waiting for a human gives the slot back; its next attempt waits as WAITING/policy execution_slot', () => {
+  it('a task waiting for a human keeps the slot reserved; once that runs out its next attempt waits as WAITING/policy execution_slot', () => {
     const d = new StoreDriver(openFileStoreForTest(dbPath(tempDir())));
     const a = task(1);
     const qid = startedAndAsking(d, a);
     expect(d.task(a.id)).toMatchObject({
       status: 'WAITING',
       wait: { reason: 'human_input' },
-      execution: { holding: null },
+      execution: { holding: { reserved_at: d.now } },
     });
+    expect(d.store.readSlots()).toMatchObject([
+      { holder_task_id: a.id, reserved_at: d.now, borrower_task_id: null },
+    ]);
+    expireReservation(d, a);
+    expect(d.task(a.id).execution.holding).toBeNull();
     expect(d.store.readSlots()).toEqual([]);
     const deadline = d.task(a.id).deadline_at;
     expect(deadline).not.toBeNull();
@@ -288,6 +304,7 @@ describe('the engine returns the slot when nothing slot-bound is left and queues
     const a = task(1);
     const b = task(2);
     const qid = startedAndAsking(d, a);
+    expireReservation(d, a);
     createGrantStart(d, b);
     d.must(a.id, {
       kind: 'answer',
@@ -309,6 +326,7 @@ describe('the engine returns the slot when nothing slot-bound is left and queues
       'succeeded',
       agentData('needs_input', { questions: ['?'] }),
     );
+    expireReservation(d, b);
     expect(d.store.readSlots()).toEqual([]);
 
     const g = d.store.grantNext(
@@ -448,6 +466,7 @@ describe('cusr queue pause (issue #142)', () => {
     // A higher priority than the started task: first in the queue order, held by the pause all the same.
     const queuedEarlier = task(12, { priority: 5 });
     startedAndAsking(d, asking);
+    expireReservation(d, asking);
     await confirmed(d, fresh);
     await confirmed(d, queuedEarlier);
     // Queued before the pause: it stays queued, and is granted once the queue is resumed.
@@ -471,8 +490,12 @@ describe('cusr queue pause (issue #142)', () => {
       'succeeded',
       agentData('needs_input', { questions: ['Again?'] }),
     );
+    // It keeps its slot reserved this time; the first queued task runs on a loan of it.
     await scheduler.tick();
-    expect(slotHolder(d)).toBe(queuedEarlier.id);
+    expect(slotHolder(d)).toBe(asking.id);
+    expect(d.store.readLoans()).toMatchObject([
+      { borrower_task_id: queuedEarlier.id, lender_task_id: asking.id },
+    ]);
   });
 });
 

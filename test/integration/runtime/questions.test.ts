@@ -53,7 +53,7 @@ const agentRequests = (d: StoreDriver, taskId: string) =>
   d.pending(taskId, 'start_agent').map((e) => e.request);
 
 describe('needs_input ends the attempt and waits for a person (US5.1, FR-024)', () => {
-  it('records the question, finishes the attempt, frees the slot and keeps the question across a restart', () => {
+  it('records the question, finishes the attempt, keeps the slot only reserved and keeps the question across a restart', () => {
     const { d, t, path } = started();
     d.complete(
       t.id,
@@ -66,11 +66,12 @@ describe('needs_input ends the attempt and waits for a person (US5.1, FR-024)', 
       status: 'WAITING',
       wait: { reason: 'human_input', detail: { code: 'agent_question' } },
     });
-    // No agent kept alive to wait: the attempt is finished and nothing is in flight or holding the slot.
+    // No agent kept alive to wait: the attempt is finished and nothing is in flight. The slot is only
+    // reserved, so another task may borrow it until the answer comes (FR-044.02).
     expect(Object.values(s.attempts).map((a) => a.status)).toEqual(['finished']);
     expect(d.store.pendingEffects(100)).toEqual([]);
-    expect(d.store.readSlots()).toEqual([]);
-    expect(s.execution).toMatchObject({ holding: null, request: null });
+    expect(d.store.readSlots()).toMatchObject([{ holder_task_id: t.id, reserved_at: d.now }]);
+    expect(s.execution).toMatchObject({ holding: { reserved_at: d.now }, request: null });
     const q = openQuestion(d, t.id);
     expect(q).toMatchObject({ body: 'Which encoding?', step: 'code' });
 

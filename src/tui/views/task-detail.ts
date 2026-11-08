@@ -459,6 +459,12 @@ function plainLimitRows(out: Rows, explain: TaskExplain): void {
     out.field('Waits for', [seg(sanitize(p.task_id), DIM), ui(' · '), seg(p.status)]);
 }
 
+const HOLD_TEXT = {
+  running: 'holds the execution slot',
+  reserved: 'keeps the execution slot reserved while it waits',
+  borrowed: "runs on another task's reserved slot",
+} as const;
+
 function limitRows(out: Rows, explain: TaskExplain): void {
   const { remaining, deadline, slot } = explain;
   out.heading('Limits');
@@ -487,7 +493,7 @@ function limitRows(out: Rows, explain: TaskExplain): void {
     ui(
       `${formatDuration(slot.initial_wait_ms)} first, ${formatDuration(slot.resumed_wait_ms)} resumed`,
     ),
-    ...(slot.holding ? [ui(' · holds the execution slot', ACTIVE)] : []),
+    ...(slot.holding ? [ui(` · ${HOLD_TEXT[slot.hold?.kind ?? 'running']}`, ACTIVE)] : []),
   ]);
   if (slot.queued !== null)
     out.field('Queue', [

@@ -567,7 +567,9 @@ describe.each(['full-review', 'direct-pr'] as const)(
       expect(github.calls.filter((c) => c.includes('/merge') && !c.startsWith('GET'))).toEqual([]);
       expect(Object.values(s.effects).filter((e) => e.kind === 'merge')).toEqual([]);
       expect(types(d, task)).not.toContain('ApprovalRequested');
-      expect(d.store.readSlots()).toEqual([]);
+      // Waiting for the merge keeps the slot reserved (FR-044.02).
+      expect(d.store.readSlots()).toMatchObject([{ holder_task_id: task.id }]);
+      expect(d.store.readSlots()[0]?.reserved_at).toBeTypeOf('number');
       expect(d.task(child.id).status).toBe('PENDING');
 
       // The user merges on GitHub; the merged head is the checked one, verified under this mode.
@@ -826,10 +828,12 @@ it('keeps the slot from publish through PR and review while a lower priority tas
   expect(
     events.some((e) => e.type === 'TaskWaiting' && e.payload.wait.detail.code === 'execution_slot'),
   ).toBe(false);
-  const released = at('ExecutionReleased');
-  expect(released).toBeGreaterThan(at('ReviewVerdictRecorded'));
-  expect(events[released]?.payload).toMatchObject({ reason: 'waiting' });
-  expect(d.store.readSlots()).toEqual([]);
+  // Waiting for the merge keeps the slot as a reservation, taken only after the review (#206).
+  expect(at('ExecutionReleased')).toBe(-1);
+  expect(at('ExecutionReserved')).toBeGreaterThan(at('ReviewVerdictRecorded'));
+  expect(d.store.readSlots()).toMatchObject([
+    { holder_task_id: task.id, reserved_at: expect.any(Number) as number },
+  ]);
   expect(d.task(other.id).execution.request).not.toBeNull();
 });
 
@@ -1020,7 +1024,7 @@ it('a reviewer prompt too large for the context waits for a person: no call, no 
 describe('worktree changed by someone else before the worker (T072, real Git)', () => {
   it('the worker does not start on a changed worktree; recheck takes the change as the person’s and the flow goes on', async () => {
     const task = buildTask();
-    const { d, start, tick, settle, coder, worktree, newId } = setup(task, {
+    const { d, start, tick, settle, coder, worktree } = setup(task, {
       mode: 'direct-pr',
     });
     d.must(task.id, { kind: 'create_task', task });
@@ -1046,8 +1050,8 @@ describe('worktree changed by someone else before the worker (T072, real Git)', 
       previous: prepared,
       tree: s.wait?.detail['observed'],
     });
-    const granted = d.store.grantNext(d.now as EpochMs, [newId(), newId(), newId(), newId()]);
-    if (!granted.ok || granted.value.kind !== 'decided') throw new Error(JSON.stringify(granted));
+    // Back at once on the slot it kept reserved while it waited (FR-044.02).
+    expect(d.task(task.id).status).toBe('RUNNING');
     await settle();
     expect(coder.calls).toHaveLength(1);
     expect(d.task(task.id).wait?.detail.code).toBe('merge');

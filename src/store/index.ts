@@ -9,7 +9,7 @@ import type { TaskState, TaskStatus } from '../domain/state.ts';
 import type { TriggerEnvelope } from '../domain/trigger.ts';
 import { accept, type AcceptError, type AcceptOutcome } from './accept.ts';
 import { claimEffect, type ClaimError, type ClaimRequest } from './claim.ts';
-import { grantNext, type GrantOptions, type GrantOutcome } from './grant.ts';
+import { grantNext, lendNext, type GrantOptions, type GrantOutcome } from './grant.ts';
 import * as commands from './commands.ts';
 import { crashHookFromEnv, type CrashHook } from './crash.ts';
 import { openDatabase, type StoreOpenError } from './open.ts';
@@ -27,7 +27,7 @@ export type {
   StoreOpenError,
   VerifyReport,
 };
-export type { QueuedRequest, SlotHolding } from './read.ts';
+export type { QueuedRequest, SlotHolding, SlotLoan } from './read.ts';
 export type { Admission, CommandRecord, LedgerError } from './commands.ts';
 export type { Timer } from './read.ts';
 
@@ -40,9 +40,17 @@ export interface Store {
     ids?: readonly string[],
     opts?: GrantOptions,
   ): Result<GrantOutcome, AcceptError>;
+  /** Lends a reservation to a task that never started, if every slot is taken (FR-044.02). */
+  lendNext(
+    now: EpochMs,
+    ids?: readonly string[],
+    opts?: GrantOptions,
+  ): Result<GrantOutcome, AcceptError>;
   readQueue(limit: number): read.QueuedRequest[];
   /** Every held execution slot, in grant order (FR-044.01). */
   readSlots(): read.SlotHolding[];
+  /** Every loan of a reservation, in grant order (FR-044.02). */
+  readLoans(): read.SlotLoan[];
   admitCommand(
     input: Parameters<typeof commands.admitCommand>[1],
   ): Result<commands.Admission, commands.LedgerError>;
@@ -117,11 +125,21 @@ export class SqliteStore implements Store {
   ): Result<GrantOutcome, AcceptError> {
     return grantNext(this.db, now, this.crash, ids, opts);
   }
+  lendNext(
+    now: EpochMs,
+    ids: readonly string[] = [],
+    opts: GrantOptions = {},
+  ): Result<GrantOutcome, AcceptError> {
+    return lendNext(this.db, now, this.crash, ids, opts);
+  }
   readQueue(limit: number): read.QueuedRequest[] {
     return read.readQueue(this.db, limit);
   }
   readSlots(): read.SlotHolding[] {
     return read.readSlots(this.db);
+  }
+  readLoans(): read.SlotLoan[] {
+    return read.readLoans(this.db);
   }
   dueTimers(now: EpochMs, limit: number): read.Timer[] {
     return dueTimers(this.db, now, limit);

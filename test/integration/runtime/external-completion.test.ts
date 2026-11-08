@@ -105,7 +105,7 @@ describe('external confirmation (T045, FR-021, FR-040)', () => {
     });
     expect(types(d, t)).not.toContain('ApprovalRequested');
     expect(d.pending(t.id, 'merge')).toEqual([]);
-    expect(d.store.readSlots()).toEqual([]);
+    expect(d.store.readSlots()).toMatchObject([{ holder_task_id: t.id, reserved_at: d.now }]);
   });
 
   it('a merge proof is recorded once, waits for cleanup first, and ends business work', () => {

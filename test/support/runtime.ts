@@ -1,3 +1,4 @@
+import { MAX_CONCURRENCY } from '../../src/config/schema-user.ts';
 import {
   computeRuntimeHash,
   DEFAULT_RUNTIME_LIMITS,
@@ -128,11 +129,14 @@ export function createGrantStart(
   mode: ExecutionMode = 'full-review',
   policy: Pick<PolicyOptions, 'limits' | 'ci_rules' | 'required_checks' | 'roles'> = {},
   runtime: Partial<Omit<FrozenRuntimeContext, 'runtime_hash'>> = {},
+  // Started tasks keep their slot reserved while they wait (FR-044.02), so fixtures that put several
+  // tasks in flight run as with a large `runtime.concurrency`; slot tests pass the capacity they test.
+  capacity = MAX_CONCURRENCY,
 ): string {
   d.must(task.id, { kind: 'create_task', task });
   proposeAndConfirm(d, task, selectionFor(task, mode));
   d.must(task.id, { kind: 'request_execution' });
-  const g = d.store.grantNext(d.now as never);
+  const g = d.store.grantNext(d.now as never, [], { capacity });
   if (!g.ok || g.value.kind !== 'decided' || g.value.outcome.decision.kind !== 'accepted')
     throw new Error(`grant failed: ${JSON.stringify(g)}`);
   d.must(task.id, {

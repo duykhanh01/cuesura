@@ -76,6 +76,12 @@ export type SlotRow = {
   request_id: string;
   claimed_at: number;
   claimed_seq: number;
+  /** Set while the holder waits outside and keeps the slot as a reservation (FR-044.02). */
+  reserved_at: number | null;
+  /** Set on a loan: the task whose reservation this row borrows; it does not count toward capacity. */
+  lender_task_id: string | null;
+  /** On a loan: the lender's `reserved_at` when it was lent. */
+  lent_reserved_at: number | null;
 };
 
 export type OperationRow = {
@@ -164,6 +170,9 @@ export interface ProjectionSink {
   getSlot(taskId: string): SlotRow | undefined;
   putSlot(row: SlotRow): void;
   clearSlot(requestId: string): void;
+  setReserved(requestId: string, at: number | null): void;
+  /** The loan of this task's reservation; a reservation lends to one task at a time. */
+  getLoanOf(lenderTaskId: string): SlotRow | undefined;
   getOperation(id: string): OperationRow | undefined;
   putOperation(row: OperationRow): void;
   putCursor(row: CursorRow): void;
@@ -365,18 +374,30 @@ export function projectRuntime(sink: ProjectionSink, events: readonly DomainEven
           closed_at: e.payload.at,
         });
         if (e.type === 'ExecutionGranted') {
+          const lender = e.payload.lender_task_id ?? null;
           if (sink.getSlot(e.task_id) !== undefined) throw new SlotConflict(e.task_id);
+          if (lender !== null && sink.getLoanOf(lender) !== undefined)
+            throw new SlotConflict(lender);
           sink.putSlot({
             holder_task_id: e.task_id,
             request_id: e.payload.request_id,
             claimed_at: e.payload.at,
             claimed_seq: e.global_seq,
+            reserved_at: null,
+            lender_task_id: lender,
+            lent_reserved_at: e.payload.lender_reserved_at ?? null,
           });
         }
         break;
       }
       case 'ExecutionReleased':
         sink.clearSlot(e.payload.request_id);
+        break;
+      case 'ExecutionReserved':
+        sink.setReserved(e.payload.request_id, e.payload.at);
+        break;
+      case 'ExecutionReclaimed':
+        sink.setReserved(e.payload.request_id, null);
         break;
       case 'OperationRegistered': {
         const p = e.payload;
@@ -500,6 +521,8 @@ export function sqliteSink(db: Database): ProjectionSink {
   // a log that old has no grant to project.
   let putSlot: Statement | undefined;
   const clearSlot = db.prepare('DELETE FROM execution_slot WHERE request_id = ?');
+  let setReserved: Statement | undefined;
+  let getLoanOf: Statement | undefined;
   const getOperation = db.prepare('SELECT * FROM operations WHERE id = ?');
   const putOperation = db.prepare(
     `INSERT INTO operations (id, task_id, effect_id, attempt_id, kind, revision, launch_nonce, unit, holds_slot, status, outcome, receipt_json)
@@ -529,11 +552,20 @@ export function sqliteSink(db: Database): ProjectionSink {
     getSlot: (taskId) => getSlot.get(taskId) as SlotRow | undefined,
     putSlot: (row) => {
       putSlot ??= db.prepare(
-        'INSERT INTO execution_slot (holder_task_id, request_id, claimed_at, claimed_seq) VALUES (@holder_task_id, @request_id, @claimed_at, @claimed_seq)',
+        `INSERT INTO execution_slot (holder_task_id, request_id, claimed_at, claimed_seq, reserved_at, lender_task_id, lent_reserved_at)
+         VALUES (@holder_task_id, @request_id, @claimed_at, @claimed_seq, @reserved_at, @lender_task_id, @lent_reserved_at)`,
       );
       putSlot.run(row);
     },
     clearSlot: (id) => void clearSlot.run(id),
+    setReserved: (id, at) => {
+      setReserved ??= db.prepare('UPDATE execution_slot SET reserved_at = ? WHERE request_id = ?');
+      setReserved.run(at, id);
+    },
+    getLoanOf: (lender) => {
+      getLoanOf ??= db.prepare('SELECT * FROM execution_slot WHERE lender_task_id = ?');
+      return getLoanOf.get(lender) as SlotRow | undefined;
+    },
     getOperation: (id) => getOperation.get(id) as OperationRow | undefined,
     putOperation: (row) => void putOperation.run(row),
     putCursor: (row) => void putCursor.run(row),
@@ -594,6 +626,13 @@ export class MemorySink implements ProjectionSink {
   }
   clearSlot(requestId: string): void {
     this.slot.delete(requestId);
+  }
+  setReserved(requestId: string, at: number | null): void {
+    const row = this.slot.get(requestId);
+    if (row !== undefined) this.slot.set(requestId, { ...row, reserved_at: at });
+  }
+  getLoanOf(lenderTaskId: string): SlotRow | undefined {
+    return [...this.slot.values()].find((r) => r.lender_task_id === lenderTaskId);
   }
   getOperation(id: string): OperationRow | undefined {
     return this.operations.get(id);

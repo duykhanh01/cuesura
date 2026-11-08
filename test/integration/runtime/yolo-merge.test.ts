@@ -744,12 +744,8 @@ describe('yolo merge', () => {
       expect(puts(sent)).toEqual([]);
       expect(approvals(d, t)).toEqual([]);
       expect(d.task(t.id).head_sha).toBe(A);
-      expect(d.task(t.id).wait?.detail.code).toBe('execution_slot');
-      const grant = d.store.grantNext(d.now as EpochMs, Array.from({ length: 8 }, newId));
-      expect(grant).toMatchObject({
-        ok: true,
-        value: { kind: 'decided', outcome: { decision: { kind: 'accepted' } } },
-      });
+      // The gates run at once on the slot the task kept reserved while it waited (FR-044.02).
+      expect(d.task(t.id).status).toBe('RUNNING');
       expect(d.pendingOne(t.id, 'run_gates').request).toMatchObject({
         base_update: { head_sha: A, base_sha: 'b'.repeat(40) },
       });
@@ -766,10 +762,7 @@ describe('yolo merge', () => {
       const oldReviews = d.task(t.id).run.reviews.length;
       const stale = github({ compare: { ahead_by: 1 } });
       expect(await advanceTaskPr(deps(d, stale.port), t.id)).toBe('updating_base');
-      expect(d.store.grantNext(d.now as EpochMs, Array.from({ length: 8 }, newId))).toMatchObject({
-        ok: true,
-        value: { kind: 'decided', outcome: { decision: { kind: 'accepted' } } },
-      });
+      // No grant needed: the task kept its slot reserved while it waited for the merge (FR-044.02).
       const fresh = 'c'.repeat(40);
       d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(fresh));
       expect(d.pending(t.id, 'start_agent')).toEqual([]);
@@ -827,7 +820,6 @@ describe('yolo merge', () => {
     expect(await advanceTaskPr(deps(d, github({ compare: { ahead_by: 1 } }).port), t.id)).toBe(
       'updating_base',
     );
-    d.store.grantNext(d.now as EpochMs, Array.from({ length: 8 }, newId));
     const gate = d.pendingOne(t.id, 'run_gates');
     d.complete(t.id, gate.id, 'failed', {
       failure_class: 'infra',
@@ -862,7 +854,9 @@ describe('yolo merge', () => {
         throw new Error('base maintenance must not read yolo config');
       };
       expect(await advanceTaskPr({ ...deps(d, port, false), enabled }, t.id)).toBe('updating_base');
-      expect(d.task(t.id).wait?.detail.code).toBe('execution_slot');
+      expect(d.pendingOne(t.id, 'run_gates').request).toMatchObject({
+        base_update: { head_sha: A },
+      });
       expect(approvals(d, t)).toEqual([]);
       expect(puts(sent)).toEqual([]);
     },

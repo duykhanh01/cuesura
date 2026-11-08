@@ -1779,9 +1779,8 @@ describe('worktree changed outside the task (T072, SPEC §14.1)', () => {
     const accepted = d.store.readEvents(t.id).find((e) => e.type === 'WorktreeChangeAccepted');
     expect(accepted?.payload).toMatchObject({ tree: T1, previous: T0 });
     expect(d.task(t.id).run.worktree_tree).toBe(T1);
-    // The step runs again once the task gets an execution slot back.
-    expect(code(d, t)).toBe('execution_slot');
-    grant(d);
+    // The step runs again at once on the slot the task kept reserved (FR-044.02).
+    expect(d.task(t.id).status).toBe('RUNNING');
     const again = d.pendingOne(t.id, 'start_agent');
     expect(again.id).not.toBe(coder.id);
     expect(again.request).toMatchObject({ role: 'coder' });
@@ -1865,8 +1864,8 @@ describe('harness re-proved after the task started', () => {
       previous: M0,
     });
     expect(d.task(t.id).run.manifest_refs).toEqual({ claude: M1 });
-    expect(code(d, t)).toBe('execution_slot');
-    grant(d);
+    // Back at once on the slot it kept reserved (FR-044.02).
+    expect(d.task(t.id).status).toBe('RUNNING');
     const again = d.pendingOne(t.id, 'start_agent');
     expect(again.id).not.toBe(coder.id);
     expect(again.request).toMatchObject({ role: 'coder' });
@@ -1923,8 +1922,8 @@ describe('harness login expired (#97)', () => {
     expect(d.task(t.id).visit_credits).toEqual({
       code: { visits: 1, through: 1 },
     });
-    expect(code(d, t)).toBe('execution_slot');
-    grant(d);
+    // Back at once on the slot it kept reserved (FR-044.02).
+    expect(d.task(t.id).status).toBe('RUNNING');
     const again = d.pendingOne(t.id, 'start_agent');
     expect(again.id).not.toBe(first.id);
     expect(stepOf(d, t, again)).toBe('code');
@@ -1986,8 +1985,8 @@ describe('harness login expired (#97)', () => {
     expect(d.task(t.id).visit_credits).toEqual({
       code: { visits: 12, through: 12 },
     });
-    expect(code(d, t)).toBe('execution_slot');
-    grant(d);
+    // Back at once on the slot it kept reserved (FR-044.02).
+    expect(d.task(t.id).status).toBe('RUNNING');
     const next = d.pendingOne(t.id, 'start_agent');
     expect(stepOf(d, t, next)).toBe('code');
     expect(d.task(t.id).step_visits['code']).toBe(13);
@@ -2080,9 +2079,8 @@ describe('source drift at the runtime boundary (T063, FR-026)', () => {
     });
     // Continuing the frozen revision resumes exactly where the boundary held it.
     d.must(t.id, { kind: 'drift_choice', choice: 'continue_old' });
-    // The slot went back while a person decided; the gates run under a new grant.
-    expect(code(d, t)).toBe('execution_slot');
-    grant(d);
+    // The slot stayed reserved while a person decided; the gates run on it at once.
+    expect(d.task(t.id).status).toBe('RUNNING');
     expect(stepOf(d, t, d.pendingOne(t.id, 'run_gates'))).toBe('gates');
     expect(d.task(t.id).revision).toBe(1);
   });

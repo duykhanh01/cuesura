@@ -324,7 +324,14 @@ export type ExecutionState = {
     priority: number;
     resume_action: ResumeAction | null;
   } | null;
-  holding: { request_id: string; granted_at: number } | null;
+  holding: {
+    request_id: string;
+    granted_at: number;
+    /** Set while the task waits outside on its own slot and may lend it (FR-044.02). */
+    reserved_at?: number;
+    /** Set when the slot is on loan from this task's reservation; a loan is never reserved or lent. */
+    lender_task_id?: string;
+  } | null;
   /** Wait closed by grants/withdrawals; an open request adds `now - requested_at` on top. */
   accumulated_wait_ms: number;
 };

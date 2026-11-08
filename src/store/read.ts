@@ -240,19 +240,54 @@ export function readEffect(db: Database, id: string): Effect | null {
   return row === undefined ? null : toEffect(row);
 }
 
-/** Slot holders and the next request by SPEC.md §6.2 order, read inside the caller's transaction. */
+/**
+ * Slot holders and the next request by SPEC.md §6.2 order, read inside the caller's transaction. With
+ * `lender`, also whether that task's reservation may lend now and to whom (FR-044.02).
+ */
 export function readExecutionFacts(
   db: Database,
   startedOnly = false,
+  lender?: string,
 ): {
   holders: string[];
   queue_head: string | null;
+  loans: number;
+  lender?: { lendable: boolean; loan_head: string | null; reserved_at: number | null };
 } {
   const head = readQueue(db).find((r) => !startedOnly || r.group !== 'fresh');
-  return {
-    holders: readSlots(db).map((s) => s.holder_task_id),
+  const slots = readSlots(db);
+  const facts = {
+    holders: slots.map((s) => s.holder_task_id),
     queue_head: head?.request_id ?? null,
+    loans: readLoans(db).length,
   };
+  if (lender === undefined) return facts;
+  const own = slots.find((s) => s.holder_task_id === lender);
+  return {
+    ...facts,
+    lender: {
+      lendable: own !== undefined && own.reserved_at !== null && own.borrower_task_id === null,
+      reserved_at: own?.reserved_at ?? null,
+      loan_head: startedOnly ? null : (loanCandidate(db, lender)?.request_id ?? null),
+    },
+  };
+}
+
+/**
+ * The first request in selection order that may borrow `lender`'s reservation: a task that never
+ * started, does not depend on the lender and does not work on the lender's PR. Branches and worktrees
+ * are per task (`cusr/<task_id>`), so the PR is the only thing two such tasks could share.
+ */
+export function loanCandidate(db: Database, lender: string): QueuedRequest | undefined {
+  const dependsOnLender = db.prepare(
+    'SELECT 1 FROM task_deps WHERE task_id = ? AND depends_on = ?',
+  );
+  const lenderPr = readTask(db, lender)?.pr_ref ?? null;
+  return readQueue(db).find((r) => {
+    if (r.group !== 'fresh' || r.task_id === lender) return false;
+    if (dependsOnLender.get(r.task_id, lender) !== undefined) return false;
+    return lenderPr === null || readTask(db, r.task_id)?.pr_ref !== lenderPr;
+  });
 }
 
 export type QueuedRequest = {
@@ -274,15 +309,59 @@ export function readQueue(db: Database, limit = Number.MAX_SAFE_INTEGER): Queued
   return orderQueue(rows.map(({ grp, ...r }) => ({ ...r, group: grp }))).slice(0, limit);
 }
 
-export type SlotHolding = { holder_task_id: string; request_id: string; claimed_at: number };
+export type SlotHolding = {
+  holder_task_id: string;
+  request_id: string;
+  claimed_at: number;
+  /** Set while the holder waits outside and keeps the slot as a reservation (FR-044.02). */
+  reserved_at: number | null;
+  /** The task running on a loan of this slot, if any. */
+  borrower_task_id: string | null;
+};
 
-/** Every held slot in grant order (FR-044.01). */
+export type SlotLoan = {
+  borrower_task_id: string;
+  request_id: string;
+  claimed_at: number;
+  lender_task_id: string;
+};
+
+/** Every slot held as one of the `runtime.concurrency` slots, in grant order (FR-044.01). */
 export function readSlots(db: Database): SlotHolding[] {
   return db
     .prepare(
-      'SELECT holder_task_id, request_id, claimed_at FROM execution_slot ORDER BY claimed_seq',
+      `SELECT s.holder_task_id, s.request_id, s.claimed_at, s.reserved_at,
+         (SELECT l.holder_task_id FROM execution_slot l WHERE l.lender_task_id = s.holder_task_id) AS borrower_task_id
+       FROM execution_slot s WHERE s.lender_task_id IS NULL ORDER BY s.claimed_seq`,
     )
     .all() as SlotHolding[];
+}
+
+/**
+ * Every loan in grant order, the ones whose lender has come back or let its reservation go included:
+ * they end at the borrower's next slot-bound work (FR-044.04).
+ */
+export function readLoans(db: Database): SlotLoan[] {
+  return db
+    .prepare(
+      `SELECT holder_task_id AS borrower_task_id, request_id, claimed_at, lender_task_id
+       FROM execution_slot WHERE lender_task_id IS NOT NULL ORDER BY claimed_seq`,
+    )
+    .all() as SlotLoan[];
+}
+
+/**
+ * Whether the loan this task runs on still borrows the very reservation it was lent: a holder that ran
+ * slot-bound work and reserved again has a new `reserved_at`, and the old loan stays ended (FR-044.04).
+ */
+export function loanActive(db: Database, borrower: string): boolean {
+  const row = db
+    .prepare(
+      `SELECT 1 FROM execution_slot l JOIN execution_slot s ON s.holder_task_id = l.lender_task_id
+       WHERE l.holder_task_id = ? AND s.lender_task_id IS NULL AND s.reserved_at = l.lent_reserved_at`,
+    )
+    .get(borrower);
+  return row !== undefined;
 }
 
 /** Every project path any snapshot froze; execution resolves a task's Git directories from it. */

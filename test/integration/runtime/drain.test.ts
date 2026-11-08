@@ -98,7 +98,13 @@ describe('drain after a merge proof (T046, FR-040.04–09)', () => {
       completion: { finalized_at: d.now },
     });
     expect(count(d, t, 'TaskCompleted')).toBe(1);
-    expect(types(d, t).slice(-3)).toEqual(['DrainStarted', 'DrainFinished', 'TaskCompleted']);
+    // The slot was reserved while the PR waited for the merge; it goes back as the task ends.
+    expect(types(d, t).slice(-4)).toEqual([
+      'DrainStarted',
+      'DrainFinished',
+      'ExecutionReleased',
+      'TaskCompleted',
+    ]);
     expect(d.store.readSlots()).toEqual([]);
 
     notifyDependents(d.store, d.now);

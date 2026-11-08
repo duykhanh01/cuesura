@@ -216,7 +216,8 @@ describe('base integration through the real gate/review/publish handlers', () =>
         head_sha: head as string,
         base_sha: base,
       });
-      expect(f.d.task(task.id).wait?.detail.code).toBe('execution_slot');
+      // The task kept its slot reserved while it waited for the merge, so the gates run at once.
+      expect(f.d.task(task.id).status).toBe('RUNNING');
       expect(g.sh(f.remote, 'rev-parse', g.sh(f.worktree, 'symbolic-ref', '--short', 'HEAD'))).toBe(
         head,
       );

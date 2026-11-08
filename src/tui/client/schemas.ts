@@ -18,6 +18,9 @@ const SlotSchema = z.looseObject({
   holder_task_id: taskId,
   request_id: z.string(),
   claimed_at: z.number(),
+  // Absent from a daemon older than the slot reservations (FR-044.02).
+  reserved_at: z.number().nullable().optional(),
+  borrower_task_id: taskId.nullable().optional(),
 });
 
 export const HealthDataSchema = z.looseObject({
@@ -347,6 +350,11 @@ export const TaskExplainSchema = z.looseObject({
   }),
   slot: z.looseObject({
     holding: z.boolean(),
+    // Absent from a daemon older than the slot reservations (FR-044.07).
+    hold: z
+      .looseObject({ kind: z.enum(['running', 'reserved', 'borrowed']) })
+      .nullable()
+      .optional(),
     queued: z.looseObject({ position: z.number().nullable() }).nullable(),
     initial_wait_ms: z.number(),
     resumed_wait_ms: z.number(),

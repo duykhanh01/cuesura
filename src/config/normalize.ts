@@ -295,6 +295,8 @@ export type RuntimeConfig = {
   data_dir: string | null;
   /** Tasks that may hold an execution slot at once; 1 when `runtime.concurrency` is absent. */
   concurrency: number;
+  /** How long a reservation lasts, in hours; 24 when `runtime.slot_reservation_hours` is absent. */
+  slot_reservation_hours: number;
   limits: RuntimeLimits;
   /** Doctor and preflight resolve tools that have no explicit path. */
   tool_paths: Partial<Record<RuntimeTool, string>>;
@@ -331,6 +333,7 @@ export function normalizeRuntime(
   return {
     data_dir: r.data_dir ?? null,
     concurrency: r.concurrency ?? 1,
+    slot_reservation_hours: r.slot_reservation_hours ?? 24,
     limits: mergeRuntimeLimits(r.limits),
     tool_paths: Object.fromEntries(Object.entries(r.tool_paths ?? {}).sort(byName)),
     credential_refs: Object.entries(r.credential_refs ?? {})

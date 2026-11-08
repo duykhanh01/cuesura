@@ -56,6 +56,7 @@ export function healthReply(h: HealthInput): Reply {
       timers: startup.timers,
     },
     slots: store.readSlots(),
+    loans: store.readLoans(),
     concurrency: h.concurrency ?? 1,
     queue_length: store.readQueue(100).length,
     queue_paused: h.queuePaused ?? null,

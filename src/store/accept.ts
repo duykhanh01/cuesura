@@ -23,7 +23,7 @@ import {
   SlotConflict,
   sqliteSink,
 } from './projector.ts';
-import { readExecutionFacts, readPolicy, readTask, readTaskStatus } from './read.ts';
+import { loanActive, readExecutionFacts, readPolicy, readTask, readTaskStatus } from './read.ts';
 
 export type AcceptOutcome = {
   dedup_key: string;
@@ -151,7 +151,9 @@ export function relatedFacts(
   };
 
   if (t.kind === 'grant_execution')
-    related.execution = readExecutionFacts(db, t.started_only === true);
+    related.execution = readExecutionFacts(db, t.started_only === true, t.lender_task_id);
+  if (state?.execution.holding?.lender_task_id !== undefined)
+    related.loan = { active: loanActive(db, env.task_id) };
 
   if (t.kind === 'adopt_pr') {
     const rows = db

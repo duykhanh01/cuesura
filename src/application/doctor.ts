@@ -210,7 +210,14 @@ function storeChecks(deps: DoctorDeps): DoctorCheck[] {
       'slot',
       slots.length === 0
         ? 'free'
-        : `held by task ${slots.map((s) => s.holder_task_id).join(', task ')}`,
+        : `held by task ${slots
+            .map(
+              (s) =>
+                s.holder_task_id +
+                (s.reserved_at === null ? '' : ' (reserved)') +
+                (s.borrower_task_id === null ? '' : `, lent to task ${s.borrower_task_id}`),
+            )
+            .join(', task ')}`,
     ),
   );
   return out;

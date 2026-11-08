@@ -2,12 +2,14 @@
  * Daemon scheduler pass (T034, FR-044). One pass, in order:
  *   1. dependency notifications from committed prerequisite status (FR-001.02/03);
  *   2. queue every READY task that has not started as `fresh` (it stays READY, no deadline yet);
- *   3. grant free slots, up to `concurrency`, to the queue head in turn (priority, resumed before fresh,
+ *   3. let reservations held past `reservationMs` go, so their slot is free for the queue (FR-044.02);
+ *   4. grant free slots, up to `concurrency`, to the queue head in turn (priority, resumed before fresh,
  *      request order);
- *   4. start every slot holder that is a fresh task, which freezes its snapshot under the slot.
+ *   5. with every slot taken, lend each reservation not lent yet to a task that never started;
+ *   6. start every slot holder or borrower that is a fresh task, which freezes its snapshot under it.
  * A started task that needs the slot again queues itself as `resumed` inside the engine and resumes on
- * grant; the engine also returns the slot once the task stops running to wait. Nothing here preempts a
- * holder.
+ * grant. The engine keeps the slot of a task that stops running to wait outside as a reservation, and
+ * the task runs on it again as soon as it comes back. Nothing here preempts a holder or a borrower.
  */
 import { runConfigConfirmed } from '../engine/run-config.ts';
 import type { Clock } from '../adapters/ports.ts';
@@ -21,6 +23,9 @@ import type { Store } from '../store/index.ts';
 /** How long a task whose start could not reach Git/GitHub/host waits before it queues again (FR-015). */
 export const START_RETRY_MS = 60_000;
 
+/** How long a task waiting outside keeps its slot reserved by default (FR-044.02): 24 hours. */
+export const DEFAULT_RESERVATION_MS = 24 * 60 * 60 * 1000;
+
 export type SchedulerDeps = {
   readonly store: Store;
   readonly clock: Clock;
@@ -32,12 +37,18 @@ export type SchedulerDeps = {
   readonly queuePaused?: () => boolean;
   /** `runtime.concurrency`: how many tasks may hold a slot at once (FR-044.01); default 1. */
   readonly concurrency?: number;
+  /** `runtime.slot_reservation_hours` in ms: how long a reservation lasts; default 24 hours. */
+  readonly reservationMs?: number;
 };
 
 export type SchedulerReport = {
   readonly dependencies: readonly DependencyNotice[];
   readonly queued: readonly string[];
   readonly granted: readonly string[];
+  /** Tasks granted a loan of a reservation in this pass. */
+  readonly lent: readonly string[];
+  /** Holders whose reservation ran out in this pass. */
+  readonly expired: readonly string[];
   readonly started: readonly {
     readonly task_id: string;
     readonly result: StartResult;
@@ -85,6 +96,27 @@ export class Scheduler {
     }
 
     const capacity = this.#deps.concurrency ?? 1;
+    const reservationMs = this.#deps.reservationMs ?? DEFAULT_RESERVATION_MS;
+    const expired: string[] = [];
+    for (const slot of store.readSlots()) {
+      if (slot.reserved_at === null || slot.reserved_at + reservationMs > now) continue;
+      // A holder running work that needs no slot (a CI poll) keeps it until it waits again.
+      if (store.readTask(slot.holder_task_id as Uuid)?.status === 'RUNNING') continue;
+      const r = submit(store, {
+        task_id: slot.holder_task_id,
+        dedup_key: `reservation-expired:${slot.request_id}:${slot.reserved_at}:${now}`,
+        trigger: {
+          kind: 'release_execution',
+          request_id: slot.request_id as Uuid,
+          reason: 'reservation_expired',
+        },
+        now,
+        ids: [],
+      });
+      if (r.ok && !store.readSlots().some((x) => x.request_id === slot.request_id))
+        expired.push(slot.holder_task_id);
+    }
+
     const granted: string[] = [];
     // Each grant takes one slot, so the loop ends after at most `capacity` grants; a rejected or empty
     // grant ends it too, and the next pass tries again.
@@ -99,9 +131,22 @@ export class Scheduler {
       granted.push(g.value.task_id);
     }
 
+    // Each loan takes one reservation and loans never exceed `capacity`, so this loop is bounded too.
+    const lent: string[] = [];
+    while (!paused) {
+      const g = store.lendNext(now, [], { capacity });
+      if (!g.ok || g.value.kind !== 'decided' || g.value.outcome.decision.kind !== 'accepted')
+        break;
+      lent.push(g.value.task_id);
+    }
+
     const started: { task_id: string; result: StartResult }[] = [];
-    for (const slot of store.readSlots()) {
-      const holder = store.readTask(slot.holder_task_id as Uuid);
+    const holdings = [
+      ...store.readSlots().map((x) => ({ task_id: x.holder_task_id, request_id: x.request_id })),
+      ...store.readLoans().map((x) => ({ task_id: x.borrower_task_id, request_id: x.request_id })),
+    ];
+    for (const slot of holdings) {
+      const holder = store.readTask(slot.task_id as Uuid);
       if (holder === null || holder.status !== 'READY' || holder.policy_ref !== null) continue;
       // A task granted the slot but never started (a crash between grant and start, or a pause made
       // while an earlier holder was starting) gives it back while the queue is paused, and is queued
@@ -125,6 +170,6 @@ export class Scheduler {
         this.#retryAfter.set(holder.id, clock.now() + (this.#deps.startRetryMs ?? START_RETRY_MS));
       started.push({ task_id: holder.id, result });
     }
-    return { dependencies, queued, granted, started };
+    return { dependencies, queued, granted, lent, expired, started };
   }
 }

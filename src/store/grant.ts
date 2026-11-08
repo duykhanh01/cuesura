@@ -9,7 +9,7 @@ import {
 import { accept, type AcceptError, type AcceptOutcome } from './accept.ts';
 import type { CrashHook } from './crash.ts';
 import { selectNext } from '../engine/execution-slot.ts';
-import { readQueue, readSlots } from './read.ts';
+import { loanCandidate, readLoans, readQueue, readSlots, type QueuedRequest } from './read.ts';
 
 export type GrantOutcome =
   | { kind: 'busy'; holders: number }
@@ -45,12 +45,52 @@ export function grantNext(
   const capacity = opts.capacity ?? 1;
   const next = selectNext(queue, readSlots(db).length, capacity);
   if (next.kind !== 'grant') return ok(next);
-  const head = next.request;
+  return submitGrant(db, now, crash, ids, next.request, {
+    ...(opts.fresh === false ? { started_only: true } : {}),
+    ...(capacity === 1 ? {} : { capacity }),
+  });
+}
+
+/**
+ * One loan step (FR-044.02): with every slot taken, lends the first reservation that is not lent yet to
+ * the first task that never started and may borrow it. At most `capacity` loans run at once. Like a
+ * grant, `accept` checks the reservation and the candidate again inside its transaction.
+ */
+export function lendNext(
+  db: Database,
+  now: number,
+  crash: CrashHook,
+  ids: readonly string[] = [],
+  opts: GrantOptions = {},
+): Result<GrantOutcome, AcceptError> {
+  const capacity = opts.capacity ?? 1;
+  if (opts.fresh === false) return ok({ kind: 'empty' });
+  const slots = readSlots(db);
+  if (slots.length < capacity || readLoans(db).length >= capacity) return ok({ kind: 'empty' });
+  for (const slot of slots) {
+    if (slot.reserved_at === null || slot.borrower_task_id !== null) continue;
+    const head = loanCandidate(db, slot.holder_task_id);
+    if (head === undefined) continue;
+    return submitGrant(db, now, crash, ids, head, {
+      ...(capacity === 1 ? {} : { capacity }),
+      lender_task_id: slot.holder_task_id as Uuid,
+    });
+  }
+  return ok({ kind: 'empty' });
+}
+
+function submitGrant(
+  db: Database,
+  now: number,
+  crash: CrashHook,
+  ids: readonly string[],
+  head: QueuedRequest,
+  extra: { started_only?: true; capacity?: number; lender_task_id?: Uuid },
+): Result<GrantOutcome, AcceptError> {
   const trigger = {
     kind: 'grant_execution' as const,
     request_id: head.request_id as Uuid,
-    ...(opts.fresh === false ? { started_only: true } : {}),
-    ...(capacity === 1 ? {} : { capacity }),
+    ...extra,
   };
   const env: TriggerEnvelope = {
     schema_version: TRIGGER_SCHEMA_VERSION,

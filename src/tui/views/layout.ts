@@ -119,7 +119,11 @@ function statusBar(s: TuiState, cols: number): Seg[] {
         ? uiText(`${h.slots.length}/${h.concurrency}`)
         : first === undefined
           ? uiText('free')
-          : slotHolder(s, first.holder_task_id);
+          : (first.reserved_at ?? null) === null
+            ? slotHolder(s, first.holder_task_id)
+            : (first.borrower_task_id ?? null) === null
+              ? uiText('reserved')
+              : joinSafe([slotHolder(s, first.borrower_task_id as string), uiText(' (borrowed)')]);
   const queue = s.stale ? '-' : String(s.board?.queue.length ?? h?.queue_length ?? '-');
   const project = s.filters.project === null ? uiText('all') : sanitize(s.filters.project);
   const right = ui(`updated: ${lastUpdated(s)} `, DIM);

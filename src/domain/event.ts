@@ -300,8 +300,20 @@ export type EventPayloads = {
     resume_action: ResumeAction | null;
   };
   ExecutionWithdrawn: { request_id: string; reason: string; at: number };
-  ExecutionGranted: { request_id: string; at: number; waited_ms: number };
+  /** `lender_task_id`: a loan of that task's reserved slot (FR-044.02); absent for a slot of its own. */
+  ExecutionGranted: {
+    request_id: string;
+    at: number;
+    waited_ms: number;
+    lender_task_id?: string;
+    /** The lender's `reserved_at`: the loan lasts only as long as that very reservation. */
+    lender_reserved_at?: number;
+  };
   ExecutionReleased: { request_id: string; reason: string; at: number };
+  /** The holder waits outside (CI, merge, a person, cooldown) and keeps its slot as a reservation. */
+  ExecutionReserved: { request_id: string; at: number };
+  /** The holder of a reservation runs again on its own slot. */
+  ExecutionReclaimed: { request_id: string; at: number };
   OperationRegistered: {
     operation_id: string;
     effect_id: string;
@@ -509,6 +521,8 @@ export const EVENT_TYPES = [
   'ExecutionWithdrawn',
   'ExecutionGranted',
   'ExecutionReleased',
+  'ExecutionReserved',
+  'ExecutionReclaimed',
   'OperationRegistered',
   'OperationObserved',
   'OutputIngested',

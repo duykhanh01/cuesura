@@ -431,6 +431,7 @@ export async function productionControl(opts: {
       newId: opts.newId,
       queuePaused: () => readQueuePause(opts.dataDir) !== null,
       concurrency: runtime?.concurrency ?? 1,
+      reservationMs: (runtime?.slot_reservation_hours ?? 24) * 60 * 60 * 1000,
       start: (taskId) =>
         startTask(
           {

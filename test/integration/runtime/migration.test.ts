@@ -151,7 +151,7 @@ describe('migration 001 → 002 on a real schema-1 database', () => {
     expect(db.prepare('SELECT version FROM schema_meta').get()).toEqual({
       version: SCHEMA_VERSION,
     });
-    expect(SCHEMA_VERSION).toBe(6);
+    expect(SCHEMA_VERSION).toBe(7);
     for (const t of SOURCE_TABLES) expect(dump(db, t), t).toEqual(before[t]);
 
     expect(store.verifyProjections()).toMatchObject({

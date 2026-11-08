@@ -398,8 +398,8 @@ describe('the confirmed manifest is the one in force (T070/T071)', () => {
 
     // Taking the manifest in force lets the same task go on, without a new task or confirmation.
     f.d.must(f.task.id, { kind: 'recheck', target: 'manifest' });
-    expect(f.d.task(f.task.id).wait?.detail.code).toBe('execution_slot');
-    expect(f.grant()).toBe('decided');
+    // Back at once on the slot it kept reserved while it waited (FR-044.02).
+    expect(f.d.task(f.task.id).status).toBe('RUNNING');
     await f.settle();
     expect(f.proc.launches.length).toBeGreaterThan(0);
     expect(f.d.task(f.task.id).wait?.detail.code).toBe('merge');

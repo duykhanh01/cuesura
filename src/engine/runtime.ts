@@ -152,6 +152,11 @@ export function onGrantExecution(ctx: Ctx, t: TriggerOf<'grant_execution'>): voi
   const facts = ctx.related.execution;
   if (facts === undefined) reject('invalid_trigger', { reason: 'missing_execution_facts' });
   const capacity = t.capacity ?? 1;
+  const waited_ms = s.execution.accumulated_wait_ms + Math.max(0, ctx.now - r.requested_at);
+  if (t.lender_task_id !== undefined) {
+    grantLoan(ctx, t.lender_task_id, r, facts, capacity, waited_ms);
+    return;
+  }
   if (facts.holders.length >= capacity)
     reject('invalid_trigger', {
       reason: 'slot_held',
@@ -163,15 +168,46 @@ export function onGrantExecution(ctx: Ctx, t: TriggerOf<'grant_execution'>): voi
       reason: 'not_queue_head',
       queue_head: facts.queue_head,
     });
-  ctx.emit('ExecutionGranted', {
-    request_id: r.request_id,
-    at: ctx.now,
-    waited_ms: s.execution.accumulated_wait_ms + Math.max(0, ctx.now - r.requested_at),
-  });
+  ctx.emit('ExecutionGranted', { request_id: r.request_id, at: ctx.now, waited_ms });
   // A started task waiting for the slot resumes the step it stopped at; a fresh one waits for its start.
   const w = ctx.state.wait;
   if (ctx.state.status === 'WAITING' && w?.detail.code === 'execution_slot')
     proceed(ctx, w.resume, 'execution_granted');
+}
+
+/**
+ * A loan of a reservation (FR-044.02): only a task that never started borrows, each reservation lends
+ * to one task at a time, and at most `capacity` loans run, so no more than 2N tasks run at once.
+ */
+function grantLoan(
+  ctx: Ctx,
+  lender: string,
+  r: NonNullable<TaskState['execution']['request']>,
+  facts: NonNullable<Ctx['related']['execution']>,
+  capacity: number,
+  waited_ms: number,
+): void {
+  if (r.group !== 'fresh') reject('invalid_trigger', { reason: 'loan_started_task' });
+  if (lender === ctx.state.id) reject('invalid_trigger', { reason: 'loan_to_self' });
+  if (facts.lender?.lendable !== true)
+    reject('invalid_trigger', { reason: 'not_lendable', lender_task_id: lender });
+  if ((facts.loans ?? 0) >= capacity)
+    reject('invalid_trigger', { reason: 'loans_full', loans: facts.loans, capacity });
+  if (facts.lender.loan_head !== r.request_id)
+    reject('invalid_trigger', { reason: 'not_loan_head', loan_head: facts.lender.loan_head });
+  ctx.emit('ExecutionGranted', {
+    request_id: r.request_id,
+    at: ctx.now,
+    waited_ms,
+    lender_task_id: lender,
+    ...(facts.lender.reserved_at === null ? {} : { lender_reserved_at: facts.lender.reserved_at }),
+  });
+}
+
+/** A loan whose lender reclaimed or lost the reservation it lent; unknown counts as still active. */
+export function loanEnded(ctx: Ctx): boolean {
+  const h = ctx.state.execution.holding;
+  return h?.lender_task_id !== undefined && ctx.related.loan?.active === false;
 }
 
 /** Runtime (002) tasks share one slot; legacy tasks without a runtime snapshot never queue for it. */
@@ -191,7 +227,13 @@ export function waitForSlot(ctx: Ctx, resume: ResumeAction): boolean {
     waitPaused(ctx, resume);
     return true;
   }
-  if (!usesSlot(s) || s.execution.holding !== null) return false;
+  if (!usesSlot(s)) return false;
+  const h = s.execution.holding;
+  if (h !== null && !loanEnded(ctx)) return false;
+  // A loan whose lender came back ends here, before the next slot-bound work (FR-044.04). With a claim
+  // still unresolved it is kept until settleSlot can give it back.
+  if (h !== null && slotBoundOperations(s).length === 0)
+    ctx.emit('ExecutionReleased', { request_id: h.request_id, reason: 'loan_ended', at: ctx.now });
   waitTask(
     ctx,
     mkWait('policy', 'execution_slot', {
@@ -213,10 +255,28 @@ export function hasSlotWork(s: TaskState): boolean {
 }
 
 /**
+ * A started task waiting outside (CI, merge, a person, cooldown) keeps its own slot as a reservation
+ * (FR-044.02). A pause, a deadline, a cancel or a merge being drained gives it back instead.
+ */
+function reservable(s: TaskState): boolean {
+  const code = s.wait?.detail.code;
+  return (
+    s.status === 'WAITING' &&
+    (s.pause ?? null) === null &&
+    s.cancellation === null &&
+    s.completion === null &&
+    !s.deadline_passed &&
+    code !== 'deadline' &&
+    code !== 'execution_slot'
+  );
+}
+
+/**
  * Run after every decision on a runtime task (FR-044.01/02/05). Withdraws a request the task no longer
  * qualifies for. The slot belongs to the task, not to a step: a RUNNING task keeps it across every step
- * and effect, slot-bound or not (issue #203). It goes back only once the task stops running to wait for
- * CI, merge, a human or a cooldown, and an unresolved claim keeps it even then.
+ * and effect, slot-bound or not (issue #203). Once the task stops running to wait outside it keeps the
+ * slot as a reservation another task may borrow, and runs on it again as soon as it comes back. A loan,
+ * or a slot whose task waits for anything else, goes back instead; an unresolved claim keeps it.
  */
 export function settleSlot(ctx: Ctx): void {
   const s = ctx.state;
@@ -235,23 +295,52 @@ export function settleSlot(ctx: Ctx): void {
       });
   }
   const h = ctx.state.execution.holding;
-  if (
-    h !== null &&
-    ctx.state.policy_ref !== null &&
-    ctx.state.status !== 'RUNNING' &&
-    !hasSlotWork(ctx.state)
-  ) {
-    ctx.emit('ExecutionReleased', {
-      request_id: h.request_id,
-      reason: 'waiting',
-      at: ctx.now,
-    });
+  if (h === null || ctx.state.policy_ref === null) return;
+  if (ctx.state.status === 'RUNNING') {
+    // Only slot-bound work takes the reservation back: a CI poll or a GitHub write leaves it, and its
+    // time and any loan of it, as they are.
+    if (h.reserved_at !== undefined && hasSlotWork(ctx.state))
+      ctx.emit('ExecutionReclaimed', { request_id: h.request_id, at: ctx.now });
+    return;
   }
+  if (hasSlotWork(ctx.state)) return;
+  if (h.lender_task_id === undefined && reservable(ctx.state)) {
+    if (h.reserved_at === undefined)
+      ctx.emit('ExecutionReserved', { request_id: h.request_id, at: ctx.now });
+    return;
+  }
+  ctx.emit('ExecutionReleased', {
+    request_id: h.request_id,
+    reason: h.lender_task_id === undefined ? 'waiting' : 'loan_ended',
+    at: ctx.now,
+  });
+  // A loan kept for a claim at the boundary goes back now; the task queues for a slot of its own.
+  const w = ctx.state.wait;
+  if (
+    ctx.state.status === 'WAITING' &&
+    w?.detail.code === 'execution_slot' &&
+    ctx.state.execution.request === null
+  )
+    onRequestExecution(ctx);
 }
 
 /** Release only after every slot-bound operation is resolved; an unresolved claim keeps the slot. */
 export function onReleaseExecution(ctx: Ctx, t: TriggerOf<'release_execution'>): void {
   const h = ctx.state.execution.holding;
+  // The task may have come back between the read of the reservation and this release, or be running
+  // work that needs no slot; it then keeps the reservation until it waits again.
+  if (
+    t.reason === 'reservation_expired' &&
+    h !== null &&
+    (h.reserved_at === undefined || ctx.state.status === 'RUNNING')
+  ) {
+    ctx.emit('SignalIgnored', {
+      reason: 'not_reserved',
+      trigger_kind: t.kind,
+      detail: { request_id: t.request_id },
+    });
+    return;
+  }
   if (h === null || h.request_id !== t.request_id) {
     ctx.emit('SignalIgnored', {
       reason: 'not_holding',

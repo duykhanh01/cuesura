@@ -586,6 +586,8 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
       started_only: z.boolean().optional(),
       // `runtime.concurrency` when the grant was asked for (FR-044.01); absent means 1. Additive.
       capacity: z.number().int().positive().optional(),
+      // A loan of this task's reserved slot (FR-044.02); only a task that never started borrows. Additive.
+      lender_task_id: UuidSchema.optional(),
     })
     .strict(),
   z
@@ -806,7 +808,16 @@ export type RelatedFacts = {
   execution?: {
     holders: string[];
     queue_head: string | null;
+    /** Tasks running on a loan, the stale ones included. */
+    loans?: number;
+    /** For a loan grant: whether the lender's reservation is free to lend, and who should borrow it. */
+    lender?: { lendable: boolean; loan_head: string | null; reserved_at: number | null };
   };
+  /**
+   * For a task on a loan: whether the lender still waits outside on its reservation. A loan that is not
+   * active ends at the borrower's next slot-bound work (FR-044.04).
+   */
+  loan?: { active: boolean };
 };
 
 export const EMPTY_RELATED: RelatedFacts = {

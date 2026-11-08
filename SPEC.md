@@ -159,7 +159,7 @@ Một lần hủy chưa thành CANCELLED khi process hoặc merge request vẫn 
 
 ### 6.2 Scheduler
 
-- Chọn task đủ điều kiện theo priority số lớn trước (mặc định `0`), rồi thứ tự vào hàng đợi; chỉ chạy khi đủ mọi slot mà bước yêu cầu. Với execution slot của feature 002 (gắn với task, tối đa `runtime.concurrency` task giữ cùng lúc), cùng priority ưu tiên task đã bắt đầu đang xin lại slot trước task READY; cùng nhóm theo thời điểm xin slot hiện tại, hòa thì thứ tự event đã commit.
+- Chọn task đủ điều kiện theo priority số lớn trước (mặc định `0`), rồi thứ tự vào hàng đợi; chỉ chạy khi đủ mọi slot mà bước yêu cầu. Với execution slot của feature 002 (gắn với task, tối đa `runtime.concurrency` task giữ cùng lúc), cùng priority ưu tiên task đã bắt đầu đang xin lại slot trước task READY; cùng nhóm theo thời điểm xin slot hiện tại, hòa thì thứ tự event đã commit. Task chờ bên ngoài giữ slot thành chỗ giữ có thời hạn, cho một task chưa từng chạy mượn và quay lại thì chạy ngay.
 - Giữ khóa worktree và resource slot qua thời gian attempt thật sự còn chạy, kể cả khi daemon restart. Khôi phục các claim trước khi cấp việc mới.
 - Pool là tên và sức chứa; engine không biết `build`, `browser`, `emulator` hay `test_db` làm gì. Hotspot hint cho phép tuần tự hóa các vùng file dễ xung đột.
 - Rate limit khóa pool/harness liên quan tới `reset_at`; nếu chưa biết reset time, dùng backoff hữu hạn và báo rõ. Không tự chuyển sang model ngoài policy.

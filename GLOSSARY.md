@@ -93,8 +93,8 @@ PR có gate và các kiểm tra CI bắt buộc đã đạt cho một head SHA c
 _Avoid_: Task đã xong, được phép tự merge, xanh vĩnh viễn cho mọi thay đổi của PR
 
 **Slot thực thi**:
-Một trong `runtime.concurrency` suất chạy, cấp cho task chứ không cho từng bước. Task đang chạy giữ slot qua mọi việc tự động (chuẩn bị, agent, gate, publish, tạo PR, review…) và không nhả ở ranh giới bước. Task rời trạng thái chạy để chờ người, CI, merge hoặc cooldown nhả slot khi công việc đang chạy đã kết thúc và được đối chiếu rõ, nhưng vẫn giữ worktree.
-_Avoid_: Slot của một bước, một task chưa kết thúc, giữ slot suốt vòng đời task, nhả slot đồng nghĩa xóa worktree
+Một trong `runtime.concurrency` suất chạy, cấp cho task chứ không cho từng bước. Task đang chạy giữ slot qua mọi việc tự động (chuẩn bị, agent, gate, publish, tạo PR, review…) và không nhả ở ranh giới bước. Task rời trạng thái chạy để chờ người, CI, merge hoặc cooldown giữ slot thành chỗ giữ (tối đa `runtime.slot_reservation_hours`) và quay lại thì chạy ngay; trong lúc đó một task chưa từng chạy được mượn chỗ. Task tạm dừng, hết deadline hoặc đang hủy thì nhả slot. Worktree luôn được giữ.
+_Avoid_: Slot của một bước, một task chưa kết thúc, nhả slot đồng nghĩa xóa worktree, chỗ mượn được giữ chỗ hay cho mượn tiếp
 
 **Head đã kiểm**:
 Head SHA của PR mà Cuesura đã có đủ gate, CI và review nếu được yêu cầu bởi chế độ đã xác nhận cho revision hiện tại. Head này không tự đổi theo push bên ngoài.

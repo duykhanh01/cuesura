@@ -80,6 +80,24 @@ permission/approval được kiểm chứng, owner cho phép tường minh; khô
 
 ## Clarifications
 
+### Session 2026-11-08 — giữ chỗ và cho mượn slot khi chờ bên ngoài (issue #206), thay phần còn lại của Q3
+
+- Task rời RUNNING để chờ CI, merge, người hoặc cooldown giữ slot của nó thành chỗ giữ, không trả. Chờ vì
+  pause, deadline, hủy hoặc đang dọn sau merge thì vẫn trả slot như trước.
+- Chỗ giữ cho mượn được: một task READY chưa từng chạy, không phụ thuộc task giữ chỗ và không làm trên PR
+  của nó, được chạy trên chỗ mượn. Mỗi chỗ giữ cho một task mượn tại một thời điểm và số task mượn không
+  quá `runtime.concurrency`, nên số task chạy cùng lúc không quá 2N. Task đã bắt đầu không mượn và task
+  đang mượn không giữ chỗ hay cho mượn tiếp; chờ bên ngoài thì nó trả chỗ mượn.
+- Task giữ chỗ quay lại thì chạy ngay trên slot của nó, không xếp hàng và không ngắt task mượn. Task mượn
+  làm nốt việc đang chạy, tới việc cần slot kế tiếp (Prepare/setup, agent, gate, publish) thì trả chỗ
+  mượn và chờ WAITING/policy `execution_slot` như task đã bắt đầu.
+- Task giữ chỗ chỉ lấy lại chỗ khi chạy việc cần slot. Việc chỉ đọc hay ghi GitHub (poll CI, tạo PR, mark
+  ready) không lấy lại chỗ, không đặt lại hạn và không làm chỗ mượn kết thúc. Chỗ mượn gắn với đúng lượt
+  giữ chỗ đã cho mượn: task giữ chỗ đã lấy lại rồi giữ chỗ lần nữa thì chỗ mượn cũ vẫn kết thúc.
+- Chỗ giữ hết hạn sau `runtime.slot_reservation_hours` (mặc định 24) tính từ lúc bắt đầu giữ. Hết hạn thì
+  slot thành slot trống, cấp theo FR-044.03; task mất chỗ quay lại phải xếp hàng theo priority. Task
+  đang mượn chỗ đó cũng trả ở việc cần slot kế tiếp như trên.
+
 ### Session 2026-11-07 — slot theo task (issue #206), thay một phần Q3
 
 - Slot gắn với task, không gắn với loại bước. Task đang RUNNING giữ slot qua mọi bước và effect tự động,
@@ -109,7 +127,8 @@ permission/approval được kiểm chứng, owner cho phép tường minh; khô
   task kết thúc hoặc hết hạn quan sát theo Q11; head đổi thì thu hồi xanh/chờ người, PR đóng chưa merge thì chờ, base tip đổi không
   tự xử lý trong feature 002 (FR-041/043, glossary).
 - Q3: Slot giữ trong lúc chờ không? → A: Không; slot chỉ cho công việc đang thực thi, worktree vẫn
-  giữ. Task cần sửa tiếp phải xếp hàng xin slot (FR-044, glossary).
+  giữ. Task cần sửa tiếp phải xếp hàng xin slot (FR-044, glossary). Đã thay bằng Session 2026-11-07 và
+  2026-11-08: slot theo task, giữ chỗ và cho mượn khi chờ bên ngoài.
 - Q4: Kiểm tra cấu hình ở đâu? → A: Chốt base revision, kiểm tra và đóng băng snapshot trước
   READY → RUNNING; lỗi thì PENDING với chẩn đoán, chưa worktree. Thứ tự là snapshot → RUNNING →
   tạo worktree (FR-002).
@@ -718,12 +737,12 @@ nhóm bao gồm toàn bộ các mục con, không thay thế việc kiểm chứ
   | Mã | Yêu cầu |
   | --- | --- |
   | **FR-044.01** | Daemon MUST cho tối đa `runtime.concurrency` task (mặc định 1) giữ slot thực thi cùng lúc; slot gắn với task, mỗi task giữ tối đa một slot, mỗi worktree tối đa một attempt. Task đang RUNNING MUST giữ slot qua mọi bước và effect tự động (Prepare/setup, agent, gate, autofix, publish, tạo PR, review, fix_review…), không nhả ở ranh giới bước hay khi chạy effect không cần slot; Prepare/setup/gate/autofix/publish và attempt chỉ chạy khi task đang giữ slot. |
-  | **FR-044.02** | Task rời RUNNING để chờ CI/merge/người/cooldown MUST trả slot khi không còn công việc thuộc slot chưa rõ; polling chỉ đọc không chiếm slot, thấy merge không tự nhả claim đang chưa rõ. |
+  | **FR-044.02** | Task rời RUNNING để chờ CI/merge/người/cooldown MUST giữ slot thành chỗ giữ khi không còn công việc thuộc slot chưa rõ; chờ vì pause/deadline/hủy/dọn sau merge thì trả slot. Chỗ giữ MUST chỉ cho một task READY chưa từng chạy mượn tại một thời điểm, task đó không phụ thuộc và không làm trên PR của task giữ chỗ; số task mượn không quá `runtime.concurrency`. Task mượn không giữ chỗ, không cho mượn tiếp và trả chỗ mượn khi chờ bên ngoài. Poll CI hay việc GitHub khác của task giữ chỗ MUST NOT lấy lại chỗ hay đặt lại hạn. Chỗ giữ quá `runtime.slot_reservation_hours` (mặc định 24) MUST thành slot trống cấp theo FR-044.03. Polling chỉ đọc không chiếm slot, thấy merge không tự nhả claim đang chưa rõ. |
   | **FR-044.03** | Cấp slot MUST theo priority, rồi task đã bắt đầu chờ execution_slot trước READY cùng priority, rồi thời điểm xin slot hiện tại trong cùng nhóm; hòa thì thứ tự event đã commit, không theo lúc tạo task. |
-  | **FR-044.04** | Scheduler MUST NOT ngắt task đang giữ slot để cấp cho task khác; ưu tiên task đang dở không bảo đảm chống đói slot. |
+  | **FR-044.04** | Scheduler MUST NOT ngắt task đang giữ slot hoặc đang mượn để cấp cho task khác; ưu tiên task đang dở không bảo đảm chống đói slot. Task giữ chỗ quay lại MUST chạy ngay trên slot của nó, tạm vượt N; khi nó chạy việc cần slot, chỗ giữ được lấy lại và chỗ mượn của lượt giữ chỗ đó kết thúc vĩnh viễn: task mượn làm nốt việc đang chạy và trả chỗ mượn trước việc cần slot kế tiếp, rồi chờ execution_slot như FR-044.05. |
   | **FR-044.05** | Task chờ slot MUST giữ READY nếu chưa chạy, hoặc WAITING/policy với execution_slot nếu đã bắt đầu rồi chuyển RUNNING khi được cấp; không đưa task đã chạy về READY/PENDING để chờ. |
-  | **FR-044.06** | Restart MUST bảo toàn thứ tự chờ, lượt giữ chỗ và claim chưa rõ. |
-  | **FR-044.07** | Hệ thống MUST ghi thời gian chờ slot cho explain, phân biệt READY trước lần chạy đầu với xin lại slot có tính deadline theo FR-043.09. |
+  | **FR-044.06** | Restart MUST bảo toàn thứ tự chờ, lượt giữ slot, chỗ giữ cùng thời điểm bắt đầu giữ (nên thời hạn giữ chỗ tính tiếp), việc mượn và claim chưa rõ. |
+  | **FR-044.07** | Hệ thống MUST ghi thời gian chờ slot cho explain, phân biệt READY trước lần chạy đầu với xin lại slot có tính deadline theo FR-043.09; explain MUST phân biệt chờ slot, đang chạy trên slot của mình, đang giữ chỗ và đang chạy trên chỗ mượn. |
 
 - **FR-045**: Giới hạn task retry. Các nghĩa vụ độc lập:
 
@@ -771,7 +790,7 @@ của feature 002 hoặc thay 117 mã FR hiện có.
 | S04 Hỏi giữa chừng | US5; FR-024, FR-037–039 | Inbox/answer bền qua restart; chưa có kênh ngoài CLI |
 | S05 Crash giữa agent/publish | US3; FR-006–009, FR-017–018, FR-022–023, FR-030–036 | Process, git và PR được nhận lại; không dựa riêng vào test lõi |
 | S06 Hạn mức/hạ tầng | US2, US4–5; FR-010–016 | Phân loại, cooldown và ngân sách với kết quả harness |
-| S07 Task phụ thuộc/song song | US1, EC-001; FR-001, FR-044 | `runtime.concurrency` slot theo task, task đang chờ trả slot, vòng sửa đợi slot; chưa nghiệm thu song song với harness thật |
+| S07 Task phụ thuộc/song song | US1, EC-001; FR-001, FR-044 | `runtime.concurrency` slot theo task, giữ chỗ và cho mượn khi chờ bên ngoài, vòng sửa đợi slot; chưa nghiệm thu song song với harness thật |
 | S08 Head/base/quyền merge đổi | US1–2, US5–6; FR-019–021, FR-040–043 | Thu hồi xanh; quan sát merge thủ công; chưa nghiệm thu thực thi merge tự động |
 | S09 Yêu cầu thay đổi | Edge Cases; FR-026 | Executor tôn trọng drift/revision; không có decider/overturn |
 | S10 Tiến độ/vận hành | US3, US6; FR-022–023, FR-027–029, FR-045–046 | CLI, health, recovery; chưa có backup/restore đầy đủ |

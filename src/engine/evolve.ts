@@ -676,11 +676,22 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
       s.execution.holding = {
         request_id: event.payload.request_id,
         granted_at: event.payload.at,
+        ...(event.payload.lender_task_id === undefined
+          ? {}
+          : { lender_task_id: event.payload.lender_task_id }),
       };
       break;
     }
     case 'ExecutionReleased':
       if (s.execution.holding?.request_id === event.payload.request_id) s.execution.holding = null;
+      break;
+    case 'ExecutionReserved':
+      if (s.execution.holding?.request_id === event.payload.request_id)
+        s.execution.holding.reserved_at = event.payload.at;
+      break;
+    case 'ExecutionReclaimed':
+      if (s.execution.holding?.request_id === event.payload.request_id)
+        delete s.execution.holding.reserved_at;
       break;
     case 'OperationRegistered': {
       const p = event.payload;

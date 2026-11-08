@@ -202,7 +202,10 @@ describe('the decider answers for an absent owner', () => {
     await decider(d, fake([{ ...decision('UTF-8'), usage }])).round();
     const s = d.task(t.id);
     expect(s.budget.agent_runs.used).toBe(before.budget.agent_runs.used + 1);
-    expect(Object.keys(s.attempts)).toEqual(Object.keys(before.attempts));
+    // The decider runs no attempt; the answer resumes the worker at once on the reserved slot.
+    expect(
+      Object.values(s.attempts).filter((a) => before.attempts[a.id] === undefined),
+    ).toMatchObject([{ step: 'code' }]);
     expect(Object.values(s.decider_runs ?? {})).toMatchObject([
       { usage, invoked: true, applied: true, reason: 'why UTF-8' },
     ]);
@@ -366,8 +369,9 @@ describe('the decider answers for an absent owner', () => {
     };
     await decider(d, h).round();
     expect(during).toBe(before.reserved + 1);
+    // Settled; the one reserved run left is the worker resumed by the answer on its reserved slot.
     expect(d.task(t.id).budget.agent_runs).toMatchObject({
-      reserved: before.reserved,
+      reserved: before.reserved + 1,
       used: before.used + 1,
     });
   });

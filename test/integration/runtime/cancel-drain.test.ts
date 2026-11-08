@@ -1887,6 +1887,11 @@ describe('quota, auth and refusal wait with a reason (US5.5, FR-015)', () => {
       usage: { basis: 'unavailable' },
       ...extra,
     });
+  // Waiting on a cooldown or a person keeps the slot as a reservation (FR-044.02).
+  const expectReserved = (d: StoreDriver, t: CanonicalTask) =>
+    expect(d.store.readSlots()).toMatchObject([
+      { holder_task_id: t.id, reserved_at: expect.any(Number) as number },
+    ]);
   let grants = 98_000;
   const grant = (d: StoreDriver) =>
     d.store.grantNext(
@@ -1894,7 +1899,7 @@ describe('quota, auth and refusal wait with a reason (US5.5, FR-015)', () => {
       Array.from({ length: 4 }, () => uuidOf(grants++)),
     );
 
-  it('a rate limit counts the call, frees the slot and waits on a finite timer; the retry keeps the rung', () => {
+  it('a rate limit counts the call, keeps the slot reserved and waits on a finite timer; the retry keeps the rung', () => {
     const { d, t } = running();
     const resetAt = d.now + 90_000;
     fail(d, t, 'rate_limit', { reset_at: resetAt });
@@ -1907,7 +1912,7 @@ describe('quota, auth and refusal wait with a reason (US5.5, FR-015)', () => {
     expect(due).toBeGreaterThanOrEqual(resetAt);
     expect(due).toBeLessThanOrEqual(d.now + 1_800_000);
     expect(s.budget.agent_runs.used).toBe(1);
-    expect(d.store.readSlots()).toEqual([]);
+    expectReserved(d, t);
     d.now = due;
     d.fire();
     grant(d);
@@ -1941,7 +1946,7 @@ describe('quota, auth and refusal wait with a reason (US5.5, FR-015)', () => {
       status: 'WAITING',
       wait: { reason: 'policy', detail: { code: 'backoff_exhausted' } },
     });
-    expect(d.store.readSlots()).toEqual([]);
+    expectReserved(d, t);
   });
 
   it.each(['auth_config', 'refused'] as const)(
@@ -1955,7 +1960,7 @@ describe('quota, auth and refusal wait with a reason (US5.5, FR-015)', () => {
         wait: { reason: 'human_input', detail: { code: cls } },
       });
       expect(d.store.pendingEffects(100)).toEqual([]);
-      expect(d.store.readSlots()).toEqual([]);
+      expectReserved(d, t);
       d.now += 3_600_000;
       d.fire();
       expect(d.pending(t.id, 'start_agent')).toEqual([]);
