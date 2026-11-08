@@ -5,6 +5,7 @@
  * without them answers `not_available` instead of pretending.
  */
 import { approveAdopt } from '../application/adopt.ts';
+import { amendPolicy, amendPolicyPreview } from '../application/amend-policy.ts';
 import { answerQuestion } from '../application/answer.ts';
 import { approveEscalation } from '../application/approve.ts';
 import { statusSinceReader, taskBoard } from '../application/board.ts';
@@ -112,6 +113,7 @@ export function taskControl(deps: TaskControlDeps): {
     approve_escalation: CommandHandler;
     approve_adopt: CommandHandler;
     task_continue: CommandHandler;
+    task_amend_policy: CommandHandler;
     task_pause: CommandHandler;
     task_resume: CommandHandler;
     task_message: CommandHandler;
@@ -146,6 +148,7 @@ export function taskControl(deps: TaskControlDeps): {
       approve_adopt: (admitted, input, caller) =>
         approveAdopt(deps.confirm, admitted, input, caller),
       task_continue: (admitted, input, caller) => continueTask(deps, admitted, input, caller),
+      task_amend_policy: (admitted, input, caller) => amendPolicy(deps, admitted, input, caller),
       task_pause: (admitted, input, caller) => pauseTask(deps, admitted, input, caller),
       task_resume: (admitted, input, caller) => resumeTask(deps, admitted, input, caller),
       task_message: (admitted, input, caller) => messageTask(deps, admitted, input, caller),
@@ -181,6 +184,8 @@ export function taskControl(deps: TaskControlDeps): {
           ),
         ),
       run_options: async (caller, body) => reply(await runOptions(deps.confirm, caller, body)),
+      amend_policy_preview: async (caller, body) =>
+        reply(await amendPolicyPreview(deps, caller, body)),
       dispatch: async (caller, body) => reply(await dispatchGuidance(deps.confirm, caller, body)),
       ...(logs === undefined
         ? {}

@@ -355,6 +355,11 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task continue "$TASK_ID" --expected-version "$VERSION" \
   --request-id "$CONTINUE_REQUEST_ID" --json
+# When explain offers `amend_policy` and the user wants another model, preview it (read
+# only, no event): the reply shows the rung, the binding added or replaced, whether the
+# rung needs approval, and the new policy_hash. Hand the confirm command to the user.
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
+  cusr task amend-policy "$TASK_ID" --model "$MODEL" --effort "$EFFORT" --json
 # When the task waits on `escalation` (approval_kind escalation), approve the rung yourself:
 # it is a rung of the frozen ladder the user configured, not run confirmation and not a
 # merge. Take step and rung from the approve command explain lists, version from a fresh show.
@@ -397,13 +402,20 @@ CUSR_DATA_DIR="${DATA_DIR:?}" \
 CUSR_DATA_DIR="${DATA_DIR:?}" \
   cusr task approve "$TASK_ID" --kind adopt --head-sha "$HEAD_SHA" \
   --expected-version "$VERSION" --request-id "$APPROVE_REQUEST_ID" --json
+# Running the waiting step on another model (issue #105) needs admin: present the
+# preview (rung, binding, approval need, policy_hash) and this command. A hash that no
+# longer matches means state or config changed since the preview: preview again.
+CUSR_DATA_DIR="${DATA_DIR:?}" \
+  cusr task amend-policy "$TASK_ID" --model "$MODEL" --effort "$EFFORT" \
+  --reason "$REASON" --confirm "$POLICY_HASH" \
+  --expected-version "$VERSION" --request-id "$AMEND_REQUEST_ID" --json
 ```
 
 ## Unsupported commands and alternatives
 
 ```sh
 # task retry -> task add for independent work the user actually wants.
-# task amend-policy -> cancel, then task add with updated input/configuration.
+# A different workflow, mode or request on a started task -> cancel, then task add.
 # task approve --kind merge and the yolo command -> with yolo on, the daemon merges by
 # itself; never call a merge yourself. Otherwise the user merges on GitHub, then observation
 # or an allowed task recheck records it. This CLI has no merge command.

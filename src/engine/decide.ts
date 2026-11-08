@@ -4,6 +4,7 @@ import { assertNever } from '../shared/assert-never.ts';
 import { canonicalJson } from '../shared/canonical-json.ts';
 import type { DomainEventDraft } from '../domain/event.ts';
 import { hasRole, type FrozenPolicy } from '../domain/policy.ts';
+import { sameChoice, type RunChoice } from '../domain/run-config.ts';
 import { isTerminal, type TaskState } from '../domain/state.ts';
 import type { RelatedFacts, Trigger, TriggerEnvelope } from '../domain/trigger.ts';
 import { verifyPolicyHash } from '../policy/finalize.ts';
@@ -40,13 +41,14 @@ import {
   settleSlot,
 } from './runtime.ts';
 import { onStart } from './start.ts';
-import { onContinue } from './continue.ts';
+import { continuable, onContinue } from './continue.ts';
+import { targetRung } from './escalation.ts';
 import { onPause, onUnpause, stoppedByPause } from './pause.ts';
 import { afterMessageStop, onMessage, stoppedByMessage } from './message.ts';
 import { onRecheck } from './recheck.ts';
 import { waitPolicy } from './waits.ts';
 import { onHeadDrift } from './head-drift.ts';
-import { onConfirmRunConfig, onProposeRunConfig } from './run-config.ts';
+import { confirmedChoices, onConfirmRunConfig, onProposeRunConfig } from './run-config.ts';
 
 export type DecideInput = {
   state: TaskState | null;
@@ -366,6 +368,21 @@ export function onStopAttempt(ctx: Ctx, attemptId: string, reason: string): void
 type AmendTrigger = Extract<Trigger, { kind: 'amend' }>;
 
 /**
+ * The binding the waiting step runs next under `next`, when the run config does not cover it yet: the
+ * admin who confirmed the amendment chose it for that role (issue #105). Bindings elsewhere in the
+ * ladders stay unconfirmed, even when the amendment moved them.
+ */
+function amendedChoice(s: TaskState, next: FrozenPolicy): { role: string; choice: RunChoice }[] {
+  if (s.run.mode === null) return [];
+  const plan = continuable(s);
+  const sp = plan === null ? undefined : next.steps[plan.step];
+  if (plan === null || sp === undefined) return [];
+  const b = sp.ladder[targetRung(s, sp, plan.step).rung]?.binding;
+  if (b === undefined || confirmedChoices(s, sp.role).some((c) => sameChoice(c, b))) return [];
+  return [{ role: sp.role, choice: { harness: b.harness, model: b.model, effort: b.effort } }];
+}
+
+/**
  * Amendments require the same task/revision, version + 1, a valid hash, and an unchanged workflow
  * graph.
  */
@@ -384,6 +401,7 @@ function onAmend(ctx: Ctx, t: AmendTrigger): void {
     reject('invalid_trigger', { reason: 'policy_version' });
   if (!verifyPolicyHash(next)) reject('invalid_trigger', { reason: 'policy_hash' });
 
+  const confirmed = amendedChoice(ctx.state, next);
   ctx.emit('PolicyAmended', {
     policy: next,
     diff: t.diff,
@@ -391,6 +409,7 @@ function onAmend(ctx: Ctx, t: AmendTrigger): void {
     by: ctx.actor,
     policy_hash: next.policy_hash,
     policy_version: next.policy_version,
+    ...(confirmed.length === 0 ? {} : { confirmed }),
   });
   ctx.policy = next;
 

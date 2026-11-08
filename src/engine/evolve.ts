@@ -187,6 +187,8 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
       };
       s.budget.agent_runs.limit = p.limits.max_agent_runs;
       s.budget.escalations.limit = p.limits.max_escalations;
+      if (event.payload.confirmed !== undefined)
+        s.run.amended_choices = [...(s.run.amended_choices ?? []), ...event.payload.confirmed];
       if (p.limits.max_wall_ms === null) {
         s.deadline_at = null;
         s.deadline_passed = false;

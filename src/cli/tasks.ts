@@ -882,10 +882,60 @@ export const retryCommand: CliCommand = {
 
 export const amendPolicyCommand: CliCommand = {
   name: 'task amend-policy',
-  description: 'Unsupported; cancel the task and create one with the updated configuration',
-  args: ['[id]'],
-  options: [DATA_DIR, REQUEST_ID, EXPECTED_VERSION],
-  run: (_values, json, io) => unsupported('task_amend_policy', json, io),
+  description:
+    'Run the waiting step on another model after its quality loop ran out (admin); preview first, then --confirm',
+  help: [
+    'Without --confirm this only previews: it prints the rung, the binding it replaces or adds, whether the',
+    'rung needs approval, and the new policy hash. Run it again with --confirm <policy_hash> to apply exactly',
+    'that change; the task then goes on from the waiting step with its worktree, evidence and history.',
+  ].join('\n'),
+  args: ['<id>'],
+  options: [
+    DATA_DIR,
+    REQUEST_ID,
+    PROJECT,
+    EXPECTED_VERSION,
+    { flags: '--model <name>', description: 'Configured model to run the waiting step on' },
+    {
+      flags: '--effort <level>',
+      description: 'Effort: low, medium or high (default: the current rung effort)',
+    },
+    { flags: '--reason <text>', description: 'Why the policy changes, recorded in task history' },
+    { flags: '--confirm <hash>', description: 'Policy hash from the preview; applies the change' },
+  ],
+  run(values, json, io) {
+    const taskId = values['id'] as string;
+    const model = values['model'];
+    if (model === undefined)
+      return Promise.resolve(usage('task amend-policy requires --model', json, io));
+    const change = {
+      model,
+      ...(values['effort'] === undefined ? {} : { effort: values['effort'] }),
+    };
+    const hash = values['confirm'];
+    if (hash === undefined)
+      return query(
+        values,
+        {
+          kind: 'amend_policy_preview',
+          task_id: taskId,
+          ...change,
+          ...(values['reason'] === undefined ? {} : { reason: values['reason'] }),
+        },
+        json,
+        io,
+      );
+    if (values['reason'] === undefined)
+      return Promise.resolve(usage('task amend-policy --confirm requires --reason', json, io));
+    return mutate(
+      values,
+      'task_amend_policy',
+      taskId,
+      { ...change, reason: values['reason'], policy_hash: hash },
+      json,
+      io,
+    );
+  },
 };
 
 export const yoloCommand: CliCommand = {

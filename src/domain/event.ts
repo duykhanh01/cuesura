@@ -17,7 +17,7 @@ import type {
   Wait,
 } from './state.ts';
 import type { DeciderRun } from './state.ts';
-import type { RunConfirmation, RunSelection } from './run-config.ts';
+import type { RunChoice, RunConfirmation, RunSelection } from './run-config.ts';
 import type { StepKind } from './workflow.ts';
 import type {
   BaseRelation,
@@ -69,6 +69,11 @@ export type EventPayloads = {
     by: string;
     policy_hash: string;
     policy_version: number;
+    /**
+     * Bindings the amendment added to a task with a confirmed run config (issue #105): the admin who
+     * confirmed the amendment confirmed them for that role. Absent when there are none.
+     */
+    confirmed?: { role: string; choice: RunChoice }[];
   };
   AmendmentRejected: { code: string; by: string };
 

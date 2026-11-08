@@ -18,8 +18,9 @@ phải ghi rõ cả hai phạm vi, không biến auto-confirm intake thành duy�
 Các key/command/proof cụ thể cần triển khai, chưa phải CLI/schema hiện có.
 
 Confirm/recheck không tự chọn lại binding. Cấu hình hiệu lực khác bộ đã xác nhận thì chờ xác nhận
-mới trước spawn; retry/resume trong bộ đã duyệt không hỏi lại. Task đã bắt đầu không đổi mode/graph
-qua amend-policy của feature 002; tạo task mới nếu cần đổi. Không ràng buộc vendor và không hạ
+mới trước spawn; retry/resume trong bộ đã duyệt không hỏi lại. Task đã bắt đầu không đổi mode/graph;
+tạo task mới nếu cần đổi. `task amend-policy` (issue #105) chỉ đổi binding của bước đang chờ sau khi
+hết thang/lượt, và chính lần xác nhận amendment của owner là xác nhận binding mới cho role đó. Không ràng buộc vendor và không hạ
 `full-review` xuống `direct-pr` khi hết quota.
 
 ## Lệnh và quyền
@@ -41,7 +42,9 @@ qua amend-policy của feature 002; tạo task mới nếu cần đổi. Không 
 | `cusr task approve ID --kind escalation --step STEP --rung N` | operate; task/revision/policy hash đúng, không cấp merge |
 | `cusr task approve ID --kind adopt --head-sha SHA` | admin; task khai `--pr`/`pr_ref`, chưa start; PR mở, cùng repo (không fork), đúng base, head đúng SHA, không task sống nào đang giữ PR |
 | `cusr project list`, `cusr task options/content/progress ID`, `cusr task board`, `cusr request show REQUEST_ID` | read; truy vấn chỉ đọc không tạo event, thêm cho giao diện terminal và assistant; hợp đồng đầy đủ ở [feature 004](../../004-terminal-tui/contracts/cli-daemon.md) |
-| `cusr task retry/amend-policy`, merge approval, yolo | unsupported_feature, exit 2; không tạo mutation nghiệp vụ |
+| `cusr task amend-policy ID --model M [--effort E]` | read; xem trước amendment khi task chờ `ladder_exhausted`, `rung_denied`, `escalations_exhausted` hoặc `loop_exhausted` do lỗi chất lượng: trả nấc, binding thêm/thay, trạng thái nấc (`auto`/`needs_approval`), thay đổi `extra_visits`/`max_escalations` và `policy_hash` mới; không tạo event. Model ngoài `allow_models` hoặc bị `above: deny` trả `rejected` (`model_denied`) |
+| `cusr task amend-policy ID --model M [--effort E] --reason TEXT --confirm HASH` | admin; version/dedup; dựng lại amendment từ state và cấu hình user hiện tại, hash khác bản xem trước thì `conflict` (`policy_changed`); khớp thì ghi `PolicyAmended` (policy version + 1) và task chạy tiếp từ bước đang chờ |
+| `cusr task retry`, merge approval, yolo | unsupported_feature, exit 2; không tạo mutation nghiệp vụ |
 
 Mọi mutation nhận `--request-id UUID`, `--expected-version N` khi sửa task hiện có; task add không
 cần expected-version. Nếu CLI tự sinh request ID phải in lại trong kết quả để người dùng đối chiếu

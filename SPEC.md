@@ -247,6 +247,7 @@ Mọi lần thật sự gọi agent, kể cả repair, resume và lần bị rat
 - Sàn task chỉ tăng. Profile có thể nâng sàn khi hai bước đã phải escalation (`hard`) hoặc dùng `scope: task`. Loader phải ánh xạ sàn sang từng thang role; không coi cùng số nấc ở hai role là cùng model, và không vượt nấc cuối của role.
 - Approval gắn với task/revision, step, rung và policy hash. Quay lại cùng bước với policy không đổi có thể dùng lại approval; step khác hoặc policy đổi phải kiểm tra quyền lại.
 - Mọi lần nâng, kể cả nâng do sàn task, phải qua giới hạn escalation và ngân sách. Hết thang/lượt/ngân sách thì chờ quyết định; không ngầm kéo dài giới hạn.
+- Hết thang hoặc lượt do lỗi chất lượng (`ladder_exhausted`, `rung_denied`, `escalations_exhausted`, `loop_exhausted`), owner có thể đổi model cho bước đang chờ bằng `cusr task amend-policy` (issue #105): xem trước rồi xác nhận đúng policy hash đã xem. Binding mới được chèn thành nấc ngay trên nấc hiện tại khi bước đang xin nâng, hoặc thay nấc hiện tại khi bước hết lượt ghé; trạng thái nấc theo `allow_models`/`auto_up_to_tier`/`above` của profile trong cấu hình user hiện tại (model ngoài `allow_models` hoặc `above: deny` bị từ chối, trên tier tự động thì cần approval như thường; amendment không bao giờ được miễn approval như nấc 0). Amendment là event `PolicyAmended` với policy version mới: bù lượt ghé như `task continue`, cho thêm đúng một lần nâng nếu đã hết `max_escalations`, và với task có run config thì binding mới được coi là đã xác nhận cho role đó. Task chạy tiếp từ bước đang chờ, giữ worktree, bằng chứng và lịch sử; gate và review chạy lại.
 - Ngoại lệ duy nhất cho số lượt thử: câu trả lời của người cho `review_repeated` bảo đảm fixer chạy ít nhất một lượt ở nấc hiện tại: chuỗi lỗi đã xin nâng thì được đúng một lượt, chưa xin nâng thì giữ các lượt thử còn lại. Lượt này không đổi thang, sàn, lượt vào step, ngân sách hay thời hạn.
 
 ### 9.4 Ngân sách
@@ -519,7 +520,8 @@ Nhóm chỉ DONE khi kết quả tích hợp được merge vào branch đích c
 | `cusr task add/show/list/explain/history/logs/gates/gate-log` | Tạo và đọc task; `add` là tên chuẩn cho thao tác tạo |
 | `cusr task propose/confirm/recheck/continue/pause/resume/cancel`, `cusr queue pause/resume` | Thao tác có kiểm tra quyền, version và dedup |
 | `cusr task approve` | Escalation: quyền `operate` (assistant làm được); adopt PR: chỉ owner; không có approve merge |
-| `cusr task retry/amend-policy`, `cusr yolo` | Không hỗ trợ, trả `unsupported_feature` (exit 2) kèm lệnh thay thế |
+| `cusr task amend-policy` | Đổi model cho bước đang chờ sau khi hết thang/lượt (§9.3): không có `--confirm` thì chỉ xem trước (quyền đọc); `--confirm <policy_hash>` áp dụng, chỉ owner (admin) |
+| `cusr task retry`, `cusr yolo` | Không hỗ trợ, trả `unsupported_feature` (exit 2) kèm lệnh thay thế |
 | `cusr project list`, `cusr task board/content/progress/options` | Dữ liệu chỉ đọc cho giao diện terminal; output `--json` như mọi lệnh ([hợp đồng feature 004](specs/004-terminal-tui/contracts/cli-daemon.md)) |
 | `cusr request show` | Tra kết quả mutation theo request ID, chỉ đọc |
 | `cusr inbox`, `cusr answer`, `cusr assistant` | Liệt kê và trả lời câu hỏi; khóa và chờ của assistant |

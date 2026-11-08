@@ -94,7 +94,7 @@ describe('allowed actions for every wait detail (T111, FR-029)', () => {
   });
 
   it.each<DetailCode>(['ladder_exhausted', 'rung_denied', 'escalations_exhausted'])(
-    '%s offers continuing on the current model first',
+    '%s offers continuing on the current model first, then another model',
     (code) => {
       const o = {
         deadline_passed: false,
@@ -110,11 +110,15 @@ describe('allowed actions for every wait detail (T111, FR-029)', () => {
       const out = allowedActions(state(code, o), { recheckable: false });
       expect(out.map((a) => a.action)).toEqual([
         'continue',
+        'amend_policy',
         'merge_manually',
         'cancel',
         'task_add',
       ]);
       expect(out[0]?.command).toBe(`cusr task continue ${ID} --expected-version 9`);
+      expect(out[1]?.command).toBe(
+        `cusr task amend-policy ${ID} --model <name> [--effort <level>]`,
+      );
       expect(JSON.stringify(out)).not.toMatch(/more attempts|retry/i);
     },
   );

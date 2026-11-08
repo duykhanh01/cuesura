@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { AuthzRole } from '../domain/policy.ts';
 import { RunProposalSchema } from '../domain/run-config.ts';
+import { AmendPayloadSchema } from './amend-policy.ts';
 import { HashSchema, UuidSchema } from '../shared/brand.ts';
 import { hashCanonical } from '../shared/hash.ts';
 import { err, ok, type Result } from '../shared/result.ts';
@@ -26,6 +27,7 @@ export const COMMAND_PAYLOADS = {
   task_cancel: z.object({ reason: Reason, force: z.literal(true).optional() }).strict(),
   task_recheck: z.object({}).strict(),
   task_continue: z.object({}).strict(),
+  task_amend_policy: AmendPayloadSchema,
   task_pause: z.object({ reason: Reason, now: z.boolean().optional() }).strict(),
   task_resume: z.object({}).strict(),
   task_message: z
@@ -51,6 +53,7 @@ const REQUIRED_ROLE: Record<CommandKind, AuthzRole> = {
   task_cancel: 'operate',
   task_recheck: 'operate',
   task_continue: 'operate',
+  task_amend_policy: 'admin',
   task_pause: 'operate',
   task_resume: 'operate',
   task_message: 'operate',
@@ -65,12 +68,7 @@ const REQUIRED_ROLE: Record<CommandKind, AuthzRole> = {
 export const GLOBAL_COMMANDS: readonly CommandKind[] = ['queue_pause', 'queue_resume'];
 
 /** Rejected before anything is recorded; the CLI maps them to exit 2. */
-export const UNSUPPORTED_COMMANDS = [
-  'task_retry',
-  'task_amend_policy',
-  'merge_approve',
-  'yolo',
-] as const;
+export const UNSUPPORTED_COMMANDS = ['task_retry', 'merge_approve', 'yolo'] as const;
 
 /** IDs the server assigns at admission: a task ID for `task_add` plus an ID pool for the core envelope. */
 const ASSIGNED_IDS = 8;
@@ -97,8 +95,6 @@ export type CommandInput = z.input<typeof CommandSchema>;
 export const UNSUPPORTED_GUIDANCE: Readonly<Record<(typeof UNSUPPORTED_COMMANDS)[number], string>> =
   {
     task_retry: 'task retry is not part of this version; use task add for an independent task',
-    task_amend_policy:
-      'amend-policy is not part of this version; cancel and use task add with the new config',
     merge_approve:
       'merge approval is not part of this version; merge the PR on GitHub, then wait for the observation or run task recheck',
     yolo: 'yolo has no command: set yolo: true in the user config, or merge the PR on GitHub, then wait for the observation or run task recheck',

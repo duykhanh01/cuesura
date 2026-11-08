@@ -12,6 +12,7 @@ export type AllowedAction = {
     | 'merge_manually'
     | 'recheck'
     | 'continue'
+    | 'amend_policy'
     | 'pause'
     | 'resume'
     | 'cancel'
@@ -147,7 +148,15 @@ const proceedSameModel = (c: Ctx): AllowedAction | null =>
         command: `cusr task continue ${c.id} --expected-version ${c.version}`,
         note: 'Keeps the current model: the step gets a fresh set of quality tries and visits, then runs again from here with gates and review as usual. Budget, deadline, ladder and floor stay as they are.',
       };
-const continuableExhausted: Row = (c) => [proceedSameModel(c), ...exhausted(c)];
+const otherModel = (c: Ctx): AllowedAction | null =>
+  continuable(c.s) === null
+    ? null
+    : {
+        action: 'amend_policy',
+        command: `cusr task amend-policy ${c.id} --model <name> [--effort <level>]`,
+        note: 'Owner only. Previews running the waiting step on another configured model, then applies it with --confirm <policy_hash> --reason <text> --expected-version: a new policy version, the same task, worktree and history; gates and review run again. The profile still decides whether the model is allowed or needs approval.',
+      };
+const continuableExhausted: Row = (c) => [proceedSameModel(c), otherModel(c), ...exhausted(c)];
 
 const exhausted: Row = (c) => [
   merge(c),

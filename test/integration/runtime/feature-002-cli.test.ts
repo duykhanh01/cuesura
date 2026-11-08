@@ -419,7 +419,6 @@ describe('syntax errors stop in the CLI (T113)', () => {
 describe('unsupported features change nothing (US6.4/5, FR-021/045)', () => {
   it.each([
     [['task', 'retry', 'ID'], 'task add'],
-    [['task', 'amend-policy', 'ID'], 'task add'],
     [['task', 'approve', 'ID', '--kind', 'merge'], 'merge the PR on GitHub'],
     [['yolo', 'ID'], 'merge the PR on GitHub'],
   ])('%j is unsupported_feature, exit 2, and points the way', async (argv, hint) => {
@@ -438,7 +437,7 @@ describe('unsupported features change nothing (US6.4/5, FR-021/045)', () => {
     expect(daemonNow.store.readEvents(t.id)).toHaveLength(before);
   });
 
-  it.each(['task_retry', 'task_amend_policy', 'merge_approve', 'yolo'])(
+  it.each(['task_retry', 'merge_approve', 'yolo'])(
     'a raw %s command gets the same answer from the daemon and no ledger row',
     async (kind) => {
       const sd = daemon();
@@ -461,6 +460,22 @@ describe('unsupported features change nothing (US6.4/5, FR-021/045)', () => {
       expect(running.store.readEvents(t.id)).toHaveLength(before);
     },
   );
+});
+
+describe('task amend-policy (issue #105)', () => {
+  it('previews without --confirm and changes nothing on a task that is not waiting', async () => {
+    const sd = daemon();
+    const t = buildTask();
+    sd.seed((d) => toGreen(d, t));
+    const running = await sd.start();
+    const before = running.store.readEvents(t.id).length;
+    const missing = await cli(sd, ['task', 'amend-policy', t.id]);
+    expect(missing.code).toBe(ExitCode.usage);
+    const r = await cli(sd, ['task', 'amend-policy', t.id, '--model', 'sol']);
+    expect(r.code).toBe(ExitCode.conflict);
+    expect(r.envelope.error.details['reason']).toBe('amend_not_applicable');
+    expect(running.store.readEvents(t.id)).toHaveLength(before);
+  });
 });
 
 describe('assistant wait (issue #166)', () => {

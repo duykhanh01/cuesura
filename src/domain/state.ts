@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { CanonicalTask } from './task.ts';
 import type { EffectKind, EffectStatus } from './effect.ts';
 import type { Level } from './policy.ts';
-import type { ExecutionMode, RunConfirmation, RunSelection } from './run-config.ts';
+import type { ExecutionMode, RunChoice, RunConfirmation, RunSelection } from './run-config.ts';
 import type {
   BaseRelation,
   Check,
@@ -499,6 +499,8 @@ export type RunState = {
     at: number;
   } | null;
   confirmation: RunConfirmation | null;
+  /** Bindings an admin's policy amendment confirmed per role after start (issue #105); absent when none. */
+  amended_choices?: { role: string; choice: RunChoice }[];
   /** Mode and selection digest frozen at start; null before start and for snapshots without modes. */
   mode: ExecutionMode | null;
   frozen_digest: string | null;
