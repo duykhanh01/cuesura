@@ -3,6 +3,7 @@ import type { DomainEvent } from '../domain/event.ts';
 import type { Effect } from '../domain/effect.ts';
 import type { FrozenExecutionContext, FrozenPolicy } from '../domain/policy.ts';
 import type { FrozenRuntimeContext } from '../domain/runtime.ts';
+import { replay } from '../engine/evolve.ts';
 import { orderQueue } from '../engine/execution-slot.ts';
 import type { TaskState, TaskStatus } from '../domain/state.ts';
 import type { EffectRow, TimerRow } from './projector.ts';
@@ -184,6 +185,14 @@ export function readEvents(db: Database, taskId: string, fromSeq = 1): DomainEve
     .prepare('SELECT * FROM events WHERE task_id = ? AND seq >= ? ORDER BY seq')
     .all(taskId, fromSeq) as EventRow[];
   return rows.map(toEvent);
+}
+
+/** The task as it stood right after event `seq`, folded from the log. */
+export function readStateAt(db: Database, taskId: string, seq: number): TaskState | null {
+  const rows = db
+    .prepare('SELECT * FROM events WHERE task_id = ? AND seq <= ? ORDER BY seq')
+    .all(taskId, seq) as EventRow[];
+  return replay(rows.map(toEvent));
 }
 
 export function readPolicy(

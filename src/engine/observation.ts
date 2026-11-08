@@ -4,7 +4,7 @@ import type { Trigger } from '../domain/trigger.ts';
 import { canonicalJson } from '../shared/canonical-json.ts';
 import { reject, type Ctx } from './context.ts';
 import { ciSpent, onCiRecorded, proceed, waitCiExhausted } from './interpreter.ts';
-import { ciVerdict, latestCi } from './merge-guard.ts';
+import { ciVerdict, heldCi } from './merge-guard.ts';
 import { mkWait, waitTask } from './waits.ts';
 
 /**
@@ -449,19 +449,7 @@ function onOpenCi(ctx: Ctx, t: ObservationResult, step: string | null): void {
   const code = s.status === 'WAITING' ? (s.wait?.detail.code ?? null) : null;
   if (code !== 'merge' && code !== 'required_checks_mismatch' && code !== 'ci_wait_exhausted')
     return;
-  const prior = latestCi(s, ci.head_sha);
-  const same =
-    prior !== undefined &&
-    canonicalJson({
-      r: prior.required_set,
-      c: prior.checks,
-      required: prior.required ?? null,
-    }) ===
-      canonicalJson({
-        r: ci.required_set,
-        c: ci.checks,
-        required: ci.required ?? null,
-      });
+  const same = heldCi(s, ci);
   const required = ci.required;
   const covered = required === undefined || required.kind === 'covered';
   if (same && covered && code === 'merge') return;

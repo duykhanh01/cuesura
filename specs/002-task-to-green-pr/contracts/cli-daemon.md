@@ -53,6 +53,31 @@ cần expected-version. Nếu CLI tự sinh request ID phải in lại trong k�
 sau timeout. `--project` tùy chọn với lệnh theo ID: CLI đọc project của task qua `task_show`. Cùng ID+canonical payload trả cùng kết quả; payload khác conflict. New request ID mới
 thử lại cấu hình đã sửa; replay request cũ không âm thầm đọc base mới rồi đổi kết quả.
 
+`--expected-version N` của lệnh người dùng (`HUMAN_TRIGGERS`) đi qua `accept` của store vẫn hợp lệ
+khi `N` nhỏ hơn version hiện tại mà phần trạng thái thật của task ở version `N` giống hiện tại (#262).
+Phần đó là `materialView` (`src/engine/material.ts`): toàn bộ state của task, chỉ trừ những gì công
+việc nền làm đổi, gồm version, effect, timer, operation, output đã ingest (`artifacts`), bộ đếm poll CI
+(`ci_polls`, `run.ci_wait`), lịch quan sát PR (số vòng, id, thời điểm; vẫn giữ subject, `expired`,
+status và head lần đọc cuối) và timer mà wait đang chờ (`wait.detail.timer_id`, `timer(...)` trong
+`resume_when`). Mọi field khác, như wait và toàn bộ detail, baseline đã chấp nhận (`run.worktree_tree`,
+manifest), attempt, budget đã dùng, câu hỏi, approval, run config, policy, pause, cancel, tin nhắn hay
+evidence, đổi thì version trước đó bị `stale_version`. Field chỉ công việc nền làm đổi mới được loại
+khỏi view; field nào lệnh dùng để quyết định phải ở lại trong view. Vì vậy vòng poll CI không đổi kết
+quả, vòng quan sát PR còn mở, `SignalIgnored` hay lệnh bị từ chối mà không đổi state đều không làm
+version cũ bị `stale_version`. Daemon dựng lại state ở `N` (replay log tới `N`) rồi so với state hiện
+tại trong cùng transaction. Các trường hợp vẫn so version tuyệt đối:
+
+- `N` lớn hơn version hiện tại, hoặc task chưa tồn tại.
+- Trigger nội bộ của daemon, vì chúng quyết định theo cả effect và timer.
+- `cusr task propose`: application tự so version trước khi ghi, không qua `accept`.
+
+Còn hai khe hẹp. Trong vài giây một vòng poll CI đang chạy, task ở `RUNNING`, nên lệnh gửi với version
+đọc lúc `WAITING` tới đúng khe đó vẫn bị `stale_version`. Lần quan sát PR đầu tiên cũng đổi view một
+lần. Gặp hai trường hợp này thì đọc lại rồi gửi lại.
+
+Vòng poll CI đọc lại đúng kết quả đã ghi (cùng head, cùng required set, checks và required) không ghi
+thêm `CiResultRecorded`; chuỗi effect của vòng poll vẫn ghi đủ để phục hồi sau crash.
+
 `--json` cho mọi lệnh; output finite đúng một object `{schema_version:1,ok,data,error}`. Error gồm
 code/message/details/request_id. Log/chẩn đoán vào stderr, không ANSI/prompt. Exit 0 processed, 1
 execution/health failure, 2 syntax/config/unsupported, 3 connection/timeout, 4 missing, 5 forbidden,

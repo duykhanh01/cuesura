@@ -228,7 +228,10 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 # otherwise. Copy worker/reviewer verbatim and name the matched rule in --reason.
 # A proposal does not start the task: confirm its digest next.
 # Bindings: HARNESS/MODEL/EFFORT, from the operator's configured allowlist.
-# Set VERSION from a fresh task show before each NEW mutation.
+# Set VERSION from a fresh task show before each NEW mutation. A version stays valid
+# while only background work (CI polls, timers, observations) moved the task; a
+# change the task's state shows (status, wait, questions, attempts, budget, run
+# config, ...) makes it stale_version. task propose still needs the exact version.
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task propose "$TASK_ID" --profile "$PROFILE" --mode direct-pr \
   --worker "$WORKER" --reason "$REASON" \

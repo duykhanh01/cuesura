@@ -262,7 +262,9 @@ describe('cusr task add/show/confirm over the control socket (T048)', () => {
         version,
       ]),
     ).toMatchObject({
-      code: ExitCode.conflict,
+      // The first confirm changed nothing material, so its version still holds (#262).
+      code: ExitCode.ok,
+      data: { status: 'READY', config_check: 'checked' },
     });
   });
 

@@ -62,7 +62,7 @@ import {
   reviewSignature,
   untouchedRepeats,
 } from './failure.ts';
-import { ciVerdict, latestCi, mergeGuard, type GuardFailure } from './merge-guard.ts';
+import { ciVerdict, heldCi, latestCi, mergeGuard, type GuardFailure } from './merge-guard.ts';
 import { answerForFixer, askHuman, AUTO_ACTOR, requestApproval } from './questions.ts';
 import { creditableAttempts } from './recheck.ts';
 import { settleUnderDrift } from './head-drift.ts';
@@ -1574,13 +1574,16 @@ function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
       const green =
         d.head_sha === ctx.state.head_sha &&
         ciVerdict(ctx.frozen, d.required_set, d.checks).kind === 'pass';
-      ctx.emit('CiResultRecorded', {
-        head_sha: d.head_sha,
-        required_set: d.required_set,
-        checks: d.checks,
-        ...(d.required === undefined ? {} : { required: d.required }),
-        resets_streak_of: green ? ctx.state.last_fix_step : null,
-      });
+      // A poll that reads the same CI again adds nothing to the evidence (#262).
+      const resets = green ? ctx.state.last_fix_step : null;
+      if (resets !== null || !heldCi(ctx.state, d))
+        ctx.emit('CiResultRecorded', {
+          head_sha: d.head_sha,
+          required_set: d.required_set,
+          checks: d.checks,
+          ...(d.required === undefined ? {} : { required: d.required }),
+          resets_streak_of: resets,
+        });
       if (d.base_relation !== undefined)
         ctx.emit('BaseRelationRecorded', { relation: d.base_relation });
       onCiRecorded(ctx, step as string, d.head_sha === ctx.state.head_sha ? d.required : undefined);

@@ -6,12 +6,14 @@ import type { TaskState, TaskStatus } from '../domain/state.ts';
 import type { CanonicalTask } from '../domain/task.ts';
 import {
   computeRequestHash,
+  HUMAN_TRIGGERS,
   TriggerEnvelopeSchema,
   type RelatedFacts,
   type TriggerEnvelope,
 } from '../domain/trigger.ts';
 import { decide, type Decision } from '../engine/decide.ts';
 import { applyInPlace } from '../engine/evolve.ts';
+import { materialDigest } from '../engine/material.ts';
 import { sameContent } from '../engine/revision.ts';
 import type { CrashHook } from './crash.ts';
 import {
@@ -23,7 +25,14 @@ import {
   SlotConflict,
   sqliteSink,
 } from './projector.ts';
-import { loanActive, readExecutionFacts, readPolicy, readTask, readTaskStatus } from './read.ts';
+import {
+  loanActive,
+  readExecutionFacts,
+  readPolicy,
+  readStateAt,
+  readTask,
+  readTaskStatus,
+} from './read.ts';
 
 export type AcceptOutcome = {
   dedup_key: string;
@@ -204,6 +213,22 @@ function reachesTask(db: Database, target: string, from: readonly string[]): boo
 }
 
 /**
+ * A person's command decided on version E still holds when nothing material changed after E
+ * (issue #262): events that only move background work forward (CI polls, timers, observations,
+ * ignored signals) do not make it stale. Daemon triggers decide on effects and timers too, so they
+ * keep the exact match.
+ */
+function versionHolds(db: Database, env: TriggerEnvelope, state: TaskState | null): boolean {
+  const expected = env.expected_version ?? 0;
+  const current = state?.version ?? 0;
+  if (expected === current) return true;
+  if (state === null || expected === 0 || expected > current) return false;
+  if (!HUMAN_TRIGGERS.includes(env.trigger.kind)) return false;
+  const then = readStateAt(db, env.task_id, expected);
+  return then !== null && materialDigest(then) === materialDigest(state);
+}
+
+/**
  * One synchronous BEGIN IMMEDIATE transaction: deduplicate, read, decide, append, project, commit.
  * Write failures roll back everything. Colliding IDs conflict; missing IDs must not record
  * deduplication.
@@ -257,7 +282,7 @@ export function accept(
     crash('after_dedup');
 
     const state = readTask(db, env.task_id);
-    if (env.expected_version !== undefined && (state?.version ?? 0) !== env.expected_version) {
+    if (env.expected_version !== undefined && !versionHolds(db, env, state)) {
       rollback(db);
       return err({ code: 'conflict', reason: 'stale_version' });
     }

@@ -1,6 +1,7 @@
 import type { FrozenPolicy } from '../domain/policy.ts';
 import type { Evidence, TaskState } from '../domain/state.ts';
 import { type Check, checkPasser, type RequiredSet } from '../domain/trigger.ts';
+import { canonicalJson } from '../shared/canonical-json.ts';
 import { minorFixApproved } from './head-evidence.ts';
 
 export type CiVerdict =
@@ -55,6 +56,17 @@ export function latestCi(state: TaskState, head: string): Evidence['ci'][number]
     state.evidence.ci,
     (c) => c.valid && c.revision === state.revision && c.head_sha === head,
   );
+}
+
+/** Whether a CI read says nothing the head's latest recorded CI evidence does not already hold. */
+export function heldCi(
+  state: TaskState,
+  ci: { head_sha: string; required_set: unknown; checks: unknown; required?: unknown },
+): boolean {
+  const prior = latestCi(state, ci.head_sha);
+  const view = (c: { required_set: unknown; checks: unknown; required?: unknown }) =>
+    canonicalJson({ r: c.required_set, c: c.checks, required: c.required ?? null });
+  return prior !== undefined && view(prior) === view(ci);
 }
 
 export type GuardFailure =
