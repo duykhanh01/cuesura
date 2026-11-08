@@ -28,8 +28,11 @@ export function mergeAllowed(s: TaskState, p: FrozenPolicy, head: string): strin
   if (!ci.required_set.complete) return 'required_set is incomplete';
   const expected = new Set([...p.ci.required_checks, ...ci.required_set.names]);
   for (const name of expected) {
-    if (ci.checks.find((c) => c.name === name)?.state !== 'success')
-      return `check ${name} has not succeeded`;
+    // Skipped (GitHub skipped/neutral) passes only while no check of the head failed or was cancelled.
+    const state = ci.checks.find((c) => c.name === name)?.state;
+    const skipOk = ci.checks.every((c) => c.state !== 'failure' && c.state !== 'cancelled');
+    if (state !== 'success' && !(state === 'skipped' && skipOk))
+      return `check ${name} has not passed`;
   }
   const base = s.evidence.base_relations
     .filter(

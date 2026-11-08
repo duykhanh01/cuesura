@@ -1,6 +1,6 @@
 import type { FrozenPolicy } from '../domain/policy.ts';
 import type { Evidence, TaskState } from '../domain/state.ts';
-import type { Check, RequiredSet } from '../domain/trigger.ts';
+import { type Check, checkPasser, type RequiredSet } from '../domain/trigger.ts';
 
 export type CiVerdict =
   | { kind: 'pass' }
@@ -17,7 +17,10 @@ export function expectedChecks(policy: FrozenPolicy, rs: RequiredSet): string[] 
   return [...new Set([...policy.ci.required_checks, ...rs.names])].sort();
 }
 
-/** Only success passes. Missing names or incomplete observations never satisfy the merge guard. */
+/**
+ * Expected checks must pass under `checkPasser` over all current checks of the head. Missing names or
+ * incomplete observations never satisfy the merge guard.
+ */
 export function ciVerdict(
   policy: FrozenPolicy,
   rs: RequiredSet,
@@ -28,7 +31,8 @@ export function ciVerdict(
   const failed = expected.filter((n) => byName.get(n)?.state === 'failure');
   if (failed.length > 0) return { kind: 'fail', failed };
   const missing = expected.filter((n) => !byName.has(n));
-  const notPassed = expected.filter((n) => byName.has(n) && byName.get(n)?.state !== 'success');
+  const passed = checkPasser(checks);
+  const notPassed = expected.filter((n) => byName.has(n) && !passed(byName.get(n)!.state));
   if (!rs.complete || missing.length > 0 || notPassed.length > 0) {
     return {
       kind: 'incomplete',

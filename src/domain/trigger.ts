@@ -76,6 +76,20 @@ export const CHECK_STATES = [
 ] as const;
 export type CheckState = (typeof CHECK_STATES)[number];
 
+/**
+ * Pass predicate over the current checks of one head. Like GitHub branch protection, a check concluded
+ * `skipped` or `neutral` (both map to `skipped`) passes, so a workflow that skips a required job on
+ * purpose, such as for a docs-only PR, does not block the merge gate forever. Unlike GitHub, `skipped`
+ * passes only while no current check of the head, required or not, failed or was cancelled: a job
+ * skipped because a job it needs failed also concludes `skipped`, and must not let untested code merge.
+ */
+export function checkPasser(
+  checks: readonly { readonly state: CheckState }[],
+): (state: CheckState) => boolean {
+  const skipOk = !checks.some((c) => c.state === 'failure' || c.state === 'cancelled');
+  return (state) => state === 'success' || (state === 'skipped' && skipOk);
+}
+
 export const CheckSchema = z
   .object({
     name: z.string().min(1),

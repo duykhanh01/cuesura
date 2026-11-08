@@ -107,12 +107,16 @@ FR-040.12, không thay bằng HEAD hiện tại hoặc suy từ merge commit squ
   không ánh xạ rõ hoặc status/check collision không giải được vẫn chờ policy.
 - Hợp rỗng: observation vẫn vào chờ merge, không chờ check tùy chọn; yolo không merge và log một lần
   hướng dẫn khai `ci.required_checks`. Không lấy mọi check đang thấy trên head làm fallback.
-- Trước merge phải success đúng app_id của mọi check được pin; token admin có thể bypass protection.
+- Trước merge mọi check được pin phải đạt từ đúng app_id; token admin có thể bypass protection.
   Đọc tip hiện tại bằng GET branches/{target}, không dùng pull.base.sha.
   Compare dùng `head...target_tip_sha`, `per_page=1&page=2` và `ahead_by === 0`; trang 2 tránh tải diff.
   Nếu ahead_by > 0 và biết base SHA, daemon yêu cầu engine cập nhật local cả khi tắt yolo qua gate/publish/CI;
   không gửi merge trước khi head mới được chứng nhận. Cập nhật dùng Git, giữ endpoint merge gác sha.
-- Chỉ success đạt; neutral/skipped/pending/cancelled/missing/unknown không đủ theo spec này.
+- Check đạt khi là success, skipped hoặc neutral, giống branch protection của GitHub (#208);
+  cancelled/stale/timed_out/failure/action_required/startup_failure, pending, missing và unknown không đủ.
+  skipped/neutral chỉ đạt khi không check hiện hành nào của cùng head (kể cả check không bắt buộc) ở
+  failure/timed_out/action_required/startup_failure/cancelled/stale; áp dụng cả lúc xét head lẫn lúc
+  kiểm lại trước merge.
   Gate snapshot cùng head luôn bắt buộc; review cùng head bắt buộc trong `full-review`, trừ
   chứng nhận phạm vi tích hợp base theo SPEC.md §14.2: không conflict hoặc một lượt fixer chỉ sửa
   file conflict thì không review mới; ngoài phạm vi phải review, chưa xong/conflict lại chờ người.

@@ -20,7 +20,7 @@ import { submit } from '../application/triage.ts';
 import { DEFAULT_MERGE_METHOD } from '../domain/merge-method.ts';
 import type { FrozenPolicy } from '../domain/policy.ts';
 import type { TaskState } from '../domain/state.ts';
-import { MAX_ENVELOPE_IDS } from '../domain/trigger.ts';
+import { checkPasser, MAX_ENVELOPE_IDS } from '../domain/trigger.ts';
 import { yoloApproval } from '../engine/external-completion.ts';
 import { ciVerdict } from '../engine/merge-guard.ts';
 import { evaluateRequired } from '../engine/required-checks.ts';
@@ -79,6 +79,7 @@ async function currentChecksProblem(
     return NO_REQUIRED_CHECKS;
   const checks = await readHeadChecks(port, t.repo, t.head_sha, skippedBefore);
   if (!checks.ok) return `checks unreadable: ${checks.error.detail}`;
+  const passed = checkPasser(checks.value.checks);
   for (const identity of verdict.app_pinned ?? []) {
     if (
       !checks.value.checks.some(
@@ -86,10 +87,10 @@ async function currentChecksProblem(
           check.name === identity.name &&
           check.source === 'check_run' &&
           check.app_id === identity.app &&
-          check.state === 'success',
+          passed(check.state),
       )
     )
-      return `required check ${identity.name} from app ${identity.app} is not successful`;
+      return `required check ${identity.name} from app ${identity.app} has not passed`;
   }
   const ci = ciVerdict(
     policy,

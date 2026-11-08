@@ -1,5 +1,5 @@
 import type { TaskState } from '../domain/state.ts';
-import type { Check } from '../domain/trigger.ts';
+import { type Check, checkPasser } from '../domain/trigger.ts';
 import type { RequiredVerdict } from './required-checks.ts';
 
 /**
@@ -7,7 +7,9 @@ import type { RequiredVerdict } from './required-checks.ts';
  * head this task checked:
  * - the complete GitHub requirement list is known (FR-042);
  * - check runs and statuses were read completely, and no required name has an unresolved collision;
- * - every check in the snapshot/GitHub union is `success` (neutral, skipped, pending, cancelled, missing and unknown are not);
+ * - every check in the snapshot/GitHub union passed under `checkPasser`: `success`, or `skipped`
+ *   (GitHub skipped/neutral) while no current check of the head failed or was cancelled; pending,
+ *   cancelled, missing and unknown do not;
  * - the latest gate run of the revision passed; with a confirmed mode it passed on the checkpoint tree
  *   of this very head (M06);
  * - `full-review` (and legacy tasks): a review approving this head is still valid; `direct-pr`: no
@@ -80,12 +82,13 @@ export function headVerdict(
   const single = (n: string): Check | undefined =>
     collisions.includes(n) ? undefined : byName.get(n)?.[0];
   const failed = names.filter((n) => single(n)?.state === 'failure');
+  const passed = checkPasser(observed.checks);
   const notPassed = names.filter(
     (n) =>
       byName.has(n) &&
       !collisions.includes(n) &&
-      single(n)?.state !== 'success' &&
-      single(n)?.state !== 'failure',
+      single(n)?.state !== 'failure' &&
+      !passed(single(n)!.state),
   );
 
   const gates = state.evidence.gates.filter((g) => g.valid && g.revision === rev);

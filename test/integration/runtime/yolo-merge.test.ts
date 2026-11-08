@@ -940,7 +940,47 @@ describe('yolo merge', () => {
     expect(calls).toHaveLength(valid.length);
   });
 
-  it.each(['neutral', 'skipped', 'stale'])(
+  it.each(['neutral', 'skipped'])(
+    'a required check that became %s still merges, as GitHub accepts it (#208)',
+    async (conclusion) => {
+      const d = setup();
+      const t = buildTask();
+      green(d, t);
+      const { port, sent } = github({
+        checks: { build: 'success', test: conclusion },
+      });
+      expect(await advanceTaskPr(deps(d, port), t.id)).toBe('merged');
+      expect(puts(sent)).toHaveLength(1);
+    },
+  );
+
+  it.each(['failure', 'cancelled', 'timed_out', 'stale'])(
+    'skipped required checks do not merge while an optional check is %s (#208)',
+    async (conclusion) => {
+      const d = setup();
+      const t = buildTask();
+      green(d, t);
+      const { port, sent } = github({
+        checks: { changes: conclusion, build: 'skipped', test: 'skipped' },
+      });
+      expect(await advanceTaskPr(deps(d, port), t.id)).toBe('not_ready');
+      expect(puts(sent)).toEqual([]);
+      expect(approvals(d, t)).toEqual([]);
+    },
+  );
+
+  it('docs-only PR: changes succeeded and the required build/test were skipped, so it merges (#208)', async () => {
+    const d = setup();
+    const t = buildTask();
+    green(d, t);
+    const { port, sent } = github({
+      checks: { changes: 'success', build: 'skipped', test: 'skipped' },
+    });
+    expect(await advanceTaskPr(deps(d, port), t.id)).toBe('merged');
+    expect(puts(sent)).toHaveLength(1);
+  });
+
+  it.each(['stale', 'cancelled', 'timed_out', 'action_required', 'startup_failure'])(
     'a check that became %s after the observation stops the merge, though GitHub says clean',
     async (conclusion) => {
       const d = setup();

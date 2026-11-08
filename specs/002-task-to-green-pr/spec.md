@@ -692,7 +692,7 @@ nhóm bao gồm toàn bộ các mục con, không thay thế việc kiểm chứ
   | **FR-042.05** | GitHub xác nhận không có quy tắc MUST ghi github_required: none; vẫn chờ check snapshot/gate/review. Hợp rỗng ở observation giữ hành vi cũ: vào chờ merge, không dùng mọi check trên head làm fallback; riêng yolo không merge và log một lần hướng dẫn khai ci.required_checks. |
   | **FR-042.06** | Không đọc đầy đủ GitHub hoặc thiếu quyền MUST trả unknown, WAITING/infra; không ghi none, coi là khớp hay fallback sang chỉ project. |
   | **FR-042.07** | Ánh xạ check mơ hồ MUST chờ policy. |
-  | **FR-042.08** | Chỉ xanh khi mọi check trong hợp đạt success trên đúng head, cùng gate/review hợp lệ theo FR-019. Trước effect merge, check ghim app MUST success từ đúng app_id; không dựa vào GitHub thực thi vì admin có thể bypass. |
+  | **FR-042.08** | Chỉ xanh khi mọi check trong hợp đạt (success, hoặc skipped/neutral như branch protection của GitHub khi không check nào của head thất bại hay bị hủy) trên đúng head, cùng gate/review hợp lệ theo FR-019. Trước effect merge, check ghim app MUST đạt từ đúng app_id; không dựa vào GitHub thực thi vì admin có thể bypass. |
   | **FR-042.09** | Phần hợp MUST được tính lại ở mỗi lượt đọc; MUST NOT sửa FrozenPolicy/schema/hash snapshot. Bật/tắt yolo hay lỗi đọc user config MUST NOT đổi danh sách CI/observation; config lỗi chỉ tắt merge và ghi log theo SPEC.md §14.2. |
 
 - **FR-043**: Giới hạn CI, thực thi và quan sát. Các nghĩa vụ độc lập:

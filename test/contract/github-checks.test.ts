@@ -36,18 +36,29 @@ const status = (context: string, state: string, at: string) => ({
 });
 
 describe('current generation per identity (T043)', () => {
-  it('maps conclusions: only success passes; neutral/skipped/stale are skipped, not success', () => {
+  it('maps conclusions: neutral/skipped are skipped (a pass, as on GitHub); stale is cancelled (#208)', () => {
     expect(
-      ['success', 'failure', 'neutral', 'skipped', 'stale', 'cancelled', 'timed_out', 'weird'].map(
-        (c) => checkRunState('completed', c),
-      ),
+      [
+        'success',
+        'failure',
+        'neutral',
+        'skipped',
+        'stale',
+        'cancelled',
+        'timed_out',
+        'action_required',
+        'startup_failure',
+        'weird',
+      ].map((c) => checkRunState('completed', c)),
     ).toEqual([
       'success',
       'failure',
       'skipped',
       'skipped',
-      'skipped',
       'cancelled',
+      'cancelled',
+      'failure',
+      'failure',
       'failure',
       'unknown',
     ]);
@@ -253,10 +264,72 @@ describe('green predicate of the checked head (T043, FR-019/041.06/042.08)', () 
     ).toMatchObject({ kind: 'green' });
   });
 
-  it.each(['skipped', 'pending', 'cancelled', 'unknown'] as const)('%s is not a pass', (s) => {
+  it.each(['pending', 'cancelled', 'unknown'] as const)('%s is not a pass', (s) => {
     expect(
       headVerdict(state(), SNAPSHOT, SHA, COVERED, ok(c('build', 'success'), c('test', s))),
     ).toMatchObject({ kind: 'not_green', not_passed: ['test'] });
+  });
+
+  it('a skipped required check passes as on GitHub, alone or next to success (#208)', () => {
+    for (const checks of [
+      [c('build', 'skipped'), c('test', 'skipped')],
+      [c('build', 'success'), c('test', 'skipped')],
+    ])
+      expect(headVerdict(state(), SNAPSHOT, SHA, COVERED, ok(...checks))).toMatchObject({
+        kind: 'green',
+      });
+    expect(
+      headVerdict(
+        state(),
+        SNAPSHOT,
+        SHA,
+        COVERED,
+        ok(c('build', 'success'), c('test', 'cancelled')),
+      ),
+    ).toMatchObject({ kind: 'not_green', not_passed: ['test'] });
+  });
+
+  it.each(['failure', 'cancelled'] as const)(
+    'skipped does not pass while any check of the head, even an optional one, is %s (#208)',
+    (s) => {
+      expect(
+        headVerdict(
+          state(),
+          SNAPSHOT,
+          SHA,
+          COVERED,
+          ok(c('changes', s), c('build', 'skipped'), c('test', 'skipped')),
+        ),
+      ).toMatchObject({ kind: 'not_green', failed: [], not_passed: ['build', 'test'] });
+      expect(
+        headVerdict(
+          state(),
+          SNAPSHOT,
+          SHA,
+          COVERED,
+          ok(c('changes', s), c('build', 'success'), c('test', 'success')),
+        ),
+      ).toMatchObject({ kind: 'green' });
+    },
+  );
+
+  it('PR #204: a docs-only PR whose required build/test were skipped is green (#208)', () => {
+    const runs = [
+      { id: 1, name: 'changes', status: 'completed', conclusion: 'success', app: { id: 15368 } },
+      { id: 2, name: 'build', status: 'completed', conclusion: 'skipped', app: { id: 15368 } },
+      { id: 3, name: 'test', status: 'completed', conclusion: 'skipped', app: { id: 15368 } },
+      { id: 4, name: 'GitGuardian', status: 'completed', conclusion: 'success', app: { id: 7 } },
+    ].map((r) => ({ ...r, head_sha: SHA }));
+    const { checks, collisions } = selectCurrent(runs, [], SHA);
+    expect(
+      headVerdict(
+        state(),
+        SNAPSHOT,
+        SHA,
+        { ...COVERED, github: ['build', 'test'], snapshot_only: [] },
+        { head_sha: SHA, checks, collisions, complete: true },
+      ),
+    ).toEqual({ kind: 'green', head_sha: SHA, review: 'approved' });
   });
 
   it('missing, failed, colliding, incomplete or uncovered evidence is not green', () => {

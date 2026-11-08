@@ -218,7 +218,7 @@ const STATES: readonly Check['state'][] = [
 ];
 
 describe('green predicate on the checked head (FR-019, FR-041.06, FR-042.08, M08)', () => {
-  it('green iff every snapshot check is a single success on that head with covered requirements, complete reads, the gate on that checkpoint and the review its mode requires', () => {
+  it('green iff every snapshot check is a single success (or skipped with no failed or cancelled check) on that head with covered requirements, complete reads, the gate on that checkpoint and the review its mode requires', () => {
     const names = ['build', 'test', 'lint'];
     fc.assert(
       fc.property(
@@ -336,7 +336,13 @@ describe('green predicate on the checked head (FR-019, FR-041.06, FR-042.08, M08
             complete &&
             gateOk &&
             reviewOk &&
-            snapshot.every((n) => single(n).length === 1 && single(n)[0]?.state === 'success');
+            snapshot.every(
+              (n) =>
+                single(n).length === 1 &&
+                (single(n)[0]!.state === 'success' ||
+                  (single(n)[0]!.state === 'skipped' &&
+                    checks.every((c) => c.state !== 'failure' && c.state !== 'cancelled'))),
+            );
           expect(v.kind === 'green').toBe(oracle);
           if (v.kind === 'green')
             expect(v.review).toBe(mode === 'direct-pr' ? 'not_required' : 'approved');

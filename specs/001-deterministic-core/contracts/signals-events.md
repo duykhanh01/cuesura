@@ -60,7 +60,9 @@ Bằng chứng cho merge guard (FR-015, research R-10):
 - `required_set = { names: string[], source: 'branch_protection' | 'policy', complete: boolean }`. Tập
   kỳ vọng là hợp của `names` với `ci.required_checks` trong chính sách đóng băng.
 - `checks[].state` ∈ `success`, `failure`, `pending`, `cancelled`, `skipped`, `unknown`. Tên trong tập
-  kỳ vọng mà không có trong `checks` được tính là `missing`. Chỉ `success` là đạt.
+  kỳ vọng mà không có trong `checks` được tính là `missing`. `success` là đạt; `skipped` cũng đạt như branch
+  protection của GitHub, nhưng chỉ khi không check nào trong `checks` là `failure` hay `cancelled`.
+  Adapter ghi kết luận `neutral` thành `skipped`, `stale` thành `cancelled` (#208).
 - Với check `failure`, `job` và `log_excerpt` (đã lọc theo `log_digest`, có giới hạn kích thước) là đầu
   vào của bước `classify`. Lõi áp `ci.rules` trong chính sách đóng băng để phân loại thành
   `flaky_or_infra`, `autofix` hoặc `code`; executor không phân loại (nguyên tắc VI, research R-21). Không

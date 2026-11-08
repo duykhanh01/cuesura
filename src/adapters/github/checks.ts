@@ -30,7 +30,10 @@ export type HeadChecks = {
   readonly digest: Hash;
 };
 
-/** Check run → state. `neutral` and `stale` are not success; anything unrecognized is unknown. */
+/**
+ * Check run → state. `skipped` and `neutral` pass as on GitHub; `stale` (GitHub gave up on the run)
+ * never passes, like `cancelled`. Anything unrecognized is unknown.
+ */
 export function checkRunState(status: unknown, conclusion: unknown): CheckState {
   if (status !== 'completed')
     return status === 'queued' ||
@@ -49,10 +52,10 @@ export function checkRunState(status: unknown, conclusion: unknown): CheckState 
     case 'startup_failure':
       return 'failure';
     case 'cancelled':
+    case 'stale':
       return 'cancelled';
     case 'skipped':
     case 'neutral':
-    case 'stale':
       return 'skipped';
     default:
       return 'unknown';

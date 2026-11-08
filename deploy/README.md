@@ -507,12 +507,17 @@ không chặn được request đã gửi tới GitHub.
     ngoài/ở trong file không tự bị coi là marker. Lỗi đọc scope giữ task chờ có question, không kẹt effect.
   - Branch/worktree đổi ngoài dự kiến cũng dừng để đối chiếu. Durable intent và chứng nhận đúng
     head/tree/revision giữ an toàn khi retry/restart; không push commit còn marker.
-- Trước merge, daemon tự yêu cầu check ghim app có `success` đúng `app_id`; không tin rằng GitHub
+- Trước merge, daemon tự yêu cầu check ghim app đạt từ đúng `app_id`; không tin rằng GitHub
   sẽ chặn hộ, vì admin có thể bypass nếu protection không áp dụng cho admin.
 - Khuyến nghị khai `ci.required_checks`. Nếu hợp danh sách rỗng, task vẫn vào chờ merge như cũ;
   yolo không merge và log một lần mỗi task trong vòng đời daemon, hướng dẫn khai danh sách này.
   Không dùng mọi check đang thấy trên head làm fallback vì workflow khác có thể chưa kịp tạo check.
-  Job `skipped` chỉ chặn khi thuộc hợp check bắt buộc.
+  Check bắt buộc đạt khi kết luận là `success`, `skipped` hoặc `neutral`, giống branch protection của
+  GitHub; nhờ vậy workflow cố ý bỏ qua job bắt buộc (vd PR chỉ sửa tài liệu) không làm task chờ tới
+  `ci_wait_exhausted`. `cancelled`, `timed_out`, `failure`, `action_required`, `startup_failure` và
+  `stale` không đạt; check đang chạy hoặc chưa có thì vẫn chờ. Khác GitHub, `skipped`/`neutral` chỉ đạt
+  khi không check hiện hành nào của cùng head, kể cả check không bắt buộc, thất bại hay bị hủy: job bị
+  skip vì job nó `needs` thất bại cũng là `skipped`, và không được để code chưa build/test lọt qua.
 - Lỗi đọc hoặc validate user config được ghi log và coi yolo là tắt; không tác động CI/observation.
 - Không có protection, GitHub không chặn race nếu nhánh đích có commit mới hoặc check đổi kết quả giữa
   lúc daemon đọc và lúc merge. `sha` chỉ chặn PR head đổi, không khóa tip nhánh đích hay kết quả check.
