@@ -22,7 +22,13 @@ import {
 import { onDrainResult, settleCompletion } from './drain.ts';
 import { onExternalCompletion, onYoloMergeApprove } from './external-completion.ts';
 import { onObservationDue, onObservationResult } from './observation.ts';
-import { onEffectResult, proceed } from './interpreter.ts';
+import {
+  failTask,
+  onEffectResult,
+  proceed,
+  salvageAtDeadline,
+  settleSalvage,
+} from './interpreter.ts';
 import {
   askHuman,
   onAnswer,
@@ -76,6 +82,7 @@ export function decide(input: DecideInput): Decision {
     if (ctx.hasState) {
       settleDrift(ctx);
       settleCompletion(ctx);
+      settleSalvage(ctx);
       settleSlot(ctx);
     }
   } catch (e) {
@@ -279,6 +286,7 @@ function onTimer(ctx: Ctx, timerId: string): void {
   const s = ctx.state;
   switch (timer.kind) {
     case 'deadline': {
+      if (salvageAtDeadline(ctx)) return;
       // Do not nest a deadline wait if the trigger time already caused one before the timer fired.
       if (
         s.cancellation !== null ||
@@ -301,6 +309,12 @@ function onTimer(ctx: Ctx, timerId: string): void {
       const waitingOnThis = s.status === 'WAITING' && s.wait?.detail['timer_id'] === timerId;
       if (waitingOnThis && timer.payload.resume !== undefined)
         proceed(ctx, timer.payload.resume, `timer:${timerId}`);
+      return;
+    }
+    case 'wait_timeout': {
+      const q = timer.payload.question_id;
+      if (s.cancellation === null && q !== undefined && s.questions[q]?.status === 'open')
+        failTask(ctx, timer.payload.reason ?? 'wait_timeout');
       return;
     }
     default:

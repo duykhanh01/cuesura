@@ -32,7 +32,15 @@ describe('I07 bounded execution', () => {
           for (const [step, n] of Object.entries(after.step_visits)) {
             const max = wf.steps[step]?.max_visits;
             if (max === undefined) continue;
-            expect(n, step).toBeLessThanOrEqual(max);
+            // Visits lost to the harness come back (#247), never more than the attempts that lost them.
+            const credited = after.visit_credits?.[step]?.visits ?? 0;
+            const lost = Object.values(after.attempts).filter(
+              (a) =>
+                a.step === step &&
+                ['infra', 'rate_limit', 'auth_config'].includes(a.outcome?.class ?? ''),
+            ).length;
+            expect(credited, `credited ${step}`).toBeLessThanOrEqual(lost);
+            expect(n, step).toBeLessThanOrEqual(max + credited);
 
             const attempts = Object.values(after.attempts).filter((a) => a.step === step).length;
             expect(attempts, `attempts ${step}`).toBeLessThanOrEqual(n);

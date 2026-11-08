@@ -20,7 +20,7 @@ const anyPolicyArb = fc.oneof(
 
 describe('I09 escalation stays within the frozen ladder and its approvals', () => {
   it(
-    'rungs never drop, attempts stay on allowed rungs, and only quality failures escalate within the limits',
+    'rungs never drop, attempts stay on allowed rungs, and only quality failures or repeated timeouts escalate within the limits',
     () => {
       fc.assert(
         fc.property(anyPolicyArb, taskOverArb, choicesArb(160, 60), (policyOpts, over, choices) => {
@@ -84,9 +84,26 @@ describe('I09 escalation stays within the frozen ladder and its approvals', () =
               }
             }
 
-            if (ev.type === 'FailureClassified' && !countsTowardQuality(ev.payload.class)) {
+            // An agent timeout past its retries asks for the next rung (#247) without a quality try.
+            const timeoutRaise =
+              ev.type === 'FailureClassified' &&
+              ev.payload.class === 'timeout' &&
+              ev.payload.rung !== null &&
+              ev.payload.escalate;
+            if (
+              ev.type === 'FailureClassified' &&
+              !countsTowardQuality(ev.payload.class) &&
+              !timeoutRaise
+            ) {
               expect(after.failure_streaks).toEqual(before?.failure_streaks);
               expect(ev.payload.escalate).toBe(false);
+            }
+            if (ev.type === 'FailureClassified' && timeoutRaise) {
+              const k = streakKey(ev.payload.step, ev.payload.rung as number);
+              expect(after.failure_streaks[k]?.escalate).toBe(true);
+              expect(after.failure_streaks[k]?.quality_tries).toBe(
+                before?.failure_streaks[k]?.quality_tries ?? 0,
+              );
             }
           });
         }),

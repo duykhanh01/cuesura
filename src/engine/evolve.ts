@@ -265,6 +265,17 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
           escalate: p.escalate,
         };
       }
+      // A timeout past its retries asks for the next rung without counting as a quality try (#247).
+      if (p.rung !== null && p.class === 'timeout' && p.escalate) {
+        const k = streakKey(p.step, p.rung);
+        const prev = s.failure_streaks[k];
+        s.failure_streaks[k] = {
+          signature: prev?.signature ?? null,
+          consecutive: prev?.consecutive ?? 0,
+          quality_tries: prev?.quality_tries ?? 0,
+          escalate: true,
+        };
+      }
       break;
     }
 
@@ -948,6 +959,8 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
         streak.escalate = false;
         streak.quality_tries = event.payload.quality_tries;
       }
+      if (event.payload.auto === true)
+        s.auto_turns = [...(s.auto_turns ?? []), event.payload.streak];
       break;
     }
     case 'ManifestChangeAccepted':
@@ -991,6 +1004,9 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
         s.run.worktree_tree = event.payload.tree;
       break;
     }
+    case 'FailureSalvageStarted':
+      s.run.salvage = { reason: event.payload.reason };
+      break;
     case 'PublishContentRecorded':
       s.run.content = event.payload.content;
       break;
@@ -1083,7 +1099,8 @@ function applySuccessFacts(s: TaskState, kind: string, result: unknown): void {
   const setup = r['setup'] as { passed?: unknown } | undefined;
   if (kind === 'prepare' && typeof r['base_sha'] === 'string' && setup?.passed === true)
     s.base_sha = r['base_sha'];
-  if (kind === 'create_pr' && typeof r['pr_ref'] === 'string') s.pr_ref = r['pr_ref'];
+  if ((kind === 'create_pr' || kind === 'publish') && typeof r['pr_ref'] === 'string')
+    s.pr_ref = r['pr_ref'];
   const body = r['pr_body'] as PrBodyState | undefined;
   if (kind === 'create_pr' && body !== undefined) s.run.pr_body = body;
   if (kind === 'merge' && r['merged'] === true) s.merged = true;

@@ -1,6 +1,7 @@
 import { compareLevel, levelKey, type Level, type StepPolicy } from '../domain/policy.ts';
 import { streakKey, type ResumeAction, type TaskState } from '../domain/state.ts';
 import type { Ctx } from './context.ts';
+import { failWithDraft } from './interpreter.ts';
 import { requestApproval } from './questions.ts';
 import { waitPolicy } from './waits.ts';
 
@@ -62,11 +63,6 @@ export function hasEscalationApproval(ctx: Ctx, step: string, rung: number): boo
   );
 }
 
-/**
- * Picks the rung for the next attempt of `step` and checks it in the order of research R-18: within the
- * ladder, not `denied`, approved when `needs_approval`, within `max_escalations`. On failure the task is put
- * into the matching wait and `null` is returned. Budget and deadline are checked by the caller.
- */
 /** Whether {@link chooseRung} would pick a rung without opening a wait or asking for an approval. */
 export function rungReady(ctx: Ctx, step: string, sp: StepPolicy): boolean {
   const s = ctx.state;
@@ -79,6 +75,12 @@ export function rungReady(ctx: Ctx, step: string, sp: StepPolicy): boolean {
   return !(choice.raise !== null && esc.limit !== null && esc.used >= esc.limit);
 }
 
+/**
+ * Picks the rung for the next attempt of `step` and checks it in the order of research R-18: within the
+ * ladder, not `denied`, approved when `needs_approval`, within `max_escalations`. Past the ladder or on a
+ * denied rung the task fails; otherwise it is put into the matching wait. `null` means no attempt starts.
+ * Budget and deadline are checked by the caller.
+ */
 export function chooseRung(
   ctx: Ctx,
   step: string,
@@ -88,12 +90,13 @@ export function chooseRung(
   const s = ctx.state;
   const choice = targetRung(s, sp, step);
   const rung = sp.ladder[choice.rung];
+  // No higher rung can be used: the task ends with the reason instead of waiting on a person (#247).
   if (rung === undefined) {
-    waitPolicy(ctx, 'ladder_exhausted', again, { step, rung: choice.rung });
+    failWithDraft(ctx, `ladder_exhausted:${step}`);
     return null;
   }
   if (rung.state === 'denied') {
-    waitPolicy(ctx, 'rung_denied', again, { step, rung: choice.rung });
+    failWithDraft(ctx, `rung_denied:${step}:${choice.rung}`);
     return null;
   }
   if (rung.state === 'needs_approval' && !hasEscalationApproval(ctx, step, choice.rung)) {

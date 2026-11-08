@@ -5,6 +5,7 @@ import type { CanonicalTask } from '../../../src/domain/task.ts';
 import type { Uuid } from '../../../src/shared/brand.ts';
 import { claimable } from '../../../src/engine/claim.ts';
 import { replay } from '../../../src/engine/evolve.ts';
+import { BASE_REPAIR_WAIT_MS } from '../../../src/engine/interpreter.ts';
 import { explain } from '../../../src/explain/explain.ts';
 import { headVerdict, reviewOf } from '../../../src/engine/head-evidence.ts';
 import { mergeGuard } from '../../../src/engine/merge-guard.ts';
@@ -51,11 +52,21 @@ const reviewerRuns = (d: StoreDriver, t: CanonicalTask) =>
   Object.values(d.task(t.id).effects).filter((e) => e.kind === 'start_agent' && e.step === 'review')
     .length;
 const posted = (d: StoreDriver, t: CanonicalTask) => completePost(d, t.id);
-/** Answers the question of a review that came back without progress. */
-const answerRepeated = (d: StoreDriver, t: CanonicalTask, answer = 'Fix it.') => {
-  const w = d.task(t.id).wait;
-  expect(w?.detail['code']).toBe('review_repeated');
-  d.must(t.id, { kind: 'answer', question_id: w?.detail['question_id'] as Uuid, answer });
+/**
+ * The latest stop the engine answered itself instead of asking a person (#247): its wait detail and
+ * question, checked to be answered by the engine and no longer waited on.
+ */
+const autoAnswered = (d: StoreDriver, t: CanonicalTask, code = 'review_repeated') => {
+  const wait = d.store
+    .readEvents(t.id)
+    .flatMap((e) => (e.type === 'TaskWaiting' ? [e.payload.wait] : []))
+    .filter((w) => w.detail.code === code)
+    .at(-1);
+  const s = d.task(t.id);
+  const question = s.questions[wait?.detail['question_id'] as string];
+  expect(question).toMatchObject({ status: 'answered', answered_by: 'engine:auto' });
+  expect(s.wait?.detail.code).not.toBe(code);
+  return { detail: wait?.detail, body: question?.body ?? '' };
 };
 
 /** Publish A, open the PR, and get a failing CI on A so the worker is called to fix it. */
@@ -211,7 +222,7 @@ describe('run selection confirmation (T135, M01/M02)', () => {
     });
   });
 
-  it('a worker binding outside the confirmed set waits for a new confirmation instead of running', () => {
+  it('a worker binding outside the confirmed set ends the task instead of running', () => {
     const d = setup();
     const t = buildTask();
     d.must(t.id, { kind: 'create_task', task: t });
@@ -234,17 +245,130 @@ describe('run selection confirmation (T135, M01/M02)', () => {
       branch: 'b',
       setup: { ran: false, passed: true },
     });
-    expect(d.task(t.id)).toMatchObject({
-      status: 'WAITING',
-      wait: {
-        reason: 'policy',
-        detail: { code: 'run_config_unconfirmed', step: 'code' },
-      },
+    // The confirmation cannot be given again after the start: the task ends instead of waiting (#245),
+    // its work first going up as a draft PR (#247); here there is nothing to publish.
+    const salvage = d.pendingOne(t.id, 'publish');
+    expect((salvage.request['salvage'] as { reason: string }).reason).toMatch(
+      /^run_config_unconfirmed:code:/,
+    );
+    d.complete(t.id, salvage.id, 'failed', {
+      failure_class: 'refused',
+      message: 'nothing to publish beyond the base',
     });
+    expect(d.task(t.id).status).toBe('FAILED');
+    expect(d.task(t.id).terminal?.reason).toMatch(
+      /^run_config_unconfirmed:code:\S+ \(no draft PR: nothing to publish beyond the base\)$/,
+    );
     expect(Object.values(d.task(t.id).effects).filter((e) => e.kind === 'start_agent')).toEqual([]);
   });
 
-  it('a reviewer binding raised by the task floor waits for a new confirmation instead of running', () => {
+  /** A direct-pr task started on a coder binding the user never confirmed: it is salvaging. */
+  const toSalvage = () => {
+    const d = setup();
+    const t = buildTask();
+    d.must(t.id, { kind: 'create_task', task: t });
+    proposeAndConfirm(d, t, { ...selectionFor(t, 'direct-pr'), fallbacks: [] });
+    d.must(t.id, { kind: 'request_execution' });
+    d.store.grantNext(d.now as never);
+    d.must(t.id, {
+      kind: 'start',
+      freeze: freezeOk(t, {
+        mode: 'direct-pr',
+        roles: { coder: { model: 'opus', effort: 'high', ladder: [] } },
+      }),
+      runtime: confirmedRuntime(d, t),
+    });
+    d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', {
+      base_sha: 'base0000',
+      worktree_ref: 'wt',
+      branch: 'b',
+      setup: { ran: false, passed: true },
+    });
+    expect(d.pending(t.id, 'publish')).toHaveLength(1);
+    return { d, t };
+  };
+
+  it('a salvage not started by the deadline ends the task instead of waiting on it (#247)', () => {
+    const { d, t } = toSalvage();
+    d.now = d.task(t.id).deadline_at as number;
+    d.fire();
+    const s = d.task(t.id);
+    expect(s.status).toBe('FAILED');
+    expect(s.terminal?.reason).toMatch(/\(no draft PR: deadline passed\)$/);
+    expect(d.pending(t.id, 'publish')).toEqual([]);
+    expect(d.store.verifyProjections().mismatches).toEqual([]);
+  });
+
+  it('a salvage unknown at the deadline, then found not run, ends the task instead of staying queued (#247)', () => {
+    const { d, t } = toSalvage();
+    const salvage = d.pendingOne(t.id, 'publish');
+    d.complete(t.id, salvage.id, 'unknown');
+    expect(d.task(t.id).effects[salvage.id]?.status).toBe('unknown');
+
+    // The deadline waits for the reconcile: a PR the salvage opened is still linked if found.
+    d.now = d.task(t.id).deadline_at as number;
+    d.fire();
+    expect(d.task(t.id).status).not.toBe('FAILED');
+
+    // Not run after all: it could only go back to a queue no claim takes past the deadline.
+    d.must(t.id, {
+      kind: 'effect_reconciled',
+      effect_id: salvage.id as Uuid,
+      finding: 'not_executed',
+    });
+    const s = d.task(t.id);
+    expect(s.status).toBe('FAILED');
+    expect(s.terminal?.reason).toMatch(/\(no draft PR: deadline passed\)$/);
+    expect(d.pending(t.id, 'publish')).toEqual([]);
+    expect(d.store.verifyProjections().mismatches).toEqual([]);
+  });
+
+  it('a salvage unknown at the deadline and found done still links its PR (#247)', () => {
+    const { d, t } = toSalvage();
+    const salvage = d.pendingOne(t.id, 'publish');
+    d.complete(t.id, salvage.id, 'unknown');
+    d.now = d.task(t.id).deadline_at as number;
+    d.fire();
+    d.must(t.id, {
+      kind: 'effect_reconciled',
+      effect_id: salvage.id as Uuid,
+      finding: 'executed_succeeded',
+      data: { ...publishData(A), pr_ref: 'acme/x#9' },
+    });
+    const s = d.task(t.id);
+    expect(s.pr_ref).toBe('acme/x#9');
+    expect(s.terminal?.reason).toMatch(/\(draft PR acme\/x#9\)$/);
+  });
+
+  it('a task failing past its deadline does not start a salvage it could not run (#247)', () => {
+    const d = setup();
+    const t = buildTask();
+    createGrantStart(d, t, 'direct-pr');
+    d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', {
+      base_sha: 'base0000',
+      worktree_ref: 'wt',
+      branch: 'b',
+      setup: { ran: false, passed: true },
+    });
+    const coder = d.pendingOne(t.id, 'start_agent');
+    expect(d.claim(coder.id).ok).toBe(true);
+    // The refused context comes back only after the deadline.
+    d.now = (d.task(t.id).deadline_at as number) + 1;
+    d.must(t.id, {
+      kind: 'effect_result',
+      effect_id: coder.id as Uuid,
+      outcome: 'succeeded',
+      data: agentData('needs_context', { invoked: false, missing: ['context_budget'] }),
+    });
+    const s = d.task(t.id);
+    expect(s.terminal).toEqual({
+      kind: 'FAILED',
+      reason: 'context_budget:code (no draft PR: deadline passed)',
+    });
+    expect(d.pending(t.id, 'publish')).toEqual([]);
+  });
+
+  it('a reviewer binding raised by the task floor ends the task instead of running', () => {
     const d = setup();
     const t = buildTask();
     d.must(t.id, { kind: 'create_task', task: t });
@@ -290,15 +414,8 @@ describe('run selection confirmation (T135, M01/M02)', () => {
     publishToReview(d, t.id, A);
     // The floor maps the reviewer onto sol/high, which the user never confirmed.
     expect(d.task(t.id)).toMatchObject({
-      status: 'WAITING',
-      wait: {
-        reason: 'policy',
-        detail: {
-          code: 'run_config_unconfirmed',
-          step: 'review',
-          binding: 'sol/high',
-        },
-      },
+      status: 'FAILED',
+      terminal: { kind: 'FAILED', reason: 'run_config_unconfirmed:review:sol/high' },
     });
     expect(reviewerRuns(d, t)).toBe(0);
   });
@@ -471,36 +588,73 @@ describe('direct-pr and full-review graphs (T137, M03/M08)', () => {
     expect(d.pending(t.id, 'mark_ready')).toEqual([]);
   });
 
-  it('gates whose tree moved, or a commit of another tree, block the commit and publish (M06)', () => {
-    for (const data of [
-      checkpointGates(A, undefined, { stable: false, checkpoint: undefined }),
-      checkpointGates(A, undefined, { tree: 'f'.repeat(40) }),
-    ]) {
-      const d = setup();
-      const t = buildTask();
-      createGrantStart(d, t, 'direct-pr');
-      d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', {
-        base_sha: 'base0000',
-        worktree_ref: 'wt',
-        branch: 'b',
-        setup: { ran: false, passed: true },
-      });
-      d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
-      d.complete(
-        t.id,
-        d.pendingOne(t.id, 'run_gates').id,
-        'succeeded',
-        JSON.parse(JSON.stringify(data)) as Record<string, unknown>,
-      );
-      const s = d.task(t.id);
-      expect(s).toMatchObject({
-        status: 'WAITING',
-        wait: { reason: 'policy' },
-      });
-      expect(['gate_tree_unstable', 'worktree_changed']).toContain(s.wait?.detail.code);
-      expect(s.run.checkpoint).toBeNull();
-      expect(d.pending(t.id, 'publish')).toEqual([]);
-    }
+  const toGates = () => {
+    const d = setup();
+    const t = buildTask();
+    createGrantStart(d, t, 'direct-pr');
+    d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', {
+      base_sha: 'base0000',
+      worktree_ref: 'wt',
+      branch: 'b',
+      setup: { ran: false, passed: true },
+    });
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
+    return { d, t };
+  };
+  const unstable = () =>
+    JSON.parse(
+      JSON.stringify(checkpointGates(A, undefined, { stable: false, checkpoint: undefined })),
+    ) as Record<string, unknown>;
+
+  it('gates whose tree moved run once more, then go to the gate fixer, never a wait (M06, #245)', () => {
+    const { d, t } = toGates();
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', unstable());
+    let s = d.task(t.id);
+    expect(s.wait).toBeNull();
+    expect(s.run.checkpoint).toBeNull();
+    expect(s.step_visits['gates']).toBe(2);
+    expect(d.pending(t.id, 'publish')).toEqual([]);
+
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', unstable());
+    s = d.task(t.id);
+    expect(s.current_step).toBe('fix_gates');
+    expect(s.evidence.gates.at(-1)).toMatchObject({
+      passed: false,
+      signature: 'gate_tree_unstable',
+      failed: [expect.objectContaining({ gate: 'tree_stability' })],
+    });
+    expect(s.failure_streaks['code#0']).toMatchObject({ signature: 'gate_tree_unstable' });
+    expect(s.run.checkpoint).toBeNull();
+  });
+
+  it('gates that settle on the second run commit the tree they left (#245)', () => {
+    const { d, t } = toGates();
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', unstable());
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(A));
+    expect(d.task(t.id).run.checkpoint?.sha).toBe(A);
+    expect(d.pending(t.id, 'publish')).toHaveLength(1);
+  });
+
+  it('a commit of another tree waits on worktree_changed, which recheck worktree clears (M06, #245)', () => {
+    const { d, t } = toGates();
+    const other = 'f'.repeat(40);
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'run_gates').id,
+      'succeeded',
+      checkpointGates(A, undefined, { tree: other }),
+    );
+    const s = d.task(t.id);
+    expect(s.wait).toMatchObject({
+      reason: 'policy',
+      detail: { code: 'worktree_changed', step: 'gates', known: other, observed: TREE },
+    });
+    expect(s.run.checkpoint).toBeNull();
+    expect(d.pending(t.id, 'publish')).toEqual([]);
+
+    d.must(t.id, { kind: 'recheck', target: 'worktree' });
+    expect(d.task(t.id)).toMatchObject({ status: 'RUNNING', run: { worktree_tree: TREE } });
+    expect(d.pending(t.id, 'run_gates')).toHaveLength(1);
   });
 });
 
@@ -591,7 +745,7 @@ describe('review evidence reuse (T137, M03)', () => {
     // The fixer changes nothing: the same rejection is reused and its send is not repeated.
     fixTo(d, t, hashCanonical('body B'));
     expect(types(d, t)).toContain('ReviewReused');
-    answerRepeated(d, t);
+    autoAnswered(d, t);
     expect(d.pending(t.id, 'post_review')).toEqual([]);
     expect(d.task(t.id).current_step).toBe('fix_review');
   });
@@ -615,7 +769,7 @@ describe('review evidence reuse (T137, M03)', () => {
     completePost(d, t.id, 'not_posted');
     if (d.task(t.id).wait?.detail['code'] === 'execution_slot') d.grantNext();
     fixTo(d, t, hashCanonical('body B'));
-    answerRepeated(d, t);
+    autoAnswered(d, t);
     expect(d.pendingOne(t.id, 'post_review').request).toMatchObject({
       attempt_id: attemptOf(d, t, 1),
     });
@@ -743,7 +897,7 @@ describe('review evidence reuse (T137, M03)', () => {
     // The reused findings count against the fixer with the same signature the reviewer produced.
     const streaks = d.task(t.id).failure_streaks;
     expect(streaks['fix_review#0']?.signature).toBe(streaks['code#0']?.signature);
-    answerRepeated(d, t);
+    autoAnswered(d, t);
     expect(d.task(t.id).current_step).toBe('fix_review');
   });
 });
@@ -977,7 +1131,7 @@ describe('a review/fix loop that does not move (#141)', () => {
     return { d, t };
   };
 
-  it('a blocking finding back on a file the fix did not touch waits for a person; the answer goes on to the fixer', () => {
+  it('a blocking finding back on a file the fix did not touch goes on to the fixer with a note, no person asked', () => {
     const { d, t } = firstRound();
     reject(
       d,
@@ -989,28 +1143,14 @@ describe('a review/fix loop that does not move (#141)', () => {
       ],
       { sha: A, paths: ['b.ts', 'src/other.ts'] },
     );
-    const s = d.task(t.id);
-    expect(s.wait).toMatchObject({
-      reason: 'human_input',
-      detail: { code: 'review_repeated', step: 'review', files: ['src/tui/app.ts'] },
-    });
-    expect(d.pending(t.id, 'post_review')).toEqual([]);
-    const q = d.store
-      .readEvents(t.id)
-      .flatMap((e) => (e.type === 'QuestionAsked' ? [e.payload.body] : []))
-      .at(-1);
-    expect(q).toContain('- major src/tui/app.ts: The tracker is still not started.');
-
-    d.must(t.id, {
-      kind: 'answer',
-      question_id: s.wait?.detail['question_id'] as Uuid,
-      answer: 'Out of scope: the TUI wiring is T075. Fix the rest.',
-    });
+    const stop = autoAnswered(d, t);
+    expect(stop.detail).toMatchObject({ step: 'review', files: ['src/tui/app.ts'] });
+    expect(stop.body).toContain('- major src/tui/app.ts: The tracker is still not started.');
     completePost(d, t.id);
     expect(d.task(t.id).current_step).toBe('fix_review');
   });
 
-  it('a fix round that moved nothing waits on the reused rejection before another fix', () => {
+  it('a fix round that moved nothing goes on to the fixer on the reused rejection, with a note', () => {
     for (const [finding, files] of [
       [blocking('src/tui/app.ts', 'still wrong'), ['src/tui/app.ts']],
       [{ severity: 'major', msg: 'the PR body is wrong' }, []],
@@ -1021,23 +1161,13 @@ describe('a review/fix loop that does not move (#141)', () => {
       completePost(d, t.id);
       fixTo(d, t, B);
 
-      const s = d.task(t.id);
       expect(types(d, t)).toContain('ReviewReused');
-      expect(s.wait).toMatchObject({
-        reason: 'human_input',
-        detail: { code: 'review_repeated', step: 'review', files },
-      });
-      expect(d.pending(t.id, 'start_agent')).toEqual([]);
-      expect(s.step_visits['fix_review']).toBe(2);
-      const q = d.store
-        .readEvents(t.id)
-        .flatMap((e) => (e.type === 'QuestionAsked' ? [e.payload.body] : []))
-        .at(-1);
-      expect(q).toContain(finding.msg);
-
-      answerRepeated(d, t, 'Out of scope, leave it.');
+      const stop = autoAnswered(d, t);
+      expect(stop.detail).toMatchObject({ step: 'review', files });
+      expect(stop.body).toContain(finding.msg);
       expect(d.pending(t.id, 'post_review')).toEqual([]);
       expect(d.task(t.id).current_step).toBe('fix_review');
+      expect(d.task(t.id).step_visits['fix_review']).toBe(3);
       expect(reviewerRuns(d, t)).toBe(2);
     }
   });
@@ -1057,21 +1187,15 @@ describe('a review/fix loop that does not move (#141)', () => {
     completePost(d, t.id);
     fixTo(d, t, B);
     reject(d, t, B, [blocking('src/a.ts', 'still wrong')], { sha: A, paths: ['src/other.ts'] });
-    expect(d.task(t.id).wait?.detail).toMatchObject({
-      code: 'review_repeated',
-      files: ['src/a.ts'],
-    });
+    expect(autoAnswered(d, t).detail).toMatchObject({ files: ['src/a.ts'] });
   });
 
-  it('a fix that returns to an input already rejected waits too', () => {
+  it('a fix that returns to an input already rejected is told so too', () => {
     const { d, t } = firstRound();
     reject(d, t, B, [blocking('src/other.ts', 'wrong')], { sha: A, paths: ['src/tui/app.ts'] });
     completePost(d, t.id);
     fixTo(d, t, A);
-    expect(d.task(t.id).wait?.detail).toMatchObject({
-      code: 'review_repeated',
-      files: ['src/tui/app.ts'],
-    });
+    expect(autoAnswered(d, t).detail).toMatchObject({ files: ['src/tui/app.ts'] });
   });
 
   it('a fix that touched the file, or a review without the changed files, goes back to the fixer', () => {
@@ -1082,7 +1206,7 @@ describe('a review/fix loop that does not move (#141)', () => {
     ]) {
       const { d, t } = firstRound();
       reject(d, t, B, [blocking('src/tui/app.ts', 'still wrong')], changed);
-      expect(d.task(t.id).wait?.detail['code']).not.toBe('review_repeated');
+      expect(types(d, t)).not.toContain('QuestionAsked');
       completePost(d, t.id);
       expect(d.task(t.id).current_step).toBe('fix_review');
     }
@@ -1170,38 +1294,23 @@ describe('a review/fix loop that does not move (#141)', () => {
       return { d, t };
     };
 
-    it('waits for a person before the reviewer runs; the answer goes on to the review', () => {
+    it('goes back to the fixer with a note before the reviewer runs, no person asked (#247)', () => {
       const { d, t } = toFixGates({
         sha: A,
         paths: ['test/unit/tui/mutations.test.ts', 'b.ts'],
       });
-      const s = d.task(t.id);
-      expect(s.wait).toMatchObject({
-        reason: 'human_input',
-        detail: {
-          code: 'fix_no_src_change',
-          step: 'gates',
-          files: ['src/tui/client/mutations.ts'],
-        },
-      });
+      const stop = autoAnswered(d, t, 'fix_no_src_change');
+      expect(stop.detail).toMatchObject({ step: 'gates', files: ['src/tui/client/mutations.ts'] });
+      expect(stop.body).toContain(
+        '- major src/tui/client/mutations.ts: a lost link spends a check',
+      );
       expect(d.pending(t.id, 'publish')).toEqual([]);
       expect(reviewerRuns(d, t)).toBe(1);
-      const q = d.store
-        .readEvents(t.id)
-        .flatMap((e) => (e.type === 'QuestionAsked' ? [e.payload.body] : []))
-        .at(-1);
-      expect(q).toContain('- major src/tui/client/mutations.ts: a lost link spends a check');
+      // It counts against the fixer with the review's signature, so a repeat raises the rung.
+      const s = d.task(t.id);
+      expect(s.failure_streaks['fix_review#0']?.signature).toBe(s.run.reviews.at(-1)?.signature);
+      expect(s.current_step).toBe('fix_review');
       expect(d.store.verifyProjections().mismatches).toEqual([]);
-
-      d.must(t.id, {
-        kind: 'answer',
-        question_id: s.wait?.detail['question_id'] as Uuid,
-        answer: 'The finding is wrong; review the change as it is.',
-      });
-      if (d.task(t.id).wait?.detail['code'] === 'execution_slot') d.grantNext();
-      publishToReview(d, t.id, B);
-      expect(d.task(t.id).current_step).toBe('review');
-      expect(reviewerRuns(d, t)).toBe(2);
     });
 
     it('sees a blocking finding past the findings kept with the review', () => {
@@ -1214,16 +1323,13 @@ describe('a review/fix loop that does not move (#141)', () => {
         ...minors,
         blocking('src/a.ts', 'wrong'),
       ]);
-      expect(d.task(t.id).wait?.detail).toMatchObject({
-        code: 'fix_no_src_change',
-        files: ['src/a.ts'],
-      });
+      expect(autoAnswered(d, t, 'fix_no_src_change').detail).toMatchObject({ files: ['src/a.ts'] });
     });
 
-    it('still waits after a base update that finished earlier', () => {
+    it('still applies after a base update that finished earlier', () => {
       const { d, t } = toFixGates({ sha: A, paths: ['test/unit/tui/mutations.test.ts'] }, true);
       expect(d.task(t.id).run.base_update?.certificate).toBeDefined();
-      expect(d.task(t.id).wait?.detail['code']).toBe('fix_no_src_change');
+      autoAnswered(d, t, 'fix_no_src_change');
     });
 
     it('goes on to the review when the fix touched a blocking file or the changes are unknown', () => {
@@ -1358,16 +1464,76 @@ describe('a rejected checkpoint that conflicts with its base (#210, #239)', () =
     expect(reviewerRuns(d, t)).toBe(2);
   });
 
-  it('a conflict fixer that leaves the conflict waits for a person, the last resort', () => {
+  it('a conflict fixer that leaves the conflict gets one more automatic attempt, then a bounded wait (#247)', () => {
+    const { d, t } = toRejected(['src/y.ts']);
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', conflictGates);
+    grant(d, t);
+    const first = d.pendingOne(t.id, 'start_agent').id;
+    d.complete(t.id, first, 'succeeded', agentData('done'));
+    grant(d, t);
+    let s = d.task(t.id);
+    expect(s.wait).toBeNull();
+    expect(s.run.base_update?.auto_retried).toBe(true);
+    const second = d.pendingOne(t.id, 'start_agent');
+    expect(second.id).not.toBe(first);
+    expect(s.current_step).toBe('fix_review');
+
+    d.complete(t.id, second.id, 'succeeded', agentData('done'));
+    s = d.task(t.id);
+    expect(s.wait).toMatchObject({ reason: 'human_input', detail: { code: 'refused' } });
+    expect(d.pending(t.id, 'start_agent')).toEqual([]);
+    const due = s.wait?.detail['due_at'] as number;
+    expect(due).toBe(d.now + BASE_REPAIR_WAIT_MS);
+
+    // Unanswered by then, the task fails with the reason instead of holding on.
+    d.now = due;
+    d.fire();
+    s = d.task(t.id);
+    expect(s.status).toBe('FAILED');
+    expect(s.terminal?.reason).toBe(
+      'base_conflict_unresolved: single conflict fixer attempt did not resolve the conflict',
+    );
+    expect(d.store.verifyProjections().mismatches).toEqual([]);
+  });
+
+  it('the bounded wait still ends the task while a source drift hides the question (#247)', () => {
     const { d, t } = toRejected(['src/y.ts']);
     d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', conflictGates);
     grant(d, t);
     d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
-    expect(d.task(t.id).wait).toMatchObject({
-      reason: 'human_input',
-      detail: { code: 'refused', files: ['src/y.ts'] },
+    grant(d, t);
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
+    const due = d.task(t.id).wait?.detail['due_at'] as number;
+    d.must(t.id, {
+      kind: 'source_updated',
+      task: { ...t, description: 'Updated acceptance needs another decision' },
     });
-    expect(d.pending(t.id, 'start_agent')).toEqual([]);
+    expect(d.task(t.id).wait?.detail.code).toBe('source_drift');
+
+    d.now = due;
+    d.fire();
+    const s = d.task(t.id);
+    expect(s.status).toBe('FAILED');
+    expect(s.terminal?.reason).toMatch(/^base_conflict_unresolved: /);
+    expect(d.store.verifyProjections().mismatches).toEqual([]);
+  });
+
+  it('an answer before the due time keeps the task going: the timer no longer ends it (#247)', () => {
+    const { d, t } = toRejected(['src/y.ts']);
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', conflictGates);
+    grant(d, t);
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
+    grant(d, t);
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
+    const w = d.task(t.id).wait;
+    d.must(t.id, {
+      kind: 'answer',
+      question_id: w?.detail['question_id'] as Uuid,
+      answer: 'continue',
+    });
+    d.now = w?.detail['due_at'] as number;
+    d.fire();
+    expect(d.task(t.id).status).not.toBe('FAILED');
   });
 
   /** Combined fix done, its gates fail: the gate fixer is pending. */
@@ -1425,7 +1591,7 @@ describe('a rejected checkpoint that conflicts with its base (#210, #239)', () =
     expect(reviewerRuns(d, t)).toBe(2);
   });
 
-  it('a gate fixer that brings the conflict back waits for a person', () => {
+  it('a gate fixer that brings the conflict back hands it to the conflict fixer once more (#247)', () => {
     const { d, t } = toGateFixer();
     d.complete(
       t.id,
@@ -1436,7 +1602,11 @@ describe('a rejected checkpoint that conflicts with its base (#210, #239)', () =
         base_repair: { tree: TREE, outside_files: [], unresolved: true },
       }),
     );
-    expect(d.task(t.id).wait).toMatchObject({ reason: 'human_input', detail: { code: 'refused' } });
+    // The conflict fixer runs once more on its own instead of a person being asked.
+    grant(d, t);
+    expect(d.task(t.id).wait).toBeNull();
+    expect(d.task(t.id).run.base_update?.auto_retried).toBe(true);
+    expect(fixerStep(d, t)).toBe('fix_review');
   });
 
   it('a later review rejection runs the usual fix round', () => {
@@ -1492,7 +1662,7 @@ describe('a rejected checkpoint that conflicts with its base (#210, #239)', () =
   });
 });
 
-describe('an answer that follows the ladder running out (#192)', () => {
+describe('a review round without progress at the end of the ladder (#192, #247)', () => {
   const blocking = { severity: 'major', file: 'src/tui/app.ts', msg: 'still wrong' };
   const fixer = (ladder: { effort: string }[]) => ({
     fixer: { model: 'sonnet', effort: 'medium', permissions: 'write', ladder },
@@ -1519,7 +1689,10 @@ describe('an answer that follows the ladder running out (#192)', () => {
     d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(head));
     publishToReview(d, t.id, head);
   };
-  /** Two fixer rounds rejected on one file: its streak asks for a rung past the ladder's end. */
+  /**
+   * Two fixer rounds rejected on one file, the last one leaving it alone: its streak asks for a rung
+   * past the ladder's end, and the engine answers for the fixer instead of asking a person.
+   */
   const toRepeated = (path: string, policy = ONE_RUNG) => {
     const d = new StoreDriver(openFileStoreForTest(path));
     const t = buildTask();
@@ -1533,16 +1706,9 @@ describe('an answer that follows the ladder running out (#192)', () => {
     completePost(d, t.id);
     fixTo(d, t, C);
     rejectAt(d, t, C, [], B);
-    expect(d.task(t.id).wait?.detail['code']).toBe('review_repeated');
-    expect(d.task(t.id).failure_streaks['fix_review#0']?.escalate).toBe(true);
+    autoAnswered(d, t);
     return { d, t };
   };
-  const answer = (d: StoreDriver, t: CanonicalTask) =>
-    d.must(t.id, {
-      kind: 'answer',
-      question_id: d.task(t.id).wait?.detail['question_id'] as Uuid,
-      answer: 'Not a finding any more: leave src/tui/app.ts alone.',
-    });
   const fixerAttempts = (d: StoreDriver, t: CanonicalTask) =>
     Object.values(d.task(t.id).attempts)
       .filter((a) => a.step === 'fix_review')
@@ -1558,10 +1724,9 @@ describe('an answer that follows the ladder running out (#192)', () => {
     return r;
   };
 
-  it('runs the fixer at its current rung instead of waiting on ladder_exhausted', () => {
+  it('runs the fixer once more at its current rung with the note, instead of ending the task', () => {
     const { d, t } = toRepeated(dbPath(tempDir()));
     const before = fixerAttempts(d, t).length;
-    answer(d, t);
     completePost(d, t.id);
     untilFixer(d, t);
 
@@ -1571,30 +1736,33 @@ describe('an answer that follows the ladder running out (#192)', () => {
     expect(fixerAttempts(d, t)).toHaveLength(before + 1);
     expect(fixerAttempts(d, t).at(-1)).toMatchObject({ rung: 0, status: 'running' });
     expect(types(d, t)).toContain('AnswerTurnGranted');
+    expect(s.auto_turns).toEqual(['fix_review#0']);
     expectReplays(d);
   });
 
-  it('gives one turn: a review rejecting the same files again waits on the ladder', () => {
-    const { d, t } = toRepeated(dbPath(tempDir()));
-    answer(d, t);
-    completePost(d, t.id);
-    const A2 = 'd'.repeat(40);
-    fixTo(d, t, A2);
-    rejectAt(d, t, A2, [blocking.file], C);
-    completePost(d, t.id);
-    untilFixer(d, t);
+  it('a review rejecting the same files again after that turn ends the task past the ladder', () => {
+    for (const paths of [[blocking.file], []]) {
+      const { d, t } = toRepeated(dbPath(tempDir()));
+      completePost(d, t.id);
+      const A2 = 'd'.repeat(40);
+      fixTo(d, t, A2);
+      // Left alone again: the engine answers once more, but the streak had its one turn.
+      rejectAt(d, t, A2, paths, C);
+      completePost(d, t.id);
+      untilFixer(d, t);
 
-    expect(d.task(t.id).wait).toMatchObject({
-      reason: 'policy',
-      detail: { code: 'ladder_exhausted', step: 'fix_review', rung: 1 },
-    });
-    expect(d.pending(t.id, 'start_agent')).toEqual([]);
-    expectReplays(d);
+      expect(d.task(t.id).terminal).toEqual({
+        kind: 'FAILED',
+        reason: 'ladder_exhausted:fix_review',
+      });
+      expect(d.pending(t.id, 'start_agent')).toEqual([]);
+      expect(types(d, t).filter((x) => x === 'AnswerTurnGranted')).toHaveLength(1);
+      expectReplays(d);
+    }
   });
 
-  it('gives one turn: a fixer failing with a new signature waits on the ladder', () => {
+  it('a fixer failing with a new signature in that turn ends the task past the ladder', () => {
     const { d, t } = toRepeated(dbPath(tempDir()));
-    answer(d, t);
     completePost(d, t.id);
     untilFixer(d, t);
     d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'failed', {
@@ -1603,9 +1771,9 @@ describe('an answer that follows the ladder running out (#192)', () => {
       signature: 'something else',
     });
 
-    expect(d.task(t.id).wait?.detail).toMatchObject({
-      code: 'ladder_exhausted',
-      step: 'fix_review',
+    expect(d.task(t.id).terminal).toEqual({
+      kind: 'FAILED',
+      reason: 'ladder_exhausted:fix_review',
     });
     expect(d.pending(t.id, 'start_agent')).toEqual([]);
   });
@@ -1615,7 +1783,6 @@ describe('an answer that follows the ladder running out (#192)', () => {
       roles: fixer([{ effort: 'high' }]),
     } as typeof ONE_RUNG);
     expect(d.task(t.id).rungs.by_step['fix_review'] ?? 0).toBe(0);
-    answer(d, t);
     completePost(d, t.id);
     untilFixer(d, t);
     expect(fixerAttempts(d, t).at(-1)?.rung).toBe(0);
@@ -1639,15 +1806,14 @@ describe('an answer that follows the ladder running out (#192)', () => {
     completePost(d, t.id);
     fixTo(d, t, B);
     rejectAt(d, t, B, [], A);
-    expect(d.task(t.id).wait?.detail['code']).toBe('review_repeated');
+    autoAnswered(d, t);
     expect(d.task(t.id).failure_streaks['fix_review#0']).toMatchObject({
       quality_tries: 1,
       escalate: false,
     });
-
-    answer(d, t);
-    completePost(d, t.id);
     expect(types(d, t)).not.toContain('AnswerTurnGranted');
+
+    completePost(d, t.id);
     untilFixer(d, t);
     d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'failed', {
       failure_class: 'quality',
@@ -1660,67 +1826,22 @@ describe('an answer that follows the ladder running out (#192)', () => {
     expectReplays(d);
   });
 
-  it('does not outlive the deadline', () => {
-    const { d, t } = toRepeated(dbPath(tempDir()));
-    d.now = (d.task(t.id).deadline_at as number) + 1;
-    const before = fixerAttempts(d, t).length;
-    answer(d, t);
-    if (d.pending(t.id, 'post_review').length > 0) completePost(d, t.id);
-
-    expect(d.task(t.id).wait?.detail['code']).toBe('deadline');
-    expect(fixerAttempts(d, t)).toHaveLength(before);
-  });
-
-  it('does not outlive the visits of the step: answering again ends on loop_exhausted', () => {
-    const { d, t } = toRepeated(dbPath(tempDir()));
-    for (let round = 0; d.task(t.id).wait?.detail['code'] === 'review_repeated'; round++) {
-      expect(round).toBeLessThan(10);
-      answer(d, t);
-      if (d.pending(t.id, 'post_review').length > 0) completePost(d, t.id);
-      if (d.task(t.id).status === 'WAITING' && d.pending(t.id, 'start_agent').length === 0) {
-        untilFixer(d, t);
-        if (d.pending(t.id, 'start_agent').length === 0) break;
-      }
-      d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
-      d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(C));
-      if (d.pending(t.id, 'publish').length === 0) break;
-      publishToReview(d, t.id, C);
-    }
-
-    expect(d.task(t.id).wait?.detail).toMatchObject({ code: 'loop_exhausted' });
-    expect(d.pending(t.id, 'start_agent')).toEqual([]);
-    expectReplays(d);
-  });
-
-  it('keeps the turn across a restart between the answer and the fixer', () => {
-    const path = dbPath(tempDir());
-    const { d, t } = toRepeated(path);
-    answer(d, t);
-
-    const r = reopen(d, path);
-    expect(r.task(t.id).failure_streaks['fix_review#0']?.escalate).toBe(false);
-    completePost(r, t.id);
-    untilFixer(r, t);
-    expect(fixerAttempts(r, t).at(-1)).toMatchObject({ rung: 0, status: 'running' });
-    expect(r.task(t.id).wait).toBeNull();
-    expectReplays(r);
-    r.store.close();
-  });
-
   it('task continue survives a restart on both sides of the command', () => {
     const path = dbPath(tempDir());
-    const { d, t } = toRepeated(path);
-    answer(d, t);
+    const { d, t } = toRepeated(path, {
+      roles: fixer([{ effort: 'high' }]),
+      limits: { max_escalations: 0 },
+    } as typeof ONE_RUNG);
     completePost(d, t.id);
     const A2 = 'd'.repeat(40);
     fixTo(d, t, A2);
     rejectAt(d, t, A2, [blocking.file], C);
     completePost(d, t.id);
     untilFixer(d, t);
-    expect(d.task(t.id).wait?.detail['code']).toBe('ladder_exhausted');
+    expect(d.task(t.id).wait?.detail['code']).toBe('escalations_exhausted');
 
     const waiting = reopen(d, path);
-    expect(waiting.task(t.id).wait?.detail['code']).toBe('ladder_exhausted');
+    expect(waiting.task(t.id).wait?.detail['code']).toBe('escalations_exhausted');
     waiting.must(t.id, { kind: 'continue' });
 
     const r = reopen(waiting, path);

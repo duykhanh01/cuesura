@@ -110,6 +110,8 @@ export const AgentDataSchema = z
     questions: z.array(z.string()).optional(),
     // What a needs_context/blocked worker says is missing or blocking (FR-039); additive.
     blocker: z.string().max(65_536).optional(),
+    // The context parts a refusal before launch could not supply (`context_budget`, `prompt:<name>`); additive.
+    missing: z.array(z.string().max(256)).max(64).optional(),
     usage: UsageSchema,
     invoked: z.boolean().optional(),
     // Worker-prepared commit/PR content, validated and stored by the orchestrator (M05); additive.
@@ -237,7 +239,12 @@ export const PrepareDataSchema = z
   .strict();
 
 export const PublishDataSchema = z
-  .object({ head_sha: z.string().min(1), base_relation: BaseRelationSchema })
+  .object({
+    head_sha: z.string().min(1),
+    base_relation: BaseRelationSchema,
+    // The draft PR a failing task's work went up as (#247); additive.
+    pr_ref: z.string().min(1).optional(),
+  })
   .strict();
 
 export const RerunDataSchema = z

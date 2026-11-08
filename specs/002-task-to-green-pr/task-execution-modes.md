@@ -132,7 +132,14 @@ Toàn bộ gate bắt buộc MUST đạt trên cùng một trạng thái code cu
 mỗi gate, không có worker/process khác ghi chồng. Gate/formatter sửa code làm evidence của tree cũ
 không đủ; hoàn tất phần sửa rồi chạy lại tập gate bắt buộc theo policy trên tree mới, trong giới hạn
 retry/wall time hiện có và chỉ với lệnh được phép chạy lại. Nếu gate tiếp tục đổi code hoặc không
-chứng minh được các gate cùng kiểm tree cuối thì chặn để đối chiếu, không lặp vô hạn hay commit/push.
+chứng minh được các gate cùng kiểm tree cuối thì không commit/push: engine chạy lại bước gate một lần
+(lượt ghé mới) trên tree gate để lại, lượt đạt thì checkpoint commit cả file gate sinh ra; vẫn không ổn
+định thì ghi kết quả gate fail `gate_tree_unstable` (gate giả `tree_stability` kèm lý do) và giao fixer
+gate như một lỗi chất lượng, không chờ người (issue #245); tree gate để lại được ghi làm tree của task
+(`WorktreeChangeAccepted`, actor `engine:auto`) để fixer chạy được, còn thay đổi bên ngoài sau đó vẫn bị
+kiểm tra worktree của fixer bắt. Checkpoint commit mang tree khác tree gate
+đã kiểm thì chờ `worktree_changed` (known = tree gate, observed = tree commit); `task recheck` nhận tree
+đó rồi chạy lại bước gate.
 
 Review nhận diff của cặp base SHA/commit SHA bất biến, không đọc một diff thay đổi theo working copy.
 Reviewer được sửa và chạy kiểm tra trên checkout tương ứng, xong daemon trả checkout về như trước review;
@@ -228,29 +235,32 @@ bao giờ được chặn merge.
   các file đó là cùng một lỗi dù reviewer viết khác.
 - Gate xanh sau lượt sửa không xoá chuỗi lỗi review của fixer; chỉ approve mới xoá. Hai lượt review
   liên tiếp cùng signature nâng fixer lên rung kế tiếp như mọi lỗi chất lượng lặp lại; hết ladder thì
-  chờ người.
+  task `FAILED` (`ladder_exhausted:<step>`, issue #247).
 - Kèm lượt `request_changes`, daemon ghi các file đổi từ commit mà lượt `request_changes` trước của
   cùng revision đã review (`changed_since`). Finding chặn nằm trên file lượt trước cũng chặn mà không
-  commit nào đổi tới thì fixer đã bỏ qua nó: task chờ người với `review_repeated` (liệt kê file và
-  finding) thay vì gọi fixer tiếp, vì model mạnh hơn không giải quyết được bất đồng về phạm vi. Câu
-  trả lời đi tiếp như verdict thường: review được đăng rồi chuyển fixer. Daemon không đọc được diff
-  thì bỏ kiểm này, không chặn task.
-- Câu trả lời cho `review_repeated` là tín hiệu duy nhất đổi phạm vi mà engine nhận biết được, vì engine
-  không đọc được nghĩa câu trả lời. Câu trả lời cho wait này bảo đảm fixer chạy ít nhất một lượt ở nấc
-  hiện tại. Chuỗi lỗi của fixer đã xin nâng nấc thì câu trả lời cho đúng một lượt, ghi cùng transaction
-  với câu trả lời (`AnswerTurnGranted`); lượt đó thất bại chất lượng, kể cả với signature mới, thì chuỗi
-  lỗi lại xin nâng nấc như thường: còn nấc thì nâng, hết thang thì chờ. Chuỗi lỗi chưa xin nâng thì
-  giữ nguyên các lượt thử còn lại theo luật thường; câu trả lời không cắt bớt. Sàn model, `max_visits`,
-  budget và deadline vẫn áp dụng nên trả lời lặp lại dừng ở `loop_exhausted`.
+  commit nào đổi tới thì fixer đã bỏ qua nó: engine ghi câu hỏi `review_repeated` (liệt kê file và
+  finding) và tự trả lời ngay (actor `engine:auto`, issue #247) bằng ghi chú yêu cầu sửa từng finding
+  ở đúng file, hoặc nói rõ trong summary vì sao finding sai/ngoài phạm vi. Không chờ người; verdict đi
+  tiếp như thường: review được đăng rồi chuyển fixer. Daemon không đọc được diff thì bỏ kiểm này.
+- Câu trả lời cho `review_repeated` (của engine, hoặc của người cho wait còn lại từ phiên bản cũ) bảo
+  đảm fixer chạy ít nhất một lượt ở nấc hiện tại. Chuỗi lỗi của fixer đã xin nâng nấc thì câu trả lời
+  cho đúng một lượt, ghi cùng transaction với câu trả lời (`AnswerTurnGranted`); lượt đó thất bại chất
+  lượng, kể cả với signature mới, thì chuỗi lỗi lại xin nâng nấc như thường: còn nấc thì nâng, hết thang
+  thì `FAILED`. Câu trả lời của engine chỉ cho một lượt như vậy mỗi chuỗi lỗi (step, nấc)
+  (`AnswerTurnGranted.auto`, `auto_turns`): vòng lặp lại lần nữa ở cùng nấc thì nâng nấc ngay. Chuỗi
+  lỗi chưa xin nâng thì giữ nguyên các lượt thử còn lại theo luật thường. Sàn model, `max_visits`,
+  budget và deadline vẫn áp dụng.
 - Fixer để nguyên toàn bộ đầu vào review (M03) thì lượt `request_changes` được dùng lại, không gọi
-  reviewer, và task cũng chờ người với `review_repeated` thay vì gọi fixer tiếp, kể cả khi finding
+  reviewer, và engine cũng tự trả lời `review_repeated` như trên rồi gọi fixer, kể cả khi finding
   không có file hoặc chỉ ở mức minor/info. Đầu vào quay lại đúng bản từng bị từ chối cũng tính là
   không tiến triển. Lượt dùng lại vẫn tính vào chuỗi lỗi của fixer.
 - Trước lượt review kế tiếp: gate của vòng sửa đã xanh và có checkpoint commit, daemon ghi các file
   đổi từ commit lượt `request_changes` gần nhất đã review tới checkpoint (`changed_since` của kết quả
   gate). Không file nào chứa finding chặn (major/critical, có file) bị đổi, ví dụ fixer chỉ nới test,
-  thì task chờ người với `fix_no_src_change` (liệt kê file và finding) trước khi publish, không tốn một
-  lượt reviewer. Câu trả lời cho qua gate như thường: publish rồi review. Chỉ cần một file của finding
+  thì engine ghi câu hỏi `fix_no_src_change` (liệt kê file và finding) và tự trả lời bằng cùng ghi chú
+  (issue #247) trước khi publish, không tốn một lượt reviewer: vòng này tính là một lỗi chất lượng của
+  fixer với signature của lượt review đó, rồi fixer chạy lại (cùng luật một lượt như trên, lặp lại thì
+  nâng nấc). Chỉ cần một file của finding
   chặn bị đổi là đi tiếp; daemon không đọc được diff hoặc checkpoint trùng commit đã review (M03) thì
   bỏ kiểm này.
 - Mỗi checkpoint ghi `base_conflicts`: base tip lấy từ `refs/remotes/origin/<base>` đã fetch cục bộ

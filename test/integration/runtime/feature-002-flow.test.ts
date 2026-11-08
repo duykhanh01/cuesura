@@ -160,7 +160,7 @@ it('keeps committed history and holds B live output until a corrupt, partially i
   });
 });
 
-it('turn exhaustion uses timeout handling, preserving the worker session for continuation', async () => {
+it('turn exhaustion uses timeout handling, preserving the worker session, then raises the rung', async () => {
   const task = buildTask();
   const f = setup(task, { mode: 'direct-pr', resume: true });
   const seen: HarnessInput[] = [];
@@ -186,13 +186,210 @@ it('turn exhaustion uses timeout handling, preserving the worker session for con
       .readEvents(task.id)
       .filter((e) => e.type === 'FailureClassified')
       .map((e) => e.payload['class']),
-  ).toEqual(['timeout', 'timeout']);
-  expect(seen).toHaveLength(2);
+  ).toEqual(expect.arrayContaining(['timeout', 'timeout']));
   expect(seen[1]?.session).toMatchObject({
     ref: 'continued-session',
     from_attempt_id: seen[0]?.attempt_id,
   });
-  expect(f.d.task(task.id).wait?.detail.code).toBe('timeout');
+  // Past its retry the step goes up the ladder instead of asking a person (#247).
+  const s = f.d.task(task.id);
+  expect(s.wait?.detail.code).not.toBe('timeout');
+  expect(s.questions).toEqual({});
+  expect(f.d.store.readEvents(task.id).some((e) => e.type === 'RungRaised')).toBe(true);
+});
+
+describe('a task that runs out of rungs before any checkpoint (#247, real Git)', () => {
+  /** Every coder run hits its turn limit; with `write`, the first one leaves a file behind. */
+  const timingOut = (f: ReturnType<typeof setup>, write: boolean) => {
+    f.coder.run = (input) => {
+      if (write) writeFileSync(join(f.worktree, 'partial.ts'), 'export const partial = 1;\n');
+      return Promise.resolve({
+        kind: 'failure',
+        failure: 'turn_limit',
+        detail: 'error_max_turns',
+        role: input.role,
+        usage: { basis: 'unavailable' },
+        session_ref: null,
+        permission_denials: [],
+        invoked: true,
+        reset_at: null,
+      });
+    };
+  };
+  const toEnd = async (f: ReturnType<typeof setup>, task: ReturnType<typeof buildTask>) => {
+    for (let i = 0; i < 24 && f.d.task(task.id).status !== 'FAILED'; i++) {
+      await f.settle();
+      const w = f.d.task(task.id).wait;
+      if (w?.detail.code === 'execution_slot')
+        f.d.store.grantNext(f.d.now as EpochMs, [
+          uuidOf(40_000 + i * 4),
+          uuidOf(40_001 + i * 4),
+          uuidOf(40_002 + i * 4),
+          uuidOf(40_003 + i * 4),
+        ]);
+      if (w?.reason === 'approval')
+        f.d.must(task.id, {
+          kind: 'approve',
+          approval_request_id: w.detail['approval_id'] as Uuid,
+        });
+    }
+  };
+
+  it('commits what the worktree holds and opens it as a draft PR before failing', async () => {
+    const task = buildTask();
+    const f = setup(task, { mode: 'full-review', writeCode: false });
+    timingOut(f, true);
+    f.d.must(task.id, { kind: 'create_task', task });
+    f.start();
+    await toEnd(f, task);
+
+    const s = f.d.task(task.id);
+    expect(s.status).toBe('FAILED');
+    expect(s.terminal?.reason).toMatch(/^ladder_exhausted:code \(draft PR acme\/\S+#\d+\)$/);
+    expect(s.pr_ref).not.toBeNull();
+    expect(s.run.checkpoint).toBeNull();
+    expect(f.github.prs).toHaveLength(1);
+    expect(f.github.prs[0]).toMatchObject({ draft: true });
+    expect(f.github.prs[0]?.title).toMatch(/^\[failed\] /);
+    expect(f.github.prs[0]?.body).toContain('Reason: ladder_exhausted:code');
+    const head = f.github.prs[0]?.head.sha ?? '';
+    expect(git(f.remote, 'show', `${head}:partial.ts`)).toBe('export const partial = 1;');
+  });
+
+  /** The daemon that ran the salvage died: its operation is lost and the effect unknown (restart). */
+  const loseSalvage = (f: ReturnType<typeof setup>, task: ReturnType<typeof buildTask>) => {
+    const e = Object.values(f.d.task(task.id).effects).find(
+      (x) => x.kind === 'publish' && x.status === 'started',
+    );
+    if (e === undefined) throw new Error('no started salvage');
+    const op = Object.values(f.d.task(task.id).operations).find((o) => o.effect_id === e.id);
+    if (op === undefined) throw new Error('no operation');
+    f.d.must(task.id, {
+      kind: 'operation_result',
+      operation_id: op.id as Uuid,
+      status: 'lost',
+      outcome: null,
+      invocation_id: null,
+      processes: [],
+      started_at: f.d.now as EpochMs,
+      finished_at: f.d.now as EpochMs,
+      receipt_digest: `sha256:${'c'.repeat(64)}`,
+    });
+    f.d.must(task.id, { kind: 'effect_result', effect_id: e.id as Uuid, outcome: 'unknown' });
+  };
+  /** The restarted daemon can tell a lost local operation is gone. */
+  const restarted = (f: ReturnType<typeof setup>) =>
+    Object.assign(f.deps, { stopLocal: () => Promise.resolve('not_running' as const) });
+
+  it('a crash between the commit intent and the ref update commits the same work on the rerun', async () => {
+    const task = buildTask();
+    const f = setup(task, { mode: 'full-review', writeCode: false });
+    timingOut(f, true);
+    const run = f.deps.git.run.bind(f.deps.git);
+    let crashed = false;
+    f.deps.git.run = async (req) => {
+      if (!crashed && req.args[0] === 'update-ref' && req.args[1]?.startsWith('refs/heads/')) {
+        crashed = true;
+        // The rerun happens later: a new clock reading must not make another commit.
+        f.d.now += 60_000;
+        throw new Error('daemon stopped before the ref update');
+      }
+      return run(req);
+    };
+    f.d.must(task.id, { kind: 'create_task', task });
+    f.start();
+    await toEnd(f, task);
+    expect(crashed).toBe(true);
+    expect(f.d.task(task.id).status).toBe('RUNNING');
+    restarted(f);
+    loseSalvage(f, task);
+    await toEnd(f, task);
+
+    const s = f.d.task(task.id);
+    expect(s.terminal?.reason).toMatch(/^ladder_exhausted:code \(draft PR acme\/\S+#\d+\)$/);
+    expect(f.github.prs).toHaveLength(1);
+    expect(git(f.remote, 'show', `${f.github.prs[0]?.head.sha ?? ''}:partial.ts`)).toBe(
+      'export const partial = 1;',
+    );
+  });
+
+  it('a PR whose create response was lost is found by its marker and linked', async () => {
+    const task = buildTask();
+    const f = setup(task, { mode: 'full-review', writeCode: false });
+    timingOut(f, true);
+    const request = f.github.request.bind(f.github);
+    let lost = 0;
+    const down = {
+      reason: 'unknown' as const,
+      status: null,
+      detail: 'connection reset',
+      retry_after_ms: null,
+    };
+    f.github.request = async (req) => {
+      // The POST lands on GitHub but its answer is lost, and so is the read right after it.
+      if (lost === 0 && req.method === 'POST' && req.path.endsWith('/pulls')) {
+        lost = 1;
+        await request(req);
+        return { ok: false, error: down };
+      }
+      if (lost === 1 && req.method === 'GET') {
+        lost = 2;
+        return { ok: false, error: down };
+      }
+      return request(req);
+    };
+    f.d.must(task.id, { kind: 'create_task', task });
+    f.start();
+    restarted(f);
+    await toEnd(f, task);
+
+    expect(lost).toBe(2);
+    const s = f.d.task(task.id);
+    expect(f.github.prs).toHaveLength(1);
+    expect(s.pr_ref).toMatch(/#\d+$/);
+    expect(s.terminal?.reason).toBe(`ladder_exhausted:code (draft PR ${s.pr_ref ?? ''})`);
+  });
+
+  it('with nothing beyond the base, fails without a PR and says so', async () => {
+    const task = buildTask();
+    const f = setup(task, { mode: 'full-review', writeCode: false });
+    timingOut(f, false);
+    f.d.must(task.id, { kind: 'create_task', task });
+    f.start();
+    await toEnd(f, task);
+
+    const s = f.d.task(task.id);
+    expect(s.terminal).toEqual({
+      kind: 'FAILED',
+      reason: 'ladder_exhausted:code (no draft PR: nothing to publish beyond the base)',
+    });
+    expect(s.pr_ref).toBeNull();
+    expect(f.github.prs).toEqual([]);
+  });
+});
+
+describe('gates that keep changing the tree (#245, real Git)', () => {
+  it('reach the gate fixer from the tree they left, not worktree_changed', async () => {
+    const task = buildTask();
+    const f = setup(task, {
+      mode: 'direct-pr',
+      runs: [CONTENT, CONTENT],
+      gates: { build: 'true', unit: 'printf x >> generated.txt', lint: 'true', format_fix: 'true' },
+    });
+    f.d.must(task.id, { kind: 'create_task', task });
+    f.start();
+    for (let i = 0; i < 6 && !f.coder.calls.some((c) => c.role === 'fixer'); i++)
+      await settleWithSlot(f.d, f.settle);
+
+    expect(f.coder.calls.filter((c) => c.role === 'fixer').length).toBeGreaterThan(0);
+    const events = f.d.store.readEvents(task.id);
+    expect(
+      events.some(
+        (e) => e.type === 'TaskWaiting' && e.payload.wait.detail.code === 'worktree_changed',
+      ),
+    ).toBe(false);
+    expect(events.some((e) => e.type === 'WorktreeChangeAccepted')).toBe(true);
+  });
 });
 
 it('#154: a message interrupts the coder; the next turn resumes its session with the message in context', async () => {
@@ -986,15 +1183,15 @@ describe('a fix round that left the reviewed files alone (#168, real Git)', () =
     return { ...f, task };
   };
 
-  it('waits for a person before a second review when the fixer did not touch the finding file', async () => {
+  it('sends the fixer back with a note before a second review when it did not touch the finding file', async () => {
     // The fake fixer only edits search.ts.
     const { d, codex, coder, task } = await run('src/other.ts');
-    expect(coder.calls).toHaveLength(2);
+    expect(coder.calls.length).toBeGreaterThan(2);
     expect(codex.calls).toHaveLength(1);
-    expect(d.task(task.id).wait).toMatchObject({
-      reason: 'human_input',
-      detail: { code: 'fix_no_src_change', step: 'gates', files: ['src/other.ts'] },
-    });
+    const q = Object.values(d.task(task.id).questions)[0];
+    expect(q).toMatchObject({ status: 'answered', answered_by: 'engine:auto' });
+    expect(q?.body).toContain('src/other.ts');
+    expect(d.task(task.id).wait?.detail.code).not.toBe('fix_no_src_change');
   });
 
   it('goes on to the second review when the fixer touched it', async () => {
@@ -1021,7 +1218,7 @@ async function settleWithSlot(d: StoreDriver, settle: () => Promise<void>): Prom
   }
 }
 
-it('a reviewer prompt too large for the context waits for a person: no call, no run consumed, no backoff', async () => {
+it('a reviewer prompt too large for the context ends the task: no call, no run consumed, no question (#247)', async () => {
   const task = buildTask();
   const f = setup(task, {
     mode: 'full-review',
@@ -1032,30 +1229,9 @@ it('a reviewer prompt too large for the context waits for a person: no call, no 
   await f.settle();
   expect(f.codex.calls).toEqual([]);
   const s = f.d.task(task.id);
-  expect(s.status).toBe('WAITING');
-  expect(s.wait?.detail.code).toBe('agent_question');
-  expect(s.wait?.resume).toMatchObject({
-    kind: 'start_attempt',
-    step: 'review',
-    attempt_kind: 'retry',
-  });
+  expect(s.terminal).toEqual({ kind: 'FAILED', reason: 'context_budget:review' });
+  expect(s.questions).toEqual({});
   expect(s.budget.agent_runs).toMatchObject({ used: 1, reserved: 0 });
-  expect(Object.values(s.questions).map((q) => q.body)).toEqual([
-    'needs_context: missing context: context_budget',
-  ]);
-  // An answer retries under the slot; the prompt still does not fit, so it asks again and still calls nothing.
-  const question = Object.values(s.questions)[0];
-  f.d.must(task.id, {
-    kind: 'answer',
-    question_id: question?.id as Uuid,
-    answer: 'the owner shortens the prompt',
-  });
-  await settleWithSlot(f.d, f.settle);
-  expect(f.codex.calls).toEqual([]);
-  const again = f.d.task(task.id);
-  expect(again.wait?.detail.code).toBe('agent_question');
-  expect(Object.keys(again.questions)).toHaveLength(2);
-  expect(again.budget.agent_runs.reserved).toBe(0);
 });
 
 describe('worktree changed by someone else before the worker (T072, real Git)', () => {

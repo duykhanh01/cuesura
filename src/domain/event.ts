@@ -235,7 +235,8 @@ export type EventPayloads = {
     timer_id: string;
     kind: TimerKind;
     due_at: number;
-    payload: { step?: string; resume?: ResumeAction };
+    /** `wait_timeout`: fails the task with `reason` while question `question_id` is still open. */
+    payload: { step?: string; resume?: ResumeAction; reason?: string; question_id?: string };
   };
   TimerCancelled: { timer_id: string };
   TimerFired: { timer_id: string };
@@ -417,6 +418,8 @@ export type EventPayloads = {
   };
   BaseUpdateRecorded: { update: BaseUpdateRun };
   MinorFixRecorded: { fix: MinorFix };
+  /** The task is ending with `reason`; its unpublished work goes up as a draft PR first (#247). */
+  FailureSalvageStarted: { reason: string };
   /** The one minor fixer run an approving review gets has started; it never starts again for it. */
   MinorFixStarted: { review_attempt_id: string };
   /**
@@ -471,6 +474,8 @@ export type EventPayloads = {
     step: string;
     streak: string;
     quality_tries: number;
+    /** The engine answered for the fixer (#247): one such turn per streak, so a repeat then raises. */
+    auto?: true;
   };
   /** A person paused the task (issue #142): no new step starts until it is unpaused. */
   /** `stopped`: attempts `pause --now` stopped; each starts over in a new session, paused or not. */
@@ -580,6 +585,7 @@ export const EVENT_TYPES = [
   'ReviewReused',
   'BaseUpdateRecorded',
   'MinorFixRecorded',
+  'FailureSalvageStarted',
   'MinorFixStarted',
   'MinorFixDropped',
   'HeadDriftRecorded',

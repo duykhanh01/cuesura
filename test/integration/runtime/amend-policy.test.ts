@@ -32,7 +32,8 @@ describe('task amend-policy over the control socket (issue #105)', () => {
     const t = buildTask();
     sd.seed((d) => {
       createGrantStart(d, t, 'direct-pr', {
-        roles: { coder: { model: 'sonnet', effort: 'medium', ladder: [] } },
+        roles: { coder: { model: 'sonnet', effort: 'medium', ladder: [{ effort: 'high' }] } },
+        limits: { max_escalations: 0 },
       } as never);
       d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE_DATA);
       for (let i = 0; i < 2; i++) {
@@ -45,7 +46,10 @@ describe('task amend-policy over the control socket (issue #105)', () => {
           usage: { basis: 'unavailable' },
         });
       }
-      expect(d.task(t.id).wait?.detail).toMatchObject({ code: 'ladder_exhausted', step: 'code' });
+      expect(d.task(t.id).wait?.detail).toMatchObject({
+        code: 'escalations_exhausted',
+        step: 'code',
+      });
     });
     await sd.start();
     const store = () => sd.daemon?.store as NonNullable<typeof sd.daemon>['store'];

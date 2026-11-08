@@ -49,7 +49,7 @@ type Recorded = { count: number; escalate: boolean };
 
 /**
  * Emits `FailureClassified`. `class_counters` are keyed by `(step, class)`, and additionally by rung for
- * `invalid_output` whose repair allowance is per rung. Quality classes also update the streak of
+ * `invalid_output` and an agent's `timeout`, whose allowances are per rung. Quality classes also update the streak of
  * `(step, rung)`; the streak asks for escalation after two consecutive quality failures with the same
  * signature, after `quality_tries_per_rung` tries, or once invalid output has used its repair and fresh
  * session (FR-019, FR-020).
@@ -66,10 +66,8 @@ export function recordFailure(
 ): Recorded {
   const s = ctx.state;
   const c = ctx.frozen.limits.classes;
-  const key =
-    o.class === 'invalid_output' && o.rung !== null
-      ? counterKey(o.step, o.class, o.rung)
-      : counterKey(o.step, o.class);
+  const perRung = (o.class === 'invalid_output' || o.class === 'timeout') && o.rung !== null;
+  const key = perRung ? counterKey(o.step, o.class, o.rung!) : counterKey(o.step, o.class);
   const count = (s.class_counters[key] ?? 0) + 1;
   let consecutive = count;
   let escalate = false;
@@ -84,6 +82,8 @@ export function recordFailure(
       (o.class === 'quality' && consecutive >= 2) ||
       (o.class === 'invalid_output' && count > c.invalid_output_repairs + c.invalid_output_fresh);
   }
+  // An agent that ran out of turns or time again at this rung needs a stronger one, not a person (#247).
+  if (o.class === 'timeout' && o.rung !== null) escalate = count > c.timeout_retries;
   ctx.emit('FailureClassified', {
     ...o,
     counter_key: key,
@@ -227,7 +227,8 @@ export function handleFailure(ctx: Ctx, e: EffectMirror, f: FailureData): void {
       scheduleRetry(ctx, e, cls, limits.backoff.infra, r.count, retry());
       return;
     case 'timeout':
-      if (r.count <= limits.classes.timeout_retries) {
+      // Past its retries an agent goes up the ladder (the task fails beyond it); other effects ask.
+      if (r.count <= limits.classes.timeout_retries || (agent && attempt !== undefined)) {
         proceed(ctx, retry(), 'timeout_retry');
         return;
       }

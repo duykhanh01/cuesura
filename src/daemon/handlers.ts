@@ -533,7 +533,7 @@ function failuresFor(
       source: 'gate',
       name: 'base-conflict',
       sha: update.head_sha,
-      detail: `Resolve this merge conflict in one attempt. Conflicting files: ${update.conflict.files.join(', ')}. Keep both task and base behavior. ${update.fix_step === undefined ? 'Changes outside these files require review.' : 'Fix the review findings listed with it in the same attempt.'} Do not run git commit or push.`,
+      detail: `Resolve this merge conflict in one attempt. Conflicting files: ${update.conflict.files.join(', ')}. Keep both task and base behavior. Regenerate lockfiles and generated files with the project's own tool (for example the package manager's install) instead of merging them by hand. ${update.fix_step === undefined ? 'Changes outside these files require review.' : 'Fix the review findings listed with it in the same attempt.'} Do not run git commit or push.`,
     };
     // In a review/fix round (#239) the same attempt also takes the rejected review's findings.
     const findings =
@@ -1129,6 +1129,7 @@ async function startAgent(
             schema_checked: true,
             status: 'needs_context',
             summary: `missing context: ${built.error.missing.join(', ')}`,
+            missing: built.error.missing,
             usage: { basis: 'unavailable' },
             invoked: false,
           },
@@ -1691,6 +1692,8 @@ async function publish(
   deps: HandlerDeps,
   effect: Effect,
 ): Promise<{ outcome: EffectOutcome; extra: Trigger[] }> {
+  if (effect.request['salvage'] !== undefined)
+    return { outcome: await salvage(deps, effect), extra: [] };
   const l = load(deps, effect);
   const sha = typeof effect.request['sha'] === 'string' ? effect.request['sha'] : null;
   const cp = l.s.run.checkpoint;
@@ -1754,6 +1757,134 @@ async function publish(
     outcome: await pushedOutcome(deps, l, spec.worktree_path, sha),
     extra: [],
   };
+}
+
+/** What a salvage publishes, fixed by its request so a rerun or a probe sends and looks for the same. */
+function salvageOf(l: Loaded, effect: Effect): { reason: string; title: string } {
+  const o = effect.request['salvage'] as { reason?: unknown; title?: unknown };
+  return {
+    reason: typeof o.reason === 'string' ? o.reason : 'failed',
+    title: typeof o.title === 'string' ? o.title : l.s.task.title,
+  };
+}
+
+function salvagePrSpec(l: Loaded, effect: Effect, sha: string): PrSpec {
+  const { reason, title } = salvageOf(l, effect);
+  return {
+    repo: l.rt.target.repo,
+    immutable_repo_id: l.rt.target.immutable_repo_id,
+    head_branch: remoteBranch(l.s),
+    base: l.s.task.base_branch,
+    head_sha: sha,
+    title: `[failed] ${title}`,
+    body: `This task failed and its work is kept here as a draft for a person to look at.\n\nReason: ${reason}`,
+    task_id: l.s.id,
+    revision: l.s.revision,
+    operation_key: effect.idem_key,
+    draft: true,
+  };
+}
+
+async function salvagedOutcome(
+  deps: HandlerDeps,
+  l: Loaded,
+  cwd: string,
+  sha: string,
+  pr: PrFact,
+): Promise<EffectOutcome> {
+  const pushed = await pushedOutcome(deps, l, cwd, sha);
+  if (pushed.outcome !== 'succeeded') return pushed;
+  return {
+    outcome: 'succeeded',
+    data: {
+      ...(pushed.data as Record<string, unknown>),
+      pr_ref: `${l.rt.target.repo}#${pr.number}`,
+    },
+  };
+}
+
+/**
+ * A failing task's work as a draft PR (#247): what the worktree holds is committed on the task branch
+ * (no gate passed, so no checkpoint exists), pushed, and opened as a draft whose body gives the reason.
+ * Nothing beyond the frozen base means nothing to show, and no PR is opened. It keeps the guarantees of
+ * the usual path: the commit intent fixes the commit, an unknown push or PR outcome is reconciled by
+ * {@link probeSalvage} through the PR marker, and a rerun under the same key repeats nothing.
+ */
+async function salvage(deps: HandlerDeps, effect: Effect): Promise<EffectOutcome> {
+  const l = load(deps, effect);
+  const { reason, title } = salvageOf(l, effect);
+  const spec = await checkpointSpec(deps, l);
+  const cp = await takeCheckpoint(deps.git, spec);
+  if (!cp.ok)
+    return cp.error.kind === 'unknown'
+      ? unknown(cp.error.detail)
+      : failed('infra', `worktree: ${cp.error.detail}`);
+  const head = await headOf(deps, spec.worktree_path);
+  let sha = head.sha;
+  if (cp.value.tree_oid !== head.tree) {
+    const intents = new FileCommitIntentStore(deps.paths.intents);
+    const key = commitKey(l.s, effect.id);
+    // As for a checkpoint: a rerun commits the same tree on the same parent with the stored times.
+    const prior = intents.load(key);
+    const at =
+      prior !== null && prior.tree === cp.value.tree_oid && prior.parent === cp.value.parent_oid
+        ? prior.author.at
+        : deps.clock.now();
+    const c = await commitCheckpoint(deps.git, intents, {
+      key,
+      worktree_path: spec.worktree_path,
+      branch: spec.branch,
+      tree: cp.value.tree_oid,
+      parent: cp.value.parent_oid,
+      author: { ...deps.committer, at },
+      committer: { ...deps.committer, at },
+      message: `WIP: ${title}\n\nUnfinished work of a failed task: ${reason}`,
+    });
+    if (c.kind === 'unknown') return unknown(c.detail);
+    if (c.kind !== 'committed' && c.kind !== 'recovered')
+      return failed('infra', `commit ${c.kind}`);
+    sha = c.intent.oid;
+  }
+  if (sha === l.rt.base_sha) return failed('refused', 'nothing to publish beyond the base');
+  const r = await pushBranch(deps.git, {
+    cwd: spec.worktree_path,
+    remote_url: deps.remoteUrl(l.rt.target.repo),
+    branch: remoteBranch(l.s),
+    expected_old: publishedHead(l.s),
+    new_sha: sha,
+  });
+  if (r.kind === 'unknown') return unknown(r.detail);
+  if (r.kind !== 'pushed' && r.kind !== 'already_pushed') return failed('infra', `push ${r.kind}`);
+  const pr = await createOrRecoverPr(deps.github(), salvagePrSpec(l, effect, sha));
+  if (pr.kind === 'unknown') return unknown(pr.detail);
+  if (pr.kind !== 'created' && pr.kind !== 'recovered')
+    return failed('infra', `pull request ${pr.kind}`);
+  return salvagedOutcome(deps, l, spec.worktree_path, sha, pr.pr);
+}
+
+/** The salvage PR found by its marker links it; otherwise the salvage runs again under its key. */
+async function probeSalvage(deps: HandlerDeps, target: Effect): Promise<Probe> {
+  const l = load(deps, target);
+  const cwd = where(deps, l).worktree;
+  const head = await headOf(deps, cwd);
+  if (head.sha === l.rt.base_sha)
+    return { finding: 'not_executed', detail: 'nothing committed beyond the base' };
+  const r = await probePr(deps.github(), salvagePrSpec(l, target, head.sha));
+  switch (r.kind) {
+    case 'recovered':
+      return fromOutcome(await salvagedOutcome(deps, l, cwd, head.sha, r.pr));
+    case 'absent':
+    case 'unclaimed':
+      return { finding: 'not_executed', detail: 'no salvage PR yet; it runs again' };
+    case 'unknown':
+      return still(r.detail);
+    default:
+      return {
+        finding: 'executed_failed',
+        failure_class: 'infra',
+        detail: `pull request ${r.kind}`,
+      };
+  }
 }
 
 /**
@@ -2465,6 +2596,7 @@ async function probeGates(
 
 /** Push by remote ref against expected old/new (FR-018): pushed is recorded, never pushed twice. */
 async function probePublish(deps: HandlerDeps, target: Effect, done: boolean): Promise<Probe> {
+  if (target.request['salvage'] !== undefined) return probeSalvage(deps, target);
   const l = load(deps, target);
   const sha = typeof target.request['sha'] === 'string' ? target.request['sha'] : null;
   if (sha === null) return still('publish without a SHA');

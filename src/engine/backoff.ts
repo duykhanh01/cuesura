@@ -24,11 +24,12 @@ export function backoffDelay(cfg: Backoff, attempt: number, idemKey: string): nu
 
 export type BackoffPlan =
   | { kind: 'wait'; due_at: number }
-  | { kind: 'exhausted'; reason: 'max_attempts' | 'reset_too_far' };
+  | { kind: 'exhausted'; reason: 'max_attempts' };
 
 /**
  * Next retry time for a rate-limit or infra failure. Beyond `max_attempts` there is no automatic retry.
- * A provider `reset_at` is honoured as is, unless it lies further away than `max_ms`.
+ * A provider `reset_at` is honoured as is, however far away (#245): `max_ms` caps only the computed
+ * delay, and the task deadline still ends the wait.
  */
 export function planBackoff(
   cfg: Backoff,
@@ -39,9 +40,6 @@ export function planBackoff(
 ): BackoffPlan {
   if (cfg.max_attempts !== null && attempt > cfg.max_attempts)
     return { kind: 'exhausted', reason: 'max_attempts' };
-  if (resetAt !== undefined) {
-    if (resetAt - now > cfg.max_ms) return { kind: 'exhausted', reason: 'reset_too_far' };
-    return { kind: 'wait', due_at: Math.max(now, resetAt) };
-  }
+  if (resetAt !== undefined) return { kind: 'wait', due_at: Math.max(now, resetAt) };
   return { kind: 'wait', due_at: now + backoffDelay(cfg, attempt, idemKey) };
 }

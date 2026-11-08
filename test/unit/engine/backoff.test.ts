@@ -31,7 +31,7 @@ describe('backoff (research R-22)', () => {
     });
   });
 
-  it('honours reset_at within max_ms and refuses one further away', () => {
+  it('honours reset_at, also one further away than max_ms (#245)', () => {
     expect(planBackoff(CFG, 1, 'k', 1_000, 61_000)).toEqual({
       kind: 'wait',
       due_at: 61_000,
@@ -41,8 +41,8 @@ describe('backoff (research R-22)', () => {
       due_at: 1_000,
     });
     expect(planBackoff(CFG, 1, 'k', 0, 300_001)).toEqual({
-      kind: 'exhausted',
-      reason: 'reset_too_far',
+      kind: 'wait',
+      due_at: 300_001,
     });
   });
 });

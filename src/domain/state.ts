@@ -216,7 +216,13 @@ export type EffectMirror = {
   base_update?: BaseUpdate;
 };
 
-export const TIMER_KINDS = ['deadline', 'backoff', 'ci_poll', 'ci_timeout'] as const;
+export const TIMER_KINDS = [
+  'deadline',
+  'backoff',
+  'ci_poll',
+  'ci_timeout',
+  'wait_timeout',
+] as const;
 export type TimerKind = (typeof TIMER_KINDS)[number];
 
 export type TimerMirror = {
@@ -224,7 +230,7 @@ export type TimerMirror = {
   kind: TimerKind;
   due_at: number;
   status: 'armed' | 'fired' | 'cancelled';
-  payload: { step?: string; resume?: ResumeAction };
+  payload: { step?: string; resume?: ResumeAction; reason?: string; question_id?: string };
 };
 
 export type Reservation = {
@@ -550,6 +556,8 @@ export type RunState = {
   minor_fix?: MinorFix;
   /** Approving review attempts whose one minor fixer run started or was dropped. */
   minor_started?: string[];
+  /** Set while a failing task publishes its work as a draft PR before it ends (#247). */
+  salvage?: { reason: string };
 };
 
 export type PrBodyState = {
@@ -595,6 +603,8 @@ export type TaskState = {
    * the highest attempt number credited, so no attempt is credited twice. Absent until the first.
    */
   visit_credits?: Record<string, { visits: number; through: number }>;
+  /** Streaks that already had the turn of an automatic answer (#247). Absent until the first. */
+  auto_turns?: string[];
   /** Set while a person has the task paused (issue #142); absent when it never was. */
   pause?: TaskPause | null;
   /** Attempts stopped by `pause --now`: kept past the resume, so their end restarts the step. */

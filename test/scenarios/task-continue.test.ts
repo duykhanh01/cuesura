@@ -11,8 +11,10 @@ afterEach(() => {
   sims = [];
 });
 
+// A raise the escalation limit refuses keeps the task waiting; past the last rung it fails (#247).
 const ONE_RUNG: PolicyOptions = {
-  roles: { coder: { model: 'sonnet', effort: 'medium', ladder: [] } },
+  roles: { coder: { model: 'sonnet', effort: 'medium', ladder: [{ effort: 'high' }] } },
+  limits: { max_escalations: 0 },
 };
 const READER = { authz: authz(['read']) };
 
@@ -37,12 +39,12 @@ function codeAttempts(sim: Sim): Attempt[] {
     .sort((a, b) => a.n - b.n);
 }
 
-function toLadderExhausted(sim: Sim): void {
+function toEscalationsExhausted(sim: Sim): void {
   fail(sim, 'quality', 'C1');
   fail(sim, 'quality', 'C1');
   expect(sim.s.wait).toMatchObject({
     reason: 'policy',
-    detail: { code: 'ladder_exhausted', step: 'code', rung: 1 },
+    detail: { code: 'escalations_exhausted', step: 'code', from: 0, to: 1 },
   });
 }
 
@@ -50,7 +52,7 @@ describe('task continue (issue #101)', () => {
   it('keeps the current model after the ladder ran out and runs the same step again', () => {
     const sim = run();
     toCode(sim);
-    toLadderExhausted(sim);
+    toEscalationsExhausted(sim);
     const before = sim.events.length;
 
     expectAccepted(sim.when({ kind: 'continue' }));
@@ -71,23 +73,23 @@ describe('task continue (issue #101)', () => {
   it('is bounded: the same failure twice after continuing waits again', () => {
     const sim = run();
     toCode(sim);
-    toLadderExhausted(sim);
+    toEscalationsExhausted(sim);
     expectAccepted(sim.when({ kind: 'continue' }));
-    toLadderExhausted(sim);
+    toEscalationsExhausted(sim);
     expect(sim.effects('start_agent', 'pending')).toEqual([]);
   });
 
   it('needs the operate role an assistant holds, not admin', () => {
     const sim = run();
     toCode(sim);
-    toLadderExhausted(sim);
+    toEscalationsExhausted(sim);
     const d = sim.when({ kind: 'continue' }, READER);
     expect(d).toMatchObject({
       kind: 'rejected',
       code: 'invalid_trigger',
       detail: { reason: 'operate_required' },
     });
-    expect(sim.s.wait?.detail.code).toBe('ladder_exhausted');
+    expect(sim.s.wait?.detail.code).toBe('escalations_exhausted');
   });
 
   it('is rejected while the task is not waiting on an exhausted limit', () => {

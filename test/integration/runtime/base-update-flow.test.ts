@@ -13,6 +13,7 @@ import { Ctx } from '../../../src/engine/context.ts';
 import { onRecheck } from '../../../src/engine/recheck.ts';
 import { EMPTY_RELATED } from '../../../src/domain/trigger.ts';
 import { replay } from '../../../src/engine/evolve.ts';
+import { BASE_REPAIR_WAIT_MS } from '../../../src/engine/interpreter.ts';
 
 const { g, setup } = flowEnv('cusr-base-flow-');
 let seq = 0;
@@ -97,23 +98,18 @@ async function conflictFlow(
   const original = worker.run.bind(worker);
   let calls = 0;
   const fixerInputs: Parameters<typeof worker.run>[0][] = [];
-  const fixer = new FakeHarness(
-    {
-      fixer: [
-        {
-          kind: 'result',
-          value: {
-            schema_version: 1,
-            status: behavior === 'blocked' ? 'blocked' : 'done',
-            summary: 'conflict repair',
-            questions: [],
-            blocker: behavior === 'blocked' ? 'cannot decide' : null,
-          },
-        },
-      ],
+  const repair = {
+    kind: 'result' as const,
+    value: {
+      schema_version: 1,
+      status: behavior === 'blocked' ? 'blocked' : 'done',
+      summary: 'conflict repair',
+      questions: [],
+      blocker: behavior === 'blocked' ? 'cannot decide' : null,
     },
-    'claude',
-  );
+  };
+  // A second run for the automatic retry of the conflict fixer (#247).
+  const fixer = new FakeHarness({ fixer: [repair, repair] }, 'claude');
   worker.run = (input, signal) => {
     if (input.role !== 'fixer') return original(input, signal);
     calls++;
@@ -199,12 +195,14 @@ async function conflictFlow(
       capabilities: { ...proven.capabilities, private_home_auth: 'unsupported' },
       manifest_hash: hashCanonical('re-proved'),
     };
+  // Settles until the task waits or ends; the automatic second conflict fixer (#247) runs on its own.
   const finish = async () => {
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 12; i++) {
       if (f.d.task(task.id).wait?.detail.code === 'execution_slot')
         f.d.store.grantNext(f.d.now as EpochMs, Array.from({ length: 8 }, f.newId));
       await f.settle();
-      if (f.d.task(task.id).wait?.detail.code !== 'execution_slot') break;
+      const s = f.d.task(task.id);
+      if (s.status !== 'RUNNING' && s.wait?.detail.code !== 'execution_slot') break;
     }
   };
   expect(await requestBaseWithoutYolo(f.deps, task.id, head, base)).toBe('updating_base');
@@ -364,19 +362,14 @@ describe('base integration through the real gate/review/publish handlers', () =>
     },
   );
 
-  it.each([
-    'unresolved',
-    'failed',
-    'blocked',
-    'gate-failed',
-    'scope-unreadable',
-    'rate-limited',
-  ] as const)(
-    'a single fixer that is %s waits for a person with no second attempt',
+  it.each(['unresolved', 'failed', 'blocked', 'gate-failed', 'scope-unreadable'] as const)(
+    'a conflict fixer that is %s gets one automatic second attempt, then waits for a person until a timeout fails the task',
     async (behavior) => {
       const f = await conflictFlow('full-review', behavior);
       const after = f.d.task(f.task.id);
-      expect(f.fixes()).toBe(1);
+      // gate-failed fails after the fixer resolved the conflict: no conflict fixer is run again.
+      const fixes = behavior === 'gate-failed' ? 1 : 2;
+      expect(f.fixes()).toBe(fixes);
       expect(after.wait?.detail.code).toBe('refused');
       expect(after.run.base_update?.certificate).toBeUndefined();
       expect(g.sh(f.remote, 'rev-parse', g.sh(f.worktree, 'symbolic-ref', '--short', 'HEAD'))).toBe(
@@ -391,7 +384,15 @@ describe('base integration through the real gate/review/publish handlers', () =>
       f.d.now += 60_000;
       f.d.fire();
       await f.finish();
-      expect(f.fixes()).toBe(1);
+      expect(f.fixes()).toBe(fixes);
+      if (behavior !== 'gate-failed') {
+        expect(after.wait?.detail['due_at']).toBeGreaterThan(f.d.now);
+        f.d.now += BASE_REPAIR_WAIT_MS;
+        f.d.fire();
+        const ended = f.d.task(f.task.id);
+        expect(ended.status).toBe('FAILED');
+        expect(ended.terminal?.reason).toMatch(/^base_conflict_unresolved: /);
+      }
       expect(replay(f.d.store.readEvents(f.task.id))).toEqual(f.d.task(f.task.id));
     },
   );
@@ -419,7 +420,7 @@ describe('base integration through the real gate/review/publish handlers', () =>
       });
       await f.finish();
       expect(f.d.task(f.task.id).wait?.detail.code).toBe('merge');
-      expect(f.fixes()).toBe(1);
+      expect(f.fixes()).toBe(behavior === 'gate-failed' ? 1 : 2);
       expect(replay(f.d.store.readEvents(f.task.id))).toEqual(f.d.task(f.task.id));
     },
   );
@@ -448,7 +449,7 @@ describe('base integration through the real gate/review/publish handlers', () =>
     expect(after.wait?.detail.code).toBe('merge');
     expect(after.run.base_update?.manual_resolution).toBeDefined();
     expect(after.run.base_update?.scope?.unchanged_conflicts).toEqual(['search.ts']);
-    expect(f.fixes()).toBe(1);
+    expect(f.fixes()).toBe(2);
     expect(replay(f.d.store.readEvents(f.task.id))).toEqual(after);
   });
 
@@ -577,11 +578,11 @@ describe('base integration through the real gate/review/publish handlers', () =>
       );
       expect(deferred.run.base_update?.manual_resolution).toBeUndefined();
       expect(f.d.pending(f.task.id, 'publish')).toEqual([]);
-      expect(f.fixes()).toBe(1);
+      expect(f.fixes()).toBe(2);
       if (mask === 'source_drift') {
         f.d.must(f.task.id, { kind: 'drift_choice', choice: 'continue_old' });
         await f.finish();
-        expect(f.fixes()).toBe(2);
+        expect(f.fixes()).toBe(3);
         expect(f.d.task(f.task.id).run.base_update?.manual_resolution).toBeUndefined();
         expect(f.d.task(f.task.id).run.base_update?.certificate).toBeUndefined();
         expect(f.d.pending(f.task.id, 'publish')).toEqual([]);
@@ -604,19 +605,10 @@ describe('base integration through the real gate/review/publish handlers', () =>
     expect(replay(f.d.store.readEvents(f.task.id))).toEqual(after);
   });
 
-  it('a rate-limited fixer can be retried only by an explicit operator answer', async () => {
+  it('a rate-limited conflict fixer is retried once on its own (#247)', async () => {
     const f = await conflictFlow('full-review', 'rate-limited');
-    const waiting = f.d.task(f.task.id);
-    const question = Object.values(waiting.questions).find((q) => q.status === 'open');
-    if (question === undefined) throw new Error('no retry question');
-    expect(Object.values(waiting.effects).some((e) => e.status === 'started')).toBe(false);
-    f.d.must(f.task.id, {
-      kind: 'answer',
-      question_id: question.id as Uuid,
-      answer: 'retry fixer',
-    });
-    await f.finish();
     expect(f.fixes()).toBe(2);
+    expect(f.d.task(f.task.id).run.base_update?.auto_retried).toBe(true);
     expect(f.d.task(f.task.id).wait?.detail.code).toBe('merge');
     expect(replay(f.d.store.readEvents(f.task.id))).toEqual(f.d.task(f.task.id));
   });
@@ -651,7 +643,7 @@ describe('base integration through the real gate/review/publish handlers', () =>
     expect(f.codex.calls).toHaveLength(2);
   });
 
-  it('a second conflict after the one fixer attempt waits instead of launching another worker', async () => {
+  it('a second conflict after the one fixer attempt gets the automatic conflict fixer run (#247)', async () => {
     const f = await conflictFlow('full-review');
     expect(f.d.task(f.task.id).wait?.detail.code).toBe('merge');
     writeFileSync(join(f.external, 'search.ts'), 'second conflict from main\n');
@@ -665,26 +657,10 @@ describe('base integration through the real gate/review/publish handlers', () =>
       base_sha: g.sh(f.external, 'rev-parse', 'HEAD'),
     });
     await f.finish();
-    expect(f.fixes()).toBe(1);
-    expect(f.d.task(f.task.id).wait?.detail.code).toBe('refused');
-    expect(g.sh(f.remote, 'rev-parse', g.sh(f.worktree, 'symbolic-ref', '--short', 'HEAD'))).toBe(
-      head,
-    );
-    expect(f.codex.calls).toHaveLength(1);
-    const question = Object.values(f.d.task(f.task.id).questions).find((q) => q.status === 'open');
-    if (question === undefined) throw new Error('no repeated-conflict question');
-    writeFileSync(
-      join(f.worktree, 'search.ts'),
-      'export const search = (q: string) => q.trim();\n',
-    );
-    f.d.must(f.task.id, {
-      kind: 'answer',
-      question_id: question.id as Uuid,
-      answer: 'continue',
-    });
-    await f.finish();
+    expect(f.fixes()).toBe(2);
+    expect(f.d.task(f.task.id).run.base_update?.auto_retried).toBe(true);
     expect(f.d.task(f.task.id).wait?.detail.code).toBe('merge');
-    expect(f.fixes()).toBe(1);
+    expect(replay(f.d.store.readEvents(f.task.id))).toEqual(f.d.task(f.task.id));
   });
   it('the review exemption is bound to its exact certified head/tree/revision and scope', async () => {
     const f = await conflictFlow('full-review');

@@ -266,18 +266,23 @@ mới và chạy lại bước đó, không cần hủy hay tạo lại task.
 
 Lỗi đăng nhập harness (`WAITING/policy harness_auth`): đăng nhập lại vào đúng file trong
 `runtime.credential_refs` (Claude: `~/.claude/.credentials.json`, không phải profile Claude đang dùng
-để phát triển) rồi `cusr task recheck <id>`. Task `loop_exhausted` mà các lượt cuối đều lỗi hạ tầng hoặc đăng nhập
-cũng dùng `recheck` để lấy lại visit; xem [Phiên đăng nhập harness](../deploy/README.md#phiên-đăng-nhập-harness).
+để phát triển) rồi `cusr task recheck <id>`. Task cũ còn chờ `loop_exhausted` mà các lượt cuối đều lỗi hạ tầng hoặc đăng nhập
+cũng dùng `recheck` để lấy lại visit (task mới tự lấy lại); xem [Phiên đăng nhập harness](../deploy/README.md#phiên-đăng-nhập-harness).
 
-Task hết đường nâng model (`ladder_exhausted`, `rung_denied`, `escalations_exhausted`) hoặc `loop_exhausted` do lỗi
-chất lượng: xem lỗi review/gate gần nhất, nếu muốn giữ model hiện tại thì chạy `cusr task continue <id>
+Task hết nấc (vượt nấc cuối, nấc kế bị `denied`, hoặc binding ngoài run config đã xác nhận) kết thúc `FAILED`
+với lý do trong `cusr task show` (`ladder_exhausted:<step>`, ...); PR đã mở giữ nguyên để xem, chưa có PR thì phần việc
+dở được đẩy lên thành PR draft `[failed] ...` (lý do ghi số PR, hoặc vì sao không mở). Lượt ghé mất vì
+hạ tầng/đăng nhập được tự trả, không cần `recheck`.
+
+Task hết lượt nâng (`escalations_exhausted`) hoặc `loop_exhausted` do lỗi chất lượng: xem lỗi review/gate gần nhất, nếu muốn giữ model hiện tại thì chạy `cusr task continue <id>
 --expected-version N` (quyền operate, assistant tự chạy được). Bước đang chờ được thêm một đợt `quality_tries_per_rung` lượt thử và đủ lượt ghé
 rồi chạy lại từ chỗ dừng; gate và review vẫn chạy, budget, deadline và sàn model giữ nguyên. Hết đợt đó thì task lại chờ.
 Muốn đổi sang model khác thì dùng `cusr task amend-policy <id> --model M [--effort E]`: lệnh không có `--confirm` chỉ
 xem trước (nấc, binding thêm/thay, nấc có cần approval không, `policy_hash` mới; assistant chạy được để chuẩn bị).
 Người dùng áp dụng bằng `--confirm <policy_hash> --reason TEXT --expected-version N` (chỉ owner). Model ngoài
 `allow_models` của profile bị từ chối; model trên `auto_up_to_tier` thì task chờ approval escalation như thường.
-Trả lời câu hỏi `review_repeated` không cần `task continue` thêm: fixer chạy ít nhất một lượt ở nấc hiện tại để nhận câu trả lời.
+`review_repeated` và `fix_no_src_change` không còn chờ người: engine tự trả lời thay và fixer chạy lại với ghi chú.
+Task cũ còn chờ câu hỏi `review_repeated` thì trả lời như trước, không cần `task continue` thêm.
 
 Lùi: truyền SHA cũ cho script rồi restart. Nếu release mới đã migrate DB, bản cũ có thể không mở được DB: dừng
 daemon và chép `data/cusr.db` trước mỗi lần nâng có migration. Backup/restore chưa được nghiệm thu, nên coi đây là

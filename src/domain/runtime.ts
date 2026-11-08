@@ -50,6 +50,8 @@ export type BaseUpdateRun = BaseUpdate & {
   fix_step?: string;
   conflict?: BaseConflict;
   fixer_attempt_id?: string;
+  /** The conflict fixer already had its one automatic second attempt (#247); next time the task fails. */
+  auto_retried?: true;
   scope?: BaseRepairScope;
   manual_resolution?: { by: string; at: number };
   certificate?: { head_sha: string; tree: string };

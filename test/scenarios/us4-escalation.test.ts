@@ -191,6 +191,18 @@ describe('US4 - Model escalation and budget under the approved policy', () => {
       status: 'running',
     });
 
+    // A reset hours away is waited for too, instead of a wait only an amendment could end (#245).
+    const far = run();
+    toCode(far);
+    const farReset = far.now + 5 * 3_600_000;
+    fail(far, far.pendingOne('start_agent').id, 'rate_limit', { reset_at: farReset });
+    expect(far.s.wait).toMatchObject({
+      reason: 'rate_limit',
+      detail: { code: 'rate_limited', due_at: farReset },
+    });
+    far.advance(5 * 3_600_000).fireDue();
+    expect(latest(far, 'code')).toMatchObject({ n: 2, kind: 'retry', status: 'running' });
+
     const infra = run();
     toCode(infra);
     fail(infra, infra.pendingOne('start_agent').id, 'infra');
@@ -393,7 +405,7 @@ describe('US4 - Model escalation and budget under the approved policy', () => {
     },
   );
 
-  it('Scenario 8: a second consecutive timeout on the same step gets no third try and waits for a person', () => {
+  it('Scenario 8: a second consecutive timeout on the same rung moves to the next rung instead of waiting (#247)', () => {
     const sim = run();
     toCode(sim);
     fail(sim, sim.pendingOne('start_agent').id, 'timeout');
@@ -404,13 +416,21 @@ describe('US4 - Model escalation and budget under the approved policy', () => {
       status: 'running',
     });
     fail(sim, sim.pendingOne('start_agent').id, 'timeout');
-    expect(sim.s.status).toBe('WAITING');
-    expect(sim.s.wait).toMatchObject({
-      reason: 'human_input',
-      detail: { code: 'timeout' },
-    });
+    expect(sim.s.wait).toBeNull();
+    expect(latest(sim, 'code')).toMatchObject({ n: 3, rung: 1, status: 'running' });
+    expect(eventsOf(sim, 'RungRaised')).toHaveLength(1);
+    // The new rung gets its own retry before it asks for the next one.
+    fail(sim, sim.pendingOne('start_agent').id, 'timeout');
+    expect(latest(sim, 'code')).toMatchObject({ n: 4, rung: 1, status: 'running' });
+  });
+
+  it('Scenario 8b: timeouts past the last rung end the task with the reason (#247)', () => {
+    const sim = run({ roles: { coder: { model: 'sonnet', effort: 'medium', ladder: [] } } });
+    toCode(sim);
+    fail(sim, sim.pendingOne('start_agent').id, 'timeout');
+    fail(sim, sim.pendingOne('start_agent').id, 'timeout');
+    expect(sim.s.terminal).toEqual({ kind: 'FAILED', reason: 'ladder_exhausted:code' });
     expect(sim.effects('start_agent', 'pending')).toEqual([]);
-    expect(attemptsOf(sim, 'code')).toHaveLength(2);
   });
 
   it('Scenario 9: invalid output after one repair and one fresh session moves to the next rung with no further repair on the old one', () => {
@@ -586,7 +606,7 @@ describe('US4 - Model escalation and budget under the approved policy', () => {
       });
     });
 
-    it('waits on policy when the mapped reviewer rung is denied', () => {
+    it('ends the task when the mapped reviewer rung is denied', () => {
       const sim = run({
         roles: { coder, reviewer: terraReviewer },
         escalation: {
@@ -595,10 +615,7 @@ describe('US4 - Model escalation and budget under the approved policy', () => {
         },
       });
       coderToTopRung(sim);
-      expect(sim.s.wait).toMatchObject({
-        reason: 'policy',
-        detail: { code: 'rung_denied', step: 'review', rung: 1 },
-      });
+      expect(sim.s.terminal).toEqual({ kind: 'FAILED', reason: 'rung_denied:review:1' });
       expect(attemptsOf(sim, 'review')).toEqual([]);
     });
 

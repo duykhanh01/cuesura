@@ -7,6 +7,7 @@ import {
   type TaskState,
 } from '../domain/state.ts';
 import type { Trigger } from '../domain/trigger.ts';
+import type { Uuid } from '../shared/brand.ts';
 import { available, consume, release, reserve } from './budget.ts';
 import { reject, type Ctx } from './context.ts';
 import { pastDeadline, proceed } from './interpreter.ts';
@@ -23,7 +24,7 @@ export function askHuman(
     resume: ResumeAction;
     detail?: Record<string, unknown>;
   },
-): void {
+): string {
   const qid = ctx.nextId();
   ctx.emit('QuestionAsked', {
     question_id: qid,
@@ -40,6 +41,31 @@ export function askHuman(
       detail: { ...o.detail, question_id: qid },
     }),
   );
+  return qid;
+}
+
+/** Who answered when the engine did, instead of asking a person (#247). */
+export const AUTO_ACTOR = 'engine:auto';
+
+/**
+ * A stop no person needs to decide: the question is asked and answered at once by the engine, so the
+ * answer reaches every later agent of the revision as a person's would, and the task resumes as on an
+ * answer. A review-fix round answered this way gets one turn per streak (see {@link grantAnswerTurn}).
+ */
+export function answerForFixer(
+  ctx: Ctx,
+  code: DetailCode,
+  o: {
+    step: string;
+    attempt_id: string | null;
+    body: string;
+    answer: string;
+    resume: ResumeAction;
+    detail?: Record<string, unknown>;
+  },
+): void {
+  const qid = askHuman(ctx, code, o);
+  onAnswer(ctx, { kind: 'answer', question_id: qid as Uuid, answer: o.answer }, AUTO_ACTOR);
 }
 
 export function requestApproval(
@@ -160,24 +186,32 @@ export function onDeciderRan(ctx: Ctx, t: Extract<Trigger, { kind: 'decider_ran'
  * keeps them, so the answer never cuts tries the fixer had. Rung, floor, visits, budget and deadline still
  * apply. Recorded with the answer, so a restart before the fixer starts keeps the turn.
  */
-function grantAnswerTurn(ctx: Ctx, q: Question): void {
-  const { resume } = q;
-  if (resume.kind !== 'route' || resume.outcome !== 'request_changes') return;
-  const { steps } = ctx.frozen.workflow;
-  const next = steps[resume.step]?.next['request_changes'];
-  const after = next === undefined ? undefined : steps[next];
-  // A full-review task posts the verdict on its way to the fixer.
-  const step = after?.kind === 'action' ? after.next['ok'] : next;
+function grantAnswerTurn(ctx: Ctx, q: Question, by: string): void {
+  const auto = by === AUTO_ACTOR;
+  const step = turnStep(ctx, q.resume, auto);
   if (step === undefined) return;
   const s = ctx.state;
   const streak = streakKey(step, s.rungs.by_step[step] ?? 0);
   if (s.failure_streaks[streak]?.escalate !== true) return;
+  if (auto && s.auto_turns?.includes(streak) === true) return;
   ctx.emit('AnswerTurnGranted', {
     question_id: q.id,
     step,
     streak,
     quality_tries: ctx.frozen.limits.classes.quality_tries_per_rung - 1,
+    ...(auto ? { auto: true as const } : {}),
   });
+}
+
+/** The fixer step an answer sends the task to, when it is a review-fix round. */
+function turnStep(ctx: Ctx, resume: ResumeAction, auto: boolean): string | undefined {
+  if (auto && resume.kind === 'enter_step') return resume.step;
+  if (resume.kind !== 'route' || resume.outcome !== 'request_changes') return undefined;
+  const { steps } = ctx.frozen.workflow;
+  const next = steps[resume.step]?.next['request_changes'];
+  const after = next === undefined ? undefined : steps[next];
+  // A full-review task posts the verdict on its way to the fixer.
+  return after?.kind === 'action' ? after.next['ok'] : next;
 }
 
 export function onAnswer(ctx: Ctx, t: AnswerTrigger, by: string = ctx.actor): void {
@@ -209,7 +243,7 @@ export function onAnswer(ctx: Ctx, t: AnswerTrigger, by: string = ctx.actor): vo
     answer: t.answer,
     by,
   });
-  grantAnswerTurn(ctx, q);
+  grantAnswerTurn(ctx, q, by);
   const w = ctx.state.wait;
   if (ctx.state.status === 'WAITING' && w?.detail['question_id'] === q.id) {
     proceed(ctx, resume, `answer:${q.id}`);

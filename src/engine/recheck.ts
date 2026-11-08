@@ -16,9 +16,9 @@ import { proceed, waitBaseRepair } from './interpreter.ts';
  *   goes through preflight as a confirm would (FR-046.02);
  * - `observation`: a task with a PR is observed once; the automatic schedule is untouched (FR-046.03/05/06);
  * - `drain`: a paused drain after a merge proof may run one more bounded stop/reconcile round (FR-046.07);
- * - `worktree`: a task waiting on `worktree_changed` before a worker attempt takes the observed tree as
- *   its own (recorded as the person's change, T072) and runs the step again; a tree that moved since
- *   is caught by the next attempt's own check.
+ * - `worktree`: a task waiting on `worktree_changed` before a worker attempt, or after gates whose
+ *   checkpoint commit holds another tree, takes the observed tree as its own (recorded as the person's
+ *   change, T072) and runs the step again; a tree that moved since is caught by the next run's own check.
  * - `manifest`: a task waiting on `manifest_changed` (harness re-proved after its snapshot froze) takes
  *   the manifest in force as its own and runs the step again; a manifest that moved since is caught by
  *   the next attempt's own check.

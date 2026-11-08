@@ -17,8 +17,10 @@ afterEach(() => {
 const OWNER = { authz: authz(['read', 'operate', 'admin']) };
 const ASSISTANT = { authz: authz(['read', 'operate'], 'assistant') };
 const ESC: EscalationPolicy = { auto_up_to_tier: 2, above: 'ask_human', allow_models: null };
+// A raise the escalation limit refuses keeps the task waiting; past the last rung it fails (#247).
 const ONE_RUNG: PolicyOptions = {
-  roles: { coder: { model: 'sonnet', effort: 'medium', ladder: [] } },
+  roles: { coder: { model: 'sonnet', effort: 'medium', ladder: [{ effort: 'high' }] } },
+  limits: { max_escalations: 0 },
 };
 
 function run(policy: PolicyOptions = ONE_RUNG): Sim {
@@ -42,12 +44,12 @@ function codeAttempts(sim: Sim): Attempt[] {
     .sort((a, b) => a.n - b.n);
 }
 
-function toLadderExhausted(sim: Sim): void {
+function toEscalationsExhausted(sim: Sim): void {
   fail(sim, 'quality', 'C1');
   fail(sim, 'quality', 'C1');
   expect(sim.s.wait).toMatchObject({
     reason: 'policy',
-    detail: { code: 'ladder_exhausted', step: 'code', rung: 1 },
+    detail: { code: 'escalations_exhausted', step: 'code', from: 0, to: 1 },
   });
 }
 
@@ -75,10 +77,10 @@ function amend(sim: Sim, change: Partial<ModelChange>, o = OWNER) {
 }
 
 describe('task amend-policy (issue #105)', () => {
-  it('adds a rung above the exhausted ladder and runs the waiting step on it', () => {
+  it('adds a rung above the current one when the escalation limit refused the raise', () => {
     const sim = run();
     toCode(sim);
-    toLadderExhausted(sim);
+    toEscalationsExhausted(sim);
     const before = sim.events.length;
     const hashBefore = sim.s.policy_ref?.hash;
 
@@ -86,19 +88,20 @@ describe('task amend-policy (issue #105)', () => {
     expectAccepted(decision);
     expect(p.diff).toMatchObject({
       step: 'code',
-      wait_code: 'ladder_exhausted',
+      wait_code: 'escalations_exhausted',
       rung: 1,
       placement: 'insert',
       from: null,
       to: 'sol/high',
       state: 'auto',
+      max_escalations: { from: 0, to: 1 },
     });
     expect(sim.eventTypes(before)).toEqual(
       expect.arrayContaining(['PolicyAmended', 'TaskResumed', 'RungRaised']),
     );
     expect(sim.s.policy_ref).toMatchObject({ version: 2, hash: p.policy.policy_hash });
     expect(sim.s.policy_ref?.hash).not.toBe(hashBefore);
-    expect(sim.policy?.steps['code']?.ladder).toHaveLength(2);
+    expect(sim.policy?.steps['code']?.ladder).toHaveLength(3);
     expect(codeAttempts(sim).at(-1)).toMatchObject({
       rung: 1,
       binding: 'sol/high',
@@ -111,7 +114,7 @@ describe('task amend-policy (issue #105)', () => {
   it('asks for the usual escalation approval when the new model is above auto_up_to_tier', () => {
     const sim = run();
     toCode(sim);
-    toLadderExhausted(sim);
+    toEscalationsExhausted(sim);
     const { plan: p, decision } = amend(sim, { model: 'opus', effort: 'high' });
     expectAccepted(decision);
     expect(p.diff.state).toBe('needs_approval');
@@ -137,7 +140,7 @@ describe('task amend-policy (issue #105)', () => {
   it('refuses a model the profile denies, by allow_models or above: deny', () => {
     const sim = run();
     toCode(sim);
-    toLadderExhausted(sim);
+    toEscalationsExhausted(sim);
     expect(plan(sim, { model: 'sol' }, { allow_models: ['sonnet', 'opus'] })).toMatchObject({
       ok: false,
       error: { code: 'rejected', reason: 'model_denied' },
@@ -159,14 +162,14 @@ describe('task amend-policy (issue #105)', () => {
       ok: false,
       error: { code: 'conflict', reason: 'amend_not_applicable' },
     });
-    toLadderExhausted(sim);
+    toEscalationsExhausted(sim);
     const { decision } = amend(sim, { model: 'sol' }, ASSISTANT);
     expect(decision).toMatchObject({ kind: 'rejected', code: 'not_admin' });
-    expect(sim.s.wait?.detail.code).toBe('ladder_exhausted');
+    expect(sim.s.wait?.detail.code).toBe('escalations_exhausted');
     expect(sim.s.policy_ref?.version).toBe(1);
   });
 
-  it('puts the new model in place of a rung the profile denied', () => {
+  it('has nothing to amend once a denied rung ended the task (#247)', () => {
     const sim = run({
       roles: { coder: { model: 'sonnet', effort: 'medium', ladder: [{ model: 'opus' }] } },
       escalation: { above: 'deny' },
@@ -174,17 +177,10 @@ describe('task amend-policy (issue #105)', () => {
     toCode(sim);
     fail(sim, 'quality', 'C1');
     fail(sim, 'quality', 'C1');
-    expect(sim.s.wait).toMatchObject({ detail: { code: 'rung_denied', step: 'code', rung: 1 } });
-
-    const { plan: p, decision } = amend(sim, { model: 'sol' });
-    expectAccepted(decision);
-    expect(p.diff).toMatchObject({ rung: 1, placement: 'insert', to: 'sol/medium' });
-    expect(sim.policy?.steps['code']?.ladder.map((r) => r.state)).toEqual([
-      'auto',
-      'auto',
-      'denied',
-    ]);
-    expect(codeAttempts(sim).at(-1)).toMatchObject({ rung: 1, binding: 'sol/medium' });
+    expect(sim.s.status).toBe('FAILED');
+    expect(sim.s.terminal).toEqual({ kind: 'FAILED', reason: 'rung_denied:code:1' });
+    const p = plan(sim, { model: 'sol' });
+    expect(p.ok).toBe(false);
   });
 
   it('runs a step that ran out of visits on the new model in place of its current rung', () => {
@@ -253,7 +249,7 @@ describe('task amend-policy (issue #105)', () => {
   it('gives the same policy hash for the same inputs, so a confirmation binds to its preview', () => {
     const sim = run();
     toCode(sim);
-    toLadderExhausted(sim);
+    toEscalationsExhausted(sim);
     const a = plan(sim, { model: 'sol', reason: 'one' });
     const b = plan(sim, { model: 'sol', reason: 'two' });
     const c = plan(sim, { model: 'sol', effort: 'high' });

@@ -63,7 +63,8 @@ import {
   untouchedRepeats,
 } from './failure.ts';
 import { ciVerdict, latestCi, mergeGuard, type GuardFailure } from './merge-guard.ts';
-import { askHuman, requestApproval } from './questions.ts';
+import { answerForFixer, askHuman, AUTO_ACTOR, requestApproval } from './questions.ts';
+import { creditableAttempts } from './recheck.ts';
 import { settleUnderDrift } from './head-drift.ts';
 import { deferForDrift } from './revision.ts';
 import { restartCadence, waitMergeEvidence, waitPrClosed } from './observation.ts';
@@ -296,7 +297,21 @@ export function enterStep(
   if (def.kind === 'review' && cp !== null && minorFixApproved(ctx.state, cp.sha))
     return skip(ctx, step, 'approval_carried');
   const visits = ctx.state.step_visits[step] ?? 0;
-  const limit = visitLimit(ctx, step);
+  let limit = visitLimit(ctx, step);
+  if (limit !== null && visits >= limit) {
+    // Visits lost to the harness, not the work (infra, rate limit, login) come back on their own, as
+    // `recheck visits` would give them (#247).
+    const credited = creditableAttempts(ctx.state, step);
+    if (credited.length > 0) {
+      ctx.emit('VisitsCredited', {
+        step,
+        attempt_ids: credited.map((a) => a.id),
+        by: ctx.actor,
+        at: ctx.now,
+      });
+      limit = visitLimit(ctx, step);
+    }
+  }
   if (limit !== null && visits >= limit) {
     const target = def.on_exhausted ?? 'escalate';
     ctx.emit('StepExhausted', { step, visits, target });
@@ -393,8 +408,7 @@ function goTarget(ctx: Ctx, from: string, target: string, outcome: string, body?
       enterStep(ctx, from, { step: from, outcome }, 'retry');
       return;
     case 'fail':
-      closeOut(ctx);
-      ctx.emit('TaskFailed', { reason: `${from}:${outcome}` });
+      failTask(ctx, `${from}:${outcome}`);
       return;
     case 'cancel':
       requestCancel(ctx, `${from}:${outcome}`);
@@ -733,6 +747,90 @@ function finish(ctx: Ctx, reason: string): void {
 }
 
 /**
+ * Ends the task when no automatic way forward is left, instead of a wait only a person could clear
+ * (issues #245, #247). The slot is released; an open PR stays as it is, a draft until it was approved.
+ */
+export function failTask(ctx: Ctx, reason: string): void {
+  closeOut(ctx);
+  ctx.emit('TaskFailed', { reason });
+}
+
+/**
+ * Ends a task that ran out of ways forward, but first puts its work where a person sees it: a task
+ * of an execution mode without a PR commits what its worktree holds and opens it as a draft PR, then
+ * fails with the reason and the outcome (#247). With a PR already open it fails at once, keeping it.
+ */
+export function failWithDraft(ctx: Ctx, reason: string): void {
+  const s = ctx.state;
+  if (
+    s.run.mode === null ||
+    s.runtime_ref === null ||
+    s.pr_ref !== null ||
+    s.base_sha === null ||
+    s.cancellation !== null ||
+    s.run.salvage !== undefined
+  )
+    return failTask(ctx, reason);
+  // Past the deadline no business effect is claimed, so the salvage could never run.
+  if (pastDeadline(ctx)) return failTask(ctx, `${reason} (no draft PR: deadline passed)`);
+  ctx.emit('FailureSalvageStarted', { reason });
+  ensureRunning(ctx, 'salvage');
+  requestEffect(ctx, {
+    kind: 'publish',
+    logical_id: `${s.id}#salvage`,
+    step: s.current_step ?? ctx.frozen.workflow.start,
+    request: { salvage: { reason, title: s.task.title } },
+  });
+}
+
+/**
+ * The deadline passed during a salvage. One not started yet would never be claimed: the task fails
+ * now. One already running or being reconciled still ends the task when its outcome is known, so a PR
+ * it opened is linked. Returns whether a salvage was under way.
+ */
+export function salvageAtDeadline(ctx: Ctx): boolean {
+  if (ctx.state.run.salvage === undefined || isTerminal(ctx.state.status)) return false;
+  const open = Object.values(ctx.state.effects).find(
+    (e) => e.kind === 'publish' && ['pending', 'started', 'unknown'].includes(e.status),
+  );
+  if (open === undefined || open.status === 'pending')
+    finishSalvage(ctx, { detail: 'deadline passed' });
+  return true;
+}
+
+/**
+ * Run after every decision: a salvage always ends the task. Once nothing of it is pending, running or
+ * being reconciled (a reconcile that did not queue it again), or once it is back in the queue past the
+ * deadline where no claim takes it, the task fails now, never left running without a way to end.
+ */
+export function settleSalvage(ctx: Ctx): void {
+  const s = ctx.state;
+  if (s.run.salvage === undefined || isTerminal(s.status) || s.cancellation !== null) return;
+  const open = Object.values(s.effects).find(
+    (e) => e.kind === 'publish' && ['pending', 'started', 'unknown'].includes(e.status),
+  );
+  if (open === undefined) return finishSalvage(ctx, { detail: 'the salvage did not run' });
+  if (open.status === 'pending' && pastDeadline(ctx))
+    finishSalvage(ctx, { detail: 'deadline passed' });
+}
+
+/** Nothing else publishes once a failing task started its salvage, so its publish is that one. */
+function isSalvage(ctx: Ctx, e: EffectMirror): boolean {
+  return e.kind === 'publish' && ctx.state.run.salvage !== undefined;
+}
+
+function finishSalvage(ctx: Ctx, outcome: { pr_ref?: string; detail?: string }): void {
+  if (isTerminal(ctx.state.status)) return;
+  const reason = ctx.state.run.salvage?.reason ?? 'failed';
+  failTask(
+    ctx,
+    outcome.pr_ref === undefined
+      ? `${reason} (no draft PR: ${outcome.detail ?? 'unknown'})`
+      : `${reason} (draft PR ${outcome.pr_ref})`,
+  );
+}
+
+/**
  * Cancel timers and invalidate all pending effects, including service effects, before ending the
  * task.
  */
@@ -818,10 +916,8 @@ export function startAttempt(ctx: Ctx, step: string, kind: AttemptKind): void {
     !confirmedChoices(s, sp.role).some((c) => sameChoice(c, rung.binding))
   ) {
     if (minor) return dropMinorFix(ctx, step);
-    return waitPolicy(ctx, 'run_config_unconfirmed', again, {
-      step,
-      binding: bindingName(rung.binding),
-    });
+    // The confirmation cannot be given again once the task started, so this is the end of its ladder.
+    return failWithDraft(ctx, `run_config_unconfirmed:${step}:${bindingName(rung.binding)}`);
   }
   applyRaise(ctx, step, sp, choice);
 
@@ -831,7 +927,7 @@ export function startAttempt(ctx: Ctx, step: string, kind: AttemptKind): void {
     baseUpdate.certificate === undefined &&
     step === conflictFixStep(ctx, baseUpdate);
   if (baseFix && baseUpdate?.fixer_attempt_id !== undefined)
-    return waitBaseRepair(ctx, 'single conflict fixer attempt already used');
+    return waitBaseRepair(ctx, 'single conflict fixer attempt already used', BASE_REPAIR_WAIT_MS);
   const attemptId = ctx.nextId();
   if (baseFix && baseUpdate !== undefined)
     ctx.emit('BaseUpdateRecorded', {
@@ -1330,7 +1426,7 @@ function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
           update: { ...baseUpdate, conflict: d.base_conflict },
         });
         if (baseUpdate.fixer_attempt_id !== undefined)
-          return waitBaseRepair(ctx, 'conflict returned after the single fixer attempt');
+          return retryBaseFixer(ctx, 'conflict returned after the single fixer attempt');
         // In a review/fix round the review fixer takes the conflict with the review's findings.
         if (baseUpdate.fix_step !== undefined)
           return proceed(ctx, { kind: 'enter_step', step: baseUpdate.fix_step });
@@ -1397,7 +1493,7 @@ function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
               baseUpdate.manual_resolution === undefined) ||
             scope.tree !== d.checkpoint.tree)
         )
-          return waitBaseRepair(ctx, 'conflict resolution is not verified');
+          return retryBaseFixer(ctx, 'conflict resolution is not verified');
         const outside = scope?.outside_files ?? [];
         ctx.emit('BaseUpdateRecorded', {
           update: {
@@ -1451,6 +1547,11 @@ function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
       const d = PublishDataSchema.parse(data);
       ctx.emit('PublishRecorded', { head_sha: d.head_sha });
       ctx.emit('BaseRelationRecorded', { relation: d.base_relation });
+      if (isSalvage(ctx, e))
+        return finishSalvage(
+          ctx,
+          d.pr_ref === undefined ? { detail: 'no PR' } : { pr_ref: d.pr_ref },
+        );
       proceed(ctx, { kind: 'route', step: step as string, outcome: 'ok' });
       return;
     }
@@ -1711,6 +1812,16 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
     });
   }
   if (afterAttempt(ctx, e)) return;
+  // The required context alone is past the budget: no answer or retry makes the packet smaller, so the
+  // task ends with the reason (#247). The optional parts were already dropped.
+  if (
+    !('verdict' in d) &&
+    d.invoked === false &&
+    d.missing?.includes('context_budget') === true &&
+    ctx.state.cancellation === null &&
+    !isMinorStep(stepDef(ctx, step))
+  )
+    return failWithDraft(ctx, `context_budget:${step}`);
   const baseUpdate = ctx.state.run.base_update;
   if (
     !('verdict' in d) &&
@@ -1723,7 +1834,7 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
       d.base_repair.unresolved ||
       d.base_repair.tree !== d.worktree_tree
     )
-      return waitBaseRepair(ctx, 'single conflict fixer attempt did not resolve the conflict');
+      return retryBaseFixer(ctx, 'single conflict fixer attempt did not resolve the conflict');
     ctx.emit('BaseUpdateRecorded', {
       update: { ...baseUpdate, scope: d.base_repair },
     });
@@ -1741,7 +1852,7 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
       d.base_repair.unresolved ||
       d.base_repair.tree !== d.worktree_tree
     )
-      return waitBaseRepair(ctx, 'gate fixer left the merge conflict unresolved');
+      return retryBaseFixer(ctx, 'gate fixer left the merge conflict unresolved');
     ctx.emit('BaseUpdateRecorded', {
       update: { ...baseUpdate, scope: d.base_repair },
     });
@@ -1802,9 +1913,8 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
         ctx,
         'review rejected changes outside conflict files; conflict fixer attempt already used',
       );
-    // The fixer left these files alone after the last review asked for them: a stronger model would not
-    // change that, a person decides (the finding may be out of scope, or wrong). The answer routes the
-    // verdict on as usual, so the review is posted then, on its way to the fixer.
+    // The fixer left these files alone after the last review asked for them: it is told so, and the
+    // verdict routes on as usual, so the review is posted on its way to the fixer.
     if (repeated.length > 0) {
       waitReviewRepeated(
         ctx,
@@ -1918,6 +2028,8 @@ export function onEffectFailed(
 ): void {
   resumeIfWaitingOn(ctx, e);
   const s = ctx.state;
+  if (isSalvage(ctx, e) && s.cancellation === null)
+    return finishSalvage(ctx, { detail: f.message ?? f.failure_class });
   const step = e.step;
   const agent = e.kind === 'start_agent';
   if (agent && !budgetSettled) {
@@ -1980,7 +2092,7 @@ export function onEffectFailed(
     s.run.base_update.certificate === undefined &&
     s.cancellation === null
   )
-    return waitBaseRepair(ctx, 'single conflict fixer attempt failed');
+    return retryBaseFixer(ctx, 'single conflict fixer attempt failed');
   if (
     !agent &&
     e.kind === 'run_gates' &&
@@ -2056,9 +2168,10 @@ function modeReview(ctx: Ctx): boolean {
 
 /**
  * Before the review of a fix round: when the commits since the last rejecting review touched none of
- * the files it blocked on, the fix went around the findings (only tests, say). A person decides before
- * a reviewer run is spent on it; the answer routes the gate pass on to the review (#168). Returns true
- * when the task now waits. Unknown changed files never block.
+ * the files it blocked on, the fix went around the findings (only tests, say). No reviewer run is spent
+ * on it and no person is asked: the round counts against the fixer, which runs again with a note naming
+ * those files (#168, #247). Returns true when the task went back to the fixer. Unknown changed files
+ * never block.
  */
 function fixLeftFindings(
   ctx: Ctx,
@@ -2068,6 +2181,8 @@ function fixLeftFindings(
 ): boolean {
   // In `full-review` the committing gate step leads on, through publish, to the review.
   if (!modeReview(ctx) || changed === undefined || !commitsCheckpoint(ctx, step)) return false;
+  const fixer = ctx.state.last_fix_step;
+  if (fixer === null) return false;
   const prior = ctx.state.run.reviews
     .filter((r) => r.valid && r.revision === ctx.state.revision)
     .at(-1);
@@ -2078,25 +2193,34 @@ function fixLeftFindings(
   const files = [...new Set(findings.map((f) => f.file as string))].sort();
   const touched = new Set(changed.paths);
   if (files.length === 0 || files.some((f) => touched.has(f))) return false;
-  askHuman(ctx, 'fix_no_src_change', {
+  recordCheckFailure(ctx, prior.signature);
+  answerForFixer(ctx, 'fix_no_src_change', {
     step,
     attempt_id: null,
     body: [
       'The fix since the last review changed none of the files its blocking findings are in:',
-      ...findings.map(
-        (f) =>
-          `- ${f.severity} ${f.file ?? ''}${f.line === undefined ? '' : `:${f.line}`}: ${f.msg}`,
-      ),
+      ...findings.map(findingLine),
       `Changed: ${changed.paths.length === 0 ? '(nothing)' : changed.paths.join(', ')}`,
-      'Answer to send the change to review as it is (for example, why the findings no longer apply), or cancel the task.',
     ].join('\n'),
-    resume: { kind: 'route', step, outcome: 'pass' },
+    answer: FIXER_NOTE,
+    resume: { kind: 'enter_step', step: fixer },
     detail: { step, files },
   });
   return true;
 }
 
-/** Stops a review/fix round that made no progress; the answer routes the rejection on as usual. */
+const findingLine = (f: ReviewEvidence['findings'][number]): string =>
+  `- ${f.severity} ${f.file ?? ''}${f.line === undefined ? '' : `:${f.line}`}: ${f.msg}`;
+
+/** What the fixer is told when it left the review's findings alone; no person was asked. */
+const FIXER_NOTE =
+  'No person was asked: the engine answered. The review blocks on these files and the last fix did not change them. Fix each finding in the file it names. If a finding is wrong or out of scope, leave it and say why in your summary instead of changing other files.';
+
+/**
+ * A review/fix round that made no progress goes on to the fixer with a note naming the files it left
+ * alone, never to a person (#247). The fixer gets one turn at its rung for it; repeating then raises
+ * the rung, and past the ladder the task fails.
+ */
 function waitReviewRepeated(
   ctx: Ctx,
   step: string,
@@ -2105,17 +2229,11 @@ function waitReviewRepeated(
   findings: readonly ReviewEvidence['findings'][number][],
   files: readonly string[],
 ): void {
-  askHuman(ctx, 'review_repeated', {
+  answerForFixer(ctx, 'review_repeated', {
     step,
     attempt_id: attemptId,
-    body: [
-      lead,
-      ...findings.map(
-        (f) =>
-          `- ${f.severity} ${f.file ?? ''}${f.line === undefined ? '' : `:${f.line}`}: ${f.msg}`,
-      ),
-      'Answer to send the review to the fixer with your answer (for example, what is in or out of scope), or cancel the task.',
-    ].join('\n'),
+    body: [lead, ...findings.map(findingLine)].join('\n'),
+    answer: FIXER_NOTE,
     resume: { kind: 'route', step, outcome: 'request_changes' },
     detail: { step, files },
   });
@@ -2124,7 +2242,7 @@ function waitReviewRepeated(
 /**
  * Before calling the reviewer: an unchanged review input of this revision reuses the recorded verdict
  * (M03). An approval routes on without a reviewer run. A reused rejection means the fix round moved
- * nothing the review reads, so it counts against the fixer and waits for a person before another one.
+ * nothing the review reads, so it counts against the fixer, which is told so before another round.
  */
 function reuseReview(ctx: Ctx, step: string): boolean {
   if (!modeReview(ctx)) return false;
@@ -2179,25 +2297,79 @@ function publishRequest(ctx: Ctx, visit: number): Record<string, unknown> {
 function onGateTree(ctx: Ctx, e: EffectMirror, d: z.infer<typeof GateDataSchema>): boolean {
   if (ctx.state.run.mode === null) return false;
   const step = e.step as string;
+  // A new visit: the same visit's run_gates effect is already settled and would not run again.
+  const again: ResumeAction = {
+    kind: 'enter_step',
+    step,
+    ...(e.base_update === undefined ? {} : { base_update: e.base_update }),
+  };
   if (d.stable === false) {
-    waitPolicy(
-      ctx,
-      'gate_tree_unstable',
-      { kind: 'run_step', step },
-      { step, tree: d.tree ?? null },
-    );
+    onUnstableGates(ctx, e, d, again);
     return true;
   }
   if (d.checkpoint !== undefined && d.checkpoint.tree !== d.tree) {
-    waitPolicy(
-      ctx,
-      'worktree_changed',
-      { kind: 'run_step', step },
-      { step, gate_tree: d.tree ?? null, checkpoint_tree: d.checkpoint.tree },
-    );
+    // `recheck worktree` takes the committed tree as the task's and runs the gates again on it.
+    waitPolicy(ctx, 'worktree_changed', again, {
+      step,
+      known: d.tree ?? ctx.state.run.worktree_tree ?? '',
+      observed: d.checkpoint.tree,
+      gate_tree: d.tree ?? null,
+      checkpoint_tree: d.checkpoint.tree,
+    });
     return true;
   }
   return false;
+}
+
+const UNSTABLE_TREE = 'gate_tree_unstable';
+
+/**
+ * Gates that left the tree moving (a formatter or generator whose output the run could not settle on):
+ * they run once more on the tree they left, which a passing run then commits. Moving again, it is a
+ * quality failure the gate fixer gets with the reason, never a wait (#245).
+ */
+function onUnstableGates(
+  ctx: Ctx,
+  e: EffectMirror,
+  d: z.infer<typeof GateDataSchema>,
+  again: ResumeAction,
+): void {
+  const s = ctx.state;
+  const step = e.step as string;
+  const visit = visitOf(ctx, step);
+  const prev = s.evidence.gates.filter((g) => g.valid && g.revision === s.revision).at(-1);
+  const repeated =
+    prev?.step === step && prev.visit === visit - 1 && prev.signature === UNSTABLE_TREE;
+  ctx.emit('GateResultRecorded', {
+    step,
+    visit,
+    effect_id: e.id,
+    results: [
+      ...d.results,
+      {
+        gate: 'tree_stability',
+        passed: false,
+        signature: UNSTABLE_TREE,
+        log_excerpt:
+          'The gate commands kept changing the working tree, so no run settled on one tree to commit. Make the generated or formatted output deterministic (or commit it) so a second run of the gates leaves the tree as it is.',
+      },
+    ],
+    passed: false,
+    signature: UNSTABLE_TREE,
+    resets_streak_of: null,
+  });
+  if (!repeated) return proceed(ctx, again, 'gate_tree_unstable');
+  recordCheckFailure(ctx, UNSTABLE_TREE);
+  // The tree the gates left is the task's own: the fixer starts from it, and a change made after it
+  // by someone else is still caught by the fixer's own worktree check.
+  if (d.tree !== undefined && d.tree !== ctx.state.run.worktree_tree)
+    ctx.emit('WorktreeChangeAccepted', {
+      tree: d.tree,
+      previous: ctx.state.run.worktree_tree ?? '',
+      by: AUTO_ACTOR,
+      at: ctx.now,
+    });
+  proceed(ctx, { kind: 'route', step, outcome: 'fail' });
 }
 
 /** The gate step whose pass leads to review or publish ends with the checkpoint commit in a mode task. */
@@ -2373,12 +2545,44 @@ function updateBaseBeforeReviewFix(
 }
 
 /** A bounded operator decision, using the existing public question/answer path. */
-export function waitBaseRepair(ctx: Ctx, reason: string): void {
-  askHuman(ctx, 'refused', {
+/** How long a base repair question waits for a person after the automatic retry, before the task fails. */
+export const BASE_REPAIR_WAIT_MS = 12 * 3_600_000;
+
+/**
+ * The conflict fixer did not get the base update through. Its one automatic second attempt runs first
+ * (lockfiles and generated files are regenerated by it, see the conflict packet). Failing again, a
+ * person may still repair it by hand, but only for {@link BASE_REPAIR_WAIT_MS}: then the task fails
+ * with the reason instead of holding on (#247). Without a used conflict fixer the usual question stands.
+ */
+function retryBaseFixer(ctx: Ctx, reason: string): void {
+  const u = ctx.state.run.base_update;
+  if (u?.conflict === undefined || u.fixer_attempt_id === undefined || u.certificate !== undefined)
+    return waitBaseRepair(ctx, reason);
+  if (u.auto_retried === true || conflictFixStep(ctx, u) === undefined)
+    return waitBaseRepair(ctx, reason, BASE_REPAIR_WAIT_MS);
+  ctx.emit('BaseUpdateRecorded', { update: { ...u, auto_retried: true } });
+  proceed(ctx, { kind: 'repair_base', mode: 'retry_fixer' }, 'base_conflict_retry');
+}
+
+export function waitBaseRepair(ctx: Ctx, reason: string, timeoutMs?: number): void {
+  const due = timeoutMs === undefined ? undefined : ctx.now + timeoutMs;
+  const qid = askHuman(ctx, 'refused', {
     step: ctx.state.current_step,
     attempt_id: null,
-    body: `${reason}. Inspect the task worktree and resolve conflicts (or revert changes outside conflict files), then answer exactly "continue" to rerun gates and publish. For markerless conflicts, "continue" explicitly confirms the selected file versions. Answer exactly "retry fixer" to authorize another worker attempt instead. No automatic retry or budget/deadline reset.`,
+    body: `${reason}. Inspect the task worktree and resolve conflicts (or revert changes outside conflict files), then answer exactly "continue" to rerun gates and publish. For markerless conflicts, "continue" explicitly confirms the selected file versions. Answer exactly "retry fixer" to authorize another worker attempt instead. No automatic retry or budget/deadline reset.${due === undefined ? '' : ' Unanswered by the due time, the task fails.'}`,
     resume: { kind: 'repair_base', mode: 'manual' },
-    detail: { reason, files: ctx.state.run.base_update?.conflict?.files ?? [] },
+    detail: {
+      reason,
+      files: ctx.state.run.base_update?.conflict?.files ?? [],
+      ...(due === undefined ? {} : { due_at: due }),
+    },
   });
+  // Bound to the question, not to the wait: a deadline or a source drift may hide it meanwhile.
+  if (due !== undefined)
+    ctx.emit('TimerArmed', {
+      timer_id: ctx.nextId(),
+      kind: 'wait_timeout',
+      due_at: due,
+      payload: { reason: `base_conflict_unresolved: ${reason}`, question_id: qid },
+    });
 }

@@ -1988,7 +1988,7 @@ describe('harness login expired (#97)', () => {
     expect(again).toMatchObject({ ok: true, value: { items: [{ code: 'harness_auth' }] } });
   });
 
-  it('a step out of visits only on infrastructure failures gets them back on recheck', () => {
+  it('a step out of visits only on infrastructure failures gets them back on its own (#247)', () => {
     const d = setup();
     const t = buildTask();
     createGrantStart(d, t, 'full-review', unlimited);
@@ -2000,23 +2000,12 @@ describe('harness login expired (#97)', () => {
       d.fire();
       grant(d);
     }
+    // The thirteenth visit starts instead of loop_exhausted, with the twelve lost visits given back.
     const s = d.task(t.id);
-    expect(s.wait?.detail).toMatchObject({
-      code: 'loop_exhausted',
-      step: 'code',
-      visits: 12,
-    });
-    expect(d.pending(t.id, 'start_agent')).toEqual([]);
-
-    d.must(t.id, { kind: 'recheck', target: 'visits' });
-    expect(d.task(t.id).visit_credits).toEqual({
-      code: { visits: 12, through: 12 },
-    });
-    // Back at once on the slot it kept reserved (FR-044.02).
-    expect(d.task(t.id).status).toBe('RUNNING');
-    const next = d.pendingOne(t.id, 'start_agent');
-    expect(stepOf(d, t, next)).toBe('code');
-    expect(d.task(t.id).step_visits['code']).toBe(13);
+    expect(s.visit_credits).toEqual({ code: { visits: 12, through: 12 } });
+    expect(s.status).toBe('RUNNING');
+    expect(stepOf(d, t, d.pendingOne(t.id, 'start_agent'))).toBe('code');
+    expect(s.step_visits['code']).toBe(13);
     // Nothing is left to credit: the same attempts are never counted twice.
     expect(d.send(t.id, { kind: 'recheck', target: 'visits' })).toMatchObject({
       ok: true,
