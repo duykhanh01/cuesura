@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { FakeHarness, type FakeScript } from '../../../src/adapters/harness/fake.ts';
-import type { Clock, HarnessPort } from '../../../src/adapters/ports.ts';
+import type { Clock, HarnessOutcome, HarnessPort } from '../../../src/adapters/ports.ts';
 import {
   createDecider,
   DECIDER_ACTOR,
@@ -14,8 +14,10 @@ import { Redactor } from '../../../src/runner/redact.ts';
 import type { EpochMs } from '../../../src/shared/brand.ts';
 import { hashCanonical } from '../../../src/shared/hash.ts';
 import { openFileStoreForTest } from '../../../src/store/testing.ts';
-import { buildTask, uuidOf } from '../../support/builders.ts';
+import { authz, buildTask, uuidOf } from '../../support/builders.ts';
 import { createGrantStart } from '../../support/runtime.ts';
+import { callerFor, type Caller } from '../../../src/application/authz.ts';
+import { inbox } from '../../../src/application/inbox.ts';
 import { agentData, PREPARE_DATA } from '../../support/scenario.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 import { dbPath, useTempDir } from '../../support/temp-db.ts';
@@ -387,6 +389,163 @@ describe('the decider answers for an absent owner', () => {
     expect(d.task(t.id).budget.agent_runs).toMatchObject({ limit: 1, used: 1 });
     expect(questions(d, t.id)[0]?.status).toBe('open');
     expect(readdirSync(join(dir, 'decider'))).toEqual([]);
+  });
+
+  it('leaves the question to the person when only the worker run it resumes is left (issue #266)', async () => {
+    const { d, t } = waiting([], { max_agent_runs: 2 });
+    expect(d.task(t.id).budget.agent_runs).toMatchObject({ limit: 2, used: 1 });
+    const h = fake([decision('UTF-8')]);
+    const lines: string[] = [];
+    const one = decider(d, h, SETTING, { log: (l) => lines.push(l) });
+    await one.round();
+
+    expect(h.calls).toEqual([]);
+    expect(lines.join()).toContain('no_agent_runs_left');
+    expect(one.holds(d.task(t.id))).toBe(false);
+    expect(d.task(t.id).budget.agent_runs).toMatchObject({ limit: 2, used: 1, reserved: 0 });
+    // The person's answer still has the worker's run.
+    d.must(t.id, {
+      kind: 'answer',
+      question_id: questions(d, t.id)[0]?.id as never,
+      answer: 'UTF-8',
+    });
+    grant(d);
+    expect(d.pendingOne(t.id, 'start_agent')).toBeDefined();
+  });
+
+  it('does not run on a paused task (issue #266)', async () => {
+    const { d, t } = waiting();
+    d.must(
+      t.id,
+      { kind: 'pause', reason: 'upgrade cuesura' },
+      { authz: authz(['operate'], 'owner') },
+    );
+    const before = d.task(t.id).budget.agent_runs;
+    const h = fake([decision('UTF-8')]);
+    const one = decider(d, h);
+    await one.round();
+
+    expect(h.calls).toEqual([]);
+    expect(one.holds(d.task(t.id))).toBe(false);
+    expect(d.task(t.id).budget.agent_runs).toEqual(before);
+    expect(questions(d, t.id)[0]?.status).toBe('open');
+  });
+
+  it('shows a held question in the inbox, stops the run when a person answers and gives the run back (issue #266)', async () => {
+    const { d, t } = waiting();
+    const before = d.task(t.id).budget.agent_runs;
+    const caller = callerFor('assistant') as Caller;
+    let started: () => void = () => undefined;
+    const running = new Promise<void>((r) => (started = r));
+    let stopped = false;
+    const inner = fake([]);
+    const h: HarnessPort = {
+      harness: inner.harness,
+      manifest: inner.manifest,
+      run: (_input, signal) =>
+        new Promise<HarnessOutcome>((resolve) => {
+          started();
+          signal.addEventListener('abort', () => {
+            stopped = true;
+            resolve({
+              kind: 'failure',
+              role: 'decider',
+              usage: { basis: 'unavailable' },
+              session_ref: null,
+              permission_denials: [],
+              failure: 'cancelled',
+              detail: 'stopped',
+              reset_at: null,
+              invoked: true,
+            });
+          });
+        }),
+    };
+    const one = decider(d, h);
+    const round = one.round();
+    await running;
+
+    const listed = inbox(d.store, caller, {}, one);
+    expect(listed.ok && listed.value.items).toMatchObject([{ blocking: true, decider: true }]);
+    expect(d.task(t.id).budget.agent_runs.reserved).toBe(before.reserved + 1);
+
+    d.must(t.id, {
+      kind: 'answer',
+      question_id: questions(d, t.id)[0]?.id as never,
+      answer: 'Latin-1',
+    });
+    await one.recheck(t.id);
+    await round;
+
+    expect(stopped).toBe(true);
+    expect(questions(d, t.id)[0]).toMatchObject({ answer: 'Latin-1' });
+    const runs = Object.values(d.task(t.id).decider_runs ?? {});
+    expect(runs).toMatchObject([{ applied: false }]);
+    expect(d.task(t.id).budget.agent_runs).toMatchObject({ used: before.used });
+  });
+
+  it.each(['answer', 'pause'] as const)(
+    'stops a run an earlier daemon left once a person overtakes it (%s), and gives the run back',
+    async (by) => {
+      const { d, t } = waiting();
+      const before = d.task(t.id).budget.agent_runs;
+      const inner = fake([]);
+      let stops = 0;
+      // A launched run whose runner outlives the daemon: no exit record is ever readable here.
+      const h: HarnessPort = {
+        harness: inner.harness,
+        manifest: inner.manifest,
+        run: () => Promise.reject(new InvocationUnknown('runner still active')),
+        recover: () => {
+          throw new InvocationUnknown('no exit record');
+        },
+        started: () => true,
+        stop: () => {
+          stops += 1;
+          return Promise.resolve('stopped');
+        },
+      };
+      await decider(d, h).round();
+      const restarted = decider(d, h);
+      await restarted.round();
+      expect(d.task(t.id).budget.agent_runs.reserved).toBe(before.reserved + 1);
+      expect(stops).toBe(0);
+
+      if (by === 'answer')
+        d.must(t.id, {
+          kind: 'answer',
+          question_id: questions(d, t.id)[0]?.id as never,
+          answer: 'Latin-1',
+        });
+      else
+        d.must(t.id, { kind: 'pause', reason: 'upgrade' }, { authz: authz(['operate'], 'owner') });
+      await restarted.recheck(t.id);
+
+      expect(stops).toBe(1);
+      const runs = Object.entries(d.task(t.id).decider_runs ?? {});
+      expect(runs.map(([, run]) => run)).toMatchObject([
+        { applied: false, failure: expect.stringContaining('cancelled') as unknown },
+      ]);
+      expect(d.task(t.id).budget.reservations[runs[0]?.[0] ?? '']?.status).toBe('released');
+      expect(d.task(t.id).budget.agent_runs.used).toBe(before.used);
+      expect(readdirSync(join(dir, 'decider'))).toEqual([]);
+    },
+  );
+
+  it('keeps running when a recheck finds its question still waiting', async () => {
+    const { d, t } = waiting();
+    const inner = fake([decision('UTF-8')]);
+    const one = decider(d, {
+      harness: inner.harness,
+      manifest: inner.manifest,
+      run: (input, signal) => {
+        void one.recheck(t.id);
+        expect(signal.aborted).toBe(false);
+        return inner.run(input, signal);
+      },
+    });
+    await one.round();
+    expect(questions(d, t.id)[0]?.answered_by).toBe(DECIDER_ACTOR);
   });
 
   it('does not run or hold an agent run once the frozen task deadline has passed', async () => {

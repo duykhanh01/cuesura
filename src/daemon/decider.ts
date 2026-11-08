@@ -16,7 +16,8 @@
  * A run that fails leaves the question open and is not tried again until the daemon restarts.
  *
  * While the decider may still answer a question, `holds` says so, and the assistant is not woken for it;
- * a question the decider gives up on goes to the person.
+ * a question the decider gives up on goes to the person. A run whose question a person overtook (answer,
+ * cancel, pause) is stopped by `recheck` and gives its agent run back. A paused task gets no run.
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
@@ -89,6 +90,7 @@ export function deciderQuestion(s: TaskState): InboxItem | null {
     s.cancellation !== null ||
     s.completion !== null ||
     s.runtime_ref === null ||
+    (s.pause ?? null) !== null ||
     !WORKER_WAITS.includes(s.wait?.detail.code ?? '')
   )
     return null;
@@ -108,6 +110,11 @@ export type Decider = {
   holds(s: TaskState): boolean;
   /** Changes whenever `holds` may answer otherwise without a new event in the log. */
   version(): number;
+  /**
+   * Stops this task's runs whose question no longer waits for the decider, e.g. a person answered it.
+   * Settles once the runs an earlier daemon left are stopped and concluded.
+   */
+  recheck(taskId: string): Promise<void>;
   /** Stops the runs in progress; their questions stay open for the next daemon. */
   abort(): void;
 };
@@ -129,7 +136,8 @@ export function createDecider(deps: DeciderDeps): Decider {
     on = setting !== null;
     version += 1;
   };
-  const active = new Set<string>();
+  /** Runs in progress by question, with the task and the signal that stops only that run. */
+  const active = new Map<string, { taskId: string; controller: AbortController }>();
   const nextAdopt = new Map<string, number>();
   const unknownLogged = new Set<string>();
   const controller = new AbortController();
@@ -243,14 +251,19 @@ export function createDecider(deps: DeciderDeps): Decider {
 
   const execute = async (
     record: RunRecord,
-    outcome: () => Promise<HarnessOutcome> | HarnessOutcome,
+    outcome: (signal: AbortSignal) => Promise<HarnessOutcome> | HarnessOutcome,
   ): Promise<void> => {
-    active.add(record.question_id);
+    const run = new AbortController();
+    const stop = (): void => run.abort();
+    controller.signal.addEventListener('abort', stop, { once: true });
+    if (controller.signal.aborted) run.abort();
+    active.set(record.question_id, { taskId: record.task_id, controller: run });
     try {
-      await conclude(record, await outcome());
+      await conclude(record, await outcome(run.signal));
       forget(record);
     } finally {
       active.delete(record.question_id);
+      controller.signal.removeEventListener('abort', stop);
     }
   };
 
@@ -270,6 +283,15 @@ export function createDecider(deps: DeciderDeps): Decider {
     const harness = deps.harnesses[record.input.binding.harness];
     if (harness === undefined)
       throw new InvocationUnknown(`no harness ${record.input.binding.harness}`);
+    const task = deps.store.readTask(record.task_id as Uuid);
+    if (
+      harness.started?.(attempt) !== false &&
+      harness.stop !== undefined &&
+      (task === null || deciderQuestion(task)?.question_id !== record.question_id)
+    ) {
+      await stopOvertaken(record, harness);
+      return;
+    }
     if (harness.started?.(attempt) === false) {
       await execute(record, () => ({
         kind: 'failure',
@@ -286,13 +308,42 @@ export function createDecider(deps: DeciderDeps): Decider {
     }
     if ((await deps.setting()) !== null) {
       // A run this data dir already launched is concluded from disk; run() never launches it twice.
-      await execute(record, () => harness.run(record.input, controller.signal));
+      await execute(record, (signal) => harness.run(record.input, signal));
       return;
     }
     if (harness.recover === undefined)
       throw new InvocationUnknown('autonomous is off and this run cannot be recovered');
     const recover = harness.recover.bind(harness);
     await execute(record, () => recover(record.input));
+  };
+
+  /**
+   * A launched run this daemon does not wait on, whose question a person overtook: stopped by its
+   * operation, then concluded. Once the run is proven gone, an unreadable outcome is recorded as cancelled,
+   * so its agent run goes back instead of being held until the run's own timeout.
+   */
+  const stopOvertaken = async (record: RunRecord, harness: HarnessPort): Promise<void> => {
+    await execute(record, async () => {
+      const stopped = await harness.stop?.(record.input);
+      if (stopped === undefined || stopped === 'unknown')
+        throw new InvocationUnknown('stop outcome unknown');
+      try {
+        if (harness.recover !== undefined) return harness.recover(record.input);
+      } catch {
+        // Gone without a readable record: concluded below.
+      }
+      return {
+        kind: 'failure',
+        role: 'decider',
+        usage: { basis: 'unavailable' },
+        session_ref: null,
+        permission_denials: [],
+        failure: 'cancelled',
+        detail: 'stopped after a person overtook the question',
+        reset_at: null,
+        invoked: true,
+      };
+    });
   };
 
   const adopt = async (): Promise<void> => {
@@ -434,7 +485,7 @@ export function createDecider(deps: DeciderDeps): Decider {
       return;
     }
     try {
-      await execute(record, () => harness.run(record.input, controller.signal));
+      await execute(record, (signal) => harness.run(record.input, signal));
     } catch (e) {
       // Kept on disk: the next rounds conclude this same run.
       log(`task ${s.id}: ${e instanceof Error ? e.message : String(e)}`);
@@ -489,6 +540,33 @@ export function createDecider(deps: DeciderDeps): Decider {
     },
     version() {
       return version;
+    },
+    async recheck(taskId) {
+      const s = deps.store.readTask(taskId as Uuid);
+      const q = s === null ? null : deciderQuestion(s);
+      for (const [qid, run] of active)
+        if (run.taskId === taskId && q?.question_id !== qid) run.controller.abort();
+      // Runs left by an earlier daemon, which no signal here reaches.
+      if (!existsSync(deps.recordsDir)) return;
+      const stops: Promise<void>[] = [];
+      for (const name of readdirSync(deps.recordsDir)) {
+        const qid = name.slice(0, -'.json'.length);
+        if (!name.endsWith('.json') || active.has(qid) || q?.question_id === qid) continue;
+        let record: RunRecord;
+        try {
+          record = JSON.parse(readFileSync(join(deps.recordsDir, name), 'utf8')) as RunRecord;
+        } catch {
+          continue;
+        }
+        if (record.task_id !== taskId) continue;
+        stops.push(
+          adoptOne(record).catch((e: unknown) => {
+            nextAdopt.set(qid, deps.clock.now() + ADOPT_RECHECK_MS);
+            log(`question ${qid}: not stopped yet: ${e instanceof Error ? e.message : String(e)}`);
+          }),
+        );
+      }
+      await Promise.all(stops);
     },
     abort() {
       controller.abort();

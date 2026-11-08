@@ -331,7 +331,8 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 ```sh
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr inbox --task "$TASK_ID" --json
-# QUESTION_ID and current task_version come from the inbox item.
+# QUESTION_ID and current task_version come from the inbox item. An item with
+# `decider: true` is being answered by the decider; answer it only if the user wants to.
 # Supply the user's answer or known facts; unresolved decisions go to the user.
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr answer "$QUESTION_ID" --file "$ANSWER_FILE" \

@@ -72,6 +72,7 @@ import {
   type ProcessPort,
   type RunIngest,
   type SandboxProvider,
+  type StopOutcome,
 } from '../adapters/ports.ts';
 import { collectArtifacts } from './artifacts.ts';
 import type { EpochMs, Hash } from '../shared/brand.ts';
@@ -533,6 +534,10 @@ export class RunnerHarness implements HarnessPort {
         removeTmpDir(this.#tmpDir(run));
       }
     }
+  }
+
+  stop(input: HarnessInput): Promise<StopOutcome> {
+    return this.#o.process.stop(input.operation_id, input.limits ?? this.#o.limits);
   }
 
   started(attemptId: string): boolean {

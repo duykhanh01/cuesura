@@ -142,7 +142,11 @@ describe('cancel before and during an attempt (US5.3, FR-025.01/02)', () => {
     const pidFile = join(tempDir(), 'pids');
     const tree = spawn(
       '/bin/sh',
-      ['-c', `sleep 300 & a=$!; sleep 300 & b=$!; echo "$a $b" > ${pidFile}; wait`],
+      // Renamed into place: under load a reader can otherwise see the file before it is written.
+      [
+        '-c',
+        `sleep 300 & a=$!; sleep 300 & b=$!; echo "$a $b" > ${pidFile}.tmp; mv ${pidFile}.tmp ${pidFile}; wait`,
+      ],
       { detached: true, stdio: 'ignore' },
     );
     const pgid = tree.pid as number;
@@ -276,7 +280,11 @@ describe('cancel stops setup and gate processes (US5.3, FR-025.02)', () => {
     const pidFile = join(dataDir, 'pids');
     const tree = spawn(
       '/bin/sh',
-      ['-c', `sleep 300 & a=$!; sleep 300 & b=$!; echo "$a $b" > ${pidFile}; wait`],
+      // Renamed into place: under load a reader can otherwise see the file before it is written.
+      [
+        '-c',
+        `sleep 300 & a=$!; sleep 300 & b=$!; echo "$a $b" > ${pidFile}.tmp; mv ${pidFile}.tmp ${pidFile}; wait`,
+      ],
       {
         detached: true,
         stdio: 'ignore',

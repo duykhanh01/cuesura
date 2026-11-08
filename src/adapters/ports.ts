@@ -300,6 +300,8 @@ export interface HarnessPort {
   recover?(input: HarnessInput): HarnessOutcome;
   /** Whether this attempt got as far as a launch; false proves nothing was ever spawned for it. */
   started?(attemptId: string): boolean;
+  /** Stops a launched run of this operation that this process no longer waits on, e.g. after a restart. */
+  stop?(input: HarnessInput): Promise<StopOutcome>;
 }
 
 // ---- Git (orchestrator-side argv only; repo config/hooks/executables are not trusted) ----

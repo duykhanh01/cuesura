@@ -655,6 +655,40 @@ describe('inbox and answer (US6, FR-027.01)', () => {
   });
 });
 
+describe('a question the decider holds (issue #266)', () => {
+  it('is marked in the inbox, and a person answering it tells the decider to stop its run', async () => {
+    const rechecked: string[] = [];
+    const sd = daemon(() => ({
+      decider: {
+        holds: () => true,
+        version: () => 0,
+        recheck: (taskId) => {
+          rechecked.push(taskId);
+          return Promise.resolve();
+        },
+      },
+    }));
+    const t = buildTask();
+    sd.seed((d) => asking(d, t));
+    await sd.start();
+    const box = await cli(sd, ['inbox']);
+    const item = (box.envelope.data['items'] as Record<string, unknown>[])[0];
+    expect(item).toMatchObject({ task_id: t.id, blocking: true, decider: true });
+    const file = join(sd.base, 'answer.txt');
+    writeFileSync(file, 'UTF-8\n');
+    const answered = await cli(sd, [
+      'answer',
+      item?.['question_id'] as string,
+      '--file',
+      file,
+      '--expected-version',
+      String(item?.['task_version']),
+    ]);
+    expect(answered.code).toBe(ExitCode.ok);
+    expect(rechecked).toEqual([t.id]);
+  });
+});
+
 describe('explain from committed data (US6.1/7, FR-027.03–05, FR-029)', () => {
   it('separates the first slot wait from a resumed one; only the second counts against the deadline', async () => {
     const sd = daemon();

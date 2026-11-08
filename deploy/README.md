@@ -465,9 +465,12 @@ minh giờ tốn 4 lượt thay vì 3). Manifest cũ vẫn chạy được coder
 - **Ghi lại:** event `DeciderRan` lưu câu trả lời, lý do và usage trong cùng giao dịch với `QuestionAnswered`
   (`by: agent:decider`). `<data dir>/decisions.md` được sinh lại toàn bộ từ event nên không sửa tay; crash hoặc lỗi
   ghi file không để lại mục dở.
-- **Usage:** mỗi lượt giữ một reservation của `budget.agent_runs` trước khi khởi chạy. Task cũ có trần hoặc deadline đã
-  đóng băng mà hết lượt hoặc quá hạn thì decider không chạy, câu hỏi chờ người. Lượt chạy không vượt quá deadline của task. Lượt đã gọi model được tính, kể cả khi lỗi, và hiện trong
-  `decider_runs` của `task explain`. Lượt decider không phải attempt.
+- **Usage:** mỗi lượt giữ một reservation của `budget.agent_runs` trước khi khởi chạy. Decider chỉ chạy khi task còn ít
+  nhất 2 lượt: một cho decider, một cho worker được resume. Task có trần mà còn ít hơn 2 lượt, hoặc deadline đã đóng
+  băng đã quá hạn, thì decider không chạy (`no_agent_runs_left`, `task_deadline_passed` trong log), câu hỏi chờ người. Lượt chạy không vượt quá deadline của task. Lượt đã gọi model được tính, kể cả khi lỗi, và hiện trong
+  `decider_runs` của `task explain`. Ngoại lệ: lượt mà người đã trả lời, hủy hoặc pause task trong lúc chạy thì bị dừng
+  ngay và được trả lại lượt; usage vẫn ghi trong `decider_runs`. Lượt do daemon trước để lại cũng vậy: daemon mới
+  dừng runner theo operation, rồi đọc kết quả; runner đã dừng mà không có kết quả thì lượt được ghi là `cancelled`. Lượt decider không phải attempt.
 - **Tắt cờ:** daemon đọc lại cờ ngay trước khi nhận kết quả. Lượt đang chạy vẫn chạy hết và được tính usage, nhưng
   câu trả lời không được dùng và câu hỏi vẫn mở.
 - **Restart:** ID và input của lượt chạy nằm ở `<data dir>/decider/` trước khi khởi chạy. Daemon mới chờ runner cũ kết
@@ -475,6 +478,10 @@ minh giờ tốn 4 lượt thay vì 3). Manifest cũ vẫn chạy được coder
   cờ đã tắt. Không kết luận được thì log một lần và câu hỏi chờ người.
 - **Khi lỗi:** câu hỏi vẫn mở, lý do nằm trong log, không gọi lại câu đó cho tới lần restart daemon. Một lượt không
   khai `wall_timeout` dừng sau 30 phút. Người trả lời trước thì câu của người thắng.
+- **Pause:** decider không chạy trên task đang pause. Pause trong lúc decider đang chạy thì lượt đó bị dừng, câu hỏi
+  chờ người.
+- **Inbox:** câu hỏi decider đang hoặc sắp trả lời có `decider: true` trong `cusr inbox --json`. Người vẫn trả lời
+  được ngay.
 - **Đánh thức assistant:** khi cờ bật, câu hỏi decider sắp trả lời hoặc đang trả lời không đánh thức assistant. Assistant
   chỉ được báo khi decider bỏ câu đó: lượt lỗi, câu trả lời không được dùng, không khởi chạy được hoặc chưa kết luận
   được sau restart. Trong khoảng ngắn từ lúc daemon khởi động tới vòng decider đầu tiên đọc cờ, câu hỏi cũng chờ.

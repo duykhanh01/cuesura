@@ -65,8 +65,11 @@ export type TaskControlDeps = TaskServiceDeps & {
   readonly doctor?: Omit<DoctorDeps, 'store'>;
   /** Where the registered assistant session is kept; without it nothing can be registered. */
   readonly dataDir?: string;
-  /** Holds back from the assistant what the decider may still answer itself. */
-  readonly decider?: DeciderWatch;
+  /**
+   * Holds back from the assistant what the decider may still answer itself; marks it in the inbox, and
+   * is told after an answer, cancel or pause so a run the person overtook stops.
+   */
+  readonly decider?: DeciderWatch & { readonly recheck?: (taskId: string) => Promise<void> };
 };
 
 /** The explanation with what the branch touches and how it stands against its base (issue #210). */
@@ -161,6 +164,14 @@ export function taskControl(deps: TaskControlDeps): {
     ...(deps.dataDir === undefined ? {} : { dataDir: deps.dataDir }),
     ...(deps.decider === undefined ? {} : { decider: deps.decider }),
   });
+  const overtakes =
+    (handler: CommandHandler): CommandHandler =>
+    async (admitted, input, caller) => {
+      const r = await handler(admitted, input, caller);
+      if (r.ok && input.task_id !== null && input.task_id !== undefined)
+        void deps.decider?.recheck?.(input.task_id);
+      return r;
+    };
   return {
     commands: {
       task_add: async (admitted, input, caller) =>
@@ -169,15 +180,17 @@ export function taskControl(deps: TaskControlDeps): {
         withSlotBlock(scope, await taskConfirm(deps, admitted, input, caller)),
       task_propose_run: async (admitted, input, caller) =>
         withSlotBlock(scope, await taskProposeRun(deps, admitted, input, caller)),
-      answer: (admitted, input, caller) => answerQuestion(deps, admitted, input, caller),
-      task_cancel: (admitted, input, caller) => cancelTask(deps, admitted, input, caller),
+      answer: overtakes((admitted, input, caller) => answerQuestion(deps, admitted, input, caller)),
+      task_cancel: overtakes((admitted, input, caller) =>
+        cancelTask(deps, admitted, input, caller),
+      ),
       approve_escalation: (admitted, input, caller) =>
         approveEscalation(deps, admitted, input, caller),
       approve_adopt: (admitted, input, caller) =>
         approveAdopt(deps.confirm, admitted, input, caller),
       task_continue: (admitted, input, caller) => continueTask(deps, admitted, input, caller),
       task_amend_policy: (admitted, input, caller) => amendPolicy(deps, admitted, input, caller),
-      task_pause: (admitted, input, caller) => pauseTask(deps, admitted, input, caller),
+      task_pause: overtakes((admitted, input, caller) => pauseTask(deps, admitted, input, caller)),
       task_resume: (admitted, input, caller) => resumeTask(deps, admitted, input, caller),
       task_message: (admitted, input, caller) => messageTask(deps, admitted, input, caller),
       ...(deps.observe === undefined || deps.drain === undefined || deps.newId === undefined
@@ -187,7 +200,7 @@ export function taskControl(deps: TaskControlDeps): {
           }),
     },
     queries: {
-      inbox: (caller, body) => reply(inbox(store, caller, body)),
+      inbox: (caller, body) => reply(inbox(store, caller, body, deps.decider)),
       attention: (caller, body) => reply(attention.poll(caller, body)),
       attention_peek: (caller) => reply(attention.peek(caller)),
       assistant_register: (caller, body) => reply(attention.register(caller, body)),

@@ -11,6 +11,7 @@ import type { Uuid } from '../shared/brand.ts';
 import { available, consume, release, reserve } from './budget.ts';
 import { reject, type Ctx } from './context.ts';
 import { pastDeadline, proceed } from './interpreter.ts';
+import { isPaused } from './pause.ts';
 import { reachSafeBoundary } from './revision.ts';
 import { mkWait, waitPolicy, waitTask } from './waits.ts';
 
@@ -137,22 +138,29 @@ function waitsOnWorker(s: TaskState, questionId: string): boolean {
   );
 }
 
-/** Holds one agent run for the decider before it spawns, under the same limits as any attempt. */
+/**
+ * Holds one agent run for the decider before it spawns, under the same limits as any attempt. It needs
+ * a second run left for the worker its answer resumes; otherwise the question is the person's (issue #266).
+ */
 export function onDeciderStart(ctx: Ctx, t: Extract<Trigger, { kind: 'decider_start' }>): void {
   if (!waitsOnWorker(ctx.state, t.question_id))
     reject('invalid_trigger', { reason: 'question_not_waiting' });
-  if (available(ctx.state.budget) < 1) reject('invalid_trigger', { reason: 'no_agent_runs_left' });
+  if (isPaused(ctx)) reject('invalid_trigger', { reason: 'task_paused' });
+  if (available(ctx.state.budget) < 2) reject('invalid_trigger', { reason: 'no_agent_runs_left' });
   if (pastDeadline(ctx)) reject('invalid_trigger', { reason: 'task_deadline_passed' });
   reserve(ctx, t.attempt_id, t.attempt_id);
 }
 
 /**
  * One decider run ended. Its usage and reason are recorded whatever happened, in the same accept as the
- * answer, and its reservation is settled like an attempt's. The answer applies only while the task still
- * waits on this worker question, so it can never override a person, a newer revision or a cancel.
+ * answer. The answer applies only while the task still waits on this worker question, so it can never
+ * override a person, a newer revision or a cancel. Its reservation is settled like an attempt's, except
+ * that a run a person overtook (answered, cancelled, paused) gives its agent run back: the run has ended,
+ * so nothing more can be spent under it, and the person's answer must not cost the worker its run.
  */
 export function onDeciderRan(ctx: Ctx, t: Extract<Trigger, { kind: 'decider_ran' }>): void {
-  const applied = t.apply && t.decision !== null && waitsOnWorker(ctx.state, t.question_id);
+  const still = waitsOnWorker(ctx.state, t.question_id) && !isPaused(ctx);
+  const applied = t.apply && t.decision !== null && still;
   ctx.emit('DeciderRan', {
     attempt_id: t.attempt_id,
     question_id: t.question_id,
@@ -164,7 +172,7 @@ export function onDeciderRan(ctx: Ctx, t: Extract<Trigger, { kind: 'decider_ran'
     applied,
     at: ctx.now,
   });
-  if (t.invoked) consume(ctx, t.attempt_id);
+  if (t.invoked && still) consume(ctx, t.attempt_id);
   else release(ctx, t.attempt_id);
   if (applied && t.decision !== null)
     onAnswer(

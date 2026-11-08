@@ -39,6 +39,8 @@ export type InboxItem = {
   readonly wait_code: string | null;
   /** The version an `answer` command must send as `expected_version`. */
   readonly task_version: number;
+  /** Set while the decider may still answer this question; a person's answer still wins. */
+  readonly decider?: true;
 };
 
 /** Open questions of one task in the order they were asked; questions of an older revision never show. */
@@ -65,6 +67,7 @@ export function inbox(
   store: Store,
   caller: Caller,
   body: Readonly<Record<string, unknown>>,
+  decider?: { readonly holds: (s: TaskState) => boolean },
 ): Result<{ items: InboxItem[]; truncated: boolean }, AppError> {
   const q = InboxQuerySchema.safeParse(body);
   if (!q.success)
@@ -89,7 +92,12 @@ export function inbox(
     // Both paths: a question of a finished or cancelled task can no longer be answered.
     if (s === null || !(LIVE as readonly string[]).includes(s.status)) continue;
     if (q.data.project !== undefined && s.project !== q.data.project) continue;
-    items.push(...openQuestions(s));
+    const held = decider?.holds(s) === true;
+    items.push(
+      ...openQuestions(s).map((item) =>
+        held && item.blocking ? { ...item, decider: true as const } : item,
+      ),
+    );
   }
   items.sort(
     (a, b) => a.task_id.localeCompare(b.task_id) || a.question_id.localeCompare(b.question_id),
