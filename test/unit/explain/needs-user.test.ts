@@ -5,7 +5,7 @@ import {
   type DetailCode,
   type TaskState,
 } from '../../../src/domain/state.ts';
-import { needsUser } from '../../../src/explain/needs-user.ts';
+import { EFFECT_UNKNOWN_ATTENTION_MS, needsUser } from '../../../src/explain/needs-user.ts';
 
 type Input = Parameters<typeof needsUser>[0];
 
@@ -101,5 +101,34 @@ describe('needsUser (FR-007)', () => {
         run: confirmedRun,
       }),
     ).toBe(false);
+  });
+});
+
+describe('a long effect_unknown reaches the attention list (#249)', () => {
+  const unknownSince = (since?: number): Input =>
+    state({
+      wait: {
+        reason: 'infra',
+        detail: { code: 'effect_unknown', ...(since === undefined ? {} : { since }) },
+        resume_when: [],
+        exit_paths: [],
+        resume: { kind: 'none' },
+      },
+    });
+
+  it('needs the user only once it has gone on past the threshold', () => {
+    expect(needsUser(unknownSince(0), EFFECT_UNKNOWN_ATTENTION_MS - 1)).toBe(false);
+    expect(needsUser(unknownSince(0), EFFECT_UNKNOWN_ATTENTION_MS)).toBe(true);
+  });
+
+  it('a wait recorded without `since` falls back to when the status was entered', () => {
+    expect(needsUser(unknownSince(), EFFECT_UNKNOWN_ATTENTION_MS, () => 0)).toBe(true);
+    expect(needsUser(unknownSince(), EFFECT_UNKNOWN_ATTENTION_MS - 1, () => 0)).toBe(false);
+    expect(needsUser(unknownSince(), EFFECT_UNKNOWN_ATTENTION_MS, () => null)).toBe(false);
+  });
+
+  it('without a time or a recorded start it stays within limits', () => {
+    expect(needsUser(unknownSince(0))).toBe(false);
+    expect(needsUser(unknownSince(), EFFECT_UNKNOWN_ATTENTION_MS * 10)).toBe(false);
   });
 });

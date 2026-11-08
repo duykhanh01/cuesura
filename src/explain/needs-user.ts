@@ -68,8 +68,43 @@ const NEEDS_USER: Record<DetailCode, boolean> = {
   paused: true,
 };
 
-export function needsUser(s: Pick<TaskState, 'status' | 'wait' | 'revision' | 'run'>): boolean {
+/**
+ * How long an `effect_unknown` wait reconciles by itself before the person is told (#249). It keeps
+ * reconciling either way; the person only learns that it is taking long.
+ */
+export const EFFECT_UNKNOWN_ATTENTION_MS = 60 * 60 * 1000;
+
+type Waiting = Pick<TaskState, 'status' | 'wait' | 'revision' | 'run'>;
+
+/**
+ * When the task entered its current status, read lazily: a wait recorded before `detail.since` existed
+ * (#249) has no time of its own, and the status change is the closest durable mark for it.
+ */
+export type StatusSinceOf = () => number | null;
+
+/** When an `effect_unknown` wait reaches the threshold; null for any other wait or an unknown start. */
+export function effectUnknownDueAt(s: Waiting, statusSince?: StatusSinceOf): number | null {
+  if (isTerminal(s.status) || s.wait?.detail.code !== 'effect_unknown') return null;
+  const recorded = s.wait.detail['since'];
+  const since = typeof recorded === 'number' ? recorded : (statusSince?.() ?? null);
+  return since === null ? null : since + EFFECT_UNKNOWN_ATTENTION_MS;
+}
+
+/** An `effect_unknown` wait that has gone on past the threshold at `now`. */
+export function effectUnknownOverdue(
+  s: Waiting,
+  now: number,
+  statusSince?: StatusSinceOf,
+): boolean {
+  const due = effectUnknownDueAt(s, statusSince);
+  return due !== null && now >= due;
+}
+
+/** `now` lets a wait that has gone on too long count; without it only the table decides. */
+export function needsUser(s: Waiting, now?: number, statusSince?: StatusSinceOf): boolean {
   if (isTerminal(s.status)) return false;
   if (s.status === 'READY' && !runConfigConfirmed(s)) return true;
-  return s.wait === null ? false : NEEDS_USER[s.wait.detail.code];
+  if (s.wait === null) return false;
+  if (now !== undefined && effectUnknownOverdue(s, now, statusSince)) return true;
+  return NEEDS_USER[s.wait.detail.code];
 }

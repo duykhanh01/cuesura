@@ -1285,7 +1285,8 @@ export function onEffectUnknown(ctx: Ctx, e: EffectMirror): void {
     ctx.emit('TaskWaiting', {
       wait: mkWait('infra', 'effect_unknown', {
         resume_when: [`reconcile(${e.id})`],
-        detail: { effect_id: e.id, kind: e.kind },
+        // `since` lets a long reconciliation reach the person's attention list (#249).
+        detail: { effect_id: e.id, kind: e.kind, since: ctx.now },
       }),
     });
   }
@@ -1948,18 +1949,29 @@ export function onEffectFailed(
     return;
   }
   // The harness was re-proved after the task froze its snapshot. Never a silent switch (T070/T071):
-  // a person takes the new manifest with `recheck`, then the same step runs again. Nothing was
-  // invoked, so a conflict fixer blocked here keeps its one attempt: it resumes as a fixer retry.
+  // a manifest that still meets what the task froze for is recorded as taken (#249), any other waits for
+  // a person's `recheck`; then the same step runs again. Nothing was invoked, so a conflict fixer
+  // blocked here keeps its one attempt: it resumes as a fixer retry.
   if (agent && f.manifest !== undefined && s.cancellation === null && step !== null) {
     const baseFixer =
       s.run.base_update?.fixer_attempt_id === e.attempt_id &&
       s.run.base_update.certificate === undefined;
-    waitPolicy(
-      ctx,
-      'manifest_changed',
-      baseFixer ? { kind: 'repair_base', mode: 'retry_fixer' } : { kind: 'run_step', step },
-      { step, ...f.manifest },
-    );
+    const resume: ResumeAction = baseFixer
+      ? { kind: 'repair_base', mode: 'retry_fixer' }
+      : { kind: 'run_step', step };
+    const { compatible, ...manifest } = f.manifest;
+    if (compatible === true) {
+      ctx.emit('ManifestChangeAccepted', {
+        harness: manifest.harness,
+        manifest_hash: manifest.observed,
+        previous: manifest.known,
+        by: ctx.actor,
+        at: ctx.now,
+      });
+      proceed(ctx, resume, 'manifest_accepted');
+      return;
+    }
+    waitPolicy(ctx, 'manifest_changed', resume, { step, ...manifest });
     return;
   }
   if (

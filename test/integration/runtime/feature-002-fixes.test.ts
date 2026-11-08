@@ -1876,6 +1876,27 @@ describe('harness re-proved after the task started', () => {
     expect(again.id).not.toBe(coder.id);
     expect(again.request).toMatchObject({ role: 'coder' });
   });
+
+  it('a new manifest that still meets the frozen requirements is taken without waiting (#249)', () => {
+    const d = setup();
+    const t = buildTask();
+    createGrantStart(d, t, 'full-review');
+    d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE);
+    const coder = d.pendingOne(t.id, 'start_agent');
+    d.complete(t.id, coder.id, 'failed', {
+      failure_class: 'auth_config',
+      message: 'harness claude manifest changed since the run was confirmed',
+      invoked: false,
+      manifest: { harness: 'claude', known: M0, observed: M1, compatible: true },
+    });
+    const s = d.task(t.id);
+    expect(s.status).toBe('RUNNING');
+    expect(s.wait).toBeNull();
+    expect(s.run.manifest_refs).toEqual({ claude: M1 });
+    const again = d.pendingOne(t.id, 'start_agent');
+    expect(again.id).not.toBe(coder.id);
+    expect(again.request).toMatchObject({ role: 'coder' });
+  });
 });
 
 describe('harness login expired (#97)', () => {
@@ -2089,5 +2110,23 @@ describe('source drift at the runtime boundary (T063, FR-026)', () => {
     expect(d.task(t.id).status).toBe('RUNNING');
     expect(stepOf(d, t, d.pendingOne(t.id, 'run_gates'))).toBe('gates');
     expect(d.task(t.id).revision).toBe(1);
+  });
+});
+
+describe('GitHub refuses the PR content (#249)', () => {
+  it('waits on publish_content_invalid, not auth_config', () => {
+    const d = setup();
+    const t = buildTask();
+    createGrantStart(d, t);
+    toPublish(d, t, A);
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
+    d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'failed', {
+      failure_class: 'invalid_output',
+      message: 'PR content refused after fitting it: HTTP 422',
+    });
+    expect(d.task(t.id)).toMatchObject({
+      status: 'WAITING',
+      wait: { detail: { code: 'publish_content_invalid', class: 'invalid_output' } },
+    });
   });
 });

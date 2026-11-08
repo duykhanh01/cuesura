@@ -87,7 +87,8 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 # be its base branch, and the user approves adopting it (see Escalation below). In a
 # JSON file the field is pr_ref. The PR keeps its title and body; workers only add commits.
 # --base must not be the branch of an unmerged PR: preflight stops such a task as
-# config_invalid/stacked_base. Ask the user; continue that PR with --pr instead, or base the
+# config_invalid/stacked_base; the daemon checks it again by itself and the task turns READY
+# once that PR is merged. Ask the user; continue that PR with --pr instead, or base the
 # task on the PR's base. Only the user may stack on purpose, on a task they add themselves with
 # labels ["stacked-base"] in --file; that label on a task you add is ignored.
 # --acceptance takes one criterion per line.
@@ -337,9 +338,10 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 # For WAITING/worktree_changed, inspect the actual diff and obtain the user's
 # approval of that specific diff BEFORE recheck: it adopts the observed tree and
 # enables the step to rerun. If the diff is unavailable, hand off to the user.
-# For WAITING/manifest_changed, the harness was re-proved after the task started:
-# recheck only when the user approved that re-proof (setup-harness --approval);
-# it switches the task to the manifest in force and reruns the step.
+# For WAITING/manifest_changed, the harness was re-proved after the task started and
+# the new manifest no longer meets what the task froze for (a compatible one is taken
+# by itself): recheck only when the user approved that re-proof (setup-harness
+# --approval); it switches the task to the manifest in force and reruns the step.
 # For WAITING/harness_auth, the harness login expired or was refused: the user
 # signs in again on the daemon host (the file runtime.credential_refs names);
 # recheck only after they say so. It reruns the same step; a login still broken

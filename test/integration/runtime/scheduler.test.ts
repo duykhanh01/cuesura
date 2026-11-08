@@ -395,18 +395,38 @@ describe('dependencies are satisfied only by a recorded terminal status (T034, F
     expect((await scheduler.tick()).dependencies).toEqual([]);
   });
 
-  it('a cancelled prerequisite moves the dependent to dependency_failed', async () => {
+  it('a cancelled prerequisite cancels its dependents down the chain, naming the root task (#249)', async () => {
     const { d, scheduler } = setup();
     const pre = task(1);
     d.must(pre.id, { kind: 'create_task', task: pre });
     const child = task(2, { depends_on: [pre.id] });
     d.must(child.id, { kind: 'create_task', task: child });
+    const grandchild = task(3, { depends_on: [child.id] });
+    d.must(grandchild.id, { kind: 'create_task', task: grandchild });
     d.must(pre.id, { kind: 'cancel', reason: 'dropped' });
     await scheduler.tick();
     expect(d.task(child.id)).toMatchObject({
-      status: 'PENDING',
-      wait: { detail: { code: 'dependency_failed' } },
+      status: 'CANCELLED',
+      terminal: { reason: `dependency_failed:root=${pre.id} via=${pre.id} (CANCELLED)` },
     });
+    await scheduler.tick();
+    expect(d.task(grandchild.id)).toMatchObject({
+      status: 'CANCELLED',
+      terminal: { reason: `dependency_failed:root=${pre.id} via=${child.id} (CANCELLED)` },
+    });
+    expect((await scheduler.tick()).dependencies).toEqual([]);
+  });
+
+  it('a dependent created after its prerequisite failed is cancelled on the next pass', async () => {
+    const { d, scheduler } = setup();
+    const pre = task(1);
+    d.must(pre.id, { kind: 'create_task', task: pre });
+    d.must(pre.id, { kind: 'cancel', reason: 'dropped' });
+    const child = task(2, { depends_on: [pre.id] });
+    d.must(child.id, { kind: 'create_task', task: child });
+    expect(d.task(child.id).wait?.detail.code).toBe('dependency_failed');
+    await scheduler.tick();
+    expect(d.task(child.id).status).toBe('CANCELLED');
   });
 });
 

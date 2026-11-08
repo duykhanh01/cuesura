@@ -66,6 +66,7 @@ import { advanceTaskPr, type YoloDeps } from './yolo.ts';
 import { FileContentStore } from '../adapters/publish-content.ts';
 import { queueCommands, readQueuePause } from './queue-pause.ts';
 import { retentionRound } from './retention.ts';
+import { PendingPreflight } from './pending-preflight.ts';
 import { Scheduler } from './scheduler.ts';
 import { taskControl } from './task-control.ts';
 
@@ -464,6 +465,7 @@ export async function productionControl(opts: {
           taskId,
         ),
     });
+    const pendingPreflight = new PendingPreflight({ store, ports, configInputs, now });
     const fireTimers = (): Promise<void> => {
       const r = store.fireDueTimers(opts.clock.now(), 100, () =>
         Array.from({ length: MAX_ENVELOPE_IDS }, () => opts.newId() as Uuid),
@@ -527,6 +529,7 @@ export async function productionControl(opts: {
             },
           }),
         drainAll,
+        () => pendingPreflight.round(),
         () => decider.round(),
         retentionRound({
           store,

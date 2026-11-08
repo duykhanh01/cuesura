@@ -34,6 +34,12 @@ nhận PR; tuple repo/head/base phải khớp. Nhiều PR khớp hoặc remote d
 thay thế. Một PR đang mở trên đúng tuple, không có marker nào và head đúng SHA vừa push là PR worker tự
 mở cho task: create tiếp quản bằng cách ghi title/body và marker như khi tự tạo, rồi probe lại; PR
 đóng, head khác hoặc mang marker khác vẫn là conflict. HTTP 422/timeout sau create không chứng minh thất bại; query/probe trước lần gửi mới.
+HTTP 422 mà lỗi validation nêu field `title` hoặc `body` là lỗi nội dung, không phải credentials (issue #249):
+create (kể cả khi tiếp quản PR worker tự mở) và update description gửi lại đúng một lần với nội dung đã làm vừa giới hạn GitHub (title bỏ ký tự điều
+khiển, tối đa 256 ký tự, rỗng thì `cusr task <id>`; body bỏ NUL, cắt kèm ghi chú để body cuối cùng có marker
+không quá 65536 ký tự). Probe nhận cả body gốc lẫn body đã làm vừa của cùng operation. Lần hai vẫn 422 nội
+dung thì effect lỗi `invalid_output` và task chờ `publish_content_invalid`; 422 khác và conflict vẫn là
+`auth_config`.
 POST rerun không có idempotency remote: không chứng minh được chưa gửi thì unknown, không lặp bừa.
 
 Title/body worker là dữ liệu không đáng tin: trước khi ghép, từ chối marker trong namespace

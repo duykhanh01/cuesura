@@ -63,6 +63,8 @@ export type EffectOutcome =
           readonly harness: string;
           readonly known: string;
           readonly observed: string;
+          /** The new manifest still meets what the task froze for (#249). */
+          readonly compatible?: boolean;
         };
         /** The harness ran and its login was refused or expired. */
         readonly auth?: { readonly harness: string };

@@ -13,7 +13,7 @@ import {
   type TaskStatus,
 } from '../domain/state.ts';
 import { applyInPlace } from '../engine/evolve.ts';
-import { needsUser } from '../explain/needs-user.ts';
+import { effectUnknownDueAt, needsUser } from '../explain/needs-user.ts';
 import { UuidSchema, type Uuid } from '../shared/brand.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import type { Store } from '../store/index.ts';
@@ -72,7 +72,32 @@ export function statusSinceReader(store: Store): StatusSince {
   };
 }
 
-function row(s: TaskState, since: StatusSince): Record<string, unknown> {
+/** Earliest threshold of the `effect_unknown` waits at each store sequence, read once per sequence. */
+const dueCache = new WeakMap<Store, { readonly watermark: number; readonly due: number | null }>();
+
+/**
+ * When the first `effect_unknown` wait reaches its threshold, past or future, at this store sequence.
+ * `needs_user` of such a wait turns true with time alone, with no event to move the sequence (#249), so a
+ * cache keyed on the sequence alone would keep the old answer.
+ */
+export function effectUnknownDue(
+  store: Store,
+  statusSince: StatusSince,
+  watermark: number,
+): number | null {
+  const cached = dueCache.get(store);
+  if (cached?.watermark === watermark) return cached.due;
+  let due: number | null = null;
+  for (const id of store.taskIdsByStatus(['WAITING'])) {
+    const s = store.readTask(id as Uuid);
+    const at = s === null ? null : effectUnknownDueAt(s, () => statusSince(s));
+    if (at !== null && (due === null || at < due)) due = at;
+  }
+  dueCache.set(store, { watermark, due });
+  return due;
+}
+
+function row(s: TaskState, since: StatusSince, now?: number): Record<string, unknown> {
   return {
     task_id: s.id,
     project: s.project,
@@ -86,13 +111,14 @@ function row(s: TaskState, since: StatusSince): Record<string, unknown> {
     version: s.version,
     priority: s.task.priority,
     pr_ref: s.pr_ref,
-    needs_user: needsUser(s),
+    needs_user: needsUser(s, now, () => since(s)),
   };
 }
 
 export type BoardDeps = {
   readonly store: Store;
   readonly statusSince: StatusSince;
+  readonly now?: () => number;
 };
 
 export function taskBoard(
@@ -111,8 +137,13 @@ export function taskBoard(
     });
   const { project, status, scope, limit, cursor, order, if_changed_since } = q.data;
   const { store, statusSince } = deps;
+  const now = deps.now?.();
   const watermark = store.lastGlobalSeq();
-  if (if_changed_since === watermark) return ok({ unchanged: true, watermark });
+  // An overdue `effect_unknown` wait sends the board in full, so a client never keeps the old answer.
+  if (if_changed_since === watermark) {
+    const due = effectUnknownDue(store, statusSince, watermark);
+    if (due === null || now === undefined || now < due) return ok({ unchanged: true, watermark });
+  }
 
   const projects = project === undefined ? null : [project];
   // A status names what the caller wants to see; the default scope must not hide it.
@@ -129,7 +160,7 @@ export function taskBoard(
   const items = page
     .slice(0, limit)
     .flatMap((id) => store.readTask(id as Uuid) ?? [])
-    .map((s) => row(s, statusSince));
+    .map((s) => row(s, statusSince, now));
 
   const attention: Record<string, unknown>[] = [];
   let truncated = false;
@@ -140,12 +171,12 @@ export function taskBoard(
     order,
   })) {
     const s = store.readTask(id as Uuid);
-    if (s === null || !needsUser(s)) continue;
+    if (s === null || !needsUser(s, now, () => statusSince(s))) continue;
     if (attention.length === ATTENTION_LIMIT) {
       truncated = true;
       break;
     }
-    attention.push(row(s, statusSince));
+    attention.push(row(s, statusSince, now));
   }
 
   return ok({

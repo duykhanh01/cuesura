@@ -7,6 +7,9 @@ import {
   bodyDigest,
   createOrRecoverPr,
   finalBody,
+  fitContent,
+  GITHUB_BODY_MAX,
+  GITHUB_TITLE_MAX,
   prMarker,
   updatePrDescription,
   type PrSpec,
@@ -637,5 +640,107 @@ describe('updating the PR description after a fix (T136, M05/M07)', () => {
       error: { reason: 'not_allowed' },
     });
     expect(exec.calls).toEqual([]);
+  });
+});
+
+describe('a 422 on the PR title/body is fitted and sent once more (#249)', () => {
+  const tooLong = { ...SPEC, body: 'x'.repeat(GITHUB_BODY_MAX) };
+  const refusal = (field: string) => ({
+    status: 422,
+    body: {
+      message: 'Validation Failed',
+      errors: [{ resource: 'PullRequest', field, code: 'custom' }],
+    },
+  });
+
+  it('fits a body over the limit with its marker, keeps content within it and is idempotent', () => {
+    const fitted = fitContent(tooLong);
+    expect(finalBody(fitted).length).toBeLessThanOrEqual(GITHUB_BODY_MAX);
+    expect(fitted.body).toContain('truncated by cusr');
+    expect(fitContent(fitted)).toBe(fitted);
+    expect(fitContent(SPEC)).toBe(SPEC);
+    expect(fitContent({ ...SPEC, title: '\u0007  ' }).title).toBe('cusr task t1');
+    expect(fitContent({ ...SPEC, title: 'y'.repeat(300) }).title).toHaveLength(GITHUB_TITLE_MAX);
+  });
+
+  it('creates the PR with the fitted content after a content 422, and a later probe still owns it', async () => {
+    const fitted = fitContent(tooLong);
+    const created = pr({ body: finalBody(fitted) });
+    const { port, posts } = gh({
+      [LIST]: [list(), list(), list(), list(created)],
+      'POST repos/acme/app/pulls': [refusal('body'), { status: 201, body: created }],
+    });
+    expect(await createOrRecoverPr(port, tooLong)).toMatchObject({
+      kind: 'created',
+      body_digest: bodyDigest(finalBody(fitted)),
+    });
+    expect(posts()).toHaveLength(2);
+    expect(JSON.parse(posts()[1]?.stdin ?? '{}')).toMatchObject({ body: finalBody(fitted) });
+
+    const again = gh({ [LIST]: [list(created)] });
+    expect(await createOrRecoverPr(again.port, tooLong)).toMatchObject({ kind: 'recovered' });
+  });
+
+  it('a second content 422 is content_invalid; content already within limits is not sent twice', async () => {
+    const twice = gh({
+      [LIST]: [list(), list(), list(), list()],
+      'POST repos/acme/app/pulls': [refusal('body'), refusal('body')],
+    });
+    expect(await createOrRecoverPr(twice.port, tooLong)).toMatchObject({
+      kind: 'content_invalid',
+    });
+    expect(twice.posts()).toHaveLength(2);
+
+    const once = gh({
+      [LIST]: [list(), list()],
+      'POST repos/acme/app/pulls': [refusal('title')],
+    });
+    expect(await createOrRecoverPr(once.port, SPEC)).toMatchObject({ kind: 'content_invalid' });
+    expect(once.posts()).toHaveLength(1);
+  });
+
+  it('a content 422 on taking over a worker PR is retried with the fitted content', async () => {
+    const fitted = fitContent(tooLong);
+    const worker = pr({ title: 'wip', body: 'by the worker' });
+    const { port, exec } = gh({
+      [LIST]: [list(worker), list(worker), list(worker), list(pr({ body: finalBody(fitted) }))],
+      'PATCH repos/acme/app/pulls/7': [refusal('body'), { status: 200, body: pr() }],
+    });
+    expect(await createOrRecoverPr(port, tooLong)).toMatchObject({
+      kind: 'created',
+      body_digest: bodyDigest(finalBody(fitted)),
+    });
+    const patches = exec.calls.filter((c) => c.method === 'PATCH');
+    expect(patches).toHaveLength(2);
+    expect(JSON.parse(patches[1]?.stdin ?? '{}')).toMatchObject({ body: finalBody(fitted) });
+
+    const twice = gh({
+      [LIST]: [list(worker)],
+      'PATCH repos/acme/app/pulls/7': [refusal('body'), refusal('body')],
+    });
+    expect(await createOrRecoverPr(twice.port, tooLong)).toMatchObject({ kind: 'content_invalid' });
+  });
+
+  it('updates the description with the fitted content after a content 422', async () => {
+    const sent = finalBody(SPEC);
+    const next = { ...SPEC, body: 'z'.repeat(GITHUB_BODY_MAX) };
+    const fitted = fitContent(next);
+    const { port, exec } = gh({
+      'GET repos/acme/app/pulls/7': [
+        { status: 200, body: pr({ title: SPEC.title, body: sent }) },
+        { status: 200, body: pr({ title: SPEC.title, body: sent }) },
+        { status: 200, body: pr({ title: SPEC.title, body: sent }) },
+      ],
+      'PATCH repos/acme/app/pulls/7': [refusal('body'), { status: 200, body: pr() }],
+    });
+    expect(
+      await updatePrDescription(port, {
+        repo: 'acme/app',
+        pr_number: 7,
+        expected_body_digest: bodyDigest(sent),
+        spec: next,
+      }),
+    ).toEqual({ kind: 'updated', body_digest: bodyDigest(finalBody(fitted)) });
+    expect(exec.calls.filter((c) => c.method === 'PATCH')).toHaveLength(2);
   });
 });

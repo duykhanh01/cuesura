@@ -380,6 +380,8 @@ export const FailureDataSchema = z
         harness: z.string().min(1),
         known: z.string().min(1),
         observed: z.string().min(1),
+        // Additive (#249): the new manifest still meets what the task froze for; it is taken without asking.
+        compatible: z.boolean().optional(),
       })
       .strict()
       .optional(),
@@ -472,6 +474,8 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
         .object({
           prerequisite_version: z.number().int().nonnegative(),
           unverified_reason: z.string().min(1).nullable(),
+          // Additive (#249): why a FAILED/CANCELLED prerequisite ended, so a cascade names the root task.
+          terminal_reason: z.string().min(1).optional(),
         })
         .strict()
         .optional(),

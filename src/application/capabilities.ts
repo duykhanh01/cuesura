@@ -173,6 +173,31 @@ export function verifyManifest(
   });
 }
 
+/**
+ * What a task that froze with harness `h` for `roles` requires of its manifest (FR-002.05): the current
+ * result schema of each role, no capability marked unsupported, and external_verified only where the owner
+ * allows it. Preflight checks it before the freeze; a manifest re-proved later that still meets it can be
+ * taken without asking (#249). Empty when the manifest meets it.
+ */
+export function manifestShortfalls(
+  h: string,
+  m: Pick<CapabilityManifest, 'role_schemas' | 'capabilities' | 'selected_inner_mode'>,
+  roles: readonly Role[],
+  allowExternalVerified: boolean,
+): string[] {
+  const out: string[] = [];
+  for (const role of roles)
+    if (m.role_schemas[role] !== ROLE_SCHEMA_DIGESTS[role])
+      out.push(`harness '${h}' manifest has no current ${role} result schema`);
+  for (const k of ['structured_output', 'permission_enforced', 'private_home_auth'] as const)
+    if (m.capabilities[k] === 'unsupported') out.push(`harness '${h}' does not support ${k}`);
+  if (!allowExternalVerified && m.selected_inner_mode === 'external_verified')
+    out.push(
+      `harness '${h}' only runs with external_verified, but runtime.harness_isolation.${h} is internal_required`,
+    );
+  return out;
+}
+
 // ---- observation ----
 
 const digestCache = new Map<string, { key: string; digest: Hash }>();

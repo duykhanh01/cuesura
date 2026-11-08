@@ -240,7 +240,9 @@ export function handleFailure(ctx: Ctx, e: EffectMirror, f: FailureData): void {
     case 'invalid_output':
     case 'quality':
       if (!agent) {
-        askAbout(ctx, e, f, 'effect_failed', retry());
+        // GitHub refused the PR title/body (#249): the content is the cause, not the credentials.
+        const code = e.kind === 'create_pr' ? 'publish_content_invalid' : 'effect_failed';
+        askAbout(ctx, e, f, code, retry());
         return;
       }
       proceed(

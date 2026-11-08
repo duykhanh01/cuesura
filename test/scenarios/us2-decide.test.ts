@@ -147,7 +147,7 @@ describe('US2 - Canonical task creation and deterministic decisions', () => {
     expect(sim.effects()).toEqual([]);
   });
 
-  it('Scenario 2: dependencies wait until DONE; FAILED dependencies retain an explanation', () => {
+  it('Scenario 2: dependencies wait until DONE; a FAILED dependency cancels the task with its root (#249)', () => {
     const dep = uuidOf(50);
     const task = buildTask({ depends_on: [dep] });
     const sim = track(new Sim(task.id));
@@ -174,12 +174,11 @@ describe('US2 - Canonical task creation and deterministic decisions', () => {
         status: 'FAILED',
       }),
     );
-    expect(other.s.status).toBe('PENDING');
-    expect(other.s.wait).toMatchObject({
-      reason: 'dependency',
-      detail: { code: 'dependency_failed', deps: { [dep]: 'FAILED' } },
+    expect(other.s.status).toBe('CANCELLED');
+    expect(other.s.terminal).toEqual({
+      kind: 'CANCELLED',
+      reason: `dependency_failed:root=${dep} via=${dep} (FAILED)`,
     });
-    expect(other.s.wait?.resume_when.length).toBeGreaterThan(0);
 
     const bad = new Sim(task.id, 3);
     expect(bad.when({ kind: 'create_task', task })).toMatchObject({

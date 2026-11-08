@@ -59,6 +59,7 @@ import {
 } from '../adapters/git/reconcile.ts';
 import { ensureWorktree, markerPath, taskBranch } from '../adapters/git/worktree.ts';
 import { ROLES, wireRoleSchema, type Role } from '../adapters/harness/result-schema.ts';
+import { manifestShortfalls } from '../application/capabilities.ts';
 import { toMergeProof } from '../adapters/github/merge-proof.ts';
 import { observePull } from '../adapters/github/observe.ts';
 import {
@@ -639,6 +640,17 @@ async function repairState(
   };
 }
 
+/** Roles the frozen policy may run on `harness`, through a step's binding or any rung of its ladder. */
+function harnessRoles(policy: FrozenPolicy, harness: string): Role[] {
+  const roles = Object.values(policy.steps)
+    .filter(
+      (p) => p.binding.harness === harness || p.ladder.some((r) => r.binding.harness === harness),
+    )
+    .map((p) => p.role)
+    .filter((r): r is Role => (ROLES as readonly string[]).includes(r));
+  return [...new Set(roles)].sort();
+}
+
 const HARNESS_FAILURE_CLASS: Record<HarnessFailure, FailureClass> = {
   rate_limited: 'rate_limit',
   // An overloaded provider clears in minutes, not seconds: the rate-limit backoff fits, the infra one
@@ -975,25 +987,36 @@ async function startAgent(
   const harness = deps.harnesses[binding.harness];
   if (harness === undefined) return failed('auth_config', `no harness ${binding.harness}`);
   // The manifest confirmed with the task must still be the one in force; a re-proved or changed
-  // binary needs a new confirmation, never a silent switch between attempts (T070/T071). The task
-  // waits on `manifest_changed` and `recheck` records the new one in `run.manifest_refs`.
+  // binary is never a silent switch between attempts (T070/T071). Nothing is invoked: the engine records
+  // the new manifest in `run.manifest_refs` and runs the step again when it still meets what the task
+  // froze for (#249), and otherwise waits on `manifest_changed` for a person's `recheck`.
   const confirmed =
     l.s.run.manifest_refs?.[binding.harness] ?? l.rt.capability_refs[binding.harness];
   const inForce = harness.manifest.manifest_hash;
-  if (confirmed !== undefined && confirmed !== inForce)
+  if (confirmed !== undefined && confirmed !== inForce) {
+    const shortfalls = manifestShortfalls(
+      binding.harness,
+      harness.manifest,
+      harnessRoles(l.policy, binding.harness),
+      false,
+    );
     return {
       outcome: 'failed',
       data: {
         failure_class: 'auth_config',
-        message: `harness ${binding.harness} manifest changed since the run was confirmed`,
+        message: `harness ${binding.harness} manifest changed since the run was confirmed${
+          shortfalls.length === 0 ? '' : `: ${shortfalls.join('; ')}`
+        }`,
         invoked: false,
         manifest: {
           harness: binding.harness,
           known: confirmed,
           observed: inForce,
+          compatible: shortfalls.length === 0,
         },
       },
     };
+  }
   const r = role as Role;
   const step = mirror.step ?? r;
   // A worker starts only on the tree the task last left (T072): a change made by someone else in
@@ -1828,9 +1851,13 @@ async function createPr(deps: HandlerDeps, effect: Effect): Promise<EffectOutcom
   if (r.kind === 'created' || r.kind === 'recovered')
     return prOutcome(l, content, effect.idem_key, r.pr, r.body_digest);
   if (r.kind === 'unknown') return unknown(r.detail);
-  // Someone else's PR, a forged or edited marker/body, or content we refuse: a person reconciles.
-  if (r.kind === 'conflict' || r.kind === 'content_rejected')
-    return failed('auth_config', `pull request ${r.kind}: ${'reason' in r ? r.reason : r.field}`);
+  // Someone else's PR or a forged or edited marker/body: a person reconciles.
+  if (r.kind === 'conflict') return failed('auth_config', `pull request conflict: ${r.reason}`);
+  // Content GitHub or we refuse is the content's fault, not the credentials' (#249).
+  if (r.kind === 'content_rejected')
+    return failed('invalid_output', `PR content rejected: ${r.field}`);
+  if (r.kind === 'content_invalid')
+    return failed('invalid_output', `PR content refused after fitting it: ${r.detail}`);
   return failed('infra', `pull request ${r.kind}`);
 }
 
@@ -2096,7 +2123,9 @@ async function describePr(
         `PR description was edited on GitHub (${r.observed_digest}); not overwritten`,
       );
     case 'content_rejected':
-      return failed('auth_config', `PR content rejected: ${r.field}`);
+      return failed('invalid_output', `PR content rejected: ${r.field}`);
+    case 'content_invalid':
+      return failed('invalid_output', `PR content refused after fitting it: ${r.detail}`);
     case 'rejected':
       return failed('auth_config', `PR update refused: HTTP ${r.status}`);
   }

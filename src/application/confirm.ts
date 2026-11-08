@@ -3,7 +3,9 @@
  * (confirmation, acceptance, dependencies). Only when triage passes does this request read the newest
  * base and run preflight, and the result is recorded as a candidate: READY or PENDING/needs_info with
  * config_invalid/capability_missing. No slot, worktree or snapshot is taken here; the snapshot is frozen
- * once at start. Nothing polls the base: a later retry needs a new confirm/recheck request.
+ * once at start. A later retry needs a new confirm/recheck request, except for a cause outside the config
+ * (a missing host capability, an unmerged base PR), which the daemon checks again on its own
+ * (`daemon/pending-preflight.ts`, #249).
  */
 import type { ConfigSource } from '../config/yaml-loader.ts';
 import type { TaskState, Wait } from '../domain/state.ts';

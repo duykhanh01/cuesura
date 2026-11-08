@@ -5,7 +5,8 @@
  * config or the task's bindings, and its result is a candidate; the single snapshot is frozen at start.
  */
 import type { GitHubPort, GitPort, GitResult, HostProbePort } from '../adapters/ports.ts';
-import { ROLE_SCHEMA_DIGESTS, ROLES, type Role } from '../adapters/harness/result-schema.ts';
+import { ROLES, type Role } from '../adapters/harness/result-schema.ts';
+import { manifestShortfalls } from './capabilities.ts';
 import type { RuntimeConfig } from '../config/normalize.ts';
 import { validateConfig, type Validated } from '../config/validate.ts';
 import type { ConfigSource } from '../config/yaml-loader.ts';
@@ -952,23 +953,13 @@ export function checkSupport(
       cap('harness', `harness '${h}' has no capability manifest; run doctor`);
       continue;
     }
-    for (const role of hRoles) {
-      if (m.role_schemas[role] !== ROLE_SCHEMA_DIGESTS[role])
-        cap('harness', `harness '${h}' manifest has no current ${role} result schema`);
-    }
-    for (const k of ['structured_output', 'permission_enforced', 'private_home_auth'] as const) {
-      if (m.capabilities[k] === 'unsupported')
-        cap('harness', `harness '${h}' does not support ${k}`);
-    }
-    if (
-      validated.runtime?.harness_isolation[h] !== 'allow_external_verified' &&
-      m.selected_inner_mode === 'external_verified'
-    ) {
-      cap(
-        'harness',
-        `harness '${h}' only runs with external_verified, but runtime.harness_isolation.${h} is internal_required`,
-      );
-    }
+    for (const message of manifestShortfalls(
+      h,
+      m,
+      hRoles,
+      validated.runtime?.harness_isolation[h] === 'allow_external_verified',
+    ))
+      cap('harness', message);
     if (problems.length === before) capability_refs[h] = m.manifest_hash;
   }
   return { problems, capability_refs, harness_roles };

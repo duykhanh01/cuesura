@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { Caller } from '../../../src/application/authz.ts';
 import { ATTENTION_LIMIT, statusSinceReader, taskBoard } from '../../../src/application/board.ts';
 import type { CanonicalTask } from '../../../src/domain/task.ts';
+import { EFFECT_UNKNOWN_ATTENTION_MS } from '../../../src/explain/needs-user.ts';
+import type { Uuid } from '../../../src/shared/brand.ts';
+import type { Store } from '../../../src/store/index.ts';
 import { openFileStoreForTest, storeDb } from '../../../src/store/testing.ts';
 import { buildTask, ownerAuthz, uuidOf } from '../../support/builders.ts';
 import { SeededDaemon } from '../../support/daemon-task.ts';
@@ -334,4 +337,59 @@ describe('status_since (R-06)', () => {
 
 afterEach(() => {
   next = 100;
+});
+
+describe('a long effect_unknown on the board (#249)', () => {
+  const unknownWait = (d: StoreDriver): CanonicalTask => {
+    const t = buildTask({ id: uuidOf(next++) });
+    createGrantStart(d, t);
+    d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'unknown');
+    expect(d.task(t.id).wait?.detail.code).toBe('effect_unknown');
+    return t;
+  };
+  const boardAt = (d: StoreDriver, store: Store, body: Record<string, unknown> = {}): Board => {
+    const r = taskBoard(
+      { store, statusSince: statusSinceReader(d.store), now: () => d.now },
+      OWNER,
+      { kind: 'task_board', ...body },
+    );
+    if (!r.ok) throw new Error(JSON.stringify(r.error));
+    return r.value as Board;
+  };
+
+  it('is sent in full once the wait is overdue, though no event moved the watermark', () => {
+    const { d } = setup();
+    const t = unknownWait(d);
+    const first = boardAt(d, d.store);
+    expect(first.attention?.items.map((i) => i.task_id)).toEqual([]);
+    expect(boardAt(d, d.store, { if_changed_since: first.watermark }).unchanged).toBe(true);
+
+    d.now += EFFECT_UNKNOWN_ATTENTION_MS;
+    const later = boardAt(d, d.store, { if_changed_since: first.watermark });
+    expect(later.unchanged).toBe(false);
+    expect(later.watermark).toBe(first.watermark);
+    expect(later.attention?.items.map((i) => i.task_id)).toEqual([t.id]);
+    expect(later.items?.find((i) => i.task_id === t.id)?.needs_user).toBe(true);
+  });
+
+  it('a wait recorded before `since` existed counts from when the task started waiting', () => {
+    const { d } = setup();
+    const t = unknownWait(d);
+    // An old projection: the same wait without `detail.since`, as replayed from a log before #249.
+    const old = new Proxy(d.store, {
+      get(target, key, receiver) {
+        if (key !== 'readTask') return Reflect.get(target, key, receiver) as unknown;
+        return (id: Uuid) => {
+          const s = target.readTask(id);
+          if (s?.wait == null) return s;
+          const { since: _dropped, ...detail } = s.wait.detail;
+          return { ...s, wait: { ...s.wait, detail } };
+        };
+      },
+    });
+    expect(old.readTask(t.id)?.wait?.detail['since']).toBeUndefined();
+    expect(boardAt(d, old).attention?.items).toEqual([]);
+    d.now += EFFECT_UNKNOWN_ATTENTION_MS;
+    expect(boardAt(d, old).attention?.items.map((i) => i.task_id)).toEqual([t.id]);
+  });
 });

@@ -10,6 +10,7 @@ import {
 import type { Caller } from '../../../src/application/authz.ts';
 import { callerFor } from '../../../src/application/authz.ts';
 import type { TaskState } from '../../../src/domain/state.ts';
+import { EFFECT_UNKNOWN_ATTENTION_MS } from '../../../src/explain/needs-user.ts';
 import type { Store } from '../../../src/store/index.ts';
 
 const CALLER = callerFor('assistant') as Caller;
@@ -267,5 +268,33 @@ describe('registered assistant session', () => {
     expect(registeredSession(dataDir)).toBeNull();
     expect(code(d.poll(CALLER, hook('s-1')))).toBe('attention_not_registered');
     expect(code(d.poll(CALLER, NEW))).toBe('ok');
+  });
+});
+
+describe('AttentionDesk and a long effect_unknown (#249)', () => {
+  const unknownWait = (id: string): TaskState =>
+    ({
+      ...waiting(id, 'effect_unknown'),
+      wait: { reason: 'infra', detail: { code: 'effect_unknown', since: 0 } },
+    }) as unknown as TaskState;
+
+  it('tells the wait once it is overdue, though the log did not change, and reads nothing before that', () => {
+    const { state, desk } = bench([unknownWait('a')]);
+    const d = desk();
+    const first = value(d.poll(CALLER, NEW));
+    expect(first.items).toEqual([]);
+    const reads = state.reads;
+    state.now = EFFECT_UNKNOWN_ATTENTION_MS - 1;
+    expect(value(d.poll(CALLER, back(first.lease))).items).toEqual([]);
+    expect(state.reads).toBe(reads);
+
+    state.now = EFFECT_UNKNOWN_ATTENTION_MS;
+    const due = value(d.poll(CALLER, back(first.lease)));
+    expect(due.items.map((i) => i.task_id)).toEqual(['a']);
+    // Told once: confirming the batch sends nothing more, and nothing is due any more.
+    expect(value(d.poll(CALLER, back(due.lease))).items).toEqual([]);
+    const after = state.reads;
+    expect(value(d.poll(CALLER, back(due.lease))).items).toEqual([]);
+    expect(state.reads).toBe(after);
   });
 });

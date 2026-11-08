@@ -199,10 +199,12 @@ export function taskControl(deps: TaskControlDeps): {
       task_explain: async (caller, body) =>
         reply(await withScope(scope, taskExplain(store, caller, body, deps.now()))),
       question_show: (caller, body) => reply(questionShow(store, caller, body)),
-      task_board: (caller, body) => reply(taskBoard({ store, statusSince }, caller, body)),
+      task_board: (caller, body) =>
+        reply(taskBoard({ store, statusSince, now: deps.now }, caller, body)),
       report: (caller, body) => reply(report({ store, statusSince, now: deps.now }, caller, body)),
       task_content: (caller, body) => reply(taskContent(store, caller, body)),
-      task_progress: (caller, body) => reply(taskProgress(store, caller, body)),
+      task_progress: (caller, body) =>
+        reply(taskProgress(store, caller, body, deps.now(), statusSince)),
       project_list: async (caller, body) =>
         reply(
           await projectList(

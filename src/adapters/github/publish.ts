@@ -13,6 +13,11 @@
  * create. Only this module appends the one canonical marker block at the end of the body, and a probe
  * accepts a PR only when that block sits there, is the only marker, and the whole body is the one this
  * operation sent (M07); a forged, duplicated or edited marker/body is a conflict to reconcile.
+ *
+ * A 422 that names the title or body (too long, blank) is the content's fault, not the credentials'
+ * (#249): the content is fitted to GitHub's limits once (`fitContent`) and sent again; a second refusal
+ * is `content_invalid`. A probe accepts the fitted body as well, so a later probe of the same operation
+ * still finds the PR it created.
  */
 import type { GitHubPort } from '../ports.ts';
 import { hashText } from '../../shared/hash.ts';
@@ -64,6 +69,8 @@ export type PrOutcome =
       readonly status: number;
       readonly detail: string;
     }
+  /** GitHub refused the title/body even after they were fitted to its limits. */
+  | { readonly kind: 'content_invalid'; readonly detail: string }
   | { readonly kind: 'unknown'; readonly detail: string };
 
 /** Marker line that ties a PR to one task revision and publish operation. */
@@ -76,6 +83,46 @@ export function finalBody(
   s: Pick<PrSpec, 'body' | 'task_id' | 'revision' | 'operation_key'>,
 ): string {
   return `${s.body.trimEnd()}\n\n${prMarker(s)}\n`;
+}
+
+/** GitHub's limits on a PR title and description, in characters. */
+export const GITHUB_TITLE_MAX = 256;
+export const GITHUB_BODY_MAX = 65_536;
+const TRUNCATED_NOTE = `\n\n_(truncated by cusr: a GitHub PR description holds at most ${GITHUB_BODY_MAX} characters)_`;
+
+type ContentSpec = Pick<PrSpec, 'title' | 'body' | 'task_id' | 'revision' | 'operation_key'>;
+
+/** Cuts `text` to at most `max` UTF-16 units without splitting a surrogate pair. */
+function cut(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const head = text.slice(0, max);
+  return /[\uD800-\uDBFF]$/.test(head) ? head.slice(0, -1) : head;
+}
+
+/**
+ * The title and body made to fit GitHub's limits: control characters out of the title, a blank title
+ * named after the task, NUL out of the body and the body cut so that the final body with its marker
+ * fits. Content within the limits is returned unchanged; fitting fitted content changes nothing.
+ */
+export function fitContent<T extends ContentSpec>(s: T): T {
+  const title =
+    cut(s.title.replace(/\p{Cc}/gu, ' ').trim(), GITHUB_TITLE_MAX) || `cusr task ${s.task_id}`;
+  let body = s.body.replace(/\0/g, '');
+  if (finalBody({ ...s, body }).length > GITHUB_BODY_MAX) {
+    const marker = finalBody({ ...s, body: '' }).length;
+    body = cut(body, GITHUB_BODY_MAX - marker - TRUNCATED_NOTE.length).trimEnd() + TRUNCATED_NOTE;
+  }
+  return title === s.title && body === s.body ? s : { ...s, title, body };
+}
+
+/** A 422 whose validation errors name the title or the body. */
+function contentRefusal(e: { status: number | null; body?: unknown }): boolean {
+  if (e.status !== 422) return false;
+  const errors = obj(e.body)['errors'];
+  return (
+    Array.isArray(errors) &&
+    errors.some((x) => obj(x)['field'] === 'title' || obj(x)['field'] === 'body')
+  );
 }
 
 const canon = (body: string): string => body.replace(/\r\n?/g, '\n').trimEnd();
@@ -93,7 +140,10 @@ function markerVerdict(body: string, s: PrSpec): 'ours' | 'none' | 'forged' | 'c
   if (n === 0) return 'none';
   const tail = normalizeForMarker(canon(body)).endsWith(normalizeForMarker(prMarker(s)));
   if (n !== 1 || !tail || !canon(body).endsWith(prMarker(s))) return 'forged';
-  return bodyDigest(body) === bodyDigest(finalBody(s)) ? 'ours' : 'changed';
+  const digest = bodyDigest(body);
+  return digest === bodyDigest(finalBody(s)) || digest === bodyDigest(finalBody(fitContent(s)))
+    ? 'ours'
+    : 'changed';
 }
 
 type Obj = Record<string, unknown>;
@@ -182,6 +232,21 @@ export async function findTaskPr(port: GitHubPort, s: PrSpec): Promise<FoundPr |
 }
 
 export async function createOrRecoverPr(port: GitHubPort, s: PrSpec): Promise<PrOutcome> {
+  const first = await createOnce(port, s);
+  if (first.kind !== 'rejected' || !first.content) return first;
+  const fitted = fitContent(s);
+  const second = fitted === s ? first : await createOnce(port, fitted);
+  if (second.kind !== 'rejected') return second;
+  return second.content
+    ? { kind: 'content_invalid', detail: second.detail }
+    : { kind: 'rejected', status: second.status, detail: second.detail };
+}
+
+type CreateOnce =
+  | Exclude<PrOutcome, { kind: 'rejected' }>
+  | (Extract<PrOutcome, { kind: 'rejected' }> & { readonly content: boolean });
+
+async function createOnce(port: GitHubPort, s: PrSpec): Promise<CreateOnce> {
   if (markerCount(s.title) > 0) return { kind: 'content_rejected', field: 'title' };
   if (markerCount(s.body) > 0) return { kind: 'content_rejected', field: 'body' };
   const existing = await findTaskPr(port, s);
@@ -215,7 +280,12 @@ export async function createOrRecoverPr(port: GitHubPort, s: PrSpec): Promise<Pr
   if (after !== null)
     return after.kind === 'recovered' && r.ok ? { ...after, kind: 'created' } : after;
   if (!r.ok && r.error.reason === 'http_error' && r.error.status !== null && r.error.status < 500)
-    return { kind: 'rejected', status: r.error.status, detail: r.error.detail };
+    return {
+      kind: 'rejected',
+      status: r.error.status,
+      detail: r.error.detail,
+      content: contentRefusal(r.error),
+    };
   return {
     kind: 'unknown',
     detail: r.ok ? 'created PR does not match the request' : r.error.detail,
@@ -223,7 +293,7 @@ export async function createOrRecoverPr(port: GitHubPort, s: PrSpec): Promise<Pr
 }
 
 /** Writes this operation's title, body and marker onto a PR a worker opened; GitHub then decides. */
-async function takeOver(port: GitHubPort, s: PrSpec, pr: PrFact): Promise<PrOutcome> {
+async function takeOver(port: GitHubPort, s: PrSpec, pr: PrFact): Promise<CreateOnce> {
   const body = finalBody(s);
   const r = await port.request({
     method: 'PATCH',
@@ -234,6 +304,14 @@ async function takeOver(port: GitHubPort, s: PrSpec, pr: PrFact): Promise<PrOutc
   const after = await findTaskPr(port, s);
   if (after?.kind === 'recovered') return { ...after, kind: 'created' };
   if (after !== null && after.kind !== 'unclaimed') return after;
+  // The PR is still unclaimed, so GitHub's refusal is the answer: a content 422 goes to the retry.
+  if (!r.ok && r.error.reason === 'http_error' && r.error.status !== null && r.error.status < 500)
+    return {
+      kind: 'rejected',
+      status: r.error.status,
+      detail: r.error.detail,
+      content: contentRefusal(r.error),
+    };
   return {
     kind: 'unknown',
     detail: r.ok ? 'taken-over PR does not carry the marker' : r.error.detail,
@@ -261,6 +339,7 @@ export type DescriptionOutcome =
       readonly status: number;
       readonly detail: string;
     }
+  | { readonly kind: 'content_invalid'; readonly detail: string }
   | { readonly kind: 'unknown'; readonly detail: string };
 
 /** Title and body of one PR as GitHub has them now, or why they could not be read. */
@@ -294,6 +373,21 @@ export async function updatePrDescription(
   port: GitHubPort,
   u: DescriptionUpdate,
 ): Promise<DescriptionOutcome> {
+  const first = await updateOnce(port, u);
+  if (first.kind !== 'rejected' || !first.content) return first;
+  const fitted = fitContent(u.spec);
+  const second = fitted === u.spec ? first : await updateOnce(port, { ...u, spec: fitted });
+  if (second.kind !== 'rejected') return second;
+  return second.content
+    ? { kind: 'content_invalid', detail: second.detail }
+    : { kind: 'rejected', status: second.status, detail: second.detail };
+}
+
+type UpdateOnce =
+  | Exclude<DescriptionOutcome, { kind: 'rejected' }>
+  | (Extract<DescriptionOutcome, { kind: 'rejected' }> & { readonly content: boolean });
+
+async function updateOnce(port: GitHubPort, u: DescriptionUpdate): Promise<UpdateOnce> {
   if (markerCount(u.spec.title) > 0) return { kind: 'content_rejected', field: 'title' };
   if (markerCount(u.spec.body) > 0) return { kind: 'content_rejected', field: 'body' };
   const next = finalBody(u.spec);
@@ -321,6 +415,11 @@ export async function updatePrDescription(
   if (seen === want) return { kind: 'updated', body_digest: want };
   if (seen !== u.expected_body_digest) return { kind: 'body_changed', observed_digest: seen };
   if (r.error.reason === 'http_error' && r.error.status !== null && r.error.status < 500)
-    return { kind: 'rejected', status: r.error.status, detail: r.error.detail };
+    return {
+      kind: 'rejected',
+      status: r.error.status,
+      detail: r.error.detail,
+      content: contentRefusal(r.error),
+    };
   return { kind: 'unknown', detail: r.error.detail };
 }

@@ -2,6 +2,7 @@ import { canonicalJson } from '../shared/canonical-json.ts';
 import { CanonicalTaskSchema, type CanonicalTask } from '../domain/task.ts';
 import type { Trigger } from '../domain/trigger.ts';
 import { reject, type Ctx } from './context.ts';
+import { requestCancel } from './cancel.ts';
 import { onSourceDrift, sameContent } from './revision.ts';
 import { FREEZE_PENDING_CODES } from './start.ts';
 import { checkDependencies, checkRetryOf, pendingWait, retriage } from './triage.ts';
@@ -85,7 +86,22 @@ export function onDependencyStatus(ctx: Ctx, t: DependencyStatus): void {
     });
     return;
   }
+  if (t.status === 'FAILED' || t.status === 'CANCELLED') {
+    requestCancel(ctx, cascadeReason(t.depends_on, t.status, t.provenance?.terminal_reason));
+    return;
+  }
   retriage(ctx, { ...ctx.related.deps, [t.depends_on]: t.status });
+}
+
+const CASCADE = /^dependency_failed:root=([0-9a-f-]{36})\b/;
+
+/**
+ * `dependency_failed:root=<task> via=<prerequisite> (<status>)`: a prerequisite cancelled by this same
+ * cascade passes its root on, so every task down the chain names the task that actually ended.
+ */
+export function cascadeReason(dep: string, status: string, depReason: string | undefined): string {
+  const root = (depReason === undefined ? undefined : CASCADE.exec(depReason)?.[1]) ?? dep;
+  return `dependency_failed:root=${root} via=${dep} (${status})`;
 }
 
 type ConfigChecked = Extract<Trigger, { kind: 'config_checked' }>;

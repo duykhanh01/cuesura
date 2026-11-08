@@ -114,6 +114,7 @@ export function addToReport(
   s: TaskState,
   window: { readonly since: number; readonly until: number },
   finishedAt: number | null,
+  statusSince?: () => number | null,
 ): void {
   const inWindow = (t: number): boolean => t >= window.since && t <= window.until;
   const base = { task_id: s.id, title: s.task.title };
@@ -132,7 +133,7 @@ export function addToReport(
         usage,
       });
     }
-  } else if (needsUser(s)) {
+  } else if (needsUser(s, window.until, statusSince)) {
     push(r.needs_you, {
       ...base,
       status: s.status,
@@ -220,7 +221,9 @@ export function report(
         r = emptyReport(s.project);
         byProject.set(s.project, r);
       }
-      addToReport(r, s, { since, until }, isTerminal(s.status) ? statusSince(s) : null);
+      addToReport(r, s, { since, until }, isTerminal(s.status) ? statusSince(s) : null, () =>
+        statusSince(s),
+      );
     }
   }
 

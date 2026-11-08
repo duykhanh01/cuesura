@@ -190,11 +190,13 @@ async function conflictFlow(
   g.sh(external, 'commit', '-qm', 'conflict on main');
   g.sh(external, 'push', '-q', 'origin', 'main');
   const base = g.sh(external, 'rev-parse', 'HEAD');
-  // The harness is re-proved before the conflict fixer gets to run.
+  // The harness is re-proved before the conflict fixer gets to run, and no longer meets what the task
+  // froze for, so it is not taken without a person (#249).
   const proven = worker.manifest;
   if (behavior === 'reproved')
     (worker as { manifest: typeof proven }).manifest = {
       ...proven,
+      capabilities: { ...proven.capabilities, private_home_auth: 'unsupported' },
       manifest_hash: hashCanonical('re-proved'),
     };
   const finish = async () => {
@@ -619,7 +621,7 @@ describe('base integration through the real gate/review/publish handlers', () =>
     expect(replay(f.d.store.readEvents(f.task.id))).toEqual(f.d.task(f.task.id));
   });
 
-  it('a re-proved harness before the conflict fixer waits on manifest_changed; recheck keeps the one fixer attempt', async () => {
+  it('a re-proved harness short of the frozen requirements before the conflict fixer waits on manifest_changed; recheck keeps the one fixer attempt', async () => {
     const f = await conflictFlow('full-review', 'reproved');
     const waiting = f.d.task(f.task.id);
     expect(f.fixes()).toBe(0);

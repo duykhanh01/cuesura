@@ -2,7 +2,8 @@
  * Dependency notifications (T034, FR-001.02/03). A dependent waits until each prerequisite has recorded a
  * terminal status; a merge seen while the prerequisite still drains is not DONE and releases nothing.
  * DONE counts even when the merged head was not verified, with no extra approval; the dependent still
- * passes its own checks (acceptance, confirmation, config at start).
+ * passes its own checks (acceptance, confirmation, config at start). A FAILED or CANCELLED prerequisite
+ * cancels the dependent (#249), with the root task in the reason, instead of leaving it PENDING forever.
  *
  * Notifications are derived from committed state on every pass rather than pushed once, so a crash never
  * loses one; the dedup key makes a repeat a no-op.
@@ -41,7 +42,12 @@ export function notifyDependents(store: Store, now: number): DependencyNotice[] 
       if (prereq === null || !TERMINAL.includes(prereq.status)) continue;
       const r = submit(store, {
         task_id: s.id,
-        dedup_key: `dep:${s.id}:${dep}:${prereq.status}`,
+        // A failed prerequisite gets its own key: a dependent that saw it before the cascade existed
+        // (#249) still waits on `dependency_failed` and is cancelled on the next pass.
+        dedup_key:
+          prereq.status === 'DONE'
+            ? `dep:${s.id}:${dep}:DONE`
+            : `dep-cascade:${s.id}:${dep}:${prereq.status}`,
         trigger: {
           kind: 'dependency_status',
           depends_on: dep,
@@ -49,6 +55,9 @@ export function notifyDependents(store: Store, now: number): DependencyNotice[] 
           provenance: {
             prerequisite_version: prereq.version,
             unverified_reason: prereq.completion?.unverified?.reason ?? null,
+            ...(prereq.status !== 'DONE' && prereq.terminal?.reason
+              ? { terminal_reason: prereq.terminal.reason }
+              : {}),
           },
         },
         now,

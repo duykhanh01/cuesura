@@ -373,7 +373,7 @@ describe.each(['full-review', 'direct-pr'] as const)(
 );
 
 describe('the confirmed manifest is the one in force (T070/T071)', () => {
-  it('a manifest changed since confirmation blocks the attempt before launch and releases its reservation', async () => {
+  it('a manifest changed since confirmation that still meets the frozen requirements is recorded and the step runs on it (#249)', async () => {
     const f = setup({
       mode: 'direct-pr',
       confirmed: (m) => ({
@@ -383,24 +383,15 @@ describe('the confirmed manifest is the one in force (T070/T071)', () => {
     });
     f.start();
     await f.settle();
-    expect(f.proc.launches).toEqual([]);
-    const ev = types(f);
-    expect(ev).toContain('BudgetReleased');
-    expect(ev).not.toContain('BudgetConsumed');
-    const waiting = f.d.task(f.task.id);
-    expect(waiting.status).toBe('WAITING');
-    expect(waiting.wait?.detail).toMatchObject({
-      code: 'manifest_changed',
+    const accepted = f.d.store
+      .readEvents(f.task.id)
+      .find((e) => e.type === 'ManifestChangeAccepted');
+    expect(accepted?.payload).toMatchObject({
       harness: 'claude',
-      known: hashCanonical('another proof'),
+      previous: hashCanonical('another proof'),
     });
-    expect(f.github.prs).toEqual([]);
-
-    // Taking the manifest in force lets the same task go on, without a new task or confirmation.
-    f.d.must(f.task.id, { kind: 'recheck', target: 'manifest' });
-    // Back at once on the slot it kept reserved while it waited (FR-044.02).
-    expect(f.d.task(f.task.id).status).toBe('RUNNING');
-    await f.settle();
+    // The first try launched nothing and gave its reservation back; the next one ran on the new manifest.
+    expect(types(f)).toContain('BudgetReleased');
     expect(f.proc.launches.length).toBeGreaterThan(0);
     expect(f.d.task(f.task.id).wait?.detail.code).toBe('merge');
   });

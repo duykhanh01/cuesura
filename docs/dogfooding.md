@@ -258,9 +258,11 @@ Script lấy code từ `repo/`, không từ repo phát triển.
 `manifest.json`.
 
 Mỗi lần chứng minh lại sinh manifest mới với hash mới. Task chưa bắt đầu chạy nhận manifest mới khi bắt đầu.
-Task đã bắt đầu giữ hash manifest trong snapshot, nên lượt agent kế tiếp không chạy mà chờ `manifest_changed`
-(harness, hash cũ, hash mới). Kiểm tra manifest mới là lượt proof mình đã duyệt, rồi chạy
-`cusr task recheck <id>`: task nhận manifest mới và chạy lại bước đó, không cần hủy hay tạo lại task.
+Task đã bắt đầu giữ hash manifest trong snapshot. Manifest mới vẫn đáp ứng yêu cầu task đã chốt (schema
+kết quả của các role, không capability nào `unsupported`, không `external_verified`) thì task tự nhận và chạy
+lại bước đó. Không đáp ứng thì lượt agent kế tiếp không chạy mà chờ `manifest_changed` (harness, hash cũ, hash
+mới). Kiểm tra manifest mới là lượt proof mình đã duyệt, rồi chạy `cusr task recheck <id>`: task nhận manifest
+mới và chạy lại bước đó, không cần hủy hay tạo lại task.
 
 Lỗi đăng nhập harness (`WAITING/policy harness_auth`): đăng nhập lại vào đúng file trong
 `runtime.credential_refs` (Claude: `~/.claude/.credentials.json`, không phải profile Claude đang dùng

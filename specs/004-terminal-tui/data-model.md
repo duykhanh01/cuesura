@@ -100,6 +100,7 @@ hiện nguyên mã, không đoán. Đây chỉ là cách trình bày, không ph�
 | Task đã kết thúc | `false` |
 | `READY` và chưa xác nhận cấu hình chạy | `true` |
 | `READY` đã xác nhận, hoặc đang chạy không có wait | `false` |
+| Wait `effect_unknown` đã kéo dài từ 1 giờ (`detail.since`, `EFFECT_UNKNOWN_ATTENTION_MS`; wait ghi trước khi có `since` thì tính từ lúc task vào trạng thái hiện tại) | `true`: vẫn tự đối chiếu, nhưng người dùng cần biết nó kéo dài (issue #249). Mốc tới hạn sớm nhất được tính một lần cho mỗi watermark: từ lúc tới hạn, `task_board` không trả `unchanged` dù watermark không đổi, và attention inbox đọc lại để giao wait đó một lần |
 | Wait `dependency_pending`, `execution_slot`, `checks_incomplete`, `infra_backoff`, `rate_limited`, `effect_unknown`, `observation_unknown`, `merge_cleanup_pending` | `false`: đang chờ trong giới hạn |
 | Mọi `DetailCode` còn lại | `true` |
 

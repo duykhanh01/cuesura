@@ -129,11 +129,13 @@ không chọn WAITING/DONE/retry/escalation. Runtime xử lý completion trướ
 | READY, slot chưa có | Chưa start, chưa deadline, chưa worktree |
 | Có slot, freeze không đạt | PENDING/needs_info; trả reservation slot đã xác nhận chưa spawn; config_invalid/capability_missing |
 | PENDING lỗi và confirm/recheck mới | Đọc base mới nhất bên ngoài transaction; triage/freeze lại; dedup trả kết quả lần trước nếu cùng request |
+| PENDING do capability_missing hoặc `stacked_base` | Daemon tự preflight lại chỉ đọc theo backoff (FR-002.03); kết quả giống lần trước không ghi event; base PR đã merge hoặc môi trường đã sửa thì READY |
+| Prerequisite FAILED/CANCELLED | Task phụ thuộc bị hủy, lý do nêu task gốc (FR-001.04) |
 | CI fail và slot bận | WAITING/policy execution_slot, deadline tiếp tục chạy |
 | PR xanh | WAITING/approval merge; nhả slot khi rõ process/effect, giữ worktree |
 | Head ngoài dự kiến | WAITING/policy head_changed, thu hồi xanh, không nhận head mới |
 | Worktree khác tree task để lại khi worker sắp chạy | WAITING/policy worktree_changed (known/observed), không gọi agent; `recheck` nhận tree đó làm mốc mới của task (T072) |
-| Harness được chứng minh lại sau khi task đóng băng snapshot | WAITING/policy manifest_changed (harness/known/observed), không gọi agent; `recheck` nhận manifest đang hiệu lực cho task, không đổi ngầm (T070/T071) |
+| Harness được chứng minh lại sau khi task đóng băng snapshot | Không gọi agent. Manifest mới vẫn đáp ứng yêu cầu task đã chốt (schema kết quả của mọi role policy đóng băng chạy trên harness đó, không capability nào `unsupported`, không `external_verified`): ghi ManifestChangeAccepted rồi chạy lại bước, không chờ người (issue #249). Không đáp ứng: WAITING/policy manifest_changed (harness/known/observed); `recheck` nhận manifest đang hiệu lực cho task, không đổi ngầm (T070/T071) |
 | Harness chạy nhưng đăng nhập hết hạn/bị từ chối | WAITING/policy harness_auth (step/harness/message), không backoff hay retry; `recheck` sau khi đăng nhập lại trả visit của lượt đó và chạy lại bước |
 | Hết hạn/thang/lượt | Giữ blocker, không thêm thực thi; observation vẫn chạy trong hạn riêng |
 | Hết hạn quan sát | WAITING/policy observation_expired, hủy lịch, recheck hữu hạn |

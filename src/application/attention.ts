@@ -9,7 +9,8 @@ import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { TASK_STATUSES, isTerminal, type TaskState } from '../domain/state.ts';
-import { needsUser } from '../explain/needs-user.ts';
+import { effectUnknownDueAt, needsUser } from '../explain/needs-user.ts';
+import { statusSinceReader, type StatusSince } from './board.ts';
 import type { Uuid } from '../shared/brand.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import type { Store } from '../store/index.ts';
@@ -89,6 +90,8 @@ type Holder = {
   seq: string | null;
   /** Rebuilt from disk, so `batch` is not yet known: the client's first lease tells where it stood. */
   restored: boolean;
+  /** When the next `effect_unknown` wait looked at reaches its threshold (#249); null when none will. */
+  due: number | null;
 };
 
 type Keyed = { readonly key: string; readonly item: AttentionItem };
@@ -132,6 +135,7 @@ export class AttentionDesk {
   readonly #now: () => number;
   readonly #dataDir: string | null;
   readonly #decider: DeciderWatch | null;
+  readonly #statusSince: StatusSince;
   #holder: Holder | null = null;
   #registered: string | null = null;
   /** Reading a task's log only when it changed; holds the tasks that needed a person last time. */
@@ -144,6 +148,7 @@ export class AttentionDesk {
     readonly decider?: DeciderWatch;
   }) {
     this.#store = deps.store;
+    this.#statusSince = statusSinceReader(deps.store);
     this.#decider = deps.decider ?? null;
     this.#now = deps.now;
     this.#dataDir = deps.dataDir ?? null;
@@ -157,6 +162,7 @@ export class AttentionDesk {
         delivered: new Set(),
         seq: null,
         restored: true,
+        due: null,
       };
   }
 
@@ -215,7 +221,7 @@ export class AttentionDesk {
         message: 'attention not readable',
         details: { ...allowed.error },
       });
-    return ok({ waiting: this.#waiting().length });
+    return ok({ waiting: this.#waiting().waiting.length });
   }
 
   #forget(): void {
@@ -248,10 +254,10 @@ export class AttentionDesk {
       holder.delivered = new Set([...holder.delivered, ...holder.offered]);
       holder.offered = [];
     }
-    // Every input of `needsUser` is task state, and the decider's view changes its version: with neither
-    // changed there is nothing new to read.
+    // The inputs of `needsUser` are task state, the decider's view (its version) and, for an
+    // `effect_unknown` wait, time: with none of them changed and no such wait due yet, nothing is new.
     const seq = `${this.#store.lastGlobalSeq()}:${this.#decider?.version() ?? 0}`;
-    if (holder.seq === seq)
+    if (holder.seq === seq && (holder.due === null || this.#now() < holder.due))
       return ok({ lease: `${holder.id}.${holder.batch}`, items: [], truncated: false });
     return ok(this.#deliver(holder, seq));
   }
@@ -287,17 +293,27 @@ export class AttentionDesk {
       delivered: new Set(),
       seq: null,
       restored: false,
+      due: null,
     };
     return ok(this.#holder);
   }
 
-  #waiting(): Keyed[] {
+  #waiting(): { waiting: Keyed[]; due: number | null } {
     const waiting: Keyed[] = [];
+    const now = this.#now();
+    let due: number | null = null;
     const entered = new Map<string, { readonly version: number; readonly seq: number }>();
     for (const id of this.#store.taskIdsByStatus(LIVE)) {
       const s = this.#store.readTask(id as Uuid);
+      const at = s === null ? null : effectUnknownDueAt(s, () => this.#statusSince(s));
+      if (at !== null && at > now && (due === null || at < due)) due = at;
       // A question the decider is about to answer is not the person's yet; it comes if the decider gives up.
-      if (s === null || !needsUser(s) || this.#decider?.holds(s) === true) continue;
+      if (
+        s === null ||
+        !needsUser(s, now, () => this.#statusSince(s)) ||
+        this.#decider?.holds(s) === true
+      )
+        continue;
       const known = this.#entered.get(id);
       const seq =
         known?.version === s.version
@@ -308,11 +324,12 @@ export class AttentionDesk {
       waiting.push(keyed(s, seq));
     }
     this.#entered = entered;
-    return waiting;
+    return { waiting, due };
   }
 
   #deliver(holder: Holder, seq: string): AttentionReply {
-    const waiting = this.#waiting();
+    const { waiting, due } = this.#waiting();
+    holder.due = due;
     waiting.sort((a, b) => a.item.task_id.localeCompare(b.item.task_id));
     const fresh = waiting.filter((w) => !holder.delivered.has(w.key));
     const sent = fresh.slice(0, INBOX_LIMIT);

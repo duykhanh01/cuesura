@@ -77,6 +77,8 @@ export function taskProgress(
   store: Store,
   caller: Caller,
   body: Readonly<Record<string, unknown>>,
+  now?: number,
+  statusSince?: (s: TaskState) => number | null,
 ): Result<unknown, AppError> {
   const q = QuerySchema.safeParse(body);
   if (!q.success)
@@ -100,7 +102,7 @@ export function taskProgress(
     mode: s.run.mode,
     steps: policy === null ? null : stepsOf(s, policy.workflow),
     reason: policy === null ? 'not_frozen' : null,
-    needs_user: needsUser(s),
+    needs_user: needsUser(s, now, statusSince && (() => statusSince(s))),
     worktree_path: worktreePath(store, s),
   });
 }

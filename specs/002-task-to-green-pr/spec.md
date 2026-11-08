@@ -485,6 +485,7 @@ nhóm bao gồm toàn bộ các mục con, không thay thế việc kiểm chứ
   | **FR-001.01** | Intake MUST kiểm tra acceptance, dependency, quyền, workflow/profile và request dedup trước khi chạy theo feature 001; người có quyền được giao, xác nhận và đọc kết quả task trong repo được phép. |
   | **FR-001.02** | Dependency MUST được coi là thỏa khi prerequisite đã ghi DONE, kể cả merged_head_unverified, không thêm approval vì dấu này; task phụ thuộc vẫn qua các điều kiện riêng. |
   | **FR-001.03** | Dependency MUST NOT được giải phóng chỉ vì thấy merge khi prerequisite còn dừng/đối chiếu; bằng chứng chưa chứng nhận hiển thị theo FR-027.04. |
+  | **FR-001.04** | Prerequisite ghi FAILED hoặc CANCELLED MUST hủy task phụ thuộc đang chờ dependency thay vì để PENDING mãi; lý do hủy `dependency_failed:root=<task gốc> via=<prerequisite> (<status>)`, task bị hủy theo dây chuyền truyền task gốc xuống task phụ thuộc vào nó (issue #249). |
 
 - **FR-002**: Kiểm tra cấu hình và chốt snapshot. Các nghĩa vụ độc lập:
 
@@ -492,7 +493,7 @@ nhóm bao gồm toàn bộ các mục con, không thay thế việc kiểm chứ
   | --- | --- |
   | **FR-002.01** | Hệ thống MUST lấy base revision thực tế, kiểm tra cấu hình/năng lực và chốt đồng thời policy/context trong xử lý tín hiệu bắt đầu, theo thứ tự snapshot → RUNNING → tạo worktree. |
   | **FR-002.02** | Lỗi cấu hình/năng lực trước RUNNING MUST giữ/trả PENDING/needs_info với config_invalid/capability_missing tương ứng, kèm chẩn đoán và cách sửa; chưa tạo worktree. |
-  | **FR-002.03** | Sau lỗi này, hệ thống MUST chỉ thử lại qua task confirm/recheck có dedup, đọc base mới nhất và kiểm tra/chốt snapshot; vẫn qua acceptance/dependency/quyền, không tự poll cấu hình hoặc base tip. |
+  | **FR-002.03** | Sau lỗi này, hệ thống MUST thử lại qua task confirm/recheck có dedup, đọc base mới nhất và kiểm tra/chốt snapshot; vẫn qua acceptance/dependency/quyền. Lỗi do môi trường (capability_missing, hoặc config_invalid chỉ gồm check `stacked_base`) daemon MUST tự preflight lại chỉ đọc theo backoff riêng từng task (5 phút, gấp đôi, tối đa 1 giờ; reset khi task đổi version), chỉ ghi `config_checked` khi kết quả khác lần trước; lỗi cấu hình thật vẫn chờ người sửa rồi confirm/recheck (issue #249). |
   | **FR-002.04** | Lỗi policy/năng lực phát hiện sau RUNNING MUST chuyển WAITING/policy, không về PENDING; lỗi hạ tầng theo FR-015. |
   | **FR-002.05** | Hệ thống MUST NOT bỏ role/bước hoặc đổi binding để vượt kiểm tra cấu hình/năng lực. |
   | **FR-002.06** | Base branch khác nhánh mặc định của repo mà là head của một PR đang mở (chưa merge) MUST bị preflight chặn thành config_invalid với check `stacked_base`, nêu PR đó, task sở hữu nếu nhánh là `cusr/<task-id>-…`, và các lối ra: merge PR đó trước, làm tiếp PR bằng `task add --pr` (adopt), hoặc tạo lại task trên base của PR. Chỉ owner chọn stack có chủ đích bằng label `stacked-base` trên task do chính owner tạo; label trên task assistant tạo không có hiệu lực (issue #167). |
