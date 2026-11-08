@@ -520,7 +520,7 @@ export function runStep(
       askHuman(ctx, 'ci_unclassified', {
         step,
         attempt_id: null,
-        body: `Failed checks do not match any ci_rules: ${c.checks.join(', ')}`,
+        body: 'The CI result has no failed check to classify',
 
         resume: { kind: 'route', step, outcome: 'code' },
         detail: { checks: c.checks },
@@ -1517,15 +1517,17 @@ function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
 export function onCiRecorded(ctx: Ctx, step: string, required?: RequiredCheckVerdict): void {
   const s = ctx.state;
   if (s.cancellation !== null || isTerminal(s.status)) return proceed(ctx, { kind: 'none' });
-  // A result that lands after the head's CI window closed is evidence only, even for a poll sent in time (FR-043.08).
-  if (s.runtime_ref !== null && ciClosed(ctx, step))
-    return waitCiExhausted(ctx, step, { kind: 'poll_ci', step }, { late_result: true });
-  if (required !== undefined && required.kind !== 'covered' && s.runtime_ref !== null)
-    return onRequiredNotCovered(ctx, step, required);
+  const covered = required === undefined || required.kind === 'covered';
   const head = s.head_sha;
   const ci = head === null ? undefined : latestCi(s, head);
   // Evidence for another head cannot prove anything about the current head.
   const verdict = ci === undefined ? null : ciVerdict(ctx.frozen, ci.required_set, ci.checks);
+  // Any other result that lands after the head's CI window closed is evidence only, even for a poll
+  // sent in time; a covered pass still moves to the merge wait (FR-043.08, FR-043.11).
+  if (s.runtime_ref !== null && ciClosed(ctx, step) && !(covered && verdict?.kind === 'pass'))
+    return waitCiExhausted(ctx, step, { kind: 'poll_ci', step }, { late_result: true });
+  if (required !== undefined && required.kind !== 'covered' && s.runtime_ref !== null)
+    return onRequiredNotCovered(ctx, step, required);
   if (verdict?.kind === 'pass') return proceed(ctx, { kind: 'route', step, outcome: 'pass' });
   if (verdict?.kind === 'fail') return proceed(ctx, { kind: 'route', step, outcome: 'fail' });
   if (s.source_drift !== null || pastDeadline(ctx)) return proceed(ctx, { kind: 'poll_ci', step });

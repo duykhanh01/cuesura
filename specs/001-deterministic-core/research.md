@@ -213,7 +213,7 @@ công nghệ. Các mục dưới giải quyết những lựa chọn thiết k�
   | Nấc được chọn là `denied` | WAITING | `policy` | `rung_denied` |
   | Required checks thiếu hoặc chưa đầy đủ | WAITING | `ci` | `checks_incomplete` |
   | Head chưa chứa base tip | WAITING | `human_input` | `base_outdated` |
-  | Lỗi CI không khớp `ci.rules` nào | WAITING | `human_input` | `ci_unclassified` |
+  | Kết quả CI fail mà không có check `failure` nào để phân loại | WAITING | `human_input` | `ci_unclassified` |
 
   Yêu cầu hủy đang chờ đối chiếu không là lý do chờ mới: task giữ trạng thái hiện tại kèm
   `cancellation` trong state, và giải thích liệt kê effect còn chờ.
@@ -345,11 +345,13 @@ công nghệ. Các mục dưới giải quyết những lựa chọn thiết k�
   `software_dev@1` áp rule đầu tiên khớp cho từng check `failure` của head hiện hành:
   - mọi check thất bại cùng một lớp → đi theo outcome lớp đó;
   - nhiều lớp khác nhau → chọn lớp nghiêm nhất theo thứ tự `code` > `autofix` > `flaky_or_infra`;
-  - có check không khớp rule nào → WAITING `human_input` `ci_unclassified`.
+  - check không khớp rule nào được tính là `code`, nên đi vào `ci_fix` (có `max_visits`) (#246);
+  - không có check `failure` nào để phân loại → WAITING `human_input` `ci_unclassified`.
 - **Rationale:** SPEC.md §7 yêu cầu phân loại lỗi CI bằng code trước khi gọi agent; nguyên tắc VI cấm
   adapter quyết định retry. Lõi cần `job` và `log_excerpt` trong tín hiệu CI để tự phân loại.
-- **Alternatives considered:** executor gửi sẵn lớp lỗi: đưa quyết định retry ra ngoài lõi. Coi mọi lỗi
-  không khớp là `code`: tốn lượt agent cho lỗi hạ tầng chưa biết.
+- **Alternatives considered:** executor gửi sẵn lớp lỗi: đưa quyết định retry ra ngoài lõi. Chờ người
+  cho lỗi không khớp (quyết định ban đầu): `ci_rules` mặc định rỗng nên mọi CI đỏ đều dừng task; #246 đổi
+  sang coi là `code`, chấp nhận tốn lượt agent có giới hạn cho lỗi hạ tầng chưa khai rule.
 
 ## R-22 Backoff và thời hạn task
 

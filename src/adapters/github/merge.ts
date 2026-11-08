@@ -1,6 +1,6 @@
 /**
- * Yolo merge readiness (SPEC §14.2): an open PR on the checked head and target must be `clean`,
- * and a fresh head...target comparison must report ahead_by === 0. Protection is optional:
+ * Yolo merge readiness (SPEC §14.2): an open PR on the checked head and target must be `clean` or
+ * `unstable`, and a fresh head...target comparison must report ahead_by === 0. Protection is optional:
  * GitHub may enforce additional rules at merge time; the daemon checks CI and pinned apps itself.
  * The request carries the checked
  * head as `sha` and the worker's validated squash message; the next observation learns the outcome.
@@ -46,7 +46,7 @@ export async function readMergeReadiness(
   if (facts.base.ref !== t.target) return notReady('target does not match');
   if (facts.head.sha !== t.head_sha) return notReady('head does not match');
   const state = obj(pull.value.body)['mergeable_state'];
-  if (state !== 'clean' && state !== 'behind' && state !== 'dirty')
+  if (state !== 'clean' && state !== 'unstable' && state !== 'behind' && state !== 'dirty')
     return notReady(`mergeable_state ${String(state)}`);
 
   // pull.base.sha is the PR's base snapshot, not necessarily the branch's current tip.
@@ -77,7 +77,10 @@ export async function readMergeReadiness(
       base_sha: tip,
     };
   if (ahead !== 0) return notReady(`compare ahead_by ${String(ahead)}`);
-  if (state !== 'clean') return notReady(`mergeable_state ${String(state)}`);
+  // `unstable` only means a check outside the required set is failing or pending; the caller verifies
+  // that the required set is non-empty and green before merging.
+  if (state !== 'clean' && state !== 'unstable')
+    return notReady(`mergeable_state ${String(state)}`);
   return { ready: true };
 }
 

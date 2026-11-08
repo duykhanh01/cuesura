@@ -166,7 +166,9 @@ describe('I11 merge guard with generated evidence', () => {
           });
           if (sim.effects('merge').length === 0 && sim.s.cancellation === null) {
             blocked++;
-            expect(sim.s.status).toBe('WAITING');
+            // A failed check no rule classifies goes to the CI fixer instead of a wait (#246).
+            if (sim.s.current_step === 'ci_fix') expect(sim.s.status).toBe('RUNNING');
+            else expect(sim.s.status).toBe('WAITING');
           }
         }),
         propertyParams(300),

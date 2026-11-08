@@ -34,8 +34,9 @@ export function ruleMatches(rule: CiRule, c: Check): boolean {
 }
 
 /**
- * The first matching rule classifies each failed check. Any unmatched failure, or no failed
- * checks, makes the aggregate result unclassified.
+ * The first matching rule classifies each failed check; a failure no rule matches counts as `code`,
+ * so it goes to the bounded CI fixer rather than waiting for a person. Only a result with no failed
+ * check to read is unclassified.
  */
 export function classifyFailures(
   rules: readonly CiRule[],
@@ -43,14 +44,11 @@ export function classifyFailures(
 ): Classification {
   const failures = checks.filter((c) => c.state === 'failure');
   const byCheck: { check: string; class: CiClass }[] = [];
-  const unmatched: string[] = [];
   for (const c of failures) {
     const rule = rules.find((r) => ruleMatches(r, c));
-    if (rule) byCheck.push({ check: c.name, class: rule.class });
-    else unmatched.push(c.name);
+    byCheck.push({ check: c.name, class: rule?.class ?? 'code' });
   }
-  if (failures.length === 0 || unmatched.length > 0)
-    return { kind: 'unclassified', checks: unmatched };
+  if (failures.length === 0) return { kind: 'unclassified', checks: [] };
   const worst = byCheck.reduce((a, b) => (SEVERITY[b.class] > SEVERITY[a.class] ? b : a));
   return { kind: 'class', class: worst.class, by_check: byCheck };
 }

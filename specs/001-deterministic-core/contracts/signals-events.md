@@ -65,8 +65,9 @@ Bằng chứng cho merge guard (FR-015, research R-10):
   Adapter ghi kết luận `neutral` thành `skipped`, `stale` thành `cancelled` (#208).
 - Với check `failure`, `job` và `log_excerpt` (đã lọc theo `log_digest`, có giới hạn kích thước) là đầu
   vào của bước `classify`. Lõi áp `ci.rules` trong chính sách đóng băng để phân loại thành
-  `flaky_or_infra`, `autofix` hoặc `code`; executor không phân loại (nguyên tắc VI, research R-21). Không
-  rule nào khớp thì task WAITING `human_input` với `detail.code = ci_unclassified`.
+  `flaky_or_infra`, `autofix` hoặc `code`; executor không phân loại (nguyên tắc VI, research R-21). Check
+  không rule nào khớp tính là `code`; chỉ khi không có check `failure` nào để phân loại thì task WAITING
+  `human_input` với `detail.code = ci_unclassified`.
 
 ### Kết quả đối chiếu
 

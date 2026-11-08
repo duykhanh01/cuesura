@@ -404,7 +404,13 @@ describe('yolo merge', () => {
     async (spent) => {
       const d = setup();
       const t = buildTask();
-      toGreen(d, t, 'direct-pr', { required_checks: REQUIRED }, OBS_RUNTIME);
+      toGreen(
+        d,
+        t,
+        'direct-pr',
+        { required_checks: REQUIRED, limits: { max_wall_ms: 6 * 3_600_000 } },
+        OBS_RUNTIME,
+      );
       d.must(
         t.id,
         observation(d, t, 'open', A, {
@@ -441,7 +447,8 @@ describe('yolo merge', () => {
       });
       const read = await observeTaskPr(deps(d, port), t.id, 'legacy-mismatch', 'timer');
       for (const fact of read.facts) d.must(t.id, fact);
-      expect(d.task(t.id).wait?.detail.code).toBe(spent ? 'ci_wait_exhausted' : 'merge');
+      // A covered pass on the head returns to the merge wait even after its CI window (#246).
+      expect(d.task(t.id).wait?.detail.code).toBe('merge');
       expect(replay(d.store.readEvents(t.id))).toEqual(d.task(t.id));
     },
   );
@@ -651,6 +658,44 @@ describe('yolo merge', () => {
         expect(sent.some((req) => req.path.endsWith('/protection'))).toBe(false);
     },
   );
+
+  it('#246: an unstable PR merges when every required check is green and only another check fails', async () => {
+    const d = setup();
+    const t = buildTask();
+    green(d, t);
+    const { port, sent } = github({
+      pull: { mergeable_state: 'unstable' },
+      checks: { build: 'success', test: 'success', lint: 'failure' },
+    });
+    expect(await advanceTaskPr(deps(d, port), t.id)).toBe('merged');
+    expect(puts(sent)).toHaveLength(1);
+  });
+
+  it.each<[string, Remote, string[]]>([
+    [
+      'a required check failing',
+      { pull: { mergeable_state: 'unstable' }, checks: { build: 'success', test: 'failure' } },
+      REQUIRED,
+    ],
+    [
+      'no required checks',
+      {
+        protected: false,
+        pull: { mergeable_state: 'unstable' },
+        checks: { build: 'success', lint: 'failure' },
+      },
+      [],
+    ],
+  ])('#246: an unstable PR with %s is not merged', async (_name, remote, required) => {
+    const d = setup();
+    const t = buildTask();
+    green(d, t, 'direct-pr', required);
+    const { port, sent } = github(remote);
+    expect(await advanceTaskPr(deps(d, port), t.id)).toBe('not_ready');
+    expect(puts(sent)).toEqual([]);
+    expect(approvals(d, t)).toEqual([]);
+    expect(d.task(t.id).wait?.detail.code).toBe('merge');
+  });
 
   it.each([
     {},

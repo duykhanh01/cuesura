@@ -425,7 +425,7 @@ describe('CI classification and limits (US2.4/US2.5, FR-010/015/020)', () => {
     expect(effects(d, t, 'start_agent', 'ci_fix')).toEqual([]);
   });
 
-  it('US2.4: a failure no rule classifies waits for a person and is never treated as a code failure', () => {
+  it('US2.4: a failure no rule classifies goes to the bounded CI fixer, never to a person (#246)', () => {
     const d = setup();
     const t = buildTask();
     createGrantStart(d, t, 'direct-pr');
@@ -439,14 +439,10 @@ describe('CI classification and limits (US2.4/US2.5, FR-010/015/020)', () => {
     const data = ciData(A, { e2e: 'failure' }, {}, { required: COVERED });
     (data['checks'] as { job?: string }[])[0]!.job = 'e2e';
     d.complete(t.id, d.pendingOne(t.id, 'await_ci').id, 'succeeded', data);
-    expect(d.task(t.id)).toMatchObject({
-      status: 'WAITING',
-      wait: {
-        reason: 'human_input',
-        detail: { code: 'ci_unclassified', checks: ['e2e'] },
-      },
-    });
-    expect(effects(d, t, 'start_agent', 'ci_fix')).toEqual([]);
+    const s = d.task(t.id);
+    expect(s.wait?.detail.code).not.toBe('ci_unclassified');
+    expect(s.current_step).toBe('ci_fix');
+    expect(effects(d, t, 'start_agent', 'ci_fix')).toHaveLength(1);
   });
 
   it('US2.5: with the agent runs spent, no attempt starts; the task shows the limit it hit', () => {
@@ -1045,7 +1041,7 @@ describe('green PR under observation (US2.7/US2.8, US1.7, FR-041)', () => {
 });
 
 describe('CI and execution limits vs observation (US2.9/US2.10, FR-043.08–11)', () => {
-  it('US2.9: the CI window of a head runs out as ci_wait_exhausted; no fix, rerun or extension; a late pass is evidence only', () => {
+  it('US2.9: the CI window of a head runs out as ci_wait_exhausted; no fix, rerun or extension; a late pass moves to the merge wait', () => {
     const d = setup();
     const t = buildTask();
     createGrantStart(d, t, 'direct-pr', { limits: { max_wall_ms: 6 * HOUR } });
@@ -1080,17 +1076,28 @@ describe('CI and execution limits vs observation (US2.9/US2.10, FR-043.08–11)'
     expect(
       Object.values(s.timers).filter((x) => x.status === 'armed' && x.kind === 'ci_poll'),
     ).toEqual([]);
-    // The observation keeps watching; a late pass is recorded and changes nothing else.
+    // The observation keeps watching; a check that is still not green is recorded and changes nothing else.
+    d.must(
+      t.id,
+      observation(d, t, 'open', A, {
+        ci: ci(A, { build: 'success', test: 'failure' }),
+      }),
+    );
+    let after = d.task(t.id);
+    expect(after.wait?.detail.code).toBe('ci_wait_exhausted');
+    expect(after.evidence.ci.at(-1)?.checks.map((c) => c.state)).toEqual(['success', 'failure']);
+    expect(d.pending(t.id)).toEqual([]);
+    // A late covered pass on the same head moves to the merge wait without a new poll (#246, FR-043.11).
     d.must(
       t.id,
       observation(d, t, 'open', A, {
         ci: ci(A, { build: 'success', test: 'success' }),
       }),
     );
-    const after = d.task(t.id);
-    expect(after.wait?.detail.code).toBe('ci_wait_exhausted');
+    after = d.task(t.id);
+    expect(after.wait?.detail.code).toBe('merge');
     expect(after.evidence.ci.at(-1)?.checks.map((c) => c.state)).toEqual(['success', 'success']);
-    expect(d.pending(t.id)).toEqual([]);
+    expect(effects(d, t, 'await_ci').length).toBe(after.run.ci_wait[A]?.polls);
     // A merge still completes the task.
     merge(d, t, A);
     expect(d.task(t.id).status).toBe('DONE');
@@ -1385,9 +1392,12 @@ describe('observation vs the CI window, merge proof and target (PR review)', () 
     },
   );
 
-  it.each(['failure', 'success'] as const)(
-    'FR-043.08: a CI answer (%s) to a poll sent in time but landing after the window is evidence only',
-    (test) => {
+  it.each([
+    ['failure', 'ci_wait_exhausted'],
+    ['success', 'merge'],
+  ] as const)(
+    'FR-043.08: a CI answer (%s) to a poll sent in time but landing after the window waits %s, with no new poll',
+    (test, wait) => {
       const d = setup();
       const t = buildTask();
       createGrantStart(d, t, 'direct-pr', LONG);
@@ -1402,13 +1412,9 @@ describe('observation vs the CI window, merge proof and target (PR review)', () 
       d.now += 2 * HOUR;
       d.complete(t.id, poll.id, 'succeeded', ci(A, { build: 'success', test }));
       grant(d);
-      expect(d.task(t.id)).toMatchObject({
-        status: 'WAITING',
-        wait: {
-          reason: 'ci',
-          detail: { code: 'ci_wait_exhausted', head_sha: A, late_result: true },
-        },
-      });
+      expect(d.task(t.id)).toMatchObject({ status: 'WAITING', wait: { detail: { code: wait } } });
+      if (wait === 'ci_wait_exhausted')
+        expect(d.task(t.id).wait?.detail).toMatchObject({ head_sha: A, late_result: true });
       expect(
         d
           .task(t.id)

@@ -281,8 +281,9 @@ code; kiểm tra vòng sửa, bằng chứng mới và số lượt. Tách mẫu
 9. **Given** CI không đạt trong thời gian chờ hoặc số lần kiểm tra CI tự động được cấp,
    **When** chạm giới hạn, **Then** task WAITING/ci với ci_wait_exhausted, không tự sửa/rerun/gia hạn.
    Quan sát trạng thái PR vẫn tiếp tục trong hạn FR-043, không giữ slot hay gọi agent. CI pass muộn
-   được ghi làm bằng chứng nhưng không tự mở lại ngân sách thực thi; merge được xác nhận vẫn DONE
-   theo FR-040, kể cả khác head đã kiểm.
+   trên đúng head đã kiểm, đủ required checks, đưa task sang chờ merge (yolo thì merge tiếp) mà không
+   mở lại ngân sách thực thi; kết quả khác chỉ ghi làm bằng chứng. Merge được xác nhận vẫn DONE theo
+   FR-040, kể cả khác head đã kiểm.
 10. **Given** task đang chờ người merge, **When** deadline thực thi hết, **Then** WAITING/policy với
     task_deadline và không mở attempt mới; vẫn quan sát PR tự động trong hạn FR-043. Merge sau đó
     làm DONE theo FR-040 khi được xác nhận; hết hạn quan sát cần recheck, không tăng deadline.
@@ -619,10 +620,10 @@ nhóm bao gồm toàn bộ các mục con, không thay thế việc kiểm chứ
   | Reason / detail | Lối ra trong feature 002 |
   | --- | --- |
   | approval / merge | Merge thủ công vào branch đích → quan sát/recheck → DONE theo FR-040; hoặc cancel. |
-  | policy / task_deadline; ci / ci_wait_exhausted; hết thang/lượt/ngân sách | Không mở thêm lượt/gia hạn; có PR thì merge thủ công → xác nhận → DONE, hoặc cancel. Chưa có PR thì chỉ cancel; muốn làm lại dùng task add độc lập. |
+  | policy / task_deadline; ci / ci_wait_exhausted; hết thang/lượt/ngân sách | Không mở thêm lượt/gia hạn; có PR thì merge thủ công → xác nhận → DONE, hoặc cancel. Chưa có PR thì chỉ cancel; muốn làm lại dùng task add độc lập. Riêng ci_wait_exhausted: CI pass muộn đủ required checks trên đúng head thì tự sang approval / merge (FR-043.11). |
   | policy / head_changed | Người dùng trả branch về head đã kiểm → đối chiếu lại trong giới hạn; hoặc merge thủ công → DONE theo FR-040; đóng PR → pr_closed; hoặc cancel. Không có lệnh kiểm lại/chấp nhận head mới. |
   | policy / target_mismatch | Trước merge: đổi base về branch đích trong snapshot → đối chiếu lại, hoặc cancel. Merge sai branch không đủ bằng chứng DONE vào đích yêu cầu. |
-  | policy / required_checks_mismatch | Wait lịch sử vẫn replay được; lượt quan sát sau đối chiếu theo hợp tên mới và tự đi tiếp, hoặc ci_wait_exhausted nếu cửa sổ CI đã hết. Không sửa snapshot tại chỗ; merge thủ công/cancel vẫn hợp lệ. |
+  | policy / required_checks_mismatch | Wait lịch sử vẫn replay được; lượt quan sát sau đối chiếu theo hợp tên mới và tự đi tiếp, hoặc ci_wait_exhausted nếu cửa sổ CI đã hết (pass muộn đủ required checks trên đúng head vẫn sang approval / merge, FR-043.11). Không sửa snapshot tại chỗ; merge thủ công/cancel vẫn hợp lệ. |
   | policy / pr_closed | Mở lại PR → đối chiếu lại trong giới hạn; hoặc cancel. Đóng PR chưa phải terminal. |
   | policy / observation_expired | Recheck hữu hạn để cập nhật bằng chứng; xác nhận merge thì DONE theo FR-040. Chưa merge thì merge thủ công rồi recheck, hoặc cancel; không tự bật lại poll/gia hạn. |
   | policy / merge_cleanup_pending | Hoàn tất dừng/đối chiếu trong giới hạn → DONE; hết giới hạn thì người dùng xử lý phần chưa rõ được explain chỉ ra rồi recheck một lượt hữu hạn. Cancel không bỏ qua đối chiếu hoặc đổi merge đã xác nhận thành CANCELLED; không tiếp tục workflow/publish. |
@@ -709,7 +710,7 @@ nhóm bao gồm toàn bộ các mục con, không thay thế việc kiểm chứ
   | **FR-042.01** | `ci.required_checks` MUST được đóng băng từ `cusr.yaml` theo revision; sửa file local không thay snapshot. |
   | **FR-042.02** | Mỗi lượt chờ CI/quan sát MUST đọc đầy đủ branch protection/rulesets đang có hiệu lực trên branch đích, không phụ thuộc cờ yolo. |
   | **FR-042.03** | Danh sách phải chờ MUST là hợp tên check trong snapshot và mọi check GitHub đang bắt buộc, kể cả ngoài snapshot và ghim app; thứ tự/duplicate không làm thay đổi kết quả. |
-  | **FR-042.04** | Check ngoài snapshot hoặc ghim app MUST NOT tạo required_checks_mismatch mới; MUST lưu tên/app trong evidence. Schema/event/wait cũ MUST vẫn replay được; task ở wait cũ tự đối chiếu và đi tiếp ở lượt quan sát sau, hoặc ci_wait_exhausted nếu cửa sổ CI đã hết. |
+  | **FR-042.04** | Check ngoài snapshot hoặc ghim app MUST NOT tạo required_checks_mismatch mới; MUST lưu tên/app trong evidence. Schema/event/wait cũ MUST vẫn replay được; task ở wait cũ tự đối chiếu và đi tiếp ở lượt quan sát sau, hoặc ci_wait_exhausted nếu cửa sổ CI đã hết, trừ pass muộn đủ required checks trên đúng head (sang chờ merge theo FR-043.11). |
   | **FR-042.05** | GitHub xác nhận không có quy tắc MUST ghi github_required: none; vẫn chờ check snapshot/gate/review. Hợp rỗng ở observation giữ hành vi cũ: vào chờ merge, không dùng mọi check trên head làm fallback; riêng yolo không merge và log một lần hướng dẫn khai ci.required_checks. |
   | **FR-042.06** | Không đọc đầy đủ GitHub hoặc thiếu quyền MUST trả unknown, WAITING/infra; không ghi none, coi là khớp hay fallback sang chỉ project. |
   | **FR-042.07** | Ánh xạ check mơ hồ MUST chờ policy. |
@@ -727,10 +728,10 @@ nhóm bao gồm toàn bộ các mục con, không thay thế việc kiểm chứ
   | **FR-043.05** | Restart/đọc thành công/recheck MUST NOT reset hạn quan sát hoặc tạo chuỗi poll trùng. |
   | **FR-043.06** | Hết hạn quan sát MUST ngừng poll và chuyển WAITING/policy với observation_expired, giữ blocker/giới hạn đã chạm và lần quan sát cuối; chỉ recheck đối chiếu một lần, không tự bật lại lịch. |
   | **FR-043.07** | Đối chiếu bắt buộc khi cancel MUST vẫn được thực hiện theo FR-025 sau hạn quan sát, không khôi phục giám sát định kỳ. |
-  | **FR-043.08** | Vòng CI mỗi head MUST có trần thời gian/số lần kiểm tra; chạm trần thì WAITING/ci với ci_wait_exhausted và dừng tự động sửa/rerun vòng đó, không gia hạn. |
+  | **FR-043.08** | Vòng CI mỗi head MUST có trần thời gian/số lần kiểm tra; chạm trần thì WAITING/ci với ci_wait_exhausted và dừng tự động sửa/rerun vòng đó, không gia hạn; pass muộn xử lý theo FR-043.11. |
   | **FR-043.09** | Deadline task MUST bắt đầu khi workflow chạy lần đầu theo SPEC.md §9.4: READY chờ slot đầu chưa tính, chờ xin lại slot có tính; không tạm dừng/reset khi xin slot hoặc restart. |
   | **FR-043.10** | Deadline task hết MUST chặn công việc thực thi mới và chuyển WAITING/policy với task_deadline, trừ giai đoạn dừng/đối chiếu sau merge theo FR-040.13. |
-  | **FR-043.11** | CI pass muộn MUST chỉ cập nhật bằng chứng, không reset giới hạn; merge được xác nhận xử lý theo FR-040. |
+  | **FR-043.11** | CI pass muộn MUST NOT reset giới hạn hay mở lượt sửa/rerun/poll. Pass muộn trên đúng head đã kiểm, đủ required checks (kể cả sau ci_wait_exhausted) MUST đưa task sang chờ merge như pass trong hạn; kết quả muộn khác chỉ cập nhật bằng chứng. Merge được xác nhận xử lý theo FR-040. |
   | **FR-043.12** | Mọi trạng thái MUST hiển thị lần quan sát cuối, hạn quan sát, lịch kế tiếp hoặc lý do ngừng; dữ liệu cũ không được trình bày là remote hiện tại, lỗi đọc theo FR-041.08. |
   | **FR-043.13** | Merge đã xác nhận hoặc task terminal MUST ngừng lịch quan sát PR; dừng/đối chiếu sau merge theo FR-040.07 và FR-040.13, không bị hạn CI/thực thi/quan sát ngăn cản hoặc đổi lý do chờ. |
 

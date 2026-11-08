@@ -73,10 +73,18 @@ describe('R-21 CI failure classification', () => {
     ).toMatchObject({ class: 'autofix' });
   });
 
-  it('unmatched failed checks are unclassified; successful checks are ignored', () => {
+  it('unmatched failed checks count as code; successful checks are ignored (#246)', () => {
     expect(
       classifyFailures(RULES, [fail('fmt', { job: 'format' }), fail('docs', { job: 'docs' })]),
-    ).toEqual({ kind: 'unclassified', checks: ['docs'] });
+    ).toEqual({
+      kind: 'class',
+      class: 'code',
+      by_check: [
+        { check: 'fmt', class: 'autofix' },
+        { check: 'docs', class: 'code' },
+      ],
+    });
+    expect(classifyFailures([], [fail('docs')])).toMatchObject({ kind: 'class', class: 'code' });
     expect(
       classifyFailures(RULES, [
         { name: 'docs', state: 'pending', job: 'docs' },
@@ -85,7 +93,14 @@ describe('R-21 CI failure classification', () => {
     ).toMatchObject({ class: 'autofix' });
   });
 
-  it('ci_triage waits on unmatched failures and uses only the current head', () => {
+  it('a result with no failed check stays unclassified', () => {
+    expect(classifyFailures(RULES, [{ name: 'unit', state: 'success' }])).toEqual({
+      kind: 'unclassified',
+      checks: [],
+    });
+  });
+
+  it('ci_triage sends unmatched failures to ci_fix and uses only the current head', () => {
     const task = buildTask();
     const sim = started(task, { policy: { ci_rules: RULES } });
     sim.complete(toCode(sim).id, 'succeeded', agentData('done'));
@@ -106,10 +121,8 @@ describe('R-21 CI failure classification', () => {
     const timer = sim.armedTimers('ci_poll')[0]!;
     sim.advance(60_000).fire(timer.id);
     sim.complete(sim.pendingOne('await_ci').id, 'succeeded', ciData('H', { docs: 'failure' }));
-    expect(sim.s.wait).toMatchObject({
-      reason: 'human_input',
-      detail: { code: 'ci_unclassified', checks: ['docs'] },
-    });
+    expect(sim.s.current_step).toBe('ci_fix');
+    expect(sim.s.wait?.detail.code).not.toBe('ci_unclassified');
     sim.replayCheck();
   });
 });

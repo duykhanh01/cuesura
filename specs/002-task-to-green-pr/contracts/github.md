@@ -102,7 +102,8 @@ FR-040.12, không thay bằng HEAD hiện tại hoặc suy từ merge commit squ
   Mỗi lượt đọc tính hợp snapshot và tên mọi check đang bắt buộc trên GitHub, kể cả app-pinned,
   không phụ thuộc yolo. Lưu `github` và `app_pinned` (name/app/source/ruleset) trong verdict/CI evidence.
 - Check ngoài snapshot hoặc ghim app không tạo required_checks_mismatch mới. Schema và wait lịch sử
-  giữ nguyên; quan sát tiếp theo áp dụng hợp tên để đi tiếp trong hạn CI, hết hạn thì ci_wait_exhausted.
+  giữ nguyên; quan sát tiếp theo áp dụng hợp tên để đi tiếp trong hạn CI; hết hạn thì ci_wait_exhausted, trừ
+  khi lượt đó thấy CI pass đủ required checks trên đúng head thì sang chờ merge (FR-043.11).
 - GitHub `none` là evidence dương; unknown/thiếu quyền/đọc thiếu không fallback. Cùng tên nhiều nguồn
   không ánh xạ rõ hoặc status/check collision không giải được vẫn chờ policy.
 - Hợp rỗng: observation vẫn vào chờ merge, không chờ check tùy chọn; yolo không merge và log một lần
@@ -145,7 +146,8 @@ sau trong hạn, không ngủ vượt cap. ETag/304 chỉ tái sử dụng đún
 cũ thành bằng chứng đọc đầy đủ endpoint chưa từng thành công.
 
 CI deadline/count riêng từng head: default 1 giờ/60 lượt (hoặc step timeout đóng băng); exhausted
-không mở lại agent/rerun dù CI pass muộn. Hết task deadline vẫn quan sát trong hạn riêng. Hết hạn
+không mở lại agent/rerun/poll. CI pass muộn đủ required checks trên đúng head (quan sát hoặc câu trả
+lời poll đến sau hạn) đưa task sang chờ merge; kết quả muộn khác chỉ là bằng chứng (FR-043.11). Hết task deadline vẫn quan sát trong hạn riêng. Hết hạn
 observation là observation_expired, không tự poll lại. Recheck quan sát một lần có dedup, chưa
 merge giữ exhausted; thấy merge thì drain theo FR-040, không DONE trước dừng/đối chiếu.
 

@@ -382,8 +382,8 @@ function lastReadable(ctx: Ctx): unknown {
  * CI of an open PR read by the observation, for the head this task published. Recorded only when it
  * differs from the evidence already held, so an idle PR does not grow the log. Waiting for merge, a
  * check that no longer passes or a requirement no longer covered withdraws green and goes through the
- * CI handling; waiting on a mismatch, a covered pass returns to the merge wait. A late pass after the
- * CI window is evidence only (FR-043.11).
+ * CI handling; waiting on a mismatch or after the CI window ran out, a covered pass returns to the
+ * merge wait (FR-043.11).
  */
 function onOpenCi(ctx: Ctx, t: ObservationResult, step: string | null): void {
   const s = ctx.state;
@@ -408,7 +408,7 @@ function onOpenCi(ctx: Ctx, t: ObservationResult, step: string | null): void {
       });
   const required = ci.required;
   const covered = required === undefined || required.kind === 'covered';
-  if (same && covered && code !== 'required_checks_mismatch') return;
+  if (same && covered && code === 'merge') return;
   if (!same)
     ctx.emit('CiResultRecorded', {
       head_sha: ci.head_sha,
@@ -418,11 +418,13 @@ function onOpenCi(ctx: Ctx, t: ObservationResult, step: string | null): void {
       resets_streak_of: null,
     });
   // Still not covered while already waiting on it: nothing changed for the task.
-  if (code === 'ci_wait_exhausted' || (code === 'required_checks_mismatch' && !covered)) return;
+  if (code === 'required_checks_mismatch' && !covered) return;
   const pass = covered && ciVerdict(ctx.frozen, ci.required_set, ci.checks).kind === 'pass';
   if (code === 'merge' && pass) return;
-  // The head's CI window is spent: what the CI shows now is evidence only, never a fix or a new poll (FR-043.08).
-  if (ciSpent(ctx, step))
+  if (code === 'ci_wait_exhausted' && !pass) return;
+  // The head's CI window is spent: anything short of a covered pass is evidence only, never a fix or a
+  // new poll (FR-043.08); a covered pass moves to the merge wait (FR-043.11).
+  if (!pass && ciSpent(ctx, step))
     return waitCiExhausted(ctx, step, { kind: 'poll_ci', step }, { withdrawn: code });
   ctx.emit('TaskResumed', { reason: 'observation' });
   onCiRecorded(ctx, step, required);
