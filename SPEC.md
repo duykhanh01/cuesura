@@ -566,12 +566,14 @@ Lỗi có `ok: false`, `data: null` và `error` gồm code ổn định, message
 | Exit code | Ý nghĩa |
 |---|---|
 | 0 | Lệnh được xử lý thành công; task có thể vẫn PENDING/WAITING hoặc đã FAILED nếu đây là lệnh truy vấn |
-| 1 | Thực thi lệnh thất bại hoặc health check không đạt |
+| 1 | Thực thi lệnh thất bại hoặc health check không đạt; reply của daemon vượt giới hạn của client (`response_too_large`) |
 | 2 | Sai cú pháp, input hoặc cấu hình |
 | 3 | Không kết nối được daemon/dịch vụ hoặc hết thời gian chờ; có thể cần tra lại request |
 | 4 | Không tìm thấy đối tượng |
 | 5 | Không đủ quyền |
-| 6 | Conflict: version cũ, câu hỏi đã trả lời, request ID trùng payload khác, transition không hợp lệ |
+| 6 | Conflict: version cũ, câu hỏi đã trả lời, request ID trùng payload khác, transition không hợp lệ, task đã kết thúc |
+
+Mutation bị engine từ chối đi qua cùng một ánh xạ, lệnh nào cũng vậy: trạng thái task không cho phép thì exit 6 (`rejected`, hoặc `conflict` cho task/PR đã có chủ và câu hỏi đã đóng); input sai (phụ thuộc vào task không tồn tại, câu trả lời ngoài lựa chọn) thì exit 2; kênh không được tin thì exit 5. Mutation vào task đã kết thúc trả `conflict` với `reason: "task_terminal"`, không trả `ok`; riêng `cancel` vẫn `ok` kèm `ignored: "terminal"` vì task đã dừng đúng như lệnh muốn, và `recheck` vẫn `ok` với `target: "terminal"`, `performed: false` (chỉ ghi nhận tín hiệu, FR-046.08). Bảng chi tiết ở [hợp đồng cli-daemon](specs/002-task-to-green-pr/contracts/cli-daemon.md#lỗi-của-mutation-bị-engine-từ-chối).
 
 Signal exit giữ quy ước hệ điều hành. Exit code mô tả lệnh CLI, không thay cho `task.status`. Chế độ không tương tác trả lỗi/yêu cầu duyệt có cấu trúc, không tự cấp quyền để tránh prompt.
 

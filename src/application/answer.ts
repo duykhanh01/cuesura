@@ -11,6 +11,7 @@ import { err, ok, type Result } from '../shared/result.ts';
 import type { AcceptOutcome, Store } from '../store/index.ts';
 import { authzContext, type Caller } from './authz.ts';
 import type { Admitted, CommandInput } from './commands.ts';
+import { decisionError } from './engine-verdict.ts';
 import { taskView, type AppError } from './queries.ts';
 import { submit } from './triage.ts';
 
@@ -98,14 +99,9 @@ function answerSync(
   });
   const after = deps.store.readTask(found.value.id as Uuid);
   if (!r.ok) return err(acceptError(r.error, after));
-  const d = r.value.decision;
-  if (d.kind === 'rejected')
-    return err({
-      // A withdrawn question (new revision) or one already closed: the answer is not taken.
-      code: d.code === 'question_not_open' ? 'conflict' : d.code,
-      message: d.code,
-      details: { reason: d.code, detail: d.detail ?? null },
-    });
+  // A withdrawn question (new revision) or one already closed is a conflict: the answer is not taken.
+  const refused = decisionError(r.value.decision);
+  if (refused !== null) return err(refused);
   const current = after?.questions[q.id] ?? q;
   if (eventTypes(r.value).includes('AnswerRejected'))
     return err({

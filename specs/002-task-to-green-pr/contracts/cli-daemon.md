@@ -56,7 +56,32 @@ thử lại cấu hình đã sửa; replay request cũ không âm thầm đọc 
 `--json` cho mọi lệnh; output finite đúng một object `{schema_version:1,ok,data,error}`. Error gồm
 code/message/details/request_id. Log/chẩn đoán vào stderr, không ANSI/prompt. Exit 0 processed, 1
 execution/health failure, 2 syntax/config/unsupported, 3 connection/timeout, 4 missing, 5 forbidden,
-6 conflict. Status task không quyết định exit code của lệnh query.
+6 conflict. Status task không quyết định exit code của lệnh query. Reply của daemon lớn hơn 8 MiB thì
+client trả `response_too_large` (exit 1, không phải `daemon_unreachable`) có `details.limit_bytes` và
+`details.guidance` gợi ý giảm `--limit` hoặc bỏ `--full`.
+
+### Lỗi của mutation bị engine từ chối
+
+Mọi service mutation (add, propose, confirm, recheck, continue, pause, resume, message, cancel, answer,
+approve, amend-policy) ánh xạ quyết định của engine qua cùng một hàm
+([engine-verdict.ts](../../../src/application/engine-verdict.ts)), nên mã reject thô của engine không tới
+CLI. Lỗi có `details.reason` là mã của engine và `details.detail` là chi tiết engine trả; `message` lấy
+`detail.reason` khi có.
+
+| Engine trả | `error.code` | Exit / HTTP |
+| --- | --- | --- |
+| `invalid_trigger`, `workflow_change_forbidden` (trạng thái task không cho phép) | `rejected` | 6 / 409 |
+| `task_exists`, `pr_in_use`, `question_not_open`, `approval_mismatch` | `conflict` | 6 / 409 |
+| Trigger bị bỏ qua vì task đã kết thúc (`SignalIgnored{reason: "terminal"}`) | `conflict`, `reason: "task_terminal"` | 6 / 409 |
+| `dependency_invalid` | `invalid_arguments`; thiếu task thì `details.missing` liệt kê ID | 2 / 400 |
+| `invalid_trigger` với `base_repair_answer_must_be_continue_or_retry_fixer` | `invalid_arguments`, `details.choices` | 2 / 400 |
+| `untrusted_confirmation`, `not_admin` | `forbidden` | 5 / 403 |
+| `unknown_task` | `task_not_found` | 4 / 404 |
+| `id_pool_exhausted` (daemon gán thiếu ID) | `id_pool_exhausted` | 1 / 422 |
+
+`task cancel` vào task đã kết thúc không bị từ chối: trả `ok` với `ignored: "terminal"`, vì task đã dừng
+đúng như lệnh muốn. `task recheck` cũng vậy: trả `ok` với `target: "terminal"`, `performed: false`, chỉ
+ghi nhận tín hiệu (FR-046.08). Lệnh bị bỏ qua vẫn ghi `SignalIgnored` vào history.
 
 Data dir của `cusr` lấy theo thứ tự `--data-dir`, `CUSR_DATA_DIR`, `~/.cusr`. `--data-dir` là option toàn cục:
 đặt trước lệnh (`cusr --data-dir DIR status`) hay sau lệnh đều được; cho cả hai chỗ thì giá trị sau lệnh thắng.

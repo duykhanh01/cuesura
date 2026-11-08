@@ -21,6 +21,7 @@ import type { Store } from '../store/index.ts';
 import { authorize, authzContext, type Caller } from './authz.ts';
 import type { Admitted, CommandInput } from './commands.ts';
 import { confirmTask, type ConfirmDeps } from './confirm.ts';
+import { decisionError, engineRejection } from './engine-verdict.ts';
 import { recheckTarget, recheckTask, type RecheckDeps } from './recheck.ts';
 import { explainRuntime } from '../explain/explain.ts';
 import { TASK_STATUSES } from '../domain/state.ts';
@@ -176,12 +177,8 @@ function proposeRun(
       message: r.error.code,
       details: { ...r.error },
     });
-  if (r.value.decision.kind === 'rejected')
-    return err({
-      code: r.value.decision.code,
-      message: 'run config rejected',
-      details: { detail: r.value.decision.detail ?? null },
-    });
+  const refused = decisionError(r.value.decision);
+  if (refused !== null) return err(refused);
   return ok(undefined);
 }
 
@@ -269,12 +266,8 @@ export async function taskAdd(
     authz: authzContext(caller, deps.now()),
   });
   if (!r.ok) return err({ code: 'conflict', message: r.error.code, details: { ...r.error } });
-  if (r.value.decision.kind === 'rejected')
-    return err({
-      code: r.value.decision.code,
-      message: 'task rejected',
-      details: { detail: r.value.decision.detail ?? null },
-    });
+  const refused = decisionError(r.value.decision);
+  if (refused !== null) return err(refused);
   const proposal = (input.payload as { run_config?: RunProposal } | null)?.run_config;
   if (proposal !== undefined) {
     const p = proposeRun(
@@ -340,6 +333,7 @@ export async function taskConfirm(
   });
   if (!r.ok) {
     const e = r.error;
+    if (e.code === 'rejected') return err(engineRejection(e.reason, e.detail));
     return err({
       code: e.code === 'unknown_task' ? 'task_not_found' : e.code,
       message: e.code,
@@ -380,6 +374,7 @@ export async function taskRecheck(
   );
   if (r.ok) return ok(r.value);
   const e = r.error;
+  if (e.code === 'rejected') return err(engineRejection(e.reason, e.detail));
   return err({
     code: e.code === 'unknown_task' ? 'task_not_found' : e.code,
     message: 'reason' in e ? String(e.reason) : e.code,

@@ -1,7 +1,8 @@
 /**
  * Stable mapping from an error code to the CLI exit code and the HTTP status of the control socket
  * (FR-028, contracts/cli-daemon.md). A task's status never decides either one; only the outcome of the
- * command does.
+ * command does. An engine refusal reaches this table only through `application/engine-verdict.ts`, so
+ * its raw reject codes never do. Any code not listed (e.g. `response_too_large`) is exit 1.
  */
 import { ExitCode, type Envelope } from './output.ts';
 

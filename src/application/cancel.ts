@@ -22,6 +22,7 @@ import type { Store } from '../store/index.ts';
 import { acceptError, taskInProject } from './answer.ts';
 import { authzContext, type Caller } from './authz.ts';
 import type { Admitted, CommandInput } from './commands.ts';
+import { engineRejection } from './engine-verdict.ts';
 import { taskView, type AppError } from './queries.ts';
 import type { RecheckDeps } from './recheck.ts';
 import { submit } from './triage.ts';
@@ -66,12 +67,8 @@ export async function cancelTask(
   const read = (): TaskState | null => deps.store.readTask(id as Uuid);
   if (!r.ok) return err(acceptError(r.error, read()));
   const d = r.value.decision;
-  if (d.kind === 'rejected')
-    return err({
-      code: d.code,
-      message: d.code,
-      details: { reason: d.code, detail: d.detail ?? null },
-    });
+  // A terminal task is not refused here: the cancel's goal already holds, reported as `ignored`.
+  if (d.kind === 'rejected') return err(engineRejection(d.code, d.detail));
   const ignored = d.events.find((e) => e.type === 'SignalIgnored')?.payload ?? null;
 
   let pr: PrRead | null = null;
@@ -112,12 +109,7 @@ export async function cancelTask(
     });
     if (!f.ok) return err(acceptError(f.error, read()));
     const fd = f.value.decision;
-    if (fd.kind === 'rejected')
-      return err({
-        code: fd.code,
-        message: fd.code,
-        details: { reason: fd.code, detail: fd.detail ?? null },
-      });
+    if (fd.kind === 'rejected') return err(engineRejection(fd.code, fd.detail));
     const skipped = fd.events.find((e) => e.type === 'SignalIgnored')?.payload as
       | { reason?: string }
       | undefined;

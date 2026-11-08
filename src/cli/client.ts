@@ -32,7 +32,7 @@ export const DEFAULT_CLIENT_TIMEOUT_MS = 15_000;
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 
 export type ClientError = {
-  readonly code: 'connection' | 'timeout' | 'protocol' | 'actor';
+  readonly code: 'connection' | 'timeout' | 'protocol' | 'actor' | 'too_large';
   readonly message: string;
 };
 
@@ -77,6 +77,18 @@ export function clientErrorEnvelope(
       code: 'actor_invalid',
       message: error.message,
       details,
+      request_id: requestId,
+    });
+  // The daemon answered; only the client's size cap refused the reply.
+  if (error.code === 'too_large')
+    return errorEnvelope({
+      code: 'response_too_large',
+      message: error.message,
+      details: {
+        ...details,
+        limit_bytes: MAX_RESPONSE_BYTES,
+        guidance: 'Ask for less: lower --limit, or drop --full.',
+      },
       request_id: requestId,
     });
   const notListening = error.code === 'connection' && /^(ENOENT|ECONNREFUSED):/.test(error.message);
@@ -160,9 +172,15 @@ export function callDaemon(opts: CallOptions): Promise<Result<DaemonReply, Clien
         let size = 0;
         res.on('data', (c: Buffer) => {
           size += c.length;
-          if (size > MAX_RESPONSE_BYTES)
-            req.destroy(new Error('Daemon response exceeds the size limit'));
-          else chunks.push(c);
+          if (size > MAX_RESPONSE_BYTES) {
+            done(
+              err({
+                code: 'too_large',
+                message: `Daemon response exceeds the ${MAX_RESPONSE_BYTES} byte limit`,
+              }),
+            );
+            req.destroy();
+          } else chunks.push(c);
         });
         const cut = (): void =>
           done(

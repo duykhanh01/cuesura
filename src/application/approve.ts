@@ -13,6 +13,7 @@ import type { Store } from '../store/index.ts';
 import { acceptError, taskInProject } from './answer.ts';
 import { authzContext, type Caller } from './authz.ts';
 import type { Admitted, CommandInput } from './commands.ts';
+import { decisionError } from './engine-verdict.ts';
 import { taskView, type AppError } from './queries.ts';
 import { submit } from './triage.ts';
 
@@ -64,13 +65,8 @@ function approveSync(
   });
   const after = deps.store.readTask(s.id as Uuid);
   if (!r.ok) return err(acceptError(r.error, after));
-  const d = r.value.decision;
-  if (d.kind === 'rejected')
-    return err({
-      code: d.code === 'approval_mismatch' ? 'conflict' : d.code,
-      message: d.code,
-      details: { reason: d.code, detail: d.detail ?? null },
-    });
+  const refused = decisionError(r.value.decision);
+  if (refused !== null) return err(refused);
   return ok({
     approval_id: target.id,
     status: after?.approvals[target.id]?.status ?? null,

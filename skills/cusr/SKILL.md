@@ -203,6 +203,18 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 # Only the same actor and an in-scope project can see a request.
 ```
 
+## Exit codes of a mutation
+
+- Exit 6 (`rejected` or `conflict`): the task's state does not allow the command now. Reread the task;
+  do not resend it unchanged. `details.reason` names the refusal and `details.detail` the engine's
+  detail. `conflict` with `reason: "task_terminal"` means the task has ended and nothing was done.
+- Exit 2 with `invalid_arguments`: fix the input, e.g. `details.missing` (unknown `depends_on` IDs) or
+  `details.choices` (allowed answers).
+- Exit 1 with `response_too_large`: the reply was over the client's limit; ask for less (lower
+  `--limit`, drop `--full`). Exit 1 otherwise is the daemon failing to do the command.
+- `task cancel` of an ended task is exit 0 with `ignored: "terminal"`; `task recheck` of one is exit 0
+  with `target: "terminal"` and `performed: false` (nothing was checked).
+
 ## Propose run settings
 
 ```sh

@@ -15,6 +15,7 @@ import { acceptError, taskInProject } from './answer.ts';
 import { authzContext, type Caller } from './authz.ts';
 import type { Admitted, CommandInput } from './commands.ts';
 import { recordConfigCheck, type ConfirmDeps } from './confirm.ts';
+import { decisionError } from './engine-verdict.ts';
 import { submit } from './triage.ts';
 
 const PullSchema = z.looseObject({
@@ -125,13 +126,8 @@ export async function approveAdopt(
   });
   const after = deps.store.readTask(s.id as Uuid);
   if (!accepted.ok) return err(acceptError(accepted.error, after));
-  const d = accepted.value.decision;
-  if (d.kind === 'rejected')
-    return err({
-      code: 'conflict',
-      message: d.code,
-      details: { reason: d.code, detail: d.detail ?? null },
-    });
+  const verdict = decisionError(accepted.value.decision);
+  if (verdict !== null) return err(verdict);
   // The approval stands even when the check fails; the failure shows as the task's wait.
   const check = await recordConfigCheck(
     deps,

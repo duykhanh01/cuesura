@@ -13,6 +13,7 @@ import { FREEZE_PENDING_CODES } from '../engine/start.ts';
 import type { Hash, Uuid } from '../shared/brand.ts';
 import type { AcceptError, Store } from '../store/index.ts';
 import { authorize, authzContext, type AuthzError, type Caller } from './authz.ts';
+import { terminalIgnored } from './engine-verdict.ts';
 import type { PreflightInput, PreflightPorts } from './preflight.ts';
 import { adoptionInput, checkConfig, submit } from './triage.ts';
 
@@ -176,6 +177,9 @@ export async function confirmTask(
         ...(d.detail === undefined ? {} : { detail: d.detail }),
       },
     };
+  const ended = terminalIgnored(d);
+  if (ended !== null)
+    return { ok: false, error: { code: 'rejected', reason: 'task_terminal', detail: ended } };
 
   if (cmd.run_config_digest !== undefined) {
     const mid = deps.store.readTask(cmd.task_id as Uuid) as TaskState;

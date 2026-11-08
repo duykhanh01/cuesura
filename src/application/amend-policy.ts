@@ -36,6 +36,7 @@ import { acceptError, taskInProject } from './answer.ts';
 import { authorize, authzContext, type Caller } from './authz.ts';
 import type { Admitted, CommandInput } from './commands.ts';
 import type { ConfirmDeps } from './confirm.ts';
+import { decisionError } from './engine-verdict.ts';
 import { taskView, type AppError } from './queries.ts';
 import { submit } from './triage.ts';
 
@@ -363,13 +364,8 @@ export async function amendPolicy(
   });
   const after = deps.store.readTask(s.id as Uuid);
   if (!r.ok) return err(acceptError(r.error, after));
-  const d = r.value.decision;
-  if (d.kind === 'rejected')
-    return err({
-      code: d.code,
-      message: d.code,
-      details: { reason: d.code, detail: d.detail ?? null },
-    });
+  const refused = decisionError(r.value.decision);
+  if (refused !== null) return err(refused);
   return ok({
     ...previewView(s, plan.value),
     task: after === null ? null : taskView(after),
