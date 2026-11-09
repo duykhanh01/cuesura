@@ -28,6 +28,8 @@ import { err, ok, type Result } from '../shared/result.ts';
 import type { Store } from '../store/index.ts';
 import { authorize, type Caller } from './authz.ts';
 import type { AppError } from './queries.ts';
+import { needsUser } from '../explain/needs-user.ts';
+import type { StatusSince } from './board.ts';
 
 export const LOG_PAGE_RECORDS = 200;
 const LOG_PAGE_BYTES = 1024 * 1024;
@@ -38,7 +40,31 @@ export type LogsDeps = {
   readonly redactor: Redactor;
   /** Kept by the daemon across reads; without it every read parses each run's files whole. */
   readonly cache?: LogRecordCache;
+  readonly now?: () => number;
+  /** A question the decider may still answer itself is not the user's yet (`DeciderWatch.holds`). */
+  readonly holds?: (s: TaskState) => boolean;
+  /** When the task entered its status, for a wait recorded without its own start (`needsUser`). */
+  readonly statusSince?: StatusSince;
 };
+
+/** Where the task stands, so a follower can stop when going on depends on the user (#257). */
+export type LogsTaskState = {
+  readonly status: TaskState['status'];
+  readonly wait_code: string | null;
+  readonly needs_user: boolean;
+};
+
+function taskStateOf(deps: LogsDeps, s: TaskState): LogsTaskState {
+  const since = deps.statusSince;
+  const needs =
+    needsUser(s, deps.now?.(), since === undefined ? undefined : () => since(s)) &&
+    deps.holds?.(s) !== true;
+  return {
+    status: s.status,
+    wait_code: s.wait?.detail.code ?? (needs ? 'run_config_unconfirmed' : null),
+    needs_user: needs,
+  };
+}
 
 type Cached =
   | { readonly kind: 'all'; readonly stamp: string; readonly records: LogRecord[] }
@@ -358,6 +384,17 @@ export function taskLogs(
     }
     return loaded;
   };
+  // Past the end only while every record is countable: a transient gap hides the live tail from `total`.
+  if (!q.data.tail && diagnostic === null && q.data.after > total)
+    return err({
+      code: 'invalid_arguments',
+      message: `cursor ${q.data.after} is past the last record (${total})`,
+      details: {
+        after: q.data.after,
+        total,
+        guidance: `Use --after ${total} or less, or --tail; a cursor is the next_cursor a page printed.`,
+      },
+    });
   const after = q.data.tail
     ? tailStart(s, batches, q.data.limit, q.data.attempt_id, load)
     : q.data.after;
@@ -442,6 +479,7 @@ export function taskLogs(
     complete: diagnostic === null && s.terminal !== null && cursor >= total,
     // Committed or live records past this page: a follower that is behind reads on at once.
     more: cursor < total,
+    state: taskStateOf(deps, s),
     ...(q.data.tail ? { after } : {}),
   });
 }

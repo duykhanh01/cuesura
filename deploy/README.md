@@ -279,7 +279,8 @@ assistant.
 
 ### Đánh thức assistant bằng Stop hook
 
-Sau mỗi lượt, `cusr assistant hook` đậu ở nền, hỏi daemon không tốn lượt model và giao tin khi có task cần người.
+Sau mỗi lượt, `cusr assistant hook` đậu ở nền, hỏi daemon không tốn lượt model và giao tin khi có task cần người
+hoặc có task kết thúc.
 Phiên vẫn rảnh trong lúc hook đậu nên người dùng hỏi được bình thường. Chỉ cách giao tin khác nhau:
 
 | Harness | Cách chạy nền | Cách giao tin | ID phiên khi `register` | Bản đã kiểm chứng |
@@ -389,6 +390,11 @@ ký nằm ở `DATA_DIR/assistant-session.json` nên còn nguyên sau restart da
 - Hook Codex tìm `cusr` theo PATH của login shell. `cusr` ở đó cũ hơn bản đã chạy `init` thì hook báo lỗi `--harness`
   và không đậu, trong khi `session-start` vẫn chạy nên phiên trông như bình thường.
 - Tin chỉ có ID task và mã trạng thái: nội dung câu hỏi do worker viết, nên assistant đọc bằng `cusr inbox`.
+- Task chuyển sang DONE, FAILED hoặc CANCELLED sau khi phiên giữ khóa cũng là tin, với mã `done`, `failed`,
+  `cancelled` trong `items`, cùng cách gửi lại tới khi được xác nhận (issue #257). Mốc đã xác nhận (`ended_after`)
+  nằm trong `assistant-session.json`, nên tin chưa xác nhận còn nguyên qua restart daemon và khi khóa chuyển sang
+  phiên khác. Mốc bắt đầu ở lần đầu có phiên giữ khóa và bỏ khi `assistant unregister` xong mà không còn phiên
+  nào giữ khóa (phiên đang `assistant wait` thì giữ mốc); task kết thúc trước đó không được báo. `attention_peek` và hook SessionStart chỉ đếm task cần người.
 - `asyncRewake` không có trong tài liệu `--help` của Claude Code. Đã kiểm trên 2.1.319; bản khác có thể đổi.
 - Harness khác dùng `cusr assistant wait`. Lệnh này chờ tới khi có tin và không còn tự trả về sau 1 giờ. Nó thoát khi
   process harness gần nhất (`claude`, `codex` hoặc `pi`) hoặc process do `--owner-pid` chỉ định kết thúc, để khóa hết

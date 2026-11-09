@@ -170,6 +170,34 @@ export function lastGlobalSeq(db: Database): number {
   return row.seq ?? 0;
 }
 
+export type TerminalEvent = {
+  readonly task_id: string;
+  readonly global_seq: number;
+  readonly kind: 'DONE' | 'FAILED' | 'CANCELLED';
+};
+
+const TERMINAL_KINDS = {
+  TaskCompleted: 'DONE',
+  TaskFailed: 'FAILED',
+  TaskCancelled: 'CANCELLED',
+} as const;
+
+/** Tasks that reached a terminal state after `globalSeq`, oldest first; a task does so at most once. */
+export function terminalEventsAfter(db: Database, globalSeq: number): TerminalEvent[] {
+  const rows = db
+    .prepare(
+      `SELECT task_id, global_seq, type FROM events
+       WHERE global_seq > ? AND type IN ('TaskCompleted', 'TaskFailed', 'TaskCancelled')
+       ORDER BY global_seq`,
+    )
+    .all(globalSeq) as { task_id: string; global_seq: number; type: keyof typeof TERMINAL_KINDS }[];
+  return rows.map((r) => ({
+    task_id: r.task_id,
+    global_seq: r.global_seq,
+    kind: TERMINAL_KINDS[r.type],
+  }));
+}
+
 /** The time a trigger carried; `null` when it is unknown or older logs did not record one. */
 export function triggerTime(db: Database, dedupKey: string): number | null {
   const row = db

@@ -1,6 +1,7 @@
 /**
- * Follow committed records as JSON Lines until task completion or the session limit. Return a cursor
- * to resume interrupted sessions. Records go to stdout; connection diagnostics go to stderr.
+ * Follow committed records as JSON Lines until the task ends, needs the user, the daemon stays away or
+ * the session limit is reached. Every line carries `schema_version` and `type`, and the last one is an
+ * `end` line with the cursor to resume from.
  */
 import { join } from 'node:path';
 import { callDaemon, clientErrorEnvelope, readClientActor, resolveDataDir } from './client.ts';
@@ -15,6 +16,9 @@ export const FOLLOW_SESSION_MS = 3_600_000;
 /** A snapshot without --limit; --follow keeps the daemon's larger page since it streams anyway. */
 export const LOGS_DEFAULT_LIMIT = 20;
 const FOLLOW_POLL_MS = 1_000;
+/** Long enough to ride out `systemctl restart cusrd`. */
+export const FOLLOW_RECONNECT_MS = 15_000;
+const LINE_VERSION = 1;
 
 type Page = {
   readonly records: readonly {
@@ -25,11 +29,19 @@ type Page = {
   }[];
   readonly next_cursor: number;
   readonly complete: boolean;
+  readonly more?: boolean;
+  /** Absent from an older daemon. */
+  readonly state?: {
+    readonly status: string;
+    readonly wait_code: string | null;
+    readonly needs_user: boolean;
+  };
 };
 
 export type FollowOptions = {
   readonly maxSessionMs?: number;
   readonly pollMs?: number;
+  readonly reconnectMs?: number;
   readonly now?: () => number;
   readonly sleep?: (ms: number) => Promise<void>;
 };
@@ -37,6 +49,7 @@ export type FollowOptions = {
 export function logsCommandWith(o: FollowOptions = {}): CliCommand {
   const maxSession = o.maxSessionMs ?? FOLLOW_SESSION_MS;
   const pollMs = o.pollMs ?? FOLLOW_POLL_MS;
+  const reconnectMs = o.reconnectMs ?? FOLLOW_RECONNECT_MS;
   const now = o.now ?? Date.now;
   const sleep =
     o.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
@@ -79,7 +92,8 @@ Examples:
       },
       {
         flags: '--follow',
-        description: 'Stream logs until the task ends or the one-hour session limit is reached',
+        description:
+          'Stream logs until the task ends, needs the user, or the one-hour session limit is reached',
       },
     ],
     async run(values, json, io) {
@@ -157,23 +171,41 @@ Examples:
           io,
         );
       }
+      const line = (type: string, body: Record<string, unknown>): void =>
+        io.stdout(`${JSON.stringify({ schema_version: LINE_VERSION, type, ...body })}\n`);
       const started = now();
       let cursor = after;
       let lastDiagnostic: string | null = null;
+      let lastState: string | null = null;
       let fromEnd = tail;
+      let unreachableSince: number | null = null;
       for (;;) {
         const r = await fetch(cursor, fromEnd);
-        fromEnd = false;
         if (!r.ok) {
+          const lost = r.error.code === 'connection' || r.error.code === 'timeout';
+          unreachableSince ??= now();
+          if (lost && now() - unreachableSince < reconnectMs) {
+            await sleep(pollMs);
+            continue;
+          }
+          line(
+            'end',
+            lost
+              ? { end: 'daemon_unreachable', cursor }
+              : { end: 'error', code: r.error.code, cursor },
+          );
           io.stderr(`cusr: ${r.error.message}; resume with --after ${cursor}\n`);
           const failed = clientErrorEnvelope(dataDir, r.error, null);
           const guidance = failed.ok ? undefined : failed.error.details['guidance'];
           if (typeof guidance === 'string') io.stderr(`cusr: ${guidance}\n`);
           return ExitCode.connection;
         }
+        unreachableSince = null;
+        fromEnd = false;
         const { envelope } = r.value;
         if (!envelope.ok) {
           if (cursor === after) return print(envelope, json, io);
+          line('end', { end: 'error', code: envelope.error.code, cursor });
           io.stderr(
             `cusr: ${envelope.error.code}: ${envelope.error.message}; resume with --after ${cursor}\n`,
           );
@@ -185,26 +217,36 @@ Examples:
           if (rec.gap?.records === 0) {
             diagnostic = JSON.stringify([rec.operation_id, rec.attempt_id, rec.gap.reason]);
             if (diagnostic !== lastDiagnostic)
-              io.stdout(
-                `${JSON.stringify({
-                  diagnostic: 'log_gap',
-                  cursor: rec.cursor,
-                  operation_id: rec.operation_id,
-                  attempt_id: rec.attempt_id,
-                  reason: rec.gap.reason,
-                })}\n`,
-              );
-          } else io.stdout(`${JSON.stringify(full ? rec : logRecordSummary(rec))}\n`);
+              line('diagnostic', {
+                diagnostic: 'log_gap',
+                cursor: rec.cursor,
+                operation_id: rec.operation_id,
+                attempt_id: rec.attempt_id,
+                reason: rec.gap.reason,
+              });
+          } else line('record', full ? rec : (logRecordSummary(rec) as Record<string, unknown>));
         }
         lastDiagnostic = diagnostic;
         const advanced = page.next_cursor > cursor;
         cursor = page.next_cursor;
         if (page.complete) {
-          io.stdout(`${JSON.stringify({ end: 'task_finished', cursor })}\n`);
+          line('end', { end: 'task_finished', cursor });
           return ExitCode.ok;
         }
+        const state = page.state;
+        if (state !== undefined) {
+          // Printed when the task enters or leaves a wait, not for every status it passes through.
+          const key = JSON.stringify([state.wait_code, state.needs_user]);
+          if (key !== (lastState ?? JSON.stringify([null, false])))
+            line('state', { cursor, ...state });
+          lastState = key;
+          if (state.needs_user && page.more !== true) {
+            line('end', { end: 'needs_user', wait_code: state.wait_code, cursor });
+            return ExitCode.ok;
+          }
+        }
         if (now() - started >= maxSession) {
-          io.stdout(`${JSON.stringify({ end: 'session_limit', cursor })}\n`);
+          line('end', { end: 'session_limit', cursor });
           return ExitCode.ok;
         }
         if (!advanced) await sleep(pollMs);

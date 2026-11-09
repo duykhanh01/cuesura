@@ -8,6 +8,7 @@ import {
   registeredSession,
   replacedSessions,
 } from '../../../src/application/attention.ts';
+import { readSessionFile } from '../../../src/application/assistant-session.ts';
 import type { Caller } from '../../../src/application/authz.ts';
 import { callerFor } from '../../../src/application/authz.ts';
 import type { TaskState } from '../../../src/domain/state.ts';
@@ -29,9 +30,17 @@ const waiting = (id: string, code: string): TaskState =>
   }) as unknown as TaskState;
 
 function bench(tasks: TaskState[] = []) {
-  const state = { tasks, seq: 1, entered: 1, now: 0, reads: 0 };
+  const state = {
+    tasks,
+    seq: 1,
+    entered: 1,
+    now: 0,
+    reads: 0,
+    ended: [] as { task_id: string; global_seq: number; kind: 'DONE' | 'FAILED' | 'CANCELLED' }[],
+  };
   const store = {
     lastGlobalSeq: () => state.seq,
+    terminalEventsAfter: (after: number) => state.ended.filter((e) => e.global_seq > after),
     readEvents: () => [{ type: 'TaskWaiting', global_seq: state.entered }],
     taskIdsByStatus: () => state.tasks.map((t) => t.id),
     readTask: (id: string) => {
@@ -54,7 +63,38 @@ const value = <T>(r: { ok: true; value: T } | { ok: false }): T => {
 const code = (r: { ok: true } | { ok: false; error: { code: string } }): string =>
   r.ok ? 'ok' : r.error.code;
 
+const ended = (id: string, status: string): TaskState =>
+  ({ ...waiting(id, 'merge'), status, wait: null }) as unknown as TaskState;
+
 describe('AttentionDesk', () => {
+  it('wakes the holder once for each task that ends after it took the lease (#257)', () => {
+    const { state, desk } = bench([ended('old', 'DONE')]);
+    state.ended.push({ task_id: 'old', global_seq: 1, kind: 'DONE' });
+    const d = desk();
+    const first = value(d.poll(CALLER, NEW));
+    expect(first.items).toEqual([]);
+    state.tasks.push(ended('a', 'DONE'), ended('b', 'FAILED'), ended('c', 'CANCELLED'));
+    state.ended.push(
+      { task_id: 'a', global_seq: 2, kind: 'DONE' },
+      { task_id: 'b', global_seq: 3, kind: 'FAILED' },
+      { task_id: 'c', global_seq: 4, kind: 'CANCELLED' },
+    );
+    state.seq = 4;
+    const told = value(d.poll(CALLER, back(first.lease)));
+    expect(told.items.map((i) => [i.task_id, i.code])).toEqual([
+      ['a', 'done'],
+      ['b', 'failed'],
+      ['c', 'cancelled'],
+    ]);
+    // Unconfirmed: a retry of the lost reply carries them again.
+    const retry = value(d.poll(CALLER, back(first.lease)));
+    expect(retry.items).toEqual(told.items);
+    const confirmed = value(d.poll(CALLER, back(retry.lease)));
+    expect(confirmed.items).toEqual([]);
+    state.seq = 5;
+    expect(value(d.poll(CALLER, back(confirmed.lease))).items).toEqual([]);
+  });
+
   it('tells each wait once and reads no task while the log is unchanged', () => {
     const { state, desk } = bench([waiting('a', 'merge')]);
     const d = desk();
@@ -191,6 +231,34 @@ describe('registered assistant session', () => {
     expect(value(d.poll(CALLER, hook('s-1'))).items).toHaveLength(1);
   });
 
+  it('tells a task that ended before a restart and was not confirmed, also to a new lease (#257)', () => {
+    const { store, state } = bench();
+    const dataDir = dir();
+    const first = new AttentionDesk({ store, now: () => state.now, dataDir });
+    const { lease } = value(first.poll(CALLER, NEW));
+    state.tasks.push(ended('a', 'DONE'));
+    state.ended.push({ task_id: 'a', global_seq: 2, kind: 'DONE' });
+    state.seq = 2;
+    // Sent, then the daemon restarts before the holder confirms it.
+    expect(value(first.poll(CALLER, back(lease))).items).toHaveLength(1);
+    state.seq = 3;
+
+    const resumed = new AttentionDesk({ store, now: () => state.now, dataDir });
+    const again = value(resumed.poll(CALLER, back(lease)));
+    expect(again.items.map((i) => [i.task_id, i.code])).toEqual([['a', 'done']]);
+    expect(value(resumed.poll(CALLER, back(again.lease))).items).toEqual([]);
+
+    // Unconfirmed when the lease moves: the next holder is told.
+    const moved = new AttentionDesk({ store, now: () => state.now, dataDir });
+    state.tasks.push(ended('b', 'FAILED'));
+    state.ended.push({ task_id: 'b', global_seq: 4, kind: 'FAILED' });
+    state.seq = 4;
+    expect(value(moved.poll(CALLER, back(again.lease))).items).toHaveLength(1);
+    state.now = 2 * ATTENTION_STALE_MS;
+    const other = value(moved.poll(CALLER, OTHER));
+    expect(other.items.map((i) => i.task_id)).toEqual(['b']);
+  });
+
   it('keeps the registration and tells again what waits after a restart', () => {
     const { store, state } = bench([waiting('a', 'merge')]);
     const dataDir = dir();
@@ -269,6 +337,20 @@ describe('registered assistant session', () => {
     expect(registeredSession(dataDir)).toBeNull();
     expect(code(d.poll(CALLER, hook('s-1')))).toBe('attention_not_registered');
     expect(code(d.poll(CALLER, NEW))).toBe('ok');
+  });
+
+  it('unregister drops the ended-task mark once nobody holds the lease (#257)', () => {
+    const { store, state } = bench();
+    const dataDir = dir();
+    const waiter = new AttentionDesk({ store, now: () => state.now, dataDir });
+    waiter.poll(CALLER, NEW);
+    expect(readSessionFile(dataDir).ended_after).toBe(1);
+    // A session still waiting keeps it.
+    expect(code(waiter.unregister(CALLER, {}))).toBe('ok');
+    expect(readSessionFile(dataDir).ended_after).toBe(1);
+    const restarted = new AttentionDesk({ store, now: () => state.now, dataDir });
+    expect(code(restarted.unregister(CALLER, {}))).toBe('ok');
+    expect(readSessionFile(dataDir).ended_after).toBeNull();
   });
 });
 

@@ -34,7 +34,7 @@ hết thang/lượt, và chính lần xác nhận amendment của owner là xác
 | `cusr task add --file FILE` | operate; JSON task input, trả task có thể PENDING/READY, không chờ tới PR. `acceptance` rỗng trả `invalid_arguments` (exit 2), không tạo task. `scope` (hoặc `--scope a,b`) khai đường dẫn/thư mục/glob tương đối trong repo task dự kiến đổi (tối đa 100, không `..` hay đường dẫn tuyệt đối; glob chỉ dùng `*`, `**`, `?`, `[...]`, còn brace `{}`, extglob `@(…)`/`!(…)`…, `!` đầu mục và lớp ký tự chứa `/` bị từ chối); không khai thì trường vắng mặt. Kết quả `task add`, `task propose` và `task confirm` có `slot_block` (như `scope.slot_block` của explain) khi phạm vi giao với task đang giữ slot, chỗ giữ hoặc chỗ mượn, `null` khi không (FR-044.08) |
 | `cusr task propose ID --profile P --mode M --worker H/M/E` | operate; đề xuất bộ lựa chọn chạy, xác nhận riêng. Daemon đối chiếu đề xuất (của `task propose` và `run_config` của `task add`) với `run_options`: profile, mode, worker, reviewer hay fallback không có trong đó trả `rejected` (`run_config_not_offered`) kèm `details.valid_values`; `task add` khi đó không tạo task. Không đọc được `run_options` thì trả lỗi của nó. Vắng `fallbacks` thì daemon điền các nấc ladder của worker từ `run_options`; `--fallback ''` (`fallbacks: []`) là không có (issue #263) |
 | `cusr task show/list/explain/history` | read; mặc định chỉ trả phần cần thiết, `--full` trả nguyên reply của daemon (xem [Output mặc định gọn](#output-mặc-định-gọn)); list mới nhất trước, `--limit` mặc định 20, tối đa 100, có cursor và `--order oldest`; show/explain nhận ID |
-| `cusr task logs ID --after CURSOR [--follow]` | read; snapshot hữu hạn (mặc định 20 record) hoặc stream JSONL có seq/cursor; mặc định in bản gọn (xem [Output mặc định gọn](#output-mặc-định-gọn)), `--full` in nguyên record; một follow session tối đa 1 giờ, có thể nối lại |
+| `cusr task logs ID --after CURSOR [--follow]` | read; snapshot hữu hạn (mặc định 20 record) hoặc stream JSONL có `schema_version`, `type` và cursor, dừng khi task kết thúc hoặc cần người; mặc định in bản gọn (xem [Output mặc định gọn](#output-mặc-định-gọn)), `--full` in nguyên record; một follow session tối đa 1 giờ, có thể nối lại |
 | `cusr task confirm/cancel/recheck ID` | operate; version/dedup; recheck chọn cấu hình/PR/drain/worktree theo task, không gọi agent; với `worktree_changed` (trước lượt worker, hoặc sau gate có checkpoint commit khác tree) thì nhận tree đã quan sát làm mốc của task rồi chạy lại bước; với `manifest_changed` thì nhận manifest harness đang hiệu lực rồi chạy lại bước; với `harness_auth`, hoặc `loop_exhausted` mà các lượt cuối lỗi infra/rate limit/đăng nhập, thì trả visit của các lượt đó rồi chạy lại bước |
 | `cusr task pause ID --reason TEXT [--now]`, `cusr task resume ID` | operate; version/dedup; xem [Tạm dừng task](#tạm-dừng-task) |
 | `cusr task message ID --file FILE [--behavior steer\|interrupt\|queue]` | operate; `--file -` đọc stdin; version/dedup; xem [Tin nhắn cho agent](#tin-nhắn-cho-agent) |
@@ -260,7 +260,16 @@ trước khi in, cho cả `--json` lẫn output cho người đọc.
   hoặc ở mọi vòng khi không có `--round`.
 - `task logs` đọc `POST /v1/query` kind `task_logs`; `--follow` là CLI hỏi lại theo cursor rồi in JSONL,
   không có route stream riêng. Cursor đếm record đã commit theo thứ tự event, không đổi qua rotation/restart;
-  batch mất file hiện là `gap`, không bị bỏ im lặng.
+  batch mất file hiện là `gap`, không bị bỏ im lặng. `--after` vượt quá record cuối trả `invalid_arguments`
+  (exit 2, `details.after`, `details.total`), trừ lúc gap tạm thời che phần live (issue #257).
+- Page của `task_logs` có `state`: `status`, `wait_code` (null khi không chờ) và `needs_user` (cùng
+  `needsUser` với inbox; câu hỏi decider còn giữ không tính). Mỗi dòng của `--follow` có `schema_version: 1`
+  và `type`: `record` (record như snapshot), `diagnostic` (`diagnostic: "log_gap"`), `state` (`cursor`
+  cùng ba trường trên, in khi task vào hoặc rời wait) hoặc `end` (`end`, `cursor`). `end` là dòng cuối:
+  `task_finished` và `session_limit` exit 0; `needs_user` (exit 0, kèm `wait_code`) khi task chờ người và
+  đã đọc hết record; `daemon_unreachable` (exit 3) khi daemon vắng quá 15 giây, CLI thử lại mỗi giây trong
+  lúc đó nên restart ngắn không cắt stream; lỗi khác giữa chừng là `end: "error"` kèm `code`. Lỗi ngay ở
+  page đầu vẫn là envelope.
 - `read` không mutation, `operate` không cấp quyền admin (nhận PR có sẵn). CLI read cũng gọi daemon vì SQLite
   đang khóa EXCLUSIVE. Daemon disconnected trả exit 3; không fallback mở DB trực tiếp.
 - Application kiểm authz/schema/allowlist/version/dedup trước I/O. Ghi command admission/dedup và ID

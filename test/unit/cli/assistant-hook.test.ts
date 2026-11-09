@@ -601,6 +601,19 @@ describe('runStopHook', () => {
     expect(note).toContain('cusr inbox');
   });
 
+  it('tells a task that ended apart from one that needs the user (#257)', () => {
+    const note = wakeNote(
+      [
+        { ...ITEM, task_id: 'task-1', code: 'done' },
+        { ...ITEM, task_id: 'task-2', code: 'agent_question' },
+      ],
+      false,
+    );
+    expect(note).toContain('tasks need the user: task-2 (agent_question).');
+    expect(note).toContain('tasks ended: task-1 (done).');
+    expect(wakeNote([{ ...ITEM, code: 'failed' }], false)).not.toContain('need the user');
+  });
+
   it('never puts worker text in the note', () => {
     const note = wakeNote([ITEM], true);
     expect(note).not.toContain(ITEM.title);

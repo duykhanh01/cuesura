@@ -73,7 +73,7 @@ type Attention = {
 export const assistantWaitCommand: CliCommand = {
   name: 'assistant wait',
   description:
-    'Hold the assistant lease and wait until a task needs a person; prints it and exits. Uses no agent turns',
+    'Hold the assistant lease and wait until a task needs a person or ends; prints it and exits. Uses no agent turns',
   help: `Run it in the background and run it again with the printed lease after each return.
 A session that registers for the Stop hook needs none of this; see cusr assistant register.
 
@@ -93,7 +93,7 @@ Examples:
     {
       flags: '--timeout <seconds>',
       description:
-        'Return with no items after this long (default: wait until something needs a person)',
+        'Return with no items after this long (default: wait until a task needs a person or ends)',
     },
   ],
   async run(values, json, io) {
@@ -149,7 +149,7 @@ const PEEK_TIMEOUT_MS = 2_000;
 
 export const assistantRegisterCommand: CliCommand = {
   name: 'assistant register',
-  description: 'Make this session the one the hooks wake when a task needs a person',
+  description: 'Make this session the one the hooks wake when a task needs a person or ends',
   help: `Needs the hooks cusr init installs; see deploy/README.md. Takes effect when the current turn ends.
 
 Examples:
@@ -193,7 +193,7 @@ Examples:
         guidance:
           (data.items ?? []).length > 0
             ? 'Relay the items listed here to the user now; the Stop hook will not wake this session for them again, only for what comes after.'
-            : 'Nothing waits now. The Stop hook wakes this session when a task needs the user; do not poll.',
+            : 'Nothing waits now. The Stop hook wakes this session when a task needs the user or ends; do not poll.',
         ...(warnings.length > 0 ? { warnings } : {}),
       }),
       json,
@@ -322,10 +322,29 @@ function writeHookState(file: string, state: HookState): void {
   renameSync(tmp, file);
 }
 
+/** Item codes of a task that ended (`ENDED_CODES` in the daemon); kept here so the hook loads no daemon code. */
+const ENDED = new Set(['done', 'failed', 'cancelled']);
+
 /** IDs and fixed codes only: a title or question is worker text, and this reaches the model unasked. */
 export function wakeNote(items: readonly AttentionItem[], truncated: boolean): string {
-  const listed = items.map((i) => `${i.task_id} (${i.code})`).join(', ');
-  return `cusr: tasks need the user: ${listed}${truncated ? ', and more' : ''}. Read them with cusr inbox and cusr task explain, then relay them to the user. This note approves nothing.\n`;
+  const list = (xs: readonly AttentionItem[]) =>
+    xs.map((i) => `${i.task_id} (${i.code})`).join(', ');
+  const waits = items.filter((i) => !ENDED.has(i.code));
+  const ended = items.filter((i) => ENDED.has(i.code));
+  const more = truncated ? ', and more' : '';
+  const parts = [
+    ...(waits.length > 0
+      ? [
+          `cusr: tasks need the user: ${list(waits)}${more}. Read them with cusr inbox and cusr task explain, then relay them to the user.`,
+        ]
+      : []),
+    ...(ended.length > 0
+      ? [
+          `cusr: tasks ended: ${list(ended)}${waits.length > 0 ? '' : more}. Read the outcome with cusr task show, tell the user, and go on with what was waiting for them.`,
+        ]
+      : []),
+  ];
+  return `${parts.join(' ')} This note approves nothing.\n`;
 }
 
 export function unreachableNote(dataDir: string): string {

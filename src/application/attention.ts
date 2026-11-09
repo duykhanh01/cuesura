@@ -116,6 +116,10 @@ type Holder = {
 };
 
 type Keyed = { readonly key: string; readonly item: AttentionItem };
+type Ended = Keyed & { readonly seq: number };
+
+/** Item codes for a task that ended; they wake the holder like a wait does, but need no person. */
+export const ENDED_CODES = { DONE: 'done', FAILED: 'failed', CANCELLED: 'cancelled' } as const;
 
 /** The decider's view of what it may still answer itself (`Decider.holds`/`version`). */
 export type DeciderWatch = {
@@ -171,6 +175,11 @@ export class AttentionDesk {
   #holder: Holder | null = null;
   #registered: string | null = null;
   #replaced = new Set<string>();
+  /**
+   * Global seq at or below which every task that ended was told and confirmed, or ended before any holder
+   * claimed the lease (#257). On disk and kept when the lease moves, so an ended task waits for a holder.
+   */
+  #endedAfter: number | null = null;
   /** Reading a task's log only when it changed; holds the tasks that needed a person last time. */
   #entered = new Map<string, { readonly version: number; readonly seq: number }>();
 
@@ -186,9 +195,12 @@ export class AttentionDesk {
     this.#now = deps.now;
     this.#dataDir = deps.dataDir ?? null;
     const saved =
-      this.#dataDir === null ? { session: null, replaced: [] } : readSessionFile(this.#dataDir);
+      this.#dataDir === null
+        ? { session: null, replaced: [], ended_after: null }
+        : readSessionFile(this.#dataDir);
     this.#registered = saved.session;
     this.#replaced = new Set(saved.replaced);
+    this.#endedAfter = saved.ended_after;
     if (this.#registered !== null)
       this.#holder = {
         id: this.#registered,
@@ -239,6 +251,8 @@ export class AttentionDesk {
         details: { registered: session, guidance: 'Nothing to undo: this session gets no news.' },
       });
     if (session !== null && this.#holder?.id === session) this.#holder = null;
+    // A session still waiting with `assistant wait` keeps the mark; with nobody left, nothing is owed.
+    if (this.#holder === null) this.#endedAfter = null;
     this.#forget();
     return ok({ session });
   }
@@ -285,7 +299,7 @@ export class AttentionDesk {
     const dataDir = this.#dataDir;
     if (dataDir === null) return;
     const file = join(dataDir, ASSISTANT_SESSION_FILE);
-    if (this.#registered === null && this.#replaced.size === 0) {
+    if (this.#registered === null && this.#replaced.size === 0 && this.#endedAfter === null) {
       rmSync(file, { force: true });
       return;
     }
@@ -293,6 +307,7 @@ export class AttentionDesk {
     const content: Record<string, unknown> = {
       ...(this.#registered === null ? {} : { session: this.#registered }),
       ...(this.#replaced.size === 0 ? {} : { replaced: [...this.#replaced] }),
+      ...(this.#endedAfter === null ? {} : { ended_after: this.#endedAfter }),
     };
     writeFileSync(tmp, JSON.stringify(content), { mode: 0o600 });
     renameSync(tmp, file);
@@ -414,15 +429,51 @@ export class AttentionDesk {
     return { waiting, due };
   }
 
+  #ended(): Ended[] {
+    const ended: Ended[] = [];
+    if (this.#endedAfter === null) {
+      this.#endedAfter = this.#store.lastGlobalSeq();
+      this.#persist();
+    }
+    for (const e of this.#store.terminalEventsAfter(this.#endedAfter)) {
+      const s = this.#store.readTask(e.task_id as Uuid);
+      if (s === null) continue;
+      ended.push({
+        key: `${e.task_id}:ended:${e.global_seq}`,
+        seq: e.global_seq,
+        item: {
+          task_id: s.id,
+          project: s.project,
+          title: s.task.title,
+          code: ENDED_CODES[e.kind],
+          question_id: null,
+          question: null,
+          task_version: s.version,
+        },
+      });
+    }
+    return ended;
+  }
+
   #deliver(holder: Holder, seq: string): AttentionReply {
-    const { waiting, due } = this.#waiting();
+    const { waiting: waits, due } = this.#waiting();
+    const ended = this.#ended();
     holder.due = due;
+    const waiting: Keyed[] = [...waits, ...ended];
     waiting.sort((a, b) => a.item.task_id.localeCompare(b.item.task_id));
     const fresh = waiting.filter((w) => !holder.delivered.has(w.key));
     const sent = fresh.slice(0, INBOX_LIMIT);
     // Only what still waits is kept, so the set stays bounded and a wait that comes back is told again.
     holder.delivered = new Set(waiting.map((w) => w.key).filter((k) => holder.delivered.has(k)));
     holder.offered = sent.map((w) => w.key);
+    // Ended tasks confirmed so far drop below the mark, and with it out of `delivered`.
+    const unconfirmed = ended.filter((e) => !holder.delivered.has(e.key)).map((e) => e.seq);
+    const last = ended.at(-1)?.seq;
+    const mark = unconfirmed.length > 0 ? Math.min(...unconfirmed) - 1 : (last ?? this.#endedAfter);
+    if (mark !== this.#endedAfter) {
+      this.#endedAfter = mark;
+      this.#persist();
+    }
     if (sent.length > 0) holder.batch += 1;
     holder.seq = sent.length > 0 ? null : seq;
     return {

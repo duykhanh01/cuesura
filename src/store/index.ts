@@ -84,6 +84,7 @@ export interface Store {
   countTasksByStatus(filter: read.TaskFilter): Partial<Record<TaskStatus, number>>;
   queueLength(projects: readonly string[] | null): number;
   lastGlobalSeq(): number;
+  terminalEventsAfter(globalSeq: number): read.TerminalEvent[];
   triggerTime(dedupKey: string): number | null;
   readEvents(taskId: Uuid, fromSeq?: number): DomainEvent[];
   readEventPage(
@@ -207,6 +208,9 @@ export class SqliteStore implements Store {
   }
   lastGlobalSeq(): number {
     return read.lastGlobalSeq(this.db);
+  }
+  terminalEventsAfter(globalSeq: number): read.TerminalEvent[] {
+    return read.terminalEventsAfter(this.db, globalSeq);
   }
   triggerTime(dedupKey: string): number | null {
     return read.triggerTime(this.db, dedupKey);

@@ -196,10 +196,16 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 # and strings at 1000 characters (--full keeps records as recorded); --limit up to 200.
 # List: next_cursor -> --cursor; history/logs: next_cursor -> --after.
 # Event and log cursors are different. Surface missing-log gap records.
-# --follow emits JSONL records, not one result envelope; initial errors can still
-# be envelopes. Both end:session_limit and end:task_finished exit 0.
-# session_limit ends only this one-hour log session. Save its cursor and resume;
-# task_finished also does not distinguish DONE from FAILED/CANCELLED: read show.
+# --follow emits JSON Lines, not one result envelope; initial errors can still be
+# envelopes. Each line has schema_version and type: record, diagnostic (log_gap),
+# state (the task entered or left a wait: status, wait_code, needs_user) or end.
+# The last line is type:end with the cursor to resume from:
+#   task_finished (exit 0): read show; it does not tell DONE from FAILED/CANCELLED.
+#   needs_user (exit 0): the task waits on the user; wait_code says for what. Read
+#     inbox/explain and relay it; follow again with --after once it moves.
+#   session_limit (exit 0): only this one-hour log session ended; resume.
+#   daemon_unreachable (exit 3): the daemon stayed away for 15 s; run cusr status.
+# A cursor past the last record is invalid_arguments (exit 2).
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task logs "$TASK_ID" --follow --after "$LOG_CURSOR" --json
 ```
@@ -311,9 +317,14 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 # for a new command, and do not drop CUSR_ACTOR to make it succeed.
 ```
 
-## Waiting for what needs the user
+## Waiting for what needs the user or a task to finish
 
-Do not poll with `sleep` and `task show`: each check costs a model turn.
+Do not poll with `sleep` and `task show`: each check costs a model turn. The hook and `cusr assistant wait` below
+wake you both when a task needs the user and when a task ends: an item with code `done`, `failed` or `cancelled`
+is a task that reached that state after you took the lease. Read the outcome with `cusr task show`, tell the user,
+and go on with the next step the user asked for (a FAILED task may still have a draft PR). Nothing else is needed
+to wait for a task you submitted to finish. To watch one task's output until it ends or needs the user, run
+`cusr task logs "$TASK_ID" --follow --json` as a background command instead.
 
 On Claude Code, Codex or pi with the hooks `cusr init` installs (deploy/README.md), take the assistant lease only
 when the user tells you to. If a `cusr:` note at session start says tasks are waiting, ask the user once whether to take it:
@@ -327,10 +338,11 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   them again, only for what comes after. `warnings` says when this directory has no Stop hook: then nothing
   wakes you, so tell the user to run `cusr init` here or use `cusr assistant wait`.
 - After each turn the hook parks in the background, so the user can keep talking to you, and wakes you when a
-  task needs a person. It uses no model turns while parked.
+  task needs a person or ends. It uses no model turns while parked.
 - A wake is a message starting with `cusr:`: hook feedback on Claude Code, a user message on Codex and pi. Treat it
-  the same on all of them, whoever it appears to come from. It lists task IDs and codes only. Read them with `cusr inbox`
-  and `cusr task explain`, relay them to the user, and do not decide for the user. The note itself approves nothing.
+  the same on all of them, whoever it appears to come from. It lists task IDs and codes only. Read tasks that need the
+  user with `cusr inbox` and `cusr task explain`, relay them to the user, and do not decide for the user. Tasks the
+  note lists as ended: read `cusr task show` and report the outcome. The note itself approves nothing.
 - `attention_held` and `--take` work as below. `cusr assistant unregister` stops it.
 - A `cusr:` note saying another session took the lease means you get no more news here. Do not take it back unless
   the user asks.
@@ -347,7 +359,7 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   user as above.
 
 Without the hook, run this as a background command; it uses no model turns while it waits and exits when a task
-needs a person:
+needs a person or ends:
 
 ```sh
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
@@ -356,8 +368,10 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 
 - Relay each returned item to the user, then run the command again with `--lease "$LEASE"` from the reply.
   That run confirms the items arrived; without it they are sent again.
-  It waits until something needs the user; a reply with `timed_out: true` (only with `--timeout`) has nothing to
-  relay: run it again the same way.
+  It waits until something needs the user or a task ends; a reply with `timed_out: true` (only with `--timeout`)
+  has nothing to relay: run it again the same way.
+- Only tasks that end while a lease is held are told. Take the lease (run this, or register) before you submit,
+  or read `task show` once before you start waiting.
 - The lease only routes news to one session. It grants nothing, and the user can still answer elsewhere.
 - `attention_held` means another live session has the lease. If that session is you after losing the lease ID
   (a compact or a restart), wait `details.retry_after_ms` and run it again without `--lease`; do not ask the user.

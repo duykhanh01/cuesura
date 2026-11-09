@@ -610,6 +610,29 @@ describe('assistant wait (issue #166)', () => {
     for (const note of notes) expect(note).toContain(`${t.id} (agent_question)`);
   });
 
+  it('wakes the holder when a task ends, without polling it (issue #257)', async () => {
+    const sd = daemon();
+    const t = buildTask();
+    sd.seed((d) => createGrantStart(d, t, 'direct-pr'));
+    await sd.start();
+    const wait = (...argv: string[]) => cli(sd, ['assistant', 'wait', '--timeout', '1', ...argv]);
+    const first = await wait();
+    expect(first.envelope.data['items']).toEqual([]);
+    const lease = first.envelope.data['lease'] as string;
+    const shown = await cli(sd, ['task', 'show', t.id]);
+    const version = String(shown.envelope.data['version']);
+    expect((await cli(sd, ['task', 'cancel', t.id, '--expected-version', version])).code).toBe(
+      ExitCode.ok,
+    );
+    const told = await wait('--lease', lease, '--timeout', '5');
+    expect(told.code).toBe(ExitCode.ok);
+    expect(told.envelope.data['items']).toMatchObject([
+      { task_id: t.id, code: 'cancelled', question_id: null },
+    ]);
+    const quiet = await wait('--lease', told.envelope.data['lease'] as string);
+    expect(quiet.envelope.data).toMatchObject({ items: [], timed_out: true });
+  });
+
   it('refuses a timeout that is not a positive whole number', async () => {
     const sd = daemon();
     await sd.start();
@@ -1163,6 +1186,8 @@ describe('logs (T114, US6.2, FR-027.01/031)', () => {
     return { sd, t, effect, run, log, write, ingest, secret };
   }
 
+  const END = { schema_version: 1, type: 'end' };
+
   type LogPage = {
     records: {
       seq: number;
@@ -1275,7 +1300,9 @@ describe('logs (T114, US6.2, FR-027.01/031)', () => {
       [2, 2],
       [3, 3],
     ]);
-    expect(lines.at(-1)).toEqual({ end: 'session_limit', cursor: 3 });
+    expect(lines.at(-1)).toEqual({ ...END, end: 'session_limit', cursor: 3 });
+    for (const l of lines) expect([l['schema_version'], typeof l['type']]).toEqual([1, 'string']);
+    expect(lines.slice(0, 3).map((l) => l['type'])).toEqual(['record', 'record', 'record']);
     // Resuming prints nothing again.
     now = 0;
     const again = await raw(f.sd, ['task', 'logs', f.t.id, '--follow', '--after', '3'], {
@@ -1286,7 +1313,18 @@ describe('logs (T114, US6.2, FR-027.01/031)', () => {
       .trimEnd()
       .split('\n')
       .map((l) => JSON.parse(l) as Record<string, unknown>);
-    expect(more).toEqual([{ end: 'session_limit', cursor: 3 }]);
+    // A wait that resolves without the user is told once and does not end the stream.
+    expect(more).toEqual([
+      {
+        schema_version: 1,
+        type: 'state',
+        cursor: 3,
+        status: 'WAITING',
+        wait_code: 'effect_unknown',
+        needs_user: false,
+      },
+      { ...END, end: 'session_limit', cursor: 3 },
+    ]);
   });
 
   it('--follow sleeps when a transient gap leaves the cursor unchanged', async () => {
@@ -1336,6 +1374,7 @@ describe('logs (T114, US6.2, FR-027.01/031)', () => {
     expect(sleeps).toBe(1);
     expect(calls).toBe(2);
     expect(JSON.parse(r.out.trimEnd().split('\n').at(-1)!)).toEqual({
+      ...END,
       end: 'session_limit',
       cursor: 0,
     });
@@ -1359,6 +1398,7 @@ describe('logs (T114, US6.2, FR-027.01/031)', () => {
         cursor: seq,
         data: `recovered ${seq}`,
       });
+      const line = (type: string, body: object) => ({ schema_version: 1, type, ...body });
       const pages = [
         { records: [gap(0, 'unreadable')], next_cursor: 0 },
         { records: [gap(0, 'unreadable')], next_cursor: 0 },
@@ -1395,13 +1435,14 @@ describe('logs (T114, US6.2, FR-027.01/031)', () => {
       });
       expect(r.code).toBe(ExitCode.ok);
       expect(cursors).toEqual([0, 0, 0, 0, 1, 1, 1]);
-      const diagnostic = (cursor: number, reason: string) => ({
-        diagnostic: 'log_gap',
-        cursor,
-        operation_id: operation,
-        attempt_id: attempt,
-        reason,
-      });
+      const diagnostic = (cursor: number, reason: string) =>
+        line('diagnostic', {
+          diagnostic: 'log_gap',
+          cursor,
+          operation_id: operation,
+          attempt_id: attempt,
+          reason,
+        });
       const output = r.out
         .trimEnd()
         .split('\n')
@@ -1409,13 +1450,95 @@ describe('logs (T114, US6.2, FR-027.01/031)', () => {
       expect(output).toEqual([
         diagnostic(0, 'unreadable'),
         diagnostic(0, 'changed reason'),
-        record(1),
+        line('record', record(1)),
         diagnostic(1, 'changed reason'),
-        record(2),
-        { end: 'task_finished', cursor: 2 },
+        line('record', record(2)),
+        line('end', { end: 'task_finished', cursor: 2 }),
       ]);
     },
   );
+
+  it('--follow ends within one poll once the task needs the user, naming the wait (issue #257)', async () => {
+    const sd = daemon(() => ({
+      logs: { dataDir: sd.dataDir, redactor: new Redactor() },
+    }));
+    const t = buildTask();
+    sd.seed((d) => asking(d, t));
+    await sd.start();
+    let sleeps = 0;
+    const follow = logsCommandWith({
+      sleep: () => {
+        sleeps++;
+        return Promise.resolve();
+      },
+    });
+    const r = await raw(sd, ['task', 'logs', t.id, '--follow'], { commands: [follow], json: true });
+    expect(r.code).toBe(ExitCode.ok);
+    expect(sleeps).toBe(0);
+    const lines = r.out
+      .trimEnd()
+      .split('\n')
+      .map((l) => JSON.parse(l) as Record<string, unknown>);
+    for (const l of lines) expect([l['schema_version'], typeof l['type']]).toEqual([1, 'string']);
+    expect(lines.slice(-2)).toEqual([
+      {
+        schema_version: 1,
+        type: 'state',
+        cursor: 0,
+        status: 'WAITING',
+        wait_code: 'agent_question',
+        needs_user: true,
+      },
+      { ...END, end: 'needs_user', wait_code: 'agent_question', cursor: 0 },
+    ]);
+  });
+
+  it('a cursor past the last record is refused, not taken silently (issue #257)', async () => {
+    const f = logged();
+    const running = await f.sd.start();
+    f.write(2, 0);
+    f.ingest(running.store);
+    const r = await cli(f.sd, ['task', 'logs', f.t.id, '--after', '999999']);
+    expect(r.code).toBe(ExitCode.usage);
+    expect(r.envelope.error).toMatchObject({
+      code: 'invalid_arguments',
+      details: { after: 999_999, total: 2 },
+    });
+    const follow = await raw(f.sd, ['task', 'logs', f.t.id, '--follow', '--after', '999999'], {
+      json: true,
+    });
+    expect(follow.code).toBe(ExitCode.usage);
+  });
+
+  it('--follow rides out a short daemon restart and resumes where it was (issue #257)', async () => {
+    const f = logged();
+    const running = await f.sd.start();
+    f.write(2, 0);
+    f.ingest(running.store);
+    let now = 0;
+    let sleeps = 0;
+    const follow = logsCommandWith({
+      maxSessionMs: 10,
+      now: () => now,
+      sleep: async () => {
+        sleeps++;
+        now++;
+        if (sleeps === 1) await f.sd.stop();
+        if (sleeps === 3) await f.sd.start();
+      },
+    });
+    const r = await raw(f.sd, ['task', 'logs', f.t.id, '--follow'], {
+      commands: [follow],
+      json: true,
+    });
+    expect(r.code).toBe(ExitCode.ok);
+    const lines = r.out
+      .trimEnd()
+      .split('\n')
+      .map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(lines.filter((l) => l['type'] === 'record').map((l) => l['seq'])).toEqual([1, 2]);
+    expect(lines.at(-1)).toEqual({ ...END, end: 'session_limit', cursor: 2 });
+  });
 
   it('--follow ends on its own once a finished task has nothing more', async () => {
     const sd = daemon(() => ({
@@ -1431,7 +1554,7 @@ describe('logs (T114, US6.2, FR-027.01/031)', () => {
       json: false,
     });
     expect(r.code).toBe(ExitCode.ok);
-    expect(JSON.parse(r.out)).toEqual({ end: 'task_finished', cursor: 0 });
+    expect(JSON.parse(r.out)).toEqual({ ...END, end: 'task_finished', cursor: 0 });
   });
 
   it('--follow on a lost daemon exits 3 and names the cursor; another project cannot read logs', async () => {
@@ -1439,8 +1562,12 @@ describe('logs (T114, US6.2, FR-027.01/031)', () => {
     const running = await f.sd.start();
     f.write(2, 0);
     f.ingest(running.store);
+    let now = 0;
     const follow = logsCommandWith({
+      reconnectMs: 3,
+      now: () => now,
       sleep: async () => {
+        now += 1;
         await f.sd.stop();
       },
     });
@@ -1450,6 +1577,11 @@ describe('logs (T114, US6.2, FR-027.01/031)', () => {
     });
     expect(r.code).toBe(ExitCode.connection);
     expect(r.err).toContain('--after 2');
+    expect(JSON.parse(r.out.trimEnd().split('\n').at(-1)!)).toEqual({
+      ...END,
+      end: 'daemon_unreachable',
+      cursor: 2,
+    });
   });
 });
 

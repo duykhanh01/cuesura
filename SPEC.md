@@ -545,12 +545,12 @@ Nhóm chỉ DONE khi kết quả tích hợp được merge vào branch đích c
 | `cusr task retry`, `cusr yolo` | Không hỗ trợ, trả `unsupported_feature` (exit 2) kèm lệnh thay thế |
 | `cusr project list`, `cusr task board/content/progress/options` | Dữ liệu chỉ đọc cho giao diện terminal; output `--json` như mọi lệnh ([hợp đồng feature 004](specs/004-terminal-tui/contracts/cli-daemon.md)) |
 | `cusr request show` | Tra kết quả mutation theo request ID, chỉ đọc |
-| `cusr inbox`, `cusr answer`, `cusr assistant` | Liệt kê và trả lời câu hỏi; khóa và chờ của assistant |
+| `cusr inbox`, `cusr answer`, `cusr assistant` | Liệt kê và trả lời câu hỏi; khóa và chờ của assistant: `assistant wait` và hook đánh thức khi task cần người hoặc khi task kết thúc (item code `done`/`failed`/`cancelled`) |
 | `cusr report` | Báo cáo theo project từ một mốc thời gian (task đã kết thúc, việc chờ người, câu decider đã trả lời, usage) |
 
 `cusr group status` và `cusr admin verify-projections/backup/restore` chưa có trong bản đang chạy.
 
-`--json` là tùy chọn chung; output có `schema_version`. Lệnh hữu hạn trả một JSON object vào stdout, kể cả lỗi có thể xử lý. Log/chẩn đoán đi stderr; không ANSI, spinner hoặc prompt trộn vào stdout. Lệnh streaming như `logs -f --json` dùng JSONL, mỗi record có version và cursor/sequence để nối lại.
+`--json` là tùy chọn chung; output có `schema_version`. Lệnh hữu hạn trả một JSON object vào stdout, kể cả lỗi có thể xử lý. Log/chẩn đoán đi stderr; không ANSI, spinner hoặc prompt trộn vào stdout. Lệnh streaming như `logs -f --json` dùng JSONL: mỗi dòng có `schema_version` và `type` (`record`, `diagnostic`, `state`, `end`) cùng cursor để nối lại. Dòng `state` báo task vào hoặc rời wait; dòng cuối là `end` (`task_finished`, `needs_user` kèm `wait_code`, `session_limit`, hoặc `daemon_unreachable` exit 3 sau khi thử lại vài giây). Cursor vượt quá record cuối trả `invalid_arguments`.
 
 ```json
 {

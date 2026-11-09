@@ -151,7 +151,7 @@ export function taskControl(deps: TaskControlDeps): {
   };
   queries: Record<string, QueryHandler>;
 } {
-  const { store, logs, doctor } = deps;
+  const { store, logs, doctor, decider } = deps;
   const statusSince = statusSinceReader(store);
   const logCache = new LogRecordCache();
   const probeCache: DoctorProbeCache = new Map();
@@ -268,7 +268,20 @@ export function taskControl(deps: TaskControlDeps): {
         ? {}
         : {
             task_logs: (caller, body) =>
-              reply(taskLogs({ store, ...logs, cache: logCache }, caller, body)),
+              reply(
+                taskLogs(
+                  {
+                    store,
+                    ...logs,
+                    cache: logCache,
+                    now: deps.now,
+                    statusSince,
+                    ...(decider === undefined ? {} : { holds: (s) => decider.holds(s) }),
+                  },
+                  caller,
+                  body,
+                ),
+              ),
             task_gates: (caller, body) =>
               reply(taskGates({ store, dataDir: logs.dataDir }, caller, body)),
             task_gate_log: (caller, body) =>

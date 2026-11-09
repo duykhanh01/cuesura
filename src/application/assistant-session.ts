@@ -9,7 +9,12 @@ import { join } from 'node:path';
 export const ASSISTANT_SESSION_FILE = 'assistant-session.json';
 
 /** Only the daemon writes this file, so no other process can lose a change it made. */
-type SessionFile = { readonly session: string | null; readonly replaced: readonly string[] };
+type SessionFile = {
+  readonly session: string | null;
+  readonly replaced: readonly string[];
+  /** The attention desk's confirmed mark for ended tasks (#257). */
+  readonly ended_after: number | null;
+};
 
 export function readSessionFile(dataDir: string): SessionFile {
   try {
@@ -19,14 +24,16 @@ export function readSessionFile(dataDir: string): SessionFile {
     > | null;
     const session = raw?.['session'];
     const replaced = raw?.['replaced'];
+    const endedAfter = raw?.['ended_after'];
     return {
       session: typeof session === 'string' ? session : null,
       replaced: Array.isArray(replaced)
         ? replaced.filter((r): r is string => typeof r === 'string')
         : [],
+      ended_after: Number.isSafeInteger(endedAfter) ? (endedAfter as number) : null,
     };
   } catch {
-    return { session: null, replaced: [] };
+    return { session: null, replaced: [], ended_after: null };
   }
 }
 
