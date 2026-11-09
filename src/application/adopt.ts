@@ -51,6 +51,45 @@ async function projectRepo(deps: ConfirmDeps, project: string): Promise<Result<s
   return ok(repo);
 }
 
+function readPull(deps: ConfirmDeps, repo: string, number: string) {
+  return deps.ports.github.request({
+    method: 'GET',
+    path: `repos/${repo}/pulls/${number}`,
+    query: {},
+    body: null,
+  });
+}
+
+export function awaitingAdoption(s: TaskState): boolean {
+  return s.status === 'PENDING' && s.wait?.detail.code === 'adopt_approval';
+}
+
+/**
+ * Reads the head of the PR `s` waits to adopt and records it on the wait, so the approval it suggests
+ * names a real SHA (#265). True when a new head was recorded; any failed read records nothing.
+ */
+export async function observeAdoptHead(deps: ConfirmDeps, s: TaskState): Promise<boolean> {
+  const wanted = s.task.pr_ref;
+  if (wanted === undefined || !awaitingAdoption(s)) return false;
+  const repo = await projectRepo(deps, s.project);
+  if (!repo.ok) return false;
+  const [named, number] = wanted.split('#') as [string, string];
+  if (named.toLowerCase() !== repo.value.toLowerCase()) return false;
+  const r = await readPull(deps, repo.value, number);
+  const pull = r.ok ? PullSchema.safeParse(r.value.body) : null;
+  if (pull?.success !== true) return false;
+  const sha = pull.data.head.sha;
+  if (!/^[0-9a-f]{40}$/.test(sha) || s.wait?.detail['head_sha'] === sha) return false;
+  const accepted = submit(deps.store, {
+    task_id: s.id,
+    dedup_key: `adopt-head:${s.id}:v${s.version}:${sha}`,
+    trigger: { kind: 'adopt_head_observed', pr_ref: wanted, head_sha: sha },
+    now: deps.now(),
+    expected_version: s.version,
+  });
+  return accepted.ok && accepted.value.decision.kind === 'accepted' && !accepted.value.duplicate;
+}
+
 /** Why this PR cannot be adopted by this task at this head; the head branch when it can. */
 function judgePull(
   pull: z.infer<typeof PullSchema>,
@@ -89,12 +128,7 @@ export async function approveAdopt(
   if (named.toLowerCase() !== repo.value.toLowerCase())
     return err(refused('pr_other_repo', { pr_ref: wanted, project_repo: repo.value }));
 
-  const r = await deps.ports.github.request({
-    method: 'GET',
-    path: `repos/${repo.value}/pulls/${number}`,
-    query: {},
-    body: null,
-  });
+  const r = await readPull(deps, repo.value, number);
   if (!r.ok) {
     if (r.error.status === 404)
       return err({ code: 'not_found', message: `no PR ${wanted}`, details: {} });

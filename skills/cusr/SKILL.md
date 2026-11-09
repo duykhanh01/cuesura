@@ -407,6 +407,10 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 # failed on infrastructure, rate limit or login; it gives those visits back. Ask
 # the user to fix the cause first.
 # allowed_actions describes available commands, not permission to accept changes.
+# Each has `requires` (operate, admin, or null when there is no command): hand an
+# admin one to the user. A command with null has its missing value explained in note.
+# A wait whose resume_when has answer(<qid>) ends only with that answer: answer comes
+# first, whatever the wait code. Base repair takes exactly "continue" or "retry fixer".
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task explain "$TASK_ID" --json
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
@@ -442,6 +446,10 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task resume "$TASK_ID" --expected-version "$VERSION" \
   --request-id "$RESUME_REQUEST_ID" --json
+# Before cancel, read explain's `dependents`: ending CANCELLED (or FAILED) also cancels
+# every one of them, down the chain. Name them to the user and get their go first.
+# Once a cancel is requested, explain offers `wait`, not cancel: a second cancel is
+# ignored (already_cancelling); the task ends once running work stops.
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task cancel "$TASK_ID" --reason "$REASON" \
   --expected-version "$VERSION" --request-id "$CANCEL_REQUEST_ID" --json
@@ -463,7 +471,8 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 CUSR_DATA_DIR="${DATA_DIR:?}" \
   cusr task show "$TASK_ID" --json
 # A task added with --pr waits as adopt_approval: present the PR and its full head SHA
-# (the user reviews that head) and this command. It needs admin and refuses a
+# (the user reviews that head) and this command. Once the daemon has read the PR, explain
+# shows that head in wait.detail.head_sha and in the approve command. It needs admin and refuses a
 # fork, a closed PR, another base, a head that moved and a PR a live task holds.
 CUSR_DATA_DIR="${DATA_DIR:?}" \
   cusr task approve "$TASK_ID" --kind adopt --head-sha "$HEAD_SHA" \

@@ -88,6 +88,13 @@ export function taskIdsByStatus(db: Database, statuses: readonly TaskStatus[]): 
   return rows.map((r) => r.id);
 }
 
+export function readDependents(db: Database, taskId: string): string[] {
+  const rows = db
+    .prepare('SELECT task_id FROM task_deps WHERE depends_on = ? ORDER BY task_id')
+    .all(taskId) as { task_id: string }[];
+  return rows.map((r) => r.task_id);
+}
+
 /** Which tasks a read covers; `projects: null` is every project. */
 export type TaskFilter = {
   readonly projects: readonly string[] | null;

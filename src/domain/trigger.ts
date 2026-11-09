@@ -689,6 +689,14 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
       head_sha: z.string().regex(/^[0-9a-f]{40}$/),
     })
     .strict(),
+  // The daemon read the head of the PR a task waits to adopt, so the approval can name it (#265).
+  z
+    .object({
+      kind: z.literal('adopt_head_observed'),
+      pr_ref: z.string().min(1),
+      head_sha: z.string().regex(/^[0-9a-f]{40}$/),
+    })
+    .strict(),
   // Keep the old trigger readable for existing durable envelopes.
   BaseUpdateRequestSchema.extend({ kind: z.literal('yolo_update_base') }).strict(),
   BaseUpdateRequestSchema.extend({ kind: z.literal('update_base') }).strict(),

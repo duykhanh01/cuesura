@@ -301,7 +301,7 @@ export async function amendPolicyPreview(
     command:
       `cusr task amend-policy ${s.id} --model ${q.data.model}` +
       (q.data.effort === undefined ? '' : ` --effort ${q.data.effort}`) +
-      ` --reason <text> --confirm ${plan.value.policy.policy_hash} --expected-version ${s.version}`,
+      ` --reason REASON --confirm ${plan.value.policy.policy_hash} --expected-version ${s.version}`,
   });
 }
 

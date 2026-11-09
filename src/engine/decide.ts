@@ -1,4 +1,4 @@
-import { onAdoptPr } from './adopt.ts';
+import { onAdoptHeadObserved, onAdoptPr } from './adopt.ts';
 import { onUpdateBase } from './base-update.ts';
 import { assertNever } from '../shared/assert-never.ts';
 import { canonicalJson } from '../shared/canonical-json.ts';
@@ -127,6 +127,7 @@ function dispatch(ctx: Ctx, t: Trigger): void {
   const needsPolicy = ![
     'confirm_task',
     'adopt_pr',
+    'adopt_head_observed',
     'config_checked',
     'source_updated',
     'dependency_status',
@@ -152,6 +153,9 @@ function dispatch(ctx: Ctx, t: Trigger): void {
       return;
     case 'adopt_pr':
       onAdoptPr(ctx, t);
+      return;
+    case 'adopt_head_observed':
+      onAdoptHeadObserved(ctx, t);
       return;
     case 'config_checked':
       onConfigChecked(ctx, t);

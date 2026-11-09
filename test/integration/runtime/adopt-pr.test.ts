@@ -1,7 +1,9 @@
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { approveAdopt } from '../../../src/application/adopt.ts';
+import { approveAdopt, observeAdoptHead } from '../../../src/application/adopt.ts';
+import { PendingPreflight } from '../../../src/daemon/pending-preflight.ts';
+import { allowedActions } from '../../../src/explain/allowed-actions.ts';
 import type { Caller } from '../../../src/application/authz.ts';
 import type { ConfirmDeps } from '../../../src/application/confirm.ts';
 import { observeTask } from '../../../src/daemon/handlers.ts';
@@ -275,5 +277,83 @@ describe('task approve --kind adopt reads the PR before it accepts (issue #174)'
   it('a missing PR is not_found', async () => {
     const { result } = await run(null);
     expect(result).toMatchObject({ ok: false, error: { code: 'not_found' } });
+  });
+});
+
+describe('the adopt approval names the head the daemon read (issue #265)', () => {
+  const repo = { id: 4242 };
+  const pullAt = (sha: string) => ({
+    state: 'open',
+    merged_at: null,
+    head: { ref: BRANCH, sha, repo },
+    base: { ref: 'main', repo },
+  });
+
+  function env() {
+    const d = new StoreDriver(openFileStoreForTest(dbPath(tempDir())));
+    const task = buildTask({ pr_ref: PR });
+    d.must(task.id, { kind: 'create_task', task });
+    const pr = { body: pullAt('a'.repeat(40)) as unknown };
+    const github: GitHubPort = {
+      request: () =>
+        Promise.resolve(
+          ok({ status: 200, headers: {}, body: pr.body, evidence_digest: hashCanonical(pr.body) }),
+        ),
+    };
+    const deps: ConfirmDeps = {
+      store: d.store,
+      ports: { git: fakeGit(), github, host: fakeHost() },
+      configInputs: () =>
+        Promise.resolve({ user: userConfig(), packs: PACKS, manifests: MANIFESTS }),
+      now: () => d.now,
+    };
+    const approve = () =>
+      allowedActions(d.task(task.id), { recheckable: false }).find((a) => a.action === 'approve');
+    return { d, task, pr, deps, approve };
+  }
+
+  it('before any read there is no command with a placeholder; after it the real SHA', async () => {
+    const { d, task, deps, approve } = env();
+    expect(approve()).toMatchObject({ command: null, requires: null });
+    expect(approve()?.note).toContain('has not read the PR head');
+
+    const report = await new PendingPreflight(deps).round();
+    expect(report.recorded).toEqual([task.id]);
+    const s = d.task(task.id);
+    expect(s.wait?.detail).toMatchObject({ code: 'adopt_approval', head_sha: 'a'.repeat(40) });
+    expect(approve()).toMatchObject({
+      command: `cusr task approve ${task.id} --kind adopt --head-sha ${'a'.repeat(40)} --expected-version ${s.version}`,
+      requires: 'admin',
+    });
+    expect(approve()?.note).toContain('gh pr view 7 -R acme/app --json headRefOid');
+    expect(approve()?.note).not.toMatch(/task explain/);
+  });
+
+  it('an unchanged head adds no event; a moved head replaces it and survives a retriage', async () => {
+    const { d, task, pr, deps } = env();
+    await observeAdoptHead(deps, d.task(task.id));
+    const v = d.task(task.id).version;
+    expect(await observeAdoptHead(deps, d.task(task.id))).toBe(false);
+    expect(d.task(task.id).version).toBe(v);
+
+    pr.body = pullAt('b'.repeat(40));
+    expect(await observeAdoptHead(deps, d.task(task.id))).toBe(true);
+    expect(d.task(task.id).wait?.detail['head_sha']).toBe('b'.repeat(40));
+    d.must(task.id, { kind: 'source_updated', task: { ...task, title: 'renamed' } });
+    expect(d.task(task.id).wait?.detail).toMatchObject({
+      code: 'adopt_approval',
+      head_sha: 'b'.repeat(40),
+    });
+  });
+
+  it('the engine ignores a head for another PR or a task no longer waiting to adopt', () => {
+    const { d, task } = env();
+    const r = d.send(task.id, {
+      kind: 'adopt_head_observed',
+      pr_ref: 'acme/app#8',
+      head_sha: 'c'.repeat(40),
+    });
+    expect(r.ok && r.value.decision.kind).toBe('accepted');
+    expect(d.task(task.id).wait?.detail['head_sha']).toBeUndefined();
   });
 });

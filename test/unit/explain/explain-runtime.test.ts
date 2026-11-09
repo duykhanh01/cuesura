@@ -13,6 +13,7 @@ const input = (now: number): RuntimeInput => ({
   rt: null,
   queue_position: null,
   prerequisite: () => null,
+  dependents: [],
   merge: null,
 });
 

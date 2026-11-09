@@ -5,7 +5,8 @@ import { runConfigConfirmed } from '../engine/run-config.ts';
 
 /**
  * Expose only actions implemented by the daemon. Include recheck only when recheckTarget finds
- * useful work.
+ * useful work. A command holds no placeholder for a value the engine knows; what it cannot know is an
+ * upper-case word (FILE, REASON, MODEL) the shell leaves alone.
  */
 export type AllowedAction = {
   readonly action:
@@ -26,6 +27,8 @@ export type AllowedAction = {
 
   readonly command: string | null;
   readonly note: string;
+  /** Role the command needs; null when there is no command to run. */
+  readonly requires: 'operate' | 'admin' | null;
 };
 
 type Ctx = {
@@ -34,13 +37,20 @@ type Ctx = {
   readonly s: TaskState;
   readonly hasPr: boolean;
   readonly recheckable: boolean;
+  /** Live tasks that end CANCELLED with this one (#249), its dependents' dependents included. */
+  readonly dependents: number;
 };
 type Row = (c: Ctx) => (AllowedAction | null)[];
 
+const cascade = (c: Ctx): string =>
+  c.dependents === 0
+    ? ''
+    : ` Ending CANCELLED also cancels ${c.dependents} dependent task${c.dependents === 1 ? '' : 's'} listed under dependents; check them with the user first.`;
 const cancel = (c: Ctx): AllowedAction => ({
   action: 'cancel',
   command: `cusr task cancel ${c.id} --expected-version ${c.version}`,
-  note: 'Cancel reconciles the PR first; a merge already made still ends DONE.',
+  note: 'Cancel reconciles the PR first; a merge already made still ends DONE.' + cascade(c),
+  requires: 'operate',
 });
 /** Offered only while a read is what holds the cancel: a merge seen is decided by the drain. */
 const forceCancel = (c: Ctx): AllowedAction | null =>
@@ -50,7 +60,10 @@ const forceCancel = (c: Ctx): AllowedAction | null =>
     : {
         action: 'cancel',
         command: `cusr task cancel ${c.id} --force --expected-version ${c.version}`,
-        note: 'Only if the user asks: reads the PR once more, then ends CANCELLED even if the read cannot tell open from closed (the PR may be unread).',
+        note:
+          'Only if the user asks: reads the PR once more, then ends CANCELLED even if the read cannot tell open from closed (the PR may be unread).' +
+          cascade(c),
+        requires: 'operate',
       };
 const recheck = (c: Ctx, note: string): AllowedAction | null =>
   c.recheckable
@@ -58,6 +71,7 @@ const recheck = (c: Ctx, note: string): AllowedAction | null =>
         action: 'recheck',
         command: `cusr task recheck ${c.id} --expected-version ${c.version}`,
         note,
+        requires: 'operate',
       }
     : null;
 /** Which read records a manual merge: only a runtime task with a live window is observed (#209). */
@@ -78,31 +92,51 @@ function mergeNote(s: TaskState): string {
     : `Merge the PR on GitHub into the target branch; the next observation round (due at ${due}, Unix ms) records DONE, or recheck records it at once.`;
 }
 const merge = (c: Ctx): AllowedAction | null =>
-  c.hasPr ? { action: 'merge_manually', command: null, note: mergeNote(c.s) } : null;
+  c.hasPr
+    ? { action: 'merge_manually', command: null, note: mergeNote(c.s), requires: null }
+    : null;
 const external = (note: string): AllowedAction => ({
   action: 'fix_external',
   command: null,
   note,
+  requires: null,
 });
 const wait = (note: string): AllowedAction => ({
   action: 'wait',
   command: null,
   note,
+  requires: null,
 });
 const newTask: AllowedAction = {
   action: 'task_add',
   command: 'cusr task add --file FILE',
   note: 'To do the work again, add an independent task; it goes through triage, config and permissions anew.',
+  requires: 'operate',
 };
-const answer = (c: Ctx): AllowedAction => ({
-  action: 'answer',
-  command: `cusr answer ${typeof c.s.wait?.detail['question_id'] === 'string' ? c.s.wait.detail['question_id'] : 'QUESTION'} --file FILE --expected-version ${c.version}`,
-  note: 'Answer or supply what is missing.',
-});
+/** The question the wait resumes on, from `answer(<qid>)` in resume_when or the detail. */
+function questionId(s: TaskState): string | null {
+  const w = s.wait;
+  if (w === null) return null;
+  for (const r of w.resume_when) {
+    const m = /^answer\((.+)\)$/.exec(r);
+    if (m !== null) return m[1] as string;
+  }
+  return typeof w.detail['question_id'] === 'string' ? w.detail['question_id'] : null;
+}
+const answer = (c: Ctx, note = 'Answer or supply what is missing.'): AllowedAction => {
+  const qid = questionId(c.s);
+  return {
+    action: 'answer',
+    command: qid === null ? null : `cusr answer ${qid} --file FILE --expected-version ${c.version}`,
+    note: qid === null ? `${note} No open question is recorded yet; run task explain again.` : note,
+    requires: qid === null ? null : 'operate',
+  };
+};
 const confirm = (c: Ctx): AllowedAction => ({
   action: 'confirm',
   command: `cusr task confirm ${c.id} --expected-version ${c.version}`,
   note: 'Reads the newest base and checks the config again; nothing retries on its own.',
+  requires: 'operate',
 });
 
 /**
@@ -115,6 +149,7 @@ const runSelection: Row = (c) => {
     action: 'propose',
     command: `cusr task propose ${c.id} --profile PROFILE --mode MODE --worker HARNESS/MODEL/EFFORT --expected-version ${c.version}`,
     note: 'Name the mode and bindings; the task does not queue until a selection is confirmed.',
+    requires: 'operate',
   };
   const p = c.s.run.proposal;
   if (p === null || p.selection.revision !== c.s.revision) return [propose, cancel(c)];
@@ -123,6 +158,7 @@ const runSelection: Row = (c) => {
       action: 'confirm',
       command: `cusr task confirm ${c.id} --run-config ${p.digest} --expected-version ${c.version}`,
       note: 'Confirms the selection task show lists under run_config; needs the operate role.',
+      requires: 'operate',
     },
     propose,
     cancel(c),
@@ -133,11 +169,13 @@ const resume = (c: Ctx): AllowedAction => ({
   action: 'resume',
   command: `cusr task resume ${c.id} --expected-version ${c.version}`,
   note: 'Unpauses the task: the step it stopped at runs as it would have, with the same revision, worktree, PR and evidence.',
+  requires: 'operate',
 });
 const pause = (c: Ctx): AllowedAction => ({
   action: 'pause',
-  command: `cusr task pause ${c.id} --reason <text> --expected-version ${c.version}`,
-  note: 'Work already started finishes; no new step starts until the task is resumed. Unlike cancel, nothing is lost.',
+  command: `cusr task pause ${c.id} --expected-version ${c.version}`,
+  note: 'Work already started finishes; no new step starts until the task is resumed. Unlike cancel, nothing is lost. Add --reason REASON to record why.',
+  requires: 'operate',
 });
 
 const proceedSameModel = (c: Ctx): AllowedAction | null =>
@@ -147,14 +185,16 @@ const proceedSameModel = (c: Ctx): AllowedAction | null =>
         action: 'continue',
         command: `cusr task continue ${c.id} --expected-version ${c.version}`,
         note: 'Keeps the current model: the step gets a fresh set of quality tries and visits, then runs again from here with gates and review as usual. Budget, deadline, ladder and floor stay as they are.',
+        requires: 'operate',
       };
 const otherModel = (c: Ctx): AllowedAction | null =>
   continuable(c.s) === null
     ? null
     : {
         action: 'amend_policy',
-        command: `cusr task amend-policy ${c.id} --model <name> [--effort <level>]`,
-        note: 'Owner only. Previews running the waiting step on another configured model, then applies it with --confirm <policy_hash> --reason <text> --expected-version: a new policy version, the same task, worktree and history; gates and review run again. The profile still decides whether the model is allowed or needs approval.',
+        command: `cusr task amend-policy ${c.id} --model MODEL`,
+        note: 'Admin only; add --effort LEVEL to change the effort too. Previews running the waiting step on another configured model and prints the command that applies it (with --confirm POLICY_HASH --reason REASON --expected-version): a new policy version, the same task, worktree and history; gates and review run again. The profile still decides whether the model is allowed or needs approval.',
+        requires: 'admin',
       };
 const continuableExhausted: Row = (c) => [proceedSameModel(c), otherModel(c), ...exhausted(c)];
 
@@ -179,6 +219,14 @@ const reconnect: Row = (c) => [
   cancel(c),
 ];
 const stuck: Row = (c) => [merge(c), recheck(c, 'Reads the PR once.'), cancel(c), newTask];
+
+/** `gh` reads PRs by number and repo, not by the `owner/repo#N` ref the task names. */
+function ghHead(s: TaskState): string {
+  const [repo, n] = (s.task?.pr_ref ?? '').split('#');
+  return repo && n
+    ? `gh pr view ${n} -R ${repo} --json headRefOid`
+    : 'gh pr view --json headRefOid';
+}
 
 const ROWS: Readonly<Record<DetailCode, Row>> = {
   missing_acceptance: (c) => [external('Add a task with acceptance criteria.'), cancel(c), newTask],
@@ -238,23 +286,47 @@ const ROWS: Readonly<Record<DetailCode, Row>> = {
     const open = Object.values(c.s.approvals).find(
       (x) => x.kind === 'escalation' && x.status === 'requested' && x.revision === c.s.revision,
     );
+    const d: Record<string, unknown> = c.s.wait?.detail ?? {};
+    const step = open?.step ?? (typeof d['step'] === 'string' ? d['step'] : null);
+    const rung = open?.rung ?? (typeof d['rung'] === 'number' ? d['rung'] : null);
+    const note =
+      'Needs the operate role, while budget remains; an approval adds no attempts that are already spent.';
     return [
-      {
-        action: 'approve',
-        command: `cusr task approve ${c.id} --kind escalation --step ${open?.step ?? 'STEP'} --rung ${open?.rung ?? 'N'} --expected-version ${c.version}`,
-        note: 'Needs the operate role, while budget remains; an approval adds no attempts that are already spent.',
-      },
+      step === null || rung === null
+        ? {
+            action: 'approve',
+            command: null,
+            note: `${note} No open escalation request of this revision is recorded; run task explain again.`,
+            requires: null,
+          }
+        : {
+            action: 'approve',
+            command: `cusr task approve ${c.id} --kind escalation --step ${step} --rung ${rung} --expected-version ${c.version}`,
+            note,
+            requires: 'operate',
+          },
       cancel(c),
     ];
   },
-  adopt_approval: (c) => [
-    {
-      action: 'approve',
-      command: `cusr task approve ${c.id} --kind adopt --head-sha SHA --expected-version ${c.version}`,
-      note: 'Admin only: review the PR, then name its full head SHA. The task pushes to that PR and stops if the head moves.',
-    },
-    cancel(c),
-  ],
+  adopt_approval: (c) => {
+    const sha = c.s.wait?.detail['head_sha'];
+    return [
+      typeof sha === 'string'
+        ? {
+            action: 'approve',
+            command: `cusr task approve ${c.id} --kind adopt --head-sha ${sha} --expected-version ${c.version}`,
+            note: `Admin only: review the PR at the head the daemon last read (${sha}). It may have moved since (the daemon rereads it on a backoff of up to an hour): check with ${ghHead(c.s)} and approve that head instead. The approval reads the PR again and refuses a head that differs; the task pushes to that PR and stops if the head moves later.`,
+            requires: 'admin',
+          }
+        : {
+            action: 'approve',
+            command: null,
+            note: `Admin only: the daemon has not read the PR head yet. Review the PR, then run cusr task approve ${c.id} --kind adopt --head-sha SHA --expected-version ${c.version} with its full 40-character head SHA (${ghHead(c.s)}). The task pushes to that PR and stops if the head moves.`,
+            requires: null,
+          },
+      cancel(c),
+    ];
+  },
   merge: (c) => [merge(c), recheck(c, 'Reads the PR once.'), cancel(c)],
   checks_incomplete: (c) => [wait('CI is being observed within its limits.'), merge(c), cancel(c)],
   execution_slot: (c) => [
@@ -351,7 +423,7 @@ const ROWS: Readonly<Record<DetailCode, Row>> = {
 
 export function allowedActions(
   s: TaskState,
-  o: { readonly recheckable: boolean },
+  o: { readonly recheckable: boolean; readonly dependents?: number },
 ): AllowedAction[] {
   const c: Ctx = {
     id: s.id,
@@ -359,9 +431,10 @@ export function allowedActions(
     s,
     hasPr: s.pr_ref !== null,
     recheckable: o.recheckable,
+    dependents: o.dependents ?? 0,
   };
   if (s.terminal !== null) return [newTask];
-  const rows = listed(c);
+  const rows = cancelling(s, listed(c));
   // Pausing is offered to a started task that can still start work; resuming to a paused one that
   // waits on something else first (CI, a person, GitHub), whose outcome then waits for the resume.
   const paused = (s.pause ?? null) !== null;
@@ -370,10 +443,55 @@ export function allowedActions(
   return pausable ? [...rows, pause(c)] : rows;
 }
 
+/**
+ * A repeated cancel is ignored (`already_cancelling`): the task ends once running work stops. Only
+ * `--force`, which the cancel's own wait offers, still changes anything.
+ */
+function cancelling(s: TaskState, rows: AllowedAction[]): AllowedAction[] {
+  if (s.cancellation === null) return rows;
+  const plain = (a: AllowedAction): boolean =>
+    a.action === 'cancel' && a.command?.includes(' --force ') !== true;
+  if (!rows.some(plain)) return rows;
+  const out = rows.filter((a) => !plain(a));
+  return out.some((a) => a.action === 'wait')
+    ? out
+    : [wait('Cancel requested; the task ends once running work stops.'), ...out];
+}
+
+const BASE_REPAIR_NOTE =
+  'Answer exactly "continue" once the conflicts are resolved in the task worktree (gates and publish run again), or exactly "retry fixer" to let another worker attempt do it. Recheck does not end this wait.';
+
+/**
+ * A wait that resumes on `answer(<qid>)` (askHuman) ends only with that answer, whatever its code:
+ * the code's own row stays for the other ways out, minus what only a cooldown or a recheck clears.
+ */
+function questionRow(c: Ctx, rows: AllowedAction[]): AllowedAction[] {
+  const w = c.s.wait;
+  if (w === null || !w.resume_when.some((r) => r.startsWith('answer('))) return rows;
+  const base = w.resume.kind === 'repair_base';
+  const first = answer(
+    c,
+    base
+      ? BASE_REPAIR_NOTE
+      : `Read the question (cusr inbox --task ${c.id}), fix what it names if that is outside the task, then answer; the task does not move on by itself.`,
+  );
+  return [
+    first,
+    ...rows.filter(
+      (a) =>
+        a.action !== 'answer' && a.action !== 'fix_external' && !(base && a.action === 'recheck'),
+    ),
+  ];
+}
+
 function listed(c: Ctx): AllowedAction[] {
   const s = c.s;
   const detail = s.wait?.detail.code;
-  if (detail !== undefined) return ROWS[detail](c).filter((a): a is AllowedAction => a !== null);
+  if (detail !== undefined)
+    return questionRow(
+      c,
+      ROWS[detail](c).filter((a): a is AllowedAction => a !== null),
+    );
   // Once merge is proven, completion waits only for drain and reconciliation.
   if (s.completion !== null)
     return ROWS.merge_cleanup_pending(c).filter((a): a is AllowedAction => a !== null);

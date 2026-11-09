@@ -62,6 +62,7 @@ describe('explainSummary', () => {
       { task_id: 'p1', status: 'DONE', unverified: null, evidence: 'x' },
       { task_id: 'p2', status: 'RUNNING', unverified: null, evidence: 'x' },
     ],
+    dependents: [{ task_id: 'd1', status: 'PENDING', depends_on: ID }],
     merge_cleanup: null,
     bindings_used: [{ step: 'code' }],
     escalations: [{ step: 'code' }],
@@ -111,6 +112,7 @@ describe('explainSummary', () => {
       failed: { gates: ['unit'], ci: ['test'] },
       deadline_ms: 60_000,
       prerequisites: [{ task_id: 'p2', status: 'RUNNING' }],
+      dependents: [{ task_id: 'd1', status: 'PENDING', depends_on: ID }],
       allowed_actions: full.allowed_actions,
       details: `cusr task explain ${ID} --full`,
     });

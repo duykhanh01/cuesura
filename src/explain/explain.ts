@@ -205,6 +205,8 @@ export type RuntimeInput = {
   readonly queue_position: number | null;
   /** null means the prerequisite is outside the caller-readable evidence. */
   readonly prerequisite: (id: string) => TaskState | null;
+  /** Live tasks that wait on this one, directly or through another dependent. */
+  readonly dependents: RuntimeExplanation['dependents'];
 
   readonly merge: Record<string, unknown> | null;
   /** When the task entered its current status; null when the log cannot say. */
@@ -311,6 +313,11 @@ export type RuntimeExplanation = Omit<Explanation, 'wait'> & {
     merge_commit_sha: string | null;
     evidence: string;
   }[];
+  /**
+   * Live tasks that depend on this one, directly or through another dependent (`depends_on` names the
+   * task they wait on). Ending FAILED or CANCELLED cancels every one of them (#249).
+   */
+  dependents: { task_id: string; status: TaskStatus; depends_on: string }[];
   merge_cleanup: {
     merged_head_sha: string;
     pending_operations: { id: string; kind: string; status: string }[];
@@ -385,7 +392,10 @@ export function explainRuntime(
     revision: state.revision,
     limits_frozen: policy !== null,
     wait: state.wait === null ? null : { reason: state.wait.reason, detail: state.wait.detail },
-    allowed_actions: allowedActions(state, { recheckable: input.recheckable }),
+    allowed_actions: allowedActions(state, {
+      recheckable: input.recheckable,
+      dependents: input.dependents.length,
+    }),
     paused: state.pause ?? null,
     messages: (state.messages ?? []).filter((m) => m.revision === state.revision),
     blockers: state.blockers.filter((b) => b.until === null || b.until > input.now),
@@ -465,6 +475,7 @@ export function explainRuntime(
         evidence: `cusr task show ${id}`,
       };
     }),
+    dependents: [...input.dependents],
     merge_cleanup: draining
       ? {
           merged_head_sha: c.proof.merged_head_sha,

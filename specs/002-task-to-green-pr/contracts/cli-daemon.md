@@ -135,6 +135,15 @@ sẽ đánh thức phiên ở mọi Stop (#268). `wait`, `register`, `unregister
 
 Priority số lớn chạy trước; default 0. Explain gồm deadline chưa bắt đầu/đã hết, thời gian chờ slot
 ban đầu/xin lại, PR/head/base, các blocker còn hiệu lực, bằng chứng và allowed_actions từ FR-029.
+Mỗi `allowed_actions[i]` có `action`, `command`, `note` và `requires` (`operate`, `admin`, hoặc `null`
+khi không có lệnh). `command` không chứa `<...>`/`[...]` và không chứa placeholder cho giá trị engine đã
+biết (question ID, step/rung của escalation, head SHA adopt đã đọc); thiếu giá trị thì `command: null`
+và `note` nói cách lấy. Wait có `answer(<qid>)` trong `resume_when` luôn có `answer` đứng đầu, bất kể mã
+wait. Task đã có yêu cầu cancel không được gợi ý `cancel` nữa (trừ `--force` của `cancel_reconcile`) mà
+gợi ý `wait`. Explain có `dependents` (`task_id`, `status`, `depends_on`): task còn sống phụ thuộc task
+này, trực tiếp hoặc qua task phụ thuộc khác; task kết thúc FAILED/CANCELLED hủy theo cả danh sách đó
+(#249), và `note` của `cancel` ghi số lượng. Wait `adopt_approval` có `detail.head_sha` khi daemon đã đọc
+head của PR (vòng preflight PENDING, cùng backoff; trigger hệ thống `adopt_head_observed`).
 Prerequisite chưa chứng nhận vẫn hiện sau khi B bắt đầu. Merge đã xác nhận nhưng còn drain phải hiện
 merge_cleanup_pending/process/effect chưa rõ, không hiện DONE.
 
@@ -151,7 +160,7 @@ trước khi in, cho cả `--json` lẫn output cho người đọc.
   đang chạy; field null bị bỏ), `queue_position`, `pr` (`ref`, `head_sha`), `merge` (`method`, `title`,
   chỉ khi có PR), `failed` (tên gate lỗi, CI check `failure`/`cancelled` của lần đọc CI hợp lệ mới nhất
   đúng revision và head hiện tại, `review: request_changes` của lần gần nhất; không log), `deadline_ms`
-  khi deadline đang chạy (task đã kết thúc thì không có), `prerequisites` chưa DONE hoặc chưa xác minh,
+  khi deadline đang chạy (task đã kết thúc thì không có), `prerequisites` chưa DONE hoặc chưa xác minh, `dependents`,
   `terminal` (`kind`, `reason`) khi task đã kết thúc, `unverified` (`reason`) khi DONE trên một merge chưa
   được xác minh, `merge_cleanup`, `cancellation`, `paused` (`reason`, `by`, `at`, null khi
   không tạm dừng), `scope` (`overlaps`: task còn sống khác đổi chung file, `base_behind`, `base_conflicts`,

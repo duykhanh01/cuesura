@@ -23,7 +23,7 @@ import type { Admitted, CommandInput } from './commands.ts';
 import { confirmTask, type ConfirmDeps } from './confirm.ts';
 import { decisionError, engineRejection } from './engine-verdict.ts';
 import { recheckTarget, recheckTask, type RecheckDeps } from './recheck.ts';
-import { explainRuntime } from '../explain/explain.ts';
+import { explainRuntime, type RuntimeExplanation } from '../explain/explain.ts';
 import { isTerminal, TASK_STATUSES } from '../domain/state.ts';
 import { asEpochMs } from '../shared/brand.ts';
 import { submit } from './triage.ts';
@@ -683,6 +683,28 @@ export function taskHistory(
   });
 }
 
+/** Live tasks a FAILED or CANCELLED end of `id` cancels (#249), breadth first. */
+function liveDependents(
+  store: Store,
+  caller: Caller,
+  id: string,
+): RuntimeExplanation['dependents'] {
+  const out: RuntimeExplanation['dependents'] = [];
+  const seen = new Set([id]);
+  const queue = [id];
+  for (let at = queue.shift(); at !== undefined; at = queue.shift()) {
+    for (const dep of store.readDependents(at)) {
+      if (seen.has(dep)) continue;
+      seen.add(dep);
+      const d = readable(store, caller, dep);
+      if (!d.ok || d.value.terminal !== null) continue;
+      out.push({ task_id: dep, status: d.value.status, depends_on: at });
+      queue.push(dep);
+    }
+  }
+  return out;
+}
+
 /** `task_explain` (T111): built from committed data only. */
 export function taskExplain(
   store: Store,
@@ -722,6 +744,7 @@ export function taskExplain(
           const p = readable(store, caller, id);
           return p.ok ? p.value : null;
         },
+        dependents: liveDependents(store, caller, s.id),
         merge: mergeOf(store, s),
         status_since: live.statusSince?.(s) ?? null,
         ...(live.lastOutputAt === undefined

@@ -434,6 +434,7 @@ describe('explain tells the kinds of hold apart (FR-044.07)', () => {
         rt: null,
         queue_position: null,
         prerequisite: () => null,
+        dependents: [],
         merge: null,
       }).slot;
 

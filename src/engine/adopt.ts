@@ -9,6 +9,25 @@ import { retriage } from './triage.ts';
  * read in the same transaction so two tasks can never write one branch. Before the start the approval
  * can be given again, for a head that moved.
  */
+/** Shown with the adopt approval; never an approval itself, which still names the head it checked. */
+export function onAdoptHeadObserved(
+  ctx: Ctx,
+  t: Extract<Trigger, { kind: 'adopt_head_observed' }>,
+): void {
+  const s = ctx.state;
+  const w = s.wait;
+  if (
+    s.status !== 'PENDING' ||
+    w?.detail.code !== 'adopt_approval' ||
+    s.task.pr_ref?.toLowerCase() !== t.pr_ref.toLowerCase() ||
+    w.detail['head_sha'] === t.head_sha
+  ) {
+    ctx.emit('SignalIgnored', { reason: 'not_applicable', trigger_kind: t.kind });
+    return;
+  }
+  ctx.emit('TaskPending', { wait: { ...w, detail: { ...w.detail, head_sha: t.head_sha } } });
+}
+
 export function onAdoptPr(ctx: Ctx, t: Extract<Trigger, { kind: 'adopt_pr' }>): void {
   const s = ctx.state;
   if (!hasRole(ctx.env.authz, 'admin')) reject('not_admin');

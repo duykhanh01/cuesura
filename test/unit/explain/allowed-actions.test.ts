@@ -15,6 +15,7 @@ function state(code: DetailCode, o: Partial<TaskState> = {}): TaskState {
     completion: null,
     approvals: {},
     blockers: [],
+    cancellation: null,
     policy_ref: null,
     run: { proposal: null, confirmation: null, mode: null, content: null },
     wait: {
@@ -116,9 +117,8 @@ describe('allowed actions for every wait detail (T111, FR-029)', () => {
         'task_add',
       ]);
       expect(out[0]?.command).toBe(`cusr task continue ${ID} --expected-version 9`);
-      expect(out[1]?.command).toBe(
-        `cusr task amend-policy ${ID} --model <name> [--effort <level>]`,
-      );
+      expect(out[1]?.command).toBe(`cusr task amend-policy ${ID} --model MODEL`);
+      expect(out[1]?.requires).toBe('admin');
       expect(JSON.stringify(out)).not.toMatch(/more attempts|retry/i);
     },
   );
@@ -189,7 +189,7 @@ describe('allowed actions for every wait detail (T111, FR-029)', () => {
         ...before,
         policy_ref: { revision: 1, hash: 'h', version: 1 },
       } as TaskState;
-      expect(of(started).map((a) => a.action)).toEqual(['cancel', 'task_add']);
+      expect(of(started).map((a) => a.action)).toEqual(['cancel', 'task_add', 'pause']);
     });
   });
 
@@ -240,5 +240,145 @@ describe('merge_manually says what records the merge (#209)', () => {
       expect(note(o)).toMatch(/then run recheck/);
       expect(note(o)).not.toMatch(/due at/);
     }
+  });
+});
+
+const QID = '0192aaaa-0000-7000-8000-0000000000aa';
+/** A wait askHuman made: it resumes only on the answer to QID. */
+const asked = (code: DetailCode, resume: unknown) =>
+  ({
+    status: 'WAITING',
+    wait: {
+      reason: 'human_input',
+      detail: { code, question_id: QID },
+      resume_when: [`answer(${QID})`],
+      exit_paths: [],
+      resume,
+    },
+  }) as unknown as Partial<TaskState>;
+
+describe('a wait on a question offers its answer first (#265)', () => {
+  const QUESTION_CODES: DetailCode[] = [
+    'loop_exhausted',
+    'ci_unclassified',
+    'merge_not_done',
+    'base_outdated',
+    'attempt_stopped',
+    'auth_config',
+    'refused',
+    'timeout',
+    'effect_failed',
+    'publish_content_invalid',
+  ];
+
+  it.each(QUESTION_CODES)('%s with answer(<qid>) in resume_when', (code) => {
+    const out = allowedActions(state(code, asked(code, { kind: 'none' })), { recheckable: true });
+    expect(out[0]).toMatchObject({
+      action: 'answer',
+      command: `cusr answer ${QID} --file FILE --expected-version 9`,
+      requires: 'operate',
+    });
+    expect(out.filter((a) => a.action === 'answer')).toHaveLength(1);
+    expect(out.map((a) => a.action)).not.toContain('fix_external');
+  });
+
+  it('publish_content_invalid: answer, then the other ways out', () => {
+    expect(
+      actions('publish_content_invalid', asked('publish_content_invalid', { kind: 'none' })),
+    ).toEqual(['answer', 'merge_manually', 'recheck', 'cancel', 'task_add']);
+  });
+
+  it('base repair names the two answers it takes and offers no recheck', () => {
+    const out = allowedActions(
+      state('refused', asked('refused', { kind: 'repair_base', mode: 'manual' })),
+      { recheckable: true },
+    );
+    expect(out.map((a) => a.action)).toEqual(['answer', 'cancel']);
+    expect(out[0]?.note).toContain('"continue"');
+    expect(out[0]?.note).toContain('"retry fixer"');
+  });
+});
+
+describe('a task already cancelling is not offered cancel again (#265)', () => {
+  const cancelling = {
+    cancellation: { requested_at: 1, late: false },
+  } as unknown as Partial<TaskState>;
+
+  it('a running task waits for the cancel instead', () => {
+    const out = allowedActions(
+      { ...state('merge'), status: 'RUNNING', wait: null, ...cancelling },
+      { recheckable: false },
+    );
+    expect(out.map((a) => a.action)).toEqual(['wait']);
+    expect(out[0]?.note).toMatch(/cancel requested/i);
+  });
+
+  it('a waiting task keeps its other ways out, without plain cancel', () => {
+    for (const code of DETAIL_CODES) {
+      const out = allowedActions(state(code, cancelling), { recheckable: true });
+      expect(out.some((a) => a.action === 'cancel' && !a.command?.includes('--force'))).toBe(false);
+    }
+  });
+});
+
+describe('cancel says which dependents it ends (#265, #249)', () => {
+  const note = (dependents: number) =>
+    allowedActions(state('merge'), { recheckable: false, dependents }).find(
+      (a) => a.action === 'cancel',
+    )?.note;
+
+  it('cancel --force of cancel_reconcile warns the same way', () => {
+    const force = allowedActions(state('cancel_reconcile'), {
+      recheckable: true,
+      dependents: 2,
+    }).find((a) => a.command?.includes('--force') === true);
+    expect(force?.note).toContain('also cancels 2 dependent tasks');
+  });
+
+  it('names the count only when there are some', () => {
+    expect(note(0)).not.toMatch(/dependent/);
+    expect(note(1)).toContain('also cancels 1 dependent task listed under dependents');
+    expect(note(3)).toContain('also cancels 3 dependent tasks');
+  });
+});
+
+describe('commands are copyable and say who may run them (#265, #258)', () => {
+  it.each(DETAIL_CODES)('%s: no <...> or [...] in a command, and requires matches it', (code) => {
+    const all = [
+      ...allowedActions(state(code), { recheckable: true }),
+      ...allowedActions(state(code, { policy_ref: { revision: 1, hash: 'h', version: 1 } }), {
+        recheckable: true,
+      }),
+    ];
+    for (const a of all) {
+      expect(a.command ?? '').not.toMatch(/[<>[\]]/);
+      expect(a.requires === null).toBe(a.command === null);
+    }
+  });
+
+  it('pause needs no reason', () => {
+    const started = { policy_ref: { revision: 1, hash: 'h', version: 1 } } as Partial<TaskState>;
+    const pause = allowedActions(state('merge', started), { recheckable: false }).find(
+      (a) => a.action === 'pause',
+    );
+    expect(pause?.command).toBe(`cusr task pause ${ID} --expected-version 9`);
+  });
+
+  it('escalation without a recorded request reads step and rung from the wait, else no command', () => {
+    const wait = (detail: Record<string, unknown>) =>
+      ({
+        wait: {
+          reason: 'approval',
+          detail: { code: 'escalation', ...detail },
+          resume_when: [],
+          exit_paths: [],
+          resume: { kind: 'none' },
+        },
+      }) as unknown as Partial<TaskState>;
+    const approve = (o: Partial<TaskState>) =>
+      allowedActions(state('escalation', o), { recheckable: false })[0];
+    expect(approve(wait({ step: 'code', rung: 1 }))?.command).toContain('--step code --rung 1');
+    expect(approve(wait({}))).toMatchObject({ command: null, requires: null });
+    expect(JSON.stringify(approve(wait({})))).not.toMatch(/STEP|--rung N/);
   });
 });

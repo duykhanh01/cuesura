@@ -7,10 +7,14 @@
  * Each task is checked on its own backoff (`PENDING_PREFLIGHT_BACKOFF`), kept in memory, so a daemon
  * restart checks once at once. A result equal to the recorded one submits nothing, so a task that stays
  * blocked adds no events; a different result is recorded as `config_checked`, as a recheck would.
+ *
+ * A task PENDING on an adopt approval gets its PR head read on the same backoff instead, so the
+ * approval it suggests can name that head (#265).
  */
 import type { TaskState } from '../domain/state.ts';
 import { needsConfigCheck, type ConfirmDeps } from '../application/confirm.ts';
 import { adoptionInput, checkConfig, submit } from '../application/triage.ts';
+import { awaitingAdoption, observeAdoptHead } from '../application/adopt.ts';
 import { canonicalJson } from '../shared/canonical-json.ts';
 import type { Uuid } from '../shared/brand.ts';
 
@@ -59,7 +63,7 @@ export class PendingPreflight {
     const live = new Set<string>();
     for (const id of store.taskIdsByStatus(['PENDING'])) {
       const s = store.readTask(id as Uuid);
-      if (s === null || !retryablePending(s)) continue;
+      if (s === null || !(retryablePending(s) || awaitingAdoption(s))) continue;
       live.add(id);
       const now = this.#deps.now();
       const b = this.#backoff.get(id);
@@ -80,6 +84,7 @@ export class PendingPreflight {
   }
 
   async #check(s: TaskState): Promise<boolean> {
+    if (awaitingAdoption(s)) return observeAdoptHead(this.#deps, s);
     const check = await checkConfig(this.#deps.ports, {
       task: s.task,
       ...(await this.#deps.configInputs()),

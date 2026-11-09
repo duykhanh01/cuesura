@@ -72,6 +72,8 @@ export interface Store {
   readTask(taskId: Uuid): TaskState | null;
   /** Task IDs in the given statuses, in ID order. */
   taskIdsByStatus(statuses: readonly TaskStatus[]): string[];
+  /** Tasks that name this one in their `depends_on`, in ID order. */
+  readDependents(taskId: string): string[];
   taskPage(
     filter: read.TaskFilter & {
       readonly after?: string;
@@ -180,6 +182,9 @@ export class SqliteStore implements Store {
   }
   taskIdsByStatus(statuses: readonly TaskStatus[]): string[] {
     return read.taskIdsByStatus(this.db, statuses);
+  }
+  readDependents(taskId: string): string[] {
+    return read.readDependents(this.db, taskId);
   }
   taskPage(
     filter: read.TaskFilter & {

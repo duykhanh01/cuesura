@@ -118,6 +118,7 @@ export function explainSummary(data: unknown): unknown {
       .map((p) => compact(pick(p, ['task_id', 'status', 'unverified']))),
     terminal: clip(data['terminal'] ?? null),
     unverified: record(data['completion'])['unverified'] ?? null,
+    dependents: data['dependents'] ?? [],
     merge_cleanup: clip(data['merge_cleanup'] ?? null),
     scope: scopeSummary(data['scope']),
     cancellation: data['cancellation'],

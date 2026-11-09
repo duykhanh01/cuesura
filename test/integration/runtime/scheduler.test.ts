@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { startTask } from '../../../src/application/start.ts';
 import type { StartResult } from '../../../src/application/start.ts';
 import { Scheduler } from '../../../src/daemon/scheduler.ts';
+import type { Caller } from '../../../src/application/authz.ts';
+import { taskExplain } from '../../../src/application/queries.ts';
+import type { RuntimeExplanation } from '../../../src/explain/explain.ts';
 import type { CanonicalTask } from '../../../src/domain/task.ts';
 import type { EpochMs, Uuid } from '../../../src/shared/brand.ts';
 import { injectEvents, openFileStoreForTest, storeDb } from '../../../src/store/testing.ts';
@@ -415,6 +418,37 @@ describe('dependencies are satisfied only by a recorded terminal status (T034, F
       terminal: { reason: `dependency_failed:root=${pre.id} via=${child.id} (CANCELLED)` },
     });
     expect((await scheduler.tick()).dependencies).toEqual([]);
+  });
+
+  it('explain lists the live dependents a cancel ends, and the cancel note counts them (#265)', async () => {
+    const { d, scheduler } = setup();
+    const pre = task(1);
+    d.must(pre.id, { kind: 'create_task', task: pre });
+    const child = task(2, { depends_on: [pre.id] });
+    d.must(child.id, { kind: 'create_task', task: child });
+    const grandchild = task(3, { depends_on: [child.id] });
+    d.must(grandchild.id, { kind: 'create_task', task: grandchild });
+    const OWNER: Caller = { grant: { actor: 'owner', roles: ['read', 'operate', 'admin'] } };
+    const explained = (id: string) => {
+      const r = taskExplain(d.store, OWNER, { kind: 'task_explain', task_id: id }, d.now);
+      if (!r.ok) throw new Error(r.error.code);
+      return r.value as RuntimeExplanation;
+    };
+    const before = explained(pre.id);
+    expect(before.dependents).toEqual([
+      { task_id: child.id, status: 'PENDING', depends_on: pre.id },
+      { task_id: grandchild.id, status: 'PENDING', depends_on: child.id },
+    ]);
+    expect(before.allowed_actions.find((a) => a.action === 'cancel')?.note).toContain(
+      'also cancels 2 dependent tasks',
+    );
+    expect(explained(grandchild.id).dependents).toEqual([]);
+
+    d.must(pre.id, { kind: 'cancel', reason: 'dropped' });
+    await scheduler.tick();
+    await scheduler.tick();
+    expect(d.task(grandchild.id).status).toBe('CANCELLED');
+    expect(explained(pre.id).dependents).toEqual([]);
   });
 
   it('a dependent created after its prerequisite failed is cancelled on the next pass', async () => {

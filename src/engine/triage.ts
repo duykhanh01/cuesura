@@ -45,10 +45,16 @@ export function pendingWait(ctx: Ctx, deps: Record<string, TaskStatus | 'missing
     });
   }
   if (adoptionPending(s)) {
+    // Keep the head the daemon last read, so a retriage does not drop it from the approval.
+    const w = s.wait;
+    const seen =
+      w?.detail.code === 'adopt_approval' && w.detail['pr_ref'] === s.task.pr_ref
+        ? w.detail['head_sha']
+        : undefined;
     return mkWait('confirmation', 'adopt_approval', {
       resume: { kind: 'triage' },
       resume_when: ['approve(adopt)'],
-      detail: { pr_ref: s.task.pr_ref },
+      detail: { pr_ref: s.task.pr_ref, ...(typeof seen === 'string' ? { head_sha: seen } : {}) },
     });
   }
   const status = s.task.depends_on.map((d) => [d, deps[d] ?? 'missing'] as const);
