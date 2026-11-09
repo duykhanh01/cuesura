@@ -64,7 +64,7 @@ const NEEDS_USER: Record<DetailCode, boolean> = {
   agent_blocked: true,
   review_repeated: true,
   fix_no_src_change: true,
-  cancel_reconcile: true,
+  cancel_reconcile: false,
   paused: true,
 };
 
@@ -100,11 +100,23 @@ export function effectUnknownOverdue(
   return due !== null && now >= due;
 }
 
+/**
+ * Cancel reads of the PR the daemon makes before the person is told (#267). It keeps reading after that;
+ * the person only learns that the PR stays unreadable and that `cancel --force` exists.
+ */
+export const CANCEL_READS_BEFORE_ATTENTION = 5;
+
+function cancelReadsStuck(s: Waiting): boolean {
+  const reads = s.wait?.detail.code === 'cancel_reconcile' ? s.wait.detail['cancel_reads'] : null;
+  return typeof reads === 'number' && reads >= CANCEL_READS_BEFORE_ATTENTION;
+}
+
 /** `now` lets a wait that has gone on too long count; without it only the table decides. */
 export function needsUser(s: Waiting, now?: number, statusSince?: StatusSinceOf): boolean {
   if (isTerminal(s.status)) return false;
   if (s.status === 'READY' && !runConfigConfirmed(s)) return true;
   if (s.wait === null) return false;
   if (now !== undefined && effectUnknownOverdue(s, now, statusSince)) return true;
+  if (cancelReadsStuck(s)) return true;
   return NEEDS_USER[s.wait.detail.code];
 }

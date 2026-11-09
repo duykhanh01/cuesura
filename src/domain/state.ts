@@ -650,6 +650,8 @@ export type TaskState = {
       /** Set when the read found the PR on another base than the task's target (#179). */
       target?: { ref: string; merged: boolean };
     };
+    /** How many reads carrying `read_token` were recorded; the daemon backs off and the person is told by it. */
+    reads?: number;
     /** A read of any source showed the PR merged while this cancel was open (or just before it). */
     merge_seen?: string;
     /** See `CancelForced`: the PR read is no longer required. */

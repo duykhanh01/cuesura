@@ -149,6 +149,17 @@ export function forceCancel(ctx: Ctx): void {
   maybeFinishCancel(ctx);
 }
 
+/** A read for the open cancel that gave no observation; counted so the backoff and the person see it. */
+export function onCancelReadFailed(ctx: Ctx, token: string, detail: string): void {
+  const s = ctx.state;
+  if (isTerminal(s.status) || s.cancellation?.read_token !== token || !cancelNeedsPrRead(s)) {
+    ctx.emit('SignalIgnored', { reason: 'stale_cancel_read', trigger_kind: 'cancel_read_failed' });
+    return;
+  }
+  ctx.emit('CancelReadFailed', { detail });
+  maybeFinishCancel(ctx);
+}
+
 /** The evidence ref a read for the task's open cancel must carry; null when no read is asked for. */
 export function cancelReadEvidence(s: TaskState): string | null {
   const t = s.cancellation?.read_token;
@@ -158,11 +169,12 @@ export function cancelReadEvidence(s: TaskState): string | null {
 function waitCancelReconcile(ctx: Ctx): void {
   const s = ctx.state;
   const read = s.cancellation?.pr_read ?? null;
-  // Waiting already: shown again only when a newer cancel read came back, so its outcome is visible.
+  // Waiting already: shown again only when another cancel read came back, so its outcome is visible.
   if (
     s.status === 'WAITING' &&
     s.wait?.detail.code === 'cancel_reconcile' &&
-    canonicalJson(s.wait.detail['last_cancel_read'] ?? null) === canonicalJson(read)
+    canonicalJson(s.wait.detail['last_cancel_read'] ?? null) === canonicalJson(read) &&
+    s.wait.detail['cancel_reads'] === (s.cancellation?.reads ?? 0)
   )
     return;
   ctx.emit('TaskWaiting', {
@@ -174,6 +186,7 @@ function waitCancelReconcile(ctx: Ctx): void {
         head_sha: s.head_sha,
         requested_at: s.cancellation?.requested_at ?? null,
         last_cancel_read: read,
+        cancel_reads: s.cancellation?.reads ?? 0,
       },
     }),
   });

@@ -7,14 +7,16 @@
  * CANCELLED, a merge with its proof ends DONE through the drain with the cancel recorded as late, and an
  * unreadable PR keeps the task waiting for reconciliation.
  *
- * The cancel fact is accepted under the request's dedup key, so a repeated request replays its first
- * result without reading again; a later `recheck` reads the PR if this read failed.
+ * The cancel fact is accepted under the request's dedup key. The read is made whenever the cancel still
+ * needs one, so the same request sent again after a crash mid-read reads the PR then; a request whose
+ * cancel already ended reads nothing. A read that failed is made again by the daemon (#267).
  *
  * `force` (#179) is tried only after that read, so a PR the read can see still decides: it ends a cancel
  * the read left waiting, also one requested earlier, unless a merge was seen.
  */
 import { isTerminal, type TaskState } from '../domain/state.ts';
 import { MAX_ENVELOPE_IDS, type Trigger } from '../domain/trigger.ts';
+import { cancelReadRef } from '../domain/runtime.ts';
 import { cancelReadEvidence } from '../engine/cancel.ts';
 import type { Uuid } from '../shared/brand.ts';
 import { err, ok, type Result } from '../shared/result.ts';
@@ -45,6 +47,60 @@ export type PrRead = {
   }[];
 };
 
+/**
+ * Dedup prefix for the facts of this request's read. A request run again after its first read committed
+ * facts reads anew, so its facts get keys of their own instead of conflicting with the first ones.
+ */
+export function factKeyPrefix(
+  store: Store,
+  requestId: string,
+  newId: (() => string) | undefined,
+): string {
+  const first = `cmd:${requestId}`;
+  const used =
+    store.triggerTime(`${first}:fact:0`) !== null ||
+    store.triggerTime(`${first}:read_failed`) !== null;
+  return !used || newId === undefined ? first : `${first}:${newId()}`;
+}
+
+/**
+ * Records a read made for the task's cancel under `ref` that gave no observation carrying that ref (e.g.
+ * no PR subject known yet). Without it such a read leaves no trace: the daemon's backoff would not grow
+ * and the person would never be told (#267). Null when the read was observed or no cancel waits for it.
+ */
+export function recordCancelReadFailure(
+  store: Store,
+  o: {
+    readonly task_id: string;
+    readonly ref: string;
+    readonly facts: readonly Trigger[];
+    readonly failure: string | null;
+    readonly dedup_key: string;
+    readonly now: number;
+    readonly ids: readonly string[];
+  },
+): ReturnType<typeof submit> | null {
+  const observed = o.facts.some(
+    (f) => f.kind === 'observation_result' && f.observation.raw_evidence_ref === o.ref,
+  );
+  const cur = store.readTask(o.task_id as Uuid);
+  const token = cur?.cancellation?.read_token;
+  if (observed || cur === null || token === undefined || cancelReadRef(token) !== o.ref)
+    return null;
+  return submit(store, {
+    task_id: o.task_id,
+    dedup_key: o.dedup_key,
+    trigger: {
+      kind: 'cancel_read_failed',
+      read_token: token,
+      detail: (o.failure ?? 'no observation').slice(0, 2048),
+    },
+    now: o.now,
+    ids: o.ids,
+    expected_version: cur.version,
+  });
+}
+
 export async function cancelTask(
   deps: CancelDeps,
   admitted: Admitted,
@@ -74,13 +130,14 @@ export async function cancelTask(
   let pr: PrRead | null = null;
   const now = read();
   const ref = now === null ? null : cancelReadEvidence(now);
-  if (!r.value.duplicate && ref !== null && deps.observe !== undefined) {
+  if (ref !== null && deps.observe !== undefined) {
     const o = await deps.observe(id, ref);
+    const prefix = factKeyPrefix(deps.store, admitted.record.request_id, deps.newId);
     const facts = o.facts.map((fact: Trigger, i) => {
       const cur = read();
       const out = submit(deps.store, {
         task_id: id,
-        dedup_key: `cmd:${admitted.record.request_id}:fact:${i}`,
+        dedup_key: `${prefix}:fact:${i}`,
         trigger: fact,
         now: deps.now(),
         ids: Array.from({ length: MAX_ENVELOPE_IDS }, () => (deps.newId as () => string)()),
@@ -91,6 +148,20 @@ export async function cancelTask(
         accepted: out.ok && out.value.decision.kind === 'accepted',
       };
     });
+    const failed = recordCancelReadFailure(deps.store, {
+      task_id: id,
+      ref,
+      facts: o.facts,
+      failure: o.failure,
+      dedup_key: `${prefix}:read_failed`,
+      now: deps.now(),
+      ids: deps.newId === undefined ? [] : Array.from({ length: MAX_ENVELOPE_IDS }, deps.newId),
+    });
+    if (failed !== null)
+      facts.push({
+        kind: 'cancel_read_failed',
+        accepted: failed.ok && failed.value.decision.kind === 'accepted',
+      });
     pr = { performed: true, unavailable: o.failure, facts };
   }
 

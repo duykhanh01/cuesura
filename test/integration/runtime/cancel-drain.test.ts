@@ -25,6 +25,8 @@ import {
   writeOperationMark,
 } from '../../../src/runner/process-tag.ts';
 import { Dispatcher } from '../../../src/daemon/dispatch.ts';
+import { ObservationCoordinator, observationRound } from '../../../src/daemon/observation.ts';
+import { CANCEL_READS_BEFORE_ATTENTION, needsUser } from '../../../src/explain/needs-user.ts';
 import { isUnresolved } from '../../../src/engine/runtime.ts';
 import { reconcileOperations } from '../../../src/daemon/reconcile.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
@@ -1610,6 +1612,94 @@ describe('cancel while a publish is unknown (US5.4, FR-025.03/05)', () => {
     });
     expect(d.store.pendingEffects(100).filter((e) => e.kind !== 'reconcile')).toEqual([]);
   });
+
+  it('#267: a cancel read that yields no observation at all still counts: the backoff grows and the person is told', async () => {
+    const d = new StoreDriver(openFileStoreForTest(dbPath(tempDir())));
+    const t = buildTask();
+    const head = 'a'.repeat(40);
+    createGrantStart(d, t, 'direct-pr');
+    toPublish(d, t, head);
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(head));
+    const pr = d.pendingOne(t.id, 'create_pr');
+    d.complete(t.id, pr.id, 'unknown');
+    d.must(t.id, { kind: 'cancel', reason: 'stop' });
+    d.claim(d.pendingOne(t.id, 'reconcile').id);
+    d.must(t.id, {
+      kind: 'effect_reconciled',
+      effect_id: pr.id as Uuid,
+      finding: 'executed_succeeded',
+      data: { pr_ref: 'acme#7', head_sha: head },
+    });
+    // No observation subject yet: an unreadable PR gives no fact, only a failure.
+    expect(d.task(t.id).observation).toBeNull();
+    let reads = 0;
+    let n = 97_500;
+    const at = new Map<string, number>();
+    const round = () =>
+      observationRound({
+        store: d.store,
+        clock: { now: () => d.now as EpochMs, monotonic: () => d.now },
+        coordinator: new ObservationCoordinator(() => {
+          reads++;
+          return Promise.resolve({ facts: [], failure: 'observation unknown: GitHub unreachable' });
+        }),
+        newId: () => uuidOf(n++),
+        cancelReadAt: at,
+      });
+    await round();
+    expect(d.task(t.id).cancellation?.reads).toBe(1);
+    // The next read waits longer than the first delay.
+    d.now += 6_000;
+    await round();
+    expect(reads).toBe(1);
+    for (let i = 1; i < CANCEL_READS_BEFORE_ATTENTION; i++) {
+      d.now += 10 * 60_000;
+      await round();
+    }
+    expect(reads).toBe(CANCEL_READS_BEFORE_ATTENTION);
+    const s = d.task(t.id);
+    expect(s.wait?.detail).toMatchObject({
+      code: 'cancel_reconcile',
+      cancel_reads: CANCEL_READS_BEFORE_ATTENTION,
+    });
+    expect(needsUser(s)).toBe(true);
+  });
+
+  it('#267: the daemon reads the PR found after the cancel by itself and ends the cancel', async () => {
+    const d = new StoreDriver(openFileStoreForTest(dbPath(tempDir())));
+    const t = buildTask();
+    const head = 'a'.repeat(40);
+    createGrantStart(d, t, 'direct-pr');
+    toPublish(d, t, head);
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(head));
+    const pr = d.pendingOne(t.id, 'create_pr');
+    d.complete(t.id, pr.id, 'unknown');
+    d.must(t.id, { kind: 'cancel', reason: 'stop' });
+    d.claim(d.pendingOne(t.id, 'reconcile').id);
+    d.must(t.id, {
+      kind: 'effect_reconciled',
+      effect_id: pr.id as Uuid,
+      finding: 'executed_succeeded',
+      data: { pr_ref: 'acme#7', head_sha: head },
+    });
+    expect(d.task(t.id).wait?.detail.code).toBe('cancel_reconcile');
+    const refs: string[] = [];
+    let n = 97_000;
+    await observationRound({
+      store: d.store,
+      clock: { now: () => d.now as EpochMs, monotonic: () => d.now },
+      coordinator: new ObservationCoordinator((_id, ref, source) => {
+        refs.push(`${source}:${ref}`);
+        return Promise.resolve({
+          facts: [observation(d, t, 'open', head, { source, ref })],
+          failure: null,
+        });
+      }),
+      newId: () => uuidOf(n++),
+    });
+    expect(refs).toEqual([expect.stringMatching(/^cancel:cancel:/)]);
+    expect(d.task(t.id).status).toBe('CANCELLED');
+  });
 });
 
 describe('the cancel service reads the PR before it ends (US5.4/US5.6, FR-025.03/04/05, FR-040.15)', () => {
@@ -1805,6 +1895,191 @@ describe('the cancel service reads the PR before it ends (US5.4/US5.6, FR-025.03
     expect(f.d.task(f.task.id).observation?.expired).toBe(true);
     const r = await f.cancel();
     expect(r).toMatchObject({ ok: true, value: { status: 'CANCELLED' } });
+  });
+
+  /** The daemon's observation round on the real handlers, `github` standing in for GitHub when given. */
+  function daemonRound(
+    f: Awaited<ReturnType<typeof green>>,
+    cancelReadAt: Map<string, number>,
+    github?: () => GitHubPort,
+  ) {
+    const deps = github === undefined ? f.deps : { ...f.deps, github };
+    return observationRound({
+      store: f.d.store,
+      clock: { now: () => f.d.now as EpochMs, monotonic: () => f.d.now },
+      coordinator: new ObservationCoordinator((id, ref, source) =>
+        observeTaskPr(deps, id, ref, source),
+      ),
+      newId: f.newId,
+      cancelReadAt,
+    });
+  }
+
+  it('#267: a cancel that arrives while another read of the PR is running still ends CANCELLED', async () => {
+    const f = await green();
+    let release = (): void => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    const refs: string[] = [];
+    const coordinator = new ObservationCoordinator(async (id, ref, source) => {
+      refs.push(ref);
+      if (refs.length === 1) await gate;
+      return observeTaskPr(f.deps, id, ref, source);
+    });
+    const timer = coordinator.observe(f.task.id, `observe:${f.task.id}:g1`, 'timer');
+    const cancelling = cancelTask(
+      {
+        store: f.d.store,
+        now: () => f.d.now,
+        newId: f.newId,
+        observe: (id, ref) => coordinator.observe(id, ref, 'recheck'),
+      },
+      admitted(),
+      cancelInput(f.d, f.task),
+      OWNER,
+    );
+    release();
+    await timer;
+    expect(await cancelling).toMatchObject({ ok: true, value: { status: 'CANCELLED' } });
+    expect(refs).toHaveLength(2);
+    expect(refs[1]).toMatch(/^cancel:/);
+  });
+
+  it('#267: a cancel read that failed is made again by the daemon with a backoff, and the person is told only after repeated failures', async () => {
+    const f = await green();
+    await f.cancel({ github: down });
+    const waiting = () => f.d.task(f.task.id);
+    expect(waiting().wait?.detail.code).toBe('cancel_reconcile');
+    expect(needsUser(waiting())).toBe(false);
+    const at = new Map<string, number>();
+    const first = await daemonRound(f, at, () => down);
+    expect(first).toMatchObject([{ task_id: f.task.id, kind: 'cancel' }]);
+    // Within the backoff nothing is read again.
+    expect(await daemonRound(f, at, () => down)).toEqual([]);
+    for (let i = 2; i < CANCEL_READS_BEFORE_ATTENTION; i++) {
+      f.d.now += 10 * 60_000;
+      await daemonRound(f, at, () => down);
+    }
+    expect(waiting().wait?.detail['cancel_reads']).toBe(CANCEL_READS_BEFORE_ATTENTION);
+    expect(needsUser(waiting())).toBe(true);
+    // GitHub answers again: the next round ends the cancel without any recheck.
+    f.d.now += 10 * 60_000;
+    await daemonRound(f, at);
+    expect(waiting().status).toBe('CANCELLED');
+    expect(types(f.d, f.task)).not.toContain('CancelForced');
+  });
+
+  it('#267: after a restart the daemon reads the PR for a cancel left waiting, at once', async () => {
+    const f = await green();
+    await f.cancel({ github: down });
+    expect(f.d.task(f.task.id).wait?.detail.code).toBe('cancel_reconcile');
+    await daemonRound(f, new Map());
+    expect(f.d.task(f.task.id).status).toBe('CANCELLED');
+  });
+
+  it('#267: the same cancel request run again after a crash mid-read reads the PR and ends the cancel', async () => {
+    const f = await green();
+    const a = admitted();
+    const input = cancelInput(f.d, f.task);
+    const crashed = cancelTask(
+      {
+        store: f.d.store,
+        now: () => f.d.now,
+        newId: f.newId,
+        observe: () => Promise.reject(new Error('daemon died')),
+      },
+      a,
+      input,
+      OWNER,
+    );
+    await expect(crashed).rejects.toThrow('daemon died');
+    expect(f.d.task(f.task.id).cancellation).not.toBeNull();
+    const again = await cancelTask(
+      { store: f.d.store, now: () => f.d.now, newId: f.newId, observe: f.observeWith(f.deps) },
+      a,
+      input,
+      OWNER,
+    );
+    expect(again).toMatchObject({
+      ok: true,
+      value: { status: 'CANCELLED', pr_read: { performed: true, unavailable: null } },
+    });
+    expect(types(f.d, f.task).filter((x) => x === 'CancelRequested')).toHaveLength(1);
+  });
+
+  it('#267: the same recheck request run again after a crash mid-read does the read', async () => {
+    const f = await green();
+    await f.cancel({ github: down });
+    const recheck = (observe: (id: string, ref: string) => Promise<unknown>) =>
+      recheckTask(
+        {
+          store: f.d.store,
+          now: () => f.d.now,
+          newId: f.newId,
+          observe,
+          drain: () => Promise.resolve(null),
+        } as unknown as Parameters<typeof recheckTask>[0],
+        OWNER,
+        {
+          request_id: uuidOf(96_501),
+          project: f.task.project,
+          task_id: f.task.id,
+          expected_version: version,
+          assigned_ids: Array.from({ length: 8 }, (_, i) => uuidOf(96_600 + i)),
+        },
+      );
+    const version = f.d.task(f.task.id).version;
+    await expect(recheck(() => Promise.reject(new Error('daemon died')))).rejects.toThrow();
+    const again = await recheck((id, ref) => observeTaskPr(f.deps, id, ref, 'recheck'));
+    expect(again).toMatchObject({ ok: true, value: { performed: true, status: 'CANCELLED' } });
+    // Once its read is recorded, the same request does nothing more.
+    const calls = f.github.calls.length;
+    expect(await recheck((id, ref) => observeTaskPr(f.deps, id, ref, 'recheck'))).toMatchObject({
+      ok: true,
+      value: { performed: false },
+    });
+    expect(f.github.calls.length).toBe(calls);
+  });
+
+  it("#267: a read by task cancel or task recheck that gives no observation is counted like the daemon's", async () => {
+    const f = await green();
+    const blind = () => Promise.resolve({ facts: [], failure: 'observation unknown: no subject' });
+    const r = await cancelTask(
+      { store: f.d.store, now: () => f.d.now, newId: f.newId, observe: blind },
+      admitted(),
+      cancelInput(f.d, f.task),
+      OWNER,
+    );
+    expect(r).toMatchObject({
+      ok: true,
+      value: { pr_read: { facts: [{ kind: 'cancel_read_failed', accepted: true }] } },
+    });
+    expect(f.d.task(f.task.id).cancellation?.reads).toBe(1);
+    const rc = await recheckTask(
+      {
+        store: f.d.store,
+        now: () => f.d.now,
+        newId: f.newId,
+        observe: blind,
+        drain: () => Promise.resolve(null),
+      } as unknown as Parameters<typeof recheckTask>[0],
+      OWNER,
+      {
+        request_id: uuidOf(96_701),
+        project: f.task.project,
+        task_id: f.task.id,
+        expected_version: f.d.task(f.task.id).version,
+        assigned_ids: Array.from({ length: 8 }, (_, i) => uuidOf(96_800 + i)),
+      },
+    );
+    expect(rc).toMatchObject({
+      ok: true,
+      value: { performed: true, facts: [{ kind: 'cancel_read_failed', accepted: true }] },
+    });
+    expect(f.d.task(f.task.id)).toMatchObject({
+      status: 'WAITING',
+      cancellation: { reads: 2 },
+      wait: { detail: { code: 'cancel_reconcile', cancel_reads: 2 } },
+    });
   });
 
   it('the same cancel request replays without reading the PR again', async () => {

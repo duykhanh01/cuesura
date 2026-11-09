@@ -287,6 +287,14 @@ có thì chặn binding cần khả năng đó. Mỗi lần attempt kiểm lại
 
 Issue #142. `task pause` khác `task cancel`: task không kết thúc và không mất gì.
 
+Task có PR chỉ CANCELLED sau một lần đọc PR mang token của cancel (FR-025.03). `task cancel` đọc ngay khi cancel còn cần
+lần đọc đó, kể cả khi cùng request ID được gửi lại sau crash; lượt đọc khác đang chạy cho task (vòng quan sát, recheck)
+không thay được lượt này, cancel chờ nó xong rồi đọc bằng token của mình. Lần đọc lỗi tạm, hoặc PR chỉ được tìm thấy sau
+lệnh cancel, thì daemon tự đọc lại trong vòng quan sát với backoff (5 giây, nhân đôi, tối đa 5 phút), không cần `recheck`
+(#267). Lượt đọc không sinh được observation (vd chưa biết subject của PR) vẫn được ghi bằng fact
+`cancel_read_failed` (event `CancelReadFailed`), nên vẫn được đếm. Wait `cancel_reconcile` có `detail.cancel_reads` là số lần đọc đã ghi; `needs_user` chỉ bật khi đã đọc từ 5 lần
+mà vẫn chưa kết thúc được cancel.
+
 `task cancel --force` (#179) là lối thoát cho cancel kẹt ở `cancel_reconcile` vì lần đọc PR không cho `open`
 hoặc `closed`. Lệnh vẫn ghi cancel (hoặc giữ cancel đã có) và đọc PR một lần như thường; lần đọc kết thúc được
 cancel thì `--force` không làm gì (`force_ignored: "nothing_to_force"`). Còn chờ thì ghi `CancelForced`, task kết

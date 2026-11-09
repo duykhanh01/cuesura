@@ -139,8 +139,8 @@ const WAITS: Readonly<Record<DetailCode, WaitWords>> = {
     todo: 'Recheck once GitHub shows the merge',
   },
   cancel_reconcile: {
-    doing: 'Cancelling: checking the PR first',
-    todo: 'Recheck the PR, or cancel --force',
+    doing: 'Cancelling: reading the PR first',
+    todo: 'If the PR read keeps failing: recheck, or cancel --force',
   },
   paused: { doing: 'Paused', todo: 'Resume the task when ready' },
 };

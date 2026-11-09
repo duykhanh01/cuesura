@@ -328,8 +328,13 @@ describe('daemon control socket (T026)', () => {
       body: cancel(),
     });
     expect(failed.ok && failed.value.status).toBe(500);
+    // The reply names the request, so the same ID can finish it (#267).
+    expect(failed.ok && failed.value.envelope.error).toMatchObject({
+      code: 'internal',
+      request_id: cancel().request_id,
+    });
     const logged = lines.join('\n');
-    expect(logged).toContain('control request failed');
+    expect(logged).toContain(`command task_cancel ${String(cancel().request_id)} failed`);
     expect(logged).not.toContain(`ghp_${'a'.repeat(36)}`);
 
     started.value.dispatcher.block('projection mismatch (1)');

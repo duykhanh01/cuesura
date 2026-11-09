@@ -622,6 +622,9 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
     case 'CancelForced':
       if (s.cancellation) s.cancellation.forced = { by: event.payload.by, at: event.payload.at };
       break;
+    case 'CancelReadFailed':
+      if (s.cancellation) s.cancellation.reads = (s.cancellation.reads ?? 0) + 1;
+      break;
     case 'CancelRecordedLate':
       if (s.cancellation) s.cancellation.late = true;
       break;
@@ -787,12 +790,14 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
       // it; only the merge proof (DONE through the drain) does (FR-025.03/04, FR-040.12).
       if (c?.read_token !== undefined) {
         if (read.status === 'merged') c.merge_seen = read.observation_id;
-        if (read.raw_evidence_ref === cancelReadRef(c.read_token))
+        if (read.raw_evidence_ref === cancelReadRef(c.read_token)) {
+          c.reads = (c.reads ?? 0) + 1;
           c.pr_read = {
             observation_id: read.observation_id,
             status: read.status,
             ...(event.payload.target === undefined ? {} : { target: event.payload.target }),
           };
+        }
       }
       const o = s.observation;
       if (o) {

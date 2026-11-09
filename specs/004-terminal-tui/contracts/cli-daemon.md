@@ -201,8 +201,10 @@ Vào: `{ kind, request_id }`, `request_id` phải là UUID. Ra:
 - `state`: `completed`, `in_progress`, `interrupted`.
 - `task_id` chỉ khác `null` khi task có thật. ID cấp sẵn của `task_add` chưa tạo task không được trả (FR-042).
 - `outcome` chỉ có ở `completed`, gồm cả từ chối; khi đó exit vẫn là 0 vì query đã được xử lý.
-- `next_step` với `interrupted` nêu việc cần làm: có task thì đọc lại task trước khi gửi request mới; không có task thì `task_add` chưa tạo
-  task và có thể tạo lại bằng request mới.
+- `next_step` với `interrupted` nêu nguyên nhân và việc cần làm: gửi lại đúng lệnh với cùng `--request-id` để handler chạy nốt trên
+  những gì lần đầu đã ghi (#267); có task thì đọc task trước. Nguyên nhân là daemon dừng giữa chừng, hoặc handler ném lỗi trong lúc
+  daemon vẫn chạy (lệnh khi đó nhận `internal` có `request_id`, ledger giữ hàng `admitted`). Daemon chỉ nhớ lỗi handler đến khi
+  khởi động lại; sau đó `next_step` nói daemon đã dừng.
 - Không có hàng, actor khác, project ngoài phạm vi, hoặc hàng không xác định được project với token `limited`: lỗi `request_not_found`, exit
   4, cùng message và details (FR-043). Thêm mã này vào danh sách `MISSING` của `errors.ts`.
 - Query không chạy handler, không gọi `admitCommand`, không gửi lại kết quả qua đường command.

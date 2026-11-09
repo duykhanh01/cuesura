@@ -296,6 +296,8 @@ export type EventPayloads = {
   };
   /** The person ended the cancel without a PR read showing it open or closed (#179). */
   CancelForced: { by: string; at: number };
+  /** A read for the cancel gave nothing to record; it counts as a cancel read all the same (#267). */
+  CancelReadFailed: { detail: string };
   CancelRecordedLate: { merge_effect_id: string | null };
 
   TaskCompleted: { reason: string };
@@ -564,6 +566,7 @@ export const EVENT_TYPES = [
   'RevisionApplied',
   'CancelRequested',
   'CancelForced',
+  'CancelReadFailed',
   'CancelRecordedLate',
   'TaskCompleted',
   'TaskFailed',

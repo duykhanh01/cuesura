@@ -292,6 +292,7 @@ export async function productionControl(opts: {
       ),
     );
     const observe = (taskId: string, ref: string) => coordinator.observe(taskId, ref, 'recheck');
+    const cancelReadAt = new Map<string, number>();
     /** The user config as it is now; a config that cannot be read turns `what` off. */
     const currentConfig = async (what: string) => {
       try {
@@ -526,6 +527,7 @@ export async function productionControl(opts: {
             clock: opts.clock,
             coordinator,
             newId: opts.newId,
+            cancelReadAt,
             afterRead: async (taskId) => {
               await advanceTaskPr(yolo, taskId).catch((e: unknown) => {
                 opts.log?.(`PR maintenance ${taskId}: ${String(e)}`);

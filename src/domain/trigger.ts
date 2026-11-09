@@ -597,6 +597,14 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
     .strict(),
   z
     .object({
+      /** A read for the cancel with `read_token` that gave no observation to record (#267). */
+      kind: z.literal('cancel_read_failed'),
+      read_token: z.string().min(1),
+      detail: z.string().max(2048),
+    })
+    .strict(),
+  z
+    .object({
       kind: z.literal('cancel'),
       reason: z.string(),
       /** Ends a cancel whose PR read did not settle it, without that read (#179). */

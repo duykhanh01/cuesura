@@ -561,7 +561,7 @@ Nhóm chỉ DONE khi kết quả tích hợp được merge vào branch đích c
 }
 ```
 
-Lỗi có `ok: false`, `data: null` và `error` gồm code ổn định, message, details. Request mutation có `request_id`; gửi lại cùng ID và cùng payload trả kết quả cũ, ID trùng với payload khác là conflict. Socket timeout sau gửi không chứng minh lệnh thất bại; client tra hoặc gửi lại cùng ID.
+Lỗi có `ok: false`, `data: null` và `error` gồm code ổn định, message, details. Request mutation có `request_id`; gửi lại cùng ID và cùng payload trả kết quả cũ, ID trùng với payload khác là conflict. Socket timeout sau gửi không chứng minh lệnh thất bại; client tra hoặc gửi lại cùng ID. Request chưa xong vì daemon dừng hoặc handler lỗi (`internal`, vẫn có `request_id`) chạy lại an toàn khi gửi lại đúng lệnh với cùng ID; gửi lại trong lúc bản đầu còn chạy thì nhận chung kết quả với `replayed: true`.
 
 | Exit code | Ý nghĩa |
 |---|---|

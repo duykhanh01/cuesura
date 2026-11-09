@@ -56,8 +56,12 @@ export async function call(
         ...(timeoutMs === undefined ? {} : { timeoutMs }),
       })
     : actor;
-  if (reply.ok) return reply.value.envelope;
-  return clientErrorEnvelope(dataDir, reply.error, requestId);
+  if (!reply.ok) return clientErrorEnvelope(dataDir, reply.error, requestId);
+  const env = reply.value.envelope;
+  // An error raised before the daemon read the request still belongs to the ID this mutation sent.
+  if (!env.ok && env.error.request_id === null && requestId !== null)
+    return { ...env, error: { ...env.error, request_id: requestId } };
+  return env;
 }
 
 export function print(

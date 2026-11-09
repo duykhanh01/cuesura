@@ -1980,7 +1980,7 @@ async function createPr(deps: HandlerDeps, effect: Effect): Promise<EffectOutcom
     draft: effect.request['draft'] === true,
   });
   if (r.kind === 'created' || r.kind === 'recovered')
-    return prOutcome(l, content, effect.idem_key, r.pr, r.body_digest);
+    return prOutcome(l, content, r.operation_key ?? effect.idem_key, r.pr, r.body_digest);
   if (r.kind === 'unknown') return unknown(r.detail);
   // Someone else's PR or a forged or edited marker/body: a person reconciles.
   if (r.kind === 'conflict') return failed('auth_config', `pull request conflict: ${r.reason}`);
@@ -2671,7 +2671,9 @@ async function probeCreatePr(deps: HandlerDeps, target: Effect): Promise<Probe> 
   const r = await probePr(deps.github(), prSpecOf(l, l.s.head_sha, content, target.idem_key));
   switch (r.kind) {
     case 'recovered':
-      return fromOutcome(prOutcome(l, content, target.idem_key, r.pr, r.body_digest));
+      return fromOutcome(
+        prOutcome(l, content, r.operation_key ?? target.idem_key, r.pr, r.body_digest),
+      );
     case 'absent':
       return {
         finding: 'not_executed',

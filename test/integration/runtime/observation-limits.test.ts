@@ -178,21 +178,28 @@ describe('observation service (T061)', () => {
     expect(d.task(t.id).completion).not.toBeNull();
   });
 
-  it('coalesces reads of the same task: a recheck during a timer round shares the one read', async () => {
+  it('coalesces reads of the same task under the same ref; another ref reads after it under its own (#267)', async () => {
     let release: () => void = () => {};
     const gate = new Promise<void>((r) => (release = r));
-    let calls = 0;
-    const coordinator = new ObservationCoordinator(async () => {
-      calls++;
+    const refs: string[] = [];
+    let active = 0;
+    let most = 0;
+    const coordinator = new ObservationCoordinator(async (_id, ref) => {
+      refs.push(ref);
+      most = Math.max(most, ++active);
       await gate;
+      active--;
       return { facts: [], failure: null };
     });
     const a = coordinator.observe('t1', 'timer-round', 'timer');
-    const b = coordinator.observe('t1', 'recheck', 'recheck');
+    const b = coordinator.observe('t1', 'timer-round', 'timer');
+    const c = coordinator.observe('t1', 'cancel:x', 'recheck');
     expect(coordinator.busy('t1')).toBe(true);
     release();
     expect(await a).toBe(await b);
-    expect(calls).toBe(1);
+    await c;
+    expect(refs).toEqual(['timer-round', 'cancel:x']);
+    expect(most).toBe(1);
     expect(coordinator.busy('t1')).toBe(false);
   });
 

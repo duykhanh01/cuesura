@@ -5,7 +5,11 @@ import {
   type DetailCode,
   type TaskState,
 } from '../../../src/domain/state.ts';
-import { EFFECT_UNKNOWN_ATTENTION_MS, needsUser } from '../../../src/explain/needs-user.ts';
+import {
+  CANCEL_READS_BEFORE_ATTENTION,
+  EFFECT_UNKNOWN_ATTENTION_MS,
+  needsUser,
+} from '../../../src/explain/needs-user.ts';
 
 type Input = Parameters<typeof needsUser>[0];
 
@@ -48,6 +52,7 @@ const WITHIN_LIMITS: readonly DetailCode[] = [
   'effect_unknown',
   'observation_unknown',
   'merge_cleanup_pending',
+  'cancel_reconcile',
 ];
 
 describe('needsUser (FR-007)', () => {
@@ -84,6 +89,15 @@ describe('needsUser (FR-007)', () => {
 
   it.each(DETAIL_CODES.filter((c) => !WITHIN_LIMITS.includes(c)))('%s needs the user', (code) => {
     expect(needsUser(waiting(code))).toBe(true);
+  });
+
+  it('#267: cancel_reconcile needs the user only after the daemon read the PR for it repeatedly', () => {
+    const reads = (n: number): Input => {
+      const w = waiting('cancel_reconcile');
+      return { ...w, wait: { ...w.wait!, detail: { code: 'cancel_reconcile', cancel_reads: n } } };
+    };
+    expect(needsUser(reads(CANCEL_READS_BEFORE_ATTENTION - 1))).toBe(false);
+    expect(needsUser(reads(CANCEL_READS_BEFORE_ATTENTION))).toBe(true);
   });
 
   it('READY waiting for the slot follows the unconfirmed rule first', () => {

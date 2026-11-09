@@ -53,6 +53,8 @@ export type PrOutcome =
       readonly kind: 'created' | 'recovered';
       readonly pr: PrFact;
       readonly body_digest: string;
+      /** Set when the PR carries the marker of an earlier create of the same task revision (#267). */
+      readonly operation_key?: string;
     }
   /** The worker's title/body carry a control marker: nothing was sent. */
   | { readonly kind: 'content_rejected'; readonly field: 'title' | 'body' }
@@ -194,6 +196,7 @@ export type FoundPr =
       readonly kind: 'recovered';
       readonly pr: PrFact;
       readonly body_digest: string;
+      readonly operation_key?: string;
     }
   /** Open, no marker at all, head at the pushed SHA: a worker opened it; the create takes it over. */
   | { readonly kind: 'unclaimed'; readonly pr: PrFact }
@@ -219,7 +222,11 @@ export async function findTaskPr(port: GitHubPort, s: PrSpec): Promise<FoundPr |
   const f = fact(p);
   if (f === null) return { kind: 'unknown', detail: 'probe: unexpected PR shape' };
   const body = typeof obj(p)['body'] === 'string' ? (obj(p)['body'] as string) : '';
-  const verdict = markerVerdict(body, s);
+  let verdict = markerVerdict(body, s);
+  // A retry of the create runs under a new operation key; the marker of an earlier create of the same
+  // task revision is still this task's own (#267).
+  const earlier = verdict === 'forged' ? earlierOperation(body, s) : null;
+  if (earlier !== null) verdict = markerVerdict(body, { ...s, operation_key: earlier });
   if (verdict === 'none')
     return f.state === 'open' && !f.merged && f.head_sha === s.head_sha
       ? { kind: 'unclaimed', pr: f }
@@ -228,7 +235,20 @@ export async function findTaskPr(port: GitHubPort, s: PrSpec): Promise<FoundPr |
   if (verdict === 'changed') return { kind: 'conflict', reason: 'body_changed', prs: [f.number] };
   if (f.state === 'closed') return { kind: 'closed', pr: f };
   if (f.head_sha !== s.head_sha) return { kind: 'head_changed', pr: f };
-  return { kind: 'recovered', pr: f, body_digest: bodyDigest(body) };
+  return {
+    kind: 'recovered',
+    pr: f,
+    body_digest: bodyDigest(body),
+    ...(earlier === null ? {} : { operation_key: earlier }),
+  };
+}
+
+/** The operation key of a single marker of the same task and revision under another key, else null. */
+function earlierOperation(body: string, s: PrSpec): string | null {
+  if (markerCount(body) !== 1) return null;
+  const m = /<!-- cusr:task=(\S+) revision=(\d+) op=(\S+) -->$/.exec(canon(body));
+  if (m === null || m[1] !== s.task_id || Number(m[2]) !== s.revision) return null;
+  return m[3] === s.operation_key ? null : (m[3] as string);
 }
 
 export async function createOrRecoverPr(port: GitHubPort, s: PrSpec): Promise<PrOutcome> {

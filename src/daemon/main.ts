@@ -223,6 +223,13 @@ function outcomeReply(requestId: string, outcome: CommandOutcome, replayed: bool
   };
 }
 
+/** The reply of a run this request joined: the same outcome, marked as not run for this caller. */
+function replayedReply(reply: Reply): Reply {
+  const data = reply.envelope.data as { replayed?: boolean } | null;
+  if (!reply.envelope.ok || data === null || typeof data !== 'object') return reply;
+  return { ...reply, envelope: { ...reply.envelope, data: { ...data, replayed: true } } };
+}
+
 /** DATA_DIR holds the store and socket: created 0700, refused when group/other can access it. */
 function prepareDataDir(dataDir: string): string | null {
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
@@ -424,12 +431,18 @@ export async function startDaemon(
   });
   const commands = { ...opts.commands, ...extra.commands };
   const inFlight = new Map<string, Promise<Reply>>();
+  // Requests whose handler threw in this process; their ledger row stays admitted so the same ID runs again.
+  const failed = new Set<string>();
   const queries: Readonly<Record<string, QueryHandler>> = {
     ...opts.queries,
     ...extra.queries,
     // Here because only this scope knows which requests are running.
     request_show: (caller, body) => {
-      const r = requestShow({ store, inFlight: (id) => inFlight.has(id) }, caller, body);
+      const r = requestShow(
+        { store, inFlight: (id) => inFlight.has(id), failed: (id) => failed.has(id) },
+        caller,
+        body,
+      );
       return Promise.resolve(
         r.ok
           ? { status: 200, envelope: okEnvelope(r.value) }
@@ -503,11 +516,29 @@ export async function startDaemon(
         return outcomeReply(record.request_id, record.result as CommandOutcome, true);
       // The same request already running in this process: wait for its answer instead of running twice.
       const running = inFlight.get(record.request_id);
-      if (running !== undefined) return running;
+      if (running !== undefined) return running.then(replayedReply);
       // Admission succeeded, so the kind is known and has a handler. An `admitted` record left by a
       // crash runs the same handler again with the IDs assigned the first time.
       const run = (async (): Promise<Reply> => {
-        const r = await (handler as CommandHandler)(admitted.value, input, caller);
+        let r: Awaited<ReturnType<CommandHandler>>;
+        try {
+          r = await (handler as CommandHandler)(admitted.value, input, caller);
+        } catch (e) {
+          // What the handler wrote stays; the same request ID runs it again over that (#267).
+          failed.add(record.request_id);
+          log(
+            `command ${kind} ${record.request_id} failed: ${e instanceof Error ? e.message : String(e)}`,
+          );
+          return errorReply(500, {
+            code: 'internal',
+            message: 'the request failed inside the daemon; the daemon is still running',
+            details: {
+              guidance: `Send the same command again with --request-id ${record.request_id}; it may have taken effect in part.`,
+            },
+            request_id: record.request_id,
+          });
+        }
+        failed.delete(record.request_id);
         // A rejection is a result too: it is stored and replayed, never run again for the same request.
         const outcome: CommandOutcome = r.ok
           ? { ok: true, value: r.value }

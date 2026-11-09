@@ -17,8 +17,9 @@
  *   visits come back and the step runs again (`visits`);
  * - a terminal task → the request is only logged by the engine (FR-046.08).
  *
- * The engine first accepts a `recheck` fact under the request's dedup key, so the same request ID replays
- * the first result without doing the read again, and a different payload is a conflict. The service only
+ * The engine first accepts a `recheck` fact under the request's dedup key, so a different payload under
+ * the same request ID is a conflict. The same request run again (after a crash cut its first run short)
+ * does the check only if the first run recorded nothing of it (#267). The service only
  * enqueues facts; whether work resumes is the scheduler's decision. No agent, merge or new head.
  */
 import type { TaskState, Wait } from '../domain/state.ts';
@@ -33,6 +34,7 @@ import {
   type ConfirmDeps,
 } from './confirm.ts';
 import { cancelReadEvidence } from '../engine/cancel.ts';
+import { recordCancelReadFailure } from './cancel.ts';
 import { exhaustedByInfra } from '../engine/recheck.ts';
 import { submit } from './triage.ts';
 
@@ -76,7 +78,7 @@ export type RecheckResult = {
   readonly status: TaskState['status'];
   readonly wait: Wait | null;
   readonly target: RecheckTarget | 'terminal';
-  /** False when this request ID was already handled: its first result stands and nothing was read again. */
+  /** False when this request ID was already handled and its check recorded: nothing was done again. */
   readonly performed: boolean;
   readonly config_check: ConfigCheckStatus | null;
   /** Facts this check submitted, by kind, and those the engine did not accept (e.g. a stale round). */
@@ -118,6 +120,16 @@ export function recheckTarget(s: TaskState): RecheckTarget | 'terminal' | null {
   if (exhaustedByInfra(s) !== null) return 'visits';
   if (s.pr_ref !== null && s.policy_ref !== null) return 'observation';
   return null;
+}
+
+/** Whether an earlier run of request `requestId` already recorded the outcome of its check. */
+function checkRecorded(deps: RecheckDeps, requestId: string, target: RecheckTarget): boolean {
+  const key = (k: string) => deps.store.triggerTime(`cmd:${requestId}:${k}`) !== null;
+  if (target === 'observation') return key('fact:0') || key('read_failed');
+  if (target === 'config') return key('config');
+  // A drain round has no record of its own and the daemon runs drains by itself; the rest happened in
+  // the accept of the recheck fact.
+  return true;
 }
 
 export async function recheckTask(
@@ -169,7 +181,9 @@ export async function recheckTask(
         ...(d.detail === undefined ? {} : { detail: d.detail }),
       },
     };
-  const performed = !accepted.value.duplicate && target !== 'terminal';
+  const performed =
+    target !== 'terminal' &&
+    (!accepted.value.duplicate || !checkRecorded(deps, cmd.request_id, target));
   const facts: { kind: Trigger['kind']; accepted: boolean; reason?: string }[] = [];
   let configCheck: ConfigCheckStatus | null = null;
   let unavailable: string | null = null;
@@ -184,10 +198,8 @@ export async function recheckTask(
     unavailable = r.unavailable === null ? null : `${r.unavailable.check}: ${r.unavailable.detail}`;
   } else if (performed && target === 'observation') {
     // While a cancel waits for its read, this read is the one that counts for it (FR-025.03).
-    const r = await deps.observe(
-      cmd.task_id,
-      cancelReadEvidence(before) ?? `recheck:${cmd.request_id}`,
-    );
+    const cancelRef = cancelReadEvidence(before);
+    const r = await deps.observe(cmd.task_id, cancelRef ?? `recheck:${cmd.request_id}`);
     unavailable = r.failure;
     r.facts.forEach((fact, i) => {
       const cur = deps.store.readTask(cmd.task_id as Uuid);
@@ -211,6 +223,22 @@ export async function recheckTask(
         ...(reason === undefined ? {} : { reason }),
       });
     });
+    if (cancelRef !== null) {
+      const failed = recordCancelReadFailure(deps.store, {
+        task_id: cmd.task_id,
+        ref: cancelRef,
+        facts: r.facts,
+        failure: r.failure,
+        dedup_key: `cmd:${cmd.request_id}:read_failed`,
+        now: deps.now(),
+        ids: Array.from({ length: MAX_ENVELOPE_IDS }, () => deps.newId()),
+      });
+      if (failed !== null)
+        facts.push({
+          kind: 'cancel_read_failed',
+          accepted: failed.ok && failed.value.decision.kind === 'accepted',
+        });
+    }
   } else if (performed && target === 'drain') {
     const r = await deps.drain(cmd.task_id);
     facts.push({ kind: 'drain_result', accepted: r !== null });

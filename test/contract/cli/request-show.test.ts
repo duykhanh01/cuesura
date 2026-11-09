@@ -97,7 +97,7 @@ describe('cusr request show', () => {
     const data = (JSON.parse(r.out) as { data: Record<string, unknown> }).data;
     expect(data['state']).toBe('interrupted');
     expect(data['task_id']).toBeNull();
-    expect(data['next_step']).toEqual(expect.stringContaining('new request'));
+    expect(data['next_step']).toEqual(expect.stringContaining(`--request-id ${uuidOf(4)}`));
     const text = await cli(sd, uuidOf(4), false);
     expect(text.out.split('\n')[0]).toBe('Request interrupted');
     expect(text.out).toContain('Next step:');

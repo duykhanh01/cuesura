@@ -19,6 +19,8 @@ export type RequestsDeps = {
   readonly store: Store;
   /** Whether this daemon process is running the request right now. */
   readonly inFlight: (requestId: string) => boolean;
+  /** Whether the request's handler failed in this daemon process, which kept running. */
+  readonly failed?: (requestId: string) => boolean;
 };
 
 const QuerySchema = z.object({ kind: z.literal('request_show'), request_id: UuidSchema }).strict();
@@ -34,11 +36,25 @@ function readable(caller: Caller, r: CommandRecord): boolean {
   return r.actor === caller.grant.actor;
 }
 
-function nextStep(state: RequestState, kind: string, taskId: string | null): string | null {
+/**
+ * What to do with an interrupted request. Sending the same command with the same request ID is the safe
+ * retry: its handler runs again with the IDs assigned the first time, over whatever the first run wrote.
+ */
+function nextStep(
+  state: RequestState,
+  kind: string,
+  requestId: string,
+  taskId: string | null,
+  failed: boolean,
+): string | null {
   if (state !== 'interrupted') return null;
+  const cause = failed
+    ? `The ${kind} request failed inside the daemon, which is still running`
+    : `The daemon stopped before this ${kind} request finished`;
+  const retry = `send the same command again with --request-id ${requestId}`;
   return taskId === null
-    ? `The daemon stopped before this ${kind} request finished and no task exists for it. Send a new request to do it again.`
-    : `The daemon stopped before this request finished; its effect may have happened in part. Read the task with: cusr task show ${taskId}, before sending a new request.`;
+    ? `${cause} and no task exists for it. To finish it, ${retry}.`
+    : `${cause}; its effect may have happened in part. To finish it, ${retry}; read the task first with: cusr task show ${taskId}.`;
 }
 
 export function requestShow(
@@ -75,6 +91,12 @@ export function requestShow(
     admitted_at: r.admitted_at,
     completed_at: r.completed_at,
     ...(state === 'completed' ? { outcome: r.result } : {}),
-    next_step: nextStep(state, r.kind, taskId),
+    next_step: nextStep(
+      state,
+      r.kind,
+      r.request_id,
+      taskId,
+      state === 'interrupted' && deps.failed?.(r.request_id) === true,
+    ),
   });
 }

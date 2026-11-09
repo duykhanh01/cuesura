@@ -171,7 +171,90 @@ describe('request_show', () => {
     expect(data).toMatchObject({ state: 'interrupted', task_id: null });
     expect(data['outcome']).toBeUndefined();
     expect(data['completed_at']).toBeNull();
-    expect(data['next_step']).toEqual(expect.stringContaining('new request'));
+    expect(data['next_step']).toEqual(
+      expect.stringContaining(`same command again with --request-id ${uuidOf(5)}`),
+    );
+    expect(data['next_step']).toEqual(expect.stringContaining('daemon stopped'));
+  });
+
+  it('#267: a handler that throws after writing answers with its request ID; request show does not say the daemon stopped, and the same ID finishes it', async () => {
+    let fail = true;
+    const sd = await daemon((store) => ({
+      confirm: {
+        store,
+        ports: { git: fakeGit(), github: fakeGitHub(), host: fakeHost() },
+        configInputs: () => {
+          if (fail) return Promise.reject(new Error('config read failed for a moment'));
+          return Promise.resolve({ user: userConfig(), packs: PACKS, manifests: MANIFESTS });
+        },
+        now: () => sd.clock.now(),
+      },
+    }));
+    const added = await sd.command('assistant', addBody(10));
+    const task = (added.envelope.data as { result: TaskState & { task_id: string } }).result;
+    const confirm = {
+      request_id: uuidOf(11),
+      kind: 'task_confirm',
+      project: 'acme',
+      task_id: task.task_id,
+      expected_version: task.version,
+      payload: {},
+    };
+    const first = await sd.command('assistant', confirm);
+    expect(first.status).toBe(500);
+    expect(first.envelope.error).toMatchObject({ code: 'internal', request_id: uuidOf(11) });
+    const shown = (await show(sd, 'assistant', uuidOf(11))).envelope.data as Record<
+      string,
+      unknown
+    >;
+    expect(shown['state']).toBe('interrupted');
+    expect(shown['next_step']).toEqual(expect.stringContaining('daemon, which is still running'));
+    expect(shown['next_step']).not.toEqual(expect.stringContaining('stopped'));
+    fail = false;
+    const again = await sd.command('assistant', confirm);
+    expect(again.envelope).toMatchObject({ ok: true, data: { request_id: uuidOf(11) } });
+    expect((await show(sd, 'assistant', uuidOf(11))).envelope.data).toMatchObject({
+      state: 'completed',
+      next_step: null,
+    });
+  });
+
+  it('#267: the same request sent while its first run is still going shares that run and is marked replayed', async () => {
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const sd = await daemon((store) => ({
+      confirm: {
+        store,
+        ports: { git: fakeGit(), github: fakeGitHub(), host: fakeHost() },
+        configInputs: async () => {
+          await held;
+          return { user: userConfig(), packs: PACKS, manifests: MANIFESTS };
+        },
+        now: () => sd.clock.now(),
+      },
+    }));
+    const added = await sd.command('assistant', addBody(12));
+    const task = (added.envelope.data as { result: TaskState & { task_id: string } }).result;
+    const confirm = {
+      request_id: uuidOf(13),
+      kind: 'task_confirm',
+      project: 'acme',
+      task_id: task.task_id,
+      expected_version: task.version,
+      payload: {},
+    };
+    const a = sd.command('assistant', confirm);
+    await expect
+      .poll(async () => (await show(sd, 'assistant', uuidOf(13))).envelope.data, {
+        timeout: 5_000,
+      })
+      .toMatchObject({ state: 'in_progress' });
+    const b = sd.command('assistant', confirm);
+    release();
+    expect((await a).envelope.data).toMatchObject({ replayed: false });
+    expect((await b).envelope.data).toMatchObject({ replayed: true });
   });
 
   describe('after the daemon died mid-command', () => {
@@ -268,7 +351,8 @@ describe('request_show', () => {
       const id = store.readCommand(uuidOf(7))?.task_id;
       expect(id).toBeTypeOf('string');
       expect(data).toMatchObject({ state: 'interrupted', task_id: id });
-      expect(data['next_step']).toEqual(expect.stringContaining('Read the task'));
+      expect(data['next_step']).toEqual(expect.stringContaining('read the task first'));
+      expect(data['next_step']).toEqual(expect.stringContaining(`--request-id ${uuidOf(7)}`));
       expect(counts(store)['tasks']).toBe(1);
     });
   });

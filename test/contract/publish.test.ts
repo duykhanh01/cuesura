@@ -409,6 +409,29 @@ describe('create or recover the PR (T041)', () => {
     });
   });
 
+  it('#267: a retried create recovers the PR an earlier create of the same revision made; another revision stays foreign', async () => {
+    const retry = { ...SPEC, operation_key: 'publish:acme:t1:r1:pr#2' };
+    const own = gh({ [LIST]: [list(pr())] });
+    expect(await createOrRecoverPr(own.port, retry)).toMatchObject({
+      kind: 'recovered',
+      pr: { number: 7 },
+      operation_key: SPEC.operation_key,
+    });
+    expect(own.posts()).toEqual([]);
+    const older = gh({
+      [LIST]: [list(pr({ body: `Summary\n\n${prMarker({ ...SPEC, revision: 0 })}\n` }))],
+    });
+    expect(await createOrRecoverPr(older.port, retry)).toMatchObject({
+      kind: 'conflict',
+      reason: 'marker_forged',
+    });
+    const edited = gh({ [LIST]: [list(pr({ body: `Edited\n\n${prMarker(SPEC)}\n` }))] });
+    expect(await createOrRecoverPr(edited.port, retry)).toMatchObject({
+      kind: 'conflict',
+      reason: 'body_changed',
+    });
+  });
+
   it('an incomplete listing is unknown, not "no PR"', async () => {
     const { port, posts } = gh({
       [LIST]: [

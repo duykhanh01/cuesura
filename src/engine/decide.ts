@@ -8,7 +8,13 @@ import { sameChoice, type RunChoice } from '../domain/run-config.ts';
 import { isTerminal, type TaskState } from '../domain/state.ts';
 import type { RelatedFacts, Trigger, TriggerEnvelope } from '../domain/trigger.ts';
 import { verifyPolicyHash } from '../policy/finalize.ts';
-import { forceCancel, invalidatePending, maybeFinishCancel, requestCancel } from './cancel.ts';
+import {
+  forceCancel,
+  invalidatePending,
+  maybeFinishCancel,
+  onCancelReadFailed,
+  requestCancel,
+} from './cancel.ts';
 import { Ctx, reject, Rejection, type RejectCode } from './context.ts';
 import { requestEffect, requestReconcile } from './effects.ts';
 import { IdPoolExhausted } from './ids.ts';
@@ -249,6 +255,9 @@ function dispatch(ctx: Ctx, t: Trigger): void {
       return;
     case 'observation_due':
       onObservationDue(ctx, t);
+      return;
+    case 'cancel_read_failed':
+      onCancelReadFailed(ctx, t.read_token, t.detail);
       return;
     case 'recheck':
       onRecheck(ctx, t);

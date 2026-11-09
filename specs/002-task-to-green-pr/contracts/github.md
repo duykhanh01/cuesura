@@ -33,7 +33,10 @@ Một logical operation giữ idem key qua timeout/restart. Không coi marker/ti
 nhận PR; tuple repo/head/base phải khớp. Nhiều PR khớp hoặc remote diverged thì chờ, không tạo PR
 thay thế. Một PR đang mở trên đúng tuple, không có marker nào và head đúng SHA vừa push là PR worker tự
 mở cho task: create tiếp quản bằng cách ghi title/body và marker như khi tự tạo, rồi probe lại; PR
-đóng, head khác hoặc mang marker khác vẫn là conflict. HTTP 422/timeout sau create không chứng minh thất bại; query/probe trước lần gửi mới.
+đóng, head khác hoặc mang marker khác vẫn là conflict. Ngoại lệ (#267): marker duy nhất ở cuối body, cùng task và
+revision nhưng khác operation key là của một lần create trước (retry tạo PR đổi key theo lượt ghé). Khi body
+đúng là body lần đó gửi, PR được nhận lại (`recovered`) và key cũ được giữ cho các lần update description sau.
+Marker của task hoặc revision khác vẫn là conflict. HTTP 422/timeout sau create không chứng minh thất bại; query/probe trước lần gửi mới.
 HTTP 422 mà lỗi validation nêu field `title` hoặc `body` là lỗi nội dung, không phải credentials (issue #249):
 create (kể cả khi tiếp quản PR worker tự mở) và update description gửi lại đúng một lần với nội dung đã làm vừa giới hạn GitHub (title bỏ ký tự điều
 khiển, tối đa 256 ký tự, rỗng thì `cusr task <id>`; body bỏ NUL, cắt kèm ghi chú để body cuối cùng có marker

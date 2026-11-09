@@ -206,8 +206,10 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 # Exit 0 means the lookup worked, even when the operation was rejected: read
 # data.state (completed, in_progress, interrupted) and, when completed, data.outcome.ok.
 # completed: data.outcome holds the original result (task_id for task add).
-# in_progress: look again later. interrupted: follow data.next_step (reread the task if
-# data.task_id is set; otherwise task add did not create a task and a NEW request ID may retry).
+# in_progress: look again later. interrupted: follow data.next_step: reread the task if
+# data.task_id is set, then send the SAME command with the SAME --request-id (and the same
+# --expected-version) to finish it. An `internal` error (exit 1) carries the request ID too:
+# retry it the same way, never with a new ID.
 # request_not_found (exit 4) means only that the request was not admitted at lookup time:
 # it may still arrive. Do not tell the user it did not happen; check `task list` before re-adding.
 # Only the same actor and an in-scope project can see a request.
@@ -430,8 +432,9 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   --expected-version "$VERSION" --request-id "$CANCEL_REQUEST_ID" --json
 # Recheck does not extend a deadline frozen in an older task. Cancel does not undo a merge;
 # inspect the resulting state rather than treating command exit 0 as completion.
-# A cancel stuck in `cancel_reconcile` because the PR read keeps failing: tell the user,
-# and add --force ONLY when the user asks for it. It ends CANCELLED without a read that
+# `cancel_reconcile` alone is not stuck: the daemon reads the PR again by itself. Only when
+# needs_user is true (repeated reads failed) tell the user, and add --force ONLY when the
+# user asks for it. It ends CANCELLED without a read that
 # shows the PR open or closed; a merge already seen still wins.
 ```
 
