@@ -465,7 +465,7 @@ describe('the decider answers for an absent owner', () => {
     const round = one.round();
     await running;
 
-    const listed = inbox(d.store, caller, {}, one);
+    const listed = inbox(d.store, caller, {}, { decider: one });
     expect(listed.ok && listed.value.items).toMatchObject([{ blocking: true, decider: true }]);
     expect(d.task(t.id).budget.agent_runs.reserved).toBe(before.reserved + 1);
 

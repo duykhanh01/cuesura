@@ -104,6 +104,7 @@ describe('task_board', () => {
     expect(board({ if_changed_since: first.watermark })).toEqual({
       unchanged: true,
       watermark: first.watermark,
+      queue_paused: null,
     });
     d.must(a.id, { kind: 'cancel', reason: 'stop' });
     const changed = board({ if_changed_since: first.watermark });

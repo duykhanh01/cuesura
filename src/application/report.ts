@@ -14,7 +14,9 @@ import { err, ok, type Result } from '../shared/result.ts';
 import type { Store } from '../store/index.ts';
 import type { Caller } from './authz.ts';
 import type { StatusSince } from './board.ts';
-import type { AppError } from './queries.ts';
+import type { AppError, QueuePauseReader } from './queries.ts';
+import { queuePausedView } from '../explain/explain.ts';
+import { nextAction } from './inbox.ts';
 
 /** Entries kept per section and project; a longer section says `truncated`. */
 export const REPORT_LIMIT = 200;
@@ -33,6 +35,7 @@ export type ReportDeps = {
   readonly store: Store;
   readonly statusSince: StatusSince;
   readonly now: () => number;
+  readonly queuePause?: QueuePauseReader;
 };
 
 /** A sum over the runs that gave this metric; with `missing` runs it is a lower bound, never a zero for unknown. */
@@ -115,6 +118,7 @@ export function addToReport(
   window: { readonly since: number; readonly until: number },
   finishedAt: number | null,
   statusSince?: () => number | null,
+  queuePaused = false,
 ): void {
   const inWindow = (t: number): boolean => t >= window.since && t <= window.until;
   const base = { task_id: s.id, title: s.task.title };
@@ -139,9 +143,12 @@ export function addToReport(
       status: s.status,
       wait_code: s.wait?.detail.code ?? null,
       pr_ref: s.pr_ref,
+      task_version: s.version,
+      pause: s.pause ?? null,
+      next: nextAction(s, queuePaused),
       questions: Object.values(s.questions)
-        .filter((q) => q.status === 'open')
-        .map((q) => q.body),
+        .filter((q) => q.status === 'open' && q.revision === s.revision)
+        .map((q) => ({ question_id: q.id, body: q.body })),
     });
   } else {
     push(r.running, {
@@ -205,6 +212,7 @@ export function report(
   const { store, statusSince } = deps;
   const until = deps.now();
   const projects = project === undefined ? null : [project];
+  const queuePaused = queuePausedView(deps.queuePause?.() ?? null, until);
   const byProject = new Map<string, ProjectReport>();
   if (project !== undefined) byProject.set(project, emptyReport(project));
 
@@ -221,8 +229,13 @@ export function report(
         r = emptyReport(s.project);
         byProject.set(s.project, r);
       }
-      addToReport(r, s, { since, until }, isTerminal(s.status) ? statusSince(s) : null, () =>
-        statusSince(s),
+      addToReport(
+        r,
+        s,
+        { since, until },
+        isTerminal(s.status) ? statusSince(s) : null,
+        () => statusSince(s),
+        queuePaused !== null,
       );
     }
   }
@@ -236,6 +249,7 @@ export function report(
   return ok({
     since,
     until,
+    queue_paused: queuePaused,
     projects: [...byProject.values()]
       .filter((r) => r.project === project || !isEmpty(r))
       .sort((a, b) => a.project.localeCompare(b.project)),

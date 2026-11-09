@@ -762,6 +762,9 @@ describe('explain from committed data (US6.1/7, FR-027.03–05, FR-029)', () => 
       {
         task_id: a.id,
         status: 'DONE',
+        wait_code: null,
+        paused: false,
+        needs_user: false,
         unverified: { reason: 'merged_head_unverified' },
         merged_head_sha: 'c'.repeat(40),
         checked_head_sha: 'a'.repeat(40),

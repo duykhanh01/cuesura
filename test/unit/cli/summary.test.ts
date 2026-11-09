@@ -119,6 +119,35 @@ describe('explainSummary', () => {
     });
   });
 
+  it('keeps the queue pause and what holds a prerequisite (#256)', () => {
+    const pause = {
+      reason: 'upgrade',
+      by: 'assistant',
+      at: 1,
+      age_ms: 5,
+      command: 'cusr queue resume',
+    };
+    const out = explainSummary({
+      ...full,
+      queue_paused: pause,
+      prerequisites: [
+        {
+          task_id: 'p2',
+          status: 'WAITING',
+          unverified: null,
+          wait_code: 'paused',
+          paused: true,
+          needs_user: true,
+          evidence: 'x',
+        },
+      ],
+    }) as Record<string, unknown>;
+    expect(out['queue_paused']).toEqual(pause);
+    expect(out['prerequisites']).toEqual([
+      { task_id: 'p2', status: 'WAITING', wait_code: 'paused', paused: true, needs_user: true },
+    ]);
+  });
+
   it('leaves out what is empty: no PR, no queue, nothing failed', () => {
     expect(
       explainSummary({

@@ -457,6 +457,7 @@ describe('answer and inbox over the control socket (US5.1/US5.2, FR-024/FR-037)'
     });
     expect(events('QuestionAnswered')).toEqual([]);
     const listed = await sd.query('owner', { kind: 'inbox' });
-    expect(listed.envelope.data?.['items']).toEqual([]);
+    const items = listed.envelope.data?.['items'] as { kind: string }[];
+    expect(items.filter((i) => i.kind === 'question')).toEqual([]);
   });
 });

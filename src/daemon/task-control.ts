@@ -51,6 +51,8 @@ import { httpStatusFor } from '../cli/errors.ts';
 import { okEnvelope } from '../cli/output.ts';
 import type { Result } from '../shared/result.ts';
 import { errorReply, type Reply } from './server.ts';
+import { readQueuePause, type QueuePause } from './queue-pause.ts';
+import { validateConfig } from '../config/validate.ts';
 import type { CommandHandler, QueryHandler } from './main.ts';
 
 const reply = (r: Result<unknown, AppError>): Promise<Reply> =>
@@ -165,6 +167,12 @@ export function taskControl(deps: TaskControlDeps): {
     ...(deps.dataDir === undefined ? {} : { dataDir: deps.dataDir }),
     ...(deps.decider === undefined ? {} : { decider: deps.decider }),
   });
+  const queuePause = (): QueuePause | null =>
+    deps.dataDir === undefined ? null : readQueuePause(deps.dataDir);
+  const configuredProjects = async (): Promise<readonly string[] | null> => {
+    const validated = validateConfig({ user: (await deps.confirm.configInputs()).user, packs: {} });
+    return validated.ok ? Object.keys(validated.value.locations) : null;
+  };
   const overtakes =
     (handler: CommandHandler): CommandHandler =>
     async (admitted, input, caller) => {
@@ -201,7 +209,16 @@ export function taskControl(deps: TaskControlDeps): {
           }),
     },
     queries: {
-      inbox: (caller, body) => reply(inbox(store, caller, body, deps.decider)),
+      inbox: async (caller, body) =>
+        reply(
+          inbox(store, caller, body, {
+            ...(deps.decider === undefined ? {} : { decider: deps.decider }),
+            now: deps.now(),
+            statusSince,
+            queuePause,
+            projects: typeof body['project'] === 'string' ? await configuredProjects() : null,
+          }),
+        ),
       attention: (caller, body) => reply(attention.poll(caller, body)),
       attention_peek: (caller) => reply(attention.peek(caller)),
       assistant_register: (caller, body) => reply(attention.register(caller, body)),
@@ -217,6 +234,7 @@ export function taskControl(deps: TaskControlDeps): {
             scope,
             taskExplain(store, caller, body, deps.now(), {
               statusSince,
+              queuePause,
               ...(logs === undefined
                 ? {}
                 : {
@@ -228,8 +246,9 @@ export function taskControl(deps: TaskControlDeps): {
         ),
       question_show: (caller, body) => reply(questionShow(store, caller, body)),
       task_board: (caller, body) =>
-        reply(taskBoard({ store, statusSince, now: deps.now }, caller, body)),
-      report: (caller, body) => reply(report({ store, statusSince, now: deps.now }, caller, body)),
+        reply(taskBoard({ store, statusSince, now: deps.now, queuePause }, caller, body)),
+      report: (caller, body) =>
+        reply(report({ store, statusSince, now: deps.now, queuePause }, caller, body)),
       task_content: (caller, body) => reply(taskContent(store, caller, body)),
       task_progress: (caller, body) =>
         reply(taskProgress(store, caller, body, deps.now(), statusSince)),

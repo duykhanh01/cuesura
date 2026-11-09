@@ -382,3 +382,71 @@ describe('commands are copyable and say who may run them (#265, #258)', () => {
     expect(JSON.stringify(approve(wait({})))).not.toMatch(/STEP|--rung N/);
   });
 });
+
+describe('what holds a task that has not started (#256)', () => {
+  const confirmed = {
+    proposal: { digest: 'sha256:abc', selection: { revision: 1 } },
+    confirmation: { digest: 'sha256:abc' },
+    mode: null,
+    content: null,
+  } as unknown as TaskState['run'];
+  const ready = { ...state('merge'), status: 'READY', wait: null, pr_ref: null, run: confirmed };
+
+  it('a paused queue replaces waiting for a turn with resuming the queue', () => {
+    const s = ready as TaskState;
+    expect(allowedActions(s, { recheckable: false }).map((a) => a.note)).toContain(
+      'Waits for its turn at the execution slot.',
+    );
+    const out = allowedActions(s, { recheckable: false, queuePaused: true });
+    expect(out.map((a) => a.action)).toEqual(['resume_queue', 'cancel']);
+    expect(out[0]).toMatchObject({ command: 'cusr queue resume', requires: 'operate' });
+    expect(JSON.stringify(out)).not.toContain('Waits for its turn');
+  });
+
+  it('leaves a started task alone', () => {
+    const s = { ...ready, policy_ref: { revision: 1, hash: 'h', version: 1 } } as TaskState;
+    expect(
+      allowedActions(s, { recheckable: false, queuePaused: true }).map((a) => a.action),
+    ).not.toContain('resume_queue');
+  });
+
+  it('a dependency wait names the prerequisite that will not move on by itself', () => {
+    const s = { ...state('dependency_pending'), status: 'PENDING', pr_ref: null } as TaskState;
+    const dep = uuidLike(2);
+    const other = uuidLike(3);
+    const out = allowedActions(s, {
+      recheckable: false,
+      queuePaused: true,
+      prerequisites: [
+        { task_id: dep, status: 'WAITING', wait_code: 'paused', paused: true, needs_user: true },
+        { task_id: other, status: 'RUNNING', wait_code: null, paused: false, needs_user: false },
+      ],
+    });
+    expect(out.map((a) => a.action)).toEqual(['wait', 'cancel', 'resume_queue']);
+    expect(out[0]?.note).toContain(`Blocked by ${dep} (WAITING, paused)`);
+    expect(out[0]?.note).not.toContain(other);
+  });
+
+  it('with no prerequisite stuck, lists the ones still running', () => {
+    const s = { ...state('dependency_pending'), status: 'PENDING', pr_ref: null } as TaskState;
+    const out = allowedActions(s, {
+      recheckable: false,
+      prerequisites: [
+        { task_id: uuidLike(2), status: 'DONE', wait_code: null, paused: false, needs_user: false },
+        {
+          task_id: uuidLike(3),
+          status: 'RUNNING',
+          wait_code: null,
+          paused: false,
+          needs_user: false,
+        },
+      ],
+    });
+    expect(out[0]?.note).toContain(`Waiting on ${uuidLike(3)} (RUNNING).`);
+    expect(out[0]?.note).not.toContain(uuidLike(2));
+  });
+});
+
+function uuidLike(n: number): string {
+  return `0192aaaa-0000-7000-8000-${String(n).padStart(12, '0')}`;
+}

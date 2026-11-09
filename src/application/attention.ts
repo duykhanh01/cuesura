@@ -90,6 +90,12 @@ export type AttentionPeek = {
   readonly held: boolean;
   /** Waits the holder has not been sent yet. */
   readonly undelivered: number;
+  /** The waits themselves, IDs and codes only, in task order; at most `INBOX_LIMIT`. Absent from an older daemon. */
+  readonly tasks?: readonly {
+    readonly task_id: string;
+    readonly code: string;
+    readonly undelivered: boolean;
+  }[];
 };
 
 export type RegisterReply = AttentionReply & { readonly session: string };
@@ -243,14 +249,18 @@ export class AttentionDesk {
     if (!allowed.ok) return forbidden('attention not readable', allowed.error);
     const { waiting } = this.#waiting();
     const holder = this.#holder;
+    // Sent but not yet confirmed counts as told: the holder's session may be reading it right now.
+    const told = new Set(holder === null ? [] : [...holder.delivered, ...holder.offered]);
+    const tasks = waiting
+      .map((w) => ({ task_id: w.item.task_id, code: w.item.code, undelivered: !told.has(w.key) }))
+      .sort((a, b) => a.task_id.localeCompare(b.task_id))
+      .slice(0, INBOX_LIMIT);
     if (holder === null)
-      return ok({ waiting: waiting.length, held: false, undelivered: waiting.length });
+      return ok({ waiting: waiting.length, held: false, undelivered: waiting.length, tasks });
     // A registered session that stopped polling may be dead (#244): a session opening must then ask.
     const held = this.#now() - holder.seenAt < ATTENTION_STALE_MS;
-    // Sent but not yet confirmed counts as told: the holder's session may be reading it right now.
-    const told = new Set([...holder.delivered, ...holder.offered]);
     const undelivered = waiting.filter((w) => !told.has(w.key)).length;
-    return ok({ waiting: waiting.length, held, undelivered });
+    return ok({ waiting: waiting.length, held, undelivered, tasks });
   }
 
   /** A replaced session's hook says its note arrived; it is not told again. */

@@ -11,6 +11,7 @@ import { okEnvelope } from '../cli/output.ts';
 import { STARTUP_REPORT_FILE, type StartupReport } from './startup.ts';
 import type { SpoolIngestReport } from './ingest.ts';
 import type { QueuePause } from './queue-pause.ts';
+import { queuePausedView } from '../explain/explain.ts';
 import { buildInfo, packageVersion } from '../cli/program.ts';
 
 export type HealthInput = {
@@ -62,7 +63,7 @@ export function healthReply(h: HealthInput): Reply {
     loans: store.readLoans(),
     concurrency: h.concurrency ?? 1,
     queue_length: store.readQueue(100).length,
-    queue_paused: h.queuePaused ?? null,
+    queue_paused: queuePausedView(h.queuePaused ?? null, h.now),
     now: h.now,
   };
   const problem = healthProblem(dispatcher);

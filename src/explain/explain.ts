@@ -13,7 +13,26 @@ import { available } from '../engine/budget.ts';
 import { stepVisitLimit } from '../engine/interpreter.ts';
 import { isUnresolved } from '../engine/runtime.ts';
 import type { FrozenRuntimeContext } from '../domain/runtime.ts';
-import { allowedActions, type AllowedAction } from './allowed-actions.ts';
+import { allowedActions, type AllowedAction, type PrerequisiteState } from './allowed-actions.ts';
+import { needsUser } from './needs-user.ts';
+
+/** `cusr queue pause` in force, with what `status`, `explain`, `board` and `report` all show (#256). */
+export type QueuePausedView = {
+  reason: string;
+  by: string;
+  at: number;
+  age_ms: number;
+  command: 'cusr queue resume';
+};
+
+export function queuePausedView(
+  p: { readonly reason: string; readonly by: string; readonly at: number } | null,
+  now: number,
+): QueuePausedView | null {
+  return p === null
+    ? null
+    : { ...p, age_ms: Math.max(0, now - p.at), command: 'cusr queue resume' };
+}
 
 export type Explanation = {
   status: TaskStatus;
@@ -213,6 +232,9 @@ export type RuntimeInput = {
   readonly status_since?: number | null;
   /** When a running attempt last wrote a log record; null when it wrote none or its log cannot be read. */
   readonly last_output_at?: (attemptId: string) => number | null;
+  readonly queue_paused?: QueuePausedView | null;
+  /** When a prerequisite entered its status, for a wait recorded without its own start (#249). */
+  readonly prerequisite_since?: (s: TaskState) => number | null;
 };
 
 export type RuntimeExplanation = Omit<Explanation, 'wait'> & {
@@ -229,6 +251,8 @@ export type RuntimeExplanation = Omit<Explanation, 'wait'> & {
   allowed_actions: AllowedAction[];
   /** Who paused the task, when and why; null when it is not paused (issue #142). */
   paused: TaskPause | null;
+  /** The queue pause holding this task back; null once the task has started or when none is in force. */
+  queue_paused: QueuePausedView | null;
   /** Messages of the current revision, in the order sent; later agent attempts carry them (issue #154). */
   messages: TaskMessage[];
   /** Blockers in force: without an end, or with one still ahead. */
@@ -307,6 +331,10 @@ export type RuntimeExplanation = Omit<Explanation, 'wait'> & {
   prerequisites: {
     task_id: string;
     status: TaskStatus | 'not_visible';
+    /** What the prerequisite waits on now; a paused or user-bound one holds this task back (#256). */
+    wait_code: string | null;
+    paused: boolean;
+    needs_user: boolean;
     unverified: { reason: string } | null;
     merged_head_sha: string | null;
     checked_head_sha: string | null;
@@ -372,6 +400,27 @@ function attemptStartedAt(state: TaskState, attemptId: string): number | null {
   return at;
 }
 
+/**
+ * `detail.deps` of a dependency wait is what triage saw; the view shows each prerequisite as it stands
+ * now, so a prerequisite that moved on is not reported as it was.
+ */
+function waitDetail(
+  state: TaskState,
+  prereqs: readonly { task_id: string; status: string }[],
+): unknown {
+  const d = state.wait?.detail;
+  if (d?.code !== 'dependency_pending' || typeof d['deps'] !== 'object' || d['deps'] === null)
+    return d;
+  const now = new Map(prereqs.map((p) => [p.task_id, p.status]));
+  const deps = Object.fromEntries(
+    Object.entries(d['deps'] as Record<string, unknown>).map(([id, st]) => {
+      const cur = now.get(id);
+      return [id, cur === undefined || cur === 'not_visible' ? st : cur];
+    }),
+  );
+  return { ...d, deps };
+}
+
 export function explainRuntime(
   state: TaskState,
   events: readonly DomainEvent[],
@@ -385,18 +434,40 @@ export function explainRuntime(
   const request = state.execution.request;
   const ended = isTerminal(state.status);
   const statusSince = input.status_since ?? null;
+  const prereqs: (PrerequisiteState & {
+    status: TaskStatus | 'not_visible';
+    state: TaskState | null;
+  })[] = state.task.depends_on.map((id) => {
+    const p = input.prerequisite(id);
+    return {
+      task_id: id,
+      status: p === null ? 'not_visible' : p.status,
+      wait_code: p?.wait?.detail.code ?? null,
+      paused: (p?.pause ?? null) !== null,
+      needs_user:
+        p !== null && needsUser(p, input.now, () => input.prerequisite_since?.(p) ?? null),
+      state: p,
+    };
+  });
+  const queuePaused = state.policy_ref === null && !ended ? (input.queue_paused ?? null) : null;
   return {
     ...core,
     task_id: state.id,
     version: state.version,
     revision: state.revision,
     limits_frozen: policy !== null,
-    wait: state.wait === null ? null : { reason: state.wait.reason, detail: state.wait.detail },
+    wait:
+      state.wait === null
+        ? null
+        : { reason: state.wait.reason, detail: waitDetail(state, prereqs) },
     allowed_actions: allowedActions(state, {
       recheckable: input.recheckable,
       dependents: input.dependents.length,
+      queuePaused: queuePaused !== null,
+      prerequisites: prereqs,
     }),
     paused: state.pause ?? null,
+    queue_paused: queuePaused,
     messages: (state.messages ?? []).filter((m) => m.revision === state.revision),
     blockers: state.blockers.filter((b) => b.until === null || b.until > input.now),
     status_since: statusSince,
@@ -462,19 +533,23 @@ export function explainRuntime(
       initial_wait_ms: waits.initial,
       resumed_wait_ms: waits.resumed,
     },
-    prerequisites: state.task.depends_on.map((id) => {
-      const p = input.prerequisite(id);
-      const proof = p?.completion?.proof ?? null;
-      return {
-        task_id: id,
-        status: p === null ? 'not_visible' : p.status,
-        unverified: p?.completion?.unverified ?? null,
-        merged_head_sha: proof?.merged_head_sha ?? null,
-        checked_head_sha: proof?.checked_head_sha ?? null,
-        merge_commit_sha: proof?.merge_commit_sha ?? null,
-        evidence: `cusr task show ${id}`,
-      };
-    }),
+    prerequisites: prereqs.map(
+      ({ task_id: id, state: p, status, wait_code, paused, needs_user }) => {
+        const proof = p?.completion?.proof ?? null;
+        return {
+          task_id: id,
+          status,
+          wait_code,
+          paused,
+          needs_user,
+          unverified: p?.completion?.unverified ?? null,
+          merged_head_sha: proof?.merged_head_sha ?? null,
+          checked_head_sha: proof?.checked_head_sha ?? null,
+          merge_commit_sha: proof?.merge_commit_sha ?? null,
+          evidence: `cusr task show ${id}`,
+        };
+      },
+    ),
     dependents: [...input.dependents],
     merge_cleanup: draining
       ? {

@@ -263,8 +263,13 @@ export const assistantUnregisterCommand: CliCommand = {
 };
 
 /** Context only: this starts no turn, so it costs nothing until the user's first prompt anyway runs. */
-export function leaseQuestion(waiting: number): string {
-  return `cusr: ${waiting} task(s) need the user and this session does not hold the assistant lease. Early in this conversation, ask the user whether to take the lease. Run cusr assistant register --take only if they say yes.\n`;
+export function leaseQuestion(
+  waiting: number,
+  tasks: readonly { readonly task_id: string; readonly code: string }[] = [],
+): string {
+  const listed = tasks.map((t) => `${t.task_id} (${t.code})`).join(', ');
+  const named = listed === '' ? '' : `: ${listed}${tasks.length < waiting ? ', and more' : ''}`;
+  return `cusr: ${waiting} task(s) need the user${named}. This session does not hold the assistant lease. Early in this conversation, ask the user whether to take the lease. Run cusr assistant register --take only if they say yes. Read the tasks with cusr inbox.\n`;
 }
 
 type HookState = {
@@ -536,6 +541,12 @@ export function askAbout(peek: AttentionPeek): number {
   return peek.held === true ? peek.undelivered : peek.waiting;
 }
 
+/** The tasks {@link askAbout} counts; an older daemon sends none. */
+function askedTasks(peek: AttentionPeek): AttentionPeek['tasks'] {
+  const tasks = peek.tasks ?? [];
+  return peek.held === true ? tasks.filter((t) => t.undelivered) : tasks;
+}
+
 /** A recycled pid must not pass for a parked hook and silence the session. */
 function hookAlive(pid: number): boolean {
   try {
@@ -568,8 +579,9 @@ export const assistantSessionStartCommand: CliCommand = {
     noteSessionStart(dataDir, session, (owner) => retiresIn(owner, process.ppid));
     if (registeredSession(dataDir) === session) return ExitCode.ok;
     const r = await queryDaemon(values, { kind: 'attention_peek' }, PEEK_TIMEOUT_MS);
-    const waiting = r.ok ? askAbout(r.data as AttentionPeek) : 0;
-    if (waiting > 0) io.stdout(leaseQuestion(waiting));
+    const peek = r.ok ? (r.data as AttentionPeek) : null;
+    const waiting = peek === null ? 0 : askAbout(peek);
+    if (peek !== null && waiting > 0) io.stdout(leaseQuestion(waiting, askedTasks(peek)));
     return ExitCode.ok;
   },
 };

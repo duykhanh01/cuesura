@@ -40,7 +40,7 @@ hết thang/lượt, và chính lần xác nhận amendment của owner là xác
 | `cusr task message ID --file FILE [--behavior steer\|interrupt\|queue]` | operate; `--file -` đọc stdin; version/dedup; xem [Tin nhắn cho agent](#tin-nhắn-cho-agent) |
 | `cusr queue pause --reason TEXT`, `cusr queue resume` | operate; không có project, task hay version; xem [Tạm dừng task](#tạm-dừng-task) |
 | `cusr dispatch --project ID` | read trong phạm vi project; trả `project`, `source` (`project`, `global` hoặc `none`), `modes`, `rules`, `default`. Lấy từ `projects.<id>.dispatch`, không có thì `runtime.dispatch`; đọc config mỗi lần gọi; `use[]` trả về dạng `{worker, reviewer?}` kèm `profile`, `mode` để chép thẳng vào `task propose`; không chứa secret, không chọn thay người dùng |
-| `cusr inbox`, `cusr answer QUESTION --file FILE --expected-version N` | read/operate; câu trả lời đầu thắng, ràng buộc revision/version; `--file -` đọc stdin. Câu trả lời thua trả `conflict` (`reason: "already_answered"`, `answered_by`), exit 6, như `question_not_open`; event `AnswerRejected` nó ghi không đổi phần task mà version so sánh, nên version bên thua đã đọc vẫn dùng được cho mutation tiếp theo |
+| `cusr inbox [--task ID] [--project ID] [--limit N] [--after CURSOR]`, `cusr answer QUESTION --file FILE --expected-version N` | read/operate; inbox: xem [Inbox](#inbox). Answer: câu trả lời đầu thắng, ràng buộc revision/version; `--file -` đọc stdin. Câu trả lời thua trả `conflict` (`reason: "already_answered"`, `answered_by`), exit 6, như `question_not_open`; event `AnswerRejected` nó ghi không đổi phần task mà version so sánh, nên version bên thua đã đọc vẫn dùng được cho mutation tiếp theo |
 | `cusr task approve ID --kind escalation --step STEP --rung N` | operate; task/revision/policy hash đúng, không cấp merge. Engine chỉ xin duyệt nấc còn ngân sách escalation và nằm trong bộ đã xác nhận: hết ngân sách thì chờ `escalations_exhausted`, nấc ngoài bộ thì task kết thúc `run_config_unconfirmed` mà không mở wait `escalation` (issue #263) |
 | `cusr task approve ID --kind adopt --head-sha SHA` | admin; task khai `--pr`/`pr_ref`, chưa start; PR mở, cùng repo (không fork), đúng base, head đúng SHA, không task sống nào đang giữ PR |
 | `cusr project list`, `cusr task options/content/progress ID`, `cusr task board`, `cusr request show REQUEST_ID` | read; truy vấn chỉ đọc không tạo event, thêm cho giao diện terminal và assistant; hợp đồng đầy đủ ở [feature 004](../../004-terminal-tui/contracts/cli-daemon.md) |
@@ -195,7 +195,11 @@ trước khi in, cho cả `--json` lẫn output cho người đọc.
   `terminal` (`kind`, `reason`) khi task đã kết thúc, `unverified` (`reason`) khi DONE trên một merge chưa
   được xác minh, `merge_cleanup`, `cancellation`, `paused` (`reason`, `by`, `at`, null khi
   không tạm dừng), `scope` (`overlaps`: task còn sống khác đổi chung file, `base_behind`, `base_conflicts`,
-  `unknown`: phần chưa đọc được, `declared`, `unscoped`, `slot_block`; chỉ khi có), `allowed_actions`.
+  `unknown`: phần chưa đọc được, `declared`, `unscoped`, `slot_block`; chỉ khi có), `queue_paused`
+  (chỉ với task chưa bắt đầu khi queue đang pause), `allowed_actions`. Mỗi prerequisite có `wait_code`,
+  `paused`, `needs_user` theo trạng thái hiện tại; `wait.detail.deps` của `dependency_pending` cũng đọc
+  lại trạng thái hiện tại thay cho ảnh chụp lúc triage, và note của action `wait` nêu prerequisite đang
+  paused hoặc chờ người kèm ID (issue #256).
 - `task show`: `task_id`, `project`, `title`, `status`, `step`, `version`, `wait`, `blockers`, `pr_ref`,
   `terminal` và `unverified` (như `task explain`, chỉ khi có), `run_config` (`status`, `digest`, `mode`).
   Đủ cho mutation; nội dung task ở `task content`.
@@ -236,8 +240,8 @@ trước khi in, cho cả `--json` lẫn output cho người đọc.
   `terminal`. Dữ liệu đọc từ repo cục bộ, không fetch: base
   tip là `refs/remotes/origin/<base>` đã fetch gần nhất; mọi lệnh git của một truy vấn chung hạn 4 giây.
 - `status`, `inbox`, `report`, `task board`, `task progress` giữ nguyên: dữ liệu đã có giới hạn
-  (`inbox` tối đa 100 câu hỏi, `report` và `board` có `truncated`/cursor) và nội dung câu hỏi cần đủ để
-  trả lời. `task content` là lệnh chi tiết cho nội dung task.
+  (`inbox` tối đa 100 item mỗi trang, có cursor `after`; `report` và `board` có `truncated`/cursor) và nội
+  dung câu hỏi cần đủ để trả lời. `task content` là lệnh chi tiết cho nội dung task.
 
 ## Transport và application service
 
@@ -382,7 +386,34 @@ thúc CANCELLED và kết quả có `warning` rằng PR có thể chưa được
   (owner-only, giữ qua restart, không cần migration DB); file hỏng được coi là đang tạm dừng. File ghi
   kèm request ID đã áp dụng, nên lệnh chạy lại sau crash không đổi gì và không lật quyết định mới hơn. Reply
   có `changed`: `false` khi hàng đợi đã ở trạng thái đó (pause lần hai giữ lý do cũ) hoặc request ID đã áp
-  dụng. `cusr status` có `queue_paused` (`reason`, `by`, `at`) và không coi đây là lỗi health.
+  dụng. `cusr status` có `queue_paused` (`reason`, `by`, `at`, `age_ms`, `command: "cusr queue resume"`)
+  và không coi đây là lỗi health. Cùng object đó có trong `task explain` của task chưa bắt đầu, `task board`
+  (cả reply `unchanged`, vì file không đổi watermark), `inbox` và `report`. Khi queue pause,
+  `allowed_actions` của task READY/PENDING chưa bắt đầu thay action `wait` "chờ lượt" bằng
+  `resume_queue` (`cusr queue resume`, role operate); task `dependency_pending` giữ note prerequisite và có
+  thêm `resume_queue` (issue #256).
+
+## Inbox
+
+- `inbox` trả mọi việc đang chờ người của các task còn sống mà caller đọc được (issue #256). Item
+  `kind: "question"` là câu hỏi mở của revision hiện tại (`question_id`, `body`, `blocking`,
+  `decider: true` khi decider còn có thể tự trả lời). Item `kind: "wait"` là task mà `needs_user` đúng
+  nhưng không có câu hỏi đang chặn: paused, escalation, needs_confirmation, config lỗi, run config chưa
+  xác nhận...; có `question_id: null`, `status`, `paused` (`reason`, `by`, `at` hoặc null).
+- Mọi item có `task_id`, `project`, `title`, `wait_code`, `task_version` và `next`: với câu hỏi là lệnh
+  `cusr answer`, với wait là action đầu tiên trong `allowed_actions` của `task explain`; action đó có thể
+  không có lệnh (`command: null`, vd sửa config, thêm acceptance) và khi đó `note` nói việc cần làm.
+- `--task` phải là UUID (sai thì `invalid_request`, exit 2) của một task có thật (không thì
+  `task_not_found`, exit 4). `--project` không có trong config và không task nào mang thì `not_found`
+  (exit 4, `details.projects` liệt kê project của config). Bộ lọc sai không bao giờ trả danh sách rỗng.
+- Item xếp theo `(task_id, question_id)`; `--limit` 1–100 (mặc định 100). Còn item thì `truncated: true` và
+  `next_after`; truyền lại bằng `--after` để đọc trang sau. Reply có `queue_paused` như `status`.
+- Hook SessionStart (`cusr assistant session-start`) nêu ID và mã wait của các task cần người, cùng nguồn
+  với `attention_peek` (`tasks`: `task_id`, `code`, `undelivered`, tối đa 100).
+- `report`: item `needs_you` có `task_version`, `pause`, `next` và `questions` dạng
+  `{question_id, body}`; reply có `queue_paused`. `--since` nhận thêm epoch ms, nên `until` của lần trước
+  dùng được làm `since` lần sau. Ngày hoặc giờ ISO không có offset là giờ máy; ngày trần là nửa đêm theo
+  giờ máy.
 
 ## Tin nhắn cho agent
 

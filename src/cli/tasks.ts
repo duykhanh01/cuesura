@@ -980,23 +980,39 @@ export const yoloCommand: CliCommand = {
 
 export const inboxCommand: CliCommand = {
   name: 'inbox',
-  description: 'List open questions for accessible tasks',
+  description:
+    'List what waits on you: open questions and tasks that need you without one (paused, escalation, config)',
+  help: `Each item has kind (question or wait), wait_code, task_version and next, the command that moves it on.
+queue_paused is set while cusr queue pause holds every task that has not started.
+
+Examples:
+  cusr inbox --json
+  cusr inbox --task 019a0000-0000-7000-8000-000000000001
+  cusr inbox --limit 50 --after NEXT_AFTER --json`,
   options: [
     DATA_DIR,
     { flags: '--project <id>', description: 'Filter by project ID' },
     { flags: '--task <id>', description: 'Filter by task ID' },
+    { flags: '--limit <n>', description: 'Page size, from 1 to 100 (default: 100)' },
+    { flags: '--after <cursor>', description: 'next_after from the previous page' },
   ],
-  run: (values, json, io) =>
-    query(
+  run(values, json, io) {
+    const limit = values['limit'] === undefined ? undefined : Number(values['limit']);
+    if (limit !== undefined && !Number.isInteger(limit))
+      return Promise.resolve(usage('--limit must be an integer', json, io));
+    return query(
       values,
       {
         kind: 'inbox',
         ...(values['project'] === undefined ? {} : { project: values['project'] }),
         ...(values['task'] === undefined ? {} : { task_id: values['task'] }),
+        ...(limit === undefined ? {} : { limit }),
+        ...(values['after'] === undefined ? {} : { after: values['after'] }),
       },
       json,
       io,
-    ),
+    );
+  },
 };
 
 export const dispatchCommand: CliCommand = {

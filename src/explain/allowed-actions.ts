@@ -23,7 +23,8 @@ export type AllowedAction = {
     | 'propose'
     | 'wait'
     | 'task_add'
-    | 'fix_external';
+    | 'fix_external'
+    | 'resume_queue';
 
   readonly command: string | null;
   readonly note: string;
@@ -39,6 +40,17 @@ type Ctx = {
   readonly recheckable: boolean;
   /** Live tasks that end CANCELLED with this one (#249), its dependents' dependents included. */
   readonly dependents: number;
+  readonly queuePaused: boolean;
+  readonly prerequisites: readonly PrerequisiteState[];
+};
+
+/** A prerequisite as it stands now; `wait.detail.deps` is only what triage saw. */
+export type PrerequisiteState = {
+  readonly task_id: string;
+  readonly status: string;
+  readonly wait_code: string | null;
+  readonly paused: boolean;
+  readonly needs_user: boolean;
 };
 type Row = (c: Ctx) => (AllowedAction | null)[];
 
@@ -107,6 +119,33 @@ const wait = (note: string): AllowedAction => ({
   note,
   requires: null,
 });
+const resumeQueue: AllowedAction = {
+  action: 'resume_queue',
+  command: 'cusr queue resume',
+  note: 'The queue is paused (status.queue_paused says by whom and why): no task that has not started gets the execution slot until it is resumed. Ask the user before resuming.',
+  requires: 'operate',
+};
+
+function dependencyNote(c: Ctx): string {
+  const base = 'Starts its own checks once every prerequisite has a terminal status.';
+  const open = c.prerequisites.filter((p) => !['DONE', 'FAILED', 'CANCELLED'].includes(p.status));
+  if (open.length === 0) return base;
+  const stuck = open.filter((p) => p.paused || p.needs_user);
+  const listed = (stuck.length > 0 ? stuck : open)
+    .map((p) => {
+      const why = p.paused
+        ? 'paused'
+        : p.needs_user
+          ? `needs the user: ${p.wait_code ?? 'run config'}`
+          : null;
+      return `${p.task_id} (${p.status}${why === null ? '' : `, ${why}`})`;
+    })
+    .join(', ');
+  return stuck.length > 0
+    ? `${base} Blocked by ${listed}, which will not move on by itself; see cusr task explain on it.`
+    : `${base} Waiting on ${listed}.`;
+}
+
 const newTask: AllowedAction = {
   action: 'task_add',
   command: 'cusr task add --file FILE',
@@ -123,11 +162,13 @@ function questionId(s: TaskState): string | null {
   }
   return typeof w.detail['question_id'] === 'string' ? w.detail['question_id'] : null;
 }
+export const answerCommand = (questionId: string, version: number): string =>
+  `cusr answer ${questionId} --file FILE --expected-version ${version}`;
 const answer = (c: Ctx, note = 'Answer or supply what is missing.'): AllowedAction => {
   const qid = questionId(c.s);
   return {
     action: 'answer',
-    command: qid === null ? null : `cusr answer ${qid} --file FILE --expected-version ${c.version}`,
+    command: qid === null ? null : answerCommand(qid, c.version),
     note: qid === null ? `${note} No open question is recorded yet; run task explain again.` : note,
     requires: qid === null ? null : 'operate',
   };
@@ -231,10 +272,7 @@ function ghHead(s: TaskState): string {
 const ROWS: Readonly<Record<DetailCode, Row>> = {
   missing_acceptance: (c) => [external('Add a task with acceptance criteria.'), cancel(c), newTask],
   needs_confirmation: (c) => [confirm(c), cancel(c)],
-  dependency_pending: (c) => [
-    wait('Starts its own checks once every prerequisite has a terminal status.'),
-    cancel(c),
-  ],
+  dependency_pending: (c) => [wait(dependencyNote(c)), cancel(c)],
   dependency_failed: (c) => [cancel(c), newTask],
   config_invalid: configFix,
   capability_missing: configFix,
@@ -423,7 +461,12 @@ const ROWS: Readonly<Record<DetailCode, Row>> = {
 
 export function allowedActions(
   s: TaskState,
-  o: { readonly recheckable: boolean; readonly dependents?: number },
+  o: {
+    readonly recheckable: boolean;
+    readonly dependents?: number;
+    readonly queuePaused?: boolean;
+    readonly prerequisites?: readonly PrerequisiteState[];
+  },
 ): AllowedAction[] {
   const c: Ctx = {
     id: s.id,
@@ -432,9 +475,11 @@ export function allowedActions(
     hasPr: s.pr_ref !== null,
     recheckable: o.recheckable,
     dependents: o.dependents ?? 0,
+    queuePaused: o.queuePaused ?? false,
+    prerequisites: o.prerequisites ?? [],
   };
   if (s.terminal !== null) return [newTask];
-  const rows = cancelling(s, listed(c));
+  const rows = cancelling(s, queueHeld(c, listed(c)));
   // Pausing is offered to a started task that can still start work; resuming to a paused one that
   // waits on something else first (CI, a person, GitHub), whose outcome then waits for the resume.
   const paused = (s.pause ?? null) !== null;
@@ -456,6 +501,19 @@ function cancelling(s: TaskState, rows: AllowedAction[]): AllowedAction[] {
   return out.some((a) => a.action === 'wait')
     ? out
     : [wait('Cancel requested; the task ends once running work stops.'), ...out];
+}
+
+/**
+ * A paused queue holds every task that has not started (#256): its turn never comes, so waiting for it
+ * is not the way out. A dependency wait keeps its note, since the queue is only the next thing in line.
+ */
+function queueHeld(c: Ctx, rows: AllowedAction[]): AllowedAction[] {
+  const notStarted =
+    c.s.policy_ref === null && (c.s.status === 'READY' || c.s.status === 'PENDING');
+  if (!c.queuePaused || !notStarted) return rows;
+  if (c.s.wait?.detail.code === 'dependency_pending') return [...rows, resumeQueue];
+  if (!rows.some((a) => a.action === 'wait')) return rows;
+  return [resumeQueue, ...rows.filter((a) => a.action !== 'wait')];
 }
 
 const BASE_REPAIR_NOTE =

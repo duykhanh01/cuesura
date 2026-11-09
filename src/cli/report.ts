@@ -14,14 +14,20 @@ function realDay(text: string): boolean {
   return day.getUTCFullYear() === y && day.getUTCMonth() === mo - 1 && day.getUTCDate() === d;
 }
 
-/** `8h`, `2d`, `30m` back from `now`, or an ISO date or time; `null` when it is neither or in the future. */
+/**
+ * `8h`, `2d`, `30m` back from `now`, epoch ms (the `until` of an earlier report), or an ISO date or time;
+ * `null` when it is none of them or in the future. A date or time without an offset is local time: plain
+ * `Date.parse` reads a bare date as UTC but a bare time as local.
+ */
 export function parseSince(text: string, now: number): number | null {
   const ago = /^(\d+)([mhd])$/.exec(text);
   const at = ago
     ? now - Number(ago[1]) * UNIT_MS[ago[2] as keyof typeof UNIT_MS]
-    : realDay(text)
-      ? Date.parse(text)
-      : Number.NaN;
+    : /^\d+$/.test(text)
+      ? Number(text)
+      : realDay(text)
+        ? Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(text) ? `${text}T00:00` : text)
+        : Number.NaN;
   return Number.isFinite(at) && at >= 0 && at <= now ? at : null;
 }
 
@@ -33,13 +39,17 @@ export const reportCommand: CliCommand = {
   cusr report
   cusr report --project acme --since 8h
   cusr report --since 2026-11-02T22:00
-  cusr report --json`,
+  cusr report --since 1762156800000
+  cusr report --json
+
+--since takes the until of an earlier report (epoch ms) to continue from it. A date or time without an
+offset (Z, +07:00) is local time on this machine; a bare date is its local midnight.`,
   options: [
     DATA_DIR,
     { flags: '--project <id>', description: 'Only this project' },
     {
       flags: '--since <when>',
-      description: `How far back: 30m, 8h, 2d, or an ISO date or time (default: ${DEFAULT_SINCE})`,
+      description: `How far back: 30m, 8h, 2d, epoch ms, or an ISO date or time, local unless it has an offset (default: ${DEFAULT_SINCE})`,
     },
   ],
   run(values, json, io) {
@@ -51,7 +61,7 @@ export const reportCommand: CliCommand = {
     if (since === null)
       return Promise.resolve(
         badFlag(
-          `invalid --since ${JSON.stringify(given)}: use 30m, 8h, 2d, or an ISO date or time that is not in the future.`,
+          `invalid --since ${JSON.stringify(given)}: use 30m, 8h, 2d, epoch ms, or an ISO date or time that is not in the future.`,
           {},
           json,
           io,

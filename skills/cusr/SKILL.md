@@ -372,8 +372,15 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 ```sh
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr inbox --task "$TASK_ID" --json
+# Items are `kind: "question"` (an open question) or `kind: "wait"` (a task that needs
+# the user without one: paused, escalation, config, ...). Each has wait_code, task_version
+# and `next`, the first way out from task explain (its `command` may be null: then its
+# `note` says what to do); read explain for the others.
 # QUESTION_ID and current task_version come from the inbox item. An item with
 # `decider: true` is being answered by the decider; answer it only if the user wants to.
+# A wrong --task or --project is an error, not an empty list. Past 100 items `truncated`
+# is true: pass `next_after` as --after to read the next page. `queue_paused` set means
+# no task that has not started runs until `cusr queue resume`; ask the user first.
 # Supply the user's answer or known facts; unresolved decisions go to the user.
 # --file - reads the answer from stdin, so no temporary file is needed.
 printf '%s\n' "$ANSWER" | CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
@@ -399,8 +406,10 @@ printf '%s\n' "$MESSAGE" | CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 
 ```sh
 # What happened since a moment, per project: finished tasks (PR, reason, usage),
-# tasks waiting for the user with their open questions, running tasks and decider answers.
-# Built from the event log, no model. --since takes 30m, 8h, 2d or an ISO time (default 24h).
+# tasks waiting for the user (question_id, task_version, pause, next), running tasks,
+# decider answers and queue_paused. Built from the event log, no model. --since takes 30m,
+# 8h, 2d, epoch ms (the `until` of the last report) or an ISO time, local unless it has
+# an offset (default 24h).
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr report --project "$PROJECT" --since 24h --json
 # Present it to the user as is; do not act on needs_you items without the user.
@@ -457,7 +466,9 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 # Cuesura itself): what already started finishes, the next step waits as `paused` and the
 # slot goes back to the queue. Resume runs that step on the same revision, worktree and PR.
 # `--now` also stops the running agent attempt; it starts over in a new session on resume.
-# `cusr queue pause --reason ...` / `cusr queue resume` hold every task not started yet.
+# `cusr queue pause --reason ...` / `cusr queue resume` hold every task not started yet;
+# explain, board, report and status then show `queue_paused` (with age_ms), and a
+# task's allowed_actions offer `resume_queue` instead of waiting for its turn.
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task pause "$TASK_ID" --reason "$REASON" \
   --expected-version "$VERSION" --request-id "$PAUSE_REQUEST_ID" --json

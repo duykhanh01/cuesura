@@ -335,6 +335,10 @@ const ReportBase = {
 const ReportSchema = z.object({
   since: z.number(),
   until: z.number(),
+  queue_paused: z
+    .object({ reason: z.string(), by: z.string(), age_ms: z.number() })
+    .nullable()
+    .optional(),
   projects: z.array(
     z.object({
       project: z.string(),
@@ -351,7 +355,13 @@ const ReportSchema = z.object({
         z.object({
           ...ReportBase,
           wait_code: z.string().nullable(),
-          questions: z.array(z.string()),
+          questions: z.array(z.object({ question_id: z.string(), body: z.string() })),
+          task_version: z.number().optional(),
+          pause: z.object({ reason: z.string() }).nullable().optional(),
+          next: z
+            .object({ command: z.string().nullable(), note: z.string() })
+            .nullable()
+            .optional(),
         }),
       ),
       running: ReportSection(
@@ -387,8 +397,12 @@ const oneLine = (text: string): string => sanitize(text.replace(/\s+/g, ' '));
 export const renderReport: Render = (data) => {
   const r = ReportSchema.safeParse(data);
   if (!r.success) return stringify(data);
-  const { since, until, projects } = r.data;
+  const { since, until, projects, queue_paused: qp } = r.data;
   const lines = [`Report from ${when(since)} to ${when(until)}`];
+  if (qp != null)
+    lines.push(
+      `Queue paused by ${sanitize(qp.by)} ${Math.round(qp.age_ms / 60_000)} min ago: ${oneLine(qp.reason)}. No task that has not started runs until cusr queue resume.`,
+    );
   if (projects.length === 0) lines.push('', 'Nothing to report.');
   for (const p of projects) {
     lines.push('', `Project ${sanitize(p.project)}`);
@@ -421,9 +435,16 @@ export const renderReport: Render = (data) => {
             sanitize(t.title),
           ]),
         ),
-        ...needs_you.items.flatMap((t) =>
-          t.questions.map((q) => `  ${t.task_id} asks: ${oneLine(q)}`),
-        ),
+        ...needs_you.items.flatMap((t) => [
+          ...(t.task_version === undefined ? [] : [`  ${t.task_id} version ${t.task_version}`]),
+          ...(t.pause == null ? [] : [`  ${t.task_id} paused: ${oneLine(t.pause.reason)}`]),
+          ...t.questions.map((q) => `  ${t.task_id} asks (${q.question_id}): ${oneLine(q.body)}`),
+          ...(t.next == null
+            ? []
+            : [
+                `  ${t.task_id} next: ${t.next.command === null ? oneLine(t.next.note) : sanitize(t.next.command)}`,
+              ]),
+        ]),
       );
     if (running.items.length > 0)
       lines.push(

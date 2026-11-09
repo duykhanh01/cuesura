@@ -321,9 +321,19 @@ describe('waking the assistant (#268)', () => {
   it('a live holder that was sent everything makes peek say nothing is left to tell', () => {
     const { state, desk } = bench([waiting('a', 'merge')]);
     const d = desk();
-    expect(value(d.peek(CALLER))).toEqual({ waiting: 1, held: false, undelivered: 1 });
+    expect(value(d.peek(CALLER))).toEqual({
+      waiting: 1,
+      held: false,
+      undelivered: 1,
+      tasks: [{ task_id: 'a', code: 'merge', undelivered: true }],
+    });
     const { lease } = value(d.poll(CALLER, NEW));
-    expect(value(d.peek(CALLER))).toEqual({ waiting: 1, held: true, undelivered: 0 });
+    expect(value(d.peek(CALLER))).toEqual({
+      waiting: 1,
+      held: true,
+      undelivered: 0,
+      tasks: [{ task_id: 'a', code: 'merge', undelivered: false }],
+    });
     value(d.poll(CALLER, back(lease)));
     expect(value(d.peek(CALLER))).toMatchObject({ held: true, undelivered: 0 });
     state.tasks.push(waiting('b', 'merge'));
@@ -343,7 +353,7 @@ describe('waking the assistant (#268)', () => {
     expect(value(r.d.peek(CALLER))).toMatchObject({ held: true, undelivered: 0 });
     // Told everything, then died: a session opening must still be asked (#244 keeps it a user decision).
     r.state.now = ATTENTION_STALE_MS;
-    expect(value(r.d.peek(CALLER))).toEqual({ waiting: 1, held: false, undelivered: 0 });
+    expect(value(r.d.peek(CALLER))).toMatchObject({ waiting: 1, held: false, undelivered: 0 });
   });
 
   it('keeps the replaced session on disk, so its next Stop can be told without a hook parked', () => {

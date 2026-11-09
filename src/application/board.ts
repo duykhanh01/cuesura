@@ -18,8 +18,9 @@ import { UuidSchema, type Uuid } from '../shared/brand.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import type { Store } from '../store/index.ts';
 import type { Caller } from './authz.ts';
-import type { AppError } from './queries.ts';
+import type { AppError, QueuePauseReader } from './queries.ts';
 import { BOARD_LIMIT } from './limits.ts';
+import { queuePausedView } from '../explain/explain.ts';
 
 export { BOARD_LIMIT };
 export const ATTENTION_LIMIT = 200;
@@ -120,6 +121,7 @@ export type BoardDeps = {
   readonly store: Store;
   readonly statusSince: StatusSince;
   readonly now?: () => number;
+  readonly queuePause?: QueuePauseReader;
 };
 
 export function taskBoard(
@@ -140,10 +142,13 @@ export function taskBoard(
   const { store, statusSince } = deps;
   const now = deps.now?.();
   const watermark = store.lastGlobalSeq();
+  // A file outside the store, so the watermark does not move with it: sent with every reply (#256).
+  const queuePaused = queuePausedView(deps.queuePause?.() ?? null, now ?? Date.now());
   // An overdue `effect_unknown` wait sends the board in full, so a client never keeps the old answer.
   if (if_changed_since === watermark) {
     const due = effectUnknownDue(store, statusSince, watermark);
-    if (due === null || now === undefined || now < due) return ok({ unchanged: true, watermark });
+    if (due === null || now === undefined || now < due)
+      return ok({ unchanged: true, watermark, queue_paused: queuePaused });
   }
 
   const projects = project === undefined ? null : [project];
@@ -190,6 +195,7 @@ export function taskBoard(
       }),
     },
     queue: { length: store.queueLength(null) },
+    queue_paused: queuePaused,
     attention: { items: attention, truncated },
     items,
     next_cursor: page.length > limit ? (page[limit - 1] as string) : null,

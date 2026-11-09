@@ -23,7 +23,11 @@ import type { Admitted, CommandInput } from './commands.ts';
 import { confirmTask, type ConfirmDeps } from './confirm.ts';
 import { decisionError, engineRejection } from './engine-verdict.ts';
 import { recheckTarget, recheckTask, type RecheckDeps } from './recheck.ts';
-import { explainRuntime, type RuntimeExplanation } from '../explain/explain.ts';
+import { explainRuntime, queuePausedView, type RuntimeExplanation } from '../explain/explain.ts';
+import type { QueuePause } from '../daemon/queue-pause.ts';
+
+/** The queue pause in force now (`queue-paused.json`), or null; read per query since another command may change it. */
+export type QueuePauseReader = () => QueuePause | null;
 import { isTerminal, TASK_STATUSES } from '../domain/state.ts';
 import { asEpochMs } from '../shared/brand.ts';
 import { submit } from './triage.ts';
@@ -724,6 +728,7 @@ export function taskExplain(
   live: {
     readonly statusSince?: (s: TaskState) => number | null;
     readonly lastOutputAt?: (s: TaskState, attemptId: string) => number | null;
+    readonly queuePause?: QueuePauseReader;
   } = {},
 ): Result<unknown, AppError> {
   const q = TaskQuerySchema.safeParse(body);
@@ -752,6 +757,8 @@ export function taskExplain(
         dependents: liveDependents(store, caller, s.id),
         merge: mergeOf(store, s),
         status_since: live.statusSince?.(s) ?? null,
+        queue_paused: queuePausedView(live.queuePause?.() ?? null, now),
+        ...(live.statusSince === undefined ? {} : { prerequisite_since: live.statusSince }),
         ...(live.lastOutputAt === undefined
           ? {}
           : { last_output_at: (id: string) => live.lastOutputAt?.(s, id) ?? null }),

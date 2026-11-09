@@ -267,13 +267,16 @@ describe('addToReport', () => {
   it('lists open questions of a task that waits for the user', () => {
     const s = state({
       questions: {
-        q1: { id: 'q1', body: 'Open one', status: 'open' },
-        q2: { id: 'q2', body: 'Done one', status: 'answered' },
+        q1: { id: 'q1', body: 'Open one', status: 'open', revision: 1 },
+        q2: { id: 'q2', body: 'Done one', status: 'answered', revision: 1 },
+        q3: { id: 'q3', body: 'Withdrawn one', status: 'open', revision: 0 },
       } as unknown as TaskState['questions'],
     });
     const r = emptyReport('acme');
     addToReport(r, s, window, null);
-    expect(r.needs_you.items).toMatchObject([{ questions: ['Open one'] }]);
+    expect(r.needs_you.items).toMatchObject([
+      { questions: [{ question_id: 'q1', body: 'Open one' }] },
+    ]);
   });
 
   it('marks a section truncated past the limit', () => {

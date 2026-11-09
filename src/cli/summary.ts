@@ -115,7 +115,13 @@ export function explainSummary(data: unknown): unknown {
     prerequisites: list(data['prerequisites'])
       .map(record)
       .filter((p) => p['status'] !== 'DONE' || p['unverified'] !== null)
-      .map((p) => compact(pick(p, ['task_id', 'status', 'unverified']))),
+      .map((p) =>
+        compact({
+          ...pick(p, ['task_id', 'status', 'unverified', 'wait_code']),
+          paused: p['paused'] === true ? true : null,
+          needs_user: p['needs_user'] === true ? true : null,
+        }),
+      ),
     terminal: clip(data['terminal'] ?? null),
     unverified: record(data['completion'])['unverified'] ?? null,
     dependents: data['dependents'] ?? [],
@@ -123,6 +129,7 @@ export function explainSummary(data: unknown): unknown {
     scope: scopeSummary(data['scope']),
     cancellation: data['cancellation'],
     paused: data['paused'] ?? null,
+    queue_paused: data['queue_paused'] ?? null,
     allowed_actions: data['allowed_actions'],
     details: `cusr task explain ${id} --full`,
   });

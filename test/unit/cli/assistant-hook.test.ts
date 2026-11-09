@@ -590,6 +590,17 @@ describe('runStopHook', () => {
     expect(leaseQuestion(2)).toContain('only if they say yes');
   });
 
+  it('names the tasks that need the user, by ID and code only (#256)', () => {
+    const note = leaseQuestion(3, [
+      { task_id: 'task-1', code: 'paused' },
+      { task_id: 'task-2', code: 'escalation' },
+    ]);
+    expect(note).toContain(
+      '3 task(s) need the user: task-1 (paused), task-2 (escalation), and more.',
+    );
+    expect(note).toContain('cusr inbox');
+  });
+
   it('never puts worker text in the note', () => {
     const note = wakeNote([ITEM], true);
     expect(note).not.toContain(ITEM.title);
