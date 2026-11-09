@@ -25,10 +25,17 @@ export type RequestsDeps = {
 
 const QuerySchema = z.object({ kind: z.literal('request_show'), request_id: UuidSchema }).strict();
 
+// No request ID in the text: an unreadable request must answer exactly like an unknown one.
 const NOT_FOUND: AppError = {
   code: 'request_not_found',
   message: 'no request readable by this caller',
-  details: {},
+  details: {
+    next_step:
+      'This actor cannot read a request under this ID: the daemon has not received it yet, or another ' +
+      'actor sent it. If you sent it as another actor (CUSR_ACTOR), run cusr request show again as that ' +
+      'actor. Otherwise a request still on its way may appear: look again shortly, and if it never ' +
+      'appears, send the same command again with the same --request-id.',
+  },
 };
 
 /** The ledger row belongs to this actor. */

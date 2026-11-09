@@ -469,11 +469,15 @@ describe('harness records', () => {
 });
 
 type DoctorData = {
-  checks: { name: string; status: string; detail?: string }[];
+  checks?: { name: string; status: string; detail?: string }[];
 };
 
 describe('production task surface', () => {
-  const doctor = async (h: ReturnType<typeof setup>, afterStart: () => void = () => undefined) => {
+  const doctor = async (
+    h: ReturnType<typeof setup>,
+    afterStart: () => void = () => undefined,
+    body: Record<string, unknown> = { kind: 'doctor' },
+  ) => {
     const store = openFileStoreForTest(join(h.dataDir, STORE_FILE));
     try {
       const control = await productionControl({
@@ -501,16 +505,17 @@ describe('production task surface', () => {
             projects: '*',
           },
         } as never,
-        { kind: 'doctor' },
+        body,
       );
       const envelope = reply?.envelope as {
         data: unknown;
-        error: { details: unknown } | null;
+        error: { code: string; details: unknown } | null;
       };
       const data = (envelope.error?.details ?? envelope.data) as DoctorData;
       return {
-        check: data.checks.find((c) => c.name === 'manifest:claude'),
-        mounts: data.checks.find((c) => c.name === 'credential_mounts'),
+        envelope,
+        check: data.checks?.find((c) => c.name === 'manifest:claude'),
+        mounts: data.checks?.find((c) => c.name === 'credential_mounts'),
         effects: Object.keys(surface.effects).sort(),
         rounds: surface.rounds.length,
       };
@@ -578,6 +583,12 @@ describe('production task surface', () => {
     );
     expect(edited.check?.status).toBe('fail');
     expect(JSON.stringify(edited.check)).toContain('restart');
+  });
+
+  it('doctor on an unknown project lists the configured ones before any probe (issue #258)', async () => {
+    const h = setup();
+    const { envelope } = await doctor(h, undefined, { kind: 'doctor', project: 'nope' });
+    expect(envelope.error).toMatchObject({ code: 'not_found', details: { projects: [] } });
   });
 
   it('doctor does not claim an outer credential or filesystem boundary', async () => {

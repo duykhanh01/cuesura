@@ -260,7 +260,12 @@ async function planFor(
     return err({
       code: plan.error.code,
       message: plan.error.detail,
-      details: { reason: plan.error.reason },
+      details: {
+        reason: plan.error.reason,
+        ...(plan.error.reason === 'unknown_model'
+          ? { models: Object.keys(config.user.models).sort() }
+          : {}),
+      },
     });
   return plan;
 }

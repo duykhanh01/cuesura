@@ -415,8 +415,15 @@ export async function runDoctor(
       ),
     );
   } else {
-    checks.push(ok_('config', 'user config is valid'));
     const { runtime, locations, config } = validated.value;
+    // Before the probes, so a mistyped project fails at once.
+    if (project !== undefined && !Object.hasOwn(locations, project))
+      return err({
+        code: 'not_found',
+        message: `no project ${project} in the user config`,
+        details: { projects: Object.keys(locations).sort() },
+      });
+    checks.push(ok_('config', 'user config is valid'));
     const problems = await checkHost(host, runtime);
     if (problems.length === 0)
       checks.push(ok_('host', 'systemd user manager is usable; commands run on host'));
@@ -445,13 +452,7 @@ export async function runDoctor(
     for (const ref of runtime?.credential_refs ?? [])
       checks.push(credentialCheck(ref, await host.realpath(ref.file), deps.now()));
     if (project !== undefined) {
-      const loc = locations[project];
-      if (loc === undefined)
-        return err({
-          code: 'not_found',
-          message: `no project ${project} in the user config`,
-          details: {},
-        });
+      const loc = locations[project] as NonNullable<(typeof locations)[string]>;
       const path = loc.path === null ? null : await host.realpath(loc.path);
       checks.push(
         path === null

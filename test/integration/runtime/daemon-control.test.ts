@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { callDaemon, exitCodeFor, statusCommand } from '../../../src/cli/client.ts';
 import type { CallerActor } from '../../../src/application/authz.ts';
 import { ExitCode } from '../../../src/cli/output.ts';
+import { call } from '../../../src/cli/tasks.ts';
 import { packageVersion } from '../../../src/cli/program.ts';
 import Database from 'better-sqlite3';
 import {
@@ -278,6 +279,34 @@ describe('daemon control socket (T026)', () => {
       envelope: { ok: false, error: { code: 'task_not_cancellable' } },
     });
     expect(runs).toBe(2);
+  });
+
+  it('a mutation the client stopped waiting for still takes effect once; the same request ID gets its result (issue #258)', async () => {
+    const dir = dataDir();
+    let runs = 0;
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    const handler: CommandHandler = async () => {
+      runs++;
+      await gate;
+      return { ok: true, value: { cancelled: true } };
+    };
+    const started = await startDaemon({
+      dataDir: dir,
+      clock,
+      newId,
+      commands: { task_cancel: handler },
+    });
+    if (!started.ok) throw new Error(started.error.detail);
+    daemons.push(started.value);
+    const id = '11111111-1111-4111-8111-111111111111';
+    const timedOut = await call({ dataDir: dir }, '/v1/command', cancel(), id, 100);
+    expect(timedOut).toMatchObject({ ok: false, error: { code: 'daemon_timeout' } });
+    expect(exitCodeFor(timedOut)).toBe(ExitCode.connection);
+    const again = call({ dataDir: dir }, '/v1/command', cancel(), id);
+    release();
+    expect(await again).toMatchObject({ ok: true, data: { result: { cancelled: true } } });
+    expect(runs).toBe(1);
   });
 
   it('settles a client call when the daemon cuts the response mid-body', async () => {

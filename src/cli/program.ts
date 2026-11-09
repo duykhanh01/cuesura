@@ -195,12 +195,16 @@ export async function runCli(
     if (e.exitCode === 0) return ExitCode.ok;
     // Commander has already written its diagnostic to stderr.
     if (json) {
+      const choices = subcommandChoices(groups, argv);
       io.stdout(
         renderEnvelope(
           errorEnvelope({
             code: 'invalid_arguments',
-            message: e.message,
-            details: {},
+            message:
+              e.code === 'commander.help' && choices !== null
+                ? `${spec.name} ${choices.group} needs a subcommand: ${choices.subcommands.join(', ')}`
+                : e.message,
+            details: choices === null ? {} : { subcommands: choices.subcommands },
             request_id: null,
           }),
         ),
@@ -209,6 +213,19 @@ export async function runCli(
     return hookPath(argv) ? ExitCode.failure : ExitCode.usage;
   }
   return exitCode;
+}
+
+/** The subcommands of a group named without a valid one (`cusr queue`), so a caller can pick one. */
+function subcommandChoices(
+  groups: ReadonlyMap<string, Command>,
+  argv: readonly string[],
+): { group: string; subcommands: string[] } | null {
+  const words = argv.filter((a) => !a.startsWith('-'));
+  const name = words[0] ?? '';
+  const group = groups.get(name);
+  if (group === undefined) return null;
+  const subcommands = group.commands.map((c) => c.name());
+  return subcommands.includes(words[1] ?? '') ? null : { group: name, subcommands };
 }
 
 /** Commands an agent runs itself under `assistant`; the rest are hooks a harness runs. */

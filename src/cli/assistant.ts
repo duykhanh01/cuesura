@@ -47,6 +47,10 @@ const DELIVERY_WAIT_MS = 25_000;
 const DELIVERY_POLL_MS = 200;
 /** A daemon down this long is no restart: tasks stand still until someone looks. */
 export const UNREACHABLE_WAKE_MS = 5 * 60_000;
+
+/** A daemon that is down or too busy to answer: both resume on a later poll. */
+const unreachable = (code: string): boolean =>
+  code === 'daemon_unreachable' || code === 'daemon_timeout';
 /** Between tries of a note `codex queue` failed to hand over; the hook keeps parking meanwhile. */
 export const RETRY_MIN_MS = 30_000;
 const RETRY_MAX_MS = 5 * 60_000;
@@ -120,7 +124,7 @@ Examples:
         mode = 'resume';
         downSince = null;
         if (data.items.length > 0) return print(r, json, io);
-      } else if (r.error.code !== 'daemon_unreachable') return print(r, json, io);
+      } else if (!unreachable(r.error.code)) return print(r, json, io);
       else {
         // A restart is not news: the lease resumes on the first poll after it. A daemon that stays down is.
         downSince ??= Date.now();
@@ -456,7 +460,7 @@ export async function runStopHook(d: StopHookDeps): Promise<number> {
         return sent.exit;
       }
       if (lease !== before && mine()) save(d.pid, lease);
-    } else if (r.error.code === 'daemon_unreachable') {
+    } else if (unreachable(r.error.code)) {
       downSince ??= d.now();
       if (!told && d.now() - downSince >= UNREACHABLE_WAKE_MS && d.now() >= retryAt) {
         const sent = await d.deliver(unreachableNote(d.dataDir), DOWN_TOKEN);

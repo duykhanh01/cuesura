@@ -24,11 +24,17 @@ import {
   type Envelope,
 } from './output.ts';
 import { exitCodeFor } from './errors.ts';
+import { MAX_SOCKET_PATH_BYTES } from '../daemon/server.ts';
 import type { CliCommand } from './program.ts';
 
 export { exitCodeFor } from './errors.ts';
 
 export const DEFAULT_CLIENT_TIMEOUT_MS = 15_000;
+/**
+ * For `task confirm`, `task cancel` and `task approve --kind adopt`, which answer only after git fetches
+ * and GitHub reads that may each take up to a minute (preflight FETCH_TIMEOUT_MS, the GitHub round).
+ */
+export const NETWORK_MUTATION_TIMEOUT_MS = 240_000;
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 
 export type ClientError = {
@@ -91,14 +97,42 @@ export function clientErrorEnvelope(
       },
       request_id: requestId,
     });
+  // The daemon is there but did not answer in time; a mutation may have taken effect (issue #258).
+  if (error.code === 'timeout')
+    return errorEnvelope({
+      code: 'daemon_timeout',
+      message: error.message,
+      details: {
+        ...details,
+        data_dir: dataDir,
+        guidance:
+          requestId === null
+            ? 'The daemon did not answer in time; it may be busy. Run the same command again.'
+            : `The daemon did not answer in time, so the command may have taken effect. Check with ` +
+              `\`cusr request show ${requestId}\`, or send the same command again with --request-id ` +
+              `${requestId}: it never runs twice.`,
+      },
+      request_id: requestId,
+    });
   const notListening = error.code === 'connection' && /^(ENOENT|ECONNREFUSED):/.test(error.message);
+  const socketPath = join(dataDir, CONTROL_SOCKET);
+  const tooLong = Buffer.byteLength(socketPath) > MAX_SOCKET_PATH_BYTES;
   return errorEnvelope({
     code: 'daemon_unreachable',
     message: error.message,
     details: {
       ...details,
       data_dir: dataDir,
-      ...(notListening ? { guidance: startDaemonGuidance(dataDir) } : {}),
+      ...(tooLong
+        ? {
+            guidance:
+              `The socket path ${socketPath} is longer than the ${MAX_SOCKET_PATH_BYTES} bytes a Unix ` +
+              `socket allows. Use a data dir with a shorter path (--data-dir DIR or CUSR_DATA_DIR) for ` +
+              `both cusrd and cusr.`,
+          }
+        : notListening
+          ? { guidance: startDaemonGuidance(dataDir) }
+          : {}),
     },
     request_id: requestId,
   });

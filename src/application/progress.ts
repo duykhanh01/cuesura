@@ -13,6 +13,7 @@ import { err, ok, type Result } from '../shared/result.ts';
 import type { Store } from '../store/index.ts';
 import { authorize, type Caller } from './authz.ts';
 import type { AppError } from './queries.ts';
+import { badTaskId } from './task-id.ts';
 
 const QuerySchema = z.object({ kind: z.literal('task_progress'), task_id: UuidSchema }).strict();
 
@@ -81,12 +82,7 @@ export function taskProgress(
   statusSince?: (s: TaskState) => number | null,
 ): Result<unknown, AppError> {
   const q = QuerySchema.safeParse(body);
-  if (!q.success)
-    return err({
-      code: 'invalid_request',
-      message: 'task_id is required',
-      details: {},
-    });
+  if (!q.success) return err(badTaskId(body));
   const s = store.readTask(q.data.task_id);
   if (s === null || !authorize(caller, { role: 'read' }).ok)
     return err({

@@ -26,6 +26,11 @@ import {
   type CommandKind,
 } from '../application/commands.ts';
 import { requestShow } from '../application/requests.ts';
+import {
+  forbiddenGuidance,
+  withGuidance,
+  type GuidanceContext,
+} from '../application/error-guidance.ts';
 import { httpStatusFor } from '../cli/errors.ts';
 import { okEnvelope } from '../cli/output.ts';
 import type { RuntimeConfig } from '../config/normalize.ts';
@@ -35,7 +40,7 @@ import type { ConfigSource } from '../config/yaml-loader.ts';
 import type { IdentityProbe } from '../runner/identity.ts';
 import { Redactor } from '../runner/redact.ts';
 import { inspectUnit } from '../runner/supervisor.ts';
-import { asEpochMs } from '../shared/brand.ts';
+import { asEpochMs, type Uuid } from '../shared/brand.ts';
 import type { Result } from '../shared/result.ts';
 import type { Store, StoreOpenError } from '../store/index.ts';
 import { Dispatcher, type DispatchLog, type EffectHandlers } from './dispatch.ts';
@@ -158,7 +163,11 @@ function authzReply(e: AuthzError): Reply {
     : errorReply(403, {
         code: 'forbidden',
         message: `requires ${e.reason} ${e.required}`,
-        details: { reason: e.reason, required: e.required },
+        details: {
+          reason: e.reason,
+          required: e.required,
+          guidance: forbiddenGuidance(e.reason, e.required),
+        },
       });
 }
 
@@ -208,10 +217,15 @@ type CommandOutcome =
   | { readonly ok: true; readonly value: unknown }
   | { readonly ok: false; readonly error: HandlerError };
 
-function outcomeReply(requestId: string, outcome: CommandOutcome, replayed: boolean): Reply {
+function outcomeReply(
+  requestId: string,
+  outcome: CommandOutcome,
+  replayed: boolean,
+  ctx: GuidanceContext,
+): Reply {
   if (!outcome.ok)
     return errorReply(httpStatusFor(outcome.error.code), {
-      ...outcome.error,
+      ...withGuidance(outcome.error, ctx),
       request_id: requestId,
     });
   return {
@@ -434,6 +448,10 @@ export async function startDaemon(
   const inFlight = new Map<string, Promise<Reply>>();
   // Requests whose handler threw in this process; their ledger row stays admitted so the same ID runs again.
   const failed = new Set<string>();
+  const guidanceContext = (taskId: string | null): GuidanceContext => {
+    const s = taskId === null ? null : store.readTask(taskId as Uuid);
+    return { taskId: s === null ? null : taskId, version: s?.version ?? null };
+  };
   const queries: Readonly<Record<string, QueryHandler>> = {
     ...opts.queries,
     ...extra.queries,
@@ -514,7 +532,12 @@ export async function startDaemon(
       }
       const record = admitted.value.record;
       if (record.status === 'completed')
-        return outcomeReply(record.request_id, record.result as CommandOutcome, true);
+        return outcomeReply(
+          record.request_id,
+          record.result as CommandOutcome,
+          true,
+          guidanceContext(record.task_id),
+        );
       // The same request already running in this process: wait for its answer instead of running twice.
       const running = inFlight.get(record.request_id);
       if (running !== undefined) return running.then(replayedReply);
@@ -551,7 +574,7 @@ export async function startDaemon(
           return admitReply(done.error, record.request_id);
         }
         if (r.ok) dispatcher.tick();
-        return outcomeReply(record.request_id, outcome, false);
+        return outcomeReply(record.request_id, outcome, false, guidanceContext(record.task_id));
       })();
       inFlight.set(record.request_id, run);
       try {

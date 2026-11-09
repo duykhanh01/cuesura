@@ -78,7 +78,7 @@ export async function dispatchGuidance(
     return err({
       code: 'not_found',
       message: `no project ${project}`,
-      details: {},
+      details: { projects: Object.keys(locations).sort() },
     });
 
   const location = locations[project];

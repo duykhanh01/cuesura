@@ -29,6 +29,7 @@ import { asEpochMs } from '../shared/brand.ts';
 import { submit } from './triage.ts';
 import { RunSelectionSchema, type RunProposal, type RunSelection } from '../domain/run-config.ts';
 import { computeRunOptions, resolveProposal } from './run-options.ts';
+import { badTaskId } from './task-id.ts';
 import { runConfigConfirmed } from '../engine/run-config.ts';
 
 export type AppError = {
@@ -515,12 +516,7 @@ export function taskShow(
   body: Readonly<Record<string, unknown>>,
 ): Result<unknown, AppError> {
   const q = TaskQuerySchema.safeParse(body);
-  if (!q.success)
-    return err({
-      code: 'invalid_request',
-      message: 'task_id is required',
-      details: {},
-    });
+  if (!q.success) return err(badTaskId(body));
   const s = readable(store, caller, q.data.task_id);
   if (!s.ok) return s;
   return ok({
@@ -541,12 +537,7 @@ export function taskContent(
   body: Readonly<Record<string, unknown>>,
 ): Result<unknown, AppError> {
   const q = TaskQuerySchema.safeParse(body);
-  if (!q.success)
-    return err({
-      code: 'invalid_request',
-      message: 'task_id is required',
-      details: {},
-    });
+  if (!q.success) return err(badTaskId(body));
   const r = readable(store, caller, q.data.task_id);
   if (!r.ok) return r;
   const s = r.value;
@@ -736,12 +727,7 @@ export function taskExplain(
   } = {},
 ): Result<unknown, AppError> {
   const q = TaskQuerySchema.safeParse(body);
-  if (!q.success)
-    return err({
-      code: 'invalid_request',
-      message: 'task_id is required',
-      details: {},
-    });
+  if (!q.success) return err(badTaskId(body));
   const r = readable(store, caller, q.data.task_id);
   if (!r.ok) return r;
   const s = r.value;

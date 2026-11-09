@@ -28,6 +28,7 @@ import { authorize, type Caller } from './authz.ts';
 import type { ConfirmDeps } from './confirm.ts';
 import { readLocalBaseConfig } from './preflight.ts';
 import type { AppError } from './queries.ts';
+import { badTaskId } from './task-id.ts';
 import { checkSelection } from './run-config.ts';
 
 /** At most this many mode, worker and reviewer combinations are tried per task. */
@@ -353,12 +354,7 @@ export async function runOptions(
   body: Readonly<Record<string, unknown>>,
 ): Promise<Result<unknown, AppError>> {
   const q = QuerySchema.safeParse(body);
-  if (!q.success)
-    return err({
-      code: 'invalid_request',
-      message: 'task_id is required',
-      details: {},
-    });
+  if (!q.success) return err(badTaskId(body));
   const s = deps.store.readTask(q.data.task_id);
   if (s === null || !authorize(caller, { role: 'read' }).ok)
     return err({

@@ -207,8 +207,11 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 ## Look up after a timeout
 
 ```sh
-# A socket timeout (exit 3) after sending does not prove the mutation failed.
-# Look the request up by the ID you kept; do not send a new one first.
+# daemon_timeout (exit 3) means the daemon is running but did not answer in time; it
+# does not prove the mutation failed. details.guidance names the request: look it up
+# by that ID, or send the SAME command with the SAME --request-id (it never runs twice).
+# Do not send it with a new ID. task confirm, cancel, recheck and approve --kind adopt
+# wait up to 4 minutes, since they answer only after git fetches and GitHub reads.
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr request show "$REQUEST_ID" --json
 # Exit 0 means the lookup worked, even when the operation was rejected: read
@@ -219,21 +222,31 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 # --expected-version) to finish it. An `internal` error (exit 1) carries the request ID too:
 # retry it the same way, never with a new ID.
 # request_not_found (exit 4) means only that the request was not admitted at lookup time:
-# it may still arrive. Do not tell the user it did not happen; check `task list` before re-adding.
+# it may still arrive; details.next_step says what to do. Do not tell the user it did not
+# happen; check `task list` before re-adding.
 # Only the same actor and an in-scope project can see a request.
 ```
 
 ## Exit codes of a mutation
 
+- Every refusal below carries `details.guidance` naming the next step, usually `cusr task explain`;
+  follow it before reading further.
 - Exit 6 (`rejected` or `conflict`): the task's state does not allow the command now. Reread the task;
   do not resend it unchanged. `details.reason` names the refusal and `details.detail` the engine's
   detail. `conflict` with `reason: "task_terminal"` means the task has ended and nothing was done.
+  A `stale_version` conflict carries `details.version`, the task's version now: resend with it only
+  if the command still applies after rereading the task.
+- Exit 5 `forbidden` with `details.required: "admin"`: only the user may run it. Do not retry; give
+  the command to the user.
 - Exit 6 `nothing_to_recheck`: the task has nothing a recheck can do now; `details.target` is the
   recheck the engine refused, or null when none applies.
 - A losing `answer` (someone answered first) is exit 6 `conflict` with `reason: "already_answered"`;
   it does not make the version you read stale for your next command.
-- Exit 2 with `invalid_arguments`: fix the input, e.g. `details.missing` (unknown `depends_on` IDs) or
-  `details.choices` (allowed answers).
+- Exit 2 with `invalid_arguments`: fix the input, e.g. `details.missing` (unknown `depends_on` IDs),
+  `details.choices` (allowed answers), `details.subcommands` (a group such as `cusr queue` named
+  without a valid subcommand) or `details.models` (`amend-policy --model` with a model not configured).
+  `cusr dispatch` without `--project`, and `dispatch`/`doctor` on an unknown project (exit 4
+  `not_found`), list the configured projects in `details.projects`.
 - Exit 1 with `response_too_large`: the reply was over the client's limit; ask for less (lower
   `--limit`, drop `--full`). Exit 1 otherwise is the daemon failing to do the command.
 - `task pause` of a paused task is exit 0 with `ignored: "already_paused"` and `task resume` of a task
@@ -326,7 +339,8 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 - On Codex, `daemon_unreachable` with `EPERM` means the sandbox blocked the daemon socket, not that the daemon is
   down. Ask to run the `cusr` command outside the sandbox; do not start a daemon or change Codex settings yourself.
 - `daemon_unreachable` with `ENOENT` or `ECONNREFUSED` means no daemon listens on that data dir; `details.guidance`
-  says how the user starts one. Relay it; do not start a daemon yourself.
+  says how the user starts one. Relay it; do not start a daemon yourself. With `EINVAL`, `details.guidance` says
+  when the socket path is too long for a Unix socket; tell the user to use a shorter data dir.
 - `worker_refused` (exit 5) means this process runs inside a Cuesura worker or operation. Workers must not call
   `cusr`; stop using it.
 - `/new` starts another session and the old one stops getting news. If a `cusr:` note asks about the lease, ask the

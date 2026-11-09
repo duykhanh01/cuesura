@@ -124,6 +124,15 @@ describe('task amend-policy over the control socket (issue #105)', () => {
     expect(last).toMatchObject({ rung: 1, binding: 'sol/high' });
   });
 
+  it('lists the configured models for a model it does not know (issue #258)', async () => {
+    const { preview } = await exhausted();
+    const r = await preview({ model: 'gpt-x' });
+    expect(r.code).toBe(ExitCode.usage);
+    const details = r.envelope.error?.['details'] as { reason?: string; models?: string[] };
+    expect(details.reason).toBe('unknown_model');
+    expect(details.models).toEqual(expect.arrayContaining(['sonnet', 'sol']));
+  });
+
   it('keeps the amendment across a restart and the store still replays to the same state', async () => {
     const { sd, t, store, command, preview } = await exhausted();
     const shown = await preview({ model: 'haiku' });

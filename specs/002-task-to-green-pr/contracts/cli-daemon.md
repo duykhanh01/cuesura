@@ -118,13 +118,41 @@ trước (`details.target: null`, kèm `status`) hay engine từ chối target (
 `ignored: "already_paused"`/`"not_paused"`, nên gửi lại sau timeout bằng request ID mới không ra exit 6
 cho lệnh đã có hiệu lực (issue #260).
 
+### Bước tiếp theo trong lỗi
+
+Daemon thêm `details.guidance` vào lỗi của command chưa có guidance, lúc trả reply (không lưu vào ledger,
+nên replay nêu version lúc đó) ([error-guidance.ts](../../../src/application/error-guidance.ts), issue #258):
+`rejected`, `conflict` và `nothing_to_recheck` chỉ `cusr task explain ID`; `conflict` vì `stale_version`
+thêm `details.version` là version hiện tại của task và bảo gửi lại với `--expected-version` đó nếu lệnh
+còn đúng; `conflict` của `answer` (`already_answered`, `question_not_open`) nói câu hỏi đã có trả lời hoặc
+đã đóng. `forbidden` (của admission hoặc engine) vì thiếu quyền admin bảo đưa lệnh cho người dùng chạy;
+sai project thì nêu project đúng. `message` của `nothing_to_recheck` từ engine nêu target
+(`recheck_not_applicable: target drain`). Output cho người đọc in `guidance` và `next_step` của lỗi thành
+dòng stderr, cùng danh sách `details.projects`/`details.models`.
+
+Lỗi thiếu lựa chọn liệt kê lựa chọn hợp lệ: nhóm lệnh thiếu hoặc sai lệnh con (`cusr queue --json`) trả
+`invalid_arguments` có `details.subcommands`; `cusr dispatch` thiếu `--project`, `dispatch` và `doctor`
+với project không có trả `details.projects` (`doctor` kiểm project trước khi chạy probe);
+`amend-policy --model` với model chưa cấu hình trả `details.models`. Query theo task với `task_id` không
+phải UUID trả `invalid_request` nêu ID đó, kèm guidance tìm ID bằng `cusr task list`.
+
 Data dir của `cusr` lấy theo thứ tự `--data-dir`, `CUSR_DATA_DIR`, `~/.cusr`. `--data-dir` là option toàn cục:
 đặt trước lệnh (`cusr --data-dir DIR status`) hay sau lệnh đều được; cho cả hai chỗ thì giá trị sau lệnh thắng.
 Không mở được socket thì lỗi `daemon_unreachable` (exit 3) có `details.data_dir`; khi socket không có
 (`ENOENT`) hoặc bị từ chối (`ECONNREFUSED`), thêm `details.guidance`: chép config mẫu
 [deploy/config.example.yaml](../../../deploy/config.example.yaml), chạy
 `cusrd --config FILE --data-dir DIR` (daemon tự tạo data dir, không có token phải tạo), hoặc trỏ `cusr`
-tới data dir của daemon đang chạy. Output cho người đọc in `guidance` thành dòng stderr thứ hai.
+tới data dir của daemon đang chạy. Output cho người đọc in `guidance` thành dòng stderr thứ hai. Đường
+dẫn socket dài hơn 107 byte thì `daemon_unreachable` có guidance bảo dùng data dir ngắn hơn.
+
+Daemon không trả lời kịp hạn của client thì lỗi `daemon_timeout` (exit 3), không phải
+`daemon_unreachable`: daemon vẫn chạy và mutation có thể đã có hiệu lực. Với mutation, `details.guidance`
+bảo chạy `cusr request show REQUEST_ID` hoặc gửi lại cùng lệnh với cùng `--request-id` (request đang chạy
+thì lần gửi lại chờ nó, không chạy lần hai). Hạn mặc định 15 giây; `task confirm`, `task cancel`,
+`task recheck` và `task approve --kind adopt` chờ 240 giây, vì handler chỉ trả lời sau `git fetch` của
+preflight (tối đa 60 giây mỗi lần) và lượt đọc GitHub (tối đa 60 giây). `request show` trả
+`request_not_found` có `details.next_step`: hỏi lại sau, không bao giờ xuất hiện thì gửi lại cùng
+`--request-id`.
 
 `cusr` từ chối chạy khi environment có `CUSR_ATTEMPT_ID` (mọi lượt harness của worker) hoặc
 `CUSR_OPERATION_ID` (mọi process daemon chạy cho một operation: gate, setup, Git): lỗi `worker_refused`,

@@ -7,7 +7,13 @@ import { join } from 'node:path';
 import { v7 as uuidv7 } from 'uuid';
 import { stringify } from 'yaml';
 import { CONTROL_SOCKET, errorEnvelope, renderEnvelope, type Envelope } from './output.ts';
-import { callDaemon, clientErrorEnvelope, readClientActor, resolveDataDir } from './client.ts';
+import {
+  callDaemon,
+  clientErrorEnvelope,
+  NETWORK_MUTATION_TIMEOUT_MS,
+  readClientActor,
+  resolveDataDir,
+} from './client.ts';
 import { exitCodeFor } from './errors.ts';
 import { DATA_DIR, badFlag } from './base.ts';
 import {
@@ -64,6 +70,11 @@ export async function call(
   return env;
 }
 
+const CHOICE_LISTS = [
+  ['projects', 'valid projects'],
+  ['models', 'configured models'],
+] as const;
+
 export function print(
   envelope: Envelope,
   json: boolean,
@@ -77,8 +88,14 @@ export function print(
     io.stderr(
       `cusr: ${envelope.error.code}: ${envelope.error.message}${id === null ? '' : ` (request ${id})`}\n`,
     );
-    const guidance = envelope.error.details['guidance'];
-    if (typeof guidance === 'string') io.stderr(`cusr: ${guidance}\n`);
+    for (const key of ['guidance', 'next_step']) {
+      const text = envelope.error.details[key];
+      if (typeof text === 'string') io.stderr(`cusr: ${text}\n`);
+    }
+    for (const [key, label] of CHOICE_LISTS) {
+      const valid = envelope.error.details[key];
+      if (Array.isArray(valid)) io.stderr(`cusr: ${label}: ${valid.join(', ') || '(none)'}\n`);
+    }
     const issues = envelope.error.details['issues'];
     if (Array.isArray(issues)) for (const issue of issues) io.stderr(`cusr: ${String(issue)}\n`);
     const checks = envelope.error.details['checks'] as
@@ -210,6 +227,7 @@ async function mutate(
   payload: unknown,
   json: boolean,
   io: CliIo,
+  timeoutMs?: number,
 ): Promise<number> {
   const expected = version(values);
   if (expected === null)
@@ -228,6 +246,7 @@ async function mutate(
         payload,
       },
       requestId,
+      timeoutMs,
     );
   const reply = await send(values['project'] ?? null);
   // A daemon older than #259 does not fill in the project of the task, so it is read here.
@@ -618,6 +637,7 @@ export const confirmCommand: CliCommand = {
       values['runConfig'] === undefined ? {} : { run_config_digest: values['runConfig'] },
       json,
       io,
+      NETWORK_MUTATION_TIMEOUT_MS,
     ),
 };
 
@@ -651,6 +671,7 @@ export const cancelCommand: CliCommand = {
       },
       json,
       io,
+      NETWORK_MUTATION_TIMEOUT_MS,
     ),
 };
 
@@ -660,7 +681,16 @@ export const recheckCommand: CliCommand = {
     'Recheck task configuration, pull request, drain, or worktree based on its current state',
   args: ['<id>'],
   options: [DATA_DIR, REQUEST_ID, PROJECT, EXPECTED_VERSION],
-  run: (values, json, io) => mutate(values, 'task_recheck', values['id'] as string, {}, json, io),
+  run: (values, json, io) =>
+    mutate(
+      values,
+      'task_recheck',
+      values['id'] as string,
+      {},
+      json,
+      io,
+      NETWORK_MUTATION_TIMEOUT_MS,
+    ),
 };
 
 export const pauseCommand: CliCommand = {
@@ -847,7 +877,15 @@ export const approveCommand: CliCommand = {
       const head = values['headSha'];
       if (head === undefined)
         return Promise.resolve(usage('task approve --kind adopt requires --head-sha', json, io));
-      return mutate(values, 'approve_adopt', values['id'] as string, { head_sha: head }, json, io);
+      return mutate(
+        values,
+        'approve_adopt',
+        values['id'] as string,
+        { head_sha: head },
+        json,
+        io,
+        NETWORK_MUTATION_TIMEOUT_MS,
+      );
     }
     const rung = values['rung'] === undefined ? NaN : Number(values['rung']);
     if (values['kind'] !== 'escalation' || values['step'] === undefined || !Number.isInteger(rung))
@@ -966,10 +1004,25 @@ export const dispatchCommand: CliCommand = {
   description:
     'Show the guidance for choosing run settings; cusr.dispatch.yaml overrides the config',
   options: [DATA_DIR, { flags: '--project <id>', description: 'Project ID' }],
-  run: (values, json, io) =>
-    values['project'] === undefined
-      ? Promise.resolve(usage('dispatch requires --project', json, io))
-      : query(values, { kind: 'dispatch', project: values['project'] }, json, io),
+  async run(values, json, io) {
+    if (values['project'] !== undefined)
+      return query(values, { kind: 'dispatch', project: values['project'] }, json, io);
+    // The valid projects come from the daemon; without it the usage error still stands.
+    const listed = await call(values, '/v1/query', { kind: 'project_list' }, null);
+    const projects = listed.ok
+      ? (listed.data as { projects: { id: string }[] }).projects.map((p) => p.id)
+      : null;
+    return print(
+      fail(
+        'invalid_arguments',
+        'dispatch requires --project',
+        projects === null ? {} : { projects },
+        null,
+      ),
+      json,
+      io,
+    );
+  },
 };
 
 export const answerCommand: CliCommand = {

@@ -39,7 +39,7 @@ export function exitCodeForError(code: string): ExitCode {
   if (MISSING.includes(code)) return ExitCode.missing;
   if (USAGE.includes(code)) return ExitCode.usage;
   if (CONFLICT.includes(code)) return ExitCode.conflict;
-  if (code === 'daemon_unreachable') return ExitCode.connection;
+  if (code === 'daemon_unreachable' || code === 'daemon_timeout') return ExitCode.connection;
   return ExitCode.failure;
 }
 
