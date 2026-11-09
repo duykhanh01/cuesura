@@ -13,7 +13,7 @@ import { cancelTask } from '../application/cancel.ts';
 import { continueTask, failWaitingTask } from '../application/continue.ts';
 import { messageTask, pauseTask, resumeTask } from '../application/pause.ts';
 import { runDoctor, type DoctorDeps, type DoctorProbeCache } from '../application/doctor.ts';
-import { AttentionDesk, type DeciderWatch } from '../application/attention.ts';
+import { AttentionDesk, type DeputyWatch } from '../application/attention.ts';
 import { inbox } from '../application/inbox.ts';
 import { taskGateLog, taskGates } from '../application/gate-logs.ts';
 import { lastOutputAt, LogRecordCache, taskLogs, type LogsDeps } from '../application/logs.ts';
@@ -68,21 +68,25 @@ export type TaskControlDeps = TaskServiceDeps & {
   /** Where the registered assistant session is kept; without it nothing can be registered. */
   readonly dataDir?: string;
   /**
-   * Holds back from the assistant what the decider may still answer itself; marks it in the inbox, and
-   * is told after an answer, cancel or pause so a run the person overtook stops.
+   * Holds back from the assistant what the deputy may still handle itself, and shows what a turn gave
+   * the owner. A person's command is never refused for a turn; the deputy's stale one is (FR-057).
    */
-  readonly decider?: DeciderWatch & { readonly recheck?: (taskId: string) => Promise<void> };
+  readonly deputy?: DeputyWatch;
   /** Other waits the daemon ends or hands on by itself; the assistant is not woken for them (007). */
-  readonly held?: DeciderWatch;
+  readonly held?: DeputyWatch;
 };
 
 /** One watch for the attention desk: held by either. */
 function heldByEither(
-  a: DeciderWatch | undefined,
-  b: DeciderWatch | undefined,
-): DeciderWatch | undefined {
+  a: DeputyWatch | undefined,
+  b: DeputyWatch | undefined,
+): DeputyWatch | undefined {
   if (a === undefined || b === undefined) return a ?? b;
-  return { holds: (s) => a.holds(s) || b.holds(s), version: () => a.version() + b.version() };
+  return {
+    holds: (s) => a.holds(s) || b.holds(s),
+    version: () => a.version() + b.version(),
+    ...(a.handedOff === undefined ? {} : { handedOff: a.handedOff }),
+  };
 }
 
 /** The explanation with what the branch touches and how it stands against its base (issue #210). */
@@ -163,7 +167,7 @@ export function taskControl(deps: TaskControlDeps): {
   };
   queries: Record<string, QueryHandler>;
 } {
-  const { store, logs, doctor, decider } = deps;
+  const { store, logs, doctor, deputy } = deps;
   const statusSince = statusSinceReader(store);
   const logCache = new LogRecordCache();
   const probeCache: DoctorProbeCache = new Map();
@@ -177,9 +181,9 @@ export function taskControl(deps: TaskControlDeps): {
     store,
     now: deps.now,
     ...(deps.dataDir === undefined ? {} : { dataDir: deps.dataDir }),
-    ...(heldByEither(deps.decider, deps.held) === undefined
+    ...(heldByEither(deps.deputy, deps.held) === undefined
       ? {}
-      : { decider: heldByEither(deps.decider, deps.held) as DeciderWatch }),
+      : { deputy: heldByEither(deps.deputy, deps.held) as DeputyWatch }),
   });
   const queuePause = (): QueuePause | null =>
     deps.dataDir === undefined ? null : readQueuePause(deps.dataDir);
@@ -187,14 +191,6 @@ export function taskControl(deps: TaskControlDeps): {
     const validated = validateConfig({ user: (await deps.confirm.configInputs()).user, packs: {} });
     return validated.ok ? Object.keys(validated.value.locations) : null;
   };
-  const overtakes =
-    (handler: CommandHandler): CommandHandler =>
-    async (admitted, input, caller) => {
-      const r = await handler(admitted, input, caller);
-      if (r.ok && input.task_id !== null && input.task_id !== undefined)
-        void deps.decider?.recheck?.(input.task_id);
-      return r;
-    };
   return {
     commands: {
       task_add: async (admitted, input, caller) =>
@@ -203,20 +199,16 @@ export function taskControl(deps: TaskControlDeps): {
         withSlotBlock(scope, await taskConfirm(deps, admitted, input, caller)),
       task_propose_run: async (admitted, input, caller) =>
         withSlotBlock(scope, await taskProposeRun(deps, admitted, input, caller)),
-      answer: overtakes((admitted, input, caller) => answerQuestion(deps, admitted, input, caller)),
-      task_cancel: overtakes((admitted, input, caller) =>
-        cancelTask(deps, admitted, input, caller),
-      ),
+      answer: (admitted, input, caller) => answerQuestion(deps, admitted, input, caller),
+      task_cancel: (admitted, input, caller) => cancelTask(deps, admitted, input, caller),
       approve_escalation: (admitted, input, caller) =>
         approveEscalation(deps, admitted, input, caller),
       approve_adopt: (admitted, input, caller) =>
         approveAdopt(deps.confirm, admitted, input, caller),
       task_continue: (admitted, input, caller) => continueTask(deps, admitted, input, caller),
-      task_fail: overtakes((admitted, input, caller) =>
-        failWaitingTask(deps, admitted, input, caller),
-      ),
+      task_fail: (admitted, input, caller) => failWaitingTask(deps, admitted, input, caller),
       task_amend_policy: (admitted, input, caller) => amendPolicy(deps, admitted, input, caller),
-      task_pause: overtakes((admitted, input, caller) => pauseTask(deps, admitted, input, caller)),
+      task_pause: (admitted, input, caller) => pauseTask(deps, admitted, input, caller),
       task_resume: (admitted, input, caller) => resumeTask(deps, admitted, input, caller),
       task_message: (admitted, input, caller) => messageTask(deps, admitted, input, caller),
       ...(deps.observe === undefined || deps.drain === undefined || deps.newId === undefined
@@ -229,7 +221,7 @@ export function taskControl(deps: TaskControlDeps): {
       inbox: async (caller, body) =>
         reply(
           inbox(store, caller, body, {
-            ...(deps.decider === undefined ? {} : { decider: deps.decider }),
+            ...(deputy === undefined ? {} : { deputy }),
             now: deps.now(),
             statusSince,
             queuePause,
@@ -293,7 +285,7 @@ export function taskControl(deps: TaskControlDeps): {
                     cache: logCache,
                     now: deps.now,
                     statusSince,
-                    ...(decider === undefined ? {} : { holds: (s) => decider.holds(s) }),
+                    ...(deputy === undefined ? {} : { holds: (s) => deputy.holds(s) }),
                   },
                   caller,
                   body,

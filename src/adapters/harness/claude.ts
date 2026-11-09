@@ -99,8 +99,11 @@ function settingsFor(
   const mappedAllowWrite = allowWrite.map((path: unknown) => hostPath(String(path)));
   const mappedDenyWrite = denyWrite.map((path: unknown) => hostPath(String(path)));
   const native = input.host_execution
-    ? // Adapters receive a boundary; the decider arrives as `reviewer`.
-      nativeSandboxEnabled(pin, input.role === 'decider' ? 'reviewer' : input.role)
+    ? // Adapters receive a boundary; the decider arrives as `reviewer`, the deputy as `fixer`.
+      nativeSandboxEnabled(
+        pin,
+        input.role === 'decider' ? 'reviewer' : input.role === 'deputy' ? 'fixer' : input.role,
+      )
     : input.inner_mode === 'native';
   if (input.host_execution && input.inner_mode === 'external_verified')
     return {

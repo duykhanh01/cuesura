@@ -90,7 +90,8 @@ import {
   removeAuth,
   type InstalledAuth,
 } from './private-home.ts';
-import { ATTEMPT_ENV } from './process-tag.ts';
+import { ATTEMPT_ENV, DEPUTY_TURN_ENV } from './process-tag.ts';
+import { DATA_DIR_ENV } from './process-env.ts';
 import { Redactor } from './redact.ts';
 import {
   ensurePrivateTmpDir,
@@ -216,6 +217,7 @@ export class InvocationUnknown extends Error {
 export function attemptLayoutInputs(
   pin: VendorPin,
   attemptId: string,
+  deputy?: { readonly turn: string; readonly data_dir: string },
 ): { toolchain: string[]; env: Record<string, string> } {
   return {
     toolchain: [...new Set([dirname(pin.binary.realpath), ...pin.toolchain])],
@@ -223,8 +225,21 @@ export function attemptLayoutInputs(
       ...pin.env,
       // Label our headless Claude sessions explicitly: anthropics/claude-code#97074.
       ...(pin.vendor === 'claude' ? { CLAUDE_CODE_ENTRYPOINT: 'cuesura' } : {}),
-      [ATTEMPT_ENV]: attemptId,
+      ...(deputy === undefined
+        ? { [ATTEMPT_ENV]: attemptId }
+        : { [DEPUTY_TURN_ENV]: deputy.turn, [DATA_DIR_ENV]: deputy.data_dir }),
     },
+  };
+}
+
+/** A deputy turn answers only with its closing message, which is what the daemon reads (007). */
+function asTurn(input: HarnessInput, out: HarnessOutcome): HarnessOutcome {
+  if (input.role !== 'deputy' || out.kind !== 'result') return out;
+  const { value, raw_digest: _raw, schema_digest: _schema, ...facts } = out;
+  return {
+    ...facts,
+    kind: 'turn_ended',
+    final_message: 'final_message' in value ? value.final_message : null,
   };
 }
 
@@ -298,6 +313,10 @@ export class RunnerHarness implements HarnessPort {
   }
 
   async run(input: HarnessInput, signal: AbortSignal): Promise<HarnessOutcome> {
+    return asTurn(input, await this.#run(input, signal));
+  }
+
+  async #run(input: HarnessInput, signal: AbortSignal): Promise<HarnessOutcome> {
     const o = this.#o;
     const limits = input.limits ?? o.limits;
     const base = {
@@ -322,7 +341,7 @@ export class RunnerHarness implements HarnessPort {
       ...(o.file_limits === undefined ? {} : { limits: o.file_limits }),
     });
     // A repeated call for a launched operation concludes what is on disk; it never launches again.
-    if (run.readFinal(RUN_FILES.launch).state !== 'missing') return this.recover(input);
+    if (run.readFinal(RUN_FILES.launch).state !== 'missing') return this.#recover(input);
 
     if (signal.aborted) return never('cancelled', 'aborted before start');
     // A decider always runs in its own new session; a reviewer resumes only its own (#213).
@@ -571,6 +590,10 @@ export class RunnerHarness implements HarnessPort {
    * told apart from, stays unknown.
    */
   recover(input: HarnessInput): HarnessOutcome {
+    return asTurn(input, this.#recover(input));
+  }
+
+  #recover(input: HarnessInput): HarnessOutcome {
     const o = this.#o;
     let run: RunDir;
     try {
@@ -982,7 +1005,13 @@ export class RunnerHarness implements HarnessPort {
         private_home: installed.home,
         context,
         schema: schemaDir,
-        ...attemptLayoutInputs(o.pin, input.attempt_id),
+        ...attemptLayoutInputs(
+          o.pin,
+          input.attempt_id,
+          input.deputy_turn === undefined
+            ? undefined
+            : { turn: input.deputy_turn, data_dir: o.data_dir },
+        ),
         network: 'internet_outbound',
       },
     };

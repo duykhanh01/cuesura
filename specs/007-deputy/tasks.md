@@ -3,7 +3,7 @@
 **Input**: [spec.md](spec.md), [plan.md](plan.md), [research.md](research.md), [data-model.md](data-model.md),
 [contracts/](contracts/), [quickstart.md](quickstart.md)
 
-**Trạng thái**: Backlog viết lại ngày 2026-11-09, thay backlog 2026-11-08. Lát A xong (T002 dời sang lát B). Amendment
+**Trạng thái**: Backlog viết lại ngày 2026-11-09, thay backlog 2026-11-08. Lát A và lát B xong. Amendment
 11.0.0 nằm cùng PR với bản viết lại; không task code nào bắt đầu trước khi PR đó merge.
 
 **Mã nền**: `origin/main` `62eadbd`.
@@ -60,7 +60,7 @@ Viết test trước, thấy nó thất bại rồi mới triển khai. Kết qu
   - bộ lọc log của gate dùng được cho chữ ký lỗi (R-18);
   - điều kiện bật yolo trong `src/daemon/yolo.ts` và `onYoloMergeApprove` chỗ thêm `policy:goal` (R-23);
   - `start_sha` qua `adoption` trong `src/daemon/handlers.ts` dùng được cho task tổng (R-24).
-- [ ] T002 [P] (Dời sang lát B, xem [R-30](research.md#quyết-định-khi-làm-lát-a).) Mở rộng fake harness `src/adapters/harness/fake.ts` cho role `deputy`. Kịch bản lượt là callback nhận
+- [x] T002 [P] (Làm ở lát B, trừ fake reviewer trả `key` dời sang lát C, xem [R-30](research.md#quyết-định-khi-làm-lát-b).) Mở rộng fake harness `src/adapters/harness/fake.ts` cho role `deputy`. Kịch bản lượt là callback nhận
   `{ turn_id, env, context }` và có thể: gọi task service hay goal service với actor `deputy`, header turn, `reason`,
   `trial`; gọi `deputy handoff`; ghi vào worktree (sửa, tạo file, `git commit`); trả `turn_ended` có hay không có
   `final_message`; trả `rate_limited`, `auth`, `refused`, `capability_missing`, lỗi hạ tầng; treo. Fake reviewer trả
@@ -148,45 +148,45 @@ kết thúc và mở lại giới hạn.
 
 ### Tests
 
-- [ ] T023 [P] [US1] Scenario `test/scenarios/deputy/us1.test.ts`: mỗi mã wait tới deputy mở đúng một lượt, deputy fake gỡ
+- [x] T023 [P] [US1] Scenario `test/scenarios/deputy/us1.test.ts`: mỗi mã wait tới deputy mở đúng một lượt, deputy fake gỡ
   và bàn giao, không có attention (SC-001); mã tới owner không mở lượt; lượt hết mà task vẫn ở sự cố thì attention có bàn
   giao và `final_message`; lượt không bàn giao thì `aborted` kèm danh sách lệnh và lượt sau thấy nó; hai sự cố liên tiếp
   thì lượt thứ hai là phiên mới (`session: null`) và thấy bàn giao của lượt trước.
-- [ ] T024 [P] [US6] Scenario `test/scenarios/deputy/us6-task.test.ts`: lệnh của chủ dự án giữa lượt được nhận, lệnh sau
+- [x] T024 [P] [US6] Scenario `test/scenarios/deputy/us6-task.test.ts`: lệnh của chủ dự án giữa lượt được nhận, lệnh sau
   của deputy với version cũ bị từ chối (SC-006); lệnh của chủ dự án không bị từ chối vì lượt bắt đầu hay kết thúc; deputy
   gửi lại cùng request ID sau restart, kể cả sau khi lượt đã đóng, thì nhận kết quả cũ; lệnh deputy nhắm task ngoài goal của lượt bị `turn_scope`;
   lệnh ngoài bảng quyền bị `deputy_kind`.
-- [ ] T025 [P] [US7] Scenario `test/scenarios/deputy/us7.test.ts`: định tuyến câu hỏi theo `autonomous`, định tuyến lại khi
+- [x] T025 [P] [US7] Scenario `test/scenarios/deputy/us7.test.ts`: định tuyến câu hỏi theo `autonomous`, định tuyến lại khi
   đổi cờ, câu hỏi tiếp ở cùng step vẫn tới deputy, mục giả định trong mô tả PR.
-- [ ] T026 [P] Crash injection `test/integration/crash/deputy-turn.test.ts`: restart ở mọi điểm của lượt không tạo lượt thứ
+- [x] T026 [P] Crash injection `test/integration/crash/deputy-turn.test.ts`: restart ở mọi điểm của lượt không tạo lượt thứ
   hai, không lặp lệnh; task đã rời sự cố khi khởi động lại thì lượt được đóng (FR-056, SC-004).
-- [ ] T027 [P] Contract test trả về worktree `test/contract/deputy/restore.test.ts`: sửa file, tạo file, `git commit`,
+- [x] T027 [P] Contract test trả về worktree `test/contract/deputy/restore.test.ts`: sửa file, tạo file, `git commit`,
   restart giữa lượt; HEAD và cây bằng mốc (SC-005). Thêm: deputy `continue` giữa lượt thì worker chưa được dispatch cho tới
   khi restore xong, nên commit của worker không bị xóa; chặn còn nguyên sau restart (FR-017).
-- [ ] T028 [P] Integration test nâng cấp `test/integration/runtime/deputy-upgrade.test.ts`: bản ghi decider dở được đóng
+- [x] T028 [P] Integration test nâng cấp `test/integration/runtime/deputy-upgrade.test.ts`: bản ghi decider dở được đóng
   `superseded`, reservation đúng; `DeciderRan` cũ replay được; config có `roles.decider` nạp được kèm cảnh báo (SC-008).
 
 ### Implementation
 
-- [ ] T029 [US1] `src/daemon/deputy.ts` thay `decider.ts`: `round()` tìm sự cố theo `routeOf`, tôn trọng FR-014, ghi
+- [x] T029 [US1] `src/daemon/deputy.ts` thay `decider.ts`: `round()` tìm sự cố theo `routeOf`, tôn trọng FR-014, ghi
   baseline và `deputy_turns` trước khi spawn, chạy `RunnerHarness` headless với `CUSR_DEPUTY_TURN`, `adopt` sau restart,
   `holds`/`version` cho attention. Dispatcher bỏ qua effect ghi worktree của task có lượt chưa restore xong (R-08).
   Context ở lát này dựng tạm từ sự cố và lịch sử task (vùng 1, 3, 5); lát D thay bằng
   `deputy-context.ts` đầy đủ.
-- [ ] T030 [US1] Lệnh `deputy handoff` (`src/application/commands.ts`, `src/cli/`): chỉ actor `deputy` có lượt chạy; ghi
+- [x] T030 [US1] Lệnh `deputy handoff` (`src/application/commands.ts`, `src/cli/`): chỉ actor `deputy` có lượt chạy; ghi
   `handoff_json` qua `setHandoff`, không sinh event; schema ở [contracts/deputy-turn.md](contracts/deputy-turn.md#bàn-giao).
-- [ ] T031 [US1] Xử lý sau lượt theo [hợp đồng](contracts/deputy-turn.md#daemon-sau-lượt) bước 1–3 và 5: trả worktree,
+- [x] T031 [US1] Xử lý sau lượt theo [hợp đồng](contracts/deputy-turn.md#daemon-sau-lượt) bước 1–3 và 5: trả worktree,
   `aborted` khi thiếu bàn giao, `handed_off`/`done`, lỗi theo FR-024 (R-12). Bước 4 (loop guard) ở lát C.
-- [ ] T032 [US1] Attention và inbox (`src/application/attention.ts`, `src/application/inbox.ts`): `Deputy.holds` thay
+- [x] T032 [US1] Attention và inbox (`src/application/attention.ts`, `src/application/inbox.ts`): `Deputy.holds` thay
   `Decider.holds`; sự cố `handed_off` hiện kèm bàn giao và `final_message`.
-- [ ] T033 [US6] Kiểm phạm vi và bảng quyền trong `admitCommand` (FR-051): `turnGoal(turn_id)` so với goal của task (ở lát
+- [x] T033 [US6] Kiểm phạm vi và bảng quyền trong `admitCommand` (FR-051): `turnGoal(turn_id)` so với goal của task (ở lát
   này goal ẩn = chính task); bảng quyền FR-034.
-- [ ] T034 [US7] Bỏ đường decider trong `src/engine/questions.ts` cho câu hỏi mới, giữ replay; câu hỏi của worker là sự
+- [x] T034 [US7] Bỏ đường decider trong `src/engine/questions.ts` cho câu hỏi mới, giữ replay; câu hỏi của worker là sự
   cố loại `question` của deputy; bỏ quy tắc một câu trả lời mỗi step và nhãn `grill` (FR-120).
-- [ ] T035 [US7] Mục giả định trong mô tả PR (`src/adapters/github/publish.ts`), dựng từ câu trả lời của deputy (R-14).
-- [ ] T036 Nâng cấp từ decider (R-13) trong `src/daemon/production.ts`; alias config `roles.decider` (FR-121, FR-122).
-- [ ] T037 `task show`/`explain` có `deputy` khi có lượt chạy (FR-026).
-- [ ] T038 `cusr doctor` báo binding, harness, manifest của deputy (FR-124).
+- [x] T035 [US7] Mục giả định trong mô tả PR (`src/adapters/github/publish.ts`), dựng từ câu trả lời của deputy (R-14).
+- [x] T036 Nâng cấp từ decider (R-13) trong `src/daemon/production.ts`; alias config `roles.decider` (FR-121, FR-122).
+- [x] T037 `task show`/`explain` có `deputy` khi có lượt chạy (FR-026).
+- [x] T038 `cusr doctor` báo binding, harness, manifest của deputy (FR-124).
 
 **Checkpoint**: deputy headless gỡ mọi sự cố của task; decider đã bị thay.
 

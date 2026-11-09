@@ -7,3 +7,5 @@ export const ATTEMPT_ENV = 'CUSR_ATTEMPT_ID';
  * then calls as actor `deputy` in this turn.
  */
 export const DEPUTY_TURN_ENV = 'CUSR_DEPUTY_TURN';
+/** The daemon's data dir, set for a deputy turn so its `cusr` reaches this daemon (007, FR-016). */
+export const DATA_DIR_ENV = 'CUSR_DATA_DIR';

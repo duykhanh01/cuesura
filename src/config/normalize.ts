@@ -84,6 +84,14 @@ export function normalizeRole(r: RawRole): NormalizedRole {
     scope: r.escalation?.scope ?? 'step',
     prompt: r.prompt ?? null,
     context: r.context ?? [],
+    ...(r.limits?.infra_retries === undefined && r.limits?.context_bytes === undefined
+      ? {}
+      : {
+          turn: {
+            infra_retries: r.limits.infra_retries ?? null,
+            context_bytes: r.limits.context_bytes ?? null,
+          },
+        }),
   };
 }
 

@@ -206,6 +206,8 @@ export type HarnessInput = {
   }[];
   /** Left out of the input digest, so a run launched before it existed still recovers. */
   readonly view?: TerminalView;
+  /** A deputy turn: set as `CUSR_DEPUTY_TURN` in place of `CUSR_ATTEMPT_ID` (007, FR-050). */
+  readonly deputy_turn?: string;
 };
 
 export type PermissionDenial = {
@@ -268,6 +270,11 @@ export type HarnessOutcome =
       readonly value: RoleResult;
       readonly raw_digest: Hash;
       readonly schema_digest: Hash;
+    })
+  /** A deputy turn ended (007, contracts/deputy-turn.md); what it did went through `cusr`. */
+  | (OutcomeFacts & {
+      readonly kind: 'turn_ended';
+      readonly final_message: string | null;
     })
   | (OutcomeFacts & {
       readonly kind: 'invalid_output';

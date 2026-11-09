@@ -9,6 +9,8 @@ import {
   type DaemonOptions,
   type RunningDaemon,
 } from '../../src/daemon/main.ts';
+import type { CommandKind } from '../../src/application/commands.ts';
+import type { CommandHandler } from '../../src/daemon/main.ts';
 import { queueCommands } from '../../src/daemon/queue-pause.ts';
 import { taskControl, type TaskControlDeps } from '../../src/daemon/task-control.ts';
 import type { Store } from '../../src/store/index.ts';
@@ -38,6 +40,8 @@ export type SeededExtra = (
   runtime: { readonly health: () => string | null },
 ) => Partial<Omit<TaskControlDeps, 'store' | 'now'>> & {
   readonly schedule?: () => Promise<unknown>;
+  /** Handlers production adds beside the task surface (e.g. `deputy_handoff`). */
+  readonly commands?: Partial<Record<CommandKind, CommandHandler>>;
 };
 
 export class SeededDaemon {
@@ -81,7 +85,7 @@ export class SeededDaemon {
       clock: this.clock,
       newId: this.newId,
       control: (store, runtime) => {
-        const { schedule, ...more } = this.#extra(store, runtime);
+        const { schedule, commands, ...more } = this.#extra(store, runtime);
         const control = taskControl({
           store,
           now: () => this.clock.now(),
@@ -105,6 +109,7 @@ export class SeededDaemon {
           commands: {
             ...control.commands,
             ...queueCommands({ dataDir: this.dataDir, now: () => this.clock.now() }),
+            ...commands,
           },
           ...(schedule === undefined ? {} : { schedule }),
         };
@@ -126,11 +131,17 @@ export class SeededDaemon {
     rmSync(this.base, { recursive: true, force: true });
   }
 
-  async call(path: '/v1/command' | '/v1/query', actor: CallerActor, body: unknown): Promise<Reply> {
+  async call(
+    path: '/v1/command' | '/v1/query',
+    actor: CallerActor,
+    body: unknown,
+    turn: string | null = null,
+  ): Promise<Reply> {
     if (this.daemon === null) throw new Error('daemon not running');
     const r = await callDaemon({
       socketPath: this.daemon.socketPath,
       actor,
+      turn,
       method: 'POST',
       path,
       body,
@@ -143,11 +154,11 @@ export class SeededDaemon {
     };
   }
 
-  command(actor: CallerActor, body: unknown): Promise<Reply> {
-    return this.call('/v1/command', actor, body);
+  command(actor: CallerActor, body: unknown, turn: string | null = null): Promise<Reply> {
+    return this.call('/v1/command', actor, body, turn);
   }
 
-  query(actor: CallerActor, body: unknown): Promise<Reply> {
-    return this.call('/v1/query', actor, body);
+  query(actor: CallerActor, body: unknown, turn: string | null = null): Promise<Reply> {
+    return this.call('/v1/query', actor, body, turn);
   }
 }

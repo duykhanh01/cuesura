@@ -40,6 +40,17 @@ export type FakeStep =
       readonly invoked?: boolean;
       readonly usage?: Usage;
     }
+  /**
+   * A deputy turn (007, T002): `act` stands for the `cusr` commands the deputy runs during the turn,
+   * called with the input so it can read `deputy_turn`; then the turn ends with `final_message`.
+   */
+  | {
+      readonly kind: 'turn_ended';
+      readonly act?: (input: HarnessInput) => void | Promise<void>;
+      readonly final_message?: string | null;
+      readonly session_ref?: string | null;
+      readonly usage?: Usage;
+    }
   /** Never answers; resolves as `cancelled` once the caller aborts (deadline, stop, drain). */
   | { readonly kind: 'hang' };
 
@@ -166,6 +177,15 @@ export class FakeHarness implements HarnessPort {
           reset_at: null,
           invoked: true,
           usage: UNAVAILABLE,
+        };
+      case 'turn_ended':
+        await step.act?.(input);
+        return {
+          ...base,
+          kind: 'turn_ended',
+          final_message: step.final_message ?? null,
+          session_ref: step.session_ref ?? null,
+          usage: step.usage ?? UNAVAILABLE,
         };
       case 'failure':
         return {

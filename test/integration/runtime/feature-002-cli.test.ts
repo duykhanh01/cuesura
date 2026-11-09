@@ -679,25 +679,17 @@ describe('inbox and answer (US6, FR-027.01)', () => {
   });
 });
 
-describe('a question the decider holds (issue #266)', () => {
-  it('is marked in the inbox, and a person answering it tells the decider to stop its run', async () => {
-    const rechecked: string[] = [];
+describe('a question the deputy holds (issue #266, 007)', () => {
+  it('is marked in the inbox, and a person can still answer it', async () => {
     const sd = daemon(() => ({
-      decider: {
-        holds: () => true,
-        version: () => 0,
-        recheck: (taskId) => {
-          rechecked.push(taskId);
-          return Promise.resolve();
-        },
-      },
+      deputy: { holds: () => true, version: () => 0 },
     }));
     const t = buildTask();
     sd.seed((d) => asking(d, t));
     await sd.start();
     const box = await cli(sd, ['inbox']);
     const item = (box.envelope.data['items'] as Record<string, unknown>[])[0];
-    expect(item).toMatchObject({ task_id: t.id, blocking: true, decider: true });
+    expect(item).toMatchObject({ task_id: t.id, blocking: true, deputy: true });
     const file = join(sd.base, 'answer.txt');
     writeFileSync(file, 'UTF-8\n');
     const answered = await cli(sd, [
@@ -709,7 +701,6 @@ describe('a question the decider holds (issue #266)', () => {
       String(item?.['task_version']),
     ]);
     expect(answered.code).toBe(ExitCode.ok);
-    expect(rechecked).toEqual([t.id]);
   });
 });
 

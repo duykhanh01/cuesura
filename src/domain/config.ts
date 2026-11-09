@@ -31,6 +31,8 @@ export type NormalizedRole = {
   scope: 'step' | 'task';
   prompt: string | null;
   context: string[];
+  /** Deputy turns only (007, FR-121); absent when the role names neither. */
+  turn?: { infra_retries: number | null; context_bytes: number | null };
 };
 
 export type NormalizedProfile = {

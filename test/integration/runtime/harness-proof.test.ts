@@ -140,7 +140,7 @@ function setup(
     runnerCommand: [process.execPath, RUNNER],
     now: () => Date.now(),
   };
-  const budget = { approval: 'owner, test', maxInvocations: 4 };
+  const budget = { approval: 'owner, test', maxInvocations: 5 };
   const ledger = join(records, PROOF_LEDGER);
   const record = () =>
     recordManifest({
@@ -180,7 +180,7 @@ const entry = (out: string, vendor: string) =>
   ).vendors[vendor];
 
 describe('what a proof may spend', () => {
-  it('reserves a fifth invocation for resume, for either vendor', async () => {
+  it('reserves a sixth invocation for resume, for either vendor', async () => {
     const h = setup('claude');
     const refused = await proveHarness({
       ...h.options,
@@ -188,7 +188,7 @@ describe('what a proof may spend', () => {
       out: h.out,
       budget: h.budget,
     });
-    expect(refusal(refused)).toContain('5 more exceed the cap');
+    expect(refusal(refused)).toContain('6 more exceed the cap');
     expect(existsSync(h.ledger)).toBe(false);
     const codex = setup('codex');
     expect(planProof({ ...codex.options, proveResume: true }).ok).toBe(true);
@@ -202,18 +202,18 @@ describe('what a proof may spend', () => {
     expect(existsSync(h.ledger)).toBe(false);
   });
 
-  it('refuses before the first spawn without an approval or a cap for all four roles', async () => {
+  it('refuses before the first spawn without an approval or a cap for all five roles', async () => {
     const h = setup('claude');
     const none = await proveHarness({
       ...h.options,
       out: h.out,
-      budget: { approval: ' ', maxInvocations: 4 },
+      budget: { approval: ' ', maxInvocations: 5 },
     });
     expect(refusal(none)).toContain('approval');
     const low = await proveHarness({
       ...h.options,
       out: h.out,
-      budget: { approval: 'owner', maxInvocations: 3 },
+      budget: { approval: 'owner', maxInvocations: 4 },
     });
     expect(refusal(low)).toContain('exceed the cap');
     expect(existsSync(h.ledger)).toBe(false);
@@ -236,7 +236,7 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
       ...h.options,
       proveResume: true,
       out: h.out,
-      budget: { ...h.budget, maxInvocations: 5 },
+      budget: { ...h.budget, maxInvocations: 6 },
     });
     expect(r.ok).toBe(true);
     const raw = readFileSync(h.out, 'utf8');
@@ -260,7 +260,7 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
         ...h.options,
         proveResume: true,
         out: h.out,
-        budget: { ...h.budget, maxInvocations: 5 },
+        budget: { ...h.budget, maxInvocations: 6 },
       });
       if (!r.ok) throw new Error(r.error);
       const raw = JSON.parse(readFileSync(h.out, 'utf8')) as {
@@ -317,7 +317,7 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
   );
 
   it.each(['claude', 'codex'] as const)(
-    '%s: four roles, evidence record-manifest takes, a record that holds',
+    '%s: five roles, evidence record-manifest takes, a record that holds',
     async (vendor) => {
       const h = setup(vendor);
       const r = await proveHarness({
@@ -334,6 +334,7 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
         ['fixer', 'result'],
         ['reviewer', 'result'],
         ['decider', 'result'],
+        ['deputy', 'turn_ended'],
       ]);
       const e = entry(h.out, vendor);
       expect(e?.native_result).toBe('passed');
@@ -346,6 +347,7 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
         'schema_acceptance_fixer',
         'schema_acceptance_reviewer',
         'schema_acceptance_decider',
+        'schema_acceptance_deputy',
       ])
         expect(e?.capabilities[c]?.status, c).toBe('proven');
       expect(e?.capabilities['session_resume']?.status).toBe('unknown');
@@ -353,7 +355,7 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
       if (!recorded.ok) throw new Error(recorded.error);
       expect(h.problem()).toBeNull();
       expect(readFileSync(h.out, 'utf8')).not.toContain(SMOKE_CANARY);
-      expect(readFileSync(h.ledger, 'utf8').trim().split('\n')).toHaveLength(4);
+      expect(readFileSync(h.ledger, 'utf8').trim().split('\n')).toHaveLength(5);
 
       // A failed manifest write can be retried without pin flags, approval, or another model invocation.
       const manifestPath = join(h.options.dataDir, 'harnesses', vendor, 'manifest.json');
@@ -519,10 +521,17 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
       'result',
       'result',
       'result',
+      'turn_ended',
     ]);
     // Only the decider keeps the read-only boundary with its own native sandbox; the reviewer works
-    // like a fixer.
-    expect(r.value.runs.map((x) => x.native_write_blocked)).toEqual([false, false, false, true]);
+    // and the deputy like a fixer.
+    expect(r.value.runs.map((x) => x.native_write_blocked)).toEqual([
+      false,
+      false,
+      false,
+      true,
+      false,
+    ]);
     expect(entry(h.out, 'claude')?.native_result).toBe('not_tried');
     expect(entry(h.out, 'claude')?.capabilities['permission_denial_kept']?.status).toBe('proven');
     const recorded = h.record();
@@ -551,6 +560,7 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
         'result',
         'result',
         'result',
+        'turn_ended',
       ]);
       expect(entry(h.out, vendor)?.capabilities['permission_denial_kept']?.status).toBe('proven');
       expect(entry(h.out, vendor)?.native_result).toBe('failed');

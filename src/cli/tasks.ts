@@ -895,7 +895,7 @@ export const messageCommand: CliCommand = {
 /** A command on the daemon's own queue: no project, task or version. */
 async function mutateQueue(
   values: Values,
-  kind: 'queue_pause' | 'queue_resume',
+  kind: 'queue_pause' | 'queue_resume' | 'deputy_handoff',
   payload: unknown,
   json: boolean,
   io: CliIo,
@@ -941,6 +941,72 @@ export const queuePauseCommand: CliCommand = {
       json,
       io,
     ),
+};
+
+const HANDOFF_CAUSES =
+  'model | strategy | review_dispute | process | limit | environment | spec | none';
+
+export const deputyHandoffCommand: CliCommand = {
+  name: 'deputy handoff',
+  description:
+    "End a deputy turn's work with its account: cause, decision, what was ruled out, what to look at next",
+  help: `Only inside a deputy turn (CUSR_DEPUTY_TURN set); the last handoff of a turn counts.
+Decision "handover" gives the incident to the owner when the turn ends.
+--file takes the whole handoff as JSON: { cause, decision, ruled_out: [{ hypothesis, why }], next_look }.
+
+Example:
+  cusr deputy handoff --cause strategy --decision continue --ruled-out "flaky test: passes locally" --next "gate log of step test"`,
+  options: [
+    DATA_DIR,
+    REQUEST_ID,
+    { flags: '--cause <cause>', description: HANDOFF_CAUSES },
+    {
+      flags: '--decision <text>',
+      description: 'What the turn decided (continue, handover, fail, …)',
+    },
+    {
+      flags: '--ruled-out <text>',
+      description: 'One hypothesis ruled out, as "<hypothesis>: <why>"; more go through --file',
+    },
+    {
+      flags: '--next <text>',
+      description: 'What the next turn should look at if this still fails',
+    },
+    { flags: '--file <path>', description: 'The whole handoff as JSON, instead of the flags' },
+  ],
+  run(values, json, io) {
+    let payload: unknown;
+    if (values['file'] !== undefined) {
+      try {
+        payload = JSON.parse(readFileSync(values['file'], 'utf8'));
+      } catch (e) {
+        return Promise.resolve(
+          usage(`--file: ${e instanceof Error ? e.message : String(e)}`, json, io),
+        );
+      }
+    } else {
+      if (values['cause'] === undefined || values['decision'] === undefined)
+        return Promise.resolve(
+          usage('deputy handoff requires --cause and --decision, or --file', json, io),
+        );
+      const ruled = values['ruledOut'];
+      const cut = ruled === undefined ? -1 : ruled.indexOf(':');
+      payload = {
+        cause: values['cause'],
+        decision: values['decision'],
+        ruled_out:
+          ruled === undefined
+            ? []
+            : [
+                cut < 0
+                  ? { hypothesis: ruled.trim(), why: 'not given' }
+                  : { hypothesis: ruled.slice(0, cut).trim(), why: ruled.slice(cut + 1).trim() },
+              ],
+        next_look: values['next'] ?? null,
+      };
+    }
+    return mutateQueue(values, 'deputy_handoff', payload, json, io);
+  },
 };
 
 export const queueResumeCommand: CliCommand = {

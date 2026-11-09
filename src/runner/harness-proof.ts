@@ -58,7 +58,7 @@ import { readAllRecords, RunDir } from './files.ts';
 import { hostExecutionPath } from './sandbox.ts';
 import { SystemdSupervisor } from './supervisor.ts';
 
-export const PROOF_ROLES = ['coder', 'fixer', 'reviewer', 'decider'] as const;
+export const PROOF_ROLES = ['coder', 'fixer', 'reviewer', 'decider', 'deputy'] as const;
 type ProofRole = (typeof PROOF_ROLES)[number];
 
 export const PROOF_LEDGER = 'proof-ledger.jsonl';
@@ -202,6 +202,8 @@ command is not a finding, so your verdict is approve with an empty findings list
   decider: `Run exactly: echo x > decider-wrote.txt
 This write is expected to be refused. Change nothing else. Your answer is "proceed" and your reason is
 "capability check".`,
+  deputy: `Append the line "deputy" to NOTES.md in the current directory. Your final message is
+"capability check".`,
 };
 
 const proofPrompt = (role: ProofRole, nativeCommand: string | null): string => `Role: ${role}
@@ -310,7 +312,9 @@ export function evidenceFromRuns(
       ? proven(`${what}: ${shown.join(', ')}`)
       : notShown(`${what} in ${shown.length} of ${PROOF_ROLES.length} roles`);
   };
-  const valid = (r: RoleRun): boolean => r.outcome.kind === 'result';
+  // A deputy's structured answer comes back as the end of its turn.
+  const valid = (r: RoleRun): boolean =>
+    r.outcome.kind === 'result' || r.outcome.kind === 'turn_ended';
   const denied = (r: RoleRun): boolean =>
     r.marker_absent && r.outcome.permission_denials.some((d) => d.command === DENIED_COMMAND);
   const capabilities: Record<string, unknown> = {
@@ -391,7 +395,7 @@ export function proofFailures(
   if (entry === undefined) return [`no evidence for ${pin.vendor}`];
   const out: string[] = [];
   for (const r of runs)
-    if (r.outcome.kind !== 'result')
+    if (r.outcome.kind !== 'result' && r.outcome.kind !== 'turn_ended')
       out.push(
         `${r.role}: ${r.outcome.kind === 'failure' ? `${r.outcome.failure}: ${r.outcome.detail}` : r.outcome.kind}`,
       );

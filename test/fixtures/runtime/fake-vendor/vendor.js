@@ -35,6 +35,9 @@ const stdin = readFileSync(0, 'utf8');
 // A decider replays the reviewer's run with its own answer: same read-only boundary, its own schema.
 const decider = /^Role: decider$/m.test(stdin);
 const DECIDER_ANSWER = { schema_version: 1, answer: 'proceed', reason: 'capability check' };
+// A deputy replays the coder's run (it may write, like a fixer) with its own closing message.
+const deputy = /^Role: deputy$/m.test(stdin);
+const DEPUTY_ANSWER = { schema_version: 1, final_message: 'capability check' };
 const reviewer = !!process.env.FAKE_VENDOR_REVIEWER_REPLAY && (decider || /^Role: reviewer$/m.test(stdin));
 const fixer = /^Role: fixer$/m.test(stdin);
 const replay = reviewer
@@ -123,10 +126,11 @@ else {
     .filter((r) => r.kind === 'stdout')
     .map((r) => r.data)
     .map((r) => {
-      if (!decider) return r;
-      if (r.type === 'result') return { ...r, structured_output: DECIDER_ANSWER };
+      const answer = decider ? DECIDER_ANSWER : deputy ? DEPUTY_ANSWER : null;
+      if (answer === null) return r;
+      if (r.type === 'result') return { ...r, structured_output: answer };
       if (r.type === 'item.completed' && r.item?.type === 'agent_message')
-        return { ...r, item: { ...r.item, text: JSON.stringify(DECIDER_ANSWER) } };
+        return { ...r, item: { ...r.item, text: JSON.stringify(answer) } };
       return r;
     });
   // The stand-in reports the model it was asked for, as the real binary does in system/init.

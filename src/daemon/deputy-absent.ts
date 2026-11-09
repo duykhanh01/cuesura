@@ -9,7 +9,7 @@ import { MAX_ENVELOPE_IDS } from '../domain/trigger.ts';
 import type { Clock } from '../adapters/ports.ts';
 import type { Uuid } from '../shared/brand.ts';
 import { submit } from '../application/triage.ts';
-import type { DeciderWatch } from '../application/attention.ts';
+import type { DeputyWatch } from '../application/attention.ts';
 import type { Store } from '../store/index.ts';
 
 export const DEPUTY_ABSENT_ACTOR = 'system:deputy-absent';
@@ -38,7 +38,7 @@ function failReason(s: TaskState): string {
 const exhausted = (s: TaskState): boolean =>
   s.status === 'WAITING' && s.wait !== null && EXHAUSTED_WAITS.includes(s.wait.detail.code);
 
-export function createDeputyAbsent(deps: DeputyAbsentDeps): DeciderWatch & {
+export function createDeputyAbsent(deps: DeputyAbsentDeps): DeputyWatch & {
   round(): Promise<void>;
 } {
   // Unknown until the first round reads the config: held meanwhile, as that round follows within a tick.

@@ -10,6 +10,8 @@ import { lstatSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import type { HostProbePort } from '../adapters/ports.ts';
+import { ROLE_SCHEMA_DIGESTS } from '../adapters/harness/result-schema.ts';
+import type { NormalizedRole } from '../domain/config.ts';
 import { CapabilityManifestSchema, type CapabilityManifest } from '../domain/runtime.ts';
 import { validateConfig } from '../config/validate.ts';
 import type { Uuid } from '../shared/brand.ts';
@@ -379,6 +381,41 @@ async function cachedProbe(
   return check;
 }
 
+/** Whether deputy turns can run (007, FR-124): binding, harness, and a manifest that proved the role. */
+function deputyCheck(
+  user: {
+    readonly roles: Readonly<Record<string, NormalizedRole>>;
+    readonly models: Readonly<Record<string, { readonly harness: string }>>;
+  },
+  manifests: Readonly<Record<string, CapabilityManifest | null | undefined>>,
+): DoctorCheck {
+  const alias = user.roles['deputy'] === undefined && user.roles['decider'] !== undefined;
+  const role = user.roles['deputy'] ?? user.roles['decider'];
+  if (role === undefined)
+    return ok_(
+      'deputy',
+      'no deputy role: incidents go to the owner and waits past the ladder fail the task',
+    );
+  const model = role.binding[0]?.model;
+  const harness = model === undefined ? undefined : user.models[model]?.harness;
+  if (model === undefined || harness === undefined)
+    return fail(
+      'deputy',
+      `binding model ${model ?? '(none)'} has no harness`,
+      'fix roles.deputy.binding',
+    );
+  const m = manifests[harness] ?? null;
+  const prove =
+    'prove the harness again (cusr-runner setup-harness, or record-manifest from evidence that ran the deputy role)';
+  if (m === null) return fail('deputy', `harness ${harness} has no capability manifest`, prove);
+  if (m.role_schemas['deputy'] !== ROLE_SCHEMA_DIGESTS.deputy)
+    return fail('deputy', `the manifest of ${harness} has no proof of the deputy role`, prove);
+  return ok_(
+    'deputy',
+    `model ${model} on harness ${harness}; turns run headless${alias ? "; role 'decider' is read as 'deputy', rename it" : ''}`,
+  );
+}
+
 export async function runDoctor(
   deps: DoctorDeps,
   caller: Caller,
@@ -494,6 +531,7 @@ export async function runDoctor(
           : manifestCheck(`manifest:${h}`, m, deps.digest ?? binaryDigest),
       );
     }
+    checks.push(deputyCheck(config.user, inputs.manifests));
   }
   const failed = checks.filter((c) => c.status === 'fail');
   const data = {

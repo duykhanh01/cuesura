@@ -57,11 +57,11 @@ describe('a wait past the ladder with no deputy (R-11)', () => {
 
   it('is not told to the assistant while the daemon has yet to end it', () => {
     const { d, t, absent } = pastLadder();
-    const desk = (decider?: ReturnType<typeof absent>) =>
+    const desk = (deputy?: ReturnType<typeof absent>) =>
       new AttentionDesk({
         store: d.store,
         now: () => d.now,
-        ...(decider === undefined ? {} : { decider }),
+        ...(deputy === undefined ? {} : { deputy }),
       });
     const caller = callerFor('assistant') as Caller;
     const peek = (x: AttentionDesk) => {

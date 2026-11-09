@@ -28,6 +28,8 @@ import {
 } from '../adapters/git/update-base.ts';
 import { BaseUpdateSchema } from '../domain/runtime.ts';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { DEPUTY_ACTOR } from '../domain/deputy.ts';
+import type { TurnWorktree } from './deputy.ts';
 import { basename, join } from 'node:path';
 import {
   buildRoleContext,
@@ -65,6 +67,7 @@ import { observePull } from '../adapters/github/observe.ts';
 import {
   createOrRecoverPr,
   updatePrDescription,
+  withDeputyAssumptions,
   type DescriptionUpdate,
   type PrFact,
   type PrSpec,
@@ -718,8 +721,11 @@ function agentOutcome(
           },
         };
   }
+  if (o.kind === 'turn_ended')
+    return failed('auth_config', 'a deputy turn is not an attempt outcome');
   const v = o.value;
-  if ('answer' in v) return failed('auth_config', 'a decider result is not an attempt outcome');
+  if ('answer' in v || 'final_message' in v)
+    return failed('auth_config', `a ${o.role} result is not an attempt outcome`);
   if ('verdict' in v) {
     return {
       outcome: 'succeeded',
@@ -932,9 +938,15 @@ function acceptContent(
         summary: `publish content rejected: ${v.error.map((p) => `${p.field}: ${p.message}`).join('; ')}`,
       },
     };
+  const assumptions = Object.values(l.s.questions).flatMap((q) =>
+    q.revision === l.s.revision && q.answered_by === DEPUTY_ACTOR && q.answer !== null
+      ? [{ question: q.body, answer: q.answer }]
+      : [],
+  );
+  const content = { ...v.value, pr_body: withDeputyAssumptions(v.value.pr_body, assumptions) };
   return {
     outcome: 'succeeded',
-    data: { ...data, content: contentStore(deps).put(v.value) },
+    data: { ...data, content: contentStore(deps).put(content) },
   };
 }
 
@@ -3142,5 +3154,29 @@ export function buildHandlers(deps: HandlerDeps): EffectHandlers {
     rerun_ci: plain((e) => rerunCi(deps, e)),
     stop_attempt: plain((e, _s, _o, m) => stopAttempt(deps, e.task_id, m)),
     reconcile: wrap((e, s, _o, m) => reconcileEffect(deps, e, m, s)),
+  };
+}
+
+/** A deputy turn's worktree mark and its restore, taken as a review's are (007, R-08). */
+export function deputyWorktree(deps: HandlerDeps): TurnWorktree {
+  return {
+    async baseline(taskId) {
+      let l: Loaded;
+      try {
+        l = load(deps, { task_id: taskId } as Effect);
+      } catch {
+        return null;
+      }
+      const dir = where(deps, l).worktree;
+      if (!existsSync(dir)) return null;
+      const head = await gitHead(deps.git, dir);
+      const tree = await worktreeTree(deps, l);
+      if (head === null || !tree.ok) throw new Error('cannot read the worktree before the turn');
+      return { head, tree: tree.tree };
+    },
+    async restore(taskId, before) {
+      const r = await restoreWorktree(deps.git, join(deps.paths.worktrees, taskId), before);
+      return r.ok ? { ok: true } : r;
+    },
   };
 }

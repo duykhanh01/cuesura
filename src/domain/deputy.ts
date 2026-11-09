@@ -1,6 +1,9 @@
 /** Deputy turns (007, data-model.md): daemon records outside the event log, so they move no version. */
 import { z } from 'zod';
 
+/** The actor of commands a deputy turn sends, and so of the answers it gives (FR-050). */
+export const DEPUTY_ACTOR = 'deputy';
+
 export const TURN_KINDS = ['incident', 'question', 'plan'] as const;
 export type TurnKind = (typeof TURN_KINDS)[number];
 
@@ -74,4 +77,25 @@ export type DeputyTurn = {
   readonly context_bytes: number;
   readonly started_at: number;
   readonly ended_at: number | null;
+};
+
+/** A command a turn sent, from the command ledger (FR-022). */
+export type TurnCommand = {
+  readonly request_id: string;
+  readonly kind: string;
+  readonly task_id: string | null;
+  readonly status: string;
+  readonly reason: string | null;
+  readonly admitted_at: number;
+};
+
+/** A turn that gave its incident to the owner, as the owner's views show it (FR-023). */
+export type HandedOffView = {
+  readonly turn_id: string;
+  readonly state: 'handed_off' | 'aborted';
+  readonly handoff_reason: HandoffReason | null;
+  readonly handoff: Handoff | null;
+  readonly final_message: string | null;
+  /** The commands of a turn that ended without a handoff (FR-022). */
+  readonly commands: readonly TurnCommand[];
 };

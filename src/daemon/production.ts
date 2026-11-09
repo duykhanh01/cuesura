@@ -54,14 +54,16 @@ import {
 import { drainingTasks, drainRound } from './drain.ts';
 import {
   buildHandlers,
-  taskWorkspace,
+  deputyWorktree,
   localRemainderOf,
   observeTaskPr,
   type HandlerDeps,
 } from './handlers.ts';
 import type { DaemonRuntime } from './main.ts';
 import { ObservationCoordinator, observationRound } from './observation.ts';
-import { createDecider } from './decider.ts';
+import { statusSinceReader } from '../application/board.ts';
+import { retireDecider } from './decider-upgrade.ts';
+import { createDeputy, deputyHandoffHandler } from './deputy.ts';
 import { createDeputyAbsent } from './deputy-absent.ts';
 import { advanceTaskPr, type YoloDeps } from './yolo.ts';
 import { FileContentStore } from '../adapters/publish-content.ts';
@@ -139,7 +141,7 @@ export async function productionControl(opts: {
     readonly schedule: () => Promise<unknown>;
     readonly effects: ReturnType<typeof buildHandlers>;
     readonly rounds: readonly (() => Promise<unknown>)[];
-    readonly abortRounds: () => void;
+    readonly abortRounds: () => void | Promise<void>;
   }
 > {
   const host = new NodeHostProbe();
@@ -402,40 +404,75 @@ export async function productionControl(opts: {
       process: process_,
       stopLocal: (operationId) => stopOperationProcesses(opts.dataDir, operationId),
     };
-    const decider = createDecider({
+    const deputyRole = async (what: string) => {
+      const user = await currentUser(what);
+      if (user === null) return null;
+      const deputy = user.roles['deputy'];
+      if (deputy !== undefined) return { user, role: deputy, alias: false };
+      const legacy = user.roles['decider'];
+      return legacy === undefined ? null : { user, role: legacy, alias: true };
+    };
+    let aliasWarned = false;
+    /** Tasks a run of the old decider may still be working on; refreshed every round (R-13). */
+    let deciderHeld: ReadonlySet<string> | 'all' = 'all';
+    const deputy = createDeputy({
       store,
       clock: opts.clock,
       newId: opts.newId,
       harnesses,
-      workspace: (taskId) => taskWorkspace(deps, taskId),
-      decisionsFile: join(opts.dataDir, 'decisions.md'),
-      recordsDir: dir('decider'),
+      cwd: opts.dataDir,
+      worktreePath: (taskId) => join(deps.paths.worktrees, taskId),
+      worktree: deputyWorktree(deps),
+      blocked: (taskId) => deciderHeld === 'all' || deciderHeld.has(taskId),
+      recordsDir: dir('deputy'),
       redactor: opts.redactor,
+      statusSince: statusSinceReader(store),
+      autonomous: async () => (await currentUser('autonomous'))?.autonomous === true,
       setting: async () => {
-        const user = await currentUser('autonomous');
-        if (user?.autonomous !== true) return null;
-        const role = user.roles['decider'];
-        const rule = role?.binding[0];
-        const model = rule === undefined ? undefined : user.models[rule.model];
-        if (role === undefined || rule === undefined || model === undefined) return null;
+        const found = await deputyRole('deputy role');
+        if (found === null) return null;
+        if (found.alias && !aliasWarned) {
+          aliasWarned = true;
+          opts.log?.("config: role 'decider' is read as 'deputy'; rename it to 'deputy'");
+        }
+        const rule = found.role.binding[0];
+        const model = rule === undefined ? undefined : found.user.models[rule.model];
+        if (rule === undefined || model === undefined) return null;
         return {
           harness: model.harness,
           model: rule.model,
           model_id: model.id,
           effort: rule.effort,
-          max_turns: role.limits.max_turns,
-          stall_ms: role.limits.stall_timeout_ms,
-          wall_ms: role.limits.wall_timeout_ms,
+          max_turns: found.role.limits.max_turns,
+          stall_ms: found.role.limits.stall_timeout_ms,
+          wall_ms: found.role.limits.wall_timeout_ms,
+          infra_retries: found.role.turn?.infra_retries ?? null,
+          context_bytes: found.role.turn?.context_bytes ?? null,
         };
       },
       ...(opts.log === undefined ? {} : { log: opts.log }),
     });
+    const retire = async (): Promise<void> => {
+      try {
+        deciderHeld = await retireDecider({
+          store,
+          clock: opts.clock,
+          newId: opts.newId,
+          harnesses,
+          recordsDir: dir('decider'),
+          ...(opts.log === undefined ? {} : { log: opts.log }),
+        });
+      } catch (e) {
+        // Unknown which runs remain: no turn opens until a round reads the records.
+        deciderHeld = 'all';
+        opts.log?.(`decider upgrade: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    };
     const deputyAbsent = createDeputyAbsent({
       store,
       clock: opts.clock,
       newId: opts.newId,
-      // Only `roles.deputy` for now: until the deputy runs, a `decider` role keeps the #247 behaviour.
-      configured: async () => (await currentUser('deputy role'))?.roles['deputy'] !== undefined,
+      configured: async () => (await deputyRole('deputy role')) !== null,
       ...(opts.log === undefined ? {} : { log: opts.log }),
     });
     const drainDeps = {
@@ -503,7 +540,7 @@ export async function productionControl(opts: {
       now,
       dataDir: opts.dataDir,
       newId: opts.newId,
-      decider,
+      deputy,
       held: deputyAbsent,
       observe,
       drain: (taskId) => drainRound(drainDeps, taskId),
@@ -525,7 +562,11 @@ export async function productionControl(opts: {
     });
     return {
       queries: control.queries,
-      commands: { ...control.commands, ...queueCommands({ dataDir: opts.dataDir, now }) },
+      commands: {
+        ...control.commands,
+        ...queueCommands({ dataDir: opts.dataDir, now }),
+        deputy_handoff: deputyHandoffHandler(store, opts.redactor),
+      },
       schedule: () => scheduler.tick(),
       concurrency: runtime?.concurrency ?? 1,
       effects: buildHandlers(deps),
@@ -546,7 +587,10 @@ export async function productionControl(opts: {
           }),
         drainAll,
         () => pendingPreflight.round(),
-        () => decider.round(),
+        async () => {
+          await retire();
+          await deputy.round();
+        },
         () => deputyAbsent.round(),
         retentionRound({
           store,
@@ -557,8 +601,10 @@ export async function productionControl(opts: {
           ...(opts.log === undefined ? {} : { log: opts.log }),
         }),
       ],
-      abortRounds: () => {
-        decider.abort();
+      abortRounds: async () => {
+        deputy.abort();
+        // A restore still running must not outlive this daemon and rewind the next one's work.
+        await deputy.idle();
       },
     };
   };

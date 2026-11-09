@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { HandoffSchema } from '../domain/deputy.ts';
 import { TrialSchema, type AuthzRole, type Trial } from '../domain/policy.ts';
 import { RunProposalSchema } from '../domain/run-config.ts';
 import { AmendPayloadSchema } from './amend-policy.ts';
@@ -45,6 +46,7 @@ export const COMMAND_PAYLOADS = {
     .object({ step: z.string().min(1), rung: z.number().int().nonnegative() })
     .strict(),
   approve_adopt: z.object({ head_sha: z.string().regex(/^[0-9a-f]{40}$/) }).strict(),
+  deputy_handoff: HandoffSchema,
 } as const;
 export type CommandKind = keyof typeof COMMAND_PAYLOADS;
 
@@ -65,6 +67,7 @@ const REQUIRED_ROLE: Record<CommandKind, AuthzRole> = {
   answer: 'operate',
   approve_escalation: 'operate',
   approve_adopt: 'admin',
+  deputy_handoff: 'operate',
 };
 
 /** What the deputy may send (FR-034); anything else from it is `forbidden` `deputy_kind`. */
@@ -78,6 +81,7 @@ const DEPUTY_KINDS: ReadonlySet<CommandKind> = new Set([
   'task_pause',
   'task_resume',
   'task_fail',
+  'deputy_handoff',
 ]);
 
 /** Commands that buy a task more time or another try; from the deputy they carry a trial (FR-042). */
@@ -88,8 +92,12 @@ const EXTENSION_KINDS: ReadonlySet<CommandKind> = new Set([
   'approve_escalation',
 ]);
 
-/** Commands on the daemon's own queue: no project, task or version. */
-export const GLOBAL_COMMANDS: readonly CommandKind[] = ['queue_pause', 'queue_resume'];
+/** Commands on the daemon's own queue, or on the caller's own deputy turn: no project, task or version. */
+export const GLOBAL_COMMANDS: readonly CommandKind[] = [
+  'queue_pause',
+  'queue_resume',
+  'deputy_handoff',
+];
 
 /** Rejected before anything is recorded; the CLI maps them to exit 2. */
 export { UNSUPPORTED_COMMANDS, UNSUPPORTED_GUIDANCE };
@@ -241,8 +249,13 @@ export function admitCommand(
   });
   // A replay is recognized before any check of the current state, so a command that took effect is
   // answered again with its result even after its turn ended (FR-055).
-  if (deps.store.readCommand(cmd.request_id) === null && actor === 'deputy') {
-    const refused = deputyRefusal(deps.store, turnId, kind, reason, trial);
+  if (deps.store.readCommand(cmd.request_id) === null) {
+    const refused =
+      actor === 'deputy'
+        ? deputyRefusal(deps.store, turnId, kind, cmd.task_id, reason, trial)
+        : kind === 'deputy_handoff'
+          ? ({ code: 'forbidden', reason: 'turn', required: 'a running deputy turn' } as const)
+          : null;
     if (refused !== null) return err(refused);
   }
   // IDs are drawn even for a replay; only the first admission's IDs are ever stored and returned.
@@ -269,6 +282,7 @@ function deputyRefusal(
   store: Store,
   turnId: string | null,
   kind: CommandKind,
+  taskId: string | null,
   reason: string | null,
   trial: Trial | null,
 ): AdmitError | null {
@@ -276,6 +290,15 @@ function deputyRefusal(
     return { code: 'forbidden', reason: 'turn', required: 'a running deputy turn' };
   if (!DEPUTY_KINDS.has(kind))
     return { code: 'forbidden', reason: 'deputy_kind', required: 'a command of the deputy table' };
+  // A task outside any planned goal is its own implicit goal (FR-123).
+  if (taskId !== null) {
+    const task = store.readTask(taskId as Uuid);
+    const goal = task === null ? taskId : (task.task.goal?.id ?? taskId);
+    if (store.deputy.turnGoal(turnId) !== goal)
+      return { code: 'forbidden', reason: 'turn_scope', required: "a task of the turn's goal" };
+  }
+  // The handoff is the turn's own account; it needs no separate reason.
+  if (kind === 'deputy_handoff') return null;
   const issues: string[] = [];
   if (reason === null) issues.push('reason: required for the deputy');
   if (trial === null && EXTENSION_KINDS.has(kind))

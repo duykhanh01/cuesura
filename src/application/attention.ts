@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
+import type { HandedOffView } from '../domain/deputy.ts';
 import { TASK_STATUSES, isTerminal, type TaskState } from '../domain/state.ts';
 import { effectUnknownDueAt, needsUser } from '../explain/needs-user.ts';
 import { statusSinceReader, type StatusSince } from './board.ts';
@@ -76,6 +77,8 @@ export type AttentionItem = {
   readonly question_id: string | null;
   readonly question: string | null;
   readonly task_version: number;
+  /** The deputy's handoff when a turn gave this incident to the owner (FR-023). */
+  readonly deputy?: HandedOffView;
 };
 
 export type AttentionReply = {
@@ -107,7 +110,7 @@ type Holder = {
   batch: number;
   offered: readonly string[];
   delivered: ReadonlySet<string>;
-  /** Log position and decider version already looked at; null while something is still to send or to be confirmed. */
+  /** Log position and deputy version already looked at; null while something is still to send or to be confirmed. */
   seq: string | null;
   /** Rebuilt from disk, so `batch` is not yet known: the client's first lease tells where it stood. */
   restored: boolean;
@@ -121,13 +124,15 @@ type Ended = Keyed & { readonly seq: number };
 /** Item codes for a task that ended; they wake the holder like a wait does, but need no person. */
 export const ENDED_CODES = { DONE: 'done', FAILED: 'failed', CANCELLED: 'cancelled' } as const;
 
-/** The decider's view of what it may still answer itself (`Decider.holds`/`version`). */
-export type DeciderWatch = {
+/** What the deputy may still handle itself (`Deputy.holds`/`version`), and what it gave the owner. */
+export type DeputyWatch = {
   readonly holds: (s: TaskState) => boolean;
   readonly version: () => number;
+  /** The turn that gave the task's current incident to the owner (FR-023). */
+  readonly handedOff?: (s: TaskState) => HandedOffView | null;
 };
 
-function keyed(s: TaskState, enteredAt: number): Keyed {
+function keyed(s: TaskState, enteredAt: number, handedOff: HandedOffView | null = null): Keyed {
   const code = s.wait?.detail.code ?? 'run_config_unconfirmed';
   const q = openQuestions(s).find((x) => x.blocking) ?? null;
   return {
@@ -140,6 +145,7 @@ function keyed(s: TaskState, enteredAt: number): Keyed {
       question_id: q?.question_id ?? null,
       question: q?.body ?? null,
       task_version: s.version,
+      ...(handedOff === null ? {} : { deputy: handedOff }),
     },
   };
 }
@@ -170,7 +176,7 @@ export class AttentionDesk {
   readonly #store: Store;
   readonly #now: () => number;
   readonly #dataDir: string | null;
-  readonly #decider: DeciderWatch | null;
+  readonly #deputy: DeputyWatch | null;
   readonly #statusSince: StatusSince;
   #holder: Holder | null = null;
   #registered: string | null = null;
@@ -187,11 +193,11 @@ export class AttentionDesk {
     readonly store: Store;
     readonly now: () => number;
     readonly dataDir?: string;
-    readonly decider?: DeciderWatch;
+    readonly deputy?: DeputyWatch;
   }) {
     this.#store = deps.store;
     this.#statusSince = statusSinceReader(deps.store);
-    this.#decider = deps.decider ?? null;
+    this.#deputy = deps.deputy ?? null;
     this.#now = deps.now;
     this.#dataDir = deps.dataDir ?? null;
     const saved =
@@ -342,9 +348,9 @@ export class AttentionDesk {
       holder.delivered = new Set([...holder.delivered, ...holder.offered]);
       holder.offered = [];
     }
-    // The inputs of `needsUser` are task state, the decider's view (its version) and, for an
+    // The inputs of `needsUser` are task state, the deputy's view (its version) and, for an
     // `effect_unknown` wait, time: with none of them changed and no such wait due yet, nothing is new.
-    const seq = `${this.#store.lastGlobalSeq()}:${this.#decider?.version() ?? 0}`;
+    const seq = `${this.#store.lastGlobalSeq()}:${this.#deputy?.version() ?? 0}`;
     if (holder.seq === seq && (holder.due === null || this.#now() < holder.due))
       return { lease: `${holder.id}.${holder.batch}`, items: [], truncated: false };
     return this.#deliver(holder, seq);
@@ -409,11 +415,11 @@ export class AttentionDesk {
       const s = this.#store.readTask(id as Uuid);
       const at = s === null ? null : effectUnknownDueAt(s, () => this.#statusSince(s));
       if (at !== null && at > now && (due === null || at < due)) due = at;
-      // A question the decider is about to answer is not the person's yet; it comes if the decider gives up.
+      // An incident the deputy may still handle is not the person's yet; it comes if the deputy hands it over.
       if (
         s === null ||
         !needsUser(s, now, () => this.#statusSince(s)) ||
-        this.#decider?.holds(s) === true
+        this.#deputy?.holds(s) === true
       )
         continue;
       const known = this.#entered.get(id);
@@ -423,7 +429,7 @@ export class AttentionDesk {
           : (this.#store.readEvents(id as Uuid).findLast((e) => ENTERS_WAIT.has(e.type))
               ?.global_seq ?? 0);
       entered.set(id, { version: s.version, seq });
-      waiting.push(keyed(s, seq));
+      waiting.push(keyed(s, seq, this.#deputy?.handedOff?.(s) ?? null));
     }
     this.#entered = entered;
     return { waiting, due };

@@ -76,9 +76,10 @@ export type VendorPin = z.infer<typeof VendorPinSchema>;
  * the worktree, so it alone keeps the read-only boundary, still named `reviewer` so proven settings
  * hashes and layout shapes stay valid.
  */
-export function boundaryRole(role: Role): Exclude<Role, 'decider'> {
+export function boundaryRole(role: Role): Exclude<Role, 'decider' | 'deputy'> {
   if (role === 'decider') return 'reviewer';
-  return role === 'reviewer' ? 'fixer' : role;
+  // The deputy has the harness's full tools; the daemon puts its worktree back after the turn (FR-017).
+  return role === 'reviewer' || role === 'deputy' ? 'fixer' : role;
 }
 
 /**
@@ -87,7 +88,7 @@ export function boundaryRole(role: Role): Exclude<Role, 'decider'> {
  */
 export function nativeSandboxEnabled(
   pin: VendorPin,
-  role: Exclude<Role, 'decider'> = 'coder',
+  role: Exclude<Role, 'decider' | 'deputy'> = 'coder',
 ): boolean {
   if (role === 'reviewer') return true;
   if (pin.vendor === 'codex') return pin.permission_mode !== 'full-access';

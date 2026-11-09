@@ -74,6 +74,9 @@ export const RoleSchema = z
         max_turns: z.number().int().positive().nullable().optional(),
         stall_timeout: DurationSchema.optional(),
         wall_timeout: DurationSchema.nullable().optional(),
+        // Read only for the `deputy` role (007, FR-121).
+        infra_retries: z.number().int().nonnegative().optional(),
+        context_bytes: z.number().int().positive().optional(),
       })
       .strict()
       .optional(),

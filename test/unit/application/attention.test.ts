@@ -180,14 +180,14 @@ describe('AttentionDesk', () => {
     expect(after.items).toHaveLength(1);
   });
 
-  it('leaves out what the decider holds and tells it once the decider gives it up', () => {
+  it('leaves out what the deputy holds and tells it once the deputy hands it over', () => {
     const { store } = bench([waiting('a', 'agent_question'), waiting('b', 'merge')]);
     const held = new Set(['a']);
     let version = 0;
     const d = new AttentionDesk({
       store,
       now: () => 0,
-      decider: { holds: (s) => held.has(s.id), version: () => version },
+      deputy: { holds: (s) => held.has(s.id), version: () => version },
     });
     const first = value(d.poll(CALLER, NEW));
     expect(first.items.map((i) => i.task_id)).toEqual(['b']);

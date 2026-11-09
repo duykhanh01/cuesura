@@ -15,8 +15,11 @@ import type { Hash } from '../../shared/brand.ts';
 import { hashCanonical } from '../../shared/hash.ts';
 
 export const ROLES = ['coder', 'fixer', 'reviewer'] as const;
-/** `decider` runs outside the task graph: no workflow step can name it, so it stays out of {@link ROLES}. */
-export type Role = (typeof ROLES)[number] | 'decider';
+/**
+ * `decider` and `deputy` run outside the task graph: no workflow step can name them, so they stay out of
+ * {@link ROLES}. `decider` remains only for runs recorded before 007.
+ */
+export type Role = (typeof ROLES)[number] | 'decider' | 'deputy';
 
 export const SUMMARY_MAX = 4_000;
 export const TEXT_MAX = 2_000;
@@ -60,7 +63,17 @@ export const DeciderResultSchema = z.strictObject({
 });
 export type DeciderResult = z.infer<typeof DeciderResultSchema>;
 
-export type RoleResult = CoderResult | ReviewerResult | DeciderResult;
+/**
+ * A deputy turn acts through `cusr` and hands off with `cusr deputy handoff`; its only structured
+ * output is the closing message the owner sees when the incident comes to them (007, FR-023).
+ */
+export const DeputyResultSchema = z.strictObject({
+  schema_version: z.literal(1),
+  final_message: z.string(),
+});
+export type DeputyResult = z.infer<typeof DeputyResultSchema>;
+
+export type RoleResult = CoderResult | ReviewerResult | DeciderResult | DeputyResult;
 
 /** Coder and fixer share one versioned schema; the reviewer has its own verdict schema. */
 export const ROLE_SCHEMAS = {
@@ -68,6 +81,7 @@ export const ROLE_SCHEMAS = {
   fixer: { id: 'cusr.role.coder-fixer.v1', schema: CoderResultSchema },
   reviewer: { id: 'cusr.role.reviewer.v1', schema: ReviewerResultSchema },
   decider: { id: 'cusr.role.decider.v1', schema: DeciderResultSchema },
+  deputy: { id: 'cusr.role.deputy.v1', schema: DeputyResultSchema },
 } as const;
 export type RoleSchemaId = (typeof ROLE_SCHEMAS)[Role]['id'];
 
@@ -80,6 +94,7 @@ export const ROLE_SCHEMA_DIGESTS: Readonly<Record<Role, Hash>> = {
   fixer: 'sha256:0c1592471ef20ca5a8043c0c24c01b8f9b08593dc65be3686c427ba72e3023f4',
   reviewer: 'sha256:0ff4669a1cfda8e2208448032c76fd3428f55124fe5eb3e3e423cbb96ed1c57e',
   decider: 'sha256:4fd09a7720ba5291314e9866a50e89c9f9c9f5d276c411a0541e2681fe634c0e',
+  deputy: 'sha256:2fdf42b21d4b1f7df7923f3cba829ec6be5fd5ed422a01e8bb2b5144f554b3ae',
 };
 
 /** Keywords the exported schema may use; anything else needs new S0.2-grade evidence first. */
@@ -313,6 +328,13 @@ function reviewerSemantics(r: ReviewerResult): ValidationIssue[] {
 
 /** Structural (closed schema) then semantic validation. Provenance is checked by the caller. */
 export function validateRoleResult(role: Role, value: unknown): RoleValidation {
+  if (role === 'deputy') {
+    const parsed = DeputyResultSchema.safeParse(value);
+    if (!parsed.success) return { ok: false, role, issues: structureIssues(parsed.error) };
+    const issues: ValidationIssue[] = [];
+    textIssue(issues, 'final_message', parsed.data.final_message, SUMMARY_MAX);
+    return issues.length > 0 ? { ok: false, role, issues } : { ok: true, role, value: parsed.data };
+  }
   if (role === 'decider') {
     const parsed = DeciderResultSchema.safeParse(value);
     if (!parsed.success) return { ok: false, role, issues: structureIssues(parsed.error) };

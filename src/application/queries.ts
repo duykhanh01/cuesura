@@ -527,7 +527,25 @@ export function taskShow(
     ...taskView(s.value, mergeOf(store, s.value)),
     step: s.value.current_step,
     provenance: provenance(s.value),
+    ...liveTurn(store, s.value.id),
   });
+}
+
+/** The deputy turn working on the task now, if any (007, FR-026). */
+function liveTurn(store: Store, taskId: string): { deputy?: Record<string, unknown> } {
+  const t = store.deputy.runningTurn(taskId);
+  return t === null
+    ? {}
+    : {
+        deputy: {
+          turn_id: t.turn_id,
+          kind: t.kind,
+          incident: t.incident,
+          state: t.state,
+          started_at: t.started_at,
+          retry_at: t.retry_at,
+        },
+      };
 }
 
 /**
@@ -737,8 +755,8 @@ export function taskExplain(
   if (!r.ok) return r;
   const s = r.value;
   const position = store.readQueue(Number.MAX_SAFE_INTEGER).findIndex((x) => x.task_id === s.id);
-  return ok(
-    explainRuntime(
+  return ok({
+    ...explainRuntime(
       s,
       store.readEvents(s.id as Uuid),
       s.policy_ref === null ? null : store.readPolicy(s.id as Uuid, s.policy_ref.revision),
@@ -764,7 +782,8 @@ export function taskExplain(
           : { last_output_at: (id: string) => live.lastOutputAt?.(s, id) ?? null }),
       },
     ),
-  );
+    ...liveTurn(store, s.id),
+  });
 }
 
 const QuestionSchema = z

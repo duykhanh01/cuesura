@@ -5,6 +5,7 @@
  * a daemon restart; no agent is kept alive to wait for the answer.
  */
 import { z } from 'zod';
+import type { HandedOffView } from '../domain/deputy.ts';
 import { TASK_STATUSES, type TaskPause, type TaskState } from '../domain/state.ts';
 import { allowedActions, answerCommand, type AllowedAction } from '../explain/allowed-actions.ts';
 import { queuePausedView, type QueuePausedView } from '../explain/explain.ts';
@@ -13,6 +14,7 @@ import { ok, err, type Result } from '../shared/result.ts';
 import { UuidSchema, type Uuid } from '../shared/brand.ts';
 import type { Store } from '../store/index.ts';
 import { authorize, type Caller } from './authz.ts';
+import type { DeputyWatch } from './attention.ts';
 import type { AppError, QueuePauseReader } from './queries.ts';
 import { recheckTarget } from './recheck.ts';
 
@@ -49,8 +51,10 @@ export type InboxItem = {
   readonly wait_code: string | null;
   /** The version an `answer` command must send as `expected_version`. */
   readonly task_version: number;
-  /** Set while the decider may still answer this question; a person's answer still wins. */
-  readonly decider?: true;
+  /** Set while the deputy may still answer this question; a person's answer still wins. */
+  readonly deputy?: true;
+  /** The deputy's handoff when a turn gave this incident to the owner (FR-023). */
+  readonly handed_off?: HandedOffView;
 };
 
 /** Open questions of one task in the order they were asked; questions of an older revision never show. */
@@ -88,6 +92,9 @@ export type InboxEntry =
       readonly paused: TaskPause | null;
       /** The first way out `task explain` lists under allowed_actions; read the rest there. */
       readonly next: AllowedAction | null;
+      /** Set while a deputy turn handles this wait or is about to. */
+      readonly deputy?: true;
+      readonly handed_off?: HandedOffView;
     };
 
 export type InboxReply = {
@@ -100,7 +107,7 @@ export type InboxReply = {
 };
 
 export type InboxDeps = {
-  readonly decider?: { readonly holds: (s: TaskState) => boolean };
+  readonly deputy?: Pick<DeputyWatch, 'holds' | 'handedOff'>;
   readonly now?: number;
   /** When the task entered its status, for a wait recorded without its own start (#249). */
   readonly statusSince?: (s: TaskState) => number | null;
@@ -132,9 +139,16 @@ export function nextAction(s: TaskState, queuePaused: boolean): AllowedAction | 
 }
 
 function entries(s: TaskState, deps: InboxDeps, queuePaused: boolean): InboxEntry[] {
-  const held = deps.decider?.holds(s) === true;
+  const held = deps.deputy?.holds(s) === true;
+  const handedOff = deps.deputy?.handedOff?.(s) ?? null;
+  const withHandoff = <T extends object>(e: T): T =>
+    handedOff === null ? e : { ...e, handed_off: handedOff };
   const questions: InboxEntry[] = openQuestions(s).map((item) => ({
-    ...(held && item.blocking ? { ...item, decider: true as const } : item),
+    ...(held && item.blocking
+      ? { ...item, deputy: true as const }
+      : item.blocking
+        ? withHandoff(item)
+        : item),
     kind: 'question',
     next: answerAction(item),
   }));
@@ -144,7 +158,8 @@ function entries(s: TaskState, deps: InboxDeps, queuePaused: boolean): InboxEntr
   )
     return questions;
   return [
-    {
+    withHandoff({
+      ...(held ? { deputy: true as const } : {}),
       kind: 'wait',
       question_id: null,
       task_id: s.id,
@@ -157,7 +172,7 @@ function entries(s: TaskState, deps: InboxDeps, queuePaused: boolean): InboxEntr
       task_version: s.version,
       paused: s.pause ?? null,
       next: nextAction(s, queuePaused),
-    },
+    }),
     ...questions,
   ];
 }

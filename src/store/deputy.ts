@@ -9,6 +9,7 @@ import {
   type FinalTurnState,
   type Handoff,
   type HandoffReason,
+  type TurnCommand,
   type TurnKind,
 } from '../domain/deputy.ts';
 import { canonicalJson } from '../shared/canonical-json.ts';
@@ -205,6 +206,24 @@ export class DeputyTurns {
       .prepare(`SELECT * FROM deputy_turns WHERE ${col} = ? ORDER BY started_at, turn_id`)
       .all(id) as Row[];
     return rows.map(toTurn);
+  }
+
+  /** Every live turn, oldest first: what a daemon adopts after a restart (FR-056). */
+  liveTurns(): DeputyTurn[] {
+    const rows = this.#db
+      .prepare(`SELECT * FROM deputy_turns WHERE ${LIVE} ORDER BY started_at, turn_id`)
+      .all() as Row[];
+    return rows.map(toTurn);
+  }
+
+  /** The commands a turn sent, in the order they were admitted (FR-022). */
+  commandsOfTurn(turnId: string): TurnCommand[] {
+    return this.#db
+      .prepare(
+        `SELECT request_id, kind, task_id, status, reason, admitted_at FROM command_ledger
+         WHERE turn_id = ? ORDER BY admitted_at, request_id`,
+      )
+      .all(turnId) as TurnCommand[];
   }
 
   /** Commands of the deputy are taken only while its turn runs (FR-051). */

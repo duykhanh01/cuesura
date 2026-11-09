@@ -398,3 +398,39 @@ describe('host execution with harness-owned permissions', () => {
     expect(r).toMatchObject({ kind: 'exited', code: 0 });
   });
 });
+
+describe('a deputy turn on the host (007, FR-016, FR-050)', () => {
+  it("reaches this daemon's data dir and its turn, not the inherited ones, and has no attempt id", async () => {
+    vi.stubEnv('CUSR_DATA_DIR', '/inherited/data');
+    const dir = mkdtempSync(join(tmpdir(), 'cusr-deputy-env-'));
+    dirs.push(dir);
+    const plan = new HostExecutionProvider().plan(
+      {
+        role: 'fixer',
+        worktree: dir,
+        git_dirs: [],
+        scratch: dir,
+        private_home: dir,
+        context: null,
+        schema: null,
+        ...attemptLayoutInputs(vendorPin('claude'), 'attempt', { turn: 'turn-1', data_dir: dir }),
+        network: 'internet_outbound',
+      },
+      [
+        process.execPath,
+        '-e',
+        'process.stdout.write(JSON.stringify({data: process.env.CUSR_DATA_DIR, turn: process.env.CUSR_DEPUTY_TURN, attempt: process.env.CUSR_ATTEMPT_ID ?? null}))',
+      ],
+    );
+    if (!plan.ok) throw new Error(plan.error.message);
+    const result = await new SpawnExecutor().run(plan.value, {
+      timeout_ms: 5_000,
+      max_output_bytes: 4096,
+    });
+    expect(result).toMatchObject({
+      kind: 'exited',
+      code: 0,
+      output: JSON.stringify({ data: dir, turn: 'turn-1', attempt: null }),
+    });
+  });
+});

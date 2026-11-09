@@ -443,3 +443,25 @@ async function updateOnce(port: GitHubPort, u: DescriptionUpdate): Promise<Updat
     };
   return { kind: 'unknown', detail: r.error.detail };
 }
+
+/** One answer the deputy gave a worker's question, read as an assumption of this PR (007, R-14). */
+export type DeputyAssumption = { readonly question: string; readonly answer: string };
+
+const ASSUMPTIONS_HEADING = '## Assumptions made by the deputy';
+
+/**
+ * The worker's body with the deputy's assumptions as one fixed section, so the owner sees what was
+ * decided for them (US7). Part of the stored content, so every probe compares the body that was sent.
+ */
+export function withDeputyAssumptions(
+  body: string,
+  assumptions: readonly DeputyAssumption[],
+): string {
+  if (assumptions.length === 0) return body;
+  const items = assumptions.map(
+    (a) => `- **${oneLine(a.question)}**\n  ${a.answer.trim().replace(/\n/g, '\n  ')}`,
+  );
+  return `${body.trimEnd()}\n\n${ASSUMPTIONS_HEADING}\n\n${items.join('\n')}\n`;
+}
+
+const oneLine = (text: string): string => text.replace(/\s+/g, ' ').trim();

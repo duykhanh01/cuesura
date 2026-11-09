@@ -87,7 +87,7 @@ describe('setup-harness CLI without model calls', () => {
         ok: true,
         data: {
           invocations_spent: 0,
-          invocations_needed: 4,
+          invocations_needed: 5,
           pin_exists: false,
         },
       },
@@ -97,7 +97,7 @@ describe('setup-harness CLI without model calls', () => {
     expect(existsSync(h.modelCalled)).toBe(false);
     expect(h.run('--dry-run', '--prove-resume')).toMatchObject({
       code: 0,
-      body: { ok: true, data: { invocations_needed: 5, pin_exists: false } },
+      body: { ok: true, data: { invocations_needed: 6, pin_exists: false } },
     });
     expect(existsSync(h.records)).toBe(false);
   });
@@ -118,17 +118,17 @@ describe('setup-harness CLI without model calls', () => {
     expect(h.run('--dry-run')).toMatchObject({
       code: 0,
       body: {
-        data: { invocations_spent: 2, invocations_needed: 4, pin_exists: true },
+        data: { invocations_spent: 2, invocations_needed: 5, pin_exists: true },
       },
     });
-    expect(h.run('--approval', 'owner, test', '--max-invocations', '6')).toMatchObject({
+    expect(h.run('--approval', 'owner, test', '--max-invocations', '7')).toMatchObject({
       code: 1,
       body: { error: { code: 'pin_refused', details: { step: 'write-pin' } } },
     });
     for (const extra of [
       ['--max-invocations', '4'],
-      // 6 covers the four roles after the 2 spent, but not the resume probe.
-      ['--max-invocations', '6', '--prove-resume'],
+      // 7 covers the five roles after the 2 spent, but not the resume probe.
+      ['--max-invocations', '7', '--prove-resume'],
     ]) {
       expect(h.run('--force', '--approval', 'owner, test', ...extra)).toMatchObject({
         code: 1,
@@ -235,7 +235,7 @@ describe('setup-harness CLI without model calls', () => {
     ).toMatchObject({
       code: 0,
       body: {
-        data: { invocations_spent: 2, invocations_needed: 4, pin_exists: true },
+        data: { invocations_spent: 2, invocations_needed: 5, pin_exists: true },
       },
     });
     expect(readFileSync(join(h.records, 'pin.json'), 'utf8')).toBe(pin);

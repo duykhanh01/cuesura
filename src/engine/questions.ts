@@ -119,7 +119,11 @@ export function requestApproval(
 
 type AnswerTrigger = Extract<Trigger, { kind: 'answer' }>;
 
-/** Who answered when the decider did; only {@link onDeciderRan} records it. */
+/**
+ * Who answered when the decider of feature 006 did; only {@link onDeciderRan} records it. 007 replaced the
+ * decider with the deputy, which answers as actor `deputy`: these triggers stay for replay and for the
+ * upgrade closing a run the decider left (R-13), and nothing sends `decider_start` any more.
+ */
 export const DECIDER_ACTOR = 'agent:decider';
 /** The waits a decider may end: its worker asked. Approvals and every other wait stay with a person. */
 export const WORKER_WAITS: readonly string[] = [

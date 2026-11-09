@@ -454,3 +454,57 @@ nhân đôi task tổng).
   dùng decider sẽ đứng ở wait mà không ai gỡ. Lý do fail giữ dạng của #247 (`ladder_exhausted:<step>`,
   `rung_denied:<step>:<rung>`).
 - **Lease:** caller mang `lease` từ header `x-cusr-lease`; client chưa gửi header này, lát D chọn nguồn (R-30).
+
+### Quyết định khi làm lát B
+
+Đối chiếu tại `origin/main` `ef57b16` ngày 2026-11-09.
+
+- **Role `deputy` có schema kết quả tối thiểu.** Hợp đồng ghi "`schema` không dùng", nhưng runner khóa mọi bước
+  (argv có schema, proof, manifest, `recover`) vào `ROLE_SCHEMAS`. Lát B thêm `cusr.role.deputy.v1`
+  `{ schema_version: 1, final_message }`; `RunnerHarness` đổi `result` của role `deputy` thành outcome `turn_ended`. Đường
+  structured output, proof và `recover` giữ nguyên. Hệ quả: `PROOF_ROLES` thêm `deputy` (proof tốn thêm một lần gọi
+  model), và harness đã prove trước lát B phải prove lại hay `record-manifest` từ evidence mới, đúng FR-121. Lát G thêm
+  đường tương tác trả `turn_ended` qua hook.
+- **Biên và cwd.** Deputy chạy biên `fixer` (ghi được, như reviewer), cwd là `<data dir>` đúng hợp đồng: lượt không cần
+  worktree của task tồn tại (sự cố ở `prepare` xảy ra trước khi có worktree). Context ghi đường dẫn worktree để đọc khi có.
+  Runner đặt `CUSR_DEPUTY_TURN` thay `CUSR_ATTEMPT_ID`, và `CUSR_DATA_DIR` là data dir của daemon, nên `cusr` trong lượt
+  gọi đúng daemon dù daemon chạy với `--data-dir` khác mặc định. Luật cấm `Edit`/`Write` trên `<data dir>/worktrees/**`
+  (FR-053) cần sửa settings của phiên, để lát G cùng settings tương tác.
+- **Trả worktree thất bại** thì lượt vẫn sống (giữ mốc và chặn dispatch), daemon thử trả lại sau; lượt chỉ sang trạng
+  thái cuối khi trả xong. Sửa của deputy không bao giờ lọt vào task.
+- **Vòng không chờ harness.** `round()` khởi động lượt và trả về ngay; lượt chạy song song, nên vòng sau vẫn dừng được
+  lượt của task đã kết thúc (FR-018) và mở lượt cho task khác (FR-014). Không dựng được lượt (ví dụ không đọc được mốc)
+  thì sự cố về người tới khi daemon khởi động lại.
+- **Bàn giao** đi qua `Redactor` trước khi lưu.
+- **Mốc cũ.** Lấy mốc phải chờ Git trước khi có dòng lượt chặn dispatch; sau đó daemon đọc lại task, và nếu version, sự
+  cố, pause hay cancel đã đổi (ví dụ chủ dự án `continue` và worker đã chạy) thì bỏ mốc, không mở lượt.
+- **Dừng daemon** chờ mọi việc lượt đã khởi động (chạy, nhận lại, trả worktree) xong trước khi đóng store
+  (`abortRounds` được await), để việc trả worktree muộn của daemon cũ không xóa commit của worker dưới daemon mới.
+- **Bản ghi trên đĩa.** Một file `<data dir>/deputy/<turn_id>.json` giữ input của runner và mốc worktree, ghi trước dòng
+  `deputy_turns`, thay cho `deputy-baseline-<turn_id>.json` riêng. File không có dòng là lượt chưa spawn và bị bỏ; dòng
+  sống mà daemon này không chạy thì được nhận lại (FR-056).
+- **Chặn dispatch (R-08).** Dispatcher bỏ qua `prepare`, `start_agent`, `run_gates`, `publish` của task có lượt
+  `running`/`retry_wait` (lý do `deputy_turn`), đọc từ `deputy_turns`. Lượt chỉ sang trạng thái cuối sau khi trả worktree.
+- **Lệnh của người không dừng lượt.** `recheck` của decider (dừng run khi người trả lời) bị bỏ: người thắng bằng version
+  (FR-057), lượt chỉ bị dừng khi task kết thúc (FR-018).
+- **`deputy handoff`** là lệnh không có project, task hay version như lệnh hàng đợi; không cần `--reason` (bàn giao là lời
+  giải thích của lượt); actor khác `deputy` bị `forbidden` `turn`. CLI nhận một `--ruled-out "<giả thuyết>: <lý do>"`;
+  nhiều mục đi qua `--file`.
+- **`turn_scope`:** goal của task là `task.goal.id`, không có thì chính task (goal ẩn, FR-123).
+- **Cấu hình `roles.deputy.limits`:** dùng khóa sẵn có `max_turns`, `stall_timeout`, `wall_timeout`, thêm `infra_retries`
+  và `context_bytes` (data model viết `wall_ms`, `stall_ms`). `autonomous: true` cần role `deputy` hoặc `decider`. Role
+  `decider` được đọc như `deputy`; daemon ghi cảnh báo đổi tên một lần, `cusr doctor` cũng báo.
+- **Context tạm** gồm vùng 1, 3, 5: vai trò, task (lịch sử theo step do code dựng, bàn giao trước: mới nhất đầy đủ, cũ hơn
+  `decision` và `ruled_out`, lượt `aborted` kèm lệnh của nó), sự cố (mã, chi tiết, câu hỏi, lệnh khả dụng). Vùng 3 và 5
+  cắt theo 60%/40% của `context_bytes`. Lát D thay bằng `deputy-context.ts`. Lượt luôn `headless` tới lát G; `signature`
+  để null tới lát C.
+- **Attention và inbox:** `holds` đúng khi sự cố tới deputy, task không pause và chưa có lượt nào kết thúc ở đúng sự cố
+  đó. Mục inbox đánh dấu `deputy: true` (thay `decider: true`) và có `handed_off`; mục attention có `deputy` khi lượt đã
+  chuyển sự cố cho người.
+- **Nâng cấp (R-13):** run decider chỉ được đóng (`decider_ran superseded`) khi chứng minh được đã dừng: chưa launch, hoặc
+  `stop` trả khác `unknown`. Không chứng minh được thì giữ bản ghi, task đó không có lượt deputy, và mỗi vòng thử lại
+  (nguyên tắc II). Run đã launch rồi bị dừng tính là đã tiêu lượt agent. Engine giữ `decider_start`/`decider_ran` cho replay và bước này; không còn ai gửi
+  `decider_start`. Quy tắc một câu trả lời mỗi step và nhãn `grill` nằm ở `decider.ts` nên bị bỏ cùng file.
+- **Mục giả định trong PR (R-14)** được thêm vào `pr_body` lúc nhận content của worker, từ câu trả lời của actor `deputy`
+  trong revision hiện tại, nên content đã lưu và probe thấy cùng một thân.
+- **Dời sang lát C:** fake reviewer trả finding có `key` (T002) và bước 4 loop guard của hợp đồng sau lượt.

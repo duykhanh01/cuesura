@@ -41,7 +41,7 @@ export type LogsDeps = {
   /** Kept by the daemon across reads; without it every read parses each run's files whole. */
   readonly cache?: LogRecordCache;
   readonly now?: () => number;
-  /** A question the decider may still answer itself is not the user's yet (`DeciderWatch.holds`). */
+  /** A question the decider may still answer itself is not the user's yet (`DeputyWatch.holds`). */
   readonly holds?: (s: TaskState) => boolean;
   /** When the task entered its status, for a wait recorded without its own start (`needsUser`). */
   readonly statusSince?: StatusSince;

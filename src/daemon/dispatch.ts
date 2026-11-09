@@ -43,6 +43,7 @@ export type SkipReason =
   | 'dispatch_blocked'
   | 'dispatch_held'
   | 'in_flight'
+  | 'deputy_turn'
   | ClaimError['code']
   | `claim_blocked:${string}`
   | `operation_rejected:${string}`;
@@ -61,6 +62,14 @@ const OPERATION_KIND: Record<Exclude<EffectKind, 'merge'>, OperationKind> = {
   reconcile: 'github',
   observe_external: 'github',
 };
+
+/** Effects that write the task's worktree; none runs while a deputy turn on the task is live (R-08). */
+const WRITES_WORKTREE: ReadonlySet<EffectKind> = new Set([
+  'prepare',
+  'start_agent',
+  'run_gates',
+  'publish',
+]);
 
 export type DispatchReport = {
   readonly started: readonly string[];
@@ -260,7 +269,11 @@ export class Dispatcher {
     if (this.#blocked !== null) return 'dispatch_blocked';
     if (this.#held !== null && isBusinessEffect(effect.kind)) return 'dispatch_held';
     if (this.#inFlight.has(effect.id)) return 'in_flight';
-    return this.#handlers[effect.kind] === undefined ? 'no_handler' : null;
+    if (this.#handlers[effect.kind] === undefined) return 'no_handler';
+    // Read from `deputy_turns`, so the hold outlives a restart; it ends once the worktree is back (FR-017).
+    if (WRITES_WORKTREE.has(effect.kind) && this.#store.deputy.runningTurn(effect.task_id) !== null)
+      return 'deputy_turn';
+    return null;
   }
 
   #start(effect: Effect, operation: OperationClaim, handler: EffectHandler): void {

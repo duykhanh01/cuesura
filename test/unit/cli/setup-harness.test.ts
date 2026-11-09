@@ -48,7 +48,7 @@ const values = {
   effort: 'high',
   out: '/evidence.json',
   approval: 'owner, test',
-  maxInvocations: '10',
+  maxInvocations: '11',
 };
 async function run(extra: Record<string, string | undefined> = {}, json = true) {
   let stdout = '';
@@ -141,7 +141,7 @@ describe('setup-harness composition', () => {
       expect.objectContaining({
         model: 'proof-model',
         effort: 'high',
-        budget: { approval: 'owner, test', maxInvocations: 10 },
+        budget: { approval: 'owner, test', maxInvocations: 11 },
         out: values.out,
       }),
     );
@@ -247,8 +247,8 @@ describe('setup-harness composition', () => {
   });
 
   it.each([
-    [undefined, 4],
-    ['true', 5],
+    [undefined, 5],
+    ['true', 6],
   ])(
     'previews a candidate and counts roles plus resume without spending',
     async (proveResume, needed) => {
