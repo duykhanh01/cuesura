@@ -7,7 +7,7 @@ tiết có thể đổi khi triển khai miễn giữ các quy tắc dưới đ�
 
 | Màn hình | Nội dung | Vào từ |
 | --- | --- | --- |
-| Home | Thanh trạng thái (daemon, slot, hàng đợi, cập nhật cuối, bộ lọc project), nhóm `Needs you`, danh sách task | Mở `cusr` |
+| Home | Thanh trạng thái (daemon, slot, hàng đợi, cập nhật cuối, bộ lọc project), dòng `Queue paused` khi hàng đợi tạm dừng, nhóm `Needs you`, danh sách task | Mở `cusr` |
 | Task detail | Hoạt động, tiến trình bước, lối ra, PR, kết quả kiểm tra. `i` mở phần kỹ thuật: mã lý do chờ, blocker, commit, attempt, rung, giới hạn đầy đủ, lịch sử event | `d` trong Logs |
 | Logs | Log của bước mới nhất, trực tiếp, hoặc của một attempt đã qua | `l` trong Task detail |
 | Actions | Menu thao tác của task | `a` trên một task |
@@ -15,6 +15,8 @@ tiết có thể đổi khi triển khai miễn giữ các quy tắc dưới đ�
 | Run config | Hiện profile của task; chọn chế độ, worker, reviewer, dự phòng; nhập lý do, tối đa 2.000 ký tự | `Propose run` trong Actions |
 | Review | Toàn bộ nội dung theo FR-026, bước xác nhận riêng | `Confirm` trong Actions |
 | Answer, Cancel, Recheck, Approve | Hộp thoại của từng thao tác | Actions |
+| Pause, Resume, Continue | Hộp thoại tạm dừng (lý do, `--now`), tiếp tục, cho chạy tiếp; xem [Tạm dừng và tiếp tục](#tạm-dừng-và-tiếp-tục) | Actions |
+| Pause the queue, Resume the queue | Hộp thoại tạm dừng (lý do) hoặc tiếp tục hàng đợi | `p` ở Home |
 | Help | Toàn bộ phím theo ngữ cảnh | `?` |
 | Disconnected | Lý do, thời điểm cập nhật cuối, trạng thái thử lại, `Retry connection` | Banner trên mọi màn hình khi dữ liệu cũ |
 
@@ -22,7 +24,7 @@ Danh sách thao tác của Actions lấy từ `allowed_actions` của `task_expl
 
 | `action` | Trên giao diện |
 | --- | --- |
-| `answer`, `confirm`, `propose`, `approve`, `cancel`, `recheck` | Hộp thoại tương ứng; làm mờ kèm lý do nếu token không đủ quyền |
+| `answer`, `confirm`, `propose`, `approve`, `cancel`, `recheck`, `pause`, `resume`, `continue` | Hộp thoại tương ứng; làm mờ kèm lý do nếu token không đủ quyền |
 | `merge_manually` | Hướng dẫn merge trên GitHub, method và nội dung đề xuất; không có thao tác gửi |
 | `fix_external`, `wait` | Dòng thông tin từ `note` |
 | `task_add` | Mở New task, là task độc lập |
@@ -40,6 +42,7 @@ Luôn có hiệu lực ngoài ô nhập, và luôn được hiện ở thanh g�
 | `Enter` | Mở mục đang chọn. Ngoài ô xác nhận, không bao giờ xác nhận thao tác có hậu quả |
 | `Esc` | Quay lại; rời hộp thoại mà không gửi |
 | `a` | Mở Actions |
+| `p` | Ở Home: tạm dừng hàng đợi, hoặc tiếp tục khi hàng đợi đang tạm dừng; mở hộp thoại, không gửi ngay |
 | `f` | Bộ lọc project và status |
 | `?` | Help |
 | `R` | `Retry connection` khi đang chờ người dùng |
@@ -86,10 +89,29 @@ dòng trong đó không kích hoạt gửi.
 | Kiểm tra lại `worktree_changed` | Cảnh báo nhận cây thư mục, vị trí worktree | `accept` |
 | Duyệt escalation | Bước, nấc, lý do, giới hạn còn lại; quyền operate (nhận PR có sẵn: admin) | `approve` |
 | Trả lời, đề xuất cấu hình, tạo task, kiểm tra lại thường | Xem lại nội dung | Không; dùng `Ctrl-S` |
+| Tạm dừng task hoặc hàng đợi | Lý do không rỗng | Không; dùng `Ctrl-S` |
+| Tiếp tục task, cho task chạy tiếp, tiếp tục hàng đợi | Hộp thoại nêu `note` của action | Không; dùng `Ctrl-S` |
 
 Trong ô xác nhận, `Enter` chỉ gửi khi nội dung đúng bằng từ yêu cầu; sai thì giữ nguyên và báo lỗi tại chỗ, không sang trường khác. `Ctrl-S` không có tác dụng ở
 đây. Ô xác nhận rỗng khi mở, không nhận paste, không có hết giờ. Mở lại Review sau khi bộ lựa chọn đổi thì hiện khác biệt và xóa từ đã gõ
 (FR-028).
+
+## Tạm dừng và tiếp tục
+
+- Hộp thoại `pause` có ô lý do một dòng (tối đa 4.096 ký tự, bắt buộc) và lựa chọn `--now` (dừng cả lượt agent
+  đang chạy), mặc định tắt; `Tab` đổi giữa hai ô, `Space` bật tắt `--now`. `resume` và `continue` chỉ nêu
+  `note` của action. Cả ba gửi `task_pause`/`task_resume`/`task_continue` với `expected_version` là version của
+  `task_show` lúc mở hộp thoại, như `recheck`; hộp thoại ghi version đó. Task đổi version trong lúc hộp thoại mở
+  thì không gửi và báo tại chỗ; daemon từ chối thì menu Actions hiện `Rejected: <code>: <message>`.
+- Thiếu quyền operate: mục trong Actions mờ kèm lý do và `Enter` không mở hộp thoại. Hộp thoại hàng đợi vẫn mở
+  để đọc nhưng `Ctrl-S` báo lý do không gửi.
+- Home hiện `‖ Queue paused: <lý do> · by <ai> at HH:MM:SS · p to resume` khi `queue_paused` của `task_board`
+  khác null (đọc từ mọi reply, kể cả `unchanged`). `p` mở hộp thoại `queue_pause` (lý do) hoặc `queue_resume`;
+  lệnh hàng đợi không có project, task hay version. Kết quả chưa xong hoặc bị từ chối hiện ở dòng
+  `Queue (<kind>): …` trên Home.
+- Task đang tạm dừng: Home thêm `Paused · ` trước cột `Now` khi task còn chờ thứ khác, footer của task đang chọn
+  có dòng `Paused  by <ai> at HH:MM:SS: <lý do>`; Task detail có dòng `‖ Paused by …` dưới trạng thái, lấy từ
+  `paused` của `task_explain`.
 
 ## Dữ liệu cũ và mất kết nối
 

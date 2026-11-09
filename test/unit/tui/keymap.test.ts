@@ -151,6 +151,8 @@ function answered(s: TuiState, value: TaskExplain, watermark = 7): TuiState {
   return reduce(s, msg).state;
 }
 
+const typingIn = (ctx: Context): boolean => ctx === 'filter_text' || ctx === 'dialog_text';
+
 /** One state for each context, as keys from Home leave it. */
 function contexts(): Record<Context, TuiState> {
   const h = home();
@@ -164,6 +166,11 @@ function contexts(): Record<Context, TuiState> {
     actions: answered(run(h, ch('a')), explain(QUESTION)),
     filter_text: run(h, ch('f')),
     filter_choice: run(h, ch('f'), k('tab')),
+    dialog_text: run(h, ch('p')),
+    dialog_choice: run(
+      { ...h, queuePaused: { reason: 'r', by: 'owner', at: 0 } as never },
+      ch('p'),
+    ),
     help: run(h, ch('?')),
   };
 }
@@ -200,9 +207,9 @@ describe('the keymap is the one source of keys, hints and Help (T050)', () => {
     for (const [ctx, s] of Object.entries(all) as [Context, TuiState][]) {
       const shown = bar(s);
       expect(shown.length, ctx).toBeLessThanOrEqual(80);
-      expect(shown, ctx).toMatch(ctx === 'filter_text' ? /Ctrl-C quit/ : /q quit/);
+      expect(shown, ctx).toMatch(typingIn(ctx) ? /Ctrl-C quit/ : /q quit/);
       if (ctx !== 'home') expect(shown, ctx).toContain('Esc back');
-      if (ctx !== 'help' && ctx !== 'filter_text') expect(shown, ctx).toContain('? help');
+      if (ctx !== 'help' && !typingIn(ctx)) expect(shown, ctx).toContain('? help');
     }
     expect(bar(all.home)).toContain('a actions');
     expect(bar(all.home)).toContain('f filter');
@@ -219,7 +226,7 @@ describe('the keymap is the one source of keys, hints and Help (T050)', () => {
       };
       const shown = hintBar(waiting, 80);
       expect(shown.length, ctx).toBeLessThanOrEqual(80);
-      if (ctx !== 'filter_text') {
+      if (!typingIn(ctx)) {
         expect(shown, ctx).toContain('R retry connection');
         expect(shown, ctx).toContain('q quit');
       }

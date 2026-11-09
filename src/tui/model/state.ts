@@ -1,9 +1,10 @@
 import { TASK_STATUSES, type TaskStatus } from '../../domain/state.ts';
 import type { Mutation } from '../client/mutations.ts';
-import type { BoardData, CallerInfo, Health, ProjectList } from '../client/schemas.ts';
+import type { BoardData, CallerInfo, Health, PauseInfo, ProjectList } from '../client/schemas.ts';
 import type { SafeText } from '../terminal/safe-text.ts';
 import type { ActionsMenu } from './actions.ts';
 import type { TaskDetail } from './detail.ts';
+import type { Dialog } from './dialog.ts';
 import type { LogState } from './logs.ts';
 
 /** Automatic reconnect attempts in one round; after these the session waits for the user (FR-009). */
@@ -56,7 +57,7 @@ export function retryConnection(c: Connection): Connection | null {
   return null;
 }
 
-export type Screen = 'home' | 'help' | 'filters' | 'detail' | 'logs' | 'actions';
+export type Screen = 'home' | 'help' | 'filters' | 'detail' | 'logs' | 'actions' | 'dialog';
 
 export type Filters = {
   readonly project: string | null;
@@ -122,6 +123,8 @@ export type TuiState = {
   /** Why the latest read failed. */
   readonly lastError: SafeText | null;
   readonly board: BoardData | null;
+  /** From every board reply, `unchanged` too: the queue pause does not move the watermark. */
+  readonly queuePaused: PauseInfo | null;
   readonly health: Health | null;
   readonly size: Size;
   /** The open Task detail; only while it is on the screen stack. */
@@ -130,6 +133,8 @@ export type TuiState = {
   readonly logs: LogState | null;
   /** The open Actions menu; only while it is on the screen stack. */
   readonly actions: ActionsMenu | null;
+  /** The open pause or resume dialog; only while it is on the screen stack. */
+  readonly dialog: Dialog | null;
   /** First row of Help on screen; the screen under Help keeps its own place. */
   readonly helpTop: number;
   /**
@@ -163,11 +168,13 @@ export function initialState(size: Size): TuiState {
     quitArmed: false,
     lastError: null,
     board: null,
+    queuePaused: null,
     health: null,
     size,
     detail: null,
     logs: null,
     actions: null,
+    dialog: null,
     helpTop: 0,
     screenSession: 0,
     tick: 0,

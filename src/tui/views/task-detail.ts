@@ -16,6 +16,7 @@ import type { TaskExplain, TaskProgress, TaskShow } from '../client/schemas.ts';
 import { joinSafe, sanitize, sanitizeLines, uiText, type SafeText } from '../terminal/safe-text.ts';
 import type { Style } from '../terminal/screen.ts';
 import { displayWidth } from '../terminal/width.ts';
+import { pausedText } from './dialog.ts';
 import { clockTime, type Body } from './layout.ts';
 import { BOLD, DIM, putSegs, ruleHeading, seg, ui, wrapSegs, type Seg } from './ink.ts';
 import { endBadge, stepper } from './stepper.ts';
@@ -112,6 +113,9 @@ function aboutRows(out: Rows, d: TaskDetail, stale: boolean): void {
   const mode = d.progress.data?.mode ?? show?.run_config?.selection.mode ?? null;
   if (mode !== null) facts.push(ui(' · ', DIM), seg(mode, DIM));
   out.line(facts);
+  // Said here, not only as a wait: a paused task may be waiting on CI or an answer as well.
+  const paused = explain?.paused ?? null;
+  if (paused !== null) out.line([ui('‖ ', WARN), seg(pausedText(paused), NOTICE)]);
   const problems: readonly (readonly [string, SafeText | null])[] = [
     ['the explanation', d.explain.error],
     ['the task', d.show.error],

@@ -12,14 +12,21 @@ export const MAX_RESENDS = 5;
 export const COMMAND_TIMEOUT_MS = 10_000;
 export const CHECK_TIMEOUT_MS = 5_000;
 
-/** The whole body sent to the daemon, minus the request ID; never changes on a resend. */
+/**
+ * The whole body sent to the daemon, minus the request ID; never changes on a resend. A command on the
+ * daemon's queue names no project, task or version.
+ */
 export type MutationCommand = {
   readonly kind: string;
-  readonly project: string;
-  readonly task_id: string;
-  readonly expected_version: number;
+  readonly project: string | null;
+  readonly task_id: string | null;
+  readonly expected_version: number | null;
   readonly payload: unknown;
 };
+
+/** Where a write is kept and locked: its task, or the queue. Task IDs are UUIDs, so the two never meet. */
+export const QUEUE_TARGET = 'queue';
+export const mutationTarget = (c: MutationCommand): string => c.task_id ?? QUEUE_TARGET;
 
 export type MutationState = 'sending' | 'accepted' | 'rejected' | 'unknown' | 'unresolved';
 
@@ -90,15 +97,17 @@ export class MutationTracker {
     return [...this.#all.values()].filter(isOpen);
   }
 
-  blocking(taskId: string): Mutation | undefined {
+  /** `target`: a task ID, or `QUEUE_TARGET`. */
+  blocking(target: string): Mutation | undefined {
     // `sending` counts too: a resend in flight is still a write whose result is not known.
     return [...this.#all.values()].find(
-      (m) => m.command.task_id === taskId && (isOpen(m) || this.#resending.has(m.requestId)),
+      (m) =>
+        mutationTarget(m.command) === target && (isOpen(m) || this.#resending.has(m.requestId)),
     );
   }
 
   async submit(command: MutationCommand): Promise<SubmitResult> {
-    const blockedBy = this.blocking(command.task_id);
+    const blockedBy = this.blocking(mutationTarget(command));
     if (blockedBy !== undefined) return { started: false, blockedBy };
     const id = (this.#deps.newId ?? uuidv7)();
     const m = this.#set({

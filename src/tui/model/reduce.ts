@@ -2,6 +2,7 @@
  * `(state, message) → (state, effects)`, pure, so random keys and connection failures can be tested without
  * a terminal. Nothing here decides what a task may do: that stays with the daemon.
  */
+import { mutationTarget, QUEUE_TARGET } from '../client/mutations.ts';
 import type { Key } from '../terminal/keys.ts';
 import { contentHeight } from '../views/disconnected.ts';
 import { helpLastTop } from '../views/help.ts';
@@ -15,12 +16,14 @@ import {
   openDetail,
 } from './detail-keys.ts';
 import { onDetailRead } from './detail.ts';
+import { onDialogCommand, onDialogText, openQueueDialog } from './dialog.ts';
 import { homeRows, keepSelection, selectRow, selectedRowIndex } from './home-rows.ts';
 import { commandFor, keyContext, type Command } from './keymap.ts';
 import type { Effect, Message } from './messages.ts';
 import {
   boardQueryKey,
   currentScreen,
+  mutationLock,
   nextConnection,
   projectChoices,
   retryConnection,
@@ -65,6 +68,7 @@ export function reduce(state: TuiState, message: Message): Reduced {
           : {}),
         connection: nextConnection(state.connection, { ok: true }),
         stale: false,
+        queuePaused: message.board.queue_paused ?? null,
         lastError: null,
         health: message.health,
         ...(message.projects === undefined
@@ -113,7 +117,7 @@ export function reduce(state: TuiState, message: Message): Reduced {
       return same(onActionsShowRead(state, message));
     case 'mutation_changed': {
       const m = message.mutation;
-      const mutations = new Map(state.mutations).set(m.command.task_id, m);
+      const mutations = new Map(state.mutations).set(mutationTarget(m.command), m);
       // A write that went through moved the task: read the board now instead of at the next tick.
       return {
         state: { ...state, mutations },
@@ -167,18 +171,22 @@ function onKey(given: TuiState, key: Key): Reduced {
       return onLogsCommand(state, command) ?? same(state);
     case 'actions':
       return onActionsCommand(state, command) ?? same(state);
+    case 'dialog':
+      return onDialogCommand(state, command) ?? same(state);
   }
 }
 
 function askToQuit(state: TuiState): Reduced {
   // What was typed is worth one more key press (contracts/tui.md).
-  if ((state.filterDraft?.query ?? '') !== '' && !state.quitArmed)
-    return same({ ...state, quitArmed: true });
+  const typed =
+    (state.filterDraft?.query ?? '') !== '' || (state.dialog?.reason?.text ?? '') !== '';
+  if (typed && !state.quitArmed) return same({ ...state, quitArmed: true });
   return { state, effects: [{ type: 'quit', code: 0 }] };
 }
 
 /** A key that is no command: text, where a field takes it, and nothing elsewhere. */
 function onText(state: TuiState, key: Key): Reduced {
+  if (keyContext(state) === 'dialog_text') return onDialogText(state, key);
   const draft = state.filterDraft;
   if (keyContext(state) !== 'filter_text' || draft === null) return same(state);
   const put = (query: string): Reduced =>
@@ -246,6 +254,14 @@ function onHomeCommand(state: TuiState, command: Command): Reduced {
           { keepSelection: true },
         );
       return openDetail(state, rows[at]);
+    case 'queue':
+      return openQueueDialog(state);
+    case 'check_again': {
+      const m = mutationLock(state, QUEUE_TARGET);
+      return m === null || m.state !== 'unresolved'
+        ? same(state)
+        : { state, effects: [{ type: 'check_again', requestId: m.requestId }] };
+    }
     case 'actions': {
       const row = rows[at];
       return row === undefined || row.kind === 'finished_toggle'

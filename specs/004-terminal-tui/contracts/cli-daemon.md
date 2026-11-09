@@ -112,9 +112,11 @@ Khi có thay đổi:
 
 - `counts` tính trên toàn bộ phạm vi token và bộ lọc `project`, `status`, không theo trang (EC-005) và không theo `scope`, nên vẫn biết số task đã kết thúc khi đang xem task còn chạy.
 - `queue.length` là số request đang chờ slot trong phạm vi token. Slot và health vẫn lấy từ `GET /v1/health`.
+- `queue_paused` (`reason`, `by`, `at`, `age_ms`, `command` hoặc null) có ở cả reply `unchanged`, vì tạm dừng hàng
+  đợi không đổi watermark.
 - `attention.items` gồm mọi task `needs_user` trong phạm vi, tối đa 200. Bộ lọc project áp dụng cả ở đây.
 - Mỗi hàng có `task_id`, `project`, `title`, `status`, `wait_code`, `step`, `step_visits`, `mode`, `status_since`, `version`, `priority`, `pr_ref`,
-  `needs_user`. `status_since` là `null` khi không xác định được. `step_visits` là số lần vào mỗi bước; TUI dùng nó để thanh stage không lùi khi vòng sửa chạy lại gate.
+  `needs_user`, `paused` (`reason`, `by`, `at` hoặc null; task tạm dừng mà vẫn chờ CI hay câu trả lời có `wait_code` khác `paused`). `status_since` là `null` khi không xác định được. `step_visits` là số lần vào mỗi bước; TUI dùng nó để thanh stage không lùi khi vòng sửa chạy lại gate.
 - `items` và `attention.items` sắp theo task ID như `task_list`: `order` mặc định `oldest`, `newest` xếp task mới tạo lên đầu và
   `cursor` đi dần về task cũ hơn. TUI gửi `newest`; `cusr task board` không gửi nên giữ thứ tự cũ.
 - `cusr task board --json` không lặp hàng: task trong `items` chỉ còn `task_id` và `wait_code` ở `attention.items`; `--full` in nguyên reply (xem [Output mặc định gọn](../../002-task-to-green-pr/contracts/cli-daemon.md#output-mặc-định-gọn)).

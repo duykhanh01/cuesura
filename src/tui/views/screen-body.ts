@@ -2,6 +2,7 @@ import { currentScreen, type TuiState } from '../model/state.ts';
 import { uiText } from '../terminal/safe-text.ts';
 import { wrap } from '../terminal/width.ts';
 import { actionsBody } from './actions.ts';
+import { dialogBody } from './dialog.ts';
 import { withDisconnected } from './disconnected.ts';
 import { filtersBody, QUIT_PROMPT } from './filters.ts';
 import { helpBody } from './help.ts';
@@ -26,6 +27,8 @@ export function screenBody(s: TuiState, opts: { color: boolean }): Body {
         return detailBody(s);
       case 'logs':
         return logsBody(s);
+      case 'dialog':
+        return dialogBody(s);
     }
   })();
   return withDisconnected(s, withQuitPrompt(s, body));

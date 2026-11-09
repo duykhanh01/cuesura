@@ -24,6 +24,8 @@ export type ActionKind = 'dialog' | 'send' | 'guide' | 'info';
 type Known = {
   readonly label: string;
   readonly kind: ActionKind;
+  /** A dialog this version opens (`model/dialog.ts`). */
+  readonly ready?: true;
   /** Mirrors `REQUIRED_ROLE` of `src/application/commands.ts`; the daemon still decides. */
   readonly role?: 'operate' | 'admin';
 };
@@ -35,6 +37,9 @@ const KNOWN: Readonly<Record<string, Known>> = {
   approve: { label: 'Approve', kind: 'dialog', role: 'operate' },
   cancel: { label: 'Cancel task', kind: 'dialog', role: 'operate' },
   recheck: { label: 'Recheck', kind: 'send', role: 'operate' },
+  pause: { label: 'Pause task', kind: 'dialog', role: 'operate', ready: true },
+  resume: { label: 'Resume task', kind: 'dialog', role: 'operate', ready: true },
+  continue: { label: 'Continue task', kind: 'dialog', role: 'operate', ready: true },
   task_add: { label: 'New task', kind: 'dialog', role: 'operate' },
   merge_manually: { label: 'Merge on GitHub', kind: 'guide' },
   fix_external: { label: 'Fix outside Cuesura', kind: 'guide' },
@@ -45,6 +50,7 @@ export type ActionItem = {
   readonly action: string;
   readonly label: SafeText;
   readonly kind: ActionKind;
+  readonly ready: boolean;
   readonly effect: SafeText;
   readonly command: SafeText | null;
   /** Why the caller may not take it; `null` when it may, or when there is nothing to take. */
@@ -66,7 +72,7 @@ function mergeGuide(merge: TaskExplain['merge']): SafeText[] {
   ];
 }
 
-function unavailable(role: Known['role'], caller: CallerInfo | null): string | null {
+export function unavailable(role: Known['role'], caller: CallerInfo | null): string | null {
   if (role === undefined) return null;
   if (caller === null) return 'your permissions are not read yet';
   if (caller.roles.includes(role)) return null;
@@ -85,6 +91,7 @@ export function actionItems(
       action: a.action,
       label: known === undefined ? sanitize(a.action) : uiText(known.label),
       kind: known?.kind ?? 'info',
+      ready: known?.ready === true,
       effect: a.note,
       command: a.command,
       // `approve` covers both approvals: an escalation needs operate, adopting a PR admin.
@@ -102,6 +109,7 @@ export function actionItems(
 /** What Enter on `item` says. Nothing is ever sent from the menu itself. */
 export function enterNotice(item: ActionItem): string {
   if (item.unavailable !== null) return `Nothing was sent: ${item.label} ${item.unavailable}.`;
+  if (item.kind === 'dialog' && item.ready) return `Opening ${item.label}.`;
   if (item.kind === 'dialog')
     return `Nothing was sent: the ${item.label} dialog comes in a later version. The CLI command is listed with it.`;
   if (item.kind === 'send') return `Sending ${item.label}.`;
@@ -131,7 +139,7 @@ function itemRows(item: ActionItem, index: number, on: boolean, cols: number): R
       text: joinSafe([
         uiText(on ? '› ' : '  '),
         item.label,
-        uiText(item.kind === 'dialog' ? LATER : ''),
+        uiText(item.kind === 'dialog' && !item.ready ? LATER : ''),
       ]),
       style: {
         ...(on ? { inverse: true } : { bold: true }),
@@ -150,8 +158,8 @@ function itemRows(item: ActionItem, index: number, on: boolean, cols: number): R
   ];
 }
 
-/** What is known of the latest write on this task, in the words of data-model.md "Thao tác đang gửi". */
-function mutationLine(m: Mutation | undefined): { text: string; style: Style } | null {
+/** What is known of the latest write on a task or the queue, in the words of data-model.md "Thao tác đang gửi". */
+export function mutationLine(m: Mutation | undefined): { text: string; style: Style } | null {
   if (m === undefined) return null;
   const id = `request ${m.requestId}`;
   switch (m.state) {

@@ -1,7 +1,8 @@
 /**
  * The Actions menu of one task (FR-016, EC-013). What it lists is `allowed_actions` of a `task_explain` read
  * when the menu opens, never the one Task detail holds, and read again whenever anything moved, so a menu
- * that is no longer valid is replaced instead of acted on. Nothing here is sent: dialogs come with US4 and US5.
+ * that is no longer valid is replaced instead of acted on. Recheck is sent from here; pause, resume and continue
+ * open a dialog of their own (`dialog.ts`), and the other dialogs come with US4 and US5.
  */
 import type { PortResult } from '../client/daemon-port.ts';
 import type { TaskExplain, TaskShow } from '../client/schemas.ts';
@@ -9,6 +10,7 @@ import { uiText, type SafeText } from '../terminal/safe-text.ts';
 import type { MutationCommand } from '../client/mutations.ts';
 import { actionItems, actionsPaging, enterNotice } from '../views/actions.ts';
 import { contentHeight } from '../views/disconnected.ts';
+import { openDialog, type DialogAction } from './dialog.ts';
 import { EXPLAIN_READ_MS, noPart, type Part } from './detail.ts';
 import type { Command } from './keymap.ts';
 import type { Effect } from './messages.ts';
@@ -133,10 +135,17 @@ export function onActionsShowRead(state: TuiState, m: ActionsShowMessage): TuiSt
     // Detail under this menu does not read while hidden, so this answer is the one that frees the task.
     staleTasks.delete(m.taskId);
   }
+  // A dialog opened before the task was read takes the first version read: the user has seen no other.
+  const d = state.dialog;
+  const dialog =
+    d !== null && d.taskId === m.taskId && d.version === null
+      ? { ...d, version: m.result.value.version }
+      : d;
   return {
     ...state,
     recheck,
     staleTasks,
+    dialog,
     actions: {
       ...menu,
       show: { data: m.result.value, error: null, attemptAt: m.askedAt, readAt: m.at },
@@ -271,6 +280,14 @@ export function onActionsCommand(state: TuiState, command: Command): Reduced | n
       const item = items[menu.selected];
       if (item === undefined) return put({});
       if (item.action === 'recheck' && item.unavailable === null) return sendRecheck(state, menu);
+      if (item.kind === 'dialog' && item.ready && item.unavailable === null)
+        return openDialog(state, {
+          action: item.action as DialogAction,
+          taskId: menu.taskId,
+          title: menu.title,
+          effect: item.effect,
+          unavailable: null,
+        });
       return put({ notice: uiText(enterNotice(item)) });
     }
     case 'check_again': {

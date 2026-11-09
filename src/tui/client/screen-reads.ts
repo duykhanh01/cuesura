@@ -295,6 +295,11 @@ export function planScreenReads(
     case 'actions':
       reads.push(...actionsReads(s, port, clock, now));
       break;
+    case 'dialog':
+      // A task dialog sends with what the menu under it reads, and a task that moved must show here.
+      if (s.dialog?.taskId != null && s.actions !== null)
+        reads.push(...actionsReads(s, port, clock, now));
+      break;
     default:
       break;
   }

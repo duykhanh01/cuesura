@@ -32,6 +32,8 @@ const ORDER: readonly Context[] = [
   'actions',
   'filter_choice',
   'filter_text',
+  'dialog_choice',
+  'dialog_text',
   'help',
 ];
 

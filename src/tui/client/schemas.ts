@@ -55,6 +55,10 @@ export const ProjectListSchema = z.looseObject({
 });
 export type ProjectList = z.infer<typeof ProjectListSchema>;
 
+/** Who paused a task or the queue, when and why (`task_pause`, `queue_pause`). */
+const PauseSchema = z.looseObject({ reason: safe, by: safe, at: z.number() });
+export type PauseInfo = z.infer<typeof PauseSchema>;
+
 const BoardRowSchema = z.looseObject({
   task_id: taskId,
   project: z.string(),
@@ -70,6 +74,8 @@ const BoardRowSchema = z.looseObject({
   priority: z.number().int(),
   pr_ref: safe.nullable(),
   needs_user: z.boolean(),
+  /** Absent from a daemon older than this TUI. */
+  paused: PauseSchema.nullable().optional(),
 });
 export type BoardRow = z.infer<typeof BoardRowSchema>;
 
@@ -86,6 +92,8 @@ const BoardDataSchema = z.looseObject({
   }),
   items: z.array(BoardRowSchema),
   next_cursor: z.string().nullable(),
+  /** Absent from a daemon older than this TUI. */
+  queue_paused: PauseSchema.nullable().optional(),
 });
 export type BoardData = z.infer<typeof BoardDataSchema>;
 
@@ -93,6 +101,8 @@ export const BoardSchema = z.union([
   z.looseObject({
     unchanged: z.literal(true),
     watermark: z.number().int().nonnegative(),
+    // The queue pause lives outside the store: it changes without the watermark moving.
+    queue_paused: PauseSchema.nullable().optional(),
   }),
   BoardDataSchema,
 ]);
@@ -309,6 +319,8 @@ export const TaskExplainSchema = z.looseObject({
     }),
   ),
   limits_frozen: z.boolean(),
+  /** Absent from a daemon older than this TUI. */
+  paused: PauseSchema.nullable().optional(),
   bindings_used: z.array(
     z.looseObject({
       step: safe,

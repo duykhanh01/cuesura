@@ -93,6 +93,7 @@ describe('task_board', () => {
       pr_ref: null,
       step_visits: {},
       needs_user: true,
+      paused: null,
     });
     expect(r.next_cursor).toBeNull();
   });

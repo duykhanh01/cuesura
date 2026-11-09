@@ -114,6 +114,7 @@ function row(s: TaskState, since: StatusSince, now?: number): Record<string, unk
     priority: s.task.priority,
     pr_ref: s.pr_ref,
     needs_user: needsUser(s, now, () => since(s)),
+    paused: s.pause ?? null,
   };
 }
 

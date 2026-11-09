@@ -7,6 +7,7 @@
 import type { Key, KeyName } from '../terminal/keys.ts';
 import { displayWidth } from '../terminal/width.ts';
 import { logColumns } from './logs.ts';
+import { QUEUE_TARGET } from '../client/mutations.ts';
 import { currentScreen, mutationLock, type TuiState } from './state.ts';
 
 export type Command =
@@ -41,7 +42,10 @@ export type Command =
   | 'collapse'
   | 'switch_field'
   | 'erase'
-  | 'check_again';
+  | 'check_again'
+  | 'send'
+  | 'toggle'
+  | 'queue';
 
 export type Context =
   | 'home'
@@ -51,6 +55,8 @@ export type Context =
   | 'actions'
   | 'filter_text'
   | 'filter_choice'
+  | 'dialog_text'
+  | 'dialog_choice'
   | 'help';
 
 type Press = { readonly name: KeyName } | { readonly char: string };
@@ -95,6 +101,28 @@ const END_KEYS = 'g G Home End';
 const onTask = (s: TuiState): boolean => s.selectedTaskId !== null && !s.finishedSelected;
 
 const readingGates = (s: TuiState): boolean => (s.logs?.gates ?? null) !== null;
+
+/** The reason field and the `--now` choice of a task's pause dialog take turns with Tab. */
+const twoFields = (s: TuiState): boolean => s.dialog?.action === 'pause';
+
+const DIALOG_SEND: Binding = {
+  keys: 'Ctrl-S',
+  hint: 'send',
+  help: 'Send; nothing goes out before this',
+  press: [[n('ctrl_s'), 'send']],
+};
+
+const DIALOG_FIELD: Binding = {
+  keys: 'Tab',
+  hint: 'next field',
+  helpKeys: 'Tab Shift-Tab',
+  help: 'Go between the reason and the choice to stop the running agent now',
+  press: [
+    [n('tab'), 'switch_field'],
+    [n('shift_tab'), 'switch_field'],
+  ],
+  when: twoFields,
+};
 
 const waiting = (s: TuiState): boolean =>
   s.connection.kind === 'waiting_retry' || s.connection.kind === 'stopped';
@@ -147,6 +175,33 @@ const KEYS: Readonly<Record<Context, readonly Binding[]>> = {
       hint: 'filter',
       help: 'Filter by project and status',
       press: [[c('f'), 'filters']],
+    },
+    {
+      keys: 'p',
+      hint: 'pause queue',
+      help: 'Pause the queue: tasks that have not started stay queued; asks for a reason first',
+      press: [[c('p'), 'queue']],
+      when: (s) => s.lastUpdatedAt !== null && s.queuePaused === null,
+    },
+    {
+      keys: 'p',
+      hint: 'resume queue',
+      help: 'Resume the paused queue; asks before sending',
+      press: [[c('p'), 'queue']],
+      keep: (s) => s.queuePaused !== null,
+      when: (s) => s.lastUpdatedAt !== null && s.queuePaused !== null,
+    },
+    {
+      keys: 'C',
+      hint: 'check queue again',
+      help: 'Ask again whether an earlier change to the queue went through, when it could not be confirmed',
+      press: [
+        [c('c'), 'check_again'],
+        [c('C'), 'check_again'],
+      ],
+      // Until it is settled no other queue change can go out, so the way out must stay in sight.
+      keep: () => true,
+      when: (s) => mutationLock(s, QUEUE_TARGET)?.state === 'unresolved',
     },
   ],
   detail: [
@@ -393,6 +448,18 @@ const KEYS: Readonly<Record<Context, readonly Binding[]>> = {
       press: [[n('backspace'), 'erase']],
     },
   ],
+  dialog_text: [DIALOG_SEND, DIALOG_FIELD],
+  dialog_choice: [
+    DIALOG_SEND,
+    {
+      keys: 'Space',
+      hint: 'stop now on/off',
+      help: 'Also stop the agent turn running now; it starts over in a new session on resume',
+      press: [[c(' '), 'toggle']],
+      when: (s) => s.dialog?.focus === 'now',
+    },
+    DIALOG_FIELD,
+  ],
   help: [
     {
       keys: '↑↓',
@@ -412,7 +479,7 @@ const KEYS: Readonly<Record<Context, readonly Binding[]>> = {
 };
 
 /** In a text field a printable key is text, so only keys that are not text are global there. */
-const typing = (ctx: Context): boolean => ctx === 'filter_text';
+const typing = (ctx: Context): boolean => ctx === 'filter_text' || ctx === 'dialog_text';
 
 const GLOBAL_LEAD: readonly Binding[] = [
   {
@@ -574,6 +641,8 @@ export function keyContext(s: TuiState): Context {
       return 'actions';
     case 'filters':
       return s.filterDraft?.field === 'project' ? 'filter_text' : 'filter_choice';
+    case 'dialog':
+      return s.dialog?.focus === 'reason' ? 'dialog_text' : 'dialog_choice';
     case 'help':
       return 'help';
   }
@@ -631,5 +700,7 @@ export const CONTEXT_TITLES: Readonly<Record<Context, string>> = {
   actions: 'Actions',
   filter_choice: 'Filter',
   filter_text: 'Filter, typing a project name',
+  dialog_text: 'Dialog, typing a reason',
+  dialog_choice: 'Dialog',
   help: 'Help',
 };

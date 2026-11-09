@@ -11,9 +11,12 @@ import { PAGE_LIMIT, type TuiState } from '../model/state.ts';
 import { joinSafe, sanitize, uiText, type SafeText } from '../terminal/safe-text.ts';
 import type { Frame, Style } from '../terminal/screen.ts';
 import { displayWidth, truncate } from '../terminal/width.ts';
+import { QUEUE_TARGET } from '../client/mutations.ts';
+import { mutationLine } from './actions.ts';
+import { pausedBy } from './dialog.ts';
 import { filtered, filterLine } from './filters.ts';
 import { BOLD, DIM, fg, putSegs, ruleHeading, seg, segsWidth, ui, type Seg } from './ink.ts';
-import type { Body } from './layout.ts';
+import { clockTime, type Body } from './layout.ts';
 import { dots, DOTS_WIDTH, stepper, stepperRow } from './stepper.ts';
 import { BAD, FOCUS, NOTICE, WARN } from './theme.ts';
 
@@ -91,6 +94,23 @@ function pageLine(s: TuiState): SafeText | null {
   return uiText(
     `Page ${s.cursors.length + 1}: tasks ${first + (shown === 0 ? 0 : 1)}–${first + shown} of ${totalInView(s)}${more}`,
   );
+}
+
+/** The queue pause, which holds every task not started yet, and the latest write on the queue. */
+function queueLines(s: TuiState): Seg[][] {
+  const out: Seg[][] = [];
+  const p = s.queuePaused;
+  if (p !== null)
+    out.push([
+      ui('‖ Queue paused: ', WARN),
+      seg(p.reason),
+      seg(joinSafe([uiText(' · by '), p.by, uiText(` at ${clockTime(p.at)} · p to resume`)]), DIM),
+    ]);
+  const m = s.mutations.get(QUEUE_TARGET);
+  const line = m === undefined || m.state === 'accepted' ? null : mutationLine(m);
+  if (line !== null && m !== undefined)
+    out.push([ui(`Queue (${m.command.kind}): `, DIM), ui(line.text, line.style)]);
+  return out;
 }
 
 type TaskRow = Exclude<HomeRow, { kind: 'finished_toggle' }>;
@@ -227,6 +247,14 @@ function extraSegs(task: TaskRow['task']): Seg[] {
  */
 function doingSegs(row: TaskRow): Seg[] {
   const task = row.task;
+  // A pause holds a task whatever else it waits on; a pause alone already reads `Paused`.
+  const paused = (task.paused ?? null) !== null && task.wait_code !== 'paused';
+  const lead = paused ? [ui('Paused · ', NOTICE)] : [];
+  return [...lead, ...ownDoingSegs(row)];
+}
+
+function ownDoingSegs(row: TaskRow): Seg[] {
+  const task = row.task;
   const action = actionOf(row);
   if (action !== null) return [seg(joinSafe([uiText('→ '), action]), NOTICE)];
   const tail = extraSegs(task);
@@ -328,7 +356,15 @@ function selectionFooter(s: TuiState, row: HomeRow | undefined, space: number): 
   const stages = selectionStages(s, row);
   const title = [ui(' Task   ', DIM), ui(' '), seg(row.task.title, BOLD)];
   const id = [ui(' ID     ', DIM), ui(' '), seg(sanitize(row.task.task_id), DIM)];
-  return [[ui('─'.repeat(s.size.cols), DIM)], title, id, ...(stages === null ? [] : [stages])];
+  const p = row.task.paused ?? null;
+  const paused = p === null ? [] : [[ui(' Paused ', DIM), ui(' '), seg(pausedBy(p), NOTICE)]];
+  return [
+    [ui('─'.repeat(s.size.cols), DIM)],
+    title,
+    id,
+    ...paused,
+    ...(stages === null ? [] : [stages]),
+  ];
 }
 
 function drawList(
@@ -383,6 +419,7 @@ export const homeBody =
     const attention = rows.filter((r) => r.kind === 'attention').length;
     const page = pageLine(s);
     const head: (readonly Seg[] | null)[] = [
+      ...queueLines(s),
       summarySegs(s, attention),
       // With no filter on, the status bar already says `project: all` and the key bar offers `f`.
       projectLine(s),

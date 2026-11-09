@@ -9,6 +9,7 @@ import {
   type DaemonOptions,
   type RunningDaemon,
 } from '../../src/daemon/main.ts';
+import { queueCommands } from '../../src/daemon/queue-pause.ts';
 import { taskControl, type TaskControlDeps } from '../../src/daemon/task-control.ts';
 import type { Store } from '../../src/store/index.ts';
 import { asEpochMs } from '../../src/shared/brand.ts';
@@ -81,24 +82,30 @@ export class SeededDaemon {
       newId: this.newId,
       control: (store, runtime) => {
         const { schedule, ...more } = this.#extra(store, runtime);
-        return {
-          ...taskControl({
+        const control = taskControl({
+          store,
+          now: () => this.clock.now(),
+          dataDir: this.dataDir,
+          confirm: {
             store,
+            ports: { git: fakeGit(), github: fakeGitHub(), host: fakeHost() },
+            configInputs: () =>
+              Promise.resolve({
+                user: userConfig(),
+                packs: PACKS,
+                manifests: MANIFESTS,
+              }),
             now: () => this.clock.now(),
-            dataDir: this.dataDir,
-            confirm: {
-              store,
-              ports: { git: fakeGit(), github: fakeGitHub(), host: fakeHost() },
-              configInputs: () =>
-                Promise.resolve({
-                  user: userConfig(),
-                  packs: PACKS,
-                  manifests: MANIFESTS,
-                }),
-              now: () => this.clock.now(),
-            },
-            ...more,
-          }),
+          },
+          ...more,
+        });
+        return {
+          ...control,
+          // As production wires it: `cusr queue pause` works against a seeded daemon too.
+          commands: {
+            ...control.commands,
+            ...queueCommands({ dataDir: this.dataDir, now: () => this.clock.now() }),
+          },
           ...(schedule === undefined ? {} : { schedule }),
         };
       },
